@@ -1,15 +1,19 @@
-"""itandi BB ログイン・セッション管理"""
+"""itandi BB ログイン・セッション管理
+
+itandi BB は OAuth2 Authorization Code フローを使用する。
+1. itandibb.com にアクセス → 未認証なら itandi-accounts.com/login にリダイレクト
+2. ログインフォームから authenticity_token を取得
+3. email + password + authenticity_token で POST ログイン
+4. リダイレクトを追跡 → itandibb.com/itandi_accounts_callback でセッション確立
+5. CSRF-TOKEN Cookie を取得 → API ヘッダーに使用
+"""
 
 import urllib.parse
 
 import requests
 from bs4 import BeautifulSoup
 
-from .config import (
-    ITANDI_BASE_URL,
-    ITANDI_LOGIN_PAGE_URL,
-    ITANDI_LOGIN_POST_URL,
-)
+from .config import ITANDI_BASE_URL
 
 
 class ItandiAuthError(Exception):
@@ -48,34 +52,58 @@ class ItandiSession:
         Raises:
             ItandiAuthError: ログイン失敗時
         """
-        # Step 1: ログインページを GET → フォーム CSRF トークン取得
+        # Step 1: itandibb.com にアクセス → ログインページにリダイレクト
+        # （OAuth2 の client_id, redirect_uri, state 等が自動的に付与される）
+        print("[DEBUG] Step 1: itandibb.com にアクセス...")
         try:
-            resp = self.session.get(ITANDI_LOGIN_PAGE_URL, timeout=30)
+            resp = self.session.get(
+                ITANDI_BASE_URL,
+                timeout=30,
+                allow_redirects=True,
+            )
             resp.raise_for_status()
         except requests.RequestException as exc:
             raise ItandiAuthError(
-                f"ログインページの取得に失敗: {exc}"
+                f"itandibb.com へのアクセスに失敗: {exc}"
             ) from exc
 
+        print(f"[DEBUG] リダイレクト先: {resp.url}")
+
+        # 既にログイン済みの場合
+        if "itandibb.com" in resp.url and "login" not in resp.url:
+            print("[DEBUG] 既にログイン済み")
+            self._get_csrf_from_cookies()
+            if self.csrf_token:
+                print("[INFO] itandi BB ログイン成功（既存セッション）")
+                return True
+
+        # Step 2: ログインページから authenticity_token を取得
+        print("[DEBUG] Step 2: ログインページから CSRF トークンを取得...")
+        login_page_url = resp.url  # リダイレクト後の完全な URL
         form_csrf = self._extract_form_csrf(resp.text)
+
         if not form_csrf:
             raise ItandiAuthError(
-                "ログインページから CSRF トークンを取得できませんでした"
+                "ログインページから authenticity_token を取得できませんでした"
             )
 
-        # Step 2: ログイン POST
+        print(f"[DEBUG] authenticity_token 取得成功 (長さ: {len(form_csrf)})")
+
+        # Step 3: ログイン POST（リダイレクト先の URL に POST する）
+        # フォームの action は /login なので、同じホストの /login に POST
+        login_post_url = self._get_login_post_url(login_page_url)
+        print(f"[DEBUG] Step 3: ログイン POST → {login_post_url}")
+
         login_data = {
+            "authenticity_token": form_csrf,
             "email": self.email,
             "password": self.password,
+            "commit": "ログイン",
         }
-
-        # CSRF トークンのフィールド名を試行（Rails / Laravel 等）
-        for field_name in ("_token", "authenticity_token", "csrf_token"):
-            login_data[field_name] = form_csrf
 
         try:
             resp = self.session.post(
-                ITANDI_LOGIN_POST_URL,
+                login_post_url,
                 data=login_data,
                 allow_redirects=True,
                 timeout=30,
@@ -83,35 +111,34 @@ class ItandiSession:
         except requests.RequestException as exc:
             raise ItandiAuthError(f"ログイン POST に失敗: {exc}") from exc
 
-        # ログイン失敗チェック（ログインページに戻された場合）
-        if "login" in resp.url and resp.url != ITANDI_BASE_URL:
-            # まだログインページにいる可能性
-            if "パスワード" in resp.text and "ログイン" in resp.text:
-                raise ItandiAuthError(
-                    "ログインに失敗しました（メールアドレスまたはパスワードが正しくありません）"
-                )
+        print(f"[DEBUG] ログイン POST 後の URL: {resp.url}")
+        print(f"[DEBUG] ステータスコード: {resp.status_code}")
 
-        # Step 3: itandibb.com にアクセスして CSRF-TOKEN Cookie を取得
-        # （リダイレクトで自動的に設定されない場合のフォールバック）
+        # ログイン失敗チェック（ログインページに戻された場合）
+        if "itandi-accounts.com" in resp.url and "login" in resp.url:
+            raise ItandiAuthError(
+                "ログインに失敗しました（メールアドレスまたはパスワードが正しくありません）"
+            )
+
+        # Step 4: CSRF-TOKEN Cookie を取得
+        print("[DEBUG] Step 4: CSRF-TOKEN Cookie を取得...")
         if not self._get_csrf_from_cookies():
+            # itandibb.com のページに明示的にアクセスしてみる
+            print("[DEBUG] Cookie にCSRF-TOKENがないため、itandibb.com に再アクセス...")
             try:
-                self.session.get(ITANDI_BASE_URL, timeout=30)
+                resp = self.session.get(
+                    f"{ITANDI_BASE_URL}/rent_rooms/list",
+                    timeout=30,
+                    allow_redirects=True,
+                )
+                self._get_csrf_from_cookies()
             except requests.RequestException:
                 pass
-            if not self._get_csrf_from_cookies():
-                # 最終手段: /top にアクセス
-                try:
-                    resp = self.session.get(
-                        f"{ITANDI_BASE_URL}/top", timeout=30
-                    )
-                    self._get_csrf_from_cookies()
-                    # HTML 内の meta タグからも探す
-                    if not self.csrf_token:
-                        self.csrf_token = self._extract_meta_csrf(resp.text)
-                except requests.RequestException:
-                    pass
 
         if not self.csrf_token:
+            # デバッグ: 全Cookieを表示
+            cookie_names = [c.name for c in self.session.cookies]
+            print(f"[DEBUG] 現在のCookie一覧: {cookie_names}")
             raise ItandiAuthError(
                 "ログイン後に CSRF トークンを取得できませんでした"
             )
@@ -131,29 +158,32 @@ class ItandiSession:
 
     # ─── private ───────────────────────────────────────
 
+    def _get_login_post_url(self, login_page_url: str) -> str:
+        """ログインページの URL からフォームの POST 先 URL を構築する。
+
+        ログインページ URL のホスト部分を保持し、パスを /login にする。
+        クエリパラメータも保持する（OAuth2 パラメータ）。
+        """
+        parsed = urllib.parse.urlparse(login_page_url)
+        # action="/login" なので、同じホスト + /login + 同じクエリ
+        return urllib.parse.urlunparse(
+            (parsed.scheme, parsed.netloc, "/login", "", parsed.query, "")
+        )
+
     def _extract_form_csrf(self, html: str) -> str | None:
         """HTML からフォーム用 CSRF トークンを抽出する。"""
         soup = BeautifulSoup(html, "html.parser")
 
-        # <meta name="csrf-token" content="...">
+        # <input type="hidden" name="authenticity_token" value="...">
+        inp = soup.find("input", {"name": "authenticity_token"})
+        if inp and inp.get("value"):
+            return inp["value"]
+
+        # フォールバック: <meta name="csrf-token" content="...">
         meta = soup.find("meta", {"name": "csrf-token"})
         if meta and meta.get("content"):
             return meta["content"]
 
-        # <input type="hidden" name="_token" value="...">
-        for name in ("_token", "authenticity_token", "csrf_token"):
-            inp = soup.find("input", {"name": name})
-            if inp and inp.get("value"):
-                return inp["value"]
-
-        return None
-
-    def _extract_meta_csrf(self, html: str) -> str | None:
-        """HTML の meta タグから CSRF トークンを抽出する。"""
-        soup = BeautifulSoup(html, "html.parser")
-        meta = soup.find("meta", {"name": "csrf-token"})
-        if meta and meta.get("content"):
-            return meta["content"]
         return None
 
     def _get_csrf_from_cookies(self) -> bool:
@@ -161,5 +191,9 @@ class ItandiSession:
         for cookie in self.session.cookies:
             if cookie.name == "CSRF-TOKEN":
                 self.csrf_token = urllib.parse.unquote(cookie.value)
+                print(
+                    f"[DEBUG] CSRF-TOKEN Cookie 取得成功 "
+                    f"(長さ: {len(self.csrf_token)})"
+                )
                 return True
         return False
