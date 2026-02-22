@@ -1,0 +1,33 @@
+name: itandi BB Property Search
+
+on:
+  # cron-job.org からの HTTP トリガー
+  repository_dispatch:
+    types: [trigger-search]
+  # GitHub UI からの手動トリガー
+  workflow_dispatch:
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run property search
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          ITANDI_EMAIL: ${{ secrets.ITANDI_EMAIL }}
+          ITANDI_PASSWORD: ${{ secrets.ITANDI_PASSWORD }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python -m itandi_search.run
