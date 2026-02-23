@@ -6,6 +6,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 from .config import (
+    BUILDING_TYPE_MAP,
     CRITERIA_RANGE,
     EQUIPMENT_IDS,
     GOOGLE_SERVICE_ACCOUNT_JSON,
@@ -13,6 +14,7 @@ from .config import (
     SEEN_RANGE,
     SEEN_SHEET,
     SPREADSHEET_ID,
+    STRUCTURE_TYPE_MAP,
     UPDATE_DAYS_MAP,
 )
 from .models import CustomerCriteria
@@ -81,8 +83,20 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
         area_min = _parse_float(_get(row, 8, ""))
         area_max = _parse_float(_get(row, 9, ""))
         building_age_str = _get(row, 10, "").strip()
-        building_types = _split_csv(_get(row, 11, ""))
-        structure_types = _split_csv(_get(row, 12, ""))
+        building_types_raw = _split_csv(_get(row, 11, ""))
+        structure_types_raw = _split_csv(_get(row, 12, ""))
+
+        # 日本語 → API 値に変換（マッピングにない値は除外）
+        building_types = [
+            BUILDING_TYPE_MAP[bt]
+            for bt in building_types_raw
+            if bt in BUILDING_TYPE_MAP
+        ]
+        structure_types = [
+            STRUCTURE_TYPE_MAP[st]
+            for st in structure_types_raw
+            if st in STRUCTURE_TYPE_MAP
+        ]
         min_floor_str = _get(row, 13, "").strip()
         equipment_names = _split_csv(_get(row, 14, ""))
         ad_reprint_str = _get(row, 15, "").strip()
