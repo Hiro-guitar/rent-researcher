@@ -4,7 +4,7 @@ itandi BB は OAuth2 Authorization Code フローを使用する。
 itandibb.com は SPA のため、実ブラウザ (Playwright) でログインし、
 Cookie + CSRF トークンを取得する。
 
-1. Playwright で itandibb.com にアクセス → SPA がログインページへリダイレクト
+1. Playwright で OAuth2 ログインページにアクセス
 2. itandi-accounts.com のログインフォームにメール / パスワードを入力
 3. ログインボタンをクリック → OAuth2 コールバックでセッション確立
 4. CSRF-TOKEN Cookie を取得 → API ヘッダーに使用
@@ -67,14 +67,32 @@ class ItandiSession:
         print("[INFO] Playwright でブラウザログインを開始...")
 
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
+            # Headless 検出を回避するため、リアルブラウザに近い設定を使用
+            browser = pw.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                ],
+            )
             context = browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/131.0.0.0 Safari/537.36"
                 ),
+                viewport={"width": 1920, "height": 1080},
+                locale="ja-JP",
+                timezone_id="Asia/Tokyo",
             )
+
+            # navigator.webdriver を隠す
+            context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+            """)
+
             page = context.new_page()
 
             try:
@@ -146,65 +164,66 @@ class ItandiSession:
                 "ログインフォームの入力フィールドが見つかりませんでした"
             ) from exc
 
-        # Step 3: ログインボタンをクリック
+        # Step 3: ログインボタンをクリック → ナビゲーション完了を待つ
         print("[DEBUG] Step 3: ログインボタンをクリック...")
         try:
-            submit_btn = page.locator('input[name="commit"]')
-            submit_btn.click()
-
-            # itandibb.com へのリダイレクトを待つ
-            page.wait_for_url(
-                "**/itandibb.com/**",
-                timeout=30000,
-            )
+            # submit ボタンをクリックしてナビゲーションを待つ
+            with page.expect_navigation(
+                wait_until="networkidle", timeout=30000
+            ):
+                page.locator('input[name="commit"]').click()
         except PwTimeout:
-            current_url = page.url
-            print(f"[DEBUG] ログイン後のURL: {current_url}")
-            print(f"[DEBUG] ページタイトル: {page.title()}")
+            pass  # タイムアウトしても続行して状態を確認
 
-            # まだ itandi-accounts.com にいる → ログイン失敗
-            if "itandi-accounts.com" in current_url:
-                # エラーメッセージを確認（複数のセレクタを試す）
-                error_text = ""
-                for selector in [
-                    ".alert",
-                    ".error",
-                    ".flash-message",
-                    ".notice",
-                    ".error-message",
-                    "#error_explanation",
-                    "[role='alert']",
-                ]:
-                    error_el = page.locator(selector)
-                    if error_el.count() > 0:
-                        error_text = error_el.first.text_content() or ""
-                        if error_text.strip():
-                            break
+        # ログイン後の URL を確認
+        current_url = page.url
+        print(f"[DEBUG] ログイン後のURL: {current_url}")
+        print(f"[DEBUG] ページタイトル: {page.title()}")
 
-                # ページ内テキストも確認（デバッグ用）
-                body_text = page.locator("body").text_content() or ""
-                print(f"[DEBUG] ページ本文先頭500文字: {body_text[:500]}")
+        # 成功: itandibb.com にリダイレクトされた
+        if _is_itandibb_host(current_url):
+            print("[DEBUG] itandibb.com に遷移成功")
+            return
 
-                raise ItandiAuthError(
-                    f"ログインに失敗しました: {error_text.strip() or 'メールアドレスまたはパスワードが正しくありません'}"
-                )
+        # エラーページの場合 (400/422 等)
+        if page.title() and "エラー" in page.title():
+            body_text = page.locator("body").text_content() or ""
+            print(f"[DEBUG] エラーページ本文: {body_text[:300]}")
+            raise ItandiAuthError(
+                f"ログイン中にエラーが発生しました "
+                f"(URL: {current_url}, タイトル: {page.title()})"
+            )
 
-            # エラーページの場合
-            if page.title() and "エラー" in page.title():
-                raise ItandiAuthError(
-                    f"ログイン中にエラーが発生しました (URL: {current_url})"
-                )
+        # まだ itandi-accounts.com のログインページにいる → 認証失敗
+        if "itandi-accounts.com" in current_url and "login" in current_url:
+            # エラーメッセージを確認
+            error_text = ""
+            for selector in [
+                ".alert",
+                ".error",
+                ".flash-message",
+                ".notice",
+                ".error-message",
+                "#error_explanation",
+                "[role='alert']",
+            ]:
+                error_el = page.locator(selector)
+                if error_el.count() > 0:
+                    error_text = error_el.first.text_content() or ""
+                    if error_text.strip():
+                        break
 
-            # itandibb.com に遷移した可能性もある
-            if _is_itandibb_host(current_url):
-                print("[DEBUG] itandibb.com に遷移成功")
-                return
+            body_text = page.locator("body").text_content() or ""
+            print(f"[DEBUG] ページ本文先頭500文字: {body_text[:500]}")
 
             raise ItandiAuthError(
-                f"ログイン後に予期しないページ: {current_url}"
+                f"ログインに失敗しました: "
+                f"{error_text.strip() or 'メールアドレスまたはパスワードが正しくありません'}"
             )
 
-        print(f"[DEBUG] ログイン後のURL: {page.url}")
+        raise ItandiAuthError(
+            f"ログイン後に予期しないページ: {current_url}"
+        )
 
     def _extract_session(self, context) -> None:  # noqa: ANN001
         """Playwright BrowserContext から Cookie を取得し requests.Session にコピー。"""
