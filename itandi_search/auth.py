@@ -1,11 +1,12 @@
-"""itandi BB ログイン・セッション管理 (Playwright 版)
+"""itandi BB ログイン・セッション管理 (Selenium 版)
 
 itandi BB は OAuth2 Authorization Code フローを使用する。
-itandibb.com は SPA のため、実ブラウザ (Playwright) でログインし、
+itandibb.com は SPA のため、実ブラウザ (Selenium) でログインし、
 Cookie + CSRF トークンを取得する。
 
-1. Playwright で OAuth2 ログインページにアクセス
-2. itandi-accounts.com のログインフォームにメール / パスワードを入力
+1. Selenium で itandibb.com の物件ページにアクセス
+   → 未ログインなら itandi-accounts.com にリダイレクト
+2. ログインフォームにメール / パスワードを入力
 3. ログインボタンをクリック → OAuth2 コールバックでセッション確立
 4. CSRF-TOKEN Cookie を取得 → API ヘッダーに使用
 5. Cookie を requests.Session にコピーして API 呼び出しに使用
@@ -14,7 +15,12 @@ Cookie + CSRF トークンを取得する。
 import urllib.parse
 
 import requests
-from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 from .config import ITANDI_BASE_URL
 
@@ -28,6 +34,17 @@ def _is_itandibb_host(url: str) -> bool:
     return "itandibb.com" in urllib.parse.urlparse(url).netloc
 
 
+def _create_driver() -> webdriver.Chrome:
+    """Headless Chrome ドライバーを生成する。"""
+    options = Options()
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--window-size=1280,1024")
+    return webdriver.Chrome(options=options)
+
+
 class ItandiAuthError(Exception):
     """itandi BB 認証エラー"""
 
@@ -35,7 +52,7 @@ class ItandiAuthError(Exception):
 class ItandiSession:
     """itandi BB のセッションを管理する。
 
-    Playwright で実ブラウザログインし、取得した Cookie を
+    Selenium で実ブラウザログインし、取得した Cookie を
     requests.Session にコピーして API 呼び出しに使用する。
     """
 
@@ -57,49 +74,21 @@ class ItandiSession:
     # ─── public ────────────────────────────────────────
 
     def login(self) -> bool:
-        """Playwright でブラウザログインし、API 用セッションを構築する。
+        """Selenium でブラウザログインし、API 用セッションを構築する。
 
         Returns:
             True: ログイン成功
         Raises:
             ItandiAuthError: ログイン失敗時
         """
-        print("[INFO] Playwright でブラウザログインを開始...")
+        print("[INFO] Selenium でブラウザログインを開始...")
 
-        with sync_playwright() as pw:
-            # Headless 検出を回避するため、リアルブラウザに近い設定を使用
-            browser = pw.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                ],
-            )
-            context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1920, "height": 1080},
-                locale="ja-JP",
-                timezone_id="Asia/Tokyo",
-            )
-
-            # navigator.webdriver を隠す
-            context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined,
-                });
-            """)
-
-            page = context.new_page()
-
-            try:
-                self._do_login(page)
-                self._extract_session(context)
-            finally:
-                browser.close()
+        driver = _create_driver()
+        try:
+            self._do_login(driver)
+            self._extract_session(driver)
+        finally:
+            driver.quit()
 
         print("[INFO] itandi BB ログイン成功")
         return True
@@ -116,118 +105,126 @@ class ItandiSession:
 
     # ─── private ───────────────────────────────────────
 
-    def _do_login(self, page) -> None:  # noqa: ANN001
-        """Playwright page でログインフローを実行する。"""
+    def _do_login(self, driver: webdriver.Chrome) -> None:
+        """Selenium で itandi BB にログインする。
 
-        # Step 1: OAuth2 ログインページに直接アクセス
-        oauth_login_url = (
-            "https://itandi-accounts.com/login"
-            "?client_id=itandi_bb"
-            "&redirect_uri=https%3A%2F%2Fitandibb.com%2Fitandi_accounts_callback"
-            "&response_type=code"
-        )
-        print("[DEBUG] Step 1: OAuth2 ログインページにアクセス...")
-        try:
-            page.goto(oauth_login_url, wait_until="networkidle", timeout=30000)
-        except PwTimeout:
-            # networkidle がタイムアウトしても、ページは読み込まれている可能性がある
-            pass
+        参考コードと同じパターン: itandibb.com の物件ページに
+        直接アクセス → 未ログインなら itandi-accounts.com にリダイレクト
+        → ログインフォーム入力 → ログインボタンクリック
+        """
 
-        current_url = page.url
+        # Step 1: itandibb.com にアクセスしてログインページへリダイレクトさせる
+        # ※ 参考コードのパターン: 物件URLに直接アクセスする
+        entry_url = f"{ITANDI_BASE_URL}/rent_rooms/list"
+        print(f"[DEBUG] Step 1: {entry_url} にアクセス...")
+        driver.get(entry_url)
+
+        current_url = driver.current_url
         print(f"[DEBUG] 現在のURL: {current_url}")
 
-        # 既にログイン済みで itandibb.com にリダイレクトされた場合
-        # ※ URLのホスト部分だけチェック（redirect_uri に惑わされない）
+        # 既にログイン済みの場合
         if _is_itandibb_host(current_url):
             print("[DEBUG] 既にログイン済み")
             return
 
-        # ログインページにいることを確認
+        # itandi-accounts.com のログインページにリダイレクトされたことを確認
         if "itandi-accounts.com" not in current_url:
             raise ItandiAuthError(
                 f"予期しないページに遷移: {current_url}"
             )
 
         # Step 2: ログインフォームに入力
+        # 参考コードと同じ: By.ID で email, password を取得、send_keys で入力
         print("[DEBUG] Step 2: ログインフォームに入力...")
         try:
-            # メールアドレス入力
-            email_input = page.locator('input[name="email"]')
-            email_input.wait_for(state="visible", timeout=10000)
-            email_input.fill(self.email)
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.ID, "email"))
+            )
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.ID, "password"))
+            )
 
-            # パスワード入力
-            password_input = page.locator('input[name="password"]')
-            password_input.fill(self.password)
-        except PwTimeout as exc:
+            email_input = driver.find_element(By.ID, "email")
+            password_input = driver.find_element(By.ID, "password")
+
+            email_input.clear()
+            email_input.send_keys(self.email)
+
+            password_input.clear()
+            password_input.send_keys(self.password)
+        except TimeoutException as exc:
             raise ItandiAuthError(
                 "ログインフォームの入力フィールドが見つかりませんでした"
             ) from exc
 
-        # Step 3: ログインボタンをクリック → ナビゲーション完了を待つ
+        # Step 3: ログインボタンをクリック
+        # 参考コードと同じ: CSS_SELECTOR で submit ボタンを取得
         print("[DEBUG] Step 3: ログインボタンをクリック...")
-        try:
-            # submit ボタンをクリックしてナビゲーションを待つ
-            with page.expect_navigation(
-                wait_until="networkidle", timeout=30000
-            ):
-                page.locator('input[name="commit"]').click()
-        except PwTimeout:
-            pass  # タイムアウトしても続行して状態を確認
-
-        # ログイン後の URL を確認
-        current_url = page.url
-        print(f"[DEBUG] ログイン後のURL: {current_url}")
-        print(f"[DEBUG] ページタイトル: {page.title()}")
-
-        # 成功: itandibb.com にリダイレクトされた
-        if _is_itandibb_host(current_url):
-            print("[DEBUG] itandibb.com に遷移成功")
-            return
-
-        # エラーページの場合 (400/422 等)
-        if page.title() and "エラー" in page.title():
-            body_text = page.locator("body").text_content() or ""
-            print(f"[DEBUG] エラーページ本文: {body_text[:300]}")
-            raise ItandiAuthError(
-                f"ログイン中にエラーが発生しました "
-                f"(URL: {current_url}, タイトル: {page.title()})"
-            )
-
-        # まだ itandi-accounts.com のログインページにいる → 認証失敗
-        if "itandi-accounts.com" in current_url and "login" in current_url:
-            # エラーメッセージを確認
-            error_text = ""
-            for selector in [
-                ".alert",
-                ".error",
-                ".flash-message",
-                ".notice",
-                ".error-message",
-                "#error_explanation",
-                "[role='alert']",
-            ]:
-                error_el = page.locator(selector)
-                if error_el.count() > 0:
-                    error_text = error_el.first.text_content() or ""
-                    if error_text.strip():
-                        break
-
-            body_text = page.locator("body").text_content() or ""
-            print(f"[DEBUG] ページ本文先頭500文字: {body_text[:500]}")
-
-            raise ItandiAuthError(
-                f"ログインに失敗しました: "
-                f"{error_text.strip() or 'メールアドレスまたはパスワードが正しくありません'}"
-            )
-
-        raise ItandiAuthError(
-            f"ログイン後に予期しないページ: {current_url}"
+        login_btn = driver.find_element(
+            By.CSS_SELECTOR, 'input.filled-button[type="submit"]'
         )
+        login_btn.click()
 
-    def _extract_session(self, context) -> None:  # noqa: ANN001
-        """Playwright BrowserContext から Cookie を取得し requests.Session にコピー。"""
-        cookies = context.cookies()
+        # Step 4: ログイン後のリダイレクトを待つ
+        # 参考コードと同じ: 「ログアウト」or「物件」テキストの出現を待つ
+        print("[DEBUG] Step 4: ログイン後のリダイレクト待ち...")
+        try:
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located(
+                    (
+                        By.XPATH,
+                        "//*[contains(text(), 'ログアウト') or contains(text(), '物件')]",
+                    )
+                )
+            )
+        except TimeoutException:
+            # タイムアウトした場合、現在の状態を確認
+            current_url = driver.current_url
+            print(f"[DEBUG] タイムアウト後のURL: {current_url}")
+            print(f"[DEBUG] ページタイトル: {driver.title}")
+
+            # エラーページの場合
+            if "エラー" in driver.title:
+                body_text = driver.find_element(By.TAG_NAME, "body").text
+                print(f"[DEBUG] エラーページ本文: {body_text[:300]}")
+                raise ItandiAuthError(
+                    f"ログイン中にエラーが発生しました "
+                    f"(URL: {current_url}, タイトル: {driver.title})"
+                )
+
+            # まだログインページにいる場合
+            if (
+                "itandi-accounts.com" in current_url
+                and "login" in current_url
+            ):
+                body_text = driver.find_element(By.TAG_NAME, "body").text
+                print(f"[DEBUG] ページ本文先頭500文字: {body_text[:500]}")
+                raise ItandiAuthError(
+                    f"ログインに失敗しました "
+                    f"(URL: {current_url})"
+                )
+
+            raise ItandiAuthError(
+                f"ログイン後に予期しないページ: {current_url}"
+            )
+
+        current_url = driver.current_url
+        print(f"[DEBUG] ログイン成功後のURL: {current_url}")
+        print(f"[DEBUG] ページタイトル: {driver.title}")
+
+    def _extract_session(self, driver: webdriver.Chrome) -> None:
+        """Selenium ドライバーから Cookie を取得し requests.Session にコピー。"""
+
+        # itandibb.com のページにいることを確認
+        current_url = driver.current_url
+        if not _is_itandibb_host(current_url):
+            # itandibb.com にアクセスして Cookie を取得
+            print("[DEBUG] itandibb.com に遷移してCookie取得...")
+            driver.get(f"{ITANDI_BASE_URL}/rent_rooms/list")
+            import time
+            time.sleep(3)
+
+        cookies = driver.get_cookies()
         print(f"[DEBUG] 取得した Cookie 数: {len(cookies)}")
 
         cookie_names = [c["name"] for c in cookies]
@@ -253,8 +250,8 @@ class ItandiSession:
                 )
 
         if not csrf_found:
-            # CSRF-TOKEN が Cookie にない場合、itandibb.com にアクセスして再取得
-            print("[DEBUG] CSRF-TOKEN Cookie なし、itandibb.com にアクセスして再取得...")
+            # CSRF-TOKEN が Cookie にない場合、requests で再取得を試みる
+            print("[DEBUG] CSRF-TOKEN Cookie なし、requests で再取得...")
             try:
                 resp = self.session.get(
                     f"{ITANDI_BASE_URL}/rent_rooms/list",
