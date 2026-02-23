@@ -160,16 +160,33 @@ class ItandiSession:
         except PwTimeout:
             current_url = page.url
             print(f"[DEBUG] ログイン後のURL: {current_url}")
+            print(f"[DEBUG] ページタイトル: {page.title()}")
 
             # まだ itandi-accounts.com にいる → ログイン失敗
             if "itandi-accounts.com" in current_url:
-                # エラーメッセージを確認
-                error_el = page.locator(".alert, .error, .flash-message")
+                # エラーメッセージを確認（複数のセレクタを試す）
                 error_text = ""
-                if error_el.count() > 0:
-                    error_text = error_el.first.text_content() or ""
+                for selector in [
+                    ".alert",
+                    ".error",
+                    ".flash-message",
+                    ".notice",
+                    ".error-message",
+                    "#error_explanation",
+                    "[role='alert']",
+                ]:
+                    error_el = page.locator(selector)
+                    if error_el.count() > 0:
+                        error_text = error_el.first.text_content() or ""
+                        if error_text.strip():
+                            break
+
+                # ページ内テキストも確認（デバッグ用）
+                body_text = page.locator("body").text_content() or ""
+                print(f"[DEBUG] ページ本文先頭500文字: {body_text[:500]}")
+
                 raise ItandiAuthError(
-                    f"ログインに失敗しました: {error_text or 'メールアドレスまたはパスワードが正しくありません'}"
+                    f"ログインに失敗しました: {error_text.strip() or 'メールアドレスまたはパスワードが正しくありません'}"
                 )
 
             # エラーページの場合
