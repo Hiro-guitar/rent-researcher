@@ -188,10 +188,14 @@ class ItandiSession:
     # ─── private ───────────────────────────────────────
 
     def _get_login_post_url(self, login_page_url: str) -> str:
-        """ログインページ URL からフォームの POST 先 URL を構築する。"""
+        """ログインページ URL からフォームの POST 先 URL を構築する。
+
+        フォームの action は "/login" (クエリパラメータなし)。
+        OAuth2 パラメータはサーバーセッションに保持されている。
+        """
         parsed = urllib.parse.urlparse(login_page_url)
         return urllib.parse.urlunparse(
-            (parsed.scheme, parsed.netloc, "/login", "", parsed.query, "")
+            (parsed.scheme, parsed.netloc, "/login", "", "", "")
         )
 
     def _extract_form_csrf(self, html: str) -> str | None:
