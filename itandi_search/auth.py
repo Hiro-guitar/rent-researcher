@@ -19,6 +19,15 @@ from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
 from .config import ITANDI_BASE_URL
 
 
+def _is_itandibb_host(url: str) -> bool:
+    """URL のホスト部分が itandibb.com かどうか判定する。
+
+    クエリパラメータ内の redirect_uri に含まれる itandibb.com に
+    惑わされないよう、netloc のみをチェックする。
+    """
+    return "itandibb.com" in urllib.parse.urlparse(url).netloc
+
+
 class ItandiAuthError(Exception):
     """itandi BB 認証エラー"""
 
@@ -110,7 +119,8 @@ class ItandiSession:
         print(f"[DEBUG] 現在のURL: {current_url}")
 
         # 既にログイン済みで itandibb.com にリダイレクトされた場合
-        if "itandibb.com" in current_url:
+        # ※ URLのホスト部分だけチェック（redirect_uri に惑わされない）
+        if _is_itandibb_host(current_url):
             print("[DEBUG] 既にログイン済み")
             return
 
@@ -169,7 +179,7 @@ class ItandiSession:
                 )
 
             # itandibb.com に遷移した可能性もある
-            if "itandibb.com" in current_url:
+            if _is_itandibb_host(current_url):
                 print("[DEBUG] itandibb.com に遷移成功")
                 return
 
