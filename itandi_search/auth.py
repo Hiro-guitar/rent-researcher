@@ -1,7 +1,7 @@
 """itandi BB ログイン・セッション管理
 
 itandi BB は OAuth2 Authorization Code フローを使用する。
-1. itandibb.com にアクセス → 未認証なら itandi-accounts.com/login にリダイレクト
+1. itandibb.com/rent_rooms/list にアクセス → 未認証なら itandi-accounts.com/login にリダイレクト
 2. ログインフォームから authenticity_token を取得
 3. email + password + authenticity_token で POST ログイン
 4. リダイレクトを追跡 → itandibb.com/itandi_accounts_callback でセッション確立
@@ -52,12 +52,12 @@ class ItandiSession:
         Raises:
             ItandiAuthError: ログイン失敗時
         """
-        # Step 1: itandibb.com にアクセス → ログインページにリダイレクト
-        # （OAuth2 の client_id, redirect_uri, state 等が自動的に付与される）
-        print("[DEBUG] Step 1: itandibb.com にアクセス...")
+        # Step 1: itandibb.com/rent_rooms/list にアクセス
+        # 未認証なら itandi-accounts.com/login?client_id=itandi_bb&... にリダイレクト
+        print("[DEBUG] Step 1: itandibb.com/rent_rooms/list にアクセス...")
         try:
             resp = self.session.get(
-                ITANDI_BASE_URL,
+                f"{ITANDI_BASE_URL}/rent_rooms/list",
                 timeout=30,
                 allow_redirects=True,
             )
@@ -67,32 +67,44 @@ class ItandiSession:
                 f"itandibb.com へのアクセスに失敗: {exc}"
             ) from exc
 
-        print(f"[DEBUG] リダイレクト先: {resp.url}")
+        final_url = resp.url
+        print(f"[DEBUG] リダイレクト先: {final_url}")
 
-        # 既にログイン済みの場合
-        if "itandibb.com" in resp.url and "login" not in resp.url:
-            print("[DEBUG] 既にログイン済み")
-            self._get_csrf_from_cookies()
-            if self.csrf_token:
+        # リダイレクトされずに itandibb.com に留まった場合
+        # → CSRF-TOKEN Cookie があるか確認
+        if "itandibb.com" in final_url and "login" not in final_url:
+            if self._get_csrf_from_cookies():
                 print("[INFO] itandi BB ログイン成功（既存セッション）")
                 return True
+            # CSRF-TOKEN がない場合、明示的にログインフローを開始
+            print("[DEBUG] CSRF-TOKEN Cookie がないため、ログインフローを開始...")
+            resp = self._start_login_flow()
+            final_url = resp.url
+
+        # ログインページにリダイレクトされた場合
+        if "itandi-accounts.com" in final_url:
+            print(f"[DEBUG] ログインページに到達")
+        else:
+            # どちらでもない不明な状態
+            print(f"[DEBUG] 不明なリダイレクト先: {final_url}")
 
         # Step 2: ログインページから authenticity_token を取得
-        print("[DEBUG] Step 2: ログインページから CSRF トークンを取得...")
-        login_page_url = resp.url  # リダイレクト後の完全な URL
+        print("[DEBUG] Step 2: ログインページから authenticity_token を取得...")
         form_csrf = self._extract_form_csrf(resp.text)
 
         if not form_csrf:
+            # HTML の一部をデバッグ出力
+            print(f"[DEBUG] レスポンスURL: {resp.url}")
+            print(f"[DEBUG] レスポンスHTML先頭500文字: {resp.text[:500]}")
             raise ItandiAuthError(
                 "ログインページから authenticity_token を取得できませんでした"
             )
 
         print(f"[DEBUG] authenticity_token 取得成功 (長さ: {len(form_csrf)})")
 
-        # Step 3: ログイン POST（リダイレクト先の URL に POST する）
-        # フォームの action は /login なので、同じホストの /login に POST
-        login_post_url = self._get_login_post_url(login_page_url)
-        print(f"[DEBUG] Step 3: ログイン POST → {login_post_url}")
+        # Step 3: ログイン POST
+        login_post_url = self._get_login_post_url(resp.url)
+        print(f"[DEBUG] Step 3: ログイン POST...")
 
         login_data = {
             "authenticity_token": form_csrf,
@@ -114,7 +126,7 @@ class ItandiSession:
         print(f"[DEBUG] ログイン POST 後の URL: {resp.url}")
         print(f"[DEBUG] ステータスコード: {resp.status_code}")
 
-        # ログイン失敗チェック（ログインページに戻された場合）
+        # ログイン失敗チェック
         if "itandi-accounts.com" in resp.url and "login" in resp.url:
             raise ItandiAuthError(
                 "ログインに失敗しました（メールアドレスまたはパスワードが正しくありません）"
@@ -123,8 +135,8 @@ class ItandiSession:
         # Step 4: CSRF-TOKEN Cookie を取得
         print("[DEBUG] Step 4: CSRF-TOKEN Cookie を取得...")
         if not self._get_csrf_from_cookies():
-            # itandibb.com のページに明示的にアクセスしてみる
-            print("[DEBUG] Cookie にCSRF-TOKENがないため、itandibb.com に再アクセス...")
+            # ページに明示的にアクセス
+            print("[DEBUG] Cookie にCSRF-TOKENなし、rent_rooms/list に再アクセス...")
             try:
                 resp = self.session.get(
                     f"{ITANDI_BASE_URL}/rent_rooms/list",
@@ -136,14 +148,13 @@ class ItandiSession:
                 pass
 
         if not self.csrf_token:
-            # デバッグ: 全Cookieを表示
             cookie_names = [c.name for c in self.session.cookies]
-            print(f"[DEBUG] 現在のCookie一覧: {cookie_names}")
+            print(f"[DEBUG] 全Cookie名: {cookie_names}")
             raise ItandiAuthError(
                 "ログイン後に CSRF トークンを取得できませんでした"
             )
 
-        print(f"[INFO] itandi BB ログイン成功")
+        print("[INFO] itandi BB ログイン成功")
         return True
 
     def get_api_headers(self) -> dict[str, str]:
@@ -158,14 +169,44 @@ class ItandiSession:
 
     # ─── private ───────────────────────────────────────
 
-    def _get_login_post_url(self, login_page_url: str) -> str:
-        """ログインページの URL からフォームの POST 先 URL を構築する。
+    def _start_login_flow(self) -> requests.Response:
+        """itandi BB の OAuth2 ログインフローを明示的に開始する。
 
-        ログインページ URL のホスト部分を保持し、パスを /login にする。
-        クエリパラメータも保持する（OAuth2 パラメータ）。
+        itandibb.com/logout にアクセスして、ログインページにリダイレクトさせる。
         """
+        # まず /logout でセッションクリア → ログインページにリダイレクト
+        try:
+            resp = self.session.get(
+                f"{ITANDI_BASE_URL}/logout",
+                timeout=30,
+                allow_redirects=True,
+            )
+            print(f"[DEBUG] /logout 後のURL: {resp.url}")
+            return resp
+        except requests.RequestException:
+            pass
+
+        # フォールバック: 直接 OAuth2 URL を構築
+        oauth_url = (
+            "https://itandi-accounts.com/login"
+            "?client_id=itandi_bb"
+            "&redirect_uri=https%3A%2F%2Fitandibb.com%2Fitandi_accounts_callback"
+            "&response_type=code"
+        )
+        try:
+            resp = self.session.get(
+                oauth_url, timeout=30, allow_redirects=True
+            )
+            print(f"[DEBUG] 直接OAuth URL後のURL: {resp.url}")
+            return resp
+        except requests.RequestException as exc:
+            raise ItandiAuthError(
+                f"ログインフロー開始に失敗: {exc}"
+            ) from exc
+
+    def _get_login_post_url(self, login_page_url: str) -> str:
+        """ログインページ URL からフォームの POST 先 URL を構築する。"""
         parsed = urllib.parse.urlparse(login_page_url)
-        # action="/login" なので、同じホスト + /login + 同じクエリ
         return urllib.parse.urlunparse(
             (parsed.scheme, parsed.netloc, "/login", "", parsed.query, "")
         )

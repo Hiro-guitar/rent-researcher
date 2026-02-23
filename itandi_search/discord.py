@@ -96,9 +96,13 @@ def send_property_notification(
 
 def send_error_notification(webhook_url: str, message: str) -> None:
     """エラーを Discord に通知する。"""
-    payload = {"content": f"**[itandi BB 検索エラー]**\n{message}"}
+    payload: dict = {"content": f"**[itandi BB 検索エラー]**\n{message}"}
     try:
         resp = requests.post(webhook_url, json=payload, timeout=10)
+        # Forum チャンネルの場合、thread_name が必要
+        if resp.status_code == 400:
+            payload["thread_name"] = "⚠️ エラー通知"
+            resp = requests.post(webhook_url, json=payload, timeout=10)
         resp.raise_for_status()
     except Exception as exc:
         print(f"[ERROR] Discord エラー通知失敗: {exc}")
