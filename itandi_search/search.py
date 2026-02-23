@@ -1,5 +1,6 @@
 """itandi BB 検索 API の呼び出し・レスポンスパース"""
 
+import json
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -111,6 +112,8 @@ def search_properties(
     page = 1
     max_pages = 10
 
+    print(f"[DEBUG] 検索ペイロード: {json.dumps(payload, ensure_ascii=False)}")
+
     while page <= max_pages:
         payload["page"]["page"] = page
 
@@ -123,6 +126,8 @@ def search_properties(
             )
         except Exception as exc:
             raise ItandiSearchError(f"検索 API 通信エラー: {exc}") from exc
+
+        print(f"[DEBUG] 検索API レスポンス: status={resp.status_code}")
 
         if resp.status_code == 401:
             raise ItandiAuthError("セッションが無効または期限切れです")
