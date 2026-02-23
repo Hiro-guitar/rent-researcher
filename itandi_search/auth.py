@@ -78,10 +78,13 @@ class ItandiSession:
             ) from exc
 
         final_url = resp.url
+        parsed_final = urllib.parse.urlparse(final_url)
         print(f"[DEBUG] リダイレクト先: {final_url}")
+        print(f"[DEBUG] ホスト: {parsed_final.netloc}")
 
         # 既にログイン済み → itandibb.com にリダイレクトされた場合
-        if "itandibb.com" in final_url:
+        # ※ URL のホスト部分だけチェック（クエリ内の redirect_uri に惑わされない）
+        if "itandibb.com" in parsed_final.netloc:
             print("[DEBUG] 既にログイン済み、CSRF-TOKEN を取得...")
             if self._get_csrf_from_cookies():
                 print("[INFO] itandi BB ログイン成功（既存セッション）")
@@ -100,7 +103,7 @@ class ItandiSession:
                 pass
 
         # ログインページにいるはず
-        if "itandi-accounts.com" in final_url:
+        if "itandi-accounts.com" in parsed_final.netloc:
             print("[DEBUG] ログインページに到達")
 
         # Step 2: ログインページから authenticity_token を取得
