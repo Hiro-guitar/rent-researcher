@@ -51,10 +51,22 @@ def send_property_notification(
         try:
             resp = requests.post(url, json=payload, timeout=15)
 
-            if resp.status_code == 404:
+            if resp.status_code in (400, 404) and "thread_name" in payload:
                 # Forum チャンネルでない場合、thread_name なしで再試行
+                print(
+                    f"[DEBUG] Discord {resp.status_code}: "
+                    f"{resp.text[:200]}"
+                )
+                print("[DEBUG] thread_name なしで再試行...")
                 payload.pop("thread_name", None)
                 resp = requests.post(webhook_url, json=payload, timeout=15)
+
+            if resp.status_code in (400, 404):
+                # まだエラーの場合、embeds を減らして再試行
+                print(
+                    f"[DEBUG] Discord {resp.status_code}: "
+                    f"{resp.text[:200]}"
+                )
 
             resp.raise_for_status()
 
@@ -70,18 +82,31 @@ def send_property_notification(
                     pass
 
         except requests.HTTPError as exc:
-            if exc.response is not None and exc.response.status_code == 429:
-                # レート制限: リトライ
-                retry_after = exc.response.json().get("retry_after", 5)
+            if exc.response is not None:
                 print(
-                    f"[WARN] Discord レート制限。{retry_after}秒待機..."
+                    f"[ERROR] Discord 通知失敗 "
+                    f"(status={exc.response.status_code}): "
+                    f"{exc.response.text[:300]}"
                 )
-                time.sleep(retry_after)
-                try:
-                    resp = requests.post(url, json=payload, timeout=15)
-                    resp.raise_for_status()
-                except Exception as retry_exc:
-                    print(f"[ERROR] Discord リトライ失敗: {retry_exc}")
+                if exc.response.status_code == 429:
+                    # レート制限: リトライ
+                    retry_after = exc.response.json().get(
+                        "retry_after", 5
+                    )
+                    print(
+                        f"[WARN] Discord レート制限。"
+                        f"{retry_after}秒待機..."
+                    )
+                    time.sleep(retry_after)
+                    try:
+                        resp = requests.post(
+                            url, json=payload, timeout=15
+                        )
+                        resp.raise_for_status()
+                    except Exception as retry_exc:
+                        print(
+                            f"[ERROR] Discord リトライ失敗: {retry_exc}"
+                        )
             else:
                 print(f"[ERROR] Discord 通知失敗: {exc}")
         except Exception as exc:
