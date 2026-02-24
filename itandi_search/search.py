@@ -152,6 +152,18 @@ def search_properties(
                             first = v[0]
                             if isinstance(first, dict):
                                 print(f"[DEBUG]     先頭要素のキー: {list(first.keys())}")
+                                # rooms の構造も出力
+                                if "rooms" in first and isinstance(first["rooms"], list) and first["rooms"]:
+                                    room0 = first["rooms"][0]
+                                    if isinstance(room0, dict):
+                                        print(f"[DEBUG]     rooms[0] のキー: {list(room0.keys())}")
+                                        # 主要な値をサンプル出力
+                                        sample_keys = ["id", "room_id", "rent", "management_fee",
+                                                       "layout", "room_layout", "floor_area_amount",
+                                                       "floor", "deposit", "key_money", "image_url"]
+                                        for sk in sample_keys:
+                                            if sk in room0:
+                                                print(f"[DEBUG]       {sk}: {room0[sk]}")
                     elif isinstance(v, dict):
                         print(f"[DEBUG]   {k}: dict (キー={list(v.keys())})")
                     else:
@@ -178,88 +190,87 @@ def search_properties(
 def parse_search_response(data: dict) -> list[Property]:
     """検索 API の JSON レスポンスを Property リストに変換する。
 
-    NOTE: 実際のレスポンス構造は初回実行時に確認して調整が必要。
-    以下は想定される構造に基づく実装。
+    実際のレスポンス構造 (Run #18 で確認済み):
+    {
+        "room_total_count": 12,
+        "total_count": 12,
+        "buildings": [
+            {
+                "property_id": ...,
+                "building_detail_type": "mansion",
+                "building_age_text": "築15年",
+                "construction_date_text": "2010年1月",
+                "story_text": "地上10階建",
+                "images_count": 5,
+                "image_url": "https://...",
+                "name": "○○マンション",
+                "coordinate": {...},
+                "address_text": "東京都千代田区...",
+                "nearby_train_station_texts": ["○○線 △△駅 徒歩5分"],
+                "management_company_name": "...",
+                "rooms": [
+                    {
+                        "id": 12345,
+                        "rent": 120000,
+                        "management_fee": 10000,
+                        ...
+                    }
+                ],
+                "more_rooms_exist": false
+            }
+        ]
+    }
     """
     properties: list[Property] = []
 
-    # パターン 1: data がリスト（building ごとにグループ化）
-    buildings = data.get("data", [])
+    # レスポンスのトップレベルキーは "buildings"
+    buildings = data.get("buildings", [])
     if not isinstance(buildings, list):
         buildings = []
 
-    for building_group in buildings:
-        # building 情報の取得（複数のキー名を試す）
-        building = (
-            building_group.get("building")
-            or building_group.get("rent_room_building")
-            or building_group
-        )
+    for bldg in buildings:
+        if not isinstance(bldg, dict):
+            continue
 
-        building_id = building.get("id", 0)
-        building_name = building.get("name", "") or building.get(
-            "building_name", ""
-        )
-        address = building.get("address", "") or building.get(
-            "full_address", ""
-        )
-        building_age = str(building.get("building_age", ""))
+        # 建物情報
+        property_id = bldg.get("property_id", 0)
+        building_name = bldg.get("name", "")
+        address = bldg.get("address_text", "")
+        building_age = bldg.get("building_age_text", "")
+        image_url_bldg = bldg.get("image_url")
 
-        # 最寄り駅情報
-        stations = building.get("nearest_stations", [])
+        # 最寄り駅情報（テキスト配列）
+        station_texts = bldg.get("nearby_train_station_texts", [])
         station_info = ""
-        if stations and isinstance(stations, list):
-            first = stations[0] if stations else {}
-            if isinstance(first, dict):
-                line = first.get("line_name", "")
-                name = first.get("station_name", "")
-                walk = first.get("walk_minutes", "")
-                station_info = f"{line} {name}駅 徒歩{walk}分"
-            elif isinstance(first, str):
-                station_info = first
+        if station_texts and isinstance(station_texts, list):
+            station_info = station_texts[0] if station_texts else ""
 
         # 部屋情報
-        rooms = (
-            building_group.get("rooms")
-            or building_group.get("rent_rooms")
-            or building_group.get("rent_room_buildings_rooms", [])
-        )
+        rooms = bldg.get("rooms", [])
         if not rooms:
-            # building 自体が room 情報を含む場合
-            rooms = [building_group]
+            continue
 
         for room in rooms:
             if not isinstance(room, dict):
                 continue
 
-            room_id = room.get("id", 0) or room.get("room_id", 0)
+            room_id = room.get("id", 0)
             if not room_id:
                 continue
 
             rent = room.get("rent", 0) or 0
-            management_fee = room.get("management_fee", 0) or room.get(
-                "kanrihi", 0
-            ) or 0
-            deposit = str(room.get("deposit", "") or "")
-            key_money = str(room.get("key_money", "") or room.get("reikin", "") or "")
-            layout = room.get("layout", "") or room.get("room_layout", "") or ""
+            management_fee = room.get("management_fee", 0) or 0
+            deposit = str(room.get("deposit", "") or room.get("deposit_text", "") or "")
+            key_money = str(room.get("key_money", "") or room.get("key_money_text", "") or "")
+            layout = room.get("layout", "") or room.get("room_layout", "") or room.get("layout_text", "") or ""
             area = room.get("floor_area_amount", 0) or room.get("area", 0) or 0
             floor_val = room.get("floor", 0) or 0
 
-            # 画像URL
-            images = room.get("images", []) or building.get("images", [])
-            image_url = None
-            if images and isinstance(images, list):
-                first_img = images[0]
-                if isinstance(first_img, dict):
-                    image_url = first_img.get("url") or first_img.get(
-                        "image_url"
-                    )
-                elif isinstance(first_img, str):
-                    image_url = first_img
+            # 画像URL（部屋レベルがあればそちら、なければ建物レベル）
+            image_url = room.get("image_url") or image_url_bldg
 
             prop = Property(
-                building_id=int(building_id) if building_id else 0,
+                building_id=int(property_id) if property_id else 0,
                 room_id=int(room_id) if room_id else 0,
                 building_name=str(building_name),
                 address=str(address),
@@ -272,7 +283,7 @@ def parse_search_response(data: dict) -> list[Property]:
                 floor=int(floor_val) if floor_val else 0,
                 building_age=building_age,
                 station_info=station_info,
-                url=f"{ITANDI_BASE_URL}/rent_room_buildings/{building_id}",
+                url=f"{ITANDI_BASE_URL}/rent_room_buildings/{property_id}",
                 image_url=image_url,
             )
             properties.append(prop)
