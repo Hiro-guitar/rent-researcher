@@ -2,19 +2,19 @@
 
 itandi BB は OAuth2 Authorization Code フローを使用する。
 itandibb.com は SPA のため、実ブラウザ (Selenium) でログインし、
-Cookie + CSRF トークンを取得する。
+ブラウザセッションをそのまま保持して API 呼び出しにも使用する。
 
 1. Selenium で itandibb.com の物件ページにアクセス
    → 未ログインなら itandi-accounts.com にリダイレクト
 2. ログインフォームにメール / パスワードを入力
 3. ログインボタンをクリック → OAuth2 コールバックでセッション確立
-4. CSRF-TOKEN Cookie を取得 → API ヘッダーに使用
-5. Cookie を requests.Session にコピーして API 呼び出しに使用
+4. ログイン後のブラウザセッションを保持
+5. API 呼び出しは driver.execute_script() で fetch を実行
 """
 
+import json
 import urllib.parse
 
-import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -52,29 +52,20 @@ class ItandiAuthError(Exception):
 class ItandiSession:
     """itandi BB のセッションを管理する。
 
-    Selenium で実ブラウザログインし、取得した Cookie を
-    requests.Session にコピーして API 呼び出しに使用する。
+    Selenium で実ブラウザログインし、そのドライバーを保持したまま
+    execute_script() で API 呼び出しを行う。
+    これにより、Cookie・セッション・CORS の問題を回避する。
     """
 
     def __init__(self, email: str, password: str) -> None:
         self.email = email
         self.password = password
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/131.0.0.0 Safari/537.36"
-                ),
-            }
-        )
-        self.csrf_token: str | None = None
+        self.driver: webdriver.Chrome | None = None
 
     # ─── public ────────────────────────────────────────
 
     def login(self) -> bool:
-        """Selenium でブラウザログインし、API 用セッションを構築する。
+        """Selenium でブラウザログインし、ドライバーを保持する。
 
         Returns:
             True: ログイン成功
@@ -83,25 +74,128 @@ class ItandiSession:
         """
         print("[INFO] Selenium でブラウザログインを開始...")
 
-        driver = _create_driver()
+        self.driver = _create_driver()
         try:
-            self._do_login(driver)
-            self._extract_session(driver)
-        finally:
-            driver.quit()
+            self._do_login(self.driver)
+        except Exception:
+            self.driver.quit()
+            self.driver = None
+            raise
 
-        print("[INFO] itandi BB ログイン成功")
+        print("[INFO] itandi BB ログイン成功（ブラウザセッション保持）")
         return True
 
-    def get_api_headers(self) -> dict[str, str]:
-        """API リクエスト用ヘッダーを返す。"""
+    def close(self) -> None:
+        """ブラウザセッションを閉じる。"""
+        if self.driver:
+            self.driver.quit()
+            self.driver = None
+
+    def api_post(self, url: str, payload: dict) -> dict:
+        """ブラウザの fetch() を使って API に POST リクエストを送信する。
+
+        ブラウザのセッション（Cookie、CSRF トークン等）がそのまま使われるので、
+        Python requests ライブラリとの互換性問題を回避できる。
+
+        Args:
+            url: API エンドポイント URL
+            payload: JSON リクエストボディ
+
+        Returns:
+            API レスポンスの JSON dict
+
+        Raises:
+            ItandiAuthError: 認証エラー (401)
+        """
+        if not self.driver:
+            raise ItandiAuthError("ブラウザセッションが初期化されていません")
+
+        # itandibb.com にいることを確認（CORS 対策）
+        current_url = self.driver.current_url
+        if not _is_itandibb_host(current_url):
+            print(f"[DEBUG] itandibb.com に遷移中... (現在: {current_url})")
+            self.driver.get(f"{ITANDI_BASE_URL}/rent_rooms/list")
+            import time
+            time.sleep(2)
+
+        # CSRF-TOKEN を Cookie から取得
+        csrf_script = """
+        var cookies = document.cookie.split(';');
+        for (var i = 0; i < cookies.length; i++) {
+            var c = cookies[i].trim();
+            if (c.startsWith('CSRF-TOKEN=')) {
+                return decodeURIComponent(c.substring('CSRF-TOKEN='.length));
+            }
+        }
+        return '';
+        """
+        csrf_token = self.driver.execute_script(csrf_script)
+        print(f"[DEBUG] CSRF-TOKEN (ブラウザから): 長さ={len(csrf_token)}")
+
+        # JavaScript の fetch() で API を呼び出す
+        # execute_async_script を使って Promise の完了を待つ
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        async_script = """
+        var callback = arguments[arguments.length - 1];
+        var url = arguments[0];
+        var body = arguments[1];
+        var csrfToken = arguments[2];
+
+        fetch(url, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/plain, */*',
+                'X-CSRF-TOKEN': csrfToken,
+                'Pragma': 'no-cache'
+            },
+            body: body
+        })
+        .then(function(response) {
+            return response.text().then(function(text) {
+                callback(JSON.stringify({
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: text
+                }));
+            });
+        })
+        .catch(function(error) {
+            callback(JSON.stringify({
+                status: 0,
+                statusText: error.message,
+                body: ''
+            }));
+        });
+        """
+
+        self.driver.set_script_timeout(30)
+        result_str = self.driver.execute_async_script(
+            async_script, url, payload_json, csrf_token
+        )
+
+        result = json.loads(result_str)
+        status = result["status"]
+        body_text = result["body"]
+
+        print(f"[DEBUG] API レスポンス: status={status}")
+
+        if status == 0:
+            raise ItandiAuthError(
+                f"API 通信エラー: {result['statusText']}"
+            )
+
+        if status == 401:
+            raise ItandiAuthError("セッションが無効または期限切れです")
+
+        if status != 200:
+            print(f"[DEBUG] レスポンスボディ: {body_text[:500]}")
+
         return {
-            "X-CSRF-TOKEN": self.csrf_token or "",
-            "Content-Type": "application/json",
-            "Accept": "application/json, text/plain, */*",
-            "Origin": ITANDI_BASE_URL,
-            "Referer": f"{ITANDI_BASE_URL}/",
-            "Pragma": "no-cache",
+            "status": status,
+            "body": json.loads(body_text) if body_text else {},
+            "raw": body_text,
         }
 
     # ─── private ───────────────────────────────────────
@@ -212,75 +306,3 @@ class ItandiSession:
         current_url = driver.current_url
         print(f"[DEBUG] ログイン成功後のURL: {current_url}")
         print(f"[DEBUG] ページタイトル: {driver.title}")
-
-    def _extract_session(self, driver: webdriver.Chrome) -> None:
-        """Selenium ドライバーから Cookie を取得し requests.Session にコピー。"""
-
-        # itandibb.com のページにいることを確認
-        current_url = driver.current_url
-        if not _is_itandibb_host(current_url):
-            # itandibb.com にアクセスして Cookie を取得
-            print("[DEBUG] itandibb.com に遷移してCookie取得...")
-            driver.get(f"{ITANDI_BASE_URL}/rent_rooms/list")
-            import time
-            time.sleep(3)
-
-        cookies = driver.get_cookies()
-        print(f"[DEBUG] 取得した Cookie 数: {len(cookies)}")
-
-        cookie_names = [c["name"] for c in cookies]
-        print(f"[DEBUG] Cookie 名一覧: {cookie_names}")
-        cookie_domains = list({c.get("domain", "") for c in cookies})
-        print(f"[DEBUG] Cookie ドメイン一覧: {cookie_domains}")
-
-        csrf_found = False
-        for cookie in cookies:
-            # requests.Session に Cookie をコピー
-            # ドメインを .itandibb.com に統一して api.itandibb.com にも送信されるようにする
-            raw_domain = cookie.get("domain", "")
-            if "itandibb.com" in raw_domain and not raw_domain.startswith("."):
-                cookie_domain = f".{raw_domain}"
-            else:
-                cookie_domain = raw_domain
-
-            self.session.cookies.set(
-                cookie["name"],
-                cookie["value"],
-                domain=cookie_domain,
-                path=cookie.get("path", "/"),
-            )
-
-            # CSRF-TOKEN を取得
-            if cookie["name"] == "CSRF-TOKEN":
-                self.csrf_token = urllib.parse.unquote(cookie["value"])
-                csrf_found = True
-                print(
-                    f"[DEBUG] CSRF-TOKEN 取得成功 "
-                    f"(長さ: {len(self.csrf_token)})"
-                )
-
-        if not csrf_found:
-            # CSRF-TOKEN が Cookie にない場合、requests で再取得を試みる
-            print("[DEBUG] CSRF-TOKEN Cookie なし、requests で再取得...")
-            try:
-                resp = self.session.get(
-                    f"{ITANDI_BASE_URL}/rent_rooms/list",
-                    timeout=30,
-                    allow_redirects=True,
-                )
-                for c in self.session.cookies:
-                    if c.name == "CSRF-TOKEN":
-                        self.csrf_token = urllib.parse.unquote(c.value)
-                        csrf_found = True
-                        print(
-                            f"[DEBUG] CSRF-TOKEN 再取得成功 "
-                            f"(長さ: {len(self.csrf_token)})"
-                        )
-                        break
-            except requests.RequestException as exc:
-                print(f"[DEBUG] CSRF-TOKEN 再取得失敗: {exc}")
-
-        if not csrf_found:
-            raise ItandiAuthError(
-                "ログイン後に CSRF トークンを取得できませんでした"
-            )

@@ -56,6 +56,7 @@ def main() -> None:
         seen_set = set()
 
     # ── 4. itandi BB ログイン ─────────────────────────────
+    itandi: ItandiSession | None = None
     try:
         itandi = ItandiSession(ITANDI_EMAIL, ITANDI_PASSWORD)
         itandi.login()
@@ -66,6 +67,8 @@ def main() -> None:
                 DISCORD_WEBHOOK_URL,
                 f"itandi BB ログイン失敗: {exc}",
             )
+        if itandi:
+            itandi.close()
         sys.exit(1)
 
     # ── 5. 各顧客の検索＋通知 ─────────────────────────────
@@ -136,7 +139,10 @@ def main() -> None:
                     f"{customer.name} の処理中にエラー: {exc}",
                 )
 
-    # ── 6. 通知済み物件をシートに保存 ──────────────────────
+    # ── 6. ブラウザセッションを閉じる ──────────────────────
+    itandi.close()
+
+    # ── 7. 通知済み物件をシートに保存 ──────────────────────
     if new_seen_entries:
         try:
             mark_properties_seen(sheets_service, new_seen_entries)

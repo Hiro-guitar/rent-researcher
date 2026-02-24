@@ -104,65 +104,45 @@ def search_properties(
 ) -> list[Property]:
     """条件に合致する物件を検索して返す。
 
+    ブラウザの fetch() を使って API を呼び出す。
     ページネーションに対応し、最大 10 ページ (200 件) まで取得する。
     """
     payload = build_search_payload(criteria)
-    headers = session.get_api_headers()
     all_properties: list[Property] = []
     page = 1
     max_pages = 10
 
     print(f"[DEBUG] 検索ペイロード: {json.dumps(payload, ensure_ascii=False)}")
 
-    # Cookie のドメインとAPIドメインを確認
-    api_domain = ITANDI_SEARCH_URL.split("/")[2]
-    matching_cookies = [
-        f"{c.name}({c.domain})"
-        for c in session.session.cookies
-        if api_domain.endswith(c.domain.lstrip("."))
-    ]
-    print(f"[DEBUG] API ({api_domain}) に送信される Cookie: {matching_cookies}")
-
     while page <= max_pages:
         payload["page"]["page"] = page
 
         try:
-            resp = session.session.post(
-                ITANDI_SEARCH_URL,
-                json=payload,
-                headers=headers,
-                timeout=30,
-            )
+            result = session.api_post(ITANDI_SEARCH_URL, payload)
         except Exception as exc:
             raise ItandiSearchError(f"検索 API 通信エラー: {exc}") from exc
 
-        print(f"[DEBUG] 検索API レスポンス: status={resp.status_code}")
-        print(f"[DEBUG] リクエストヘッダー: {dict(resp.request.headers)}")
-        if resp.status_code != 200:
-            print(f"[DEBUG] レスポンスボディ: {resp.text[:500]}")
+        status = result["status"]
 
-        if resp.status_code == 401:
+        if status == 401:
             raise ItandiAuthError("セッションが無効または期限切れです")
-        if resp.status_code == 422:
+        if status == 422:
             raise ItandiSearchError(
-                f"検索パラメータが不正です: {resp.text[:200]}"
+                f"検索パラメータが不正です: {result.get('raw', '')[:200]}"
             )
-        if resp.status_code == 429:
+        if status == 429:
             raise ItandiSearchError("itandi BB にレート制限されました")
-
-        try:
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as exc:
+        if status != 200:
             raise ItandiSearchError(
-                f"検索 API レスポンスエラー: {exc}"
-            ) from exc
+                f"検索 API エラー (status={status}): "
+                f"{result.get('raw', '')[:200]}"
+            )
 
+        data = result["body"]
         properties = parse_search_response(data)
         all_properties.extend(properties)
 
         # 次ページがあるか確認
-        # レスポンス構造は実装時に調整が必要
         meta = data.get("meta", {})
         has_next = meta.get("next_bucket_exists", False)
         if not has_next:
