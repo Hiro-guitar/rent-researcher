@@ -139,6 +139,24 @@ def search_properties(
             )
 
         data = result["body"]
+
+        # デバッグ: レスポンス構造を出力
+        if page == 1:
+            top_keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
+            print(f"[DEBUG] レスポンス トップレベルキー: {top_keys}")
+            if isinstance(data, dict):
+                for k, v in data.items():
+                    if isinstance(v, list):
+                        print(f"[DEBUG]   {k}: list (長さ={len(v)})")
+                        if v:
+                            first = v[0]
+                            if isinstance(first, dict):
+                                print(f"[DEBUG]     先頭要素のキー: {list(first.keys())}")
+                    elif isinstance(v, dict):
+                        print(f"[DEBUG]   {k}: dict (キー={list(v.keys())})")
+                    else:
+                        print(f"[DEBUG]   {k}: {v}")
+
         properties = parse_search_response(data)
         all_properties.extend(properties)
 
