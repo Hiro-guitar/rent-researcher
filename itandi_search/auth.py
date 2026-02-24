@@ -98,9 +98,10 @@ class ItandiSession:
         return {
             "X-CSRF-TOKEN": self.csrf_token or "",
             "Content-Type": "application/json",
-            "Accept": "application/json",
+            "Accept": "application/json, text/plain, */*",
             "Origin": ITANDI_BASE_URL,
             "Referer": f"{ITANDI_BASE_URL}/",
+            "Pragma": "no-cache",
         }
 
     # ─── private ───────────────────────────────────────
@@ -229,14 +230,23 @@ class ItandiSession:
 
         cookie_names = [c["name"] for c in cookies]
         print(f"[DEBUG] Cookie 名一覧: {cookie_names}")
+        cookie_domains = list({c.get("domain", "") for c in cookies})
+        print(f"[DEBUG] Cookie ドメイン一覧: {cookie_domains}")
 
         csrf_found = False
         for cookie in cookies:
             # requests.Session に Cookie をコピー
+            # ドメインを .itandibb.com に統一して api.itandibb.com にも送信されるようにする
+            raw_domain = cookie.get("domain", "")
+            if "itandibb.com" in raw_domain and not raw_domain.startswith("."):
+                cookie_domain = f".{raw_domain}"
+            else:
+                cookie_domain = raw_domain
+
             self.session.cookies.set(
                 cookie["name"],
                 cookie["value"],
-                domain=cookie.get("domain", ""),
+                domain=cookie_domain,
                 path=cookie.get("path", "/"),
             )
 

@@ -114,6 +114,15 @@ def search_properties(
 
     print(f"[DEBUG] 検索ペイロード: {json.dumps(payload, ensure_ascii=False)}")
 
+    # Cookie のドメインとAPIドメインを確認
+    api_domain = ITANDI_SEARCH_URL.split("/")[2]
+    matching_cookies = [
+        f"{c.name}({c.domain})"
+        for c in session.session.cookies
+        if api_domain.endswith(c.domain.lstrip("."))
+    ]
+    print(f"[DEBUG] API ({api_domain}) に送信される Cookie: {matching_cookies}")
+
     while page <= max_pages:
         payload["page"]["page"] = page
 
