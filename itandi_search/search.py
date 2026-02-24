@@ -139,7 +139,7 @@ def search_properties(
     page = 1
     max_pages = 10
 
-    print(f"[DEBUG] 検索ペイロード: {json.dumps(payload, ensure_ascii=False)}")
+    print(f"[DEBUG] 検索条件: {json.dumps(payload.get('filter', {}), ensure_ascii=False)[:200]}")
 
     while page <= max_pages:
         payload["page"]["page"] = page
@@ -166,35 +166,6 @@ def search_properties(
             )
 
         data = result["body"]
-
-        # デバッグ: レスポンス構造を出力
-        if page == 1:
-            top_keys = list(data.keys()) if isinstance(data, dict) else type(data).__name__
-            print(f"[DEBUG] レスポンス トップレベルキー: {top_keys}")
-            if isinstance(data, dict):
-                for k, v in data.items():
-                    if isinstance(v, list):
-                        print(f"[DEBUG]   {k}: list (長さ={len(v)})")
-                        if v:
-                            first = v[0]
-                            if isinstance(first, dict):
-                                print(f"[DEBUG]     先頭要素のキー: {list(first.keys())}")
-                                # rooms の構造も出力
-                                if "rooms" in first and isinstance(first["rooms"], list) and first["rooms"]:
-                                    room0 = first["rooms"][0]
-                                    if isinstance(room0, dict):
-                                        print(f"[DEBUG]     rooms[0] のキー: {list(room0.keys())}")
-                                        # 主要な値をサンプル出力
-                                        sample_keys = ["id", "room_id", "rent", "management_fee",
-                                                       "layout", "room_layout", "floor_area_amount",
-                                                       "floor", "deposit", "key_money", "image_url"]
-                                        for sk in sample_keys:
-                                            if sk in room0:
-                                                print(f"[DEBUG]       {sk}: {room0[sk]}")
-                    elif isinstance(v, dict):
-                        print(f"[DEBUG]   {k}: dict (キー={list(v.keys())})")
-                    else:
-                        print(f"[DEBUG]   {k}: {v}")
 
         properties = parse_search_response(data)
         all_properties.extend(properties)
