@@ -9,15 +9,17 @@ class CustomerCriteria:
     """お客さん1人分の検索条件"""
 
     name: str
-    prefecture: str
+    reason: str = ""  # 部屋探しの理由
+    prefecture: str = ""
     cities: list[str] = field(default_factory=list)
-    stations: list[str] = field(default_factory=list)
+    routes: list[str] = field(default_factory=list)  # 路線名
+    stations: list[str] = field(default_factory=list)  # 駅名
     walk_minutes: Optional[int] = None
-    rent_min: Optional[int] = None  # 円単位
+    rent_min: Optional[int] = None  # 円単位（フォームでは未使用、API互換用）
     rent_max: Optional[int] = None  # 円単位
     layouts: list[str] = field(default_factory=list)
     area_min: Optional[float] = None
-    area_max: Optional[float] = None
+    area_max: Optional[float] = None  # フォームでは未使用、API互換用
     building_age: Optional[int] = None
     building_types: list[str] = field(default_factory=list)
     structure_types: list[str] = field(default_factory=list)

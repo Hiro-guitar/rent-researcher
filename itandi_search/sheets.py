@@ -32,21 +32,22 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
     """検索条件シートから全顧客の検索条件を読み込む。
 
     SUUMO風 Google Form のレスポンスを想定。
-    列の順番 (A〜N):
+    列の順番 (A〜O):
       A: タイムスタンプ
       B: お名前（必須）
-      C: 都道府県（必須）
-      D: 市区町村（カンマ区切り）
-      E: 賃料下限（"3万円" 形式）
-      F: 賃料上限（"3万円" 形式）
-      G: 間取りタイプ（カンマ区切り、"ワンルーム" 含む）
-      H: 駅徒歩（"5分以内" 形式）
-      I: 専有面積下限（"20m²" 形式）
-      J: 専有面積上限（"20m²" 形式）
-      K: 築年数（"5年以内" or "新築" 形式）
-      L: 建物の種類（カンマ区切り）
-      M: こだわり条件（カンマ区切り、設備 + "2階以上" 等）
-      N: その他ご希望（フリーテキスト）
+      C: 部屋探しの理由
+      D: 都道府県（必須）
+      E: 市区町村（カンマ区切り）
+      F: 路線名（カンマ区切り）
+      G: 駅名（カンマ区切り）
+      H: 賃料上限（"10万円" 形式）
+      I: 間取りタイプ（カンマ区切り、"ワンルーム" 含む）
+      J: 駅徒歩（"5分以内" 形式）
+      K: 専有面積（"20m²" 形式、下限のみ）
+      L: 築年数（"5年以内" or "新築" 形式）
+      M: 建物の種類（カンマ区切り）
+      N: こだわり条件（カンマ区切り、設備 + "2階以上" 等）
+      O: その他ご希望（フリーテキスト）
     """
     sheet = service.spreadsheets()
     result = (
@@ -68,31 +69,33 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
         if not name:
             continue
 
-        prefecture = _get(row, 2, "").strip()
-        cities = _split_csv(_get(row, 3, ""))
+        reason = _get(row, 2, "").strip()
+        prefecture = _get(row, 3, "").strip()
+        cities = _split_csv(_get(row, 4, ""))
 
-        # 賃料: "3万円" → 30000, "下限なし" → None
-        rent_min_man = _parse_rent(_get(row, 4, ""))
-        rent_max_man = _parse_rent(_get(row, 5, ""))
-        rent_min = int(rent_min_man * 10000) if rent_min_man else None
+        # 路線名・駅名（フリーテキスト、カンマ区切り）
+        routes = _split_csv(_get(row, 5, ""))
+        stations = _split_csv(_get(row, 6, ""))
+
+        # 賃料上限: "10万円" → 100000
+        rent_max_man = _parse_rent(_get(row, 7, ""))
         rent_max = int(rent_max_man * 10000) if rent_max_man else None
 
         # 間取り: "ワンルーム" → "1R" に変換
-        layouts_raw = _split_csv(_get(row, 6, ""))
+        layouts_raw = _split_csv(_get(row, 8, ""))
         layouts = [LAYOUT_MAP.get(l, l) for l in layouts_raw]
 
         # 駅徒歩: "5分以内" → 5
-        walk_minutes = _parse_walk(_get(row, 7, ""))
+        walk_minutes = _parse_walk(_get(row, 9, ""))
 
-        # 専有面積: "20m²" → 20.0
-        area_min = _parse_area(_get(row, 8, ""))
-        area_max = _parse_area(_get(row, 9, ""))
+        # 専有面積（下限のみ）: "20m²" → 20.0
+        area_min = _parse_area(_get(row, 10, ""))
 
         # 築年数: "5年以内" → 5, "新築" → 1
-        building_age = _parse_building_age(_get(row, 10, ""))
+        building_age = _parse_building_age(_get(row, 11, ""))
 
         # 建物の種類: "一戸建て・テラスハウス" → ["detached_house", "terraced_house"]
-        building_types_raw = _split_csv(_get(row, 11, ""))
+        building_types_raw = _split_csv(_get(row, 12, ""))
         building_types: list[str] = []
         for bt in building_types_raw:
             if bt == "一戸建て・テラスハウス":
@@ -102,7 +105,7 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
                 building_types.append(BUILDING_TYPE_MAP[bt])
 
         # こだわり条件: 設備ID + 特殊条件（2階以上 etc.）
-        kodawari_raw = _split_csv(_get(row, 12, ""))
+        kodawari_raw = _split_csv(_get(row, 13, ""))
         equipment_ids: list[int] = []
         min_floor = None
         for item in kodawari_raw:
@@ -112,18 +115,19 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
                 equipment_ids.append(EQUIPMENT_IDS[item])
 
         # その他ご希望
-        notes = _get(row, 13, "").strip()
+        notes = _get(row, 14, "").strip()
 
         customer = CustomerCriteria(
             name=name,
+            reason=reason,
             prefecture=prefecture,
             cities=cities,
+            routes=routes,
+            stations=stations,
             walk_minutes=walk_minutes,
-            rent_min=rent_min,
             rent_max=rent_max,
             layouts=layouts,
             area_min=area_min,
-            area_max=area_max,
             building_age=building_age,
             building_types=building_types,
             min_floor=min_floor,
@@ -242,11 +246,11 @@ def _parse_float(value: str) -> float | None:
 
 
 def _parse_rent(value: str) -> float | None:
-    """賃料テキスト "3万円" → 3.0, "下限なし"/"上限なし" → None."""
+    """賃料テキスト "10万円" → 10.0, "上限なし" → None."""
     value = value.strip()
-    if not value or value in ("下限なし", "上限なし", "指定なし", "指定しない"):
+    if not value or value in ("上限なし", "指定なし", "指定しない"):
         return None
-    # "3万円" → "3", "3.5万円" → "3.5"
+    # "10万円" → "10", "3.5万円" → "3.5"
     cleaned = value.replace("万円", "").replace("万", "").strip()
     return _parse_float(cleaned)
 
@@ -261,9 +265,9 @@ def _parse_walk(value: str) -> int | None:
 
 
 def _parse_area(value: str) -> float | None:
-    """面積テキスト "20m²" → 20.0, "下限なし"/"上限なし" → None."""
+    """面積テキスト "20m²" → 20.0, "指定しない" → None."""
     value = value.strip()
-    if not value or value in ("下限なし", "上限なし", "指定なし", "指定しない"):
+    if not value or value in ("指定しない", "指定なし"):
         return None
     cleaned = value.replace("m²", "").replace("㎡", "").strip()
     return _parse_float(cleaned)
