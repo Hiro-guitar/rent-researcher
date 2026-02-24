@@ -137,6 +137,9 @@ def search_properties(
             raise ItandiSearchError(f"検索 API 通信エラー: {exc}") from exc
 
         print(f"[DEBUG] 検索API レスポンス: status={resp.status_code}")
+        print(f"[DEBUG] リクエストヘッダー: {dict(resp.request.headers)}")
+        if resp.status_code != 200:
+            print(f"[DEBUG] レスポンスボディ: {resp.text[:500]}")
 
         if resp.status_code == 401:
             raise ItandiAuthError("セッションが無効または期限切れです")
