@@ -16,57 +16,71 @@ def send_property_notification(
 ) -> str | None:
     """物件一覧を Discord に通知する。
 
-    通常チャンネルに content メッセージとして送信する。
-    thread_id があればそのスレッドに投稿。
+    Forum チャンネル対応:
+      - thread_id がない場合: thread_name でスレッドを新規作成し、
+        ?wait=true で thread_id を取得
+      - thread_id がある場合: ?thread_id= で既存スレッドに投稿
 
     Returns:
-        作成されたスレッド ID（新規スレッド作成時）
+        スレッド ID（新規作成 or 既存）
     """
     if not properties:
         return thread_id
 
-    # まずヘッダーメッセージを送信
     created_thread_id = thread_id
 
+    # ── 1. スレッド作成（Forum チャンネル: thread_name 必須） ──
     if not created_thread_id:
         header_payload: dict = {
             "content": (
-                f"**🏠 {customer_name}** 様の新着物件 "
+                f"**{customer_name}** 様の新着物件 "
                 f"({len(properties)}件)"
             ),
+            "thread_name": f"🏠 {customer_name}",
         }
         url = f"{webhook_url}?wait=true"
         try:
-            print(f"[DEBUG] Discord ヘッダー送信...")
+            print("[DEBUG] Discord スレッド作成...")
             resp = requests.post(url, json=header_payload, timeout=15)
             print(
-                f"[DEBUG] Discord ヘッダー応答: "
+                f"[DEBUG] Discord スレッド作成応答: "
                 f"status={resp.status_code}"
             )
             if resp.status_code != 200:
                 print(
-                    f"[DEBUG] Discord ヘッダーエラー: "
-                    f"{resp.text[:300]}"
+                    f"[DEBUG] Discord エラー: {resp.text[:300]}"
                 )
             resp.raise_for_status()
+
+            # レスポンスから channel_id (= thread_id) を取得
+            resp_data = resp.json()
+            new_thread_id = resp_data.get("channel_id")
+            if new_thread_id:
+                created_thread_id = new_thread_id
+                print(
+                    f"[DEBUG] Discord スレッド作成成功: "
+                    f"thread_id={created_thread_id}"
+                )
+            else:
+                print(
+                    f"[WARN] Discord レスポンスに channel_id なし: "
+                    f"{json.dumps(resp_data, ensure_ascii=False)[:300]}"
+                )
         except Exception as exc:
-            print(f"[ERROR] Discord ヘッダー送信失敗: {exc}")
+            print(f"[ERROR] Discord スレッド作成失敗: {exc}")
+            return thread_id
 
-    # 1件ずつ送信（embeds の問題を回避）
+    # ── 2. 物件情報を送信 ────────────────────────────────────
     for idx, prop in enumerate(properties):
-        # テキストベースのメッセージを構築
         msg = _build_text_message(prop, idx + 1)
-
         payload: dict = {"content": msg}
 
-        url = webhook_url
-        if created_thread_id:
-            url = f"{webhook_url}?thread_id={created_thread_id}"
+        url = f"{webhook_url}?thread_id={created_thread_id}"
 
         try:
             resp = requests.post(url, json=payload, timeout=15)
 
-            if resp.status_code != 200 and resp.status_code != 204:
+            if resp.status_code not in (200, 204):
                 print(
                     f"[DEBUG] Discord 送信 #{idx+1}: "
                     f"status={resp.status_code}, "
@@ -83,7 +97,6 @@ def send_property_notification(
                     f"{exc.response.text[:300]}"
                 )
                 if exc.response.status_code == 429:
-                    # レート制限: リトライ
                     retry_after = exc.response.json().get(
                         "retry_after", 5
                     )
@@ -99,7 +112,8 @@ def send_property_notification(
                         resp.raise_for_status()
                     except Exception as retry_exc:
                         print(
-                            f"[ERROR] Discord リトライ失敗: {retry_exc}"
+                            f"[ERROR] Discord リトライ失敗: "
+                            f"{retry_exc}"
                         )
             else:
                 print(f"[ERROR] Discord 通知失敗: {exc}")
