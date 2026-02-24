@@ -76,12 +76,12 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
 
         prefecture = _get(row, 2, "").strip()
         cities = _split_csv(_get(row, 3, ""))
-        walk_minutes = _parse_int(_get(row, 4, ""))
-        rent_min_man = _parse_float(_get(row, 5, ""))
-        rent_max_man = _parse_float(_get(row, 6, ""))
+        walk_minutes = _parse_int(_strip_unspecified(_get(row, 4, "")))
+        rent_min_man = _parse_float(_strip_unspecified(_get(row, 5, "")))
+        rent_max_man = _parse_float(_strip_unspecified(_get(row, 6, "")))
         layouts = _split_csv(_get(row, 7, ""))
-        area_min = _parse_float(_get(row, 8, ""))
-        area_max = _parse_float(_get(row, 9, ""))
+        area_min = _parse_float(_strip_unspecified(_get(row, 8, "")))
+        area_max = _parse_float(_strip_unspecified(_get(row, 9, "")))
         building_age_str = _get(row, 10, "").strip()
         building_types_raw = _split_csv(_get(row, 11, ""))
         structure_types_raw = _split_csv(_get(row, 12, ""))
@@ -221,6 +221,13 @@ def mark_properties_seen(service, entries: list[dict]) -> None:
 # ─── ヘルパー ──────────────────────────────────────────
 
 
+def _strip_unspecified(value: str) -> str:
+    """「指定なし」等の未指定値を空文字に変換する。"""
+    if value.strip() in ("指定なし", "未指定", "なし", ""):
+        return ""
+    return value
+
+
 def _get(row: list, index: int, default: str = "") -> str:
     """リストの要素を安全に取得する。"""
     if index < len(row):
@@ -229,10 +236,16 @@ def _get(row: list, index: int, default: str = "") -> str:
 
 
 def _split_csv(value: str) -> list[str]:
-    """カンマ区切りの文字列をリストに分割する。"""
+    """カンマ区切り or セミコロン区切りの文字列をリストに分割する。
+
+    Google Forms のチェックボックスは ", " 区切りで保存されるため、
+    カンマとセミコロンの両方に対応する。
+    """
     if not value or not value.strip():
         return []
-    return [v.strip() for v in value.split(",") if v.strip()]
+    # セミコロンをカンマに統一してから分割
+    normalized = value.replace(";", ",")
+    return [v.strip() for v in normalized.split(",") if v.strip()]
 
 
 def _parse_int(value: str) -> int | None:
