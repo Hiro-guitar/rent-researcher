@@ -4,6 +4,7 @@ Google Sheets の検索条件を読み込み、itandi BB で検索し、
 新着物件を Discord に通知する。
 """
 
+import os
 import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -49,11 +50,16 @@ def main() -> None:
     print(f"[INFO] {len(customers)} 件の検索条件を読み込みました")
 
     # ── 3. 通知済み物件の読み込み ──────────────────────────
-    try:
-        seen_set = load_seen_properties(sheets_service)
-    except Exception as exc:
-        print(f"[WARN] 通知済み物件の読み込み失敗: {exc}")
-        seen_set = set()
+    force_notify = os.environ.get("FORCE_NOTIFY", "") == "1"
+    if force_notify:
+        print("[INFO] FORCE_NOTIFY=1: 通知済みチェックをスキップします")
+        seen_set: set = set()
+    else:
+        try:
+            seen_set = load_seen_properties(sheets_service)
+        except Exception as exc:
+            print(f"[WARN] 通知済み物件の読み込み失敗: {exc}")
+            seen_set = set()
 
     # ── 4. itandi BB ログイン ─────────────────────────────
     itandi: ItandiSession | None = None

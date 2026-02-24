@@ -6,6 +6,12 @@ on:
     types: [trigger-search]
   # GitHub UI からの手動トリガー
   workflow_dispatch:
+    inputs:
+      force_notify:
+        description: "強制通知 (通知済みチェックをスキップ)"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   search:
@@ -35,4 +41,5 @@ jobs:
           ITANDI_EMAIL: ${{ secrets.ITANDI_EMAIL }}
           ITANDI_PASSWORD: ${{ secrets.ITANDI_PASSWORD }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          FORCE_NOTIFY: ${{ github.event.inputs.force_notify == 'true' && '1' || '' }}
         run: python -m itandi_search.run

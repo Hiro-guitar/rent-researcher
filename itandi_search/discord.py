@@ -1,5 +1,6 @@
 """Discord Webhook 通知（スレッド対応）"""
 
+import json
 import time
 
 import requests
@@ -15,8 +16,8 @@ def send_property_notification(
 ) -> str | None:
     """物件一覧を Discord に通知する。
 
-    Forum チャンネルの場合: thread_name でお客さん名のスレッドを自動作成。
-    通常チャンネルの場合: thread_id があればそのスレッドに投稿。
+    通常チャンネルに content メッセージとして送信する。
+    thread_id があればそのスレッドに投稿。
 
     Returns:
         作成されたスレッド ID（新規スレッド作成時）
@@ -24,67 +25,60 @@ def send_property_notification(
     if not properties:
         return thread_id
 
-    # 5件ずつバッチ送信（Discord は 1 メッセージ最大 10 embeds）
-    BATCH_SIZE = 5
+    # まずヘッダーメッセージを送信
     created_thread_id = thread_id
 
-    for i in range(0, len(properties), BATCH_SIZE):
-        batch = properties[i : i + BATCH_SIZE]
-        embeds = [_build_embed(prop) for prop in batch]
+    if not created_thread_id:
+        header_payload: dict = {
+            "content": (
+                f"**🏠 {customer_name}** 様の新着物件 "
+                f"({len(properties)}件)"
+            ),
+        }
+        url = f"{webhook_url}?wait=true"
+        try:
+            print(f"[DEBUG] Discord ヘッダー送信...")
+            resp = requests.post(url, json=header_payload, timeout=15)
+            print(
+                f"[DEBUG] Discord ヘッダー応答: "
+                f"status={resp.status_code}"
+            )
+            if resp.status_code != 200:
+                print(
+                    f"[DEBUG] Discord ヘッダーエラー: "
+                    f"{resp.text[:300]}"
+                )
+            resp.raise_for_status()
+        except Exception as exc:
+            print(f"[ERROR] Discord ヘッダー送信失敗: {exc}")
 
-        payload: dict = {"embeds": embeds}
+    # 1件ずつ送信（embeds の問題を回避）
+    for idx, prop in enumerate(properties):
+        # テキストベースのメッセージを構築
+        msg = _build_text_message(prop, idx + 1)
 
-        # 最初の送信でスレッドを作成（Forum チャンネル向け）
+        payload: dict = {"content": msg}
+
         url = webhook_url
         if created_thread_id:
-            # 既存スレッドに投稿
             url = f"{webhook_url}?thread_id={created_thread_id}"
-        elif i == 0:
-            # 新規スレッド作成（Forum チャンネル）
-            payload["thread_name"] = f"🏠 {customer_name}"
-            # 最初のメッセージにヘッダーを追加
-            payload["content"] = (
-                f"**{customer_name}** 様の新着物件 "
-                f"({len(properties)}件)"
-            )
 
         try:
             resp = requests.post(url, json=payload, timeout=15)
 
-            if resp.status_code in (400, 404) and "thread_name" in payload:
-                # Forum チャンネルでない場合、thread_name なしで再試行
+            if resp.status_code != 200 and resp.status_code != 204:
                 print(
-                    f"[DEBUG] Discord {resp.status_code}: "
-                    f"{resp.text[:200]}"
-                )
-                print("[DEBUG] thread_name なしで再試行...")
-                payload.pop("thread_name", None)
-                resp = requests.post(webhook_url, json=payload, timeout=15)
-
-            if resp.status_code in (400, 404):
-                # まだエラーの場合、embeds を減らして再試行
-                print(
-                    f"[DEBUG] Discord {resp.status_code}: "
-                    f"{resp.text[:200]}"
+                    f"[DEBUG] Discord 送信 #{idx+1}: "
+                    f"status={resp.status_code}, "
+                    f"body={resp.text[:200]}"
                 )
 
             resp.raise_for_status()
 
-            # 新規スレッド作成時、レスポンスからスレッド ID を取得
-            if i == 0 and not thread_id:
-                try:
-                    resp_data = resp.json()
-                    # Webhook レスポンスに channel_id が含まれる場合
-                    new_thread_id = resp_data.get("channel_id")
-                    if new_thread_id:
-                        created_thread_id = new_thread_id
-                except Exception:
-                    pass
-
         except requests.HTTPError as exc:
             if exc.response is not None:
                 print(
-                    f"[ERROR] Discord 通知失敗 "
+                    f"[ERROR] Discord 通知失敗 #{idx+1} "
                     f"(status={exc.response.status_code}): "
                     f"{exc.response.text[:300]}"
                 )
@@ -112,9 +106,9 @@ def send_property_notification(
         except Exception as exc:
             print(f"[ERROR] Discord 通知失敗: {exc}")
 
-        # バッチ間の待機
-        if i + BATCH_SIZE < len(properties):
-            time.sleep(2)
+        # レート制限回避のため待機
+        if idx < len(properties) - 1:
+            time.sleep(1)
 
     return created_thread_id
 
@@ -131,6 +125,48 @@ def send_error_notification(webhook_url: str, message: str) -> None:
         resp.raise_for_status()
     except Exception as exc:
         print(f"[ERROR] Discord エラー通知失敗: {exc}")
+
+
+def _build_text_message(prop: Property, index: int) -> str:
+    """Property → Discord テキストメッセージに変換する。"""
+    rent_man = prop.rent / 10000 if prop.rent else 0
+    mgmt_man = prop.management_fee / 10000 if prop.management_fee else 0
+
+    lines = [
+        f"**{index}. {prop.building_name or '物件情報'}**",
+    ]
+
+    if prop.url:
+        lines.append(f"🔗 {prop.url}")
+
+    rent_str = f"💰 **{rent_man:.1f}万円**"
+    if mgmt_man:
+        rent_str += f" (管理費: {mgmt_man:.1f}万円)"
+    lines.append(rent_str)
+
+    parts = []
+    if prop.layout:
+        parts.append(f"🏠 {prop.layout}")
+    if prop.area:
+        parts.append(f"📐 {prop.area}m²")
+    if prop.building_age:
+        parts.append(f"🏗 {prop.building_age}")
+    if parts:
+        lines.append(" ｜ ".join(parts))
+
+    if prop.address:
+        lines.append(f"📍 {prop.address}")
+
+    if prop.station_info:
+        lines.append(f"🚉 {prop.station_info}")
+
+    if prop.deposit or prop.key_money:
+        lines.append(
+            f"💴 敷金: {prop.deposit or 'なし'} / "
+            f"礼金: {prop.key_money or 'なし'}"
+        )
+
+    return "\n".join(lines)
 
 
 def _build_embed(prop: Property) -> dict:
