@@ -26,6 +26,7 @@ class CustomerCriteria:
     ad_reprint_only: bool = True
     deal_types: list[str] = field(default_factory=list)
     update_within_days: Optional[int] = None
+    notes: str = ""  # その他ご希望（フリーテキスト）
     discord_thread_id: Optional[str] = None  # 既存スレッドID（あれば）
 
 

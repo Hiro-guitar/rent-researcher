@@ -11,7 +11,7 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 # ── Google Sheets シート名 ─────────────────────────────
 CRITERIA_SHEET = "検索条件"
-CRITERIA_RANGE = "検索条件!A:T"
+CRITERIA_RANGE = "検索条件!A:N"
 SEEN_SHEET = "通知済み物件"
 SEEN_RANGE = "通知済み物件!A:G"
 
@@ -76,9 +76,11 @@ PREFECTURE_IDS: dict[str, int] = {
 }
 
 # ── 設備名 → option_id マッピング ───────────────────────
+# フォームの「こだわり条件」名称とitandi BB内部名の両方に対応
 EQUIPMENT_IDS: dict[str, int] = {
     "バス・トイレ別": 11010,
     "エアコン": 11020,
+    "エアコン付": 11020,
     "室内洗濯機置場": 11030,
     "独立洗面台": 11040,
     "2口以上コンロ": 11050,
@@ -89,6 +91,13 @@ EQUIPMENT_IDS: dict[str, int] = {
     "宅配ボックス": 11100,
     "浴室乾燥機": 11110,
     "ペット可": 11120,
+    "ペット相談": 11120,
+}
+
+# ── 間取りタイプ変換（SUUMO風 → API値） ──────────────────
+LAYOUT_MAP: dict[str, str] = {
+    "ワンルーム": "1R",
+    "5K以上": "5K",
 }
 
 # ── 情報更新日 → 日数マッピング ─────────────────────────

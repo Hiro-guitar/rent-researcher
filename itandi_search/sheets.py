@@ -10,12 +10,10 @@ from .config import (
     CRITERIA_RANGE,
     EQUIPMENT_IDS,
     GOOGLE_SERVICE_ACCOUNT_JSON,
-    PREFECTURE_IDS,
+    LAYOUT_MAP,
     SEEN_RANGE,
     SEEN_SHEET,
     SPREADSHEET_ID,
-    STRUCTURE_TYPE_MAP,
-    UPDATE_DAYS_MAP,
 )
 from .models import CustomerCriteria
 
@@ -33,26 +31,22 @@ def get_sheets_service():
 def load_customer_criteria(service) -> list[CustomerCriteria]:
     """検索条件シートから全顧客の検索条件を読み込む。
 
-    Google Form のレスポンスを想定。
-    列の順番 (A〜T):
+    SUUMO風 Google Form のレスポンスを想定。
+    列の順番 (A〜N):
       A: タイムスタンプ
-      B: お客様名
-      C: 都道府県
+      B: お名前（必須）
+      C: 都道府県（必須）
       D: 市区町村（カンマ区切り）
-      E: 駅徒歩（分以内）
-      F: 賃料下限（万円）
-      G: 賃料上限（万円）
-      H: 間取り（カンマ区切り）
-      I: 専有面積下限(m2)
-      J: 専有面積上限(m2)
-      K: 築年数
-      L: 建物種別（カンマ区切り）
-      M: 構造（カンマ区切り）
-      N: 所在階（以上）
-      O: 必須設備（カンマ区切り）
-      P: 広告転載可のみ
-      Q: 取引態様（カンマ区切り）
-      R: 情報更新日
+      E: 賃料下限（"3万円" 形式）
+      F: 賃料上限（"3万円" 形式）
+      G: 間取りタイプ（カンマ区切り、"ワンルーム" 含む）
+      H: 駅徒歩（"5分以内" 形式）
+      I: 専有面積下限（"20m²" 形式）
+      J: 専有面積上限（"20m²" 形式）
+      K: 築年数（"5年以内" or "新築" 形式）
+      L: 建物の種類（カンマ区切り）
+      M: こだわり条件（カンマ区切り、設備 + "2階以上" 等）
+      N: その他ご希望（フリーテキスト）
     """
     sheet = service.spreadsheets()
     result = (
@@ -76,63 +70,49 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
 
         prefecture = _get(row, 2, "").strip()
         cities = _split_csv(_get(row, 3, ""))
-        walk_minutes = _parse_int(_strip_unspecified(_get(row, 4, "")))
-        rent_min_man = _parse_float(_strip_unspecified(_get(row, 5, "")))
-        rent_max_man = _parse_float(_strip_unspecified(_get(row, 6, "")))
-        layouts = _split_csv(_get(row, 7, ""))
-        area_min = _parse_float(_strip_unspecified(_get(row, 8, "")))
-        area_max = _parse_float(_strip_unspecified(_get(row, 9, "")))
-        building_age_str = _get(row, 10, "").strip()
-        building_types_raw = _split_csv(_get(row, 11, ""))
-        structure_types_raw = _split_csv(_get(row, 12, ""))
 
-        # 日本語 → API 値に変換（マッピングにない値は除外）
-        building_types = [
-            BUILDING_TYPE_MAP[bt]
-            for bt in building_types_raw
-            if bt in BUILDING_TYPE_MAP
-        ]
-        structure_types = [
-            STRUCTURE_TYPE_MAP[st]
-            for st in structure_types_raw
-            if st in STRUCTURE_TYPE_MAP
-        ]
-        min_floor_str = _get(row, 13, "").strip()
-        equipment_names = _split_csv(_get(row, 14, ""))
-        ad_reprint_str = _get(row, 15, "").strip()
-        deal_types = _split_csv(_get(row, 16, ""))
-        update_days_str = _get(row, 17, "").strip()
-
-        # 賃料: 万円 → 円
+        # 賃料: "3万円" → 30000, "下限なし" → None
+        rent_min_man = _parse_rent(_get(row, 4, ""))
+        rent_max_man = _parse_rent(_get(row, 5, ""))
         rent_min = int(rent_min_man * 10000) if rent_min_man else None
         rent_max = int(rent_max_man * 10000) if rent_max_man else None
 
-        # 築年数
-        building_age = None
-        if building_age_str and building_age_str != "指定なし":
-            building_age = _parse_int(building_age_str.replace("年", ""))
-            if building_age_str == "新築":
-                building_age = 1
+        # 間取り: "ワンルーム" → "1R" に変換
+        layouts_raw = _split_csv(_get(row, 6, ""))
+        layouts = [LAYOUT_MAP.get(l, l) for l in layouts_raw]
 
-        # 所在階
+        # 駅徒歩: "5分以内" → 5
+        walk_minutes = _parse_walk(_get(row, 7, ""))
+
+        # 専有面積: "20m²" → 20.0
+        area_min = _parse_area(_get(row, 8, ""))
+        area_max = _parse_area(_get(row, 9, ""))
+
+        # 築年数: "5年以内" → 5, "新築" → 1
+        building_age = _parse_building_age(_get(row, 10, ""))
+
+        # 建物の種類: "一戸建て・テラスハウス" → ["detached_house", "terraced_house"]
+        building_types_raw = _split_csv(_get(row, 11, ""))
+        building_types: list[str] = []
+        for bt in building_types_raw:
+            if bt == "一戸建て・テラスハウス":
+                building_types.append(BUILDING_TYPE_MAP["一戸建て"])
+                building_types.append(BUILDING_TYPE_MAP["テラスハウス"])
+            elif bt in BUILDING_TYPE_MAP:
+                building_types.append(BUILDING_TYPE_MAP[bt])
+
+        # こだわり条件: 設備ID + 特殊条件（2階以上 etc.）
+        kodawari_raw = _split_csv(_get(row, 12, ""))
+        equipment_ids: list[int] = []
         min_floor = None
-        if min_floor_str and min_floor_str != "指定なし":
-            min_floor = _parse_int(
-                min_floor_str.replace("階以上", "").replace("階", "")
-            )
+        for item in kodawari_raw:
+            if item == "2階以上":
+                min_floor = 2
+            elif item in EQUIPMENT_IDS:
+                equipment_ids.append(EQUIPMENT_IDS[item])
 
-        # 設備 → option_id
-        equipment_ids = [
-            EQUIPMENT_IDS[name]
-            for name in equipment_names
-            if name in EQUIPMENT_IDS
-        ]
-
-        # 広告転載可
-        ad_reprint_only = ad_reprint_str in ("はい", "Yes", "TRUE", "true", "")
-
-        # 情報更新日
-        update_within_days = UPDATE_DAYS_MAP.get(update_days_str)
+        # その他ご希望
+        notes = _get(row, 13, "").strip()
 
         customer = CustomerCriteria(
             name=name,
@@ -146,12 +126,10 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             area_max=area_max,
             building_age=building_age,
             building_types=building_types,
-            structure_types=structure_types,
             min_floor=min_floor,
             equipment_ids=equipment_ids,
-            ad_reprint_only=ad_reprint_only,
-            deal_types=deal_types,
-            update_within_days=update_within_days,
+            ad_reprint_only=True,
+            notes=notes,
         )
         customers.append(customer)
 
@@ -221,13 +199,6 @@ def mark_properties_seen(service, entries: list[dict]) -> None:
 # ─── ヘルパー ──────────────────────────────────────────
 
 
-def _strip_unspecified(value: str) -> str:
-    """「指定なし」等の未指定値を空文字に変換する。"""
-    if value.strip() in ("指定なし", "未指定", "なし", ""):
-        return ""
-    return value
-
-
 def _get(row: list, index: int, default: str = "") -> str:
     """リストの要素を安全に取得する。"""
     if index < len(row):
@@ -253,7 +224,6 @@ def _parse_int(value: str) -> int | None:
     if not value:
         return None
     try:
-        # "10分" → "10", "2階以上" → "2" のような処理は呼び出し元で
         cleaned = "".join(c for c in value if c.isdigit() or c == "-")
         return int(cleaned) if cleaned else None
     except ValueError:
@@ -269,3 +239,42 @@ def _parse_float(value: str) -> float | None:
         return float(cleaned) if cleaned else None
     except ValueError:
         return None
+
+
+def _parse_rent(value: str) -> float | None:
+    """賃料テキスト "3万円" → 3.0, "下限なし"/"上限なし" → None."""
+    value = value.strip()
+    if not value or value in ("下限なし", "上限なし", "指定なし", "指定しない"):
+        return None
+    # "3万円" → "3", "3.5万円" → "3.5"
+    cleaned = value.replace("万円", "").replace("万", "").strip()
+    return _parse_float(cleaned)
+
+
+def _parse_walk(value: str) -> int | None:
+    """駅徒歩テキスト "5分以内" → 5, "指定しない" → None."""
+    value = value.strip()
+    if not value or value in ("指定しない", "指定なし"):
+        return None
+    cleaned = value.replace("分以内", "").replace("分", "").strip()
+    return _parse_int(cleaned)
+
+
+def _parse_area(value: str) -> float | None:
+    """面積テキスト "20m²" → 20.0, "下限なし"/"上限なし" → None."""
+    value = value.strip()
+    if not value or value in ("下限なし", "上限なし", "指定なし", "指定しない"):
+        return None
+    cleaned = value.replace("m²", "").replace("㎡", "").strip()
+    return _parse_float(cleaned)
+
+
+def _parse_building_age(value: str) -> int | None:
+    """築年数テキスト "5年以内" → 5, "新築" → 1, "指定しない" → None."""
+    value = value.strip()
+    if not value or value in ("指定しない", "指定なし"):
+        return None
+    if value == "新築":
+        return 1
+    cleaned = value.replace("年以内", "").replace("年", "").strip()
+    return _parse_int(cleaned)
