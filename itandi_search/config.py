@@ -11,7 +11,7 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 
 # ── Google Sheets シート名 ─────────────────────────────
 CRITERIA_SHEET = "検索条件"
-CRITERIA_RANGE = "検索条件!A:O"
+CRITERIA_RANGE = "検索条件!A:V"
 SEEN_SHEET = "通知済み物件"
 SEEN_RANGE = "通知済み物件!A:G"
 

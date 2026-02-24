@@ -31,23 +31,30 @@ def get_sheets_service():
 def load_customer_criteria(service) -> list[CustomerCriteria]:
     """検索条件シートから全顧客の検索条件を読み込む。
 
-    SUUMO風 Google Form のレスポンスを想定。
-    列の順番 (A〜O):
+    SUUMO風 Google Form v3 のレスポンスを想定。
+    列の順番 (A〜V):
       A: タイムスタンプ
       B: お名前（必須）
       C: 部屋探しの理由
       D: 都道府県（必須）
       E: 市区町村（カンマ区切り）
-      F: 路線名（カンマ区切り）
-      G: 駅名（カンマ区切り）
-      H: 賃料上限（"10万円" 形式）
-      I: 間取りタイプ（カンマ区切り、"ワンルーム" 含む）
-      J: 駅徒歩（"5分以内" 形式）
-      K: 専有面積（"20m²" 形式、下限のみ）
-      L: 築年数（"5年以内" or "新築" 形式）
-      M: 建物の種類（カンマ区切り）
-      N: こだわり条件（カンマ区切り、設備 + "2階以上" 等）
-      O: その他ご希望（フリーテキスト）
+      F: 【JR】路線（チェックボックス、カンマ区切り）
+      G: 【東京メトロ】路線（チェックボックス、カンマ区切り）
+      H: 【都営】路線（チェックボックス、カンマ区切り）
+      I: 【東急電鉄】路線（チェックボックス、カンマ区切り）
+      J: 【西武・東武鉄道】路線（チェックボックス、カンマ区切り）
+      K: 【京王電鉄】路線（チェックボックス、カンマ区切り）
+      L: 【京成・京急・小田急】路線（チェックボックス、カンマ区切り）
+      M: 【その他】路線（チェックボックス、カンマ区切り）
+      N: 駅名（カンマ区切り）
+      O: 賃料上限（"10万円" 形式）
+      P: 間取りタイプ（カンマ区切り、"ワンルーム" 含む）
+      Q: 駅徒歩（"5分以内" 形式）
+      R: 専有面積（"20m²" 形式、下限のみ）
+      S: 築年数（"5年以内" or "新築" 形式）
+      T: 建物の種類（カンマ区切り）
+      U: こだわり条件（カンマ区切り、設備 + "2階以上" 等）
+      V: その他ご希望（フリーテキスト）
     """
     sheet = service.spreadsheets()
     result = (
@@ -73,29 +80,33 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
         prefecture = _get(row, 3, "").strip()
         cities = _split_csv(_get(row, 4, ""))
 
-        # 路線名・駅名（フリーテキスト、カンマ区切り）
-        routes = _split_csv(_get(row, 5, ""))
-        stations = _split_csv(_get(row, 6, ""))
+        # 路線名: 8つの会社別チェックボックス列(F〜M = index 5〜12)をマージ
+        routes: list[str] = []
+        for col_idx in range(5, 13):  # F(5) G(6) H(7) I(8) J(9) K(10) L(11) M(12)
+            routes.extend(_split_csv(_get(row, col_idx, "")))
 
-        # 賃料上限: "10万円" → 100000
-        rent_max_man = _parse_rent(_get(row, 7, ""))
+        # 駅名（N列 = index 13）
+        stations = _split_csv(_get(row, 13, ""))
+
+        # 賃料上限(O列 = index 14): "10万円" → 100000
+        rent_max_man = _parse_rent(_get(row, 14, ""))
         rent_max = int(rent_max_man * 10000) if rent_max_man else None
 
-        # 間取り: "ワンルーム" → "1R" に変換
-        layouts_raw = _split_csv(_get(row, 8, ""))
+        # 間取り(P列 = index 15): "ワンルーム" → "1R" に変換
+        layouts_raw = _split_csv(_get(row, 15, ""))
         layouts = [LAYOUT_MAP.get(l, l) for l in layouts_raw]
 
-        # 駅徒歩: "5分以内" → 5
-        walk_minutes = _parse_walk(_get(row, 9, ""))
+        # 駅徒歩(Q列 = index 16): "5分以内" → 5
+        walk_minutes = _parse_walk(_get(row, 16, ""))
 
-        # 専有面積（下限のみ）: "20m²" → 20.0
-        area_min = _parse_area(_get(row, 10, ""))
+        # 専有面積(R列 = index 17): "20m²" → 20.0
+        area_min = _parse_area(_get(row, 17, ""))
 
-        # 築年数: "5年以内" → 5, "新築" → 1
-        building_age = _parse_building_age(_get(row, 11, ""))
+        # 築年数(S列 = index 18): "5年以内" → 5, "新築" → 1
+        building_age = _parse_building_age(_get(row, 18, ""))
 
-        # 建物の種類: "一戸建て・テラスハウス" → ["detached_house", "terraced_house"]
-        building_types_raw = _split_csv(_get(row, 12, ""))
+        # 建物の種類(T列 = index 19): "一戸建て・テラスハウス" → 2つに分解
+        building_types_raw = _split_csv(_get(row, 19, ""))
         building_types: list[str] = []
         for bt in building_types_raw:
             if bt == "一戸建て・テラスハウス":
@@ -104,8 +115,8 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             elif bt in BUILDING_TYPE_MAP:
                 building_types.append(BUILDING_TYPE_MAP[bt])
 
-        # こだわり条件: 設備ID + 特殊条件（2階以上 etc.）
-        kodawari_raw = _split_csv(_get(row, 13, ""))
+        # こだわり条件(U列 = index 20): 設備ID + 特殊条件
+        kodawari_raw = _split_csv(_get(row, 20, ""))
         equipment_ids: list[int] = []
         min_floor = None
         for item in kodawari_raw:
@@ -114,8 +125,8 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             elif item in EQUIPMENT_IDS:
                 equipment_ids.append(EQUIPMENT_IDS[item])
 
-        # その他ご希望
-        notes = _get(row, 14, "").strip()
+        # その他ご希望(V列 = index 21)
+        notes = _get(row, 21, "").strip()
 
         customer = CustomerCriteria(
             name=name,
