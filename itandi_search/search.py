@@ -272,6 +272,9 @@ def parse_search_response(data: dict) -> list[Property]:
             # 画像URL（間取り図 or 建物画像）
             image_url = room.get("madori_image_url") or image_url_bldg
 
+            # 部屋番号
+            room_number = room.get("room_number", "") or ""
+
             prop = Property(
                 building_id=int(property_id) if property_id else 0,
                 room_id=int(room_id) if room_id else 0,
@@ -286,7 +289,8 @@ def parse_search_response(data: dict) -> list[Property]:
                 floor=0,  # floor は rooms にないため 0
                 building_age=building_age,
                 station_info=station_info,
-                url=f"{ITANDI_BASE_URL}/rent_room_buildings/{property_id}",
+                room_number=str(room_number),
+                url=f"{ITANDI_BASE_URL}/rent_rooms/{room_id}",
                 image_url=image_url,
             )
             properties.append(prop)

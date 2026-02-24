@@ -46,5 +46,6 @@ class Property:
     floor: int = 0
     building_age: str = ""
     station_info: str = ""
+    room_number: str = ""
     url: str = ""
     image_url: Optional[str] = None

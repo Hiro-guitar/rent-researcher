@@ -146,8 +146,12 @@ def _build_text_message(prop: Property, index: int) -> str:
     rent_man = prop.rent / 10000 if prop.rent else 0
     mgmt_man = prop.management_fee / 10000 if prop.management_fee else 0
 
+    title = prop.building_name or "物件情報"
+    if prop.room_number:
+        title += f"  {prop.room_number}"
+
     lines = [
-        f"**{index}. {prop.building_name or '物件情報'}**",
+        f"**{index}. {title}**",
     ]
 
     if prop.url:
