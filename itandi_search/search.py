@@ -1,12 +1,39 @@
 """itandi BB 検索 API の呼び出し・レスポンスパース"""
 
 import json
+import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .auth import ItandiAuthError, ItandiSession
 from .config import ITANDI_BASE_URL, ITANDI_SEARCH_URL, PREFECTURE_IDS
 from .models import CustomerCriteria, Property
+
+
+def _parse_price_text(text: str) -> int:
+    """価格テキスト（例: "12万円", "1.5万円", "120,000円"）を円単位の整数に変換する。"""
+    if not text or text in ("-", "なし", "ー", "—"):
+        return 0
+    text = text.replace(",", "").replace("円", "").strip()
+    # "12万" or "12.5万"
+    m = re.search(r"([\d.]+)\s*万", text)
+    if m:
+        return int(float(m.group(1)) * 10000)
+    # 純粋な数値
+    m = re.search(r"[\d.]+", text)
+    if m:
+        return int(float(m.group(0)))
+    return 0
+
+
+def _parse_area_text(text: str) -> float:
+    """面積テキスト（例: "25.5m²", "25.5㎡"）を float に変換する。"""
+    if not text:
+        return 0.0
+    m = re.search(r"([\d.]+)", text)
+    if m:
+        return float(m.group(1))
+    return 0.0
 
 
 class ItandiSearchError(Exception):
@@ -254,33 +281,38 @@ def parse_search_response(data: dict) -> list[Property]:
             if not isinstance(room, dict):
                 continue
 
-            room_id = room.get("id", 0)
+            # property_id が部屋の ID
+            room_id = room.get("property_id", 0)
             if not room_id:
                 continue
 
-            rent = room.get("rent", 0) or 0
-            management_fee = room.get("management_fee", 0) or 0
-            deposit = str(room.get("deposit", "") or room.get("deposit_text", "") or "")
-            key_money = str(room.get("key_money", "") or room.get("key_money_text", "") or "")
-            layout = room.get("layout", "") or room.get("room_layout", "") or room.get("layout_text", "") or ""
-            area = room.get("floor_area_amount", 0) or room.get("area", 0) or 0
-            floor_val = room.get("floor", 0) or 0
+            # テキスト形式のフィールドをパース
+            rent = _parse_price_text(room.get("rent_text", ""))
+            management_fee = _parse_price_text(
+                room.get("kanrihi_text", "")
+                or room.get("kanrihi_kyoekihi_text", "")
+            )
+            deposit = room.get("shikikin_text", "") or ""
+            key_money = room.get("reikin_text", "") or ""
+            layout = room.get("layout_text", "") or ""
+            area_text = room.get("floor_area_text", "") or ""
+            area = _parse_area_text(area_text)
 
-            # 画像URL（部屋レベルがあればそちら、なければ建物レベル）
-            image_url = room.get("image_url") or image_url_bldg
+            # 画像URL（間取り図 or 建物画像）
+            image_url = room.get("madori_image_url") or image_url_bldg
 
             prop = Property(
                 building_id=int(property_id) if property_id else 0,
                 room_id=int(room_id) if room_id else 0,
                 building_name=str(building_name),
                 address=str(address),
-                rent=int(rent) if rent else 0,
-                management_fee=int(management_fee) if management_fee else 0,
+                rent=rent,
+                management_fee=management_fee,
                 deposit=deposit,
                 key_money=key_money,
-                layout=str(layout),
-                area=float(area) if area else 0.0,
-                floor=int(floor_val) if floor_val else 0,
+                layout=layout,
+                area=area,
+                floor=0,  # floor は rooms にないため 0
                 building_age=building_age,
                 station_info=station_info,
                 url=f"{ITANDI_BASE_URL}/rent_room_buildings/{property_id}",
