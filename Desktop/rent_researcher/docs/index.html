@@ -9,12 +9,33 @@
 html, body { width: 100%; height: 100%; overflow: hidden; }
 iframe { width: 100%; height: 100%; border: none; }
 </style>
+<!-- LIFF SDK -->
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 </head>
 <body>
 <iframe id="gasFrame" src="about:blank" allow="forms"></iframe>
 <script>
+// LIFF ID
+var LIFF_ID = '2009257618-mx8s5Vuk';
+
 // GAS Web App URL（デプロイID固定）
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbxPj9FQfY09HdJPZ39Tku5O4brLjam-HOWwcdP3HL0AoJ2s6pRXJ0h3hPfsjQjBWqIU/exec';
+
+// LIFF初期化
+liff.init({ liffId: LIFF_ID }).catch(function(err) {
+  console.log('LIFF init error:', err);
+});
+
+// GAS iframe からの完了通知を受信して LIFF ウィンドウを閉じる
+window.addEventListener('message', function(event) {
+  if (event.data === 'liff-close') {
+    if (liff.isInClient()) {
+      liff.closeWindow();
+    } else {
+      window.close();
+    }
+  }
+});
 
 // URLパラメータをそのままGASに転送
 var params = window.location.search;
