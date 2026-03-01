@@ -8,12 +8,15 @@ ITANDI_EMAIL = os.environ.get("ITANDI_EMAIL", "")
 ITANDI_PASSWORD = os.environ.get("ITANDI_PASSWORD", "")
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+GAS_WEBAPP_URL = os.environ.get("GAS_WEBAPP_URL", "")
 
 # ── Google Sheets シート名 ─────────────────────────────
 CRITERIA_SHEET = "検索条件"
-CRITERIA_RANGE = "検索条件!A:T"
+CRITERIA_RANGE = "検索条件!A:Q"
 SEEN_SHEET = "通知済み物件"
 SEEN_RANGE = "通知済み物件!A:G"
+PENDING_SHEET = "承認待ち物件"
+PENDING_RANGE = "承認待ち物件!A:M"
 
 # ── itandi BB URL ──────────────────────────────────────
 ITANDI_LOGIN_PAGE_URL = "https://itandi-accounts.com/login"

@@ -10,14 +10,20 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from .auth import ItandiAuthError, ItandiSession
-from .config import DISCORD_WEBHOOK_URL, ITANDI_EMAIL, ITANDI_PASSWORD
+from .config import (
+    DISCORD_WEBHOOK_URL,
+    GAS_WEBAPP_URL,
+    ITANDI_EMAIL,
+    ITANDI_PASSWORD,
+)
 from .discord import send_error_notification, send_property_notification
 from .search import ItandiSearchError, search_properties
 from .sheets import (
     get_sheets_service,
     load_customer_criteria,
+    load_pending_properties,
     load_seen_properties,
-    mark_properties_seen,
+    write_pending_properties,
 )
 
 
@@ -49,17 +55,26 @@ def main() -> None:
 
     print(f"[INFO] {len(customers)} 件の検索条件を読み込みました")
 
-    # ── 3. 通知済み物件の読み込み ──────────────────────────
+    # ── 3. 通知済み・承認待ち物件の読み込み ─────────────────
     force_notify = os.environ.get("FORCE_NOTIFY", "") == "1"
     if force_notify:
         print("[INFO] FORCE_NOTIFY=1: 通知済みチェックをスキップします")
         seen_set: set = set()
+        pending_set: set = set()
     else:
         try:
             seen_set = load_seen_properties(sheets_service)
         except Exception as exc:
             print(f"[WARN] 通知済み物件の読み込み失敗: {exc}")
             seen_set = set()
+        try:
+            pending_set = load_pending_properties(sheets_service)
+        except Exception as exc:
+            print(f"[WARN] 承認待ち物件の読み込み失敗: {exc}")
+            pending_set = set()
+
+    # 重複排除用: 通知済み + 承認待ちの和集合
+    exclude_set = seen_set | pending_set
 
     # ── 4. itandi BB ログイン ─────────────────────────────
     itandi: ItandiSession | None = None
@@ -78,7 +93,7 @@ def main() -> None:
         sys.exit(1)
 
     # ── 5. 各顧客の検索＋通知 ─────────────────────────────
-    new_seen_entries: list[dict] = []
+    total_new = 0
 
     for customer in customers:
         try:
@@ -86,17 +101,31 @@ def main() -> None:
             properties = search_properties(itandi, customer)
             print(f"  → {len(properties)} 件ヒット")
 
-            # 通知済みを除外
+            # 通知済み・承認待ちを除外
             new_properties = [
                 p
                 for p in properties
-                if (customer.name, p.room_id) not in seen_set
+                if (customer.name, p.room_id) not in exclude_set
             ]
 
             if new_properties:
                 print(f"  → うち新着 {len(new_properties)} 件")
 
-                # Discord 通知
+                # 承認待ちシートに書き込み
+                try:
+                    write_pending_properties(
+                        sheets_service,
+                        customer.name,
+                        new_properties,
+                        now_jst(),
+                    )
+                except Exception as exc:
+                    print(
+                        f"[ERROR] 承認待ち書き込み失敗 "
+                        f"({customer.name}): {exc}"
+                    )
+
+                # Discord 通知（承認リンク付き）
                 webhook_url = DISCORD_WEBHOOK_URL
                 if webhook_url:
                     thread_id = send_property_notification(
@@ -104,6 +133,7 @@ def main() -> None:
                         customer_name=customer.name,
                         properties=new_properties,
                         thread_id=customer.discord_thread_id,
+                        gas_webapp_url=GAS_WEBAPP_URL,
                     )
 
                     # スレッド ID を保存（今後の通知で再利用）
@@ -113,20 +143,11 @@ def main() -> None:
                     ):
                         customer.discord_thread_id = thread_id
 
-                # 通知済みとして記録
+                # exclude_set にも追加（同一実行内での重複防止）
                 for p in new_properties:
-                    new_seen_entries.append(
-                        {
-                            "customer_name": customer.name,
-                            "building_id": p.building_id,
-                            "room_id": p.room_id,
-                            "building_name": p.building_name,
-                            "rent": p.rent,
-                            "notified_at": now_jst(),
-                        }
-                    )
-                    # seen_set にも追加（同一実行内での重複防止）
-                    seen_set.add((customer.name, p.room_id))
+                    exclude_set.add((customer.name, p.room_id))
+
+                total_new += len(new_properties)
             else:
                 print("  → 新着なし")
 
@@ -148,15 +169,10 @@ def main() -> None:
     # ── 6. ブラウザセッションを閉じる ──────────────────────
     itandi.close()
 
-    # ── 7. 通知済み物件をシートに保存 ──────────────────────
-    if new_seen_entries:
-        try:
-            mark_properties_seen(sheets_service, new_seen_entries)
-            print(
-                f"[INFO] {len(new_seen_entries)} 件を通知済みとして記録しました"
-            )
-        except Exception as exc:
-            print(f"[ERROR] 通知済み物件の保存失敗: {exc}")
+    if total_new:
+        print(
+            f"[INFO] 合計 {total_new} 件を承認待ちとして記録しました"
+        )
 
     print(f"[{now_jst()}] 完了")
 

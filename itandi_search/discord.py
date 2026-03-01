@@ -2,6 +2,7 @@
 
 import json
 import time
+from urllib.parse import quote
 
 import requests
 
@@ -13,6 +14,7 @@ def send_property_notification(
     customer_name: str,
     properties: list[Property],
     thread_id: str | None = None,
+    gas_webapp_url: str = "",
 ) -> str | None:
     """物件一覧を Discord に通知する。
 
@@ -72,59 +74,81 @@ def send_property_notification(
 
     # ── 2. 物件情報を送信 ────────────────────────────────────
     for idx, prop in enumerate(properties):
-        msg = _build_text_message(prop, idx + 1)
+        msg = _build_text_message(
+            prop, idx + 1, gas_webapp_url, customer_name
+        )
         payload: dict = {"content": msg}
 
         url = f"{webhook_url}?thread_id={created_thread_id}"
 
-        try:
-            resp = requests.post(url, json=payload, timeout=15)
-
-            if resp.status_code not in (200, 204):
-                print(
-                    f"[DEBUG] Discord 送信 #{idx+1}: "
-                    f"status={resp.status_code}, "
-                    f"body={resp.text[:200]}"
-                )
-
-            resp.raise_for_status()
-
-        except requests.HTTPError as exc:
-            if exc.response is not None:
-                print(
-                    f"[ERROR] Discord 通知失敗 #{idx+1} "
-                    f"(status={exc.response.status_code}): "
-                    f"{exc.response.text[:300]}"
-                )
-                if exc.response.status_code == 429:
-                    retry_after = exc.response.json().get(
-                        "retry_after", 5
-                    )
-                    print(
-                        f"[WARN] Discord レート制限。"
-                        f"{retry_after}秒待機..."
-                    )
-                    time.sleep(retry_after)
-                    try:
-                        resp = requests.post(
-                            url, json=payload, timeout=15
-                        )
-                        resp.raise_for_status()
-                    except Exception as retry_exc:
-                        print(
-                            f"[ERROR] Discord リトライ失敗: "
-                            f"{retry_exc}"
-                        )
-            else:
-                print(f"[ERROR] Discord 通知失敗: {exc}")
-        except Exception as exc:
-            print(f"[ERROR] Discord 通知失敗: {exc}")
+        _post_with_retry(url, payload, idx + 1)
 
         # レート制限回避のため待機
         if idx < len(properties) - 1:
             time.sleep(1)
 
+    # ── 3. 一括承認リンクを送信 ─────────────────────────────────
+    if gas_webapp_url and len(properties) > 1:
+        approve_all_url = (
+            f"{gas_webapp_url}"
+            f"?action=approve_all"
+            f"&customer={quote(customer_name)}"
+        )
+        bulk_msg = (
+            f"\n📨 **[全 {len(properties)} 件を一括承認して"
+            f"LINE送信]({approve_all_url})**"
+        )
+        bulk_payload: dict = {"content": bulk_msg}
+        url = f"{webhook_url}?thread_id={created_thread_id}"
+        _post_with_retry(url, bulk_payload, len(properties) + 1)
+
     return created_thread_id
+
+
+def _post_with_retry(url: str, payload: dict, index: int) -> None:
+    """Discord に POST し、429 レート制限時はリトライする。"""
+    try:
+        resp = requests.post(url, json=payload, timeout=15)
+
+        if resp.status_code not in (200, 204):
+            print(
+                f"[DEBUG] Discord 送信 #{index}: "
+                f"status={resp.status_code}, "
+                f"body={resp.text[:200]}"
+            )
+
+        resp.raise_for_status()
+
+    except requests.HTTPError as exc:
+        if exc.response is not None:
+            print(
+                f"[ERROR] Discord 通知失敗 #{index} "
+                f"(status={exc.response.status_code}): "
+                f"{exc.response.text[:300]}"
+            )
+            if exc.response.status_code == 429:
+                retry_after = exc.response.json().get(
+                    "retry_after", 5
+                )
+                print(
+                    f"[WARN] Discord レート制限。"
+                    f"{retry_after}秒待機..."
+                )
+                time.sleep(retry_after)
+                try:
+                    resp = requests.post(
+                        url, json=payload, timeout=15
+                    )
+                    resp.raise_for_status()
+                except Exception as retry_exc:
+                    print(
+                        f"[ERROR] Discord リトライ失敗: "
+                        f"{retry_exc}"
+                    )
+        else:
+            print(f"[ERROR] Discord 通知失敗: {exc}")
+    except Exception as exc:
+        print(f"[ERROR] Discord 通知失敗: {exc}")
 
 
 def send_error_notification(webhook_url: str, message: str) -> None:
@@ -141,7 +165,12 @@ def send_error_notification(webhook_url: str, message: str) -> None:
         print(f"[ERROR] Discord エラー通知失敗: {exc}")
 
 
-def _build_text_message(prop: Property, index: int) -> str:
+def _build_text_message(
+    prop: Property,
+    index: int,
+    gas_webapp_url: str = "",
+    customer_name: str = "",
+) -> str:
     """Property → Discord テキストメッセージに変換する。"""
     rent_man = prop.rent / 10000 if prop.rent else 0
     mgmt_man = prop.management_fee / 10000 if prop.management_fee else 0
@@ -182,6 +211,18 @@ def _build_text_message(prop: Property, index: int) -> str:
         lines.append(
             f"💴 敷金: {prop.deposit or 'なし'} / "
             f"礼金: {prop.key_money or 'なし'}"
+        )
+
+    # 承認リンク
+    if gas_webapp_url and customer_name:
+        approve_url = (
+            f"{gas_webapp_url}"
+            f"?action=approve"
+            f"&customer={quote(customer_name)}"
+            f"&room_id={prop.room_id}"
+        )
+        lines.append(
+            f"✅ [承認してLINE送信]({approve_url})"
         )
 
     return "\n".join(lines)
