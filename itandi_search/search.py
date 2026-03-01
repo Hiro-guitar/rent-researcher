@@ -5,9 +5,13 @@ import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from urllib.parse import quote
+
 from .auth import ItandiAuthError, ItandiSession
 from .config import ITANDI_BASE_URL, ITANDI_SEARCH_URL, PREFECTURE_IDS
 from .models import CustomerCriteria, Property
+
+STATIONS_API_URL = "https://api.itandibb.com/api/internal/stations"
 
 
 def _parse_price_text(text: str) -> int:
@@ -40,7 +44,60 @@ class ItandiSearchError(Exception):
     """検索 API エラー"""
 
 
-def build_search_payload(criteria: CustomerCriteria) -> dict:
+def resolve_station_ids(
+    session: "ItandiSession",
+    station_names: list[str],
+    prefecture: str | None = None,
+) -> list[int]:
+    """駅名リストを itandi BB の station_id リストに変換する。
+
+    Args:
+        session: ログイン済み ItandiSession
+        station_names: 駅名のリスト (例: ["渋谷", "恵比寿"])
+        prefecture: 都道府県名 (例: "東京都") — 同名駅の絞り込みに使用
+
+    Returns:
+        station_id のリスト (全路線分を含む)
+    """
+    prefecture_id = PREFECTURE_IDS.get(prefecture) if prefecture else None
+    all_ids: list[int] = []
+
+    for name in station_names:
+        name = name.strip()
+        if not name:
+            continue
+
+        url = f"{STATIONS_API_URL}?name={quote(name)}"
+        try:
+            result = session.api_get(url)
+        except Exception as exc:
+            print(f"[WARN] 駅検索 API エラー ({name}): {exc}")
+            continue
+
+        if result["status"] != 200:
+            print(f"[WARN] 駅検索 API ({name}): status={result['status']}")
+            continue
+
+        stations = result["body"].get("stations", [])
+
+        for st in stations:
+            # 部分一致を除外 (例: "渋谷" で "高座渋谷" を除外)
+            if st.get("label") != name:
+                continue
+            # 都道府県で絞り込み
+            if prefecture_id and st.get("prefecture_id") != prefecture_id:
+                continue
+            all_ids.append(st["id"])
+
+    if all_ids:
+        print(f"[INFO] 駅名 {station_names} → station_id: {all_ids}")
+    return all_ids
+
+
+def build_search_payload(
+    criteria: CustomerCriteria,
+    station_ids: list[int] | None = None,
+) -> dict:
     """CustomerCriteria → itandi BB 検索 API のリクエストボディに変換する。"""
     filter_obj: dict = {}
 
@@ -53,6 +110,10 @@ def build_search_payload(criteria: CustomerCriteria) -> dict:
                 for city in criteria.cities
                 if city.strip()
             ]
+
+    # 駅
+    if station_ids:
+        filter_obj["station_id:in"] = station_ids
 
     # 賃料
     if criteria.rent_min is not None:
@@ -134,7 +195,14 @@ def search_properties(
     ブラウザの fetch() を使って API を呼び出す。
     ページネーションに対応し、最大 10 ページ (200 件) まで取得する。
     """
-    payload = build_search_payload(criteria)
+    # 駅名 → station_id 解決
+    station_ids: list[int] | None = None
+    if criteria.stations:
+        station_ids = resolve_station_ids(
+            session, criteria.stations, criteria.prefecture
+        )
+
+    payload = build_search_payload(criteria, station_ids=station_ids)
     all_properties: list[Property] = []
     page = 1
     max_pages = 10

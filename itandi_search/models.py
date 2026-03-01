@@ -23,7 +23,7 @@ class CustomerCriteria:
     structure_types: list[str] = field(default_factory=list)
     min_floor: Optional[int] = None
     equipment_ids: list[int] = field(default_factory=list)
-    ad_reprint_only: bool = True
+    ad_reprint_only: bool = False
     deal_types: list[str] = field(default_factory=list)
     update_within_days: Optional[int] = None
     discord_thread_id: Optional[str] = None  # 既存スレッドID（あれば）

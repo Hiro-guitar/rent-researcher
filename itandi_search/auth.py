@@ -91,6 +91,71 @@ class ItandiSession:
             self.driver.quit()
             self.driver = None
 
+    def api_get(self, url: str) -> dict:
+        """ブラウザの fetch() を使って API に GET リクエストを送信する。
+
+        Args:
+            url: API エンドポイント URL (クエリパラメータ含む)
+
+        Returns:
+            {"status": int, "body": dict/list, "raw": str}
+        """
+        if not self.driver:
+            raise ItandiAuthError("ブラウザセッションが初期化されていません")
+
+        current_url = self.driver.current_url
+        if not _is_itandibb_host(current_url):
+            self.driver.get(f"{ITANDI_BASE_URL}/rent_rooms/list")
+            import time
+            time.sleep(2)
+
+        async_script = """
+        var callback = arguments[arguments.length - 1];
+        var url = arguments[0];
+
+        fetch(url, {
+            method: 'GET',
+            credentials: 'include',
+            headers: {
+                'Accept': 'application/json, text/plain, */*'
+            }
+        })
+        .then(function(response) {
+            return response.text().then(function(text) {
+                callback(JSON.stringify({
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: text
+                }));
+            });
+        })
+        .catch(function(error) {
+            callback(JSON.stringify({
+                status: 0,
+                statusText: error.message,
+                body: ''
+            }));
+        });
+        """
+
+        self.driver.set_script_timeout(15)
+        result_str = self.driver.execute_async_script(async_script, url)
+
+        result = json.loads(result_str)
+        status = result["status"]
+        body_text = result["body"]
+
+        if status == 0:
+            raise ItandiAuthError(f"API 通信エラー: {result['statusText']}")
+        if status == 401:
+            raise ItandiAuthError("セッションが無効または期限切れです")
+
+        return {
+            "status": status,
+            "body": json.loads(body_text) if body_text else {},
+            "raw": body_text,
+        }
+
     def api_post(self, url: str, payload: dict) -> dict:
         """ブラウザの fetch() を使って API に POST リクエストを送信する。
 
