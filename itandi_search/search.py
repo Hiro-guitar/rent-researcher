@@ -60,6 +60,8 @@ def resolve_station_ids(
         station_id のリスト (全路線分を含む)
     """
     prefecture_id = PREFECTURE_IDS.get(prefecture) if prefecture else None
+    print(f"[DEBUG] resolve_station_ids: names={station_names}, "
+          f"prefecture={prefecture}, prefecture_id={prefecture_id}")
     all_ids: list[int] = []
 
     for name in station_names:
@@ -68,10 +70,13 @@ def resolve_station_ids(
             continue
 
         url = f"{STATIONS_API_URL}?name={quote(name)}"
+        print(f"[DEBUG] 駅検索 API 呼び出し: {url}")
         try:
             result = session.api_get(url)
         except Exception as exc:
             print(f"[WARN] 駅検索 API エラー ({name}): {exc}")
+            import traceback
+            traceback.print_exc()
             continue
 
         if result["status"] != 200:
@@ -79,7 +84,9 @@ def resolve_station_ids(
             continue
 
         stations = result["body"].get("stations", [])
+        print(f"[DEBUG] 駅検索結果 ({name}): {len(stations)} 件")
 
+        matched = 0
         for st in stations:
             # 部分一致を除外 (例: "渋谷" で "高座渋谷" を除外)
             if st.get("label") != name:
@@ -88,9 +95,22 @@ def resolve_station_ids(
             if prefecture_id and st.get("prefecture_id") != prefecture_id:
                 continue
             all_ids.append(st["id"])
+            matched += 1
+            print(f"[DEBUG]   マッチ: id={st['id']}, "
+                  f"label={st.get('label')}, "
+                  f"line={st.get('line_name')}, "
+                  f"pref_id={st.get('prefecture_id')}")
+
+        if matched == 0:
+            # デバッグ: マッチしなかった場合に候補を表示
+            labels = [st.get("label") for st in stations[:5]]
+            print(f"[WARN] 駅名「{name}」に一致する駅がありません "
+                  f"(候補: {labels})")
 
     if all_ids:
         print(f"[INFO] 駅名 {station_names} → station_id: {all_ids}")
+    else:
+        print(f"[WARN] 駅名 {station_names} の station_id を解決できませんでした")
     return all_ids
 
 
@@ -102,18 +122,23 @@ def build_search_payload(
     filter_obj: dict = {}
 
     # エリア
-    if criteria.cities and criteria.prefecture:
-        prefecture_id = PREFECTURE_IDS.get(criteria.prefecture)
-        if prefecture_id:
-            filter_obj["address:in"] = [
-                {"city": city.strip(), "prefecture_id": prefecture_id}
-                for city in criteria.cities
-                if city.strip()
-            ]
+    prefecture_id = PREFECTURE_IDS.get(criteria.prefecture) if criteria.prefecture else None
+    if criteria.cities and prefecture_id:
+        filter_obj["address:in"] = [
+            {"city": city.strip(), "prefecture_id": prefecture_id}
+            for city in criteria.cities
+            if city.strip()
+        ]
 
     # 駅
     if station_ids:
         filter_obj["station_id:in"] = station_ids
+    elif not filter_obj.get("address:in") and prefecture_id:
+        # 市区町村も駅も指定されていない場合、都道府県でフィルター
+        # (全国の物件が返ってくるのを防ぐ安全策)
+        filter_obj["address:in"] = [{"prefecture_id": prefecture_id}]
+        print(f"[INFO] 都道府県フィルター適用 (フォールバック): "
+              f"prefecture_id={prefecture_id}")
 
     # 賃料
     if criteria.rent_min is not None:
@@ -196,11 +221,17 @@ def search_properties(
     ページネーションに対応し、最大 10 ページ (200 件) まで取得する。
     """
     # 駅名 → station_id 解決
+    print(f"[DEBUG] criteria.stations = {criteria.stations}")
+    print(f"[DEBUG] criteria.prefecture = {criteria.prefecture}")
+    print(f"[DEBUG] criteria.cities = {criteria.cities}")
     station_ids: list[int] | None = None
     if criteria.stations:
         station_ids = resolve_station_ids(
             session, criteria.stations, criteria.prefecture
         )
+        print(f"[DEBUG] 解決された station_ids = {station_ids}")
+    else:
+        print("[DEBUG] criteria.stations が空のため駅検索をスキップ")
 
     payload = build_search_payload(criteria, station_ids=station_ids)
     all_properties: list[Property] = []

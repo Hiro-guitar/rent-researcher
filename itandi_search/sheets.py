@@ -69,6 +69,12 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
         if not name:
             continue
 
+        # デバッグ: 行データを表示（列マッピングの確認用）
+        print(f"[DEBUG] 行データ (len={len(row)}): "
+              f"B={_get(row, 1, '')}, C={_get(row, 2, '')}, "
+              f"D={_get(row, 3, '')}, E={_get(row, 4, '')}, "
+              f"F={_get(row, 5, '')}, G={_get(row, 6, '')}")
+
         prefecture = _get(row, 2, "").strip()
         cities = _split_csv(_get(row, 3, ""))
         # E列(index 4)は路線（参考情報、検索には使わない）
