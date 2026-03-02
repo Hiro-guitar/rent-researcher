@@ -537,8 +537,8 @@ def fetch_room_details(
             var label = labels[i];
             // 「ラベル：値」または「ラベル\n値」パターンを検索
             var patterns = [
-                new RegExp(label + '[：:\\s]+([^\\n|]+)'),
-                new RegExp(label + '\\n([^\\n]+)')
+                new RegExp(label + '[：:\\\\s]+([^\\\\n|]+)'),
+                new RegExp(label + '\\\\n([^\\\\n]+)')
             ];
             for (var j = 0; j < patterns.length; j++) {
                 var m = text.match(patterns[j]);
