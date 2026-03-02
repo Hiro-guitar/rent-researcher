@@ -49,3 +49,4 @@ class Property:
     room_number: str = ""
     url: str = ""
     image_url: Optional[str] = None
+    image_urls: list[str] = field(default_factory=list)

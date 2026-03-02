@@ -239,6 +239,7 @@ def write_pending_properties(
                 "address": p.address,
                 "url": p.url,
                 "image_url": p.image_url,
+                "image_urls": p.image_urls,
                 "room_number": p.room_number,
                 "building_age": p.building_age,
                 "floor": p.floor,

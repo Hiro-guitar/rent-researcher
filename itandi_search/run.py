@@ -17,7 +17,7 @@ from .config import (
     ITANDI_PASSWORD,
 )
 from .discord import send_error_notification, send_property_notification
-from .search import ItandiSearchError, search_properties
+from .search import ItandiSearchError, enrich_properties_with_images, search_properties
 from .sheets import (
     get_sheets_service,
     load_customer_criteria,
@@ -110,6 +110,12 @@ def main() -> None:
 
             if new_properties:
                 print(f"  → うち新着 {len(new_properties)} 件")
+
+                # 各物件の詳細ページから全画像URLを取得
+                try:
+                    enrich_properties_with_images(itandi, new_properties)
+                except Exception as exc:
+                    print(f"[WARN] 画像取得に失敗 ({customer.name}): {exc}")
 
                 # 承認待ちシートに書き込み
                 try:

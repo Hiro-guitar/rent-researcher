@@ -395,3 +395,70 @@ def parse_search_response(data: dict) -> list[Property]:
             properties.append(prop)
 
     return properties
+
+
+def fetch_room_image_urls(session: ItandiSession, room_id: int) -> list[str]:
+    """物件詳細ページから全画像URLをスクレイピングする。
+
+    itandi BB の検索 API は madori_image_url (間取り図) と building image_url
+    しか返さないが、物件詳細ページには外観・内装・間取り等の複数画像が掲載される。
+    Selenium で詳細ページにアクセスし、property-images ドメインの画像URLを抽出する。
+
+    Args:
+        session: ログイン済み ItandiSession
+        room_id: 物件の room_id
+
+    Returns:
+        画像URLのリスト (重複排除済み)
+    """
+    if not session.driver:
+        print(f"[WARN] Selenium セッションが無い為、画像スクレイピングをスキップ (room_id={room_id})")
+        return []
+
+    import time
+
+    detail_url = f"{ITANDI_BASE_URL}/rent_rooms/{room_id}"
+    print(f"[DEBUG] 画像取得: {detail_url} にアクセス中...")
+
+    try:
+        session.driver.get(detail_url)
+        time.sleep(2)  # ページ読み込み待ち
+
+        # property-images ドメインの全画像URLを取得
+        script = """
+        var imgs = document.querySelectorAll('img[src*="property-images"]');
+        var urls = [];
+        var seen = {};
+        for (var i = 0; i < imgs.length; i++) {
+            var src = imgs[i].src;
+            if (src && !seen[src]) {
+                seen[src] = true;
+                urls.push(src);
+            }
+        }
+        return urls;
+        """
+        image_urls = session.driver.execute_script(script)
+        print(f"[DEBUG] room_id={room_id}: {len(image_urls)} 枚の画像を取得")
+        return image_urls or []
+    except Exception as exc:
+        print(f"[WARN] 画像スクレイピング失敗 (room_id={room_id}): {exc}")
+        return []
+
+
+def enrich_properties_with_images(
+    session: ItandiSession, properties: list[Property]
+) -> None:
+    """検索結果の各物件に対して詳細ページから全画像URLを取得して設定する。
+
+    Args:
+        session: ログイン済み ItandiSession
+        properties: 画像URLを追加する Property リスト (in-place で変更)
+    """
+    for prop in properties:
+        image_urls = fetch_room_image_urls(session, prop.room_id)
+        if image_urls:
+            prop.image_urls = image_urls
+            # image_url がまだ無い場合は最初の画像を設定
+            if not prop.image_url and image_urls:
+                prop.image_url = image_urls[0]
