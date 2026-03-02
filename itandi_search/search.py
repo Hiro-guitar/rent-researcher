@@ -573,7 +573,8 @@ def fetch_room_details(
         var facilityCats = {
             '建物設備': true, 'バス・トイレ': true, 'キッチン': true,
             '室内設備': true, 'セキュリティ': true, '冷暖房': true,
-            '収納': true, 'TV・通信': true, 'その他設備': true
+            '収納': true, 'TV・通信': true, 'その他設備': true,
+            '主な設備': true
         };
         var lines = text.split('\\n');
         var facilitySet = {};
@@ -587,7 +588,7 @@ def fetch_room_details(
             if (!inFac) continue;
             // 設備モード終了条件: 非設備セクションヘッダーや価格パターン
             if (/^[\\d,.]+万?円/.test(ln) || /^¥/.test(ln)) { inFac = false; continue; }
-            if (/^(賃料|管理費|共益費|費用|契約|条件|フリーレント|権利金|入居|現況|駐車場|駐輪場|バイク置き場|保険|水道|所在地|交通|主な設備|物件概要|表示について|図面|物件資料|仲介|取引|敷金|礼金|保証|更新|解約|火災|備考|間取り|面積|築|専有|構造|所在階|総戸数|方角|採光|入力なし|なし$|\\d+年|物件|出稿|内見|WEB|募集)/.test(ln)) { inFac = false; continue; }
+            if (/^(賃料|管理費|共益費|費用|契約|条件$|フリーレント|権利金|入居|現況|駐車場代|駐輪場代|バイク置き場代|水道|所在地|交通|物件概要|表示について|図面ダウンロード|物件資料|仲介|取引|敷金|礼金|保証会社|保証金|更新料|更新事務|解約|火災保険|備考|間取り|面積|専有|所在階|総戸数|方角|採光|入力なし|なし$|\\d+年|\\d+万|出稿|内見予約|WEB$|募集)/.test(ln)) { inFac = false; continue; }
             if (ln.length > 30) { inFac = false; continue; }
             // 設備アイテムとして追加（重複排除）
             if (ln.length >= 2 && !facilitySet[ln]) {
