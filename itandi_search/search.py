@@ -500,39 +500,75 @@ def fetch_room_details(
             print(f"[DEBUG]   text_sample: {text_sample[:300].replace(chr(10), ' | ')}")
 
         # 詳細テーブルから物件情報を取得
+        # itandi BB は React SPA (Material-UI) のため th/td/dt/dd がない
+        # ページのテキストから「ラベル：値」パターンを抽出する
         details_script = """
         var details = {};
-        // th/td パターン（テーブル形式）
+
+        // アプローチ1: th/td パターン（フォールバック）
         var ths = document.querySelectorAll('th');
         for (var i = 0; i < ths.length; i++) {
             var key = ths[i].textContent.trim();
             var td = ths[i].nextElementSibling;
-            if (td) {
-                details[key] = td.textContent.trim();
+            if (td) { details[key] = td.textContent.trim(); }
+        }
+
+        // アプローチ2: ページ全体のテキストからラベル：値パターンを抽出
+        var text = document.body.innerText || '';
+        // 探すラベルリスト
+        var labels = [
+            '入居可能時期', '入居時期',
+            '所在階', '構造', '総戸数',
+            '賃貸借の種類', '賃貸借契約の種類', '契約期間',
+            '解約予告', '解約通知期間',
+            '更新・再契約', '契約更新',
+            '主要採光面', '向き', '方角',
+            '設備', '条件・設備', '設備・条件',
+            '敷引き・償却', '敷引き', '敷引', '償却',
+            'ペット飼育時敷金追加', 'ペット',
+            'フリーレント',
+            '更新料',
+            '火災保険料', '火災保険',
+            '更新事務手数料',
+            '保証会社加入料', '保証会社'
+        ];
+
+        for (var i = 0; i < labels.length; i++) {
+            var label = labels[i];
+            // 「ラベル：値」または「ラベル\n値」パターンを検索
+            var patterns = [
+                new RegExp(label + '[：:\\s]+([^\\n|]+)'),
+                new RegExp(label + '\\n([^\\n]+)')
+            ];
+            for (var j = 0; j < patterns.length; j++) {
+                var m = text.match(patterns[j]);
+                if (m && m[1]) {
+                    var val = m[1].trim();
+                    // 不要な末尾を除去（次のラベルや区切り文字）
+                    val = val.replace(/[|｜].*$/, '').trim();
+                    if (val && val.length < 300 && val.length > 0) {
+                        if (!details[label]) {
+                            details[label] = val;
+                        }
+                    }
+                    break;
+                }
             }
         }
-        // dt/dd パターン（定義リスト形式）
-        var dts = document.querySelectorAll('dt');
-        for (var i = 0; i < dts.length; i++) {
-            var key = dts[i].textContent.trim();
-            var dd = dts[i].nextElementSibling;
-            if (dd && dd.tagName === 'DD') {
-                details[key] = dd.textContent.trim();
-            }
-        }
-        // div ベースのラベル/値パターン（React SPA向け）
-        // パターン1: 隣接する div.label + div.value 的なもの
-        var pairs = document.querySelectorAll('[class*="label"], [class*="Label"]');
-        for (var i = 0; i < pairs.length; i++) {
-            var key = pairs[i].textContent.trim();
-            var next = pairs[i].nextElementSibling;
-            if (next && key && key.length < 30) {
+
+        // アプローチ3: React コンポーネントからラベル/値ペアを取得
+        var labelEls = document.querySelectorAll('[class*="Label"], [class*="label"]');
+        for (var i = 0; i < labelEls.length; i++) {
+            var key = labelEls[i].textContent.trim();
+            var next = labelEls[i].nextElementSibling;
+            if (next && key && key.length < 30 && !details[key]) {
                 var val = next.textContent.trim();
-                if (val && val.length < 200) {
+                if (val && val.length < 300) {
                     details[key] = val;
                 }
             }
         }
+
         return details;
         """
         raw_details = session.driver.execute_script(details_script) or {}
