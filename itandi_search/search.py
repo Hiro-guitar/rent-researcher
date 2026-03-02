@@ -523,13 +523,12 @@ def fetch_room_details(
             '解約予告', '解約通知期間',
             '更新・再契約', '契約更新',
             '主要採光面', '向き', '方角',
-            '設備', '条件・設備', '設備・条件',
             '敷引き・償却', '敷引き', '敷引', '償却',
             'ペット飼育時敷金追加', 'ペット',
             'フリーレント',
+            '更新事務手数料',
             '更新料',
             '火災保険料', '火災保険',
-            '更新事務手数料',
             '保証会社加入料', '保証会社'
         ];
 
@@ -569,57 +568,95 @@ def fetch_room_details(
             }
         }
 
+        // アプローチ4: 設備カテゴリを全て結合して取得
+        // itandi BBの詳細ページでは設備が「建物設備」「バス・トイレ」「キッチン」等に分かれている
+        var facilityCategories = [
+            '建物設備', 'バス・トイレ', 'キッチン', '室内設備',
+            'セキュリティ', '冷暖房', '収納', 'TV・通信',
+            'その他設備', '条件'
+        ];
+        var allFacilities = [];
+        for (var c = 0; c < facilityCategories.length; c++) {
+            var cat = facilityCategories[c];
+            var catPatterns = [
+                new RegExp(cat + '[：:\\\\s]*\\\\n([^\\\\n]+(?:\\\\n[^\\\\n]+)*)'),
+                new RegExp(cat + '[：:\\\\s]+([^\\\\n]+)')
+            ];
+            for (var cp = 0; cp < catPatterns.length; cp++) {
+                var cm = text.match(catPatterns[cp]);
+                if (cm && cm[1]) {
+                    var items = cm[1].trim()
+                        .split(/[\\n\\/／]+/)
+                        .map(function(s) { return s.trim(); })
+                        .filter(function(s) {
+                            // 次のセクションのラベルっぽい行は除外
+                            return s && s.length < 50 &&
+                                !s.match(/^(建物設備|バス|キッチン|室内|セキュリティ|冷暖房|収納|TV|その他|条件|費用|契約|備考|更新|解約|入居|敷|礼|保証|火災)/)
+                        });
+                    if (items.length > 0) {
+                        allFacilities = allFacilities.concat(items);
+                    }
+                    break;
+                }
+            }
+        }
+        if (allFacilities.length > 0) {
+            details['__all_facilities'] = allFacilities.join(' / ');
+        }
+
         return details;
         """
         raw_details = session.driver.execute_script(details_script) or {}
         print(f"[DEBUG] room_id={room_id}: {len(raw_details)} 件の詳細項目を取得")
 
         # 日本語ラベル → 内部キーにマッピング
-        label_map = {
-            "入居可能時期": "move_in_date",
-            "入居時期": "move_in_date",
-            "所在階": "floor_text",
-            "階": "floor_text",
-            "構造": "structure",
-            "総戸数": "total_units",
-            "賃貸借の種類": "lease_type",
-            "賃貸借契約の種類": "lease_type",
-            "契約期間": "lease_type",
-            "解約予告": "cancellation_notice",
-            "解約通知期間": "cancellation_notice",
-            "更新": "renewal_info",
-            "契約更新": "renewal_info",
-            "更新・再契約": "renewal_info",
-            "主要採光面": "sunlight",
-            "向き": "sunlight",
-            "方角": "sunlight",
-            "設備": "facilities",
-            "設備・条件": "facilities",
-            "条件・設備": "facilities",
-            "敷引": "shikibiki",
-            "敷引き": "shikibiki",
-            "償却": "shikibiki",
-            "敷引き・償却": "shikibiki",
-            "ペット": "pet_deposit",
-            "ペット飼育時敷金追加": "pet_deposit",
-            "フリーレント": "free_rent",
-            "更新料": "renewal_fee",
-            "火災保険料": "fire_insurance",
-            "火災保険": "fire_insurance",
-            "更新事務手数料": "renewal_admin_fee",
-            "保証会社": "guarantee_fee",
-            "保証会社加入料": "guarantee_fee",
-            "保証会社利用料": "guarantee_fee",
-        }
+        # ※ 長いラベルを先にチェックするためリスト化（部分一致の誤マッチ防止）
+        label_map_list = [
+            # 長い・具体的なラベルを先に（部分一致で短い方に食われるのを防ぐ）
+            ("更新事務手数料", "renewal_admin_fee"),
+            ("更新料", "renewal_fee"),
+            ("更新・再契約", "renewal_info"),
+            ("契約更新", "renewal_info"),
+            ("入居可能時期", "move_in_date"),
+            ("入居時期", "move_in_date"),
+            ("所在階", "floor_text"),
+            ("構造", "structure"),
+            ("総戸数", "total_units"),
+            ("賃貸借契約の種類", "lease_type"),
+            ("賃貸借の種類", "lease_type"),
+            ("契約期間", "lease_type"),
+            ("解約通知期間", "cancellation_notice"),
+            ("解約予告", "cancellation_notice"),
+            ("主要採光面", "sunlight"),
+            ("向き", "sunlight"),
+            ("方角", "sunlight"),
+            ("敷引き・償却", "shikibiki"),
+            ("敷引き", "shikibiki"),
+            ("敷引", "shikibiki"),
+            ("償却", "shikibiki"),
+            ("ペット飼育時敷金追加", "pet_deposit"),
+            ("ペット", "pet_deposit"),
+            ("フリーレント", "free_rent"),
+            ("火災保険料", "fire_insurance"),
+            ("火災保険", "fire_insurance"),
+            ("保証会社加入料", "guarantee_fee"),
+            ("保証会社利用料", "guarantee_fee"),
+            ("保証会社", "guarantee_fee"),
+        ]
 
         details: dict[str, str] = {}
         for raw_label, value in raw_details.items():
             if not value or value in ("-", "ー", "—", "―"):
                 continue
-            for label, key in label_map.items():
+            for label, key in label_map_list:
                 if label in raw_label and key not in details:
                     details[key] = value
                     break
+
+        # 全カテゴリ結合の設備データがあれば優先使用
+        all_fac = raw_details.get("__all_facilities", "")
+        if all_fac:
+            details["facilities"] = all_fac
 
         print(f"[DEBUG] room_id={room_id}: マッピング後 {len(details)} 件の詳細")
         return image_urls, details
