@@ -277,7 +277,26 @@ function handlePropertyViewApi(e) {
     address: prop.address,
     deposit: prop.deposit,
     keyMoney: prop.keyMoney,
-    images: viewImages
+    images: viewImages,
+    // 追加詳細情報
+    storyText: prop.storyText,
+    otherStations: prop.otherStations,
+    moveInDate: prop.moveInDate,
+    floorText: prop.floorText,
+    structure: prop.structure,
+    totalUnits: prop.totalUnits,
+    leaseType: prop.leaseType,
+    cancellationNotice: prop.cancellationNotice,
+    renewalInfo: prop.renewalInfo,
+    sunlight: prop.sunlight,
+    facilities: prop.facilities,
+    shikibiki: prop.shikibiki,
+    petDeposit: prop.petDeposit,
+    freeRent: prop.freeRent,
+    renewalFee: prop.renewalFee,
+    fireInsurance: prop.fireInsurance,
+    renewalAdminFee: prop.renewalAdminFee,
+    guaranteeFee: prop.guaranteeFee
   };
 
   return ContentService.createTextOutput(JSON.stringify(result))
@@ -359,7 +378,26 @@ function rowToProperty(row) {
     selectedImageUrls: extra.selected_image_urls || null,
     roomNumber: extra.room_number || '',
     buildingAge: extra.building_age || '',
-    floor: extra.floor || 0
+    floor: extra.floor || 0,
+    // 追加詳細情報
+    storyText: extra.story_text || '',
+    otherStations: extra.other_stations || [],
+    moveInDate: extra.move_in_date || '',
+    floorText: extra.floor_text || '',
+    structure: extra.structure || '',
+    totalUnits: extra.total_units || '',
+    leaseType: extra.lease_type || '',
+    cancellationNotice: extra.cancellation_notice || '',
+    renewalInfo: extra.renewal_info || '',
+    sunlight: extra.sunlight || '',
+    facilities: extra.facilities || '',
+    shikibiki: extra.shikibiki || '',
+    petDeposit: extra.pet_deposit || '',
+    freeRent: extra.free_rent || '',
+    renewalFee: extra.renewal_fee || '',
+    fireInsurance: extra.fire_insurance || '',
+    renewalAdminFee: extra.renewal_admin_fee || '',
+    guaranteeFee: extra.guarantee_fee || ''
   };
 }
 

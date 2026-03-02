@@ -339,8 +339,13 @@ def parse_search_response(data: dict) -> list[Property]:
         # 最寄り駅情報（テキスト配列）
         station_texts = bldg.get("nearby_train_station_texts", [])
         station_info = ""
+        other_stations: list[str] = []
         if station_texts and isinstance(station_texts, list):
             station_info = station_texts[0] if station_texts else ""
+            other_stations = station_texts[1:] if len(station_texts) > 1 else []
+
+        # 階建て・建物種別
+        story_text = bldg.get("story_text", "") or ""
 
         # 部屋情報
         rooms = bldg.get("rooms", [])
@@ -391,41 +396,45 @@ def parse_search_response(data: dict) -> list[Property]:
                 room_number=str(room_number),
                 url=f"{ITANDI_BASE_URL}/rent_rooms/{room_id}",
                 image_url=image_url,
+                story_text=story_text,
+                other_stations=other_stations,
             )
             properties.append(prop)
 
     return properties
 
 
-def fetch_room_image_urls(session: ItandiSession, room_id: int) -> list[str]:
-    """物件詳細ページから全画像URLをスクレイピングする。
+def fetch_room_details(
+    session: ItandiSession, room_id: int
+) -> tuple[list[str], dict[str, str]]:
+    """物件詳細ページから画像URLと詳細情報をスクレイピングする。
 
     itandi BB の検索 API は madori_image_url (間取り図) と building image_url
     しか返さないが、物件詳細ページには外観・内装・間取り等の複数画像が掲載される。
-    Selenium で詳細ページにアクセスし、property-images ドメインの画像URLを抽出する。
+    また、入居可能時期・構造・設備等の詳細情報もテーブルから取得する。
 
     Args:
         session: ログイン済み ItandiSession
         room_id: 物件の room_id
 
     Returns:
-        画像URLのリスト (重複排除済み)
+        (画像URLリスト, 詳細情報dict) のタプル
     """
     if not session.driver:
-        print(f"[WARN] Selenium セッションが無い為、画像スクレイピングをスキップ (room_id={room_id})")
-        return []
+        print(f"[WARN] Selenium セッションが無い為、詳細スクレイピングをスキップ (room_id={room_id})")
+        return [], {}
 
     import time
 
     detail_url = f"{ITANDI_BASE_URL}/rent_rooms/{room_id}"
-    print(f"[DEBUG] 画像取得: {detail_url} にアクセス中...")
+    print(f"[DEBUG] 詳細取得: {detail_url} にアクセス中...")
 
     try:
         session.driver.get(detail_url)
         time.sleep(2)  # ページ読み込み待ち
 
         # property-images ドメインの全画像URLを取得
-        script = """
+        image_script = """
         var imgs = document.querySelectorAll('img[src*="property-images"]');
         var urls = [];
         var seen = {};
@@ -438,27 +447,113 @@ def fetch_room_image_urls(session: ItandiSession, room_id: int) -> list[str]:
         }
         return urls;
         """
-        image_urls = session.driver.execute_script(script)
+        image_urls = session.driver.execute_script(image_script) or []
         print(f"[DEBUG] room_id={room_id}: {len(image_urls)} 枚の画像を取得")
-        return image_urls or []
+
+        # 詳細テーブルから物件情報を取得
+        details_script = """
+        var details = {};
+        // th/td パターン（テーブル形式）
+        var ths = document.querySelectorAll('th');
+        for (var i = 0; i < ths.length; i++) {
+            var key = ths[i].textContent.trim();
+            var td = ths[i].nextElementSibling;
+            if (td) {
+                details[key] = td.textContent.trim();
+            }
+        }
+        // dt/dd パターン（定義リスト形式）
+        var dts = document.querySelectorAll('dt');
+        for (var i = 0; i < dts.length; i++) {
+            var key = dts[i].textContent.trim();
+            var dd = dts[i].nextElementSibling;
+            if (dd && dd.tagName === 'DD') {
+                details[key] = dd.textContent.trim();
+            }
+        }
+        return details;
+        """
+        raw_details = session.driver.execute_script(details_script) or {}
+        print(f"[DEBUG] room_id={room_id}: {len(raw_details)} 件の詳細項目を取得")
+
+        # 日本語ラベル → 内部キーにマッピング
+        label_map = {
+            "入居可能時期": "move_in_date",
+            "入居時期": "move_in_date",
+            "所在階": "floor_text",
+            "階": "floor_text",
+            "構造": "structure",
+            "総戸数": "total_units",
+            "賃貸借の種類": "lease_type",
+            "賃貸借契約の種類": "lease_type",
+            "契約期間": "lease_type",
+            "解約予告": "cancellation_notice",
+            "解約通知期間": "cancellation_notice",
+            "更新": "renewal_info",
+            "契約更新": "renewal_info",
+            "更新・再契約": "renewal_info",
+            "主要採光面": "sunlight",
+            "向き": "sunlight",
+            "方角": "sunlight",
+            "設備": "facilities",
+            "設備・条件": "facilities",
+            "条件・設備": "facilities",
+            "敷引": "shikibiki",
+            "敷引き": "shikibiki",
+            "償却": "shikibiki",
+            "敷引き・償却": "shikibiki",
+            "ペット": "pet_deposit",
+            "ペット飼育時敷金追加": "pet_deposit",
+            "フリーレント": "free_rent",
+            "更新料": "renewal_fee",
+            "火災保険料": "fire_insurance",
+            "火災保険": "fire_insurance",
+            "更新事務手数料": "renewal_admin_fee",
+            "保証会社": "guarantee_fee",
+            "保証会社加入料": "guarantee_fee",
+            "保証会社利用料": "guarantee_fee",
+        }
+
+        details: dict[str, str] = {}
+        for raw_label, value in raw_details.items():
+            if not value or value in ("-", "ー", "—", "―"):
+                continue
+            for label, key in label_map.items():
+                if label in raw_label and key not in details:
+                    details[key] = value
+                    break
+
+        print(f"[DEBUG] room_id={room_id}: マッピング後 {len(details)} 件の詳細")
+        return image_urls, details
+
     except Exception as exc:
-        print(f"[WARN] 画像スクレイピング失敗 (room_id={room_id}): {exc}")
-        return []
+        print(f"[WARN] 詳細スクレイピング失敗 (room_id={room_id}): {exc}")
+        return [], {}
+
+
+def fetch_room_image_urls(session: ItandiSession, room_id: int) -> list[str]:
+    """後方互換: 画像URLのみ取得（fetch_room_details のラッパー）"""
+    image_urls, _ = fetch_room_details(session, room_id)
+    return image_urls
 
 
 def enrich_properties_with_images(
     session: ItandiSession, properties: list[Property]
 ) -> None:
-    """検索結果の各物件に対して詳細ページから全画像URLを取得して設定する。
+    """検索結果の各物件に対して詳細ページから画像URL + 詳細情報を取得して設定する。
 
     Args:
         session: ログイン済み ItandiSession
-        properties: 画像URLを追加する Property リスト (in-place で変更)
+        properties: 画像URL・詳細情報を追加する Property リスト (in-place で変更)
     """
     for prop in properties:
-        image_urls = fetch_room_image_urls(session, prop.room_id)
+        image_urls, details = fetch_room_details(session, prop.room_id)
         if image_urls:
             prop.image_urls = image_urls
-            # image_url がまだ無い場合は最初の画像を設定
             if not prop.image_url and image_urls:
                 prop.image_url = image_urls[0]
+        # 詳細情報を Property にセット
+        if details:
+            for key, value in details.items():
+                if hasattr(prop, key) and value:
+                    setattr(prop, key, value)

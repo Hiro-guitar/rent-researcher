@@ -40,8 +40,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .section-title{font-size:14px;color:#888;font-weight:bold;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px}
 .row{display:flex;padding:8px 0;border-bottom:1px solid #f5f5f5}
 .row:last-child{border-bottom:none}
-.row-label{color:#888;font-size:14px;width:90px;flex-shrink:0}
+.row-label{color:#888;font-size:14px;width:110px;flex-shrink:0}
 .row-value{color:#333;font-size:14px;flex:1}
+.facilities-text{font-size:13px;color:#555;line-height:1.7;white-space:pre-wrap}
 .footer{text-align:center;padding:20px;color:#aaa;font-size:12px}
 </style>
 </head>
@@ -134,17 +135,63 @@ function renderProperty(p) {
   if (p.layout) details.push(['間取り', p.layout]);
   if (p.area) details.push(['面積', p.area + 'm²']);
   if (p.buildingAge) details.push(['築年数', p.buildingAge]);
-  if (p.floor) details.push(['階数', p.floor + '階']);
+  if (p.floorText) details.push(['所在階', p.floorText]);
+  else if (p.floor) details.push(['所在階', p.floor + '階']);
+  if (p.storyText) details.push(['階建て', p.storyText]);
+  if (p.structure) details.push(['構造', p.structure]);
+  if (p.totalUnits) details.push(['総戸数', p.totalUnits]);
+  if (p.sunlight) details.push(['主要採光面', p.sunlight]);
+  if (p.moveInDate) details.push(['入居可能時期', p.moveInDate]);
   for (var i = 0; i < details.length; i++) {
-    html += '<div class="row"><span class="row-label">' + details[i][0] + '</span><span class="row-value">' + escHtml(details[i][1]) + '</span></div>';
+    html += makeRow(details[i][0], details[i][1]);
   }
   html += '</div>';
 
   // アクセス
   html += '<div class="section"><div class="section-title">アクセス</div>';
-  if (p.stationInfo) html += '<div class="row"><span class="row-label">最寄駅</span><span class="row-value">' + escHtml(p.stationInfo) + '</span></div>';
-  if (p.address) html += '<div class="row"><span class="row-label">住所</span><span class="row-value">' + escHtml(p.address) + '</span></div>';
+  if (p.stationInfo) html += makeRow('最寄駅', p.stationInfo);
+  var others = p.otherStations || [];
+  for (var i = 0; i < others.length; i++) {
+    html += makeRow('', others[i]);
+  }
+  if (p.address) html += makeRow('住所', p.address);
   html += '</div>';
+
+  // 契約条件（値がある場合のみセクション表示）
+  var contractRows = [];
+  if (p.leaseType) contractRows.push(['契約区分', p.leaseType]);
+  if (p.cancellationNotice) contractRows.push(['解約予告', p.cancellationNotice]);
+  if (p.renewalInfo) contractRows.push(['更新/再契約', p.renewalInfo]);
+  if (p.freeRent) contractRows.push(['フリーレント', p.freeRent]);
+  if (contractRows.length > 0) {
+    html += '<div class="section"><div class="section-title">契約条件</div>';
+    for (var i = 0; i < contractRows.length; i++) {
+      html += makeRow(contractRows[i][0], contractRows[i][1]);
+    }
+    html += '</div>';
+  }
+
+  // 費用（値がある場合のみセクション表示）
+  var costRows = [];
+  if (p.shikibiki) costRows.push(['敷引き/償却', p.shikibiki]);
+  if (p.petDeposit) costRows.push(['ペット敷金追加', p.petDeposit]);
+  if (p.renewalFee) costRows.push(['更新料', p.renewalFee]);
+  if (p.fireInsurance) costRows.push(['火災保険料', p.fireInsurance]);
+  if (p.renewalAdminFee) costRows.push(['更新事務手数料', p.renewalAdminFee]);
+  if (p.guaranteeFee) costRows.push(['保証会社加入料', p.guaranteeFee]);
+  if (costRows.length > 0) {
+    html += '<div class="section"><div class="section-title">費用</div>';
+    for (var i = 0; i < costRows.length; i++) {
+      html += makeRow(costRows[i][0], costRows[i][1]);
+    }
+    html += '</div>';
+  }
+
+  // 設備・詳細（値がある場合のみ）
+  if (p.facilities) {
+    html += '<div class="section"><div class="section-title">設備・詳細</div>'
+      + '<div class="facilities-text">' + escHtml(p.facilities) + '</div></div>';
+  }
 
   html += '<div class="footer">※ 詳細は担当者にお問い合わせください</div>';
   html += '</div>';
@@ -161,6 +208,10 @@ function renderProperty(p) {
 function escHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function makeRow(label, value) {
+  return '<div class="row"><span class="row-label">' + escHtml(label) + '</span><span class="row-value">' + escHtml(value) + '</span></div>';
 }
 
 // カルーセル操作
