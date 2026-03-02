@@ -568,40 +568,35 @@ def fetch_room_details(
             }
         }
 
-        // アプローチ4: 設備カテゴリを全て結合して取得
+        // アプローチ4: 設備情報をテキストの行から抽出（行ベース・ステートマシン方式）
         // itandi BBの詳細ページでは設備が「建物設備」「バス・トイレ」「キッチン」等に分かれている
-        var facilityCategories = [
-            '建物設備', 'バス・トイレ', 'キッチン', '室内設備',
-            'セキュリティ', '冷暖房', '収納', 'TV・通信',
-            'その他設備', '条件'
-        ];
-        var allFacilities = [];
-        for (var c = 0; c < facilityCategories.length; c++) {
-            var cat = facilityCategories[c];
-            var catPatterns = [
-                new RegExp(cat + '[：:\\\\s]*\\\\n([^\\\\n]+(?:\\\\n[^\\\\n]+)*)'),
-                new RegExp(cat + '[：:\\\\s]+([^\\\\n]+)')
-            ];
-            for (var cp = 0; cp < catPatterns.length; cp++) {
-                var cm = text.match(catPatterns[cp]);
-                if (cm && cm[1]) {
-                    var items = cm[1].trim()
-                        .split(/[\\n\\/／]+/)
-                        .map(function(s) { return s.trim(); })
-                        .filter(function(s) {
-                            // 次のセクションのラベルっぽい行は除外
-                            return s && s.length < 50 &&
-                                !s.match(/^(建物設備|バス|キッチン|室内|セキュリティ|冷暖房|収納|TV|その他|条件|費用|契約|備考|更新|解約|入居|敷|礼|保証|火災)/)
-                        });
-                    if (items.length > 0) {
-                        allFacilities = allFacilities.concat(items);
-                    }
-                    break;
-                }
+        var facilityCats = {
+            '建物設備': true, 'バス・トイレ': true, 'キッチン': true,
+            '室内設備': true, 'セキュリティ': true, '冷暖房': true,
+            '収納': true, 'TV・通信': true, 'その他設備': true
+        };
+        var lines = text.split('\\n');
+        var facilitySet = {};
+        var facilityList = [];
+        var inFac = false;
+        for (var li = 0; li < lines.length; li++) {
+            var ln = lines[li].trim();
+            if (!ln) continue;
+            // 設備カテゴリのヘッダーなら設備モード開始
+            if (facilityCats[ln]) { inFac = true; continue; }
+            if (!inFac) continue;
+            // 設備モード終了条件: 非設備セクションヘッダーや価格パターン
+            if (/^[\\d,.]+万?円/.test(ln) || /^¥/.test(ln)) { inFac = false; continue; }
+            if (/^(賃料|管理費|共益費|費用|契約|条件|フリーレント|権利金|入居|現況|駐車場|駐輪場|バイク置き場|保険|水道|所在地|交通|主な設備|物件概要|表示について|図面|物件資料|仲介|取引|敷金|礼金|保証|更新|解約|火災|備考|間取り|面積|築|専有|構造|所在階|総戸数|方角|採光|入力なし|なし$|\\d+年|物件|出稿|内見|WEB|募集)/.test(ln)) { inFac = false; continue; }
+            if (ln.length > 30) { inFac = false; continue; }
+            // 設備アイテムとして追加（重複排除）
+            if (ln.length >= 2 && !facilitySet[ln]) {
+                facilitySet[ln] = true;
+                facilityList.push(ln);
             }
         }
-        if (allFacilities.length > 0) {
-            details['__all_facilities'] = allFacilities.join(' / ');
+        if (facilityList.length > 0) {
+            details['__all_facilities'] = facilityList.join(' / ');
         }
 
         return details;
