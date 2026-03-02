@@ -431,7 +431,7 @@ def fetch_room_details(
 
     try:
         session.driver.get(detail_url)
-        time.sleep(2)  # ページ読み込み待ち
+        time.sleep(3)  # ページ読み込み待ち（React SPA 考慮）
 
         # property-images ドメインの全画像URLを取得
         image_script = """
@@ -449,6 +449,55 @@ def fetch_room_details(
         """
         image_urls = session.driver.execute_script(image_script) or []
         print(f"[DEBUG] room_id={room_id}: {len(image_urls)} 枚の画像を取得")
+
+        # ページ構造のデバッグ情報を出力
+        debug_script = """
+        var info = {};
+        info.title = document.title;
+        info.th_count = document.querySelectorAll('th').length;
+        info.dt_count = document.querySelectorAll('dt').length;
+        info.table_count = document.querySelectorAll('table').length;
+        info.dl_count = document.querySelectorAll('dl').length;
+        // ラベル系の要素を探す
+        var labelEls = document.querySelectorAll('[class*="label"], [class*="Label"], [class*="key"], [class*="Key"], [class*="item"], [class*="Item"], [class*="title"], [class*="heading"]');
+        info.label_class_count = labelEls.length;
+        // テキスト内容のサンプルを取得（最初の5個）
+        var samples = [];
+        for (var i = 0; i < Math.min(labelEls.length, 5); i++) {
+            samples.push(labelEls[i].tagName + '.' + labelEls[i].className.substring(0, 50) + ': ' + labelEls[i].textContent.trim().substring(0, 30));
+        }
+        info.label_samples = samples;
+        // body の直下の構造
+        var bodyChildren = [];
+        for (var i = 0; i < Math.min(document.body.children.length, 5); i++) {
+            var el = document.body.children[i];
+            bodyChildren.push(el.tagName + '#' + el.id + '.' + (el.className || '').substring(0, 30));
+        }
+        info.body_children = bodyChildren;
+        // 特定のテキストを含む要素を探す
+        var allText = document.body.innerText || '';
+        info.has_nyukyo = allText.includes('入居');
+        info.has_kouzo = allText.includes('構造');
+        info.has_setsubi = allText.includes('設備');
+        info.has_keiyaku = allText.includes('契約');
+        info.text_length = allText.length;
+        // 全テキストの先頭500文字
+        info.text_sample = allText.substring(0, 500);
+        return info;
+        """
+        debug_info = session.driver.execute_script(debug_script) or {}
+        print(f"[DEBUG] room_id={room_id} ページ構造: title={debug_info.get('title', 'N/A')}")
+        print(f"[DEBUG]   th={debug_info.get('th_count')}, dt={debug_info.get('dt_count')}, table={debug_info.get('table_count')}, dl={debug_info.get('dl_count')}")
+        print(f"[DEBUG]   label系class数={debug_info.get('label_class_count')}")
+        for s in debug_info.get('label_samples', []):
+            print(f"[DEBUG]   sample: {s}")
+        print(f"[DEBUG]   body_children={debug_info.get('body_children', [])}")
+        print(f"[DEBUG]   テキスト有無: 入居={debug_info.get('has_nyukyo')}, 構造={debug_info.get('has_kouzo')}, 設備={debug_info.get('has_setsubi')}, 契約={debug_info.get('has_keiyaku')}")
+        print(f"[DEBUG]   text_length={debug_info.get('text_length')}")
+        text_sample = debug_info.get('text_sample', '')
+        if text_sample:
+            # 改行を置換して1行にして先頭300文字だけ
+            print(f"[DEBUG]   text_sample: {text_sample[:300].replace(chr(10), ' | ')}")
 
         # 詳細テーブルから物件情報を取得
         details_script = """
@@ -469,6 +518,19 @@ def fetch_room_details(
             var dd = dts[i].nextElementSibling;
             if (dd && dd.tagName === 'DD') {
                 details[key] = dd.textContent.trim();
+            }
+        }
+        // div ベースのラベル/値パターン（React SPA向け）
+        // パターン1: 隣接する div.label + div.value 的なもの
+        var pairs = document.querySelectorAll('[class*="label"], [class*="Label"]');
+        for (var i = 0; i < pairs.length; i++) {
+            var key = pairs[i].textContent.trim();
+            var next = pairs[i].nextElementSibling;
+            if (next && key && key.length < 30) {
+                var val = next.textContent.trim();
+                if (val && val.length < 200) {
+                    details[key] = val;
+                }
             }
         }
         return details;
