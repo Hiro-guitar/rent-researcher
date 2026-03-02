@@ -577,27 +577,36 @@ def fetch_room_details(
             '主な設備': true
         };
         var lines = text.split('\\n');
-        var facilitySet = {};
-        var facilityList = [];
+        var facilityCategorized = {};
+        var currentCat = '';
         var inFac = false;
+        var facilitySet = {};
         for (var li = 0; li < lines.length; li++) {
             var ln = lines[li].trim();
             if (!ln) continue;
             // 設備カテゴリのヘッダーなら設備モード開始
-            if (facilityCats[ln]) { inFac = true; continue; }
+            if (facilityCats[ln]) { inFac = true; currentCat = ln; if (!facilityCategorized[currentCat]) facilityCategorized[currentCat] = []; continue; }
             if (!inFac) continue;
             // 設備モード終了条件: 非設備セクションヘッダーや価格パターン
             if (/^[\\d,.]+万?円/.test(ln) || /^¥/.test(ln)) { inFac = false; continue; }
             if (/^(賃料|管理費|共益費|費用|契約|条件$|フリーレント|権利金|入居|現況|駐車場代|駐輪場代|バイク置き場代|水道|所在地|交通|物件概要|表示について|図面ダウンロード|物件資料|仲介|取引|敷金|礼金|保証会社|保証金|更新料|更新事務|解約|火災保険|備考|間取り|面積|専有|所在階|総戸数|方角|採光|入力なし|なし$|\\d+年|\\d+万|出稿|内見予約|WEB$|募集)/.test(ln)) { inFac = false; continue; }
             if (ln.length > 30) { inFac = false; continue; }
-            // 設備アイテムとして追加（重複排除）
-            if (ln.length >= 2 && !facilitySet[ln]) {
+            // 「その他」は設備アイテムではないのでスキップ
+            if (ln === 'その他') continue;
+            // 設備アイテムとして追加（カテゴリ別・重複排除）
+            if (ln.length >= 2 && currentCat && !facilitySet[ln]) {
                 facilitySet[ln] = true;
-                facilityList.push(ln);
+                facilityCategorized[currentCat].push(ln);
             }
         }
-        if (facilityList.length > 0) {
-            details['__all_facilities'] = facilityList.join(' / ');
+        // 空カテゴリを除去
+        var hasFac = false;
+        for (var cat in facilityCategorized) {
+            if (facilityCategorized[cat].length === 0) { delete facilityCategorized[cat]; }
+            else { hasFac = true; }
+        }
+        if (hasFac) {
+            details['__all_facilities'] = facilityCategorized;
         }
 
         return details;
@@ -620,7 +629,7 @@ def fetch_room_details(
             ("総戸数", "total_units"),
             ("賃貸借契約の種類", "lease_type"),
             ("賃貸借の種類", "lease_type"),
-            ("契約期間", "lease_type"),
+            ("契約期間", "contract_period"),
             ("解約通知期間", "cancellation_notice"),
             ("解約予告", "cancellation_notice"),
             ("主要採光面", "sunlight"),
@@ -649,8 +658,8 @@ def fetch_room_details(
                     details[key] = value
                     break
 
-        # 全カテゴリ結合の設備データがあれば優先使用
-        all_fac = raw_details.get("__all_facilities", "")
+        # カテゴリ別の設備データがあれば優先使用（dict or str）
+        all_fac = raw_details.get("__all_facilities")
         if all_fac:
             details["facilities"] = all_fac
 

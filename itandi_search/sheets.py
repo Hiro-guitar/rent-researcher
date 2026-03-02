@@ -251,6 +251,7 @@ def write_pending_properties(
                 "structure": p.structure,
                 "total_units": p.total_units,
                 "lease_type": p.lease_type,
+                "contract_period": p.contract_period,
                 "cancellation_notice": p.cancellation_notice,
                 "renewal_info": p.renewal_info,
                 "sunlight": p.sunlight,

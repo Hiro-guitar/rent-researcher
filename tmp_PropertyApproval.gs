@@ -102,7 +102,9 @@ function handleConfirmApprove(e) {
     saveSelectedImages(row.rowIndex, selectedImageUrls);
   }
 
-  var viewUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
+  // ビューURL（データをハッシュに埋め込み → property.html で即時描画）
+  var viewImgs = selectedImageUrls.length > 0 ? selectedImageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
+  var viewUrl = buildViewUrl(customerName, roomId, prop, viewImgs);
 
   var flex = buildPropertyFlex(prop, {
     includeImage: selectedImageUrls.length > 0,
@@ -142,7 +144,6 @@ function handleConfirmApproveAll(e) {
     var prop = rowToProperty(rows[i].values);
     var rid = String(rows[i].values[2]);
     var includeImage = imageRoomIds.indexOf(rid) !== -1;
-    var viewUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
 
     // 画像を含める場合、全画像を選択済みとして保存
     var selectedUrls = [];
@@ -152,6 +153,9 @@ function handleConfirmApproveAll(e) {
         saveSelectedImages(rows[i].rowIndex, selectedUrls);
       }
     }
+
+    var viewImgs = selectedUrls.length > 0 ? selectedUrls : (prop.imageUrl ? [prop.imageUrl] : []);
+    var viewUrl = buildViewUrl(customerName, rid, prop, viewImgs);
 
     var flex = buildPropertyFlex(prop, {
       includeImage: includeImage,
@@ -286,6 +290,7 @@ function handlePropertyViewApi(e) {
     structure: prop.structure,
     totalUnits: prop.totalUnits,
     leaseType: prop.leaseType,
+    contractPeriod: prop.contractPeriod,
     cancellationNotice: prop.cancellationNotice,
     renewalInfo: prop.renewalInfo,
     sunlight: prop.sunlight,
@@ -387,6 +392,7 @@ function rowToProperty(row) {
     structure: extra.structure || '',
     totalUnits: extra.total_units || '',
     leaseType: extra.lease_type || '',
+    contractPeriod: extra.contract_period || '',
     cancellationNotice: extra.cancellation_notice || '',
     renewalInfo: extra.renewal_info || '',
     sunlight: extra.sunlight || '',
@@ -410,6 +416,48 @@ function saveSelectedImages(rowIndex, selectedImageUrls) {
   try { extra = JSON.parse(cell.getValue() || '{}'); } catch(e) {}
   extra.selected_image_urls = selectedImageUrls;
   cell.setValue(JSON.stringify(extra));
+}
+
+// ===== ビューURL生成（データをハッシュに埋め込み、API不要で即時表示） =====
+function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
+  var d = {};
+  if (prop.buildingName) d.bn = prop.buildingName;
+  if (prop.roomNumber) d.rn = prop.roomNumber;
+  if (prop.rent) d.r = prop.rent;
+  if (prop.managementFee) d.mf = prop.managementFee;
+  if (prop.layout) d.l = prop.layout;
+  if (prop.area) d.a = prop.area;
+  if (prop.buildingAge) d.ba = prop.buildingAge;
+  if (prop.stationInfo) d.si = prop.stationInfo;
+  if (prop.address) d.ad = prop.address;
+  if (prop.deposit) d.d = prop.deposit;
+  if (prop.keyMoney) d.k = prop.keyMoney;
+  if (prop.floorText) d.ft = prop.floorText;
+  else if (prop.floor) d.fl = prop.floor;
+  if (prop.storyText) d.st = prop.storyText;
+  if (prop.structure) d.str = prop.structure;
+  if (prop.totalUnits) d.tu = prop.totalUnits;
+  if (prop.sunlight) d.sl = prop.sunlight;
+  if (prop.moveInDate) d.md = prop.moveInDate;
+  if (prop.leaseType) d.lt = prop.leaseType;
+  if (prop.contractPeriod) d.cp = prop.contractPeriod;
+  if (prop.cancellationNotice) d.cn = prop.cancellationNotice;
+  if (prop.renewalInfo) d.ri = prop.renewalInfo;
+  if (prop.freeRent) d.fr = prop.freeRent;
+  if (prop.shikibiki) d.sb = prop.shikibiki;
+  if (prop.petDeposit) d.pd = prop.petDeposit;
+  if (prop.renewalFee) d.rf = prop.renewalFee;
+  if (prop.fireInsurance) d.fi = prop.fireInsurance;
+  if (prop.renewalAdminFee) d.ra = prop.renewalAdminFee;
+  if (prop.guaranteeFee) d.gf = prop.guaranteeFee;
+  // 設備: objectでもstringでもそのまま
+  if (prop.facilities) d.fac = prop.facilities;
+  if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
+  if (viewImageUrls && viewImageUrls.length > 0) d.imgs = viewImageUrls;
+
+  var jsonStr = JSON.stringify(d);
+  var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
+  return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '#' + encoded;
 }
 
 // ===== Flex Message =====

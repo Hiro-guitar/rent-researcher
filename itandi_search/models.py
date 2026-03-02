@@ -58,6 +58,7 @@ class Property:
     structure: str = ""  # 構造
     total_units: str = ""  # 総戸数
     lease_type: str = ""  # 賃貸借契約区分
+    contract_period: str = ""  # 契約期間
     cancellation_notice: str = ""  # 解約予告
     renewal_info: str = ""  # 更新・再契約可否
     sunlight: str = ""  # 主要採光面
