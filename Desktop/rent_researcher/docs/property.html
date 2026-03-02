@@ -42,6 +42,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .row:last-child{border-bottom:none}
 .row-label{color:#888;font-size:14px;width:110px;flex-shrink:0}
 .row-value{color:#333;font-size:14px;flex:1}
+/* 設備ジャンル分け */
+.fac-category{font-size:13px;color:#666;font-weight:bold;margin-top:10px;padding-bottom:4px;border-bottom:1px solid #eee}
+.fac-category:first-child{margin-top:0}
+.fac-items{font-size:13px;color:#555;line-height:1.8;padding:4px 0 2px}
 .facilities-text{font-size:13px;color:#555;line-height:1.7;white-space:pre-wrap}
 .footer{text-align:center;padding:20px;color:#aaa;font-size:12px}
 </style>
@@ -58,15 +62,75 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 <script>
 var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxPj9FQfY09HdJPZ39Tku5O4brLjam-HOWwcdP3HL0AoJ2s6pRXJ0h3hPfsjQjBWqIU/exec';
 
-// URL パラメータ取得
+// ===== URLハッシュからデータをデコード（即時描画用） =====
+function decodeHashData() {
+  var hash = window.location.hash;
+  if (!hash || hash.length <= 1) return null;
+  try {
+    var encoded = hash.substring(1);
+    // URL-safe base64 → 標準 base64
+    var standard = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    while (standard.length % 4 !== 0) standard += '=';
+    var binary = atob(standard);
+    // UTF-8 デコード
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    var jsonStr = new TextDecoder('utf-8').decode(bytes);
+    var d = JSON.parse(jsonStr);
+    // 短縮キー → フルプロパティ名にマッピング
+    return {
+      buildingName: d.bn || '',
+      roomNumber: d.rn || '',
+      rent: d.r || 0,
+      managementFee: d.mf || 0,
+      layout: d.l || '',
+      area: d.a || 0,
+      buildingAge: d.ba || '',
+      stationInfo: d.si || '',
+      address: d.ad || '',
+      deposit: d.d || '',
+      keyMoney: d.k || '',
+      floorText: d.ft || '',
+      floor: d.fl || 0,
+      storyText: d.st || '',
+      structure: d.str || '',
+      totalUnits: d.tu || '',
+      sunlight: d.sl || '',
+      moveInDate: d.md || '',
+      leaseType: d.lt || '',
+      contractPeriod: d.cp || '',
+      cancellationNotice: d.cn || '',
+      renewalInfo: d.ri || '',
+      freeRent: d.fr || '',
+      shikibiki: d.sb || '',
+      petDeposit: d.pd || '',
+      renewalFee: d.rf || '',
+      fireInsurance: d.fi || '',
+      renewalAdminFee: d.ra || '',
+      guaranteeFee: d.gf || '',
+      facilities: d.fac || '',
+      otherStations: d.os || [],
+      images: d.imgs || []
+    };
+  } catch(e) {
+    return null;
+  }
+}
+
+// ===== 初期化 =====
 var params = new URLSearchParams(window.location.search);
 var customer = params.get('customer');
 var roomId = params.get('room_id');
 
-if (!customer || !roomId) {
-  showError('パラメータが不足しています。');
-} else {
+// 1. まずハッシュデータを試す（即時描画 < 1秒）
+var hashProp = decodeHashData();
+if (hashProp) {
+  renderProperty(hashProp);
+} else if (customer && roomId) {
+  // 2. フォールバック: GAS API（旧リンク対応）
   fetchProperty(customer, roomId);
+} else {
+  showError('パラメータが不足しています。');
 }
 
 function fetchProperty(customer, roomId) {
@@ -89,7 +153,7 @@ function showError(msg) {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   document.getElementById('app').innerHTML =
-    '<div class="error-card"><h2>⚠️ エラー</h2><p>' + escHtml(msg) + '</p></div>';
+    '<div class="error-card"><h2>\u26a0\ufe0f エラー</h2><p>' + escHtml(msg) + '</p></div>';
 }
 
 function renderProperty(p) {
@@ -133,7 +197,7 @@ function renderProperty(p) {
   html += '<div class="section"><div class="section-title">物件情報</div>';
   var details = [];
   if (p.layout) details.push(['間取り', p.layout]);
-  if (p.area) details.push(['面積', p.area + 'm²']);
+  if (p.area) details.push(['面積', p.area + 'm\u00b2']);
   if (p.buildingAge) details.push(['築年数', p.buildingAge]);
   if (p.floorText) details.push(['所在階', p.floorText]);
   else if (p.floor) details.push(['所在階', p.floor + '階']);
@@ -160,8 +224,9 @@ function renderProperty(p) {
   // 契約条件（値がある場合のみセクション表示）
   var contractRows = [];
   if (p.leaseType) contractRows.push(['契約区分', p.leaseType]);
+  if (p.contractPeriod) contractRows.push(['契約期間', p.contractPeriod]);
   if (p.cancellationNotice) contractRows.push(['解約予告', p.cancellationNotice]);
-  if (p.renewalInfo) contractRows.push(['更新/再契約', p.renewalInfo]);
+  if (p.renewalInfo) contractRows.push(['更新・再契約可否', p.renewalInfo]);
   if (p.freeRent) contractRows.push(['フリーレント', p.freeRent]);
   if (contractRows.length > 0) {
     html += '<div class="section"><div class="section-title">契約条件</div>';
@@ -189,11 +254,28 @@ function renderProperty(p) {
 
   // 設備・詳細（値がある場合のみ）
   if (p.facilities) {
-    html += '<div class="section"><div class="section-title">設備・詳細</div>'
-      + '<div class="facilities-text">' + escHtml(p.facilities) + '</div></div>';
+    html += '<div class="section"><div class="section-title">設備・詳細</div>';
+    if (typeof p.facilities === 'object' && !Array.isArray(p.facilities)) {
+      // カテゴリ別表示（新形式）
+      var cats = Object.keys(p.facilities);
+      for (var i = 0; i < cats.length; i++) {
+        var cat = cats[i];
+        var items = p.facilities[cat];
+        if (items && items.length > 0) {
+          html += '<div class="fac-category">' + escHtml(cat) + '</div>';
+          var itemHtml = [];
+          for (var j = 0; j < items.length; j++) { itemHtml.push(escHtml(items[j])); }
+          html += '<div class="fac-items">' + itemHtml.join(' / ') + '</div>';
+        }
+      }
+    } else {
+      // フラット文字列（旧形式・後方互換）
+      html += '<div class="facilities-text">' + escHtml(p.facilities) + '</div>';
+    }
+    html += '</div>';
   }
 
-  html += '<div class="footer">※ 詳細は担当者にお問い合わせください</div>';
+  html += '<div class="footer">\u203b 詳細は担当者にお問い合わせください</div>';
   html += '</div>';
 
   document.getElementById('loading').style.display = 'none';
