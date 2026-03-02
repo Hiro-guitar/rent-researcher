@@ -126,7 +126,7 @@ function renderProperty(p) {
 
   html += '<div class="price-box">'
     + '<div class="price-main">' + rentMan + '万円<span style="font-size:16px">/月</span></div>'
-    + '<div class="price-sub">管理費 ' + mgmtMan + '万円 | 敷金 ' + escHtml(p.deposit || 'なし') + ' | 礼金 ' + escHtml(p.keyMoney || 'なし') + '</div>'
+    + '<div class="price-sub">管理費 ' + mgmtMan + '万円 | 敷金 ' + escHtml(nv(p.deposit)) + ' | 礼金 ' + escHtml(nv(p.keyMoney)) + '</div>'
     + '</div>';
 
   // 物件情報
@@ -210,8 +210,13 @@ function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function nv(val) {
+  if (!val || val === '入力なし') return 'ー';
+  return val;
+}
+
 function makeRow(label, value) {
-  return '<div class="row"><span class="row-label">' + escHtml(label) + '</span><span class="row-value">' + escHtml(value) + '</span></div>';
+  return '<div class="row"><span class="row-label">' + escHtml(label) + '</span><span class="row-value">' + escHtml(nv(value)) + '</span></div>';
 }
 
 // カルーセル操作
