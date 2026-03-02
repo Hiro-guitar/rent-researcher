@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>物件情報</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;background:#f8f9fa;color:#333}
+/* ローディング */
+.loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;color:#888}
+.loading .spinner{width:40px;height:40px;border:4px solid #e0e0e0;border-top:4px solid #4CAF50;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading p{font-size:14px}
+/* エラー */
+.error-card{background:#fff;border-radius:12px;padding:30px;max-width:400px;margin:40px auto;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
+.error-card h2{color:#E05252;margin-bottom:12px}
+.error-card p{color:#666;line-height:1.6}
+/* カルーセル */
+.carousel{position:relative;width:100%;background:#000;overflow:hidden}
+.carousel-inner{display:flex;transition:transform 0.3s ease;width:100%}
+.carousel-slide{min-width:100%;display:flex;justify-content:center;align-items:center}
+.carousel-slide img{width:100%;max-height:50vh;object-fit:contain}
+.carousel-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.7);border:none;font-size:24px;padding:8px 12px;cursor:pointer;border-radius:50%;z-index:2}
+.carousel-btn.prev{left:8px}
+.carousel-btn.next{right:8px}
+.carousel-dots{text-align:center;padding:8px;background:#000}
+.carousel-dots .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.4);margin:0 3px;cursor:pointer}
+.carousel-dots .dot.active{background:#fff}
+.carousel-counter{position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:4px 10px;border-radius:12px;z-index:2}
+/* ヒーロー画像（1枚のみ） */
+.hero{width:100%;max-height:50vh;object-fit:cover;display:block}
+/* コンテンツ */
+.content{max-width:600px;margin:0 auto;padding:20px}
+.title{font-size:22px;font-weight:bold;color:#222;margin-bottom:8px}
+.price-box{background:linear-gradient(135deg,#E05252,#ff6b6b);color:#fff;border-radius:12px;padding:16px;margin:12px 0}
+.price-main{font-size:28px;font-weight:bold}
+.price-sub{font-size:14px;opacity:0.9;margin-top:4px}
+.section{background:#fff;border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
+.section-title{font-size:14px;color:#888;font-weight:bold;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px}
+.row{display:flex;padding:8px 0;border-bottom:1px solid #f5f5f5}
+.row:last-child{border-bottom:none}
+.row-label{color:#888;font-size:14px;width:90px;flex-shrink:0}
+.row-value{color:#333;font-size:14px;flex:1}
+.footer{text-align:center;padding:20px;color:#aaa;font-size:12px}
+</style>
+</head>
+<body>
+
+<div id="loading" class="loading">
+  <div class="spinner"></div>
+  <p>物件情報を読み込んでいます...</p>
+</div>
+
+<div id="app" style="display:none"></div>
+
+<script>
+var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxPj9FQfY09HdJPZ39Tku5O4brLjam-HOWwcdP3HL0AoJ2s6pRXJ0h3hPfsjQjBWqIU/exec';
+
+// URL パラメータ取得
+var params = new URLSearchParams(window.location.search);
+var customer = params.get('customer');
+var roomId = params.get('room_id');
+
+if (!customer || !roomId) {
+  showError('パラメータが不足しています。');
+} else {
+  fetchProperty(customer, roomId);
+}
+
+function fetchProperty(customer, roomId) {
+  var url = GAS_API_URL + '?action=view_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
+
+  fetch(url, { redirect: 'follow' })
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      var data;
+      try { data = JSON.parse(text); } catch(e) { throw new Error('レスポンス解析エラー'); }
+      if (data.error) throw new Error(data.error);
+      renderProperty(data);
+    })
+    .catch(function(err) {
+      showError(err.message || '物件情報の取得に失敗しました。');
+    });
+}
+
+function showError(msg) {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('app').innerHTML =
+    '<div class="error-card"><h2>⚠️ エラー</h2><p>' + escHtml(msg) + '</p></div>';
+}
+
+function renderProperty(p) {
+  var rentMan = p.rent ? (p.rent / 10000).toFixed(1) : '0';
+  var mgmtMan = p.managementFee ? (p.managementFee / 10000).toFixed(1) : '0';
+  var images = p.images || [];
+
+  var html = '';
+
+  // 画像表示
+  if (images.length > 1) {
+    html += '<div class="carousel" id="carousel">'
+      + '<div class="carousel-inner" id="carouselInner">';
+    for (var i = 0; i < images.length; i++) {
+      html += '<div class="carousel-slide"><img src="' + escHtml(images[i]) + '" alt="物件画像 ' + (i+1) + '"></div>';
+    }
+    html += '</div>'
+      + '<button class="carousel-btn prev" onclick="slide(-1)">&lt;</button>'
+      + '<button class="carousel-btn next" onclick="slide(1)">&gt;</button>'
+      + '<div class="carousel-counter"><span id="slideNum">1</span> / ' + images.length + '</div>'
+      + '</div>'
+      + '<div class="carousel-dots" id="dots">';
+    for (var i = 0; i < images.length; i++) {
+      html += '<span class="dot' + (i === 0 ? ' active' : '') + '" onclick="goTo(' + i + ')"></span>';
+    }
+    html += '</div>';
+  } else if (images.length === 1) {
+    html += '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像">';
+  }
+
+  // コンテンツ
+  html += '<div class="content">';
+  html += '<div class="title">' + escHtml(p.buildingName || '') + (p.roomNumber ? ' ' + escHtml(p.roomNumber) : '') + '</div>';
+
+  html += '<div class="price-box">'
+    + '<div class="price-main">' + rentMan + '万円<span style="font-size:16px">/月</span></div>'
+    + '<div class="price-sub">管理費 ' + mgmtMan + '万円 | 敷金 ' + escHtml(p.deposit || 'なし') + ' | 礼金 ' + escHtml(p.keyMoney || 'なし') + '</div>'
+    + '</div>';
+
+  // 物件情報
+  html += '<div class="section"><div class="section-title">物件情報</div>';
+  var details = [];
+  if (p.layout) details.push(['間取り', p.layout]);
+  if (p.area) details.push(['面積', p.area + 'm²']);
+  if (p.buildingAge) details.push(['築年数', p.buildingAge]);
+  if (p.floor) details.push(['階数', p.floor + '階']);
+  for (var i = 0; i < details.length; i++) {
+    html += '<div class="row"><span class="row-label">' + details[i][0] + '</span><span class="row-value">' + escHtml(details[i][1]) + '</span></div>';
+  }
+  html += '</div>';
+
+  // アクセス
+  html += '<div class="section"><div class="section-title">アクセス</div>';
+  if (p.stationInfo) html += '<div class="row"><span class="row-label">最寄駅</span><span class="row-value">' + escHtml(p.stationInfo) + '</span></div>';
+  if (p.address) html += '<div class="row"><span class="row-label">住所</span><span class="row-value">' + escHtml(p.address) + '</span></div>';
+  html += '</div>';
+
+  html += '<div class="footer">※ 詳細は担当者にお問い合わせください</div>';
+  html += '</div>';
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('app').innerHTML = html;
+  document.title = (p.buildingName || '物件情報') + ' - 物件詳細';
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// カルーセル操作
+var cur = 0, total = 0;
+function goTo(n) { cur = n; updateCarousel(); }
+function slide(d) { cur = (cur + d + total) % total; updateCarousel(); }
+function updateCarousel() {
+  var inner = document.getElementById('carouselInner');
+  if (!inner) return;
+  inner.style.transform = 'translateX(-' + cur * 100 + '%)';
+  document.getElementById('slideNum').textContent = cur + 1;
+  var dots = document.querySelectorAll('.dot');
+  for (var i = 0; i < dots.length; i++) { dots[i].className = i === cur ? 'dot active' : 'dot'; }
+}
+
+// タッチスワイプ
+document.addEventListener('DOMContentLoaded', function() {
+  setTimeout(function() {
+    var el = document.getElementById('carousel');
+    if (!el) return;
+    var imgs = el.querySelectorAll('.carousel-slide');
+    total = imgs.length;
+    var startX = 0;
+    el.addEventListener('touchstart', function(e) { startX = e.touches[0].clientX; });
+    el.addEventListener('touchend', function(e) {
+      var dx = e.changedTouches[0].clientX - startX;
+      if (Math.abs(dx) > 40) { slide(dx < 0 ? 1 : -1); }
+    });
+  }, 500);
+});
+</script>
+</body>
+</html>
