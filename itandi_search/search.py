@@ -528,7 +528,7 @@ def fetch_room_details(
             'フリーレント',
             '更新事務手数料',
             '更新料',
-            '火災保険料', '火災保険',
+            '火災保険料', '火災保険', '保険',
             '保証会社加入料', '保証会社'
         ];
 
@@ -630,20 +630,10 @@ def fetch_room_details(
             }
         }
 
-        // デバッグ: 火災保険・保証会社周辺のテキストを抽出
-        var insuranceIdx = text.indexOf('火災保険');
-        var guaranteeIdx = text.indexOf('保証会社');
-        var hokenIdx = text.indexOf('保険');
-        if (insuranceIdx >= 0) details['__dbg_insurance'] = text.substring(Math.max(0, insuranceIdx - 30), insuranceIdx + 80).replace(/\\n/g, ' | ');
-        if (guaranteeIdx >= 0) details['__dbg_guarantee'] = text.substring(Math.max(0, guaranteeIdx - 30), guaranteeIdx + 80).replace(/\\n/g, ' | ');
-        if (hokenIdx >= 0) details['__dbg_hoken'] = text.substring(Math.max(0, hokenIdx - 30), hokenIdx + 80).replace(/\\n/g, ' | ');
-
         return details;
         """
         raw_details = session.driver.execute_script(details_script) or {}
         print(f"[DEBUG] room_id={room_id}: {len(raw_details)} 件の詳細項目を取得")
-        for k, v in raw_details.items():
-            print(f"[DEBUG]   raw: {k} = {str(v)[:100]}")
 
         # 日本語ラベル → 内部キーにマッピング
         # ※ 長いラベルを先にチェックするためリスト化（部分一致の誤マッチ防止）
