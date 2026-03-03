@@ -609,6 +609,27 @@ def fetch_room_details(
             details['__all_facilities'] = facilityCategorized;
         }
 
+        // アプローチ5: 保証情報（複数行を結合、「備考：」を除去）
+        var gIdx = -1;
+        for (var li = 0; li < lines.length; li++) {
+            if (lines[li].trim() === '保証情報') { gIdx = li; break; }
+        }
+        if (gIdx >= 0) {
+            var gParts = [];
+            for (var li = gIdx + 1; li < Math.min(gIdx + 10, lines.length); li++) {
+                var ln = lines[li].trim();
+                if (!ln) continue;
+                // セクション境界で停止
+                if (/^(賃料|管理費|共益費|費用|契約|設備|物件概要|交通|所在地|間取り|面積|専有|所在階|総戸数|方角|採光|表示|図面|仲介|取引|条件$|建物設備|バス|キッチン|室内|セキュリティ|冷暖房|収納|TV|その他設備|主な設備|出稿|内見|WEB$|募集|火災保険|更新料|更新事務|解約|敷金|礼金|フリーレント|敷引|ペット|保険$)/.test(ln)) break;
+                // 「備考：」プレフィックスを除去
+                ln = ln.replace(/^備考[：:]\s*/, '').trim();
+                if (ln) gParts.push(ln);
+            }
+            if (gParts.length > 0) {
+                details['__guarantee_info'] = gParts.join(' ');
+            }
+        }
+
         return details;
         """
         raw_details = session.driver.execute_script(details_script) or {}
@@ -667,6 +688,11 @@ def fetch_room_details(
         combined = f"{lt} {cp}".strip()
         if combined:
             details["contract_period"] = combined
+
+        # 保証情報を処理（複数行結合済み・備考：除去済み）
+        guarantee_info = raw_details.get("__guarantee_info", "")
+        if guarantee_info:
+            details["guarantee_info"] = guarantee_info
 
         # カテゴリ別の設備データがあれば整形文字列に変換して使用
         all_fac = raw_details.get("__all_facilities")

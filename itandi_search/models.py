@@ -70,3 +70,4 @@ class Property:
     fire_insurance: str = ""  # 火災保険料
     renewal_admin_fee: str = ""  # 更新事務手数料
     guarantee_fee: str = ""  # 保証会社加入料
+    guarantee_info: str = ""  # 保証情報（利用必須 etc.）
