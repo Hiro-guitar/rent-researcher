@@ -140,9 +140,8 @@ function handleConfirmApprove(e) {
     updateSheetWithEdits(row.rowIndex, prop);
   }
 
-  // ビューURL（データをハッシュに埋め込み → property.html で即時描画）
-  var viewImgs = selectedImageUrls.length > 0 ? selectedImageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
-  var viewUrl = buildViewUrl(customerName, roomId, prop, viewImgs);
+  // ビューURL（GAS Web App で表示 — URL短縮のため直接レンダリング）
+  var viewUrl = getGasBaseUrl() + '?action=view&customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
 
   var flex = buildPropertyFlex(prop, {
     includeImage: selectedImageUrls.length > 0,
@@ -204,8 +203,7 @@ function handleConfirmApproveAll(e) {
       }
     }
 
-    var viewImgs = selectedUrls.length > 0 ? selectedUrls : (prop.imageUrl ? [prop.imageUrl] : []);
-    var viewUrl = buildViewUrl(customerName, rid, prop, viewImgs);
+    var viewUrl = getGasBaseUrl() + '?action=view&customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
 
     var flex = buildPropertyFlex(prop, {
       includeImage: includeImage,
@@ -558,37 +556,9 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
   if (viewImageUrls && viewImageUrls.length > 0) d.imgs = viewImageUrls;
 
-  var basePrefix = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '#';
-  var LINE_URI_MAX = 1000;
-
-  // エンコードしてURLを生成、1000文字超なら段階的に削る
-  function _encode(obj) {
-    var j = JSON.stringify(obj);
-    return Utilities.base64EncodeWebSafe(Utilities.newBlob(j).getBytes());
-  }
-
-  var url = basePrefix + _encode(d);
-  if (url.length > LINE_URI_MAX && d.imgs) {
-    // 1) 画像を1枚だけに
-    d.imgs = [d.imgs[0]];
-    url = basePrefix + _encode(d);
-  }
-  if (url.length > LINE_URI_MAX && d.imgs) {
-    // 2) 画像を完全に除外
-    delete d.imgs;
-    url = basePrefix + _encode(d);
-  }
-  if (url.length > LINE_URI_MAX && d.fac) {
-    // 3) 設備情報を除外
-    delete d.fac;
-    url = basePrefix + _encode(d);
-  }
-  if (url.length > LINE_URI_MAX && d.os) {
-    // 4) 他の最寄駅を除外
-    delete d.os;
-    url = basePrefix + _encode(d);
-  }
-  return url;
+  var jsonStr = JSON.stringify(d);
+  var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
+  return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '#' + encoded;
 }
 
 // ===== Flex Message =====
