@@ -104,6 +104,7 @@ function decodeHashData() {
       fireInsurance: d.fi || '',
       renewalAdminFee: d.ra || '',
       guaranteeFee: d.gf || '',
+      guaranteeInfo: d.gi || '',
       facilities: d.fac || '',
       otherStations: d.os || [],
       images: d.imgs || []
@@ -239,6 +240,7 @@ function renderProperty(p) {
   if (p.fireInsurance) costRows.push(['火災保険料', p.fireInsurance]);
   if (p.renewalAdminFee) costRows.push(['更新事務手数料', p.renewalAdminFee]);
   if (p.guaranteeFee) costRows.push(['保証会社加入料', p.guaranteeFee]);
+  if (p.guaranteeInfo) costRows.push(['保証情報', p.guaranteeInfo]);
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">費用</div>';
     for (var i = 0; i < costRows.length; i++) {
