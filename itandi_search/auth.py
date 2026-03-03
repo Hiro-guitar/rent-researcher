@@ -91,8 +91,32 @@ class ItandiSession:
             self.driver.quit()
             self.driver = None
 
-    def api_get(self, url: str) -> dict:
+    def _relogin(self) -> None:
+        """セッション切れ時にブラウザを再起動してログインし直す。"""
+        print("[INFO] セッション切れを検出、再ログイン中...")
+        if self.driver:
+            try:
+                self.driver.quit()
+            except Exception:
+                pass
+            self.driver = None
+        self.driver = _create_driver()
+        self._do_login(self.driver)
+        print("[INFO] 再ログイン成功")
+
+    def _ensure_itandi_page(self) -> None:
+        """ブラウザが itandibb.com 上にあることを確認し、なければ遷移する。"""
+        import time
+        current_url = self.driver.current_url
+        if not _is_itandibb_host(current_url):
+            print(f"[DEBUG] itandibb.com に遷移中... (現在: {current_url})")
+            self.driver.get(f"{ITANDI_BASE_URL}/rent_rooms/list")
+            time.sleep(2)
+
+    def api_get(self, url: str, _retry: bool = True) -> dict:
         """ブラウザの fetch() を使って API に GET リクエストを送信する。
+
+        Failed to fetch や 401 の場合、自動的に再ログインしてリトライする。
 
         Args:
             url: API エンドポイント URL (クエリパラメータ含む)
@@ -103,11 +127,7 @@ class ItandiSession:
         if not self.driver:
             raise ItandiAuthError("ブラウザセッションが初期化されていません")
 
-        current_url = self.driver.current_url
-        if not _is_itandibb_host(current_url):
-            self.driver.get(f"{ITANDI_BASE_URL}/rent_rooms/list")
-            import time
-            time.sleep(2)
+        self._ensure_itandi_page()
 
         async_script = """
         var callback = arguments[arguments.length - 1];
@@ -145,10 +165,16 @@ class ItandiSession:
         status = result["status"]
         body_text = result["body"]
 
+        # セッション切れ or 通信エラー → 再ログインしてリトライ
+        if status in (0, 401) and _retry:
+            print(f"[WARN] API GET 失敗 (status={status}): {result.get('statusText', '')}")
+            self._relogin()
+            return self.api_get(url, _retry=False)
+
         if status == 0:
             raise ItandiAuthError(f"API 通信エラー: {result['statusText']}")
         if status == 401:
-            raise ItandiAuthError("セッションが無効または期限切れです")
+            raise ItandiAuthError("セッションが無効または期限切れです（再ログイン後も失敗）")
 
         return {
             "status": status,
@@ -156,11 +182,12 @@ class ItandiSession:
             "raw": body_text,
         }
 
-    def api_post(self, url: str, payload: dict) -> dict:
+    def api_post(self, url: str, payload: dict, _retry: bool = True) -> dict:
         """ブラウザの fetch() を使って API に POST リクエストを送信する。
 
         ブラウザのセッション（Cookie、CSRF トークン等）がそのまま使われるので、
         Python requests ライブラリとの互換性問題を回避できる。
+        Failed to fetch や 401 の場合、自動的に再ログインしてリトライする。
 
         Args:
             url: API エンドポイント URL
@@ -175,13 +202,7 @@ class ItandiSession:
         if not self.driver:
             raise ItandiAuthError("ブラウザセッションが初期化されていません")
 
-        # itandibb.com にいることを確認（CORS 対策）
-        current_url = self.driver.current_url
-        if not _is_itandibb_host(current_url):
-            print(f"[DEBUG] itandibb.com に遷移中... (現在: {current_url})")
-            self.driver.get(f"{ITANDI_BASE_URL}/rent_rooms/list")
-            import time
-            time.sleep(2)
+        self._ensure_itandi_page()
 
         # CSRF-TOKEN を Cookie から取得
         csrf_script = """
@@ -246,13 +267,19 @@ class ItandiSession:
 
         print(f"[DEBUG] API レスポンス: status={status}")
 
+        # セッション切れ or 通信エラー → 再ログインしてリトライ
+        if status in (0, 401) and _retry:
+            print(f"[WARN] API POST 失敗 (status={status}): {result.get('statusText', '')}")
+            self._relogin()
+            return self.api_post(url, payload, _retry=False)
+
         if status == 0:
             raise ItandiAuthError(
                 f"API 通信エラー: {result['statusText']}"
             )
 
         if status == 401:
-            raise ItandiAuthError("セッションが無効または期限切れです")
+            raise ItandiAuthError("セッションが無効または期限切れです（再ログイン後も失敗）")
 
         if status != 200:
             print(f"[DEBUG] レスポンスボディ: {body_text[:500]}")
