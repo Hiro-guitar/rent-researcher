@@ -12,40 +12,7 @@ var PENDING_SHEET_NAME = '承認待ち物件';
 var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
 
-// ===== GAS Web App エントリーポイント =====
-function doGet(e) {
-  var action = (e && e.parameter && e.parameter.action) || '';
-  switch (action) {
-    case 'approve':
-      return handleApprove(e);
-    case 'approve_all':
-      return handleApproveAll(e);
-    case 'skip':
-      return handleSkip(e);
-    case 'view':
-      return handlePropertyView(e);
-    case 'view_api':
-      return handlePropertyViewApi(e);
-    case 'confirm_approve':
-      return handleConfirmApprove(e);
-    case 'confirm_approve_all':
-      return handleConfirmApproveAll(e);
-    default:
-      return makeHtml('エラー', '不明なアクションです: ' + action);
-  }
-}
-
-function doPost(e) {
-  var action = (e && e.parameter && e.parameter.action) || '';
-  switch (action) {
-    case 'confirm_approve':
-      return handleConfirmApprove(e);
-    case 'confirm_approve_all':
-      return handleConfirmApproveAll(e);
-    default:
-      return makeHtml('エラー', '不明なアクションです: ' + action);
-  }
-}
+// 注意: doGet / doPost は コード.js に定義されています（重複回避）
 
 // ===== GAS Base URL =====
 function getGasBaseUrl() {
