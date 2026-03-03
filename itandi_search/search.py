@@ -628,7 +628,9 @@ def fetch_room_details(
             ("構造", "structure"),
             ("総戸数", "total_units"),
             ("賃貸借契約の種類", "lease_type"),
+            ("賃貸借契約区分", "lease_type"),
             ("賃貸借の種類", "lease_type"),
+            ("賃貸借契約期間", "contract_period"),
             ("契約期間", "contract_period"),
             ("解約通知期間", "cancellation_notice"),
             ("解約予告", "cancellation_notice"),
@@ -657,6 +659,13 @@ def fetch_room_details(
                 if label in raw_label and key not in details:
                     details[key] = value
                     break
+
+        # 契約区分 + 契約期間 → contract_period に結合（例: "普通借家 2年間"）
+        lt = details.pop("lease_type", "")
+        cp = details.get("contract_period", "")
+        combined = f"{lt} {cp}".strip()
+        if combined:
+            details["contract_period"] = combined
 
         # カテゴリ別の設備データがあれば整形文字列に変換して使用
         all_fac = raw_details.get("__all_facilities")
