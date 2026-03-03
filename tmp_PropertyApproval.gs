@@ -591,15 +591,41 @@ function buildPropertyFlex(prop, options) {
   ];
 
   var details = [];
+  // 建物情報
   if (prop.layout) details.push(['\u9593\u53D6\u308A', prop.layout]);
   if (prop.area) details.push(['\u9762\u7A4D', prop.area + 'm\u00B2']);
   if (prop.buildingAge) details.push(['\u7BC9\u5E74\u6570', prop.buildingAge]);
-  if (prop.floor) details.push(['\u968E\u6570', prop.floor + '\u968E']);
+  if (prop.floorText) details.push(['\u968E\u6570', prop.floorText]);
+  else if (prop.floor) details.push(['\u968E\u6570', prop.floor + '\u968E']);
+  if (prop.storyText) details.push(['\u968E\u5EFA\u3066', prop.storyText]);
+  if (prop.structure) details.push(['\u69CB\u9020', prop.structure]);
+  if (prop.totalUnits) details.push(['\u7DCF\u6238\u6570', prop.totalUnits]);
+  if (prop.sunlight) details.push(['\u63A1\u5149\u9762', prop.sunlight]);
+  // 所在地・駅
   if (prop.address) details.push(['\u6240\u5728\u5730', prop.address]);
   if (prop.stationInfo) details.push(['\u6700\u5BC4\u99C5', prop.stationInfo]);
+  if (prop.otherStations && prop.otherStations.length > 0) {
+    details.push(['\u4ED6\u306E\u99C5', prop.otherStations.join('\n')]);
+  }
+  // 費用
   if (prop.deposit || prop.keyMoney) {
     details.push(['\u6577\u91D1/\u793C\u91D1', (prop.deposit || '\u306A\u3057') + ' / ' + (prop.keyMoney || '\u306A\u3057')]);
   }
+  if (prop.shikibiki) details.push(['\u6577\u5F15\u304D/\u511F\u5374', prop.shikibiki]);
+  if (prop.petDeposit) details.push(['\u30DA\u30C3\u30C8\u6577\u91D1', prop.petDeposit]);
+  if (prop.freeRent) details.push(['\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8', prop.freeRent]);
+  if (prop.renewalFee) details.push(['\u66F4\u65B0\u6599', prop.renewalFee]);
+  if (prop.fireInsurance) details.push(['\u706B\u707D\u4FDD\u967A', prop.fireInsurance]);
+  if (prop.renewalAdminFee) details.push(['\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', prop.renewalAdminFee]);
+  if (prop.guaranteeInfo) details.push(['\u4FDD\u8A3C', prop.guaranteeInfo]);
+  // 契約
+  if (prop.leaseType) details.push(['\u5951\u7D04\u533A\u5206', prop.leaseType]);
+  if (prop.contractPeriod) details.push(['\u5951\u7D04\u671F\u9593', prop.contractPeriod]);
+  if (prop.cancellationNotice) details.push(['\u89E3\u7D04\u4E88\u544A', prop.cancellationNotice]);
+  if (prop.renewalInfo) details.push(['\u66F4\u65B0/\u518D\u5951\u7D04', prop.renewalInfo]);
+  if (prop.moveInDate) details.push(['\u5165\u5C45\u53EF\u80FD', prop.moveInDate]);
+  // 設備
+  if (prop.facilities) details.push(['\u8A2D\u5099', prop.facilities]);
 
   for (var i = 0; i < details.length; i++) {
     bodyContents.push({
@@ -970,7 +996,13 @@ function makeViewHtml(prop) {
   if (prop.layout) details.push(['\u9593\u53D6\u308A', prop.layout]);
   if (prop.area) details.push(['\u9762\u7A4D', prop.area + 'm\u00B2']);
   if (prop.buildingAge) details.push(['\u7BC9\u5E74\u6570', prop.buildingAge]);
-  if (prop.floor) details.push(['\u968E\u6570', prop.floor + '\u968E']);
+  if (prop.floorText) details.push(['\u6240\u5728\u968E', prop.floorText]);
+  else if (prop.floor) details.push(['\u6240\u5728\u968E', prop.floor + '\u968E']);
+  if (prop.storyText) details.push(['\u968E\u5EFA\u3066', prop.storyText]);
+  if (prop.structure) details.push(['\u69CB\u9020', prop.structure]);
+  if (prop.totalUnits) details.push(['\u7DCF\u6238\u6570', prop.totalUnits]);
+  if (prop.sunlight) details.push(['\u4E3B\u8981\u63A1\u5149\u9762', prop.sunlight]);
+  if (prop.moveInDate) details.push(['\u5165\u5C45\u53EF\u80FD\u6642\u671F', prop.moveInDate]);
 
   for (var i = 0; i < details.length; i++) {
     html += '<div class="row"><span class="row-label">' + details[i][0] + '</span><span class="row-value">' + _esc(details[i][1]) + '</span></div>';
@@ -980,8 +1012,50 @@ function makeViewHtml(prop) {
   html += '<div class="section">'
     + '<div class="section-title">\u30A2\u30AF\u30BB\u30B9</div>';
   if (prop.stationInfo) html += '<div class="row"><span class="row-label">\u6700\u5BC4\u99C5</span><span class="row-value">' + _esc(prop.stationInfo) + '</span></div>';
+  var others = prop.otherStations || [];
+  for (var i = 0; i < others.length; i++) {
+    html += '<div class="row"><span class="row-label">' + (i === 0 ? '\u4ED6\u306E\u99C5' : '') + '</span><span class="row-value">' + _esc(others[i]) + '</span></div>';
+  }
   if (prop.address) html += '<div class="row"><span class="row-label">\u4F4F\u6240</span><span class="row-value">' + _esc(prop.address) + '</span></div>';
   html += '</div>';
+
+  // 費用
+  var costRows = [];
+  if (prop.shikibiki) costRows.push(['\u6577\u5F15\u304D/\u511F\u5374', prop.shikibiki]);
+  if (prop.petDeposit) costRows.push(['\u30DA\u30C3\u30C8\u6577\u91D1\u8FFD\u52A0', prop.petDeposit]);
+  if (prop.renewalFee) costRows.push(['\u66F4\u65B0\u6599', prop.renewalFee]);
+  if (prop.fireInsurance) costRows.push(['\u706B\u707D\u4FDD\u967A\u6599', prop.fireInsurance]);
+  if (prop.renewalAdminFee) costRows.push(['\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', prop.renewalAdminFee]);
+  if (prop.guaranteeInfo) costRows.push(['\u4FDD\u8A3C\u6599', prop.guaranteeInfo]);
+  if (costRows.length > 0) {
+    html += '<div class="section"><div class="section-title">\u8CBB\u7528</div>';
+    for (var i = 0; i < costRows.length; i++) {
+      html += '<div class="row"><span class="row-label">' + costRows[i][0] + '</span><span class="row-value">' + _esc(costRows[i][1]) + '</span></div>';
+    }
+    html += '</div>';
+  }
+
+  // 契約条件
+  var contractRows = [];
+  if (prop.leaseType) contractRows.push(['\u5951\u7D04\u533A\u5206', prop.leaseType]);
+  if (prop.contractPeriod) contractRows.push(['\u5951\u7D04\u671F\u9593', prop.contractPeriod]);
+  if (prop.cancellationNotice) contractRows.push(['\u89E3\u7D04\u4E88\u544A', prop.cancellationNotice]);
+  if (prop.renewalInfo) contractRows.push(['\u66F4\u65B0\u30FB\u518D\u5951\u7D04\u53EF\u5426', prop.renewalInfo]);
+  if (prop.freeRent) contractRows.push(['\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8', prop.freeRent]);
+  if (contractRows.length > 0) {
+    html += '<div class="section"><div class="section-title">\u5951\u7D04\u6761\u4EF6</div>';
+    for (var i = 0; i < contractRows.length; i++) {
+      html += '<div class="row"><span class="row-label">' + contractRows[i][0] + '</span><span class="row-value">' + _esc(contractRows[i][1]) + '</span></div>';
+    }
+    html += '</div>';
+  }
+
+  // 設備・詳細
+  var facStr = prop.facilities || '';
+  if (facStr) {
+    html += '<div class="section"><div class="section-title">\u8A2D\u5099\u30FB\u8A73\u7D30</div>'
+      + '<div style="font-size:13px;color:#555;line-height:1.7;white-space:pre-wrap">' + _esc(facStr) + '</div></div>';
+  }
 
   html += '<div class="footer">\u203B \u8A73\u7D30\u306F\u62C5\u5F53\u8005\u306B\u304A\u554F\u3044\u5408\u308F\u305B\u304F\u3060\u3055\u3044</div>';
   html += '</div>';
