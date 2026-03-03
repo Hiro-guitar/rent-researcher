@@ -184,24 +184,27 @@ function renderProperty(p) {
   html += '<div class="content">';
   html += '<div class="title">' + escHtml(p.buildingName || '') + (p.roomNumber ? ' ' + escHtml(p.roomNumber) : '') + '</div>';
 
+  var priceSub = '管理費 ' + mgmtMan + '万円';
+  if (hv(p.deposit)) priceSub += ' | 敷金 ' + escHtml(p.deposit);
+  if (hv(p.keyMoney)) priceSub += ' | 礼金 ' + escHtml(p.keyMoney);
   html += '<div class="price-box">'
     + '<div class="price-main">' + rentMan + '万円<span style="font-size:16px">/月</span></div>'
-    + '<div class="price-sub">管理費 ' + mgmtMan + '万円 | 敷金 ' + escHtml(nv(p.deposit)) + ' | 礼金 ' + escHtml(nv(p.keyMoney)) + '</div>'
+    + '<div class="price-sub">' + priceSub + '</div>'
     + '</div>';
 
   // 物件情報
   html += '<div class="section"><div class="section-title">物件情報</div>';
   var details = [];
-  if (p.layout) details.push(['間取り', p.layout]);
+  if (hv(p.layout)) details.push(['間取り', p.layout]);
   if (p.area) details.push(['面積', p.area + 'm\u00b2']);
-  if (p.buildingAge) details.push(['築年数', p.buildingAge]);
-  if (p.floorText) details.push(['所在階', p.floorText]);
+  if (hv(p.buildingAge)) details.push(['築年数', p.buildingAge]);
+  if (hv(p.floorText)) details.push(['所在階', p.floorText]);
   else if (p.floor) details.push(['所在階', p.floor + '階']);
-  if (p.storyText) details.push(['階建て', p.storyText]);
-  if (p.structure) details.push(['構造', p.structure]);
-  if (p.totalUnits) details.push(['総戸数', p.totalUnits]);
-  if (p.sunlight) details.push(['主要採光面', p.sunlight]);
-  if (p.moveInDate) details.push(['入居可能時期', p.moveInDate]);
+  if (hv(p.storyText)) details.push(['階建て', p.storyText]);
+  if (hv(p.structure)) details.push(['構造', p.structure]);
+  if (hv(p.totalUnits)) details.push(['総戸数', p.totalUnits]);
+  if (hv(p.sunlight)) details.push(['主要採光面', p.sunlight]);
+  if (hv(p.moveInDate)) details.push(['入居可能時期', p.moveInDate]);
   for (var i = 0; i < details.length; i++) {
     html += makeRow(details[i][0], details[i][1]);
   }
@@ -209,21 +212,21 @@ function renderProperty(p) {
 
   // アクセス
   html += '<div class="section"><div class="section-title">アクセス</div>';
-  if (p.stationInfo) html += makeRow('最寄駅', p.stationInfo);
+  if (hv(p.stationInfo)) html += makeRow('最寄駅', p.stationInfo);
   var others = p.otherStations || [];
   for (var i = 0; i < others.length; i++) {
-    html += makeRow('', others[i]);
+    if (hv(others[i])) html += makeRow('', others[i]);
   }
-  if (p.address) html += makeRow('住所', p.address);
+  if (hv(p.address)) html += makeRow('住所', p.address);
   html += '</div>';
 
   // 契約条件（値がある場合のみセクション表示）
   var contractRows = [];
-  if (p.leaseType) contractRows.push(['契約区分', p.leaseType]);
-  if (p.contractPeriod) contractRows.push(['契約期間', p.contractPeriod]);
-  if (p.cancellationNotice) contractRows.push(['解約予告', p.cancellationNotice]);
-  if (p.renewalInfo) contractRows.push(['更新・再契約可否', p.renewalInfo]);
-  if (p.freeRent) contractRows.push(['フリーレント', p.freeRent]);
+  if (hv(p.leaseType)) contractRows.push(['契約区分', p.leaseType]);
+  if (hv(p.contractPeriod)) contractRows.push(['契約期間', p.contractPeriod]);
+  if (hv(p.cancellationNotice)) contractRows.push(['解約予告', p.cancellationNotice]);
+  if (hv(p.renewalInfo)) contractRows.push(['更新・再契約可否', p.renewalInfo]);
+  if (hv(p.freeRent)) contractRows.push(['フリーレント', p.freeRent]);
   if (contractRows.length > 0) {
     html += '<div class="section"><div class="section-title">契約条件</div>';
     for (var i = 0; i < contractRows.length; i++) {
@@ -234,12 +237,12 @@ function renderProperty(p) {
 
   // 費用（値がある場合のみセクション表示）
   var costRows = [];
-  if (p.shikibiki) costRows.push(['敷引き/償却', p.shikibiki]);
-  if (p.petDeposit) costRows.push(['ペット敷金追加', p.petDeposit]);
-  if (p.renewalFee) costRows.push(['更新料', p.renewalFee]);
-  if (p.fireInsurance) costRows.push(['火災保険料', p.fireInsurance]);
-  if (p.renewalAdminFee) costRows.push(['更新事務手数料', p.renewalAdminFee]);
-  if (p.guaranteeInfo) costRows.push(['保証料', p.guaranteeInfo]);
+  if (hv(p.shikibiki)) costRows.push(['敷引き/償却', p.shikibiki]);
+  if (hv(p.petDeposit)) costRows.push(['ペット敷金追加', p.petDeposit]);
+  if (hv(p.renewalFee)) costRows.push(['更新料', p.renewalFee]);
+  if (hv(p.fireInsurance)) costRows.push(['火災保険料', p.fireInsurance]);
+  if (hv(p.renewalAdminFee)) costRows.push(['更新事務手数料', p.renewalAdminFee]);
+  if (hv(p.guaranteeInfo)) costRows.push(['保証料', p.guaranteeInfo]);
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">費用</div>';
     for (var i = 0; i < costRows.length; i++) {
@@ -250,7 +253,7 @@ function renderProperty(p) {
 
   // 設備・詳細（値がある場合のみ）
   var facStr = typeof p.facilities === 'string' ? p.facilities : '';
-  if (facStr) {
+  if (hv(facStr)) {
     html += '<div class="section"><div class="section-title">設備・詳細</div>'
       + '<div class="facilities-text">' + escHtml(facStr) + '</div></div>';
   }
@@ -275,6 +278,10 @@ function escHtml(str) {
 function nv(val) {
   if (!val || val === '入力なし') return 'ー';
   return val;
+}
+
+function hv(val) {
+  return val && val !== '\u30FC' && val !== '入力なし' && val !== 'なし';
 }
 
 function makeRow(label, value) {
