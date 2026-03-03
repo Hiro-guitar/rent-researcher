@@ -12,6 +12,41 @@ var PENDING_SHEET_NAME = '承認待ち物件';
 var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
 
+// ===== GAS Web App エントリーポイント =====
+function doGet(e) {
+  var action = (e && e.parameter && e.parameter.action) || '';
+  switch (action) {
+    case 'approve':
+      return handleApprove(e);
+    case 'approve_all':
+      return handleApproveAll(e);
+    case 'skip':
+      return handleSkip(e);
+    case 'view':
+      return handlePropertyView(e);
+    case 'view_api':
+      return handlePropertyViewApi(e);
+    case 'confirm_approve':
+      return handleConfirmApprove(e);
+    case 'confirm_approve_all':
+      return handleConfirmApproveAll(e);
+    default:
+      return makeHtml('エラー', '不明なアクションです: ' + action);
+  }
+}
+
+function doPost(e) {
+  var action = (e && e.parameter && e.parameter.action) || '';
+  switch (action) {
+    case 'confirm_approve':
+      return handleConfirmApprove(e);
+    case 'confirm_approve_all':
+      return handleConfirmApproveAll(e);
+    default:
+      return makeHtml('エラー', '不明なアクションです: ' + action);
+  }
+}
+
 // ===== GAS Base URL =====
 function getGasBaseUrl() {
   return ScriptApp.getService().getUrl();
@@ -83,6 +118,27 @@ function handleConfirmApprove(e) {
 
   var prop = rowToProperty(row.values);
 
+  // ── 編集値の適用（POSTフォームから） ──
+  if (e.parameter.buildingName !== undefined) {
+    var editFields = ['buildingName','roomNumber','layout','buildingAge','floorText','storyText',
+      'structure','totalUnits','sunlight','moveInDate','stationInfo','address',
+      'deposit','keyMoney','shikibiki','petDeposit','renewalFee','fireInsurance',
+      'renewalAdminFee','guaranteeInfo','leaseType','contractPeriod',
+      'cancellationNotice','renewalInfo','freeRent','facilities'];
+    for (var j = 0; j < editFields.length; j++) {
+      var f = editFields[j];
+      if (e.parameter[f] !== undefined) {
+        prop[f] = e.parameter[f];
+      }
+    }
+    if (e.parameter.rent !== undefined) prop.rent = Number(e.parameter.rent) || 0;
+    if (e.parameter.managementFee !== undefined) prop.managementFee = Number(e.parameter.managementFee) || 0;
+    if (e.parameter.area !== undefined) prop.area = Number(e.parameter.area) || 0;
+    if (e.parameter.otherStations !== undefined) {
+      prop.otherStations = e.parameter.otherStations.split('\n').filter(function(s) { return s.trim() !== ''; });
+    }
+  }
+
   // 選択された画像URLを決定
   var selectedImageUrls = [];
   if (includeImage && selectedIndices.length > 0 && prop.imageUrls.length > 0) {
@@ -100,6 +156,11 @@ function handleConfirmApprove(e) {
   // 選択画像をシートに保存（viewページで使用）
   if (selectedImageUrls.length > 0) {
     saveSelectedImages(row.rowIndex, selectedImageUrls);
+  }
+
+  // 編集値をシートに反映
+  if (e.parameter.buildingName !== undefined) {
+    updateSheetWithEdits(row.rowIndex, prop);
   }
 
   // ビューURL（データをハッシュに埋め込み → property.html で即時描画）
@@ -361,6 +422,11 @@ function addToSeenSheet(customerName, prop) {
 }
 
 // ===== データ変換 =====
+function _normalizeValue(val) {
+  if (!val || val === '入力なし' || val === 'なし') return '';
+  return val;
+}
+
 function rowToProperty(row) {
   var extra = {};
   try { extra = JSON.parse(row[9] || '{}'); } catch(e) {}
@@ -374,36 +440,36 @@ function rowToProperty(row) {
     layout: row[6] || '',
     area: Number(row[7]) || 0,
     stationInfo: row[8] || '',
-    deposit: extra.deposit || '',
-    keyMoney: extra.key_money || '',
-    address: extra.address || '',
+    deposit: _normalizeValue(extra.deposit),
+    keyMoney: _normalizeValue(extra.key_money),
+    address: _normalizeValue(extra.address),
     url: extra.url || '',
     imageUrl: extra.image_url || '',
     imageUrls: extra.image_urls || [],
     selectedImageUrls: extra.selected_image_urls || null,
-    roomNumber: extra.room_number || '',
-    buildingAge: extra.building_age || '',
+    roomNumber: _normalizeValue(extra.room_number),
+    buildingAge: _normalizeValue(extra.building_age),
     floor: extra.floor || 0,
     // 追加詳細情報
-    storyText: extra.story_text || '',
+    storyText: _normalizeValue(extra.story_text),
     otherStations: extra.other_stations || [],
-    moveInDate: extra.move_in_date || '',
-    floorText: extra.floor_text || '',
-    structure: extra.structure || '',
-    totalUnits: extra.total_units || '',
-    leaseType: extra.lease_type || '',
-    contractPeriod: extra.contract_period || '',
-    cancellationNotice: extra.cancellation_notice || '',
-    renewalInfo: extra.renewal_info || '',
-    sunlight: extra.sunlight || '',
-    facilities: extra.facilities || '',
-    shikibiki: extra.shikibiki || '',
-    petDeposit: extra.pet_deposit || '',
-    freeRent: extra.free_rent || '',
-    renewalFee: extra.renewal_fee || '',
-    fireInsurance: extra.fire_insurance || '',
-    renewalAdminFee: extra.renewal_admin_fee || '',
-    guaranteeInfo: extra.guarantee_info || ''
+    moveInDate: _normalizeValue(extra.move_in_date),
+    floorText: _normalizeValue(extra.floor_text),
+    structure: _normalizeValue(extra.structure),
+    totalUnits: _normalizeValue(extra.total_units),
+    leaseType: _normalizeValue(extra.lease_type),
+    contractPeriod: _normalizeValue(extra.contract_period),
+    cancellationNotice: _normalizeValue(extra.cancellation_notice),
+    renewalInfo: _normalizeValue(extra.renewal_info),
+    sunlight: _normalizeValue(extra.sunlight),
+    facilities: _normalizeValue(extra.facilities),
+    shikibiki: _normalizeValue(extra.shikibiki),
+    petDeposit: _normalizeValue(extra.pet_deposit),
+    freeRent: _normalizeValue(extra.free_rent),
+    renewalFee: _normalizeValue(extra.renewal_fee),
+    fireInsurance: _normalizeValue(extra.fire_insurance),
+    renewalAdminFee: _normalizeValue(extra.renewal_admin_fee),
+    guaranteeInfo: _normalizeValue(extra.guarantee_info)
   };
 }
 
@@ -415,6 +481,52 @@ function saveSelectedImages(rowIndex, selectedImageUrls) {
   var extra = {};
   try { extra = JSON.parse(cell.getValue() || '{}'); } catch(e) {}
   extra.selected_image_urls = selectedImageUrls;
+  cell.setValue(JSON.stringify(extra));
+}
+
+// ===== 編集値をシートに反映 =====
+function updateSheetWithEdits(rowIndex, prop) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+
+  // メイン列を更新: D=物件名, E=賃料, F=管理費, G=間取り, H=面積, I=最寄駅
+  sheet.getRange(rowIndex, 4).setValue(prop.buildingName);
+  sheet.getRange(rowIndex, 5).setValue(prop.rent);
+  sheet.getRange(rowIndex, 6).setValue(prop.managementFee);
+  sheet.getRange(rowIndex, 7).setValue(prop.layout);
+  sheet.getRange(rowIndex, 8).setValue(prop.area);
+  sheet.getRange(rowIndex, 9).setValue(prop.stationInfo);
+
+  // J列のJSONを更新
+  var cell = sheet.getRange(rowIndex, 10);
+  var extra = {};
+  try { extra = JSON.parse(cell.getValue() || '{}'); } catch(e) {}
+
+  extra.room_number = prop.roomNumber || '';
+  extra.deposit = prop.deposit || '';
+  extra.key_money = prop.keyMoney || '';
+  extra.address = prop.address || '';
+  extra.building_age = prop.buildingAge || '';
+  extra.floor_text = prop.floorText || '';
+  extra.story_text = prop.storyText || '';
+  extra.structure = prop.structure || '';
+  extra.total_units = prop.totalUnits || '';
+  extra.sunlight = prop.sunlight || '';
+  extra.move_in_date = prop.moveInDate || '';
+  extra.lease_type = prop.leaseType || '';
+  extra.contract_period = prop.contractPeriod || '';
+  extra.cancellation_notice = prop.cancellationNotice || '';
+  extra.renewal_info = prop.renewalInfo || '';
+  extra.facilities = prop.facilities || '';
+  extra.shikibiki = prop.shikibiki || '';
+  extra.pet_deposit = prop.petDeposit || '';
+  extra.free_rent = prop.freeRent || '';
+  extra.renewal_fee = prop.renewalFee || '';
+  extra.fire_insurance = prop.fireInsurance || '';
+  extra.renewal_admin_fee = prop.renewalAdminFee || '';
+  extra.guarantee_info = prop.guaranteeInfo || '';
+  extra.other_stations = prop.otherStations || [];
+
   cell.setValue(JSON.stringify(extra));
 }
 
@@ -550,13 +662,12 @@ function makeHtml(title, message) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ===== HTML: 承認プレビュー（単一） =====
+// ===== HTML: 承認プレビュー（単一・編集可能） =====
 function makePreviewHtml(prop, customerName, roomId) {
   var baseUrl = getGasBaseUrl();
   var rentMan = prop.rent ? (prop.rent / 10000).toFixed(1) : '0';
   var mgmtMan = prop.managementFee ? (prop.managementFee / 10000).toFixed(1) : '0';
 
-  // 表示する画像リスト（image_urls があればそちら、なければ image_url のみ）
   var images = prop.imageUrls && prop.imageUrls.length > 0 ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
 
   var html = '<html><head><meta charset="utf-8">'
@@ -568,11 +679,14 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '.prop-name{font-size:20px;font-weight:bold;color:#222;margin-bottom:4px}'
     + '.price{font-size:24px;font-weight:bold;color:#E05252;margin:8px 0}'
     + '.price-sub{font-size:14px;color:#888;font-weight:normal}'
-    + '.detail{display:flex;padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:14px}'
-    + '.detail-label{color:#888;width:80px;flex-shrink:0}'
-    + '.detail-value{color:#333;flex:1}'
+    + '.section-header{font-size:13px;color:#888;font-weight:bold;margin:16px 0 8px;padding-bottom:4px;border-bottom:2px solid #e0e0e0;letter-spacing:1px}'
+    + '.detail-row{display:flex;align-items:center;padding:5px 0;border-bottom:1px solid #f5f5f5;font-size:14px}'
+    + '.detail-label{color:#888;width:110px;flex-shrink:0;font-size:13px}'
+    + '.detail-input{flex:1;border:1px solid #e0e0e0;border-radius:6px;padding:5px 8px;font-size:14px;color:#333;background:#fafafa}'
+    + '.detail-input:focus{border-color:#4CAF50;outline:none;background:#fff}'
+    + '.detail-textarea{flex:1;border:1px solid #e0e0e0;border-radius:6px;padding:5px 8px;font-size:14px;color:#333;background:#fafafa;resize:vertical;min-height:50px;font-family:inherit}'
+    + '.detail-textarea:focus{border-color:#4CAF50;outline:none;background:#fff}'
     + '.images-title{font-size:15px;font-weight:bold;color:#333;margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between}'
-    + '.images-title .count{font-size:13px;color:#888;font-weight:normal}'
     + '.select-btns{font-size:12px;color:#4CAF50;cursor:pointer;margin-left:8px}'
     + '.select-btns span{margin-left:8px;text-decoration:underline;cursor:pointer}'
     + '.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:8px 0}'
@@ -591,24 +705,54 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '.modal-overlay img{max-width:95%;max-height:90vh;object-fit:contain}'
     + '.modal-close{position:fixed;top:16px;right:16px;color:#fff;font-size:32px;cursor:pointer;z-index:101}'
     + '</style></head><body><div class="card">'
-    + '<h2>\uD83D\uDD0D \u627F\u8A8D\u30D7\u30EC\u30D3\u30E5\u30FC</h2>'
+    + '<h2>\uD83D\uDD0D \u627F\u8A8D\u30D7\u30EC\u30D3\u30E5\u30FC\uFF08\u7DE8\u96C6\u53EF\uFF09</h2>'
     + '<div class="prop-name">' + _esc(prop.buildingName) + (prop.roomNumber ? ' ' + _esc(prop.roomNumber) : '') + '</div>'
     + '<div class="price">' + rentMan + '\u4E07\u5186 <span class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186</span></div>';
 
-  var details = [];
-  if (prop.layout) details.push(['\u9593\u53D6\u308A', prop.layout]);
-  if (prop.area) details.push(['\u9762\u7A4D', prop.area + 'm\u00B2']);
-  if (prop.buildingAge) details.push(['\u7BC9\u5E74\u6570', prop.buildingAge]);
-  if (prop.stationInfo) details.push(['\u6700\u5BC4\u99C5', prop.stationInfo]);
-  if (prop.address) details.push(['\u6240\u5728\u5730', prop.address]);
-  if (prop.deposit || prop.keyMoney) details.push(['\u6577/\u793C', (prop.deposit || '\u306A\u3057') + ' / ' + (prop.keyMoney || '\u306A\u3057')]);
-  if (prop.contractPeriod) details.push(['\u5951\u7D04\u671F\u9593', prop.contractPeriod]);
-  if (prop.fireInsurance) details.push(['\u706B\u707D\u4FDD\u967A', prop.fireInsurance]);
-  if (prop.guaranteeInfo) details.push(['\u4FDD\u8A3C\u60C5\u5831', prop.guaranteeInfo]);
+  // ── 物件情報 ──
+  html += '<div class="section-header">\u7269\u4EF6\u60C5\u5831</div>';
+  html += _inputRow('\u7269\u4EF6\u540D', 'buildingName', prop.buildingName);
+  html += _inputRow('\u90E8\u5C4B\u756A\u53F7', 'roomNumber', prop.roomNumber);
+  html += _inputRow('\u9593\u53D6\u308A', 'layout', prop.layout);
+  html += _inputRow('\u9762\u7A4D(m\u00B2)', 'area', prop.area || '');
+  html += _inputRow('\u7BC9\u5E74\u6570', 'buildingAge', prop.buildingAge);
+  html += _inputRow('\u6240\u5728\u968E', 'floorText', prop.floorText || (prop.floor ? prop.floor + '\u968E' : ''));
+  html += _inputRow('\u968E\u5EFA\u3066', 'storyText', prop.storyText);
+  html += _inputRow('\u69CB\u9020', 'structure', prop.structure);
+  html += _inputRow('\u7DCF\u6238\u6570', 'totalUnits', prop.totalUnits);
+  html += _inputRow('\u4E3B\u8981\u63A1\u5149\u9762', 'sunlight', prop.sunlight);
+  html += _inputRow('\u5165\u5C45\u53EF\u80FD\u6642\u671F', 'moveInDate', prop.moveInDate);
 
-  for (var i = 0; i < details.length; i++) {
-    html += '<div class="detail"><span class="detail-label">' + details[i][0] + '</span><span class="detail-value">' + _esc(details[i][1]) + '</span></div>';
-  }
+  // ── アクセス ──
+  html += '<div class="section-header">\u30A2\u30AF\u30BB\u30B9</div>';
+  html += _inputRow('\u6700\u5BC4\u99C5', 'stationInfo', prop.stationInfo);
+  html += _inputRow('\u4F4F\u6240', 'address', prop.address);
+  html += _textareaRow('\u4ED6\u306E\u6700\u5BC4\u99C5', 'otherStations', (prop.otherStations || []).join('\n'));
+
+  // ── 費用 ──
+  html += '<div class="section-header">\u8CBB\u7528</div>';
+  html += _inputRow('\u8CC3\u6599(\u5186)', 'rent', prop.rent || '');
+  html += _inputRow('\u7BA1\u7406\u8CBB(\u5186)', 'managementFee', prop.managementFee || '');
+  html += _inputRow('\u6577\u91D1', 'deposit', prop.deposit);
+  html += _inputRow('\u793C\u91D1', 'keyMoney', prop.keyMoney);
+  html += _inputRow('\u6577\u5F15\u304D/\u511F\u5374', 'shikibiki', prop.shikibiki);
+  html += _inputRow('\u30DA\u30C3\u30C8\u6577\u91D1\u8FFD\u52A0', 'petDeposit', prop.petDeposit);
+  html += _inputRow('\u66F4\u65B0\u6599', 'renewalFee', prop.renewalFee);
+  html += _inputRow('\u706B\u707D\u4FDD\u967A', 'fireInsurance', prop.fireInsurance);
+  html += _inputRow('\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', 'renewalAdminFee', prop.renewalAdminFee);
+  html += _textareaRow('\u4FDD\u8A3C\u6599', 'guaranteeInfo', prop.guaranteeInfo);
+
+  // ── 契約条件 ──
+  html += '<div class="section-header">\u5951\u7D04\u6761\u4EF6</div>';
+  html += _inputRow('\u5951\u7D04\u533A\u5206', 'leaseType', prop.leaseType);
+  html += _inputRow('\u5951\u7D04\u671F\u9593', 'contractPeriod', prop.contractPeriod);
+  html += _inputRow('\u89E3\u7D04\u4E88\u544A', 'cancellationNotice', prop.cancellationNotice);
+  html += _inputRow('\u66F4\u65B0/\u518D\u5951\u7D04', 'renewalInfo', prop.renewalInfo);
+  html += _inputRow('\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8', 'freeRent', prop.freeRent);
+
+  // ── 設備・詳細 ──
+  html += '<div class="section-header">\u8A2D\u5099\u30FB\u8A73\u7D30</div>';
+  html += _textareaRow('\u8A2D\u5099', 'facilities', prop.facilities);
 
   // 画像グリッド
   if (images.length > 0) {
@@ -628,7 +772,6 @@ function makePreviewHtml(prop, customerName, roomId) {
     html += '</div>';
   }
 
-  var confirmUrl = baseUrl + '?action=confirm_approve&customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
   var skipUrl = baseUrl + '?action=skip&customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
 
   html += '<div class="actions">'
@@ -643,7 +786,9 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '</div>';
 
   html += '<script>'
-    + 'var baseConfirmUrl="' + confirmUrl + '";'
+    + 'var gasBaseUrl=' + JSON.stringify(baseUrl) + ';'
+    + 'var customerName=' + JSON.stringify(customerName) + ';'
+    + 'var roomId=' + JSON.stringify(String(roomId)) + ';'
     + 'function toggleImg(idx){'
     + 'var el=document.getElementById("item_"+idx);'
     + 'var cb=el.querySelector(".img-cb");'
@@ -656,11 +801,22 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'function openModal(src){var m=document.getElementById("modal");document.getElementById("modalImg").src=src;m.classList.add("active")}'
     + 'function closeModal(){document.getElementById("modal").classList.remove("active")}'
     + 'function submitApprove(){'
+    + 'var form=document.createElement("form");'
+    + 'form.method="POST";'
+    + 'form.action=gasBaseUrl;'
+    + 'function addH(n,v){var inp=document.createElement("input");inp.type="hidden";inp.name=n;inp.value=v;form.appendChild(inp)}'
+    + 'addH("action","confirm_approve");'
+    + 'addH("customer",customerName);'
+    + 'addH("room_id",roomId);'
     + 'var cbs=document.querySelectorAll(".img-cb");'
     + 'var sel=[];'
     + 'for(var i=0;i<cbs.length;i++){if(cbs[i].checked)sel.push(cbs[i].getAttribute("data-idx"))}'
-    + 'var url=baseConfirmUrl+"&include_image="+(sel.length>0?"1":"0")+"&selected_images="+sel.join(",");'
-    + 'window.top.location.href=url;'
+    + 'addH("include_image",sel.length>0?"1":"0");'
+    + 'addH("selected_images",sel.join(","));'
+    + 'var inputs=document.querySelectorAll(".detail-input,.detail-textarea");'
+    + 'for(var i=0;i<inputs.length;i++){addH(inputs[i].name,inputs[i].value)}'
+    + 'document.body.appendChild(form);'
+    + 'form.submit();'
     + '}'
     + '</script>';
 
@@ -854,6 +1010,19 @@ function makeViewHtml(prop) {
   return HtmlService.createHtmlOutput(html)
     .setTitle(prop.buildingName + ' - \u7269\u4EF6\u60C5\u5831')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ===== HTML: 編集可能な入力行 =====
+function _inputRow(label, name, value) {
+  var v = (value !== undefined && value !== null && String(value) !== '' && value !== 0) ? String(value) : '\u30FC';
+  return '<div class="detail-row"><span class="detail-label">' + label + '</span>'
+    + '<input class="detail-input" name="' + name + '" value="' + _esc(v) + '"></div>';
+}
+
+function _textareaRow(label, name, value) {
+  var v = (value !== undefined && value !== null && String(value) !== '') ? String(value) : '\u30FC';
+  return '<div class="detail-row"><span class="detail-label">' + label + '</span>'
+    + '<textarea class="detail-textarea" name="' + name + '">' + _esc(v) + '</textarea></div>';
 }
 
 // ===== HTML エスケープ =====

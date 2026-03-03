@@ -608,7 +608,7 @@ def fetch_room_details(
             details['__all_facilities'] = facilityCategorized;
         }
 
-        // アプローチ5: 保証情報（複数行を結合、「備考：」を除去）
+        // アプローチ5: 保証情報（備考セクションを除外）
         var gIdx = -1;
         for (var li = 0; li < lines.length; li++) {
             if (lines[li].trim() === '保証情報') { gIdx = li; break; }
@@ -618,10 +618,10 @@ def fetch_room_details(
             for (var li = gIdx + 1; li < Math.min(gIdx + 10, lines.length); li++) {
                 var ln = lines[li].trim();
                 if (!ln) continue;
+                // 「備考」セクションに到達したら停止（備考の内容を含めない）
+                if (/^備考/.test(ln)) break;
                 // セクション境界で停止
                 if (/^(賃料|管理費|共益費|費用|契約|設備|物件概要|交通|所在地|間取り|面積|専有|所在階|総戸数|方角|採光|表示|図面|仲介|取引|条件$|建物設備|バス|キッチン|室内|セキュリティ|冷暖房|収納|TV|その他設備|主な設備|出稿|内見|WEB$|募集|火災保険|更新料|更新事務|解約|敷金|礼金|フリーレント|敷引|ペット|保険$)/.test(ln)) break;
-                // 「備考：」プレフィックスを除去
-                ln = ln.replace(/^備考[：:]\s*/, '').trim();
                 if (ln) gParts.push(ln);
             }
             if (gParts.length > 0) {
@@ -671,19 +671,15 @@ def fetch_room_details(
 
         details: dict[str, str] = {}
         for raw_label, value in raw_details.items():
-            if not value or value in ("-", "ー", "—", "―"):
+            if not value or value in ("-", "ー", "—", "―", "入力なし"):
                 continue
             for label, key in label_map_list:
                 if label in raw_label and key not in details:
                     details[key] = value
                     break
 
-        # 契約区分 + 契約期間 → contract_period に結合（例: "普通借家 2年間"）
-        lt = details.pop("lease_type", "")
-        cp = details.get("contract_period", "")
-        combined = f"{lt} {cp}".strip()
-        if combined:
-            details["contract_period"] = combined
+        # 契約区分 (lease_type) はそのまま残す
+        # 契約期間 (contract_period) もそのまま残す
 
         # 保証情報を処理（複数行結合済み・備考：除去済み）
         guarantee_info = raw_details.get("__guarantee_info", "")

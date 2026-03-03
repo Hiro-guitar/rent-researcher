@@ -219,6 +219,7 @@ function renderProperty(p) {
 
   // 契約条件（値がある場合のみセクション表示）
   var contractRows = [];
+  if (p.leaseType) contractRows.push(['契約区分', p.leaseType]);
   if (p.contractPeriod) contractRows.push(['契約期間', p.contractPeriod]);
   if (p.cancellationNotice) contractRows.push(['解約予告', p.cancellationNotice]);
   if (p.renewalInfo) contractRows.push(['更新・再契約可否', p.renewalInfo]);
@@ -238,7 +239,7 @@ function renderProperty(p) {
   if (p.renewalFee) costRows.push(['更新料', p.renewalFee]);
   if (p.fireInsurance) costRows.push(['火災保険料', p.fireInsurance]);
   if (p.renewalAdminFee) costRows.push(['更新事務手数料', p.renewalAdminFee]);
-  if (p.guaranteeInfo) costRows.push(['保証情報', p.guaranteeInfo]);
+  if (p.guaranteeInfo) costRows.push(['保証料', p.guaranteeInfo]);
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">費用</div>';
     for (var i = 0; i < costRows.length; i++) {
