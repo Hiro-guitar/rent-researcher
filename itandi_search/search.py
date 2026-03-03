@@ -658,10 +658,18 @@ def fetch_room_details(
                     details[key] = value
                     break
 
-        # カテゴリ別の設備データがあれば優先使用（dict or str）
+        # カテゴリ別の設備データがあれば整形文字列に変換して使用
         all_fac = raw_details.get("__all_facilities")
         if all_fac:
-            details["facilities"] = all_fac
+            if isinstance(all_fac, dict):
+                # カテゴリ別辞書 → 整形文字列に変換
+                parts = []
+                for cat, items in all_fac.items():
+                    if items:
+                        parts.append(f"【{cat}】{' / '.join(items)}")
+                details["facilities"] = "\n".join(parts)
+            else:
+                details["facilities"] = str(all_fac)
 
         print(f"[DEBUG] room_id={room_id}: マッピング後 {len(details)} 件の詳細")
         return image_urls, details
