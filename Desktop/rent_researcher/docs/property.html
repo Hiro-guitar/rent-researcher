@@ -42,10 +42,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .row:last-child{border-bottom:none}
 .row-label{color:#888;font-size:14px;width:110px;flex-shrink:0}
 .row-value{color:#333;font-size:14px;flex:1}
-/* 設備ジャンル分け */
-.fac-category{font-size:13px;color:#666;font-weight:bold;margin-top:10px;padding-bottom:4px;border-bottom:1px solid #eee}
-.fac-category:first-child{margin-top:0}
-.fac-items{font-size:13px;color:#555;line-height:1.8;padding:4px 0 2px}
 .facilities-text{font-size:13px;color:#555;line-height:1.7;white-space:pre-wrap}
 .footer{text-align:center;padding:20px;color:#aaa;font-size:12px}
 </style>
@@ -253,26 +249,10 @@ function renderProperty(p) {
   }
 
   // 設備・詳細（値がある場合のみ）
-  if (p.facilities) {
-    html += '<div class="section"><div class="section-title">設備・詳細</div>';
-    if (typeof p.facilities === 'object' && !Array.isArray(p.facilities)) {
-      // カテゴリ別表示（新形式）
-      var cats = Object.keys(p.facilities);
-      for (var i = 0; i < cats.length; i++) {
-        var cat = cats[i];
-        var items = p.facilities[cat];
-        if (items && items.length > 0) {
-          html += '<div class="fac-category">' + escHtml(cat) + '</div>';
-          var itemHtml = [];
-          for (var j = 0; j < items.length; j++) { itemHtml.push(escHtml(items[j])); }
-          html += '<div class="fac-items">' + itemHtml.join(' / ') + '</div>';
-        }
-      }
-    } else {
-      // フラット文字列（旧形式・後方互換）
-      html += '<div class="facilities-text">' + escHtml(p.facilities) + '</div>';
-    }
-    html += '</div>';
+  var facStr = typeof p.facilities === 'string' ? p.facilities : '';
+  if (facStr) {
+    html += '<div class="section"><div class="section-title">設備・詳細</div>'
+      + '<div class="facilities-text">' + escHtml(facStr) + '</div></div>';
   }
 
   html += '<div class="footer">\u203b 詳細は担当者にお問い合わせください</div>';
