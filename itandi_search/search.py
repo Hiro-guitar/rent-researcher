@@ -519,7 +519,7 @@ def fetch_room_details(
         var labels = [
             '入居可能時期', '入居時期',
             '所在階', '構造', '総戸数',
-            '賃貸借の種類', '賃貸借契約の種類', '契約期間',
+            '賃貸借の種類', '賃貸借契約の種類', '賃貸借契約区分', '契約区分', '契約形態', '契約期間',
             '解約予告', '解約通知期間',
             '更新・再契約', '契約更新',
             '主要採光面', '向き', '方角',
@@ -615,14 +615,20 @@ def fetch_room_details(
         }
         if (gIdx >= 0) {
             var gParts = [];
-            for (var li = gIdx + 1; li < Math.min(gIdx + 10, lines.length); li++) {
+            for (var li = gIdx + 1; li < Math.min(gIdx + 15, lines.length); li++) {
                 var ln = lines[li].trim();
                 if (!ln) continue;
-                // 「備考」セクションに到達したら停止（備考の内容を含めない）
-                if (/^備考/.test(ln)) break;
+                // 「備考」単独セクションヘッダーで停止（「備考：XXX」は含める）
+                if (ln === '備考') break;
                 // セクション境界で停止
                 if (/^(賃料|管理費|共益費|費用|契約|設備|物件概要|交通|所在地|間取り|面積|専有|所在階|総戸数|方角|採光|表示|図面|仲介|取引|条件$|建物設備|バス|キッチン|室内|セキュリティ|冷暖房|収納|TV|その他設備|主な設備|出稿|内見|WEB$|募集|火災保険|更新料|更新事務|解約|敷金|礼金|フリーレント|敷引|ペット|保険$)/.test(ln)) break;
-                if (ln) gParts.push(ln);
+                // 「備考：」プレフィックスは除去して内容だけ取得
+                if (/^備考[：:]/.test(ln)) {
+                    ln = ln.replace(/^備考[：:]\\s*/, '');
+                    if (ln) gParts.push(ln);
+                } else {
+                    gParts.push(ln);
+                }
             }
             if (gParts.length > 0) {
                 details['__guarantee_info'] = gParts.join(' ');
@@ -650,6 +656,8 @@ def fetch_room_details(
             ("賃貸借契約の種類", "lease_type"),
             ("賃貸借契約区分", "lease_type"),
             ("賃貸借の種類", "lease_type"),
+            ("契約区分", "lease_type"),
+            ("契約形態", "lease_type"),
             ("賃貸借契約期間", "contract_period"),
             ("契約期間", "contract_period"),
             ("解約通知期間", "cancellation_notice"),
