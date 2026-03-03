@@ -528,8 +528,7 @@ def fetch_room_details(
             'フリーレント',
             '更新事務手数料',
             '更新料',
-            '火災保険料', '火災保険', '保険',
-            '保証会社加入料', '保証会社'
+            '火災保険料', '火災保険', '保険'
         ];
 
         for (var i = 0; i < labels.length; i++) {
@@ -668,9 +667,6 @@ def fetch_room_details(
             ("火災保険料", "fire_insurance"),
             ("火災保険", "fire_insurance"),
             ("保険", "fire_insurance"),
-            ("保証会社加入料", "guarantee_fee"),
-            ("保証会社利用料", "guarantee_fee"),
-            ("保証会社", "guarantee_fee"),
         ]
 
         details: dict[str, str] = {}

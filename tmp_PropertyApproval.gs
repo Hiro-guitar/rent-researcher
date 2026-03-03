@@ -301,7 +301,6 @@ function handlePropertyViewApi(e) {
     renewalFee: prop.renewalFee,
     fireInsurance: prop.fireInsurance,
     renewalAdminFee: prop.renewalAdminFee,
-    guaranteeFee: prop.guaranteeFee,
     guaranteeInfo: prop.guaranteeInfo
   };
 
@@ -404,7 +403,6 @@ function rowToProperty(row) {
     renewalFee: extra.renewal_fee || '',
     fireInsurance: extra.fire_insurance || '',
     renewalAdminFee: extra.renewal_admin_fee || '',
-    guaranteeFee: extra.guarantee_fee || '',
     guaranteeInfo: extra.guarantee_info || ''
   };
 }
@@ -451,7 +449,6 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   if (prop.renewalFee) d.rf = prop.renewalFee;
   if (prop.fireInsurance) d.fi = prop.fireInsurance;
   if (prop.renewalAdminFee) d.ra = prop.renewalAdminFee;
-  if (prop.guaranteeFee) d.gf = prop.guaranteeFee;
   if (prop.guaranteeInfo) d.gi = prop.guaranteeInfo;
   // 設備: objectでもstringでもそのまま
   if (prop.facilities) d.fac = prop.facilities;
@@ -607,7 +604,6 @@ function makePreviewHtml(prop, customerName, roomId) {
   if (prop.deposit || prop.keyMoney) details.push(['\u6577/\u793C', (prop.deposit || '\u306A\u3057') + ' / ' + (prop.keyMoney || '\u306A\u3057')]);
   if (prop.contractPeriod) details.push(['\u5951\u7D04\u671F\u9593', prop.contractPeriod]);
   if (prop.fireInsurance) details.push(['\u706B\u707D\u4FDD\u967A', prop.fireInsurance]);
-  if (prop.guaranteeFee) details.push(['\u4FDD\u8A3C\u4F1A\u793E\u52A0\u5165\u6599', prop.guaranteeFee]);
   if (prop.guaranteeInfo) details.push(['\u4FDD\u8A3C\u60C5\u5831', prop.guaranteeInfo]);
 
   for (var i = 0; i < details.length; i++) {

@@ -262,7 +262,6 @@ def write_pending_properties(
                 "renewal_fee": p.renewal_fee,
                 "fire_insurance": p.fire_insurance,
                 "renewal_admin_fee": p.renewal_admin_fee,
-                "guarantee_fee": p.guarantee_fee,
                 "guarantee_info": p.guarantee_info,
             },
             ensure_ascii=False,
