@@ -558,9 +558,37 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
   if (viewImageUrls && viewImageUrls.length > 0) d.imgs = viewImageUrls;
 
-  var jsonStr = JSON.stringify(d);
-  var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
-  return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '#' + encoded;
+  var basePrefix = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '#';
+  var LINE_URI_MAX = 1000;
+
+  // エンコードしてURLを生成、1000文字超なら段階的に削る
+  function _encode(obj) {
+    var j = JSON.stringify(obj);
+    return Utilities.base64EncodeWebSafe(Utilities.newBlob(j).getBytes());
+  }
+
+  var url = basePrefix + _encode(d);
+  if (url.length > LINE_URI_MAX && d.imgs) {
+    // 1) 画像を1枚だけに
+    d.imgs = [d.imgs[0]];
+    url = basePrefix + _encode(d);
+  }
+  if (url.length > LINE_URI_MAX && d.imgs) {
+    // 2) 画像を完全に除外
+    delete d.imgs;
+    url = basePrefix + _encode(d);
+  }
+  if (url.length > LINE_URI_MAX && d.fac) {
+    // 3) 設備情報を除外
+    delete d.fac;
+    url = basePrefix + _encode(d);
+  }
+  if (url.length > LINE_URI_MAX && d.os) {
+    // 4) 他の最寄駅を除外
+    delete d.os;
+    url = basePrefix + _encode(d);
+  }
+  return url;
 }
 
 // ===== Flex Message =====
