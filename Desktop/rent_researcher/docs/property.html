@@ -56,7 +56,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 <div id="app" style="display:none"></div>
 
 <script>
-var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxPj9FQfY09HdJPZ39Tku5O4brLjam-HOWwcdP3HL0AoJ2s6pRXJ0h3hPfsjQjBWqIU/exec';
+var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxPLUt_3Zk4ZnUknx1t0Zi-Zcg9XPBlhuiGjTARsCWLVnhqa8cYeVQBSsfF9akbIyAY/exec';
 
 // ===== URLハッシュからデータをデコード（即時描画用） =====
 function decodeHashData() {
@@ -281,7 +281,7 @@ function nv(val) {
 }
 
 function hv(val) {
-  return val && val !== '\u30FC' && val !== '入力なし' && val !== 'なし';
+  return val && val !== '\u30FC' && val !== '入力なし';
 }
 
 function makeRow(label, value) {
@@ -290,8 +290,8 @@ function makeRow(label, value) {
 
 // カルーセル操作
 var cur = 0, total = 0;
-function goTo(n) { cur = n; updateCarousel(); }
-function slide(d) { cur = (cur + d + total) % total; updateCarousel(); }
+function goTo(n) { if (total <= 0) return; cur = ((n % total) + total) % total; updateCarousel(); }
+function slide(d) { if (total <= 0) return; cur = ((cur + d) % total + total) % total; updateCarousel(); }
 function updateCarousel() {
   var inner = document.getElementById('carouselInner');
   if (!inner) return;
