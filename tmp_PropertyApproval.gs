@@ -12,8 +12,6 @@ var PENDING_SHEET_NAME = '承認待ち物件';
 var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
 
-// 注意: doGet / doPost は コード.js に定義されています（重複回避）
-
 // ===== GAS Base URL =====
 function getGasBaseUrl() {
   return ScriptApp.getService().getUrl();
@@ -59,6 +57,18 @@ function handleApproveAll(e) {
   }
 
   return makePreviewAllHtml(props, customerName);
+}
+
+// ===== google.script.run 用ラッパー（単一承認） =====
+function confirmApproveFromClient(formData) {
+  var e = { parameter: formData };
+  try {
+    handleConfirmApprove(e); // 実処理（LINE送信・シート更新）
+    return { success: true, message: (formData.buildingName || '物件') + ' を ' + formData.customer + ' さんに LINE 送信しました。' };
+  } catch (err) {
+    console.error('confirmApproveFromClient Error: ' + err.message + '\nStack: ' + err.stack);
+    return { success: false, message: err.message };
+  }
 }
 
 // ===== 確認後LINE送信（単一） =====
@@ -145,6 +155,18 @@ function handleConfirmApprove(e) {
   addToSeenSheet(customerName, prop);
 
   return makeHtml('完了', prop.buildingName + ' を ' + customerName + ' さんに LINE 送信しました。');
+}
+
+// ===== google.script.run 用ラッパー（一括承認） =====
+function confirmApproveAllFromClient(formData) {
+  var e = { parameter: formData };
+  try {
+    handleConfirmApproveAll(e);
+    return { success: true, message: formData.customer + ' さんに物件を LINE 送信しました。' };
+  } catch (err) {
+    console.error('confirmApproveAllFromClient Error: ' + err.message + '\nStack: ' + err.stack);
+    return { success: false, message: err.message };
+  }
 }
 
 // ===== 確認後LINE送信（一括） =====
@@ -389,6 +411,8 @@ function addToSeenSheet(customerName, prop) {
 }
 
 // ===== データ変換 =====
+
+/** 「入力なし」「なし」などの無効値を空文字に正規化 */
 function _normalizeValue(val) {
   if (!val || val === '入力なし' || val === 'なし') return '';
   return val;
@@ -409,7 +433,7 @@ function rowToProperty(row) {
     stationInfo: row[8] || '',
     deposit: _normalizeValue(extra.deposit),
     keyMoney: _normalizeValue(extra.key_money),
-    address: _normalizeValue(extra.address),
+    address: extra.address || '',
     url: extra.url || '',
     imageUrl: extra.image_url || '',
     imageUrls: extra.image_urls || [],
@@ -768,22 +792,30 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'function openModal(src){var m=document.getElementById("modal");document.getElementById("modalImg").src=src;m.classList.add("active")}'
     + 'function closeModal(){document.getElementById("modal").classList.remove("active")}'
     + 'function submitApprove(){'
-    + 'var form=document.createElement("form");'
-    + 'form.method="POST";'
-    + 'form.action=gasBaseUrl;'
-    + 'function addH(n,v){var inp=document.createElement("input");inp.type="hidden";inp.name=n;inp.value=v;form.appendChild(inp)}'
-    + 'addH("action","confirm_approve");'
-    + 'addH("customer",customerName);'
-    + 'addH("room_id",roomId);'
+    + 'var btn=document.getElementById("approveBtn");'
+    + 'btn.textContent="\\u2B50 \\u9001\\u4FE1\\u4E2D...";btn.style.opacity="0.6";btn.style.pointerEvents="none";'
+    + 'var fd={};'
+    + 'fd.action="confirm_approve";'
+    + 'fd.customer=customerName;'
+    + 'fd.room_id=roomId;'
     + 'var cbs=document.querySelectorAll(".img-cb");'
     + 'var sel=[];'
     + 'for(var i=0;i<cbs.length;i++){if(cbs[i].checked)sel.push(cbs[i].getAttribute("data-idx"))}'
-    + 'addH("include_image",sel.length>0?"1":"0");'
-    + 'addH("selected_images",sel.join(","));'
+    + 'fd.include_image=sel.length>0?"1":"0";'
+    + 'fd.selected_images=sel.join(",");'
     + 'var inputs=document.querySelectorAll(".detail-input,.detail-textarea");'
-    + 'for(var i=0;i<inputs.length;i++){addH(inputs[i].name,inputs[i].value)}'
-    + 'document.body.appendChild(form);'
-    + 'form.submit();'
+    + 'for(var i=0;i<inputs.length;i++){fd[inputs[i].name]=inputs[i].value}'
+    + 'google.script.run'
+    + '.withSuccessHandler(function(r){'
+    + 'if(r.success){'
+    + 'document.body.innerHTML="<div style=\\"text-align:center;padding:60px;font-family:sans-serif\\"><h2 style=\\"color:#4CAF50\\">\\u2705 "+r.message+"</h2></div>"'
+    + '}else{'
+    + 'document.body.innerHTML="<div style=\\"text-align:center;padding:60px;font-family:sans-serif\\"><h2 style=\\"color:#e74c3c\\">\\u26A0 \\u30A8\\u30E9\\u30FC</h2><p>"+r.message+"</p><p><a href=\\"javascript:history.back()\\">\\u2190 \\u623B\\u308B</a></p></div>"'
+    + '}})'
+    + '.withFailureHandler(function(err){'
+    + 'document.body.innerHTML="<div style=\\"text-align:center;padding:60px;font-family:sans-serif\\"><h2 style=\\"color:#e74c3c\\">\\u26A0 \\u30A8\\u30E9\\u30FC</h2><p>"+err.message+"</p><p><a href=\\"javascript:history.back()\\">\\u2190 \\u623B\\u308B</a></p></div>"'
+    + '})'
+    + '.confirmApproveFromClient(fd);'
     + '}'
     + '</script>';
 
@@ -844,11 +876,23 @@ function makePreviewAllHtml(props, customerName) {
 
   html += '<script>'
     + 'function submitAll(){'
+    + 'var btn=document.getElementById("approveAllBtn");'
+    + 'btn.textContent="\\u2B50 \\u9001\\u4FE1\\u4E2D...";btn.style.opacity="0.6";btn.style.pointerEvents="none";'
     + 'var cbs=document.querySelectorAll(".img-cb");'
     + 'var ids=[];'
     + 'for(var i=0;i<cbs.length;i++){if(cbs[i].checked)ids.push(cbs[i].getAttribute("data-room"))}'
-    + 'var url="' + baseUrl + '?action=confirm_approve_all&customer=' + encodeURIComponent(customerName) + '&images="+ids.join(",");'
-    + 'window.location.href=url;'
+    + 'var fd={action:"confirm_approve_all",customer:' + JSON.stringify(customerName) + ',images:ids.join(",")};'
+    + 'google.script.run'
+    + '.withSuccessHandler(function(r){'
+    + 'if(r.success){'
+    + 'document.body.innerHTML="<div style=\\"text-align:center;padding:60px;font-family:sans-serif\\"><h2 style=\\"color:#4CAF50\\">\\u2705 "+r.message+"</h2></div>"'
+    + '}else{'
+    + 'document.body.innerHTML="<div style=\\"text-align:center;padding:60px;font-family:sans-serif\\"><h2 style=\\"color:#e74c3c\\">\\u26A0 \\u30A8\\u30E9\\u30FC</h2><p>"+r.message+"</p><p><a href=\\"javascript:history.back()\\">\\u2190 \\u623B\\u308B</a></p></div>"'
+    + '}})'
+    + '.withFailureHandler(function(err){'
+    + 'document.body.innerHTML="<div style=\\"text-align:center;padding:60px;font-family:sans-serif\\"><h2 style=\\"color:#e74c3c\\">\\u26A0 \\u30A8\\u30E9\\u30FC</h2><p>"+err.message+"</p><p><a href=\\"javascript:history.back()\\">\\u2190 \\u623B\\u308B</a></p></div>"'
+    + '})'
+    + '.confirmApproveAllFromClient(fd);'
     + '}'
     + '</script>';
 
