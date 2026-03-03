@@ -104,6 +104,7 @@ function decodeHashData() {
       fireInsurance: d.fi || '',
       renewalAdminFee: d.ra || '',
       guaranteeInfo: d.gi || '',
+      keyExchangeFee: d.ke || '',
       facilities: d.fac || '',
       otherStations: d.os || [],
       images: d.imgs || []
@@ -243,6 +244,7 @@ function renderProperty(p) {
   if (hv(p.fireInsurance)) costRows.push(['火災保険料', p.fireInsurance]);
   if (hv(p.renewalAdminFee)) costRows.push(['更新事務手数料', p.renewalAdminFee]);
   if (hv(p.guaranteeInfo)) costRows.push(['保証料', p.guaranteeInfo]);
+  if (hv(p.keyExchangeFee)) costRows.push(['鍵交換費用', p.keyExchangeFee]);
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">費用</div>';
     for (var i = 0; i < costRows.length; i++) {
