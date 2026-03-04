@@ -87,10 +87,21 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
         structure_types_raw = _split_csv(_get(row, 11, ""))
         equipment_names = _split_csv(_get(row, 12, ""))
 
-        # 構造: 日本語 → API 値に変換
+        # 構造: カテゴリ名を個別の構造タイプに展開してから API 値に変換
+        STRUCTURE_GROUP_MAP = {
+            "鉄筋系": ["RC", "SRC"],
+            "鉄骨系": ["鉄骨造", "軽量鉄骨造"],
+            "ブロック・その他": ["ブロック"],
+        }
+        expanded = []
+        for st in structure_types_raw:
+            if st in STRUCTURE_GROUP_MAP:
+                expanded.extend(STRUCTURE_GROUP_MAP[st])
+            else:
+                expanded.append(st)
         structure_types = [
             STRUCTURE_TYPE_MAP[st]
-            for st in structure_types_raw
+            for st in expanded
             if st in STRUCTURE_TYPE_MAP
         ]
 
@@ -103,6 +114,21 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             building_age = _parse_int(building_age_str.replace("年", ""))
             if building_age_str == "新築":
                 building_age = 1
+
+        # 階数・位置の条件は設備ではなく所在階フィルターとして処理
+        min_floor = None
+        max_floor = None
+        top_floor_only = False
+        if "2階以上" in equipment_names:
+            min_floor = 2
+        if "1階の物件" in equipment_names:
+            max_floor = 1
+        if "最上階" in equipment_names:
+            top_floor_only = True
+        equipment_names = [
+            e for e in equipment_names
+            if e not in ("2階以上", "1階の物件", "最上階")
+        ]
 
         # 設備 → option_id
         equipment_ids = [
@@ -123,6 +149,9 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             building_age=building_age,
             structure_types=structure_types,
             equipment_ids=equipment_ids,
+            min_floor=min_floor,
+            max_floor=max_floor,
+            top_floor_only=top_floor_only,
         )
         customers.append(customer)
 
@@ -263,6 +292,7 @@ def write_pending_properties(
                 "fire_insurance": p.fire_insurance,
                 "renewal_admin_fee": p.renewal_admin_fee,
                 "guarantee_info": p.guarantee_info,
+                "key_exchange_fee": p.key_exchange_fee,
             },
             ensure_ascii=False,
         )

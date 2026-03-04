@@ -22,6 +22,8 @@ class CustomerCriteria:
     building_types: list[str] = field(default_factory=list)
     structure_types: list[str] = field(default_factory=list)
     min_floor: Optional[int] = None
+    max_floor: Optional[int] = None
+    top_floor_only: bool = False
     equipment_ids: list[int] = field(default_factory=list)
     ad_reprint_only: bool = False
     deal_types: list[str] = field(default_factory=list)
@@ -70,3 +72,4 @@ class Property:
     fire_insurance: str = ""  # 火災保険料
     renewal_admin_fee: str = ""  # 更新事務手数料
     guarantee_info: str = ""  # 保証情報（利用必須 + 保証料等）
+    key_exchange_fee: str = ""  # 鍵交換費用
