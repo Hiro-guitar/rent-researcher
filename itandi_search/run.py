@@ -5,6 +5,7 @@ Google Sheets の検索条件を読み込み、itandi BB で検索し、
 """
 
 import os
+import re
 import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -25,6 +26,53 @@ from .sheets import (
     load_seen_properties,
     write_pending_properties,
 )
+
+
+def _parse_floor_number(text: str) -> int | None:
+    """階数テキストから数値を抽出する。
+    例: "5階" → 5, "地上10階建" → 10, "B1階" → None
+    """
+    if not text:
+        return None
+    m = re.search(r"(\d+)\s*階", text)
+    return int(m.group(1)) if m else None
+
+
+def _filter_by_floor(properties: list, *, min_floor=None,
+                     max_floor=None, top_floor_only=False) -> list:
+    """所在階で物件をフィルターする。
+    floor_text（所在階）と story_text（階建て）から判定。
+    """
+    result = []
+    for p in properties:
+        room_floor = _parse_floor_number(p.floor_text)
+
+        if room_floor is None:
+            # 階数情報が取得できなかった場合は除外しない
+            print(f"[WARN] 階数判定不能 (room_id={p.room_id}): "
+                  f"floor_text='{p.floor_text}'")
+            result.append(p)
+            continue
+
+        # 2階以上フィルター
+        if min_floor is not None and room_floor < min_floor:
+            continue
+
+        # 1階フィルター
+        if max_floor is not None and room_floor > max_floor:
+            continue
+
+        # 最上階フィルター
+        if top_floor_only:
+            building_floors = _parse_floor_number(p.story_text)
+            if building_floors and room_floor < building_floors:
+                continue
+            elif not building_floors:
+                print(f"[WARN] 階建て不明 (room_id={p.room_id}): "
+                      f"story_text='{p.story_text}'")
+
+        result.append(p)
+    return result
 
 
 def now_jst() -> str:
@@ -116,6 +164,25 @@ def main() -> None:
                     enrich_properties_with_images(itandi, new_properties)
                 except Exception as exc:
                     print(f"[WARN] 画像取得に失敗 ({customer.name}): {exc}")
+
+                # 所在階フィルター（詳細取得後に判定）
+                if (customer.min_floor is not None
+                        or customer.max_floor is not None
+                        or customer.top_floor_only):
+                    before = len(new_properties)
+                    new_properties = _filter_by_floor(
+                        new_properties,
+                        min_floor=customer.min_floor,
+                        max_floor=customer.max_floor,
+                        top_floor_only=customer.top_floor_only,
+                    )
+                    filtered = before - len(new_properties)
+                    if filtered:
+                        print(f"  → 階数フィルター: {filtered} 件除外, "
+                              f"残り {len(new_properties)} 件")
+                    if not new_properties:
+                        print("  → 条件に合う階の物件なし")
+                        continue
 
                 # 承認待ちシートに書き込み
                 try:

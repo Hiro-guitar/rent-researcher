@@ -1,0 +1,17 @@
+tmp_*.gs
+Desktop/**
+scripts/**
+docs/**
+*.md
+*.txt
+*.py
+*.json
+!appsscript.json
+.clasp.json
+.claspignore
+.claude/**
+.git/**
+.gitignore
+itandi_search/**
+requirements.txt
+__pycache__/**

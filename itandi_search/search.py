@@ -172,9 +172,9 @@ def build_search_payload(
     if criteria.building_types:
         filter_obj["building_detail_type:in"] = criteria.building_types
 
-    # 所在階
-    if criteria.min_floor is not None:
-        filter_obj["floor:gteq"] = criteria.min_floor
+    # 所在階 — itandi 検索 API では部屋単位の階数フィルターが
+    # 正しく機能しないため、API フィルターは使わず
+    # run.py の後処理で floor_text を使って除外する
 
     # 設備
     if criteria.equipment_ids:
@@ -528,7 +528,8 @@ def fetch_room_details(
             'フリーレント',
             '更新事務手数料',
             '更新料',
-            '火災保険料', '火災保険', '保険'
+            '火災保険料', '火災保険', '保険',
+            '鍵交換費用', '鍵交換'
         ];
 
         for (var i = 0; i < labels.length; i++) {
@@ -675,6 +676,8 @@ def fetch_room_details(
             ("火災保険料", "fire_insurance"),
             ("火災保険", "fire_insurance"),
             ("保険", "fire_insurance"),
+            ("鍵交換費用", "key_exchange_fee"),
+            ("鍵交換", "key_exchange_fee"),
         ]
 
         details: dict[str, str] = {}
