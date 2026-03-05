@@ -219,6 +219,8 @@ def _build_text_message(
         warnings.append(prop.floor_warning)
     if prop.sunlight_warning:
         warnings.append(prop.sunlight_warning)
+    if prop.loft_warning:
+        warnings.append(prop.loft_warning)
     if warnings:
         ansi_text = "\n".join(warnings)
         lines.append(f"```ansi\n\u001b[0;33m{ansi_text}\u001b[0m\n```")

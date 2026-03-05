@@ -126,9 +126,10 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
         if "最上階" in equipment_names:
             top_floor_only = True
         south_facing = "南向き" in equipment_names
+        no_loft = "ロフトNG" in equipment_names
         equipment_names = [
             e for e in equipment_names
-            if e not in ("2階以上", "1階の物件", "最上階", "南向き")
+            if e not in ("2階以上", "1階の物件", "最上階", "南向き", "ロフトNG")
         ]
 
         # 設備 → option_id
@@ -154,6 +155,7 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             max_floor=max_floor,
             top_floor_only=top_floor_only,
             south_facing=south_facing,
+            no_loft=no_loft,
         )
         customers.append(customer)
 
