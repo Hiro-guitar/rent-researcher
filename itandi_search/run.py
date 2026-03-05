@@ -48,9 +48,10 @@ def _filter_by_floor(properties: list, *, min_floor=None,
         room_floor = _parse_floor_number(p.floor_text)
 
         if room_floor is None:
-            # 階数情報が取得できなかった場合は除外しない
+            # 階数情報が取得できなかった場合は除外しないが警告付き
             print(f"[WARN] 階数判定不能 (room_id={p.room_id}): "
                   f"floor_text='{p.floor_text}'")
+            p.floor_warning = "⚠️ 所在階の情報が取得できませんでした（階数条件の確認が必要です）"
             result.append(p)
             continue
 
@@ -70,6 +71,7 @@ def _filter_by_floor(properties: list, *, min_floor=None,
             elif not building_floors:
                 print(f"[WARN] 階建て不明 (room_id={p.room_id}): "
                       f"story_text='{p.story_text}'")
+                p.floor_warning = "⚠️ 階建て情報が取得できませんでした（最上階の確認が必要です）"
 
         result.append(p)
     return result
