@@ -17,6 +17,7 @@ from .config import (
     SOFT_EQUIPMENT_IDS,
     SPREADSHEET_ID,
     STRUCTURE_TYPE_MAP,
+    TEXT_ONLY_EQUIPMENT,
 )
 from .models import CustomerCriteria
 
@@ -129,17 +130,24 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
         south_facing = "南向き" in equipment_names
         no_loft = "ロフトNG" in equipment_names
         require_loft = "ロフト" in equipment_names
+        no_deposit = "敷金なし" in equipment_names
+        no_key_money = "礼金なし" in equipment_names
         equipment_names = [
             e for e in equipment_names
-            if e not in ("2階以上", "1階の物件", "最上階", "南向き", "ロフトNG", "ロフト")
+            if e not in (
+                "2階以上", "1階の物件", "最上階", "南向き",
+                "ロフトNG", "ロフト", "敷金なし", "礼金なし",
+            )
         ]
 
         # 設備 → option_id（ハード／ソフトに分離）
-        all_equipment_ids = [
-            EQUIPMENT_IDS[eq_name]
-            for eq_name in equipment_names
-            if eq_name in EQUIPMENT_IDS
-        ]
+        # EQUIPMENT_IDS に加え TEXT_ONLY_EQUIPMENT（API option_id なし）も変換
+        all_equipment_ids = []
+        for eq_name in equipment_names:
+            if eq_name in EQUIPMENT_IDS:
+                all_equipment_ids.append(EQUIPMENT_IDS[eq_name])
+            elif eq_name in TEXT_ONLY_EQUIPMENT:
+                all_equipment_ids.append(TEXT_ONLY_EQUIPMENT[eq_name])
         # ハード設備: API の option_id:all_in で厳密に除外
         hard_equipment_ids = list(dict.fromkeys(
             eid for eid in all_equipment_ids if eid not in SOFT_EQUIPMENT_IDS
@@ -168,6 +176,8 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             south_facing=south_facing,
             no_loft=no_loft,
             require_loft=require_loft,
+            no_deposit=no_deposit,
+            no_key_money=no_key_money,
         )
         customers.append(customer)
 

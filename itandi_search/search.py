@@ -180,6 +180,14 @@ def build_search_payload(
     if criteria.equipment_ids:
         filter_obj["option_id:all_in"] = criteria.equipment_ids
 
+    # 敷金なし
+    if criteria.no_deposit:
+        filter_obj["shikikin:eq"] = 0
+
+    # 礼金なし
+    if criteria.no_key_money:
+        filter_obj["reikin:eq"] = 0
+
     # 広告転載可
     if criteria.ad_reprint_only:
         filter_obj["offer_advertisement_reprint_available_type:in"] = [
