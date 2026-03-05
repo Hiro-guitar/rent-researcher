@@ -100,6 +100,29 @@ def _filter_by_sunlight(properties: list) -> list:
     return result
 
 
+def _filter_by_loft(properties: list) -> list:
+    """ロフト付き物件を除外する。
+    facilities（設備・詳細）に「ロフト」を含むか判定。
+    情報がない場合は除外せず警告付きで残す。
+    """
+    result = []
+    for p in properties:
+        if not p.facilities:
+            # 設備情報がない → 除外しないが警告
+            print(f"[WARN] 設備情報不明 (room_id={p.room_id}): "
+                  f"facilities='{p.facilities}'")
+            p.loft_warning = "⚠️ 設備・詳細の情報が取得できませんでした（ロフトの確認が必要です）"
+            result.append(p)
+        elif "ロフト" in p.facilities:
+            # ロフトあり → 除外
+            print(f"[INFO] ロフトフィルター除外 (room_id={p.room_id}): "
+                  f"facilities に「ロフト」を含む")
+        else:
+            # ロフトなし → OK
+            result.append(p)
+    return result
+
+
 def now_jst() -> str:
     """現在の JST タイムスタンプを返す。"""
     return datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
@@ -219,6 +242,18 @@ def main() -> None:
                               f"残り {len(new_properties)} 件")
                     if not new_properties:
                         print("  → 南向きの物件なし")
+                        continue
+
+                # ロフトNGフィルター（詳細取得後に判定）
+                if customer.no_loft:
+                    before = len(new_properties)
+                    new_properties = _filter_by_loft(new_properties)
+                    filtered = before - len(new_properties)
+                    if filtered:
+                        print(f"  → ロフトフィルター: {filtered} 件除外, "
+                              f"残り {len(new_properties)} 件")
+                    if not new_properties:
+                        print("  → ロフトなしの物件なし")
                         continue
 
                 # 承認待ちシートに書き込み
