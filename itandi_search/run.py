@@ -103,22 +103,17 @@ def _filter_by_sunlight(properties: list) -> list:
 def _filter_by_loft(properties: list) -> list:
     """ロフト付き物件を除外する。
     facilities（設備・詳細）に「ロフト」を含むか判定。
-    情報がない場合は除外せず警告付きで残す。
+    「ロフト」の記載がない物件は警告付きで残す。
     """
     result = []
     for p in properties:
-        if not p.facilities:
-            # 設備情報がない → 除外しないが警告
-            print(f"[WARN] 設備情報不明 (room_id={p.room_id}): "
-                  f"facilities='{p.facilities}'")
-            p.loft_warning = "⚠️ 設備・詳細の情報が取得できませんでした（ロフトの確認が必要です）"
-            result.append(p)
-        elif "ロフト" in p.facilities:
+        if "ロフト" in p.facilities:
             # ロフトあり → 除外
             print(f"[INFO] ロフトフィルター除外 (room_id={p.room_id}): "
                   f"facilities に「ロフト」を含む")
         else:
-            # ロフトなし → OK
+            # ロフトの記載なし → 残すが警告
+            p.loft_warning = "⚠️ 設備・詳細に「ロフト」の記載がありません（ロフトなしの確認が必要です）"
             result.append(p)
     return result
 
