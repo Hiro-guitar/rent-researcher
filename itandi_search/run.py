@@ -136,7 +136,9 @@ def _check_soft_equipment(
     """ソフト設備チェック: 詳細ページの設備テキストに該当設備が見つからない場合に警告を付ける。
 
     除外はしない（アラートのみ）。
-    facilities テキストに加え、フリーレント(90003) は free_rent フィールドも確認する。
+    特殊ケース:
+      - フリーレント(90003): free_rent フィールドも確認する。
+      - 定期借家を含まない(90009): lease_type に「定期」が含まれる場合にアラート（逆チェック）。
     """
     if not soft_equipment_ids:
         return properties
@@ -144,8 +146,19 @@ def _check_soft_equipment(
     for p in properties:
         missing: list[str] = []
         for eq_id in soft_equipment_ids:
-            search_terms = SOFT_EQUIPMENT_SEARCH_TERMS.get(eq_id, [])
             display_name = EQUIPMENT_DISPLAY_NAMES.get(eq_id, str(eq_id))
+
+            # 定期借家を含まない (90009): 逆チェック — 定期借家の場合にアラート
+            if eq_id == 90009:
+                if p.lease_type and "定期" in p.lease_type:
+                    missing.append(display_name)
+                    print(
+                        f"[INFO] ソフト設備アラート (room_id={p.room_id}): "
+                        f"定期借家の可能性あり (lease_type='{p.lease_type}')"
+                    )
+                continue
+
+            search_terms = SOFT_EQUIPMENT_SEARCH_TERMS.get(eq_id, [])
 
             if not search_terms:
                 continue
