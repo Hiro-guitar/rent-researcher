@@ -213,9 +213,11 @@ def _build_text_message(
             f"礼金: {prop.key_money or 'なし'}"
         )
 
-    # 階数警告
+    # 警告表示
     if prop.floor_warning:
         lines.append(prop.floor_warning)
+    if prop.sunlight_warning:
+        lines.append(prop.sunlight_warning)
 
     # 承認リンク
     if gas_webapp_url and customer_name:

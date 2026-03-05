@@ -77,6 +77,29 @@ def _filter_by_floor(properties: list, *, min_floor=None,
     return result
 
 
+def _filter_by_sunlight(properties: list) -> list:
+    """南向きの物件のみを返す。
+    sunlight（主要採光面）に「南」を含むか判定。
+    情報がない場合は除外せず警告付きで残す。
+    """
+    result = []
+    for p in properties:
+        if not p.sunlight:
+            # 採光面情報がない → 除外しないが警告
+            print(f"[WARN] 採光面不明 (room_id={p.room_id}): "
+                  f"sunlight='{p.sunlight}'")
+            p.sunlight_warning = "⚠️ 主要採光面の情報が取得できませんでした（南向きの確認が必要です）"
+            result.append(p)
+        elif "南" in p.sunlight:
+            # 南を含む（南、南西、南東など）→ OK
+            result.append(p)
+        else:
+            # 南を含まない → 除外
+            print(f"[INFO] 南向きフィルター除外 (room_id={p.room_id}): "
+                  f"sunlight='{p.sunlight}'")
+    return result
+
+
 def now_jst() -> str:
     """現在の JST タイムスタンプを返す。"""
     return datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
@@ -184,6 +207,18 @@ def main() -> None:
                               f"残り {len(new_properties)} 件")
                     if not new_properties:
                         print("  → 条件に合う階の物件なし")
+                        continue
+
+                # 南向きフィルター（詳細取得後に判定）
+                if customer.south_facing:
+                    before = len(new_properties)
+                    new_properties = _filter_by_sunlight(new_properties)
+                    filtered = before - len(new_properties)
+                    if filtered:
+                        print(f"  → 南向きフィルター: {filtered} 件除外, "
+                              f"残り {len(new_properties)} 件")
+                    if not new_properties:
+                        print("  → 南向きの物件なし")
                         continue
 
                 # 承認待ちシートに書き込み
