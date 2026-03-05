@@ -27,6 +27,8 @@ class CustomerCriteria:
     south_facing: bool = False
     no_loft: bool = False
     require_loft: bool = False
+    no_deposit: bool = False
+    no_key_money: bool = False
     equipment_ids: list[int] = field(default_factory=list)
     soft_equipment_ids: list[int] = field(default_factory=list)
     ad_reprint_only: bool = False

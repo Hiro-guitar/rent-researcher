@@ -136,6 +136,7 @@ def _check_soft_equipment(
     """ソフト設備チェック: 詳細ページの設備テキストに該当設備が見つからない場合に警告を付ける。
 
     除外はしない（アラートのみ）。
+    facilities テキストに加え、フリーレント(90003) は free_rent フィールドも確認する。
     """
     if not soft_equipment_ids:
         return properties
@@ -149,7 +150,14 @@ def _check_soft_equipment(
             if not search_terms:
                 continue
 
+            # facilities テキストでキーワード検索
             found = any(term in p.facilities for term in search_terms)
+
+            # フリーレント (90003): free_rent フィールドも確認
+            # （設備欄ではなく別フィールドに記載されることが多い）
+            if not found and eq_id == 90003 and p.free_rent:
+                found = True
+
             if not found:
                 missing.append(display_name)
                 print(
