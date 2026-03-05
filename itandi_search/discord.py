@@ -221,6 +221,8 @@ def _build_text_message(
         warnings.append(prop.sunlight_warning)
     if prop.loft_warning:
         warnings.append(prop.loft_warning)
+    if prop.teiki_warning:
+        warnings.append(prop.teiki_warning)
     if prop.equipment_warning:
         warnings.append(prop.equipment_warning)
     if warnings:

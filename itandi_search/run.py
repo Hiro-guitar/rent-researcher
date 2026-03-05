@@ -120,6 +120,29 @@ def _filter_by_loft(properties: list) -> list:
     return result
 
 
+def _filter_by_teiki(properties: list) -> list:
+    """定期借家の物件を除外する。
+    lease_type（賃貸借契約区分）に「定期」を含むか判定。
+    情報がない場合は除外せず警告付きで残す。
+    """
+    result = []
+    for p in properties:
+        if not p.lease_type:
+            # 契約区分情報がない → 除外しないが警告
+            print(f"[WARN] 契約区分不明 (room_id={p.room_id}): "
+                  f"lease_type='{p.lease_type}'")
+            p.teiki_warning = "⚠️ 賃貸借契約区分の情報が取得できませんでした（定期借家の確認が必要です）"
+            result.append(p)
+        elif "定期" in p.lease_type:
+            # 定期借家 → 除外
+            print(f"[INFO] 定期借家フィルター除外 (room_id={p.room_id}): "
+                  f"lease_type='{p.lease_type}'")
+        else:
+            # 普通借家等 → 通過
+            result.append(p)
+    return result
+
+
 def _check_loft_required(properties: list) -> list:
     """ロフト必須: 設備・詳細に「ロフト」の記載がない物件に警告を付ける。
     除外はしない（アラートのみ）。
@@ -136,9 +159,7 @@ def _check_soft_equipment(
     """ソフト設備チェック: 詳細ページの設備テキストに該当設備が見つからない場合に警告を付ける。
 
     除外はしない（アラートのみ）。
-    特殊ケース:
-      - フリーレント(90003): free_rent フィールドも確認する。
-      - 定期借家を含まない(90009): lease_type に「定期」が含まれる場合にアラート（逆チェック）。
+    フリーレント(90003) は free_rent フィールドも確認する。
     """
     if not soft_equipment_ids:
         return properties
@@ -147,16 +168,6 @@ def _check_soft_equipment(
         missing: list[str] = []
         for eq_id in soft_equipment_ids:
             display_name = EQUIPMENT_DISPLAY_NAMES.get(eq_id, str(eq_id))
-
-            # 定期借家を含まない (90009): 逆チェック — 定期借家の場合にアラート
-            if eq_id == 90009:
-                if p.lease_type and "定期" in p.lease_type:
-                    missing.append(display_name)
-                    print(
-                        f"[INFO] ソフト設備アラート (room_id={p.room_id}): "
-                        f"定期借家の可能性あり (lease_type='{p.lease_type}')"
-                    )
-                continue
 
             search_terms = SOFT_EQUIPMENT_SEARCH_TERMS.get(eq_id, [])
 
@@ -318,6 +329,18 @@ def main() -> None:
                               f"残り {len(new_properties)} 件")
                     if not new_properties:
                         print("  → ロフトなしの物件なし")
+                        continue
+
+                # 定期借家フィルター（詳細取得後に判定）
+                if customer.no_teiki:
+                    before = len(new_properties)
+                    new_properties = _filter_by_teiki(new_properties)
+                    filtered = before - len(new_properties)
+                    if filtered:
+                        print(f"  → 定期借家フィルター: {filtered} 件除外, "
+                              f"残り {len(new_properties)} 件")
+                    if not new_properties:
+                        print("  → 普通借家の物件なし")
                         continue
 
                 # ロフト必須チェック（除外はせずアラートのみ）
