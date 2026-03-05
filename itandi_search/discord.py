@@ -213,11 +213,15 @@ def _build_text_message(
             f"礼金: {prop.key_money or 'なし'}"
         )
 
-    # 警告表示
+    # 警告表示（ANSI黄色）
+    warnings = []
     if prop.floor_warning:
-        lines.append(prop.floor_warning)
+        warnings.append(prop.floor_warning)
     if prop.sunlight_warning:
-        lines.append(prop.sunlight_warning)
+        warnings.append(prop.sunlight_warning)
+    if warnings:
+        ansi_text = "\n".join(warnings)
+        lines.append(f"```ansi\n\u001b[0;33m{ansi_text}\u001b[0m\n```")
 
     # 承認リンク
     if gas_webapp_url and customer_name:
