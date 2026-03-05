@@ -73,3 +73,4 @@ class Property:
     renewal_admin_fee: str = ""  # 更新事務手数料
     guarantee_info: str = ""  # 保証情報（利用必須 + 保証料等）
     key_exchange_fee: str = ""  # 鍵交換費用
+    floor_warning: str = ""  # 階数判定不能時の警告メッセージ
