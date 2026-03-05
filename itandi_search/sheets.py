@@ -14,6 +14,7 @@ from .config import (
     PREFECTURE_IDS,
     SEEN_RANGE,
     SEEN_SHEET,
+    SOFT_EQUIPMENT_IDS,
     SPREADSHEET_ID,
     STRUCTURE_TYPE_MAP,
 )
@@ -133,12 +134,20 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             if e not in ("2階以上", "1階の物件", "最上階", "南向き", "ロフトNG", "ロフト")
         ]
 
-        # 設備 → option_id
-        equipment_ids = [
+        # 設備 → option_id（ハード／ソフトに分離）
+        all_equipment_ids = [
             EQUIPMENT_IDS[eq_name]
             for eq_name in equipment_names
             if eq_name in EQUIPMENT_IDS
         ]
+        # ハード設備: API の option_id:all_in で厳密に除外
+        hard_equipment_ids = list(dict.fromkeys(
+            eid for eid in all_equipment_ids if eid not in SOFT_EQUIPMENT_IDS
+        ))
+        # ソフト設備: 詳細ページで存在チェック → 不在時は ⚠️ アラート（除外しない）
+        soft_equipment_ids = list(dict.fromkeys(
+            eid for eid in all_equipment_ids if eid in SOFT_EQUIPMENT_IDS
+        ))
 
         customer = CustomerCriteria(
             name=name,
@@ -151,7 +160,8 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             area_min=area_min,
             building_age=building_age,
             structure_types=structure_types,
-            equipment_ids=equipment_ids,
+            equipment_ids=hard_equipment_ids,
+            soft_equipment_ids=soft_equipment_ids,
             min_floor=min_floor,
             max_floor=max_floor,
             top_floor_only=top_floor_only,

@@ -13,9 +13,11 @@ from zoneinfo import ZoneInfo
 from .auth import ItandiAuthError, ItandiSession
 from .config import (
     DISCORD_WEBHOOK_URL,
+    EQUIPMENT_DISPLAY_NAMES,
     GAS_WEBAPP_URL,
     ITANDI_EMAIL,
     ITANDI_PASSWORD,
+    SOFT_EQUIPMENT_SEARCH_TERMS,
 )
 from .discord import send_error_notification, send_property_notification
 from .search import ItandiSearchError, enrich_properties_with_images, search_properties
@@ -125,6 +127,42 @@ def _check_loft_required(properties: list) -> list:
     for p in properties:
         if "ロフト" not in p.facilities:
             p.loft_warning = "⚠️ 設備・詳細に「ロフト」の記載がありません（ロフト有無の確認が必要です）"
+    return properties
+
+
+def _check_soft_equipment(
+    properties: list, soft_equipment_ids: list[int]
+) -> list:
+    """ソフト設備チェック: 詳細ページの設備テキストに該当設備が見つからない場合に警告を付ける。
+
+    除外はしない（アラートのみ）。
+    """
+    if not soft_equipment_ids:
+        return properties
+
+    for p in properties:
+        missing: list[str] = []
+        for eq_id in soft_equipment_ids:
+            search_terms = SOFT_EQUIPMENT_SEARCH_TERMS.get(eq_id, [])
+            display_name = EQUIPMENT_DISPLAY_NAMES.get(eq_id, str(eq_id))
+
+            if not search_terms:
+                continue
+
+            found = any(term in p.facilities for term in search_terms)
+            if not found:
+                missing.append(display_name)
+                print(
+                    f"[INFO] ソフト設備アラート (room_id={p.room_id}): "
+                    f"「{display_name}」が設備情報に見つかりません"
+                )
+
+        if missing:
+            p.equipment_warning = (
+                f"⚠️ 以下の設備が確認できませんでした: "
+                f"{', '.join(missing)}"
+            )
+
     return properties
 
 
@@ -264,6 +302,12 @@ def main() -> None:
                 # ロフト必須チェック（除外はせずアラートのみ）
                 if customer.require_loft:
                     new_properties = _check_loft_required(new_properties)
+
+                # ソフト設備チェック（除外はせずアラートのみ）
+                if customer.soft_equipment_ids:
+                    new_properties = _check_soft_equipment(
+                        new_properties, customer.soft_equipment_ids
+                    )
 
                 # 承認待ちシートに書き込み
                 try:
