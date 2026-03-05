@@ -26,6 +26,7 @@ class CustomerCriteria:
     top_floor_only: bool = False
     south_facing: bool = False
     no_loft: bool = False
+    require_loft: bool = False
     equipment_ids: list[int] = field(default_factory=list)
     ad_reprint_only: bool = False
     deal_types: list[str] = field(default_factory=list)

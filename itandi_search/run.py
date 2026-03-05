@@ -118,6 +118,16 @@ def _filter_by_loft(properties: list) -> list:
     return result
 
 
+def _check_loft_required(properties: list) -> list:
+    """ロフト必須: 設備・詳細に「ロフト」の記載がない物件に警告を付ける。
+    除外はしない（アラートのみ）。
+    """
+    for p in properties:
+        if "ロフト" not in p.facilities:
+            p.loft_warning = "⚠️ 設備・詳細に「ロフト」の記載がありません（ロフト有無の確認が必要です）"
+    return properties
+
+
 def now_jst() -> str:
     """現在の JST タイムスタンプを返す。"""
     return datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
@@ -250,6 +260,10 @@ def main() -> None:
                     if not new_properties:
                         print("  → ロフトなしの物件なし")
                         continue
+
+                # ロフト必須チェック（除外はせずアラートのみ）
+                if customer.require_loft:
+                    new_properties = _check_loft_required(new_properties)
 
                 # 承認待ちシートに書き込み
                 try:
