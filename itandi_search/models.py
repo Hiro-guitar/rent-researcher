@@ -28,6 +28,7 @@ class CustomerCriteria:
     no_loft: bool = False
     require_loft: bool = False
     equipment_ids: list[int] = field(default_factory=list)
+    soft_equipment_ids: list[int] = field(default_factory=list)
     ad_reprint_only: bool = False
     deal_types: list[str] = field(default_factory=list)
     update_within_days: Optional[int] = None
@@ -79,3 +80,4 @@ class Property:
     floor_warning: str = ""  # 階数判定不能時の警告メッセージ
     sunlight_warning: str = ""  # 採光面判定不能時の警告メッセージ
     loft_warning: str = ""  # ロフト判定不能時の警告メッセージ
+    equipment_warning: str = ""  # ソフト設備の不在アラート
