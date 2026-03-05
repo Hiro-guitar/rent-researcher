@@ -174,7 +174,6 @@ SOFT_EQUIPMENT_IDS: set[int] = {
     90006,  # 専用庭（API option_id なし — 内部用仮ID）
     90007,  # ルームシェア可（API option_id なし — 内部用仮ID）
     90008,  # 高齢者歓迎（API option_id なし — 内部用仮ID）
-    90009,  # 定期借家を含まない（API option_id なし — 内部用仮ID、逆チェック）
 }
 
 # ソフト設備の詳細ページ内検索キーワード（いずれかが facilities テキストに含まれれば OK）
@@ -206,7 +205,6 @@ SOFT_EQUIPMENT_SEARCH_TERMS: dict[int, list[str]] = {
     90006: ["専用庭"],
     90007: ["ルームシェア"],
     90008: ["高齢者"],
-    # 90009: 定期借家を含まない → 特殊処理（run.py で lease_type を逆チェック）
 }
 
 # option_id → 日本語表示名（アラートメッセージ用）
@@ -238,7 +236,6 @@ EQUIPMENT_DISPLAY_NAMES: dict[int, str] = {
     90006: "専用庭",
     90007: "ルームシェア可",
     90008: "高齢者歓迎",
-    90009: "定期借家を含まない",
 }
 
 # ── API option_id を持たない設備の内部用仮IDマッピング ────
@@ -255,7 +252,6 @@ TEXT_ONLY_EQUIPMENT: dict[str, int] = {
     "ルームシェア": 90007,           # alias
     "高齢者歓迎": 90008,
     "高齢者可": 90008,               # alias
-    "定期借家を含まない": 90009,
 }
 
 # ── 情報更新日 → 日数マッピング ─────────────────────────

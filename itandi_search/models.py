@@ -29,6 +29,7 @@ class CustomerCriteria:
     require_loft: bool = False
     no_deposit: bool = False
     no_key_money: bool = False
+    no_teiki: bool = False  # 定期借家を含まない
     equipment_ids: list[int] = field(default_factory=list)
     soft_equipment_ids: list[int] = field(default_factory=list)
     ad_reprint_only: bool = False
@@ -83,3 +84,4 @@ class Property:
     sunlight_warning: str = ""  # 採光面判定不能時の警告メッセージ
     loft_warning: str = ""  # ロフト判定不能時の警告メッセージ
     equipment_warning: str = ""  # ソフト設備の不在アラート
+    teiki_warning: str = ""  # 定期借家の警告メッセージ

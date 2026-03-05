@@ -132,11 +132,13 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
         require_loft = "ロフト" in equipment_names
         no_deposit = "敷金なし" in equipment_names
         no_key_money = "礼金なし" in equipment_names
+        no_teiki = "定期借家を含まない" in equipment_names
         equipment_names = [
             e for e in equipment_names
             if e not in (
                 "2階以上", "1階の物件", "最上階", "南向き",
                 "ロフトNG", "ロフト", "敷金なし", "礼金なし",
+                "定期借家を含まない",
             )
         ]
 
@@ -178,6 +180,7 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             require_loft=require_loft,
             no_deposit=no_deposit,
             no_key_money=no_key_money,
+            no_teiki=no_teiki,
         )
         customers.append(customer)
 
