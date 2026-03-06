@@ -370,6 +370,95 @@ function handlePropertyViewApi(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ===== 閲覧トラッキング =====
+var VIEW_LOG_SHEET_NAME = '閲覧ログ';
+
+function handleTrackView(e) {
+  var customerName = e.parameter.customer;
+  var roomId = e.parameter.room_id;
+
+  if (!customerName || !roomId) {
+    return ContentService.createTextOutput(JSON.stringify({ error: 'missing params' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  // 物件名を取得（承認待ちシートから）
+  var buildingName = '';
+  var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (pendingSheet) {
+    var data = pendingSheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(customerName) && String(data[i][2]) === String(roomId)) {
+        buildingName = String(data[i][3] || '');
+        break;
+      }
+    }
+  }
+
+  // 閲覧ログシートに記録
+  var logSheet = ss.getSheetByName(VIEW_LOG_SHEET_NAME);
+  if (!logSheet) {
+    logSheet = ss.insertSheet(VIEW_LOG_SHEET_NAME);
+    logSheet.appendRow(['顧客名', 'room_id', '物件名', '閲覧日時']);
+  }
+
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
+  var isFirstView = true;
+
+  // 初回閲覧チェック（同じ customer + room_id が既にあるか）
+  var logData = logSheet.getDataRange().getValues();
+  for (var i = 1; i < logData.length; i++) {
+    if (String(logData[i][0]) === String(customerName) && String(logData[i][1]) === String(roomId)) {
+      isFirstView = false;
+      break;
+    }
+  }
+
+  logSheet.appendRow([customerName, roomId, buildingName, now]);
+
+  // 初回閲覧時のみ Discord 通知
+  if (isFirstView) {
+    try {
+      var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+      if (webhookUrl) {
+        var threadId = PropertiesService.getScriptProperties().getProperty('VIEW_LOG_THREAD_ID');
+        var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
+        var msg = '\uD83D\uDC40 **' + customerName + '** 様が「' + (buildingName || 'room_id: ' + roomId) + '」を閲覧しました (' + time + ')';
+
+        var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
+        var payload = { content: msg };
+        if (!threadId) {
+          payload.thread_name = '\uD83D\uDC40 閲覧ログ';
+        }
+
+        var resp = UrlFetchApp.fetch(url, {
+          method: 'post',
+          contentType: 'application/json',
+          payload: JSON.stringify(payload),
+          muteHttpExceptions: true
+        });
+
+        // 新規スレッド作成時は thread_id を保存
+        if (!threadId && resp.getResponseCode() === 200) {
+          try {
+            var body = JSON.parse(resp.getContentText());
+            if (body.channel_id) {
+              PropertiesService.getScriptProperties().setProperty('VIEW_LOG_THREAD_ID', body.channel_id);
+            }
+          } catch(e) {}
+        }
+      }
+    } catch(e) {
+      console.error('Discord view notification error: ' + e.message);
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, first: isFirstView }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 // ===== シート操作 =====
 function findPendingRow(customerName, roomId) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
