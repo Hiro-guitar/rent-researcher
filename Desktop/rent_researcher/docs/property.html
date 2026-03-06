@@ -274,6 +274,13 @@ function renderProperty(p) {
 
   // カルーセル初期化（動的HTML注入後に実行）
   initCarousel();
+
+  // 閲覧トラッキング（fire-and-forget）
+  if (customer && roomId) {
+    try {
+      fetch(GAS_API_URL + '?action=track_view&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId), { mode: 'no-cors' });
+    } catch(e) {}
+  }
 }
 
 function escHtml(str) {
