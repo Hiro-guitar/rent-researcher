@@ -100,7 +100,7 @@ function handleConfirmApprove(e) {
     var editFields = ['buildingName','roomNumber','layout','buildingAge','floorText','storyText',
       'structure','totalUnits','sunlight','moveInDate','stationInfo','address',
       'deposit','keyMoney','shikibiki','petDeposit','renewalFee','fireInsurance',
-      'renewalAdminFee','guaranteeInfo','leaseType','contractPeriod',
+      'renewalAdminFee','guaranteeInfo','keyExchangeFee','leaseType','contractPeriod',
       'cancellationNotice','renewalInfo','freeRent','facilities'];
     for (var j = 0; j < editFields.length; j++) {
       var f = editFields[j];
@@ -349,7 +349,8 @@ function handlePropertyViewApi(e) {
     renewalFee: prop.renewalFee,
     fireInsurance: prop.fireInsurance,
     renewalAdminFee: prop.renewalAdminFee,
-    guaranteeInfo: prop.guaranteeInfo
+    guaranteeInfo: prop.guaranteeInfo,
+    keyExchangeFee: prop.keyExchangeFee
   };
 
   return ContentService.createTextOutput(JSON.stringify(result))
@@ -458,7 +459,8 @@ function rowToProperty(row) {
     renewalFee: _normalizeValue(extra.renewal_fee),
     fireInsurance: _normalizeValue(extra.fire_insurance),
     renewalAdminFee: _normalizeValue(extra.renewal_admin_fee),
-    guaranteeInfo: _normalizeValue(extra.guarantee_info)
+    guaranteeInfo: _normalizeValue(extra.guarantee_info),
+    keyExchangeFee: _normalizeValue(extra.key_exchange_fee)
   };
 }
 
@@ -514,6 +516,7 @@ function updateSheetWithEdits(rowIndex, prop) {
   extra.fire_insurance = prop.fireInsurance || '';
   extra.renewal_admin_fee = prop.renewalAdminFee || '';
   extra.guarantee_info = prop.guaranteeInfo || '';
+  extra.key_exchange_fee = prop.keyExchangeFee || '';
   extra.other_stations = prop.otherStations || [];
 
   cell.setValue(JSON.stringify(extra));
@@ -551,6 +554,7 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   if (prop.fireInsurance) d.fi = prop.fireInsurance;
   if (prop.renewalAdminFee) d.ra = prop.renewalAdminFee;
   if (prop.guaranteeInfo) d.gi = prop.guaranteeInfo;
+  if (prop.keyExchangeFee) d.ke = prop.keyExchangeFee;
   // 設備: objectでもstringでもそのまま
   if (prop.facilities) d.fac = prop.facilities;
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
@@ -730,6 +734,7 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += _inputRow('\u706B\u707D\u4FDD\u967A', 'fireInsurance', prop.fireInsurance);
   html += _inputRow('\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', 'renewalAdminFee', prop.renewalAdminFee);
   html += _textareaRow('\u4FDD\u8A3C\u6599', 'guaranteeInfo', prop.guaranteeInfo);
+  html += _inputRow('\u9375\u4EA4\u63DB\u8CBB\u7528', 'keyExchangeFee', prop.keyExchangeFee);
 
   // ── 契約条件 ──
   html += '<div class="section-header">\u5951\u7D04\u6761\u4EF6</div>';
@@ -1010,6 +1015,7 @@ function makeViewHtml(prop) {
   if (prop.fireInsurance) costRows.push(['\u706B\u707D\u4FDD\u967A\u6599', prop.fireInsurance]);
   if (prop.renewalAdminFee) costRows.push(['\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', prop.renewalAdminFee]);
   if (prop.guaranteeInfo) costRows.push(['\u4FDD\u8A3C\u6599', prop.guaranteeInfo]);
+  if (prop.keyExchangeFee) costRows.push(['\u9375\u4EA4\u63DB\u8CBB\u7528', prop.keyExchangeFee]);
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">\u8CBB\u7528</div>';
     for (var i = 0; i < costRows.length; i++) {

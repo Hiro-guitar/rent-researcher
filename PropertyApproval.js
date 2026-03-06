@@ -100,7 +100,7 @@ function handleConfirmApprove(e) {
     var editFields = ['buildingName','roomNumber','layout','buildingAge','floorText','storyText',
       'structure','totalUnits','sunlight','moveInDate','stationInfo','address',
       'deposit','keyMoney','shikibiki','petDeposit','renewalFee','fireInsurance',
-      'renewalAdminFee','guaranteeInfo','leaseType','contractPeriod',
+      'renewalAdminFee','guaranteeInfo','keyExchangeFee','leaseType','contractPeriod',
       'cancellationNotice','renewalInfo','freeRent','facilities'];
     for (var j = 0; j < editFields.length; j++) {
       var f = editFields[j];
@@ -140,8 +140,8 @@ function handleConfirmApprove(e) {
     updateSheetWithEdits(row.rowIndex, prop);
   }
 
-  // ビューURL（GAS Web App で表示 — URL短縮のため直接レンダリング）
-  var viewUrl = getGasBaseUrl() + '?action=view&customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
+  // ビューURL（GitHub Pages property.html へ直接リンク — GASバナー回避・LINE URI 1000文字制限対策）
+  var viewUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
 
   var flex = buildPropertyFlex(prop, {
     includeImage: selectedImageUrls.length > 0,
@@ -203,7 +203,7 @@ function handleConfirmApproveAll(e) {
       }
     }
 
-    var viewUrl = getGasBaseUrl() + '?action=view&customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
+    var viewUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
 
     var flex = buildPropertyFlex(prop, {
       includeImage: includeImage,
@@ -273,16 +273,18 @@ function handlePropertyView(e) {
     return makeHtml('注意', 'この物件情報は表示できません。');
   }
 
-  // property.html へリダイレクト（GASバナー回避）
+  // property.html へリダイレクト（GASバナー回避 — target="_top" でGAS iframeから脱出）
   var viewImages = prop.selectedImageUrls || prop.imageUrls || [];
   if (viewImages.length === 0 && prop.imageUrl) {
     viewImages = [prop.imageUrl];
   }
   var redirectUrl = buildViewUrl(customerName, roomId, prop, viewImages);
   var redirectHtml = '<html><head><meta charset="utf-8">'
-    + '<meta http-equiv="refresh" content="0;url=' + _esc(redirectUrl) + '">'
-    + '<script>window.location.replace(' + JSON.stringify(redirectUrl) + ');</script>'
-    + '</head><body></body></html>';
+    + '<style>body{display:flex;align-items:center;justify-content:center;min-height:80vh;font-family:sans-serif;color:#888}</style>'
+    + '</head><body><p>\u8AAD\u307F\u8FBC\u307F\u4E2D...</p>'
+    + '<a id="r" href="' + _esc(redirectUrl) + '" target="_top" style="display:none">redirect</a>'
+    + '<script>document.getElementById("r").click();</script>'
+    + '</body></html>';
   return HtmlService.createHtmlOutput(redirectHtml)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
@@ -360,7 +362,8 @@ function handlePropertyViewApi(e) {
     renewalFee: prop.renewalFee,
     fireInsurance: prop.fireInsurance,
     renewalAdminFee: prop.renewalAdminFee,
-    guaranteeInfo: prop.guaranteeInfo
+    guaranteeInfo: prop.guaranteeInfo,
+    keyExchangeFee: prop.keyExchangeFee
   };
 
   return ContentService.createTextOutput(JSON.stringify(result))
@@ -469,7 +472,8 @@ function rowToProperty(row) {
     renewalFee: _normalizeValue(extra.renewal_fee),
     fireInsurance: _normalizeValue(extra.fire_insurance),
     renewalAdminFee: _normalizeValue(extra.renewal_admin_fee),
-    guaranteeInfo: _normalizeValue(extra.guarantee_info)
+    guaranteeInfo: _normalizeValue(extra.guarantee_info),
+    keyExchangeFee: _normalizeValue(extra.key_exchange_fee)
   };
 }
 
@@ -525,6 +529,7 @@ function updateSheetWithEdits(rowIndex, prop) {
   extra.fire_insurance = prop.fireInsurance || '';
   extra.renewal_admin_fee = prop.renewalAdminFee || '';
   extra.guarantee_info = prop.guaranteeInfo || '';
+  extra.key_exchange_fee = prop.keyExchangeFee || '';
   extra.other_stations = prop.otherStations || [];
 
   cell.setValue(JSON.stringify(extra));
@@ -562,6 +567,7 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   if (prop.fireInsurance) d.fi = prop.fireInsurance;
   if (prop.renewalAdminFee) d.ra = prop.renewalAdminFee;
   if (prop.guaranteeInfo) d.gi = prop.guaranteeInfo;
+  if (prop.keyExchangeFee) d.ke = prop.keyExchangeFee;
   // 設備: objectでもstringでもそのまま
   if (prop.facilities) d.fac = prop.facilities;
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
@@ -741,6 +747,7 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += _inputRow('\u706B\u707D\u4FDD\u967A', 'fireInsurance', prop.fireInsurance);
   html += _inputRow('\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', 'renewalAdminFee', prop.renewalAdminFee);
   html += _textareaRow('\u4FDD\u8A3C\u6599', 'guaranteeInfo', prop.guaranteeInfo);
+  html += _inputRow('\u9375\u4EA4\u63DB\u8CBB\u7528', 'keyExchangeFee', prop.keyExchangeFee);
 
   // ── 契約条件 ──
   html += '<div class="section-header">\u5951\u7D04\u6761\u4EF6</div>';
@@ -984,7 +991,7 @@ function makeViewHtml(prop) {
     + '</div>';
 
   // 値が有効か判定（「ー」「入力なし」「なし」は非表示）
-  function _hv(v) { return v && v !== '\u30FC' && v !== '\u5165\u529B\u306A\u3057' && v !== '\u306A\u3057'; }
+  function _hv(v) { return v && v !== '\u30FC' && v !== '\u5165\u529B\u306A\u3057'; }
 
   html += '<div class="section">'
     + '<div class="section-title">\u7269\u4EF6\u60C5\u5831</div>';
@@ -1026,6 +1033,7 @@ function makeViewHtml(prop) {
   if (_hv(prop.fireInsurance)) costRows.push(['\u706B\u707D\u4FDD\u967A\u6599', prop.fireInsurance]);
   if (_hv(prop.renewalAdminFee)) costRows.push(['\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', prop.renewalAdminFee]);
   if (_hv(prop.guaranteeInfo)) costRows.push(['\u4FDD\u8A3C\u6599', prop.guaranteeInfo]);
+  if (_hv(prop.keyExchangeFee)) costRows.push(['\u9375\u4EA4\u63DB\u8CBB\u7528', prop.keyExchangeFee]);
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">\u8CBB\u7528</div>';
     for (var i = 0; i < costRows.length; i++) {
@@ -1064,7 +1072,7 @@ function makeViewHtml(prop) {
     html += '<script>'
       + 'var cur=0,total=' + viewImages.length + ';'
       + 'function goTo(n){cur=n;update()}'
-      + 'function slide(d){cur=(cur+d+total)%total;update()}'
+      + 'function slide(d){if(total<=0)return;cur=((cur+d)%total+total)%total;update()}'
       + 'function update(){'
       + 'document.getElementById("carouselInner").style.transform="translateX(-"+cur*100+"%)";'
       + 'document.getElementById("slideNum").textContent=cur+1;'
