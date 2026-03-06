@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>お部屋の条件選択</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+  -webkit-text-size-adjust: 100%;
+  background: #f5f5f5;
+  color: #333;
+  padding-bottom: 80px;
+}
+
+/* ── ヘッダー ── */
+.header {
+  position: sticky; top: 0; z-index: 10;
+  background: #fff; padding: 14px 16px;
+  border-bottom: 1px solid #e0e0e0;
+}
+.header h1 { font-size: 16px; font-weight: 700; text-align: center; }
+
+/* ── セクション ── */
+.section {
+  background: #fff; margin: 8px; border-radius: 12px;
+  overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.section-title {
+  font-size: 14px; font-weight: 700; color: #06C755;
+  padding: 12px 16px 8px; background: #f0faf4;
+  border-bottom: 1px solid #e8f5e9;
+}
+.section-subtitle {
+  font-size: 12px; color: #888; font-weight: 400; margin-left: 8px;
+}
+
+/* ── タブ ── */
+.tabs {
+  display: flex; margin: 0 16px 8px;
+  border: 2px solid #06C755; border-radius: 8px; overflow: hidden;
+  margin-top: 10px;
+}
+.tab {
+  flex: 1; padding: 10px; text-align: center; font-size: 14px; font-weight: 600;
+  cursor: pointer; background: #fff; color: #06C755;
+  border: none; -webkit-tap-highlight-color: transparent;
+  transition: all 0.2s;
+}
+.tab.active { background: #06C755; color: #fff; }
+
+.tab-content { display: none; padding: 0 0 8px; }
+.tab-content.active { display: block; }
+
+/* ── 会社グループ（路線用） ── */
+.company-group { margin: 4px 8px; border-radius: 8px; overflow: hidden; border: 1px solid #eee; }
+.company-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 12px; background: #fafafa; border-bottom: 1px solid #eee;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.company-header:active { background: #f0f0f0; }
+.company-name { font-size: 14px; font-weight: 700; color: #555; }
+.company-header-right { display: flex; align-items: center; gap: 8px; }
+.company-arrow { font-size: 11px; color: #bbb; transition: transform 0.3s; }
+.company-arrow.open { transform: rotate(90deg); }
+.company-toggle {
+  font-size: 11px; padding: 3px 10px; border-radius: 14px;
+  border: 1px solid #aaa; background: #fff; color: #666;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.company-routes { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+
+/* ── 路線・駅アイテム ── */
+.route-item {
+  display: flex; align-items: center; padding: 0 12px;
+  min-height: 44px; border-bottom: 1px solid #f0f0f0;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.route-item:active { background: #f5f5f5; }
+.route-item input[type="checkbox"] {
+  width: 20px; height: 20px; margin-right: 10px;
+  accent-color: #06C755; flex-shrink: 0;
+}
+.route-item label { font-size: 14px; flex: 1; cursor: pointer; padding: 10px 0; }
+.route-station-badge { font-size: 11px; color: #999; white-space: nowrap; margin-left: 4px; }
+.route-arrow { font-size: 11px; color: #bbb; margin-left: 4px; transition: transform 0.3s; }
+.route-arrow.open { transform: rotate(90deg); }
+
+.station-panel { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #f9f9f9; border-top: 1px solid #eee; }
+.station-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px 2px 44px; font-size: 11px; color: #888; }
+.station-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #ccc; background: #fff; color: #666; cursor: pointer; }
+.station-list { padding: 2px 12px 8px 44px; }
+.station-item { display: flex; align-items: center; padding: 4px 0; }
+.station-item input[type="checkbox"] { width: 16px; height: 16px; margin-right: 8px; accent-color: #06C755; }
+.station-item label { font-size: 12px; cursor: pointer; }
+.station-list.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+
+/* ── 市区町村グループ ── */
+.city-group { margin: 4px 8px; border-radius: 8px; overflow: hidden; border: 1px solid #eee; }
+.city-group-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 12px; background: #fafafa; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.city-group-name { font-size: 14px; font-weight: 700; color: #555; }
+.city-group-arrow { font-size: 11px; color: #bbb; transition: transform 0.3s; }
+.city-group-arrow.open { transform: rotate(90deg); }
+.city-group-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+.city-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; padding: 4px 8px 8px; }
+.city-item { display: flex; align-items: center; padding: 6px 4px; }
+.city-item input[type="checkbox"] { width: 18px; height: 18px; margin-right: 8px; accent-color: #06C755; }
+.city-item label { font-size: 13px; cursor: pointer; }
+
+/* ── スライダー ── */
+.slider-container { padding: 8px 16px 16px; }
+.slider-value { font-size: 22px; font-weight: 700; color: #06C755; text-align: center; margin: 4px 0 8px; }
+.slider-row { display: flex; align-items: center; gap: 8px; }
+.slider-label { font-size: 11px; color: #999; white-space: nowrap; }
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 6px; border-radius: 3px;
+  background: #e0e0e0; outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: #06C755; cursor: pointer; border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.unspecified-row { padding: 8px 16px 4px; }
+.unspecified-row label { font-size: 13px; color: #666; display: flex; align-items: center; gap: 8px; }
+.unspecified-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: #06C755; }
+
+/* ── チェックボックスグリッド ── */
+.checkbox-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; padding: 8px 12px 12px; }
+.checkbox-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.cb-item { display: flex; align-items: center; padding: 6px 4px; }
+.cb-item input[type="checkbox"] { width: 18px; height: 18px; margin-right: 6px; accent-color: #06C755; flex-shrink: 0; }
+.cb-item label { font-size: 13px; cursor: pointer; }
+
+/* ── こだわり条件アコーディオン ── */
+.equip-category { border-bottom: 1px solid #f0f0f0; }
+.equip-category:last-child { border-bottom: none; }
+.equip-cat-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 16px; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.equip-cat-header:active { background: #f8f8f8; }
+.equip-cat-name { font-size: 14px; font-weight: 600; color: #444; }
+.equip-cat-count { font-size: 11px; color: #06C755; font-weight: 600; }
+.equip-cat-arrow { font-size: 11px; color: #bbb; transition: transform 0.3s; }
+.equip-cat-arrow.open { transform: rotate(90deg); }
+.equip-cat-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+.equip-cat-items { padding: 0 12px 8px; }
+.equip-item { display: flex; align-items: center; padding: 6px 4px; }
+.equip-item input[type="checkbox"] { width: 18px; height: 18px; margin-right: 8px; accent-color: #06C755; flex-shrink: 0; }
+.equip-item label { font-size: 13px; cursor: pointer; }
+
+/* ── ペット入力欄 ── */
+.pet-input-row { display: none; padding: 4px 16px 8px 40px; }
+.pet-input-row.show { display: block; }
+.pet-input-row input[type="text"] {
+  width: 100%; padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px;
+}
+.pet-input-row .hint { font-size: 11px; color: #999; margin-top: 4px; }
+
+/* ── フッター ── */
+.footer {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+  background: #fff; padding: 12px 16px;
+  border-top: 1px solid #e0e0e0;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+.submit-btn {
+  width: 100%; padding: 14px; font-size: 16px; font-weight: 700;
+  border: none; border-radius: 8px;
+  background: #06C755; color: #fff;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.2s;
+}
+.submit-btn:disabled { background: #ccc; cursor: default; }
+.submit-btn:active:not(:disabled) { opacity: 0.8; }
+
+/* ── ローディング & 完了 ── */
+.loading, .success {
+  display: none; flex-direction: column; align-items: center;
+  justify-content: center; min-height: 60vh; text-align: center; padding: 24px;
+}
+.spinner { width: 40px; height: 40px; border: 4px solid #e0e0e0; border-top-color: #06C755; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading p { margin-top: 16px; font-size: 15px; color: #666; }
+.success .icon { font-size: 48px; margin-bottom: 16px; }
+.success h2 { font-size: 18px; margin-bottom: 8px; }
+.success p { font-size: 14px; color: #666; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<!-- ===== メイン画面 ===== -->
+<div id="app">
+  <div class="header"><h1>お部屋の条件を選択</h1></div>
+
+  <!-- ═══ エリア ═══ -->
+  <div class="section">
+    <div class="section-title">エリア</div>
+    <div class="tabs">
+      <div class="tab active" id="tabRoute" onclick="switchTab('route')">路線・駅</div>
+      <div class="tab" id="tabCity" onclick="switchTab('city')">市区町村</div>
+    </div>
+    <div style="padding:6px 16px 2px;font-size:11px;color:#e67e22;">※ 路線・駅と市区町村は同時に使用できません。選択中のタブの条件のみ反映されます。</div>
+    <div class="tab-content active" id="contentRoute">
+      <div id="routeList"></div>
+    </div>
+    <div class="tab-content" id="contentCity">
+      <div id="cityList"></div>
+    </div>
+  </div>
+
+  <!-- ═══ 家賃上限 ═══ -->
+  <div class="section">
+    <div class="section-title">家賃上限<span class="section-subtitle">（管理費・共益費を含む）</span></div>
+    <div class="slider-container">
+      <div class="slider-value" id="rentDisplay">8万円</div>
+      <div class="slider-row">
+        <span class="slider-label">6万</span>
+        <input type="range" id="rentSlider" min="0" max="0" value="0" oninput="onRentChange()">
+        <span class="slider-label">50万</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 間取り ═══ -->
+  <div class="section">
+    <div class="section-title">間取り</div>
+    <div class="checkbox-grid" id="layoutGrid"></div>
+  </div>
+
+  <!-- ═══ 徒歩分数 ═══ -->
+  <div class="section">
+    <div class="section-title">駅徒歩</div>
+    <div class="unspecified-row">
+      <label><input type="checkbox" id="walkUnspecified" onchange="onWalkUnspecifiedChange()"> 指定しない</label>
+    </div>
+    <div class="slider-container" id="walkSliderContainer">
+      <div class="slider-value" id="walkDisplay">10分以内</div>
+      <div class="slider-row">
+        <span class="slider-label">1分</span>
+        <input type="range" id="walkSlider" min="0" max="19" value="9" oninput="onWalkChange()">
+        <span class="slider-label">20分</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 面積 ═══ -->
+  <div class="section">
+    <div class="section-title">専有面積<span class="section-subtitle">（下限）</span></div>
+    <div class="unspecified-row">
+      <label><input type="checkbox" id="areaUnspecified" onchange="onAreaUnspecifiedChange()"> 指定しない</label>
+    </div>
+    <div class="slider-container" id="areaSliderContainer">
+      <div class="slider-value" id="areaDisplay">25m²</div>
+      <div class="slider-row" id="areaSliderRow">
+        <span class="slider-label">15m²</span>
+        <input type="range" id="areaSlider" min="0" max="9" value="2" oninput="onAreaChange()">
+        <span class="slider-label">60m²</span>
+      </div>
+      <div style="text-align:center;margin-top:8px;">
+        <label style="font-size:12px;color:#888;cursor:pointer;"><input type="checkbox" id="areaCustomToggle" onchange="onAreaCustomToggle()" style="margin-right:4px;accent-color:#06C755;">任意入力</label>
+      </div>
+      <div id="areaCustomRow" style="display:none;text-align:center;margin-top:8px;">
+        <input type="number" id="areaCustomInput" min="1" max="999" placeholder="m²" style="width:100px;padding:8px;font-size:16px;border:1px solid #ccc;border-radius:6px;text-align:center;">
+        <span style="font-size:14px;color:#666;"> m²</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 築年数 ═══ -->
+  <div class="section">
+    <div class="section-title">築年数</div>
+    <div class="unspecified-row">
+      <label><input type="checkbox" id="ageUnspecified" onchange="onAgeUnspecifiedChange()"> 指定しない</label>
+    </div>
+    <div class="slider-container" id="ageSliderContainer">
+      <div class="slider-value" id="ageDisplay">10年以内</div>
+      <div class="slider-row" id="ageSliderRow">
+        <span class="slider-label">新築</span>
+        <input type="range" id="ageSlider" min="0" max="12" value="6" oninput="onAgeChange()">
+        <span class="slider-label">40年</span>
+      </div>
+      <div style="text-align:center;margin-top:8px;">
+        <label style="font-size:12px;color:#888;cursor:pointer;"><input type="checkbox" id="ageCustomToggle" onchange="onAgeCustomToggle()" style="margin-right:4px;accent-color:#06C755;">任意入力</label>
+      </div>
+      <div id="ageCustomRow" style="display:none;text-align:center;margin-top:8px;">
+        <input type="number" id="ageCustomInput" min="1" max="99" placeholder="年" style="width:100px;padding:8px;font-size:16px;border:1px solid #ccc;border-radius:6px;text-align:center;">
+        <span style="font-size:14px;color:#666;"> 年以内</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 建物構造 ═══ -->
+  <div class="section">
+    <div class="section-title">建物構造</div>
+    <div class="checkbox-grid cols-2" id="structureGrid"></div>
+  </div>
+
+  <!-- ═══ こだわり条件 ═══ -->
+  <div class="section">
+    <div class="section-title">こだわり条件</div>
+    <div id="equipmentList"></div>
+  </div>
+
+  <!-- ═══ その他 ═══ -->
+  <div class="section">
+    <div class="section-title">その他</div>
+    <div style="padding:8px 16px 16px;">
+      <textarea id="otherConditionsInput" rows="3" placeholder="その他のご希望があれば自由にご記入ください" style="width:100%;padding:10px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;resize:vertical;font-family:inherit;"></textarea>
+    </div>
+  </div>
+
+  <!-- ═══ 決定ボタン ═══ -->
+  <div class="footer">
+    <button class="submit-btn" id="submitBtn" onclick="submitCriteria()">決定する</button>
+  </div>
+</div>
+
+<!-- ===== ローディング ===== -->
+<div class="loading" id="loading"><div class="spinner"></div><p>送信中...</p></div>
+
+<!-- ===== 完了画面 ===== -->
+<div class="success" id="success">
+  <div class="icon">&#x2705;</div>
+  <h2>条件を保存しました</h2>
+  <p>閉じない場合は<br>「✕」ボタンで閉じてください</p>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  サーバーから注入されるデータ
+// ══════════════════════════════════════════════════════════
+var ROUTE_COMPANIES = <?!= routeCompanies ?>;
+var SELECTED_ROUTES = <?!= selectedRoutes ?>;
+var STATION_DATA = <?!= stationData ?>;
+var SELECTED_STATIONS = <?!= selectedStations ?>;
+var TOKYO_CITIES = <?!= tokyoCities ?>;
+var SELECTED_CITIES = <?!= selectedCities ?>;
+var USER_ID = '<?= userId ?>';
+var INIT_AREA_METHOD = '<?= areaMethod ?>';
+var INIT_RENT_MAX = '<?= selectedRentMax ?>';
+var INIT_LAYOUTS = <?!= selectedLayouts ?>;
+var INIT_WALK = '<?= walkMax ?>';
+var INIT_AREA_MIN = '<?= areaMin ?>';
+var INIT_BUILDING_AGE = '<?= buildingAge ?>';
+var INIT_BUILDING_STRUCTURES = <?!= selectedBuildingStructures ?>;
+var INIT_EQUIPMENT = <?!= selectedEquipment ?>;
+var INIT_PET_TYPE = '<?= petType ?>';
+var INIT_OTHER_CONDITIONS = '<?= otherConditions ?>';
+
+// ══════════════════════════════════════════════════════════
+//  データ定義
+// ══════════════════════════════════════════════════════════
+var RENT_VALUES = [];
+(function() {
+  for (var i = 60; i <= 150; i++) RENT_VALUES.push((i/10) + '万円');      // 6万〜15万 (千円=0.1万刻み)
+  for (var i = 155; i <= 200; i += 5) RENT_VALUES.push((i/10) + '万円');  // 15.5万〜20万 (5千円=0.5万刻み)
+  for (var j = 21; j <= 50; j++) RENT_VALUES.push(j + '万円');            // 21万〜50万 (1万刻み)
+})();
+
+var LAYOUT_OPTIONS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'];
+var WALK_VALUES = []; for (var i = 1; i <= 20; i++) WALK_VALUES.push(i + '分以内');
+var AREA_VALUES = ['15m²','20m²','25m²','30m²','35m²','40m²','45m²','50m²','55m²','60m²'];
+var AGE_VALUES = ['新築','1年以内','2年以内','3年以内','4年以内','5年以内','10年以内','15年以内','20年以内','25年以内','30年以内','35年以内','40年以内'];
+var STRUCTURE_OPTIONS = ['鉄筋系','鉄骨系','木造','ブロック・その他'];
+
+var EQUIPMENT_CATEGORIES = [
+  { name: '階数・位置', items: ['1階の物件','2階以上','最上階','角部屋','南向き'] },
+  { name: '室内設備', items: ['室内洗濯機置場','ロフト','ロフトNG','家具家電付き','エアコン付き','床暖房'] },
+  { name: 'バス・トイレ', items: ['バス・トイレ別','独立洗面台','温水洗浄便座','浴室乾燥機','追い焚き風呂'] },
+  { name: 'キッチン', items: ['ガスコンロ対応','IHコンロ','コンロ2口以上','システムキッチン','カウンターキッチン'] },
+  { name: '建物設備', items: ['駐輪場あり','エレベーター','宅配ボックス','敷地内ゴミ置場','バルコニー付','ルーフバルコニー付','専用庭','都市ガス','プロパンガス'] },
+  { name: 'セキュリティ', items: ['オートロック','TVモニタ付きインタホン','防犯カメラ'] },
+  { name: '初期費用', items: ['敷金なし','礼金なし','フリーレント'] },
+  { name: '入居条件', items: ['ペット相談可','楽器相談可','事務所利用可','ルームシェア可','高齢者歓迎','定期借家を含まない'] },
+  { name: '通信・収納', items: ['インターネット無料','収納','シューズボックス','ウォークインクローゼット'] }
+];
+
+// ── 路線レンダリング管理 ──
+var renderedRoutes = {};
+var activeTab = 'route';
+
+// ══════════════════════════════════════════════════════════
+//  初期化
+// ══════════════════════════════════════════════════════════
+window.onload = function() {
+  renderRoutes();
+  renderCities();
+  renderLayouts();
+  renderStructures();
+  renderEquipment();
+  // こだわり条件のアコーディオンを全て開く
+  for (var c = 0; c < EQUIPMENT_CATEGORIES.length; c++) toggleEquipCategory(c);
+  initRentSlider();
+  initWalkSlider();
+  initAreaSlider();
+  initAgeSlider();
+  restoreSelections();
+  if (INIT_AREA_METHOD === 'city') switchTab('city');
+};
+
+// ══════════════════════════════════════════════════════════
+//  タブ切替
+// ══════════════════════════════════════════════════════════
+function switchTab(tab) {
+  activeTab = tab;
+  document.getElementById('tabRoute').className = 'tab' + (tab === 'route' ? ' active' : '');
+  document.getElementById('tabCity').className = 'tab' + (tab === 'city' ? ' active' : '');
+  document.getElementById('contentRoute').className = 'tab-content' + (tab === 'route' ? ' active' : '');
+  document.getElementById('contentCity').className = 'tab-content' + (tab === 'city' ? ' active' : '');
+}
+
+// ══════════════════════════════════════════════════════════
+//  路線・駅レンダリング（既存ロジック再利用）
+// ══════════════════════════════════════════════════════════
+function renderRoutes() {
+  var container = document.getElementById('routeList');
+  var html = '';
+  for (var c = 0; c < ROUTE_COMPANIES.length; c++) {
+    var company = ROUTE_COMPANIES[c];
+    html += '<div class="company-group">';
+    html += '<div class="company-header" onclick="toggleCompanyRoutes(' + c + ')">';
+    html += '<span class="company-name">' + esc(company.label) + '（' + company.routes.length + '路線）</span>';
+    html += '<div class="company-header-right">';
+    html += '<button class="company-toggle" onclick="event.stopPropagation(); toggleCompany(\'' + company.id + '\')">全選択</button>';
+    html += '<span class="company-arrow" id="companyArrow_' + c + '">&#x25B6;</span>';
+    html += '</div></div>';
+    html += '<div class="company-routes" id="companyRoutes_' + c + '">';
+    for (var r = 0; r < company.routes.length; r++) {
+      var route = company.routes[r];
+      var id = 'r_' + c + '_' + r;
+      var stationCount = (STATION_DATA[route] || []).length;
+      html += '<div class="route-item" onclick="toggleRouteCheckbox(\'' + id + '\')">';
+      html += '<input type="checkbox" id="' + id + '" name="route" value="' + esc(route) + '" data-company="' + company.id + '" onchange="onRouteChange(this)" onclick="event.stopPropagation()">';
+      html += '<label>' + esc(route) + '</label>';
+      html += '<span class="route-station-badge">' + stationCount + '駅</span>';
+      html += '<span class="route-arrow" id="arrow_' + id + '">&#x25B6;</span>';
+      html += '</div>';
+      html += '<div class="station-panel" id="panel_' + id + '"></div>';
+    }
+    html += '</div>';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function toggleCompanyRoutes(companyIndex) {
+  var content = document.getElementById('companyRoutes_' + companyIndex);
+  var arrow = document.getElementById('companyArrow_' + companyIndex);
+  if (!content) return;
+  if (content.style.maxHeight && content.style.maxHeight !== '0px') {
+    content.style.maxHeight = content.scrollHeight + 'px';
+    requestAnimationFrame(function() { content.style.maxHeight = '0'; });
+    if (arrow) arrow.classList.remove('open');
+  } else {
+    content.style.maxHeight = content.scrollHeight + 'px';
+    if (arrow) arrow.classList.add('open');
+  }
+}
+
+function toggleRouteCheckbox(id) {
+  var cb = document.getElementById(id);
+  if (!cb) return;
+  if (cb.checked) {
+    // チェック済み → パネルの開閉だけ（チェックは変えない）
+    var panel = document.getElementById('panel_' + cb.id);
+    var arrow = document.getElementById('arrow_' + cb.id);
+    if (!panel) return;
+    ensureStationsRendered(cb.value, panel);
+    if (panel.style.maxHeight && panel.style.maxHeight !== '0px') {
+      panel.style.maxHeight = panel.scrollHeight + 'px';
+      requestAnimationFrame(function() { panel.style.maxHeight = '0'; });
+      if (arrow) arrow.classList.remove('open');
+    } else {
+      panel.style.maxHeight = panel.scrollHeight + 'px';
+      if (arrow) arrow.classList.add('open');
+    }
+    // 親のcompany-routesのmax-heightを更新
+    updateCompanyRoutesHeight(cb);
+  } else {
+    // 未チェック → チェックを入れて展開
+    cb.checked = true;
+    expandRoute(cb, true);
+  }
+}
+
+function updateCompanyRoutesHeight(cb) {
+  var companyRoutes = cb.closest('.company-routes');
+  if (companyRoutes) {
+    setTimeout(function() { companyRoutes.style.maxHeight = companyRoutes.scrollHeight + 'px'; }, 350);
+  }
+}
+function onRouteChange(cb) { if (cb.checked) expandRoute(cb, true); else collapseRoute(cb, true); }
+
+function expandRoute(cb, animate) {
+  var panel = document.getElementById('panel_' + cb.id);
+  var arrow = document.getElementById('arrow_' + cb.id);
+  if (!panel) return;
+  ensureStationsRendered(cb.value, panel);
+  if (animate) { panel.style.maxHeight = panel.scrollHeight + 'px'; }
+  else { panel.style.transition = 'none'; panel.style.maxHeight = panel.scrollHeight + 'px'; requestAnimationFrame(function() { requestAnimationFrame(function() { panel.style.transition = ''; }); }); }
+  if (arrow) arrow.classList.add('open');
+  // 親の会社グループも展開する
+  var companyRoutes = cb.closest('.company-routes');
+  if (companyRoutes) {
+    if (!companyRoutes.style.maxHeight || companyRoutes.style.maxHeight === '0px') {
+      companyRoutes.style.transition = 'none';
+      companyRoutes.style.maxHeight = companyRoutes.scrollHeight + 'px';
+      requestAnimationFrame(function() { requestAnimationFrame(function() { companyRoutes.style.transition = ''; }); });
+      var companyGroup = companyRoutes.closest('.company-group');
+      if (companyGroup) {
+        var cArrow = companyGroup.querySelector('.company-arrow');
+        if (cArrow) cArrow.classList.add('open');
+      }
+    }
+    // maxHeightを再計算（駅パネル展開分を含める）
+    setTimeout(function() { companyRoutes.style.maxHeight = companyRoutes.scrollHeight + 'px'; }, 350);
+  }
+}
+
+function collapseRoute(cb, animate) {
+  var panel = document.getElementById('panel_' + cb.id);
+  var arrow = document.getElementById('arrow_' + cb.id);
+  if (!panel) return;
+  var staCbs = panel.querySelectorAll('.station-cb');
+  for (var i = 0; i < staCbs.length; i++) staCbs[i].checked = false;
+  if (animate) { panel.style.maxHeight = panel.scrollHeight + 'px'; requestAnimationFrame(function() { panel.style.maxHeight = '0'; }); }
+  else { panel.style.maxHeight = '0'; }
+  if (arrow) arrow.classList.remove('open');
+}
+
+function ensureStationsRendered(routeName, panel) {
+  if (renderedRoutes[routeName]) return;
+  var stations = STATION_DATA[routeName] || [];
+  if (stations.length === 0) { renderedRoutes[routeName] = true; return; }
+  var html = '<div class="station-header"><span>' + stations.length + '駅</span>';
+  html += '<button class="station-toggle-btn" onclick="event.stopPropagation(); toggleRouteStations(\'' + escAttr(routeName) + '\')">全選択/全解除</button></div>';
+  html += '<div class="station-list' + (stations.length > 8 ? ' two-col' : '') + '">';
+  for (var i = 0; i < stations.length; i++) {
+    var sta = stations[i];
+    var stId = 'sta_' + hashCode(routeName + ':' + sta);
+    html += '<div class="station-item"><input type="checkbox" class="station-cb" id="' + stId + '" data-route="' + esc(routeName) + '" value="' + esc(sta) + '" onclick="event.stopPropagation()"><label for="' + stId + '">' + esc(sta) + '</label></div>';
+  }
+  html += '</div>';
+  panel.innerHTML = html;
+  renderedRoutes[routeName] = true;
+}
+
+function toggleRouteStations(routeName) {
+  var routeCb = document.querySelector('input[name="route"][value="' + escSel(routeName) + '"]');
+  if (!routeCb || !routeCb.checked) return;
+  var panel = document.getElementById('panel_' + routeCb.id);
+  var staCbs = panel.querySelectorAll('.station-cb');
+  var allChecked = true;
+  for (var i = 0; i < staCbs.length; i++) { if (!staCbs[i].checked) { allChecked = false; break; } }
+  for (var i = 0; i < staCbs.length; i++) staCbs[i].checked = !allChecked;
+}
+
+function toggleCompany(companyId) {
+  var cbs = document.querySelectorAll('input[data-company="' + companyId + '"]');
+  var allChecked = true;
+  for (var i = 0; i < cbs.length; i++) { if (!cbs[i].checked) { allChecked = false; break; } }
+  for (var i = 0; i < cbs.length; i++) { cbs[i].checked = !allChecked; if (!allChecked) expandRoute(cbs[i], false); else collapseRoute(cbs[i], false); }
+}
+
+// ══════════════════════════════════════════════════════════
+//  市区町村レンダリング
+// ══════════════════════════════════════════════════════════
+function renderCities() {
+  var groups = [
+    { name: '23区', cities: TOKYO_CITIES.filter(function(c) { return c.indexOf('区') >= 0; }) },
+    { name: '市部', cities: TOKYO_CITIES.filter(function(c) { return c.indexOf('市') >= 0; }) },
+    { name: '町村部', cities: TOKYO_CITIES.filter(function(c) { return c.indexOf('町') >= 0 || c.indexOf('村') >= 0; }) }
+  ];
+  var container = document.getElementById('cityList');
+  var html = '';
+  for (var g = 0; g < groups.length; g++) {
+    var group = groups[g];
+    if (group.cities.length === 0) continue;
+    html += '<div class="city-group">';
+    html += '<div class="city-group-header" onclick="toggleCityGroup(' + g + ')">';
+    html += '<span class="city-group-name">' + esc(group.name) + '（' + group.cities.length + '）</span>';
+    html += '<span class="city-group-arrow" id="cityArrow_' + g + '">&#x25B6;</span></div>';
+    html += '<div class="city-group-content" id="cityContent_' + g + '">';
+    html += '<div class="city-grid">';
+    for (var i = 0; i < group.cities.length; i++) {
+      var city = group.cities[i];
+      var cid = 'city_' + g + '_' + i;
+      html += '<div class="city-item"><input type="checkbox" id="' + cid + '" name="city" value="' + esc(city) + '" onclick="event.stopPropagation()"><label for="' + cid + '">' + esc(city) + '</label></div>';
+    }
+    html += '</div></div></div>';
+  }
+  container.innerHTML = html;
+}
+
+function toggleCityGroup(g) {
+  var content = document.getElementById('cityContent_' + g);
+  var arrow = document.getElementById('cityArrow_' + g);
+  if (content.style.maxHeight && content.style.maxHeight !== '0px') {
+    content.style.maxHeight = '0';
+    arrow.classList.remove('open');
+  } else {
+    content.style.maxHeight = content.scrollHeight + 'px';
+    arrow.classList.add('open');
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  家賃スライダー
+// ══════════════════════════════════════════════════════════
+function initRentSlider() {
+  var slider = document.getElementById('rentSlider');
+  slider.max = RENT_VALUES.length - 1;
+  var idx = 20; // default 8万円
+  if (INIT_RENT_MAX) {
+    for (var i = 0; i < RENT_VALUES.length; i++) { if (RENT_VALUES[i] === INIT_RENT_MAX) { idx = i; break; } }
+  }
+  slider.value = idx;
+  onRentChange();
+}
+
+function onRentChange() {
+  var val = RENT_VALUES[document.getElementById('rentSlider').value];
+  document.getElementById('rentDisplay').textContent = val;
+}
+
+// ══════════════════════════════════════════════════════════
+//  間取りチェックボックス
+// ══════════════════════════════════════════════════════════
+function renderLayouts() {
+  var grid = document.getElementById('layoutGrid');
+  var html = '';
+  for (var i = 0; i < LAYOUT_OPTIONS.length; i++) {
+    var l = LAYOUT_OPTIONS[i];
+    html += '<div class="cb-item"><input type="checkbox" id="layout_' + i + '" name="layout" value="' + esc(l) + '"><label for="layout_' + i + '">' + esc(l) + '</label></div>';
+  }
+  grid.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════
+//  徒歩スライダー
+// ══════════════════════════════════════════════════════════
+function initWalkSlider() {
+  var slider = document.getElementById('walkSlider');
+  slider.max = WALK_VALUES.length - 1;
+  if (INIT_WALK && INIT_WALK === '指定しない') {
+    document.getElementById('walkUnspecified').checked = true;
+    onWalkUnspecifiedChange();
+  } else {
+    document.getElementById('walkUnspecified').checked = false;
+    if (INIT_WALK) { for (var i = 0; i < WALK_VALUES.length; i++) { if (WALK_VALUES[i] === INIT_WALK) { slider.value = i; break; } } }
+    onWalkChange();
+  }
+}
+
+function onWalkChange() { document.getElementById('walkDisplay').textContent = WALK_VALUES[document.getElementById('walkSlider').value]; }
+function onWalkUnspecifiedChange() {
+  var checked = document.getElementById('walkUnspecified').checked;
+  document.getElementById('walkSliderContainer').style.opacity = checked ? '0.3' : '1';
+  document.getElementById('walkSlider').disabled = checked;
+}
+
+// ══════════════════════════════════════════════════════════
+//  面積スライダー
+// ══════════════════════════════════════════════════════════
+function initAreaSlider() {
+  var slider = document.getElementById('areaSlider');
+  slider.max = AREA_VALUES.length - 1;
+  if (INIT_AREA_MIN && INIT_AREA_MIN === '指定しない') {
+    document.getElementById('areaUnspecified').checked = true;
+    onAreaUnspecifiedChange();
+  } else {
+    document.getElementById('areaUnspecified').checked = false;
+    if (INIT_AREA_MIN) {
+      var found = false;
+      for (var i = 0; i < AREA_VALUES.length; i++) { if (AREA_VALUES[i] === INIT_AREA_MIN) { slider.value = i; found = true; break; } }
+      if (!found) {
+        document.getElementById('areaCustomToggle').checked = true;
+        onAreaCustomToggle();
+        document.getElementById('areaCustomInput').value = parseInt(INIT_AREA_MIN);
+      }
+    }
+    onAreaChange();
+  }
+}
+
+function onAreaChange() { document.getElementById('areaDisplay').textContent = AREA_VALUES[document.getElementById('areaSlider').value]; }
+function onAreaUnspecifiedChange() {
+  var checked = document.getElementById('areaUnspecified').checked;
+  document.getElementById('areaSliderContainer').style.opacity = checked ? '0.3' : '1';
+  document.getElementById('areaSlider').disabled = checked;
+  document.getElementById('areaCustomToggle').disabled = checked;
+  document.getElementById('areaCustomInput').disabled = checked;
+}
+function onAreaCustomToggle() {
+  var custom = document.getElementById('areaCustomToggle').checked;
+  document.getElementById('areaSliderRow').style.display = custom ? 'none' : 'flex';
+  document.getElementById('areaDisplay').style.display = custom ? 'none' : 'block';
+  document.getElementById('areaCustomRow').style.display = custom ? 'block' : 'none';
+}
+
+// ══════════════════════════════════════════════════════════
+//  築年数スライダー
+// ══════════════════════════════════════════════════════════
+function initAgeSlider() {
+  var slider = document.getElementById('ageSlider');
+  slider.max = AGE_VALUES.length - 1;
+  if (INIT_BUILDING_AGE && INIT_BUILDING_AGE === '指定しない') {
+    document.getElementById('ageUnspecified').checked = true;
+    onAgeUnspecifiedChange();
+  } else {
+    document.getElementById('ageUnspecified').checked = false;
+    if (INIT_BUILDING_AGE) {
+      var found = false;
+      for (var i = 0; i < AGE_VALUES.length; i++) { if (AGE_VALUES[i] === INIT_BUILDING_AGE) { slider.value = i; found = true; break; } }
+      if (!found) {
+        document.getElementById('ageCustomToggle').checked = true;
+        onAgeCustomToggle();
+        document.getElementById('ageCustomInput').value = parseInt(INIT_BUILDING_AGE);
+      }
+    }
+    onAgeChange();
+  }
+}
+
+function onAgeChange() { document.getElementById('ageDisplay').textContent = AGE_VALUES[document.getElementById('ageSlider').value]; }
+function onAgeUnspecifiedChange() {
+  var checked = document.getElementById('ageUnspecified').checked;
+  document.getElementById('ageSliderContainer').style.opacity = checked ? '0.3' : '1';
+  document.getElementById('ageSlider').disabled = checked;
+  document.getElementById('ageCustomToggle').disabled = checked;
+  document.getElementById('ageCustomInput').disabled = checked;
+}
+function onAgeCustomToggle() {
+  var custom = document.getElementById('ageCustomToggle').checked;
+  document.getElementById('ageSliderRow').style.display = custom ? 'none' : 'flex';
+  document.getElementById('ageDisplay').style.display = custom ? 'none' : 'block';
+  document.getElementById('ageCustomRow').style.display = custom ? 'block' : 'none';
+}
+
+// ══════════════════════════════════════════════════════════
+//  建物構造チェックボックス
+// ══════════════════════════════════════════════════════════
+function renderStructures() {
+  var grid = document.getElementById('structureGrid');
+  var html = '';
+  for (var i = 0; i < STRUCTURE_OPTIONS.length; i++) {
+    var s = STRUCTURE_OPTIONS[i];
+    html += '<div class="cb-item"><input type="checkbox" id="struct_' + i + '" name="structure" value="' + esc(s) + '"><label for="struct_' + i + '">' + esc(s) + '</label></div>';
+  }
+  grid.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════
+//  こだわり条件レンダリング
+// ══════════════════════════════════════════════════════════
+function renderEquipment() {
+  var container = document.getElementById('equipmentList');
+  var html = '';
+  for (var c = 0; c < EQUIPMENT_CATEGORIES.length; c++) {
+    var cat = EQUIPMENT_CATEGORIES[c];
+    html += '<div class="equip-category">';
+    html += '<div class="equip-cat-header" onclick="toggleEquipCategory(' + c + ')">';
+    html += '<span class="equip-cat-name">' + esc(cat.name) + '</span>';
+    html += '<div><span class="equip-cat-count" id="equipCount_' + c + '"></span> <span class="equip-cat-arrow" id="equipArrow_' + c + '">&#x25B6;</span></div></div>';
+    html += '<div class="equip-cat-content" id="equipContent_' + c + '">';
+    html += '<div class="equip-cat-items">';
+    for (var i = 0; i < cat.items.length; i++) {
+      var item = cat.items[i];
+      var eid = 'equip_' + c + '_' + i;
+      html += '<div class="equip-item"><input type="checkbox" id="' + eid + '" name="equipment" value="' + esc(item) + '" onchange="onEquipChange(' + c + ',this)"><label for="' + eid + '">' + esc(item) + '</label></div>';
+      if (item === 'ペット相談可') {
+        html += '<div class="pet-input-row" id="petInputRow"><input type="text" id="petTypeInput" placeholder="ペットの種類を入力"><div class="hint">例: 小型犬、猫</div></div>';
+      }
+    }
+    html += '</div></div></div>';
+  }
+  container.innerHTML = html;
+}
+
+function toggleEquipCategory(c) {
+  var content = document.getElementById('equipContent_' + c);
+  var arrow = document.getElementById('equipArrow_' + c);
+  if (content.style.maxHeight && content.style.maxHeight !== '0px') {
+    content.style.maxHeight = '0';
+    arrow.classList.remove('open');
+  } else {
+    content.style.maxHeight = content.scrollHeight + 'px';
+    arrow.classList.add('open');
+  }
+}
+
+function onEquipChange(catIdx, cb) {
+  // ペット相談可の特殊処理
+  if (cb.value === 'ペット相談可') {
+    var petRow = document.getElementById('petInputRow');
+    if (petRow) {
+      petRow.className = 'pet-input-row' + (cb.checked ? ' show' : '');
+      // アコーディオンの高さを再計算
+      var content = document.getElementById('equipContent_' + catIdx);
+      if (content.style.maxHeight && content.style.maxHeight !== '0px') {
+        setTimeout(function() { content.style.maxHeight = content.scrollHeight + 'px'; }, 10);
+      }
+    }
+  }
+  updateEquipCount(catIdx);
+}
+
+function updateEquipCount(catIdx) {
+  var content = document.getElementById('equipContent_' + catIdx);
+  var checked = content.querySelectorAll('input[name="equipment"]:checked').length;
+  var countEl = document.getElementById('equipCount_' + catIdx);
+  countEl.textContent = checked > 0 ? checked + '件' : '';
+}
+
+// ══════════════════════════════════════════════════════════
+//  前回選択の復元
+// ══════════════════════════════════════════════════════════
+function restoreSelections() {
+  // 路線
+  for (var i = 0; i < SELECTED_ROUTES.length; i++) {
+    var cb = document.querySelector('input[name="route"][value="' + escSel(SELECTED_ROUTES[i]) + '"]');
+    if (cb) { cb.checked = true; expandRoute(cb, false); }
+  }
+  // 駅
+  for (var routeName in SELECTED_STATIONS) {
+    var selectedList = SELECTED_STATIONS[routeName];
+    if (!selectedList || selectedList.length === 0) continue;
+    var routeCb = document.querySelector('input[name="route"][value="' + escSel(routeName) + '"]');
+    if (!routeCb) continue;
+    var panel = document.getElementById('panel_' + routeCb.id);
+    if (!panel) continue;
+    var staCbs = panel.querySelectorAll('.station-cb');
+    for (var j = 0; j < staCbs.length; j++) {
+      staCbs[j].checked = selectedList.indexOf(staCbs[j].value) >= 0;
+    }
+  }
+  // 市区町村
+  for (var i = 0; i < SELECTED_CITIES.length; i++) {
+    var cb = document.querySelector('input[name="city"][value="' + escSel(SELECTED_CITIES[i]) + '"]');
+    if (cb) cb.checked = true;
+  }
+  // 市区町村グループを展開（選択がある場合）
+  if (SELECTED_CITIES.length > 0) {
+    for (var g = 0; g < 3; g++) toggleCityGroup(g);
+  }
+  // 間取り
+  for (var i = 0; i < INIT_LAYOUTS.length; i++) {
+    var cb = document.querySelector('input[name="layout"][value="' + escSel(INIT_LAYOUTS[i]) + '"]');
+    if (cb) cb.checked = true;
+  }
+  // 建物構造
+  for (var i = 0; i < INIT_BUILDING_STRUCTURES.length; i++) {
+    var cb = document.querySelector('input[name="structure"][value="' + escSel(INIT_BUILDING_STRUCTURES[i]) + '"]');
+    if (cb) cb.checked = true;
+  }
+  // こだわり条件
+  for (var i = 0; i < INIT_EQUIPMENT.length; i++) {
+    var cb = document.querySelector('input[name="equipment"][value="' + escSel(INIT_EQUIPMENT[i]) + '"]');
+    if (cb) {
+      cb.checked = true;
+      if (cb.value === 'ペット相談可') {
+        var petRow = document.getElementById('petInputRow');
+        if (petRow) petRow.className = 'pet-input-row show';
+      }
+    }
+  }
+  // ペット種類
+  if (INIT_PET_TYPE) {
+    var petInput = document.getElementById('petTypeInput');
+    if (petInput) petInput.value = INIT_PET_TYPE;
+  }
+  // こだわり条件カウント更新
+  for (var c = 0; c < EQUIPMENT_CATEGORIES.length; c++) updateEquipCount(c);
+  // その他復元
+  if (INIT_OTHER_CONDITIONS) {
+    var otherInput = document.getElementById('otherConditionsInput');
+    if (otherInput) otherInput.value = INIT_OTHER_CONDITIONS;
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  送信
+// ══════════════════════════════════════════════════════════
+function submitCriteria() {
+  var criteria = {};
+
+  // エリア
+  criteria.areaMethod = activeTab;
+  if (activeTab === 'route') {
+    var checkedRoutes = document.querySelectorAll('input[name="route"]:checked');
+    criteria.selectedRoutes = [];
+    criteria.selectedStations = {};
+    for (var i = 0; i < checkedRoutes.length; i++) {
+      var routeName = checkedRoutes[i].value;
+      if (renderedRoutes[routeName]) {
+        var panel = document.getElementById('panel_' + checkedRoutes[i].id);
+        var staCbs = panel.querySelectorAll('.station-cb:checked');
+        var staList = [];
+        for (var j = 0; j < staCbs.length; j++) staList.push(staCbs[j].value);
+        if (staList.length > 0) {
+          criteria.selectedRoutes.push(routeName);
+          criteria.selectedStations[routeName] = staList;
+        }
+      }
+    }
+    criteria.selectedCities = [];
+  } else {
+    var checkedCities = document.querySelectorAll('input[name="city"]:checked');
+    criteria.selectedCities = [];
+    for (var i = 0; i < checkedCities.length; i++) criteria.selectedCities.push(checkedCities[i].value);
+    criteria.selectedRoutes = [];
+    criteria.selectedStations = {};
+  }
+
+  // バリデーション
+  if (activeTab === 'route') {
+    var totalSta = 0;
+    for (var r in criteria.selectedStations) totalSta += criteria.selectedStations[r].length;
+    if (totalSta === 0) { showAlert('少なくとも1つの駅を選択してください。'); return; }
+  } else {
+    if (criteria.selectedCities.length === 0) { showAlert('少なくとも1つの市区町村を選択してください。'); return; }
+  }
+
+  // 家賃
+  criteria.rentMax = RENT_VALUES[document.getElementById('rentSlider').value];
+
+  // 間取り
+  var layoutCbs = document.querySelectorAll('input[name="layout"]:checked');
+  criteria.layouts = [];
+  for (var i = 0; i < layoutCbs.length; i++) criteria.layouts.push(layoutCbs[i].value);
+
+  // 徒歩
+  criteria.walkMax = document.getElementById('walkUnspecified').checked ? '指定しない' : WALK_VALUES[document.getElementById('walkSlider').value];
+
+  // 面積
+  if (document.getElementById('areaUnspecified').checked) {
+    criteria.areaMin = '指定しない';
+  } else if (document.getElementById('areaCustomToggle').checked) {
+    var areaCustomVal = document.getElementById('areaCustomInput').value;
+    criteria.areaMin = areaCustomVal ? areaCustomVal + 'm²' : '指定しない';
+  } else {
+    criteria.areaMin = AREA_VALUES[document.getElementById('areaSlider').value];
+  }
+
+  // 築年数
+  if (document.getElementById('ageUnspecified').checked) {
+    criteria.buildingAge = '指定しない';
+  } else if (document.getElementById('ageCustomToggle').checked) {
+    var ageCustomVal = document.getElementById('ageCustomInput').value;
+    criteria.buildingAge = ageCustomVal ? ageCustomVal + '年以内' : '指定しない';
+  } else {
+    criteria.buildingAge = AGE_VALUES[document.getElementById('ageSlider').value];
+  }
+
+  // 建物構造
+  var structCbs = document.querySelectorAll('input[name="structure"]:checked');
+  criteria.buildingStructures = [];
+  for (var i = 0; i < structCbs.length; i++) criteria.buildingStructures.push(structCbs[i].value);
+
+  // こだわり条件
+  var equipCbs = document.querySelectorAll('input[name="equipment"]:checked');
+  criteria.equipment = [];
+  for (var i = 0; i < equipCbs.length; i++) criteria.equipment.push(equipCbs[i].value);
+
+  // ペット種類
+  criteria.petType = '';
+  if (criteria.equipment.indexOf('ペット相談可') >= 0) {
+    var petInput = document.getElementById('petTypeInput');
+    if (petInput) criteria.petType = petInput.value.trim();
+  }
+
+  // その他
+  criteria.otherConditions = document.getElementById('otherConditionsInput').value.trim();
+
+  // UI切替
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loading').style.display = 'flex';
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      document.getElementById('loading').style.display = 'none';
+      if (result && result.success) {
+        document.getElementById('success').style.display = 'flex';
+        setTimeout(function() {
+          try { window.top.postMessage('liff-close', '*'); } catch(e) {}
+          try { window.close(); } catch(e2) {}
+        }, 1500);
+      } else {
+        showAlert(result ? result.message : 'エラーが発生しました。');
+        document.getElementById('app').style.display = 'block';
+      }
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('loading').style.display = 'none';
+      showAlert('エラーが発生しました: ' + (err.message || err));
+      document.getElementById('app').style.display = 'block';
+    })
+    .processCriteriaSelection(USER_ID, criteria);
+}
+
+// ══════════════════════════════════════════════════════════
+//  ユーティリティ
+// ══════════════════════════════════════════════════════════
+function showAlert(msg) {
+  var existing = document.getElementById('customAlert');
+  if (existing) existing.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'customAlert';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#fff;border-radius:12px;padding:24px 20px 16px;max-width:300px;width:80%;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.15);';
+  var p = document.createElement('p');
+  p.style.cssText = 'font-size:14px;color:#333;line-height:1.6;margin:0 0 16px;';
+  p.textContent = msg;
+  var btn = document.createElement('button');
+  btn.style.cssText = 'padding:10px 32px;font-size:14px;font-weight:600;border:none;border-radius:8px;background:#06C755;color:#fff;cursor:pointer;';
+  btn.textContent = 'OK';
+  btn.onclick = function() { overlay.remove(); };
+  box.appendChild(p);
+  box.appendChild(btn);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+function esc(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escSel(str) { return str.replace(/([!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~])/g, '\\$1'); }
+function escAttr(str) { return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+function hashCode(str) { var hash = 0; for (var i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0; } return Math.abs(hash).toString(36); }
+</script>
+</body>
+</html>
