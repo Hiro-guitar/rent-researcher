@@ -166,6 +166,9 @@ function doGet(e) {
                 return handlePropertyViewApi(e);
         }
 
+    if (action === 'track_view') {
+      return handleTrackView(e);
+    }
 
   // ── 総合条件選択Webページ ──
   if (action === 'selectCriteria' || action === 'selectRoutes') {
