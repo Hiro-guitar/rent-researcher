@@ -400,6 +400,30 @@ function sendFeedback(action) {
   status.textContent = '送信中...';
 
   var propData = currentProperty || decodeHashData();
+
+  // data_hash: URLハッシュがあればそのまま使う、なければ currentProperty からエンコード
+  var dataHash = window.location.hash.substring(1) || '';
+  if (!dataHash && propData) {
+    try {
+      var short = { bn: propData.buildingName, rn: propData.roomNumber, r: propData.rent,
+        mf: propData.managementFee, l: propData.layout, a: propData.area,
+        ba: propData.buildingAge, si: propData.stationInfo, ad: propData.address,
+        d: propData.deposit, k: propData.keyMoney, ft: propData.floorText,
+        fl: propData.floor, st: propData.storyText, str: propData.structure,
+        tu: propData.totalUnits, sl: propData.sunlight, md: propData.moveInDate,
+        lt: propData.leaseType, cp: propData.contractPeriod, cn: propData.cancellationNotice,
+        ri: propData.renewalInfo, fr: propData.freeRent, sb: propData.shikibiki,
+        pd: propData.petDeposit, rf: propData.renewalFee, fi: propData.fireInsurance,
+        ra: propData.renewalAdminFee, gi: propData.guaranteeInfo, ke: propData.keyExchangeFee,
+        fac: propData.facilities, os: propData.otherStations, imgs: propData.images };
+      var jsonStr = JSON.stringify(short);
+      var bytes = new TextEncoder().encode(jsonStr);
+      var binary = '';
+      for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      dataHash = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    } catch(e) {}
+  }
+
   var params = 'action=property_feedback'
     + '&customer=' + encodeURIComponent(customer)
     + '&room_id=' + encodeURIComponent(roomId)
@@ -409,7 +433,7 @@ function sendFeedback(action) {
     + '&rent=' + encodeURIComponent(propData ? (propData.rent || '') : '')
     + '&layout=' + encodeURIComponent(propData ? (propData.layout || '') : '')
     + '&station_info=' + encodeURIComponent(propData ? (propData.stationInfo || '') : '')
-    + '&data_hash=' + encodeURIComponent(window.location.hash.substring(1) || '');
+    + '&data_hash=' + encodeURIComponent(dataHash);
 
   fetch(GAS_API_URL + '?' + params, { redirect: 'follow' })
     .then(function(res) { return res.text(); })
