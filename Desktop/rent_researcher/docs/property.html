@@ -68,6 +68,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 
 <script>
 var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxPj9FQfY09HdJPZ39Tku5O4brLjam-HOWwcdP3HL0AoJ2s6pRXJ0h3hPfsjQjBWqIU/exec';
+var currentProperty = null; // renderProperty で保存、sendFeedback で利用
 
 // ===== URLハッシュからデータをデコード（即時描画用） =====
 function decodeHashData() {
@@ -165,6 +166,7 @@ function showError(msg) {
 }
 
 function renderProperty(p) {
+  currentProperty = p; // sendFeedback で使うためグローバルに保存
   var rentMan = p.rent ? (p.rent / 10000).toFixed(1) : '0';
   var mgmtMan = p.managementFee ? (p.managementFee / 10000).toFixed(1) : '0';
   var images = p.images || [];
@@ -397,7 +399,7 @@ function sendFeedback(action) {
   nopeBtn.disabled = true;
   status.textContent = '送信中...';
 
-  var propData = decodeHashData();
+  var propData = currentProperty || decodeHashData();
   var params = 'action=property_feedback'
     + '&customer=' + encodeURIComponent(customer)
     + '&room_id=' + encodeURIComponent(roomId)
