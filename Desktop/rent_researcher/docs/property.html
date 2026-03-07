@@ -45,6 +45,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .facilities-text{font-size:13px;color:#555;line-height:1.7;white-space:pre-wrap}
 .footer{text-align:center;padding:20px;color:#aaa;font-size:12px}
 .customer-badge{text-align:center;padding:8px;font-size:12px;color:#888;letter-spacing:0.5px}
+/* フィードバックボタン */
+.feedback-bar{display:flex;gap:10px;margin:16px 0;padding:0}
+.feedback-btn{flex:1;padding:14px 0;border-radius:12px;border:2px solid #e0e0e0;background:#fff;font-size:15px;font-weight:bold;cursor:pointer;transition:all 0.2s;text-align:center;color:#555}
+.feedback-btn:active{transform:scale(0.97)}
+.feedback-btn.fav{border-color:#FFB300;color:#FFB300}
+.feedback-btn.fav.active{background:#FFF8E1;border-color:#FFB300;color:#F57F17}
+.feedback-btn.nope{border-color:#BDBDBD;color:#999}
+.feedback-btn.nope.active{background:#F5F5F5;border-color:#9E9E9E;color:#616161}
+.feedback-btn:disabled{opacity:0.6;cursor:not-allowed}
+.feedback-status{text-align:center;font-size:13px;color:#888;margin:-8px 0 8px;min-height:18px}
 </style>
 </head>
 <body>
@@ -197,6 +207,15 @@ function renderProperty(p) {
     + '<div class="price-sub">' + priceSub + '</div>'
     + '</div>';
 
+  // フィードバックボタン（customer と roomId がある場合のみ）
+  if (customer && roomId) {
+    html += '<div class="feedback-bar">'
+      + '<button class="feedback-btn fav" id="favBtn" onclick="sendFeedback(\'favorite\')">\u2B50 お気に入りに追加</button>'
+      + '<button class="feedback-btn nope" id="nopeBtn" onclick="sendFeedback(\'not_interested\')">\uD83D\uDC4E 興味なし</button>'
+      + '</div>'
+      + '<div class="feedback-status" id="feedbackStatus"></div>';
+  }
+
   // 物件情報
   html += '<div class="section"><div class="section-title">物件情報</div>';
   var details = [];
@@ -275,6 +294,9 @@ function renderProperty(p) {
   // カルーセル初期化（動的HTML注入後に実行）
   initCarousel();
 
+  // フィードバック状態チェック
+  checkFeedbackStatus();
+
   // 閲覧トラッキング（fire-and-forget）
   if (customer && roomId) {
     try {
@@ -328,6 +350,104 @@ function initCarousel() {
     var dx = e.changedTouches[0].clientX - startX;
     if (Math.abs(dx) > 40) { slide(dx < 0 ? 1 : -1); }
   });
+}
+
+// ===== フィードバック機能 =====
+var feedbackState = null;
+
+function getFeedbackKey() {
+  return 'feedback_' + customer + '_' + roomId;
+}
+
+function updateFeedbackUI(action) {
+  feedbackState = action;
+  var favBtn = document.getElementById('favBtn');
+  var nopeBtn = document.getElementById('nopeBtn');
+  var status = document.getElementById('feedbackStatus');
+  if (!favBtn || !nopeBtn) return;
+
+  favBtn.classList.remove('active');
+  nopeBtn.classList.remove('active');
+
+  if (action === 'favorite') {
+    favBtn.classList.add('active');
+    favBtn.textContent = '\u2B50 お気に入り済み';
+    nopeBtn.textContent = '\uD83D\uDC4E 興味なし';
+    status.textContent = '';
+  } else if (action === 'not_interested') {
+    nopeBtn.classList.add('active');
+    nopeBtn.textContent = '\uD83D\uDC4E 興味なしに設定済み';
+    favBtn.textContent = '\u2B50 お気に入りに追加';
+    status.textContent = '';
+  } else {
+    favBtn.textContent = '\u2B50 お気に入りに追加';
+    nopeBtn.textContent = '\uD83D\uDC4E 興味なし';
+    status.textContent = '';
+  }
+}
+
+function sendFeedback(action) {
+  if (feedbackState === action) return;
+
+  var favBtn = document.getElementById('favBtn');
+  var nopeBtn = document.getElementById('nopeBtn');
+  var status = document.getElementById('feedbackStatus');
+
+  favBtn.disabled = true;
+  nopeBtn.disabled = true;
+  status.textContent = '送信中...';
+
+  var propData = decodeHashData();
+  var params = 'action=property_feedback'
+    + '&customer=' + encodeURIComponent(customer)
+    + '&room_id=' + encodeURIComponent(roomId)
+    + '&feedback=' + action
+    + '&building_name=' + encodeURIComponent(propData ? (propData.buildingName || '') : '')
+    + '&room_number=' + encodeURIComponent(propData ? (propData.roomNumber || '') : '')
+    + '&rent=' + encodeURIComponent(propData ? (propData.rent || '') : '')
+    + '&layout=' + encodeURIComponent(propData ? (propData.layout || '') : '')
+    + '&station_info=' + encodeURIComponent(propData ? (propData.stationInfo || '') : '')
+    + '&data_hash=' + encodeURIComponent(window.location.hash.substring(1) || '');
+
+  fetch(GAS_API_URL + '?' + params, { redirect: 'follow' })
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      try { var data = JSON.parse(text); } catch(e) {}
+      try { localStorage.setItem(getFeedbackKey(), action); } catch(e) {}
+      updateFeedbackUI(action);
+      favBtn.disabled = false;
+      nopeBtn.disabled = false;
+    })
+    .catch(function(err) {
+      status.textContent = 'エラーが発生しました。もう一度お試しください。';
+      favBtn.disabled = false;
+      nopeBtn.disabled = false;
+    });
+}
+
+function checkFeedbackStatus() {
+  if (!customer || !roomId) return;
+
+  // 1. localStorage で即時UI反映
+  try {
+    var cached = localStorage.getItem(getFeedbackKey());
+    if (cached) updateFeedbackUI(cached);
+  } catch(e) {}
+
+  // 2. API で他デバイスとの同期
+  fetch(GAS_API_URL + '?action=check_feedback&customer=' + encodeURIComponent(customer)
+    + '&room_id=' + encodeURIComponent(roomId), { redirect: 'follow' })
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      try {
+        var data = JSON.parse(text);
+        if (data.action) {
+          updateFeedbackUI(data.action);
+          try { localStorage.setItem(getFeedbackKey(), data.action); } catch(e) {}
+        }
+      } catch(e) {}
+    })
+    .catch(function() {});
 }
 </script>
 </body>
