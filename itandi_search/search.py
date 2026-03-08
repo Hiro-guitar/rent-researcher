@@ -44,46 +44,28 @@ class ItandiSearchError(Exception):
     """検索 API エラー"""
 
 
-# ── 間取り日本語表記 → itandi BB API 値マッピング ──
-LAYOUT_MAP: dict[str, str] = {
-    "ワンルーム": "1r",
-    "1R": "1r",
-    "1K": "1k",
-    "1DK": "1dk",
-    "1LDK": "1ldk",
-    "2K": "2k",
-    "2DK": "2dk",
-    "2LDK": "2ldk",
-    "3K": "3k",
-    "3DK": "3dk",
-    "3LDK": "3ldk",
-    "4K": "4k",
-    "4DK": "4dk",
-    "4LDK": "4ldk",
-}
-
-# 「4K以上」→ 4K/4DK/4LDK に展開
-LAYOUT_EXPAND: dict[str, list[str]] = {
-    "4K以上": ["4k", "4dk", "4ldk"],
+# ── 間取り: 日本語特殊表記のみ変換（API は大文字 "1K" 形式を受け付ける） ──
+LAYOUT_SPECIAL: dict[str, list[str]] = {
+    "ワンルーム": ["1R"],
+    "4K以上": ["4K", "4DK", "4LDK"],
 }
 
 
 def _map_layouts(layouts: list[str]) -> list[str]:
-    """日本語間取り名を itandi BB API 値に変換する。"""
+    """間取り名を itandi BB API 値に変換する。
+
+    "1K", "1LDK" 等はそのまま通す（API は大文字を受け付ける）。
+    "ワンルーム" → "1R", "4K以上" → ["4K","4DK","4LDK"] のみ変換。
+    """
     result: list[str] = []
     for l in layouts:
         l = l.strip()
         if not l:
             continue
-        if l in LAYOUT_EXPAND:
-            result.extend(LAYOUT_EXPAND[l])
-        elif l in LAYOUT_MAP:
-            result.append(LAYOUT_MAP[l])
-        elif l.lower() in [v for v in LAYOUT_MAP.values()]:
-            # 既に API 形式の場合はそのまま
-            result.append(l.lower())
+        if l in LAYOUT_SPECIAL:
+            result.extend(LAYOUT_SPECIAL[l])
         else:
-            print(f"[WARN] 未知の間取り値: '{l}' — スキップ")
+            result.append(l)
     return list(dict.fromkeys(result))  # 重複除去
 
 
