@@ -44,6 +44,49 @@ class ItandiSearchError(Exception):
     """検索 API エラー"""
 
 
+# ── 間取り日本語表記 → itandi BB API 値マッピング ──
+LAYOUT_MAP: dict[str, str] = {
+    "ワンルーム": "1r",
+    "1R": "1r",
+    "1K": "1k",
+    "1DK": "1dk",
+    "1LDK": "1ldk",
+    "2K": "2k",
+    "2DK": "2dk",
+    "2LDK": "2ldk",
+    "3K": "3k",
+    "3DK": "3dk",
+    "3LDK": "3ldk",
+    "4K": "4k",
+    "4DK": "4dk",
+    "4LDK": "4ldk",
+}
+
+# 「4K以上」→ 4K/4DK/4LDK に展開
+LAYOUT_EXPAND: dict[str, list[str]] = {
+    "4K以上": ["4k", "4dk", "4ldk"],
+}
+
+
+def _map_layouts(layouts: list[str]) -> list[str]:
+    """日本語間取り名を itandi BB API 値に変換する。"""
+    result: list[str] = []
+    for l in layouts:
+        l = l.strip()
+        if not l:
+            continue
+        if l in LAYOUT_EXPAND:
+            result.extend(LAYOUT_EXPAND[l])
+        elif l in LAYOUT_MAP:
+            result.append(LAYOUT_MAP[l])
+        elif l.lower() in [v for v in LAYOUT_MAP.values()]:
+            # 既に API 形式の場合はそのまま
+            result.append(l.lower())
+        else:
+            print(f"[WARN] 未知の間取り値: '{l}' — スキップ")
+    return list(dict.fromkeys(result))  # 重複除去
+
+
 def resolve_station_ids(
     session: "ItandiSession",
     station_names: list[str],
@@ -146,9 +189,11 @@ def build_search_payload(
     if criteria.rent_max is not None:
         filter_obj["rent:lteq"] = criteria.rent_max
 
-    # 間取り
+    # 間取り（日本語表記 → itandi BB API 値に変換）
     if criteria.layouts:
-        filter_obj["room_layout:in"] = criteria.layouts
+        mapped_layouts = _map_layouts(criteria.layouts)
+        if mapped_layouts:
+            filter_obj["room_layout:in"] = mapped_layouts
 
     # 専有面積
     if criteria.area_min is not None:
@@ -261,12 +306,17 @@ def search_properties(
         if status == 401:
             raise ItandiAuthError("セッションが無効または期限切れです")
         if status == 422:
+            print(f"[ERROR] 422 パラメータ不正 — payload: "
+                  f"{json.dumps(payload, ensure_ascii=False)[:500]}")
             raise ItandiSearchError(
                 f"検索パラメータが不正です: {result.get('raw', '')[:200]}"
             )
         if status == 429:
             raise ItandiSearchError("itandi BB にレート制限されました")
         if status != 200:
+            # 400 等のエラー時: ペイロードをダンプして原因特定を容易にする
+            print(f"[ERROR] API status={status} — payload: "
+                  f"{json.dumps(payload, ensure_ascii=False)[:500]}")
             raise ItandiSearchError(
                 f"検索 API エラー (status={status}): "
                 f"{result.get('raw', '')[:200]}"
