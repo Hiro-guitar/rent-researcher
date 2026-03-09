@@ -77,6 +77,7 @@ class ItandiSession:
         self.driver = _create_driver()
         try:
             self._do_login(self.driver)
+            self._validate_session()
         except Exception:
             self.driver.quit()
             self.driver = None
@@ -90,6 +91,37 @@ class ItandiSession:
         if self.driver:
             self.driver.quit()
             self.driver = None
+
+    def _validate_session(self) -> None:
+        """ログイン後にセッションが実際に使えるか検証する。
+
+        簡易的な API 呼び出しで認証状態を確認し、
+        失敗した場合は ItandiAuthError を投げる。
+        """
+        import time
+        print("[DEBUG] セッション検証中...")
+
+        # itandibb.com に確実にいることを確認
+        self._ensure_itandi_page()
+        time.sleep(1)
+
+        # CSRF-TOKEN が取得できるか確認
+        csrf_script = """
+        var cookies = document.cookie.split(';');
+        for (var i = 0; i < cookies.length; i++) {
+            var c = cookies[i].trim();
+            if (c.startsWith('CSRF-TOKEN=')) {
+                return decodeURIComponent(c.substring('CSRF-TOKEN='.length));
+            }
+        }
+        return '';
+        """
+        csrf_token = self.driver.execute_script(csrf_script)
+        if csrf_token:
+            print(f"[DEBUG] セッション検証OK (CSRF-TOKEN 長さ={len(csrf_token)})")
+        else:
+            print("[WARN] セッション検証: CSRF-TOKEN が取得できません、再ログイン試行...")
+            raise ItandiAuthError("セッション検証失敗: CSRF-TOKEN なし")
 
     def _relogin(self) -> None:
         """セッション切れ時にブラウザを再起動してログインし直す。"""
@@ -310,9 +342,24 @@ class ItandiSession:
         print(f"[DEBUG] 現在のURL: {current_url}")
 
         # 既にログイン済みの場合
-        if _is_itandibb_host(current_url):
+        # ※ itandibb.com/login はログインページなので除外
+        if _is_itandibb_host(current_url) and "/login" not in current_url:
             print("[DEBUG] 既にログイン済み")
             return
+
+        # itandibb.com/login の場合、itandi-accounts.com にリダイレクトされるのを待つ
+        if _is_itandibb_host(current_url) and "/login" in current_url:
+            import time
+            print("[DEBUG] itandibb.com/login を検出、リダイレクト待ち...")
+            for _ in range(10):
+                time.sleep(1)
+                current_url = driver.current_url
+                if "itandi-accounts.com" in current_url:
+                    break
+                if _is_itandibb_host(current_url) and "/login" not in current_url:
+                    print("[DEBUG] 既にログイン済み（リダイレクト後）")
+                    return
+            print(f"[DEBUG] リダイレクト後のURL: {current_url}")
 
         # itandi-accounts.com のログインページにリダイレクトされたことを確認
         if "itandi-accounts.com" not in current_url:
