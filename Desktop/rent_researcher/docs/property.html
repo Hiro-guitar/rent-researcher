@@ -70,12 +70,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbxPj9FQfY09HdJPZ39Tku5O4brLjam-HOWwcdP3HL0AoJ2s6pRXJ0h3hPfsjQjBWqIU/exec';
 var currentProperty = null; // renderProperty で保存、sendFeedback で利用
 
-// ===== URLハッシュからデータをデコード（即時描画用） =====
-function decodeHashData() {
-  var hash = window.location.hash;
-  if (!hash || hash.length <= 1) return null;
+// ===== Base64エンコード済みデータをデコード（短縮キー → フルプロパティ名） =====
+function decodePropertyData(encoded) {
+  if (!encoded) return null;
   try {
-    var encoded = hash.substring(1);
     // URL-safe base64 → 標準 base64
     var standard = encoded.replace(/-/g, '+').replace(/_/g, '/');
     while (standard.length % 4 !== 0) standard += '=';
@@ -131,10 +129,17 @@ var params = new URLSearchParams(window.location.search);
 var customer = params.get('customer');
 var roomId = params.get('room_id');
 
-// 1. まずハッシュデータを試す（即時描画 < 1秒）
-var hashProp = decodeHashData();
-if (hashProp) {
-  renderProperty(hashProp);
+// 埋め込みデータ取得: クエリパラメータ d= を優先、旧形式のハッシュ # もフォールバック対応
+var embeddedData = params.get('d') || (window.location.hash.length > 1 ? window.location.hash.substring(1) : null);
+var inlineProp = decodePropertyData(embeddedData);
+
+// 1. まず埋め込みデータを試す（即時描画 < 1秒）
+if (inlineProp) {
+  renderProperty(inlineProp);
+  // 画像がデータに含まれていない場合、非同期で画像を取得
+  if ((!inlineProp.images || inlineProp.images.length === 0) && customer && roomId) {
+    fetchImages(customer, roomId);
+  }
 } else if (customer && roomId) {
   // 2. フォールバック: GAS API（旧リンク対応）
   fetchProperty(customer, roomId);
@@ -158,6 +163,55 @@ function fetchProperty(customer, roomId) {
     });
 }
 
+// ===== 画像非同期取得（ハッシュにテキストのみの場合、後から画像を読み込み） =====
+function fetchImages(customer, roomId) {
+  var url = GAS_API_URL + '?action=images_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
+
+  fetch(url, { redirect: 'follow' })
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      var data;
+      try { data = JSON.parse(text); } catch(e) { return; }
+      var images = data.images || [];
+      if (images.length === 0) return;
+      // 画像プレースホルダーに挿入
+      insertImages(images);
+    })
+    .catch(function() {});
+}
+
+function insertImages(images) {
+  var placeholder = document.getElementById('image-placeholder');
+  if (!placeholder) return;
+
+  var html = '';
+  if (images.length > 1) {
+    html += '<div class="carousel" id="carousel">'
+      + '<div class="carousel-inner" id="carouselInner">';
+    for (var i = 0; i < images.length; i++) {
+      html += '<div class="carousel-slide"><img src="' + escHtml(images[i]) + '" alt="物件画像 ' + (i+1) + '" loading="lazy"></div>';
+    }
+    html += '</div>'
+      + '<button class="carousel-btn prev" onclick="slide(-1)">&lt;</button>'
+      + '<button class="carousel-btn next" onclick="slide(1)">&gt;</button>'
+      + '<div class="carousel-counter"><span id="slideNum">1</span> / ' + images.length + '</div>'
+      + '</div>'
+      + '<div class="carousel-dots" id="dots">';
+    for (var i = 0; i < images.length; i++) {
+      html += '<span class="dot' + (i === 0 ? ' active' : '') + '" onclick="goTo(' + i + ')"></span>';
+    }
+    html += '</div>';
+  } else if (images.length === 1) {
+    html += '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像" loading="lazy">';
+  }
+
+  placeholder.innerHTML = html;
+  // カルーセル初期化
+  if (images.length > 1) {
+    initCarousel();
+  }
+}
+
 function showError(msg) {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -173,8 +227,10 @@ function renderProperty(p) {
 
   var html = '';
 
-  // 画像表示
-  if (images.length > 1) {
+  // 画像表示（画像がない場合はプレースホルダーを配置、後から非同期挿入）
+  if (images.length === 0) {
+    html += '<div id="image-placeholder"></div>';
+  } else if (images.length > 1) {
     html += '<div class="carousel" id="carousel">'
       + '<div class="carousel-inner" id="carouselInner">';
     for (var i = 0; i < images.length; i++) {

@@ -140,8 +140,13 @@ function handleConfirmApprove(e) {
     updateSheetWithEdits(row.rowIndex, prop);
   }
 
-  // ビューURL（GitHub Pages property.html へ直接リンク — GASバナー回避・LINE URI 1000文字制限対策）
-  var viewUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
+  // ビューURL（ハッシュにテキストデータ埋め込み → property.html が即時描画、画像は非同期読み込み）
+  var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
+  var hashUrl = buildViewUrl(customerName, roomId, prop, []); // 画像なし → URL短縮
+  var viewUrl = hashUrl.length <= 1000 ? hashUrl : plainUrl; // LINE URI action 1000文字制限
+
+  // 画像URLをキャッシュ（property.html からの非同期取得用）
+  cachePropertyImages(customerName, roomId, selectedImageUrls);
 
   var flex = buildPropertyFlex(prop, {
     includeImage: selectedImageUrls.length > 0,
@@ -203,7 +208,12 @@ function handleConfirmApproveAll(e) {
       }
     }
 
-    var viewUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
+    var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
+    var hashUrl = buildViewUrl(customerName, rid, prop, []); // 画像なし → URL短縮
+    var viewUrl = hashUrl.length <= 1000 ? hashUrl : plainUrl;
+
+    // 画像URLをキャッシュ（property.html からの非同期取得用）
+    cachePropertyImages(customerName, rid, selectedUrls);
 
     var flex = buildPropertyFlex(prop, {
       includeImage: includeImage,
@@ -289,6 +299,66 @@ function handlePropertyView(e) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+// ===== 画像キャッシュ（承認時に保存、property.html から非同期取得） =====
+function cachePropertyImages(customerName, roomId, imageUrls) {
+  if (!imageUrls || imageUrls.length === 0) return;
+  try {
+    var cache = CacheService.getScriptCache();
+    var key = 'imgs_' + customerName + '_' + roomId;
+    cache.put(key, JSON.stringify(imageUrls), 86400); // 24時間
+  } catch(e) {
+    // キャッシュ失敗は無視（フォールバックでシートから取得）
+  }
+}
+
+// ===== 画像専用 API（property.html からの非同期取得用、高速） =====
+function handlePropertyImagesApi(e) {
+  var customerName = e.parameter.customer;
+  var roomId = e.parameter.room_id;
+
+  if (!customerName || !roomId) {
+    return ContentService.createTextOutput(JSON.stringify({images: []}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 1. キャッシュから取得（高速 < 100ms）
+  try {
+    var cache = CacheService.getScriptCache();
+    var key = 'imgs_' + customerName + '_' + roomId;
+    var cached = cache.get(key);
+    if (cached) {
+      return ContentService.createTextOutput(JSON.stringify({images: JSON.parse(cached)}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  } catch(e) {}
+
+  // 2. フォールバック: シートから取得
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!sheet) {
+    return ContentService.createTextOutput(JSON.stringify({images: []}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(customerName) &&
+        String(data[i][2]) === String(roomId) &&
+        String(data[i][10]) === 'sent') {
+      var prop = rowToProperty(data[i]);
+      var imgs = prop.selectedImageUrls || prop.imageUrls || [];
+      if (imgs.length === 0 && prop.imageUrl) imgs = [prop.imageUrl];
+      // 次回用にキャッシュ
+      cachePropertyImages(customerName, roomId, imgs);
+      return ContentService.createTextOutput(JSON.stringify({images: imgs}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({images: []}))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 // ===== お客さん向け物件資料 JSON API（GitHub Pages から呼ばれる） =====
 function handlePropertyViewApi(e) {
   var customerName = e.parameter.customer;
@@ -299,6 +369,18 @@ function handlePropertyViewApi(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  // 1. キャッシュから取得（高速）
+  try {
+    var cache = CacheService.getScriptCache();
+    var cacheKey = 'prop_' + customerName + '_' + roomId;
+    var cached = cache.get(cacheKey);
+    if (cached) {
+      return ContentService.createTextOutput(cached)
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  } catch(e) {}
+
+  // 2. フォールバック: シートから取得
   // sent の物件のみ表示（セキュリティ）
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
@@ -365,6 +447,13 @@ function handlePropertyViewApi(e) {
     guaranteeInfo: prop.guaranteeInfo,
     keyExchangeFee: prop.keyExchangeFee
   };
+
+  // キャッシュに保存（24時間）
+  try {
+    var cache = CacheService.getScriptCache();
+    var resultJson = JSON.stringify(result);
+    cache.put('prop_' + customerName + '_' + roomId, resultJson, 86400);
+  } catch(e) {}
 
   return ContentService.createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
@@ -664,7 +753,8 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
 
   var jsonStr = JSON.stringify(d);
   var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
-  return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '#' + encoded;
+  // クエリパラメータ d= に埋め込み（LINE がハッシュ # を削除するため）
+  return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '&d=' + encoded;
 }
 
 // ===== Flex Message =====

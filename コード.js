@@ -166,6 +166,10 @@ function doGet(e) {
                 return handlePropertyViewApi(e);
         }
 
+    if (action === 'images_api') {
+      return handlePropertyImagesApi(e);
+    }
+
     if (action === 'track_view') {
       return handleTrackView(e);
     }
