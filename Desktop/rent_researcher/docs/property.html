@@ -447,7 +447,10 @@ function updateFeedbackUI(action) {
 }
 
 function sendFeedback(action) {
-  if (feedbackState === action) return;
+  // 同じボタンを再度押した → リセット（デフォルトに戻す）
+  if (feedbackState === action) {
+    action = 'clear';
+  }
 
   var favBtn = document.getElementById('favBtn');
   var nopeBtn = document.getElementById('nopeBtn');
@@ -497,7 +500,13 @@ function sendFeedback(action) {
     .then(function(res) { return res.text(); })
     .then(function(text) {
       try { var data = JSON.parse(text); } catch(e) {}
-      try { localStorage.setItem(getFeedbackKey(), action); } catch(e) {}
+      try {
+        if (action === 'clear') {
+          localStorage.removeItem(getFeedbackKey());
+        } else {
+          localStorage.setItem(getFeedbackKey(), action);
+        }
+      } catch(e) {}
       updateFeedbackUI(action);
       favBtn.disabled = false;
       nopeBtn.disabled = false;
