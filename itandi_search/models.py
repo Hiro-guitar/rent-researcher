@@ -81,9 +81,14 @@ class Property:
     renewal_admin_fee: str = ""  # 更新事務手数料
     guarantee_info: str = ""  # 保証情報（利用必須 + 保証料等）
     key_exchange_fee: str = ""  # 鍵交換費用
+    # 募集ステータス・WEBバッジ
+    listing_status: str = ""  # 募集ステータス (例: "募集中", "申込あり")
+    web_badge_count: int = -1  # WEB バッジカウント (-1=未取得, 0=なし, 1+=あり)
+    needs_confirmation: bool = False  # 要物確・要確認フラグ
     floor_warning: str = ""  # 階数判定不能時の警告メッセージ
     sunlight_warning: str = ""  # 採光面判定不能時の警告メッセージ
     loft_warning: str = ""  # ロフト判定不能時の警告メッセージ
     equipment_warning: str = ""  # ソフト設備の不在アラート
     teiki_warning: str = ""  # 定期借家の警告メッセージ
     move_in_warning: str = ""  # 入居時期の警告メッセージ
+    status_warning: str = ""  # ステータス関連の警告メッセージ

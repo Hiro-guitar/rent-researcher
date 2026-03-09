@@ -539,6 +539,86 @@ def fetch_room_details(
             # 改行を置換して1行にして先頭300文字だけ
             print(f"[DEBUG]   text_sample: {text_sample[:300].replace(chr(10), ' | ')}")
 
+        # ステータス・WEBバッジ情報を取得
+        status_script = """
+        var result = {};
+
+        // 1. ステータス取得: innerText から既知ステータスを検索
+        //    具体的なものから先に検索（"申込あり" が "募集中" より優先）
+        var allText = document.body.innerText || '';
+        var knownStatuses = ['申込あり', '成約', '公開停止', '契約済み', '募集中'];
+        var foundStatus = '';
+        for (var i = 0; i < knownStatuses.length; i++) {
+            if (allText.indexOf(knownStatuses[i]) !== -1) {
+                foundStatus = knownStatuses[i];
+                break;
+            }
+        }
+        result.listing_status = foundStatus;
+
+        // 2. 要物確・要確認フラグ
+        result.needs_confirmation = allText.indexOf('要物確') !== -1
+                                 || allText.indexOf('要確認') !== -1;
+
+        // 3. WEB バッジカウント取得（3段階フォールバック）
+        var webBadgeCount = -1;
+
+        // Approach A: MuiBadge クラスから WEB 親要素のバッジ数を取得
+        var badges = document.querySelectorAll('[class*="Badge-badge"], [class*="badge"]');
+        for (var i = 0; i < badges.length; i++) {
+            var parent = badges[i].closest('[class*="Badge-root"]') || badges[i].parentElement;
+            if (parent && parent.textContent.indexOf('WEB') !== -1) {
+                var badgeText = badges[i].textContent.trim();
+                var num = parseInt(badgeText, 10);
+                if (!isNaN(num)) {
+                    webBadgeCount = num;
+                } else {
+                    webBadgeCount = 0;
+                }
+                break;
+            }
+        }
+
+        // Approach B: "WEB" テキストを持つボタン/span の兄弟要素からバッジを探索
+        if (webBadgeCount === -1) {
+            var allEls = document.querySelectorAll('button, span, a');
+            for (var i = 0; i < allEls.length; i++) {
+                var el = allEls[i];
+                var txt = el.textContent.trim();
+                if (txt === 'WEB' || txt.indexOf('WEB') === 0) {
+                    var badgeEl = el.querySelector('[class*="badge"], [class*="Badge"]')
+                               || (el.parentElement && el.parentElement.querySelector('[class*="badge"], [class*="Badge"]'));
+                    if (badgeEl) {
+                        var num = parseInt(badgeEl.textContent.trim(), 10);
+                        webBadgeCount = !isNaN(num) ? num : 0;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Approach C: innerText から "WEB\\n数字" パターンで取得
+        if (webBadgeCount === -1) {
+            var webMatch = allText.match(/WEB[\\s\\n]+(\\d+)/);
+            if (webMatch) {
+                webBadgeCount = parseInt(webMatch[1], 10);
+            }
+        }
+
+        result.web_badge_count = webBadgeCount;
+        return result;
+        """
+        status_info = session.driver.execute_script(status_script) or {}
+        listing_status = status_info.get('listing_status', '')
+        web_badge_count = status_info.get('web_badge_count', -1)
+        needs_confirmation = status_info.get('needs_confirmation', False)
+        print(
+            f"[DEBUG] room_id={room_id}: "
+            f"status={listing_status}, "
+            f"web_badge={web_badge_count}, "
+            f"要確認={needs_confirmation}"
+        )
+
         # 詳細テーブルから物件情報を取得
         # itandi BB は React SPA (Material-UI) のため th/td/dt/dd がない
         # ページのテキストから「ラベル：値」パターンを抽出する
@@ -750,6 +830,13 @@ def fetch_room_details(
             else:
                 details["facilities"] = str(all_fac)
 
+        # ステータス・WEBバッジ情報を詳細に追加
+        if listing_status:
+            details["listing_status"] = listing_status
+        details["__web_badge_count"] = str(web_badge_count)
+        if needs_confirmation:
+            details["__needs_confirmation"] = "true"
+
         print(f"[DEBUG] room_id={room_id}: マッピング後 {len(details)} 件の詳細")
         return image_urls, details
 
@@ -782,5 +869,20 @@ def enrich_properties_with_images(
         # 詳細情報を Property にセット
         if details:
             for key, value in details.items():
+                # 予約キー(__prefix)はスキップ（別途処理）
+                if key.startswith("__"):
+                    continue
                 if hasattr(prop, key) and value:
                     setattr(prop, key, value)
+
+            # WEB バッジカウント（文字列→int 変換）
+            wbc_str = details.get("__web_badge_count", "")
+            if wbc_str:
+                try:
+                    prop.web_badge_count = int(wbc_str)
+                except (ValueError, TypeError):
+                    pass
+
+            # 要確認フラグ
+            if details.get("__needs_confirmation") == "true":
+                prop.needs_confirmation = True

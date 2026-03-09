@@ -199,6 +199,60 @@ def _check_soft_equipment(
     return properties
 
 
+def _filter_by_status(
+    properties: list, *, is_test_customer: bool = False
+) -> list:
+    """募集ステータスと WEB バッジカウントで物件をフィルターする。
+
+    - "申込あり" → 除外
+    - WEB バッジカウント >= 1 → 除外
+    - テスト顧客の場合はルール 1, 2 をスキップ
+
+    情報が取得できなかった場合は除外しない（保守的判定）。
+    """
+    if is_test_customer:
+        print("[INFO] テスト顧客: ステータス・WEBバッジフィルターをスキップ")
+        return properties
+
+    result = []
+    for p in properties:
+        # ルール1: 申込あり → 除外
+        if p.listing_status == "申込あり":
+            print(
+                f"[INFO] ステータスフィルター除外 (room_id={p.room_id}): "
+                f"status='{p.listing_status}'"
+            )
+            continue
+
+        # ルール2: WEB バッジカウント >= 1 → 除外
+        if p.web_badge_count >= 1:
+            print(
+                f"[INFO] WEBバッジフィルター除外 (room_id={p.room_id}): "
+                f"web_badge_count={p.web_badge_count}"
+            )
+            continue
+
+        result.append(p)
+    return result
+
+
+def _check_status_kakunin(properties: list) -> list:
+    """募集中＋要確認の物件に警告を付ける。
+
+    除外はしない（Discord アラートのみ）。
+    """
+    for p in properties:
+        if p.needs_confirmation:
+            p.status_warning = (
+                "⚠️ 募集中（要確認）: 物件確認が必要です"
+            )
+            print(
+                f"[INFO] ステータスアラート (room_id={p.room_id}): "
+                f"status='{p.listing_status}', 要確認"
+            )
+    return properties
+
+
 def _parse_move_in_date(
     text: str, *, as_deadline: bool = False,
     reference_date: date | None = None,
@@ -432,6 +486,23 @@ def main() -> None:
                 except Exception as exc:
                     print(f"[WARN] 画像取得に失敗 ({customer.name}): {exc}")
 
+                # ステータス・WEBバッジフィルター（詳細取得後に判定）
+                is_test = "テスト" in customer.name
+                before = len(new_properties)
+                new_properties = _filter_by_status(
+                    new_properties, is_test_customer=is_test
+                )
+                filtered = before - len(new_properties)
+                if filtered:
+                    print(
+                        f"  → ステータス/WEBフィルター: "
+                        f"{filtered} 件除外, "
+                        f"残り {len(new_properties)} 件"
+                    )
+                if not new_properties:
+                    print("  → ステータス条件に合う物件なし")
+                    continue
+
                 # 所在階フィルター（詳細取得後に判定）
                 if (customer.min_floor is not None
                         or customer.max_floor is not None
@@ -502,6 +573,9 @@ def main() -> None:
                     new_properties = _check_move_in_date(
                         new_properties, customer.move_in_date
                     )
+
+                # ステータス要確認チェック（除外はせずアラートのみ）
+                new_properties = _check_status_kakunin(new_properties)
 
                 # 承認待ちシートに書き込み
                 try:
