@@ -55,6 +55,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .feedback-btn.nope.active{background:#F5F5F5;border-color:#9E9E9E;color:#616161}
 .feedback-btn:disabled{opacity:0.6;cursor:not-allowed}
 .feedback-status{text-align:center;font-size:13px;color:#888;margin:-8px 0 8px;min-height:18px}
+/* トースト通知 */
+.toast{position:fixed;bottom:-100px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:14px 20px;border-radius:12px;font-size:14px;line-height:1.5;max-width:calc(100% - 32px);width:360px;box-shadow:0 4px 20px rgba(0,0,0,0.25);z-index:9999;transition:bottom 0.3s ease;text-align:center}
+.toast.show{bottom:24px}
+.toast .toast-icon{font-size:20px;display:block;margin-bottom:4px}
+.toast .toast-hint{font-size:12px;color:#aed;margin-top:6px;opacity:0.85}
 </style>
 </head>
 <body>
@@ -412,6 +417,24 @@ function initCarousel() {
   });
 }
 
+// ===== トースト通知 =====
+function showToast(icon, message, hint, duration) {
+  var existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  var el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = '<span class="toast-icon">' + icon + '</span>' + escHtml(message)
+    + (hint ? '<div class="toast-hint">' + escHtml(hint) + '</div>' : '');
+  document.body.appendChild(el);
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() { el.classList.add('show'); });
+  });
+  setTimeout(function() {
+    el.classList.remove('show');
+    setTimeout(function() { el.remove(); }, 300);
+  }, duration || 3000);
+}
+
 // ===== フィードバック機能 =====
 var feedbackState = null;
 
@@ -455,6 +478,16 @@ function sendFeedback(action) {
   // 楽観的UI更新: 即座にボタン状態を反映（API完了を待たない）
   var prevState = feedbackState;
   updateFeedbackUI(action);
+
+  // トースト通知
+  if (action === 'favorite') {
+    showToast('\u2B50', '\u304A\u6C17\u306B\u5165\u308A\u30EA\u30B9\u30C8\u306B\u8FFD\u52A0\u3057\u307E\u3057\u305F',
+      'LINE\u3067\u300C\u304A\u6C17\u306B\u5165\u308A\u300D\u3068\u9001\u3063\u3066\u30EA\u30B9\u30C8\u3092\u78BA\u8A8D\u3057\u307E\u3057\u3087\u3046', 4000);
+  } else if (action === 'not_interested') {
+    showToast('\uD83D\uDC4E', '\u8208\u5473\u306A\u3057\u30EA\u30B9\u30C8\u306B\u8FFD\u52A0\u3057\u307E\u3057\u305F', '', 2500);
+  } else if (action === 'clear') {
+    showToast('\u21A9\uFE0F', '\u8A2D\u5B9A\u3092\u89E3\u9664\u3057\u307E\u3057\u305F', '', 2000);
+  }
   try {
     if (action === 'clear') {
       localStorage.removeItem(getFeedbackKey());
