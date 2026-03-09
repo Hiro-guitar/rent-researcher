@@ -452,13 +452,16 @@ function sendFeedback(action) {
     action = 'clear';
   }
 
-  var favBtn = document.getElementById('favBtn');
-  var nopeBtn = document.getElementById('nopeBtn');
-  var status = document.getElementById('feedbackStatus');
-
-  favBtn.disabled = true;
-  nopeBtn.disabled = true;
-  status.textContent = '送信中...';
+  // 楽観的UI更新: 即座にボタン状態を反映（API完了を待たない）
+  var prevState = feedbackState;
+  updateFeedbackUI(action);
+  try {
+    if (action === 'clear') {
+      localStorage.removeItem(getFeedbackKey());
+    } else {
+      localStorage.setItem(getFeedbackKey(), action);
+    }
+  } catch(e) {}
 
   var propData = currentProperty || decodeHashData();
 
@@ -496,25 +499,21 @@ function sendFeedback(action) {
     + '&station_info=' + encodeURIComponent(propData ? (propData.stationInfo || '') : '')
     + '&data_hash=' + encodeURIComponent(dataHash);
 
+  // バックグラウンドでAPI送信（失敗時のみUIを戻す）
   fetch(GAS_API_URL + '?' + params, { redirect: 'follow' })
     .then(function(res) { return res.text(); })
     .then(function(text) {
-      try { var data = JSON.parse(text); } catch(e) {}
-      try {
-        if (action === 'clear') {
-          localStorage.removeItem(getFeedbackKey());
-        } else {
-          localStorage.setItem(getFeedbackKey(), action);
-        }
-      } catch(e) {}
-      updateFeedbackUI(action);
-      favBtn.disabled = false;
-      nopeBtn.disabled = false;
+      // 成功: 何もしない（UIは既に更新済み）
     })
     .catch(function(err) {
-      status.textContent = 'エラーが発生しました。もう一度お試しください。';
-      favBtn.disabled = false;
-      nopeBtn.disabled = false;
+      // 失敗: UIを元に戻す
+      updateFeedbackUI(prevState);
+      try {
+        if (prevState) { localStorage.setItem(getFeedbackKey(), prevState); }
+        else { localStorage.removeItem(getFeedbackKey()); }
+      } catch(e) {}
+      var status = document.getElementById('feedbackStatus');
+      if (status) status.textContent = '通信エラー。もう一度お試しください。';
     });
 }
 
