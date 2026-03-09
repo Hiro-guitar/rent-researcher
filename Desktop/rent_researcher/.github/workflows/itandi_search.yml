@@ -1,0 +1,57 @@
+name: itandi BB Property Search
+
+on:
+  # 定期実行: 10:00〜20:00 JST (UTC 01:00〜11:00)、30分おき
+  # 実行時にランダムディレイ (0〜25分) を入れてアクセスパターンを分散
+  schedule:
+    - cron: '*/30 1-10 * * *'   # 10:00〜19:30 JST (21枠/日)
+
+  # GitHub UI からの手動トリガー
+  workflow_dispatch:
+    inputs:
+      force_notify:
+        description: "強制通知 (通知済みチェックをスキップ)"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ランダムディレイ (0〜25分): アクセスパターンを不規則にする
+      # 手動実行時はスキップ
+      - name: Random delay
+        if: github.event_name == 'schedule'
+        run: |
+          DELAY=$((RANDOM % 1500))
+          echo "Waiting ${DELAY} seconds before starting..."
+          sleep $DELAY
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run property search
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          ITANDI_EMAIL: ${{ secrets.ITANDI_EMAIL }}
+          ITANDI_PASSWORD: ${{ secrets.ITANDI_PASSWORD }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
+          FORCE_NOTIFY: ${{ github.event.inputs.force_notify == 'true' && '1' || '' }}
+        run: python -m itandi_search.run
