@@ -88,6 +88,7 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
         building_age_str = _get(row, 10, "").strip()
         structure_types_raw = _split_csv(_get(row, 11, ""))
         equipment_names = _split_csv(_get(row, 12, ""))
+        move_in_date_raw = _get(row, 14, "").strip()  # O列: 引越し時期
 
         # 構造: カテゴリ名を個別の構造タイプに展開してから API 値に変換
         STRUCTURE_GROUP_MAP = {
@@ -181,6 +182,7 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             no_deposit=no_deposit,
             no_key_money=no_key_money,
             no_teiki=no_teiki,
+            move_in_date=move_in_date_raw,
         )
         customers.append(customer)
 

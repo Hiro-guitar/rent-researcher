@@ -36,6 +36,7 @@ class CustomerCriteria:
     deal_types: list[str] = field(default_factory=list)
     update_within_days: Optional[int] = None
     discord_thread_id: Optional[str] = None  # 既存スレッドID（あれば）
+    move_in_date: str = ""  # 引越し時期（顧客の希望入居時期）
 
 
 @dataclass
@@ -85,3 +86,4 @@ class Property:
     loft_warning: str = ""  # ロフト判定不能時の警告メッセージ
     equipment_warning: str = ""  # ソフト設備の不在アラート
     teiki_warning: str = ""  # 定期借家の警告メッセージ
+    move_in_warning: str = ""  # 入居時期の警告メッセージ

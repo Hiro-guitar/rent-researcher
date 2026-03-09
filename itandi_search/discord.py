@@ -225,6 +225,8 @@ def _build_text_message(
         warnings.append(prop.teiki_warning)
     if prop.equipment_warning:
         warnings.append(prop.equipment_warning)
+    if prop.move_in_warning:
+        warnings.append(prop.move_in_warning)
     if warnings:
         ansi_text = "\n".join(warnings)
         lines.append(f"```ansi\n\u001b[0;33m{ansi_text}\u001b[0m\n```")

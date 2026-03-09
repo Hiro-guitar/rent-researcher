@@ -4,10 +4,11 @@ Google Sheets の検索条件を読み込み、itandi BB で検索し、
 新着物件を Discord に通知する。
 """
 
+import calendar
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from .auth import ItandiAuthError, ItandiSession
@@ -198,6 +199,149 @@ def _check_soft_equipment(
     return properties
 
 
+def _parse_move_in_date(
+    text: str, *, as_deadline: bool = False,
+    reference_date: date | None = None,
+) -> date | None:
+    """入居時期テキストを date オブジェクトに変換する。
+
+    as_deadline=True: 旬の末日を返す（顧客の希望期限として）
+    as_deadline=False: 旬の初日を返す（物件の入居可能開始日として）
+
+    対応フォーマット:
+      - "いい物件見つかり次第" / "即入居可" / "相談" → None
+      - "4月上旬" → 年を推定して date に変換
+      - "4月15日" → 年を推定して date に変換
+      - "2026年4月中旬" → そのまま変換
+    """
+    if not text:
+        return None
+    text = text.strip()
+
+    # 制約なし・即時入居可能 → 比較不要
+    skip_keywords = ("いい物件見つかり次第", "即入居可", "即日", "未定")
+    if text in skip_keywords or any(kw in text for kw in skip_keywords):
+        return None
+
+    ref = reference_date or date.today()
+
+    # 年・月・日・旬 を抽出
+    year_m = re.search(r"(\d{4})\s*年", text)
+    month_m = re.search(r"(\d{1,2})\s*月", text)
+    day_m = re.search(r"(\d{1,2})\s*日", text)
+
+    year = int(year_m.group(1)) if year_m else None
+    month = int(month_m.group(1)) if month_m else None
+
+    if month is None:
+        return None  # 月がないと判定不能
+
+    period = None
+    if "上旬" in text:
+        period = "early"
+    elif "中旬" in text:
+        period = "mid"
+    elif "下旬" in text:
+        period = "late"
+
+    # 年が未指定の場合: 今年 or 来年で最も近い未来を推定
+    if year is None:
+        if month >= ref.month:
+            year = ref.year
+        else:
+            year = ref.year + 1
+
+    # 日の決定
+    if day_m:
+        day = int(day_m.group(1))
+    elif period is not None:
+        if as_deadline:
+            # 顧客の期限: 旬の末日
+            if period == "early":
+                day = 10
+            elif period == "mid":
+                day = 20
+            else:
+                day = calendar.monthrange(year, month)[1]
+        else:
+            # 物件の入居可能開始日: 旬の初日
+            if period == "early":
+                day = 1
+            elif period == "mid":
+                day = 11
+            else:
+                day = 21
+    else:
+        # 月のみ指定（上旬/中旬/下旬なし）
+        if as_deadline:
+            day = calendar.monthrange(year, month)[1]
+        else:
+            day = 1
+
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _check_move_in_date(properties: list, customer_move_in: str) -> list:
+    """物件の入居可能時期が顧客の希望入居時期を過ぎていないかチェックする。
+
+    希望入居時期を過ぎている場合は move_in_warning を設定する。
+    除外はしない（アラートのみ）。
+    """
+    if not customer_move_in or customer_move_in in ("いい物件見つかり次第", ""):
+        return properties
+
+    today = date.today()
+    customer_deadline = _parse_move_in_date(
+        customer_move_in, as_deadline=True, reference_date=today
+    )
+
+    if customer_deadline is None:
+        return properties
+
+    for p in properties:
+        # 即入居可等はスキップ
+        if not p.move_in_date or p.move_in_date.strip() in (
+            "即入居可", "即日", ""
+        ):
+            continue
+
+        # 「相談」は日付比較できないが、入居時期が不確定なのでアラート
+        if "相談" in p.move_in_date:
+            p.move_in_warning = (
+                f"⚠️ {customer_move_in}入居希望です。"
+                f"入居時期の確認が必要です"
+            )
+            print(
+                f"[INFO] 入居時期アラート (room_id={p.room_id}): "
+                f"希望={customer_move_in}, "
+                f"入居可能={p.move_in_date}（相談）"
+            )
+            continue
+
+        property_available = _parse_move_in_date(
+            p.move_in_date, as_deadline=False, reference_date=today
+        )
+
+        if property_available is None:
+            continue
+
+        if property_available > customer_deadline:
+            p.move_in_warning = (
+                f"⚠️ {customer_move_in}入居希望です。"
+                f"入居時期の確認が必要です"
+            )
+            print(
+                f"[INFO] 入居時期アラート (room_id={p.room_id}): "
+                f"希望={customer_move_in}, "
+                f"入居可能={p.move_in_date}"
+            )
+
+    return properties
+
+
 def now_jst() -> str:
     """現在の JST タイムスタンプを返す。"""
     return datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
@@ -351,6 +495,12 @@ def main() -> None:
                 if customer.soft_equipment_ids:
                     new_properties = _check_soft_equipment(
                         new_properties, customer.soft_equipment_ids
+                    )
+
+                # 入居時期チェック（除外はせずアラートのみ）
+                if customer.move_in_date:
+                    new_properties = _check_move_in_date(
+                        new_properties, customer.move_in_date
                     )
 
                 # 承認待ちシートに書き込み
