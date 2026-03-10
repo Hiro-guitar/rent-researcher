@@ -676,7 +676,7 @@ GitHub Pages でホスト: `https://form.ehomaki.com/property.html`
 - `ubuntu-latest`
 - Python 3.11
 - Chrome (stable)
-- タイムアウト: 15分
+- タイムアウト: 40分（ランダムディレイ最大25分 + 実行時間を考慮）
 
 **ステップ:**
 1. `actions/checkout@v4`
