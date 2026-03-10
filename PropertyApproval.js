@@ -584,8 +584,8 @@ function handlePropertyAction(e) {
     favoriteCount = countFavorites(sheet, customerName);
   }
 
-  // Discord 通知（hold/viewing のみ）
-  if (actionType === 'hold' || actionType === 'viewing') {
+  // Discord 通知（clear 以外の全アクション）
+  if (actionType !== 'clear') {
     try {
       var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
       if (webhookUrl) {
@@ -595,15 +595,19 @@ function handlePropertyAction(e) {
         var propLabel = buildingName || ('room_id: ' + roomId);
         if (roomNumber) propLabel += ' ' + roomNumber;
 
-        var msg = '';
-        if (actionType === 'hold') {
-          msg = '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」を **押さえたい** とリクエストしました！';
-        } else {
-          msg = '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **内見** をリクエストしました';
-        }
+        var msgMap = {
+          'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」を **押さえたい** とリクエストしました！',
+          'viewing': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **内見** をリクエストしました',
+          'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabel + '」を **お気に入り** に追加しました',
+          'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabel + '」を **興味なし** にしました'
+        };
+        var msg = msgMap[actionType] || '';
+        if (!msg) return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount })).setMimeType(ContentService.MimeType.JSON);
+
         if (rentText || layout) {
           msg += '\n> ' + [rentText, layout].filter(Boolean).join(' / ');
         }
+        msg += ' (' + time + ')';
 
         var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
         var payload = { content: msg };
