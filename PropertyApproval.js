@@ -548,13 +548,14 @@ function handleTrackView(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// ===== 物件アクション（押さえたい/内見リクエスト） =====
+// ===== 物件アクション（統合: 押さえたい/内見/お気に入り/興味なし） =====
 var ACTION_LOG_SHEET_NAME = 'アクションログ';
 
+// action_type: 'hold', 'viewing', 'favorite', 'not_interested', 'clear'
 function handlePropertyAction(e) {
   var customerName = e.parameter.customer;
   var roomId = e.parameter.room_id;
-  var actionType = e.parameter.action_type; // 'hold' or 'viewing'
+  var actionType = e.parameter.action_type;
   var buildingName = e.parameter.building_name || '';
   var roomNumber = e.parameter.room_number || '';
   var rent = e.parameter.rent || '';
@@ -576,82 +577,125 @@ function handlePropertyAction(e) {
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
   sheet.appendRow([customerName, roomId, actionType, buildingName, roomNumber, rent, layout, stationInfo, now]);
 
-  // Discord 通知
-  try {
-    var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
-    if (webhookUrl) {
-      var threadId = PropertiesService.getScriptProperties().getProperty('ACTION_LOG_THREAD_ID');
-      var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
-      var rentText = rent ? (Math.round(parseInt(rent) / 10000 * 10) / 10) + '万円' : '';
-      var propLabel = buildingName || ('room_id: ' + roomId);
-      if (roomNumber) propLabel += ' ' + roomNumber;
-
-      var msg = '';
-      if (actionType === 'hold') {
-        msg = '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」を **押さえたい** とリクエストしました！';
-      } else {
-        msg = '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **内見** をリクエストしました';
-      }
-      if (rentText || layout) {
-        msg += '\n> ' + [rentText, layout].filter(Boolean).join(' / ');
-      }
-
-      var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
-      var payload = { content: msg };
-      if (!threadId) {
-        payload.thread_name = '\uD83D\uDCE9 アクションリクエスト';
-      }
-
-      var resp = UrlFetchApp.fetch(url, {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true
-      });
-
-      if (!threadId && resp.getResponseCode() === 200) {
-        try {
-          var body = JSON.parse(resp.getContentText());
-          if (body.channel_id) {
-            PropertiesService.getScriptProperties().setProperty('ACTION_LOG_THREAD_ID', body.channel_id);
-          }
-        } catch(e) {}
-      }
-    }
-  } catch(e) {
-    console.error('Discord action notification error: ' + e.message);
+  // お気に入り件数を計算（favorite/not_interested/clear の場合）
+  var favoriteCount = 0;
+  var isFeedback = (actionType === 'favorite' || actionType === 'not_interested' || actionType === 'clear');
+  if (isFeedback) {
+    favoriteCount = countFavorites(sheet, customerName);
   }
 
-  return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+  // Discord 通知（hold/viewing のみ）
+  if (actionType === 'hold' || actionType === 'viewing') {
+    try {
+      var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+      if (webhookUrl) {
+        var threadId = PropertiesService.getScriptProperties().getProperty('ACTION_LOG_THREAD_ID');
+        var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
+        var rentText = rent ? (Math.round(parseInt(rent) / 10000 * 10) / 10) + '万円' : '';
+        var propLabel = buildingName || ('room_id: ' + roomId);
+        if (roomNumber) propLabel += ' ' + roomNumber;
+
+        var msg = '';
+        if (actionType === 'hold') {
+          msg = '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」を **押さえたい** とリクエストしました！';
+        } else {
+          msg = '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **内見** をリクエストしました';
+        }
+        if (rentText || layout) {
+          msg += '\n> ' + [rentText, layout].filter(Boolean).join(' / ');
+        }
+
+        var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
+        var payload = { content: msg };
+        if (!threadId) {
+          payload.thread_name = '\uD83D\uDCE9 アクションリクエスト';
+        }
+
+        var resp = UrlFetchApp.fetch(url, {
+          method: 'post',
+          contentType: 'application/json',
+          payload: JSON.stringify(payload),
+          muteHttpExceptions: true
+        });
+
+        if (!threadId && resp.getResponseCode() === 200) {
+          try {
+            var body = JSON.parse(resp.getContentText());
+            if (body.channel_id) {
+              PropertiesService.getScriptProperties().setProperty('ACTION_LOG_THREAD_ID', body.channel_id);
+            }
+          } catch(e) {}
+        }
+      }
+    } catch(e) {
+      console.error('Discord action notification error: ' + e.message);
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// 顧客のお気に入り件数を集計（各room_idの最新feedbackが 'favorite' のものをカウント）
+function countFavorites(sheet, customerName) {
+  var data = sheet.getDataRange().getValues();
+  var latestFeedback = {}; // room_id → 最新の feedback action
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) !== String(customerName)) continue;
+    var act = String(data[i][2]);
+    if (act === 'favorite' || act === 'not_interested' || act === 'clear') {
+      latestFeedback[String(data[i][1])] = act;
+    }
+  }
+  var count = 0;
+  for (var rid in latestFeedback) {
+    if (latestFeedback[rid] === 'favorite') count++;
+  }
+  return count;
+}
+
+// 状態チェック（feedback + action 両方返す）
 function handleCheckAction(e) {
   var customerName = e.parameter.customer;
   var roomId = e.parameter.room_id;
 
   if (!customerName || !roomId) {
-    return ContentService.createTextOutput(JSON.stringify({ action_type: null }))
+    return ContentService.createTextOutput(JSON.stringify({ action_type: null, feedback: null, favoriteCount: 0 }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
   if (!sheet) {
-    return ContentService.createTextOutput(JSON.stringify({ action_type: null }))
+    return ContentService.createTextOutput(JSON.stringify({ action_type: null, feedback: null, favoriteCount: 0 }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
   var data = sheet.getDataRange().getValues();
+  var foundAction = null;  // hold / viewing
+  var foundFeedback = null; // favorite / not_interested
+
+  // 新しい順に探す
   for (var i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][0]) === String(customerName) && String(data[i][1]) === String(roomId)) {
-      return ContentService.createTextOutput(JSON.stringify({ action_type: String(data[i][2]) }))
-        .setMimeType(ContentService.MimeType.JSON);
+    if (String(data[i][0]) !== String(customerName) || String(data[i][1]) !== String(roomId)) continue;
+    var act = String(data[i][2]);
+
+    if (!foundAction && (act === 'hold' || act === 'viewing')) {
+      foundAction = act;
     }
+    if (!foundFeedback && (act === 'favorite' || act === 'not_interested' || act === 'clear')) {
+      foundFeedback = (act === 'clear') ? null : act;
+    }
+    if (foundAction !== null && foundFeedback !== undefined) break;
   }
 
-  return ContentService.createTextOutput(JSON.stringify({ action_type: null }))
-    .setMimeType(ContentService.MimeType.JSON);
+  var favoriteCount = countFavorites(sheet, customerName);
+
+  return ContentService.createTextOutput(JSON.stringify({
+    action_type: foundAction,
+    feedback: foundFeedback || null,
+    favoriteCount: favoriteCount
+  })).setMimeType(ContentService.MimeType.JSON);
 }
 
 // ===== シート操作 =====
