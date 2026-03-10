@@ -659,12 +659,20 @@ def fetch_room_details(
                 new RegExp(label + '[：:\\\\s]+([^\\\\n|]+)'),
                 new RegExp(label + '\\\\n([^\\\\n]+)')
             ];
+            // 値として無効な文字列（セクションヘッダー等）
+            var invalidValues = ['表示について', '図面ダウンロード', '物件資料', '物件概要', '入力なし', 'なし'];
             for (var j = 0; j < patterns.length; j++) {
                 var m = text.match(patterns[j]);
                 if (m && m[1]) {
                     var val = m[1].trim();
                     // 不要な末尾を除去（次のラベルや区切り文字）
                     val = val.replace(/[|｜].*$/, '').trim();
+                    // 無効な値をスキップ
+                    var isInvalid = false;
+                    for (var k = 0; k < invalidValues.length; k++) {
+                        if (val === invalidValues[k]) { isInvalid = true; break; }
+                    }
+                    if (isInvalid) break;
                     if (val && val.length < 300 && val.length > 0) {
                         if (!details[label]) {
                             details[label] = val;
@@ -746,8 +754,8 @@ def fetch_room_details(
                 // 「備考：」プレフィックスは除去して内容だけ取得
                 if (/^備考[：:]/.test(ln)) {
                     ln = ln.replace(/^備考[：:]\\s*/, '');
-                    if (ln) gParts.push(ln);
-                } else {
+                    if (ln && ln !== '入力なし' && ln !== 'なし') gParts.push(ln);
+                } else if (ln !== '入力なし' && ln !== 'なし') {
                     gParts.push(ln);
                 }
             }
@@ -802,7 +810,10 @@ def fetch_room_details(
 
         details: dict[str, str] = {}
         for raw_label, value in raw_details.items():
-            if not value or value in ("-", "ー", "—", "―", "入力なし"):
+            if not value or value in ("-", "ー", "—", "―", "入力なし", "なし", "表示について"):
+                continue
+            # 「入力なし」が含まれる複合値もスキップ（例: "入力なし 入力なし"）
+            if "入力なし" in value and value.replace("入力なし", "").replace(" ", "").replace("　", "") == "":
                 continue
             for label, key in label_map_list:
                 if label in raw_label and key not in details:
