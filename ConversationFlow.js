@@ -27,7 +27,7 @@ const REASONS = [
   'もっと便利な場所に住みたい', 'ペットを飼いたい', 'その他'
 ];
 
-const RESIDENTS = ['ご自身のみ', 'ご夫婦・パートナー', 'ご家族', 'お子様', 'ご両親', 'その他'];
+const RESIDENTS = ['一人暮らし', '二人暮らし（カップル・夫婦）', 'ファミリー（お子様あり）', '子供のために探している', '親のために探している', 'その他'];
 
 // ── 前ステップマッピング ──────────────────────────────────
 const PREV_STEP = {};
@@ -375,7 +375,7 @@ function showResidentSelect(replyToken) {
   });
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
   replyMessage(replyToken, [
-    textMsgWithQuickReply('お部屋に住まれるのはどなたですか？', items)
+    textMsgWithQuickReply('どなたが住む予定ですか？', items)
   ]);
 }
 

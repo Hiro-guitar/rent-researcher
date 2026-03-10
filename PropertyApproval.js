@@ -561,6 +561,8 @@ function handlePropertyAction(e) {
   var rent = e.parameter.rent || '';
   var layout = e.parameter.layout || '';
   var stationInfo = e.parameter.station_info || '';
+  var applicationType = e.parameter.application_type || '';
+  var contactInfo = e.parameter.contact_info || '';
 
   if (!customerName || !roomId || !actionType) {
     return ContentService.createTextOutput(JSON.stringify({ error: 'missing parameters' }))
@@ -571,11 +573,11 @@ function handlePropertyAction(e) {
   var sheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(ACTION_LOG_SHEET_NAME);
-    sheet.appendRow(['顧客名', 'room_id', 'アクション', '物件名', '部屋番号', '賃料', '間取り', '最寄駅', '日時']);
+    sheet.appendRow(['顧客名', 'room_id', 'アクション', '物件名', '部屋番号', '賃料', '間取り', '最寄駅', '日時', '申込区分', '連絡先']);
   }
 
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
-  sheet.appendRow([customerName, roomId, actionType, buildingName, roomNumber, rent, layout, stationInfo, now]);
+  sheet.appendRow([customerName, roomId, actionType, buildingName, roomNumber, rent, layout, stationInfo, now, applicationType, contactInfo]);
 
   // お気に入り件数を計算（favorite/not_interested/clear の場合）
   var favoriteCount = 0;
@@ -596,8 +598,7 @@ function handlePropertyAction(e) {
         if (roomNumber) propLabel += ' ' + roomNumber;
 
         var msgMap = {
-          'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」を **押さえたい** とリクエストしました！',
-          'viewing': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **内見** をリクエストしました',
+          'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」を **仮押さえ** リクエストしました！',
           'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabel + '」を **お気に入り** に追加しました',
           'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabel + '」を **興味なし** にしました',
           'view': '\uD83D\uDCC4 **' + customerName + '** 様が「' + propLabel + '」を閲覧しました'
@@ -605,6 +606,10 @@ function handlePropertyAction(e) {
         var msg = msgMap[actionType] || '';
         if (!msg) return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount })).setMimeType(ContentService.MimeType.JSON);
 
+        // 仮押さえの場合、申込区分・連絡先を表示
+        if (actionType === 'hold' && (applicationType || contactInfo)) {
+          msg += '\n> 申込区分: ' + (applicationType || '未指定') + ' / 連絡先: ' + (contactInfo || '未入力');
+        }
         if (rentText || layout) {
           msg += '\n> ' + [rentText, layout].filter(Boolean).join(' / ');
         }

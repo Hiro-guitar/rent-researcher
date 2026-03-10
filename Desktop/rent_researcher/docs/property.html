@@ -64,6 +64,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .action-btn.secondary{background:#fff;color:#4CAF50;border:2px solid #4CAF50}
 .action-btn.secondary.active{background:#E8F5E9;color:#2E7D32;border-color:#4CAF50}
 .action-btn:disabled{opacity:0.7;cursor:not-allowed;transform:none}
+/* モーダル */
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9000;align-items:center;justify-content:center;padding:16px}
+.modal-content{background:#fff;max-width:400px;width:100%;border-radius:16px;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.2)}
+.modal-title{font-size:18px;font-weight:bold;text-align:center;margin-bottom:20px}
+.modal-radio-group{display:flex;gap:10px;margin-bottom:16px}
+.modal-radio-label{flex:1;text-align:center;padding:14px 8px;border:2px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:bold;color:#555;transition:all 0.2s}
+.modal-radio-label.active{border-color:#4CAF50;background:#E8F5E9;color:#2E7D32}
+.modal-radio-label input[type="radio"]{display:none}
+.modal-input{width:100%;border:1px solid #ddd;border-radius:8px;padding:12px;font-size:15px;box-sizing:border-box}
+.modal-input:focus{border-color:#4CAF50;outline:none}
+.modal-input.error{border-color:#E05252}
+.modal-error{color:#E05252;font-size:13px;margin-top:4px;min-height:18px}
+.modal-actions{display:flex;gap:10px;margin-top:20px}
+.modal-actions .action-btn{flex:1}
 .line-link{text-align:center;padding:16px;font-size:14px}
 .line-link a{color:#06C755;text-decoration:none;font-weight:bold}
 /* トースト通知 */
@@ -286,8 +300,25 @@ function renderProperty(p) {
   // アクションボタン（customer と roomId がある場合のみ）
   if (customer && roomId) {
     html += '<div class="action-bar">'
-      + '<button class="action-btn primary" id="holdBtn" onclick="sendAction(\'hold\')">\uD83C\uDFE0 この物件を押さえたい</button>'
-      + '<button class="action-btn secondary" id="viewingBtn" onclick="sendAction(\'viewing\')">\uD83D\uDC40 内見してから決めたい</button>'
+      + '<button class="action-btn primary" id="holdBtn" onclick="openHoldModal()">🏠 この物件を仮押さえする</button>'
+      + '</div>';
+    // 仮押さえモーダル
+    html += '<div class="modal-overlay" id="holdModal" onclick="if(event.target===this)closeHoldModal()">'
+      + '<div class="modal-content">'
+      + '<div class="modal-title">🏠 仮押さえ申込</div>'
+      + '<div class="modal-radio-group">'
+      + '<label class="modal-radio-label active" id="radioPersonal" onclick="selectRadio(\'個人\')">'
+      + '<input type="radio" name="appType" value="個人" checked> 個人申込</label>'
+      + '<label class="modal-radio-label" id="radioCorporate" onclick="selectRadio(\'法人\')">'
+      + '<input type="radio" name="appType" value="法人"> 法人申込</label>'
+      + '</div>'
+      + '<input type="text" class="modal-input" id="contactInput" placeholder="メールアドレスまたは電話番号">'
+      + '<div class="modal-error" id="contactError"></div>'
+      + '<div class="modal-actions">'
+      + '<button class="action-btn primary" onclick="submitHold()">申込を送信</button>'
+      + '<button class="action-btn secondary" onclick="closeHoldModal()">キャンセル</button>'
+      + '</div>'
+      + '</div>'
       + '</div>';
   }
 
@@ -599,7 +630,7 @@ function checkFeedbackStatus() {
 }
 
 // ===== アクションボタン機能 =====
-var actionState = null; // 'hold' | 'viewing' | null
+var actionState = null; // 'hold' | null
 
 function getActionKey() {
   return 'action_' + customer + '_' + roomId;
@@ -608,51 +639,100 @@ function getActionKey() {
 function updateActionUI(actionType) {
   actionState = actionType;
   var holdBtn = document.getElementById('holdBtn');
-  var viewingBtn = document.getElementById('viewingBtn');
-  if (!holdBtn || !viewingBtn) return;
+  if (!holdBtn) return;
 
   holdBtn.classList.remove('active');
-  viewingBtn.classList.remove('active');
   holdBtn.disabled = false;
-  viewingBtn.disabled = false;
 
-  if (actionType === 'hold') {
+  if (actionType === 'hold' || actionType === 'viewing') {
     holdBtn.classList.add('active');
-    holdBtn.textContent = '\u2705 \u7533\u8FBC\u30EA\u30AF\u30A8\u30B9\u30C8\u9001\u4FE1\u6E08\u307F';
-    holdBtn.disabled = true;
-    viewingBtn.disabled = true;
-  } else if (actionType === 'viewing') {
-    viewingBtn.classList.add('active');
-    viewingBtn.textContent = '\u2705 \u5185\u898B\u30EA\u30AF\u30A8\u30B9\u30C8\u9001\u4FE1\u6E08\u307F';
-    viewingBtn.disabled = true;
+    holdBtn.textContent = '✅ 仮押さえリクエスト送信済み';
     holdBtn.disabled = true;
   }
 }
 
-function sendAction(actionType) {
-  if (actionState) return; // 既に送信済み
-
-  // 楽観的UI更新
-  updateActionUI(actionType);
-
-  // トースト通知
-  if (actionType === 'hold') {
-    showToast('\uD83C\uDFE0', '\u7533\u8FBC\u30EA\u30AF\u30A8\u30B9\u30C8\u3092\u9001\u4FE1\u3057\u307E\u3057\u305F', '\u62C5\u5F53\u8005\u304B\u3089\u3054\u9023\u7D61\u3044\u305F\u3057\u307E\u3059', 4000);
-  } else if (actionType === 'viewing') {
-    showToast('\uD83D\uDC40', '\u5185\u898B\u30EA\u30AF\u30A8\u30B9\u30C8\u3092\u9001\u4FE1\u3057\u307E\u3057\u305F', '\u62C5\u5F53\u8005\u304B\u3089\u3054\u9023\u7D61\u3044\u305F\u3057\u307E\u3059', 4000);
+// ===== 仮押さえモーダル =====
+function openHoldModal() {
+  if (actionState) return;
+  var modal = document.getElementById('holdModal');
+  if (modal) {
+    modal.style.display = 'flex';
+    var input = document.getElementById('contactInput');
+    if (input) { input.value = ''; input.classList.remove('error'); }
+    var err = document.getElementById('contactError');
+    if (err) err.textContent = '';
   }
+}
 
-  // localStorage に保存
+function closeHoldModal() {
+  var modal = document.getElementById('holdModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function selectRadio(value) {
+  var personal = document.getElementById('radioPersonal');
+  var corporate = document.getElementById('radioCorporate');
+  if (value === '個人') {
+    personal.classList.add('active');
+    corporate.classList.remove('active');
+    personal.querySelector('input').checked = true;
+  } else {
+    corporate.classList.add('active');
+    personal.classList.remove('active');
+    corporate.querySelector('input').checked = true;
+  }
+}
+
+function validateContact(val) {
+  val = (val || '').trim();
+  if (!val) return '連絡先を入力してください';
+  var emailOk = /^[\w.+-]+@[\w.-]+\.\w{2,}$/.test(val);
+  var phoneOk = /^[\d\-+()]{10,}$/.test(val);
+  if (!emailOk && !phoneOk) return '有効なメールアドレスまたは電話番号を入力してください';
+  return null;
+}
+
+function submitHold() {
+  var checkedRadio = document.querySelector('input[name="appType"]:checked');
+  var applicationType = checkedRadio ? checkedRadio.value : '個人';
+  var contactInput = document.getElementById('contactInput');
+  var contactInfo = (contactInput.value || '').trim();
+  var errEl = document.getElementById('contactError');
+
+  var error = validateContact(contactInfo);
+  if (error) {
+    contactInput.classList.add('error');
+    errEl.textContent = error;
+    return;
+  }
+  contactInput.classList.remove('error');
+  errEl.textContent = '';
+
+  closeHoldModal();
+  sendAction('hold', applicationType, contactInfo);
+}
+
+function sendAction(actionType, applicationType, contactInfo) {
+  if (actionState) return;
+
+  updateActionUI(actionType);
+  showToast('🏠', '仮押さえリクエストを送信しました', '担当者からご連絡いたします', 4000);
+
   try {
-    localStorage.setItem(getActionKey(), actionType);
+    localStorage.setItem(getActionKey(), JSON.stringify({
+      action_type: actionType,
+      application_type: applicationType || '',
+      contact_info: contactInfo || ''
+    }));
   } catch(e) {}
 
-  // API送信
   var propData = currentProperty || {};
   var params = 'action=property_action'
     + '&customer=' + encodeURIComponent(customer)
     + '&room_id=' + encodeURIComponent(roomId)
     + '&action_type=' + encodeURIComponent(actionType)
+    + '&application_type=' + encodeURIComponent(applicationType || '')
+    + '&contact_info=' + encodeURIComponent(contactInfo || '')
     + '&building_name=' + encodeURIComponent(propData.buildingName || '')
     + '&room_number=' + encodeURIComponent(propData.roomNumber || '')
     + '&rent=' + encodeURIComponent(propData.rent || '')
@@ -665,21 +745,27 @@ function sendAction(actionType) {
       try { JSON.parse(text); } catch(e) {}
     })
     .catch(function(err) {
-      // 失敗時ロールバック
       actionState = null;
       updateActionUI(null);
       try { localStorage.removeItem(getActionKey()); } catch(e) {}
-      showToast('\u26A0\uFE0F', '\u9001\u4FE1\u306B\u5931\u6557\u3057\u307E\u3057\u305F', '\u3082\u3046\u4E00\u5EA6\u304A\u8A66\u3057\u304F\u3060\u3055\u3044', 3500);
+      showToast('⚠️', '送信に失敗しました', 'もう一度お試しください', 3500);
     });
 }
 
 function checkActionStatus() {
   if (!customer || !roomId) return;
 
-  // localStorage から即時復元
+  // localStorage から即時復元（JSON / 旧文字列の両方対応）
   try {
     var cached = localStorage.getItem(getActionKey());
-    if (cached) updateActionUI(cached);
+    if (cached) {
+      try {
+        var parsed = JSON.parse(cached);
+        if (parsed.action_type) updateActionUI(parsed.action_type);
+      } catch(e) {
+        updateActionUI(cached);
+      }
+    }
   } catch(e) {}
 
   // API で feedback + action 両方を一括同期
@@ -689,17 +775,14 @@ function checkActionStatus() {
     .then(function(text) {
       try {
         var data = JSON.parse(text);
-        // お気に入り件数
         if (typeof data.favoriteCount === 'number') favoriteCount = data.favoriteCount;
-        // feedback 状態（favorite / not_interested）
         if (data.feedback) {
           updateFeedbackUI(data.feedback);
           try { localStorage.setItem(getFeedbackKey(), data.feedback); } catch(e) {}
         }
-        // action 状態（hold / viewing）
         if (data.action_type) {
           updateActionUI(data.action_type);
-          try { localStorage.setItem(getActionKey(), data.action_type); } catch(e) {}
+          try { localStorage.setItem(getActionKey(), JSON.stringify({ action_type: data.action_type })); } catch(e) {}
         }
       } catch(e) {}
     })
