@@ -81,6 +81,7 @@ class Property:
     renewal_admin_fee: str = ""  # 更新事務手数料
     guarantee_info: str = ""  # 保証情報（利用必須 + 保証料等）
     key_exchange_fee: str = ""  # 鍵交換費用
+    preview_start_date: str = ""  # 内見開始日
     # 募集ステータス・WEBバッジ
     listing_status: str = ""  # 募集ステータス (例: "募集中", "申込あり")
     web_badge_count: int = -1  # WEB バッジカウント (-1=未取得, 0=なし, 1+=あり)
