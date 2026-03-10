@@ -649,7 +649,8 @@ def fetch_room_details(
             '更新事務手数料',
             '更新料',
             '火災保険料', '火災保険', '保険',
-            '鍵交換費用', '鍵交換'
+            '鍵交換費用', '鍵交換',
+            '内見開始日'
         ];
 
         for (var i = 0; i < labels.length; i++) {
@@ -806,6 +807,7 @@ def fetch_room_details(
             ("保険", "fire_insurance"),
             ("鍵交換費用", "key_exchange_fee"),
             ("鍵交換", "key_exchange_fee"),
+            ("内見開始日", "preview_start_date"),
         ]
 
         details: dict[str, str] = {}

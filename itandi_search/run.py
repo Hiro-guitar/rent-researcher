@@ -360,16 +360,39 @@ def _check_move_in_date(properties: list, customer_move_in: str) -> list:
         if p.move_in_date and p.move_in_date.strip() in ("即入居可", "即日"):
             continue
 
-        # 入居可能時期が空（記載なし）→ アラート
+        # 入居可能時期が空（記載なし）→ 内見開始日でフォールバック判定
         if not p.move_in_date or not p.move_in_date.strip():
-            p.move_in_warning = (
-                f"⚠️ {customer_move_in}入居希望です。"
-                f"入居可能時期の記載がありません"
-            )
-            print(
-                f"[INFO] 入居時期アラート (room_id={p.room_id}): "
-                f"希望={customer_move_in}, 入居可能=記載なし"
-            )
+            if p.preview_start_date and p.preview_start_date.strip():
+                # 内見開始日がある → 日付比較で判定
+                preview_date = _parse_move_in_date(
+                    p.preview_start_date, as_deadline=False, reference_date=today
+                )
+                if preview_date and preview_date > customer_deadline:
+                    p.move_in_warning = (
+                        f"⚠️ {customer_move_in}入居希望です。"
+                        f"内見開始日が{p.preview_start_date}のため、入居時期の確認が必要です"
+                    )
+                    print(
+                        f"[INFO] 入居時期アラート (room_id={p.room_id}): "
+                        f"希望={customer_move_in}, "
+                        f"内見開始日={p.preview_start_date}"
+                    )
+                else:
+                    p.move_in_warning = (
+                        f"⚠️ {customer_move_in}入居希望です。"
+                        f"入居可能時期の記載がありません（内見開始日: {p.preview_start_date}）"
+                    )
+            else:
+                p.move_in_warning = (
+                    f"⚠️ {customer_move_in}入居希望です。"
+                    f"入居可能時期の記載がありません"
+                )
+            if p.move_in_warning:
+                print(
+                    f"[INFO] 入居時期アラート (room_id={p.room_id}): "
+                    f"希望={customer_move_in}, 入居可能=記載なし, "
+                    f"内見開始日={p.preview_start_date or 'なし'}"
+                )
             continue
 
         # 「相談」は日付比較できないが、入居時期が不確定なのでアラート
