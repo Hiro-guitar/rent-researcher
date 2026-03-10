@@ -116,18 +116,26 @@ function handleConfirmApprove(e) {
     }
   }
 
-  // 選択された画像URLを決定
+  // 統合画像URL（順序指定）
   var selectedImageUrls = [];
-  if (includeImage && selectedIndices.length > 0 && prop.imageUrls.length > 0) {
-    for (var i = 0; i < selectedIndices.length; i++) {
-      var idx = parseInt(selectedIndices[i], 10);
-      if (!isNaN(idx) && idx >= 0 && idx < prop.imageUrls.length) {
-        selectedImageUrls.push(prop.imageUrls[idx]);
+  if (e.parameter.ordered_image_urls) {
+    try { selectedImageUrls = JSON.parse(e.parameter.ordered_image_urls); } catch(ex) {}
+  }
+  // フォールバック: 旧形式（ordered_image_urls がない場合）
+  if (selectedImageUrls.length === 0) {
+    if (includeImage && selectedIndices.length > 0 && prop.imageUrls.length > 0) {
+      for (var i = 0; i < selectedIndices.length; i++) {
+        var idx = parseInt(selectedIndices[i], 10);
+        if (!isNaN(idx) && idx >= 0 && idx < prop.imageUrls.length) {
+          selectedImageUrls.push(prop.imageUrls[idx]);
+        }
       }
+    } else if (includeImage && prop.imageUrl) {
+      selectedImageUrls = [prop.imageUrl];
     }
-  } else if (includeImage && prop.imageUrl) {
-    // フォールバック: 旧形式（image_urls がない場合）
-    selectedImageUrls = [prop.imageUrl];
+  }
+  if (selectedImageUrls.length > 0) {
+    includeImage = true;
   }
 
   // 選択画像をシートに保存（viewページで使用）
@@ -863,6 +871,34 @@ function saveSelectedImages(rowIndex, selectedImageUrls) {
   cell.setValue(JSON.stringify(extra));
 }
 
+// ===== 画像アップロード（catbox.moe） =====
+function uploadPropertyImage(base64Data, filename, mimeType) {
+  try {
+    var decoded = Utilities.base64Decode(base64Data);
+    var mime = mimeType || 'image/jpeg';
+    var fname = filename || 'upload.jpg';
+    var blob = Utilities.newBlob(decoded, mime, fname);
+
+    var response = UrlFetchApp.fetch('https://catbox.moe/user/api.php', {
+      method: 'POST',
+      payload: {
+        reqtype: 'fileupload',
+        fileToUpload: blob
+      },
+      muteHttpExceptions: true
+    });
+
+    var url = response.getContentText().trim();
+    if (url.startsWith('https://')) {
+      return { success: true, url: url };
+    } else {
+      return { success: false, message: 'Upload failed: ' + url };
+    }
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
 // ===== 編集値をシートに反映 =====
 function updateSheetWithEdits(rowIndex, prop) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1084,8 +1120,25 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '.btn-skip{background:none;color:#999;font-size:14px;text-decoration:underline;border:none;cursor:pointer}'
     + '.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);z-index:100;justify-content:center;align-items:center}'
     + '.modal-overlay.active{display:flex}'
-    + '.modal-overlay img{max-width:95%;max-height:90vh;object-fit:contain}'
+    + '.modal-overlay img{max-width:85%;max-height:85vh;object-fit:contain}'
     + '.modal-close{position:fixed;top:16px;right:16px;color:#fff;font-size:32px;cursor:pointer;z-index:101}'
+    + '.modal-nav{position:fixed;top:50%;color:#fff;font-size:40px;cursor:pointer;z-index:101;user-select:none;padding:12px 16px;background:rgba(255,255,255,0.15);border-radius:50%;line-height:1;transform:translateY(-50%)}'
+    + '.modal-nav:active{background:rgba(255,255,255,0.3)}'
+    + '.modal-prev{left:8px}'
+    + '.modal-next{right:8px}'
+    + '.modal-counter{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;font-size:14px;z-index:101;background:rgba(0,0,0,0.5);padding:4px 14px;border-radius:12px}'
+    + '.upload-area{margin:12px 0;padding:16px;border:2px dashed #ccc;border-radius:8px;text-align:center;background:#fafafa;transition:border-color 0.2s,background 0.2s}'
+    + '.upload-area.dragover{border-color:#4CAF50;background:#e8f5e9}'
+    + '.upload-btn{display:inline-block;padding:8px 20px;background:#2196F3;color:#fff;border-radius:6px;cursor:pointer;font-size:14px;border:none}'
+    + '.upload-btn:active{background:#1976D2}'
+    + '.upload-progress{font-size:13px;color:#666;margin:6px 0}'
+    + '.upload-progress .bar{height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden;margin-top:4px}'
+    + '.upload-progress .bar-fill{height:100%;background:#4CAF50;transition:width 0.3s}'
+    + '.img-arrows{position:absolute;bottom:2px;left:0;right:0;display:flex;justify-content:center;gap:4px;padding:0 2px}'
+    + '.img-arrows button{background:rgba(0,0,0,0.55);color:#fff;border:none;border-radius:3px;width:24px;height:20px;cursor:pointer;font-size:11px;padding:0;line-height:20px}'
+    + '.img-arrows button:disabled{opacity:0.3;cursor:default}'
+    + '.insert-pos{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:14px}'
+    + '.insert-pos select{padding:5px 8px;border-radius:6px;border:1px solid #ccc;font-size:14px;background:#fff}'
     + '</style></head><body><div class="card">'
     + '<h2>\uD83D\uDD0D \u627F\u8A8D\u30D7\u30EC\u30D3\u30E5\u30FC\uFF08\u7DE8\u96C6\u53EF\uFF09</h2>'
     + '<div class="prop-name">' + _esc(prop.buildingName) + (prop.roomNumber ? ' ' + _esc(prop.roomNumber) : '') + '</div>'
@@ -1137,23 +1190,27 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += '<div class="section-header">\u8A2D\u5099\u30FB\u8A73\u7D30</div>';
   html += _textareaRow('\u8A2D\u5099', 'facilities', prop.facilities);
 
-  // 画像グリッド
-  if (images.length > 0) {
-    html += '<div class="images-title">'
-      + '<span>\uD83D\uDDBC\uFE0F \u753B\u50CF (' + images.length + '\u679A)'
-      + '<span class="select-btns"><span onclick="selectAll(true)">\u5168\u9078\u629E</span><span onclick="selectAll(false)">\u5168\u89E3\u9664</span></span></span>'
-      + '</div>'
-      + '<div class="img-grid">';
+  // 画像セクション（統合グリッド + アップロード）
+  html += '<div class="images-title">'
+    + '<span>\uD83D\uDDBC\uFE0F \u753B\u50CF (<span id="imgCount">' + images.length + '</span>\u679A)'
+    + '<span class="select-btns"><span onclick="selectAllUnified(true)">\u5168\u9078\u629E</span><span onclick="selectAllUnified(false)">\u5168\u89E3\u9664</span></span></span>'
+    + '</div>'
+    + '<div class="img-grid" id="unifiedGrid"></div>';
 
-    for (var i = 0; i < images.length; i++) {
-      html += '<div class="img-item" id="item_' + i + '">'
-        + '<div class="cb-wrap"><input type="checkbox" class="img-cb" data-idx="' + i + '" checked onchange="toggleImg(' + i + ')"></div>'
-        + '<span class="idx">' + (i+1) + '</span>'
-        + '<img src="' + _esc(images[i]) + '" onclick="openModal(\'' + _esc(images[i]) + '\')">'
-        + '</div>';
-    }
-    html += '</div>';
-  }
+  // 画像アップロードエリア
+  html += '<div class="images-title" style="margin-top:16px">'
+    + '<span>\uD83D\uDCF7 \u753B\u50CF\u3092\u8FFD\u52A0</span>'
+    + '</div>'
+    + '<div class="insert-pos">'
+    + '<label>\uD83D\uDCCD \u633F\u5165\u4F4D\u7F6E\uFF1A</label>'
+    + '<select id="insertPos"></select>'
+    + '</div>'
+    + '<div class="upload-area" id="uploadArea">'
+    + '<input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="handleFiles(this.files)">'
+    + '<button class="upload-btn" onclick="document.getElementById(\'fileInput\').click()">\u7AEF\u672B\u304B\u3089\u753B\u50CF\u3092\u9078\u629E</button>'
+    + '<p style="margin-top:8px;font-size:12px;color:#999">\u307E\u305F\u306F\u753B\u50CF\u3092\u3053\u3053\u306B\u30C9\u30E9\u30C3\u30B0\uFF06\u30C9\u30ED\u30C3\u30D7</p>'
+    + '<div id="uploadProgress"></div>'
+    + '</div>';
 
   var skipUrl = baseUrl + '?action=skip&customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
 
@@ -1162,27 +1219,133 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '<a class="btn-skip" href="' + _esc(skipUrl) + '">\u30B9\u30AD\u30C3\u30D7</a>'
     + '</div>';
 
-  // 画像モーダル
-  html += '<div id="modal" class="modal-overlay" onclick="closeModal()">'
-    + '<span class="modal-close">&times;</span>'
-    + '<img id="modalImg" src="">'
+  // 画像モーダル（前/次ナビ付き）
+  html += '<div id="modal" class="modal-overlay" onclick="closeModalBg(event)">'
+    + '<span class="modal-close" onclick="event.stopPropagation();closeModal()">&times;</span>'
+    + '<span class="modal-nav modal-prev" onclick="event.stopPropagation();navModal(-1)">&#10094;</span>'
+    + '<img id="modalImg" src="" onclick="event.stopPropagation()">'
+    + '<span class="modal-nav modal-next" onclick="event.stopPropagation();navModal(1)">&#10095;</span>'
+    + '<span id="modalCounter" class="modal-counter"></span>'
     + '</div>';
 
   html += '<script>'
     + 'var gasBaseUrl=' + JSON.stringify(baseUrl) + ';'
     + 'var customerName=' + JSON.stringify(customerName) + ';'
     + 'var roomId=' + JSON.stringify(String(roomId)) + ';'
-    + 'function toggleImg(idx){'
-    + 'var el=document.getElementById("item_"+idx);'
-    + 'var cb=el.querySelector(".img-cb");'
-    + 'if(cb.checked){el.classList.remove("unchecked")}else{el.classList.add("unchecked")}'
+    + 'var origImages=' + JSON.stringify(images) + ';'
+    // ── 統合画像管理 ──
+    + 'var allImages=[];'
+    + 'for(var i=0;i<origImages.length;i++){allImages.push({url:origImages[i],checked:true,isUp:false})}'
+    // タイルHTML生成
+    + 'function makeImgTile(i){'
+    + 'var im=allImages[i];var bg=im.isUp?"33,150,243":"0,0,0";'
+    + 'var h="<div class=\\"cb-wrap\\"><input type=\\"checkbox\\" "+(im.checked?"checked":"")+" onchange=\\"toggleU("+i+")\\"></div>";'
+    + 'h+="<span class=\\"idx\\" style=\\"background:rgba("+bg+",0.6)\\">"+(i+1)+"</span>";'
+    + 'h+="<img src=\\""+im.url+"\\" onclick=\\"openModal(this.src)\\">";'
+    + 'h+="<div class=\\"img-arrows\\">";'
+    + 'h+="<button onclick=\\"moveImg("+i+",-1)\\""+((i===0)?" disabled":"")+">\\u25C0</button>";'
+    + 'h+="<button onclick=\\"moveImg("+i+",1)\\""+((i===allImages.length-1)?" disabled":"")+">\\u25B6</button>";'
+    + 'h+="</div>";return h}'
+    // グリッド描画
+    + 'function renderGrid(){'
+    + 'var grid=document.getElementById("unifiedGrid");grid.innerHTML="";'
+    + 'document.getElementById("imgCount").textContent=allImages.length;'
+    + 'for(var i=0;i<allImages.length;i++){'
+    + 'var d=document.createElement("div");'
+    + 'd.className="img-item"+(allImages[i].checked?"":" unchecked");d.id="uimg_"+i;'
+    + 'd.innerHTML=makeImgTile(i);grid.appendChild(d)}'
+    + 'updateInsertOpts()}'
+    // チェックボックス
+    + 'function toggleU(idx){allImages[idx].checked=!allImages[idx].checked;renderGrid()}'
+    + 'function selectAllUnified(c){for(var i=0;i<allImages.length;i++)allImages[i].checked=c;renderGrid()}'
+    // 画像並び替え
+    + 'function moveImg(idx,dir){'
+    + 'var n=idx+dir;if(n<0||n>=allImages.length)return;'
+    + 'var t=allImages[idx];allImages[idx]=allImages[n];allImages[n]=t;renderGrid()}'
+    // 挿入位置ドロップダウン更新
+    + 'function updateInsertOpts(){'
+    + 'var s=document.getElementById("insertPos");var prev=s.value;s.innerHTML="";'
+    + 'for(var i=0;i<=allImages.length;i++){'
+    + 'var o=document.createElement("option");o.value=i;'
+    + 'if(i===0)o.text="\\u5148\\u982D (1\\u679A\\u76EE)";'
+    + 'else if(i===allImages.length)o.text="\\u6700\\u5F8C ("+(i+1)+"\\u679A\\u76EE)";'
+    + 'else o.text=(i+1)+"\\u679A\\u76EE";'
+    + 's.appendChild(o)}'
+    + 'if(prev!==""){var pi=parseInt(prev,10);if(pi>=0&&pi<=allImages.length)s.value=prev}'
     + '}'
-    + 'function selectAll(checked){'
-    + 'var cbs=document.querySelectorAll(".img-cb");'
-    + 'for(var i=0;i<cbs.length;i++){cbs[i].checked=checked;toggleImg(i)}'
+    // モーダル（前/次ナビ + キーボード + スワイプ対応）
+    + 'var currentModalIdx=-1;'
+    + 'function openModal(src){var m=document.getElementById("modal");document.getElementById("modalImg").src=src;'
+    + 'currentModalIdx=-1;for(var i=0;i<allImages.length;i++){if(allImages[i].url===src){currentModalIdx=i;break}}'
+    + 'updateModalCounter();m.classList.add("active")}'
+    + 'function closeModal(){document.getElementById("modal").classList.remove("active");currentModalIdx=-1}'
+    + 'function closeModalBg(e){if(e.target.id==="modal")closeModal()}'
+    + 'function navModal(dir){if(currentModalIdx<0)return;var n=currentModalIdx+dir;'
+    + 'if(n<0||n>=allImages.length)return;currentModalIdx=n;'
+    + 'document.getElementById("modalImg").src=allImages[n].url;updateModalCounter()}'
+    + 'function updateModalCounter(){var el=document.getElementById("modalCounter");'
+    + 'if(currentModalIdx>=0)el.textContent=(currentModalIdx+1)+" / "+allImages.length;else el.textContent=""}'
+    + 'document.addEventListener("keydown",function(e){'
+    + 'if(currentModalIdx<0)return;'
+    + 'if(e.key==="ArrowLeft"){e.preventDefault();navModal(-1)}'
+    + 'else if(e.key==="ArrowRight"){e.preventDefault();navModal(1)}'
+    + 'else if(e.key==="Escape")closeModal()});'
+    + '(function(){var sx=0;var modal=document.getElementById("modal");'
+    + 'modal.addEventListener("touchstart",function(e){sx=e.touches[0].clientX},{passive:true});'
+    + 'modal.addEventListener("touchend",function(e){'
+    + 'var dx=e.changedTouches[0].clientX-sx;'
+    + 'if(Math.abs(dx)>50){if(dx>0)navModal(-1);else navModal(1)}},{passive:true})})();'
+    // ── アップロード機能 ──
+    + 'var uploadCount=0;'
+    + '(function(){'
+    + 'var ua=document.getElementById("uploadArea");'
+    + 'ua.addEventListener("dragover",function(e){e.preventDefault();ua.classList.add("dragover")});'
+    + 'ua.addEventListener("dragleave",function(){ua.classList.remove("dragover")});'
+    + 'ua.addEventListener("drop",function(e){e.preventDefault();ua.classList.remove("dragover");handleFiles(e.dataTransfer.files)});'
+    + '})();'
+    + 'function handleFiles(files){for(var i=0;i<files.length;i++){uploadSingleFile(files[i])}}'
+    + 'function uploadSingleFile(file){'
+    + 'if(!file.type.startsWith("image/"))return;'
+    + 'if(file.size>10*1024*1024){alert(file.name+" \\u306F10MB\\u3092\\u8D85\\u3048\\u3066\\u3044\\u307E\\u3059\\u3002");return}'
+    + 'var pid="prog_"+(++uploadCount);'
+    + 'var pd=document.getElementById("uploadProgress");'
+    + 'pd.innerHTML+="<div id=\\""+pid+"\\" class=\\"upload-progress\\">"+file.name+" \\u30A2\\u30C3\\u30D7\\u30ED\\u30FC\\u30C9\\u4E2D...<div class=\\"bar\\"><div class=\\"bar-fill\\" style=\\"width:20%\\"></div></div></div>";'
+    + 'var MAX_DIM=2048;'
+    + 'var reader=new FileReader();'
+    + 'reader.onload=function(ev){'
+    + 'var img=new Image();'
+    + 'img.onload=function(){'
+    + 'var w=img.width,h=img.height;'
+    + 'if(w>MAX_DIM||h>MAX_DIM){var ratio=Math.min(MAX_DIM/w,MAX_DIM/h);w=Math.round(w*ratio);h=Math.round(h*ratio)}'
+    + 'var canvas=document.createElement("canvas");canvas.width=w;canvas.height=h;'
+    + 'canvas.getContext("2d").drawImage(img,0,0,w,h);'
+    + 'var dataUrl=canvas.toDataURL("image/jpeg",0.8);'
+    + 'var b64=dataUrl.split(",")[1];'
+    + 'var pel=document.getElementById(pid);if(pel)pel.querySelector(".bar-fill").style.width="50%";'
+    + 'google.script.run'
+    + '.withSuccessHandler(function(r){'
+    + 'var el=document.getElementById(pid);'
+    + 'if(r.success){if(el)el.remove();addUploadedImage(r.url)}'
+    + 'else{if(el)el.innerHTML=file.name+" \\u30A8\\u30E9\\u30FC: "+r.message}'
+    + '})'
+    + '.withFailureHandler(function(err){'
+    + 'var el=document.getElementById(pid);if(el)el.innerHTML=file.name+" \\u30A8\\u30E9\\u30FC: "+err.message'
+    + '})'
+    + '.uploadPropertyImage(b64,file.name,"image/jpeg");'
+    + '};'
+    + 'img.src=ev.target.result;'
+    + '};'
+    + 'reader.readAsDataURL(file);'
     + '}'
-    + 'function openModal(src){var m=document.getElementById("modal");document.getElementById("modalImg").src=src;m.classList.add("active")}'
-    + 'function closeModal(){document.getElementById("modal").classList.remove("active")}'
+    // アップロード画像を指定位置に挿入
+    + 'function addUploadedImage(url){'
+    + 'var pos=parseInt(document.getElementById("insertPos").value,10);'
+    + 'allImages.splice(pos,0,{url:url,checked:true,isUp:true});'
+    + 'renderGrid();'
+    + 'var np=Math.min(pos+1,allImages.length);'
+    + 'document.getElementById("insertPos").value=String(np);'
+    + '}'
+    // 送信
     + 'function submitApprove(){'
     + 'var btn=document.getElementById("approveBtn");'
     + 'btn.textContent="\\u2B50 \\u9001\\u4FE1\\u4E2D...";btn.style.opacity="0.6";btn.style.pointerEvents="none";'
@@ -1190,11 +1353,10 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'fd.action="confirm_approve";'
     + 'fd.customer=customerName;'
     + 'fd.room_id=roomId;'
-    + 'var cbs=document.querySelectorAll(".img-cb");'
-    + 'var sel=[];'
-    + 'for(var i=0;i<cbs.length;i++){if(cbs[i].checked)sel.push(cbs[i].getAttribute("data-idx"))}'
-    + 'fd.include_image=sel.length>0?"1":"0";'
-    + 'fd.selected_images=sel.join(",");'
+    + 'var selUrls=[];'
+    + 'for(var i=0;i<allImages.length;i++){if(allImages[i].checked)selUrls.push(allImages[i].url)}'
+    + 'fd.ordered_image_urls=JSON.stringify(selUrls);'
+    + 'fd.include_image=selUrls.length>0?"1":"0";'
     + 'var inputs=document.querySelectorAll(".detail-input,.detail-textarea");'
     + 'for(var i=0;i<inputs.length;i++){fd[inputs[i].name]=inputs[i].value}'
     + 'google.script.run'
@@ -1209,6 +1371,8 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '})'
     + '.confirmApproveFromClient(fd);'
     + '}'
+    // 初期化
+    + 'renderGrid();document.getElementById("insertPos").value="0";'
     + '</script>';
 
   html += '</div></body></html>';
