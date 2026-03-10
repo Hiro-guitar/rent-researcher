@@ -357,9 +357,19 @@ def _check_move_in_date(properties: list, customer_move_in: str) -> list:
 
     for p in properties:
         # 即入居可等はスキップ
-        if not p.move_in_date or p.move_in_date.strip() in (
-            "即入居可", "即日", ""
-        ):
+        if p.move_in_date and p.move_in_date.strip() in ("即入居可", "即日"):
+            continue
+
+        # 入居可能時期が空（記載なし）→ アラート
+        if not p.move_in_date or not p.move_in_date.strip():
+            p.move_in_warning = (
+                f"⚠️ {customer_move_in}入居希望です。"
+                f"入居可能時期の記載がありません"
+            )
+            print(
+                f"[INFO] 入居時期アラート (room_id={p.room_id}): "
+                f"希望={customer_move_in}, 入居可能=記載なし"
+            )
             continue
 
         # 「相談」は日付比較できないが、入居時期が不確定なのでアラート
