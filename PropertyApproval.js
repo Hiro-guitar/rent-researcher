@@ -599,7 +599,8 @@ function handlePropertyAction(e) {
           'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」を **押さえたい** とリクエストしました！',
           'viewing': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **内見** をリクエストしました',
           'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabel + '」を **お気に入り** に追加しました',
-          'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabel + '」を **興味なし** にしました'
+          'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabel + '」を **興味なし** にしました',
+          'view': '\uD83D\uDCC4 **' + customerName + '** 様が「' + propLabel + '」を閲覧しました'
         };
         var msg = msgMap[actionType] || '';
         if (!msg) return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount })).setMimeType(ContentService.MimeType.JSON);

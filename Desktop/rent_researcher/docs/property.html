@@ -385,10 +385,20 @@ function renderProperty(p) {
   // アクション状態チェック
   checkActionStatus();
 
-  // 閲覧トラッキング（fire-and-forget）
+  // 閲覧トラッキング（アクションログに統合、fire-and-forget）
   if (customer && roomId) {
     try {
-      fetch(GAS_API_URL + '?action=track_view&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId), { mode: 'no-cors' });
+      var propData = currentProperty || {};
+      var viewParams = 'action=property_action'
+        + '&customer=' + encodeURIComponent(customer)
+        + '&room_id=' + encodeURIComponent(roomId)
+        + '&action_type=view'
+        + '&building_name=' + encodeURIComponent(propData.buildingName || '')
+        + '&room_number=' + encodeURIComponent(propData.roomNumber || '')
+        + '&rent=' + encodeURIComponent(propData.rent || '')
+        + '&layout=' + encodeURIComponent(propData.layout || '')
+        + '&station_info=' + encodeURIComponent(propData.stationInfo || '');
+      fetch(GAS_API_URL + '?' + viewParams, { redirect: 'follow' }).catch(function() {});
     } catch(e) {}
   }
 }
