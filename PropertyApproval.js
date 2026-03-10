@@ -642,6 +642,43 @@ function handlePropertyAction(e) {
     }
   }
 
+  // 仮押さえの場合、顧客にLINE確認メッセージを送信
+  if (actionType === 'hold') {
+    try {
+      var lineUserId = findLineUserId(customerName);
+      if (lineUserId) {
+        var propLabel = buildingName || ('room_id: ' + roomId);
+        if (roomNumber) propLabel += ' ' + roomNumber;
+        var flex = {
+          type: 'flex',
+          altText: '仮押さえリクエストを受け付けました',
+          contents: {
+            type: 'bubble',
+            body: {
+              type: 'box',
+              layout: 'vertical',
+              spacing: 'md',
+              contents: [
+                { type: 'text', text: '✅ 仮押さえリクエスト受付', weight: 'bold', size: 'lg', color: '#2E7D32' },
+                { type: 'separator' },
+                { type: 'text', text: propLabel, weight: 'bold', size: 'md', wrap: true },
+                { type: 'box', layout: 'vertical', spacing: 'sm', margin: 'md', contents: [
+                  { type: 'text', text: [rent ? (Math.round(parseInt(rent) / 10000 * 10) / 10) + '万円' : '', layout].filter(Boolean).join(' / '), size: 'sm', color: '#666666' },
+                  { type: 'text', text: '申込区分: ' + (applicationType || '未指定'), size: 'sm', color: '#666666' }
+                ]},
+                { type: 'separator' },
+                { type: 'text', text: '担当者が確認次第、ご連絡いたします。\nしばらくお待ちください。', size: 'sm', color: '#888888', wrap: true }
+              ]
+            }
+          }
+        };
+        pushMessage(lineUserId, [flex]);
+      }
+    } catch(e) {
+      console.error('LINE hold notification error: ' + e.message);
+    }
+  }
+
   return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount }))
     .setMimeType(ContentService.MimeType.JSON);
 }
