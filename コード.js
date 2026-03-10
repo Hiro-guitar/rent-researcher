@@ -174,6 +174,14 @@ function doGet(e) {
       return handleTrackView(e);
     }
 
+    if (action === 'property_action') {
+      return handlePropertyAction(e);
+    }
+
+    if (action === 'check_action') {
+      return handleCheckAction(e);
+    }
+
   // ── 総合条件選択Webページ ──
   if (action === 'selectCriteria' || action === 'selectRoutes') {
     const userId = e.parameter.userId;

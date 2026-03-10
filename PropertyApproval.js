@@ -548,6 +548,112 @@ function handleTrackView(e) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ===== 物件アクション（押さえたい/内見リクエスト） =====
+var ACTION_LOG_SHEET_NAME = 'アクションログ';
+
+function handlePropertyAction(e) {
+  var customerName = e.parameter.customer;
+  var roomId = e.parameter.room_id;
+  var actionType = e.parameter.action_type; // 'hold' or 'viewing'
+  var buildingName = e.parameter.building_name || '';
+  var roomNumber = e.parameter.room_number || '';
+  var rent = e.parameter.rent || '';
+  var layout = e.parameter.layout || '';
+  var stationInfo = e.parameter.station_info || '';
+
+  if (!customerName || !roomId || !actionType) {
+    return ContentService.createTextOutput(JSON.stringify({ error: 'missing parameters' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(ACTION_LOG_SHEET_NAME);
+    sheet.appendRow(['顧客名', 'room_id', 'アクション', '物件名', '部屋番号', '賃料', '間取り', '最寄駅', '日時']);
+  }
+
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
+  sheet.appendRow([customerName, roomId, actionType, buildingName, roomNumber, rent, layout, stationInfo, now]);
+
+  // Discord 通知
+  try {
+    var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+    if (webhookUrl) {
+      var threadId = PropertiesService.getScriptProperties().getProperty('ACTION_LOG_THREAD_ID');
+      var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
+      var rentText = rent ? (Math.round(parseInt(rent) / 10000 * 10) / 10) + '万円' : '';
+      var propLabel = buildingName || ('room_id: ' + roomId);
+      if (roomNumber) propLabel += ' ' + roomNumber;
+
+      var msg = '';
+      if (actionType === 'hold') {
+        msg = '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」を **押さえたい** とリクエストしました！';
+      } else {
+        msg = '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **内見** をリクエストしました';
+      }
+      if (rentText || layout) {
+        msg += '\n> ' + [rentText, layout].filter(Boolean).join(' / ');
+      }
+
+      var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
+      var payload = { content: msg };
+      if (!threadId) {
+        payload.thread_name = '\uD83D\uDCE9 アクションリクエスト';
+      }
+
+      var resp = UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+
+      if (!threadId && resp.getResponseCode() === 200) {
+        try {
+          var body = JSON.parse(resp.getContentText());
+          if (body.channel_id) {
+            PropertiesService.getScriptProperties().setProperty('ACTION_LOG_THREAD_ID', body.channel_id);
+          }
+        } catch(e) {}
+      }
+    }
+  } catch(e) {
+    console.error('Discord action notification error: ' + e.message);
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function handleCheckAction(e) {
+  var customerName = e.parameter.customer;
+  var roomId = e.parameter.room_id;
+
+  if (!customerName || !roomId) {
+    return ContentService.createTextOutput(JSON.stringify({ action_type: null }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
+  if (!sheet) {
+    return ContentService.createTextOutput(JSON.stringify({ action_type: null }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var data = sheet.getDataRange().getValues();
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][0]) === String(customerName) && String(data[i][1]) === String(roomId)) {
+      return ContentService.createTextOutput(JSON.stringify({ action_type: String(data[i][2]) }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({ action_type: null }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 // ===== シート操作 =====
 function findPendingRow(customerName, roomId) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
