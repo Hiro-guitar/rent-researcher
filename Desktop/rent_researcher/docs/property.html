@@ -50,9 +50,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .feedback-btn{flex:1;padding:14px 0;border-radius:12px;border:2px solid #e0e0e0;background:#fff;font-size:15px;font-weight:bold;cursor:pointer;transition:all 0.2s;text-align:center;color:#555}
 .feedback-btn:active{transform:scale(0.97)}
 .feedback-btn.fav{border-color:#F59E0B;color:#D97706;background:#FFFBEB}
-.feedback-btn.fav.active{background:#FEF3C7;border-color:#D97706;color:#92400E}
+.feedback-btn.fav.active{background:#F59E0B;border-color:#D97706;color:#fff;box-shadow:0 2px 8px rgba(245,158,11,0.3)}
 .feedback-btn.nope{border-color:#9CA3AF;color:#6B7280;background:#F9FAFB}
-.feedback-btn.nope.active{background:#F3F4F6;border-color:#6B7280;color:#374151}
+.feedback-btn.nope.active{background:#6B7280;border-color:#4B5563;color:#fff;box-shadow:0 2px 8px rgba(107,114,128,0.3)}
 .feedback-btn:disabled{opacity:0.6;cursor:not-allowed}
 .feedback-status{text-align:center;font-size:13px;color:#888;margin:-8px 0 8px;min-height:18px}
 /* アクションボタン */
@@ -489,17 +489,17 @@ function updateFeedbackUI(action) {
 
   if (action === 'favorite') {
     favBtn.classList.add('active');
-    favBtn.textContent = '\u2B50 お気に入り済み';
-    nopeBtn.textContent = '\uD83D\uDC4E 興味なし';
+    favBtn.textContent = '⭐ お気に入り済み ✓';
+    nopeBtn.textContent = '👎 興味なし';
     status.textContent = '';
   } else if (action === 'not_interested') {
     nopeBtn.classList.add('active');
-    nopeBtn.textContent = '\uD83D\uDC4E 興味なしに設定済み';
-    favBtn.textContent = '\u2B50 お気に入りに追加';
+    nopeBtn.textContent = '👎 興味なし ✓';
+    favBtn.textContent = '⭐ お気に入りに追加';
     status.textContent = '';
   } else {
-    favBtn.textContent = '\u2B50 お気に入りに追加';
-    nopeBtn.textContent = '\uD83D\uDC4E 興味なし';
+    favBtn.textContent = '⭐ お気に入りに追加';
+    nopeBtn.textContent = '👎 興味なし';
     status.textContent = '';
   }
 }
