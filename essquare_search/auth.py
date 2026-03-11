@@ -182,16 +182,28 @@ class EsSquareSession:
     # ─── CDP / JavaScript ヘルパー ────────────────────────
 
     def setup_graphql_interceptor(self) -> None:
-        """GraphQL レスポンスをキャプチャする fetch インターセプターを注入する。
+        """後方互換: setup_api_interceptor のエイリアス。"""
+        self.setup_api_interceptor()
+
+    def setup_api_interceptor(self) -> None:
+        """全 fetch API レスポンスをキャプチャするインターセプターを注入する。
 
         Page.addScriptToEvaluateOnNewDocument により、以降の全ページ遷移で
         自動的にインターセプターが挿入される。
+
+        キャプチャ対象:
+        - JSON レスポンスを返す全ての fetch リクエスト
+        - GraphQL / AppSync を含む全 API 呼び出し
+
+        キャプチャ除外:
+        - 画像・CSS・JS 等の静的リソース
         """
         if not self.driver:
             raise EsSquareAuthError("ブラウザセッションが初期化されていません")
 
         interceptor_script = """
-        window.__esq_graphql = [];
+        window.__esq_api = [];
+        window.__esq_graphql = [];  // 後方互換
         const _origFetch = window.fetch;
         window.fetch = function(...args) {
             return _origFetch.apply(this, args).then(async r => {
@@ -199,10 +211,19 @@ class EsSquareSession:
                     const url = typeof args[0] === 'string'
                         ? args[0]
                         : (args[0]?.url || '');
-                    if (url.includes('graphql') || url.includes('appsync')) {
+                    // 静的リソースを除外
+                    const skip = /\\.(js|css|png|jpg|jpeg|gif|svg|woff|ico)/i;
+                    if (skip.test(url)) return r;
+
+                    const ct = r.headers.get('content-type') || '';
+                    if (ct.includes('json')) {
                         const clone = r.clone();
                         const data = await clone.json();
-                        window.__esq_graphql.push({url: url, data: data});
+                        window.__esq_api.push({url: url, data: data});
+                        // GraphQL 互換
+                        if (url.includes('graphql') || url.includes('appsync')) {
+                            window.__esq_graphql.push({url: url, data: data});
+                        }
                     }
                 } catch(e) {}
                 return r;
@@ -213,7 +234,7 @@ class EsSquareSession:
             "Page.addScriptToEvaluateOnNewDocument",
             {"source": interceptor_script},
         )
-        print("[DEBUG] ES-Square: GraphQL インターセプター設定完了")
+        print("[DEBUG] ES-Square: API インターセプター設定完了")
 
     def execute_script(self, script: str) -> object:
         """JavaScript を実行して結果を返す。"""
