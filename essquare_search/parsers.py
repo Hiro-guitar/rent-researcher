@@ -102,11 +102,24 @@ def _find_property_array(data: object, depth: int = 0) -> list[dict] | None:
             sample = data[0]
             keys_lower = {k.lower() for k in sample.keys()}
 
-            # 保存検索条件を除外 (conditionId, name, savedQuery)
+            # 非物件データを除外
+            # 1. 保存検索条件 (conditionId, savedQuery)
             saved_search_keys = {"conditionid", "savedquery"}
             if keys_lower & saved_search_keys:
                 print(
                     f"[DEBUG] ES-Square: 保存検索条件を除外 "
+                    f"(keys={list(sample.keys())})"
+                )
+                return None
+
+            # 2. ユーザーアカウントデータ (userId, roleUid 等)
+            user_account_keys = {
+                "userid", "roleuid", "provideruseruid",
+                "publicname", "enablemfa", "ipaddresslist",
+            }
+            if len(keys_lower & user_account_keys) >= 2:
+                print(
+                    f"[DEBUG] ES-Square: ユーザーデータを除外 "
                     f"(keys={list(sample.keys())})"
                 )
                 return None
@@ -390,6 +403,45 @@ def _log_response_structure(data: object, prefix: str = "", depth: int = 0):
             )
 
 
+def _debug_dom_row(row, idx: int) -> None:
+    """物件行の DOM 構造をデバッグ出力する。"""
+    try:
+        tag = row.name
+        classes = row.get("class", [])
+        if isinstance(classes, list):
+            classes = " ".join(classes)
+
+        # 直接の子要素の概要
+        children = list(row.children)
+        child_tags = []
+        for c in children:
+            name = getattr(c, "name", None)
+            if name:
+                c_cls = c.get("class", [])
+                if isinstance(c_cls, list):
+                    c_cls = " ".join(c_cls[:2])
+                c_text = c.get_text(" ", strip=True)[:40]
+                child_tags.append(f"{name}.{c_cls}='{c_text}'")
+
+        print(f"[DEBUG] DOM row[{idx}]: <{tag} class='{classes}'>")
+        print(f"[DEBUG]   children ({len(child_tags)}): "
+              f"{child_tags[:8]}")
+
+        # クリーンなテキスト行を出力
+        text = row.get_text("\n", strip=True)
+        clean = _clean_dom_lines(text)
+        print(f"[DEBUG]   clean_lines ({len(clean)}): "
+              f"{clean[:10]}")
+
+        # リンクの確認
+        links = row.find_all("a", href=True)
+        for link in links[:3]:
+            print(f"[DEBUG]   <a href='{link['href'][:100]}'>")
+
+    except Exception as exc:
+        print(f"[DEBUG] DOM row debug error: {exc}")
+
+
 # ─── DOM フォールバックパーサ (検索結果) ──────────────────────
 
 
@@ -460,6 +512,7 @@ def parse_search_results(html: str) -> tuple[list[Property], bool]:
     # ── 方式2: 賃料テキストから物件行を探す (フォールバック) ──
     if not properties:
         print("[DEBUG] DOM パーサ: 賃料パターン方式で物件抽出を試行...")
+        _debug_row_count = 0
         for element in rent_matches:
             parent = element.parent
             if not parent:
@@ -467,12 +520,19 @@ def parse_search_results(html: str) -> tuple[list[Property], bool]:
 
             row = _find_property_row(parent)
             if not row:
+                row = _find_property_row_flexible(parent)
+            if not row:
                 continue
 
             row_id = id(row)
             if row_id in seen_keys:
                 continue
             seen_keys.add(row_id)
+
+            # デバッグ: 最初の2行のHTML構造をダンプ
+            if _debug_row_count < 2:
+                _debug_dom_row(row, _debug_row_count)
+                _debug_row_count += 1
 
             prop = _parse_dom_property_row(row)
             if prop:
@@ -732,22 +792,41 @@ def _parse_text_row(row, uuid: str = "") -> Property | None:
     """行全体のテキストから物件情報を正規表現で抽出する (方式B)。
 
     カラム構造がない場合のフォールバック。
+    React が生成するタイムスタンプ(13桁数字)を除去してからパースする。
     """
     text = row.get_text("\n", strip=True)
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    lines = _clean_dom_lines(text)
 
     if not lines:
         return None
 
-    # 賃料 (必須)
+    # 賃料 (必須) — 「円」を含む行を優先検索
     rent = 0
     management_fee = 0
-    for line in lines:
+
+    # まず、「円」を含む行から賃料を探す (金額が大きい順にソート)
+    yen_lines = [l for l in lines if "円" in l]
+    rent_candidates: list[tuple[int, int]] = []
+    for line in yen_lines:
         r, m = _parse_rent_text(line)
         if r > 0:
-            rent = r
-            management_fee = m
-            break
+            rent_candidates.append((r, m))
+
+    if rent_candidates:
+        # 最大額を賃料とする (敷金・礼金より賃料が大きいことが多い)
+        # ただし、先に出現する金額を優先
+        rent, management_fee = rent_candidates[0]
+
+    # 「円」がなくても「万」形式の賃料を探す (例: "4.7万")
+    if not rent:
+        for line in lines:
+            m_man = re.search(r"([\d.]+)\s*万", line)
+            if m_man:
+                try:
+                    rent = int(float(m_man.group(1)) * 10000)
+                    break
+                except ValueError:
+                    pass
 
     if not rent:
         return None
@@ -837,9 +916,36 @@ def _parse_text_row(row, uuid: str = "") -> Property | None:
     )
 
 
+def _clean_dom_lines(text: str) -> list[str]:
+    """DOM テキストから React 生成のタイムスタンプを除去してクリーンな行リストを返す。
+
+    React/MUI コンポーネントがレンダリングする DOM には、
+    13桁のタイムスタンプ(ミリ秒Unix時間)がテキストノードに混入することがある。
+    これらを除去してから行分割する。
+    """
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+
+    cleaned: list[str] = []
+    for line in lines:
+        # 行全体が10桁以上の数字のみ → タイムスタンプ → スキップ
+        if re.fullmatch(r"\d{10,}", line):
+            continue
+        # 行内のタイムスタンプ（10桁以上の数字が単独で存在）を除去
+        line = re.sub(r"\b\d{10,}\b", "", line).strip()
+        if line:
+            cleaned.append(line)
+
+    return cleaned
+
+
 def _parse_rent_text(text: str) -> tuple[int, int]:
-    """賃料テキストから (賃料, 管理費) を円単位で返す。"""
-    amounts = re.findall(r"([\d,]+)\s*円", text)
+    """賃料テキストから (賃料, 管理費) を円単位で返す。
+
+    タイムスタンプ(10桁以上)が混入している場合は除去してからパースする。
+    """
+    # タイムスタンプ除去
+    cleaned = re.sub(r"\b\d{10,}\b", "", text).strip()
+    amounts = re.findall(r"([\d,]+)\s*円", cleaned)
     rent = int(amounts[0].replace(",", "")) if amounts else 0
     mgmt = int(amounts[1].replace(",", "")) if len(amounts) > 1 else 0
     return rent, mgmt
