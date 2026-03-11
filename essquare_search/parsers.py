@@ -88,7 +88,11 @@ def parse_graphql_results(
 
 
 def _find_property_array(data: object, depth: int = 0) -> list[dict] | None:
-    """JSON 構造の中から物件データの配列を再帰的に探す。"""
+    """JSON 構造の中から物件データの配列を再帰的に探す。
+
+    保存検索条件 (conditionId, name, savedQuery) のような
+    非物件データを誤検出しないよう、厳格なフィルタを適用する。
+    """
     if depth > 6:
         return None
 
@@ -98,21 +102,35 @@ def _find_property_array(data: object, depth: int = 0) -> list[dict] | None:
             sample = data[0]
             keys_lower = {k.lower() for k in sample.keys()}
 
-            # 物件データの特徴的なフィールド (英語キー)
-            property_indicators = {
-                "rent", "chinryo", "price", "layout", "madori",
-                "area", "menseki", "address", "name", "bukkenname",
-                "uuid", "id", "buildingname", "roomid",
+            # 保存検索条件を除外 (conditionId, name, savedQuery)
+            saved_search_keys = {"conditionid", "savedquery"}
+            if keys_lower & saved_search_keys:
+                print(
+                    f"[DEBUG] ES-Square: 保存検索条件を除外 "
+                    f"(keys={list(sample.keys())})"
+                )
+                return None
+
+            # 物件データの特徴的なフィールド — 賃料/面積/住所が必須
+            # "name" 単独ではマッチしない（検索条件名と区別不可）
+            strong_indicators = {
+                "rent", "chinryo", "price", "rentprice",
+                "area", "menseki", "exclusivearea",
+                "address", "jusho", "location",
+                "layout", "madori",
             }
-            if keys_lower & property_indicators:
+            # 強い指標が1つ以上あり、かつフィールド数が5以上
+            matched = keys_lower & strong_indicators
+            if matched and len(sample) >= 5:
                 return data
 
-            # 5つ以上のフィールドを持ち、ネストされた辞書を含む
-            if len(sample) >= 5 and any(
-                isinstance(v, (str, int, float)) for v in sample.values()
-            ):
-                # id/uuid 系のキーがあれば物件データの可能性が高い
-                id_keys = {k for k in keys_lower if "id" in k or "uuid" in k}
+            # 10以上のフィールドを持ち、id系キーがある場合
+            # (物件データは通常多くのフィールドを持つ)
+            if len(sample) >= 10:
+                id_keys = {
+                    k for k in keys_lower
+                    if "id" in k or "uuid" in k
+                }
                 if id_keys:
                     return data
 
@@ -380,35 +398,104 @@ def parse_search_results(html: str) -> tuple[list[Property], bool]:
 
     React SPA のレンダリング後の DOM をパースする。
     MUI のクラス名は動的なため、テキストパターンでマッチングする。
-    GraphQL 取得失敗時のフォールバック用。UUID は取得できない。
     """
     soup = BeautifulSoup(html, "lxml")
     properties: list[Property] = []
     seen_keys: set[str] = set()
 
+    # ── デバッグ: HTML 構造を調査 ──
+    body = soup.find("body")
+    body_text = body.get_text(" ", strip=True) if body else ""
+    print(f"[DEBUG] DOM パーサ: HTML={len(html)} bytes, "
+          f"body_text={len(body_text)} chars")
+
+    # テーブル要素の確認
+    tables = soup.find_all("table")
+    print(f"[DEBUG] DOM パーサ: <table> count={len(tables)}")
+
+    # リンク内のテキストパターンを確認
+    detail_links = soup.find_all(
+        "a", href=re.compile(r"/bukken/chintai/search/detail/")
+    )
+    print(f"[DEBUG] DOM パーサ: 物件詳細リンク count={len(detail_links)}")
+    for i, link in enumerate(detail_links[:3]):
+        href = link.get("href", "")
+        text = link.get_text(" ", strip=True)[:100]
+        print(f"[DEBUG]   link[{i}]: href={href}")
+        print(f"[DEBUG]   link[{i}]: text={text}")
+
     # 賃料テキストを含む要素を起点に物件行を探す
     rent_pattern = re.compile(r"([\d,]+)\s*円")
+    rent_matches = soup.find_all(string=rent_pattern)
+    print(f"[DEBUG] DOM パーサ: 賃料パターン matches={len(rent_matches)}")
+    for i, m in enumerate(rent_matches[:5]):
+        print(f"[DEBUG]   rent[{i}]: {str(m).strip()[:80]}")
 
-    # 賃料テキストを持つ全要素を取得
-    for element in soup.find_all(string=rent_pattern):
-        parent = element.parent
-        if not parent:
-            continue
+    # ── 方式1: 物件詳細リンクから物件行を探す ──
+    if detail_links:
+        print("[DEBUG] DOM パーサ: 詳細リンク方式で物件抽出を試行...")
+        for link in detail_links:
+            href = link.get("href", "")
+            uuid_match = re.search(
+                r"/detail/([a-f0-9-]+)", href
+            )
+            uuid = uuid_match.group(1) if uuid_match else ""
 
-        # 物件行コンテナを探す (display:flex の親)
-        row = _find_property_row(parent)
-        if not row:
-            continue
+            # リンクの親要素から物件行を探す
+            row = _find_property_row(link)
+            if not row:
+                # リンクの親を遡って行コンテナを探す
+                row = _find_property_row_flexible(link)
 
-        # 同じ行を重複処理しない
-        row_id = id(row)
-        if row_id in seen_keys:
-            continue
-        seen_keys.add(row_id)
+            if row:
+                row_id = id(row)
+                if row_id in seen_keys:
+                    continue
+                seen_keys.add(row_id)
 
-        prop = _parse_dom_property_row(row)
-        if prop:
-            properties.append(prop)
+                prop = _parse_dom_property_row(row, uuid=uuid)
+                if prop:
+                    properties.append(prop)
+
+    # ── 方式2: 賃料テキストから物件行を探す (フォールバック) ──
+    if not properties:
+        print("[DEBUG] DOM パーサ: 賃料パターン方式で物件抽出を試行...")
+        for element in rent_matches:
+            parent = element.parent
+            if not parent:
+                continue
+
+            row = _find_property_row(parent)
+            if not row:
+                continue
+
+            row_id = id(row)
+            if row_id in seen_keys:
+                continue
+            seen_keys.add(row_id)
+
+            prop = _parse_dom_property_row(row)
+            if prop:
+                properties.append(prop)
+
+    # ── 方式3: テーブル行から物件を探す ──
+    if not properties and tables:
+        print("[DEBUG] DOM パーサ: テーブル方式で物件抽出を試行...")
+        for table in tables:
+            rows = table.find_all("tr")
+            for tr in rows:
+                cells = tr.find_all(["td", "th"])
+                if len(cells) >= 4:
+                    cell_texts = [
+                        c.get_text(strip=True)[:50] for c in cells
+                    ]
+                    # 賃料っぽいセルがあれば
+                    if any("円" in t for t in cell_texts):
+                        prop = _parse_table_row(tr)
+                        if prop:
+                            properties.append(prop)
+
+    print(f"[DEBUG] DOM パーサ: 最終結果 {len(properties)} 件")
 
     # ページネーション: 次ページの存在を判定
     has_next = _check_pagination(soup)
@@ -450,82 +537,304 @@ def _find_property_row(element) -> object | None:
     return None
 
 
-def _parse_dom_property_row(row) -> Property | None:
-    """DOM の物件行から Property を構築する。"""
-    try:
-        children = [
-            c for c in row.children
-            if getattr(c, "name", None) == "div"
-        ]
+def _find_property_row_flexible(element) -> object | None:
+    """詳細リンクの親要素から物件行コンテナを柔軟に探す。
 
-        if len(children) < 6:
+    MuiBox に限らず、テキスト内容が物件情報を含む最小のコンテナを返す。
+    """
+    current = element
+    for _ in range(15):
+        current = current.parent
+        if not current or current.name is None:
             return None
 
-        # Col 2: 物件名・住所・駅情報
-        col_info = children[1] if len(children) > 1 else None
-        info_text = col_info.get_text("\n", strip=True) if col_info else ""
-        info_lines = [l.strip() for l in info_text.split("\n") if l.strip()]
+        if current.name not in ("div", "tr", "li", "article", "section"):
+            continue
 
-        building_name = info_lines[0] if info_lines else "不明"
-        address = ""
-        station_info = ""
-        for line in info_lines[1:]:
-            if "駅" in line and ("徒歩" in line or "分" in line):
-                station_info = line
-            elif not address and (
-                "区" in line or "市" in line or "町" in line
-                or "丁目" in line
-            ):
-                address = line
+        text = current.get_text(" ", strip=True)
+        # 賃料(円)と面積(㎡)が両方含まれていれば物件行と判断
+        if "円" in text and ("㎡" in text or "m²" in text):
+            return current
 
-        # Col 3: 賃料・管理費
-        col_rent = children[2] if len(children) > 2 else None
-        rent_text = col_rent.get_text(" ", strip=True) if col_rent else ""
-        rent, management_fee = _parse_rent_text(rent_text)
+    return None
 
-        # Col 4: 敷金・礼金
-        col_deposit = children[3] if len(children) > 3 else None
-        deposit_text = (
-            col_deposit.get_text(" ", strip=True) if col_deposit else ""
+
+def _parse_table_row(tr) -> Property | None:
+    """テーブル行 (tr) から Property を構築する。"""
+    try:
+        cells = tr.find_all(["td", "th"])
+        if len(cells) < 4:
+            return None
+
+        texts = [c.get_text(strip=True) for c in cells]
+        full_text = " ".join(texts)
+
+        # 賃料抽出
+        rent_match = re.search(r"([\d,]+)\s*円", full_text)
+        rent = (
+            int(rent_match.group(1).replace(",", ""))
+            if rent_match else 0
         )
-        deposit, key_money = _parse_deposit_text(deposit_text)
+        if not rent:
+            return None
 
-        # Col 5: 間取り・面積
-        col_layout = children[4] if len(children) > 4 else None
-        layout_text = (
-            col_layout.get_text(" ", strip=True) if col_layout else ""
+        # 物件名 (最初の非空セル)
+        building_name = "不明"
+        for t in texts:
+            if t and "円" not in t and "㎡" not in t:
+                building_name = t[:50]
+                break
+
+        # 間取り・面積
+        layout = ""
+        area = 0.0
+        for t in texts:
+            m_layout = re.search(
+                r"(ワンルーム|[1-9][KDLRSK]+(?:\+S)?)", t
+            )
+            if m_layout:
+                layout = m_layout.group(1)
+            m_area = re.search(r"([\d.]+)\s*(?:㎡|m²)", t)
+            if m_area:
+                area = float(m_area.group(1))
+
+        # UUID (リンクから)
+        uuid = ""
+        link = tr.find(
+            "a", href=re.compile(r"/detail/")
         )
-        layout, area = _parse_layout_text(layout_text)
+        if link:
+            m = re.search(r"/detail/([a-f0-9-]+)", link["href"])
+            if m:
+                uuid = m.group(1)
 
-        # Col 6: 構造・築年数
-        col_structure = children[5] if len(children) > 5 else None
-        structure_text = (
-            col_structure.get_text(" ", strip=True) if col_structure else ""
+        room_id = str(uuid) if uuid else _generate_room_id(
+            building_name, rent, layout, area
         )
-        structure, building_age = _parse_structure_text(structure_text)
-
-        # UUID が取れないので合成 room_id
-        room_id = _generate_room_id(building_name, rent, layout, area)
+        url = (
+            f"{ESSQUARE_BASE_URL}/bukken/chintai/search/detail/{uuid}"
+            if uuid else ""
+        )
 
         return Property(
             building_id=room_id,
             room_id=room_id,
             building_name=building_name,
             source="essquare",
-            address=address,
             rent=rent,
-            management_fee=management_fee,
-            deposit=deposit,
-            key_money=key_money,
             layout=layout,
             area=area,
-            station_info=station_info,
-            structure=structure,
-            building_age=building_age,
+            url=url,
         )
+    except Exception as exc:
+        print(f"[WARN] ES-Square テーブル行パースエラー: {exc}")
+        return None
+
+
+def _parse_dom_property_row(row, uuid: str = "") -> Property | None:
+    """DOM の物件行から Property を構築する。
+
+    物件行の構造を柔軟にパースする。
+    - 方式A: div の子要素がカラムとして並ぶ (MUI Grid)
+    - 方式B: 行全体のテキストから正規表現で抽出
+    """
+    try:
+        # ── 方式A: カラム構造 ──
+        children = [
+            c for c in row.children
+            if getattr(c, "name", None) == "div"
+        ]
+
+        if len(children) >= 6:
+            return _parse_column_row(children, uuid)
+
+        # ── 方式B: テキストベース抽出 ──
+        return _parse_text_row(row, uuid)
+
     except Exception as exc:
         print(f"[WARN] ES-Square DOM パースエラー: {exc}")
         return None
+
+
+def _parse_column_row(children: list, uuid: str = "") -> Property | None:
+    """カラム構造の物件行をパースする (方式A)。"""
+    # Col 2: 物件名・住所・駅情報
+    col_info = children[1] if len(children) > 1 else None
+    info_text = col_info.get_text("\n", strip=True) if col_info else ""
+    info_lines = [l.strip() for l in info_text.split("\n") if l.strip()]
+
+    building_name = info_lines[0] if info_lines else "不明"
+    address = ""
+    station_info = ""
+    for line in info_lines[1:]:
+        if "駅" in line and ("徒歩" in line or "分" in line):
+            station_info = line
+        elif not address and (
+            "区" in line or "市" in line or "町" in line
+            or "丁目" in line
+        ):
+            address = line
+
+    # Col 3: 賃料・管理費
+    col_rent = children[2] if len(children) > 2 else None
+    rent_text = col_rent.get_text(" ", strip=True) if col_rent else ""
+    rent, management_fee = _parse_rent_text(rent_text)
+
+    # Col 4: 敷金・礼金
+    col_deposit = children[3] if len(children) > 3 else None
+    deposit_text = (
+        col_deposit.get_text(" ", strip=True) if col_deposit else ""
+    )
+    deposit, key_money = _parse_deposit_text(deposit_text)
+
+    # Col 5: 間取り・面積
+    col_layout = children[4] if len(children) > 4 else None
+    layout_text = (
+        col_layout.get_text(" ", strip=True) if col_layout else ""
+    )
+    layout, area = _parse_layout_text(layout_text)
+
+    # Col 6: 構造・築年数
+    col_structure = children[5] if len(children) > 5 else None
+    structure_text = (
+        col_structure.get_text(" ", strip=True) if col_structure else ""
+    )
+    structure, building_age = _parse_structure_text(structure_text)
+
+    room_id = str(uuid) if uuid else _generate_room_id(
+        building_name, rent, layout, area
+    )
+    url = (
+        f"{ESSQUARE_BASE_URL}/bukken/chintai/search/detail/{uuid}"
+        if uuid else ""
+    )
+
+    return Property(
+        building_id=room_id,
+        room_id=room_id,
+        building_name=building_name,
+        source="essquare",
+        address=address,
+        rent=rent,
+        management_fee=management_fee,
+        deposit=deposit,
+        key_money=key_money,
+        layout=layout,
+        area=area,
+        station_info=station_info,
+        structure=structure,
+        building_age=building_age,
+        url=url,
+    )
+
+
+def _parse_text_row(row, uuid: str = "") -> Property | None:
+    """行全体のテキストから物件情報を正規表現で抽出する (方式B)。
+
+    カラム構造がない場合のフォールバック。
+    """
+    text = row.get_text("\n", strip=True)
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+
+    if not lines:
+        return None
+
+    # 賃料 (必須)
+    rent = 0
+    management_fee = 0
+    for line in lines:
+        r, m = _parse_rent_text(line)
+        if r > 0:
+            rent = r
+            management_fee = m
+            break
+
+    if not rent:
+        return None
+
+    # 物件名 (最初の行で賃料でも面積でもないもの)
+    building_name = "不明"
+    for line in lines:
+        if ("円" not in line and "㎡" not in line
+                and "m²" not in line and len(line) > 2):
+            building_name = line[:60]
+            break
+
+    # 間取り・面積
+    layout = ""
+    area = 0.0
+    for line in lines:
+        l, a = _parse_layout_text(line)
+        if l:
+            layout = l
+        if a > 0:
+            area = a
+
+    # 住所
+    address = ""
+    station_info = ""
+    for line in lines:
+        if "駅" in line and ("徒歩" in line or "分" in line):
+            station_info = line
+        elif not address and (
+            "区" in line or "市" in line or "町" in line
+            or "丁目" in line
+        ):
+            address = line
+
+    # 敷金・礼金
+    deposit = ""
+    key_money = ""
+    for line in lines:
+        d, k = _parse_deposit_text(line)
+        if d:
+            deposit = d
+        if k:
+            key_money = k
+
+    # 構造・築年数
+    structure = ""
+    building_age = ""
+    for line in lines:
+        s, a = _parse_structure_text(line)
+        if s:
+            structure = s
+        if a:
+            building_age = a
+
+    # UUID からリンクを探す
+    if not uuid:
+        link = row.find("a", href=re.compile(r"/detail/"))
+        if link:
+            m = re.search(r"/detail/([a-f0-9-]+)", link["href"])
+            if m:
+                uuid = m.group(1)
+
+    room_id = str(uuid) if uuid else _generate_room_id(
+        building_name, rent, layout, area
+    )
+    url = (
+        f"{ESSQUARE_BASE_URL}/bukken/chintai/search/detail/{uuid}"
+        if uuid else ""
+    )
+
+    return Property(
+        building_id=room_id,
+        room_id=room_id,
+        building_name=building_name,
+        source="essquare",
+        address=address,
+        rent=rent,
+        management_fee=management_fee,
+        deposit=deposit,
+        key_money=key_money,
+        layout=layout,
+        area=area,
+        station_info=station_info,
+        structure=structure,
+        building_age=building_age,
+        url=url,
+    )
 
 
 def _parse_rent_text(text: str) -> tuple[int, int]:

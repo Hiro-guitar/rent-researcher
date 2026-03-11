@@ -134,15 +134,15 @@ def search_properties(
 ) -> list[Property]:
     """いい生活Square で物件を検索して Property リストを返す。
 
-    GraphQL レスポンスのインターセプトを優先し、
-    失敗時は DOM パースにフォールバックする。
+    DOM パース (BeautifulSoup) をメインに、
+    API レスポンスキャプチャを補助的に使用する。
     最大 5 ページ (150 件) まで取得する。
     """
-    # GraphQL インターセプターを設定 (以降の全ページ遷移で有効)
+    # API レスポンスキャプチャを設定 (全 fetch を記録)
     try:
-        session.setup_graphql_interceptor()
+        session.setup_api_interceptor()
     except Exception as exc:
-        print(f"[WARN] ES-Square: GraphQL インターセプター設定失敗: {exc}")
+        print(f"[WARN] ES-Square: API インターセプター設定失敗: {exc}")
 
     all_properties: list[Property] = []
     max_pages = 5
@@ -158,23 +158,40 @@ def search_properties(
         print(f"[DEBUG] ES-Square 検索: page={page}, url={url[:200]}...")
 
         try:
-            # ページ遷移 (get_page はセッション切れも自動処理)
-            session.driver.get(url)
+            # ページ遷移 + レンダリング待ち
+            html = session.get_page(url)
 
-            # GraphQL レスポンスをポーリング
-            graphql_data = _wait_for_graphql(session, timeout=15)
+            # SPA レンダリング完了をさらに待つ
+            _wait_for_render(session, timeout=10)
 
-            if graphql_data:
-                # GraphQL パス (優先)
-                properties, has_next = parse_graphql_results(graphql_data)
-            else:
-                # DOM フォールバック
+            # レンダリング後の最新 HTML を取得
+            html = session.driver.page_source
+
+            # ── デバッグ: ページ状態をログ出力 ──
+            _debug_page_state(session, html, page)
+
+            # DOM パースで物件データを抽出
+            properties, has_next = parse_search_results(html)
+            print(
+                f"[DEBUG] ES-Square DOM パース: "
+                f"{len(properties)} 件取得 (page={page})"
+            )
+
+            # DOM パースで 0 件の場合、API レスポンスを確認
+            if not properties:
                 print(
-                    f"[WARN] ES-Square: GraphQL 取得失敗、"
-                    f"DOM パースにフォールバック (page={page})"
+                    "[INFO] ES-Square: DOM パースで 0 件、"
+                    "API レスポンスを確認..."
                 )
-                html = session.driver.page_source
-                properties, has_next = parse_search_results(html)
+                api_data = _get_captured_api_data(session)
+                if api_data:
+                    properties, has_next = parse_graphql_results(
+                        api_data
+                    )
+                    print(
+                        f"[DEBUG] ES-Square API パース: "
+                        f"{len(properties)} 件取得"
+                    )
 
         except Exception as exc:
             print(f"[ERROR] ES-Square ページ取得失敗: {exc}")
@@ -192,34 +209,102 @@ def search_properties(
     return all_properties
 
 
-def _wait_for_graphql(
-    session: EsSquareSession, timeout: int = 15
-) -> list[dict] | None:
-    """GraphQL レスポンスが到着するまでポーリングする。"""
+def _wait_for_render(
+    session: EsSquareSession, timeout: int = 10
+) -> None:
+    """SPA のレンダリング完了を待つ。
+
+    検索結果の要素が表示されるか、タイムアウトするまで待機する。
+    """
     start = time.time()
-
     while time.time() - start < timeout:
-        time.sleep(1)
-
-        # セッション切れチェック
         try:
-            current_url = session.driver.current_url
-            if "es-account.com" in current_url or "/login" in current_url:
-                print("[WARN] ES-Square: セッション切れ検出 (GraphQL 待機中)")
-                return None
-        except Exception:
-            return None
-
-        # インターセプトデータ取得
-        try:
-            data = session.execute_script(
-                "return window.__esq_graphql || [];"
+            # ページ内のテキスト量でレンダリング完了を推定
+            text_len = session.execute_script(
+                "return document.body ? document.body.innerText.length : 0;"
             )
-            if data and len(data) > 0:
-                return data
+            # 検索結果ページは通常数千文字以上
+            if text_len and text_len > 500:
+                # 「円」が含まれるか確認 (賃料表示の目印)
+                has_yen = session.execute_script(
+                    "return document.body.innerText.includes('円');"
+                )
+                if has_yen:
+                    return
         except Exception:
             pass
+        time.sleep(1)
 
+    print("[WARN] ES-Square: レンダリング待ちタイムアウト")
+
+
+def _debug_page_state(
+    session: EsSquareSession, html: str, page: int
+) -> None:
+    """ページの状態をデバッグログに出力する。"""
+    try:
+        current_url = session.driver.current_url
+        title = session.driver.title
+        print(f"[DEBUG] ES-Square page={page}: URL={current_url}")
+        print(f"[DEBUG] ES-Square page={page}: title={title}")
+        print(f"[DEBUG] ES-Square page={page}: HTML size={len(html)}")
+
+        # ページのテキスト内容から物件っぽい情報を確認
+        body_text = session.execute_script(
+            "return document.body ? document.body.innerText : '';"
+        )
+        if body_text:
+            text_len = len(body_text)
+            print(f"[DEBUG] ES-Square: body text length={text_len}")
+
+            # 「円」の出現回数 (賃料関連テキストの数)
+            yen_count = body_text.count("円")
+            print(f"[DEBUG] ES-Square: '円' count={yen_count}")
+
+            # 「万」の出現回数
+            man_count = body_text.count("万")
+            print(f"[DEBUG] ES-Square: '万' count={man_count}")
+
+            # 「㎡」の出現回数 (面積)
+            sqm_count = body_text.count("㎡")
+            print(f"[DEBUG] ES-Square: '㎡' count={sqm_count}")
+
+            # 「件」の出現回数 (検索結果件数表示)
+            ken_count = body_text.count("件")
+            print(f"[DEBUG] ES-Square: '件' count={ken_count}")
+
+            # 先頭 2000 文字のダンプ
+            preview = body_text[:2000].replace("\n", " | ")
+            print(f"[DEBUG] ES-Square body preview: {preview}")
+
+        # キャプチャした API URL リスト
+        api_urls = session.execute_script(
+            "return (window.__esq_api || []).map(r => r.url).slice(0, 20);"
+        )
+        if api_urls:
+            print(
+                f"[DEBUG] ES-Square: captured API URLs "
+                f"({len(api_urls)} 件):"
+            )
+            for u in api_urls:
+                print(f"[DEBUG]   {str(u)[:200]}")
+
+    except Exception as exc:
+        print(f"[DEBUG] ES-Square debug failed: {exc}")
+
+
+def _get_captured_api_data(
+    session: EsSquareSession,
+) -> list[dict] | None:
+    """キャプチャした API レスポンスデータを取得する。"""
+    try:
+        data = session.execute_script(
+            "return window.__esq_api || [];"
+        )
+        if data and len(data) > 0:
+            return data
+    except Exception:
+        pass
     return None
 
 
