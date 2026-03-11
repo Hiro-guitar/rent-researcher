@@ -173,6 +173,7 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
             structure_types=structure_types,
             equipment_ids=hard_equipment_ids,
             soft_equipment_ids=soft_equipment_ids,
+            equipment_names=equipment_names,
             min_floor=min_floor,
             max_floor=max_floor,
             top_floor_only=top_floor_only,
@@ -189,7 +190,7 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
     return customers
 
 
-def load_seen_properties(service) -> set[tuple[str, int]]:
+def load_seen_properties(service) -> set[tuple[str, str]]:
     """通知済み物件シートから (customer_name, room_id) のセットを返す。"""
     sheet = service.spreadsheets()
     try:
@@ -203,14 +204,13 @@ def load_seen_properties(service) -> set[tuple[str, int]]:
         return set()
 
     rows = result.get("values", [])
-    seen: set[tuple[str, int]] = set()
+    seen: set[tuple[str, str]] = set()
 
     for row in rows[1:]:  # ヘッダーをスキップ
         if len(row) < 3:
             continue
         customer_name = _get(row, 0, "")
-        room_id_str = _get(row, 2, "")
-        room_id = _parse_int(room_id_str)
+        room_id = _get(row, 2, "").strip()
         if customer_name and room_id:
             seen.add((customer_name, room_id))
 
@@ -249,7 +249,7 @@ def mark_properties_seen(service, entries: list[dict]) -> None:
     ).execute()
 
 
-def load_pending_properties(service) -> set[tuple[str, int]]:
+def load_pending_properties(service) -> set[tuple[str, str]]:
     """承認待ち物件シートから (customer_name, room_id) のセットを返す。
 
     重複排除用: 既に承認待ちに入っている物件を再追加しない。
@@ -265,13 +265,13 @@ def load_pending_properties(service) -> set[tuple[str, int]]:
         return set()
 
     rows = result.get("values", [])
-    pending: set[tuple[str, int]] = set()
+    pending: set[tuple[str, str]] = set()
 
     for row in rows[1:]:  # ヘッダーをスキップ
         if len(row) < 3:
             continue
         customer_name = _get(row, 0, "")  # A列: customer_name
-        room_id = _parse_int(_get(row, 2, ""))  # C列: room_id
+        room_id = _get(row, 2, "").strip()  # C列: room_id
         if customer_name and room_id:
             pending.add((customer_name, room_id))
 

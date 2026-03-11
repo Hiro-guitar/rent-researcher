@@ -179,8 +179,13 @@ def _build_text_message(
     if prop.room_number:
         title += f"  {prop.room_number}"
 
+    # ソースバッジ
+    source_badge = ""
+    if prop.source == "essquare":
+        source_badge = " `[いい生活]`"
+
     lines = [
-        f"**{index}. {title}**",
+        f"**{index}. {title}**{source_badge}",
     ]
 
     if prop.url:

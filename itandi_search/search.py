@@ -420,8 +420,8 @@ def parse_search_response(data: dict) -> list[Property]:
             room_number = room.get("room_number", "") or ""
 
             prop = Property(
-                building_id=int(property_id) if property_id else 0,
-                room_id=int(room_id) if room_id else 0,
+                building_id=str(property_id) if property_id else "",
+                room_id=str(room_id) if room_id else "",
                 building_name=str(building_name),
                 address=str(address),
                 rent=rent,
@@ -445,7 +445,7 @@ def parse_search_response(data: dict) -> list[Property]:
 
 
 def fetch_room_details(
-    session: ItandiSession, room_id: int
+    session: ItandiSession, room_id: str
 ) -> tuple[list[str], dict[str, str]]:
     """物件詳細ページから画像URLと詳細情報をスクレイピングする。
 
@@ -858,7 +858,7 @@ def fetch_room_details(
         return [], {}
 
 
-def fetch_room_image_urls(session: ItandiSession, room_id: int) -> list[str]:
+def fetch_room_image_urls(session: ItandiSession, room_id: str) -> list[str]:
     """後方互換: 画像URLのみ取得（fetch_room_details のラッパー）"""
     image_urls, _ = fetch_room_details(session, room_id)
     return image_urls
