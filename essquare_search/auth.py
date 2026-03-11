@@ -91,7 +91,7 @@ class EsSquareSession:
         # Step 1: ログインページにアクセス
         print(f"[DEBUG] Step 1: {ESSQUARE_LOGIN_URL} にアクセス...")
         driver.get(ESSQUARE_LOGIN_URL)
-        time.sleep(2)
+        time.sleep(3)
 
         current_url = driver.current_url
         print(f"[DEBUG] 現在のURL: {current_url}")
@@ -102,7 +102,25 @@ class EsSquareSession:
             print("[DEBUG] 既にログイン済み")
             return
 
+        # ログインページが表示された場合、「いい生活アカウントでログイン」
+        # ボタンをクリックして es-account.com にリダイレクトする
+        if "/login" in current_url and "es-account.com" not in current_url:
+            print("[DEBUG] Step 1.5: ログインボタンをクリック...")
+            try:
+                login_redirect_btn = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((
+                        By.XPATH,
+                        '//button[contains(text(), "ログイン")]'
+                    ))
+                )
+                login_redirect_btn.click()
+                time.sleep(3)
+            except TimeoutException:
+                print("[WARN] ログインボタンが見つかりません")
+
         # es-account.com にリダイレクトされるのを待つ
+        current_url = driver.current_url
+        print(f"[DEBUG] ボタンクリック後のURL: {current_url}")
         if "es-account.com" not in current_url:
             for _ in range(10):
                 time.sleep(1)
