@@ -42,6 +42,23 @@ def parse_graphql_results(
             _log_response_structure(raw_data)
             continue
 
+        # ── デバッグ: 物件アイテムの実際のキーと値をログ出力 ──
+        if items:
+            sample = items[0]
+            print(f"[DEBUG] ES-Square GraphQL item keys: {list(sample.keys())}")
+            # 各キーの値の型と先頭100文字を出力
+            for k, v in sample.items():
+                v_str = str(v)[:150]
+                print(f"[DEBUG]   {k} ({type(v).__name__}): {v_str}")
+            # 2件目も出力（フィールドの多様性確認）
+            if len(items) > 1:
+                sample2 = items[1]
+                print(f"[DEBUG] ES-Square GraphQL item[1] sample:")
+                for k, v in sample2.items():
+                    v_str = str(v)[:150]
+                    print(f"[DEBUG]   {k} ({type(v).__name__}): {v_str}")
+        # ── デバッグここまで ──
+
         properties: list[Property] = []
         for item in items:
             if not isinstance(item, dict):
@@ -251,7 +268,7 @@ def _graphql_item_to_property(item: dict) -> Property | None:
         if uuid:
             url = f"{ESSQUARE_BASE_URL}/bukken/chintai/search/detail/{uuid}"
 
-        return Property(
+        prop = Property(
             building_id=building_id,
             room_id=room_id,
             building_name=building_name,
@@ -272,6 +289,18 @@ def _graphql_item_to_property(item: dict) -> Property | None:
             structure=structure,
             move_in_date=str(move_in),
         )
+        # デバッグ: 抽出結果のサマリー（最初の3件のみ）
+        if not hasattr(_graphql_item_to_property, "_debug_count"):
+            _graphql_item_to_property._debug_count = 0
+        if _graphql_item_to_property._debug_count < 3:
+            print(
+                f"[DEBUG] ES-Square parsed property: "
+                f"uuid={uuid!r}, name={building_name!r}, "
+                f"rent={rent}, layout={layout!r}, "
+                f"area={area}, addr={address!r}"
+            )
+            _graphql_item_to_property._debug_count += 1
+        return prop
     except Exception as exc:
         print(f"[WARN] ES-Square GraphQL 物件パースエラー: {exc}")
         return None
