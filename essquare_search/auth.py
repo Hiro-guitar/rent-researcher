@@ -1,8 +1,8 @@
 """いい生活Square ログイン・セッション管理 (Selenium 版)
 
 いい生活Square は rent.es-square.net でホストされ、
-認証は app.es-account.com に委譲される。
-Selenium で headless Chrome ログインし、SSR ページを取得する。
+認証ページへのリダイレクトを利用してログインする。
+Selenium で headless Chrome ログインし、ページソースを取得する。
 """
 
 import time
@@ -14,7 +14,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
-from .config import ESSQUARE_BASE_URL, ESSQUARE_LOGIN_URL
+from .config import ESSQUARE_BASE_URL
 
 
 def _create_driver() -> webdriver.Chrome:
@@ -87,11 +87,16 @@ class EsSquareSession:
         return self.driver.page_source
 
     def _do_login(self, driver: webdriver.Chrome) -> None:
-        """Selenium でいい生活Square にログインする。"""
-        # Step 1: ログインページにアクセス
-        print(f"[DEBUG] Step 1: {ESSQUARE_LOGIN_URL} にアクセス...")
-        driver.get(ESSQUARE_LOGIN_URL)
-        time.sleep(3)
+        """Selenium でいい生活Square にログインする。
+
+        認証済みページに直接アクセスし、認証ページへのリダイレクトを利用する。
+        /login ランディングページ経由ではなく、直接リダイレクト方式を使用。
+        """
+        # Step 1: 認証が必要なページにアクセス → 認証ページにリダイレクト
+        target_url = f"{ESSQUARE_BASE_URL}/bukken/chintai/search"
+        print(f"[DEBUG] Step 1: {target_url} にアクセス...")
+        driver.get(target_url)
+        time.sleep(5)  # React SPA + リダイレクト待ち
 
         current_url = driver.current_url
         print(f"[DEBUG] 現在のURL: {current_url}")
@@ -102,72 +107,55 @@ class EsSquareSession:
             print("[DEBUG] 既にログイン済み")
             return
 
-        # ログインページが表示された場合、「いい生活アカウントでログイン」
-        # ボタンをクリックして es-account.com にリダイレクトする
-        if "/login" in current_url and "es-account.com" not in current_url:
-            print("[DEBUG] Step 1.5: ログインボタンをクリック...")
-            try:
-                login_redirect_btn = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((
-                        By.XPATH,
-                        '//button[contains(text(), "ログイン")]'
-                    ))
-                )
-                login_redirect_btn.click()
-                time.sleep(3)
-            except TimeoutException:
-                print("[WARN] ログインボタンが見つかりません")
-
-        # es-account.com にリダイレクトされるのを待つ
-        current_url = driver.current_url
-        print(f"[DEBUG] ボタンクリック後のURL: {current_url}")
-        if "es-account.com" not in current_url:
-            for _ in range(10):
-                time.sleep(1)
-                current_url = driver.current_url
-                if "es-account.com" in current_url:
-                    break
-                if (ESSQUARE_BASE_URL in current_url
-                        and "/login" not in current_url):
-                    print("[DEBUG] 既にログイン済み（リダイレクト後）")
-                    return
-            print(f"[DEBUG] リダイレクト後のURL: {current_url}")
-
-        if "es-account.com" not in current_url:
-            raise EsSquareAuthError(
-                f"認証ページへのリダイレクトに失敗: {current_url}"
-            )
-
         # Step 2: ログインフォームに入力
+        # フィールドIDは "username" (参考実装に基づく)
+        # フォールバックとして "email" も試行する
         print("[DEBUG] Step 2: ログインフォームに入力...")
         try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.ID, "email"))
+            # username または email フィールドが表示されるのを待つ
+            WebDriverWait(driver, 15).until(
+                lambda d: (d.find_elements(By.ID, "username")
+                           or d.find_elements(By.ID, "email"))
             )
 
-            email_input = driver.find_element(By.ID, "email")
-            email_input.clear()
-            email_input.send_keys(self.email)
+            # username フィールドを優先、なければ email
+            username_fields = driver.find_elements(By.ID, "username")
+            email_fields = driver.find_elements(By.ID, "email")
+
+            if username_fields:
+                user_input = username_fields[0]
+                print("[DEBUG] フィールド: username")
+            elif email_fields:
+                user_input = email_fields[0]
+                print("[DEBUG] フィールド: email")
+            else:
+                raise EsSquareAuthError(
+                    "ログインフォームが見つかりませんでした"
+                )
+
+            user_input.clear()
+            user_input.send_keys(self.email)
 
             password_input = driver.find_element(By.ID, "password")
             password_input.clear()
             password_input.send_keys(self.password)
-        except TimeoutException as exc:
+        except TimeoutException:
+            current_url = driver.current_url
+            print(f"[DEBUG] フォーム待ちタイムアウト URL: {current_url}")
             raise EsSquareAuthError(
-                "ログインフォームが見つかりませんでした"
-            ) from exc
-
-        # Step 3: ログインボタンをクリック
-        print("[DEBUG] Step 3: ログインボタンをクリック...")
-        try:
-            login_btn = driver.find_element(
-                By.CSS_SELECTOR,
-                'button[type="submit"], input[type="submit"]'
+                f"ログインフォームが見つかりませんでした (URL: {current_url})"
             )
-            login_btn.click()
+
+        # Step 3: 送信ボタンをクリック（「続ける」or submit ボタン）
+        print("[DEBUG] Step 3: 送信ボタンをクリック...")
+        try:
+            submit_btn = driver.find_element(
+                By.XPATH, '//button[@type="submit"]'
+            )
+            submit_btn.click()
         except Exception as exc:
             raise EsSquareAuthError(
-                f"ログインボタンが見つかりませんでした: {exc}"
+                f"送信ボタンが見つかりませんでした: {exc}"
             ) from exc
 
         # Step 4: ログイン後のリダイレクトを待つ
