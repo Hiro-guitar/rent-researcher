@@ -1,0 +1,23 @@
+name: Keepalive Workflow
+
+# GitHub Actions は 60 日間リポジトリに活動がないと
+# スケジュール実行を自動的に無効化する。
+# このワークフローは定期的にダミーコミットを作成し、
+# リポジトリをアクティブに保つ。
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'   # 毎月1日 UTC 00:00 に実行
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: gautamkrishnar/keepalive-workflow@v2
+        with:
+          time_elapsed: 45   # 45 日以上コミットがなければダミーコミット作成
