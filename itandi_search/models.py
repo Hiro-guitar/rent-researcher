@@ -47,9 +47,9 @@ class Property:
     building_id: str
     room_id: str
     building_name: str
-    source: str = "itandi"  # "itandi" or "essquare"
     address: str
     rent: int  # 円単位
+    source: str = "itandi"  # "itandi" or "essquare"
     management_fee: int = 0
     deposit: str = ""
     key_money: str = ""
