@@ -51,6 +51,8 @@ jobs:
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           ITANDI_EMAIL: ${{ secrets.ITANDI_EMAIL }}
           ITANDI_PASSWORD: ${{ secrets.ITANDI_PASSWORD }}
+          ESSQUARE_EMAIL: ${{ secrets.ESSQUARE_EMAIL }}
+          ESSQUARE_PASSWORD: ${{ secrets.ESSQUARE_PASSWORD }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
           FORCE_NOTIFY: ${{ github.event.inputs.force_notify == 'true' && '1' || '' }}

@@ -32,6 +32,7 @@ class CustomerCriteria:
     no_teiki: bool = False  # 定期借家を含まない
     equipment_ids: list[int] = field(default_factory=list)
     soft_equipment_ids: list[int] = field(default_factory=list)
+    equipment_names: list[str] = field(default_factory=list)  # ES-Square kodawari 用
     ad_reprint_only: bool = False
     deal_types: list[str] = field(default_factory=list)
     update_within_days: Optional[int] = None
@@ -43,9 +44,10 @@ class CustomerCriteria:
 class Property:
     """物件1部屋分のデータ"""
 
-    building_id: int
-    room_id: int
+    building_id: str
+    room_id: str
     building_name: str
+    source: str = "itandi"  # "itandi" or "essquare"
     address: str
     rent: int  # 円単位
     management_fee: int = 0

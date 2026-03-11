@@ -1,6 +1,6 @@
 """メインスクリプト — オーケストレーター
 
-Google Sheets の検索条件を読み込み、itandi BB で検索し、
+Google Sheets の検索条件を読み込み、itandi BB + いい生活Square で検索し、
 新着物件を Discord に通知する。
 """
 
@@ -29,6 +29,20 @@ from .sheets import (
     load_seen_properties,
     write_pending_properties,
 )
+
+# ES-Square: credentials が設定されている場合のみ有効化
+_ESSQUARE_ENABLED = False
+try:
+    from essquare_search.config import ESSQUARE_EMAIL, ESSQUARE_PASSWORD
+    if ESSQUARE_EMAIL and ESSQUARE_PASSWORD:
+        from essquare_search.auth import EsSquareAuthError, EsSquareSession
+        from essquare_search.search import (
+            enrich_property_details as esq_enrich_property_details,
+            search_properties as esq_search_properties,
+        )
+        _ESSQUARE_ENABLED = True
+except ImportError:
+    pass
 
 
 def _parse_floor_number(text: str) -> int | None:
@@ -429,6 +443,145 @@ def _check_move_in_date(properties: list, customer_move_in: str) -> list:
     return properties
 
 
+def _run_essquare_search(
+    *,
+    esq_session,
+    customer,
+    exclude_set: set,
+    sheets_service,
+) -> int:
+    """いい生活Square で検索してフィルタ → 承認待ち → Discord 通知。
+
+    Returns: 新着件数
+    """
+    print(f"[INFO] ES-Square 検索中: {customer.name}")
+
+    properties = esq_search_properties(
+        esq_session, customer, customer.equipment_names or None
+    )
+    print(f"  → ES-Square: {len(properties)} 件ヒット")
+
+    # 通知済み・承認待ちを除外
+    new_properties = [
+        p for p in properties
+        if (customer.name, p.room_id) not in exclude_set
+    ]
+
+    if not new_properties:
+        print("  → ES-Square: 新着なし")
+        return 0
+
+    print(f"  → ES-Square: うち新着 {len(new_properties)} 件")
+
+    # 詳細ページから追加情報を取得 (URL がある物件のみ)
+    props_with_url = [p for p in new_properties if p.url]
+    if props_with_url:
+        try:
+            esq_enrich_property_details(esq_session, props_with_url)
+        except Exception as exc:
+            print(f"[WARN] ES-Square 詳細取得失敗 ({customer.name}): {exc}")
+
+    # ── フィルタ (itandi と同じロジックを適用) ──────────
+
+    is_test = "テスト" in customer.name
+
+    # 定期借家フィルター
+    if customer.no_teiki:
+        before = len(new_properties)
+        new_properties = _filter_by_teiki(new_properties)
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → ES-Square 定期借家フィルター: {filtered} 件除外")
+        if not new_properties:
+            return 0
+
+    # 所在階フィルター
+    if (customer.min_floor is not None
+            or customer.max_floor is not None
+            or customer.top_floor_only):
+        before = len(new_properties)
+        new_properties = _filter_by_floor(
+            new_properties,
+            min_floor=customer.min_floor,
+            max_floor=customer.max_floor,
+            top_floor_only=customer.top_floor_only,
+        )
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → ES-Square 階数フィルター: {filtered} 件除外")
+        if not new_properties:
+            return 0
+
+    # 南向きフィルター
+    if customer.south_facing:
+        before = len(new_properties)
+        new_properties = _filter_by_sunlight(new_properties)
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → ES-Square 南向きフィルター: {filtered} 件除外")
+        if not new_properties:
+            return 0
+
+    # ロフトNGフィルター
+    if customer.no_loft:
+        before = len(new_properties)
+        new_properties = _filter_by_loft(new_properties)
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → ES-Square ロフトフィルター: {filtered} 件除外")
+        if not new_properties:
+            return 0
+
+    # ロフト必須チェック（アラートのみ）
+    if customer.require_loft:
+        new_properties = _check_loft_required(new_properties)
+
+    # ソフト設備チェック（アラートのみ）
+    if customer.soft_equipment_ids:
+        new_properties = _check_soft_equipment(
+            new_properties, customer.soft_equipment_ids
+        )
+
+    # 入居時期チェック（アラートのみ）
+    if customer.move_in_date:
+        new_properties = _check_move_in_date(
+            new_properties, customer.move_in_date
+        )
+
+    # 承認待ちシートに書き込み
+    try:
+        write_pending_properties(
+            sheets_service,
+            customer.name,
+            new_properties,
+            now_jst(),
+        )
+    except Exception as exc:
+        print(
+            f"[ERROR] ES-Square 承認待ち書き込み失敗 "
+            f"({customer.name}): {exc}"
+        )
+
+    # Discord 通知
+    webhook_url = DISCORD_WEBHOOK_URL
+    if webhook_url:
+        thread_id = send_property_notification(
+            webhook_url=webhook_url,
+            customer_name=customer.name,
+            properties=new_properties,
+            thread_id=customer.discord_thread_id,
+            gas_webapp_url=GAS_WEBAPP_URL,
+        )
+        if thread_id and thread_id != customer.discord_thread_id:
+            customer.discord_thread_id = thread_id
+
+    # exclude_set に追加
+    for p in new_properties:
+        exclude_set.add((customer.name, p.room_id))
+
+    return len(new_properties)
+
+
 def now_jst() -> str:
     """現在の JST タイムスタンプを返す。"""
     return datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
@@ -493,6 +646,18 @@ def main() -> None:
         if itandi:
             itandi.close()
         sys.exit(1)
+
+    # ── 4b. いい生活Square ログイン（任意） ──────────────────
+    esq_session = None
+    if _ESSQUARE_ENABLED:
+        try:
+            esq_session = EsSquareSession(ESSQUARE_EMAIL, ESSQUARE_PASSWORD)
+            esq_session.login()
+        except Exception as exc:
+            print(f"[WARN] いい生活Square ログイン失敗: {exc}")
+            if esq_session:
+                esq_session.close()
+            esq_session = None
 
     # ── 5. 各顧客の検索＋通知 ─────────────────────────────
     total_new = 0
@@ -665,8 +830,25 @@ def main() -> None:
                     f"{customer.name} の処理中にエラー: {exc}",
                 )
 
+        # ── 5b. いい生活Square 検索 ──────────────────────────
+        if esq_session:
+            try:
+                total_new += _run_essquare_search(
+                    esq_session=esq_session,
+                    customer=customer,
+                    exclude_set=exclude_set,
+                    sheets_service=sheets_service,
+                )
+            except Exception as exc:
+                print(
+                    f"[ERROR] ES-Square 検索エラー "
+                    f"({customer.name}): {exc}"
+                )
+
     # ── 6. ブラウザセッションを閉じる ──────────────────────
     itandi.close()
+    if esq_session:
+        esq_session.close()
 
     if total_new:
         print(
