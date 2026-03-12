@@ -461,73 +461,102 @@ def _assign_detail_urls(
     session: EsSquareSession,
     properties: list[Property],
 ) -> None:
-    """Selenium JavaScript で物件行から詳細ページ UUID を抽出し、
+    """React Fiber の bukkenGuid から詳細ページ UUID を抽出し、
     Property.url と room_id を設定する。
 
-    React SPA は通常の <a> タグではなく JavaScript でルーティングするため、
-    DOM の属性やリンク要素を複数の方法で探索する。
+    ES-Square の React SPA は物件行コンポーネントの props に
+    bukkenGuid (物件UUID) を保持している。Fiber ツリーを走査して取得する。
     """
     try:
         uuids = session.execute_script("""
-            var results = [];
-
-            // Method 1: <a> tags with /detail/ in href
-            var links = document.querySelectorAll('a[href*="/detail/"]');
-            for (var i = 0; i < links.length; i++) {
-                var m = links[i].href.match(/\\/detail\\/([a-f0-9-]+)/);
-                if (m) results.push(m[1]);
-            }
-            if (results.length > 0) return results;
-
-            // Method 2: data attributes on rows
-            var attrs = ['data-room-id', 'data-uuid', 'data-id',
-                         'data-property-id', 'data-bukken-id'];
-            for (var a = 0; a < attrs.length; a++) {
-                var els = document.querySelectorAll('[' + attrs[a] + ']');
-                for (var j = 0; j < els.length; j++) {
-                    var val = els[j].getAttribute(attrs[a]);
-                    if (val && val.length > 8) results.push(val);
+            var allDivs = document.querySelectorAll('div[class*="MuiBox-root"]');
+            var propertyRows = [];
+            for (var i = 0; i < allDivs.length; i++) {
+                var div = allDivs[i];
+                var children = [];
+                for (var c = div.firstElementChild; c; c = c.nextElementSibling) {
+                    if (c.tagName === 'DIV') children.push(c);
                 }
-                if (results.length > 0) return results;
+                if (children.length >= 6) {
+                    var t = div.innerText || '';
+                    if (t.indexOf('円') !== -1 && t.indexOf('㎡') !== -1) {
+                        propertyRows.push(div);
+                    }
+                }
             }
 
-            // Method 3: React Router links (rendered as <a>)
-            var allLinks = document.querySelectorAll('a[href]');
-            for (var k = 0; k < allLinks.length; k++) {
-                var href = allLinks[k].href || '';
-                var match = href.match(
-                    /\\/(?:detail|room|bukken)\\/([a-f0-9-]{8,})/
-                );
-                if (match) results.push(match[1]);
+            // Find React Fiber key
+            var fiberKey = null;
+            for (var r = 0; r < propertyRows.length; r++) {
+                for (var key in propertyRows[r]) {
+                    if (key.indexOf('__reactFiber$') === 0) {
+                        fiberKey = key;
+                        break;
+                    }
+                }
+                if (fiberKey) break;
             }
-            if (results.length > 0) return results;
+            if (!fiberKey) return [];
 
-            // Method 4: onClick handlers containing UUID patterns
-            var rows = document.querySelectorAll(
-                '[class*="MuiBox-root"][class*="css-14ygg8t"]'
-            );
-            for (var r = 0; r < rows.length; r++) {
-                var onclick = rows[r].getAttribute('onclick') || '';
-                var om = onclick.match(/([a-f0-9-]{36})/);
-                if (om) results.push(om[1]);
+            // Extract bukkenGuid from each row's fiber tree
+            var results = [];
+            var uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+
+            function findBukkenGuid(fiber, maxDepth) {
+                if (!fiber || maxDepth <= 0) return null;
+                try {
+                    var p = fiber.memoizedProps;
+                    if (p && typeof p.bukkenGuid === 'string'
+                        && uuidPattern.test(p.bukkenGuid)) {
+                        return p.bukkenGuid;
+                    }
+                } catch(e) {}
+                // Search child first, then sibling
+                var found = findBukkenGuid(fiber.child, maxDepth - 1);
+                if (found) return found;
+                return findBukkenGuid(fiber.sibling, maxDepth - 1);
             }
 
+            for (var j = 0; j < propertyRows.length; j++) {
+                var fiber = propertyRows[j][fiberKey];
+                var guid = findBukkenGuid(fiber, 10);
+                if (guid) {
+                    results.push(guid);
+                } else {
+                    results.push(null);
+                }
+            }
             return results;
         """)
 
-        if uuids and len(uuids) > 0:
+        if uuids:
+            # null を除いた有効な UUID の数
+            valid = [u for u in uuids if u]
             print(
-                f"[DEBUG] ES-Square: {len(uuids)} 件の UUID を取得"
+                f"[DEBUG] ES-Square: bukkenGuid {len(valid)} 件取得 "
+                f"(rows={len(uuids)})"
             )
-            for i, prop in enumerate(properties):
-                if i < len(uuids) and not prop.url:
-                    uuid = uuids[i]
-                    prop.room_id = uuid
-                    prop.building_id = uuid.split("-")[0] if "-" in uuid else uuid
-                    prop.url = (
-                        f"https://rent.es-square.net"
-                        f"/bukken/chintai/search/detail/{uuid}"
-                    )
+
+            # properties と uuids を物件名でマッチング
+            # DOM の行順と properties の順序が一致する前提
+            uuid_idx = 0
+            for prop in properties:
+                if prop.url:
+                    continue
+                # 有効な UUID を順番に割り当て
+                while uuid_idx < len(uuids):
+                    guid = uuids[uuid_idx]
+                    uuid_idx += 1
+                    if guid:
+                        prop.room_id = guid
+                        prop.building_id = (
+                            guid.split("-")[0] if "-" in guid else guid
+                        )
+                        prop.url = (
+                            f"https://rent.es-square.net"
+                            f"/bukken/chintai/search/detail/{guid}"
+                        )
+                        break
         else:
             print("[DEBUG] ES-Square: UUID が見つかりませんでした")
 
