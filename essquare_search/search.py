@@ -618,7 +618,13 @@ def enrich_property_details(
     session: EsSquareSession,
     properties: list[Property],
 ) -> None:
-    """各物件の詳細ページから追加情報を取得する (in-place 変更)。"""
+    """各物件の詳細ページから追加情報を取得する (in-place 変更)。
+
+    画像取得の優先順位:
+    1. API レスポンスデータから画像 URL を抽出
+    2. Swiper ギャラリーモーダルを操作して Performance API でキャプチャ
+    3. DOM の img タグから HTTP URL を直接取得 (フォールバック)
+    """
     for prop in properties:
         if not prop.url:
             continue
@@ -629,18 +635,46 @@ def enrich_property_details(
             # SPA レンダリング完了を待つ
             rendered = _wait_for_detail_render(session, timeout=10)
             if rendered:
-                # レンダリング後の最新 HTML を取得
                 html = session.driver.page_source
 
             details = parse_detail_page(html)
 
-            # 画像が DOM から取れなかった場合は JavaScript で直接取得
+            # 画像取得: 複数の方法を順番に試行
             if not details.get("image_urls"):
+                # 1. API レスポンスデータから画像 URL を探す
+                api_images = _extract_images_from_api_data(session)
+                if api_images:
+                    details["image_urls"] = api_images
+                    if not details.get("image_url"):
+                        details["image_url"] = api_images[0]
+                    print(
+                        f"[DEBUG] ES-Square 画像取得: "
+                        f"API データから {len(api_images)} 件"
+                    )
+
+            if not details.get("image_urls"):
+                # 2. Swiper ギャラリーを操作して取得
+                gallery_images = _extract_gallery_images(session)
+                if gallery_images:
+                    details["image_urls"] = gallery_images
+                    if not details.get("image_url"):
+                        details["image_url"] = gallery_images[0]
+                    print(
+                        f"[DEBUG] ES-Square 画像取得: "
+                        f"ギャラリーから {len(gallery_images)} 件"
+                    )
+
+            if not details.get("image_urls"):
+                # 3. DOM の img タグからフォールバック取得
                 js_images = _extract_images_via_js(session)
                 if js_images:
                     details["image_urls"] = js_images
                     if not details.get("image_url"):
                         details["image_url"] = js_images[0]
+                    print(
+                        f"[DEBUG] ES-Square 画像取得: "
+                        f"DOM から {len(js_images)} 件"
+                    )
 
             # 詳細情報を Property にセット
             for key, value in details.items():
@@ -648,10 +682,14 @@ def enrich_property_details(
                     setattr(prop, key, value)
 
             img_count = len(prop.image_urls) if prop.image_urls else 0
+            img_src = "none"
+            if img_count > 0:
+                first_url = prop.image_urls[0][:80] if prop.image_urls else ""
+                img_src = first_url
             print(
                 f"[DEBUG] ES-Square 詳細取得完了 "
                 f"(room_id={prop.room_id}): "
-                f"images={img_count}"
+                f"images={img_count}, src={img_src}"
             )
 
         except Exception as exc:
@@ -664,90 +702,292 @@ def enrich_property_details(
         time.sleep(random.uniform(1, 2))
 
 
-def _extract_images_via_js(session: EsSquareSession) -> list[str]:
-    """JavaScript で画像 URL を直接取得する。
+def _extract_images_from_api_data(
+    session: EsSquareSession,
+) -> list[str]:
+    """キャプチャ済み API レスポンスデータから画像 URL を再帰的に抽出する。
 
-    React SPA が遅延ロードする画像や、data-src/srcset の画像も取得する。
+    詳細ページの API レスポンス JSON 内に含まれる画像 URL を探索する。
+    """
+    try:
+        urls = session.execute_script("""
+            var apiData = window.__esq_api || [];
+            var imageUrls = [];
+            var seen = {};
+            var SKIP = /logo|icon|favicon|avatar|badge|placeholder|no.?image/i;
+
+            function search(obj, depth) {
+                if (depth > 8 || !obj) return;
+                if (typeof obj === 'string') {
+                    if (/^https?:\\/\\//i.test(obj)
+                        && /\\.(jpg|jpeg|png|webp|gif|avif)/i.test(obj)
+                        && !SKIP.test(obj)
+                        && !seen[obj]) {
+                        seen[obj] = true;
+                        imageUrls.push(obj);
+                    }
+                    return;
+                }
+                if (Array.isArray(obj)) {
+                    for (var i = 0; i < Math.min(obj.length, 200); i++) {
+                        search(obj[i], depth + 1);
+                    }
+                    return;
+                }
+                if (typeof obj === 'object') {
+                    var keys = Object.keys(obj);
+                    for (var k = 0; k < keys.length; k++) {
+                        search(obj[keys[k]], depth + 1);
+                    }
+                }
+            }
+
+            for (var i = 0; i < apiData.length; i++) {
+                search(apiData[i].data, 0);
+            }
+            return imageUrls;
+        """)
+        if urls:
+            print(f"[DEBUG] ES-Square API画像: {len(urls)} 件発見")
+        return urls[:20] if urls else []
+    except Exception as exc:
+        print(f"[WARN] ES-Square API画像抽出失敗: {exc}")
+        return []
+
+
+def _close_gallery_modal(session: EsSquareSession) -> None:
+    """ギャラリーモーダルを確実に閉じる。"""
+    try:
+        session.execute_script("""
+            // 参考スクリプトのクローズセレクタ
+            var close = document.querySelector(
+                '.MuiBox-root.css-11p4x25'
+            );
+            if (close) { close.click(); return; }
+            // MUI Dialog の閉じるボタン
+            var closeBtn = document.querySelector(
+                '[aria-label="close"], [aria-label="Close"],'
+                + 'button.MuiIconButton-root[aria-label*="close"]'
+            );
+            if (closeBtn) { closeBtn.click(); return; }
+            // Backdrop クリック
+            var backdrop = document.querySelector(
+                '.MuiBackdrop-root, [class*="backdrop"],'
+                + '[class*="overlay"]'
+            );
+            if (backdrop) { backdrop.click(); return; }
+            // ESC キー
+            document.dispatchEvent(
+                new KeyboardEvent('keydown', {
+                    key: 'Escape', code: 'Escape', bubbles: true,
+                })
+            );
+        """)
+        time.sleep(0.5)
+    except Exception:
+        pass
+
+
+def _extract_gallery_images(
+    session: EsSquareSession,
+) -> list[str]:
+    """Swiper ギャラリーモーダルを操作して物件画像 URL を取得する。
+
+    ES-Square の物件画像は Swiper カルーセルモーダル内に blob URL で
+    表示される。Performance API で実際のリクエスト URL をキャプチャする。
+
+    参考: ユーザー提供の Tampermonkey スクリプト
+    - サムネイル: .css-tx2s10 img
+    - モーダル画像: .swiper-slide-active .css-oq6icw img
+    - 次へボタン: svg[data-testid="keyboardArrowRight"] 内 .css-1nuul26
+    - 閉じるボタン: .MuiBox-root.css-11p4x25
+    """
+    try:
+        # サムネイルをクリックしてギャラリーモーダルを開く
+        clicked = session.execute_script("""
+            // 参考スクリプトのセレクタ
+            var thumb = document.querySelector('.css-tx2s10 img');
+            if (thumb && thumb.naturalWidth > 0) {
+                thumb.click();
+                return 'css-tx2s10';
+            }
+            // フォールバック: blob URL の画像 or 大きい画像
+            var imgs = document.querySelectorAll('img');
+            for (var i = 0; i < imgs.length; i++) {
+                var img = imgs[i];
+                var src = img.src || '';
+                var w = img.naturalWidth || img.width || 0;
+                var h = img.naturalHeight || img.height || 0;
+                if ((src.startsWith('blob:') || (w > 100 && h > 80))
+                    && !/logo|icon|avatar|badge/i.test(
+                        (img.className || '') + (img.alt || '') + src
+                    )) {
+                    img.click();
+                    return 'fallback';
+                }
+            }
+            return null;
+        """)
+
+        if not clicked:
+            print("[DEBUG] ES-Square: ギャラリーサムネイル未検出")
+            return []
+
+        print(f"[DEBUG] ES-Square: サムネイルクリック ({clicked})")
+        time.sleep(2)
+
+        # Swiper モーダルが開いたか確認
+        modal_open = session.execute_script("""
+            return !!(
+                document.querySelector('.swiper-slide-active')
+                || document.querySelector('[class*="swiper"]')
+            );
+        """)
+
+        if not modal_open:
+            print("[DEBUG] ES-Square: ギャラリーモーダル未検出")
+            return []
+
+        # Performance エントリをクリア (ギャラリー操作分のみキャプチャ)
+        session.execute_script("performance.clearResourceTimings();")
+
+        # 全スライドを順番にナビゲート
+        slide_count = 0
+        for _ in range(25):
+            has_next = session.execute_script("""
+                var nextIcon = document.querySelector(
+                    'svg[data-testid="KeyboardArrowRightIcon"],'
+                    + 'svg[data-testid="keyboardArrowRight"],'
+                    + 'svg[data-testid="ArrowForwardIosIcon"],'
+                    + 'svg[data-testid="NavigateNextIcon"]'
+                );
+                if (!nextIcon) return false;
+                // 親のクリック可能要素を探す
+                var el = nextIcon;
+                for (var i = 0; i < 5; i++) {
+                    el = el.parentElement;
+                    if (!el) break;
+                    if (el.tagName === 'BUTTON'
+                        || el.getAttribute('role') === 'button'
+                        || el.onclick
+                        || el.style.cursor === 'pointer') {
+                        el.click();
+                        return true;
+                    }
+                }
+                // 最後の手段: 直接の親コンテナをクリック
+                var parent = nextIcon.parentElement;
+                if (parent) { parent.click(); return true; }
+                return false;
+            """)
+            if not has_next:
+                break
+            slide_count += 1
+            time.sleep(0.4)
+
+        print(
+            f"[DEBUG] ES-Square: {slide_count} スライドナビゲート"
+        )
+
+        # Performance API から画像リクエスト URL を収集
+        perf_urls = session.execute_script("""
+            var entries = performance.getEntriesByType('resource');
+            var imgUrls = [];
+            var seen = {};
+            var SKIP = /logo|icon|favicon|avatar|badge/i;
+            var SKIP_EXT = /\\.(js|css|woff|woff2|ttf|eot|svg)$/i;
+
+            for (var i = 0; i < entries.length; i++) {
+                var name = entries[i].name;
+                if (seen[name] || SKIP.test(name)
+                    || SKIP_EXT.test(name)) continue;
+
+                var isImageExt = /\\.(jpg|jpeg|png|webp|gif|bmp|avif)/i
+                    .test(name);
+                var init = entries[i].initiatorType;
+                var size = (entries[i].transferSize || 0)
+                    + (entries[i].decodedBodySize || 0);
+
+                // 画像拡張子 or fetch/XHR で取得した大きめリソース
+                if (isImageExt
+                    || ((init === 'fetch'
+                        || init === 'xmlhttprequest')
+                        && size > 5000)) {
+                    imgUrls.push(name);
+                    seen[name] = true;
+                }
+            }
+            return imgUrls;
+        """)
+
+        # 初期ページロードの画像 URL も取得 (Performance の全エントリ)
+        if not perf_urls:
+            perf_urls = session.execute_script("""
+                var entries = performance.getEntries();
+                var imgUrls = [];
+                var seen = {};
+                for (var i = 0; i < entries.length; i++) {
+                    var name = entries[i].name || '';
+                    if (!name.startsWith('http')) continue;
+                    if (seen[name]) continue;
+                    if (/\\.(jpg|jpeg|png|webp|gif|avif)/i.test(name)
+                        && !/logo|icon|favicon|badge/i.test(name)) {
+                        imgUrls.push(name);
+                        seen[name] = true;
+                    }
+                }
+                return imgUrls;
+            """)
+
+        # モーダルを閉じる
+        _close_gallery_modal(session)
+
+        if perf_urls:
+            print(
+                f"[DEBUG] ES-Square ギャラリー Performance: "
+                f"{len(perf_urls)} URL"
+            )
+            for u in perf_urls[:3]:
+                print(f"[DEBUG]   {str(u)[:150]}")
+
+        return perf_urls[:20] if perf_urls else []
+
+    except Exception as exc:
+        print(f"[WARN] ES-Square ギャラリー画像取得失敗: {exc}")
+        _close_gallery_modal(session)
+        return []
+
+
+def _extract_images_via_js(session: EsSquareSession) -> list[str]:
+    """JavaScript で画像 URL を直接取得する (最終フォールバック)。
+
+    DOM の img タグから HTTP URL を収集する。
+    blob: URL は除外（Discord embed で使用不可のため）。
     """
     try:
         urls = session.execute_script("""
             var urls = [];
             var seen = {};
+            var SKIP = /placeholder|logo|icon|favicon|avatar|badge/i;
 
-            // 1. 通常の img src
             var imgs = document.querySelectorAll('img');
             for (var i = 0; i < imgs.length; i++) {
-                var src = imgs[i].src || imgs[i].getAttribute('data-src') || '';
-                if (src && !src.startsWith('data:') && !src.startsWith('blob:')
-                    && src.indexOf('placeholder') === -1
-                    && src.indexOf('logo') === -1
-                    && src.indexOf('icon') === -1
-                    && !seen[src]) {
-                    // 画像サイズが極小でないことを確認
-                    var w = imgs[i].naturalWidth || imgs[i].width || 0;
-                    var h = imgs[i].naturalHeight || imgs[i].height || 0;
-                    if (w === 0 && h === 0) {
-                        // サイズ不明 → URLパターンで判定
-                        if (src.indexOf('http') === 0) {
-                            urls.push(src);
-                            seen[src] = true;
-                        }
-                    } else if (w > 50 && h > 50) {
-                        urls.push(src);
-                        seen[src] = true;
-                    }
-                }
-                // srcset からも取得
-                var srcset = imgs[i].getAttribute('srcset') || '';
-                if (srcset) {
-                    var parts = srcset.split(',');
-                    for (var j = 0; j < parts.length; j++) {
-                        var u = parts[j].trim().split(' ')[0];
-                        if (u && u.indexOf('http') === 0 && !seen[u]) {
-                            urls.push(u);
-                            seen[u] = true;
-                        }
-                    }
+                var src = imgs[i].src
+                    || imgs[i].getAttribute('data-src') || '';
+                if (!src || src.startsWith('data:')
+                    || src.startsWith('blob:')
+                    || !src.startsWith('http')
+                    || SKIP.test(src) || seen[src]) continue;
+                var w = imgs[i].naturalWidth || imgs[i].width || 0;
+                var h = imgs[i].naturalHeight || imgs[i].height || 0;
+                if ((w === 0 && h === 0) || (w > 50 && h > 50)) {
+                    urls.push(src);
+                    seen[src] = true;
                 }
             }
-
-            // 2. picture > source
-            var sources = document.querySelectorAll('picture source');
-            for (var k = 0; k < sources.length; k++) {
-                var srcset2 = sources[k].getAttribute('srcset') || '';
-                var parts2 = srcset2.split(',');
-                for (var l = 0; l < parts2.length; l++) {
-                    var u2 = parts2[l].trim().split(' ')[0];
-                    if (u2 && u2.indexOf('http') === 0 && !seen[u2]) {
-                        urls.push(u2);
-                        seen[u2] = true;
-                    }
-                }
-            }
-
-            // 3. CSS background-image
-            var divs = document.querySelectorAll('div[style*="background"]');
-            for (var m = 0; m < divs.length; m++) {
-                var style = divs[m].getAttribute('style') || '';
-                var match = style.match(/url\\(['"]?(https?:\\/\\/[^'"\\)]+)['"]?\\)/);
-                if (match && !seen[match[1]]) {
-                    urls.push(match[1]);
-                    seen[match[1]] = true;
-                }
-            }
-
             return urls;
         """)
-        if urls:
-            # アイコン・ロゴ等を除外（小さいファイル名パターン）
-            filtered = [
-                u for u in urls
-                if not any(
-                    x in u.lower()
-                    for x in ["favicon", "avatar", "profile", "badge"]
-                )
-            ]
-            return filtered[:20]  # 最大20枚
+        return urls[:20] if urls else []
     except Exception as exc:
         print(f"[WARN] ES-Square JS画像取得失敗: {exc}")
     return []
