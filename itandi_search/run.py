@@ -443,6 +443,170 @@ def _check_move_in_date(properties: list, customer_move_in: str) -> list:
     return properties
 
 
+def _run_itandi_search(
+    *,
+    itandi,
+    customer,
+    exclude_set: set,
+    sheets_service,
+) -> int:
+    """itandi BB で検索してフィルタ → 承認待ち → Discord 通知。
+
+    Returns: 新着件数
+    """
+    print(f"[INFO] 検索中: {customer.name}")
+    properties = search_properties(itandi, customer)
+    print(f"  → {len(properties)} 件ヒット")
+
+    # 通知済み・承認待ちを除外
+    new_properties = [
+        p
+        for p in properties
+        if (customer.name, p.room_id) not in exclude_set
+    ]
+
+    if not new_properties:
+        print("  → 新着なし")
+        return 0
+
+    print(f"  → うち新着 {len(new_properties)} 件")
+
+    # 各物件の詳細ページから全画像URLを取得
+    try:
+        enrich_properties_with_images(itandi, new_properties)
+    except Exception as exc:
+        print(f"[WARN] 画像取得に失敗 ({customer.name}): {exc}")
+
+    # ステータス・WEBバッジフィルター（詳細取得後に判定）
+    is_test = "テスト" in customer.name
+    before = len(new_properties)
+    new_properties = _filter_by_status(
+        new_properties, is_test_customer=is_test
+    )
+    filtered = before - len(new_properties)
+    if filtered:
+        print(
+            f"  → ステータス/WEBフィルター: "
+            f"{filtered} 件除外, "
+            f"残り {len(new_properties)} 件"
+        )
+    if not new_properties:
+        print("  → ステータス条件に合う物件なし")
+        return 0
+
+    # 所在階フィルター（詳細取得後に判定）
+    if (customer.min_floor is not None
+            or customer.max_floor is not None
+            or customer.top_floor_only):
+        before = len(new_properties)
+        new_properties = _filter_by_floor(
+            new_properties,
+            min_floor=customer.min_floor,
+            max_floor=customer.max_floor,
+            top_floor_only=customer.top_floor_only,
+        )
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → 階数フィルター: {filtered} 件除外, "
+                  f"残り {len(new_properties)} 件")
+        if not new_properties:
+            print("  → 条件に合う階の物件なし")
+            return 0
+
+    # 南向きフィルター（詳細取得後に判定）
+    if customer.south_facing:
+        before = len(new_properties)
+        new_properties = _filter_by_sunlight(new_properties)
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → 南向きフィルター: {filtered} 件除外, "
+                  f"残り {len(new_properties)} 件")
+        if not new_properties:
+            print("  → 南向きの物件なし")
+            return 0
+
+    # ロフトNGフィルター（詳細取得後に判定）
+    if customer.no_loft:
+        before = len(new_properties)
+        new_properties = _filter_by_loft(new_properties)
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → ロフトフィルター: {filtered} 件除外, "
+                  f"残り {len(new_properties)} 件")
+        if not new_properties:
+            print("  → ロフトなしの物件なし")
+            return 0
+
+    # 定期借家フィルター（詳細取得後に判定）
+    if customer.no_teiki:
+        before = len(new_properties)
+        new_properties = _filter_by_teiki(new_properties)
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → 定期借家フィルター: {filtered} 件除外, "
+                  f"残り {len(new_properties)} 件")
+        if not new_properties:
+            print("  → 普通借家の物件なし")
+            return 0
+
+    # ロフト必須チェック（除外はせずアラートのみ）
+    if customer.require_loft:
+        new_properties = _check_loft_required(new_properties)
+
+    # ソフト設備チェック（除外はせずアラートのみ）
+    if customer.soft_equipment_ids:
+        new_properties = _check_soft_equipment(
+            new_properties, customer.soft_equipment_ids
+        )
+
+    # 入居時期チェック（除外はせずアラートのみ）
+    if customer.move_in_date:
+        new_properties = _check_move_in_date(
+            new_properties, customer.move_in_date
+        )
+
+    # ステータス要確認チェック（除外はせずアラートのみ）
+    new_properties = _check_status_kakunin(new_properties)
+
+    # 承認待ちシートに書き込み
+    try:
+        write_pending_properties(
+            sheets_service,
+            customer.name,
+            new_properties,
+            now_jst(),
+        )
+    except Exception as exc:
+        print(
+            f"[ERROR] 承認待ち書き込み失敗 "
+            f"({customer.name}): {exc}"
+        )
+
+    # Discord 通知（承認リンク付き）
+    webhook_url = DISCORD_WEBHOOK_URL
+    if webhook_url:
+        thread_id = send_property_notification(
+            webhook_url=webhook_url,
+            customer_name=customer.name,
+            properties=new_properties,
+            thread_id=customer.discord_thread_id,
+            gas_webapp_url=GAS_WEBAPP_URL,
+        )
+
+        # スレッド ID を保存（今後の通知で再利用）
+        if (
+            thread_id
+            and thread_id != customer.discord_thread_id
+        ):
+            customer.discord_thread_id = thread_id
+
+    # exclude_set にも追加（同一実行内での重複防止）
+    for p in new_properties:
+        exclude_set.add((customer.name, p.room_id))
+
+    return len(new_properties)
+
+
 def _run_essquare_search(
     *,
     esq_session,
@@ -663,158 +827,14 @@ def main() -> None:
     total_new = 0
 
     for customer in customers:
+        # ── 5a. itandi BB 検索 ───────────────────────────────
         try:
-            print(f"[INFO] 検索中: {customer.name}")
-            properties = search_properties(itandi, customer)
-            print(f"  → {len(properties)} 件ヒット")
-
-            # 通知済み・承認待ちを除外
-            new_properties = [
-                p
-                for p in properties
-                if (customer.name, p.room_id) not in exclude_set
-            ]
-
-            if new_properties:
-                print(f"  → うち新着 {len(new_properties)} 件")
-
-                # 各物件の詳細ページから全画像URLを取得
-                try:
-                    enrich_properties_with_images(itandi, new_properties)
-                except Exception as exc:
-                    print(f"[WARN] 画像取得に失敗 ({customer.name}): {exc}")
-
-                # ステータス・WEBバッジフィルター（詳細取得後に判定）
-                is_test = "テスト" in customer.name
-                before = len(new_properties)
-                new_properties = _filter_by_status(
-                    new_properties, is_test_customer=is_test
-                )
-                filtered = before - len(new_properties)
-                if filtered:
-                    print(
-                        f"  → ステータス/WEBフィルター: "
-                        f"{filtered} 件除外, "
-                        f"残り {len(new_properties)} 件"
-                    )
-                if not new_properties:
-                    print("  → ステータス条件に合う物件なし")
-                    continue
-
-                # 所在階フィルター（詳細取得後に判定）
-                if (customer.min_floor is not None
-                        or customer.max_floor is not None
-                        or customer.top_floor_only):
-                    before = len(new_properties)
-                    new_properties = _filter_by_floor(
-                        new_properties,
-                        min_floor=customer.min_floor,
-                        max_floor=customer.max_floor,
-                        top_floor_only=customer.top_floor_only,
-                    )
-                    filtered = before - len(new_properties)
-                    if filtered:
-                        print(f"  → 階数フィルター: {filtered} 件除外, "
-                              f"残り {len(new_properties)} 件")
-                    if not new_properties:
-                        print("  → 条件に合う階の物件なし")
-                        continue
-
-                # 南向きフィルター（詳細取得後に判定）
-                if customer.south_facing:
-                    before = len(new_properties)
-                    new_properties = _filter_by_sunlight(new_properties)
-                    filtered = before - len(new_properties)
-                    if filtered:
-                        print(f"  → 南向きフィルター: {filtered} 件除外, "
-                              f"残り {len(new_properties)} 件")
-                    if not new_properties:
-                        print("  → 南向きの物件なし")
-                        continue
-
-                # ロフトNGフィルター（詳細取得後に判定）
-                if customer.no_loft:
-                    before = len(new_properties)
-                    new_properties = _filter_by_loft(new_properties)
-                    filtered = before - len(new_properties)
-                    if filtered:
-                        print(f"  → ロフトフィルター: {filtered} 件除外, "
-                              f"残り {len(new_properties)} 件")
-                    if not new_properties:
-                        print("  → ロフトなしの物件なし")
-                        continue
-
-                # 定期借家フィルター（詳細取得後に判定）
-                if customer.no_teiki:
-                    before = len(new_properties)
-                    new_properties = _filter_by_teiki(new_properties)
-                    filtered = before - len(new_properties)
-                    if filtered:
-                        print(f"  → 定期借家フィルター: {filtered} 件除外, "
-                              f"残り {len(new_properties)} 件")
-                    if not new_properties:
-                        print("  → 普通借家の物件なし")
-                        continue
-
-                # ロフト必須チェック（除外はせずアラートのみ）
-                if customer.require_loft:
-                    new_properties = _check_loft_required(new_properties)
-
-                # ソフト設備チェック（除外はせずアラートのみ）
-                if customer.soft_equipment_ids:
-                    new_properties = _check_soft_equipment(
-                        new_properties, customer.soft_equipment_ids
-                    )
-
-                # 入居時期チェック（除外はせずアラートのみ）
-                if customer.move_in_date:
-                    new_properties = _check_move_in_date(
-                        new_properties, customer.move_in_date
-                    )
-
-                # ステータス要確認チェック（除外はせずアラートのみ）
-                new_properties = _check_status_kakunin(new_properties)
-
-                # 承認待ちシートに書き込み
-                try:
-                    write_pending_properties(
-                        sheets_service,
-                        customer.name,
-                        new_properties,
-                        now_jst(),
-                    )
-                except Exception as exc:
-                    print(
-                        f"[ERROR] 承認待ち書き込み失敗 "
-                        f"({customer.name}): {exc}"
-                    )
-
-                # Discord 通知（承認リンク付き）
-                webhook_url = DISCORD_WEBHOOK_URL
-                if webhook_url:
-                    thread_id = send_property_notification(
-                        webhook_url=webhook_url,
-                        customer_name=customer.name,
-                        properties=new_properties,
-                        thread_id=customer.discord_thread_id,
-                        gas_webapp_url=GAS_WEBAPP_URL,
-                    )
-
-                    # スレッド ID を保存（今後の通知で再利用）
-                    if (
-                        thread_id
-                        and thread_id != customer.discord_thread_id
-                    ):
-                        customer.discord_thread_id = thread_id
-
-                # exclude_set にも追加（同一実行内での重複防止）
-                for p in new_properties:
-                    exclude_set.add((customer.name, p.room_id))
-
-                total_new += len(new_properties)
-            else:
-                print("  → 新着なし")
-
+            total_new += _run_itandi_search(
+                itandi=itandi,
+                customer=customer,
+                exclude_set=exclude_set,
+                sheets_service=sheets_service,
+            )
         except ItandiSearchError as exc:
             print(f"[ERROR] 検索失敗 ({customer.name}): {exc}")
             if DISCORD_WEBHOOK_URL:
