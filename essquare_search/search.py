@@ -12,6 +12,7 @@ from .config import (
     ESSQUARE_SEARCH_URL,
     KODAWARI_MAP,
     LAYOUT_MAP,
+    STATION_TO_CITY,
     STRUCTURE_MAP,
 )
 from .parsers import (
@@ -26,12 +27,10 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
     params: list[tuple[str, str]] = []
 
     # エリア (jusho)
-    for city in criteria.cities:
-        city = city.strip()
-        if city in CITY_CODES:
-            params.append(("jusho", CITY_CODES[city]))
-        else:
-            print(f"[WARN] ES-Square: 市区町村コード未定義: {city}")
+    cities = _resolve_cities(criteria)
+    for city_name in cities:
+        if city_name in CITY_CODES:
+            params.append(("jusho", CITY_CODES[city_name]))
 
     # 賃料 (chinryo_from / chinryo_to) — 万円単位
     if criteria.rent_max is not None:
@@ -103,6 +102,52 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
     return f"{ESSQUARE_SEARCH_URL}?{urlencode(params)}"
 
 
+def _resolve_cities(criteria: CustomerCriteria) -> list[str]:
+    """検索条件から市区町村リストを解決する。
+
+    1. criteria.cities が指定されていればそのまま使用
+    2. cities が空で stations がある場合、駅名→市区町村マッピングで推定
+    """
+    # cities が明示的に指定されている場合
+    if criteria.cities:
+        resolved = []
+        for city in criteria.cities:
+            city = city.strip()
+            if city in CITY_CODES:
+                resolved.append(city)
+            else:
+                print(f"[WARN] ES-Square: 市区町村コード未定義: {city}")
+        if resolved:
+            return resolved
+
+    # 駅名から市区町村を推定
+    if criteria.stations:
+        city_set: set[str] = set()
+        unmapped: list[str] = []
+        for station in criteria.stations:
+            station = station.strip()
+            if station in STATION_TO_CITY:
+                city_set.add(STATION_TO_CITY[station])
+            else:
+                unmapped.append(station)
+
+        if unmapped:
+            print(
+                f"[WARN] ES-Square: 駅→市区町村マッピング未定義: "
+                f"{', '.join(unmapped)}"
+            )
+
+        if city_set:
+            cities = sorted(city_set)
+            print(
+                f"[INFO] ES-Square: 駅名から市区町村を推定: "
+                f"{', '.join(cities)}"
+            )
+            return cities
+
+    return []
+
+
 def build_search_url_with_kodawari(
     criteria: CustomerCriteria,
     equipment_names: list[str],
@@ -138,6 +183,15 @@ def search_properties(
     API レスポンスキャプチャを補助的に使用する。
     最大 5 ページ (150 件) まで取得する。
     """
+    # エリア指定なしの場合は検索をスキップ（全国検索防止）
+    cities = _resolve_cities(criteria)
+    if not cities:
+        print(
+            "[WARN] ES-Square: エリア指定なし（市区町村・駅名とも未設定）"
+            "→ 検索をスキップ"
+        )
+        return []
+
     # API レスポンスキャプチャを設定 (全 fetch を記録)
     try:
         session.setup_api_interceptor()
@@ -198,8 +252,11 @@ def search_properties(
                 f"{len(properties)} 件取得 (page={page})"
             )
 
+            # Selenium JavaScript で詳細 UUID を抽出
+            if properties:
+                _assign_detail_urls(session, properties)
+
             # DOM パースで 0 件の場合はログのみ
-            # (API レスポンスは認証/ユーザーデータのみで物件データを含まない)
             if not properties:
                 print(
                     "[INFO] ES-Square: DOM パースで 0 件 "
@@ -388,6 +445,84 @@ def _log_browser_diagnostics(
             print(f"[DEBUG]   preview: {diag.get('bodyPreview', '')}")
     except Exception as exc:
         print(f"[DEBUG] ES-Square 診断失敗: {exc}")
+
+
+def _assign_detail_urls(
+    session: EsSquareSession,
+    properties: list[Property],
+) -> None:
+    """Selenium JavaScript で物件行から詳細ページ UUID を抽出し、
+    Property.url と room_id を設定する。
+
+    React SPA は通常の <a> タグではなく JavaScript でルーティングするため、
+    DOM の属性やリンク要素を複数の方法で探索する。
+    """
+    try:
+        uuids = session.execute_script("""
+            var results = [];
+
+            // Method 1: <a> tags with /detail/ in href
+            var links = document.querySelectorAll('a[href*="/detail/"]');
+            for (var i = 0; i < links.length; i++) {
+                var m = links[i].href.match(/\\/detail\\/([a-f0-9-]+)/);
+                if (m) results.push(m[1]);
+            }
+            if (results.length > 0) return results;
+
+            // Method 2: data attributes on rows
+            var attrs = ['data-room-id', 'data-uuid', 'data-id',
+                         'data-property-id', 'data-bukken-id'];
+            for (var a = 0; a < attrs.length; a++) {
+                var els = document.querySelectorAll('[' + attrs[a] + ']');
+                for (var j = 0; j < els.length; j++) {
+                    var val = els[j].getAttribute(attrs[a]);
+                    if (val && val.length > 8) results.push(val);
+                }
+                if (results.length > 0) return results;
+            }
+
+            // Method 3: React Router links (rendered as <a>)
+            var allLinks = document.querySelectorAll('a[href]');
+            for (var k = 0; k < allLinks.length; k++) {
+                var href = allLinks[k].href || '';
+                var match = href.match(
+                    /\\/(?:detail|room|bukken)\\/([a-f0-9-]{8,})/
+                );
+                if (match) results.push(match[1]);
+            }
+            if (results.length > 0) return results;
+
+            // Method 4: onClick handlers containing UUID patterns
+            var rows = document.querySelectorAll(
+                '[class*="MuiBox-root"][class*="css-14ygg8t"]'
+            );
+            for (var r = 0; r < rows.length; r++) {
+                var onclick = rows[r].getAttribute('onclick') || '';
+                var om = onclick.match(/([a-f0-9-]{36})/);
+                if (om) results.push(om[1]);
+            }
+
+            return results;
+        """)
+
+        if uuids and len(uuids) > 0:
+            print(
+                f"[DEBUG] ES-Square: {len(uuids)} 件の UUID を取得"
+            )
+            for i, prop in enumerate(properties):
+                if i < len(uuids) and not prop.url:
+                    uuid = uuids[i]
+                    prop.room_id = uuid
+                    prop.building_id = uuid.split("-")[0] if "-" in uuid else uuid
+                    prop.url = (
+                        f"https://rent.es-square.net"
+                        f"/bukken/chintai/search/detail/{uuid}"
+                    )
+        else:
+            print("[DEBUG] ES-Square: UUID が見つかりませんでした")
+
+    except Exception as exc:
+        print(f"[WARN] ES-Square UUID 抽出失敗: {exc}")
 
 
 def _get_captured_api_data(
