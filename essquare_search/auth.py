@@ -213,31 +213,48 @@ class EsSquareSession:
         interceptor_script = """
         window.__esq_api = [];
         window.__esq_graphql = [];  // 後方互換
-        const _origFetch = window.fetch;
-        window.fetch = function(...args) {
-            return _origFetch.apply(this, args).then(async r => {
-                try {
-                    const url = typeof args[0] === 'string'
-                        ? args[0]
-                        : (args[0]?.url || '');
-                    // 静的リソースを除外
-                    const skip = /\\.(js|css|png|jpg|jpeg|gif|svg|woff|ico)/i;
-                    if (skip.test(url)) return r;
+        window.__esq_img_fetches = [];  // 画像 fetch URL トラッキング
 
-                    const ct = r.headers.get('content-type') || '';
-                    if (ct.includes('json')) {
-                        const clone = r.clone();
-                        const data = await clone.json();
-                        window.__esq_api.push({url: url, data: data});
-                        // GraphQL 互換
-                        if (url.includes('graphql') || url.includes('appsync')) {
-                            window.__esq_graphql.push({url: url, data: data});
+        (function() {
+            var _origFetch = window.fetch;
+            var SKIP_IMG = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz/i;
+
+            window.fetch = function() {
+                var args = arguments;
+                var url = typeof args[0] === 'string'
+                    ? args[0]
+                    : (args[0] && args[0].url ? args[0].url : '');
+
+                return _origFetch.apply(this, args).then(function(r) {
+                    try {
+                        var ct = r.headers.get('content-type') || '';
+
+                        // 画像 fetch をトラッキング (blob URL の元の HTTP URL)
+                        if (ct.indexOf('image/') === 0
+                            && !SKIP_IMG.test(url)
+                            && url.indexOf('data:') !== 0) {
+                            window.__esq_img_fetches.push(url);
                         }
-                    }
-                } catch(e) {}
-                return r;
-            });
-        };
+
+                        // JSON API レスポンスをキャプチャ
+                        var skip = /\\.(js|css|png|jpg|jpeg|gif|svg|woff|ico)/i;
+                        if (!skip.test(url) && ct.indexOf('json') !== -1) {
+                            var clone = r.clone();
+                            clone.json().then(function(data) {
+                                window.__esq_api.push({url: url, data: data});
+                                if (url.indexOf('graphql') !== -1
+                                    || url.indexOf('appsync') !== -1) {
+                                    window.__esq_graphql.push(
+                                        {url: url, data: data}
+                                    );
+                                }
+                            }).catch(function() {});
+                        }
+                    } catch(e) {}
+                    return r;
+                });
+            };
+        })();
         """
         self.driver.execute_cdp_cmd(
             "Page.addScriptToEvaluateOnNewDocument",
