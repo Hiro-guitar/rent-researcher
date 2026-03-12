@@ -12,7 +12,7 @@ from .config import (
     ESSQUARE_SEARCH_URL,
     KODAWARI_MAP,
     LAYOUT_MAP,
-    STATION_TO_CITY,
+    STATION_CODES,
     STRUCTURE_MAP,
 )
 from .parsers import (
@@ -26,11 +26,17 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
     """CustomerCriteria → いい生活Square 検索 URL を構築する。"""
     params: list[tuple[str, str]] = []
 
-    # エリア (jusho)
-    cities = _resolve_cities(criteria)
-    for city_name in cities:
-        if city_name in CITY_CODES:
-            params.append(("jusho", CITY_CODES[city_name]))
+    # 駅名指定がある場合は station パラメータを使用
+    station_codes = _resolve_station_codes(criteria)
+    if station_codes:
+        for code in station_codes:
+            params.append(("station", code))
+    else:
+        # 駅名がない場合のみ市区町村 (jusho) を使用
+        cities = _resolve_cities(criteria)
+        for city_name in cities:
+            if city_name in CITY_CODES:
+                params.append(("jusho", CITY_CODES[city_name]))
 
     # 賃料 (chinryo_from / chinryo_to) — 万円単位
     if criteria.rent_max is not None:
@@ -102,50 +108,53 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
     return f"{ESSQUARE_SEARCH_URL}?{urlencode(params)}"
 
 
-def _resolve_cities(criteria: CustomerCriteria) -> list[str]:
-    """検索条件から市区町村リストを解決する。
+def _resolve_station_codes(criteria: CustomerCriteria) -> list[str]:
+    """検索条件の駅名リストから ES-Square station コードを解決する。
 
-    1. criteria.cities が指定されていればそのまま使用
-    2. cities が空で stations がある場合、駅名→市区町村マッピングで推定
+    Returns:
+        駅コードのリスト (例: ["13+256+2844", "13+256+8331"])
+        駅名指定がない場合は空リスト
     """
-    # cities が明示的に指定されている場合
-    if criteria.cities:
-        resolved = []
-        for city in criteria.cities:
-            city = city.strip()
-            if city in CITY_CODES:
-                resolved.append(city)
-            else:
-                print(f"[WARN] ES-Square: 市区町村コード未定義: {city}")
-        if resolved:
-            return resolved
+    if not criteria.stations:
+        return []
 
-    # 駅名から市区町村を推定
-    if criteria.stations:
-        city_set: set[str] = set()
-        unmapped: list[str] = []
-        for station in criteria.stations:
-            station = station.strip()
-            if station in STATION_TO_CITY:
-                city_set.add(STATION_TO_CITY[station])
-            else:
-                unmapped.append(station)
+    codes: list[str] = []
+    unmapped: list[str] = []
+    for station in criteria.stations:
+        station = station.strip()
+        if station in STATION_CODES:
+            codes.append(STATION_CODES[station])
+        else:
+            unmapped.append(station)
 
-        if unmapped:
-            print(
-                f"[WARN] ES-Square: 駅→市区町村マッピング未定義: "
-                f"{', '.join(unmapped)}"
-            )
+    if unmapped:
+        print(
+            f"[WARN] ES-Square: 駅コード未定義: "
+            f"{', '.join(unmapped)}"
+        )
 
-        if city_set:
-            cities = sorted(city_set)
-            print(
-                f"[INFO] ES-Square: 駅名から市区町村を推定: "
-                f"{', '.join(cities)}"
-            )
-            return cities
+    if codes:
+        print(
+            f"[INFO] ES-Square: 駅コード {len(codes)} 件解決 "
+            f"(未解決: {len(unmapped)} 件)"
+        )
 
-    return []
+    return codes
+
+
+def _resolve_cities(criteria: CustomerCriteria) -> list[str]:
+    """検索条件から市区町村リストを解決する (駅名がない場合のフォールバック)。"""
+    if not criteria.cities:
+        return []
+
+    resolved = []
+    for city in criteria.cities:
+        city = city.strip()
+        if city in CITY_CODES:
+            resolved.append(city)
+        else:
+            print(f"[WARN] ES-Square: 市区町村コード未定義: {city}")
+    return resolved
 
 
 def build_search_url_with_kodawari(
@@ -184,10 +193,11 @@ def search_properties(
     最大 5 ページ (150 件) まで取得する。
     """
     # エリア指定なしの場合は検索をスキップ（全国検索防止）
+    station_codes = _resolve_station_codes(criteria)
     cities = _resolve_cities(criteria)
-    if not cities:
+    if not station_codes and not cities:
         print(
-            "[WARN] ES-Square: エリア指定なし（市区町村・駅名とも未設定）"
+            "[WARN] ES-Square: エリア指定なし（駅名・市区町村とも未設定）"
             "→ 検索をスキップ"
         )
         return []
