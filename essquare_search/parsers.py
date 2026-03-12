@@ -726,10 +726,19 @@ def _parse_column_row(children: list, uuid: str = "") -> Property | None:
     info_text = col_info.get_text("\n", strip=True) if col_info else ""
     info_lines = _clean_dom_lines(info_text)
 
-    building_name = info_lines[0] if info_lines else "不明"
+    # バッジ・ラベル行をスキップして物件名を取得
+    building_name = "不明"
+    name_idx = 0
+    for i, line in enumerate(info_lines):
+        if _is_badge_line(line):
+            continue
+        building_name = line[:60]
+        name_idx = i
+        break
+
     address = ""
     station_info = ""
-    for line in info_lines[1:]:
+    for line in info_lines[name_idx + 1:]:
         if "駅" in line and ("徒歩" in line or "分" in line):
             station_info = line
         elif not address and (
@@ -836,9 +845,11 @@ def _parse_text_row(row, uuid: str = "") -> Property | None:
     if not rent:
         return None
 
-    # 物件名 (最初の行で賃料でも面積でもないもの)
+    # 物件名 (バッジ・賃料・面積を除いた最初の行)
     building_name = "不明"
     for line in lines:
+        if _is_badge_line(line):
+            continue
         if ("円" not in line and "㎡" not in line
                 and "m²" not in line and len(line) > 2):
             building_name = line[:60]
@@ -919,6 +930,29 @@ def _parse_text_row(row, uuid: str = "") -> Property | None:
         building_age=building_age,
         url=url,
     )
+
+
+# ES-Square 検索結果のバッジ・ラベルパターン
+_BADGE_PATTERNS = re.compile(
+    r"^("
+    r"New|NEW|新着|更新|値下げ"
+    r"|AD\s*あり|AD\s*有|AD\s*–|AD$"
+    r"|広告可[※＊]?|広告料あり"
+    r"|元付|客付|専任|一般"
+    r"|\d+分前|\d+時間前|\d+日前"
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def _is_badge_line(line: str) -> bool:
+    """行がバッジ・ラベル（物件名ではない）かどうかを判定する。"""
+    line = line.strip()
+    if not line or len(line) <= 1:
+        return True
+    if _BADGE_PATTERNS.match(line):
+        return True
+    return False
 
 
 def _clean_dom_lines(text: str) -> list[str]:
