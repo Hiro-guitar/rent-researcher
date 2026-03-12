@@ -69,9 +69,16 @@ class EsSquareSession:
         """URL に遷移してページの HTML を返す。
 
         セッション切れの場合は再ログインしてリトライする。
+        React SPA のハイドレーション問題を防ぐため、
+        毎回 about:blank 経由でクリーンなページロードを行う。
         """
         if not self.driver:
             raise EsSquareAuthError("ブラウザセッションが初期化されていません")
+
+        # SPA のメモリリーク・ハイドレーション失敗を防ぐため
+        # about:blank で前ページのコンテキストを完全に破棄する
+        self.driver.get("about:blank")
+        time.sleep(1)
 
         self.driver.get(url)
         time.sleep(5)  # SPA 初期読み込み待ち
@@ -81,6 +88,8 @@ class EsSquareSession:
         if "es-account.com" in current_url or "/login" in current_url:
             print("[INFO] セッション切れ検出、再ログイン中...")
             self._do_login(self.driver)
+            self.driver.get("about:blank")
+            time.sleep(1)
             self.driver.get(url)
             time.sleep(5)
 
