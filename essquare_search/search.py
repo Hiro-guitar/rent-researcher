@@ -233,11 +233,10 @@ def search_properties(
                 print("[INFO] ES-Square: 検索結果 0 件")
                 break
 
-            # レンダリング失敗時はリロードしてリトライ
+            # レンダリング失敗時は about:blank 経由で再ナビゲーション
             if render_status == "timeout":
                 print("[INFO] ES-Square: リロードしてリトライ...")
-                session.driver.refresh()
-                time.sleep(5)
+                html = session.get_page(url)
                 render_status = _wait_for_render(session, timeout=20)
 
             # リトライ後も失敗
