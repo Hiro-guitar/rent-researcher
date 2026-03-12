@@ -38,12 +38,12 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
             if city_name in CITY_CODES:
                 params.append(("jusho", CITY_CODES[city_name]))
 
-    # 賃料 (chinryo_from / chinryo_to) — 万円単位
+    # 賃料 (chinryo_from / chinryo_to) — 万円単位 (整数)
     if criteria.rent_max is not None:
-        rent_man = criteria.rent_max / 10000
+        rent_man = criteria.rent_max // 10000
         params.append(("chinryo_to", str(rent_man)))
     if criteria.rent_min is not None:
-        rent_man = criteria.rent_min / 10000
+        rent_man = criteria.rent_min // 10000
         params.append(("chinryo_from", str(rent_man)))
 
     # 間取り (madori)
@@ -581,6 +581,39 @@ def _get_captured_api_data(
     return None
 
 
+def _wait_for_detail_render(
+    session: EsSquareSession, timeout: int = 10
+) -> bool:
+    """詳細ページのレンダリング完了を待つ。
+
+    物件名や賃料テキストが表示されるまで待機する。
+    Returns: True if rendered, False if timeout
+    """
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            result = session.execute_script("""
+                var body = document.body;
+                if (!body) return {len: 0, ready: false};
+                var t = body.innerText;
+                return {
+                    len: t.length,
+                    ready: t.length > 500 && (
+                        t.includes('物件概要') || t.includes('設備')
+                        || t.includes('賃料') || t.includes('間取')
+                        || t.includes('所在地')
+                    ),
+                    imgCount: document.querySelectorAll('img[src]').length
+                };
+            """)
+            if result and result.get("ready"):
+                return True
+        except Exception:
+            pass
+        time.sleep(1)
+    return False
+
+
 def enrich_property_details(
     session: EsSquareSession,
     properties: list[Property],
@@ -592,12 +625,34 @@ def enrich_property_details(
 
         try:
             html = session.get_page(prop.url)
+
+            # SPA レンダリング完了を待つ
+            rendered = _wait_for_detail_render(session, timeout=10)
+            if rendered:
+                # レンダリング後の最新 HTML を取得
+                html = session.driver.page_source
+
             details = parse_detail_page(html)
+
+            # 画像が DOM から取れなかった場合は JavaScript で直接取得
+            if not details.get("image_urls"):
+                js_images = _extract_images_via_js(session)
+                if js_images:
+                    details["image_urls"] = js_images
+                    if not details.get("image_url"):
+                        details["image_url"] = js_images[0]
 
             # 詳細情報を Property にセット
             for key, value in details.items():
                 if hasattr(prop, key) and value:
                     setattr(prop, key, value)
+
+            img_count = len(prop.image_urls) if prop.image_urls else 0
+            print(
+                f"[DEBUG] ES-Square 詳細取得完了 "
+                f"(room_id={prop.room_id}): "
+                f"images={img_count}"
+            )
 
         except Exception as exc:
             print(
@@ -607,3 +662,92 @@ def enrich_property_details(
 
         # レート制限対策
         time.sleep(random.uniform(1, 2))
+
+
+def _extract_images_via_js(session: EsSquareSession) -> list[str]:
+    """JavaScript で画像 URL を直接取得する。
+
+    React SPA が遅延ロードする画像や、data-src/srcset の画像も取得する。
+    """
+    try:
+        urls = session.execute_script("""
+            var urls = [];
+            var seen = {};
+
+            // 1. 通常の img src
+            var imgs = document.querySelectorAll('img');
+            for (var i = 0; i < imgs.length; i++) {
+                var src = imgs[i].src || imgs[i].getAttribute('data-src') || '';
+                if (src && !src.startsWith('data:') && !src.startsWith('blob:')
+                    && src.indexOf('placeholder') === -1
+                    && src.indexOf('logo') === -1
+                    && src.indexOf('icon') === -1
+                    && !seen[src]) {
+                    // 画像サイズが極小でないことを確認
+                    var w = imgs[i].naturalWidth || imgs[i].width || 0;
+                    var h = imgs[i].naturalHeight || imgs[i].height || 0;
+                    if (w === 0 && h === 0) {
+                        // サイズ不明 → URLパターンで判定
+                        if (src.indexOf('http') === 0) {
+                            urls.push(src);
+                            seen[src] = true;
+                        }
+                    } else if (w > 50 && h > 50) {
+                        urls.push(src);
+                        seen[src] = true;
+                    }
+                }
+                // srcset からも取得
+                var srcset = imgs[i].getAttribute('srcset') || '';
+                if (srcset) {
+                    var parts = srcset.split(',');
+                    for (var j = 0; j < parts.length; j++) {
+                        var u = parts[j].trim().split(' ')[0];
+                        if (u && u.indexOf('http') === 0 && !seen[u]) {
+                            urls.push(u);
+                            seen[u] = true;
+                        }
+                    }
+                }
+            }
+
+            // 2. picture > source
+            var sources = document.querySelectorAll('picture source');
+            for (var k = 0; k < sources.length; k++) {
+                var srcset2 = sources[k].getAttribute('srcset') || '';
+                var parts2 = srcset2.split(',');
+                for (var l = 0; l < parts2.length; l++) {
+                    var u2 = parts2[l].trim().split(' ')[0];
+                    if (u2 && u2.indexOf('http') === 0 && !seen[u2]) {
+                        urls.push(u2);
+                        seen[u2] = true;
+                    }
+                }
+            }
+
+            // 3. CSS background-image
+            var divs = document.querySelectorAll('div[style*="background"]');
+            for (var m = 0; m < divs.length; m++) {
+                var style = divs[m].getAttribute('style') || '';
+                var match = style.match(/url\\(['"]?(https?:\\/\\/[^'"\\)]+)['"]?\\)/);
+                if (match && !seen[match[1]]) {
+                    urls.push(match[1]);
+                    seen[match[1]] = true;
+                }
+            }
+
+            return urls;
+        """)
+        if urls:
+            # アイコン・ロゴ等を除外（小さいファイル名パターン）
+            filtered = [
+                u for u in urls
+                if not any(
+                    x in u.lower()
+                    for x in ["favicon", "avatar", "profile", "badge"]
+                )
+            ]
+            return filtered[:20]  # 最大20枚
+    except Exception as exc:
+        print(f"[WARN] ES-Square JS画像取得失敗: {exc}")
+    return []

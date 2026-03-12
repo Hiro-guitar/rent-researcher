@@ -1220,29 +1220,60 @@ def _parse_mui_detail_layout(soup: BeautifulSoup, details: dict) -> None:
 
 
 def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
-    """詳細ページから画像 URL を抽出する。"""
+    """詳細ページから画像 URL を抽出する。
+
+    React SPA の遅延ロード画像にも対応するため、
+    src / data-src / srcset を全て確認する。
+    """
     urls: list[str] = []
     seen: set[str] = set()
 
-    for img in soup.find_all("img"):
-        src = img.get("src", "")
+    # 除外パターン: アイコン・ロゴ等
+    _SKIP_PATTERNS = (
+        "placeholder", "logo", "icon", "favicon",
+        "avatar", "profile", "badge", "data:",
+        "blob:", "svg+xml",
+    )
+
+    def _add_url(src: str) -> None:
         if not src or src in seen:
-            continue
-        # blob: URL やプレースホルダーをスキップ
-        if src.startswith("blob:") or "placeholder" in src.lower():
-            continue
-        # 物件画像っぽいもの (S3 等のストレージ URL)
-        if any(
-            domain in src
-            for domain in [
-                "amazonaws.com", "cloudfront.net", "es-square",
-                "es-account", "essquare",
-            ]
-        ):
+            return
+        if any(p in src.lower() for p in _SKIP_PATTERNS):
+            return
+        if src.startswith("http"):
             urls.append(src)
             seen.add(src)
 
-    return urls
+    for img in soup.find_all("img"):
+        # src 属性
+        _add_url(img.get("src", ""))
+        # data-src (遅延ロード)
+        _add_url(img.get("data-src", ""))
+        # srcset (複数解像度)
+        srcset = img.get("srcset", "")
+        if srcset:
+            for part in srcset.split(","):
+                url_part = part.strip().split(" ")[0]
+                _add_url(url_part)
+
+    # <picture> > <source> 要素
+    for source in soup.find_all("source"):
+        srcset = source.get("srcset", "")
+        if srcset:
+            for part in srcset.split(","):
+                url_part = part.strip().split(" ")[0]
+                _add_url(url_part)
+
+    # CSS background-image
+    for div in soup.find_all(
+        "div", style=re.compile(r"background.*url")
+    ):
+        style = div.get("style", "")
+        m = re.search(r"url\(['\"]?(https?://[^'\")\s]+)['\"]?\)", style)
+        if m:
+            _add_url(m.group(1))
+
+    return urls[:20]  # 最大20枚
 
 
 def _extract_facilities(soup: BeautifulSoup) -> str:
