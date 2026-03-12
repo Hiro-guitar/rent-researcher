@@ -78,10 +78,10 @@ class EsSquareSession:
         # SPA のメモリリーク・ハイドレーション失敗を防ぐため
         # about:blank で前ページのコンテキストを完全に破棄する
         self.driver.get("about:blank")
-        time.sleep(1)
+        time.sleep(0.5)
 
         self.driver.get(url)
-        time.sleep(5)  # SPA 初期読み込み待ち
+        time.sleep(3)  # SPA 初期読み込み待ち
 
         # ログインページにリダイレクトされた場合は再ログイン
         current_url = self.driver.current_url
@@ -89,9 +89,9 @@ class EsSquareSession:
             print("[INFO] セッション切れ検出、再ログイン中...")
             self._do_login(self.driver)
             self.driver.get("about:blank")
-            time.sleep(1)
+            time.sleep(0.5)
             self.driver.get(url)
-            time.sleep(5)
+            time.sleep(3)
 
         return self.driver.page_source
 
