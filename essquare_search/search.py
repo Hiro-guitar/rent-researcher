@@ -162,14 +162,28 @@ def search_properties(
             html = session.get_page(url)
 
             # SPA レンダリング完了をさらに待つ
-            rendered = _wait_for_render(session, timeout=25)
+            render_status = _wait_for_render(session, timeout=25)
+
+            # 0 件検出 → このページ以降は不要
+            if render_status == "empty":
+                print("[INFO] ES-Square: 検索結果 0 件")
+                break
 
             # レンダリング失敗時はリロードしてリトライ
-            if not rendered:
+            if render_status == "timeout":
                 print("[INFO] ES-Square: リロードしてリトライ...")
                 session.driver.refresh()
                 time.sleep(5)
-                rendered = _wait_for_render(session, timeout=20)
+                render_status = _wait_for_render(session, timeout=20)
+
+            # リトライ後も失敗
+            if render_status != "rendered":
+                _log_browser_diagnostics(session, page)
+                if render_status == "empty":
+                    print("[INFO] ES-Square: リトライ後も 0 件")
+                else:
+                    print("[WARN] ES-Square: リトライ後もレンダリング失敗")
+                break
 
             # レンダリング後の最新 HTML を取得
             html = session.driver.page_source
@@ -210,24 +224,32 @@ def search_properties(
 
 def _wait_for_render(
     session: EsSquareSession, timeout: int = 25
-) -> bool:
+) -> str:
     """SPA のレンダリング完了を待つ。
 
     検索結果の要素が表示されるか、タイムアウトするまで待機する。
-    Returns: True if rendered, False if timed out.
+    Returns:
+        "rendered" - 検索結果が表示された
+        "empty" - 検索結果が 0 件（ページは表示された）
+        "timeout" - レンダリングがタイムアウト
     """
     start = time.time()
+    last_len = 0
+    stale_start: float | None = None  # テキスト長が変化しなくなった時刻
+
     while time.time() - start < timeout:
         try:
-            # 複数の指標を一度に取得して判定
             indicators = session.execute_script("""
                 var body = document.body;
-                if (!body) return {len: 0, yen: false, sqm: false};
+                if (!body) return {len: 0, yen: false, sqm: false,
+                                   zero: false, search: false};
                 var t = body.innerText;
                 return {
                     len: t.length,
                     yen: t.includes('円'),
-                    sqm: t.includes('㎡')
+                    sqm: t.includes('㎡'),
+                    zero: /0\\s*件/.test(t),
+                    search: t.includes('検索')
                 };
             """)
             if not indicators:
@@ -237,19 +259,39 @@ def _wait_for_render(
             text_len = indicators.get("len", 0)
             has_yen = indicators.get("yen", False)
             has_sqm = indicators.get("sqm", False)
+            has_zero = indicators.get("zero", False)
+            has_search = indicators.get("search", False)
 
             # 検索結果ページは「円」と「㎡」の両方を含む
             if text_len > 1000 and has_yen and has_sqm:
-                return True
+                return "rendered"
             # 「円」のみでもテキスト量が多ければ OK
             if text_len > 2000 and has_yen:
-                return True
+                return "rendered"
+
+            # 0 件のページ（ページ自体は表示されている）
+            if text_len > 800 and has_search and has_zero and not has_yen:
+                return "empty"
+
+            # テキスト長の変化を追跡 → 停滞検出
+            if text_len != last_len:
+                last_len = text_len
+                stale_start = None
+            elif stale_start is None:
+                stale_start = time.time()
+            elif time.time() - stale_start > 15:
+                print(
+                    f"[WARN] ES-Square: ページが {text_len} chars "
+                    f"で停止（15秒以上変化なし）"
+                )
+                break
+
         except Exception:
             pass
         time.sleep(1)
 
     print("[WARN] ES-Square: レンダリング待ちタイムアウト")
-    return False
+    return "timeout"
 
 
 def _debug_page_state(
@@ -305,6 +347,47 @@ def _debug_page_state(
 
     except Exception as exc:
         print(f"[DEBUG] ES-Square debug failed: {exc}")
+
+
+def _log_browser_diagnostics(
+    session: EsSquareSession, page: int
+) -> None:
+    """レンダリング失敗時のブラウザ診断情報をログ出力する。"""
+    try:
+        diag = session.execute_script("""
+            var result = {};
+            result.url = window.location.href;
+            result.title = document.title;
+            var body = document.body;
+            result.bodyLen = body ? body.innerText.length : 0;
+            result.bodyPreview = body
+                ? body.innerText.substring(0, 500).replace(/\\n/g, ' | ')
+                : '';
+            // React エラーバウンダリのチェック
+            var errEl = document.querySelector(
+                '[class*="error"], [class*="Error"], [role="alert"]'
+            );
+            result.errorEl = errEl
+                ? errEl.textContent.substring(0, 200)
+                : null;
+            // #root / #app の内容量
+            var root = document.getElementById('root')
+                || document.getElementById('app')
+                || document.getElementById('__next');
+            result.rootLen = root ? root.innerText.length : -1;
+            return result;
+        """)
+        if diag:
+            print(f"[DEBUG] ES-Square 診断 page={page}:")
+            print(f"[DEBUG]   URL: {diag.get('url', '?')}")
+            print(f"[DEBUG]   title: {diag.get('title', '?')}")
+            print(f"[DEBUG]   bodyLen: {diag.get('bodyLen', 0)}")
+            print(f"[DEBUG]   rootLen: {diag.get('rootLen', -1)}")
+            if diag.get("errorEl"):
+                print(f"[DEBUG]   ERROR: {diag['errorEl']}")
+            print(f"[DEBUG]   preview: {diag.get('bodyPreview', '')}")
+    except Exception as exc:
+        print(f"[DEBUG] ES-Square 診断失敗: {exc}")
 
 
 def _get_captured_api_data(

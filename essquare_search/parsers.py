@@ -717,11 +717,14 @@ def _parse_dom_property_row(row, uuid: str = "") -> Property | None:
 
 
 def _parse_column_row(children: list, uuid: str = "") -> Property | None:
-    """カラム構造の物件行をパースする (方式A)。"""
+    """カラム構造の物件行をパースする (方式A)。
+
+    各カラムのテキストからタイムスタンプを除去してからパースする。
+    """
     # Col 2: 物件名・住所・駅情報
     col_info = children[1] if len(children) > 1 else None
     info_text = col_info.get_text("\n", strip=True) if col_info else ""
-    info_lines = [l.strip() for l in info_text.split("\n") if l.strip()]
+    info_lines = _clean_dom_lines(info_text)
 
     building_name = info_lines[0] if info_lines else "不明"
     address = ""
@@ -747,18 +750,20 @@ def _parse_column_row(children: list, uuid: str = "") -> Property | None:
     )
     deposit, key_money = _parse_deposit_text(deposit_text)
 
-    # Col 5: 間取り・面積
+    # Col 5: 間取り・面積 (タイムスタンプ除去)
     col_layout = children[4] if len(children) > 4 else None
     layout_text = (
         col_layout.get_text(" ", strip=True) if col_layout else ""
     )
+    layout_text = re.sub(r"\b\d{10,}\b", "", layout_text).strip()
     layout, area = _parse_layout_text(layout_text)
 
-    # Col 6: 構造・築年数
+    # Col 6: 構造・築年数 (タイムスタンプ除去)
     col_structure = children[5] if len(children) > 5 else None
     structure_text = (
         col_structure.get_text(" ", strip=True) if col_structure else ""
     )
+    structure_text = re.sub(r"\b\d{10,}\b", "", structure_text).strip()
     structure, building_age = _parse_structure_text(structure_text)
 
     room_id = str(uuid) if uuid else _generate_room_id(
@@ -955,6 +960,8 @@ def _parse_deposit_text(text: str) -> tuple[str, str]:
     """敷金・礼金テキストを返す。"""
     deposit = ""
     key_money = ""
+    # タイムスタンプ除去
+    text = re.sub(r"\b\d{10,}\b", "", text).strip()
     # "敷140,000円 礼140,000円" パターン
     m_deposit = re.search(r"敷\s*([\d,]+円|なし|-)", text)
     m_key = re.search(r"礼\s*([\d,]+円|なし|-)", text)
