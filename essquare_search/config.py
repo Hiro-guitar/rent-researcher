@@ -309,6 +309,24 @@ KODAWARI_MAP: dict[str, str] = {
     "高齢者相談可": "seniorCitizensMayBeOK",
 }
 
+# ── 建物種別 → search_boshu_shubetsu_code パラメータ値 ──
+# itandi API の building_detail_type 値 → ES-Square コード
+BUILDING_TYPE_MAP: dict[str, str] = {
+    # itandi API 値 → ES-Square コード
+    "mansion": "101",        # マンション
+    "apartment": "102",      # アパート
+    "house": "103",          # 戸建
+    "terraced_house": "103", # テラスハウス → 戸建扱い
+}
+
+# ── 最終更新日 → koshin_radio_state パラメータ値 ─────────
+# update_within_days → ES-Square の koshin_radio_state 値
+UPDATE_WITHIN_MAP: dict[int, str] = {
+    1: "today",        # 本日
+    3: "threeDays",    # 3日以内
+    7: "sevenDays",    # 7日以内
+}
+
 # ── 駅名 → ES-Square station パラメータコード ──────────
 # 形式: "都道府県コード+路線コード+駅コード"
 # ブラウザ UI で駅選択→検索URL から抽出したコード

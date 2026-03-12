@@ -9,12 +9,14 @@ from itandi_search.models import CustomerCriteria, Property
 
 from .auth import EsSquareSession
 from .config import (
+    BUILDING_TYPE_MAP,
     CITY_CODES,
     ESSQUARE_SEARCH_URL,
     KODAWARI_MAP,
     LAYOUT_MAP,
     STATION_CODES,
     STRUCTURE_MAP,
+    UPDATE_WITHIN_MAP,
 )
 from .parsers import (
     parse_detail_page,
@@ -40,12 +42,32 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
     if station_codes:
         for code in station_codes:
             params.append(("station", code))
+        # 一部の駅が未解決の場合、市区町村も追加してカバー範囲を広げる
+        unmapped_count = (
+            len(criteria.stations) - len(station_codes)
+            if criteria.stations
+            else 0
+        )
+        if unmapped_count > 0 and criteria.cities:
+            cities = _resolve_cities(criteria)
+            for city_name in cities:
+                if city_name in CITY_CODES:
+                    params.append(("jusho", CITY_CODES[city_name]))
+            print(
+                f"[INFO] ES-Square: 未解決駅 {unmapped_count} 件の"
+                f"カバーのため市区町村も追加"
+            )
     else:
         # 駅名がない場合のみ市区町村 (jusho) を使用
         cities = _resolve_cities(criteria)
         for city_name in cities:
             if city_name in CITY_CODES:
                 params.append(("jusho", CITY_CODES[city_name]))
+        if criteria.stations:
+            print(
+                "[WARN] ES-Square: 全駅が未解決のため"
+                "市区町村検索にフォールバック"
+            )
 
     # 賃料 (chinryo_from / chinryo_to) — 万円単位 (整数)
     if criteria.rent_max is not None:
@@ -96,6 +118,29 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
                 params.append(("kozo", kozo_val))
                 added_kozo.add(kozo_val)
 
+    # 建物種別 (search_boshu_shubetsu_code)
+    # itandi API の building_detail_type 値 → ES-Square コードに変換
+    if criteria.building_types:
+        added_types: set[str] = set()
+        unmapped_types: list[str] = []
+        for bt in criteria.building_types:
+            code = BUILDING_TYPE_MAP.get(bt)
+            if code and code not in added_types:
+                params.append(("search_boshu_shubetsu_code", code))
+                added_types.add(code)
+            elif not code:
+                unmapped_types.append(bt)
+        if added_types:
+            print(
+                f"[INFO] ES-Square: 建物種別フィルタ適用: "
+                f"{list(added_types)}"
+            )
+        if unmapped_types:
+            print(
+                f"[WARN] ES-Square: 建物種別マッピング未定義: "
+                f"{unmapped_types}"
+            )
+
     # 敷金なし
     if criteria.no_deposit:
         params.append(("shikikin", "0"))
@@ -103,6 +148,26 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
     # 礼金なし
     if criteria.no_key_money:
         params.append(("reikin", "0"))
+
+    # 最終更新日 (koshin_radio_state)
+    if criteria.update_within_days is not None:
+        # 最も近い選択肢にマッピング (1→today, 3→threeDays, 7→sevenDays)
+        best_key: int | None = None
+        for days_key in sorted(UPDATE_WITHIN_MAP.keys()):
+            if criteria.update_within_days <= days_key:
+                best_key = days_key
+                break
+        if best_key is None:
+            # 7日より大きい場合は sevenDays を使用
+            best_key = max(UPDATE_WITHIN_MAP.keys())
+        params.append(
+            ("koshin_radio_state", UPDATE_WITHIN_MAP[best_key])
+        )
+        print(
+            f"[INFO] ES-Square: 最終更新日フィルタ適用: "
+            f"{UPDATE_WITHIN_MAP[best_key]} "
+            f"(指定: {criteria.update_within_days}日)"
+        )
 
     # 申込あり除外
     params.append(("is_exclude_moshikomi_exist", "true"))
@@ -179,13 +244,28 @@ def build_search_url_with_kodawari(
 
     # kodawari パラメータを追加
     kodawari_params: list[tuple[str, str]] = []
+    unmapped_kodawari: list[str] = []
     for name in equipment_names:
         name = name.strip()
+        if not name:
+            continue
         if name in KODAWARI_MAP:
             kodawari_params.append(("kodawari", KODAWARI_MAP[name]))
+        else:
+            unmapped_kodawari.append(name)
 
     if kodawari_params:
         url += "&" + urlencode(kodawari_params)
+        print(
+            f"[INFO] ES-Square: kodawari {len(kodawari_params)} 件適用"
+        )
+
+    if unmapped_kodawari:
+        print(
+            f"[WARN] ES-Square: kodawari マッピング未定義 "
+            f"({len(unmapped_kodawari)} 件): "
+            f"{', '.join(unmapped_kodawari)}"
+        )
 
     return url
 
