@@ -1228,11 +1228,13 @@ def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
     urls: list[str] = []
     seen: set[str] = set()
 
-    # 除外パターン: アイコン・ロゴ等
+    # 除外パターン: アイコン・ロゴ等・サイト共通プロモーション画像
     _SKIP_PATTERNS = (
         "placeholder", "logo", "icon", "favicon",
         "avatar", "profile", "badge", "data:",
         "blob:", "svg+xml",
+        "es-service.net", "onetop",
+        "okbiz", "miibo", "chatbot", "faq-e-seikatsu",
     )
 
     def _add_url(src: str) -> None:

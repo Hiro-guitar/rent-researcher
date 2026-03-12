@@ -25,7 +25,8 @@ from .parsers import (
 # サイト共通 UI 画像（チャットボットアイコン等）を除外するパターン
 _JUNK_IMG = re.compile(
     r"okbiz|miibo|chatbot|faq-e-seikatsu|logo|icon|favicon"
-    r"|avatar|badge|placeholder|loading|spinner",
+    r"|avatar|badge|placeholder|loading|spinner"
+    r"|es-service\.net|onetop",
     re.IGNORECASE,
 )
 
@@ -738,7 +739,7 @@ def _extract_images_from_api_data(
             var apiData = window.__esq_api || [];
             var imageUrls = [];
             var seen = {};
-            var SKIP = /logo|icon|favicon|avatar|badge|placeholder|no.?image/i;
+            var SKIP = /logo|icon|favicon|avatar|badge|placeholder|no.?image|es-service\.net|onetop|okbiz|miibo|chatbot/i;
 
             function search(obj, depth) {
                 if (depth > 8 || !obj) return;
@@ -1013,7 +1014,7 @@ def _extract_gallery_images(
             var entries = performance.getEntriesByType('resource');
             var imgUrls = [];
             var seen = {};
-            var SKIP = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz/i;
+            var SKIP = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz|es-service\.net|onetop/i;
             var SKIP_EXT = /\\.(js|css|woff|woff2|ttf|eot|svg)$/i;
 
             for (var i = 0; i < entries.length; i++) {
@@ -1077,7 +1078,7 @@ def _extract_images_via_js(session: EsSquareSession) -> list[str]:
         urls = session.execute_script("""
             var urls = [];
             var seen = {};
-            var SKIP = /placeholder|logo|icon|favicon|avatar|badge/i;
+            var SKIP = /placeholder|logo|icon|favicon|avatar|badge|es-service\.net|onetop|okbiz|miibo|chatbot/i;
 
             var imgs = document.querySelectorAll('img');
             for (var i = 0; i < imgs.length; i++) {
