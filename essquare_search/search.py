@@ -73,6 +73,12 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
     if criteria.rent_max is not None:
         rent_man = criteria.rent_max // 10000
         params.append(("chinryo_to", str(rent_man)))
+        print(
+            f"[INFO] ES-Square: 賃料上限 chinryo_to={rent_man}万円 "
+            f"(rent_max={criteria.rent_max:,}円)"
+        )
+    else:
+        print("[WARN] ES-Square: 賃料上限が未設定 (rent_max=None)")
     if criteria.rent_min is not None:
         rent_man = criteria.rent_min // 10000
         params.append(("chinryo_from", str(rent_man)))

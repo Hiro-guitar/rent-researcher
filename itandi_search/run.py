@@ -477,6 +477,21 @@ def _run_itandi_search(
     except Exception as exc:
         print(f"[WARN] 画像取得に失敗 ({customer.name}): {exc}")
 
+    # 賃料フィルター（安全策: API フィルタの漏れを防止）
+    before = len(new_properties)
+    new_properties = _filter_by_rent(
+        new_properties, rent_max=customer.rent_max
+    )
+    filtered = before - len(new_properties)
+    if filtered:
+        print(
+            f"  → 賃料フィルター: {filtered} 件除外, "
+            f"残り {len(new_properties)} 件"
+        )
+    if not new_properties:
+        print("  → 賃料条件に合う物件なし")
+        return 0
+
     # ステータス・WEBバッジフィルター（詳細取得後に判定）
     is_test = "テスト" in customer.name
     before = len(new_properties)
@@ -607,6 +622,31 @@ def _run_itandi_search(
     return len(new_properties)
 
 
+def _filter_by_rent(properties: list, *, rent_max: int | None) -> list:
+    """賃料上限で物件をフィルターする（安全策）。
+
+    サーバーサイドフィルタ（itandi API / ES-Square URL パラメータ）が
+    正しく機能しなかった場合のフォールバック。
+    管理費を含む総賃料（rent + management_fee）で判定する。
+    """
+    if rent_max is None:
+        return properties
+
+    result = []
+    for p in properties:
+        total_rent = p.rent + (p.management_fee or 0)
+        if total_rent <= rent_max:
+            result.append(p)
+        else:
+            print(
+                f"[INFO] 賃料フィルター除外 (room_id={p.room_id}): "
+                f"賃料={p.rent:,}円 + 管理費={p.management_fee:,}円 "
+                f"= 合計{total_rent:,}円 > 上限{rent_max:,}円 "
+                f"(物件名: {p.building_name})"
+            )
+    return result
+
+
 def _run_essquare_search(
     *,
     esq_session,
@@ -648,6 +688,18 @@ def _run_essquare_search(
     # ── フィルタ (itandi と同じロジックを適用) ──────────
 
     is_test = "テスト" in customer.name
+
+    # 賃料フィルター（安全策: サーバーサイドフィルタの漏れを防止）
+    before = len(new_properties)
+    new_properties = _filter_by_rent(
+        new_properties, rent_max=customer.rent_max
+    )
+    filtered = before - len(new_properties)
+    if filtered:
+        print(f"  → ES-Square 賃料フィルター: {filtered} 件除外")
+    if not new_properties:
+        print("  → ES-Square: 賃料条件に合う物件なし")
+        return 0
 
     # 定期借家フィルター
     if customer.no_teiki:
