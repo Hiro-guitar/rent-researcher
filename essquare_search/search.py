@@ -226,22 +226,28 @@ def search_properties(
             html = session.get_page(url)
 
             # SPA レンダリング完了をさらに待つ
-            render_status = _wait_for_render(session, timeout=25)
+            render_status = _wait_for_render(session, timeout=20)
 
             # 0 件検出 → このページ以降は不要
             if render_status == "empty":
                 print("[INFO] ES-Square: 検索結果 0 件")
                 break
 
-            # レンダリング失敗時は about:blank 経由で再ナビゲーション
+            # レンダリング失敗時: page=1 のみリトライ、2+ はスキップ
             if render_status == "timeout":
-                print("[INFO] ES-Square: リロードしてリトライ...")
-                html = session.get_page(url)
-                render_status = _wait_for_render(session, timeout=20)
+                if page == 1:
+                    print("[INFO] ES-Square: リロードしてリトライ...")
+                    html = session.get_page(url)
+                    render_status = _wait_for_render(session, timeout=15)
+                else:
+                    print(
+                        f"[WARN] ES-Square: page={page} "
+                        f"レンダリング失敗、スキップ"
+                    )
+                    break
 
             # リトライ後も失敗
             if render_status != "rendered":
-                _log_browser_diagnostics(session, page)
                 if render_status == "empty":
                     print("[INFO] ES-Square: リトライ後も 0 件")
                 else:
@@ -250,9 +256,6 @@ def search_properties(
 
             # レンダリング後の最新 HTML を取得
             html = session.driver.page_source
-
-            # ── デバッグ: ページ状態をログ出力 ──
-            _debug_page_state(session, html, page)
 
             # DOM パースで物件データを抽出
             properties, has_next = parse_search_results(html)
@@ -283,7 +286,7 @@ def search_properties(
             break
 
         # レート制限対策: ランダム遅延
-        time.sleep(random.uniform(2, 4))
+        time.sleep(random.uniform(1, 2))
 
     return all_properties
 
@@ -345,10 +348,10 @@ def _wait_for_render(
                 stale_start = None
             elif stale_start is None:
                 stale_start = time.time()
-            elif time.time() - stale_start > 15:
+            elif time.time() - stale_start > 8:
                 print(
                     f"[WARN] ES-Square: ページが {text_len} chars "
-                    f"で停止（15秒以上変化なし）"
+                    f"で停止（8秒以上変化なし）"
                 )
                 break
 
@@ -603,4 +606,4 @@ def enrich_property_details(
             )
 
         # レート制限対策
-        time.sleep(random.uniform(2, 4))
+        time.sleep(random.uniform(1, 2))
