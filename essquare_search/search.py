@@ -1,6 +1,7 @@
 """いい生活Square 検索 URL 構築・実行"""
 
 import random
+import re
 import time
 from urllib.parse import urlencode
 
@@ -19,6 +20,13 @@ from .parsers import (
     parse_detail_page,
     parse_graphql_results,
     parse_search_results,
+)
+
+# サイト共通 UI 画像（チャットボットアイコン等）を除外するパターン
+_JUNK_IMG = re.compile(
+    r"okbiz|miibo|chatbot|faq-e-seikatsu|logo|icon|favicon"
+    r"|avatar|badge|placeholder|loading|spinner",
+    re.IGNORECASE,
 )
 
 
@@ -639,21 +647,25 @@ def enrich_property_details(
 
             details = parse_detail_page(html)
 
+            # parse_detail_page が返す画像からサイト共通UI画像を除外
+            if details.get("image_urls"):
+                cleaned = [
+                    u for u in details["image_urls"]
+                    if not _JUNK_IMG.search(u)
+                ]
+                details["image_urls"] = cleaned
+                if not cleaned:
+                    details["image_url"] = None
+
             # 画像取得: 複数の方法を順番に試行
             if not details.get("image_urls"):
-                # 1. API レスポンスデータから画像 URL を探す
-                api_images = _extract_images_from_api_data(session)
-                if api_images:
-                    details["image_urls"] = api_images
-                    if not details.get("image_url"):
-                        details["image_url"] = api_images[0]
-                    print(
-                        f"[DEBUG] ES-Square 画像取得: "
-                        f"API データから {len(api_images)} 件"
-                    )
+                # インターセプターでトラッキングした画像 fetch URL をクリア
+                # (前の物件の画像が混ざらないようにする)
+                _clear_img_fetch_tracking(session)
 
-            if not details.get("image_urls"):
-                # 2. Swiper ギャラリーを操作して取得
+                # 1. Swiper ギャラリーを操作して画像を取得
+                #    ギャラリー操作中に fetch される画像 URL を
+                #    インターセプターがトラッキングする
                 gallery_images = _extract_gallery_images(session)
                 if gallery_images:
                     details["image_urls"] = gallery_images
@@ -662,6 +674,18 @@ def enrich_property_details(
                     print(
                         f"[DEBUG] ES-Square 画像取得: "
                         f"ギャラリーから {len(gallery_images)} 件"
+                    )
+
+            if not details.get("image_urls"):
+                # 2. API レスポンスデータから画像 URL を探す
+                api_images = _extract_images_from_api_data(session)
+                if api_images:
+                    details["image_urls"] = api_images
+                    if not details.get("image_url"):
+                        details["image_url"] = api_images[0]
+                    print(
+                        f"[DEBUG] ES-Square 画像取得: "
+                        f"API データから {len(api_images)} 件"
                     )
 
             if not details.get("image_urls"):
@@ -755,6 +779,36 @@ def _extract_images_from_api_data(
         return []
 
 
+def _clear_img_fetch_tracking(session: EsSquareSession) -> None:
+    """画像 fetch トラッキングをクリアする (物件間の混入防止)。"""
+    try:
+        session.execute_script("window.__esq_img_fetches = [];")
+    except Exception:
+        pass
+
+
+def _get_tracked_img_urls(session: EsSquareSession) -> list[str]:
+    """インターセプターがトラッキングした画像 fetch URL を取得する。
+
+    fetch() で取得された画像の元の HTTP URL を返す。
+    blob URL ではなく、Discord embed で使用可能な HTTP URL。
+    """
+    try:
+        urls = session.execute_script(
+            "return window.__esq_img_fetches || [];"
+        )
+        if urls:
+            # ジャンク画像を除外
+            cleaned = [
+                u for u in urls
+                if isinstance(u, str) and not _JUNK_IMG.search(u)
+            ]
+            return cleaned[:20]
+    except Exception:
+        pass
+    return []
+
+
 def _close_gallery_modal(session: EsSquareSession) -> None:
     """ギャラリーモーダルを確実に閉じる。"""
     try:
@@ -794,15 +848,21 @@ def _extract_gallery_images(
     """Swiper ギャラリーモーダルを操作して物件画像 URL を取得する。
 
     ES-Square の物件画像は Swiper カルーセルモーダル内に blob URL で
-    表示される。Performance API で実際のリクエスト URL をキャプチャする。
+    表示される。以下の方法で HTTP URL を取得する:
+    1. fetch インターセプターがトラッキングした画像 HTTP URL
+    2. Performance API から画像リクエスト URL
 
     参考: ユーザー提供の Tampermonkey スクリプト
     - サムネイル: .css-tx2s10 img
     - モーダル画像: .swiper-slide-active .css-oq6icw img
     - 次へボタン: svg[data-testid="keyboardArrowRight"] 内 .css-1nuul26
     - 閉じるボタン: .MuiBox-root.css-11p4x25
+    - 画像ロード完了: img.complete && img.naturalWidth > 0
     """
     try:
+        # Performance エントリをクリア (ギャラリー操作分のみキャプチャ)
+        session.execute_script("performance.clearResourceTimings();")
+
         # サムネイルをクリックしてギャラリーモーダルを開く
         clicked = session.execute_script("""
             // 参考スクリプトのセレクタ
@@ -811,6 +871,14 @@ def _extract_gallery_images(
                 thumb.click();
                 return 'css-tx2s10';
             }
+            // フォールバック: Swiper 関連の画像
+            var swiperImg = document.querySelector(
+                '.swiper img, [class*="swiper"] img'
+            );
+            if (swiperImg && swiperImg.naturalWidth > 0) {
+                swiperImg.click();
+                return 'swiper';
+            }
             // フォールバック: blob URL の画像 or 大きい画像
             var imgs = document.querySelectorAll('img');
             for (var i = 0; i < imgs.length; i++) {
@@ -818,8 +886,8 @@ def _extract_gallery_images(
                 var src = img.src || '';
                 var w = img.naturalWidth || img.width || 0;
                 var h = img.naturalHeight || img.height || 0;
-                if ((src.startsWith('blob:') || (w > 100 && h > 80))
-                    && !/logo|icon|avatar|badge/i.test(
+                if ((src.indexOf('blob:') === 0 || (w > 100 && h > 80))
+                    && !/logo|icon|avatar|badge|chatbot|miibo/i.test(
                         (img.className || '') + (img.alt || '') + src
                     )) {
                     img.click();
@@ -834,67 +902,118 @@ def _extract_gallery_images(
             return []
 
         print(f"[DEBUG] ES-Square: サムネイルクリック ({clicked})")
-        time.sleep(2)
 
-        # Swiper モーダルが開いたか確認
-        modal_open = session.execute_script("""
-            return !!(
-                document.querySelector('.swiper-slide-active')
-                || document.querySelector('[class*="swiper"]')
-            );
-        """)
+        # Swiper モーダルの画像ロードを待つ
+        # (Tampermonkey 参考: img.complete && img.naturalWidth > 0)
+        modal_ready = False
+        for _ in range(10):
+            time.sleep(0.5)
+            modal_ready = session.execute_script("""
+                var active = document.querySelector(
+                    '.swiper-slide-active .css-oq6icw img,'
+                    + '.swiper-slide-active img'
+                );
+                if (active && active.complete
+                    && active.naturalWidth > 0) return true;
+                // フォールバック: Swiper コンテナ自体の存在確認
+                var swiper = document.querySelector(
+                    '.swiper-slide-active, [class*="swiper"]'
+                );
+                return !!swiper;
+            """)
+            if modal_ready:
+                break
 
-        if not modal_open:
+        if not modal_ready:
             print("[DEBUG] ES-Square: ギャラリーモーダル未検出")
             return []
 
-        # Performance エントリをクリア (ギャラリー操作分のみキャプチャ)
-        session.execute_script("performance.clearResourceTimings();")
+        print("[DEBUG] ES-Square: ギャラリーモーダル表示確認")
 
         # 全スライドを順番にナビゲート
         slide_count = 0
-        for _ in range(25):
-            has_next = session.execute_script("""
+        max_slides = 25
+        for _ in range(max_slides):
+            # 次へボタンの検出とクリック
+            # (Tampermonkey 参考: .css-1nuul26 内の ArrowRight アイコン)
+            nav_result = session.execute_script("""
+                // 方法1: Tampermonkey と同じセレクタ
+                var nextContainer = document.querySelector('.css-1nuul26');
+                if (nextContainer) {
+                    var style = window.getComputedStyle(nextContainer);
+                    if (style.pointerEvents === 'none'
+                        || nextContainer.hasAttribute('disabled')) {
+                        return 'disabled';
+                    }
+                    nextContainer.click();
+                    return 'clicked';
+                }
+                // 方法2: ArrowRight アイコンから親ボタンを探す
                 var nextIcon = document.querySelector(
                     'svg[data-testid="KeyboardArrowRightIcon"],'
                     + 'svg[data-testid="keyboardArrowRight"],'
                     + 'svg[data-testid="ArrowForwardIosIcon"],'
                     + 'svg[data-testid="NavigateNextIcon"]'
                 );
-                if (!nextIcon) return false;
-                // 親のクリック可能要素を探す
+                if (!nextIcon) return 'no_button';
                 var el = nextIcon;
                 for (var i = 0; i < 5; i++) {
                     el = el.parentElement;
                     if (!el) break;
+                    var s = window.getComputedStyle(el);
+                    if (s.pointerEvents === 'none') return 'disabled';
                     if (el.tagName === 'BUTTON'
                         || el.getAttribute('role') === 'button'
                         || el.onclick
-                        || el.style.cursor === 'pointer') {
+                        || s.cursor === 'pointer') {
                         el.click();
-                        return true;
+                        return 'clicked';
                     }
                 }
-                // 最後の手段: 直接の親コンテナをクリック
+                // 最後の手段: アイコンの親をクリック
                 var parent = nextIcon.parentElement;
-                if (parent) { parent.click(); return true; }
-                return false;
+                if (parent) { parent.click(); return 'clicked'; }
+                return 'no_button';
             """)
-            if not has_next:
+
+            if nav_result != "clicked":
+                print(
+                    f"[DEBUG] ES-Square: ナビゲーション終了 "
+                    f"(reason={nav_result})"
+                )
                 break
+
             slide_count += 1
-            time.sleep(0.4)
+
+            # 画像ロード完了を待つ
+            # (Tampermonkey 参考: waitForImageChange)
+            for _ in range(6):
+                time.sleep(0.3)
+                loaded = session.execute_script("""
+                    var img = document.querySelector(
+                        '.swiper-slide-active .css-oq6icw img,'
+                        + '.swiper-slide-active img'
+                    );
+                    return img && img.complete
+                        && img.naturalWidth > 0;
+                """)
+                if loaded:
+                    break
 
         print(
             f"[DEBUG] ES-Square: {slide_count} スライドナビゲート"
         )
 
-        # Performance API から画像リクエスト URL を収集
+        # 画像 URL を収集: fetch インターセプター + Performance API
+        # 方法1: fetch インターセプターでトラッキングした HTTP URL
+        tracked_urls = _get_tracked_img_urls(session)
+
+        # 方法2: Performance API から画像リクエスト URL を収集
         perf_urls = session.execute_script("""
             var entries = performance.getEntriesByType('resource');
             var imgUrls = [];
             var seen = {};
-            var SKIP = /logo|icon|favicon|avatar|badge/i;
+            var SKIP = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz/i;
             var SKIP_EXT = /\\.(js|css|woff|woff2|ttf|eot|svg)$/i;
 
             for (var i = 0; i < entries.length; i++) {
@@ -908,7 +1027,6 @@ def _extract_gallery_images(
                 var size = (entries[i].transferSize || 0)
                     + (entries[i].decodedBodySize || 0);
 
-                // 画像拡張子 or fetch/XHR で取得した大きめリソース
                 if (isImageExt
                     || ((init === 'fetch'
                         || init === 'xmlhttprequest')
@@ -918,39 +1036,30 @@ def _extract_gallery_images(
                 }
             }
             return imgUrls;
-        """)
-
-        # 初期ページロードの画像 URL も取得 (Performance の全エントリ)
-        if not perf_urls:
-            perf_urls = session.execute_script("""
-                var entries = performance.getEntries();
-                var imgUrls = [];
-                var seen = {};
-                for (var i = 0; i < entries.length; i++) {
-                    var name = entries[i].name || '';
-                    if (!name.startsWith('http')) continue;
-                    if (seen[name]) continue;
-                    if (/\\.(jpg|jpeg|png|webp|gif|avif)/i.test(name)
-                        && !/logo|icon|favicon|badge/i.test(name)) {
-                        imgUrls.push(name);
-                        seen[name] = true;
-                    }
-                }
-                return imgUrls;
-            """)
+        """) or []
 
         # モーダルを閉じる
         _close_gallery_modal(session)
 
-        if perf_urls:
+        # 結果をマージ (fetch トラッキング優先、重複除去)
+        seen: set[str] = set()
+        result: list[str] = []
+        for url in tracked_urls + perf_urls:
+            if url not in seen and not _JUNK_IMG.search(url):
+                seen.add(url)
+                result.append(url)
+
+        if result:
             print(
-                f"[DEBUG] ES-Square ギャラリー Performance: "
-                f"{len(perf_urls)} URL"
+                f"[DEBUG] ES-Square ギャラリー画像: "
+                f"{len(result)} URL "
+                f"(fetch={len(tracked_urls)}, "
+                f"perf={len(perf_urls)})"
             )
-            for u in perf_urls[:3]:
+            for u in result[:3]:
                 print(f"[DEBUG]   {str(u)[:150]}")
 
-        return perf_urls[:20] if perf_urls else []
+        return result[:20]
 
     except Exception as exc:
         print(f"[WARN] ES-Square ギャラリー画像取得失敗: {exc}")
