@@ -74,7 +74,7 @@ class EsSquareSession:
             raise EsSquareAuthError("ブラウザセッションが初期化されていません")
 
         self.driver.get(url)
-        time.sleep(3)  # SSR ページ読み込み待ち
+        time.sleep(5)  # SPA 初期読み込み待ち
 
         # ログインページにリダイレクトされた場合は再ログイン
         current_url = self.driver.current_url
@@ -82,7 +82,7 @@ class EsSquareSession:
             print("[INFO] セッション切れ検出、再ログイン中...")
             self._do_login(self.driver)
             self.driver.get(url)
-            time.sleep(3)
+            time.sleep(5)
 
         return self.driver.page_source
 

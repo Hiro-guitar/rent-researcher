@@ -162,7 +162,14 @@ def search_properties(
             html = session.get_page(url)
 
             # SPA レンダリング完了をさらに待つ
-            _wait_for_render(session, timeout=10)
+            rendered = _wait_for_render(session, timeout=25)
+
+            # レンダリング失敗時はリロードしてリトライ
+            if not rendered:
+                print("[INFO] ES-Square: リロードしてリトライ...")
+                session.driver.refresh()
+                time.sleep(5)
+                rendered = _wait_for_render(session, timeout=20)
 
             # レンダリング後の最新 HTML を取得
             html = session.driver.page_source
@@ -177,21 +184,13 @@ def search_properties(
                 f"{len(properties)} 件取得 (page={page})"
             )
 
-            # DOM パースで 0 件の場合、API レスポンスを確認
+            # DOM パースで 0 件の場合はログのみ
+            # (API レスポンスは認証/ユーザーデータのみで物件データを含まない)
             if not properties:
                 print(
-                    "[INFO] ES-Square: DOM パースで 0 件、"
-                    "API レスポンスを確認..."
+                    "[INFO] ES-Square: DOM パースで 0 件 "
+                    "(SPA レンダリング未完了の可能性)"
                 )
-                api_data = _get_captured_api_data(session)
-                if api_data:
-                    properties, has_next = parse_graphql_results(
-                        api_data
-                    )
-                    print(
-                        f"[DEBUG] ES-Square API パース: "
-                        f"{len(properties)} 件取得"
-                    )
 
         except Exception as exc:
             print(f"[ERROR] ES-Square ページ取得失敗: {exc}")
@@ -210,32 +209,47 @@ def search_properties(
 
 
 def _wait_for_render(
-    session: EsSquareSession, timeout: int = 10
-) -> None:
+    session: EsSquareSession, timeout: int = 25
+) -> bool:
     """SPA のレンダリング完了を待つ。
 
     検索結果の要素が表示されるか、タイムアウトするまで待機する。
+    Returns: True if rendered, False if timed out.
     """
     start = time.time()
     while time.time() - start < timeout:
         try:
-            # ページ内のテキスト量でレンダリング完了を推定
-            text_len = session.execute_script(
-                "return document.body ? document.body.innerText.length : 0;"
-            )
-            # 検索結果ページは通常数千文字以上
-            if text_len and text_len > 500:
-                # 「円」が含まれるか確認 (賃料表示の目印)
-                has_yen = session.execute_script(
-                    "return document.body.innerText.includes('円');"
-                )
-                if has_yen:
-                    return
+            # 複数の指標を一度に取得して判定
+            indicators = session.execute_script("""
+                var body = document.body;
+                if (!body) return {len: 0, yen: false, sqm: false};
+                var t = body.innerText;
+                return {
+                    len: t.length,
+                    yen: t.includes('円'),
+                    sqm: t.includes('㎡')
+                };
+            """)
+            if not indicators:
+                time.sleep(1)
+                continue
+
+            text_len = indicators.get("len", 0)
+            has_yen = indicators.get("yen", False)
+            has_sqm = indicators.get("sqm", False)
+
+            # 検索結果ページは「円」と「㎡」の両方を含む
+            if text_len > 1000 and has_yen and has_sqm:
+                return True
+            # 「円」のみでもテキスト量が多ければ OK
+            if text_len > 2000 and has_yen:
+                return True
         except Exception:
             pass
         time.sleep(1)
 
     print("[WARN] ES-Square: レンダリング待ちタイムアウト")
+    return False
 
 
 def _debug_page_state(
