@@ -735,27 +735,53 @@ def enrich_property_details(
             if rendered:
                 html = session.driver.page_source
 
-            # 診断: 詳細ページの画像状態を調査
+            # 診断: API レスポンスから画像URL候補を探索
             diag = session.execute_script("""
-                var imgs = document.querySelectorAll('img');
-                var result = {total: imgs.length, blob: 0, http: 0, data: 0, urls: []};
-                for (var i = 0; i < imgs.length; i++) {
-                    var src = imgs[i].src || '';
-                    var w = imgs[i].naturalWidth || 0;
-                    var h = imgs[i].naturalHeight || 0;
-                    if (src.startsWith('blob:')) result.blob++;
-                    else if (src.startsWith('http')) result.http++;
-                    else if (src.startsWith('data:')) result.data++;
-                    if (w > 50 && h > 50) {
-                        result.urls.push(src.substring(0, 120) + ' (' + w + 'x' + h + ')');
+                var apiData = window.__esq_api || [];
+                var result = {apiCount: apiData.length, imageUrls: [], apiUrls: []};
+                // APIのURLを記録
+                for (var i = 0; i < apiData.length; i++) {
+                    result.apiUrls.push((apiData[i].url || '').substring(0, 100));
+                }
+                // APIデータ内のURL文字列を再帰探索
+                var seen = {};
+                function search(obj, depth, path) {
+                    if (depth > 6 || !obj) return;
+                    if (typeof obj === 'string') {
+                        if (/https?:\\/\\//i.test(obj) && !seen[obj]
+                            && !/\\.(js|css|woff|svg)$/i.test(obj)
+                            && obj.length < 500) {
+                            seen[obj] = true;
+                            result.imageUrls.push(path + ': ' + obj.substring(0, 200));
+                        }
+                        return;
+                    }
+                    if (Array.isArray(obj)) {
+                        for (var i = 0; i < Math.min(obj.length, 50); i++) {
+                            search(obj[i], depth+1, path+'['+i+']');
+                        }
+                        return;
+                    }
+                    if (typeof obj === 'object') {
+                        var keys = Object.keys(obj);
+                        for (var k = 0; k < keys.length; k++) {
+                            search(obj[keys[k]], depth+1, path+'.'+keys[k]);
+                        }
                     }
                 }
-                result.currentUrl = window.location.href;
-                result.fetchTracked = (window.__esq_img_fetches || []).length;
-                result.apiTracked = (window.__esq_api || []).length;
+                for (var j = 0; j < apiData.length; j++) {
+                    search(apiData[j].data, 0, 'api['+j+']');
+                }
+                result.imageUrls = result.imageUrls.slice(0, 30);
+                result.apiUrls = result.apiUrls.slice(0, 10);
                 return result;
             """)
-            print(f"[DEBUG] ES-Square 詳細ページ診断: {diag}")
+            if diag:
+                print(f"[DEBUG] ES-Square API診断: apiCount={diag.get('apiCount')}")
+                for u in (diag.get('apiUrls') or [])[:10]:
+                    print(f"[DEBUG]   API URL: {u}")
+                for u in (diag.get('imageUrls') or [])[:15]:
+                    print(f"[DEBUG]   データ内URL: {u}")
 
             details = parse_detail_page(html)
 
