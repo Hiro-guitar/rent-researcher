@@ -514,6 +514,12 @@ def parse_search_results(html: str) -> tuple[list[Property], bool]:
         print("[DEBUG] DOM パーサ: 賃料パターン方式で物件抽出を試行...")
         _debug_row_count = 0
         for element in rent_matches:
+            # 検索条件テキスト（「賃料：~80000円」等）を除外
+            element_text = str(element).strip()
+            if re.search(r"賃料[：:].*~|~.*円$", element_text):
+                print(f"[DEBUG] DOM パーサ: 検索条件テキストをスキップ: {element_text[:60]}")
+                continue
+
             parent = element.parent
             if not parent:
                 continue
