@@ -25,6 +25,10 @@ def _create_driver() -> webdriver.Chrome:
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--window-size=1280,1024")
+    # CDP ネットワークログを有効化（画像リクエスト追跡用）
+    options.set_capability(
+        "goog:loggingPrefs", {"performance": "ALL"}
+    )
     return webdriver.Chrome(options=options)
 
 

@@ -1,5 +1,6 @@
 """いい生活Square 検索 URL 構築・実行"""
 
+import json
 import random
 import re
 import time
@@ -735,33 +736,43 @@ def enrich_property_details(
             if rendered:
                 html = session.driver.page_source
 
-            # Performance API から初期ページロードの画像リソースを取得
-            perf_images = session.execute_script("""
-                var entries = performance.getEntriesByType('resource');
-                var imgs = [];
-                var seen = {};
-                var SKIP = /logo|icon|favicon|chatbot|miibo|okbiz|es-service|onetop|sfa_main|\\.(js|css|woff|woff2|ttf|eot|svg|html)$/i;
-                for (var i = 0; i < entries.length; i++) {
-                    var e = entries[i];
-                    var name = e.name;
-                    if (seen[name] || SKIP.test(name)) continue;
-                    // 画像拡張子 OR 画像っぽい fetch/xhr (サイズ大)
-                    var isImg = /\\.(jpg|jpeg|png|webp|gif|avif|bmp)/i.test(name);
-                    var size = (e.transferSize || 0) + (e.decodedBodySize || 0);
-                    var isLargeFetch = (e.initiatorType === 'fetch' || e.initiatorType === 'xmlhttprequest') && size > 3000;
-                    if (isImg || isLargeFetch) {
-                        seen[name] = true;
-                        imgs.push({url: name, type: e.initiatorType, size: size});
-                    }
-                }
-                return imgs;
-            """) or []
-            if perf_images:
-                print(f"[DEBUG] ES-Square Performance API 画像: {len(perf_images)} 件")
-                for pi in perf_images[:10]:
-                    print(f"[DEBUG]   {pi.get('type','?')}: {pi.get('url','')[:150]} ({pi.get('size',0)} bytes)")
-            else:
-                print("[DEBUG] ES-Square Performance API 画像: 0 件")
+            # CDP Network で全リソースを確認
+            try:
+                perf_log = session.driver.get_log('performance')
+                img_urls = []
+                for entry in perf_log:
+                    msg = json.loads(entry.get('message', '{}'))
+                    params = msg.get('message', {}).get('params', {})
+                    resp = params.get('response', {})
+                    url = resp.get('url', '')
+                    mime = resp.get('mimeType', '')
+                    if url and ('image' in mime or '/photo' in url
+                                or '/bukken_image' in url
+                                or '/file/' in url):
+                        img_urls.append(f"{mime}: {url[:200]}")
+                if img_urls:
+                    print(f"[DEBUG] ES-Square CDP画像レスポンス: {len(img_urls)} 件")
+                    for u in img_urls[:10]:
+                        print(f"[DEBUG]   {u}")
+                else:
+                    # Performance entries のサイズ上位を表示（画像候補）
+                    all_entries = []
+                    for entry in perf_log:
+                        msg = json.loads(entry.get('message', '{}'))
+                        method = msg.get('message', {}).get('method', '')
+                        params = msg.get('message', {}).get('params', {})
+                        if method == 'Network.responseReceived':
+                            resp = params.get('response', {})
+                            url = resp.get('url', '')
+                            mime = resp.get('mimeType', '')
+                            size = params.get('response', {}).get('encodedDataLength', 0)
+                            if url and not url.startswith('data:'):
+                                all_entries.append(f"{mime} ({size}B): {url[:150]}")
+                    print(f"[DEBUG] ES-Square CDP 全レスポンス: {len(all_entries)} 件")
+                    for e in all_entries[:15]:
+                        print(f"[DEBUG]   {e}")
+            except Exception as exc:
+                print(f"[DEBUG] ES-Square CDP ログ取得失敗: {exc}")
 
             details = parse_detail_page(html)
 
