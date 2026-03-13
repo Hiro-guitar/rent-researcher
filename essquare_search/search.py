@@ -735,53 +735,33 @@ def enrich_property_details(
             if rendered:
                 html = session.driver.page_source
 
-            # 診断: API レスポンスから画像URL候補を探索
-            diag = session.execute_script("""
-                var apiData = window.__esq_api || [];
-                var result = {apiCount: apiData.length, imageUrls: [], apiUrls: []};
-                // APIのURLを記録
-                for (var i = 0; i < apiData.length; i++) {
-                    result.apiUrls.push((apiData[i].url || '').substring(0, 100));
-                }
-                // APIデータ内のURL文字列を再帰探索
+            # Performance API から初期ページロードの画像リソースを取得
+            perf_images = session.execute_script("""
+                var entries = performance.getEntriesByType('resource');
+                var imgs = [];
                 var seen = {};
-                function search(obj, depth, path) {
-                    if (depth > 6 || !obj) return;
-                    if (typeof obj === 'string') {
-                        if (/https?:\\/\\//i.test(obj) && !seen[obj]
-                            && !/\\.(js|css|woff|svg)$/i.test(obj)
-                            && obj.length < 500) {
-                            seen[obj] = true;
-                            result.imageUrls.push(path + ': ' + obj.substring(0, 200));
-                        }
-                        return;
-                    }
-                    if (Array.isArray(obj)) {
-                        for (var i = 0; i < Math.min(obj.length, 50); i++) {
-                            search(obj[i], depth+1, path+'['+i+']');
-                        }
-                        return;
-                    }
-                    if (typeof obj === 'object') {
-                        var keys = Object.keys(obj);
-                        for (var k = 0; k < keys.length; k++) {
-                            search(obj[keys[k]], depth+1, path+'.'+keys[k]);
-                        }
+                var SKIP = /logo|icon|favicon|chatbot|miibo|okbiz|es-service|onetop|sfa_main|\\.(js|css|woff|woff2|ttf|eot|svg|html)$/i;
+                for (var i = 0; i < entries.length; i++) {
+                    var e = entries[i];
+                    var name = e.name;
+                    if (seen[name] || SKIP.test(name)) continue;
+                    // 画像拡張子 OR 画像っぽい fetch/xhr (サイズ大)
+                    var isImg = /\\.(jpg|jpeg|png|webp|gif|avif|bmp)/i.test(name);
+                    var size = (e.transferSize || 0) + (e.decodedBodySize || 0);
+                    var isLargeFetch = (e.initiatorType === 'fetch' || e.initiatorType === 'xmlhttprequest') && size > 3000;
+                    if (isImg || isLargeFetch) {
+                        seen[name] = true;
+                        imgs.push({url: name, type: e.initiatorType, size: size});
                     }
                 }
-                for (var j = 0; j < apiData.length; j++) {
-                    search(apiData[j].data, 0, 'api['+j+']');
-                }
-                result.imageUrls = result.imageUrls.slice(0, 30);
-                result.apiUrls = result.apiUrls.slice(0, 10);
-                return result;
-            """)
-            if diag:
-                print(f"[DEBUG] ES-Square API診断: apiCount={diag.get('apiCount')}")
-                for u in (diag.get('apiUrls') or [])[:10]:
-                    print(f"[DEBUG]   API URL: {u}")
-                for u in (diag.get('imageUrls') or [])[:15]:
-                    print(f"[DEBUG]   データ内URL: {u}")
+                return imgs;
+            """) or []
+            if perf_images:
+                print(f"[DEBUG] ES-Square Performance API 画像: {len(perf_images)} 件")
+                for pi in perf_images[:10]:
+                    print(f"[DEBUG]   {pi.get('type','?')}: {pi.get('url','')[:150]} ({pi.get('size',0)} bytes)")
+            else:
+                print("[DEBUG] ES-Square Performance API 画像: 0 件")
 
             details = parse_detail_page(html)
 
