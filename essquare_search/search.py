@@ -605,10 +605,16 @@ def _assign_detail_urls(
                         return p.bukkenGuid;
                     }
                 } catch(e) {}
-                // Search child first, then sibling
-                var found = findBukkenGuid(fiber.child, maxDepth - 1);
-                if (found) return found;
-                return findBukkenGuid(fiber.sibling, maxDepth - 1);
+                // Search children only (child + child's siblings)
+                // Do NOT traverse the root's own siblings to avoid
+                // leaking into the next property row's fiber subtree
+                var child = fiber.child;
+                while (child) {
+                    var found = findBukkenGuid(child, maxDepth - 1);
+                    if (found) return found;
+                    child = child.sibling;
+                }
+                return null;
             }
 
             for (var j = 0; j < propertyRows.length; j++) {
