@@ -28,7 +28,7 @@ from .parsers import (
 _JUNK_IMG = re.compile(
     r"okbiz|miibo|chatbot|faq-e-seikatsu|logo|icon|favicon"
     r"|avatar|badge|placeholder|loading|spinner"
-    r"|es-service\.net|onetop",
+    r"|es-service\.net|onetop|sfa_main_banner",
     re.IGNORECASE,
 )
 
@@ -734,6 +734,28 @@ def enrich_property_details(
             rendered = _wait_for_detail_render(session, timeout=10)
             if rendered:
                 html = session.driver.page_source
+
+            # 診断: 詳細ページの画像状態を調査
+            diag = session.execute_script("""
+                var imgs = document.querySelectorAll('img');
+                var result = {total: imgs.length, blob: 0, http: 0, data: 0, urls: []};
+                for (var i = 0; i < imgs.length; i++) {
+                    var src = imgs[i].src || '';
+                    var w = imgs[i].naturalWidth || 0;
+                    var h = imgs[i].naturalHeight || 0;
+                    if (src.startsWith('blob:')) result.blob++;
+                    else if (src.startsWith('http')) result.http++;
+                    else if (src.startsWith('data:')) result.data++;
+                    if (w > 50 && h > 50) {
+                        result.urls.push(src.substring(0, 120) + ' (' + w + 'x' + h + ')');
+                    }
+                }
+                result.currentUrl = window.location.href;
+                result.fetchTracked = (window.__esq_img_fetches || []).length;
+                result.apiTracked = (window.__esq_api || []).length;
+                return result;
+            """)
+            print(f"[DEBUG] ES-Square 詳細ページ診断: {diag}")
 
             details = parse_detail_page(html)
 
