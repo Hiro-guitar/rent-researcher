@@ -669,9 +669,14 @@ Discord 一括承認リンク → ?action=approve_all&customer=...
 | LIFF ID | `2009257618-mx8s5Vuk` |
 
 **デプロイ時の注意:**
+- `clasp push` は全ファイルを丸ごと上書きするため、**必ず main ブランチの最新コードからデプロイすること**。古いブランチやworktreeからデプロイすると、他の変更が消える。
 - `clasp deploy` は新しいデプロイメントを作成する。LINE Webhook は特定のデプロイメント URL を参照しているため、既存のデプロイメントを更新する必要がある。
-- 既存デプロイメントの更新: `npx @google/clasp deploy -i <DEPLOYMENT_ID>`
-- どのデプロイメント ID が Webhook に設定されているか不明な場合は、全デプロイメントを更新する:
+- 推奨デプロイ方法: `gas_deploy.sh` スクリプト（Apps Script REST API を直接使用）
+  ```
+  bash gas_deploy.sh <GASソースファイルのディレクトリ>
+  ```
+  このスクリプトは、ファイルプッシュ → 新バージョン作成 → 全デプロイメント更新を一括で行う。
+- 手動デプロイの場合:
   ```
   npx clasp push
   npx @google/clasp deployments  # 一覧表示
