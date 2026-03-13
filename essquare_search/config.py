@@ -200,32 +200,34 @@ PREFECTURE_CODES: dict[str, str] = {
     "沖縄県": "47",
 }
 
-# ── 間取り → madori パラメータ値 ─────────────────────
+# ── 間取り → search_madori_code2 パラメータ値 ────────
+# ブラウザ UI で各間取りを選択し URL パラメータから特定した連番コード
 LAYOUT_MAP: dict[str, str] = {
-    "ワンルーム": "oneRoom",
-    "1R": "oneRoom",
-    "1K": "oneK",
-    "1DK": "oneDK",
-    "1LDK": "oneLDK",
-    "2K": "twoK",
-    "2DK": "twoDK",
-    "2LDK": "twoLDK",
-    "3K": "threeK",
-    "3DK": "threeDK",
-    "3LDK": "threeLDK",
-    "4K": "fourK",
-    "4DK": "fourDK",
-    "4LDK": "fourLDK",
-    "4K以上": "fourK",
-    "5K以上": "fiveKOver",
+    "ワンルーム": "1",
+    "1R": "1",
+    "1K": "2",
+    "1DK": "3",
+    "1LDK": "4",
+    "2K": "5",
+    "2DK": "6",
+    "2LDK": "7",
+    "3K": "8",
+    "3DK": "9",
+    "3LDK": "10",
+    "4K": "11",
+    "4DK": "12",
+    "4LDK": "13",
+    "4K以上": "11",
+    "5K以上": "14",
 }
 
 # ── 構造 → kozo パラメータ値 ─────────────────────────
+# ブラウザ UI で各構造を選択し URL パラメータから特定した値
 STRUCTURE_MAP: dict[str, str] = {
     "鉄筋系": "tekkin",
     "鉄骨系": "tekkotsu",
-    "木造": "mokuzou",
-    "その他": "other",
+    "木造": "mokuzo",       # NOT "mokuzou"
+    "その他": "sonota",     # NOT "other"
     # 個別の構造タイプ → カテゴリにマッピング
     "RC": "tekkin",
     "SRC": "tekkin",
@@ -404,6 +406,6 @@ STATION_CODES: dict[str, str] = {
     "玉川学園前": "13+366+6002",
 }
 
-# ── 賃料選択肢 (万円) ────────────────────────────────
-# ES-Square の賃料パラメータは万円単位の数値
-# chinryo_from, chinryo_to
+# ── 賃料選択肢 ───────────────────────────────────────
+# ES-Square の賃料パラメータは円単位 (例: 80000)、ドット区切り
+# chinryo.from, chinryo.to
