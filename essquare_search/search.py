@@ -69,41 +69,38 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
                 "市区町村検索にフォールバック"
             )
 
-    # 賃料 (chinryo_from / chinryo_to) — 万円単位 (整数)
+    # 賃料 (chinryo.from / chinryo.to) — 円単位、ドット区切り
     if criteria.rent_max is not None:
-        rent_man = criteria.rent_max // 10000
-        params.append(("chinryo_to", str(rent_man)))
+        params.append(("chinryo.to", str(criteria.rent_max)))
         print(
-            f"[INFO] ES-Square: 賃料上限 chinryo_to={rent_man}万円 "
-            f"(rent_max={criteria.rent_max:,}円)"
+            f"[INFO] ES-Square: 賃料上限 chinryo.to={criteria.rent_max:,}円"
         )
     else:
         print("[WARN] ES-Square: 賃料上限が未設定 (rent_max=None)")
     if criteria.rent_min is not None:
-        rent_man = criteria.rent_min // 10000
-        params.append(("chinryo_from", str(rent_man)))
+        params.append(("chinryo.from", str(criteria.rent_min)))
 
-    # 間取り (madori)
+    # 間取り (search_madori_code2) — 連番コード、複数値はキー繰り返し
     for layout in criteria.layouts:
         layout = layout.strip()
         if layout in LAYOUT_MAP:
-            params.append(("madori", LAYOUT_MAP[layout]))
+            params.append(("search_madori_code2", LAYOUT_MAP[layout]))
         else:
             print(f"[WARN] ES-Square: 間取りマッピング未定義: {layout}")
 
-    # 専有面積 (menseki_from / menseki_to)
+    # 専有面積 (search_menseki.from / search_menseki.to) — ㎡単位
     if criteria.area_min is not None:
-        params.append(("menseki_from", str(criteria.area_min)))
+        params.append(("search_menseki.from", str(int(criteria.area_min))))
     if criteria.area_max is not None:
-        params.append(("menseki_to", str(criteria.area_max)))
+        params.append(("search_menseki.to", str(int(criteria.area_max))))
 
-    # 築年数 (chikunensu)
+    # 築年数 (chiku_nensu) — 年数 (例: 10 = 10年以内)
     if criteria.building_age is not None:
-        params.append(("chikunensu", str(criteria.building_age)))
+        params.append(("chiku_nensu", str(criteria.building_age)))
 
-    # 駅徒歩 (toho)
+    # 駅徒歩 (kotsu_ekitoho) — 分 (例: 10 = 10分以内)
     if criteria.walk_minutes is not None:
-        params.append(("toho", str(criteria.walk_minutes)))
+        params.append(("kotsu_ekitoho", str(criteria.walk_minutes)))
 
     # 建物構造 (kozo)
     added_kozo: set[str] = set()
