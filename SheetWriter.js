@@ -76,9 +76,21 @@ function writeToSheet(userId, state) {
     d.resident || ''                               // R: 居住者
   ];
 
-  // スプレッドシートに追記
+  // スプレッドシートに書き込み（同じ顧客の古い行を削除してから追記）
   const ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   const sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+
+  // 同じ顧客名の既存行を削除（下から順に削除してインデックスずれを防ぐ）
+  var customerName = d.name || '';
+  if (customerName) {
+    var existingData = sheet.getDataRange().getValues();
+    for (var i = existingData.length - 1; i >= 1; i--) {
+      if (existingData[i][1] === customerName) {
+        sheet.deleteRow(i + 1);
+      }
+    }
+  }
+
   sheet.appendRow(row);
 
   // LINE Users シートにも記録
@@ -114,6 +126,106 @@ function saveLineUser(userId, customerName) {
   // 新規追加
   const now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
   sheet.appendRow([userId, customerName, now]);
+}
+
+/**
+ * ユーザーの最新の登録済み検索条件をスプレッドシートから読み込む。
+ * @param {string} userId - LINE userId
+ * @return {Object|null} 条件データ（見つからない場合は null）
+ */
+function readLatestCriteria(userId) {
+  try {
+    // LINE Users シートから顧客名を取得
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (!luSheet) return null;
+
+    var luData = luSheet.getDataRange().getValues();
+    var customerName = null;
+    for (var i = 1; i < luData.length; i++) {
+      if (luData[i][0] === userId) {
+        customerName = luData[i][1];
+        break;
+      }
+    }
+    if (!customerName) return null;
+
+    // 検索条件シートから最新行を取得（同名の最後の行）
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return null;
+
+    var data = sheet.getDataRange().getValues();
+    var latestRow = null;
+    for (var j = 1; j < data.length; j++) {
+      if (data[j][1] === customerName) {
+        latestRow = data[j];
+      }
+    }
+    if (!latestRow) return null;
+
+    // 行データをstate形式に変換
+    function splitCSV(val) {
+      if (!val) return [];
+      return String(val).split(/[,、]\s*/).filter(function(s) { return s.length > 0; });
+    }
+
+    var cities = splitCSV(latestRow[3]);
+    var routes = splitCSV(latestRow[4]);
+    var stations = splitCSV(latestRow[5]);
+    var walk = latestRow[6] ? String(latestRow[6]) : '';
+    var rentMax = latestRow[7] ? String(latestRow[7]) : '';
+    var layouts = splitCSV(latestRow[8]);
+    var areaMin = latestRow[9] ? String(latestRow[9]) : '';
+    var buildingAge = latestRow[10] ? String(latestRow[10]) : '';
+    var buildingStructures = splitCSV(latestRow[11]);
+    var equipment = splitCSV(latestRow[12]);
+    var reason = latestRow[13] ? String(latestRow[13]) : '';
+    var moveInDate = latestRow[14] ? String(latestRow[14]) : '';
+    var notes = latestRow[15] ? String(latestRow[15]) : '';
+    var petType = latestRow[16] ? String(latestRow[16]) : '';
+    var resident = latestRow[17] ? String(latestRow[17]) : '';
+
+    // selectedStations を路線→駅のマッピングに再構築
+    var selectedStations = {};
+    if (routes.length > 0 && stations.length > 0) {
+      for (var r = 0; r < routes.length; r++) {
+        var routeName = routes[r];
+        var routeStations = STATION_DATA[routeName] || [];
+        var matched = [];
+        for (var s = 0; s < stations.length; s++) {
+          if (routeStations.indexOf(stations[s]) >= 0) {
+            matched.push(stations[s]);
+          }
+        }
+        if (matched.length > 0) {
+          selectedStations[routeName] = matched;
+        }
+      }
+    }
+
+    return {
+      name: customerName,
+      reason: reason,
+      resident: resident,
+      move_in_date: moveInDate,
+      rent_max: rentMax,
+      layouts: layouts,
+      walk: walk || '指定しない',
+      area_min: areaMin || '指定しない',
+      building_age: buildingAge || '指定しない',
+      building_structures: buildingStructures,
+      equipment: equipment,
+      petType: petType,
+      notes: notes,
+      areaMethod: cities.length > 0 ? 'city' : 'route',
+      selectedRoutes: routes,
+      selectedCities: cities,
+      selectedStations: selectedStations
+    };
+  } catch (e) {
+    console.error('readLatestCriteria error: ' + e.message);
+    return null;
+  }
 }
 
 /**

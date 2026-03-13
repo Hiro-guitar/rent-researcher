@@ -10,7 +10,7 @@
 ```
 お客さん (LINE)          管理者 (Discord / ブラウザ)           システム
     │                          │                              │
-    │ ①「条件登録」            │                              │
+    │ ①「条件登録」/「条件変更」│                              │
     │─────────────────────────>│                              │
     │  LINE Bot 会話フロー     │                              │
     │  条件選択ページ (LIFF)   │                              │
@@ -54,6 +54,8 @@
 ### 3.1 検索条件シート (`検索条件`)
 
 お客さんごとの物件検索条件。LINE Bot の条件登録フロー、または管理者の手動入力で作成される。
+
+**更新動作:** 同一顧客名の条件を変更（再登録）すると、既存行を削除してから新しい行を追記する（upsert 方式）。これにより、同一顧客に対して常に1行のみ存在し、重複検索を防止する。
 
 | 列 | 内容 | 例 | 備考 |
 |---|---|---|---|
@@ -491,7 +493,7 @@ M 列の設備名のうち、itandi API の `option_id` に変換されるもの
 ├── ConversationFlow.js    # LINE Bot 条件登録フロー
 ├── ExistingBot.js         # 既存ボット（申込・面積検索）
 ├── LineApi.js             # LINE Messaging API ラッパー
-├── SheetWriter.js         # 検索条件シート書き込み
+├── SheetWriter.js         # 検索条件シート書き込み・読み込み
 ├── PropertyApproval.js    # 物件承認ワークフロー
 ├── RouteSelectPage.html   # 条件選択 LIFF ページ
 ├── CityData.js            # 東京都 市区町村データ
@@ -500,7 +502,9 @@ M 列の設備名のうち、itandi API の `option_id` に変換されるもの
 └── appsscript.json        # GAS マニフェスト
 ```
 
-### 5.2 LINE Bot 条件登録フロー
+### 5.2 LINE Bot 条件登録・条件変更フロー
+
+#### 条件登録（新規）
 
 ```
 友だち追加 → ウェルカムメッセージ
@@ -524,6 +528,34 @@ M 列の設備名のうち、itandi API の `option_id` に変換されるもの
     │
   「登録する」      → シートに書き込み → 完了メッセージ
 ```
+
+#### 条件変更（既存条件の修正）
+
+```
+「条件変更」入力
+    │
+  readLatestCriteria(userId)  → スプレッドシートから既存条件を読み込み
+    │                            (LINE Users シートで userId → 顧客名を取得
+    │                             → 検索条件シートから最新行を取得)
+    │
+  条件が見つからない場合 → 「まだ条件が登録されていません」メッセージ
+    │
+  条件が見つかった場合:
+    state に既存条件をセット（name, reason, resident, move_in_date 等）
+    │
+  STEP_CRITERIA_SELECT → LIFF ページで条件変更
+    │                      ※ 名前・理由・居住者・引越し時期の入力をスキップ
+    │                      ※ 既存の選択値がプリセットされた状態で表示
+    │
+  STEP_CONFIRM     → 確認メッセージ (Flex Message)
+    │
+  「登録する」      → 既存行を削除 → 新しい行を追記 → 完了メッセージ
+```
+
+**関連関数:**
+- `startChangeFlow(replyToken, userId)` (`ConversationFlow.js`): 条件変更フローの開始。既存条件を読み込み、CRITERIA_SELECT ステップに直接遷移。
+- `readLatestCriteria(userId)` (`SheetWriter.js`): LINE userId からスプレッドシートの既存条件を読み込み、state 形式のオブジェクトに変換して返す。
+- `writeToSheet(userId, state)` (`SheetWriter.js`): 同じ顧客名の既存行を削除してから新しい行を追記（upsert 方式）。
 
 **会話状態管理 (`StateManager.js`):**
 - `PropertiesService.getUserProperties()` でユーザーごとの状態を保存
@@ -635,6 +667,17 @@ Discord 一括承認リンク → ?action=approve_all&customer=...
 | デプロイコマンド | `npx clasp push && npx clasp deploy` |
 | 公開範囲 | ANYONE_ANONYMOUS |
 | LIFF ID | `2009257618-mx8s5Vuk` |
+
+**デプロイ時の注意:**
+- `clasp deploy` は新しいデプロイメントを作成する。LINE Webhook は特定のデプロイメント URL を参照しているため、既存のデプロイメントを更新する必要がある。
+- 既存デプロイメントの更新: `npx @google/clasp deploy -i <DEPLOYMENT_ID>`
+- どのデプロイメント ID が Webhook に設定されているか不明な場合は、全デプロイメントを更新する:
+  ```
+  npx clasp push
+  npx @google/clasp deployments  # 一覧表示
+  # 各デプロイメント ID に対して:
+  npx @google/clasp deploy -i <DEPLOYMENT_ID>
+  ```
 
 ---
 

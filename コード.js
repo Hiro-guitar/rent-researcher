@@ -11,6 +11,7 @@
  *      - 既存ボット関連 (apply|, type|, nation|, movein_date) → ExistingBot
  *   2. テキストメッセージ:
  *      - 「条件登録」→ 検索条件フロー開始
+ *      - 「条件変更」→ 既存条件を読み込んで条件選択ページへ直接遷移
  *      - 検索条件フロー中のテキスト入力（名前/理由自由入力/その他ご希望）→ ConversationFlow
  *      - 既存ボットのテキスト入力（名前/フリガナ/メール）→ ExistingBot
  *      - 数字入力 → 専有面積検索（ExistingBot）
@@ -54,6 +55,7 @@ function doPost(e) {
         textMsg('友だち追加ありがとうございます！\n\n' +
                 'このアカウントでは以下のことができます:\n\n' +
                 '「条件登録」→ お部屋探しの条件を登録\n' +
+                '「条件変更」→ 登録済みの条件を変更\n' +
                 '数字を入力 → 専有面積で物件検索\n\n' +
                 '条件に合う新着物件が見つかり次第、お知らせします！')
       ]);
@@ -82,6 +84,12 @@ function doPost(e) {
       // コマンド: 条件登録
       if (message === '条件登録' || message === 'じょうけんとうろく') {
         startSearchFlow(replyToken, userId);
+        return;
+      }
+
+      // コマンド: 条件変更
+      if (message === '条件変更' || message === 'じょうけんへんこう') {
+        startChangeFlow(replyToken, userId);
         return;
       }
 
