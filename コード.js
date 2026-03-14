@@ -65,6 +65,12 @@ function doPost(e) {
       const data = event.postback.data;
       const state = getState(userId);
 
+      // 条件登録ボタン（遅延返信Flexのpostback）
+      if (data === '条件登録') {
+        startSearchFlow(replyToken, userId);
+        return;
+      }
+
       // 検索条件フロー関連の postback（datetimepicker用にeventも渡す）
       if (handleSearchFlowPostback(replyToken, userId, data, state, event)) return;
 
