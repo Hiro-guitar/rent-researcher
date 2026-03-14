@@ -679,24 +679,31 @@ def enrich_property_details(
                 # 2. CDP Network ログから画像 URL を抽出 (最も確実)
                 cdp_entries = _extract_images_from_cdp(session)
                 if cdp_entries:
-                    # 全画像を CDP でダウンロード → catbox.moe へ
-                    public_urls: list[str] = []
-                    first_data: bytes | None = None
-                    for i, (orig_url, req_id) in enumerate(
-                        cdp_entries
-                    ):
+                    # 全画像を CDP でダウンロード
+                    raw_images: list[bytes] = []
+                    for _, req_id in cdp_entries:
                         img_bytes = _download_image_via_cdp(
                             session, req_id
                         )
-                        if not img_bytes:
-                            continue
+                        if img_bytes:
+                            raw_images.append(img_bytes)
+
+                    # 同一画像の低画質版を除外
+                    unique_images = _dedup_images(raw_images)
+
+                    # catbox.moe にアップロード
+                    public_urls: list[str] = []
+                    first_data: bytes | None = None
+                    for i, img_bytes in enumerate(
+                        unique_images
+                    ):
                         if first_data is None:
                             first_data = img_bytes
                         cat_url = _upload_to_catbox(img_bytes)
                         if cat_url:
                             public_urls.append(cat_url)
                         # レート制限回避
-                        if i < len(cdp_entries) - 1:
+                        if i < len(unique_images) - 1:
                             time.sleep(0.3)
 
                     if public_urls:
@@ -705,11 +712,9 @@ def enrich_property_details(
                         print(
                             f"[DEBUG] ES-Square catbox "
                             f"アップロード: "
-                            f"{len(public_urls)}/"
-                            f"{len(cdp_entries)} 件成功"
+                            f"{len(public_urls)} 件成功"
                         )
                     else:
-                        # catbox 失敗時は元 URL をフォールバック
                         cdp_urls = [
                             u for u, _ in cdp_entries
                         ]
@@ -821,6 +826,58 @@ def _download_image_via_browser(
     except Exception as exc:
         print(f"[WARN] ES-Square 画像ダウンロード失敗: {exc}")
     return None
+
+
+def _image_avg_hash(data: bytes, size: int = 8) -> str | None:
+    """画像の Average Hash を計算する（重複排除用）。
+
+    画像を size×size のグレースケールに縮小し、
+    各ピクセルが平均より明るいかで 64bit ハッシュを生成する。
+    同じ写真の異なる解像度でも同じハッシュになる。
+    """
+    try:
+        import io
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(data))
+        img = img.convert('L').resize(
+            (size, size), Image.LANCZOS
+        )
+        pixels = list(img.getdata())
+        avg = sum(pixels) / len(pixels)
+        bits = ''.join(
+            '1' if p > avg else '0' for p in pixels
+        )
+        return hex(int(bits, 2))
+    except Exception:
+        return None
+
+
+def _dedup_images(
+    images: list[bytes],
+) -> list[bytes]:
+    """Average Hash で同一画像を重複排除し、高画質版のみ返す。"""
+    # hash → 最大サイズの画像バイナリ
+    best: dict[str, bytes] = {}
+    no_hash: list[bytes] = []
+
+    for data in images:
+        h = _image_avg_hash(data)
+        if h is None:
+            no_hash.append(data)
+            continue
+        if h not in best or len(data) > len(best[h]):
+            best[h] = data
+
+    result = list(best.values()) + no_hash
+    removed = len(images) - len(result)
+    if removed > 0:
+        print(
+            f"[DEBUG] ES-Square 画像重複排除: "
+            f"{len(images)} → {len(result)} "
+            f"({removed}枚の低画質版を除外)"
+        )
+    return result
 
 
 def _upload_to_catbox(image_data: bytes) -> str | None:
