@@ -635,6 +635,15 @@ def enrich_property_details(
             continue
 
         try:
+            # CDP Network ドメインを有効化
+            # (Network.getResponseBody で画像を取得するために必要)
+            try:
+                session.driver.execute_cdp_cmd(
+                    'Network.enable', {}
+                )
+            except Exception:
+                pass
+
             # CDP ログをクリア (前の物件のログが混ざらないようにする)
             try:
                 session.driver.get_log('performance')
@@ -668,11 +677,20 @@ def enrich_property_details(
                 _extract_gallery_images(session)
 
                 # 2. CDP Network ログから画像 URL を抽出 (最も確実)
-                cdp_images = _extract_images_from_cdp(session)
-                if cdp_images:
-                    details["image_urls"] = cdp_images
+                cdp_entries = _extract_images_from_cdp(session)
+                if cdp_entries:
+                    cdp_urls = [u for u, _ in cdp_entries]
+                    details["image_urls"] = cdp_urls
                     if not details.get("image_url"):
-                        details["image_url"] = cdp_images[0]
+                        details["image_url"] = cdp_urls[0]
+                    # 1枚目の画像を CDP 経由でダウンロード
+                    _, first_req_id = cdp_entries[0]
+                    if first_req_id:
+                        cdp_data = _download_image_via_cdp(
+                            session, first_req_id
+                        )
+                        if cdp_data:
+                            details["image_data"] = cdp_data
 
             if not details.get("image_urls"):
                 # 3. API レスポンスデータから画像 URL を探す
@@ -696,11 +714,14 @@ def enrich_property_details(
                     setattr(prop, key, value)
 
             # 1枚目の画像をダウンロード (Discord添付用)
-            # api.e-bukken-1.com は認証が必要なため、
-            # 認証済みブラウザで fetch してバイナリを取得する
+            # CDP 経由で取得済みでなければ XHR でフォールバック
             if prop.image_urls and not prop.image_data:
                 prop.image_data = _download_image_via_browser(
                     session, prop.image_urls[0]
+                )
+            if not prop.image_data:
+                print(
+                    "[DEBUG] ES-Square 画像: CDP/XHR共に失敗"
                 )
 
             img_count = len(prop.image_urls) if prop.image_urls else 0
@@ -779,25 +800,32 @@ def _download_image_via_browser(
 
 def _extract_images_from_cdp(
     session: EsSquareSession,
-) -> list[str]:
-    """CDP Network ログから物件画像の HTTP URL を抽出する。
+) -> list[tuple[str, str]]:
+    """CDP Network ログから物件画像の (URL, requestId) を抽出する。
 
     ES-Square の物件画像は api.e-bukken-1.com から image/jpeg として
     ロードされ、ブラウザ内で blob: URL に変換されて表示される。
-    CDP の Network.responseReceived イベントから元の HTTP URL を取得する。
+    CDP の Network.responseReceived イベントから元の HTTP URL と
+    requestId を取得する。requestId は Network.getResponseBody で
+    画像バイナリを取得するために使用する。
+
+    Returns:
+        list of (url, requestId) tuples
     """
     try:
         perf_log = session.driver.get_log('performance')
         seen: set[str] = set()
-        result: list[str] = []
+        result: list[tuple[str, str]] = []
 
         for entry in perf_log:
             try:
                 msg = json.loads(entry.get('message', '{}'))
-                params = msg.get('message', {}).get('params', {})
+                message = msg.get('message', {})
+                params = message.get('params', {})
                 resp = params.get('response', {})
                 url = resp.get('url', '')
                 mime = resp.get('mimeType', '')
+                request_id = params.get('requestId', '')
             except (json.JSONDecodeError, AttributeError):
                 continue
 
@@ -821,7 +849,7 @@ def _extract_images_from_cdp(
                 continue
 
             seen.add(url)
-            result.append(url)
+            result.append((url, request_id))
 
         if result:
             print(
@@ -832,6 +860,44 @@ def _extract_images_from_cdp(
     except Exception as exc:
         print(f"[WARN] ES-Square CDP画像取得失敗: {exc}")
         return []
+
+
+def _download_image_via_cdp(
+    session: EsSquareSession, request_id: str,
+) -> bytes | None:
+    """CDP Network.getResponseBody で画像バイナリを取得する。
+
+    ブラウザが既に受信した画像のレスポンスボディを
+    CDP 経由で直接取得する。クロスオリジン認証の問題がない。
+    """
+    if not request_id:
+        return None
+    try:
+        result = session.driver.execute_cdp_cmd(
+            'Network.getResponseBody',
+            {'requestId': request_id},
+        )
+        body = result.get('body', '')
+        is_base64 = result.get('base64Encoded', False)
+        if not body:
+            print("[WARN] CDP画像: body が空")
+            return None
+        if is_base64:
+            data = base64.b64decode(body)
+        else:
+            data = body.encode('latin-1')
+        print(
+            f"[DEBUG] CDP画像取得成功: "
+            f"{len(data)} bytes"
+        )
+        if len(data) > 1000:
+            return data
+        print(
+            f"[WARN] CDP画像サイズ不足: {len(data)} bytes"
+        )
+    except Exception as exc:
+        print(f"[WARN] CDP画像取得失敗: {exc}")
+    return None
 
 
 def _extract_images_from_api_data(
