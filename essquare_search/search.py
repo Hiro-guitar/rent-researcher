@@ -1242,12 +1242,54 @@ def _extract_gallery_images(
 
         print("[DEBUG] ES-Square: ギャラリーモーダル表示確認")
 
+        # Swiper の総スライド数を取得
+        total_slides = session.execute_script("""
+            // Swiper インスタンスから総数を取得
+            var swiperEl = document.querySelector('.swiper');
+            if (swiperEl && swiperEl.swiper) {
+                return swiperEl.swiper.slides.length
+                       - swiperEl.swiper.loopedSlides * 2;
+            }
+            // フォールバック: スライド DOM 要素数
+            var slides = document.querySelectorAll(
+                '.swiper-slide:not(.swiper-slide-duplicate)'
+            );
+            if (slides.length > 0) return slides.length;
+            // 全スライド数
+            var all = document.querySelectorAll('.swiper-slide');
+            return all.length || 100;
+        """)
+        if not total_slides or total_slides < 1:
+            total_slides = 100
+
+        # ループギャラリーを考慮: 全スライド数 + 余裕
+        max_nav = min(total_slides + 2, 200)
+        print(
+            f"[DEBUG] ES-Square: 総スライド数={total_slides}"
+            f", 最大ナビ={max_nav}"
+        )
+
         # 全スライドを順番にナビゲート
         slide_count = 0
-        max_slides = 50
-        for _ in range(max_slides):
+        seen_indices: set[int] = set()
+        for _ in range(max_nav):
+            # 現在のスライドインデックスを取得
+            cur_idx = session.execute_script("""
+                var el = document.querySelector('.swiper');
+                if (el && el.swiper) return el.swiper.realIndex;
+                return -1;
+            """)
+            if isinstance(cur_idx, int) and cur_idx >= 0:
+                if cur_idx in seen_indices:
+                    # ループ検出: 同じスライドに戻った
+                    print(
+                        f"[DEBUG] ES-Square: ループ検出 "
+                        f"(idx={cur_idx}), ナビ終了"
+                    )
+                    break
+                seen_indices.add(cur_idx)
+
             # 次へボタンの検出とクリック
-            # (Tampermonkey 参考: .css-1nuul26 内の ArrowRight アイコン)
             nav_result = session.execute_script("""
                 // 方法1: Tampermonkey と同じセレクタ
                 var nextContainer = document.querySelector('.css-1nuul26');
@@ -1298,7 +1340,6 @@ def _extract_gallery_images(
             slide_count += 1
 
             # 画像ロード完了を待つ
-            # (Tampermonkey 参考: waitForImageChange)
             for _ in range(6):
                 time.sleep(0.3)
                 loaded = session.execute_script("""
@@ -1314,6 +1355,7 @@ def _extract_gallery_images(
 
         print(
             f"[DEBUG] ES-Square: {slide_count} スライドナビゲート"
+            f" ({len(seen_indices)} ユニーク)"
         )
 
         # 画像 URL を収集: fetch インターセプター + Performance API
