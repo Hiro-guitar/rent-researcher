@@ -869,16 +869,22 @@ def _extract_images_from_cdp(
     ES-Square の物件画像は api.e-bukken-1.com から image/jpeg として
     ロードされ、ブラウザ内で blob: URL に変換されて表示される。
     CDP の Network.responseReceived イベントから元の HTTP URL と
-    requestId を取得する。requestId は Network.getResponseBody で
-    画像バイナリを取得するために使用する。
+    requestId を取得する。
+
+    同じ画像がサムネイル（低画質）とフルサイズ（高画質）で
+    読み込まれるため、URL パスで重複排除し、サイズの大きい方を採用する。
 
     Returns:
         list of (url, requestId) tuples
     """
+    from urllib.parse import urlparse
+
     try:
         perf_log = session.driver.get_log('performance')
-        seen: set[str] = set()
-        result: list[tuple[str, str]] = []
+
+        # URL パス → (url, requestId, size) のマップ
+        # 同じパスの画像はサイズが大きい方（高画質）を採用
+        by_path: dict[str, tuple[str, str, int]] = {}
 
         for entry in perf_log:
             try:
@@ -892,7 +898,7 @@ def _extract_images_from_cdp(
             except (json.JSONDecodeError, AttributeError):
                 continue
 
-            if not url or url in seen:
+            if not url:
                 continue
 
             # image/* MIME type のレスポンスを対象とする
@@ -903,22 +909,34 @@ def _extract_images_from_cdp(
             if _JUNK_IMG.search(url):
                 continue
 
-            # data: URI は除外
-            if url.startswith('data:'):
+            # data: URI / blob: URL は除外
+            if url.startswith('data:') or url.startswith('blob:'):
                 continue
 
-            # blob: URL は Discord で使用不可のため除外
-            if url.startswith('blob:'):
-                continue
+            # URL パスで重複排除（クエリパラムを無視）
+            parsed = urlparse(url)
+            path_key = parsed.path
 
-            seen.add(url)
-            result.append((url, request_id))
+            # レスポンスサイズで高画質版を選択
+            size = resp.get('encodedDataLength', 0)
+
+            if (
+                path_key not in by_path
+                or size > by_path[path_key][2]
+            ):
+                by_path[path_key] = (url, request_id, size)
+
+        result = [
+            (url, req_id)
+            for url, req_id, _ in by_path.values()
+        ]
 
         if result:
             print(
-                f"[DEBUG] ES-Square CDP画像: {len(result)} 件"
+                f"[DEBUG] ES-Square CDP画像: "
+                f"{len(result)} 件 (重複排除済み)"
             )
-        return result[:20]
+        return result
 
     except Exception as exc:
         print(f"[WARN] ES-Square CDP画像取得失敗: {exc}")
@@ -1169,7 +1187,7 @@ def _extract_gallery_images(
 
         # 全スライドを順番にナビゲート
         slide_count = 0
-        max_slides = 25
+        max_slides = 50
         for _ in range(max_slides):
             # 次へボタンの検出とクリック
             # (Tampermonkey 参考: .css-1nuul26 内の ArrowRight アイコン)
