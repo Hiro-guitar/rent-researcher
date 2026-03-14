@@ -828,54 +828,96 @@ def _download_image_via_browser(
     return None
 
 
-def _image_avg_hash(data: bytes, size: int = 8) -> str | None:
-    """画像の Average Hash を計算する（重複排除用）。
+def _image_dhash(data: bytes) -> int | None:
+    """画像の Difference Hash (dHash) を計算する。
 
-    画像を size×size のグレースケールに縮小し、
-    各ピクセルが平均より明るいかで 64bit ハッシュを生成する。
-    同じ写真の異なる解像度でも同じハッシュになる。
+    16x17 のグレースケールに縮小し、隣接ピクセルの
+    輝度差で 256bit ハッシュを生成する。Average Hash より
+    頑健で、異なる画像の誤マッチが大幅に減る。
     """
     try:
         import io
         from PIL import Image
 
         img = Image.open(io.BytesIO(data))
-        img = img.convert('L').resize(
-            (size, size), Image.LANCZOS
-        )
+        # dHash: 幅を +1 にして隣接比較
+        img = img.convert('L').resize((17, 16), Image.LANCZOS)
         pixels = list(img.getdata())
-        avg = sum(pixels) / len(pixels)
-        bits = ''.join(
-            '1' if p > avg else '0' for p in pixels
-        )
-        return hex(int(bits, 2))
+        bits = []
+        for row in range(16):
+            for col in range(16):
+                idx = row * 17 + col
+                bits.append(
+                    1 if pixels[idx] < pixels[idx + 1] else 0
+                )
+        return int(''.join(str(b) for b in bits), 2)
     except Exception:
         return None
+
+
+def _hamming_distance(h1: int, h2: int) -> int:
+    """2つのハッシュ間の Hamming Distance を計算する。"""
+    return bin(h1 ^ h2).count('1')
+
+
+# 同一画像と判定する Hamming Distance の閾値
+# 256bit dHash で 12 以下 → 同一画像の異なる解像度
+_DEDUP_THRESHOLD = 12
 
 
 def _dedup_images(
     images: list[bytes],
 ) -> list[bytes]:
-    """Average Hash で同一画像を重複排除し、高画質版のみ返す。"""
-    # hash → 最大サイズの画像バイナリ
-    best: dict[str, bytes] = {}
+    """dHash + Hamming Distance で同一画像を重複排除する。
+
+    完全一致だけでなく、類似度ベースで判定するため:
+    - 同じ画像のサムネイル/フルサイズを確実に検出 (issue #1)
+    - 異なる画像の誤マッチを防止 (issue #2)
+    各グループから最大サイズ（高画質）の画像のみ保持する。
+    """
+    # (hash, bytes) のリスト
+    entries: list[tuple[int, bytes]] = []
     no_hash: list[bytes] = []
 
     for data in images:
-        h = _image_avg_hash(data)
+        h = _image_dhash(data)
         if h is None:
             no_hash.append(data)
-            continue
-        if h not in best or len(data) > len(best[h]):
-            best[h] = data
+        else:
+            entries.append((h, data))
 
-    result = list(best.values()) + no_hash
+    # クラスタリング: 既存グループと比較し、
+    # 近いグループに追加 or 新グループ作成
+    groups: list[list[tuple[int, bytes]]] = []
+    for h, data in entries:
+        matched = False
+        for group in groups:
+            # グループの代表ハッシュと比較
+            rep_hash = group[0][0]
+            if _hamming_distance(h, rep_hash) <= _DEDUP_THRESHOLD:
+                group.append((h, data))
+                matched = True
+                break
+        if not matched:
+            groups.append([(h, data)])
+
+    # 各グループから最大サイズの画像を選択
+    result = [
+        max(group, key=lambda x: len(x[1]))[1]
+        for group in groups
+    ] + no_hash
+
     removed = len(images) - len(result)
     if removed > 0:
         print(
             f"[DEBUG] ES-Square 画像重複排除: "
             f"{len(images)} → {len(result)} "
             f"({removed}枚の低画質版を除外)"
+        )
+    else:
+        print(
+            f"[DEBUG] ES-Square 画像: "
+            f"{len(result)} 枚 (重複なし)"
         )
     return result
 
