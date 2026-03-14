@@ -693,12 +693,9 @@ def enrich_property_details(
 
                     # catbox.moe にアップロード
                     public_urls: list[str] = []
-                    first_data: bytes | None = None
                     for i, img_bytes in enumerate(
                         unique_images
                     ):
-                        if first_data is None:
-                            first_data = img_bytes
                         cat_url = _upload_to_catbox(img_bytes)
                         if cat_url:
                             public_urls.append(cat_url)
@@ -722,8 +719,8 @@ def enrich_property_details(
                         if not details.get("image_url"):
                             details["image_url"] = cdp_urls[0]
 
-                    if first_data:
-                        details["image_data"] = first_data
+                    # image_data は不要 — 承認ページで catbox URL
+                    # から全画像表示できるため Discord サムネ添付しない
 
             if not details.get("image_urls"):
                 # 3. API レスポンスデータから画像 URL を探す
@@ -746,20 +743,13 @@ def enrich_property_details(
                 if hasattr(prop, key) and value:
                     setattr(prop, key, value)
 
-            # image_data が未取得なら XHR でフォールバック
-            if prop.image_urls and not prop.image_data:
-                prop.image_data = _download_image_via_browser(
-                    session, prop.image_urls[0]
-                )
-
             img_count = (
                 len(prop.image_urls) if prop.image_urls else 0
             )
-            has_data = "yes" if prop.image_data else "no"
             print(
                 f"[DEBUG] ES-Square 詳細取得完了 "
                 f"(room_id={prop.room_id}): "
-                f"images={img_count}, downloaded={has_data}"
+                f"images={img_count}"
             )
 
         except Exception as exc:
@@ -771,61 +761,6 @@ def enrich_property_details(
         # レート制限対策
         time.sleep(random.uniform(1, 2))
 
-
-def _download_image_via_browser(
-    session: EsSquareSession, url: str,
-) -> bytes | None:
-    """認証済みブラウザで画像をダウンロードし、バイナリを返す。
-
-    api.e-bukken-1.com の画像は認証が必要なため、
-    Selenium の認証済みセッション内で XHR して base64 に変換する。
-    同期 XHR では responseType='arraybuffer' が使えないため、
-    overrideMimeType で raw バイナリとして受け取る。
-    """
-    try:
-        print(f"[DEBUG] ES-Square 画像DL開始: {url[:80]}...")
-        b64 = session.execute_script("""
-            var url = arguments[0];
-            try {
-                var xhr = new XMLHttpRequest();
-                xhr.open('GET', url, false);
-                xhr.overrideMimeType('text/plain; charset=x-user-defined');
-                xhr.send();
-                if (xhr.status !== 200) {
-                    return 'ERROR:status=' + xhr.status;
-                }
-                var raw = xhr.responseText;
-                var binary = '';
-                for (var i = 0; i < raw.length; i++) {
-                    binary += String.fromCharCode(
-                        raw.charCodeAt(i) & 0xFF
-                    );
-                }
-                return btoa(binary);
-            } catch(e) {
-                return 'ERROR:' + e.message;
-            }
-        """, url)
-        if not b64:
-            print("[WARN] ES-Square 画像DL: 結果なし (null)")
-            return None
-        if isinstance(b64, str) and b64.startswith("ERROR:"):
-            print(f"[WARN] ES-Square 画像DL失敗 (JS): {b64}")
-            return None
-        data = base64.b64decode(b64)
-        print(
-            f"[DEBUG] ES-Square 画像DL成功: "
-            f"{len(data)} bytes"
-        )
-        if len(data) > 1000:  # 最低限のサイズチェック
-            return data
-        print(
-            f"[WARN] ES-Square 画像サイズ不足: "
-            f"{len(data)} bytes"
-        )
-    except Exception as exc:
-        print(f"[WARN] ES-Square 画像ダウンロード失敗: {exc}")
-    return None
 
 
 def _image_dhash(data: bytes) -> int | None:
