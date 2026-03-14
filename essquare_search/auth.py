@@ -266,8 +266,11 @@ class EsSquareSession:
         )
         print("[DEBUG] ES-Square: API インターセプター設定完了")
 
-    def execute_script(self, script: str) -> object:
-        """JavaScript を実行して結果を返す。"""
+    def execute_script(self, script: str, *args: object) -> object:
+        """JavaScript を実行して結果を返す。
+
+        追加の引数は JS 内で arguments[0], arguments[1], ... として参照できる。
+        """
         if not self.driver:
             raise EsSquareAuthError("ブラウザセッションが初期化されていません")
-        return self.driver.execute_script(script)
+        return self.driver.execute_script(script, *args)

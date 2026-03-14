@@ -727,27 +727,51 @@ def _download_image_via_browser(
     """認証済みブラウザで画像をダウンロードし、バイナリを返す。
 
     api.e-bukken-1.com の画像は認証が必要なため、
-    Selenium の認証済みセッション内で fetch して base64 に変換する。
+    Selenium の認証済みセッション内で XHR して base64 に変換する。
+    同期 XHR では responseType='arraybuffer' が使えないため、
+    overrideMimeType で raw バイナリとして受け取る。
     """
     try:
+        print(f"[DEBUG] ES-Square 画像DL開始: {url[:80]}...")
         b64 = session.execute_script("""
             var url = arguments[0];
-            var xhr = new XMLHttpRequest();
-            xhr.open('GET', url, false);  // synchronous
-            xhr.responseType = 'arraybuffer';
-            xhr.send();
-            if (xhr.status !== 200) return null;
-            var bytes = new Uint8Array(xhr.response);
-            var binary = '';
-            for (var i = 0; i < bytes.length; i++) {
-                binary += String.fromCharCode(bytes[i]);
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', url, false);
+                xhr.overrideMimeType('text/plain; charset=x-user-defined');
+                xhr.send();
+                if (xhr.status !== 200) {
+                    return 'ERROR:status=' + xhr.status;
+                }
+                var raw = xhr.responseText;
+                var binary = '';
+                for (var i = 0; i < raw.length; i++) {
+                    binary += String.fromCharCode(
+                        raw.charCodeAt(i) & 0xFF
+                    );
+                }
+                return btoa(binary);
+            } catch(e) {
+                return 'ERROR:' + e.message;
             }
-            return btoa(binary);
         """, url)
-        if b64:
-            data = base64.b64decode(b64)
-            if len(data) > 1000:  # 最低限のサイズチェック
-                return data
+        if not b64:
+            print("[WARN] ES-Square 画像DL: 結果なし (null)")
+            return None
+        if isinstance(b64, str) and b64.startswith("ERROR:"):
+            print(f"[WARN] ES-Square 画像DL失敗 (JS): {b64}")
+            return None
+        data = base64.b64decode(b64)
+        print(
+            f"[DEBUG] ES-Square 画像DL成功: "
+            f"{len(data)} bytes"
+        )
+        if len(data) > 1000:  # 最低限のサイズチェック
+            return data
+        print(
+            f"[WARN] ES-Square 画像サイズ不足: "
+            f"{len(data)} bytes"
+        )
     except Exception as exc:
         print(f"[WARN] ES-Square 画像ダウンロード失敗: {exc}")
     return None
