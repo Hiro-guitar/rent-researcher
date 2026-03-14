@@ -278,10 +278,53 @@ def load_pending_properties(service) -> set[tuple[str, str]]:
     return pending
 
 
+def _build_property_json(p) -> str:
+    """Property → JSON 文字列（シートの J 列用）。"""
+    return json.dumps(
+        {
+            "deposit": p.deposit,
+            "key_money": p.key_money,
+            "address": p.address,
+            "url": p.url,
+            "image_url": p.image_url,
+            "image_urls": p.image_urls,
+            "room_number": p.room_number,
+            "building_age": p.building_age,
+            "floor": p.floor,
+            # 追加詳細情報
+            "story_text": p.story_text,
+            "other_stations": p.other_stations,
+            "move_in_date": p.move_in_date,
+            "floor_text": p.floor_text,
+            "structure": p.structure,
+            "total_units": p.total_units,
+            "lease_type": p.lease_type,
+            "contract_period": p.contract_period,
+            "cancellation_notice": p.cancellation_notice,
+            "renewal_info": p.renewal_info,
+            "sunlight": p.sunlight,
+            "facilities": p.facilities,
+            "shikibiki": p.shikibiki,
+            "pet_deposit": p.pet_deposit,
+            "free_rent": p.free_rent,
+            "renewal_fee": p.renewal_fee,
+            "fire_insurance": p.fire_insurance,
+            "renewal_admin_fee": p.renewal_admin_fee,
+            "guarantee_info": p.guarantee_info,
+            "key_exchange_fee": p.key_exchange_fee,
+        },
+        ensure_ascii=False,
+    )
+
+
 def write_pending_properties(
     service, customer_name: str, properties: list, now_str: str
 ) -> None:
     """新着物件を承認待ちシートに書き込む。
+
+    既に同じ (customer_name, room_id) かつ status='pending' の行が
+    存在する場合はデータを**上書き更新**し、存在しない場合は新規追加する。
+    これにより force_notify 等で再実行しても画像 URL 等が最新になる。
 
     properties: Property オブジェクトのリスト
     """
@@ -289,71 +332,84 @@ def write_pending_properties(
         return
 
     sheet = service.spreadsheets()
-    values = []
+
+    # ── 既存の pending 行を読み取り、(customer, room_id) → 行番号 マップ作成
+    existing: dict[tuple[str, str], int] = {}
+    try:
+        resp = (
+            sheet.values()
+            .get(
+                spreadsheetId=SPREADSHEET_ID,
+                range=f"{PENDING_SHEET}!A:K",
+            )
+            .execute()
+        )
+        rows = resp.get("values", [])
+        for idx, row in enumerate(rows):
+            if len(row) < 11:
+                continue
+            r_customer = str(row[0])
+            r_room_id = str(row[2])
+            r_status = str(row[10])
+            if r_customer == customer_name and r_status == "pending":
+                existing[(r_customer, r_room_id)] = idx + 1
+    except Exception as exc:
+        print(f"[WARN] 承認待ちシート読み取り失敗: {exc}")
+
+    # ── 更新 / 新規追加 に振り分け
+    to_append = []
     for p in properties:
-        # Flex Message 構築に必要な追加データを JSON で格納
-        data_json = json.dumps(
-            {
-                "deposit": p.deposit,
-                "key_money": p.key_money,
-                "address": p.address,
-                "url": p.url,
-                "image_url": p.image_url,
-                "image_urls": p.image_urls,
-                "room_number": p.room_number,
-                "building_age": p.building_age,
-                "floor": p.floor,
-                # 追加詳細情報
-                "story_text": p.story_text,
-                "other_stations": p.other_stations,
-                "move_in_date": p.move_in_date,
-                "floor_text": p.floor_text,
-                "structure": p.structure,
-                "total_units": p.total_units,
-                "lease_type": p.lease_type,
-                "contract_period": p.contract_period,
-                "cancellation_notice": p.cancellation_notice,
-                "renewal_info": p.renewal_info,
-                "sunlight": p.sunlight,
-                "facilities": p.facilities,
-                "shikibiki": p.shikibiki,
-                "pet_deposit": p.pet_deposit,
-                "free_rent": p.free_rent,
-                "renewal_fee": p.renewal_fee,
-                "fire_insurance": p.fire_insurance,
-                "renewal_admin_fee": p.renewal_admin_fee,
-                "guarantee_info": p.guarantee_info,
-                "key_exchange_fee": p.key_exchange_fee,
-            },
-            ensure_ascii=False,
-        )
+        data_json = _build_property_json(p)
+        row_values = [
+            customer_name,  # A: customer_name
+            str(p.building_id),  # B: building_id
+            str(p.room_id),  # C: room_id
+            p.building_name,  # D: building_name
+            str(p.rent),  # E: rent
+            str(p.management_fee),  # F: management_fee
+            p.layout,  # G: layout
+            str(p.area),  # H: area
+            p.station_info,  # I: station_info
+            data_json,  # J: property_data_json
+            "pending",  # K: status
+            now_str,  # L: created_at
+            "",  # M: updated_at
+        ]
 
-        values.append(
-            [
-                customer_name,  # A: customer_name
-                str(p.building_id),  # B: building_id
-                str(p.room_id),  # C: room_id
-                p.building_name,  # D: building_name
-                str(p.rent),  # E: rent
-                str(p.management_fee),  # F: management_fee
-                p.layout,  # G: layout
-                str(p.area),  # H: area
-                p.station_info,  # I: station_info
-                data_json,  # J: property_data_json
-                "pending",  # K: status
-                now_str,  # L: created_at
-                "",  # M: updated_at
-            ]
-        )
+        key = (customer_name, str(p.room_id))
+        if key in existing:
+            # 既存行を上書き更新
+            row_num = existing[key]
+            try:
+                sheet.values().update(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range=f"{PENDING_SHEET}!A{row_num}:M{row_num}",
+                    valueInputOption="RAW",
+                    body={"values": [row_values]},
+                ).execute()
+                print(
+                    f"[DEBUG] 承認待ち更新: "
+                    f"row={row_num}, room_id={p.room_id}"
+                )
+            except Exception as exc:
+                print(
+                    f"[WARN] 承認待ち更新失敗: "
+                    f"room_id={p.room_id}: {exc}"
+                )
+                to_append.append(row_values)
+        else:
+            to_append.append(row_values)
 
-    body = {"values": values}
-    sheet.values().append(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"{PENDING_SHEET}!A:M",
-        valueInputOption="RAW",
-        insertDataOption="INSERT_ROWS",
-        body=body,
-    ).execute()
+    # ── 新規物件を一括追加
+    if to_append:
+        body = {"values": to_append}
+        sheet.values().append(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"{PENDING_SHEET}!A:M",
+            valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS",
+            body=body,
+        ).execute()
 
 
 # ─── ヘルパー ──────────────────────────────────────────
