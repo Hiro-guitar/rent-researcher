@@ -1,5 +1,6 @@
 """いい生活Square 検索 URL 構築・実行"""
 
+import base64
 import json
 import random
 import re
@@ -694,10 +695,20 @@ def enrich_property_details(
                 if hasattr(prop, key) and value:
                     setattr(prop, key, value)
 
+            # 1枚目の画像をダウンロード (Discord添付用)
+            # api.e-bukken-1.com は認証が必要なため、
+            # 認証済みブラウザで fetch してバイナリを取得する
+            if prop.image_urls and not prop.image_data:
+                prop.image_data = _download_image_via_browser(
+                    session, prop.image_urls[0]
+                )
+
             img_count = len(prop.image_urls) if prop.image_urls else 0
+            has_data = "yes" if prop.image_data else "no"
             print(
                 f"[DEBUG] ES-Square 詳細取得完了 "
-                f"(room_id={prop.room_id}): images={img_count}"
+                f"(room_id={prop.room_id}): "
+                f"images={img_count}, downloaded={has_data}"
             )
 
         except Exception as exc:
@@ -708,6 +719,38 @@ def enrich_property_details(
 
         # レート制限対策
         time.sleep(random.uniform(1, 2))
+
+
+def _download_image_via_browser(
+    session: EsSquareSession, url: str,
+) -> bytes | None:
+    """認証済みブラウザで画像をダウンロードし、バイナリを返す。
+
+    api.e-bukken-1.com の画像は認証が必要なため、
+    Selenium の認証済みセッション内で fetch して base64 に変換する。
+    """
+    try:
+        b64 = session.execute_script("""
+            var url = arguments[0];
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url, false);  // synchronous
+            xhr.responseType = 'arraybuffer';
+            xhr.send();
+            if (xhr.status !== 200) return null;
+            var bytes = new Uint8Array(xhr.response);
+            var binary = '';
+            for (var i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        """, url)
+        if b64:
+            data = base64.b64decode(b64)
+            if len(data) > 1000:  # 最低限のサイズチェック
+                return data
+    except Exception as exc:
+        print(f"[WARN] ES-Square 画像ダウンロード失敗: {exc}")
+    return None
 
 
 def _extract_images_from_cdp(

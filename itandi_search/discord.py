@@ -77,11 +77,15 @@ def send_property_notification(
         msg = _build_text_message(
             prop, idx + 1, gas_webapp_url, customer_name
         )
-        payload: dict = {"content": msg}
 
         url = f"{webhook_url}?thread_id={created_thread_id}"
 
-        _post_with_retry(url, payload, idx + 1)
+        if prop.image_data:
+            # 画像データがある場合はファイルとしてアップロード
+            _post_with_image(url, msg, prop.image_data, idx + 1)
+        else:
+            payload: dict = {"content": msg}
+            _post_with_retry(url, payload, idx + 1)
 
         # レート制限回避のため待機
         if idx < len(properties) - 1:
@@ -151,6 +155,56 @@ def _post_with_retry(url: str, payload: dict, index: int) -> None:
         print(f"[ERROR] Discord 通知失敗: {exc}")
 
 
+def _post_with_image(
+    url: str, content: str, image_data: bytes, index: int
+) -> None:
+    """画像付きメッセージを Discord に送信する。
+
+    multipart/form-data で画像ファイルをアップロードし、
+    メッセージ本文にはリンクプレビューを抑制した内容を送信する。
+    """
+    try:
+        payload_json = json.dumps({
+            "content": content,
+            "flags": 1 << 2,  # SUPPRESS_EMBEDS: リンクプレビュー抑制
+        })
+        files = {
+            "files[0]": ("property.jpg", image_data, "image/jpeg"),
+        }
+        data = {"payload_json": payload_json}
+        resp = requests.post(url, files=files, data=data, timeout=30)
+
+        if resp.status_code not in (200, 204):
+            print(
+                f"[DEBUG] Discord 画像送信 #{index}: "
+                f"status={resp.status_code}, "
+                f"body={resp.text[:200]}"
+            )
+
+        resp.raise_for_status()
+
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 429:
+            retry_after = exc.response.json().get("retry_after", 5)
+            print(
+                f"[WARN] Discord レート制限。{retry_after}秒待機..."
+            )
+            time.sleep(retry_after)
+            try:
+                resp = requests.post(
+                    url, files=files, data=data, timeout=30
+                )
+                resp.raise_for_status()
+            except Exception as retry_exc:
+                print(
+                    f"[ERROR] Discord 画像リトライ失敗: {retry_exc}"
+                )
+        else:
+            print(f"[ERROR] Discord 画像送信失敗 #{index}: {exc}")
+    except Exception as exc:
+        print(f"[ERROR] Discord 画像送信失敗: {exc}")
+
+
 def send_error_notification(webhook_url: str, message: str) -> None:
     """エラーを Discord に通知する。"""
     payload: dict = {"content": f"**[itandi BB 検索エラー]**\n{message}"}
@@ -189,7 +243,12 @@ def _build_text_message(
     ]
 
     if prop.url:
-        lines.append(f"🔗 {prop.url}")
+        # 画像データがある場合はリンクプレビューを抑制
+        # (ES-Square のプレビューはバナー広告が表示されるため)
+        if prop.image_data:
+            lines.append(f"🔗 <{prop.url}>")
+        else:
+            lines.append(f"🔗 {prop.url}")
 
     rent_str = f"💰 **{rent_man:.1f}万円**"
     if mgmt_man:
