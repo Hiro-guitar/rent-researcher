@@ -512,11 +512,9 @@ function processReplyQueue() {
                 color: '#06C755',
                 height: 'md',
                 action: {
-                  type: 'postback',
+                  type: 'message',
                   label: '🔔 新着物件のお知らせを受け取る',
-                  data: '条件登録',
-                  displayText: '条件登録',
-                  inputOption: 'openKeyboard'
+                  text: '条件登録'
                 }
               },
               {
@@ -554,4 +552,61 @@ function setupReplyQueueTrigger() {
     .timeBased()
     .everyMinutes(5)
     .create();
+}
+
+/**
+ * テスト用: 条件登録ボタン付きFlexメッセージを手動送信する。
+ * GASエディタから実行し、動作確認後に削除すること。
+ */
+function testSendConditionButton() {
+  var userId = 'U4af55e66b9a082a6d52ed1a7b30c6496'; // テスト用ユーザーID（要変更）
+  pushMessage(userId, [
+    {
+      type: 'flex',
+      altText: 'テスト: 条件登録ボタン確認',
+      contents: {
+        type: 'bubble',
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'md',
+          contents: [
+            {
+              type: 'text',
+              text: '【テスト】条件登録ボタン動作確認',
+              weight: 'bold',
+              size: 'lg',
+              wrap: true
+            },
+            {
+              type: 'text',
+              text: 'このボタンを押して動作を確認してください。',
+              wrap: true,
+              size: 'sm',
+              color: '#666666'
+            }
+          ]
+        },
+        footer: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'sm',
+          contents: [
+            {
+              type: 'button',
+              style: 'primary',
+              color: '#06C755',
+              height: 'md',
+              action: {
+                type: 'message',
+                label: '🔔 新着物件のお知らせを受け取る',
+                text: '条件登録'
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]);
+  console.log('テストメッセージ送信完了');
 }
