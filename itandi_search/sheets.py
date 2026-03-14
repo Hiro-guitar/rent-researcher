@@ -333,8 +333,10 @@ def write_pending_properties(
 
     sheet = service.spreadsheets()
 
-    # ── 既存の pending 行を読み取り、(customer, room_id) → 行番号 マップ作成
-    existing: dict[tuple[str, str], int] = {}
+    # ── 既存 pending 行を読み取り、(customer, room_id) → 行番号リスト
+    # 重複行が複数ある場合、全行を更新する必要がある
+    # (GAS の findPendingRow は最初の一致を返すため)
+    existing: dict[tuple[str, str], list[int]] = {}
     try:
         resp = (
             sheet.values()
@@ -352,7 +354,8 @@ def write_pending_properties(
             r_room_id = str(row[2])
             r_status = str(row[10])
             if r_customer == customer_name and r_status == "pending":
-                existing[(r_customer, r_room_id)] = idx + 1
+                key = (r_customer, r_room_id)
+                existing.setdefault(key, []).append(idx + 1)
     except Exception as exc:
         print(f"[WARN] 承認待ちシート読み取り失敗: {exc}")
 
@@ -378,25 +381,29 @@ def write_pending_properties(
 
         key = (customer_name, str(p.room_id))
         if key in existing:
-            # 既存行を上書き更新
-            row_num = existing[key]
-            try:
-                sheet.values().update(
-                    spreadsheetId=SPREADSHEET_ID,
-                    range=f"{PENDING_SHEET}!A{row_num}:M{row_num}",
-                    valueInputOption="RAW",
-                    body={"values": [row_values]},
-                ).execute()
-                print(
-                    f"[DEBUG] 承認待ち更新: "
-                    f"row={row_num}, room_id={p.room_id}"
-                )
-            except Exception as exc:
-                print(
-                    f"[WARN] 承認待ち更新失敗: "
-                    f"room_id={p.room_id}: {exc}"
-                )
-                to_append.append(row_values)
+            # 全ての重複行を上書き更新
+            row_nums = existing[key]
+            for row_num in row_nums:
+                try:
+                    sheet.values().update(
+                        spreadsheetId=SPREADSHEET_ID,
+                        range=(
+                            f"{PENDING_SHEET}"
+                            f"!A{row_num}:M{row_num}"
+                        ),
+                        valueInputOption="RAW",
+                        body={"values": [row_values]},
+                    ).execute()
+                except Exception as exc:
+                    print(
+                        f"[WARN] 承認待ち更新失敗: "
+                        f"row={row_num}, "
+                        f"room_id={p.room_id}: {exc}"
+                    )
+            print(
+                f"[DEBUG] 承認待ち更新: "
+                f"rows={row_nums}, room_id={p.room_id}"
+            )
         else:
             to_append.append(row_values)
 
