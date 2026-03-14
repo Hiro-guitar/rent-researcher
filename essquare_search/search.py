@@ -679,18 +679,46 @@ def enrich_property_details(
                 # 2. CDP Network ログから画像 URL を抽出 (最も確実)
                 cdp_entries = _extract_images_from_cdp(session)
                 if cdp_entries:
-                    cdp_urls = [u for u, _ in cdp_entries]
-                    details["image_urls"] = cdp_urls
-                    if not details.get("image_url"):
-                        details["image_url"] = cdp_urls[0]
-                    # 1枚目の画像を CDP 経由でダウンロード
-                    _, first_req_id = cdp_entries[0]
-                    if first_req_id:
-                        cdp_data = _download_image_via_cdp(
-                            session, first_req_id
+                    # 全画像を CDP でダウンロード → catbox.moe へ
+                    public_urls: list[str] = []
+                    first_data: bytes | None = None
+                    for i, (orig_url, req_id) in enumerate(
+                        cdp_entries
+                    ):
+                        img_bytes = _download_image_via_cdp(
+                            session, req_id
                         )
-                        if cdp_data:
-                            details["image_data"] = cdp_data
+                        if not img_bytes:
+                            continue
+                        if first_data is None:
+                            first_data = img_bytes
+                        cat_url = _upload_to_catbox(img_bytes)
+                        if cat_url:
+                            public_urls.append(cat_url)
+                        # レート制限回避
+                        if i < len(cdp_entries) - 1:
+                            time.sleep(0.3)
+
+                    if public_urls:
+                        details["image_urls"] = public_urls
+                        details["image_url"] = public_urls[0]
+                        print(
+                            f"[DEBUG] ES-Square catbox "
+                            f"アップロード: "
+                            f"{len(public_urls)}/"
+                            f"{len(cdp_entries)} 件成功"
+                        )
+                    else:
+                        # catbox 失敗時は元 URL をフォールバック
+                        cdp_urls = [
+                            u for u, _ in cdp_entries
+                        ]
+                        details["image_urls"] = cdp_urls
+                        if not details.get("image_url"):
+                            details["image_url"] = cdp_urls[0]
+
+                    if first_data:
+                        details["image_data"] = first_data
 
             if not details.get("image_urls"):
                 # 3. API レスポンスデータから画像 URL を探す
@@ -713,18 +741,15 @@ def enrich_property_details(
                 if hasattr(prop, key) and value:
                     setattr(prop, key, value)
 
-            # 1枚目の画像をダウンロード (Discord添付用)
-            # CDP 経由で取得済みでなければ XHR でフォールバック
+            # image_data が未取得なら XHR でフォールバック
             if prop.image_urls and not prop.image_data:
                 prop.image_data = _download_image_via_browser(
                     session, prop.image_urls[0]
                 )
-            if not prop.image_data:
-                print(
-                    "[DEBUG] ES-Square 画像: CDP/XHR共に失敗"
-                )
 
-            img_count = len(prop.image_urls) if prop.image_urls else 0
+            img_count = (
+                len(prop.image_urls) if prop.image_urls else 0
+            )
             has_data = "yes" if prop.image_data else "no"
             print(
                 f"[DEBUG] ES-Square 詳細取得完了 "
@@ -795,6 +820,44 @@ def _download_image_via_browser(
         )
     except Exception as exc:
         print(f"[WARN] ES-Square 画像ダウンロード失敗: {exc}")
+    return None
+
+
+def _upload_to_catbox(image_data: bytes) -> str | None:
+    """画像を catbox.moe にアップロードし、公開 URL を返す。
+
+    api.e-bukken-1.com の画像は認証が必要で承認ページで表示できないため、
+    catbox.moe にアップロードして公開 URL に変換する。
+    GAS 側の uploadPropertyImage() と同じ API を使用。
+    """
+    import requests as req
+
+    try:
+        resp = req.post(
+            'https://catbox.moe/user/api.php',
+            files={
+                'fileToUpload': (
+                    'property.jpg', image_data, 'image/jpeg',
+                ),
+            },
+            data={'reqtype': 'fileupload'},
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            url = resp.text.strip()
+            if url.startswith('https://'):
+                return url
+            print(
+                f"[WARN] catbox.moe 不正レスポンス: "
+                f"{url[:100]}"
+            )
+        else:
+            print(
+                f"[WARN] catbox.moe アップロード失敗: "
+                f"status={resp.status_code}"
+            )
+    except Exception as exc:
+        print(f"[WARN] catbox.moe アップロード失敗: {exc}")
     return None
 
 
