@@ -361,6 +361,7 @@ def write_pending_properties(
 
     # ── 更新 / 新規追加 に振り分け
     to_append = []
+    batch_data = []  # batchUpdate 用
     for p in properties:
         data_json = _build_property_json(p)
         row_values = [
@@ -381,31 +382,44 @@ def write_pending_properties(
 
         key = (customer_name, str(p.room_id))
         if key in existing:
-            # 全ての重複行を上書き更新
+            # 全ての重複行を batchUpdate で一括更新
             row_nums = existing[key]
             for row_num in row_nums:
-                try:
-                    sheet.values().update(
-                        spreadsheetId=SPREADSHEET_ID,
-                        range=(
+                batch_data.append(
+                    {
+                        "range": (
                             f"{PENDING_SHEET}"
                             f"!A{row_num}:M{row_num}"
                         ),
-                        valueInputOption="RAW",
-                        body={"values": [row_values]},
-                    ).execute()
-                except Exception as exc:
-                    print(
-                        f"[WARN] 承認待ち更新失敗: "
-                        f"row={row_num}, "
-                        f"room_id={p.room_id}: {exc}"
-                    )
+                        "values": [row_values],
+                    }
+                )
             print(
-                f"[DEBUG] 承認待ち更新: "
-                f"rows={row_nums}, room_id={p.room_id}"
+                f"[DEBUG] 承認待ち更新予定: "
+                f"{len(row_nums)}行, "
+                f"room_id={p.room_id}"
             )
         else:
             to_append.append(row_values)
+
+    # ── 既存行を batchUpdate で一括更新 (1 API コール)
+    if batch_data:
+        try:
+            sheet.values().batchUpdate(
+                spreadsheetId=SPREADSHEET_ID,
+                body={
+                    "valueInputOption": "RAW",
+                    "data": batch_data,
+                },
+            ).execute()
+            print(
+                f"[DEBUG] 承認待ち一括更新完了: "
+                f"{len(batch_data)}行"
+            )
+        except Exception as exc:
+            print(
+                f"[WARN] 承認待ち一括更新失敗: {exc}"
+            )
 
     # ── 新規物件を一括追加
     if to_append:
