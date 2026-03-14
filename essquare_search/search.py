@@ -456,102 +456,6 @@ def _wait_for_render(
     return "timeout"
 
 
-def _debug_page_state(
-    session: EsSquareSession, html: str, page: int
-) -> None:
-    """ページの状態をデバッグログに出力する。"""
-    try:
-        current_url = session.driver.current_url
-        title = session.driver.title
-        print(f"[DEBUG] ES-Square page={page}: URL={current_url}")
-        print(f"[DEBUG] ES-Square page={page}: title={title}")
-        print(f"[DEBUG] ES-Square page={page}: HTML size={len(html)}")
-
-        # ページのテキスト内容から物件っぽい情報を確認
-        body_text = session.execute_script(
-            "return document.body ? document.body.innerText : '';"
-        )
-        if body_text:
-            text_len = len(body_text)
-            print(f"[DEBUG] ES-Square: body text length={text_len}")
-
-            # 「円」の出現回数 (賃料関連テキストの数)
-            yen_count = body_text.count("円")
-            print(f"[DEBUG] ES-Square: '円' count={yen_count}")
-
-            # 「万」の出現回数
-            man_count = body_text.count("万")
-            print(f"[DEBUG] ES-Square: '万' count={man_count}")
-
-            # 「㎡」の出現回数 (面積)
-            sqm_count = body_text.count("㎡")
-            print(f"[DEBUG] ES-Square: '㎡' count={sqm_count}")
-
-            # 「件」の出現回数 (検索結果件数表示)
-            ken_count = body_text.count("件")
-            print(f"[DEBUG] ES-Square: '件' count={ken_count}")
-
-            # 先頭 2000 文字のダンプ
-            preview = body_text[:2000].replace("\n", " | ")
-            print(f"[DEBUG] ES-Square body preview: {preview}")
-
-        # キャプチャした API URL リスト
-        api_urls = session.execute_script(
-            "return (window.__esq_api || []).map(r => r.url).slice(0, 20);"
-        )
-        if api_urls:
-            print(
-                f"[DEBUG] ES-Square: captured API URLs "
-                f"({len(api_urls)} 件):"
-            )
-            for u in api_urls:
-                print(f"[DEBUG]   {str(u)[:200]}")
-
-    except Exception as exc:
-        print(f"[DEBUG] ES-Square debug failed: {exc}")
-
-
-def _log_browser_diagnostics(
-    session: EsSquareSession, page: int
-) -> None:
-    """レンダリング失敗時のブラウザ診断情報をログ出力する。"""
-    try:
-        diag = session.execute_script("""
-            var result = {};
-            result.url = window.location.href;
-            result.title = document.title;
-            var body = document.body;
-            result.bodyLen = body ? body.innerText.length : 0;
-            result.bodyPreview = body
-                ? body.innerText.substring(0, 500).replace(/\\n/g, ' | ')
-                : '';
-            // React エラーバウンダリのチェック
-            var errEl = document.querySelector(
-                '[class*="error"], [class*="Error"], [role="alert"]'
-            );
-            result.errorEl = errEl
-                ? errEl.textContent.substring(0, 200)
-                : null;
-            // #root / #app の内容量
-            var root = document.getElementById('root')
-                || document.getElementById('app')
-                || document.getElementById('__next');
-            result.rootLen = root ? root.innerText.length : -1;
-            return result;
-        """)
-        if diag:
-            print(f"[DEBUG] ES-Square 診断 page={page}:")
-            print(f"[DEBUG]   URL: {diag.get('url', '?')}")
-            print(f"[DEBUG]   title: {diag.get('title', '?')}")
-            print(f"[DEBUG]   bodyLen: {diag.get('bodyLen', 0)}")
-            print(f"[DEBUG]   rootLen: {diag.get('rootLen', -1)}")
-            if diag.get("errorEl"):
-                print(f"[DEBUG]   ERROR: {diag['errorEl']}")
-            print(f"[DEBUG]   preview: {diag.get('bodyPreview', '')}")
-    except Exception as exc:
-        print(f"[DEBUG] ES-Square 診断失敗: {exc}")
-
-
 def _assign_detail_urls(
     session: EsSquareSession,
     properties: list[Property],
@@ -720,59 +624,28 @@ def enrich_property_details(
     """各物件の詳細ページから追加情報を取得する (in-place 変更)。
 
     画像取得の優先順位:
-    1. API レスポンスデータから画像 URL を抽出
-    2. Swiper ギャラリーモーダルを操作して Performance API でキャプチャ
-    3. DOM の img タグから HTTP URL を直接取得 (フォールバック)
+    1. CDP Network ログから api.e-bukken-1.com の画像 URL を抽出
+    2. Swiper ギャラリーモーダル操作 + fetch インターセプター
+    3. API レスポンスデータから画像 URL を抽出
+    4. DOM の img タグから HTTP URL を直接取得 (フォールバック)
     """
     for prop in properties:
         if not prop.url:
             continue
 
         try:
+            # CDP ログをクリア (前の物件のログが混ざらないようにする)
+            try:
+                session.driver.get_log('performance')
+            except Exception:
+                pass
+
             html = session.get_page(prop.url)
 
             # SPA レンダリング完了を待つ
             rendered = _wait_for_detail_render(session, timeout=10)
             if rendered:
                 html = session.driver.page_source
-
-            # CDP Network で全リソースを確認
-            try:
-                perf_log = session.driver.get_log('performance')
-                img_urls = []
-                for entry in perf_log:
-                    msg = json.loads(entry.get('message', '{}'))
-                    params = msg.get('message', {}).get('params', {})
-                    resp = params.get('response', {})
-                    url = resp.get('url', '')
-                    mime = resp.get('mimeType', '')
-                    if url and ('image' in mime or '/photo' in url
-                                or '/bukken_image' in url
-                                or '/file/' in url):
-                        img_urls.append(f"{mime}: {url[:200]}")
-                if img_urls:
-                    print(f"[DEBUG] ES-Square CDP画像レスポンス: {len(img_urls)} 件")
-                    for u in img_urls[:10]:
-                        print(f"[DEBUG]   {u}")
-                else:
-                    # Performance entries のサイズ上位を表示（画像候補）
-                    all_entries = []
-                    for entry in perf_log:
-                        msg = json.loads(entry.get('message', '{}'))
-                        method = msg.get('message', {}).get('method', '')
-                        params = msg.get('message', {}).get('params', {})
-                        if method == 'Network.responseReceived':
-                            resp = params.get('response', {})
-                            url = resp.get('url', '')
-                            mime = resp.get('mimeType', '')
-                            size = params.get('response', {}).get('encodedDataLength', 0)
-                            if url and not url.startswith('data:'):
-                                all_entries.append(f"{mime} ({size}B): {url[:150]}")
-                    print(f"[DEBUG] ES-Square CDP 全レスポンス: {len(all_entries)} 件")
-                    for e in all_entries[:15]:
-                        print(f"[DEBUG]   {e}")
-            except Exception as exc:
-                print(f"[DEBUG] ES-Square CDP ログ取得失敗: {exc}")
 
             details = parse_detail_page(html)
 
@@ -788,46 +661,33 @@ def enrich_property_details(
 
             # 画像取得: 複数の方法を順番に試行
             if not details.get("image_urls"):
-                # インターセプターでトラッキングした画像 fetch URL をクリア
-                # (前の物件の画像が混ざらないようにする)
                 _clear_img_fetch_tracking(session)
 
-                # 1. Swiper ギャラリーを操作して画像を取得
-                #    ギャラリー操作中に fetch される画像 URL を
-                #    インターセプターがトラッキングする
-                gallery_images = _extract_gallery_images(session)
-                if gallery_images:
-                    details["image_urls"] = gallery_images
+                # 1. ギャラリーを操作して画像ロードを誘発
+                _extract_gallery_images(session)
+
+                # 2. CDP Network ログから画像 URL を抽出 (最も確実)
+                cdp_images = _extract_images_from_cdp(session)
+                if cdp_images:
+                    details["image_urls"] = cdp_images
                     if not details.get("image_url"):
-                        details["image_url"] = gallery_images[0]
-                    print(
-                        f"[DEBUG] ES-Square 画像取得: "
-                        f"ギャラリーから {len(gallery_images)} 件"
-                    )
+                        details["image_url"] = cdp_images[0]
 
             if not details.get("image_urls"):
-                # 2. API レスポンスデータから画像 URL を探す
+                # 3. API レスポンスデータから画像 URL を探す
                 api_images = _extract_images_from_api_data(session)
                 if api_images:
                     details["image_urls"] = api_images
                     if not details.get("image_url"):
                         details["image_url"] = api_images[0]
-                    print(
-                        f"[DEBUG] ES-Square 画像取得: "
-                        f"API データから {len(api_images)} 件"
-                    )
 
             if not details.get("image_urls"):
-                # 3. DOM の img タグからフォールバック取得
+                # 4. DOM の img タグからフォールバック取得
                 js_images = _extract_images_via_js(session)
                 if js_images:
                     details["image_urls"] = js_images
                     if not details.get("image_url"):
                         details["image_url"] = js_images[0]
-                    print(
-                        f"[DEBUG] ES-Square 画像取得: "
-                        f"DOM から {len(js_images)} 件"
-                    )
 
             # 詳細情報を Property にセット
             for key, value in details.items():
@@ -835,14 +695,9 @@ def enrich_property_details(
                     setattr(prop, key, value)
 
             img_count = len(prop.image_urls) if prop.image_urls else 0
-            img_src = "none"
-            if img_count > 0:
-                first_url = prop.image_urls[0][:80] if prop.image_urls else ""
-                img_src = first_url
             print(
                 f"[DEBUG] ES-Square 詳細取得完了 "
-                f"(room_id={prop.room_id}): "
-                f"images={img_count}, src={img_src}"
+                f"(room_id={prop.room_id}): images={img_count}"
             )
 
         except Exception as exc:
@@ -853,6 +708,63 @@ def enrich_property_details(
 
         # レート制限対策
         time.sleep(random.uniform(1, 2))
+
+
+def _extract_images_from_cdp(
+    session: EsSquareSession,
+) -> list[str]:
+    """CDP Network ログから物件画像の HTTP URL を抽出する。
+
+    ES-Square の物件画像は api.e-bukken-1.com から image/jpeg として
+    ロードされ、ブラウザ内で blob: URL に変換されて表示される。
+    CDP の Network.responseReceived イベントから元の HTTP URL を取得する。
+    """
+    try:
+        perf_log = session.driver.get_log('performance')
+        seen: set[str] = set()
+        result: list[str] = []
+
+        for entry in perf_log:
+            try:
+                msg = json.loads(entry.get('message', '{}'))
+                params = msg.get('message', {}).get('params', {})
+                resp = params.get('response', {})
+                url = resp.get('url', '')
+                mime = resp.get('mimeType', '')
+            except (json.JSONDecodeError, AttributeError):
+                continue
+
+            if not url or url in seen:
+                continue
+
+            # image/* MIME type のレスポンスを対象とする
+            if 'image' not in mime:
+                continue
+
+            # ジャンク画像を除外
+            if _JUNK_IMG.search(url):
+                continue
+
+            # data: URI は除外
+            if url.startswith('data:'):
+                continue
+
+            # blob: URL は Discord で使用不可のため除外
+            if url.startswith('blob:'):
+                continue
+
+            seen.add(url)
+            result.append(url)
+
+        if result:
+            print(
+                f"[DEBUG] ES-Square CDP画像: {len(result)} 件"
+            )
+        return result[:20]
+
+    except Exception as exc:
+        print(f"[WARN] ES-Square CDP画像取得失敗: {exc}")
+        return []
 
 
 def _extract_images_from_api_data(
