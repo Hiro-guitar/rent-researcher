@@ -264,15 +264,17 @@ KODAWARI_MAP: dict[str, str] = {
     "エアコン": "airConAvailable",
     "エアコン付き": "airConAvailable",
     "床暖房": "floorHeater",
-    "家具付き": "furnitureAvailable",
-    "家具家電付き": "furnitureAvailable",
+    "家具付き": "kagu_flag",
+    "家具家電付き": "kagu_flag",
+    "家電付き": "kaden_flag",
     # 収納
     "ウォークインクローゼット": "walkinCloset",
     "ロフト": "loftAvailable",
     "ロフト付き": "loftAvailable",
     "トランクルーム": "trunkRoom",
     # 放送・通信
-    "インターネット無料": "internet",
+    "インターネット無料": "internet_free_flag",
+    "BS/CS": "bscs",
     "ケーブルテレビ": "cableTv",
     # セキュリティ
     "オートロック": "autoLock",

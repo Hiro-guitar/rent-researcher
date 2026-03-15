@@ -153,11 +153,11 @@ def build_search_url(
 
     # 敷金なし
     if criteria.no_deposit:
-        params.append(("shikikin", "0"))
+        params.append(("shikikin_nashi_flag", "true"))
 
     # 礼金なし
     if criteria.no_key_money:
-        params.append(("reikin", "0"))
+        params.append(("reikin_nashi_flag", "true"))
 
     # 最終更新日 (koshin_radio_state)
     if criteria.update_within_days is not None:
