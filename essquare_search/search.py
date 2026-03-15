@@ -35,7 +35,12 @@ _JUNK_IMG = re.compile(
 )
 
 
-def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
+def build_search_url(
+    criteria: CustomerCriteria,
+    page: int = 1,
+    *,
+    is_test_customer: bool = False,
+) -> str:
     """CustomerCriteria → いい生活Square 検索 URL を構築する。"""
     params: list[tuple[str, str]] = []
 
@@ -174,8 +179,11 @@ def build_search_url(criteria: CustomerCriteria, page: int = 1) -> str:
             f"(指定: {criteria.update_within_days}日)"
         )
 
-    # 申込あり除外
-    params.append(("is_exclude_moshikomi_exist", "true"))
+    # 申込あり除外（テスト顧客の場合はスキップ）
+    if not is_test_customer:
+        params.append(("is_exclude_moshikomi_exist", "true"))
+    else:
+        print("[INFO] ES-Square: テスト顧客のため申込あり除外をスキップ")
 
     # ソート: 最終更新日順
     params.append(("order", "saishu_koshin_time.desc"))
@@ -240,12 +248,14 @@ def build_search_url_with_kodawari(
     criteria: CustomerCriteria,
     equipment_names: list[str],
     page: int = 1,
+    *,
+    is_test_customer: bool = False,
 ) -> str:
     """設備名リスト付きで検索 URL を構築する。
 
     run.py から呼び出される際、sheets.py で読み込んだ設備名を渡す。
     """
-    url = build_search_url(criteria, page)
+    url = build_search_url(criteria, page, is_test_customer=is_test_customer)
 
     # kodawari パラメータを追加
     kodawari_params: list[tuple[str, str]] = []
@@ -279,6 +289,8 @@ def search_properties(
     session: EsSquareSession,
     criteria: CustomerCriteria,
     equipment_names: list[str] | None = None,
+    *,
+    is_test_customer: bool = False,
 ) -> list[Property]:
     """いい生活Square で物件を検索して Property リストを返す。
 
@@ -308,10 +320,13 @@ def search_properties(
     for page in range(1, max_pages + 1):
         if equipment_names:
             url = build_search_url_with_kodawari(
-                criteria, equipment_names, page
+                criteria, equipment_names, page,
+                is_test_customer=is_test_customer,
             )
         else:
-            url = build_search_url(criteria, page)
+            url = build_search_url(
+                criteria, page, is_test_customer=is_test_customer
+            )
 
         print(f"[DEBUG] ES-Square 検索: page={page}, url={url[:200]}...")
 

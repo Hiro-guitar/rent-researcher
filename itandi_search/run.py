@@ -660,8 +660,10 @@ def _run_essquare_search(
     """
     print(f"[INFO] ES-Square 検索中: {customer.name}")
 
+    is_test = "テスト" in customer.name
     properties = esq_search_properties(
-        esq_session, customer, customer.equipment_names or None
+        esq_session, customer, customer.equipment_names or None,
+        is_test_customer=is_test,
     )
     print(f"  → ES-Square: {len(properties)} 件ヒット")
 
