@@ -94,7 +94,7 @@ def load_customer_criteria(service) -> list[CustomerCriteria]:
         STRUCTURE_GROUP_MAP = {
             "鉄筋系": ["RC", "SRC"],
             "鉄骨系": ["鉄骨造", "軽量鉄骨造"],
-            "ブロック・その他": ["ブロック"],
+            "ブロック・その他": ["ブロック", "PC", "HPC", "ALC", "CFT"],
         }
         expanded = []
         for st in structure_types_raw:
