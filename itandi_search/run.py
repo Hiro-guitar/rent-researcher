@@ -45,6 +45,90 @@ except ImportError:
     pass
 
 
+def _build_search_info(customer, *, search_url: str = "") -> str:
+    """CustomerCriteria から検索条件サマリーテキストを組み立てる。
+
+    Discord 通知でどの条件で検索したかを確認するために使う。
+    search_url が指定された場合（ES-Square）はURLも表示する。
+    """
+    lines = ["📋 **検索条件**", "━━━━━━━━━━"]
+
+    # エリア
+    if customer.stations:
+        lines.append(f"🚉 {' / '.join(customer.stations)}")
+    if customer.cities:
+        lines.append(f"📍 {' / '.join(customer.cities)}")
+
+    # 賃料
+    rent_parts = []
+    if customer.rent_min:
+        rent_parts.append(f"{customer.rent_min / 10000:.1f}万円〜")
+    if customer.rent_max:
+        rent_parts.append(f"〜{customer.rent_max / 10000:.1f}万円")
+    if rent_parts:
+        lines.append(f"💰 {''.join(rent_parts)}")
+
+    # 間取り
+    if customer.layouts:
+        lines.append(f"🏠 {' / '.join(customer.layouts)}")
+
+    # 面積
+    area_parts = []
+    if customer.area_min:
+        area_parts.append(f"{customer.area_min}㎡〜")
+    if customer.area_max:
+        area_parts.append(f"〜{customer.area_max}㎡")
+    if area_parts:
+        lines.append(f"📐 {''.join(area_parts)}")
+
+    # 築年数
+    if customer.building_age:
+        lines.append(f"🏗 築{customer.building_age}年以内")
+
+    # 建物種別
+    if customer.building_types:
+        lines.append(f"🏢 {' / '.join(customer.building_types)}")
+
+    # 設備（kodawari）
+    if customer.equipment_names:
+        lines.append(f"⚙️ {', '.join(customer.equipment_names)}")
+
+    # 特殊条件
+    special = []
+    if customer.no_deposit:
+        special.append("敷金なし")
+    if customer.no_key_money:
+        special.append("礼金なし")
+    if customer.south_facing:
+        special.append("南向き")
+    if customer.no_loft:
+        special.append("ロフトNG")
+    if customer.require_loft:
+        special.append("ロフト必須")
+    if customer.no_teiki:
+        special.append("定期借家除外")
+    if customer.top_floor_only:
+        special.append("最上階")
+    if customer.min_floor:
+        special.append(f"{customer.min_floor}階以上")
+    if special:
+        lines.append(f"🔒 {' / '.join(special)}")
+
+    # 駅徒歩
+    if customer.walk_minutes:
+        lines.append(f"🚶 徒歩{customer.walk_minutes}分以内")
+
+    # 更新日
+    if customer.update_within_days:
+        lines.append(f"🕐 {customer.update_within_days}日以内に更新")
+
+    # 検索URL（ES-Square のみ）
+    if search_url:
+        lines.append(f"🔍 {search_url}")
+
+    return "\n".join(lines)
+
+
 def _parse_floor_number(text: str) -> int | None:
     """階数テキストから数値を抽出する。
     例: "5階" → 5, "地上10階建" → 10, "B1階" → None
@@ -606,6 +690,7 @@ def _run_itandi_search(
             properties=new_properties,
             thread_id=customer.discord_thread_id,
             gas_webapp_url=GAS_WEBAPP_URL,
+            search_info=_build_search_info(customer),
         )
 
         # スレッド ID を保存（今後の通知で再利用）
@@ -661,7 +746,7 @@ def _run_essquare_search(
     print(f"[INFO] ES-Square 検索中: {customer.name}")
 
     is_test = "テスト" in customer.name
-    properties = esq_search_properties(
+    properties, esq_search_url = esq_search_properties(
         esq_session, customer, customer.equipment_names or None,
         is_test_customer=is_test,
     )
@@ -789,6 +874,9 @@ def _run_essquare_search(
             properties=new_properties,
             thread_id=customer.discord_thread_id,
             gas_webapp_url=GAS_WEBAPP_URL,
+            search_info=_build_search_info(
+                customer, search_url=esq_search_url
+            ),
         )
         if thread_id and thread_id != customer.discord_thread_id:
             customer.discord_thread_id = thread_id

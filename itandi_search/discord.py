@@ -15,6 +15,7 @@ def send_property_notification(
     properties: list[Property],
     thread_id: str | None = None,
     gas_webapp_url: str = "",
+    search_info: str = "",
 ) -> str | None:
     """物件一覧を Discord に通知する。
 
@@ -71,6 +72,13 @@ def send_property_notification(
         except Exception as exc:
             print(f"[ERROR] Discord スレッド作成失敗: {exc}")
             return thread_id
+
+    # ── 1.5. 検索条件を送信 ─────────────────────────────────
+    if search_info:
+        info_url = f"{webhook_url}?thread_id={created_thread_id}"
+        info_payload: dict = {"content": search_info}
+        _post_with_retry(info_url, info_payload, 0)
+        time.sleep(1)
 
     # ── 2. 物件情報を送信 ────────────────────────────────────
     for idx, prop in enumerate(properties):

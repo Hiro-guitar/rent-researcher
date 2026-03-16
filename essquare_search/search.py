@@ -291,8 +291,8 @@ def search_properties(
     equipment_names: list[str] | None = None,
     *,
     is_test_customer: bool = False,
-) -> list[Property]:
-    """いい生活Square で物件を検索して Property リストを返す。
+) -> tuple[list[Property], str]:
+    """いい生活Square で物件を検索して (Property リスト, 検索URL) を返す。
 
     DOM パース (BeautifulSoup) をメインに、
     API レスポンスキャプチャを補助的に使用する。
@@ -306,7 +306,7 @@ def search_properties(
             "[WARN] ES-Square: エリア指定なし（駅名・市区町村とも未設定）"
             "→ 検索をスキップ"
         )
-        return []
+        return [], ""
 
     # API レスポンスキャプチャを設定 (全 fetch を記録)
     try:
@@ -316,6 +316,7 @@ def search_properties(
 
     all_properties: list[Property] = []
     max_pages = 5
+    first_page_url = ""  # page=1 の検索URL（Discord通知用）
 
     for page in range(1, max_pages + 1):
         if equipment_names:
@@ -327,6 +328,9 @@ def search_properties(
             url = build_search_url(
                 criteria, page, is_test_customer=is_test_customer
             )
+
+        if page == 1:
+            first_page_url = url
 
         print(f"[DEBUG] ES-Square 検索: page={page}, url={url[:200]}...")
 
@@ -397,7 +401,7 @@ def search_properties(
         # レート制限対策: ランダム遅延
         time.sleep(random.uniform(1, 2))
 
-    return all_properties
+    return all_properties, first_page_url
 
 
 def _wait_for_render(
