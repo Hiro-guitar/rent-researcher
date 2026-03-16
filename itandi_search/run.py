@@ -15,10 +15,13 @@ from .auth import ItandiAuthError, ItandiSession
 from .config import (
     DISCORD_WEBHOOK_URL,
     EQUIPMENT_DISPLAY_NAMES,
+    EQUIPMENT_IDS,
     GAS_WEBAPP_URL,
     ITANDI_EMAIL,
     ITANDI_PASSWORD,
+    SOFT_EQUIPMENT_IDS,
     SOFT_EQUIPMENT_SEARCH_TERMS,
+    TEXT_ONLY_EQUIPMENT,
 )
 from .discord import send_error_notification, send_property_notification
 from .search import ItandiSearchError, enrich_properties_with_images, search_properties
@@ -746,8 +749,14 @@ def _run_essquare_search(
     print(f"[INFO] ES-Square 検索中: {customer.name}")
 
     is_test = "テスト" in customer.name
+    # ソフト設備は kodawari に含めない（管理会社未入力で取りこぼし防止）
+    hard_only_names = [
+        name for name in (customer.equipment_names or [])
+        if EQUIPMENT_IDS.get(name, TEXT_ONLY_EQUIPMENT.get(name, -1))
+        not in SOFT_EQUIPMENT_IDS
+    ]
     properties, esq_search_url = esq_search_properties(
-        esq_session, customer, customer.equipment_names or None,
+        esq_session, customer, hard_only_names or None,
         is_test_customer=is_test,
     )
     print(f"  → ES-Square: {len(properties)} 件ヒット")
