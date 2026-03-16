@@ -165,11 +165,11 @@ def build_search_payload(
         print(f"[INFO] 都道府県フィルター適用 (フォールバック): "
               f"prefecture_id={prefecture_id}")
 
-    # 賃料
+    # 賃料（管理費・共益費込み）
     if criteria.rent_min is not None:
-        filter_obj["rent:gteq"] = criteria.rent_min
+        filter_obj["total_rent:gteq"] = criteria.rent_min
     if criteria.rent_max is not None:
-        filter_obj["rent:lteq"] = criteria.rent_max
+        filter_obj["total_rent:lteq"] = criteria.rent_max
 
     # 間取り（日本語表記 → itandi BB API 値に変換）
     if criteria.layouts:

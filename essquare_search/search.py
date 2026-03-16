@@ -76,16 +76,16 @@ def build_search_url(
                 "市区町村検索にフォールバック"
             )
 
-    # 賃料 (chinryo.from / chinryo.to) — 円単位、ドット区切り
+    # 賃料 (komi_chinryo.from / komi_chinryo.to) — 管理費・共益費込み、円単位
     if criteria.rent_max is not None:
-        params.append(("chinryo.to", str(criteria.rent_max)))
+        params.append(("komi_chinryo.to", str(criteria.rent_max)))
         print(
-            f"[INFO] ES-Square: 賃料上限 chinryo.to={criteria.rent_max:,}円"
+            f"[INFO] ES-Square: 賃料上限(管理費込) komi_chinryo.to={criteria.rent_max:,}円"
         )
     else:
         print("[WARN] ES-Square: 賃料上限が未設定 (rent_max=None)")
     if criteria.rent_min is not None:
-        params.append(("chinryo.from", str(criteria.rent_min)))
+        params.append(("komi_chinryo.from", str(criteria.rent_min)))
 
     # 間取り (search_madori_code2) — 連番コード、複数値はキー繰り返し
     for layout in criteria.layouts:
