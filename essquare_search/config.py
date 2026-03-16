@@ -313,6 +313,14 @@ KODAWARI_MAP: dict[str, str] = {
     "高齢者相談可": "seniorCitizensMayBeOK",
 }
 
+# ── ハード設備（kodawari で API 絞り込みする設備名） ────────
+# これ以外の設備は kodawari に送らず、詳細ページのテキストチェック（警告のみ）で対応
+HARD_KODAWARI_NAMES: set[str] = {
+    "家具付き", "家具家電付き", "家電付き",
+    "事務所可", "事務所利用可",
+    "ペット相談", "ペット可", "ペット相談可",
+}
+
 # ── 建物種別 → search_boshu_shubetsu_code パラメータ値 ──
 # itandi API の building_detail_type 値 → ES-Square コード
 BUILDING_TYPE_MAP: dict[str, str] = {

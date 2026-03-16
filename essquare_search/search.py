@@ -14,6 +14,7 @@ from .config import (
     BUILDING_TYPE_MAP,
     CITY_CODES,
     ESSQUARE_SEARCH_URL,
+    HARD_KODAWARI_NAMES,
     KODAWARI_MAP,
     LAYOUT_MAP,
     STATION_CODES,
@@ -257,12 +258,18 @@ def build_search_url_with_kodawari(
     """
     url = build_search_url(criteria, page, is_test_customer=is_test_customer)
 
-    # kodawari パラメータを追加
+    # kodawari パラメータを追加（ハード設備のみ API 絞り込み）
     kodawari_params: list[tuple[str, str]] = []
+    skipped_soft: list[str] = []
     unmapped_kodawari: list[str] = []
     for name in equipment_names:
         name = name.strip()
         if not name:
+            continue
+        if name not in HARD_KODAWARI_NAMES:
+            # ソフト設備 → kodawari に送らない（詳細ページでテキストチェック）
+            if name in KODAWARI_MAP:
+                skipped_soft.append(name)
             continue
         if name in KODAWARI_MAP:
             kodawari_params.append(("kodawari", KODAWARI_MAP[name]))
@@ -273,6 +280,13 @@ def build_search_url_with_kodawari(
         url += "&" + urlencode(kodawari_params)
         print(
             f"[INFO] ES-Square: kodawari {len(kodawari_params)} 件適用"
+        )
+
+    if skipped_soft:
+        print(
+            f"[INFO] ES-Square: ソフト設備（kodawari送信スキップ）"
+            f" {len(skipped_soft)} 件: "
+            f"{', '.join(skipped_soft)}"
         )
 
     if unmapped_kodawari:
