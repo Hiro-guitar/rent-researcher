@@ -478,14 +478,7 @@ function processReplyQueue() {
             contents: [
               {
                 type: 'text',
-                text: '「' + displayName + '」の確認結果',
-                weight: 'bold',
-                size: 'lg',
-                wrap: true
-              },
-              {
-                type: 'text',
-                text: 'お問い合わせいただきありがとうございます。確認いたしましたが、残念ながら現在こちらの物件はご案内が難しい状況です。',
+                text: 'お待たせいたしました。' + displayName + 'について確認いたしましたが、残念ながら現在こちらの物件はご案内が難しい状況でした。',
                 wrap: true,
                 size: 'sm',
                 color: '#666666'
@@ -493,7 +486,7 @@ function processReplyQueue() {
               { type: 'separator' },
               {
                 type: 'text',
-                text: '似た条件の物件が出た際に、お知らせしましょうか？',
+                text: '似た条件の物件のご案内はご希望されますか？',
                 wrap: true,
                 size: 'md',
                 color: '#333333',
