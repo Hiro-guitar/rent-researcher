@@ -464,7 +464,7 @@ function processReplyQueue() {
     var roomNumber = data[i][2];
     var displayName = propertyName + (roomNumber ? ' ' + roomNumber + '号室' : '');
 
-    // Push メッセージ送信（Flex - 手動返信風 + 条件登録誘導）
+    // Push メッセージ送信（Flex - 確認結果 + 類似物件の提案）
     pushMessage(userId, [
       {
         type: 'flex',
@@ -493,7 +493,7 @@ function processReplyQueue() {
               { type: 'separator' },
               {
                 type: 'text',
-                text: '似た条件の物件が出たら、すぐにお知らせできます。',
+                text: '似た条件の物件をお探ししましょうか？',
                 wrap: true,
                 size: 'md',
                 color: '#333333',
@@ -503,26 +503,31 @@ function processReplyQueue() {
           },
           footer: {
             type: 'box',
-            layout: 'vertical',
-            spacing: 'sm',
+            layout: 'horizontal',
+            spacing: 'md',
             contents: [
               {
                 type: 'button',
                 style: 'primary',
                 color: '#06C755',
-                height: 'md',
+                height: 'sm',
+                flex: 1,
                 action: {
                   type: 'message',
-                  label: '🔔 新着物件のお知らせを受け取る',
+                  label: 'はい、お願いします',
                   text: '条件登録'
                 }
               },
               {
-                type: 'text',
-                text: '30秒で完了 / 無料',
-                size: 'xs',
-                color: '#AAAAAA',
-                align: 'center'
+                type: 'button',
+                style: 'secondary',
+                height: 'sm',
+                flex: 1,
+                action: {
+                  type: 'message',
+                  label: 'いいえ、大丈夫です',
+                  text: '類似物件不要'
+                }
               }
             ]
           }
@@ -563,7 +568,7 @@ function testSendConditionButton() {
   pushMessage(userId, [
     {
       type: 'flex',
-      altText: 'テスト: 条件登録ボタン確認',
+      altText: 'テスト: 類似物件提案メッセージ確認',
       contents: {
         type: 'bubble',
         body: {
@@ -573,34 +578,55 @@ function testSendConditionButton() {
           contents: [
             {
               type: 'text',
-              text: '【テスト】条件登録ボタン動作確認',
+              text: '「テスト物件 101号室」の確認結果',
               weight: 'bold',
               size: 'lg',
               wrap: true
             },
             {
               type: 'text',
-              text: 'このボタンを押して動作を確認してください。',
+              text: 'お問い合わせありがとうございます。確認したところ、現在こちらの物件はご案内が難しい状況でした。',
               wrap: true,
               size: 'sm',
               color: '#666666'
+            },
+            { type: 'separator' },
+            {
+              type: 'text',
+              text: '似た条件の物件をお探ししましょうか？',
+              wrap: true,
+              size: 'md',
+              color: '#333333',
+              weight: 'bold'
             }
           ]
         },
         footer: {
           type: 'box',
-          layout: 'vertical',
-          spacing: 'sm',
+          layout: 'horizontal',
+          spacing: 'md',
           contents: [
             {
               type: 'button',
               style: 'primary',
               color: '#06C755',
-              height: 'md',
+              height: 'sm',
+              flex: 1,
               action: {
                 type: 'message',
-                label: '🔔 新着物件のお知らせを受け取る',
+                label: 'はい、お願いします',
                 text: '条件登録'
+              }
+            },
+            {
+              type: 'button',
+              style: 'secondary',
+              height: 'sm',
+              flex: 1,
+              action: {
+                type: 'message',
+                label: 'いいえ、大丈夫です',
+                text: '類似物件不要'
               }
             }
           ]

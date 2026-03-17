@@ -93,6 +93,14 @@ function doPost(e) {
         return;
       }
 
+      // 類似物件不要（遅延返信Flexの「いいえ」ボタン）
+      if (message === '類似物件不要') {
+        replyMessage(replyToken, [
+          textMsg('承知しました！\nまたお部屋探しの際はお気軽にメッセージください😊')
+        ]);
+        return;
+      }
+
       // コマンド: 条件変更
       if (message === '条件変更' || message === 'じょうけんへんこう') {
         startChangeFlow(replyToken, userId);
