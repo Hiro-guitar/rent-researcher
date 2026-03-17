@@ -507,7 +507,7 @@ function processReplyQueue() {
                 flex: 1,
                 action: {
                   type: 'message',
-                  label: 'はい、お願いします',
+                  label: 'はい',
                   text: '条件登録'
                 }
               },
@@ -518,7 +518,7 @@ function processReplyQueue() {
                 flex: 1,
                 action: {
                   type: 'message',
-                  label: 'いいえ、大丈夫です',
+                  label: 'いいえ',
                   text: '類似物件不要'
                 }
               }
