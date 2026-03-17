@@ -485,7 +485,7 @@ function processReplyQueue() {
               },
               {
                 type: 'text',
-                text: 'お問い合わせありがとうございます。確認したところ、現在こちらの物件はご案内が難しい状況でした。',
+                text: 'お問い合わせいただきありがとうございます。確認いたしましたが、残念ながら現在こちらの物件はご案内が難しい状況です。',
                 wrap: true,
                 size: 'sm',
                 color: '#666666'
@@ -493,7 +493,7 @@ function processReplyQueue() {
               { type: 'separator' },
               {
                 type: 'text',
-                text: '似た条件の物件をお探ししましょうか？',
+                text: '似た条件の物件が出た際に、お知らせしましょうか？',
                 wrap: true,
                 size: 'md',
                 color: '#333333',
