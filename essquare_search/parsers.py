@@ -1136,6 +1136,7 @@ _DETAIL_FIELD_MAP: dict[str, str] = {
     "総戸数": "total_units",
     "賃貸借の種類": "lease_type",
     "契約種別": "lease_type",
+    "契約形態": "lease_type",
     "契約期間": "contract_period",
     "解約予告": "cancellation_notice",
     "解約通知期間": "cancellation_notice",
