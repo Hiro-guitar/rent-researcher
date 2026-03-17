@@ -500,27 +500,54 @@ function processReplyQueue() {
             spacing: 'md',
             contents: [
               {
-                type: 'button',
-                style: 'primary',
-                color: '#06C755',
-                height: 'sm',
+                type: 'box',
+                layout: 'vertical',
                 flex: 1,
+                cornerRadius: 'md',
+                backgroundColor: '#06C755',
+                paddingAll: 'sm',
+                justifyContent: 'center',
+                alignItems: 'center',
                 action: {
                   type: 'message',
                   label: 'はい',
                   text: '条件登録'
-                }
+                },
+                contents: [
+                  {
+                    type: 'text',
+                    text: 'はい',
+                    color: '#FFFFFF',
+                    weight: 'bold',
+                    size: 'sm',
+                    align: 'center'
+                  }
+                ]
               },
               {
-                type: 'button',
-                style: 'secondary',
-                height: 'sm',
+                type: 'box',
+                layout: 'vertical',
                 flex: 1,
+                cornerRadius: 'md',
+                backgroundColor: '#EEEEEE',
+                paddingAll: 'sm',
+                justifyContent: 'center',
+                alignItems: 'center',
                 action: {
                   type: 'message',
                   label: 'いいえ',
                   text: '類似物件不要'
-                }
+                },
+                contents: [
+                  {
+                    type: 'text',
+                    text: 'いいえ',
+                    color: '#666666',
+                    weight: 'bold',
+                    size: 'sm',
+                    align: 'center'
+                  }
+                ]
               }
             ]
           }
