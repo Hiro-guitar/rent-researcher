@@ -52,7 +52,7 @@ PREV_STEP[STEPS.CONFIRM] = STEPS.CRITERIA_SELECT;
  * @param {string} userId
  */
 function startSearchFlow(replyToken, userId) {
-  const state = createInitialState();
+  var state = createInitialState();
 
   // LINEの表示名を自動取得（名前入力ステップをスキップ）
   var profile = getLineProfile(userId);
