@@ -1126,6 +1126,15 @@ def parse_detail_page(html: str) -> dict:
     if facilities:
         details["facilities"] = facilities
 
+    # 交通機関: 複数路線を station_info(1行目) + other_stations(残り) に分割
+    si = details.get("station_info", "")
+    if si and "\n" in si:
+        lines = [l.strip() for l in si.split("\n") if l.strip()]
+        if lines:
+            details["station_info"] = lines[0]
+            if len(lines) > 1:
+                details["other_stations"] = lines[1:]
+
     return details
 
 
@@ -1242,7 +1251,16 @@ def _parse_mui_detail_layout(soup: BeautifulSoup, details: dict) -> None:
         i = 0
         while i < len(children) - 1:
             label = children[i].get_text(strip=True)
-            value = children[i + 1].get_text(strip=True)
+            # 値セル内に複数の<div>がある場合（交通機関等）は改行で区切る
+            value_el = children[i + 1]
+            inner_divs = value_el.find_all("div", recursive=False)
+            if inner_divs:
+                value = "\n".join(
+                    d.get_text(strip=True) for d in inner_divs
+                    if d.get_text(strip=True)
+                )
+            else:
+                value = value_el.get_text(strip=True)
             if label and value and value != label:
                 _map_detail_field(details, label, value)
             i += 2
