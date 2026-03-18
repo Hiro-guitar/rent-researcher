@@ -286,6 +286,21 @@ def _graphql_item_to_property(item: dict) -> Property | None:
             image_urls_raw, list
         ) else []
 
+        # building_name 末尾の部屋番号を分離
+        # 例: "メインステージ吉祥寺 1001" → name="メインステージ吉祥寺", room="1001"
+        # パターン: 数字のみ(1001), 英字+数字(A101), 数字+英字(1A), 英字のみ1-3文字(A,AB)
+        room_number = ""
+        _room_m = re.match(
+            r"^(.+?)\s+"
+            r"((?:[A-Za-zＡ-Ｚａ-ｚ]?\d[\dA-Za-zＡ-Ｚａ-ｚ\-]*"
+            r"|\d+[A-Za-zＡ-Ｚａ-ｚ][\dA-Za-zＡ-Ｚａ-ｚ\-]*"
+            r"|[A-Za-zＡ-Ｚａ-ｚ]{1,3}))$",
+            building_name,
+        )
+        if _room_m:
+            building_name = _room_m.group(1)
+            room_number = _room_m.group(2)
+
         # room_id の決定
         room_id = str(uuid) if uuid else _generate_room_id(
             building_name, rent, layout, area
@@ -303,6 +318,7 @@ def _graphql_item_to_property(item: dict) -> Property | None:
             building_id=building_id,
             room_id=room_id,
             building_name=building_name,
+            room_number=room_number,
             source="essquare",
             address=address,
             rent=rent,

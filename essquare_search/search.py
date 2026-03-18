@@ -776,6 +776,12 @@ def enrich_property_details(
                 if hasattr(prop, key) and value:
                     setattr(prop, key, value)
 
+            # 部屋番号が取得できたら building_name から除去
+            if prop.room_number and prop.room_number not in ("", "ー"):
+                cleaned = prop.building_name.replace(prop.room_number, "").strip()
+                if cleaned:  # 空にならない場合のみ更新
+                    prop.building_name = cleaned
+
             img_count = (
                 len(prop.image_urls) if prop.image_urls else 0
             )
