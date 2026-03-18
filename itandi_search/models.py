@@ -57,6 +57,37 @@ def _normalize_building_age(value: str) -> str:
     return value
 
 
+def _normalize_move_in_date(value: str) -> str:
+    """入居可能時期テキストを日付表記に変換する。
+
+    入力例:
+        "2026/03/29"   → "2026年3月29日"
+        "2026-03-29"   → "2026年3月29日"
+        "2026/04"      → "2026年4月"
+        "即入居可"      → "即入居可"  (そのまま)
+        "4月上旬"       → "4月上旬"   (そのまま)
+        ""             → ""
+    """
+    if not value:
+        return value
+
+    value = value.strip()
+
+    # 年/月/日 形式: "2026/03/29", "2026-03-29"
+    m = re.match(r"^(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})$", value)
+    if m:
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return f"{y}年{mo}月{d}日"
+
+    # 年/月 形式: "2026/04", "2026-04"
+    m = re.match(r"^(\d{4})[/\-](\d{1,2})$", value)
+    if m:
+        y, mo = int(m.group(1)), int(m.group(2))
+        return f"{y}年{mo}月"
+
+    return value
+
+
 @dataclass
 class CustomerCriteria:
     """お客さん1人分の検索条件"""
@@ -165,3 +196,4 @@ class Property:
 
     def __post_init__(self) -> None:
         self.building_age = _normalize_building_age(self.building_age)
+        self.move_in_date = _normalize_move_in_date(self.move_in_date)
