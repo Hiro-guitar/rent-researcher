@@ -275,6 +275,10 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
 
   // ── 条件変更フローから確定 ──
   if (data === 'change_confirm') {
+    if (!state.isChangeFlow) {
+      replyMessage(replyToken, [textMsg('このボタンは無効です。\n「条件変更」と送ってやり直してください。')]);
+      return true;
+    }
     writeToSheet(userId, state);
     clearState(userId);
     var confirmSummary = buildRegistrationSummary(state);
@@ -286,6 +290,10 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
 
   // ── 条件変更フローから入居時期変更 ──
   if (data === 'change_movein') {
+    if (!state.isChangeFlow) {
+      replyMessage(replyToken, [textMsg('このボタンは無効です。\n「条件変更」と送ってやり直してください。')]);
+      return true;
+    }
     state.step = STEPS.MOVE_IN_DATE;
     saveState(userId, state);
     showMoveInMonthSelect(replyToken);
