@@ -1224,11 +1224,33 @@ def _map_detail_field(details: dict, label: str, value: str) -> None:
 
 
 def _parse_mui_detail_layout(soup: BeautifulSoup, details: dict) -> None:
-    """MUI Grid/Box ベースの詳細情報レイアウトをパースする。"""
-    # ラベルキーワードを含むテキスト要素を探し、隣接要素から値を取得
-    label_keywords = list(_DETAIL_FIELD_MAP.keys())
+    """MUI Grid/Box ベースの詳細情報レイアウトをパースする。
 
+    ES-Square の物件概要は MuiGrid-container 内に
+    xs-4(ラベル) / xs-8(値) が交互に並ぶ構造。
+    """
+    # --- パターン A: MuiGrid-container 内の xs-4/xs-8 ペアを走査 ---
+    for container in soup.find_all(
+        "div", class_=re.compile(r"MuiGrid.*container")
+    ):
+        children = [
+            c for c in container.children
+            if hasattr(c, "get_text")
+        ]
+        i = 0
+        while i < len(children) - 1:
+            label = children[i].get_text(strip=True)
+            value = children[i + 1].get_text(strip=True)
+            if label and value and value != label:
+                _map_detail_field(details, label, value)
+            i += 2
+
+    # --- パターン B: 汎用キーワード検索（フォールバック） ---
+    label_keywords = list(_DETAIL_FIELD_MAP.keys())
     for keyword in label_keywords:
+        # 既に取得済みならスキップ
+        if keyword in details or _DETAIL_FIELD_MAP.get(keyword, "") in details:
+            continue
         elements = soup.find_all(
             string=re.compile(re.escape(keyword))
         )
