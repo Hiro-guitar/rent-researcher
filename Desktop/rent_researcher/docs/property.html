@@ -271,59 +271,55 @@ function showError(msg) {
 }
 
 // ===== 設備カテゴリタグ =====
+var ES_HEADERS = ['駐車場','ライフライン','キッチン','バス・トイレ・洗面','位置・フロア','回線','給湯','室内仕様','収納','共有施設','構造・工法・仕様','特徴・設備','管理・防犯','屋外設備','区画設備','建物設備','セキュリティ','詳細','周辺環境','共用部'];
+
 function buildFacilityTags(facStr) {
+  // Itandi形式（【カテゴリ】）
   if (facStr.indexOf('\u3010') >= 0) return buildFacilityTagsFromItandi(facStr);
-  var cats = [
-    { name: '\u30AC\u30B9\u30FB\u6C34\u9053', keys: ['\u90FD\u5E02\u30AC\u30B9','\u30D7\u30ED\u30D1\u30F3','\u30AC\u30B9\u306A\u3057','\u4E0B\u6C34\u9053','\u6D44\u5316\u69FD','\u6C34\u9053\u516C\u55B6','\u4E95\u6238'] },
-    { name: '\u30D0\u30B9\u30FB\u30C8\u30A4\u30EC', keys: ['\u30D0\u30B9','\u30C8\u30A4\u30EC','\u6D17\u9762','\u6D74\u5BA4','\u6E29\u6C34\u6D17\u6D44','\u6696\u623F\u4FBF\u5EA7','\u8FFD\u711A','\u8FFD\u3044\u713C','\u8FFD\u3044\u7099','\u30AA\u30FC\u30C8\u30D0\u30B9','\u30B7\u30E3\u30EF\u30FC','\u30DF\u30B9\u30C8\u30B5\u30A6\u30CA','\u30DC\u30A4\u30E9\u30FC','\u6D17\u6FEF\u6A5F','\u30B3\u30A4\u30F3\u30E9\u30F3\u30C9\u30EA\u30FC','\u30A8\u30B3\u30AD\u30E5\u30FC\u30C8','\u30A8\u30B3\u30B8\u30E7\u30FC\u30BA'] },
-    { name: '\u30AD\u30C3\u30C1\u30F3', keys: ['\u30AD\u30C3\u30C1\u30F3','IH','\u30B3\u30F3\u30ED','\u30AC\u30B9\u30B3\u30F3\u30ED','\u30AA\u30FC\u30EB\u96FB\u5316','\u7D66\u6E6F','\u30C7\u30A3\u30B9\u30DD\u30FC\u30B6\u30FC','\u6D44\u6C34\u5668','\u98DF\u6D17','\u98DF\u5668\u6D17\u6D44','\u30B0\u30EA\u30EB'] },
-    { name: '\u51B7\u6696\u623F', keys: ['\u30A8\u30A2\u30B3\u30F3','\u5E8A\u6696\u623F','\u6696\u623F','\u51B7\u623F','FF\u6696\u623F','\u63DB\u6C17','\u30BB\u30F3\u30C8\u30E9\u30EB\u7A7A\u8ABF','\u500B\u5225\u7A7A\u8ABF','\u8907\u5C64\u30AC\u30E9\u30B9','\u706F\u6CB9','\u5800\u3054\u305F\u3064'] },
-    { name: '\u53CE\u7D0D', keys: ['\u53CE\u7D0D','\u30AF\u30ED\u30FC\u30BC\u30C3\u30C8','\u30A6\u30A9\u30FC\u30AF\u30A4\u30F3','\u30B7\u30E5\u30FC\u30BA','\u5E8A\u4E0B\u53CE\u7D0D','\u30B0\u30EB\u30CB\u30A8','\u30C8\u30E9\u30F3\u30AF\u30EB\u30FC\u30E0','\u7384\u95A2\u53CE\u7D0D','\u5168\u5BA4\u53CE\u7D0D','\u7269\u7F6E','\u62BC\u5165'] },
-    { name: 'TV\u30FB\u901A\u4FE1', keys: ['\u30C7\u30B8\u30BF\u30EB\u653E\u9001','BS','CS','CATV','\u5149\u30D5\u30A1\u30A4\u30D0','\u30A4\u30F3\u30BF\u30FC\u30CD\u30C3\u30C8','\u30CD\u30C3\u30C8\u7121\u6599','\u30CD\u30C3\u30C8\u5BFE\u5FDC','\u6709\u7DDA\u653E\u9001','\u7121\u7DDALN','LAN','\u30B1\u30FC\u30D6\u30EB\u30C6\u30EC\u30D3','Wi-Fi'] },
-    { name: '\u30BB\u30AD\u30E5\u30EA\u30C6\u30A3', keys: ['\u30AA\u30FC\u30C8\u30ED\u30C3\u30AF','\u30A4\u30F3\u30BF\u30FC\u30DB\u30F3','\u30A4\u30F3\u30BF\u30DB\u30F3','\u30E2\u30CB\u30BF\u30FC\u4ED8','\u96FB\u5B50\u30ED\u30C3\u30AF','\u30C7\u30A3\u30F3\u30D7\u30EB','\u30AB\u30FC\u30C9\u30AD\u30FC','\u30C0\u30D6\u30EB\u30ED\u30C3\u30AF','\u9632\u72AF\u30AB\u30E1\u30E9','\u9632\u72AF','\u30BB\u30AD\u30E5\u30EA\u30C6\u30A3','\u7BA1\u7406\u4EBA','\u5B85\u914D\u30DC\u30C3\u30AF\u30B9'] },
-    { name: '\u305D\u306E\u4ED6\u8A2D\u5099', keys: ['\u5BB6\u5177\u4ED8','\u5BB6\u5177\u5BB6\u96FB','\u5BB6\u96FB\u4ED8','\u51B7\u8535\u5EAB','\u30D9\u30C3\u30C9','\u7167\u660E','\u96FB\u8A71\u6A5F','\u30BB\u30F3\u30B5\u30FC','\u706B\u707D\u8B66\u5831','\u30D5\u30ED\u30FC\u30EA\u30F3\u30B0','\u30A8\u30EC\u30D9\u30FC\u30BF\u30FC','\u30ED\u30D5\u30C8','\u548C\u5BA4','\u5730\u4E0B\u5BA4','\u5BA4\u5185\u7269\u5E72','\u51FA\u7A93','\u30D0\u30EB\u30B3\u30CB\u30FC','\u30D9\u30E9\u30F3\u30C0','\u30EB\u30FC\u30D5\u30D0\u30EB\u30B3\u30CB\u30FC','\u30A4\u30F3\u30CA\u30FC\u30D0\u30EB\u30B3\u30CB\u30FC','\u30C6\u30E9\u30B9','\u30A6\u30C3\u30C9\u30C7\u30C3\u30AD','\u5EAD','\u5C02\u7528\u5EAD','\u9632\u97F3','\u4E8C\u91CD\u5E8A','\u5439\u304D\u629C\u3051','\u99D0\u8F2A','\u30D0\u30A4\u30AF\u7F6E','\u99D0\u8ECA','\u30AD\u30C3\u30BA','\u30ED\u30FC\u30C9\u30D2\u30FC\u30C6\u30A3\u30F3\u30B0','\u30B7\u30E3\u30C3\u30BF\u30FC','\u8FB2\u5730','\u52D5\u529B\u96FB\u6E90','OA\u30D5\u30ED\u30A2'] },
-    { name: '\u5165\u5C45\u6761\u4EF6', keys: ['\u30DA\u30C3\u30C8','\u697D\u5668','\u4E8B\u52D9\u6240','\u30EB\u30FC\u30E0\u30B7\u30A7\u30A2','\u9AD8\u9F62\u8005','\u5973\u6027\u9650\u5B9A','\u5916\u56FD\u4EBA'] },
-    { name: '\u7279\u8A18\u4E8B\u9805', keys: ['\u30AA\u30FC\u30CA\u30FC\u30C1\u30A7\u30F3\u30B8','\u89D2\u90E8\u5C4B','\u6700\u4E0A\u968E','\u30C7\u30B6\u30A4\u30CA\u30FC\u30BA','\u5206\u8B72','\u30BF\u30EF\u30FC\u30DE\u30F3\u30B7\u30E7\u30F3','\u30EA\u30CE\u30D9\u30FC\u30B7\u30E7\u30F3','\u30EA\u30D5\u30A9\u30FC\u30E0','\u5916\u65AD\u71B1','\u30B9\u30B1\u30EB\u30C8\u30F3','\u592A\u967D\u5149','\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8','DIY','\u5C45\u629C\u304D','\u65E5\u5F53\u305F\u308A','\u9589\u9759','\u8155\u58C1','\u30E1\u30BE\u30CD\u30C3\u30C8','\u5236\u9707','\u514D\u9707','\u8010\u9707'] }
-  ];
-  // 括弧内のカンマを保護してから分割
-  var cleaned = facStr.replace(/（[^）]*）/g, function(m) { return m.replace(/[,、，]/g, '___P___'); });
-  cleaned = cleaned.replace(/\([^)]*\)/g, function(m) { return m.replace(/[,、，]/g, '___P___'); });
-  // 数値内カンマ "22,000" を保護
-  cleaned = cleaned.replace(/(\d),(\d)/g, '$1___C___$2');
-  var items = cleaned.split(/[,、，\/\n]+/).map(function(s) {
-    return s.replace(/___P___/g, '，').replace(/___C___/g, ',').trim();
-  }).filter(function(s) {
-    if (s.length === 0) return false;
-    // ESのセクションヘッダーを除外
-    var headers = ['詳細','区画設備','建物設備','セキュリティ','屋外設備','駐車場','ライフライン','位置・フロア','周辺環境','共用部','その他','バス・トイレ・洗面','回線','給湯','室内仕様','共有施設','構造・工法・仕様','特徴・設備','管理・防犯','キッチン','収納','屋外設備'];
-    if (headers.indexOf(s) >= 0) return false;
-    // 値なしエントリ（「電気：-」「駐輪場：無」等）を除外
-    if (/^.+[:：]\s*(-|無)\s*$/.test(s)) return false;
-    // ライフライン項目（「電気：有」「上水道：公営」等）を除外
-    if (/^(電気|ガス|上水道|下水道)[:：]/.test(s)) return false;
-    return true;
-  });
-  // 全角英数を半角に正規化（カテゴリマッチング用）
-  function toHalf(str) {
-    return str.replace(/[\uFF01-\uFF5E]/g, function(c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+  // ES-Square形式検出: 半角カンマで分割してヘッダーが含まれるか
+  var testSegs = facStr.split(/\s*,\s*/);
+  var hasEs = false;
+  for (var t = 0; t < testSegs.length; t++) {
+    if (ES_HEADERS.indexOf(testSegs[t].trim()) >= 0) { hasEs = true; break; }
   }
-  var buckets = {};
-  for (var c = 0; c < cats.length; c++) buckets[cats[c].name] = [];
-  buckets['\u305D\u306E\u4ED6'] = [];
-  for (var i = 0; i < items.length; i++) {
-    var item = items[i], itemHalf = toHalf(item), matched = false;
-    for (var c = 0; c < cats.length; c++) {
-      for (var k = 0; k < cats[c].keys.length; k++) {
-        if (itemHalf.indexOf(cats[c].keys[k]) >= 0) {
-          buckets[cats[c].name].push(item);
-          matched = true; break;
-        }
-      }
-      if (matched) break;
+  if (hasEs) return buildFacilityTagsFromES(facStr);
+  // フォールバック: カンマ区切りプレーンテキスト（タグ表示のみ）
+  var items = facStr.split(/[,、，\/\n]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+  var out = '<div class="fac-tags">';
+  for (var i = 0; i < items.length; i++) out += '<span class="fac-tag">' + escHtml(items[i]) + '</span>';
+  return out + '</div>';
+}
+
+// ES-Square形式: 半角カンマでヘッダーと値群を分離、全角カンマで値を分割
+function buildFacilityTagsFromES(facStr) {
+  // 括弧内のカンマを保護
+  var prot = facStr.replace(/（[^）]*）/g, function(m) { return m.replace(/[,，]/g, '___P___'); });
+  prot = prot.replace(/\([^)]*\)/g, function(m) { return m.replace(/[,，]/g, '___P___'); });
+  // 数値内カンマ保護
+  prot = prot.replace(/(\d),(\d)/g, '$1___C___$2');
+  // 半角カンマで分割（ヘッダー / 値群の境界）
+  var segments = prot.split(/\s*,\s*/);
+  var order = [], buckets = {}, curCat = null;
+  for (var i = 0; i < segments.length; i++) {
+    var seg = segments[i].replace(/___P___/g, '，').replace(/___C___/g, ',').trim();
+    if (!seg) continue;
+    if (ES_HEADERS.indexOf(seg) >= 0) {
+      // 大セクション（区画設備/建物設備/セキュリティ）はスキップ、サブヘッダーを使う
+      if (['区画設備','建物設備','セキュリティ','詳細'].indexOf(seg) >= 0) continue;
+      curCat = seg;
+      if (!buckets[curCat]) { buckets[curCat] = []; order.push(curCat); }
+    } else {
+      // 値群: 全角カンマで個別アイテムに分割
+      if (!curCat) { curCat = 'その他'; if (!buckets[curCat]) { buckets[curCat] = []; order.push(curCat); } }
+      var vals = seg.split(/[，、]+/).map(function(s) { return s.trim(); }).filter(function(s) {
+        if (!s) return false;
+        if (/^.+[:：]\s*(-|無)\s*$/.test(s)) return false;  // 値なし除外
+        return true;
+      });
+      for (var v = 0; v < vals.length; v++) buckets[curCat].push(vals[v]);
     }
-    if (!matched) buckets['\u305D\u306E\u4ED6'].push(item);
   }
-  return renderFacBuckets(cats.map(function(c) { return c.name; }), buckets);
+  return renderFacBuckets(order, buckets);
 }
 
 function buildFacilityTagsFromItandi(facStr) {
