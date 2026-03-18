@@ -220,7 +220,7 @@ function doGet(e) {
       return HtmlService.createHtmlOutput(
         '<html><body style="text-align:center;padding:40px;font-family:sans-serif;">' +
         '<h3>このページは現在使用できません</h3>' +
-        '<p style="color:#666;margin-top:12px;">LINEに戻って「条件登録」からやり直してください。</p></body></html>'
+        '<p style="color:#666;margin-top:12px;">LINEに戻って操作をやり直してください。</p></body></html>'
       ).setTitle('条件選択')
        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
     }
