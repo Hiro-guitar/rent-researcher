@@ -657,6 +657,11 @@ def fetch_room_details(
             '水道料金形態', '水道料金',
             '駐車場代', '駐輪場代',
             'バイク置き場代', 'バイク置場代',
+            'その他月次費用', 'その他一時金',
+            '入居条件', '入居者条件',
+            '退去日',
+            'フリーレント詳細',
+            '間取り詳細',
             '内見開始日'
         ];
 
@@ -829,6 +834,13 @@ def fetch_room_details(
             ("駐輪場代", "bicycle_parking_fee"),
             ("バイク置き場代", "motorcycle_parking_fee"),
             ("バイク置場代", "motorcycle_parking_fee"),
+            ("その他月次費用", "other_monthly_fee"),
+            ("その他一時金", "other_onetime_fee"),
+            ("入居条件", "move_in_conditions"),
+            ("入居者条件", "move_in_conditions"),
+            ("退去日", "move_out_date"),
+            ("フリーレント詳細", "free_rent_detail"),
+            ("間取り詳細", "layout_detail"),
             ("内見開始日", "preview_start_date"),
         ]
 

@@ -103,6 +103,8 @@ function handleConfirmApprove(e) {
       'renewalAdminFee','guaranteeInfo','keyExchangeFee',
       'supportFee24h','rightsFee','additionalDeposit','guaranteeDeposit',
       'waterBilling','parkingFee','bicycleParkingFee','motorcycleParkingFee',
+      'otherMonthlyFee','otherOnetimeFee','moveInConditions','moveOutDate',
+      'freeRentDetail','layoutDetail',
       'leaseType','contractPeriod',
       'cancellationNotice','renewalInfo','freeRent','facilities'];
     for (var j = 0; j < editFields.length; j++) {
@@ -464,7 +466,12 @@ function handlePropertyViewApi(e) {
     waterBilling: prop.waterBilling,
     parkingFee: prop.parkingFee,
     bicycleParkingFee: prop.bicycleParkingFee,
-    motorcycleParkingFee: prop.motorcycleParkingFee
+    motorcycleParkingFee: prop.motorcycleParkingFee,
+    otherMonthlyFee: prop.otherMonthlyFee,
+    otherOnetimeFee: prop.otherOnetimeFee,
+    moveInConditions: prop.moveInConditions,
+    freeRentDetail: prop.freeRentDetail,
+    layoutDetail: prop.layoutDetail
   };
 
   // キャッシュに保存（24時間）
@@ -875,7 +882,13 @@ function rowToProperty(row) {
     waterBilling: _normalizeValue(extra.water_billing),
     parkingFee: _normalizeValue(extra.parking_fee),
     bicycleParkingFee: _normalizeValue(extra.bicycle_parking_fee),
-    motorcycleParkingFee: _normalizeValue(extra.motorcycle_parking_fee)
+    motorcycleParkingFee: _normalizeValue(extra.motorcycle_parking_fee),
+    otherMonthlyFee: _normalizeValue(extra.other_monthly_fee),
+    otherOnetimeFee: _normalizeValue(extra.other_onetime_fee),
+    moveInConditions: _normalizeValue(extra.move_in_conditions),
+    moveOutDate: _normalizeValue(extra.move_out_date),
+    freeRentDetail: _normalizeValue(extra.free_rent_detail),
+    layoutDetail: _normalizeValue(extra.layout_detail)
   };
 }
 
@@ -968,6 +981,12 @@ function updateSheetWithEdits(rowIndex, prop) {
   extra.parking_fee = prop.parkingFee || '';
   extra.bicycle_parking_fee = prop.bicycleParkingFee || '';
   extra.motorcycle_parking_fee = prop.motorcycleParkingFee || '';
+  extra.other_monthly_fee = prop.otherMonthlyFee || '';
+  extra.other_onetime_fee = prop.otherOnetimeFee || '';
+  extra.move_in_conditions = prop.moveInConditions || '';
+  extra.move_out_date = prop.moveOutDate || '';
+  extra.free_rent_detail = prop.freeRentDetail || '';
+  extra.layout_detail = prop.layoutDetail || '';
   extra.other_stations = prop.otherStations || [];
 
   cell.setValue(JSON.stringify(extra));
@@ -1014,6 +1033,11 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   if (prop.parkingFee) d.pk = prop.parkingFee;
   if (prop.bicycleParkingFee) d.bp = prop.bicycleParkingFee;
   if (prop.motorcycleParkingFee) d.mp = prop.motorcycleParkingFee;
+  if (prop.otherMonthlyFee) d.omf = prop.otherMonthlyFee;
+  if (prop.otherOnetimeFee) d.oof = prop.otherOnetimeFee;
+  if (prop.moveInConditions) d.mic = prop.moveInConditions;
+  if (prop.freeRentDetail) d.frd = prop.freeRentDetail;
+  if (prop.layoutDetail) d.ld = prop.layoutDetail;
   // 設備: objectでもstringでもそのまま
   if (prop.facilities) d.fac = prop.facilities;
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
@@ -1220,6 +1244,8 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += _inputRow('\u99D0\u8ECA\u5834\u4EE3', 'parkingFee', prop.parkingFee);
   html += _inputRow('\u99D0\u8F2A\u5834\u4EE3', 'bicycleParkingFee', prop.bicycleParkingFee);
   html += _inputRow('\u30D0\u30A4\u30AF\u7F6E\u304D\u5834\u4EE3', 'motorcycleParkingFee', prop.motorcycleParkingFee);
+  html += _inputRow('\u305D\u306E\u4ED6\u6708\u6B21\u8CBB\u7528', 'otherMonthlyFee', prop.otherMonthlyFee);
+  html += _inputRow('\u305D\u306E\u4ED6\u4E00\u6642\u91D1', 'otherOnetimeFee', prop.otherOnetimeFee);
 
   // ── 契約条件 ──
   html += '<div class="section-header">\u5951\u7D04\u6761\u4EF6</div>';
@@ -1228,6 +1254,10 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += _inputRow('\u89E3\u7D04\u4E88\u544A', 'cancellationNotice', prop.cancellationNotice);
   html += _inputRow('\u66F4\u65B0/\u518D\u5951\u7D04', 'renewalInfo', prop.renewalInfo);
   html += _inputRow('\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8', 'freeRent', prop.freeRent);
+  html += _inputRow('\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8\u8A73\u7D30', 'freeRentDetail', prop.freeRentDetail);
+  html += _inputRow('\u9000\u53BB\u65E5', 'moveOutDate', prop.moveOutDate);
+  html += _textareaRow('\u5165\u5C45\u6761\u4EF6', 'moveInConditions', prop.moveInConditions);
+  html += _inputRow('\u9593\u53D6\u308A\u8A73\u7D30', 'layoutDetail', prop.layoutDetail);
 
   // ── 設備・詳細 ──
   html += '<div class="section-header">\u8A2D\u5099\u30FB\u8A73\u7D30</div>';
@@ -1546,6 +1576,8 @@ function makeViewHtml(prop) {
     + '.fac-cat-name{font-size:12px;color:#888;font-weight:bold;margin-bottom:4px}'
     + '.fac-tags{display:flex;flex-wrap:wrap;gap:4px}'
     + '.fac-tag{display:inline-block;font-size:12px;color:#444;background:#f0f4f8;border-radius:4px;padding:2px 8px;line-height:1.6}'
+    + '.cond-ok{background:#e8f5e9;color:#2e7d32}'
+    + '.cond-ng{background:#f5f5f5;color:#999}'
     + '</style></head><body>';
 
   // 画像表示（複数ならカルーセル、1枚ならヒーロー画像）
@@ -1661,6 +1693,7 @@ function makeViewHtml(prop) {
 
   var details = [];
   if (_hv(prop.layout)) details.push(['\u9593\u53D6\u308A', prop.layout]);
+  if (_hv(prop.layoutDetail)) details.push(['\u9593\u53D6\u308A\u8A73\u7D30', prop.layoutDetail]);
   if (prop.area) details.push(['\u9762\u7A4D', prop.area + 'm\u00B2']);
   if (_hv(prop.buildingAge)) details.push(['\u7BC9\u5E74\u6570', prop.buildingAge]);
   if (_hv(prop.floorText)) details.push(['\u6240\u5728\u968E', prop.floorText]);
@@ -1705,6 +1738,8 @@ function makeViewHtml(prop) {
   if (_hv(prop.parkingFee)) costRows.push(['\u99D0\u8ECA\u5834\u4EE3', prop.parkingFee]);
   if (_hv(prop.bicycleParkingFee)) costRows.push(['\u99D0\u8F2A\u5834\u4EE3', prop.bicycleParkingFee]);
   if (_hv(prop.motorcycleParkingFee)) costRows.push(['\u30D0\u30A4\u30AF\u7F6E\u304D\u5834\u4EE3', prop.motorcycleParkingFee]);
+  if (_hv(prop.otherMonthlyFee)) costRows.push(['\u305D\u306E\u4ED6\u6708\u6B21\u8CBB\u7528', prop.otherMonthlyFee]);
+  if (_hv(prop.otherOnetimeFee)) costRows.push(['\u305D\u306E\u4ED6\u4E00\u6642\u91D1', prop.otherOnetimeFee]);
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">\u8CBB\u7528</div>';
     for (var i = 0; i < costRows.length; i++) {
@@ -1720,12 +1755,31 @@ function makeViewHtml(prop) {
   if (_hv(prop.cancellationNotice)) contractRows.push(['\u89E3\u7D04\u4E88\u544A', prop.cancellationNotice]);
   if (_hv(prop.renewalInfo)) contractRows.push(['\u66F4\u65B0\u30FB\u518D\u5951\u7D04\u53EF\u5426', prop.renewalInfo]);
   if (_hv(prop.freeRent)) contractRows.push(['\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8', prop.freeRent]);
+  if (_hv(prop.freeRentDetail)) contractRows.push(['\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8\u8A73\u7D30', prop.freeRentDetail]);
   if (contractRows.length > 0) {
     html += '<div class="section"><div class="section-title">\u5951\u7D04\u6761\u4EF6</div>';
     for (var i = 0; i < contractRows.length; i++) {
       html += '<div class="row"><span class="row-label">' + contractRows[i][0] + '</span><span class="row-value">' + _esc(contractRows[i][1]) + '</span></div>';
     }
     html += '</div>';
+  }
+
+  // 入居条件（チップ/バッジ表示）
+  var condStr = prop.moveInConditions || '';
+  if (_hv(condStr)) {
+    html += '<div class="section"><div class="section-title">\u5165\u5C45\u6761\u4EF6</div><div class="fac-tags">';
+    var condItems = condStr.split(/[,、\/\n]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+    for (var ci = 0; ci < condItems.length; ci++) {
+      var cond = condItems[ci];
+      var tagClass = 'fac-tag';
+      if (/\u53EF|\u76F8\u8AC7|\u6B53\u8FE1|\u4E0D\u8981|\u5411\u304D/.test(cond)) {
+        tagClass = 'fac-tag cond-ok';
+      } else if (/\u4E0D\u53EF/.test(cond)) {
+        tagClass = 'fac-tag cond-ng';
+      }
+      html += '<span class="' + tagClass + '">' + _esc(cond) + '</span>';
+    }
+    html += '</div></div>';
   }
 
   // 設備・詳細（カテゴリ分けタグ表示）

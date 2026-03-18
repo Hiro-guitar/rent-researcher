@@ -320,6 +320,12 @@ def _build_property_json(p) -> str:
             "parking_fee": p.parking_fee,
             "bicycle_parking_fee": p.bicycle_parking_fee,
             "motorcycle_parking_fee": p.motorcycle_parking_fee,
+            "other_monthly_fee": p.other_monthly_fee,
+            "other_onetime_fee": p.other_onetime_fee,
+            "move_in_conditions": p.move_in_conditions,
+            "move_out_date": p.move_out_date,
+            "free_rent_detail": p.free_rent_detail,
+            "layout_detail": p.layout_detail,
         },
         ensure_ascii=False,
     )

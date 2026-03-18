@@ -92,6 +92,12 @@ class Property:
     parking_fee: str = ""  # 駐車場代
     bicycle_parking_fee: str = ""  # 駐輪場代
     motorcycle_parking_fee: str = ""  # バイク置き場代
+    other_monthly_fee: str = ""  # その他月次費用（Concierge24等）
+    other_onetime_fee: str = ""  # その他一時金（鍵交換費・HC代等）
+    move_in_conditions: str = ""  # 入居条件（ペット可否・法人可否等）
+    move_out_date: str = ""  # 退去日
+    free_rent_detail: str = ""  # フリーレント詳細
+    layout_detail: str = ""  # 間取り詳細
     preview_start_date: str = ""  # 内見開始日
     # 募集ステータス・WEBバッジ
     listing_status: str = ""  # 募集ステータス (例: "募集中", "申込あり")
