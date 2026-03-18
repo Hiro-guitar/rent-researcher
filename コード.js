@@ -366,6 +366,16 @@ function processCriteriaSelection(userId, criteria) {
       state.data.notes = criteria.otherConditions;
     }
 
+    // 条件変更フローの場合は直接保存して完了
+    if (state.isChangeFlow) {
+      writeToSheet(userId, state);
+      clearState(userId);
+      pushMessage(userId, [
+        textMsg('条件を更新しました！\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
+      ]);
+      return { success: true, message: '条件を更新しました。' };
+    }
+
     // NOTESステップをスキップして直接確認画面へ
     state.step = STEPS.CONFIRM;
     saveState(userId, state);

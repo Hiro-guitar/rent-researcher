@@ -566,7 +566,7 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
       type: 'button',
       style: 'primary',
       color: '#06C755',
-      action: { type: 'uri', label: '条件を選択する', uri: selectUrl }
+      action: { type: 'uri', label: isChangeFlow ? '条件を変更する' : '条件を選択する', uri: selectUrl }
     }
   ];
 
