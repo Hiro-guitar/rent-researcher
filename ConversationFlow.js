@@ -559,7 +559,8 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
   if (isChangeFlow) {
     footerContents.push({
       type: 'button',
-      style: 'secondary',
+      style: 'primary',
+      color: '#06C755',
       action: { type: 'postback', label: '入居時期を変更', data: 'change_movein', displayText: '入居時期を変更' }
     });
   }
