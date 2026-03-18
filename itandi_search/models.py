@@ -1,7 +1,60 @@
 """データクラス定義"""
 
+import re
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Optional
+
+
+def _normalize_building_age(value: str) -> str:
+    """築年月/築年数テキストを「築○年」形式に変換する。
+
+    入力例:
+        "2017/09"      → "築9年"
+        "2017年9月"    → "築9年"
+        "2017年09月築" → "築9年"
+        "築15年"       → "築15年"  (そのまま)
+        "9年"          → "築9年"
+        "新築"         → "新築"    (そのまま)
+        ""             → ""
+    """
+    if not value:
+        return value
+
+    value = value.strip()
+
+    # 既に「築○年」形式 or 「新築」ならそのまま
+    if re.match(r"^築\d+年", value) or value == "新築":
+        return value
+
+    # 「○年」のみ（築が付いていない）→ 築を付ける
+    m = re.match(r"^(\d+)年$", value)
+    if m:
+        return f"築{m.group(1)}年"
+
+    # 年月形式から年を抽出: "2017/09", "2017-09", "2017年9月", etc.
+    m = re.search(r"(\d{4})\s*[/\-年]\s*(\d{1,2})", value)
+    if m:
+        built_year = int(m.group(1))
+        built_month = int(m.group(2))
+        today = date.today()
+        years = today.year - built_year
+        if today.month < built_month:
+            years -= 1
+        if years < 1:
+            return "新築"
+        return f"築{years}年"
+
+    # 年のみ: "2017" or "2017年"
+    m = re.match(r"^(\d{4})年?$", value)
+    if m:
+        built_year = int(m.group(1))
+        years = date.today().year - built_year
+        if years < 1:
+            return "新築"
+        return f"築{years}年"
+
+    return value
 
 
 @dataclass
@@ -109,3 +162,6 @@ class Property:
     teiki_warning: str = ""  # 定期借家の警告メッセージ
     move_in_warning: str = ""  # 入居時期の警告メッセージ
     status_warning: str = ""  # ステータス関連の警告メッセージ
+
+    def __post_init__(self) -> None:
+        self.building_age = _normalize_building_age(self.building_age)
