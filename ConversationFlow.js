@@ -92,6 +92,7 @@ function startChangeFlow(replyToken, userId) {
   // 既存条件をstateに復元してCRITERIA_SELECTステップへ
   var state = createInitialState();
   state.step = STEPS.CRITERIA_SELECT;
+  state.isChangeFlow = true;
   state.areaMethod = existing.areaMethod;
   state.selectedRoutes = existing.selectedRoutes;
   state.selectedCities = existing.selectedCities;
@@ -113,9 +114,12 @@ function startChangeFlow(replyToken, userId) {
   };
   saveState(userId, state);
 
+  // 現在の登録条件サマリーを作成
+  var summary = formatConditionSummary(state);
+
   showCriteriaSelectLink(replyToken, userId, [
-    textMsg('現在の登録条件を読み込みました。\n下のボタンから条件を変更してください。')
-  ]);
+    textMsg('現在の登録条件:\n\n' + summary + '\n\n変更したい場合は下のボタンから条件を選択してください。')
+  ], true);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -265,12 +269,20 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     return true;
   }
 
+  // ── 条件変更フローから入居時期変更 ──
+  if (data === 'change_movein') {
+    state.step = STEPS.MOVE_IN_DATE;
+    saveState(userId, state);
+    showMoveInMonthSelect(replyToken);
+    return true;
+  }
+
   // ── 引越し時期: いい物件見つかり次第 ──
   if (data === 'movein|asap') {
     state = updateStateData(state, 'move_in_date', 'いい物件見つかり次第');
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
-    showCriteriaSelectLink(replyToken, userId);
+    showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow);
     return true;
   }
 
@@ -293,7 +305,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     state = updateStateData(state, 'move_in_date', displayDate);
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
-    showCriteriaSelectLink(replyToken, userId);
+    showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow);
     return true;
   }
 
@@ -310,7 +322,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       state.step = STEPS.CRITERIA_SELECT;
       saveState(userId, state);
       // カレンダー選択はdisplayTextが無いので、選択結果をテキストで表示
-      showCriteriaSelectLink(replyToken, userId, [textMsg(displayDate2 + ' を選択しました')]);
+      showCriteriaSelectLink(replyToken, userId, [textMsg(displayDate2 + ' を選択しました')], state.isChangeFlow);
     }
     return true;
   }
@@ -348,6 +360,21 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
 // ══════════════════════════════════════════════════════════
 
 function handleBackAction(replyToken, userId, state) {
+  // 条件変更フローでCRITERIA_SELECTから戻る場合はフローをキャンセル
+  if (state.isChangeFlow && state.step === STEPS.CRITERIA_SELECT) {
+    clearState(userId);
+    replyMessage(replyToken, [textMsg('条件変更をキャンセルしました。')]);
+    return true;
+  }
+
+  // 条件変更フローで入居時期変更中に戻る場合はCRITERIA_SELECTに戻る
+  if (state.isChangeFlow && (state.step === STEPS.MOVE_IN_DATE || state.step === STEPS.MOVE_IN_PERIOD)) {
+    state.step = STEPS.CRITERIA_SELECT;
+    saveState(userId, state);
+    showCriteriaSelectLink(replyToken, userId, null, true);
+    return true;
+  }
+
   const prevStep = PREV_STEP[state.step];
   if (!prevStep) {
     replyMessage(replyToken, [textMsg('これ以上戻れません。')]);
@@ -402,7 +429,7 @@ function showStepQuestion(replyToken, userId, state) {
       showMoveInPeriod(replyToken, parseInt(mp[1], 10) || 0, state.data.move_in_month || '');
       break;
     case STEPS.CRITERIA_SELECT:
-      showCriteriaSelectLink(replyToken, userId);
+      showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow);
       break;
     case STEPS.NOTES:
       replyMessage(replyToken, [
@@ -511,9 +538,37 @@ function showMoveInPeriod(replyToken, month, monthKey) {
 
 /**
  * 総合条件選択Webページへのリンクボタンを送信する。
+ * @param {string} replyToken
+ * @param {string} userId
+ * @param {Array} [prefixMessages] - 前に表示するメッセージ
+ * @param {boolean} [isChangeFlow] - 条件変更フローの場合true
  */
-function showCriteriaSelectLink(replyToken, userId, prefixMessages) {
+function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow) {
   const selectUrl = 'https://liff.line.me/' + LIFF_ID + '?action=selectCriteria&userId=' + encodeURIComponent(userId);
+
+  var footerContents = [
+    {
+      type: 'button',
+      style: 'primary',
+      color: '#06C755',
+      action: { type: 'uri', label: '条件を選択する', uri: selectUrl }
+    }
+  ];
+
+  // 条件変更フローでは入居時期変更ボタンを追加
+  if (isChangeFlow) {
+    footerContents.push({
+      type: 'button',
+      style: 'secondary',
+      action: { type: 'postback', label: '入居時期を変更', data: 'change_movein', displayText: '入居時期を変更' }
+    });
+  }
+
+  footerContents.push({
+    type: 'button',
+    style: 'secondary',
+    action: { type: 'postback', label: '◀ 戻る', data: 'action=back', displayText: '戻る' }
+  });
 
   const flexMessage = {
     type: 'flex',
@@ -536,19 +591,7 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages) {
         type: 'box',
         layout: 'vertical',
         spacing: 'sm',
-        contents: [
-          {
-            type: 'button',
-            style: 'primary',
-            color: '#06C755',
-            action: { type: 'uri', label: '条件を選択する', uri: selectUrl }
-          },
-          {
-            type: 'button',
-            style: 'secondary',
-            action: { type: 'postback', label: '◀ 戻る', data: 'action=back', displayText: '戻る' }
-          }
-        ]
+        contents: footerContents
       }
     }
   };
@@ -561,6 +604,48 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages) {
 // ══════════════════════════════════════════════════════════
 //  表示ヘルパー — 確認画面
 // ══════════════════════════════════════════════════════════
+
+/**
+ * 条件サマリー文字列を生成する（条件変更時の表示用）。
+ */
+function formatConditionSummary(state) {
+  const d = state.data;
+  const routes = state.selectedRoutes || [];
+  const cities = state.selectedCities || [];
+  const stations = state.selectedStations || {};
+  var lines = [];
+
+  // 入居時期
+  if (d.move_in_date) lines.push('入居時期: ' + d.move_in_date);
+
+  // エリア
+  if (state.areaMethod === 'city' && cities.length > 0) {
+    lines.push('エリア: ' + cities.join(', '));
+  }
+  if (state.areaMethod === 'route') {
+    if (routes.length > 0) lines.push('路線: ' + routes.join(', '));
+    var allStations = [];
+    for (var i = 0; i < routes.length; i++) {
+      var stas = stations[routes[i]] || [];
+      for (var j = 0; j < stas.length; j++) {
+        if (allStations.indexOf(stas[j]) === -1) allStations.push(stas[j]);
+      }
+    }
+    if (allStations.length > 0) lines.push('駅: ' + allStations.join(', '));
+  }
+
+  // 物件条件
+  if (d.rent_max) lines.push('賃料上限: ' + d.rent_max);
+  if (d.layouts && d.layouts.length > 0) lines.push('間取り: ' + d.layouts.join(', '));
+  if (d.walk && d.walk !== '指定しない') lines.push('駅徒歩: ' + d.walk);
+  if (d.area_min && d.area_min !== '指定しない') lines.push('面積: ' + d.area_min);
+  if (d.building_age && d.building_age !== '指定しない') lines.push('築年数: ' + d.building_age);
+  if (d.building_structures && d.building_structures.length > 0) lines.push('建物構造: ' + d.building_structures.join(', '));
+  if (d.equipment && d.equipment.length > 0) lines.push('こだわり: ' + d.equipment.join(', '));
+  if (d.petType) lines.push('ペット: ' + d.petType);
+
+  return lines.length > 0 ? lines.join('\n') : '（条件なし）';
+}
 
 function showConfirmation(replyToken, state) {
   const d = state.data;
