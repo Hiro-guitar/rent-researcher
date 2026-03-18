@@ -122,11 +122,8 @@ function startChangeFlow(replyToken, userId) {
     console.error('formatConditionSummary error: ' + e.message);
     summary = '（条件の読み込みに失敗しました）';
   }
-  console.log('条件変更サマリー: ' + summary);
 
-  showCriteriaSelectLink(replyToken, userId, [
-    textMsg('現在の登録条件:\n\n' + summary + '\n\n変更したい場合は下のボタンから条件を選択してください。')
-  ], true);
+  showCriteriaSelectLink(replyToken, userId, null, true, summary);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -559,8 +556,9 @@ function showMoveInPeriod(replyToken, month, monthKey) {
  * @param {string} userId
  * @param {Array} [prefixMessages] - 前に表示するメッセージ
  * @param {boolean} [isChangeFlow] - 条件変更フローの場合true
+ * @param {string} [conditionSummary] - 条件変更時に表示する条件サマリー
  */
-function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow) {
+function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow, conditionSummary) {
   const selectUrl = 'https://liff.line.me/' + LIFF_ID + '?action=selectCriteria&userId=' + encodeURIComponent(userId);
 
   var footerContents = [
@@ -599,6 +597,33 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
     });
   }
 
+  // body contents
+  var bodyContents = [];
+
+  if (isChangeFlow && conditionSummary) {
+    bodyContents.push({ type: 'text', text: '現在の登録条件', weight: 'bold', size: 'xl' });
+    bodyContents.push({
+      type: 'text',
+      text: conditionSummary,
+      wrap: true, margin: 'md', size: 'sm', color: '#333333'
+    });
+    bodyContents.push({
+      type: 'separator', margin: 'lg'
+    });
+    bodyContents.push({
+      type: 'text',
+      text: '変更したい項目のボタンをタップしてください。',
+      wrap: true, margin: 'md', size: 'sm', color: '#666666'
+    });
+  } else {
+    bodyContents.push({ type: 'text', text: 'お部屋の条件選択', weight: 'bold', size: 'xl' });
+    bodyContents.push({
+      type: 'text',
+      text: '下のボタンをタップして、条件選択ページを開いてください。\n\nエリア・家賃・間取り・こだわり条件などをまとめて選択できます。',
+      wrap: true, margin: 'md', size: 'sm', color: '#666666'
+    });
+  }
+
   const flexMessage = {
     type: 'flex',
     altText: 'お部屋の条件を選択してください',
@@ -607,14 +632,7 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
       body: {
         type: 'box',
         layout: 'vertical',
-        contents: [
-          { type: 'text', text: 'お部屋の条件選択', weight: 'bold', size: 'xl' },
-          {
-            type: 'text',
-            text: '下のボタンをタップして、条件選択ページを開いてください。\n\nエリア・家賃・間取り・こだわり条件などをまとめて選択できます。',
-            wrap: true, margin: 'md', size: 'sm', color: '#666666'
-          }
-        ]
+        contents: bodyContents
       },
       footer: {
         type: 'box',
