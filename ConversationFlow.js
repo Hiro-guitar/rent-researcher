@@ -277,8 +277,9 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
   if (data === 'change_confirm') {
     writeToSheet(userId, state);
     clearState(userId);
+    var confirmSummary = buildRegistrationSummary(state);
     replyMessage(replyToken, [
-      textMsg('条件を更新しました！\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
+      textMsg('条件を更新しました！\n\n' + confirmSummary + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
     ]);
     return true;
   }
