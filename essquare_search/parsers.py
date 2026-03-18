@@ -1187,7 +1187,6 @@ _DETAIL_FIELD_MAP: dict[str, str] = {
     "鍵交換費用": "key_exchange_fee",
     "24時間サポート": "support_fee_24h",
     "24時間サポート費": "support_fee_24h",
-    "権利金": "rights_fee",
     "敷金積み増し": "additional_deposit",
     "敷金積増し": "additional_deposit",
     "保証金": "guarantee_deposit",

@@ -313,7 +313,6 @@ def _build_property_json(p) -> str:
             "guarantee_info": p.guarantee_info,
             "key_exchange_fee": p.key_exchange_fee,
             "support_fee_24h": p.support_fee_24h,
-            "rights_fee": p.rights_fee,
             "additional_deposit": p.additional_deposit,
             "guarantee_deposit": p.guarantee_deposit,
             "water_billing": p.water_billing,

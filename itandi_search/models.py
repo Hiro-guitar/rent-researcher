@@ -85,7 +85,6 @@ class Property:
     guarantee_info: str = ""  # 保証情報（利用必須 + 保証料等）
     key_exchange_fee: str = ""  # 鍵交換費用
     support_fee_24h: str = ""  # 24時間サポート費
-    rights_fee: str = ""  # 権利金
     additional_deposit: str = ""  # 敷金積み増し
     guarantee_deposit: str = ""  # 保証金
     water_billing: str = ""  # 水道料金形態
