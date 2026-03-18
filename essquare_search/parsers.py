@@ -1216,6 +1216,19 @@ _DETAIL_FIELD_MAP: dict[str, str] = {
 }
 
 
+def _split_floor_and_story(value: str) -> tuple[str, str]:
+    """所在階テキストから階建て情報を分離する。
+
+    例: "2階(地上2階)" → ("2階", "地上2階")
+         "5階（地上10階建）" → ("5階", "地上10階建")
+         "3階" → ("3階", "")
+    """
+    m = re.match(r"^(.+?階)\s*[（(](.+?)[）)]$", value)
+    if m:
+        return m.group(1), m.group(2)
+    return value, ""
+
+
 def _map_detail_field(details: dict, label: str, value: str) -> None:
     """ラベルと値を details 辞書にマッピングする。"""
     if not label or not value:
@@ -1224,12 +1237,25 @@ def _map_detail_field(details: dict, label: str, value: str) -> None:
     # 完全一致
     if label in _DETAIL_FIELD_MAP:
         field_name = _DETAIL_FIELD_MAP[label]
+        # 所在階に階建て情報が含まれている場合は分離する
+        if field_name == "floor_text":
+            floor_part, story_part = _split_floor_and_story(value)
+            details["floor_text"] = floor_part
+            if story_part and "story_text" not in details:
+                details["story_text"] = story_part
+            return
         details[field_name] = value
         return
 
     # 部分一致
     for key, field_name in _DETAIL_FIELD_MAP.items():
         if key in label:
+            if field_name == "floor_text":
+                floor_part, story_part = _split_floor_and_story(value)
+                details["floor_text"] = floor_part
+                if story_part and "story_text" not in details:
+                    details["story_text"] = story_part
+                return
             details[field_name] = value
             return
 
