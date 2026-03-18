@@ -650,6 +650,13 @@ def fetch_room_details(
             '更新料',
             '火災保険料', '火災保険', '保険',
             '鍵交換費用', '鍵交換',
+            '24時間サポート', '24時間サポート費',
+            '権利金',
+            '敷金積み増し', '敷金積増し',
+            '保証金',
+            '水道料金形態', '水道料金',
+            '駐車場代', '駐輪場代',
+            'バイク置き場代', 'バイク置場代',
             '内見開始日'
         ];
 
@@ -703,7 +710,10 @@ def fetch_room_details(
             '建物設備': true, 'バス・トイレ': true, 'キッチン': true,
             '室内設備': true, 'セキュリティ': true, '冷暖房': true,
             '収納': true, 'TV・通信': true, 'その他設備': true,
-            '主な設備': true
+            '主な設備': true,
+            // 表示ページでは入稿ページと異なるカテゴリ名が使われる
+            'ライフライン': true, '空調': true, '通信設備': true,
+            'その他': true, '入居者条件': true
         };
         var lines = text.split('\\n');
         var facilityCategorized = {};
@@ -807,6 +817,18 @@ def fetch_room_details(
             ("保険", "fire_insurance"),
             ("鍵交換費用", "key_exchange_fee"),
             ("鍵交換", "key_exchange_fee"),
+            ("24時間サポート費", "support_fee_24h"),
+            ("24時間サポート", "support_fee_24h"),
+            ("権利金", "rights_fee"),
+            ("敷金積み増し", "additional_deposit"),
+            ("敷金積増し", "additional_deposit"),
+            ("保証金", "guarantee_deposit"),
+            ("水道料金形態", "water_billing"),
+            ("水道料金", "water_billing"),
+            ("駐車場代", "parking_fee"),
+            ("駐輪場代", "bicycle_parking_fee"),
+            ("バイク置き場代", "motorcycle_parking_fee"),
+            ("バイク置場代", "motorcycle_parking_fee"),
             ("内見開始日", "preview_start_date"),
         ]
 

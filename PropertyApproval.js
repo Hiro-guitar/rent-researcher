@@ -100,7 +100,10 @@ function handleConfirmApprove(e) {
     var editFields = ['buildingName','roomNumber','layout','buildingAge','floorText','storyText',
       'structure','totalUnits','sunlight','moveInDate','stationInfo','address',
       'deposit','keyMoney','shikibiki','petDeposit','renewalFee','fireInsurance',
-      'renewalAdminFee','guaranteeInfo','keyExchangeFee','leaseType','contractPeriod',
+      'renewalAdminFee','guaranteeInfo','keyExchangeFee',
+      'supportFee24h','rightsFee','additionalDeposit','guaranteeDeposit',
+      'waterBilling','parkingFee','bicycleParkingFee','motorcycleParkingFee',
+      'leaseType','contractPeriod',
       'cancellationNotice','renewalInfo','freeRent','facilities'];
     for (var j = 0; j < editFields.length; j++) {
       var f = editFields[j];
@@ -453,7 +456,15 @@ function handlePropertyViewApi(e) {
     fireInsurance: prop.fireInsurance,
     renewalAdminFee: prop.renewalAdminFee,
     guaranteeInfo: prop.guaranteeInfo,
-    keyExchangeFee: prop.keyExchangeFee
+    keyExchangeFee: prop.keyExchangeFee,
+    supportFee24h: prop.supportFee24h,
+    rightsFee: prop.rightsFee,
+    additionalDeposit: prop.additionalDeposit,
+    guaranteeDeposit: prop.guaranteeDeposit,
+    waterBilling: prop.waterBilling,
+    parkingFee: prop.parkingFee,
+    bicycleParkingFee: prop.bicycleParkingFee,
+    motorcycleParkingFee: prop.motorcycleParkingFee
   };
 
   // キャッシュに保存（24時間）
@@ -856,7 +867,15 @@ function rowToProperty(row) {
     fireInsurance: _normalizeValue(extra.fire_insurance),
     renewalAdminFee: _normalizeValue(extra.renewal_admin_fee),
     guaranteeInfo: _normalizeValue(extra.guarantee_info),
-    keyExchangeFee: _normalizeValue(extra.key_exchange_fee)
+    keyExchangeFee: _normalizeValue(extra.key_exchange_fee),
+    supportFee24h: _normalizeValue(extra.support_fee_24h),
+    rightsFee: _normalizeValue(extra.rights_fee),
+    additionalDeposit: _normalizeValue(extra.additional_deposit),
+    guaranteeDeposit: _normalizeValue(extra.guarantee_deposit),
+    waterBilling: _normalizeValue(extra.water_billing),
+    parkingFee: _normalizeValue(extra.parking_fee),
+    bicycleParkingFee: _normalizeValue(extra.bicycle_parking_fee),
+    motorcycleParkingFee: _normalizeValue(extra.motorcycle_parking_fee)
   };
 }
 
@@ -941,6 +960,14 @@ function updateSheetWithEdits(rowIndex, prop) {
   extra.renewal_admin_fee = prop.renewalAdminFee || '';
   extra.guarantee_info = prop.guaranteeInfo || '';
   extra.key_exchange_fee = prop.keyExchangeFee || '';
+  extra.support_fee_24h = prop.supportFee24h || '';
+  extra.rights_fee = prop.rightsFee || '';
+  extra.additional_deposit = prop.additionalDeposit || '';
+  extra.guarantee_deposit = prop.guaranteeDeposit || '';
+  extra.water_billing = prop.waterBilling || '';
+  extra.parking_fee = prop.parkingFee || '';
+  extra.bicycle_parking_fee = prop.bicycleParkingFee || '';
+  extra.motorcycle_parking_fee = prop.motorcycleParkingFee || '';
   extra.other_stations = prop.otherStations || [];
 
   cell.setValue(JSON.stringify(extra));
@@ -979,6 +1006,14 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   if (prop.renewalAdminFee) d.ra = prop.renewalAdminFee;
   if (prop.guaranteeInfo) d.gi = prop.guaranteeInfo;
   if (prop.keyExchangeFee) d.ke = prop.keyExchangeFee;
+  if (prop.supportFee24h) d.sf24 = prop.supportFee24h;
+  if (prop.rightsFee) d.rig = prop.rightsFee;
+  if (prop.additionalDeposit) d.adp = prop.additionalDeposit;
+  if (prop.guaranteeDeposit) d.gd = prop.guaranteeDeposit;
+  if (prop.waterBilling) d.wb = prop.waterBilling;
+  if (prop.parkingFee) d.pk = prop.parkingFee;
+  if (prop.bicycleParkingFee) d.bp = prop.bicycleParkingFee;
+  if (prop.motorcycleParkingFee) d.mp = prop.motorcycleParkingFee;
   // 設備: objectでもstringでもそのまま
   if (prop.facilities) d.fac = prop.facilities;
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
@@ -1177,6 +1212,14 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += _inputRow('\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', 'renewalAdminFee', prop.renewalAdminFee);
   html += _textareaRow('\u4FDD\u8A3C\u6599', 'guaranteeInfo', prop.guaranteeInfo);
   html += _inputRow('\u9375\u4EA4\u63DB\u8CBB\u7528', 'keyExchangeFee', prop.keyExchangeFee);
+  html += _inputRow('24\u6642\u9593\u30B5\u30DD\u30FC\u30C8\u8CBB', 'supportFee24h', prop.supportFee24h);
+  html += _inputRow('\u6A29\u5229\u91D1', 'rightsFee', prop.rightsFee);
+  html += _inputRow('\u6577\u91D1\u7A4D\u307F\u5897\u3057', 'additionalDeposit', prop.additionalDeposit);
+  html += _inputRow('\u4FDD\u8A3C\u91D1', 'guaranteeDeposit', prop.guaranteeDeposit);
+  html += _inputRow('\u6C34\u9053\u6599\u91D1\u5F62\u614B', 'waterBilling', prop.waterBilling);
+  html += _inputRow('\u99D0\u8ECA\u5834\u4EE3', 'parkingFee', prop.parkingFee);
+  html += _inputRow('\u99D0\u8F2A\u5834\u4EE3', 'bicycleParkingFee', prop.bicycleParkingFee);
+  html += _inputRow('\u30D0\u30A4\u30AF\u7F6E\u304D\u5834\u4EE3', 'motorcycleParkingFee', prop.motorcycleParkingFee);
 
   // ── 契約条件 ──
   html += '<div class="section-header">\u5951\u7D04\u6761\u4EF6</div>';
@@ -1499,6 +1542,10 @@ function makeViewHtml(prop) {
     + '.row-label{color:#888;font-size:14px;width:90px;flex-shrink:0}'
     + '.row-value{color:#333;font-size:14px;flex:1}'
     + '.footer{text-align:center;padding:20px;color:#aaa;font-size:12px}'
+    + '.fac-cat{margin-bottom:10px}'
+    + '.fac-cat-name{font-size:12px;color:#888;font-weight:bold;margin-bottom:4px}'
+    + '.fac-tags{display:flex;flex-wrap:wrap;gap:4px}'
+    + '.fac-tag{display:inline-block;font-size:12px;color:#444;background:#f0f4f8;border-radius:4px;padding:2px 8px;line-height:1.6}'
     + '</style></head><body>';
 
   // 画像表示（複数ならカルーセル、1枚ならヒーロー画像）
@@ -1532,6 +1579,82 @@ function makeViewHtml(prop) {
 
   // 値が有効か判定（「ー」「入力なし」「なし」は非表示）
   function _hv(v) { return v && v !== '\u30FC' && v !== '\u5165\u529B\u306A\u3057'; }
+
+  // 設備文字列をカテゴリ分けしてタグHTMLを生成
+  // カテゴリはItandi BB入稿ページ準拠
+  function _buildFacilityTags(facStr) {
+    // Itandi形式（【カテゴリ】アイテム / アイテム）の場合はそのまま解析
+    if (facStr.indexOf('\u3010') >= 0) {
+      return _buildFacilityTagsFromItandi(facStr);
+    }
+    // ES-Square等：カンマ区切りテキストをキーワードでカテゴリ分け
+    var cats = [
+      { name: '\u30AC\u30B9\u30FB\u6C34\u9053', keys: ['\u90FD\u5E02\u30AC\u30B9','\u30D7\u30ED\u30D1\u30F3','\u30AC\u30B9\u306A\u3057','\u4E0B\u6C34\u9053','\u6D44\u5316\u69FD','\u6C34\u9053\u516C\u55B6','\u4E95\u6238'] },
+      { name: '\u30D0\u30B9\u30FB\u30C8\u30A4\u30EC', keys: ['\u30D0\u30B9','\u30C8\u30A4\u30EC','\u6D17\u9762','\u6D74\u5BA4','\u6E29\u6C34\u6D17\u6D44','\u6696\u623F\u4FBF\u5EA7','\u8FFD\u711A','\u8FFD\u3044\u713C','\u8FFD\u3044\u7119','\u30AA\u30FC\u30C8\u30D0\u30B9','\u30B7\u30E3\u30EF\u30FC','\u30DF\u30B9\u30C8\u30B5\u30A6\u30CA','\u30DC\u30A4\u30E9\u30FC','\u6D17\u6FEF\u6A5F','\u30B3\u30A4\u30F3\u30E9\u30F3\u30C9\u30EA\u30FC','\u30A8\u30B3\u30AD\u30E5\u30FC\u30C8','\u30A8\u30B3\u30B8\u30E7\u30FC\u30BA'] },
+      { name: '\u30AD\u30C3\u30C1\u30F3', keys: ['\u30AD\u30C3\u30C1\u30F3','IH','\u30B3\u30F3\u30ED','\u30AC\u30B9\u30B3\u30F3\u30ED','\u30AA\u30FC\u30EB\u96FB\u5316','\u7D66\u6E6F','\u30C7\u30A3\u30B9\u30DD\u30FC\u30B6\u30FC','\u6D44\u6C34\u5668','\u98DF\u6D17','\u98DF\u5668\u6D17\u6D44','\u30B0\u30EA\u30EB'] },
+      { name: '\u51B7\u6696\u623F', keys: ['\u30A8\u30A2\u30B3\u30F3','\u5E8A\u6696\u623F','\u6696\u623F','\u51B7\u623F','FF\u6696\u623F','\u63DB\u6C17','\u30BB\u30F3\u30C8\u30E9\u30EB\u7A7A\u8ABF','\u500B\u5225\u7A7A\u8ABF','\u8907\u5C64\u30AC\u30E9\u30B9','\u706F\u6CB9','\u5800\u3054\u305F\u3064'] },
+      { name: '\u53CE\u7D0D', keys: ['\u53CE\u7D0D','\u30AF\u30ED\u30FC\u30BC\u30C3\u30C8','\u30A6\u30A9\u30FC\u30AF\u30A4\u30F3','\u30B7\u30E5\u30FC\u30BA','\u5E8A\u4E0B\u53CE\u7D0D','\u30B0\u30EB\u30CB\u30A8','\u30C8\u30E9\u30F3\u30AF\u30EB\u30FC\u30E0','\u7384\u95A2\u53CE\u7D0D','\u5168\u5BA4\u53CE\u7D0D','\u7269\u7F6E','\u62BC\u5165'] },
+      { name: 'TV\u30FB\u901A\u4FE1', keys: ['\u30C7\u30B8\u30BF\u30EB\u653E\u9001','BS','CS','CATV','\u5149\u30D5\u30A1\u30A4\u30D0','\u30A4\u30F3\u30BF\u30FC\u30CD\u30C3\u30C8','\u30CD\u30C3\u30C8\u7121\u6599','\u30CD\u30C3\u30C8\u5BFE\u5FDC','\u6709\u7DDA\u653E\u9001','\u7121\u7DDALN','LAN','\u30B1\u30FC\u30D6\u30EB\u30C6\u30EC\u30D3','Wi-Fi'] },
+      { name: '\u30BB\u30AD\u30E5\u30EA\u30C6\u30A3', keys: ['\u30AA\u30FC\u30C8\u30ED\u30C3\u30AF','\u30A4\u30F3\u30BF\u30FC\u30DB\u30F3','\u30A4\u30F3\u30BF\u30DB\u30F3','\u30E2\u30CB\u30BF\u30FC\u4ED8','\u96FB\u5B50\u30ED\u30C3\u30AF','\u30C7\u30A3\u30F3\u30D7\u30EB','\u30AB\u30FC\u30C9\u30AD\u30FC','\u30C0\u30D6\u30EB\u30ED\u30C3\u30AF','\u9632\u72AF\u30AB\u30E1\u30E9','\u9632\u72AF','\u30BB\u30AD\u30E5\u30EA\u30C6\u30A3','\u7BA1\u7406\u4EBA','\u5B85\u914D\u30DC\u30C3\u30AF\u30B9'] },
+      { name: '\u305D\u306E\u4ED6\u8A2D\u5099', keys: ['\u5BB6\u5177\u4ED8','\u5BB6\u5177\u5BB6\u96FB','\u5BB6\u96FB\u4ED8','\u51B7\u8535\u5EAB','\u30D9\u30C3\u30C9','\u7167\u660E','\u96FB\u8A71\u6A5F','\u30BB\u30F3\u30B5\u30FC','\u706B\u707D\u8B66\u5831','\u30D5\u30ED\u30FC\u30EA\u30F3\u30B0','\u30A8\u30EC\u30D9\u30FC\u30BF\u30FC','\u30ED\u30D5\u30C8','\u548C\u5BA4','\u5730\u4E0B\u5BA4','\u5BA4\u5185\u7269\u5E72','\u51FA\u7A93','\u30D0\u30EB\u30B3\u30CB\u30FC','\u30D9\u30E9\u30F3\u30C0','\u30EB\u30FC\u30D5\u30D0\u30EB\u30B3\u30CB\u30FC','\u30A4\u30F3\u30CA\u30FC\u30D0\u30EB\u30B3\u30CB\u30FC','\u30C6\u30E9\u30B9','\u30A6\u30C3\u30C9\u30C7\u30C3\u30AD','\u5EAD','\u5C02\u7528\u5EAD','\u9632\u97F3','\u4E8C\u91CD\u5E8A','\u5439\u304D\u629C\u3051','\u99D0\u8F2A','\u30D0\u30A4\u30AF\u7F6E','\u99D0\u8ECA','\u30AD\u30C3\u30BA','\u30ED\u30FC\u30C9\u30D2\u30FC\u30C6\u30A3\u30F3\u30B0','\u30B7\u30E3\u30C3\u30BF\u30FC','\u8FB2\u5730','\u52D5\u529B\u96FB\u6E90','OA\u30D5\u30ED\u30A2'] },
+      { name: '\u5165\u5C45\u6761\u4EF6', keys: ['\u30DA\u30C3\u30C8','\u697D\u5668','\u4E8B\u52D9\u6240','\u30EB\u30FC\u30E0\u30B7\u30A7\u30A2','\u9AD8\u9F62\u8005','\u5973\u6027\u9650\u5B9A','\u5916\u56FD\u4EBA'] },
+      { name: '\u7279\u8A18\u4E8B\u9805', keys: ['\u30AA\u30FC\u30CA\u30FC\u30C1\u30A7\u30F3\u30B8','\u89D2\u90E8\u5C4B','\u6700\u4E0A\u968E','\u30C7\u30B6\u30A4\u30CA\u30FC\u30BA','\u5206\u8B72','\u30BF\u30EF\u30FC\u30DE\u30F3\u30B7\u30E7\u30F3','\u30EA\u30CE\u30D9\u30FC\u30B7\u30E7\u30F3','\u30EA\u30D5\u30A9\u30FC\u30E0','\u5916\u65AD\u71B1','\u30B9\u30B1\u30EB\u30C8\u30F3','\u592A\u967D\u5149','\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8','DIY','\u5C45\u629C\u304D','\u65E5\u5F53\u305F\u308A','\u9589\u9759','\u8155\u58C1','\u30E1\u30BE\u30CD\u30C3\u30C8','\u5236\u9707','\u514D\u9707','\u8010\u9707'] }
+    ];
+    // 設備文字列を分割
+    var items = facStr.split(/[,、\/\n]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+    // 各アイテムをカテゴリに振り分け
+    var buckets = {};
+    for (var c = 0; c < cats.length; c++) buckets[cats[c].name] = [];
+    buckets['\u305D\u306E\u4ED6'] = [];
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i], matched = false;
+      for (var c = 0; c < cats.length; c++) {
+        for (var k = 0; k < cats[c].keys.length; k++) {
+          if (item.indexOf(cats[c].keys[k]) >= 0) {
+            buckets[cats[c].name].push(item);
+            matched = true; break;
+          }
+        }
+        if (matched) break;
+      }
+      if (!matched) buckets['\u305D\u306E\u4ED6'].push(item);
+    }
+    return _renderFacBuckets(cats.map(function(c) { return c.name; }), buckets);
+  }
+
+  // Itandi形式（【カテゴリ】アイテム / アイテム）を解析
+  function _buildFacilityTagsFromItandi(facStr) {
+    var lines = facStr.split('\n');
+    var order = [], buckets = {};
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(/^\u3010(.+?)\u3011(.*)$/);
+      if (m) {
+        var cat = m[1], rest = m[2];
+        if (!buckets[cat]) { buckets[cat] = []; order.push(cat); }
+        var items = rest.split(/[\/ \/]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+        for (var j = 0; j < items.length; j++) buckets[cat].push(items[j]);
+      }
+    }
+    return _renderFacBuckets(order, buckets);
+  }
+
+  // カテゴリ別バケットからタグHTMLを生成（共通）
+  function _renderFacBuckets(order, buckets) {
+    var out = '';
+    // orderに含まれるカテゴリ + その他
+    var allOrder = order.slice();
+    if (buckets['\u305D\u306E\u4ED6'] && buckets['\u305D\u306E\u4ED6'].length > 0) allOrder.push('\u305D\u306E\u4ED6');
+    for (var o = 0; o < allOrder.length; o++) {
+      var name = allOrder[o], arr = buckets[name];
+      if (!arr || arr.length === 0) continue;
+      out += '<div class="fac-cat"><div class="fac-cat-name">' + _esc(name) + '</div><div class="fac-tags">';
+      for (var j = 0; j < arr.length; j++) {
+        out += '<span class="fac-tag">' + _esc(arr[j]) + '</span>';
+      }
+      out += '</div></div>';
+    }
+    return out;
+  }
 
   html += '<div class="section">'
     + '<div class="section-title">\u7269\u4EF6\u60C5\u5831</div>';
@@ -1574,6 +1697,14 @@ function makeViewHtml(prop) {
   if (_hv(prop.renewalAdminFee)) costRows.push(['\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', prop.renewalAdminFee]);
   if (_hv(prop.guaranteeInfo)) costRows.push(['\u4FDD\u8A3C\u6599', prop.guaranteeInfo]);
   if (_hv(prop.keyExchangeFee)) costRows.push(['\u9375\u4EA4\u63DB\u8CBB\u7528', prop.keyExchangeFee]);
+  if (_hv(prop.supportFee24h)) costRows.push(['24\u6642\u9593\u30B5\u30DD\u30FC\u30C8\u8CBB', prop.supportFee24h]);
+  if (_hv(prop.rightsFee)) costRows.push(['\u6A29\u5229\u91D1', prop.rightsFee]);
+  if (_hv(prop.additionalDeposit)) costRows.push(['\u6577\u91D1\u7A4D\u307F\u5897\u3057', prop.additionalDeposit]);
+  if (_hv(prop.guaranteeDeposit)) costRows.push(['\u4FDD\u8A3C\u91D1', prop.guaranteeDeposit]);
+  if (_hv(prop.waterBilling)) costRows.push(['\u6C34\u9053\u6599\u91D1\u5F62\u614B', prop.waterBilling]);
+  if (_hv(prop.parkingFee)) costRows.push(['\u99D0\u8ECA\u5834\u4EE3', prop.parkingFee]);
+  if (_hv(prop.bicycleParkingFee)) costRows.push(['\u99D0\u8F2A\u5834\u4EE3', prop.bicycleParkingFee]);
+  if (_hv(prop.motorcycleParkingFee)) costRows.push(['\u30D0\u30A4\u30AF\u7F6E\u304D\u5834\u4EE3', prop.motorcycleParkingFee]);
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">\u8CBB\u7528</div>';
     for (var i = 0; i < costRows.length; i++) {
@@ -1597,11 +1728,12 @@ function makeViewHtml(prop) {
     html += '</div>';
   }
 
-  // 設備・詳細
+  // 設備・詳細（カテゴリ分けタグ表示）
   var facStr = prop.facilities || '';
   if (_hv(facStr)) {
-    html += '<div class="section"><div class="section-title">\u8A2D\u5099\u30FB\u8A73\u7D30</div>'
-      + '<div style="font-size:13px;color:#555;line-height:1.7;white-space:pre-wrap">' + _esc(facStr) + '</div></div>';
+    html += '<div class="section"><div class="section-title">\u8A2D\u5099\u30FB\u8A73\u7D30</div>';
+    html += _buildFacilityTags(facStr);
+    html += '</div>';
   }
 
   html += '<div class="footer">\u203B \u8A73\u7D30\u306F\u62C5\u5F53\u8005\u306B\u304A\u554F\u3044\u5408\u308F\u305B\u304F\u3060\u3055\u3044</div>';

@@ -84,6 +84,14 @@ class Property:
     renewal_admin_fee: str = ""  # 更新事務手数料
     guarantee_info: str = ""  # 保証情報（利用必須 + 保証料等）
     key_exchange_fee: str = ""  # 鍵交換費用
+    support_fee_24h: str = ""  # 24時間サポート費
+    rights_fee: str = ""  # 権利金
+    additional_deposit: str = ""  # 敷金積み増し
+    guarantee_deposit: str = ""  # 保証金
+    water_billing: str = ""  # 水道料金形態
+    parking_fee: str = ""  # 駐車場代
+    bicycle_parking_fee: str = ""  # 駐輪場代
+    motorcycle_parking_fee: str = ""  # バイク置き場代
     preview_start_date: str = ""  # 内見開始日
     # 募集ステータス・WEBバッジ
     listing_status: str = ""  # 募集ステータス (例: "募集中", "申込あり")
