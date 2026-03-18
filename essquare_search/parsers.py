@@ -1309,29 +1309,9 @@ def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
 
 def _extract_facilities(soup: BeautifulSoup) -> str:
     """詳細ページから設備一覧テキストを抽出する。"""
-    # セクションヘッダー（設備テキストに混入するラベル）を除去する
-    _section_headers = {
-        "詳細", "区画設備", "建物設備", "セキュリティ", "屋外設備",
-        "駐車場", "ライフライン", "位置・フロア", "周辺環境", "共用部", "その他",
-        "バス・トイレ・洗面", "回線", "給湯", "室内仕様", "共有施設",
-        "構造・工法・仕様", "特徴・設備", "管理・防犯", "キッチン", "収納",
-    }
-
-    def _clean_facilities(text: str) -> str:
-        """設備テキストからセクションヘッダーと値なしエントリを除去する。"""
-        # 括弧内のカンマを保護してから分割
-        protected = re.sub(r"（[^）]*）", lambda m: m.group().replace(",", "___P___").replace("、", "___P___").replace("，", "___P___"), text)
-        protected = re.sub(r"\([^)]*\)", lambda m: m.group().replace(",", "___P___").replace("、", "___P___").replace("，", "___P___"), protected)
-        # 全角カンマも分割対象
-        items = [s.replace("___P___", "，").strip() for s in re.split(r"[,、，]+", protected)]
-        cleaned = [
-            s for s in items
-            if s
-            and s not in _section_headers
-            and not re.match(r"^.+[:：]\s*(-|無)\s*$", s)  # 「電気：-」「駐輪場：無」等を除外
-            and not re.match(r"^(電気|ガス|上水道|下水道)[:：]", s)  # ライフライン項目を除外
-        ]
-        return ", ".join(cleaned)
+    # property.html がES形式の構造解析を行うため、
+    # セクションヘッダーは除去せずそのまま残す。
+    # スクレイパーは最小限のクリーンアップのみ行う。
 
     # "設備" ラベルの後のテキストを取得
     for keyword in ["設備", "設備・条件", "主な設備"]:
@@ -1346,7 +1326,7 @@ def _extract_facilities(soup: BeautifulSoup) -> str:
             if next_sib:
                 text = next_sib.get_text(", ", strip=True)
                 if text and len(text) > 5:
-                    return _clean_facilities(text)
+                    return text
 
             # 親コンテナの全テキストから設備部分を抽出
             grandparent = parent.parent
@@ -1357,6 +1337,6 @@ def _extract_facilities(soup: BeautifulSoup) -> str:
                     idx = full_text.index(keyword) + len(keyword)
                     rest = full_text[idx:].lstrip(",: 、")
                     if rest and len(rest) > 5:
-                        return _clean_facilities(rest)
+                        return rest
 
     return ""

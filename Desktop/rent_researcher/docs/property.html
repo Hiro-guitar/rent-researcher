@@ -292,7 +292,7 @@ function buildFacilityTags(facStr) {
 
 // ES-Square形式: 半角カンマでヘッダーと値群を分離、全角カンマで値を分割
 function buildFacilityTagsFromES(facStr) {
-  // 括弧内のカンマを保護
+  // 括弧内のカンマを保護（最後まで維持、HTML出力時に復元）
   var prot = facStr.replace(/（[^）]*）/g, function(m) { return m.replace(/[,，]/g, '___P___'); });
   prot = prot.replace(/\([^)]*\)/g, function(m) { return m.replace(/[,，]/g, '___P___'); });
   // 数値内カンマ保護
@@ -301,19 +301,23 @@ function buildFacilityTagsFromES(facStr) {
   var segments = prot.split(/\s*,\s*/);
   var order = [], buckets = {}, curCat = null;
   for (var i = 0; i < segments.length; i++) {
-    var seg = segments[i].replace(/___P___/g, '，').replace(/___C___/g, ',').trim();
+    var seg = segments[i].trim();
     if (!seg) continue;
-    if (ES_HEADERS.indexOf(seg) >= 0) {
+    // ___P___/___C___を復元した値でヘッダー判定
+    var segClean = seg.replace(/___P___/g, '，').replace(/___C___/g, ',');
+    if (ES_HEADERS.indexOf(segClean) >= 0) {
       // 大セクション（区画設備/建物設備/セキュリティ）はスキップ、サブヘッダーを使う
-      if (['区画設備','建物設備','セキュリティ','詳細'].indexOf(seg) >= 0) continue;
-      curCat = seg;
+      if (['区画設備','建物設備','セキュリティ','詳細'].indexOf(segClean) >= 0) continue;
+      curCat = segClean;
       if (!buckets[curCat]) { buckets[curCat] = []; order.push(curCat); }
     } else {
-      // 値群: 全角カンマで個別アイテムに分割
+      // 値群: 全角カンマで個別アイテムに分割（括弧内は___P___で保護されたまま）
       if (!curCat) { curCat = 'その他'; if (!buckets[curCat]) { buckets[curCat] = []; order.push(curCat); } }
-      var vals = seg.split(/[，、]+/).map(function(s) { return s.trim(); }).filter(function(s) {
+      var vals = seg.split(/[，、]+/).map(function(s) {
+        return s.replace(/___P___/g, '，').replace(/___C___/g, ',').trim();
+      }).filter(function(s) {
         if (!s) return false;
-        if (/^.+[:：]\s*(-|無)\s*$/.test(s)) return false;  // 値なし除外
+        if (/^.+[:：]\s*(-|無)\s*$/.test(s)) return false;
         return true;
       });
       for (var v = 0; v < vals.length; v++) buckets[curCat].push(vals[v]);
