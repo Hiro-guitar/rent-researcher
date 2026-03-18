@@ -1234,6 +1234,12 @@ def _map_detail_field(details: dict, label: str, value: str) -> None:
     if not label or not value:
         return
 
+    # 住所末尾の「地図」リンクテキストを除去
+    if value.endswith("地図"):
+        stripped = value[:-2].rstrip()
+        if stripped:
+            value = stripped
+
     # 完全一致
     if label in _DETAIL_FIELD_MAP:
         field_name = _DETAIL_FIELD_MAP[label]
