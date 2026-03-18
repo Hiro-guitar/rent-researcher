@@ -376,35 +376,26 @@ function processCriteriaSelection(userId, criteria) {
       return { success: true, message: '条件を更新しました。' };
     }
 
-    // NOTESステップをスキップして直接確認画面へ
-    state.step = STEPS.CONFIRM;
-    saveState(userId, state);
+    // 直接保存して完了
+    writeToSheet(userId, state);
+    clearState(userId);
 
-    // 確認メッセージを構築して送信
+    // 登録内容サマリーを構築
     var d = state.data;
     var routes = state.selectedRoutes || [];
     var cities = state.selectedCities || [];
     var stations = state.selectedStations || {};
 
-    var sep = '\n';
-    var details = '';
-
-    // 基本情報
-    details += '── お客様情報 ──\n';
-    details += '・お名前: ' + (d.name || '未入力') + '\n';
-    details += '・理由: ' + (d.reason || '未選択') + '\n';
-    details += '・居住者: ' + (d.resident || '未選択') + '\n';
-    details += '・引越し時期: ' + (d.move_in_date || '未選択') + '\n';
-    details += sep;
+    var summary = '── 登録内容 ──\n';
+    summary += '・お名前: ' + (d.name || '未入力') + '\n';
+    summary += '・引越し時期: ' + (d.move_in_date || '未選択') + '\n';
 
     // エリア
-    details += '── エリア ──\n';
-    details += '・東京都\n';
     if (state.areaMethod === 'city' && cities.length > 0) {
-      details += '・市区町村: ' + cities.join(', ') + '\n';
+      summary += '・エリア: ' + cities.join(', ') + '\n';
     }
     if (state.areaMethod === 'route') {
-      if (routes.length > 0) details += '・路線: ' + routes.join(', ') + '\n';
+      if (routes.length > 0) summary += '・路線: ' + routes.join(', ') + '\n';
       var allStations = [];
       for (var i = 0; i < routes.length; i++) {
         var stas = stations[routes[i]] || [];
@@ -412,33 +403,23 @@ function processCriteriaSelection(userId, criteria) {
           if (allStations.indexOf(stas[j]) === -1) allStations.push(stas[j]);
         }
       }
-      if (allStations.length > 0) details += '・駅: ' + allStations.join(', ') + '\n';
-    }
-    details += sep;
-
-    // 物件条件
-    details += '── 物件条件 ──\n';
-    details += '・賃料上限: ' + (d.rent_max || '未設定') + '\n';
-    if (d.layouts && d.layouts.length > 0) details += '・間取り: ' + d.layouts.join(', ') + '\n';
-    details += '・駅徒歩: ' + (d.walk || '指定しない') + '\n';
-    details += '・面積: ' + (d.area_min || '指定しない') + '\n';
-    details += '・築年数: ' + (d.building_age || '指定しない') + '\n';
-    if (d.building_structures && d.building_structures.length > 0) details += '・建物構造: ' + d.building_structures.join(', ') + '\n';
-    if (d.equipment && d.equipment.length > 0) {
-      details += sep;
-      details += '── こだわり条件 ──\n';
-      details += d.equipment.join(' / ') + '\n';
-    }
-    if (d.petType) details += '・ペット: ' + d.petType + '\n';
-    if (d.notes) {
-      details += sep;
-      details += '── その他 ──\n';
-      details += d.notes + '\n';
+      if (allStations.length > 0) summary += '・駅: ' + allStations.join(', ') + '\n';
     }
 
-    pushMessage(userId, [buildConfirmFlex(details)]);
+    summary += '・賃料上限: ' + (d.rent_max || '未設定') + '\n';
+    if (d.layouts && d.layouts.length > 0) summary += '・間取り: ' + d.layouts.join(', ') + '\n';
+    if (d.walk && d.walk !== '指定しない') summary += '・駅徒歩: ' + d.walk + '\n';
+    if (d.area_min && d.area_min !== '指定しない') summary += '・面積: ' + d.area_min + '\n';
+    if (d.building_age && d.building_age !== '指定しない') summary += '・築年数: ' + d.building_age + '\n';
+    if (d.building_structures && d.building_structures.length > 0) summary += '・建物構造: ' + d.building_structures.join(', ') + '\n';
+    if (d.equipment && d.equipment.length > 0) summary += '・こだわり: ' + d.equipment.join(', ') + '\n';
+    if (d.petType) summary += '・ペット: ' + d.petType + '\n';
 
-    return { success: true, message: '条件を保存しました。' };
+    pushMessage(userId, [
+      textMsg('ご登録ありがとうございます！\n以下の条件で登録しました。\n\n' + summary + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件を変更したい場合は「条件変更」と送ってください。')
+    ]);
+
+    return { success: true, message: '条件を登録しました。' };
   } catch (err) {
     console.error('processCriteriaSelection Error: ' + err.message + '\nStack: ' + (err.stack || 'N/A'));
     return { success: false, message: 'エラーが発生しました。もう一度お試しください。\n(' + err.message + ')' };
