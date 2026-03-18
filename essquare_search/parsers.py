@@ -1319,13 +1319,17 @@ def _extract_facilities(soup: BeautifulSoup) -> str:
 
     def _clean_facilities(text: str) -> str:
         """設備テキストからセクションヘッダーと値なしエントリを除去する。"""
+        # 括弧内のカンマを保護してから分割
+        protected = re.sub(r"（[^）]*）", lambda m: m.group().replace(",", "___P___").replace("、", "___P___").replace("，", "___P___"), text)
+        protected = re.sub(r"\([^)]*\)", lambda m: m.group().replace(",", "___P___").replace("、", "___P___").replace("，", "___P___"), protected)
         # 全角カンマも分割対象
-        items = [s.strip() for s in re.split(r"[,、，]+", text)]
+        items = [s.replace("___P___", "，").strip() for s in re.split(r"[,、，]+", protected)]
         cleaned = [
             s for s in items
             if s
             and s not in _section_headers
             and not re.match(r"^.+[:：]\s*(-|無)\s*$", s)  # 「電気：-」「駐輪場：無」等を除外
+            and not re.match(r"^(電気|ガス|上水道|下水道)[:：]", s)  # ライフライン項目を除外
         ]
         return ", ".join(cleaned)
 

@@ -285,25 +285,36 @@ function buildFacilityTags(facStr) {
     { name: '\u5165\u5C45\u6761\u4EF6', keys: ['\u30DA\u30C3\u30C8','\u697D\u5668','\u4E8B\u52D9\u6240','\u30EB\u30FC\u30E0\u30B7\u30A7\u30A2','\u9AD8\u9F62\u8005','\u5973\u6027\u9650\u5B9A','\u5916\u56FD\u4EBA'] },
     { name: '\u7279\u8A18\u4E8B\u9805', keys: ['\u30AA\u30FC\u30CA\u30FC\u30C1\u30A7\u30F3\u30B8','\u89D2\u90E8\u5C4B','\u6700\u4E0A\u968E','\u30C7\u30B6\u30A4\u30CA\u30FC\u30BA','\u5206\u8B72','\u30BF\u30EF\u30FC\u30DE\u30F3\u30B7\u30E7\u30F3','\u30EA\u30CE\u30D9\u30FC\u30B7\u30E7\u30F3','\u30EA\u30D5\u30A9\u30FC\u30E0','\u5916\u65AD\u71B1','\u30B9\u30B1\u30EB\u30C8\u30F3','\u592A\u967D\u5149','\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8','DIY','\u5C45\u629C\u304D','\u65E5\u5F53\u305F\u308A','\u9589\u9759','\u8155\u58C1','\u30E1\u30BE\u30CD\u30C3\u30C8','\u5236\u9707','\u514D\u9707','\u8010\u9707'] }
   ];
-  // 全角カンマ "，" も分割対象に含める。ただし数値内カンマ "22,000" を保護
-  var cleaned = facStr.replace(/(\d),(\d)/g, '$1___COMMA___$2');
-  var items = cleaned.split(/[,、，\/\n]+/).map(function(s) { return s.replace(/___COMMA___/g, ',').trim(); }).filter(function(s) {
+  // 括弧内のカンマを保護してから分割
+  var cleaned = facStr.replace(/（[^）]*）/g, function(m) { return m.replace(/[,、，]/g, '___P___'); });
+  cleaned = cleaned.replace(/\([^)]*\)/g, function(m) { return m.replace(/[,、，]/g, '___P___'); });
+  // 数値内カンマ "22,000" を保護
+  cleaned = cleaned.replace(/(\d),(\d)/g, '$1___C___$2');
+  var items = cleaned.split(/[,、，\/\n]+/).map(function(s) {
+    return s.replace(/___P___/g, '，').replace(/___C___/g, ',').trim();
+  }).filter(function(s) {
     if (s.length === 0) return false;
     // ESのセクションヘッダーを除外
-    var headers = ['詳細','区画設備','建物設備','セキュリティ','屋外設備','駐車場','ライフライン','位置・フロア','周辺環境','共用部','その他','バス・トイレ・洗面','回線','給湯','室内仕様','共有施設','構造・工法・仕様','特徴・設備','管理・防犯','キッチン','収納'];
+    var headers = ['詳細','区画設備','建物設備','セキュリティ','屋外設備','駐車場','ライフライン','位置・フロア','周辺環境','共用部','その他','バス・トイレ・洗面','回線','給湯','室内仕様','共有施設','構造・工法・仕様','特徴・設備','管理・防犯','キッチン','収納','屋外設備'];
     if (headers.indexOf(s) >= 0) return false;
     // 値なしエントリ（「電気：-」「駐輪場：無」等）を除外
     if (/^.+[:：]\s*(-|無)\s*$/.test(s)) return false;
+    // ライフライン項目（「電気：有」「上水道：公営」等）を除外
+    if (/^(電気|ガス|上水道|下水道)[:：]/.test(s)) return false;
     return true;
   });
+  // 全角英数を半角に正規化（カテゴリマッチング用）
+  function toHalf(str) {
+    return str.replace(/[\uFF01-\uFF5E]/g, function(c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+  }
   var buckets = {};
   for (var c = 0; c < cats.length; c++) buckets[cats[c].name] = [];
   buckets['\u305D\u306E\u4ED6'] = [];
   for (var i = 0; i < items.length; i++) {
-    var item = items[i], matched = false;
+    var item = items[i], itemHalf = toHalf(item), matched = false;
     for (var c = 0; c < cats.length; c++) {
       for (var k = 0; k < cats[c].keys.length; k++) {
-        if (item.indexOf(cats[c].keys[k]) >= 0) {
+        if (itemHalf.indexOf(cats[c].keys[k]) >= 0) {
           buckets[cats[c].name].push(item);
           matched = true; break;
         }
