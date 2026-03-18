@@ -1772,10 +1772,10 @@ function makeViewHtml(prop) {
     for (var ci = 0; ci < condItems.length; ci++) {
       var cond = condItems[ci];
       var tagClass = 'fac-tag';
-      if (/\u53EF|\u76F8\u8AC7|\u6B53\u8FE1|\u4E0D\u8981|\u5411\u304D/.test(cond)) {
-        tagClass = 'fac-tag cond-ok';
-      } else if (/\u4E0D\u53EF/.test(cond)) {
+      if (/\u4E0D\u53EF/.test(cond)) {
         tagClass = 'fac-tag cond-ng';
+      } else if (/\u53EF|\u76F8\u8AC7|\u6B53\u8FE1|\u4E0D\u8981|\u5411\u304D/.test(cond)) {
+        tagClass = 'fac-tag cond-ok';
       }
       html += '<span class="' + tagClass + '">' + _esc(cond) + '</span>';
     }
