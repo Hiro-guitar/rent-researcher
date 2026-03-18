@@ -295,9 +295,17 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
   // ── 引越し時期: いい物件見つかり次第 ──
   if (data === 'movein|asap') {
     state = updateStateData(state, 'move_in_date', 'いい物件見つかり次第');
+    if (state.isChangeFlow) {
+      writeToSheet(userId, state);
+      clearState(userId);
+      replyMessage(replyToken, [
+        textMsg('条件を更新しました！\n\n' + buildRegistrationSummary(state) + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
+      ]);
+      return true;
+    }
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
-    showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow, state.isChangeFlow ? formatConditionSummary(state) : undefined);
+    showCriteriaSelectLink(replyToken, userId);
     return true;
   }
 
@@ -318,9 +326,17 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     var monthData = (state.data.move_in_month || '').split('-');
     var displayDate = parseInt(monthData[1], 10) + '月' + period;
     state = updateStateData(state, 'move_in_date', displayDate);
+    if (state.isChangeFlow) {
+      writeToSheet(userId, state);
+      clearState(userId);
+      replyMessage(replyToken, [
+        textMsg('条件を更新しました！\n\n' + buildRegistrationSummary(state) + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
+      ]);
+      return true;
+    }
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
-    showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow, state.isChangeFlow ? formatConditionSummary(state) : undefined);
+    showCriteriaSelectLink(replyToken, userId);
     return true;
   }
 
@@ -337,7 +353,15 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       state.step = STEPS.CRITERIA_SELECT;
       saveState(userId, state);
       // カレンダー選択はdisplayTextが無いので、選択結果をテキストで表示
-      showCriteriaSelectLink(replyToken, userId, [textMsg(displayDate2 + ' を選択しました')], state.isChangeFlow, state.isChangeFlow ? formatConditionSummary(state) : undefined);
+      if (state.isChangeFlow) {
+        writeToSheet(userId, state);
+        clearState(userId);
+        replyMessage(replyToken, [
+          textMsg('条件を更新しました！\n\n' + buildRegistrationSummary(state) + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
+        ]);
+      } else {
+        showCriteriaSelectLink(replyToken, userId, [textMsg(displayDate2 + ' を選択しました')]);
+      }
     }
     return true;
   }
@@ -571,19 +595,13 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
     }
   ];
 
-  // 条件変更フローでは入居時期変更・確定・キャンセルボタンを追加
+  // 条件変更フローでは入居時期変更・キャンセルボタンを追加
   if (isChangeFlow) {
     footerContents.push({
       type: 'button',
       style: 'primary',
       color: '#06C755',
       action: { type: 'postback', label: '入居時期を変更', data: 'change_movein', displayText: '入居時期を変更' }
-    });
-    footerContents.push({
-      type: 'button',
-      style: 'primary',
-      color: '#4A90D9',
-      action: { type: 'postback', label: '変更を確定', data: 'change_confirm', displayText: '変更を確定' }
     });
     footerContents.push({
       type: 'button',
