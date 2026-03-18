@@ -682,11 +682,27 @@ function formatConditionSummary(state) {
   }
 
   // 物件条件
-  if (d.rent_max) lines.push('賃料上限: ' + d.rent_max);
+  if (d.rent_max) {
+    var rentDisplay = d.rent_max;
+    if (!isNaN(d.rent_max)) rentDisplay = d.rent_max + '万円';
+    lines.push('賃料上限: ' + rentDisplay);
+  }
   if (d.layouts && d.layouts.length > 0) lines.push('間取り: ' + d.layouts.join(', '));
-  if (d.walk && d.walk !== '指定しない') lines.push('駅徒歩: ' + d.walk);
-  if (d.area_min && d.area_min !== '指定しない') lines.push('面積: ' + d.area_min);
-  if (d.building_age && d.building_age !== '指定しない') lines.push('築年数: ' + d.building_age);
+  if (d.walk && d.walk !== '指定しない') {
+    var walkDisplay = d.walk;
+    if (!isNaN(d.walk)) walkDisplay = d.walk + '分以内';
+    lines.push('駅徒歩: ' + walkDisplay);
+  }
+  if (d.area_min && d.area_min !== '指定しない') {
+    var areaDisplay = d.area_min;
+    if (!isNaN(d.area_min)) areaDisplay = d.area_min + '㎡以上';
+    lines.push('面積: ' + areaDisplay);
+  }
+  if (d.building_age && d.building_age !== '指定しない') {
+    var ageDisplay = d.building_age;
+    if (!isNaN(d.building_age)) ageDisplay = '築' + d.building_age + '年以内';
+    lines.push('築年数: ' + ageDisplay);
+  }
   if (d.building_structures && d.building_structures.length > 0) lines.push('建物構造: ' + d.building_structures.join(', '));
   if (d.equipment && d.equipment.length > 0) lines.push('こだわり: ' + d.equipment.join(', '));
   if (d.petType) lines.push('ペット: ' + d.petType);
