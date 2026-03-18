@@ -1310,12 +1310,21 @@ def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
 def _extract_facilities(soup: BeautifulSoup) -> str:
     """詳細ページから設備一覧テキストを抽出する。"""
     # セクションヘッダー（設備テキストに混入するラベル）を除去する
-    _section_headers = {"詳細", "区画設備", "建物設備", "セキュリティ", "屋外設備"}
+    _section_headers = {
+        "詳細", "区画設備", "建物設備", "セキュリティ", "屋外設備",
+        "駐車場", "ライフライン", "位置・フロア", "周辺環境", "共用部", "その他",
+    }
 
     def _clean_facilities(text: str) -> str:
-        """設備テキストからセクションヘッダーを除去する。"""
-        items = [s.strip() for s in re.split(r"[,、]+", text)]
-        cleaned = [s for s in items if s and s not in _section_headers]
+        """設備テキストからセクションヘッダーと値なしエントリを除去する。"""
+        # 全角カンマも分割対象
+        items = [s.strip() for s in re.split(r"[,、，]+", text)]
+        cleaned = [
+            s for s in items
+            if s
+            and s not in _section_headers
+            and not re.match(r"^.+[:：]\s*-\s*$", s)  # 「電気：-」等を除外
+        ]
         return ", ".join(cleaned)
 
     # "設備" ラベルの後のテキストを取得
