@@ -290,10 +290,10 @@ function buildFacilityTags(facStr) {
   var items = cleaned.split(/[,、，\/\n]+/).map(function(s) { return s.replace(/___COMMA___/g, ',').trim(); }).filter(function(s) {
     if (s.length === 0) return false;
     // ESのセクションヘッダーを除外
-    var headers = ['詳細','区画設備','建物設備','セキュリティ','屋外設備','駐車場','ライフライン','位置・フロア','周辺環境','共用部','その他'];
+    var headers = ['詳細','区画設備','建物設備','セキュリティ','屋外設備','駐車場','ライフライン','位置・フロア','周辺環境','共用部','その他','バス・トイレ・洗面','回線','給湯','室内仕様','共有施設','構造・工法・仕様','特徴・設備','管理・防犯','キッチン','収納'];
     if (headers.indexOf(s) >= 0) return false;
-    // 値なしエントリ（「電気：-」等）を除外
-    if (/^.+[:：]\s*-\s*$/.test(s)) return false;
+    // 値なしエントリ（「電気：-」「駐輪場：無」等）を除外
+    if (/^.+[:：]\s*(-|無)\s*$/.test(s)) return false;
     return true;
   });
   var buckets = {};

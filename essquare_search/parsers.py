@@ -1313,6 +1313,8 @@ def _extract_facilities(soup: BeautifulSoup) -> str:
     _section_headers = {
         "詳細", "区画設備", "建物設備", "セキュリティ", "屋外設備",
         "駐車場", "ライフライン", "位置・フロア", "周辺環境", "共用部", "その他",
+        "バス・トイレ・洗面", "回線", "給湯", "室内仕様", "共有施設",
+        "構造・工法・仕様", "特徴・設備", "管理・防犯", "キッチン", "収納",
     }
 
     def _clean_facilities(text: str) -> str:
@@ -1323,7 +1325,7 @@ def _extract_facilities(soup: BeautifulSoup) -> str:
             s for s in items
             if s
             and s not in _section_headers
-            and not re.match(r"^.+[:：]\s*-\s*$", s)  # 「電気：-」等を除外
+            and not re.match(r"^.+[:：]\s*(-|無)\s*$", s)  # 「電気：-」「駐輪場：無」等を除外
         ]
         return ", ".join(cleaned)
 
