@@ -115,7 +115,14 @@ function startChangeFlow(replyToken, userId) {
   saveState(userId, state);
 
   // 現在の登録条件サマリーを作成
-  var summary = formatConditionSummary(state);
+  var summary = '';
+  try {
+    summary = formatConditionSummary(state);
+  } catch (e) {
+    console.error('formatConditionSummary error: ' + e.message);
+    summary = '（条件の読み込みに失敗しました）';
+  }
+  console.log('条件変更サマリー: ' + summary);
 
   showCriteriaSelectLink(replyToken, userId, [
     textMsg('現在の登録条件:\n\n' + summary + '\n\n変更したい場合は下のボタンから条件を選択してください。')
@@ -266,6 +273,16 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       saveState(userId, state);
       showMoveInMonthSelect(replyToken);
     }
+    return true;
+  }
+
+  // ── 条件変更フローから確定 ──
+  if (data === 'change_confirm') {
+    writeToSheet(userId, state);
+    clearState(userId);
+    replyMessage(replyToken, [
+      textMsg('条件を更新しました！\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
+    ]);
     return true;
   }
 
@@ -555,7 +572,7 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
     }
   ];
 
-  // 条件変更フローでは入居時期変更ボタンを追加
+  // 条件変更フローでは入居時期変更・確定・キャンセルボタンを追加
   if (isChangeFlow) {
     footerContents.push({
       type: 'button',
@@ -563,13 +580,24 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
       color: '#06C755',
       action: { type: 'postback', label: '入居時期を変更', data: 'change_movein', displayText: '入居時期を変更' }
     });
+    footerContents.push({
+      type: 'button',
+      style: 'primary',
+      color: '#4A90D9',
+      action: { type: 'postback', label: '変更を確定', data: 'change_confirm', displayText: '変更を確定' }
+    });
+    footerContents.push({
+      type: 'button',
+      style: 'secondary',
+      action: { type: 'postback', label: 'キャンセル', data: 'action=back', displayText: 'キャンセル' }
+    });
+  } else {
+    footerContents.push({
+      type: 'button',
+      style: 'secondary',
+      action: { type: 'postback', label: '◀ 戻る', data: 'action=back', displayText: '戻る' }
+    });
   }
-
-  footerContents.push({
-    type: 'button',
-    style: 'secondary',
-    action: { type: 'postback', label: '◀ 戻る', data: 'action=back', displayText: '戻る' }
-  });
 
   const flexMessage = {
     type: 'flex',
