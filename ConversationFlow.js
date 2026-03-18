@@ -296,7 +296,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     state = updateStateData(state, 'move_in_date', 'いい物件見つかり次第');
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
-    showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow);
+    showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow, state.isChangeFlow ? formatConditionSummary(state) : undefined);
     return true;
   }
 
@@ -319,7 +319,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     state = updateStateData(state, 'move_in_date', displayDate);
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
-    showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow);
+    showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow, state.isChangeFlow ? formatConditionSummary(state) : undefined);
     return true;
   }
 
@@ -336,7 +336,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       state.step = STEPS.CRITERIA_SELECT;
       saveState(userId, state);
       // カレンダー選択はdisplayTextが無いので、選択結果をテキストで表示
-      showCriteriaSelectLink(replyToken, userId, [textMsg(displayDate2 + ' を選択しました')], state.isChangeFlow);
+      showCriteriaSelectLink(replyToken, userId, [textMsg(displayDate2 + ' を選択しました')], state.isChangeFlow, state.isChangeFlow ? formatConditionSummary(state) : undefined);
     }
     return true;
   }
@@ -385,7 +385,7 @@ function handleBackAction(replyToken, userId, state) {
   if (state.isChangeFlow && (state.step === STEPS.MOVE_IN_DATE || state.step === STEPS.MOVE_IN_PERIOD)) {
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
-    showCriteriaSelectLink(replyToken, userId, null, true);
+    showCriteriaSelectLink(replyToken, userId, null, true, formatConditionSummary(state));
     return true;
   }
 
@@ -443,7 +443,7 @@ function showStepQuestion(replyToken, userId, state) {
       showMoveInPeriod(replyToken, parseInt(mp[1], 10) || 0, state.data.move_in_month || '');
       break;
     case STEPS.CRITERIA_SELECT:
-      showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow);
+      showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow, state.isChangeFlow ? formatConditionSummary(state) : undefined);
       break;
     case STEPS.NOTES:
       replyMessage(replyToken, [
