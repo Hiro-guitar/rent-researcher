@@ -1675,7 +1675,7 @@ function makeViewHtml(prop) {
     var out = '';
     // orderに含まれるカテゴリ + その他
     var allOrder = order.slice();
-    if (buckets['\u305D\u306E\u4ED6'] && buckets['\u305D\u306E\u4ED6'].length > 0) allOrder.push('\u305D\u306E\u4ED6');
+    if (buckets['\u305D\u306E\u4ED6'] && buckets['\u305D\u306E\u4ED6'].length > 0 && allOrder.indexOf('\u305D\u306E\u4ED6') < 0) allOrder.push('\u305D\u306E\u4ED6');
     for (var o = 0; o < allOrder.length; o++) {
       var name = allOrder[o], arr = buckets[name];
       if (!arr || arr.length === 0) continue;
