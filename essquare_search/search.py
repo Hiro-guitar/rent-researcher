@@ -654,6 +654,8 @@ def _wait_for_detail_render(
 def enrich_property_details(
     session: EsSquareSession,
     properties: list[Property],
+    *,
+    drive_service=None,
 ) -> None:
     """各物件の詳細ページから追加情報を取得する (in-place 変更)。
 
@@ -693,10 +695,12 @@ def enrich_property_details(
             details = parse_detail_page(html)
 
             # parse_detail_page が返す画像からサイト共通UI画像を除外
+            # api.e-bukken-1.com は認証必須のため除外 → CDP+catbox フローで取得
             if details.get("image_urls"):
                 cleaned = [
                     u for u in details["image_urls"]
                     if not _JUNK_IMG.search(u)
+                    and 'e-bukken' not in u
                 ]
                 details["image_urls"] = cleaned
                 if not cleaned:
@@ -724,23 +728,30 @@ def enrich_property_details(
                     # 同一画像の低画質版を除外
                     unique_images = _dedup_images(raw_images)
 
-                    # catbox.moe にアップロード
+                    # Google Drive にアップロード
                     public_urls: list[str] = []
-                    for i, img_bytes in enumerate(
-                        unique_images
-                    ):
-                        cat_url = _upload_to_catbox(img_bytes)
-                        if cat_url:
-                            public_urls.append(cat_url)
-                        # レート制限回避
-                        if i < len(unique_images) - 1:
-                            time.sleep(0.3)
+                    if drive_service:
+                        from itandi_search.sheets import (
+                            upload_image_to_drive,
+                        )
+                        for i, img_bytes in enumerate(
+                            unique_images
+                        ):
+                            ts = int(time.time())
+                            fname = f"esq_{ts}_{i}.jpg"
+                            url = upload_image_to_drive(
+                                drive_service,
+                                img_bytes,
+                                filename=fname,
+                            )
+                            if url:
+                                public_urls.append(url)
 
                     if public_urls:
                         details["image_urls"] = public_urls
                         details["image_url"] = public_urls[0]
                         print(
-                            f"[DEBUG] ES-Square catbox "
+                            f"[DEBUG] ES-Square Drive "
                             f"アップロード: "
                             f"{len(public_urls)} 件成功"
                         )
@@ -751,9 +762,6 @@ def enrich_property_details(
                         details["image_urls"] = cdp_urls
                         if not details.get("image_url"):
                             details["image_url"] = cdp_urls[0]
-
-                    # image_data は不要 — 承認ページで catbox URL
-                    # から全画像表示できるため Discord サムネ添付しない
 
             if not details.get("image_urls"):
                 # 3. API レスポンスデータから画像 URL を探す
@@ -896,42 +904,6 @@ def _dedup_images(
     return result
 
 
-def _upload_to_catbox(image_data: bytes) -> str | None:
-    """画像を catbox.moe にアップロードし、公開 URL を返す。
-
-    api.e-bukken-1.com の画像は認証が必要で承認ページで表示できないため、
-    catbox.moe にアップロードして公開 URL に変換する。
-    GAS 側の uploadPropertyImage() と同じ API を使用。
-    """
-    import requests as req
-
-    try:
-        resp = req.post(
-            'https://catbox.moe/user/api.php',
-            files={
-                'fileToUpload': (
-                    'property.jpg', image_data, 'image/jpeg',
-                ),
-            },
-            data={'reqtype': 'fileupload'},
-            timeout=30,
-        )
-        if resp.status_code == 200:
-            url = resp.text.strip()
-            if url.startswith('https://'):
-                return url
-            print(
-                f"[WARN] catbox.moe 不正レスポンス: "
-                f"{url[:100]}"
-            )
-        else:
-            print(
-                f"[WARN] catbox.moe アップロード失敗: "
-                f"status={resp.status_code}"
-            )
-    except Exception as exc:
-        print(f"[WARN] catbox.moe アップロード失敗: {exc}")
-    return None
 
 
 def _extract_images_from_cdp(
@@ -1066,7 +1038,7 @@ def _extract_images_from_api_data(
             var apiData = window.__esq_api || [];
             var imageUrls = [];
             var seen = {};
-            var SKIP = /logo|icon|favicon|avatar|badge|placeholder|no.?image|es-service\.net|onetop|okbiz|miibo|chatbot/i;
+            var SKIP = /logo|icon|favicon|avatar|badge|placeholder|no.?image|es-service\.net|onetop|okbiz|miibo|chatbot|e-bukken/i;
 
             function search(obj, depth) {
                 if (depth > 8 || !obj) return;
@@ -1447,7 +1419,7 @@ def _extract_images_via_js(session: EsSquareSession) -> list[str]:
         urls = session.execute_script("""
             var urls = [];
             var seen = {};
-            var SKIP = /placeholder|logo|icon|favicon|avatar|badge|es-service\.net|onetop|okbiz|miibo|chatbot/i;
+            var SKIP = /placeholder|logo|icon|favicon|avatar|badge|es-service\.net|onetop|okbiz|miibo|chatbot|e-bukken/i;
 
             var imgs = document.querySelectorAll('img');
             for (var i = 0; i < imgs.length; i++) {

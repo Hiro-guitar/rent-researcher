@@ -1347,12 +1347,15 @@ def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
     seen: set[str] = set()
 
     # 除外パターン: アイコン・ロゴ等・サイト共通プロモーション画像
+    # e-bukken: api.e-bukken-1.com の画像は認証が必要で外部表示不可
+    #           → CDP + catbox フローで公開 URL に変換する
     _SKIP_PATTERNS = (
         "placeholder", "logo", "icon", "favicon",
         "avatar", "profile", "badge", "data:",
         "blob:", "svg+xml",
         "es-service.net", "onetop",
         "okbiz", "miibo", "chatbot", "faq-e-seikatsu",
+        "e-bukken",
     )
 
     def _add_url(src: str) -> None:
