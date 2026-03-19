@@ -957,7 +957,9 @@ function saveSelectedImages(rowIndex, selectedImageUrls) {
   cell.setValue(JSON.stringify(extra));
 }
 
-// ===== 画像アップロード（catbox.moe） =====
+// ===== 画像アップロード（catbox.moe — 手動アップロード用） =====
+// 承認ページからの手動アップロードは少量のため catbox を使用。
+// 一括スクレイピングの画像は Python 側で Google Drive にアップロードされる。
 function uploadPropertyImage(base64Data, filename, mimeType) {
   try {
     var decoded = Utilities.base64Decode(base64Data);

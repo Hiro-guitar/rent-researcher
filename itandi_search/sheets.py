@@ -1,12 +1,14 @@
-"""Google Sheets 読み書き"""
+"""Google Sheets 読み書き + Google Drive 画像アップロード"""
 
 import json
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaInMemoryUpload
 
 from .config import (
     CRITERIA_RANGE,
+    DRIVE_FOLDER_ID,
     EQUIPMENT_IDS,
     GOOGLE_SERVICE_ACCOUNT_JSON,
     PENDING_RANGE,
@@ -21,15 +23,128 @@ from .config import (
 )
 from .models import CustomerCriteria
 
+# ── Google API 共通認証 ───────────────────────────────
+
+_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.file",
+]
+
+
+def _get_credentials():
+    """共通の認証情報を返す。"""
+    service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+    return service_account.Credentials.from_service_account_info(
+        service_account_info, scopes=_SCOPES
+    )
+
 
 def get_sheets_service():
     """Google Sheets API サービスを返す。"""
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
-    credentials = service_account.Credentials.from_service_account_info(
-        service_account_info, scopes=scopes
+    return build("sheets", "v4", credentials=_get_credentials())
+
+
+def get_drive_service():
+    """Google Drive API サービスを返す。"""
+    return build("drive", "v3", credentials=_get_credentials())
+
+
+# ── Google Drive 画像アップロード ─────────────────────
+
+# フォルダ名（サービスアカウントの Drive 上に自動作成）
+_DRIVE_FOLDER_NAME = "rent_pictures"
+
+
+def _ensure_drive_folder(drive_service) -> str:
+    """画像フォルダが存在しなければ作成し、フォルダ ID を返す。
+
+    DRIVE_FOLDER_ID 環境変数が設定されていればそれを使用。
+    未設定の場合、サービスアカウントの Drive 上に
+    ``rent_pictures`` フォルダを検索/作成する。
+    """
+    if DRIVE_FOLDER_ID:
+        return DRIVE_FOLDER_ID
+
+    # 既存フォルダを検索
+    query = (
+        f"name = '{_DRIVE_FOLDER_NAME}' "
+        f"and mimeType = 'application/vnd.google-apps.folder' "
+        f"and trashed = false"
     )
-    return build("sheets", "v4", credentials=credentials)
+    result = drive_service.files().list(
+        q=query, fields="files(id)", pageSize=1,
+    ).execute()
+    files = result.get("files", [])
+    if files:
+        folder_id = files[0]["id"]
+        print(f"[INFO] Drive フォルダ検出: {folder_id}")
+        return folder_id
+
+    # 新規作成
+    meta = {
+        "name": _DRIVE_FOLDER_NAME,
+        "mimeType": "application/vnd.google-apps.folder",
+    }
+    folder = drive_service.files().create(
+        body=meta, fields="id",
+    ).execute()
+    folder_id = folder["id"]
+    print(f"[INFO] Drive フォルダ作成: {folder_id}")
+    return folder_id
+
+
+def upload_image_to_drive(
+    drive_service,
+    image_data: bytes,
+    *,
+    filename: str = "property.jpg",
+    mime_type: str = "image/jpeg",
+    folder_id: str = "",
+) -> str | None:
+    """画像を Google Drive にアップロードし、公開 URL を返す。
+
+    1. 指定フォルダにファイルを作成
+    2. "anyone with link can view" の共有権限を設定
+    3. thumbnail URL を返す（<img> タグで直接表示可能）
+
+    Returns:
+        公開 URL (str) or None on failure
+    """
+    target_folder = folder_id or _ensure_drive_folder(drive_service)
+    if not target_folder:
+        print("[WARN] Drive フォルダ ID が取得できません")
+        return None
+
+    try:
+        file_metadata = {
+            "name": filename,
+            "parents": [target_folder],
+        }
+        media = MediaInMemoryUpload(
+            image_data, mimetype=mime_type, resumable=False,
+        )
+        created = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields="id",
+        ).execute()
+        file_id = created["id"]
+
+        # 公開共有権限を設定
+        drive_service.permissions().create(
+            fileId=file_id,
+            body={"type": "anyone", "role": "reader"},
+        ).execute()
+
+        url = (
+            f"https://drive.google.com/thumbnail"
+            f"?id={file_id}&sz=w2000"
+        )
+        return url
+
+    except Exception as exc:
+        print(f"[WARN] Drive アップロード失敗: {exc}")
+        return None
 
 
 def load_customer_criteria(service) -> list[CustomerCriteria]:

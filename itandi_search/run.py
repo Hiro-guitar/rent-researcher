@@ -23,6 +23,7 @@ from .config import (
 from .discord import send_error_notification, send_property_notification
 from .search import ItandiSearchError, enrich_properties_with_images, search_properties
 from .sheets import (
+    get_drive_service,
     get_sheets_service,
     load_customer_criteria,
     load_pending_properties,
@@ -738,6 +739,7 @@ def _run_essquare_search(
     customer,
     exclude_set: set,
     sheets_service,
+    drive_service=None,
 ) -> int:
     """いい生活Square で検索してフィルタ → 承認待ち → Discord 通知。
 
@@ -768,7 +770,10 @@ def _run_essquare_search(
     props_with_url = [p for p in new_properties if p.url]
     if props_with_url:
         try:
-            esq_enrich_property_details(esq_session, props_with_url)
+            esq_enrich_property_details(
+                esq_session, props_with_url,
+                drive_service=drive_service,
+            )
         except Exception as exc:
             print(f"[WARN] ES-Square 詳細取得失敗 ({customer.name}): {exc}")
 
@@ -937,6 +942,13 @@ def main() -> None:
     # 重複排除用: 通知済み + 承認待ちの和集合
     exclude_set = seen_set | pending_set
 
+    # ── 3b. Google Drive 初期化（画像アップロード用） ──────
+    drive_service = None
+    try:
+        drive_service = get_drive_service()
+    except Exception as exc:
+        print(f"[WARN] Google Drive 初期化失敗: {exc}")
+
     # ── 4. itandi BB ログイン ─────────────────────────────
     itandi: ItandiSession | None = None
     try:
@@ -1000,6 +1012,7 @@ def main() -> None:
                     customer=customer,
                     exclude_set=exclude_set,
                     sheets_service=sheets_service,
+                    drive_service=drive_service,
                 )
             except Exception as exc:
                 print(
