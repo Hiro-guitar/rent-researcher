@@ -831,14 +831,68 @@ function _normalizeValue(val) {
   return val;
 }
 
+/**
+ * 築年月テキストを「築○年」形式に変換する。
+ * "2007/03" → "築19年", "築15年" → "築15年", "9年" → "築9年"
+ */
+function _normalizeBuildingAge(val) {
+  if (!val) return '';
+  val = String(val).trim();
+  if (/^築\d+年/.test(val) || val === '新築') return val;
+  var m1 = val.match(/^(\d+)年$/);
+  if (m1) return '築' + m1[1] + '年';
+  var m2 = val.match(/(\d{4})\s*[\/\-年]\s*(\d{1,2})/);
+  if (m2) {
+    var now = new Date();
+    var years = now.getFullYear() - parseInt(m2[1], 10);
+    if (now.getMonth() + 1 < parseInt(m2[2], 10)) years--;
+    return years < 1 ? '新築' : '築' + years + '年';
+  }
+  var m3 = val.match(/^(\d{4})年?$/);
+  if (m3) {
+    var y = new Date().getFullYear() - parseInt(m3[1], 10);
+    return y < 1 ? '新築' : '築' + y + '年';
+  }
+  return val;
+}
+
+/**
+ * 入居可能時期を日付表記に変換する。
+ * "2026/03/29" → "2026年3月29日", "2026/04" → "2026年4月"
+ */
+function _normalizeMoveInDate(val) {
+  if (!val) return '';
+  val = String(val).trim();
+  var m1 = val.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(.*)$/);
+  if (m1) return parseInt(m1[1],10) + '年' + parseInt(m1[2],10) + '月' + parseInt(m1[3],10) + '日' + m1[4];
+  var m2 = val.match(/^(\d{4})[\/\-](\d{1,2})(.*)$/);
+  if (m2) return parseInt(m2[1],10) + '年' + parseInt(m2[2],10) + '月' + m2[3];
+  return val;
+}
+
+/**
+ * 物件名から部屋番号を分離する。
+ * "ふるーる東中野 202" → { name: "ふるーる東中野", room: "202" }
+ */
+function _splitRoomNumber(buildingName, roomNumber) {
+  if (roomNumber) return { name: buildingName, room: roomNumber };
+  if (!buildingName) return { name: '', room: '' };
+  var m = buildingName.match(/^(.+?)\s+(\d{2,5}[A-Za-z]?)$/);
+  if (m) return { name: m[1], room: m[2] };
+  return { name: buildingName, room: '' };
+}
+
 function rowToProperty(row) {
   var extra = {};
   try { extra = JSON.parse(row[9] || '{}'); } catch(e) {}
+  var rawRoomNumber = _normalizeValue(extra.room_number);
+  var rawBuildingName = row[3] || '';
+  var split = _splitRoomNumber(rawBuildingName, rawRoomNumber);
   return {
     customerName: row[0],
     buildingId: row[1],
     roomId: row[2],
-    buildingName: row[3] || '',
+    buildingName: split.name,
     rent: Number(row[4]) || 0,
     managementFee: Number(row[5]) || 0,
     layout: row[6] || '',
@@ -851,13 +905,13 @@ function rowToProperty(row) {
     imageUrl: extra.image_url || '',
     imageUrls: extra.image_urls || [],
     selectedImageUrls: extra.selected_image_urls || null,
-    roomNumber: _normalizeValue(extra.room_number),
-    buildingAge: _normalizeValue(extra.building_age),
+    roomNumber: split.room,
+    buildingAge: _normalizeBuildingAge(_normalizeValue(extra.building_age)),
     floor: extra.floor || 0,
     // 追加詳細情報
     storyText: _normalizeValue(extra.story_text),
     otherStations: extra.other_stations || [],
-    moveInDate: _normalizeValue(extra.move_in_date),
+    moveInDate: _normalizeMoveInDate(_normalizeValue(extra.move_in_date)),
     floorText: _normalizeValue(extra.floor_text),
     structure: _normalizeValue(extra.structure),
     totalUnits: _normalizeValue(extra.total_units),
