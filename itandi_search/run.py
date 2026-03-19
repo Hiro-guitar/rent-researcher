@@ -26,6 +26,7 @@ from .sheets import (
     get_sheets_service,
     load_customer_criteria,
     load_pending_properties,
+    load_pending_properties_with_data,
     load_seen_properties,
     write_pending_properties,
 )
@@ -527,12 +528,65 @@ def _check_move_in_date(properties: list, customer_move_in: str) -> list:
     return properties
 
 
+def _restore_from_cache(
+    properties: list,
+    customer_name: str,
+    image_cache: dict,
+) -> tuple[list, list]:
+    """キャッシュ済み物件のデータを復元し、未キャッシュ物件と分離する。
+
+    Returns:
+        (cached_properties, uncached_properties)
+        cached_properties: キャッシュから復元済み（enrich 不要）
+        uncached_properties: キャッシュなし（enrich 必要）
+    """
+    if not image_cache:
+        return [], properties
+
+    cached = []
+    uncached = []
+
+    # キャッシュ復元対象のフィールド（_build_property_json と対応）
+    _CACHE_FIELDS = [
+        "deposit", "key_money", "address", "url",
+        "image_url", "image_urls",
+        "room_number", "building_age", "floor",
+        "story_text", "other_stations", "move_in_date",
+        "floor_text", "structure", "total_units",
+        "lease_type", "contract_period", "cancellation_notice",
+        "renewal_info", "sunlight", "facilities",
+        "shikibiki", "pet_deposit", "free_rent",
+        "renewal_fee", "fire_insurance", "renewal_admin_fee",
+        "guarantee_info", "key_exchange_fee", "support_fee_24h",
+        "additional_deposit", "guarantee_deposit", "water_billing",
+        "parking_fee", "bicycle_parking_fee",
+        "motorcycle_parking_fee", "other_monthly_fee",
+        "other_onetime_fee", "move_in_conditions",
+        "move_out_date", "free_rent_detail", "layout_detail",
+    ]
+
+    for prop in properties:
+        key = (customer_name, prop.room_id)
+        data = image_cache.get(key)
+        if data:
+            for field_name in _CACHE_FIELDS:
+                value = data.get(field_name)
+                if value is not None:
+                    setattr(prop, field_name, value)
+            cached.append(prop)
+        else:
+            uncached.append(prop)
+
+    return cached, uncached
+
+
 def _run_itandi_search(
     *,
     itandi,
     customer,
     exclude_set: set,
     sheets_service,
+    image_cache: dict | None = None,
 ) -> int:
     """itandi BB で検索してフィルタ → 承認待ち → Discord 通知。
 
@@ -555,11 +609,22 @@ def _run_itandi_search(
 
     print(f"  → うち新着 {len(new_properties)} 件")
 
-    # 各物件の詳細ページから全画像URLを取得
-    try:
-        enrich_properties_with_images(itandi, new_properties)
-    except Exception as exc:
-        print(f"[WARN] 画像取得に失敗 ({customer.name}): {exc}")
+    # キャッシュから復元できる物件はスキップ
+    cached, uncached = _restore_from_cache(
+        new_properties, customer.name, image_cache or {},
+    )
+    if cached:
+        print(
+            f"  → キャッシュから {len(cached)} 件復元 "
+            f"(enrich 対象: {len(uncached)} 件)"
+        )
+
+    # 各物件の詳細ページから全画像URLを取得（未キャッシュのみ）
+    if uncached:
+        try:
+            enrich_properties_with_images(itandi, uncached)
+        except Exception as exc:
+            print(f"[WARN] 画像取得に失敗 ({customer.name}): {exc}")
 
     # 賃料フィルター（安全策: API フィルタの漏れを防止）
     before = len(new_properties)
@@ -738,6 +803,7 @@ def _run_essquare_search(
     customer,
     exclude_set: set,
     sheets_service,
+    image_cache: dict | None = None,
 ) -> int:
     """いい生活Square で検索してフィルタ → 承認待ち → Discord 通知。
 
@@ -764,8 +830,18 @@ def _run_essquare_search(
 
     print(f"  → ES-Square: うち新着 {len(new_properties)} 件")
 
-    # 詳細ページから追加情報を取得 (URL がある物件のみ)
-    props_with_url = [p for p in new_properties if p.url]
+    # キャッシュから復元できる物件はスキップ
+    cached, uncached = _restore_from_cache(
+        new_properties, customer.name, image_cache or {},
+    )
+    if cached:
+        print(
+            f"  → ES-Square: キャッシュから {len(cached)} 件復元 "
+            f"(enrich 対象: {len(uncached)} 件)"
+        )
+
+    # 詳細ページから追加情報を取得 (URL がある物件のみ、未キャッシュ)
+    props_with_url = [p for p in uncached if p.url]
     if props_with_url:
         try:
             esq_enrich_property_details(esq_session, props_with_url)
@@ -918,6 +994,7 @@ def main() -> None:
 
     # ── 3. 通知済み・承認待ち物件の読み込み ─────────────────
     force_notify = os.environ.get("FORCE_NOTIFY", "") == "1"
+    force_refetch = os.environ.get("FORCE_REFETCH", "") == "1"
     if force_notify:
         print("[INFO] FORCE_NOTIFY=1: 通知済みチェックをスキップします")
         seen_set: set = set()
@@ -936,6 +1013,23 @@ def main() -> None:
 
     # 重複排除用: 通知済み + 承認待ちの和集合
     exclude_set = seen_set | pending_set
+
+    # ── 3b. 画像キャッシュの読み込み（FORCE_NOTIFY 時のみ） ────
+    image_cache: dict = {}
+    if force_notify and not force_refetch:
+        try:
+            image_cache = load_pending_properties_with_data(
+                sheets_service,
+            )
+            if image_cache:
+                print(
+                    f"[INFO] 画像キャッシュ: "
+                    f"{len(image_cache)} 件読み込み済み"
+                )
+        except Exception as exc:
+            print(f"[WARN] 画像キャッシュ読み込み失敗: {exc}")
+    elif force_refetch:
+        print("[INFO] FORCE_REFETCH=1: 画像キャッシュを使用しません")
 
     # ── 4. itandi BB ログイン ─────────────────────────────
     itandi: ItandiSession | None = None
@@ -976,6 +1070,7 @@ def main() -> None:
                 customer=customer,
                 exclude_set=exclude_set,
                 sheets_service=sheets_service,
+                image_cache=image_cache,
             )
         except ItandiSearchError as exc:
             print(f"[ERROR] 検索失敗 ({customer.name}): {exc}")
@@ -1000,6 +1095,7 @@ def main() -> None:
                     customer=customer,
                     exclude_set=exclude_set,
                     sheets_service=sheets_service,
+                    image_cache=image_cache,
                 )
             except Exception as exc:
                 print(

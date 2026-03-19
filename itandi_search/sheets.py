@@ -278,6 +278,58 @@ def load_pending_properties(service) -> set[tuple[str, str]]:
     return pending
 
 
+def load_pending_properties_with_data(
+    service,
+) -> dict[tuple[str, str], dict]:
+    """承認待ちシートから (customer_name, room_id) → JSON データのマップを返す。
+
+    FORCE_NOTIFY 時に画像 URL や詳細情報のキャッシュとして使用。
+    image_urls が空の物件（前回取得失敗）はキャッシュに含めない。
+    """
+    sheet = service.spreadsheets()
+    try:
+        result = (
+            sheet.values()
+            .get(
+                spreadsheetId=SPREADSHEET_ID,
+                range=f"{PENDING_SHEET}!A:K",
+            )
+            .execute()
+        )
+    except Exception:
+        return {}
+
+    rows = result.get("values", [])
+    cache: dict[tuple[str, str], dict] = {}
+
+    for row in rows[1:]:  # ヘッダーをスキップ
+        if len(row) < 10:
+            continue
+        customer_name = _get(row, 0, "")   # A列
+        room_id = _get(row, 2, "").strip()  # C列
+        status = _get(row, 10, "")          # K列
+        json_str = _get(row, 9, "")         # J列: property_data_json
+
+        if not (customer_name and room_id and json_str):
+            continue
+        # pending 行のみキャッシュ対象
+        if status != "pending":
+            continue
+
+        try:
+            data = json.loads(json_str)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        # image_urls が空 = 前回取得失敗の可能性 → キャッシュしない
+        if not data.get("image_urls"):
+            continue
+
+        cache[(customer_name, room_id)] = data
+
+    return cache
+
+
 def _build_property_json(p) -> str:
     """Property → JSON 文字列（シートの J 列用）。"""
     return json.dumps(

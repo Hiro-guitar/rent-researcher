@@ -14,6 +14,11 @@ on:
         required: false
         type: boolean
         default: false
+      force_refetch:
+        description: "画像再取得 (キャッシュを無視して画像を取り直す)"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   search:
@@ -56,4 +61,5 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
           FORCE_NOTIFY: ${{ github.event.inputs.force_notify == 'true' && '1' || '' }}
+          FORCE_REFETCH: ${{ github.event.inputs.force_refetch == 'true' && '1' || '' }}
         run: python -m itandi_search.run
