@@ -3,12 +3,16 @@
 import json
 
 from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials as OAuthCredentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 
 from .config import (
     CRITERIA_RANGE,
+    DRIVE_CLIENT_ID,
+    DRIVE_CLIENT_SECRET,
     DRIVE_FOLDER_ID,
+    DRIVE_REFRESH_TOKEN,
     EQUIPMENT_IDS,
     GOOGLE_SERVICE_ACCOUNT_JSON,
     PENDING_RANGE,
@@ -23,30 +27,40 @@ from .config import (
 )
 from .models import CustomerCriteria
 
-# ── Google API 共通認証 ───────────────────────────────
-
-_SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive.file",
-]
-
-
-def _get_credentials():
-    """共通の認証情報を返す。"""
-    service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
-    return service_account.Credentials.from_service_account_info(
-        service_account_info, scopes=_SCOPES
-    )
+# ── Google Sheets 認証（サービスアカウント） ──────────
 
 
 def get_sheets_service():
-    """Google Sheets API サービスを返す。"""
-    return build("sheets", "v4", credentials=_get_credentials())
+    """Google Sheets API サービスを返す（サービスアカウント認証）。"""
+    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    service_account_info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+    credentials = service_account.Credentials.from_service_account_info(
+        service_account_info, scopes=scopes
+    )
+    return build("sheets", "v4", credentials=credentials)
+
+
+# ── Google Drive 認証（OAuth2 リフレッシュトークン） ──
 
 
 def get_drive_service():
-    """Google Drive API サービスを返す。"""
-    return build("drive", "v3", credentials=_get_credentials())
+    """Google Drive API サービスを返す（OAuth2 認証）。
+
+    専用アカウントのリフレッシュトークンを使用して、
+    そのアカウントの Drive ストレージにアクセスする。
+    サービスアカウントにはストレージ容量がないため、
+    OAuth2 で実ユーザーとしてアクセスする必要がある。
+    """
+    if not DRIVE_REFRESH_TOKEN:
+        raise RuntimeError("DRIVE_REFRESH_TOKEN が未設定です")
+    credentials = OAuthCredentials(
+        token=None,
+        refresh_token=DRIVE_REFRESH_TOKEN,
+        client_id=DRIVE_CLIENT_ID,
+        client_secret=DRIVE_CLIENT_SECRET,
+        token_uri="https://oauth2.googleapis.com/token",
+    )
+    return build("drive", "v3", credentials=credentials)
 
 
 # ── Google Drive 画像アップロード ─────────────────────
