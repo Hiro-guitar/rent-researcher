@@ -10,9 +10,11 @@ SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 GAS_WEBAPP_URL = os.environ.get("GAS_WEBAPP_URL", "")
 
-# ── Google Drive 画像フォルダ ─────────────────────────
-# サービスアカウントの Drive 上に自動作成される
+# ── Google Drive 画像アップロード（OAuth2） ───────────
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
+DRIVE_CLIENT_ID = os.environ.get("DRIVE_CLIENT_ID", "")
+DRIVE_CLIENT_SECRET = os.environ.get("DRIVE_CLIENT_SECRET", "")
+DRIVE_REFRESH_TOKEN = os.environ.get("DRIVE_REFRESH_TOKEN", "")
 
 # ── Google Sheets シート名 ─────────────────────────────
 CRITERIA_SHEET = "検索条件"
