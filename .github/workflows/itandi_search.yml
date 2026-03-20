@@ -61,6 +61,9 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          DRIVE_CLIENT_ID: ${{ secrets.DRIVE_CLIENT_ID }}
+          DRIVE_CLIENT_SECRET: ${{ secrets.DRIVE_CLIENT_SECRET }}
+          DRIVE_REFRESH_TOKEN: ${{ secrets.DRIVE_REFRESH_TOKEN }}
           FORCE_NOTIFY: ${{ github.event.inputs.force_notify == 'true' && '1' || '' }}
           FORCE_REFETCH: ${{ github.event.inputs.force_refetch == 'true' && '1' || '' }}
         run: python -m itandi_search.run
