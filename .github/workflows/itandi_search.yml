@@ -19,6 +19,11 @@ on:
         required: false
         type: boolean
         default: false
+      test_mode:
+        description: "テストモード (テスト顧客のみ・各3物件まで)"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   search:
@@ -66,4 +71,5 @@ jobs:
           DRIVE_REFRESH_TOKEN: ${{ secrets.DRIVE_REFRESH_TOKEN }}
           FORCE_NOTIFY: ${{ github.event.inputs.force_notify == 'true' && '1' || '' }}
           FORCE_REFETCH: ${{ github.event.inputs.force_refetch == 'true' && '1' || '' }}
+          TEST_MODE: ${{ github.event.inputs.test_mode == 'true' && '1' || '' }}
         run: python -m itandi_search.run
