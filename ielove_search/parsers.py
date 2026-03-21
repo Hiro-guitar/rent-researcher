@@ -485,6 +485,12 @@ def _map_detail_field(prop: Property, label: str, value: str) -> None:
         setattr(prop, field, value)
         return
 
+    if field == "layout_detail":
+        # 「1LDK」のみ（帖数情報なし）なら layout と重複するのでスキップ
+        if "帖" in value or "畳" in value:
+            prop.layout_detail = value
+        return
+
     if field == "floor_text":
         setattr(prop, field, value)
         m = re.match(r"(\d+)\s*階", value)
