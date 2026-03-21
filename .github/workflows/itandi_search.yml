@@ -63,6 +63,8 @@ jobs:
           ITANDI_PASSWORD: ${{ secrets.ITANDI_PASSWORD }}
           ESSQUARE_EMAIL: ${{ secrets.ESSQUARE_EMAIL }}
           ESSQUARE_PASSWORD: ${{ secrets.ESSQUARE_PASSWORD }}
+          IELOVE_EMAIL: ${{ secrets.IELOVE_EMAIL }}
+          IELOVE_PASSWORD: ${{ secrets.IELOVE_PASSWORD }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GAS_WEBAPP_URL: ${{ secrets.GAS_WEBAPP_URL }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}

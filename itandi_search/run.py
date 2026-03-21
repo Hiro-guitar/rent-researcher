@@ -1,7 +1,7 @@
 """メインスクリプト — オーケストレーター
 
-Google Sheets の検索条件を読み込み、itandi BB + いい生活Square で検索し、
-新着物件を Discord に通知する。
+Google Sheets の検索条件を読み込み、itandi BB + いい生活Square + いえらぶBB で
+検索し、新着物件を Discord に通知する。
 """
 
 import calendar
@@ -45,6 +45,20 @@ try:
             search_properties as esq_search_properties,
         )
         _ESSQUARE_ENABLED = True
+except ImportError:
+    pass
+
+# いえらぶBB: credentials が設定されている場合のみ有効化
+_IELOVE_ENABLED = False
+try:
+    from ielove_search.config import IELOVE_EMAIL, IELOVE_PASSWORD
+    if IELOVE_EMAIL and IELOVE_PASSWORD:
+        from ielove_search.auth import IeloveAuthError, IeloveSession
+        from ielove_search.search import (
+            enrich_property_details as ielove_enrich_property_details,
+            search_properties as ielove_search_properties,
+        )
+        _IELOVE_ENABLED = True
 except ImportError:
     pass
 
@@ -976,6 +990,180 @@ def _run_essquare_search(
     return len(new_properties)
 
 
+def _run_ielove_search(
+    *,
+    ielove_session,
+    customer,
+    exclude_set: set,
+    sheets_service,
+    image_cache: dict | None = None,
+    drive_service=None,
+    test_mode: bool = False,
+) -> int:
+    """いえらぶBB で検索してフィルタ → 承認待ち → Discord 通知。
+
+    Returns: 新着件数
+    """
+    print(f"[INFO] いえらぶBB 検索中: {customer.name}")
+
+    is_test = "テスト" in customer.name
+    limit = TEST_MODE_LIMIT if test_mode else None
+    properties, ielove_search_url = ielove_search_properties(
+        ielove_session, customer,
+        is_test_customer=is_test,
+        limit_results=limit,
+    )
+    print(f"  → いえらぶBB: {len(properties)} 件ヒット")
+
+    # 通知済み・承認待ちを除外
+    new_properties = [
+        p for p in properties
+        if (customer.name, p.room_id) not in exclude_set
+    ]
+
+    if not new_properties:
+        print("  → いえらぶBB: 新着なし")
+        return 0
+
+    print(f"  → いえらぶBB: うち新着 {len(new_properties)} 件")
+
+    # キャッシュから復元できる物件はスキップ
+    cached, uncached = _restore_from_cache(
+        new_properties, customer.name, image_cache or {},
+    )
+    if cached:
+        print(
+            f"  → いえらぶBB: キャッシュから {len(cached)} 件復元 "
+            f"(enrich 対象: {len(uncached)} 件)"
+        )
+
+    # 詳細ページから追加情報を取得 (URL がある物件のみ、未キャッシュ)
+    props_with_url = [p for p in uncached if p.url]
+    if props_with_url:
+        try:
+            ielove_enrich_property_details(
+                ielove_session, props_with_url,
+                drive_service=drive_service,
+            )
+        except Exception as exc:
+            print(f"[WARN] いえらぶBB 詳細取得失敗 ({customer.name}): {exc}")
+
+    # ── フィルタ (itandi と同じロジックを適用) ──────────
+
+    is_test = "テスト" in customer.name
+
+    # 賃料フィルター
+    before = len(new_properties)
+    new_properties = _filter_by_rent(
+        new_properties, rent_max=customer.rent_max
+    )
+    filtered = before - len(new_properties)
+    if filtered:
+        print(f"  → いえらぶBB 賃料フィルター: {filtered} 件除外")
+    if not new_properties:
+        print("  → いえらぶBB: 賃料条件に合う物件なし")
+        return 0
+
+    # 定期借家フィルター
+    if customer.no_teiki:
+        before = len(new_properties)
+        new_properties = _filter_by_teiki(new_properties)
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → いえらぶBB 定期借家フィルター: {filtered} 件除外")
+        if not new_properties:
+            return 0
+
+    # 所在階フィルター
+    if (customer.min_floor is not None
+            or customer.max_floor is not None
+            or customer.top_floor_only):
+        before = len(new_properties)
+        new_properties = _filter_by_floor(
+            new_properties,
+            min_floor=customer.min_floor,
+            max_floor=customer.max_floor,
+            top_floor_only=customer.top_floor_only,
+        )
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → いえらぶBB 階数フィルター: {filtered} 件除外")
+        if not new_properties:
+            return 0
+
+    # 南向きフィルター
+    if customer.south_facing:
+        before = len(new_properties)
+        new_properties = _filter_by_sunlight(new_properties)
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → いえらぶBB 南向きフィルター: {filtered} 件除外")
+        if not new_properties:
+            return 0
+
+    # ロフトNGフィルター
+    if customer.no_loft:
+        before = len(new_properties)
+        new_properties = _filter_by_loft(new_properties)
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → いえらぶBB ロフトフィルター: {filtered} 件除外")
+        if not new_properties:
+            return 0
+
+    # ロフト必須チェック（アラートのみ）
+    if customer.require_loft:
+        new_properties = _check_loft_required(new_properties)
+
+    # ソフト設備チェック（アラートのみ）
+    if customer.soft_equipment_ids:
+        new_properties = _check_soft_equipment(
+            new_properties, customer.soft_equipment_ids
+        )
+
+    # 入居時期チェック（アラートのみ）
+    if customer.move_in_date:
+        new_properties = _check_move_in_date(
+            new_properties, customer.move_in_date
+        )
+
+    # 承認待ちシートに書き込み
+    try:
+        write_pending_properties(
+            sheets_service,
+            customer.name,
+            new_properties,
+            now_jst(),
+        )
+    except Exception as exc:
+        print(
+            f"[ERROR] いえらぶBB 承認待ち書き込み失敗 "
+            f"({customer.name}): {exc}"
+        )
+
+    # Discord 通知
+    webhook_url = DISCORD_WEBHOOK_URL
+    if webhook_url:
+        thread_id = send_property_notification(
+            webhook_url=webhook_url,
+            customer_name=customer.name,
+            properties=new_properties,
+            thread_id=customer.discord_thread_id,
+            gas_webapp_url=GAS_WEBAPP_URL,
+            search_info=_build_search_info(
+                customer, search_url=ielove_search_url
+            ),
+        )
+        if thread_id and thread_id != customer.discord_thread_id:
+            customer.discord_thread_id = thread_id
+
+    # exclude_set に追加
+    for p in new_properties:
+        exclude_set.add((customer.name, p.room_id))
+
+    return len(new_properties)
+
+
 def now_jst() -> str:
     """現在の JST タイムスタンプを返す。"""
     return datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
@@ -1089,6 +1277,18 @@ def main() -> None:
                 esq_session.close()
             esq_session = None
 
+    # ── 4c. いえらぶBB ログイン（任意） ──────────────────
+    ielove_session = None
+    if _IELOVE_ENABLED:
+        try:
+            ielove_session = IeloveSession(IELOVE_EMAIL, IELOVE_PASSWORD)
+            ielove_session.login()
+        except Exception as exc:
+            print(f"[WARN] いえらぶBB ログイン失敗: {exc}")
+            if ielove_session:
+                ielove_session.close()
+            ielove_session = None
+
     # ── 5. 各顧客の検索＋通知 ─────────────────────────────
     total_new = 0
 
@@ -1136,10 +1336,30 @@ def main() -> None:
                     f"({customer.name}): {exc}"
                 )
 
+        # ── 5c. いえらぶBB 検索 ────────────────────────────
+        if ielove_session:
+            try:
+                total_new += _run_ielove_search(
+                    ielove_session=ielove_session,
+                    customer=customer,
+                    exclude_set=exclude_set,
+                    sheets_service=sheets_service,
+                    image_cache=image_cache,
+                    drive_service=drive_service,
+                    test_mode=TEST_MODE,
+                )
+            except Exception as exc:
+                print(
+                    f"[ERROR] いえらぶBB 検索エラー "
+                    f"({customer.name}): {exc}"
+                )
+
     # ── 6. ブラウザセッションを閉じる ──────────────────────
     itandi.close()
     if esq_session:
         esq_session.close()
+    if ielove_session:
+        ielove_session.close()
 
     if total_new:
         print(
