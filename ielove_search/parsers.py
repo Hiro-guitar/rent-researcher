@@ -433,6 +433,9 @@ def _map_detail_field(prop: Property, label: str, value: str) -> None:
     if not value or value in ("-", "−", "―", "ー", "なし", ""):
         return
 
+    # 連続空白を圧縮
+    value = re.sub(r"\s{2,}", " ", value).strip()
+
     field = _DETAIL_FIELD_MAP.get(label, "")
 
     if not field:
