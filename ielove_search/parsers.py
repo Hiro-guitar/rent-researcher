@@ -2,12 +2,19 @@
 
 サーバーサイドレンダリングされた HTML をパースして
 物件データを抽出する。
+
+検索結果ページの構造:
+- 各物件 = table.estate_list
+  - table.estate-name: 物件名 + 部屋番号
+  - TD (管理費・円を含む): 賃料, 管理費, 住所, 駅, 広告費
+  - table.detail-info: 敷金/礼金, 間取り/面積, 築年数/退去予定日, 内見開始日/入居時期
+  - table.leasing-detail-info: 募集状況
 """
 
 import re
 from typing import Optional
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from itandi_search.models import Property
 
@@ -21,29 +28,9 @@ def parse_search_results(html: str) -> list[Property]:
     soup = BeautifulSoup(html, "html.parser")
     properties: list[Property] = []
 
-    # 詳細リンクを起点に物件カードを特定
-    detail_links = soup.find_all(
-        "a", href=re.compile(r"/ielovebb/rent/detail/id/(\d+)/")
-    )
-
-    # 同じ物件IDのリンクが複数回出現する場合があるので重複排除
-    seen_ids: set[str] = set()
-
-    for link in detail_links:
-        m = re.search(r"/ielovebb/rent/detail/id/(\d+)/", link["href"])
-        if not m:
-            continue
-        prop_id = m.group(1)
-        if prop_id in seen_ids:
-            continue
-        seen_ids.add(prop_id)
-
-        # リンクの祖先を遡って物件カードのコンテナを見つける
-        card = _find_property_card(link)
-        if not card:
-            continue
-
-        prop = _parse_property_card(card, prop_id)
+    # 各物件は table.estate_list
+    for card in soup.find_all("table", class_="estate_list"):
+        prop = _parse_estate_card(card)
         if prop:
             properties.append(prop)
 
@@ -94,82 +81,99 @@ def parse_detail_page(html: str, prop: Property) -> None:
 
 # ── 内部ヘルパー（検索結果） ──────────────────────────
 
-def _find_property_card(link: Tag) -> Optional[Tag]:
-    """詳細リンクから遡って物件カードのコンテナ要素を見つける。"""
-    # tr, div, li の中で最も近い大きなコンテナを探す
-    for parent in link.parents:
-        if parent.name in ("tr", "div", "li", "section", "article"):
-            text = parent.get_text()
-            # 物件カードらしいか確認（賃料や面積のテキストがあるか）
-            if ("円" in text or "万" in text) and (
-                "㎡" in text or "m²" in text or "間取" in text
-            ):
-                return parent
-        if parent.name in ("body", "table", "tbody"):
-            break
-    return None
+def _parse_estate_card(card: Tag) -> Optional[Property]:
+    """table.estate_list から Property を生成する。"""
 
+    # 物件ID (詳細リンクから)
+    link = card.find("a", href=re.compile(r"/ielovebb/rent/detail/id/(\d+)/"))
+    if not link:
+        return None
+    m = re.search(r"/detail/id/(\d+)/", link["href"])
+    if not m:
+        return None
+    prop_id = m.group(1)
 
-def _parse_property_card(card: Tag, prop_id: str) -> Optional[Property]:
-    """物件カード要素から Property を生成する。"""
-    text = card.get_text(separator="\n")
-
-    # 物件名
-    building_name = _extract_building_name(card, text)
-
-    # 賃料 (数字のみのテキスト or ○万円 or ○円)
-    rent = _extract_rent(text)
-    if rent == 0:
-        return None  # 賃料がなければスキップ
-
-    # 管理費
-    management_fee = _extract_management_fee(text)
-
-    # 住所
-    address = _extract_address(text)
-
-    # 駅情報
-    station_info = _extract_station_info(text)
-
-    # 間取り・面積
-    layout, area = _extract_layout_area(text)
-
-    # 築年数
-    building_age = _extract_building_age(text)
-
-    # 敷金・礼金
-    deposit, key_money = _extract_deposit_key_money(text)
-
-    # 募集状況
-    listing_status = _extract_listing_status(text)
-
-    # 入居時期
-    move_in_date = _extract_field_value(text, r"入居時期[：:]?\s*(.+)")
-
-    # 退去予定日
-    move_out_date = _extract_field_value(text, r"退去予定日?[：:]?\s*(.+)")
-
-    # 内見開始日
-    preview_start_date = _extract_field_value(
-        text, r"内見開始日?[：:]?\s*(.+)"
-    )
-
-    # 階数 / 構造
-    floor, floor_text = _extract_floor(text)
-    structure = _extract_structure(text)
-
-    # 部屋番号 (物件名から抽出)
+    # ── 物件名・部屋番号 (table.estate-name > span.large-font) ──
+    building_name = ""
     room_number = ""
-    if building_name:
-        m = re.search(r"[\s　]+(\d{2,5}[A-Za-z]?)$", building_name)
-        if m:
-            room_number = m.group(1)
-            building_name = building_name[: m.start()].strip()
+    name_table = card.find("table", class_="estate-name")
+    if name_table:
+        name_span = name_table.find("span", class_="large-font")
+        if name_span:
+            # span 直下のテキストノードだけ取得（子要素のテキストは除外）
+            text_parts = []
+            for child in name_span.children:
+                if isinstance(child, NavigableString):
+                    t = child.strip()
+                    if t:
+                        text_parts.append(t)
+                else:
+                    break  # <a> 等の子要素に到達したら停止
+            raw = " ".join(text_parts)
+            # 2つ以上の空白で分割 → 物件名 + 部屋番号
+            parts = re.split(r"\s{2,}", raw.strip())
+            if len(parts) >= 2 and parts[-1]:
+                building_name = " ".join(parts[:-1])
+                room_number = parts[-1]
+            elif parts:
+                building_name = parts[0]
 
-    # 画像URL
+    # ── 賃料・管理費・住所・駅 (管理費を含むTD) ──
+    rent = 0
+    management_fee = 0
+    address = ""
+    station_info = ""
+
+    for td in card.find_all("td"):
+        text = td.get_text(strip=True)
+        if "管理費" in text and "円" in text:
+            rent, management_fee, address, station_info = (
+                _parse_rent_td(text)
+            )
+            break
+
+    if rent == 0:
+        return None
+
+    # ── 詳細情報 (table.detail-info) ──
+    deposit = ""
+    key_money = ""
+    layout = ""
+    area = 0.0
+    building_age = ""
+    move_out_date = ""
+    preview_start_date = ""
+    move_in_date = ""
+
+    detail_info = card.find("table", class_="detail-info")
+    if detail_info:
+        # ヘッダーなしの行からデータを取得
+        for row in detail_info.find_all("tr"):
+            tds = row.find_all("td")
+            ths = row.find_all("th")
+            if tds and not ths:
+                vals = [td.get_text(strip=True) for td in tds]
+                if len(vals) >= 4:
+                    deposit, key_money = _split_deposit_key(vals[0])
+                    layout, area = _split_layout_area(vals[1])
+                    building_age, move_out_date = _split_age_date(vals[2])
+                    preview_start_date, move_in_date = (
+                        _split_preview_movein(vals[3])
+                    )
+
+    # ── 募集状況 (table.leasing-detail-info) ──
+    listing_status = ""
+    leasing = card.find("table", class_="leasing-detail-info")
+    if leasing:
+        for td in leasing.find_all("td"):
+            text = td.get_text(strip=True)
+            if text in ("募集中", "申込あり", "募集中（要確認）"):
+                listing_status = text
+                break
+
+    # ── 画像 ──
     image_url = _extract_card_image(card)
 
-    # 詳細URL
     detail_url = f"{IELOVE_BASE_URL}/ielovebb/rent/detail/id/{prop_id}/"
 
     return Property(
@@ -184,8 +188,6 @@ def _parse_property_card(card: Tag, prop_id: str) -> Optional[Property]:
         key_money=key_money,
         layout=layout,
         area=area,
-        floor=floor,
-        floor_text=floor_text,
         building_age=building_age,
         station_info=station_info,
         room_number=room_number,
@@ -195,214 +197,135 @@ def _parse_property_card(card: Tag, prop_id: str) -> Optional[Property]:
         move_in_date=move_in_date,
         move_out_date=move_out_date,
         preview_start_date=preview_start_date,
-        structure=structure,
     )
 
 
-def _extract_building_name(card: Tag, text: str) -> str:
-    """物件名を抽出する。"""
-    # <a> タグ内のテキストで「詳細」以外のもの
-    for a in card.find_all("a"):
-        href = a.get("href", "")
-        if "/ielovebb/rent/detail/" in href:
-            name = a.get_text(strip=True)
-            if name and name != "詳細" and len(name) > 1:
-                return name
+def _parse_rent_td(text: str) -> tuple[int, int, str, str]:
+    """賃料TDのテキストから賃料・管理費・住所・駅を抽出する。
 
-    # テーブルヘッダー「物件名」の値
-    for th in card.find_all("th"):
-        if "物件名" in th.get_text():
-            td = th.find_next_sibling("td")
-            if td:
-                return td.get_text(strip=True)
+    入力例: "122,000円管理費・共益費：1万円東京都品川区東五反田３丁目山手線「五反田」駅徒歩6分広告費：100％"
+    """
+    rent = 0
+    mgmt = 0
+    address = ""
+    station = ""
 
-    # 最初の太字テキスト
-    for bold in card.find_all(["b", "strong"]):
-        t = bold.get_text(strip=True)
-        if t and len(t) > 2 and "円" not in t:
-            return t
+    # 賃料
+    rm = re.match(r"([\d,]+)\s*円", text)
+    if rm:
+        rent = int(rm.group(1).replace(",", ""))
 
-    return ""
+    # 管理費
+    mm = re.search(r"管理費[・共益費]*[：:]\s*([\d,]+)\s*円", text)
+    if mm:
+        mgmt = int(mm.group(1).replace(",", ""))
+    else:
+        mm = re.search(r"管理費[・共益費]*[：:]\s*([\d,.]+)\s*万\s*円", text)
+        if mm:
+            mgmt = int(float(mm.group(1).replace(",", "")) * 10000)
 
-
-def _extract_rent(text: str) -> int:
-    """賃料（円単位）を抽出する。"""
-    # パターン1: "400,000円" or "40万円"
-    m = re.search(r"([\d,]+)\s*万?\s*円", text)
-    if m:
-        val = m.group(1).replace(",", "")
-        num = int(val)
-        if "万" in text[m.start() : m.end()]:
-            return num * 10000
-        if num < 1000:
-            # 万円表記の可能性
-            return num * 10000
-        return num
-
-    # パターン2: 独立した数字 "400,000" (後に "円" がなくても)
-    for line in text.split("\n"):
-        line = line.strip()
-        m = re.match(r"^([\d,]+)$", line)
-        if m:
-            val = int(m.group(1).replace(",", ""))
-            if 10000 <= val <= 10000000:
-                return val
-
-    return 0
-
-
-def _extract_management_fee(text: str) -> int:
-    """管理費・共益費を抽出する。"""
-    m = re.search(r"管理費[・共益費]*[：:]\s*([\d,]+)\s*円", text)
-    if m:
-        return int(m.group(1).replace(",", ""))
-    # 「管理費等：2万円」
-    m = re.search(r"管理費[等・共益費]*[：:]\s*([\d,.]+)\s*万\s*円", text)
-    if m:
-        return int(float(m.group(1).replace(",", "")) * 10000)
-    return 0
-
-
-def _extract_address(text: str) -> str:
-    """住所を抽出する。"""
-    m = re.search(
-        r"(東京都[^\n]{3,50})", text
+    # 駅情報 (路線名は日本語文字のみにマッチさせる)
+    _LINE_CHARS = r"[ぁ-んァ-ヶー\u4E00-\u9FFFA-Za-zＡ-Ｚａ-ｚ]"
+    sm = re.search(
+        rf"({_LINE_CHARS}{{2,20}}線「[^」]+」駅\s*徒歩\d+分)", text
     )
+    if sm:
+        raw_station = sm.group(1)
+        # 住所末尾（丁目・番地・号）が路線名に混入するのを除去
+        station = re.sub(r"^[丁目番地号]+", "", raw_station)
+
+        # 住所: 東京都〜駅マッチ開始位置（+ 除去した文字数分）
+        stripped_len = len(raw_station) - len(station)
+        addr_end = sm.start(1) + stripped_len
+        am = re.search(r"東京都", text)
+        if am:
+            address = text[am.start():addr_end].strip()
+            address = re.sub(r"^\(税込\)\s*", "", address)
+
+    if not address:
+        # 駅情報がない場合のフォールバック
+        am = re.search(r"(東京都[^\s]{3,50})", text)
+        if am:
+            address = am.group(1).strip()
+            address = re.split(r"広告費", address)[0].strip()
+
+    return rent, mgmt, address, station
+
+
+def _split_deposit_key(text: str) -> tuple[str, str]:
+    """「なしなし」「1ヶ月1ヶ月」「10万8,000円なし」等を敷金・礼金に分割する。"""
+    if not text or text == "-":
+        return "", ""
+
+    if text == "なしなし":
+        return "なし", "なし"
+
+    # 金額パターン: 1ヶ月, 10万8,000円, 0円, なし, -
+    _val = r"([\d,万.]+\s*[ヶか月円]+|なし|-)"
+    m = re.match(rf"{_val}\s*{_val}", text)
     if m:
-        addr = m.group(1).strip()
-        # 余計なテキストを除去
-        addr = re.split(r"[　\s]{2,}", addr)[0]
-        return addr
-    return ""
+        return m.group(1).strip(), m.group(2).strip()
+
+    return text, ""
 
 
-def _extract_station_info(text: str) -> str:
-    """駅情報を抽出する。"""
-    # 「○○線「○○」駅 徒歩○分」パターン
-    m = re.search(
-        r"([^\n]*線[「「].*?[」」]駅\s*徒歩\d+分)", text
-    )
-    if m:
-        return m.group(1).strip()
-
-    # 「○○ 徒歩○分」パターン
-    m = re.search(r"([^\n]*駅\s*徒歩\d+分)", text)
-    if m:
-        return m.group(1).strip()
-
-    return ""
-
-
-def _extract_layout_area(text: str) -> tuple[str, float]:
-    """間取りと面積を抽出する。"""
+def _split_layout_area(text: str) -> tuple[str, float]:
+    """「1R20.01㎡」等を間取り・面積に分割する。"""
     layout = ""
     area = 0.0
 
     # 間取り
-    m = re.search(r"(\d[SLDK]+)", text)
-    if m:
-        layout = m.group(1)
-    elif "ワンルーム" in text or "1R" in text:
-        layout = "1R"
+    lm = re.match(r"(\d[RSLDK]+|ワンルーム)", text)
+    if lm:
+        layout = lm.group(1)
+        if layout == "ワンルーム":
+            layout = "1R"
 
-    # 面積 (㎡)
-    m = re.search(r"([\d.]+)\s*[㎡m²]", text)
-    if m:
-        area = float(m.group(1))
+    # 面積
+    am = re.search(r"([\d.]+)\s*[㎡m²]", text)
+    if am:
+        area = float(am.group(1))
 
     return layout, area
 
 
-def _extract_building_age(text: str) -> str:
-    """築年数を抽出する。"""
-    # 「築○年」
-    m = re.search(r"(築\d+年)", text)
+def _split_age_date(text: str) -> tuple[str, str]:
+    """「築1年-」等を築年数・退去予定日に分割する。"""
+    building_age = ""
+    move_out = ""
+
+    # 築年数
+    m = re.match(r"(築\d+年|新築)", text)
     if m:
-        return m.group(1)
-    # 「新築」
-    if "新築" in text:
-        return "新築"
-    return ""
+        building_age = m.group(1)
+        rest = text[m.end():]
+        if rest and rest != "-":
+            move_out = rest
+    else:
+        move_out = text if text != "-" else ""
+
+    return building_age, move_out
 
 
-def _extract_deposit_key_money(text: str) -> tuple[str, str]:
-    """敷金・礼金を抽出する。"""
-    deposit = ""
-    key_money = ""
+def _split_preview_movein(text: str) -> tuple[str, str]:
+    """「-期日指定2026/5/中旬」等を内見開始日・入居時期に分割する。"""
+    if not text:
+        return "", ""
 
-    # 「敷金/礼金」ヘッダーの値（「2ヶ月/1ヶ月」等）
-    m = re.search(r"敷金\s*/\s*礼金", text)
+    # 先頭が「-」の場合
+    if text.startswith("-"):
+        rest = text[1:]
+        return "", rest if rest and rest != "-" else ""
+
+    # 日付で始まる場合（内見開始日）
+    m = re.match(r"(\d{4}/\d{1,2}/\d{1,2}|\d{4}/\d{1,2}|-)", text)
     if m:
-        # 次の行 or 同じ行のスラッシュ区切り値を探す
-        after = text[m.end() :]
-        vm = re.search(
-            r"([\d.]+\s*[ヶか月万円]+|なし|-)\s*/\s*([\d.]+\s*[ヶか月万円]+|なし|-)",
-            after,
-        )
-        if vm:
-            deposit = vm.group(1).strip()
-            key_money = vm.group(2).strip()
-            return deposit, key_money
+        preview = m.group(1) if m.group(1) != "-" else ""
+        rest = text[m.end():]
+        movein = rest if rest and rest != "-" else ""
+        return preview, movein
 
-    # 個別パターン
-    m = re.search(r"敷金[：:]\s*([^\n/]+)", text)
-    if m:
-        deposit = m.group(1).strip()
-    m = re.search(r"礼金[：:]\s*([^\n/]+)", text)
-    if m:
-        key_money = m.group(1).strip()
-
-    return deposit, key_money
-
-
-def _extract_listing_status(text: str) -> str:
-    """募集状況を抽出する。"""
-    for status in ["募集中（要確認）", "申込あり", "募集中"]:
-        if status in text:
-            return status
-    return ""
-
-
-def _extract_floor(text: str) -> tuple[int, str]:
-    """所在階を抽出する。"""
-    # 「16階/42階建」パターン
-    m = re.search(r"(\d+)\s*階\s*/\s*(\d+)\s*階建", text)
-    if m:
-        floor = int(m.group(1))
-        floor_text = f"{m.group(1)}階/{m.group(2)}階建"
-        return floor, floor_text
-
-    # 「所在階：○階」
-    m = re.search(r"所在階[：:]\s*(\d+)\s*階", text)
-    if m:
-        return int(m.group(1)), f"{m.group(1)}階"
-
-    # 「○階」(単独)
-    m = re.search(r"(\d+)\s*階[^建]", text)
-    if m:
-        return int(m.group(1)), f"{m.group(1)}階"
-
-    return 0, ""
-
-
-def _extract_structure(text: str) -> str:
-    """建物構造を抽出する。"""
-    patterns = [
-        "鉄筋コンクリート（RC）",
-        "鉄骨鉄筋コンクリート（SRC）",
-        "鉄筋コンクリート",
-        "鉄骨鉄筋コンクリート",
-        "鉄骨造",
-        "軽量鉄骨",
-        "木造",
-        "RC",
-        "SRC",
-        "ALC",
-    ]
-    for pat in patterns:
-        if pat in text:
-            return pat
-    return ""
+    return "", text
 
 
 def _extract_card_image(card: Tag) -> Optional[str]:
@@ -417,17 +340,6 @@ def _extract_card_image(card: Tag) -> Optional[str]:
                 return IELOVE_BASE_URL + src
             return src
     return None
-
-
-def _extract_field_value(text: str, pattern: str) -> str:
-    """正規表現パターンで値を抽出する。"""
-    m = re.search(pattern, text)
-    if m:
-        val = m.group(1).strip()
-        # 改行以降を除去
-        val = val.split("\n")[0].strip()
-        return val
-    return ""
 
 
 def _is_icon(url: str) -> bool:
@@ -516,40 +428,41 @@ def _map_detail_field(prop: Property, label: str, value: str) -> None:
     field = _DETAIL_FIELD_MAP.get(label, "")
 
     if not field:
-        # 部分一致で探す
+        # 部分一致で探す（ただし「構造」は完全一致のみ）
         for key, fld in _DETAIL_FIELD_MAP.items():
-            if key in label and fld:
+            if key == label and fld:
                 field = fld
                 break
+        if not field:
+            for key, fld in _DETAIL_FIELD_MAP.items():
+                if len(key) >= 3 and key in label and fld:
+                    field = fld
+                    break
 
     if not field:
         return
 
     # 特殊処理
     if field == "other_stations":
-        # その他交通はリスト
-        stations = [s.strip() for s in re.split(r"[,、/／\n]", value) if s.strip()]
+        stations = [
+            s.strip() for s in re.split(r"[,、/／\n]", value)
+            if s.strip()
+        ]
         prop.other_stations = stations
         return
 
     if field == "lease_type":
         setattr(prop, field, value)
-        # 定期借家の検出
-        if "定期" in value:
-            prop.lease_type = value
         return
 
     if field == "floor_text":
         setattr(prop, field, value)
-        # 所在階/階建パターン
         m = re.match(r"(\d+)\s*階", value)
         if m:
             prop.floor = int(m.group(1))
         return
 
     if field == "structure":
-        # 既に検索結果で設定済みなら上書きしない場合もあるが、
-        # 詳細ページの方が正確なので上書き
         setattr(prop, field, value)
         return
 
@@ -568,7 +481,6 @@ def _extract_facilities(soup: BeautifulSoup) -> str:
         if "基本設備" not in table_text and "キッチン" not in table_text:
             continue
 
-        # di_table 内のセクション
         for td in table.find_all("td"):
             text = td.get_text(strip=True)
             if text and len(text) > 5:
@@ -577,7 +489,7 @@ def _extract_facilities(soup: BeautifulSoup) -> str:
     if parts:
         return " / ".join(parts)
 
-    # フォールバック: 「設備」を含むセクションを探す
+    # フォールバック
     for elem in soup.find_all(string=re.compile("設備")):
         parent = elem.parent
         if parent:
