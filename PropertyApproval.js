@@ -1791,9 +1791,22 @@ function makeViewHtml(prop) {
   if (_hv(prop.additionalDeposit)) costRows.push(['\u6577\u91D1\u7A4D\u307F\u5897\u3057', prop.additionalDeposit]);
   if (_hv(prop.guaranteeDeposit)) costRows.push(['\u4FDD\u8A3C\u91D1', prop.guaranteeDeposit]);
   if (_hv(prop.waterBilling)) costRows.push(['\u6C34\u9053\u6599\u91D1\u5F62\u614B', prop.waterBilling]);
-  if (_hv(prop.parkingFee)) costRows.push(['\u99D0\u8ECA\u5834\u4EE3', prop.parkingFee]);
-  if (_hv(prop.bicycleParkingFee)) costRows.push(['\u99D0\u8F2A\u5834\u4EE3', prop.bicycleParkingFee]);
-  if (_hv(prop.motorcycleParkingFee)) costRows.push(['\u30D0\u30A4\u30AF\u7F6E\u304D\u5834\u4EE3', prop.motorcycleParkingFee]);
+  // 駐車場代に駐輪場/バイク置き場の空き状況が混入している場合を分解
+  if (_hv(prop.parkingFee)) {
+    var pkVal = prop.parkingFee;
+    var bikeAvail = pkVal.match(/(駐輪場)\s*[：:]\s*([^,，、\s：:]+)/);
+    var motoAvail = pkVal.match(/(バイク置き?場)\s*[：:]\s*([^,，、\s：:]+)/);
+    if (bikeAvail || motoAvail) {
+      if (bikeAvail && !_hv(prop.bicycleParkingFee)) costRows.push(['駐輪場', bikeAvail[2]]);
+      if (motoAvail && !_hv(prop.motorcycleParkingFee)) costRows.push(['バイク置き場', motoAvail[2]]);
+      var stripped = pkVal.replace(/駐輪場\s*[：:]\s*[^,，、\s：:]+/, '').replace(/バイク置き?場\s*[：:]\s*[^,，、\s：:]+/, '').replace(/[,，、\s]+/g, '');
+      if (stripped && /\d/.test(stripped)) costRows.push(['駐車場代', stripped]);
+    } else {
+      costRows.push(['駐車場代', pkVal]);
+    }
+  }
+  if (_hv(prop.bicycleParkingFee)) costRows.push([/\d/.test(prop.bicycleParkingFee) ? '駐輪場代' : '駐輪場', prop.bicycleParkingFee]);
+  if (_hv(prop.motorcycleParkingFee)) costRows.push([/\d/.test(prop.motorcycleParkingFee) ? 'バイク置き場代' : 'バイク置き場', prop.motorcycleParkingFee]);
   if (_hv(prop.otherMonthlyFee)) costRows.push(['\u305D\u306E\u4ED6\u6708\u6B21\u8CBB\u7528', prop.otherMonthlyFee]);
   if (_hv(prop.otherOnetimeFee)) costRows.push(['\u305D\u306E\u4ED6\u4E00\u6642\u91D1', prop.otherOnetimeFee]);
   if (costRows.length > 0) {

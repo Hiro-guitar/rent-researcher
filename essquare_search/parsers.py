@@ -1135,6 +1135,18 @@ def parse_detail_page(html: str) -> dict:
             if len(lines) > 1:
                 details["other_stations"] = lines[1:]
 
+    # 駐車場代に駐輪場/バイク置き場の空き状況が混入している場合を分解
+    parking_val = details.get("parking_fee", "")
+    if parking_val and not re.search(r"\d", parking_val):
+        avail = re.findall(r"(駐輪場|バイク置き?場)\s*[：:]\s*([^,，、\s：:]+)", parking_val)
+        if avail:
+            for name, status in avail:
+                if "駐輪" in name and "bicycle_parking_fee" not in details:
+                    details["bicycle_parking_fee"] = status
+                elif "バイク" in name and "motorcycle_parking_fee" not in details:
+                    details["motorcycle_parking_fee"] = status
+            del details["parking_fee"]
+
     return details
 
 

@@ -496,9 +496,23 @@ function renderProperty(p) {
   if (hv(p.additionalDeposit)) costRows.push(['敷金積み増し', p.additionalDeposit]);
   if (hv(p.guaranteeDeposit)) costRows.push(['保証金', p.guaranteeDeposit]);
   if (hv(p.waterBilling)) costRows.push(['水道料金形態', p.waterBilling]);
-  if (hv(p.parkingFee)) costRows.push(['駐車場代', p.parkingFee]);
-  if (hv(p.bicycleParkingFee)) costRows.push(['駐輪場代', p.bicycleParkingFee]);
-  if (hv(p.motorcycleParkingFee)) costRows.push(['バイク置き場代', p.motorcycleParkingFee]);
+  // 駐車場代に駐輪場/バイク置き場の空き状況が混入している場合を分解
+  if (hv(p.parkingFee)) {
+    var pkVal = p.parkingFee;
+    var bikeAvail = pkVal.match(/(駐輪場)\s*[：:]\s*([^,，、\s：:]+)/);
+    var motoAvail = pkVal.match(/(バイク置き?場)\s*[：:]\s*([^,，、\s：:]+)/);
+    if (bikeAvail || motoAvail) {
+      if (bikeAvail && !hv(p.bicycleParkingFee)) costRows.push(['駐輪場', bikeAvail[2]]);
+      if (motoAvail && !hv(p.motorcycleParkingFee)) costRows.push(['バイク置き場', motoAvail[2]]);
+      // 空き状況以外に金額が含まれていれば駐車場代も表示
+      var stripped = pkVal.replace(/駐輪場\s*[：:]\s*[^,，、\s：:]+/, '').replace(/バイク置き?場\s*[：:]\s*[^,，、\s：:]+/, '').replace(/[,，、\s]+/g, '');
+      if (stripped && /\d/.test(stripped)) costRows.push(['駐車場代', stripped]);
+    } else {
+      costRows.push(['駐車場代', pkVal]);
+    }
+  }
+  if (hv(p.bicycleParkingFee)) costRows.push([/\d/.test(p.bicycleParkingFee) ? '駐輪場代' : '駐輪場', p.bicycleParkingFee]);
+  if (hv(p.motorcycleParkingFee)) costRows.push([/\d/.test(p.motorcycleParkingFee) ? 'バイク置き場代' : 'バイク置き場', p.motorcycleParkingFee]);
   if (hv(p.otherMonthlyFee)) costRows.push(['その他月次費用', p.otherMonthlyFee]);
   if (hv(p.otherOnetimeFee)) costRows.push(['その他一時金', p.otherOnetimeFee]);
   if (costRows.length > 0) {

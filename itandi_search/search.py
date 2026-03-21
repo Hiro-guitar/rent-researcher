@@ -864,6 +864,19 @@ def fetch_room_details(
                     details[key] = value
                     break
 
+        # 駐車場代に駐輪場/バイク置き場の空き状況が混入している場合を分解
+        parking_val = details.get("parking_fee", "")
+        if parking_val and not re.search(r"\d", parking_val):
+            # 金額（数字）を含まない → 空き状況情報の可能性
+            avail = re.findall(r"(駐輪場|バイク置き?場)\s*[：:]\s*([^,，、\s：:]+)", parking_val)
+            if avail:
+                for name, status in avail:
+                    if "駐輪" in name and "bicycle_parking_fee" not in details:
+                        details["bicycle_parking_fee"] = status
+                    elif "バイク" in name and "motorcycle_parking_fee" not in details:
+                        details["motorcycle_parking_fee"] = status
+                del details["parking_fee"]
+
         # 契約区分 (lease_type) はそのまま残す
         # 契約期間 (contract_period) もそのまま残す
 
