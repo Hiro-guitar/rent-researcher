@@ -462,6 +462,17 @@ def _map_detail_field(prop: Property, label: str, value: str) -> None:
             prop.floor = int(m.group(1))
         return
 
+    if field == "story_text":
+        # 「1階/5階建」パターン → 所在階 + 階建てに分割
+        m = re.match(r"(\d+)\s*階\s*/\s*(\d+)\s*階建", value)
+        if m:
+            prop.floor = int(m.group(1))
+            prop.floor_text = f"{m.group(1)}階"
+            prop.story_text = f"地上{m.group(2)}階建"
+        else:
+            setattr(prop, field, value)
+        return
+
     if field == "structure":
         setattr(prop, field, value)
         return
