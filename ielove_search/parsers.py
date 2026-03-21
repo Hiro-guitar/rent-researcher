@@ -406,7 +406,12 @@ def _parse_detail_tables(soup: BeautifulSoup, prop: Property) -> None:
             for i, th in enumerate(ths):
                 label = th.get_text(strip=True)
                 if i < len(tds):
-                    value = tds[i].get_text(strip=True)
+                    td = tds[i]
+                    # <br/>を含むTDはセパレーター付きでテキスト取得
+                    if td.find("br"):
+                        value = td.get_text(separator=" / ", strip=True)
+                    else:
+                        value = td.get_text(strip=True)
                 else:
                     continue
 
