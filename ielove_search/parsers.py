@@ -333,7 +333,7 @@ def _extract_card_image(card: Tag) -> Optional[str]:
     img = card.find("img")
     if img:
         src = img.get("src") or img.get("data-src") or ""
-        if src and not _is_icon(src):
+        if src and not _is_icon(src) and not src.startswith("data:"):
             if src.startswith("//"):
                 return "https:" + src
             if src.startswith("/"):
@@ -512,6 +512,9 @@ def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
         if not src or _is_icon(src):
             continue
         if "noimage" in src.lower() or "dummy" in src.lower():
+            continue
+        # data: URI (lazy-load placeholder) を除外
+        if src.startswith("data:"):
             continue
 
         if src.startswith("//"):
