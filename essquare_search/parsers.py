@@ -1054,7 +1054,8 @@ def _parse_structure_text(text: str) -> tuple[str, str]:
         if re.match(r"\d+年", part):
             age = part
         elif part and not re.match(r"[\d.]+", part):
-            structure = part
+            if not structure:
+                structure = part
     return structure, age
 
 
@@ -1167,6 +1168,7 @@ _DETAIL_FIELD_MAP: dict[str, str] = {
     "向き": "sunlight",
     "主要採光面": "sunlight",
     "建物構造": "structure",
+    "構造・工法・仕様": "_construction_spec",
     "構造": "structure",
     "築年月": "building_age",
     "築年数": "building_age",
