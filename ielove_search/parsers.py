@@ -343,9 +343,9 @@ def _extract_card_image(card: Tag) -> Optional[str]:
 
 
 def _is_icon(url: str) -> bool:
-    """アイコン/ロゴ画像かどうか判定する。"""
+    """アイコン/ロゴ画像・プレースホルダーかどうか判定する。"""
     return bool(
-        re.search(r"logo|icon|favicon|badge|noimage|dummy", url, re.I)
+        re.search(r"logo|icon|favicon|badge|noimage|dummy|loading", url, re.I)
     )
 
 
