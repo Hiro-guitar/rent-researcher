@@ -444,11 +444,22 @@ def _map_detail_field(prop: Property, label: str, value: str) -> None:
 
     # 特殊処理
     if field == "other_stations":
-        stations = [
-            s.strip() for s in re.split(r"[,、/／\n]", value)
-            if s.strip()
-        ]
-        prop.other_stations = stations
+        # 「X線「Y」駅 徒歩Z分」を個別に抽出
+        found = re.findall(
+            r"[^\s]+線「[^」]+」駅\s*徒歩\d+分", value
+        )
+        if found:
+            # 内部の余分な空白を圧縮
+            prop.other_stations = [
+                re.sub(r"\s+", " ", s).strip() for s in found
+            ]
+        else:
+            # フォールバック: カンマ等で分割
+            stations = [
+                s.strip() for s in re.split(r"[,、/／\n]", value)
+                if s.strip()
+            ]
+            prop.other_stations = stations
         return
 
     if field == "lease_type":
