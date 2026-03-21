@@ -467,6 +467,14 @@ def _map_detail_field(prop: Property, label: str, value: str) -> None:
             prop.other_stations = stations
         return
 
+    if field == "fire_insurance":
+        # 「名称：」等の値が空の項目を除去
+        parts = [p.strip() for p in value.split(" / ")]
+        parts = [p for p in parts if not re.match(r"^.+[：:]\s*$", p)]
+        if parts:
+            prop.fire_insurance = " / ".join(parts)
+        return
+
     if field == "lease_type":
         setattr(prop, field, value)
         return
