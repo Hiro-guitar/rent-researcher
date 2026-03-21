@@ -825,9 +825,9 @@ function addToSeenSheet(customerName, prop) {
 
 // ===== データ変換 =====
 
-/** 「入力なし」「なし」などの無効値を空文字に正規化 */
+/** 「入力なし」「なし」「-」「ー」などの無効値を空文字に正規化 */
 function _normalizeValue(val) {
-  if (!val || val === '入力なし' || val === 'なし') return '';
+  if (!val || val === '入力なし' || val === 'なし' || val === '-' || val === 'ー') return '';
   return val;
 }
 
@@ -1665,8 +1665,8 @@ function makeViewHtml(prop) {
     + '<div class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186 | \u6577\u91D1 ' + _esc(prop.deposit || '\u306A\u3057') + ' | \u793C\u91D1 ' + _esc(prop.keyMoney || '\u306A\u3057') + '</div>'
     + '</div>';
 
-  // 値が有効か判定（「ー」「入力なし」「なし」は非表示）
-  function _hv(v) { return v && v !== '\u30FC' && v !== '\u5165\u529B\u306A\u3057'; }
+  // 値が有効か判定（「ー」「-」「入力なし」「なし」は非表示）
+  function _hv(v) { return v && v !== '\u30FC' && v !== '-' && v !== '\u5165\u529B\u306A\u3057'; }
 
   // 設備文字列をカテゴリ分けしてタグHTMLを生成
   // カテゴリはItandi BB入稿ページ準拠
