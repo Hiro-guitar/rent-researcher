@@ -1297,9 +1297,9 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += _inputRow('\u6577\u91D1\u7A4D\u307F\u5897\u3057', 'additionalDeposit', prop.additionalDeposit);
   html += _inputRow('\u4FDD\u8A3C\u91D1', 'guaranteeDeposit', prop.guaranteeDeposit);
   html += _inputRow('\u6C34\u9053\u6599\u91D1\u5F62\u614B', 'waterBilling', prop.waterBilling);
-  html += _inputRow('\u99D0\u8ECA\u5834\u4EE3', 'parkingFee', prop.parkingFee);
-  html += _inputRow('\u99D0\u8F2A\u5834\u4EE3', 'bicycleParkingFee', prop.bicycleParkingFee);
-  html += _inputRow('\u30D0\u30A4\u30AF\u7F6E\u304D\u5834\u4EE3', 'motorcycleParkingFee', prop.motorcycleParkingFee);
+  html += _inputRow('\u99D0\u8ECA\u5834', 'parkingFee', prop.parkingFee);
+  html += _inputRow('\u99D0\u8F2A\u5834', 'bicycleParkingFee', prop.bicycleParkingFee);
+  html += _inputRow('\u30D0\u30A4\u30AF\u7F6E\u304D\u5834', 'motorcycleParkingFee', prop.motorcycleParkingFee);
   html += _inputRow('\u305D\u306E\u4ED6\u6708\u6B21\u8CBB\u7528', 'otherMonthlyFee', prop.otherMonthlyFee);
   html += _inputRow('\u305D\u306E\u4ED6\u4E00\u6642\u91D1', 'otherOnetimeFee', prop.otherOnetimeFee);
 
@@ -1800,9 +1800,9 @@ function makeViewHtml(prop) {
       if (bikeAvail && !_hv(prop.bicycleParkingFee)) costRows.push(['駐輪場', bikeAvail[2]]);
       if (motoAvail && !_hv(prop.motorcycleParkingFee)) costRows.push(['バイク置き場', motoAvail[2]]);
       var stripped = pkVal.replace(/駐輪場\s*[：:]\s*[^,，、\s：:]+/, '').replace(/バイク置き?場\s*[：:]\s*[^,，、\s：:]+/, '').replace(/[,，、\s]+/g, '');
-      if (stripped && /\d/.test(stripped)) costRows.push(['駐車場代', stripped]);
+      if (stripped && /\d/.test(stripped)) costRows.push([/\d/.test(stripped) ? '駐車場代' : '駐車場', stripped]);
     } else {
-      costRows.push(['駐車場代', pkVal]);
+      costRows.push([/\d/.test(pkVal) ? '駐車場代' : '駐車場', pkVal]);
     }
   }
   if (_hv(prop.bicycleParkingFee)) costRows.push([/\d/.test(prop.bicycleParkingFee) ? '駐輪場代' : '駐輪場', prop.bicycleParkingFee]);
