@@ -19,6 +19,8 @@ from .config import (
     ITANDI_EMAIL,
     ITANDI_PASSWORD,
     SOFT_EQUIPMENT_SEARCH_TERMS,
+    TEST_MODE,
+    TEST_MODE_LIMIT,
 )
 from .discord import send_error_notification, send_property_notification
 from .search import ItandiSearchError, enrich_properties_with_images, search_properties
@@ -534,13 +536,15 @@ def _run_itandi_search(
     customer,
     exclude_set: set,
     sheets_service,
+    test_mode: bool = False,
 ) -> int:
     """itandi BB で検索してフィルタ → 承認待ち → Discord 通知。
 
     Returns: 新着件数
     """
     print(f"[INFO] 検索中: {customer.name}")
-    properties = search_properties(itandi, customer)
+    limit = TEST_MODE_LIMIT if test_mode else None
+    properties = search_properties(itandi, customer, limit_results=limit)
     print(f"  → {len(properties)} 件ヒット")
 
     # 通知済み・承認待ちを除外
@@ -740,6 +744,7 @@ def _run_essquare_search(
     exclude_set: set,
     sheets_service,
     drive_service=None,
+    test_mode: bool = False,
 ) -> int:
     """いい生活Square で検索してフィルタ → 承認待ち → Discord 通知。
 
@@ -748,9 +753,11 @@ def _run_essquare_search(
     print(f"[INFO] ES-Square 検索中: {customer.name}")
 
     is_test = "テスト" in customer.name
+    limit = TEST_MODE_LIMIT if test_mode else None
     properties, esq_search_url = esq_search_properties(
         esq_session, customer, customer.equipment_names or None,
         is_test_customer=is_test,
+        limit_results=limit,
     )
     print(f"  → ES-Square: {len(properties)} 件ヒット")
 
@@ -921,6 +928,17 @@ def main() -> None:
 
     print(f"[INFO] {len(customers)} 件の検索条件を読み込みました")
 
+    # テストモード: テスト顧客のみに絞る
+    if TEST_MODE:
+        customers = [c for c in customers if "テスト" in c.name]
+        print(
+            f"[INFO] テストモード: {len(customers)} 件のテスト顧客のみ処理 "
+            f"(各サービス {TEST_MODE_LIMIT} 物件まで)"
+        )
+        if not customers:
+            print("[INFO] テストモード: テスト顧客が見つかりません。終了します。")
+            return
+
     # ── 3. 通知済み・承認待ち物件の読み込み ─────────────────
     force_notify = os.environ.get("FORCE_NOTIFY", "") == "1"
     if force_notify:
@@ -988,6 +1006,7 @@ def main() -> None:
                 customer=customer,
                 exclude_set=exclude_set,
                 sheets_service=sheets_service,
+                test_mode=TEST_MODE,
             )
         except ItandiSearchError as exc:
             print(f"[ERROR] 検索失敗 ({customer.name}): {exc}")
@@ -1013,6 +1032,7 @@ def main() -> None:
                     exclude_set=exclude_set,
                     sheets_service=sheets_service,
                     drive_service=drive_service,
+                    test_mode=TEST_MODE,
                 )
             except Exception as exc:
                 print(

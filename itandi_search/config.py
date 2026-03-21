@@ -10,6 +10,10 @@ SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 GAS_WEBAPP_URL = os.environ.get("GAS_WEBAPP_URL", "")
 
+# ── テストモード ──────────────────────────────────────
+TEST_MODE = os.environ.get("TEST_MODE", "") == "1"
+TEST_MODE_LIMIT = 3  # テストモード時の1検索あたり物件上限
+
 # ── Google Drive 画像アップロード（OAuth2） ───────────
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
 DRIVE_CLIENT_ID = os.environ.get("DRIVE_CLIENT_ID", "")
