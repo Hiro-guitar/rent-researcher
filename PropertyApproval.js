@@ -1146,7 +1146,7 @@ function buildPropertyFlex(prop, options) {
   var bubble = { type: 'bubble', size: 'mega' };
 
   var heroUrl = options.heroImageUrl || prop.imageUrl || '';
-  if (includeImage && heroUrl) {
+  if (includeImage && heroUrl && heroUrl.indexOf('https://') === 0) {
     bubble.hero = {
       type: 'image', url: heroUrl, size: 'full',
       aspectRatio: '20:13', aspectMode: 'cover'
