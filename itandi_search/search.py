@@ -248,12 +248,16 @@ def build_search_payload(
 
 
 def search_properties(
-    session: ItandiSession, criteria: CustomerCriteria
+    session: ItandiSession,
+    criteria: CustomerCriteria,
+    *,
+    limit_results: int | None = None,
 ) -> list[Property]:
     """条件に合致する物件を検索して返す。
 
     ブラウザの fetch() を使って API を呼び出す。
     ページネーションに対応し、最大 10 ページ (200 件) まで取得する。
+    limit_results が指定された場合、その件数で打ち切る。
     """
     # 駅名 → station_id 解決
     print(f"[DEBUG] criteria.stations = {criteria.stations}")
@@ -308,6 +312,12 @@ def search_properties(
 
         properties = parse_search_response(data)
         all_properties.extend(properties)
+
+        # テストモード: 件数制限に達したら打ち切り
+        if limit_results and len(all_properties) >= limit_results:
+            all_properties = all_properties[:limit_results]
+            print(f"[INFO] テストモード: {limit_results} 件で検索打ち切り")
+            break
 
         # 次ページがあるか確認
         meta = data.get("meta", {})

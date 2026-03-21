@@ -305,6 +305,7 @@ def search_properties(
     equipment_names: list[str] | None = None,
     *,
     is_test_customer: bool = False,
+    limit_results: int | None = None,
 ) -> tuple[list[Property], str]:
     """いい生活Square で物件を検索して (Property リスト, 検索URL) を返す。
 
@@ -408,6 +409,12 @@ def search_properties(
 
         all_properties.extend(properties)
         print(f"[DEBUG] ES-Square page={page}: {len(properties)} 件取得")
+
+        # テストモード: 件数制限に達したら打ち切り
+        if limit_results and len(all_properties) >= limit_results:
+            all_properties = all_properties[:limit_results]
+            print(f"[INFO] テストモード: {limit_results} 件で検索打ち切り")
+            break
 
         if not has_next or not properties:
             break
