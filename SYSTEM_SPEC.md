@@ -2,7 +2,7 @@
 
 ## 1. システム概要
 
-お客さんの希望条件に合う賃貸物件を **itandi BB** および **いい生活Square (ES-Square)** から自動検索し、
+お客さんの希望条件に合う賃貸物件を **itandi BB**、**いい生活Square (ES-Square)**、**いえらぶBB (ielove BB)** から自動検索し、
 管理者が **Discord** で確認・承認した後、**LINE** でお客さんに物件情報を送信するシステム。
 
 ### 全体フロー
@@ -17,7 +17,8 @@
     │                          │                              │
     │                          │        ② 定期実行 (cron)     │
     │                          │<─────────────────────────────│
-    │                          │  itandi BB + ES-Square 検索  │
+    │                          │  itandi BB + ES-Square +     │
+    │                          │  いえらぶBB 検索             │
     │                          │  新着物件を Discord 通知      │
     │                          │                              │
     │                          │ ③ 承認リンクをクリック        │
@@ -39,6 +40,7 @@
 |---|---|---|
 | **Python バックエンド** (`itandi_search/`) | Python 3.11 + Selenium | itandi BB 検索・スクレイピング |
 | **Python バックエンド** (`essquare_search/`) | Python 3.11 + Selenium + BeautifulSoup | いい生活Square 検索・スクレイピング |
+| **Python バックエンド** (`ielove_search/`) | Python 3.11 + Selenium + BeautifulSoup | いえらぶBB 検索・スクレイピング |
 | **GAS (Google Apps Script)** | JavaScript (V8) | LINE Bot・承認ワークフロー・管理ページ・遅延返信キュー |
 | **Google Sheets** | — | データストア（検索条件・物件データ・ユーザー情報・返信キュー） |
 | **GitHub Actions** | CI/CD | 定期実行 (ネイティブ cron スケジュール) |
@@ -107,7 +109,7 @@ move_in_date, floor_text, structure, total_units, lease_type,
 contract_period, cancellation_notice, renewal_info, sunlight,
 facilities, shikibiki, pet_deposit, free_rent, renewal_fee,
 fire_insurance, renewal_admin_fee, guarantee_info, key_exchange_fee,
-support_fee_24h, rights_fee, additional_deposit, guarantee_deposit,
+support_fee_24h, additional_deposit, guarantee_deposit,
 water_billing, parking_fee, bicycle_parking_fee, motorcycle_parking_fee,
 other_monthly_fee, other_onetime_fee, move_in_conditions,
 move_out_date, free_rent_detail, layout_detail,
@@ -174,6 +176,7 @@ itandi_search/
 3. 通知済み + 承認待ち物件の (customer_name, room_id) セットを取得
 4a. itandi BB にログイン (Selenium)
 4b. いい生活Square にログイン (Selenium) ← 任意、認証情報がある場合のみ
+4c. いえらぶBB にログイン (Selenium) ← 任意、認証情報がある場合のみ
 5. 各顧客について:
    ── 5a. itandi BB 検索 ──
    a. itandi BB 検索 API で物件検索
@@ -201,7 +204,15 @@ itandi_search/
    e. ソフトチェック適用（ロフト必須/ソフト設備/入居時期）
    f. 承認待ちシートに書き込み
    g. Discord に新着通知（ソースバッジ `[いい生活]` 付き）
-6. ブラウザセッション終了（itandi + ES-Square 両方）
+   ── 5c. いえらぶBB 検索（有効時のみ） ──
+   a. いえらぶBB で物件検索（Selenium + BeautifulSoup HTML パーサー）
+   b. 通知済み・承認待ちを除外
+   c. 詳細ページから追加情報を取得
+   d. itandi と同じフィルター群を適用（賃料/定期借家/階数/南向き/ロフト）
+   e. ソフトチェック適用（ロフト必須/ソフト設備/入居時期）
+   f. 承認待ちシートに書き込み
+   g. Discord に新着通知（ソースバッジ `[いえらぶ]` 付き）
+6. ブラウザセッション終了（itandi + ES-Square + いえらぶBB）
 ```
 
 ### 4.3 認証 (`auth.py`)
@@ -494,7 +505,8 @@ M 列の設備名のうち、itandi API の `option_id` に変換されるもの
 
 **ソースバッジ:**
 - itandi BB の物件: バッジなし
-- いい生活Square の物件: ` `[いい生活]`` バッジを物件名の後に付与
+- いい生活Square の物件: `[いい生活]` バッジを物件名の後に付与
+- いえらぶBB の物件: `[いえらぶ]` バッジを物件名の後に付与
 
 **検索条件サマリー:**
 - 各顧客の検索結果を通知する前に、使用した検索条件のサマリーをスレッドに投稿
@@ -536,7 +548,13 @@ M 列の設備名のうち、itandi API の `option_id` に変換されるもの
 | `ESSQUARE_PASSWORD` | いい生活Square ログインパスワード（任意） |
 | `DISCORD_WEBHOOK_URL` | Discord Forum チャンネル Webhook |
 | `GAS_WEBAPP_URL` | GAS Web App URL（承認リンク用） |
-| `FORCE_NOTIFY` | `1` で通知済みチェックをスキップ |
+| `FORCE_NOTIFY` | `1` で通知済みチェックをスキップ（キャッシュ済み画像を再利用） |
+| `FORCE_REFETCH` | `1` で FORCE_NOTIFY 時も画像を再取得 |
+| `TEST_MODE` | `1` でテスト顧客のみ・各3物件制限 |
+| `DRIVE_FOLDER_ID` | Google Drive 画像保存フォルダ ID |
+| `DRIVE_CLIENT_ID` | Google Drive OAuth2 クライアント ID |
+| `DRIVE_CLIENT_SECRET` | Google Drive OAuth2 クライアントシークレット |
+| `DRIVE_REFRESH_TOKEN` | Google Drive OAuth2 リフレッシュトークン |
 
 ---
 
@@ -629,6 +647,12 @@ essquare_search/
 **交通機関の複数路線分割:**
 - 詳細ページの交通情報が改行区切りの場合、1行目を `station_info`（主要駅）、残りを `other_stations`（他の最寄り駅）に分割
 
+**データ正規化（`models.py`）:**
+- **築年月正規化**: `"2017/09"` → `"築9年"`、`"9年"` → `"築9年"`（年差計算）、`"新築"` はそのまま
+- **入居時期正規化**: `"2026/03/29"` → `"2026年3月29日"`、`"2026/04"` → `"2026年4月"`（日本語表記に変換）
+- **所在階/階建て分離**: `"2階(地上2階)"` → `floor_text="2階"`, `story_text="地上2階建"`
+- **住所「地図」除去**: 末尾の「地図」リンクテキストを自動除去
+
 ### 4b.5 画像取得・重複排除
 
 **画像取得の優先順位（4段階フォールバック）:**
@@ -644,21 +668,24 @@ essquare_search/
 - Pillow (PIL) で画像処理
 
 **公開画像ホスティング:**
-- catbox.moe に画像バイトをアップロード → 公開 URL 取得
+- Google Drive に画像をアップロード → 公開サムネイル URL を取得
+- OAuth2 リフレッシュトークンで認証（サービスアカウントでは容量制限のため不可）
+- `upload_image_to_drive()` で Drive API 経由アップロード、「リンクを知っている全員」で共有設定
 - 承認ページで画像表示に使用
 
-### 4b.6 itandi との違い
+### 4b.6 3ソース比較
 
-| 項目 | itandi BB | いい生活Square |
-|---|---|---|
-| 認証 | OAuth2 API 認証 | Selenium リダイレクトベース |
-| データ取得 | JSON API | GraphQL + DOM パーシング (React SPA) |
-| 物件 ID 形式 | 数値 (`int`) | UUID (32文字ハイフン付き) |
-| 画像取得 | API `image_urls` | CDP Network + Swiper + catbox.moe |
-| 駅名解決 | API で動的検索 | 81路線・916駅コードの事前マッピング |
-| 申込あり除外 | Python後処理 (`_filter_by_status`) + テスト顧客例外 | URLパラメータ (`is_exclude_moshikomi_exist=true`) + テスト顧客例外 |
-| WEBバッジフィルター | あり（`_filter_by_status` 内） | なし（ES-Square に該当概念なし） |
-| 有効化 | 常時 | `ESSQUARE_EMAIL` / `ESSQUARE_PASSWORD` 環境変数がある場合のみ |
+| 項目 | itandi BB | いい生活Square | いえらぶBB |
+|---|---|---|---|
+| 認証 | OAuth2 API 認証 | Selenium リダイレクトベース | Selenium Cookie ベース |
+| データ取得 | JSON API | GraphQL + DOM パーシング (React SPA) | SSR HTML パーシング (BeautifulSoup) |
+| 物件 ID 形式 | 数値 (`int`) | UUID (32文字ハイフン付き) | `ielove_{数値ID}` |
+| 画像取得 | API `image_urls` | CDP Network + Swiper + Google Drive | 詳細ページ `<img>` タグ |
+| 駅名解決 | API で動的検索 | 81路線・916駅コードの事前マッピング | AJAX スクレイピングで事前生成した JSON (1,087駅) |
+| 申込あり除外 | Python後処理 (`_filter_by_status`) + テスト顧客例外 | URLパラメータ (`is_exclude_moshikomi_exist=true`) + テスト顧客例外 | Python後処理 (`_filter_by_status`) + テスト顧客例外 |
+| WEBバッジフィルター | あり（`_filter_by_status` 内） | なし（該当概念なし） | なし（該当概念なし） |
+| URL 構造 | クエリパラメータ | クエリパラメータ | パスベースパラメータ |
+| 有効化 | 常時 | `ESSQUARE_*` 環境変数がある場合のみ | `IELOVE_*` 環境変数がある場合のみ |
 
 ### 4b.7 環境変数
 
@@ -666,6 +693,93 @@ essquare_search/
 |---|---|
 | `ESSQUARE_EMAIL` | いい生活Square ログインメール |
 | `ESSQUARE_PASSWORD` | いい生活Square ログインパスワード |
+
+---
+
+## 4c. Python バックエンド — いえらぶBB (`ielove_search/`)
+
+itandi BB・ES-Square と並行して **いえらぶBB (ielove BB)** からも物件を検索する。サーバーサイドレンダリング (SSR) の HTML を BeautifulSoup でパースする方式。
+
+### 4c.1 ファイル構成
+
+```
+ielove_search/
+├── __init__.py                # パッケージ初期化
+├── auth.py                    # Selenium ベース認証・セッション管理
+├── config.py                  # 環境変数・定数・パラメータマッピング
+├── parsers.py                 # HTML パーシング（検索結果・詳細ページ）
+├── scrape_station_codes.py    # 駅コードスクレイピングツール（開発用）
+├── search.py                  # 検索オーケストレーション・URL構築・物件詳細取得
+└── station_codes.json         # 事前生成された駅コードマッピング（1,087駅）
+```
+
+### 4c.2 認証 (`auth.py`)
+
+**IeloveSession クラス:**
+- Selenium (headless Chrome) でいえらぶBB にログイン
+- ベース URL: `https://bb.ielove.jp`
+- ログインページ: `/ielovebb/login/`
+- メール・パスワードでフォームログイン後、Cookie セッションを維持
+- セッション切れの自動検出・再ログイン対応
+
+### 4c.3 検索 (`search.py`)
+
+**検索フロー:**
+```
+1. エリア検証（駅 or 市区町村の指定が必要）
+2. パスベース URL 構築
+3. ページループ（最大5ページ = 1,000件）:
+   a. Selenium でページ取得
+   b. BeautifulSoup で HTML パーシング
+   c. 次ページの有無チェック
+   d. 2秒待機
+```
+
+**URL 構造（パスベースパラメータ）:**
+```
+/ielovebb/rent/index/todofuken/13/station/13_1_5/prct/12/...
+```
+
+| パスセグメント | 用途 | 例 |
+|---|---|---|
+| `todofuken/{code}` | 都道府県コード | `13` (東京都) |
+| `station/{code}` | 駅コード（複数可） | `13_1_5` |
+| `prct/{万円}` | 賃料上限（万円単位） | `12` |
+| `prcf/{万円}` | 賃料下限（万円単位） | `8` |
+| `ikrh/1` | 管理費込み（固定） | `1` |
+| `barf/{面積}` | 面積下限 (m²) | `25.00` |
+| `wati1/{分}` | 駅徒歩（分） | `15` |
+| `buda/{code}` | 築年数コード | 築20年以内等 |
+| `madori/{code}` | 間取りコード（複数可） | `8` (1LDK) |
+| `cnt/200` | 1ページあたり件数（固定） | `200` |
+| `optt/2` | ソート順（更新順、固定） | `2` |
+
+### 4c.4 パーサー (`parsers.py`)
+
+**検索結果パーサー (`parse_search_results`):**
+- `<table class="estate_list">` を物件単位で解析
+- 賃料・管理費: TD テキストから正規表現で抽出（`万円` / `円` 単位対応）
+- 住所・駅情報: 同一 TD テキストからパターンマッチで分離
+- 間取り・面積: `detail-info` テーブルから抽出
+- 募集ステータス: `leasing-detail-info` テーブルから取得
+
+**詳細ページパーサー (`parse_detail_page`):**
+- `<th>/<td>` ペアのテーブル構造を解析
+- 54項目のフィールドマッピング辞書 (`_DETAIL_FIELD_MAP`)
+- 設備: 「基本設備」「キッチン」等のテーブルから全設備名を抽出
+- 画像: `<img>` タグの `src`/`data-src` を収集（最大20枚）
+- `<br/>`・`<p>` タグ区切りのフィールドを `/` 区切りに整形
+
+**物件名・部屋番号の分離:**
+- `<span class="large-font">` テキストを2文字以上のスペースで分割
+- 先頭部分 → `building_name`、末尾部分 → `room_number`
+
+### 4c.5 環境変数
+
+| 変数名 | 用途 |
+|---|---|
+| `IELOVE_EMAIL` | いえらぶBB ログインメール |
+| `IELOVE_PASSWORD` | いえらぶBB ログインパスワード |
 
 ---
 
@@ -944,7 +1058,7 @@ GitHub Pages でホスト: `https://form.ehomaki.com/property.html`
 - 物件名・賃料・管理費
 - 基本情報: 間取り、間取り詳細、面積、築年数、所在階、階建て、構造、総戸数、主要採光面、入居可能時期
 - アクセス: 最寄り駅、他の最寄り駅、住所
-- 費用: 敷引き、ペット敷金追加、更新料、火災保険、更新事務手数料、保証料、鍵交換費用、24時間サポート費、権利金、敷金積み増し、保証金、水道料金形態、駐車場代、駐輪場代、バイク置き場代、その他月次費用、その他一時金
+- 費用: 敷引き、ペット敷金追加、更新料、火災保険、更新事務手数料、保証料、鍵交換費用、24時間サポート費、敷金積み増し、保証金、水道料金形態、駐車場代、駐輪場代、バイク置き場代、その他月次費用、その他一時金
 - 契約条件: 契約区分、契約期間、解約予告、更新/再契約可否、フリーレント、フリーレント詳細、退去日
 - 入居条件: 色分けチップで表示（`可/相談/歓迎` → 緑、`不可` → 灰色）
 - 設備・詳細: カテゴリタグ形式で表示（itandi形式=【括弧】、ES-Square形式=カンマ区切りヘッダーを自動判定）
@@ -962,7 +1076,7 @@ GitHub Pages でホスト: `https://form.ehomaki.com/property.html`
 
 **トリガー:**
 - `schedule` (cron: `*/30 1-10 * * *`) ← 10:00〜19:30 JST、30分おき（21枠/日）
-- `workflow_dispatch` ← GitHub UI からの手動実行（`force_notify` オプション）
+- `workflow_dispatch` ← GitHub UI からの手動実行（`force_notify`, `test_mode` オプション）
 
 **ランダムディレイ:**
 - スケジュール実行時のみ、0〜25分のランダム遅延を挿入
@@ -973,7 +1087,7 @@ GitHub Pages でホスト: `https://form.ehomaki.com/property.html`
 - `ubuntu-latest`
 - Python 3.11
 - Chrome (stable)
-- タイムアウト: 40分（ランダムディレイ最大25分 + 実行時間を考慮）
+- タイムアウト: 90分（ランダムディレイ最大25分 + 3ソース検索・画像処理を考慮）
 
 **ステップ:**
 1. `actions/checkout@v4`
@@ -994,6 +1108,12 @@ GitHub Pages でホスト: `https://form.ehomaki.com/property.html`
 | `ESSQUARE_PASSWORD` | いい生活Square ログイン |
 | `DISCORD_WEBHOOK_URL` | Discord 通知 |
 | `GAS_WEBAPP_URL` | GAS Web App エンドポイント |
+| `IELOVE_EMAIL` | いえらぶBB ログイン |
+| `IELOVE_PASSWORD` | いえらぶBB ログイン |
+| `DRIVE_FOLDER_ID` | Google Drive 画像保存フォルダ |
+| `DRIVE_CLIENT_ID` | Google Drive OAuth2 |
+| `DRIVE_CLIENT_SECRET` | Google Drive OAuth2 |
+| `DRIVE_REFRESH_TOKEN` | Google Drive OAuth2 |
 
 ---
 
@@ -1081,7 +1201,6 @@ class Property:
 
     # ── 追加費用・条件（詳細ページスクレイピングから取得）──
     support_fee_24h: str               # 24時間サポート費
-    rights_fee: str                    # 権利金
     additional_deposit: str            # 敷金積み増し
     guarantee_deposit: str             # 保証金
     water_billing: str                 # 水道料金形態
@@ -1136,7 +1255,25 @@ class Property:
 | 認証方式 | リダイレクトベース + Cookie セッション |
 | 画像 API | `api.e-bukken-1.com` |
 
-### 9.3 LINE Messaging API
+### 9.3 いえらぶBB (ielove BB)
+
+| 項目 | 値 |
+|---|---|
+| ベース URL | `https://bb.ielove.jp` |
+| ログインページ | `/ielovebb/login/` |
+| 検索ページ | `/ielovebb/rent/index/...` |
+| 認証方式 | Cookie ベースセッション |
+
+### 9.4 Google Drive（画像ホスティング）
+
+| 項目 | 値 |
+|---|---|
+| 認証方式 | OAuth2 リフレッシュトークン |
+| アップロード先 | 指定フォルダ (`DRIVE_FOLDER_ID`) |
+| 共有設定 | リンクを知っている全員が閲覧可 |
+| 画像 URL | サムネイル URL (`/thumbnail?...`) |
+
+### 9.5 LINE Messaging API
 
 | 項目 | 値 |
 |---|---|
@@ -1146,7 +1283,7 @@ class Property:
 | Profile API | `https://api.line.me/v2/bot/profile/{userId}` |
 | 認証 | Bearer トークン (`CHANNEL_ACCESS_TOKEN`) |
 
-### 9.4 Discord
+### 9.6 Discord
 
 | 項目 | 値 |
 |---|---|
@@ -1155,7 +1292,7 @@ class Property:
 | スレッド投稿 | `?thread_id={id}` |
 | レート制限 | 429 レスポンス時に `retry_after` 秒待機 |
 
-### 9.5 Google Sheets API
+### 9.7 Google Sheets API
 
 | 項目 | 値 |
 |---|---|
@@ -1193,8 +1330,10 @@ class Property:
 | 検索条件読み込み | シート読み込み失敗 | FATAL → 終了 |
 | itandi BB ログイン | 認証失敗 | FATAL → Discord エラー通知 → 終了 |
 | ES-Square ログイン | 認証失敗 | WARN → ES-Square スキップ（itandi は続行） |
+| いえらぶBB ログイン | 認証失敗 | WARN → いえらぶBB スキップ（itandi は続行） |
 | 物件検索 (itandi) | API エラー | ERROR → Discord エラー通知 → 次の顧客へ |
 | 物件検索 (ES-Square) | 検索エラー | ERROR ログ → 次の顧客へ |
+| 物件検索 (いえらぶBB) | 検索エラー | ERROR ログ → 次の顧客へ |
 | 画像取得 | スクレイピング失敗 | WARN → 画像なしで続行 |
 | Discord 送信 | 429 レート制限 | `retry_after` 秒待機 → リトライ |
 | Discord 送信 | その他のエラー | ERROR ログ → 続行 |
