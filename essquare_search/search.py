@@ -5,7 +5,6 @@ import json
 import random
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlencode
 
 from itandi_search.models import CustomerCriteria, Property
@@ -736,54 +735,24 @@ def enrich_property_details(
                     # 同一画像の低画質版を除外
                     unique_images = _dedup_images(raw_images)
 
-                    # Google Drive に並列アップロード
+                    # Google Drive にアップロード
                     public_urls: list[str] = []
                     if drive_service:
                         from itandi_search.sheets import (
                             upload_image_to_drive,
                         )
-                        ts = int(time.time())
-                        upload_tasks = [
-                            (i, img_bytes, f"esq_{ts}_{i}.jpg")
-                            for i, img_bytes in enumerate(
-                                unique_images
-                            )
-                        ]
-
-                        def _upload(args):
-                            idx, data, fname = args
-                            return idx, upload_image_to_drive(
+                        for i, img_bytes in enumerate(
+                            unique_images
+                        ):
+                            ts = int(time.time())
+                            fname = f"esq_{ts}_{i}.jpg"
+                            url = upload_image_to_drive(
                                 drive_service,
-                                data,
+                                img_bytes,
                                 filename=fname,
                             )
-
-                        with ThreadPoolExecutor(
-                            max_workers=4
-                        ) as pool:
-                            futures = {
-                                pool.submit(_upload, t): t
-                                for t in upload_tasks
-                            }
-                            results = []
-                            for fut in as_completed(futures):
-                                try:
-                                    idx, url = fut.result()
-                                    if url:
-                                        results.append(
-                                            (idx, url)
-                                        )
-                                except Exception as exc:
-                                    print(
-                                        f"[WARN] Drive "
-                                        f"並列アップロード"
-                                        f"失敗: {exc}"
-                                    )
-                        # 元の順序を維持
-                        results.sort(key=lambda x: x[0])
-                        public_urls = [
-                            url for _, url in results
-                        ]
+                            if url:
+                                public_urls.append(url)
 
                     if public_urls:
                         details["image_urls"] = public_urls
