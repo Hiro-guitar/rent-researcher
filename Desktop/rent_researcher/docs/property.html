@@ -359,8 +359,8 @@ function renderFacBuckets(order, buckets) {
 
 function renderProperty(p) {
   currentProperty = p; // sendFeedback で使うためグローバルに保存
-  var rentMan = p.rent ? (p.rent / 10000).toFixed(1) : '0';
-  var mgmtMan = p.managementFee ? (p.managementFee / 10000).toFixed(1) : '0';
+  var rentMan = p.rent ? String(p.rent / 10000) : '0';
+  var mgmtMan = p.managementFee ? String(p.managementFee / 10000) : '0';
   var images = p.images || [];
 
   var html = '';

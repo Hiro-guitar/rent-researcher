@@ -571,8 +571,8 @@ function buildPropertyFlex(prop, options) {
   var includeImage = options.includeImage !== false;
   var viewUrl = options.viewUrl || '';
 
-  var rentMan = prop.rent ? (prop.rent / 10000).toFixed(1) : '0';
-  var mgmtMan = prop.managementFee ? (prop.managementFee / 10000).toFixed(1) : '0';
+  var rentMan = prop.rent ? String(prop.rent / 10000) : '0';
+  var mgmtMan = prop.managementFee ? String(prop.managementFee / 10000) : '0';
 
   var bodyContents = [
     { type: 'text', text: prop.buildingName + (prop.roomNumber ? ' ' + prop.roomNumber : ''), weight: 'bold', size: 'lg', wrap: true },
@@ -658,8 +658,8 @@ function makeHtml(title, message) {
 // ===== HTML: 承認プレビュー（単一・編集可能） =====
 function makePreviewHtml(prop, customerName, roomId) {
   var baseUrl = getGasBaseUrl();
-  var rentMan = prop.rent ? (prop.rent / 10000).toFixed(1) : '0';
-  var mgmtMan = prop.managementFee ? (prop.managementFee / 10000).toFixed(1) : '0';
+  var rentMan = prop.rent ? String(prop.rent / 10000) : '0';
+  var mgmtMan = prop.managementFee ? String(prop.managementFee / 10000) : '0';
 
   var images = prop.imageUrls && prop.imageUrls.length > 0 ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
 
@@ -855,7 +855,7 @@ function makePreviewAllHtml(props, customerName) {
 
   for (var i = 0; i < props.length; i++) {
     var p = props[i];
-    var rentMan = p.rent ? (p.rent / 10000).toFixed(1) : '0';
+    var rentMan = p.rent ? String(p.rent / 10000) : '0';
     var rid = String(p._roomId);
     html += '<div class="card">'
       + '<div class="prop-name">' + (i+1) + '. ' + _esc(p.buildingName) + (p.roomNumber ? ' ' + _esc(p.roomNumber) : '') + '</div>'
@@ -908,8 +908,8 @@ function makePreviewAllHtml(props, customerName) {
 
 // ===== HTML: お客さん向け物件資料ページ =====
 function makeViewHtml(prop) {
-  var rentMan = prop.rent ? (prop.rent / 10000).toFixed(1) : '0';
-  var mgmtMan = prop.managementFee ? (prop.managementFee / 10000).toFixed(1) : '0';
+  var rentMan = prop.rent ? String(prop.rent / 10000) : '0';
+  var mgmtMan = prop.managementFee ? String(prop.managementFee / 10000) : '0';
 
   // 表示する画像: 承認時に選択されたものがあればそれ、なければ全画像
   var viewImages = prop.selectedImageUrls || prop.imageUrls || [];

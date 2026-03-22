@@ -273,8 +273,8 @@ function doGet(e) {
         .setMimeType(ContentService.MimeType.JSON);
     }
 
-    const rentVal = rent ? Math.round(parseInt(rent) / 10000 * 10) / 10 : 0;
-    const rentText = rent ? (rentVal % 1 === 0 ? String(Math.round(rentVal)) : String(rentVal)) + '万円' : '不明';
+    const rentVal = rent ? parseInt(rent) / 10000 : 0;
+    const rentText = rent ? String(rentVal) + '万円' : '不明';
     pushMessage(lineUserId, [
       textMsg('新着物件のお知らせ\n\n' +
               '物件名: ' + buildingName + '\n' +
