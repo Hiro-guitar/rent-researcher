@@ -29,7 +29,9 @@ def _create_driver() -> webdriver.Chrome:
     options.set_capability(
         "goog:loggingPrefs", {"performance": "ALL"}
     )
-    return webdriver.Chrome(options=options)
+    driver = webdriver.Chrome(options=options)
+    driver.set_page_load_timeout(30)
+    return driver
 
 
 class EsSquareAuthError(Exception):

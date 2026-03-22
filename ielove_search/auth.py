@@ -25,7 +25,9 @@ def _create_driver() -> webdriver.Chrome:
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument("--window-size=1280,1024")
-    return webdriver.Chrome(options=options)
+    driver = webdriver.Chrome(options=options)
+    driver.set_page_load_timeout(30)
+    return driver
 
 
 class IeloveAuthError(Exception):

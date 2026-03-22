@@ -70,6 +70,7 @@ jobs:
 
       - name: Run property search
         env:
+          PYTHONUNBUFFERED: "1"
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           ITANDI_EMAIL: ${{ secrets.ITANDI_EMAIL }}
