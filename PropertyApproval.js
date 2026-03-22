@@ -8,6 +8,13 @@
  *   view → お客さん向け物件資料ページ
  */
 
+/** 円単位の金額を万円表示文字列に変換（14万→'14', 14.3万→'14.3'） */
+function _fmtMan(yen) {
+  if (!yen) return '0';
+  var v = yen / 10000;
+  return v % 1 === 0 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
+}
+
 var PENDING_SHEET_NAME = '承認待ち物件';
 var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
@@ -619,8 +626,7 @@ function handlePropertyAction(e) {
       if (webhookUrl) {
         var threadId = PropertiesService.getScriptProperties().getProperty('ACTION_LOG_THREAD_ID');
         var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
-        var rentVal = rent ? Math.round(parseInt(rent) / 10000 * 10) / 10 : 0;
-        var rentText = rent ? (rentVal % 1 === 0 ? String(Math.round(rentVal)) : String(rentVal)) + '万円' : '';
+        var rentText = rent ? _fmtMan(parseInt(rent)) + '万円' : '';
         var propLabel = buildingName || ('room_id: ' + roomId);
         if (roomNumber) propLabel += ' ' + roomNumber;
 
@@ -1112,8 +1118,8 @@ function buildPropertyFlex(prop, options) {
   var includeImage = options.includeImage !== false;
   var viewUrl = options.viewUrl || '';
 
-  var rentMan = prop.rent ? (prop.rent / 10000).toFixed(1) : '0';
-  var mgmtMan = prop.managementFee ? (prop.managementFee / 10000).toFixed(1) : '0';
+  var rentMan = prop.rent ? _fmtMan(prop.rent) : '0';
+  var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
 
   var bodyContents = [
     { type: 'text', text: prop.buildingName + (prop.roomNumber ? ' ' + prop.roomNumber : ''), weight: 'bold', size: 'lg', wrap: true },
@@ -1199,8 +1205,8 @@ function makeHtml(title, message) {
 // ===== HTML: 承認プレビュー（単一・編集可能） =====
 function makePreviewHtml(prop, customerName, roomId) {
   var baseUrl = getGasBaseUrl();
-  var rentMan = prop.rent ? (prop.rent / 10000).toFixed(1) : '0';
-  var mgmtMan = prop.managementFee ? (prop.managementFee / 10000).toFixed(1) : '0';
+  var rentMan = prop.rent ? _fmtMan(prop.rent) : '0';
+  var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
 
   var images = prop.imageUrls && prop.imageUrls.length > 0 ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
 
@@ -1538,7 +1544,7 @@ function makePreviewAllHtml(props, customerName) {
 
   for (var i = 0; i < props.length; i++) {
     var p = props[i];
-    var rentMan = p.rent ? (p.rent / 10000).toFixed(1) : '0';
+    var rentMan = p.rent ? _fmtMan(p.rent) : '0';
     var rid = String(p._roomId);
     html += '<div class="card">'
       + '<div class="prop-name">' + (i+1) + '. ' + _esc(p.buildingName) + (p.roomNumber ? ' ' + _esc(p.roomNumber) : '') + '</div>'
@@ -1591,8 +1597,8 @@ function makePreviewAllHtml(props, customerName) {
 
 // ===== HTML: お客さん向け物件資料ページ =====
 function makeViewHtml(prop) {
-  var rentMan = prop.rent ? (prop.rent / 10000).toFixed(1) : '0';
-  var mgmtMan = prop.managementFee ? (prop.managementFee / 10000).toFixed(1) : '0';
+  var rentMan = prop.rent ? _fmtMan(prop.rent) : '0';
+  var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
 
   // 表示する画像: 承認時に選択されたものがあればそれ、なければ全画像
   var viewImages = prop.selectedImageUrls || prop.imageUrls || [];
