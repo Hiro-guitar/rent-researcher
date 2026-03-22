@@ -14,8 +14,8 @@ on:
         required: false
         type: boolean
         default: false
-      force_refetch:
-        description: "画像再取得 (キャッシュを無視して画像を取り直す)"
+      skip_cache:
+        description: "キャッシュ無視 (全物件の詳細を再取得)"
         required: false
         type: boolean
         default: false
@@ -85,7 +85,7 @@ jobs:
           DRIVE_CLIENT_SECRET: ${{ secrets.DRIVE_CLIENT_SECRET }}
           DRIVE_REFRESH_TOKEN: ${{ secrets.DRIVE_REFRESH_TOKEN }}
           FORCE_NOTIFY: ${{ github.event.inputs.force_notify == 'true' && '1' || '' }}
-          FORCE_REFETCH: ${{ github.event.inputs.force_refetch == 'true' && '1' || '' }}
+          SKIP_CACHE: ${{ github.event.inputs.skip_cache == 'true' && '1' || '' }}
           TEST_MODE: ${{ github.event.inputs.test_mode == 'true' && '1' || '' }}
           SERVICE: ${{ github.event.inputs.service }}
         run: python -m itandi_search.run

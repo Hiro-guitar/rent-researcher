@@ -549,7 +549,7 @@ def _check_move_in_date(properties: list, customer_move_in: str) -> list:
 def _restore_from_cache(
     properties: list,
     customer_name: str,
-    image_cache: dict,
+    property_cache: dict,
 ) -> tuple[list, list]:
     """キャッシュ済み物件のデータを復元し、未キャッシュ物件と分離する。
 
@@ -558,7 +558,7 @@ def _restore_from_cache(
         cached_properties: キャッシュから復元済み（enrich 不要）
         uncached_properties: キャッシュなし（enrich 必要）
     """
-    if not image_cache:
+    if not property_cache:
         return [], properties
 
     cached = []
@@ -585,7 +585,7 @@ def _restore_from_cache(
 
     for prop in properties:
         key = (customer_name, prop.room_id)
-        data = image_cache.get(key)
+        data = property_cache.get(key)
         if data:
             for field_name in _CACHE_FIELDS:
                 value = data.get(field_name)
@@ -608,7 +608,7 @@ def _run_itandi_search(
     customer,
     exclude_set: set,
     sheets_service,
-    image_cache: dict | None = None,
+    property_cache: dict | None = None,
     test_mode: bool = False,
 ) -> int:
     """itandi BB で検索してフィルタ → 承認待ち → Discord 通知。
@@ -635,7 +635,7 @@ def _run_itandi_search(
 
     # キャッシュから復元できる物件はスキップ
     cached, uncached = _restore_from_cache(
-        new_properties, customer.name, image_cache or {},
+        new_properties, customer.name, property_cache or {},
     )
     if cached:
         print(
@@ -827,7 +827,7 @@ def _run_essquare_search(
     customer,
     exclude_set: set,
     sheets_service,
-    image_cache: dict | None = None,
+    property_cache: dict | None = None,
     drive_service=None,
     test_mode: bool = False,
 ) -> int:
@@ -860,7 +860,7 @@ def _run_essquare_search(
 
     # キャッシュから復元できる物件はスキップ
     cached, uncached = _restore_from_cache(
-        new_properties, customer.name, image_cache or {},
+        new_properties, customer.name, property_cache or {},
     )
     if cached:
         print(
@@ -1001,7 +1001,7 @@ def _run_ielove_search(
     customer,
     exclude_set: set,
     sheets_service,
-    image_cache: dict | None = None,
+    property_cache: dict | None = None,
     drive_service=None,
     test_mode: bool = False,
 ) -> int:
@@ -1034,7 +1034,7 @@ def _run_ielove_search(
 
     # キャッシュから復元できる物件はスキップ
     cached, uncached = _restore_from_cache(
-        new_properties, customer.name, image_cache or {},
+        new_properties, customer.name, property_cache or {},
     )
     if cached:
         print(
@@ -1221,7 +1221,7 @@ def main() -> None:
 
     # ── 3. 通知済み・承認待ち物件の読み込み ─────────────────
     force_notify = os.environ.get("FORCE_NOTIFY", "") == "1"
-    force_refetch = os.environ.get("FORCE_REFETCH", "") == "1"
+    skip_cache = os.environ.get("SKIP_CACHE", "") == "1"
     if force_notify:
         print("[INFO] FORCE_NOTIFY=1: 通知済みチェックをスキップします")
         seen_set: set = set()
@@ -1241,22 +1241,22 @@ def main() -> None:
     # 重複排除用: 通知済み + 承認待ちの和集合
     exclude_set = seen_set | pending_set
 
-    # ── 3b. 画像キャッシュの読み込み（FORCE_NOTIFY 時のみ） ────
-    image_cache: dict = {}
-    if force_notify and not force_refetch:
+    # ── 3b. 物件キャッシュの読み込み（FORCE_NOTIFY 時のみ） ────
+    property_cache: dict = {}
+    if force_notify and not skip_cache:
         try:
-            image_cache = load_pending_properties_with_data(
+            property_cache = load_pending_properties_with_data(
                 sheets_service,
             )
-            if image_cache:
+            if property_cache:
                 print(
-                    f"[INFO] 画像キャッシュ: "
-                    f"{len(image_cache)} 件読み込み済み"
+                    f"[INFO] 物件キャッシュ: "
+                    f"{len(property_cache)} 件読み込み済み"
                 )
         except Exception as exc:
-            print(f"[WARN] 画像キャッシュ読み込み失敗: {exc}")
-    elif force_refetch:
-        print("[INFO] FORCE_REFETCH=1: 画像キャッシュを使用しません")
+            print(f"[WARN] 物件キャッシュ読み込み失敗: {exc}")
+    elif skip_cache:
+        print("[INFO] SKIP_CACHE=1: 物件キャッシュを使用しません")
 
     # ── 3c. Google Drive 初期化（画像アップロード用） ──────
     drive_service = None
@@ -1325,7 +1325,7 @@ def main() -> None:
                     customer=customer,
                     exclude_set=exclude_set,
                     sheets_service=sheets_service,
-                    image_cache=image_cache,
+                    property_cache=property_cache,
                     test_mode=TEST_MODE,
                 )
             except ItandiSearchError as exc:
@@ -1351,7 +1351,7 @@ def main() -> None:
                     customer=customer,
                     exclude_set=exclude_set,
                     sheets_service=sheets_service,
-                    image_cache=image_cache,
+                    property_cache=property_cache,
                     drive_service=drive_service,
                     test_mode=TEST_MODE,
                 )
@@ -1369,7 +1369,7 @@ def main() -> None:
                     customer=customer,
                     exclude_set=exclude_set,
                     sheets_service=sheets_service,
-                    image_cache=image_cache,
+                    property_cache=property_cache,
                     drive_service=drive_service,
                     test_mode=TEST_MODE,
                 )
