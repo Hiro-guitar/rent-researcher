@@ -85,6 +85,14 @@ class IeloveSession:
             self.driver.get("about:blank")
             time.sleep(0.3)
 
+            # 詳細ページはRefererを付与（リファラーチェック対策）
+            if is_detail:
+                self.driver.execute_cdp_cmd(
+                    "Network.setExtraHTTPHeaders",
+                    {"headers": {
+                        "Referer": "https://bb.ielove.jp/ielovebb/rent/index/"
+                    }},
+                )
             self.driver.get(url)
 
             # ページロード完了を待機
