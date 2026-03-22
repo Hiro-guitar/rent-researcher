@@ -868,7 +868,7 @@ function _normalizeBuildingAge(val) {
  */
 function _normalizeMoveInDate(val) {
   if (!val) return '';
-  val = String(val).trim();
+  val = String(val).trim().replace(/^(予定|期日指定)\s*/, '');
   var m1 = val.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(.*)$/);
   if (m1) return parseInt(m1[1],10) + '年' + parseInt(m1[2],10) + '月' + parseInt(m1[3],10) + '日' + m1[4];
   var m2 = val.match(/^(\d{4})[\/\-](\d{1,2})(.*)$/);

@@ -307,6 +307,11 @@ def _split_age_date(text: str) -> tuple[str, str]:
     return building_age, move_out
 
 
+def _strip_movein_prefix(val: str) -> str:
+    """入居時期の先頭ラベル（予定・期日指定 等）を除去する。"""
+    return re.sub(r"^(予定|期日指定)\s*", "", val)
+
+
 def _split_preview_movein(text: str) -> tuple[str, str]:
     """「-期日指定2026/5/中旬」等を内見開始日・入居時期に分割する。"""
     if not text:
@@ -315,7 +320,8 @@ def _split_preview_movein(text: str) -> tuple[str, str]:
     # 先頭が「-」の場合
     if text.startswith("-"):
         rest = text[1:]
-        return "", rest if rest and rest != "-" else ""
+        movein = rest if rest and rest != "-" else ""
+        return "", _strip_movein_prefix(movein)
 
     # 日付で始まる場合（内見開始日）
     m = re.match(r"(\d{4}/\d{1,2}/\d{1,2}|\d{4}/\d{1,2}|-)", text)
@@ -323,9 +329,9 @@ def _split_preview_movein(text: str) -> tuple[str, str]:
         preview = m.group(1) if m.group(1) != "-" else ""
         rest = text[m.end():]
         movein = rest if rest and rest != "-" else ""
-        return preview, movein
+        return preview, _strip_movein_prefix(movein)
 
-    return "", text
+    return "", _strip_movein_prefix(text)
 
 
 def _extract_card_image(card: Tag) -> Optional[str]:
@@ -529,6 +535,10 @@ def _map_detail_field(prop: Property, label: str, value: str) -> None:
 
     if field == "structure":
         setattr(prop, field, value)
+        return
+
+    if field == "move_in_date":
+        setattr(prop, field, _strip_movein_prefix(value))
         return
 
     # 通常のフィールド設定
