@@ -24,6 +24,19 @@ on:
         required: false
         type: boolean
         default: false
+      service:
+        description: "対象サービス (空欄=全サービス)"
+        required: false
+        type: choice
+        default: ""
+        options:
+          - ""
+          - "itandi"
+          - "essquare"
+          - "ielove"
+          - "itandi,essquare"
+          - "itandi,ielove"
+          - "essquare,ielove"
 
 jobs:
   search:
@@ -74,4 +87,5 @@ jobs:
           FORCE_NOTIFY: ${{ github.event.inputs.force_notify == 'true' && '1' || '' }}
           FORCE_REFETCH: ${{ github.event.inputs.force_refetch == 'true' && '1' || '' }}
           TEST_MODE: ${{ github.event.inputs.test_mode == 'true' && '1' || '' }}
+          SERVICE: ${{ github.event.inputs.service }}
         run: python -m itandi_search.run
