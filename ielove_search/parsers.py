@@ -216,13 +216,20 @@ def _parse_rent_td(text: str) -> tuple[int, int, str, str]:
         rent = int(rm.group(1).replace(",", ""))
 
     # 管理費
-    mm = re.search(r"管理費[・共益費]*[：:]\s*([\d,]+)\s*円", text)
+    # 「1万5,000円」形式
+    mm = re.search(r"管理費[・共益費]*[：:]\s*(\d+)\s*万\s*([\d,]+)\s*円", text)
     if mm:
-        mgmt = int(mm.group(1).replace(",", ""))
+        mgmt = int(mm.group(1)) * 10000 + int(mm.group(2).replace(",", ""))
     else:
-        mm = re.search(r"管理費[・共益費]*[：:]\s*([\d,.]+)\s*万\s*円", text)
+        # 「10,000円」形式
+        mm = re.search(r"管理費[・共益費]*[：:]\s*([\d,]+)\s*円", text)
         if mm:
-            mgmt = int(float(mm.group(1).replace(",", "")) * 10000)
+            mgmt = int(mm.group(1).replace(",", ""))
+        else:
+            # 「1.5万円」形式
+            mm = re.search(r"管理費[・共益費]*[：:]\s*([\d,.]+)\s*万\s*円", text)
+            if mm:
+                mgmt = int(float(mm.group(1).replace(",", "")) * 10000)
 
     # 駅情報 (路線名は日本語文字のみにマッチさせる)
     _LINE_CHARS = r"[ぁ-んァ-ヶー\u4E00-\u9FFFA-Za-zＡ-Ｚａ-ｚ]"
