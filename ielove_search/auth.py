@@ -120,7 +120,16 @@ class IeloveSession:
             if is_detail:
                 if "di_table" in html:
                     return html
-                # di_table がない → リトライ
+                # di_table がない → デバッグ情報を出力
+                current = self.driver.current_url
+                title = self.driver.title
+                snippet = html[:2000].replace("\n", " ")
+                print(
+                    f"[DEBUG] 詳細ページ応答: "
+                    f"URL={current}, title={title}, "
+                    f"len={len(html)}, snippet={snippet}"
+                )
+                # リトライ
                 if attempt == 0:
                     print(
                         f"[WARN] 詳細ページのコンテンツ不足、"
