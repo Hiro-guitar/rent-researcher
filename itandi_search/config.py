@@ -14,6 +14,15 @@ GAS_WEBAPP_URL = os.environ.get("GAS_WEBAPP_URL", "")
 TEST_MODE = os.environ.get("TEST_MODE", "") == "1"
 TEST_MODE_LIMIT = 3  # テストモード時の1検索あたり物件上限
 
+# ── サービス選択（省略時は全サービス実行） ────────────────
+# 例: SERVICE=ielove / SERVICE=itandi,ielove / SERVICE=essquare
+_SERVICE_RAW = os.environ.get("SERVICE", "").strip().lower()
+ACTIVE_SERVICES: set[str] = (
+    {s.strip() for s in _SERVICE_RAW.split(",") if s.strip()}
+    if _SERVICE_RAW
+    else set()  # 空 = 全サービス実行
+)
+
 # ── Google Drive 画像アップロード（OAuth2） ───────────
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
 DRIVE_CLIENT_ID = os.environ.get("DRIVE_CLIENT_ID", "")

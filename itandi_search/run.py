@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from .auth import ItandiAuthError, ItandiSession
 from .config import (
+    ACTIVE_SERVICES,
     DISCORD_WEBHOOK_URL,
     EQUIPMENT_DISPLAY_NAMES,
     GAS_WEBAPP_URL,
@@ -1169,8 +1170,19 @@ def now_jst() -> str:
     return datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _service_enabled(name: str) -> bool:
+    """指定サービスが有効か判定する。ACTIVE_SERVICES 空 = 全有効。"""
+    return not ACTIVE_SERVICES or name in ACTIVE_SERVICES
+
+
 def main() -> None:
-    print(f"[{now_jst()}] itandi BB 物件検索を開始します...")
+    if ACTIVE_SERVICES:
+        print(
+            f"[{now_jst()}] 物件検索を開始します... "
+            f"(対象: {', '.join(sorted(ACTIVE_SERVICES))})"
+        )
+    else:
+        print(f"[{now_jst()}] itandi BB 物件検索を開始します...")
 
     # ── 1. Google Sheets 初期化 ──────────────────────────
     try:
@@ -1251,23 +1263,31 @@ def main() -> None:
 
     # ── 4. itandi BB ログイン ─────────────────────────────
     itandi: ItandiSession | None = None
-    try:
-        itandi = ItandiSession(ITANDI_EMAIL, ITANDI_PASSWORD)
-        itandi.login()
-    except ItandiAuthError as exc:
-        print(f"[FATAL] itandi BB ログイン失敗: {exc}")
-        if DISCORD_WEBHOOK_URL:
-            send_error_notification(
-                DISCORD_WEBHOOK_URL,
-                f"itandi BB ログイン失敗: {exc}",
-            )
-        if itandi:
-            itandi.close()
-        sys.exit(1)
+    if _service_enabled("itandi"):
+        try:
+            itandi = ItandiSession(ITANDI_EMAIL, ITANDI_PASSWORD)
+            itandi.login()
+        except ItandiAuthError as exc:
+            if not ACTIVE_SERVICES:
+                # 全サービス実行時は itandi 必須
+                print(f"[FATAL] itandi BB ログイン失敗: {exc}")
+                if DISCORD_WEBHOOK_URL:
+                    send_error_notification(
+                        DISCORD_WEBHOOK_URL,
+                        f"itandi BB ログイン失敗: {exc}",
+                    )
+                if itandi:
+                    itandi.close()
+                sys.exit(1)
+            else:
+                print(f"[WARN] itandi BB ログイン失敗: {exc}")
+                if itandi:
+                    itandi.close()
+                itandi = None
 
     # ── 4b. いい生活Square ログイン（任意） ──────────────────
     esq_session = None
-    if _ESSQUARE_ENABLED:
+    if _ESSQUARE_ENABLED and _service_enabled("essquare"):
         try:
             esq_session = EsSquareSession(ESSQUARE_EMAIL, ESSQUARE_PASSWORD)
             esq_session.login()
@@ -1279,7 +1299,7 @@ def main() -> None:
 
     # ── 4c. いえらぶBB ログイン（任意） ──────────────────
     ielove_session = None
-    if _IELOVE_ENABLED:
+    if _IELOVE_ENABLED and _service_enabled("ielove"):
         try:
             ielove_session = IeloveSession(IELOVE_EMAIL, IELOVE_PASSWORD)
             ielove_session.login()
@@ -1294,29 +1314,30 @@ def main() -> None:
 
     for customer in customers:
         # ── 5a. itandi BB 検索 ───────────────────────────────
-        try:
-            total_new += _run_itandi_search(
-                itandi=itandi,
-                customer=customer,
-                exclude_set=exclude_set,
-                sheets_service=sheets_service,
-                image_cache=image_cache,
-                test_mode=TEST_MODE,
-            )
-        except ItandiSearchError as exc:
-            print(f"[ERROR] 検索失敗 ({customer.name}): {exc}")
-            if DISCORD_WEBHOOK_URL:
-                send_error_notification(
-                    DISCORD_WEBHOOK_URL,
-                    f"{customer.name} の検索中にエラー: {exc}",
+        if itandi:
+            try:
+                total_new += _run_itandi_search(
+                    itandi=itandi,
+                    customer=customer,
+                    exclude_set=exclude_set,
+                    sheets_service=sheets_service,
+                    image_cache=image_cache,
+                    test_mode=TEST_MODE,
                 )
-        except Exception as exc:
-            print(f"[ERROR] 予期しないエラー ({customer.name}): {exc}")
-            if DISCORD_WEBHOOK_URL:
-                send_error_notification(
-                    DISCORD_WEBHOOK_URL,
-                    f"{customer.name} の処理中にエラー: {exc}",
-                )
+            except ItandiSearchError as exc:
+                print(f"[ERROR] 検索失敗 ({customer.name}): {exc}")
+                if DISCORD_WEBHOOK_URL:
+                    send_error_notification(
+                        DISCORD_WEBHOOK_URL,
+                        f"{customer.name} の検索中にエラー: {exc}",
+                    )
+            except Exception as exc:
+                print(f"[ERROR] 予期しないエラー ({customer.name}): {exc}")
+                if DISCORD_WEBHOOK_URL:
+                    send_error_notification(
+                        DISCORD_WEBHOOK_URL,
+                        f"{customer.name} の処理中にエラー: {exc}",
+                    )
 
         # ── 5b. いい生活Square 検索 ──────────────────────────
         if esq_session:
@@ -1355,7 +1376,8 @@ def main() -> None:
                 )
 
     # ── 6. ブラウザセッションを閉じる ──────────────────────
-    itandi.close()
+    if itandi:
+        itandi.close()
     if esq_session:
         esq_session.close()
     if ielove_session:
