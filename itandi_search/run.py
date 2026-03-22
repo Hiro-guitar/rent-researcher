@@ -591,7 +591,11 @@ def _restore_from_cache(
                 value = data.get(field_name)
                 if value is not None:
                     setattr(prop, field_name, value)
-            cached.append(prop)
+            # 詳細ページ由来の重要フィールドが欠損 → 再取得対象
+            if not prop.floor_text and not prop.story_text:
+                uncached.append(prop)
+            else:
+                cached.append(prop)
         else:
             uncached.append(prop)
 
