@@ -75,16 +75,22 @@ class IeloveSession:
         if not self.driver:
             raise IeloveAuthError("ブラウザセッションが初期化されていません")
 
+        is_detail = "/rent/detail/" in url
+        # 詳細ページは di_table を待つ（より確実）
+        wait_selector = "table.di_table" if is_detail else "table"
+
         for attempt in range(2):
             self.driver.get("about:blank")
             time.sleep(0.3)
 
             self.driver.get(url)
 
-            # ページロード完了を待機（table要素の出現を待つ）
+            # ページロード完了を待機
             try:
-                WebDriverWait(self.driver, 10).until(
-                    lambda d: d.find_elements(By.CSS_SELECTOR, "table")
+                WebDriverWait(self.driver, 15).until(
+                    lambda d: d.find_elements(
+                        By.CSS_SELECTOR, wait_selector
+                    )
                 )
             except TimeoutException:
                 pass  # タイムアウトでも page_source は取れるので続行
@@ -101,16 +107,16 @@ class IeloveSession:
             html = self.driver.page_source
 
             # 詳細ページの場合、コンテンツを検証
-            if "/rent/detail/" in url:
-                if "di_table" in html or "detail-info" in html:
+            if is_detail:
+                if "di_table" in html:
                     return html
-                # コンテンツ不足 → リトライ
+                # di_table がない → リトライ
                 if attempt == 0:
                     print(
                         f"[WARN] 詳細ページのコンテンツ不足、"
                         f"リトライ中... ({url})"
                     )
-                    time.sleep(2)
+                    time.sleep(3)
                     continue
 
             return html
