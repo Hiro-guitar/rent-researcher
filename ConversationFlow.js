@@ -711,7 +711,7 @@ function formatConditionSummary(state) {
   // 物件条件
   if (d.rent_max) {
     var rentDisplay = d.rent_max;
-    if (!isNaN(d.rent_max)) rentDisplay = d.rent_max + '万円';
+    if (!isNaN(d.rent_max)) rentDisplay = (parseFloat(d.rent_max) % 1 === 0 ? String(Math.round(parseFloat(d.rent_max))) : String(parseFloat(d.rent_max))) + '万円';
     lines.push('賃料上限: ' + rentDisplay);
   }
   if (d.layouts && d.layouts.length > 0) lines.push('間取り: ' + d.layouts.join(', '));

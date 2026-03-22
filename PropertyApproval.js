@@ -619,7 +619,8 @@ function handlePropertyAction(e) {
       if (webhookUrl) {
         var threadId = PropertiesService.getScriptProperties().getProperty('ACTION_LOG_THREAD_ID');
         var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
-        var rentText = rent ? (Math.round(parseInt(rent) / 10000 * 10) / 10) + '万円' : '';
+        var rentVal = rent ? Math.round(parseInt(rent) / 10000 * 10) / 10 : 0;
+        var rentText = rent ? (rentVal % 1 === 0 ? String(Math.round(rentVal)) : String(rentVal)) + '万円' : '';
         var propLabel = buildingName || ('room_id: ' + roomId);
         if (roomNumber) propLabel += ' ' + roomNumber;
 
@@ -689,7 +690,7 @@ function handlePropertyAction(e) {
                 { type: 'separator' },
                 { type: 'text', text: propLabel, weight: 'bold', size: 'md', wrap: true },
                 { type: 'box', layout: 'vertical', spacing: 'sm', margin: 'md', contents: [
-                  { type: 'text', text: [rent ? (Math.round(parseInt(rent) / 10000 * 10) / 10) + '万円' : '', layout].filter(Boolean).join(' / '), size: 'sm', color: '#666666' },
+                  { type: 'text', text: [rentText, layout].filter(Boolean).join(' / '), size: 'sm', color: '#666666' },
                   { type: 'text', text: '申込区分: ' + (applicationType || '未指定'), size: 'sm', color: '#666666' }
                 ]},
                 { type: 'separator' },

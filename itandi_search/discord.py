@@ -9,6 +9,12 @@ import requests
 from .models import Property
 
 
+def _fmt_man(yen: int) -> str:
+    """円単位の金額を万円表示用文字列に変換する。14万→'14', 14.3万→'14.3'"""
+    v = yen / 10000
+    return f"{v:g}"
+
+
 def send_property_notification(
     webhook_url: str,
     customer_name: str,
@@ -258,9 +264,9 @@ def _build_text_message(
         else:
             lines.append(f"🔗 {prop.url}")
 
-    rent_str = f"💰 **{rent_man:.1f}万円**"
+    rent_str = f"💰 **{_fmt_man(prop.rent)}万円**"
     if mgmt_man:
-        rent_str += f" (管理費: {mgmt_man:.1f}万円)"
+        rent_str += f" (管理費: {_fmt_man(prop.management_fee)}万円)"
     lines.append(rent_str)
 
     parts = []
@@ -329,8 +335,8 @@ def _build_embed(prop: Property) -> dict:
     fields = [
         {
             "name": "💰 賃料",
-            "value": f"**{rent_man:.1f}万円**"
-            + (f" (管理費: {mgmt_man:.1f}万円)" if mgmt_man else ""),
+            "value": f"**{_fmt_man(prop.rent)}万円**"
+            + (f" (管理費: {_fmt_man(prop.management_fee)}万円)" if mgmt_man else ""),
             "inline": True,
         },
         {

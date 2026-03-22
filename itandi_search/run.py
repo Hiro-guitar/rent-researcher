@@ -80,9 +80,9 @@ def _build_search_info(customer, *, search_url: str = "") -> str:
     # 賃料
     rent_parts = []
     if customer.rent_min:
-        rent_parts.append(f"{customer.rent_min / 10000:.1f}万円〜")
+        rent_parts.append(f"{customer.rent_min / 10000:g}万円〜")
     if customer.rent_max:
-        rent_parts.append(f"〜{customer.rent_max / 10000:.1f}万円")
+        rent_parts.append(f"〜{customer.rent_max / 10000:g}万円")
     if rent_parts:
         lines.append(f"💰 {''.join(rent_parts)}")
 

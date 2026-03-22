@@ -236,7 +236,7 @@ function createPropertyBubble(p) {
   var rm = (p.room != null ? String(p.room) : '');
   var ad = (p.address != null ? String(p.address) : '');
   var st = (p.station != null ? String(p.station) : '');
-  var rn = (p.rent != null ? String(p.rent) : '---');
+  var rn = (p.rent != null ? String(parseFloat(p.rent) % 1 === 0 ? Math.round(parseFloat(p.rent)) : parseFloat(p.rent)) : '---');
   var fe = (p.fee != null ? String(p.fee) : '---');
   var ly = (p.layout != null ? String(p.layout) : '---');
   var ar = (p.area != null ? String(p.area) : '---');
