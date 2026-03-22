@@ -82,18 +82,20 @@ class IeloveSession:
         wait_selector = "table.di_table" if is_detail else "table"
 
         for attempt in range(2):
-            self.driver.get("about:blank")
-            time.sleep(0.3)
-
-            # 詳細ページはRefererを付与（リファラーチェック対策）
             if is_detail:
-                self.driver.execute_cdp_cmd(
-                    "Network.setExtraHTTPHeaders",
-                    {"headers": {
-                        "Referer": "https://bb.ielove.jp/ielovebb/rent/index/"
-                    }},
+                # 詳細ページはRefererが必要なため、一覧ページを経由して
+                # JavaScriptで遷移させることでブラウザが自然にRefererを付与
+                referer_url = "https://bb.ielove.jp/ielovebb/rent/index/"
+                if self.driver.current_url != referer_url:
+                    self.driver.get(referer_url)
+                    time.sleep(1)
+                self.driver.execute_script(
+                    "window.location.href = arguments[0];", url
                 )
-            self.driver.get(url)
+            else:
+                self.driver.get("about:blank")
+                time.sleep(0.3)
+                self.driver.get(url)
 
             # ページロード完了を待機
             try:
