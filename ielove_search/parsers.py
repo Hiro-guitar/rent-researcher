@@ -388,6 +388,8 @@ _DETAIL_FIELD_MAP: dict[str, str] = {
     "特優賃": "",
     "入居時期": "move_in_date",
     "所在階": "floor_text",
+    "所在階/階建": "story_text",
+    "建物構造": "structure",
 }
 
 
@@ -395,9 +397,25 @@ def _parse_detail_tables(soup: BeautifulSoup, prop: Property) -> None:
     """詳細ページのテーブルから情報を抽出する。"""
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
+        pending_headers: list[str] | None = None
+
         for row in rows:
             ths = row.find_all("th")
             tds = row.find_all("td")
+
+            # ── ヘッダ行+データ行パターン（上部カードテーブル対応） ──
+            if ths and not tds:
+                pending_headers = [th.get_text(strip=True) for th in ths]
+                continue
+
+            if tds and not ths and pending_headers:
+                for label, td in zip(pending_headers, tds):
+                    value = td.get_text(strip=True)
+                    _map_detail_field(prop, label, value)
+                pending_headers = None
+                continue
+
+            pending_headers = None
 
             if not ths or not tds:
                 continue

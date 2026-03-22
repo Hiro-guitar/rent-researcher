@@ -69,25 +69,51 @@ class IeloveSession:
         """URL に遷移してページの HTML を返す。
 
         セッション切れの場合は再ログインしてリトライする。
+        ページロード完了を WebDriverWait で待機し、
+        詳細ページではコンテンツ検証 + リトライを行う。
         """
         if not self.driver:
             raise IeloveAuthError("ブラウザセッションが初期化されていません")
 
-        self.driver.get("about:blank")
-        time.sleep(0.3)
-
-        self.driver.get(url)
-        time.sleep(2)
-
-        # ログインページにリダイレクトされた場合は再ログイン
-        current_url = self.driver.current_url
-        if "/login" in current_url:
-            print("[INFO] セッション切れ検出、再ログイン中...")
-            self._do_login(self.driver)
+        for attempt in range(2):
             self.driver.get("about:blank")
             time.sleep(0.3)
+
             self.driver.get(url)
-            time.sleep(2)
+
+            # ページロード完了を待機（table要素の出現を待つ）
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    lambda d: d.find_elements(By.CSS_SELECTOR, "table")
+                )
+            except TimeoutException:
+                pass  # タイムアウトでも page_source は取れるので続行
+
+            time.sleep(0.5)  # レンダリング安定待ち
+
+            # ログインページにリダイレクトされた場合は再ログイン
+            current_url = self.driver.current_url
+            if "/login" in current_url:
+                print("[INFO] セッション切れ検出、再ログイン中...")
+                self._do_login(self.driver)
+                continue
+
+            html = self.driver.page_source
+
+            # 詳細ページの場合、コンテンツを検証
+            if "/rent/detail/" in url:
+                if "di_table" in html or "detail-info" in html:
+                    return html
+                # コンテンツ不足 → リトライ
+                if attempt == 0:
+                    print(
+                        f"[WARN] 詳細ページのコンテンツ不足、"
+                        f"リトライ中... ({url})"
+                    )
+                    time.sleep(2)
+                    continue
+
+            return html
 
         return self.driver.page_source
 
