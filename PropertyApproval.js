@@ -11,8 +11,7 @@
 /** 円単位の金額を万円表示文字列に変換（14万→'14', 14.3万→'14.3'） */
 function _fmtMan(yen) {
   if (!yen) return '0';
-  var v = yen / 10000;
-  return v % 1 === 0 ? String(Math.round(v)) : String(Math.round(v * 10) / 10);
+  return String(yen / 10000);
 }
 
 var PENDING_SHEET_NAME = '承認待ち物件';
