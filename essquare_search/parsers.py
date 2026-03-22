@@ -318,7 +318,7 @@ def _graphql_item_to_property(item: dict) -> Property | None:
             building_id=building_id,
             room_id=room_id,
             building_name=building_name,
-            room_number=room_number,
+            room_number=room_number.lstrip("0") or room_number,
             source="essquare",
             address=address,
             rent=rent,
