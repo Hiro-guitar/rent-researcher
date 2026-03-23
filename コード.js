@@ -673,18 +673,24 @@ function handleGetCriteria(e) {
     var name = String(row[1] || '').trim();
     if (!name) continue;
 
+    // 列マッピング (SheetWriter.js準拠):
+    // A(0):タイムスタンプ B(1):名前 C(2):都道府県 D(3):市区町村
+    // E(4):路線 F(5):駅名 G(6):徒歩 H(7):賃料上限
+    // I(8):間取り J(9):面積 K(10):築年数 L(11):構造
+    // M(12):設備 N(13):理由 O(14):引越し時期 P(15):その他 Q(16):ペット
     criteria.push({
       name: name,
       cities: _splitCSV(row[3]),
       routes: _splitCSV(row[4]),
       stations: _splitCSV(row[5]),
-      rent_max: String(row[6] || ''),
-      layouts: _splitCSV(row[7]),
-      area_min: String(row[8] || ''),
-      building_age: String(row[9] || ''),
-      structures: _splitCSV(row[10]),
-      equipment: String(row[11] || ''),
-      move_in_date: String(row[13] || '')
+      walk: String(row[6] || ''),
+      rent_max: String(row[7] || ''),
+      layouts: _splitCSV(row[8]),
+      area_min: String(row[9] || ''),
+      building_age: String(row[10] || ''),
+      structures: _splitCSV(row[11]),
+      equipment: String(row[12] || ''),
+      move_in_date: String(row[14] || '')
     });
   }
 
