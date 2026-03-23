@@ -270,19 +270,46 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
     await setStorageData({ debugLog: `${customer.name}: 検索ボタンクリック失敗: ${err.message}` });
     return;
   }
-  await sleep(3000); // 検索実行待ち
+  await setStorageData({ debugLog: `${customer.name}: 検索ボタンクリック完了、ダイアログ待ち...` });
+  await sleep(2000);
 
-  // 500件超の確認ダイアログ: OKボタンをクリック
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const okBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
-        if (okBtn) okBtn.click();
-      }
-    });
-  } catch (_) {}
-  await waitForTabLoad(tabId);
+  // 500件超の確認ダイアログ: OKボタンをクリック（複数回試行）
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const result = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const okBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
+          if (okBtn) { okBtn.click(); return 'clicked'; }
+          // 既に検索結果ページにいるかチェック
+          if (document.querySelectorAll('.p-table-body-row').length > 0) return 'already_results';
+          return 'no_dialog';
+        }
+      });
+      const status = result?.[0]?.result;
+      if (status === 'clicked' || status === 'already_results') break;
+    } catch (_) {}
+    await sleep(2000);
+  }
+  await setStorageData({ debugLog: `${customer.name}: ダイアログ処理完了、結果待ち...` });
+
+  // 検索結果が表示されるまでポーリング（最大30秒）
+  let resultsReady = false;
+  for (let i = 0; i < 10; i++) {
+    try {
+      const check = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => document.querySelectorAll('.p-table-body-row').length
+      });
+      if (check?.[0]?.result > 0) { resultsReady = true; break; }
+    } catch (_) {}
+    await sleep(3000);
+  }
+
+  if (!resultsReady) {
+    await setStorageData({ debugLog: `${customer.name}: 検索結果が表示されませんでした` });
+    return;
+  }
   await sleep(delay);
   await setStorageData({ debugLog: `${customer.name}: 検索結果ページ到達` });
 
