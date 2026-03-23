@@ -1,12 +1,15 @@
 /**
  * content-search.js
- * REINS検索結果ページから物件一覧を抽出する
+ * REINS検索結果ページ（GBK002200）および検索フォームページ（GBK001310）で動作
  *
- * REINSの検索結果ページ（GBK001*）で動作
- * 検索結果の各行から物件番号と概要情報を取得し、
- * background.js に返す
- *
- * 注意: REINSの検索結果ページのDOM構造は実際にログインして確認・調整が必要
+ * DOM構造:
+ *   .p-table > .p-table-body > .p-table-body-row（各物件、32カラム）
+ *   各カラム: .p-table-body-item
+ *     [0] No, [3] 物件番号, [4] 物件種目, [5] 面積, [6] 所在地,
+ *     [8] 賃料, [11] 建物名, [12] 所在階, [13] 間取, [15] 管理費,
+ *     [18] 沿線駅, [19] 徒歩, [24] 商号, [26] 築年月, [28] 電話
+ *   ボタン: 概要(0), 詳細(1), 図面(2) — 各行内のbutton要素
+ *   ページネーション: .page-link
  */
 
 (function () {
@@ -29,10 +32,9 @@
       return;
     }
 
-    if (msg.type === 'CLICK_PROPERTY_ROW') {
-      // 指定されたインデックスの物件行をクリックして詳細ページに遷移
+    if (msg.type === 'CLICK_DETAIL_BUTTON') {
       try {
-        clickPropertyRow(msg.index);
+        clickDetailButton(msg.index);
         sendResponse({ success: true });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
@@ -42,10 +44,41 @@
 
     if (msg.type === 'GET_TOTAL_PAGES') {
       try {
-        const totalPages = getTotalPages();
-        sendResponse({ success: true, totalPages });
+        const info = getPageInfo();
+        sendResponse({ success: true, ...info });
       } catch (err) {
-        sendResponse({ success: false, error: err.message, totalPages: 1 });
+        sendResponse({ success: false, error: err.message, totalPages: 1, currentPage: 1 });
+      }
+      return;
+    }
+
+    if (msg.type === 'GO_TO_PAGE') {
+      try {
+        goToPage(msg.page);
+        sendResponse({ success: true });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+      return;
+    }
+
+    // 検索フォーム操作（GBK001310用）
+    if (msg.type === 'FILL_SEARCH_FORM') {
+      try {
+        fillSearchForm(msg.criteria);
+        sendResponse({ success: true });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+      return;
+    }
+
+    if (msg.type === 'SUBMIT_SEARCH') {
+      try {
+        submitSearch();
+        sendResponse({ success: true });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
       }
       return;
     }
@@ -56,134 +89,220 @@
 
   // --- ログイン検出 ---
   function isLoggedIn() {
-    // 検索結果ページが表示できていればログイン済み
-    // ログアウト状態ではログインページにリダイレクトされる
-    return !location.href.includes('login') && document.body.textContent.length > 100;
+    return !location.href.includes('login') &&
+           !location.href.includes('GKG001') &&
+           document.body.textContent.length > 100;
   }
 
   // --- 検索結果から物件一覧を抽出 ---
   function extractSearchResults() {
+    const rows = document.querySelectorAll('.p-table-body-row');
+    if (rows.length === 0) {
+      return [];
+    }
+
     const results = [];
+    rows.forEach((row, index) => {
+      const items = row.querySelectorAll(':scope > .p-table-body-item');
+      if (items.length < 20) return;
 
-    // REINSの検索結果はテーブル形式で表示される
-    // 以下は推定DOM構造 — 実際のREINSページで調整が必要
+      const propertyNumber = getText(items[3]);
+      if (!propertyNumber) return;
 
-    // パターン1: テーブル行ベース
-    const rows = document.querySelectorAll('table.list-table tbody tr, .search-result-row, .bukken-row');
-    if (rows.length > 0) {
-      rows.forEach((row, index) => {
-        const result = extractFromTableRow(row, index);
-        if (result) results.push(result);
+      const rent = getText(items[8]);
+      const rentYen = parseRent(rent);
+
+      results.push({
+        index,
+        propertyNumber,
+        propertyType: getText(items[4]),
+        area: getText(items[5]),
+        address: getText(items[6]),
+        rent,
+        rentYen,
+        managementFee: getText(items[15]),
+        buildingName: getText(items[11]),
+        floor: getText(items[12]),
+        layout: normalizeLayout(getText(items[13])),
+        line: getText(items[18]),
+        walk: getText(items[19]),
+        builtDate: getText(items[26]),
+        shougo: getText(items[24]),
+        tel: getText(items[28])
       });
-      return results;
+    });
+
+    return results;
+  }
+
+  // --- 詳細ボタンクリック ---
+  function clickDetailButton(index) {
+    const rows = document.querySelectorAll('.p-table-body-row');
+    if (index >= rows.length) {
+      throw new Error(`行 ${index} が見つかりません（全${rows.length}行）`);
     }
 
-    // パターン2: カード/リストベース（REINSのSPA的な構造）
-    const cards = document.querySelectorAll('.card.bukken, .property-card, .result-item');
-    if (cards.length > 0) {
-      cards.forEach((card, index) => {
-        const result = extractFromCard(card, index);
-        if (result) results.push(result);
-      });
-      return results;
+    const buttons = rows[index].querySelectorAll('button');
+    // buttons[0]=概要, buttons[1]=詳細, buttons[2]=図面
+    const detailBtn = buttons[1];
+    if (!detailBtn) {
+      throw new Error(`行 ${index} に詳細ボタンがありません`);
     }
+    detailBtn.click();
+  }
 
-    // パターン3: p-label-title ベース（詳細ページと同じ構造の場合）
-    // 検索結果にも .p-label-title が使われている可能性
-    const propertyNumbers = [];
-    const labels = document.querySelectorAll('.p-label-title');
-    labels.forEach(label => {
-      if (label.textContent.trim() === '\u7269\u4ef6\u756a\u53f7') { // 物件番号
-        const container = label.closest('.p-label')?.parentElement;
-        const value = container?.querySelector('.row .col')?.textContent.trim();
-        if (value && !propertyNumbers.includes(value)) {
-          propertyNumbers.push(value);
+  // --- ページネーション ---
+  function getPageInfo() {
+    const pageLinks = document.querySelectorAll('.page-link');
+    let maxPage = 1;
+    let currentPage = 1;
+
+    pageLinks.forEach(link => {
+      const num = parseInt(link.textContent.trim(), 10);
+      if (!isNaN(num)) {
+        if (num > maxPage) maxPage = num;
+        // アクティブなページを検出
+        const li = link.closest('li');
+        if (li && li.classList.contains('active')) {
+          currentPage = num;
         }
       }
     });
 
-    if (propertyNumbers.length > 0) {
-      propertyNumbers.forEach((num, index) => {
-        results.push({
-          index,
-          propertyNumber: num,
-          summary: `\u7269\u4ef6\u756a\u53f7: ${num}` // 物件番号: XXX
-        });
-      });
-      return results;
+    // テキストからも情報取得: "1～50件 ／ 500件"
+    const pageText = document.body.textContent.match(/(\d+)～(\d+)件\s*／\s*(\d+)件/);
+    let totalItems = 0;
+    if (pageText) {
+      totalItems = parseInt(pageText[3], 10);
+      const perPage = parseInt(pageText[2], 10) - parseInt(pageText[1], 10) + 1;
+      if (perPage > 0) {
+        maxPage = Math.ceil(totalItems / perPage);
+      }
     }
 
-    // 結果が取得できなかった場合
-    console.warn('REINS検索結果の抽出に失敗: DOM構造を確認してください');
-    return results;
+    return { totalPages: maxPage, currentPage, totalItems };
   }
 
-  function extractFromTableRow(row, index) {
-    const cells = row.querySelectorAll('td');
-    if (cells.length < 3) return null;
-
-    // テーブル構造は推定 — 実際のREINSで調整
-    const propertyNumber = cells[0]?.textContent.trim() || '';
-    const buildingName = cells[1]?.textContent.trim() || '';
-    const rentText = cells[2]?.textContent.trim() || '';
-
-    if (!propertyNumber) return null;
-
-    return {
-      index,
-      propertyNumber,
-      summary: `${buildingName} ${rentText}`.trim()
-    };
-  }
-
-  function extractFromCard(card, index) {
-    // カード内のテキストから物件番号を探す
-    const text = card.textContent;
-    const numMatch = text.match(/\u7269\u4ef6\u756a\u53f7[:\s]*([A-Z0-9\-]+)/i); // 物件番号: XXX
-    if (!numMatch) return null;
-
-    return {
-      index,
-      propertyNumber: numMatch[1],
-      summary: text.substring(0, 100).trim()
-    };
-  }
-
-  // --- 物件行クリック（詳細ページへ遷移） ---
-  function clickPropertyRow(index) {
-    // 検索結果の行をクリックして詳細ページに遷移
-    const clickables = document.querySelectorAll(
-      'table.list-table tbody tr, .search-result-row, .bukken-row, .card.bukken, .property-card, .result-item'
-    );
-
-    if (index < clickables.length) {
-      // リンクがあればクリック
-      const link = clickables[index].querySelector('a');
-      if (link) {
+  function goToPage(page) {
+    const pageLinks = document.querySelectorAll('.page-link');
+    for (const link of pageLinks) {
+      if (link.textContent.trim() === String(page)) {
         link.click();
         return;
       }
-      // リンクがなければ行自体をクリック
-      clickables[index].click();
-      return;
     }
-
-    throw new Error(`\u884c ${index} \u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093`); // 行 N が見つかりません
+    throw new Error(`ページ ${page} のリンクが見つかりません`);
   }
 
-  // --- ページネーション ---
-  function getTotalPages() {
-    // ページネーション要素からの総ページ数取得
-    // REINSの具体的な構造に合わせて調整が必要
-    const paginationLinks = document.querySelectorAll('.pagination a, .pager a, nav[aria-label="pagination"] a');
-    if (paginationLinks.length === 0) return 1;
+  // --- 検索フォーム操作（GBK001310用） ---
+  function fillSearchForm(criteria) {
+    // 物件種別1: 賃貸マンション(03)
+    const typeSelect = document.querySelectorAll('select');
+    for (const sel of typeSelect) {
+      const options = [...sel.options];
+      if (options.find(o => o.value === '03' && o.text.includes('賃貸マンション'))) {
+        sel.value = '03';
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        break;
+      }
+    }
 
-    let maxPage = 1;
-    paginationLinks.forEach(link => {
-      const num = parseInt(link.textContent.trim(), 10);
-      if (!isNaN(num) && num > maxPage) maxPage = num;
-    });
+    // テキスト入力フィールド: ラベルテキストで特定
+    const textInputs = document.querySelectorAll('input[type="text"]');
 
-    return maxPage;
+    // 都道府県名
+    if (criteria.prefecture) {
+      const prefInput = findInputByLabel('都道府県名', textInputs);
+      if (prefInput) setInputValue(prefInput, criteria.prefecture);
+    }
+
+    // 所在地名1（市区町村）
+    if (criteria.city) {
+      const cityInput = findInputByLabel('所在地名１', textInputs);
+      if (cityInput) setInputValue(cityInput, criteria.city);
+    }
+
+    // 沿線名
+    if (criteria.lineName) {
+      const lineInput = findInputByLabel('沿線名', textInputs);
+      if (lineInput) setInputValue(lineInput, criteria.lineName);
+    }
+
+    // 駅名
+    if (criteria.stationName) {
+      const stationInputs = findInputsByLabel('駅名', textInputs);
+      if (stationInputs.length > 0) setInputValue(stationInputs[0], criteria.stationName);
+    }
+
+    // 賃料の範囲入力（あれば）
+    // TODO: 賃料フィルタの入力フィールドを特定して設定
+  }
+
+  function submitSearch() {
+    const buttons = document.querySelectorAll('button');
+    for (const btn of buttons) {
+      if (btn.textContent.trim() === '検索') {
+        btn.click();
+        return;
+      }
+    }
+    throw new Error('検索ボタンが見つかりません');
+  }
+
+  // --- ユーティリティ ---
+  function getText(el) {
+    return el ? el.textContent.trim() : '';
+  }
+
+  function normalizeLayout(text) {
+    if (!text) return '';
+    return text
+      .replace(/\s/g, '')
+      .replace(/[Ａ-Ｚａ-ｚ０-９]/g, s =>
+        String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
+      );
+  }
+
+  function parseRent(rentStr) {
+    if (!rentStr) return 0;
+    const normalized = rentStr.replace(/[０-９]/g, s =>
+      String.fromCharCode(s.charCodeAt(0) - 0xFEE0)
+    );
+    const num = parseFloat(normalized.match(/[\d.]+/)?.[0] || '0');
+    if (normalized.includes('万')) return Math.round(num * 10000);
+    return Math.round(num);
+  }
+
+  function findInputByLabel(labelText, inputs) {
+    for (const input of inputs) {
+      const parent = input.closest('div, td');
+      if (!parent) continue;
+      const container = parent.parentElement;
+      if (!container) continue;
+      if (container.textContent.includes(labelText)) {
+        return input;
+      }
+    }
+    return null;
+  }
+
+  function findInputsByLabel(labelText, inputs) {
+    const found = [];
+    for (const input of inputs) {
+      const parent = input.closest('div, td');
+      if (!parent) continue;
+      const container = parent.parentElement;
+      if (!container) continue;
+      if (container.textContent.includes(labelText)) {
+        found.push(input);
+      }
+    }
+    return found;
+  }
+
+  function setInputValue(input, value) {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 })();

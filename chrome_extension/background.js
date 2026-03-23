@@ -160,18 +160,49 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   console.log(`検索開始: ${customer.name}`);
   const customerSeenIds = seenIds[customer.name] || [];
 
-  // REINS検索条件を構築してナビゲート
-  // 注: REINSの検索URL構造は実際のページで確認が必要
-  // 暫定的にREINSトップページから検索フォームを操作する方式
-  const searchUrl = buildReinsSearchUrl(customer);
+  // 1. 検索フォームページ（GBK001310）に移動
+  await chrome.tabs.update(tabId, { url: 'https://system.reins.jp/main/BK/GBK001310' });
+  await waitForTabLoad(tabId);
+  await sleep(delay);
 
-  if (searchUrl) {
-    await chrome.tabs.update(tabId, { url: searchUrl });
-    await waitForTabLoad(tabId);
-    await sleep(delay);
+  // 2. 検索条件を入力
+  // 顧客の条件から検索フォームに入力するデータを構築
+  const formCriteria = buildFormCriteria(customer);
+  try {
+    await sendTabMessage(tabId, { type: 'FILL_SEARCH_FORM', criteria: formCriteria });
+    await sleep(1000);
+  } catch (err) {
+    console.log(`検索フォーム入力失敗: ${err.message}`);
+    return;
   }
 
-  // 検索結果を抽出
+  // 3. 検索実行
+  try {
+    await sendTabMessage(tabId, { type: 'SUBMIT_SEARCH' });
+  } catch (err) {
+    console.log(`検索実行失敗: ${err.message}`);
+    return;
+  }
+  await waitForTabLoad(tabId);
+  await sleep(delay);
+
+  // 500件超の確認ダイアログが出る場合がある（Vueのモーダル）
+  // OKボタンを探してクリック
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const okBtn = [...document.querySelectorAll('button')].find(
+          b => b.textContent.trim() === 'OK'
+        );
+        if (okBtn) okBtn.click();
+      }
+    });
+    await waitForTabLoad(tabId);
+    await sleep(delay);
+  } catch (_) {}
+
+  // 4. 検索結果ページ（GBK002200）でデータ抽出
   let searchResults;
   try {
     searchResults = await sendTabMessage(tabId, { type: 'EXTRACT_SEARCH_RESULTS' });
@@ -188,20 +219,21 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   const { stats } = await getStorageData(['stats']);
   const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };
 
-  // 各物件の詳細を取得
+  // 5. 各物件の詳細を取得
   const newProperties = [];
 
   for (const result of searchResults.results) {
-    // 重複チェック
+    // 重複チェック（物件番号ベース）
     const roomId = `reins_${result.propertyNumber}_no_room`;
-    if (customerSeenIds.includes(roomId) || customerSeenIds.includes(`reins_${result.propertyNumber}`)) {
+    if (customerSeenIds.includes(roomId) ||
+        customerSeenIds.some(id => id.includes(result.propertyNumber))) {
       console.log(`スキップ（既知）: ${result.propertyNumber}`);
       continue;
     }
 
-    // 詳細ページに遷移
+    // 詳細ボタンをクリックして遷移
     try {
-      await sendTabMessage(tabId, { type: 'CLICK_PROPERTY_ROW', index: result.index });
+      await sendTabMessage(tabId, { type: 'CLICK_DETAIL_BUTTON', index: result.index });
       await waitForTabLoad(tabId);
       await sleep(delay);
 
@@ -212,14 +244,13 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
         currentStats.totalFound++;
       }
 
-      // 検索結果に戻る
+      // 検索結果に戻る（ブラウザバック）
       await chrome.tabs.goBack(tabId);
       await waitForTabLoad(tabId);
       await sleep(delay);
 
     } catch (err) {
       console.error(`物件 ${result.propertyNumber} の詳細取得失敗:`, err.message);
-      // エラー時も検索結果に戻る試行
       try {
         await chrome.tabs.goBack(tabId);
         await waitForTabLoad(tabId);
@@ -228,7 +259,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
     }
   }
 
-  // GASに送信
+  // 6. GASに送信
   if (newProperties.length > 0) {
     try {
       const submitResult = await submitProperties(customer.name, newProperties);
@@ -244,12 +275,23 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   await setStorageData({ stats: currentStats });
 }
 
-// --- REINS検索URL構築 ---
-function buildReinsSearchUrl(customer) {
-  // REINSの検索URL構造は実際のページで確認・調整が必要
-  // 暫定: 賃貸検索ページのベースURLを返す
-  // TODO: 顧客の条件（駅、家賃、間取り等）をURLパラメータまたはフォーム操作で反映
-  return 'https://system.reins.jp/main/BK/GBK001100';
+// --- 顧客条件 → 検索フォーム入力データに変換 ---
+function buildFormCriteria(customer) {
+  const criteria = {
+    prefecture: '東京都'  // デフォルト東京
+  };
+
+  // 市区町村（最初の1つを使用）
+  if (customer.cities && customer.cities.length > 0) {
+    criteria.city = customer.cities[0];
+  }
+
+  // 駅名（最初の1つを使用）
+  if (customer.stations && customer.stations.length > 0) {
+    criteria.stationName = customer.stations[0];
+  }
+
+  return criteria;
 }
 
 // --- ユーティリティ ---
