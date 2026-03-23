@@ -207,54 +207,71 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
 
   // 1. 検索フォームページ（GBK001310）に移動
   await chrome.tabs.update(tabId, { url: 'https://system.reins.jp/main/BK/GBK001310' });
-  await waitForTabLoad(tabId);
-  await sleep(delay);
-  await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動完了` });
+  // ページロード完了をポーリングで待つ（Vueコンポーネント初期化まで）
+  await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
+  for (let i = 0; i < 10; i++) {
+    await sleep(3000);
+    try {
+      const check = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const inp = document.querySelectorAll('input[type="text"]')[1];
+          return !!(inp && inp.__vue__);
+        }
+      });
+      if (check?.[0]?.result) break;
+    } catch (_) {}
+  }
+  await sleep(2000); // Vue初期化の追加待ち
+  await setStorageData({ debugLog: `${customer.name}: 検索フォーム準備完了` });
 
   // 2. 検索条件を入力（Vue iValue直接操作）
   const route = (customer.routes && customer.routes[0]) || '';
   const station = (customer.stations && customer.stations[0]) || '';
   try {
-    await chrome.scripting.executeScript({
+    const fillResult = await chrome.scripting.executeScript({
       target: { tabId },
       func: (route, station) => {
-        // PTextbox/PSelectboxを持つPCardコンポーネントを取得
-        // input[type="text"][1] → PTextbox → PCard → PFrame
         const inp = document.querySelectorAll('input[type="text"]')[1];
-        if (!inp || !inp.__vue__) return;
+        if (!inp || !inp.__vue__) return { error: 'Vue not found on input[1]' };
         let vm = inp.__vue__;
-        for (let i = 0; i < 2; i++) vm = vm.$parent; // PCard
+        for (let i = 0; i < 2; i++) vm = vm.$parent;
         const pframe = vm.$parent;
         const cards = pframe.$children || [];
 
-        // PCard[2] = 基本条件（物件種別等）
-        // PCard[2]のchildIdx 6 = PSelectbox 物件種別1
+        let typeSet = false, lineSet = false, stationSet = false;
+
+        // PCard[2] = 基本条件 → childIdx 6 = PSelectbox 物件種別1
         const card2 = cards[2];
         if (card2 && card2.$children[6]) {
-          card2.$children[6].iValue = '03'; // 賃貸マンション
+          card2.$children[6].iValue = '03';
+          typeSet = card2.$children[6].iValue === '03';
         }
 
         // PCard[3] = 所在地・沿線
-        // childIdx 34 = 沿線1-沿線名
-        // childIdx 37 = 沿線1-駅名FROM
         const card3 = cards[3];
         if (card3) {
           if (route && card3.$children[34]) {
             card3.$children[34].iValue = route;
+            lineSet = card3.$children[34].iValue === route;
           }
           if (station && card3.$children[37]) {
             card3.$children[37].iValue = station;
+            stationSet = card3.$children[37].iValue === station;
           }
         }
+
+        return { typeSet, lineSet, stationSet, cardCount: cards.length, card3Children: card3?.$children?.length || 0 };
       },
       args: [route, station]
     });
+    const fillData = fillResult?.[0]?.result;
     await sleep(1000);
   } catch (err) {
     await setStorageData({ debugLog: `${customer.name}: フォーム入力失敗: ${err.message}` });
     return;
   }
-  await setStorageData({ debugLog: `${customer.name}: フォーム入力完了、検索実行中...` });
+  await setStorageData({ debugLog: `${customer.name}: フォーム入力結果: ${JSON.stringify(fillResult?.[0]?.result)}` });
 
   // 3. 検索実行
   try {
