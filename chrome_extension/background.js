@@ -102,9 +102,9 @@ async function runSearchCycle() {
       return;
     }
 
-    // ログイン確認
-    const loginResult = await sendTabMessage(reinsTab.id, { type: 'CHECK_LOGIN' });
-    if (!loginResult || !loginResult.loggedIn) {
+    // ログイン確認（scripting APIで直接チェック）
+    const loggedIn = await checkReinsLogin(reinsTab.id);
+    if (!loggedIn) {
       console.log('REINSにログインしていません');
       await setStorageData({ loginDetected: false });
       showNotification('REINS未ログイン', 'REINSにログインしてください');
@@ -295,6 +295,25 @@ function buildFormCriteria(customer) {
 }
 
 // --- ユーティリティ ---
+
+async function checkReinsLogin(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        // ログインページやエラーページでないことを確認
+        const url = location.href;
+        if (url.includes('login') || url.includes('GKG001')) return false;
+        // メインメニューや物件ページが表示されていればログイン済み
+        return document.body.textContent.length > 100;
+      }
+    });
+    return results && results[0] && results[0].result === true;
+  } catch (err) {
+    console.error('ログインチェック失敗:', err.message);
+    return false;
+  }
+}
 
 async function findReinsTab() {
   const tabs = await chrome.tabs.query({ url: 'https://system.reins.jp/*' });
