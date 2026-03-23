@@ -211,44 +211,43 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   await sleep(delay);
   await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動完了` });
 
-  // 2. 検索条件を入力（scripting APIで直接DOM操作）
-  const city = (customer.cities && customer.cities[0]) || '';
+  // 2. 検索条件を入力（Vue iValue直接操作）
+  const route = (customer.routes && customer.routes[0]) || '';
   const station = (customer.stations && customer.stations[0]) || '';
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      func: (city) => {
-        // Vue (Bootstrap Vue) のコンポーネントインスタンスを直接操作
-        // 物件種別1: select[4] → 賃貸マンション(03)
-        const sel = document.querySelectorAll('select')[4];
-        if (sel && sel.__vue__) {
-          const vm = sel.__vue__;
-          vm.localValue = '03';
-          vm.$emit('input', '03');
-          vm.$emit('change', '03');
-          if (vm.$parent) vm.$parent.iValue = '03';
+      func: (route, station) => {
+        // PTextbox/PSelectboxを持つPCardコンポーネントを取得
+        // input[type="text"][1] → PTextbox → PCard → PFrame
+        const inp = document.querySelectorAll('input[type="text"]')[1];
+        if (!inp || !inp.__vue__) return;
+        let vm = inp.__vue__;
+        for (let i = 0; i < 2; i++) vm = vm.$parent; // PCard
+        const pframe = vm.$parent;
+        const cards = pframe.$children || [];
+
+        // PCard[2] = 基本条件（物件種別等）
+        // PCard[2]のchildIdx 6 = PSelectbox 物件種別1
+        const card2 = cards[2];
+        if (card2 && card2.$children[6]) {
+          card2.$children[6].iValue = '03'; // 賃貸マンション
         }
 
-        // 都道府県名: input[type="text"][1]
-        const inputs = document.querySelectorAll('input[type="text"]');
-        if (inputs[1] && inputs[1].__vue__) {
-          const vm = inputs[1].__vue__;
-          vm.localValue = '東京都';
-          vm.$emit('input', '東京都');
-          vm.$emit('update', '東京都');
-          if (vm.$parent) vm.$parent.iValue = '東京都';
-        }
-
-        // 所在地名1: input[type="text"][2]（顧客の市区町村があれば）
-        if (city && inputs[2] && inputs[2].__vue__) {
-          const vm = inputs[2].__vue__;
-          vm.localValue = city;
-          vm.$emit('input', city);
-          vm.$emit('update', city);
-          if (vm.$parent) vm.$parent.iValue = city;
+        // PCard[3] = 所在地・沿線
+        // childIdx 34 = 沿線1-沿線名
+        // childIdx 37 = 沿線1-駅名FROM
+        const card3 = cards[3];
+        if (card3) {
+          if (route && card3.$children[34]) {
+            card3.$children[34].iValue = route;
+          }
+          if (station && card3.$children[37]) {
+            card3.$children[37].iValue = station;
+          }
         }
       },
-      args: [city]
+      args: [route, station]
     });
     await sleep(1000);
   } catch (err) {
