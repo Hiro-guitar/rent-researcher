@@ -177,17 +177,12 @@ function readLatestCriteria(userId) {
     var layouts = splitCSV(latestRow[8]);
     var areaRaw = latestRow[9] ? String(latestRow[9]) : '';
 
-    // デバッグ: シートから読み込んだ生の値を確認
-    console.log('readLatestCriteria RAW - rentRaw:[' + rentRaw + '] type:' + typeof latestRow[7] + ' walkRaw:[' + walkRaw + '] areaRaw:[' + areaRaw + ']');
-
     // シート保存時にstripSuffixで除去されたサフィックスを復元
     // フォーム（RouteSelectPage.html）の値と一致させるために必要
     var walk = walkRaw && walkRaw !== '指定しない' && !/分/.test(walkRaw) ? walkRaw + '分以内' : walkRaw;
     var rentMax = rentRaw && !/万円/.test(rentRaw) ? rentRaw + '万円' : rentRaw;
     var areaMin = areaRaw && areaRaw !== '指定しない' && !/m²|m2/.test(areaRaw) ? areaRaw + 'm²' : areaRaw;
 
-    // デバッグ: 復元後の値を確認
-    console.log('readLatestCriteria RESTORED - rentMax:[' + rentMax + '] walk:[' + walk + '] areaMin:[' + areaMin + ']');
     var buildingAge = latestRow[10] ? String(latestRow[10]) : '';
     var buildingStructures = splitCSV(latestRow[11]);
     var equipment = splitCSV(latestRow[12]);
