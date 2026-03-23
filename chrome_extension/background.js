@@ -226,6 +226,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   try {
     const result = await chrome.scripting.executeScript({
       target: { tabId },
+      world: 'MAIN',
       func: async (route, station) => {
         // Vue初期化を待つ（最大30秒）
         for (let w = 0; w < 15; w++) {
