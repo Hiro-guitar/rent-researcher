@@ -474,6 +474,7 @@ def fetch_room_details(
         print(f"[WARN] Selenium セッションが無い為、詳細スクレイピングをスキップ (room_id={room_id})")
         return [], {}
 
+    import random
     import time
 
     detail_url = f"{ITANDI_BASE_URL}/rent_rooms/{room_id}"
@@ -481,7 +482,7 @@ def fetch_room_details(
 
     try:
         session.driver.get(detail_url)
-        time.sleep(3)  # ページ読み込み待ち（React SPA 考慮）
+        time.sleep(random.uniform(2, 4))  # ページ読み込み待ち（React SPA 考慮）+ ランダム化
 
         # property-images ドメインの全画像URLを取得
         image_script = """
