@@ -1,12 +1,10 @@
 name: itandi BB Property Search
 
 on:
-  # 定期実行: 10:00〜20:00 JST (UTC 01:00〜11:00)、30分おき
-  # ランダムディレイ (0〜5分) でアクセスパターンを分散
-  schedule:
-    - cron: '*/30 1-10 * * *'   # 10:00〜19:30 JST (21枠/日)
+  # 定期実行は cron-job.org から workflow_dispatch で実行
+  # GitHub Actions の cron は遅延・スキップがあるため使用しない
 
-  # GitHub UI からの手動トリガー
+  # GitHub UI / cron-job.org からのトリガー
   workflow_dispatch:
     inputs:
       force_notify:
