@@ -218,27 +218,34 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
     await chrome.scripting.executeScript({
       target: { tabId },
       func: (city) => {
-        const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-
-        // 物件種別1: 賃貸マンション(03)を選択（index 4のselect）
-        const selects = document.querySelectorAll('select');
-        if (selects[4]) {
-          selects[4].value = '03';
-          selects[4].dispatchEvent(new Event('input', {bubbles:true}));
-          selects[4].dispatchEvent(new Event('change', {bubbles:true}));
+        // Vue (Bootstrap Vue) のコンポーネントインスタンスを直接操作
+        // 物件種別1: select[4] → 賃貸マンション(03)
+        const sel = document.querySelectorAll('select')[4];
+        if (sel && sel.__vue__) {
+          const vm = sel.__vue__;
+          vm.localValue = '03';
+          vm.$emit('input', '03');
+          vm.$emit('change', '03');
+          if (vm.$parent) vm.$parent.iValue = '03';
         }
 
-        // テキスト入力（index 1=都道府県名, index 2=所在地名1）
+        // 都道府県名: input[type="text"][1]
         const inputs = document.querySelectorAll('input[type="text"]');
-        if (inputs[1]) {
-          nativeSetter.call(inputs[1], '東京都');
-          inputs[1].dispatchEvent(new Event('input', {bubbles:true}));
-          inputs[1].dispatchEvent(new Event('change', {bubbles:true}));
+        if (inputs[1] && inputs[1].__vue__) {
+          const vm = inputs[1].__vue__;
+          vm.localValue = '東京都';
+          vm.$emit('input', '東京都');
+          vm.$emit('update', '東京都');
+          if (vm.$parent) vm.$parent.iValue = '東京都';
         }
-        if (city && inputs[2]) {
-          nativeSetter.call(inputs[2], city);
-          inputs[2].dispatchEvent(new Event('input', {bubbles:true}));
-          inputs[2].dispatchEvent(new Event('change', {bubbles:true}));
+
+        // 所在地名1: input[type="text"][2]（顧客の市区町村があれば）
+        if (city && inputs[2] && inputs[2].__vue__) {
+          const vm = inputs[2].__vue__;
+          vm.localValue = city;
+          vm.$emit('input', city);
+          vm.$emit('update', city);
+          if (vm.$parent) vm.$parent.iValue = city;
         }
       },
       args: [city]
