@@ -3,7 +3,47 @@
  * REINS物件自動取得の中核 — スケジューリング、検索オーケストレーション、状態管理
  */
 
-importScripts('lib/gas-client.js');
+// === GAS API クライアント（inline） ===
+async function getConfig() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['gasWebappUrl', 'gasApiKey'], resolve);
+  });
+}
+
+async function gasGet(action, params = {}) {
+  const { gasWebappUrl, gasApiKey } = await getConfig();
+  if (!gasWebappUrl) throw new Error('GAS URLが設定されていません');
+  const url = new URL(gasWebappUrl);
+  url.searchParams.set('action', action);
+  url.searchParams.set('api_key', gasApiKey || '');
+  for (const [k, v] of Object.entries(params)) {
+    url.searchParams.set(k, v);
+  }
+  const resp = await fetch(url.toString(), { redirect: 'follow' });
+  if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status}`);
+  return resp.json();
+}
+
+async function gasPost(body) {
+  const { gasWebappUrl, gasApiKey } = await getConfig();
+  if (!gasWebappUrl) throw new Error('GAS URLが設定されていません');
+  body.api_key = gasApiKey || '';
+  const resp = await fetch(gasWebappUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(body),
+    redirect: 'follow'
+  });
+  if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status}`);
+  return resp.json();
+}
+
+async function fetchCriteria() { return gasGet('get_criteria'); }
+async function fetchSeenIds() { return gasGet('get_seen_ids'); }
+async function submitProperties(customerName, properties) {
+  return gasPost({ action: 'add_reins_property', customer_name: customerName, properties });
+}
+// === END GAS API クライアント ===
 
 // --- 初期化 ---
 chrome.runtime.onInstalled.addListener(() => {
