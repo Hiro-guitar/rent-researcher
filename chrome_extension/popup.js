@@ -2,10 +2,14 @@ document.addEventListener('DOMContentLoaded', () => {
   loadStatus();
 
   document.getElementById('searchNowBtn').addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'SEARCH_NOW' });
+    chrome.runtime.sendMessage({ type: 'SEARCH_NOW' }, (response) => {
+      console.log('SEARCH_NOW response:', response);
+    });
     document.getElementById('searchNowBtn').disabled = true;
     document.getElementById('statusText').textContent = '検索開始中...';
-    setTimeout(loadStatus, 2000);
+    // 定期的にステータスを更新（検索は非同期なので）
+    const interval = setInterval(loadStatus, 2000);
+    setTimeout(() => clearInterval(interval), 30000);
   });
 
   document.getElementById('refreshCriteriaBtn').addEventListener('click', () => {
@@ -78,6 +82,14 @@ function loadStatus() {
     } else {
       errorSection.style.display = 'none';
     }
+
+    // デバッグ: debugLog があれば表示
+    chrome.storage.local.get(['debugLog'], (d) => {
+      if (d.debugLog) {
+        errorSection.style.display = 'block';
+        document.getElementById('lastError').textContent = d.debugLog;
+      }
+    });
 
     // ボタン状態
     document.getElementById('searchNowBtn').disabled = data.isSearching || !data.gasWebappUrl;

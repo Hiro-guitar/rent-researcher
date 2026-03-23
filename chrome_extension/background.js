@@ -91,22 +91,23 @@ async function runSearchCycle() {
     return;
   }
 
-  await setStorageData({ isSearching: true });
+  await setStorageData({ isSearching: true, debugLog: '検索開始...' });
 
   try {
     // REINSタブを探す
     const reinsTab = await findReinsTab();
     if (!reinsTab) {
       console.log('REINSタブが見つかりません');
-      await setStorageData({ loginDetected: false });
+      await setStorageData({ loginDetected: false, debugLog: 'REINSタブが見つかりません' });
       return;
     }
+    await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}, url=${reinsTab.url}` });
 
     // ログイン確認（scripting APIで直接チェック）
     const loggedIn = await checkReinsLogin(reinsTab.id);
     if (!loggedIn) {
       console.log('REINSにログインしていません');
-      await setStorageData({ loginDetected: false });
+      await setStorageData({ loginDetected: false, debugLog: `ログインチェック失敗: tabId=${reinsTab.id}` });
       showNotification('REINS未ログイン', 'REINSにログインしてください');
       return;
     }
