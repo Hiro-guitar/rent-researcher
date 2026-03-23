@@ -448,8 +448,10 @@ function handlePropertyViewApi(e) {
 
   // 表示する画像: 承認時に選択されたものがあればそれ、なければ全画像
   var viewImages = prop.selectedImageUrls || prop.imageUrls || [];
+  var viewCategories = prop.selectedImageCategories || prop.imageCategories || [];
   if (viewImages.length === 0 && prop.imageUrl) {
     viewImages = [prop.imageUrl];
+    viewCategories = [''];
   }
 
   var result = {
@@ -466,6 +468,7 @@ function handlePropertyViewApi(e) {
     deposit: prop.deposit,
     keyMoney: prop.keyMoney,
     images: viewImages,
+    imageCategories: viewCategories,
     // 追加詳細情報
     storyText: prop.storyText,
     otherStations: prop.otherStations,
