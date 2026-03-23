@@ -44,12 +44,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ランダムディレイ (0〜5分): アクセスパターンを不規則にする
-      # 手動実行時はスキップ
+      # ランダムディレイ (0〜10分): アクセスパターンを不規則にする
+      # 手動実行時 (force_notify/test_mode/skip_cache/service 指定時) はスキップ
       - name: Random delay
-        if: github.event_name == 'schedule'
+        if: >-
+          github.event.inputs.force_notify != 'true' &&
+          github.event.inputs.test_mode != 'true' &&
+          github.event.inputs.skip_cache != 'true' &&
+          github.event.inputs.service == ''
         run: |
-          DELAY=$((RANDOM % 300))
+          DELAY=$((RANDOM % 600))
           echo "Waiting ${DELAY} seconds before starting..."
           sleep $DELAY
 
