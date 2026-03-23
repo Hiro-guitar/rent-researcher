@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <h1>REINS物件取得</h1>
+    <span id="loginStatus" class="status-dot offline"></span>
+  </div>
+
+  <div class="section">
+    <div class="label">ステータス</div>
+    <div id="statusText" class="value">未接続</div>
+  </div>
+
+  <div class="section">
+    <div class="label">最終検索</div>
+    <div id="lastSearch" class="value">-</div>
+  </div>
+
+  <div class="section">
+    <div class="label">次回検索</div>
+    <div id="nextSearch" class="value">-</div>
+  </div>
+
+  <div class="section stats">
+    <div>
+      <span class="label">検出</span>
+      <span id="totalFound" class="value">0</span>
+    </div>
+    <div>
+      <span class="label">送信</span>
+      <span id="totalSubmitted" class="value">0</span>
+    </div>
+    <div>
+      <span class="label">エラー</span>
+      <span id="totalErrors" class="value">0</span>
+    </div>
+  </div>
+
+  <div id="errorSection" class="section error-section" style="display:none;">
+    <div class="label">最新エラー</div>
+    <div id="lastError" class="value error-text"></div>
+  </div>
+
+  <div class="actions">
+    <button id="searchNowBtn" class="btn btn-primary">今すぐ検索</button>
+    <button id="refreshCriteriaBtn" class="btn btn-secondary">条件更新</button>
+  </div>
+
+  <div class="footer">
+    <a href="#" id="openOptions">設定</a>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

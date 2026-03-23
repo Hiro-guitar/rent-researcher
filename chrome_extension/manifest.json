@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "REINS物件自動取得",
+  "version": "1.0",
+  "description": "REINSから物件情報を定期取得し、GAS経由で承認パイプラインに送信する",
+  "permissions": [
+    "storage",
+    "alarms",
+    "tabs",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://system.reins.jp/*",
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://system.reins.jp/main/BK/GBK001*"
+      ],
+      "js": ["content-search.js"]
+    },
+    {
+      "matches": [
+        "https://system.reins.jp/main/BK/GBK003200*"
+      ],
+      "js": ["content-detail.js"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "REINS物件自動取得"
+  },
+  "options_page": "options.html"
+}

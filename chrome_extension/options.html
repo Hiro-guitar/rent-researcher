@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>REINS物件自動取得 - 設定</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      max-width: 500px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #333;
+    }
+    h1 { font-size: 18px; margin-bottom: 20px; }
+    .field { margin-bottom: 16px; }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 4px;
+      color: #555;
+    }
+    input[type="text"], input[type="number"], input[type="password"] {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .hint {
+      font-size: 11px;
+      color: #888;
+      margin-top: 2px;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 24px;
+    }
+    button {
+      padding: 8px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .btn-save { background: #2563eb; color: white; }
+    .btn-save:hover { background: #1d4ed8; }
+    .btn-test { background: #f3f4f6; color: #374151; }
+    .btn-test:hover { background: #e5e7eb; }
+    #testResult {
+      margin-top: 12px;
+      padding: 8px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      display: none;
+    }
+    .success { background: #f0fdf4; color: #16a34a; display: block !important; }
+    .error { background: #fef2f2; color: #dc2626; display: block !important; }
+    #savedMsg {
+      color: #16a34a;
+      font-size: 13px;
+      display: none;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>REINS物件自動取得 - 設定</h1>
+
+  <div class="field">
+    <label for="gasUrl">GAS Web App URL</label>
+    <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/...">
+    <div class="hint">GASデプロイ後のWeb App URLを入力</div>
+  </div>
+
+  <div class="field">
+    <label for="apiKey">API Key</label>
+    <input type="password" id="apiKey" placeholder="GASで設定したAPIキー">
+    <div class="hint">GASのスクリプトプロパティ REINS_API_KEY の値</div>
+  </div>
+
+  <div class="field">
+    <label for="interval">検索間隔（分）</label>
+    <input type="number" id="interval" min="10" max="120" value="30">
+    <div class="hint">10〜120分（デフォルト30分）</div>
+  </div>
+
+  <div class="field">
+    <label for="delay">ページ遷移遅延（秒）</label>
+    <input type="number" id="delay" min="3" max="30" value="5">
+    <div class="hint">REINS内のページ遷移間の待機時間</div>
+  </div>
+
+  <div class="actions">
+    <button class="btn-save" id="saveBtn">保存</button>
+    <button class="btn-test" id="testBtn">接続テスト</button>
+  </div>
+
+  <div id="savedMsg">保存しました</div>
+  <div id="testResult"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>
