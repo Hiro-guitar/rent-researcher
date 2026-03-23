@@ -274,6 +274,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   await sleep(2000);
 
   // 500件超の確認ダイアログ: OKボタンをクリック（複数回試行）
+  await setStorageData({ debugLog: `${customer.name}: ダイアログ待ち...` });
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       const result = await chrome.scripting.executeScript({
@@ -281,17 +282,26 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
         func: () => {
           const okBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
           if (okBtn) { okBtn.click(); return 'clicked'; }
-          // 既に検索結果ページにいるかチェック
-          if (document.querySelectorAll('.p-table-body-row').length > 0) return 'already_results';
           return 'no_dialog';
         }
       });
       const status = result?.[0]?.result;
-      if (status === 'clicked' || status === 'already_results') break;
-    } catch (_) {}
+      await setStorageData({ debugLog: `${customer.name}: ダイアログ試行${attempt+1}: ${status}` });
+      if (status === 'clicked') break;
+    } catch (err) {
+      await setStorageData({ debugLog: `${customer.name}: ダイアログ試行${attempt+1}エラー: ${err.message}` });
+    }
     await sleep(2000);
   }
-  await setStorageData({ debugLog: `${customer.name}: ダイアログ処理完了、結果待ち...` });
+
+  // OKクリック後、ページが GBK002200 に遷移するのを待つ
+  await setStorageData({ debugLog: `${customer.name}: ページ遷移待ち...` });
+  await waitForTabLoad(tabId);
+  await sleep(delay);
+
+  // URLが検索結果ページ(GBK002200)か確認
+  const tab = await chrome.tabs.get(tabId);
+  await setStorageData({ debugLog: `${customer.name}: 現在URL=${tab.url}` });
 
   // 検索結果が表示されるまでポーリング（最大30秒）
   let resultsReady = false;
@@ -301,13 +311,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
         target: { tabId },
         func: () => document.querySelectorAll('.p-table-body-row').length
       });
-      if (check?.[0]?.result > 0) { resultsReady = true; break; }
+      const count = check?.[0]?.result || 0;
+      if (count > 0) { resultsReady = true; await setStorageData({ debugLog: `${customer.name}: 検索結果 ${count}行検出` }); break; }
     } catch (_) {}
     await sleep(3000);
   }
 
   if (!resultsReady) {
-    await setStorageData({ debugLog: `${customer.name}: 検索結果が表示されませんでした` });
+    await setStorageData({ debugLog: `${customer.name}: 検索結果が表示されませんでした (URL=${tab.url})` });
     return;
   }
   await sleep(delay);
