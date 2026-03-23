@@ -209,7 +209,15 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   //    全てを1つのexecuteScriptにまとめる（Service Workerのidle timeout対策）
   await chrome.tabs.update(tabId, { url: 'https://system.reins.jp/main/BK/GBK001310' });
   await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
-  await sleep(10000); // ページロード+Vue初期化待ち
+  // ページのURL遷移+ロード完了をポーリングで確認
+  for (let w = 0; w < 20; w++) {
+    await sleep(2000);
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.url?.includes('GBK001310') && tab.status === 'complete') break;
+    } catch (_) {}
+  }
+  await sleep(3000); // 追加のVue初期化待ち
 
   const route = (customer.routes && customer.routes[0]) || '';
   const station = (customer.stations && customer.stations[0]) || '';
