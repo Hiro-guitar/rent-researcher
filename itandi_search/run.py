@@ -573,7 +573,7 @@ def _restore_from_cache(
         "floor_text", "structure", "total_units",
         "lease_type", "contract_period", "cancellation_notice",
         "renewal_info", "sunlight", "facilities",
-        "shikibiki", "pet_deposit", "free_rent",
+        "cleaning_fee", "shikibiki", "pet_deposit", "free_rent",
         "renewal_fee", "fire_insurance", "renewal_admin_fee",
         "guarantee_info", "key_exchange_fee", "support_fee_24h",
         "additional_deposit", "guarantee_deposit", "water_billing",

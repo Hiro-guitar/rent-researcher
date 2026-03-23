@@ -501,6 +501,7 @@ def _build_property_json(p) -> str:
             "bicycle_parking_fee": p.bicycle_parking_fee,
             "motorcycle_parking_fee": p.motorcycle_parking_fee,
             "other_monthly_fee": p.other_monthly_fee,
+            "cleaning_fee": p.cleaning_fee,
             "other_onetime_fee": p.other_onetime_fee,
             "move_in_conditions": p.move_in_conditions,
             "move_out_date": p.move_out_date,

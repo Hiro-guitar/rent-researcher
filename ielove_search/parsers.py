@@ -377,9 +377,9 @@ _DETAIL_FIELD_MAP: dict[str, str] = {
     "鍵交換代": "key_exchange_fee",
     "鍵交換費": "key_exchange_fee",
     "鍵交換費用": "key_exchange_fee",
-    "室内清掃費用": "other_onetime_fee",
-    "室内清掃費": "other_onetime_fee",
-    "その他初期費用": "other_onetime_fee",
+    "室内清掃費用": "cleaning_fee",
+    "室内清掃費": "cleaning_fee",
+    "その他初期費用": "_other_initial_fees",  # 特殊処理で分割
     "その他月額費用": "other_monthly_fee",
     "保証会社": "guarantee_info",
     "構造": "structure",
@@ -459,6 +459,40 @@ def _parse_detail_tables(soup: BeautifulSoup, prop: Property) -> None:
             prop.story_text = f"地上{m.group(2)}階建"
 
 
+_CLEANING_KEYWORDS = ("クリーニング", "清掃")
+
+
+def _split_other_initial_fees(prop: Property, value: str) -> None:
+    """「その他初期費用」の複合値を項目分割し cleaning_fee / other_onetime_fee に振り分ける。
+
+    いえらぶの「その他初期費用」は複数費目が連結されている場合がある。
+    例: "プレミアデスク（税込/2年）：22,000円契約時ルームクリーニング費用（税込）：60,500円"
+    → cleaning_fee: "契約時ルームクリーニング費用（税込）：60,500円"
+    → other_onetime_fee: "プレミアデスク（税込/2年）：22,000円"
+    """
+    # 「名称：金額円」パターンで個別項目に分割
+    items = re.findall(r"([^：:]+?[：:]\s*[\d,万]+円)", value)
+    if not items:
+        # 分割できなかった場合はそのまま other_onetime_fee へ
+        if not prop.other_onetime_fee:
+            prop.other_onetime_fee = value
+        return
+
+    cleaning_parts: list[str] = []
+    other_parts: list[str] = []
+    for item in items:
+        item = item.strip()
+        if any(kw in item for kw in _CLEANING_KEYWORDS):
+            cleaning_parts.append(item)
+        else:
+            other_parts.append(item)
+
+    if cleaning_parts and not prop.cleaning_fee:
+        prop.cleaning_fee = " / ".join(cleaning_parts)
+    if other_parts and not prop.other_onetime_fee:
+        prop.other_onetime_fee = " / ".join(other_parts)
+
+
 def _map_detail_field(prop: Property, label: str, value: str) -> None:
     """ラベルと値を Property のフィールドにマッピングする。"""
     if not value or value in ("-", "−", "―", "ー", "なし", ""):
@@ -485,6 +519,10 @@ def _map_detail_field(prop: Property, label: str, value: str) -> None:
         return
 
     # 特殊処理
+    if field == "_other_initial_fees":
+        _split_other_initial_fees(prop, value)
+        return
+
     if field == "other_stations":
         # 「X線「Y」駅 徒歩Z分」を個別に抽出
         found = re.findall(

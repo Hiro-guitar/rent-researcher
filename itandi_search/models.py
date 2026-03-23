@@ -160,6 +160,7 @@ class Property:
     renewal_info: str = ""  # 更新・再契約可否
     sunlight: str = ""  # 主要採光面
     facilities: str = ""  # 設備・詳細
+    cleaning_fee: str = ""  # クリーニング費用
     shikibiki: str = ""  # 敷引き償却
     pet_deposit: str = ""  # ペット飼育時敷金追加
     free_rent: str = ""  # フリーレント

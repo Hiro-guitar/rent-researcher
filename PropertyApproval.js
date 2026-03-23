@@ -934,6 +934,7 @@ function rowToProperty(row) {
     fireInsurance: _normalizeValue(extra.fire_insurance),
     renewalAdminFee: _normalizeValue(extra.renewal_admin_fee),
     guaranteeInfo: _normalizeValue(extra.guarantee_info),
+    cleaningFee: _normalizeValue(extra.cleaning_fee),
     keyExchangeFee: _normalizeValue(extra.key_exchange_fee),
     supportFee24h: _normalizeValue(extra.support_fee_24h),
     rightsFee: _normalizeValue(extra.rights_fee),
@@ -1034,6 +1035,7 @@ function updateSheetWithEdits(rowIndex, prop) {
   extra.fire_insurance = prop.fireInsurance || '';
   extra.renewal_admin_fee = prop.renewalAdminFee || '';
   extra.guarantee_info = prop.guaranteeInfo || '';
+  extra.cleaning_fee = prop.cleaningFee || '';
   extra.key_exchange_fee = prop.keyExchangeFee || '';
   extra.support_fee_24h = prop.supportFee24h || '';
   extra.rights_fee = prop.rightsFee || '';
@@ -1297,6 +1299,7 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += _inputRow('\u706B\u707D\u4FDD\u967A', 'fireInsurance', prop.fireInsurance);
   html += _inputRow('\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', 'renewalAdminFee', prop.renewalAdminFee);
   html += _textareaRow('\u4FDD\u8A3C\u6599', 'guaranteeInfo', prop.guaranteeInfo);
+  html += _inputRow('\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u8CBB\u7528', 'cleaningFee', prop.cleaningFee);
   html += _inputRow('\u9375\u4EA4\u63DB\u8CBB\u7528', 'keyExchangeFee', prop.keyExchangeFee);
   html += _inputRow('24\u6642\u9593\u30B5\u30DD\u30FC\u30C8\u8CBB', 'supportFee24h', prop.supportFee24h);
   html += _inputRow('\u6A29\u5229\u91D1', 'rightsFee', prop.rightsFee);
@@ -1791,6 +1794,7 @@ function makeViewHtml(prop) {
   if (_hv(prop.fireInsurance)) costRows.push(['\u706B\u707D\u4FDD\u967A\u6599', prop.fireInsurance]);
   if (_hv(prop.renewalAdminFee)) costRows.push(['\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', prop.renewalAdminFee]);
   if (_hv(prop.guaranteeInfo)) costRows.push(['\u4FDD\u8A3C\u6599', prop.guaranteeInfo]);
+  if (_hv(prop.cleaningFee)) costRows.push(['\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u8CBB\u7528', prop.cleaningFee]);
   if (_hv(prop.keyExchangeFee)) costRows.push(['\u9375\u4EA4\u63DB\u8CBB\u7528', prop.keyExchangeFee]);
   if (_hv(prop.supportFee24h)) costRows.push(['24\u6642\u9593\u30B5\u30DD\u30FC\u30C8\u8CBB', prop.supportFee24h]);
   if (_hv(prop.rightsFee)) costRows.push(['\u6A29\u5229\u91D1', prop.rightsFee]);

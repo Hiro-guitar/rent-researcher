@@ -111,7 +111,7 @@ facilities, shikibiki, pet_deposit, free_rent, renewal_fee,
 fire_insurance, renewal_admin_fee, guarantee_info, key_exchange_fee,
 support_fee_24h, additional_deposit, guarantee_deposit,
 water_billing, parking_fee, bicycle_parking_fee, motorcycle_parking_fee,
-other_monthly_fee, other_onetime_fee, move_in_conditions,
+cleaning_fee, other_monthly_fee, other_onetime_fee, move_in_conditions,
 move_out_date, free_rent_detail, layout_detail,
 selected_image_urls (承認時に追加)
 ```
@@ -1207,6 +1207,7 @@ class Property:
     parking_fee: str                   # 駐車場代
     bicycle_parking_fee: str           # 駐輪場代
     motorcycle_parking_fee: str        # バイク置き場代
+    cleaning_fee: str                  # クリーニング費用
     other_monthly_fee: str             # その他月次費用
     other_onetime_fee: str             # その他一時金
     move_in_conditions: str            # 入居条件（ペット可否・法人可否等）
