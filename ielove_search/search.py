@@ -4,6 +4,7 @@ CustomerCriteria から検索URLを組み立て、
 HTML をパースして物件リストを返す。
 """
 
+import random
 import re
 import time
 from typing import Optional
@@ -195,7 +196,7 @@ def search_properties(
             break
 
         page += 1
-        time.sleep(1)  # ページ間ウェイト
+        time.sleep(random.uniform(1, 3))  # ページ間ランダムウェイト
 
     return all_properties, search_url
 
@@ -226,9 +227,8 @@ def enrich_property_details(
             )
             continue
 
-        # レート制限
-        if (i + 1) % 10 == 0:
-            time.sleep(1)
+        # 詳細ページごとにランダム遅延
+        time.sleep(random.uniform(1, 3))
 
     # 画像ダウンロード（最初の1枚をDiscord添付用に）
     _download_first_images(session, properties)
