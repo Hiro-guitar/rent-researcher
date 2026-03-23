@@ -235,7 +235,16 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
         }
 
         const inp = document.querySelectorAll('input[type="text"]')[1];
-        if (!inp || !inp.__vue__) return { error: 'Vue not ready' };
+        if (!inp || !inp.__vue__) {
+          return {
+            error: 'Vue not ready',
+            url: location.href,
+            inputCount: document.querySelectorAll('input[type="text"]').length,
+            bodyLength: document.body.textContent.length,
+            hasInput1: !!inp,
+            hasVue: !!(inp && inp.__vue__)
+          };
+        }
 
         let vm = inp.__vue__;
         for (let i = 0; i < 2; i++) vm = vm.$parent;
