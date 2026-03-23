@@ -219,7 +219,25 @@ def enrich_property_details(
 
         try:
             html = session.get_page(prop.url)
+            # 最初の1件だけHTMLをダンプ（デバッグ用）
+            if i == 0:
+                try:
+                    import pathlib
+                    dump_path = pathlib.Path("/tmp/ielove_detail_debug.html")
+                    dump_path.write_text(html, encoding="utf-8")
+                    print(f"[DEBUG] 詳細ページHTML保存: {dump_path}")
+                except Exception:
+                    pass
             parse_detail_page(html, prop)
+            if prop.image_urls:
+                print(
+                    f"[DEBUG] {prop.building_name}: "
+                    f"画像 {len(prop.image_urls)}枚取得"
+                )
+                for j, u in enumerate(prop.image_urls[:5]):
+                    print(f"  [{j}] {u}")
+                if len(prop.image_urls) > 5:
+                    print(f"  ... 他 {len(prop.image_urls) - 5}枚")
         except Exception as exc:
             print(
                 f"[WARN] いえらぶBB 詳細取得失敗 "

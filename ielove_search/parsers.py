@@ -668,31 +668,157 @@ def _extract_facilities(soup: BeautifulSoup) -> str:
     return " / ".join(flat_parts) if flat_parts else ""
 
 
+def _normalize_image_url(src: str) -> str:
+    """画像URLを正規化する。"""
+    if src.startswith("//"):
+        return "https:" + src
+    if src.startswith("/"):
+        return IELOVE_BASE_URL + src
+    return src
+
+
+# 画像URLサイズパターン: {base}_{number}_{width}_{height}.{ext}
+_IMG_SIZE_RE = re.compile(r"^(.+_\d+)_(\d+)_(\d+)(\.\w+)$")
+# フルサイズ解像度（いえらぶBBスライダーの大画像サイズ）
+_FULL_WIDTH, _FULL_HEIGHT = "550", "413"
+
+
+def _to_full_size_url(url: str) -> str:
+    """サムネイルURLをフルサイズURLに変換する。
+
+    例: .../58481_643643_1_80_60.jpg → .../58481_643643_1_550_413.jpg
+    """
+    m = _IMG_SIZE_RE.match(url)
+    if m:
+        return f"{m.group(1)}_{_FULL_WIDTH}_{_FULL_HEIGHT}{m.group(4)}"
+    return url
+
+
 def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
-    """詳細ページから画像URLを抽出する。"""
+    """詳細ページから物件画像のフルサイズURLを抽出する。
+
+    いえらぶBBの詳細ページは bxSlider を使用:
+    - ul.bxLargeslider: 大画像スライダー（1枚目のみロード済み、残りは lazy）
+    - ul.bxslider: サムネイルスライダー（最初の数枚ロード済み、残りは lazy）
+    - div.similaLists: 類似物件（除外対象）
+
+    画像URLパターン: {base}_{number}_{width}_{height}.{ext}
+    → サムネ(80x60)のURLからフルサイズ(550x413)に変換して全画像を取得する。
+
+    lazy 画像は onclick="jumpBxSlider(N)" の N から画像番号を推測し、
+    ロード済み画像のURLをベースにフルサイズURLを構築する。
+    """
     urls: list[str] = []
     seen: set[str] = set()
 
+    def _add(url: str) -> None:
+        if url not in seen:
+            seen.add(url)
+            urls.append(url)
+
+    # ── Strategy 1: bxSlider 構造から画像URL を構築 ──
+    thumb_slider = soup.select_one("ul.bxslider")
+    large_slider = soup.select_one("ul.bxLargeslider")
+
+    if thumb_slider or large_slider:
+        # ロード済みの実画像URLを収集（ベースURL特定用）
+        base_url_template: Optional[str] = None  # e.g. ".../58481_643643"
+        ext = ".jpg"
+
+        # (a) ロード済みサムネイルから画像番号とベースURLを取得
+        loaded_numbers: set[int] = set()
+        if thumb_slider:
+            for li in thumb_slider.select(
+                "li.thumbImage:not(.bx-clone)"
+            ):
+                img = li.find("img")
+                if not img:
+                    continue
+                src = img.get("src", "")
+                if src.startswith("data:"):
+                    continue
+                src = _normalize_image_url(src)
+                m = _IMG_SIZE_RE.match(src)
+                if m:
+                    base_url_template = m.group(1).rsplit("_", 1)[0]
+                    ext = m.group(4)
+                    num = int(m.group(1).rsplit("_", 1)[1])
+                    loaded_numbers.add(num)
+
+        # (b) ロード済み大画像からもベースURL取得（サムネがなかった場合）
+        if not base_url_template and large_slider:
+            for li in large_slider.select(
+                "li.largeImage:not(.bx-clone)"
+            ):
+                img = li.find("img")
+                if not img:
+                    continue
+                src = img.get("src", "")
+                if src.startswith("data:"):
+                    continue
+                src = _normalize_image_url(src)
+                m = _IMG_SIZE_RE.match(src)
+                if m:
+                    base_url_template = m.group(1).rsplit("_", 1)[0]
+                    ext = m.group(4)
+                    num = int(m.group(1).rsplit("_", 1)[1])
+                    loaded_numbers.add(num)
+
+        # (c) 全画像番号を収集（onclick="jumpBxSlider(N)" から）
+        all_numbers: set[int] = set(loaded_numbers)
+        slider_container = thumb_slider or large_slider
+        if slider_container:
+            for li in slider_container.select(
+                "li:not(.bx-clone)"
+            ):
+                img = li.find("img")
+                if not img:
+                    continue
+                onclick = img.get("onclick", "")
+                m_click = re.search(r"jumpBxSlider\((\d+)\)", onclick)
+                if m_click:
+                    all_numbers.add(int(m_click.group(1)))
+
+        # (d) 大画像スライダーの非クローン li 数から総画像数を推測
+        if large_slider:
+            non_clone_count = len(
+                large_slider.select("li.largeImage:not(.bx-clone)")
+            )
+            # スライダーは 1-indexed
+            for n in range(1, non_clone_count + 1):
+                all_numbers.add(n)
+
+        # (e) ベースURLと画像番号からフルサイズURLリストを構築
+        if base_url_template and all_numbers:
+            for num in sorted(all_numbers):
+                full_url = (
+                    f"{base_url_template}_{num}"
+                    f"_{_FULL_WIDTH}_{_FULL_HEIGHT}{ext}"
+                )
+                _add(full_url)
+            return urls
+
+    # ── Strategy 2: bxSlider が見つからない場合のフォールバック ──
+    # similaLists 内の画像を除外しつつ、ページ上の画像を収集
+    exclude_ids: set[int] = set()
+    for section in soup.select(
+        ".similaLists, .similar, .recommend, .other_room, .pickup, "
+        '[class*="similar"], [class*="recommend"]'
+    ):
+        for img in section.find_all("img"):
+            exclude_ids.add(id(img))
+
     for img in soup.find_all("img"):
-        src = img.get("src") or img.get("data-src") or ""
-        if not src or _is_icon(src):
+        if id(img) in exclude_ids:
+            continue
+        src = img.get("data-src") or img.get("src") or ""
+        if not src or src.startswith("data:") or _is_icon(src):
             continue
         if "noimage" in src.lower() or "dummy" in src.lower():
             continue
-        # data: URI (lazy-load placeholder) を除外
-        if src.startswith("data:"):
-            continue
-
-        if src.startswith("//"):
-            src = "https:" + src
-        elif src.startswith("/"):
-            src = IELOVE_BASE_URL + src
-
-        if src not in seen:
-            seen.add(src)
-            urls.append(src)
-
-        if len(urls) >= 20:
+        full = _to_full_size_url(_normalize_image_url(src))
+        _add(full)
+        if len(urls) >= 30:
             break
 
     return urls
