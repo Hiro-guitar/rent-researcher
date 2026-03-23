@@ -413,7 +413,7 @@ function handlePropertyViewApi(e) {
   // 1. キャッシュから取得（高速）
   try {
     var cache = CacheService.getScriptCache();
-    var cacheKey = 'prop_' + customerName + '_' + roomId;
+    var cacheKey = 'prop2_' + customerName + '_' + roomId;
     var cached = cache.get(cacheKey);
     if (cached) {
       return ContentService.createTextOutput(cached)
@@ -509,7 +509,7 @@ function handlePropertyViewApi(e) {
   try {
     var cache = CacheService.getScriptCache();
     var resultJson = JSON.stringify(result);
-    cache.put('prop_' + customerName + '_' + roomId, resultJson, 86400);
+    cache.put('prop2_' + customerName + '_' + roomId, resultJson, 86400);
   } catch(e) {}
 
   return ContentService.createTextOutput(JSON.stringify(result))
