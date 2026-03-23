@@ -25,6 +25,17 @@ document.addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
     chrome.runtime.openOptionsPage();
   });
+
+  document.getElementById('resetBtn').addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.storage.local.set({
+      isSearching: false,
+      debugLog: '',
+      stats: { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null }
+    }, () => {
+      loadStatus();
+    });
+  });
 });
 
 function loadStatus() {

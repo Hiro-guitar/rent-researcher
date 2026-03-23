@@ -50,7 +50,8 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['searchIntervalMinutes'], (data) => {
     setupAlarm(data.searchIntervalMinutes || 30);
   });
-  // 初期統計
+  // 初期統計 + isSearchingリセット
+  chrome.storage.local.set({ isSearching: false });
   chrome.storage.local.get(['stats'], (data) => {
     if (!data.stats) {
       chrome.storage.local.set({
@@ -59,6 +60,9 @@ chrome.runtime.onInstalled.addListener(() => {
     }
   });
 });
+
+// Service Worker起動時にisSearchingをリセット（前回異常終了対策）
+chrome.storage.local.set({ isSearching: false });
 
 // --- アラーム ---
 function setupAlarm(intervalMinutes) {
