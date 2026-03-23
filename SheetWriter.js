@@ -172,10 +172,16 @@ function readLatestCriteria(userId) {
     var cities = splitCSV(latestRow[3]);
     var routes = splitCSV(latestRow[4]);
     var stations = splitCSV(latestRow[5]);
-    var walk = latestRow[6] ? String(latestRow[6]) : '';
-    var rentMax = latestRow[7] ? String(latestRow[7]) : '';
+    var walkRaw = latestRow[6] ? String(latestRow[6]) : '';
+    var rentRaw = latestRow[7] ? String(latestRow[7]) : '';
     var layouts = splitCSV(latestRow[8]);
-    var areaMin = latestRow[9] ? String(latestRow[9]) : '';
+    var areaRaw = latestRow[9] ? String(latestRow[9]) : '';
+
+    // シート保存時にstripSuffixで除去されたサフィックスを復元
+    // フォーム（RouteSelectPage.html）の値と一致させるために必要
+    var walk = walkRaw && walkRaw !== '指定しない' && !/分/.test(walkRaw) ? walkRaw + '分以内' : walkRaw;
+    var rentMax = rentRaw && !/万円/.test(rentRaw) ? rentRaw + '万円' : rentRaw;
+    var areaMin = areaRaw && areaRaw !== '指定しない' && !/m²|m2/.test(areaRaw) ? areaRaw + 'm²' : areaRaw;
     var buildingAge = latestRow[10] ? String(latestRow[10]) : '';
     var buildingStructures = splitCSV(latestRow[11]);
     var equipment = splitCSV(latestRow[12]);
