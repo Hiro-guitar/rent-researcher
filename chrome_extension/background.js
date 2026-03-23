@@ -209,7 +209,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   //    全てを1つのexecuteScriptにまとめる（Service Workerのidle timeout対策）
   await chrome.tabs.update(tabId, { url: 'https://system.reins.jp/main/BK/GBK001310' });
   await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
-  await sleep(5000); // ページロード待ち
+  await sleep(10000); // ページロード+Vue初期化待ち
 
   const route = (customer.routes && customer.routes[0]) || '';
   const station = (customer.stations && customer.stations[0]) || '';
@@ -219,11 +219,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
     const result = await chrome.scripting.executeScript({
       target: { tabId },
       func: async (route, station) => {
-        // Vue初期化を待つ
-        for (let w = 0; w < 10; w++) {
+        // Vue初期化を待つ（最大30秒）
+        for (let w = 0; w < 15; w++) {
           const inp = document.querySelectorAll('input[type="text"]')[1];
           if (inp && inp.__vue__) break;
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, 2000));
         }
 
         const inp = document.querySelectorAll('input[type="text"]')[1];
