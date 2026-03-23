@@ -183,12 +183,12 @@ async function runSearchCycle() {
     const { pageDelaySeconds } = await getStorageData(['pageDelaySeconds']);
     const delay = (pageDelaySeconds || 5) * 1000;
 
-    for (const customer of criteria) {
-      try {
-        await searchForCustomer(reinsTab.id, customer, seenIds, delay);
-      } catch (err) {
-        logError(`${customer.name}の検索失敗: ${err.message}`);
-      }
+    // 暫定: 最初の1顧客のみ実行（デバッグ用）
+    const customer = criteria[0];
+    try {
+      await searchForCustomer(reinsTab.id, customer, seenIds, delay);
+    } catch (err) {
+      logError(`${customer.name}の検索失敗: ${err.message}`);
     }
 
     await setStorageData({ lastSearchTime: Date.now() });
