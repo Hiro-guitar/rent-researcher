@@ -294,30 +294,27 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
     await sleep(2000);
   }
 
-  // OKクリック後、ページが GBK002200 に遷移するのを待つ
-  await setStorageData({ debugLog: `${customer.name}: ページ遷移待ち...` });
-  await waitForTabLoad(tabId);
-  await sleep(delay);
-
-  // URLが検索結果ページ(GBK002200)か確認
-  const tab = await chrome.tabs.get(tabId);
-  await setStorageData({ debugLog: `${customer.name}: 現在URL=${tab.url}` });
-
-  // 検索結果が表示されるまでポーリング（最大30秒）
+  // OKクリック後、検索結果が表示されるまでポーリング（最大60秒）
+  await setStorageData({ debugLog: `${customer.name}: 検索結果待ち...` });
   let resultsReady = false;
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 20; i++) {
+    await sleep(3000);
     try {
+      const tab = await chrome.tabs.get(tabId);
       const check = await chrome.scripting.executeScript({
         target: { tabId },
         func: () => document.querySelectorAll('.p-table-body-row').length
       });
       const count = check?.[0]?.result || 0;
-      if (count > 0) { resultsReady = true; await setStorageData({ debugLog: `${customer.name}: 検索結果 ${count}行検出` }); break; }
-    } catch (_) {}
-    await sleep(3000);
+      await setStorageData({ debugLog: `${customer.name}: ポーリング${i+1} URL=${tab.url?.split('/').pop()} rows=${count}` });
+      if (count > 0) { resultsReady = true; break; }
+    } catch (err) {
+      await setStorageData({ debugLog: `${customer.name}: ポーリング${i+1} エラー: ${err.message}` });
+    }
   }
 
   if (!resultsReady) {
+    const tab = await chrome.tabs.get(tabId);
     await setStorageData({ debugLog: `${customer.name}: 検索結果が表示されませんでした (URL=${tab.url})` });
     return;
   }
