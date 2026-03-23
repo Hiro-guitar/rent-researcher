@@ -217,26 +217,31 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      func: (city, station) => {
-        // 物件種別1: 賃貸マンション(03)を選択
+      func: (city) => {
+        const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+
+        // 物件種別1: 賃貸マンション(03)を選択（index 4のselect）
         const selects = document.querySelectorAll('select');
-        for (const sel of selects) {
-          const opt = [...sel.options].find(o => o.value === '03' && o.text.includes('賃貸マンション'));
-          if (opt) { sel.value = '03'; sel.dispatchEvent(new Event('change', {bubbles:true})); break; }
+        if (selects[4]) {
+          selects[4].value = '03';
+          selects[4].dispatchEvent(new Event('input', {bubbles:true}));
+          selects[4].dispatchEvent(new Event('change', {bubbles:true}));
         }
-        // 都道府県名
+
+        // テキスト入力（index 1=都道府県名, index 2=所在地名1）
         const inputs = document.querySelectorAll('input[type="text"]');
-        const setVal = (input, val) => { input.value = val; input.dispatchEvent(new Event('input', {bubbles:true})); input.dispatchEvent(new Event('change', {bubbles:true})); };
-        // ラベルで入力フィールドを特定
-        inputs.forEach(inp => {
-          const container = inp.closest('div')?.parentElement;
-          if (!container) return;
-          const text = container.textContent;
-          if (text.includes('都道府県名') && !inp.value) setVal(inp, '東京都');
-          if (text.includes('所在地名１') && city && !inp.value) setVal(inp, city);
-        });
+        if (inputs[1]) {
+          nativeSetter.call(inputs[1], '東京都');
+          inputs[1].dispatchEvent(new Event('input', {bubbles:true}));
+          inputs[1].dispatchEvent(new Event('change', {bubbles:true}));
+        }
+        if (city && inputs[2]) {
+          nativeSetter.call(inputs[2], city);
+          inputs[2].dispatchEvent(new Event('input', {bubbles:true}));
+          inputs[2].dispatchEvent(new Event('change', {bubbles:true}));
+        }
       },
-      args: [city, station]
+      args: [city]
     });
     await sleep(1000);
   } catch (err) {
