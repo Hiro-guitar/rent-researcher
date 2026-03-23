@@ -205,109 +205,75 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   await setStorageData({ debugLog: `検索開始: ${customer.name}` });
   const customerSeenIds = seenIds[customer.name] || [];
 
-  // 1. 検索フォームページ（GBK001310）に移動
+  // 1. 検索フォームページに移動 → フォーム入力 → 検索実行 → ダイアログOK
+  //    全てを1つのexecuteScriptにまとめる（Service Workerのidle timeout対策）
   await chrome.tabs.update(tabId, { url: 'https://system.reins.jp/main/BK/GBK001310' });
-  // ページロード完了をポーリングで待つ（Vueコンポーネント初期化まで）
   await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
-  for (let i = 0; i < 10; i++) {
-    await sleep(3000);
-    try {
-      const check = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          const inp = document.querySelectorAll('input[type="text"]')[1];
-          return !!(inp && inp.__vue__);
-        }
-      });
-      if (check?.[0]?.result) break;
-    } catch (_) {}
-  }
-  await sleep(2000); // Vue初期化の追加待ち
-  await setStorageData({ debugLog: `${customer.name}: 検索フォーム準備完了` });
+  await sleep(5000); // ページロード待ち
 
-  // 2. 検索条件を入力（Vue iValue直接操作）
   const route = (customer.routes && customer.routes[0]) || '';
   const station = (customer.stations && customer.stations[0]) || '';
+
+  // フォーム入力 + 検索クリック + OKクリックを1つのスクリプトで実行
   try {
-    const fillResult = await chrome.scripting.executeScript({
+    const result = await chrome.scripting.executeScript({
       target: { tabId },
-      func: (route, station) => {
+      func: async (route, station) => {
+        // Vue初期化を待つ
+        for (let w = 0; w < 10; w++) {
+          const inp = document.querySelectorAll('input[type="text"]')[1];
+          if (inp && inp.__vue__) break;
+          await new Promise(r => setTimeout(r, 1000));
+        }
+
         const inp = document.querySelectorAll('input[type="text"]')[1];
-        if (!inp || !inp.__vue__) return { error: 'Vue not found on input[1]' };
+        if (!inp || !inp.__vue__) return { error: 'Vue not ready' };
+
         let vm = inp.__vue__;
         for (let i = 0; i < 2; i++) vm = vm.$parent;
         const pframe = vm.$parent;
         const cards = pframe.$children || [];
 
-        let typeSet = false, lineSet = false, stationSet = false;
-
-        // PCard[2] = 基本条件 → childIdx 6 = PSelectbox 物件種別1
-        const card2 = cards[2];
-        if (card2 && card2.$children[6]) {
-          card2.$children[6].iValue = '03';
-          typeSet = card2.$children[6].iValue === '03';
+        // 物件種別1 = 賃貸マンション
+        if (cards[2] && cards[2].$children[6]) {
+          cards[2].$children[6].iValue = '03';
+        }
+        // 沿線名 + 駅名
+        if (cards[3]) {
+          if (route && cards[3].$children[34]) cards[3].$children[34].iValue = route;
+          if (station && cards[3].$children[37]) cards[3].$children[37].iValue = station;
         }
 
-        // PCard[3] = 所在地・沿線
-        const card3 = cards[3];
-        if (card3) {
-          if (route && card3.$children[34]) {
-            card3.$children[34].iValue = route;
-            lineSet = card3.$children[34].iValue === route;
+        // 検索ボタンクリック
+        await new Promise(r => setTimeout(r, 500));
+        const searchBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '検索');
+        if (searchBtn) searchBtn.click();
+
+        // ダイアログOKボタンを待ってクリック
+        for (let d = 0; d < 10; d++) {
+          await new Promise(r => setTimeout(r, 2000));
+          const okBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
+          if (okBtn) { okBtn.click(); return { success: true, step: 'ok_clicked' }; }
+          // エラーページチェック
+          if (document.body.textContent.includes('入力に誤りがあります')) {
+            return { error: 'validation_error' };
           }
-          if (station && card3.$children[37]) {
-            card3.$children[37].iValue = station;
-            stationSet = card3.$children[37].iValue === station;
+          // 既に検索結果ページに遷移した場合
+          if (document.querySelectorAll('.p-table-body-row').length > 0) {
+            return { success: true, step: 'results_direct' };
           }
         }
-
-        return { typeSet, lineSet, stationSet, cardCount: cards.length, card3Children: card3?.$children?.length || 0 };
+        return { error: 'dialog_timeout' };
       },
       args: [route, station]
     });
-    const fillData = fillResult?.[0]?.result;
-    await sleep(1000);
-  } catch (err) {
-    await setStorageData({ debugLog: `${customer.name}: フォーム入力失敗: ${err.message}` });
-    return;
-  }
-  await setStorageData({ debugLog: `${customer.name}: フォーム入力結果: ${JSON.stringify(fillResult?.[0]?.result)}` });
 
-  // 3. 検索実行
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '検索');
-        if (btn) btn.click();
-      }
-    });
+    const stepResult = result?.[0]?.result;
+    await setStorageData({ debugLog: `${customer.name}: フォーム+検索結果: ${JSON.stringify(stepResult)}` });
+    if (!stepResult?.success) return;
   } catch (err) {
-    await setStorageData({ debugLog: `${customer.name}: 検索ボタンクリック失敗: ${err.message}` });
+    await setStorageData({ debugLog: `${customer.name}: フォーム+検索エラー: ${err.message}` });
     return;
-  }
-  await setStorageData({ debugLog: `${customer.name}: 検索ボタンクリック完了、ダイアログ待ち...` });
-  await sleep(2000);
-
-  // 500件超の確認ダイアログ: OKボタンをクリック（複数回試行）
-  await setStorageData({ debugLog: `${customer.name}: ダイアログ待ち...` });
-  for (let attempt = 0; attempt < 5; attempt++) {
-    try {
-      const result = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          const okBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
-          if (okBtn) { okBtn.click(); return 'clicked'; }
-          return 'no_dialog';
-        }
-      });
-      const status = result?.[0]?.result;
-      await setStorageData({ debugLog: `${customer.name}: ダイアログ試行${attempt+1}: ${status}` });
-      if (status === 'clicked') break;
-    } catch (err) {
-      await setStorageData({ debugLog: `${customer.name}: ダイアログ試行${attempt+1}エラー: ${err.message}` });
-    }
-    await sleep(2000);
   }
 
   // OKクリック後、検索結果が表示されるまでポーリング（最大60秒）
