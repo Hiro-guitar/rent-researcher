@@ -593,23 +593,69 @@ def _map_detail_field(prop: Property, label: str, value: str) -> None:
 
 
 def _extract_facilities(soup: BeautifulSoup) -> str:
-    """設備条件を抽出する。"""
-    parts: list[str] = []
+    """設備条件をカテゴリ別に抽出する。
+
+    いえらぶBBの詳細ページは table.di_table 内に
+    th(カテゴリ名) + td(設備リスト) の行構成。
+    設備セクションは「基本設備」を含むthから始まり、テーブル末尾まで続く。
+    itandiと同じ【カテゴリ】形式で出力する。
+    """
+    categorized: dict[str, list[str]] = {}
 
     for table in soup.find_all("table"):
         table_text = table.get_text()
         if "基本設備" not in table_text and "キッチン" not in table_text:
             continue
 
-        for td in table.find_all("td"):
-            text = td.get_text(strip=True)
-            if text and len(text) > 5:
-                parts.append(text)
+        # 「基本設備」を含むth行以降を設備セクションとして取得
+        in_facility_section = False
+        for row in table.find_all("tr"):
+            th = row.find("th")
+            td = row.find("td")
+            if not th or not td:
+                continue
 
-    if parts:
-        return " / ".join(parts)
+            category = th.get_text(strip=True)
+            if not category:
+                continue
 
-    # フォールバック
+            # 「基本設備」で設備セクション開始
+            if "基本設備" in category:
+                in_facility_section = True
+
+            if not in_facility_section:
+                continue
+
+            # td内のテキストを取得（カンマ・スラッシュ区切りを統一）
+            td_text = td.get_text(strip=True)
+            if not td_text:
+                continue
+
+            # li要素がある場合はliごとに取得
+            li_items = td.find_all("li")
+            if li_items:
+                raw_items: list[str] = []
+                for li in li_items:
+                    li_text = li.get_text(strip=True)
+                    if li_text:
+                        raw_items.append(li_text)
+                td_text = "、".join(raw_items) if raw_items else td_text
+
+            # カンマ・スラッシュで個別アイテムに分割
+            items = re.split(r"[、,]\s*|\s*/\s*", td_text)
+            items = [item.strip() for item in items if item.strip()]
+
+            if items:
+                categorized[category] = items
+
+    if categorized:
+        parts = []
+        for cat, items in categorized.items():
+            parts.append(f"【{cat}】{' / '.join(items)}")
+        return "\n".join(parts)
+
+    # フォールバック: カテゴリ分けできない場合はフラットに返す
+    flat_parts: list[str] = []
     for elem in soup.find_all(string=re.compile("設備")):
         parent = elem.parent
         if parent:
@@ -617,9 +663,9 @@ def _extract_facilities(soup: BeautifulSoup) -> str:
             if sibling:
                 text = sibling.get_text(strip=True)
                 if text and len(text) > 5:
-                    parts.append(text)
+                    flat_parts.append(text)
 
-    return " / ".join(parts) if parts else ""
+    return " / ".join(flat_parts) if flat_parts else ""
 
 
 def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
