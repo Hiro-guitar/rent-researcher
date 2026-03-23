@@ -71,10 +71,11 @@ def parse_detail_page(html: str, prop: Property) -> None:
     if facilities:
         prop.facilities = facilities
 
-    # 画像URLを抽出
-    images = _extract_detail_images(soup)
+    # 画像URLとカテゴリを抽出
+    images, categories = _extract_detail_images(soup)
     if images:
         prop.image_urls = images
+        prop.image_categories = categories
         if not prop.image_url and images:
             prop.image_url = images[0]
 
@@ -694,27 +695,29 @@ def _to_full_size_url(url: str) -> str:
     return url
 
 
-def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
-    """詳細ページから物件画像のフルサイズURLを抽出する。
+def _extract_detail_images(
+    soup: BeautifulSoup,
+) -> tuple[list[str], list[str]]:
+    """詳細ページから物件画像のフルサイズURLとカテゴリを抽出する。
 
     いえらぶBBの詳細ページは bxSlider を使用:
     - ul.bxLargeslider: 大画像スライダー（1枚目のみロード済み、残りは lazy）
+      各 li.largeImage にカテゴリテキスト（外観・間取り等）を含む
     - ul.bxslider: サムネイルスライダー（最初の数枚ロード済み、残りは lazy）
     - div.similaLists: 類似物件（除外対象）
 
-    画像URLパターン: {base}_{number}_{width}_{height}.{ext}
-    → サムネ(80x60)のURLからフルサイズ(550x413)に変換して全画像を取得する。
-
-    lazy 画像は onclick="jumpBxSlider(N)" の N から画像番号を推測し、
-    ロード済み画像のURLをベースにフルサイズURLを構築する。
+    Returns:
+        (urls, categories) - 同じ長さのリスト。カテゴリは「カテゴリ未選択」なら空文字。
     """
     urls: list[str] = []
+    categories: list[str] = []
     seen: set[str] = set()
 
-    def _add(url: str) -> None:
+    def _add(url: str, cat: str = "") -> None:
         if url not in seen:
             seen.add(url)
             urls.append(url)
+            categories.append(cat)
 
     # ── Strategy 1: bxSlider 構造から画像URL を構築 ──
     thumb_slider = soup.select_one("ul.bxslider")
@@ -764,7 +767,21 @@ def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
                     num = int(m.group(1).rsplit("_", 1)[1])
                     loaded_numbers.add(num)
 
-        # (c) 全画像番号を収集（onclick="jumpBxSlider(N)" から）
+        # (c) 大画像スライダーからカテゴリ情報を収集（番号→カテゴリ）
+        num_to_category: dict[int, str] = {}
+        if large_slider:
+            large_items = large_slider.select(
+                "li.largeImage:not(.bx-clone)"
+            )
+            for idx, li in enumerate(large_items):
+                num = idx + 1  # 1-indexed
+                cat = li.get_text(strip=True)
+                # 「カテゴリ未選択」は空文字に正規化
+                if cat == "カテゴリ未選択":
+                    cat = ""
+                num_to_category[num] = cat
+
+        # (d) 全画像番号を収集（onclick="jumpBxSlider(N)" から）
         all_numbers: set[int] = set(loaded_numbers)
         slider_container = thumb_slider or large_slider
         if slider_container:
@@ -779,27 +796,26 @@ def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
                 if m_click:
                     all_numbers.add(int(m_click.group(1)))
 
-        # (d) 大画像スライダーの非クローン li 数から総画像数を推測
+        # (e) 大画像スライダーの非クローン li 数から総画像数を推測
         if large_slider:
             non_clone_count = len(
                 large_slider.select("li.largeImage:not(.bx-clone)")
             )
-            # スライダーは 1-indexed
             for n in range(1, non_clone_count + 1):
                 all_numbers.add(n)
 
-        # (e) ベースURLと画像番号からフルサイズURLリストを構築
+        # (f) ベースURLと画像番号からフルサイズURLリストを構築
         if base_url_template and all_numbers:
             for num in sorted(all_numbers):
                 full_url = (
                     f"{base_url_template}_{num}"
                     f"_{_FULL_WIDTH}_{_FULL_HEIGHT}{ext}"
                 )
-                _add(full_url)
-            return urls
+                cat = num_to_category.get(num, "")
+                _add(full_url, cat)
+            return urls, categories
 
     # ── Strategy 2: bxSlider が見つからない場合のフォールバック ──
-    # similaLists 内の画像を除外しつつ、ページ上の画像を収集
     exclude_ids: set[int] = set()
     for section in soup.select(
         ".similaLists, .similar, .recommend, .other_room, .pickup, "
@@ -821,4 +837,4 @@ def _extract_detail_images(soup: BeautifulSoup) -> list[str]:
         if len(urls) >= 30:
             break
 
-    return urls
+    return urls, categories

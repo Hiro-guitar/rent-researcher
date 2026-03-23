@@ -129,8 +129,12 @@ function handleConfirmApprove(e) {
 
   // 統合画像URL（順序指定）
   var selectedImageUrls = [];
+  var selectedImageCategories = [];
   if (e.parameter.ordered_image_urls) {
     try { selectedImageUrls = JSON.parse(e.parameter.ordered_image_urls); } catch(ex) {}
+  }
+  if (e.parameter.ordered_image_categories) {
+    try { selectedImageCategories = JSON.parse(e.parameter.ordered_image_categories); } catch(ex) {}
   }
   // フォールバック: 旧形式（ordered_image_urls がない場合）
   if (selectedImageUrls.length === 0) {
@@ -139,10 +143,12 @@ function handleConfirmApprove(e) {
         var idx = parseInt(selectedIndices[i], 10);
         if (!isNaN(idx) && idx >= 0 && idx < prop.imageUrls.length) {
           selectedImageUrls.push(prop.imageUrls[idx]);
+          selectedImageCategories.push((prop.imageCategories || [])[idx] || '');
         }
       }
     } else if (includeImage && prop.imageUrl) {
       selectedImageUrls = [prop.imageUrl];
+      selectedImageCategories = [''];
     }
   }
   if (selectedImageUrls.length > 0) {
@@ -151,7 +157,7 @@ function handleConfirmApprove(e) {
 
   // 選択画像をシートに保存（viewページで使用）
   if (selectedImageUrls.length > 0) {
-    saveSelectedImages(row.rowIndex, selectedImageUrls);
+    saveSelectedImages(row.rowIndex, selectedImageUrls, selectedImageCategories);
   }
 
   // 編集値をシートに反映
@@ -165,7 +171,7 @@ function handleConfirmApprove(e) {
   var viewUrl = hashUrl.length <= 1000 ? hashUrl : plainUrl; // LINE URI action 1000文字制限
 
   // 画像URLをキャッシュ（property.html からの非同期取得用）
-  cachePropertyImages(customerName, roomId, selectedImageUrls);
+  cachePropertyImages(customerName, roomId, selectedImageUrls, selectedImageCategories);
 
   var flex = buildPropertyFlex(prop, {
     includeImage: selectedImageUrls.length > 0,
@@ -220,10 +226,12 @@ function handleConfirmApproveAll(e) {
 
     // 画像を含める場合、全画像を選択済みとして保存
     var selectedUrls = [];
+    var selectedCats = [];
     if (includeImage) {
       selectedUrls = prop.imageUrls && prop.imageUrls.length > 0 ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
+      selectedCats = prop.imageCategories || [];
       if (selectedUrls.length > 0) {
-        saveSelectedImages(rows[i].rowIndex, selectedUrls);
+        saveSelectedImages(rows[i].rowIndex, selectedUrls, selectedCats);
       }
     }
 
@@ -232,7 +240,7 @@ function handleConfirmApproveAll(e) {
     var viewUrl = hashUrl.length <= 1000 ? hashUrl : plainUrl;
 
     // 画像URLをキャッシュ（property.html からの非同期取得用）
-    cachePropertyImages(customerName, rid, selectedUrls);
+    cachePropertyImages(customerName, rid, selectedUrls, selectedCats);
 
     var flex = buildPropertyFlex(prop, {
       includeImage: includeImage,
@@ -319,12 +327,16 @@ function handlePropertyView(e) {
 }
 
 // ===== 画像キャッシュ（承認時に保存、property.html から非同期取得） =====
-function cachePropertyImages(customerName, roomId, imageUrls) {
+function cachePropertyImages(customerName, roomId, imageUrls, imageCategories) {
   if (!imageUrls || imageUrls.length === 0) return;
   try {
     var cache = CacheService.getScriptCache();
     var key = 'imgs_' + customerName + '_' + roomId;
-    cache.put(key, JSON.stringify(imageUrls), 86400); // 24時間
+    var data = {images: imageUrls};
+    if (imageCategories && imageCategories.length > 0) {
+      data.categories = imageCategories;
+    }
+    cache.put(key, JSON.stringify(data), 86400); // 24時間
   } catch(e) {
     // キャッシュ失敗は無視（フォールバックでシートから取得）
   }
@@ -346,8 +358,17 @@ function handlePropertyImagesApi(e) {
     var key = 'imgs_' + customerName + '_' + roomId;
     var cached = cache.get(key);
     if (cached) {
-      return ContentService.createTextOutput(JSON.stringify({images: JSON.parse(cached)}))
-        .setMimeType(ContentService.MimeType.JSON);
+      var cachedData = JSON.parse(cached);
+      // 新形式: {images:[...], categories:[...]} / 旧形式: [url, ...]
+      if (Array.isArray(cachedData)) {
+        // 旧形式キャッシュ → 新形式に変換
+        return ContentService.createTextOutput(JSON.stringify({images: cachedData, categories: []}))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        images: cachedData.images || [],
+        categories: cachedData.categories || []
+      })).setMimeType(ContentService.MimeType.JSON);
     }
   } catch(e) {}
 
@@ -355,7 +376,7 @@ function handlePropertyImagesApi(e) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (!sheet) {
-    return ContentService.createTextOutput(JSON.stringify({images: []}))
+    return ContentService.createTextOutput(JSON.stringify({images: [], categories: []}))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -366,15 +387,16 @@ function handlePropertyImagesApi(e) {
         String(data[i][10]) === 'sent') {
       var prop = rowToProperty(data[i]);
       var imgs = prop.selectedImageUrls || prop.imageUrls || [];
-      if (imgs.length === 0 && prop.imageUrl) imgs = [prop.imageUrl];
+      var cats = prop.selectedImageCategories || prop.imageCategories || [];
+      if (imgs.length === 0 && prop.imageUrl) { imgs = [prop.imageUrl]; cats = ['']; }
       // 次回用にキャッシュ
-      cachePropertyImages(customerName, roomId, imgs);
-      return ContentService.createTextOutput(JSON.stringify({images: imgs}))
+      cachePropertyImages(customerName, roomId, imgs, cats);
+      return ContentService.createTextOutput(JSON.stringify({images: imgs, categories: cats}))
         .setMimeType(ContentService.MimeType.JSON);
     }
   }
 
-  return ContentService.createTextOutput(JSON.stringify({images: []}))
+  return ContentService.createTextOutput(JSON.stringify({images: [], categories: []}))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -910,7 +932,9 @@ function rowToProperty(row) {
     url: extra.url || '',
     imageUrl: extra.image_url || '',
     imageUrls: extra.image_urls || [],
+    imageCategories: extra.image_categories || [],
     selectedImageUrls: extra.selected_image_urls || null,
+    selectedImageCategories: extra.selected_image_categories || null,
     roomNumber: split.room,
     buildingAge: _normalizeBuildingAge(_normalizeValue(extra.building_age)),
     floor: extra.floor || 0,
@@ -954,13 +978,16 @@ function rowToProperty(row) {
 }
 
 // 確認時に選択された画像URLをシートのJSONに保存
-function saveSelectedImages(rowIndex, selectedImageUrls) {
+function saveSelectedImages(rowIndex, selectedImageUrls, selectedImageCategories) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   var cell = sheet.getRange(rowIndex, 10); // J列
   var extra = {};
   try { extra = JSON.parse(cell.getValue() || '{}'); } catch(e) {}
   extra.selected_image_urls = selectedImageUrls;
+  if (selectedImageCategories && selectedImageCategories.length > 0) {
+    extra.selected_image_categories = selectedImageCategories;
+  }
   cell.setValue(JSON.stringify(extra));
 }
 
@@ -1105,7 +1132,14 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   // 設備: objectでもstringでもそのまま
   if (prop.facilities) d.fac = prop.facilities;
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
-  if (viewImageUrls && viewImageUrls.length > 0) d.imgs = viewImageUrls;
+  if (viewImageUrls && viewImageUrls.length > 0) {
+    d.imgs = viewImageUrls;
+    // カテゴリがある場合のみ含める（URL長短縮のため）
+    var viewCats = prop.selectedImageCategories || prop.imageCategories || [];
+    if (viewCats.length > 0 && viewCats.some(function(c) { return c; })) {
+      d.imgc = viewCats;
+    }
+  }
 
   var jsonStr = JSON.stringify(d);
   var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
@@ -1210,6 +1244,7 @@ function makePreviewHtml(prop, customerName, roomId) {
   var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
 
   var images = prop.imageUrls && prop.imageUrls.length > 0 ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
+  var imageCategories = prop.imageCategories || [];
 
   var html = '<html><head><meta charset="utf-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -1237,6 +1272,8 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '.img-item .cb-wrap{position:absolute;top:4px;left:4px;z-index:2}'
     + '.img-item .cb-wrap input{width:18px;height:18px;cursor:pointer}'
     + '.img-item .idx{position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px}'
+    + '.img-item .img-cat{position:absolute;bottom:24px;left:0;right:0;text-align:center;font-size:10px;color:#fff;pointer-events:none}'
+    + '.img-item .img-cat span{background:rgba(0,0,0,0.55);padding:1px 6px;border-radius:3px}'
     + '.actions{margin-top:20px;text-align:center}'
     + '.btn{display:inline-block;padding:12px 32px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:bold;cursor:pointer;border:none}'
     + '.btn-approve{background:#4CAF50;color:#fff;margin-bottom:12px}'
@@ -1371,15 +1408,17 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'var customerName=' + JSON.stringify(customerName) + ';'
     + 'var roomId=' + JSON.stringify(String(roomId)) + ';'
     + 'var origImages=' + JSON.stringify(images) + ';'
+    + 'var origCategories=' + JSON.stringify(imageCategories) + ';'
     // ── 統合画像管理 ──
     + 'var allImages=[];'
-    + 'for(var i=0;i<origImages.length;i++){allImages.push({url:origImages[i],checked:true,isUp:false})}'
+    + 'for(var i=0;i<origImages.length;i++){allImages.push({url:origImages[i],cat:origCategories[i]||"",checked:true,isUp:false})}'
     // タイルHTML生成
     + 'function makeImgTile(i){'
     + 'var im=allImages[i];var bg=im.isUp?"33,150,243":"0,0,0";'
     + 'var h="<div class=\\"cb-wrap\\"><input type=\\"checkbox\\" "+(im.checked?"checked":"")+" onchange=\\"toggleU("+i+")\\"></div>";'
     + 'h+="<span class=\\"idx\\" style=\\"background:rgba("+bg+",0.6)\\">"+(i+1)+"</span>";'
     + 'h+="<img src=\\""+im.url+"\\" onclick=\\"openModal(this.src)\\">";'
+    + 'if(im.cat){h+="<div class=\\"img-cat\\"><span>"+im.cat+"</span></div>"}'
     + 'h+="<div class=\\"img-arrows\\">";'
     + 'h+="<button onclick=\\"moveImg("+i+",-1)\\""+((i===0)?" disabled":"")+">\\u25C0</button>";'
     + 'h+="<button onclick=\\"moveImg("+i+",1)\\""+((i===allImages.length-1)?" disabled":"")+">\\u25B6</button>";'
@@ -1478,7 +1517,7 @@ function makePreviewHtml(prop, customerName, roomId) {
     // アップロード画像を指定位置に挿入
     + 'function addUploadedImage(url){'
     + 'var pos=parseInt(document.getElementById("insertPos").value,10);'
-    + 'allImages.splice(pos,0,{url:url,checked:true,isUp:true});'
+    + 'allImages.splice(pos,0,{url:url,cat:"",checked:true,isUp:true});'
     + 'renderGrid();'
     + 'var np=Math.min(pos+1,allImages.length);'
     + 'document.getElementById("insertPos").value=String(np);'
@@ -1491,9 +1530,10 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'fd.action="confirm_approve";'
     + 'fd.customer=customerName;'
     + 'fd.room_id=roomId;'
-    + 'var selUrls=[];'
-    + 'for(var i=0;i<allImages.length;i++){if(allImages[i].checked)selUrls.push(allImages[i].url)}'
+    + 'var selUrls=[];var selCats=[];'
+    + 'for(var i=0;i<allImages.length;i++){if(allImages[i].checked){selUrls.push(allImages[i].url);selCats.push(allImages[i].cat||"")}}'
     + 'fd.ordered_image_urls=JSON.stringify(selUrls);'
+    + 'fd.ordered_image_categories=JSON.stringify(selCats);'
     + 'fd.include_image=selUrls.length>0?"1":"0";'
     + 'var inputs=document.querySelectorAll(".detail-input,.detail-textarea");'
     + 'for(var i=0;i<inputs.length;i++){fd[inputs[i].name]=inputs[i].value}'

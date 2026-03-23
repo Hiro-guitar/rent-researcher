@@ -146,6 +146,7 @@ class Property:
     url: str = ""
     image_url: Optional[str] = None
     image_urls: list[str] = field(default_factory=list)
+    image_categories: list[str] = field(default_factory=list)  # 画像カテゴリ（いえらぶ）
     image_data: Optional[bytes] = None  # 画像バイナリ（Discord添付用）
     # 追加詳細情報
     story_text: str = ""  # 階建て (例: "地上10階建")

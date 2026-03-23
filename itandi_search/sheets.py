@@ -469,6 +469,7 @@ def _build_property_json(p) -> str:
             "url": p.url,
             "image_url": p.image_url,
             "image_urls": p.image_urls,
+            "image_categories": p.image_categories,
             "room_number": p.room_number,
             "building_age": p.building_age,
             "floor": p.floor,

@@ -28,6 +28,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .carousel-dots .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.4);margin:0 3px;cursor:pointer}
 .carousel-dots .dot.active{background:#fff}
 .carousel-counter{position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:4px 10px;border-radius:12px;z-index:2}
+.carousel-cat{position:absolute;top:10px;left:10px;background:rgba(0,0,0,0.55);color:#fff;font-size:11px;padding:3px 10px;border-radius:4px;z-index:2;pointer-events:none}
 /* ヒーロー画像（1枚のみ） */
 .hero{width:100%;max-height:50vh;object-fit:cover;display:block}
 /* コンテンツ */
@@ -166,7 +167,8 @@ function decodePropertyData(encoded) {
       layoutDetail: d.ld || '',
       facilities: d.fac || '',
       otherStations: d.os || [],
-      images: d.imgs || []
+      images: d.imgs || [],
+      imageCategories: d.imgc || []
     };
   } catch(e) {
     return null;
@@ -222,25 +224,33 @@ function fetchImages(customer, roomId) {
       var data;
       try { data = JSON.parse(text); } catch(e) { return; }
       var images = data.images || [];
+      var categories = data.categories || [];
       if (images.length === 0) return;
       // currentProperty に画像を保存（お気に入り登録時の dataHash に含めるため）
-      if (currentProperty) currentProperty.images = images;
+      if (currentProperty) {
+        currentProperty.images = images;
+        currentProperty.imageCategories = categories;
+      }
       // 画像プレースホルダーに挿入
-      insertImages(images);
+      insertImages(images, categories);
     })
     .catch(function() {});
 }
 
-function insertImages(images) {
+function insertImages(images, categories) {
   var placeholder = document.getElementById('image-placeholder');
   if (!placeholder) return;
+  categories = categories || [];
 
   var html = '';
   if (images.length > 1) {
     html += '<div class="carousel" id="carousel">'
       + '<div class="carousel-inner" id="carouselInner">';
     for (var i = 0; i < images.length; i++) {
-      html += '<div class="carousel-slide"><img src="' + escHtml(images[i]) + '" alt="物件画像 ' + (i+1) + '" loading="lazy"></div>';
+      var cat = categories[i] || '';
+      html += '<div class="carousel-slide">';
+      if (cat) html += '<span class="carousel-cat">' + escHtml(cat) + '</span>';
+      html += '<img src="' + escHtml(images[i]) + '" alt="物件画像 ' + (i+1) + '" loading="lazy"></div>';
     }
     html += '</div>'
       + '<button class="carousel-btn prev" onclick="slide(-1)">&lt;</button>'
@@ -253,7 +263,13 @@ function insertImages(images) {
     }
     html += '</div>';
   } else if (images.length === 1) {
-    html += '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像" loading="lazy">';
+    var cat0 = categories[0] || '';
+    if (cat0) {
+      html += '<div style="position:relative"><span class="carousel-cat">' + escHtml(cat0) + '</span>'
+        + '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像" loading="lazy"></div>';
+    } else {
+      html += '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像" loading="lazy">';
+    }
   }
 
   placeholder.innerHTML = html;
@@ -362,6 +378,7 @@ function renderProperty(p) {
   var rentMan = p.rent ? String(p.rent / 10000) : '0';
   var mgmtMan = p.managementFee ? String(p.managementFee / 10000) : '0';
   var images = p.images || [];
+  var imageCategories = p.imageCategories || [];
 
   var html = '';
 
@@ -372,7 +389,10 @@ function renderProperty(p) {
     html += '<div class="carousel" id="carousel">'
       + '<div class="carousel-inner" id="carouselInner">';
     for (var i = 0; i < images.length; i++) {
-      html += '<div class="carousel-slide"><img src="' + escHtml(images[i]) + '" alt="物件画像 ' + (i+1) + '"></div>';
+      var cat = imageCategories[i] || '';
+      html += '<div class="carousel-slide">';
+      if (cat) html += '<span class="carousel-cat">' + escHtml(cat) + '</span>';
+      html += '<img src="' + escHtml(images[i]) + '" alt="物件画像 ' + (i+1) + '"></div>';
     }
     html += '</div>'
       + '<button class="carousel-btn prev" onclick="slide(-1)">&lt;</button>'
@@ -385,7 +405,13 @@ function renderProperty(p) {
     }
     html += '</div>';
   } else if (images.length === 1) {
-    html += '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像">';
+    var cat0 = imageCategories[0] || '';
+    if (cat0) {
+      html += '<div style="position:relative"><span class="carousel-cat">' + escHtml(cat0) + '</span>'
+        + '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像"></div>';
+    } else {
+      html += '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像">';
+    }
   }
 
   // コンテンツ
