@@ -230,12 +230,16 @@ def enrich_property_details(
                     pass
             parse_detail_page(html, prop)
             if prop.image_urls:
+                cats = prop.image_categories
+                cat_count = sum(1 for c in cats if c) if cats else 0
                 print(
                     f"[DEBUG] {prop.building_name}: "
                     f"画像 {len(prop.image_urls)}枚取得"
+                    f" (カテゴリ付き {cat_count}枚)"
                 )
                 for j, u in enumerate(prop.image_urls[:5]):
-                    print(f"  [{j}] {u}")
+                    cat = cats[j] if j < len(cats) else ""
+                    print(f"  [{j}] {cat or '(なし)'} {u}")
                 if len(prop.image_urls) > 5:
                     print(f"  ... 他 {len(prop.image_urls) - 5}枚")
         except Exception as exc:
