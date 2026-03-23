@@ -235,6 +235,7 @@ function doGet(e) {
     template.selectedCities = JSON.stringify(state.selectedCities || []);
     template.areaMethod = state.areaMethod || 'route';
     template.selectedRentMax = d.rent_max || '';
+    console.log('doGet template - rent_max:[' + d.rent_max + '] walk:[' + d.walk + '] area_min:[' + d.area_min + '] building_age:[' + d.building_age + ']');
     template.selectedLayouts = JSON.stringify(d.layouts || []);
     template.walkMax = d.walk || '';
     template.areaMin = d.area_min || '';
