@@ -826,31 +826,23 @@ function updateEquipCount(catIdx) {
 //  前回選択の復元
 // ══════════════════════════════════════════════════════════
 function restoreSelections() {
-  console.log('[DEBUG] SELECTED_ROUTES:', JSON.stringify(SELECTED_ROUTES));
-  console.log('[DEBUG] SELECTED_STATIONS:', JSON.stringify(SELECTED_STATIONS));
   // 路線
   for (var i = 0; i < SELECTED_ROUTES.length; i++) {
     var cb = document.querySelector('input[name="route"][value="' + escSel(SELECTED_ROUTES[i]) + '"]');
-    console.log('[DEBUG] route "' + SELECTED_ROUTES[i] + '" → cb found:', !!cb);
     if (cb) { cb.checked = true; expandRoute(cb, false); }
   }
   // 駅
   for (var routeName in SELECTED_STATIONS) {
     var selectedList = SELECTED_STATIONS[routeName];
-    if (!selectedList || selectedList.length === 0) { console.log('[DEBUG] station skip: empty list for "' + routeName + '"'); continue; }
+    if (!selectedList || selectedList.length === 0) continue;
     var routeCb = document.querySelector('input[name="route"][value="' + escSel(routeName) + '"]');
-    if (!routeCb) { console.log('[DEBUG] station skip: no routeCb for "' + routeName + '"'); continue; }
+    if (!routeCb) continue;
     var panel = document.getElementById('panel_' + routeCb.id);
-    if (!panel) { console.log('[DEBUG] station skip: no panel for "' + routeName + '"'); continue; }
+    if (!panel) continue;
     var staCbs = panel.querySelectorAll('.station-cb');
-    console.log('[DEBUG] route "' + routeName + '": staCbs.length=' + staCbs.length + ', selectedList=' + JSON.stringify(selectedList));
-    var checkedCount = 0;
     for (var j = 0; j < staCbs.length; j++) {
-      var match = selectedList.indexOf(staCbs[j].value) >= 0;
-      if (match) checkedCount++;
-      staCbs[j].checked = match;
+      staCbs[j].checked = selectedList.indexOf(staCbs[j].value) >= 0;
     }
-    console.log('[DEBUG] route "' + routeName + '": checked ' + checkedCount + '/' + staCbs.length);
   }
   // 市区町村
   for (var i = 0; i < SELECTED_CITIES.length; i++) {

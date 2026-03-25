@@ -190,8 +190,6 @@ function readLatestCriteria(userId) {
 
     var cities = splitCSV(latestRow[3]);
     var routeStationRaw = String(latestRow[4] || '');
-    console.log('[DEBUG readLatestCriteria] E列(routeStationRaw): "' + routeStationRaw + '"');
-    console.log('[DEBUG readLatestCriteria] F列(stations): "' + String(latestRow[5] || '') + '"');
     var stations = splitCSV(latestRow[5]);
     var walkRaw = latestRow[6] ? String(latestRow[6]) : '';
     var rentRaw = latestRow[7] ? String(latestRow[7]) : '';
@@ -258,9 +256,6 @@ function readLatestCriteria(userId) {
         }
       }
     }
-
-    console.log('[DEBUG readLatestCriteria] parsed routes: ' + JSON.stringify(routes));
-    console.log('[DEBUG readLatestCriteria] parsed selectedStations: ' + JSON.stringify(selectedStations));
 
     return {
       name: customerName,
