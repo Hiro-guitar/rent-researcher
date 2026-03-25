@@ -122,6 +122,18 @@ function filterByCustomerCriteria(properties, customer) {
       if (!stationMatch) return false;
     }
 
+    // 駅徒歩フィルタ（station_infoから徒歩分数を抽出し、指定分数以内かチェック）
+    if (customer.walk) {
+      const walkMax = parseInt(String(customer.walk).replace(/[^\d]/g, ''));
+      if (walkMax > 0 && prop.station_info) {
+        const walkMatch = prop.station_info.match(/徒歩\s*(\d+)/);
+        if (walkMatch) {
+          const propWalk = parseInt(walkMatch[1]);
+          if (propWalk > walkMax) return false;
+        }
+      }
+    }
+
     return true;
   });
 }
