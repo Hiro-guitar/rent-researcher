@@ -570,6 +570,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         for (let w = 0; w < 20; w++) {
           await csleep(2000);
           const t = await chrome.tabs.get(tabId);
+          await setStorageData({ debugLog: `${customer.name}: 遷移待ち${w+1}: url=${t.url?.split('/').pop()}` });
           if (t.url?.includes('GBK002200')) break;
         }
         break;
