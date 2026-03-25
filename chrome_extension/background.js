@@ -384,7 +384,18 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
   await setStorageData({ debugLog: `${customer.name}: stationStr="${stationStr}", rent_max=${customer.rent_max}` });
 
-  const setResult = await chrome.scripting.executeScript({
+  // .p-textbox-input が描画されるまでリトライ（最大15秒）
+  let setResult;
+  for (let retry = 0; retry < 5; retry++) {
+    const inputCheck = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => !!document.querySelector('.p-textbox-input')
+    });
+    if (inputCheck?.[0]?.result) break;
+    await csleep(3000);
+  }
+
+  setResult = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
     func: (stationStr, customerData, lineNameMap, reinsCodeMap) => {
@@ -689,7 +700,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   for (let i = 0; i < Math.min(searchResults.length, maxDetails); i++) {
     const result = searchResults[i];
     if (!result.propertyNumber) continue;
-    if (customerSeenIds.some(id => id.includes(result.propertyNumber))) continue;
+    const isTest = customer.name.includes('テスト');
+    if (!isTest && customerSeenIds.some(id => id.includes(result.propertyNumber))) continue;
 
     await setStorageData({ debugLog: `${customer.name}: 物件${i+1}/${Math.min(searchResults.length, maxDetails)} 詳細取得中 (${result.propertyNumber})` });
 
