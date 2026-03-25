@@ -242,6 +242,8 @@ async function runSearchCycle() {
   if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }
 
   const searchId = ++currentSearchId;
+  // ログをクリアして新規開始
+  await new Promise(resolve => chrome.storage.local.set({ debugLog: '' }, resolve));
   await setStorageData({ isSearching: true, debugLog: '検索開始...' });
 
   try {
@@ -880,7 +882,7 @@ function setStorageData(data) {
         const prevLog = prev.debugLog || '';
         const timestamp = new Date().toLocaleTimeString('ja-JP');
         data.debugLog = prevLog + `\n[${timestamp}] ${data.debugLog}`;
-        if (data.debugLog.length > 2000) data.debugLog = data.debugLog.slice(-2000);
+        if (data.debugLog.length > 10000) data.debugLog = data.debugLog.slice(-10000);
         chrome.storage.local.set(data, resolve);
       });
     });
