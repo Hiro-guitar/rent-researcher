@@ -248,6 +248,13 @@ async function runSearchCycle() {
 
     // 全顧客を順次検索
     for (let ci = 0; ci < criteria.length; ci++) {
+      // 中止チェック
+      const { isSearching: stillSearching } = await getStorageData(['isSearching']);
+      if (!stillSearching) {
+        await setStorageData({ debugLog: '検索が中止されました' });
+        return;
+      }
+
       const customer = criteria[ci];
       await setStorageData({ debugLog: `顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
       try {

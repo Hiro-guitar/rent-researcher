@@ -12,6 +12,12 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => clearInterval(interval), 30000);
   });
 
+  document.getElementById('stopSearchBtn').addEventListener('click', () => {
+    chrome.storage.local.set({ isSearching: false, debugLog: '検索を中止しました' }, () => {
+      loadStatus();
+    });
+  });
+
   document.getElementById('refreshCriteriaBtn').addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'REFRESH_CRITERIA' });
     document.getElementById('refreshCriteriaBtn').disabled = true;
@@ -102,8 +108,17 @@ function loadStatus() {
       }
     });
 
-    // ボタン状態
-    document.getElementById('searchNowBtn').disabled = data.isSearching || !data.gasWebappUrl;
+    // ボタン状態（検索中は中止ボタン表示）
+    const searchBtn = document.getElementById('searchNowBtn');
+    const stopBtn = document.getElementById('stopSearchBtn');
+    if (data.isSearching) {
+      searchBtn.style.display = 'none';
+      stopBtn.style.display = '';
+    } else {
+      searchBtn.style.display = '';
+      stopBtn.style.display = 'none';
+      searchBtn.disabled = !data.gasWebappUrl;
+    }
   });
 }
 
