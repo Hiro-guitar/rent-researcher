@@ -296,7 +296,27 @@ async function runSearchCycle() {
       const customer = criteria[ci];
       await setStorageData({ debugLog: `顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
       try {
-        await searchForCustomer(reinsTab.id, customer, seenIds, delay, searchId);
+        // 路線が4つ以上ある場合、3つずつに分割して複数回検索
+        const rws = customer.routes_with_stations || [];
+        if (rws.length > 3) {
+          for (let batch = 0; batch * 3 < rws.length; batch++) {
+            if (isSearchCancelled(searchId)) {
+              console.log(`検索サイクル${searchId}は中止されました`);
+              return;
+            }
+            const batchRws = rws.slice(batch * 3, (batch + 1) * 3);
+            const batchCustomer = {
+              ...customer,
+              routes: batchRws.map(r => r.route),
+              routes_with_stations: batchRws,
+            };
+            await setStorageData({ debugLog: `${customer.name}: バッチ ${batch+1}/${Math.ceil(rws.length/3)} (${batchRws.map(r=>r.route).join(', ')})` });
+            await searchForCustomer(reinsTab.id, batchCustomer, seenIds, delay, searchId);
+            if (batch * 3 + 3 < rws.length) await sleep(3000);
+          }
+        } else {
+          await searchForCustomer(reinsTab.id, customer, seenIds, delay, searchId);
+        }
       } catch (err) {
         if (err.message === 'SEARCH_CANCELLED') {
           console.log(`検索サイクル${searchId}: 中止により終了`);
