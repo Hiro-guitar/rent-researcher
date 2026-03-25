@@ -79,18 +79,24 @@ async function loadReinsCodeMap() {
 
 // 顧客条件からstation文字列を組み立て
 function buildStationString(customer) {
+  const rws = customer.routes_with_stations || [];
+  if (rws.length > 0) {
+    return rws.map(r => {
+      if (r.stations && r.stations.length > 0) {
+        return `${r.route}：${r.stations.join(', ')}`;
+      }
+      return r.route;
+    }).join(' / ');
+  }
+  // フォールバック（旧フォーマット）
   const routes = customer.routes || [];
-  const routeStations = customer.route_stations || {};
+  const stations = customer.stations || [];
   if (routes.length === 0) return '';
-  // 各路線に紐づく駅を表示（route_stationsがあれば使う）
-  const parts = routes.map(route => {
-    const stas = routeStations[route];
-    if (stas && stas.length > 0) {
-      return `${route}：${stas.join(', ')}`;
-    }
-    return route;
-  });
-  return parts.join(' / ');
+  if (routes.length === 1) {
+    const stationList = stations.join(', ');
+    return stationList ? `${routes[0]}：${stationList}` : routes[0];
+  }
+  return routes.join(' / ');
 }
 
 // 顧客条件に基づく物件フィルタリング
@@ -104,9 +110,15 @@ function filterByCustomerCriteria(properties, customer) {
     }
 
     // 駅名フィルタ（飛び飛び駅の場合、指定駅のいずれかに該当するかチェック）
-    if (customer.stations && customer.stations.length > 0) {
+    // routes_with_stations から全駅リストを構築
+    let allStations = customer.stations || [];
+    if (customer.routes_with_stations && customer.routes_with_stations.length > 0) {
+      const rwsStations = customer.routes_with_stations.flatMap(r => r.stations || []);
+      if (rwsStations.length > 0) allStations = rwsStations;
+    }
+    if (allStations.length > 0) {
       if (!prop.station_info) return false;
-      const stationMatch = customer.stations.some(s => prop.station_info.includes(s));
+      const stationMatch = allStations.some(s => prop.station_info.includes(s));
       if (!stationMatch) return false;
     }
 
@@ -439,7 +451,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           vr[`ensnRykshu${num}`] = reinsLineName;
 
           // 駅名セット（駅指定がある場合、最初と最後の駅をFrom/Toにセット）
-          if (customerData.stations && customerData.stations.length > 0 && colonIdx >= 0) {
+          if (colonIdx >= 0) {
             const stationsInLine = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
             if (stationsInLine.length > 0) {
               vr[`ekmiFrom${num}`] = stationsInLine[0];
@@ -556,7 +568,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         buildingAge: customerData.building_age || ''
       };
     },
-    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', stations: customer.stations || [] }, lineNameMap, reinsCodeMap]
+    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [] }, lineNameMap, reinsCodeMap]
   });
 
   const setStatus = setResult?.[0]?.result;
