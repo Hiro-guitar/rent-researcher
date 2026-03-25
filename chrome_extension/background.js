@@ -756,8 +756,29 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
       const detail = detailResults && detailResults[0] && detailResults[0].result;
       if (detail) {
-        newProperties.push(detail);
-        currentStats.totalFound++;
+        // 構造フィルタ（テスト顧客はスキップ）
+        const isTest = customer.name.includes('テスト');
+        const passFilter = isTest || filterByCustomerCriteria([detail], customer).length > 0;
+        if (passFilter) {
+          newProperties.push(detail);
+          currentStats.totalFound++;
+          // リアルタイムでGAS送信＋Discord通知
+          try {
+            const submitResult = await submitProperties(customer.name, [detail]);
+            if (submitResult?.success) {
+              currentStats.totalSubmitted += submitResult.added || 1;
+              await setStorageData({ debugLog: `${customer.name}: 物件${detail.reins_property_number} GAS送信完了` });
+            }
+          } catch (err) {
+            logError(`${customer.name}: 物件${detail.reins_property_number} GAS送信失敗: ${err.message}`);
+          }
+          try {
+            await sendDiscordNotification(customer.name, [detail]);
+          } catch (err) {
+            logError(`${customer.name}: 物件${detail.reins_property_number} Discord通知失敗: ${err.message}`);
+          }
+          await setStorageData({ stats: currentStats });
+        }
       }
 
       // 検索結果に戻る（REINSのSPAでは goBack だと検索フォームに戻る場合がある）
@@ -803,42 +824,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     }
   }
 
-  // --- Step 7.5: 顧客条件でフィルタリング（テスト顧客はスキップ） ---
-  let filteredProperties;
-  if (customer.name.includes('テスト')) {
-    filteredProperties = newProperties;
-  } else {
-    const beforeFilter = newProperties.length;
-    filteredProperties = filterByCustomerCriteria(newProperties, customer);
-    if (beforeFilter !== filteredProperties.length) {
-      await setStorageData({ debugLog: `${customer.name}: フィルタ ${beforeFilter}件→${filteredProperties.length}件` });
-    }
-  }
-
-  // --- Step 8: GASに送信 ---
-  if (filteredProperties.length > 0) {
-    await setStorageData({ debugLog: `${customer.name}: ${filteredProperties.length}件をGASに送信中...` });
-    try {
-      const submitResult = await submitProperties(customer.name, filteredProperties);
-      if (submitResult && submitResult.success) {
-        currentStats.totalSubmitted += submitResult.added || filteredProperties.length;
-        await setStorageData({ debugLog: `${customer.name}: ${submitResult.added || filteredProperties.length}件送信完了` });
-      }
-    } catch (err) {
-      logError(`${customer.name}のGAS送信失敗: ${err.message}`);
-    }
-
-    // --- Step 9: Discord通知 ---
-    try {
-      await sendDiscordNotification(customer.name, filteredProperties);
-    } catch (err) {
-      logError(`${customer.name}のDiscord通知失敗: ${err.message}`);
-    }
-  } else {
+  if (newProperties.length === 0) {
     await setStorageData({ debugLog: `${customer.name}: 新規物件なし` });
+  } else {
+    await setStorageData({ debugLog: `${customer.name}: ${newProperties.length}件送信完了` });
   }
-
-  await setStorageData({ stats: currentStats });
 }
 
 // --- ユーティリティ ---
