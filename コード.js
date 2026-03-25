@@ -678,11 +678,16 @@ function handleGetCriteria(e) {
     // E(4):路線 F(5):駅名 G(6):徒歩 H(7):賃料上限
     // I(8):間取り J(9):面積 K(10):築年数 L(11):構造
     // M(12):設備 N(13):理由 O(14):引越し時期 P(15):その他 Q(16):ペット
+    var routesWithStations = _parseRoutesWithStations(row[4]);
+    var allRoutes = routesWithStations.map(function(r) { return r.route; });
+    var allStations = _splitCSV(row[5]);
+
     criteria.push({
       name: name,
       cities: _splitCSV(row[3]),
-      routes: _splitCSV(row[4]),
-      stations: _splitCSV(row[5]),
+      routes: allRoutes,
+      stations: allStations,
+      routes_with_stations: routesWithStations,
       walk: String(row[6] || ''),
       rent_max: String(row[7] || ''),
       layouts: _splitCSV(row[8]),
@@ -864,4 +869,51 @@ function handleAddReinsProperty(json) {
 function _splitCSV(val) {
   if (!val) return [];
   return String(val).split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+}
+
+/**
+ * E列の路線フォーマットをパースする
+ * 新フォーマット: "路線名(駅1, 駅2), 路線名(駅1, 駅2)"
+ * 旧フォーマット: "路線名, 路線名"
+ * @returns {Array<{route: string, stations: string[]}>}
+ */
+function _parseRoutesWithStations(val) {
+  if (!val) return [];
+  var str = String(val).trim();
+  if (!str) return [];
+
+  var results = [];
+  // カッコを考慮してトップレベルのカンマで分割
+  var parts = [];
+  var depth = 0;
+  var current = '';
+  for (var c = 0; c < str.length; c++) {
+    var ch = str[c];
+    if (ch === '(' || ch === '\uff08') { depth++; current += ch; }
+    else if (ch === ')' || ch === '\uff09') { depth--; current += ch; }
+    else if ((ch === ',' || ch === '\u3001') && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+
+  for (var p = 0; p < parts.length; p++) {
+    var part = parts[p];
+    // "路線名(駅1, 駅2, ...)" パターン
+    var parenIdx = part.indexOf('(');
+    if (parenIdx < 0) parenIdx = part.indexOf('\uff08');
+    if (parenIdx >= 0) {
+      var route = part.substring(0, parenIdx).trim();
+      var stationsStr = part.substring(parenIdx + 1).replace(/[)\uff09]$/, '');
+      var stations = stationsStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+      results.push({ route: route, stations: stations });
+    } else {
+      // 路線名のみ（駅指定なし）
+      results.push({ route: part.trim(), stations: [] });
+    }
+  }
+  return results;
 }
