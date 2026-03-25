@@ -217,6 +217,8 @@ async function runSearchCycle() {
   if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }
 
   const searchId = ++currentSearchId;
+  // DiscordスレッドIDキャッシュをクリア
+  Object.keys(discordThreadIds).forEach(k => delete discordThreadIds[k]);
   // ログをクリアして新規開始
   await new Promise(resolve => chrome.storage.local.set({ debugLog: '' }, resolve));
   await setStorageData({ isSearching: true, debugLog: '検索開始...' });
@@ -773,7 +775,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             logError(`${customer.name}: 物件${detail.reins_property_number} GAS送信失敗: ${err.message}`);
           }
           try {
-            await sendDiscordNotification(customer.name, [detail]);
+            await sendDiscordNotification(customer.name, [detail], customer);
           } catch (err) {
             logError(`${customer.name}: 物件${detail.reins_property_number} Discord通知失敗: ${err.message}`);
           }
@@ -883,32 +885,84 @@ function showNotification(title, message) {
 
 // === Discord Webhook 送信 ===
 
-async function sendDiscordNotification(customerName, properties) {
+// 顧客ごとのDiscordスレッドID（検索サイクル中に保持）
+const discordThreadIds = {};
+
+function buildSearchInfo(customer) {
+  const lines = ['📋 **検索条件**', '━━━━━━━━━━'];
+
+  // 路線・駅
+  if (customer.routes && customer.routes.length > 0) {
+    lines.push(`🚉 ${customer.routes.join(' / ')}`);
+  }
+
+  // 賃料
+  if (customer.rent_max) {
+    lines.push(`💰 〜${customer.rent_max}万円`);
+  }
+
+  // 間取り
+  if (customer.layouts && customer.layouts.length > 0) {
+    lines.push(`🏠 ${customer.layouts.join(' / ')}`);
+  }
+
+  // 面積
+  if (customer.area_min) {
+    lines.push(`📐 ${customer.area_min}㎡〜`);
+  }
+
+  // 築年数
+  if (customer.building_age) {
+    lines.push(`🏗 築${String(customer.building_age).replace(/[^\d]/g, '')}年以内`);
+  }
+
+  // 構造
+  if (customer.structures && customer.structures.length > 0) {
+    lines.push(`🏢 ${customer.structures.join(' / ')}`);
+  }
+
+  return lines.join('\n');
+}
+
+async function sendDiscordNotification(customerName, properties, customer) {
   const { discordWebhookUrl, gasWebappUrl } = await getConfig();
   if (!discordWebhookUrl || properties.length === 0) return;
 
   try {
-    // Forumスレッド作成
-    const headerPayload = {
-      content: `**${customerName}** 様の新着物件 (${properties.length}件)`,
-      thread_name: `🏠 ${customerName}`
-    };
-    const resp = await fetch(`${discordWebhookUrl}?wait=true`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(headerPayload)
-    });
+    let threadId = discordThreadIds[customerName];
 
-    if (!resp.ok) {
-      console.error(`Discord スレッド作成失敗: status=${resp.status}`);
-      return;
-    }
-
-    const respData = await resp.json();
-    const threadId = respData.channel_id;
+    // スレッドがまだなければ作成＋検索条件を送信
     if (!threadId) {
-      console.error('Discord レスポンスに channel_id なし');
-      return;
+      const headerPayload = {
+        content: `**${customerName}** 様の新着物件`,
+        thread_name: `🏠 ${customerName}`
+      };
+      const resp = await fetch(`${discordWebhookUrl}?wait=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(headerPayload)
+      });
+
+      if (!resp.ok) {
+        console.error(`Discord スレッド作成失敗: status=${resp.status}`);
+        return;
+      }
+
+      const respData = await resp.json();
+      threadId = respData.channel_id;
+      if (!threadId) {
+        console.error('Discord レスポンスに channel_id なし');
+        return;
+      }
+      discordThreadIds[customerName] = threadId;
+
+      // 検索条件を送信
+      if (customer) {
+        const searchInfo = buildSearchInfo(customer);
+        await sleep(500);
+        await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: searchInfo });
+        await sleep(500);
+      }
     }
 
     // 物件ごとに送信
@@ -916,15 +970,6 @@ async function sendDiscordNotification(customerName, properties) {
       const msg = buildDiscordMessage(properties[i], i + 1, gasWebappUrl, customerName);
       await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg });
       if (i < properties.length - 1) await sleep(1000);
-    }
-
-    // 一括承認リンク（2件以上の場合）
-    if (gasWebappUrl && properties.length > 1) {
-      const approveAllUrl = `${gasWebappUrl}?action=approve_all&customer=${encodeURIComponent(customerName)}`;
-      await sleep(1000);
-      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, {
-        content: `\n📨 **[全 ${properties.length} 件を一括承認してLINE送信](${approveAllUrl})**`
-      });
     }
 
     console.log(`Discord通知完了: ${customerName} ${properties.length}件`);
