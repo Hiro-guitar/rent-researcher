@@ -296,6 +296,10 @@ async function runSearchCycle() {
       try {
         await searchForCustomer(reinsTab.id, customer, seenIds, delay, searchId);
       } catch (err) {
+        if (err.message === 'SEARCH_CANCELLED') {
+          console.log(`検索サイクル${searchId}: 中止により終了`);
+          return;
+        }
         logError(`${customer.name}の検索失敗: ${err.message}`);
       }
       // 顧客間の待ち時間
@@ -312,6 +316,12 @@ async function runSearchCycle() {
 
 // === 顧客ごとの検索 ===
 async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
+  // 中止チェック付きsleep（中止されたら例外で即脱出）
+  const csleep = async (ms) => {
+    await sleep(ms);
+    if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
+  };
+
   await setStorageData({ debugLog: `検索開始: ${customer.name}` });
   const customerSeenIds = seenIds[customer.name] || [];
 
@@ -345,7 +355,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     // GBK001310への遷移とVue描画完了を待つ
     for (let w = 0; w < 30; w++) {
       if (isSearchCancelled(searchId)) return;
-      await sleep(2000);
+      await csleep(2000);
       try {
         const tab = await chrome.tabs.get(tabId);
         if (tab.url?.includes('GBK001310')) {
@@ -361,7 +371,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       } catch (_) {}
     }
-    await sleep(3000); // Vue完全初期化待ち
+    await csleep(3000); // Vue完全初期化待ち
   }
 
   // --- Step 2: 条件セット（executeScript world:'MAIN'で直接実行） ---
@@ -500,7 +510,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo}` });
 
   // Vueリアクティブ更新を待つ
-  await sleep(2000);
+  await csleep(2000);
 
   // --- Step 3: 検索ボタンをDOMクリック（MAIN world） ---
   await chrome.scripting.executeScript({
@@ -520,7 +530,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   // 0件 → 結果ページ(0件表示)
   for (let d = 0; d < 30; d++) {
     if (isSearchCancelled(searchId)) return;
-    await sleep(3000);
+    await csleep(3000);
     try {
       const tab = await chrome.tabs.get(tabId);
 
@@ -561,7 +571,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       if (status === 'ok_clicked') {
         // OKクリック後の遷移を待つ
         for (let w = 0; w < 20; w++) {
-          await sleep(2000);
+          await csleep(2000);
           const t = await chrome.tabs.get(tabId);
           if (t.url?.includes('GBK002200')) break;
         }
@@ -586,7 +596,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   let resultsReady = false;
   for (let i = 0; i < 20; i++) {
     if (isSearchCancelled(searchId)) return;
-    await sleep(3000);
+    await csleep(3000);
     try {
       // ISOLATED worldでDOM確認（MAIN worldは不要）
       const check = await chrome.scripting.executeScript({
@@ -627,7 +637,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     return;
   }
 
-  await sleep(delay);
+  await csleep(delay);
   await setStorageData({ debugLog: `${customer.name}: 検索結果ページ到達` });
 
   // --- Step 6: 検索結果データ抽出 ---
@@ -692,7 +702,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         args: [result.index]
       });
       await waitForTabLoad(tabId);
-      await sleep(delay);
+      await csleep(delay);
 
       // 詳細データ抽出
       const detailResults = await chrome.scripting.executeScript({
@@ -776,11 +786,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       });
       // 検索結果一覧(GBK002200)に戻るまで待つ
       for (let bw = 0; bw < 15; bw++) {
-        await sleep(2000);
+        await csleep(2000);
         const bt = await chrome.tabs.get(tabId);
         if (bt.url?.includes('GBK002200')) break;
       }
-      await sleep(delay);
+      await csleep(delay);
 
     } catch (err) {
       await setStorageData({ debugLog: `${customer.name}: 物件${result.propertyNumber}の詳細取得失敗: ${err.message}` });
@@ -794,11 +804,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
         });
         for (let bw = 0; bw < 15; bw++) {
-          await sleep(2000);
+          await csleep(2000);
           const bt = await chrome.tabs.get(tabId);
           if (bt.url?.includes('GBK002200')) break;
         }
-        await sleep(delay);
+        await csleep(delay);
       } catch(_) {}
     }
   }
