@@ -99,6 +99,13 @@ function filterByCustomerCriteria(properties, customer) {
       if (!structMatch) return false;
     }
 
+    // 駅名フィルタ（飛び飛び駅の場合、指定駅のいずれかに該当するかチェック）
+    if (customer.stations && customer.stations.length > 0) {
+      if (!prop.station_info) return false;
+      const stationMatch = customer.stations.some(s => prop.station_info.includes(s));
+      if (!stationMatch) return false;
+    }
+
     return true;
   });
 }
@@ -426,6 +433,15 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const num = i + 1;
           vr[`ensnCd${num}`] = ensnCd;
           vr[`ensnRykshu${num}`] = reinsLineName;
+
+          // 駅名セット（駅指定がある場合、最初と最後の駅をFrom/Toにセット）
+          if (customerData.stations && customerData.stations.length > 0 && colonIdx >= 0) {
+            const stationsInLine = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
+            if (stationsInLine.length > 0) {
+              vr[`ekmiFrom${num}`] = stationsInLine[0];
+              vr[`ekmiTo${num}`] = stationsInLine[stationsInLine.length - 1];
+            }
+          }
         }
       }
 
@@ -536,7 +552,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         buildingAge: customerData.building_age || ''
       };
     },
-    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '' }, lineNameMap, reinsCodeMap]
+    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', stations: customer.stations || [] }, lineNameMap, reinsCodeMap]
   });
 
   const setStatus = setResult?.[0]?.result;
