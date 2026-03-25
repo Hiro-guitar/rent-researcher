@@ -472,7 +472,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             const walkMin = String(customerData.walk).replace(/[^\d]/g, '');
             if (walkMin) {
               vr[`thNyurykc${num}`] = walkMin;
-              vr[`thMHnKbn${num}`] = '01'; // 01=以内
+              vr[`thMHnKbn${num}`] = '1'; // 1=分
             }
           }
         }
