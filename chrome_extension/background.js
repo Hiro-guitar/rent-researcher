@@ -92,31 +92,6 @@ function buildStationString(customer) {
 // 顧客条件に基づく物件フィルタリング
 function filterByCustomerCriteria(properties, customer) {
   return properties.filter(prop => {
-    // 間取りフィルタ（layouts が空なら全通過）
-    if (customer.layouts && customer.layouts.length > 0) {
-      if (!prop.layout) return false;
-      const layoutMatch = customer.layouts.some(l => prop.layout.includes(l));
-      if (!layoutMatch) return false;
-    }
-
-    // 面積フィルタ（area_min 以上）
-    if (customer.area_min) {
-      const minArea = parseFloat(String(customer.area_min).replace(/[^\d.]/g, ''));
-      if (minArea && prop.area && prop.area < minArea) return false;
-    }
-
-    // 築年数フィルタ（"10年以内" → 10年以内かチェック）
-    if (customer.building_age && prop.building_age) {
-      const maxYears = parseInt(String(customer.building_age).replace(/[^\d]/g, ''));
-      if (maxYears) {
-        const builtYear = parseBuildingAge(prop.building_age);
-        if (builtYear) {
-          const age = new Date().getFullYear() - builtYear;
-          if (age > maxYears) return false;
-        }
-      }
-    }
-
     // 構造フィルタ（structures が空なら全通過）
     if (customer.structures && customer.structures.length > 0) {
       if (!prop.structure) return false;
