@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('stopSearchBtn').addEventListener('click', () => {
-    chrome.storage.local.set({ isSearching: false, debugLog: '検索を中止しました' }, () => {
+    chrome.runtime.sendMessage({ type: 'STOP_SEARCH' }, () => {
       loadStatus();
     });
   });
