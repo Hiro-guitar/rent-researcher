@@ -401,6 +401,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       vr.bkknShbt1 = ''; vr.bkknShbt2 = '';
       vr.mdrTyp = []; vr.mdrHysuFrom = ''; vr.mdrHysuTo = '';
       vr.snyuMnskFrom = ''; vr.snyuMnskTo = '';
+      vr.hnkuNngppFrom = ''; vr.hnkuNngppTo = '';
 
       // 物件種別: 賃貸マンション
       vr.bkknShbt1 = '03';
@@ -485,6 +486,40 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         vr.snyuMnskFrom = String(customerData.area_min);
       }
 
+      // 築年月（築N年以内 → From年をセット）
+      // selectのiValueを変更してVueリアクティブに反映
+      if (customerData.building_age) {
+        const ageNum = parseInt(String(customerData.building_age).replace(/[^\d]/g, ''));
+        if (ageNum > 0) {
+          const fromYear = String(new Date().getFullYear() - ageNum);
+          // 築年月From年のselect要素を探してiValueをセット
+          const chikuLabel = document.evaluate(
+            "//span[contains(@class,'p-label-title') and contains(text(),'築年月')]",
+            document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
+          ).singleNodeValue;
+          if (chikuLabel) {
+            const container = chikuLabel.parentElement?.parentElement;
+            if (container) {
+              const selects = container.querySelectorAll('select');
+              if (selects.length >= 1) {
+                // 最初のselectが年From
+                const yearSel = selects[0];
+                let selEl = yearSel;
+                while (selEl) {
+                  if (selEl.__vue__ && selEl.__vue__.$data && 'iValue' in selEl.__vue__.$data) {
+                    selEl.__vue__.$data.iValue = fromYear;
+                    selEl.__vue__.$emit('input', fromYear);
+                    selEl.__vue__.$emit('change', fromYear);
+                    break;
+                  }
+                  selEl = selEl.parentElement;
+                }
+              }
+            }
+          }
+        }
+      }
+
       return {
         success: true,
         bkknShbt1: vr.bkknShbt1,
@@ -493,10 +528,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         mdrTyp: vr.mdrTyp,
         mdrHysuFrom: vr.mdrHysuFrom,
         mdrHysuTo: vr.mdrHysuTo,
-        snyuMnskFrom: vr.snyuMnskFrom
+        snyuMnskFrom: vr.snyuMnskFrom,
+        buildingAge: customerData.building_age || ''
       };
     },
-    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '' }, lineNameMap, reinsCodeMap]
+    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '' }, lineNameMap, reinsCodeMap]
   });
 
   const setStatus = setResult?.[0]?.result;
@@ -504,7 +540,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await setStorageData({ debugLog: `${customer.name}: 条件セットエラー: ${JSON.stringify(setStatus)}` });
     return;
   }
-  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~` });
+  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'}` });
 
   // Vueリアクティブ更新を待つ
   await csleep(2000);
