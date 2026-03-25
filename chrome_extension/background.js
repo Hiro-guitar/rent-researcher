@@ -828,11 +828,16 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     }
   }
 
-  // --- Step 7.5: 顧客条件でフィルタリング ---
-  const beforeFilter = newProperties.length;
-  const filteredProperties = filterByCustomerCriteria(newProperties, customer);
-  if (beforeFilter !== filteredProperties.length) {
-    await setStorageData({ debugLog: `${customer.name}: フィルタ ${beforeFilter}件→${filteredProperties.length}件` });
+  // --- Step 7.5: 顧客条件でフィルタリング（テスト顧客はスキップ） ---
+  let filteredProperties;
+  if (customer.name.includes('テスト')) {
+    filteredProperties = newProperties;
+  } else {
+    const beforeFilter = newProperties.length;
+    filteredProperties = filterByCustomerCriteria(newProperties, customer);
+    if (beforeFilter !== filteredProperties.length) {
+      await setStorageData({ debugLog: `${customer.name}: フィルタ ${beforeFilter}件→${filteredProperties.length}件` });
+    }
   }
 
   // --- Step 8: GASに送信 ---
