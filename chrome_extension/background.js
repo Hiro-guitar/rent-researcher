@@ -400,7 +400,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       vr.kkkuCnryuFrom = ''; vr.kkkuCnryuTo = '';
       vr.bkknShbt1 = ''; vr.bkknShbt2 = '';
       vr.mdrTyp = []; vr.mdrHysuFrom = ''; vr.mdrHysuTo = '';
-      vr.ttmnMnskFrom = ''; vr.ttmnMnskTo = '';
+      vr.tcMnskFrom = ''; vr.tcMnskTo = '';
 
       // 物件種別: 賃貸マンション
       vr.bkknShbt1 = '03';
@@ -482,7 +482,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
       // 建物使用部分面積（㎡）
       if (customerData.area_min) {
-        vr.ttmnMnskFrom = String(customerData.area_min);
+        vr.tcMnskFrom = String(customerData.area_min);
       }
 
       return {
@@ -493,7 +493,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         mdrTyp: vr.mdrTyp,
         mdrHysuFrom: vr.mdrHysuFrom,
         mdrHysuTo: vr.mdrHysuTo,
-        ttmnMnskFrom: vr.ttmnMnskFrom
+        tcMnskFrom: vr.tcMnskFrom
       };
     },
     args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '' }, lineNameMap, reinsCodeMap]
@@ -504,7 +504,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await setStorageData({ debugLog: `${customer.name}: 条件セットエラー: ${JSON.stringify(setStatus)}` });
     return;
   }
-  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.ttmnMnskFrom || '-'}~` });
+  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.tcMnskFrom || '-'}~` });
 
   // Vueリアクティブ更新を待つ
   await csleep(2000);
