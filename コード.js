@@ -425,15 +425,16 @@ function buildRegistrationSummary(state) {
     summary += '・エリア: ' + cities.join(', ') + '\n';
   }
   if (state.areaMethod === 'route') {
-    if (routes.length > 0) summary += '・路線: ' + routes.join(', ') + '\n';
-    var allStations = [];
-    for (var i = 0; i < routes.length; i++) {
-      var stas = stations[routes[i]] || [];
-      for (var j = 0; j < stas.length; j++) {
-        if (allStations.indexOf(stas[j]) === -1) allStations.push(stas[j]);
+    if (routes.length > 0) {
+      for (var i = 0; i < routes.length; i++) {
+        var stas = stations[routes[i]] || [];
+        if (stas.length > 0) {
+          summary += '・' + routes[i] + ': ' + stas.join(', ') + '\n';
+        } else {
+          summary += '・' + routes[i] + '\n';
+        }
       }
     }
-    if (allStations.length > 0) summary += '・駅: ' + allStations.join(', ') + '\n';
   }
 
   summary += '・賃料上限: ' + (d.rent_max || '未設定') + '\n';
@@ -675,14 +676,50 @@ function handleGetCriteria(e) {
 
     // 列マッピング (SheetWriter.js準拠):
     // A(0):タイムスタンプ B(1):名前 C(2):都道府県 D(3):市区町村
-    // E(4):路線 F(5):駅名 G(6):徒歩 H(7):賃料上限
+    // E(4):路線(駅名) F(5):駅名 G(6):徒歩 H(7):賃料上限
     // I(8):間取り J(9):面積 K(10):築年数 L(11):構造
     // M(12):設備 N(13):理由 O(14):引越し時期 P(15):その他 Q(16):ペット
+
+    // E列の「路線(駅1, 駅2), 路線(駅3)」形式をパース
+    var routeStationRaw = String(row[4] || '');
+    var parsedRoutes = [];
+    var routeStations = {}; // { 路線名: [駅1, 駅2], ... }
+    if (routeStationRaw) {
+      var rsParts = [];
+      var rsDepth = 0;
+      var rsCurrent = '';
+      for (var ci = 0; ci < routeStationRaw.length; ci++) {
+        var ch = routeStationRaw[ci];
+        if (ch === '(') { rsDepth++; rsCurrent += ch; }
+        else if (ch === ')') { rsDepth--; rsCurrent += ch; }
+        else if (ch === ',' && rsDepth === 0) { rsParts.push(rsCurrent.trim()); rsCurrent = ''; }
+        else { rsCurrent += ch; }
+      }
+      if (rsCurrent.trim()) rsParts.push(rsCurrent.trim());
+
+      for (var pi = 0; pi < rsParts.length; pi++) {
+        var rsPart = rsParts[pi];
+        var parenIdx = rsPart.indexOf('(');
+        if (parenIdx >= 0 && rsPart.charAt(rsPart.length - 1) === ')') {
+          var rName = rsPart.substring(0, parenIdx).trim();
+          var stasStr = rsPart.substring(parenIdx + 1, rsPart.length - 1);
+          var stas = stasStr.split(/[,、]\s*/).filter(function(s) { return s.length > 0; });
+          parsedRoutes.push(rName);
+          if (stas.length > 0) routeStations[rName] = stas;
+        } else {
+          // 旧形式（括弧なし）
+          var rName2 = rsPart.trim();
+          if (rName2) parsedRoutes.push(rName2);
+        }
+      }
+    }
+
     criteria.push({
       name: name,
       cities: _splitCSV(row[3]),
-      routes: _splitCSV(row[4]),
+      routes: parsedRoutes,
       stations: _splitCSV(row[5]),
+      route_stations: routeStations,
       walk: String(row[6] || ''),
       rent_max: String(row[7] || ''),
       layouts: _splitCSV(row[8]),

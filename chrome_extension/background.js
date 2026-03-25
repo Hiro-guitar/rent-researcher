@@ -80,13 +80,17 @@ async function loadReinsCodeMap() {
 // 顧客条件からstation文字列を組み立て
 function buildStationString(customer) {
   const routes = customer.routes || [];
-  const stations = customer.stations || [];
+  const routeStations = customer.route_stations || {};
   if (routes.length === 0) return '';
-  if (routes.length === 1) {
-    const stationList = stations.join(', ');
-    return stationList ? `${routes[0]}：${stationList}` : routes[0];
-  }
-  return routes.map(route => route).join(' / ');
+  // 各路線に紐づく駅を表示（route_stationsがあれば使う）
+  const parts = routes.map(route => {
+    const stas = routeStations[route];
+    if (stas && stas.length > 0) {
+      return `${route}：${stas.join(', ')}`;
+    }
+    return route;
+  });
+  return parts.join(' / ');
 }
 
 // 顧客条件に基づく物件フィルタリング
@@ -966,7 +970,12 @@ function buildSearchInfo(customer) {
 
   // 路線・駅
   if (customer.routes && customer.routes.length > 0) {
-    lines.push(`🚉 ${customer.routes.join(' / ')}`);
+    const routeStations = customer.route_stations || {};
+    const routeParts = customer.routes.map(route => {
+      const stas = routeStations[route];
+      return stas && stas.length > 0 ? `${route}(${stas.join(', ')})` : route;
+    });
+    lines.push(`🚉 ${routeParts.join(' / ')}`);
   }
 
   // 賃料
