@@ -793,6 +793,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       await csleep(delay);
 
     } catch (err) {
+      if (err.message === 'SEARCH_CANCELLED') throw err;
       await setStorageData({ debugLog: `${customer.name}: 物件${result.propertyNumber}の詳細取得失敗: ${err.message}` });
       try {
         await chrome.scripting.executeScript({
@@ -809,7 +810,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           if (bt.url?.includes('GBK002200')) break;
         }
         await csleep(delay);
-      } catch(_) {}
+      } catch(e) { if (e.message === 'SEARCH_CANCELLED') throw e; }
     }
   }
 
