@@ -884,9 +884,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
       const detail = detailResults && detailResults[0] && detailResults[0].result;
       if (detail) {
-        // 構造フィルタ（テスト顧客はスキップ）
-        const isTest = customer.name.includes('テスト');
-        const passFilter = isTest || filterByCustomerCriteria([detail], customer).length > 0;
+        const passFilter = filterByCustomerCriteria([detail], customer).length > 0;
         if (passFilter) {
           newProperties.push(detail);
           currentStats.totalFound++;
