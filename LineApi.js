@@ -7,7 +7,13 @@
  * @param {string} replyToken - LINE replyToken
  * @param {Object[]} messages - メッセージオブジェクトの配列（最大5件）
  */
+var DRY_RUN = true; // テスト時 true → LINE送信せずログだけ出す。本番時 false に戻す。
+
 function replyMessage(replyToken, messages) {
+  if (DRY_RUN) {
+    Logger.log('[DRY_RUN] replyMessage: ' + JSON.stringify(messages));
+    return;
+  }
   UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'post',
     headers: {
@@ -27,6 +33,10 @@ function replyMessage(replyToken, messages) {
  * @param {Object[]} messages - メッセージオブジェクトの配列（最大5件）
  */
 function pushMessage(userId, messages) {
+  if (DRY_RUN) {
+    Logger.log('[DRY_RUN] pushMessage to ' + userId + ': ' + JSON.stringify(messages));
+    return;
+  }
   UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
     method: 'post',
     headers: {
