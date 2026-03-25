@@ -25,9 +25,18 @@ async function gasGet(action, params = {}) {
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.set(k, v);
   }
-  const resp = await fetch(url.toString(), { redirect: 'follow' });
-  if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status}`);
-  return resp.json();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  try {
+    const resp = await fetch(url.toString(), { redirect: 'follow', signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status}`);
+    return resp.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') throw new Error(`GASリクエストタイムアウト (${action})`);
+    throw err;
+  }
 }
 
 async function gasPost(body) {
@@ -158,6 +167,13 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.storage.local.set({ isSearching: false });
 
+// 検索サイクルID（中止判定用）
+let currentSearchId = 0;
+
+function isSearchCancelled(searchId) {
+  return searchId !== currentSearchId;
+}
+
 // --- アラーム ---
 function setupAlarm(intervalMinutes) {
   chrome.alarms.clear('reins-search', () => {
@@ -176,6 +192,12 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SEARCH_NOW') {
     runSearchCycle();
+    sendResponse({ ok: true });
+    return;
+  }
+  if (msg.type === 'STOP_SEARCH') {
+    currentSearchId++; // 古いサイクルを無効化
+    chrome.storage.local.set({ isSearching: false, debugLog: '検索を中止しました' });
     sendResponse({ ok: true });
     return;
   }
@@ -219,6 +241,7 @@ async function runSearchCycle() {
   if (isSearching) { console.log('検索中のためスキップ'); return; }
   if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }
 
+  const searchId = ++currentSearchId;
   await setStorageData({ isSearching: true, debugLog: '検索開始...' });
 
   try {
@@ -230,35 +253,48 @@ async function runSearchCycle() {
     await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}, url=${reinsTab.url}` });
 
     // 検索条件を取得
+    await setStorageData({ debugLog: '検索条件を取得中...' });
     const { customerCriteria, lastCriteriaFetch } = await getStorageData(['customerCriteria', 'lastCriteriaFetch']);
     if (!customerCriteria || !lastCriteriaFetch || (Date.now() - lastCriteriaFetch > 3600000)) {
-      await refreshCriteria();
+      try {
+        await refreshCriteria();
+      } catch (err) {
+        await setStorageData({ debugLog: `検索条件取得失敗: ${err.message}` });
+        return;
+      }
     }
     const { customerCriteria: criteria } = await getStorageData(['customerCriteria']);
-    if (!criteria || criteria.length === 0) { console.log('検索条件がありません'); return; }
+    if (!criteria || criteria.length === 0) {
+      await setStorageData({ debugLog: '検索条件がありません（GASに条件が登録されていない可能性）' });
+      return;
+    }
+    await setStorageData({ debugLog: `検索条件 ${criteria.length}件取得完了` });
 
     let seenIds = {};
+    await setStorageData({ debugLog: '既知物件IDを取得中...' });
     try {
       const seenResult = await fetchSeenIds();
       if (seenResult && seenResult.seen_ids) seenIds = seenResult.seen_ids;
-    } catch (err) { logError('既知物件ID取得失敗: ' + err.message); }
+      await setStorageData({ debugLog: `既知物件ID取得完了` });
+    } catch (err) {
+      await setStorageData({ debugLog: `既知物件ID取得失敗（続行）: ${err.message}` });
+    }
 
     const { pageDelaySeconds } = await getStorageData(['pageDelaySeconds']);
     const delay = (pageDelaySeconds || 5) * 1000;
 
     // 全顧客を順次検索
     for (let ci = 0; ci < criteria.length; ci++) {
-      // 中止チェック
-      const { isSearching: stillSearching } = await getStorageData(['isSearching']);
-      if (!stillSearching) {
-        await setStorageData({ debugLog: '検索が中止されました' });
+      // 中止チェック（searchIdが変わっていたら古いサイクルなので即終了）
+      if (isSearchCancelled(searchId)) {
+        console.log(`検索サイクル${searchId}は中止されました`);
         return;
       }
 
       const customer = criteria[ci];
       await setStorageData({ debugLog: `顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
       try {
-        await searchForCustomer(reinsTab.id, customer, seenIds, delay);
+        await searchForCustomer(reinsTab.id, customer, seenIds, delay, searchId);
       } catch (err) {
         logError(`${customer.name}の検索失敗: ${err.message}`);
       }
@@ -275,7 +311,7 @@ async function runSearchCycle() {
 }
 
 // === 顧客ごとの検索 ===
-async function searchForCustomer(tabId, customer, seenIds, delay) {
+async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   await setStorageData({ debugLog: `検索開始: ${customer.name}` });
   const customerSeenIds = seenIds[customer.name] || [];
 
@@ -308,6 +344,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
 
     // GBK001310への遷移とVue描画完了を待つ
     for (let w = 0; w < 30; w++) {
+      if (isSearchCancelled(searchId)) return;
       await sleep(2000);
       try {
         const tab = await chrome.tabs.get(tabId);
@@ -482,6 +519,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   // 500件以下 → 直接結果ページ
   // 0件 → 結果ページ(0件表示)
   for (let d = 0; d < 30; d++) {
+    if (isSearchCancelled(searchId)) return;
     await sleep(3000);
     try {
       const tab = await chrome.tabs.get(tabId);
@@ -547,6 +585,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   // SPA遷移後のDOM描画を待つ（最大60秒）
   let resultsReady = false;
   for (let i = 0; i < 20; i++) {
+    if (isSearchCancelled(searchId)) return;
     await sleep(3000);
     try {
       // ISOLATED worldでDOM確認（MAIN worldは不要）
