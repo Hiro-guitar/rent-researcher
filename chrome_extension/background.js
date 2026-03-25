@@ -12,7 +12,7 @@
 // === GAS API クライアント（inline） ===
 async function getConfig() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(['gasWebappUrl', 'gasApiKey'], resolve);
+    chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'discordWebhookUrl'], resolve);
   });
 }
 
@@ -78,6 +78,67 @@ function buildStationString(customer) {
     return stationList ? `${routes[0]}：${stationList}` : routes[0];
   }
   return routes.map(route => route).join(' / ');
+}
+
+// 顧客条件に基づく物件フィルタリング
+function filterByCustomerCriteria(properties, customer) {
+  return properties.filter(prop => {
+    // 間取りフィルタ（layouts が空なら全通過）
+    if (customer.layouts && customer.layouts.length > 0) {
+      if (!prop.layout) return false;
+      const layoutMatch = customer.layouts.some(l => prop.layout.includes(l));
+      if (!layoutMatch) return false;
+    }
+
+    // 面積フィルタ（area_min 以上）
+    if (customer.area_min) {
+      const minArea = parseFloat(String(customer.area_min).replace(/[^\d.]/g, ''));
+      if (minArea && prop.area && prop.area < minArea) return false;
+    }
+
+    // 築年数フィルタ（"10年以内" → 10年以内かチェック）
+    if (customer.building_age && prop.building_age) {
+      const maxYears = parseInt(String(customer.building_age).replace(/[^\d]/g, ''));
+      if (maxYears) {
+        const builtYear = parseBuildingAge(prop.building_age);
+        if (builtYear) {
+          const age = new Date().getFullYear() - builtYear;
+          if (age > maxYears) return false;
+        }
+      }
+    }
+
+    // 構造フィルタ（structures が空なら全通過）
+    if (customer.structures && customer.structures.length > 0) {
+      if (!prop.structure) return false;
+      const structMatch = customer.structures.some(s => prop.structure.includes(s));
+      if (!structMatch) return false;
+    }
+
+    return true;
+  });
+}
+
+// 築年月文字列から築年（西暦）を抽出
+// "2015年03月" → 2015, "平成27年3月" → 2015, "令和2年" → 2020
+function parseBuildingAge(str) {
+  if (!str) return null;
+
+  // 西暦パターン
+  const westernMatch = str.match(/(\d{4})\s*年/);
+  if (westernMatch) return parseInt(westernMatch[1]);
+
+  // 和暦パターン
+  const eraMatch = str.match(/(令和|平成|昭和)\s*(\d+)\s*年/);
+  if (eraMatch) {
+    const era = eraMatch[1];
+    const year = parseInt(eraMatch[2]);
+    if (era === '令和') return 2018 + year;
+    if (era === '平成') return 1988 + year;
+    if (era === '昭和') return 1925 + year;
+  }
+
+  return null;
 }
 
 // --- 初期化 ---
@@ -294,6 +355,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
       }
       vr.kkkuCnryuFrom = ''; vr.kkkuCnryuTo = '';
       vr.bkknShbt1 = ''; vr.bkknShbt2 = '';
+      vr.mdrTyp = []; vr.mdrHysuFrom = ''; vr.mdrHysuTo = '';
 
       // 物件種別: 賃貸マンション
       vr.bkknShbt1 = '03';
@@ -326,14 +388,64 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
         vr.kkkuCnryuTo = String(customerData.rent_max);
       }
 
+      // 間取りセット（layouts: ["1K", "1DK", "2LDK"] → mdrTyp + mdrHysuFrom/To）
+      if (customerData.layouts && customerData.layouts.length > 0) {
+        // 間取りタイプ → REINSコードのマッピング
+        const typeMap = {
+          'ワンルーム': '01', 'R': '01',
+          'K': '02',
+          'DK': '03',
+          'LK': '04',
+          'LDK': '05',
+          'SK': '06',
+          'SDK': '07',
+          'SLK': '08',
+          'SLDK': '09'
+        };
+
+        const types = new Set();
+        let minRooms = Infinity;
+        let maxRooms = 0;
+
+        for (const layout of customerData.layouts) {
+          // "1LDK" → rooms=1, type="LDK"
+          // "ワンルーム" → rooms=1, type="ワンルーム"
+          const m = layout.match(/^(\d+)\s*(.+)$/);
+          if (m) {
+            const rooms = parseInt(m[1]);
+            const typeName = m[2].replace(/\s/g, '').toUpperCase()
+              .replace(/Ｋ/g, 'K').replace(/Ｄ/g, 'D').replace(/Ｌ/g, 'L').replace(/Ｓ/g, 'S');
+            const code = typeMap[typeName];
+            if (code) types.add(code);
+            if (rooms < minRooms) minRooms = rooms;
+            if (rooms > maxRooms) maxRooms = rooms;
+          } else if (layout.includes('ワンルーム') || layout.toUpperCase() === 'R') {
+            types.add('01');
+            if (1 < minRooms) minRooms = 1;
+            if (1 > maxRooms) maxRooms = 1;
+          }
+        }
+
+        if (types.size > 0) {
+          vr.mdrTyp = [...types];
+        }
+        if (minRooms !== Infinity && maxRooms > 0) {
+          vr.mdrHysuFrom = String(minRooms);
+          vr.mdrHysuTo = String(maxRooms);
+        }
+      }
+
       return {
         success: true,
         bkknShbt1: vr.bkknShbt1,
         ensnCd1: vr.ensnCd1,
-        kkkuCnryuTo: vr.kkkuCnryuTo
+        kkkuCnryuTo: vr.kkkuCnryuTo,
+        mdrTyp: vr.mdrTyp,
+        mdrHysuFrom: vr.mdrHysuFrom,
+        mdrHysuTo: vr.mdrHysuTo
       };
     },
-    args: [stationStr, { rent_max: customer.rent_max }, lineNameMap, reinsCodeMap]
+    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [] }, lineNameMap, reinsCodeMap]
   });
 
   const setStatus = setResult?.[0]?.result;
@@ -341,7 +453,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
     await setStorageData({ debugLog: `${customer.name}: 条件セットエラー: ${JSON.stringify(setStatus)}` });
     return;
   }
-  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo}` });
+  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo}` });
 
   // Vueリアクティブ更新を待つ
   await sleep(2000);
@@ -645,17 +757,31 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
     }
   }
 
+  // --- Step 7.5: 顧客条件でフィルタリング ---
+  const beforeFilter = newProperties.length;
+  const filteredProperties = filterByCustomerCriteria(newProperties, customer);
+  if (beforeFilter !== filteredProperties.length) {
+    await setStorageData({ debugLog: `${customer.name}: フィルタ ${beforeFilter}件→${filteredProperties.length}件` });
+  }
+
   // --- Step 8: GASに送信 ---
-  if (newProperties.length > 0) {
-    await setStorageData({ debugLog: `${customer.name}: ${newProperties.length}件をGASに送信中...` });
+  if (filteredProperties.length > 0) {
+    await setStorageData({ debugLog: `${customer.name}: ${filteredProperties.length}件をGASに送信中...` });
     try {
-      const submitResult = await submitProperties(customer.name, newProperties);
+      const submitResult = await submitProperties(customer.name, filteredProperties);
       if (submitResult && submitResult.success) {
-        currentStats.totalSubmitted += submitResult.added || newProperties.length;
-        await setStorageData({ debugLog: `${customer.name}: ${submitResult.added || newProperties.length}件送信完了` });
+        currentStats.totalSubmitted += submitResult.added || filteredProperties.length;
+        await setStorageData({ debugLog: `${customer.name}: ${submitResult.added || filteredProperties.length}件送信完了` });
       }
     } catch (err) {
       logError(`${customer.name}のGAS送信失敗: ${err.message}`);
+    }
+
+    // --- Step 9: Discord通知 ---
+    try {
+      await sendDiscordNotification(customer.name, filteredProperties);
+    } catch (err) {
+      logError(`${customer.name}のDiscord通知失敗: ${err.message}`);
     }
   } else {
     await setStorageData({ debugLog: `${customer.name}: 新規物件なし` });
@@ -713,6 +839,126 @@ function showNotification(title, message) {
     message
   });
 }
+
+// === Discord Webhook 送信 ===
+
+async function sendDiscordNotification(customerName, properties) {
+  const { discordWebhookUrl, gasWebappUrl } = await getConfig();
+  if (!discordWebhookUrl || properties.length === 0) return;
+
+  try {
+    // Forumスレッド作成
+    const headerPayload = {
+      content: `**${customerName}** 様の新着物件 (${properties.length}件)`,
+      thread_name: `🏠 ${customerName}`
+    };
+    const resp = await fetch(`${discordWebhookUrl}?wait=true`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(headerPayload)
+    });
+
+    if (!resp.ok) {
+      console.error(`Discord スレッド作成失敗: status=${resp.status}`);
+      return;
+    }
+
+    const respData = await resp.json();
+    const threadId = respData.channel_id;
+    if (!threadId) {
+      console.error('Discord レスポンスに channel_id なし');
+      return;
+    }
+
+    // 物件ごとに送信
+    for (let i = 0; i < properties.length; i++) {
+      const msg = buildDiscordMessage(properties[i], i + 1, gasWebappUrl, customerName);
+      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg });
+      if (i < properties.length - 1) await sleep(1000);
+    }
+
+    // 一括承認リンク（2件以上の場合）
+    if (gasWebappUrl && properties.length > 1) {
+      const approveAllUrl = `${gasWebappUrl}?action=approve_all&customer=${encodeURIComponent(customerName)}`;
+      await sleep(1000);
+      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, {
+        content: `\n📨 **[全 ${properties.length} 件を一括承認してLINE送信](${approveAllUrl})**`
+      });
+    }
+
+    console.log(`Discord通知完了: ${customerName} ${properties.length}件`);
+  } catch (err) {
+    console.error(`Discord通知失敗: ${err.message}`);
+  }
+}
+
+async function discordPostWithRetry(url, payload) {
+  let resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (resp.status === 429) {
+    const data = await resp.json();
+    const retryAfter = (data.retry_after || 5) * 1000;
+    console.warn(`Discord レート制限。${retryAfter}ms待機...`);
+    await sleep(retryAfter);
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  }
+
+  if (!resp.ok && resp.status !== 204) {
+    console.error(`Discord送信エラー: status=${resp.status}`);
+  }
+}
+
+function buildDiscordMessage(prop, index, gasWebappUrl, customerName) {
+  const fmtMan = (yen) => {
+    if (!yen) return '0';
+    const v = yen / 10000;
+    return String(parseFloat(v.toFixed(4)));
+  };
+
+  let title = prop.building_name || '物件情報';
+  if (prop.room_number) title += `  ${prop.room_number}`;
+
+  const lines = [`**${index}. ${title}** \`[REINS]\``];
+
+  // 賃料
+  let rentStr = `💰 **${fmtMan(prop.rent)}万円**`;
+  if (prop.management_fee) {
+    rentStr += ` (管理費: ${fmtMan(prop.management_fee)}万円)`;
+  }
+  lines.push(rentStr);
+
+  // 間取り・面積・築年
+  const parts = [];
+  if (prop.layout) parts.push(`🏠 ${prop.layout}`);
+  if (prop.area) parts.push(`📐 ${prop.area}m²`);
+  if (prop.building_age) parts.push(`🏗 ${prop.building_age}`);
+  if (parts.length) lines.push(parts.join(' ｜ '));
+
+  if (prop.address) lines.push(`📍 ${prop.address}`);
+  if (prop.station_info) lines.push(`🚉 ${prop.station_info}`);
+
+  if (prop.deposit || prop.key_money) {
+    lines.push(`💴 敷金: ${prop.deposit || 'なし'} / 礼金: ${prop.key_money || 'なし'}`);
+  }
+
+  // 承認リンク
+  if (gasWebappUrl && customerName) {
+    const approveUrl = `${gasWebappUrl}?action=approve&customer=${encodeURIComponent(customerName)}&room_id=${prop.room_id}`;
+    lines.push(`✅ [承認してLINE送信](${approveUrl})`);
+  }
+
+  return lines.join('\n');
+}
+
+// === END Discord ===
 
 async function logError(message) {
   console.error(message);
