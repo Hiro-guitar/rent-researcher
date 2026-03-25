@@ -432,13 +432,20 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       // 沿線コードセット
       if (stationStr) {
         const parts = stationStr.split('/').map(s => s.trim());
-        for (let i = 0; i < Math.min(parts.length, 3); i++) {
+        let slotNum = 0; // 実際にセットした沿線スロット数
+        for (let i = 0; i < parts.length && slotNum < 3; i++) {
           const colonIdx = parts[i].indexOf('\uff1a'); // ：(全角コロン)
           const lineName = colonIdx >= 0 ? parts[i].substring(0, colonIdx).trim() : parts[i].trim();
 
           let reinsLineName = lineNameMap[lineName];
           if (!reinsLineName) {
-            const fbKey = Object.keys(lineNameMap).find(k => k.endsWith(' ' + lineName));
+            // フォールバック1: "東京メトロ 東西線" ← "東京メトロ東西線" (スペースあり/なし)
+            const fbKey = Object.keys(lineNameMap).find(k => {
+              if (k.endsWith(' ' + lineName)) return true;
+              // スペース除去して比較
+              if (k.replace(/\s/g, '') === lineName.replace(/\s/g, '')) return true;
+              return false;
+            });
             reinsLineName = fbKey ? lineNameMap[fbKey] : lineName;
           }
           if (reinsLineName === '\u691c\u7d22\u4e0d\u80fd') continue; // 検索不能
@@ -446,7 +453,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const ensnCd = reinsCodeMap[reinsLineName];
           if (!ensnCd) continue;
 
-          const num = i + 1;
+          slotNum++;
+          const num = slotNum;
           vr[`ensnCd${num}`] = ensnCd;
           vr[`ensnRykshu${num}`] = reinsLineName;
 
