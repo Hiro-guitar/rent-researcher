@@ -109,29 +109,36 @@ function filterByCustomerCriteria(properties, customer) {
       if (!structMatch) return false;
     }
 
-    // 駅名フィルタ（飛び飛び駅の場合、指定駅のいずれかに該当するかチェック）
+    // 駅名＋徒歩フィルタ（station_infoに複数交通が「/」区切りで入っている）
     // routes_with_stations から全駅リストを構築
     let allStations = customer.stations || [];
     if (customer.routes_with_stations && customer.routes_with_stations.length > 0) {
       const rwsStations = customer.routes_with_stations.flatMap(r => r.stations || []);
       if (rwsStations.length > 0) allStations = rwsStations;
     }
-    if (allStations.length > 0) {
-      if (!prop.station_info) return false;
-      const stationMatch = allStations.some(s => prop.station_info.includes(s));
-      if (!stationMatch) return false;
-    }
 
-    // 駅徒歩フィルタ（station_infoから徒歩分数を抽出し、指定分数以内かチェック）
-    if (customer.walk) {
-      const walkMax = parseInt(String(customer.walk).replace(/[^\d]/g, ''));
-      if (walkMax > 0 && prop.station_info) {
-        const walkMatch = prop.station_info.match(/徒歩\s*(\d+)/);
-        if (walkMatch) {
-          const propWalk = parseInt(walkMatch[1]);
-          if (propWalk > walkMax) return false;
+    if (allStations.length > 0 && prop.station_info) {
+      // 交通情報を「/」で分割して各交通をチェック
+      const transports = prop.station_info.split('/').map(s => s.trim());
+      const walkMax = customer.walk ? parseInt(String(customer.walk).replace(/[^\d]/g, '')) : 0;
+
+      // 指定駅のいずれかが含まれ、かつ徒歩分数以内の交通があるかチェック
+      const hasMatch = transports.some(transport => {
+        const stationMatch = allStations.some(s => transport.includes(s));
+        if (!stationMatch) return false;
+        // 徒歩チェック（walkMaxが指定されている場合のみ）
+        if (walkMax > 0) {
+          const walkMatch = transport.match(/徒歩\s*(\d+)/);
+          if (walkMatch) {
+            const propWalk = parseInt(walkMatch[1]);
+            if (propWalk > walkMax) return false;
+          }
         }
-      }
+        return true;
+      });
+      if (!hasMatch) return false;
+    } else if (allStations.length > 0 && !prop.station_info) {
+      return false;
     }
 
     return true;
@@ -876,7 +883,34 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             story_text: floorAbove ? floorAbove + '建' : '',
             structure: structure || '',
             building_age: builtDate || '',
-            station_info: [getVal('沿線名'), getVal('駅名')].filter(Boolean).join(' ') + (getVal('駅から徒歩') ? ' 徒歩' + getVal('駅から徒歩') : ''),
+            station_info: (() => {
+              // 全交通情報を取得（交通1〜3）
+              const transports = [];
+              const labels = ['沿線名', '駅名', '駅より徒歩'];
+              // ラベルが複数ある場合（交通1, 交通2, 交通3...）を探す
+              const allLabels = [...document.querySelectorAll('.p-label-title')];
+              const lineLabels = allLabels.filter(e => e.textContent.trim() === '沿線名');
+              const stationLabels = allLabels.filter(e => e.textContent.trim() === '駅名');
+              const walkLabels = allLabels.filter(e => e.textContent.trim() === '駅より徒歩');
+              const getValFromLabel = (el) => {
+                if (!el) return '';
+                const container = el.closest('.p-label')?.parentElement;
+                if (!container) return '';
+                return container.querySelector('.row .col')?.textContent.trim() || '';
+              };
+              const count = Math.max(lineLabels.length, stationLabels.length);
+              for (let t = 0; t < count; t++) {
+                const line = getValFromLabel(lineLabels[t]);
+                const station = getValFromLabel(stationLabels[t]);
+                const walk = getValFromLabel(walkLabels[t]);
+                if (line || station) {
+                  let info = [line, station].filter(Boolean).join(' ');
+                  if (walk) info += ' 徒歩' + walk;
+                  transports.push(info);
+                }
+              }
+              return transports.join(' / ') || ([getVal('沿線名'), getVal('駅名')].filter(Boolean).join(' ') + (getVal('駅から徒歩') ? ' 徒歩' + getVal('駅から徒歩') : ''));
+            })(),
             room_number: roomNumber || '',
             deposit: getVal('敷金') || '',
             key_money: getVal('礼金') || '',
