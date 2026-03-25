@@ -492,7 +492,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         const ageNum = parseInt(String(customerData.building_age).replace(/[^\d]/g, ''));
         if (ageNum > 0) {
           const now = new Date();
-          const fromDate = new Date(now.getFullYear() - ageNum, now.getMonth(), 1);
+          const fromDate = new Date(now.getFullYear() - ageNum, now.getMonth() + 1, 1);
           const fromYear = String(fromDate.getFullYear());
           const fromMonth = String(fromDate.getMonth() + 1).padStart(2, '0');
           // 築年月From年・月のselect要素を探してiValueをセット
