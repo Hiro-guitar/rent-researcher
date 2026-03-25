@@ -491,8 +491,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       if (customerData.building_age) {
         const ageNum = parseInt(String(customerData.building_age).replace(/[^\d]/g, ''));
         if (ageNum > 0) {
-          const fromYear = String(new Date().getFullYear() - ageNum);
-          // 築年月From年のselect要素を探してiValueをセット
+          const now = new Date();
+          const fromDate = new Date(now.getFullYear() - ageNum, now.getMonth(), 1);
+          const fromYear = String(fromDate.getFullYear());
+          const fromMonth = String(fromDate.getMonth() + 1).padStart(2, '0');
+          // 築年月From年・月のselect要素を探してiValueをセット
           const chikuLabel = document.evaluate(
             "//span[contains(@class,'p-label-title') and contains(text(),'築年月')]",
             document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null
@@ -501,20 +504,21 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             const container = chikuLabel.parentElement?.parentElement;
             if (container) {
               const selects = container.querySelectorAll('select');
-              if (selects.length >= 1) {
-                // 最初のselectが年From
-                const yearSel = selects[0];
-                let selEl = yearSel;
+              // selects[0]=年From, selects[1]=月From
+              const setSelectValue = (sel, value) => {
+                let selEl = sel;
                 while (selEl) {
                   if (selEl.__vue__ && selEl.__vue__.$data && 'iValue' in selEl.__vue__.$data) {
-                    selEl.__vue__.$data.iValue = fromYear;
-                    selEl.__vue__.$emit('input', fromYear);
-                    selEl.__vue__.$emit('change', fromYear);
+                    selEl.__vue__.$data.iValue = value;
+                    selEl.__vue__.$emit('input', value);
+                    selEl.__vue__.$emit('change', value);
                     break;
                   }
                   selEl = selEl.parentElement;
                 }
-              }
+              };
+              if (selects.length >= 1) setSelectValue(selects[0], fromYear);
+              if (selects.length >= 2) setSelectValue(selects[1], fromMonth);
             }
           }
         }
