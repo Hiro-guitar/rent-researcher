@@ -466,6 +466,15 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               vr[`ekmiTo${num}`] = stationsInLine[stationsInLine.length - 1];
             }
           }
+
+          // 駅徒歩セット（全沿線に同じ値）
+          if (customerData.walk) {
+            const walkMin = String(customerData.walk).replace(/[^\d]/g, '');
+            if (walkMin) {
+              vr[`thNyurykc${num}`] = walkMin;
+              vr[`thMHnKbn${num}`] = '01'; // 01=以内
+            }
+          }
         }
       }
 
@@ -576,7 +585,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         buildingAge: customerData.building_age || ''
       };
     },
-    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [] }, lineNameMap, reinsCodeMap]
+    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '' }, lineNameMap, reinsCodeMap]
   });
 
   const setStatus = setResult?.[0]?.result;
@@ -584,7 +593,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await setStorageData({ debugLog: `${customer.name}: 条件セットエラー: ${JSON.stringify(setStatus)}` });
     return;
   }
-  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'}` });
+  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'}` });
 
   // Vueリアクティブ更新を待つ
   await csleep(2000);
@@ -1021,6 +1030,12 @@ function buildSearchInfo(customer) {
   // 構造
   if (customer.structures && customer.structures.length > 0) {
     lines.push(`🏢 ${customer.structures.join(' / ')}`);
+  }
+
+  // 駅徒歩
+  if (customer.walk) {
+    const walkMin = String(customer.walk).replace(/[^\d]/g, '');
+    if (walkMin) lines.push(`🚶 徒歩${walkMin}分以内`);
   }
 
   return lines.join('\n');
