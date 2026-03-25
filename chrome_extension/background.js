@@ -552,6 +552,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           for (const dialog of dialogs) {
             const text = dialog.textContent;
             if (text.includes('入力に誤り') || text.includes('権限')) return 'error';
+            // 0件ダイアログ: 該当する物件がない場合
+            if (text.includes('該当') && (text.includes('ありません') || text.includes('０件') || text.includes('0件'))) {
+              const okBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
+              if (okBtn) { okBtn.click(); return 'no_results'; }
+            }
             if (text.includes('500件') || text.includes('超えています')) {
               // OKボタンをクリック
               const okBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
@@ -565,6 +570,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       const status = dialogResult?.[0]?.result;
       await setStorageData({ debugLog: `${customer.name}: ダイアログ${d+1}: ${status}` });
       if (status === 'error') return;
+      if (status === 'no_results') {
+        await setStorageData({ debugLog: `${customer.name}: 該当物件なし（0件）` });
+        return;
+      }
       if (status === 'ok_clicked') {
         // OKクリック後の遷移を待つ
         for (let w = 0; w < 20; w++) {
