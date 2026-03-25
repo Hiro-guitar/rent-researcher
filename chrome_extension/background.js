@@ -1,6 +1,12 @@
 /**
  * background.js (Service Worker)
  * REINS物件自動取得の中核 — スケジューリング、検索オーケストレーション、状態管理
+ *
+ * 重要な技術的制約:
+ * - REINSはVue 2 SPA。execute()をJS直接呼び出しすると認証エラーになる
+ * - 条件セットはVue $dataに直接代入（scriptタグ注入・MAIN world）
+ * - 検索実行・OKダイアログはDOMクリック（人間操作と同じ）
+ * - 検索フォームへの遷移はURL直接遷移NG → メニューボタンクリック経由
  */
 
 // === GAS API クライアント（inline） ===
@@ -45,12 +51,40 @@ async function submitProperties(customerName, properties) {
 }
 // === END GAS API クライアント ===
 
+// === lineNameMap + reinsCodeMap ===
+let cachedLineNameMap = null;
+async function loadLineNameMap() {
+  if (cachedLineNameMap) return cachedLineNameMap;
+  const response = await fetch(chrome.runtime.getURL("lineNameMap.json"));
+  cachedLineNameMap = await response.json();
+  return cachedLineNameMap;
+}
+
+let cachedReinsCodeMap = null;
+async function loadReinsCodeMap() {
+  if (cachedReinsCodeMap) return cachedReinsCodeMap;
+  const response = await fetch(chrome.runtime.getURL("reinsCodeMap.json"));
+  cachedReinsCodeMap = await response.json();
+  return cachedReinsCodeMap;
+}
+
+// 顧客条件からstation文字列を組み立て
+function buildStationString(customer) {
+  const routes = customer.routes || [];
+  const stations = customer.stations || [];
+  if (routes.length === 0) return '';
+  if (routes.length === 1) {
+    const stationList = stations.join(', ');
+    return stationList ? `${routes[0]}：${stationList}` : routes[0];
+  }
+  return routes.map(route => route).join(' / ');
+}
+
 // --- 初期化 ---
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['searchIntervalMinutes'], (data) => {
     setupAlarm(data.searchIntervalMinutes || 30);
   });
-  // 初期統計 + isSearchingリセット
   chrome.storage.local.set({ isSearching: false });
   chrome.storage.local.get(['stats'], (data) => {
     if (!data.stats) {
@@ -61,7 +95,6 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-// Service Worker起動時にisSearchingをリセット（前回異常終了対策）
 chrome.storage.local.set({ isSearching: false });
 
 // --- アラーム ---
@@ -85,12 +118,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return;
   }
-
   if (msg.type === 'REFRESH_CRITERIA') {
     refreshCriteria().then(() => sendResponse({ ok: true })).catch(err => sendResponse({ error: err.message }));
     return true;
   }
-
   if (msg.type === 'UPDATE_ALARM') {
     chrome.storage.local.get(['searchIntervalMinutes'], (data) => {
       setupAlarm(data.searchIntervalMinutes || 30);
@@ -98,7 +129,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true;
   }
-
   if (msg.type === 'LOGIN_STATUS') {
     chrome.storage.local.set({ loginDetected: msg.loggedIn });
     return;
@@ -124,75 +154,51 @@ async function refreshCriteria() {
 
 // --- メイン検索サイクル ---
 async function runSearchCycle() {
-  // 排他制御
   const { isSearching, gasWebappUrl } = await getStorageData(['isSearching', 'gasWebappUrl']);
-  if (isSearching) {
-    console.log('検索中のためスキップ');
-    return;
-  }
-  if (!gasWebappUrl) {
-    console.log('GAS URL未設定のためスキップ');
-    return;
-  }
+  if (isSearching) { console.log('検索中のためスキップ'); return; }
+  if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }
 
   await setStorageData({ isSearching: true, debugLog: '検索開始...' });
 
   try {
-    // REINSタブを探す
     const reinsTab = await findReinsTab();
     if (!reinsTab) {
-      console.log('REINSタブが見つかりません');
       await setStorageData({ loginDetected: false, debugLog: 'REINSタブが見つかりません' });
       return;
     }
     await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}, url=${reinsTab.url}` });
 
-    // ログイン確認（scripting APIで直接チェック）
-    const loggedIn = await checkReinsLogin(reinsTab.id);
-    if (!loggedIn) {
-      console.log('REINSにログインしていません');
-      await setStorageData({ loginDetected: false, debugLog: `ログインチェック失敗: tabId=${reinsTab.id}` });
-      showNotification('REINS未ログイン', 'REINSにログインしてください');
-      return;
-    }
-    await setStorageData({ loginDetected: true });
-
-    // 検索条件を取得（キャッシュが1時間以内なら再利用）
+    // 検索条件を取得
     const { customerCriteria, lastCriteriaFetch } = await getStorageData(['customerCriteria', 'lastCriteriaFetch']);
     if (!customerCriteria || !lastCriteriaFetch || (Date.now() - lastCriteriaFetch > 3600000)) {
       await refreshCriteria();
     }
     const { customerCriteria: criteria } = await getStorageData(['customerCriteria']);
-    if (!criteria || criteria.length === 0) {
-      console.log('検索条件がありません');
-      return;
-    }
+    if (!criteria || criteria.length === 0) { console.log('検索条件がありません'); return; }
 
-    // 既知の物件IDを取得（重複排除）
     let seenIds = {};
     try {
       const seenResult = await fetchSeenIds();
-      if (seenResult && seenResult.seen_ids) {
-        seenIds = seenResult.seen_ids; // { customer_name: [room_id, ...] }
-      }
-    } catch (err) {
-      logError('既知物件ID取得失敗: ' + err.message);
-    }
+      if (seenResult && seenResult.seen_ids) seenIds = seenResult.seen_ids;
+    } catch (err) { logError('既知物件ID取得失敗: ' + err.message); }
 
-    // 各顧客の条件で検索を実行
     const { pageDelaySeconds } = await getStorageData(['pageDelaySeconds']);
     const delay = (pageDelaySeconds || 5) * 1000;
 
-    // 暫定: 最初の1顧客のみ実行（デバッグ用）
-    const customer = criteria[0];
-    try {
-      await searchForCustomer(reinsTab.id, customer, seenIds, delay);
-    } catch (err) {
-      logError(`${customer.name}の検索失敗: ${err.message}`);
+    // 全顧客を順次検索
+    for (let ci = 0; ci < criteria.length; ci++) {
+      const customer = criteria[ci];
+      await setStorageData({ debugLog: `顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
+      try {
+        await searchForCustomer(reinsTab.id, customer, seenIds, delay);
+      } catch (err) {
+        logError(`${customer.name}の検索失敗: ${err.message}`);
+      }
+      // 顧客間の待ち時間
+      if (ci < criteria.length - 1) await sleep(3000);
     }
 
     await setStorageData({ lastSearchTime: Date.now() });
-
   } catch (err) {
     logError('検索サイクルエラー: ' + err.message);
   } finally {
@@ -200,146 +206,292 @@ async function runSearchCycle() {
   }
 }
 
-// --- 顧客ごとの検索（全てchrome.scripting.executeScriptで実行） ---
+// === 顧客ごとの検索 ===
 async function searchForCustomer(tabId, customer, seenIds, delay) {
   await setStorageData({ debugLog: `検索開始: ${customer.name}` });
   const customerSeenIds = seenIds[customer.name] || [];
 
-  // 1. 検索フォームページに移動 → フォーム入力 → 検索実行 → ダイアログOK
-  //    全てを1つのexecuteScriptにまとめる（Service Workerのidle timeout対策）
-  await chrome.tabs.update(tabId, { url: 'https://system.reins.jp/main/BK/GBK001310' });
-  await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
-  // ページのURL遷移+ロード完了をポーリングで確認
-  for (let w = 0; w < 20; w++) {
-    await sleep(2000);
-    try {
-      const tab = await chrome.tabs.get(tabId);
-      if (tab.url?.includes('GBK001310') && tab.status === 'complete') break;
-    } catch (_) {}
-  }
-  await sleep(3000); // 追加のVue初期化待ち
+  // --- Step 1: 検索フォームに移動 ---
+  // URL直接遷移はREINSの認証コンテキストが失われるためNG
+  // メインメニューの「賃貸 物件検索」ボタンをクリックして正規遷移する
+  // ただし既にGBK001310にいる場合はスキップ
+  const currentTab = await chrome.tabs.get(tabId);
+  if (!currentTab.url?.includes('GBK001310')) {
+    await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
 
-  const route = (customer.routes && customer.routes[0]) || '';
-  const station = (customer.stations && customer.stations[0]) || '';
-
-  // フォーム入力 + 検索クリック + OKクリックを1つのスクリプトで実行
-  try {
-    const result = await chrome.scripting.executeScript({
+    // まずメインメニューに移動（右サイドバーの「賃貸物件検索」リンクをクリック）
+    // GBK002200（結果ページ）やメインメニューからでも、サイドバーリンクで遷移可能
+    await chrome.scripting.executeScript({
       target: { tabId },
-      world: 'MAIN',
-      func: async (route, station) => {
-        // Vue初期化を待つ（最大30秒）
-        for (let w = 0; w < 15; w++) {
-          const inp = document.querySelectorAll('input[type="text"]')[1];
-          if (inp && inp.__vue__) break;
-          await new Promise(r => setTimeout(r, 2000));
-        }
-
-        const inp = document.querySelectorAll('input[type="text"]')[1];
-        if (!inp || !inp.__vue__) {
-          return {
-            error: 'Vue not ready',
-            url: location.href,
-            inputCount: document.querySelectorAll('input[type="text"]').length,
-            bodyLength: document.body.textContent.length,
-            hasInput1: !!inp,
-            hasVue: !!(inp && inp.__vue__)
-          };
-        }
-
-        let vm = inp.__vue__;
-        for (let i = 0; i < 2; i++) vm = vm.$parent;
-        const pframe = vm.$parent;
-        const cards = pframe.$children || [];
-
-        // 物件種別1 = 賃貸マンション
-        if (cards[2] && cards[2].$children[6]) {
-          cards[2].$children[6].iValue = '03';
-        }
-        // 沿線名 + 駅名
-        if (cards[3]) {
-          if (route && cards[3].$children[34]) cards[3].$children[34].iValue = route;
-          if (station && cards[3].$children[37]) cards[3].$children[37].iValue = station;
-        }
-
-        // 検索ボタンクリック
-        await new Promise(r => setTimeout(r, 500));
-        const searchBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '検索');
-        if (searchBtn) searchBtn.click();
-
-        // ダイアログOKボタンを待ってクリック
-        for (let d = 0; d < 10; d++) {
-          await new Promise(r => setTimeout(r, 2000));
-          const okBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
-          if (okBtn) { okBtn.click(); return { success: true, step: 'ok_clicked' }; }
-          // エラーページチェック
-          if (document.body.textContent.includes('入力に誤りがあります')) {
-            return { error: 'validation_error' };
-          }
-          // 既に検索結果ページに遷移した場合
-          if (document.querySelectorAll('.p-table-body-row').length > 0) {
-            return { success: true, step: 'results_direct' };
-          }
-        }
-        return { error: 'dialog_timeout' };
-      },
-      args: [route, station]
+      func: () => {
+        // サイドバーの「賃貸物件検索」リンクをクリック
+        const links = [...document.querySelectorAll('a, button')];
+        const rentLink = links.find(el => {
+          const text = el.textContent.trim();
+          return text === '賃貸物件検索' || (text.includes('賃貸') && text.includes('物件検索'));
+        });
+        if (rentLink) { rentLink.click(); return 'clicked'; }
+        // メインメニューのボタンを試す
+        const btn = links.find(el => el.textContent.includes('賃貸') && el.textContent.includes('検索'));
+        if (btn) { btn.click(); return 'clicked_btn'; }
+        return 'not_found';
+      }
     });
 
-    const stepResult = result?.[0]?.result;
-    await setStorageData({ debugLog: `${customer.name}: フォーム+検索結果: ${JSON.stringify(stepResult)}` });
-    if (!stepResult?.success) return;
-  } catch (err) {
-    await setStorageData({ debugLog: `${customer.name}: フォーム+検索エラー: ${err.message}` });
+    // GBK001310への遷移とVue描画完了を待つ
+    for (let w = 0; w < 30; w++) {
+      await sleep(2000);
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        if (tab.url?.includes('GBK001310')) {
+          // さらにVueのフォームが描画されるまで待つ
+          const ready = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => {
+              const labels = document.querySelectorAll('.p-label-title');
+              return labels.length > 10; // フォームのラベルが10個以上あれば描画完了
+            }
+          });
+          if (ready?.[0]?.result) break;
+        }
+      } catch (_) {}
+    }
+    await sleep(3000); // Vue完全初期化待ち
+  }
+
+  // --- Step 2: 条件セット（executeScript world:'MAIN'で直接実行） ---
+  // ※ scriptタグ注入はCSPでブロックされるため、world:'MAIN'を使う
+  const lineNameMap = await loadLineNameMap();
+  const reinsCodeMap = await loadReinsCodeMap();
+  const stationStr = buildStationString(customer);
+
+  await setStorageData({ debugLog: `${customer.name}: stationStr="${stationStr}", rent_max=${customer.rent_max}` });
+
+  const setResult = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: (stationStr, customerData, lineNameMap, reinsCodeMap) => {
+      // Vueルート取得
+      const fi = document.querySelector('.p-textbox-input');
+      if (!fi) return { error: 'no_input' };
+      let el = fi;
+      while (el && !el.__vue__) el = el.parentElement;
+      let p = el?.__vue__;
+      let depth = 0;
+      while (p && depth < 20) {
+        if (Object.keys(p.$data || {}).length > 100) break;
+        p = p.$parent; depth++;
+      }
+      if (!p || Object.keys(p.$data || {}).length < 100) return { error: 'no_vr', depth };
+      const vr = p;
+
+      // 条件クリア
+      for (let n = 1; n <= 3; n++) {
+        vr[`ensnCd${n}`] = ''; vr[`ensnRykshu${n}`] = '';
+        vr[`ekCdFrom${n}`] = ''; vr[`ekCdTo${n}`] = '';
+        vr[`ekmiFrom${n}`] = ''; vr[`ekmiTo${n}`] = '';
+        vr[`thNyurykc${n}`] = ''; vr[`thMHnKbn${n}`] = '';
+      }
+      vr.kkkuCnryuFrom = ''; vr.kkkuCnryuTo = '';
+      vr.bkknShbt1 = ''; vr.bkknShbt2 = '';
+
+      // 物件種別: 賃貸マンション
+      vr.bkknShbt1 = '03';
+
+      // 沿線コードセット
+      if (stationStr) {
+        const parts = stationStr.split('/').map(s => s.trim());
+        for (let i = 0; i < Math.min(parts.length, 3); i++) {
+          const colonIdx = parts[i].indexOf('\uff1a'); // ：(全角コロン)
+          const lineName = colonIdx >= 0 ? parts[i].substring(0, colonIdx).trim() : parts[i].trim();
+
+          let reinsLineName = lineNameMap[lineName];
+          if (!reinsLineName) {
+            const fbKey = Object.keys(lineNameMap).find(k => k.endsWith(' ' + lineName));
+            reinsLineName = fbKey ? lineNameMap[fbKey] : lineName;
+          }
+          if (reinsLineName === '\u691c\u7d22\u4e0d\u80fd') continue; // 検索不能
+
+          const ensnCd = reinsCodeMap[reinsLineName];
+          if (!ensnCd) continue;
+
+          const num = i + 1;
+          vr[`ensnCd${num}`] = ensnCd;
+          vr[`ensnRykshu${num}`] = reinsLineName;
+        }
+      }
+
+      // 賃料上限（万円）
+      if (customerData.rent_max) {
+        vr.kkkuCnryuTo = String(customerData.rent_max);
+      }
+
+      return {
+        success: true,
+        bkknShbt1: vr.bkknShbt1,
+        ensnCd1: vr.ensnCd1,
+        kkkuCnryuTo: vr.kkkuCnryuTo
+      };
+    },
+    args: [stationStr, { rent_max: customer.rent_max }, lineNameMap, reinsCodeMap]
+  });
+
+  const setStatus = setResult?.[0]?.result;
+  if (!setStatus?.success) {
+    await setStorageData({ debugLog: `${customer.name}: 条件セットエラー: ${JSON.stringify(setStatus)}` });
+    return;
+  }
+  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo}` });
+
+  // Vueリアクティブ更新を待つ
+  await sleep(2000);
+
+  // --- Step 3: 検索ボタンをDOMクリック（MAIN world） ---
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => {
+      const btns = [...document.querySelectorAll('button')];
+      const searchBtn = btns.find(b => b.textContent.trim() === '\u691c\u7d22'); // 検索
+      if (searchBtn) searchBtn.click();
+    }
+  });
+  await setStorageData({ debugLog: `${customer.name}: 検索ボタンクリック` });
+
+  // --- Step 4: ダイアログ処理 + ページ遷移待ち ---
+  // 500件超 → 確認ダイアログ(OKクリック) → 結果ページ
+  // 500件以下 → 直接結果ページ
+  // 0件 → 結果ページ(0件表示)
+  for (let d = 0; d < 30; d++) {
+    await sleep(3000);
+    try {
+      const tab = await chrome.tabs.get(tabId);
+
+      // 結果ページに遷移済み
+      if (tab.url?.includes('GBK002200')) {
+        await setStorageData({ debugLog: `${customer.name}: 結果ページに遷移` });
+        break;
+      }
+
+      // エラーページ
+      if (tab.url && !tab.url.includes('GBK001310') && !tab.url.includes('reins.jp')) {
+        await setStorageData({ debugLog: `${customer.name}: 予期しないURL: ${tab.url}` });
+        return;
+      }
+
+      // OKダイアログ検出 → DOMクリック
+      const dialogResult = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          // バリデーションエラー
+          const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
+          for (const dialog of dialogs) {
+            const text = dialog.textContent;
+            if (text.includes('入力に誤り') || text.includes('権限')) return 'error';
+            if (text.includes('500件') || text.includes('超えています')) {
+              // OKボタンをクリック
+              const okBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
+              if (okBtn) { okBtn.click(); return 'ok_clicked'; }
+            }
+          }
+          return 'waiting';
+        }
+      });
+
+      const status = dialogResult?.[0]?.result;
+      await setStorageData({ debugLog: `${customer.name}: ダイアログ${d+1}: ${status}` });
+      if (status === 'error') return;
+      if (status === 'ok_clicked') {
+        // OKクリック後の遷移を待つ
+        for (let w = 0; w < 20; w++) {
+          await sleep(2000);
+          const t = await chrome.tabs.get(tabId);
+          if (t.url?.includes('GBK002200')) break;
+        }
+        break;
+      }
+    } catch (err) {
+      await setStorageData({ debugLog: `${customer.name}: ダイアログ${d+1}エラー: ${err.message}` });
+    }
+  }
+
+  // --- Step 5: 検索結果のDOM描画待ち ---
+  await setStorageData({ debugLog: `${customer.name}: 検索結果待ち...` });
+
+  // タブURLがGBK002200か確認
+  const tabCheck = await chrome.tabs.get(tabId);
+  if (!tabCheck.url?.includes('GBK002200')) {
+    await setStorageData({ debugLog: `${customer.name}: 結果ページに遷移していません (URL=${tabCheck.url})` });
     return;
   }
 
-  // OKクリック後、検索結果が表示されるまでポーリング（最大60秒）
-  await setStorageData({ debugLog: `${customer.name}: 検索結果待ち...` });
+  // SPA遷移後のDOM描画を待つ（最大60秒）
   let resultsReady = false;
   for (let i = 0; i < 20; i++) {
     await sleep(3000);
     try {
-      const tab = await chrome.tabs.get(tabId);
+      // ISOLATED worldでDOM確認（MAIN worldは不要）
       const check = await chrome.scripting.executeScript({
         target: { tabId },
-        func: () => document.querySelectorAll('.p-table-body-row').length
+        func: () => {
+          // 結果ページの特徴的な要素を探す
+          const header = document.querySelector('h2, .p-header');
+          const headerText = header?.textContent || '';
+          const isResultPage = headerText.includes('検索結果') || document.body.textContent.includes('検索結果');
+          const checkboxes = document.querySelectorAll('input[type="checkbox"]').length;
+          const bodyLen = document.body.textContent.length;
+          // 検索結果テーブルの行を探す（複数のセレクタを試す）
+          const rows1 = document.querySelectorAll('.p-table-body-row').length;
+          const rows2 = document.querySelectorAll('tr').length;
+          const detailBtns = [...document.querySelectorAll('button')].filter(b => b.textContent.includes('詳細')).length;
+          return { isResultPage, checkboxes, bodyLen, rows1, rows2, detailBtns, url: location.href };
+        }
       });
-      const count = check?.[0]?.result || 0;
-      await setStorageData({ debugLog: `${customer.name}: ポーリング${i+1} URL=${tab.url?.split('/').pop()} rows=${count}` });
-      if (count > 0) { resultsReady = true; break; }
+      const r = check?.[0]?.result || {};
+      await setStorageData({ debugLog: `${customer.name}: 結果${i+1}: result=${r.isResultPage} cb=${r.checkboxes} detail=${r.detailBtns} rows=${r.rows1}/${r.rows2}` });
+
+      if (r.detailBtns > 0 || r.rows1 > 0) {
+        resultsReady = true;
+        break;
+      }
+      // 0件の場合もisResultPageがtrueなら完了
+      if (r.isResultPage && r.bodyLen > 200 && r.checkboxes === 0) {
+        await setStorageData({ debugLog: `${customer.name}: 検索結果0件` });
+        return;
+      }
     } catch (err) {
-      await setStorageData({ debugLog: `${customer.name}: ポーリング${i+1} エラー: ${err.message}` });
+      await setStorageData({ debugLog: `${customer.name}: 結果${i+1}エラー: ${err.message}` });
     }
   }
 
   if (!resultsReady) {
-    const tab = await chrome.tabs.get(tabId);
-    await setStorageData({ debugLog: `${customer.name}: 検索結果が表示されませんでした (URL=${tab.url})` });
+    await setStorageData({ debugLog: `${customer.name}: 検索結果が表示されませんでした` });
     return;
   }
+
   await sleep(delay);
   await setStorageData({ debugLog: `${customer.name}: 検索結果ページ到達` });
 
-  // 4. 検索結果ページでデータ抽出（scripting API）
+  // --- Step 6: 検索結果データ抽出 ---
   let searchResults = [];
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        const rows = document.querySelectorAll('.p-table-body-row');
+        // 「詳細」ボタンを持つ行を探す
+        const detailBtns = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === '詳細');
         const data = [];
-        rows.forEach((row, index) => {
-          const items = row.querySelectorAll(':scope > .p-table-body-item');
-          if (items.length < 20) return;
-          const getText = el => el ? el.textContent.trim() : '';
+        detailBtns.forEach((btn, index) => {
+          // ボタンの親要素から物件情報を取得
+          const row = btn.closest('tr') || btn.closest('[class*="row"]') || btn.parentElement?.parentElement;
+          if (!row) return;
+          const text = row.textContent;
+          // 物件番号（100で始まる11桁以上の数字）
+          const propNumMatch = text.match(/\b(100\d{8,})\b/);
           data.push({
             index,
-            propertyNumber: getText(items[3]),
-            buildingName: getText(items[11]),
-            rent: getText(items[8]),
-            layout: getText(items[13]),
-            address: getText(items[6])
+            propertyNumber: propNumMatch ? propNumMatch[1] : '',
+            text: text.substring(0, 200)
           });
         });
         return data;
@@ -360,31 +512,24 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
   const { stats } = await getStorageData(['stats']);
   const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };
 
-  // 5. 最初の5件のみ詳細を取得（レート制限のため）
+  // --- Step 7: 詳細取得（最初の5件のみ） ---
   const maxDetails = 5;
   const newProperties = [];
 
   for (let i = 0; i < Math.min(searchResults.length, maxDetails); i++) {
     const result = searchResults[i];
     if (!result.propertyNumber) continue;
-
-    // 重複チェック
-    if (customerSeenIds.some(id => id.includes(result.propertyNumber))) {
-      continue;
-    }
+    if (customerSeenIds.some(id => id.includes(result.propertyNumber))) continue;
 
     await setStorageData({ debugLog: `${customer.name}: 物件${i+1}/${Math.min(searchResults.length, maxDetails)} 詳細取得中 (${result.propertyNumber})` });
 
-    // 詳細ボタンをクリック
     try {
+      // 詳細ボタンをクリック
       await chrome.scripting.executeScript({
         target: { tabId },
         func: (idx) => {
-          const rows = document.querySelectorAll('.p-table-body-row');
-          if (idx < rows.length) {
-            const btns = rows[idx].querySelectorAll('button');
-            if (btns[1]) btns[1].click(); // 詳細ボタン
-          }
+          const detailBtns = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === '詳細');
+          if (idx < detailBtns.length) detailBtns[idx].click();
         },
         args: [result.index]
       });
@@ -401,7 +546,6 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
             const container = el.closest('.p-label')?.parentElement;
             if (!container) return '';
             if (label === '部屋番号') return container.querySelector('.col-sm-4')?.textContent.trim() || '';
-            if (label === '物件種目') return container.querySelector('.row .col-sm-2.col-5')?.textContent.trim() || '';
             return container.querySelector('.row .col')?.textContent.trim() || '';
           };
 
@@ -426,8 +570,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
             room_id: 'reins_' + propertyNumber + '_' + (roomNumber || 'no_room'),
             building_name: building || '',
             address: [pref, addr1, addr2].filter(Boolean).join(''),
-            rent: rentRaw ? Math.round(parseFloat(rentRaw.replace(/[^\d.]/g, '')) * (rentRaw.includes('万') ? 10000 : 1)) : 0,
-            management_fee: mgmtFee ? parseInt(mgmtFee.replace(/[^\d]/g, '')) || 0 : 0,
+            rent: rentRaw ? parseFloat(rentRaw.replace(/[^\d.]/g, '')) * (rentRaw.includes('万') ? 10000 : 1) : 0,
+            management_fee: mgmtFee ? parseFloat(mgmtFee.replace(/[^\d.]/g, '')) || 0 : 0,
             layout: getVal('間取タイプ') || '',
             area: parseFloat((area || '').replace(/[^\d.]/g, '')) || 0,
             floor: parseInt((floorLoc || '').match(/\d+/)?.[0] || '0'),
@@ -435,13 +579,19 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
             story_text: floorAbove ? floorAbove + '建' : '',
             structure: structure || '',
             building_age: builtDate || '',
-            station_info: '',
+            station_info: [getVal('沿線名'), getVal('駅名')].filter(Boolean).join(' ') + (getVal('駅から徒歩') ? ' 徒歩' + getVal('駅から徒歩') : ''),
             room_number: roomNumber || '',
             deposit: getVal('敷金') || '',
             key_money: getVal('礼金') || '',
             facilities: getVal('設備・条件・住宅性能等') || '',
             sunlight: getVal('バルコニー方向') || '',
+            lease_type: getVal('取引態様') || '',
+            contract_period: getVal('契約期間') || '',
+            move_in_date: getVal('入居可能時期') || getVal('引渡可能時期') || '',
+            total_units: getVal('総戸数') || '',
             reins_property_number: propertyNumber,
+            reins_shougo: getVal('商号') || '',
+            reins_tel: getVal('電話番号') || '',
             source: 'reins'
           };
         }
@@ -453,18 +603,49 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
         currentStats.totalFound++;
       }
 
-      // 検索結果に戻る
-      await chrome.tabs.goBack(tabId);
-      await waitForTabLoad(tabId);
+      // 検索結果に戻る（REINSのSPAでは goBack だと検索フォームに戻る場合がある）
+      // 詳細ページの「←」戻るボタンをクリック
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          // 「←」ボタン（左上の戻るアイコン）をクリック
+          const backBtn = document.querySelector('.p-btn-back, [class*="back"]')
+            || [...document.querySelectorAll('button, a')].find(el => el.textContent.trim() === '←' || el.textContent.includes('戻る'));
+          if (backBtn) { backBtn.click(); return; }
+          // フォールバック: ブラウザ履歴で戻る
+          history.back();
+        }
+      });
+      // 検索結果一覧(GBK002200)に戻るまで待つ
+      for (let bw = 0; bw < 15; bw++) {
+        await sleep(2000);
+        const bt = await chrome.tabs.get(tabId);
+        if (bt.url?.includes('GBK002200')) break;
+      }
       await sleep(delay);
 
     } catch (err) {
       await setStorageData({ debugLog: `${customer.name}: 物件${result.propertyNumber}の詳細取得失敗: ${err.message}` });
-      try { await chrome.tabs.goBack(tabId); await waitForTabLoad(tabId); await sleep(delay); } catch(_) {}
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const backBtn = document.querySelector('.p-btn-back, [class*="back"]')
+              || [...document.querySelectorAll('button, a')].find(el => el.textContent.trim() === '←' || el.textContent.includes('戻る'));
+            if (backBtn) backBtn.click(); else history.back();
+          }
+        });
+        for (let bw = 0; bw < 15; bw++) {
+          await sleep(2000);
+          const bt = await chrome.tabs.get(tabId);
+          if (bt.url?.includes('GBK002200')) break;
+        }
+        await sleep(delay);
+      } catch(_) {}
     }
   }
 
-  // 6. GASに送信
+  // --- Step 8: GASに送信 ---
   if (newProperties.length > 0) {
     await setStorageData({ debugLog: `${customer.name}: ${newProperties.length}件をGASに送信中...` });
     try {
@@ -485,40 +666,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay) {
 
 // --- ユーティリティ ---
 
-async function checkReinsLogin(tabId) {
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        // ログインページやエラーページでないことを確認
-        const url = location.href;
-        if (url.includes('login') || url.includes('GKG001')) return false;
-        // メインメニューや物件ページが表示されていればログイン済み
-        return document.body.textContent.length > 100;
-      }
-    });
-    return results && results[0] && results[0].result === true;
-  } catch (err) {
-    console.error('ログインチェック失敗:', err.message);
-    return false;
-  }
-}
-
 async function findReinsTab() {
   const tabs = await chrome.tabs.query({ url: 'https://system.reins.jp/*' });
   return tabs.length > 0 ? tabs[0] : null;
-}
-
-function sendTabMessage(tabId, msg) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, msg, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-      } else {
-        resolve(response);
-      }
-    });
-  });
 }
 
 function waitForTabLoad(tabId) {
@@ -530,23 +680,28 @@ function waitForTabLoad(tabId) {
       }
     };
     chrome.tabs.onUpdated.addListener(listener);
-    // タイムアウト: 30秒
-    setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
-    }, 30000);
+    setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 30000);
   });
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 function getStorageData(keys) {
   return new Promise(resolve => chrome.storage.local.get(keys, resolve));
 }
 
 function setStorageData(data) {
+  if (data.debugLog) {
+    return new Promise(resolve => {
+      chrome.storage.local.get(['debugLog'], (prev) => {
+        const prevLog = prev.debugLog || '';
+        const timestamp = new Date().toLocaleTimeString('ja-JP');
+        data.debugLog = prevLog + `\n[${timestamp}] ${data.debugLog}`;
+        if (data.debugLog.length > 2000) data.debugLog = data.debugLog.slice(-2000);
+        chrome.storage.local.set(data, resolve);
+      });
+    });
+  }
   return new Promise(resolve => chrome.storage.local.set(data, resolve));
 }
 
@@ -565,9 +720,6 @@ async function logError(message) {
   const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };
   currentStats.lastError = message;
   currentStats.errors.push({ time: Date.now(), message });
-  // エラーログは最新10件のみ保持
-  if (currentStats.errors.length > 10) {
-    currentStats.errors = currentStats.errors.slice(-10);
-  }
+  if (currentStats.errors.length > 10) currentStats.errors = currentStats.errors.slice(-10);
   await setStorageData({ stats: currentStats });
 }
