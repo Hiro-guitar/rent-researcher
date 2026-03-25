@@ -80,18 +80,26 @@ function writeToSheet(userId, state) {
   const ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   const sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
 
-  // 同じ顧客名の既存行を削除（下から順に削除してインデックスずれを防ぐ）
+  // 同じ顧客名の既存行を探す
   var customerName = d.name || '';
+  var existingRowIndex = -1;
   if (customerName) {
     var existingData = sheet.getDataRange().getValues();
-    for (var i = existingData.length - 1; i >= 1; i--) {
+    for (var i = 1; i < existingData.length; i++) {
       if (existingData[i][1] === customerName) {
-        sheet.deleteRow(i + 1);
+        existingRowIndex = i + 1; // 1-indexed
+        break;
       }
     }
   }
 
-  sheet.appendRow(row);
+  if (existingRowIndex > 0) {
+    // 既存行を上書き更新（順番を維持）
+    sheet.getRange(existingRowIndex, 1, 1, row.length).setValues([row]);
+  } else {
+    // 新規顧客は末尾に追加
+    sheet.appendRow(row);
+  }
 
   // LINE Users シートにも記録
   saveLineUser(userId, d.name || '');
