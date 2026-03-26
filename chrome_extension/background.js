@@ -367,74 +367,52 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   const customerSeenIds = seenIds[customer.name] || [];
 
   // --- Step 1: 検索フォームに移動 ---
-  // URL直接遷移はREINSの認証コンテキストが失われるためNG
-  // メインメニューの「賃貸 物件検索」ボタンをクリックして正規遷移する
-  const currentTab = await chrome.tabs.get(tabId);
-  if (!currentTab.url?.includes('GBK001310')) {
+  // REINSはSPAのため、URLがGBK001310でも検索結果ページが表示されている場合がある
+  // URLではなくDOM内容で検索フォームかどうかを判定する
+  const isSearchForm = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => {
+      // 検索フォームには入力項目が多数ある（結果ページにはない）
+      const inputs = document.querySelectorAll('input').length;
+      const hasResultHeading = document.body.textContent.includes('検索結果一覧');
+      return inputs > 5 && !hasResultHeading;
+    }
+  });
+
+  if (!isSearchForm?.[0]?.result) {
     await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
 
-    // まずメインメニューに移動（右サイドバーの「賃貸物件検索」リンクをクリック）
-    // GBK002200（結果ページ）やメインメニューからでも、サイドバーリンクで遷移可能
+    // サイドバーの「賃貸物件検索」リンクをクリックして正規遷移
     await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        // サイドバーの「賃貸物件検索」リンクをクリック
         const links = [...document.querySelectorAll('a, button')];
         const rentLink = links.find(el => {
           const text = el.textContent.trim();
           return text === '賃貸物件検索' || (text.includes('賃貸') && text.includes('物件検索'));
         });
         if (rentLink) { rentLink.click(); return 'clicked'; }
-        // メインメニューのボタンを試す
-        const btn = links.find(el => el.textContent.includes('賃貸') && el.textContent.includes('検索'));
-        if (btn) { btn.click(); return 'clicked_btn'; }
         return 'not_found';
       }
     });
 
-    // GBK001310への遷移とVue描画完了を待つ
+    // 検索フォームの描画完了を待つ（input要素が多数 + 結果ヘッダなし）
     for (let w = 0; w < 30; w++) {
       if (isSearchCancelled(searchId)) return;
       await csleep(2000);
       try {
-        const tab = await chrome.tabs.get(tabId);
-        if (tab.url?.includes('GBK001310')) {
-          // さらにVueのフォームが描画されるまで待つ
-          const ready = await chrome.scripting.executeScript({
-            target: { tabId },
-            func: () => {
-              const labels = document.querySelectorAll('.p-label-title');
-              return labels.length > 10; // フォームのラベルが10個以上あれば描画完了
-            }
-          });
-          if (ready?.[0]?.result) break;
-        }
+        const ready = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const inputs = document.querySelectorAll('input').length;
+            const hasResultHeading = document.body.textContent.includes('検索結果一覧');
+            return inputs > 5 && !hasResultHeading;
+          }
+        });
+        if (ready?.[0]?.result) break;
       } catch (_) {}
     }
     await csleep(3000); // Vue完全初期化待ち
-  } else {
-    // 既にGBK001310にいる場合：DOM状態を診断してからStep 2に進む
-    try {
-      const diag = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          const labels = document.querySelectorAll('.p-label-title').length;
-          const inputs = document.querySelectorAll('.p-textbox-input').length;
-          const allInputs = document.querySelectorAll('input').length;
-          const selects = document.querySelectorAll('select').length;
-          const buttons = document.querySelectorAll('button').length;
-          const bodyLen = document.body?.textContent?.length || 0;
-          // ページ上のクラス名サンプルを取得
-          const classes = [...new Set([...document.querySelectorAll('[class]')].slice(0, 50).flatMap(el => [...el.classList]))].slice(0, 30);
-          return { labels, inputs, allInputs, selects, buttons, bodyLen, classes: classes.join(',') };
-        }
-      });
-      const d = diag?.[0]?.result || {};
-      await setStorageData({ debugLog: `${customer.name}: DOM診断: labels=${d.labels} pTextbox=${d.inputs} input=${d.allInputs} select=${d.selects} btn=${d.buttons} body=${d.bodyLen} classes=${d.classes}` });
-    } catch (e) {
-      await setStorageData({ debugLog: `${customer.name}: DOM診断エラー: ${e.message}` });
-    }
-    await csleep(2000); // Vue初期化の余裕
   }
 
   // --- Step 2: 条件セット（executeScript world:'MAIN'で直接実行） ---
