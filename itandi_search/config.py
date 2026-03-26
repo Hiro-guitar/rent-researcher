@@ -35,7 +35,7 @@ CRITERIA_RANGE = "検索条件!A:Q"
 SEEN_SHEET = "通知済み物件"
 SEEN_RANGE = "通知済み物件!A:G"
 PENDING_SHEET = "承認待ち物件"
-PENDING_RANGE = "承認待ち物件!A:M"
+PENDING_RANGE = "承認待ち物件!A:N"
 
 # ── itandi BB URL ──────────────────────────────────────
 ITANDI_LOGIN_PAGE_URL = "https://itandi-accounts.com/login"

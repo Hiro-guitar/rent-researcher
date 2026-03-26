@@ -7,6 +7,8 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 
+from urllib.parse import quote
+
 from .config import (
     CRITERIA_RANGE,
     DRIVE_CLIENT_ID,
@@ -560,10 +562,18 @@ def write_pending_properties(
     batch_data = []  # batchUpdate 用
     for p in properties:
         data_json = _build_property_json(p)
+        room_id_str = str(p.room_id)
+        view_url = (
+            "https://form.ehomaki.com/property.html?customer="
+            + quote(customer_name, safe="")
+            + "&room_id="
+            + room_id_str
+        )
+
         row_values = [
             customer_name,  # A: customer_name
             str(p.building_id),  # B: building_id
-            str(p.room_id),  # C: room_id
+            room_id_str,  # C: room_id
             p.building_name,  # D: building_name
             str(p.rent),  # E: rent
             str(p.management_fee),  # F: management_fee
@@ -574,9 +584,10 @@ def write_pending_properties(
             "pending",  # K: status
             now_str,  # L: created_at
             "",  # M: updated_at
+            view_url,  # N: view_url
         ]
 
-        key = (customer_name, str(p.room_id))
+        key = (customer_name, room_id_str)
         if key in existing:
             # 全ての重複行を batchUpdate で一括更新
             row_nums = existing[key]
@@ -585,7 +596,7 @@ def write_pending_properties(
                     {
                         "range": (
                             f"{PENDING_SHEET}"
-                            f"!A{row_num}:M{row_num}"
+                            f"!A{row_num}:N{row_num}"
                         ),
                         "values": [row_values],
                     }
@@ -622,7 +633,7 @@ def write_pending_properties(
         body = {"values": to_append}
         sheet.values().append(
             spreadsheetId=SPREADSHEET_ID,
-            range=f"{PENDING_SHEET}!A:M",
+            range=f"{PENDING_SHEET}!A:N",
             valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
             body=body,
