@@ -407,7 +407,13 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await setStorageData({ debugLog: `${customer.name}: 検索フォームが見つかりません` });
     return;
   }
-  await csleep(1000); // Vue初期化の余裕
+  // Vueハイドレーションが未完了の場合があるため、$nuxt.refresh()でコンポーネントを確実にマウント
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => window.$nuxt?.refresh()
+  });
+  await csleep(3000); // refresh完了待ち
 
   // --- Step 2: 条件セット（executeScript world:'MAIN'で直接実行） ---
   // ※ scriptタグ注入はCSPでブロックされるため、world:'MAIN'を使う
