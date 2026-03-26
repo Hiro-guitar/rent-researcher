@@ -302,7 +302,7 @@ async function runSearchCycle() {
     }
 
     const { pageDelaySeconds } = await getStorageData(['pageDelaySeconds']);
-    const delay = (pageDelaySeconds || 5) * 1000;
+    const delay = (pageDelaySeconds || 2) * 1000;
 
     // 全顧客を順次検索
     for (let ci = 0; ci < criteria.length; ci++) {
