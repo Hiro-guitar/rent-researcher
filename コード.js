@@ -11,6 +11,7 @@
  *      - 既存ボット関連 (apply|, type|, nation|, movein_date) → ExistingBot
  *   2. テキストメッセージ:
  *      - 「条件登録」→ 検索条件フロー開始
+ *      - 「条件変更」→ 既存条件を読み込んで条件選択ページへ直接遷移
  *      - 検索条件フロー中のテキスト入力（名前/理由自由入力/その他ご希望）→ ConversationFlow
  *      - 既存ボットのテキスト入力（名前/フリガナ/メール）→ ExistingBot
  *      - 数字入力 → 専有面積検索（ExistingBot）
@@ -37,6 +38,12 @@ function doPost(e) {
 
   try {
     const json = JSON.parse(e.postData.contents);
+
+    // --- REINS Chrome拡張からのPOST ---
+    if (json.action === 'add_reins_property') {
+      return handleAddReinsProperty(json);
+    }
+
     const event = json.events[0];
     if (!event) return;
 
@@ -54,6 +61,7 @@ function doPost(e) {
         textMsg('友だち追加ありがとうございます！\n\n' +
                 'このアカウントでは以下のことができます:\n\n' +
                 '「条件登録」→ お部屋探しの条件を登録\n' +
+                '「条件変更」→ 登録済みの条件を変更\n' +
                 '数字を入力 → 専有面積で物件検索\n\n' +
                 '条件に合う新着物件が見つかり次第、お知らせします！')
       ]);
@@ -82,6 +90,12 @@ function doPost(e) {
       // コマンド: 条件登録
       if (message === '条件登録' || message === 'じょうけんとうろく') {
         startSearchFlow(replyToken, userId);
+        return;
+      }
+
+      // コマンド: 条件変更
+      if (message === '条件変更' || message === 'じょうけんへんこう') {
+        startChangeFlow(replyToken, userId);
         return;
       }
 
@@ -138,6 +152,15 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  // --- REINS Chrome拡張用エンドポイント ---
+  if (action === 'get_criteria') {
+    return handleGetCriteria(e);
+  }
+
+  if (action === 'get_seen_ids') {
+    return handleGetSeenIds(e);
+  }
+
   // --- 物件承認ハンドラー ---
   if (action === 'approve') {
     return handleApprove(e);
@@ -172,6 +195,14 @@ function doGet(e) {
 
     if (action === 'track_view') {
       return handleTrackView(e);
+    }
+
+    if (action === 'property_action') {
+      return handlePropertyAction(e);
+    }
+
+    if (action === 'check_action') {
+      return handleCheckAction(e);
     }
 
   // ── 総合条件選択Webページ ──
@@ -592,4 +623,265 @@ function registerLineUsersFromClient(jsonStr) {
     }
   }
   return count;
+}
+
+// =====================================================
+// REINS Chrome拡張用 POST エンドポイント
+// =====================================================
+
+function handleAddReinsProperty(json) {
+  if (!_validateReinsApiKey(json.api_key)) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var customerName = json.customer_name;
+  var properties = json.properties;
+  if (!customerName || !properties || properties.length === 0) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'customer_name and properties required' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!sheet) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'pending sheet not found' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var existingData = sheet.getDataRange().getValues();
+  var existingIds = {};
+  for (var i = 1; i < existingData.length; i++) {
+    var key = String(existingData[i][0]) + '|' + String(existingData[i][2]);
+    existingIds[key] = true;
+  }
+
+  var now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+  var added = 0;
+  var skipped = 0;
+
+  for (var j = 0; j < properties.length; j++) {
+    var p = properties[j];
+    var roomId = p.room_id || '';
+    var dedupKey = customerName + '|' + roomId;
+
+    if (existingIds[dedupKey]) {
+      skipped++;
+      continue;
+    }
+
+    var dataJson = JSON.stringify({
+      address: p.address || '',
+      url: p.url || '',
+      image_url: p.image_url || '',
+      image_urls: p.image_urls || [],
+      room_number: p.room_number || '',
+      building_age: p.building_age || '',
+      move_in_date: p.move_in_date || '',
+      floor: p.floor || 0,
+      floor_text: p.floor_text || '',
+      story_text: p.story_text || '',
+      structure: p.structure || '',
+      total_units: p.total_units || '',
+      sunlight: p.sunlight || '',
+      facilities: p.facilities || '',
+      other_stations: p.other_stations || [],
+      deposit: p.deposit || '',
+      key_money: p.key_money || '',
+      lease_type: p.lease_type || '',
+      contract_period: p.contract_period || '',
+      cancellation_notice: p.cancellation_notice || '',
+      renewal_info: p.renewal_info || '',
+      renewal_fee: p.renewal_fee || '',
+      fire_insurance: p.fire_insurance || '',
+      renewal_admin_fee: p.renewal_admin_fee || '',
+      guarantee_info: p.guarantee_info || '',
+      key_exchange_fee: p.key_exchange_fee || '',
+      cleaning_fee: p.cleaning_fee || '',
+      other_monthly_fee: p.other_monthly_fee || '',
+      other_onetime_fee: p.other_onetime_fee || '',
+      move_in_conditions: p.move_in_conditions || '',
+      source: 'reins',
+      reins_property_number: p.reins_property_number || '',
+      reins_shougo: p.reins_shougo || '',
+      reins_tel: p.reins_tel || ''
+    });
+
+    sheet.appendRow([
+      customerName,
+      p.building_id || '',
+      roomId,
+      p.building_name || '',
+      String(p.rent || 0),
+      String(p.management_fee || 0),
+      p.layout || '',
+      String(p.area || 0),
+      p.station_info || '',
+      dataJson,
+      'pending',
+      now,
+      '',
+      'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId
+    ]);
+
+    added++;
+    existingIds[dedupKey] = true;
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ success: true, added: added, skipped: skipped }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// =====================================================
+// REINS Chrome拡張用 GET エンドポイント
+// =====================================================
+
+function _validateReinsApiKey(apiKey) {
+  var expected = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY');
+  if (!expected) return true; // キー未設定時はスキップ
+  return apiKey === expected;
+}
+
+function _splitCSV(val) {
+  if (!val) return [];
+  return String(val).split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+}
+
+function _parseRoutesWithStations(val) {
+  if (!val) return [];
+  var str = String(val).trim();
+  if (!str) return [];
+
+  var results = [];
+  var parts = [];
+  var depth = 0;
+  var current = '';
+  for (var c = 0; c < str.length; c++) {
+    var ch = str[c];
+    if (ch === '(' || ch === '\uff08') { depth++; current += ch; }
+    else if (ch === ')' || ch === '\uff09') { depth--; current += ch; }
+    else if ((ch === ',' || ch === '\u3001') && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+
+  for (var p = 0; p < parts.length; p++) {
+    var part = parts[p];
+    var parenIdx = part.indexOf('(');
+    if (parenIdx < 0) parenIdx = part.indexOf('\uff08');
+    if (parenIdx >= 0) {
+      var route = part.substring(0, parenIdx).trim();
+      var stationsStr = part.substring(parenIdx + 1).replace(/[)\uff09]$/, '');
+      var stations = stationsStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+      results.push({ route: route, stations: stations });
+    } else {
+      results.push({ route: part.trim(), stations: [] });
+    }
+  }
+  return results;
+}
+
+/**
+ * GET: 顧客検索条件を返す
+ */
+function handleGetCriteria(e) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'criteria sheet not found' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var data = sheet.getDataRange().getValues();
+  var criteria = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var name = String(row[1] || '').trim();
+    if (!name) continue;
+
+    var routesWithStations = _parseRoutesWithStations(row[4]);
+    var allRoutes = routesWithStations.map(function(r) { return r.route; });
+    var allStations = _splitCSV(row[5]);
+
+    criteria.push({
+      name: name,
+      cities: _splitCSV(row[3]),
+      routes: allRoutes,
+      stations: allStations,
+      routes_with_stations: routesWithStations,
+      walk: String(row[6] || ''),
+      rent_max: String(row[7] || ''),
+      layouts: _splitCSV(row[8]),
+      area_min: String(row[9] || ''),
+      building_age: String(row[10] || ''),
+      structures: _splitCSV(row[11]),
+      equipment: String(row[12] || ''),
+      move_in_date: String(row[14] || '')
+    });
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ criteria: criteria }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * GET: 既知の(customer_name, room_id)ペアを返す（重複排除用）
+ */
+function handleGetSeenIds(e) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var seen_ids = {};
+
+  var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (pendingSheet) {
+    var pData = pendingSheet.getDataRange().getValues();
+    for (var i = 1; i < pData.length; i++) {
+      var customer = String(pData[i][0] || '');
+      var roomId = String(pData[i][2] || '');
+      if (customer && roomId) {
+        if (!seen_ids[customer]) seen_ids[customer] = [];
+        seen_ids[customer].push(roomId);
+      }
+    }
+  }
+
+  var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+  if (seenSheet) {
+    var sData = seenSheet.getDataRange().getValues();
+    for (var i = 1; i < sData.length; i++) {
+      var customer = String(sData[i][0] || '');
+      var roomId = String(sData[i][1] || '');
+      if (customer && roomId) {
+        if (!seen_ids[customer]) seen_ids[customer] = [];
+        if (seen_ids[customer].indexOf(roomId) === -1) {
+          seen_ids[customer].push(roomId);
+        }
+      }
+    }
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ seen_ids: seen_ids }))
+    .setMimeType(ContentService.MimeType.JSON);
 }
