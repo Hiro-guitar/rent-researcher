@@ -1181,9 +1181,7 @@ function buildPropertyFlex(prop, options) {
   if (prop.floor) details.push(['\u968E\u6570', prop.floor + '\u968E']);
   if (prop.address) details.push(['\u6240\u5728\u5730', prop.address]);
   if (prop.stationInfo) details.push(['\u6700\u5BC4\u99C5', prop.stationInfo]);
-  if (prop.deposit || prop.keyMoney) {
-    details.push(['\u6577\u91D1/\u793C\u91D1', (prop.deposit || '\u306A\u3057') + ' / ' + (prop.keyMoney || '\u306A\u3057')]);
-  }
+  details.push(['\u6577\u91D1/\u793C\u91D1', (prop.deposit || '0') + ' / ' + (prop.keyMoney || '0')]);
 
   for (var i = 0; i < details.length; i++) {
     bodyContents.push({
@@ -1720,7 +1718,7 @@ function makeViewHtml(prop) {
 
   html += '<div class="price-box">'
     + '<div class="price-main">' + rentMan + '\u4E07\u5186<span style="font-size:16px">/\u6708</span></div>'
-    + '<div class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186 | \u6577\u91D1 ' + _esc(prop.deposit || '\u306A\u3057') + ' | \u793C\u91D1 ' + _esc(prop.keyMoney || '\u306A\u3057') + '</div>'
+    + '<div class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186 | \u6577\u91D1 ' + _esc(prop.deposit || '0') + ' | \u793C\u91D1 ' + _esc(prop.keyMoney || '0') + '</div>'
     + '</div>';
 
   // 値が有効か判定（「ー」「-」「入力なし」「なし」は非表示）

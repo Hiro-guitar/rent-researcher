@@ -422,8 +422,8 @@ function renderProperty(p) {
   html += '<div class="title">' + escHtml(p.buildingName || '') + (p.roomNumber ? ' ' + escHtml(p.roomNumber) : '') + '</div>';
 
   var priceSub = '管理費 ' + mgmtMan + '万円';
-  if (hv(p.deposit)) priceSub += ' | 敷金 ' + escHtml(p.deposit);
-  if (hv(p.keyMoney)) priceSub += ' | 礼金 ' + escHtml(p.keyMoney);
+  priceSub += ' | 敷金 ' + (hv(p.deposit) ? escHtml(p.deposit) : '0');
+  priceSub += ' | 礼金 ' + (hv(p.keyMoney) ? escHtml(p.keyMoney) : '0');
   html += '<div class="price-box">'
     + '<div class="price-main">' + rentMan + '万円<span style="font-size:16px">/月</span></div>'
     + '<div class="price-sub">' + priceSub + '</div>'
