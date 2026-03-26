@@ -926,7 +926,25 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             floor_text: floorLoc || '',
             story_text: floorAbove ? floorAbove + '建' : '',
             structure: structure || '',
-            building_age: builtDate || '',
+            building_age: (() => {
+              if (!builtDate) return '';
+              // 西暦を抽出
+              let builtYear = null;
+              const wm = builtDate.match(/(\d{4})\s*年/);
+              if (wm) builtYear = parseInt(wm[1]);
+              else {
+                const em = builtDate.match(/(令和|平成|昭和)\s*(\d+)\s*年/);
+                if (em) {
+                  const y = parseInt(em[2]);
+                  if (em[1] === '令和') builtYear = 2018 + y;
+                  else if (em[1] === '平成') builtYear = 1988 + y;
+                  else if (em[1] === '昭和') builtYear = 1925 + y;
+                }
+              }
+              if (!builtYear) return builtDate;
+              const age = new Date().getFullYear() - builtYear;
+              return `築${age}年`;
+            })(),
             station_info: (() => {
               // 全交通情報を取得（交通1〜3）
               const transports = [];
