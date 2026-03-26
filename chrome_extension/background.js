@@ -368,6 +368,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
   // --- Step 1: 検索フォームの準備 ---
   // まずVueハイドレーション確保 + 検索フォームへルーティング
+  // ※ refresh()はPromiseを返すがexecuteScriptでawaitするとハングするため、fire-and-forget
   await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -377,10 +378,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       if (nuxt.$route?.path !== '/main/BK/GBK001310') {
         nuxt.$router.push('/main/BK/GBK001310');
       }
-      return nuxt.refresh();
+      nuxt.refresh();
     }
   });
-  await csleep(3000);
+  await csleep(5000); // refresh + ルーティング完了待ち
 
   // .p-textbox-input でフォーム描画完了を待つ（最大30秒）
   let formFound = false;
