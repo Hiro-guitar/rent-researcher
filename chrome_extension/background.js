@@ -775,57 +775,90 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   await csleep(delay);
   await setStorageData({ debugLog: `${customer.name}: 検索結果ページ到達` });
 
-  // --- Step 6: 検索結果データ抽出 ---
-  let searchResults = [];
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        // 「詳細」ボタンを持つ行を探す
-        const detailBtns = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === '詳細');
-        const data = [];
-        detailBtns.forEach((btn, index) => {
-          // ボタンの親要素から物件情報を取得
-          const row = btn.closest('tr') || btn.closest('[class*="row"]') || btn.parentElement?.parentElement;
-          if (!row) return;
-          const text = row.textContent;
-          // 物件番号（100で始まる11桁以上の数字）
-          const propNumMatch = text.match(/\b(100\d{8,})\b/);
-          data.push({
-            index,
-            propertyNumber: propNumMatch ? propNumMatch[1] : '',
-            text: text.substring(0, 200)
-          });
-        });
-        return data;
-      }
-    });
-    searchResults = (results && results[0] && results[0].result) || [];
-  } catch (err) {
-    await setStorageData({ debugLog: `${customer.name}: 検索結果抽出失敗: ${err.message}` });
-    return;
-  }
-
-  if (searchResults.length === 0) {
-    await setStorageData({ debugLog: `${customer.name}: 検索結果0件` });
-    return;
-  }
-  await setStorageData({ debugLog: `${customer.name}: ${searchResults.length}件の検索結果` });
-
   const { stats } = await getStorageData(['stats']);
   const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };
-
-  // --- Step 7: 詳細取得（最初の5件のみ） ---
-  const maxDetails = 5;
   const newProperties = [];
 
-  for (let i = 0; i < Math.min(searchResults.length, maxDetails); i++) {
+  // --- Step 6〜7: ページネーションしながら検索結果を詳細取得（最大200件） ---
+  const maxDetails = 200;
+  let totalDetailCount = 0;
+  let currentPage = 1;
+  let totalPages = 1;
+
+  pageLoop: while (currentPage <= totalPages) {
+    // 検索結果データ抽出（現在のページ）
+    let searchResults = [];
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          // ページ情報を取得
+          const pageInfo = { totalPages: 1, currentPage: 1, totalItems: 0 };
+          const pageLinks = document.querySelectorAll('.page-link');
+          pageLinks.forEach(link => {
+            const num = parseInt(link.textContent.trim(), 10);
+            if (!isNaN(num)) {
+              if (num > pageInfo.totalPages) pageInfo.totalPages = num;
+              const li = link.closest('li');
+              if (li && li.classList.contains('active')) pageInfo.currentPage = num;
+            }
+          });
+          const pageText = document.body.textContent.match(/(\d+)～(\d+)件\s*／\s*(\d+)件/);
+          if (pageText) {
+            pageInfo.totalItems = parseInt(pageText[3], 10);
+            const perPage = parseInt(pageText[2], 10) - parseInt(pageText[1], 10) + 1;
+            if (perPage > 0) pageInfo.totalPages = Math.ceil(pageInfo.totalItems / perPage);
+          }
+
+          // 「詳細」ボタンを持つ行を探す
+          const detailBtns = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === '詳細');
+          const data = [];
+          detailBtns.forEach((btn, index) => {
+            const row = btn.closest('tr') || btn.closest('[class*="row"]') || btn.parentElement?.parentElement;
+            if (!row) return;
+            const text = row.textContent;
+            const propNumMatch = text.match(/\b(100\d{8,})\b/);
+            data.push({
+              index,
+              propertyNumber: propNumMatch ? propNumMatch[1] : '',
+              text: text.substring(0, 200)
+            });
+          });
+          return { data, pageInfo };
+        }
+      });
+      const extracted = results && results[0] && results[0].result;
+      if (extracted) {
+        searchResults = extracted.data || [];
+        totalPages = extracted.pageInfo.totalPages;
+        currentPage = extracted.pageInfo.currentPage;
+      }
+    } catch (err) {
+      await setStorageData({ debugLog: `${customer.name}: 検索結果抽出失敗(p${currentPage}): ${err.message}` });
+      break;
+    }
+
+    if (searchResults.length === 0) {
+      if (currentPage === 1) {
+        await setStorageData({ debugLog: `${customer.name}: 検索結果0件` });
+      }
+      break;
+    }
+    await setStorageData({ debugLog: `${customer.name}: ページ${currentPage}/${totalPages} ${searchResults.length}件の検索結果` });
+
+    // 現在のページの全物件について詳細取得
+    for (let i = 0; i < searchResults.length; i++) {
+    if (totalDetailCount >= maxDetails) {
+      await setStorageData({ debugLog: `${customer.name}: 詳細取得上限${maxDetails}件に到達` });
+      break pageLoop;
+    }
     const result = searchResults[i];
     if (!result.propertyNumber) continue;
     const isTest = customer.name.includes('テスト');
     if (!isTest && customerSeenIds.some(id => id.includes(result.propertyNumber))) continue;
 
-    await setStorageData({ debugLog: `${customer.name}: 物件${i+1}/${Math.min(searchResults.length, maxDetails)} 詳細取得中 (${result.propertyNumber})` });
+    totalDetailCount++;
+    await setStorageData({ debugLog: `${customer.name}: p${currentPage}/${totalPages} 物件${totalDetailCount}/${maxDetails} 詳細取得中 (${result.propertyNumber})` });
 
     try {
       // 詳細ボタンをクリック
@@ -994,12 +1027,51 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         await csleep(delay);
       } catch(e) { if (e.message === 'SEARCH_CANCELLED') throw e; }
     }
-  }
+  } // end detail loop for current page
+
+    // --- ページネーション: 次のページへ ---
+    if (currentPage < totalPages) {
+      const nextPage = currentPage + 1;
+      await setStorageData({ debugLog: `${customer.name}: ページ${nextPage}/${totalPages}へ移動中...` });
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (page) => {
+            const pageLinks = document.querySelectorAll('.page-link');
+            for (const link of pageLinks) {
+              if (link.textContent.trim() === String(page)) {
+                link.click();
+                return true;
+              }
+            }
+            // 「次へ」ボタンのフォールバック
+            for (const link of pageLinks) {
+              if (link.textContent.includes('次') || link.textContent.includes('›')) {
+                link.click();
+                return true;
+              }
+            }
+            return false;
+          },
+          args: [nextPage]
+        });
+        await waitForTabLoad(tabId);
+        await csleep(delay);
+        currentPage = nextPage;
+      } catch (err) {
+        if (err.message === 'SEARCH_CANCELLED') throw err;
+        await setStorageData({ debugLog: `${customer.name}: ページ${nextPage}への移動失敗: ${err.message}` });
+        break pageLoop;
+      }
+    } else {
+      break; // 最終ページ処理完了
+    }
+  } // end pageLoop
 
   if (newProperties.length === 0) {
     await setStorageData({ debugLog: `${customer.name}: 新規物件なし` });
   } else {
-    await setStorageData({ debugLog: `${customer.name}: ${newProperties.length}件送信完了` });
+    await setStorageData({ debugLog: `${customer.name}: ${newProperties.length}件送信完了（全${totalPages}ページ）` });
   }
 }
 
