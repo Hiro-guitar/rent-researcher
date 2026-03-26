@@ -413,25 +413,21 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     }
     await csleep(3000); // Vue完全初期化待ち
   } else {
-    // 既にGBK001310にいる場合でもVue描画完了を確認
+    // 既にGBK001310にいる場合でもVue描画完了を確認（.p-label-titleが10個以上）
     let formReady = false;
-    for (let w = 0; w < 10; w++) {
+    for (let w = 0; w < 5; w++) {
       if (isSearchCancelled(searchId)) return;
       try {
         const ready = await chrome.scripting.executeScript({
           target: { tabId },
-          func: () => {
-            const labels = document.querySelectorAll('.p-label-title');
-            const inputs = document.querySelectorAll('.p-textbox-input');
-            return labels.length > 10 && inputs.length > 0;
-          }
+          func: () => document.querySelectorAll('.p-label-title').length > 10
         });
         if (ready?.[0]?.result) { formReady = true; break; }
       } catch (_) {}
       await csleep(2000);
     }
-    // フォームが描画されていない場合、賃貸物件検索リンクで再遷移
     if (!formReady) {
+      // フォームが描画されていない場合、賃貸物件検索リンクで再遷移
       await setStorageData({ debugLog: `${customer.name}: フォーム未描画、再遷移中...` });
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -452,16 +448,15 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           if (tab.url?.includes('GBK001310')) {
             const ready = await chrome.scripting.executeScript({
               target: { tabId },
-              func: () => {
-                const labels = document.querySelectorAll('.p-label-title');
-                return labels.length > 10;
-              }
+              func: () => document.querySelectorAll('.p-label-title').length > 10
             });
             if (ready?.[0]?.result) break;
           }
         } catch (_) {}
       }
       await csleep(3000);
+    } else {
+      await csleep(1000); // Vue初期化の余裕
     }
   }
 
