@@ -413,51 +413,28 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     }
     await csleep(3000); // Vue完全初期化待ち
   } else {
-    // 既にGBK001310にいる場合でもVue描画完了を確認（.p-label-titleが10個以上）
-    let formReady = false;
-    for (let w = 0; w < 5; w++) {
-      if (isSearchCancelled(searchId)) return;
-      try {
-        const ready = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: () => document.querySelectorAll('.p-label-title').length > 10
-        });
-        if (ready?.[0]?.result) { formReady = true; break; }
-      } catch (_) {}
-      await csleep(2000);
-    }
-    if (!formReady) {
-      // フォームが描画されていない場合、賃貸物件検索リンクで再遷移
-      await setStorageData({ debugLog: `${customer.name}: フォーム未描画、再遷移中...` });
-      await chrome.scripting.executeScript({
+    // 既にGBK001310にいる場合：DOM状態を診断してからStep 2に進む
+    try {
+      const diag = await chrome.scripting.executeScript({
         target: { tabId },
         func: () => {
-          const links = [...document.querySelectorAll('a, button')];
-          const rentLink = links.find(el => {
-            const text = el.textContent.trim();
-            return text === '賃貸物件検索' || (text.includes('賃貸') && text.includes('物件検索'));
-          });
-          if (rentLink) rentLink.click();
+          const labels = document.querySelectorAll('.p-label-title').length;
+          const inputs = document.querySelectorAll('.p-textbox-input').length;
+          const allInputs = document.querySelectorAll('input').length;
+          const selects = document.querySelectorAll('select').length;
+          const buttons = document.querySelectorAll('button').length;
+          const bodyLen = document.body?.textContent?.length || 0;
+          // ページ上のクラス名サンプルを取得
+          const classes = [...new Set([...document.querySelectorAll('[class]')].slice(0, 50).flatMap(el => [...el.classList]))].slice(0, 30);
+          return { labels, inputs, allInputs, selects, buttons, bodyLen, classes: classes.join(',') };
         }
       });
-      for (let w = 0; w < 30; w++) {
-        if (isSearchCancelled(searchId)) return;
-        await csleep(2000);
-        try {
-          const tab = await chrome.tabs.get(tabId);
-          if (tab.url?.includes('GBK001310')) {
-            const ready = await chrome.scripting.executeScript({
-              target: { tabId },
-              func: () => document.querySelectorAll('.p-label-title').length > 10
-            });
-            if (ready?.[0]?.result) break;
-          }
-        } catch (_) {}
-      }
-      await csleep(3000);
-    } else {
-      await csleep(1000); // Vue初期化の余裕
+      const d = diag?.[0]?.result || {};
+      await setStorageData({ debugLog: `${customer.name}: DOM診断: labels=${d.labels} pTextbox=${d.inputs} input=${d.allInputs} select=${d.selects} btn=${d.buttons} body=${d.bodyLen} classes=${d.classes}` });
+    } catch (e) {
+      await setStorageData({ debugLog: `${customer.name}: DOM診断エラー: ${e.message}` });
     }
+    await csleep(2000); // Vue初期化の余裕
   }
 
   // --- Step 2: 条件セット（executeScript world:'MAIN'で直接実行） ---
