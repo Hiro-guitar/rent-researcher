@@ -878,6 +878,14 @@ function _normalizeBuildingAge(val) {
   if (/^築\d+年/.test(val) || val === '新築') return val;
   var m1 = val.match(/^(\d+)年$/);
   if (m1) return '築' + m1[1] + '年';
+  // REINS形式: "2026年（令和 8年） 3月" or "1992年（平成 4年） 4月"
+  var mReins = val.match(/(\d{4})年[\s\S]*?(\d{1,2})月/);
+  if (mReins) {
+    var now = new Date();
+    var years = now.getFullYear() - parseInt(mReins[1], 10);
+    if (now.getMonth() + 1 < parseInt(mReins[2], 10)) years--;
+    return years < 1 ? '新築' : '築' + years + '年';
+  }
   var m2 = val.match(/(\d{4})\s*[\/\-年]\s*(\d{1,2})/);
   if (m2) {
     var now = new Date();
