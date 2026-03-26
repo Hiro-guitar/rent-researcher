@@ -866,10 +866,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       const parts = (s || '').split('/').map(p => p.trim());
       return parts.every(p => !p || p === '-' || p === 'なし');
     };
-    if (equip.includes('敷金なし') || equip.includes('敷金・礼金なし')) {
+    if (equip.includes('敷金なし')) {
       if (!hasNoneInSlash(result.depositGuarantee)) continue;
     }
-    if (equip.includes('礼金なし') || equip.includes('敷金・礼金なし')) {
+    if (equip.includes('礼金なし')) {
       const reikinPart = (result.keyMoneyRights || '').split('/')[0].trim();
       if (reikinPart && reikinPart !== '-' && reikinPart !== 'なし') continue;
     }
