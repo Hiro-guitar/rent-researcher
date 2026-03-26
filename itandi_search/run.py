@@ -362,6 +362,52 @@ def _check_soft_equipment(
     return properties
 
 
+def _filter_by_hard_equipment(
+    properties: list, *, equipment_ids: list[int]
+) -> list:
+    """ハード設備で物件をフィルターする（取得後フィルタ）。
+
+    itandi API / ES-Square では検索パラメータで絞り込めるが、
+    いえらぶBB では検索パラメータで設備を絞れないため、
+    取得後に facilities テキストで除外する。
+    """
+    # ハード設備の検索キーワード
+    _HARD_EQUIPMENT_KEYWORDS: dict[int, list[str]] = {
+        19010: ["家具", "家電"],        # 家具付き / 家具家電付き
+        22010: ["ペット"],              # ペット相談 / ペット可
+        22050: ["事務所", "SOHO"],      # 事務所可 / 事務所利用可
+    }
+
+    if not equipment_ids:
+        return properties
+
+    # フィルタ対象のハード設備のみ抽出
+    targets = {eid: _HARD_EQUIPMENT_KEYWORDS[eid]
+               for eid in equipment_ids if eid in _HARD_EQUIPMENT_KEYWORDS}
+    if not targets:
+        return properties
+
+    result = []
+    for p in properties:
+        if not p.facilities:
+            # 設備情報なし → 除外しないが警告
+            p.equipment_warning = "⚠️ 設備情報が取得できませんでした（設備条件の確認が必要です）"
+            result.append(p)
+            continue
+
+        excluded = False
+        for eid, keywords in targets.items():
+            if not any(kw in p.facilities for kw in keywords):
+                display = EQUIPMENT_DISPLAY_NAMES.get(eid, str(eid))
+                print(f"[INFO] ハード設備フィルター除外 (room_id={p.room_id}): "
+                      f"「{display}」が設備情報に見つかりません")
+                excluded = True
+                break
+        if not excluded:
+            result.append(p)
+    return result
+
+
 def _filter_by_status(
     properties: list, *, is_test_customer: bool = False
 ) -> list:
@@ -1171,6 +1217,18 @@ def _run_ielove_search(
         filtered = before - len(new_properties)
         if filtered:
             print(f"  → いえらぶBB ロフトフィルター: {filtered} 件除外")
+        if not new_properties:
+            return 0
+
+    # ハード設備フィルター（いえらぶは検索パラメータで設備を絞れないため取得後に除外）
+    if customer.equipment_ids:
+        before = len(new_properties)
+        new_properties = _filter_by_hard_equipment(
+            new_properties, equipment_ids=customer.equipment_ids
+        )
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → いえらぶBB ハード設備フィルター: {filtered} 件除外")
         if not new_properties:
             return 0
 
