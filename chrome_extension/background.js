@@ -367,61 +367,39 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   const customerSeenIds = seenIds[customer.name] || [];
 
   // --- Step 1: 検索フォームの準備 ---
-  // REINSはSPAのためURLと表示内容が一致しない場合がある
-  // .p-textbox-input（Vueフォーム入力欄）の存在でフォーム描画完了を判定
-  // まず現在の状態を確認し、フォームでなければナビゲーションする
-  let formFound = false;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    // フォーム描画を最大30秒待つ
-    for (let w = 0; w < 15; w++) {
-      if (isSearchCancelled(searchId)) return;
-      try {
-        const ready = await chrome.scripting.executeScript({
-          target: { tabId },
-          world: 'MAIN',
-          func: () => !!document.querySelector('.p-textbox-input')
-        });
-        if (ready?.[0]?.result) { formFound = true; break; }
-      } catch (_) {}
-      await csleep(2000);
-    }
-    if (formFound) break;
-
-    // フォームが見つからない場合、サイドバーの「賃貸物件検索」で遷移
-    if (attempt === 0) {
-      await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          const links = [...document.querySelectorAll('a, button')];
-          const rentLink = links.find(el => {
-            const text = el.textContent.trim();
-            return text === '賃貸物件検索' || (text.includes('賃貸') && text.includes('物件検索'));
-          });
-          if (rentLink) rentLink.click();
-        }
-      });
-    }
-  }
-  if (!formFound) {
-    await setStorageData({ debugLog: `${customer.name}: 検索フォームが見つかりません` });
-    return;
-  }
-  // Nuxtルートを正しく設定してからVueハイドレーションを確保
+  // まずVueハイドレーション確保 + 検索フォームへルーティング
   await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
     func: () => {
       const nuxt = window.$nuxt;
       if (!nuxt) return;
-      // ルートがGBK001310でなければ遷移
       if (nuxt.$route?.path !== '/main/BK/GBK001310') {
         nuxt.$router.push('/main/BK/GBK001310');
       }
       return nuxt.refresh();
     }
   });
-  await csleep(3000); // refresh完了待ち
+  await csleep(3000);
+
+  // .p-textbox-input でフォーム描画完了を待つ（最大30秒）
+  let formFound = false;
+  for (let w = 0; w < 15; w++) {
+    if (isSearchCancelled(searchId)) return;
+    try {
+      const ready = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: () => !!document.querySelector('.p-textbox-input')
+      });
+      if (ready?.[0]?.result) { formFound = true; break; }
+    } catch (_) {}
+    await csleep(2000);
+  }
+  if (!formFound) {
+    await setStorageData({ debugLog: `${customer.name}: 検索フォームが見つかりません` });
+    return;
+  }
 
   // --- Step 2: 条件セット（executeScript world:'MAIN'で直接実行） ---
   // ※ scriptタグ注入はCSPでブロックされるため、world:'MAIN'を使う
