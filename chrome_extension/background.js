@@ -810,18 +810,19 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             if (perPage > 0) pageInfo.totalPages = Math.ceil(pageInfo.totalItems / perPage);
           }
 
-          // 「詳細」ボタンを持つ行を探す
-          const detailBtns = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === '詳細');
+          // 各行から物件情報を抽出
+          const rows = document.querySelectorAll('.p-table-body-row');
           const data = [];
-          detailBtns.forEach((btn, index) => {
-            const row = btn.closest('tr') || btn.closest('[class*="row"]') || btn.parentElement?.parentElement;
-            if (!row) return;
-            const text = row.textContent;
-            const propNumMatch = text.match(/\b(100\d{8,})\b/);
+          rows.forEach((row, index) => {
+            const items = row.querySelectorAll(':scope > .p-table-body-item');
+            if (items.length < 23) return;
+            const propertyNumber = (items[3]?.textContent.trim() || '').match(/\b(100\d{8,})\b/)?.[1] || '';
             data.push({
               index,
-              propertyNumber: propNumMatch ? propNumMatch[1] : '',
-              text: text.substring(0, 200)
+              propertyNumber,
+              depositGuarantee: items[16]?.textContent.trim() || '',  // 敷金／保証金
+              keyMoneyRights: items[22]?.textContent.trim() || '',    // 礼金／権利金
+              text: row.textContent.substring(0, 200)
             });
           });
           return { data, pageInfo };
@@ -856,6 +857,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     if (!result.propertyNumber) continue;
     const isTest = customer.name.includes('テスト');
     if (!isTest && customerSeenIds.some(id => id.includes(result.propertyNumber))) continue;
+
+    // 一覧ページで敷金/礼金フィルタ（equipment条件に基づく）
+    const equip = (customer.equipment || '').toLowerCase();
+    const isNone = (s) => !s || s === '-' || s === 'なし' || s === 'なし/-' || s === '-/-' || s === 'なし/なし';
+    const hasNoneInSlash = (s) => {
+      // "敷金/保証金" 形式をパース。敷金なし条件では両方なしが必要
+      const parts = (s || '').split('/').map(p => p.trim());
+      return parts.every(p => !p || p === '-' || p === 'なし');
+    };
+    if (equip.includes('敷金なし') || equip.includes('敷金・礼金なし')) {
+      if (!hasNoneInSlash(result.depositGuarantee)) continue;
+    }
+    if (equip.includes('礼金なし') || equip.includes('敷金・礼金なし')) {
+      const reikinPart = (result.keyMoneyRights || '').split('/')[0].trim();
+      if (reikinPart && reikinPart !== '-' && reikinPart !== 'なし') continue;
+    }
 
     totalDetailCount++;
     await setStorageData({ debugLog: `${customer.name}: p${currentPage}/${totalPages} 物件${totalDetailCount}/${maxDetails} 詳細取得中 (${result.propertyNumber})` });
