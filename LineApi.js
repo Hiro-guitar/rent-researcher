@@ -7,10 +7,13 @@
  * @param {string} replyToken - LINE replyToken
  * @param {Object[]} messages - メッセージオブジェクトの配列（最大5件）
  */
-var DRY_RUN = true; // テスト時 true → LINE送信せずログだけ出す。本番時 false に戻す。
+/** DRY_RUN: スクリプトプロパティで切り替え。GASエディタ→プロジェクトの設定→DRY_RUN を "true"/"false" に設定 */
+function isDryRun_() {
+  return PropertiesService.getScriptProperties().getProperty('DRY_RUN') === 'true';
+}
 
 function replyMessage(replyToken, messages) {
-  if (DRY_RUN) {
+  if (isDryRun_()) {
     Logger.log('[DRY_RUN] replyMessage: ' + JSON.stringify(messages));
     return;
   }
@@ -33,7 +36,7 @@ function replyMessage(replyToken, messages) {
  * @param {Object[]} messages - メッセージオブジェクトの配列（最大5件）
  */
 function pushMessage(userId, messages) {
-  if (DRY_RUN) {
+  if (isDryRun_()) {
     Logger.log('[DRY_RUN] pushMessage to ' + userId + ': ' + JSON.stringify(messages));
     return;
   }
