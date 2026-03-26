@@ -18,15 +18,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  document.getElementById('refreshCriteriaBtn').addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'REFRESH_CRITERIA' });
-    document.getElementById('refreshCriteriaBtn').disabled = true;
-    setTimeout(() => {
-      document.getElementById('refreshCriteriaBtn').disabled = false;
-      loadStatus();
-    }, 3000);
-  });
-
   document.getElementById('openOptions').addEventListener('click', (e) => {
     e.preventDefault();
     chrome.runtime.openOptionsPage();

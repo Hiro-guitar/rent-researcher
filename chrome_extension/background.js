@@ -22,13 +22,14 @@ async function gasGet(action, params = {}) {
   const url = new URL(gasWebappUrl);
   url.searchParams.set('action', action);
   url.searchParams.set('api_key', gasApiKey || '');
+  url.searchParams.set('_t', Date.now()); // キャッシュバスティング
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.set(k, v);
   }
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
   try {
-    const resp = await fetch(url.toString(), { redirect: 'follow', signal: controller.signal });
+    const resp = await fetch(url.toString(), { redirect: 'follow', signal: controller.signal, cache: 'no-store' });
     clearTimeout(timeoutId);
     if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status}`);
     return resp.json();
@@ -142,10 +143,11 @@ function filterByCustomerCriteria(properties, customer) {
     }
 
     // 最上階フィルタ（equipment条件に基づく）
-    const equip = (customer.equipment || '').toLowerCase();
+    const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    const equip = toHankaku(customer.equipment || '').toLowerCase();
     if (equip.includes('最上階')) {
-      const floorNum = parseInt((prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
-      const storyNum = parseInt((prop.story_text || '').match(/(\d+)/)?.[1] || '0');
+      const floorNum = parseInt(toHankaku(prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
+      const storyNum = parseInt(toHankaku(prop.story_text || '').match(/(\d+)/)?.[1] || '0');
       if (floorNum > 0 && storyNum > 0 && floorNum < storyNum) return false;
       // 階数情報がない場合は通す（Discord通知でアラート表示）
     }
@@ -227,10 +229,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return;
   }
-  if (msg.type === 'REFRESH_CRITERIA') {
-    refreshCriteria().then(() => sendResponse({ ok: true })).catch(err => sendResponse({ error: err.message }));
-    return true;
-  }
+
   if (msg.type === 'UPDATE_ALARM') {
     chrome.storage.local.get(['searchIntervalMinutes'], (data) => {
       setupAlarm(data.searchIntervalMinutes || 30);
@@ -248,7 +247,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 async function refreshCriteria() {
   try {
     const result = await fetchCriteria();
+    if (result?.error) {
+      await setStorageData({ debugLog: `GAS criteria error: ${result.error}` });
+    }
     if (result && result.criteria) {
+      // デバッグ: 全顧客のequipment値を出力
+      const equipDebug = result.criteria.map(c => `${c.name}:[${c.equipment||''}]`).join(' | ');
+      await setStorageData({ debugLog: `DEBUG equips: ${equipDebug}` });
       chrome.storage.local.set({
         customerCriteria: result.criteria,
         lastCriteriaFetch: Date.now()
@@ -282,16 +287,13 @@ async function runSearchCycle() {
     }
     await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}, url=${reinsTab.url}` });
 
-    // 検索条件を取得
+    // 検索条件を取得（毎回GASから最新を取得）
     await setStorageData({ debugLog: '検索条件を取得中...' });
-    const { customerCriteria, lastCriteriaFetch } = await getStorageData(['customerCriteria', 'lastCriteriaFetch']);
-    if (!customerCriteria || !lastCriteriaFetch || (Date.now() - lastCriteriaFetch > 3600000)) {
-      try {
-        await refreshCriteria();
-      } catch (err) {
-        await setStorageData({ debugLog: `検索条件取得失敗: ${err.message}` });
-        return;
-      }
+    try {
+      await refreshCriteria();
+    } catch (err) {
+      await setStorageData({ debugLog: `検索条件取得失敗: ${err.message}` });
+      return;
     }
     const { customerCriteria: criteria } = await getStorageData(['customerCriteria']);
     if (!criteria || criteria.length === 0) {
@@ -609,7 +611,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       }
 
       // 所在階（equipment条件に基づく）
-      const equip = (customerData.equipment || '').toLowerCase();
+      // 全角数字→半角数字変換
+      const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+      const equip = toHankaku(customerData.equipment || '').toLowerCase();
       if (equip.includes('2階以上')) {
         vr.shzikiFrom = '2';
       } else if (equip.includes('1階の物件') || equip.includes('1階')) {
@@ -628,7 +632,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         snyuMnskFrom: vr.snyuMnskFrom,
         shzikiFrom: vr.shzikiFrom || '',
         shzikiTo: vr.shzikiTo || '',
-        buildingAge: customerData.building_age || ''
+        buildingAge: customerData.building_age || '',
+        debugEquip: customerData.equipment || '(empty)'
       };
     },
     args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '' }, lineNameMap, reinsCodeMap]
@@ -639,7 +644,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await setStorageData({ debugLog: `${customer.name}: 条件セットエラー: ${JSON.stringify(setStatus)}` });
     return;
   }
-  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'}` });
+  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}` });
 
   // Vueリアクティブ更新を待つ
   await csleep(2000);
@@ -870,7 +875,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     if (!isTest && customerSeenIds.some(id => id.includes(result.propertyNumber))) continue;
 
     // 一覧ページで敷金/礼金フィルタ（equipment条件に基づく）
-    const equip = (customer.equipment || '').toLowerCase();
+    const toHankaku_ = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    const equip = toHankaku_(customer.equipment || '').toLowerCase();
     const isNone = (s) => !s || s === '-' || s === 'なし' || s === 'なし/-' || s === '-/-' || s === 'なし/なし';
     const hasNoneInSlash = (s) => {
       // "敷金/保証金" 形式をパース。敷金なし条件では両方なしが必要
@@ -945,7 +951,24 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             floor: parseInt((floorLoc || '').match(/\d+/)?.[0] || '0'),
             floor_text: floorLoc || '',
             story_text: floorAbove ? floorAbove + '建' : '',
-            structure: structure || '',
+            structure: (() => {
+              if (!structure) return '';
+              const structureMap = {
+                'RC': '鉄筋コンクリート',
+                'SRC': '鉄骨鉄筋コンクリート',
+                'S': '鉄骨造',
+                'W': '木造',
+                'LS': '軽量鉄骨造',
+                'ALC': 'ALC造',
+                'PC': 'プレキャストコンクリート',
+                'HPC': '鉄骨プレキャストコンクリート',
+                'CB': 'コンクリートブロック',
+                'その他': 'その他'
+              };
+              // 全角英字→半角変換 + 造/スペース除去
+              const key = structure.replace(/[Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[造\s]/g, '').toUpperCase();
+              return structureMap[key] || structure;
+            })(),
             building_age: (() => {
               if (!builtDate) return '';
               // 西暦を抽出
@@ -1223,6 +1246,12 @@ function buildSearchInfo(customer) {
     if (walkMin) lines.push(`🚶 徒歩${walkMin}分以内`);
   }
 
+  // 設備・条件
+  if (customer.equipment) {
+    const equipStr = typeof customer.equipment === 'string' ? customer.equipment : (customer.equipment || []).join(', ');
+    if (equipStr) lines.push(`🔧 ${equipStr}`);
+  }
+
   return lines.join('\n');
 }
 
@@ -1343,9 +1372,10 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   }
 
   // 階数情報不足アラート
-  const equip = (customer?.equipment || '').toLowerCase();
-  const floorNum = parseInt((prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
-  const storyNum = parseInt((prop.story_text || '').match(/(\d+)/)?.[1] || '0');
+  const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  const equip = toHankaku(customer?.equipment || '').toLowerCase();
+  const floorNum = parseInt(toHankaku(prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
+  const storyNum = parseInt(toHankaku(prop.story_text || '').match(/(\d+)/)?.[1] || '0');
   if (equip.includes('最上階') && (floorNum === 0 || storyNum === 0)) {
     lines.push(`⚠️ **最上階条件あり: 階数情報不足のため要確認**`);
   }
