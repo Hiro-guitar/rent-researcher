@@ -14,6 +14,7 @@ from itandi_search.models import CustomerCriteria, Property
 from .auth import IeloveSession
 from .config import (
     BUILDING_AGE_CODES,
+    HARD_EQUIPMENT_OPTS,
     IELOVE_BASE_URL,
     LAYOUT_CODES,
     PREFECTURE_CODE,
@@ -83,6 +84,12 @@ def _build_search_url(
     if layout_codes:
         for code in layout_codes:
             parts.append(f"madori/{code}")
+
+    # ── ハード設備 ──
+    for eid in criteria.equipment_ids:
+        if eid in HARD_EQUIPMENT_OPTS:
+            cat, code = HARD_EQUIPMENT_OPTS[eid]
+            parts.append(f"{cat}/{code}")
 
     # ── ソート (更新が新しい順) ──
     parts.append("optt/2")

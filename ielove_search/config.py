@@ -55,6 +55,14 @@ STRUCTURE_ALIAS: dict[str, str] = {
     "SRC": "5",
 }
 
+# ── ハード設備 (itandi option_id → いえらぶ opts パラメータ) ──
+# 検索URLに含めて絞り込むハード設備
+HARD_EQUIPMENT_OPTS: dict[int, tuple[str, str]] = {
+    # option_id: (opts カテゴリ, コード)
+    # ペット(22010)・事務所(22050)は選択肢が排他的で取りこぼすため取得後フィルタで対応
+    19010: ("opts3", "0301"),   # 家具家電付き → 家具・家電付
+}
+
 # ── 築年数コード (URL パラメータ値) ────────────────────
 
 BUILDING_AGE_CODES: dict[int, str] = {
