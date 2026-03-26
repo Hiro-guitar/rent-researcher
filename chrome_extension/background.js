@@ -366,54 +366,48 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   await setStorageData({ debugLog: `検索開始: ${customer.name}` });
   const customerSeenIds = seenIds[customer.name] || [];
 
-  // --- Step 1: 検索フォームに移動 ---
-  // REINSはSPAのため、URLがGBK001310でも検索結果ページが表示されている場合がある
-  // URLではなくDOM内容で検索フォームかどうかを判定する
-  const isSearchForm = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => {
-      // 検索フォームには入力項目が多数ある（結果ページにはない）
-      const inputs = document.querySelectorAll('input').length;
-      const hasResultHeading = document.body.textContent.includes('検索結果一覧');
-      return inputs > 5 && !hasResultHeading;
-    }
-  });
-
-  if (!isSearchForm?.[0]?.result) {
-    await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
-
-    // サイドバーの「賃貸物件検索」リンクをクリックして正規遷移
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const links = [...document.querySelectorAll('a, button')];
-        const rentLink = links.find(el => {
-          const text = el.textContent.trim();
-          return text === '賃貸物件検索' || (text.includes('賃貸') && text.includes('物件検索'));
-        });
-        if (rentLink) { rentLink.click(); return 'clicked'; }
-        return 'not_found';
-      }
-    });
-
-    // 検索フォームの描画完了を待つ（input要素が多数 + 結果ヘッダなし）
-    for (let w = 0; w < 30; w++) {
+  // --- Step 1: 検索フォームの準備 ---
+  // REINSはSPAのためURLと表示内容が一致しない場合がある
+  // .p-textbox-input（Vueフォーム入力欄）の存在でフォーム描画完了を判定
+  // まず現在の状態を確認し、フォームでなければナビゲーションする
+  let formFound = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    // フォーム描画を最大30秒待つ
+    for (let w = 0; w < 15; w++) {
       if (isSearchCancelled(searchId)) return;
-      await csleep(2000);
       try {
         const ready = await chrome.scripting.executeScript({
           target: { tabId },
-          func: () => {
-            const inputs = document.querySelectorAll('input').length;
-            const hasResultHeading = document.body.textContent.includes('検索結果一覧');
-            return inputs > 5 && !hasResultHeading;
-          }
+          world: 'MAIN',
+          func: () => !!document.querySelector('.p-textbox-input')
         });
-        if (ready?.[0]?.result) break;
+        if (ready?.[0]?.result) { formFound = true; break; }
       } catch (_) {}
+      await csleep(2000);
     }
-    await csleep(3000); // Vue完全初期化待ち
+    if (formFound) break;
+
+    // フォームが見つからない場合、サイドバーの「賃貸物件検索」で遷移
+    if (attempt === 0) {
+      await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const links = [...document.querySelectorAll('a, button')];
+          const rentLink = links.find(el => {
+            const text = el.textContent.trim();
+            return text === '賃貸物件検索' || (text.includes('賃貸') && text.includes('物件検索'));
+          });
+          if (rentLink) rentLink.click();
+        }
+      });
+    }
   }
+  if (!formFound) {
+    await setStorageData({ debugLog: `${customer.name}: 検索フォームが見つかりません` });
+    return;
+  }
+  await csleep(1000); // Vue初期化の余裕
 
   // --- Step 2: 条件セット（executeScript world:'MAIN'で直接実行） ---
   // ※ scriptタグ注入はCSPでブロックされるため、world:'MAIN'を使う
