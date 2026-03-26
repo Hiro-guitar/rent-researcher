@@ -85,6 +85,16 @@ def _build_search_url(
         for code in layout_codes:
             parts.append(f"madori/{code}")
 
+    # ── 敷金なし ──
+    if criteria.no_deposit:
+        parts.append("skknt/0")
+        parts.append("skuc/1")
+
+    # ── 礼金なし ──
+    if criteria.no_key_money:
+        parts.append("reknt/0")
+        parts.append("reuc/1")
+
     # ── ハード設備 ──
     for eid in criteria.equipment_ids:
         if eid in HARD_EQUIPMENT_OPTS:
