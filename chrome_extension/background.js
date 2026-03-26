@@ -141,6 +141,15 @@ function filterByCustomerCriteria(properties, customer) {
       return false;
     }
 
+    // 最上階フィルタ（equipment条件に基づく）
+    const equip = (customer.equipment || '').toLowerCase();
+    if (equip.includes('最上階')) {
+      const floorNum = parseInt((prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
+      const storyNum = parseInt((prop.story_text || '').match(/(\d+)/)?.[1] || '0');
+      if (floorNum > 0 && storyNum > 0 && floorNum < storyNum) return false;
+      // 階数情報がない場合は通す（Discord通知でアラート表示）
+    }
+
     return true;
   });
 }
@@ -599,6 +608,15 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       }
 
+      // 所在階（equipment条件に基づく）
+      const equip = (customerData.equipment || '').toLowerCase();
+      if (equip.includes('2階以上')) {
+        vr.shzikiFrom = '2';
+      } else if (equip.includes('1階の物件') || equip.includes('1階')) {
+        vr.shzikiFrom = '1';
+        vr.shzikiTo = '1';
+      }
+
       return {
         success: true,
         bkknShbt1: vr.bkknShbt1,
@@ -608,10 +626,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         mdrHysuFrom: vr.mdrHysuFrom,
         mdrHysuTo: vr.mdrHysuTo,
         snyuMnskFrom: vr.snyuMnskFrom,
+        shzikiFrom: vr.shzikiFrom || '',
+        shzikiTo: vr.shzikiTo || '',
         buildingAge: customerData.building_age || ''
       };
     },
-    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '' }, lineNameMap, reinsCodeMap]
+    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '' }, lineNameMap, reinsCodeMap]
   });
 
   const setStatus = setResult?.[0]?.result;
@@ -1249,7 +1269,7 @@ async function sendDiscordNotification(customerName, properties, customer) {
 
     // 物件ごとに送信
     for (let i = 0; i < properties.length; i++) {
-      const msg = buildDiscordMessage(properties[i], i + 1, gasWebappUrl, customerName);
+      const msg = buildDiscordMessage(properties[i], i + 1, gasWebappUrl, customerName, customer);
       await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg });
       if (i < properties.length - 1) await sleep(1000);
     }
@@ -1284,7 +1304,7 @@ async function discordPostWithRetry(url, payload) {
   }
 }
 
-function buildDiscordMessage(prop, index, gasWebappUrl, customerName) {
+function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) {
   const fmtMan = (yen) => {
     if (!yen) return '0';
     const v = yen / 10000;
@@ -1313,8 +1333,24 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName) {
   if (prop.address) lines.push(`📍 ${prop.address}`);
   if (prop.station_info) lines.push(`🚉 ${prop.station_info}`);
 
+  // 階数
+  if (prop.floor_text || prop.story_text) {
+    lines.push(`🏢 ${prop.floor_text || '?'}/${prop.story_text || '?'}`);
+  }
+
   if (prop.deposit || prop.key_money) {
     lines.push(`💴 敷金: ${prop.deposit || 'なし'} / 礼金: ${prop.key_money || 'なし'}`);
+  }
+
+  // 階数情報不足アラート
+  const equip = (customer?.equipment || '').toLowerCase();
+  const floorNum = parseInt((prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
+  const storyNum = parseInt((prop.story_text || '').match(/(\d+)/)?.[1] || '0');
+  if (equip.includes('最上階') && (floorNum === 0 || storyNum === 0)) {
+    lines.push(`⚠️ **最上階条件あり: 階数情報不足のため要確認**`);
+  }
+  if ((equip.includes('2階以上') || equip.includes('1階')) && floorNum === 0) {
+    lines.push(`⚠️ **階数条件あり: 所在階情報なしのため要確認**`);
   }
 
   // 承認リンク
