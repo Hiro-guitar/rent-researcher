@@ -99,14 +99,6 @@ function doPost(e) {
         return;
       }
 
-      // 類似物件不要（遅延返信Flexの「いいえ」ボタン）
-      if (message === '類似物件不要') {
-        replyMessage(replyToken, [
-          textMsg('承知いたしました。\nまたお部屋探しの際はお気軽にお声がけください。')
-        ]);
-        return;
-      }
-
       // コマンド: 条件変更
       if (message === '条件変更' || message === 'じょうけんへんこう') {
         startChangeFlow(replyToken, userId);
@@ -638,15 +630,168 @@ function registerLineUsersFromClient(jsonStr) {
   return count;
 }
 
-// ===== REINS Chrome拡張用ハンドラー =====
+// =====================================================
+// REINS Chrome拡張用 POST エンドポイント
+// =====================================================
 
-/**
- * APIキー検証
- */
+function handleAddReinsProperty(json) {
+  if (!_validateReinsApiKey(json.api_key)) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var customerName = json.customer_name;
+  var properties = json.properties;
+  if (!customerName || !properties || properties.length === 0) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'customer_name and properties required' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!sheet) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'pending sheet not found' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var existingData = sheet.getDataRange().getValues();
+  var existingIds = {};
+  for (var i = 1; i < existingData.length; i++) {
+    var key = String(existingData[i][0]) + '|' + String(existingData[i][2]);
+    existingIds[key] = true;
+  }
+
+  var now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+  var added = 0;
+  var skipped = 0;
+
+  for (var j = 0; j < properties.length; j++) {
+    var p = properties[j];
+    var roomId = p.room_id || '';
+    var dedupKey = customerName + '|' + roomId;
+
+    if (existingIds[dedupKey]) {
+      skipped++;
+      continue;
+    }
+
+    var dataJson = JSON.stringify({
+      address: p.address || '',
+      url: p.url || '',
+      image_url: p.image_url || '',
+      image_urls: p.image_urls || [],
+      room_number: p.room_number || '',
+      building_age: p.building_age || '',
+      move_in_date: p.move_in_date || '',
+      floor: p.floor || 0,
+      floor_text: p.floor_text || '',
+      story_text: p.story_text || '',
+      structure: p.structure || '',
+      total_units: p.total_units || '',
+      sunlight: p.sunlight || '',
+      facilities: p.facilities || '',
+      other_stations: p.other_stations || [],
+      deposit: p.deposit || '',
+      key_money: p.key_money || '',
+      lease_type: p.lease_type || '',
+      contract_period: p.contract_period || '',
+      cancellation_notice: p.cancellation_notice || '',
+      renewal_info: p.renewal_info || '',
+      renewal_fee: p.renewal_fee || '',
+      fire_insurance: p.fire_insurance || '',
+      renewal_admin_fee: p.renewal_admin_fee || '',
+      guarantee_info: p.guarantee_info || '',
+      key_exchange_fee: p.key_exchange_fee || '',
+      cleaning_fee: p.cleaning_fee || '',
+      other_monthly_fee: p.other_monthly_fee || '',
+      other_onetime_fee: p.other_onetime_fee || '',
+      move_in_conditions: p.move_in_conditions || '',
+      source: 'reins',
+      reins_property_number: p.reins_property_number || '',
+      reins_shougo: p.reins_shougo || '',
+      reins_tel: p.reins_tel || ''
+    });
+
+    sheet.appendRow([
+      customerName,
+      p.building_id || '',
+      roomId,
+      p.building_name || '',
+      String(p.rent || 0),
+      String(p.management_fee || 0),
+      p.layout || '',
+      String(p.area || 0),
+      p.station_info || '',
+      dataJson,
+      'pending',
+      now,
+      '',
+      'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId
+    ]);
+
+    added++;
+    existingIds[dedupKey] = true;
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ success: true, added: added, skipped: skipped }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// =====================================================
+// REINS Chrome拡張用 GET エンドポイント
+// =====================================================
+
 function _validateReinsApiKey(apiKey) {
   var expected = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY');
   if (!expected) return true; // キー未設定時はスキップ
   return apiKey === expected;
+}
+
+function _splitCSV(val) {
+  if (!val) return [];
+  return String(val).split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+}
+
+function _parseRoutesWithStations(val) {
+  if (!val) return [];
+  var str = String(val).trim();
+  if (!str) return [];
+
+  var results = [];
+  var parts = [];
+  var depth = 0;
+  var current = '';
+  for (var c = 0; c < str.length; c++) {
+    var ch = str[c];
+    if (ch === '(' || ch === '\uff08') { depth++; current += ch; }
+    else if (ch === ')' || ch === '\uff09') { depth--; current += ch; }
+    else if ((ch === ',' || ch === '\u3001') && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+
+  for (var p = 0; p < parts.length; p++) {
+    var part = parts[p];
+    var parenIdx = part.indexOf('(');
+    if (parenIdx < 0) parenIdx = part.indexOf('\uff08');
+    if (parenIdx >= 0) {
+      var route = part.substring(0, parenIdx).trim();
+      var stationsStr = part.substring(parenIdx + 1).replace(/[)\uff09]$/, '');
+      var stations = stationsStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+      results.push({ route: route, stations: stations });
+    } else {
+      results.push({ route: part.trim(), stations: [] });
+    }
+  }
+  return results;
 }
 
 /**
@@ -674,11 +819,6 @@ function handleGetCriteria(e) {
     var name = String(row[1] || '').trim();
     if (!name) continue;
 
-    // 列マッピング (SheetWriter.js準拠):
-    // A(0):タイムスタンプ B(1):名前 C(2):都道府県 D(3):市区町村
-    // E(4):路線(駅名) F(5):駅名 G(6):徒歩 H(7):賃料上限
-    // I(8):間取り J(9):面積 K(10):築年数 L(11):構造
-    // M(12):設備 N(13):理由 O(14):引越し時期 P(15):その他 Q(16):ペット
     var routesWithStations = _parseRoutesWithStations(row[4]);
     var allRoutes = routesWithStations.map(function(r) { return r.route; });
     var allStations = _splitCSV(row[5]);
@@ -718,7 +858,6 @@ function handleGetSeenIds(e) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var seen_ids = {};
 
-  // 承認待ち物件
   var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (pendingSheet) {
     var pData = pendingSheet.getDataRange().getValues();
@@ -732,7 +871,6 @@ function handleGetSeenIds(e) {
     }
   }
 
-  // 通知済み物件
   var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
   if (seenSheet) {
     var sData = seenSheet.getDataRange().getValues();
@@ -751,171 +889,4 @@ function handleGetSeenIds(e) {
   return ContentService
     .createTextOutput(JSON.stringify({ seen_ids: seen_ids }))
     .setMimeType(ContentService.MimeType.JSON);
-}
-
-/**
- * POST: REINS Chrome拡張から物件データを受信し承認待ちシートに書き込む
- */
-function handleAddReinsProperty(json) {
-  if (!_validateReinsApiKey(json.api_key)) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  var customerName = json.customer_name;
-  var properties = json.properties;
-  if (!customerName || !properties || properties.length === 0) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: 'customer_name and properties required' }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
-  if (!sheet) {
-    return ContentService
-      .createTextOutput(JSON.stringify({ error: 'pending sheet not found' }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  // 既存のpending行を取得（重複チェック）
-  var existingData = sheet.getDataRange().getValues();
-  var existingIds = {};
-  for (var i = 1; i < existingData.length; i++) {
-    var key = String(existingData[i][0]) + '|' + String(existingData[i][2]);
-    existingIds[key] = true;
-  }
-
-  var now = new Date().toISOString().replace('T', ' ').substring(0, 19);
-  var added = 0;
-  var skipped = 0;
-
-  for (var j = 0; j < properties.length; j++) {
-    var p = properties[j];
-    var roomId = p.room_id || '';
-    var dedupKey = customerName + '|' + roomId;
-
-    if (existingIds[dedupKey]) {
-      skipped++;
-      continue;
-    }
-
-    // property_data_json を構築
-    var dataJson = JSON.stringify({
-      address: p.address || '',
-      url: p.url || '',
-      image_url: p.image_url || '',
-      image_urls: p.image_urls || [],
-      room_number: p.room_number || '',
-      building_age: p.building_age || '',
-      move_in_date: p.move_in_date || '',
-      floor: p.floor || 0,
-      floor_text: p.floor_text || '',
-      story_text: p.story_text || '',
-      structure: p.structure || '',
-      total_units: p.total_units || '',
-      sunlight: p.sunlight || '',
-      facilities: p.facilities || '',
-      other_stations: p.other_stations || [],
-      deposit: p.deposit || '',
-      key_money: p.key_money || '',
-      lease_type: p.lease_type || '',
-      contract_period: p.contract_period || '',
-      cancellation_notice: p.cancellation_notice || '',
-      renewal_info: p.renewal_info || '',
-      renewal_fee: p.renewal_fee || '',
-      fire_insurance: p.fire_insurance || '',
-      renewal_admin_fee: p.renewal_admin_fee || '',
-      guarantee_info: p.guarantee_info || '',
-      key_exchange_fee: p.key_exchange_fee || '',
-      cleaning_fee: p.cleaning_fee || '',
-      other_monthly_fee: p.other_monthly_fee || '',
-      other_onetime_fee: p.other_onetime_fee || '',
-      move_in_conditions: p.move_in_conditions || '',
-      source: 'reins',
-      reins_property_number: p.reins_property_number || '',
-      reins_shougo: p.reins_shougo || '',
-      reins_tel: p.reins_tel || ''
-    });
-
-    sheet.appendRow([
-      customerName,                    // A: customer_name
-      p.building_id || '',             // B: building_id
-      roomId,                          // C: room_id
-      p.building_name || '',           // D: building_name
-      String(p.rent || 0),             // E: rent
-      String(p.management_fee || 0),   // F: management_fee
-      p.layout || '',                  // G: layout
-      String(p.area || 0),             // H: area
-      p.station_info || '',            // I: station_info
-      dataJson,                        // J: property_data_json
-      'pending',                       // K: status
-      now,                             // L: created_at
-      '',                              // M: updated_at
-      'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId  // N: view_url
-    ]);
-
-    added++;
-    existingIds[dedupKey] = true;
-  }
-
-  return ContentService
-    .createTextOutput(JSON.stringify({ success: true, added: added, skipped: skipped }))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-/**
- * CSV文字列をトリムされた配列に分割
- */
-function _splitCSV(val) {
-  if (!val) return [];
-  return String(val).split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
-}
-
-/**
- * E列の路線フォーマットをパースする
- * 新フォーマット: "路線名(駅1, 駅2), 路線名(駅1, 駅2)"
- * 旧フォーマット: "路線名, 路線名"
- * @returns {Array<{route: string, stations: string[]}>}
- */
-function _parseRoutesWithStations(val) {
-  if (!val) return [];
-  var str = String(val).trim();
-  if (!str) return [];
-
-  var results = [];
-  // カッコを考慮してトップレベルのカンマで分割
-  var parts = [];
-  var depth = 0;
-  var current = '';
-  for (var c = 0; c < str.length; c++) {
-    var ch = str[c];
-    if (ch === '(' || ch === '\uff08') { depth++; current += ch; }
-    else if (ch === ')' || ch === '\uff09') { depth--; current += ch; }
-    else if ((ch === ',' || ch === '\u3001') && depth === 0) {
-      parts.push(current.trim());
-      current = '';
-    } else {
-      current += ch;
-    }
-  }
-  if (current.trim()) parts.push(current.trim());
-
-  for (var p = 0; p < parts.length; p++) {
-    var part = parts[p];
-    // "路線名(駅1, 駅2, ...)" パターン
-    var parenIdx = part.indexOf('(');
-    if (parenIdx < 0) parenIdx = part.indexOf('\uff08');
-    if (parenIdx >= 0) {
-      var route = part.substring(0, parenIdx).trim();
-      var stationsStr = part.substring(parenIdx + 1).replace(/[)\uff09]$/, '');
-      var stations = stationsStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
-      results.push({ route: route, stations: stations });
-    } else {
-      // 路線名のみ（駅指定なし）
-      results.push({ route: part.trim(), stations: [] });
-    }
-  }
-  return results;
 }
