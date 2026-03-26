@@ -369,7 +369,6 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   // --- Step 1: 検索フォームに移動 ---
   // URL直接遷移はREINSの認証コンテキストが失われるためNG
   // メインメニューの「賃貸 物件検索」ボタンをクリックして正規遷移する
-  // ただし既にGBK001310にいる場合はスキップ
   const currentTab = await chrome.tabs.get(tabId);
   if (!currentTab.url?.includes('GBK001310')) {
     await setStorageData({ debugLog: `${customer.name}: 検索フォームに移動中...` });
@@ -413,6 +412,57 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       } catch (_) {}
     }
     await csleep(3000); // Vue完全初期化待ち
+  } else {
+    // 既にGBK001310にいる場合でもVue描画完了を確認
+    let formReady = false;
+    for (let w = 0; w < 10; w++) {
+      if (isSearchCancelled(searchId)) return;
+      try {
+        const ready = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => {
+            const labels = document.querySelectorAll('.p-label-title');
+            const inputs = document.querySelectorAll('.p-textbox-input');
+            return labels.length > 10 && inputs.length > 0;
+          }
+        });
+        if (ready?.[0]?.result) { formReady = true; break; }
+      } catch (_) {}
+      await csleep(2000);
+    }
+    // フォームが描画されていない場合、賃貸物件検索リンクで再遷移
+    if (!formReady) {
+      await setStorageData({ debugLog: `${customer.name}: フォーム未描画、再遷移中...` });
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const links = [...document.querySelectorAll('a, button')];
+          const rentLink = links.find(el => {
+            const text = el.textContent.trim();
+            return text === '賃貸物件検索' || (text.includes('賃貸') && text.includes('物件検索'));
+          });
+          if (rentLink) rentLink.click();
+        }
+      });
+      for (let w = 0; w < 30; w++) {
+        if (isSearchCancelled(searchId)) return;
+        await csleep(2000);
+        try {
+          const tab = await chrome.tabs.get(tabId);
+          if (tab.url?.includes('GBK001310')) {
+            const ready = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => {
+                const labels = document.querySelectorAll('.p-label-title');
+                return labels.length > 10;
+              }
+            });
+            if (ready?.[0]?.result) break;
+          }
+        } catch (_) {}
+      }
+      await csleep(3000);
+    }
   }
 
   // --- Step 2: 条件セット（executeScript world:'MAIN'で直接実行） ---
