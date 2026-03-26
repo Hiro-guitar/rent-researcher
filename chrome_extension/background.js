@@ -407,11 +407,19 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await setStorageData({ debugLog: `${customer.name}: 検索フォームが見つかりません` });
     return;
   }
-  // Vueハイドレーションが未完了の場合があるため、$nuxt.refresh()でコンポーネントを確実にマウント
+  // Nuxtルートを正しく設定してからVueハイドレーションを確保
   await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
-    func: () => window.$nuxt?.refresh()
+    func: () => {
+      const nuxt = window.$nuxt;
+      if (!nuxt) return;
+      // ルートがGBK001310でなければ遷移
+      if (nuxt.$route?.path !== '/main/BK/GBK001310') {
+        nuxt.$router.push('/main/BK/GBK001310');
+      }
+      return nuxt.refresh();
+    }
   });
   await csleep(3000); // refresh完了待ち
 
@@ -650,68 +658,69 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   await setStorageData({ debugLog: `${customer.name}: 検索ボタンクリック` });
 
   // --- Step 4: ダイアログ処理 + ページ遷移待ち ---
-  // 500件超 → 確認ダイアログ(OKクリック) → 結果ページ
-  // 500件以下 → 直接結果ページ
-  // 0件 → 結果ページ(0件表示)
+  // REINSはSPAのためURLではなくDOM内容で結果ページへの遷移を検出する
   for (let d = 0; d < 30; d++) {
     if (isSearchCancelled(searchId)) return;
     await csleep(3000);
     try {
-      const tab = await chrome.tabs.get(tabId);
-
-      // 結果ページに遷移済み
-      if (tab.url?.includes('GBK002200')) {
-        await setStorageData({ debugLog: `${customer.name}: 結果ページに遷移` });
-        break;
-      }
-
-      // エラーページ
-      if (tab.url && !tab.url.includes('GBK001310') && !tab.url.includes('reins.jp')) {
-        await setStorageData({ debugLog: `${customer.name}: 予期しないURL: ${tab.url}` });
-        return;
-      }
-
-      // OKダイアログ検出 → DOMクリック
-      const dialogResult = await chrome.scripting.executeScript({
+      // DOM内容で結果ページ/ダイアログを検出
+      const pageCheck = await chrome.scripting.executeScript({
         target: { tabId },
         func: () => {
-          // バリデーションエラー
+          // 結果ページのヘッダを検出
+          const headings = document.querySelectorAll('h1, h2, h3, [class*="header"]');
+          const bodyText = document.body.textContent;
+          const isResultPage = bodyText.includes('検索結果一覧');
+
+          // ダイアログ検出
           const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
           for (const dialog of dialogs) {
             const text = dialog.textContent;
-            if (text.includes('入力に誤り') || text.includes('権限')) return 'error';
-            // 0件ダイアログ: 該当する物件がない場合
+            if (text.includes('入力に誤り') || text.includes('権限')) return { type: 'error' };
             if (text.includes('該当') && (text.includes('ありません') || text.includes('０件') || text.includes('0件'))) {
               const okBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
-              if (okBtn) { okBtn.click(); return 'no_results'; }
+              if (okBtn) { okBtn.click(); return { type: 'no_results' }; }
             }
             if (text.includes('500件') || text.includes('超えています')) {
-              // OKボタンをクリック
               const okBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
-              if (okBtn) { okBtn.click(); return 'ok_clicked'; }
+              if (okBtn) { okBtn.click(); return { type: 'ok_clicked' }; }
             }
           }
-          return 'waiting';
+
+          if (isResultPage) return { type: 'result_page' };
+          return { type: 'waiting' };
         }
       });
 
-      const status = dialogResult?.[0]?.result;
-      await setStorageData({ debugLog: `${customer.name}: ダイアログ${d+1}: ${status}` });
-      if (status === 'error') return;
-      if (status === 'no_results') {
+      const status = pageCheck?.[0]?.result;
+      if (!status) continue;
+
+      if (status.type === 'result_page') {
+        await setStorageData({ debugLog: `${customer.name}: 結果ページに遷移` });
+        break;
+      }
+      if (status.type === 'error') {
+        await setStorageData({ debugLog: `${customer.name}: 検索エラー（バリデーション）` });
+        return;
+      }
+      if (status.type === 'no_results') {
         await setStorageData({ debugLog: `${customer.name}: 該当物件なし（0件）` });
         return;
       }
-      if (status === 'ok_clicked') {
-        // OKクリック後の遷移を待つ
+      if (status.type === 'ok_clicked') {
+        await setStorageData({ debugLog: `${customer.name}: 500件超ダイアログOK` });
+        // 結果ページ表示を待つ
         for (let w = 0; w < 20; w++) {
           await csleep(2000);
-          const t = await chrome.tabs.get(tabId);
-          await setStorageData({ debugLog: `${customer.name}: 遷移待ち${w+1}: url=${t.url?.split('/').pop()}` });
-          if (t.url?.includes('GBK002200')) break;
+          const ready = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => document.body.textContent.includes('検索結果一覧')
+          });
+          if (ready?.[0]?.result) break;
         }
         break;
       }
+      await setStorageData({ debugLog: `${customer.name}: ダイアログ${d+1}: ${status.type}` });
     } catch (err) {
       await setStorageData({ debugLog: `${customer.name}: ダイアログ${d+1}エラー: ${err.message}` });
     }
@@ -720,10 +729,13 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   // --- Step 5: 検索結果のDOM描画待ち ---
   await setStorageData({ debugLog: `${customer.name}: 検索結果待ち...` });
 
-  // タブURLがGBK002200か確認
-  const tabCheck = await chrome.tabs.get(tabId);
-  if (!tabCheck.url?.includes('GBK002200')) {
-    await setStorageData({ debugLog: `${customer.name}: 結果ページに遷移していません (URL=${tabCheck.url})` });
+  // DOM内容で結果ページか確認（URLはSPAのため信頼しない）
+  const resultCheck = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => document.body.textContent.includes('検索結果一覧')
+  });
+  if (!resultCheck?.[0]?.result) {
+    await setStorageData({ debugLog: `${customer.name}: 結果ページに遷移していません` });
     return;
   }
 
