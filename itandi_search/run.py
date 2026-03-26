@@ -238,6 +238,52 @@ def _filter_by_loft(properties: list) -> list:
     return result
 
 
+def _filter_by_structure(properties: list, *,
+                         structure_types: list[str]) -> list:
+    """建物構造で物件をフィルターする。
+
+    structure_types は itandi API 値 (rc, src, steel 等) のリスト。
+    property.structure は日本語テキスト (鉄筋コンクリート, RC 等)。
+    API 値に対応するキーワードが property.structure に含まれていれば OK。
+    """
+    # itandi API 値 → property.structure にマッチするキーワード群
+    _STRUCTURE_KEYWORDS: dict[str, list[str]] = {
+        "rc": ["RC", "鉄筋コンクリート"],
+        "src": ["SRC", "鉄骨鉄筋コンクリート"],
+        "steel": ["鉄骨造"],
+        "lightweight_steel": ["軽量鉄骨"],
+        "wooden": ["木造"],
+        "block": ["ブロック"],
+        "pc": ["PC", "プレキャストコンクリート"],
+        "hpc": ["HPC", "鉄骨プレキャスト"],
+        "alc": ["ALC", "軽量気泡コンクリート"],
+        "cft": ["CFT"],
+    }
+    # 許可するキーワードを集める
+    allowed_keywords: list[str] = []
+    for st in structure_types:
+        allowed_keywords.extend(_STRUCTURE_KEYWORDS.get(st, []))
+
+    if not allowed_keywords:
+        return properties
+
+    result = []
+    for p in properties:
+        if not p.structure:
+            # 構造情報なし → 除外しないが警告
+            print(f"[WARN] 構造不明 (room_id={p.room_id}): "
+                  f"structure='{p.structure}'")
+            p.structure_warning = "⚠️ 建物構造の情報が取得できませんでした（構造条件の確認が必要です）"
+            result.append(p)
+            continue
+        if any(kw in p.structure for kw in allowed_keywords):
+            result.append(p)
+        else:
+            print(f"[INFO] 構造フィルター除外 (room_id={p.room_id}): "
+                  f"structure='{p.structure}'")
+    return result
+
+
 def _filter_by_teiki(properties: list) -> list:
     """定期借家の物件を除外する。
     lease_type（賃貸借契約区分）に「定期」を含むか判定。
@@ -1068,6 +1114,18 @@ def _run_ielove_search(
     if not new_properties:
         print("  → いえらぶBB: 賃料条件に合う物件なし")
         return 0
+
+    # 構造フィルター
+    if customer.structure_types:
+        before = len(new_properties)
+        new_properties = _filter_by_structure(
+            new_properties, structure_types=customer.structure_types
+        )
+        filtered = before - len(new_properties)
+        if filtered:
+            print(f"  → いえらぶBB 構造フィルター: {filtered} 件除外")
+        if not new_properties:
+            return 0
 
     # 定期借家フィルター
     if customer.no_teiki:
