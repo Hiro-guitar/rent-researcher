@@ -895,7 +895,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const building = getVal('建物名');
           const roomNumber = getVal('部屋番号');
           const rentRaw = getVal('賃料');
-          const mgmtFee = getVal('管理費') || getVal('共益費');
+          const parseFee = (s) => s ? parseFloat(s.replace(/[^\d.]/g, '')) || 0 : 0;
+          const mgmtFeeVal = parseFee(getVal('管理費'));
+          const kyoekiFeeVal = parseFee(getVal('共益費'));
+          const totalMgmtFee = mgmtFeeVal + kyoekiFeeVal;
           const area = getVal('使用部分面積');
           const floorLoc = getVal('所在階');
           const floorAbove = getVal('地上階層');
@@ -908,7 +911,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             building_name: building || '',
             address: [pref, addr1, addr2].filter(Boolean).join(''),
             rent: rentRaw ? parseFloat(rentRaw.replace(/[^\d.]/g, '')) * (rentRaw.includes('万') ? 10000 : 1) : 0,
-            management_fee: mgmtFee ? parseFloat(mgmtFee.replace(/[^\d.]/g, '')) || 0 : 0,
+            management_fee: totalMgmtFee,
             layout: getVal('間取タイプ') || '',
             area: parseFloat((area || '').replace(/[^\d.]/g, '')) || 0,
             floor: parseInt((floorLoc || '').match(/\d+/)?.[0] || '0'),
