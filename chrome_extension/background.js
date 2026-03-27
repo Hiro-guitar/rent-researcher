@@ -1635,19 +1635,24 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     lines.push(`💴 敷金: ${prop.deposit || 'なし'} / 礼金: ${prop.key_money || 'なし'}`);
   }
 
-  // 階数情報不足アラート
+  // 警告アラート（ANSI黄色コードブロックで表示 — rent-researcher準拠）
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equip = toHankaku(customer?.equipment || '').toLowerCase();
   const floorNum = parseInt(toHankaku(prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
   const storyNum = parseInt(toHankaku(prop.story_text || '').match(/(\d+)/)?.[1] || '0');
+  const warnings = [];
   if (equip.includes('最上階') && (floorNum === 0 || storyNum === 0)) {
-    lines.push(`⚠️ **最上階条件あり: 階数情報不足のため要確認**`);
+    warnings.push('⚠️ 最上階条件あり: 階数情報不足のため要確認');
   }
   if ((equip.includes('2階以上') || equip.includes('1階')) && floorNum === 0) {
-    lines.push(`⚠️ **階数条件あり: 所在階情報なしのため要確認**`);
+    warnings.push('⚠️ 階数条件あり: 所在階情報なしのため要確認');
   }
   if (equip.includes('南向き') && !prop.sunlight) {
-    lines.push(`⚠️ **南向き条件あり: 採光面情報なしのため要確認**`);
+    warnings.push('⚠️ 南向き条件あり: 採光面情報なしのため要確認');
+  }
+  if (warnings.length > 0) {
+    const ansiText = warnings.join('\n');
+    lines.push(`\`\`\`ansi\n\u001b[0;33m${ansiText}\u001b[0m\n\`\`\``);
   }
 
   // 承認リンク
