@@ -1518,6 +1518,9 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if ((equip.includes('2階以上') || equip.includes('1階')) && floorNum === 0) {
     lines.push(`⚠️ **階数条件あり: 所在階情報なしのため要確認**`);
   }
+  if (equip.includes('南向き') && !prop.sunlight) {
+    lines.push(`⚠️ **南向き条件あり: 採光面情報なしのため要確認**`);
+  }
 
   // 承認リンク
   if (gasWebappUrl && customerName) {
