@@ -102,58 +102,87 @@ function buildStationString(customer) {
 
 // 顧客条件に基づく物件フィルタリング
 function filterByCustomerCriteria(properties, customer) {
-  return properties.filter(prop => {
-    // 構造フィルタ（structures が空なら全通過）
-    if (customer.structures && customer.structures.length > 0) {
-      if (!prop.structure) return false;
-      const structMatch = customer.structures.some(s => prop.structure.includes(s));
-      if (!structMatch) return false;
+  return properties.filter(prop => !getFilterRejectReason(prop, customer));
+}
+
+// フィルタ不合格の理由を返す（合格ならnull）
+function getFilterRejectReason(prop, customer) {
+  // 構造フィルタ（顧客条件は「鉄筋系」等のカテゴリ名、REINS詳細は日本語名に正規化済み）
+  if (customer.structures && customer.structures.length > 0) {
+    if (!prop.structure) return `構造不明（要求: ${customer.structures.join('/')})`;
+    // カテゴリ→許可する日本語構造名の展開
+    const categoryMap = {
+      '鉄筋系': ['鉄筋コンクリート', '鉄骨鉄筋コンクリート'],
+      '鉄骨系': ['鉄骨造', '軽量鉄骨造'],
+      '木造': ['木造'],
+      'ブロック・その他': ['コンクリートブロック', 'ALC造', 'プレキャストコンクリート', '鉄骨プレキャストコンクリート', 'その他']
+    };
+    // 許可する構造名のセットを構築
+    const allowedNames = new Set();
+    for (const s of customer.structures) {
+      if (categoryMap[s]) {
+        categoryMap[s].forEach(n => allowedNames.add(n));
+      } else {
+        allowedNames.add(s);
+      }
     }
-
-    // 駅名＋徒歩フィルタ（station_infoに複数交通が「/」区切りで入っている）
-    // routes_with_stations から全駅リストを構築
-    let allStations = customer.stations || [];
-    if (customer.routes_with_stations && customer.routes_with_stations.length > 0) {
-      const rwsStations = customer.routes_with_stations.flatMap(r => r.stations || []);
-      if (rwsStations.length > 0) allStations = rwsStations;
+    if (!allowedNames.has(prop.structure)) {
+      return `構造不一致: ${prop.structure}（要求: ${customer.structures.join('/')})`;
     }
+  }
 
-    if (allStations.length > 0 && prop.station_info) {
-      // 交通情報を「/」で分割して各交通をチェック
-      const transports = prop.station_info.split('/').map(s => s.trim());
-      const walkMax = customer.walk ? parseInt(String(customer.walk).replace(/[^\d]/g, '')) : 0;
+  // 駅名＋徒歩フィルタ
+  let allStations = customer.stations || [];
+  if (customer.routes_with_stations && customer.routes_with_stations.length > 0) {
+    const rwsStations = customer.routes_with_stations.flatMap(r => r.stations || []);
+    if (rwsStations.length > 0) allStations = rwsStations;
+  }
 
-      // 指定駅のいずれかが含まれ、かつ徒歩分数以内の交通があるかチェック
-      const hasMatch = transports.some(transport => {
-        const stationMatch = allStations.some(s => transport.includes(s));
-        if (!stationMatch) return false;
-        // 徒歩チェック（walkMaxが指定されている場合のみ）
-        if (walkMax > 0) {
-          const walkMatch = transport.match(/徒歩\s*(\d+)/);
-          if (walkMatch) {
-            const propWalk = parseInt(walkMatch[1]);
-            if (propWalk > walkMax) return false;
-          }
+  if (allStations.length > 0 && prop.station_info) {
+    const transports = prop.station_info.split('/').map(s => s.trim());
+    const walkMax = customer.walk ? parseInt(String(customer.walk).replace(/[^\d]/g, '')) : 0;
+
+    const hasMatch = transports.some(transport => {
+      const stationMatch = allStations.some(s => transport.includes(s));
+      if (!stationMatch) return false;
+      if (walkMax > 0) {
+        const walkMatch = transport.match(/徒歩\s*(\d+)/);
+        if (walkMatch) {
+          const propWalk = parseInt(walkMatch[1]);
+          if (propWalk > walkMax) return false;
         }
-        return true;
-      });
-      if (!hasMatch) return false;
-    } else if (allStations.length > 0 && !prop.station_info) {
-      return false;
+      }
+      return true;
+    });
+    if (!hasMatch) {
+      if (walkMax > 0) {
+        return `駅/徒歩不一致: ${prop.station_info}（徒歩${walkMax}分以内）`;
+      }
+      return `駅不一致: ${prop.station_info}`;
     }
+  } else if (allStations.length > 0 && !prop.station_info) {
+    return '交通情報なし';
+  }
 
-    // 最上階フィルタ（equipment条件に基づく）
-    const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
-    const equip = toHankaku(customer.equipment || '').toLowerCase();
-    if (equip.includes('最上階')) {
-      const floorNum = parseInt(toHankaku(prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
-      const storyNum = parseInt(toHankaku(prop.story_text || '').match(/(\d+)/)?.[1] || '0');
-      if (floorNum > 0 && storyNum > 0 && floorNum < storyNum) return false;
-      // 階数情報がない場合は通す（Discord通知でアラート表示）
+  // 南向きフィルタ（バルコニー方向に「南」を含むか判定。情報なしは通過）
+  const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  const equip = toHankaku(customer.equipment || '').toLowerCase();
+  if (equip.includes('南向き')) {
+    if (prop.sunlight && !prop.sunlight.includes('南')) {
+      return `南向きでない: バルコニー方向=${prop.sunlight}`;
     }
+  }
 
-    return true;
-  });
+  // 最上階フィルタ
+  if (equip.includes('最上階')) {
+    const floorNum = parseInt(toHankaku(prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
+    const storyNum = parseInt(toHankaku(prop.story_text || '').match(/(\d+)/)?.[1] || '0');
+    if (floorNum > 0 && storyNum > 0 && floorNum < storyNum) {
+      return `最上階でない: ${prop.floor_text}/${prop.story_text}`;
+    }
+  }
+
+  return null; // 合格
 }
 
 // 築年月文字列から築年（西暦）を抽出
@@ -279,6 +308,11 @@ async function runSearchCycle() {
   await new Promise(resolve => chrome.storage.local.set({ debugLog: '' }, resolve));
   await setStorageData({ isSearching: true, debugLog: '検索開始...' });
 
+  // 検索全体を通してService Workerを生存させるグローバルkeepalive
+  const globalKeepAlive = setInterval(() => {
+    chrome.runtime.getPlatformInfo(() => {});
+  }, 20000);
+
   try {
     const reinsTab = await findReinsTab();
     if (!reinsTab) {
@@ -352,6 +386,14 @@ async function runSearchCycle() {
           console.log(`検索サイクル${searchId}: 中止により終了`);
           return;
         }
+        if (err.message === 'SLEEP_DETECTED') {
+          await setStorageData({ debugLog: 'PCスリープから復帰→検索サイクル終了（次回スケジュールで再開）' });
+          return;
+        }
+        if (err.message === 'REINS_ERROR_PAGE') {
+          await setStorageData({ debugLog: 'REINSエラーページ検知→検索サイクル終了（再ログイン後に再開してください）' });
+          return;
+        }
         logError(`${customer.name}の検索失敗: ${err.message}`);
       }
       // 顧客間の待ち時間
@@ -362,15 +404,23 @@ async function runSearchCycle() {
   } catch (err) {
     logError('検索サイクルエラー: ' + err.message);
   } finally {
+    clearInterval(globalKeepAlive);
     await setStorageData({ isSearching: false });
   }
 }
 
 // === 顧客ごとの検索 ===
 async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
-  // 中止チェック付きsleep（中止されたら例外で即脱出）
+  // 中止チェック＋スリープ検知付きsleep
   const csleep = async (ms) => {
+    const before = Date.now();
     await sleep(ms);
+    const elapsed = Date.now() - before;
+    // 要求時間の3倍以上かかった場合、PCスリープから復帰したと判断
+    if (elapsed > Math.max(ms * 3, ms + 30000)) {
+      await setStorageData({ debugLog: `${customer.name}: PCスリープ検知（${Math.round(elapsed/1000)}秒経過、要求${Math.round(ms/1000)}秒）→検索中断` });
+      throw new Error('SLEEP_DETECTED');
+    }
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
   };
 
@@ -474,13 +524,17 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const colonIdx = parts[i].indexOf('\uff1a'); // ：(全角コロン)
           const lineName = colonIdx >= 0 ? parts[i].substring(0, colonIdx).trim() : parts[i].trim();
 
+          // 全角英数→半角変換（ＪＲ→JR等）
+          const toHankakuAlpha = (s) => s.replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+
           let reinsLineName = lineNameMap[lineName];
           if (!reinsLineName) {
-            // フォールバック1: "東京メトロ 東西線" ← "東京メトロ東西線" (スペースあり/なし)
+            // フォールバック: 全角→半角変換+スペース正規化して比較
+            const normalized = toHankakuAlpha(lineName).replace(/\s/g, '');
             const fbKey = Object.keys(lineNameMap).find(k => {
+              const kNorm = toHankakuAlpha(k).replace(/\s/g, '');
+              if (kNorm === normalized) return true;
               if (k.endsWith(' ' + lineName)) return true;
-              // スペース除去して比較
-              if (k.replace(/\s/g, '') === lineName.replace(/\s/g, '')) return true;
               return false;
             });
             reinsLineName = fbKey ? lineNameMap[fbKey] : lineName;
@@ -621,10 +675,17 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         vr.shzikiTo = '1';
       }
 
+      // セットした全沿線情報をデバッグ用に収集
+      const ensnDebug = [];
+      for (let n = 1; n <= 3; n++) {
+        if (vr[`ensnCd${n}`]) ensnDebug.push(`${n}:${vr[`ensnCd${n}`]}`);
+      }
+
       return {
         success: true,
         bkknShbt1: vr.bkknShbt1,
         ensnCd1: vr.ensnCd1,
+        ensnDebug: ensnDebug.join(' '),
         kkkuCnryuTo: vr.kkkuCnryuTo,
         mdrTyp: vr.mdrTyp,
         mdrHysuFrom: vr.mdrHysuFrom,
@@ -644,7 +705,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await setStorageData({ debugLog: `${customer.name}: 条件セットエラー: ${JSON.stringify(setStatus)}` });
     return;
   }
-  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 shbt=${setStatus.bkknShbt1} ensn=${setStatus.ensnCd1} rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}` });
+  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 ensn=[${setStatus.ensnDebug || '-'}] rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}` });
 
   // Vueリアクティブ更新を待つ
   await csleep(2000);
@@ -872,23 +933,30 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     const result = searchResults[i];
     if (!result.propertyNumber) continue;
     const isTest = customer.name.includes('テスト');
-    if (!isTest && customerSeenIds.some(id => id.includes(result.propertyNumber))) continue;
+    if (!isTest && customerSeenIds.some(id => id.includes(result.propertyNumber))) {
+      continue; // 既知物件はログなし（大量になるため）
+    }
 
     // 一覧ページで敷金/礼金フィルタ（equipment条件に基づく）
     const toHankaku_ = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
     const equip = toHankaku_(customer.equipment || '').toLowerCase();
     const isNone = (s) => !s || s === '-' || s === 'なし' || s === 'なし/-' || s === '-/-' || s === 'なし/なし';
     const hasNoneInSlash = (s) => {
-      // "敷金/保証金" 形式をパース。敷金なし条件では両方なしが必要
       const parts = (s || '').split('/').map(p => p.trim());
       return parts.every(p => !p || p === '-' || p === 'なし');
     };
     if (equip.includes('敷金なし')) {
-      if (!hasNoneInSlash(result.depositGuarantee)) continue;
+      if (!hasNoneInSlash(result.depositGuarantee)) {
+        await setStorageData({ debugLog: `${customer.name}: ✗ ${result.propertyNumber} 一覧スキップ: 敷金あり(${result.depositGuarantee})` });
+        continue;
+      }
     }
     if (equip.includes('礼金なし')) {
       const reikinPart = (result.keyMoneyRights || '').split('/')[0].trim();
-      if (reikinPart && reikinPart !== '-' && reikinPart !== 'なし') continue;
+      if (reikinPart && reikinPart !== '-' && reikinPart !== 'なし') {
+        await setStorageData({ debugLog: `${customer.name}: ✗ ${result.propertyNumber} 一覧スキップ: 礼金あり(${result.keyMoneyRights})` });
+        continue;
+      }
     }
 
     totalDetailCount++;
@@ -906,6 +974,20 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       });
       await waitForTabLoad(tabId);
       await csleep(delay);
+
+      // REINSエラーページ検知（E2171「不適切な画面操作」等）
+      const tabInfo = await chrome.tabs.get(tabId);
+      if (tabInfo.url && !tabInfo.url.includes('GBK00')) {
+        // REINS内だがエラーページの可能性
+        const [errCheck] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => document.body?.innerText?.includes('不適切な画面操作') || document.body?.innerText?.includes('エラー番号')
+        });
+        if (errCheck?.result) {
+          await setStorageData({ debugLog: `${customer.name}: REINSエラーページ検知→検索中断` });
+          throw new Error('REINS_ERROR_PAGE');
+        }
+      }
 
       // 詳細データ抽出
       const detailResults = await chrome.scripting.executeScript({
@@ -953,21 +1035,26 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             story_text: floorAbove ? floorAbove + '建' : '',
             structure: (() => {
               if (!structure) return '';
-              const structureMap = {
-                'RC': '鉄筋コンクリート',
-                'SRC': '鉄骨鉄筋コンクリート',
-                'S': '鉄骨造',
-                'W': '木造',
-                'LS': '軽量鉄骨造',
-                'ALC': 'ALC造',
-                'PC': 'プレキャストコンクリート',
-                'HPC': '鉄骨プレキャストコンクリート',
-                'CB': 'コンクリートブロック',
+              // REINS詳細ページの構造値を正規化（全角→半角、日本語名→標準名）
+              const hankaku = structure.replace(/[Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).trim();
+              // まずコード→日本語名（英字コードの場合）
+              const codeMap = {
+                'RC': '鉄筋コンクリート', 'SRC': '鉄骨鉄筋コンクリート',
+                'S': '鉄骨造', 'W': '木造', 'LS': '軽量鉄骨造',
+                'ALC': 'ALC造', 'PC': 'プレキャストコンクリート',
+                'HPC': '鉄骨プレキャストコンクリート', 'CB': 'コンクリートブロック'
+              };
+              const alphaKey = hankaku.replace(/[造\s]/g, '').toUpperCase();
+              if (codeMap[alphaKey]) return codeMap[alphaKey];
+              // 日本語名の場合もマッピング（REINSドロップダウン: 鉄骨造, 木造, 軽量鉄骨, ブロック 等）
+              const jpMap = {
+                '鉄骨造': '鉄骨造', '鉄骨': '鉄骨造',
+                '木造': '木造', '木': '木造',
+                '軽量鉄骨造': '軽量鉄骨造', '軽量鉄骨': '軽量鉄骨造',
+                'ブロック': 'コンクリートブロック',
                 'その他': 'その他'
               };
-              // 全角英字→半角変換 + 造/スペース除去
-              const key = structure.replace(/[Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[造\s]/g, '').toUpperCase();
-              return structureMap[key] || structure;
+              return jpMap[hankaku] || jpMap[hankaku.replace(/造/g, '')] || structure;
             })(),
             building_age: (() => {
               if (!builtDate) return '';
@@ -1035,16 +1122,16 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
       const detail = detailResults && detailResults[0] && detailResults[0].result;
       if (detail) {
-        const passFilter = filterByCustomerCriteria([detail], customer).length > 0;
-        if (passFilter) {
+        const rejectReason = getFilterRejectReason(detail, customer);
+        if (!rejectReason) {
           newProperties.push(detail);
           currentStats.totalFound++;
+          await setStorageData({ debugLog: `${customer.name}: ✓ ${detail.reins_property_number} 送信対象（${detail.building_name} ${detail.floor_text} ${detail.rent ? (detail.rent/10000)+'万' : ''}）` });
           // リアルタイムでGAS送信＋Discord通知
           try {
             const submitResult = await submitProperties(customer.name, [detail]);
             if (submitResult?.success) {
               currentStats.totalSubmitted += submitResult.added || 1;
-              await setStorageData({ debugLog: `${customer.name}: 物件${detail.reins_property_number} GAS送信完了` });
             }
           } catch (err) {
             logError(`${customer.name}: 物件${detail.reins_property_number} GAS送信失敗: ${err.message}`);
@@ -1055,49 +1142,67 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             logError(`${customer.name}: 物件${detail.reins_property_number} Discord通知失敗: ${err.message}`);
           }
           await setStorageData({ stats: currentStats });
+        } else {
+          await setStorageData({ debugLog: `${customer.name}: ✗ ${detail.reins_property_number} スキップ: ${rejectReason}` });
         }
       }
 
-      // 検索結果に戻る（REINSのSPAでは goBack だと検索フォームに戻る場合がある）
-      // 詳細ページの「←」戻るボタンをクリック
+      // 検索結果に戻る（REINS は直接URL遷移を不正操作(E2171)として拒否するため history.back() のみ使用）
       await chrome.scripting.executeScript({
         target: { tabId },
         func: () => {
-          // 「←」ボタン（左上の戻るアイコン）をクリック
-          const backBtn = document.querySelector('.p-btn-back, [class*="back"]')
-            || [...document.querySelectorAll('button, a')].find(el => el.textContent.trim() === '←' || el.textContent.includes('戻る'));
+          const backBtn = document.querySelector('.p-btn-back')
+            || [...document.querySelectorAll('button')].find(el => el.textContent.trim() === '←');
           if (backBtn) { backBtn.click(); return; }
-          // フォールバック: ブラウザ履歴で戻る
           history.back();
         }
       });
       // 検索結果一覧(GBK002200)に戻るまで待つ
-      for (let bw = 0; bw < 15; bw++) {
+      let backSuccess = false;
+      for (let bw = 0; bw < 10; bw++) {
         await csleep(2000);
         const bt = await chrome.tabs.get(tabId);
-        if (bt.url?.includes('GBK002200')) break;
+        if (bt.url?.includes('GBK002200')) { backSuccess = true; break; }
+        // 検索フォーム(GBK001310)やREINS外に戻ってしまった場合 → この顧客の残り物件をスキップ
+        if (bt.url?.includes('GBK001310') || !bt.url?.includes('system.reins.jp')) {
+          await setStorageData({ debugLog: `${customer.name}: 戻り先が検索結果でない(${bt.url?.split('/').pop()})→残り物件スキップ` });
+          return newProperties; // 現在の顧客の検索を終了して次の顧客へ
+        }
+      }
+      if (!backSuccess) {
+        await setStorageData({ debugLog: `${customer.name}: 戻りタイムアウト→残り物件スキップ` });
+        return newProperties;
       }
       await csleep(delay);
 
     } catch (err) {
-      if (err.message === 'SEARCH_CANCELLED') throw err;
+      if (err.message === 'SEARCH_CANCELLED' || err.message === 'SLEEP_DETECTED' || err.message === 'REINS_ERROR_PAGE') throw err;
       await setStorageData({ debugLog: `${customer.name}: 物件${result.propertyNumber}の詳細取得失敗: ${err.message}` });
       try {
         await chrome.scripting.executeScript({
           target: { tabId },
           func: () => {
-            const backBtn = document.querySelector('.p-btn-back, [class*="back"]')
-              || [...document.querySelectorAll('button, a')].find(el => el.textContent.trim() === '←' || el.textContent.includes('戻る'));
+            const backBtn = document.querySelector('.p-btn-back')
+              || [...document.querySelectorAll('button')].find(el => el.textContent.trim() === '←');
             if (backBtn) backBtn.click(); else history.back();
           }
         });
-        for (let bw = 0; bw < 15; bw++) {
+        let recovered = false;
+        for (let bw = 0; bw < 10; bw++) {
           await csleep(2000);
           const bt = await chrome.tabs.get(tabId);
-          if (bt.url?.includes('GBK002200')) break;
+          if (bt.url?.includes('GBK002200')) { recovered = true; break; }
+          if (bt.url?.includes('GBK001310') || !bt.url?.includes('system.reins.jp')) {
+            await setStorageData({ debugLog: `${customer.name}: エラー回復失敗→残り物件スキップ` });
+            return newProperties;
+          }
+        }
+        if (!recovered) {
+          await setStorageData({ debugLog: `${customer.name}: エラー回復タイムアウト→残り物件スキップ` });
+          return newProperties;
         }
         await csleep(delay);
-      } catch(e) { if (e.message === 'SEARCH_CANCELLED') throw e; }
+      } catch(e) { if (e.message === 'SEARCH_CANCELLED' || e.message === 'SLEEP_DETECTED' || e.message === 'REINS_ERROR_PAGE') throw e; }
     }
   } // end detail loop for current page
 
@@ -1156,18 +1261,32 @@ async function findReinsTab() {
 
 function waitForTabLoad(tabId) {
   return new Promise((resolve) => {
+    const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo(() => {}); }, 25000);
     const listener = (updatedTabId, changeInfo) => {
       if (updatedTabId === tabId && changeInfo.status === 'complete') {
         chrome.tabs.onUpdated.removeListener(listener);
+        clearInterval(keepAlive);
         resolve();
       }
     };
     chrome.tabs.onUpdated.addListener(listener);
-    setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(); }, 30000);
+    setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); clearInterval(keepAlive); resolve(); }, 30000);
   });
 }
 
-function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+// Service Worker keepalive付きsleep（MV3ではsetTimeoutだけだとWorkerが停止する）
+function sleep(ms) {
+  return new Promise(resolve => {
+    // 25秒ごとにChrome APIを呼んでService Workerを生存させる
+    const keepAlive = setInterval(() => {
+      chrome.runtime.getPlatformInfo(() => {});
+    }, 25000);
+    setTimeout(() => {
+      clearInterval(keepAlive);
+      resolve();
+    }, ms);
+  });
+}
 
 function getStorageData(keys) {
   return new Promise(resolve => chrome.storage.local.get(keys, resolve));
@@ -1310,26 +1429,43 @@ async function sendDiscordNotification(customerName, properties, customer) {
 }
 
 async function discordPostWithRetry(url, payload) {
-  let resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  if (resp.status === 429) {
-    const data = await resp.json();
-    const retryAfter = (data.retry_after || 5) * 1000;
-    console.warn(`Discord レート制限。${retryAfter}ms待機...`);
-    await sleep(retryAfter);
-    resp = await fetch(url, {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try {
+    let resp = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
-  }
+    clearTimeout(timeoutId);
 
-  if (!resp.ok && resp.status !== 204) {
-    console.error(`Discord送信エラー: status=${resp.status}`);
+    if (resp.status === 429) {
+      const data = await resp.json();
+      const retryAfter = Math.min((data.retry_after || 5) * 1000, 30000);
+      console.warn(`Discord レート制限。${retryAfter}ms待機...`);
+      await sleep(retryAfter);
+      const ctrl2 = new AbortController();
+      const tid2 = setTimeout(() => ctrl2.abort(), 15000);
+      resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: ctrl2.signal
+      });
+      clearTimeout(tid2);
+    }
+
+    if (!resp.ok && resp.status !== 204) {
+      console.error(`Discord送信エラー: status=${resp.status}`);
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      console.error('Discord送信タイムアウト');
+    } else {
+      throw err;
+    }
   }
 }
 
