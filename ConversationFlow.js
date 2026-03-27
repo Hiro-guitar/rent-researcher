@@ -27,7 +27,7 @@ const REASONS = [
   'もっと便利な場所に住みたい', 'ペットを飼いたい', 'その他'
 ];
 
-const RESIDENTS = ['ご自身のみ', 'ご夫婦・パートナー', 'ご家族', 'お子様', 'ご両親', 'その他'];
+const RESIDENTS = ['一人暮らし', '二人暮らし（カップル・夫婦）', 'ファミリー（お子様あり）', '子供のために探している', '親のために探している', 'その他'];
 
 // ── 前ステップマッピング ──────────────────────────────────
 const PREV_STEP = {};
@@ -57,6 +57,54 @@ function startSearchFlow(replyToken, userId) {
   replyMessage(replyToken, [
     textMsg('お部屋探しの条件を登録します！\nいくつかの質問にお答えください。\n\n途中でやめたい場合は「キャンセル」と送ってください。'),
     textMsg('まず、お名前を教えてください。\n（例: 山田太郎）')
+  ]);
+}
+
+// ══════════════════════════════════════════════════════════
+//  条件変更フロー開始
+// ══════════════════════════════════════════════════════════
+
+/**
+ * 条件変更フローを開始する。
+ * 既存の登録済み条件をスプレッドシートから読み込み、LIFFの条件選択ページに直接遷移する。
+ * @param {string} replyToken
+ * @param {string} userId
+ */
+function startChangeFlow(replyToken, userId) {
+  var existing = readLatestCriteria(userId);
+  if (!existing) {
+    replyMessage(replyToken, [
+      textMsg('まだ条件が登録されていません。\n\n「条件登録」と送って、まず条件を登録してください。')
+    ]);
+    return;
+  }
+
+  // 既存条件をstateに復元してCRITERIA_SELECTステップへ
+  var state = createInitialState();
+  state.step = STEPS.CRITERIA_SELECT;
+  state.areaMethod = existing.areaMethod;
+  state.selectedRoutes = existing.selectedRoutes;
+  state.selectedCities = existing.selectedCities;
+  state.selectedStations = existing.selectedStations;
+  state.data = {
+    name: existing.name,
+    reason: existing.reason,
+    resident: existing.resident,
+    move_in_date: existing.move_in_date,
+    rent_max: existing.rent_max,
+    layouts: existing.layouts,
+    walk: existing.walk,
+    area_min: existing.area_min,
+    building_age: existing.building_age,
+    building_structures: existing.building_structures,
+    equipment: existing.equipment,
+    petType: existing.petType,
+    notes: existing.notes
+  };
+  saveState(userId, state);
+
+  showCriteriaSelectLink(replyToken, userId, [
+    textMsg('現在の登録条件を読み込みました。\n下のボタンから条件を変更してください。')
   ]);
 }
 
@@ -270,7 +318,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     writeToSheet(userId, state);
     clearState(userId);
     replyMessage(replyToken, [
-      textMsg('ご登録ありがとうございます！\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件を変更したい場合は「条件登録」と送ってください。')
+      textMsg('ご登録ありがとうございます！\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件を変更したい場合は「条件変更」と送ってください。')
     ]);
     return true;
   }
@@ -375,7 +423,7 @@ function showResidentSelect(replyToken) {
   });
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
   replyMessage(replyToken, [
-    textMsgWithQuickReply('お部屋に住まれるのはどなたですか？', items)
+    textMsgWithQuickReply('どなたが住む予定ですか？', items)
   ]);
 }
 
