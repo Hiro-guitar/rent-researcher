@@ -1131,7 +1131,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             lease_type: getVal('取引態様') || '',
             contract_period: getVal('契約期間') || '',
             move_in_date: getVal('入居可能時期') || getVal('引渡可能時期') || '',
-            total_units: getVal('総戸数') || '',
+            total_units: getVal('[賃貸]棟総戸数') || getVal('総戸数') || '',
             reins_property_number: propertyNumber,
             reins_shougo: getVal('商号') || '',
             reins_tel: getVal('電話番号') || '',
