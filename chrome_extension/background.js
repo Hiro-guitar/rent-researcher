@@ -405,6 +405,7 @@ async function runSearchCycle() {
     logError('検索サイクルエラー: ' + err.message);
   } finally {
     clearInterval(globalKeepAlive);
+    await closeDedicatedWindow();
     await setStorageData({ isSearching: false });
   }
 }
@@ -1453,9 +1454,73 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
 // --- ユーティリティ ---
 
+// 拡張専用のREINSタブID（検索中のみ有効）
+let dedicatedReinsTabId = null;
+let dedicatedReinsWindowId = null;
+
+async function findOrCreateDedicatedReinsTab() {
+  // 既存の専用タブが生きているか確認
+  if (dedicatedReinsTabId) {
+    try {
+      const tab = await chrome.tabs.get(dedicatedReinsTabId);
+      if (tab && tab.url?.includes('system.reins.jp')) {
+        return tab;
+      }
+    } catch (e) {
+      // タブが閉じられている
+    }
+    dedicatedReinsTabId = null;
+    dedicatedReinsWindowId = null;
+  }
+
+  // ユーザーがREINSにログイン済みか確認（既存タブで）
+  const existingTabs = await chrome.tabs.query({ url: 'https://system.reins.jp/*' });
+  if (existingTabs.length === 0) {
+    return null; // REINSにログインしてない
+  }
+
+  // 専用ウィンドウを作成（最小化）してREINSを開く
+  // クッキー共有でログイン済みセッションを引き継ぐ
+  await setStorageData({ debugLog: '専用REINSウィンドウを作成中...' });
+  const newWindow = await chrome.windows.create({
+    url: 'https://system.reins.jp/main/BK/GBK001310',
+    state: 'minimized',
+    type: 'normal'
+  });
+  dedicatedReinsWindowId = newWindow.id;
+  dedicatedReinsTabId = newWindow.tabs[0].id;
+
+  // ページ読み込み完了を待つ
+  await waitForTabLoad(dedicatedReinsTabId);
+  await sleep(3000);
+
+  // ログイン状態を確認
+  const tab = await chrome.tabs.get(dedicatedReinsTabId);
+  if (tab.url?.includes('login') || tab.url?.includes('GKG001')) {
+    await setStorageData({ debugLog: '専用ウィンドウでREINSログインが必要です' });
+    await closeDedicatedWindow();
+    return null;
+  }
+
+  await setStorageData({ debugLog: `専用REINSタブ作成: tabId=${dedicatedReinsTabId}, windowId=${dedicatedReinsWindowId}` });
+  return tab;
+}
+
+async function closeDedicatedWindow() {
+  if (dedicatedReinsWindowId) {
+    try {
+      await chrome.windows.remove(dedicatedReinsWindowId);
+    } catch (e) {
+      // 既に閉じられている
+    }
+    dedicatedReinsWindowId = null;
+    dedicatedReinsTabId = null;
+  }
+}
+
+// 後方互換: 既存コードから呼ばれる場合のエイリアス
 async function findReinsTab() {
-  const tabs = await chrome.tabs.query({ url: 'https://system.reins.jp/*' });
-  return tabs.length > 0 ? tabs[0] : null;
+  return findOrCreateDedicatedReinsTab();
 }
 
 function waitForTabLoad(tabId) {
