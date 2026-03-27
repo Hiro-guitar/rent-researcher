@@ -963,15 +963,34 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await setStorageData({ debugLog: `${customer.name}: p${currentPage}/${totalPages} 物件${totalDetailCount}/${maxDetails} 詳細取得中 (${result.propertyNumber})` });
 
     try {
-      // 詳細ボタンをクリック
-      await chrome.scripting.executeScript({
+      // 詳細ボタンをクリック（物件番号で行を特定 — 再検索復帰後もindexズレしない）
+      const clickResult = await chrome.scripting.executeScript({
         target: { tabId },
-        func: (idx) => {
-          const detailBtns = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === '詳細');
-          if (idx < detailBtns.length) detailBtns[idx].click();
+        func: (propNum) => {
+          const rows = document.querySelectorAll('.p-table-body-row');
+          for (const row of rows) {
+            if (row.textContent.includes(propNum)) {
+              const detailBtn = [...row.querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
+              if (detailBtn) { detailBtn.click(); return true; }
+            }
+          }
+          // フォールバック: 全ての詳細ボタンから探す
+          const allBtns = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === '詳細');
+          // 物件番号に近い行の詳細ボタンを探す
+          for (const btn of allBtns) {
+            const parentRow = btn.closest('.p-table-body-row');
+            if (parentRow && parentRow.textContent.includes(propNum)) {
+              btn.click(); return true;
+            }
+          }
+          return false;
         },
-        args: [result.index]
+        args: [result.propertyNumber]
       });
+      if (!clickResult?.[0]?.result) {
+        await setStorageData({ debugLog: `${customer.name}: ✗ ${result.propertyNumber} 詳細ボタンが見つからない→スキップ` });
+        continue;
+      }
       await waitForTabLoad(tabId);
       await csleep(delay);
 
@@ -1236,8 +1255,60 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           break;
         }
         if (!bt.url?.includes('system.reins.jp')) {
-          await setStorageData({ debugLog: `${customer.name}: REINS外に遷移→残り物件スキップ` });
-          return newProperties;
+          // REINS外に遷移した → history.back()でREINSに戻る試行
+          await setStorageData({ debugLog: `${customer.name}: REINS外に遷移(${bt.url?.substring(0,50)})→戻り試行` });
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => { history.back(); }
+          });
+          await csleep(3000);
+          const bt2 = await chrome.tabs.get(tabId);
+          if (bt2.url?.includes('GBK002200')) { backSuccess = true; break; }
+          if (bt2.url?.includes('GBK001310')) {
+            // 検索フォームに戻れた → 再検索で復帰
+            await setStorageData({ debugLog: `${customer.name}: REINS復帰→検索フォームから再検索` });
+            await chrome.scripting.executeScript({
+              target: { tabId }, world: 'MAIN',
+              func: () => {
+                const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '検索');
+                if (btn) btn.click();
+              }
+            });
+            let reOk = false;
+            for (let rs = 0; rs < 30; rs++) {
+              await csleep(3000);
+              const rsCheck = await chrome.scripting.executeScript({
+                target: { tabId },
+                func: () => {
+                  const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
+                  for (const dialog of dialogs) {
+                    if (dialog.textContent.includes('500件') || dialog.textContent.includes('超えています')) {
+                      const okBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
+                      if (okBtn) { okBtn.click(); return 'ok_clicked'; }
+                    }
+                  }
+                  if (document.body.textContent.includes('検索結果一覧')) return 'result_page';
+                  return 'waiting';
+                }
+              });
+              const s = rsCheck?.[0]?.result;
+              if (s === 'result_page' || s === 'ok_clicked') { reOk = true; if (s === 'ok_clicked') await csleep(3000); break; }
+            }
+            if (reOk) {
+              if (currentPage > 1) {
+                for (let navP = 2; navP <= currentPage; navP++) {
+                  await chrome.scripting.executeScript({ target: { tabId }, func: (page) => { const links = document.querySelectorAll('.page-link'); for (const l of links) { if (l.textContent.trim() === String(page)) { l.click(); return; } } }, args: [navP] });
+                  await csleep(3000);
+                }
+              }
+              backSuccess = true;
+              break;
+            }
+          }
+          if (!backSuccess) {
+            await setStorageData({ debugLog: `${customer.name}: REINS復帰失敗→残り物件スキップ` });
+            return newProperties;
+          }
         }
       }
       if (!backSuccess) {
