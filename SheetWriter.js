@@ -8,17 +8,17 @@
  *   B: お客様名
  *   C: 都道府県（固定: 東京都）
  *   D: 市区町村（カンマ区切り）
- *   E: 路線(駅名)（例: ＪＲ山手線(渋谷, 新宿), 東京メトロ銀座線(銀座)）
- *   F: 駅名（カンマ区切り、フラット）
- *   G: 駅徒歩（数値のみ）
- *   H: 賃料上限（万円、数値のみ）
- *   I: 間取り（カンマ区切り）
- *   J: 専有面積下限（数値のみ）
- *   K: 築年数
- *   L: 構造（カンマ区切り）
- *   M: 設備（カンマ区切り）
- *   N: 部屋探しの理由
- *   O: 引越し時期
+ *   E: 駅名（カンマ区切り）
+ *   F: 駅徒歩（数値のみ）
+ *   G: 賃料上限（万円、数値のみ）
+ *   H: 間取り（カンマ区切り）
+ *   I: 専有面積下限（数値のみ）
+ *   J: 築年数
+ *   K: 構造（カンマ区切り）
+ *   L: 設備（カンマ区切り）
+ *   M: 部屋探しの理由
+ *   N: 引越し時期
+ *   O: 路線（全社結合、カンマ区切り）
  *   P: その他ご希望
  *   Q: ペット種類
  *   R: 居住者
@@ -54,34 +54,23 @@ function writeToSheet(userId, state) {
     return String(val).replace(/万円|円|分以内|分|m²|m2|年以内|年|階以上|階/g, '').trim();
   }
 
-  // 路線(駅名)形式の文字列を構築（どの駅がどの路線か分かるように）
-  const routeStationParts = [];
-  for (const route of selectedRoutes) {
-    const stas = selectedStations[route] || [];
-    if (stas.length > 0) {
-      routeStationParts.push(route + '(' + stas.join(', ') + ')');
-    } else {
-      routeStationParts.push(route);
-    }
-  }
-
   // 17列の行データを構築（A:Q）
   const row = [
     timestamp,                                    // A: タイムスタンプ
     d.name || '',                                  // B: お客様名
     '東京都',                                      // C: 都道府県（固定）
     selectedCities.join(', '),                     // D: 市区町村
-    routeStationParts.join(', '),                  // E: 路線(駅名)
-    allStations.join(', '),                        // F: 駅名（フラット）
-    stripSuffix(d.walk),                           // G: 駅徒歩
-    stripSuffix(d.rent_max),                       // H: 賃料上限
-    (d.layouts || []).join(', '),                   // I: 間取り
-    stripSuffix(d.area_min),                       // J: 専有面積下限
-    d.building_age || '',                          // K: 築年数
-    (d.building_structures || []).join(', '),       // L: 構造
-    (d.equipment || []).join(', '),                 // M: 設備
-    d.reason || '',                                // N: 部屋探しの理由
-    d.move_in_date || '',                          // O: 引越し時期
+    selectedRoutes.join(', '),          // E: 路線 (全社結合)
+    allStations.join(', '),                        // E: 駅名
+    stripSuffix(d.walk),                           // F: 駅徒歩
+    stripSuffix(d.rent_max),                       // G: 賃料上限
+    (d.layouts || []).join(', '),                   // H: 間取り
+    stripSuffix(d.area_min),                       // I: 専有面積下限
+    d.building_age || '',                          // J: 築年数
+    (d.building_structures || []).join(', '),       // K: 構造
+    (d.equipment || []).join(', '),                 // L: 設備
+    d.reason || '',                                // M: 部屋探しの理由
+    d.move_in_date || '',                          // N: 引越し時期
     d.notes || '',                                 // P: その他ご希望
     d.petType || '',                               // Q: ペット種類
     d.resident || ''                               // R: 居住者
@@ -91,26 +80,18 @@ function writeToSheet(userId, state) {
   const ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   const sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
 
-  // 同じ顧客名の既存行を探す
+  // 同じ顧客名の既存行を削除（下から順に削除してインデックスずれを防ぐ）
   var customerName = d.name || '';
-  var existingRowIndex = -1;
   if (customerName) {
     var existingData = sheet.getDataRange().getValues();
-    for (var i = 1; i < existingData.length; i++) {
+    for (var i = existingData.length - 1; i >= 1; i--) {
       if (existingData[i][1] === customerName) {
-        existingRowIndex = i + 1; // 1-indexed
-        break;
+        sheet.deleteRow(i + 1);
       }
     }
   }
 
-  if (existingRowIndex > 0) {
-    // 既存行を上書き更新（順番を維持）
-    sheet.getRange(existingRowIndex, 1, 1, row.length).setValues([row]);
-  } else {
-    // 新規顧客は末尾に追加
-    sheet.appendRow(row);
-  }
+  sheet.appendRow(row);
 
   // LINE Users シートにも記録
   saveLineUser(userId, d.name || '');
@@ -189,19 +170,12 @@ function readLatestCriteria(userId) {
     }
 
     var cities = splitCSV(latestRow[3]);
-    var routeStationRaw = String(latestRow[4] || '');
+    var routes = splitCSV(latestRow[4]);
     var stations = splitCSV(latestRow[5]);
-    var walkRaw = latestRow[6] ? String(latestRow[6]) : '';
-    var rentRaw = latestRow[7] ? String(latestRow[7]) : '';
+    var walk = latestRow[6] ? String(latestRow[6]) : '';
+    var rentMax = latestRow[7] ? String(latestRow[7]) : '';
     var layouts = splitCSV(latestRow[8]);
-    var areaRaw = latestRow[9] ? String(latestRow[9]) : '';
-
-    // シート保存時にstripSuffixで除去されたサフィックスを復元
-    // フォーム（RouteSelectPage.html）の値と一致させるために必要
-    var walk = walkRaw && walkRaw !== '指定しない' && !/分/.test(walkRaw) ? walkRaw + '分以内' : walkRaw;
-    var rentMax = rentRaw && !/万円/.test(rentRaw) ? rentRaw + '万円' : rentRaw;
-    var areaMin = areaRaw && areaRaw !== '指定しない' && !/m²|m2/.test(areaRaw) ? areaRaw + 'm²' : areaRaw;
-
+    var areaMin = latestRow[9] ? String(latestRow[9]) : '';
     var buildingAge = latestRow[10] ? String(latestRow[10]) : '';
     var buildingStructures = splitCSV(latestRow[11]);
     var equipment = splitCSV(latestRow[12]);
@@ -211,48 +185,20 @@ function readLatestCriteria(userId) {
     var petType = latestRow[16] ? String(latestRow[16]) : '';
     var resident = latestRow[17] ? String(latestRow[17]) : '';
 
-    // 路線(駅名)形式をパースして routes / selectedStations を再構築
-    var routes = [];
+    // selectedStations を路線→駅のマッピングに再構築
     var selectedStations = {};
-    if (routeStationRaw) {
-      // "路線A(駅1, 駅2), 路線B(駅3)" 形式をパース
-      // カンマが駅区切りと路線区切りの両方で使われるため、括弧の外のカンマで分割
-      var parts = [];
-      var depth = 0;
-      var current = '';
-      for (var ci = 0; ci < routeStationRaw.length; ci++) {
-        var ch = routeStationRaw[ci];
-        if (ch === '(') { depth++; current += ch; }
-        else if (ch === ')') { depth--; current += ch; }
-        else if (ch === ',' && depth === 0) { parts.push(current.trim()); current = ''; }
-        else { current += ch; }
-      }
-      if (current.trim()) parts.push(current.trim());
-
-      for (var pi = 0; pi < parts.length; pi++) {
-        var part = parts[pi];
-        var parenIdx = part.indexOf('(');
-        if (parenIdx >= 0 && part.charAt(part.length - 1) === ')') {
-          var routeName = part.substring(0, parenIdx).trim();
-          var stasStr = part.substring(parenIdx + 1, part.length - 1);
-          var stas = stasStr.split(/[,、]\s*/).filter(function(s) { return s.length > 0; });
-          routes.push(routeName);
-          if (stas.length > 0) selectedStations[routeName] = stas;
-        } else {
-          // 旧形式（括弧なし）にも対応
-          var routeName2 = part.trim();
-          if (routeName2) {
-            routes.push(routeName2);
-            // 旧形式: STATION_DATAから推測
-            var routeStations2 = STATION_DATA[routeName2] || [];
-            var matched2 = [];
-            for (var s2 = 0; s2 < stations.length; s2++) {
-              if (routeStations2.indexOf(stations[s2]) >= 0) {
-                matched2.push(stations[s2]);
-              }
-            }
-            if (matched2.length > 0) selectedStations[routeName2] = matched2;
+    if (routes.length > 0 && stations.length > 0) {
+      for (var r = 0; r < routes.length; r++) {
+        var routeName = routes[r];
+        var routeStations = STATION_DATA[routeName] || [];
+        var matched = [];
+        for (var s = 0; s < stations.length; s++) {
+          if (routeStations.indexOf(stations[s]) >= 0) {
+            matched.push(stations[s]);
           }
+        }
+        if (matched.length > 0) {
+          selectedStations[routeName] = matched;
         }
       }
     }

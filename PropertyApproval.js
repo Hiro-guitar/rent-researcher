@@ -8,12 +8,6 @@
  *   view → お客さん向け物件資料ページ
  */
 
-/** 円単位の金額を万円表示文字列に変換（14万→'14', 14.3万→'14.3'） */
-function _fmtMan(yen) {
-  if (!yen) return '0';
-  return String(yen / 10000);
-}
-
 var PENDING_SHEET_NAME = '承認待ち物件';
 var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
@@ -106,12 +100,7 @@ function handleConfirmApprove(e) {
     var editFields = ['buildingName','roomNumber','layout','buildingAge','floorText','storyText',
       'structure','totalUnits','sunlight','moveInDate','stationInfo','address',
       'deposit','keyMoney','shikibiki','petDeposit','renewalFee','fireInsurance',
-      'renewalAdminFee','guaranteeInfo','keyExchangeFee',
-      'supportFee24h','rightsFee','additionalDeposit','guaranteeDeposit',
-      'waterBilling','parkingFee','bicycleParkingFee','motorcycleParkingFee',
-      'otherMonthlyFee','otherOnetimeFee','moveInConditions','moveOutDate',
-      'freeRentDetail','layoutDetail',
-      'leaseType','contractPeriod',
+      'renewalAdminFee','guaranteeInfo','keyExchangeFee','leaseType','contractPeriod',
       'cancellationNotice','renewalInfo','freeRent','facilities'];
     for (var j = 0; j < editFields.length; j++) {
       var f = editFields[j];
@@ -129,12 +118,8 @@ function handleConfirmApprove(e) {
 
   // 統合画像URL（順序指定）
   var selectedImageUrls = [];
-  var selectedImageCategories = [];
   if (e.parameter.ordered_image_urls) {
     try { selectedImageUrls = JSON.parse(e.parameter.ordered_image_urls); } catch(ex) {}
-  }
-  if (e.parameter.ordered_image_categories) {
-    try { selectedImageCategories = JSON.parse(e.parameter.ordered_image_categories); } catch(ex) {}
   }
   // フォールバック: 旧形式（ordered_image_urls がない場合）
   if (selectedImageUrls.length === 0) {
@@ -143,12 +128,10 @@ function handleConfirmApprove(e) {
         var idx = parseInt(selectedIndices[i], 10);
         if (!isNaN(idx) && idx >= 0 && idx < prop.imageUrls.length) {
           selectedImageUrls.push(prop.imageUrls[idx]);
-          selectedImageCategories.push((prop.imageCategories || [])[idx] || '');
         }
       }
     } else if (includeImage && prop.imageUrl) {
       selectedImageUrls = [prop.imageUrl];
-      selectedImageCategories = [''];
     }
   }
   if (selectedImageUrls.length > 0) {
@@ -157,7 +140,7 @@ function handleConfirmApprove(e) {
 
   // 選択画像をシートに保存（viewページで使用）
   if (selectedImageUrls.length > 0) {
-    saveSelectedImages(row.rowIndex, selectedImageUrls, selectedImageCategories);
+    saveSelectedImages(row.rowIndex, selectedImageUrls);
   }
 
   // 編集値をシートに反映
@@ -171,7 +154,7 @@ function handleConfirmApprove(e) {
   var viewUrl = hashUrl.length <= 1000 ? hashUrl : plainUrl; // LINE URI action 1000文字制限
 
   // 画像URLをキャッシュ（property.html からの非同期取得用）
-  cachePropertyImages(customerName, roomId, selectedImageUrls, selectedImageCategories);
+  cachePropertyImages(customerName, roomId, selectedImageUrls);
 
   var flex = buildPropertyFlex(prop, {
     includeImage: selectedImageUrls.length > 0,
@@ -180,7 +163,7 @@ function handleConfirmApprove(e) {
   });
 
   pushMessage(lineUserId, [flex]);
-  updatePendingStatus(row.rowIndex, 'sent', viewUrl);
+  updatePendingStatus(row.rowIndex, 'sent');
   addToSeenSheet(customerName, prop);
 
   return makeHtml('完了', prop.buildingName + ' を ' + customerName + ' さんに LINE 送信しました。');
@@ -226,12 +209,10 @@ function handleConfirmApproveAll(e) {
 
     // 画像を含める場合、全画像を選択済みとして保存
     var selectedUrls = [];
-    var selectedCats = [];
     if (includeImage) {
       selectedUrls = prop.imageUrls && prop.imageUrls.length > 0 ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
-      selectedCats = prop.imageCategories || [];
       if (selectedUrls.length > 0) {
-        saveSelectedImages(rows[i].rowIndex, selectedUrls, selectedCats);
+        saveSelectedImages(rows[i].rowIndex, selectedUrls);
       }
     }
 
@@ -240,7 +221,7 @@ function handleConfirmApproveAll(e) {
     var viewUrl = hashUrl.length <= 1000 ? hashUrl : plainUrl;
 
     // 画像URLをキャッシュ（property.html からの非同期取得用）
-    cachePropertyImages(customerName, rid, selectedUrls, selectedCats);
+    cachePropertyImages(customerName, rid, selectedUrls);
 
     var flex = buildPropertyFlex(prop, {
       includeImage: includeImage,
@@ -249,7 +230,7 @@ function handleConfirmApproveAll(e) {
     });
 
     pushMessage(lineUserId, [flex]);
-    updatePendingStatus(rows[i].rowIndex, 'sent', viewUrl);
+    updatePendingStatus(rows[i].rowIndex, 'sent');
     addToSeenSheet(customerName, prop);
     sentCount++;
 
@@ -288,7 +269,7 @@ function handlePropertyView(e) {
     return makeHtml('エラー', 'パラメータが不足しています。');
   }
 
-  // sent または pending の物件を表示（LINE送信失敗時でも閲覧可能に）
+  // sent の物件のみ表示（セキュリティ）
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (!sheet) {
@@ -298,10 +279,9 @@ function handlePropertyView(e) {
   var data = sheet.getDataRange().getValues();
   var prop = null;
   for (var i = 1; i < data.length; i++) {
-    var status = String(data[i][10]);
     if (String(data[i][0]) === String(customerName) &&
         String(data[i][2]) === String(roomId) &&
-        (status === 'sent' || status === 'pending')) {
+        String(data[i][10]) === 'sent') {
       prop = rowToProperty(data[i]);
       break;
     }
@@ -328,16 +308,12 @@ function handlePropertyView(e) {
 }
 
 // ===== 画像キャッシュ（承認時に保存、property.html から非同期取得） =====
-function cachePropertyImages(customerName, roomId, imageUrls, imageCategories) {
+function cachePropertyImages(customerName, roomId, imageUrls) {
   if (!imageUrls || imageUrls.length === 0) return;
   try {
     var cache = CacheService.getScriptCache();
     var key = 'imgs_' + customerName + '_' + roomId;
-    var data = {images: imageUrls};
-    if (imageCategories && imageCategories.length > 0) {
-      data.categories = imageCategories;
-    }
-    cache.put(key, JSON.stringify(data), 86400); // 24時間
+    cache.put(key, JSON.stringify(imageUrls), 86400); // 24時間
   } catch(e) {
     // キャッシュ失敗は無視（フォールバックでシートから取得）
   }
@@ -359,17 +335,8 @@ function handlePropertyImagesApi(e) {
     var key = 'imgs_' + customerName + '_' + roomId;
     var cached = cache.get(key);
     if (cached) {
-      var cachedData = JSON.parse(cached);
-      // 新形式: {images:[...], categories:[...]} / 旧形式: [url, ...]
-      if (Array.isArray(cachedData)) {
-        // 旧形式キャッシュ → 新形式に変換
-        return ContentService.createTextOutput(JSON.stringify({images: cachedData, categories: []}))
-          .setMimeType(ContentService.MimeType.JSON);
-      }
-      return ContentService.createTextOutput(JSON.stringify({
-        images: cachedData.images || [],
-        categories: cachedData.categories || []
-      })).setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify({images: JSON.parse(cached)}))
+        .setMimeType(ContentService.MimeType.JSON);
     }
   } catch(e) {}
 
@@ -377,28 +344,26 @@ function handlePropertyImagesApi(e) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (!sheet) {
-    return ContentService.createTextOutput(JSON.stringify({images: [], categories: []}))
+    return ContentService.createTextOutput(JSON.stringify({images: []}))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
   var data = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
-    var status = String(data[i][10]);
     if (String(data[i][0]) === String(customerName) &&
         String(data[i][2]) === String(roomId) &&
-        (status === 'sent' || status === 'pending')) {
+        String(data[i][10]) === 'sent') {
       var prop = rowToProperty(data[i]);
       var imgs = prop.selectedImageUrls || prop.imageUrls || [];
-      var cats = prop.selectedImageCategories || prop.imageCategories || [];
-      if (imgs.length === 0 && prop.imageUrl) { imgs = [prop.imageUrl]; cats = ['']; }
+      if (imgs.length === 0 && prop.imageUrl) imgs = [prop.imageUrl];
       // 次回用にキャッシュ
-      cachePropertyImages(customerName, roomId, imgs, cats);
-      return ContentService.createTextOutput(JSON.stringify({images: imgs, categories: cats}))
+      cachePropertyImages(customerName, roomId, imgs);
+      return ContentService.createTextOutput(JSON.stringify({images: imgs}))
         .setMimeType(ContentService.MimeType.JSON);
     }
   }
 
-  return ContentService.createTextOutput(JSON.stringify({images: [], categories: []}))
+  return ContentService.createTextOutput(JSON.stringify({images: []}))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -415,7 +380,7 @@ function handlePropertyViewApi(e) {
   // 1. キャッシュから取得（高速）
   try {
     var cache = CacheService.getScriptCache();
-    var cacheKey = 'prop2_' + customerName + '_' + roomId;
+    var cacheKey = 'prop_' + customerName + '_' + roomId;
     var cached = cache.get(cacheKey);
     if (cached) {
       return ContentService.createTextOutput(cached)
@@ -424,7 +389,7 @@ function handlePropertyViewApi(e) {
   } catch(e) {}
 
   // 2. フォールバック: シートから取得
-  // sent または pending の物件を表示（LINE送信失敗時でも閲覧可能に）
+  // sent または pending の物件を表示
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (!sheet) {
@@ -451,10 +416,8 @@ function handlePropertyViewApi(e) {
 
   // 表示する画像: 承認時に選択されたものがあればそれ、なければ全画像
   var viewImages = prop.selectedImageUrls || prop.imageUrls || [];
-  var viewCategories = prop.selectedImageCategories || prop.imageCategories || [];
   if (viewImages.length === 0 && prop.imageUrl) {
     viewImages = [prop.imageUrl];
-    viewCategories = [''];
   }
 
   var result = {
@@ -471,7 +434,6 @@ function handlePropertyViewApi(e) {
     deposit: prop.deposit,
     keyMoney: prop.keyMoney,
     images: viewImages,
-    imageCategories: viewCategories,
     // 追加詳細情報
     storyText: prop.storyText,
     otherStations: prop.otherStations,
@@ -492,27 +454,14 @@ function handlePropertyViewApi(e) {
     fireInsurance: prop.fireInsurance,
     renewalAdminFee: prop.renewalAdminFee,
     guaranteeInfo: prop.guaranteeInfo,
-    keyExchangeFee: prop.keyExchangeFee,
-    supportFee24h: prop.supportFee24h,
-    rightsFee: prop.rightsFee,
-    additionalDeposit: prop.additionalDeposit,
-    guaranteeDeposit: prop.guaranteeDeposit,
-    waterBilling: prop.waterBilling,
-    parkingFee: prop.parkingFee,
-    bicycleParkingFee: prop.bicycleParkingFee,
-    motorcycleParkingFee: prop.motorcycleParkingFee,
-    otherMonthlyFee: prop.otherMonthlyFee,
-    otherOnetimeFee: prop.otherOnetimeFee,
-    moveInConditions: prop.moveInConditions,
-    freeRentDetail: prop.freeRentDetail,
-    layoutDetail: prop.layoutDetail
+    keyExchangeFee: prop.keyExchangeFee
   };
 
   // キャッシュに保存（24時間）
   try {
     var cache = CacheService.getScriptCache();
     var resultJson = JSON.stringify(result);
-    cache.put('prop2_' + customerName + '_' + roomId, resultJson, 86400);
+    cache.put('prop_' + customerName + '_' + roomId, resultJson, 86400);
   } catch(e) {}
 
   return ContentService.createTextOutput(JSON.stringify(result))
@@ -653,7 +602,7 @@ function handlePropertyAction(e) {
       if (webhookUrl) {
         var threadId = PropertiesService.getScriptProperties().getProperty('ACTION_LOG_THREAD_ID');
         var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
-        var rentText = rent ? _fmtMan(parseInt(rent)) + '万円' : '';
+        var rentText = rent ? (Math.round(parseInt(rent) / 10000 * 10) / 10) + '万円' : '';
         var propLabel = buildingName || ('room_id: ' + roomId);
         if (roomNumber) propLabel += ' ' + roomNumber;
 
@@ -723,7 +672,7 @@ function handlePropertyAction(e) {
                 { type: 'separator' },
                 { type: 'text', text: propLabel, weight: 'bold', size: 'md', wrap: true },
                 { type: 'box', layout: 'vertical', spacing: 'sm', margin: 'md', contents: [
-                  { type: 'text', text: [rentText, layout].filter(Boolean).join(' / '), size: 'sm', color: '#666666' },
+                  { type: 'text', text: [rent ? (Math.round(parseInt(rent) / 10000 * 10) / 10) + '万円' : '', layout].filter(Boolean).join(' / '), size: 'sm', color: '#666666' },
                   { type: 'text', text: '申込区分: ' + (applicationType || '未指定'), size: 'sm', color: '#666666' }
                 ]},
                 { type: 'separator' },
@@ -838,14 +787,11 @@ function findAllPendingRows(customerName) {
   return results;
 }
 
-function updatePendingStatus(rowIndex, newStatus, viewUrl) {
+function updatePendingStatus(rowIndex, newStatus) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   sheet.getRange(rowIndex, 11).setValue(newStatus);
   sheet.getRange(rowIndex, 13).setValue(new Date().toISOString().replace('T', ' ').substring(0, 19));
-  if (viewUrl) {
-    sheet.getRange(rowIndex, 14).setValue(viewUrl);
-  }
 }
 
 function addToSeenSheet(customerName, prop) {
@@ -862,14 +808,15 @@ function addToSeenSheet(customerName, prop) {
 
 // ===== データ変換 =====
 
-/** 「入力なし」「なし」「-」「ー」などの無効値を空文字に正規化 */
+/** 「入力なし」「なし」などの無効値を空文字に正規化 */
 function _normalizeValue(val) {
-  if (!val || val === '入力なし' || val === 'なし' || val === '-' || val === 'ー') return '';
+  if (!val || val === '入力なし' || val === 'なし') return '';
   return val;
 }
 
 /**
  * 築年月テキストを「築○年」形式に変換する。
+ * "2026年（令和 8年） 3月" → "新築", "1992年（平成 4年） 4月" → "築34年"
  * "2007/03" → "築19年", "築15年" → "築15年", "9年" → "築9年"
  */
 function _normalizeBuildingAge(val) {
@@ -901,43 +848,14 @@ function _normalizeBuildingAge(val) {
   return val;
 }
 
-/**
- * 入居可能時期を日付表記に変換する。
- * "2026/03/29" → "2026年3月29日", "2026/04" → "2026年4月"
- */
-function _normalizeMoveInDate(val) {
-  if (!val) return '';
-  val = String(val).trim().replace(/^(予定|期日指定)\s*/, '');
-  var m1 = val.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(.*)$/);
-  if (m1) return parseInt(m1[1],10) + '年' + parseInt(m1[2],10) + '月' + parseInt(m1[3],10) + '日' + m1[4];
-  var m2 = val.match(/^(\d{4})[\/\-](\d{1,2})(.*)$/);
-  if (m2) return parseInt(m2[1],10) + '年' + parseInt(m2[2],10) + '月' + m2[3];
-  return val;
-}
-
-/**
- * 物件名から部屋番号を分離する。
- * "ふるーる東中野 202" → { name: "ふるーる東中野", room: "202" }
- */
-function _splitRoomNumber(buildingName, roomNumber) {
-  if (roomNumber) return { name: buildingName, room: roomNumber };
-  if (!buildingName) return { name: '', room: '' };
-  var m = buildingName.match(/^(.+?)\s+(\d{2,5}[A-Za-z]?)$/);
-  if (m) return { name: m[1], room: m[2] };
-  return { name: buildingName, room: '' };
-}
-
 function rowToProperty(row) {
   var extra = {};
   try { extra = JSON.parse(row[9] || '{}'); } catch(e) {}
-  var rawRoomNumber = _normalizeValue(extra.room_number);
-  var rawBuildingName = row[3] || '';
-  var split = _splitRoomNumber(rawBuildingName, rawRoomNumber);
   return {
     customerName: row[0],
     buildingId: row[1],
     roomId: row[2],
-    buildingName: split.name,
+    buildingName: row[3] || '',
     rent: Number(row[4]) || 0,
     managementFee: Number(row[5]) || 0,
     layout: row[6] || '',
@@ -949,16 +867,14 @@ function rowToProperty(row) {
     url: extra.url || '',
     imageUrl: extra.image_url || '',
     imageUrls: extra.image_urls || [],
-    imageCategories: extra.image_categories || [],
     selectedImageUrls: extra.selected_image_urls || null,
-    selectedImageCategories: extra.selected_image_categories || null,
-    roomNumber: split.room,
+    roomNumber: _normalizeValue(extra.room_number),
     buildingAge: _normalizeBuildingAge(_normalizeValue(extra.building_age)),
     floor: extra.floor || 0,
     // 追加詳細情報
     storyText: _normalizeValue(extra.story_text),
     otherStations: extra.other_stations || [],
-    moveInDate: _normalizeMoveInDate(_normalizeValue(extra.move_in_date)),
+    moveInDate: _normalizeValue(extra.move_in_date),
     floorText: _normalizeValue(extra.floor_text),
     structure: _normalizeValue(extra.structure),
     totalUnits: _normalizeValue(extra.total_units),
@@ -975,42 +891,22 @@ function rowToProperty(row) {
     fireInsurance: _normalizeValue(extra.fire_insurance),
     renewalAdminFee: _normalizeValue(extra.renewal_admin_fee),
     guaranteeInfo: _normalizeValue(extra.guarantee_info),
-    cleaningFee: _normalizeValue(extra.cleaning_fee),
-    keyExchangeFee: _normalizeValue(extra.key_exchange_fee),
-    supportFee24h: _normalizeValue(extra.support_fee_24h),
-    rightsFee: _normalizeValue(extra.rights_fee),
-    additionalDeposit: _normalizeValue(extra.additional_deposit),
-    guaranteeDeposit: _normalizeValue(extra.guarantee_deposit),
-    waterBilling: _normalizeValue(extra.water_billing),
-    parkingFee: _normalizeValue(extra.parking_fee),
-    bicycleParkingFee: _normalizeValue(extra.bicycle_parking_fee),
-    motorcycleParkingFee: _normalizeValue(extra.motorcycle_parking_fee),
-    otherMonthlyFee: _normalizeValue(extra.other_monthly_fee),
-    otherOnetimeFee: _normalizeValue(extra.other_onetime_fee),
-    moveInConditions: _normalizeValue(extra.move_in_conditions),
-    moveOutDate: _normalizeValue(extra.move_out_date),
-    freeRentDetail: _normalizeValue(extra.free_rent_detail),
-    layoutDetail: _normalizeValue(extra.layout_detail)
+    keyExchangeFee: _normalizeValue(extra.key_exchange_fee)
   };
 }
 
 // 確認時に選択された画像URLをシートのJSONに保存
-function saveSelectedImages(rowIndex, selectedImageUrls, selectedImageCategories) {
+function saveSelectedImages(rowIndex, selectedImageUrls) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   var cell = sheet.getRange(rowIndex, 10); // J列
   var extra = {};
   try { extra = JSON.parse(cell.getValue() || '{}'); } catch(e) {}
   extra.selected_image_urls = selectedImageUrls;
-  if (selectedImageCategories && selectedImageCategories.length > 0) {
-    extra.selected_image_categories = selectedImageCategories;
-  }
   cell.setValue(JSON.stringify(extra));
 }
 
-// ===== 画像アップロード（catbox.moe — 手動アップロード用） =====
-// 承認ページからの手動アップロードは少量のため catbox を使用。
-// 一括スクレイピングの画像は Python 側で Google Drive にアップロードされる。
+// ===== 画像アップロード（catbox.moe） =====
 function uploadPropertyImage(base64Data, filename, mimeType) {
   try {
     var decoded = Utilities.base64Decode(base64Data);
@@ -1079,22 +975,7 @@ function updateSheetWithEdits(rowIndex, prop) {
   extra.fire_insurance = prop.fireInsurance || '';
   extra.renewal_admin_fee = prop.renewalAdminFee || '';
   extra.guarantee_info = prop.guaranteeInfo || '';
-  extra.cleaning_fee = prop.cleaningFee || '';
   extra.key_exchange_fee = prop.keyExchangeFee || '';
-  extra.support_fee_24h = prop.supportFee24h || '';
-  extra.rights_fee = prop.rightsFee || '';
-  extra.additional_deposit = prop.additionalDeposit || '';
-  extra.guarantee_deposit = prop.guaranteeDeposit || '';
-  extra.water_billing = prop.waterBilling || '';
-  extra.parking_fee = prop.parkingFee || '';
-  extra.bicycle_parking_fee = prop.bicycleParkingFee || '';
-  extra.motorcycle_parking_fee = prop.motorcycleParkingFee || '';
-  extra.other_monthly_fee = prop.otherMonthlyFee || '';
-  extra.other_onetime_fee = prop.otherOnetimeFee || '';
-  extra.move_in_conditions = prop.moveInConditions || '';
-  extra.move_out_date = prop.moveOutDate || '';
-  extra.free_rent_detail = prop.freeRentDetail || '';
-  extra.layout_detail = prop.layoutDetail || '';
   extra.other_stations = prop.otherStations || [];
 
   cell.setValue(JSON.stringify(extra));
@@ -1133,30 +1014,10 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   if (prop.renewalAdminFee) d.ra = prop.renewalAdminFee;
   if (prop.guaranteeInfo) d.gi = prop.guaranteeInfo;
   if (prop.keyExchangeFee) d.ke = prop.keyExchangeFee;
-  if (prop.supportFee24h) d.sf24 = prop.supportFee24h;
-  if (prop.rightsFee) d.rig = prop.rightsFee;
-  if (prop.additionalDeposit) d.adp = prop.additionalDeposit;
-  if (prop.guaranteeDeposit) d.gd = prop.guaranteeDeposit;
-  if (prop.waterBilling) d.wb = prop.waterBilling;
-  if (prop.parkingFee) d.pk = prop.parkingFee;
-  if (prop.bicycleParkingFee) d.bp = prop.bicycleParkingFee;
-  if (prop.motorcycleParkingFee) d.mp = prop.motorcycleParkingFee;
-  if (prop.otherMonthlyFee) d.omf = prop.otherMonthlyFee;
-  if (prop.otherOnetimeFee) d.oof = prop.otherOnetimeFee;
-  if (prop.moveInConditions) d.mic = prop.moveInConditions;
-  if (prop.freeRentDetail) d.frd = prop.freeRentDetail;
-  if (prop.layoutDetail) d.ld = prop.layoutDetail;
   // 設備: objectでもstringでもそのまま
   if (prop.facilities) d.fac = prop.facilities;
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
-  if (viewImageUrls && viewImageUrls.length > 0) {
-    d.imgs = viewImageUrls;
-    // カテゴリがある場合のみ含める（URL長短縮のため）
-    var viewCats = prop.selectedImageCategories || prop.imageCategories || [];
-    if (viewCats.length > 0 && viewCats.some(function(c) { return c; })) {
-      d.imgc = viewCats;
-    }
-  }
+  if (viewImageUrls && viewImageUrls.length > 0) d.imgs = viewImageUrls;
 
   var jsonStr = JSON.stringify(d);
   var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
@@ -1170,8 +1031,8 @@ function buildPropertyFlex(prop, options) {
   var includeImage = options.includeImage !== false;
   var viewUrl = options.viewUrl || '';
 
-  var rentMan = prop.rent ? _fmtMan(prop.rent) : '0';
-  var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
+  var rentMan = prop.rent ? (prop.rent / 10000).toFixed(1) : '0';
+  var mgmtMan = prop.managementFee ? (prop.managementFee / 10000).toFixed(1) : '0';
 
   var bodyContents = [
     { type: 'text', text: prop.buildingName + (prop.roomNumber ? ' ' + prop.roomNumber : ''), weight: 'bold', size: 'lg', wrap: true },
@@ -1189,7 +1050,9 @@ function buildPropertyFlex(prop, options) {
   if (prop.floor) details.push(['\u968E\u6570', prop.floor + '\u968E']);
   if (prop.address) details.push(['\u6240\u5728\u5730', prop.address]);
   if (prop.stationInfo) details.push(['\u6700\u5BC4\u99C5', prop.stationInfo]);
-  details.push(['\u6577\u91D1/\u793C\u91D1', (prop.deposit || '0') + ' / ' + (prop.keyMoney || '0')]);
+  if (prop.deposit || prop.keyMoney) {
+    details.push(['\u6577\u91D1/\u793C\u91D1', (prop.deposit || '\u306A\u3057') + ' / ' + (prop.keyMoney || '\u306A\u3057')]);
+  }
 
   for (var i = 0; i < details.length; i++) {
     bodyContents.push({
@@ -1203,7 +1066,7 @@ function buildPropertyFlex(prop, options) {
   var bubble = { type: 'bubble', size: 'mega' };
 
   var heroUrl = options.heroImageUrl || prop.imageUrl || '';
-  if (includeImage && heroUrl && heroUrl.indexOf('https://') === 0) {
+  if (includeImage && heroUrl) {
     bubble.hero = {
       type: 'image', url: heroUrl, size: 'full',
       aspectRatio: '20:13', aspectMode: 'cover'
@@ -1255,11 +1118,10 @@ function makeHtml(title, message) {
 // ===== HTML: 承認プレビュー（単一・編集可能） =====
 function makePreviewHtml(prop, customerName, roomId) {
   var baseUrl = getGasBaseUrl();
-  var rentMan = prop.rent ? _fmtMan(prop.rent) : '0';
-  var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
+  var rentMan = prop.rent ? (prop.rent / 10000).toFixed(1) : '0';
+  var mgmtMan = prop.managementFee ? (prop.managementFee / 10000).toFixed(1) : '0';
 
   var images = prop.imageUrls && prop.imageUrls.length > 0 ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
-  var imageCategories = prop.imageCategories || [];
 
   var html = '<html><head><meta charset="utf-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -1287,8 +1149,6 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '.img-item .cb-wrap{position:absolute;top:4px;left:4px;z-index:2}'
     + '.img-item .cb-wrap input{width:18px;height:18px;cursor:pointer}'
     + '.img-item .idx{position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px}'
-    + '.img-item .img-cat{position:absolute;bottom:24px;left:0;right:0;text-align:center;font-size:10px;color:#fff;pointer-events:none}'
-    + '.img-item .img-cat span{background:rgba(0,0,0,0.55);padding:1px 6px;border-radius:3px}'
     + '.actions{margin-top:20px;text-align:center}'
     + '.btn{display:inline-block;padding:12px 32px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:bold;cursor:pointer;border:none}'
     + '.btn-approve{background:#4CAF50;color:#fff;margin-bottom:12px}'
@@ -1351,18 +1211,7 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += _inputRow('\u706B\u707D\u4FDD\u967A', 'fireInsurance', prop.fireInsurance);
   html += _inputRow('\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', 'renewalAdminFee', prop.renewalAdminFee);
   html += _textareaRow('\u4FDD\u8A3C\u6599', 'guaranteeInfo', prop.guaranteeInfo);
-  html += _inputRow('\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u8CBB\u7528', 'cleaningFee', prop.cleaningFee);
   html += _inputRow('\u9375\u4EA4\u63DB\u8CBB\u7528', 'keyExchangeFee', prop.keyExchangeFee);
-  html += _inputRow('24\u6642\u9593\u30B5\u30DD\u30FC\u30C8\u8CBB', 'supportFee24h', prop.supportFee24h);
-  html += _inputRow('\u6A29\u5229\u91D1', 'rightsFee', prop.rightsFee);
-  html += _inputRow('\u6577\u91D1\u7A4D\u307F\u5897\u3057', 'additionalDeposit', prop.additionalDeposit);
-  html += _inputRow('\u4FDD\u8A3C\u91D1', 'guaranteeDeposit', prop.guaranteeDeposit);
-  html += _inputRow('\u6C34\u9053\u6599\u91D1\u5F62\u614B', 'waterBilling', prop.waterBilling);
-  html += _inputRow('\u99D0\u8ECA\u5834', 'parkingFee', prop.parkingFee);
-  html += _inputRow('\u99D0\u8F2A\u5834', 'bicycleParkingFee', prop.bicycleParkingFee);
-  html += _inputRow('\u30D0\u30A4\u30AF\u7F6E\u304D\u5834', 'motorcycleParkingFee', prop.motorcycleParkingFee);
-  html += _inputRow('\u305D\u306E\u4ED6\u6708\u6B21\u8CBB\u7528', 'otherMonthlyFee', prop.otherMonthlyFee);
-  html += _inputRow('\u305D\u306E\u4ED6\u4E00\u6642\u91D1', 'otherOnetimeFee', prop.otherOnetimeFee);
 
   // ── 契約条件 ──
   html += '<div class="section-header">\u5951\u7D04\u6761\u4EF6</div>';
@@ -1371,10 +1220,6 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += _inputRow('\u89E3\u7D04\u4E88\u544A', 'cancellationNotice', prop.cancellationNotice);
   html += _inputRow('\u66F4\u65B0/\u518D\u5951\u7D04', 'renewalInfo', prop.renewalInfo);
   html += _inputRow('\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8', 'freeRent', prop.freeRent);
-  html += _inputRow('\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8\u8A73\u7D30', 'freeRentDetail', prop.freeRentDetail);
-  html += _inputRow('\u9000\u53BB\u65E5', 'moveOutDate', prop.moveOutDate);
-  html += _textareaRow('\u5165\u5C45\u6761\u4EF6', 'moveInConditions', prop.moveInConditions);
-  html += _inputRow('\u9593\u53D6\u308A\u8A73\u7D30', 'layoutDetail', prop.layoutDetail);
 
   // ── 設備・詳細 ──
   html += '<div class="section-header">\u8A2D\u5099\u30FB\u8A73\u7D30</div>';
@@ -1423,17 +1268,15 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'var customerName=' + JSON.stringify(customerName) + ';'
     + 'var roomId=' + JSON.stringify(String(roomId)) + ';'
     + 'var origImages=' + JSON.stringify(images) + ';'
-    + 'var origCategories=' + JSON.stringify(imageCategories) + ';'
     // ── 統合画像管理 ──
     + 'var allImages=[];'
-    + 'for(var i=0;i<origImages.length;i++){allImages.push({url:origImages[i],cat:origCategories[i]||"",checked:true,isUp:false})}'
+    + 'for(var i=0;i<origImages.length;i++){allImages.push({url:origImages[i],checked:true,isUp:false})}'
     // タイルHTML生成
     + 'function makeImgTile(i){'
     + 'var im=allImages[i];var bg=im.isUp?"33,150,243":"0,0,0";'
     + 'var h="<div class=\\"cb-wrap\\"><input type=\\"checkbox\\" "+(im.checked?"checked":"")+" onchange=\\"toggleU("+i+")\\"></div>";'
     + 'h+="<span class=\\"idx\\" style=\\"background:rgba("+bg+",0.6)\\">"+(i+1)+"</span>";'
     + 'h+="<img src=\\""+im.url+"\\" onclick=\\"openModal(this.src)\\">";'
-    + 'if(im.cat){h+="<div class=\\"img-cat\\"><span>"+im.cat+"</span></div>"}'
     + 'h+="<div class=\\"img-arrows\\">";'
     + 'h+="<button onclick=\\"moveImg("+i+",-1)\\""+((i===0)?" disabled":"")+">\\u25C0</button>";'
     + 'h+="<button onclick=\\"moveImg("+i+",1)\\""+((i===allImages.length-1)?" disabled":"")+">\\u25B6</button>";'
@@ -1532,7 +1375,7 @@ function makePreviewHtml(prop, customerName, roomId) {
     // アップロード画像を指定位置に挿入
     + 'function addUploadedImage(url){'
     + 'var pos=parseInt(document.getElementById("insertPos").value,10);'
-    + 'allImages.splice(pos,0,{url:url,cat:"",checked:true,isUp:true});'
+    + 'allImages.splice(pos,0,{url:url,checked:true,isUp:true});'
     + 'renderGrid();'
     + 'var np=Math.min(pos+1,allImages.length);'
     + 'document.getElementById("insertPos").value=String(np);'
@@ -1545,10 +1388,9 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'fd.action="confirm_approve";'
     + 'fd.customer=customerName;'
     + 'fd.room_id=roomId;'
-    + 'var selUrls=[];var selCats=[];'
-    + 'for(var i=0;i<allImages.length;i++){if(allImages[i].checked){selUrls.push(allImages[i].url);selCats.push(allImages[i].cat||"")}}'
+    + 'var selUrls=[];'
+    + 'for(var i=0;i<allImages.length;i++){if(allImages[i].checked)selUrls.push(allImages[i].url)}'
     + 'fd.ordered_image_urls=JSON.stringify(selUrls);'
-    + 'fd.ordered_image_categories=JSON.stringify(selCats);'
     + 'fd.include_image=selUrls.length>0?"1":"0";'
     + 'var inputs=document.querySelectorAll(".detail-input,.detail-textarea");'
     + 'for(var i=0;i<inputs.length;i++){fd[inputs[i].name]=inputs[i].value}'
@@ -1601,7 +1443,7 @@ function makePreviewAllHtml(props, customerName) {
 
   for (var i = 0; i < props.length; i++) {
     var p = props[i];
-    var rentMan = p.rent ? _fmtMan(p.rent) : '0';
+    var rentMan = p.rent ? (p.rent / 10000).toFixed(1) : '0';
     var rid = String(p._roomId);
     html += '<div class="card">'
       + '<div class="prop-name">' + (i+1) + '. ' + _esc(p.buildingName) + (p.roomNumber ? ' ' + _esc(p.roomNumber) : '') + '</div>'
@@ -1654,8 +1496,8 @@ function makePreviewAllHtml(props, customerName) {
 
 // ===== HTML: お客さん向け物件資料ページ =====
 function makeViewHtml(prop) {
-  var rentMan = prop.rent ? _fmtMan(prop.rent) : '0';
-  var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
+  var rentMan = prop.rent ? (prop.rent / 10000).toFixed(1) : '0';
+  var mgmtMan = prop.managementFee ? (prop.managementFee / 10000).toFixed(1) : '0';
 
   // 表示する画像: 承認時に選択されたものがあればそれ、なければ全画像
   var viewImages = prop.selectedImageUrls || prop.imageUrls || [];
@@ -1692,12 +1534,6 @@ function makeViewHtml(prop) {
     + '.row-label{color:#888;font-size:14px;width:90px;flex-shrink:0}'
     + '.row-value{color:#333;font-size:14px;flex:1}'
     + '.footer{text-align:center;padding:20px;color:#aaa;font-size:12px}'
-    + '.fac-cat{margin-bottom:10px}'
-    + '.fac-cat-name{font-size:12px;color:#888;font-weight:bold;margin-bottom:4px}'
-    + '.fac-tags{display:flex;flex-wrap:wrap;gap:4px}'
-    + '.fac-tag{display:inline-block;font-size:12px;color:#444;background:#f0f4f8;border-radius:4px;padding:2px 8px;line-height:1.6}'
-    + '.cond-ok{background:#e8f5e9;color:#2e7d32}'
-    + '.cond-ng{background:#f5f5f5;color:#999}'
     + '</style></head><body>';
 
   // 画像表示（複数ならカルーセル、1枚ならヒーロー画像）
@@ -1726,94 +1562,17 @@ function makeViewHtml(prop) {
 
   html += '<div class="price-box">'
     + '<div class="price-main">' + rentMan + '\u4E07\u5186<span style="font-size:16px">/\u6708</span></div>'
-    + '<div class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186 | \u6577\u91D1 ' + _esc(prop.deposit || '0') + ' | \u793C\u91D1 ' + _esc(prop.keyMoney || '0') + '</div>'
+    + '<div class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186 | \u6577\u91D1 ' + _esc(prop.deposit || '\u306A\u3057') + ' | \u793C\u91D1 ' + _esc(prop.keyMoney || '\u306A\u3057') + '</div>'
     + '</div>';
 
-  // 値が有効か判定（「ー」「-」「入力なし」「なし」は非表示）
-  function _hv(v) { return v && v !== '\u30FC' && v !== '-' && v !== '\u5165\u529B\u306A\u3057'; }
-
-  // 設備文字列をカテゴリ分けしてタグHTMLを生成
-  // カテゴリはItandi BB入稿ページ準拠
-  function _buildFacilityTags(facStr) {
-    // Itandi形式（【カテゴリ】アイテム / アイテム）の場合はそのまま解析
-    if (facStr.indexOf('\u3010') >= 0) {
-      return _buildFacilityTagsFromItandi(facStr);
-    }
-    // ES-Square等：カンマ区切りテキストをキーワードでカテゴリ分け
-    var cats = [
-      { name: '\u30AC\u30B9\u30FB\u6C34\u9053', keys: ['\u90FD\u5E02\u30AC\u30B9','\u30D7\u30ED\u30D1\u30F3','\u30AC\u30B9\u306A\u3057','\u4E0B\u6C34\u9053','\u6D44\u5316\u69FD','\u6C34\u9053\u516C\u55B6','\u4E95\u6238'] },
-      { name: '\u30D0\u30B9\u30FB\u30C8\u30A4\u30EC', keys: ['\u30D0\u30B9','\u30C8\u30A4\u30EC','\u6D17\u9762','\u6D74\u5BA4','\u6E29\u6C34\u6D17\u6D44','\u6696\u623F\u4FBF\u5EA7','\u8FFD\u711A','\u8FFD\u3044\u713C','\u8FFD\u3044\u7119','\u30AA\u30FC\u30C8\u30D0\u30B9','\u30B7\u30E3\u30EF\u30FC','\u30DF\u30B9\u30C8\u30B5\u30A6\u30CA','\u30DC\u30A4\u30E9\u30FC','\u6D17\u6FEF\u6A5F','\u30B3\u30A4\u30F3\u30E9\u30F3\u30C9\u30EA\u30FC','\u30A8\u30B3\u30AD\u30E5\u30FC\u30C8','\u30A8\u30B3\u30B8\u30E7\u30FC\u30BA'] },
-      { name: '\u30AD\u30C3\u30C1\u30F3', keys: ['\u30AD\u30C3\u30C1\u30F3','IH','\u30B3\u30F3\u30ED','\u30AC\u30B9\u30B3\u30F3\u30ED','\u30AA\u30FC\u30EB\u96FB\u5316','\u7D66\u6E6F','\u30C7\u30A3\u30B9\u30DD\u30FC\u30B6\u30FC','\u6D44\u6C34\u5668','\u98DF\u6D17','\u98DF\u5668\u6D17\u6D44','\u30B0\u30EA\u30EB'] },
-      { name: '\u51B7\u6696\u623F', keys: ['\u30A8\u30A2\u30B3\u30F3','\u5E8A\u6696\u623F','\u6696\u623F','\u51B7\u623F','FF\u6696\u623F','\u63DB\u6C17','\u30BB\u30F3\u30C8\u30E9\u30EB\u7A7A\u8ABF','\u500B\u5225\u7A7A\u8ABF','\u8907\u5C64\u30AC\u30E9\u30B9','\u706F\u6CB9','\u5800\u3054\u305F\u3064'] },
-      { name: '\u53CE\u7D0D', keys: ['\u53CE\u7D0D','\u30AF\u30ED\u30FC\u30BC\u30C3\u30C8','\u30A6\u30A9\u30FC\u30AF\u30A4\u30F3','\u30B7\u30E5\u30FC\u30BA','\u5E8A\u4E0B\u53CE\u7D0D','\u30B0\u30EB\u30CB\u30A8','\u30C8\u30E9\u30F3\u30AF\u30EB\u30FC\u30E0','\u7384\u95A2\u53CE\u7D0D','\u5168\u5BA4\u53CE\u7D0D','\u7269\u7F6E','\u62BC\u5165'] },
-      { name: 'TV\u30FB\u901A\u4FE1', keys: ['\u30C7\u30B8\u30BF\u30EB\u653E\u9001','BS','CS','CATV','\u5149\u30D5\u30A1\u30A4\u30D0','\u30A4\u30F3\u30BF\u30FC\u30CD\u30C3\u30C8','\u30CD\u30C3\u30C8\u7121\u6599','\u30CD\u30C3\u30C8\u5BFE\u5FDC','\u6709\u7DDA\u653E\u9001','\u7121\u7DDALN','LAN','\u30B1\u30FC\u30D6\u30EB\u30C6\u30EC\u30D3','Wi-Fi'] },
-      { name: '\u30BB\u30AD\u30E5\u30EA\u30C6\u30A3', keys: ['\u30AA\u30FC\u30C8\u30ED\u30C3\u30AF','\u30A4\u30F3\u30BF\u30FC\u30DB\u30F3','\u30A4\u30F3\u30BF\u30DB\u30F3','\u30E2\u30CB\u30BF\u30FC\u4ED8','\u96FB\u5B50\u30ED\u30C3\u30AF','\u30C7\u30A3\u30F3\u30D7\u30EB','\u30AB\u30FC\u30C9\u30AD\u30FC','\u30C0\u30D6\u30EB\u30ED\u30C3\u30AF','\u9632\u72AF\u30AB\u30E1\u30E9','\u9632\u72AF','\u30BB\u30AD\u30E5\u30EA\u30C6\u30A3','\u7BA1\u7406\u4EBA','\u5B85\u914D\u30DC\u30C3\u30AF\u30B9'] },
-      { name: '\u305D\u306E\u4ED6\u8A2D\u5099', keys: ['\u5BB6\u5177\u4ED8','\u5BB6\u5177\u5BB6\u96FB','\u5BB6\u96FB\u4ED8','\u51B7\u8535\u5EAB','\u30D9\u30C3\u30C9','\u7167\u660E','\u96FB\u8A71\u6A5F','\u30BB\u30F3\u30B5\u30FC','\u706B\u707D\u8B66\u5831','\u30D5\u30ED\u30FC\u30EA\u30F3\u30B0','\u30A8\u30EC\u30D9\u30FC\u30BF\u30FC','\u30ED\u30D5\u30C8','\u548C\u5BA4','\u5730\u4E0B\u5BA4','\u5BA4\u5185\u7269\u5E72','\u51FA\u7A93','\u30D0\u30EB\u30B3\u30CB\u30FC','\u30D9\u30E9\u30F3\u30C0','\u30EB\u30FC\u30D5\u30D0\u30EB\u30B3\u30CB\u30FC','\u30A4\u30F3\u30CA\u30FC\u30D0\u30EB\u30B3\u30CB\u30FC','\u30C6\u30E9\u30B9','\u30A6\u30C3\u30C9\u30C7\u30C3\u30AD','\u5EAD','\u5C02\u7528\u5EAD','\u9632\u97F3','\u4E8C\u91CD\u5E8A','\u5439\u304D\u629C\u3051','\u99D0\u8F2A','\u30D0\u30A4\u30AF\u7F6E','\u99D0\u8ECA','\u30AD\u30C3\u30BA','\u30ED\u30FC\u30C9\u30D2\u30FC\u30C6\u30A3\u30F3\u30B0','\u30B7\u30E3\u30C3\u30BF\u30FC','\u8FB2\u5730','\u52D5\u529B\u96FB\u6E90','OA\u30D5\u30ED\u30A2'] },
-      { name: '\u5165\u5C45\u6761\u4EF6', keys: ['\u30DA\u30C3\u30C8','\u697D\u5668','\u4E8B\u52D9\u6240','\u30EB\u30FC\u30E0\u30B7\u30A7\u30A2','\u9AD8\u9F62\u8005','\u5973\u6027\u9650\u5B9A','\u5916\u56FD\u4EBA'] },
-      { name: '\u7279\u8A18\u4E8B\u9805', keys: ['\u30AA\u30FC\u30CA\u30FC\u30C1\u30A7\u30F3\u30B8','\u89D2\u90E8\u5C4B','\u6700\u4E0A\u968E','\u30C7\u30B6\u30A4\u30CA\u30FC\u30BA','\u5206\u8B72','\u30BF\u30EF\u30FC\u30DE\u30F3\u30B7\u30E7\u30F3','\u30EA\u30CE\u30D9\u30FC\u30B7\u30E7\u30F3','\u30EA\u30D5\u30A9\u30FC\u30E0','\u5916\u65AD\u71B1','\u30B9\u30B1\u30EB\u30C8\u30F3','\u592A\u967D\u5149','\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8','DIY','\u5C45\u629C\u304D','\u65E5\u5F53\u305F\u308A','\u9589\u9759','\u8155\u58C1','\u30E1\u30BE\u30CD\u30C3\u30C8','\u5236\u9707','\u514D\u9707','\u8010\u9707'] }
-    ];
-    // 設備文字列を分割
-    var items = facStr.split(/[,、\/\n]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
-    // 各アイテムをカテゴリに振り分け
-    var buckets = {};
-    for (var c = 0; c < cats.length; c++) buckets[cats[c].name] = [];
-    buckets['\u305D\u306E\u4ED6'] = [];
-    for (var i = 0; i < items.length; i++) {
-      var item = items[i], matched = false;
-      for (var c = 0; c < cats.length; c++) {
-        for (var k = 0; k < cats[c].keys.length; k++) {
-          if (item.indexOf(cats[c].keys[k]) >= 0) {
-            buckets[cats[c].name].push(item);
-            matched = true; break;
-          }
-        }
-        if (matched) break;
-      }
-      if (!matched) buckets['\u305D\u306E\u4ED6'].push(item);
-    }
-    return _renderFacBuckets(cats.map(function(c) { return c.name; }), buckets);
-  }
-
-  // Itandi形式（【カテゴリ】アイテム / アイテム）を解析
-  function _buildFacilityTagsFromItandi(facStr) {
-    var lines = facStr.split('\n');
-    var order = [], buckets = {};
-    for (var i = 0; i < lines.length; i++) {
-      var m = lines[i].match(/^\u3010(.+?)\u3011(.*)$/);
-      if (m) {
-        var cat = m[1], rest = m[2];
-        if (!buckets[cat]) { buckets[cat] = []; order.push(cat); }
-        var items = rest.split(/[\/ \/]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
-        for (var j = 0; j < items.length; j++) buckets[cat].push(items[j]);
-      }
-    }
-    return _renderFacBuckets(order, buckets);
-  }
-
-  // カテゴリ別バケットからタグHTMLを生成（共通）
-  function _renderFacBuckets(order, buckets) {
-    var out = '';
-    // orderに含まれるカテゴリ + その他
-    var allOrder = order.slice();
-    if (buckets['\u305D\u306E\u4ED6'] && buckets['\u305D\u306E\u4ED6'].length > 0 && allOrder.indexOf('\u305D\u306E\u4ED6') < 0) allOrder.push('\u305D\u306E\u4ED6');
-    for (var o = 0; o < allOrder.length; o++) {
-      var name = allOrder[o], arr = buckets[name];
-      if (!arr || arr.length === 0) continue;
-      out += '<div class="fac-cat"><div class="fac-cat-name">' + _esc(name) + '</div><div class="fac-tags">';
-      for (var j = 0; j < arr.length; j++) {
-        out += '<span class="fac-tag">' + _esc(arr[j]) + '</span>';
-      }
-      out += '</div></div>';
-    }
-    return out;
-  }
+  // 値が有効か判定（「ー」「入力なし」「なし」は非表示）
+  function _hv(v) { return v && v !== '\u30FC' && v !== '\u5165\u529B\u306A\u3057'; }
 
   html += '<div class="section">'
     + '<div class="section-title">\u7269\u4EF6\u60C5\u5831</div>';
 
   var details = [];
   if (_hv(prop.layout)) details.push(['\u9593\u53D6\u308A', prop.layout]);
-  if (_hv(prop.layoutDetail)) details.push(['\u9593\u53D6\u308A\u8A73\u7D30', prop.layoutDetail]);
   if (prop.area) details.push(['\u9762\u7A4D', prop.area + 'm\u00B2']);
   if (_hv(prop.buildingAge)) details.push(['\u7BC9\u5E74\u6570', prop.buildingAge]);
   if (_hv(prop.floorText)) details.push(['\u6240\u5728\u968E', prop.floorText]);
@@ -1849,31 +1608,7 @@ function makeViewHtml(prop) {
   if (_hv(prop.fireInsurance)) costRows.push(['\u706B\u707D\u4FDD\u967A\u6599', prop.fireInsurance]);
   if (_hv(prop.renewalAdminFee)) costRows.push(['\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', prop.renewalAdminFee]);
   if (_hv(prop.guaranteeInfo)) costRows.push(['\u4FDD\u8A3C\u6599', prop.guaranteeInfo]);
-  if (_hv(prop.cleaningFee)) costRows.push(['\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u8CBB\u7528', prop.cleaningFee]);
   if (_hv(prop.keyExchangeFee)) costRows.push(['\u9375\u4EA4\u63DB\u8CBB\u7528', prop.keyExchangeFee]);
-  if (_hv(prop.supportFee24h)) costRows.push(['24\u6642\u9593\u30B5\u30DD\u30FC\u30C8\u8CBB', prop.supportFee24h]);
-  if (_hv(prop.rightsFee)) costRows.push(['\u6A29\u5229\u91D1', prop.rightsFee]);
-  if (_hv(prop.additionalDeposit)) costRows.push(['\u6577\u91D1\u7A4D\u307F\u5897\u3057', prop.additionalDeposit]);
-  if (_hv(prop.guaranteeDeposit)) costRows.push(['\u4FDD\u8A3C\u91D1', prop.guaranteeDeposit]);
-  if (_hv(prop.waterBilling)) costRows.push(['\u6C34\u9053\u6599\u91D1\u5F62\u614B', prop.waterBilling]);
-  // 駐車場代に駐輪場/バイク置き場の空き状況が混入している場合を分解
-  if (_hv(prop.parkingFee)) {
-    var pkVal = prop.parkingFee;
-    var bikeAvail = pkVal.match(/(駐輪場)\s*[：:]\s*([^,，、\s：:]+)/);
-    var motoAvail = pkVal.match(/(バイク置き?場)\s*[：:]\s*([^,，、\s：:]+)/);
-    if (bikeAvail || motoAvail) {
-      if (bikeAvail && !_hv(prop.bicycleParkingFee)) costRows.push(['駐輪場', bikeAvail[2]]);
-      if (motoAvail && !_hv(prop.motorcycleParkingFee)) costRows.push(['バイク置き場', motoAvail[2]]);
-      var stripped = pkVal.replace(/駐輪場\s*[：:]\s*[^,，、\s：:]+/, '').replace(/バイク置き?場\s*[：:]\s*[^,，、\s：:]+/, '').replace(/[,，、\s]+/g, '');
-      if (stripped && /\d/.test(stripped)) costRows.push([/\d/.test(stripped) ? '駐車場代' : '駐車場', stripped]);
-    } else {
-      costRows.push([/\d/.test(pkVal) ? '駐車場代' : '駐車場', pkVal]);
-    }
-  }
-  if (_hv(prop.bicycleParkingFee)) costRows.push([/\d/.test(prop.bicycleParkingFee) ? '駐輪場代' : '駐輪場', prop.bicycleParkingFee]);
-  if (_hv(prop.motorcycleParkingFee)) costRows.push([/\d/.test(prop.motorcycleParkingFee) ? 'バイク置き場代' : 'バイク置き場', prop.motorcycleParkingFee]);
-  if (_hv(prop.otherMonthlyFee)) costRows.push(['\u305D\u306E\u4ED6\u6708\u6B21\u8CBB\u7528', prop.otherMonthlyFee]);
-  if (_hv(prop.otherOnetimeFee)) costRows.push(['\u305D\u306E\u4ED6\u4E00\u6642\u91D1', prop.otherOnetimeFee]);
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">\u8CBB\u7528</div>';
     for (var i = 0; i < costRows.length; i++) {
@@ -1889,7 +1624,6 @@ function makeViewHtml(prop) {
   if (_hv(prop.cancellationNotice)) contractRows.push(['\u89E3\u7D04\u4E88\u544A', prop.cancellationNotice]);
   if (_hv(prop.renewalInfo)) contractRows.push(['\u66F4\u65B0\u30FB\u518D\u5951\u7D04\u53EF\u5426', prop.renewalInfo]);
   if (_hv(prop.freeRent)) contractRows.push(['\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8', prop.freeRent]);
-  if (_hv(prop.freeRentDetail)) contractRows.push(['\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8\u8A73\u7D30', prop.freeRentDetail]);
   if (contractRows.length > 0) {
     html += '<div class="section"><div class="section-title">\u5951\u7D04\u6761\u4EF6</div>';
     for (var i = 0; i < contractRows.length; i++) {
@@ -1898,30 +1632,11 @@ function makeViewHtml(prop) {
     html += '</div>';
   }
 
-  // 入居条件（チップ/バッジ表示）
-  var condStr = prop.moveInConditions || '';
-  if (_hv(condStr)) {
-    html += '<div class="section"><div class="section-title">\u5165\u5C45\u6761\u4EF6</div><div class="fac-tags">';
-    var condItems = condStr.split(/[,、\/\n]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
-    for (var ci = 0; ci < condItems.length; ci++) {
-      var cond = condItems[ci];
-      var tagClass = 'fac-tag';
-      if (/\u4E0D\u53EF/.test(cond)) {
-        tagClass = 'fac-tag cond-ng';
-      } else if (/\u53EF|\u76F8\u8AC7|\u6B53\u8FE1|\u4E0D\u8981|\u5411\u304D/.test(cond)) {
-        tagClass = 'fac-tag cond-ok';
-      }
-      html += '<span class="' + tagClass + '">' + _esc(cond) + '</span>';
-    }
-    html += '</div></div>';
-  }
-
-  // 設備・詳細（カテゴリ分けタグ表示）
+  // 設備・詳細
   var facStr = prop.facilities || '';
   if (_hv(facStr)) {
-    html += '<div class="section"><div class="section-title">\u8A2D\u5099\u30FB\u8A73\u7D30</div>';
-    html += _buildFacilityTags(facStr);
-    html += '</div>';
+    html += '<div class="section"><div class="section-title">\u8A2D\u5099\u30FB\u8A73\u7D30</div>'
+      + '<div style="font-size:13px;color:#555;line-height:1.7;white-space:pre-wrap">' + _esc(facStr) + '</div></div>';
   }
 
   html += '<div class="footer">\u203B \u8A73\u7D30\u306F\u62C5\u5F53\u8005\u306B\u304A\u554F\u3044\u5408\u308F\u305B\u304F\u3060\u3055\u3044</div>';
