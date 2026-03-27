@@ -1147,10 +1147,15 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       }
 
-      // 検索結果に戻る（REINS は直接URL遷移を不正操作(E2171)として拒否するため history.back() のみ使用）
+      // 検索結果に戻る（Vue Router経由で戻る。history.back()だと2回戻ってGBK001310に行く場合がある）
       await chrome.scripting.executeScript({
         target: { tabId },
+        world: 'MAIN',
         func: () => {
+          // まずVue Routerのback()を試す（SPAの履歴管理に準拠）
+          const nuxt = window.$nuxt;
+          if (nuxt?.$router) { nuxt.$router.back(); return; }
+          // フォールバック
           const backBtn = document.querySelector('.p-btn-back')
             || [...document.querySelectorAll('button')].find(el => el.textContent.trim() === '←');
           if (backBtn) { backBtn.click(); return; }
@@ -1163,10 +1168,76 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         await csleep(2000);
         const bt = await chrome.tabs.get(tabId);
         if (bt.url?.includes('GBK002200')) { backSuccess = true; break; }
-        // 検索フォーム(GBK001310)やREINS外に戻ってしまった場合 → この顧客の残り物件をスキップ
-        if (bt.url?.includes('GBK001310') || !bt.url?.includes('system.reins.jp')) {
-          await setStorageData({ debugLog: `${customer.name}: 戻り先が検索結果でない(${bt.url?.split('/').pop()})→残り物件スキップ` });
-          return newProperties; // 現在の顧客の検索を終了して次の顧客へ
+        // 検索フォーム(GBK001310)に戻ってしまった場合 → 再検索して結果ページに復帰
+        if (bt.url?.includes('GBK001310')) {
+          await setStorageData({ debugLog: `${customer.name}: 検索フォームに戻った→再検索で復帰試行` });
+          // 検索ボタンをクリック（条件はまだセットされている）
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            world: 'MAIN',
+            func: () => {
+              const btns = [...document.querySelectorAll('button')];
+              const searchBtn = btns.find(b => b.textContent.trim() === '検索');
+              if (searchBtn) searchBtn.click();
+            }
+          });
+          // 結果ページに遷移するまで待つ
+          let reSearchOk = false;
+          for (let rs = 0; rs < 30; rs++) {
+            await csleep(3000);
+            const rsCheck = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => {
+                // ダイアログ処理
+                const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
+                for (const dialog of dialogs) {
+                  const text = dialog.textContent;
+                  if (text.includes('500件') || text.includes('超えています')) {
+                    const okBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
+                    if (okBtn) { okBtn.click(); return 'ok_clicked'; }
+                  }
+                }
+                if (document.body.textContent.includes('検索結果一覧')) return 'result_page';
+                return 'waiting';
+              }
+            });
+            const rsStatus = rsCheck?.[0]?.result;
+            if (rsStatus === 'result_page' || rsStatus === 'ok_clicked') {
+              reSearchOk = true;
+              if (rsStatus === 'ok_clicked') {
+                await csleep(3000); // ダイアログ閉じ待ち
+              }
+              break;
+            }
+          }
+          if (reSearchOk) {
+            await setStorageData({ debugLog: `${customer.name}: 再検索で結果ページ復帰成功` });
+            // 現在のページに戻る必要がある場合はページネーション
+            if (currentPage > 1) {
+              for (let navP = 2; navP <= currentPage; navP++) {
+                await chrome.scripting.executeScript({
+                  target: { tabId },
+                  func: (page) => {
+                    const pageLinks = document.querySelectorAll('.page-link');
+                    for (const link of pageLinks) {
+                      if (link.textContent.trim() === String(page)) { link.click(); return; }
+                    }
+                  },
+                  args: [navP]
+                });
+                await csleep(3000);
+              }
+            }
+            backSuccess = true;
+          } else {
+            await setStorageData({ debugLog: `${customer.name}: 再検索復帰失敗→残り物件スキップ` });
+            return newProperties;
+          }
+          break;
+        }
+        if (!bt.url?.includes('system.reins.jp')) {
+          await setStorageData({ debugLog: `${customer.name}: REINS外に遷移→残り物件スキップ` });
+          return newProperties;
         }
       }
       if (!backSuccess) {
@@ -1181,7 +1252,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       try {
         await chrome.scripting.executeScript({
           target: { tabId },
+          world: 'MAIN',
           func: () => {
+            const nuxt = window.$nuxt;
+            if (nuxt?.$router) { nuxt.$router.back(); return; }
             const backBtn = document.querySelector('.p-btn-back')
               || [...document.querySelectorAll('button')].find(el => el.textContent.trim() === '←');
             if (backBtn) backBtn.click(); else history.back();
@@ -1192,8 +1266,62 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           await csleep(2000);
           const bt = await chrome.tabs.get(tabId);
           if (bt.url?.includes('GBK002200')) { recovered = true; break; }
-          if (bt.url?.includes('GBK001310') || !bt.url?.includes('system.reins.jp')) {
-            await setStorageData({ debugLog: `${customer.name}: エラー回復失敗→残り物件スキップ` });
+          if (bt.url?.includes('GBK001310')) {
+            // 検索フォームに戻った→再検索で復帰
+            await setStorageData({ debugLog: `${customer.name}: エラー回復→検索フォームから再検索` });
+            await chrome.scripting.executeScript({
+              target: { tabId }, world: 'MAIN',
+              func: () => {
+                const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '検索');
+                if (btn) btn.click();
+              }
+            });
+            for (let rs = 0; rs < 30; rs++) {
+              await csleep(3000);
+              const rsCheck = await chrome.scripting.executeScript({
+                target: { tabId },
+                func: () => {
+                  const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
+                  for (const dialog of dialogs) {
+                    if (dialog.textContent.includes('500件') || dialog.textContent.includes('超えています')) {
+                      const okBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
+                      if (okBtn) { okBtn.click(); return 'ok_clicked'; }
+                    }
+                  }
+                  if (document.body.textContent.includes('検索結果一覧')) return 'result_page';
+                  return 'waiting';
+                }
+              });
+              const s = rsCheck?.[0]?.result;
+              if (s === 'result_page' || s === 'ok_clicked') {
+                recovered = true;
+                if (s === 'ok_clicked') await csleep(3000);
+                break;
+              }
+            }
+            if (recovered && currentPage > 1) {
+              for (let navP = 2; navP <= currentPage; navP++) {
+                await chrome.scripting.executeScript({
+                  target: { tabId },
+                  func: (page) => {
+                    const pageLinks = document.querySelectorAll('.page-link');
+                    for (const link of pageLinks) {
+                      if (link.textContent.trim() === String(page)) { link.click(); return; }
+                    }
+                  },
+                  args: [navP]
+                });
+                await csleep(3000);
+              }
+            }
+            if (!recovered) {
+              await setStorageData({ debugLog: `${customer.name}: エラー回復失敗→残り物件スキップ` });
+              return newProperties;
+            }
+            break;
+          }
+          if (!bt.url?.includes('system.reins.jp')) {
+            await setStorageData({ debugLog: `${customer.name}: エラー回復失敗(REINS外)→残り物件スキップ` });
             return newProperties;
           }
         }
