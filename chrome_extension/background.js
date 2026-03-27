@@ -1478,7 +1478,11 @@ async function findOrCreateDedicatedReinsTab() {
   await setStorageData({ debugLog: '専用REINSウィンドウを作成中...' });
   const newWindow = await chrome.windows.create({
     url: 'https://system.reins.jp/main/BK/GBK001310',
-    state: 'minimized',
+    focused: false,
+    width: 1200,
+    height: 800,
+    left: 0,
+    top: 0,
     type: 'normal'
   });
   dedicatedReinsWindowId = newWindow.id;
