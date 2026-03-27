@@ -1473,12 +1473,6 @@ async function findOrCreateDedicatedReinsTab() {
     dedicatedReinsWindowId = null;
   }
 
-  // ユーザーがREINSにログイン済みか確認（既存タブで）
-  const existingTabs = await chrome.tabs.query({ url: 'https://system.reins.jp/*' });
-  if (existingTabs.length === 0) {
-    return null; // REINSにログインしてない
-  }
-
   // 専用ウィンドウを作成（最小化）してREINSを開く
   // クッキー共有でログイン済みセッションを引き継ぐ
   await setStorageData({ debugLog: '専用REINSウィンドウを作成中...' });
