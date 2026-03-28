@@ -402,8 +402,9 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
     for (const prop of pageProperties) {
       if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
 
-      // 重複チェック
-      if (customerSeenIds.includes(prop.room_id)) {
+      // 重複チェック（テストユーザーはスキップしない）
+      const isTestUser = customer.name.includes('テスト');
+      if (!isTestUser && customerSeenIds.includes(prop.room_id)) {
         await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 通知済み: ${prop.building_name} ${prop.room_number || ''}` });
         continue;
       }
