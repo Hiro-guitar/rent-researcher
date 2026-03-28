@@ -852,7 +852,8 @@ function handleAddReinsProperty(json) {
       dataJson,                        // J: property_data_json
       'pending',                       // K: status
       now,                             // L: created_at
-      ''                               // M: updated_at
+      '',                              // M: updated_at
+      'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId  // N: view_url
     ]);
 
     added++;

@@ -180,7 +180,7 @@ function handleConfirmApprove(e) {
   });
 
   pushMessage(lineUserId, [flex]);
-  updatePendingStatus(row.rowIndex, 'sent');
+  updatePendingStatus(row.rowIndex, 'sent', viewUrl);
   addToSeenSheet(customerName, prop);
 
   return makeHtml('完了', prop.buildingName + ' を ' + customerName + ' さんに LINE 送信しました。');
@@ -249,7 +249,7 @@ function handleConfirmApproveAll(e) {
     });
 
     pushMessage(lineUserId, [flex]);
-    updatePendingStatus(rows[i].rowIndex, 'sent');
+    updatePendingStatus(rows[i].rowIndex, 'sent', viewUrl);
     addToSeenSheet(customerName, prop);
     sentCount++;
 
@@ -288,7 +288,7 @@ function handlePropertyView(e) {
     return makeHtml('エラー', 'パラメータが不足しています。');
   }
 
-  // sent の物件のみ表示（セキュリティ）
+  // sent または pending の物件を表示（LINE送信失敗時でも閲覧可能に）
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (!sheet) {
@@ -298,9 +298,10 @@ function handlePropertyView(e) {
   var data = sheet.getDataRange().getValues();
   var prop = null;
   for (var i = 1; i < data.length; i++) {
+    var status = String(data[i][10]);
     if (String(data[i][0]) === String(customerName) &&
         String(data[i][2]) === String(roomId) &&
-        String(data[i][10]) === 'sent') {
+        (status === 'sent' || status === 'pending')) {
       prop = rowToProperty(data[i]);
       break;
     }
@@ -382,9 +383,10 @@ function handlePropertyImagesApi(e) {
 
   var data = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
+    var status = String(data[i][10]);
     if (String(data[i][0]) === String(customerName) &&
         String(data[i][2]) === String(roomId) &&
-        String(data[i][10]) === 'sent') {
+        (status === 'sent' || status === 'pending')) {
       var prop = rowToProperty(data[i]);
       var imgs = prop.selectedImageUrls || prop.imageUrls || [];
       var cats = prop.selectedImageCategories || prop.imageCategories || [];
@@ -422,7 +424,7 @@ function handlePropertyViewApi(e) {
   } catch(e) {}
 
   // 2. フォールバック: シートから取得
-  // sent の物件のみ表示（セキュリティ）
+  // sent または pending の物件を表示（LINE送信失敗時でも閲覧可能に）
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (!sheet) {
@@ -433,9 +435,10 @@ function handlePropertyViewApi(e) {
   var data = sheet.getDataRange().getValues();
   var prop = null;
   for (var i = 1; i < data.length; i++) {
+    var status = String(data[i][10]);
     if (String(data[i][0]) === String(customerName) &&
         String(data[i][2]) === String(roomId) &&
-        String(data[i][10]) === 'sent') {
+        (status === 'sent' || status === 'pending')) {
       prop = rowToProperty(data[i]);
       break;
     }
@@ -835,11 +838,14 @@ function findAllPendingRows(customerName) {
   return results;
 }
 
-function updatePendingStatus(rowIndex, newStatus) {
+function updatePendingStatus(rowIndex, newStatus, viewUrl) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   sheet.getRange(rowIndex, 11).setValue(newStatus);
   sheet.getRange(rowIndex, 13).setValue(new Date().toISOString().replace('T', ' ').substring(0, 19));
+  if (viewUrl) {
+    sheet.getRange(rowIndex, 14).setValue(viewUrl);
+  }
 }
 
 function addToSeenSheet(customerName, prop) {
@@ -1183,9 +1189,7 @@ function buildPropertyFlex(prop, options) {
   if (prop.floor) details.push(['\u968E\u6570', prop.floor + '\u968E']);
   if (prop.address) details.push(['\u6240\u5728\u5730', prop.address]);
   if (prop.stationInfo) details.push(['\u6700\u5BC4\u99C5', prop.stationInfo]);
-  if (prop.deposit || prop.keyMoney) {
-    details.push(['\u6577\u91D1/\u793C\u91D1', (prop.deposit || '\u306A\u3057') + ' / ' + (prop.keyMoney || '\u306A\u3057')]);
-  }
+  details.push(['\u6577\u91D1/\u793C\u91D1', (prop.deposit || '0') + ' / ' + (prop.keyMoney || '0')]);
 
   for (var i = 0; i < details.length; i++) {
     bodyContents.push({
@@ -1722,7 +1726,7 @@ function makeViewHtml(prop) {
 
   html += '<div class="price-box">'
     + '<div class="price-main">' + rentMan + '\u4E07\u5186<span style="font-size:16px">/\u6708</span></div>'
-    + '<div class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186 | \u6577\u91D1 ' + _esc(prop.deposit || '\u306A\u3057') + ' | \u793C\u91D1 ' + _esc(prop.keyMoney || '\u306A\u3057') + '</div>'
+    + '<div class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186 | \u6577\u91D1 ' + _esc(prop.deposit || '0') + ' | \u793C\u91D1 ' + _esc(prop.keyMoney || '0') + '</div>'
     + '</div>';
 
   // 値が有効か判定（「ー」「-」「入力なし」「なし」は非表示）
