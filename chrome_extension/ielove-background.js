@@ -356,7 +356,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
   };
 
   const customerSeenIds = seenIds[customer.name] || [];
-  const allNewProperties = [];
+  let submittedCount = 0;
 
   const maxPages = 5;
   let searchUrl = buildIeloveSearchUrl(customer, 1);
@@ -467,7 +467,33 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       // property_data_json を構築（GAS承認ページ用）
       prop.property_data_json = JSON.stringify(buildPropertyDataJson(prop));
 
-      allNewProperties.push(prop);
+      submittedCount++;
+      await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✓ 送信対象（${prop.building_name} ${prop.room_number || ''} ${prop.rent ? (prop.rent/10000)+'万' : ''}）` });
+
+      // リアルタイムでGAS送信（1物件ずつ）
+      try {
+        const submitResult = await submitProperties(customer.name, [prop]);
+        if (submitResult?.success) {
+          const { stats } = await getStorageData(['stats']);
+          const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };
+          currentStats.totalFound++;
+          currentStats.totalSubmitted += submitResult.added || 1;
+          await setStorageData({ stats: currentStats });
+        }
+      } catch (err) {
+        logError(`[いえらぶ] ${customer.name}: ${prop.building_name} GAS送信失敗: ${err.message}`);
+      }
+
+      // リアルタイムでDiscord通知（1物件ずつ）
+      try {
+        await sendDiscordNotification(customer.name, [prop], customer);
+      } catch (err) {
+        logError(`[いえらぶ] ${customer.name}: ${prop.building_name} Discord通知失敗: ${err.message}`);
+      }
+
+      // seenIdsに追加（同一サイクル内の重複防止）
+      if (!seenIds[customer.name]) seenIds[customer.name] = [];
+      seenIds[customer.name].push(prop.room_id);
 
       // 物件間のランダム遅延
       const delayMs = 1000 + Math.random() * 2000;
@@ -492,36 +518,8 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
     await csleep(1000 + Math.random() * 2000);
   }
 
-  // GAS送信 + Discord通知
-  if (allNewProperties.length > 0) {
-    await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ${allNewProperties.length}件を送信中...` });
-
-    try {
-      await submitProperties(customer.name, allNewProperties);
-    } catch (err) {
-      logError(`[いえらぶ] GAS送信失敗 (${customer.name}): ${err.message}`);
-    }
-
-    try {
-      await sendDiscordNotification(customer.name, allNewProperties, customer);
-    } catch (err) {
-      logError(`[いえらぶ] Discord通知失敗 (${customer.name}): ${err.message}`);
-    }
-
-    // seenIdsに追加（同一サイクル内の重複防止）
-    if (!seenIds[customer.name]) seenIds[customer.name] = [];
-    for (const p of allNewProperties) {
-      seenIds[customer.name].push(p.room_id);
-    }
-
-    // 統計更新
-    const { stats } = await getStorageData(['stats']);
-    const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };
-    currentStats.totalFound += allNewProperties.length;
-    currentStats.totalSubmitted += allNewProperties.length;
-    await setStorageData({ stats: currentStats });
-
-    await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ${allNewProperties.length}件送信完了` });
+  if (submittedCount > 0) {
+    await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ${submittedCount}件送信完了` });
   } else {
     await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: 新着なし` });
   }
