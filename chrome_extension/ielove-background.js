@@ -34,16 +34,14 @@ function buildIeloveSearchUrl(customer, page = 1) {
     }
   }
 
-  // 賃料上限 (万円)
+  // 賃料上限 (GASからは万円単位で来る: 例 15 = 15万円)
   if (customer.rent_max) {
-    const rentMan = Math.floor(customer.rent_max / 10000);
-    parts.push(`prct/${rentMan}`);
+    parts.push(`prct/${customer.rent_max}`);
   }
 
-  // 賃料下限 (万円)
+  // 賃料下限
   if (customer.rent_min) {
-    const rentMinMan = Math.floor(customer.rent_min / 10000);
-    parts.push(`prcf/${rentMinMan}`);
+    parts.push(`prcf/${customer.rent_min}`);
   }
 
   // 管理費込み
@@ -217,11 +215,12 @@ async function closeDedicatedIeloveWindow() {
  * @returns {string|null} 除外理由。nullなら合格。
  */
 function getIeloveFilterRejectReason(prop, customer) {
-  // 賃料フィルタ（rent + management_fee の合計）
+  // 賃料フィルタ（rent + management_fee の合計 vs rent_max万円）
   if (customer.rent_max) {
     const totalRent = (prop.rent || 0) + (prop.management_fee || 0);
-    if (totalRent > customer.rent_max) {
-      return `賃料超過: ${totalRent}円 > ${customer.rent_max}円`;
+    const rentMaxYen = customer.rent_max * 10000;
+    if (totalRent > rentMaxYen) {
+      return `賃料超過: ${totalRent}円 > ${rentMaxYen}円`;
     }
   }
 
