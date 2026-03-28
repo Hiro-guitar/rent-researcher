@@ -403,7 +403,10 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
 
       // 重複チェック
-      if (customerSeenIds.includes(prop.room_id)) continue;
+      if (customerSeenIds.includes(prop.room_id)) {
+        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 既知スキップ: ${prop.building_name} ${prop.room_number || ''}` });
+        continue;
+      }
 
       // 詳細ページから追加情報を取得
       if (prop.url) {
@@ -457,10 +460,10 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         prop.move_in_date = normalizeIeloveMoveInDate(prop.move_in_date);
       }
 
-      // フィルタリン���
+      // フィルタリング
       const rejectReason = getIeloveFilterRejectReason(prop, customer);
       if (rejectReason) {
-        console.log(`[ielove] フィルタ除外 (${prop.building_name}): ${rejectReason}`);
+        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}` });
         continue;
       }
 
