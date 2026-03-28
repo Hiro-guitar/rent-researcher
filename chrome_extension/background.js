@@ -1731,6 +1731,128 @@ async function discordPostWithRetry(url, payload) {
   }
 }
 
+/**
+ * 入居時期テキストを Date オブジェクトに変換する。
+ * Python の _parse_move_in_date と同等のロジック。
+ *
+ * @param {string} text - 入居時期テキスト（例: "5月中旬", "2026年4月下旬", "即入居可"）
+ * @param {boolean} asDeadline - true: 旬の末日（顧客の希望期限）、false: 旬の初日（物件の入居可能開始日）
+ * @returns {Date|null}
+ */
+function _parseMoveInDate(text, asDeadline = false) {
+  if (!text) return null;
+  text = text.trim();
+
+  // 制約なし・即時入居可能 → 比較不要
+  const skipKeywords = ['いい物件見つかり次第', '即入居可', '即入居', '即時', '即日', '未定'];
+  if (skipKeywords.some(kw => text.includes(kw))) return null;
+
+  // 和暦→西暦変換（"令和 8年 4月" → "2026年4月"）
+  const warekiMatch = text.match(/(?:令和|平成|昭和)\s*(\d{1,2})\s*年/);
+  if (warekiMatch) {
+    const eraYear = parseInt(warekiMatch[1]);
+    let seirekiYear;
+    if (text.includes('令和')) seirekiYear = 2018 + eraYear;
+    else if (text.includes('平成')) seirekiYear = 1988 + eraYear;
+    else if (text.includes('昭和')) seirekiYear = 1925 + eraYear;
+    if (seirekiYear) {
+      text = text.replace(/(?:令和|平成|昭和)\s*\d{1,2}\s*年/, `${seirekiYear}年`);
+    }
+  }
+
+  const now = new Date();
+  const refYear = now.getFullYear();
+  const refMonth = now.getMonth() + 1; // 1-based
+
+  // 年・月・日・旬 を抽出
+  const yearMatch = text.match(/(\d{4})\s*年/);
+  const monthMatch = text.match(/(\d{1,2})\s*月/);
+  const dayMatch = text.match(/(\d{1,2})\s*日/);
+
+  let year = yearMatch ? parseInt(yearMatch[1]) : null;
+  const month = monthMatch ? parseInt(monthMatch[1]) : null;
+
+  if (month === null) return null; // 月がないと判定不能
+
+  let period = null;
+  if (text.includes('上旬')) period = 'early';
+  else if (text.includes('中旬')) period = 'mid';
+  else if (text.includes('下旬')) period = 'late';
+
+  // 年が未指定の場合: 今年 or 来年で最も近い未来を推定
+  if (year === null) {
+    year = month >= refMonth ? refYear : refYear + 1;
+  }
+
+  // 日の決定
+  let day;
+  if (dayMatch) {
+    day = parseInt(dayMatch[1]);
+  } else if (period !== null) {
+    if (asDeadline) {
+      if (period === 'early') day = 10;
+      else if (period === 'mid') day = 20;
+      else day = new Date(year, month, 0).getDate(); // 月末
+    } else {
+      if (period === 'early') day = 1;
+      else if (period === 'mid') day = 11;
+      else day = 21;
+    }
+  } else {
+    // 月のみ指定
+    if (asDeadline) {
+      day = new Date(year, month, 0).getDate(); // 月末
+    } else {
+      day = 1;
+    }
+  }
+
+  try {
+    const d = new Date(year, month - 1, day);
+    if (isNaN(d.getTime())) return null;
+    return d;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 物件の入居可能時期が顧客の希望入居時期を過ぎていないかチェックする。
+ * @param {Object} prop - 物件オブジェクト
+ * @param {string} customerMoveIn - 顧客の希望入居時期
+ * @returns {string|null} - 警告メッセージ or null
+ */
+function _checkMoveInWarning(prop, customerMoveIn) {
+  if (!customerMoveIn || customerMoveIn === 'いい物件見つかり次第') return null;
+
+  const customerDeadline = _parseMoveInDate(customerMoveIn, true);
+  if (!customerDeadline) return null;
+
+  const propMoveIn = (prop.move_in_date || '').trim();
+
+  // 即入居可等はスキップ
+  if (['即入居可', '即入居', '即時', '即日'].some(kw => propMoveIn.includes(kw))) return null;
+
+  // 入居可能時期が空（記載なし）
+  if (!propMoveIn) {
+    return `⚠️ ${customerMoveIn}入居希望: 入居可能時期の記載がありません`;
+  }
+
+  // 「相談」は日付比較できないが、入居時期が不確定なのでアラート
+  if (propMoveIn.includes('相談')) {
+    return `⚠️ ${customerMoveIn}入居希望: 入居時期の確認が必要です`;
+  }
+
+  const propertyAvailable = _parseMoveInDate(propMoveIn, false);
+  if (!propertyAvailable) return null;
+
+  if (propertyAvailable > customerDeadline) {
+    return `⚠️ ${customerMoveIn}入居希望: 入居時期の確認が必要です`;
+  }
+
+  return null;
+}
+
 function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) {
   const fmtMan = (yen) => {
     if (!yen) return '0';
@@ -1783,6 +1905,11 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   }
   if (equip.includes('南向き') && !prop.sunlight) {
     warnings.push('⚠️ 南向き条件あり: 採光面情報なしのため要確認');
+  }
+  // 入居時期アラート
+  const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
+  if (moveInWarning) {
+    warnings.push(moveInWarning);
   }
   if (warnings.length > 0) {
     const ansiText = warnings.join('\n');
