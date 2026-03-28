@@ -404,7 +404,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
 
       // 重複チェック
       if (customerSeenIds.includes(prop.room_id)) {
-        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 既知スキップ: ${prop.building_name} ${prop.room_number || ''}` });
+        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 通知済み: ${prop.building_name} ${prop.room_number || ''}` });
         continue;
       }
 
