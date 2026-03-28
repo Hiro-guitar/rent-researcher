@@ -320,6 +320,9 @@ async function runSearchCycle() {
   const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ'].filter(Boolean).join('・');
   await setStorageData({ isSearching: true, debugLog: `検索開始 (${serviceNames})...` });
 
+  // ログタブを自動オープン（既に開いていればフォーカス）
+  await openLogTab();
+
   // 検索全体を通してService Workerを生存させるグローバルkeepalive
   const globalKeepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => {});
@@ -1599,6 +1602,18 @@ function waitForTabLoad(tabId) {
     chrome.tabs.onUpdated.addListener(listener);
     setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); clearInterval(keepAlive); resolve(); }, 30000);
   });
+}
+
+// ログタブを開く（既に開いていればフォーカス）
+async function openLogTab() {
+  const logUrl = chrome.runtime.getURL('log.html');
+  const tabs = await chrome.tabs.query({ url: logUrl });
+  if (tabs.length > 0) {
+    await chrome.tabs.update(tabs[0].id, { active: true });
+    await chrome.windows.update(tabs[0].windowId, { focused: true });
+  } else {
+    await chrome.tabs.create({ url: logUrl, active: false });
+  }
 }
 
 // Service Worker keepalive付きsleep（MV3ではsetTimeoutだけだとWorkerが停止する）
