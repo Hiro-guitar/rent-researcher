@@ -6,13 +6,21 @@
 </head>
 <body>
   <div class="header">
-    <h1>REINS物件取得</h1>
+    <h1>物件自動取得</h1>
     <span id="loginStatus" class="status-dot offline"></span>
   </div>
 
   <div class="section">
     <div class="label">ステータス</div>
     <div id="statusText" class="value">未接続</div>
+  </div>
+
+  <div class="section">
+    <div class="label">検索サービス</div>
+    <div class="service-checks">
+      <label><input type="checkbox" id="enableReins" checked> REINS</label>
+      <label><input type="checkbox" id="enableIelove" checked> いえらぶBB</label>
+    </div>
   </div>
 
   <div class="section">

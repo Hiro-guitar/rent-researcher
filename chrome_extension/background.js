@@ -1,6 +1,7 @@
 /**
  * background.js (Service Worker)
- * REINS物件自動取得の中核 — スケジューリング、検索オーケストレーション、状態管理
+ * 物件自動取得の中核 — スケジューリング、検索オーケストレーション、状態管理
+ * REINS + いえらぶBB対応
  *
  * 重要な技術的制約:
  * - REINSはVue 2 SPA。execute()をJS直接呼び出しすると認証エラーになる
@@ -8,6 +9,9 @@
  * - 検索実行・OKダイアログはDOMクリック（人間操作と同じ）
  * - 検索フォームへの遷移はURL直接遷移NG → メニューボタンクリック経由
  */
+
+// いえらぶBB関連ファイルを読み込み
+importScripts('ielove-config.js', 'ielove-background.js');
 
 // === GAS API クライアント（inline） ===
 async function getConfig() {
@@ -297,16 +301,24 @@ async function refreshCriteria() {
 
 // --- メイン検索サイクル ---
 async function runSearchCycle() {
-  const { isSearching, gasWebappUrl } = await getStorageData(['isSearching', 'gasWebappUrl']);
+  const { isSearching, gasWebappUrl, enabledServices } = await getStorageData(['isSearching', 'gasWebappUrl', 'enabledServices']);
   if (isSearching) { console.log('検索中のためスキップ'); return; }
   if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }
+
+  const services = enabledServices || { reins: true, ielove: true };
+
+  if (!services.reins && !services.ielove) {
+    console.log('有効なサービスがありません');
+    return;
+  }
 
   const searchId = ++currentSearchId;
   // DiscordスレッドIDキャッシュをクリア
   Object.keys(discordThreadIds).forEach(k => delete discordThreadIds[k]);
   // ログをクリアして新規開始
   await new Promise(resolve => chrome.storage.local.set({ debugLog: '' }, resolve));
-  await setStorageData({ isSearching: true, debugLog: '検索開始...' });
+  const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ'].filter(Boolean).join('・');
+  await setStorageData({ isSearching: true, debugLog: `検索開始 (${serviceNames})...` });
 
   // 検索全体を通してService Workerを生存させるグローバルkeepalive
   const globalKeepAlive = setInterval(() => {
@@ -314,13 +326,6 @@ async function runSearchCycle() {
   }, 20000);
 
   try {
-    const reinsTab = await findReinsTab();
-    if (!reinsTab) {
-      await setStorageData({ loginDetected: false, debugLog: 'REINSタブが見つかりません' });
-      return;
-    }
-    await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}, url=${reinsTab.url}` });
-
     // 検索条件を取得（毎回GASから最新を取得）
     await setStorageData({ debugLog: '検索条件を取得中...' });
     try {
@@ -346,58 +351,81 @@ async function runSearchCycle() {
       await setStorageData({ debugLog: `既知物件ID取得失敗（続行）: ${err.message}` });
     }
 
-    const { pageDelaySeconds } = await getStorageData(['pageDelaySeconds']);
-    const delay = (pageDelaySeconds || 2) * 1000;
+    // === REINS検索 ===
+    if (services.reins) {
+      const reinsTab = await findReinsTab();
+      if (!reinsTab) {
+        await setStorageData({ loginDetected: false, debugLog: 'REINSタブが見つかりません（REINS検索スキップ）' });
+      } else {
+        await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}, url=${reinsTab.url}` });
 
-    // 全顧客を順次検索
-    for (let ci = 0; ci < criteria.length; ci++) {
-      // 中止チェック（searchIdが変わっていたら古いサイクルなので即終了）
-      if (isSearchCancelled(searchId)) {
-        console.log(`検索サイクル${searchId}は中止されました`);
-        return;
-      }
+        const { pageDelaySeconds } = await getStorageData(['pageDelaySeconds']);
+        const delay = (pageDelaySeconds || 2) * 1000;
 
-      const customer = criteria[ci];
-      await setStorageData({ debugLog: `顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
-      try {
-        // 路線が4つ以上ある場合、3つずつに分割して複数回検索
-        const rws = customer.routes_with_stations || [];
-        if (rws.length > 3) {
-          for (let batch = 0; batch * 3 < rws.length; batch++) {
-            if (isSearchCancelled(searchId)) {
-              console.log(`検索サイクル${searchId}は中止されました`);
+        // 全顧客を順次検索
+        for (let ci = 0; ci < criteria.length; ci++) {
+          if (isSearchCancelled(searchId)) {
+            console.log(`検索サイクル${searchId}は中止されました`);
+            return;
+          }
+
+          const customer = criteria[ci];
+          await setStorageData({ debugLog: `[REINS] 顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
+          try {
+            // 路線が4つ以上ある場合、3つずつに分割して複数回検索
+            const rws = customer.routes_with_stations || [];
+            if (rws.length > 3) {
+              for (let batch = 0; batch * 3 < rws.length; batch++) {
+                if (isSearchCancelled(searchId)) {
+                  console.log(`検索サイクル${searchId}は中止されました`);
+                  return;
+                }
+                const batchRws = rws.slice(batch * 3, (batch + 1) * 3);
+                const batchCustomer = {
+                  ...customer,
+                  routes: batchRws.map(r => r.route),
+                  routes_with_stations: batchRws,
+                };
+                await setStorageData({ debugLog: `[REINS] ${customer.name}: バッチ ${batch+1}/${Math.ceil(rws.length/3)} (${batchRws.map(r=>r.route).join(', ')})` });
+                await searchForCustomer(reinsTab.id, batchCustomer, seenIds, delay, searchId);
+                if (batch * 3 + 3 < rws.length) await sleep(3000);
+              }
+            } else {
+              await searchForCustomer(reinsTab.id, customer, seenIds, delay, searchId);
+            }
+          } catch (err) {
+            if (err.message === 'SEARCH_CANCELLED') {
+              console.log(`検索サイクル${searchId}: 中止により終了`);
               return;
             }
-            const batchRws = rws.slice(batch * 3, (batch + 1) * 3);
-            const batchCustomer = {
-              ...customer,
-              routes: batchRws.map(r => r.route),
-              routes_with_stations: batchRws,
-            };
-            await setStorageData({ debugLog: `${customer.name}: バッチ ${batch+1}/${Math.ceil(rws.length/3)} (${batchRws.map(r=>r.route).join(', ')})` });
-            await searchForCustomer(reinsTab.id, batchCustomer, seenIds, delay, searchId);
-            if (batch * 3 + 3 < rws.length) await sleep(3000);
+            if (err.message === 'SLEEP_DETECTED') {
+              await setStorageData({ debugLog: 'PCスリープから復帰→検索サイクル終了（次回スケジュールで再開）' });
+              return;
+            }
+            if (err.message === 'REINS_ERROR_PAGE') {
+              await setStorageData({ debugLog: 'REINSエラーページ検知→検索サイクル終了（再ログイン後に再開してください）' });
+              return;
+            }
+            logError(`[REINS] ${customer.name}の検索失敗: ${err.message}`);
           }
-        } else {
-          await searchForCustomer(reinsTab.id, customer, seenIds, delay, searchId);
+          // 顧客間の待ち時間
+          if (ci < criteria.length - 1) await sleep(3000);
         }
-      } catch (err) {
-        if (err.message === 'SEARCH_CANCELLED') {
-          console.log(`検索サイクル${searchId}: 中止により終了`);
-          return;
-        }
-        if (err.message === 'SLEEP_DETECTED') {
-          await setStorageData({ debugLog: 'PCスリープから復帰→検索サイクル終了（次回スケジュールで再開）' });
-          return;
-        }
-        if (err.message === 'REINS_ERROR_PAGE') {
-          await setStorageData({ debugLog: 'REINSエラーページ検知→検索サイクル終了（再ログイン後に再開してください）' });
-          return;
-        }
-        logError(`${customer.name}の検索失敗: ${err.message}`);
+
+        await closeDedicatedWindow();
+        await setStorageData({ debugLog: '[REINS] 検索完了' });
       }
-      // 顧客間の待ち時間
-      if (ci < criteria.length - 1) await sleep(3000);
+    }
+
+    // === いえらぶBB検索 ===
+    if (services.ielove) {
+      if (isSearchCancelled(searchId)) return;
+      try {
+        await runIeloveSearch(criteria, seenIds, searchId);
+      } catch (err) {
+        if (err.message === 'SEARCH_CANCELLED') return;
+        logError('[いえらぶ] 検索エラー: ' + err.message);
+      }
     }
 
     await setStorageData({ lastSearchTime: Date.now() });
@@ -406,6 +434,7 @@ async function runSearchCycle() {
   } finally {
     clearInterval(globalKeepAlive);
     await closeDedicatedWindow();
+    await closeDedicatedIeloveWindow();
     await setStorageData({ isSearching: false });
   }
 }
@@ -1899,7 +1928,8 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   let title = prop.building_name || '物件情報';
   if (prop.room_number) title += `  ${prop.room_number}`;
 
-  const lines = [`**${index}. ${title}** \`[REINS]\``];
+  const sourceTag = prop.source === 'ielove' ? 'いえらぶ' : 'REINS';
+  const lines = [`**${index}. ${title}** \`[${sourceTag}]\``];
 
   // 賃料
   let rentStr = `💰 **${fmtMan(prop.rent)}万円**`;

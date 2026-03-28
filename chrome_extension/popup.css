@@ -156,3 +156,22 @@ body {
 .footer a:hover {
   color: #2563eb;
 }
+
+.service-checks {
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+}
+
+.service-checks label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.service-checks input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}

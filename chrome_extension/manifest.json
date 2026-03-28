@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "REINS物件自動取得",
-  "version": "1.0",
-  "description": "REINSから物件情報を定期取得し、GAS経由で承認パイプラインに送信する",
+  "name": "物件自動取得",
+  "version": "2.0",
+  "description": "REINS・いえらぶBBから物件情報を定期取得し、GAS経由で承認パイプラインに送信する",
   "permissions": [
     "storage",
     "alarms",
@@ -12,6 +12,7 @@
   ],
   "host_permissions": [
     "https://system.reins.jp/*",
+    "https://bb.ielove.jp/*",
     "https://script.google.com/*",
     "https://script.googleusercontent.com/*"
   ],
@@ -30,11 +31,23 @@
         "https://system.reins.jp/main/BK/GBK003200*"
       ],
       "js": ["content-detail.js"]
+    },
+    {
+      "matches": [
+        "https://bb.ielove.jp/ielovebb/rent/index/*"
+      ],
+      "js": ["ielove-content-search.js"]
+    },
+    {
+      "matches": [
+        "https://bb.ielove.jp/ielovebb/rent/detail/*"
+      ],
+      "js": ["ielove-content-detail.js"]
     }
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "REINS物件自動取得"
+    "default_title": "物件自動取得"
   },
   "options_page": "options.html"
 }

@@ -1,15 +1,18 @@
 document.addEventListener('DOMContentLoaded', () => {
   loadStatus();
+  loadServiceSettings();
 
   document.getElementById('searchNowBtn').addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'SEARCH_NOW' }, (response) => {
-      console.log('SEARCH_NOW response:', response);
+    // サービス選択状態を保存してから検索開始
+    saveServiceSettings(() => {
+      chrome.runtime.sendMessage({ type: 'SEARCH_NOW' }, (response) => {
+        console.log('SEARCH_NOW response:', response);
+      });
+      document.getElementById('searchNowBtn').disabled = true;
+      document.getElementById('statusText').textContent = '検索開始中...';
+      const interval = setInterval(loadStatus, 2000);
+      setTimeout(() => clearInterval(interval), 30000);
     });
-    document.getElementById('searchNowBtn').disabled = true;
-    document.getElementById('statusText').textContent = '検索開始中...';
-    // 定期的にステータスを更新（検索は非同期なので）
-    const interval = setInterval(loadStatus, 2000);
-    setTimeout(() => clearInterval(interval), 30000);
   });
 
   document.getElementById('stopSearchBtn').addEventListener('click', () => {
@@ -33,6 +36,10 @@ document.addEventListener('DOMContentLoaded', () => {
       loadStatus();
     });
   });
+
+  // サービスチェックボックス変更時に即保存
+  document.getElementById('enableReins').addEventListener('change', () => saveServiceSettings());
+  document.getElementById('enableIelove').addEventListener('change', () => saveServiceSettings());
 });
 
 function loadStatus() {
@@ -122,4 +129,22 @@ function formatTime(ts) {
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
   return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// === サービス選択の保存・復元 ===
+
+function loadServiceSettings() {
+  chrome.storage.local.get(['enabledServices'], (data) => {
+    const services = data.enabledServices || { reins: true, ielove: true };
+    document.getElementById('enableReins').checked = services.reins;
+    document.getElementById('enableIelove').checked = services.ielove;
+  });
+}
+
+function saveServiceSettings(callback) {
+  const enabledServices = {
+    reins: document.getElementById('enableReins').checked,
+    ielove: document.getElementById('enableIelove').checked,
+  };
+  chrome.storage.local.set({ enabledServices }, callback);
 }
