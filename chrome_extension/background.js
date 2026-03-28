@@ -83,15 +83,15 @@ async function loadLineNameMap() {
 function formatCustomerCriteria(customer) {
   const parts = [];
   if (customer.rent_max) parts.push(`〜${customer.rent_max}万`);
-  const routes = customer.routes || [];
-  const stations = customer.stations || [];
-  if (routes.length) parts.push(`路線: ${routes.join(', ')}`);
-  if (stations.length) parts.push(`駅: ${stations.join(', ')}`);
+  // 路線・駅をまとめて表示（buildStationStringと同じ形式）
+  const stationStr = buildStationString(customer);
+  if (stationStr) parts.push(stationStr);
   if (customer.walk) parts.push(`徒歩${customer.walk}分`);
   if (customer.layouts?.length) parts.push(`間取: ${customer.layouts.join('/')}`);
   if (customer.area_min) parts.push(`面積${customer.area_min}㎡〜`);
   if (customer.building_age) parts.push(`築${customer.building_age}年`);
   if (customer.structures?.length) parts.push(`構造: ${customer.structures.join('/')}`);
+  if (customer.equipment?.length) parts.push(`設備: ${customer.equipment.join(', ')}`);
   return parts.join(' / ') || '(条件なし)';
 }
 
