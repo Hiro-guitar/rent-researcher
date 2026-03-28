@@ -898,6 +898,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             data.push({
               index,
               propertyNumber,
+              buildingName: items[11]?.textContent.trim() || '',      // 物件名
+              floor: items[12]?.textContent.trim() || '',             // 階数
               depositGuarantee: items[16]?.textContent.trim() || '',  // 敷金／保証金
               keyMoneyRights: items[22]?.textContent.trim() || '',    // 礼金／権利金
               text: row.textContent.substring(0, 200)
@@ -948,20 +950,20 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     };
     if (equip.includes('敷金なし')) {
       if (!hasNoneInSlash(result.depositGuarantee)) {
-        await setStorageData({ debugLog: `${customer.name}: ✗ ${result.propertyNumber} 一覧スキップ: 敷金あり(${result.depositGuarantee})` });
+        await setStorageData({ debugLog: `${customer.name}: ✗ 一覧スキップ: ${result.buildingName} ${result.floor} - 敷金あり(${result.depositGuarantee})` });
         continue;
       }
     }
     if (equip.includes('礼金なし')) {
       const reikinPart = (result.keyMoneyRights || '').split('/')[0].trim();
       if (reikinPart && reikinPart !== '-' && reikinPart !== 'なし') {
-        await setStorageData({ debugLog: `${customer.name}: ✗ ${result.propertyNumber} 一覧スキップ: 礼金あり(${result.keyMoneyRights})` });
+        await setStorageData({ debugLog: `${customer.name}: ✗ 一覧スキップ: ${result.buildingName} ${result.floor} - 礼金あり(${result.keyMoneyRights})` });
         continue;
       }
     }
 
     totalDetailCount++;
-    await setStorageData({ debugLog: `${customer.name}: p${currentPage}/${totalPages} 物件${totalDetailCount}/${maxDetails} 詳細取得中 (${result.propertyNumber})` });
+    await setStorageData({ debugLog: `${customer.name}: p${currentPage}/${totalPages} 物件${totalDetailCount}/${maxDetails} 詳細取得中 (${result.buildingName} ${result.floor})` });
 
     try {
       // 詳細ボタンをクリック（物件番号で行を特定 — 再検索復帰後もindexズレしない）
@@ -989,7 +991,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         args: [result.propertyNumber]
       });
       if (!clickResult?.[0]?.result) {
-        await setStorageData({ debugLog: `${customer.name}: ✗ ${result.propertyNumber} 詳細ボタンが見つからない→スキップ` });
+        await setStorageData({ debugLog: `${customer.name}: ✗ ${result.buildingName} ${result.floor} 詳細ボタンが見つからない→スキップ` });
         continue;
       }
       await waitForTabLoad(tabId);
@@ -1146,7 +1148,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         if (!rejectReason) {
           newProperties.push(detail);
           currentStats.totalFound++;
-          await setStorageData({ debugLog: `${customer.name}: ✓ ${detail.reins_property_number} 送信対象（${detail.building_name} ${detail.floor_text} ${detail.rent ? (detail.rent/10000)+'万' : ''}）` });
+          await setStorageData({ debugLog: `${customer.name}: ✓ 送信対象（${detail.building_name} ${detail.room_number || ''} ${detail.floor_text} ${detail.rent ? (detail.rent/10000)+'万' : ''}）` });
           // リアルタイムでGAS送信＋Discord通知
           try {
             const submitResult = await submitProperties(customer.name, [detail]);
@@ -1154,16 +1156,16 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               currentStats.totalSubmitted += submitResult.added || 1;
             }
           } catch (err) {
-            logError(`${customer.name}: 物件${detail.reins_property_number} GAS送信失敗: ${err.message}`);
+            logError(`${customer.name}: ${detail.building_name} ${detail.room_number || ''} GAS送信失敗: ${err.message}`);
           }
           try {
             await sendDiscordNotification(customer.name, [detail], customer);
           } catch (err) {
-            logError(`${customer.name}: 物件${detail.reins_property_number} Discord通知失敗: ${err.message}`);
+            logError(`${customer.name}: ${detail.building_name} ${detail.room_number || ''} Discord通知失敗: ${err.message}`);
           }
           await setStorageData({ stats: currentStats });
         } else {
-          await setStorageData({ debugLog: `${customer.name}: ✗ ${detail.reins_property_number} スキップ: ${rejectReason}` });
+          await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name} ${detail.room_number || ''} - ${rejectReason}` });
         }
       }
 
@@ -1320,7 +1322,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
     } catch (err) {
       if (err.message === 'SEARCH_CANCELLED' || err.message === 'SLEEP_DETECTED' || err.message === 'REINS_ERROR_PAGE') throw err;
-      await setStorageData({ debugLog: `${customer.name}: 物件${result.propertyNumber}の詳細取得失敗: ${err.message}` });
+      await setStorageData({ debugLog: `${customer.name}: 詳細取得失敗(${result.buildingName || result.propertyNumber}): ${err.message}` });
       try {
         await chrome.scripting.executeScript({
           target: { tabId },
