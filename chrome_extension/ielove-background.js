@@ -316,9 +316,13 @@ async function runIeloveSearch(criteria, seenIds, searchId) {
       if (isSearchCancelled(searchId)) return;
 
       const customer = criteria[ci];
-      const cond = formatCustomerCriteria(customer);
       await setStorageData({ debugLog: `[いえらぶ] 顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
-      await setStorageData({ debugLog: `[いえらぶ] 条件: ${cond}` });
+      try {
+        const cond = formatCustomerCriteria(customer);
+        await setStorageData({ debugLog: `[いえらぶ] 条件: ${cond}` });
+      } catch (e) {
+        await setStorageData({ debugLog: `[いえらぶ] 条件表示エラー: ${e.message}` });
+      }
 
       try {
         await searchIeloveForCustomer(dedicatedIeloveTabId, customer, seenIds, searchId);

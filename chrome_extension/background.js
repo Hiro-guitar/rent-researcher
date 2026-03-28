@@ -449,6 +449,7 @@ async function runSearchCycle() {
         await runIeloveSearch(criteria, seenIds, searchId);
       } catch (err) {
         if (err.message === 'SEARCH_CANCELLED') return;
+        await setStorageData({ debugLog: `[いえらぶ] 検索エラー: ${err.message}` });
         logError('[いえらぶ] 検索エラー: ' + err.message);
       }
     }
