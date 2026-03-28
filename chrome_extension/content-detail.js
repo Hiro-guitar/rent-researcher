@@ -112,7 +112,7 @@
     const renewalType = getValueByLabel('更新区分');
     const sunlight = getValueByLabel('バルコニー方向');
     const features = getValueByLabel('設備・条件・住宅性能等');
-    const moveInDate = getValueByLabel('入居可能年月日') || getValueByLabel('引渡可能年月日');
+    const moveInDate = getMoveInDate();
     const totalUnits = getValueByLabel('総戸数');
     const propertyType = getValueByLabel('物件種目');
     const roomNumber = getValueByLabel('部屋番号');
@@ -187,6 +187,84 @@
   }
 
   // --- ユーティリティ関数 ---
+
+  /**
+   * REINS詳細ページから入居年月を取得する。
+   * 「入居年月」は col-4 に「令和 8年 4月」、col-8 に「中旬」のように分かれているため、
+   * 両方を結合してから和暦→西暦変換する。
+   * フォールバック: 入居時期（「予定」「即時」等）も取得。
+   */
+  function getMoveInDate() {
+    const labels = [...document.querySelectorAll('.p-label-title')];
+
+    // まず「入居年月」を探す
+    const nengetsuLabel = labels.find(el => el.textContent.trim() === '入居年月');
+    if (nengetsuLabel) {
+      const pLabel = nengetsuLabel.closest('.p-label');
+      const container = pLabel ? pLabel.parentElement : null;
+      if (container) {
+        const row = container.querySelector('.row');
+        if (row) {
+          const cols = [...row.querySelectorAll('[class*="col"]')];
+          const fullText = cols.map(c => c.textContent.trim()).filter(Boolean).join(' ');
+          if (fullText) {
+            return convertWareki(fullText);
+          }
+        }
+      }
+    }
+
+    // フォールバック: 入居時期（「予定」「即時」等）
+    const jikiLabel = labels.find(el => el.textContent.trim() === '入居時期');
+    if (jikiLabel) {
+      const pLabel = jikiLabel.closest('.p-label');
+      const container = pLabel ? pLabel.parentElement : null;
+      if (container) {
+        const colEl = container.querySelector('.row .col');
+        const val = colEl ? colEl.textContent.trim() : '';
+        if (val && val !== '予定') return convertWareki(val);
+      }
+    }
+
+    // 最終フォールバック
+    const fallback = getValueByLabel('入居可能年月日') || getValueByLabel('引渡可能年月日');
+    return convertWareki(fallback);
+  }
+
+  /**
+   * 和暦テキストを西暦「YYYY年M月」形式に変換する。
+   * 例: "令和 8年 4月" → "2026年4月"
+   *     "令和 8年 4月 中旬" → "2026年4月中旬"
+   *     "即時" → "即入居可"
+   *     西暦の場合はそのまま返す
+   */
+  function convertWareki(text) {
+    if (!text) return '';
+    text = text.trim();
+
+    // 「即時」→「即入居可」に統一
+    if (text === '即時' || text === '即入居') return '即入居可';
+
+    // 和暦パターン: "令和 8年 4月" or "令和 8年 4月 中旬" or "令和 8年 4月 中旬"（スペース区切り）
+    const warekiMatch = text.match(/(?:令和|平成|昭和)\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月\s*(上旬|中旬|下旬)?/);
+    if (warekiMatch) {
+      const eraYear = parseInt(warekiMatch[1]);
+      const month = parseInt(warekiMatch[2]);
+      const period = warekiMatch[3] || '';
+
+      // 元号→西暦変換
+      let seirekiYear;
+      if (text.includes('令和')) seirekiYear = 2018 + eraYear;
+      else if (text.includes('平成')) seirekiYear = 1988 + eraYear;
+      else if (text.includes('昭和')) seirekiYear = 1925 + eraYear;
+      else return text;
+
+      return `${seirekiYear}年${month}月${period}`;
+    }
+
+    // 西暦の場合はそのまま
+    return text;
+  }
 
   function getValueByLabel(labelText) {
     const label = [...document.querySelectorAll('.p-label-title')]
