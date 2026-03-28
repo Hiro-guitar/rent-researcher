@@ -91,7 +91,14 @@ function formatCustomerCriteria(customer) {
   if (customer.area_min) parts.push(`面積${customer.area_min}㎡〜`);
   if (customer.building_age) parts.push(`築${customer.building_age}年`);
   if (customer.structures?.length) parts.push(`構造: ${customer.structures.join('/')}`);
-  if (customer.equipment?.length) parts.push(`設備: ${customer.equipment.join(', ')}`);
+  const equip = customer.equipment;
+  if (equip) {
+    if (Array.isArray(equip)) {
+      if (equip.length) parts.push(`設備: ${equip.join(', ')}`);
+    } else if (typeof equip === 'string' && equip) {
+      parts.push(`設備: ${equip}`);
+    }
+  }
   return parts.join(' / ') || '(条件なし)';
 }
 
