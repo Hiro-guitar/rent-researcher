@@ -7,7 +7,11 @@ import re
 import time
 from urllib.parse import urlencode
 
-from itandi_search.models import CustomerCriteria, Property
+from itandi_search.models import (
+    CustomerCriteria,
+    Property,
+    _normalize_move_in_date,
+)
 
 from .auth import EsSquareSession
 from .config import (
@@ -625,6 +629,34 @@ def _get_captured_api_data(
     return None
 
 
+def _normalize_preview_date(raw: str) -> str:
+    """内見開始日の短縮表記を YYYY/MM/DD 形式に正規化する。
+
+    入力例: "5/1", "4/15", "12/1"
+    出力例: "2026/05/01", "2026/04/15", "2026/12/01"
+
+    年が省略されているため、現在の年を補完する。
+    内見開始日は必ず未来日なので、今日より前になる場合は翌年にする。
+    """
+    m = re.match(r"(\d{1,2})/(\d{1,2})", raw)
+    if not m:
+        return raw
+    month = int(m.group(1))
+    day = int(m.group(2))
+
+    from datetime import date
+
+    today = date.today()
+    year = today.year
+    try:
+        d = date(year, month, day)
+    except ValueError:
+        return raw
+    if d < today:
+        year += 1
+    return f"{year}/{month:02d}/{day:02d}"
+
+
 def _wait_for_detail_render(
     session: EsSquareSession, timeout: int = 10
 ) -> bool:
@@ -790,6 +822,18 @@ def enrich_property_details(
             for key, value in details.items():
                 if hasattr(prop, key) and value:
                     setattr(prop, key, value)
+
+            # 入居時期を正規化 (setattr は __post_init__ を経由しないため)
+            if prop.move_in_date:
+                prop.move_in_date = _normalize_move_in_date(
+                    prop.move_in_date
+                )
+
+            # 内見開始日を正規化 ("5/1" → "2026/05/01" 形式)
+            if prop.preview_start_date:
+                prop.preview_start_date = _normalize_preview_date(
+                    prop.preview_start_date
+                )
 
             # 部屋番号が取得できたら building_name から除去
             if prop.room_number and prop.room_number not in ("", "ー"):

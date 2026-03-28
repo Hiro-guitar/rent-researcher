@@ -797,6 +797,14 @@ def _parse_column_row(children: list, uuid: str = "") -> Property | None:
     structure_text = re.sub(r"\b\d{10,}\b", "", structure_text).strip()
     structure, building_age = _parse_structure_text(structure_text)
 
+    # Col 7: 退去日/入居時期 (タイムスタンプ除去)
+    col_movein = children[6] if len(children) > 6 else None
+    movein_text = (
+        col_movein.get_text("\n", strip=True) if col_movein else ""
+    )
+    movein_text = re.sub(r"\b\d{10,}\b", "", movein_text).strip()
+    move_out_date, move_in_date = _parse_movein_column(movein_text)
+
     room_id = str(uuid) if uuid else _generate_room_id(
         building_name, rent, layout, area
     )
@@ -820,6 +828,8 @@ def _parse_column_row(children: list, uuid: str = "") -> Property | None:
         station_info=station_info,
         structure=structure,
         building_age=building_age,
+        move_out_date=move_out_date,
+        move_in_date=move_in_date,
         url=url,
     )
 
@@ -1059,6 +1069,43 @@ def _parse_structure_text(text: str) -> tuple[str, str]:
     return structure, age
 
 
+def _parse_movein_column(text: str) -> tuple[str, str]:
+    """退去日/入居時期カラムのテキストをパースする。
+
+    一覧ページの「退去日/入居時期」列は 2 行構造:
+      1 行目: 退去日 (例: "2026/04/08", "-")
+      2 行目: 入居時期 (例: "2026/04 下旬予定", "相談", "即入居")
+
+    Returns:
+        (move_out_date, move_in_date) のタプル
+    """
+    if not text:
+        return "", ""
+
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    if not lines:
+        return "", ""
+
+    move_out = ""
+    move_in = ""
+
+    if len(lines) >= 2:
+        move_out = lines[0] if lines[0] != "-" else ""
+        move_in = lines[1] if lines[1] != "-" else ""
+    elif len(lines) == 1:
+        val = lines[0]
+        # 日付形式 (YYYY/MM/DD) なら退去日、それ以外は入居時期
+        if re.match(r"\d{4}/\d{1,2}/\d{1,2}$", val):
+            move_out = val
+        else:
+            move_in = val
+
+    # 入居時期の「予定」サフィックスを除去
+    move_in = re.sub(r"予定$", "", move_in).strip()
+
+    return move_out, move_in
+
+
 def _check_pagination(soup: BeautifulSoup) -> bool:
     """次ページが存在するか判定する。"""
     # 「次へ」「>」ボタンの存在確認
@@ -1079,6 +1126,24 @@ def _check_pagination(soup: BeautifulSoup) -> bool:
 
 
 # ─── 詳細ページパーサ ────────────────────────────────────────
+
+
+def _extract_preview_start_date(soup: BeautifulSoup) -> str:
+    """詳細ページのヘッダーボタンから内見開始日を抽出する。
+
+    ボタンテキストのパターン:
+      - "5/1～内見可"  → "5/1"  (内見開始日あり)
+      - "内見不可"      → ""     (内見不可)
+      - "内見可"        → ""     (即内見可 = 開始日指定なし)
+      - "内見"          → ""     (内見ボタンのみ)
+    """
+    for btn in soup.find_all("button"):
+        text = btn.get_text(strip=True)
+        # "5/1～内見可" や "4/15～内見可" のパターン
+        m = re.match(r"(\d{1,2}/\d{1,2})～?内見", text)
+        if m:
+            return m.group(1)
+    return ""
 
 
 def parse_detail_page(html: str) -> dict:
@@ -1147,6 +1212,12 @@ def parse_detail_page(html: str) -> dict:
                 elif "バイク" in name and "motorcycle_parking_fee" not in details:
                     details["motorcycle_parking_fee"] = status
             del details["parking_fee"]
+
+    # 内見ボタンから内見開始日 (preview_start_date) を抽出
+    # ボタンテキスト例: "5/1～内見可", "4/15～内見可", "内見不可", "内見可", "内見"
+    preview_date = _extract_preview_start_date(soup)
+    if preview_date:
+        details["preview_start_date"] = preview_date
 
     return details
 
