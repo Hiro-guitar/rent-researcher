@@ -13,6 +13,11 @@
 // いえらぶBB関連ファイルを読み込み
 importScripts('ielove-config.js', 'ielove-background.js');
 
+// 拡張アイコンクリックでダッシュボード（log.html）を開く
+chrome.action.onClicked.addListener(() => {
+  openLogTab();
+});
+
 // === GAS API クライアント（inline） ===
 async function getConfig() {
   return new Promise((resolve) => {

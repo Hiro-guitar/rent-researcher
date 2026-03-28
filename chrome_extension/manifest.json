@@ -46,7 +46,6 @@
     }
   ],
   "action": {
-    "default_popup": "popup.html",
     "default_title": "物件自動取得"
   },
   "options_page": "options.html"

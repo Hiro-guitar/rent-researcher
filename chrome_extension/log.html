@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>物件取得ログ</title>
+  <title>物件自動取得</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -14,22 +14,122 @@
       display: flex;
       flex-direction: column;
     }
+
+    /* === Control Panel (top dashboard) === */
+    #control-panel {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 14px;
+      background: #252526;
+      border-bottom: 1px solid #404040;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    #control-panel .cp-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e0e0e0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot.online { background: #4ec9b0; }
+    .status-dot.offline { background: #f44747; }
+    .status-dot.searching {
+      background: #dcdcaa;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .cp-services {
+      display: flex; gap: 10px; align-items: center;
+    }
+    .cp-services label {
+      display: flex; align-items: center; gap: 3px;
+      font-size: 11px; color: #bbb; cursor: pointer;
+    }
+    .cp-services input[type="checkbox"] { margin: 0; cursor: pointer; }
+
+    .cp-actions { display: flex; gap: 6px; }
+    .cp-btn {
+      padding: 4px 12px;
+      border: 1px solid #555;
+      border-radius: 3px;
+      background: #3c3c3c;
+      color: #d4d4d4;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+    }
+    .cp-btn:hover { background: #4a4a4a; }
+    .cp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .cp-btn.primary {
+      background: #264f78;
+      border-color: #3a7bd5;
+      color: #fff;
+    }
+    .cp-btn.primary:hover:not(:disabled) { background: #305d8f; }
+    .cp-btn.danger {
+      background: #6b2020;
+      border-color: #d44;
+      color: #faa;
+    }
+    .cp-btn.danger:hover:not(:disabled) { background: #8b2a2a; }
+
+    .cp-stats {
+      display: flex; gap: 12px; align-items: center;
+      margin-left: auto;
+      font-size: 11px; color: #888;
+    }
+    .cp-stats .stat-val { color: #d4d4d4; font-weight: 600; margin-left: 3px; }
+    .cp-stats .stat-err { color: #f44747; }
+
+    .cp-times {
+      display: flex; gap: 12px;
+      font-size: 11px; color: #888;
+    }
+    .cp-times span { color: #aaa; }
+
+    #statusText {
+      font-size: 11px;
+      color: #888;
+    }
+
+    /* === Settings link === */
+    .cp-settings {
+      font-size: 11px;
+      color: #666;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .cp-settings:hover { color: #aaa; }
+
+    /* === Toolbar (log controls) === */
     .toolbar {
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 8px 12px;
+      padding: 6px 12px;
       background: #2d2d2d;
       border-bottom: 1px solid #404040;
       flex-shrink: 0;
     }
-    .toolbar h1 {
-      font-size: 13px;
+    .toolbar h2 {
+      font-size: 12px;
       font-weight: 600;
-      color: #e0e0e0;
+      color: #999;
     }
     .toolbar button {
-      padding: 4px 10px;
+      padding: 3px 8px;
       border: 1px solid #555;
       border-radius: 3px;
       background: #3c3c3c;
@@ -38,12 +138,13 @@
       font-size: 11px;
     }
     .toolbar button:hover { background: #4a4a4a; }
-    .toolbar .status {
-      margin-left: auto;
-      font-size: 11px;
-      color: #888;
+    .toolbar label {
+      font-size: 11px; color: #999;
+      display: flex; align-items: center; gap: 3px; cursor: pointer;
     }
-    .toolbar .status.active { color: #4ec9b0; }
+    .toolbar label input { margin: 0; cursor: pointer; }
+
+    /* === Filter bar === */
     #filter-bar {
       display: flex;
       gap: 8px;
@@ -71,6 +172,8 @@
       font-size: 11px;
       font-family: inherit;
     }
+
+    /* === Log container === */
     #log-container {
       flex: 1;
       overflow-y: auto;
@@ -102,22 +205,62 @@
   </style>
 </head>
 <body>
+
+  <!-- Control Panel (dashboard header) -->
+  <div id="control-panel">
+    <div class="cp-title">
+      <span id="loginStatus" class="status-dot offline"></span>
+      物件自動取得
+    </div>
+    <span id="statusText">未接続</span>
+
+    <div class="cp-services">
+      <label><input type="checkbox" id="enableReins" checked> REINS</label>
+      <label><input type="checkbox" id="enableIelove" checked> いえらぶBB</label>
+    </div>
+
+    <div class="cp-actions">
+      <button id="searchNowBtn" class="cp-btn primary">今すぐ検索</button>
+      <button id="stopSearchBtn" class="cp-btn danger" style="display:none">検索中止</button>
+    </div>
+
+    <div class="cp-stats">
+      <span>検出<span id="totalFound" class="stat-val">0</span></span>
+      <span>送信<span id="totalSubmitted" class="stat-val">0</span></span>
+      <span>エラー<span id="totalErrors" class="stat-val stat-err">0</span></span>
+    </div>
+
+    <div class="cp-times">
+      最終: <span id="lastSearch">-</span>
+      &nbsp;|&nbsp;
+      次回: <span id="nextSearch">-</span>
+    </div>
+
+    <a class="cp-settings" id="openOptions">設定</a>
+    <a class="cp-settings" id="resetBtn" style="color:#844">リセット</a>
+  </div>
+
+  <!-- Log toolbar -->
   <div class="toolbar">
-    <h1>物件取得ログ</h1>
+    <h2>ログ</h2>
     <button id="clearBtn">クリア</button>
     <button id="scrollBtn">最新へ</button>
     <label><input type="checkbox" id="autoScroll" checked> 自動スクロール</label>
-    <span id="status" class="status">待機中</span>
   </div>
+
+  <!-- Filter bar -->
   <div id="filter-bar">
     <label><input type="checkbox" class="tag-filter" value="reins" checked> REINS</label>
     <label><input type="checkbox" class="tag-filter" value="ielove" checked> いえらぶ</label>
     <label><input type="checkbox" class="tag-filter" value="system" checked> システム</label>
     <input type="text" id="searchInput" placeholder="フィルタ...">
   </div>
+
+  <!-- Log output -->
   <div id="log-container">
     <div id="empty-msg">ログはまだありません。検索を開始してください。</div>
   </div>
+
   <script src="log.js"></script>
 </body>
 </html>
