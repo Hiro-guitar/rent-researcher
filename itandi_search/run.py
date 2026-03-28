@@ -12,6 +12,7 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from .auth import ItandiAuthError, ItandiSession
+from .models import _normalize_move_in_date
 from .config import (
     ACTIVE_SERVICES,
     DISCORD_WEBHOOK_URL,
@@ -1111,6 +1112,11 @@ def _run_ielove_search(
         limit_results=limit,
     )
     print(f"  → いえらぶBB: {len(properties)} 件ヒット")
+
+    # 一覧ページで取得した入居時期を正規化 ("2026/5/中旬" → "2026年5月中旬")
+    for p in properties:
+        if p.move_in_date:
+            p.move_in_date = _normalize_move_in_date(p.move_in_date)
 
     # 通知済み・承認待ちを除外
     new_properties = [

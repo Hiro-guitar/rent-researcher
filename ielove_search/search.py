@@ -9,7 +9,11 @@ import re
 import time
 from typing import Optional
 
-from itandi_search.models import CustomerCriteria, Property
+from itandi_search.models import (
+    CustomerCriteria,
+    Property,
+    _normalize_move_in_date,
+)
 
 from .auth import IeloveSession
 from .config import (
@@ -246,6 +250,13 @@ def enrich_property_details(
                 except Exception:
                     pass
             parse_detail_page(html, prop)
+
+            # 入居時期を正規化 ("2026/5/中旬" → "2026年5月中旬")
+            if prop.move_in_date:
+                prop.move_in_date = _normalize_move_in_date(
+                    prop.move_in_date
+                )
+
             if prop.image_urls:
                 cats = prop.image_categories
                 cat_count = sum(1 for c in cats if c) if cats else 0
