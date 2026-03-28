@@ -1132,7 +1132,41 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             sunlight: getVal('バルコニー方向') || '',
             lease_type: getVal('取引態様') || '',
             contract_period: getVal('契約期間') || '',
-            move_in_date: getVal('入居可能時期') || getVal('引渡可能時期') || '',
+            move_in_date: (() => {
+              // 「入居年月」は col-4 と col-8 に分かれている（例: "令和 8年 4月" + "中旬"）
+              const allLabels = [...document.querySelectorAll('.p-label-title')];
+              const nengetsuLabel = allLabels.find(e => e.textContent.trim() === '入居年月');
+              if (nengetsuLabel) {
+                const container = nengetsuLabel.closest('.p-label')?.parentElement;
+                if (container) {
+                  const row = container.querySelector('.row');
+                  if (row) {
+                    const cols = [...row.querySelectorAll('[class*="col"]')];
+                    const fullText = cols.map(c => c.textContent.trim()).filter(Boolean).join(' ');
+                    if (fullText) {
+                      // 和暦→西暦変換
+                      const wm = fullText.match(/(?:令和|平成|昭和)\s*(\d{1,2})\s*年\s*(\d{1,2})\s*月\s*(上旬|中旬|下旬)?/);
+                      if (wm) {
+                        const eraYear = parseInt(wm[1]);
+                        let seireki;
+                        if (fullText.includes('令和')) seireki = 2018 + eraYear;
+                        else if (fullText.includes('平成')) seireki = 1988 + eraYear;
+                        else if (fullText.includes('昭和')) seireki = 1925 + eraYear;
+                        if (seireki) return `${seireki}年${parseInt(wm[2])}月${wm[3] || ''}`;
+                      }
+                      return fullText;
+                    }
+                  }
+                }
+              }
+              // フォールバック: 入居時期（「即時」「相談」等）
+              const jikiVal = getVal('入居時期');
+              if (jikiVal && jikiVal !== '予定') {
+                if (jikiVal === '即時' || jikiVal === '即入居') return '即入居可';
+                return jikiVal;
+              }
+              return getVal('入居可能時期') || getVal('引渡可能時期') || '';
+            })(),
             total_units: getVal('[賃貸]棟総戸数') || getVal('総戸数') || '',
             reins_property_number: propertyNumber,
             reins_shougo: getVal('商号') || '',
@@ -1842,14 +1876,14 @@ function _checkMoveInWarning(prop, customerMoveIn) {
 
   // 「相談」は日付比較できないが、入居時期が不確定なのでアラート
   if (propMoveIn.includes('相談')) {
-    return `⚠️ ${customerMoveIn}入居希望: 入居時期の確認が必要です`;
+    return `⚠️ ${customerMoveIn}入居希望: 入居時期「相談」のため要確認`;
   }
 
   const propertyAvailable = _parseMoveInDate(propMoveIn, false);
   if (!propertyAvailable) return null;
 
   if (propertyAvailable > customerDeadline) {
-    return `⚠️ ${customerMoveIn}入居希望: 入居時期の確認が必要です`;
+    return `⚠️ ${customerMoveIn}入居希望: 入居可能${propMoveIn}のため要確認`;
   }
 
   return null;
@@ -1891,6 +1925,11 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
 
   if (prop.deposit || prop.key_money) {
     lines.push(`💴 敷金: ${prop.deposit || 'なし'} / 礼金: ${prop.key_money || 'なし'}`);
+  }
+
+  // 入居時期
+  if (prop.move_in_date) {
+    lines.push(`📅 入居: ${prop.move_in_date}`);
   }
 
   // 警告アラート（ANSI黄色コードブロックで表示 — rent-researcher準拠）
