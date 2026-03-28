@@ -316,7 +316,9 @@ async function runIeloveSearch(criteria, seenIds, searchId) {
       if (isSearchCancelled(searchId)) return;
 
       const customer = criteria[ci];
+      const cond = formatCustomerCriteria(customer);
       await setStorageData({ debugLog: `[いえらぶ] 顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
+      await setStorageData({ debugLog: `[いえらぶ] 条件: ${cond}` });
 
       try {
         await searchIeloveForCustomer(dedicatedIeloveTabId, customer, seenIds, searchId);
@@ -361,7 +363,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
   const maxPages = 5;
   let searchUrl = buildIeloveSearchUrl(customer, 1);
 
-  await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: 検索URL構築完了` });
+  await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: 検索URL → ${searchUrl}` });
 
   for (let page = 1; page <= maxPages; page++) {
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');

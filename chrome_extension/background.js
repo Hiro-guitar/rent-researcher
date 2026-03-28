@@ -79,6 +79,22 @@ async function loadLineNameMap() {
   return cachedLineNameMap;
 }
 
+// 顧客の検索条件を1行の文字列にまとめる
+function formatCustomerCriteria(customer) {
+  const parts = [];
+  if (customer.rent_max) parts.push(`〜${customer.rent_max}万`);
+  const routes = customer.routes || [];
+  const stations = customer.stations || [];
+  if (routes.length) parts.push(`路線: ${routes.join(', ')}`);
+  if (stations.length) parts.push(`駅: ${stations.join(', ')}`);
+  if (customer.walk) parts.push(`徒歩${customer.walk}分`);
+  if (customer.layouts?.length) parts.push(`間取: ${customer.layouts.join('/')}`);
+  if (customer.area_min) parts.push(`面積${customer.area_min}㎡〜`);
+  if (customer.building_age) parts.push(`築${customer.building_age}年`);
+  if (customer.structures?.length) parts.push(`構造: ${customer.structures.join('/')}`);
+  return parts.join(' / ') || '(条件なし)';
+}
+
 let cachedReinsCodeMap = null;
 async function loadReinsCodeMap() {
   if (cachedReinsCodeMap) return cachedReinsCodeMap;
@@ -263,7 +279,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'STOP_SEARCH') {
     currentSearchId++; // 古いサイクルを無効化
-    chrome.storage.local.set({ isSearching: false, debugLog: '検索を中止しました' });
+    chrome.storage.local.set({ isSearching: false });
+    setStorageData({ debugLog: '検索を中止しました' });
     sendResponse({ ok: true });
     return;
   }
@@ -320,10 +337,8 @@ async function runSearchCycle() {
   const searchId = ++currentSearchId;
   // DiscordスレッドIDキャッシュをクリア
   Object.keys(discordThreadIds).forEach(k => delete discordThreadIds[k]);
-  // ログをクリアして新規開始
-  await new Promise(resolve => chrome.storage.local.set({ debugLog: '' }, resolve));
   const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ'].filter(Boolean).join('・');
-  await setStorageData({ isSearching: true, debugLog: `検索開始 (${serviceNames})...` });
+  await setStorageData({ isSearching: true, debugLog: `━━━ 検索開始 (${serviceNames}) ━━━` });
 
   // ログタブを自動オープン（既に開いていればフォーカス）
   await openLogTab();
@@ -378,7 +393,9 @@ async function runSearchCycle() {
           }
 
           const customer = criteria[ci];
+          const cond = formatCustomerCriteria(customer);
           await setStorageData({ debugLog: `[REINS] 顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
+          await setStorageData({ debugLog: `[REINS] 条件: ${cond}` });
           try {
             // 路線が4つ以上ある場合、3つずつに分割して複数回検索
             const rws = customer.routes_with_stations || [];

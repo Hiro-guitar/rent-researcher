@@ -157,7 +157,9 @@
     }
 
     let cls = '';
-    if (body.includes('✓') || body.includes('送信完了') || body.includes('取得完了')) {
+    if (body.includes('━━━')) {
+      cls = 'log-separator';
+    } else if (body.includes('✓') || body.includes('送信完了') || body.includes('取得完了')) {
       cls = 'log-ok';
     } else if (body.includes('✗') || body.includes('スキップ') || body.includes('フィルタ')) {
       cls = 'log-skip';
@@ -179,7 +181,7 @@
     }
 
     const timeHtml = time ? `<span class="log-time">${time}</span> ` : '';
-    const bodyHtml = escapeHtml(body);
+    const bodyHtml = linkifyUrls(escapeHtml(body));
     const html = `${timeHtml}${tagHtml}<span class="${cls}">${bodyHtml}</span>`;
 
     return { html, tag, text: raw };
@@ -187,6 +189,10 @@
 
   function escapeHtml(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function linkifyUrls(escaped) {
+    return escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" style="color:#569cd6;text-decoration:underline">$1</a>');
   }
 
   function getActiveFilters() {
