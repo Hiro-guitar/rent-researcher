@@ -17,7 +17,7 @@ function replyMessage(replyToken, messages) {
     Logger.log('[DRY_RUN] replyMessage: ' + JSON.stringify(messages));
     return;
   }
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+  var resp = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'post',
     headers: {
       'Content-Type': 'application/json',
@@ -26,8 +26,19 @@ function replyMessage(replyToken, messages) {
     payload: JSON.stringify({
       replyToken: replyToken,
       messages: messages
-    })
+    }),
+    muteHttpExceptions: true
   });
+  var code = resp.getResponseCode();
+  if (code !== 200) {
+    var body = resp.getContentText();
+    try {
+      var debugSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('debug_log');
+      if (!debugSheet) debugSheet = SpreadsheetApp.openById(SPREADSHEET_ID).insertSheet('debug_log');
+      debugSheet.appendRow([new Date(), 'replyMessage ERROR', code, body, JSON.stringify(messages).substring(0, 1000)]);
+    } catch(e2) {}
+    throw new Error('LINE reply failed: ' + code + ' ' + body);
+  }
 }
 
 /**
@@ -195,19 +206,24 @@ function qrDatepicker(label, data, mode, initial, min, max) {
  * Quick Reply ではなくインラインボタンを使用し、
  * スクロールしなくてもボタンが見えるようにする。
  * @param {string} details - 条件の詳細テキスト
+ * @param {boolean} [isEdit] - 条件変更モードの場合 true
  * @return {Object} LINE Flex Message object
  */
-function buildConfirmFlex(details) {
+function buildConfirmFlex(details, isEdit) {
+  var headerText = isEdit ? '以下の条件に変更します。' : '以下の条件で登録します。';
+  var altText = isEdit ? '以下の条件に変更します' : '以下の条件で登録します';
+  var buttonLabel = isEdit ? '変更を保存' : '登録する';
+
   return {
     type: 'flex',
-    altText: '以下の条件で登録します',
+    altText: altText,
     contents: {
       type: 'bubble',
       body: {
         type: 'box',
         layout: 'vertical',
         contents: [
-          { type: 'text', text: '以下の条件で登録します。', weight: 'bold', size: 'lg', wrap: true },
+          { type: 'text', text: headerText, weight: 'bold', size: 'lg', wrap: true },
           { type: 'separator', margin: 'lg' },
           { type: 'text', text: details.trim(), wrap: true, size: 'sm', margin: 'lg', color: '#333333' }
         ]
@@ -221,7 +237,7 @@ function buildConfirmFlex(details) {
             type: 'button',
             style: 'primary',
             color: '#06C755',
-            action: { type: 'postback', label: '登録する', data: 'confirm_ok', displayText: '登録する' }
+            action: { type: 'postback', label: buttonLabel, data: 'confirm_ok', displayText: buttonLabel }
           },
           {
             type: 'button',
