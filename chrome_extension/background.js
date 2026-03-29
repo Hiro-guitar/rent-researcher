@@ -2132,6 +2132,15 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     if (equip.includes('プロパン') || equip.includes('lpガス')) {
       warnings.push('⚠️ プロパンガスかどうか確認してください');
     }
+    if (equip.includes('オートロック')) {
+      warnings.push('⚠️ オートロックかどうか確認してください');
+    }
+    if (equip.includes('tvモニタ') || equip.includes('モニター付') || equip.includes('モニタ付') || equip.includes('tvインターホン') || equip.includes('tvインターフォン')) {
+      warnings.push('⚠️ TVモニタ付きインターホンかどうか確認してください');
+    }
+    if (equip.includes('防犯カメラ')) {
+      warnings.push('⚠️ 防犯カメラかどうか確認してください');
+    }
   }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);

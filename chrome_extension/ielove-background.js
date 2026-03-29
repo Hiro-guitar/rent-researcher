@@ -434,6 +434,27 @@ function getIeloveFilterRejectReason(prop, customer) {
         return 'プロパンガスなし';
       }
     }
+
+    // オートロック
+    if (equip.includes('オートロック')) {
+      if (!fac.includes('オートロック')) {
+        return 'オートロックなし';
+      }
+    }
+
+    // TVモニタ付きインターホン
+    if (equip.includes('tvモニタ') || equip.includes('モニター付') || equip.includes('モニタ付') || equip.includes('tvインターホン') || equip.includes('tvインターフォン')) {
+      if (!fac.includes('TVインターホン') && !fac.includes('ＴＶインターホン') && !fac.includes('モニター付') && !fac.includes('モニタ付')) {
+        return 'TVモニタ付きインターホンなし';
+      }
+    }
+
+    // 防犯カメラ
+    if (equip.includes('防犯カメラ')) {
+      if (!fac.includes('防犯カメラ')) {
+        return '防犯カメラなし';
+      }
+    }
   }
 
   // 階数フィルタ（2階以上、1階のみ）
