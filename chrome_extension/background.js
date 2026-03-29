@@ -292,7 +292,13 @@ function setupAlarm(intervalMinutes) {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'reins-search') {
-    runSearchCycle();
+    chrome.storage.local.get(['autoSearchEnabled'], (data) => {
+      if (data.autoSearchEnabled === false) {
+        console.log('[system] 自動検索が無効のためスキップ');
+        return;
+      }
+      runSearchCycle();
+    });
   }
 });
 

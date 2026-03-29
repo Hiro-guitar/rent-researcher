@@ -75,10 +75,11 @@
   }
 
   function loadServiceSettings() {
-    chrome.storage.local.get(['enabledServices'], (data) => {
+    chrome.storage.local.get(['enabledServices', 'autoSearchEnabled'], (data) => {
       const services = data.enabledServices || { reins: true, ielove: true };
       document.getElementById('enableReins').checked = services.reins;
       document.getElementById('enableIelove').checked = services.ielove;
+      document.getElementById('autoSearchEnabled').checked = data.autoSearchEnabled !== false;
     });
   }
 
@@ -87,7 +88,8 @@
       reins: document.getElementById('enableReins').checked,
       ielove: document.getElementById('enableIelove').checked,
     };
-    chrome.storage.local.set({ enabledServices }, callback);
+    const autoSearchEnabled = document.getElementById('autoSearchEnabled').checked;
+    chrome.storage.local.set({ enabledServices, autoSearchEnabled }, callback);
   }
 
   // Dashboard events
@@ -128,6 +130,7 @@
 
   document.getElementById('enableReins').addEventListener('change', () => saveServiceSettings());
   document.getElementById('enableIelove').addEventListener('change', () => saveServiceSettings());
+  document.getElementById('autoSearchEnabled').addEventListener('change', () => saveServiceSettings());
 
   // Init dashboard
   loadDashboardStatus();
