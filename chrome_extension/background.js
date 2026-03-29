@@ -2032,6 +2032,11 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     lines.push(`\`\`\`ansi\n\u001b[0;33m${ansiText}\u001b[0m\n\`\`\``);
   }
 
+  // 詳細ページURL
+  if (prop.url) {
+    lines.push(`🔗 [詳細ページ](${prop.url})`);
+  }
+
   // 承認リンク
   if (gasWebappUrl && customerName) {
     const approveUrl = `${gasWebappUrl}?action=approve&customer=${encodeURIComponent(customerName)}&room_id=${prop.room_id}`;
