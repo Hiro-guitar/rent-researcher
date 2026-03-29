@@ -371,6 +371,69 @@ function getIeloveFilterRejectReason(prop, customer) {
         return 'カウンターキッチンなし';
       }
     }
+
+    // 駐輪場
+    if (equip.includes('駐輪場')) {
+      if (!fac.includes('駐輪場')) {
+        return '駐輪場なし';
+      }
+    }
+
+    // エレベーター
+    if (equip.includes('エレベーター') || equip.includes('ev')) {
+      if (!fac.includes('エレベーター')) {
+        return 'エレベーターなし';
+      }
+    }
+
+    // 宅配ボックス
+    if (equip.includes('宅配ボックス') || equip.includes('宅配box')) {
+      if (!fac.includes('宅配ボックス')) {
+        return '宅配ボックスなし';
+      }
+    }
+
+    // 敷地内ゴミ置場
+    if (equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) {
+      if (!fac.includes('ごみ置き場') && !fac.includes('ゴミ置き場') && !fac.includes('ごみ置場') && !fac.includes('ゴミ置場')) {
+        return '敷地内ゴミ置場なし';
+      }
+    }
+
+    // バルコニー
+    if (equip.includes('バルコニー') && !equip.includes('ルーフバルコニー')) {
+      if (!fac.includes('バルコニー')) {
+        return 'バルコニーなし';
+      }
+    }
+
+    // ルーフバルコニー
+    if (equip.includes('ルーフバルコニー')) {
+      if (!fac.includes('ルーフバルコニー')) {
+        return 'ルーフバルコニーなし';
+      }
+    }
+
+    // 専用庭
+    if (equip.includes('専用庭')) {
+      if (!fac.includes('専用庭')) {
+        return '専用庭なし';
+      }
+    }
+
+    // 都市ガス
+    if (equip.includes('都市ガス')) {
+      if (!fac.includes('都市ガス')) {
+        return '都市ガスなし';
+      }
+    }
+
+    // プロパンガス
+    if (equip.includes('プロパン') || equip.includes('lpガス')) {
+      if (!fac.includes('プロパン') && !fac.includes('LPガス') && !fac.includes('ＬＰガス')) {
+        return 'プロパンガスなし';
+      }
+    }
   }
 
   // 階数フィルタ（2階以上、1階のみ）

@@ -2105,6 +2105,33 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     if (equip.includes('カウンターキッチン')) {
       warnings.push('⚠️ カウンターキッチンかどうか確認してください');
     }
+    if (equip.includes('駐輪場')) {
+      warnings.push('⚠️ 駐輪場ありかどうか確認してください');
+    }
+    if (equip.includes('エレベーター') || equip.includes('ev')) {
+      warnings.push('⚠️ エレベーターかどうか確認してください');
+    }
+    if (equip.includes('宅配ボックス') || equip.includes('宅配box')) {
+      warnings.push('⚠️ 宅配ボックスかどうか確認してください');
+    }
+    if (equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) {
+      warnings.push('⚠️ 敷地内ゴミ置場かどうか確認してください');
+    }
+    if (equip.includes('バルコニー') && !equip.includes('ルーフバルコニー')) {
+      warnings.push('⚠️ バルコニー付きかどうか確認してください');
+    }
+    if (equip.includes('ルーフバルコニー')) {
+      warnings.push('⚠️ ルーフバルコニー付きかどうか確認してください');
+    }
+    if (equip.includes('専用庭')) {
+      warnings.push('⚠️ 専用庭かどうか確認してください');
+    }
+    if (equip.includes('都市ガス')) {
+      warnings.push('⚠️ 都市ガスかどうか確認してください');
+    }
+    if (equip.includes('プロパン') || equip.includes('lpガス')) {
+      warnings.push('⚠️ プロパンガスかどうか確認してください');
+    }
   }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
