@@ -2051,6 +2051,9 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('南向き') && !prop.sunlight) {
     warnings.push('⚠️ 南向き条件あり: 採光面情報なしのため要確認');
   }
+  if (equip.includes('角部屋') && !prop.facilities) {
+    warnings.push('⚠️ 角部屋条件あり: 設備情報なしのため要確認');
+  }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
   if (moveInWarning) {
