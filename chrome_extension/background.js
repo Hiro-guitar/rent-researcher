@@ -2141,6 +2141,21 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     if (equip.includes('防犯カメラ')) {
       warnings.push('⚠️ 防犯カメラかどうか確認してください');
     }
+    if (equip.includes('ペット')) {
+      warnings.push('⚠️ ペット可かどうか確認してください');
+    }
+    if (equip.includes('楽器')) {
+      warnings.push('⚠️ 楽器可かどうか確認してください');
+    }
+    if (equip.includes('事務所')) {
+      warnings.push('⚠️ 事務所利用可かどうか確認してください');
+    }
+    if (equip.includes('ルームシェア')) {
+      warnings.push('⚠️ ルームシェア可かどうか確認してください');
+    }
+    if (equip.includes('高齢者')) {
+      warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
+    }
   }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);

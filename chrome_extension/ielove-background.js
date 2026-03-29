@@ -487,6 +487,56 @@ function getIeloveFilterRejectReason(prop, customer) {
         return '防犯カメラなし';
       }
     }
+
+    // ペット相談可（ペット不可なら明確にスキップ。ペット相談/ペット可/小型犬可/大型犬可/猫可ならOK）
+    if (equip.includes('ペット')) {
+      if (fac.includes('ペット不可')) {
+        return 'ペット不可';
+      }
+      if (!fac.includes('ペット相談') && !fac.includes('ペット可') && !fac.includes('小型犬可') && !fac.includes('大型犬可') && !fac.includes('猫可')) {
+        return 'ペット可の記載なし';
+      }
+    }
+
+    // 楽器相談可（楽器不可なら明確にスキップ。楽器相談可/楽器可ならOK）
+    if (equip.includes('楽器')) {
+      if (fac.includes('楽器不可')) {
+        return '楽器不可';
+      }
+      if (!fac.includes('楽器相談') && !fac.includes('楽器可')) {
+        return '楽器可の記載なし';
+      }
+    }
+
+    // 事務所利用可（事務所不可なら明確にスキップ）
+    if (equip.includes('事務所')) {
+      if (fac.includes('事務所不可')) {
+        return '事務所利用不可';
+      }
+      if (!fac.includes('事務所可') && !fac.includes('事務所相談')) {
+        return '事務所利用可の記載なし';
+      }
+    }
+
+    // ルームシェア可（ルームシェア不可なら明確にスキップ）
+    if (equip.includes('ルームシェア')) {
+      if (fac.includes('ルームシェア不可')) {
+        return 'ルームシェア不可';
+      }
+      if (!fac.includes('ルームシェア可') && !fac.includes('ルームシェア相談')) {
+        return 'ルームシェア可の記載なし';
+      }
+    }
+
+    // 高齢者歓迎（高齢者不可なら明確にスキップ）
+    if (equip.includes('高齢者')) {
+      if (fac.includes('高齢者不可')) {
+        return '高齢者不可';
+      }
+      if (!fac.includes('高齢者相談') && !fac.includes('高齢者歓迎') && !fac.includes('高齢者可')) {
+        return '高齢者歓迎の記載なし';
+      }
+    }
   }
 
   // 階数フィルタ（2階以上、1階のみ）
