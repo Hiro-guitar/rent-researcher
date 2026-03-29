@@ -96,6 +96,19 @@ function buildIeloveSearchUrl(customer, page = 1) {
 /**
  * 顧客の駅名リストをいえらぶ駅コードに変換する。
  */
+// フォーム駅名 → いえらぶ駅名の表記揺れマッピング
+const IELOVE_STATION_NAME_MAP = {
+  '南阿佐ヶ谷': '南阿佐ケ谷',
+  '明治神宮前〈原宿〉': '明治神宮前',
+  '南町田グランベリーパーク': '南町田グランベリーＰ',
+  '保土ヶ谷': '保土ケ谷',
+  '新線新宿': '新宿',
+  '羽田空港第3ターミナル': '羽田第３ターミナル',
+  '羽田空港第1・第2ターミナル': '羽田第１・第２ターミナル',
+  '羽田空港第1ターミナル': '羽田第１ターミナル',
+  '羽田空港第2ターミナル': '羽田第２ターミナル',
+};
+
 function resolveIeloveStationCodes(customer) {
   const codes = [];
   // routes_with_stations から全駅名を取得
@@ -112,7 +125,9 @@ function resolveIeloveStationCodes(customer) {
   for (const name of stationNames) {
     // 「駅」を除去して検索
     const cleanName = name.replace(/駅$/, '');
-    const code = IELOVE_STATION_CODES[cleanName] || IELOVE_STATION_CODES[name];
+    // 表記揺れマッピングを適用
+    const mappedName = IELOVE_STATION_NAME_MAP[cleanName] || cleanName;
+    const code = IELOVE_STATION_CODES[mappedName] || IELOVE_STATION_CODES[cleanName] || IELOVE_STATION_CODES[name];
     if (code) {
       codes.push(code);
     } else {
