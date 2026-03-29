@@ -355,6 +355,7 @@ async function runSearchCycle() {
   const searchId = ++currentSearchId;
   // DiscordスレッドIDキャッシュをクリア
   Object.keys(discordThreadIds).forEach(k => delete discordThreadIds[k]);
+  Object.keys(discordPropertyCounters).forEach(k => delete discordPropertyCounters[k]);
   const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ'].filter(Boolean).join('・');
   await setStorageData({ isSearching: true, debugLog: `━━━ 検索開始 (${serviceNames}) ━━━` });
 
@@ -1703,6 +1704,8 @@ function showNotification(title, message) {
 
 // 顧客ごとのDiscordスレッドID（検索サイクル中に保持）
 const discordThreadIds = {};
+// 顧客ごとのDiscord物件通し番号（検索サイクル中に保持）
+const discordPropertyCounters = {};
 
 function buildSearchInfo(customer) {
   const lines = ['📋 **検索条件**', '━━━━━━━━━━'];
@@ -1803,9 +1806,11 @@ async function sendDiscordNotification(customerName, properties, customer) {
       }
     }
 
-    // 物件ごとに送信
+    // 物件ごとに送信（顧客ごとの通し番号）
+    if (!discordPropertyCounters[customerName]) discordPropertyCounters[customerName] = 0;
     for (let i = 0; i < properties.length; i++) {
-      const msg = buildDiscordMessage(properties[i], i + 1, gasWebappUrl, customerName, customer);
+      discordPropertyCounters[customerName]++;
+      const msg = buildDiscordMessage(properties[i], discordPropertyCounters[customerName], gasWebappUrl, customerName, customer);
       await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg });
       if (i < properties.length - 1) await sleep(1000);
     }
