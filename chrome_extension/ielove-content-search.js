@@ -227,6 +227,8 @@
     const sm = text.match(stationRe);
     if (sm) {
       let rawStation = sm[1];
+      // 余分な空白を圧縮（「駅　　　　徒歩」→「駅 徒歩」）
+      rawStation = rawStation.replace(/\s+/g, ' ');
       // 住所末尾（丁目・番地・号）が路線名に混入するのを除去
       station = rawStation.replace(/^[丁目番地号]+/, '');
 

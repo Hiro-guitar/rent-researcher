@@ -1976,6 +1976,11 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   const sourceTag = prop.source === 'ielove' ? 'いえらぶ' : 'REINS';
   const lines = [`**${index}. ${title}** \`[${sourceTag}]\``];
 
+  // 検索URL（いえらぶ等、search_urlがある場合）
+  if (prop.search_url) {
+    lines.push(`🔍 [検索結果](${prop.search_url})`);
+  }
+
   // 賃料
   let rentStr = `💰 **${fmtMan(prop.rent)}万円**`;
   if (prop.management_fee) {

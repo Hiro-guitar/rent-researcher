@@ -474,6 +474,9 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
+      // 検索URLを物件に付与（Discord通知用）
+      prop.search_url = searchUrl;
+
       // property_data_json を構築（GAS承認ページ用）
       prop.property_data_json = JSON.stringify(buildPropertyDataJson(prop));
 
