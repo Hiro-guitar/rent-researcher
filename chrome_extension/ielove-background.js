@@ -248,9 +248,29 @@ function getIeloveFilterRejectReason(prop, customer) {
     return '申込あり';
   }
 
-  // 定期借家フィルタ
+  // 敷金なし・礼金なし・フリーレントフィルタ
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equip = toHankaku(customer.equipment || '').toLowerCase();
+
+  const isNoneValue = (s) => !s || s === '-' || s === 'なし' || s === '0' || s === '0円' || s === '無' || s.trim() === '';
+
+  if (equip.includes('敷金なし')) {
+    if (!isNoneValue(prop.deposit)) {
+      return `敷金あり: ${prop.deposit}`;
+    }
+  }
+
+  if (equip.includes('礼金なし')) {
+    if (!isNoneValue(prop.key_money)) {
+      return `礼金あり: ${prop.key_money}`;
+    }
+  }
+
+  if (equip.includes('フリーレント')) {
+    if (!prop.free_rent || isNoneValue(prop.free_rent)) {
+      return 'フリーレントなし';
+    }
+  }
 
   if (equip.includes('定期借家除く') || equip.includes('定期借家ng')) {
     if (prop.lease_type && prop.lease_type.includes('定期')) {
