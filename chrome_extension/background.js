@@ -2062,8 +2062,12 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     if (equip.includes('室内洗濯機置場') || equip.includes('室内洗濯')) {
       warnings.push('⚠️ 室内洗濯機置場かどうか確認してください（設備情報が取得できませんでした）');
     }
-    if (equip.includes('ロフト') && !equip.includes('ロフトng') && !equip.includes('ロフト不可')) {
-      warnings.push('⚠️ ロフト付きかどうか確認してください（設備情報が取得できませんでした）');
+    if (equip.includes('ロフト')) {
+      if (equip.includes('ロフトng') || equip.includes('ロフト不可')) {
+        warnings.push('⚠️ ロフトがないか確認してください（設備情報が取得できませんでした）');
+      } else {
+        warnings.push('⚠️ ロフト付きかどうか確認してください（設備情報が取得できませんでした）');
+      }
     }
     if (equip.includes('エアコン')) {
       warnings.push('⚠️ エアコン付きかどうか確認してください（設備情報が取得できませんでした）');
