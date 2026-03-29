@@ -2057,6 +2057,21 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('角部屋') && !prop.facilities) {
     warnings.push('⚠️ 角部屋かどうか確認してください（設備情報が取得できませんでした）');
   }
+  // 設備系アラート（設備情報なしで通過した場合）
+  if (!prop.facilities) {
+    if (equip.includes('室内洗濯機置場') || equip.includes('室内洗濯')) {
+      warnings.push('⚠️ 室内洗濯機置場かどうか確認してください（設備情報が取得できませんでした）');
+    }
+    if (equip.includes('ロフト') && !equip.includes('ロフトng') && !equip.includes('ロフト不可')) {
+      warnings.push('⚠️ ロフト付きかどうか確認してください（設備情報が取得できませんでした）');
+    }
+    if (equip.includes('エアコン')) {
+      warnings.push('⚠️ エアコン付きかどうか確認してください（設備情報が取得できませんでした）');
+    }
+    if (equip.includes('床暖房')) {
+      warnings.push('⚠️ 床暖房かどうか確認してください（設備情報が取得できませんでした）');
+    }
+  }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
   if (moveInWarning) {

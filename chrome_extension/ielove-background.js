@@ -265,6 +265,38 @@ function getIeloveFilterRejectReason(prop, customer) {
     }
   }
 
+  // 設備フィルタ（設備情報がある場合のみチェック。ない場合は通過してアラート表示）
+  const fac = prop.facilities || '';
+  if (fac) {
+    // 室内洗濯機置場
+    if (equip.includes('室内洗濯機置場') || equip.includes('室内洗濯')) {
+      if (!fac.includes('室内洗濯機置場') && !fac.includes('室内洗濯置場')) {
+        return '室内洗濯機置場なし';
+      }
+    }
+
+    // ロフト希望
+    if (equip.includes('ロフト') && !equip.includes('ロフトng') && !equip.includes('ロフト不可')) {
+      if (!fac.includes('ロフト')) {
+        return 'ロフトなし';
+      }
+    }
+
+    // エアコン付き
+    if (equip.includes('エアコン')) {
+      if (!fac.includes('エアコン')) {
+        return 'エアコンなし';
+      }
+    }
+
+    // 床暖房
+    if (equip.includes('床暖房')) {
+      if (!fac.includes('床暖房')) {
+        return '床暖房なし';
+      }
+    }
+  }
+
   // 階数フィルタ（2階以上、1階のみ）
   const floorNum = prop.floor || 0;
   const storyNum = parseInt(toHankaku(prop.story_text || '').match(/(\d+)/)?.[1] || '0');
