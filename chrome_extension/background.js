@@ -2043,16 +2043,16 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   const storyNum = parseInt(toHankaku(prop.story_text || '').match(/(\d+)/)?.[1] || '0');
   const warnings = [];
   if (equip.includes('最上階') && (floorNum === 0 || storyNum === 0)) {
-    warnings.push('⚠️ 最上階が確認できません（階数情報なし）');
+    warnings.push('⚠️ 最上階かどうか確認してください（階数情報が取得できませんでした）');
   }
   if ((equip.includes('2階以上') || equip.includes('1階')) && floorNum === 0) {
-    warnings.push('⚠️ 所在階が確認できません');
+    warnings.push('⚠️ 所在階を確認してください（階数情報が取得できませんでした）');
   }
   if (equip.includes('南向き') && !prop.sunlight) {
-    warnings.push('⚠️ 南向きが確認できません（採光面情報なし）');
+    warnings.push('⚠️ 南向きかどうか確認してください（向き情報が取得できませんでした）');
   }
   if (equip.includes('角部屋') && !prop.facilities) {
-    warnings.push('⚠️ 角部屋が確認できません（設備情報なし）');
+    warnings.push('⚠️ 角部屋かどうか確認してください（設備情報が取得できませんでした）');
   }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
