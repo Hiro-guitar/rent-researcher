@@ -295,6 +295,41 @@ function getIeloveFilterRejectReason(prop, customer) {
         return '床暖房なし';
       }
     }
+
+    // バス・トイレ別
+    if (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) {
+      if (!fac.includes('バストイレ別')) {
+        return 'バス・トイレ別なし';
+      }
+    }
+
+    // 独立洗面台
+    if (equip.includes('独立洗面')) {
+      if (!fac.includes('洗面所独立') && !fac.includes('独立洗面')) {
+        return '独立洗面台なし';
+      }
+    }
+
+    // 温水洗浄便座
+    if (equip.includes('温水洗浄便座') || equip.includes('ウォシュレット')) {
+      if (!fac.includes('温水洗浄便座')) {
+        return '温水洗浄便座なし';
+      }
+    }
+
+    // 浴室乾燥機
+    if (equip.includes('浴室乾燥')) {
+      if (!fac.includes('浴室乾燥機') && !fac.includes('浴室乾燥')) {
+        return '浴室乾燥機なし';
+      }
+    }
+
+    // 追い焚き
+    if (equip.includes('追い焚き') || equip.includes('追いだき') || equip.includes('追い炊き')) {
+      if (!fac.includes('追い焚き') && !fac.includes('追いだき')) {
+        return '追い焚き機能なし';
+      }
+    }
   }
 
   // 階数フィルタ（2階以上、1階のみ）

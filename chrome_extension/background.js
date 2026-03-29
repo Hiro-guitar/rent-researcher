@@ -2075,6 +2075,21 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     if (equip.includes('床暖房')) {
       warnings.push('⚠️ 床暖房かどうか確認してください');
     }
+    if (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) {
+      warnings.push('⚠️ バス・トイレ別かどうか確認してください');
+    }
+    if (equip.includes('独立洗面')) {
+      warnings.push('⚠️ 独立洗面台かどうか確認してください');
+    }
+    if (equip.includes('温水洗浄便座') || equip.includes('ウォシュレット')) {
+      warnings.push('⚠️ 温水洗浄便座かどうか確認してください');
+    }
+    if (equip.includes('浴室乾燥')) {
+      warnings.push('⚠️ 浴室乾燥機かどうか確認してください');
+    }
+    if (equip.includes('追い焚き') || equip.includes('追いだき') || equip.includes('追い炊き')) {
+      warnings.push('⚠️ 追い焚き機能かどうか確認してください');
+    }
   }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
