@@ -79,6 +79,18 @@ function buildIeloveSearchUrl(customer, page = 1) {
     }
   }
 
+  // 敷金なし・礼金なし（URLレベルで絞り込み）
+  const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  const equipText = toHankaku(customer.equipment || '').toLowerCase();
+  if (equipText.includes('敷金なし')) {
+    parts.push('skknt/0');
+    parts.push('skuc/1');
+  }
+  if (equipText.includes('礼金なし')) {
+    parts.push('reknt/0');
+    parts.push('reuc/1');
+  }
+
   // ソート (更新が新しい順)
   parts.push('optt/2');
 
