@@ -139,6 +139,7 @@ function resolveIeloveStationCodes(customer) {
 
 /**
  * 築年数を最も近いコードに変換する。
+ * いえらぶUIは20年までだが、URLパラメータでは25/30/35年も有効。
  */
 function resolveIeloveBuildingAge(age) {
   const ageNum = parseInt(String(age).replace(/[^\d]/g, ''));
