@@ -2150,7 +2150,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     if (equip.includes('事務所')) {
       warnings.push('⚠️ 事務所利用可かどうか確認してください');
     }
-    if (equip.includes('ルームシェア')) {
+    if (equip.includes('ルームシェア') || equip.includes('シェアハウス')) {
       warnings.push('⚠️ ルームシェア可かどうか確認してください');
     }
     if (equip.includes('高齢者')) {

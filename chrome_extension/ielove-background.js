@@ -518,12 +518,12 @@ function getIeloveFilterRejectReason(prop, customer) {
       }
     }
 
-    // ルームシェア可（ルームシェア不可なら明確にスキップ）
-    if (equip.includes('ルームシェア')) {
+    // ルームシェア可（ルームシェア不可なら明確にスキップ。シェアハウスも対象）
+    if (equip.includes('ルームシェア') || equip.includes('シェアハウス')) {
       if (fac.includes('ルームシェア不可')) {
         return 'ルームシェア不可';
       }
-      if (!fac.includes('ルームシェア可') && !fac.includes('ルームシェア相談')) {
+      if (!fac.includes('ルームシェア可') && !fac.includes('ルームシェア相談') && !fac.includes('シェアハウス')) {
         return 'ルームシェア可の記載なし';
       }
     }
