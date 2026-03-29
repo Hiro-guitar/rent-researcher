@@ -2043,37 +2043,37 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   const storyNum = parseInt(toHankaku(prop.story_text || '').match(/(\d+)/)?.[1] || '0');
   const warnings = [];
   if (equip.includes('最上階') && (floorNum === 0 || storyNum === 0)) {
-    warnings.push('⚠️ 最上階かどうか確認してください（階数情報が取得できませんでした）');
+    warnings.push('⚠️ 最上階かどうか確認してください');
   }
   if (equip.includes('2階以上') && floorNum === 0) {
-    warnings.push('⚠️ 2階以上かどうか確認してください（階数情報が取得できませんでした）');
+    warnings.push('⚠️ 2階以上かどうか確認してください');
   }
   if (equip.includes('1階') && !equip.includes('2階以上') && floorNum === 0) {
-    warnings.push('⚠️ 1階かどうか確認してください（階数情報が取得できませんでした）');
+    warnings.push('⚠️ 1階かどうか確認してください');
   }
   if (equip.includes('南向き') && !prop.sunlight) {
-    warnings.push('⚠️ 南向きかどうか確認してください（向き情報が取得できませんでした）');
+    warnings.push('⚠️ 南向きかどうか確認してください');
   }
   if (equip.includes('角部屋') && !prop.facilities) {
-    warnings.push('⚠️ 角部屋かどうか確認してください（設備情報が取得できませんでした）');
+    warnings.push('⚠️ 角部屋かどうか確認してください');
   }
   // 設備系アラート（設備情報なしで通過した場合）
   if (!prop.facilities) {
     if (equip.includes('室内洗濯機置場') || equip.includes('室内洗濯')) {
-      warnings.push('⚠️ 室内洗濯機置場かどうか確認してください（設備情報が取得できませんでした）');
+      warnings.push('⚠️ 室内洗濯機置場かどうか確認してください');
     }
     if (equip.includes('ロフト')) {
       if (equip.includes('ロフトng') || equip.includes('ロフト不可')) {
-        warnings.push('⚠️ ロフトがないか確認してください（設備情報が取得できませんでした）');
+        warnings.push('⚠️ ロフトがないか確認してください');
       } else {
-        warnings.push('⚠️ ロフト付きかどうか確認してください（設備情報が取得できませんでした）');
+        warnings.push('⚠️ ロフト付きかどうか確認してください');
       }
     }
     if (equip.includes('エアコン')) {
-      warnings.push('⚠️ エアコン付きかどうか確認してください（設備情報が取得できませんでした）');
+      warnings.push('⚠️ エアコン付きかどうか確認してください');
     }
     if (equip.includes('床暖房')) {
-      warnings.push('⚠️ 床暖房かどうか確認してください（設備情報が取得できませんでした）');
+      warnings.push('⚠️ 床暖房かどうか確認してください');
     }
   }
   // 入居時期アラート
