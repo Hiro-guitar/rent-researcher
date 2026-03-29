@@ -2157,6 +2157,17 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
       warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
     }
   }
+  // 楽器・ルームシェア・高齢者は設備情報があっても記載なしならアラート
+  const fac = prop.facilities || '';
+  if (equip.includes('楽器') && fac && !fac.includes('楽器相談') && !fac.includes('楽器可')) {
+    warnings.push('⚠️ 楽器可かどうか確認してください');
+  }
+  if ((equip.includes('ルームシェア') || equip.includes('シェアハウス')) && fac && !fac.includes('ルームシェア可') && !fac.includes('ルームシェア相談') && !fac.includes('シェアハウス')) {
+    warnings.push('⚠️ ルームシェア可かどうか確認してください');
+  }
+  if (equip.includes('高齢者') && fac && !fac.includes('高齢者相談') && !fac.includes('高齢者歓迎') && !fac.includes('高齢者可')) {
+    warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
+  }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
   if (moveInWarning) {

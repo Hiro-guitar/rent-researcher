@@ -498,13 +498,10 @@ function getIeloveFilterRejectReason(prop, customer) {
       }
     }
 
-    // 楽器相談可（楽器不可なら明確にスキップ。楽器相談可/楽器可ならOK）
+    // 楽器相談可（楽器不可なら明確にスキップ。記載なしは通過してアラート）
     if (equip.includes('楽器')) {
       if (fac.includes('楽器不可')) {
         return '楽器不可';
-      }
-      if (!fac.includes('楽器相談') && !fac.includes('楽器可')) {
-        return '楽器可の記載なし';
       }
     }
 
@@ -518,23 +515,17 @@ function getIeloveFilterRejectReason(prop, customer) {
       }
     }
 
-    // ルームシェア可（ルームシェア不可なら明確にスキップ。シェアハウスも対象）
+    // ルームシェア可（ルームシェア不可なら明確にスキップ。記載なしは通過してアラート）
     if (equip.includes('ルームシェア') || equip.includes('シェアハウス')) {
       if (fac.includes('ルームシェア不可')) {
         return 'ルームシェア不可';
       }
-      if (!fac.includes('ルームシェア可') && !fac.includes('ルームシェア相談') && !fac.includes('シェアハウス')) {
-        return 'ルームシェア可の記載なし';
-      }
     }
 
-    // 高齢者歓迎（高齢者不可なら明確にスキップ）
+    // 高齢者歓迎（高齢者不可なら明確にスキップ。記載なしは通過してアラート）
     if (equip.includes('高齢者')) {
       if (fac.includes('高齢者不可')) {
         return '高齢者不可';
-      }
-      if (!fac.includes('高齢者相談') && !fac.includes('高齢者歓迎') && !fac.includes('高齢者可')) {
-        return '高齢者歓迎の記載なし';
       }
     }
   }
