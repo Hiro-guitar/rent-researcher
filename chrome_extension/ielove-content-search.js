@@ -191,11 +191,14 @@
   }
 
   // === 賃料TDパーサー ===
-  function parseRentTd(text) {
+  function parseRentTd(rawText) {
     let rent = 0;
     let mgmt = 0;
     let address = '';
     let station = '';
+
+    // HTMLのtextContentは大量の空白・改行を含むため正規化
+    const text = rawText.replace(/\s+/g, ' ').trim();
 
     // 賃料
     const rm = text.match(/^([\d,]+)\s*円/);

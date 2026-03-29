@@ -366,6 +366,8 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
 
   const maxPages = 5;
   let searchUrl = buildIeloveSearchUrl(customer, 1);
+  // Discord検索条件メッセージ用にcustomerに検索URLを付与
+  customer.search_url = searchUrl;
 
   await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: 検索URL → ${searchUrl}` });
 
@@ -473,9 +475,6 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}` });
         continue;
       }
-
-      // 検索URLを物件に付与（Discord通知用）
-      prop.search_url = searchUrl;
 
       // property_data_json を構築（GAS承認ページ用）
       prop.property_data_json = JSON.stringify(buildPropertyDataJson(prop));
