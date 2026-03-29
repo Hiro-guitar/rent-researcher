@@ -2168,6 +2168,30 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('高齢者') && fac && !fac.includes('高齢者相談') && !fac.includes('高齢者歓迎') && !fac.includes('高齢者可')) {
     warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
   }
+  // インターネット無料（ネット使用料不要の記載なしならアラート）
+  if (equip.includes('インターネット無料') || equip.includes('ネット無料')) {
+    if (!fac || !fac.includes('ネット使用料不要')) {
+      warnings.push('⚠️ インターネット無料かどうか確認してください');
+    }
+  }
+  // 収納（クロゼット/収納の記載なしならアラート）
+  if (equip.includes('収納') && !equip.includes('ウォークイン') && !equip.includes('シューズ')) {
+    if (!fac || (!fac.includes('クロゼット') && !fac.includes('クローゼット') && !fac.includes('収納'))) {
+      warnings.push('⚠️ 収納があるか確認してください');
+    }
+  }
+  // シューズボックス
+  if (equip.includes('シューズ')) {
+    if (!fac || (!fac.includes('シューズボックス') && !fac.includes('シューズWIC') && !fac.includes('シューズクロゼット'))) {
+      warnings.push('⚠️ シューズボックスがあるか確認してください');
+    }
+  }
+  // ウォークインクローゼット
+  if (equip.includes('ウォークイン')) {
+    if (!fac || (!fac.includes('ウォークインクロゼット') && !fac.includes('ウォークインクローゼット') && !fac.includes('ウォークスルークロゼット'))) {
+      warnings.push('⚠️ ウォークインクローゼットがあるか確認してください');
+    }
+  }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
   if (moveInWarning) {
