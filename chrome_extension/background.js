@@ -170,8 +170,20 @@ function getFilterRejectReason(prop, customer) {
     if (rwsStations.length > 0) allStations = rwsStations;
   }
 
-  if (allStations.length > 0 && prop.station_info) {
-    const transports = prop.station_info.split('/').map(s => s.trim());
+  if (allStations.length > 0) {
+    // メイン駅 + その他交通をすべて結合して判定
+    const transports = [];
+    if (prop.station_info) {
+      transports.push(...prop.station_info.split('/').map(s => s.trim()));
+    }
+    if (prop.other_stations && prop.other_stations.length > 0) {
+      transports.push(...prop.other_stations.map(s => s.trim()));
+    }
+
+    if (transports.length === 0) {
+      return '交通情報なし';
+    }
+
     const walkMax = customer.walk ? parseInt(String(customer.walk).replace(/[^\d]/g, '')) : 0;
 
     const hasMatch = transports.some(transport => {
@@ -187,13 +199,12 @@ function getFilterRejectReason(prop, customer) {
       return true;
     });
     if (!hasMatch) {
+      const allTransportStr = transports.join(' / ');
       if (walkMax > 0) {
-        return `駅/徒歩不一致: ${prop.station_info}（徒歩${walkMax}分以内）`;
+        return `駅/徒歩不一致: ${allTransportStr}（徒歩${walkMax}分以内）`;
       }
-      return `駅不一致: ${prop.station_info}`;
+      return `駅不一致: ${allTransportStr}`;
     }
-  } else if (allStations.length > 0 && !prop.station_info) {
-    return '交通情報なし';
   }
 
   // 南向きフィルタ（バルコニー方向に「南」を含むか判定。情報なしは通過）
