@@ -2090,6 +2090,21 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     if (equip.includes('追い焚き') || equip.includes('追いだき') || equip.includes('追い炊き')) {
       warnings.push('⚠️ 追い焚き機能かどうか確認してください');
     }
+    if (equip.includes('ガスコンロ')) {
+      warnings.push('⚠️ ガスコンロ対応かどうか確認してください');
+    }
+    if (equip.includes('ih')) {
+      warnings.push('⚠️ IHコンロかどうか確認してください');
+    }
+    if (equip.includes('コンロ2口以上') || equip.includes('2口以上') || equip.includes('コンロ２口以上')) {
+      warnings.push('⚠️ コンロ2口以上かどうか確認してください');
+    }
+    if (equip.includes('システムキッチン')) {
+      warnings.push('⚠️ システムキッチンかどうか確認してください');
+    }
+    if (equip.includes('カウンターキッチン')) {
+      warnings.push('⚠️ カウンターキッチンかどうか確認してください');
+    }
   }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);

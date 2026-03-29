@@ -330,6 +330,47 @@ function getIeloveFilterRejectReason(prop, customer) {
         return '追い焚き機能なし';
       }
     }
+
+    // ガスコンロ対応
+    if (equip.includes('ガスコンロ')) {
+      if (!fac.includes('ガスコンロ')) {
+        return 'ガスコンロ非対応';
+      }
+    }
+
+    // IHコンロ
+    if (equip.includes('ih')) {
+      if (!fac.includes('IH') && !fac.includes('ＩＨ')) {
+        return 'IHコンロなし';
+      }
+    }
+
+    // コンロ2口以上
+    if (equip.includes('コンロ2口以上') || equip.includes('2口以上') || equip.includes('コンロ２口以上')) {
+      const conroMatch = fac.match(/コンロ(\d)口/);
+      if (conroMatch) {
+        const count = parseInt(conroMatch[1]);
+        if (count < 2) {
+          return `コンロ${count}口（2口以上希望）`;
+        }
+      } else if (!fac.includes('コンロ')) {
+        return 'コンロ口数不明';
+      }
+    }
+
+    // システムキッチン
+    if (equip.includes('システムキッチン')) {
+      if (!fac.includes('システムキッチン')) {
+        return 'システムキッチンなし';
+      }
+    }
+
+    // カウンターキッチン
+    if (equip.includes('カウンターキッチン')) {
+      if (!fac.includes('カウンターキッチン')) {
+        return 'カウンターキッチンなし';
+      }
+    }
   }
 
   // 階数フィルタ（2階以上、1階のみ）
