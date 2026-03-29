@@ -158,8 +158,11 @@ function resolveIeloveBuildingAge(age) {
 function resolveIeloveLayouts(layouts) {
   const codes = [];
   for (const layout of layouts) {
-    const code = IELOVE_LAYOUT_CODES[layout];
-    if (code) codes.push(code);
+    const entry = IELOVE_LAYOUT_CODES[layout];
+    if (entry) {
+      // 配列（S付き間取り含む）をフラットに追加
+      codes.push(...entry);
+    }
   }
   return codes;
 }
