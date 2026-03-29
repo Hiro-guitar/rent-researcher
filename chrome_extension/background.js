@@ -225,6 +225,14 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // 角部屋フィルタ（設備欄に「角住戸」or「角部屋」を含むか判定。情報なしは通過）
+  if (equip.includes('角部屋')) {
+    const fac = prop.facilities || '';
+    if (fac && !fac.includes('角住戸') && !fac.includes('角部屋')) {
+      return `角部屋でない`;
+    }
+  }
+
   return null; // 合格
 }
 
