@@ -60,8 +60,13 @@ function buildIeloveSearchUrl(customer, page = 1) {
 
   // 築年数
   if (customer.building_age) {
-    const ageCode = resolveIeloveBuildingAge(customer.building_age);
-    if (ageCode) parts.push(`buda/${ageCode}`);
+    const ageStr = String(customer.building_age).trim();
+    if (ageStr === '新築') {
+      parts.push('nscd/1');
+    } else {
+      const ageCode = resolveIeloveBuildingAge(customer.building_age);
+      if (ageCode) parts.push(`buda/${ageCode}`);
+    }
   }
 
   // 間取り
@@ -153,8 +158,11 @@ function resolveIeloveStationCodes(customer) {
  * いえらぶUIは20年までだが、URLパラメータでは25/30/35年も有効。
  */
 function resolveIeloveBuildingAge(age) {
-  const ageNum = parseInt(String(age).replace(/[^\d]/g, ''));
-  if (!ageNum) return '';
+  const ageStr = String(age).trim();
+  // 新築の場合は null を返す（別パラメータ nscd/1 で対応）
+  if (ageStr === '新築') return null;
+  const ageNum = parseInt(ageStr.replace(/[^\d]/g, ''));
+  if (!ageNum) return null;
   const thresholds = Object.keys(IELOVE_BUILDING_AGE_CODES).map(Number).sort((a, b) => a - b);
   let best = '';
   for (const t of thresholds) {
