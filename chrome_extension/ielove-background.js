@@ -96,11 +96,10 @@ function buildIeloveSearchUrl(customer, page = 1) {
 
   // 1ページの表示件数 (最大200)
   parts.push('cnt/200');
+  parts.push('num/200');
 
-  // ページ番号
-  if (page > 1) {
-    parts.push(`page/${page}`);
-  }
+  // ページ番号 (0始まり)
+  parts.push(`page/${page - 1}`);
 
   return parts.join('/') + '/';
 }
