@@ -91,8 +91,8 @@ function buildIeloveSearchUrl(customer, page = 1) {
     parts.push('reuc/1');
   }
 
-  // ソート (更新が新しい順)
-  parts.push('optt/2');
+  // ソート (登録が新しい順)
+  parts.push('order/createTime1');
 
   // 1ページの表示件数 (最大200)
   parts.push('cnt/200');
