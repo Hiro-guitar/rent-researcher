@@ -2255,9 +2255,11 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('家具') || equip.includes('家電')) {
     warnings.push('⚠️ 家具家電付きかどうか確認してください');
   }
-  // バルコニー（REINSには「バルコニー」単体のチェックボックスなし→常にアラート）
+  // バルコニー（REINS表記: ルーフバルコニー/２面バルコニー/両面バルコニー/３面バルコニー）
   if (equip.includes('バルコニー') && !equip.includes('ルーフバルコニー')) {
-    warnings.push('⚠️ バルコニー付きかどうか確認してください');
+    if (!fac.includes('バルコニー')) {
+      warnings.push('⚠️ バルコニー付きかどうか確認してください');
+    }
   }
   // ルーフバルコニー
   if (equip.includes('ルーフバルコニー') && !fac.includes('ルーフバルコニー')) {
