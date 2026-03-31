@@ -76,9 +76,10 @@
 
   function loadServiceSettings() {
     chrome.storage.local.get(['enabledServices', 'autoSearchEnabled'], (data) => {
-      const services = data.enabledServices || { reins: true, ielove: true };
+      const services = data.enabledServices || { reins: true, ielove: true, itandi: true };
       document.getElementById('enableReins').checked = services.reins;
       document.getElementById('enableIelove').checked = services.ielove;
+      document.getElementById('enableItandi').checked = services.itandi !== false;
       document.getElementById('autoSearchEnabled').checked = data.autoSearchEnabled !== false;
     });
   }
@@ -87,6 +88,7 @@
     const enabledServices = {
       reins: document.getElementById('enableReins').checked,
       ielove: document.getElementById('enableIelove').checked,
+      itandi: document.getElementById('enableItandi').checked,
     };
     const autoSearchEnabled = document.getElementById('autoSearchEnabled').checked;
     chrome.storage.local.set({ enabledServices, autoSearchEnabled }, callback);
@@ -130,6 +132,7 @@
 
   document.getElementById('enableReins').addEventListener('change', () => saveServiceSettings());
   document.getElementById('enableIelove').addEventListener('change', () => saveServiceSettings());
+  document.getElementById('enableItandi').addEventListener('change', () => saveServiceSettings());
   document.getElementById('autoSearchEnabled').addEventListener('change', () => saveServiceSettings());
 
   // Init dashboard
@@ -157,6 +160,8 @@
       tag = 'reins';
     } else if (body.startsWith('[いえらぶ]') || body.startsWith('[ielove]')) {
       tag = 'ielove';
+    } else if (body.startsWith('[itandi]') || body.startsWith('[ITANDI]')) {
+      tag = 'itandi';
     }
 
     let cls = '';
@@ -181,6 +186,9 @@
     } else if (tag === 'ielove') {
       tagHtml = '<span class="log-tag tag-ielove">[いえらぶ]</span> ';
       body = body.replace(/^\[いえらぶ\]\s*/, '').replace(/^\[ielove\]\s*/, '');
+    } else if (tag === 'itandi') {
+      tagHtml = '<span class="log-tag tag-itandi">[itandi]</span> ';
+      body = body.replace(/^\[itandi\]\s*/, '').replace(/^\[ITANDI\]\s*/, '');
     }
 
     const timeHtml = time ? `<span class="log-time">${time}</span> ` : '';

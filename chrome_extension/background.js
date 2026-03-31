@@ -12,6 +12,8 @@
 
 // いえらぶBB関連ファイルを読み込み
 importScripts('ielove-config.js', 'ielove-background.js');
+// itandi BB関連ファイルを読み込み
+importScripts('itandi-config.js', 'itandi-background.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {
@@ -479,9 +481,9 @@ async function runSearchCycle() {
   if (isSearching) { console.log('検索中のためスキップ'); return; }
   if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }
 
-  const services = enabledServices || { reins: true, ielove: true };
+  const services = enabledServices || { reins: true, ielove: true, itandi: true };
 
-  if (!services.reins && !services.ielove) {
+  if (!services.reins && !services.ielove && !services.itandi) {
     console.log('有効なサービスがありません');
     return;
   }
@@ -490,7 +492,7 @@ async function runSearchCycle() {
   // DiscordスレッドIDキャッシュをクリア
   Object.keys(discordThreadIds).forEach(k => delete discordThreadIds[k]);
   Object.keys(discordPropertyCounters).forEach(k => delete discordPropertyCounters[k]);
-  const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ'].filter(Boolean).join('・');
+  const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ', services.itandi && 'itandi'].filter(Boolean).join('・');
   await setStorageData({ isSearching: true, debugLog: `━━━ 検索開始 (${serviceNames}) ━━━` });
 
   // ログタブを自動オープン（既に開いていればフォーカス）
@@ -607,6 +609,18 @@ async function runSearchCycle() {
       }
     }
 
+    // === itandi BB検索 ===
+    if (services.itandi) {
+      if (isSearchCancelled(searchId)) return;
+      try {
+        await runItandiSearch(criteria, seenIds, searchId);
+      } catch (err) {
+        if (err.message === 'SEARCH_CANCELLED') return;
+        await setStorageData({ debugLog: `[itandi] 検索エラー: ${err.message}` });
+        logError('[itandi] 検索エラー: ' + err.message);
+      }
+    }
+
     await setStorageData({ lastSearchTime: Date.now() });
   } catch (err) {
     logError('検索サイクルエラー: ' + err.message);
@@ -616,6 +630,7 @@ async function runSearchCycle() {
     if (!isSearchCancelled(searchId)) {
       await closeDedicatedWindow();
       await closeDedicatedIeloveWindow();
+      await closeDedicatedItandiWindow();
     }
     await setStorageData({ isSearching: false });
   }
@@ -2147,7 +2162,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   let title = prop.building_name || '物件情報';
   if (prop.room_number) title += `  ${prop.room_number}`;
 
-  const sourceTag = prop.source === 'ielove' ? 'いえらぶ' : 'REINS';
+  const sourceTag = prop.source === 'ielove' ? 'いえらぶ' : prop.source === 'itandi' ? 'itandi' : 'REINS';
   const lines = [`**${index}. ${title}** \`[${sourceTag}]\``];
 
   // 賃料

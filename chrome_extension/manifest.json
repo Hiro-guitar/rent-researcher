@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "物件自動取得",
   "version": "2.0",
-  "description": "REINS・いえらぶBBから物件情報を定期取得し、GAS経由で承認パイプラインに送信する",
+  "description": "REINS・いえらぶBB・itandi BBから物件情報を定期取得し、GAS経由で承認パイプラインに送信する",
   "permissions": [
     "storage",
     "alarms",
@@ -13,6 +13,9 @@
   "host_permissions": [
     "https://system.reins.jp/*",
     "https://bb.ielove.jp/*",
+    "https://itandibb.com/*",
+    "https://api.itandibb.com/*",
+    "https://itandi-accounts.com/*",
     "https://script.google.com/*",
     "https://script.googleusercontent.com/*"
   ],
@@ -43,6 +46,12 @@
         "https://bb.ielove.jp/ielovebb/rent/detail/*"
       ],
       "js": ["ielove-content-detail.js"]
+    },
+    {
+      "matches": [
+        "https://itandibb.com/rent_rooms/*"
+      ],
+      "js": ["itandi-content-detail.js"]
     }
   ],
   "action": {
