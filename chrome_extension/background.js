@@ -769,6 +769,15 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
           if (reinsLineName === '\u691c\u7d22\u4e0d\u80fd') continue; // 検索不能
 
+          // 丸ノ内線方南町支線の分岐対応: 支線駅がある場合は路線名を切り替え
+          if (lineName === '東京メトロ丸ノ内線' && colonIdx >= 0) {
+            const honanBranchStations = new Set(['中野新橋', '中野富士見町', '方南町']);
+            const stns = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
+            if (stns.some(s => honanBranchStations.has(s))) {
+              reinsLineName = '丸ノ内方南';
+            }
+          }
+
           const ensnCd = reinsCodeMap[reinsLineName];
           if (!ensnCd) continue;
 
@@ -792,6 +801,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               '南町田グランベリーパーク': '南町田グランベリーＰ',
               '東京国際クルーズターミナル': '東京国際クルーズＴ',
               'とうきょうスカイツリー': '東京スカイツリー',
+              '新鎌ケ谷': '新鎌ヶ谷',
             };
             // 路線依存の駅名変換（同名駅が他路線にもある場合）
             const reinsLineStationMap = {
