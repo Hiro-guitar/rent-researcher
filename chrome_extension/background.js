@@ -2308,6 +2308,10 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('高齢者') && !fac.includes('高齢者向け')) {
     warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
   }
+  // フリーレント（REINS表記: フリーレント）
+  if (equip.includes('フリーレント') && !fac.includes('フリーレント')) {
+    warnings.push('⚠️ フリーレントかどうか確認してください');
+  }
   // インターネット無料（REINSには「無料」判定不可→常にアラート）
   if (equip.includes('インターネット無料') || equip.includes('ネット無料')) {
     warnings.push('⚠️ インターネット無料かどうか確認してください');
