@@ -810,7 +810,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
   const filterParts = [];
   if (f['total_rent:lteq']) filterParts.push(`賃料〜${f['total_rent:lteq']/10000}万`);
   if (f['total_rent:gteq']) filterParts.push(`賃料${f['total_rent:gteq']/10000}万〜`);
-  if (f['station_id:in']) filterParts.push(`駅ID: ${f['station_id:in'].length}件`);
+  if (f['station_id:in']) filterParts.push(`駅: ${stationNames.join('・')}(${f['station_id:in'].length}件)`);
   if (f['address:in']) filterParts.push(`エリア: ${f['address:in'].map(a => a.city || '都道府県').join(',')}`);
   if (f['room_layout:in']) filterParts.push(`間取り: ${f['room_layout:in'].join('/')}`);
   if (f['floor_area_amount:gteq']) filterParts.push(`面積${f['floor_area_amount:gteq']}㎡〜`);
