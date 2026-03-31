@@ -318,6 +318,17 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // ガス種別フィルタ（都市ガス希望→プロパンならスキップ、逆も同様。情報なしは通過）
+  {
+    const fac = prop.facilities || '';
+    if (equip.includes('都市ガス') && fac && !fac.includes('都市ガス') && fac.includes('プロパンガス')) {
+      return `プロパンガス物件（都市ガス希望）`;
+    }
+    if ((equip.includes('プロパン') || equip.includes('lpガス')) && fac && !fac.includes('プロパンガス') && fac.includes('都市ガス')) {
+      return `都市ガス物件（プロパンガス希望）`;
+    }
+  }
+
   return null; // 合格
 }
 
@@ -2256,14 +2267,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('専用庭') && !fac.includes('専用庭')) {
     warnings.push('⚠️ 専用庭かどうか確認してください');
   }
-  // 都市ガス
-  if (equip.includes('都市ガス') && !fac.includes('都市ガス')) {
-    warnings.push('⚠️ 都市ガスかどうか確認してください');
-  }
-  // プロパンガス
-  if ((equip.includes('プロパン') || equip.includes('lpガス')) && !fac.includes('プロパンガス')) {
-    warnings.push('⚠️ プロパンガスかどうか確認してください');
-  }
+  // 都市ガス/プロパンガスはフィルタで除外済み（アラート不要）
   // オートロック
   if (equip.includes('オートロック') && !fac.includes('オートロック')) {
     warnings.push('⚠️ オートロックかどうか確認してください');

@@ -463,18 +463,12 @@ function getIeloveFilterRejectReason(prop, customer) {
       }
     }
 
-    // 都市ガス
-    if (equip.includes('都市ガス')) {
-      if (!fac.includes('都市ガス')) {
-        return '都市ガスなし';
-      }
+    // ガス種別フィルタ（都市ガス希望→プロパンならスキップ、逆も同様。情報なしは通過）
+    if (equip.includes('都市ガス') && !fac.includes('都市ガス') && (fac.includes('プロパン') || fac.includes('LPガス') || fac.includes('ＬＰガス'))) {
+      return 'プロパンガス物件（都市ガス希望）';
     }
-
-    // プロパンガス
-    if (equip.includes('プロパン') || equip.includes('lpガス')) {
-      if (!fac.includes('プロパン') && !fac.includes('LPガス') && !fac.includes('ＬＰガス')) {
-        return 'プロパンガスなし';
-      }
+    if ((equip.includes('プロパン') || equip.includes('lpガス')) && !fac.includes('プロパン') && !fac.includes('LPガス') && !fac.includes('ＬＰガス') && fac.includes('都市ガス')) {
+      return '都市ガス物件（プロパンガス希望）';
     }
 
     // オートロック
