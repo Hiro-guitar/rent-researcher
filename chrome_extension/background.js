@@ -562,8 +562,11 @@ async function runSearchCycle() {
     logError('検索サイクルエラー: ' + err.message);
   } finally {
     clearInterval(globalKeepAlive);
-    await closeDedicatedWindow();
-    await closeDedicatedIeloveWindow();
+    // 中止時はタブを閉じない（テスト確認用にタブを残す）
+    if (!isSearchCancelled(searchId)) {
+      await closeDedicatedWindow();
+      await closeDedicatedIeloveWindow();
+    }
     await setStorageData({ isSearching: false });
   }
 }
