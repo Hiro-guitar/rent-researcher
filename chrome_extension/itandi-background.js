@@ -758,7 +758,10 @@ async function runItandiSearch(criteria, seenIds, searchId) {
       if (ci < criteria.length - 1) await sleep(3000);
     }
   } finally {
-    await closeDedicatedItandiWindow();
+    // 中止時はタブを閉じない（確認用に残す。background.jsのfinallyで制御）
+    if (!isSearchCancelled(searchId)) {
+      await closeDedicatedItandiWindow();
+    }
   }
 }
 
