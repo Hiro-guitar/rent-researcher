@@ -216,6 +216,67 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // 間取りフィルタ（REINS検索はタイプ×部屋数のクロス積のため、詳細取得後に正確にフィルタ）
+  if (customer.layouts && customer.layouts.length > 0 && prop.layout) {
+    // REINS間取りタイプをお客さんのカテゴリに正規化
+    // LK→LDK, SK→K, SDK→DK, SLK→LDK, SLDK→LDK
+    const normalizeType = (t) => {
+      const u = t.replace(/\s/g, '').toUpperCase()
+        .replace(/Ｋ/g, 'K').replace(/Ｄ/g, 'D').replace(/Ｌ/g, 'L').replace(/Ｓ/g, 'S');
+      if (u === 'LK') return 'LDK';
+      if (u === 'SK') return 'K';
+      if (u === 'SDK') return 'DK';
+      if (u === 'SLK' || u === 'SLDK') return 'LDK';
+      return u;
+    };
+    // 物件の間取りをパース（例: "2LDK" → rooms=2, type="LDK"）
+    const propLayout = prop.layout.replace(/\s/g, '');
+    const propMatch = propLayout.match(/^(\d+)\s*(.+)$/);
+    let propRooms = 0;
+    let propType = '';
+    if (propMatch) {
+      propRooms = parseInt(propMatch[1]);
+      propType = normalizeType(propMatch[2]);
+    } else if (propLayout.includes('ワンルーム') || propLayout.toUpperCase() === 'R') {
+      propRooms = 1;
+      propType = 'R';
+    }
+
+    if (propRooms > 0 && propType) {
+      const propNormalized = propType === 'R' ? 'ワンルーム' : propRooms + propType;
+      // 顧客の指定間取りリストと照合
+      const allowed = customer.layouts.some(layout => {
+        if (layout.includes('以上')) {
+          // "4K以上" → 4部屋以上かつK/DK/LDK
+          const aboveMatch = layout.replace(/以上/g, '').trim().match(/^(\d+)\s*(.+)$/);
+          if (aboveMatch) {
+            const minRooms = parseInt(aboveMatch[1]);
+            const baseType = normalizeType(aboveMatch[2]);
+            // 「4K以上」= 4部屋以上で、K/DK/LDKいずれか
+            if (propRooms >= minRooms) {
+              if (baseType === 'K') return ['K', 'DK', 'LDK'].includes(propType);
+              if (baseType === 'DK') return ['DK', 'LDK'].includes(propType);
+              return propType === baseType;
+            }
+          }
+          return false;
+        }
+        // 通常の間取り（完全一致）
+        const custMatch = layout.match(/^(\d+)\s*(.+)$/);
+        if (custMatch) {
+          const custRooms = parseInt(custMatch[1]);
+          const custType = normalizeType(custMatch[2]);
+          return propRooms === custRooms && propType === custType;
+        }
+        if (layout.includes('ワンルーム')) return propType === 'R';
+        return false;
+      });
+      if (!allowed) {
+        return `間取り不一致: ${prop.layout}（要求: ${customer.layouts.join(', ')}）`;
+      }
+    }
+  }
+
   // 南向きフィルタ（バルコニー方向に「南」を含むか判定。情報なしは通過）
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equip = toHankaku(customer.equipment || '').toLowerCase();
@@ -694,15 +755,23 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         for (const layout of customerData.layouts) {
           // "1LDK" → rooms=1, type="LDK"
           // "ワンルーム" → rooms=1, type="ワンルーム"
-          const m = layout.match(/^(\d+)\s*(.+)$/);
+          // "4K以上" → rooms=4, type="K", maxRoomsを10に
+          const cleaned = layout.replace(/以上/g, '').trim();
+          const isAbove = layout.includes('以上');
+          const m = cleaned.match(/^(\d+)\s*(.+)$/);
           if (m) {
             const rooms = parseInt(m[1]);
             const typeName = m[2].replace(/\s/g, '').toUpperCase()
               .replace(/Ｋ/g, 'K').replace(/Ｄ/g, 'D').replace(/Ｌ/g, 'L').replace(/Ｓ/g, 'S');
             const code = typeMap[typeName];
             if (code) types.add(code);
+            // 「以上」の場合、同系統の上位タイプも追加（K→DK,LDK等）
+            if (isAbove) {
+              if (typeName === 'K') { types.add('03'); types.add('05'); } // DK, LDK
+              if (typeName === 'DK') { types.add('05'); } // LDK
+            }
             if (rooms < minRooms) minRooms = rooms;
-            if (rooms > maxRooms) maxRooms = rooms;
+            if (isAbove) { maxRooms = 10; } else if (rooms > maxRooms) { maxRooms = rooms; }
           } else if (layout.includes('ワンルーム') || layout.toUpperCase() === 'R') {
             types.add('01');
             if (1 < minRooms) minRooms = 1;
