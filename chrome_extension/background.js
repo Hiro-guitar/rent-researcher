@@ -329,18 +329,18 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
-  // ペット可フィルタ（REINS表記: ペット可/ペット相談。記載なしは除外）
+  // ペット可フィルタ（REINS表記: ペット可/ペット相談。記載なし・設備なしは除外）
   if (equip.includes('ペット')) {
     const fac = prop.facilities || '';
-    if (fac && !fac.includes('ペット可') && !fac.includes('ペット相談')) {
+    if (!fac.includes('ペット可') && !fac.includes('ペット相談')) {
       return `ペット可の記載なし`;
     }
   }
 
-  // 事務所利用可フィルタ（REINS表記: 事務所使用可。記載なしは除外）
+  // 事務所利用可フィルタ（REINS表記: 事務所使用可。記載なし・設備なしは除外）
   if (equip.includes('事務所')) {
     const fac = prop.facilities || '';
-    if (fac && !fac.includes('事務所使用可')) {
+    if (!fac.includes('事務所使用可')) {
       return `事務所利用可の記載なし`;
     }
   }
