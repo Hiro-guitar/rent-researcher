@@ -745,6 +745,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       vr.bkknShbt1 = '03';
 
       // 沿線コードセット
+      const reinsSearchStations = []; // デバッグ用: セットした駅名を記録
       if (stationStr) {
         const parts = stationStr.split('/').map(s => s.trim());
         let slotNum = 0; // 実際にセットした沿線スロット数
@@ -815,8 +816,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
             const stationsInLine = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
             if (stationsInLine.length > 0) {
-              vr[`ekmiFrom${num}`] = toReinsStation(stationsInLine[0]);
-              vr[`ekmiTo${num}`] = toReinsStation(stationsInLine[stationsInLine.length - 1]);
+              const fromStation = toReinsStation(stationsInLine[0]);
+              const toStation = toReinsStation(stationsInLine[stationsInLine.length - 1]);
+              vr[`ekmiFrom${num}`] = fromStation;
+              vr[`ekmiTo${num}`] = toStation;
+              reinsSearchStations.push({ line: reinsLineName, from: fromStation, to: toStation });
+              console.log(`[REINS] 沿線${num} "${reinsLineName}" 駅名セット: From="${fromStation}", To="${toStation}"`);
             }
           }
 
@@ -970,7 +975,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         shzikiFrom: vr.shzikiFrom || '',
         shzikiTo: vr.shzikiTo || '',
         buildingAge: customerData.building_age || '',
-        debugEquip: customerData.equipment || '(empty)'
+        debugEquip: customerData.equipment || '(empty)',
+        reinsSearchStations: reinsSearchStations,
       };
     },
     args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '' }, lineNameMap, reinsCodeMap]
@@ -1041,7 +1047,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         break;
       }
       if (status.type === 'error') {
-        await setStorageData({ debugLog: `${customer.name}: 検索エラー（バリデーション）` });
+        const stationInfo = (setStatus.reinsSearchStations || []).map(s => `${s.line}: ${s.from}〜${s.to}`).join(', ');
+        const msg = `${customer.name}: ⚠️ 検索エラー（バリデーション）駅名不一致の可能性あり [${stationInfo}]`;
+        console.warn(`[REINS] ${msg}`);
+        await setStorageData({ debugLog: msg });
         return;
       }
       if (status.type === 'no_results') {
