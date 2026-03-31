@@ -804,7 +804,23 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
 
   // 検索ペイロード構築
   const payload = buildItandiSearchPayload(customer, stationIds);
-  await setStorageData({ debugLog: `[itandi] ${customer.name}: API検索開始` });
+
+  // 検索条件をログに出力（確認用）
+  const f = payload.filter;
+  const filterParts = [];
+  if (f['total_rent:lteq']) filterParts.push(`賃料〜${f['total_rent:lteq']/10000}万`);
+  if (f['total_rent:gteq']) filterParts.push(`賃料${f['total_rent:gteq']/10000}万〜`);
+  if (f['station_id:in']) filterParts.push(`駅ID: ${f['station_id:in'].length}件`);
+  if (f['address:in']) filterParts.push(`エリア: ${f['address:in'].map(a => a.city || '都道府県').join(',')}`);
+  if (f['room_layout:in']) filterParts.push(`間取り: ${f['room_layout:in'].join('/')}`);
+  if (f['floor_area_amount:gteq']) filterParts.push(`面積${f['floor_area_amount:gteq']}㎡〜`);
+  if (f['building_age:lteq']) filterParts.push(`築${f['building_age:lteq']}年`);
+  if (f['station_walk_minutes:lteq']) filterParts.push(`徒歩${f['station_walk_minutes:lteq']}分`);
+  if (f['structure_type:in']) filterParts.push(`構造: ${f['structure_type:in'].join('/')}`);
+  if (f['option_id:all_in']) filterParts.push(`設備ID: ${f['option_id:all_in'].join(',')}`);
+  if (f['shikikin:eq'] === 0) filterParts.push('敷金なし');
+  if (f['reikin:eq'] === 0) filterParts.push('礼金なし');
+  await setStorageData({ debugLog: `[itandi] ${customer.name}: API検索条件 → ${filterParts.join(' / ') || '(条件なし)'}` });
 
   // ページネーション（最大10ページ = 200件）
   const maxPages = 10;
