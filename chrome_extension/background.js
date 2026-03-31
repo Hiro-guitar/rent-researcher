@@ -163,6 +163,15 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // 賃料＋管理費フィルタ（顧客の rent_max は管理費込みの上限）
+  if (customer.rent_max && prop.rent) {
+    const rentMaxYen = parseFloat(customer.rent_max) * 10000;
+    const totalRent = prop.rent + (prop.management_fee || 0);
+    if (totalRent > rentMaxYen) {
+      return `賃料+管理費超過: ${totalRent}円 > ${rentMaxYen}円（賃料${prop.rent}+管理費${prop.management_fee || 0}）`;
+    }
+  }
+
   // 駅名＋徒歩フィルタ
   let allStations = customer.stations || [];
   if (customer.routes_with_stations && customer.routes_with_stations.length > 0) {
