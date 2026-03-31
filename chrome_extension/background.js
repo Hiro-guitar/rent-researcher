@@ -779,10 +779,34 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
           // 駅名セット（駅指定がある場合、最初と最後の駅をFrom/Toにセット）
           if (colonIdx >= 0) {
+            // REINS駅名マッピング: StationData.jsの駅名 → REINS表示名
+            const reinsStationMap = {
+              '羽田空港第３ターミナル': '羽田第３ターミナル',
+              '羽田空港第3ターミナル': '羽田第３ターミナル',
+              '羽田空港第１・第２ターミナル': '羽田第１・第２タ',
+              '羽田空港第1・第2ターミナル': '羽田第１・第２タ',
+              '羽田空港第１ターミナル': '羽田第１ターミナル',
+              '羽田空港第1ターミナル': '羽田第１ターミナル',
+              '羽田空港第２ターミナル': '羽田第２ターミナル',
+              '羽田空港第2ターミナル': '羽田第２ターミナル',
+              '南町田グランベリーパーク': '南町田グランベリーＰ',
+              '東京国際クルーズターミナル': '東京国際クルーズＴ',
+              'とうきょうスカイツリー': '東京スカイツリー',
+            };
+            // 路線依存の駅名変換（同名駅が他路線にもある場合）
+            const reinsLineStationMap = {
+              '東京モノレール': { '浜松町': 'モノレール浜松町' },
+            };
+            const toReinsStation = (name) => {
+              const lineMap = reinsLineStationMap[lineName];
+              if (lineMap && lineMap[name]) return lineMap[name];
+              return reinsStationMap[name] || name;
+            };
+
             const stationsInLine = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
             if (stationsInLine.length > 0) {
-              vr[`ekmiFrom${num}`] = stationsInLine[0];
-              vr[`ekmiTo${num}`] = stationsInLine[stationsInLine.length - 1];
+              vr[`ekmiFrom${num}`] = toReinsStation(stationsInLine[0]);
+              vr[`ekmiTo${num}`] = toReinsStation(stationsInLine[stationsInLine.length - 1]);
             }
           }
 
