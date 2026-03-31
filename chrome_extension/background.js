@@ -163,6 +163,13 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // 新築フィルタ（顧客が「新築」指定の場合、新築フラグが「新築」の物件のみ通過）
+  if (customer.building_age && String(customer.building_age).includes('新築')) {
+    if (!prop.shinchiku_flag || !prop.shinchiku_flag.includes('新築')) {
+      return `新築でない: 新築フラグ=${prop.shinchiku_flag || 'なし'}`;
+    }
+  }
+
   // 賃料＋管理費フィルタ（顧客の rent_max は管理費込みの上限）
   if (customer.rent_max && prop.rent) {
     const rentMaxYen = parseFloat(customer.rent_max) * 10000;
@@ -796,10 +803,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         vr.snyuMnskFrom = String(customerData.area_min);
       }
 
-      // 築年月（築N年以内 → From年をセット）
+      // 築年月（築N年以内 or 新築 → From年をセット）
       // selectのiValueを変更してVueリアクティブに反映
       if (customerData.building_age) {
-        const ageNum = parseInt(String(customerData.building_age).replace(/[^\d]/g, ''));
+        const ageStr = String(customerData.building_age);
+        const isNewBuild = ageStr.includes('新築');
+        const ageNum = isNewBuild ? 1 : parseInt(ageStr.replace(/[^\d]/g, ''));
         if (ageNum > 0) {
           const now = new Date();
           const fromDate = new Date(now.getFullYear() - ageNum, now.getMonth() + 1, 1);
@@ -1337,6 +1346,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               return getVal('入居可能時期') || getVal('引渡可能時期') || '';
             })(),
             total_units: getVal('[賃貸]棟総戸数') || getVal('総戸数') || '',
+            shinchiku_flag: getVal('新築フラグ') || '',
             reins_property_number: propertyNumber,
             reins_shougo: getVal('商号') || '',
             reins_tel: getVal('電話番号') || '',
