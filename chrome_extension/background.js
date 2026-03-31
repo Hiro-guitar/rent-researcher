@@ -2154,138 +2154,155 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('角部屋') && !prop.facilities) {
     warnings.push('⚠️ 角部屋かどうか確認してください');
   }
-  // 設備系アラート（設備情報なしで通過した場合）
-  if (!prop.facilities) {
-    if (equip.includes('室内洗濯機置場') || equip.includes('室内洗濯')) {
-      warnings.push('⚠️ 室内洗濯機置場かどうか確認してください');
-    }
-    if (equip.includes('ロフト')) {
-      if (equip.includes('ロフトng') || equip.includes('ロフト不可')) {
-        warnings.push('⚠️ ロフトがないか確認してください');
-      } else {
-        warnings.push('⚠️ ロフト付きかどうか確認してください');
-      }
-    }
-    if (equip.includes('エアコン')) {
-      warnings.push('⚠️ エアコン付きかどうか確認してください');
-    }
-    if (equip.includes('床暖房')) {
-      warnings.push('⚠️ 床暖房かどうか確認してください');
-    }
-    if (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) {
-      warnings.push('⚠️ バス・トイレ別かどうか確認してください');
-    }
-    if (equip.includes('独立洗面')) {
-      warnings.push('⚠️ 独立洗面台かどうか確認してください');
-    }
-    if (equip.includes('温水洗浄便座') || equip.includes('ウォシュレット')) {
-      warnings.push('⚠️ 温水洗浄便座かどうか確認してください');
-    }
-    if (equip.includes('浴室乾燥')) {
-      warnings.push('⚠️ 浴室乾燥機かどうか確認してください');
-    }
-    if (equip.includes('追い焚き') || equip.includes('追いだき') || equip.includes('追い炊き')) {
-      warnings.push('⚠️ 追い焚き機能かどうか確認してください');
-    }
-    if (equip.includes('ガスコンロ')) {
-      warnings.push('⚠️ ガスコンロ対応かどうか確認してください');
-    }
-    if (equip.includes('ih')) {
-      warnings.push('⚠️ IHコンロかどうか確認してください');
-    }
-    if (equip.includes('コンロ2口以上') || equip.includes('2口以上') || equip.includes('コンロ２口以上')) {
-      warnings.push('⚠️ コンロ2口以上かどうか確認してください');
-    }
-    if (equip.includes('システムキッチン')) {
-      warnings.push('⚠️ システムキッチンかどうか確認してください');
-    }
-    if (equip.includes('カウンターキッチン')) {
-      warnings.push('⚠️ カウンターキッチンかどうか確認してください');
-    }
-    if (equip.includes('駐輪場')) {
-      warnings.push('⚠️ 駐輪場ありかどうか確認してください');
-    }
-    if (equip.includes('エレベーター') || equip.includes('ev')) {
-      warnings.push('⚠️ エレベーターかどうか確認してください');
-    }
-    if (equip.includes('宅配ボックス') || equip.includes('宅配box')) {
-      warnings.push('⚠️ 宅配ボックスかどうか確認してください');
-    }
-    if (equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) {
-      warnings.push('⚠️ 敷地内ゴミ置場かどうか確認してください');
-    }
-    if (equip.includes('バルコニー') && !equip.includes('ルーフバルコニー')) {
-      warnings.push('⚠️ バルコニー付きかどうか確認してください');
-    }
-    if (equip.includes('ルーフバルコニー')) {
-      warnings.push('⚠️ ルーフバルコニー付きかどうか確認してください');
-    }
-    if (equip.includes('専用庭')) {
-      warnings.push('⚠️ 専用庭かどうか確認してください');
-    }
-    if (equip.includes('都市ガス')) {
-      warnings.push('⚠️ 都市ガスかどうか確認してください');
-    }
-    if (equip.includes('プロパン') || equip.includes('lpガス')) {
-      warnings.push('⚠️ プロパンガスかどうか確認してください');
-    }
-    if (equip.includes('オートロック')) {
-      warnings.push('⚠️ オートロックかどうか確認してください');
-    }
-    if (equip.includes('tvモニタ') || equip.includes('モニター付') || equip.includes('モニタ付') || equip.includes('tvインターホン') || equip.includes('tvインターフォン')) {
-      warnings.push('⚠️ TVモニタ付きインターホンかどうか確認してください');
-    }
-    if (equip.includes('防犯カメラ')) {
-      warnings.push('⚠️ 防犯カメラかどうか確認してください');
-    }
-    if (equip.includes('ペット')) {
-      warnings.push('⚠️ ペット可かどうか確認してください');
-    }
-    if (equip.includes('楽器')) {
-      warnings.push('⚠️ 楽器可かどうか確認してください');
-    }
-    if (equip.includes('事務所')) {
-      warnings.push('⚠️ 事務所利用可かどうか確認してください');
-    }
-    if (equip.includes('ルームシェア') || equip.includes('シェアハウス')) {
-      warnings.push('⚠️ ルームシェア可かどうか確認してください');
-    }
-    if (equip.includes('高齢者')) {
-      warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
+  // 設備系アラート（REINSの実際の設備名で判定。設備情報なし/ありどちらでもチェック）
+  const fac = prop.facilities || '';
+  // 追い焚き（REINS表記: 追焚機能）
+  if ((equip.includes('追い焚き') || equip.includes('追いだき') || equip.includes('追い炊き')) && !fac.includes('追焚機能')) {
+    warnings.push('⚠️ 追い焚き機能かどうか確認してください');
+  }
+  // エレベーター（REINS表記: エレベータ ※長音なし）
+  if ((equip.includes('エレベーター') || equip.includes('ev')) && !fac.includes('エレベータ')) {
+    warnings.push('⚠️ エレベーターかどうか確認してください');
+  }
+  // バス・トイレ別
+  if ((equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別')) {
+    warnings.push('⚠️ バス・トイレ別かどうか確認してください');
+  }
+  // 温水洗浄便座
+  if ((equip.includes('温水洗浄便座') || equip.includes('ウォシュレット')) && !fac.includes('温水洗浄便座')) {
+    warnings.push('⚠️ 温水洗浄便座かどうか確認してください');
+  }
+  // 浴室乾燥機
+  if (equip.includes('浴室乾燥') && !fac.includes('浴室乾燥機')) {
+    warnings.push('⚠️ 浴室乾燥機かどうか確認してください');
+  }
+  // 室内洗濯機置場
+  if ((equip.includes('室内洗濯機置場') || equip.includes('室内洗濯')) && !fac.includes('室内洗濯機置場')) {
+    warnings.push('⚠️ 室内洗濯機置場かどうか確認してください');
+  }
+  // エアコン
+  if (equip.includes('エアコン') && !fac.includes('エアコン')) {
+    warnings.push('⚠️ エアコン付きかどうか確認してください');
+  }
+  // 床暖房
+  if (equip.includes('床暖房') && !fac.includes('床暖房')) {
+    warnings.push('⚠️ 床暖房かどうか確認してください');
+  }
+  // 独立洗面（REINS表記: 洗面台/シャンプードレッサー/洗面所）
+  if (equip.includes('独立洗面') && !fac.includes('洗面台') && !fac.includes('シャンプードレッサー') && !fac.includes('洗面所')) {
+    warnings.push('⚠️ 独立洗面台かどうか確認してください');
+  }
+  // ガスコンロ（REINS表記: ガスコンロ設置可/ガスキッチン）
+  if (equip.includes('ガスコンロ') && !fac.includes('ガスコンロ') && !fac.includes('ガスキッチン')) {
+    warnings.push('⚠️ ガスコンロ対応かどうか確認してください');
+  }
+  // IH（REINS表記: ＩＨクッキングヒーター ※全角）
+  if (equip.includes('ih') && !fac.includes('ＩＨ') && !fac.includes('IH')) {
+    warnings.push('⚠️ IHコンロかどうか確認してください');
+  }
+  // コンロ2口以上（REINSにチェックボックスなし→常にアラート）
+  if (equip.includes('コンロ2口以上') || equip.includes('2口以上') || equip.includes('コンロ２口以上')) {
+    warnings.push('⚠️ コンロ2口以上かどうか確認してください');
+  }
+  // システムキッチン
+  if (equip.includes('システムキッチン') && !fac.includes('システムキッチン')) {
+    warnings.push('⚠️ システムキッチンかどうか確認してください');
+  }
+  // カウンターキッチン
+  if (equip.includes('カウンターキッチン') && !fac.includes('カウンターキッチン')) {
+    warnings.push('⚠️ カウンターキッチンかどうか確認してください');
+  }
+  // 駐輪場
+  if (equip.includes('駐輪場') && !fac.includes('駐輪場')) {
+    warnings.push('⚠️ 駐輪場ありかどうか確認してください');
+  }
+  // 宅配ボックス
+  if ((equip.includes('宅配ボックス') || equip.includes('宅配box')) && !fac.includes('宅配ボックス')) {
+    warnings.push('⚠️ 宅配ボックスかどうか確認してください');
+  }
+  // ゴミ置場（REINS表記: ２４時間ゴミ出し可）
+  if ((equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) && !fac.includes('ゴミ出し')) {
+    warnings.push('⚠️ 敷地内ゴミ置場かどうか確認してください');
+  }
+  // ロフト
+  if (equip.includes('ロフト')) {
+    if (equip.includes('ロフトng') || equip.includes('ロフト不可')) {
+      if (fac.includes('ロフト')) warnings.push('⚠️ ロフト付き物件です（ロフトNG）');
+    } else if (!fac.includes('ロフト')) {
+      warnings.push('⚠️ ロフト付きかどうか確認してください');
     }
   }
-  // 楽器・ルームシェア・高齢者は設備情報があっても記載なしならアラート
-  const fac = prop.facilities || '';
-  if (equip.includes('楽器') && fac && !fac.includes('楽器相談') && !fac.includes('楽器可')) {
+  // バルコニー（REINSには「バルコニー」単体のチェックボックスなし→常にアラート）
+  if (equip.includes('バルコニー') && !equip.includes('ルーフバルコニー')) {
+    warnings.push('⚠️ バルコニー付きかどうか確認してください');
+  }
+  // ルーフバルコニー
+  if (equip.includes('ルーフバルコニー') && !fac.includes('ルーフバルコニー')) {
+    warnings.push('⚠️ ルーフバルコニー付きかどうか確認してください');
+  }
+  // 専用庭
+  if (equip.includes('専用庭') && !fac.includes('専用庭')) {
+    warnings.push('⚠️ 専用庭かどうか確認してください');
+  }
+  // 都市ガス
+  if (equip.includes('都市ガス') && !fac.includes('都市ガス')) {
+    warnings.push('⚠️ 都市ガスかどうか確認してください');
+  }
+  // プロパンガス
+  if ((equip.includes('プロパン') || equip.includes('lpガス')) && !fac.includes('プロパンガス')) {
+    warnings.push('⚠️ プロパンガスかどうか確認してください');
+  }
+  // オートロック
+  if (equip.includes('オートロック') && !fac.includes('オートロック')) {
+    warnings.push('⚠️ オートロックかどうか確認してください');
+  }
+  // TVモニタ付きインターホン（REINS表記: モニター付きインターホン/モニター付きオートロック）
+  if ((equip.includes('tvモニタ') || equip.includes('モニター付') || equip.includes('モニタ付') || equip.includes('tvインターホン') || equip.includes('tvインターフォン')) && !fac.includes('モニター付きインターホン') && !fac.includes('モニター付きオートロック')) {
+    warnings.push('⚠️ TVモニタ付きインターホンかどうか確認してください');
+  }
+  // 防犯カメラ（REINSにチェックボックスなし→常にアラート）
+  if (equip.includes('防犯カメラ')) {
+    warnings.push('⚠️ 防犯カメラかどうか確認してください');
+  }
+  // ペット（REINS表記: ペット可/ペット相談）
+  if (equip.includes('ペット') && !fac.includes('ペット可') && !fac.includes('ペット相談')) {
+    warnings.push('⚠️ ペット可かどうか確認してください');
+  }
+  // 楽器（REINS表記: 楽器使用可/楽器相談）
+  if (equip.includes('楽器') && !fac.includes('楽器使用可') && !fac.includes('楽器相談')) {
     warnings.push('⚠️ 楽器可かどうか確認してください');
   }
-  if ((equip.includes('ルームシェア') || equip.includes('シェアハウス')) && fac && !fac.includes('ルームシェア可') && !fac.includes('ルームシェア相談') && !fac.includes('シェアハウス')) {
+  // 事務所（REINS表記: 事務所使用可）
+  if (equip.includes('事務所') && !fac.includes('事務所使用可')) {
+    warnings.push('⚠️ 事務所利用可かどうか確認してください');
+  }
+  // ルームシェア（REINSにチェックボックスなし→常にアラート）
+  if ((equip.includes('ルームシェア') || equip.includes('シェアハウス')) && !fac.includes('ルームシェア') && !fac.includes('シェアハウス')) {
     warnings.push('⚠️ ルームシェア可かどうか確認してください');
   }
-  if (equip.includes('高齢者') && fac && !fac.includes('高齢者相談') && !fac.includes('高齢者歓迎') && !fac.includes('高齢者可')) {
+  // 高齢者（REINS表記: 高齢者向け）
+  if (equip.includes('高齢者') && !fac.includes('高齢者向け')) {
     warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
   }
-  // インターネット無料（ネット使用料不要の記載なしならアラート）
+  // インターネット無料（REINSには「無料」判定不可→常にアラート）
   if (equip.includes('インターネット無料') || equip.includes('ネット無料')) {
-    if (!fac || !fac.includes('ネット使用料不要')) {
-      warnings.push('⚠️ インターネット無料かどうか確認してください');
-    }
+    warnings.push('⚠️ インターネット無料かどうか確認してください');
   }
-  // 収納（クロゼット/収納の記載なしならアラート）
+  // 収納（REINS表記: 収納スペース/ウォークインクローゼット等）
   if (equip.includes('収納') && !equip.includes('ウォークイン') && !equip.includes('シューズ')) {
-    if (!fac || (!fac.includes('クロゼット') && !fac.includes('クローゼット') && !fac.includes('収納'))) {
+    if (!fac.includes('収納') && !fac.includes('クロゼット') && !fac.includes('クローゼット')) {
       warnings.push('⚠️ 収納があるか確認してください');
     }
   }
-  // シューズボックス
+  // シューズボックス（REINS表記: シューズインクローゼット）
   if (equip.includes('シューズ')) {
-    if (!fac || (!fac.includes('シューズボックス') && !fac.includes('シューズWIC') && !fac.includes('シューズクロゼット'))) {
+    if (!fac.includes('シューズインクローゼット') && !fac.includes('シューズボックス') && !fac.includes('シューズクロゼット')) {
       warnings.push('⚠️ シューズボックスがあるか確認してください');
     }
   }
   // ウォークインクローゼット
   if (equip.includes('ウォークイン')) {
-    if (!fac || (!fac.includes('ウォークインクロゼット') && !fac.includes('ウォークインクローゼット') && !fac.includes('ウォークスルークロゼット'))) {
+    if (!fac.includes('ウォークインクローゼット') && !fac.includes('ウォークインクロゼット') && !fac.includes('ウォークスルークロゼット')) {
       warnings.push('⚠️ ウォークインクローゼットがあるか確認してください');
     }
   }
