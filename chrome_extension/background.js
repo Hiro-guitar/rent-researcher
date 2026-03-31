@@ -713,6 +713,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       const vr = p;
 
       // 条件クリア
+      vr.snckKbn = false;
       for (let n = 1; n <= 3; n++) {
         vr[`ensnCd${n}`] = ''; vr[`ensnRykshu${n}`] = '';
         vr[`ekCdFrom${n}`] = ''; vr[`ekCdTo${n}`] = '';
@@ -851,6 +852,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       if (customerData.building_age) {
         const ageStr = String(customerData.building_age);
         const isNewBuild = ageStr.includes('新築');
+        // 新築の場合は新築区分チェックをON
+        if (isNewBuild) {
+          vr.snckKbn = true;
+        }
         const ageNum = isNewBuild ? 1 : parseInt(ageStr.replace(/[^\d]/g, ''));
         if (ageNum > 0) {
           const now = new Date();
