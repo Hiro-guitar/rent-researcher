@@ -170,16 +170,77 @@ async function resolveItandiStationIds(tabId, customer) {
       continue;
     }
 
-    try {
-      const url = `${ITANDI_STATIONS_API_URL}?name=${encodeURIComponent(cleanName)}`;
-      const data = await itandiApiGet(tabId, url);
-      const stations = data.stations || [];
+    // マッピングテーブルで検索名候補を取得
+    const mappedValue = ITANDI_STATION_NAME_MAP[cleanName];
+    let searchNames;
+    if (Array.isArray(mappedValue)) {
+      searchNames = mappedValue;
+    } else if (mappedValue) {
+      searchNames = [mappedValue];
+    } else {
+      searchNames = [cleanName];
+    }
 
+    try {
       const matched = [];
-      for (const st of stations) {
-        if (st.label !== cleanName) continue;
-        if (prefectureId && st.prefecture_id !== prefectureId) continue;
-        matched.push(st.id);
+
+      for (const searchName of searchNames) {
+        const url = `${ITANDI_STATIONS_API_URL}?name=${encodeURIComponent(searchName)}`;
+        const data = await itandiApiGet(tabId, url);
+        const stations = data.stations || [];
+
+        // 1. 完全一致
+        for (const st of stations) {
+          if (st.label !== searchName) continue;
+          if (prefectureId && st.prefecture_id !== prefectureId) continue;
+          if (!matched.includes(st.id)) matched.push(st.id);
+        }
+
+        if (matched.length > 0) break; // 見つかったら次の候補は試さない
+      }
+
+      // 2. 完全一致で見つからなかった場合、前方一致フォールバック
+      if (matched.length === 0) {
+        const primarySearch = searchNames[0];
+        const url = `${ITANDI_STATIONS_API_URL}?name=${encodeURIComponent(primarySearch)}`;
+        const data = await itandiApiGet(tabId, url);
+        const stations = data.stations || [];
+
+        for (const st of stations) {
+          if (!st.label.startsWith(primarySearch) && !primarySearch.startsWith(st.label)) continue;
+          if (prefectureId && st.prefecture_id !== prefectureId) continue;
+          if (!matched.includes(st.id)) matched.push(st.id);
+        }
+
+        if (matched.length > 0) {
+          console.log(`[itandi] 駅名「${cleanName}」→ 前方一致でマッチ`);
+        }
+      }
+
+      // 3. ケ/ヶ/ガ の表記揺れ自動変換（マッピングテーブルになかった場合）
+      if (matched.length === 0 && /[ケヶが]/.test(cleanName)) {
+        const variants = [
+          cleanName.replace(/[ケヶが]/g, 'ケ'),
+          cleanName.replace(/[ケヶが]/g, 'ヶ'),
+          cleanName.replace(/[ケヶが]/g, 'が'),
+        ].filter(v => v !== cleanName);
+
+        for (const variant of variants) {
+          const url = `${ITANDI_STATIONS_API_URL}?name=${encodeURIComponent(variant)}`;
+          const data = await itandiApiGet(tabId, url);
+          const stations = data.stations || [];
+
+          for (const st of stations) {
+            if (st.label !== variant) continue;
+            if (prefectureId && st.prefecture_id !== prefectureId) continue;
+            if (!matched.includes(st.id)) matched.push(st.id);
+          }
+
+          if (matched.length > 0) {
+            console.log(`[itandi] 駅名「${cleanName}」→「${variant}」で表記揺れマッチ`);
+            break;
+          }
+        }
       }
 
       itandiStationCache[cacheKey] = matched;
