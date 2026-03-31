@@ -852,11 +852,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       if (customerData.building_age) {
         const ageStr = String(customerData.building_age);
         const isNewBuild = ageStr.includes('新築');
-        // 新築の場合は新築区分チェックをON
+        // 新築の場合は新築区分チェックをON（築年月の範囲検索は不要）
         if (isNewBuild) {
           vr.snckKbn = true;
         }
-        const ageNum = isNewBuild ? 1 : parseInt(ageStr.replace(/[^\d]/g, ''));
+        const ageNum = isNewBuild ? 0 : parseInt(ageStr.replace(/[^\d]/g, ''));
         if (ageNum > 0) {
           const now = new Date();
           const fromDate = new Date(now.getFullYear() - ageNum, now.getMonth() + 1, 1);
