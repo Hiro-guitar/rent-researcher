@@ -329,6 +329,30 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // ペット可フィルタ（REINS表記: ペット可/ペット相談。記載なしは除外）
+  if (equip.includes('ペット')) {
+    const fac = prop.facilities || '';
+    if (fac && !fac.includes('ペット可') && !fac.includes('ペット相談')) {
+      return `ペット可の記載なし`;
+    }
+  }
+
+  // 事務所利用可フィルタ（REINS表記: 事務所使用可。記載なしは除外）
+  if (equip.includes('事務所')) {
+    const fac = prop.facilities || '';
+    if (fac && !fac.includes('事務所使用可')) {
+      return `事務所利用可の記載なし`;
+    }
+  }
+
+  // 定期借家を含まないフィルタ（設備に定期借家借地権、またはlease_typeに定期借家）
+  if (equip.includes('定期借家を含まない') || equip.includes('定期借家除く')) {
+    const fac = prop.facilities || '';
+    if (fac.includes('定期借家') || (prop.lease_type && prop.lease_type.includes('定期借家'))) {
+      return `定期借家物件`;
+    }
+  }
+
   return null; // 合格
 }
 
@@ -1327,7 +1351,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             key_money: getVal('礼金') || '',
             facilities: getVal('設備・条件・住宅性能等') || '',
             sunlight: getVal('バルコニー方向') || '',
-            lease_type: getVal('取引態様') || '',
+            lease_type: getVal('建物賃貸借区分') || getVal('取引態様') || '',
             contract_period: getVal('契約期間') || '',
             move_in_date: (() => {
               // 「入居年月」は col-4 と col-8 に分かれている（例: "令和 8年 4月" + "中旬"）
@@ -2288,18 +2312,12 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('防犯カメラ')) {
     warnings.push('⚠️ 防犯カメラかどうか確認してください');
   }
-  // ペット（REINS表記: ペット可/ペット相談）
-  if (equip.includes('ペット') && !fac.includes('ペット可') && !fac.includes('ペット相談')) {
-    warnings.push('⚠️ ペット可かどうか確認してください');
-  }
+  // ペット可はフィルタで除外済み（アラート不要）
   // 楽器（REINS表記: 楽器使用可/楽器相談）
   if (equip.includes('楽器') && !fac.includes('楽器使用可') && !fac.includes('楽器相談')) {
     warnings.push('⚠️ 楽器可かどうか確認してください');
   }
-  // 事務所（REINS表記: 事務所使用可）
-  if (equip.includes('事務所') && !fac.includes('事務所使用可')) {
-    warnings.push('⚠️ 事務所利用可かどうか確認してください');
-  }
+  // 事務所利用可はフィルタで除外済み（アラート不要）
   // ルームシェア（REINSにチェックボックスなし→常にアラート）
   if ((equip.includes('ルームシェア') || equip.includes('シェアハウス')) && !fac.includes('ルームシェア') && !fac.includes('シェアハウス')) {
     warnings.push('⚠️ ルームシェア可かどうか確認してください');
