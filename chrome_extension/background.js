@@ -2269,7 +2269,13 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('専用庭') && !fac.includes('専用庭')) {
     warnings.push('⚠️ 専用庭かどうか確認してください');
   }
-  // 都市ガス/プロパンガスはフィルタで除外済み（アラート不要）
+  // 都市ガス/プロパンガス（不一致はフィルタで除外済み。ガス情報なしの場合はアラート）
+  if (equip.includes('都市ガス') && !fac.includes('都市ガス') && !fac.includes('プロパンガス')) {
+    warnings.push('⚠️ 都市ガスかどうか確認してください');
+  }
+  if ((equip.includes('プロパン') || equip.includes('lpガス')) && !fac.includes('プロパンガス') && !fac.includes('都市ガス')) {
+    warnings.push('⚠️ プロパンガスかどうか確認してください');
+  }
   // オートロック
   if (equip.includes('オートロック') && !fac.includes('オートロック')) {
     warnings.push('⚠️ オートロックかどうか確認してください');
