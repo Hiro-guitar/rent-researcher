@@ -134,9 +134,9 @@ async function itandiApiPost(tabId, url, payload) {
     throw new Error(result?.error || 'API通信エラー');
   }
   if (result.status === 401) throw new Error('ITANDI_LOGIN_REQUIRED');
-  if (result.status === 422) throw new Error('itandi検索パラメータ不正 (422)');
+  if (result.status === 422) throw new Error(`itandi検索パラメータ不正 (422): ${result.body?.substring(0, 200) || ''}`);
   if (result.status === 429) throw new Error('itandiレート制限 (429)');
-  if (result.status !== 200) throw new Error(`itandi APIエラー (${result.status})`);
+  if (result.status !== 200) throw new Error(`itandi APIエラー (${result.status}): ${result.body?.substring(0, 200) || ''}`);
   return JSON.parse(result.body);
 }
 
@@ -725,26 +725,6 @@ async function runItandiSearch(criteria, seenIds, searchId) {
   // 専用タブを作成（API呼び出し＋詳細スクレイピング共用）
   const itandiTab = await findOrCreateDedicatedItandiTab();
   if (!itandiTab) return;
-
-  // API疎通テスト（ログイン確認）
-  try {
-    const testPayload = {
-      aggregation: { bucket_size: 1, field: 'building_id', next_bucket_existance_check: false },
-      filter: { 'address:in': [{ prefecture_id: 13 }] },
-      page: { limit: 1, page: 1 },
-      sort: [{ last_status_opened_at: 'desc' }],
-    };
-    await itandiApiPost(dedicatedItandiTabId, ITANDI_SEARCH_API_URL, testPayload);
-  } catch (err) {
-    if (err.message === 'ITANDI_LOGIN_REQUIRED') {
-      await setStorageData({ debugLog: '[itandi] ログインが必要です。itandibb.comでログインしてください。' });
-      await closeDedicatedItandiWindow();
-      return;
-    }
-    await setStorageData({ debugLog: `[itandi] API接続エラー: ${err.message}` });
-    await closeDedicatedItandiWindow();
-    return;
-  }
 
   try {
     for (let ci = 0; ci < criteria.length; ci++) {
