@@ -310,6 +310,14 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // ロフトNGフィルタ（ロフトがある場合は除外。情報なしは通過→アラートで対応）
+  if (equip.includes('ロフトng') || equip.includes('ロフト不可')) {
+    const fac = prop.facilities || '';
+    if (fac && fac.includes('ロフト')) {
+      return `ロフト付き物件（ロフトNG）`;
+    }
+  }
+
   return null; // 合格
 }
 
@@ -2224,13 +2232,17 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if ((equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) && !fac.includes('ゴミ出し')) {
     warnings.push('⚠️ 敷地内ゴミ置場かどうか確認してください');
   }
-  // ロフト
+  // ロフト（ロフトNGはフィルタで除外済み。設備情報なしの場合のみアラート）
   if (equip.includes('ロフト')) {
     if (equip.includes('ロフトng') || equip.includes('ロフト不可')) {
-      if (fac.includes('ロフト')) warnings.push('⚠️ ロフト付き物件です（ロフトNG）');
+      if (!fac) warnings.push('⚠️ ロフトがないか確認してください（ロフトNG）');
     } else if (!fac.includes('ロフト')) {
       warnings.push('⚠️ ロフト付きかどうか確認してください');
     }
+  }
+  // 家具家電付き（REINSにチェックボックスなし→常にアラート）
+  if (equip.includes('家具') || equip.includes('家電')) {
+    warnings.push('⚠️ 家具家電付きかどうか確認してください');
   }
   // バルコニー（REINSには「バルコニー」単体のチェックボックスなし→常にアラート）
   if (equip.includes('バルコニー') && !equip.includes('ルーフバルコニー')) {
