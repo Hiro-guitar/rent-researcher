@@ -229,7 +229,7 @@ async function _waitForEssquareRender(tabId, timeoutMs) {
   return 'timeout';
 }
 
-// === 検索結果DOMパース ===
+// === 検索結果パース（React Fiber経由） ===
 
 async function _parseEssquareSearchResults(tabId) {
   const results = await chrome.scripting.executeScript({
@@ -237,130 +237,90 @@ async function _parseEssquareSearchResults(tabId) {
     func: () => {
       const properties = [];
 
-      // 物件詳細リンクを起点にパース
-      const detailLinks = document.querySelectorAll('a[href*="/bukken/chintai/search/detail/"]');
+      // data-testclass="bukkenListItem" で物件行を特定
+      const rows = document.querySelectorAll('[data-testclass="bukkenListItem"]');
 
-      for (const link of detailLinks) {
+      for (const row of rows) {
         try {
-          const href = link.getAttribute('href') || '';
-          const uuidMatch = href.match(/detail\/([a-f0-9-]+)/i);
-          if (!uuidMatch) continue;
-          const uuid = uuidMatch[1];
+          // React Fiber から specBukkenView props を取得
+          const fiberKey = Object.keys(row).find(k => k.startsWith('__reactFiber'));
+          if (!fiberKey) continue;
 
-          // リンクの親要素（物件行全体）を探す
-          let row = link;
-          for (let i = 0; i < 8; i++) {
-            if (!row.parentElement) break;
-            row = row.parentElement;
-            // 親が「円」と「㎡」を含んでいれば物件行
-            const rowText = row.innerText || '';
-            if (rowText.includes('円') && (rowText.includes('㎡') || rowText.includes('m²'))) {
+          let fiber = row[fiberKey];
+          let specView = null;
+          for (let i = 0; i < 30; i++) {
+            if (!fiber) break;
+            if (fiber.memoizedProps && fiber.memoizedProps.specBukkenView) {
+              specView = fiber.memoizedProps.specBukkenView;
               break;
             }
+            fiber = fiber.return;
           }
+          if (!specView) continue;
 
-          const rowText = row.innerText || '';
-          const lines = rowText.split('\n').map(s => s.trim()).filter(Boolean);
+          const bv = specView.chinshaku_bukken_view || {};
+          const jv = specView.chinshaku_boshu_joken_view || {};
+          const uuid = bv.chinshaku_bukken_guid;
+          if (!uuid) continue;
 
-          // 賃料パース
-          let rent = 0;
-          let managementFee = 0;
-          const rentMatch = rowText.match(/([\d,]+)\s*円/);
-          if (rentMatch) rent = parseInt(rentMatch[1].replace(/,/g, ''));
-
-          // 管理費（2番目の円テキスト or 「管理費」の後）
-          const allYenMatches = [...rowText.matchAll(/([\d,]+)\s*円/g)];
-          if (allYenMatches.length >= 2) {
-            managementFee = parseInt(allYenMatches[1][1].replace(/,/g, ''));
-          }
-
-          // 面積
-          let area = 0;
-          const areaMatch = rowText.match(/([\d.]+)\s*[㎡m²]/);
-          if (areaMatch) area = parseFloat(areaMatch[1]);
-
-          // 間取り
-          let layout = '';
-          const layoutMatch = rowText.match(/([1-9]\s*[LSDKR]+|ワンルーム)/);
-          if (layoutMatch) layout = layoutMatch[1].replace(/\s/g, '');
-
-          // 物件名（リンクのテキスト or 最初の行）
-          let buildingName = link.textContent.trim() || lines[0] || '';
-          // 物件名が長すぎる場合、最初の適切な行を探す
-          if (buildingName.length > 50) {
-            for (const line of lines) {
-              if (line.length > 2 && line.length < 50 && !line.includes('円') && !line.includes('㎡')) {
-                buildingName = line;
-                break;
-              }
-            }
-          }
-
-          // 住所（「区」「市」「町」を含む行を探す）
-          let address = '';
-          for (const line of lines) {
-            if (/[都道府県]|[区市町村]/.test(line) && line.length < 80) {
-              address = line;
-              break;
-            }
-          }
-
-          // 駅情報（「駅」を含む行）
-          let stationInfo = '';
-          for (const line of lines) {
-            if (line.includes('駅') && line.length < 60) {
-              stationInfo = line;
-              break;
-            }
-          }
-
-          // 部屋番号（物件名末尾の数字パターン）
-          let roomNumber = '';
-          const roomMatch = buildingName.match(/^(.+?)\s+((?:[A-Za-z]?\d[\dA-Za-z\-]*|\d+[A-Za-z][\dA-Za-z\-]*|[A-Za-z]{1,3}))$/);
-          if (roomMatch) {
-            buildingName = roomMatch[1];
-            roomNumber = roomMatch[2];
-          }
-
-          // 敷金・礼金
-          let deposit = '';
-          let keyMoney = '';
-          const depositMatch = rowText.match(/敷金[：:\s]*([^\s/]+)/);
-          if (depositMatch) deposit = depositMatch[1];
-          const keyMoneyMatch = rowText.match(/礼金[：:\s]*([^\s/]+)/);
-          if (keyMoneyMatch) keyMoney = keyMoneyMatch[1];
-
-          // 築年数
+          // 築年数を計算 (shunko_datejun: 202303103 → 2023年)
           let buildingAge = '';
-          const ageMatch = rowText.match(/築(\d+)年/);
-          if (ageMatch) buildingAge = `築${ageMatch[1]}年`;
-          const newMatch = rowText.match(/新築/);
-          if (newMatch && !buildingAge) buildingAge = '新築';
-
-          // 構造
-          let structure = '';
-          const structurePatterns = ['鉄筋コンクリート', '鉄骨鉄筋コンクリート', 'RC造', 'SRC造', '鉄骨造', '軽量鉄骨造', '木造', 'ALC造'];
-          for (const pat of structurePatterns) {
-            if (rowText.includes(pat)) {
-              structure = pat;
-              break;
+          const shunko = specView.shunko_datejun;
+          if (shunko) {
+            const shunkoYear = Math.floor(shunko / 100000);
+            if (shunkoYear > 0) {
+              const age = new Date().getFullYear() - shunkoYear;
+              buildingAge = age <= 0 ? '新築' : `築${age}年`;
             }
+          }
+
+          // 入居可能日
+          let moveInDate = '';
+          const nyukyo = jv.nyukyo_kano_datejun;
+          if (nyukyo) {
+            const y = Math.floor(nyukyo / 100000);
+            const md = nyukyo % 100000;
+            const m = Math.floor(md / 100);
+            const d = md % 100;
+            if (y && m) moveInDate = d ? `${y}/${m}/${d}` : `${y}/${m}`;
+          }
+
+          // 契約種別
+          let leaseType = '';
+          if (jv.chintai_keiyaku_code === 2) leaseType = '定期借家';
+
+          // 更新料
+          let renewalFee = '';
+          if (jv.koshinryo_en) {
+            renewalFee = `${jv.koshinryo_en}円`;
+          } else if (jv.koshinryo_kagetsu) {
+            renewalFee = `${jv.koshinryo_kagetsu}ヶ月`;
           }
 
           properties.push({
             uuid,
-            building_name: buildingName,
-            room_number: roomNumber,
-            address,
-            rent,
-            management_fee: managementFee,
-            deposit,
-            key_money: keyMoney,
-            layout,
-            area,
+            building_name: specView.tatemono_name || '',
+            room_number: specView.heya_kukaku_number || '',
+            address: specView.jusho_full_text || '',
+            rent: jv.chinryo || 0,
+            management_fee: jv.kyoekihi || 0,
+            deposit: jv.shikikin_en ? `${jv.shikikin_en}円` : '',
+            key_money: jv.reikin_en ? `${jv.reikin_en}円` : '',
+            layout: specView.madori_name || '',
+            area: specView.senyu_menseki || 0,
             building_age: buildingAge,
-            station_info: stationInfo,
-            structure,
+            station_info: specView.kotsu_text_1 || '',
+            structure: specView.kozo || '',
+            floor_text: specView.shozaikai || '',
+            floor: parseInt(specView.shozaikai) || 0,
+            total_floors: specView.chijo_kaisu || 0,
+            move_in_date: moveInDate,
+            lease_type: leaseType,
+            renewal_fee: renewalFee,
+            komi_chinryo: jv.komi_chinryo || 0,
+            contract_period: jv.keiyaku_kikan ? `${jv.keiyaku_kikan}年` : '',
+            motozuke: jv.motozuke_gyosha_name || '',
+            sales_point: bv.sales_point || '',
           });
         } catch (e) {
           // パースエラーは個別にスキップ
@@ -714,32 +674,32 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
     if (pageProps.length === 0) break;
 
-    // 各物件にURL等を付与
+    // 各物件にURL等を付与（React Fiberから取得済みフィールドは保持）
     for (const p of pageProps) {
       p.source = 'essquare';
       p.url = `${ESSQUARE_BASE_URL}/bukken/chintai/search/detail/${p.uuid}`;
       p.room_id = p.uuid;
       p.building_id = p.uuid.split('-')[0] || p.uuid;
-      p.image_urls = [];
-      p.facilities = '';
-      p.move_in_date = '';
-      p.lease_type = '';
-      p.listing_status = '';
-      p.floor = 0;
-      p.floor_text = '';
-      p.sunlight = '';
-      p.total_units = '';
-      p.contract_period = '';
-      p.renewal_fee = '';
-      p.key_exchange_fee = '';
-      p.fire_insurance = '';
-      p.guarantee_info = '';
-      p.parking_fee = '';
-      p.free_rent = '';
-      p.other_monthly_fee = '';
-      p.other_onetime_fee = '';
-      p.shikibiki = '';
-      p.layout_detail = '';
+      p.image_urls = p.image_urls || [];
+      p.facilities = p.facilities || '';
+      p.move_in_date = p.move_in_date || '';
+      p.lease_type = p.lease_type || '';
+      p.listing_status = p.listing_status || '';
+      p.floor = p.floor || 0;
+      p.floor_text = p.floor_text || '';
+      p.sunlight = p.sunlight || '';
+      p.total_units = p.total_units || '';
+      p.contract_period = p.contract_period || '';
+      p.renewal_fee = p.renewal_fee || '';
+      p.key_exchange_fee = p.key_exchange_fee || '';
+      p.fire_insurance = p.fire_insurance || '';
+      p.guarantee_info = p.guarantee_info || '';
+      p.parking_fee = p.parking_fee || '';
+      p.free_rent = p.free_rent || '';
+      p.other_monthly_fee = p.other_monthly_fee || '';
+      p.other_onetime_fee = p.other_onetime_fee || '';
+      p.shikibiki = p.shikibiki || '';
+      p.layout_detail = p.layout_detail || '';
     }
 
     allProperties.push(...pageProps);
