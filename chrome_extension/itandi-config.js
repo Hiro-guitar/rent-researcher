@@ -47,7 +47,7 @@ const ITANDI_STRUCTURE_CATEGORY_MAP = {
   '鉄筋系': ['rc', 'src'],
   '鉄骨系': ['steel', 'lightweight_steel'],
   '木造': ['wooden'],
-  'ブロック・その他': ['block', 'alc', 'pc', 'hpc', 'cft'],
+  'ブロック・その他': ['block', 'reinforcing_block', 'alc', 'pc', 'hpc', 'cft'],
 };
 
 // 建物種別: 日本語 → itandi API値
