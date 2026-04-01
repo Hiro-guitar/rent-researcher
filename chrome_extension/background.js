@@ -2466,8 +2466,8 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('フリーレント') && !fac.includes('フリーレント') && (!freeRent || freeRent === 'なし' || freeRent === '-')) {
     warnings.push('⚠️ フリーレントかどうか確認してください');
   }
-  // インターネット無料（REINSには「無料」判定不可→常にアラート）
-  if (equip.includes('インターネット無料') || equip.includes('ネット無料')) {
+  // インターネット無料（REINS: 常にアラート, itandi: インターネット無料, いえらぶ: ネット使用料不要）
+  if ((equip.includes('インターネット無料') || equip.includes('ネット無料')) && !fac.includes('インターネット無料') && !fac.includes('ネット無料') && !fac.includes('ネット使用料不要')) {
     warnings.push('⚠️ インターネット無料かどうか確認してください');
   }
   // 収納（REINS表記: 収納スペース/ウォークインクローゼット等）
