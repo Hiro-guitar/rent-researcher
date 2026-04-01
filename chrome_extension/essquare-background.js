@@ -629,7 +629,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
     const url = buildEssquareSearchUrl(customer, page);
     if (page === 1) {
-      await setStorageData({ debugLog: `[ES-Square] ${customer.name}: 検索URL → ${url.substring(0, 150)}...` });
+      await setStorageData({ debugLog: `[ES-Square] ${customer.name}: 検索URL → ${url}` });
     }
 
     // ページ遷移
