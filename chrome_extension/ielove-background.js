@@ -368,62 +368,22 @@ function getIeloveFilterRejectReason(prop, customer) {
     // システムキッチン → アラート（buildDiscordMessageで処理）
     // カウンターキッチン → アラート（buildDiscordMessageで処理）
 
-    // 駐輪場
-    if (equip.includes('駐輪場')) {
-      if (!fac.includes('駐輪場')) {
-        return '駐輪場なし';
-      }
-    }
+    // 駐輪場 → アラート（buildDiscordMessageで処理）
+    // エレベーター → アラート（buildDiscordMessageで処理）
+    // 宅配ボックス → アラート（buildDiscordMessageで処理）
+    // 敷地内ゴミ置場 → アラート（buildDiscordMessageで処理）
+    // バルコニー → アラート（buildDiscordMessageで処理）
+    // ルーフバルコニー → アラート（buildDiscordMessageで処理）
+    // 専用庭 → アラート（buildDiscordMessageで処理）
 
-    // エレベーター
-    if (equip.includes('エレベーター') || equip.includes('ev')) {
-      if (!fac.includes('エレベーター')) {
-        return 'エレベーターなし';
-      }
-    }
-
-    // 宅配ボックス
-    if (equip.includes('宅配ボックス') || equip.includes('宅配box')) {
-      if (!fac.includes('宅配ボックス')) {
-        return '宅配ボックスなし';
-      }
-    }
-
-    // 敷地内ゴミ置場
-    if (equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) {
-      if (!fac.includes('ごみ置き場') && !fac.includes('ゴミ置き場') && !fac.includes('ごみ置場') && !fac.includes('ゴミ置場')) {
-        return '敷地内ゴミ置場なし';
-      }
-    }
-
-    // バルコニー
-    if (equip.includes('バルコニー') && !equip.includes('ルーフバルコニー')) {
-      if (!fac.includes('バルコニー')) {
-        return 'バルコニーなし';
-      }
-    }
-
-    // ルーフバルコニー
-    if (equip.includes('ルーフバルコニー')) {
-      if (!fac.includes('ルーフバルコニー')) {
-        return 'ルーフバルコニーなし';
-      }
-    }
-
-    // 専用庭
-    if (equip.includes('専用庭')) {
-      if (!fac.includes('専用庭')) {
-        return '専用庭なし';
-      }
-    }
-
-    // ガス種別フィルタ（都市ガス希望→プロパンならスキップ、逆も同様。情報なしは通過）
+    // ガス種別フィルタ（都市ガス希望→プロパンならスキップ、逆も同様。情報なしは通過→アラート）
     if (equip.includes('都市ガス') && !fac.includes('都市ガス') && (fac.includes('プロパン') || fac.includes('LPガス') || fac.includes('ＬＰガス'))) {
       return 'プロパンガス物件（都市ガス希望）';
     }
     if ((equip.includes('プロパン') || equip.includes('lpガス')) && !fac.includes('プロパン') && !fac.includes('LPガス') && !fac.includes('ＬＰガス') && fac.includes('都市ガス')) {
       return '都市ガス物件（プロパンガス希望）';
     }
+    // 都市ガス/プロパン情報なしの場合 → アラート（buildDiscordMessageで処理）
 
     // オートロック
     if (equip.includes('オートロック')) {
