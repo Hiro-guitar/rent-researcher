@@ -22,16 +22,23 @@ let dedicatedIeloveWindowId = null;
 function buildIeloveSearchUrl(customer, page = 1) {
   const parts = [
     `${IELOVE_BASE_URL}/ielovebb/rent/index`,
-    `todofuken/${IELOVE_PREFECTURE_CODE}`,
   ];
 
   // 駅コード
   const stationCodes = resolveIeloveStationCodes(customer);
   if (stationCodes.length > 0) {
-    parts.push(`lineTodofuken/${IELOVE_PREFECTURE_CODE}`);
+    // 駅コードの都道府県プレフィックスを収集（例: "13_1_5" → "13"）
+    const prefectures = [...new Set(stationCodes.map(c => c.split('_')[0]))];
+    for (const pref of prefectures) {
+      parts.push(`todofuken/${pref}`);
+      parts.push(`lineTodofuken/${pref}`);
+    }
     for (const code of stationCodes) {
       parts.push(`station/${code}`);
     }
+  } else {
+    // 駅指定がない場合は東京都デフォルト
+    parts.push(`todofuken/${IELOVE_PREFECTURE_CODE}`);
   }
 
   // 賃料上限 (GASからは万円単位で来る: 例 15 = 15万円)
