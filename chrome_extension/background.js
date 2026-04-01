@@ -2478,13 +2478,13 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   }
   // シューズボックス（REINS表記: シューズインクローゼット）
   if (equip.includes('シューズ')) {
-    if (!fac.includes('シューズインクローゼット') && !fac.includes('シューズボックス') && !fac.includes('シューズクロゼット') && !fac.includes('シューズWIC')) {
+    if (!fac.includes('シューズインクローゼット') && !fac.includes('シューズボックス') && !fac.includes('シューズBOX') && !fac.includes('シューズクロゼット') && !fac.includes('シューズクローク') && !fac.includes('シューズWIC')) {
       warnings.push('⚠️ シューズボックスがあるか確認してください');
     }
   }
   // ウォークインクローゼット
   if (equip.includes('ウォークイン')) {
-    if (!fac.includes('ウォークインクローゼット') && !fac.includes('ウォークインクロゼット') && !fac.includes('ウォークスルークロゼット')) {
+    if (!fac.includes('ウォークインクローゼット') && !fac.includes('ウォークインクロゼット') && !fac.includes('ウォークスルークロゼット') && !fac.includes('WIC')) {
       warnings.push('⚠️ ウォークインクローゼットがあるか確認してください');
     }
   }
