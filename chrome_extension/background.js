@@ -2443,8 +2443,8 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if ((equip.includes('tvモニタ') || equip.includes('モニター付') || equip.includes('モニタ付') || equip.includes('tvインターホン') || equip.includes('tvインターフォン')) && !fac.includes('モニター付') && !fac.includes('TVインターホン') && !fac.includes('ＴＶインターホン') && !fac.includes('TVモニタ')) {
     warnings.push('⚠️ TVモニタ付きインターホンかどうか確認してください');
   }
-  // 防犯カメラ（REINSにチェックボックスなし→常にアラート）
-  if (equip.includes('防犯カメラ')) {
+  // 防犯カメラ（REINSは常にアラート、itandi/いえらぶは防犯カメラで判定）
+  if (equip.includes('防犯カメラ') && !fac.includes('防犯カメラ')) {
     warnings.push('⚠️ 防犯カメラかどうか確認してください');
   }
   // ペット可はフィルタで除外済み（アラート不要）
