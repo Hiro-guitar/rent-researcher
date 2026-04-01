@@ -380,7 +380,7 @@ function getIeloveFilterRejectReason(prop, customer) {
       if (fac.includes('ペット不可')) {
         return 'ペット不可';
       }
-      if (!fac.includes('ペット相談') && !fac.includes('ペット可') && !fac.includes('小型犬可') && !fac.includes('大型犬可') && !fac.includes('猫可')) {
+      if (!fac.includes('ペット相談') && !fac.includes('ペット可') && !fac.includes('ペット対応') && !fac.includes('小型犬可') && !fac.includes('大型犬可') && !fac.includes('猫可')) {
         return 'ペット可の記載なし';
       }
     }
