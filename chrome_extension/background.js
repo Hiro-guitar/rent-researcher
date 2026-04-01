@@ -315,13 +315,7 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
-  // 角部屋フィルタ（設備欄に「角住戸」or「角部屋」を含むか判定。情報なしは通過）
-  if (equip.includes('角部屋')) {
-    const fac = prop.facilities || '';
-    if (fac && !fac.includes('角住戸') && !fac.includes('角部屋')) {
-      return `角部屋でない`;
-    }
-  }
+  // 角部屋 → アラート（buildDiscordMessageで処理）
 
   // ロフトNGフィルタ（ロフトがある場合は除外。情報なしは通過→アラートで対応）
   if (equip.includes('ロフトng') || equip.includes('ロフト不可')) {
@@ -2318,7 +2312,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('南向き') && !prop.sunlight) {
     warnings.push('⚠️ 南向きかどうか確認してください');
   }
-  if (equip.includes('角部屋') && !(prop.facilities || '').includes('角部屋') && !(prop.facilities || '').includes('角住戸')) {
+  if (equip.includes('角部屋') && !(prop.facilities || '').includes('角部屋') && !(prop.facilities || '').includes('角住戸') && !(prop.room_number || '').includes('角部屋')) {
     warnings.push('⚠️ 角部屋かどうか確認してください');
   }
   // 設備系アラート（REINSの実際の設備名で判定。設備情報なし/ありどちらでもチェック）
