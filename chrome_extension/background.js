@@ -1371,6 +1371,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const addr2 = getVal('所在地名２');
           const building = getVal('建物名');
           const roomNumber = getVal('部屋番号');
+          // 部屋番号行の2つ目のcol-sm-4（角部屋等の属性テキスト）
+          const roomAttr = (() => {
+            const el = [...document.querySelectorAll('.p-label-title')].find(e => e.textContent.trim() === '部屋番号');
+            const cols = el?.closest('.p-label')?.parentElement?.querySelectorAll('.col-sm-4');
+            return cols && cols.length > 1 ? cols[1].textContent.trim() : '';
+          })();
           const rentRaw = getVal('賃料');
           const parseFee = (s) => s ? parseFloat(s.replace(/[^\d.]/g, '')) || 0 : 0;
           const mgmtFeeVal = parseFee(getVal('管理費'));
@@ -1465,6 +1471,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               return transports.join(' / ') || ([getVal('沿線名'), getVal('駅名')].filter(Boolean).join(' ') + (getVal('駅から徒歩') ? ' 徒歩' + getVal('駅から徒歩') : ''));
             })(),
             room_number: roomNumber || '',
+            room_attr: roomAttr || '',
             deposit: getVal('敷金') || '',
             key_money: getVal('礼金') || '',
             facilities: getVal('設備・条件・住宅性能等') || '',
@@ -2312,7 +2319,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('南向き') && !prop.sunlight) {
     warnings.push('⚠️ 南向きかどうか確認してください');
   }
-  if (equip.includes('角部屋') && !(prop.facilities || '').includes('角部屋') && !(prop.facilities || '').includes('角住戸') && !(prop.room_number || '').includes('角部屋')) {
+  if (equip.includes('角部屋') && !(prop.facilities || '').includes('角部屋') && !(prop.facilities || '').includes('角住戸') && !(prop.room_attr || '').includes('角部屋')) {
     warnings.push('⚠️ 角部屋かどうか確認してください');
   }
   // 設備系アラート（REINSの実際の設備名で判定。設備情報なし/ありどちらでもチェック）
