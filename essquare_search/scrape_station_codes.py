@@ -44,7 +44,7 @@ while (current && depth < 20) {
             lineCode = props.line.lineCode;
         }
         // 駅リスト（React children 配列）を取得
-        if (Array.isArray(props.children) && props.children.length > 2) {
+        if (Array.isArray(props.children) && props.children.length >= 2) {
             var c0 = props.children[0];
             if (c0 && c0.key && c0.props && c0.props.label && stations.length === 0) {
                 for (var i = 0; i < props.children.length; i++) {
@@ -75,7 +75,13 @@ checkboxes.forEach(function(cb) {
 return JSON.stringify(labels);
 """
 
-PREF_CODE = "13"  # 東京都
+# 都道府県コード
+PREF_CODES: dict[str, str] = {
+    "東京都": "13",
+    "神奈川県": "14",
+    "埼玉県": "11",
+    "千葉県": "12",
+}
 
 
 def _wait_for_modal_content(driver, text_pattern: str, timeout: int = 10):
@@ -117,30 +123,27 @@ def _parse_label(label: str) -> str:
     return re.sub(r"\s*\(\d[\d,]*\)\s*$", "", label).strip()
 
 
-def scrape_all_tokyo_stations(session: EsSquareSession) -> dict:
-    """東京都の全路線・全駅コードをスクレイピングする。
+def _scrape_prefecture_stations(
+    driver, pref_name: str, pref_code: str
+) -> list[dict]:
+    """指定都道府県の全路線・全駅コードをスクレイピングする。
 
     Returns:
-        {
-            "lines": [
-                {
-                    "lineName": "山手線",
-                    "lineCode": 125,
-                    "stations": [
-                        {"name": "大塚", "stationCode": "5547"},
-                        ...
-                    ]
-                },
-                ...
-            ]
-        }
+        [
+            {
+                "lineName": "山手線",
+                "lineCode": 125,
+                "prefCode": "13",
+                "stations": [
+                    {"name": "大塚", "stationCode": "5547"},
+                    ...
+                ]
+            },
+            ...
+        ]
     """
-    driver = session.driver
-    if not driver:
-        raise RuntimeError("セッションが初期化されていません")
-
     # 検索ページにアクセス
-    print("[INFO] 検索ページにアクセス...", file=sys.stderr)
+    print(f"[INFO] 検索ページにアクセス ({pref_name})...", file=sys.stderr)
     driver.get(ESSQUARE_SEARCH_URL)
     time.sleep(4)
 
@@ -155,7 +158,6 @@ def scrape_all_tokyo_stations(session: EsSquareSession) -> dict:
         dropdown.click()
         time.sleep(2)
     except TimeoutException:
-        # 既にモーダルが開いている可能性
         pass
 
     # ── Step 2: 「沿線」タブをクリック ──
@@ -163,9 +165,9 @@ def scrape_all_tokyo_stations(session: EsSquareSession) -> dict:
     _click_by_text(driver, "button", "沿線")
     time.sleep(1)
 
-    # ── Step 3: 東京都を選択 ──
-    print("[INFO] 東京都を選択...", file=sys.stderr)
-    _click_checkbox_by_label(driver, "東京都")
+    # ── Step 3: 都道府県を選択 ──
+    print(f"[INFO] {pref_name}を選択...", file=sys.stderr)
+    _click_checkbox_by_label(driver, pref_name)
     time.sleep(1)
 
     # ── Step 4: 「路線を選択」をクリック ──
@@ -178,10 +180,7 @@ def scrape_all_tokyo_stations(session: EsSquareSession) -> dict:
     line_labels_json = driver.execute_script(JS_GET_LINE_LABELS)
     all_line_labels = json.loads(line_labels_json)
 
-    # 新幹線・東京都外の路線を除外
-    skip_patterns = [
-        "新幹線",
-    ]
+    skip_patterns = ["新幹線"]
     line_labels = []
     for label in all_line_labels:
         name = _parse_label(label)
@@ -202,22 +201,18 @@ def scrape_all_tokyo_stations(session: EsSquareSession) -> dict:
             file=sys.stderr,
         )
 
-        # チェックボックスを選択
         if not _click_checkbox_by_label(driver, line_name):
             print(f"  [WARN] チェックボックスが見つかりません: {line_name}", file=sys.stderr)
             continue
 
-        # 「駅を選択」をクリック
         try:
             _click_by_text(driver, "button", "駅を選択", timeout=5)
             time.sleep(2)
         except TimeoutException:
             print(f"  [WARN] 駅を選択ボタンが見つかりません: {line_name}", file=sys.stderr)
-            # チェック解除
             _click_checkbox_by_label(driver, line_name)
             continue
 
-        # 駅データを抽出
         try:
             result_json = driver.execute_script(JS_EXTRACT_STATIONS)
             result = json.loads(result_json)
@@ -240,6 +235,7 @@ def scrape_all_tokyo_stations(session: EsSquareSession) -> dict:
             all_lines.append({
                 "lineName": line_name,
                 "lineCode": line_code,
+                "prefCode": pref_code,
                 "stations": parsed_stations,
             })
             print(
@@ -247,20 +243,53 @@ def scrape_all_tokyo_stations(session: EsSquareSession) -> dict:
                 file=sys.stderr,
             )
 
-        # 「< 沿線」で路線ページに戻る
         try:
             _click_by_text(driver, "button", "沿線", timeout=5)
             time.sleep(1)
         except TimeoutException:
-            # 戻りボタンが見つからない場合、ブラウザバックで対処
             driver.back()
             time.sleep(2)
 
-        # チェックボックスを解除
         _click_checkbox_by_label(driver, line_name)
         time.sleep(0.3)
 
+    return all_lines
+
+
+def scrape_all_stations(
+    session: EsSquareSession,
+    prefectures: list[str] | None = None,
+) -> dict:
+    """指定都道府県の全路線・全駅コードをスクレイピングする。
+
+    Args:
+        session: ログイン済みセッション
+        prefectures: 対象都道府県リスト (None なら PREF_CODES の全件)
+
+    Returns:
+        {"lines": [ {lineName, lineCode, prefCode, stations}, ... ]}
+    """
+    driver = session.driver
+    if not driver:
+        raise RuntimeError("セッションが初期化されていません")
+
+    targets = prefectures or list(PREF_CODES.keys())
+    all_lines: list[dict] = []
+
+    for pref_name in targets:
+        pref_code = PREF_CODES.get(pref_name)
+        if not pref_code:
+            print(f"[WARN] 未知の都道府県: {pref_name}", file=sys.stderr)
+            continue
+        lines = _scrape_prefecture_stations(driver, pref_name, pref_code)
+        all_lines.extend(lines)
+
     return {"lines": all_lines}
+
+
+def scrape_all_tokyo_stations(session: EsSquareSession) -> dict:
+    """後方互換: 東京都のみスクレイピング。"""
+    return scrape_all_stations(session, prefectures=["東京都"])
 
 
 def generate_station_codes_dict(data: dict) -> dict[str, dict]:
@@ -279,11 +308,12 @@ def generate_station_codes_dict(data: dict) -> dict[str, dict]:
     for line in data["lines"]:
         line_name = line["lineName"]
         line_code = line["lineCode"]
+        pref_code = line.get("prefCode", "13")
         if line_code is None:
             continue
         stations = {}
         for s in line["stations"]:
-            code = f"{PREF_CODE}+{line_code}+{s['stationCode']}"
+            code = f"{pref_code}+{line_code}+{s['stationCode']}"
             stations[s["name"]] = code
         result[line_name] = stations
     return result
@@ -300,7 +330,7 @@ def main():
     session = EsSquareSession(ESSQUARE_EMAIL, ESSQUARE_PASSWORD)
     try:
         session.login()
-        raw_data = scrape_all_tokyo_stations(session)
+        raw_data = scrape_all_stations(session)
 
         # 路線ごとの駅コードを生成
         codes_by_line = generate_station_codes_dict(raw_data)
