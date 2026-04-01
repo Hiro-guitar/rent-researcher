@@ -783,8 +783,18 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           if (reinsLineName === '常磐線' && colonIdx >= 0) {
             const jobanLocalOnly = new Set(['綾瀬', '亀有', '金町', '北松戸', '馬橋', '新松戸', '北小金', '南柏', '北柏']);
             const stns = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
-            if (stns.some(s => jobanLocalOnly.has(s))) {
+            const allLocal = stns.every(s => jobanLocalOnly.has(s));
+            const hasLocal = stns.some(s => jobanLocalOnly.has(s));
+            if (allLocal) {
+              // 全駅が各停のみ → 常磐緩行線
               reinsLineName = '常磐緩行線';
+            } else if (hasLocal) {
+              // 混在（各停駅 + 快速駅）→ 常磐線のまま、各停のみの駅は最寄りの快速停車駅に置換
+              // 常磐緩行線は北千住始点なので、各停のみ駅 → 北千住に置換
+              for (let si = 0; si < stns.length; si++) {
+                if (jobanLocalOnly.has(stns[si])) stns[si] = '北千住';
+              }
+              parts[i] = lineName + '：' + stns.join(',');
             }
           }
 
@@ -792,8 +802,18 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           if (reinsLineName === '中央線' && colonIdx >= 0) {
             const chuoLocalOnly = new Set(['水道橋', '飯田橋', '市ケ谷', '信濃町', '千駄ケ谷', '代々木', '大久保', '東中野']);
             const stns = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
-            if (stns.some(s => chuoLocalOnly.has(s))) {
+            const allLocal = stns.every(s => chuoLocalOnly.has(s));
+            const hasLocal = stns.some(s => chuoLocalOnly.has(s));
+            if (allLocal) {
+              // 全駅が各停区間 → 総武中央線
               reinsLineName = '総武中央線';
+            } else if (hasLocal) {
+              // 混在（各停駅 + 快速駅）→ 中央線のまま、各停のみの駅は最寄りの快速停車駅に置換
+              // 各停区間は御茶ノ水〜新宿間なので、各停のみ駅 → 御茶ノ水に置換
+              for (let si = 0; si < stns.length; si++) {
+                if (chuoLocalOnly.has(stns[si])) stns[si] = '御茶ノ水';
+              }
+              parts[i] = lineName + '：' + stns.join(',');
             }
           }
 
