@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "物件自動取得",
   "version": "2.0",
-  "description": "REINS・いえらぶBB・itandi BBから物件情報を定期取得し、GAS経由で承認パイプラインに送信する",
+  "description": "REINS・いえらぶBB・itandi BB・ES-Squareから物件情報を定期取得し、GAS経由で承認パイプラインに送信する",
   "permissions": [
     "storage",
     "alarms",
@@ -16,6 +16,7 @@
     "https://itandibb.com/*",
     "https://api.itandibb.com/*",
     "https://itandi-accounts.com/*",
+    "https://rent.es-square.net/*",
     "https://script.google.com/*",
     "https://script.googleusercontent.com/*"
   ],
@@ -52,6 +53,12 @@
         "https://itandibb.com/rent_rooms/*"
       ],
       "js": ["itandi-content-detail.js"]
+    },
+    {
+      "matches": [
+        "https://rent.es-square.net/bukken/chintai/search/detail/*"
+      ],
+      "js": ["essquare-content-detail.js"]
     }
   ],
   "action": {

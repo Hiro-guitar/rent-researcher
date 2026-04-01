@@ -14,6 +14,8 @@
 importScripts('ielove-config.js', 'ielove-background.js');
 // itandi BB関連ファイルを読み込み
 importScripts('itandi-config.js', 'itandi-background.js');
+// ES-Square関連ファイルを読み込み
+importScripts('essquare-config.js', 'essquare-background.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {
@@ -486,9 +488,9 @@ async function runSearchCycle() {
   if (isSearching) { console.log('検索中のためスキップ'); return; }
   if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }
 
-  const services = enabledServices || { reins: true, ielove: true, itandi: true };
+  const services = enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
 
-  if (!services.reins && !services.ielove && !services.itandi) {
+  if (!services.reins && !services.ielove && !services.itandi && !services.essquare) {
     console.log('有効なサービスがありません');
     return;
   }
@@ -497,7 +499,7 @@ async function runSearchCycle() {
   // DiscordスレッドIDキャッシュをクリア
   Object.keys(discordThreadIds).forEach(k => delete discordThreadIds[k]);
   Object.keys(discordPropertyCounters).forEach(k => delete discordPropertyCounters[k]);
-  const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ', services.itandi && 'itandi'].filter(Boolean).join('・');
+  const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ', services.itandi && 'itandi', services.essquare && 'ES-Square'].filter(Boolean).join('・');
   await setStorageData({ isSearching: true, debugLog: `━━━ 検索開始 (${serviceNames}) ━━━` });
 
   // ログタブを自動オープン（既に開いていればフォーカス）
@@ -626,6 +628,18 @@ async function runSearchCycle() {
       }
     }
 
+    // === ES-Square検索 ===
+    if (services.essquare) {
+      if (isSearchCancelled(searchId)) return;
+      try {
+        await runEssquareSearch(criteria, seenIds, searchId);
+      } catch (err) {
+        if (err.message === 'SEARCH_CANCELLED') return;
+        await setStorageData({ debugLog: `[ES-Square] 検索エラー: ${err.message}` });
+        logError('[ES-Square] 検索エラー: ' + err.message);
+      }
+    }
+
     await setStorageData({ lastSearchTime: Date.now() });
   } catch (err) {
     logError('検索サイクルエラー: ' + err.message);
@@ -636,6 +650,7 @@ async function runSearchCycle() {
       await closeDedicatedWindow();
       await closeDedicatedIeloveWindow();
       await closeDedicatedItandiWindow();
+      await closeDedicatedEssquareWindow();
     }
     await setStorageData({ isSearching: false });
   }

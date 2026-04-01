@@ -76,10 +76,11 @@
 
   function loadServiceSettings() {
     chrome.storage.local.get(['enabledServices', 'autoSearchEnabled'], (data) => {
-      const services = data.enabledServices || { reins: true, ielove: true, itandi: true };
+      const services = data.enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
       document.getElementById('enableReins').checked = services.reins;
       document.getElementById('enableIelove').checked = services.ielove;
       document.getElementById('enableItandi').checked = services.itandi !== false;
+      document.getElementById('enableEssquare').checked = services.essquare !== false;
       document.getElementById('autoSearchEnabled').checked = data.autoSearchEnabled !== false;
     });
   }
@@ -89,6 +90,7 @@
       reins: document.getElementById('enableReins').checked,
       ielove: document.getElementById('enableIelove').checked,
       itandi: document.getElementById('enableItandi').checked,
+      essquare: document.getElementById('enableEssquare').checked,
     };
     const autoSearchEnabled = document.getElementById('autoSearchEnabled').checked;
     chrome.storage.local.set({ enabledServices, autoSearchEnabled }, callback);
