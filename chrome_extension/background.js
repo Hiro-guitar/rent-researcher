@@ -2461,8 +2461,9 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('高齢者') && !fac.includes('高齢者向け')) {
     warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
   }
-  // フリーレント（REINS表記: フリーレント）
-  if (equip.includes('フリーレント') && !fac.includes('フリーレント')) {
+  // フリーレント（REINS: facilities内, itandi/いえらぶ: free_rentフィールド）
+  const freeRent = prop.free_rent || '';
+  if (equip.includes('フリーレント') && !fac.includes('フリーレント') && (!freeRent || freeRent === 'なし' || freeRent === '-')) {
     warnings.push('⚠️ フリーレントかどうか確認してください');
   }
   // インターネット無料（REINSには「無料」判定不可→常にアラート）
