@@ -25,7 +25,7 @@ const ITANDI_PREFECTURE_IDS = {
 // 間取り: 日本語特殊表記 → itandi API値
 const ITANDI_LAYOUT_SPECIAL = {
   'ワンルーム': ['1R'],
-  '4K以上': ['4K', '4DK', '4LDK'],
+  '4K以上': ['4K', '4DK', '4LDK', '5K_OVER'],
 };
 
 // 構造タイプ: 日本語 → itandi API値
