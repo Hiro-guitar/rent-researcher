@@ -2420,8 +2420,8 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('オートロック') && !fac.includes('オートロック')) {
     warnings.push('⚠️ オートロックかどうか確認してください');
   }
-  // TVモニタ付きインターホン（REINS表記: モニター付きインターホン/モニター付きオートロック）
-  if ((equip.includes('tvモニタ') || equip.includes('モニター付') || equip.includes('モニタ付') || equip.includes('tvインターホン') || equip.includes('tvインターフォン')) && !fac.includes('モニター付きインターホン') && !fac.includes('モニター付きオートロック')) {
+  // TVモニタ付きインターホン（REINS: モニター付きインターホン, itandi: モニター付インターホン, いえらぶ: TVインターホン）
+  if ((equip.includes('tvモニタ') || equip.includes('モニター付') || equip.includes('モニタ付') || equip.includes('tvインターホン') || equip.includes('tvインターフォン')) && !fac.includes('モニター付') && !fac.includes('TVインターホン') && !fac.includes('ＴＶインターホン') && !fac.includes('TVモニタ')) {
     warnings.push('⚠️ TVモニタ付きインターホンかどうか確認してください');
   }
   // 防犯カメラ（REINSにチェックボックスなし→常にアラート）

@@ -328,33 +328,10 @@ function getIeloveFilterRejectReason(prop, customer) {
   // 設備フィルタ（設備情報がある場合のみチェック。ない場合は通過してアラート表示）
   const fac = prop.facilities || '';
   if (fac) {
-    // 室内洗濯機置場
-    if (equip.includes('室内洗濯機置場') || equip.includes('室内洗濯')) {
-      if (!fac.includes('室内洗濯機置場') && !fac.includes('室内洗濯置場')) {
-        return '室内洗濯機置場なし';
-      }
-    }
-
-    // ロフト希望
-    if (equip.includes('ロフト') && !equip.includes('ロフトng') && !equip.includes('ロフト不可')) {
-      if (!fac.includes('ロフト')) {
-        return 'ロフトなし';
-      }
-    }
-
-    // エアコン付き
-    if (equip.includes('エアコン')) {
-      if (!fac.includes('エアコン')) {
-        return 'エアコンなし';
-      }
-    }
-
-    // 床暖房
-    if (equip.includes('床暖房')) {
-      if (!fac.includes('床暖房')) {
-        return '床暖房なし';
-      }
-    }
+    // 室内洗濯機置場 → アラート（buildDiscordMessageで処理）
+    // ロフト希望 → アラート（buildDiscordMessageで処理）
+    // エアコン → アラート（buildDiscordMessageで処理）
+    // 床暖房 → アラート（buildDiscordMessageで処理）
 
     // バス・トイレ別 → アラート（buildDiscordMessageで処理）
     // 独立洗面台 → アラート（buildDiscordMessageで処理）
@@ -385,26 +362,9 @@ function getIeloveFilterRejectReason(prop, customer) {
     }
     // 都市ガス/プロパン情報なしの場合 → アラート（buildDiscordMessageで処理）
 
-    // オートロック
-    if (equip.includes('オートロック')) {
-      if (!fac.includes('オートロック')) {
-        return 'オートロックなし';
-      }
-    }
-
-    // TVモニタ付きインターホン
-    if (equip.includes('tvモニタ') || equip.includes('モニター付') || equip.includes('モニタ付') || equip.includes('tvインターホン') || equip.includes('tvインターフォン')) {
-      if (!fac.includes('TVインターホン') && !fac.includes('ＴＶインターホン') && !fac.includes('モニター付') && !fac.includes('モニタ付')) {
-        return 'TVモニタ付きインターホンなし';
-      }
-    }
-
-    // 防犯カメラ
-    if (equip.includes('防犯カメラ')) {
-      if (!fac.includes('防犯カメラ')) {
-        return '防犯カメラなし';
-      }
-    }
+    // オートロック → アラート（buildDiscordMessageで処理）
+    // TVモニタ付きインターホン → アラート（buildDiscordMessageで処理）
+    // 防犯カメラ → アラート（buildDiscordMessageで処理）
 
     // ペット相談可（ペット不可なら明確にスキップ。ペット相談/ペット可/小型犬可/大型犬可/猫可ならOK）
     if (equip.includes('ペット')) {
