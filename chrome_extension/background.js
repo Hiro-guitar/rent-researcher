@@ -2397,8 +2397,8 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if ((equip.includes('宅配ボックス') || equip.includes('宅配box')) && !fac.includes('宅配ボックス') && !fac.includes('宅配BOX')) {
     warnings.push('⚠️ 宅配ボックスかどうか確認してください');
   }
-  // ゴミ置場（REINS: ２４時間ゴミ出し可, itandi: ゴミ置き場/24時間ゴミ, いえらぶ: ゴミ置き場/ゴミ置場）
-  if ((equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) && !fac.includes('ゴミ出し') && !fac.includes('ゴミ置') && !fac.includes('ごみ置')) {
+  // ゴミ置場（REINS: ２４時間ゴミ出し可, itandi: 敷地内ゴミ置き場, いえらぶ: 敷地内ごみ置き場/ゴミ出し24時間OK）
+  if ((equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) && !fac.includes('ゴミ出し') && !fac.includes('ゴミ置') && !fac.includes('ごみ置') && !fac.includes('ごみ出し')) {
     warnings.push('⚠️ 敷地内ゴミ置場かどうか確認してください');
   }
   // ロフト / ロフトNG
