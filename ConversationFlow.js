@@ -29,6 +29,8 @@ const REASONS = [
 
 const RESIDENTS = ['一人暮らし', '二人暮らし（カップル・夫婦）', 'ファミリー（お子様あり）', '子供のために探している', '親のために探している', 'その他'];
 
+const GUIDE_TEXT_BUTTON = '下のボタンから選択してください 👇';
+
 // ── 前ステップマッピング ──────────────────────────────────
 const PREV_STEP = {};
 // NAME ステップは廃止（LINEの表示名を自動取得）
@@ -162,8 +164,8 @@ function handleSearchFlowText(replyToken, userId, message, state) {
     case STEPS.MOVE_IN_DATE:
     case STEPS.MOVE_IN_PERIOD:
     case STEPS.CONFIRM:
-      // ボタン選択ステップで手入力された場合、質問を再表示
-      showStepQuestion(replyToken, userId, state);
+      // ボタン選択ステップで手入力された場合、案内メッセージ付きで質問を再表示
+      showStepQuestion(replyToken, userId, state, GUIDE_TEXT_BUTTON);
       return true;
     default:
       return false;
@@ -214,8 +216,8 @@ function handleButtonStepTextInput(replyToken, userId, message, state, choices, 
       }
     }
   } else {
-    // 一致しない → ボタンを再表示
-    showStepQuestion(replyToken, userId, state);
+    // 一致しない → 案内メッセージ付きでボタンを再表示
+    showStepQuestion(replyToken, userId, state, GUIDE_TEXT_BUTTON);
   }
   return true;
 }
@@ -484,49 +486,50 @@ function handleBackAction(replyToken, userId, state) {
 /**
  * 指定ステップの質問を再表示する。
  */
-function showStepQuestion(replyToken, userId, state) {
+function showStepQuestion(replyToken, userId, state, guideText) {
+  var prefix = guideText ? [textMsg(guideText)] : [];
   switch (state.step) {
     case STEPS.NAME:
-      replyMessage(replyToken, [textMsg('お名前を教えてください。\n（例: 山田太郎）')]);
+      replyMessage(replyToken, prefix.concat([textMsg('お名前を教えてください。\n（例: 山田太郎）')]));
       break;
     case STEPS.REASON:
       var items = REASONS.map(function(r) {
         return qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r);
       });
       items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
-      replyMessage(replyToken, [textMsgWithQuickReply('お部屋探しの理由を教えてください。', items)]);
+      replyMessage(replyToken, prefix.concat([textMsgWithQuickReply('お部屋探しの理由を教えてください。', items)]));
       break;
     case STEPS.REASON_CUSTOM:
-      replyMessage(replyToken, [
+      replyMessage(replyToken, prefix.concat([
         textMsgWithQuickReply(
           'お部屋探しの理由を教えてください。\n自由に入力してください。',
           [qrPostback('◀ 戻る', 'action=back', '戻る')]
         )
-      ]);
+      ]));
       break;
     case STEPS.RESIDENT:
-      showResidentSelect(replyToken);
+      showResidentSelect(replyToken, prefix);
       break;
     case STEPS.RESIDENT_CUSTOM:
-      replyMessage(replyToken, [
+      replyMessage(replyToken, prefix.concat([
         textMsgWithQuickReply(
           '部屋に住む方を教えてください。\n自由に入力してください。',
           [qrPostback('◀ 戻る', 'action=back', '戻る')]
         )
-      ]);
+      ]));
       break;
     case STEPS.MOVE_IN_DATE:
-      showMoveInMonthSelect(replyToken);
+      showMoveInMonthSelect(replyToken, prefix);
       break;
     case STEPS.MOVE_IN_PERIOD:
       var mp = (state.data.move_in_month || '').split('-');
-      showMoveInPeriod(replyToken, parseInt(mp[1], 10) || 0, state.data.move_in_month || '');
+      showMoveInPeriod(replyToken, parseInt(mp[1], 10) || 0, state.data.move_in_month || '', prefix);
       break;
     case STEPS.CRITERIA_SELECT:
       showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow, state.isChangeFlow ? formatConditionSummary(state) : undefined);
       break;
     case STEPS.NOTES:
-      replyMessage(replyToken, [
+      replyMessage(replyToken, prefix.concat([
         textMsgWithQuickReply(
           'その他ご希望があれば入力してください。\n例: 角部屋希望、南向き、駐車場付き\n\n特になければ「スキップ」をタップ。',
           [
@@ -534,10 +537,10 @@ function showStepQuestion(replyToken, userId, state) {
             qrPostback('◀ 戻る', 'action=back', '戻る')
           ]
         )
-      ]);
+      ]));
       break;
     case STEPS.CONFIRM:
-      showConfirmation(replyToken, state);
+      showConfirmation(replyToken, state, prefix);
       break;
     default:
       replyMessage(replyToken, [textMsg('予期しないステップです。「条件登録」と送ってやり直してください。')]);
@@ -548,14 +551,14 @@ function showStepQuestion(replyToken, userId, state) {
 //  表示ヘルパー — 居住者選択
 // ══════════════════════════════════════════════════════════
 
-function showResidentSelect(replyToken) {
+function showResidentSelect(replyToken, prefixMessages) {
   var items = RESIDENTS.map(function(r) {
     return qrPostback(r, 'resident|' + r, r);
   });
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
-  replyMessage(replyToken, [
+  replyMessage(replyToken, (prefixMessages || []).concat([
     textMsgWithQuickReply('どなたが住む予定ですか？', items)
-  ]);
+  ]));
 }
 
 // ══════════════════════════════════════════════════════════
@@ -566,7 +569,7 @@ function showResidentSelect(replyToken) {
  * Step1: 引越し時期の月選択を表示する。
  * 今月〜12ヶ月先 + 「いい物件見つかり次第」
  */
-function showMoveInMonthSelect(replyToken) {
+function showMoveInMonthSelect(replyToken, prefixMessages) {
   var now = new Date();
   var items = [];
 
@@ -585,12 +588,12 @@ function showMoveInMonthSelect(replyToken) {
 
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
 
-  replyMessage(replyToken, [
+  replyMessage(replyToken, (prefixMessages || []).concat([
     textMsgWithQuickReply(
       '引越し予定時期を教えてください。\n\n月を選択するか、「物件見つかり次第」をタップしてください。',
       items
     )
-  ]);
+  ]));
 }
 
 /**
@@ -599,7 +602,7 @@ function showMoveInMonthSelect(replyToken) {
  * @param {number} month - 月（1〜12）
  * @param {string} monthKey - 'YYYY-MM' 形式
  */
-function showMoveInPeriod(replyToken, month, monthKey) {
+function showMoveInPeriod(replyToken, month, monthKey, prefixMessages) {
   var parts = monthKey.split('-');
   var year = parseInt(parts[0], 10);
   var mon = parseInt(parts[1], 10);
@@ -618,12 +621,12 @@ function showMoveInPeriod(replyToken, month, monthKey) {
     qrPostback('◀ 戻る', 'action=back', '戻る')
   ];
 
-  replyMessage(replyToken, [
+  replyMessage(replyToken, (prefixMessages || []).concat([
     textMsgWithQuickReply(
       month + '月のいつ頃ですか？',
       items
     )
-  ]);
+  ]));
 }
 
 // ══════════════════════════════════════════════════════════
@@ -784,7 +787,7 @@ function formatConditionSummary(state) {
   return lines.length > 0 ? lines.join('\n') : '（条件なし）';
 }
 
-function showConfirmation(replyToken, state) {
+function showConfirmation(replyToken, state, prefixMessages) {
   const d = state.data;
   const routes = state.selectedRoutes || [];
   const cities = state.selectedCities || [];
@@ -840,5 +843,5 @@ function showConfirmation(replyToken, state) {
     details += d.notes + '\n';
   }
 
-  replyMessage(replyToken, [buildConfirmFlex(details)]);
+  replyMessage(replyToken, (prefixMessages || []).concat([buildConfirmFlex(details)]));
 }
