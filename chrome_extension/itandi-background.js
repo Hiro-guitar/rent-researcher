@@ -379,9 +379,9 @@ function buildItandiSearchPayload(customer, stationIds) {
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equip = toHankaku(customer.equipment || '').toLowerCase();
   if (equip.includes('2階以上')) {
-    filterObj['floor:gteq'] = 'on';
+    filterObj['floor:gteq'] = 2;
   } else if (equip.includes('1階') && !equip.includes('1階以上')) {
-    filterObj['floor:eq'] = 'on';
+    filterObj['floor:lteq'] = 1;
   }
 
   // 敷金なし・礼金なし
@@ -846,7 +846,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
   if (f['structure_type:in']) filterParts.push(`構造: ${f['structure_type:in'].join('/')}`);
   if (f['option_id:all_in']) filterParts.push(`設備ID: ${f['option_id:all_in'].join(',')}`);
   if (f['floor:gteq']) filterParts.push('2階以上');
-  if (f['floor:eq']) filterParts.push('1階');
+  if (f['floor:lteq'] === 1) filterParts.push('1階');
   if (f['shikikin:eq'] === 0) filterParts.push('敷金なし');
   if (f['reikin:eq'] === 0) filterParts.push('礼金なし');
   await setStorageData({ debugLog: `[itandi] ${customer.name}: API検索条件 → ${filterParts.join(' / ') || '(条件なし)'}` });
