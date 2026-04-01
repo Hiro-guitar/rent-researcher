@@ -779,6 +779,36 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             }
           }
 
+          // 常磐線の分岐対応: 各停駅（綾瀬〜北柏）はREINSでは常磐緩行線
+          if (reinsLineName === '常磐線' && colonIdx >= 0) {
+            const jobanLocalOnly = new Set(['綾瀬', '亀有', '金町', '北松戸', '馬橋', '新松戸', '北小金', '南柏', '北柏']);
+            const stns = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
+            if (stns.some(s => jobanLocalOnly.has(s))) {
+              reinsLineName = '常磐緩行線';
+            }
+          }
+
+          // 中央線の分岐対応: 各停区間駅（水道橋〜東中野）はREINSでは総武中央線
+          if (reinsLineName === '中央線' && colonIdx >= 0) {
+            const chuoLocalOnly = new Set(['水道橋', '飯田橋', '市ケ谷', '信濃町', '千駄ケ谷', '代々木', '大久保', '東中野']);
+            const stns = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
+            if (stns.some(s => chuoLocalOnly.has(s))) {
+              reinsLineName = '総武中央線';
+            }
+          }
+
+          // 西武池袋線: 東飯能以降はREINSに存在しないため、飯能をtoに制限
+          if (reinsLineName === '西武池袋線' && colonIdx >= 0) {
+            const beyondHanno = new Set(['東飯能', '高麗', '武蔵横手', '東吾野', '吾野', '西吾野', '正丸', '芦ヶ久保', '横瀬', '西武秩父']);
+            const stns = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
+            // from/toの両方が範囲外の場合は飯能に置き換え
+            for (let si = 0; si < stns.length; si++) {
+              if (beyondHanno.has(stns[si])) stns[si] = '飯能';
+            }
+            // 置き換え後の駅リストを再構築（partsを直接書き換え）
+            parts[i] = lineName + '：' + stns.join(',');
+          }
+
           const ensnCd = reinsCodeMap[reinsLineName];
           if (!ensnCd) continue;
 
