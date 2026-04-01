@@ -619,24 +619,16 @@ function getItandiFilterRejectReason(prop, customer) {
   // 設備フィルタ（設備情報がある場合のみチェック）
   const fac = prop.facilities || '';
   if (fac) {
-    // 室内洗濯機置場
-    if (equip.includes('室内洗濯機置場') || equip.includes('室内洗濯')) {
-      if (!fac.includes('室内洗濯機') && !fac.includes('室内洗濯置場')) {
-        return '室内洗濯機置場なし';
-      }
+    // 室内洗濯機置場 → アラート（buildDiscordMessageで処理）
+    // ロフト希望 → アラート（buildDiscordMessageで処理）
+    // エアコン → アラート（buildDiscordMessageで処理）
+    // 床暖房 → アラート（buildDiscordMessageで処理）
+
+    // 家具家電付き → スキップ
+    if ((equip.includes('家具家電付き') || equip.includes('家具付き')) && !fac.includes('家具') && !fac.includes('家電')) {
+      return '家具家電付きなし';
     }
 
-    // ロフト希望
-    if (equip.includes('ロフト') && !equip.includes('ロフトng') && !equip.includes('ロフト不可')) {
-      if (!fac.includes('ロフト')) {
-        return 'ロフトなし';
-      }
-    }
-
-    // エアコン
-    if (equip.includes('エアコン') && !fac.includes('エアコン')) return 'エアコンなし';
-    // 床暖房
-    if (equip.includes('床暖房') && !fac.includes('床暖房')) return '床暖房なし';
     // バス・トイレ別
     if ((equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス') && !fac.includes('BT別')) {
       return 'バス・トイレ別なし';

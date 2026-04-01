@@ -2380,10 +2380,11 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if ((equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) && !fac.includes('ゴミ出し')) {
     warnings.push('⚠️ 敷地内ゴミ置場かどうか確認してください');
   }
-  // ロフト（ロフトNGはフィルタで除外済み。設備情報なしの場合のみアラート）
+  // ロフト / ロフトNG
   if (equip.includes('ロフト')) {
     if (equip.includes('ロフトng') || equip.includes('ロフト不可')) {
-      if (!fac) warnings.push('⚠️ ロフトがないか確認してください（ロフトNG）');
+      // ロフトNG: ロフトありはフィルタで除外済み。ロフト記載なしはアラート
+      if (!fac.includes('ロフト')) warnings.push('⚠️ ロフトがないか確認してください（ロフトNG）');
     } else if (!fac.includes('ロフト')) {
       warnings.push('⚠️ ロフト付きかどうか確認してください');
     }
