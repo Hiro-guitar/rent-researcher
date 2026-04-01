@@ -2356,9 +2356,16 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('床暖房') && !fac.includes('床暖房')) {
     warnings.push('⚠️ 床暖房かどうか確認してください');
   }
-  // 独立洗面（REINS表記: 洗面台/シャンプードレッサー/洗面所）
-  if (equip.includes('独立洗面') && !fac.includes('洗面台') && !fac.includes('シャンプードレッサー') && !fac.includes('洗面所')) {
-    warnings.push('⚠️ 独立洗面台かどうか確認してください');
+  // 独立洗面台（REINS: シャンプードレッサー/洗面台, itandi: 独立洗面台, いえらぶ: 洗面所独立）
+  // シャンプードレッサー・独立洗面・洗面所独立 → 確定。洗面台のみ → ユニットバスの可能性ありアラート
+  if (equip.includes('独立洗面')) {
+    if (fac.includes('シャンプードレッサー') || fac.includes('独立洗面') || fac.includes('洗面所独立') || fac.includes('洗面化粧台') || fac.includes('シャワー付洗面')) {
+      // 独立洗面台確定 → アラート不要
+    } else if (fac.includes('洗面台')) {
+      warnings.push('⚠️ 独立洗面台があるかどうか確認してください（洗面台の記載あり、ユニットバスの可能性）');
+    } else {
+      warnings.push('⚠️ 独立洗面台があるかどうか確認してください');
+    }
   }
   // ガスコンロ（REINS表記: ガスコンロ設置可/ガスキッチン）
   if (equip.includes('ガスコンロ') && !fac.includes('ガスコンロ') && !fac.includes('ガスキッチン')) {
