@@ -634,20 +634,11 @@ function getItandiFilterRejectReason(prop, customer) {
     // 温水洗浄便座 → アラート（buildDiscordMessageで処理）
     // 浴室乾燥機 → アラート（buildDiscordMessageで処理）
     // 追い焚き → アラート（buildDiscordMessageで処理）
-    // ガスコンロ
-    if (equip.includes('ガスコンロ') && !fac.includes('ガスコンロ')) return 'ガスコンロ非対応';
-    // IH
-    if (equip.includes('ih') && !fac.includes('IH') && !fac.includes('ＩＨ')) return 'IHコンロなし';
-    // コンロ2口以上
-    if (equip.includes('コンロ2口以上') || equip.includes('2口以上') || equip.includes('コンロ２口以上')) {
-      const conroMatch = fac.match(/(\d)口/);
-      if (conroMatch && parseInt(conroMatch[1]) < 2) return `コンロ${conroMatch[1]}口（2口以上希望）`;
-      if (!conroMatch && !fac.includes('コンロ')) return 'コンロ口数不明';
-    }
-    // システムキッチン
-    if (equip.includes('システムキッチン') && !fac.includes('システムキッチン')) return 'システムキッチンなし';
-    // カウンターキッチン
-    if (equip.includes('カウンターキッチン') && !fac.includes('カウンターキッチン') && !fac.includes('対面キッチン')) return 'カウンターキッチンなし';
+    // ガスコンロ → アラート（buildDiscordMessageで処理）
+    // IHコンロ → アラート（buildDiscordMessageで処理）
+    // コンロ2口以上 → アラート（buildDiscordMessageで処理）
+    // システムキッチン → アラート（buildDiscordMessageで処理）
+    // カウンターキッチン → アラート（buildDiscordMessageで処理）
     // 駐輪場
     if (equip.includes('駐輪場') && !fac.includes('駐輪場')) return '駐輪場なし';
     // エレベーター

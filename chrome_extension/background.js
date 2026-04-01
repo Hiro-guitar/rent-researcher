@@ -2356,16 +2356,18 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('ih') && !fac.includes('ＩＨ') && !fac.includes('IH')) {
     warnings.push('⚠️ IHコンロかどうか確認してください');
   }
-  // コンロ2口以上（REINSにチェックボックスなし→常にアラート）
+  // コンロ2口以上
   if (equip.includes('コンロ2口以上') || equip.includes('2口以上') || equip.includes('コンロ２口以上')) {
-    warnings.push('⚠️ コンロ2口以上かどうか確認してください');
+    if (!fac.includes('2口') && !fac.includes('２口') && !fac.includes('3口') && !fac.includes('３口')) {
+      warnings.push('⚠️ コンロ2口以上かどうか確認してください');
+    }
   }
   // システムキッチン
   if (equip.includes('システムキッチン') && !fac.includes('システムキッチン')) {
     warnings.push('⚠️ システムキッチンかどうか確認してください');
   }
-  // カウンターキッチン
-  if (equip.includes('カウンターキッチン') && !fac.includes('カウンターキッチン')) {
+  // カウンターキッチン（itandi: 対面キッチンも含む）
+  if (equip.includes('カウンターキッチン') && !fac.includes('カウンターキッチン') && !fac.includes('対面キッチン')) {
     warnings.push('⚠️ カウンターキッチンかどうか確認してください');
   }
   // 駐輪場
