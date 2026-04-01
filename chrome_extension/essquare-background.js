@@ -161,8 +161,17 @@ function _resolveEssquareStationCodes(customer) {
   const unmapped = [];
   for (const name of stationNames) {
     const clean = name.replace(/駅$/, '').trim();
-    if (ESSQUARE_STATION_CODES[clean]) {
-      codes.push(ESSQUARE_STATION_CODES[clean]);
+    // ケ/ヶ、ツ/ッ の表記揺れを吸収
+    const variants = [
+      clean,
+      clean.replace(/ケ/g, 'ヶ'),
+      clean.replace(/ヶ/g, 'ケ'),
+      clean.replace(/ツ/g, 'ッ'),
+      clean.replace(/ッ/g, 'ツ'),
+    ];
+    const code = variants.reduce((found, v) => found || ESSQUARE_STATION_CODES[v], null);
+    if (code) {
+      codes.push(code);
     } else {
       unmapped.push(clean);
     }
