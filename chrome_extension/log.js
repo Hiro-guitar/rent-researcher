@@ -164,6 +164,8 @@
       tag = 'ielove';
     } else if (body.startsWith('[itandi]') || body.startsWith('[ITANDI]')) {
       tag = 'itandi';
+    } else if (body.startsWith('[ES-Square]') || body.startsWith('[essquare]')) {
+      tag = 'essquare';
     }
 
     let cls = '';
@@ -191,6 +193,9 @@
     } else if (tag === 'itandi') {
       tagHtml = '<span class="log-tag tag-itandi">[itandi]</span> ';
       body = body.replace(/^\[itandi\]\s*/, '').replace(/^\[ITANDI\]\s*/, '');
+    } else if (tag === 'essquare') {
+      tagHtml = '<span class="log-tag tag-essquare">[ES-Square]</span> ';
+      body = body.replace(/^\[ES-Square\]\s*/, '').replace(/^\[essquare\]\s*/, '');
     }
 
     const timeHtml = time ? `<span class="log-time">${time}</span> ` : '';
