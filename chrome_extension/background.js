@@ -2312,28 +2312,28 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   }
   // 設備系アラート（REINSの実際の設備名で判定。設備情報なし/ありどちらでもチェック）
   const fac = prop.facilities || '';
-  // 追い焚き（REINS表記: 追焚機能）
-  if ((equip.includes('追い焚き') || equip.includes('追いだき') || equip.includes('追い炊き')) && !fac.includes('追焚機能')) {
+  // 追い焚き（REINS: 追焚機能, itandi: 追焚き機能）
+  if ((equip.includes('追い焚き') || equip.includes('追いだき') || equip.includes('追い炊き')) && !fac.includes('追焚') && !fac.includes('追い焚') && !fac.includes('追いだき')) {
     warnings.push('⚠️ 追い焚き機能かどうか確認してください');
   }
-  // エレベーター（REINS表記: エレベータ ※長音なし）
-  if ((equip.includes('エレベーター') || equip.includes('ev')) && !fac.includes('エレベータ')) {
+  // エレベーター（REINS: エレベータ ※長音なし, itandi: エレベーター）
+  if ((equip.includes('エレベーター') || equip.includes('ev')) && !fac.includes('エレベータ') && !fac.includes('エレベーター')) {
     warnings.push('⚠️ エレベーターかどうか確認してください');
   }
-  // バス・トイレ別
-  if ((equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別')) {
+  // バス・トイレ別（REINS: バス・トイレ別, itandi: バス・トイレ別, いえらぶ: バストイレ別）
+  if ((equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
     warnings.push('⚠️ バス・トイレ別かどうか確認してください');
   }
   // 温水洗浄便座
   if ((equip.includes('温水洗浄便座') || equip.includes('ウォシュレット')) && !fac.includes('温水洗浄便座')) {
     warnings.push('⚠️ 温水洗浄便座かどうか確認してください');
   }
-  // 浴室乾燥機
-  if (equip.includes('浴室乾燥') && !fac.includes('浴室乾燥機')) {
+  // 浴室乾燥機（REINS: 浴室乾燥機, itandi: 浴室乾燥/浴室乾燥機）
+  if (equip.includes('浴室乾燥') && !fac.includes('浴室乾燥')) {
     warnings.push('⚠️ 浴室乾燥機かどうか確認してください');
   }
-  // 室内洗濯機置場
-  if ((equip.includes('室内洗濯機置場') || equip.includes('室内洗濯')) && !fac.includes('室内洗濯機置場')) {
+  // 室内洗濯機置場（REINS: 室内洗濯機置場, itandi: 室内洗濯機置き場）
+  if ((equip.includes('室内洗濯機置場') || equip.includes('室内洗濯')) && !fac.includes('室内洗濯機')) {
     warnings.push('⚠️ 室内洗濯機置場かどうか確認してください');
   }
   // エアコン
