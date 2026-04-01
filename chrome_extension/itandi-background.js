@@ -629,18 +629,11 @@ function getItandiFilterRejectReason(prop, customer) {
       return '家具家電付きなし';
     }
 
-    // バス・トイレ別
-    if ((equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス') && !fac.includes('BT別')) {
-      return 'バス・トイレ別なし';
-    }
-    // 独立洗面台
-    if (equip.includes('独立洗面') && !fac.includes('洗面') && !fac.includes('独立洗面')) return '独立洗面台なし';
-    // 温水洗浄便座
-    if ((equip.includes('温水洗浄便座') || equip.includes('ウォシュレット')) && !fac.includes('温水洗浄便座')) return '温水洗浄便座なし';
-    // 浴室乾燥機
-    if (equip.includes('浴室乾燥') && !fac.includes('浴室乾燥')) return '浴室乾燥機なし';
-    // 追い焚き
-    if ((equip.includes('追い焚き') || equip.includes('追いだき')) && !fac.includes('追い焚き') && !fac.includes('追いだき') && !fac.includes('追焚')) return '追い焚き機能なし';
+    // バス・トイレ別 → アラート（buildDiscordMessageで処理）
+    // 独立洗面台 → アラート（buildDiscordMessageで処理）
+    // 温水洗浄便座 → アラート（buildDiscordMessageで処理）
+    // 浴室乾燥機 → アラート（buildDiscordMessageで処理）
+    // 追い焚き → アラート（buildDiscordMessageで処理）
     // ガスコンロ
     if (equip.includes('ガスコンロ') && !fac.includes('ガスコンロ')) return 'ガスコンロ非対応';
     // IH
