@@ -647,12 +647,9 @@ function getItandiFilterRejectReason(prop, customer) {
     // ガス種別（一方がある場合はスキップ。情報なしは通過→アラート）
     if (equip.includes('都市ガス') && !fac.includes('都市ガス') && (fac.includes('プロパン') || fac.includes('LPガス'))) return 'プロパンガス物件（都市ガス希望）';
     if ((equip.includes('プロパン') || equip.includes('lpガス')) && !fac.includes('プロパン') && !fac.includes('LPガス') && fac.includes('都市ガス')) return '都市ガス物件（プロパンガス希望）';
-    // オートロック
-    if (equip.includes('オートロック') && !fac.includes('オートロック')) return 'オートロックなし';
-    // TVモニタ付きインターホン
-    if ((equip.includes('tvモニタ') || equip.includes('モニター付') || equip.includes('モニタ付')) && !fac.includes('モニター') && !fac.includes('TVモニタ') && !fac.includes('TVインターホン')) return 'TVモニタ付きインターホンなし';
-    // 防犯カメラ
-    if (equip.includes('防犯カメラ') && !fac.includes('防犯カメラ')) return '防犯カメラなし';
+    // オートロック → アラート（buildDiscordMessageで処理）
+    // TVモニタ付きインターホン → アラート（buildDiscordMessageで処理）
+    // 防犯カメラ → アラート（buildDiscordMessageで処理）
     // ペット可
     if (equip.includes('ペット')) {
       if (fac.includes('ペット不可')) return 'ペット不可';
