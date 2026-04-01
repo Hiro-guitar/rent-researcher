@@ -850,6 +850,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
   if (f['shikikin:eq'] === 0) filterParts.push('敷金なし');
   if (f['reikin:eq'] === 0) filterParts.push('礼金なし');
   await setStorageData({ debugLog: `[itandi] ${customer.name}: API検索条件 → ${filterParts.join(' / ') || '(条件なし)'}` });
+  await setStorageData({ debugLog: `[itandi] ${customer.name}: payload → ${JSON.stringify(payload)}` });
 
   // ページネーション（最大10ページ = 200件）
   const maxPages = 10;
