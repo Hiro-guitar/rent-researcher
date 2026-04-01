@@ -2307,7 +2307,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('南向き') && !prop.sunlight) {
     warnings.push('⚠️ 南向きかどうか確認してください');
   }
-  if (equip.includes('角部屋') && !prop.facilities) {
+  if (equip.includes('角部屋') && !(prop.facilities || '').includes('角部屋') && !(prop.facilities || '').includes('角住戸')) {
     warnings.push('⚠️ 角部屋かどうか確認してください');
   }
   // 設備系アラート（REINSの実際の設備名で判定。設備情報なし/ありどちらでもチェック）
