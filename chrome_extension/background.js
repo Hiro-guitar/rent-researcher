@@ -2478,7 +2478,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   }
   // シューズボックス（REINS表記: シューズインクローゼット）
   if (equip.includes('シューズ')) {
-    if (!fac.includes('シューズインクローゼット') && !fac.includes('シューズボックス') && !fac.includes('シューズクロゼット')) {
+    if (!fac.includes('シューズインクローゼット') && !fac.includes('シューズボックス') && !fac.includes('シューズクロゼット') && !fac.includes('シューズWIC')) {
       warnings.push('⚠️ シューズボックスがあるか確認してください');
     }
   }
