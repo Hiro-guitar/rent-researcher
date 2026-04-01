@@ -2457,8 +2457,8 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if ((equip.includes('ルームシェア') || equip.includes('シェアハウス')) && !fac.includes('ルームシェア') && !fac.includes('シェアハウス')) {
     warnings.push('⚠️ ルームシェア可かどうか確認してください');
   }
-  // 高齢者（REINS表記: 高齢者向け）
-  if (equip.includes('高齢者') && !fac.includes('高齢者向け')) {
+  // 高齢者（REINS: 高齢者向け, itandi: 高齢者向き/高齢者相談/高齢者世帯向け, いえらぶ: 高齢者限定/高齢者歓迎/高齢者相談）
+  if (equip.includes('高齢者') && !fac.includes('高齢者向') && !fac.includes('高齢者相談') && !fac.includes('高齢者歓迎') && !fac.includes('高齢者限定') && !fac.includes('高齢者世帯')) {
     warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
   }
   // フリーレント（REINS: facilities内, itandi/いえらぶ: free_rentフィールド）
