@@ -877,6 +877,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             // 路線依存の駅名変換（同名駅が他路線にもある場合）
             const reinsLineStationMap = {
               '東京モノレール': { '浜松町': 'モノレール浜松町' },
+              '都営新宿線': { '市ケ谷': '市ヶ谷' },
             };
             const toReinsStation = (name) => {
               const lineMap = reinsLineStationMap[lineName];
