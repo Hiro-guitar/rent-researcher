@@ -234,6 +234,7 @@ async function _waitForEssquareRender(tabId, timeoutMs) {
 async function _parseEssquareSearchResults(tabId) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
+    world: 'MAIN',  // React Fiber にアクセスするためメインワールドで実行
     func: () => {
       const properties = [];
 
