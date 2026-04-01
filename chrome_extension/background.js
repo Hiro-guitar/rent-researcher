@@ -304,6 +304,17 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // 階数フィルタ（2階以上、1階のみ）
+  {
+    const floorNum = parseInt(toHankaku(prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
+    if (equip.includes('2階以上') && floorNum > 0 && floorNum < 2) {
+      return `2階以上条件: ${floorNum}階`;
+    }
+    if (equip.includes('1階') && !equip.includes('1階以上') && !equip.includes('2階以上') && floorNum > 0 && floorNum !== 1) {
+      return `1階限定条件: ${floorNum}階`;
+    }
+  }
+
   // 角部屋フィルタ（設備欄に「角住戸」or「角部屋」を含むか判定。情報なしは通過）
   if (equip.includes('角部屋')) {
     const fac = prop.facilities || '';
