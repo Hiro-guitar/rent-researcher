@@ -44,10 +44,10 @@ const ITANDI_STRUCTURE_TYPE_MAP = {
 
 // 構造カテゴリ → API値リスト（顧客条件の「鉄筋系」等に対応）
 const ITANDI_STRUCTURE_CATEGORY_MAP = {
-  '鉄筋系': ['rc', 'src'],
-  '鉄骨系': ['steel', 'lightweight_steel'],
+  '鉄筋系': ['rc', 'src', 'pc', 'hpc'],
+  '鉄骨系': ['steel', 'lightweight_steel', 'cft'],
   '木造': ['wooden'],
-  'ブロック・その他': ['block', 'reinforcing_block', 'alc', 'pc', 'hpc', 'cft'],
+  'ブロック・その他': ['block', 'reinforcing_block', 'alc'],
 };
 
 // 建物種別: 日本語 → itandi API値
