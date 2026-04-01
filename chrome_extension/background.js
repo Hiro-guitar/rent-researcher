@@ -2488,6 +2488,10 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
       warnings.push('⚠️ ウォークインクローゼットがあるか確認してください');
     }
   }
+  // 要物確アラート（itandi）
+  if (prop.needs_confirmation) {
+    warnings.push('⚠️ 要物確の物件です');
+  }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
   if (moveInWarning) {
