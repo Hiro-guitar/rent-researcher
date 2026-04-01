@@ -639,21 +639,15 @@ function getItandiFilterRejectReason(prop, customer) {
     // コンロ2口以上 → アラート（buildDiscordMessageで処理）
     // システムキッチン → アラート（buildDiscordMessageで処理）
     // カウンターキッチン → アラート（buildDiscordMessageで処理）
-    // 駐輪場
-    if (equip.includes('駐輪場') && !fac.includes('駐輪場')) return '駐輪場なし';
-    // エレベーター
-    if ((equip.includes('エレベーター') || equip.includes('ev')) && !fac.includes('エレベーター') && !fac.includes('EV')) return 'エレベーターなし';
-    // 宅配ボックス
-    if ((equip.includes('宅配ボックス') || equip.includes('宅配box')) && !fac.includes('宅配ボックス') && !fac.includes('宅配BOX')) return '宅配ボックスなし';
-    // ゴミ置場
-    if ((equip.includes('ゴミ置') || equip.includes('ごみ置')) && !fac.includes('ゴミ置') && !fac.includes('ごみ置') && !fac.includes('24時間ゴミ')) return '敷地内ゴミ置場なし';
-    // バルコニー
-    if (equip.includes('バルコニー') && !equip.includes('ルーフバルコニー') && !fac.includes('バルコニー')) return 'バルコニーなし';
-    // ルーフバルコニー
-    if (equip.includes('ルーフバルコニー') && !fac.includes('ルーフバルコニー')) return 'ルーフバルコニーなし';
-    // 専用庭
-    if (equip.includes('専用庭') && !fac.includes('専用庭')) return '専用庭なし';
-    // ガス種別
+    // 駐輪場 → アラート（buildDiscordMessageで処理）
+    // エレベーター → アラート（buildDiscordMessageで処理）
+    // 宅配ボックス → アラート（buildDiscordMessageで処理）
+    // 敷地内ゴミ置場 → アラート（buildDiscordMessageで処理）
+    // バルコニー → アラート（buildDiscordMessageで処理）
+    // ルーフバルコニー → アラート（buildDiscordMessageで処理）
+    // 専用庭 → アラート（buildDiscordMessageで処理）
+
+    // ガス種別（一方がある場合はスキップ。情報なしは通過→アラート）
     if (equip.includes('都市ガス') && !fac.includes('都市ガス') && (fac.includes('プロパン') || fac.includes('LPガス'))) return 'プロパンガス物件（都市ガス希望）';
     if ((equip.includes('プロパン') || equip.includes('lpガス')) && !fac.includes('プロパン') && !fac.includes('LPガス') && fac.includes('都市ガス')) return '都市ガス物件（プロパンガス希望）';
     // オートロック

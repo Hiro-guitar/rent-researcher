@@ -2374,12 +2374,12 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('駐輪場') && !fac.includes('駐輪場')) {
     warnings.push('⚠️ 駐輪場ありかどうか確認してください');
   }
-  // 宅配ボックス
-  if ((equip.includes('宅配ボックス') || equip.includes('宅配box')) && !fac.includes('宅配ボックス')) {
+  // 宅配ボックス（itandi: 宅配BOXも含む）
+  if ((equip.includes('宅配ボックス') || equip.includes('宅配box')) && !fac.includes('宅配ボックス') && !fac.includes('宅配BOX')) {
     warnings.push('⚠️ 宅配ボックスかどうか確認してください');
   }
-  // ゴミ置場（REINS表記: ２４時間ゴミ出し可）
-  if ((equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) && !fac.includes('ゴミ出し')) {
+  // ゴミ置場（REINS: ２４時間ゴミ出し可, itandi: ゴミ置き場/24時間ゴミ, いえらぶ: ゴミ置き場/ゴミ置場）
+  if ((equip.includes('ゴミ置') || equip.includes('ごみ置') || equip.includes('ゴミ捨') || equip.includes('ごみ捨')) && !fac.includes('ゴミ出し') && !fac.includes('ゴミ置') && !fac.includes('ごみ置')) {
     warnings.push('⚠️ 敷地内ゴミ置場かどうか確認してください');
   }
   // ロフト / ロフトNG
@@ -2409,11 +2409,11 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('専用庭') && !fac.includes('専用庭')) {
     warnings.push('⚠️ 専用庭かどうか確認してください');
   }
-  // 都市ガス/プロパンガス（不一致はフィルタで除外済み。ガス情報なしの場合はアラート）
-  if (equip.includes('都市ガス') && !fac.includes('都市ガス') && !fac.includes('プロパンガス')) {
+  // 都市ガス/プロパンガス（一方がある場合はスキップで除外済み。ガス情報なしの場合はアラート）
+  if (equip.includes('都市ガス') && !fac.includes('都市ガス') && !fac.includes('プロパン') && !fac.includes('LPガス') && !fac.includes('ＬＰガス')) {
     warnings.push('⚠️ 都市ガスかどうか確認してください');
   }
-  if ((equip.includes('プロパン') || equip.includes('lpガス')) && !fac.includes('プロパンガス') && !fac.includes('都市ガス')) {
+  if ((equip.includes('プロパン') || equip.includes('lpガス')) && !fac.includes('プロパン') && !fac.includes('LPガス') && !fac.includes('ＬＰガス') && !fac.includes('都市ガス')) {
     warnings.push('⚠️ プロパンガスかどうか確認してください');
   }
   // オートロック
