@@ -319,11 +319,7 @@ function getIeloveFilterRejectReason(prop, customer) {
     }
   }
 
-  if (equip.includes('フリーレント')) {
-    if (!prop.free_rent || isNoneValue(prop.free_rent)) {
-      return 'フリーレントなし';
-    }
-  }
+  // フリーレント → アラート（buildDiscordMessageで処理）
 
   if (equip.includes('定期借家除く') || equip.includes('定期借家ng')) {
     if (prop.lease_type && prop.lease_type.includes('定期')) {
