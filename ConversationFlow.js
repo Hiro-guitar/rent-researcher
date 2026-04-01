@@ -144,8 +144,12 @@ function handleSearchFlowText(replyToken, userId, message, state) {
   switch (state.step) {
     case STEPS.NAME:
       return handleNameInput(replyToken, userId, message, state);
+    case STEPS.REASON:
+      return handleButtonStepTextInput(replyToken, userId, message, state, REASONS, 'reason', 'お部屋探しの理由');
     case STEPS.REASON_CUSTOM:
       return handleReasonCustomInput(replyToken, userId, message, state);
+    case STEPS.RESIDENT:
+      return handleButtonStepTextInput(replyToken, userId, message, state, RESIDENTS, 'resident', 'どなたが住む予定か');
     case STEPS.RESIDENT_CUSTOM:
       return handleResidentCustomInput(replyToken, userId, message, state);
     case STEPS.CRITERIA_SELECT:
@@ -155,6 +159,12 @@ function handleSearchFlowText(replyToken, userId, message, state) {
       return true;
     case STEPS.NOTES:
       return handleNotesInput(replyToken, userId, message, state);
+    case STEPS.MOVE_IN_DATE:
+    case STEPS.MOVE_IN_PERIOD:
+    case STEPS.CONFIRM:
+      // ボタン選択ステップで手入力された場合、質問を再表示
+      showStepQuestion(replyToken, userId, state);
+      return true;
     default:
       return false;
   }
@@ -170,6 +180,43 @@ function handleNameInput(replyToken, userId, message, state) {
   var items = REASONS.map(r => qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r));
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
   replyMessage(replyToken, [textMsgWithQuickReply('お部屋探しの理由を教えてください。', items)]);
+  return true;
+}
+
+// ── ボタン選択ステップでのテキスト入力ハンドラ ──────────────
+// 選択肢と一致すればそのまま進める。一致しなければボタンを再表示する。
+
+function handleButtonStepTextInput(replyToken, userId, message, state, choices, dataKey, label) {
+  var trimmed = message.trim();
+  var matched = choices.find(function(c) { return c === trimmed; });
+  if (matched) {
+    // 選択肢と完全一致 → postbackと同じ処理へ
+    state = updateStateData(state, dataKey, matched);
+    if (matched === 'その他') {
+      state.step = dataKey === 'reason' ? STEPS.REASON_CUSTOM : STEPS.RESIDENT_CUSTOM;
+      saveState(userId, state);
+      var customPrompt = dataKey === 'reason'
+        ? 'お部屋探しの理由を教えてください。\n自由に入力してください。'
+        : '部屋に住む方を教えてください。\n自由に入力してください。';
+      replyMessage(replyToken, [
+        textMsgWithQuickReply(customPrompt, [qrPostback('◀ 戻る', 'action=back', '戻る')])
+      ]);
+    } else {
+      if (dataKey === 'reason') {
+        state = updateStateData(state, 'prefecture', '東京都');
+        state.step = STEPS.RESIDENT;
+        saveState(userId, state);
+        showResidentSelect(replyToken);
+      } else {
+        state.step = STEPS.MOVE_IN_DATE;
+        saveState(userId, state);
+        showMoveInMonthSelect(replyToken);
+      }
+    }
+  } else {
+    // 一致しない → ボタンを再表示
+    showStepQuestion(replyToken, userId, state);
+  }
   return true;
 }
 
