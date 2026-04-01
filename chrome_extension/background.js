@@ -2472,7 +2472,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   }
   // 収納（REINS表記: 収納スペース/ウォークインクローゼット等）
   if (equip.includes('収納') && !equip.includes('ウォークイン') && !equip.includes('シューズ')) {
-    if (!fac.includes('収納') && !fac.includes('クロゼット') && !fac.includes('クローゼット')) {
+    if (!fac.includes('収納') && !fac.includes('クロゼット') && !fac.includes('クローゼット') && !fac.includes('物置') && !fac.includes('グルニエ')) {
       warnings.push('⚠️ 収納があるか確認してください');
     }
   }
