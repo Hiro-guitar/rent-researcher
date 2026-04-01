@@ -624,10 +624,7 @@ function getItandiFilterRejectReason(prop, customer) {
     // エアコン → アラート（buildDiscordMessageで処理）
     // 床暖房 → アラート（buildDiscordMessageで処理）
 
-    // 家具家電付き → スキップ
-    if ((equip.includes('家具家電付き') || equip.includes('家具付き')) && !fac.includes('家具') && !fac.includes('家電')) {
-      return '家具家電付きなし';
-    }
+    // 家具家電付き → 検索APIでフィルタ済み（option_id 19010）、アラートはbuildDiscordMessageで処理
 
     // バス・トイレ別 → アラート（buildDiscordMessageで処理）
     // 独立洗面台 → アラート（buildDiscordMessageで処理）

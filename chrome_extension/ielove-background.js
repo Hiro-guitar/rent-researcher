@@ -101,6 +101,11 @@ function buildIeloveSearchUrl(customer, page = 1) {
     parts.push('flnut/1');
   }
 
+  // 家具家電付き（URLレベルで絞り込み）
+  if (equipText.includes('家具') || equipText.includes('家電')) {
+    parts.push('opts3/0301');
+  }
+
   // 敷金なし・礼金なし（URLレベルで絞り込み）
   if (equipText.includes('敷金なし')) {
     parts.push('skknt/0');
