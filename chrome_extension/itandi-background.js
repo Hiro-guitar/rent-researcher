@@ -655,7 +655,7 @@ function getItandiFilterRejectReason(prop, customer) {
     // 事務所
     if (equip.includes('事務所')) {
       if (fac.includes('事務所不可')) return '事務所利用不可';
-      if (!fac.includes('事務所可') && !fac.includes('事務所相談')) return '事務所利用可の記載なし';
+      if (!fac.includes('事務所可') && !fac.includes('事務所使用相談')) return '事務所利用可の記載なし';
     }
     // ルームシェア
     if ((equip.includes('ルームシェア') || equip.includes('シェアハウス')) && fac.includes('ルームシェア不可')) return 'ルームシェア不可';
