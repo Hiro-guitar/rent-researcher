@@ -2385,8 +2385,8 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('システムキッチン') && !fac.includes('システムキッチン')) {
     warnings.push('⚠️ システムキッチンかどうか確認してください');
   }
-  // カウンターキッチン（itandi: 対面キッチンも含む）
-  if (equip.includes('カウンターキッチン') && !fac.includes('カウンターキッチン') && !fac.includes('対面キッチン')) {
+  // カウンターキッチン（itandi: 対面キッチン, いえらぶ: オープンキッチン/アイランドキッチン, REINS: アイランドキッチン）
+  if (equip.includes('カウンターキッチン') && !fac.includes('カウンターキッチン') && !fac.includes('対面キッチン') && !fac.includes('オープンキッチン') && !fac.includes('アイランドキッチン')) {
     warnings.push('⚠️ カウンターキッチンかどうか確認してください');
   }
   // 駐輪場
