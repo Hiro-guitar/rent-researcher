@@ -91,9 +91,17 @@ function buildIeloveSearchUrl(customer, page = 1) {
     }
   }
 
-  // 敷金なし・礼金なし（URLレベルで絞り込み）
+  // 所在階フィルタ（1階 or 2階以上）
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equipText = toHankaku(customer.equipment || '').toLowerCase();
+  if (equipText.includes('2階以上')) {
+    parts.push('flnuf/2');
+  } else if (equipText.includes('1階') && !equipText.includes('1階以上')) {
+    parts.push('flnuf/1');
+    parts.push('flnut/1');
+  }
+
+  // 敷金なし・礼金なし（URLレベルで絞り込み）
   if (equipText.includes('敷金なし')) {
     parts.push('skknt/0');
     parts.push('skuc/1');
