@@ -248,6 +248,9 @@ async function resolveItandiStationIds(tabId, customer) {
 
       if (matched.length === 0) {
         console.warn(`[itandi] 駅名「${cleanName}」に一致する駅がありません`);
+        if (typeof addUnresolvedStation === 'function') {
+          addUnresolvedStation(customer.name || '不明', 'itandi', cleanName);
+        }
       }
     } catch (err) {
       if (err.message === 'ITANDI_LOGIN_REQUIRED') throw err;

@@ -179,6 +179,11 @@ function _resolveEssquareStationCodes(customer) {
 
   if (unmapped.length > 0) {
     console.warn(`[ES-Square] 駅コード未定義: ${unmapped.join(', ')}`);
+    if (typeof addUnresolvedStation === 'function') {
+      for (const name of unmapped) {
+        addUnresolvedStation(customer.name || '不明', 'ES-Square', name);
+      }
+    }
   }
 
   return codes;

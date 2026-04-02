@@ -182,6 +182,9 @@ function resolveIeloveStationCodes(customer) {
       codes.push(code);
     } else {
       console.warn(`[ielove] 駅コード未登録: '${name}'`);
+      if (typeof addUnresolvedStation === 'function') {
+        addUnresolvedStation(customer.name || '不明', 'いえらぶ', cleanName);
+      }
     }
   }
   return codes;

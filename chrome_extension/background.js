@@ -10,6 +10,10 @@
  * - 検索フォームへの遷移はURL直接遷移NG → メニューボタンクリック経由
  */
 
+// 駅名解決失敗を蓄積するグローバル変数（検索サイクルごとにリセット）
+// { customerName: { service: [stationName, ...], ... }, ... }
+let _unresolvedStations = {};
+
 // いえらぶBB関連ファイルを読み込み
 importScripts('ielove-config.js', 'ielove-background.js');
 // itandi BB関連ファイルを読み込み
@@ -482,6 +486,47 @@ async function refreshCriteria() {
   }
 }
 
+// _unresolvedStations にエントリを追加するヘルパー
+function addUnresolvedStation(customerName, service, stationName) {
+  if (!_unresolvedStations[customerName]) _unresolvedStations[customerName] = {};
+  if (!_unresolvedStations[customerName][service]) _unresolvedStations[customerName][service] = [];
+  const list = _unresolvedStations[customerName][service];
+  if (!list.includes(stationName)) list.push(stationName);
+}
+
+// 未解決駅サマリーをログ出力 + GAS報告
+async function reportUnresolvedStations() {
+  // 実際に未解決駅があるエントリだけ抽出
+  const entries = [];
+  for (const [customer, services] of Object.entries(_unresolvedStations)) {
+    const svcParts = [];
+    for (const [svc, names] of Object.entries(services)) {
+      if (names.length > 0) svcParts.push(`${svc}: ${names.join(', ')}`);
+    }
+    if (svcParts.length > 0) entries.push({ customer, detail: svcParts.join(' / '), services });
+  }
+
+  if (entries.length === 0) return; // 全駅解決済み → 何もしない
+
+  // コンソール警告
+  const summary = entries.map(e => `  ${e.customer}: ${e.detail}`).join('\n');
+  console.warn(`[駅名解決失敗まとめ]\n${summary}`);
+
+  // デバッグログにも表示
+  await setStorageData({ debugLog: `⚠️ 駅名解決失敗: ${entries.map(e => e.detail).join(' | ')}` });
+
+  // GASに報告（失敗してもサイクルは止めない）
+  // Discord通知は各顧客スレッド内で送信済み（sendDiscordNotification内）
+  try {
+    await gasPost({
+      action: 'log_unresolved_stations',
+      data: _unresolvedStations,
+    });
+  } catch (err) {
+    console.warn('[未解決駅] GAS報告失敗:', err.message);
+  }
+}
+
 // --- メイン検索サイクル ---
 async function runSearchCycle() {
   const { isSearching, gasWebappUrl, enabledServices } = await getStorageData(['isSearching', 'gasWebappUrl', 'enabledServices']);
@@ -496,6 +541,8 @@ async function runSearchCycle() {
   }
 
   const searchId = ++currentSearchId;
+  // 未解決駅の蓄積をリセット
+  _unresolvedStations = {};
   // DiscordスレッドIDキャッシュをクリア
   Object.keys(discordThreadIds).forEach(k => delete discordThreadIds[k]);
   Object.keys(discordPropertyCounters).forEach(k => delete discordPropertyCounters[k]);
@@ -640,6 +687,9 @@ async function runSearchCycle() {
       }
     }
 
+    // === 未解決駅サマリー ===
+    await reportUnresolvedStations();
+
     await setStorageData({ lastSearchTime: Date.now() });
   } catch (err) {
     logError('検索サイクルエラー: ' + err.message);
@@ -766,6 +816,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
       // 沿線コードセット
       const reinsSearchStations = []; // デバッグ用: セットした駅名を記録
+      const reinsUnresolved = []; // 未解決路線を記録
       if (stationStr) {
         const parts = stationStr.split('/').map(s => s.trim());
         let slotNum = 0; // 実際にセットした沿線スロット数
@@ -850,7 +901,17 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
 
           const ensnCd = reinsCodeMap[reinsLineName];
-          if (!ensnCd) continue;
+          if (!ensnCd) {
+            console.warn(`[REINS] 沿線コード未定義: "${reinsLineName}" (元路線名: "${lineName}")`);
+            // 駅名も含めて未解決として記録
+            if (colonIdx >= 0) {
+              const stns = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
+              stns.forEach(s => reinsUnresolved.push(s));
+            } else {
+              reinsUnresolved.push(`[路線: ${lineName}]`);
+            }
+            continue;
+          }
 
           slotNum++;
           const num = slotNum;
@@ -1048,6 +1109,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         buildingAge: customerData.building_age || '',
         debugEquip: customerData.equipment || '(empty)',
         reinsSearchStations: reinsSearchStations,
+        reinsUnresolved: reinsUnresolved,
       };
     },
     args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '' }, lineNameMap, reinsCodeMap]
@@ -1057,6 +1119,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   if (!setStatus?.success) {
     await setStorageData({ debugLog: `${customer.name}: 条件セットエラー: ${JSON.stringify(setStatus)}` });
     return;
+  }
+  // REINS未解決駅を蓄積
+  if (setStatus.reinsUnresolved && setStatus.reinsUnresolved.length > 0) {
+    for (const name of setStatus.reinsUnresolved) {
+      addUnresolvedStation(customer.name, 'REINS', name);
+    }
   }
   await setStorageData({ debugLog: `${customer.name}: 条件セット完了 ensn=[${setStatus.ensnDebug || '-'}] rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}` });
 
@@ -2092,6 +2160,20 @@ async function sendDiscordNotification(customerName, properties, customer) {
         await sleep(500);
         await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: searchInfo });
         await sleep(500);
+      }
+
+      // 未解決駅があればスレッド内に警告を送信
+      const custUnresolved = _unresolvedStations[customerName];
+      if (custUnresolved) {
+        const svcParts = [];
+        for (const [svc, names] of Object.entries(custUnresolved)) {
+          if (names.length > 0) svcParts.push(`${svc}: ${names.join(', ')}`);
+        }
+        if (svcParts.length > 0) {
+          const warnMsg = `⚠️ **駅名解決失敗**\n${svcParts.join('\n')}\n該当駅の検索がスキップされています。`;
+          await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: warnMsg });
+          await sleep(500);
+        }
       }
     }
 
