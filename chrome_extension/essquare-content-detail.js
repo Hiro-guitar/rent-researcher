@@ -125,6 +125,17 @@
       }
     }
 
+    // 5.5. H3ラベル + 次の兄弟DIVから抽出（MUI Grid構造: 設備詳細セクション等）
+    const h3s = document.querySelectorAll('h3');
+    for (const h3 of h3s) {
+      const key = h3.textContent.trim();
+      const nextDiv = h3.nextElementSibling;
+      if (key && nextDiv && nextDiv.tagName === 'DIV') {
+        const value = nextDiv.textContent.trim();
+        if (value && !kvPairs[key]) kvPairs[key] = value;
+      }
+    }
+
     // 6. 設備情報を結合（テーブルの「設備」系の値をまとめる）
     const facilityParts = [];
     for (const [key, value] of Object.entries(kvPairs)) {
