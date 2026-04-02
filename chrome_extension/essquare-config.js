@@ -66,6 +66,7 @@ const ESSQUARE_LAYOUT_MAP = {
 // 構造 → kozo パラメータ値
 const ESSQUARE_STRUCTURE_MAP = {
   '鉄筋系': 'tekkin', '鉄骨系': 'tekkotsu', '木造': 'mokuzo', 'その他': 'sonota',
+  'ブロック・その他': 'sonota',
   'RC': 'tekkin', 'SRC': 'tekkin', '鉄骨造': 'tekkotsu', '軽量鉄骨造': 'tekkotsu',
 };
 
