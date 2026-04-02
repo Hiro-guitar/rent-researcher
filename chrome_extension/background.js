@@ -354,6 +354,16 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // フリーレントフィルタ（free_rentフィールドまたはfacilitiesにフリーレント記載がなければ除外）
+  if (equip.includes('フリーレント')) {
+    const fac = prop.facilities || '';
+    const freeRent = prop.free_rent || '';
+    const hasFreeRent = fac.includes('フリーレント') || (freeRent && freeRent !== 'なし' && freeRent !== '-');
+    if (!hasFreeRent) {
+      return `フリーレントなし`;
+    }
+  }
+
   // 定期借家を含まないフィルタ（設備に定期借家借地権、またはlease_typeに定期借家）
   if (equip.includes('定期借家を含まない') || equip.includes('定期借家除く')) {
     const fac = prop.facilities || '';
@@ -2476,11 +2486,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (equip.includes('高齢者') && !fac.includes('高齢者向') && !fac.includes('高齢者相談') && !fac.includes('高齢者歓迎') && !fac.includes('高齢者限定') && !fac.includes('高齢者世帯')) {
     warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
   }
-  // フリーレント（REINS: facilities内, itandi/いえらぶ: free_rentフィールド）
-  const freeRent = prop.free_rent || '';
-  if (equip.includes('フリーレント') && !fac.includes('フリーレント') && (!freeRent || freeRent === 'なし' || freeRent === '-')) {
-    warnings.push('⚠️ フリーレントかどうか確認してください');
-  }
+  // フリーレントはフィルタで除外済み（アラート不要）
   // インターネット無料（REINS: 常にアラート, itandi: インターネット無料, いえらぶ: ネット使用料不要）
   if ((equip.includes('インターネット無料') || equip.includes('ネット無料')) && !fac.includes('インターネット無料') && !fac.includes('ネット無料') && !fac.includes('ネット使用料不要')) {
     warnings.push('⚠️ インターネット無料かどうか確認してください');
