@@ -126,6 +126,10 @@ function buildEssquareSearchUrl(customer, page) {
   for (const item of equipItems) {
     if (ESSQUARE_HARD_KODAWARI_NAMES.has(item) && ESSQUARE_KODAWARI_MAP[item]) {
       params.append('kodawari', ESSQUARE_KODAWARI_MAP[item]);
+      // 家具家電付き → 家具付き(kagu_flag) + 家電付き(kaden_flag) の両方を送る
+      if (item === '家具家電付き') {
+        params.append('kodawari', 'kaden_flag');
+      }
     }
   }
 
