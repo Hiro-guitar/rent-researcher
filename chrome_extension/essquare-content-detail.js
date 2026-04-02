@@ -87,6 +87,21 @@
       }
     }
 
+    // 4.5. MUI Grid (xs-4ラベル + xs-8値) ペア抽出
+    //   物件詳細のメイン情報（部屋向き、所在階、建物構造等）がこの構造
+    const gridItems = document.querySelectorAll('.MuiGrid-root.MuiGrid-item');
+    for (let i = 0; i < gridItems.length - 1; i++) {
+      const item = gridItems[i];
+      const next = gridItems[i + 1];
+      if (item.className.includes('xs-4') && next.className.includes('xs-8')) {
+        const label = item.textContent.trim();
+        const value = next.textContent.trim();
+        if (label && value && label.length < 30 && value.length < 500) {
+          if (!kvPairs[label]) kvPairs[label] = value;
+        }
+      }
+    }
+
     // 5. KVペアから各フィールドにマッピング
     const fieldMap = {
       '所在階': 'floor_text',
@@ -105,6 +120,7 @@
       '日当たり': 'sunlight',
       '向き': 'sunlight',
       '方角': 'sunlight',
+      '部屋向き': 'sunlight',
       '火災保険': 'fire_insurance',
       '鍵交換': 'key_exchange_fee',
       '鍵交換費': 'key_exchange_fee',
