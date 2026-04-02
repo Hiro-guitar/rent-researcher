@@ -131,6 +131,10 @@ const ESSQUARE_KODAWARI_MAP = {
   'ベランダ・バルコニー': 'verandaBalcony',
   'ルーフバルコニー': 'roofBalcony', 'ルーフバルコニー付': 'roofBalcony',
   '専用庭': 'privateGarden', '角部屋': 'cornerRoom',
+  // 所在階
+  '1階': 'floorFirst', '1階の物件': 'floorFirst',
+  '2階以上': 'floorSecondOrAbove',
+  '最上階': 'floorTop',
   // 入居条件
   'ペット相談': 'petMayBeOK', 'ペット可': 'petMayBeOK', 'ペット相談可': 'petMayBeOK',
   '楽器相談可': 'musicalInstMayBeOK', '楽器相談': 'musicalInstMayBeOK',
@@ -145,6 +149,7 @@ const ESSQUARE_HARD_KODAWARI_NAMES = new Set([
   '家具付き', '家具家電付き', '家電付き',
   '事務所可', '事務所利用可',
   'ペット相談', 'ペット可', 'ペット相談可',
+  '1階', '1階の物件', '2階以上', '最上階',
 ]);
 
 // ソフト設備の検索キーワード（詳細ページのテキストで確認）
