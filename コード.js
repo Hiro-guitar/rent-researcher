@@ -44,6 +44,11 @@ function doPost(e) {
       return handleAddReinsProperty(json);
     }
 
+    // --- 駅名解決失敗ログ ---
+    if (json.action === 'log_unresolved_stations') {
+      return handleLogUnresolvedStations(json);
+    }
+
     const event = json.events[0];
     if (!event) return;
 
@@ -756,6 +761,50 @@ function handleGetSeenIds(e) {
 /**
  * POST: REINS Chrome拡張から物件データを受信し承認待ちシートに書き込む
  */
+function handleLogUnresolvedStations(json) {
+  if (!_validateReinsApiKey(json.api_key)) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var data = json.data;
+  if (!data || Object.keys(data).length === 0) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, message: 'no data' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheetName = '未解決駅ログ';
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.appendRow(['日時', '顧客名', 'サービス', '未解決駅']);
+    sheet.getRange(1, 1, 1, 4).setFontWeight('bold');
+  }
+
+  var now = new Date();
+  var rows = [];
+  for (var customer in data) {
+    var services = data[customer];
+    for (var svc in services) {
+      var stations = services[svc];
+      if (stations && stations.length > 0) {
+        rows.push([now, customer, svc, stations.join(', ')]);
+      }
+    }
+  }
+
+  if (rows.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 4).setValues(rows);
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify({ success: true, logged: rows.length }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 function handleAddReinsProperty(json) {
   if (!_validateReinsApiKey(json.api_key)) {
     return ContentService
