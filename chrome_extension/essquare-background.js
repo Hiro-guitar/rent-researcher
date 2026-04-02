@@ -72,7 +72,12 @@ function buildEssquareSearchUrl(customer, page) {
   const layouts = customer.layouts || [];
   for (const layout of layouts) {
     const trimmed = layout.trim();
-    if (ESSQUARE_LAYOUT_MAP[trimmed]) {
+    if (trimmed === '4K以上') {
+      // 4K以上 = 4K, 4DK, 4LDK, 5K以上 すべて含める
+      for (const code of ['11', '12', '13', '14']) {
+        params.append('search_madori_code2', code);
+      }
+    } else if (ESSQUARE_LAYOUT_MAP[trimmed]) {
       params.append('search_madori_code2', ESSQUARE_LAYOUT_MAP[trimmed]);
     }
   }
