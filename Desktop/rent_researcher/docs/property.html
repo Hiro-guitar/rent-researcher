@@ -183,7 +183,10 @@ var customer = params.get('customer');
 var roomId = params.get('room_id');
 
 // 埋め込みデータ取得: クエリパラメータ d= を優先、旧形式のハッシュ # もフォールバック対応
-var embeddedData = params.get('d') || (window.location.hash.length > 1 ? window.location.hash.substring(1) : null);
+// 注意: URLSearchParams.get() は '+' をスペースに変換するため（application/x-www-form-urlencoded仕様）、
+// Base64文字列が壊れる。正規表現で生のクエリ文字列から取得し、%エンコードだけデコードする。
+var rawD = (window.location.search.match(/[?&]d=([^&]*)/) || [])[1];
+var embeddedData = rawD ? decodeURIComponent(rawD) : (window.location.hash.length > 1 ? window.location.hash.substring(1) : null);
 var inlineProp = decodePropertyData(embeddedData);
 
 // 1. まず埋め込みデータを試す（即時描画 < 1秒）
