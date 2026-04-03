@@ -882,8 +882,8 @@ function _normalizeValue(val) {
 function _normalizeFireInsurance(val) {
   val = _normalizeValue(val);
   if (!val) return '';
-  // 「住宅保険料」「火災保険料」等の名称ラベルを除去
-  val = val.replace(/住宅保険料?/g, '').replace(/火災保険料?/g, '').trim();
+  // 保険の名称ラベルを除去（住宅保険料、火災保険料、少額短期保険 等）
+  val = val.replace(/少額短期保険料?/g, '').replace(/住宅保険料?/g, '').replace(/火災保険料?/g, '').trim();
   // 先頭の区切り文字を除去
   val = val.replace(/^[：:\s、,]+/, '').trim();
   return val;
