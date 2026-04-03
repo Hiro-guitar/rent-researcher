@@ -119,7 +119,10 @@
     }
 
     // 管理費・共益費: <span>管理費・共益費：1万5,000円</span>
+    // 注意: 親spanのtextContentは子spanのテキストを含むため、
+    // 子spanを持たないリーフspanのみを対象にする
     for (const span of detailInfo.querySelectorAll('span')) {
+      if (span.querySelectorAll('span').length > 0) continue; // 親spanはスキップ
       const text = span.textContent.trim();
       if (text.includes('管理費') || text.includes('共益費')) {
         const fee = parseJapaneseYen(text);
