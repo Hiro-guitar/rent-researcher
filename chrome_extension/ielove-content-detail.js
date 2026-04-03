@@ -407,7 +407,12 @@
           const rawItems = [];
           for (const li of liItems) {
             const liText = li.textContent.trim();
-            if (liText) rawItems.push(liText);
+            if (!liText) continue;
+            // 電話番号を含むli（備考・連絡先情報）を除外
+            if (/\d{3,4}-\d{3,4}-\d{3,4}/.test(liText)) continue;
+            // 2文字以下の断片的なli（「契約」等）を除外
+            if (liText.length <= 2) continue;
+            rawItems.push(liText);
           }
           if (rawItems.length > 0) tdText = rawItems.join('、');
         }
