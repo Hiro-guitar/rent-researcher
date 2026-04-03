@@ -376,8 +376,14 @@ function renderFacBuckets(order, buckets) {
 
 function renderProperty(p) {
   currentProperty = p; // sendFeedback で使うためグローバルに保存
-  var rentMan = p.rent ? String(p.rent / 10000) : '0';
-  var mgmtMan = p.managementFee ? String(p.managementFee / 10000) : '0';
+  // 金額表示ヘルパー: 1万円以上は「X万円」、未満は「X,XXX円」
+  function fmtYen(v) {
+    if (!v) return '0';
+    if (v >= 10000) return String(v / 10000) + '\u4E07\u5186';
+    return v.toLocaleString() + '\u5186';
+  }
+  var rentDisp = p.rent ? fmtYen(p.rent) : '0';
+  var mgmtDisp = p.managementFee ? fmtYen(p.managementFee) : '0';
   var images = p.images || [];
   var imageCategories = p.imageCategories || [];
 
@@ -422,11 +428,11 @@ function renderProperty(p) {
   }
   html += '<div class="title">' + escHtml(p.buildingName || '') + (p.roomNumber ? ' ' + escHtml(p.roomNumber) : '') + '</div>';
 
-  var priceSub = '管理費 ' + mgmtMan + '万円';
+  var priceSub = '管理費 ' + mgmtDisp;
   priceSub += ' | 敷金 ' + (hv(p.deposit) ? escHtml(p.deposit) : '0');
   priceSub += ' | 礼金 ' + (hv(p.keyMoney) ? escHtml(p.keyMoney) : '0');
   html += '<div class="price-box">'
-    + '<div class="price-main">' + rentMan + '万円<span style="font-size:16px">/月</span></div>'
+    + '<div class="price-main">' + rentDisp + '<span style="font-size:16px">/月</span></div>'
     + '<div class="price-sub">' + priceSub + '</div>'
     + '</div>';
 
