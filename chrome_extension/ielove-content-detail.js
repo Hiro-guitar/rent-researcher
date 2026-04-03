@@ -41,7 +41,7 @@
     '保険': 'fire_insurance',
     '現況': 'listing_status',
     '退去予定日': 'move_out_date',
-    '駐車場': 'parking_fee',
+    '駐車場': '',  // 駐車場の有無情報であり、駐車場代（金額）ではないため除外
     'バルコニー面積': '',
     'その他交通': 'other_stations',
     '備考': '',
@@ -178,7 +178,7 @@
 
   // === フィールドマッピング ===
   function mapDetailField(result, label, value) {
-    if (!value || ['-', '−', '―', 'ー', 'なし', ''].includes(value)) return;
+    if (!value || ['-', '−', '―', 'ー', 'なし', '無', ''].includes(value)) return;
 
     // 連続空白を圧縮
     value = value.replace(/\s{2,}/g, ' ').trim();
@@ -216,19 +216,34 @@
     }
 
     if (field === 'fire_insurance') {
-      const parts = value.split(' / ').map(p => p.trim()).filter(p => !/^.+[：:]\s*$/.test(p));
+      const genericNames = ['火災保険', '少額短期保険'];
+      const parts = value.split(' / ').map(p => p.trim())
+        .filter(p => !/^.+[：:]\s*$/.test(p))
+        .filter(p => {
+          // 「名称：火災保険」「名称：少額短期保険」など汎用名称は除去
+          const m = p.match(/名称[：:]\s*(.+)/);
+          return !(m && genericNames.includes(m[1].trim()));
+        });
       if (parts.length > 0) result.fire_insurance = parts.join(' / ');
       return;
     }
 
     if (field === 'lease_type') {
-      result.lease_type = value;
+      // 「普通借家権(更新：可)」→「普通借家権」（括弧内の更新情報を除去）
+      result.lease_type = value.replace(/\s*[\(（][^)）]*[\)）]\s*$/, '');
       return;
     }
 
     if (field === 'layout_detail') {
       if (value.includes('帖') || value.includes('畳')) {
-        result.layout_detail = value;
+        // 「1LDK LDK 8.2帖 洋室 4.3帖」→「LDK 8.2帖 / 洋室 4.3帖」
+        // 先頭の間取りタイプ（1R, 1K, 2LDK 等）を除去し、各部屋を " / " で区切る
+        const rooms = value.match(/(?:[A-Za-z]+|洋室|和室|DK|LDK|K|サービスルーム|納戸)\s*[\d.]+\s*(?:帖|畳)/g);
+        if (rooms && rooms.length > 0) {
+          result.layout_detail = rooms.map(r => r.trim()).join(' / ');
+        } else {
+          result.layout_detail = value;
+        }
       }
       return;
     }
@@ -260,6 +275,16 @@
 
     if (field === 'move_in_date') {
       result.move_in_date = value.replace(/^(予定|期日指定)\s*/, '');
+      return;
+    }
+
+    if (field === 'guarantee_info') {
+      // 保証会社1〜N を全て連結して保存
+      if (result.guarantee_info) {
+        result.guarantee_info += '\n---\n' + value;
+      } else {
+        result.guarantee_info = value;
+      }
       return;
     }
 
