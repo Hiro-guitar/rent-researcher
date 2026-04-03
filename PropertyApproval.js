@@ -510,6 +510,7 @@ function handlePropertyViewApi(e) {
     motorcycleParkingFee: prop.motorcycleParkingFee,
     otherMonthlyFee: prop.otherMonthlyFee,
     otherOnetimeFee: prop.otherOnetimeFee,
+    cleaningFee: prop.cleaningFee,
     moveInConditions: prop.moveInConditions,
     freeRentDetail: prop.freeRentDetail,
     layoutDetail: prop.layoutDetail
