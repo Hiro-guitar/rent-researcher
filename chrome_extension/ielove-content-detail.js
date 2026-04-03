@@ -392,15 +392,24 @@
     }
 
     if (field === 'fire_insurance') {
+      // 保険情報を整形: 「加入義務：有名称：旭化成...金額：1万8,400円期間：2年」
+      // → 「加入義務：有 / 名称：旭化成... / 金額：1万8,400円 / 期間：2年」
+      let formatted = value;
+      // すでに " / " 区切りの場合はそのまま処理
+      if (!value.includes(' / ')) {
+        // キーワード前に区切りを挿入（名称・金額・期間・詳細）
+        formatted = value.replace(/(名称|金額|期間|詳細)[：:]/g, ' / $1：');
+        formatted = formatted.replace(/^\s*\/\s*/, '').trim();
+      }
       const genericNames = ['火災保険', '少額短期保険'];
-      const parts = value.split(' / ').map(p => p.trim())
-        .filter(p => !/^.+[：:]\s*$/.test(p))
+      const parts = formatted.split(' / ').map(p => p.trim())
+        .filter(p => p && !/^.+[：:]\s*$/.test(p))
         .filter(p => {
           // 「名称：火災保険」「名称：少額短期保険」など汎用名称は除去
           const m = p.match(/名称[：:]\s*(.+)/);
           return !(m && genericNames.includes(m[1].trim()));
         });
-      if (parts.length > 0) result.fire_insurance = parts.join(' / ');
+      if (parts.length > 0) result.fire_insurance = parts.join('\n');
       return;
     }
 
@@ -455,11 +464,19 @@
     }
 
     if (field === 'guarantee_info') {
+      // 保証会社情報を整形: 「加入義務：必加入会社：旭化成...利用料：初回保証料：...」
+      // → 「加入義務：必加入 / 会社：旭化成... / 利用料：初回保証料：...」
+      let formatted = value;
+      if (!value.includes(' / ')) {
+        formatted = value.replace(/(会社|利用料|詳細)[：:]/g, ' / $1：');
+        formatted = formatted.replace(/^\s*\/\s*/, '').trim();
+      }
+      const formattedValue = formatted.split(' / ').map(p => p.trim()).filter(Boolean).join('\n');
       // 保証会社1〜N を全て連結して保存
       if (result.guarantee_info) {
-        result.guarantee_info += '\n---\n' + value;
+        result.guarantee_info += '\n---\n' + formattedValue;
       } else {
-        result.guarantee_info = value;
+        result.guarantee_info = formattedValue;
       }
       return;
     }
@@ -541,8 +558,8 @@
 
         // カンマ・スラッシュで個別アイテムに分割
         const items = tdText.split(/[、,]\s*|\s*\/\s*/).map(s => s.trim()).filter(Boolean);
-        // 設備名は短い（通常20文字以内）ので、長い文字列は備考混入として除外
-        const filtered = items.filter(s => s.length <= 25);
+        // 設備名は通常短いが、「BELS/省エネ基準適合認定」等もあるため緩めに設定
+        const filtered = items.filter(s => s.length <= 40);
         if (filtered.length > 0) categorized[category] = filtered;
       }
     }
