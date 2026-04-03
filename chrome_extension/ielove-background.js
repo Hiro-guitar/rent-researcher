@@ -79,7 +79,7 @@ function buildIeloveSearchUrl(customer, page = 1) {
   // 間取り
   const layoutCodes = resolveIeloveLayouts(customer.layouts || []);
   for (const code of layoutCodes) {
-    parts.push(`madori/${code}`);
+    parts.push(`shareLycd/${code}`);
   }
 
   // ハード設備（URLレベルで対応可能なもの）
@@ -623,6 +623,11 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
             // 構造名を正規化（いえらぶ表記→REINS/itandi共通名）
             if (prop.structure) {
               prop.structure = IELOVE_STRUCTURE_NORMALIZE[prop.structure] || prop.structure;
+            }
+
+            // 物件名末尾に部屋番号が含まれている場合は重複を除去
+            if (prop.room_number && prop.building_name && prop.building_name.endsWith(prop.room_number)) {
+              prop.building_name = prop.building_name.slice(0, -prop.room_number.length).trim();
             }
           }
 

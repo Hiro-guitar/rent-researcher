@@ -10,21 +10,24 @@ const IELOVE_PREFECTURE_CODE = '13'; // 東京都
 // 間取りコード (checkbox value)
 // メイン間取り → S付き・LK・SLK等の派生間取りも含めて検索する
 // いえらぶの「その他の間取り」: SK, SDK, LK, SLK, SLDK
+// shareLycd パラメータ値（検索URLで使用）
+// いえらぶの検索フォームの checkbox name="shareLycd[]" の値
+// SK/SDK/SLK/SLDK等の派生間取りはメイン値に自動的に含まれる
 const IELOVE_LAYOUT_CODES = {
   'ワンルーム': ['1'],
   '1R': ['1'],
-  '1K': ['2', '3'],                   // 1K + 1SK
-  '1DK': ['4', '5'],                  // 1DK + 1SDK
-  '1LDK': ['6', '7', '8', '9'],      // 1LK + 1SLK + 1LDK + 1SLDK
-  '2K': ['10', '11'],                 // 2K + 2SK
-  '2DK': ['12', '13'],                // 2DK + 2SDK
-  '2LDK': ['14', '15', '16', '17'],  // 2LK + 2SLK + 2LDK + 2SLDK
-  '3K': ['18', '19'],                 // 3K + 3SK
-  '3DK': ['20', '21'],                // 3DK + 3SDK
-  '3LDK': ['22', '23', '24', '25'],  // 3LK + 3SLK + 3LDK + 3SLDK
-  '4K': ['26', '27'],                 // 4K + 4SK
-  '4DK': ['28', '29'],                // 4DK + 4SDK
-  '4LDK': ['30', '31', '32', '33'],  // 4LK + 4SLK + 4LDK + 4SLDK
+  '1K': ['2'],
+  '1DK': ['4'],
+  '1LDK': ['8'],
+  '2K': ['10'],
+  '2DK': ['12'],
+  '2LDK': ['16'],
+  '3K': ['18'],
+  '3DK': ['20'],
+  '3LDK': ['24'],
+  '4K': ['26'],
+  '4DK': ['28'],
+  '4LDK': ['32'],
 };
 
 // 建物構造: CustomerCriteria の structure_types → いえらぶコード
