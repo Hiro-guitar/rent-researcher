@@ -2606,6 +2606,11 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     lines.push(`\`\`\`ansi\n\u001b[0;33m${ansiText}\u001b[0m\n\`\`\``);
   }
 
+  // 広告料・現況・客付会社メッセージ
+  if (prop.ad_fee) lines.push(`📢 広告料: ${prop.ad_fee}`);
+  if (prop.listing_status) lines.push(`📋 現況: ${prop.listing_status}`);
+  if (prop.agent_message) lines.push(`💬 メッセージ: ${prop.agent_message}`);
+
   // 詳細ページURL
   if (prop.url) {
     lines.push(`🔗 [詳細ページ](${prop.url})`);

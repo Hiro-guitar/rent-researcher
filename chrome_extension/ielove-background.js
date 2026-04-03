@@ -790,5 +790,8 @@ function buildPropertyDataJson(prop) {
     other_onetime_fee: prop.other_onetime_fee || '',
     shikibiki: prop.shikibiki || '',
     layout_detail: prop.layout_detail || '',
+    ad_fee: prop.ad_fee || '',
+    listing_status: prop.listing_status || '',
+    agent_message: prop.agent_message || '',
   };
 }
