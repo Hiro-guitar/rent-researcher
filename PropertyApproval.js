@@ -1316,8 +1316,8 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '.insert-pos select{padding:5px 8px;border-radius:6px;border:1px solid #ccc;font-size:14px;background:#fff}'
     + '</style></head><body><div class="card">'
     + '<h2>\uD83D\uDD0D \u627F\u8A8D\u30D7\u30EC\u30D3\u30E5\u30FC\uFF08\u7DE8\u96C6\u53EF\uFF09</h2>'
-    + '<div class="prop-name">' + _esc(prop.buildingName) + (prop.roomNumber ? ' ' + _esc(prop.roomNumber) : '') + '</div>'
-    + '<div class="price">' + rentMan + '\u4E07\u5186 <span class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186</span></div>';
+    + '<div class="prop-name"><input class="detail-input" name="headerBuildingName" value="' + _esc(prop.buildingName) + '" style="font-size:20px;font-weight:bold;color:#222;border:1px solid #e0e0e0;max-width:70%;display:inline-block" oninput="document.querySelector(\'input[name=buildingName]\').value=this.value"> <input class="detail-input" name="headerRoomNumber" value="' + _esc(prop.roomNumber || '') + '" style="font-size:20px;font-weight:bold;color:#222;border:1px solid #e0e0e0;width:80px;display:inline-block" oninput="document.querySelector(\'input[name=roomNumber]\').value=this.value"></div>'
+    + '<div class="price"><input class="detail-input" name="headerRent" value="' + rentMan + '" style="font-size:24px;font-weight:bold;color:#E05252;width:80px;display:inline-block;border:1px solid #e0e0e0" oninput="document.querySelector(\'input[name=rent]\').value=Math.round(parseFloat(this.value)*10000)||0">\u4E07\u5186 <span class="price-sub">\u7BA1\u7406\u8CBB <input class="detail-input" name="headerMgmt" value="' + mgmtMan + '" style="font-size:14px;color:#888;width:60px;display:inline-block;border:1px solid #e0e0e0" oninput="document.querySelector(\'input[name=managementFee]\').value=Math.round(parseFloat(this.value)*10000)||0">\u4E07\u5186</span></div>';
 
   // ── 物件情報 ──
   html += '<div class="section-header">\u7269\u4EF6\u60C5\u5831</div>';
@@ -1348,7 +1348,7 @@ function makePreviewHtml(prop, customerName, roomId) {
   html += _inputRow('\u6577\u5F15\u304D/\u511F\u5374', 'shikibiki', prop.shikibiki);
   html += _inputRow('\u30DA\u30C3\u30C8\u6577\u91D1\u8FFD\u52A0', 'petDeposit', prop.petDeposit);
   html += _inputRow('\u66F4\u65B0\u6599', 'renewalFee', prop.renewalFee);
-  html += _inputRow('\u706B\u707D\u4FDD\u967A', 'fireInsurance', prop.fireInsurance);
+  html += _textareaRow('\u706B\u707D\u4FDD\u967A', 'fireInsurance', prop.fireInsurance);
   html += _inputRow('\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', 'renewalAdminFee', prop.renewalAdminFee);
   html += _textareaRow('\u4FDD\u8A3C\u6599', 'guaranteeInfo', prop.guaranteeInfo);
   html += _inputRow('\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u8CBB\u7528', 'cleaningFee', prop.cleaningFee);
@@ -1846,7 +1846,7 @@ function makeViewHtml(prop) {
   if (_hv(prop.shikibiki)) costRows.push(['\u6577\u5F15\u304D/\u511F\u5374', prop.shikibiki]);
   if (_hv(prop.petDeposit)) costRows.push(['\u30DA\u30C3\u30C8\u6577\u91D1\u8FFD\u52A0', prop.petDeposit]);
   if (_hv(prop.renewalFee)) costRows.push(['\u66F4\u65B0\u6599', prop.renewalFee]);
-  if (_hv(prop.fireInsurance)) costRows.push(['\u706B\u707D\u4FDD\u967A\u6599', prop.fireInsurance]);
+  if (_hv(prop.fireInsurance)) costRows.push(['\u706B\u707D\u4FDD\u967A', prop.fireInsurance]);
   if (_hv(prop.renewalAdminFee)) costRows.push(['\u66F4\u65B0\u4E8B\u52D9\u624B\u6570\u6599', prop.renewalAdminFee]);
   if (_hv(prop.guaranteeInfo)) costRows.push(['\u4FDD\u8A3C\u6599', prop.guaranteeInfo]);
   if (_hv(prop.cleaningFee)) costRows.push(['\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0\u8CBB\u7528', prop.cleaningFee]);
@@ -1877,7 +1877,7 @@ function makeViewHtml(prop) {
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">\u8CBB\u7528</div>';
     for (var i = 0; i < costRows.length; i++) {
-      html += '<div class="row"><span class="row-label">' + costRows[i][0] + '</span><span class="row-value">' + _esc(costRows[i][1]) + '</span></div>';
+      html += '<div class="row"><span class="row-label">' + costRows[i][0] + '</span><span class="row-value">' + _esc(costRows[i][1]).replace(/\n/g, '<br>') + '</span></div>';
     }
     html += '</div>';
   }
