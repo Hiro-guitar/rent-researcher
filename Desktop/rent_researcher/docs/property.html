@@ -430,7 +430,12 @@ function renderProperty(p) {
   if (customer) {
     html += '<div class="customer-badge">' + escHtml(customer) + ' 様専用ページ</div>';
   }
-  html += '<div class="title">' + escHtml(p.buildingName || '') + (p.roomNumber ? ' ' + escHtml(p.roomNumber) : '') + '</div>';
+  // 物件名が部屋番号で終わっている場合は重複表示しない
+  var displayName = p.buildingName || '';
+  if (p.roomNumber && !displayName.endsWith(p.roomNumber)) {
+    displayName += ' ' + p.roomNumber;
+  }
+  html += '<div class="title">' + escHtml(displayName) + '</div>';
 
   var priceSub = '管理費 ' + mgmtDisp;
   priceSub += ' | 敷金 ' + (hv(p.deposit) ? escHtml(p.deposit) : '0');
@@ -651,7 +656,7 @@ function renderProperty(p) {
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   document.getElementById('app').innerHTML = html;
-  document.title = (p.buildingName || '物件情報') + ' - 物件詳細';
+  document.title = (displayName || '物件情報') + ' - 物件詳細';
 
   // カルーセル初期化（動的HTML注入後に実行）
   initCarousel();
