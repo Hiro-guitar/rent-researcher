@@ -11,6 +11,7 @@ const IELOVE_PREFECTURE_CODE = '13'; // 東京都
 // メイン間取り → S付き・LK・SLK等の派生間取りも含めて検索する
 // いえらぶの「その他の間取り」: SK, SDK, LK, SLK, SLDK
 const IELOVE_LAYOUT_CODES = {
+  'ワンルーム': ['1'],
   '1R': ['1'],
   '1K': ['2', '3'],                   // 1K + 1SK
   '1DK': ['4', '5'],                  // 1DK + 1SDK
