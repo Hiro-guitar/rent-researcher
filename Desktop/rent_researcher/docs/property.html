@@ -163,6 +163,7 @@ function decodePropertyData(encoded) {
       motorcycleParkingFee: d.mp || '',
       otherMonthlyFee: d.omf || '',
       otherOnetimeFee: d.oof || '',
+      cleaningFee: d.cf || '',
       moveInConditions: d.mic || '',
       freeRentDetail: d.frd || '',
       layoutDetail: d.ld || '',
@@ -520,7 +521,8 @@ function renderProperty(p) {
   if (hv(p.shikibiki)) costRows.push(['敷引き/償却', p.shikibiki]);
   if (hv(p.petDeposit)) costRows.push(['ペット敷金追加', p.petDeposit]);
   if (hv(p.renewalFee)) costRows.push(['更新料', p.renewalFee]);
-  if (hv(p.fireInsurance)) costRows.push(['火災保険料', p.fireInsurance]);
+  if (hv(p.fireInsurance)) costRows.push(['火災保険', p.fireInsurance]);
+  if (hv(p.cleaningFee)) costRows.push(['クリーニング費用', p.cleaningFee]);
   if (hv(p.renewalAdminFee)) costRows.push(['更新事務手数料', p.renewalAdminFee]);
   // 保証会社は専用表示（後述の guaranteeHtml で描画）
   if (hv(p.keyExchangeFee)) costRows.push(['鍵交換費用', p.keyExchangeFee]);
@@ -690,7 +692,7 @@ function hv(val) {
 }
 
 function makeRow(label, value) {
-  return '<div class="row"><span class="row-label">' + escHtml(label) + '</span><span class="row-value">' + escHtml(nv(value)) + '</span></div>';
+  return '<div class="row"><span class="row-label">' + escHtml(label) + '</span><span class="row-value">' + escHtml(nv(value)).replace(/\n/g, '<br>') + '</span></div>';
 }
 
 // カルーセル操作（cur, total はスクリプト冒頭で宣言済み）
