@@ -737,6 +737,18 @@ function buildItandiPropertyDataJson(prop) {
     other_onetime_fee: prop.other_onetime_fee || '',
     shikibiki: prop.shikibiki || '',
     layout_detail: prop.layout_detail || '',
+    cancellation_notice: prop.cancellation_notice || '',
+    renewal_info: prop.renewal_info || '',
+    pet_deposit: prop.pet_deposit || '',
+    renewal_admin_fee: prop.renewal_admin_fee || '',
+    support_fee_24h: prop.support_fee_24h || '',
+    additional_deposit: prop.additional_deposit || '',
+    guarantee_deposit: prop.guarantee_deposit || '',
+    water_billing: prop.water_billing || '',
+    bicycle_parking_fee: prop.bicycle_parking_fee || '',
+    motorcycle_parking_fee: prop.motorcycle_parking_fee || '',
+    move_in_conditions: prop.move_in_conditions || '',
+    free_rent_detail: prop.free_rent_detail || '',
   };
 }
 
