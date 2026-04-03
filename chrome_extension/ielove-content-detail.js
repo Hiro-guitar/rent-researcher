@@ -51,6 +51,9 @@
     '所在階': 'floor_text',
     '所在階/階建': 'story_text',
     '建物構造': 'structure',
+    '敷金/礼金': '_deposit_key_money',
+    '敷金': 'deposit',
+    '礼金': 'key_money',
   };
 
   const CLEANING_KEYWORDS = ['クリーニング', '清掃'];
@@ -83,11 +86,20 @@
   function parseDetailPage() {
     const result = {};
 
+    // 物件名・部屋番号を抽出（p.bkn_name または table.estate-name から）
+    extractBuildingNameAndRoom(result);
+
+    // 住所・駅情報を抽出
+    extractAddressAndStation(result);
+
     // 賃料・管理費を .bb-detail-info のSPAN要素から抽出
     extractRentAndManagementFee(result);
 
     // テーブルからkey-valueペアを抽出
     parseDetailTables(result);
+
+    // 間取り・面積を複合ラベルから抽出
+    extractLayoutAndArea(result);
 
     // 設備情報を抽出
     const facilities = extractFacilities();
@@ -101,6 +113,101 @@
     }
 
     return result;
+  }
+
+  // === 物件名・部屋番号抽出 ===
+  function extractBuildingNameAndRoom(result) {
+    // パターン1: p.bkn_name（「クレール２１鷹番  101」形式）
+    const bknName = document.querySelector('p.bkn_name');
+    if (bknName) {
+      const raw = bknName.textContent.trim();
+      const parts = raw.split(/\s{2,}/);
+      if (parts.length >= 2) {
+        result.building_name = parts.slice(0, -1).join(' ');
+        result.room_number = parts[parts.length - 1];
+      } else if (parts.length === 1 && raw) {
+        result.building_name = raw;
+      }
+      return;
+    }
+
+    // パターン2: table.estate-name > span.large-font
+    const nameTable = document.querySelector('table.estate-name');
+    if (nameTable) {
+      const nameSpan = nameTable.querySelector('span.large-font');
+      if (nameSpan) {
+        const textParts = [];
+        for (const child of nameSpan.childNodes) {
+          if (child.nodeType === Node.TEXT_NODE) {
+            const t = child.textContent.trim();
+            if (t) textParts.push(t);
+          } else {
+            break;
+          }
+        }
+        const raw = textParts.join(' ');
+        const parts = raw.trim().split(/\s{2,}/);
+        if (parts.length >= 2) {
+          result.building_name = parts.slice(0, -1).join(' ');
+          result.room_number = parts[parts.length - 1];
+        } else if (parts.length > 0) {
+          result.building_name = parts[0];
+        }
+      }
+    }
+  }
+
+  // === 住所・駅情報抽出 ===
+  function extractAddressAndStation(result) {
+    const bodyText = document.body.innerText || '';
+
+    // 住所: 東京都〜 を含む短い行
+    for (const line of bodyText.split('\n')) {
+      const t = line.trim();
+      if (/^東京都.{3,50}$/.test(t) && !t.includes('管理費')) {
+        result.address = t;
+        break;
+      }
+    }
+
+    // 駅情報: 路線名「駅名」駅 徒歩N分
+    const LINE_CHARS = '[ぁ-んァ-ヶー\u4E00-\u9FFFA-Za-zＡ-Ｚａ-ｚ]';
+    const stationRe = new RegExp(`(${LINE_CHARS}{2,20}線「[^」]+」駅\\s*徒歩\\d+分)`);
+    const sm = bodyText.match(stationRe);
+    if (sm) {
+      result.station_info = sm[1].replace(/\s+/g, ' ').replace(/^[丁目番地号]+/, '');
+    }
+  }
+
+  // === 間取り・面積抽出（「2LDK /壁芯60.58㎡」形式の複合ラベル） ===
+  function extractLayoutAndArea(result) {
+    for (const table of document.querySelectorAll('table')) {
+      for (const row of table.querySelectorAll('tr')) {
+        const ths = row.querySelectorAll('th');
+        if (ths.length > 0 && row.querySelectorAll('td').length === 0) {
+          for (let i = 0; i < ths.length; i++) {
+            if (ths[i].textContent.trim() === '間取り/専有面積') {
+              const nextRow = row.nextElementSibling;
+              if (nextRow) {
+                const tds = nextRow.querySelectorAll('td');
+                if (i < tds.length) {
+                  const text = tds[i].textContent.trim();
+                  // 「2LDK /壁芯60.58㎡」
+                  const lm = text.match(/^(\d[RSLDK]+|ワンルーム)/);
+                  if (lm && !result.layout) {
+                    result.layout = lm[1] === 'ワンルーム' ? '1R' : lm[1];
+                  }
+                  const am = text.match(/([\d.]+)\s*[㎡m²]/);
+                  if (am && !result.area) {
+                    result.area = parseFloat(am[1]);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   // === 賃料・管理費抽出（テーブル外のSPAN要素から） ===
@@ -257,6 +364,18 @@
     if (!field) return;
 
     // 特殊処理
+    if (field === '_deposit_key_money') {
+      // 「1ヶ月/0.5ヶ月」→ deposit, key_money に分割
+      const parts = value.split('/').map(s => s.trim());
+      if (parts.length >= 2) {
+        if (!result.deposit) result.deposit = parts[0];
+        if (!result.key_money) result.key_money = parts[1];
+      } else if (parts.length === 1 && !result.deposit) {
+        result.deposit = parts[0];
+      }
+      return;
+    }
+
     if (field === '_other_initial_fees') {
       splitOtherInitialFees(result, value);
       return;
