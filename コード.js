@@ -851,42 +851,54 @@ function handleAddReinsProperty(json) {
     }
 
     // property_data_json を構築
-    var dataJson = JSON.stringify({
-      address: p.address || '',
-      url: p.url || '',
-      image_url: p.image_url || '',
-      image_urls: p.image_urls || [],
-      room_number: p.room_number || '',
-      building_age: p.building_age || '',
-      move_in_date: p.move_in_date || '',
-      floor: p.floor || 0,
-      floor_text: p.floor_text || '',
-      story_text: p.story_text || '',
-      structure: p.structure || '',
-      total_units: p.total_units || '',
-      sunlight: p.sunlight || '',
-      facilities: p.facilities || '',
-      other_stations: p.other_stations || [],
-      deposit: p.deposit || '',
-      key_money: p.key_money || '',
-      lease_type: p.lease_type || '',
-      contract_period: p.contract_period || '',
-      cancellation_notice: p.cancellation_notice || '',
-      renewal_info: p.renewal_info || '',
-      renewal_fee: p.renewal_fee || '',
-      fire_insurance: p.fire_insurance || '',
-      renewal_admin_fee: p.renewal_admin_fee || '',
-      guarantee_info: p.guarantee_info || '',
-      key_exchange_fee: p.key_exchange_fee || '',
-      cleaning_fee: p.cleaning_fee || '',
-      other_monthly_fee: p.other_monthly_fee || '',
-      other_onetime_fee: p.other_onetime_fee || '',
-      move_in_conditions: p.move_in_conditions || '',
-      source: 'reins',
-      reins_property_number: p.reins_property_number || '',
-      reins_shougo: p.reins_shougo || '',
-      reins_tel: p.reins_tel || ''
-    });
+    // Chrome拡張が構築済みの property_data_json がある場合はそれを使用
+    // （image_categories 等の全フィールドが含まれている）
+    var dataJson;
+    if (p.property_data_json) {
+      dataJson = p.property_data_json;
+    } else {
+      dataJson = JSON.stringify({
+        address: p.address || '',
+        url: p.url || '',
+        image_url: p.image_url || '',
+        image_urls: p.image_urls || [],
+        image_categories: p.image_categories || [],
+        room_number: p.room_number || '',
+        building_age: p.building_age || '',
+        move_in_date: p.move_in_date || '',
+        floor: p.floor || 0,
+        floor_text: p.floor_text || '',
+        story_text: p.story_text || '',
+        structure: p.structure || '',
+        total_units: p.total_units || '',
+        sunlight: p.sunlight || '',
+        facilities: p.facilities || '',
+        other_stations: p.other_stations || [],
+        deposit: p.deposit || '',
+        key_money: p.key_money || '',
+        lease_type: p.lease_type || '',
+        contract_period: p.contract_period || '',
+        cancellation_notice: p.cancellation_notice || '',
+        renewal_info: p.renewal_info || '',
+        renewal_fee: p.renewal_fee || '',
+        fire_insurance: p.fire_insurance || '',
+        renewal_admin_fee: p.renewal_admin_fee || '',
+        guarantee_info: p.guarantee_info || '',
+        key_exchange_fee: p.key_exchange_fee || '',
+        cleaning_fee: p.cleaning_fee || '',
+        parking_fee: p.parking_fee || '',
+        free_rent: p.free_rent || '',
+        shikibiki: p.shikibiki || '',
+        layout_detail: p.layout_detail || '',
+        other_monthly_fee: p.other_monthly_fee || '',
+        other_onetime_fee: p.other_onetime_fee || '',
+        move_in_conditions: p.move_in_conditions || '',
+        source: p.source || 'reins',
+        reins_property_number: p.reins_property_number || '',
+        reins_shougo: p.reins_shougo || '',
+        reins_tel: p.reins_tel || ''
+      });
+    }
 
     sheet.appendRow([
       customerName,                    // A: customer_name
