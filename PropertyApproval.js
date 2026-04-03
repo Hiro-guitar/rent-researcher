@@ -876,6 +876,20 @@ function _normalizeValue(val) {
 }
 
 /**
+ * 火災保険の値を正規化する。
+ * 「住宅保険料」等の名称部分を除去し、金額・期間のみにする。
+ */
+function _normalizeFireInsurance(val) {
+  val = _normalizeValue(val);
+  if (!val) return '';
+  // 「住宅保険料」「火災保険料」等の名称ラベルを除去
+  val = val.replace(/住宅保険料?/g, '').replace(/火災保険料?/g, '').trim();
+  // 先頭の区切り文字を除去
+  val = val.replace(/^[：:\s、,]+/, '').trim();
+  return val;
+}
+
+/**
  * 築年月テキストを「築○年」形式に変換する。
  * "2007/03" → "築19年", "築15年" → "築15年", "9年" → "築9年"
  */
@@ -979,7 +993,7 @@ function rowToProperty(row) {
     petDeposit: _normalizeValue(extra.pet_deposit),
     freeRent: _normalizeValue(extra.free_rent),
     renewalFee: _normalizeValue(extra.renewal_fee),
-    fireInsurance: _normalizeValue(extra.fire_insurance),
+    fireInsurance: _normalizeFireInsurance(extra.fire_insurance),
     renewalAdminFee: _normalizeValue(extra.renewal_admin_fee),
     guaranteeInfo: _normalizeValue(extra.guarantee_info),
     cleaningFee: _normalizeValue(extra.cleaning_fee),
