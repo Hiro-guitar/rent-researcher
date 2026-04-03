@@ -413,13 +413,20 @@ function handlePropertyViewApi(e) {
   }
 
   // 1. キャッシュから取得（高速）
+  var nocache = e.parameter.nocache === '1';
   try {
     var cache = CacheService.getScriptCache();
     var cacheKey = 'prop2_' + customerName + '_' + roomId;
-    var cached = cache.get(cacheKey);
-    if (cached) {
-      return ContentService.createTextOutput(cached)
-        .setMimeType(ContentService.MimeType.JSON);
+    if (nocache) {
+      cache.remove(cacheKey);
+      // 画像キャッシュもクリア
+      cache.remove('imgs_' + customerName + '_' + roomId);
+    } else {
+      var cached = cache.get(cacheKey);
+      if (cached) {
+        return ContentService.createTextOutput(cached)
+          .setMimeType(ContentService.MimeType.JSON);
+      }
     }
   } catch(e) {}
 
