@@ -471,7 +471,9 @@
         formatted = value.replace(/(会社|利用料|詳細)[：:]/g, ' / $1：');
         formatted = formatted.replace(/^\s*\/\s*/, '').trim();
       }
-      const formattedValue = formatted.split(' / ').map(p => p.trim()).filter(Boolean).join('\n');
+      const formattedValue = formatted.split(' / ').map(p => p.trim())
+        .filter(p => p && !/^.+[：:]\s*$/.test(p))
+        .join('\n');
       // 保証会社1〜N を全て連結して保存
       if (result.guarantee_info) {
         result.guarantee_info += '\n---\n' + formattedValue;
