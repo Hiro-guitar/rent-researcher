@@ -68,8 +68,16 @@
     if (msg.type === 'IELOVE_EXTRACT_DETAIL') {
       try {
         const detail = parseDetailPage();
+        // DEBUG: image_categories の状態をconsoleに出力
+        console.log('[ielove-content-debug] detail keys:', Object.keys(detail).join(','));
+        console.log('[ielove-content-debug] image_urls:', (detail.image_urls || []).length);
+        console.log('[ielove-content-debug] image_categories:', (detail.image_categories || []).length);
+        if (detail.image_categories && detail.image_categories.length > 0) {
+          console.log('[ielove-content-debug] categories sample:', detail.image_categories.slice(0, 5));
+        }
         sendResponse({ ok: true, detail });
       } catch (err) {
+        console.error('[ielove-content-debug] parseDetailPage error:', err.message);
         sendResponse({ ok: false, error: err.message });
       }
       return true;

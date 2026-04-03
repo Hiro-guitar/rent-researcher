@@ -617,6 +617,11 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
           }
 
           if (detailResult?.ok && detailResult.detail) {
+            // DEBUG: 詳細抽出結果のimage_categories確認
+            const _dCats = detailResult.detail.image_categories || [];
+            const _dUrls = detailResult.detail.image_urls || [];
+            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: 詳細取得 imgs=${_dUrls.length} cats=${_dCats.length} keys=${Object.keys(detailResult.detail).length}` });
+
             // 詳細情報をマージ
             Object.assign(prop, detailResult.detail);
 
@@ -629,6 +634,8 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
             if (prop.room_number && prop.building_name && prop.building_name.endsWith(prop.room_number)) {
               prop.building_name = prop.building_name.slice(0, -prop.room_number.length).trim();
             }
+          } else {
+            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: 詳細抽出失敗 ok=${detailResult?.ok} detail=${!!detailResult?.detail} err=${detailResult?.error || 'none'}` });
           }
 
           // 検索結果ページに戻る
@@ -658,8 +665,12 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       // property_data_json を構築（GAS承認ページ用）
       prop.property_data_json = JSON.stringify(buildPropertyDataJson(prop));
 
+      // DEBUG: 画像カテゴリ情報を送信対象ログに含める
+      const _cats = prop.image_categories || [];
+      const _catInfo = `imgCat:${_cats.length}/${_cats.filter(c=>c).length} pdj:${(prop.property_data_json||'').length}`;
+
       submittedCount++;
-      await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✓ 送信対象（${prop.building_name} ${prop.room_number || ''} ${prop.rent ? (prop.rent/10000)+'万' : ''}）` });
+      await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✓ 送信対象（${prop.building_name} ${prop.room_number || ''} ${prop.rent ? (prop.rent/10000)+'万' : ''} ${_catInfo}）` });
 
       // リアルタイムでGAS送信（1物件ずつ）
       try {
