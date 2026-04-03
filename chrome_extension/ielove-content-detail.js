@@ -83,6 +83,9 @@
   function parseDetailPage() {
     const result = {};
 
+    // 賃料・管理費を .bb-detail-info のSPAN要素から抽出
+    extractRentAndManagementFee(result);
+
     // テーブルからkey-valueペアを抽出
     parseDetailTables(result);
 
@@ -98,6 +101,56 @@
     }
 
     return result;
+  }
+
+  // === 賃料・管理費抽出（テーブル外のSPAN要素から） ===
+  function extractRentAndManagementFee(result) {
+    const detailInfo = document.querySelector('.bb-detail-info');
+    if (!detailInfo) return;
+
+    // 賃料: <span class="rent_cost ...">95,000</span>（円単位の数値）
+    const rentSpan = detailInfo.querySelector('span.rent_cost');
+    if (rentSpan) {
+      const rentText = rentSpan.textContent.trim().replace(/,/g, '');
+      const rentYen = parseInt(rentText, 10);
+      if (rentYen > 0) {
+        result.rent = rentYen;
+      }
+    }
+
+    // 管理費・共益費: <span>管理費・共益費：1万5,000円</span>
+    for (const span of detailInfo.querySelectorAll('span')) {
+      const text = span.textContent.trim();
+      if (text.includes('管理費') || text.includes('共益費')) {
+        const fee = parseJapaneseYen(text);
+        if (fee > 0) {
+          result.management_fee = fee;
+        }
+        break;
+      }
+    }
+  }
+
+  /**
+   * 「1万5,000円」「15,000円」「1万円」等の日本語金額表記を円単位の数値に変換
+   */
+  function parseJapaneseYen(text) {
+    if (!text) return 0;
+    // 全角数字を半角に変換
+    const normalized = text.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    // 「X万Y円」パターン（例: 1万5,000円、1万5000円、1万円）
+    const manMatch = normalized.match(/(\d+)\s*万\s*([\d,]*)\s*円/);
+    if (manMatch) {
+      const manPart = parseInt(manMatch[1], 10) * 10000;
+      const senPart = manMatch[2] ? parseInt(manMatch[2].replace(/,/g, ''), 10) || 0 : 0;
+      return manPart + senPart;
+    }
+    // 「X円」パターン（例: 15,000円、5500円）
+    const yenMatch = normalized.match(/([\d,]+)\s*円/);
+    if (yenMatch) {
+      return parseInt(yenMatch[1].replace(/,/g, ''), 10) || 0;
+    }
+    return 0;
   }
 
   // === テーブル解析 ===
