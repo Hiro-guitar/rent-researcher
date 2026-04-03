@@ -352,8 +352,15 @@
   }
 
   // === フィールドマッピング ===
+  // 値が「-」等でも保持するフィールド
+  const KEEP_EMPTY_FIELDS = new Set(['ad_fee']);
+
   function mapDetailField(result, label, value) {
-    if (!value || ['-', '−', '―', 'ー', 'なし', '無', ''].includes(value)) return;
+    // 広告料等は「-」でも値を保持する
+    const fieldForCheck = DETAIL_FIELD_MAP[label] || '';
+    if (!value || ['-', '−', '―', 'ー', 'なし', '無', ''].includes(value)) {
+      if (!KEEP_EMPTY_FIELDS.has(fieldForCheck)) return;
+    }
 
     // 連続空白を圧縮
     value = value.replace(/\s{2,}/g, ' ').trim();

@@ -2607,7 +2607,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   }
 
   // 広告料・現況・客付会社メッセージ
-  if (prop.ad_fee) lines.push(`📢 広告料: ${prop.ad_fee}`);
+  lines.push(`📢 広告料: ${prop.ad_fee || '-'}`);
   if (prop.listing_status) lines.push(`📋 現況: ${prop.listing_status}`);
   if (prop.agent_message) lines.push(`💬 メッセージ: ${prop.agent_message}`);
 
