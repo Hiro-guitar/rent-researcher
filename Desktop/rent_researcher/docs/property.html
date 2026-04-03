@@ -106,6 +106,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 <script>
 var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbyCqgB4lhAN0mGSi6acYl7bSWRg-TVHr9b_-I5vCsWYaOA5ceIfWh-5cqpGBLIFrHu7/exec';
 var currentProperty = null; // renderProperty で保存、sendFeedback で利用
+var cur = 0, total = 0; // カルーセル状態（renderProperty より前に宣言が必要）
 
 // ===== Base64エンコード済みデータをデコード（短縮キー → フルプロパティ名） =====
 function decodePropertyData(encoded) {
@@ -629,10 +630,9 @@ function makeRow(label, value) {
   return '<div class="row"><span class="row-label">' + escHtml(label) + '</span><span class="row-value">' + escHtml(nv(value)) + '</span></div>';
 }
 
-// カルーセル操作
-var cur = 0, total = 0;
-function goTo(n) { if (total <= 0) return; cur = ((n % total) + total) % total; updateCarousel(); }
-function slide(d) { if (total <= 0) return; cur = ((cur + d) % total + total) % total; updateCarousel(); }
+// カルーセル操作（cur, total はスクリプト冒頭で宣言済み）
+function goTo(n) { if (total <= 0) initCarousel(); if (total <= 0) return; cur = ((n % total) + total) % total; updateCarousel(); }
+function slide(d) { if (total <= 0) initCarousel(); if (total <= 0) return; cur = ((cur + d) % total + total) % total; updateCarousel(); }
 function updateCarousel() {
   var inner = document.getElementById('carouselInner');
   if (!inner) return;
