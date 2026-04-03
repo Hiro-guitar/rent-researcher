@@ -542,20 +542,33 @@ function renderProperty(p) {
   if (hv(p.motorcycleParkingFee)) costRows.push([/\d/.test(p.motorcycleParkingFee) ? 'バイク置き場代' : 'バイク置き場', p.motorcycleParkingFee]);
   if (hv(p.otherMonthlyFee)) costRows.push(['その他月次費用', p.otherMonthlyFee]);
   if (hv(p.otherOnetimeFee)) costRows.push(['その他一時金', p.otherOnetimeFee]);
-  // 保証会社情報を整形（--- 区切りを個別ブロックに）
+  // 保証会社情報を整形（--- 区切りを個別ブロックに、加入義務は共通情報として枠外に）
   var guaranteeHtml = '';
+  var guaranteeCommon = ''; // 加入義務など共通情報
   if (hv(p.guaranteeInfo)) {
     var gParts = p.guaranteeInfo.split(/\n?---\n?/);
     for (var gi = 0; gi < gParts.length; gi++) {
       var gText = gParts[gi].trim();
       if (!gText) continue;
-      // 各項目を改行で分割して表示
-      var gLines = gText.split(/\n/).map(function(l) { return l.trim(); }).filter(function(l) { return l; });
-      guaranteeHtml += '<div style="background:#f8f9fa;border-radius:8px;padding:10px 12px;margin:4px 0">';
-      for (var gl = 0; gl < gLines.length; gl++) {
-        guaranteeHtml += '<div style="font-size:13px;line-height:1.5">' + escHtml(gLines[gl]) + '</div>';
+      // 各項目を / や改行で分割
+      var gItems = gText.split(/\s*[\/]\s*|\n/).map(function(l) { return l.trim(); }).filter(function(l) { return l; });
+      var companyLines = [];
+      for (var gl = 0; gl < gItems.length; gl++) {
+        // 「加入義務」「加入要件」は共通情報として抽出
+        if (/加入義務|加入要件/.test(gItems[gl])) {
+          if (!guaranteeCommon) guaranteeCommon = gItems[gl].replace(/^保証会社\d*[：:]\s*/, '');
+        } else {
+          // 「保証会社N：」のプレフィクスを除去
+          companyLines.push(gItems[gl].replace(/^保証会社\d*[：:]\s*/, ''));
+        }
       }
-      guaranteeHtml += '</div>';
+      if (companyLines.length > 0) {
+        guaranteeHtml += '<div style="background:#f8f9fa;border-radius:8px;padding:10px 12px;margin:4px 0">';
+        for (var cl = 0; cl < companyLines.length; cl++) {
+          guaranteeHtml += '<div style="font-size:13px;line-height:1.5">' + escHtml(companyLines[cl]) + '</div>';
+        }
+        guaranteeHtml += '</div>';
+      }
     }
   }
 
@@ -563,6 +576,9 @@ function renderProperty(p) {
     html += '<div class="section"><div class="section-title">費用</div>';
     for (var i = 0; i < costRows.length; i++) {
       html += makeRow(costRows[i][0], costRows[i][1]);
+    }
+    if (guaranteeCommon) {
+      html += makeRow('保証加入', guaranteeCommon);
     }
     if (guaranteeHtml) {
       html += '<div class="row"><span class="row-label">保証会社</span><span class="row-value" style="display:flex;flex-direction:column;gap:4px">' + guaranteeHtml + '</span></div>';
