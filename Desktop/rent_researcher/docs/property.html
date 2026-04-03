@@ -540,8 +540,23 @@ function renderProperty(p) {
   }
   if (hv(p.bicycleParkingFee)) costRows.push([/\d/.test(p.bicycleParkingFee) ? '駐輪場代' : '駐輪場', p.bicycleParkingFee]);
   if (hv(p.motorcycleParkingFee)) costRows.push([/\d/.test(p.motorcycleParkingFee) ? 'バイク置き場代' : 'バイク置き場', p.motorcycleParkingFee]);
-  if (hv(p.otherMonthlyFee)) costRows.push(['その他月次費用', p.otherMonthlyFee]);
-  if (hv(p.otherOnetimeFee)) costRows.push(['その他一時金', p.otherOnetimeFee]);
+  // その他月次費用・その他一時金は専用ブロック表示（後述）
+  // その他月次費用をブロック表示用に整形
+  var otherMonthlyHtml = '';
+  if (hv(p.otherMonthlyFee)) {
+    var omfItems = p.otherMonthlyFee.split(/\s*[\/]\s*/).map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+    for (var oi = 0; oi < omfItems.length; oi++) {
+      otherMonthlyHtml += '<div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin:4px 0;font-size:13px;line-height:1.5">' + escHtml(omfItems[oi]) + '</div>';
+    }
+  }
+  // その他一時金をブロック表示用に整形
+  var otherOnetimeHtml = '';
+  if (hv(p.otherOnetimeFee)) {
+    var oofItems = p.otherOnetimeFee.split(/\s*[\/]\s*/).map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+    for (var oi2 = 0; oi2 < oofItems.length; oi2++) {
+      otherOnetimeHtml += '<div style="background:#f8f9fa;border-radius:8px;padding:8px 12px;margin:4px 0;font-size:13px;line-height:1.5">' + escHtml(oofItems[oi2]) + '</div>';
+    }
+  }
   // 保証会社情報を整形（--- 区切りを個別ブロックに、加入義務は共通情報として枠外に）
   var guaranteeHtml = '';
   var guaranteeCommon = ''; // 加入義務など共通情報
@@ -572,10 +587,16 @@ function renderProperty(p) {
     }
   }
 
-  if (costRows.length > 0 || guaranteeHtml) {
+  if (costRows.length > 0 || otherMonthlyHtml || otherOnetimeHtml || guaranteeHtml) {
     html += '<div class="section"><div class="section-title">費用</div>';
     for (var i = 0; i < costRows.length; i++) {
       html += makeRow(costRows[i][0], costRows[i][1]);
+    }
+    if (otherMonthlyHtml) {
+      html += '<div class="row"><span class="row-label">その他月次費用</span><span class="row-value" style="display:flex;flex-direction:column;gap:4px">' + otherMonthlyHtml + '</span></div>';
+    }
+    if (otherOnetimeHtml) {
+      html += '<div class="row"><span class="row-label">その他一時金</span><span class="row-value" style="display:flex;flex-direction:column;gap:4px">' + otherOnetimeHtml + '</span></div>';
     }
     if (guaranteeCommon) {
       html += makeRow('保証加入', guaranteeCommon);
