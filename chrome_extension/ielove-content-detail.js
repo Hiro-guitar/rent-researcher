@@ -38,6 +38,7 @@
     '契約内容': 'lease_type',
     '更新事務手数料': 'renewal_admin_fee',
     '間取り': 'layout_detail',
+    '間取り/専有面積': '',  // ヘッダーテーブルの複合ラベル（部分一致で間取りにマッチさせない）
     '保険': 'fire_insurance',
     '現況': 'listing_status',
     '退去予定日': 'move_out_date',
@@ -305,7 +306,9 @@
     const cleaningParts = [];
     const otherParts = [];
     for (const item of items) {
-      const trimmed = item.trim();
+      // getTextWithSeparator 由来の " / " プレフィクスを除去
+      const trimmed = item.replace(/^\s*\/\s*/, '').trim();
+      if (!trimmed) continue;
       if (CLEANING_KEYWORDS.some(kw => trimmed.includes(kw))) {
         cleaningParts.push(trimmed);
       } else {
