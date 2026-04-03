@@ -516,7 +516,7 @@ function renderProperty(p) {
   if (hv(p.renewalFee)) costRows.push(['更新料', p.renewalFee]);
   if (hv(p.fireInsurance)) costRows.push(['火災保険料', p.fireInsurance]);
   if (hv(p.renewalAdminFee)) costRows.push(['更新事務手数料', p.renewalAdminFee]);
-  if (hv(p.guaranteeInfo)) costRows.push(['保証料', p.guaranteeInfo]);
+  // 保証会社は専用表示（後述の guaranteeHtml で描画）
   if (hv(p.keyExchangeFee)) costRows.push(['鍵交換費用', p.keyExchangeFee]);
   if (hv(p.supportFee24h)) costRows.push(['24時間サポート費', p.supportFee24h]);
   if (hv(p.rightsFee)) costRows.push(['権利金', p.rightsFee]);
@@ -542,10 +542,30 @@ function renderProperty(p) {
   if (hv(p.motorcycleParkingFee)) costRows.push([/\d/.test(p.motorcycleParkingFee) ? 'バイク置き場代' : 'バイク置き場', p.motorcycleParkingFee]);
   if (hv(p.otherMonthlyFee)) costRows.push(['その他月次費用', p.otherMonthlyFee]);
   if (hv(p.otherOnetimeFee)) costRows.push(['その他一時金', p.otherOnetimeFee]);
-  if (costRows.length > 0) {
+  // 保証会社情報を整形（--- 区切りを個別ブロックに）
+  var guaranteeHtml = '';
+  if (hv(p.guaranteeInfo)) {
+    var gParts = p.guaranteeInfo.split(/\n?---\n?/);
+    for (var gi = 0; gi < gParts.length; gi++) {
+      var gText = gParts[gi].trim();
+      if (!gText) continue;
+      // 各項目を改行で分割して表示
+      var gLines = gText.split(/\n/).map(function(l) { return l.trim(); }).filter(function(l) { return l; });
+      guaranteeHtml += '<div style="background:#f8f9fa;border-radius:8px;padding:10px 12px;margin:4px 0">';
+      for (var gl = 0; gl < gLines.length; gl++) {
+        guaranteeHtml += '<div style="font-size:13px;line-height:1.5">' + escHtml(gLines[gl]) + '</div>';
+      }
+      guaranteeHtml += '</div>';
+    }
+  }
+
+  if (costRows.length > 0 || guaranteeHtml) {
     html += '<div class="section"><div class="section-title">費用</div>';
     for (var i = 0; i < costRows.length; i++) {
       html += makeRow(costRows[i][0], costRows[i][1]);
+    }
+    if (guaranteeHtml) {
+      html += '<div class="row"><span class="row-label">保証会社</span><span class="row-value" style="display:flex;flex-direction:column;gap:4px">' + guaranteeHtml + '</span></div>';
     }
     html += '</div>';
   }
