@@ -358,7 +358,9 @@
 
         // カンマ・スラッシュで個別アイテムに分割
         const items = tdText.split(/[、,]\s*|\s*\/\s*/).map(s => s.trim()).filter(Boolean);
-        if (items.length > 0) categorized[category] = items;
+        // 設備名は短い（通常20文字以内）ので、長い文字列は備考混入として除外
+        const filtered = items.filter(s => s.length <= 25);
+        if (filtered.length > 0) categorized[category] = filtered;
       }
     }
 
