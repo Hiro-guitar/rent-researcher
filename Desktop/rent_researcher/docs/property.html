@@ -437,9 +437,13 @@ function renderProperty(p) {
   }
   html += '<div class="title">' + escHtml(displayName) + '</div>';
 
+  function fmtZeroNashi(val) {
+    if (!val || val === '0' || val === '0円' || val === '-' || val === 'ー' || val === '—' || val === 'なし' || val === '入力なし' || val === '無') return 'なし';
+    return escHtml(val);
+  }
   var priceSub = '管理費 ' + mgmtDisp;
-  priceSub += ' | 敷金 ' + (hv(p.deposit) ? escHtml(p.deposit) : '0');
-  priceSub += ' | 礼金 ' + (hv(p.keyMoney) ? escHtml(p.keyMoney) : '0');
+  priceSub += ' | 敷金 ' + fmtZeroNashi(p.deposit);
+  priceSub += ' | 礼金 ' + fmtZeroNashi(p.keyMoney);
   html += '<div class="price-box">'
     + '<div class="price-main">' + rentDisp + '<span style="font-size:16px">/月</span></div>'
     + '<div class="price-sub">' + priceSub + '</div>'
