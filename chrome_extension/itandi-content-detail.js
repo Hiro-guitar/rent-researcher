@@ -208,14 +208,19 @@
       }
       if (!inFac) continue;
       if (/^[\d,.]+万?円/.test(ln) || /^¥/.test(ln)) { inFac = false; continue; }
-      if (/^(賃料|管理費|共益費|費用|契約|条件$|フリーレント|入居|現況|駐車場代|駐輪場代|バイク置き場代|水道|所在地|交通|物件概要|表示について|図面ダウンロード|物件資料|仲介|取引|敷金|礼金|保証会社|保証金|更新料|更新事務|解約|火災保険|備考|間取り|面積|専有|所在階|総戸数|方角|採光|入力なし|なし$|\d+年|\d+万|出稿|内見予約|WEB$|募集)/.test(ln)) {
+      if (/^(賃料|管理費|共益費|費用|契約|条件$|フリーレント|入居|現況|駐車場代|駐輪場代|バイク置き場代|水道料金|所在地|交通|物件概要|表示について|図面ダウンロード|物件資料|仲介|取引|敷金|礼金|保証会社|保証金|更新料|更新事務|解約|火災保険|備考|間取り|面積|専有|所在階|総戸数|方角|採光|入力なし|なし$|\d+年|\d+万|出稿|内見予約|WEB$|募集)/.test(ln)) {
         inFac = false; continue;
       }
-      if (ln.length > 30) { inFac = false; continue; }
       if (ln === 'その他') continue;
-      if (ln.length >= 2 && currentCat && !facilitySet[ln]) {
-        facilitySet[ln] = true;
-        facilityCategorized[currentCat].push(ln);
+      // 「 / 」区切りの行は分割して個別に追加
+      const items = ln.includes(' / ') ? ln.split(/\s*\/\s*/) : [ln];
+      for (const item of items) {
+        const trimmed = item.trim();
+        if (!trimmed || trimmed.length < 2 || trimmed.length > 30) continue;
+        if (!facilitySet[trimmed] && currentCat) {
+          facilitySet[trimmed] = true;
+          facilityCategorized[currentCat].push(trimmed);
+        }
       }
     }
 
