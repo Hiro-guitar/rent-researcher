@@ -167,6 +167,8 @@ function decodePropertyData(encoded) {
       moveInConditions: d.mic || '',
       freeRentDetail: d.frd || '',
       layoutDetail: d.ld || '',
+      adFee: d.af || '',
+      currentStatus: d.cs || '',
       facilities: d.fac || '',
       otherStations: d.os || [],
       images: d.imgs || [],
@@ -497,6 +499,7 @@ function renderProperty(p) {
   if (hv(p.totalUnits)) details.push(['総戸数', p.totalUnits]);
   if (hv(p.sunlight)) details.push(['主要採光面', p.sunlight]);
   if (hv(p.moveInDate)) details.push(['入居可能時期', p.moveInDate]);
+  if (hv(p.currentStatus)) details.push(['現況', p.currentStatus]);
   for (var i = 0; i < details.length; i++) {
     html += makeRow(details[i][0], details[i][1]);
   }
