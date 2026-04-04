@@ -588,7 +588,9 @@ function renderProperty(p) {
       var gText = gParts[gi].trim();
       if (!gText) continue;
       // 各項目を / や改行で分割
-      var gItems = gText.split(/\s*[\/]\s*|\n/).map(function(l) { return l.trim(); }).filter(function(l) { return l; });
+      // 「円/年」「円/月」等の金額単位の / を一時退避してから分割
+      var gSafe = gText.replace(/円\s*\/\s*(年|月|回)/g, '円__SLASH__$1');
+      var gItems = gSafe.split(/\s*[\/]\s*|\n/).map(function(l) { return l.trim().replace(/__SLASH__/g, '/'); }).filter(function(l) { return l; });
       var companyLines = [];
       for (var gl = 0; gl < gItems.length; gl++) {
         // 「加入義務」「加入要件」は共通情報として抽出
