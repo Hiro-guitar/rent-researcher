@@ -513,7 +513,9 @@ function handlePropertyViewApi(e) {
     cleaningFee: prop.cleaningFee,
     moveInConditions: prop.moveInConditions,
     freeRentDetail: prop.freeRentDetail,
-    layoutDetail: prop.layoutDetail
+    layoutDetail: prop.layoutDetail,
+    adFee: prop.adFee,
+    currentStatus: prop.currentStatus
   };
 
   // キャッシュに保存（24時間）
@@ -1012,7 +1014,9 @@ function rowToProperty(row) {
     moveInConditions: _normalizeValue(extra.move_in_conditions),
     moveOutDate: _normalizeValue(extra.move_out_date),
     freeRentDetail: _normalizeValue(extra.free_rent_detail),
-    layoutDetail: _normalizeValue(extra.layout_detail)
+    layoutDetail: _normalizeValue(extra.layout_detail),
+    adFee: _normalizeValue(extra.ad_fee),
+    currentStatus: _normalizeValue(extra.current_status)
   };
 }
 
@@ -1118,6 +1122,8 @@ function updateSheetWithEdits(rowIndex, prop) {
   extra.free_rent_detail = prop.freeRentDetail || '';
   extra.layout_detail = prop.layoutDetail || '';
   extra.other_stations = prop.otherStations || [];
+  extra.ad_fee = prop.adFee || '';
+  extra.current_status = prop.currentStatus || '';
 
   cell.setValue(JSON.stringify(extra));
 }
@@ -1168,6 +1174,8 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   if (prop.moveInConditions) d.mic = prop.moveInConditions;
   if (prop.freeRentDetail) d.frd = prop.freeRentDetail;
   if (prop.layoutDetail) d.ld = prop.layoutDetail;
+  if (prop.adFee) d.af = prop.adFee;
+  if (prop.currentStatus) d.cs = prop.currentStatus;
   // 設備: objectでもstringでもそのまま
   if (prop.facilities) d.fac = prop.facilities;
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
