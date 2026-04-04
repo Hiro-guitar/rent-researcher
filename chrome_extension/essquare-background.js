@@ -334,8 +334,9 @@ async function _parseEssquareSearchResults(tabId) {
             area: specView.senyu_menseki || 0,
             building_age: buildingAge,
             station_info: specView.kotsu_text_1 || '',
+            other_stations: [specView.kotsu_text_2, specView.kotsu_text_3].filter(Boolean),
             structure: specView.kozo || '',
-            floor_text: specView.shozaikai || '',
+            floor_text: specView.shozaikai ? (String(specView.shozaikai).includes('階') ? String(specView.shozaikai) : `${specView.shozaikai}階`) : '',
             floor: parseInt(specView.shozaikai) || 0,
             total_floors: specView.chijo_kaisu || 0,
             move_in_date: moveInDate,
@@ -534,6 +535,7 @@ function buildEssquarePropertyDataJson(prop) {
     area: prop.area || 0,
     building_age: prop.building_age || '',
     station_info: prop.station_info || '',
+    other_stations: prop.other_stations || [],
     floor_text: prop.floor_text || '',
     structure: prop.structure || '',
     facilities: prop.facilities || '',
@@ -728,6 +730,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
       p.other_onetime_fee = p.other_onetime_fee || '';
       p.shikibiki = p.shikibiki || '';
       p.layout_detail = p.layout_detail || '';
+      p.story_text = p.total_floors ? `${p.total_floors}階建` : '';
     }
 
     allProperties.push(...pageProps);

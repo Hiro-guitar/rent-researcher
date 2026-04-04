@@ -2375,7 +2375,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   let title = prop.building_name || '物件情報';
   if (prop.room_number) title += `  ${prop.room_number}`;
 
-  const sourceTag = prop.source === 'ielove' ? 'いえらぶ' : prop.source === 'itandi' ? 'itandi' : 'REINS';
+  const sourceTag = prop.source === 'ielove' ? 'いえらぶ' : prop.source === 'itandi' ? 'itandi' : prop.source === 'essquare' ? 'いい生活スクエア' : 'REINS';
   const lines = [`**${index}. ${title}** \`[${sourceTag}]\``];
 
   // 賃料
