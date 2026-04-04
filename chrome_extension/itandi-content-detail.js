@@ -59,6 +59,18 @@
     }
     detail.listing_status = listingStatus;
 
+    // 現況（居住中・空家等の物理的ステータス）
+    // ラベルなしで入居可能時期の直後に表示されるため、テキスト検索で取得
+    const knownOccupancy = ['居住中', '空家', '空室', '建築中', '退去予定'];
+    let currentStatus = '';
+    for (const o of knownOccupancy) {
+      if (allText.includes(o)) {
+        currentStatus = o;
+        break;
+      }
+    }
+    detail.current_status = currentStatus;
+
     // 要物確・要確認フラグ
     detail.needs_confirmation = allText.includes('要物確') || allText.includes('要確認');
 

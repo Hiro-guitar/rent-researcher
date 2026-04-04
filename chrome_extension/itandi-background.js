@@ -491,6 +491,7 @@ function parseItandiSearchResponse(data) {
         ad_fee: '',
         cleaning_fee: '',
         rights_fee: '',
+        current_status: '',
         web_badge_count: -1,
         needs_confirmation: false,
       });
@@ -755,6 +756,7 @@ function buildItandiPropertyDataJson(prop) {
     ad_fee: prop.ad_fee || '',
     cleaning_fee: prop.cleaning_fee || '',
     rights_fee: prop.rights_fee || '',
+    current_status: prop.current_status || '',
   };
 }
 
@@ -972,7 +974,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
           'water_billing', 'parking_fee', 'bicycle_parking_fee', 'motorcycle_parking_fee',
           'other_monthly_fee', 'other_onetime_fee', 'move_in_conditions', 'move_out_date',
           'move_in_date', 'free_rent_detail', 'layout_detail', 'preview_start_date',
-          'ad_fee', 'cleaning_fee', 'rights_fee',
+          'ad_fee', 'cleaning_fee', 'rights_fee', 'current_status',
         ];
         for (const key of detailFields) {
           if (d[key] && !prop[key]) {

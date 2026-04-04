@@ -2608,7 +2608,8 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
 
   // 広告料・現況・客付会社メッセージ
   lines.push(`📢 広告料: ${prop.ad_fee || '-'}`);
-  if (prop.listing_status) lines.push(`📋 現況: ${prop.listing_status}`);
+  if (prop.current_status) lines.push(`📋 現況: ${prop.current_status}`);
+  else if (prop.listing_status) lines.push(`📋 現況: ${prop.listing_status}`);
   if (prop.agent_message) lines.push(`💬 メッセージ: ${prop.agent_message}`);
 
   // 詳細ページURL
