@@ -556,6 +556,10 @@ function buildEssquarePropertyDataJson(prop) {
     other_onetime_fee: prop.other_onetime_fee || '',
     shikibiki: prop.shikibiki || '',
     layout_detail: prop.layout_detail || '',
+    story_text: prop.total_floors ? `${prop.total_floors}階建` : '',
+    guarantee_deposit: prop.guarantee_deposit || '',
+    bicycle_parking_fee: prop.bicycle_parking_fee || '',
+    motorcycle_parking_fee: prop.motorcycle_parking_fee || '',
   };
 }
 
