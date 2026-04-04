@@ -59,9 +59,10 @@
     }
     detail.listing_status = listingStatus;
 
-    // 現況（居住中・空家等の物理的ステータス）
-    // ラベルなしで入居可能時期の直後に表示されるため、テキスト検索で取得
-    const knownOccupancy = ['居住中', '空家', '空室', '建築中', '退去予定'];
+    // 現況（居住中・賃貸中・空家等の物理的ステータス）
+    // 「現況」ラベル付きの場合はラベル:値パターンで後段で取得される
+    // ラベルなしの場合もあるため、テキスト検索でもフォールバック取得
+    const knownOccupancy = ['賃貸中', '居住中', '空家', '空室', '建築中', '退去予定'];
     let currentStatus = '';
     for (const o of knownOccupancy) {
       if (allText.includes(o)) {
@@ -153,6 +154,7 @@
       'フリーレント詳細',
       '間取り詳細',
       '内見開始日',
+      '現況',
       '広告費', '広告料',
       '室内清掃費用', 'クリーニング費用',
       '権利金'
@@ -327,6 +329,7 @@
       ['フリーレント詳細', 'free_rent_detail'],
       ['間取り詳細', 'layout_detail'],
       ['内見開始日', 'preview_start_date'],
+      ['現況', 'current_status'],
       ['広告費', 'ad_fee'],
       ['広告料', 'ad_fee'],
       ['室内清掃費用', 'cleaning_fee'],
