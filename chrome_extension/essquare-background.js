@@ -340,6 +340,22 @@ async function _parseEssquareSearchResults(tabId) {
           // 管理費（kanrihi + kyoekihi + zatsuyaku）
           const mgmtFee = (jv.kanrihi || 0) + (jv.kyoekihi || 0) + (jv.zatsuyaku || 0);
 
+          // デバッグ: 最初の1件だけspecViewのキーとbv/jvのキーを記録
+          if (properties.length === 0) {
+            const _svKeys = Object.keys(specView).filter(k => typeof specView[k] !== 'object' || specView[k] === null).sort();
+            const _svObjKeys = Object.keys(specView).filter(k => typeof specView[k] === 'object' && specView[k] !== null).sort();
+            const _bvKeys = Object.keys(bv).sort();
+            const _imgKeys = _svKeys.filter(k => /image|img|photo|gazo|pic|thumb/i.test(k));
+            properties.push({
+              _debugKeys: {
+                specViewKeys: _svKeys.join(','),
+                specViewObjKeys: _svObjKeys.join(','),
+                bvSample: _bvKeys.slice(0, 20).join(','),
+                imageRelatedKeys: _imgKeys.join(','),
+              }
+            });
+          }
+
           properties.push({
             uuid,
             building_name: specView.tatemono_name || '',
@@ -742,6 +758,14 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
     if (pageProps.length === 0) break;
 
+    // デバッグ: specViewのキー情報を出力（最初の要素）
+    if (pageProps[0]?._debugKeys) {
+      const dk = pageProps.shift()._debugKeys;
+      console.log('[ES-Square] specViewキー:', dk);
+      await setStorageData({ debugLog: `[ES-Square] 画像関連キー: ${dk.imageRelatedKeys || '(なし)'}` });
+      await setStorageData({ debugLog: `[ES-Square] specViewObjKeys: ${dk.specViewObjKeys}` });
+    }
+
     // 各物件にURL等を付与（React Fiberから取得済みフィールドは保持）
     for (const p of pageProps) {
       p.source = 'essquare';
@@ -817,7 +841,17 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         // デバッグログ
         if (d._debug) {
           console.log(`[ES-Square] 詳細デバッグ (${prop.building_name}):`, JSON.stringify(d._debug));
-          await setStorageData({ debugLog: `[ES-Square] 詳細デバッグ: imgs=${d._debug.imageCount}, imgTags=${d._debug.totalImgTags}, bgImgs=${d._debug.totalBgImages}, fac=${d._debug.facilitiesLength}` });
+          const dbg = d._debug;
+          await setStorageData({ debugLog: `[ES-Square] 詳細: imgs=${dbg.imageCount}, fac=${dbg.facilitiesLength}` });
+          if (dbg.h3ChildDump) {
+            await setStorageData({ debugLog: `[ES-Square] H3子要素: ${dbg.h3ChildDump.substring(0, 250)}` });
+          }
+          if (dbg.bvKeys) {
+            await setStorageData({ debugLog: `[ES-Square] detailFiberKeys: ${dbg.bvKeys.substring(0, 200)}` });
+          }
+          if (dbg.facilitiesPreview) {
+            await setStorageData({ debugLog: `[ES-Square] 設備: ${dbg.facilitiesPreview.substring(0, 150)}` });
+          }
         }
         if (d.image_urls?.length) {
           prop.image_urls = d.image_urls;

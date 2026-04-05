@@ -171,7 +171,7 @@
     }
   }
 
-  // ─── 画像URL抽出（Python版 _extract_detail_images 準拠） ───
+  // ─── 画像URL抽出 ───
   function extractImages() {
     const urls = [];
     const seen = new Set();
@@ -183,12 +183,7 @@
       'okbiz', 'miibo', 'chatbot', 'faq-e-seikatsu',
       'e-bukken', 'sfa_main_banner', 'loading', 'spinner',
       'noimage', 'no_image', 'no-image', 'dummy',
-    ];
-
-    // 物件画像に共通するURLパターン
-    const PROPERTY_IMAGE_PATTERNS = [
-      'chintai-img', 'bukken', 'property', 'room',
-      'photo', 'image', '.jpg', '.jpeg', '.png', '.webp',
+      'e_square_logo',
     ];
 
     function addUrl(src) {
@@ -202,12 +197,28 @@
       }
     }
 
-    // img src / data-src
+    // 1. computedStyle全走査 — ES-SquareはCSS-in-JS(Emotion/MUI)で
+    //    background-imageをクラスに設定するためinline styleでは取得不可
+    const allDivs = document.querySelectorAll('div, span, a, figure, li');
+    for (const el of allDivs) {
+      try {
+        const bg = window.getComputedStyle(el).backgroundImage;
+        if (bg && bg !== 'none') {
+          // 複数のurl()がある場合も対応
+          const re = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/g;
+          let m;
+          while ((m = re.exec(bg)) !== null) {
+            addUrl(m[1]);
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 2. img src / data-src
     for (const img of document.querySelectorAll('img')) {
       addUrl(img.src);
       addUrl(img.getAttribute('data-src'));
       addUrl(img.getAttribute('data-original'));
-      // srcset
       const srcset = img.getAttribute('srcset') || '';
       if (srcset) {
         for (const part of srcset.split(',')) {
@@ -216,7 +227,7 @@
       }
     }
 
-    // <picture> > <source>
+    // 3. <picture> > <source>
     for (const source of document.querySelectorAll('source')) {
       const srcset = source.getAttribute('srcset') || '';
       if (srcset) {
@@ -226,47 +237,62 @@
       }
     }
 
-    // CSS background-image（inline style）
-    for (const el of document.querySelectorAll('[style*="background"]')) {
-      const style = el.getAttribute('style') || '';
-      const m = style.match(/url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/);
-      if (m) addUrl(m[1]);
-    }
-
-    // CSS background-image（computed style - Swiperなど動的設定対応）
-    for (const el of document.querySelectorAll('.swiper-slide, .slick-slide, [class*="carousel"], [class*="slide"], [class*="gallery"], [class*="photo"], [class*="image"]')) {
-      try {
-        const computed = window.getComputedStyle(el);
-        const bg = computed.backgroundImage;
-        if (bg && bg !== 'none') {
-          const m = bg.match(/url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/);
-          if (m) addUrl(m[1]);
-        }
-      } catch (e) {}
-      // 子のimg要素も探す
-      for (const img of el.querySelectorAll('img')) {
-        addUrl(img.src);
-        addUrl(img.getAttribute('data-src'));
-      }
-    }
-
-    // React Fiber経由で画像URLを取得（ES-Square特有）
+    // 4. React Fiber props走査（ルート要素から）
     try {
-      for (const el of document.querySelectorAll('[class*="image"], [class*="Image"], [class*="photo"], [class*="Photo"]')) {
-        const fiberKey = Object.keys(el).find(k => k.startsWith('__reactFiber'));
+      const root = document.getElementById('root') || document.getElementById('__next') || document.querySelector('[data-reactroot]');
+      if (root) {
+        const fiberKey = Object.keys(root).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
         if (fiberKey) {
-          let fiber = el[fiberKey];
-          for (let depth = 0; depth < 10 && fiber; depth++) {
+          const visited = new Set();
+          function walkFiber(fiber, depth) {
+            if (!fiber || depth > 30 || visited.has(fiber)) return;
+            visited.add(fiber);
             const props = fiber.memoizedProps || fiber.pendingProps || {};
-            if (props.src && typeof props.src === 'string') addUrl(props.src);
-            if (props.url && typeof props.url === 'string') addUrl(props.url);
-            if (props.imageUrl && typeof props.imageUrl === 'string') addUrl(props.imageUrl);
+            // 画像URLフィールドを探索
+            if (typeof props.src === 'string' && props.src.startsWith('http')) addUrl(props.src);
             if (props.style?.backgroundImage) {
               const m = props.style.backgroundImage.match(/url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/);
               if (m) addUrl(m[1]);
             }
-            fiber = fiber.return;
+            // 配列プロパティ内の画像URL（image_url, photo_url等）
+            for (const [key, val] of Object.entries(props)) {
+              if (typeof val === 'string' && /^https?:\/\/.+\.(jpg|jpeg|png|webp)/i.test(val)) {
+                addUrl(val);
+              }
+              if (Array.isArray(val)) {
+                for (const item of val) {
+                  if (typeof item === 'string' && /^https?:\/\/.+\.(jpg|jpeg|png|webp)/i.test(item)) {
+                    addUrl(item);
+                  }
+                  if (item && typeof item === 'object') {
+                    for (const v of Object.values(item)) {
+                      if (typeof v === 'string' && /^https?:\/\/.+\.(jpg|jpeg|png|webp)/i.test(v)) {
+                        addUrl(v);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            // stateKeyも確認
+            if (fiber.memoizedState) {
+              let state = fiber.memoizedState;
+              for (let i = 0; i < 5 && state; i++) {
+                if (state.memoizedState && typeof state.memoizedState === 'object') {
+                  const s = state.memoizedState;
+                  for (const val of Object.values(s)) {
+                    if (typeof val === 'string' && /^https?:\/\/.+\.(jpg|jpeg|png|webp)/i.test(val)) {
+                      addUrl(val);
+                    }
+                  }
+                }
+                state = state.next;
+              }
+            }
+            walkFiber(fiber.child, depth + 1);
+            walkFiber(fiber.sibling, depth + 1);
           }
+          walkFiber(root[fiberKey], 0);
         }
       }
     } catch (e) {}
@@ -274,70 +300,91 @@
     return urls.slice(0, 20);
   }
 
-  // ─── 設備情報抽出（Python版 _extract_facilities 準拠） ───
-  // カテゴリ見出し候補（ES-Square 設備セクションの典型的なカテゴリ名）
-  const FACILITY_CATEGORY_NAMES = [
-    'キッチン', 'バス・トイレ', 'バストイレ', '冷暖房', '収納',
-    'テレビ・通信', 'TV・通信', 'セキュリティ', '室内設備', '室内仕様',
-    'その他', '共用部', '建物設備', '条件', '位置', 'コンロ',
-    '給湯', 'エントランス', '駐車場・駐輪場', 'インターネット',
-    'ペット', '楽器', '事務所', 'ガス', '電気', '水道',
-  ];
+  // ─── 設備情報抽出（H2/H3 + MUI Grid pairs ベース） ───
+  // ES-Squareの設備セクション構造:
+  //   H2: 設備詳細
+  //     H3: 区画設備
+  //       DIV(MuiGrid container):
+  //         DIV(MuiGrid-item xs-4): "キッチン"      ← サブカテゴリラベル
+  //         DIV(MuiGrid-item xs-8): "ガスコンロ，..." ← 値
+  //     H3: 建物設備 / H3: セキュリティ / H3: 屋外設備 ...
 
-  function isCategoryHeading(el) {
-    const text = el.textContent.trim();
-    if (text.length < 2 || text.length > 15) return false;
-    // 既知のカテゴリ名
-    if (FACILITY_CATEGORY_NAMES.some(c => text === c || text.startsWith(c))) return true;
-    // MUIのTypography系ヘッダー要素（h5, h6, subtitle）
-    const tag = el.tagName;
-    if (tag === 'H5' || tag === 'H6') return true;
-    const cls = el.className || '';
-    if (cls.includes('subtitle') || cls.includes('Subtitle') || cls.includes('heading') || cls.includes('Heading')) return true;
-    // font-weightがboldの短いテキスト
-    try {
-      const style = window.getComputedStyle(el);
-      if ((style.fontWeight === 'bold' || parseInt(style.fontWeight) >= 600) && text.length <= 10) return true;
-    } catch (e) {}
-    return false;
-  }
-
-  function extractFacilitiesWithCategories(container) {
-    // コンテナ内の子要素を走査してカテゴリ付きで設備を抽出
-    const parts = [];
-    let currentCategory = '';
-
-    function walkChildren(el) {
-      for (const child of el.children) {
-        if (isCategoryHeading(child)) {
-          currentCategory = child.textContent.trim();
-          continue;
-        }
-        // 子がさらに構造を持つ場合は再帰
-        if (child.children.length > 0 && child.textContent.trim().length > child.children[0].textContent.trim().length * 1.5) {
-          walkChildren(child);
-          continue;
-        }
-        const text = child.textContent.trim();
-        if (text && text.length >= 2 && text.length < 50 && !FACILITY_CATEGORY_NAMES.includes(text)) {
-          if (currentCategory) {
-            parts.push(`【${currentCategory}】${text}`);
-            currentCategory = ''; // カテゴリは最初のアイテムにのみ付与
-          } else {
-            parts.push(text);
-          }
-        }
+  function parseMuiGridPairs(container) {
+    // MUI Grid pairs: children[0]=label, children[1]=value, children[2]=label, ...
+    const children = Array.from(container.children).filter(c => c.nodeType === 1);
+    const pairs = [];
+    for (let i = 0; i < children.length - 1; i += 2) {
+      const label = children[i].textContent.trim();
+      const value = children[i + 1].textContent.trim();
+      if (label && value) {
+        pairs.push({ label, value });
       }
     }
-
-    walkChildren(container);
-    return parts;
+    return pairs;
   }
 
   function extractFacilities() {
+    // H3ベースで設備セクション内のカテゴリ・サブカテゴリを抽出
+    const facilityH3s = [];
+    for (const h3 of document.querySelectorAll('h3')) {
+      const text = h3.textContent.trim();
+      if (['区画設備', '建物設備', 'セキュリティ', '屋外設備', '共用設備',
+           '室内設備', 'キッチン設備', '水回り設備'].includes(text)) {
+        facilityH3s.push(h3);
+      }
+    }
+
+    if (facilityH3s.length > 0) {
+      const allParts = [];
+      for (const h3 of facilityH3s) {
+        const nextEl = h3.nextElementSibling;
+        if (!nextEl) continue;
+
+        // MUI Grid pairs からサブカテゴリ＋値を取得
+        const pairs = parseMuiGridPairs(nextEl);
+        if (pairs.length > 0) {
+          for (const { label, value } of pairs) {
+            allParts.push(`【${label}】${value}`);
+          }
+        } else {
+          // Grid構造でない場合はフラットテキスト
+          const text = nextEl.textContent.trim();
+          if (text) {
+            allParts.push(`【${h3.textContent.trim()}】${text}`);
+          }
+        }
+      }
+      if (allParts.length > 0) return allParts.join('\n');
+    }
+
+    // フォールバック: H2「設備詳細」から辿る
+    for (const h2 of document.querySelectorAll('h2')) {
+      const h2Text = h2.textContent.trim();
+      if (!h2Text.includes('設備詳細') && !h2Text.includes('設備情報')) continue;
+
+      // H2の後続要素をすべて走査
+      let el = h2.nextElementSibling;
+      const parts = [];
+      while (el) {
+        if (el.tagName === 'H2') break;
+        if (el.tagName === 'H3') {
+          // H3の次の兄弟がGrid container
+          const gridEl = el.nextElementSibling;
+          if (gridEl) {
+            const pairs = parseMuiGridPairs(gridEl);
+            for (const { label, value } of pairs) {
+              parts.push(`【${label}】${value}`);
+            }
+          }
+        }
+        el = el.nextElementSibling;
+      }
+      if (parts.length > 0) return parts.join('\n');
+    }
+
+    // フォールバック: キーワード検索
     const keywords = ['設備', '設備・条件', '主な設備'];
     for (const keyword of keywords) {
-      // テキストノードからキーワードを含む要素を探す
       const walker = document.createTreeWalker(
         document.body, NodeFilter.SHOW_TEXT,
         { acceptNode: (node) => node.textContent.trim() === keyword ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT }
@@ -346,41 +393,14 @@
       while ((node = walker.nextNode())) {
         const parent = node.parentElement;
         if (!parent) continue;
-
-        // 次の兄弟要素からカテゴリ付きで抽出を試みる
         const nextSib = parent.nextElementSibling;
         if (nextSib) {
-          // まずカテゴリ付き抽出を試みる
-          const categorized = extractFacilitiesWithCategories(nextSib);
-          if (categorized.length > 0) {
-            return categorized.join(' / ');
-          }
-          // フォールバック: プレーンテキスト
           const text = nextSib.textContent.trim();
           if (text && text.length > 5) return text;
-        }
-
-        // 親コンテナからカテゴリ付き抽出を試みる
-        const grandparent = parent.parentElement;
-        if (grandparent) {
-          const categorized = extractFacilitiesWithCategories(grandparent);
-          // キーワード自体を除いた結果
-          const filtered = categorized.filter(p => !keywords.some(k => p === k));
-          if (filtered.length > 0) {
-            return filtered.join(' / ');
-          }
-          // フォールバック: プレーンテキスト
-          const fullText = grandparent.textContent.trim();
-          const idx = fullText.indexOf(keyword);
-          if (idx >= 0) {
-            const rest = fullText.substring(idx + keyword.length).replace(/^[,: 、]+/, '');
-            if (rest && rest.length > 5) return rest;
-          }
         }
       }
     }
 
-    // フォールバック: kvPairsベースの設備結合（後で呼び出し元で実施）
     return '';
   }
 
@@ -549,13 +569,80 @@
     }
 
     // デバッグ情報
+    const _headings = [];
+    for (const el of document.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
+      const t = el.textContent.trim();
+      if (t && t.length < 30) _headings.push(`${el.tagName}:${t}`);
+    }
+    // H3:区画設備 の内部構造をダンプ（サブカテゴリ検出用）
+    let _h3ChildDump = '';
+    for (const h3 of document.querySelectorAll('h3')) {
+      if (h3.textContent.trim() === '区画設備') {
+        let nextEl = h3.nextElementSibling;
+        if (nextEl) {
+          const kids = [];
+          // nextElの直下子要素を列挙
+          for (const child of nextEl.children) {
+            const tag = child.tagName;
+            const text = child.textContent.trim().substring(0, 40);
+            const childCount = child.children.length;
+            const cls = (child.className || '').substring(0, 30);
+            kids.push(`${tag}(${childCount})[${cls}]:"${text}"`);
+            if (kids.length >= 10) break;
+          }
+          _h3ChildDump = `parent=${nextEl.tagName},children=${nextEl.children.length}: ${kids.join(' | ')}`;
+          // 1階層深くも見る
+          if (nextEl.children.length <= 2 && nextEl.children[0]?.children?.length > 2) {
+            const inner = nextEl.children[0];
+            const innerKids = [];
+            for (const child of inner.children) {
+              const tag = child.tagName;
+              const text = child.textContent.trim().substring(0, 30);
+              const cc = child.children.length;
+              innerKids.push(`${tag}(${cc}):"${text}"`);
+              if (innerKids.length >= 10) break;
+            }
+            _h3ChildDump += ` | INNER: ${innerKids.join(' | ')}`;
+          }
+        }
+        break;
+      }
+    }
+    // chinshaku_bukken_view のキーをReact Fiberから取得（画像キー調査用）
+    let _bvKeys = '';
+    try {
+      const root = document.getElementById('root');
+      if (root) {
+        const fiberKey = Object.keys(root).find(k => k.startsWith('__reactFiber'));
+        if (fiberKey) {
+          const visited = new Set();
+          function findBV(fiber, depth) {
+            if (!fiber || depth > 20 || visited.has(fiber)) return null;
+            visited.add(fiber);
+            const props = fiber.memoizedProps || {};
+            if (props.specBukkenView) return props.specBukkenView;
+            if (props.bukkenDetail) return props.bukkenDetail;
+            if (props.detail) return props.detail;
+            if (props.property) return props.property;
+            return findBV(fiber.child, depth+1) || findBV(fiber.sibling, depth+1);
+          }
+          const bvData = findBV(root[fiberKey], 0);
+          if (bvData) {
+            _bvKeys = Object.keys(bvData).sort().join(',');
+          }
+        }
+      }
+    } catch(e) {}
+
     detail._debug = {
       imageCount: detail.image_urls?.length || 0,
-      totalImgTags: document.querySelectorAll('img').length,
-      totalBgImages: document.querySelectorAll('[style*="background"]').length,
+      sampleImageUrls: (detail.image_urls || []).slice(0, 3),
       facilitiesLength: detail.facilities?.length || 0,
+      facilitiesPreview: (detail.facilities || '').substring(0, 200),
+      headings: _headings.slice(0, 15),
+      h3ChildDump: _h3ChildDump,
+      bvKeys: _bvKeys,
       fieldCount: Object.keys(detail).filter(k => !k.startsWith('_')).length,
-      url: window.location.href,
     };
 
     return { ok: true, detail };

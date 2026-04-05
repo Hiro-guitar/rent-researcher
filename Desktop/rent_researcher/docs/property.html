@@ -357,7 +357,7 @@ function buildFacilityTagsFromItandi(facStr) {
     if (m) {
       var cat = m[1], rest = m[2];
       if (!buckets[cat]) { buckets[cat] = []; order.push(cat); }
-      var items = rest.split(/[\/ \/]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+      var items = rest.split(/[\/，,、 \/]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
       for (var j = 0; j < items.length; j++) buckets[cat].push(items[j]);
     }
   }
