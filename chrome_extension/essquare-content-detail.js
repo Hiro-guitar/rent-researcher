@@ -11,12 +11,24 @@
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'ESSQUARE_EXTRACT_DETAIL') {
-      try {
-        const result = extractDetail();
-        sendResponse(result);
-      } catch (err) {
-        sendResponse({ ok: false, error: err.message });
-      }
+      (async () => {
+        try {
+          const result = extractDetail();
+          // Performance API で取得した画像URLをbase64化
+          if (result.ok && result.detail) {
+            const perfUrls = result.detail.image_urls || [];
+            if (perfUrls.length > 0) {
+              const base64Images = await fetchImagesAsBase64(perfUrls);
+              if (base64Images.length > 0) {
+                result.detail.image_base64 = base64Images;
+              }
+            }
+          }
+          sendResponse(result);
+        } catch (err) {
+          sendResponse({ ok: false, error: err.message });
+        }
+      })();
       return true;
     }
 
@@ -171,133 +183,62 @@
     }
   }
 
-  // ─── 画像URL抽出 ───
+  // ─── 画像URL抽出（Performance API ベース） ───
+  // ES-Squareの物件画像は api.e-bukken-1.com から認証付きで取得され
+  // ブラウザ内で blob: URL に変換されるため、DOMからは取得不可。
+  // Performance API で元のHTTP URLをキャプチャする。
   function extractImages() {
+    const SKIP = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz|es-service\.net|onetop|placeholder|spinner|loading|e_square_logo/i;
+    const SKIP_EXT = /\.(js|css|woff|woff2|ttf|eot|svg|gif)$/i;
     const urls = [];
     const seen = new Set();
-    const SKIP_PATTERNS = [
-      'placeholder', 'logo', 'icon', 'favicon',
-      'avatar', 'profile', 'badge', 'data:',
-      'blob:', 'svg+xml',
-      'es-service.net', 'onetop',
-      'okbiz', 'miibo', 'chatbot', 'faq-e-seikatsu',
-      'e-bukken', 'sfa_main_banner', 'loading', 'spinner',
-      'noimage', 'no_image', 'no-image', 'dummy',
-      'e_square_logo',
-    ];
 
-    function addUrl(src) {
-      if (!src || seen.has(src)) return;
-      const lower = src.toLowerCase();
-      if (SKIP_PATTERNS.some(p => lower.includes(p))) return;
-      if (lower.endsWith('.svg') || lower.endsWith('.gif')) return;
-      if (src.startsWith('http')) {
-        urls.push(src);
-        seen.add(src);
-      }
-    }
-
-    // 1. computedStyle全走査 — ES-SquareはCSS-in-JS(Emotion/MUI)で
-    //    background-imageをクラスに設定するためinline styleでは取得不可
-    const allDivs = document.querySelectorAll('div, span, a, figure, li');
-    for (const el of allDivs) {
-      try {
-        const bg = window.getComputedStyle(el).backgroundImage;
-        if (bg && bg !== 'none') {
-          // 複数のurl()がある場合も対応
-          const re = /url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/g;
-          let m;
-          while ((m = re.exec(bg)) !== null) {
-            addUrl(m[1]);
-          }
-        }
-      } catch (e) {}
-    }
-
-    // 2. img src / data-src
-    for (const img of document.querySelectorAll('img')) {
-      addUrl(img.src);
-      addUrl(img.getAttribute('data-src'));
-      addUrl(img.getAttribute('data-original'));
-      const srcset = img.getAttribute('srcset') || '';
-      if (srcset) {
-        for (const part of srcset.split(',')) {
-          addUrl(part.trim().split(' ')[0]);
-        }
-      }
-    }
-
-    // 3. <picture> > <source>
-    for (const source of document.querySelectorAll('source')) {
-      const srcset = source.getAttribute('srcset') || '';
-      if (srcset) {
-        for (const part of srcset.split(',')) {
-          addUrl(part.trim().split(' ')[0]);
-        }
-      }
-    }
-
-    // 4. React Fiber props走査（ルート要素から）
+    // Performance API から画像リクエスト URL を収集
     try {
-      const root = document.getElementById('root') || document.getElementById('__next') || document.querySelector('[data-reactroot]');
-      if (root) {
-        const fiberKey = Object.keys(root).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
-        if (fiberKey) {
-          const visited = new Set();
-          function walkFiber(fiber, depth) {
-            if (!fiber || depth > 30 || visited.has(fiber)) return;
-            visited.add(fiber);
-            const props = fiber.memoizedProps || fiber.pendingProps || {};
-            // 画像URLフィールドを探索
-            if (typeof props.src === 'string' && props.src.startsWith('http')) addUrl(props.src);
-            if (props.style?.backgroundImage) {
-              const m = props.style.backgroundImage.match(/url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/);
-              if (m) addUrl(m[1]);
-            }
-            // 配列プロパティ内の画像URL（image_url, photo_url等）
-            for (const [key, val] of Object.entries(props)) {
-              if (typeof val === 'string' && /^https?:\/\/.+\.(jpg|jpeg|png|webp)/i.test(val)) {
-                addUrl(val);
-              }
-              if (Array.isArray(val)) {
-                for (const item of val) {
-                  if (typeof item === 'string' && /^https?:\/\/.+\.(jpg|jpeg|png|webp)/i.test(item)) {
-                    addUrl(item);
-                  }
-                  if (item && typeof item === 'object') {
-                    for (const v of Object.values(item)) {
-                      if (typeof v === 'string' && /^https?:\/\/.+\.(jpg|jpeg|png|webp)/i.test(v)) {
-                        addUrl(v);
-                      }
-                    }
-                  }
-                }
-              }
-            }
-            // stateKeyも確認
-            if (fiber.memoizedState) {
-              let state = fiber.memoizedState;
-              for (let i = 0; i < 5 && state; i++) {
-                if (state.memoizedState && typeof state.memoizedState === 'object') {
-                  const s = state.memoizedState;
-                  for (const val of Object.values(s)) {
-                    if (typeof val === 'string' && /^https?:\/\/.+\.(jpg|jpeg|png|webp)/i.test(val)) {
-                      addUrl(val);
-                    }
-                  }
-                }
-                state = state.next;
-              }
-            }
-            walkFiber(fiber.child, depth + 1);
-            walkFiber(fiber.sibling, depth + 1);
-          }
-          walkFiber(root[fiberKey], 0);
+      const entries = performance.getEntriesByType('resource');
+      for (const entry of entries) {
+        const name = entry.name;
+        if (seen.has(name) || SKIP.test(name) || SKIP_EXT.test(name)) continue;
+        if (!name.startsWith('http')) continue;
+
+        const isImageExt = /\.(jpg|jpeg|png|webp|bmp|avif)/i.test(name);
+        const init = entry.initiatorType;
+        const size = (entry.transferSize || 0) + (entry.decodedBodySize || 0);
+
+        // 画像拡張子 OR fetch/XHRで5KB以上（画像API応答）
+        if (isImageExt || ((init === 'fetch' || init === 'xmlhttprequest') && size > 5000)) {
+          urls.push(name);
+          seen.add(name);
         }
       }
     } catch (e) {}
 
     return urls.slice(0, 20);
+  }
+
+  // ─── 画像をfetchしてbase64化（認証付きコンテキストで実行） ───
+  async function fetchImagesAsBase64(imageUrls, maxCount = 10) {
+    const results = [];
+    for (const url of imageUrls.slice(0, maxCount)) {
+      try {
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) continue;
+        const contentType = resp.headers.get('content-type') || 'image/jpeg';
+        if (!contentType.startsWith('image/')) continue;
+        const blob = await resp.blob();
+        // サイズ制限: 500KB以上はスキップ（GAS送信サイズ考慮）
+        if (blob.size > 500000) continue;
+        const dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+        results.push(dataUrl);
+      } catch (e) {
+        // 認証エラー等は無視
+      }
+    }
+    return results;
   }
 
   // ─── 設備情報抽出（H2/H3 + MUI Grid pairs ベース） ───
@@ -569,79 +510,10 @@
     }
 
     // デバッグ情報
-    const _headings = [];
-    for (const el of document.querySelectorAll('h1, h2, h3, h4, h5, h6')) {
-      const t = el.textContent.trim();
-      if (t && t.length < 30) _headings.push(`${el.tagName}:${t}`);
-    }
-    // H3:区画設備 の内部構造をダンプ（サブカテゴリ検出用）
-    let _h3ChildDump = '';
-    for (const h3 of document.querySelectorAll('h3')) {
-      if (h3.textContent.trim() === '区画設備') {
-        let nextEl = h3.nextElementSibling;
-        if (nextEl) {
-          const kids = [];
-          // nextElの直下子要素を列挙
-          for (const child of nextEl.children) {
-            const tag = child.tagName;
-            const text = child.textContent.trim().substring(0, 40);
-            const childCount = child.children.length;
-            const cls = (child.className || '').substring(0, 30);
-            kids.push(`${tag}(${childCount})[${cls}]:"${text}"`);
-            if (kids.length >= 10) break;
-          }
-          _h3ChildDump = `parent=${nextEl.tagName},children=${nextEl.children.length}: ${kids.join(' | ')}`;
-          // 1階層深くも見る
-          if (nextEl.children.length <= 2 && nextEl.children[0]?.children?.length > 2) {
-            const inner = nextEl.children[0];
-            const innerKids = [];
-            for (const child of inner.children) {
-              const tag = child.tagName;
-              const text = child.textContent.trim().substring(0, 30);
-              const cc = child.children.length;
-              innerKids.push(`${tag}(${cc}):"${text}"`);
-              if (innerKids.length >= 10) break;
-            }
-            _h3ChildDump += ` | INNER: ${innerKids.join(' | ')}`;
-          }
-        }
-        break;
-      }
-    }
-    // chinshaku_bukken_view のキーをReact Fiberから取得（画像キー調査用）
-    let _bvKeys = '';
-    try {
-      const root = document.getElementById('root');
-      if (root) {
-        const fiberKey = Object.keys(root).find(k => k.startsWith('__reactFiber'));
-        if (fiberKey) {
-          const visited = new Set();
-          function findBV(fiber, depth) {
-            if (!fiber || depth > 20 || visited.has(fiber)) return null;
-            visited.add(fiber);
-            const props = fiber.memoizedProps || {};
-            if (props.specBukkenView) return props.specBukkenView;
-            if (props.bukkenDetail) return props.bukkenDetail;
-            if (props.detail) return props.detail;
-            if (props.property) return props.property;
-            return findBV(fiber.child, depth+1) || findBV(fiber.sibling, depth+1);
-          }
-          const bvData = findBV(root[fiberKey], 0);
-          if (bvData) {
-            _bvKeys = Object.keys(bvData).sort().join(',');
-          }
-        }
-      }
-    } catch(e) {}
-
     detail._debug = {
       imageCount: detail.image_urls?.length || 0,
-      sampleImageUrls: (detail.image_urls || []).slice(0, 3),
       facilitiesLength: detail.facilities?.length || 0,
       facilitiesPreview: (detail.facilities || '').substring(0, 200),
-      headings: _headings.slice(0, 15),
-      h3ChildDump: _h3ChildDump,
-      bvKeys: _bvKeys,
       fieldCount: Object.keys(detail).filter(k => !k.startsWith('_')).length,
     };
 

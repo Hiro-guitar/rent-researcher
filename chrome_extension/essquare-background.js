@@ -340,22 +340,6 @@ async function _parseEssquareSearchResults(tabId) {
           // 管理費（kanrihi + kyoekihi + zatsuyaku）
           const mgmtFee = (jv.kanrihi || 0) + (jv.kyoekihi || 0) + (jv.zatsuyaku || 0);
 
-          // デバッグ: 最初の1件だけspecViewのキーとbv/jvのキーを記録
-          if (properties.length === 0) {
-            const _svKeys = Object.keys(specView).filter(k => typeof specView[k] !== 'object' || specView[k] === null).sort();
-            const _svObjKeys = Object.keys(specView).filter(k => typeof specView[k] === 'object' && specView[k] !== null).sort();
-            const _bvKeys = Object.keys(bv).sort();
-            const _imgKeys = _svKeys.filter(k => /image|img|photo|gazo|pic|thumb/i.test(k));
-            properties.push({
-              _debugKeys: {
-                specViewKeys: _svKeys.join(','),
-                specViewObjKeys: _svObjKeys.join(','),
-                bvSample: _bvKeys.slice(0, 20).join(','),
-                imageRelatedKeys: _imgKeys.join(','),
-              }
-            });
-          }
-
           properties.push({
             uuid,
             building_name: specView.tatemono_name || '',
@@ -552,6 +536,37 @@ function sendEssquareContentMessage(tabId, message, timeoutMs = 15000) {
       }
     });
   });
+}
+
+// === 画像アップロード（catbox.moe） ===
+
+async function uploadBase64ToCatbox(dataUrl) {
+  // data:image/jpeg;base64,/9j/4AAQ... → Blob
+  const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+  if (!match) return null;
+  const mimeType = match[1];
+  const base64 = match[2];
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: mimeType });
+
+  const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+  const filename = `esq_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`;
+
+  const formData = new FormData();
+  formData.append('reqtype', 'fileupload');
+  formData.append('fileToUpload', blob, filename);
+
+  const resp = await fetch('https://catbox.moe/user/api.php', {
+    method: 'POST',
+    body: formData,
+  });
+  const url = (await resp.text()).trim();
+  if (url.startsWith('https://')) return url;
+  return null;
 }
 
 // === property_data_json構築 ===
@@ -758,14 +773,6 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
     if (pageProps.length === 0) break;
 
-    // デバッグ: specViewのキー情報を出力（最初の要素）
-    if (pageProps[0]?._debugKeys) {
-      const dk = pageProps.shift()._debugKeys;
-      console.log('[ES-Square] specViewキー:', dk);
-      await setStorageData({ debugLog: `[ES-Square] 画像関連キー: ${dk.imageRelatedKeys || '(なし)'}` });
-      await setStorageData({ debugLog: `[ES-Square] specViewObjKeys: ${dk.specViewObjKeys}` });
-    }
-
     // 各物件にURL等を付与（React Fiberから取得済みフィールドは保持）
     for (const p of pageProps) {
       p.source = 'essquare';
@@ -831,7 +838,8 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
       let detailResult;
       try {
-        detailResult = await sendEssquareContentMessage(tabId, { type: 'ESSQUARE_EXTRACT_DETAIL' });
+        // 画像base64変換に時間がかかるためタイムアウト延長
+        detailResult = await sendEssquareContentMessage(tabId, { type: 'ESSQUARE_EXTRACT_DETAIL' }, 30000);
       } catch (err) {
         console.warn(`[ES-Square] 詳細取得失敗 (${prop.building_name}):`, err.message);
       }
@@ -840,20 +848,32 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         const d = detailResult.detail;
         // デバッグログ
         if (d._debug) {
-          console.log(`[ES-Square] 詳細デバッグ (${prop.building_name}):`, JSON.stringify(d._debug));
           const dbg = d._debug;
           await setStorageData({ debugLog: `[ES-Square] 詳細: imgs=${dbg.imageCount}, fac=${dbg.facilitiesLength}` });
-          if (dbg.h3ChildDump) {
-            await setStorageData({ debugLog: `[ES-Square] H3子要素: ${dbg.h3ChildDump.substring(0, 250)}` });
-          }
-          if (dbg.bvKeys) {
-            await setStorageData({ debugLog: `[ES-Square] detailFiberKeys: ${dbg.bvKeys.substring(0, 200)}` });
-          }
           if (dbg.facilitiesPreview) {
             await setStorageData({ debugLog: `[ES-Square] 設備: ${dbg.facilitiesPreview.substring(0, 150)}` });
           }
         }
-        if (d.image_urls?.length) {
+
+        // 画像: base64 → catbox.moe アップロード
+        if (d.image_base64?.length) {
+          await setStorageData({ debugLog: `[ES-Square] 画像base64: ${d.image_base64.length}件取得、アップロード中...` });
+          const uploadedUrls = [];
+          for (let i = 0; i < d.image_base64.length && i < 10; i++) {
+            try {
+              const publicUrl = await uploadBase64ToCatbox(d.image_base64[i]);
+              if (publicUrl) uploadedUrls.push(publicUrl);
+            } catch (e) {
+              console.warn(`[ES-Square] 画像アップロード失敗 (${i}):`, e.message);
+            }
+          }
+          if (uploadedUrls.length > 0) {
+            prop.image_urls = uploadedUrls;
+            prop.image_url = uploadedUrls[0];
+            await setStorageData({ debugLog: `[ES-Square] 画像アップロード完了: ${uploadedUrls.length}件` });
+          }
+        } else if (d.image_urls?.length) {
+          // Performance API URLのフォールバック（アップロードできなかった場合）
           prop.image_urls = d.image_urls;
           if (!prop.image_url && d.image_urls[0]) prop.image_url = d.image_urls[0];
         }
