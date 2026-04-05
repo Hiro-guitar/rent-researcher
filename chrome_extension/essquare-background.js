@@ -838,8 +838,8 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
       let detailResult;
       try {
-        // 画像base64変換に時間がかかるためタイムアウト延長
-        detailResult = await sendEssquareContentMessage(tabId, { type: 'ESSQUARE_EXTRACT_DETAIL' }, 30000);
+        // ギャラリー操作＋画像base64変換に時間がかかるためタイムアウト延長
+        detailResult = await sendEssquareContentMessage(tabId, { type: 'ESSQUARE_EXTRACT_DETAIL' }, 60000);
       } catch (err) {
         console.warn(`[ES-Square] 詳細取得失敗 (${prop.building_name}):`, err.message);
       }

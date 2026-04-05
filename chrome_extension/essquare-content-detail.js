@@ -14,11 +14,13 @@
       (async () => {
         try {
           const result = extractDetail();
-          // Performance API で取得した画像URLをbase64化
           if (result.ok && result.detail) {
-            const perfUrls = result.detail.image_urls || [];
-            if (perfUrls.length > 0) {
-              const base64Images = await fetchImagesAsBase64(perfUrls);
+            // ギャラリー操作で画像ロードを誘発 → Performance APIでURLキャプチャ
+            const galleryUrls = await extractImagesViaGallery();
+            if (galleryUrls.length > 0) {
+              result.detail.image_urls = galleryUrls;
+              // base64化
+              const base64Images = await fetchImagesAsBase64(galleryUrls);
               if (base64Images.length > 0) {
                 result.detail.image_base64 = base64Images;
               }
@@ -183,37 +185,166 @@
     }
   }
 
-  // ─── 画像URL抽出（Performance API ベース） ───
-  // ES-Squareの物件画像は api.e-bukken-1.com から認証付きで取得され
-  // ブラウザ内で blob: URL に変換されるため、DOMからは取得不可。
-  // Performance API で元のHTTP URLをキャプチャする。
-  function extractImages() {
-    const SKIP = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz|es-service\.net|onetop|placeholder|spinner|loading|e_square_logo/i;
+  // ─── ヘルパー: sleep ───
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  // ─── Performance APIから画像URLを収集 ───
+  function collectPerfImageUrls() {
+    const SKIP = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz|es-service\.net|onetop|placeholder|spinner|loading|e_square_logo|sfa_main_banner|line\.me|liff/i;
     const SKIP_EXT = /\.(js|css|woff|woff2|ttf|eot|svg|gif)$/i;
     const urls = [];
     const seen = new Set();
-
-    // Performance API から画像リクエスト URL を収集
     try {
       const entries = performance.getEntriesByType('resource');
       for (const entry of entries) {
         const name = entry.name;
         if (seen.has(name) || SKIP.test(name) || SKIP_EXT.test(name)) continue;
         if (!name.startsWith('http')) continue;
-
         const isImageExt = /\.(jpg|jpeg|png|webp|bmp|avif)/i.test(name);
         const init = entry.initiatorType;
         const size = (entry.transferSize || 0) + (entry.decodedBodySize || 0);
-
-        // 画像拡張子 OR fetch/XHRで5KB以上（画像API応答）
-        if (isImageExt || ((init === 'fetch' || init === 'xmlhttprequest') && size > 5000)) {
+        // 画像拡張子 OR fetch/XHRで10KB以上（物件画像は通常大きい）
+        if (isImageExt || ((init === 'fetch' || init === 'xmlhttprequest') && size > 10000)) {
           urls.push(name);
           seen.add(name);
         }
       }
     } catch (e) {}
+    return urls;
+  }
 
-    return urls.slice(0, 20);
+  // ─── ギャラリー操作で画像ロードを誘発 → Performance APIでURLキャプチャ ───
+  // Python版 _extract_gallery_images() の移植
+  async function extractImagesViaGallery() {
+    // Performance エントリをクリア（ギャラリー操作分のみキャプチャ）
+    try { performance.clearResourceTimings(); } catch (e) {}
+
+    // サムネイルをクリックしてギャラリーモーダルを開く
+    let clicked = false;
+    // 方法1: ES-Square固有セレクタ
+    const thumb = document.querySelector('.css-tx2s10 img');
+    if (thumb && thumb.naturalWidth > 0) {
+      thumb.click();
+      clicked = true;
+    }
+    // 方法2: Swiper関連の画像
+    if (!clicked) {
+      const swiperImg = document.querySelector('.swiper img, [class*="swiper"] img');
+      if (swiperImg && swiperImg.naturalWidth > 0) {
+        swiperImg.click();
+        clicked = true;
+      }
+    }
+    // 方法3: blob URLの画像 or 大きい画像
+    if (!clicked) {
+      for (const img of document.querySelectorAll('img')) {
+        const src = img.src || '';
+        const w = img.naturalWidth || img.width || 0;
+        const h = img.naturalHeight || img.height || 0;
+        if ((src.startsWith('blob:') || (w > 100 && h > 80))
+            && !/logo|icon|avatar|badge|chatbot|miibo/i.test((img.className || '') + (img.alt || '') + src)) {
+          img.click();
+          clicked = true;
+          break;
+        }
+      }
+    }
+    if (!clicked) return [];
+
+    // モーダル表示待ち
+    let modalReady = false;
+    for (let i = 0; i < 15; i++) {
+      await sleep(200);
+      const active = document.querySelector('.swiper-slide-active img');
+      if (active && active.complete && active.naturalWidth > 0) { modalReady = true; break; }
+      const swiper = document.querySelector('.swiper-slide-active, [class*="swiper"]');
+      if (swiper) { modalReady = true; break; }
+    }
+    if (!modalReady) return [];
+
+    // 総スライド数を取得
+    let totalSlides = 100;
+    const swiperEl = document.querySelector('.swiper');
+    if (swiperEl?.swiper) {
+      totalSlides = swiperEl.swiper.slides.length - (swiperEl.swiper.loopedSlides || 0) * 2;
+    } else {
+      const slides = document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)');
+      if (slides.length > 0) totalSlides = slides.length;
+    }
+    const maxNav = Math.min(totalSlides + 2, 30); // Chrome拡張では最大30に制限
+
+    // 全スライドをナビゲート
+    const seenIndices = new Set();
+    for (let n = 0; n < maxNav; n++) {
+      // ループ検出
+      if (swiperEl?.swiper) {
+        const idx = swiperEl.swiper.realIndex;
+        if (seenIndices.has(idx)) break;
+        seenIndices.add(idx);
+      }
+
+      // 次へボタンクリック
+      let navResult = 'no_button';
+      // 方法1: CSS固有セレクタ
+      const nextBtn = document.querySelector('.css-1nuul26');
+      if (nextBtn) {
+        const style = window.getComputedStyle(nextBtn);
+        if (style.pointerEvents === 'none' || nextBtn.hasAttribute('disabled')) {
+          navResult = 'disabled';
+        } else {
+          nextBtn.click();
+          navResult = 'clicked';
+        }
+      }
+      // 方法2: ArrowRightアイコンから親ボタンを探す
+      if (navResult === 'no_button') {
+        const nextIcon = document.querySelector(
+          'svg[data-testid="KeyboardArrowRightIcon"],'
+          + 'svg[data-testid="keyboardArrowRight"],'
+          + 'svg[data-testid="ArrowForwardIosIcon"],'
+          + 'svg[data-testid="NavigateNextIcon"]'
+        );
+        if (nextIcon) {
+          let el = nextIcon;
+          for (let i = 0; i < 5; i++) {
+            el = el.parentElement;
+            if (!el) break;
+            const s = window.getComputedStyle(el);
+            if (s.pointerEvents === 'none') { navResult = 'disabled'; break; }
+            if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' || s.cursor === 'pointer') {
+              el.click();
+              navResult = 'clicked';
+              break;
+            }
+          }
+          if (navResult === 'no_button' && nextIcon.parentElement) {
+            nextIcon.parentElement.click();
+            navResult = 'clicked';
+          }
+        }
+      }
+      if (navResult !== 'clicked') break;
+
+      // 画像ロード待ち
+      for (let w = 0; w < 10; w++) {
+        await sleep(100);
+        const img = document.querySelector('.swiper-slide-active img');
+        if (img && img.complete && img.naturalWidth > 0) break;
+      }
+    }
+
+    // モーダルを閉じる
+    try {
+      // ESCキー
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+      await sleep(300);
+      // フォールバック: 閉じるボタン
+      const closeBtn = document.querySelector('.MuiBox-root.css-11p4x25, [class*="close"], button[aria-label="close"]');
+      if (closeBtn) closeBtn.click();
+    } catch (e) {}
+
+    // Performance API から画像URLを収集
+    return collectPerfImageUrls();
   }
 
   // ─── 画像をfetchしてbase64化（認証付きコンテキストで実行） ───
@@ -228,6 +359,8 @@
         const blob = await resp.blob();
         // サイズ制限: 500KB以上はスキップ（GAS送信サイズ考慮）
         if (blob.size > 500000) continue;
+        // 小さすぎるものも除外（アイコン等）
+        if (blob.size < 5000) continue;
         const dataUrl = await new Promise((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result);
@@ -359,10 +492,9 @@
   function extractDetail() {
     const detail = {};
 
-    // === 1. 画像URL取得 ===
-    detail.image_urls = extractImages();
+    // 画像はギャラリー操作後にPerformance APIで取得（メッセージハンドラ側で実施）
 
-    // === 2. KVペア収集 ===
+    // === 1. KVペア収集 ===
     // テーブル（th/td）
     for (const table of document.querySelectorAll('table')) {
       for (const row of table.querySelectorAll('tr')) {
