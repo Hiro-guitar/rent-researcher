@@ -206,7 +206,7 @@ if (inlineProp) {
 }
 
 function fetchProperty(customer, roomId) {
-  var url = GAS_API_URL + '?action=view_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
+  var url = GAS_API_URL + '?action=view_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId) + '&nocache=1';
 
   fetch(url, { redirect: 'follow' })
     .then(function(res) { return res.text(); })
