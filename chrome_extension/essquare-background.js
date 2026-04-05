@@ -298,14 +298,14 @@ async function _parseEssquareSearchResults(tabId) {
             }
           }
 
-          // 入居可能日
+          // 入居可能日（datejun形式: YYYY*100000 + MM*1000 + DD*10 + precision）
           let moveInDate = '';
           const nyukyo = jv.nyukyo_kano_datejun;
           if (nyukyo) {
             const y = Math.floor(nyukyo / 100000);
             const md = nyukyo % 100000;
-            const m = Math.floor(md / 100);
-            const d = md % 100;
+            const m = Math.floor(md / 1000);
+            const d = Math.floor((md % 1000) / 10);
             if (y && m) moveInDate = d ? `${y}/${m}/${d}` : `${y}/${m}`;
           }
 
@@ -313,13 +313,32 @@ async function _parseEssquareSearchResults(tabId) {
           let leaseType = '';
           if (jv.chintai_keiyaku_code === 2) leaseType = '定期借家';
 
-          // 更新料
+          // 更新料（月数を優先）
           let renewalFee = '';
-          if (jv.koshinryo_en) {
-            renewalFee = `${jv.koshinryo_en}円`;
-          } else if (jv.koshinryo_kagetsu) {
+          if (jv.koshinryo_kagetsu) {
             renewalFee = `${jv.koshinryo_kagetsu}ヶ月`;
+          } else if (jv.koshinryo_en) {
+            renewalFee = `${jv.koshinryo_en}円`;
           }
+
+          // 敷金（月数を優先）
+          let deposit = '';
+          if (jv.shikikin_kagetsu) {
+            deposit = `${jv.shikikin_kagetsu}ヶ月`;
+          } else if (jv.shikikin_en) {
+            deposit = `${jv.shikikin_en}円`;
+          }
+
+          // 礼金（月数を優先）
+          let keyMoney = '';
+          if (jv.reikin_kagetsu) {
+            keyMoney = `${jv.reikin_kagetsu}ヶ月`;
+          } else if (jv.reikin_en) {
+            keyMoney = `${jv.reikin_en}円`;
+          }
+
+          // 管理費（kanrihi + kyoekihi + zatsuyaku）
+          const mgmtFee = (jv.kanrihi || 0) + (jv.kyoekihi || 0) + (jv.zatsuyaku || 0);
 
           properties.push({
             uuid,
@@ -327,9 +346,9 @@ async function _parseEssquareSearchResults(tabId) {
             room_number: specView.heya_kukaku_number || '',
             address: specView.jusho_full_text || '',
             rent: jv.chinryo || 0,
-            management_fee: jv.kyoekihi || 0,
-            deposit: jv.shikikin_en ? `${jv.shikikin_en}円` : '',
-            key_money: jv.reikin_en ? `${jv.reikin_en}円` : '',
+            management_fee: mgmtFee,
+            deposit,
+            key_money: keyMoney,
             layout: specView.madori_name || '',
             area: specView.senyu_menseki || 0,
             building_age: buildingAge,
@@ -522,6 +541,13 @@ function sendEssquareContentMessage(tabId, message, timeoutMs = 15000) {
 // === property_data_json構築 ===
 
 function buildEssquarePropertyDataJson(prop) {
+  // sanitization_feeをother_onetime_feeに統合
+  if (prop.sanitization_fee && !prop.other_onetime_fee) {
+    prop.other_onetime_fee = `室内抗菌: ${prop.sanitization_fee}`;
+  } else if (prop.sanitization_fee && prop.other_onetime_fee) {
+    prop.other_onetime_fee += ` / 室内抗菌: ${prop.sanitization_fee}`;
+  }
+
   return {
     source: 'essquare',
     building_name: prop.building_name || '',
@@ -558,10 +584,22 @@ function buildEssquarePropertyDataJson(prop) {
     other_onetime_fee: prop.other_onetime_fee || '',
     shikibiki: prop.shikibiki || '',
     layout_detail: prop.layout_detail || '',
-    story_text: prop.total_floors ? `${prop.total_floors}階建` : '',
+    story_text: prop.story_text || (prop.total_floors ? `${prop.total_floors}階建` : ''),
     guarantee_deposit: prop.guarantee_deposit || '',
     bicycle_parking_fee: prop.bicycle_parking_fee || '',
     motorcycle_parking_fee: prop.motorcycle_parking_fee || '',
+    move_in_conditions: prop.move_in_conditions || '',
+    pet_deposit: prop.pet_deposit || '',
+    renewal_admin_fee: prop.renewal_admin_fee || '',
+    renewal_info: prop.renewal_info || '',
+    support_fee_24h: prop.support_fee_24h || '',
+    additional_deposit: prop.additional_deposit || '',
+    water_billing: prop.water_billing || '',
+    cleaning_fee: prop.cleaning_fee || '',
+    // sanitization_feeはother_onetime_feeに統合（GAS側未対応のため）
+    rights_fee: prop.rights_fee || '',
+    free_rent_detail: prop.free_rent_detail || '',
+    cancellation_notice: prop.cancellation_notice || '',
   };
 }
 
@@ -783,16 +821,42 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         if (d.listing_status) prop.listing_status = d.listing_status;
         if (d.facilities) prop.facilities = d.facilities;
 
+        // 交通機関（詳細ページで複数路線が取得できた場合）
+        if (d.other_stations?.length) {
+          prop.other_stations = d.other_stations;
+        }
+
+        // 管理費: 詳細ページテキストからパース（検索結果が0の場合のフォールバック）
+        if (d._mgmt_text && !prop.management_fee) {
+          // "15,000円/-/-" → 15000
+          const mgmtMatch = d._mgmt_text.match(/([\d,]+)\s*円/);
+          if (mgmtMatch) {
+            prop.management_fee = parseInt(mgmtMatch[1].replace(/,/g, ''));
+          }
+        }
+
+        // 詳細ページの値で補完するフィールド（検索結果に無い場合のみ）
         const detailFields = [
-          'floor_text', 'structure', 'total_units', 'lease_type', 'contract_period',
-          'cancellation_notice', 'sunlight', 'free_rent', 'renewal_fee',
+          'floor_text', 'story_text', 'structure', 'total_units', 'lease_type', 'contract_period',
+          'cancellation_notice', 'renewal_info', 'sunlight', 'free_rent', 'free_rent_detail',
           'fire_insurance', 'key_exchange_fee', 'guarantee_info', 'guarantee_deposit',
           'parking_fee', 'bicycle_parking_fee', 'motorcycle_parking_fee',
           'other_monthly_fee', 'other_onetime_fee', 'move_in_date', 'move_out_date',
           'preview_start_date', 'layout_detail', 'shikibiki', 'floor',
+          'move_in_conditions', 'pet_deposit', 'renewal_admin_fee',
+          'support_fee_24h', 'additional_deposit', 'water_billing',
+          'cleaning_fee', 'sanitization_fee', 'rights_fee',
         ];
         for (const key of detailFields) {
           if (d[key] && !prop[key]) {
+            prop[key] = d[key];
+          }
+        }
+
+        // 詳細ページの値で上書きするフィールド（詳細ページのテキストの方が正確）
+        const overrideFields = ['deposit', 'key_money', 'renewal_fee', 'move_in_date'];
+        for (const key of overrideFields) {
+          if (d[key]) {
             prop[key] = d[key];
           }
         }
