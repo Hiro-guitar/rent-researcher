@@ -182,12 +182,20 @@
       'es-service.net', 'onetop',
       'okbiz', 'miibo', 'chatbot', 'faq-e-seikatsu',
       'e-bukken', 'sfa_main_banner', 'loading', 'spinner',
+      'noimage', 'no_image', 'no-image', 'dummy',
+    ];
+
+    // 物件画像に共通するURLパターン
+    const PROPERTY_IMAGE_PATTERNS = [
+      'chintai-img', 'bukken', 'property', 'room',
+      'photo', 'image', '.jpg', '.jpeg', '.png', '.webp',
     ];
 
     function addUrl(src) {
       if (!src || seen.has(src)) return;
-      if (SKIP_PATTERNS.some(p => src.toLowerCase().includes(p))) return;
-      if (src.endsWith('.svg')) return;
+      const lower = src.toLowerCase();
+      if (SKIP_PATTERNS.some(p => lower.includes(p))) return;
+      if (lower.endsWith('.svg') || lower.endsWith('.gif')) return;
       if (src.startsWith('http')) {
         urls.push(src);
         seen.add(src);
@@ -198,6 +206,7 @@
     for (const img of document.querySelectorAll('img')) {
       addUrl(img.src);
       addUrl(img.getAttribute('data-src'));
+      addUrl(img.getAttribute('data-original'));
       // srcset
       const srcset = img.getAttribute('srcset') || '';
       if (srcset) {
@@ -217,12 +226,50 @@
       }
     }
 
-    // CSS background-image
-    for (const div of document.querySelectorAll('div[style*="background"]')) {
-      const style = div.getAttribute('style') || '';
+    // CSS background-image（inline style）
+    for (const el of document.querySelectorAll('[style*="background"]')) {
+      const style = el.getAttribute('style') || '';
       const m = style.match(/url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/);
       if (m) addUrl(m[1]);
     }
+
+    // CSS background-image（computed style - Swiperなど動的設定対応）
+    for (const el of document.querySelectorAll('.swiper-slide, .slick-slide, [class*="carousel"], [class*="slide"], [class*="gallery"], [class*="photo"], [class*="image"]')) {
+      try {
+        const computed = window.getComputedStyle(el);
+        const bg = computed.backgroundImage;
+        if (bg && bg !== 'none') {
+          const m = bg.match(/url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/);
+          if (m) addUrl(m[1]);
+        }
+      } catch (e) {}
+      // 子のimg要素も探す
+      for (const img of el.querySelectorAll('img')) {
+        addUrl(img.src);
+        addUrl(img.getAttribute('data-src'));
+      }
+    }
+
+    // React Fiber経由で画像URLを取得（ES-Square特有）
+    try {
+      for (const el of document.querySelectorAll('[class*="image"], [class*="Image"], [class*="photo"], [class*="Photo"]')) {
+        const fiberKey = Object.keys(el).find(k => k.startsWith('__reactFiber'));
+        if (fiberKey) {
+          let fiber = el[fiberKey];
+          for (let depth = 0; depth < 10 && fiber; depth++) {
+            const props = fiber.memoizedProps || fiber.pendingProps || {};
+            if (props.src && typeof props.src === 'string') addUrl(props.src);
+            if (props.url && typeof props.url === 'string') addUrl(props.url);
+            if (props.imageUrl && typeof props.imageUrl === 'string') addUrl(props.imageUrl);
+            if (props.style?.backgroundImage) {
+              const m = props.style.backgroundImage.match(/url\(['"]?(https?:\/\/[^'")\s]+)['"]?\)/);
+              if (m) addUrl(m[1]);
+            }
+            fiber = fiber.return;
+          }
+        }
+      }
+    } catch (e) {}
 
     return urls.slice(0, 20);
   }
@@ -500,6 +547,16 @@
       const m = detail.floor_text.match(/(\d+)/);
       if (m) detail.floor = parseInt(m[1]);
     }
+
+    // デバッグ情報
+    detail._debug = {
+      imageCount: detail.image_urls?.length || 0,
+      totalImgTags: document.querySelectorAll('img').length,
+      totalBgImages: document.querySelectorAll('[style*="background"]').length,
+      facilitiesLength: detail.facilities?.length || 0,
+      fieldCount: Object.keys(detail).filter(k => !k.startsWith('_')).length,
+      url: window.location.href,
+    };
 
     return { ok: true, detail };
   }

@@ -704,7 +704,7 @@ function nv(val) {
 }
 
 function hv(val) {
-  return val && val !== '\u30FC' && val !== '入力なし';
+  return val && val !== '\u30FC' && val !== '入力なし' && val !== '無' && val !== '-' && val !== '－' && val !== 'なし';
 }
 
 function makeRow(label, value) {

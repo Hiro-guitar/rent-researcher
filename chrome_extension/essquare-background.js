@@ -814,6 +814,11 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
       if (detailResult?.ok && detailResult.detail) {
         const d = detailResult.detail;
+        // デバッグログ
+        if (d._debug) {
+          console.log(`[ES-Square] 詳細デバッグ (${prop.building_name}):`, JSON.stringify(d._debug));
+          await setStorageData({ debugLog: `[ES-Square] 詳細デバッグ: imgs=${d._debug.imageCount}, imgTags=${d._debug.totalImgTags}, bgImgs=${d._debug.totalBgImages}, fac=${d._debug.facilitiesLength}` });
+        }
         if (d.image_urls?.length) {
           prop.image_urls = d.image_urls;
           if (!prop.image_url && d.image_urls[0]) prop.image_url = d.image_urls[0];
