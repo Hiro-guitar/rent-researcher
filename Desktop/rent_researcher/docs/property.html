@@ -357,7 +357,12 @@ function buildFacilityTagsFromItandi(facStr) {
     if (m) {
       var cat = m[1], rest = m[2];
       if (!buckets[cat]) { buckets[cat] = []; order.push(cat); }
-      var items = rest.split(/[\/，,、 \/]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+      var items = rest.split(/[\/，,、 \/]+/).map(function(s) { return s.trim(); }).filter(function(s) {
+        if (s.length === 0) return false;
+        // 「〇〇：-」「〇〇：無」「〇〇：なし」等の無効値を除外
+        if (/[:：]\s*[-－ー無なし]\s*$/.test(s)) return false;
+        return true;
+      });
       for (var j = 0; j < items.length; j++) buckets[cat].push(items[j]);
     }
   }
