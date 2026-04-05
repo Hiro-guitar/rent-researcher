@@ -228,6 +228,65 @@
   }
 
   // ─── 設備情報抽出（Python版 _extract_facilities 準拠） ───
+  // カテゴリ見出し候補（ES-Square 設備セクションの典型的なカテゴリ名）
+  const FACILITY_CATEGORY_NAMES = [
+    'キッチン', 'バス・トイレ', 'バストイレ', '冷暖房', '収納',
+    'テレビ・通信', 'TV・通信', 'セキュリティ', '室内設備', '室内仕様',
+    'その他', '共用部', '建物設備', '条件', '位置', 'コンロ',
+    '給湯', 'エントランス', '駐車場・駐輪場', 'インターネット',
+    'ペット', '楽器', '事務所', 'ガス', '電気', '水道',
+  ];
+
+  function isCategoryHeading(el) {
+    const text = el.textContent.trim();
+    if (text.length < 2 || text.length > 15) return false;
+    // 既知のカテゴリ名
+    if (FACILITY_CATEGORY_NAMES.some(c => text === c || text.startsWith(c))) return true;
+    // MUIのTypography系ヘッダー要素（h5, h6, subtitle）
+    const tag = el.tagName;
+    if (tag === 'H5' || tag === 'H6') return true;
+    const cls = el.className || '';
+    if (cls.includes('subtitle') || cls.includes('Subtitle') || cls.includes('heading') || cls.includes('Heading')) return true;
+    // font-weightがboldの短いテキスト
+    try {
+      const style = window.getComputedStyle(el);
+      if ((style.fontWeight === 'bold' || parseInt(style.fontWeight) >= 600) && text.length <= 10) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function extractFacilitiesWithCategories(container) {
+    // コンテナ内の子要素を走査してカテゴリ付きで設備を抽出
+    const parts = [];
+    let currentCategory = '';
+
+    function walkChildren(el) {
+      for (const child of el.children) {
+        if (isCategoryHeading(child)) {
+          currentCategory = child.textContent.trim();
+          continue;
+        }
+        // 子がさらに構造を持つ場合は再帰
+        if (child.children.length > 0 && child.textContent.trim().length > child.children[0].textContent.trim().length * 1.5) {
+          walkChildren(child);
+          continue;
+        }
+        const text = child.textContent.trim();
+        if (text && text.length >= 2 && text.length < 50 && !FACILITY_CATEGORY_NAMES.includes(text)) {
+          if (currentCategory) {
+            parts.push(`【${currentCategory}】${text}`);
+            currentCategory = ''; // カテゴリは最初のアイテムにのみ付与
+          } else {
+            parts.push(text);
+          }
+        }
+      }
+    }
+
+    walkChildren(container);
+    return parts;
+  }
+
   function extractFacilities() {
     const keywords = ['設備', '設備・条件', '主な設備'];
     for (const keyword of keywords) {
@@ -241,16 +300,29 @@
         const parent = node.parentElement;
         if (!parent) continue;
 
-        // 次の兄弟要素からテキスト取得
+        // 次の兄弟要素からカテゴリ付きで抽出を試みる
         const nextSib = parent.nextElementSibling;
         if (nextSib) {
+          // まずカテゴリ付き抽出を試みる
+          const categorized = extractFacilitiesWithCategories(nextSib);
+          if (categorized.length > 0) {
+            return categorized.join(' / ');
+          }
+          // フォールバック: プレーンテキスト
           const text = nextSib.textContent.trim();
           if (text && text.length > 5) return text;
         }
 
-        // 親コンテナの全テキストからキーワード以降を抽出
+        // 親コンテナからカテゴリ付き抽出を試みる
         const grandparent = parent.parentElement;
         if (grandparent) {
+          const categorized = extractFacilitiesWithCategories(grandparent);
+          // キーワード自体を除いた結果
+          const filtered = categorized.filter(p => !keywords.some(k => p === k));
+          if (filtered.length > 0) {
+            return filtered.join(' / ');
+          }
+          // フォールバック: プレーンテキスト
           const fullText = grandparent.textContent.trim();
           const idx = fullText.indexOf(keyword);
           if (idx >= 0) {

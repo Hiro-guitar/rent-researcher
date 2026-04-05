@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "物件自動取得",
-  "version": "2.2",
+  "version": "2.3",
   "description": "REINS・いえらぶBB・itandi BB・ES-Squareから物件情報を定期取得し、GAS経由で承認パイプラインに送信する",
   "permissions": [
     "storage",

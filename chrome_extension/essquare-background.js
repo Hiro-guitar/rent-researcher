@@ -857,7 +857,12 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         const overrideFields = ['deposit', 'key_money', 'renewal_fee', 'move_in_date'];
         for (const key of overrideFields) {
           if (d[key]) {
-            prop[key] = d[key];
+            let val = d[key];
+            // 複合フィールドの余分な部分を除去（例: "1ヶ月/-" → "1ヶ月", "なし/-" → "なし"）
+            if (key !== 'move_in_date') {
+              val = val.replace(/\/[\-ー－なし]*$/, '').trim();
+            }
+            prop[key] = val;
           }
         }
 
