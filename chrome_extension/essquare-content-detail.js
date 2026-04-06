@@ -9,8 +9,14 @@
 (() => {
   'use strict';
 
+  // 重複注入防止（SPA遷移で手動注入されるため）
+  if (window.__essquareContentDetailLoaded) return;
+  window.__essquareContentDetailLoaded = true;
+
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'ESSQUARE_EXTRACT_DETAIL') {
+      // 次回の注入を許可（次の物件用）
+      window.__essquareContentDetailLoaded = false;
       (async () => {
         try {
           const result = extractDetail();
@@ -294,9 +300,8 @@
     galleryLog += `bulk:${bulkCount}`;
 
     // === ステップ2: ナビゲーションで未取得画像を追加収集 ===
-    let prevSrc = '';
-    const seenSrcs = new Set();
     let navCount = 0;
+    let dupCount = 0; // seenBase64で重複検知した連続回数
 
     // 次へボタンを探すヘルパー
     function findNextButton() {
@@ -317,7 +322,10 @@
       return icon.parentElement; // フォールバック
     }
 
-    for (let n = 0; n < 40; n++) {
+    // 最大反復数 = 画像数 × 2（ループモード分）+ マージン
+    const maxIter = 60;
+
+    for (let n = 0; n < maxIter; n++) {
       const btn = findNextButton();
       if (!btn) {
         galleryLog += ` →noBtn@${n}`;
@@ -325,30 +333,45 @@
       }
 
       btn.click();
-      await sleep(400); // スライドアニメーション待ち
 
-      // アクティブスライドの画像を取得
-      const activeImg = document.querySelector('.swiper-slide-active img')
-                     || document.querySelector('.swiper-slide-active .css-oq6icw img');
-      if (!activeImg) continue;
-
-      const src = activeImg.src || '';
-      if (!src || seenSrcs.has(src)) continue;
-      seenSrcs.add(src);
-
-      // ロード待ち
-      for (let w = 0; w < 20; w++) {
-        if (activeImg.complete && activeImg.naturalWidth > 0) break;
-        await sleep(100);
+      // アクティブスライドの画像src変化を待つ（lazy-load対応）
+      let activeImg = null;
+      let src = '';
+      for (let w = 0; w < 30; w++) {
+        await sleep(150);
+        activeImg = document.querySelector('.swiper-slide-active img');
+        if (activeImg && activeImg.src && activeImg.complete && activeImg.naturalWidth > 0) {
+          src = activeImg.src;
+          break;
+        }
       }
 
+      if (!activeImg || !src) {
+        galleryLog += ` →noImg@${n}`;
+        continue;
+      }
+
+      // blob/data URLをbase64に変換（seenSrcsは使わない — Swiperがblob URLを再利用するため）
       const base64 = await convertBlobToBase64(src);
-      if (base64 && !base64.startsWith(NO_IMAGE_BASE64_START) && !seenBase64.has(base64)) {
-        seenBase64.add(base64);
-        images.push(base64);
-        navCount++;
+      if (!base64 || base64.startsWith(NO_IMAGE_BASE64_START)) {
+        continue;
       }
-      prevSrc = src;
+
+      if (seenBase64.has(base64)) {
+        dupCount++;
+        // ループモードで一周して重複が連続したら終了
+        if (dupCount >= 5) {
+          galleryLog += ` →dup5@${n}`;
+          break;
+        }
+        continue;
+      }
+
+      // 新しい画像
+      dupCount = 0;
+      seenBase64.add(base64);
+      images.push(base64);
+      navCount++;
     }
     galleryLog += ` nav:${navCount} total:${images.length}`;
 
