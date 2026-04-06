@@ -273,35 +273,29 @@
 
     let prevSrc = '';
     let stopCounter = 0;
-    const seenSrcs = new Set(); // 処理済みsrcを追跡
+    const seenSrcs = new Set();
     const maxIterations = 30;
 
-    for (let n = 0; n < maxIterations; n++) {
-      // active と prev 両方の画像を取得
-      const imgs = Array.from(document.querySelectorAll(
+    // 現在のスライドから画像を収集するヘルパー
+    async function collectCurrentImages() {
+      let imgs = Array.from(document.querySelectorAll(
         '.swiper-slide-active .css-oq6icw img, .swiper-slide-prev .css-oq6icw img'
       ));
-      // .css-oq6icw が無い場合のフォールバック
       if (imgs.length === 0) {
-        const fallbackImgs = Array.from(document.querySelectorAll(
+        imgs = Array.from(document.querySelectorAll(
           '.swiper-slide-active img, .swiper-slide-prev img'
         ));
-        imgs.push(...fallbackImgs);
       }
-
       let addedAny = false;
       for (const img of imgs) {
         if (!img) continue;
         const src = img.src;
         if (!src || seenSrcs.has(src)) continue;
         seenSrcs.add(src);
-
-        // 画像ロード完了を待つ
         for (let w = 0; w < 30; w++) {
           if (img.complete && img.naturalWidth > 0) break;
           await sleep(100);
         }
-
         const base64 = await convertBlobToBase64(src);
         if (base64 && !base64.startsWith(NO_IMAGE_BASE64_START) && !images.includes(base64)) {
           images.push(base64);
@@ -309,53 +303,65 @@
         }
         prevSrc = src;
       }
+      return addedAny;
+    }
 
-      if (addedAny) {
-        stopCounter = 0;
-      } else {
-        stopCounter++;
-        if (stopCounter >= 3) break; // 3回連続で新規画像なしなら終了
-      }
+    // 最初のスライドの画像を収集
+    await collectCurrentImages();
+    console.log(`[ES-Square] ギャラリー: 初期画像 ${images.length}件`);
 
-      // 次へボタンの判定（参考コードのロジック）
-      const nextBtnIcon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
-      const nextBtnContainer = nextBtnIcon?.closest('.css-1nuul26');
+    for (let n = 0; n < maxIterations; n++) {
+      // 次へボタンを探す（リトライ付き: アニメーション中にDOMが不安定な場合）
+      let nextBtnContainer = null;
+      let isLastImage = false;
 
-      const hasNextBtn = !!nextBtnContainer;
-      const hasNextIconOnly = !!nextBtnIcon && !nextBtnContainer;
-      const isLastImage = hasNextIconOnly || !hasNextBtn;
+      for (let retry = 0; retry < 3; retry++) {
+        const nextBtnIcon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
+        nextBtnContainer = nextBtnIcon?.closest('.css-1nuul26');
 
-      if (isLastImage) {
-        console.log(`[ES-Square] ギャラリー: 最後の画像 at n=${n}, imgs=${images.length}`);
-        // 最後の画像を確実に保存
-        for (const img of imgs) {
-          if (!img) continue;
-          const src = img.src;
-          if (!src || seenSrcs.has(src)) continue;
-          seenSrcs.add(src);
-          for (let w = 0; w < 30; w++) {
-            if (img.complete && img.naturalWidth > 0) break;
-            await sleep(100);
+        if (nextBtnContainer) {
+          // ボタン発見 → クリック可能か確認
+          const style = window.getComputedStyle(nextBtnContainer);
+          if (style.pointerEvents === 'none' || nextBtnContainer.hasAttribute('disabled')) {
+            console.log(`[ES-Square] ギャラリー: ボタンdisabled at n=${n}`);
+            isLastImage = true;
           }
-          const base64 = await convertBlobToBase64(src);
-          if (base64 && !base64.startsWith(NO_IMAGE_BASE64_START) && !images.includes(base64)) {
-            images.push(base64);
-          }
+          break;
         }
-        break;
+
+        if (!nextBtnIcon) {
+          // アイコンすら無い → 最後の画像
+          isLastImage = true;
+          break;
+        }
+
+        // アイコンはあるが.css-1nuul26親が無い → アニメーション中の可能性があるのでリトライ
+        await sleep(300);
       }
 
-      // クリック可能かチェック
-      const style = window.getComputedStyle(nextBtnContainer);
-      if (style.pointerEvents === 'none' || nextBtnContainer.hasAttribute('disabled')) {
-        console.log(`[ES-Square] ギャラリー: ボタンdisabled at n=${n}`);
+      if (isLastImage || !nextBtnContainer) {
+        console.log(`[ES-Square] ギャラリー: 終了 at n=${n}, 理由=${isLastImage ? 'lastImage' : 'noBtn'}, 画像=${images.length}件`);
         break;
       }
 
       // 次へクリック
       nextBtnContainer.click();
       await waitForImageChange(prevSrc);
-      await sleep(200); // 画像遷移アニメーション待ち
+      await sleep(200);
+
+      // 新しいスライドの画像を収集
+      const added = await collectCurrentImages();
+      console.log(`[ES-Square] ギャラリー: n=${n}, added=${added}, total=${images.length}`);
+
+      if (added) {
+        stopCounter = 0;
+      } else {
+        stopCounter++;
+        if (stopCounter >= 3) {
+          console.log(`[ES-Square] ギャラリー: 3回連続新規なし、終了 at n=${n}`);
+          break;
+        }
+      }
     }
 
     // モーダルを閉じる
