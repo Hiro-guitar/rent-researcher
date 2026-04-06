@@ -342,9 +342,8 @@ async function _extractEssquareGalleryImages(tabId) {
       }
       if (!modalReady) return { base64s: [], urls: [], log: 'no_modal' };
 
-      // canvas経由でアクティブ画像をbase64キャプチャ
-      function captureActiveImg() {
-        const img = document.querySelector('.swiper-slide-active img');
+      // canvas経由で画像をbase64キャプチャ
+      function captureImg(img) {
         if (!img || !img.complete || img.naturalWidth === 0) return null;
         try {
           const canvas = document.createElement('canvas');
@@ -352,45 +351,77 @@ async function _extractEssquareGalleryImages(tabId) {
           canvas.height = img.naturalHeight;
           canvas.getContext('2d').drawImage(img, 0, 0);
           const b64 = canvas.toDataURL('image/jpeg', 0.92);
-          // NO_IMAGEプレースホルダー除外
           if (b64.startsWith('data:image/svg+xml')) return null;
-          if (b64.length < 1000) return null; // 極小画像除外
+          if (b64.length < 1000) return null;
           return b64;
         } catch (e) { return null; }
       }
 
-      // 診断: 全swiperとアクティブスライドの状態を記録
-      const allSwipers = document.querySelectorAll('.swiper');
-      const activeSlides = document.querySelectorAll('.swiper-slide-active');
-      const allImgs = document.querySelectorAll('.swiper-slide-active img');
-      const firstActiveImg = document.querySelector('.swiper-slide-active img');
-      log += ` swipers:${allSwipers.length} activeSlides:${activeSlides.length} activeImgs:${allImgs.length}`;
-      if (firstActiveImg) {
-        log += ` src:${firstActiveImg.src.substring(0, 40)}`;
+      // アクティブ画像を探す（モーダル内優先）
+      function findActiveImg() {
+        // モーダル内のswiper-slide-active img
+        const modal = document.querySelector('[role="presentation"], [role="dialog"], .MuiModal-root');
+        if (modal) {
+          const img = modal.querySelector('.swiper-slide-active img')
+                   || modal.querySelector('img');
+          if (img && img.complete && img.naturalWidth > 0) return img;
+        }
+        // フォールバック
+        return document.querySelector('.swiper-slide-active img');
       }
+
+      // 診断: モーダルのDOM構造を調べる
+      const modalRoot = document.querySelector('[role="presentation"], [role="dialog"], .MuiModal-root, .MuiDialog-root');
+      if (modalRoot) {
+        const modalImgs = modalRoot.querySelectorAll('img');
+        const modalSwipers = modalRoot.querySelectorAll('.swiper');
+        const modalActiveSlides = modalRoot.querySelectorAll('.swiper-slide-active');
+        log += ` modal:found imgs:${modalImgs.length} swipers:${modalSwipers.length} active:${modalActiveSlides.length}`;
+        // モーダル内の最初の数枚のimgのsrcを記録
+        for (let i = 0; i < Math.min(3, modalImgs.length); i++) {
+          log += ` img${i}:${modalImgs[i].src.substring(0, 35)}`;
+        }
+      } else {
+        log += ` modal:NOT_FOUND`;
+        // フォールバック: body直下の大きなオーバーレイを探す
+        const overlays = document.querySelectorAll('body > div[class]');
+        let overlayInfo = '';
+        for (const ov of overlays) {
+          const style = window.getComputedStyle(ov);
+          if (style.position === 'fixed' && parseInt(style.zIndex) > 1000) {
+            const ovImgs = ov.querySelectorAll('img');
+            overlayInfo += ` overlay:z${style.zIndex},imgs:${ovImgs.length}`;
+          }
+        }
+        log += overlayInfo || ' no_overlay';
+      }
+
+      const allSwipers = document.querySelectorAll('.swiper');
+      log += ` totalSwipers:${allSwipers.length}`;
 
       // 最初の画像をキャプチャ
       const seenBase64 = new Set();
       const base64s = [];
-      const firstB64 = captureActiveImg();
+      const firstImg = findActiveImg();
+      const firstB64 = captureImg(firstImg);
       if (firstB64) {
         seenBase64.add(firstB64);
         base64s.push(firstB64);
-        log += ` initB64len:${firstB64.length}`;
-      } else {
-        log += ` initB64:null`;
+        log += ` initOK:${firstB64.length}`;
       }
 
       // 全スライドをナビゲート（dup5で停止）
       let navCount = 0;
       let dupCount = 0;
-      let prevSrc = firstActiveImg ? firstActiveImg.src : '';
+      let prevSrc = firstImg ? firstImg.src : '';
       let srcChanges = 0;
 
       for (let n = 0; n < 60; n++) {
-        // 次へボタンクリック
+        // 次へボタンクリック（モーダル内のボタンを優先）
         let clicked = false;
-        const icon = document.querySelector(
+        const modalEl = document.querySelector('[role="presentation"], [role="dialog"], .MuiModal-root');
+        const searchScope = modalEl || document;
+        const icon = searchScope.querySelector(
           'svg[data-testid="KeyboardArrowRightIcon"],'
           + 'svg[data-testid="keyboardArrowRight"],'
           + 'svg[data-testid="ArrowForwardIosIcon"],'
@@ -423,7 +454,7 @@ async function _extractEssquareGalleryImages(tabId) {
         // スライド遷移+画像ロード待ち
         await sleep(500);
         for (let w = 0; w < 15; w++) {
-          const img = document.querySelector('.swiper-slide-active img');
+          const img = findActiveImg();
           if (img && img.complete && img.naturalWidth > 0) break;
           await sleep(200);
         }
@@ -431,7 +462,7 @@ async function _extractEssquareGalleryImages(tabId) {
         navCount++;
 
         // 診断: srcが変わったか確認
-        const curImg = document.querySelector('.swiper-slide-active img');
+        const curImg = findActiveImg();
         const curSrc = curImg ? curImg.src : '';
         if (curSrc !== prevSrc) {
           srcChanges++;
@@ -439,7 +470,7 @@ async function _extractEssquareGalleryImages(tabId) {
         }
 
         // canvas経由でbase64キャプチャ
-        const b64 = captureActiveImg();
+        const b64 = captureImg(curImg);
         if (!b64) { log += ` null@${n}`; continue; }
 
         if (seenBase64.has(b64)) {
