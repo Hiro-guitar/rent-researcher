@@ -1723,33 +1723,37 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               });
             } catch (e) { return null; }
           }
-          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          // クリックせず、サムネのbackground-imageからURLを直接拾う（DOM副作用ゼロ）
           const images = [];
           const seen = new Set();
-          const thumbnails = document.querySelectorAll('div.mx-auto');
-          for (const thumb of thumbnails) {
+          const urls = [];
+          // 候補1: div.mx-auto のbackground-image
+          document.querySelectorAll('div.mx-auto').forEach(el => {
+            const bg = (el.style && el.style.backgroundImage) || getComputedStyle(el).backgroundImage || '';
+            const m = bg.match(/url\(["']?(.*?)["']?\)/);
+            if (m && m[1]) urls.push(m[1]);
+          });
+          // 候補2: img要素 (findBkknGzu系)
+          document.querySelectorAll('img').forEach(img => {
+            const src = img.getAttribute('src') || '';
+            if (src.includes('findBkknGzu') || src.includes('Gzu')) urls.push(src);
+          });
+          for (let u of urls) {
             try {
-              thumb.click();
-              await sleep(250);
-              const imageView = document.querySelector('.image-view');
-              if (imageView) {
-                const style = imageView.getAttribute('style') || '';
-                const m = style.match(/url\(["']?(.*?)["']?\)/);
-                if (m && m[1]) {
-                  let imageUrl = m[1];
-                  if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
-                  if (!seen.has(imageUrl)) {
-                    seen.add(imageUrl);
-                    const base64 = await fetchAsBase64(imageUrl);
-                    if (base64) images.push(base64);
-                  }
+              if (u.startsWith('/')) u = location.origin + u;
+              // Thmを外して大画像URLを試す
+              const fullUrl = u.replace('findBkknGzuThm', 'findBkknGzu');
+              if (seen.has(fullUrl)) continue;
+              seen.add(fullUrl);
+              let base64 = await fetchAsBase64(fullUrl);
+              // 大画像が取れなければサムネにフォールバック
+              if (!base64 && fullUrl !== u) {
+                if (!seen.has(u)) {
+                  seen.add(u);
+                  base64 = await fetchAsBase64(u);
                 }
               }
-              const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
-              if (closeBtn) {
-                closeBtn.click();
-                await sleep(300);
-              }
+              if (base64) images.push(base64);
             } catch (e) {}
           }
           return images;
