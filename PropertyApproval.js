@@ -354,22 +354,27 @@ function handlePropertyImagesApi(e) {
   }
 
   // 1. キャッシュから取得（高速 < 100ms）
+  var nocache = e.parameter.nocache === '1';
   try {
     var cache = CacheService.getScriptCache();
     var key = 'imgs_' + customerName + '_' + roomId;
-    var cached = cache.get(key);
-    if (cached) {
-      var cachedData = JSON.parse(cached);
-      // 新形式: {images:[...], categories:[...]} / 旧形式: [url, ...]
-      if (Array.isArray(cachedData)) {
-        // 旧形式キャッシュ → 新形式に変換
-        return ContentService.createTextOutput(JSON.stringify({images: cachedData, categories: []}))
-          .setMimeType(ContentService.MimeType.JSON);
+    if (nocache) {
+      cache.remove(key);
+    } else {
+      var cached = cache.get(key);
+      if (cached) {
+        var cachedData = JSON.parse(cached);
+        // 新形式: {images:[...], categories:[...]} / 旧形式: [url, ...]
+        if (Array.isArray(cachedData)) {
+          // 旧形式キャッシュ → 新形式に変換
+          return ContentService.createTextOutput(JSON.stringify({images: cachedData, categories: []}))
+            .setMimeType(ContentService.MimeType.JSON);
+        }
+        return ContentService.createTextOutput(JSON.stringify({
+          images: cachedData.images || [],
+          categories: cachedData.categories || []
+        })).setMimeType(ContentService.MimeType.JSON);
       }
-      return ContentService.createTextOutput(JSON.stringify({
-        images: cachedData.images || [],
-        categories: cachedData.categories || []
-      })).setMimeType(ContentService.MimeType.JSON);
     }
   } catch(e) {}
 

@@ -320,7 +320,7 @@ async function _extractEssquareGalleryImages(tabId) {
       const NO_IMAGE_BASE64_START = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9Ijk2IiB2aWV3Qm94PSIwIDAgMTI4IDk2IiBmaWxsPSJub25lI';
       let log = '';
 
-      // blob URL → base64変換（リファレンスコードと完全一致）
+      // blob URL → base64変換（fetch方式）
       async function convertBlobToBase64(blobUrl) {
         try {
           const response = await fetch(blobUrl);
@@ -332,6 +332,21 @@ async function _extractEssquareGalleryImages(tabId) {
             reader.onerror = reject;
             reader.readAsDataURL(blob);
           });
+        } catch (e) {
+          return null;
+        }
+      }
+
+      // img要素 → canvas描画 → base64変換（blob fetch失敗時のフォールバック）
+      function captureImgToBase64(imgEl) {
+        try {
+          if (!imgEl || !imgEl.naturalWidth || !imgEl.naturalHeight) return null;
+          const canvas = document.createElement('canvas');
+          canvas.width = imgEl.naturalWidth;
+          canvas.height = imgEl.naturalHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(imgEl, 0, 0);
+          return canvas.toDataURL('image/jpeg', 0.92);
         } catch (e) {
           return null;
         }
@@ -393,7 +408,11 @@ async function _extractEssquareGalleryImages(tabId) {
 
           await waitFor(() => img.complete && img.naturalWidth > 0, 3000).catch(() => {});
 
-          const base64 = await convertBlobToBase64(src);
+          // blob fetch方式を試し、失敗時はcanvas描画でフォールバック
+          let base64 = await convertBlobToBase64(src);
+          if (!base64 || base64.length <= 5000) {
+            base64 = captureImgToBase64(img);
+          }
           if (base64
               && !base64.startsWith(NO_IMAGE_BASE64_START)
               && base64.length > 5000
@@ -423,7 +442,10 @@ async function _extractEssquareGalleryImages(tabId) {
           if (imgs.length > 0) {
             for (const img of imgs) {
               await waitFor(() => img.complete && img.naturalWidth > 0, 3000).catch(() => {});
-              const base64 = await convertBlobToBase64(img.src);
+              let base64 = await convertBlobToBase64(img.src);
+              if (!base64 || base64.length <= 5000) {
+                base64 = captureImgToBase64(img);
+              }
               if (base64
                   && !base64.startsWith(NO_IMAGE_BASE64_START)
                   && base64.length > 5000
@@ -844,8 +866,20 @@ async function uploadBase64ToCatbox(dataUrl) {
     body: formData,
   });
   const url = (await resp.text()).trim();
-  if (url.startsWith('https://')) return url;
-  return null;
+  if (!url.startsWith('https://')) return null;
+
+  // アップロード後に0バイト検証（catboxが空ファイルを返す場合がある）
+  try {
+    const head = await fetch(url, { method: 'HEAD' });
+    const cl = parseInt(head.headers.get('content-length') || '0', 10);
+    if (cl === 0) {
+      console.warn('[ES-Square] catbox 0バイト検出:', url);
+      return null;
+    }
+  } catch (e) {
+    // HEAD失敗時はURLをそのまま返す（ネットワーク一時エラーの可能性）
+  }
+  return url;
 }
 
 // === property_data_json構築 ===
@@ -1161,8 +1195,9 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
               const uploadedUrls = [];
               let uploadFailed = 0;
 
-              // 1. canvas base64画像をアップロード（失敗時1回リトライ）
-              for (const b64 of base64s) {
+              // 1. canvas base64画像をアップロード（失敗時1回リトライ、0バイト検証付き）
+              for (let idx = 0; idx < base64s.length; idx++) {
+                const b64 = base64s[idx];
                 let uploaded = false;
                 for (let attempt = 0; attempt < 2; attempt++) {
                   try {
@@ -1176,6 +1211,8 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
                   if (attempt === 0) await sleep(1000);
                 }
                 if (!uploaded) uploadFailed++;
+                // catboxレート制限回避: アップロード間に短い間隔を入れる
+                if (idx < base64s.length - 1) await sleep(300);
               }
 
               // 2. fetch URLで補完（canvasが少ない場合）

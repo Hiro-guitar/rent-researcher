@@ -831,9 +831,11 @@ function handleAddReinsProperty(json) {
   // 既存のpending行を取得（重複チェック）
   var existingData = sheet.getDataRange().getValues();
   var existingIds = {};
+  var existingRows = {}; // key → 行番号（1-based）
   for (var i = 1; i < existingData.length; i++) {
     var key = String(existingData[i][0]) + '|' + String(existingData[i][2]);
     existingIds[key] = true;
+    existingRows[key] = i + 1; // シートの行番号（1-based、ヘッダー分+1）
   }
 
   var now = new Date().toISOString().replace('T', ' ').substring(0, 19);
@@ -846,6 +848,29 @@ function handleAddReinsProperty(json) {
     var dedupKey = customerName + '|' + roomId;
 
     if (existingIds[dedupKey]) {
+      // 重複時でも画像URLが新しく提供されていれば、既存行の property_data_json 内の画像を更新
+      var newImageUrls = p.image_urls || (p.property_data_json ? (JSON.parse(p.property_data_json).image_urls || []) : []);
+      if (newImageUrls.length > 0 && existingRows[dedupKey]) {
+        try {
+          var rowNum = existingRows[dedupKey];
+          var existingJson = sheet.getRange(rowNum, 10).getValue(); // J列: property_data_json
+          var existingProp = JSON.parse(existingJson);
+          existingProp.image_urls = newImageUrls;
+          existingProp.image_url = newImageUrls[0];
+          if (p.image_categories) existingProp.image_categories = p.image_categories;
+          if (p.property_data_json) {
+            var newProp = JSON.parse(p.property_data_json);
+            if (newProp.image_categories) existingProp.image_categories = newProp.image_categories;
+          }
+          sheet.getRange(rowNum, 10).setValue(JSON.stringify(existingProp));
+          // 画像キャッシュもクリア
+          try {
+            var cache = CacheService.getScriptCache();
+            cache.remove('imgs_' + customerName + '_' + roomId);
+            cache.remove('prop2_' + customerName + '_' + roomId);
+          } catch(ce) {}
+        } catch(ue) {}
+      }
       skipped++;
       continue;
     }
