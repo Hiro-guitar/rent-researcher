@@ -961,18 +961,24 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
           if (d.image_base64?.length) {
             await setStorageData({ debugLog: `[ES-Square] 画像base64: ${d.image_base64.length}件取得、アップロード中...` });
             const uploadedUrls = [];
-            for (let i = 0; i < d.image_base64.length && i < 10; i++) {
+            let uploadFailed = 0;
+            for (let i = 0; i < d.image_base64.length && i < 30; i++) {
               try {
                 const publicUrl = await uploadBase64ToCatbox(d.image_base64[i]);
-                if (publicUrl) uploadedUrls.push(publicUrl);
+                if (publicUrl) {
+                  uploadedUrls.push(publicUrl);
+                } else {
+                  uploadFailed++;
+                }
               } catch (e) {
+                uploadFailed++;
                 console.warn(`[ES-Square] 画像アップロード失敗 (${i}):`, e.message);
               }
             }
             if (uploadedUrls.length > 0) {
               prop.image_urls = uploadedUrls;
               prop.image_url = uploadedUrls[0];
-              await setStorageData({ debugLog: `[ES-Square] 画像アップロード完了: ${uploadedUrls.length}件` });
+              await setStorageData({ debugLog: `[ES-Square] 画像アップロード完了: ${uploadedUrls.length}件${uploadFailed > 0 ? ` (失敗:${uploadFailed}件)` : ''}` });
             }
           } else if (d.image_urls?.length) {
             prop.image_urls = d.image_urls;
