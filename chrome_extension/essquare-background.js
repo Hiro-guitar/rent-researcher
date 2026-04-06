@@ -341,9 +341,11 @@ async function _extractEssquareGalleryImages(tabId) {
         if (img && img.complete && img.naturalWidth > 0) { modalReady = true; break; }
       }
       if (!modalReady) return { base64s: [], urls: [], log: 'no_modal' };
+      await sleep(800); // ギャラリーSwiper完全初期化待ち（efba6eaで有効だった）
 
       // canvas経由で画像をbase64キャプチャ
-      function captureImg(img) {
+      function captureActiveImg() {
+        const img = document.querySelector('.swiper-slide-active img');
         if (!img || !img.complete || img.naturalWidth === 0) return null;
         try {
           const canvas = document.createElement('canvas');
@@ -357,121 +359,71 @@ async function _extractEssquareGalleryImages(tabId) {
         } catch (e) { return null; }
       }
 
-      // アクティブ画像を探す（モーダル内優先）
-      function findActiveImg() {
-        // モーダル内のswiper-slide-active img
-        const modal = document.querySelector('[role="presentation"], [role="dialog"], .MuiModal-root');
-        if (modal) {
-          const img = modal.querySelector('.swiper-slide-active img')
-                   || modal.querySelector('img');
-          if (img && img.complete && img.naturalWidth > 0) return img;
-        }
-        // フォールバック
-        return document.querySelector('.swiper-slide-active img');
-      }
-
-      // 診断: モーダルのDOM構造を調べる
-      const modalRoot = document.querySelector('[role="presentation"], [role="dialog"], .MuiModal-root, .MuiDialog-root');
-      if (modalRoot) {
-        const modalImgs = modalRoot.querySelectorAll('img');
-        const modalSwipers = modalRoot.querySelectorAll('.swiper');
-        const modalActiveSlides = modalRoot.querySelectorAll('.swiper-slide-active');
-        log += ` modal:found imgs:${modalImgs.length} swipers:${modalSwipers.length} active:${modalActiveSlides.length}`;
-        // モーダル内の最初の数枚のimgのsrcを記録
-        for (let i = 0; i < Math.min(3, modalImgs.length); i++) {
-          log += ` img${i}:${modalImgs[i].src.substring(0, 35)}`;
-        }
-      } else {
-        log += ` modal:NOT_FOUND`;
-        // フォールバック: body直下の大きなオーバーレイを探す
-        const overlays = document.querySelectorAll('body > div[class]');
-        let overlayInfo = '';
-        for (const ov of overlays) {
-          const style = window.getComputedStyle(ov);
-          if (style.position === 'fixed' && parseInt(style.zIndex) > 1000) {
-            const ovImgs = ov.querySelectorAll('img');
-            overlayInfo += ` overlay:z${style.zIndex},imgs:${ovImgs.length}`;
-          }
-        }
-        log += overlayInfo || ' no_overlay';
-      }
-
-      const allSwipers = document.querySelectorAll('.swiper');
-      log += ` totalSwipers:${allSwipers.length}`;
+      // 診断: 初期化後のSwiper状態
+      const swiperCount = document.querySelectorAll('.swiper').length;
+      const activeCount = document.querySelectorAll('.swiper-slide-active').length;
+      const activeImg = document.querySelector('.swiper-slide-active img');
+      log += `swipers:${swiperCount} active:${activeCount}`;
+      if (activeImg) log += ` src:${activeImg.src.substring(0, 40)}`;
 
       // 最初の画像をキャプチャ
       const seenBase64 = new Set();
       const base64s = [];
-      const firstImg = findActiveImg();
-      const firstB64 = captureImg(firstImg);
+      const firstB64 = captureActiveImg();
       if (firstB64) {
         seenBase64.add(firstB64);
         base64s.push(firstB64);
-        log += ` initOK:${firstB64.length}`;
       }
 
-      // 全スライドをナビゲート（dup5で停止）
-      let navCount = 0;
-      let dupCount = 0;
-      let prevSrc = firstImg ? firstImg.src : '';
-      let srcChanges = 0;
-
-      for (let n = 0; n < 60; n++) {
-        // 次へボタンクリック（モーダル内のボタンを優先）
-        let clicked = false;
-        const modalEl = document.querySelector('[role="presentation"], [role="dialog"], .MuiModal-root');
-        const searchScope = modalEl || document;
-        const icon = searchScope.querySelector(
+      // document全体から次へボタンを探す（モーダルスコープなし — efba6eaと同じ）
+      function findNextButton() {
+        const icon = document.querySelector(
           'svg[data-testid="KeyboardArrowRightIcon"],'
           + 'svg[data-testid="keyboardArrowRight"],'
           + 'svg[data-testid="ArrowForwardIosIcon"],'
           + 'svg[data-testid="NavigateNextIcon"]'
         );
-        if (icon) {
-          let el = icon;
-          for (let i = 0; i < 6; i++) {
-            el = el.parentElement;
-            if (!el) break;
-            const s = window.getComputedStyle(el);
-            if (s.pointerEvents === 'none' || el.hasAttribute('disabled')) break;
-            if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button'
-                || el.onclick || s.cursor === 'pointer') {
-              el.click();
-              clicked = true;
-              break;
-            }
-          }
-          if (!clicked && icon.parentElement) {
-            icon.parentElement.click();
-            clicked = true;
+        if (!icon) return null;
+        let el = icon;
+        for (let i = 0; i < 6; i++) {
+          el = el.parentElement;
+          if (!el) return null;
+          const s = window.getComputedStyle(el);
+          if (s.pointerEvents === 'none' || el.hasAttribute('disabled')) return null;
+          if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button'
+              || el.onclick || s.cursor === 'pointer') {
+            return el;
           }
         }
-        if (!clicked) {
+        return icon.parentElement;
+      }
+
+      // 全スライドをナビゲート（dup5で停止、最大60回）
+      let navCount = 0;
+      let dupCount = 0;
+
+      for (let n = 0; n < 60; n++) {
+        const btn = findNextButton();
+        if (!btn) {
           log += ` →noBtn@${n}`;
           break;
         }
 
+        btn.click();
+
         // スライド遷移+画像ロード待ち
-        await sleep(500);
+        await sleep(400);
         for (let w = 0; w < 15; w++) {
-          const img = findActiveImg();
+          const img = document.querySelector('.swiper-slide-active img');
           if (img && img.complete && img.naturalWidth > 0) break;
           await sleep(200);
         }
 
         navCount++;
 
-        // 診断: srcが変わったか確認
-        const curImg = findActiveImg();
-        const curSrc = curImg ? curImg.src : '';
-        if (curSrc !== prevSrc) {
-          srcChanges++;
-          prevSrc = curSrc;
-        }
-
         // canvas経由でbase64キャプチャ
-        const b64 = captureImg(curImg);
-        if (!b64) { log += ` null@${n}`; continue; }
+        const b64 = captureActiveImg();
+        if (!b64) continue;
 
         if (seenBase64.has(b64)) {
           dupCount++;
@@ -485,9 +437,9 @@ async function _extractEssquareGalleryImages(tabId) {
         seenBase64.add(b64);
         base64s.push(b64);
       }
-      log += ` nav:${navCount} srcChg:${srcChanges} captured:${base64s.length}`;
+      log += ` nav:${navCount} captured:${base64s.length}`;
 
-      // fetchインターセプターからHTTP URLも収集（補助）
+      // fetchインターセプターからHTTP URLも収集
       const JUNK_IMG = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz|es-service\.net|onetop|placeholder|spinner|loading|e_square_logo|sfa_main_banner|line\.me|liff/i;
       const trackedUrls = (window.__esq_img_fetches || []).filter(
         u => typeof u === 'string' && !JUNK_IMG.test(u)
@@ -499,11 +451,7 @@ async function _extractEssquareGalleryImages(tabId) {
       if (closeBtn) {
         closeBtn.click();
       } else {
-        const ariaClose = document.querySelector(
-          'button[aria-label="close"], button[aria-label="閉じる"]'
-        );
-        if (ariaClose) ariaClose.click();
-        else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
       }
       await sleep(300);
 
