@@ -1275,6 +1275,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             'move_in_conditions', 'pet_deposit', 'renewal_admin_fee',
             'support_fee_24h', 'additional_deposit', 'water_billing',
             'cleaning_fee', 'sanitization_fee', 'rights_fee',
+            'ad_fee', 'current_status',
           ];
           for (const key of detailFields) {
             if (d[key] && !prop[key]) {

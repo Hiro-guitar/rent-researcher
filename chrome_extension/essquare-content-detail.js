@@ -122,6 +122,7 @@
     '消毒施工': 'sanitization_fee',
     '権利金': 'rights_fee',
     '内見開始日': 'preview_start_date',
+    '現況': 'current_status',
   };
 
   // ─── 所在階から階建てを分離 ───
@@ -668,6 +669,24 @@
     const previewDate = extractPreviewStartDate();
     if (previewDate && !detail.preview_start_date) {
       detail.preview_start_date = previewDate;
+    }
+
+    // === 5.5. AD広告料（ラベル+値のボックス型） ===
+    // 例: <div><p>AD</p><p>1ヶ月</p></div>
+    if (!detail.ad_fee) {
+      const adPs = document.querySelectorAll('p');
+      for (const p of adPs) {
+        if (p.textContent.trim() === 'AD') {
+          const next = p.nextElementSibling;
+          if (next && next.tagName === 'P') {
+            const val = next.textContent.trim();
+            if (val && val !== 'AD') {
+              detail.ad_fee = val;
+              break;
+            }
+          }
+        }
+      }
     }
 
     // === 6. ステータス ===
