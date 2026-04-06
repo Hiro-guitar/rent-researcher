@@ -315,36 +315,52 @@
     await collectCurrentImages();
     galleryLog += `init:${images.length}`;
 
-    for (let n = 0; n < maxIterations; n++) {
-      // 次へボタンを探す（リトライ付き: アニメーション中にDOMが不安定な場合）
-      let nextBtnContainer = null;
-      let isLastImage = false;
+    // 次へボタンのクリック可能な親要素を探すヘルパー
+    function findNextButton() {
+      const nextBtnIcon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
+      if (!nextBtnIcon) return { icon: null, btn: null };
 
-      for (let retry = 0; retry < 3; retry++) {
-        const nextBtnIcon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
-        nextBtnContainer = nextBtnIcon?.closest('.css-1nuul26');
+      // .css-1nuul26 を試す（参考コードのクラス名）
+      let btn = nextBtnIcon.closest('.css-1nuul26');
+      if (btn) return { icon: nextBtnIcon, btn };
 
-        if (nextBtnContainer) {
-          const style = window.getComputedStyle(nextBtnContainer);
-          if (style.pointerEvents === 'none' || nextBtnContainer.hasAttribute('disabled')) {
-            galleryLog += ` →disabled@${n}`;
-            isLastImage = true;
-          }
-          break;
+      // 汎用: 親を辿ってbutton/クリック可能な要素を探す
+      let el = nextBtnIcon.parentElement;
+      for (let i = 0; i < 5; i++) {
+        if (!el) break;
+        const tag = el.tagName;
+        const role = el.getAttribute('role');
+        const style = window.getComputedStyle(el);
+        if (tag === 'BUTTON' || role === 'button' || style.cursor === 'pointer') {
+          return { icon: nextBtnIcon, btn: el };
         }
-
-        if (!nextBtnIcon) {
-          galleryLog += ` →noIcon@${n}`;
-          isLastImage = true;
-          break;
-        }
-
-        // アイコンはあるが.css-1nuul26親が無い → リトライ
-        if (retry < 2) await sleep(300);
+        el = el.parentElement;
       }
 
-      if (isLastImage || !nextBtnContainer) {
-        if (!isLastImage) galleryLog += ` →noBtn@${n}(retry exhausted)`;
+      // 直接の親要素をフォールバック
+      return { icon: nextBtnIcon, btn: nextBtnIcon.parentElement };
+    }
+
+    for (let n = 0; n < maxIterations; n++) {
+      const { icon: nextBtnIcon, btn: nextBtnContainer } = findNextButton();
+
+      let isLastImage = false;
+
+      if (!nextBtnIcon) {
+        galleryLog += ` →noIcon@${n}`;
+        isLastImage = true;
+      } else if (!nextBtnContainer) {
+        galleryLog += ` →noParent@${n}`;
+        isLastImage = true;
+      } else {
+        const style = window.getComputedStyle(nextBtnContainer);
+        if (style.pointerEvents === 'none' || nextBtnContainer.hasAttribute('disabled')) {
+          galleryLog += ` →disabled@${n}`;
+          isLastImage = true;
+        }
+      }
+
+      if (isLastImage) {
         galleryLog += ` END:${images.length}`;
         break;
       }
