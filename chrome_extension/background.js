@@ -789,10 +789,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await csleep(3000);
   }
 
-  setResult = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: 'MAIN',
-    func: (stationStr, customerData, lineNameMap, reinsCodeMap) => {
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '' }, lineNameMap, reinsCodeMap];
+  const __setCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap) => {
       // Vueルート取得
       const fi = document.querySelector('.p-textbox-input');
       if (!fi) return { error: 'no_input' };
@@ -1121,8 +1119,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         reinsSearchStations: reinsSearchStations,
         reinsUnresolved: reinsUnresolved,
       };
-    },
-    args: [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '' }, lineNameMap, reinsCodeMap]
+    };
+  setResult = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: __setCriteriaFunc,
+    args: __criteriaArgs
   });
 
   const setStatus = setResult?.[0]?.result;
@@ -1404,7 +1406,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       // ダイアログ（連続閲覧警告等）が出ていればOKで閉じる
       let clickStatus = 'not_found';
       let triedRecovery = false;
-      for (let waitTry = 0; waitTry < 8; waitTry++) {
+      for (let waitTry = 0; waitTry < 12; waitTry++) {
         const cr = await chrome.scripting.executeScript({
           target: { tabId },
           func: (propNum) => {
@@ -1434,13 +1436,68 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         // no_rowsが続く場合、検索フォームから再検索して復帰
         if (clickStatus === 'no_rows' && waitTry >= 2 && !triedRecovery) {
           triedRecovery = true;
-          await setStorageData({ debugLog: `${customer.name}: 結果一覧が空→ページ再読込で復帰試行` });
-          // 結果ページのままlocation.reload() — REINSはセッションで前回の検索結果を保持している
+          await setStorageData({ debugLog: `${customer.name}: 結果一覧が空→検索条件を再投入して復帰` });
+          // 1) 検索フォームへ
           await chrome.scripting.executeScript({
             target: { tabId }, world: 'MAIN',
-            func: () => { location.reload(); }
+            func: () => {
+              const nuxt = window.$nuxt;
+              if (nuxt?.$router) { nuxt.$router.push('/main/BK/GBK001310'); return; }
+              location.href = 'https://system.reins.jp/main/BK/GBK001310';
+            }
           });
-          await csleep(4000);
+          // 2) 入力欄が描画されるまで待つ
+          for (let w = 0; w < 15; w++) {
+            await csleep(2000);
+            const ok = await chrome.scripting.executeScript({ target: { tabId }, func: () => !!document.querySelector('.p-textbox-input') });
+            if (ok?.[0]?.result) break;
+          }
+          // 3) 同じ条件設定関数を再実行
+          await chrome.scripting.executeScript({
+            target: { tabId }, world: 'MAIN',
+            func: __setCriteriaFunc, args: __criteriaArgs
+          });
+          await csleep(2000);
+          // 4) 検索ボタンクリック
+          await chrome.scripting.executeScript({
+            target: { tabId }, world: 'MAIN',
+            func: () => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '検索'); if (b) b.click(); }
+          });
+          // 5) ダイアログ処理＆結果ページ待ち
+          for (let rs = 0; rs < 25; rs++) {
+            await csleep(2000);
+            const rsCheck = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => {
+                const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
+                for (const d of dialogs) {
+                  if (d.textContent.includes('500件') || d.textContent.includes('超えて')) {
+                    const ok = [...d.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
+                    if (ok) { ok.click(); return 'ok'; }
+                  }
+                }
+                if (document.querySelectorAll('.p-table-body-row, [class*="body-row"]').length > 0) return 'rows';
+                return 'wait';
+              }
+            });
+            const s = rsCheck?.[0]?.result;
+            if (s === 'rows') break;
+            if (s === 'ok') await csleep(2500);
+          }
+          // 6) 現在ページまで進める
+          if (currentPage > 1) {
+            for (let np = 2; np <= currentPage; np++) {
+              await chrome.scripting.executeScript({
+                target: { tabId },
+                func: (page) => {
+                  const links = document.querySelectorAll('.page-link');
+                  for (const l of links) if (l.textContent.trim() === String(page)) { l.click(); return; }
+                },
+                args: [np]
+              });
+              await csleep(3000);
+            }
+          }
           // 結果ページ＆ダイアログ処理
           for (let rs = 0; rs < 20; rs++) {
             await csleep(2000);
@@ -1482,16 +1539,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       }
       if (clickStatus !== 'clicked') {
         await setStorageData({ debugLog: `${customer.name}: ✗ ${result.buildingName} ${result.floor} 詳細ボタンが見つからない(${clickStatus})→スキップ` });
-        if (clickStatus === 'no_rows') {
-          consecutiveRecoveryFails++;
-          if (consecutiveRecoveryFails >= 3) {
-            await setStorageData({ debugLog: `${customer.name}: 復帰失敗が連続3回→この顧客の処理を打ち切り` });
-            return newProperties;
-          }
-        }
         continue;
       }
-      consecutiveRecoveryFails = 0;
       await waitForTabLoad(tabId);
       await csleep(delay);
 
