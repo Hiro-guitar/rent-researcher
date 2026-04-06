@@ -1463,6 +1463,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const pref = getVal('都道府県名');
           const addr1 = getVal('所在地名１');
           const addr2 = getVal('所在地名２');
+          const addr3 = getVal('所在地名３');
           const building = getVal('建物名');
           const roomNumber = getVal('部屋番号');
           // 部屋番号行の2つ目のcol-sm-4（角部屋等の属性テキスト）
@@ -1486,14 +1487,27 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             building_id: 'reins_' + propertyNumber,
             room_id: 'reins_' + propertyNumber + '_' + (roomNumber || 'no_room'),
             building_name: building || '',
-            address: [pref, addr1, addr2].filter(Boolean).join(''),
+            address: [pref, addr1, addr2, addr3].filter(Boolean).join(''),
             rent: rentRaw ? parseFloat(rentRaw.replace(/[^\d.]/g, '')) * (rentRaw.includes('万') ? 10000 : 1) : 0,
             management_fee: totalMgmtFee,
-            layout: getVal('間取タイプ') || '',
+            layout: (() => {
+              const t = (getVal('間取タイプ') || '').trim();
+              const r = (getVal('間取部屋数') || '').replace(/[^\d]/g, '');
+              if (t === 'ワンルーム' || t === '1R') return 'ワンルーム';
+              if (r && t) return `${r}${t}`;
+              return t;
+            })(),
             area: parseFloat((area || '').replace(/[^\d.]/g, '')) || 0,
             floor: parseInt((floorLoc || '').match(/\d+/)?.[0] || '0'),
             floor_text: floorLoc || '',
-            story_text: floorAbove ? floorAbove + '建' : '',
+            story_text: (() => {
+              const fb = (getVal('地下階層') || '').replace(/[^\d]/g, '');
+              const fa = (floorAbove || '').replace(/[^\d]/g, '');
+              let s = '';
+              if (fa) s += '地上' + fa + '階';
+              if (fb && fb !== '0') s += '地下' + fb + '階';
+              return s ? s + '建' : '';
+            })(),
             structure: (() => {
               if (!structure) return '';
               // REINS詳細ページの構造値を正規化（全角→半角、日本語名→標準名）
@@ -1612,6 +1626,93 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             reins_property_number: propertyNumber,
             reins_shougo: getVal('商号') || '',
             reins_tel: getVal('電話番号') || '',
+            // === 第1弾追加フィールド ===
+            // 単価
+            sqm_price: getVal('㎡単価') || '',
+            tsubo_price: getVal('坪単価') || '',
+            // 賃貸借契約詳細
+            lease_period: getVal('建物賃貸借期間') || '',
+            lease_renewal: getVal('建物賃貸借更新') || '',
+            // 保証金・権利金・償却
+            guarantee_money: getVal('保証金') || '',
+            key_premium: getVal('権利金') || '',
+            shoukyaku_code: getVal('償却コード') || '',
+            shoukyaku_months: getVal('償却月数') || '',
+            shoukyaku_rate: getVal('償却率') || '',
+            // 更新
+            renewal_type: getVal('更新区分') || '',
+            renewal_fee: getVal('更新料') || '',
+            // その他一時金・月額費
+            other_onetime_fee: (() => {
+              const parts = [];
+              const n1 = getVal('その他一時金名称１'); const a1 = getVal('金額１');
+              const n2 = getVal('その他一時金名称２'); const a2 = getVal('金額２');
+              if (n1 && a1) parts.push(n1 + ': ' + a1);
+              if (n2 && a2) parts.push(n2 + ': ' + a2);
+              return parts.join(', ');
+            })(),
+            other_monthly_fee: (() => {
+              const n = getVal('その他月額費名称'); const a = getVal('その他月額費金額');
+              return (n && a) ? (n + ': ' + a) : '';
+            })(),
+            // 鍵交換
+            key_exchange_type: getVal('鍵交換区分') || '',
+            key_exchange_fee: getVal('鍵交換代金') || '',
+            // 報酬
+            commission_type: getVal('報酬形態') || '',
+            commission: getVal('報酬') || '',
+            commission_landlord: getVal('負担割合貸主') || '',
+            commission_tenant: getVal('負担割合借主') || '',
+            commission_motozuke: getVal('配分割合元付') || '',
+            commission_kyakuzuke: getVal('配分割合客付') || '',
+            // 現況
+            current_status: getVal('現況') || '',
+            // バルコニー面積
+            balcony_area: getVal('バルコニー(テラス)面積') || '',
+            // 室1〜5
+            rooms_detail: (() => {
+              const rooms = [];
+              for (let i = 1; i <= 5; i++) {
+                const fl = getVal(`室${i}:所在階`);
+                const tp = getVal(`室${i}:室タイプ`);
+                const sz = getVal(`室${i}:室広さ`);
+                if (fl || tp || sz) rooms.push([fl, tp, sz].filter(Boolean).join(' '));
+              }
+              return rooms.join(' / ');
+            })(),
+            // 駐車場
+            parking_available: getVal('駐車場在否') || '',
+            parking_fee: getVal('駐車場月額') || '',
+            parking_fee_min: getVal('駐車場月額(最低値)') || '',
+            parking_fee_max: getVal('駐車場月額(最高値)') || '',
+            // 火災保険
+            insurance_required: getVal('保険加入義務') || '',
+            insurance_name: getVal('保険名称') || '',
+            insurance_fee: getVal('保険料') || '',
+            insurance_period: getVal('保険期間') || '',
+            // 備考
+            remarks: (() => {
+              const parts = [];
+              for (let i = 1; i <= 4; i++) {
+                const v = getVal('備考' + i);
+                if (v) parts.push(v);
+              }
+              return parts.join('\n');
+            })(),
+            // 画像URL（サムネイル背景画像から取得）
+            image_urls: (() => {
+              const urls = [];
+              document.querySelectorAll('div.mx-auto').forEach(el => {
+                const bg = el.style.backgroundImage || '';
+                const m = bg.match(/url\(["']?(.*?)["']?\)/);
+                if (m && m[1]) {
+                  let u = m[1];
+                  if (u.startsWith('/')) u = location.origin + u;
+                  urls.push(u);
+                }
+              });
+              return urls;
+            })(),
             source: 'reins'
           };
         }
