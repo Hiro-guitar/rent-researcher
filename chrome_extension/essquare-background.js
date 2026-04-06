@@ -877,13 +877,24 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         }
 
         // スライドモーダル（詳細ページ）の読み込み待ち
-        await waitForTabLoad(tabId);
+        // SPA遷移なのでwaitForTabLoadは不要（ページ自体はリロードされない）
         await csleep(3000); // React SPA 描画待ち
 
         // ログインチェック
         const detailTab = await chrome.tabs.get(tabId);
         if (detailTab.url?.includes('/login')) {
           throw new Error('ESSQUARE_LOGIN_REQUIRED');
+        }
+
+        // SPA遷移ではcontent scriptが自動注入されないため、手動で注入
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ['essquare-content-detail.js'],
+          });
+          await sleep(500); // content script初期化待ち
+        } catch (err) {
+          console.warn(`[ES-Square] content script注入失敗 (${prop.building_name}):`, err.message);
         }
 
         let detailResult;
