@@ -309,7 +309,8 @@ async function _installEssquareFetchInterceptor(tabId) {
   });
 }
 
-// === ギャラリー画像抽出（MAIN worldで実行、Python版 search.py 準拠） ===
+// === ギャラリー画像抽出（MAIN worldで実行） ===
+// canvas base64キャプチャ（主）+ fetchインターセプターHTTP URL（補助）
 
 async function _extractEssquareGalleryImages(tabId) {
   // fetchインターセプターのトラッキングをクリア
@@ -329,7 +330,7 @@ async function _extractEssquareGalleryImages(tabId) {
       // サムネイルクリックでギャラリーモーダルを開く
       const thumbnail = document.querySelector('.css-tx2s10 img')
                      || document.querySelector('.swiper img, [class*="swiper"] img');
-      if (!thumbnail) return { urls: [], log: 'no_thumbnail' };
+      if (!thumbnail) return { base64s: [], urls: [], log: 'no_thumbnail' };
       thumbnail.click();
 
       // モーダル表示待ち
@@ -339,114 +340,105 @@ async function _extractEssquareGalleryImages(tabId) {
         const img = document.querySelector('.swiper-slide-active img');
         if (img && img.complete && img.naturalWidth > 0) { modalReady = true; break; }
       }
-      if (!modalReady) return { urls: [], log: 'no_modal' };
+      if (!modalReady) return { base64s: [], urls: [], log: 'no_modal' };
 
-      // Swiperインスタンスから総スライド数を取得（Python版と同じ）
-      let totalSlides = 100;
-      const swiperEl = document.querySelector('.swiper');
-      if (swiperEl && swiperEl.swiper) {
-        totalSlides = swiperEl.swiper.slides.length
-                    - (swiperEl.swiper.loopedSlides || 0) * 2;
+      // canvas経由でアクティブ画像をbase64キャプチャ
+      function captureActiveImg() {
+        const img = document.querySelector('.swiper-slide-active img');
+        if (!img || !img.complete || img.naturalWidth === 0) return null;
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.naturalWidth;
+          canvas.height = img.naturalHeight;
+          canvas.getContext('2d').drawImage(img, 0, 0);
+          const b64 = canvas.toDataURL('image/jpeg', 0.92);
+          // NO_IMAGEプレースホルダー除外
+          if (b64.startsWith('data:image/svg+xml')) return null;
+          if (b64.length < 1000) return null; // 極小画像除外
+          return b64;
+        } catch (e) { return null; }
       }
-      if (totalSlides <= 0) {
-        const slides = document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)');
-        if (slides.length > 0) totalSlides = slides.length;
-        else totalSlides = document.querySelectorAll('.swiper-slide').length || 100;
+
+      // 最初の画像をキャプチャ
+      const seenBase64 = new Set();
+      const base64s = [];
+      const firstB64 = captureActiveImg();
+      if (firstB64) {
+        seenBase64.add(firstB64);
+        base64s.push(firstB64);
       }
-      log += `slides:${totalSlides}`;
 
-      // ナビゲーション（Python版と同じ: realIndexでループ検知）
-      const maxNav = Math.min(totalSlides + 5, 200);
-      const seenIndices = new Set();
-      let slideCount = 0;
+      // 全スライドをナビゲート（realIndexに依存しない、dup5で停止）
+      let navCount = 0;
+      let dupCount = 0;
 
-      for (let n = 0; n < maxNav; n++) {
-        // 現在のスライドインデックスを確認
-        if (swiperEl && swiperEl.swiper) {
-          const curIdx = swiperEl.swiper.realIndex;
-          if (typeof curIdx === 'number' && curIdx >= 0) {
-            if (seenIndices.has(curIdx)) {
-              log += ` →loop@${n}(idx=${curIdx})`;
-              break;
-            }
-            seenIndices.add(curIdx);
-          }
-        }
-
-        // 次へボタンクリック（Python版と同じ: SVGアイコンから親ボタン探索）
-        let navResult = 'no_button';
-        const nextIcon = document.querySelector(
+      for (let n = 0; n < 60; n++) {
+        // 次へボタンクリック
+        let clicked = false;
+        const icon = document.querySelector(
           'svg[data-testid="KeyboardArrowRightIcon"],'
           + 'svg[data-testid="keyboardArrowRight"],'
           + 'svg[data-testid="ArrowForwardIosIcon"],'
           + 'svg[data-testid="NavigateNextIcon"]'
         );
-        if (nextIcon) {
-          let el = nextIcon;
-          for (let i = 0; i < 5; i++) {
+        if (icon) {
+          let el = icon;
+          for (let i = 0; i < 6; i++) {
             el = el.parentElement;
             if (!el) break;
             const s = window.getComputedStyle(el);
-            if (s.pointerEvents === 'none') { navResult = 'disabled'; break; }
+            if (s.pointerEvents === 'none' || el.hasAttribute('disabled')) break;
             if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button'
                 || el.onclick || s.cursor === 'pointer') {
               el.click();
-              navResult = 'clicked';
+              clicked = true;
               break;
             }
           }
-          if (navResult === 'no_button' && nextIcon.parentElement) {
-            nextIcon.parentElement.click();
-            navResult = 'clicked';
+          if (!clicked && icon.parentElement) {
+            icon.parentElement.click();
+            clicked = true;
           }
         }
-
-        if (navResult !== 'clicked') {
-          log += ` →${navResult}@${n}`;
+        if (!clicked) {
+          log += ` →noBtn@${n}`;
           break;
         }
 
-        slideCount++;
-
-        // 画像ロード完了を待つ（Python版と同じ: 6回×0.3秒）
-        for (let w = 0; w < 6; w++) {
-          await sleep(300);
+        // スライド遷移+画像ロード待ち
+        await sleep(400);
+        for (let w = 0; w < 10; w++) {
           const img = document.querySelector('.swiper-slide-active img');
           if (img && img.complete && img.naturalWidth > 0) break;
+          await sleep(200);
         }
-      }
-      log += ` nav:${slideCount}(${seenIndices.size}uniq)`;
 
-      // 画像URL収集: fetchインターセプター（Python版と同じ）
+        navCount++;
+
+        // canvas経由でbase64キャプチャ
+        const b64 = captureActiveImg();
+        if (!b64) continue;
+
+        if (seenBase64.has(b64)) {
+          dupCount++;
+          if (dupCount >= 5) {
+            log += ` →dup5@${n}`;
+            break;
+          }
+          continue;
+        }
+        dupCount = 0;
+        seenBase64.add(b64);
+        base64s.push(b64);
+      }
+      log += ` nav:${navCount} captured:${base64s.length}`;
+
+      // fetchインターセプターからHTTP URLも収集（補助）
       const JUNK_IMG = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz|es-service\.net|onetop|placeholder|spinner|loading|e_square_logo|sfa_main_banner|line\.me|liff/i;
       const trackedUrls = (window.__esq_img_fetches || []).filter(
         u => typeof u === 'string' && !JUNK_IMG.test(u)
       );
-
-      // Performance APIからも補助的にHTTP URLを収集
-      const SKIP_EXT = /\.(js|css|woff|woff2|ttf|eot|svg|gif)$/i;
-      const entries = performance.getEntriesByType('resource');
-      const seen = new Set(trackedUrls);
-      const perfUrls = [];
-      for (const entry of entries) {
-        const name = entry.name;
-        if (seen.has(name) || JUNK_IMG.test(name) || SKIP_EXT.test(name)) continue;
-        if (!name.startsWith('http')) continue;
-        seen.add(name);
-        const isImageExt = /\.(jpg|jpeg|png|webp|bmp|avif)/i.test(name);
-        const init = entry.initiatorType;
-        const size = (entry.transferSize || 0) + (entry.decodedBodySize || 0);
-        if (isImageExt || ((init === 'fetch' || init === 'xmlhttprequest') && size > 5000)) {
-          perfUrls.push(name);
-        }
-      }
-
-      // マージ（fetchトラッキング優先、重複除去）
-      const allUrls = [...trackedUrls];
-      for (const u of perfUrls) {
-        if (!trackedUrls.includes(u)) allUrls.push(u);
-      }
-      log += ` fetch:${trackedUrls.length} perf:${perfUrls.length} total:${allUrls.length}`;
+      log += ` fetch:${trackedUrls.length}`;
 
       // モーダルを閉じる
       const closeBtn = document.querySelector('.MuiBox-root.css-11p4x25');
@@ -461,12 +453,12 @@ async function _extractEssquareGalleryImages(tabId) {
       }
       await sleep(300);
 
-      return { urls: allUrls, log };
+      return { base64s, urls: trackedUrls, log };
     },
   });
 
   const result = results?.[0]?.result;
-  return result || { urls: [], log: 'executeScript_failed' };
+  return result || { base64s: [], urls: [], log: 'executeScript_failed' };
 }
 
 // === 検索結果ページに戻る ===
@@ -1150,31 +1142,24 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             }
           }
 
-          // 画像: MAIN worldでギャラリーナビゲーション→fetchインターセプターでHTTP URL収集
+          // 画像: MAIN worldでギャラリーナビゲーション→canvas base64キャプチャ + fetch URL
           try {
             const galleryResult = await _extractEssquareGalleryImages(tabId);
             if (galleryResult.log) {
               await setStorageData({ debugLog: `[ES-Square] ギャラリー: ${galleryResult.log}` });
             }
-            const imgUrls = galleryResult.urls || [];
+            const base64s = galleryResult.base64s || [];
+            const fetchUrls = galleryResult.urls || [];
 
-            if (imgUrls.length > 0) {
-              await setStorageData({ debugLog: `[ES-Square] 画像URL: ${imgUrls.length}件、アップロード中...` });
+            if (base64s.length > 0 || fetchUrls.length > 0) {
+              await setStorageData({ debugLog: `[ES-Square] 画像: canvas=${base64s.length}件, fetchURL=${fetchUrls.length}件、アップロード中...` });
               const uploadedUrls = [];
               let uploadFailed = 0;
 
-              for (const imgUrl of imgUrls) {
+              // 1. canvas base64画像をアップロード
+              for (const b64 of base64s) {
                 try {
-                  const resp = await fetch(imgUrl, { credentials: 'include' });
-                  if (!resp.ok) { uploadFailed++; continue; }
-                  const blob = await resp.blob();
-                  if (blob.size < 3000 || blob.size > 5000000) { uploadFailed++; continue; }
-                  const base64 = await new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(reader.result);
-                    reader.readAsDataURL(blob);
-                  });
-                  const publicUrl = await uploadBase64ToCatbox(base64);
+                  const publicUrl = await uploadBase64ToCatbox(b64);
                   if (publicUrl) {
                     uploadedUrls.push(publicUrl);
                   } else {
@@ -1182,7 +1167,25 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
                   }
                 } catch (e) {
                   uploadFailed++;
-                  console.warn(`[ES-Square] 画像アップロード失敗:`, e.message);
+                }
+              }
+
+              // 2. fetch URLで補完（canvasが少ない場合）
+              if (uploadedUrls.length < 5 && fetchUrls.length > 0) {
+                for (const imgUrl of fetchUrls) {
+                  try {
+                    const resp = await fetch(imgUrl, { credentials: 'include' });
+                    if (!resp.ok) continue;
+                    const blob = await resp.blob();
+                    if (blob.size < 3000 || blob.size > 5000000) continue;
+                    const base64 = await new Promise((resolve) => {
+                      const reader = new FileReader();
+                      reader.onloadend = () => resolve(reader.result);
+                      reader.readAsDataURL(blob);
+                    });
+                    const publicUrl = await uploadBase64ToCatbox(base64);
+                    if (publicUrl) uploadedUrls.push(publicUrl);
+                  } catch (e) {}
                 }
               }
 
