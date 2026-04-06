@@ -664,6 +664,20 @@
         detail.facilities = facilityParts.join(' / ');
       }
     }
+    // 「当社管理物件」という設備値は不要なので除去
+    if (detail.facilities) {
+      detail.facilities = detail.facilities
+        // 区切り文字に挟まれたケース（前の区切りごと削除）
+        .replace(/([,，、\/])\s*当社管理物件/g, '')
+        // 先頭にあるケース（後ろの区切りごと削除）
+        .replace(/当社管理物件\s*[,，、\/]\s*/g, '')
+        // 単独のケース
+        .replace(/当社管理物件/g, '')
+        .split('\n')
+        .filter(line => line.trim().length > 0)
+        .join('\n')
+        .trim();
+    }
 
     // === 5. 内見開始日 ===
     const previewDate = extractPreviewStartDate();
