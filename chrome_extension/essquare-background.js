@@ -276,29 +276,68 @@ async function _clickEssquarePropertyLink(tabId, index) {
   return results?.[0]?.result === true;
 }
 
-// === ブラウザバックで検索結果ページに戻る ===
+// === 検索結果ページに戻る ===
 
 async function _goBackToEssquareSearchResults(tabId) {
-  await chrome.tabs.goBack(tabId);
-  await waitForTabLoad(tabId);
+  // 方法1: ページコンテキストで history.back() を実行
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => { window.history.back(); },
+    });
+  } catch (e) {
+    console.warn('[ES-Square] history.back() 実行失敗:', e.message);
+  }
 
-  // 検索結果ページのレンダリングを待つ
+  // URLが検索結果ページに戻るのを待つ
   const startTime = Date.now();
-  const timeoutMs = 15000;
+  const timeoutMs = 10000;
   while (Date.now() - startTime < timeoutMs) {
+    await sleep(500);
     try {
       const tab = await chrome.tabs.get(tabId);
-      // URLが検索結果ページ（/detailを含まない）であることを確認
       if (tab.url && tab.url.includes('/search') && !tab.url.includes('/detail/')) {
-        // DOMのレンダリングも待つ
+        // 検索結果ページのレンダリングを待つ
         const renderStatus = await _waitForEssquareRender(tabId, 10000);
         if (renderStatus === 'rendered' || renderStatus === 'empty') return;
         break;
       }
-    } catch (e) {
-      // タブ取得エラー
+    } catch (e) {}
+  }
+
+  // 方法1で戻れなかった場合、モーダルの閉じるボタンを試す
+  const tab = await chrome.tabs.get(tabId);
+  if (tab.url && tab.url.includes('/detail/')) {
+    console.log('[ES-Square] history.back()で戻れず、モーダル閉じるボタンを試行');
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          // ESCキー
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+          // 閉じるボタン
+          const closeBtn = document.querySelector(
+            'button[aria-label="close"], button[aria-label="閉じる"],'
+            + '[class*="close"], .MuiIconButton-root[aria-label]'
+          );
+          if (closeBtn) closeBtn.click();
+          // ブラウザバック（リトライ）
+          setTimeout(() => window.history.back(), 300);
+        },
+      });
+    } catch (e) {}
+
+    // 再度待機
+    for (let i = 0; i < 10; i++) {
+      await sleep(500);
+      try {
+        const t = await chrome.tabs.get(tabId);
+        if (t.url && t.url.includes('/search') && !t.url.includes('/detail/')) {
+          await _waitForEssquareRender(tabId, 10000);
+          return;
+        }
+      } catch (e) {}
     }
-    await sleep(500);
   }
 }
 
