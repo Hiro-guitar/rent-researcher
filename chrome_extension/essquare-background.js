@@ -1225,7 +1225,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
                 }
                 return null;
               }
-              const BATCH = 3;
+              const BATCH = 6;
               for (let i = 0; i < base64s.length; i += BATCH) {
                 const chunk = base64s.slice(i, i + BATCH);
                 const results = await Promise.all(chunk.map(uploadOne));
