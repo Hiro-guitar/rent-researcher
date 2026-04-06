@@ -1402,17 +1402,20 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       // 詳細ボタンをクリック（物件番号で行を特定）— 行が描画されるまで最大15秒待つ
       // ダイアログ（連続閲覧警告等）が出ていればOKで閉じる
       let clickStatus = 'not_found';
+      let triedRecovery = false;
       for (let waitTry = 0; waitTry < 8; waitTry++) {
         const cr = await chrome.scripting.executeScript({
           target: { tabId },
           func: (propNum) => {
-            // ダイアログがあれば閉じる
             const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
             for (const dialog of dialogs) {
               const okBtn = [...dialog.querySelectorAll('button')].find(b => /OK|閉じる|はい/.test(b.textContent.trim()));
               if (okBtn) { okBtn.click(); return 'dialog_closed'; }
             }
-            const rows = document.querySelectorAll('.p-table-body-row');
+            // 行のセレクタを複数試す
+            let rows = document.querySelectorAll('.p-table-body-row');
+            if (rows.length === 0) rows = document.querySelectorAll('[class*="body-row"]');
+            if (rows.length === 0) rows = document.querySelectorAll('table tbody tr');
             if (rows.length === 0) return 'no_rows';
             for (const row of rows) {
               if (row.textContent.includes(propNum)) {
@@ -1427,6 +1430,66 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         clickStatus = cr?.[0]?.result || 'error';
         if (clickStatus === 'clicked') break;
         if (clickStatus === 'dialog_closed') { await csleep(1500); continue; }
+        // no_rowsが続く場合、検索フォームから再検索して復帰
+        if (clickStatus === 'no_rows' && waitTry >= 2 && !triedRecovery) {
+          triedRecovery = true;
+          await setStorageData({ debugLog: `${customer.name}: 結果一覧が空→再検索で復帰試行` });
+          // 検索フォームへ
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            world: 'MAIN',
+            func: () => {
+              const nuxt = window.$nuxt;
+              if (nuxt?.$router) { nuxt.$router.push('/main/BK/GBK001310'); return; }
+              location.href = 'https://system.reins.jp/main/BK/GBK001310';
+            }
+          });
+          await csleep(3000);
+          // 検索ボタンクリック
+          await chrome.scripting.executeScript({
+            target: { tabId }, world: 'MAIN',
+            func: () => {
+              const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '検索');
+              if (btn) btn.click();
+            }
+          });
+          // 結果ページ＆ダイアログ処理
+          for (let rs = 0; rs < 20; rs++) {
+            await csleep(2000);
+            const rsCheck = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => {
+                const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
+                for (const dialog of dialogs) {
+                  if (dialog.textContent.includes('500件') || dialog.textContent.includes('超えて')) {
+                    const okBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
+                    if (okBtn) { okBtn.click(); return 'ok'; }
+                  }
+                }
+                if (document.querySelectorAll('.p-table-body-row, [class*="body-row"]').length > 0) return 'rows';
+                return 'wait';
+              }
+            });
+            const s = rsCheck?.[0]?.result;
+            if (s === 'rows') break;
+            if (s === 'ok') await csleep(2500);
+          }
+          // 現在ページまで進める
+          if (currentPage > 1) {
+            for (let np = 2; np <= currentPage; np++) {
+              await chrome.scripting.executeScript({
+                target: { tabId },
+                func: (page) => {
+                  const links = document.querySelectorAll('.page-link');
+                  for (const l of links) if (l.textContent.trim() === String(page)) { l.click(); return; }
+                },
+                args: [np]
+              });
+              await csleep(3000);
+            }
+          }
+          continue;
+        }
         await csleep(2000);
       }
       if (clickStatus !== 'clicked') {
