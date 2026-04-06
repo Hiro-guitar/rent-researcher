@@ -376,6 +376,14 @@ function renderFacBuckets(order, buckets) {
   for (var o = 0; o < allOrder.length; o++) {
     var name = allOrder[o], arr = buckets[name];
     if (!arr || arr.length === 0) continue;
+    // 「〇〇：無」「〇〇：-」等の無効値タグを除外（パーサーフィルタの安全ネット）
+    arr = arr.filter(function(item) {
+      if (/[:：]\s*[-－ー無なし]+\s*$/.test(item)) return false;
+      var t = item.trim();
+      if (t === '無' || t === '-' || t === '－' || t === 'なし' || t === 'ー') return false;
+      return true;
+    });
+    if (arr.length === 0) continue;
     out += '<div class="fac-cat"><div class="fac-cat-name">' + escHtml(name) + '</div><div class="fac-tags">';
     for (var j = 0; j < arr.length; j++) {
       out += '<span class="fac-tag">' + escHtml(arr[j]) + '</span>';
