@@ -317,50 +317,47 @@ async function _extractEssquareGalleryImages(tabId) {
     target: { tabId },
     world: 'MAIN',
     func: async () => {
-      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-      const NO_IMAGE_BASE64_START = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZA';
+      const NO_IMAGE_BASE64_START = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9Ijk2IiB2aWV3Qm94PSIwIDAgMTI4IDk2IiBmaWxsPSJub25lI';
       let log = '';
 
-      // blob URL → base64変換（リファレンスコードと同じ）
-      function convertBlobToBase64(blobUrl) {
-        return new Promise((resolve) => {
-          fetch(blobUrl)
-            .then(r => r.blob())
-            .then(blob => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result);
-              reader.onerror = () => resolve(null);
-              reader.readAsDataURL(blob);
-            })
-            .catch(() => resolve(null));
-        });
+      // blob URL → base64変換（リファレンスコードと完全一致）
+      async function convertBlobToBase64(blobUrl) {
+        try {
+          const response = await fetch(blobUrl);
+          const blob = await response.blob();
+          if (!blob || blob.size === 0) return null;
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (e) {
+          return null;
+        }
       }
 
-      // 条件待ち（リファレンスコードと同じ）
-      function waitFor(condFn, timeoutMs = 5000) {
-        return new Promise((resolve) => {
+      // 条件待ち（リファレンスコードと完全一致）
+      function waitFor(conditionFn, timeout = 5000, interval = 100) {
+        return new Promise((resolve, reject) => {
           const start = Date.now();
           const check = () => {
-            if (condFn()) return resolve(true);
-            if (Date.now() - start > timeoutMs) return resolve(false);
-            setTimeout(check, 100);
+            if (conditionFn()) return resolve();
+            if (Date.now() - start > timeout) return reject('Timeout');
+            setTimeout(check, interval);
           };
           check();
         });
       }
 
-      // 画像src変化待ち（リファレンスコードと同じ）
-      function waitForImageChange(prevSrc, timeoutMs = 5000) {
-        return new Promise((resolve) => {
-          const start = Date.now();
-          const check = () => {
-            const img = document.querySelector('.swiper-slide-active .css-oq6icw img');
-            if (img && img.src && img.src !== prevSrc) return resolve(true);
-            if (Date.now() - start > timeoutMs) return resolve(false);
-            setTimeout(check, 100);
-          };
-          check();
-        });
+      // 画像src変化待ち（リファレンスコードと完全一致: complete + naturalWidth もチェック）
+      async function waitForImageChange(prevSrc, timeout = 5000) {
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+          const img = document.querySelector('.swiper-slide-active .css-oq6icw img');
+          if (img && img.src !== prevSrc && img.complete && img.naturalWidth > 0) return;
+          await new Promise(res => setTimeout(res, 100));
+        }
       }
 
       // サムネイルクリックでギャラリーモーダルを開く
@@ -368,24 +365,22 @@ async function _extractEssquareGalleryImages(tabId) {
       if (!thumbnail) return { base64s: [], urls: [], log: 'no_thumbnail' };
       thumbnail.click();
 
-      // ギャラリー画像の表示待ち（.css-oq6icwセレクタ使用）
-      let modalReady = false;
-      for (let i = 0; i < 30; i++) {
-        await sleep(200);
-        const img = document.querySelector('.swiper-slide-active .css-oq6icw img');
-        if (img && img.complete && img.naturalWidth > 0) { modalReady = true; break; }
+      // ギャラリー画像の表示待ち
+      try {
+        await waitFor(() => {
+          const img = document.querySelector('.swiper-slide-active .css-oq6icw img');
+          return img && img.complete && img.naturalWidth > 0;
+        }, 5000);
+      } catch (e) {
+        return { base64s: [], urls: [], log: 'no_modal' };
       }
-      if (!modalReady) return { base64s: [], urls: [], log: 'no_modal' };
-      await sleep(800);
 
       const images = [];
       let prevSrc = '';
       let stopCounter = 0;
-      const MAX_STOP = 3;
-      const MAX_IMAGES = 80;
 
       // リファレンスコードと同じwhile(true)ループ
-      while (images.length < MAX_IMAGES) {
+      while (true) {
         // active + prev スライドの画像を取得
         const imgs = Array.from(document.querySelectorAll(
           '.swiper-slide-active .css-oq6icw img, .swiper-slide-prev .css-oq6icw img'
@@ -396,49 +391,56 @@ async function _extractEssquareGalleryImages(tabId) {
           const src = img.src;
           if (!src || src === prevSrc) continue;
 
-          // 画像ロード完了待ち
-          await waitFor(() => img.complete && img.naturalWidth > 0, 3000);
+          await waitFor(() => img.complete && img.naturalWidth > 0, 3000).catch(() => {});
 
-          // blob URL → base64変換
           const base64 = await convertBlobToBase64(src);
-          if (base64
-              && !base64.startsWith(NO_IMAGE_BASE64_START)
-              && base64.length > 1000
-              && !images.includes(base64)) {
+          if (base64 && !base64.startsWith(NO_IMAGE_BASE64_START) && !images.includes(base64)) {
             images.push(base64);
           }
           prevSrc = src;
           stopCounter = 0;
         }
 
-        // 次へボタン: svg[data-testid="keyboardArrowRight"] → .closest('.css-1nuul26')
-        const nextBtnIcon = document.querySelector(
-          'svg[data-testid="KeyboardArrowRightIcon"],'
-          + 'svg[data-testid="keyboardArrowRight"]'
-        );
-        if (!nextBtnIcon) {
-          log += ' noIcon';
-          break;
+        // imgs が空ならstopCounter増加（リファレンスコードと同じ）
+        if (imgs.length === 0) {
+          stopCounter++;
+          if (stopCounter >= 2) break;
         }
 
-        const nextBtnContainer = nextBtnIcon.closest('.css-1nuul26');
-        if (!nextBtnContainer) {
-          // アイコンはあるがコンテナがない＝最後の画像（リファレンスコードの停止条件）
+        // 次へボタン判定（リファレンスコードと同じ停止条件）
+        const nextBtnIcon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
+        const nextBtnContainer = nextBtnIcon ? nextBtnIcon.closest('.css-1nuul26') : null;
+
+        const hasNextBtn = !!nextBtnContainer;
+        const hasNextIconOnly = !!nextBtnIcon && !nextBtnContainer;
+        const isLastImage = hasNextIconOnly || !hasNextBtn;
+
+        if (isLastImage) {
+          // 最後の画像を確実に保存してからループ抜ける
+          if (imgs.length > 0) {
+            for (const img of imgs) {
+              await waitFor(() => img.complete && img.naturalWidth > 0, 3000).catch(() => {});
+              const base64 = await convertBlobToBase64(img.src);
+              if (base64 && !base64.startsWith(NO_IMAGE_BASE64_START) && !images.includes(base64)) {
+                images.push(base64);
+              }
+            }
+          }
           log += ' lastImg';
           break;
         }
 
-        nextBtnContainer.click();
-
-        // src変化待ち
-        const changed = await waitForImageChange(prevSrc, 5000);
-        if (!changed) {
-          stopCounter++;
-          if (stopCounter >= MAX_STOP) {
-            log += ` stop@${images.length}`;
-            break;
-          }
+        // クリック可能か確認（リファレンスコードと同じ）
+        const style = window.getComputedStyle(nextBtnContainer);
+        const isClickable = style.pointerEvents !== 'none' && !nextBtnContainer.hasAttribute('disabled');
+        if (!isClickable) {
+          log += ' notClickable';
+          break;
         }
+
+        nextBtnContainer.click();
+        await waitForImageChange(prevSrc);
+        await new Promise(r => setTimeout(r, 100));
       }
 
       log += ` captured:${images.length}`;
@@ -447,10 +449,8 @@ async function _extractEssquareGalleryImages(tabId) {
       const closeBtn = document.querySelector('.MuiBox-root.css-11p4x25');
       if (closeBtn) {
         closeBtn.click();
-      } else {
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+        await new Promise(r => setTimeout(r, 300));
       }
-      await sleep(300);
 
       return { base64s: images, urls: [], log };
     },
