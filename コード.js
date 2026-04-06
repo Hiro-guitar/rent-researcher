@@ -893,7 +893,36 @@ function handleAddReinsProperty(json) {
         source: p.source || 'reins',
         reins_property_number: p.reins_property_number || '',
         reins_shougo: p.reins_shougo || '',
-        reins_tel: p.reins_tel || ''
+        reins_tel: p.reins_tel || '',
+        // === REINS第1弾追加フィールド ===
+        sqm_price: p.sqm_price || '',
+        tsubo_price: p.tsubo_price || '',
+        lease_period: p.lease_period || '',
+        lease_renewal: p.lease_renewal || '',
+        guarantee_money: p.guarantee_money || '',
+        key_premium: p.key_premium || '',
+        shoukyaku_code: p.shoukyaku_code || '',
+        shoukyaku_months: p.shoukyaku_months || '',
+        shoukyaku_rate: p.shoukyaku_rate || '',
+        renewal_type: p.renewal_type || '',
+        key_exchange_type: p.key_exchange_type || '',
+        commission_type: p.commission_type || '',
+        commission: p.commission || '',
+        commission_landlord: p.commission_landlord || '',
+        commission_tenant: p.commission_tenant || '',
+        commission_motozuke: p.commission_motozuke || '',
+        commission_kyakuzuke: p.commission_kyakuzuke || '',
+        current_status: p.current_status || '',
+        balcony_area: p.balcony_area || '',
+        rooms_detail: p.rooms_detail || '',
+        parking_available: p.parking_available || '',
+        parking_fee_min: p.parking_fee_min || '',
+        parking_fee_max: p.parking_fee_max || '',
+        insurance_required: p.insurance_required || '',
+        insurance_name: p.insurance_name || '',
+        insurance_fee: p.insurance_fee || '',
+        insurance_period: p.insurance_period || '',
+        remarks: p.remarks || ''
       });
     }
 
