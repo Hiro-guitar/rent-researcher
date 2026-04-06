@@ -391,10 +391,32 @@ async function _extractEssquareGalleryImages(tabId) {
       }
 
       const images = [];
-      let prevSrc = '';
+      const seenSrcs = new Set(); // 全履歴を追跡（prevSrc単一変数では取りこぼしが起こる）
+      let lastActiveSrc = '';
       let stopCounter = 0;
 
-      // リファレンスコードと同じwhile(true)ループ
+      // 単一imgをキャプチャして images に追加するヘルパー
+      async function captureAndPush(img) {
+        if (!img) return;
+        const src = img.src;
+        if (!src || seenSrcs.has(src)) return;
+        seenSrcs.add(src);
+
+        await waitFor(() => img.complete && img.naturalWidth > 0, 3000).catch(() => {});
+
+        // canvas描画を優先（blob fetchは破損データを返すことがある）
+        let base64 = captureImgToBase64(img);
+        if (!base64 || base64.length <= 5000) {
+          base64 = await convertBlobToBase64(src);
+        }
+        if (base64
+            && !base64.startsWith(NO_IMAGE_BASE64_START)
+            && base64.length > 5000
+            && !images.includes(base64)) {
+          images.push(base64);
+        }
+      }
+
       while (true) {
         // active + prev スライドの画像を取得
         const imgs = Array.from(document.querySelectorAll(
@@ -402,34 +424,21 @@ async function _extractEssquareGalleryImages(tabId) {
         ));
 
         for (const img of imgs) {
-          if (!img) continue;
-          const src = img.src;
-          if (!src || src === prevSrc) continue;
-
-          await waitFor(() => img.complete && img.naturalWidth > 0, 3000).catch(() => {});
-
-          // canvas描画を優先（blob fetchは破損データを返すことがある）
-          let base64 = captureImgToBase64(img);
-          if (!base64 || base64.length <= 5000) {
-            base64 = await convertBlobToBase64(src);
-          }
-          if (base64
-              && !base64.startsWith(NO_IMAGE_BASE64_START)
-              && base64.length > 5000
-              && !images.includes(base64)) {
-            images.push(base64);
-          }
-          prevSrc = src;
-          stopCounter = 0;
+          await captureAndPush(img);
         }
 
-        // imgs が空ならstopCounter増加（リファレンスコードと同じ）
+        // 現在のアクティブsrc記録（waitForImageChange用）
+        const activeImg = document.querySelector('.swiper-slide-active .css-oq6icw img');
+        if (activeImg && activeImg.src) lastActiveSrc = activeImg.src;
+
         if (imgs.length === 0) {
           stopCounter++;
           if (stopCounter >= 2) break;
+        } else {
+          stopCounter = 0;
         }
 
-        // 次へボタン判定（リファレンスコードと同じ停止条件）
+        // 次へボタン判定
         const nextBtnIcon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
         const nextBtnContainer = nextBtnIcon ? nextBtnIcon.closest('.css-1nuul26') : null;
 
@@ -439,26 +448,19 @@ async function _extractEssquareGalleryImages(tabId) {
 
         if (isLastImage) {
           // 最後の画像を確実に保存してからループ抜ける
-          if (imgs.length > 0) {
-            for (const img of imgs) {
-              await waitFor(() => img.complete && img.naturalWidth > 0, 3000).catch(() => {});
-              let base64 = captureImgToBase64(img);
-              if (!base64 || base64.length <= 5000) {
-                base64 = await convertBlobToBase64(img.src);
-              }
-              if (base64
-                  && !base64.startsWith(NO_IMAGE_BASE64_START)
-                  && base64.length > 5000
-                  && !images.includes(base64)) {
-                images.push(base64);
-              }
-            }
+          // activeスライドを再取得（遅延ロードされた場合に備える）
+          await new Promise(r => setTimeout(r, 200));
+          const finalImgs = Array.from(document.querySelectorAll(
+            '.swiper-slide-active .css-oq6icw img, .swiper-slide-prev .css-oq6icw img, .swiper-slide-next .css-oq6icw img'
+          ));
+          for (const img of finalImgs) {
+            await captureAndPush(img);
           }
           log += ' lastImg';
           break;
         }
 
-        // クリック可能か確認（リファレンスコードと同じ）
+        // クリック可能か確認
         const style = window.getComputedStyle(nextBtnContainer);
         const isClickable = style.pointerEvents !== 'none' && !nextBtnContainer.hasAttribute('disabled');
         if (!isClickable) {
@@ -467,7 +469,7 @@ async function _extractEssquareGalleryImages(tabId) {
         }
 
         nextBtnContainer.click();
-        await waitForImageChange(prevSrc);
+        await waitForImageChange(lastActiveSrc);
         await new Promise(r => setTimeout(r, 100));
       }
 
