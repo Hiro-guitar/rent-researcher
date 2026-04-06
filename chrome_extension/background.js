@@ -1399,32 +1399,38 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await setStorageData({ debugLog: `${customer.name}: p${currentPage}/${totalPages} 物件${totalDetailCount}/${maxDetails} 詳細取得中 (${result.buildingName} ${result.floor})` });
 
     try {
-      // 詳細ボタンをクリック（物件番号で行を特定 — 再検索復帰後もindexズレしない）
-      const clickResult = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: (propNum) => {
-          const rows = document.querySelectorAll('.p-table-body-row');
-          for (const row of rows) {
-            if (row.textContent.includes(propNum)) {
-              const detailBtn = [...row.querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
-              if (detailBtn) { detailBtn.click(); return true; }
+      // 詳細ボタンをクリック（物件番号で行を特定）— 行が描画されるまで最大15秒待つ
+      // ダイアログ（連続閲覧警告等）が出ていればOKで閉じる
+      let clickStatus = 'not_found';
+      for (let waitTry = 0; waitTry < 8; waitTry++) {
+        const cr = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (propNum) => {
+            // ダイアログがあれば閉じる
+            const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
+            for (const dialog of dialogs) {
+              const okBtn = [...dialog.querySelectorAll('button')].find(b => /OK|閉じる|はい/.test(b.textContent.trim()));
+              if (okBtn) { okBtn.click(); return 'dialog_closed'; }
             }
-          }
-          // フォールバック: 全ての詳細ボタンから探す
-          const allBtns = [...document.querySelectorAll('button')].filter(b => b.textContent.trim() === '詳細');
-          // 物件番号に近い行の詳細ボタンを探す
-          for (const btn of allBtns) {
-            const parentRow = btn.closest('.p-table-body-row');
-            if (parentRow && parentRow.textContent.includes(propNum)) {
-              btn.click(); return true;
+            const rows = document.querySelectorAll('.p-table-body-row');
+            if (rows.length === 0) return 'no_rows';
+            for (const row of rows) {
+              if (row.textContent.includes(propNum)) {
+                const detailBtn = [...row.querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
+                if (detailBtn) { detailBtn.click(); return 'clicked'; }
+              }
             }
-          }
-          return false;
-        },
-        args: [result.propertyNumber]
-      });
-      if (!clickResult?.[0]?.result) {
-        await setStorageData({ debugLog: `${customer.name}: ✗ ${result.buildingName} ${result.floor} 詳細ボタンが見つからない→スキップ` });
+            return 'not_found_in_' + rows.length + '_rows';
+          },
+          args: [result.propertyNumber]
+        });
+        clickStatus = cr?.[0]?.result || 'error';
+        if (clickStatus === 'clicked') break;
+        if (clickStatus === 'dialog_closed') { await csleep(1500); continue; }
+        await csleep(2000);
+      }
+      if (clickStatus !== 'clicked') {
+        await setStorageData({ debugLog: `${customer.name}: ✗ ${result.buildingName} ${result.floor} 詳細ボタンが見つからない(${clickStatus})→スキップ` });
         continue;
       }
       await waitForTabLoad(tabId);
