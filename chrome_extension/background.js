@@ -1699,26 +1699,110 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               }
               return parts.join('\n');
             })(),
-            // 画像URL（サムネイル背景画像から取得）
-            image_urls: (() => {
-              const urls = [];
-              document.querySelectorAll('div.mx-auto').forEach(el => {
-                const bg = el.style.backgroundImage || '';
-                const m = bg.match(/url\(["']?(.*?)["']?\)/);
-                if (m && m[1]) {
-                  let u = m[1];
-                  if (u.startsWith('/')) u = location.origin + u;
-                  urls.push(u);
-                }
-              });
-              return urls;
-            })(),
             source: 'reins'
           };
         }
       });
 
+      // === 画像をbase64で抽出（サムネクリック→モーダルの.image-view→fetch） ===
+      const imageResults = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: async () => {
+          async function fetchAsBase64(url) {
+            try {
+              const r = await fetch(url, { credentials: 'include' });
+              if (!r.ok) return null;
+              const blob = await r.blob();
+              if (!blob || blob.size < 1000) return null;
+              return await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+            } catch (e) { return null; }
+          }
+          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          const images = [];
+          const seen = new Set();
+          const thumbnails = document.querySelectorAll('div.mx-auto');
+          for (const thumb of thumbnails) {
+            try {
+              thumb.click();
+              await sleep(250);
+              const imageView = document.querySelector('.image-view');
+              if (imageView) {
+                const style = imageView.getAttribute('style') || '';
+                const m = style.match(/url\(["']?(.*?)["']?\)/);
+                if (m && m[1]) {
+                  let imageUrl = m[1];
+                  if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
+                  if (!seen.has(imageUrl)) {
+                    seen.add(imageUrl);
+                    const base64 = await fetchAsBase64(imageUrl);
+                    if (base64) images.push(base64);
+                  }
+                }
+              }
+              const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
+              if (closeBtn) {
+                closeBtn.click();
+                await sleep(300);
+              }
+            } catch (e) {}
+          }
+          return images;
+        }
+      });
+      const imageBase64s = (imageResults && imageResults[0] && imageResults[0].result) || [];
+      await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
+
       const detail = detailResults && detailResults[0] && detailResults[0].result;
+
+      // === 画像base64をcatboxへアップロード（並列6 + 429指数バックオフ + 3回リトライ） ===
+      if (detail && imageBase64s.length > 0) {
+        try {
+          const uploadedUrls = [];
+          let uploadFailed = 0;
+          async function uploadOne(b64) {
+            const MAX_ATTEMPTS = 3;
+            for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+              try {
+                const publicUrl = await uploadBase64ToCatbox(b64);
+                if (publicUrl) return publicUrl;
+                if (attempt < MAX_ATTEMPTS - 1) await csleep(1000);
+              } catch (e) {
+                if (attempt >= MAX_ATTEMPTS - 1) return null;
+                if (e && e.rateLimited) {
+                  const wait = 2000 * Math.pow(2, attempt) + Math.floor(Math.random() * 500);
+                  await csleep(wait);
+                } else {
+                  await csleep(1000);
+                }
+              }
+            }
+            return null;
+          }
+          const BATCH = 6;
+          for (let i = 0; i < imageBase64s.length; i += BATCH) {
+            const chunk = imageBase64s.slice(i, i + BATCH);
+            const results = await Promise.all(chunk.map(uploadOne));
+            for (const r of results) {
+              if (r) uploadedUrls.push(r);
+              else uploadFailed++;
+            }
+          }
+          if (uploadedUrls.length > 0) {
+            detail.image_urls = uploadedUrls;
+            detail.image_url = uploadedUrls[0];
+          }
+          await setStorageData({ debugLog: `${customer.name}: REINS画像アップロード完了 ${uploadedUrls.length}/${imageBase64s.length}件${uploadFailed > 0 ? ` (失敗:${uploadFailed})` : ''}` });
+        } catch (upErr) {
+          logError(`${customer.name}: REINS画像アップロード失敗: ${upErr.message}`);
+        }
+      }
+
       if (detail) {
         const rejectReason = getFilterRejectReason(detail, customer);
         if (!rejectReason) {
