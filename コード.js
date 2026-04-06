@@ -847,34 +847,6 @@ function handleAddReinsProperty(json) {
     var roomId = p.room_id || '';
     var dedupKey = customerName + '|' + roomId;
 
-    if (existingIds[dedupKey]) {
-      // 重複時でも画像URLが新しく提供されていれば、既存行の property_data_json 内の画像を更新
-      var newImageUrls = p.image_urls || (p.property_data_json ? (JSON.parse(p.property_data_json).image_urls || []) : []);
-      if (newImageUrls.length > 0 && existingRows[dedupKey]) {
-        try {
-          var rowNum = existingRows[dedupKey];
-          var existingJson = sheet.getRange(rowNum, 10).getValue(); // J列: property_data_json
-          var existingProp = JSON.parse(existingJson);
-          existingProp.image_urls = newImageUrls;
-          existingProp.image_url = newImageUrls[0];
-          if (p.image_categories) existingProp.image_categories = p.image_categories;
-          if (p.property_data_json) {
-            var newProp = JSON.parse(p.property_data_json);
-            if (newProp.image_categories) existingProp.image_categories = newProp.image_categories;
-          }
-          sheet.getRange(rowNum, 10).setValue(JSON.stringify(existingProp));
-          // 画像キャッシュもクリア
-          try {
-            var cache = CacheService.getScriptCache();
-            cache.remove('imgs_' + customerName + '_' + roomId);
-            cache.remove('prop2_' + customerName + '_' + roomId);
-          } catch(ce) {}
-        } catch(ue) {}
-      }
-      skipped++;
-      continue;
-    }
-
     // property_data_json を構築
     // Chrome拡張が構築済みの property_data_json がある場合はそれを使用
     // （image_categories 等の全フィールドが含まれている）
@@ -923,6 +895,28 @@ function handleAddReinsProperty(json) {
         reins_shougo: p.reins_shougo || '',
         reins_tel: p.reins_tel || ''
       });
+    }
+
+    if (existingIds[dedupKey] && existingRows[dedupKey]) {
+      // 既存行を更新（status/created_at は保持、他は全て最新データで上書き）
+      var rowNum = existingRows[dedupKey];
+      sheet.getRange(rowNum, 2, 1, 1).setValue(p.building_id || '');           // B
+      sheet.getRange(rowNum, 4, 1, 1).setValue(p.building_name || '');          // D
+      sheet.getRange(rowNum, 5, 1, 1).setValue(String(p.rent || 0));            // E
+      sheet.getRange(rowNum, 6, 1, 1).setValue(String(p.management_fee || 0)); // F
+      sheet.getRange(rowNum, 7, 1, 1).setValue(p.layout || '');                 // G
+      sheet.getRange(rowNum, 8, 1, 1).setValue(String(p.area || 0));            // H
+      sheet.getRange(rowNum, 9, 1, 1).setValue(p.station_info || '');           // I
+      sheet.getRange(rowNum, 10, 1, 1).setValue(dataJson);                       // J
+      sheet.getRange(rowNum, 13, 1, 1).setValue(now);                            // M: updated_at
+      // キャッシュクリア
+      try {
+        var cache = CacheService.getScriptCache();
+        cache.remove('imgs_' + customerName + '_' + roomId);
+        cache.remove('prop2_' + customerName + '_' + roomId);
+      } catch(ce) {}
+      skipped++;
+      continue;
     }
 
     sheet.appendRow([
