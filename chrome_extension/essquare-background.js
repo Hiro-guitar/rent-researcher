@@ -953,6 +953,9 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
               await setStorageData({ debugLog: `[ES-Square] 設備: ${dbg.facilitiesPreview.substring(0, 150)}` });
             }
           }
+          if (d._galleryLog) {
+            await setStorageData({ debugLog: `[ES-Square] ギャラリー: ${d._galleryLog}` });
+          }
 
           // 画像: base64 → catbox.moe アップロード
           if (d.image_base64?.length) {

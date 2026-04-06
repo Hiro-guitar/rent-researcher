@@ -16,9 +16,12 @@
           const result = extractDetail();
           if (result.ok && result.detail) {
             // ギャラリー操作で画像をblob→base64変換しながら収集
-            const galleryBase64 = await extractImagesViaGallery();
-            if (galleryBase64.length > 0) {
-              result.detail.image_base64 = galleryBase64;
+            const galleryResult = await extractImagesViaGallery();
+            if (galleryResult.images && galleryResult.images.length > 0) {
+              result.detail.image_base64 = galleryResult.images;
+            }
+            if (galleryResult.galleryLog) {
+              result.detail._galleryLog = galleryResult.galleryLog;
             }
           }
           sendResponse(result);
@@ -228,11 +231,12 @@
     }
   }
 
-  // 画��のsrc変化を待つ
+  // 画像のsrc変化を待つ
   async function waitForImageChange(prevSrc, timeout = 5000) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
-      const img = document.querySelector('.swiper-slide-active .css-oq6icw img');
+      const img = document.querySelector('.swiper-slide-active .css-oq6icw img')
+                || document.querySelector('.swiper-slide-active img');
       if (img && img.src !== prevSrc && img.complete && img.naturalWidth > 0) return;
       await sleep(100);
     }
@@ -243,6 +247,7 @@
 
   async function extractImagesViaGallery() {
     const images = []; // base64画像を直接収集
+    let galleryLog = ''; // デバッグ情報をbackgroundに返す用
 
     // サムネイルをクリックしてモーダルを開く
     const thumbnail = document.querySelector('.css-tx2s10 img');
@@ -308,7 +313,7 @@
 
     // 最初のスライドの画像を収集
     await collectCurrentImages();
-    console.log(`[ES-Square] ギャラリー: 初期画像 ${images.length}件`);
+    galleryLog += `init:${images.length}`;
 
     for (let n = 0; n < maxIterations; n++) {
       // 次へボタンを探す（リトライ付き: アニメーション中にDOMが不安定な場合）
@@ -320,27 +325,27 @@
         nextBtnContainer = nextBtnIcon?.closest('.css-1nuul26');
 
         if (nextBtnContainer) {
-          // ボタン発見 → クリック可能か確認
           const style = window.getComputedStyle(nextBtnContainer);
           if (style.pointerEvents === 'none' || nextBtnContainer.hasAttribute('disabled')) {
-            console.log(`[ES-Square] ギャラリー: ボタンdisabled at n=${n}`);
+            galleryLog += ` →disabled@${n}`;
             isLastImage = true;
           }
           break;
         }
 
         if (!nextBtnIcon) {
-          // アイコンすら無い → 最後の画像
+          galleryLog += ` →noIcon@${n}`;
           isLastImage = true;
           break;
         }
 
-        // アイコンはあるが.css-1nuul26親が無い → アニメーション中の可能性があるのでリトライ
-        await sleep(300);
+        // アイコンはあるが.css-1nuul26親が無い → リトライ
+        if (retry < 2) await sleep(300);
       }
 
       if (isLastImage || !nextBtnContainer) {
-        console.log(`[ES-Square] ギャラリー: 終了 at n=${n}, 理由=${isLastImage ? 'lastImage' : 'noBtn'}, 画像=${images.length}件`);
+        if (!isLastImage) galleryLog += ` →noBtn@${n}(retry exhausted)`;
+        galleryLog += ` END:${images.length}`;
         break;
       }
 
@@ -351,14 +356,14 @@
 
       // 新しいスライドの画像を収集
       const added = await collectCurrentImages();
-      console.log(`[ES-Square] ギャラリー: n=${n}, added=${added}, total=${images.length}`);
 
       if (added) {
         stopCounter = 0;
       } else {
         stopCounter++;
+        galleryLog += ` skip@${n}(${stopCounter})`;
         if (stopCounter >= 3) {
-          console.log(`[ES-Square] ギャラリー: 3回連続新規なし、終了 at n=${n}`);
+          galleryLog += ` →3skip END:${images.length}`;
           break;
         }
       }
@@ -375,9 +380,9 @@
       await sleep(300);
     }
 
-    console.log(`[ES-Square] ギャラリー画像収集完了: ${images.length}件 (base64)`);
-    // base64画像を直接返す（URLではなくbase64）
-    return images;
+    console.log(`[ES-Square] ギャラリー画像収集完了: ${images.length}件 (base64) ${galleryLog}`);
+    // base64画像とデバッグログを返す
+    return { images, galleryLog };
   }
 
   // ─── 画像をfetchしてbase64化（認証付きコンテキストで実行） ───
