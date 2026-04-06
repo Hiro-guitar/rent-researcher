@@ -1155,18 +1155,21 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
               const uploadedUrls = [];
               let uploadFailed = 0;
 
-              // 1. canvas base64画像をアップロード
+              // 1. canvas base64画像をアップロード（失敗時1回リトライ）
               for (const b64 of base64s) {
-                try {
-                  const publicUrl = await uploadBase64ToCatbox(b64);
-                  if (publicUrl) {
-                    uploadedUrls.push(publicUrl);
-                  } else {
-                    uploadFailed++;
-                  }
-                } catch (e) {
-                  uploadFailed++;
+                let uploaded = false;
+                for (let attempt = 0; attempt < 2; attempt++) {
+                  try {
+                    const publicUrl = await uploadBase64ToCatbox(b64);
+                    if (publicUrl) {
+                      uploadedUrls.push(publicUrl);
+                      uploaded = true;
+                      break;
+                    }
+                  } catch (e) {}
+                  if (attempt === 0) await sleep(1000);
                 }
+                if (!uploaded) uploadFailed++;
               }
 
               // 2. fetch URLで補完（canvasが少ない場合）
