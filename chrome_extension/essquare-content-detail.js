@@ -213,11 +213,34 @@
     return urls;
   }
 
-  // ─── ギャラリー操作で画像ロードを誘発 → Performance APIでURLキャプチャ ───
-  // Python版 _extract_gallery_images() の移植
+  // ─── ギャラリー操作で画像URLをDOMから直接収集 ───
   async function extractImagesViaGallery() {
-    // Performance エントリをクリア（ギャラリー操作分のみキャプチャ）
-    try { performance.clearResourceTimings(); } catch (e) {}
+    const SKIP_PATTERN = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz|es-service\.net|onetop|placeholder|spinner|loading|e_square_logo|sfa_main_banner|line\.me|liff/i;
+    const collectedUrls = new Set();
+
+    // 現在表示中のスライド画像を収集するヘルパー
+    function collectCurrentSlideImages() {
+      // アクティブスライドの画像
+      const activeImg = document.querySelector('.swiper-slide-active img');
+      if (activeImg) {
+        const src = activeImg.src || activeImg.currentSrc || '';
+        if (src && src.startsWith('http') && !SKIP_PATTERN.test(src)) {
+          collectedUrls.add(src);
+        }
+      }
+      // 全スライドの画像も収集（表示済みのものはsrcが設定されている）
+      for (const img of document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate) img')) {
+        const src = img.src || img.currentSrc || '';
+        if (src && src.startsWith('http') && !SKIP_PATTERN.test(src)) {
+          collectedUrls.add(src);
+        }
+        // data-src（遅延読み込み）
+        const dataSrc = img.getAttribute('data-src') || '';
+        if (dataSrc && dataSrc.startsWith('http') && !SKIP_PATTERN.test(dataSrc)) {
+          collectedUrls.add(dataSrc);
+        }
+      }
+    }
 
     // サムネイルをクリックしてギャラリーモーダルを開く
     let clicked = false;
@@ -242,14 +265,17 @@
         const w = img.naturalWidth || img.width || 0;
         const h = img.naturalHeight || img.height || 0;
         if ((src.startsWith('blob:') || (w > 100 && h > 80))
-            && !/logo|icon|avatar|badge|chatbot|miibo/i.test((img.className || '') + (img.alt || '') + src)) {
+            && !SKIP_PATTERN.test((img.className || '') + (img.alt || '') + src)) {
           img.click();
           clicked = true;
           break;
         }
       }
     }
-    if (!clicked) return [];
+    if (!clicked) {
+      console.log('[ES-Square] ギャラリー: サムネイルクリック失敗');
+      return [];
+    }
 
     // モーダル表示待ち
     let modalReady = false;
@@ -260,7 +286,13 @@
       const swiper = document.querySelector('.swiper-slide-active, [class*="swiper"]');
       if (swiper) { modalReady = true; break; }
     }
-    if (!modalReady) return [];
+    if (!modalReady) {
+      console.log('[ES-Square] ギャラリー: モーダル表示待ちタイムアウト');
+      return [];
+    }
+
+    // 最初のスライドの画像を収集
+    collectCurrentSlideImages();
 
     // 総スライド数を取得
     let totalSlides = 100;
@@ -271,7 +303,8 @@
       const slides = document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)');
       if (slides.length > 0) totalSlides = slides.length;
     }
-    const maxNav = Math.min(totalSlides + 2, 30); // Chrome拡張では最大30に制限
+    const maxNav = Math.min(totalSlides + 2, 30);
+    console.log(`[ES-Square] ギャラリー: totalSlides=${totalSlides}, maxNav=${maxNav}`);
 
     // 全スライドをナビゲート
     const seenIndices = new Set();
@@ -330,26 +363,32 @@
         break;
       }
 
-      // 画像ロード待ち
+      // 画像ロード待ち + 画像URL収集
       for (let w = 0; w < 10; w++) {
         await sleep(100);
         const img = document.querySelector('.swiper-slide-active img');
         if (img && img.complete && img.naturalWidth > 0) break;
       }
+      collectCurrentSlideImages();
     }
 
     // モーダルを閉じる
     try {
-      // ESCキー
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
       await sleep(300);
-      // フォールバック: 閉じるボタン
       const closeBtn = document.querySelector('.MuiBox-root.css-11p4x25, [class*="close"], button[aria-label="close"]');
       if (closeBtn) closeBtn.click();
     } catch (e) {}
 
-    // Performance API から画像URLを収集
-    return collectPerfImageUrls();
+    // Performance APIからも補完収集（新規ネットワーク読み込み分）
+    const perfUrls = collectPerfImageUrls();
+    for (const url of perfUrls) {
+      if (!SKIP_PATTERN.test(url)) collectedUrls.add(url);
+    }
+
+    const result = Array.from(collectedUrls);
+    console.log(`[ES-Square] ギャラリー画像収集完了: ${result.length}件`);
+    return result;
   }
 
   // ─── 画像をfetchしてbase64化（認証付きコンテキストで実行） ───
