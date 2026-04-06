@@ -616,7 +616,7 @@ async function _parseEssquareSearchResults(tabId) {
           properties.push({
             uuid,
             building_name: specView.tatemono_name || '',
-            room_number: specView.heya_kukaku_number || '',
+            room_number: (specView.heya_kukaku_number || '').replace(/^0+(?=\d)/, ''),
             address: specView.jusho_full_text || '',
             rent: jv.chinryo || 0,
             management_fee: mgmtFee,
