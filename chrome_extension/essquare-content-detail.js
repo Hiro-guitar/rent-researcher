@@ -17,24 +17,13 @@
     if (msg.type === 'ESSQUARE_EXTRACT_DETAIL') {
       // 次回の注入を許可（次の物件用）
       window.__essquareContentDetailLoaded = false;
-      (async () => {
-        try {
-          const result = extractDetail();
-          if (result.ok && result.detail) {
-            // ギャラリー操作で画像をblob→base64変換しながら収集
-            const galleryResult = await extractImagesViaGallery();
-            if (galleryResult.images && galleryResult.images.length > 0) {
-              result.detail.image_base64 = galleryResult.images;
-            }
-            if (galleryResult.galleryLog) {
-              result.detail._galleryLog = galleryResult.galleryLog;
-            }
-          }
-          sendResponse(result);
-        } catch (err) {
-          sendResponse({ ok: false, error: err.message });
-        }
-      })();
+      try {
+        const result = extractDetail();
+        // 画像はbackground.jsからMAIN worldで別途取得する
+        sendResponse(result);
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
       return true;
     }
 

@@ -276,6 +276,139 @@ async function _clickEssquarePropertyLink(tabId, index) {
   return results?.[0]?.result === true;
 }
 
+// === ギャラリー画像抽出（MAIN worldで実行） ===
+
+async function _extractEssquareGalleryImages(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',  // Swiper API + Performance API にアクセスするためMAIN worldで実行
+    func: async () => {
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      let log = '';
+
+      // サムネイルクリックでギャラリーモーダルを開く
+      const thumbnail = document.querySelector('.css-tx2s10 img')
+                     || document.querySelector('.swiper img, [class*="swiper"] img');
+      if (!thumbnail) return { urls: [], log: 'no_thumbnail' };
+      thumbnail.click();
+
+      // モーダル表示待ち
+      let modalReady = false;
+      for (let i = 0; i < 30; i++) {
+        await sleep(200);
+        const img = document.querySelector('.swiper-slide-active img');
+        if (img && img.complete && img.naturalWidth > 0) { modalReady = true; break; }
+      }
+      if (!modalReady) return { urls: [], log: 'no_modal' };
+
+      // Performance API の既存エントリをマーク（ギャラリーナビゲーション前の画像は除外）
+      const preNavEntryCount = performance.getEntriesByType('resource').length;
+
+      // Swiper総スライド数を取得
+      let totalSlides = 100;
+      const swiperEl = document.querySelector('.swiper');
+      if (swiperEl && swiperEl.swiper) {
+        totalSlides = swiperEl.swiper.slides.length - (swiperEl.swiper.loopedSlides || 0) * 2;
+      } else {
+        const nonDupSlides = document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)');
+        if (nonDupSlides.length > 0) totalSlides = nonDupSlides.length;
+      }
+      log += `slides:${totalSlides}`;
+
+      // 全スライドをナビゲート（画像lazy-loadをトリガー）
+      const maxNav = Math.min(totalSlides + 3, 100);
+      const seenIndices = new Set();
+      let navCount = 0;
+
+      for (let n = 0; n < maxNav; n++) {
+        // 現在のスライドインデックス確認
+        if (swiperEl && swiperEl.swiper) {
+          const idx = swiperEl.swiper.realIndex;
+          if (seenIndices.has(idx)) {
+            log += ` →loop@${n}(idx=${idx})`;
+            break;
+          }
+          seenIndices.add(idx);
+        }
+
+        // 次へボタンをクリック
+        let clicked = false;
+        const icon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
+        if (icon) {
+          let el = icon;
+          for (let i = 0; i < 6; i++) {
+            el = el.parentElement;
+            if (!el) break;
+            const style = window.getComputedStyle(el);
+            if (style.pointerEvents === 'none' || el.hasAttribute('disabled')) break;
+            if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button'
+                || style.cursor === 'pointer' || el.onclick) {
+              el.click();
+              clicked = true;
+              break;
+            }
+          }
+          if (!clicked && icon.parentElement) {
+            icon.parentElement.click();
+            clicked = true;
+          }
+        }
+        if (!clicked) {
+          log += ` →noBtn@${n}`;
+          break;
+        }
+
+        navCount++;
+
+        // 画像ロード完了を待つ
+        for (let w = 0; w < 8; w++) {
+          await sleep(300);
+          const img = document.querySelector('.swiper-slide-active img');
+          if (img && img.complete && img.naturalWidth > 0) break;
+        }
+      }
+      log += ` nav:${navCount}`;
+
+      // Performance APIから画像HTTP URLを収集
+      const SKIP = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz|es-service\.net|onetop|placeholder|spinner|loading|e_square_logo|sfa_main_banner|line\.me|liff/i;
+      const SKIP_EXT = /\.(js|css|woff|woff2|ttf|eot|svg|gif)$/i;
+      const entries = performance.getEntriesByType('resource');
+      const seen = new Set();
+      const imgUrls = [];
+
+      for (const entry of entries) {
+        const name = entry.name;
+        if (seen.has(name) || SKIP.test(name) || SKIP_EXT.test(name)) continue;
+        if (!name.startsWith('http')) continue;
+        seen.add(name);
+
+        const isImageExt = /\.(jpg|jpeg|png|webp|bmp|avif)/i.test(name);
+        const init = entry.initiatorType;
+        const size = (entry.transferSize || 0) + (entry.decodedBodySize || 0);
+
+        if (isImageExt || ((init === 'fetch' || init === 'xmlhttprequest') && size > 5000)) {
+          imgUrls.push(name);
+        }
+      }
+      log += ` perf:${imgUrls.length}`;
+
+      // モーダルを閉じる
+      const closeBtn = document.querySelector('.MuiBox-root.css-11p4x25');
+      if (closeBtn) {
+        closeBtn.click();
+      } else {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+      }
+      await sleep(300);
+
+      return { urls: imgUrls, log };
+    },
+  });
+
+  const result = results?.[0]?.result;
+  return result || { urls: [], log: 'executeScript_failed' };
+}
+
 // === 検索結果ページに戻る ===
 
 async function _goBackToEssquareSearchResults(tabId) {
@@ -953,34 +1086,52 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
               await setStorageData({ debugLog: `[ES-Square] 設備: ${dbg.facilitiesPreview.substring(0, 150)}` });
             }
           }
-          if (d._galleryLog) {
-            await setStorageData({ debugLog: `[ES-Square] ギャラリー: ${d._galleryLog}` });
-          }
 
-          // 画像: base64 → catbox.moe アップロード
-          if (d.image_base64?.length) {
-            await setStorageData({ debugLog: `[ES-Square] 画像base64: ${d.image_base64.length}件取得、アップロード中...` });
-            const uploadedUrls = [];
-            let uploadFailed = 0;
-            for (let i = 0; i < d.image_base64.length; i++) {
-              try {
-                const publicUrl = await uploadBase64ToCatbox(d.image_base64[i]);
-                if (publicUrl) {
-                  uploadedUrls.push(publicUrl);
-                } else {
+          // 画像: MAIN worldでギャラリーナビゲーション→Performance APIでHTTP URL収集
+          try {
+            const galleryResult = await _extractEssquareGalleryImages(tabId);
+            if (galleryResult.log) {
+              await setStorageData({ debugLog: `[ES-Square] ギャラリー: ${galleryResult.log}` });
+            }
+            if (galleryResult.urls?.length) {
+              await setStorageData({ debugLog: `[ES-Square] 画像URL: ${galleryResult.urls.length}件取得、アップロード中...` });
+              const uploadedUrls = [];
+              let uploadFailed = 0;
+              for (const imgUrl of galleryResult.urls) {
+                try {
+                  // HTTP URLをfetchしてbase64化→catboxアップロード
+                  const resp = await fetch(imgUrl, { credentials: 'include' });
+                  if (!resp.ok) { uploadFailed++; continue; }
+                  const blob = await resp.blob();
+                  if (blob.size < 5000 || blob.size > 2000000) { uploadFailed++; continue; }
+                  const base64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(blob);
+                  });
+                  const publicUrl = await uploadBase64ToCatbox(base64);
+                  if (publicUrl) {
+                    uploadedUrls.push(publicUrl);
+                  } else {
+                    uploadFailed++;
+                  }
+                } catch (e) {
                   uploadFailed++;
+                  console.warn(`[ES-Square] 画像アップロード失敗:`, e.message);
                 }
-              } catch (e) {
-                uploadFailed++;
-                console.warn(`[ES-Square] 画像アップロード失敗 (${i}):`, e.message);
+              }
+              if (uploadedUrls.length > 0) {
+                prop.image_urls = uploadedUrls;
+                prop.image_url = uploadedUrls[0];
+                await setStorageData({ debugLog: `[ES-Square] 画像アップロード完了: ${uploadedUrls.length}件${uploadFailed > 0 ? ` (失敗:${uploadFailed}件)` : ''}` });
               }
             }
-            if (uploadedUrls.length > 0) {
-              prop.image_urls = uploadedUrls;
-              prop.image_url = uploadedUrls[0];
-              await setStorageData({ debugLog: `[ES-Square] 画像アップロード完了: ${uploadedUrls.length}件${uploadFailed > 0 ? ` (失敗:${uploadFailed}件)` : ''}` });
-            }
-          } else if (d.image_urls?.length) {
+          } catch (galleryErr) {
+            console.warn(`[ES-Square] ギャラリー画像取得失敗:`, galleryErr.message);
+            await setStorageData({ debugLog: `[ES-Square] ギャラリー画像取得失敗: ${galleryErr.message}` });
+          }
+
+          if (d.image_urls?.length && !prop.image_urls) {
             prop.image_urls = d.image_urls;
             if (!prop.image_url && d.image_urls[0]) prop.image_url = d.image_urls[0];
           }
