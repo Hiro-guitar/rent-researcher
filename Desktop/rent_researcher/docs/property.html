@@ -579,8 +579,8 @@ function renderProperty(p) {
     var bikeAvail = pkVal.match(/(駐輪場)\s*[：:]\s*([^,，、\s：:]+)/);
     var motoAvail = pkVal.match(/(バイク置き?場)\s*[：:]\s*([^,，、\s：:]+)/);
     if (bikeAvail || motoAvail) {
-      if (bikeAvail && !hv(p.bicycleParkingFee)) costRows.push(['駐輪場', bikeAvail[2]]);
-      if (motoAvail && !hv(p.motorcycleParkingFee)) costRows.push(['バイク置き場', motoAvail[2]]);
+      if (bikeAvail && !hv(p.bicycleParkingFee) && hv(bikeAvail[2])) costRows.push(['駐輪場', bikeAvail[2]]);
+      if (motoAvail && !hv(p.motorcycleParkingFee) && hv(motoAvail[2])) costRows.push(['バイク置き場', motoAvail[2]]);
       // 空き状況以外に金額が含まれていれば駐車場代も表示
       var stripped = pkVal.replace(/駐輪場\s*[：:]\s*[^,，、\s：:]+/, '').replace(/バイク置き?場\s*[：:]\s*[^,，、\s：:]+/, '').replace(/[,，、\s]+/g, '');
       if (stripped && /\d/.test(stripped)) costRows.push(['駐車場代', stripped]);
