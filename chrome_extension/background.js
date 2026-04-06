@@ -1294,6 +1294,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   const maxDetails = 200;
   let totalDetailCount = 0;
   let currentPage = 1;
+  let consecutiveRecoveryFails = 0;
   let totalPages = 1;
 
   pageLoop: while (currentPage <= totalPages) {
@@ -1433,26 +1434,13 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         // no_rowsが続く場合、検索フォームから再検索して復帰
         if (clickStatus === 'no_rows' && waitTry >= 2 && !triedRecovery) {
           triedRecovery = true;
-          await setStorageData({ debugLog: `${customer.name}: 結果一覧が空→再検索で復帰試行` });
-          // 検索フォームへ
-          await chrome.scripting.executeScript({
-            target: { tabId },
-            world: 'MAIN',
-            func: () => {
-              const nuxt = window.$nuxt;
-              if (nuxt?.$router) { nuxt.$router.push('/main/BK/GBK001310'); return; }
-              location.href = 'https://system.reins.jp/main/BK/GBK001310';
-            }
-          });
-          await csleep(3000);
-          // 検索ボタンクリック
+          await setStorageData({ debugLog: `${customer.name}: 結果一覧が空→ページ再読込で復帰試行` });
+          // 結果ページのままlocation.reload() — REINSはセッションで前回の検索結果を保持している
           await chrome.scripting.executeScript({
             target: { tabId }, world: 'MAIN',
-            func: () => {
-              const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '検索');
-              if (btn) btn.click();
-            }
+            func: () => { location.reload(); }
           });
+          await csleep(4000);
           // 結果ページ＆ダイアログ処理
           for (let rs = 0; rs < 20; rs++) {
             await csleep(2000);
@@ -1494,8 +1482,16 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       }
       if (clickStatus !== 'clicked') {
         await setStorageData({ debugLog: `${customer.name}: ✗ ${result.buildingName} ${result.floor} 詳細ボタンが見つからない(${clickStatus})→スキップ` });
+        if (clickStatus === 'no_rows') {
+          consecutiveRecoveryFails++;
+          if (consecutiveRecoveryFails >= 3) {
+            await setStorageData({ debugLog: `${customer.name}: 復帰失敗が連続3回→この顧客の処理を打ち切り` });
+            return newProperties;
+          }
+        }
         continue;
       }
+      consecutiveRecoveryFails = 0;
       await waitForTabLoad(tabId);
       await csleep(delay);
 
