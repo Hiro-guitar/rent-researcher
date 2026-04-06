@@ -300,22 +300,37 @@ async function _extractEssquareGalleryImages(tabId) {
         if (img && img.complete && img.naturalWidth > 0) { modalReady = true; break; }
       }
       if (!modalReady) return { urls: [], base64s: [], log: 'no_modal' };
-      await sleep(500); // モーダルSwiper初期化待ち
+      await sleep(800); // モーダルSwiper初期化待ち
 
-      // モーダル内のSwiperを見つける（複数の.swiperがある場合、モーダル内のものを優先）
+      // モーダル内のSwiperを見つける
+      // 優先順: MuiDialogやオーバーレイ内のswiper → スライド数最大のswiper → 最後のswiper
       let galSwiper = null;
       const allSwipers = document.querySelectorAll('.swiper');
-      for (const el of allSwipers) {
-        if (el.swiper && el.swiper.slides && el.swiper.slides.length > 2) {
-          galSwiper = el.swiper;
-          break;
+      const swiperCount = allSwipers.length;
+
+      // 方法1: MuiModal/MuiDialog/Backdrop内のswiperを探す
+      const modalContainers = document.querySelectorAll(
+        '.MuiModal-root .swiper, .MuiDialog-root .swiper, [role="dialog"] .swiper, [role="presentation"] .swiper'
+      );
+      for (const el of modalContainers) {
+        if (el.swiper) { galSwiper = el.swiper; break; }
+      }
+
+      // 方法2: スライド数が最も多いswiperを選択
+      if (!galSwiper) {
+        let maxSlides = 0;
+        for (const el of allSwipers) {
+          if (el.swiper && el.swiper.slides && el.swiper.slides.length > maxSlides) {
+            maxSlides = el.swiper.slides.length;
+            galSwiper = el.swiper;
+          }
         }
       }
-      // フォールバック: 最初のswiper
-      if (!galSwiper) {
-        for (const el of allSwipers) {
-          if (el.swiper) { galSwiper = el.swiper; break; }
-        }
+
+      // 方法3: 最後のswiper（モーダルはDOMの後方に追加される傾向）
+      if (!galSwiper && allSwipers.length > 0) {
+        const lastEl = allSwipers[allSwipers.length - 1];
+        if (lastEl.swiper) galSwiper = lastEl.swiper;
       }
 
       // Swiper総スライド数を取得
@@ -327,7 +342,7 @@ async function _extractEssquareGalleryImages(tabId) {
         const nonDupSlides = document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)');
         totalSlides = nonDupSlides.length || 50;
       }
-      log += `swiper:${galSwiper ? 'found' : 'none'} slides:${totalSlides}`;
+      log += `swipers:${swiperCount} method:${galSwiper ? (modalContainers.length > 0 ? 'modal' : 'max') : 'none'} slides:${totalSlides}`;
 
       // canvas経由でアクティブ画像をbase64キャプチャ
       function captureActiveImg() {
