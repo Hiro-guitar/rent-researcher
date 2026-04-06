@@ -1141,7 +1141,24 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
         // スライドモーダル（詳細ページ）の読み込み待ち
         // SPA遷移なのでwaitForTabLoadは不要（ページ自体はリロードされない）
-        await csleep(3000); // React SPA 描画待ち
+        // 固定sleepではなく、詳細ページの主要要素出現を条件待ち（最大3秒、通常1秒以下）
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            world: 'MAIN',
+            func: async () => {
+              const start = Date.now();
+              while (Date.now() - start < 3000) {
+                // サムネイル画像 or MuiGridアイテムの出現で描画完了と判定
+                const thumb = document.querySelector('.css-tx2s10 img');
+                const grids = document.querySelectorAll('.MuiGrid-item');
+                if (thumb && grids.length > 5) return;
+                await new Promise(r => setTimeout(r, 100));
+              }
+            },
+          });
+        } catch (e) {}
+        await csleep(200); // 念のため微小バッファ
 
         // ログインチェック
         const detailTab = await chrome.tabs.get(tabId);
