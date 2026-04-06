@@ -220,7 +220,22 @@
   // ─── ギャラリー操作で画像をblob→base64変換しながら収集 ───
   // 参考: 別Chrome拡張の実績あるロジックを移植
 
-  // blob URLをfetchしてbase64に変換
+  // img要素からcanvas経由でbase64を取得（blob URL fetch不要）
+  function imgToBase64(img) {
+    try {
+      if (!img || !img.complete || img.naturalWidth === 0) return null;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      return canvas.toDataURL('image/jpeg', 0.92);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // blob URLをfetchしてbase64に変換（canvas失敗時のフォールバック）
   async function convertBlobToBase64(blobUrl) {
     try {
       const response = await fetch(blobUrl);
@@ -234,17 +249,6 @@
       });
     } catch (e) {
       return null;
-    }
-  }
-
-  // 画像のsrc変化を待つ
-  async function waitForImageChange(prevSrc, timeout = 5000) {
-    const start = Date.now();
-    while (Date.now() - start < timeout) {
-      const img = document.querySelector('.swiper-slide-active .css-oq6icw img')
-                || document.querySelector('.swiper-slide-active img');
-      if (img && img.src !== prevSrc && img.complete && img.naturalWidth > 0) return;
-      await sleep(100);
     }
   }
 
@@ -275,39 +279,36 @@
       await sleep(100);
     }
 
-    // === ステップ1: 全スライドの画像を一括収集（DOMに既にある分） ===
-    const allSlideImgs = document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate) img');
+    // === 現在のアクティブスライドの画像をcanvasで取得 ===
     const seenBase64 = new Set();
-    let bulkCount = 0;
 
-    for (const img of allSlideImgs) {
-      const src = img.src || '';
-      if (!src) continue;
-      // 画像ロード待ち
-      for (let w = 0; w < 20; w++) {
-        if (img.complete && img.naturalWidth > 0) break;
-        await sleep(100);
-      }
-      if (!img.complete || img.naturalWidth === 0) continue;
-
-      const base64 = await convertBlobToBase64(src);
-      if (base64 && !base64.startsWith(NO_IMAGE_BASE64_START) && !seenBase64.has(base64)) {
-        seenBase64.add(base64);
-        images.push(base64);
-        bulkCount++;
-      }
+    function captureActiveImage() {
+      const img = document.querySelector('.swiper-slide-active img');
+      if (!img || !img.complete || img.naturalWidth === 0) return null;
+      let base64 = imgToBase64(img);
+      if (!base64) return null;
+      if (base64.startsWith(NO_IMAGE_BASE64_START)) return null;
+      return base64;
     }
-    galleryLog += `bulk:${bulkCount}`;
 
-    // === ステップ2: ナビゲーションで未取得画像を追加収集 ===
+    // 最初の1枚を取得
+    const firstBase64 = captureActiveImage();
+    let initCount = 0;
+    if (firstBase64) {
+      seenBase64.add(firstBase64);
+      images.push(firstBase64);
+      initCount = 1;
+    }
+    galleryLog += `init:${initCount}`;
+
+    // === ナビゲーションで全画像を収集 ===
     let navCount = 0;
-    let dupCount = 0; // seenBase64で重複検知した連続回数
+    let dupCount = 0;
 
     // 次へボタンを探すヘルパー
     function findNextButton() {
       const icon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
       if (!icon) return null;
-      // 親を辿ってクリック可能要素を探す
       let el = icon;
       for (let i = 0; i < 6; i++) {
         el = el.parentElement;
@@ -319,47 +320,59 @@
           return el;
         }
       }
-      return icon.parentElement; // フォールバック
+      return icon.parentElement;
     }
 
-    // 最大反復数 = 画像数 × 2（ループモード分）+ マージン
-    const maxIter = 60;
-
-    for (let n = 0; n < maxIter; n++) {
+    for (let n = 0; n < 60; n++) {
       const btn = findNextButton();
       if (!btn) {
         galleryLog += ` →noBtn@${n}`;
         break;
       }
 
+      // クリック前の画像srcを記録
+      const prevImg = document.querySelector('.swiper-slide-active img');
+      const prevSrc = prevImg ? prevImg.src : '';
+
       btn.click();
 
-      // アクティブスライドの画像src変化を待つ（lazy-load対応）
-      let activeImg = null;
-      let src = '';
-      for (let w = 0; w < 30; w++) {
-        await sleep(150);
-        activeImg = document.querySelector('.swiper-slide-active img');
-        if (activeImg && activeImg.src && activeImg.complete && activeImg.naturalWidth > 0) {
-          src = activeImg.src;
+      // srcが変わるまで待つ（スライドアニメーション+lazy-load対応）
+      let newImg = null;
+      let changed = false;
+      for (let w = 0; w < 40; w++) {
+        await sleep(120);
+        newImg = document.querySelector('.swiper-slide-active img');
+        if (!newImg) continue;
+        // src自体が変わった OR 別のimg要素になった
+        if (newImg.src && newImg.src !== prevSrc) {
+          // ロード完了を待つ
+          for (let lw = 0; lw < 20; lw++) {
+            if (newImg.complete && newImg.naturalWidth > 0) break;
+            await sleep(100);
+          }
+          changed = true;
+          break;
+        }
+        // 同じsrcでも別のDOM要素（Swiperのクローンスライド）の場合
+        if (newImg !== prevImg && newImg.complete && newImg.naturalWidth > 0) {
+          changed = true;
           break;
         }
       }
 
-      if (!activeImg || !src) {
-        galleryLog += ` →noImg@${n}`;
+      if (!changed || !newImg) {
+        galleryLog += ` →noChg@${n}`;
         continue;
       }
 
-      // blob/data URLをbase64に変換（seenSrcsは使わない — Swiperがblob URLを再利用するため）
-      const base64 = await convertBlobToBase64(src);
+      // canvas描画でbase64取得
+      const base64 = imgToBase64(newImg);
       if (!base64 || base64.startsWith(NO_IMAGE_BASE64_START)) {
         continue;
       }
 
       if (seenBase64.has(base64)) {
         dupCount++;
-        // ループモードで一周して重複が連続したら終了
         if (dupCount >= 5) {
           galleryLog += ` →dup5@${n}`;
           break;
@@ -367,7 +380,6 @@
         continue;
       }
 
-      // 新しい画像
       dupCount = 0;
       seenBase64.add(base64);
       images.push(base64);
