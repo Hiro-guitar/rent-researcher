@@ -962,7 +962,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             await setStorageData({ debugLog: `[ES-Square] 画像base64: ${d.image_base64.length}件取得、アップロード中...` });
             const uploadedUrls = [];
             let uploadFailed = 0;
-            for (let i = 0; i < d.image_base64.length && i < 30; i++) {
+            for (let i = 0; i < d.image_base64.length; i++) {
               try {
                 const publicUrl = await uploadBase64ToCatbox(d.image_base64[i]);
                 if (publicUrl) {
