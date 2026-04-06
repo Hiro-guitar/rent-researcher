@@ -285,8 +285,10 @@
 
       // 次へボタンクリック
       let navResult = 'no_button';
-      // 方法1: CSS固有セレクタ
-      const nextBtn = document.querySelector('.css-1nuul26');
+      // 方法1: CSS固有セレクタ（複数ある場合、最後のもの=ギャラリーモーダル内を使用）
+      const nextBtns = document.querySelectorAll('.css-1nuul26');
+      if (n === 0) console.log(`[ES-Square] nextBtns_total: ${nextBtns.length}`);
+      const nextBtn = nextBtns.length > 0 ? nextBtns[nextBtns.length - 1] : null;
       if (nextBtn) {
         const style = window.getComputedStyle(nextBtn);
         if (style.pointerEvents === 'none' || nextBtn.hasAttribute('disabled')) {
@@ -323,7 +325,10 @@
           }
         }
       }
-      if (navResult !== 'clicked') break;
+      if (navResult !== 'clicked') {
+        console.log(`[ES-Square] stop: ${navResult} at n=${n}`);
+        break;
+      }
 
       // 画像ロード待ち
       for (let w = 0; w < 10; w++) {
