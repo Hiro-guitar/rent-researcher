@@ -394,7 +394,10 @@ async function _extractEssquareGalleryImages(tabId) {
           await waitFor(() => img.complete && img.naturalWidth > 0, 3000).catch(() => {});
 
           const base64 = await convertBlobToBase64(src);
-          if (base64 && !base64.startsWith(NO_IMAGE_BASE64_START) && !images.includes(base64)) {
+          if (base64
+              && !base64.startsWith(NO_IMAGE_BASE64_START)
+              && base64.length > 5000
+              && !images.includes(base64)) {
             images.push(base64);
           }
           prevSrc = src;
@@ -421,7 +424,10 @@ async function _extractEssquareGalleryImages(tabId) {
             for (const img of imgs) {
               await waitFor(() => img.complete && img.naturalWidth > 0, 3000).catch(() => {});
               const base64 = await convertBlobToBase64(img.src);
-              if (base64 && !base64.startsWith(NO_IMAGE_BASE64_START) && !images.includes(base64)) {
+              if (base64
+                  && !base64.startsWith(NO_IMAGE_BASE64_START)
+                  && base64.length > 5000
+                  && !images.includes(base64)) {
                 images.push(base64);
               }
             }
