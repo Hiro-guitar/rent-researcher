@@ -307,7 +307,12 @@ function buildFacilityTags(facStr) {
   }
   if (hasEs) return buildFacilityTagsFromES(facStr);
   // フォールバック: カンマ区切りプレーンテキスト（タグ表示のみ）
-  var items = facStr.split(/[,、，\/\n]+/).map(function(s) { return s.trim(); }).filter(function(s) { return s.length > 0; });
+  var items = facStr.split(/[,、，\/\n]+/).map(function(s) { return s.trim(); }).filter(function(s) {
+    if (!s) return false;
+    if (/[:：]\s*[-－ー無なし]+\s*$/.test(s)) return false;
+    if (s === '無' || s === '-' || s === '－' || s === 'なし' || s === 'ー') return false;
+    return true;
+  });
   var out = '<div class="fac-tags">';
   for (var i = 0; i < items.length; i++) out += '<span class="fac-tag">' + escHtml(items[i]) + '</span>';
   return out + '</div>';
