@@ -359,6 +359,16 @@ async function _extractEssquareGalleryImages(tabId) {
         } catch (e) { return null; }
       }
 
+      // 診断: 全swiperとアクティブスライドの状態を記録
+      const allSwipers = document.querySelectorAll('.swiper');
+      const activeSlides = document.querySelectorAll('.swiper-slide-active');
+      const allImgs = document.querySelectorAll('.swiper-slide-active img');
+      const firstActiveImg = document.querySelector('.swiper-slide-active img');
+      log += ` swipers:${allSwipers.length} activeSlides:${activeSlides.length} activeImgs:${allImgs.length}`;
+      if (firstActiveImg) {
+        log += ` src:${firstActiveImg.src.substring(0, 40)}`;
+      }
+
       // 最初の画像をキャプチャ
       const seenBase64 = new Set();
       const base64s = [];
@@ -366,11 +376,16 @@ async function _extractEssquareGalleryImages(tabId) {
       if (firstB64) {
         seenBase64.add(firstB64);
         base64s.push(firstB64);
+        log += ` initB64len:${firstB64.length}`;
+      } else {
+        log += ` initB64:null`;
       }
 
-      // 全スライドをナビゲート（realIndexに依存しない、dup5で停止）
+      // 全スライドをナビゲート（dup5で停止）
       let navCount = 0;
       let dupCount = 0;
+      let prevSrc = firstActiveImg ? firstActiveImg.src : '';
+      let srcChanges = 0;
 
       for (let n = 0; n < 60; n++) {
         // 次へボタンクリック
@@ -406,8 +421,8 @@ async function _extractEssquareGalleryImages(tabId) {
         }
 
         // スライド遷移+画像ロード待ち
-        await sleep(400);
-        for (let w = 0; w < 10; w++) {
+        await sleep(500);
+        for (let w = 0; w < 15; w++) {
           const img = document.querySelector('.swiper-slide-active img');
           if (img && img.complete && img.naturalWidth > 0) break;
           await sleep(200);
@@ -415,9 +430,17 @@ async function _extractEssquareGalleryImages(tabId) {
 
         navCount++;
 
+        // 診断: srcが変わったか確認
+        const curImg = document.querySelector('.swiper-slide-active img');
+        const curSrc = curImg ? curImg.src : '';
+        if (curSrc !== prevSrc) {
+          srcChanges++;
+          prevSrc = curSrc;
+        }
+
         // canvas経由でbase64キャプチャ
         const b64 = captureActiveImg();
-        if (!b64) continue;
+        if (!b64) { log += ` null@${n}`; continue; }
 
         if (seenBase64.has(b64)) {
           dupCount++;
@@ -431,7 +454,7 @@ async function _extractEssquareGalleryImages(tabId) {
         seenBase64.add(b64);
         base64s.push(b64);
       }
-      log += ` nav:${navCount} captured:${base64s.length}`;
+      log += ` nav:${navCount} srcChg:${srcChanges} captured:${base64s.length}`;
 
       // fetchインターセプターからHTTP URLも収集（補助）
       const JUNK_IMG = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz|es-service\.net|onetop|placeholder|spinner|loading|e_square_logo|sfa_main_banner|line\.me|liff/i;
