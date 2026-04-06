@@ -252,6 +252,56 @@ async function _waitForEssquareRender(tabId, timeoutMs) {
   return 'timeout';
 }
 
+// === 検索結果ページ上の物件リンクをクリック ===
+
+async function _clickEssquarePropertyLink(tabId, index) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (idx) => {
+      const rows = document.querySelectorAll('[data-testclass="bukkenListItem"]');
+      if (idx >= rows.length) return false;
+      const row = rows[idx];
+      // 物件行内のリンクを探す
+      const link = row.querySelector('a[href*="/detail/"]') || row.querySelector('a');
+      if (link) {
+        link.click();
+        return true;
+      }
+      // リンクが見つからない場合、行自体をクリック
+      row.click();
+      return true;
+    },
+    args: [index],
+  });
+  return results?.[0]?.result === true;
+}
+
+// === ブラウザバックで検索結果ページに戻る ===
+
+async function _goBackToEssquareSearchResults(tabId) {
+  await chrome.tabs.goBack(tabId);
+  await waitForTabLoad(tabId);
+
+  // 検索結果ページのレンダリングを待つ
+  const startTime = Date.now();
+  const timeoutMs = 15000;
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      // URLが検索結果ページ（/detailを含まない）であることを確認
+      if (tab.url && tab.url.includes('/search') && !tab.url.includes('/detail/')) {
+        // DOMのレンダリングも待つ
+        const renderStatus = await _waitForEssquareRender(tabId, 10000);
+        if (renderStatus === 'rendered' || renderStatus === 'empty') return;
+        break;
+      }
+    } catch (e) {
+      // タブ取得エラー
+    }
+    await sleep(500);
+  }
+}
+
 // === 検索結果パース（React Fiber経由） ===
 
 async function _parseEssquareSearchResults(tabId) {
@@ -719,8 +769,9 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
   await setStorageData({ debugLog: `[ES-Square] ${customer.name}: 検索条件 → ${filterParts.join(' / ') || '(条件なし)'}` });
 
   // ページネーション（最大5ページ × 30件 = 150件）
+  // 人間的な動作: 検索結果ページに留まり、物件をクリック→詳細取得→戻る→次の物件
   const maxPages = 5;
-  let allProperties = [];
+  let totalProperties = 0;
 
   for (let page = 1; page <= maxPages; page++) {
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
@@ -767,13 +818,13 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
       throw new Error('ESSQUARE_LOGIN_REQUIRED');
     }
 
-    // DOMから物件リスト抽出
+    // DOMから物件リスト抽出（基本情報 + UUID）
     const pageProps = await _parseEssquareSearchResults(tabId);
     await setStorageData({ debugLog: `[ES-Square] ${customer.name}: page=${page} → ${pageProps.length}件取得` });
 
     if (pageProps.length === 0) break;
 
-    // 各物件にURL等を付与（React Fiberから取得済みフィールドは保持）
+    // 各物件にデフォルト値を付与
     for (const p of pageProps) {
       p.source = 'essquare';
       p.url = `${ESSQUARE_BASE_URL}/bukken/chintai/search/detail/${p.uuid}`;
@@ -802,188 +853,196 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
       p.story_text = p.total_floors ? `${p.total_floors}階建` : '';
     }
 
-    allProperties.push(...pageProps);
+    totalProperties += pageProps.length;
+    await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ${totalProperties}件取得、検索結果ページから詳細確認中...` });
+
+    // 検索結果ページに留まったまま、各物件をクリックして詳細取得
+    for (let propIdx = 0; propIdx < pageProps.length; propIdx++) {
+      const prop = pageProps[propIdx];
+      if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
+
+      // 重複チェック
+      const isTestUser = customer.name.includes('テスト');
+      if (!isTestUser && customerSeenIds.includes(prop.room_id)) {
+        continue;
+      }
+
+      // 詳細取得: 検索結果ページ上の物件リンクをクリック
+      try {
+        // 検索結果ページで該当物件のリンクをクリック
+        const clicked = await _clickEssquarePropertyLink(tabId, propIdx);
+        if (!clicked) {
+          console.warn(`[ES-Square] クリック失敗 (${prop.building_name}): index=${propIdx}`);
+          continue;
+        }
+
+        // スライドモーダル（詳細ページ）の読み込み待ち
+        await waitForTabLoad(tabId);
+        await csleep(3000); // React SPA 描画待ち
+
+        // ログインチェック
+        const detailTab = await chrome.tabs.get(tabId);
+        if (detailTab.url?.includes('/login')) {
+          throw new Error('ESSQUARE_LOGIN_REQUIRED');
+        }
+
+        let detailResult;
+        try {
+          detailResult = await sendEssquareContentMessage(tabId, { type: 'ESSQUARE_EXTRACT_DETAIL' }, 60000);
+        } catch (err) {
+          console.warn(`[ES-Square] 詳細取得失敗 (${prop.building_name}):`, err.message);
+        }
+
+        if (detailResult?.ok && detailResult.detail) {
+          const d = detailResult.detail;
+          // デバッグログ
+          if (d._debug) {
+            const dbg = d._debug;
+            await setStorageData({ debugLog: `[ES-Square] 詳細: imgs=${dbg.imageCount}, fac=${dbg.facilitiesLength}` });
+            if (dbg.facilitiesPreview) {
+              await setStorageData({ debugLog: `[ES-Square] 設備: ${dbg.facilitiesPreview.substring(0, 150)}` });
+            }
+          }
+
+          // 画像: base64 → catbox.moe アップロード
+          if (d.image_base64?.length) {
+            await setStorageData({ debugLog: `[ES-Square] 画像base64: ${d.image_base64.length}件取得、アップロード中...` });
+            const uploadedUrls = [];
+            for (let i = 0; i < d.image_base64.length && i < 10; i++) {
+              try {
+                const publicUrl = await uploadBase64ToCatbox(d.image_base64[i]);
+                if (publicUrl) uploadedUrls.push(publicUrl);
+              } catch (e) {
+                console.warn(`[ES-Square] 画像アップロード失敗 (${i}):`, e.message);
+              }
+            }
+            if (uploadedUrls.length > 0) {
+              prop.image_urls = uploadedUrls;
+              prop.image_url = uploadedUrls[0];
+              await setStorageData({ debugLog: `[ES-Square] 画像アップロード完了: ${uploadedUrls.length}件` });
+            }
+          } else if (d.image_urls?.length) {
+            prop.image_urls = d.image_urls;
+            if (!prop.image_url && d.image_urls[0]) prop.image_url = d.image_urls[0];
+          }
+          if (d.listing_status) prop.listing_status = d.listing_status;
+          if (d.facilities) prop.facilities = d.facilities;
+
+          if (d.other_stations?.length) {
+            prop.other_stations = d.other_stations;
+          }
+
+          // 管理費: 詳細ページテキストからパース（検索結果が0の場合のフォールバック）
+          if (d._mgmt_text && !prop.management_fee) {
+            const mgmtMatch = d._mgmt_text.match(/([\d,]+)\s*円/);
+            if (mgmtMatch) {
+              prop.management_fee = parseInt(mgmtMatch[1].replace(/,/g, ''));
+            }
+          }
+
+          // 詳細ページの値で補完するフィールド
+          const detailFields = [
+            'floor_text', 'story_text', 'structure', 'total_units', 'lease_type', 'contract_period',
+            'cancellation_notice', 'renewal_info', 'sunlight', 'free_rent', 'free_rent_detail',
+            'fire_insurance', 'key_exchange_fee', 'guarantee_info', 'guarantee_deposit',
+            'parking_fee', 'bicycle_parking_fee', 'motorcycle_parking_fee',
+            'other_monthly_fee', 'other_onetime_fee', 'move_in_date', 'move_out_date',
+            'preview_start_date', 'layout_detail', 'shikibiki', 'floor',
+            'move_in_conditions', 'pet_deposit', 'renewal_admin_fee',
+            'support_fee_24h', 'additional_deposit', 'water_billing',
+            'cleaning_fee', 'sanitization_fee', 'rights_fee',
+          ];
+          for (const key of detailFields) {
+            if (d[key] && !prop[key]) {
+              prop[key] = d[key];
+            }
+          }
+
+          // 詳細ページの値で上書きするフィールド
+          const overrideFields = ['deposit', 'key_money', 'renewal_fee', 'move_in_date'];
+          for (const key of overrideFields) {
+            if (d[key]) {
+              let val = d[key];
+              if (key !== 'move_in_date') {
+                val = val.replace(/\/[\-ー－なし]*$/, '').trim();
+              }
+              prop[key] = val;
+            }
+          }
+
+          if (prop.structure) {
+            prop.structure = ESSQUARE_STRUCTURE_NORMALIZE[prop.structure] || prop.structure;
+          }
+
+          if (prop.floor_text && !prop.floor) {
+            const floorMatch = prop.floor_text.match(/(\d+)/);
+            if (floorMatch) prop.floor = parseInt(floorMatch[1]);
+          }
+        }
+
+        // ブラウザバックで検索結果ページに戻る
+        await _goBackToEssquareSearchResults(tabId);
+
+      } catch (err) {
+        if (err.message === 'ESSQUARE_LOGIN_REQUIRED' || err.message === 'SEARCH_CANCELLED' || err.message === 'SLEEP_DETECTED') {
+          throw err;
+        }
+        console.warn(`[ES-Square] 詳細処理エラー (${prop.building_name}):`, err.message);
+        // エラー時も検索結果ページに戻る試行
+        try {
+          await _goBackToEssquareSearchResults(tabId);
+        } catch (backErr) {
+          console.warn(`[ES-Square] 検索結果への復帰失敗:`, backErr.message);
+        }
+      }
+
+      // フィルタリング
+      const rejectReason = getEssquareFilterRejectReason(prop, customer);
+      if (rejectReason) {
+        await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}` });
+        continue;
+      }
+
+      // property_data_json構築
+      prop.property_data_json = JSON.stringify(buildEssquarePropertyDataJson(prop));
+
+      submittedCount++;
+      await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✓ 送信対象（${prop.building_name} ${prop.room_number || ''} ${prop.rent ? (prop.rent/10000)+'万' : ''}）` });
+
+      // GAS送信（1物件ずつ）
+      try {
+        const submitResult = await submitProperties(customer.name, [prop]);
+        if (submitResult?.success) {
+          const { stats } = await getStorageData(['stats']);
+          const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };
+          currentStats.totalFound++;
+          currentStats.totalSubmitted += submitResult.added || 1;
+          await setStorageData({ stats: currentStats });
+        }
+      } catch (err) {
+        logError(`[ES-Square] ${customer.name}: ${prop.building_name} GAS送信失敗: ${err.message}`);
+      }
+
+      // Discord通知（1物件ずつ）
+      try {
+        await sendDiscordNotification(customer.name, [prop], customer);
+      } catch (err) {
+        logError(`[ES-Square] ${customer.name}: ${prop.building_name} Discord通知失敗: ${err.message}`);
+      }
+
+      // seenIdsに追加
+      if (!seenIds[customer.name]) seenIds[customer.name] = [];
+      seenIds[customer.name].push(prop.room_id);
+
+      // 物件間のランダム遅延（人間的な間隔）
+      const delayMs = 2000 + Math.random() * 2000;
+      await csleep(delayMs);
+    }
 
     // 次ページ判定（30件未満なら最終ページ）
     if (pageProps.length < 30) break;
 
     await csleep(1500 + Math.random() * 1500);
-  }
-
-  if (allProperties.length === 0) return;
-
-  await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ${allProperties.length}件取得、詳細確認中...` });
-
-  // 各物件を処理
-  for (const prop of allProperties) {
-    if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
-
-    // 重複チェック
-    const isTestUser = customer.name.includes('テスト');
-    if (!isTestUser && customerSeenIds.includes(prop.room_id)) {
-      continue;
-    }
-
-    // 詳細ページからスクレイピング
-    try {
-      await chrome.tabs.update(tabId, { url: prop.url });
-      await waitForTabLoad(tabId);
-      await csleep(3000); // React SPA 描画待ち
-
-      // ログインチェック
-      const detailTab = await chrome.tabs.get(tabId);
-      if (detailTab.url?.includes('/login')) {
-        throw new Error('ESSQUARE_LOGIN_REQUIRED');
-      }
-
-      let detailResult;
-      try {
-        // ギャラリー操作＋画像base64変換に時間がかかるためタイムアウト延長
-        detailResult = await sendEssquareContentMessage(tabId, { type: 'ESSQUARE_EXTRACT_DETAIL' }, 60000);
-      } catch (err) {
-        console.warn(`[ES-Square] 詳細取得失敗 (${prop.building_name}):`, err.message);
-      }
-
-      if (detailResult?.ok && detailResult.detail) {
-        const d = detailResult.detail;
-        // デバッグログ
-        if (d._debug) {
-          const dbg = d._debug;
-          await setStorageData({ debugLog: `[ES-Square] 詳細: imgs=${dbg.imageCount}, fac=${dbg.facilitiesLength}` });
-          if (dbg.facilitiesPreview) {
-            await setStorageData({ debugLog: `[ES-Square] 設備: ${dbg.facilitiesPreview.substring(0, 150)}` });
-          }
-        }
-
-        // 画像: base64 → catbox.moe アップロード
-        if (d.image_base64?.length) {
-          await setStorageData({ debugLog: `[ES-Square] 画像base64: ${d.image_base64.length}件取得、アップロード中...` });
-          const uploadedUrls = [];
-          for (let i = 0; i < d.image_base64.length && i < 10; i++) {
-            try {
-              const publicUrl = await uploadBase64ToCatbox(d.image_base64[i]);
-              if (publicUrl) uploadedUrls.push(publicUrl);
-            } catch (e) {
-              console.warn(`[ES-Square] 画像アップロード失敗 (${i}):`, e.message);
-            }
-          }
-          if (uploadedUrls.length > 0) {
-            prop.image_urls = uploadedUrls;
-            prop.image_url = uploadedUrls[0];
-            await setStorageData({ debugLog: `[ES-Square] 画像アップロード完了: ${uploadedUrls.length}件` });
-          }
-        } else if (d.image_urls?.length) {
-          // Performance API URLのフォールバック（アップロードできなかった場合）
-          prop.image_urls = d.image_urls;
-          if (!prop.image_url && d.image_urls[0]) prop.image_url = d.image_urls[0];
-        }
-        if (d.listing_status) prop.listing_status = d.listing_status;
-        if (d.facilities) prop.facilities = d.facilities;
-
-        // 交通機関（詳細ページで複数路線が取得できた場合）
-        if (d.other_stations?.length) {
-          prop.other_stations = d.other_stations;
-        }
-
-        // 管理費: 詳細ページテキストからパース（検索結果が0の場合のフォールバック）
-        if (d._mgmt_text && !prop.management_fee) {
-          // "15,000円/-/-" → 15000
-          const mgmtMatch = d._mgmt_text.match(/([\d,]+)\s*円/);
-          if (mgmtMatch) {
-            prop.management_fee = parseInt(mgmtMatch[1].replace(/,/g, ''));
-          }
-        }
-
-        // 詳細ページの値で補完するフィールド（検索結果に無い場合のみ）
-        const detailFields = [
-          'floor_text', 'story_text', 'structure', 'total_units', 'lease_type', 'contract_period',
-          'cancellation_notice', 'renewal_info', 'sunlight', 'free_rent', 'free_rent_detail',
-          'fire_insurance', 'key_exchange_fee', 'guarantee_info', 'guarantee_deposit',
-          'parking_fee', 'bicycle_parking_fee', 'motorcycle_parking_fee',
-          'other_monthly_fee', 'other_onetime_fee', 'move_in_date', 'move_out_date',
-          'preview_start_date', 'layout_detail', 'shikibiki', 'floor',
-          'move_in_conditions', 'pet_deposit', 'renewal_admin_fee',
-          'support_fee_24h', 'additional_deposit', 'water_billing',
-          'cleaning_fee', 'sanitization_fee', 'rights_fee',
-        ];
-        for (const key of detailFields) {
-          if (d[key] && !prop[key]) {
-            prop[key] = d[key];
-          }
-        }
-
-        // 詳細ページの値で上書きするフィールド（詳細ページのテキストの方が正確）
-        const overrideFields = ['deposit', 'key_money', 'renewal_fee', 'move_in_date'];
-        for (const key of overrideFields) {
-          if (d[key]) {
-            let val = d[key];
-            // 複合フィールドの余分な部分を除去（例: "1ヶ月/-" → "1ヶ月", "なし/-" → "なし"）
-            if (key !== 'move_in_date') {
-              val = val.replace(/\/[\-ー－なし]*$/, '').trim();
-            }
-            prop[key] = val;
-          }
-        }
-
-        // 構造名を正規化
-        if (prop.structure) {
-          prop.structure = ESSQUARE_STRUCTURE_NORMALIZE[prop.structure] || prop.structure;
-        }
-
-        // 所在階をパース
-        if (prop.floor_text && !prop.floor) {
-          const floorMatch = prop.floor_text.match(/(\d+)/);
-          if (floorMatch) prop.floor = parseInt(floorMatch[1]);
-        }
-      }
-    } catch (err) {
-      if (err.message === 'ESSQUARE_LOGIN_REQUIRED' || err.message === 'SEARCH_CANCELLED' || err.message === 'SLEEP_DETECTED') {
-        throw err;
-      }
-      console.warn(`[ES-Square] 詳細処理エラー (${prop.building_name}):`, err.message);
-    }
-
-    // フィルタリング
-    const rejectReason = getEssquareFilterRejectReason(prop, customer);
-    if (rejectReason) {
-      await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}` });
-      continue;
-    }
-
-    // property_data_json構築
-    prop.property_data_json = JSON.stringify(buildEssquarePropertyDataJson(prop));
-
-    submittedCount++;
-    await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✓ 送信対象（${prop.building_name} ${prop.room_number || ''} ${prop.rent ? (prop.rent/10000)+'万' : ''}）` });
-
-    // GAS送信（1物件ずつ）
-    try {
-      const submitResult = await submitProperties(customer.name, [prop]);
-      if (submitResult?.success) {
-        const { stats } = await getStorageData(['stats']);
-        const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };
-        currentStats.totalFound++;
-        currentStats.totalSubmitted += submitResult.added || 1;
-        await setStorageData({ stats: currentStats });
-      }
-    } catch (err) {
-      logError(`[ES-Square] ${customer.name}: ${prop.building_name} GAS送信失敗: ${err.message}`);
-    }
-
-    // Discord通知（1物件ずつ）
-    try {
-      await sendDiscordNotification(customer.name, [prop], customer);
-    } catch (err) {
-      logError(`[ES-Square] ${customer.name}: ${prop.building_name} Discord通知失敗: ${err.message}`);
-    }
-
-    // seenIdsに追加
-    if (!seenIds[customer.name]) seenIds[customer.name] = [];
-    seenIds[customer.name].push(prop.room_id);
-
-    // 物件間のランダム遅延
-    const delayMs = 2000 + Math.random() * 2000;
-    await csleep(delayMs);
   }
 
   if (submittedCount > 0) {
