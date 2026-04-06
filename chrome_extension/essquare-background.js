@@ -867,6 +867,17 @@ async function uploadBase64ToCatbox(dataUrl) {
     method: 'POST',
     body: formData,
   });
+  // レート制限・サーバーエラーは呼び出し側でバックオフするため例外で通知
+  if (resp.status === 429 || resp.status === 503) {
+    const err = new Error(`catbox_rate_limit_${resp.status}`);
+    err.rateLimited = true;
+    throw err;
+  }
+  if (!resp.ok) {
+    const err = new Error(`catbox_http_${resp.status}`);
+    err.httpError = true;
+    throw err;
+  }
   const url = (await resp.text()).trim();
   if (!url.startsWith('https://')) return null;
 
@@ -1214,14 +1225,25 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
               const uploadedUrls = [];
               let uploadFailed = 0;
 
-              // 1. canvas base64画像をアップロード（3並列バッチ、失敗時1回リトライ、0バイト検証付き）
+              // 1. canvas base64画像をアップロード（6並列バッチ、429指数バックオフ、3回リトライ）
               async function uploadOne(b64) {
-                for (let attempt = 0; attempt < 2; attempt++) {
+                const MAX_ATTEMPTS = 3;
+                for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
                   try {
                     const publicUrl = await uploadBase64ToCatbox(b64);
                     if (publicUrl) return publicUrl;
-                  } catch (e) {}
-                  if (attempt === 0) await sleep(1000);
+                    // null戻り（無効応答や0バイト）の場合は1秒後リトライ
+                    if (attempt < MAX_ATTEMPTS - 1) await sleep(1000);
+                  } catch (e) {
+                    if (attempt >= MAX_ATTEMPTS - 1) return null;
+                    if (e && e.rateLimited) {
+                      // 429: 指数バックオフ + ジッター（2s → 4s → …）
+                      const wait = 2000 * Math.pow(2, attempt) + Math.floor(Math.random() * 500);
+                      await sleep(wait);
+                    } else {
+                      await sleep(1000);
+                    }
+                  }
                 }
                 return null;
               }
