@@ -222,8 +222,11 @@ function fetchProperty(customer, roomId) {
 }
 
 // ===== 画像非同期取得（ハッシュにテキストのみの場合、後から画像を読み込み） =====
-function fetchImages(customer, roomId) {
+var imageRetried = false; // nocache再取得済みフラグ
+
+function fetchImages(customer, roomId, nocache) {
   var url = GAS_API_URL + '?action=images_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
+  if (nocache) url += '&nocache=1';
 
   fetch(url, { redirect: 'follow' })
     .then(function(res) { return res.text(); })
@@ -244,6 +247,13 @@ function fetchImages(customer, roomId) {
     .catch(function() {});
 }
 
+// 画像読み込みエラー時にnocacheで再取得
+function onImageError(img) {
+  if (imageRetried || !customer || !roomId) return;
+  imageRetried = true;
+  fetchImages(customer, roomId, true);
+}
+
 function insertImages(images, categories) {
   var placeholder = document.getElementById('image-placeholder');
   if (!placeholder) return;
@@ -257,7 +267,7 @@ function insertImages(images, categories) {
       var cat = categories[i] || '';
       html += '<div class="carousel-slide">';
       if (cat) html += '<span class="carousel-cat">' + escHtml(cat) + '</span>';
-      html += '<img src="' + escHtml(images[i]) + '" alt="物件画像 ' + (i+1) + '" loading="lazy"></div>';
+      html += '<img src="' + escHtml(images[i]) + '" alt="物件画像 ' + (i+1) + '" loading="lazy" onerror="onImageError(this)"></div>';
     }
     html += '</div>'
       + '<button class="carousel-btn prev" onclick="slide(-1)">&lt;</button>'
@@ -273,9 +283,9 @@ function insertImages(images, categories) {
     var cat0 = categories[0] || '';
     if (cat0) {
       html += '<div style="position:relative"><span class="carousel-cat">' + escHtml(cat0) + '</span>'
-        + '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像" loading="lazy"></div>';
+        + '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像" loading="lazy" onerror="onImageError(this)"></div>';
     } else {
-      html += '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像" loading="lazy">';
+      html += '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像" loading="lazy" onerror="onImageError(this)">';
     }
   }
 
@@ -423,7 +433,7 @@ function renderProperty(p) {
       var cat = imageCategories[i] || '';
       html += '<div class="carousel-slide">';
       if (cat) html += '<span class="carousel-cat">' + escHtml(cat) + '</span>';
-      html += '<img src="' + escHtml(images[i]) + '" alt="物件画像 ' + (i+1) + '"></div>';
+      html += '<img src="' + escHtml(images[i]) + '" alt="物件画像 ' + (i+1) + '" onerror="onImageError(this)"></div>';
     }
     html += '</div>'
       + '<button class="carousel-btn prev" onclick="slide(-1)">&lt;</button>'
@@ -439,9 +449,9 @@ function renderProperty(p) {
     var cat0 = imageCategories[0] || '';
     if (cat0) {
       html += '<div style="position:relative"><span class="carousel-cat">' + escHtml(cat0) + '</span>'
-        + '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像"></div>';
+        + '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像" onerror="onImageError(this)"></div>';
     } else {
-      html += '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像">';
+      html += '<img class="hero" src="' + escHtml(images[0]) + '" alt="物件画像" onerror="onImageError(this)">';
     }
   }
 
