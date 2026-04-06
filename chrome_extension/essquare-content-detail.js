@@ -15,15 +15,10 @@
         try {
           const result = extractDetail();
           if (result.ok && result.detail) {
-            // ギャラリー操作で画像ロードを誘発 → Performance APIでURLキャプチャ
-            const galleryUrls = await extractImagesViaGallery();
-            if (galleryUrls.length > 0) {
-              result.detail.image_urls = galleryUrls;
-              // base64化
-              const base64Images = await fetchImagesAsBase64(galleryUrls);
-              if (base64Images.length > 0) {
-                result.detail.image_base64 = base64Images;
-              }
+            // ギャラリー操作で画像をblob→base64変換しながら収集
+            const galleryBase64 = await extractImagesViaGallery();
+            if (galleryBase64.length > 0) {
+              result.detail.image_base64 = galleryBase64;
             }
           }
           sendResponse(result);
@@ -213,182 +208,156 @@
     return urls;
   }
 
-  // ─── ギャラリー操作で画像URLをDOMから直接収集 ───
+  // ─── ギャラリー操作で画像をblob→base64変換しながら収集 ───
+  // 参考: 別Chrome拡張の実績あるロジックを移植
+
+  // blob URLをfetchしてbase64に変換
+  async function convertBlobToBase64(blobUrl) {
+    try {
+      const response = await fetch(blobUrl);
+      const blob = await response.blob();
+      if (!blob || blob.size === 0) return null;
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // 画��のsrc変化を待つ
+  async function waitForImageChange(prevSrc, timeout = 5000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const img = document.querySelector('.swiper-slide-active .css-oq6icw img');
+      if (img && img.src !== prevSrc && img.complete && img.naturalWidth > 0) return;
+      await sleep(100);
+    }
+  }
+
+  // NO_IMAGE（SVGプレースホルダー）の判定用
+  const NO_IMAGE_BASE64_START = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9Ijk2IiB2aWV3Qm94PSIwIDAgMTI4IDk2IiBmaWxsPSJub25lI";
+
   async function extractImagesViaGallery() {
-    const SKIP_PATTERN = /logo|icon|favicon|avatar|badge|chatbot|miibo|okbiz|es-service\.net|onetop|placeholder|spinner|loading|e_square_logo|sfa_main_banner|line\.me|liff/i;
-    const collectedUrls = new Set();
+    const images = []; // base64画像を直接収集
 
-    // 現在表示中のスライド画像を収集するヘルパー
-    function collectCurrentSlideImages() {
-      // アクティブスライドの画像
-      const activeImg = document.querySelector('.swiper-slide-active img');
-      if (activeImg) {
-        const src = activeImg.src || activeImg.currentSrc || '';
-        if (src && src.startsWith('http') && !SKIP_PATTERN.test(src)) {
-          collectedUrls.add(src);
-        }
+    // サムネイルをクリックしてモーダルを開く
+    const thumbnail = document.querySelector('.css-tx2s10 img');
+    if (!thumbnail) {
+      // フォールバック: swiper画像やその他の大きい画像
+      const fallbackImg = document.querySelector('.swiper img, [class*="swiper"] img');
+      if (fallbackImg && fallbackImg.naturalWidth > 0) {
+        fallbackImg.click();
+      } else {
+        console.log('[ES-Square] ギャラリー: サムネイルが見つからない');
+        return [];
       }
-      // 全スライドの画像も収集（表示済みのものはsrcが設定されている）
-      for (const img of document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate) img')) {
-        const src = img.src || img.currentSrc || '';
-        if (src && src.startsWith('http') && !SKIP_PATTERN.test(src)) {
-          collectedUrls.add(src);
-        }
-        // data-src（遅延読み込み）
-        const dataSrc = img.getAttribute('data-src') || '';
-        if (dataSrc && dataSrc.startsWith('http') && !SKIP_PATTERN.test(dataSrc)) {
-          collectedUrls.add(dataSrc);
-        }
-      }
-    }
-
-    // サムネイルをクリックしてギャラリーモーダルを開く
-    let clicked = false;
-    // 方法1: ES-Square固有セレクタ
-    const thumb = document.querySelector('.css-tx2s10 img');
-    if (thumb && thumb.naturalWidth > 0) {
-      thumb.click();
-      clicked = true;
-    }
-    // 方法2: Swiper関連の画像
-    if (!clicked) {
-      const swiperImg = document.querySelector('.swiper img, [class*="swiper"] img');
-      if (swiperImg && swiperImg.naturalWidth > 0) {
-        swiperImg.click();
-        clicked = true;
-      }
-    }
-    // 方法3: blob URLの画像 or 大きい画像
-    if (!clicked) {
-      for (const img of document.querySelectorAll('img')) {
-        const src = img.src || '';
-        const w = img.naturalWidth || img.width || 0;
-        const h = img.naturalHeight || img.height || 0;
-        if ((src.startsWith('blob:') || (w > 100 && h > 80))
-            && !SKIP_PATTERN.test((img.className || '') + (img.alt || '') + src)) {
-          img.click();
-          clicked = true;
-          break;
-        }
-      }
-    }
-    if (!clicked) {
-      console.log('[ES-Square] ギャラリー: サムネイルクリック失敗');
-      return [];
-    }
-
-    // モーダル表示待ち
-    let modalReady = false;
-    for (let i = 0; i < 15; i++) {
-      await sleep(200);
-      const active = document.querySelector('.swiper-slide-active img');
-      if (active && active.complete && active.naturalWidth > 0) { modalReady = true; break; }
-      const swiper = document.querySelector('.swiper-slide-active, [class*="swiper"]');
-      if (swiper) { modalReady = true; break; }
-    }
-    if (!modalReady) {
-      console.log('[ES-Square] ギャラリー: モーダル表示待ちタイムアウト');
-      return [];
-    }
-
-    // 最初のスライドの画像を収集
-    collectCurrentSlideImages();
-
-    // 総スライド数を取得
-    let totalSlides = 100;
-    const swiperEl = document.querySelector('.swiper');
-    if (swiperEl?.swiper) {
-      totalSlides = swiperEl.swiper.slides.length - (swiperEl.swiper.loopedSlides || 0) * 2;
     } else {
-      const slides = document.querySelectorAll('.swiper-slide:not(.swiper-slide-duplicate)');
-      if (slides.length > 0) totalSlides = slides.length;
+      thumbnail.click();
     }
-    const maxNav = Math.min(totalSlides + 2, 30);
-    console.log(`[ES-Square] ギャラリー: totalSlides=${totalSlides}, maxNav=${maxNav}`);
 
-    // 全スライドをナビゲート
-    const seenIndices = new Set();
-    for (let n = 0; n < maxNav; n++) {
-      // ループ検出
-      if (swiperEl?.swiper) {
-        const idx = swiperEl.swiper.realIndex;
-        if (seenIndices.has(idx)) break;
-        seenIndices.add(idx);
+    // モーダルの最初の画像が出現するまで待つ
+    try {
+      for (let i = 0; i < 50; i++) {
+        const img = document.querySelector('.swiper-slide-active .css-oq6icw img');
+        if (img && img.complete && img.naturalWidth > 0) break;
+        await sleep(100);
+      }
+    } catch (e) {
+      console.log('[ES-Square] ギャラリー: モーダル表示待ちエラー');
+      return [];
+    }
+
+    let prevSrc = '';
+    let stopCounter = 0;
+    const maxIterations = 30; // 無限ループ防止
+
+    for (let n = 0; n < maxIterations; n++) {
+      // active と prev 両方の画像を取得
+      const imgs = Array.from(document.querySelectorAll(
+        '.swiper-slide-active .css-oq6icw img, .swiper-slide-prev .css-oq6icw img'
+      ));
+
+      let addedAny = false;
+      for (const img of imgs) {
+        if (!img) continue;
+        const src = img.src;
+        if (!src || src === prevSrc) continue;
+
+        // 画像ロード完了を待つ
+        for (let w = 0; w < 30; w++) {
+          if (img.complete && img.naturalWidth > 0) break;
+          await sleep(100);
+        }
+
+        const base64 = await convertBlobToBase64(src);
+        if (base64 && !base64.startsWith(NO_IMAGE_BASE64_START) && !images.includes(base64)) {
+          images.push(base64);
+          addedAny = true;
+        }
+        prevSrc = src;
+        stopCounter = 0;
       }
 
-      // 次へボタンクリック
-      let navResult = 'no_button';
-      // 方法1: CSS固有セレクタ（複数ある場合、最後のもの=ギャラリーモーダル内を使用）
-      const nextBtns = document.querySelectorAll('.css-1nuul26');
-      if (n === 0) console.log(`[ES-Square] nextBtns_total: ${nextBtns.length}`);
-      const nextBtn = nextBtns.length > 0 ? nextBtns[nextBtns.length - 1] : null;
-      if (nextBtn) {
-        const style = window.getComputedStyle(nextBtn);
-        if (style.pointerEvents === 'none' || nextBtn.hasAttribute('disabled')) {
-          navResult = 'disabled';
-        } else {
-          nextBtn.click();
-          navResult = 'clicked';
-        }
+      if (!addedAny) {
+        stopCounter++;
+        if (stopCounter >= 2) break;
       }
-      // 方法2: ArrowRightアイコンから親ボタンを探す
-      if (navResult === 'no_button') {
-        const nextIcon = document.querySelector(
-          'svg[data-testid="KeyboardArrowRightIcon"],'
-          + 'svg[data-testid="keyboardArrowRight"],'
-          + 'svg[data-testid="ArrowForwardIosIcon"],'
-          + 'svg[data-testid="NavigateNextIcon"]'
-        );
-        if (nextIcon) {
-          let el = nextIcon;
-          for (let i = 0; i < 5; i++) {
-            el = el.parentElement;
-            if (!el) break;
-            const s = window.getComputedStyle(el);
-            if (s.pointerEvents === 'none') { navResult = 'disabled'; break; }
-            if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' || s.cursor === 'pointer') {
-              el.click();
-              navResult = 'clicked';
-              break;
-            }
+
+      // 次へボタンの判定（参考コードのロジック）
+      const nextBtnIcon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
+      const nextBtnContainer = nextBtnIcon?.closest('.css-1nuul26');
+
+      const hasNextBtn = !!nextBtnContainer;
+      const hasNextIconOnly = !!nextBtnIcon && !nextBtnContainer;
+      const isLastImage = hasNextIconOnly || !hasNextBtn;
+
+      if (isLastImage) {
+        // 最後の画像を確実に保存
+        for (const img of imgs) {
+          if (!img) continue;
+          for (let w = 0; w < 30; w++) {
+            if (img.complete && img.naturalWidth > 0) break;
+            await sleep(100);
           }
-          if (navResult === 'no_button' && nextIcon.parentElement) {
-            nextIcon.parentElement.click();
-            navResult = 'clicked';
+          const base64 = await convertBlobToBase64(img.src);
+          if (base64 && !base64.startsWith(NO_IMAGE_BASE64_START) && !images.includes(base64)) {
+            images.push(base64);
           }
         }
-      }
-      if (navResult !== 'clicked') {
-        console.log(`[ES-Square] stop: ${navResult} at n=${n}`);
         break;
       }
 
-      // 画像ロード待ち + 画像URL収集
-      for (let w = 0; w < 10; w++) {
-        await sleep(100);
-        const img = document.querySelector('.swiper-slide-active img');
-        if (img && img.complete && img.naturalWidth > 0) break;
+      // クリック��能かチェック
+      const style = window.getComputedStyle(nextBtnContainer);
+      if (style.pointerEvents === 'none' || nextBtnContainer.hasAttribute('disabled')) {
+        console.log(`[ES-Square] ギャラリー: ボタンdisabled at n=${n}`);
+        break;
       }
-      collectCurrentSlideImages();
+
+      // 次へクリック
+      nextBtnContainer.click();
+      await waitForImageChange(prevSrc);
+      await sleep(100);
     }
 
     // モーダルを閉じる
-    try {
+    const closeBtn = document.querySelector('.MuiBox-root.css-11p4x25');
+    if (closeBtn) {
+      closeBtn.click();
+      await sleep(300);
+    } else {
+      // フォールバック: ESCキー
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
       await sleep(300);
-      const closeBtn = document.querySelector('.MuiBox-root.css-11p4x25, [class*="close"], button[aria-label="close"]');
-      if (closeBtn) closeBtn.click();
-    } catch (e) {}
-
-    // Performance APIからも補完収集（新規ネットワーク読み込み分）
-    const perfUrls = collectPerfImageUrls();
-    for (const url of perfUrls) {
-      if (!SKIP_PATTERN.test(url)) collectedUrls.add(url);
     }
 
-    const result = Array.from(collectedUrls);
-    console.log(`[ES-Square] ギャラリー画像収集完了: ${result.length}件`);
-    return result;
+    console.log(`[ES-Square] ギャラリー画像収集完了: ${images.length}件 (base64)`);
+    // base64画像を直接返す（URLではなくbase64）
+    return images;
   }
 
   // ─── 画像をfetchしてbase64化（認証付きコンテキストで実行） ───
