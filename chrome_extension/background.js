@@ -2028,12 +2028,16 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             await sleep(200);
           }
           const seenUrls = new Set();
-          let prevUrl = null;
           for (const thumb of thumbnails) {
-            thumb.click();
-            // モーダルのURLが前回と変わるまで最大1.5秒待つ
-            let imageUrl = null;
+            // 前回のモーダルが消えるまで待機
             for (let w = 0; w < 15; w++) {
+              if (!document.querySelector('.image-view')) break;
+              await sleep(100);
+            }
+            thumb.click();
+            // モーダルが現れてURL取得できるまで最大2秒待機
+            let imageUrl = null;
+            for (let w = 0; w < 20; w++) {
               await sleep(100);
               const imageView = document.querySelector('.image-view');
               if (imageView) {
@@ -2042,13 +2046,13 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 if (m && m[1]) {
                   let u = m[1];
                   if (u.startsWith('/')) u = location.origin + u;
-                  if (u !== prevUrl) { imageUrl = u; break; }
+                  imageUrl = u;
+                  break;
                 }
               }
             }
             if (imageUrl && !seenUrls.has(imageUrl)) {
               seenUrls.add(imageUrl);
-              prevUrl = imageUrl;
               try {
                 const base64 = await fetchAsBase64(imageUrl);
                 if (base64) images.push(base64);
