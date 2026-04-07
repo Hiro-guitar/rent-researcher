@@ -1875,37 +1875,51 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               });
             } catch (e) { return null; }
           }
-          // クリックせず、サムネのbackground-imageからURLを直接拾う（DOM副作用ゼロ）
+          // モーダルクリックで大画像URLを取得（高画質）
+          // モーダルは ESC で確実に閉じ、.image-view が消えるまで待ってから次へ
+          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
           const images = [];
           const seen = new Set();
-          const urls = [];
-          // 候補1: div.mx-auto のbackground-image
-          document.querySelectorAll('div.mx-auto').forEach(el => {
-            const bg = (el.style && el.style.backgroundImage) || getComputedStyle(el).backgroundImage || '';
-            const m = bg.match(/url\(["']?(.*?)["']?\)/);
-            if (m && m[1]) urls.push(m[1]);
+          const thumbs = [...document.querySelectorAll('div.mx-auto')].filter(el => {
+            const bg = (el.style && el.style.backgroundImage) || '';
+            return bg.includes('url(');
           });
-          // 候補2: img要素 (findBkknGzu系)
-          document.querySelectorAll('img').forEach(img => {
-            const src = img.getAttribute('src') || '';
-            if (src.includes('findBkknGzu') || src.includes('Gzu')) urls.push(src);
-          });
-          for (let u of urls) {
+          for (const thumb of thumbs) {
             try {
-              if (u.startsWith('/')) u = location.origin + u;
-              // Thmを外して大画像URLを試す
-              const fullUrl = u.replace('findBkknGzuThm', 'findBkknGzu');
-              if (seen.has(fullUrl)) continue;
-              seen.add(fullUrl);
-              let base64 = await fetchAsBase64(fullUrl);
-              // 大画像が取れなければサムネにフォールバック
-              if (!base64 && fullUrl !== u) {
-                if (!seen.has(u)) {
-                  seen.add(u);
-                  base64 = await fetchAsBase64(u);
+              thumb.click();
+              // .image-view が出現するまで最大2秒待つ
+              let imageView = null;
+              for (let w = 0; w < 20; w++) {
+                await sleep(100);
+                imageView = document.querySelector('.image-view');
+                if (imageView) break;
+              }
+              if (imageView) {
+                const style = imageView.getAttribute('style') || '';
+                const m = style.match(/url\(["']?(.*?)["']?\)/);
+                if (m && m[1]) {
+                  let imageUrl = m[1];
+                  if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
+                  if (!seen.has(imageUrl)) {
+                    seen.add(imageUrl);
+                    const base64 = await fetchAsBase64(imageUrl);
+                    if (base64) images.push(base64);
+                  }
                 }
               }
-              if (base64) images.push(base64);
+              // モーダルを確実に閉じる: ESCキー → .image-view 消滅待ち
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+              document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+              for (let w = 0; w < 30; w++) {
+                await sleep(100);
+                if (!document.querySelector('.image-view')) break;
+              }
+              // それでも閉じてなければモーダル背景クリック
+              if (document.querySelector('.image-view')) {
+                const backdrop = document.querySelector('.modal-backdrop, .modal');
+                if (backdrop) backdrop.click();
+                await sleep(300);
+              }
             } catch (e) {}
           }
           return images;
