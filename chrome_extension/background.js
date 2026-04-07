@@ -766,119 +766,90 @@ async function runSearchCycle() {
       await setStorageData({ debugLog: `既知物件ID取得失敗（続行）: ${err.message}` });
     }
 
-    // === REINS検索 ===
+    const { notifyMode } = await getStorageData(['notifyMode']);
+
+    // === 顧客ループを外側、サービスを内側に（両モード共通） ===
+    let reinsTab = null;
+    let reinsDelay = 2000;
     if (services.reins) {
-      const reinsTab = await findReinsTab();
+      reinsTab = await findReinsTab();
       if (!reinsTab) {
         await setStorageData({ loginDetected: false, debugLog: 'REINSタブが見つかりません（REINS検索スキップ）' });
       } else {
-        await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}, url=${reinsTab.url}`, reinsAutomationTabId: reinsTab.id });
-
+        await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}`, reinsAutomationTabId: reinsTab.id });
         const { pageDelaySeconds } = await getStorageData(['pageDelaySeconds']);
-        const delay = (pageDelaySeconds || 2) * 1000;
+        reinsDelay = (pageDelaySeconds || 2) * 1000;
+      }
+    }
+    let reinsFatalExit = false;
 
-        // 全顧客を順次検索
-        for (let ci = 0; ci < criteria.length; ci++) {
-          if (isSearchCancelled(searchId)) {
-            console.log(`検索サイクル${searchId}は中止されました`);
-            return;
+    for (let ci = 0; ci < criteria.length; ci++) {
+      if (isSearchCancelled(searchId)) return;
+      const customer = criteria[ci];
+      await setStorageData({ debugLog: `━━ 顧客 ${ci+1}/${criteria.length}: ${customer.name} ━━` });
+
+      // --- REINS ---
+      if (services.reins && reinsTab && !reinsFatalExit) {
+        const cond = formatCustomerCriteria(customer);
+        await setStorageData({ debugLog: `[REINS] ${customer.name} 条件: ${cond}` });
+        try {
+          const rws = customer.routes_with_stations || [];
+          if (rws.length > 3) {
+            for (let batch = 0; batch * 3 < rws.length; batch++) {
+              if (isSearchCancelled(searchId)) return;
+              const batchRws = rws.slice(batch * 3, (batch + 1) * 3);
+              const batchCustomer = { ...customer, routes: batchRws.map(r => r.route), routes_with_stations: batchRws };
+              await setStorageData({ debugLog: `[REINS] ${customer.name}: バッチ ${batch+1}/${Math.ceil(rws.length/3)}` });
+              await searchForCustomer(reinsTab.id, batchCustomer, seenIds, reinsDelay, searchId);
+              if (batch * 3 + 3 < rws.length) await sleep(3000);
+            }
+          } else {
+            await searchForCustomer(reinsTab.id, customer, seenIds, reinsDelay, searchId);
           }
-
-          const customer = criteria[ci];
-          const cond = formatCustomerCriteria(customer);
-          await setStorageData({ debugLog: `[REINS] 顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
-          await setStorageData({ debugLog: `[REINS] 条件: ${cond}` });
-          try {
-            // 路線が4つ以上ある場合、3つずつに分割して複数回検索
-            const rws = customer.routes_with_stations || [];
-            if (rws.length > 3) {
-              for (let batch = 0; batch * 3 < rws.length; batch++) {
-                if (isSearchCancelled(searchId)) {
-                  console.log(`検索サイクル${searchId}は中止されました`);
-                  return;
-                }
-                const batchRws = rws.slice(batch * 3, (batch + 1) * 3);
-                const batchCustomer = {
-                  ...customer,
-                  routes: batchRws.map(r => r.route),
-                  routes_with_stations: batchRws,
-                };
-                await setStorageData({ debugLog: `[REINS] ${customer.name}: バッチ ${batch+1}/${Math.ceil(rws.length/3)} (${batchRws.map(r=>r.route).join(', ')})` });
-                await searchForCustomer(reinsTab.id, batchCustomer, seenIds, delay, searchId);
-                if (batch * 3 + 3 < rws.length) await sleep(3000);
-              }
-            } else {
-              await searchForCustomer(reinsTab.id, customer, seenIds, delay, searchId);
-            }
-          } catch (err) {
-            if (err.message === 'SEARCH_CANCELLED') {
-              console.log(`検索サイクル${searchId}: 中止により終了`);
-              return;
-            }
-            if (err.message === 'SLEEP_DETECTED') {
-              await setStorageData({ debugLog: 'PCスリープから復帰→検索サイクル終了（次回スケジュールで再開）' });
-              return;
-            }
-            if (err.message === 'REINS_ERROR_PAGE') {
-              await setStorageData({ debugLog: 'REINSエラーページ検知→検索サイクル終了（再ログイン後に再開してください）' });
-              return;
-            }
+        } catch (err) {
+          if (err.message === 'SEARCH_CANCELLED') return;
+          if (err.message === 'SLEEP_DETECTED' || err.message === 'REINS_ERROR_PAGE') {
+            await setStorageData({ debugLog: `[REINS] ${err.message}→REINS中止（他サービスは継続）` });
+            reinsFatalExit = true;
+          } else {
             logError(`[REINS] ${customer.name}の検索失敗: ${err.message}`);
           }
-          // 顧客間の待ち時間
-          if (ci < criteria.length - 1) await sleep(3000);
         }
-
-        await closeDedicatedWindow();
-        await setStorageData({ debugLog: '[REINS] 検索完了', reinsAutomationTabId: null });
       }
-    }
 
-    // === いえらぶBB検索 ===
-    if (services.ielove) {
-      if (isSearchCancelled(searchId)) return;
-      try {
-        await runIeloveSearch(criteria, seenIds, searchId);
-      } catch (err) {
-        if (err.message === 'SEARCH_CANCELLED') return;
-        await setStorageData({ debugLog: `[いえらぶ] 検索エラー: ${err.message}` });
-        logError('[いえらぶ] 検索エラー: ' + err.message);
+      // --- いえらぶ ---
+      if (services.ielove) {
+        if (isSearchCancelled(searchId)) return;
+        try { await runIeloveSearch([customer], seenIds, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[いえらぶ] 検索エラー: ' + err.message); }
       }
-    }
 
-    // === itandi BB検索 ===
-    if (services.itandi) {
-      if (isSearchCancelled(searchId)) return;
-      try {
-        await runItandiSearch(criteria, seenIds, searchId);
-      } catch (err) {
-        if (err.message === 'SEARCH_CANCELLED') return;
-        await setStorageData({ debugLog: `[itandi] 検索エラー: ${err.message}` });
-        logError('[itandi] 検索エラー: ' + err.message);
+      // --- itandi ---
+      if (services.itandi) {
+        if (isSearchCancelled(searchId)) return;
+        try { await runItandiSearch([customer], seenIds, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[itandi] 検索エラー: ' + err.message); }
       }
-    }
 
-    // === ES-Square検索 ===
-    if (services.essquare) {
-      if (isSearchCancelled(searchId)) return;
-      try {
-        await runEssquareSearch(criteria, seenIds, searchId);
-      } catch (err) {
-        if (err.message === 'SEARCH_CANCELLED') return;
-        await setStorageData({ debugLog: `[ES-Square] 検索エラー: ${err.message}` });
-        logError('[ES-Square] 検索エラー: ' + err.message);
+      // --- ES-Square ---
+      if (services.essquare) {
+        if (isSearchCancelled(searchId)) return;
+        try { await runEssquareSearch([customer], seenIds, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[ES-Square] 検索エラー: ' + err.message); }
       }
-    }
 
-    // === 一括モードの場合、蓄積した物件をここでまとめて通知（重複排除付き） ===
-    try {
-      const { notifyMode } = await getStorageData(['notifyMode']);
+      // --- 一括モード: この顧客分だけ重複排除＆通知 ---
       if (notifyMode === 'batch') {
-        await setStorageData({ debugLog: '[system] 一括モード: 重複排除＆まとめて通知中...' });
-        await flushBatchBuffer();
+        try { await flushBatchBufferForCustomer(customer.name); }
+        catch (err) { logError(`[system] ${customer.name}: 一括通知エラー: ${err.message}`); }
       }
-    } catch (err) {
-      logError('[system] 一括通知エラー: ' + err.message);
+
+      if (ci < criteria.length - 1) await sleep(3000);
+    }
+
+    if (services.reins && reinsTab) {
+      await closeDedicatedWindow();
+      await setStorageData({ debugLog: '[REINS] 検索完了', reinsAutomationTabId: null });
     }
 
     // === 未解決駅サマリー ===
@@ -2841,33 +2812,31 @@ async function deliverProperty(customerName, prop, customer, service) {
   await sendDiscordNotification(customerName, [prop], customer);
 }
 
-// 一括モード時のフラッシュ：重複排除→顧客ごとに連投
-async function flushBatchBuffer() {
-  for (const customerName of Object.keys(_batchBuffer)) {
-    const entries = _batchBuffer[customerName];
-    if (!entries || entries.length === 0) continue;
-    // キー別にグルーピング、優先順位最高を残す
-    const byKey = new Map();
-    const noKey = []; // 判定不能→全部残す
-    for (const e of entries) {
-      const key = buildDedupKey(e.prop);
-      if (!key) { noKey.push(e); continue; }
-      const existing = byKey.get(key);
-      if (!existing || (_serviceRank[e.service] || 0) > (_serviceRank[existing.service] || 0)) {
-        byKey.set(key, e);
-      }
-    }
-    const winners = [...byKey.values(), ...noKey];
-    const props = winners.map(e => e.prop);
-    const customer = winners[0].customer;
-    try {
-      await sendDiscordNotification(customerName, props, customer);
-    } catch (err) {
-      logError(`${customerName}: 一括通知失敗: ${err.message}`);
+// 特定顧客のバッファをフラッシュ（重複排除→通知）
+async function flushBatchBufferForCustomer(customerName) {
+  const entries = _batchBuffer[customerName];
+  if (!entries || entries.length === 0) return;
+  const byKey = new Map();
+  const noKey = [];
+  for (const e of entries) {
+    const key = buildDedupKey(e.prop);
+    if (!key) { noKey.push(e); continue; }
+    const existing = byKey.get(key);
+    if (!existing || (_serviceRank[e.service] || 0) > (_serviceRank[existing.service] || 0)) {
+      byKey.set(key, e);
     }
   }
-  // クリア
-  for (const k of Object.keys(_batchBuffer)) delete _batchBuffer[k];
+  const winners = [...byKey.values(), ...noKey];
+  const removed = entries.length - winners.length;
+  const props = winners.map(e => e.prop);
+  const customer = winners[0].customer;
+  await setStorageData({ debugLog: `[system] ${customerName}: ${entries.length}件→重複${removed}件排除→${winners.length}件通知` });
+  try {
+    await sendDiscordNotification(customerName, props, customer);
+  } catch (err) {
+    logError(`${customerName}: 一括通知失敗: ${err.message}`);
+  }
+  delete _batchBuffer[customerName];
 }
 
 async function sendDiscordNotification(customerName, properties, customer) {
