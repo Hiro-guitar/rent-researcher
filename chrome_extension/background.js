@@ -2005,7 +2005,23 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       for (let bw = 0; bw < 10; bw++) {
         await csleep(2000);
         const bt = await chrome.tabs.get(tabId);
-        if (bt.url?.includes('GBK002200')) { backSuccess = true; break; }
+        if (bt.url?.includes('GBK002200')) {
+          // URLだけでなく、結果一覧の行が実際に描画されているか確認
+          const rowsCheck = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => document.querySelectorAll('.p-table-body-row').length
+          });
+          if ((rowsCheck?.[0]?.result || 0) > 0) { backSuccess = true; break; }
+          // URL一致だが行なし → 詳細コンポーネントが残留している可能性。もう一度backを発火
+          await chrome.scripting.executeScript({
+            target: { tabId }, world: 'MAIN',
+            func: () => {
+              const nuxt = window.$nuxt;
+              if (nuxt?.$router) { nuxt.$router.replace('/main/BK/GBK002200'); }
+            }
+          });
+          continue;
+        }
         // 検索フォーム(GBK001310)に戻ってしまった場合 → 再検索して結果ページに復帰
         if (bt.url?.includes('GBK001310')) {
           await setStorageData({ debugLog: `${customer.name}: 検索フォームに戻った→再検索で復帰試行` });
