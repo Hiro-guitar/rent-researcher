@@ -169,7 +169,7 @@ function handleConfirmApprove(e) {
   var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
   var hashUrl = buildViewUrl(customerName, roomId, prop, []); // 画像なし → URL短縮
   var minimalUrl = buildMinimalViewUrl(customerName, roomId, prop);
-  var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl); // LINE URI action 1000文字制限
+  var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl); // 通常 minimalUrl が選ばれる // LINE URI action 1000文字制限
 
   // 画像URLをキャッシュ（property.html からの非同期取得用）
   cachePropertyImages(customerName, roomId, selectedImageUrls, selectedImageCategories);
@@ -239,7 +239,7 @@ function handleConfirmApproveAll(e) {
     var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
     var hashUrl = buildViewUrl(customerName, rid, prop, []); // 画像なし → URL短縮
     var minimalUrl = buildMinimalViewUrl(customerName, rid, prop);
-    var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl);
+    var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl); // 通常 minimalUrl が選ばれる
 
     // 画像URLをキャッシュ（property.html からの非同期取得用）
     cachePropertyImages(customerName, rid, selectedUrls, selectedCats);
@@ -1219,18 +1219,29 @@ function buildMinimalViewUrl(customerName, roomId, prop) {
   if (prop.keyMoney) d.k = prop.keyMoney;
   if (prop.floorText) d.ft = prop.floorText;
   var baseUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '&m=';
+  var build = function(obj) {
+    var j = JSON.stringify(obj);
+    var enc = Utilities.base64EncodeWebSafe(Utilities.newBlob(j).getBytes());
+    return baseUrl + enc;
+  };
   // まず画像入りで試す
   if (prop.imageUrl) {
     d.imgs = [prop.imageUrl];
-    var jsonWith = JSON.stringify(d);
-    var encWith = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonWith).getBytes());
-    var urlWith = baseUrl + encWith;
-    if (urlWith.length <= 1000) return urlWith;
-    delete d.imgs; // 超えたら画像なしへ
+    var u = build(d);
+    if (u.length <= 1000) return u;
+    delete d.imgs;
   }
-  var jsonStr = JSON.stringify(d);
-  var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
-  return baseUrl + encoded;
+  // 画像なしで試す
+  var url = build(d);
+  if (url.length <= 1000) return url;
+  // それでも超える場合、長いフィールドを段階的に削除（重要度の低い順）
+  var dropOrder = ['ad', 'ft', 'si', 'k', 'd', 'ba', 'mf'];
+  for (var i = 0; i < dropOrder.length; i++) {
+    delete d[dropOrder[i]];
+    url = build(d);
+    if (url.length <= 1000) return url;
+  }
+  return url; // それでも超えた場合でも m= 付きを返す（plainUrlフォールバックは廃止）
 }
 
 // ===== Flex Message =====
