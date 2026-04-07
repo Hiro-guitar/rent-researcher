@@ -88,8 +88,25 @@
 
   <div class="field">
     <label for="interval">検索間隔（分）</label>
-    <input type="number" id="interval" min="10" max="120" value="30">
-    <div class="hint">10〜120分（デフォルト30分）</div>
+    <input type="number" id="interval" min="10" max="240" value="60">
+    <div class="hint">10〜240分（デフォルト60分）。bot対策で±ジッター幅だけランダム化されます</div>
+  </div>
+
+  <div class="field">
+    <label for="jitterPercent">ジッター幅（％）</label>
+    <input type="number" id="jitterPercent" min="0" max="50" value="20">
+    <div class="hint">0〜50%。例: 60分間隔・20%なら 48〜72分のランダム間隔</div>
+  </div>
+
+  <div class="field">
+    <label>営業時間</label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="number" id="startHour" min="0" max="23" value="10" style="width:70px">
+      <span>時 〜</span>
+      <input type="number" id="endHour" min="1" max="24" value="20" style="width:70px">
+      <span>時</span>
+    </div>
+    <div class="hint">この時間帯のみ自動検索を実行（24時間稼働なら 0〜24）</div>
   </div>
 
   <div class="field">

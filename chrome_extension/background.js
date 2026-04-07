@@ -552,22 +552,66 @@ function isSearchCancelled(searchId) {
   return searchId !== currentSearchId;
 }
 
-// --- アラーム ---
+// --- アラーム（営業時間 + ジッター対応） ---
+// 次回実行時刻を計算（営業時間外なら翌営業開始時刻、内ならランダムジッター付き間隔）
+function computeNextRunDelayMs(intervalMinutes, jitterPercent, startHour, endHour) {
+  const now = new Date();
+  const hour = now.getHours();
+  // 営業時間外 → 次の営業開始時刻まで
+  if (hour < startHour || hour >= endHour) {
+    const next = new Date(now);
+    if (hour >= endHour) next.setDate(next.getDate() + 1);
+    next.setHours(startHour, 0, 0, 0);
+    // 営業開始直後のスパイク回避のため 0〜10分のランダムオフセット
+    return next.getTime() - now.getTime() + Math.floor(Math.random() * 10 * 60 * 1000);
+  }
+  // 営業時間内 → 間隔 ± ジッター%
+  const base = Math.max(10, intervalMinutes) * 60 * 1000;
+  const j = (jitterPercent || 0) / 100;
+  const delta = base * j;
+  const delay = base + (Math.random() * 2 - 1) * delta; // base ± delta
+  // 次回実行が営業時間を超える場合は翌営業開始時刻に
+  const nextTime = new Date(now.getTime() + delay);
+  if (nextTime.getHours() >= endHour || nextTime.getDate() !== now.getDate()) {
+    const next = new Date(now);
+    next.setDate(next.getDate() + 1);
+    next.setHours(startHour, 0, 0, 0);
+    return next.getTime() - now.getTime() + Math.floor(Math.random() * 10 * 60 * 1000);
+  }
+  return delay;
+}
+
 function setupAlarm(intervalMinutes) {
-  chrome.alarms.clear('reins-search', () => {
-    chrome.alarms.create('reins-search', { periodInMinutes: Math.max(10, intervalMinutes) });
-    console.log(`REINS検索アラーム設定: ${intervalMinutes}分間隔`);
+  chrome.storage.local.get(['jitterPercent', 'businessStartHour', 'businessEndHour'], (data) => {
+    const jitter = data.jitterPercent !== undefined ? data.jitterPercent : 20;
+    const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
+    const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
+    const delayMs = computeNextRunDelayMs(intervalMinutes, jitter, startH, endH);
+    chrome.alarms.clear('reins-search', () => {
+      chrome.alarms.create('reins-search', { when: Date.now() + delayMs });
+      const mins = (delayMs / 60000).toFixed(1);
+      console.log(`REINS検索アラーム設定: 次回 ${mins}分後 (営業${startH}-${endH}時, ジッター±${jitter}%)`);
+    });
   });
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'reins-search') {
-    chrome.storage.local.get(['autoSearchEnabled'], (data) => {
+    chrome.storage.local.get(['autoSearchEnabled', 'searchIntervalMinutes', 'businessStartHour', 'businessEndHour'], (data) => {
+      const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
+      const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
+      const hour = new Date().getHours();
+      const inBusiness = hour >= startH && hour < endH;
+
       if (data.autoSearchEnabled === false) {
         console.log('[system] 自動検索が無効のためスキップ');
-        return;
+      } else if (!inBusiness) {
+        console.log(`[system] 営業時間外 (${hour}時) のためスキップ`);
+      } else {
+        runSearchCycle();
       }
-      runSearchCycle();
+      // 次回アラームを再セット（ジッター付き / 営業時間考慮）
+      setupAlarm(data.searchIntervalMinutes || 60);
     });
   }
 });

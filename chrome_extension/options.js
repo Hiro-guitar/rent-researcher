@@ -1,11 +1,14 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour'], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
     if (data.searchIntervalMinutes) document.getElementById('interval').value = data.searchIntervalMinutes;
     if (data.pageDelaySeconds) document.getElementById('delay').value = data.pageDelaySeconds;
+    if (data.jitterPercent !== undefined) document.getElementById('jitterPercent').value = data.jitterPercent;
+    if (data.businessStartHour !== undefined) document.getElementById('startHour').value = data.businessStartHour;
+    if (data.businessEndHour !== undefined) document.getElementById('endHour').value = data.businessEndHour;
   });
 
   // 保存
@@ -13,15 +16,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const gasWebappUrl = document.getElementById('gasUrl').value.trim();
     const gasApiKey = document.getElementById('apiKey').value.trim();
     const discordWebhookUrl = document.getElementById('discordWebhook').value.trim();
-    const searchIntervalMinutes = Math.max(10, Math.min(120, parseInt(document.getElementById('interval').value) || 30));
+    const searchIntervalMinutes = Math.max(10, Math.min(240, parseInt(document.getElementById('interval').value) || 60));
     const pageDelaySeconds = Math.max(3, Math.min(30, parseInt(document.getElementById('delay').value) || 5));
+    const jitterPercent = Math.max(0, Math.min(50, parseInt(document.getElementById('jitterPercent').value) || 0));
+    const businessStartHour = Math.max(0, Math.min(23, parseInt(document.getElementById('startHour').value) || 0));
+    const businessEndHour = Math.max(1, Math.min(24, parseInt(document.getElementById('endHour').value) || 24));
 
     chrome.storage.local.set({
       gasWebappUrl,
       gasApiKey,
       discordWebhookUrl,
       searchIntervalMinutes,
-      pageDelaySeconds
+      pageDelaySeconds,
+      jitterPercent,
+      businessStartHour,
+      businessEndHour
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });
