@@ -28,16 +28,27 @@ chrome.action.onClicked.addListener(() => {
 
 // === REINS物件番号オートサーチ（Discordリンクから #bukken=XXX で起動） ===
 const __reinsAutoSearchHandled = new Set(); // tabIdごとに進行中フラグ
-// 自動取得が使用中のREINSタブID（このタブではオートサーチしない）
-globalThis.__reinsAutomationTabId = null;
+async function __getAutomationTabId() {
+  try {
+    const r = await new Promise(res => chrome.storage.local.get(['reinsAutomationTabId'], res));
+    return r?.reinsAutomationTabId || null;
+  } catch (e) { return null; }
+}
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!tab.url || !tab.url.includes('system.reins.jp')) return;
-  // 自動取得中のタブはスキップ
-  if (globalThis.__reinsAutomationTabId === tabId) return;
   const m = tab.url.match(/[#?&]bukken=(\d+)/);
   if (!m) return;
   if (changeInfo.status !== 'complete' && !changeInfo.url) return;
   const num = m[1];
+  // 自動取得タブまたは検索結果/詳細ページがbukkenで上書きされた → 元に戻して別タブで開く
+  const automationTabId = await __getAutomationTabId();
+  const isAutomationTab = automationTabId === tabId;
+  const isAutomationPage = /GBK002200|GBK003200/.test(tab.url);
+  if (isAutomationTab || isAutomationPage) {
+    try { await chrome.tabs.goBack(tabId); } catch (e) {}
+    try { await chrome.tabs.create({ url: 'https://system.reins.jp/main/BK/GBK004100#bukken=' + num, active: true }); } catch (e) {}
+    return;
+  }
   const key = tabId + ':' + num;
   if (__reinsAutoSearchHandled.has(key)) return;
   __reinsAutoSearchHandled.add(key);
@@ -688,8 +699,7 @@ async function runSearchCycle() {
       if (!reinsTab) {
         await setStorageData({ loginDetected: false, debugLog: 'REINSタブが見つかりません（REINS検索スキップ）' });
       } else {
-        await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}, url=${reinsTab.url}` });
-        globalThis.__reinsAutomationTabId = reinsTab.id;
+        await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}, url=${reinsTab.url}`, reinsAutomationTabId: reinsTab.id });
 
         const { pageDelaySeconds } = await getStorageData(['pageDelaySeconds']);
         const delay = (pageDelaySeconds || 2) * 1000;
@@ -747,8 +757,7 @@ async function runSearchCycle() {
         }
 
         await closeDedicatedWindow();
-        globalThis.__reinsAutomationTabId = null;
-        await setStorageData({ debugLog: '[REINS] 検索完了' });
+        await setStorageData({ debugLog: '[REINS] 検索完了', reinsAutomationTabId: null });
       }
     }
 
