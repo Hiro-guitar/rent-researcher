@@ -2161,6 +2161,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       }
 
+      await setStorageData({ debugLog: `${customer.name}: 一覧に戻り中...` });
       // 検索結果に戻る（Vue Router経由で戻る。history.back()だと2回戻ってGBK001310に行く場合がある）
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -2181,6 +2182,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       for (let bw = 0; bw < 10; bw++) {
         await csleep(2000);
         const bt = await chrome.tabs.get(tabId);
+        await setStorageData({ debugLog: `${customer.name}: 戻り待機 ${bw+1}/10 url=${bt.url?.substring(40,90)}` });
         if (bt.url?.includes('GBK002200')) {
           // URLだけでなく、結果一覧の行が実際に描画されているか確認
           const rowsCheck = await chrome.scripting.executeScript({
