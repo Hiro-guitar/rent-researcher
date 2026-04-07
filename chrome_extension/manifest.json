@@ -30,6 +30,14 @@
       "matches": [
         "https://system.reins.jp/*"
       ],
+      "js": ["reins-timer-polyfill.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://system.reins.jp/*"
+      ],
       "js": ["content-search.js"]
     },
     {

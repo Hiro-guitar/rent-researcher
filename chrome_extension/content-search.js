@@ -150,7 +150,22 @@
     if (!detailBtn) {
       throw new Error(`行 ${index} に詳細ボタンがありません`);
     }
-    detailBtn.click();
+    // el.click() は Vue ハンドラに届かない場合があるため、完全なマウスシーケンスを dispatch
+    detailBtn.scrollIntoView({ block: 'center' });
+    const r = detailBtn.getBoundingClientRect();
+    const opts = {
+      bubbles: true, cancelable: true, view: window,
+      clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0
+    };
+    try {
+      detailBtn.dispatchEvent(new PointerEvent('pointerdown', { ...opts, pointerType: 'mouse', pointerId: 1, isPrimary: true }));
+    } catch (e) {}
+    detailBtn.dispatchEvent(new MouseEvent('mousedown', opts));
+    try {
+      detailBtn.dispatchEvent(new PointerEvent('pointerup', { ...opts, pointerType: 'mouse', pointerId: 1, isPrimary: true }));
+    } catch (e) {}
+    detailBtn.dispatchEvent(new MouseEvent('mouseup', opts));
+    detailBtn.dispatchEvent(new MouseEvent('click', opts));
   }
 
   // --- ページネーション ---

@@ -1260,6 +1260,46 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   await csleep(2000);
 
   // --- Step 3: 検索ボタンをDOMクリック（MAIN world） ---
+  // Chromeのバックグラウンドタブスロットリング対策:
+  // HTMLAudioElementで silent WAV をループ再生 → タブが「音声再生中」扱いになり throttle されない
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => {
+      if (window.__reinsKeepAlive) return;
+      try {
+        // 1秒の無音wav (44.1kHz, mono, 16bit)
+        const sampleRate = 44100;
+        const numSamples = sampleRate;
+        const buffer = new ArrayBuffer(44 + numSamples * 2);
+        const view = new DataView(buffer);
+        const writeString = (offset, str) => { for (let i=0;i<str.length;i++) view.setUint8(offset+i, str.charCodeAt(i)); };
+        writeString(0, 'RIFF');
+        view.setUint32(4, 36 + numSamples*2, true);
+        writeString(8, 'WAVE');
+        writeString(12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate*2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeString(36, 'data');
+        view.setUint32(40, numSamples*2, true);
+        // data は全て0（無音）
+        const blob = new Blob([buffer], { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.loop = true;
+        audio.volume = 0.01;
+        const playPromise = audio.play();
+        if (playPromise) playPromise.catch(e => console.log('audio play failed:', e));
+        window.__reinsKeepAlive = audio;
+      } catch (e) { console.log('keepAlive err:', e); }
+    }
+  });
+  await csleep(500);
   await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -1712,6 +1752,16 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       }
 
+      // 詳細ページのVueコンポーネントがマウントされるまで待つ（最大15秒）
+      for (let w = 0; w < 30; w++) {
+        const ready = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => document.querySelectorAll('.p-label-title').length > 10
+        });
+        if (ready?.[0]?.result) break;
+        await csleep(500);
+      }
+
       // 詳細データ抽出
       const detailResults = await chrome.scripting.executeScript({
         target: { tabId },
@@ -2008,64 +2058,48 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               });
             } catch (e) { return null; }
           }
-          // 参考Tampermonkeyスクリプトと完全に同じパターン
+          // Vue state (bkknGzuList) から直接画像URLを取得する方式
+          // （thumbnailクリック/モーダル開閉は Vue clickハンドラ不発 + .image-view被覆 + etag差異で不安定なため撤廃）
           const sleep = (ms) => new Promise(r => setTimeout(r, ms));
           const images = [];
-          // 残留モーダルを強制クローズ（前物件の残骸対策）
-          for (let i = 0; i < 3; i++) {
-            const leftover = document.querySelector('.modal.show, .image-view');
-            if (!leftover) break;
-            const cb = document.querySelector('.modal.show .btn.btn-outline, .modal.show .close, .modal .btn.btn-outline, .modal .close');
-            if (cb) cb.click();
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
-            await sleep(300);
-          }
-          // サムネイル描画待ち（最大5秒）
-          let thumbnails = [];
-          for (let i = 0; i < 25; i++) {
-            thumbnails = document.querySelectorAll('div.mx-auto');
-            if (thumbnails.length > 0) break;
-            await sleep(200);
-          }
-          const seenUrls = new Set();
-          const thumbCount = thumbnails.length;
-          for (let idx = 0; idx < thumbCount; idx++) {
-            const currentThumbs = document.querySelectorAll('div.mx-auto');
-            const thumb = currentThumbs[idx];
-            if (!thumb) continue;
-            thumb.click();
-            await sleep(200);
-            let imageUrl = null;
-            const getUrl = () => {
-              const iv = document.querySelector('.image-view');
-              if (!iv) return null;
-              const m = (iv.getAttribute('style') || '').match(/url\(["']?(.*?)["']?\)/);
-              if (!m || !m[1]) return null;
-              let u = m[1];
-              if (u.startsWith('/')) u = location.origin + u;
-              return u;
-            };
-            imageUrl = getUrl();
-            // 取れなかった場合のみ最大1秒追加待機
-            if (!imageUrl) {
-              for (let w = 0; w < 10; w++) {
-                await sleep(100);
-                imageUrl = getUrl();
-                if (imageUrl) break;
+          // Vueツリーから bkknGzuList を探索
+          const findList = () => {
+            const walk = (c, d = 0) => {
+              if (d > 10 || !c) return null;
+              if (c.$data && Array.isArray(c.$data.bkknGzuList) && c.$data.bkknGzuList.length > 0) {
+                return c.$data.bkknGzuList;
               }
-            }
-            if (imageUrl && !seenUrls.has(imageUrl)) {
-              seenUrls.add(imageUrl);
-              try {
-                const base64 = await fetchAsBase64(imageUrl);
-                if (base64) images.push(base64);
-              } catch (e) {}
-            }
-            const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
-            if (closeBtn) {
-              closeBtn.click();
-              await sleep(300);
-            }
+              const children = c.$children || [];
+              for (const ch of children) {
+                const r = walk(ch, d + 1);
+                if (r) return r;
+              }
+              return null;
+            };
+            return walk(window.$nuxt);
+          };
+          // Vue マウント待ち（最大5秒）
+          let list = null;
+          for (let i = 0; i < 25; i++) {
+            list = findList();
+            if (list && list.length > 0) break;
+            await sleep(200);
+          }
+          if (!list || list.length === 0) return images;
+          // gzuBngu 昇順でソート
+          const sorted = [...list].sort((a, b) => {
+            const an = parseInt(a.gzuBngu, 10) || 0;
+            const bn = parseInt(b.gzuBngu, 10) || 0;
+            return an - bn;
+          });
+          for (const item of sorted) {
+            let url = item.bkknGzuSrc;
+            if (!url) continue;
+            if (url.startsWith('/')) url = location.origin + url;
+            try {
+              const base64 = await fetchAsBase64(url);
+              if (base64) images.push(base64);
+            } catch (e) {}
           }
           return images;
         }
@@ -2217,15 +2251,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             target: { tabId },
             func: () => document.querySelectorAll('.p-table-body-row').length
           });
-          if ((rowsCheck?.[0]?.result || 0) > 0) { backSuccess = true; break; }
-          // URL一致だが行なし → 詳細コンポーネントが残留している可能性。もう一度backを発火
-          await chrome.scripting.executeScript({
-            target: { tabId }, world: 'MAIN',
-            func: () => {
-              const nuxt = window.$nuxt;
-              if (nuxt?.$router) { nuxt.$router.replace('/main/BK/GBK002200'); }
-            }
-          });
+          const rowCount = rowsCheck?.[0]?.result || 0;
+          if (rowCount > 0) { backSuccess = true; break; }
+          // rows=0 が6回続いたら検索フォームに戻して再検索で強制リフレッシュ
+          if (bw >= 5) {
+            await setStorageData({ debugLog: `${customer.name}: 結果0件→検索フォームへ強制遷移` });
+            await chrome.tabs.update(tabId, { url: 'https://system.reins.jp/main/BK/GBK001310' });
+            await csleep(3000);
+          }
           continue;
         }
         // 検索フォーム(GBK001310)に戻ってしまった場合 → 再検索して結果ページに復帰
