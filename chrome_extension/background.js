@@ -2011,7 +2011,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           // 参考Tampermonkeyスクリプトと完全に同じパターン
           const sleep = (ms) => new Promise(r => setTimeout(r, ms));
           const images = [];
-          const thumbnails = document.querySelectorAll('div.mx-auto');
+          // 残留モーダルを強制クローズ（前物件の残骸対策）
+          for (let i = 0; i < 3; i++) {
+            const leftover = document.querySelector('.modal.show, .image-view');
+            if (!leftover) break;
+            const cb = document.querySelector('.modal.show .btn.btn-outline, .modal.show .close, .modal .btn.btn-outline, .modal .close');
+            if (cb) cb.click();
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+            await sleep(300);
+          }
+          // サムネイル描画待ち（最大5秒）
+          let thumbnails = [];
+          for (let i = 0; i < 25; i++) {
+            thumbnails = document.querySelectorAll('div.mx-auto');
+            if (thumbnails.length > 0) break;
+            await sleep(200);
+          }
           for (const thumb of thumbnails) {
             thumb.click();
             await sleep(200);
