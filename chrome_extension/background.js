@@ -2162,19 +2162,34 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       }
 
       await setStorageData({ debugLog: `${customer.name}: 一覧に戻り中...` });
-      // 検索結果に戻る（Vue Router経由で戻る。history.back()だと2回戻ってGBK001310に行く場合がある）
+      // 残留モーダルを閉じる
+      await chrome.scripting.executeScript({
+        target: { tabId }, world: 'MAIN',
+        func: () => {
+          for (let i = 0; i < 3; i++) {
+            const m = document.querySelector('.modal.show, .image-view');
+            if (!m) break;
+            const cb = document.querySelector('.modal.show .btn.btn-outline, .modal.show .close, .modal .btn.btn-outline');
+            if (cb) cb.click();
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+          }
+        }
+      });
+      await csleep(500);
+      // 検索結果に戻る
       await chrome.scripting.executeScript({
         target: { tabId },
         world: 'MAIN',
         func: () => {
-          // まずVue Routerのback()を試す（SPAの履歴管理に準拠）
-          const nuxt = window.$nuxt;
-          if (nuxt?.$router) { nuxt.$router.back(); return; }
-          // フォールバック
+          // ① UI上の戻るボタン優先
           const backBtn = document.querySelector('.p-btn-back')
-            || [...document.querySelectorAll('button')].find(el => el.textContent.trim() === '←');
-          if (backBtn) { backBtn.click(); return; }
+            || [...document.querySelectorAll('button')].find(el => /^(←|戻る|検索結果に戻る)/.test(el.textContent.trim()));
+          if (backBtn) { backBtn.click(); return 'backBtn'; }
+          // ② Vue Router
+          const nuxt = window.$nuxt;
+          if (nuxt?.$router) { nuxt.$router.back(); return 'router'; }
           history.back();
+          return 'history';
         }
       });
       // 検索結果一覧(GBK002200)に戻るまで待つ
@@ -2182,7 +2197,20 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       for (let bw = 0; bw < 10; bw++) {
         await csleep(2000);
         const bt = await chrome.tabs.get(tabId);
-        await setStorageData({ debugLog: `${customer.name}: 戻り待機 ${bw+1}/10 url=${bt.url?.substring(40,90)}` });
+        await setStorageData({ debugLog: `${customer.name}: 戻り待機 ${bw+1}/10 url=${(bt.url||'').slice(-40)}` });
+        // 3回目以降でまだ詳細ページなら強制的に戻る操作を再度打つ
+        if (bw >= 2 && bt.url?.includes('GBK003200')) {
+          await chrome.scripting.executeScript({
+            target: { tabId }, world: 'MAIN',
+            func: () => {
+              const backBtn = document.querySelector('.p-btn-back')
+                || [...document.querySelectorAll('button')].find(el => /^(←|戻る|検索結果に戻る)/.test(el.textContent.trim()));
+              if (backBtn) { backBtn.click(); return; }
+              const nuxt = window.$nuxt;
+              if (nuxt?.$router) nuxt.$router.back();
+            }
+          });
+        }
         if (bt.url?.includes('GBK002200')) {
           // URLだけでなく、結果一覧の行が実際に描画されているか確認
           const rowsCheck = await chrome.scripting.executeScript({
