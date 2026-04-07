@@ -2818,19 +2818,32 @@ async function flushBatchBufferForCustomer(customerName) {
   if (!entries || entries.length === 0) return;
   const byKey = new Map();
   const noKey = [];
+  const dropped = []; // 重複として除外されたもの（ログ用）
   for (const e of entries) {
     const key = buildDedupKey(e.prop);
     if (!key) { noKey.push(e); continue; }
     const existing = byKey.get(key);
-    if (!existing || (_serviceRank[e.service] || 0) > (_serviceRank[existing.service] || 0)) {
+    if (!existing) {
       byKey.set(key, e);
+    } else if ((_serviceRank[e.service] || 0) > (_serviceRank[existing.service] || 0)) {
+      // 既存より優先度が高い → 入れ替え。既存を dropped へ
+      dropped.push({ ...existing, _winnerService: e.service });
+      byKey.set(key, e);
+    } else {
+      // 既存の方が優先 → こちらを dropped へ
+      dropped.push({ ...e, _winnerService: existing.service });
     }
   }
   const winners = [...byKey.values(), ...noKey];
-  const removed = entries.length - winners.length;
   const props = winners.map(e => e.prop);
   const customer = winners[0].customer;
-  await setStorageData({ debugLog: `[system] ${customerName}: ${entries.length}件→重複${removed}件排除→${winners.length}件通知` });
+  await setStorageData({ debugLog: `[system] ${customerName}: ${entries.length}件→重複${dropped.length}件排除→${winners.length}件通知` });
+  // 排除された物件を1件ずつログ
+  for (const d of dropped) {
+    const name = d.prop.building_name || d.prop.buildingName || '(建物名なし)';
+    const room = d.prop.room_number || d.prop.roomNumber || '';
+    await setStorageData({ debugLog: `[system] ${customerName}: ✗ 重複スキップ: ${name} ${room} (${d.service} → ${d._winnerService}優先)` });
+  }
   try {
     await sendDiscordNotification(customerName, props, customer);
   } catch (err) {
