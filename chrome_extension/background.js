@@ -1857,7 +1857,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       });
 
       // === 画像をbase64で抽出（サムネクリック→モーダルの.image-view→fetch） ===
-      const imageResults = await chrome.scripting.executeScript({
+      const imageResults = await Promise.race([
+        chrome.scripting.executeScript({
         target: { tabId },
         world: 'MAIN',
         func: async () => {
@@ -1875,56 +1876,37 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               });
             } catch (e) { return null; }
           }
-          // モーダルクリックで大画像URLを取得（高画質）
-          // モーダルは ESC で確実に閉じ、.image-view が消えるまで待ってから次へ
+          // 参考Tampermonkeyスクリプトと完全に同じパターン
           const sleep = (ms) => new Promise(r => setTimeout(r, ms));
           const images = [];
-          const seen = new Set();
-          const thumbs = [...document.querySelectorAll('div.mx-auto')].filter(el => {
-            const bg = (el.style && el.style.backgroundImage) || '';
-            return bg.includes('url(');
-          });
-          for (const thumb of thumbs) {
-            try {
-              thumb.click();
-              // .image-view が出現するまで最大2秒待つ
-              let imageView = null;
-              for (let w = 0; w < 20; w++) {
-                await sleep(100);
-                imageView = document.querySelector('.image-view');
-                if (imageView) break;
+          const thumbnails = document.querySelectorAll('div.mx-auto');
+          for (const thumb of thumbnails) {
+            thumb.click();
+            await sleep(200);
+            const imageView = document.querySelector('.image-view');
+            if (imageView) {
+              const style = imageView.getAttribute('style') || '';
+              const m = style.match(/url\(["']?(.*?)["']?\)/);
+              if (m && m[1]) {
+                let imageUrl = m[1];
+                if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
+                try {
+                  const base64 = await fetchAsBase64(imageUrl);
+                  if (base64) images.push(base64);
+                } catch (e) {}
               }
-              if (imageView) {
-                const style = imageView.getAttribute('style') || '';
-                const m = style.match(/url\(["']?(.*?)["']?\)/);
-                if (m && m[1]) {
-                  let imageUrl = m[1];
-                  if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
-                  if (!seen.has(imageUrl)) {
-                    seen.add(imageUrl);
-                    const base64 = await fetchAsBase64(imageUrl);
-                    if (base64) images.push(base64);
-                  }
-                }
-              }
-              // モーダルを確実に閉じる: ESCキー → .image-view 消滅待ち
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-              document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-              for (let w = 0; w < 30; w++) {
-                await sleep(100);
-                if (!document.querySelector('.image-view')) break;
-              }
-              // それでも閉じてなければモーダル背景クリック
-              if (document.querySelector('.image-view')) {
-                const backdrop = document.querySelector('.modal-backdrop, .modal');
-                if (backdrop) backdrop.click();
-                await sleep(300);
-              }
-            } catch (e) {}
+            }
+            const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
+            if (closeBtn) {
+              closeBtn.click();
+              await sleep(300);
+            }
           }
           return images;
         }
-      });
+      }),
+        new Promise((resolve) => setTimeout(() => resolve(null), 60000))
+      ]);
       const imageBase64s = (imageResults && imageResults[0] && imageResults[0].result) || [];
       await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
 
