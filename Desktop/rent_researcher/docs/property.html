@@ -25,7 +25,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .skel-w30{width:30%}.skel-w50{width:50%}.skel-w70{width:70%}.skel-w90{width:90%}
 .progress-msg{text-align:center;color:#888;font-size:13px;margin:12px 0;transition:opacity 0.3s}
 .skel-img-wrap{position:relative}
-.progress-overlay{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(76,175,80,0.95);color:#fff;padding:12px 20px;border-radius:24px;font-size:15px;font-weight:bold;box-shadow:0 4px 16px rgba(0,0,0,0.25);white-space:nowrap;transition:opacity 0.3s;display:flex;align-items:center;gap:8px}
+.progress-overlay{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#4CAF50;color:#fff;padding:14px 24px;border-radius:30px;font-size:16px;font-weight:bold;box-shadow:0 6px 24px rgba(0,0,0,0.35);white-space:nowrap;transition:opacity 0.3s;display:flex;align-items:center;gap:10px;z-index:9999}
 .progress-overlay::before{content:"";width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block}
 @keyframes spin{to{transform:rotate(360deg)}}
 /* エラー */
