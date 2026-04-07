@@ -3301,4 +3301,37 @@ async function logError(message) {
   currentStats.errors.push({ time: Date.now(), message });
   if (currentStats.errors.length > 10) currentStats.errors = currentStats.errors.slice(-10);
   await setStorageData({ stats: currentStats });
+  // Discord へエラー通知（同一メッセージは5分間クールダウン）
+  notifyDiscordError(message).catch(() => {});
+}
+
+// エラー通知のクールダウン管理（メモリ上）
+const _errorNotifyCache = new Map();
+async function notifyDiscordError(message) {
+  try {
+    const { discordWebhookUrl, errorWebhookUrl } = await getStorageData(['discordWebhookUrl', 'errorWebhookUrl']);
+    const webhook = errorWebhookUrl || discordWebhookUrl;
+    if (!webhook) return;
+    // クールダウン: 同一メッセージ先頭80文字で5分以内はスキップ
+    const key = String(message).slice(0, 80);
+    const now = Date.now();
+    const last = _errorNotifyCache.get(key) || 0;
+    if (now - last < 5 * 60 * 1000) return;
+    _errorNotifyCache.set(key, now);
+    // 古いエントリ削除
+    if (_errorNotifyCache.size > 50) {
+      for (const [k, t] of _errorNotifyCache) {
+        if (now - t > 30 * 60 * 1000) _errorNotifyCache.delete(k);
+      }
+    }
+    const ts = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    const body = { content: `⚠️ **REINS拡張エラー** (${ts})\n\`\`\`\n${String(message).slice(0, 1800)}\n\`\`\`` };
+    await fetch(webhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  } catch (e) {
+    console.error('Discord エラー通知失敗:', e);
+  }
 }
