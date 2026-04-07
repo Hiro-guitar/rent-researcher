@@ -125,19 +125,15 @@ async function reinsAutoSearchByNumber(tabId, num) {
     args: [num]
   });
 
-  // 4) 検索結果ページ到達 → 1件目の詳細ボタンクリック
+  // 4) 検索結果ページ到達(GBK004200) → 詳細ボタンクリック
   for (let i = 0; i < 30; i++) {
     await sleep(500);
     const t = await chrome.tabs.get(tabId);
-    if (!t.url?.includes('GBK002200')) continue;
+    if (!t.url?.includes('GBK004200')) continue;
     const clicked = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        const rows = document.querySelectorAll('.p-table-body-row');
-        if (rows.length === 0) return false;
-        const buttons = rows[0].querySelectorAll('button');
-        // [0]概要 [1]詳細 [2]図面
-        const detail = buttons[1];
+        const detail = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
         if (detail) { detail.click(); return true; }
         return false;
       }
