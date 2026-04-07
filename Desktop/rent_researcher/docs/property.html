@@ -110,9 +110,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 
 <!-- スケルトンカード（描画と同時に表示、JSで顧客名・最小情報を即注入） -->
 <div id="loading">
+  <div class="progress-msg" id="progressMsg" style="margin:10px 0 4px">物件情報を読み込んでいます…</div>
+  <div class="customer-badge" id="skelCustomer" style="margin:0 16px 8px">　</div>
   <div class="skel skel-img" id="skelImg"></div>
   <div class="content">
-    <div class="customer-badge" id="skelCustomer">　</div>
+    <div class="customer-badge" id="skelCustomer2" style="display:none"></div>
     <div class="title" id="skelTitle"><span class="skel skel-row skel-w70"></span></div>
     <div class="price-box" id="skelPrice">
       <div class="price-main" id="skelRent"><span class="skel skel-row skel-w50" style="height:24px;background:rgba(255,255,255,0.4)"></span></div>
@@ -125,7 +127,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
       <div class="row"><span class="row-label">築年数</span><span class="row-value" id="skelAge"><span class="skel skel-row skel-w30"></span></span></div>
       <div class="row"><span class="row-label">最寄駅</span><span class="row-value" id="skelStation"><span class="skel skel-row skel-w90"></span></span></div>
     </div>
-    <div class="progress-msg" id="progressMsg">物件情報を読み込んでいます…</div>
   </div>
 </div>
 
