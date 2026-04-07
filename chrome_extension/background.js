@@ -2030,38 +2030,29 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const seenUrls = new Set();
           const thumbCount = thumbnails.length;
           for (let idx = 0; idx < thumbCount; idx++) {
-            // 毎回サムネイルを取り直す（Vue再描画でstaleになるのを防ぐ）
             const currentThumbs = document.querySelectorAll('div.mx-auto');
             const thumb = currentThumbs[idx];
             if (!thumb) continue;
-            // 前回のモーダルが消えるまで待機
-            for (let w = 0; w < 20; w++) {
-              if (!document.querySelector('.image-view')) break;
-              await sleep(100);
-            }
-            // クリック（反応しない場合リトライ）
+            thumb.click();
+            await sleep(200);
             let imageUrl = null;
-            for (let attempt = 0; attempt < 3; attempt++) {
-              const t2 = document.querySelectorAll('div.mx-auto')[idx];
-              if (!t2) break;
-              t2.click();
-              // モーダルが現れてURL取得できるまで最大2.5秒待機
-              for (let w = 0; w < 25; w++) {
+            const getUrl = () => {
+              const iv = document.querySelector('.image-view');
+              if (!iv) return null;
+              const m = (iv.getAttribute('style') || '').match(/url\(["']?(.*?)["']?\)/);
+              if (!m || !m[1]) return null;
+              let u = m[1];
+              if (u.startsWith('/')) u = location.origin + u;
+              return u;
+            };
+            imageUrl = getUrl();
+            // 取れなかった場合のみ最大1秒追加待機
+            if (!imageUrl) {
+              for (let w = 0; w < 10; w++) {
                 await sleep(100);
-                const imageView = document.querySelector('.image-view');
-                if (imageView) {
-                  const style = imageView.getAttribute('style') || '';
-                  const m = style.match(/url\(["']?(.*?)["']?\)/);
-                  if (m && m[1]) {
-                    let u = m[1];
-                    if (u.startsWith('/')) u = location.origin + u;
-                    imageUrl = u;
-                    break;
-                  }
-                }
+                imageUrl = getUrl();
+                if (imageUrl) break;
               }
-              if (imageUrl) break;
-              await sleep(300);
             }
             if (imageUrl && !seenUrls.has(imageUrl)) {
               seenUrls.add(imageUrl);
@@ -2074,9 +2065,6 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             if (closeBtn) {
               closeBtn.click();
               await sleep(300);
-            } else {
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
-              await sleep(200);
             }
           }
           return images;
