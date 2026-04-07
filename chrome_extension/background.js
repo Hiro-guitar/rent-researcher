@@ -194,6 +194,17 @@ async function submitProperties(customerName, properties) {
 }
 // === END GAS API クライアント ===
 
+// === room_id ハッシュ化（ソース・ID形式の匿名化） ===
+// 顧客向けURLにはハッシュ化したroom_idを使用し、
+// どのサイトから取得したか・IDの形式から推測されないようにする。
+const ROOM_ID_SALT = 'rr_v1_k7x9q2mA8pL5nC3bZ';
+async function hashRoomId(source, rawId) {
+  const input = ROOM_ID_SALT + '|' + (source || '') + '|' + (rawId || '');
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
+// === END room_id ハッシュ化 ===
+
 // === lineNameMap + reinsCodeMap ===
 let cachedLineNameMap = null;
 async function loadLineNameMap() {
@@ -1528,7 +1539,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     const result = searchResults[i];
     if (!result.propertyNumber) continue;
     const isTest = customer.name.includes('テスト');
-    if (!isTest && customerSeenIds.some(id => id.includes(result.propertyNumber))) {
+    // room_idはハッシュ化済みなのでpropertyNumber単位で完全一致チェック
+    const reinsRoomHash = await hashRoomId('reins', 'reins_' + result.propertyNumber);
+    if (!isTest && (
+      customerSeenIds.includes(reinsRoomHash) ||
+      customerSeenIds.some(id => id.includes(result.propertyNumber)) // 旧形式（生ID）互換
+    )) {
       continue; // 既知物件はログなし（大量になるため）
     }
 
@@ -2110,6 +2126,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
 
       const detail = detailResults && detailResults[0] && detailResults[0].result;
+      if (detail) {
+        // room_idをハッシュ化（propertyNumberベース・顧客向けURLでソース非表示）
+        detail._raw_room_id = detail.room_id;
+        detail.room_id = await hashRoomId('reins', 'reins_' + (detail.reins_property_number || ''));
+      }
       if (!detail) {
         try {
           const t = await chrome.tabs.get(tabId);

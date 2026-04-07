@@ -580,6 +580,12 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
     const pageProperties = searchResult.properties;
     await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: page ${page} → ${pageProperties.length}件` });
 
+    // room_idをハッシュ化（顧客向けURLでソース非表示）
+    for (const p of pageProperties) {
+      p._raw_room_id = p.room_id;
+      p.room_id = await hashRoomId('ielove', p._raw_room_id);
+    }
+
     // 各物件を処理
     for (const prop of pageProperties) {
       if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');

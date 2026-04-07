@@ -7,6 +7,14 @@
 (function () {
   'use strict';
 
+  // room_id ハッシュ化（background.js と同じ実装）
+  const ROOM_ID_SALT = 'rr_v1_k7x9q2mA8pL5nC3bZ';
+  async function hashRoomId(source, rawId) {
+    const input = ROOM_ID_SALT + '|' + (source || '') + '|' + (rawId || '');
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+  }
+
   // background.js からのメッセージを受信
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'CHECK_LOGIN') {
@@ -144,7 +152,8 @@
     // Property スキーマに合わせた返却データ
     return {
       building_id: `reins_${propertyNumber}`,
-      room_id: `reins_${propertyNumber}_${roomNumber || 'no_room'}`,
+      room_id: await hashRoomId('reins', `reins_${propertyNumber}`),
+      _raw_room_id: `reins_${propertyNumber}_${roomNumber || 'no_room'}`,
       building_name: building || '',
       address,
       rent,

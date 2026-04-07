@@ -4,14 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>物件情報</title>
+<!-- GAS API への TLS ハンドシェイクを事前に済ませて view_api 取得を高速化 -->
+<link rel="preconnect" href="https://script.google.com" crossorigin>
+<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+<link rel="dns-prefetch" href="https://script.google.com">
+<link rel="dns-prefetch" href="https://script.googleusercontent.com">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;background:#f8f9fa;color:#333}
-/* ローディング */
+/* ローディング（最小限のフォールバック） */
 .loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;color:#888}
 .loading .spinner{width:40px;height:40px;border:4px solid #e0e0e0;border-top:4px solid #4CAF50;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading p{font-size:14px}
+/* スケルトンUI */
+@keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+.skel{background:linear-gradient(90deg,#eee 0px,#f5f5f5 200px,#eee 400px);background-size:800px 100%;animation:shimmer 1.4s infinite linear;border-radius:6px;display:inline-block}
+.skel-img{width:100%;max-width:600px;height:240px;margin:0 auto;display:block;border-radius:0}
+.skel-row{height:14px;margin:8px 0}
+.skel-w30{width:30%}.skel-w50{width:50%}.skel-w70{width:70%}.skel-w90{width:90%}
+.progress-msg{text-align:center;color:#888;font-size:13px;margin:12px 0;transition:opacity 0.3s}
 /* エラー */
 .error-card{background:#fff;border-radius:12px;padding:30px;max-width:400px;margin:40px auto;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
 .error-card h2{color:#E05252;margin-bottom:12px}
@@ -96,9 +108,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 </head>
 <body>
 
-<div id="loading" class="loading">
-  <div class="spinner"></div>
-  <p>物件情報を読み込んでいます...</p>
+<!-- スケルトンカード（描画と同時に表示、JSで顧客名・最小情報を即注入） -->
+<div id="loading">
+  <div class="skel skel-img" id="skelImg"></div>
+  <div class="content">
+    <div class="customer-badge" id="skelCustomer">　</div>
+    <div class="title" id="skelTitle"><span class="skel skel-row skel-w70"></span></div>
+    <div class="price-box" id="skelPrice">
+      <div class="price-main" id="skelRent"><span class="skel skel-row skel-w50" style="height:24px;background:rgba(255,255,255,0.4)"></span></div>
+      <div class="price-sub" id="skelPriceSub"><span class="skel skel-row skel-w70" style="background:rgba(255,255,255,0.3)"></span></div>
+    </div>
+    <div class="section">
+      <div class="section-title">物件情報</div>
+      <div class="row"><span class="row-label">間取り</span><span class="row-value" id="skelLayout"><span class="skel skel-row skel-w30"></span></span></div>
+      <div class="row"><span class="row-label">面積</span><span class="row-value" id="skelArea"><span class="skel skel-row skel-w30"></span></span></div>
+      <div class="row"><span class="row-label">築年数</span><span class="row-value" id="skelAge"><span class="skel skel-row skel-w30"></span></span></div>
+      <div class="row"><span class="row-label">最寄駅</span><span class="row-value" id="skelStation"><span class="skel skel-row skel-w90"></span></span></div>
+    </div>
+    <div class="progress-msg" id="progressMsg">物件情報を読み込んでいます…</div>
+  </div>
 </div>
 
 <div id="app" style="display:none"></div>
@@ -184,22 +212,80 @@ var params = new URLSearchParams(window.location.search);
 var customer = params.get('customer');
 var roomId = params.get('room_id');
 
-// 埋め込みデータ取得: クエリパラメータ d= を優先、旧形式のハッシュ # もフォールバック対応
-// 注意: URLSearchParams.get() は '+' をスペースに変換するため（application/x-www-form-urlencoded仕様）、
-// Base64文字列が壊れる。正規表現で生のクエリ文字列から取得し、%エンコードだけデコードする。
-var rawD = (window.location.search.match(/[?&]d=([^&]*)/) || [])[1];
-var embeddedData = rawD ? decodeURIComponent(rawD) : (window.location.hash.length > 1 ? window.location.hash.substring(1) : null);
-var inlineProp = decodePropertyData(embeddedData);
+// 顧客名は即座にスケルトンへ注入（パーソナライズ感を最初に出す）
+if (customer) {
+  var sc = document.getElementById('skelCustomer');
+  if (sc) sc.textContent = customer + ' 様専用ページ';
+  document.title = customer + ' 様の物件情報';
+}
 
-// 1. まず埋め込みデータを試す（即時描画 < 1秒）
+// プログレスメッセージのローテーション（待ち時間に「進んでる感」を出す）
+var progressMessages = [
+  '物件情報を読み込んでいます…',
+  '物件詳細を取得中…',
+  '画像を読み込み中…',
+  'もうすぐです…'
+];
+var progressIdx = 0;
+var progressTimer = setInterval(function() {
+  progressIdx++;
+  if (progressIdx >= progressMessages.length) { clearInterval(progressTimer); return; }
+  var pm = document.getElementById('progressMsg');
+  if (pm) { pm.style.opacity = '0'; setTimeout(function() { pm.textContent = progressMessages[progressIdx]; pm.style.opacity = '1'; }, 200); }
+}, 1200);
+
+// 埋め込みデータ取得: d=（フル）→ m=（最小）→ ハッシュ # の順で確認
+var rawD = (window.location.search.match(/[?&]d=([^&]*)/) || [])[1];
+var rawM = (window.location.search.match(/[?&]m=([^&]*)/) || [])[1];
+var embeddedFull = rawD ? decodeURIComponent(rawD) : (window.location.hash.length > 1 ? window.location.hash.substring(1) : null);
+var embeddedMin = rawM ? decodeURIComponent(rawM) : null;
+var inlineProp = decodePropertyData(embeddedFull);
+var minimalProp = decodePropertyData(embeddedMin);
+
+// スケルトンに最小情報を即注入（?m= があれば建物名・賃料・間取・駅を1stビューで見せる）
+function injectMinimalToSkeleton(p) {
+  if (!p) return;
+  var setText = function(id, text) { var el = document.getElementById(id); if (el && text) el.innerHTML = escHtml(text); };
+  var displayName = p.buildingName || '';
+  if (p.roomNumber && displayName && displayName.indexOf(p.roomNumber) < 0) displayName += ' ' + p.roomNumber;
+  setText('skelTitle', displayName);
+  if (p.rent) {
+    var rentText = p.rent >= 10000 ? (p.rent / 10000) + '万円' : p.rent.toLocaleString() + '円';
+    var el = document.getElementById('skelRent');
+    if (el) el.innerHTML = escHtml(rentText) + '<span style="font-size:16px">/月</span>';
+  }
+  if (p.managementFee) {
+    var mfText = p.managementFee >= 10000 ? (p.managementFee / 10000) + '万円' : p.managementFee.toLocaleString() + '円';
+    var el2 = document.getElementById('skelPriceSub');
+    if (el2) el2.textContent = '管理費 ' + mfText;
+  }
+  if (p.layout) setText('skelLayout', p.layout);
+  if (p.area) setText('skelArea', p.area + 'm²');
+  if (p.buildingAge) setText('skelAge', p.buildingAge);
+  if (p.stationInfo) setText('skelStation', p.stationInfo);
+  if (displayName) document.title = displayName + ' - 物件詳細';
+  // ヒーロー画像も最小データに含まれていれば即表示
+  if (p.images && p.images.length > 0) {
+    var skelImg = document.getElementById('skelImg');
+    if (skelImg) {
+      skelImg.outerHTML = '<img class="hero" src="' + escHtml(p.images[0]) + '" alt="物件画像" onerror="this.style.display=\'none\'">';
+    }
+  }
+}
+
+// 1. フルデータがあれば即時描画（最速 < 0.3秒）
 if (inlineProp) {
   renderProperty(inlineProp);
-  // 画像がデータに含まれていない場合、非同期で画像を取得
   if ((!inlineProp.images || inlineProp.images.length === 0) && customer && roomId) {
     fetchImages(customer, roomId);
   }
+} else if (minimalProp && customer && roomId) {
+  // 2. 最小データ → スケルトンに即注入してから view_api で残りを取得
+  // （view_api が画像も返すので images_api は呼ばない）
+  injectMinimalToSkeleton(minimalProp);
+  fetchProperty(customer, roomId);
 } else if (customer && roomId) {
-  // 2. フォールバック: GAS API（旧リンク対応）
+  // 3. パラメータ無し → view_api 経由（最遅、フォールバック）
   fetchProperty(customer, roomId);
 } else {
   showError('パラメータが不足しています。');
@@ -410,6 +496,8 @@ function renderFacBuckets(order, buckets) {
 
 function renderProperty(p) {
   currentProperty = p; // sendFeedback で使うためグローバルに保存
+  // プログレスメッセージのローテーションを停止
+  if (typeof progressTimer !== 'undefined' && progressTimer) { clearInterval(progressTimer); progressTimer = null; }
   // 金額表示ヘルパー: 1万円以上は「X万円」、未満は「X,XXX円」
   function fmtYen(v) {
     if (!v) return '0';

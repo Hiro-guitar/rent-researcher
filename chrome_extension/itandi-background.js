@@ -923,6 +923,12 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
 
   await setStorageData({ debugLog: `[itandi] ${customer.name}: ${allProperties.length}件取得、詳細確認中...` });
 
+  // room_idをハッシュ化（顧客向けURLでソース非表示）
+  for (const p of allProperties) {
+    p._raw_room_id = p.room_id;
+    p.room_id = await hashRoomId('itandi', p._raw_room_id);
+  }
+
   // 各物件を処理
   for (const prop of allProperties) {
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');

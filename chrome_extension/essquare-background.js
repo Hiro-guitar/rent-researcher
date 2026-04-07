@@ -1104,7 +1104,9 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
     for (const p of pageProps) {
       p.source = 'essquare';
       p.url = `${ESSQUARE_BASE_URL}/bukken/chintai/search/detail/${p.uuid}`;
-      p.room_id = p.uuid;
+      // room_idをハッシュ化（顧客向けURLでソース非表示）
+      p._raw_room_id = p.uuid;
+      p.room_id = await hashRoomId('essquare', p.uuid);
       p.building_id = p.uuid.split('-')[0] || p.uuid;
       p.image_urls = p.image_urls || [];
       p.facilities = p.facilities || '';
