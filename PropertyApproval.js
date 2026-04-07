@@ -1218,7 +1218,7 @@ function buildMinimalViewUrl(customerName, roomId, prop) {
   if (prop.deposit) d.d = prop.deposit;
   if (prop.keyMoney) d.k = prop.keyMoney;
   if (prop.floorText) d.ft = prop.floorText;
-  if (prop.imageUrl) d.imgs = [prop.imageUrl]; // ヒーロー画像1枚だけ
+  // 画像URLは長いので埋め込まない（view_api 経由で別途取得）
   var jsonStr = JSON.stringify(d);
   var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
   return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '&m=' + encoded;
