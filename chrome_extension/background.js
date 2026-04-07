@@ -28,8 +28,12 @@ chrome.action.onClicked.addListener(() => {
 
 // === REINS物件番号オートサーチ（Discordリンクから #bukken=XXX で起動） ===
 const __reinsAutoSearchHandled = new Set(); // tabIdごとに進行中フラグ
+// 自動取得が使用中のREINSタブID（このタブではオートサーチしない）
+globalThis.__reinsAutomationTabId = null;
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!tab.url || !tab.url.includes('system.reins.jp')) return;
+  // 自動取得中のタブはスキップ
+  if (globalThis.__reinsAutomationTabId === tabId) return;
   const m = tab.url.match(/[#?&]bukken=(\d+)/);
   if (!m) return;
   if (changeInfo.status !== 'complete' && !changeInfo.url) return;
@@ -685,6 +689,7 @@ async function runSearchCycle() {
         await setStorageData({ loginDetected: false, debugLog: 'REINSタブが見つかりません（REINS検索スキップ）' });
       } else {
         await setStorageData({ debugLog: `REINSタブ発見: tabId=${reinsTab.id}, url=${reinsTab.url}` });
+        globalThis.__reinsAutomationTabId = reinsTab.id;
 
         const { pageDelaySeconds } = await getStorageData(['pageDelaySeconds']);
         const delay = (pageDelaySeconds || 2) * 1000;
@@ -742,6 +747,7 @@ async function runSearchCycle() {
         }
 
         await closeDedicatedWindow();
+        globalThis.__reinsAutomationTabId = null;
         await setStorageData({ debugLog: '[REINS] 検索完了' });
       }
     }
