@@ -45,7 +45,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   const isAutomationTab = automationTabId === tabId;
   const isAutomationPage = /GBK002200|GBK003200/.test(tab.url);
   if (isAutomationTab || isAutomationPage) {
-    try { await chrome.tabs.goBack(tabId); } catch (e) {}
+    // 自動取得タブには触らない（goBackするとVue状態が壊れる）。新規タブで開く
     try { await chrome.tabs.create({ url: 'https://system.reins.jp/main/BK/GBK004100#bukken=' + num, active: true }); } catch (e) {}
     return;
   }
