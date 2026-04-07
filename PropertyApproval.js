@@ -1218,10 +1218,19 @@ function buildMinimalViewUrl(customerName, roomId, prop) {
   if (prop.deposit) d.d = prop.deposit;
   if (prop.keyMoney) d.k = prop.keyMoney;
   if (prop.floorText) d.ft = prop.floorText;
-  // 画像URLは長いので埋め込まない（view_api 経由で別途取得）
+  var baseUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '&m=';
+  // まず画像入りで試す
+  if (prop.imageUrl) {
+    d.imgs = [prop.imageUrl];
+    var jsonWith = JSON.stringify(d);
+    var encWith = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonWith).getBytes());
+    var urlWith = baseUrl + encWith;
+    if (urlWith.length <= 1000) return urlWith;
+    delete d.imgs; // 超えたら画像なしへ
+  }
   var jsonStr = JSON.stringify(d);
   var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
-  return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '&m=' + encoded;
+  return baseUrl + encoded;
 }
 
 // ===== Flex Message =====
