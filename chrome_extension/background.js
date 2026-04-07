@@ -26,6 +26,91 @@ chrome.action.onClicked.addListener(() => {
   openLogTab();
 });
 
+// === REINS物件番号オートサーチ（Discordリンクから #bukken=XXX で起動） ===
+const __reinsAutoSearchHandled = new Set(); // tabIdごとに進行中フラグ
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (!tab.url || !tab.url.includes('system.reins.jp')) return;
+  const m = tab.url.match(/[#?&]bukken=(\d+)/);
+  if (!m) return;
+  if (changeInfo.status !== 'complete' && !changeInfo.url) return;
+  const num = m[1];
+  const key = tabId + ':' + num;
+  if (__reinsAutoSearchHandled.has(key)) return;
+  __reinsAutoSearchHandled.add(key);
+  try {
+    await reinsAutoSearchByNumber(tabId, num);
+  } catch (e) {
+    console.error('reinsAutoSearchByNumber error:', e);
+  } finally {
+    setTimeout(() => __reinsAutoSearchHandled.delete(key), 60000);
+  }
+});
+
+async function reinsAutoSearchByNumber(tabId, num) {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  // ログイン画面なら諦める
+  const tab0 = await chrome.tabs.get(tabId);
+  if (/login|GKG001/i.test(tab0.url || '')) return;
+
+  // 1) 物件番号検索ページへ遷移（Vueルーター経由）
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: () => {
+      try {
+        const n = window.$nuxt;
+        if (n && n.$router) { n.$router.push('/main/BK/GBK004100'); return 'router'; }
+      } catch (e) {}
+      location.assign('https://system.reins.jp/main/BK/GBK004100');
+      return 'location';
+    }
+  });
+
+  // 2) GBK004100到達 & 物件番号入力欄出現を待つ
+  for (let i = 0; i < 30; i++) {
+    await sleep(500);
+    const t = await chrome.tabs.get(tabId);
+    if (!t.url?.includes('GBK004100')) continue;
+    const ready = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const inputs = [...document.querySelectorAll('input[type="text"], input:not([type])')];
+        for (const el of inputs) {
+          const ctx = el.closest('.p-label, .form-group, div')?.parentElement?.textContent || '';
+          if (ctx.includes('物件番号')) return true;
+        }
+        return false;
+      }
+    });
+    if (ready?.[0]?.result) break;
+  }
+
+  // 3) 物件番号入力 → 検索ボタンクリック（MAIN worldでVue互換）
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: (number) => {
+      const inputs = [...document.querySelectorAll('input[type="text"], input:not([type])')];
+      let target = null;
+      for (const el of inputs) {
+        const ctx = el.closest('.p-label, .form-group, div')?.parentElement?.textContent || '';
+        if (ctx.includes('物件番号')) { target = el; break; }
+      }
+      if (!target) return 'no_input';
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(target, number);
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      target.dispatchEvent(new Event('change', { bubbles: true }));
+      setTimeout(() => {
+        const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '検索');
+        if (btn) btn.click();
+      }, 300);
+      return 'ok';
+    },
+    args: [num]
+  });
+}
+
 // === GAS API クライアント（inline） ===
 async function getConfig() {
   return new Promise((resolve) => {
@@ -1813,7 +1898,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             // 報酬
             commission_type: getVal('報酬形態') || '',
             commission: getVal('報酬') || '',
-            ad_fee: getVal('報酬') || '',
+            ad_fee: (() => {
+              // 「報酬」ラベル完全一致を最優先、ダメなら 報酬額/報酬(税抜) 等を探す
+              let v = getVal('報酬');
+              if (v) return v;
+              const labels = [...document.querySelectorAll('.p-label-title')];
+              const target = labels.find(e => {
+                const t = e.textContent.trim();
+                return /^報酬/.test(t) && !/形態|割合/.test(t);
+              });
+              if (!target) return '';
+              const container = target.closest('.p-label')?.parentElement;
+              if (!container) return '';
+              // 直近の .row .col を取得（col-sm-6 配下の最初の .row > .col）
+              const col = container.querySelector(':scope > .row .col, .row .col');
+              return col?.textContent.trim() || '';
+            })(),
             commission_landlord: getVal('負担割合貸主') || '',
             commission_tenant: getVal('負担割合借主') || '',
             commission_motozuke: getVal('配分割合元付') || '',
@@ -2969,6 +3069,10 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   // 詳細ページURL
   if (prop.url) {
     lines.push(`🔗 [詳細ページ](${prop.url})`);
+  } else if (prop.source !== 'ielove' && prop.source !== 'itandi' && prop.source !== 'essquare' && prop.reins_property_number) {
+    // REINS: 物件番号検索を自動実行するURL（拡張のcontent-search.jsがhashを検出して検索）
+    const cleanNum = String(prop.reins_property_number).replace(/\D/g, '');
+    lines.push(`🔗 [REINSで開く](https://system.reins.jp/main/BK/GBK004100#bukken=${cleanNum})`);
   }
 
   // 承認リンク
