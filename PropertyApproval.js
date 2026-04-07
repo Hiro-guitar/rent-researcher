@@ -165,10 +165,11 @@ function handleConfirmApprove(e) {
     updateSheetWithEdits(row.rowIndex, prop);
   }
 
-  // ビューURL（ハッシュにテキストデータ埋め込み → property.html が即時描画、画像は非同期読み込み）
+  // ビューURL（hashUrl 最速 → minimalUrl フォールバック → plainUrl 最終手段）
   var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
   var hashUrl = buildViewUrl(customerName, roomId, prop, []); // 画像なし → URL短縮
-  var viewUrl = hashUrl.length <= 1000 ? hashUrl : plainUrl; // LINE URI action 1000文字制限
+  var minimalUrl = buildMinimalViewUrl(customerName, roomId, prop);
+  var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl); // LINE URI action 1000文字制限
 
   // 画像URLをキャッシュ（property.html からの非同期取得用）
   cachePropertyImages(customerName, roomId, selectedImageUrls, selectedImageCategories);
@@ -237,7 +238,8 @@ function handleConfirmApproveAll(e) {
 
     var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
     var hashUrl = buildViewUrl(customerName, rid, prop, []); // 画像なし → URL短縮
-    var viewUrl = hashUrl.length <= 1000 ? hashUrl : plainUrl;
+    var minimalUrl = buildMinimalViewUrl(customerName, rid, prop);
+    var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl);
 
     // 画像URLをキャッシュ（property.html からの非同期取得用）
     cachePropertyImages(customerName, rid, selectedUrls, selectedCats);
@@ -1197,6 +1199,29 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
   var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
   // クエリパラメータ d= に埋め込み（LINE がハッシュ # を削除するため）
   return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '&d=' + encoded;
+}
+
+// ===== 最小ビューURL生成（hashUrlが1000字を超えた時のフォールバック） =====
+// 主要フィールドだけ埋め込み、property.html は即座にカード骨格を表示しつつ
+// 残りを view_api で並列フェッチする → 体感の待ち時間を激減させる
+function buildMinimalViewUrl(customerName, roomId, prop) {
+  var d = {};
+  if (prop.buildingName) d.bn = prop.buildingName;
+  if (prop.roomNumber) d.rn = prop.roomNumber;
+  if (prop.rent) d.r = prop.rent;
+  if (prop.managementFee) d.mf = prop.managementFee;
+  if (prop.layout) d.l = prop.layout;
+  if (prop.area) d.a = prop.area;
+  if (prop.buildingAge) d.ba = prop.buildingAge;
+  if (prop.stationInfo) d.si = prop.stationInfo;
+  if (prop.address) d.ad = prop.address;
+  if (prop.deposit) d.d = prop.deposit;
+  if (prop.keyMoney) d.k = prop.keyMoney;
+  if (prop.floorText) d.ft = prop.floorText;
+  if (prop.imageUrl) d.imgs = [prop.imageUrl]; // ヒーロー画像1枚だけ
+  var jsonStr = JSON.stringify(d);
+  var encoded = Utilities.base64EncodeWebSafe(Utilities.newBlob(jsonStr).getBytes());
+  return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '&m=' + encoded;
 }
 
 // ===== Flex Message =====
