@@ -1736,7 +1736,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             key_money: getVal('礼金') || '',
             facilities: getVal('設備・条件・住宅性能等') || '',
             sunlight: getVal('バルコニー方向') || '',
-            lease_type: getVal('建物賃貸借区分') || getVal('取引態様') || '',
+            lease_type: getVal('建物賃貸借区分') || '',
             contract_period: getVal('契約期間') || '',
             move_in_date: (() => {
               // 「入居年月」は col-4 と col-8 に分かれている（例: "令和 8年 4月" + "中旬"）
@@ -1813,6 +1813,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             // 報酬
             commission_type: getVal('報酬形態') || '',
             commission: getVal('報酬') || '',
+            ad_fee: getVal('報酬') || '',
             commission_landlord: getVal('負担割合貸主') || '',
             commission_tenant: getVal('負担割合借主') || '',
             commission_motozuke: getVal('配分割合元付') || '',
