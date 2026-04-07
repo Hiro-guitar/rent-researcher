@@ -124,6 +124,26 @@ async function reinsAutoSearchByNumber(tabId, num) {
     },
     args: [num]
   });
+
+  // 4) 検索結果ページ到達 → 1件目の詳細ボタンクリック
+  for (let i = 0; i < 30; i++) {
+    await sleep(500);
+    const t = await chrome.tabs.get(tabId);
+    if (!t.url?.includes('GBK002200')) continue;
+    const clicked = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const rows = document.querySelectorAll('.p-table-body-row');
+        if (rows.length === 0) return false;
+        const buttons = rows[0].querySelectorAll('button');
+        // [0]概要 [1]詳細 [2]図面
+        const detail = buttons[1];
+        if (detail) { detail.click(); return true; }
+        return false;
+      }
+    });
+    if (clicked?.[0]?.result) break;
+  }
 }
 
 // === GAS API クライアント（inline） ===
