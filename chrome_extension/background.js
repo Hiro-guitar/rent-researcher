@@ -2027,21 +2027,32 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             if (thumbnails.length > 0) break;
             await sleep(200);
           }
+          const seenUrls = new Set();
+          let prevUrl = null;
           for (const thumb of thumbnails) {
             thumb.click();
-            await sleep(200);
-            const imageView = document.querySelector('.image-view');
-            if (imageView) {
-              const style = imageView.getAttribute('style') || '';
-              const m = style.match(/url\(["']?(.*?)["']?\)/);
-              if (m && m[1]) {
-                let imageUrl = m[1];
-                if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
-                try {
-                  const base64 = await fetchAsBase64(imageUrl);
-                  if (base64) images.push(base64);
-                } catch (e) {}
+            // モーダルのURLが前回と変わるまで最大1.5秒待つ
+            let imageUrl = null;
+            for (let w = 0; w < 15; w++) {
+              await sleep(100);
+              const imageView = document.querySelector('.image-view');
+              if (imageView) {
+                const style = imageView.getAttribute('style') || '';
+                const m = style.match(/url\(["']?(.*?)["']?\)/);
+                if (m && m[1]) {
+                  let u = m[1];
+                  if (u.startsWith('/')) u = location.origin + u;
+                  if (u !== prevUrl) { imageUrl = u; break; }
+                }
               }
+            }
+            if (imageUrl && !seenUrls.has(imageUrl)) {
+              seenUrls.add(imageUrl);
+              prevUrl = imageUrl;
+              try {
+                const base64 = await fetchAsBase64(imageUrl);
+                if (base64) images.push(base64);
+              } catch (e) {}
             }
             const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
             if (closeBtn) {
