@@ -962,7 +962,21 @@ function handleAddReinsProperty(json) {
       'pending',                       // K: status
       now,                             // L: created_at
       '',                              // M: updated_at
-      'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId  // N: view_url
+      buildMinimalViewUrl(customerName, roomId, {
+        buildingName: p.building_name || '',
+        roomNumber: p.room_number || '',
+        rent: p.rent || 0,
+        managementFee: p.management_fee || 0,
+        layout: p.layout || '',
+        area: p.area || 0,
+        buildingAge: p.building_age || '',
+        stationInfo: p.station_info || '',
+        address: p.address || '',
+        deposit: p.deposit || '',
+        keyMoney: p.key_money || '',
+        floorText: p.floor_text || '',
+        imageUrl: (p.image_urls && p.image_urls[0]) || p.image_url || ''
+      })  // N: view_url（minimalUrl で即時表示可）
     ]);
 
     added++;
