@@ -2058,6 +2058,21 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
 
       const detail = detailResults && detailResults[0] && detailResults[0].result;
+      if (!detail) {
+        try {
+          const t = await chrome.tabs.get(tabId);
+          const dump = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => ({
+              h: [...document.querySelectorAll('h1,h2,h3')].map(e=>e.textContent.trim()).slice(0,4),
+              labels: [...document.querySelectorAll('.p-label-title')].length,
+              modals: document.querySelectorAll('.modal.show, .image-view').length,
+              thumbs: document.querySelectorAll('div.mx-auto').length
+            })
+          });
+          await setStorageData({ debugLog: `${customer.name}: detail=null url=${t.url?.substring(0,80)} ${JSON.stringify(dump?.[0]?.result || {})}` });
+        } catch(e) {}
+      }
 
       // === 画像base64をcatboxへアップロード（並列6 + 429指数バックオフ + 3回リトライ） ===
       if (detail && imageBase64s.length > 0) {
