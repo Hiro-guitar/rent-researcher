@@ -24,6 +24,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .skel-row{height:14px;margin:8px 0}
 .skel-w30{width:30%}.skel-w50{width:50%}.skel-w70{width:70%}.skel-w90{width:90%}
 .progress-msg{text-align:center;color:#888;font-size:13px;margin:12px 0;transition:opacity 0.3s}
+.skel-img-wrap{position:relative}
+.progress-overlay{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(76,175,80,0.95);color:#fff;padding:12px 20px;border-radius:24px;font-size:15px;font-weight:bold;box-shadow:0 4px 16px rgba(0,0,0,0.25);white-space:nowrap;transition:opacity 0.3s;display:flex;align-items:center;gap:8px}
+.progress-overlay::before{content:"";width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
 /* エラー */
 .error-card{background:#fff;border-radius:12px;padding:30px;max-width:400px;margin:40px auto;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
 .error-card h2{color:#E05252;margin-bottom:12px}
@@ -110,9 +114,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 
 <!-- スケルトンカード（描画と同時に表示、JSで顧客名・最小情報を即注入） -->
 <div id="loading">
-  <div class="progress-msg" id="progressMsg" style="margin:10px 0 4px">物件情報を読み込んでいます…</div>
   <div class="customer-badge" id="skelCustomer" style="margin:0 16px 8px">　</div>
-  <div class="skel skel-img" id="skelImg"></div>
+  <div class="skel-img-wrap">
+    <div class="skel skel-img" id="skelImg"></div>
+    <div class="progress-overlay" id="progressMsg">読み込み中…</div>
+  </div>
   <div class="content">
     <div class="customer-badge" id="skelCustomer2" style="display:none"></div>
     <div class="title" id="skelTitle"><span class="skel skel-row skel-w70"></span></div>
