@@ -1409,30 +1409,68 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       for (let waitTry = 0; waitTry < 12; waitTry++) {
         const cr = await chrome.scripting.executeScript({
           target: { tabId },
-          func: (propNum) => {
+          func: (propNum, rowIndex) => {
             const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
             for (const dialog of dialogs) {
               const okBtn = [...dialog.querySelectorAll('button')].find(b => /OK|閉じる|はい/.test(b.textContent.trim()));
               if (okBtn) { okBtn.click(); return 'dialog_closed'; }
             }
-            // 行のセレクタを複数試す
-            let rows = document.querySelectorAll('.p-table-body-row');
-            if (rows.length === 0) rows = document.querySelectorAll('[class*="body-row"]');
-            if (rows.length === 0) rows = document.querySelectorAll('table tbody tr');
+            const rows = document.querySelectorAll('.p-table-body-row');
             if (rows.length === 0) return 'no_rows';
-            for (const row of rows) {
-              if (row.textContent.includes(propNum)) {
-                const detailBtn = [...row.querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
-                if (detailBtn) { detailBtn.click(); return 'clicked'; }
+            // index で直接特定（同じ建物の連続物件でも確実）
+            const row = rows[rowIndex];
+            if (row && row.textContent.includes(propNum)) {
+              const detailBtn = [...row.querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
+              if (detailBtn) { detailBtn.click(); return 'clicked'; }
+            }
+            // index がズレた場合は物件番号で「最初に一致した未訪問行」をフォールバック検索
+            // ただし末尾完全一致のみ許可（部分文字列誤マッチ防止）
+            for (const r of rows) {
+              const items = r.querySelectorAll(':scope > .p-table-body-item');
+              const cellText = (items[3]?.textContent || '').trim();
+              const m = cellText.match(/\b(100\d{8,})\b/);
+              if (m && m[1] === propNum) {
+                const detailBtn = [...r.querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
+                if (detailBtn) { detailBtn.click(); return 'clicked_fallback'; }
               }
             }
             return 'not_found_in_' + rows.length + '_rows';
           },
-          args: [result.propertyNumber]
+          args: [result.propertyNumber, result.index]
         });
         clickStatus = cr?.[0]?.result || 'error';
         if (clickStatus === 'clicked') break;
         if (clickStatus === 'dialog_closed') { await csleep(1500); continue; }
+        // no_rows の最初の検出で詳細な状態をダンプ
+        if (clickStatus === 'no_rows' && waitTry === 0) {
+          try {
+            const diag = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => {
+                const url = location.href;
+                const title = document.title;
+                const h = [...document.querySelectorAll('h1,h2,h3,[class*="header"]')].slice(0,5).map(e=>e.textContent.trim().slice(0,40)).filter(Boolean);
+                const dialogs = [...document.querySelectorAll('[role="dialog"],.modal,.modal.show,.toast')].map(d=>d.textContent.trim().slice(0,80)).filter(Boolean);
+                const selectors = {
+                  'p-table-body-row': document.querySelectorAll('.p-table-body-row').length,
+                  'body-row*': document.querySelectorAll('[class*="body-row"]').length,
+                  'tbody tr': document.querySelectorAll('tbody tr').length,
+                  '詳細btn': [...document.querySelectorAll('button')].filter(b=>b.textContent.trim()==='詳細').length,
+                  'page-link': document.querySelectorAll('.page-link').length,
+                  'spinner': document.querySelectorAll('[class*="spinner"],[class*="loading"]').length,
+                };
+                const bodyLen = document.body.textContent.length;
+                const hasResultText = document.body.textContent.includes('検索結果一覧');
+                const has0kenText = /該当.*0|０件|該当なし/.test(document.body.textContent);
+                return { url, title, h, dialogs, selectors, bodyLen, hasResultText, has0kenText };
+              }
+            });
+            const d = diag?.[0]?.result || {};
+            await setStorageData({ debugLog: `${customer.name}: 🔍診断 url=${(d.url||'').slice(-50)} title=${(d.title||'').slice(0,30)} h=${JSON.stringify(d.h||[])} dialogs=${JSON.stringify(d.dialogs||[])} sel=${JSON.stringify(d.selectors||{})} bodyLen=${d.bodyLen} 結果一覧text=${d.hasResultText} 0件text=${d.has0kenText}` });
+          } catch(e) {
+            await setStorageData({ debugLog: `${customer.name}: 🔍診断失敗 ${e.message}` });
+          }
+        }
         // no_rowsが続く場合、検索フォームから再検索して復帰
         if (clickStatus === 'no_rows' && waitTry >= 2 && !triedRecovery) {
           triedRecovery = true;
