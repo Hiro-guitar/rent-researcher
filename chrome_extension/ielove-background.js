@@ -694,7 +694,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
 
       // リアルタイムでDiscord通知（1物件ずつ）
       try {
-        await sendDiscordNotification(customer.name, [prop], customer);
+        await deliverProperty(customer.name, prop, customer, 'ielove');
       } catch (err) {
         logError(`[いえらぶ] ${customer.name}: ${prop.building_name} Discord通知失敗: ${err.message}`);
       }

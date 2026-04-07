@@ -87,6 +87,19 @@
   </div>
 
   <div class="field">
+    <label>通知モード</label>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
+        <input type="radio" name="notifyMode" value="immediate" checked> 即時（見つけた瞬間に1件ずつ通知）
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
+        <input type="radio" name="notifyMode" value="batch"> 一括・集約（全サイト検索後、顧客ごとにまとめて通知）
+      </label>
+    </div>
+    <div class="hint">一括モードは複数サイトで重複した物件を排除してから通知します</div>
+  </div>
+
+  <div class="field">
     <label for="errorWebhook">エラー通知用 Webhook URL（任意）</label>
     <input type="text" id="errorWebhook" placeholder="https://discord.com/api/webhooks/...">
     <div class="hint">エラーログをここに通知。空欄なら上の物件通知Webhookに送信。同一エラーは5分クールダウン</div>

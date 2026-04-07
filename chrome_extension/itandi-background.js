@@ -1035,7 +1035,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
 
     // Discord通知（1物件ずつ）
     try {
-      await sendDiscordNotification(customer.name, [prop], customer);
+      await deliverProperty(customer.name, prop, customer, 'itandi');
     } catch (err) {
       logError(`[itandi] ${customer.name}: ${prop.building_name} Discord通知失敗: ${err.message}`);
     }

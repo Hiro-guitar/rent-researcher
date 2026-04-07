@@ -727,6 +727,8 @@ async function runSearchCycle() {
   // DiscordスレッドIDキャッシュをクリア
   Object.keys(discordThreadIds).forEach(k => delete discordThreadIds[k]);
   Object.keys(discordPropertyCounters).forEach(k => delete discordPropertyCounters[k]);
+  // 一括通知バッファをクリア
+  Object.keys(_batchBuffer).forEach(k => delete _batchBuffer[k]);
   const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ', services.itandi && 'itandi', services.essquare && 'ES-Square'].filter(Boolean).join('・');
   await setStorageData({ isSearching: true, debugLog: `━━━ 検索開始 (${serviceNames}) ━━━` });
 
@@ -866,6 +868,17 @@ async function runSearchCycle() {
         await setStorageData({ debugLog: `[ES-Square] 検索エラー: ${err.message}` });
         logError('[ES-Square] 検索エラー: ' + err.message);
       }
+    }
+
+    // === 一括モードの場合、蓄積した物件をここでまとめて通知（重複排除付き） ===
+    try {
+      const { notifyMode } = await getStorageData(['notifyMode']);
+      if (notifyMode === 'batch') {
+        await setStorageData({ debugLog: '[system] 一括モード: 重複排除＆まとめて通知中...' });
+        await flushBatchBuffer();
+      }
+    } catch (err) {
+      logError('[system] 一括通知エラー: ' + err.message);
     }
 
     // === 未解決駅サマリー ===
@@ -2250,7 +2263,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             logError(`${customer.name}: ${detail.building_name} ${detail.room_number || ''} GAS送信失敗: ${err.message}`);
           }
           try {
-            await sendDiscordNotification(customer.name, [detail], customer);
+            await deliverProperty(customer.name, detail, customer, 'reins');
           } catch (err) {
             logError(`${customer.name}: ${detail.building_name} ${detail.room_number || ''} Discord通知失敗: ${err.message}`);
           }
@@ -2791,6 +2804,70 @@ function buildSearchInfo(customer) {
   }
 
   return lines.join('\n');
+}
+
+// === 通知モード制御 ===
+// _batchBuffer[customerName] = [{ prop, customer, service }, ...]
+const _batchBuffer = {};
+const _serviceRank = { itandi: 4, essquare: 3, ielove: 2, reins: 1 };
+
+function normalizeBuildingName(name) {
+  if (!name) return '';
+  return String(name)
+    .normalize('NFKC')              // 全角→半角、互換正規化
+    .replace(/[\s\u3000]+/g, '')     // 空白削除
+    .replace(/[()（）\-－ｰ・,、.。]/g, '') // 記号削除
+    .toUpperCase();
+}
+
+function buildDedupKey(prop) {
+  const name = normalizeBuildingName(prop.building_name || prop.buildingName || '');
+  if (!name) return null; // 建物名ないと判定不能→重複排除しない
+  const room = prop.room_number || prop.roomNumber || '';
+  if (room) return `${name}|${String(room).trim()}`;
+  const floor = prop.floor || prop.floorText || '';
+  const area = prop.area || '';
+  return `${name}|${floor}|${area}`;
+}
+
+async function deliverProperty(customerName, prop, customer, service) {
+  const { notifyMode } = await getStorageData(['notifyMode']);
+  if (notifyMode === 'batch') {
+    if (!_batchBuffer[customerName]) _batchBuffer[customerName] = [];
+    _batchBuffer[customerName].push({ prop, customer, service });
+    return;
+  }
+  // 即時モード（デフォルト）
+  await sendDiscordNotification(customerName, [prop], customer);
+}
+
+// 一括モード時のフラッシュ：重複排除→顧客ごとに連投
+async function flushBatchBuffer() {
+  for (const customerName of Object.keys(_batchBuffer)) {
+    const entries = _batchBuffer[customerName];
+    if (!entries || entries.length === 0) continue;
+    // キー別にグルーピング、優先順位最高を残す
+    const byKey = new Map();
+    const noKey = []; // 判定不能→全部残す
+    for (const e of entries) {
+      const key = buildDedupKey(e.prop);
+      if (!key) { noKey.push(e); continue; }
+      const existing = byKey.get(key);
+      if (!existing || (_serviceRank[e.service] || 0) > (_serviceRank[existing.service] || 0)) {
+        byKey.set(key, e);
+      }
+    }
+    const winners = [...byKey.values(), ...noKey];
+    const props = winners.map(e => e.prop);
+    const customer = winners[0].customer;
+    try {
+      await sendDiscordNotification(customerName, props, customer);
+    } catch (err) {
+      logError(`${customerName}: 一括通知失敗: ${err.message}`);
+    }
+  }
+  // クリア
+  for (const k of Object.keys(_batchBuffer)) delete _batchBuffer[k];
 }
 
 async function sendDiscordNotification(customerName, properties, customer) {

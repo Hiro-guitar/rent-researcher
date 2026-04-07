@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode'], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
@@ -10,6 +10,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (data.jitterPercent !== undefined) document.getElementById('jitterPercent').value = data.jitterPercent;
     if (data.businessStartHour !== undefined) document.getElementById('startHour').value = data.businessStartHour;
     if (data.businessEndHour !== undefined) document.getElementById('endHour').value = data.businessEndHour;
+    const mode = data.notifyMode || 'immediate';
+    const radio = document.querySelector(`input[name="notifyMode"][value="${mode}"]`);
+    if (radio) radio.checked = true;
   });
 
   // 保存
@@ -23,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const jitterPercent = Math.max(0, Math.min(50, parseInt(document.getElementById('jitterPercent').value) || 0));
     const businessStartHour = Math.max(0, Math.min(23, parseInt(document.getElementById('startHour').value) || 0));
     const businessEndHour = Math.max(1, Math.min(24, parseInt(document.getElementById('endHour').value) || 24));
+    const notifyMode = (document.querySelector('input[name="notifyMode"]:checked') || {}).value || 'immediate';
 
     chrome.storage.local.set({
       gasWebappUrl,
@@ -33,7 +37,8 @@ document.addEventListener('DOMContentLoaded', () => {
       pageDelaySeconds,
       jitterPercent,
       businessStartHour,
-      businessEndHour
+      businessEndHour,
+      notifyMode
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });
