@@ -18,6 +18,7 @@ from itandi_search.models import (
 from .auth import IeloveSession
 from .config import (
     BUILDING_AGE_CODES,
+    CITY_CODES,
     HARD_EQUIPMENT_OPTS,
     IELOVE_BASE_URL,
     LAYOUT_CODES,
@@ -46,15 +47,32 @@ def _build_search_url(
     """
     parts: list[str] = [
         f"{IELOVE_BASE_URL}/ielovebb/rent/index",
-        f"todofuken/{PREFECTURE_CODE}",
     ]
 
     # ── 駅コード ──
     station_codes = _resolve_station_codes(criteria)
+    city_codes = _resolve_city_codes(criteria)
     if station_codes:
-        parts.append(f"lineTodofuken/{PREFECTURE_CODE}")
+        # 駅指定がある場合は駅コードの都道府県を採用
+        prefectures = sorted({c.split("_")[0] for c in station_codes})
+        for pref in prefectures:
+            parts.append(f"todofuken/{pref}")
+            parts.append(f"lineTodofuken/{pref}")
         for code in station_codes:
             parts.append(f"station/{code}")
+        # 駅指定がある場合でも市区町村も併用（ANDではなくいえらぶ側はOR的挙動）
+        for code in city_codes:
+            parts.append(f"shikuchoson/{code}")
+    elif city_codes:
+        # 市区町村指定のみ
+        prefectures = sorted({c.split("_")[0] for c in city_codes})
+        for pref in prefectures:
+            parts.append(f"todofuken/{pref}")
+        for code in city_codes:
+            parts.append(f"shikuchoson/{code}")
+    else:
+        # フォールバック: 都道府県デフォルト (東京都)
+        parts.append(f"todofuken/{PREFECTURE_CODE}")
 
     # ── 賃料上限 (万円) ──
     if criteria.rent_max:
@@ -127,6 +145,22 @@ def _resolve_station_codes(criteria: CustomerCriteria) -> list[str]:
             codes.append(code)
         else:
             print(f"[WARN] いえらぶBB: 駅コード未登録 '{station_name}'")
+    return codes
+
+
+def _resolve_city_codes(criteria: CustomerCriteria) -> list[str]:
+    """顧客の市区町村名リストをいえらぶ市区町村コードに変換する。"""
+    codes: list[str] = []
+    cities = getattr(criteria, "cities", None) or []
+    for city_name in cities:
+        name = (city_name or "").strip()
+        if not name:
+            continue
+        code = CITY_CODES.get(name)
+        if code:
+            codes.append(code)
+        else:
+            print(f"[WARN] いえらぶBB: 市区町村コード未登録 '{name}'")
     return codes
 
 
