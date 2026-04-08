@@ -31,6 +31,13 @@
  */
 function writeToSheet(userId, state) {
   const d = state.data;
+  // 名前が未取得の場合はここでLINEプロフィールから取得（startSearchFlowでは取得しない）
+  if (!d.name) {
+    try {
+      var _profile = getLineProfile(userId);
+      d.name = (_profile && _profile.displayName) ? _profile.displayName : '';
+    } catch (e) { d.name = ''; }
+  }
   const selectedRoutes = state.selectedRoutes || [];
   const selectedCities = state.selectedCities || [];
   const selectedStations = state.selectedStations || {};
@@ -298,15 +305,9 @@ function recordLineActivity(userId) {
       sheet.appendRow(['userId', 'lastMessageAt']);
     }
 
-    var now = new Date();
-    var data = sheet.getDataRange().getValues();
-    for (var i = 1; i < data.length; i++) {
-      if (data[i][0] === userId) {
-        sheet.getRange(i + 1, 2).setValue(now);
-        return;
-      }
-    }
-    sheet.appendRow([userId, now]);
+    // 追記のみ方式（全行読み込みしないため高速）
+    // 読み出し側（getLineActivityMap）で同じuserIdの最新行を採用する
+    sheet.appendRow([userId, new Date()]);
   } catch (e) {
     // アクティビティ記録の失敗はメッセージ処理をブロックしない
     console.error('recordLineActivity error: ' + e.message);
@@ -317,6 +318,36 @@ function recordLineActivity(userId) {
  * 全ユーザーの最終やり取り時刻を取得する。
  * @return {Object} { userId: timestamp(ms), ... }
  */
+/**
+ * LINE Activity シートの重複行を掃除する（各userIdの最新行のみ残す）。
+ * 手動実行 or 時間トリガーから呼ぶ想定。
+ */
+function cleanupLineActivitySheet() {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName('LINE Activity');
+    if (!sheet) return;
+    var data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return;
+    var header = data[0];
+    var latest = {};
+    for (var i = 1; i < data.length; i++) {
+      var uid = data[i][0];
+      var ts = data[i][1] ? new Date(data[i][1]).getTime() : 0;
+      if (!uid) continue;
+      if (!latest[uid] || latest[uid].ts < ts) {
+        latest[uid] = { ts: ts, row: data[i] };
+      }
+    }
+    var newRows = [header];
+    Object.keys(latest).forEach(function(k) { newRows.push(latest[k].row); });
+    sheet.clearContents();
+    sheet.getRange(1, 1, newRows.length, header.length).setValues(newRows);
+  } catch (e) {
+    console.error('cleanupLineActivitySheet error: ' + e.message);
+  }
+}
+
 function getLineActivityMap() {
   try {
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
