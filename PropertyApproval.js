@@ -937,6 +937,9 @@ function setDeliveryStatus(userId, status) {
   }
   if (targetRow < 0) return { ok: false, error: 'no_criteria_row' };
   sheet.getRange(targetRow, 19).setValue(status); // S列 = 19
+  if (status === 'active') {
+    sheet.getRange(targetRow, 22).setValue(''); // V列: スヌーズ解除
+  }
   return { ok: true, customerName: customerName };
 }
 
@@ -1052,14 +1055,61 @@ function handleStopReasonText(replyToken, userId, message, state) {
     }
 
     var reason = message.substring('停止理由:'.length);
+    _saveStopReason(userId, reason);
+
     if (reason === 'その他') {
-      // 自由入力に遷移
       saveState(userId, { step: STEPS.WAITING_STOP_REASON_CUSTOM, data: {} });
       replyMessage(replyToken, [textMsg('差し支えなければ、理由をお聞かせください。')]);
       return true;
     }
 
-    _saveStopReason(userId, reason);
+    if (reason === '忙しくて後で見る') {
+      // スヌーズ案内
+      saveState(userId, { step: STEPS.WAITING_SNOOZE_PERIOD, data: {} });
+      replyMessage(replyToken, [{
+        type: 'text',
+        text: 'かしこまりました。お忙しい時期に通知が来ないよう、一時停止する期間を選んでください。\n選んだ期間が経過すると自動で配信を再開いたします。',
+        quickReply: {
+          items: [
+            { type: 'action', action: { type: 'message', label: '1週間', text: 'スヌーズ:1週間' } },
+            { type: 'action', action: { type: 'message', label: '2週間', text: 'スヌーズ:2週間' } },
+            { type: 'action', action: { type: 'message', label: '1ヶ月', text: 'スヌーズ:1ヶ月' } }
+          ]
+        }
+      }]);
+      return true;
+    }
+
+    if (reason === '希望に合わない') {
+      clearState(userId);
+      replyMessage(replyToken, [textMsg(
+        'ご回答ありがとうございます。\n\n' +
+        '希望条件を見直していただくと、よりマッチする物件をお届けできるかもしれません。\n' +
+        '「条件登録」とお送りいただくと、新しく条件を登録できます。\n\n' +
+        '配信を再開したくなったら、「配信再開」または「使い方」メニューから再開できます。'
+      )]);
+      return true;
+    }
+
+    if (reason === '通知が多い') {
+      // 配信は再開して頻度を下げる方向
+      setDeliveryStatus(userId, 'active');
+      saveState(userId, { step: STEPS.WAITING_FREQUENCY, data: {} });
+      replyMessage(replyToken, [{
+        type: 'text',
+        text: '通知の頻度を変更します。お好みの頻度を選んでください。',
+        quickReply: {
+          items: [
+            { type: 'action', action: { type: 'message', label: '毎日', text: '頻度:毎日' } },
+            { type: 'action', action: { type: 'message', label: '週2回', text: '頻度:週2回' } },
+            { type: 'action', action: { type: 'message', label: '週1回', text: '頻度:週1回' } }
+          ]
+        }
+      }]);
+      return true;
+    }
+
+    // 引越し先が決まった など
     clearState(userId);
     replyMessage(replyToken, [textMsg(
       'ご回答ありがとうございます。いただいた声を今後の改善に役立てます。\n\n' +
@@ -1070,6 +1120,123 @@ function handleStopReasonText(replyToken, userId, message, state) {
     console.error('handleStopReasonText error: ' + err.message + '\n' + err.stack);
     try { clearState(userId); } catch(e) {}
     try { replyMessage(replyToken, [textMsg('ご回答ありがとうございます。')]); } catch(e) {}
+    return true;
+  }
+}
+
+// 顧客の最新行を取得するヘルパー
+function _findCustomerRow(userId) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+  if (!luSheet) return null;
+  var luData = luSheet.getDataRange().getValues();
+  var customerName = null;
+  for (var i = 1; i < luData.length; i++) {
+    if (luData[i][0] === userId) { customerName = luData[i][1]; break; }
+  }
+  if (!customerName) return null;
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) return null;
+  var data = sheet.getDataRange().getValues();
+  var targetRow = -1;
+  for (var j = 1; j < data.length; j++) {
+    if (data[j][1] === customerName) targetRow = j + 1;
+  }
+  if (targetRow < 0) return null;
+  return { sheet: sheet, row: targetRow, customerName: customerName };
+}
+
+// V列(22) にスヌーズ解除日時を記録し、ステータスを snoozed に
+function _setSnoozeUntil(userId, untilDate) {
+  try {
+    var loc = _findCustomerRow(userId);
+    if (!loc) return false;
+    loc.sheet.getRange(loc.row, 19).setValue('snoozed'); // S列
+    loc.sheet.getRange(loc.row, 22).setValue(untilDate); // V列
+    return true;
+  } catch (err) {
+    console.error('_setSnoozeUntil error: ' + err.message);
+    return false;
+  }
+}
+
+// W列(23) に配信頻度を記録 ('daily' / 'weekly' / 'biweekly')
+function _setFrequency(userId, freq) {
+  try {
+    var loc = _findCustomerRow(userId);
+    if (!loc) return false;
+    loc.sheet.getRange(loc.row, 23).setValue(freq); // W列
+    // 頻度変更時は last_sent_at(X列=24) をリセットしてすぐに次回検索が走るようにする
+    loc.sheet.getRange(loc.row, 24).setValue('');
+    return true;
+  } catch (err) {
+    console.error('_setFrequency error: ' + err.message);
+    return false;
+  }
+}
+
+// スヌーズ期間選択ハンドラ
+function handleSnoozePeriodText(replyToken, userId, message) {
+  try {
+    if (message.indexOf('スヌーズ:') !== 0) {
+      replyMessage(replyToken, [textMsg('「1週間」「2週間」「1ヶ月」のいずれかを選んでください。')]);
+      return true;
+    }
+    var label = message.substring('スヌーズ:'.length);
+    var days = 0;
+    if (label === '1週間') days = 7;
+    else if (label === '2週間') days = 14;
+    else if (label === '1ヶ月') days = 30;
+    else {
+      replyMessage(replyToken, [textMsg('「1週間」「2週間」「1ヶ月」のいずれかを選んでください。')]);
+      return true;
+    }
+    var until = new Date();
+    until.setTime(until.getTime() + days * 24 * 60 * 60 * 1000);
+    _setSnoozeUntil(userId, until);
+    clearState(userId);
+    var ymd = Utilities.formatDate(until, 'Asia/Tokyo', 'yyyy/MM/dd');
+    replyMessage(replyToken, [textMsg(
+      label + 'のあいだ配信を停止しました。\n' +
+      ymd + ' に自動で配信を再開いたします。\n\n' +
+      'すぐに再開したい場合は「配信再開」とお送りください。'
+    )]);
+    return true;
+  } catch (err) {
+    console.error('handleSnoozePeriodText error: ' + err.message + '\n' + err.stack);
+    try { clearState(userId); } catch(e) {}
+    try { replyMessage(replyToken, [textMsg('処理に失敗しました。時間をおいて再度お試しください。')]); } catch(e) {}
+    return true;
+  }
+}
+
+// 配信頻度選択ハンドラ
+function handleFrequencyText(replyToken, userId, message) {
+  try {
+    if (message.indexOf('頻度:') !== 0) {
+      replyMessage(replyToken, [textMsg('「毎日」「週2回」「週1回」のいずれかを選んでください。')]);
+      return true;
+    }
+    var label = message.substring('頻度:'.length);
+    var freq = '';
+    if (label === '毎日') freq = 'daily';
+    else if (label === '週2回') freq = 'biweekly'; // 約3-4日に1回
+    else if (label === '週1回') freq = 'weekly';
+    else {
+      replyMessage(replyToken, [textMsg('「毎日」「週2回」「週1回」のいずれかを選んでください。')]);
+      return true;
+    }
+    _setFrequency(userId, freq);
+    clearState(userId);
+    replyMessage(replyToken, [textMsg(
+      '配信頻度を「' + label + '」に変更しました。\n' +
+      '今後はこの頻度で新着物件をお届けいたします。'
+    )]);
+    return true;
+  } catch (err) {
+    console.error('handleFrequencyText error: ' + err.message + '\n' + err.stack);
+    try { clearState(userId); } catch(e) {}
+    try { replyMessage(replyToken, [textMsg('処理に失敗しました。時間をおいて再度お試しください。')]); } catch(e) {}
     return true;
   }
 }
