@@ -847,8 +847,19 @@ function handleFavoritesCommand(replyToken, userId) {
     }
 
     if (favorites.length === 0) {
+      // 顧客フィルタ無しで rid を探す
+      var foundCustomer = '';
+      var foundStatus = '';
+      for (var i = 1; i < critData.length; i++) {
+        var rid2 = String(critData[i][2]).trim();
+        if (favRoomIds[rid2]) {
+          foundCustomer = String(critData[i][0]);
+          foundStatus = String(critData[i][10] || '');
+          break;
+        }
+      }
       var sampleRids = Object.keys(favRoomIds).slice(0, 3).join(',');
-      replyMessage(replyToken, [textMsg('[診断] favorite=' + favCount + '件あるが検索条件シートで未マッチ\nrid例: ' + sampleRids)]);
+      replyMessage(replyToken, [textMsg('[診断] favorite=' + favCount + '件\nLINE customer="' + customerName + '"\nrid: ' + sampleRids + '\nシート上customer="' + foundCustomer + '" status="' + foundStatus + '"')]);
       return;
     }
 
