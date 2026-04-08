@@ -888,9 +888,100 @@ function handleFavoritesCommand(replyToken, userId) {
   }
 }
 
+// 配信ステータスを取得する (userId → 'paused' | 'active')
+function getDeliveryStatus(userId) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (!luSheet) return 'active';
+    var luData = luSheet.getDataRange().getValues();
+    var customerName = null;
+    for (var i = 1; i < luData.length; i++) {
+      if (luData[i][0] === userId) { customerName = luData[i][1]; break; }
+    }
+    if (!customerName) return 'active';
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return 'active';
+    var data = sheet.getDataRange().getValues();
+    var latestStatus = 'active';
+    for (var j = 1; j < data.length; j++) {
+      if (data[j][1] === customerName) {
+        var s = String(data[j][18] || '').trim().toLowerCase();
+        latestStatus = (s === 'paused') ? 'paused' : 'active';
+      }
+    }
+    return latestStatus;
+  } catch (err) {
+    console.error('getDeliveryStatus error: ' + err.message);
+    return 'active';
+  }
+}
+
+// 配信ステータスを更新する (userId に紐づく最新行の S列を書き換え)
+function setDeliveryStatus(userId, status) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+  if (!luSheet) return { ok: false, error: 'no_line_users_sheet' };
+  var luData = luSheet.getDataRange().getValues();
+  var customerName = null;
+  for (var i = 1; i < luData.length; i++) {
+    if (luData[i][0] === userId) { customerName = luData[i][1]; break; }
+  }
+  if (!customerName) return { ok: false, error: 'no_customer' };
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) return { ok: false, error: 'no_criteria_sheet' };
+  var data = sheet.getDataRange().getValues();
+  var targetRow = -1;
+  for (var j = 1; j < data.length; j++) {
+    if (data[j][1] === customerName) targetRow = j + 1; // 最新行(末尾)
+  }
+  if (targetRow < 0) return { ok: false, error: 'no_criteria_row' };
+  sheet.getRange(targetRow, 19).setValue(status); // S列 = 19
+  return { ok: true, customerName: customerName };
+}
+
+// 配信停止コマンド
+function handleDeliveryStopCommand(replyToken, userId) {
+  try {
+    var result = setDeliveryStatus(userId, 'paused');
+    if (!result.ok) {
+      replyMessage(replyToken, [textMsg('ご希望条件が未登録のようです。まずは「条件登録」からお願いいたします。')]);
+      return;
+    }
+    replyMessage(replyToken, [textMsg(
+      '新着物件の配信を停止しました。\n\n' +
+      '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。\n\n' +
+      'いつでもお戻りをお待ちしております。'
+    )]);
+  } catch (err) {
+    console.error('handleDeliveryStopCommand error: ' + err.message + '\n' + err.stack);
+    try { replyMessage(replyToken, [textMsg('配信停止の処理に失敗しました。時間をおいて再度お試しください。')]); } catch(e) {}
+  }
+}
+
+// 配信再開コマンド
+function handleDeliveryResumeCommand(replyToken, userId) {
+  try {
+    var result = setDeliveryStatus(userId, 'active');
+    if (!result.ok) {
+      replyMessage(replyToken, [textMsg('ご希望条件が未登録のようです。まずは「条件登録」からお願いいたします。')]);
+      return;
+    }
+    replyMessage(replyToken, [textMsg(
+      '新着物件の配信を再開しました。\n\n' +
+      'ご希望に合う物件が見つかり次第、お届けいたします。'
+    )]);
+  } catch (err) {
+    console.error('handleDeliveryResumeCommand error: ' + err.message + '\n' + err.stack);
+    try { replyMessage(replyToken, [textMsg('配信再開の処理に失敗しました。時間をおいて再度お試しください。')]); } catch(e) {}
+  }
+}
+
 // 使い方ガイド（Flex carousel）
 function handleHelpCommand(replyToken, userId) {
   try {
+    var currentStatus = getDeliveryStatus(userId);
+    var isPaused = (currentStatus === 'paused');
     var features = [
       {
         title: '空室確認',
@@ -916,6 +1007,17 @@ function handleHelpCommand(replyToken, userId) {
         title: 'その他ご質問',
         desc: '内見予約・お申込み・契約・その他なんでもご相談ください。担当スタッフが順番にお返事いたします。',
         trigger: 'その他ご質問'
+      },
+      isPaused ? {
+        title: '配信を再開',
+        desc: '現在、新着物件の配信を停止中です。再開するとご希望条件に合う物件のお届けを再開します。',
+        trigger: '配信再開',
+        btnLabel: '配信を再開する'
+      } : {
+        title: '配信を停止',
+        desc: '新着物件のお届けを一時的に止めたいときにご利用ください。再開はいつでもできます。条件登録は残ります。',
+        trigger: '配信停止',
+        btnLabel: '配信を停止する'
       }
     ];
 
@@ -935,7 +1037,7 @@ function handleHelpCommand(replyToken, userId) {
           type: 'box', layout: 'vertical',
           contents: [{
             type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'message', label: '使ってみる', text: f.trigger }
+            action: { type: 'message', label: f.btnLabel || '使ってみる', text: f.trigger }
           }]
         }
       };
