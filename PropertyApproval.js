@@ -926,7 +926,7 @@ function handleHelpCommand(replyToken, userId) {
         body: {
           type: 'box', layout: 'vertical', spacing: 'md',
           contents: [
-            { type: 'text', text: f.title, weight: 'bold', size: 'lg', color: '#1F6FEB' },
+            { type: 'text', text: f.title, weight: 'bold', size: 'lg', color: '#06C755' },
             { type: 'separator' },
             { type: 'text', text: f.desc, wrap: true, size: 'sm', color: '#555555' }
           ]
@@ -934,7 +934,7 @@ function handleHelpCommand(replyToken, userId) {
         footer: {
           type: 'box', layout: 'vertical',
           contents: [{
-            type: 'button', style: 'primary', color: '#1F6FEB', height: 'sm',
+            type: 'button', style: 'primary', color: '#06C755', height: 'sm',
             action: { type: 'message', label: '使ってみる', text: f.trigger }
           }]
         }
