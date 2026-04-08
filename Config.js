@@ -56,5 +56,6 @@ const STEPS = {
   EXISTING_WAITING_NAME:        'waiting_for_name',
   EXISTING_WAITING_FURIGANA:    'waiting_for_furigana',
   EXISTING_WAITING_MOVEIN:      'waiting_for_movein_date',
-  EXISTING_WAITING_EMAIL:       'waiting_for_email'
+  EXISTING_WAITING_EMAIL:       'waiting_for_email',
+  WAITING_VACANCY:              'WAITING_VACANCY'
 };
