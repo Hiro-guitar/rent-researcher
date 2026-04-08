@@ -312,7 +312,7 @@ function createPropertyBubble(p) {
     bodyContents.push({
       type: 'text',
       text: '募集状況：募集中',
-      size: 'md', margin: 'md', color: '#00B900', wrap: true
+      size: 'md', margin: 'md', color: '#8ec41d', wrap: true
     });
   } else {
     // I列が空欄 or その他 → スタッフ確認メッセージを表示
@@ -332,7 +332,7 @@ function createPropertyBubble(p) {
   }
   if (p.status === '募集中') {
     footerButtons.push({
-      type: 'button', style: 'primary', height: 'sm', color: '#00B900',
+      type: 'button', style: 'primary', height: 'sm', color: '#8ec41d',
       action: {
         type: 'postback',
         label: '🏠 入居申込をする',
@@ -557,7 +557,7 @@ function processReplyQueue() {
                 layout: 'vertical',
                 flex: 1,
                 cornerRadius: 'md',
-                backgroundColor: '#06C755',
+                backgroundColor: '#8ec41d',
                 paddingAll: 'sm',
                 justifyContent: 'center',
                 alignItems: 'center',
@@ -682,7 +682,7 @@ function testSendConditionButton() {
             {
               type: 'button',
               style: 'primary',
-              color: '#06C755',
+              color: '#8ec41d',
               height: 'sm',
               flex: 1,
               action: {

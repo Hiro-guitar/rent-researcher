@@ -236,7 +236,7 @@ function buildConfirmFlex(details, isEdit) {
           {
             type: 'button',
             style: 'primary',
-            color: '#06C755',
+            color: '#8ec41d',
             action: { type: 'postback', label: buttonLabel, data: 'confirm_ok', displayText: buttonLabel }
           },
           {
