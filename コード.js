@@ -36,8 +36,11 @@ function doPost(e) {
     }
   }
 
+  var __t0 = Date.now();
+  var __mark = function(label) { console.log('[PERF] +' + (Date.now() - __t0) + 'ms ' + label); };
   try {
     const json = JSON.parse(e.postData.contents);
+    __mark('json parsed');
 
     // --- REINS Chrome拡張からのPOST ---
     if (json.action === 'add_reins_property') {
@@ -55,6 +58,7 @@ function doPost(e) {
     const replyToken = event.replyToken;
     const userId = event.source.userId;
 
+    __mark('event type=' + event.type);
     // ── 返信処理を IIFE で包み、完了後にアクティビティ記録（体感速度向上のため後回し） ──
     (function dispatch() {
     // ── Follow イベント（友だち追加時）──
@@ -88,9 +92,12 @@ function doPost(e) {
       const message = event.message.text.trim();
       const state = getState(userId);
 
+      __mark('getState done, message=' + message);
       // コマンド: 条件登録
       if (message === '条件登録' || message === 'じょうけんとうろく') {
+        __mark('startSearchFlow begin');
         startSearchFlow(replyToken, userId);
+        __mark('startSearchFlow end');
         return;
       }
 
@@ -164,10 +171,12 @@ function doPost(e) {
       return;
     }
     })();
+    __mark('dispatch done');
 
     // ── 返信後にアクティビティ記録（遅くても返信済みなので体感に影響しない） ──
     if (event.type === 'message' || event.type === 'postback') {
       try { recordLineActivity(userId); } catch (e) { console.error('recordLineActivity error: ' + e.message); }
+      __mark('activity recorded');
     }
 
   } catch (err) {

@@ -54,22 +54,28 @@ PREV_STEP[STEPS.CONFIRM] = STEPS.CRITERIA_SELECT;
  * @param {string} userId
  */
 function startSearchFlow(replyToken, userId) {
+  var _t = Date.now();
+  var _m = function(l) { console.log('[PERF-flow] +' + (Date.now() - _t) + 'ms ' + l); };
   var state = createInitialState();
+  _m('createInitialState');
 
   // LINEの表示名を自動取得（名前入力ステップをスキップ）
   var profile = getLineProfile(userId);
+  _m('getLineProfile');
   var name = profile ? profile.displayName : '';
   state = updateStateData(state, 'name', name);
 
   // REASONステップへ直接進む
   state.step = STEPS.REASON;
   saveState(userId, state);
+  _m('saveState');
 
   var items = REASONS.map(r => qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r));
   replyMessage(replyToken, [
     textMsg('お部屋探しの条件を登録します！\nいくつかの質問にお答えください。\n\n途中でやめたい場合は「キャンセル」と送ってください。'),
     textMsgWithQuickReply('お部屋探しの理由を教えてください。', items)
   ]);
+  _m('replyMessage');
 }
 
 // ══════════════════════════════════════════════════════════
