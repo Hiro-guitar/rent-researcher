@@ -648,7 +648,7 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
     {
       type: 'button',
       style: 'primary',
-      color: '#8ec41d',
+      color: '#6ea814',
       action: { type: 'uri', label: isChangeFlow ? '条件を変更する' : '条件を選択する', uri: selectUrl }
     }
   ];
@@ -658,7 +658,7 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
     footerContents.push({
       type: 'button',
       style: 'primary',
-      color: '#8ec41d',
+      color: '#6ea814',
       action: { type: 'postback', label: '入居時期を変更', data: 'change_movein', displayText: '入居時期を変更' }
     });
     footerContents.push({
