@@ -133,6 +133,16 @@ function doPost(e) {
         return;
       }
 
+      // 配信停止理由フロー中: 自由入力 or 選択肢を処理
+      if (state.step === STEPS.WAITING_STOP_REASON || state.step === STEPS.WAITING_STOP_REASON_CUSTOM) {
+        if (message === 'キャンセル' || message === 'きゃんせる') {
+          clearState(userId);
+          replyMessage(replyToken, [textMsg('ご回答ありがとうございます。')]);
+          return;
+        }
+        if (handleStopReasonText(replyToken, userId, message, state)) return;
+      }
+
       // 空室確認モード中: 検索ロジックに渡す
       if (state.step === STEPS.WAITING_VACANCY) {
         if (message === 'キャンセル' || message === 'きゃんせる') {
