@@ -940,7 +940,7 @@ function setDeliveryStatus(userId, status) {
   return { ok: true, customerName: customerName };
 }
 
-// 配信停止コマンド
+// 配信停止コマンド: 即pause + 理由を聞く
 function handleDeliveryStopCommand(replyToken, userId) {
   try {
     var result = setDeliveryStatus(userId, 'paused');
@@ -948,14 +948,129 @@ function handleDeliveryStopCommand(replyToken, userId) {
       replyMessage(replyToken, [textMsg('ご希望条件が未登録のようです。まずは「条件登録」からお願いいたします。')]);
       return;
     }
-    replyMessage(replyToken, [textMsg(
-      '新着物件の配信を停止しました。\n\n' +
-      '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。\n\n' +
-      'いつでもお戻りをお待ちしております。'
-    )]);
+    // 停止日時を記録
+    _recordStopTimestamp(userId);
+    // 理由待ち状態へ
+    saveState(userId, { step: STEPS.WAITING_STOP_REASON, data: {} });
+    replyMessage(replyToken, [{
+      type: 'text',
+      text: '新着物件の配信を停止しました。\n\n' +
+        '差し支えなければ、停止の理由を教えていただけますか？\n' +
+        '今後のサービス改善に活用させていただきます。',
+      quickReply: {
+        items: [
+          { type: 'action', action: { type: 'message', label: '引越し先が決まった', text: '停止理由:引越し先が決まった' } },
+          { type: 'action', action: { type: 'message', label: '忙しくて後で見る', text: '停止理由:忙しくて後で見る' } },
+          { type: 'action', action: { type: 'message', label: '希望に合わない', text: '停止理由:希望に合わない' } },
+          { type: 'action', action: { type: 'message', label: '通知が多い', text: '停止理由:通知が多い' } },
+          { type: 'action', action: { type: 'message', label: 'その他', text: '停止理由:その他' } }
+        ]
+      }
+    }]);
   } catch (err) {
     console.error('handleDeliveryStopCommand error: ' + err.message + '\n' + err.stack);
     try { replyMessage(replyToken, [textMsg('配信停止の処理に失敗しました。時間をおいて再度お試しください。')]); } catch(e) {}
+  }
+}
+
+// userId に紐づく最新行の U列に停止日時を記録する
+function _recordStopTimestamp(userId) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (!luSheet) return;
+    var luData = luSheet.getDataRange().getValues();
+    var customerName = null;
+    for (var i = 1; i < luData.length; i++) {
+      if (luData[i][0] === userId) { customerName = luData[i][1]; break; }
+    }
+    if (!customerName) return;
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return;
+    var data = sheet.getDataRange().getValues();
+    var targetRow = -1;
+    for (var j = 1; j < data.length; j++) {
+      if (data[j][1] === customerName) targetRow = j + 1;
+    }
+    if (targetRow > 0) sheet.getRange(targetRow, 21).setValue(new Date()); // U列 = 21
+  } catch (err) {
+    console.error('_recordStopTimestamp error: ' + err.message);
+  }
+}
+
+// 停止理由をシートに保存する (T列 = 20)
+function _saveStopReason(userId, reason) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (!luSheet) return;
+    var luData = luSheet.getDataRange().getValues();
+    var customerName = null;
+    for (var i = 1; i < luData.length; i++) {
+      if (luData[i][0] === userId) { customerName = luData[i][1]; break; }
+    }
+    if (!customerName) return;
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return;
+    var data = sheet.getDataRange().getValues();
+    var targetRow = -1;
+    for (var j = 1; j < data.length; j++) {
+      if (data[j][1] === customerName) targetRow = j + 1;
+    }
+    if (targetRow > 0) sheet.getRange(targetRow, 20).setValue(reason); // T列 = 20
+  } catch (err) {
+    console.error('_saveStopReason error: ' + err.message);
+  }
+}
+
+// 停止理由フローのテキスト処理 (WAITING_STOP_REASON / WAITING_STOP_REASON_CUSTOM 中)
+// 返り値 true: ハンドル済み / false: 未ハンドル
+function handleStopReasonText(replyToken, userId, message, state) {
+  try {
+    if (state.step === STEPS.WAITING_STOP_REASON_CUSTOM) {
+      // 自由入力フェーズ
+      _saveStopReason(userId, message);
+      clearState(userId);
+      replyMessage(replyToken, [textMsg(
+        'ご回答ありがとうございます。いただいた声を今後の改善に役立てます。\n\n' +
+        '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+      )]);
+      return true;
+    }
+
+    if (state.step !== STEPS.WAITING_STOP_REASON) return false;
+
+    if (message.indexOf('停止理由:') !== 0) {
+      // 選択肢外: 自由入力として扱い、そのまま保存
+      _saveStopReason(userId, message);
+      clearState(userId);
+      replyMessage(replyToken, [textMsg(
+        'ご回答ありがとうございます。いただいた声を今後の改善に役立てます。\n\n' +
+        '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+      )]);
+      return true;
+    }
+
+    var reason = message.substring('停止理由:'.length);
+    if (reason === 'その他') {
+      // 自由入力に遷移
+      saveState(userId, { step: STEPS.WAITING_STOP_REASON_CUSTOM, data: {} });
+      replyMessage(replyToken, [textMsg('差し支えなければ、理由をお聞かせください。')]);
+      return true;
+    }
+
+    _saveStopReason(userId, reason);
+    clearState(userId);
+    replyMessage(replyToken, [textMsg(
+      'ご回答ありがとうございます。いただいた声を今後の改善に役立てます。\n\n' +
+      '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+    )]);
+    return true;
+  } catch (err) {
+    console.error('handleStopReasonText error: ' + err.message + '\n' + err.stack);
+    try { clearState(userId); } catch(e) {}
+    try { replyMessage(replyToken, [textMsg('ご回答ありがとうございます。')]); } catch(e) {}
+    return true;
   }
 }
 
