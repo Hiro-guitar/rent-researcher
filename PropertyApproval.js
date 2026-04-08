@@ -824,83 +824,64 @@ function handleFavoritesCommand(replyToken, userId) {
       return;
     }
 
-    // 承認待ち物件シートから物件情報を取得
-    // 列: A=customer, B=building_id, C=room_id, D=building_name, E=rent, F=mgmt_fee,
-    //     G=layout, H=area, I=station, J=property_data_json, K=status, L=created, M=updated, N=view_url
+    // 承認待ち物件シートから物件情報を取得（rowToProperty で完全な prop を作る）
     var pendSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
-    var favorites = [];
+    var favRows = [];
     if (pendSheet) {
       var pData = pendSheet.getDataRange().getValues();
       for (var i = 1; i < pData.length; i++) {
         if (String(pData[i][0]).trim() !== customerName) continue;
         var rid = String(pData[i][2]).trim();
         if (!favRoomIds[rid]) continue;
-        favorites.push({
-          roomId: rid,
-          buildingName: String(pData[i][3] || ''),
-          rent: pData[i][4],
-          layout: String(pData[i][6] || ''),
-          stationInfo: String(pData[i][8] || ''),
-          viewUrl: String(pData[i][13] || '')
-        });
+        favRows.push(pData[i]);
       }
     }
 
-    if (favorites.length === 0) {
+    if (favRows.length === 0) {
       replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。\n\n物件ページの ⭐ ボタンでお気に入りに追加できます。')]);
       return;
     }
 
-    // Flex Carousel（最大10件）
+    // 承認時と同じ Flex を構築（buildPropertyFlex）
     var bubbles = [];
-    var max = Math.min(favorites.length, 10);
+    var max = Math.min(favRows.length, 10);
     for (var i = 0; i < max; i++) {
-      var f = favorites[i];
-      var rentText = '';
-      if (f.rent) {
-        var rNum = parseInt(f.rent);
-        if (!isNaN(rNum) && rNum > 0) rentText = (Math.round(rNum / 100) / 100) + '万円';
+      var prop = rowToProperty(favRows[i]);
+      var rid = String(favRows[i][2]);
+      var savedViewUrl = String(favRows[i][13] || '');
+      var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
+      var minimalUrl = buildMinimalViewUrl(customerName, rid, prop);
+      var viewUrl = savedViewUrl || (minimalUrl.length <= 1000 ? minimalUrl : plainUrl);
+
+      var heroImageUrl = (prop.imageUrls && prop.imageUrls.length > 0) ? prop.imageUrls[0] : (prop.imageUrl || '');
+      var flex = buildPropertyFlex(prop, {
+        includeImage: !!heroImageUrl,
+        heroImageUrl: heroImageUrl,
+        viewUrl: viewUrl
+      });
+      // buildPropertyFlex は { type:'flex', altText, contents:bubble } を返すので bubble だけ取り出す
+      if (flex && flex.contents) {
+        bubbles.push(flex.contents);
       }
-      var subParts = [];
-      if (rentText) subParts.push(rentText);
-      if (f.layout) subParts.push(f.layout);
-      var bubble = {
-        type: 'bubble',
-        size: 'kilo',
-        body: {
-          type: 'box',
-          layout: 'vertical',
-          spacing: 'sm',
-          contents: [
-            { type: 'text', text: f.buildingName || '(建物名なし)', weight: 'bold', size: 'md', wrap: true, maxLines: 2 },
-            { type: 'text', text: subParts.join(' / '), size: 'sm', color: '#666666', wrap: true },
-            { type: 'text', text: f.stationInfo, size: 'xs', color: '#999999', wrap: true, maxLines: 2 }
-          ]
-        },
-        footer: {
-          type: 'box',
-          layout: 'vertical',
-          contents: [
-            f.viewUrl ? {
-              type: 'button',
-              style: 'primary',
-              color: '#4CAF50',
-              height: 'sm',
-              action: { type: 'uri', label: '詳細を見る', uri: f.viewUrl }
-            } : { type: 'text', text: 'URLなし', size: 'xs', color: '#999999', align: 'center' }
-          ]
-        }
-      };
-      bubbles.push(bubble);
     }
 
-    var altText = '⭐ お気に入り物件 ' + favorites.length + '件';
-    if (favorites.length > 10) altText += '（10件まで表示）';
-    replyMessage(replyToken, [{
-      type: 'flex',
-      altText: altText,
-      contents: { type: 'carousel', contents: bubbles }
-    }]);
+    if (bubbles.length === 0) {
+      replyMessage(replyToken, [textMsg('お気に入り物件の表示に失敗しました。')]);
+      return;
+    }
+
+    var altText = '⭐ お気に入り物件 ' + favRows.length + '件';
+    if (favRows.length > 10) altText += '（10件まで表示）';
+
+    if (bubbles.length === 1) {
+      replyMessage(replyToken, [{ type: 'flex', altText: altText, contents: bubbles[0] }]);
+    } else {
+      replyMessage(replyToken, [{
+        type: 'flex',
+        altText: altText,
+        contents: { type: 'carousel', contents: bubbles }
+      }]);
+    }
   } catch (err) {
     console.error('handleFavoritesCommand error: ' + err.message + '\n' + err.stack);
     try { replyMessage(replyToken, [textMsg('お気に入り一覧の取得に失敗しました。時間をおいて再度お試しください。')]); } catch(e) {}
