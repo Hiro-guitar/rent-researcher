@@ -794,17 +794,34 @@ async function runSearchCycle() {
         await setStorageData({ debugLog: `[REINS] ${customer.name} 条件: ${cond}` });
         try {
           const rws = customer.routes_with_stations || [];
-          if (rws.length > 3) {
-            for (let batch = 0; batch * 3 < rws.length; batch++) {
-              if (isSearchCancelled(searchId)) return;
-              const batchRws = rws.slice(batch * 3, (batch + 1) * 3);
-              const batchCustomer = { ...customer, routes: batchRws.map(r => r.route), routes_with_stations: batchRws };
-              await setStorageData({ debugLog: `[REINS] ${customer.name}: バッチ ${batch+1}/${Math.ceil(rws.length/3)}` });
-              await searchForCustomer(reinsTab.id, batchCustomer, seenIds, reinsDelay, searchId);
-              if (batch * 3 + 3 < rws.length) await sleep(3000);
-            }
-          } else {
+          const cities = customer.cities || [];
+          const _rwsChunks = rws.length > 0
+            ? Array.from({length: Math.ceil(rws.length/3)}, (_,i) => rws.slice(i*3, i*3+3))
+            : [[]];
+          const _cityChunks = cities.length > 0
+            ? Array.from({length: Math.ceil(cities.length/3)}, (_,i) => cities.slice(i*3, i*3+3))
+            : [[]];
+          const _totalBatches = _rwsChunks.length * _cityChunks.length;
+          if (_totalBatches === 1 && rws.length <= 3 && cities.length <= 3) {
+            // 単一バッチで完結
             await searchForCustomer(reinsTab.id, customer, seenIds, reinsDelay, searchId);
+          } else {
+            let _batchIdx = 0;
+            for (const rwsChunk of _rwsChunks) {
+              for (const cityChunk of _cityChunks) {
+                if (isSearchCancelled(searchId)) return;
+                _batchIdx++;
+                const batchCustomer = {
+                  ...customer,
+                  routes: rwsChunk.map(r => r.route),
+                  routes_with_stations: rwsChunk,
+                  cities: cityChunk,
+                };
+                await setStorageData({ debugLog: `[REINS] ${customer.name}: バッチ ${_batchIdx}/${_totalBatches} (路線${rwsChunk.length}件/市区町村${cityChunk.length}件)` });
+                await searchForCustomer(reinsTab.id, batchCustomer, seenIds, reinsDelay, searchId);
+                if (_batchIdx < _totalBatches) await sleep(3000);
+              }
+            }
           }
         } catch (err) {
           if (err.message === 'SEARCH_CANCELLED') return;
@@ -944,7 +961,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await csleep(3000);
   }
 
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '' }, lineNameMap, reinsCodeMap];
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都' }, lineNameMap, reinsCodeMap];
   const __setCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap) => {
       // Vueルート取得
       const fi = document.querySelector('.p-textbox-input');
@@ -967,6 +984,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         vr[`ekCdFrom${n}`] = ''; vr[`ekCdTo${n}`] = '';
         vr[`ekmiFrom${n}`] = ''; vr[`ekmiTo${n}`] = '';
         vr[`thNyurykc${n}`] = ''; vr[`thMHnKbn${n}`] = '';
+        // 所在地スロット (都道府県名・市区町村名)
+        vr[`tdufknmi${n}`] = '';
+        vr[`shzicmi1${n}`] = '';
       }
       vr.kkkuCnryuFrom = ''; vr.kkkuCnryuTo = '';
       vr.bkknShbt1 = ''; vr.bkknShbt2 = '';
@@ -1131,6 +1151,23 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       }
 
+      // 所在地（市区町村）セット — 最大3スロット
+      // 駅検索とは独立したスロット番号体系 (tdufknmi1〜3 / shzicmi11〜13)
+      const reinsCitiesSet = [];
+      if (customerData.cities && customerData.cities.length > 0) {
+        const prefName = customerData.prefecture || '東京都';
+        const citiesList = customerData.cities
+          .map(c => (c || '').trim())
+          .filter(c => c);
+        for (let ci = 0; ci < citiesList.length && ci < 3; ci++) {
+          const slot = ci + 1;
+          vr[`tdufknmi${slot}`] = prefName;
+          vr[`shzicmi1${slot}`] = citiesList[ci];
+          reinsCitiesSet.push(`${slot}:${prefName}/${citiesList[ci]}`);
+        }
+        // 4件以上は呼び出し側で3件ずつバッチ分割される
+      }
+
       // 賃料上限（万円）
       if (customerData.rent_max) {
         vr.kkkuCnryuTo = String(customerData.rent_max);
@@ -1273,6 +1310,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         debugEquip: customerData.equipment || '(empty)',
         reinsSearchStations: reinsSearchStations,
         reinsUnresolved: reinsUnresolved,
+        reinsCitiesSet: reinsCitiesSet,
       };
     };
   setResult = await chrome.scripting.executeScript({
@@ -1293,7 +1331,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       addUnresolvedStation(customer.name, 'REINS', name);
     }
   }
-  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 ensn=[${setStatus.ensnDebug || '-'}] rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}` });
+  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 ensn=[${setStatus.ensnDebug || '-'}] cities=[${(setStatus.reinsCitiesSet||[]).join(' ') || '-'}] rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}` });
 
   // Vueリアクティブ更新を待つ
   await csleep(2000);
