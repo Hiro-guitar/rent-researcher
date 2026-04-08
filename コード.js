@@ -106,6 +106,16 @@ function doPost(e) {
         return;
       }
 
+      // コマンド: 配信停止 / 配信再開
+      if (message === '配信停止' || message === 'はいしんていし') {
+        handleDeliveryStopCommand(replyToken, userId);
+        return;
+      }
+      if (message === '配信再開' || message === 'はいしんさいかい') {
+        handleDeliveryResumeCommand(replyToken, userId);
+        return;
+      }
+
       // コマンド: 空室確認 → state を WAITING_VACANCY にして案内文返信
       if (message === '空室確認' || message === 'くうしつかくにん') {
         saveState(userId, { step: STEPS.WAITING_VACANCY, data: {} });
@@ -715,11 +725,16 @@ function handleGetCriteria(e) {
     var name = String(row[1] || '').trim();
     if (!name) continue;
 
+    // S列(18): 配信ステータス ('paused' なら配信除外)
+    var deliveryStatus = String(row[18] || '').trim().toLowerCase();
+    if (deliveryStatus === 'paused') continue;
+
     // 列マッピング (SheetWriter.js準拠):
     // A(0):タイムスタンプ B(1):名前 C(2):都道府県 D(3):市区町村
     // E(4):路線(駅名) F(5):駅名 G(6):徒歩 H(7):賃料上限
     // I(8):間取り J(9):面積 K(10):築年数 L(11):構造
     // M(12):設備 N(13):理由 O(14):引越し時期 P(15):その他 Q(16):ペット
+    // R(17):居住者 S(18):配信ステータス
     var routesWithStations = _parseRoutesWithStations(row[4]);
     var allRoutes = routesWithStations.map(function(r) { return r.route; });
     var allStations = _splitCSV(row[5]);
