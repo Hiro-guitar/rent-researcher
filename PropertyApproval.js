@@ -789,11 +789,11 @@ function handleFavoritesCommand(replyToken, userId) {
     if (luSheet) {
       var luData = luSheet.getDataRange().getValues();
       for (var i = 1; i < luData.length; i++) {
-        if (luData[i][0] === userId) { customerName = String(luData[i][1] || ''); break; }
+        if (String(luData[i][0]).trim() === String(userId).trim()) { customerName = String(luData[i][1] || '').trim(); break; }
       }
     }
     if (!customerName) {
-      replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。\n\n物件ページの ⭐ ボタンでお気に入りに追加できます。')]);
+      replyMessage(replyToken, [textMsg('[診断] 顧客名が特定できませんでした (userId=' + userId.substring(0, 8) + '...)')]);
       return;
     }
 
@@ -805,16 +805,23 @@ function handleFavoritesCommand(replyToken, userId) {
     }
     var logData = logSheet.getDataRange().getValues();
     var latest = {}; // room_id → action
+    var matchedRows = 0;
     for (var i = 1; i < logData.length; i++) {
-      if (String(logData[i][0]) !== customerName) continue;
-      var act = String(logData[i][2]);
+      if (String(logData[i][0]).trim() !== customerName) continue;
+      matchedRows++;
+      var act = String(logData[i][2]).trim();
       if (act === 'favorite' || act === 'not_interested' || act === 'clear') {
-        latest[String(logData[i][1])] = act;
+        latest[String(logData[i][1]).trim()] = act;
       }
     }
     var favRoomIds = {};
+    var favCount = 0;
     for (var rid in latest) {
-      if (latest[rid] === 'favorite') favRoomIds[rid] = true;
+      if (latest[rid] === 'favorite') { favRoomIds[rid] = true; favCount++; }
+    }
+    if (favCount === 0) {
+      replyMessage(replyToken, [textMsg('[診断] customer=' + customerName + ' / アクションログ該当行=' + matchedRows + ' / favorite最終=' + favCount + '件')]);
+      return;
     }
 
     // 検索条件シートから A=customer, C=room_id, D=building_name, E=rent, G=layout, I=station, N=view_url を取得
@@ -826,8 +833,8 @@ function handleFavoritesCommand(replyToken, userId) {
     var critData = critSheet.getDataRange().getValues();
     var favorites = [];
     for (var i = 1; i < critData.length; i++) {
-      if (String(critData[i][0]) !== customerName) continue;
-      var rid = String(critData[i][2]);
+      if (String(critData[i][0]).trim() !== customerName) continue;
+      var rid = String(critData[i][2]).trim();
       if (!favRoomIds[rid]) continue;
       favorites.push({
         roomId: rid,
@@ -840,7 +847,8 @@ function handleFavoritesCommand(replyToken, userId) {
     }
 
     if (favorites.length === 0) {
-      replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。\n\n物件ページの ⭐ ボタンでお気に入りに追加できます。')]);
+      var sampleRids = Object.keys(favRoomIds).slice(0, 3).join(',');
+      replyMessage(replyToken, [textMsg('[診断] favorite=' + favCount + '件あるが検索条件シートで未マッチ\nrid例: ' + sampleRids)]);
       return;
     }
 
