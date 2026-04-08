@@ -37,7 +37,8 @@ function doPost(e) {
   }
 
   var __t0 = Date.now();
-  var __mark = function(label) { console.log('[PERF] +' + (Date.now() - __t0) + 'ms ' + label); };
+  var __marks = [];
+  var __mark = function(label) { __marks.push('+' + (Date.now() - __t0) + 'ms ' + label); };
   try {
     const json = JSON.parse(e.postData.contents);
     __mark('json parsed');
@@ -178,6 +179,13 @@ function doPost(e) {
       try { recordLineActivity(userId); } catch (e) { console.error('recordLineActivity error: ' + e.message); }
       __mark('activity recorded');
     }
+
+    // ── perf ログをシートに書き出し ──
+    try {
+      var _ps = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('PerfLog') ||
+                SpreadsheetApp.openById(SPREADSHEET_ID).insertSheet('PerfLog');
+      _ps.appendRow([new Date(), event.type, __marks.join(' | ')]);
+    } catch (e) { console.error('perf log write error: ' + e.message); }
 
   } catch (err) {
     console.error('doPost Error: ' + err.message + '\nStack: ' + err.stack);
