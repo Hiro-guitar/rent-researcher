@@ -227,7 +227,7 @@ function handleVacancyQuery(replyToken, userId, raw) {
       replyMessage(replyToken, [textMsg(
         '該当する物件が見つかりませんでした。\n\n' +
         '以下のいずれかでお調べできます：\n' +
-        '　・物件名（例: サンプルレジデンス101）\n' +
+        '　・物件名（例: ○○マンション101）\n' +
         '　・所在地（例: 渋谷区神宮前）\n' +
         '　・最寄駅（例: 新宿駅）\n' +
         '　・専有面積（例: 25.5）\n' +
