@@ -143,6 +143,26 @@ function doPost(e) {
         if (handleStopReasonText(replyToken, userId, message, state)) return;
       }
 
+      // スヌーズ期間選択中
+      if (state.step === STEPS.WAITING_SNOOZE_PERIOD) {
+        if (message === 'キャンセル' || message === 'きゃんせる') {
+          clearState(userId);
+          replyMessage(replyToken, [textMsg('キャンセルしました。')]);
+          return;
+        }
+        if (handleSnoozePeriodText(replyToken, userId, message)) return;
+      }
+
+      // 配信頻度選択中
+      if (state.step === STEPS.WAITING_FREQUENCY) {
+        if (message === 'キャンセル' || message === 'きゃんせる') {
+          clearState(userId);
+          replyMessage(replyToken, [textMsg('キャンセルしました。')]);
+          return;
+        }
+        if (handleFrequencyText(replyToken, userId, message)) return;
+      }
+
       // 空室確認モード中: 検索ロジックに渡す
       if (state.step === STEPS.WAITING_VACANCY) {
         if (message === 'キャンセル' || message === 'きゃんせる') {
@@ -735,9 +755,38 @@ function handleGetCriteria(e) {
     var name = String(row[1] || '').trim();
     if (!name) continue;
 
-    // S列(18): 配信ステータス ('paused' なら配信除外)
+    // S列(18): 配信ステータス
+    // V列(21): スヌーズ解除日時, W列(22): 配信頻度, X列(23): 最終配信日時
     var deliveryStatus = String(row[18] || '').trim().toLowerCase();
+    var snoozeUntil = row[21];
+    var frequency = String(row[22] || '').trim().toLowerCase();
+    var lastSentAt = row[23];
+    var nowMs = Date.now();
+
+    // スヌーズ自動解除: snoozed かつ V列 <= 現在 → active に戻す
+    if (deliveryStatus === 'snoozed') {
+      if (snoozeUntil instanceof Date && snoozeUntil.getTime() <= nowMs) {
+        try {
+          sheet.getRange(i + 1, 19).setValue('active');
+          sheet.getRange(i + 1, 22).setValue('');
+        } catch (e) {}
+        deliveryStatus = 'active';
+      } else {
+        continue; // まだスヌーズ中
+      }
+    }
     if (deliveryStatus === 'paused') continue;
+
+    // 配信頻度フィルタ
+    if (frequency === 'weekly' || frequency === 'biweekly') {
+      var intervalDays = (frequency === 'weekly') ? 7 : 3;
+      if (lastSentAt instanceof Date) {
+        var elapsedMs = nowMs - lastSentAt.getTime();
+        if (elapsedMs < intervalDays * 24 * 60 * 60 * 1000) continue;
+      }
+      // 通過したので最終配信日時を更新
+      try { sheet.getRange(i + 1, 24).setValue(new Date()); } catch (e) {}
+    }
 
     // 列マッピング (SheetWriter.js準拠):
     // A(0):タイムスタンプ B(1):名前 C(2):都道府県 D(3):市区町村
