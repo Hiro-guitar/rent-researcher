@@ -115,7 +115,7 @@ function doPost(e) {
         saveState(userId, { step: STEPS.WAITING_VACANCY, data: {} });
         replyMessage(replyToken, [textMsg(
           '空室確認を承ります。\n\n' +
-          '以下のいずれかをお送りください：\n' +
+          '以下のいずれかをお送りください：\n\n' +
           '　・物件名（例: ○○マンション101）\n' +
           '　・所在地（例: 渋谷区神宮前）\n' +
           '　・最寄駅（例: 新宿駅）\n' +
