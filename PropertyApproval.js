@@ -888,6 +888,70 @@ function handleFavoritesCommand(replyToken, userId) {
   }
 }
 
+// 使い方ガイド（Flex carousel）
+function handleHelpCommand(replyToken, userId) {
+  try {
+    var features = [
+      {
+        title: '空室確認',
+        desc: '気になる物件の空室状況をその場で確認できます。物件名・所在地・最寄駅・専有面積・募集ページURLのいずれかを送ってください。',
+        trigger: '空室確認'
+      },
+      {
+        title: '条件登録',
+        desc: 'お引越し条件（エリア・賃料・間取りなど）を登録すると、条件に合う物件をスタッフが厳選してお届けします。',
+        trigger: '条件登録'
+      },
+      {
+        title: '条件変更',
+        desc: '登録済みの希望条件をいつでも見直せます。お引越し時期や予算が変わった際にご利用ください。',
+        trigger: '条件変更'
+      },
+      {
+        title: 'お気に入り',
+        desc: 'これまでに⭐ボタンで保存した物件を一覧で確認できます。後からまとめて見比べたいときに便利です。',
+        trigger: 'お気に入り'
+      },
+      {
+        title: 'その他ご質問',
+        desc: '内見予約・お申込み・契約・その他なんでもご相談ください。担当スタッフが順番にお返事いたします。',
+        trigger: 'その他ご質問'
+      }
+    ];
+
+    var bubbles = features.map(function(f) {
+      return {
+        type: 'bubble',
+        size: 'kilo',
+        body: {
+          type: 'box', layout: 'vertical', spacing: 'md',
+          contents: [
+            { type: 'text', text: f.title, weight: 'bold', size: 'lg', color: '#1F6FEB' },
+            { type: 'separator' },
+            { type: 'text', text: f.desc, wrap: true, size: 'sm', color: '#555555' }
+          ]
+        },
+        footer: {
+          type: 'box', layout: 'vertical',
+          contents: [{
+            type: 'button', style: 'primary', color: '#1F6FEB', height: 'sm',
+            action: { type: 'message', label: '使ってみる', text: f.trigger }
+          }]
+        }
+      };
+    });
+
+    replyMessage(replyToken, [{
+      type: 'flex',
+      altText: '使い方ガイド',
+      contents: { type: 'carousel', contents: bubbles }
+    }]);
+  } catch (err) {
+    console.error('handleHelpCommand error: ' + err.message + '\n' + err.stack);
+    try { replyMessage(replyToken, [textMsg('使い方の表示に失敗しました。時間をおいて再度お試しください。')]); } catch(e) {}
+  }
+}
+
 // 状態チェック（feedback + action 両方返す）
 function handleCheckAction(e) {
   var customerName = e.parameter.customer;

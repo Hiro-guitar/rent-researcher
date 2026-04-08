@@ -110,6 +110,12 @@ function doPost(e) {
         return;
       }
 
+      // コマンド: 使い方
+      if (message === '使い方' || message === 'つかいかた') {
+        handleHelpCommand(replyToken, userId);
+        return;
+      }
+
       // コマンド: 空室確認 → state を WAITING_VACANCY にして案内文返信
       if (message === '空室確認' || message === 'くうしつかくにん') {
         saveState(userId, { step: STEPS.WAITING_VACANCY, data: {} });
