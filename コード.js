@@ -55,11 +55,8 @@ function doPost(e) {
     const replyToken = event.replyToken;
     const userId = event.source.userId;
 
-    // ── やり取り時刻を記録（友だち一覧の並び替えに使用） ──
-    if (event.type === 'message' || event.type === 'postback') {
-      recordLineActivity(userId);
-    }
-
+    // ── 返信処理を IIFE で包み、完了後にアクティビティ記録（体感速度向上のため後回し） ──
+    (function dispatch() {
     // ── Follow イベント（友だち追加時）──
     // 挨拶メッセージは LINE Manager 側で設定しているため、ここでは何も返さない
     if (event.type === 'follow') {
@@ -165,6 +162,12 @@ function doPost(e) {
       if (handleExistingText(replyToken, userId, message, state)) return;
 
       return;
+    }
+    })();
+
+    // ── 返信後にアクティビティ記録（遅くても返信済みなので体感に影響しない） ──
+    if (event.type === 'message' || event.type === 'postback') {
+      try { recordLineActivity(userId); } catch (e) { console.error('recordLineActivity error: ' + e.message); }
     }
 
   } catch (err) {
