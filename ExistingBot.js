@@ -139,90 +139,143 @@ function handleExistingText(replyToken, userId, message, state) {
     return true;
   }
 
-  // ── 専有面積検索 ──
-  if (/^\d{1,3}(\.\d{1,2})?$/.test(message) && !isNaN(message)) {
-    return handleAreaSearch(replyToken, userId, message);
-  }
-
+  // 数字単独入力での自動面積検索は廃止（空室確認モード経由のみ受付）
   return false;
 }
 
+// ══════════════════════════════════════════════════════════
+//  空室確認クエリ（state=WAITING_VACANCY 中のみ呼ばれる）
+// ══════════════════════════════════════════════════════════
+
+/** NFKC正規化＋空白記号除去（建物名・住所マッチ用） */
+function normalizeForMatch(s) {
+  if (s == null) return '';
+  return String(s).normalize('NFKC')
+    .replace(/[\s\u3000・\-－ｰ()（）,，.。、]/g, '')
+    .toUpperCase();
+}
+
+/** 入力から面積を抽出（「24」「24.32」「24m²」「24㎡」「24平米」等に対応） */
+function extractAreaNumber(message) {
+  if (message == null) return null;
+  var n = String(message).normalize('NFKC').trim();
+  var m = n.match(/^(\d{1,3}(?:\.\d{1,2})?)\s*(?:m2|m²|㎡|平米|平方メートル)?$/i);
+  if (m) return parseFloat(m[1]);
+  return null;
+}
+
+/** 入力からSUUMO bc番号を抽出 */
+function extractBcNumber(message) {
+  if (!message) return null;
+  var m = String(message).match(/bc[_=](\d+)/i);
+  return m ? m[1] : null;
+}
+
 /**
- * 専有面積で物件を検索し、Flexメッセージで返信する。
- * @param {string} replyToken
- * @param {string} userId - LINE userId
- * @param {string} areaText - 面積テキスト（数字）
- * @return {boolean}
+ * 空室確認クエリを処理する。state=WAITING_VACANCY 中のみ呼ばれる。
+ * 入力種別: SUUMO URL/bc番号 / 面積数値 / 物件名・部屋番号・所在地・最寄駅 のテキスト
  */
-function handleAreaSearch(replyToken, userId, areaText) {
+function handleVacancyQuery(replyToken, userId, raw) {
   try {
-    const ss = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
-    const sheet = ss.getSheetByName(PROPERTY_SHEET_NAME);
+    var ss = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+    var sheet = ss.getSheetByName(PROPERTY_SHEET_NAME);
     if (!sheet) {
-      console.error('handleAreaSearch: シート "' + PROPERTY_SHEET_NAME + '" が見つかりません');
-      replyMessage(replyToken, [textMsg('システムエラーが発生しました。管理者にお問い合わせください。')]);
-      return true;
+      replyMessage(replyToken, [textMsg('システムエラーが発生しました。担当者にお問い合わせください。')]);
+      return;
+    }
+    var data = sheet.getDataRange().getValues();
+    var matched = [];
+    var seen = {};
+    var addRow = function(row, idx) { if (!seen[idx]) { seen[idx] = true; matched.push(row); } };
+
+    // 1. SUUMO URL / bc番号
+    var bc = extractBcNumber(raw);
+    if (bc) {
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][9]).indexOf(bc) !== -1) addRow(data[i], i);
+      }
     }
 
-    const data = sheet.getDataRange().getValues();
-    const bubbles = [];
-    var unavailableProperties = [];
-
-    for (let i = 1; i < data.length; i++) {
-      const area = data[i][7];
-      if (area === null || area === undefined || area === '') continue;
-      // 数値比較: parseFloat で統一（"25" と 25 の型差異を吸収）
-      const areaNum = parseFloat(area);
-      const inputNum = parseFloat(areaText);
-      if (isNaN(areaNum) || isNaN(inputNum)) continue;
-      if (areaNum === inputNum) {
-        const rawUrl = data[i][9] ? data[i][9].toString().trim() : '';
-        const property = {
-          name: data[i][0],
-          room: data[i][1],
-          address: data[i][2],
-          station: data[i][3],
-          rent: data[i][4],
-          fee: data[i][5],
-          layout: data[i][6],
-          area: data[i][7],
-          status: data[i][8],
-          url: (rawUrl && rawUrl.startsWith('http')) ? rawUrl : ''
-        };
-        bubbles.push(createPropertyBubble(property));
-
-        // 非募集中の物件を遅延返信キューに追加
-        if (data[i][8] !== '募集中') {
-          unavailableProperties.push({ name: String(data[i][0]), room: String(data[i][1]) });
+    // 2. 面積（完全一致）
+    if (matched.length === 0) {
+      var areaNum = extractAreaNumber(raw);
+      if (areaNum !== null) {
+        for (var i = 1; i < data.length; i++) {
+          var a = parseFloat(data[i][7]);
+          if (!isNaN(a) && a === areaNum) addRow(data[i], i);
         }
       }
     }
 
-    console.log('handleAreaSearch: area=' + areaText + ' matched=' + bubbles.length);
-
-    if (bubbles.length > 0) {
-      var flexMsg = { type: 'flex', altText: '該当する物件一覧です', contents: { type: 'carousel', contents: bubbles.slice(0, 10) } };
-      try {
-        replyMessage(replyToken, [flexMsg]);
-      } catch (flexErr) {
-        console.error('Flex送信エラー: ' + flexErr.message + '\nBubble[0]: ' + JSON.stringify(bubbles[0]));
-        // Flexが失敗した場合テキストでフォールバック
-        replyMessage(replyToken, [textMsg('物件が' + bubbles.length + '件見つかりましたが、表示エラーが発生しました。管理者にお問い合わせください。')]);
+    // 3. 自由テキスト（物件名+部屋番号 / 所在地 / 最寄駅 を全部対象に部分一致）
+    if (matched.length === 0) {
+      var q = normalizeForMatch(raw);
+      if (q.length >= 2) {
+        for (var i = 1; i < data.length; i++) {
+          var nameRoom = normalizeForMatch(String(data[i][0]) + String(data[i][1]));
+          var addr = normalizeForMatch(data[i][2]);
+          var stn  = normalizeForMatch(data[i][3]);
+          if (nameRoom.indexOf(q) !== -1 || addr.indexOf(q) !== -1 || stn.indexOf(q) !== -1) {
+            addRow(data[i], i);
+          }
+        }
       }
-    } else {
-      replyMessage(replyToken, [textMsg('お探しの専有面積に合致する物件が見つかりませんでした。\n\nもう一度ご確認の上、別の条件でお試しください。')]);
     }
 
-    // 非募集中物件をキューに追加（返信後に実行）
-    for (var q = 0; q < unavailableProperties.length; q++) {
-      enqueueDelayedReply(userId, unavailableProperties[q].name, unavailableProperties[q].room);
+    // 0件 → ポジティブ案内（state継続して再入力待ち）
+    if (matched.length === 0) {
+      replyMessage(replyToken, [textMsg(
+        '該当する物件が見つかりませんでした。\n\n' +
+        '以下のいずれかでお調べできます：\n' +
+        '　・物件名（例: VIVACE301）\n' +
+        '　・所在地（例: 杉並区和泉）\n' +
+        '　・最寄駅（例: 代田橋駅）\n' +
+        '　・専有面積（例: 30）\n' +
+        '　・SUUMOのURL\n\n' +
+        '中止する場合は「キャンセル」とお送りください。'
+      )]);
+      return;
     }
 
-    return true;
+    // 件数超過 → 件数のみ返して絞込誘導（state継続）
+    if (matched.length > 12) {
+      replyMessage(replyToken, [textMsg(
+        '「' + raw + '」で' + matched.length + '件見つかりました。\n\n' +
+        '物件名や専有面積でも絞り込めますので、別の条件でもお試しください。'
+      )]);
+      return;
+    }
+
+    // ヒット → Flex Carousel 返信
+    var bubbles = [];
+    var unavailable = [];
+    for (var i = 0; i < matched.length; i++) {
+      var row = matched[i];
+      var rawUrl = row[9] ? String(row[9]).trim() : '';
+      bubbles.push(createPropertyBubble({
+        name: row[0], room: row[1], address: row[2], station: row[3],
+        rent: row[4], fee: row[5], layout: row[6], area: row[7], status: row[8],
+        url: (rawUrl && rawUrl.indexOf('http') === 0) ? rawUrl : ''
+      }));
+      if (row[8] !== '募集中') {
+        unavailable.push({ name: String(row[0]), room: String(row[1]) });
+      }
+    }
+    replyMessage(replyToken, [{
+      type: 'flex', altText: '該当する物件一覧です',
+      contents: { type: 'carousel', contents: bubbles }
+    }]);
+
+    // 非募集中物件は遅延返信キューに追加
+    for (var q2 = 0; q2 < unavailable.length; q2++) {
+      enqueueDelayedReply(userId, unavailable[q2].name, unavailable[q2].room);
+    }
+
+    // 検索完了 → state解除
+    clearState(userId);
   } catch (e) {
-    console.error('handleAreaSearch Error: ' + e.message + '\nStack: ' + e.stack);
+    console.error('handleVacancyQuery Error: ' + e.message + '\n' + e.stack);
     replyMessage(replyToken, [textMsg('検索中にエラーが発生しました。もう一度お試しください。')]);
-    return true;
   }
 }
 

@@ -110,6 +110,33 @@ function doPost(e) {
         return;
       }
 
+      // コマンド: 空室確認 → state を WAITING_VACANCY にして案内文返信
+      if (message === '空室確認' || message === 'くうしつかくにん') {
+        saveState(userId, { step: STEPS.WAITING_VACANCY, data: {} });
+        replyMessage(replyToken, [textMsg(
+          '空室確認を承ります。\n\n' +
+          '以下のいずれかをお送りください：\n' +
+          '　・物件名（例: VIVACE301）\n' +
+          '　・所在地（例: 杉並区和泉）\n' +
+          '　・最寄駅（例: 代田橋駅）\n' +
+          '　・専有面積（例: 30）\n' +
+          '　・SUUMOのURL\n\n' +
+          '中止する場合は「キャンセル」とお送りください。'
+        )]);
+        return;
+      }
+
+      // 空室確認モード中: 検索ロジックに渡す
+      if (state.step === STEPS.WAITING_VACANCY) {
+        if (message === 'キャンセル' || message === 'きゃんせる') {
+          clearState(userId);
+          replyMessage(replyToken, [textMsg('空室確認を終了しました。')]);
+          return;
+        }
+        handleVacancyQuery(replyToken, userId, message);
+        return;
+      }
+
       // 類似物件不要（遅延返信Flexの「いいえ」ボタン）
       if (message === '類似物件不要') {
         replyMessage(replyToken, [
