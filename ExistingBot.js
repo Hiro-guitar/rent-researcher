@@ -332,7 +332,7 @@ function createPropertyBubble(p) {
   }
   if (p.status === '募集中') {
     footerButtons.push({
-      type: 'button', style: 'primary', height: 'sm', color: '#8ec41d',
+      type: 'button', style: 'primary', height: 'sm', color: '#6ea814',
       action: {
         type: 'postback',
         label: '🏠 入居申込をする',
@@ -557,7 +557,7 @@ function processReplyQueue() {
                 layout: 'vertical',
                 flex: 1,
                 cornerRadius: 'md',
-                backgroundColor: '#8ec41d',
+                backgroundColor: '#6ea814',
                 paddingAll: 'sm',
                 justifyContent: 'center',
                 alignItems: 'center',
@@ -682,7 +682,7 @@ function testSendConditionButton() {
             {
               type: 'button',
               style: 'primary',
-              color: '#8ec41d',
+              color: '#6ea814',
               height: 'sm',
               flex: 1,
               action: {

@@ -934,7 +934,7 @@ function handleHelpCommand(replyToken, userId) {
         footer: {
           type: 'box', layout: 'vertical',
           contents: [{
-            type: 'button', style: 'primary', color: '#8ec41d', height: 'sm',
+            type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
             action: { type: 'message', label: '使ってみる', text: f.trigger }
           }]
         }
