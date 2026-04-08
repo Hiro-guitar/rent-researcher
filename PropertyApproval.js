@@ -778,6 +778,128 @@ function countFavorites(sheet, customerName) {
   return count;
 }
 
+// ===== お気に入り一覧コマンド（LINE「お気に入り」で発火） =====
+function handleFavoritesCommand(replyToken, userId) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+    // userId → 顧客名
+    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    var customerName = '';
+    if (luSheet) {
+      var luData = luSheet.getDataRange().getValues();
+      for (var i = 1; i < luData.length; i++) {
+        if (luData[i][0] === userId) { customerName = String(luData[i][1] || ''); break; }
+      }
+    }
+    if (!customerName) {
+      replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。\n\n物件ページの ⭐ ボタンでお気に入りに追加できます。')]);
+      return;
+    }
+
+    // アクションログから最新が favorite の room_id を抽出
+    var logSheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
+    if (!logSheet) {
+      replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。')]);
+      return;
+    }
+    var logData = logSheet.getDataRange().getValues();
+    var latest = {}; // room_id → action
+    for (var i = 1; i < logData.length; i++) {
+      if (String(logData[i][0]) !== customerName) continue;
+      var act = String(logData[i][2]);
+      if (act === 'favorite' || act === 'not_interested' || act === 'clear') {
+        latest[String(logData[i][1])] = act;
+      }
+    }
+    var favRoomIds = {};
+    for (var rid in latest) {
+      if (latest[rid] === 'favorite') favRoomIds[rid] = true;
+    }
+
+    // 検索条件シートから A=customer, C=room_id, D=building_name, E=rent, G=layout, I=station, N=view_url を取得
+    var critSheet = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+    if (!critSheet) {
+      replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。')]);
+      return;
+    }
+    var critData = critSheet.getDataRange().getValues();
+    var favorites = [];
+    for (var i = 1; i < critData.length; i++) {
+      if (String(critData[i][0]) !== customerName) continue;
+      var rid = String(critData[i][2]);
+      if (!favRoomIds[rid]) continue;
+      favorites.push({
+        roomId: rid,
+        buildingName: String(critData[i][3] || ''),
+        rent: critData[i][4],
+        layout: String(critData[i][6] || ''),
+        stationInfo: String(critData[i][8] || ''),
+        viewUrl: String(critData[i][13] || '')
+      });
+    }
+
+    if (favorites.length === 0) {
+      replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。\n\n物件ページの ⭐ ボタンでお気に入りに追加できます。')]);
+      return;
+    }
+
+    // Flex Carousel（最大10件）
+    var bubbles = [];
+    var max = Math.min(favorites.length, 10);
+    for (var i = 0; i < max; i++) {
+      var f = favorites[i];
+      var rentText = '';
+      if (f.rent) {
+        var rNum = parseInt(f.rent);
+        if (!isNaN(rNum) && rNum > 0) rentText = (Math.round(rNum / 100) / 100) + '万円';
+      }
+      var subParts = [];
+      if (rentText) subParts.push(rentText);
+      if (f.layout) subParts.push(f.layout);
+      var bubble = {
+        type: 'bubble',
+        size: 'kilo',
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'sm',
+          contents: [
+            { type: 'text', text: f.buildingName || '(建物名なし)', weight: 'bold', size: 'md', wrap: true, maxLines: 2 },
+            { type: 'text', text: subParts.join(' / '), size: 'sm', color: '#666666', wrap: true },
+            { type: 'text', text: f.stationInfo, size: 'xs', color: '#999999', wrap: true, maxLines: 2 }
+          ]
+        },
+        footer: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            f.viewUrl ? {
+              type: 'button',
+              style: 'primary',
+              color: '#4CAF50',
+              height: 'sm',
+              action: { type: 'uri', label: '詳細を見る', uri: f.viewUrl }
+            } : { type: 'text', text: 'URLなし', size: 'xs', color: '#999999', align: 'center' }
+          ]
+        }
+      };
+      bubbles.push(bubble);
+    }
+
+    var altText = '⭐ お気に入り物件 ' + favorites.length + '件';
+    if (favorites.length > 10) altText += '（10件まで表示）';
+    replyMessage(replyToken, [{
+      type: 'flex',
+      altText: altText,
+      contents: { type: 'carousel', contents: bubbles }
+    }]);
+  } catch (err) {
+    console.error('handleFavoritesCommand error: ' + err.message + '\n' + err.stack);
+    try { replyMessage(replyToken, [textMsg('お気に入り一覧の取得に失敗しました。時間をおいて再度お試しください。')]); } catch(e) {}
+  }
+}
+
 // 状態チェック（feedback + action 両方返す）
 function handleCheckAction(e) {
   var customerName = e.parameter.customer;

@@ -104,6 +104,12 @@ function doPost(e) {
         return;
       }
 
+      // コマンド: お気に入り一覧
+      if (message === 'お気に入り' || message === 'おきにいり') {
+        handleFavoritesCommand(replyToken, userId);
+        return;
+      }
+
       // 類似物件不要（遅延返信Flexの「いいえ」ボタン）
       if (message === '類似物件不要') {
         replyMessage(replyToken, [
