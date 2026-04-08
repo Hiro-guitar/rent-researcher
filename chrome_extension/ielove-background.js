@@ -24,8 +24,9 @@ function buildIeloveSearchUrl(customer, page = 1) {
     `${IELOVE_BASE_URL}/ielovebb/rent/index`,
   ];
 
-  // 駅コード
+  // 駅コード・市区町村コード
   const stationCodes = resolveIeloveStationCodes(customer);
+  const cityCodes = resolveIeloveCityCodes(customer);
   if (stationCodes.length > 0) {
     // 駅コードの都道府県プレフィックスを収集（例: "13_1_5" → "13"）
     const prefectures = [...new Set(stationCodes.map(c => c.split('_')[0]))];
@@ -36,8 +37,21 @@ function buildIeloveSearchUrl(customer, page = 1) {
     for (const code of stationCodes) {
       parts.push(`station/${code}`);
     }
+    // 駅と市区町村が両方ある場合は市区町村も付与
+    for (const code of cityCodes) {
+      parts.push(`shikuchoson/${code}`);
+    }
+  } else if (cityCodes.length > 0) {
+    // 市区町村のみ指定
+    const prefectures = [...new Set(cityCodes.map(c => c.split('_')[0]))];
+    for (const pref of prefectures) {
+      parts.push(`todofuken/${pref}`);
+    }
+    for (const code of cityCodes) {
+      parts.push(`shikuchoson/${code}`);
+    }
   } else {
-    // 駅指定がない場合は東京都デフォルト
+    // フォールバック: 東京都デフォルト
     parts.push(`todofuken/${IELOVE_PREFECTURE_CODE}`);
   }
 
@@ -185,6 +199,25 @@ function resolveIeloveStationCodes(customer) {
       if (typeof addUnresolvedStation === 'function') {
         addUnresolvedStation(customer.name || '不明', 'いえらぶ', cleanName);
       }
+    }
+  }
+  return codes;
+}
+
+/**
+ * 顧客の市区町村名リストをいえらぶ市区町村コードに変換する。
+ */
+function resolveIeloveCityCodes(customer) {
+  const codes = [];
+  const cities = customer.cities || [];
+  for (const raw of cities) {
+    const name = (raw || '').trim();
+    if (!name) continue;
+    const code = IELOVE_CITY_CODES[name];
+    if (code) {
+      codes.push(code);
+    } else {
+      console.warn(`[ielove] 市区町村コード未登録: '${name}'`);
     }
   }
   return codes;
