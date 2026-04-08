@@ -793,7 +793,7 @@ function handleFavoritesCommand(replyToken, userId) {
       }
     }
     if (!customerName) {
-      replyMessage(replyToken, [textMsg('[診断] 顧客名が特定できませんでした (userId=' + userId.substring(0, 8) + '...)')]);
+      replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。\n\n物件ページの ⭐ ボタンでお気に入りに追加できます。')]);
       return;
     }
 
@@ -804,64 +804,51 @@ function handleFavoritesCommand(replyToken, userId) {
       return;
     }
     var logData = logSheet.getDataRange().getValues();
-    var latest = {}; // room_id → action
-    var matchedRows = 0;
+    // アクションログ列: 0顧客 1room_id 2action 3物件名 4部屋番号 5賃料 6間取り 7駅 8日時
+    var latest = {}; // room_id → {action, propData}
     for (var i = 1; i < logData.length; i++) {
       if (String(logData[i][0]).trim() !== customerName) continue;
-      matchedRows++;
       var act = String(logData[i][2]).trim();
       if (act === 'favorite' || act === 'not_interested' || act === 'clear') {
-        latest[String(logData[i][1]).trim()] = act;
+        var rid = String(logData[i][1]).trim();
+        latest[rid] = {
+          action: act,
+          buildingName: String(logData[i][3] || ''),
+          roomNumber: String(logData[i][4] || ''),
+          rent: logData[i][5],
+          layout: String(logData[i][6] || ''),
+          stationInfo: String(logData[i][7] || '')
+        };
       }
     }
-    var favRoomIds = {};
-    var favCount = 0;
+    var favEntries = [];
     for (var rid in latest) {
-      if (latest[rid] === 'favorite') { favRoomIds[rid] = true; favCount++; }
+      if (latest[rid].action === 'favorite') {
+        latest[rid].roomId = rid;
+        favEntries.push(latest[rid]);
+      }
     }
-    if (favCount === 0) {
-      replyMessage(replyToken, [textMsg('[診断] customer=' + customerName + ' / アクションログ該当行=' + matchedRows + ' / favorite最終=' + favCount + '件')]);
+    if (favEntries.length === 0) {
+      replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。\n\n物件ページの ⭐ ボタンでお気に入りに追加できます。')]);
       return;
     }
 
-    // 検索条件シートから A=customer, C=room_id, D=building_name, E=rent, G=layout, I=station, N=view_url を取得
-    var critSheet = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
-    if (!critSheet) {
-      replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。')]);
-      return;
-    }
-    var critData = critSheet.getDataRange().getValues();
-    var favorites = [];
-    for (var i = 1; i < critData.length; i++) {
-      if (String(critData[i][0]).trim() !== customerName) continue;
-      var rid = String(critData[i][2]).trim();
-      if (!favRoomIds[rid]) continue;
-      favorites.push({
-        roomId: rid,
-        buildingName: String(critData[i][3] || ''),
-        rent: critData[i][4],
-        layout: String(critData[i][6] || ''),
-        stationInfo: String(critData[i][8] || ''),
-        viewUrl: String(critData[i][13] || '')
-      });
-    }
-
-    if (favorites.length === 0) {
-      // 顧客フィルタ無しで rid を探す
-      var foundCustomer = '';
-      var foundStatus = '';
-      for (var i = 1; i < critData.length; i++) {
-        var rid2 = String(critData[i][2]).trim();
-        if (favRoomIds[rid2]) {
-          foundCustomer = String(critData[i][0]);
-          foundStatus = String(critData[i][10] || '');
-          break;
+    // 検索条件シートから N列(view_url=minimalUrl)を引いてマージ（行が残っていれば）
+    try {
+      var critSheet = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+      if (critSheet) {
+        var critData = critSheet.getDataRange().getValues();
+        var ridToUrl = {};
+        for (var i = 1; i < critData.length; i++) {
+          if (String(critData[i][0]).trim() !== customerName) continue;
+          ridToUrl[String(critData[i][2]).trim()] = String(critData[i][13] || '');
+        }
+        for (var k = 0; k < favEntries.length; k++) {
+          if (ridToUrl[favEntries[k].roomId]) favEntries[k].viewUrl = ridToUrl[favEntries[k].roomId];
         }
       }
-      var sampleRids = Object.keys(favRoomIds).slice(0, 3).join(',');
-      replyMessage(replyToken, [textMsg('[診断] favorite=' + favCount + '件\nLINE customer="' + customerName + '"\nrid: ' + sampleRids + '\nシート上customer="' + foundCustomer + '" status="' + foundStatus + '"')]);
-      return;
-    }
+    } catch(e) {}
+    var favorites = favEntries;
 
     // Flex Carousel（最大10件）
     var bubbles = [];
