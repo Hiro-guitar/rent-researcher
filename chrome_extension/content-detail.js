@@ -338,34 +338,38 @@
   }
 
   async function getImageUrls() {
-    const urls = [];
-    const thumbnails = document.querySelectorAll('div.mx-auto');
-
-    for (const thumb of thumbnails) {
-      thumb.click();
-      await new Promise(r => setTimeout(r, 200));
-
-      const imageView = document.querySelector('.image-view');
-      if (imageView) {
-        const style = imageView.getAttribute('style');
-        const match = style?.match(/url\(["']?(.*?)["']?\)/);
-        if (match && match[1]) {
-          let imageUrl = match[1];
-          if (imageUrl.startsWith('/')) {
-            imageUrl = location.origin + imageUrl;
-          }
-          urls.push(imageUrl);
+    // Vue state (bkknGzuList) から直接取得（モーダルクリック撤廃）
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const findList = () => {
+      const walk = (c, d = 0) => {
+        if (d > 10 || !c) return null;
+        if (c.$data && Array.isArray(c.$data.bkknGzuList) && c.$data.bkknGzuList.length > 0) {
+          return c.$data.bkknGzuList;
         }
-      }
-
-      const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
-      if (closeBtn) {
-        closeBtn.click();
-        await new Promise(r => setTimeout(r, 300));
-      }
+        for (const ch of (c.$children || [])) {
+          const r = walk(ch, d + 1);
+          if (r) return r;
+        }
+        return null;
+      };
+      return walk(window.$nuxt);
+    };
+    let list = null;
+    for (let i = 0; i < 25; i++) {
+      list = findList();
+      if (list && list.length > 0) break;
+      await sleep(200);
     }
-
-    return urls;
+    if (!list || list.length === 0) return [];
+    const sorted = [...list].sort((a, b) => {
+      const an = parseInt(a.gzuBngu, 10) || 0;
+      const bn = parseInt(b.gzuBngu, 10) || 0;
+      return an - bn;
+    });
+    return sorted
+      .map(item => item.bkknGzuSrc)
+      .filter(Boolean)
+      .map(u => u.startsWith('/') ? location.origin + u : u);
   }
 
   function normalizeText(str) {

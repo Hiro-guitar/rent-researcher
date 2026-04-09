@@ -877,7 +877,28 @@ async function runSearchCycle() {
       const customer = criteria[ci];
       await setStorageData({ debugLog: `━━ 顧客 ${ci+1}/${criteria.length}: ${customer.name} ━━` });
 
-      // --- REINS ---
+      // --- itandi ---
+      if (services.itandi) {
+        if (isSearchCancelled(searchId)) return;
+        try { await runItandiSearch([customer], seenIds, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[itandi] 検索エラー: ' + err.message); }
+      }
+
+      // --- ES-Square ---
+      if (services.essquare) {
+        if (isSearchCancelled(searchId)) return;
+        try { await runEssquareSearch([customer], seenIds, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[ES-Square] 検索エラー: ' + err.message); }
+      }
+
+      // --- いえらぶ ---
+      if (services.ielove) {
+        if (isSearchCancelled(searchId)) return;
+        try { await runIeloveSearch([customer], seenIds, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[いえらぶ] 検索エラー: ' + err.message); }
+      }
+
+      // --- REINS（他サイトで申込あり検出後に判定するため最後に実行） ---
       if (services.reins && reinsTab && !reinsFatalExit) {
         const cond = formatCustomerCriteria(customer);
         await setStorageData({ debugLog: `[REINS] ${customer.name} 条件: ${cond}` });
@@ -921,27 +942,6 @@ async function runSearchCycle() {
             logError(`[REINS] ${customer.name}の検索失敗: ${err.message}`);
           }
         }
-      }
-
-      // --- いえらぶ ---
-      if (services.ielove) {
-        if (isSearchCancelled(searchId)) return;
-        try { await runIeloveSearch([customer], seenIds, searchId); }
-        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[いえらぶ] 検索エラー: ' + err.message); }
-      }
-
-      // --- itandi ---
-      if (services.itandi) {
-        if (isSearchCancelled(searchId)) return;
-        try { await runItandiSearch([customer], seenIds, searchId); }
-        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[itandi] 検索エラー: ' + err.message); }
-      }
-
-      // --- ES-Square ---
-      if (services.essquare) {
-        if (isSearchCancelled(searchId)) return;
-        try { await runEssquareSearch([customer], seenIds, searchId); }
-        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[ES-Square] 検索エラー: ' + err.message); }
       }
 
       // --- 一括モード: この顧客分だけ重複排除＆通知 ---
