@@ -2177,7 +2177,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                   if (iv) {
                     const style = iv.getAttribute('style') || '';
                     const m = style.match(/url\(["']?(.*?)["']?\)/);
-                    if (m && m[1] && m[1] !== prevUrlSeen) {
+                    if (m && m[1] && m[1] !== prevUrlSeen && m[1] !== 'null' && m[1].includes('findBkknGzu')) {
                       newUrl = m[1];
                       break;
                     }
