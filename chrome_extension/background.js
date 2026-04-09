@@ -14,6 +14,13 @@
 // { customerName: { service: [stationName, ...], ... }, ... }
 let _unresolvedStations = {};
 
+// バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
+let __btMode = 'alert';
+chrome.storage.local.get(['btMode'], (d) => { if (d.btMode) __btMode = d.btMode; });
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.btMode) __btMode = changes.btMode.newValue || 'alert';
+});
+
 // いえらぶBB関連ファイルを読み込み
 importScripts('ielove-config.js', 'ielove-background.js');
 // itandi BB関連ファイルを読み込み
@@ -469,8 +476,8 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
-  // バス・トイレ別スキップモード（equipに「バストイレ別スキップ」があれば設備欄になければ除外。無ければアラートで対応）
-  if (equip.includes('バストイレ別スキップ') || equip.includes('バス・トイレ別スキップ') || equip.includes('bt別スキップ')) {
+  // バス・トイレ別スキップモード（options画面で btMode='skip' 指定時のみ、equipにバス・トイレ別があって設備欄に無ければ除外）
+  if (__btMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
     const fac = prop.facilities || '';
     if (!fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
       return `バス・トイレ別の記載なし`;
@@ -3251,9 +3258,8 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     warnings.push('⚠️ エレベーターかどうか確認してください');
   }
   // バス・トイレ別（REINS: バス・トイレ別, itandi: バス・トイレ別, いえらぶ: バストイレ別）
-  // 「スキップ」サフィックス時はフィルタ側で除外済みなのでアラート不要
-  const btSkipMode = equip.includes('バストイレ別スキップ') || equip.includes('バス・トイレ別スキップ') || equip.includes('bt別スキップ');
-  if (!btSkipMode && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
+  // btMode='skip' の場合はフィルタ側で除外済みなのでアラート不要
+  if (__btMode !== 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
     warnings.push('⚠️ バス・トイレ別かどうか確認してください');
   }
   // 温水洗浄便座
