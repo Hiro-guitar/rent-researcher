@@ -2140,53 +2140,45 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               });
             } catch (e) { return null; }
           }
-          // クリックせず、サムネのbackground-image / imgのsrcからURLを直接拾う（DOM副作用ゼロ）
+          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          // サムネをクリック→モーダル.image-viewの大画像URLを取得→閉じる
           const images = [];
           const seen = new Set();
-          const urls = [];
           const debugUrls = [];
-          // 候補1: div.mx-auto のbackground-image
-          document.querySelectorAll('div.mx-auto').forEach(el => {
-            const bg = (el.style && el.style.backgroundImage) || getComputedStyle(el).backgroundImage || '';
-            const m = bg.match(/url\(["']?(.*?)["']?\)/);
-            if (m && m[1]) urls.push(m[1]);
-          });
-          // 候補2: img要素 (findBkknGzu系)
-          document.querySelectorAll('img').forEach(img => {
-            const src = img.getAttribute('src') || '';
-            if (src.includes('findBkknGzu') || src.includes('Gzu')) urls.push(src);
-          });
-          // サムネURL→大画像URL候補を生成（複数パターン試行）
-          function toLargeCandidates(u) {
-            const candidates = [];
-            // パターン1: findBkknGzuThm → findBkknGzu
-            if (u.includes('findBkknGzuThm')) candidates.push(u.replace('findBkknGzuThm', 'findBkknGzu'));
-            // パターン2: Thm を除去
-            if (u.includes('Thm')) candidates.push(u.replace(/Thm/g, ''));
-            // パターン3: thumb → original / small → large
-            if (u.includes('thumb')) candidates.push(u.replace(/thumb/g, 'original'));
-            if (u.includes('small')) candidates.push(u.replace(/small/g, 'large'));
-            // パターン4: &thm=1 除去
-            if (u.match(/[?&]thm=/i)) candidates.push(u.replace(/([?&])thm=[^&]*&?/i, '$1').replace(/[?&]$/, ''));
-            // パターン5: _s.jpg → .jpg / _thumb.jpg → .jpg
-            if (u.match(/_s\.(jpg|jpeg|png)/i)) candidates.push(u.replace(/_s(\.(jpg|jpeg|png))/i, '$1'));
-            if (u.match(/_thumb\.(jpg|jpeg|png)/i)) candidates.push(u.replace(/_thumb(\.(jpg|jpeg|png))/i, '$1'));
-            return candidates;
-          }
-          for (let u of urls) {
+          const thumbnails = document.querySelectorAll('div.mx-auto');
+          for (const thumb of thumbnails) {
             try {
-              if (u.startsWith('/')) u = location.origin + u;
-              if (debugUrls.length < 3) debugUrls.push(u);
-              const candidates = toLargeCandidates(u);
-              candidates.push(u); // 最後にサムネそのものをフォールバック
-              let base64 = null;
-              for (const cu of candidates) {
-                if (seen.has(cu)) { if (candidates.indexOf(cu) === candidates.length - 1) break; continue; }
-                seen.add(cu);
-                base64 = await fetchAsBase64(cu);
-                if (base64) break;
+              thumb.click();
+              // .image-view 出現待ち（最大2秒）
+              let imageView = null;
+              for (let i = 0; i < 20; i++) {
+                imageView = document.querySelector('.image-view');
+                if (imageView && imageView.getAttribute('style')) break;
+                await sleep(100);
               }
-              if (base64) images.push(base64);
+              if (imageView) {
+                const style = imageView.getAttribute('style') || '';
+                const m = style.match(/url\(["']?(.*?)["']?\)/);
+                if (m && m[1]) {
+                  let u = m[1].replace(/&amp;/g, '&');
+                  if (u.startsWith('/')) u = location.origin + u;
+                  if (debugUrls.length < 3) debugUrls.push(u);
+                  if (!seen.has(u)) {
+                    seen.add(u);
+                    const b64 = await fetchAsBase64(u);
+                    if (b64) images.push(b64);
+                  }
+                }
+              }
+              // モーダルを閉じる
+              const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close, .modal [aria-label="Close"]');
+              if (closeBtn) {
+                closeBtn.click();
+              } else {
+                // ESC キーで閉じる
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+              }
+              await sleep(200);
             } catch (e) {}
           }
           return { images, debugUrls };
