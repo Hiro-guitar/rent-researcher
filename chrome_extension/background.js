@@ -1247,8 +1247,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       }
 
       // 建物使用部分面積（㎡）
-      if (customerData.area_min) {
-        vr.snyuMnskFrom = String(customerData.area_min);
+      if (customerData.area_min && String(customerData.area_min).trim() && !String(customerData.area_min).includes('指定しない')) {
+        const n = parseFloat(String(customerData.area_min).replace(/[^\d.]/g, ''));
+        if (!isNaN(n) && n > 0) vr.snyuMnskFrom = String(n);
       }
 
       // 築年月（築N年以内 or 新築 → From年をセット）
