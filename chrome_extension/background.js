@@ -2145,40 +2145,55 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const images = [];
           const seen = new Set();
           const debugUrls = [];
-          const thumbnails = document.querySelectorAll('div.mx-auto');
-          for (const thumb of thumbnails) {
+          const thumbCount = document.querySelectorAll('div.mx-auto').length;
+          for (let idx = 0; idx < thumbCount; idx++) {
             try {
+              // 毎回再取得（DOM更新で参照が無効化されるのを防ぐ）
+              const thumbs = document.querySelectorAll('div.mx-auto');
+              const thumb = thumbs[idx];
+              if (!thumb) continue;
+              thumb.scrollIntoView({ block: 'center' });
+              await sleep(100);
+              // 前回のURLを記憶して、URL変化を待つ
+              const prevStyle = (document.querySelector('.image-view') || {}).getAttribute
+                ? (document.querySelector('.image-view').getAttribute('style') || '') : '';
               thumb.click();
-              // .image-view 出現待ち（最大2秒）
-              let imageView = null;
-              for (let i = 0; i < 20; i++) {
-                imageView = document.querySelector('.image-view');
-                if (imageView && imageView.getAttribute('style')) break;
+              // .image-view のstyle（URL）が前回から変わるまで待機（最大3秒）
+              let newUrl = null;
+              for (let i = 0; i < 30; i++) {
+                const iv = document.querySelector('.image-view');
+                if (iv) {
+                  const style = iv.getAttribute('style') || '';
+                  if (style && style !== prevStyle) {
+                    const m = style.match(/url\(["']?(.*?)["']?\)/);
+                    if (m && m[1]) { newUrl = m[1]; break; }
+                  }
+                }
                 await sleep(100);
               }
-              if (imageView) {
-                const style = imageView.getAttribute('style') || '';
-                const m = style.match(/url\(["']?(.*?)["']?\)/);
-                if (m && m[1]) {
-                  let u = m[1].replace(/&amp;/g, '&');
-                  if (u.startsWith('/')) u = location.origin + u;
-                  if (debugUrls.length < 3) debugUrls.push(u);
-                  if (!seen.has(u)) {
-                    seen.add(u);
-                    const b64 = await fetchAsBase64(u);
-                    if (b64) images.push(b64);
-                  }
+              if (newUrl) {
+                let u = newUrl.replace(/&amp;/g, '&');
+                if (u.startsWith('/')) u = location.origin + u;
+                if (debugUrls.length < 3) debugUrls.push(u);
+                if (!seen.has(u)) {
+                  seen.add(u);
+                  const b64 = await fetchAsBase64(u);
+                  if (b64) images.push(b64);
                 }
               }
               // モーダルを閉じる
-              const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close, .modal [aria-label="Close"]');
+              const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close, .modal [aria-label="Close"], .modal button.btn-close');
               if (closeBtn) {
                 closeBtn.click();
               } else {
-                // ESC キーで閉じる
-                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
               }
-              await sleep(200);
+              // モーダルが消えるまで待機
+              for (let i = 0; i < 20; i++) {
+                if (!document.querySelector('.image-view')) break;
+                await sleep(100);
+              }
+              await sleep(150);
             } catch (e) {}
           }
           return { images, debugUrls };
