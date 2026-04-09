@@ -2342,15 +2342,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         try {
           const uploadedUrls = [];
           let uploadFailed = 0;
+          const uploadErrors = [];
           async function uploadOne(b64) {
             const MAX_ATTEMPTS = 3;
+            let lastErr = null;
             for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
               try {
                 const publicUrl = await uploadBase64ToCatbox(b64);
                 if (publicUrl) return publicUrl;
+                lastErr = 'null_response';
                 if (attempt < MAX_ATTEMPTS - 1) await csleep(1000);
               } catch (e) {
-                if (attempt >= MAX_ATTEMPTS - 1) return null;
+                lastErr = (e && e.message) || String(e);
+                if (attempt >= MAX_ATTEMPTS - 1) {
+                  uploadErrors.push(`b64size=${b64?.length || 0} err=${lastErr}`);
+                  return null;
+                }
                 if (e && e.rateLimited) {
                   const wait = 2000 * Math.pow(2, attempt) + Math.floor(Math.random() * 500);
                   await csleep(wait);
@@ -2359,6 +2366,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 }
               }
             }
+            if (lastErr) uploadErrors.push(`b64size=${b64?.length || 0} err=${lastErr}`);
             return null;
           }
           const BATCH = 6;
@@ -2374,7 +2382,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             detail.image_urls = uploadedUrls;
             detail.image_url = uploadedUrls[0];
           }
-          await setStorageData({ debugLog: `${customer.name}: REINS画像アップロード完了 ${uploadedUrls.length}/${imageBase64s.length}件${uploadFailed > 0 ? ` (失敗:${uploadFailed})` : ''}` });
+          const errSample = uploadErrors.length > 0 ? ` [${uploadErrors.slice(0,2).join(' | ')}]` : '';
+          await setStorageData({ debugLog: `${customer.name}: REINS画像アップロード完了 ${uploadedUrls.length}/${imageBase64s.length}件${uploadFailed > 0 ? ` (失敗:${uploadFailed})` : ''}${errSample}` });
         } catch (upErr) {
           logError(`${customer.name}: REINS画像アップロード失敗: ${upErr.message}`);
         }
