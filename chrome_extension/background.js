@@ -2120,13 +2120,19 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       });
 
-      // === 画像をbase64で抽出（クリック不要・サムネ背景URL直読み→Thm外して大画像fetch） ===
+      // === 画像をbase64で抽出（Tampermonkey原版そのまま） ===
+      // タブをactive化（非フォーカスだとVueモーダルのクリック処理が不安定）
+      try {
+        const t = await chrome.tabs.get(tabId);
+        await chrome.windows.update(t.windowId, { focused: true });
+        await chrome.tabs.update(tabId, { active: true });
+        await csleep(300);
+      } catch (e) {}
       const imageResults = await Promise.race([
         chrome.scripting.executeScript({
         target: { tabId },
         world: 'MAIN',
         func: async () => {
-          // Tampermonkey原版そのまま移植
           async function fetchImageAsBase64(url) {
             const response = await fetch(url);
             const blob = await response.blob();
@@ -2139,7 +2145,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
           const imagesBase64 = [];
           const diag = [];
-          // サムネ出現を最大10秒ポーリング
+          // サムネ出現待ち
           let thumbnails = [];
           for (let i = 0; i < 100; i++) {
             thumbnails = document.querySelectorAll('div.mx-auto');
@@ -2150,49 +2156,28 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           let idx = 0;
           for (const thumb of thumbnails) {
             idx++;
-            const beforeModals = document.querySelectorAll('.modal.show, .image-view').length;
             thumb.click();
-            // image-viewに大画像URL(findBkknGzu?でThmでない)が入るまで最大2秒ポーリング
-            let imageUrl = null;
-            let lastStyle = '';
-            for (let i = 0; i < 20; i++) {
-              await new Promise(r => setTimeout(r, 100));
-              const iv = document.querySelector('.image-view');
-              if (!iv) continue;
-              const style = iv.getAttribute('style') || '';
-              lastStyle = style;
-              const m = style.match(/url\(["']?(.*?)["']?\)/);
-              if (m && m[1] && m[1] !== 'null' && /findBkknGzu\?/.test(m[1])) {
-                imageUrl = m[1];
-                break;
+            await new Promise(r => setTimeout(r, 200));
+            const imageView = document.querySelector('.image-view');
+            let got = 'N';
+            if (imageView) {
+              const style = imageView.getAttribute('style');
+              const match = style && style.match(/url\(["']?(.*?)["']?\)/);
+              if (match && match[1]) {
+                let imageUrl = match[1];
+                if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
+                try {
+                  const base64 = await fetchImageAsBase64(imageUrl);
+                  imagesBase64.push(base64);
+                  got = 'Y';
+                } catch (e) {}
               }
             }
-            const mAll = lastStyle.match(/url\(["']?(.*?)["']?\)/);
-            diag.push(`#${idx} before=${beforeModals} got=${imageUrl?'Y':'N'} lastUrl=${(mAll?mAll[1]:'(none)').slice(-60)}`);
-            if (imageUrl) {
-              if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
-              try {
-                const base64 = await fetchImageAsBase64(imageUrl);
-                imagesBase64.push(base64);
-              } catch (e) { diag.push(`#${idx} fetchErr=${e.message}`); }
-            }
-            // 完全に閉じるまで最大2秒（close click + Escape + 要素直削除）
-            for (let c = 0; c < 20; c++) {
-              const modalsNow = document.querySelectorAll('.modal.show, .image-view');
-              if (modalsNow.length === 0) break;
-              const cb = document.querySelector('.modal.show .btn.btn-outline, .modal.show .close, .modal .btn.btn-outline, .modal .close');
-              if (cb) cb.click();
-              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
-              await new Promise(r => setTimeout(r, 100));
-            }
-            // それでも残ってたら強制削除
-            const stuck = document.querySelectorAll('.modal.show, .image-view');
-            if (stuck.length > 0) {
-              diag.push(`#${idx} stuck=${stuck.length} forceRemove`);
-              stuck.forEach(el => el.remove());
-              document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
-              document.body.classList.remove('modal-open');
-              await new Promise(r => setTimeout(r, 200));
+            diag.push(`#${idx} got=${got}`);
+            const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
+            if (closeBtn) {
+              closeBtn.click();
+              await new Promise(r => setTimeout(r, 300));
             }
           }
           return { images: imagesBase64, debugUrls: [], diag };
