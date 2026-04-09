@@ -2245,81 +2245,90 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       });
 
-      // === 画像をbase64で抽出（$nuxt walk → bkknGzuList 直読み方式） ===
-      const imageResults = await Promise.race([
-        chrome.scripting.executeScript({
-        target: { tabId },
-        world: 'MAIN',
-        func: async () => {
-          async function fetchAsBase64(url) {
-            try {
-              const r = await fetch(url, { credentials: 'include' });
-              if (!r.ok) return null;
-              const blob = await r.blob();
-              if (!blob || blob.size < 1000) return null;
-              return await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-              });
-            } catch (e) { return null; }
-          }
-          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-          const images = [];
-          // Vueツリーから bkknGzuList を探索
-          const findList = () => {
-            const walk = (c, d = 0) => {
-              if (d > 10 || !c) return null;
-              if (c.$data && Array.isArray(c.$data.bkknGzuList) && c.$data.bkknGzuList.length > 0) {
-                return c.$data.bkknGzuList;
-              }
-              const children = c.$children || [];
-              for (const ch of children) {
-                const r = walk(ch, d + 1);
-                if (r) return r;
-              }
-              return null;
-            };
-            return walk(window.$nuxt);
-          };
-          // Vue マウント待ち（最大5秒）
-          let list = null;
-          for (let i = 0; i < 25; i++) {
-            list = findList();
-            if (list && list.length > 0) break;
-            await sleep(200);
-          }
-          if (!list || list.length === 0) return images;
-          // gzuBngu 昇順でソート
-          const sorted = [...list].sort((a, b) => {
-            const an = parseInt(a.gzuBngu, 10) || 0;
-            const bn = parseInt(b.gzuBngu, 10) || 0;
-            return an - bn;
-          });
-          for (const item of sorted) {
-            let url = item.bkknGzuSrc;
-            if (!url) continue;
-            if (url.startsWith('/')) url = location.origin + url;
-            try {
-              const base64 = await fetchAsBase64(url);
-              if (base64) images.push(base64);
-            } catch (e) {}
-          }
-          return images;
-        }
-      }),
-        new Promise((resolve) => setTimeout(() => resolve(null), 120000))
-      ]);
-      const imgResult = (imageResults && imageResults[0] && imageResults[0].result) || {};
-      const imageBase64s = Array.isArray(imgResult) ? imgResult : (imgResult.images || []);
-      await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
-
       const detail = detailResults && detailResults[0] && detailResults[0].result;
       if (detail) {
         // room_idをハッシュ化（propertyNumberベース・顧客向けURLでソース非表示）
         detail._raw_room_id = detail.room_id;
         detail.room_id = await hashRoomId('reins', 'reins_' + (detail.reins_property_number || ''));
+      }
+      // フィルタ先行判定: スキップする物件では画像取得を行わない
+      let __rejectReason = null;
+      if (detail) {
+        __rejectReason = getFilterRejectReason(detail, customer);
+      }
+
+      // === 画像をbase64で抽出（$nuxt walk → bkknGzuList 直読み方式） ===
+      // フィルタでスキップされる物件は画像取得スキップ
+      let imageBase64s = [];
+      if (detail && !__rejectReason) {
+        const imageResults = await Promise.race([
+          chrome.scripting.executeScript({
+          target: { tabId },
+          world: 'MAIN',
+          func: async () => {
+            async function fetchAsBase64(url) {
+              try {
+                const r = await fetch(url, { credentials: 'include' });
+                if (!r.ok) return null;
+                const blob = await r.blob();
+                if (!blob || blob.size < 1000) return null;
+                return await new Promise((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result);
+                  reader.onerror = reject;
+                  reader.readAsDataURL(blob);
+                });
+              } catch (e) { return null; }
+            }
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            const images = [];
+            // Vueツリーから bkknGzuList を探索
+            const findList = () => {
+              const walk = (c, d = 0) => {
+                if (d > 10 || !c) return null;
+                if (c.$data && Array.isArray(c.$data.bkknGzuList) && c.$data.bkknGzuList.length > 0) {
+                  return c.$data.bkknGzuList;
+                }
+                const children = c.$children || [];
+                for (const ch of children) {
+                  const r = walk(ch, d + 1);
+                  if (r) return r;
+                }
+                return null;
+              };
+              return walk(window.$nuxt);
+            };
+            // Vue マウント待ち（最大5秒）
+            let list = null;
+            for (let i = 0; i < 25; i++) {
+              list = findList();
+              if (list && list.length > 0) break;
+              await sleep(200);
+            }
+            if (!list || list.length === 0) return images;
+            // gzuBngu 昇順でソート
+            const sorted = [...list].sort((a, b) => {
+              const an = parseInt(a.gzuBngu, 10) || 0;
+              const bn = parseInt(b.gzuBngu, 10) || 0;
+              return an - bn;
+            });
+            for (const item of sorted) {
+              let url = item.bkknGzuSrc;
+              if (!url) continue;
+              if (url.startsWith('/')) url = location.origin + url;
+              try {
+                const base64 = await fetchAsBase64(url);
+                if (base64) images.push(base64);
+              } catch (e) {}
+            }
+            return images;
+          }
+        }),
+          new Promise((resolve) => setTimeout(() => resolve(null), 120000))
+        ]);
+        const imgResult = (imageResults && imageResults[0] && imageResults[0].result) || {};
+        imageBase64s = Array.isArray(imgResult) ? imgResult : (imgResult.images || []);
+        await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
       }
       if (!detail) {
         try {
@@ -2390,7 +2399,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       }
 
       if (detail) {
-        const rejectReason = getFilterRejectReason(detail, customer);
+        const rejectReason = __rejectReason;
         if (!rejectReason) {
           newProperties.push(detail);
           currentStats.totalFound++;
