@@ -2126,34 +2126,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         target: { tabId },
         world: 'MAIN',
         func: async () => {
-          // canvas経由でbase64化（blob fetchは破損データを返すことがあるためES-Squareと同じ方式に統一）
-          async function loadImageToBase64(url) {
-            return new Promise((resolve) => {
-              try {
-                const img = new Image();
-                // 同一オリジン(reins.jp)前提。anonymousだとCookie送信されず403になるので付けない
-                img.onload = () => {
-                  try {
-                    if (!img.naturalWidth || !img.naturalHeight) { resolve(null); return; }
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.naturalWidth;
-                    canvas.height = img.naturalHeight;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-                    if (!dataUrl || dataUrl.length < 5000) { resolve(null); return; }
-                    resolve(dataUrl);
-                  } catch (e) { resolve(null); }
-                };
-                img.onerror = () => resolve(null);
-                img.src = url;
-                // 10秒タイムアウト
-                setTimeout(() => resolve(null), 10000);
-              } catch (e) { resolve(null); }
-            });
-          }
-          // フォールバック（旧blob fetch方式・万が一canvasがダメな場合用）
-          async function fetchAsBase64(url) {
+          // === Tampermonkey版互換: サムネクリック→モーダル.image-view→fetch base64 ===
+          async function fetchImageAsBase64(url) {
             try {
               const r = await fetch(url, { credentials: 'include' });
               if (!r.ok) return null;
@@ -2167,51 +2141,44 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               });
             } catch (e) { return null; }
           }
-          // Vue state (bkknGzuList) から直接画像URLを取得する方式
-          // （thumbnailクリック/モーダル開閉は Vue clickハンドラ不発 + .image-view被覆 + etag差異で不安定なため撤廃）
           const sleep = (ms) => new Promise(r => setTimeout(r, ms));
           const images = [];
-          // Vueツリーから bkknGzuList を探索
-          const findList = () => {
-            const walk = (c, d = 0) => {
-              if (d > 10 || !c) return null;
-              if (c.$data && Array.isArray(c.$data.bkknGzuList) && c.$data.bkknGzuList.length > 0) {
-                return c.$data.bkknGzuList;
-              }
-              const children = c.$children || [];
-              for (const ch of children) {
-                const r = walk(ch, d + 1);
-                if (r) return r;
-              }
-              return null;
-            };
-            return walk(window.$nuxt);
-          };
-          // Vue マウント待ち（最大5秒）
-          let list = null;
-          for (let i = 0; i < 25; i++) {
-            list = findList();
-            if (list && list.length > 0) break;
-            await sleep(200);
-          }
-          if (!list || list.length === 0) return images;
-          // gzuBngu 昇順でソート
-          const sorted = [...list].sort((a, b) => {
-            const an = parseInt(a.gzuBngu, 10) || 0;
-            const bn = parseInt(b.gzuBngu, 10) || 0;
-            return an - bn;
-          });
-          for (const item of sorted) {
-            let url = item.bkknGzuSrc;
-            if (!url) continue;
-            if (url.startsWith('/')) url = location.origin + url;
+          const seenUrls = new Set();
+          // サムネイル群を検出
+          const thumbnails = document.querySelectorAll('div.mx-auto');
+          if (!thumbnails || thumbnails.length === 0) return images;
+          for (const thumb of thumbnails) {
             try {
-              // canvas優先（ES-Square同様 blob fetchは破損データを返すため）
-              let base64 = await loadImageToBase64(url);
-              if (!base64 || base64.length <= 5000) {
-                base64 = await fetchAsBase64(url);
+              thumb.click();
+              // モーダルの .image-view 出現待ち（最大2秒）
+              let imageView = null;
+              for (let i = 0; i < 20; i++) {
+                imageView = document.querySelector('.image-view');
+                if (imageView && imageView.getAttribute('style')) break;
+                await sleep(100);
               }
-              if (base64) images.push(base64);
+              if (!imageView) continue;
+              const style = imageView.getAttribute('style') || '';
+              const match = style.match(/url\(["']?(.*?)["']?\)/);
+              if (!match || !match[1]) {
+                // 閉じる
+                const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
+                if (closeBtn) { closeBtn.click(); await sleep(200); }
+                continue;
+              }
+              let imageUrl = match[1];
+              if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
+              if (!seenUrls.has(imageUrl)) {
+                seenUrls.add(imageUrl);
+                const base64 = await fetchImageAsBase64(imageUrl);
+                if (base64) images.push(base64);
+              }
+              // モーダルを閉じる
+              const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
+              if (closeBtn) {
+                closeBtn.click();
+                await sleep(300);
+              }
             } catch (e) {}
           }
           return images;
