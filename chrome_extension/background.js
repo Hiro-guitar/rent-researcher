@@ -2171,12 +2171,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             }
           });
           observer.observe(document.body, { attributes: true, attributeFilter: ['style'], subtree: true });
-          // 各サムネクリック→閉じる
+          // 各サムネクリック→URL収集を確認→閉じる
           let idx = 0;
           for (const thumb of thumbnails) {
             idx++;
-            thumb.click();
-            await shortSleep(300);
+            const beforeCount = urlOrder.length;
+            // 新URLが収集されるまで最大3秒、クリックを複数回試行
+            for (let attempt = 0; attempt < 6; attempt++) {
+              thumb.click();
+              // 500ms観察
+              for (let w = 0; w < 5; w++) {
+                await shortSleep(100);
+                if (urlOrder.length > beforeCount) break;
+              }
+              if (urlOrder.length > beforeCount) break;
+            }
+            diag.push(`#${idx} collected=${urlOrder.length - beforeCount}`);
             const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
             if (closeBtn) {
               closeBtn.click();
@@ -2184,7 +2194,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             }
           }
           observer.disconnect();
-          diag.push(`collected=${urlOrder.length}`);
+          diag.push(`total=${urlOrder.length}`);
           // 収集したURLを順にfetch
           const imagesBase64 = [];
           for (const u of urlOrder) {
