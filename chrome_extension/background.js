@@ -2145,33 +2145,51 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const images = [];
           const seen = new Set();
           const debugUrls = [];
-          const thumbCount = document.querySelectorAll('div.mx-auto').length;
-          for (let idx = 0; idx < thumbCount; idx++) {
-            try {
-              // 毎回再取得（DOM更新で参照が無効化されるのを防ぐ）
-              const thumbs = document.querySelectorAll('div.mx-auto');
-              const thumb = thumbs[idx];
-              if (!thumb) continue;
-              thumb.scrollIntoView({ block: 'center' });
+          async function closeModal() {
+            const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close, .modal [aria-label="Close"], .modal button.btn-close');
+            if (closeBtn) closeBtn.click();
+            else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+            for (let i = 0; i < 30; i++) {
+              if (!document.querySelector('.image-view')) return;
               await sleep(100);
-              // 前回のURLを記憶して、URL変化を待つ
-              const prevStyle = (document.querySelector('.image-view') || {}).getAttribute
-                ? (document.querySelector('.image-view').getAttribute('style') || '') : '';
-              thumb.click();
-              // .image-view のstyle（URL）が前回から変わるまで待機（最大3秒）
-              let newUrl = null;
-              for (let i = 0; i < 30; i++) {
-                const iv = document.querySelector('.image-view');
-                if (iv) {
-                  const style = iv.getAttribute('style') || '';
-                  if (style && style !== prevStyle) {
+            }
+          }
+          // 取り掛かる前に既存モーダルを閉じる
+          await closeModal();
+          const thumbCount = document.querySelectorAll('div.mx-auto').length;
+          let prevUrlSeen = '';
+          for (let idx = 0; idx < thumbCount; idx++) {
+            let newUrl = null;
+            // 最大3回までリトライ
+            for (let attempt = 0; attempt < 3 && !newUrl; attempt++) {
+              try {
+                await closeModal();
+                const thumbs = document.querySelectorAll('div.mx-auto');
+                const thumb = thumbs[idx];
+                if (!thumb) break;
+                thumb.scrollIntoView({ block: 'center' });
+                await sleep(150);
+                thumb.click();
+                thumb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                // .image-view のURLが前回(prevUrlSeen)から変わるまで最大6秒待機
+                for (let i = 0; i < 60; i++) {
+                  const iv = document.querySelector('.image-view');
+                  if (iv) {
+                    const style = iv.getAttribute('style') || '';
                     const m = style.match(/url\(["']?(.*?)["']?\)/);
-                    if (m && m[1]) { newUrl = m[1]; break; }
+                    if (m && m[1] && m[1] !== prevUrlSeen) {
+                      newUrl = m[1];
+                      break;
+                    }
                   }
+                  await sleep(100);
                 }
-                await sleep(100);
-              }
+                if (!newUrl) await sleep(300);
+              } catch (e) {}
+            }
+            try {
               if (newUrl) {
+                prevUrlSeen = newUrl;
                 let u = newUrl.replace(/&amp;/g, '&');
                 if (u.startsWith('/')) u = location.origin + u;
                 if (debugUrls.length < 3) debugUrls.push(u);
