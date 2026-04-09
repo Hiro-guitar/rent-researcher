@@ -1036,8 +1036,26 @@ function updateActionUI(actionType) {
 }
 
 // ===== 仮押さえモーダル =====
+var holdIntentSent = false;
 function openHoldModal() {
   if (actionState) return;
+  // モーダルオープン時に「申請画面まで進んだ」通知を1回だけ送る（離脱追跡用）
+  if (!holdIntentSent) {
+    holdIntentSent = true;
+    try {
+      var propData = currentProperty || {};
+      var pingParams = 'action=property_action'
+        + '&customer=' + encodeURIComponent(customer)
+        + '&room_id=' + encodeURIComponent(roomId)
+        + '&action_type=hold_intent'
+        + '&building_name=' + encodeURIComponent(propData.buildingName || '')
+        + '&room_number=' + encodeURIComponent(propData.roomNumber || '')
+        + '&rent=' + encodeURIComponent(propData.rent || '')
+        + '&layout=' + encodeURIComponent(propData.layout || '')
+        + '&station_info=' + encodeURIComponent(propData.stationInfo || '');
+      fetch(GAS_API_URL + '?' + pingParams, { redirect: 'follow' }).catch(function(){});
+    } catch(e) {}
+  }
   var modal = document.getElementById('holdModal');
   if (modal) {
     modal.style.display = 'flex';

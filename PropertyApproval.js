@@ -681,6 +681,7 @@ function handlePropertyAction(e) {
 
         var msgMap = {
           'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」に **お申し込み申請** をされました！',
+          'hold_intent': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **お申し込み申請画面を開きました**（未送信）',
           'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabel + '」を **お気に入り** に追加しました',
           'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabel + '」を **興味なし** にしました',
           'view': '\uD83D\uDCC4 **' + customerName + '** 様が「' + propLabel + '」を閲覧しました'
