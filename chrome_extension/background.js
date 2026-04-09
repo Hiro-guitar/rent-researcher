@@ -976,8 +976,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await csleep(3000);
   }
 
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都' }, lineNameMap, reinsCodeMap];
-  const __setCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap) => {
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都' }, lineNameMap, reinsCodeMap, __btMode];
+  const __setCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap, btMode) => {
       // Vueルート取得
       const fi = document.querySelector('.p-textbox-input');
       if (!fi) return { error: 'no_input' };
@@ -1301,6 +1301,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       } else if (equip.includes('1階の物件') || equip.includes('1階')) {
         vr.shzikiFrom = '1';
         vr.shzikiTo = '1';
+      }
+
+      // バス・トイレ別スキップモード: 設備・条件・住宅性能等(optKnsk)欄に「バス・トイレ別」を追加してREINS側で絞り込む
+      if (btMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
+        const cur = (vr.optKnsk || '').trim();
+        if (!cur.includes('バス・トイレ別') && !cur.includes('バストイレ別')) {
+          vr.optKnsk = cur ? (cur + ' バス・トイレ別') : 'バス・トイレ別';
+        }
       }
 
       // セットした全沿線情報をデバッグ用に収集
