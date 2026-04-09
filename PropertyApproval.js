@@ -713,8 +713,29 @@ function handlePropertyAction(e) {
           payload: JSON.stringify(payload),
           muteHttpExceptions: true
         });
+        var code = resp.getResponseCode();
+        console.log('Discord webhook code=' + code + ' threadId=' + threadId + ' body=' + resp.getContentText().substring(0, 200));
 
-        if (!threadId && resp.getResponseCode() === 200) {
+        // スレッドが死んでいる場合（404 等）→ thread_id を消して新規作成
+        if (threadId && (code === 404 || code === 400)) {
+          PropertiesService.getScriptProperties().deleteProperty('ACTION_LOG_THREAD_ID');
+          var retryPayload = { content: msg, thread_name: '\uD83D\uDCE9 アクションリクエスト' };
+          var retryResp = UrlFetchApp.fetch(webhookUrl + '?wait=true', {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify(retryPayload),
+            muteHttpExceptions: true
+          });
+          console.log('Discord retry code=' + retryResp.getResponseCode());
+          if (retryResp.getResponseCode() === 200) {
+            try {
+              var rbody = JSON.parse(retryResp.getContentText());
+              if (rbody.channel_id) {
+                PropertiesService.getScriptProperties().setProperty('ACTION_LOG_THREAD_ID', rbody.channel_id);
+              }
+            } catch(e) {}
+          }
+        } else if (!threadId && code === 200) {
           try {
             var body = JSON.parse(resp.getContentText());
             if (body.channel_id) {
