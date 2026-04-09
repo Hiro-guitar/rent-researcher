@@ -8,7 +8,8 @@
     "alarms",
     "tabs",
     "notifications",
-    "scripting"
+    "scripting",
+    "power"
   ],
   "host_permissions": [
     "https://system.reins.jp/*",

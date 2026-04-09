@@ -805,6 +805,9 @@ async function runSearchCycle() {
     chrome.runtime.getPlatformInfo(() => {});
   }, 20000);
 
+  // 検索中はスリープを抑制(画面はオフ可・システムスリープのみ防止)
+  try { chrome.power && chrome.power.requestKeepAwake && chrome.power.requestKeepAwake('system'); } catch(e) {}
+
   try {
     // 検索条件を取得（毎回GASから最新を取得）
     await setStorageData({ debugLog: '検索条件を取得中...' });
@@ -942,6 +945,7 @@ async function runSearchCycle() {
     logError('検索サイクルエラー: ' + err.message);
   } finally {
     clearInterval(globalKeepAlive);
+    try { chrome.power && chrome.power.releaseKeepAwake && chrome.power.releaseKeepAwake(); } catch(e) {}
     // 中止時はタブを閉じない（テスト確認用にタブを残す）
     if (!isSearchCancelled(searchId)) {
       await closeDedicatedWindow();
