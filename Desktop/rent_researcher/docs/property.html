@@ -583,7 +583,7 @@ function renderProperty(p) {
     html += '<div class="modal-overlay" id="holdModal" onclick="if(event.target===this)closeHoldModal()">'
       + '<div class="modal-content">'
       + '<div class="modal-title">🏠 お申し込み申請</div>'
-      + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.5;">送信後、担当者がお電話にてお申し込み意思の確認をいたします。メールアドレスと電話番号を必ずご入力ください。</div>'
+      + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.5;">送信後、担当者がお電話にてお申し込み方法のご案内をいたします。メールアドレスと電話番号を必ずご入力ください。</div>'
       + '<div class="modal-radio-group">'
       + '<label class="modal-radio-label active" id="radioPersonal" onclick="selectRadio(\'個人\')">'
       + '<input type="radio" name="appType" value="個人" checked> 個人申込</label>'
@@ -1122,7 +1122,7 @@ function sendAction(actionType, applicationType, email, phone) {
   if (actionState) return;
 
   updateActionUI(actionType);
-  showToast('🏠', 'お申し込み申請を受け付けました', '担当者からお電話で意思確認のご連絡をいたします', 4500);
+  showToast('🏠', 'お申し込み申請を受け付けました', '担当者からお電話でお申し込み方法のご案内をいたします', 4500);
 
   var contactInfo = '';
   if (email || phone) {
