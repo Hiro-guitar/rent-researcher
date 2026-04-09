@@ -1076,7 +1076,8 @@ function handleStopReasonText(replyToken, userId, message, state) {
             { type: 'action', action: { type: 'message', label: '1週間休む', text: 'スヌーズ:1週間' } },
             { type: 'action', action: { type: 'message', label: '2週間休む', text: 'スヌーズ:2週間' } },
             { type: 'action', action: { type: 'message', label: '1ヶ月休む', text: 'スヌーズ:1ヶ月' } },
-            { type: 'action', action: { type: 'message', label: '配信停止', text: 'スヌーズ:停止' } }
+            { type: 'action', action: { type: 'message', label: '配信停止', text: 'スヌーズ:停止' } },
+            { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
           ]
         }
       }]);
@@ -1102,10 +1103,11 @@ function handleStopReasonText(replyToken, userId, message, state) {
         text: '通知が多くてご不便をおかけして申し訳ございません。\nもしよろしければ、完全に停止する代わりに通知の頻度を下げることもできます。\n\n頻度を選ぶか、このまま配信を停止する場合は「配信停止」を選んでください。',
         quickReply: {
           items: [
-            { type: 'action', action: { type: 'message', label: '毎日', text: '頻度:毎日' } },
-            { type: 'action', action: { type: 'message', label: '週2回', text: '頻度:週2回' } },
+            { type: 'action', action: { type: 'message', label: '2日に1回', text: '頻度:2日に1回' } },
+            { type: 'action', action: { type: 'message', label: '3日に1回', text: '頻度:3日に1回' } },
             { type: 'action', action: { type: 'message', label: '週1回', text: '頻度:週1回' } },
-            { type: 'action', action: { type: 'message', label: '配信停止', text: '頻度:停止' } }
+            { type: 'action', action: { type: 'message', label: '配信停止', text: '頻度:停止' } },
+            { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
           ]
         }
       }]);
@@ -1242,11 +1244,11 @@ function handleFrequencyText(replyToken, userId, message) {
       return true;
     }
     var freq = '';
-    if (label === '毎日') freq = 'daily';
-    else if (label === '週2回') freq = 'biweekly'; // 約3-4日に1回
+    if (label === '2日に1回') freq = 'every2';
+    else if (label === '3日に1回') freq = 'every3';
     else if (label === '週1回') freq = 'weekly';
     else {
-      replyMessage(replyToken, [textMsg('「毎日」「週2回」「週1回」のいずれかを選んでください。')]);
+      replyMessage(replyToken, [textMsg('選択肢から選んでください。')]);
       return true;
     }
     _setFrequency(userId, freq);
