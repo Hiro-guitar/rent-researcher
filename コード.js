@@ -153,6 +153,16 @@ function doPost(e) {
         if (handleSnoozePeriodText(replyToken, userId, message)) return;
       }
 
+      // 希望に合わない → 条件変更 or 停止 の選択中
+      if (state.step === STEPS.WAITING_MISMATCH_CHOICE) {
+        if (message === 'キャンセル' || message === 'きゃんせる') {
+          clearState(userId);
+          replyMessage(replyToken, [textMsg('配信停止をキャンセルしました。引き続き新着物件をお届けいたします。')]);
+          return;
+        }
+        if (handleMismatchChoiceText(replyToken, userId, message)) return;
+      }
+
       // 配信頻度選択中
       if (state.step === STEPS.WAITING_FREQUENCY) {
         if (message === 'キャンセル' || message === 'きゃんせる') {
