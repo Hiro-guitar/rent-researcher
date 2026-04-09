@@ -680,8 +680,8 @@ function handlePropertyAction(e) {
         if (roomNumber) propLabel += ' ' + roomNumber;
 
         var msgMap = {
-          'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」に **お申し込み申請** をされました！',
-          'hold_intent': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **お申し込み申請画面を開きました**（未送信）',
+          'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」に **お申し込み希望** をされました！',
+          'hold_intent': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **お申し込み希望画面を開きました**（未送信）',
           'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabel + '」を **お気に入り** に追加しました',
           'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabel + '」を **興味なし** にしました',
           'view': '\uD83D\uDCC4 **' + customerName + '** 様が「' + propLabel + '」を閲覧しました'
@@ -737,7 +737,7 @@ function handlePropertyAction(e) {
         if (roomNumber) propLabel += ' ' + roomNumber;
         var flex = {
           type: 'flex',
-          altText: 'お申し込み申請を受け付けました',
+          altText: 'お申し込み希望を受け付けました',
           contents: {
             type: 'bubble',
             body: {
@@ -745,7 +745,7 @@ function handlePropertyAction(e) {
               layout: 'vertical',
               spacing: 'md',
               contents: [
-                { type: 'text', text: '✅ お申し込み申請受付', weight: 'bold', size: 'lg', color: '#2E7D32' },
+                { type: 'text', text: '✅ お申し込み希望受付', weight: 'bold', size: 'lg', color: '#2E7D32' },
                 { type: 'separator' },
                 { type: 'text', text: propLabel, weight: 'bold', size: 'md', wrap: true },
                 { type: 'box', layout: 'vertical', spacing: 'sm', margin: 'md', contents: [
