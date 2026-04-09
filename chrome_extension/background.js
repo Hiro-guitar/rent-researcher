@@ -469,6 +469,14 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // バス・トイレ別スキップモード（equipに「バストイレ別スキップ」があれば設備欄になければ除外。無ければアラートで対応）
+  if (equip.includes('バストイレ別スキップ') || equip.includes('バス・トイレ別スキップ') || equip.includes('bt別スキップ')) {
+    const fac = prop.facilities || '';
+    if (!fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
+      return `バス・トイレ別の記載なし`;
+    }
+  }
+
   // ペット可フィルタ（REINS表記: ペット可/ペット相談。記載なし・設備なしは除外）
   if (equip.includes('ペット')) {
     const fac = prop.facilities || '';
@@ -3243,7 +3251,9 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     warnings.push('⚠️ エレベーターかどうか確認してください');
   }
   // バス・トイレ別（REINS: バス・トイレ別, itandi: バス・トイレ別, いえらぶ: バストイレ別）
-  if ((equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
+  // 「スキップ」サフィックス時はフィルタ側で除外済みなのでアラート不要
+  const btSkipMode = equip.includes('バストイレ別スキップ') || equip.includes('バス・トイレ別スキップ') || equip.includes('bt別スキップ');
+  if (!btSkipMode && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
     warnings.push('⚠️ バス・トイレ別かどうか確認してください');
   }
   // 温水洗浄便座
