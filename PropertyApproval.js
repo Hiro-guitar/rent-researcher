@@ -960,7 +960,7 @@ function handleDeliveryStopCommand(replyToken, userId) {
       quickReply: {
         items: [
           { type: 'action', action: { type: 'message', label: '引越し先が決まった', text: '停止理由:引越し先が決まった' } },
-          { type: 'action', action: { type: 'message', label: '忙しくて後で見る', text: '停止理由:忙しくて後で見る' } },
+          { type: 'action', action: { type: 'message', label: '忙しくて見る時間がない', text: '停止理由:忙しくて見る時間がない' } },
           { type: 'action', action: { type: 'message', label: '希望に合わない', text: '停止理由:希望に合わない' } },
           { type: 'action', action: { type: 'message', label: '通知が多い', text: '停止理由:通知が多い' } },
           { type: 'action', action: { type: 'message', label: 'その他', text: '停止理由:その他' } }
@@ -1048,7 +1048,7 @@ function handleStopReasonText(replyToken, userId, message, state) {
         quickReply: {
           items: [
             { type: 'action', action: { type: 'message', label: '引越し先が決まった', text: '停止理由:引越し先が決まった' } },
-            { type: 'action', action: { type: 'message', label: '忙しくて後で見る', text: '停止理由:忙しくて後で見る' } },
+            { type: 'action', action: { type: 'message', label: '忙しくて見る時間がない', text: '停止理由:忙しくて見る時間がない' } },
             { type: 'action', action: { type: 'message', label: '希望に合わない', text: '停止理由:希望に合わない' } },
             { type: 'action', action: { type: 'message', label: '通知が多い', text: '停止理由:通知が多い' } },
             { type: 'action', action: { type: 'message', label: 'その他', text: '停止理由:その他' } },
@@ -1070,7 +1070,7 @@ function handleStopReasonText(replyToken, userId, message, state) {
 
     // 忙しくて/通知が多い は下で分岐して status 変更しない
 
-    if (reason === '忙しくて後で見る') {
+    if (reason === '忙しくて見る時間がない') {
       // スヌーズ案内
       saveState(userId, { step: STEPS.WAITING_SNOOZE_PERIOD, data: {} });
       replyMessage(replyToken, [{
