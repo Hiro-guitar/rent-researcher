@@ -228,6 +228,7 @@ async function _waitForEssquareRender(tabId, timeoutMs) {
             zero: /(^|\D)0\s*件/.test(t),
             search: t.includes('検索'),
             items: document.querySelectorAll('[data-testclass="bukkenListItem"]').length,
+            noResult: t.includes('該当する物件がありません') || t.includes('条件に合う物件がありません') || t.includes('物件が見つかりません') || t.includes('見つかりませんでした'),
           };
         },
       });
@@ -240,8 +241,9 @@ async function _waitForEssquareRender(tabId, timeoutMs) {
       if (ind.len > 1000 && ind.yen && ind.sqm) return 'rendered';
       if (ind.len > 2000 && ind.yen) return 'rendered';
 
-      // 0件
-      if (ind.len > 800 && ind.search && ind.zero && !ind.yen) return 'empty';
+      // 0件（明示的な「該当なし」文言 or 0件テキスト + items===0）
+      if (ind.noResult && ind.items === 0) return 'empty';
+      if (ind.len > 800 && ind.search && ind.zero && ind.items === 0) return 'empty';
 
       // テキスト長変化の追跡
       if (ind.len !== lastLen) {
