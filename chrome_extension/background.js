@@ -976,7 +976,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await csleep(3000);
   }
 
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都' }, lineNameMap, reinsCodeMap, __btMode];
+  // SW再起動直後でもbtModeを確実に拾うためストレージから直読み
+  const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'alert')));
+  __btMode = __btModeFresh;
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都' }, lineNameMap, reinsCodeMap, __btModeFresh];
   const __setCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap, btMode) => {
       // Vueルート取得
       const fi = document.querySelector('.p-textbox-input');
