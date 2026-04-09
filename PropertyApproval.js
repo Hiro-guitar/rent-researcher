@@ -693,7 +693,7 @@ function handlePropertyAction(e) {
           msg += '\n> 申込区分: ' + (applicationType || '未指定');
           if (email) msg += '\n> Email: ' + email;
           if (phone) msg += '\n> Tel: ' + phone;
-          msg += '\n> → お電話で意思確認をお願いします';
+          msg += '\n> → お電話でお申し込み方法のご案内をお願いします';
         }
         if (rentText || layout) {
           msg += '\n> ' + [rentText, layout].filter(Boolean).join(' / ');
@@ -752,7 +752,7 @@ function handlePropertyAction(e) {
                   { type: 'text', text: '申込区分: ' + (applicationType || '未指定'), size: 'sm', color: '#666666' }
                 ]},
                 { type: 'separator' },
-                { type: 'text', text: 'この後、担当者がお電話にてお申し込み意思の確認のためご連絡いたします。しばらくお待ちください。', size: 'sm', color: '#888888', wrap: true }
+                { type: 'text', text: 'この後、担当者がお電話にてお申し込み方法のご案内のためご連絡いたします。しばらくお待ちください。', size: 'sm', color: '#888888', wrap: true }
               ]
             }
           }
