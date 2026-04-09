@@ -1189,6 +1189,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       // 賃料上限（万円）
       if (customerData.rent_max) {
         vr.kkkuCnryuTo = String(customerData.rent_max);
+        // 下限は上限の70%（万円、小数1桁）
+        const min70 = Math.floor(parseFloat(customerData.rent_max) * 0.7 * 10) / 10;
+        if (min70 > 0) vr.kkkuCnryuFrom = String(min70);
       }
 
       // 間取りセット（layouts: ["1K", "1DK", "2LDK"] → mdrTyp + mdrHysuFrom/To）

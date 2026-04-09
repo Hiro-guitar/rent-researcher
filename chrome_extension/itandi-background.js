@@ -326,6 +326,10 @@ function buildItandiSearchPayload(customer, stationIds) {
   }
   if (customer.rent_max) {
     filterObj['total_rent:lteq'] = parseFloat(customer.rent_max) * 10000;
+    // 下限は上限の70%（明示下限が無い場合のみ）
+    if (!customer.rent_min) {
+      filterObj['total_rent:gteq'] = Math.floor(parseFloat(customer.rent_max) * 10000 * 0.7);
+    }
   }
 
   // 間取り

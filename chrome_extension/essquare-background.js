@@ -63,9 +63,9 @@ function buildEssquareSearchUrl(customer, page) {
   // 賃料（管理費込み・万円→円）
   if (customer.rent_max) {
     params.append('komi_chinryo.to', String(parseFloat(customer.rent_max) * 10000));
-  }
-  if (customer.rent_min) {
-    params.append('komi_chinryo.from', String(parseFloat(customer.rent_min) * 10000));
+    // 下限は上限の70%
+    const minYen = Math.floor(parseFloat(customer.rent_max) * 10000 * 0.7);
+    params.append('komi_chinryo.from', String(minYen));
   }
 
   // 間取り
