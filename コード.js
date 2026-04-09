@@ -778,8 +778,10 @@ function handleGetCriteria(e) {
     if (deliveryStatus === 'paused') continue;
 
     // 配信頻度フィルタ
-    if (frequency === 'weekly' || frequency === 'biweekly') {
-      var intervalDays = (frequency === 'weekly') ? 7 : 3;
+    if (frequency === 'weekly' || frequency === 'every2' || frequency === 'every3' || frequency === 'biweekly') {
+      var intervalDays = 7;
+      if (frequency === 'every2') intervalDays = 2;
+      else if (frequency === 'every3' || frequency === 'biweekly') intervalDays = 3;
       if (lastSentAt instanceof Date) {
         var elapsedMs = nowMs - lastSentAt.getTime();
         if (elapsedMs < intervalDays * 24 * 60 * 60 * 1000) continue;
