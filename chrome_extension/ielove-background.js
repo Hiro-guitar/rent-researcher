@@ -72,8 +72,9 @@ function buildIeloveSearchUrl(customer, page = 1) {
   parts.push('ikrh/1');
 
   // 専有面積下限
-  if (customer.area_min) {
-    parts.push(`barf/${parseFloat(customer.area_min).toFixed(2)}`);
+  if (customer.area_min && !String(customer.area_min).includes('指定しない')) {
+    const n = parseFloat(String(customer.area_min).replace(/[^\d.]/g, ''));
+    if (!isNaN(n) && n > 0) parts.push(`barf/${n.toFixed(2)}`);
   }
 
   // 駅徒歩

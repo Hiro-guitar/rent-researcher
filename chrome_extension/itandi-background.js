@@ -342,8 +342,9 @@ function buildItandiSearchPayload(customer, stationIds) {
   }
 
   // 専有面積
-  if (customer.area_min) {
-    filterObj['floor_area_amount:gteq'] = parseFloat(customer.area_min);
+  if (customer.area_min && !String(customer.area_min).includes('指定しない')) {
+    const n = parseFloat(String(customer.area_min).replace(/[^\d.]/g, ''));
+    if (!isNaN(n) && n > 0) filterObj['floor_area_amount:gteq'] = n;
   }
 
   // 築年数

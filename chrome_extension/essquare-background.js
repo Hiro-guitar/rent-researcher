@@ -83,8 +83,9 @@ function buildEssquareSearchUrl(customer, page) {
   }
 
   // 専有面積
-  if (customer.area_min) {
-    params.append('search_menseki.from', String(parseInt(customer.area_min)));
+  if (customer.area_min && !String(customer.area_min).includes('指定しない')) {
+    const n = parseInt(String(customer.area_min).replace(/[^\d]/g, ''));
+    if (!isNaN(n) && n > 0) params.append('search_menseki.from', String(n));
   }
 
   // 築年数
