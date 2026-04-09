@@ -1099,7 +1099,7 @@ function handleStopReasonText(replyToken, userId, message, state) {
         text: 'ご希望に沿えず申し訳ございません。\nよろしければ、希望条件を変更してみませんか？条件を見直すと、よりマッチする物件をお届けできるかもしれません。\n\n条件を変更するか、このまま配信を停止する場合は「配信停止」を選んでください。',
         quickReply: {
           items: [
-            { type: 'action', action: { type: 'message', label: '条件を変更する', text: '条件登録' } },
+            { type: 'action', action: { type: 'message', label: '条件を変更する', text: '条件変更' } },
             { type: 'action', action: { type: 'message', label: '配信停止', text: 'ミスマッチ:停止' } },
             { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
           ]
