@@ -1068,14 +1068,15 @@ function handleStopReasonText(replyToken, userId, message, state) {
       saveState(userId, { step: STEPS.WAITING_SNOOZE_PERIOD, data: {} });
       replyMessage(replyToken, [{
         type: 'text',
-        text: 'かしこまりました。お忙しい時期に通知が来ないよう、一時停止する期間を選んでください。\n選んだ期間が経過すると自動で配信を再開いたします。',
+        text: 'かしこまりました。\nもしよろしければ、完全に停止する代わりに「一定期間だけお休み」することもできます。期間が経過すると自動で配信を再開いたします。\n\n期間を選ぶか、このまま配信を停止する場合は「配信停止」を選んでください。',
         quickReply: {
           items: [
-            { type: 'action', action: { type: 'message', label: '24時間', text: 'スヌーズ:24時間' } },
-            { type: 'action', action: { type: 'message', label: '3日', text: 'スヌーズ:3日' } },
-            { type: 'action', action: { type: 'message', label: '1週間', text: 'スヌーズ:1週間' } },
-            { type: 'action', action: { type: 'message', label: '2週間', text: 'スヌーズ:2週間' } },
-            { type: 'action', action: { type: 'message', label: '1ヶ月', text: 'スヌーズ:1ヶ月' } }
+            { type: 'action', action: { type: 'message', label: '24時間休む', text: 'スヌーズ:24時間' } },
+            { type: 'action', action: { type: 'message', label: '3日休む', text: 'スヌーズ:3日' } },
+            { type: 'action', action: { type: 'message', label: '1週間休む', text: 'スヌーズ:1週間' } },
+            { type: 'action', action: { type: 'message', label: '2週間休む', text: 'スヌーズ:2週間' } },
+            { type: 'action', action: { type: 'message', label: '1ヶ月休む', text: 'スヌーズ:1ヶ月' } },
+            { type: 'action', action: { type: 'message', label: '配信停止', text: 'スヌーズ:停止' } }
           ]
         }
       }]);
@@ -1094,17 +1095,17 @@ function handleStopReasonText(replyToken, userId, message, state) {
     }
 
     if (reason === '通知が多い') {
-      // 配信は再開して頻度を下げる方向
-      setDeliveryStatus(userId, 'active');
+      // 完全停止の代わりに頻度を下げる提案。いったん paused のまま選択を待つ
       saveState(userId, { step: STEPS.WAITING_FREQUENCY, data: {} });
       replyMessage(replyToken, [{
         type: 'text',
-        text: '通知の頻度を変更します。お好みの頻度を選んでください。',
+        text: '通知が多くてご不便をおかけして申し訳ございません。\nもしよろしければ、完全に停止する代わりに通知の頻度を下げることもできます。\n\n頻度を選ぶか、このまま配信を停止する場合は「配信停止」を選んでください。',
         quickReply: {
           items: [
             { type: 'action', action: { type: 'message', label: '毎日', text: '頻度:毎日' } },
             { type: 'action', action: { type: 'message', label: '週2回', text: '頻度:週2回' } },
-            { type: 'action', action: { type: 'message', label: '週1回', text: '頻度:週1回' } }
+            { type: 'action', action: { type: 'message', label: '週1回', text: '頻度:週1回' } },
+            { type: 'action', action: { type: 'message', label: '配信停止', text: '頻度:停止' } }
           ]
         }
       }]);
@@ -1185,6 +1186,15 @@ function handleSnoozePeriodText(replyToken, userId, message) {
       return true;
     }
     var label = message.substring('スヌーズ:'.length);
+    if (label === '停止') {
+      // 既に paused 状態なのでそのまま通常停止メッセージ
+      clearState(userId);
+      replyMessage(replyToken, [textMsg(
+        '新着物件の配信を停止しました。\n\n' +
+        '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+      )]);
+      return true;
+    }
     var hours = 0;
     if (label === '24時間') hours = 24;
     else if (label === '3日') hours = 24 * 3;
@@ -1222,6 +1232,15 @@ function handleFrequencyText(replyToken, userId, message) {
       return true;
     }
     var label = message.substring('頻度:'.length);
+    if (label === '停止') {
+      // 既に paused 状態なのでそのまま通常停止メッセージ
+      clearState(userId);
+      replyMessage(replyToken, [textMsg(
+        '新着物件の配信を停止しました。\n\n' +
+        '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+      )]);
+      return true;
+    }
     var freq = '';
     if (label === '毎日') freq = 'daily';
     else if (label === '週2回') freq = 'biweekly'; // 約3-4日に1回
@@ -1231,9 +1250,10 @@ function handleFrequencyText(replyToken, userId, message) {
       return true;
     }
     _setFrequency(userId, freq);
+    setDeliveryStatus(userId, 'active');
     clearState(userId);
     replyMessage(replyToken, [textMsg(
-      '配信頻度を「' + label + '」に変更しました。\n' +
+      '配信頻度を「' + label + '」に変更して配信を再開しました。\n' +
       '今後はこの頻度で新着物件をお届けいたします。'
     )]);
     return true;
