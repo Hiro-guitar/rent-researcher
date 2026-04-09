@@ -793,7 +793,7 @@ function handleFavoritesCommand(replyToken, userId) {
       }
     }
     if (!customerName) {
-      replyMessage(replyToken, [textMsg('[診断] 顧客名が特定できませんでした (userId=' + userId.substring(0, 8) + '...)')]);
+      replyMessage(replyToken, [textMsg('お気に入りはまだありません。\n\n通知された物件で「お気に入り」を押すと、こちらで一覧を確認できます。')]);
       return;
     }
 
@@ -820,7 +820,7 @@ function handleFavoritesCommand(replyToken, userId) {
       if (latest[rid] === 'favorite') { favRoomIds[rid] = true; favCount++; }
     }
     if (favCount === 0) {
-      replyMessage(replyToken, [textMsg('お気に入りはまだありません。\n\n物件通知で「お気に入り」を押すと、こちらで一覧を確認できます。')]);
+      replyMessage(replyToken, [textMsg('お気に入りはまだありません。\n\n通知された物件で「お気に入り」を押すと、こちらで一覧を確認できます。')]);
       return;
     }
 
