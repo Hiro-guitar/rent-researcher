@@ -2121,13 +2121,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       });
 
       // === 画像をbase64で抽出（Tampermonkey原版そのまま） ===
-      // タブをactive化（非フォーカスだとVueモーダルのクリック処理が不安定）
-      try {
-        const t = await chrome.tabs.get(tabId);
-        await chrome.windows.update(t.windowId, { focused: true });
-        await chrome.tabs.update(tabId, { active: true });
-        await csleep(300);
-      } catch (e) {}
+      // Vueモーダルコンポーネントの初期化待ち
+      await csleep(2000);
       const imageResults = await Promise.race([
         chrome.scripting.executeScript({
         target: { tabId },
