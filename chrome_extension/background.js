@@ -2176,10 +2176,23 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 imagesBase64.push(base64);
               } catch (e) { diag.push(`#${idx} fetchErr=${e.message}`); }
             }
-            const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
-            if (closeBtn) {
-              closeBtn.click();
-              await new Promise(r => setTimeout(r, 300));
+            // 完全に閉じるまで最大2秒（close click + Escape + 要素直削除）
+            for (let c = 0; c < 20; c++) {
+              const modalsNow = document.querySelectorAll('.modal.show, .image-view');
+              if (modalsNow.length === 0) break;
+              const cb = document.querySelector('.modal.show .btn.btn-outline, .modal.show .close, .modal .btn.btn-outline, .modal .close');
+              if (cb) cb.click();
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+              await new Promise(r => setTimeout(r, 100));
+            }
+            // それでも残ってたら強制削除
+            const stuck = document.querySelectorAll('.modal.show, .image-view');
+            if (stuck.length > 0) {
+              diag.push(`#${idx} stuck=${stuck.length} forceRemove`);
+              stuck.forEach(el => el.remove());
+              document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+              document.body.classList.remove('modal-open');
+              await new Promise(r => setTimeout(r, 200));
             }
           }
           return { images: imagesBase64, debugUrls: [], diag };
