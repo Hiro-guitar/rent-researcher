@@ -2126,79 +2126,42 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         target: { tabId },
         world: 'MAIN',
         func: async () => {
-          async function fetchAsBase64(url) {
-            try {
-              const r = await fetch(url, { credentials: 'include' });
-              if (!r.ok) return null;
-              const blob = await r.blob();
-              if (!blob || blob.size < 1000) return null;
-              return await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(blob);
-              });
-            } catch (e) { return null; }
+          // Tampermonkey原版そのまま移植
+          async function fetchImageAsBase64(url) {
+            const response = await fetch(url);
+            const blob = await response.blob();
+            return await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
           }
-          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-          const images = [];
-          const seen = new Set();
-          const debugUrls = [];
-
-          async function closeModal() {
-            const cb = document.querySelector('.modal .btn.btn-outline, .modal .close, .modal [aria-label="Close"], .modal button.btn-close');
-            if (cb) cb.click();
-            else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-            for (let i = 0; i < 30; i++) {
-              if (!document.querySelector('.image-view')) return;
-              await sleep(50);
-            }
-          }
-          // 本処理
-          const thumbCount = document.querySelectorAll('div.mx-auto').length;
-          for (let idx = 0; idx < thumbCount; idx++) {
-            let newUrl = null;
-            for (let attempt = 0; attempt < 3 && !newUrl; attempt++) {
-              try {
-                await closeModal();
-                await sleep(100);
-                const thumbs = document.querySelectorAll('div.mx-auto');
-                const thumb = thumbs[idx];
-                if (!thumb) break;
-                thumb.scrollIntoView({ block: 'center' });
-                await sleep(50);
-                thumb.click();
-                thumb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-                // .image-view が出現 & findBkknGzu を含む本物URLが入るまで最大5秒待機
-                for (let i = 0; i < 50; i++) {
-                  const iv = document.querySelector('.image-view');
-                  if (iv) {
-                    const style = iv.getAttribute('style') || '';
-                    const m = style.match(/url\(["']?(.*?)["']?\)/);
-                    if (m && m[1] && m[1] !== 'null' && m[1].includes('findBkknGzu')) {
-                      newUrl = m[1];
-                      break;
-                    }
-                  }
-                  await sleep(100);
-                }
-                if (!newUrl) await sleep(300);
-              } catch (e) {}
-            }
-            if (newUrl) {
-              let u = newUrl.replace(/&amp;/g, '&');
-              if (u.startsWith('/')) u = location.origin + u;
-              if (debugUrls.length < 5) debugUrls.push(u);
-              if (!seen.has(u)) {
-                seen.add(u);
-                const b64 = await fetchAsBase64(u);
-                if (b64) images.push(b64);
+          const imagesBase64 = [];
+          const thumbnails = document.querySelectorAll('div.mx-auto');
+          for (const thumb of thumbnails) {
+            thumb.click();
+            await new Promise(r => setTimeout(r, 200));
+            const imageView = document.querySelector('.image-view');
+            if (imageView) {
+              const style = imageView.getAttribute('style');
+              const match = style && style.match(/url\(["']?(.*?)["']?\)/);
+              if (match && match[1]) {
+                let imageUrl = match[1];
+                if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
+                try {
+                  const base64 = await fetchImageAsBase64(imageUrl);
+                  imagesBase64.push(base64);
+                } catch (e) {}
               }
             }
+            const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
+            if (closeBtn) {
+              closeBtn.click();
+              await new Promise(r => setTimeout(r, 300));
+            }
           }
-          await closeModal();
-          await sleep(100);
-          return { images, debugUrls };
+          return { images: imagesBase64, debugUrls: [] };
         }
       }),
         new Promise((resolve) => setTimeout(() => resolve(null), 120000))
