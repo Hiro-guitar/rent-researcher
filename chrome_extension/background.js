@@ -344,8 +344,13 @@ function getFilterRejectReason(prop, customer) {
 
     const walkMax = customer.walk ? parseInt(String(customer.walk).replace(/[^\d]/g, '')) : 0;
 
+    const normStn = (s) => String(s || '').replace(/駅$/, '').trim();
     const hasMatch = transports.some(transport => {
-      const stationMatch = allStations.some(s => transport.includes(s));
+      const tNorm = normStn(transport);
+      const stationMatch = allStations.some(s => {
+        const sn = normStn(s);
+        return sn && tNorm.includes(sn);
+      });
       if (!stationMatch) return false;
       if (walkMax > 0) {
         const walkMatch = transport.match(/徒歩\s*(\d+)/);
