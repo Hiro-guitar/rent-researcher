@@ -820,7 +820,7 @@ function handleFavoritesCommand(replyToken, userId) {
       if (latest[rid] === 'favorite') { favRoomIds[rid] = true; favCount++; }
     }
     if (favCount === 0) {
-      replyMessage(replyToken, [textMsg('[診断] customer=' + customerName + ' / アクションログ該当行=' + matchedRows + ' / favorite最終=' + favCount + '件')]);
+      replyMessage(replyToken, [textMsg('お気に入りはまだありません。\n\n物件通知で「お気に入り」を押すと、こちらで一覧を確認できます。')]);
       return;
     }
 
