@@ -1951,14 +1951,13 @@ function buildMinimalViewUrl(customerName, roomId, prop) {
     var enc = Utilities.base64EncodeWebSafe(Utilities.newBlob(j).getBytes());
     return baseUrl + enc;
   };
-  // まず画像入りで試す
+  // 1枚目だけ即表示用に埋め込む。残り全枚数は property.html が非同期で取りに来る
   if (prop.imageUrl) {
     d.imgs = [prop.imageUrl];
     var u = build(d);
     if (u.length <= 1000) return u;
     delete d.imgs;
   }
-  // 画像なしで試す
   var url = build(d);
   if (url.length <= 1000) return url;
   // それでも超える場合、長いフィールドを段階的に削除（重要度の低い順）
