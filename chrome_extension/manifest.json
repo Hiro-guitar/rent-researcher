@@ -20,6 +20,8 @@
     "https://script.google.com/*",
     "https://script.googleusercontent.com/*",
     "https://catbox.moe/*",
+    "https://api.imgbb.com/*",
+    "https://i.ibb.co/*",
     "https://api.e-bukken-1.com/*"
   ],
   "background": {
