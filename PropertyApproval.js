@@ -660,6 +660,8 @@ function handlePropertyAction(e) {
 
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
   sheet.appendRow([customerName, roomId, actionType, buildingName, roomNumber, rent, layout, stationInfo, now, applicationType, contactInfo]);
+  var loggedRowIdx = sheet.getLastRow();
+  var discordStatus = '';
 
   // お気に入り件数を計算（favorite/not_interested/clear の場合）
   var favoriteCount = 0;
@@ -714,6 +716,7 @@ function handlePropertyAction(e) {
           muteHttpExceptions: true
         });
         var code = resp.getResponseCode();
+        discordStatus = 'code=' + code;
         console.log('Discord webhook code=' + code + ' threadId=' + threadId + ' body=' + resp.getContentText().substring(0, 200));
 
         // スレッドが死んでいる場合（404 等）→ thread_id を消して新規作成
@@ -726,6 +729,7 @@ function handlePropertyAction(e) {
             payload: JSON.stringify(retryPayload),
             muteHttpExceptions: true
           });
+          discordStatus += ' retry=' + retryResp.getResponseCode();
           console.log('Discord retry code=' + retryResp.getResponseCode());
           if (retryResp.getResponseCode() === 200) {
             try {
@@ -743,10 +747,15 @@ function handlePropertyAction(e) {
             }
           } catch(e) {}
         }
+      } else {
+        discordStatus = 'no_webhook';
       }
     } catch(e) {
+      discordStatus = 'exception:' + ((e && e.message ? e.message : String(e))).substring(0, 100);
       console.error('Discord action notification error: ' + e.message);
     }
+    // L列(12)に応答コードを記録
+    try { sheet.getRange(loggedRowIdx, 12).setValue(discordStatus); } catch(e) {}
   }
 
   // 仮押さえの場合、顧客にLINE確認メッセージを送信
