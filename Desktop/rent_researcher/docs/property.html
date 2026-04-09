@@ -577,12 +577,12 @@ function renderProperty(p) {
   // アクションボタン（customer と roomId がある場合のみ）
   if (customer && roomId) {
     html += '<div class="action-bar">'
-      + '<button class="action-btn primary" id="holdBtn" onclick="openHoldModal()">🏠 この物件にお申し込み申請をする</button>'
+      + '<button class="action-btn primary" id="holdBtn" onclick="openHoldModal()">🏠 この物件にお申し込み希望をする</button>'
       + '</div>';
     // お申し込みモーダル
     html += '<div class="modal-overlay" id="holdModal" onclick="if(event.target===this)closeHoldModal()">'
       + '<div class="modal-content">'
-      + '<div class="modal-title">🏠 お申し込み申請</div>'
+      + '<div class="modal-title">🏠 お申し込み希望</div>'
       + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.5;">送信後、担当者がお電話にてお申し込み方法のご案内をいたします。メールアドレスと電話番号を必ずご入力ください。</div>'
       + '<div class="modal-radio-group">'
       + '<label class="modal-radio-label active" id="radioPersonal" onclick="selectRadio(\'個人\')">'
@@ -595,7 +595,7 @@ function renderProperty(p) {
       + '<input type="tel" class="modal-input" id="phoneInput" placeholder="電話番号（必須）">'
       + '<div class="modal-error" id="phoneError"></div>'
       + '<div class="modal-actions">'
-      + '<button class="action-btn primary" onclick="submitHold()">お申し込み申請を送信</button>'
+      + '<button class="action-btn primary" onclick="submitHold()">お申し込み希望を送信</button>'
       + '<button class="action-btn secondary" onclick="closeHoldModal()">キャンセル</button>'
       + '</div>'
       + '</div>'
@@ -1030,7 +1030,7 @@ function updateActionUI(actionType) {
 
   if (actionType === 'hold' || actionType === 'viewing') {
     holdBtn.classList.add('active');
-    holdBtn.textContent = '✅ お申し込み申請受付済み';
+    holdBtn.textContent = '✅ お申し込み希望受付済み';
     holdBtn.disabled = true;
   }
 }
@@ -1138,7 +1138,7 @@ function sendAction(actionType, applicationType, email, phone) {
   if (actionState) return;
 
   updateActionUI(actionType);
-  showToast('🏠', 'お申し込み申請を受け付けました', '担当者からお電話でお申し込み方法のご案内をいたします', 4500);
+  showToast('🏠', 'お申し込み希望を受け付けました', '担当者からお電話でお申し込み方法のご案内をいたします', 4500);
 
   var contactInfo = '';
   if (email || phone) {
