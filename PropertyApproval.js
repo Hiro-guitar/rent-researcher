@@ -719,14 +719,29 @@ function handlePropertyAction(e) {
           payload.thread_name = '\uD83D\uDCE9 アクションリクエスト';
         }
 
-        var resp = UrlFetchApp.fetch(url, {
+        var fetchOpts = {
           method: 'post',
           contentType: 'application/json',
           payload: JSON.stringify(payload),
           muteHttpExceptions: true
-        });
+        };
+        var resp = UrlFetchApp.fetch(url, fetchOpts);
         var code = resp.getResponseCode();
-        discordStatus = 'code=' + code;
+        // 429 はリトライ
+        if (code === 429) {
+          var waitMs = 1000;
+          try {
+            var rb = JSON.parse(resp.getContentText());
+            if (rb && rb.retry_after) waitMs = Math.ceil(parseFloat(rb.retry_after) * 1000) + 100;
+          } catch(e) {}
+          if (waitMs > 5000) waitMs = 5000;
+          Utilities.sleep(waitMs);
+          resp = UrlFetchApp.fetch(url, fetchOpts);
+          code = resp.getResponseCode();
+          discordStatus = 'code=429→' + code;
+        } else {
+          discordStatus = 'code=' + code;
+        }
         console.log('Discord webhook code=' + code + ' threadId=' + threadId + ' body=' + resp.getContentText().substring(0, 200));
 
         // スレッドが死んでいる場合（404 等）→ thread_id を消して新規作成
