@@ -2171,26 +2171,32 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             }
           });
           observer.observe(document.body, { attributes: true, attributeFilter: ['style'], subtree: true });
-          // 各サムネクリック→URL収集を確認→閉じる
+          const dispatchClick = (el) => {
+            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+          };
+          // 各サムネクリック→URL収集→閉じ切りを確認
           let idx = 0;
           for (const thumb of thumbnails) {
             idx++;
             const beforeCount = urlOrder.length;
-            // 新URLが収集されるまで最大3秒、クリックを複数回試行
-            for (let attempt = 0; attempt < 6; attempt++) {
-              thumb.click();
-              // 500ms観察
-              for (let w = 0; w < 5; w++) {
+            let attempts = 0;
+            for (; attempts < 6; attempts++) {
+              dispatchClick(thumb);
+              for (let w = 0; w < 10; w++) {
                 await shortSleep(100);
                 if (urlOrder.length > beforeCount) break;
               }
               if (urlOrder.length > beforeCount) break;
             }
-            diag.push(`#${idx} collected=${urlOrder.length - beforeCount}`);
+            diag.push(`#${idx} got=${urlOrder.length - beforeCount} attempts=${attempts+1}`);
+            // close + モーダル要素が消えるまで待機
             const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
-            if (closeBtn) {
-              closeBtn.click();
-              await shortSleep(300);
+            if (closeBtn) dispatchClick(closeBtn);
+            for (let w = 0; w < 15; w++) {
+              await shortSleep(100);
+              if (!document.querySelector('.image-view')) break;
             }
           }
           observer.disconnect();
