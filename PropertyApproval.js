@@ -1301,7 +1301,8 @@ function handleFrequencyText(replyToken, userId, message) {
     clearState(userId);
     replyMessage(replyToken, [textMsg(
       '配信頻度を「' + label + '」に変更して配信を再開しました。\n' +
-      '今後はこの頻度で新着物件をお届けいたします。'
+      '今後はこの頻度で新着物件をお届けいたします。\n\n' +
+      '※新着物件がない場合は通知は届きません。あらかじめご了承ください。'
     )]);
     return true;
   } catch (err) {
