@@ -878,7 +878,9 @@ async function uploadBase64ToCatbox(dataUrl) {
     throw err;
   }
   if (!resp.ok) {
-    const err = new Error(`imgbb_http_${resp.status}`);
+    let body = '';
+    try { body = (await resp.text()).slice(0, 200); } catch(e){}
+    const err = new Error(`imgbb_http_${resp.status}:${body.replace(/\s+/g,' ')}`);
     err.httpError = true;
     throw err;
   }
