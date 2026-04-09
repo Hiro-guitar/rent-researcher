@@ -1036,12 +1036,10 @@ function updateActionUI(actionType) {
 }
 
 // ===== 仮押さえモーダル =====
-var holdIntentSent = false;
 function openHoldModal() {
   if (actionState) return;
-  // モーダルオープン時に「申請画面まで進んだ」通知を1回だけ送る（離脱追跡用）
-  if (!holdIntentSent) {
-    holdIntentSent = true;
+  // モーダルオープンのたびに通知を送る（離脱追跡用）
+  {
     try {
       var propData = currentProperty || {};
       var pingParams = 'action=property_action'
