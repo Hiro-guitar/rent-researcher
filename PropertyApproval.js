@@ -639,7 +639,12 @@ function handlePropertyAction(e) {
   var layout = e.parameter.layout || '';
   var stationInfo = e.parameter.station_info || '';
   var applicationType = e.parameter.application_type || '';
+  var email = e.parameter.email || '';
+  var phone = e.parameter.phone || '';
   var contactInfo = e.parameter.contact_info || '';
+  if (!contactInfo && (email || phone)) {
+    contactInfo = [email ? 'Email: ' + email : '', phone ? 'Tel: ' + phone : ''].filter(Boolean).join(' / ');
+  }
 
   if (!customerName || !roomId || !actionType) {
     return ContentService.createTextOutput(JSON.stringify({ error: 'missing parameters' }))
@@ -675,7 +680,7 @@ function handlePropertyAction(e) {
         if (roomNumber) propLabel += ' ' + roomNumber;
 
         var msgMap = {
-          'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」を **仮押さえ** リクエストしました！',
+          'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」に **お申し込み** をされました！',
           'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabel + '」を **お気に入り** に追加しました',
           'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabel + '」を **興味なし** にしました',
           'view': '\uD83D\uDCC4 **' + customerName + '** 様が「' + propLabel + '」を閲覧しました'
@@ -683,9 +688,12 @@ function handlePropertyAction(e) {
         var msg = msgMap[actionType] || '';
         if (!msg) return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount })).setMimeType(ContentService.MimeType.JSON);
 
-        // 仮押さえの場合、申込区分・連絡先を表示
-        if (actionType === 'hold' && (applicationType || contactInfo)) {
-          msg += '\n> 申込区分: ' + (applicationType || '未指定') + ' / 連絡先: ' + (contactInfo || '未入力');
+        // お申し込みの場合、申込区分・連絡先を表示
+        if (actionType === 'hold') {
+          msg += '\n> 申込区分: ' + (applicationType || '未指定');
+          if (email) msg += '\n> Email: ' + email;
+          if (phone) msg += '\n> Tel: ' + phone;
+          msg += '\n> → お電話で意思確認をお願いします';
         }
         if (rentText || layout) {
           msg += '\n> ' + [rentText, layout].filter(Boolean).join(' / ');
@@ -728,7 +736,7 @@ function handlePropertyAction(e) {
         if (roomNumber) propLabel += ' ' + roomNumber;
         var flex = {
           type: 'flex',
-          altText: '仮押さえリクエストを受け付けました',
+          altText: 'お申し込みを受け付けました',
           contents: {
             type: 'bubble',
             body: {
@@ -736,7 +744,7 @@ function handlePropertyAction(e) {
               layout: 'vertical',
               spacing: 'md',
               contents: [
-                { type: 'text', text: '✅ 仮押さえリクエスト受付', weight: 'bold', size: 'lg', color: '#2E7D32' },
+                { type: 'text', text: '✅ お申し込み受付', weight: 'bold', size: 'lg', color: '#2E7D32' },
                 { type: 'separator' },
                 { type: 'text', text: propLabel, weight: 'bold', size: 'md', wrap: true },
                 { type: 'box', layout: 'vertical', spacing: 'sm', margin: 'md', contents: [
@@ -744,7 +752,7 @@ function handlePropertyAction(e) {
                   { type: 'text', text: '申込区分: ' + (applicationType || '未指定'), size: 'sm', color: '#666666' }
                 ]},
                 { type: 'separator' },
-                { type: 'text', text: '担当者が確認次第、ご連絡いたします。\nしばらくお待ちください。', size: 'sm', color: '#888888', wrap: true }
+                { type: 'text', text: 'この後、担当者がお電話にてお申し込み意思の確認のためご連絡いたします。しばらくお待ちください。', size: 'sm', color: '#888888', wrap: true }
               ]
             }
           }

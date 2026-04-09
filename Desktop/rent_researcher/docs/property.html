@@ -577,20 +577,23 @@ function renderProperty(p) {
   // アクションボタン（customer と roomId がある場合のみ）
   if (customer && roomId) {
     html += '<div class="action-bar">'
-      + '<button class="action-btn primary" id="holdBtn" onclick="openHoldModal()">🏠 この物件を仮押さえする</button>'
+      + '<button class="action-btn primary" id="holdBtn" onclick="openHoldModal()">🏠 この物件にお申し込みをする</button>'
       + '</div>';
-    // 仮押さえモーダル
+    // お申し込みモーダル
     html += '<div class="modal-overlay" id="holdModal" onclick="if(event.target===this)closeHoldModal()">'
       + '<div class="modal-content">'
-      + '<div class="modal-title">🏠 仮押さえ申込</div>'
+      + '<div class="modal-title">🏠 お申し込み</div>'
+      + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.5;">送信後、担当者がお電話にてお申し込み意思の確認をいたします。メールアドレスと電話番号を必ずご入力ください。</div>'
       + '<div class="modal-radio-group">'
       + '<label class="modal-radio-label active" id="radioPersonal" onclick="selectRadio(\'個人\')">'
       + '<input type="radio" name="appType" value="個人" checked> 個人申込</label>'
       + '<label class="modal-radio-label" id="radioCorporate" onclick="selectRadio(\'法人\')">'
       + '<input type="radio" name="appType" value="法人"> 法人申込</label>'
       + '</div>'
-      + '<input type="text" class="modal-input" id="contactInput" placeholder="メールアドレスまたは電話番号">'
-      + '<div class="modal-error" id="contactError"></div>'
+      + '<input type="email" class="modal-input" id="emailInput" placeholder="メールアドレス（必須）">'
+      + '<div class="modal-error" id="emailError"></div>'
+      + '<input type="tel" class="modal-input" id="phoneInput" placeholder="電話番号（必須）">'
+      + '<div class="modal-error" id="phoneError"></div>'
       + '<div class="modal-actions">'
       + '<button class="action-btn primary" onclick="submitHold()">申込を送信</button>'
       + '<button class="action-btn secondary" onclick="closeHoldModal()">キャンセル</button>'
@@ -1027,7 +1030,7 @@ function updateActionUI(actionType) {
 
   if (actionType === 'hold' || actionType === 'viewing') {
     holdBtn.classList.add('active');
-    holdBtn.textContent = '✅ 仮押さえリクエスト送信済み';
+    holdBtn.textContent = '✅ お申し込み受付済み';
     holdBtn.disabled = true;
   }
 }
@@ -1038,10 +1041,14 @@ function openHoldModal() {
   var modal = document.getElementById('holdModal');
   if (modal) {
     modal.style.display = 'flex';
-    var input = document.getElementById('contactInput');
-    if (input) { input.value = ''; input.classList.remove('error'); }
-    var err = document.getElementById('contactError');
-    if (err) err.textContent = '';
+    var emailEl = document.getElementById('emailInput');
+    if (emailEl) { emailEl.value = ''; emailEl.classList.remove('error'); }
+    var phoneEl = document.getElementById('phoneInput');
+    if (phoneEl) { phoneEl.value = ''; phoneEl.classList.remove('error'); }
+    var emailErr = document.getElementById('emailError');
+    if (emailErr) emailErr.textContent = '';
+    var phoneErr = document.getElementById('phoneError');
+    if (phoneErr) phoneErr.textContent = '';
   }
 }
 
@@ -1064,40 +1071,63 @@ function selectRadio(value) {
   }
 }
 
-function validateContact(val) {
+function validateEmail(val) {
   val = (val || '').trim();
-  if (!val) return '連絡先を入力してください';
-  var emailOk = /^[\w.+-]+@[\w.-]+\.\w{2,}$/.test(val);
-  var phoneOk = /^[\d\-+()]{10,}$/.test(val);
-  if (!emailOk && !phoneOk) return '有効なメールアドレスまたは電話番号を入力してください';
+  if (!val) return 'メールアドレスを入力してください';
+  if (!/^[\w.+-]+@[\w.-]+\.\w{2,}$/.test(val)) return '有効なメールアドレスを入力してください';
+  return null;
+}
+
+function validatePhone(val) {
+  val = (val || '').trim();
+  if (!val) return '電話番号を入力してください';
+  if (!/^[\d\-+()\s]{10,}$/.test(val)) return '有効な電話番号を入力してください';
   return null;
 }
 
 function submitHold() {
   var checkedRadio = document.querySelector('input[name="appType"]:checked');
   var applicationType = checkedRadio ? checkedRadio.value : '個人';
-  var contactInput = document.getElementById('contactInput');
-  var contactInfo = (contactInput.value || '').trim();
-  var errEl = document.getElementById('contactError');
+  var emailInput = document.getElementById('emailInput');
+  var phoneInput = document.getElementById('phoneInput');
+  var email = (emailInput.value || '').trim();
+  var phone = (phoneInput.value || '').trim();
+  var emailErrEl = document.getElementById('emailError');
+  var phoneErrEl = document.getElementById('phoneError');
 
-  var error = validateContact(contactInfo);
-  if (error) {
-    contactInput.classList.add('error');
-    errEl.textContent = error;
-    return;
+  var emailError = validateEmail(email);
+  var phoneError = validatePhone(phone);
+
+  if (emailError) {
+    emailInput.classList.add('error');
+    emailErrEl.textContent = emailError;
+  } else {
+    emailInput.classList.remove('error');
+    emailErrEl.textContent = '';
   }
-  contactInput.classList.remove('error');
-  errEl.textContent = '';
+  if (phoneError) {
+    phoneInput.classList.add('error');
+    phoneErrEl.textContent = phoneError;
+  } else {
+    phoneInput.classList.remove('error');
+    phoneErrEl.textContent = '';
+  }
+  if (emailError || phoneError) return;
 
   closeHoldModal();
-  sendAction('hold', applicationType, contactInfo);
+  sendAction('hold', applicationType, email, phone);
 }
 
-function sendAction(actionType, applicationType, contactInfo) {
+function sendAction(actionType, applicationType, email, phone) {
   if (actionState) return;
 
   updateActionUI(actionType);
-  showToast('🏠', '仮押さえリクエストを送信しました', '担当者からご連絡いたします', 4000);
+  showToast('🏠', 'お申し込みを受け付けました', '担当者からお電話で意思確認のご連絡をいたします', 4500);
+
+  var contactInfo = '';
+  if (email || phone) {
+    contactInfo = [email ? 'Email: ' + email : '', phone ? 'Tel: ' + phone : ''].filter(Boolean).join(' / ');
+  }
 
   try {
     localStorage.setItem(getActionKey(), JSON.stringify({
@@ -1113,6 +1143,8 @@ function sendAction(actionType, applicationType, contactInfo) {
     + '&room_id=' + encodeURIComponent(roomId)
     + '&action_type=' + encodeURIComponent(actionType)
     + '&application_type=' + encodeURIComponent(applicationType || '')
+    + '&email=' + encodeURIComponent(email || '')
+    + '&phone=' + encodeURIComponent(phone || '')
     + '&contact_info=' + encodeURIComponent(contactInfo || '')
     + '&building_name=' + encodeURIComponent(propData.buildingName || '')
     + '&room_number=' + encodeURIComponent(propData.roomNumber || '')
