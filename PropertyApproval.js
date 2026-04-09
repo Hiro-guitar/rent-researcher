@@ -659,8 +659,18 @@ function handlePropertyAction(e) {
   }
 
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
-  sheet.appendRow([customerName, roomId, actionType, buildingName, roomNumber, rent, layout, stationInfo, now, applicationType, contactInfo]);
-  var loggedRowIdx = sheet.getLastRow();
+  var loggedRowIdx = 0;
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(5000);
+    sheet.appendRow([customerName, roomId, actionType, buildingName, roomNumber, rent, layout, stationInfo, now, applicationType, contactInfo]);
+    SpreadsheetApp.flush();
+    loggedRowIdx = sheet.getLastRow();
+  } catch(e) {
+    console.error('appendRow lock error: ' + e.message);
+  } finally {
+    try { lock.releaseLock(); } catch(e) {}
+  }
   var discordStatus = '';
 
   // お気に入り件数を計算（favorite/not_interested/clear の場合）
