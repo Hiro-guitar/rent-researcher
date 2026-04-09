@@ -841,67 +841,44 @@ function sendEssquareContentMessage(tabId, message, timeoutMs = 15000) {
   });
 }
 
-// === 画像アップロード（catbox.moe） ===
+// === 画像アップロード（imgbb） ===
+
+const IMGBB_API_KEY = '48cdc51fdcc4a2828c3379b59663db7f';
 
 async function uploadBase64ToCatbox(dataUrl) {
-  // data:image/jpeg;base64,/9j/4AAQ... → Blob
+  // 関数名はcatbox時代の互換保持。実体はimgbbへアップロード。
   const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!match) return null;
-  const mimeType = match[1];
   const base64 = match[2];
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  const blob = new Blob([bytes], { type: mimeType });
-
-  const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
-  const filename = `esq_${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`;
 
   const formData = new FormData();
-  formData.append('reqtype', 'fileupload');
-  formData.append('fileToUpload', blob, filename);
+  formData.append('image', base64);
 
-  const resp = await fetch('https://catbox.moe/user/api.php', {
+  const resp = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
     method: 'POST',
     body: formData,
   });
-  // レート制限・サーバーエラーは呼び出し側でバックオフするため例外で通知
   if (resp.status === 429 || resp.status === 503) {
-    const err = new Error(`catbox_rate_limit_${resp.status}`);
+    const err = new Error(`imgbb_rate_limit_${resp.status}`);
     err.rateLimited = true;
     throw err;
   }
   if (!resp.ok) {
-    const err = new Error(`catbox_http_${resp.status}`);
+    const err = new Error(`imgbb_http_${resp.status}`);
     err.httpError = true;
     throw err;
   }
-  const url = (await resp.text()).trim();
-  if (!url.startsWith('https://')) return null;
-
-  // アップロード後に0バイト検証（catboxが空ファイルを返す場合がある）
-  // 即時HEADは通るが遅延後に0バイトになるケースがあるため、2段階で検証
+  let json;
   try {
-    const head1 = await fetch(url, { method: 'HEAD', cache: 'no-store' });
-    const cl1 = parseInt(head1.headers.get('content-length') || '0', 10);
-    if (cl1 === 0) {
-      console.warn('[catbox] 即時0バイト検出:', url);
-      return null;
-    }
-    // 2秒後に再検証
-    await new Promise(r => setTimeout(r, 2000));
-    const head2 = await fetch(url + '?t=' + Date.now(), { method: 'HEAD', cache: 'no-store' });
-    const cl2 = parseInt(head2.headers.get('content-length') || '0', 10);
-    if (cl2 === 0) {
-      console.warn('[catbox] 遅延後0バイト検出:', url);
-      return null;
-    }
+    json = await resp.json();
   } catch (e) {
-    // HEAD失敗時はURLをそのまま返す（ネットワーク一時エラーの可能性）
+    return null;
   }
-  return url;
+  if (!json || !json.success || !json.data || !json.data.url) {
+    console.warn('[imgbb] unexpected response:', json);
+    return null;
+  }
+  return json.data.url;
 }
 
 // === property_data_json構築 ===
