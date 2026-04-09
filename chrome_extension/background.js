@@ -14,6 +14,16 @@
 // { customerName: { service: [stationName, ...], ... }, ... }
 let _unresolvedStations = {};
 
+// 他サイトで「申込あり」として弾いた物件のキー集合（顧客ごと、同一実行内で共有）
+// キー: 建物名正規化 + '|' + 部屋番号正規化
+globalThis.__moshikomiSkipKeys = globalThis.__moshikomiSkipKeys || new Set();
+globalThis.__normMoshikomiKey = (building, room) => {
+  const nb = String(building || '').replace(/\s+/g, '').toLowerCase();
+  const nr = String(room || '').replace(/[^\d]/g, '');
+  if (!nb || !nr) return '';
+  return `${nb}|${nr}`;
+};
+
 // バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
 let __btMode = 'alert';
 chrome.storage.local.get(['btMode'], (d) => { if (d.btMode) __btMode = d.btMode; });
@@ -304,6 +314,14 @@ function getFilterRejectReason(prop, customer) {
       return `構造不一致: ${prop.structure}（要求: ${customer.structures.join('/')})`;
     }
   }
+
+  // 他サイト(itandi/ES-Square/いえらぶ)で申込ありとして弾かれた物件は同一実行内でREINSでもスキップ
+  try {
+    const mk = globalThis.__normMoshikomiKey && globalThis.__normMoshikomiKey(prop.building_name, prop.room_number);
+    if (mk && globalThis.__moshikomiSkipKeys && globalThis.__moshikomiSkipKeys.has(mk)) {
+      return '他サイトで申込あり';
+    }
+  } catch(e) {}
 
   // 新築フィルタ（顧客が「新築」指定の場合、新築フラグが「新築」の物件のみ通過）
   if (customer.building_age && String(customer.building_age).includes('新築')) {

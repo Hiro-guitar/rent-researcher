@@ -763,6 +763,10 @@ function getEssquareFilterRejectReason(prop, customer) {
   const isTestUser = customer.name?.includes('テスト');
   if (!isTestUser) {
     if (prop.listing_status === '申込あり') {
+      try {
+        const k = globalThis.__normMoshikomiKey && globalThis.__normMoshikomiKey(prop.building_name, prop.room_number);
+        if (k) globalThis.__moshikomiSkipKeys.add(k);
+      } catch(e) {}
       return '申込あり';
     }
   }

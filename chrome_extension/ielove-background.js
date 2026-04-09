@@ -347,6 +347,10 @@ function getIeloveFilterRejectReason(prop, customer) {
 
   // 募集状況フィルタ
   if (prop.listing_status === '申込あり') {
+    try {
+      const k = globalThis.__normMoshikomiKey && globalThis.__normMoshikomiKey(prop.building_name, prop.room_number);
+      if (k) globalThis.__moshikomiSkipKeys.add(k);
+    } catch(e) {}
     return '申込あり';
   }
 
