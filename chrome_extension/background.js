@@ -2138,22 +2138,34 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             });
           }
           const imagesBase64 = [];
-          const thumbnails = document.querySelectorAll('div.mx-auto');
+          // サムネ出現を最大10秒ポーリング
+          let thumbnails = [];
+          for (let i = 0; i < 100; i++) {
+            thumbnails = document.querySelectorAll('div.mx-auto');
+            if (thumbnails.length > 0) break;
+            await new Promise(r => setTimeout(r, 100));
+          }
           for (const thumb of thumbnails) {
             thumb.click();
-            await new Promise(r => setTimeout(r, 200));
-            const imageView = document.querySelector('.image-view');
-            if (imageView) {
-              const style = imageView.getAttribute('style');
-              const match = style && style.match(/url\(["']?(.*?)["']?\)/);
-              if (match && match[1]) {
-                let imageUrl = match[1];
-                if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
-                try {
-                  const base64 = await fetchImageAsBase64(imageUrl);
-                  imagesBase64.push(base64);
-                } catch (e) {}
+            // image-viewに大画像URL(findBkknGzu?でThmでない)が入るまで最大2秒ポーリング
+            let imageUrl = null;
+            for (let i = 0; i < 20; i++) {
+              await new Promise(r => setTimeout(r, 100));
+              const iv = document.querySelector('.image-view');
+              if (!iv) continue;
+              const style = iv.getAttribute('style') || '';
+              const m = style.match(/url\(["']?(.*?)["']?\)/);
+              if (m && m[1] && m[1] !== 'null' && /findBkknGzu\?/.test(m[1])) {
+                imageUrl = m[1];
+                break;
               }
+            }
+            if (imageUrl) {
+              if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
+              try {
+                const base64 = await fetchImageAsBase64(imageUrl);
+                imagesBase64.push(base64);
+              } catch (e) {}
             }
             const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
             if (closeBtn) {
