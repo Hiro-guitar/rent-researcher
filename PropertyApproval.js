@@ -1078,12 +1078,12 @@ function handleStopReasonText(replyToken, userId, message, state) {
         text: 'かしこまりました。\nもしよろしければ、完全に停止する代わりに「一定期間だけお休み」することもできます。期間が経過すると自動で配信を再開いたします。\n\n期間を選ぶか、このまま配信を停止する場合は「配信停止」を選んでください。',
         quickReply: {
           items: [
-            { type: 'action', action: { type: 'message', label: '24時間休む', text: 'スヌーズ:24時間' } },
-            { type: 'action', action: { type: 'message', label: '3日休む', text: 'スヌーズ:3日' } },
-            { type: 'action', action: { type: 'message', label: '1週間休む', text: 'スヌーズ:1週間' } },
-            { type: 'action', action: { type: 'message', label: '2週間休む', text: 'スヌーズ:2週間' } },
-            { type: 'action', action: { type: 'message', label: '1ヶ月休む', text: 'スヌーズ:1ヶ月' } },
-            { type: 'action', action: { type: 'message', label: '配信停止', text: 'スヌーズ:停止' } },
+            { type: 'action', action: { type: 'message', label: '24時間休む', text: '24時間停止' } },
+            { type: 'action', action: { type: 'message', label: '3日休む', text: '3日間停止' } },
+            { type: 'action', action: { type: 'message', label: '1週間休む', text: '1週間停止' } },
+            { type: 'action', action: { type: 'message', label: '2週間休む', text: '2週間停止' } },
+            { type: 'action', action: { type: 'message', label: '1ヶ月休む', text: '1ヶ月停止' } },
+            { type: 'action', action: { type: 'message', label: '配信停止', text: '配信停止（期間なし）' } },
             { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
           ]
         }
@@ -1141,6 +1141,20 @@ function handleStopReasonText(replyToken, userId, message, state) {
     try { replyMessage(replyToken, [textMsg('ご回答ありがとうございます。')]); } catch(e) {}
     return true;
   }
+}
+
+// 条件シートの1行目にヘッダ項目名をセットする（手動で1回実行すればOK）
+function setupCriteriaHeaders() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) throw new Error('criteria sheet not found');
+  var headers = [
+    'タイムスタンプ', '名前', '都道府県', '市区町村', '路線(駅名)', '駅名',
+    '徒歩', '賃料上限', '間取り', '面積', '築年数', '構造',
+    '設備', '理由', '引越し時期', 'その他', 'ペット', '居住者',
+    '配信ステータス', '停止理由', '停止日時', 'スヌーズ解除日時', '配信頻度', '最終配信日時'
+  ];
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
 }
 
 // 配信停止を確定する: 理由保存 + status=paused + 停止日時
@@ -1208,11 +1222,17 @@ function _setFrequency(userId, freq) {
 // スヌーズ期間選択ハンドラ
 function handleSnoozePeriodText(replyToken, userId, message) {
   try {
-    if (message.indexOf('スヌーズ:') !== 0) {
-      replyMessage(replyToken, [textMsg('「1週間」「2週間」「1ヶ月」のいずれかを選んでください。')]);
+    var label = null;
+    if (message === '24時間停止') label = '24時間';
+    else if (message === '3日間停止') label = '3日';
+    else if (message === '1週間停止') label = '1週間';
+    else if (message === '2週間停止') label = '2週間';
+    else if (message === '1ヶ月停止') label = '1ヶ月';
+    else if (message === '配信停止（期間なし）') label = '停止';
+    else {
+      replyMessage(replyToken, [textMsg('選択肢から選んでください。')]);
       return true;
     }
-    var label = message.substring('スヌーズ:'.length);
     if (label === '停止') {
       _finalizeStop(userId, null);
       clearState(userId);
