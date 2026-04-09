@@ -160,6 +160,10 @@ function doPost(e) {
           replyMessage(replyToken, [textMsg('配信停止をキャンセルしました。引き続き新着物件をお届けいたします。')]);
           return;
         }
+        if (message === '条件変更' || message === 'じょうけんへんこう') {
+          startChangeFlow(replyToken, userId);
+          return;
+        }
         if (handleMismatchChoiceText(replyToken, userId, message)) return;
       }
 
