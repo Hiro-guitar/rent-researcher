@@ -2141,10 +2141,77 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             } catch (e) { return null; }
           }
           const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-          // サムネをクリック→モーダル.image-viewの大画像URLを取得→閉じる
           const images = [];
           const seen = new Set();
           const debugUrls = [];
+          const diag = [];
+
+          // === 事前調査: Vue内部にfindBkknGzu的なデータがないか探す ===
+          try {
+            function scanObj(obj, path, depth, out) {
+              if (!obj || depth > 6 || out.length >= 20) return;
+              if (typeof obj === 'string') {
+                if (obj.includes('findBkknGzu') || obj.includes('etag=')) {
+                  out.push(path + ' = ' + obj.substring(0, 120));
+                }
+                return;
+              }
+              if (typeof obj !== 'object') return;
+              for (const k in obj) {
+                try {
+                  const v = obj[k];
+                  if (v === obj) continue;
+                  scanObj(v, path + '.' + k, depth + 1, out);
+                } catch (e) {}
+                if (out.length >= 20) return;
+              }
+            }
+            const hits = [];
+            const root = document.querySelector('#app');
+            const vueApp = root && root.__vue_app__;
+            if (vueApp && vueApp._instance) {
+              scanObj(vueApp._instance.data, 'vue.data', 0, hits);
+              scanObj(vueApp._instance.proxy, 'vue.proxy', 0, hits);
+            }
+            // thumb Vue component
+            const firstThumb = document.querySelector('div.mx-auto');
+            if (firstThumb) {
+              const vp = firstThumb.__vueParentComponent;
+              if (vp) scanObj(vp.ctx, 'thumb.ctx', 0, hits);
+            }
+            diag.push('VUE_SCAN:' + JSON.stringify(hits.slice(0, 10)));
+          } catch (e) { diag.push('VUE_ERR:' + e.message); }
+
+          // === サムネの構造を確認 ===
+          try {
+            const t0 = document.querySelector('div.mx-auto');
+            if (t0) {
+              diag.push('THUMB0:' + (t0.outerHTML || '').substring(0, 250));
+            }
+          } catch (e) {}
+
+          // === 1枚目を開いてstyle変化を時系列ダンプ ===
+          try {
+            const t0 = document.querySelector('div.mx-auto');
+            if (t0) {
+              t0.click();
+              const timeline = [];
+              for (let i = 0; i < 30; i++) {
+                const iv = document.querySelector('.image-view');
+                const st = iv ? (iv.getAttribute('style') || '').substring(0, 90) : 'no-iv';
+                timeline.push(`${i*100}:${st}`);
+                await sleep(100);
+              }
+              diag.push('TL:' + timeline.join(' | '));
+            }
+          } catch (e) { diag.push('TL_ERR:' + e.message); }
+
+          // モーダルを閉じる
+          const closeBtn0 = document.querySelector('.modal .btn.btn-outline, .modal .close, .modal button.btn-close');
+          if (closeBtn0) closeBtn0.click();
+          await sleep(500);
+
+          // 本処理
           const thumbCount = document.querySelectorAll('div.mx-auto').length;
           let prevUrlSeen = '';
           for (let idx = 0; idx < thumbCount; idx++) {
@@ -2192,7 +2259,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           if (closeBtn) closeBtn.click();
           else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
           await sleep(200);
-          return { images, debugUrls };
+          return { images, debugUrls, diag };
         }
       }),
         new Promise((resolve) => setTimeout(() => resolve(null), 120000))
@@ -2200,7 +2267,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       const imgResult = (imageResults && imageResults[0] && imageResults[0].result) || {};
       const imageBase64s = Array.isArray(imgResult) ? imgResult : (imgResult.images || []);
       const debugImgUrls = (imgResult && imgResult.debugUrls) || [];
+      const diagLines = (imgResult && imgResult.diag) || [];
       await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件 サンプルURL=${JSON.stringify(debugImgUrls)}` });
+      for (const line of diagLines) {
+        await setStorageData({ debugLog: `${customer.name}: [DIAG] ${line}` });
+        await new Promise(r => setTimeout(r, 50));
+      }
 
       const detail = detailResults && detailResults[0] && detailResults[0].result;
       if (detail) {
