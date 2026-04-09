@@ -793,7 +793,7 @@ function handleFavoritesCommand(replyToken, userId) {
       }
     }
     if (!customerName) {
-      replyMessage(replyToken, [textMsg('お気に入りはまだありません。\n\n通知された物件で「お気に入り」を押すと、こちらで一覧を確認できます。')]);
+      replyMessage(replyToken, [textMsg('ご希望条件が未登録のようです。まずは「条件登録」からお願いいたします。')]);
       return;
     }
 
