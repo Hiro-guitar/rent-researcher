@@ -593,12 +593,33 @@ function parseBuildingAge(str) {
   return null;
 }
 
+// --- 自動検索トグルに応じてスリープ抑制を制御 ---
+function __applyKeepAwakeForAutoSearch() {
+  try {
+    chrome.storage.local.get(['autoSearchEnabled'], (d) => {
+      if (!chrome.power) return;
+      if (d.autoSearchEnabled !== false) {
+        try { chrome.power.requestKeepAwake('system'); } catch(e) {}
+      } else {
+        try { chrome.power.releaseKeepAwake(); } catch(e) {}
+      }
+    });
+  } catch(e) {}
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && 'autoSearchEnabled' in changes) __applyKeepAwakeForAutoSearch();
+});
+// SW起動時(ブラウザ起動/SW再起動)にも状態を反映
+__applyKeepAwakeForAutoSearch();
+if (chrome.runtime.onStartup) chrome.runtime.onStartup.addListener(__applyKeepAwakeForAutoSearch);
+
 // --- 初期化 ---
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['searchIntervalMinutes'], (data) => {
     setupAlarm(data.searchIntervalMinutes || 30);
   });
   chrome.storage.local.set({ isSearching: false });
+  __applyKeepAwakeForAutoSearch();
   chrome.storage.local.get(['stats'], (data) => {
     if (!data.stats) {
       chrome.storage.local.set({
