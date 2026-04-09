@@ -2120,14 +2120,13 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       });
 
-      // === 画像をbase64で抽出（サムネクリック→モーダルの.image-view→fetch） ===
+      // === 画像をbase64で抽出（クリック不要・サムネ背景URL直読み→Thm外して大画像fetch） ===
       const imageResults = await Promise.race([
         chrome.scripting.executeScript({
         target: { tabId },
         world: 'MAIN',
         func: async () => {
-          // === Tampermonkey版互換: サムネクリック→モーダル.image-view→fetch base64 ===
-          async function fetchImageAsBase64(url) {
+          async function fetchAsBase64(url) {
             try {
               const r = await fetch(url, { credentials: 'include' });
               if (!r.ok) return null;
@@ -2141,44 +2140,37 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               });
             } catch (e) { return null; }
           }
-          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          // クリックせず、サムネのbackground-image / imgのsrcからURLを直接拾う（DOM副作用ゼロ）
           const images = [];
-          const seenUrls = new Set();
-          // サムネイル群を検出
-          const thumbnails = document.querySelectorAll('div.mx-auto');
-          if (!thumbnails || thumbnails.length === 0) return images;
-          for (const thumb of thumbnails) {
+          const seen = new Set();
+          const urls = [];
+          // 候補1: div.mx-auto のbackground-image
+          document.querySelectorAll('div.mx-auto').forEach(el => {
+            const bg = (el.style && el.style.backgroundImage) || getComputedStyle(el).backgroundImage || '';
+            const m = bg.match(/url\(["']?(.*?)["']?\)/);
+            if (m && m[1]) urls.push(m[1]);
+          });
+          // 候補2: img要素 (findBkknGzu系)
+          document.querySelectorAll('img').forEach(img => {
+            const src = img.getAttribute('src') || '';
+            if (src.includes('findBkknGzu') || src.includes('Gzu')) urls.push(src);
+          });
+          for (let u of urls) {
             try {
-              thumb.click();
-              // モーダルの .image-view 出現待ち（最大2秒）
-              let imageView = null;
-              for (let i = 0; i < 20; i++) {
-                imageView = document.querySelector('.image-view');
-                if (imageView && imageView.getAttribute('style')) break;
-                await sleep(100);
+              if (u.startsWith('/')) u = location.origin + u;
+              // Thmを外して大画像URLを試す
+              const fullUrl = u.replace('findBkknGzuThm', 'findBkknGzu');
+              if (seen.has(fullUrl)) continue;
+              seen.add(fullUrl);
+              let base64 = await fetchAsBase64(fullUrl);
+              // 大画像が取れなければサムネにフォールバック
+              if (!base64 && fullUrl !== u) {
+                if (!seen.has(u)) {
+                  seen.add(u);
+                  base64 = await fetchAsBase64(u);
+                }
               }
-              if (!imageView) continue;
-              const style = imageView.getAttribute('style') || '';
-              const match = style.match(/url\(["']?(.*?)["']?\)/);
-              if (!match || !match[1]) {
-                // 閉じる
-                const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
-                if (closeBtn) { closeBtn.click(); await sleep(200); }
-                continue;
-              }
-              let imageUrl = match[1];
-              if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
-              if (!seenUrls.has(imageUrl)) {
-                seenUrls.add(imageUrl);
-                const base64 = await fetchImageAsBase64(imageUrl);
-                if (base64) images.push(base64);
-              }
-              // モーダルを閉じる
-              const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
-              if (closeBtn) {
-                closeBtn.click();
-                await sleep(300);
-              }
+              if (base64) images.push(base64);
             } catch (e) {}
           }
           return images;
