@@ -2145,34 +2145,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const images = [];
           const seen = new Set();
           const debugUrls = [];
-          async function closeModal() {
-            const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close, .modal [aria-label="Close"], .modal button.btn-close');
-            if (closeBtn) closeBtn.click();
-            else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-            for (let i = 0; i < 30; i++) {
-              if (!document.querySelector('.image-view')) return;
-              await sleep(100);
-            }
-          }
-          // 取り掛かる前に既存モーダルを閉じる
-          await closeModal();
           const thumbCount = document.querySelectorAll('div.mx-auto').length;
           let prevUrlSeen = '';
           for (let idx = 0; idx < thumbCount; idx++) {
             let newUrl = null;
-            // 最大3回までリトライ
             for (let attempt = 0; attempt < 3 && !newUrl; attempt++) {
               try {
-                await closeModal();
                 const thumbs = document.querySelectorAll('div.mx-auto');
                 const thumb = thumbs[idx];
                 if (!thumb) break;
                 thumb.scrollIntoView({ block: 'center' });
-                await sleep(150);
+                await sleep(100);
+                // モーダルは閉じずに、直接次のサムネをクリック（白化回避）
                 thumb.click();
                 thumb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-                // .image-view のURLが前回(prevUrlSeen)から変わるまで最大6秒待機
-                for (let i = 0; i < 60; i++) {
+                // .image-view のURLが前回から変わり、かつfindBkknGzuを含む本物URLになるまで最大8秒待機
+                for (let i = 0; i < 80; i++) {
                   const iv = document.querySelector('.image-view');
                   if (iv) {
                     const style = iv.getAttribute('style') || '';
@@ -2187,33 +2175,23 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 if (!newUrl) await sleep(300);
               } catch (e) {}
             }
-            try {
-              if (newUrl) {
-                prevUrlSeen = newUrl;
-                let u = newUrl.replace(/&amp;/g, '&');
-                if (u.startsWith('/')) u = location.origin + u;
-                if (debugUrls.length < 3) debugUrls.push(u);
-                if (!seen.has(u)) {
-                  seen.add(u);
-                  const b64 = await fetchAsBase64(u);
-                  if (b64) images.push(b64);
-                }
+            if (newUrl) {
+              prevUrlSeen = newUrl;
+              let u = newUrl.replace(/&amp;/g, '&');
+              if (u.startsWith('/')) u = location.origin + u;
+              if (debugUrls.length < 5) debugUrls.push(u);
+              if (!seen.has(u)) {
+                seen.add(u);
+                const b64 = await fetchAsBase64(u);
+                if (b64) images.push(b64);
               }
-              // モーダルを閉じる
-              const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close, .modal [aria-label="Close"], .modal button.btn-close');
-              if (closeBtn) {
-                closeBtn.click();
-              } else {
-                document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-              }
-              // モーダルが消えるまで待機
-              for (let i = 0; i < 20; i++) {
-                if (!document.querySelector('.image-view')) break;
-                await sleep(100);
-              }
-              await sleep(150);
-            } catch (e) {}
+            }
           }
+          // 最後にモーダルを閉じる
+          const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close, .modal [aria-label="Close"], .modal button.btn-close');
+          if (closeBtn) closeBtn.click();
+          else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+          await sleep(200);
           return { images, debugUrls };
         }
       }),
