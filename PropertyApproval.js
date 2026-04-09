@@ -1041,13 +1041,21 @@ function handleStopReasonText(replyToken, userId, message, state) {
     if (state.step !== STEPS.WAITING_STOP_REASON) return false;
 
     if (message.indexOf('停止理由:') !== 0) {
-      // 選択肢外: 自由入力として扱い、そのまま停止確定
-      _finalizeStop(userId, message);
-      clearState(userId);
-      replyMessage(replyToken, [textMsg(
-        '配信を停止しました。ご回答ありがとうございます。\n\n' +
-        '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
-      )]);
+      // 選択肢外: 再度選択肢を提示
+      replyMessage(replyToken, [{
+        type: 'text',
+        text: 'お手数ですが、下の選択肢から選んでください。',
+        quickReply: {
+          items: [
+            { type: 'action', action: { type: 'message', label: '引越し先が決まった', text: '停止理由:引越し先が決まった' } },
+            { type: 'action', action: { type: 'message', label: '忙しくて後で見る', text: '停止理由:忙しくて後で見る' } },
+            { type: 'action', action: { type: 'message', label: '希望に合わない', text: '停止理由:希望に合わない' } },
+            { type: 'action', action: { type: 'message', label: '通知が多い', text: '停止理由:通知が多い' } },
+            { type: 'action', action: { type: 'message', label: 'その他', text: '停止理由:その他' } },
+            { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
+          ]
+        }
+      }]);
       return true;
     }
 
@@ -1084,14 +1092,19 @@ function handleStopReasonText(replyToken, userId, message, state) {
     }
 
     if (reason === '希望に合わない') {
-      _finalizeStop(userId, reason);
-      clearState(userId);
-      replyMessage(replyToken, [textMsg(
-        '配信を停止しました。ご回答ありがとうございます。\n\n' +
-        '希望条件を見直していただくと、よりマッチする物件をお届けできるかもしれません。\n' +
-        '「条件登録」とお送りいただくと、新しく条件を登録できます。\n\n' +
-        '配信を再開したくなったら、「配信再開」または「使い方」メニューから再開できます。'
-      )]);
+      // 完全停止の代わりに条件変更を提案
+      saveState(userId, { step: STEPS.WAITING_MISMATCH_CHOICE, data: {} });
+      replyMessage(replyToken, [{
+        type: 'text',
+        text: 'ご希望に沿えず申し訳ございません。\nよろしければ、希望条件を変更してみませんか？条件を見直すと、よりマッチする物件をお届けできるかもしれません。\n\n条件を変更するか、このまま配信を停止する場合は「配信停止」を選んでください。',
+        quickReply: {
+          items: [
+            { type: 'action', action: { type: 'message', label: '条件を変更する', text: '条件登録' } },
+            { type: 'action', action: { type: 'message', label: '配信停止', text: 'ミスマッチ:停止' } },
+            { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
+          ]
+        }
+      }]);
       return true;
     }
 
@@ -1275,6 +1288,38 @@ function handleFrequencyText(replyToken, userId, message) {
     console.error('handleFrequencyText error: ' + err.message + '\n' + err.stack);
     try { clearState(userId); } catch(e) {}
     try { replyMessage(replyToken, [textMsg('処理に失敗しました。時間をおいて再度お試しください。')]); } catch(e) {}
+    return true;
+  }
+}
+
+// 「希望に合わない」選択後の選択肢ハンドラ
+function handleMismatchChoiceText(replyToken, userId, message) {
+  try {
+    if (message === 'ミスマッチ:停止') {
+      _finalizeStop(userId, '希望に合わない');
+      clearState(userId);
+      replyMessage(replyToken, [textMsg(
+        '配信を停止しました。ご回答ありがとうございます。\n\n' +
+        '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+      )]);
+      return true;
+    }
+    // 選択肢外
+    replyMessage(replyToken, [{
+      type: 'text',
+      text: 'お手数ですが、下の選択肢から選んでください。',
+      quickReply: {
+        items: [
+          { type: 'action', action: { type: 'message', label: '条件を変更する', text: '条件登録' } },
+          { type: 'action', action: { type: 'message', label: '配信停止', text: 'ミスマッチ:停止' } },
+          { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
+        ]
+      }
+    }]);
+    return true;
+  } catch (err) {
+    console.error('handleMismatchChoiceText error: ' + err.message);
+    try { clearState(userId); } catch(e) {}
     return true;
   }
 }
