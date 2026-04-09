@@ -105,6 +105,15 @@ function buildIeloveSearchUrl(customer, page = 1) {
     }
   }
 
+  // バス・トイレ別: btMode='skip' + equipにバス・トイレ別指定時のみURL絞り込み
+  {
+    const eqRaw_ = (customer.equipment || '').toLowerCase();
+    const btSkip_ = typeof __btMode !== 'undefined' && __btMode === 'skip';
+    if (btSkip_ && (eqRaw_.includes('バストイレ別') || eqRaw_.includes('バス・トイレ別') || eqRaw_.includes('bt別'))) {
+      parts.push('opts11/1101');
+    }
+  }
+
   // 所在階フィルタ（1階 or 2階以上）
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equipText = toHankaku(customer.equipment || '').toLowerCase();
