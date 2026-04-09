@@ -882,11 +882,20 @@ async function uploadBase64ToCatbox(dataUrl) {
   if (!url.startsWith('https://')) return null;
 
   // アップロード後に0バイト検証（catboxが空ファイルを返す場合がある）
+  // 即時HEADは通るが遅延後に0バイトになるケースがあるため、2段階で検証
   try {
-    const head = await fetch(url, { method: 'HEAD' });
-    const cl = parseInt(head.headers.get('content-length') || '0', 10);
-    if (cl === 0) {
-      console.warn('[ES-Square] catbox 0バイト検出:', url);
+    const head1 = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+    const cl1 = parseInt(head1.headers.get('content-length') || '0', 10);
+    if (cl1 === 0) {
+      console.warn('[catbox] 即時0バイト検出:', url);
+      return null;
+    }
+    // 2秒後に再検証
+    await new Promise(r => setTimeout(r, 2000));
+    const head2 = await fetch(url + '?t=' + Date.now(), { method: 'HEAD', cache: 'no-store' });
+    const cl2 = parseInt(head2.headers.get('content-length') || '0', 10);
+    if (cl2 === 0) {
+      console.warn('[catbox] 遅延後0バイト検出:', url);
       return null;
     }
   } catch (e) {
