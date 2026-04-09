@@ -855,47 +855,109 @@ function sendEssquareContentMessage(tabId, message, timeoutMs = 15000) {
   });
 }
 
-// === 画像アップロード（imgbb） ===
+// === 画像アップロード（imgbb → freeimage.host → imgur フォールバック） ===
 
 const IMGBB_API_KEY = '48cdc51fdcc4a2828c3379b59663db7f';
+// freeimage.host の公開コミュニティキー(広く知られた無料キー)
+const FREEIMAGE_API_KEY = '6d207e02198a847aa98d0a2a901485a5';
+// imgur Client-ID（未設定時は自動でスキップ）
+const IMGUR_CLIENT_ID = '';
+
+// imgbb にアップロード
+async function _uploadImgbb(base64) {
+  const formData = new FormData();
+  formData.append('image', base64);
+  const resp = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, { method: 'POST', body: formData });
+  if (!resp.ok) {
+    let body = ''; try { body = (await resp.text()).slice(0, 200); } catch(e){}
+    const isRate = resp.status === 429 || resp.status === 503 || /rate limit/i.test(body);
+    const err = new Error(`imgbb_${resp.status}:${body.replace(/\s+/g,' ')}`);
+    if (isRate) err.rateLimited = true;
+    throw err;
+  }
+  const json = await resp.json();
+  if (!json || !json.success || !json.data || !json.data.url) throw new Error('imgbb_unexpected_response');
+  return json.data.url;
+}
+
+// freeimage.host にアップロード(Cheveretoベース、imgbb互換フォーマット)
+async function _uploadFreeimage(base64) {
+  const formData = new FormData();
+  formData.append('key', FREEIMAGE_API_KEY);
+  formData.append('action', 'upload');
+  formData.append('source', base64);
+  formData.append('format', 'json');
+  const resp = await fetch('https://freeimage.host/api/1/upload', { method: 'POST', body: formData });
+  if (!resp.ok) {
+    let body = ''; try { body = (await resp.text()).slice(0, 200); } catch(e){}
+    const isRate = resp.status === 429 || resp.status === 503 || /rate limit/i.test(body);
+    const err = new Error(`freeimage_${resp.status}:${body.replace(/\s+/g,' ')}`);
+    if (isRate) err.rateLimited = true;
+    throw err;
+  }
+  const json = await resp.json();
+  if (!json || !json.image || !json.image.url) throw new Error('freeimage_unexpected_response');
+  return json.image.url;
+}
+
+// imgur にアップロード(Client-ID必須)
+async function _uploadImgur(base64) {
+  if (!IMGUR_CLIENT_ID) throw new Error('imgur_no_client_id');
+  const formData = new FormData();
+  formData.append('image', base64);
+  formData.append('type', 'base64');
+  const resp = await fetch('https://api.imgur.com/3/image', {
+    method: 'POST',
+    headers: { 'Authorization': `Client-ID ${IMGUR_CLIENT_ID}` },
+    body: formData,
+  });
+  if (!resp.ok) {
+    let body = ''; try { body = (await resp.text()).slice(0, 200); } catch(e){}
+    const isRate = resp.status === 429 || resp.status === 503 || /rate limit|quota/i.test(body);
+    const err = new Error(`imgur_${resp.status}:${body.replace(/\s+/g,' ')}`);
+    if (isRate) err.rateLimited = true;
+    throw err;
+  }
+  const json = await resp.json();
+  if (!json || !json.success || !json.data || !json.data.link) throw new Error('imgur_unexpected_response');
+  return json.data.link;
+}
+
+// ホスト別の最終失敗時刻を記録し、しばらくスキップする(レート制限食らったら60秒避ける)
+const __hostCooldown = { imgbb: 0, freeimage: 0, imgur: 0 };
+const COOLDOWN_MS = 60 * 1000;
 
 async function uploadBase64ToCatbox(dataUrl) {
-  // 関数名はcatbox時代の互換保持。実体はimgbbへアップロード。
+  // 関数名は過去互換。実体は imgbb→freeimage→imgur のフォールバック
   const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!match) return null;
   const base64 = match[2];
 
-  const formData = new FormData();
-  formData.append('image', base64);
+  const now = Date.now();
+  const hosts = [
+    { name: 'imgbb', fn: _uploadImgbb },
+    { name: 'freeimage', fn: _uploadFreeimage },
+    { name: 'imgur', fn: _uploadImgur },
+  ].filter(h => now - __hostCooldown[h.name] > COOLDOWN_MS);
 
-  const resp = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-    method: 'POST',
-    body: formData,
-  });
-  if (resp.status === 429 || resp.status === 503) {
-    const err = new Error(`imgbb_rate_limit_${resp.status}`);
-    err.rateLimited = true;
-    throw err;
+  if (hosts.length === 0) {
+    // 全てクールダウン中 → 強制的に全部試す
+    hosts.push({ name: 'imgbb', fn: _uploadImgbb }, { name: 'freeimage', fn: _uploadFreeimage }, { name: 'imgur', fn: _uploadImgur });
   }
-  if (!resp.ok) {
-    let body = '';
-    try { body = (await resp.text()).slice(0, 200); } catch(e){}
-    const isRate = resp.status === 429 || resp.status === 503 || /rate limit/i.test(body);
-    const err = new Error(`imgbb_http_${resp.status}:${body.replace(/\s+/g,' ')}`);
-    if (isRate) err.rateLimited = true; else err.httpError = true;
-    throw err;
+
+  let lastErr = null;
+  for (const h of hosts) {
+    try {
+      const url = await h.fn(base64);
+      if (url) return url;
+    } catch (e) {
+      lastErr = e;
+      if (e && e.rateLimited) __hostCooldown[h.name] = Date.now();
+      // 次のホストへフォールバック
+    }
   }
-  let json;
-  try {
-    json = await resp.json();
-  } catch (e) {
-    return null;
-  }
-  if (!json || !json.success || !json.data || !json.data.url) {
-    console.warn('[imgbb] unexpected response:', json);
-    return null;
-  }
-  return json.data.url;
+  if (lastErr) throw lastErr;
+  return null;
 }
 
 // === property_data_json構築 ===
