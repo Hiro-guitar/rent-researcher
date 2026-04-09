@@ -1569,6 +1569,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               propertyNumber,
               buildingName: items[11]?.textContent.trim() || '',      // 物件名
               floor: items[12]?.textContent.trim() || '',             // 階数
+              rentText: items[8]?.textContent.trim() || '',           // 賃料（row2 col5）
+              managementFeeText: items[15]?.textContent.trim() || '', // 管理費（row3 col5）
+              commonFeeText: items[21]?.textContent.trim() || '',     // 共益費（row4 col5）
               depositGuarantee: items[16]?.textContent.trim() || '',  // 敷金／保証金
               keyMoneyRights: items[22]?.textContent.trim() || '',    // 礼金／権利金
               text: row.textContent.substring(0, 200)
@@ -1633,6 +1636,31 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       if (reikinPart && reikinPart !== '-' && reikinPart !== 'なし') {
         await setStorageData({ debugLog: `${customer.name}: ✗ 一覧スキップ: ${result.buildingName} ${result.floor} - 礼金あり(${result.keyMoneyRights})` });
         continue;
+      }
+    }
+
+    // 一覧ページで賃料+管理費+共益費フィルタ（詳細を開く前にスキップ→高速化）
+    if (customer.rent_max && result.rentText) {
+      const parseYen_ = (s) => {
+        if (!s) return 0;
+        const n = s.replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+                   .replace(/,/g, '');
+        const m = n.match(/([\d.]+)/);
+        if (!m) return 0;
+        const v = parseFloat(m[1]);
+        if (isNaN(v)) return 0;
+        return n.includes('万') ? Math.round(v * 10000) : Math.round(v);
+      };
+      const rentYen_ = parseYen_(result.rentText);
+      const mgmtYen_ = parseYen_(result.managementFeeText);
+      const commonYen_ = parseYen_(result.commonFeeText);
+      if (rentYen_ > 0) {
+        const rentMaxYen_ = parseFloat(customer.rent_max) * 10000;
+        const totalYen_ = rentYen_ + mgmtYen_ + commonYen_;
+        if (totalYen_ > rentMaxYen_) {
+          await setStorageData({ debugLog: `${customer.name}: ✗ 一覧スキップ: ${result.buildingName} ${result.floor} - 賃料+管理+共益超過 ${totalYen_}円(${result.rentText}+${result.managementFeeText||'0'}+${result.commonFeeText||'0'}) > ${rentMaxYen_}円` });
+          continue;
+        }
       }
     }
 
