@@ -1260,7 +1260,8 @@ function handleSnoozePeriodText(replyToken, userId, message) {
     replyMessage(replyToken, [textMsg(
       label + 'のあいだ配信を停止しました。\n' +
       ymdhm + ' に自動で配信を再開いたします。\n\n' +
-      'すぐに再開したい場合は「配信再開」とお送りください。'
+      'すぐに再開したい場合は「配信再開」とお送りください。\n\n' +
+      '※再開後も新着物件がない場合は通知は届きません。あらかじめご了承ください。'
     )]);
     return true;
   } catch (err) {
