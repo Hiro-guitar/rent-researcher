@@ -1308,27 +1308,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
       // バス・トイレ別スキップモード: 設備・条件・住宅性能等(optKnsk)欄に「バス・トイレ別」を追加してREINS側で絞り込む
       if (btMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
+        // REINS「こだわり条件選択」モーダルの「バス・トイレ別」= ID '030'
+        // 検索実体は vr.selectedOptIds 配列。表示用 vr.optKnsk も合わせて更新
+        const BT_ID = '030';
+        if (!Array.isArray(vr.selectedOptIds)) vr.selectedOptIds = [];
+        if (!vr.selectedOptIds.includes(BT_ID)) vr.selectedOptIds.push(BT_ID);
         const cur = (vr.optKnsk || '').trim();
-        const next = (!cur.includes('バス・トイレ別') && !cur.includes('バストイレ別'))
-          ? (cur ? (cur + ' バス・トイレ別') : 'バス・トイレ別')
-          : cur;
-        vr.optKnsk = next;
-        // PTextarea の iValue にも反映して update イベントを発火（条件決定でバインドが戻らないように）
-        const textareas = document.querySelectorAll('textarea.p-textarea-input, textarea');
-        for (const t of textareas) {
-          let v = t; while (v && !v.__vue__) v = v.parentElement;
-          const vm = v && v.__vue__;
-          if (!vm || !vm.$data || !('iValue' in vm.$data)) continue;
-          // optKnskに紐づいたtextareaのみ対象（空 or 既存値一致）
-          if (vm.$data.iValue === cur || vm.$data.iValue === '' || vm.$data.iValue === vr.optKnsk) {
-            vm.$data.iValue = next;
-            try { vm.$emit('update', next); } catch(e) {}
-            try { vm.$emit('input', next); } catch(e) {}
-            t.value = next;
-            t.dispatchEvent(new Event('input', { bubbles: true }));
-            t.dispatchEvent(new Event('change', { bubbles: true }));
-            break;
-          }
+        if (!cur.includes('バス・トイレ別') && !cur.includes('バストイレ別')) {
+          vr.optKnsk = cur ? (cur + ' バス・トイレ別') : 'バス・トイレ別';
         }
       }
 
