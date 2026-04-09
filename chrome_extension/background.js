@@ -17,7 +17,7 @@ let _unresolvedStations = {};
 // 他サイトで「申込あり」として弾いた物件のキーを永続化(7日TTL)
 // 形式: { "<building>|<room>": <timestamp>, ... }
 // REINSが最初に走るため、前回以前の実行で収集したキーを参照する
-const __MOSHIKOMI_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const __MOSHIKOMI_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30日。期間内に他サイトが再度申込ありを検出すれば都度延長される
 globalThis.__moshikomiSkipMap = {};
 chrome.storage.local.get(['moshikomiSkipMap'], (d) => {
   const m = d.moshikomiSkipMap || {};
@@ -36,6 +36,14 @@ globalThis.__addMoshikomiKey = (building, room) => {
   globalThis.__moshikomiSkipMap[k] = Date.now();
   // 保存(デバウンスせず都度。サイズは小さい想定)
   chrome.storage.local.set({ moshikomiSkipMap: globalThis.__moshikomiSkipMap }).catch(()=>{});
+};
+globalThis.__removeMoshikomiKey = (building, room) => {
+  const k = globalThis.__normMoshikomiKey(building, room);
+  if (!k) return;
+  if (globalThis.__moshikomiSkipMap[k]) {
+    delete globalThis.__moshikomiSkipMap[k];
+    chrome.storage.local.set({ moshikomiSkipMap: globalThis.__moshikomiSkipMap }).catch(()=>{});
+  }
 };
 globalThis.__hasMoshikomiKey = (building, room) => {
   const k = globalThis.__normMoshikomiKey(building, room);

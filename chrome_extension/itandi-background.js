@@ -586,6 +586,10 @@ function getItandiFilterRejectReason(prop, customer) {
       try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
       return '申込あり';
     }
+    // 申込あり以外のステータスが確認できた場合はキャンセル扱いで記録を消す
+    if (prop.listing_status && prop.listing_status !== '申込あり') {
+      try { globalThis.__removeMoshikomiKey && globalThis.__removeMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
+    }
     if (prop.web_badge_count >= 1) {
       return `WEBバッジ ${prop.web_badge_count}件`;
     }

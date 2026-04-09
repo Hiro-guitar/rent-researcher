@@ -766,6 +766,9 @@ function getEssquareFilterRejectReason(prop, customer) {
       try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
       return '申込あり';
     }
+    if (prop.listing_status && prop.listing_status !== '申込あり') {
+      try { globalThis.__removeMoshikomiKey && globalThis.__removeMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
+    }
   }
 
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
