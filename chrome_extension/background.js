@@ -2749,7 +2749,7 @@ function setStorageData(data) {
         const prevLog = prev.debugLog || '';
         const timestamp = new Date().toLocaleTimeString('ja-JP');
         data.debugLog = prevLog + `\n[${timestamp}] ${data.debugLog}`;
-        if (data.debugLog.length > 10000) data.debugLog = data.debugLog.slice(-10000);
+        if (data.debugLog.length > 500000) data.debugLog = data.debugLog.slice(-500000);
         chrome.storage.local.set(data, resolve);
       });
     });
