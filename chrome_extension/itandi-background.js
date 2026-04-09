@@ -284,7 +284,9 @@ function resolveItandiEquipmentIds(equipmentText) {
     const id = ITANDI_EQUIPMENT_IDS[item];
     if (id && !seenIds.has(id)) {
       seenIds.add(id);
-      if (ITANDI_SOFT_EQUIPMENT_IDS.has(id)) {
+      // バス・トイレ別(11010): btMode='skip'時はhardに昇格してAPI検索条件に入れる
+      const forceHard = id === 11010 && typeof __btMode !== 'undefined' && __btMode === 'skip';
+      if (ITANDI_SOFT_EQUIPMENT_IDS.has(id) && !forceHard) {
         softIds.push(id);
       } else {
         hardIds.push(id);

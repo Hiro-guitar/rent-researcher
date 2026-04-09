@@ -123,7 +123,14 @@ function buildEssquareSearchUrl(customer, page) {
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equip = toHankaku(customer.equipment || '');
   const equipItems = equip.split(/[,、，\/／]/).map(s => s.trim()).filter(Boolean);
+  const btSkip_ = typeof __btMode !== 'undefined' && __btMode === 'skip';
+  const btAliases_ = new Set(['バス・トイレ別', 'バストイレ別', 'BT別']);
   for (const item of equipItems) {
+    // バス・トイレ別: btMode='skip'の時だけkodawariに追加してAPIで絞り込む
+    if (btSkip_ && btAliases_.has(item)) {
+      params.append('kodawari', 'separatedBathAndToilet');
+      continue;
+    }
     if (ESSQUARE_HARD_KODAWARI_NAMES.has(item) && ESSQUARE_KODAWARI_MAP[item]) {
       params.append('kodawari', ESSQUARE_KODAWARI_MAP[item]);
       // 家具家電付き → 家具付き(kagu_flag) + 家電付き(kaden_flag) の両方を送る
