@@ -2144,6 +2144,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const images = [];
           const seen = new Set();
           const urls = [];
+          const debugUrls = [];
           // 候補1: div.mx-auto のbackground-image
           document.querySelectorAll('div.mx-auto').forEach(el => {
             const bg = (el.style && el.style.backgroundImage) || getComputedStyle(el).backgroundImage || '';
@@ -2155,31 +2156,48 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             const src = img.getAttribute('src') || '';
             if (src.includes('findBkknGzu') || src.includes('Gzu')) urls.push(src);
           });
+          // サムネURL→大画像URL候補を生成（複数パターン試行）
+          function toLargeCandidates(u) {
+            const candidates = [];
+            // パターン1: findBkknGzuThm → findBkknGzu
+            if (u.includes('findBkknGzuThm')) candidates.push(u.replace('findBkknGzuThm', 'findBkknGzu'));
+            // パターン2: Thm を除去
+            if (u.includes('Thm')) candidates.push(u.replace(/Thm/g, ''));
+            // パターン3: thumb → original / small → large
+            if (u.includes('thumb')) candidates.push(u.replace(/thumb/g, 'original'));
+            if (u.includes('small')) candidates.push(u.replace(/small/g, 'large'));
+            // パターン4: &thm=1 除去
+            if (u.match(/[?&]thm=/i)) candidates.push(u.replace(/([?&])thm=[^&]*&?/i, '$1').replace(/[?&]$/, ''));
+            // パターン5: _s.jpg → .jpg / _thumb.jpg → .jpg
+            if (u.match(/_s\.(jpg|jpeg|png)/i)) candidates.push(u.replace(/_s(\.(jpg|jpeg|png))/i, '$1'));
+            if (u.match(/_thumb\.(jpg|jpeg|png)/i)) candidates.push(u.replace(/_thumb(\.(jpg|jpeg|png))/i, '$1'));
+            return candidates;
+          }
           for (let u of urls) {
             try {
               if (u.startsWith('/')) u = location.origin + u;
-              // Thmを外して大画像URLを試す
-              const fullUrl = u.replace('findBkknGzuThm', 'findBkknGzu');
-              if (seen.has(fullUrl)) continue;
-              seen.add(fullUrl);
-              let base64 = await fetchAsBase64(fullUrl);
-              // 大画像が取れなければサムネにフォールバック
-              if (!base64 && fullUrl !== u) {
-                if (!seen.has(u)) {
-                  seen.add(u);
-                  base64 = await fetchAsBase64(u);
-                }
+              if (debugUrls.length < 3) debugUrls.push(u);
+              const candidates = toLargeCandidates(u);
+              candidates.push(u); // 最後にサムネそのものをフォールバック
+              let base64 = null;
+              for (const cu of candidates) {
+                if (seen.has(cu)) { if (candidates.indexOf(cu) === candidates.length - 1) break; continue; }
+                seen.add(cu);
+                base64 = await fetchAsBase64(cu);
+                if (base64) break;
               }
               if (base64) images.push(base64);
             } catch (e) {}
           }
-          return images;
+          return { images, debugUrls };
         }
       }),
         new Promise((resolve) => setTimeout(() => resolve(null), 120000))
       ]);
-      const imageBase64s = (imageResults && imageResults[0] && imageResults[0].result) || [];
-      await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
+      const imgResult = (imageResults && imageResults[0] && imageResults[0].result) || {};
+      const imageBase64s = Array.isArray(imgResult) ? imgResult : (imgResult.images || []);
+      const debugImgUrls = (imgResult && imgResult.debugUrls) || [];
+      await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件 サンプルURL=${JSON.stringify(debugImgUrls)}` });
 
       const detail = detailResults && detailResults[0] && detailResults[0].result;
       if (detail) {
