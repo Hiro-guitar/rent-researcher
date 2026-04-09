@@ -2179,7 +2179,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       });
 
-      // === 画像をbase64で抽出（クリック不要・サムネ背景URL直読み→Thm外して大画像fetch） ===
+      // === 画像をbase64で抽出（$nuxt walk → bkknGzuList 直読み方式） ===
       const imageResults = await Promise.race([
         chrome.scripting.executeScript({
         target: { tabId },
@@ -2201,63 +2201,46 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
           const sleep = (ms) => new Promise(r => setTimeout(r, ms));
           const images = [];
-          const seen = new Set();
-          const debugUrls = [];
-
-          async function closeModal() {
-            const cb = document.querySelector('.modal .btn.btn-outline, .modal .close, .modal [aria-label="Close"], .modal button.btn-close');
-            if (cb) cb.click();
-            else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, which: 27, bubbles: true }));
-            for (let i = 0; i < 30; i++) {
-              if (!document.querySelector('.image-view')) return;
-              await sleep(50);
-            }
-          }
-          // 本処理
-          const thumbCount = document.querySelectorAll('div.mx-auto').length;
-          for (let idx = 0; idx < thumbCount; idx++) {
-            let newUrl = null;
-            for (let attempt = 0; attempt < 3 && !newUrl; attempt++) {
-              try {
-                await closeModal();
-                await sleep(100);
-                const thumbs = document.querySelectorAll('div.mx-auto');
-                const thumb = thumbs[idx];
-                if (!thumb) break;
-                thumb.scrollIntoView({ block: 'center' });
-                await sleep(50);
-                thumb.click();
-                thumb.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-                // .image-view が出現 & findBkknGzu を含む本物URLが入るまで最大5秒待機
-                for (let i = 0; i < 50; i++) {
-                  const iv = document.querySelector('.image-view');
-                  if (iv) {
-                    const style = iv.getAttribute('style') || '';
-                    const m = style.match(/url\(["']?(.*?)["']?\)/);
-                    if (m && m[1] && m[1] !== 'null' && m[1].includes('findBkknGzu')) {
-                      newUrl = m[1];
-                      break;
-                    }
-                  }
-                  await sleep(100);
-                }
-                if (!newUrl) await sleep(300);
-              } catch (e) {}
-            }
-            if (newUrl) {
-              let u = newUrl.replace(/&amp;/g, '&');
-              if (u.startsWith('/')) u = location.origin + u;
-              if (debugUrls.length < 5) debugUrls.push(u);
-              if (!seen.has(u)) {
-                seen.add(u);
-                const b64 = await fetchAsBase64(u);
-                if (b64) images.push(b64);
+          // Vueツリーから bkknGzuList を探索
+          const findList = () => {
+            const walk = (c, d = 0) => {
+              if (d > 10 || !c) return null;
+              if (c.$data && Array.isArray(c.$data.bkknGzuList) && c.$data.bkknGzuList.length > 0) {
+                return c.$data.bkknGzuList;
               }
-            }
+              const children = c.$children || [];
+              for (const ch of children) {
+                const r = walk(ch, d + 1);
+                if (r) return r;
+              }
+              return null;
+            };
+            return walk(window.$nuxt);
+          };
+          // Vue マウント待ち（最大5秒）
+          let list = null;
+          for (let i = 0; i < 25; i++) {
+            list = findList();
+            if (list && list.length > 0) break;
+            await sleep(200);
           }
-          await closeModal();
-          await sleep(100);
-          return { images, debugUrls };
+          if (!list || list.length === 0) return images;
+          // gzuBngu 昇順でソート
+          const sorted = [...list].sort((a, b) => {
+            const an = parseInt(a.gzuBngu, 10) || 0;
+            const bn = parseInt(b.gzuBngu, 10) || 0;
+            return an - bn;
+          });
+          for (const item of sorted) {
+            let url = item.bkknGzuSrc;
+            if (!url) continue;
+            if (url.startsWith('/')) url = location.origin + url;
+            try {
+              const base64 = await fetchAsBase64(url);
+              if (base64) images.push(base64);
+            } catch (e) {}
+          }
+          return images;
         }
       }),
         new Promise((resolve) => setTimeout(() => resolve(null), 120000))
