@@ -2138,6 +2138,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             });
           }
           const imagesBase64 = [];
+          const diag = [];
           // サムネ出現を最大10秒ポーリング
           let thumbnails = [];
           for (let i = 0; i < 100; i++) {
@@ -2145,27 +2146,35 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             if (thumbnails.length > 0) break;
             await new Promise(r => setTimeout(r, 100));
           }
+          diag.push(`thumbs=${thumbnails.length} focus=${document.hasFocus()} vis=${document.visibilityState}`);
+          let idx = 0;
           for (const thumb of thumbnails) {
+            idx++;
+            const beforeModals = document.querySelectorAll('.modal.show, .image-view').length;
             thumb.click();
             // image-viewに大画像URL(findBkknGzu?でThmでない)が入るまで最大2秒ポーリング
             let imageUrl = null;
+            let lastStyle = '';
             for (let i = 0; i < 20; i++) {
               await new Promise(r => setTimeout(r, 100));
               const iv = document.querySelector('.image-view');
               if (!iv) continue;
               const style = iv.getAttribute('style') || '';
+              lastStyle = style;
               const m = style.match(/url\(["']?(.*?)["']?\)/);
               if (m && m[1] && m[1] !== 'null' && /findBkknGzu\?/.test(m[1])) {
                 imageUrl = m[1];
                 break;
               }
             }
+            const mAll = lastStyle.match(/url\(["']?(.*?)["']?\)/);
+            diag.push(`#${idx} before=${beforeModals} got=${imageUrl?'Y':'N'} lastUrl=${(mAll?mAll[1]:'(none)').slice(-60)}`);
             if (imageUrl) {
               if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
               try {
                 const base64 = await fetchImageAsBase64(imageUrl);
                 imagesBase64.push(base64);
-              } catch (e) {}
+              } catch (e) { diag.push(`#${idx} fetchErr=${e.message}`); }
             }
             const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
             if (closeBtn) {
@@ -2173,14 +2182,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               await new Promise(r => setTimeout(r, 300));
             }
           }
-          return { images: imagesBase64, debugUrls: [] };
+          return { images: imagesBase64, debugUrls: [], diag };
         }
       }),
         new Promise((resolve) => setTimeout(() => resolve(null), 120000))
       ]);
       const imgResult = (imageResults && imageResults[0] && imageResults[0].result) || {};
       const imageBase64s = Array.isArray(imgResult) ? imgResult : (imgResult.images || []);
-      await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
+      await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件\n${(imgResult.diag||[]).join('\n')}` });
 
       const detail = detailResults && detailResults[0] && detailResults[0].result;
       if (detail) {
