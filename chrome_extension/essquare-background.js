@@ -218,14 +218,15 @@ async function _waitForEssquareRender(tabId, timeoutMs) {
         target: { tabId },
         func: () => {
           const body = document.body;
-          if (!body) return { len: 0, yen: false, sqm: false, zero: false, search: false };
+          if (!body) return { len: 0, yen: false, sqm: false, zero: false, search: false, items: 0 };
           const t = body.innerText;
           return {
             len: t.length,
             yen: t.includes('円'),
             sqm: t.includes('㎡') || t.includes('m²'),
-            zero: /0\s*件/.test(t),
+            zero: /(^|\D)0\s*件/.test(t),
             search: t.includes('検索'),
+            items: document.querySelectorAll('[data-testclass="bukkenListItem"]').length,
           };
         },
       });
@@ -233,7 +234,8 @@ async function _waitForEssquareRender(tabId, timeoutMs) {
       const ind = results?.[0]?.result;
       if (!ind) { await sleep(1000); continue; }
 
-      // 検索結果が表示された
+      // 検索結果が表示された（物件行selectorが最優先）
+      if (ind.items > 0) return 'rendered';
       if (ind.len > 1000 && ind.yen && ind.sqm) return 'rendered';
       if (ind.len > 2000 && ind.yen) return 'rendered';
 
