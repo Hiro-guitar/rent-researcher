@@ -2126,6 +2126,33 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         target: { tabId },
         world: 'MAIN',
         func: async () => {
+          // canvas経由でbase64化（blob fetchは破損データを返すことがあるためES-Squareと同じ方式に統一）
+          async function loadImageToBase64(url) {
+            return new Promise((resolve) => {
+              try {
+                const img = new Image();
+                // 同一オリジン(reins.jp)前提。anonymousだとCookie送信されず403になるので付けない
+                img.onload = () => {
+                  try {
+                    if (!img.naturalWidth || !img.naturalHeight) { resolve(null); return; }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                    if (!dataUrl || dataUrl.length < 5000) { resolve(null); return; }
+                    resolve(dataUrl);
+                  } catch (e) { resolve(null); }
+                };
+                img.onerror = () => resolve(null);
+                img.src = url;
+                // 10秒タイムアウト
+                setTimeout(() => resolve(null), 10000);
+              } catch (e) { resolve(null); }
+            });
+          }
+          // フォールバック（旧blob fetch方式・万が一canvasがダメな場合用）
           async function fetchAsBase64(url) {
             try {
               const r = await fetch(url, { credentials: 'include' });
@@ -2179,7 +2206,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             if (!url) continue;
             if (url.startsWith('/')) url = location.origin + url;
             try {
-              const base64 = await fetchAsBase64(url);
+              // canvas優先（ES-Square同様 blob fetchは破損データを返すため）
+              let base64 = await loadImageToBase64(url);
+              if (!base64 || base64.length <= 5000) {
+                base64 = await fetchAsBase64(url);
+              }
               if (base64) images.push(base64);
             } catch (e) {}
           }
