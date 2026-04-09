@@ -228,7 +228,7 @@ async function _waitForEssquareRender(tabId, timeoutMs) {
             zero: /(^|\D)0\s*件/.test(t),
             search: t.includes('検索'),
             items: document.querySelectorAll('[data-testclass="bukkenListItem"]').length,
-            noResult: t.includes('該当する物件がありません') || t.includes('条件に合う物件がありません') || t.includes('物件が見つかりません') || t.includes('見つかりませんでした'),
+            noResult: t.includes('検索結果がありません') || t.includes('該当する物件がありません') || t.includes('条件に合う物件がありません') || t.includes('物件が見つかりません') || t.includes('見つかりませんでした'),
           };
         },
       });
