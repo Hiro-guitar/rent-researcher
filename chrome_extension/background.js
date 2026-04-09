@@ -14,14 +14,34 @@
 // { customerName: { service: [stationName, ...], ... }, ... }
 let _unresolvedStations = {};
 
-// 他サイトで「申込あり」として弾いた物件のキー集合（顧客ごと、同一実行内で共有）
-// キー: 建物名正規化 + '|' + 部屋番号正規化
-globalThis.__moshikomiSkipKeys = globalThis.__moshikomiSkipKeys || new Set();
+// 他サイトで「申込あり」として弾いた物件のキーを永続化(7日TTL)
+// 形式: { "<building>|<room>": <timestamp>, ... }
+// REINSが最初に走るため、前回以前の実行で収集したキーを参照する
+const __MOSHIKOMI_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+globalThis.__moshikomiSkipMap = {};
+chrome.storage.local.get(['moshikomiSkipMap'], (d) => {
+  const m = d.moshikomiSkipMap || {};
+  const now = Date.now();
+  for (const k in m) { if (now - m[k] < __MOSHIKOMI_TTL_MS) globalThis.__moshikomiSkipMap[k] = m[k]; }
+});
 globalThis.__normMoshikomiKey = (building, room) => {
   const nb = String(building || '').replace(/\s+/g, '').toLowerCase();
   const nr = String(room || '').replace(/[^\d]/g, '');
   if (!nb || !nr) return '';
   return `${nb}|${nr}`;
+};
+globalThis.__addMoshikomiKey = (building, room) => {
+  const k = globalThis.__normMoshikomiKey(building, room);
+  if (!k) return;
+  globalThis.__moshikomiSkipMap[k] = Date.now();
+  // 保存(デバウンスせず都度。サイズは小さい想定)
+  chrome.storage.local.set({ moshikomiSkipMap: globalThis.__moshikomiSkipMap }).catch(()=>{});
+};
+globalThis.__hasMoshikomiKey = (building, room) => {
+  const k = globalThis.__normMoshikomiKey(building, room);
+  if (!k) return false;
+  const ts = globalThis.__moshikomiSkipMap[k];
+  return !!(ts && (Date.now() - ts < __MOSHIKOMI_TTL_MS));
 };
 
 // バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
@@ -317,9 +337,8 @@ function getFilterRejectReason(prop, customer) {
 
   // 他サイト(itandi/ES-Square/いえらぶ)で申込ありとして弾かれた物件は同一実行内でREINSでもスキップ
   try {
-    const mk = globalThis.__normMoshikomiKey && globalThis.__normMoshikomiKey(prop.building_name, prop.room_number);
-    if (mk && globalThis.__moshikomiSkipKeys && globalThis.__moshikomiSkipKeys.has(mk)) {
-      return '他サイトで申込あり';
+    if (globalThis.__hasMoshikomiKey && globalThis.__hasMoshikomiKey(prop.building_name, prop.room_number)) {
+      return '他サイトで申込あり(前回実行)';
     }
   } catch(e) {}
 
