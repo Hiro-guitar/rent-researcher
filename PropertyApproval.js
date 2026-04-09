@@ -1071,6 +1071,8 @@ function handleStopReasonText(replyToken, userId, message, state) {
         text: 'かしこまりました。お忙しい時期に通知が来ないよう、一時停止する期間を選んでください。\n選んだ期間が経過すると自動で配信を再開いたします。',
         quickReply: {
           items: [
+            { type: 'action', action: { type: 'message', label: '24時間', text: 'スヌーズ:24時間' } },
+            { type: 'action', action: { type: 'message', label: '3日', text: 'スヌーズ:3日' } },
             { type: 'action', action: { type: 'message', label: '1週間', text: 'スヌーズ:1週間' } },
             { type: 'action', action: { type: 'message', label: '2週間', text: 'スヌーズ:2週間' } },
             { type: 'action', action: { type: 'message', label: '1ヶ月', text: 'スヌーズ:1ヶ月' } }
@@ -1183,22 +1185,24 @@ function handleSnoozePeriodText(replyToken, userId, message) {
       return true;
     }
     var label = message.substring('スヌーズ:'.length);
-    var days = 0;
-    if (label === '1週間') days = 7;
-    else if (label === '2週間') days = 14;
-    else if (label === '1ヶ月') days = 30;
+    var hours = 0;
+    if (label === '24時間') hours = 24;
+    else if (label === '3日') hours = 24 * 3;
+    else if (label === '1週間') hours = 24 * 7;
+    else if (label === '2週間') hours = 24 * 14;
+    else if (label === '1ヶ月') hours = 24 * 30;
     else {
-      replyMessage(replyToken, [textMsg('「1週間」「2週間」「1ヶ月」のいずれかを選んでください。')]);
+      replyMessage(replyToken, [textMsg('選択肢から選んでください。')]);
       return true;
     }
     var until = new Date();
-    until.setTime(until.getTime() + days * 24 * 60 * 60 * 1000);
+    until.setTime(until.getTime() + hours * 60 * 60 * 1000);
     _setSnoozeUntil(userId, until);
     clearState(userId);
-    var ymd = Utilities.formatDate(until, 'Asia/Tokyo', 'yyyy/MM/dd');
+    var ymdhm = Utilities.formatDate(until, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
     replyMessage(replyToken, [textMsg(
       label + 'のあいだ配信を停止しました。\n' +
-      ymd + ' に自動で配信を再開いたします。\n\n' +
+      ymdhm + ' に自動で配信を再開いたします。\n\n' +
       'すぐに再開したい場合は「配信再開」とお送りください。'
     )]);
     return true;
