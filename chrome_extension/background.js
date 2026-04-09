@@ -2202,7 +2202,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       ]);
       const imgResult = (imageResults && imageResults[0] && imageResults[0].result) || {};
       const imageBase64s = Array.isArray(imgResult) ? imgResult : (imgResult.images || []);
-      await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件\n${(imgResult.diag||[]).join('\n')}` });
+      await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
+      for (const line of (imgResult.diag || [])) {
+        await setStorageData({ debugLog: `${customer.name}: [diag] ${line}` });
+      }
 
       const detail = detailResults && detailResults[0] && detailResults[0].result;
       if (detail) {
