@@ -2369,7 +2369,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             if (lastErr) uploadErrors.push(`b64size=${b64?.length || 0} err=${lastErr}`);
             return null;
           }
-          const BATCH = 6;
+          const BATCH = 2;
           for (let i = 0; i < imageBase64s.length; i += BATCH) {
             const chunk = imageBase64s.slice(i, i + BATCH);
             const results = await Promise.all(chunk.map(uploadOne));
@@ -2377,6 +2377,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               if (r) uploadedUrls.push(r);
               else uploadFailed++;
             }
+            if (i + BATCH < imageBase64s.length) await csleep(1500);
           }
           if (uploadedUrls.length > 0) {
             detail.image_urls = uploadedUrls;

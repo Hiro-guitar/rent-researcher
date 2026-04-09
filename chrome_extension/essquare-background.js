@@ -880,8 +880,9 @@ async function uploadBase64ToCatbox(dataUrl) {
   if (!resp.ok) {
     let body = '';
     try { body = (await resp.text()).slice(0, 200); } catch(e){}
+    const isRate = resp.status === 429 || resp.status === 503 || /rate limit/i.test(body);
     const err = new Error(`imgbb_http_${resp.status}:${body.replace(/\s+/g,' ')}`);
-    err.httpError = true;
+    if (isRate) err.rateLimited = true; else err.httpError = true;
     throw err;
   }
   let json;
