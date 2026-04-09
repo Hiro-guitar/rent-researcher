@@ -1588,8 +1588,20 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const pageText = document.body.textContent.match(/(\d+)～(\d+)件\s*／\s*(\d+)件/);
           if (pageText) {
             pageInfo.totalItems = parseInt(pageText[3], 10);
-            const perPage = parseInt(pageText[2], 10) - parseInt(pageText[1], 10) + 1;
-            if (perPage > 0) pageInfo.totalPages = Math.ceil(pageInfo.totalItems / perPage);
+            // perPage は1ページ目の時のみ信頼可能（最終ページは表示件数が少ないため不正確）
+            const from = parseInt(pageText[1], 10);
+            const to = parseInt(pageText[2], 10);
+            if (from === 1) {
+              const perPage = to - from + 1;
+              if (perPage > 0) {
+                const calc = Math.ceil(pageInfo.totalItems / perPage);
+                // page-link側の値と食い違う場合は小さい方を採用
+                pageInfo.totalPages = Math.min(
+                  pageInfo.totalPages > 1 ? pageInfo.totalPages : calc,
+                  calc
+                );
+              }
+            }
           }
 
           // 各行から物件情報を抽出
