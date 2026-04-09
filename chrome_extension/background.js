@@ -2120,14 +2120,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       });
 
-      // === 画像をbase64で抽出（Tampermonkey原版そのまま） ===
-      // Vueモーダルコンポーネントの初期化待ち
-      await csleep(2000);
+      // === 画像抽出: MutationObserver で .image-view の style を監視して全URLを収集 ===
+      // (バックグラウンドタブthrottle対策: polyfillは≤100msのみ対象のため、200ms以上のsetTimeoutを避ける)
       const imageResults = await Promise.race([
         chrome.scripting.executeScript({
         target: { tabId },
         world: 'MAIN',
         func: async () => {
+          // throttle非依存の短い遅延ユーティリティ（MessageChannel経由）
+          const mc = new MessageChannel();
+          const mcTasks = [];
+          mc.port1.onmessage = () => { const t = mcTasks.shift(); if (t) t(); };
+          const microDelay = () => new Promise(r => { mcTasks.push(r); mc.port2.postMessage(0); });
+          const shortSleep = async (ms) => {
+            const end = performance.now() + ms;
+            while (performance.now() < end) await microDelay();
+          };
           async function fetchImageAsBase64(url) {
             const response = await fetch(url);
             const blob = await response.blob();
@@ -2138,41 +2146,54 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               reader.readAsDataURL(blob);
             });
           }
-          const imagesBase64 = [];
           const diag = [];
           // サムネ出現待ち
           let thumbnails = [];
           for (let i = 0; i < 100; i++) {
             thumbnails = document.querySelectorAll('div.mx-auto');
             if (thumbnails.length > 0) break;
-            await new Promise(r => setTimeout(r, 100));
+            await shortSleep(100);
           }
           diag.push(`thumbs=${thumbnails.length} focus=${document.hasFocus()} vis=${document.visibilityState}`);
+          // MutationObserverでstyle変化を監視してURL収集
+          const urlOrder = [];
+          const seenUrls = new Set();
+          const observer = new MutationObserver(muts => {
+            for (const m of muts) {
+              if (m.target.classList && m.target.classList.contains('image-view')) {
+                const s = m.target.getAttribute('style') || '';
+                const match = s.match(/url\(["']?(.*?findBkknGzu\?[^"')]+)/);
+                if (match && !seenUrls.has(match[1])) {
+                  seenUrls.add(match[1]);
+                  urlOrder.push(match[1]);
+                }
+              }
+            }
+          });
+          observer.observe(document.body, { attributes: true, attributeFilter: ['style'], subtree: true });
+          // 各サムネクリック→閉じる
           let idx = 0;
           for (const thumb of thumbnails) {
             idx++;
             thumb.click();
-            await new Promise(r => setTimeout(r, 200));
-            const imageView = document.querySelector('.image-view');
-            let got = 'N';
-            if (imageView) {
-              const style = imageView.getAttribute('style');
-              const match = style && style.match(/url\(["']?(.*?)["']?\)/);
-              if (match && match[1]) {
-                let imageUrl = match[1];
-                if (imageUrl.startsWith('/')) imageUrl = location.origin + imageUrl;
-                try {
-                  const base64 = await fetchImageAsBase64(imageUrl);
-                  imagesBase64.push(base64);
-                  got = 'Y';
-                } catch (e) {}
-              }
-            }
-            diag.push(`#${idx} got=${got}`);
+            await shortSleep(300);
             const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
             if (closeBtn) {
               closeBtn.click();
-              await new Promise(r => setTimeout(r, 300));
+              await shortSleep(300);
+            }
+          }
+          observer.disconnect();
+          diag.push(`collected=${urlOrder.length}`);
+          // 収集したURLを順にfetch
+          const imagesBase64 = [];
+          for (const u of urlOrder) {
+            let full = u.startsWith('/') ? location.origin + u : u;
+            try {
+              const b64 = await fetchImageAsBase64(full);
+              imagesBase64.push(b64);
+            } catch (e) {
+              diag.push(`fetchErr=${e.message}`);
             }
           }
           return { images: imagesBase64, debugUrls: [], diag };
