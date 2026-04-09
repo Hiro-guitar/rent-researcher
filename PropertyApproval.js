@@ -1261,7 +1261,7 @@ function handleSnoozePeriodText(replyToken, userId, message) {
       label + 'のあいだ配信を停止しました。\n' +
       ymdhm + ' に自動で配信を再開いたします。\n\n' +
       'すぐに再開したい場合は「配信再開」とお送りください。\n\n' +
-      '※再開後も新着物件がない場合は通知は届きません。あらかじめご了承ください。'
+      '※再開後も新着物件がない場合は通知は届きません。'
     )]);
     return true;
   } catch (err) {
@@ -1303,7 +1303,7 @@ function handleFrequencyText(replyToken, userId, message) {
     replyMessage(replyToken, [textMsg(
       '配信頻度を「' + label + '」に変更して配信を再開しました。\n' +
       '今後はこの頻度で新着物件をお届けいたします。\n\n' +
-      '※新着物件がない場合は通知は届きません。あらかじめご了承ください。'
+      '※新着物件がない場合は通知は届きません。'
     )]);
     return true;
   } catch (err) {
