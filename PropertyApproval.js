@@ -943,23 +943,20 @@ function setDeliveryStatus(userId, status) {
   return { ok: true, customerName: customerName };
 }
 
-// 配信停止コマンド: 即pause + 理由を聞く
+// 配信停止コマンド: まずは理由を聞く（ステータスは確定時に変更）
 function handleDeliveryStopCommand(replyToken, userId) {
   try {
-    var result = setDeliveryStatus(userId, 'paused');
-    if (!result.ok) {
+    var loc = _findCustomerRow(userId);
+    if (!loc) {
       replyMessage(replyToken, [textMsg('ご希望条件が未登録のようです。まずは「条件登録」からお願いいたします。')]);
       return;
     }
-    // 停止日時を記録
-    _recordStopTimestamp(userId);
-    // 理由待ち状態へ
     saveState(userId, { step: STEPS.WAITING_STOP_REASON, data: {} });
     replyMessage(replyToken, [{
       type: 'text',
-      text: '新着物件の配信を停止しました。\n\n' +
-        '差し支えなければ、停止の理由を教えていただけますか？\n' +
-        '今後のサービス改善に活用させていただきます。',
+      text: '配信停止の前に、差し支えなければ理由を教えていただけますか？\n' +
+        '今後のサービス改善に活用させていただきます。\n\n' +
+        'やめる場合は「キャンセル」とお送りください。',
       quickReply: {
         items: [
           { type: 'action', action: { type: 'message', label: '引越し先が決まった', text: '停止理由:引越し先が決まった' } },
@@ -1031,11 +1028,11 @@ function _saveStopReason(userId, reason) {
 function handleStopReasonText(replyToken, userId, message, state) {
   try {
     if (state.step === STEPS.WAITING_STOP_REASON_CUSTOM) {
-      // 自由入力フェーズ
-      _saveStopReason(userId, message);
+      // 自由入力フェーズ: ここで初めて配信停止を確定
+      _finalizeStop(userId, message);
       clearState(userId);
       replyMessage(replyToken, [textMsg(
-        'ご回答ありがとうございます。いただいた声を今後の改善に役立てます。\n\n' +
+        '配信を停止しました。ご回答ありがとうございます。\n\n' +
         '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
       )]);
       return true;
@@ -1044,24 +1041,26 @@ function handleStopReasonText(replyToken, userId, message, state) {
     if (state.step !== STEPS.WAITING_STOP_REASON) return false;
 
     if (message.indexOf('停止理由:') !== 0) {
-      // 選択肢外: 自由入力として扱い、そのまま保存
-      _saveStopReason(userId, message);
+      // 選択肢外: 自由入力として扱い、そのまま停止確定
+      _finalizeStop(userId, message);
       clearState(userId);
       replyMessage(replyToken, [textMsg(
-        'ご回答ありがとうございます。いただいた声を今後の改善に役立てます。\n\n' +
+        '配信を停止しました。ご回答ありがとうございます。\n\n' +
         '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
       )]);
       return true;
     }
 
     var reason = message.substring('停止理由:'.length);
-    _saveStopReason(userId, reason);
 
     if (reason === 'その他') {
+      // 自由入力に遷移（まだ停止は確定しない）
       saveState(userId, { step: STEPS.WAITING_STOP_REASON_CUSTOM, data: {} });
       replyMessage(replyToken, [textMsg('差し支えなければ、理由をお聞かせください。')]);
       return true;
     }
+
+    // 忙しくて/通知が多い は下で分岐して status 変更しない
 
     if (reason === '忙しくて後で見る') {
       // スヌーズ案内
@@ -1085,9 +1084,10 @@ function handleStopReasonText(replyToken, userId, message, state) {
     }
 
     if (reason === '希望に合わない') {
+      _finalizeStop(userId, reason);
       clearState(userId);
       replyMessage(replyToken, [textMsg(
-        'ご回答ありがとうございます。\n\n' +
+        '配信を停止しました。ご回答ありがとうございます。\n\n' +
         '希望条件を見直していただくと、よりマッチする物件をお届けできるかもしれません。\n' +
         '「条件登録」とお送りいただくと、新しく条件を登録できます。\n\n' +
         '配信を再開したくなったら、「配信再開」または「使い方」メニューから再開できます。'
@@ -1114,10 +1114,11 @@ function handleStopReasonText(replyToken, userId, message, state) {
       return true;
     }
 
-    // 引越し先が決まった など
+    // 引越し先が決まった など → 停止確定
+    _finalizeStop(userId, reason);
     clearState(userId);
     replyMessage(replyToken, [textMsg(
-      'ご回答ありがとうございます。いただいた声を今後の改善に役立てます。\n\n' +
+      '配信を停止しました。ご回答ありがとうございます。\n\n' +
       '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
     )]);
     return true;
@@ -1126,6 +1127,17 @@ function handleStopReasonText(replyToken, userId, message, state) {
     try { clearState(userId); } catch(e) {}
     try { replyMessage(replyToken, [textMsg('ご回答ありがとうございます。')]); } catch(e) {}
     return true;
+  }
+}
+
+// 配信停止を確定する: 理由保存 + status=paused + 停止日時
+function _finalizeStop(userId, reason) {
+  try {
+    if (reason) _saveStopReason(userId, reason);
+    setDeliveryStatus(userId, 'paused');
+    _recordStopTimestamp(userId);
+  } catch (err) {
+    console.error('_finalizeStop error: ' + err.message);
   }
 }
 
@@ -1189,7 +1201,7 @@ function handleSnoozePeriodText(replyToken, userId, message) {
     }
     var label = message.substring('スヌーズ:'.length);
     if (label === '停止') {
-      // 既に paused 状態なのでそのまま通常停止メッセージ
+      _finalizeStop(userId, null);
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         '新着物件の配信を停止しました。\n\n' +
@@ -1235,7 +1247,7 @@ function handleFrequencyText(replyToken, userId, message) {
     }
     var label = message.substring('頻度:'.length);
     if (label === '停止') {
-      // 既に paused 状態なのでそのまま通常停止メッセージ
+      _finalizeStop(userId, null);
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         '新着物件の配信を停止しました。\n\n' +
