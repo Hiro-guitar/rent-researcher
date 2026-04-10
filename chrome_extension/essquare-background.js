@@ -150,11 +150,8 @@ function buildEssquareSearchUrl(customer, page) {
     params.append('reikin_nashi_flag', 'true');
   }
 
-  // テスト顧客でなければ申込あり除外
-  const isTestUser = customer.name?.includes('テスト');
-  if (!isTestUser) {
-    params.append('is_exclude_moshikomi_exist', 'true');
-  }
+  // 申込あり物件もクライアント側で検出するためURLフィルタは使わない
+  // （他サイトとのクロス重複排除のため）
 
   // ソート: 最終更新日順
   params.append('order', 'saishu_koshin_time.desc');
@@ -655,6 +652,26 @@ async function _parseEssquareSearchResults(tabId) {
           // 管理費（kanrihi + kyoekihi + zatsuyaku）
           const mgmtFee = (jv.kanrihi || 0) + (jv.kyoekihi || 0) + (jv.zatsuyaku || 0);
 
+          // 募集状況（申込あり検出）— DOMタグから判定
+          let listingStatus = '';
+          const tagLabels = row.querySelectorAll('.eds-tag__label');
+          for (const tag of tagLabels) {
+            if (tag.textContent.trim() === '申込あり') {
+              listingStatus = '申込あり';
+              break;
+            }
+          }
+          // フォールバック: MuiChip-label
+          if (!listingStatus) {
+            const chips = row.querySelectorAll('.MuiChip-label');
+            for (const chip of chips) {
+              if (chip.textContent.trim() === '申込あり') {
+                listingStatus = '申込あり';
+                break;
+              }
+            }
+          }
+
           properties.push({
             uuid,
             building_name: specView.tatemono_name || '',
@@ -680,6 +697,7 @@ async function _parseEssquareSearchResults(tabId) {
             contract_period: jv.keiyaku_kikan ? `${jv.keiyaku_kikan}年` : '',
             motozuke: jv.motozuke_gyosha_name || '',
             sales_point: bv.sales_point || '',
+            listing_status: listingStatus,
           });
         } catch (e) {
           // パースエラーは個別にスキップ

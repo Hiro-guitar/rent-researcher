@@ -143,8 +143,8 @@ function buildIeloveSearchUrl(customer, page = 1) {
     parts.push('reuc/1');
   }
 
-  // 申込みなしのみ
-  parts.push('appl/1');
+  // 申込あり物件もクライアント側で検出するためURLフィルタは使わない
+  // （他サイトとのクロス重複排除のため）
 
   // ソート (登録が新しい順)
   parts.push('order/createTime1');
