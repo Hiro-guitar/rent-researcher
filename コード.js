@@ -940,6 +940,12 @@ function handleAddReinsProperty(json) {
 
   var customerName = json.customer_name;
   var properties = json.properties;
+  // Discord顧客スレッドIDを保存（Chrome拡張から受信）
+  if (json.discord_thread_id && customerName) {
+    try {
+      PropertiesService.getScriptProperties().setProperty('DISCORD_THREAD_' + customerName, json.discord_thread_id);
+    } catch(e) { console.error('discord_thread_id保存失敗: ' + e.message); }
+  }
   if (!customerName || !properties || properties.length === 0) {
     return ContentService
       .createTextOutput(JSON.stringify({ error: 'customer_name and properties required' }))
