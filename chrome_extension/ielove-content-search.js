@@ -148,15 +148,17 @@
       }
     }
 
-    // 募集状況
+    // 募集状況（spanのクラス名で判定 — tdのtextContentは要物確等で汚染されるため）
     let listingStatus = '';
     const leasing = card.querySelector('table.leasing-detail-info');
     if (leasing) {
-      for (const td of leasing.querySelectorAll('td')) {
-        const text = td.textContent.trim();
-        if (['募集中', '申込あり', '募集中（要確認）'].includes(text)) {
-          listingStatus = text;
-          break;
+      const appSpan = leasing.querySelector('span.exists_application_for_confirm');
+      if (appSpan) {
+        listingStatus = appSpan.textContent.trim(); // 「申込あり」「申込1件」「申込2件」等
+      } else {
+        const rentSpan = leasing.querySelector('span.for-rent');
+        if (rentSpan) {
+          listingStatus = rentSpan.textContent.trim(); // 「募集中」
         }
       }
     }
