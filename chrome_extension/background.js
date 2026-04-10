@@ -3301,7 +3301,12 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (prop.room_number) title += `  ${prop.room_number}`;
 
   const sourceTag = prop.source === 'ielove' ? 'いえらぶ' : prop.source === 'itandi' ? 'itandi' : prop.source === 'essquare' ? 'いい生活スクエア' : 'REINS';
-  const lines = [`**${index}. ${title}** \`[${sourceTag}]\``];
+  // 物件間の視覚的区切り（最初の物件以外）
+  const lines = [];
+  if (index > 1) {
+    lines.push('━━━━━━━━━━━━━━━━━━━━');
+  }
+  lines.push(`**${index}. ${title}** \`[${sourceTag}]\``);
 
   // 賃料
   let rentStr = `💰 **${fmtMan(prop.rent)}万円**`;
