@@ -100,6 +100,19 @@
   </div>
 
   <div class="field">
+    <label>バス・トイレ別が設備欄にない場合</label>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
+        <input type="radio" name="btMode" value="alert" checked> アラート（通知に⚠️を付けて知らせる）
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
+        <input type="radio" name="btMode" value="skip"> スキップ（物件自体を除外）
+      </label>
+    </div>
+    <div class="hint">顧客設定の設備欄に「バス・トイレ別」が指定されている場合のみ適用</div>
+  </div>
+
+  <div class="field">
     <label for="errorWebhook">エラー通知用 Webhook URL（任意）</label>
     <input type="text" id="errorWebhook" placeholder="https://discord.com/api/webhooks/...">
     <div class="hint">エラーログをここに通知。空欄なら上の物件通知Webhookに送信。同一エラーは5分クールダウン</div>

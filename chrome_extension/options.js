@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode'], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
@@ -13,6 +13,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const mode = data.notifyMode || 'immediate';
     const radio = document.querySelector(`input[name="notifyMode"][value="${mode}"]`);
     if (radio) radio.checked = true;
+    const bt = data.btMode || 'alert';
+    const btRadio = document.querySelector(`input[name="btMode"][value="${bt}"]`);
+    if (btRadio) btRadio.checked = true;
   });
 
   // 保存
@@ -27,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const businessStartHour = Math.max(0, Math.min(23, parseInt(document.getElementById('startHour').value) || 0));
     const businessEndHour = Math.max(1, Math.min(24, parseInt(document.getElementById('endHour').value) || 24));
     const notifyMode = (document.querySelector('input[name="notifyMode"]:checked') || {}).value || 'immediate';
+    const btMode = (document.querySelector('input[name="btMode"]:checked') || {}).value || 'alert';
 
     chrome.storage.local.set({
       gasWebappUrl,
@@ -38,7 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
       jitterPercent,
       businessStartHour,
       businessEndHour,
-      notifyMode
+      notifyMode,
+      btMode
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });
