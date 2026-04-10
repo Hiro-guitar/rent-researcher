@@ -3307,7 +3307,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   lines.push(`**${index}. ${title}** \`[${sourceTag}]\``);
 
   // 賃料
-  let rentStr = `**${fmtMan(prop.rent)}万円**`;
+  let rentStr = `賃料: **${fmtMan(prop.rent)}万円**`;
   if (prop.management_fee) {
     rentStr += ` (管理費: ${fmtMan(prop.management_fee)}万円)`;
   }
