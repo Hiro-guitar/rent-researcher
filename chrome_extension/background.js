@@ -2108,7 +2108,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               const allLabels = [...document.querySelectorAll('.p-label-title')];
               const lineLabels = allLabels.filter(e => e.textContent.trim() === '沿線名');
               const stationLabels = allLabels.filter(e => e.textContent.trim() === '駅名');
-              const walkLabels = allLabels.filter(e => e.textContent.trim() === '駅より徒歩');
+              const walkLabels = allLabels.filter(e => {
+                const t = e.textContent.trim();
+                return t === '駅より徒歩' || t === '駅から徒歩' || t === '徒歩';
+              });
               const getValFromLabel = (el) => {
                 if (!el) return '';
                 const container = el.closest('.p-label')?.parentElement;
@@ -3318,14 +3321,14 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (prop.layout) parts.push(prop.layout);
   if (prop.area) parts.push(`${prop.area}m²`);
   if (prop.building_age) parts.push(prop.building_age);
-  if (parts.length) lines.push(parts.join(' ｜ '));
+  if (parts.length) lines.push(`間取り: ${parts.join(' ｜ ')}`);
 
-  if (prop.address) lines.push(prop.address);
-  if (prop.station_info) lines.push(prop.station_info);
+  if (prop.address) lines.push(`住所: ${prop.address}`);
+  if (prop.station_info) lines.push(`交通: ${prop.station_info}`);
 
   // 階数
   if (prop.floor_text || prop.story_text) {
-    lines.push(`${prop.floor_text || '?'}/${prop.story_text || '?'}`);
+    lines.push(`階数: ${prop.floor_text || '?'}/${prop.story_text || '?'}`);
   }
 
   if (prop.deposit || prop.key_money) {
