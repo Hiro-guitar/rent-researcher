@@ -2004,6 +2004,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             const container = el.closest('.p-label')?.parentElement;
             if (!container) return '';
             if (label === '部屋番号') return container.querySelector('.col-sm-4')?.textContent.trim() || '';
+            // 値は内側の .row 直下の div（class="col" のことも "col-2" のこともある）
+            const innerRow = container.querySelector(':scope > .row');
+            if (innerRow) {
+              const valEl = innerRow.querySelector(':scope > [class^="col"], :scope > [class*=" col"]');
+              if (valEl) return valEl.textContent.trim();
+            }
             return container.querySelector('.row .col')?.textContent.trim() || '';
           };
 
@@ -2116,6 +2122,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 if (!el) return '';
                 const container = el.closest('.p-label')?.parentElement;
                 if (!container) return '';
+                const innerRow = container.querySelector(':scope > .row');
+                if (innerRow) {
+                  const valEl = innerRow.querySelector(':scope > [class^="col"], :scope > [class*=" col"]');
+                  if (valEl) return valEl.textContent.trim();
+                }
                 return container.querySelector('.row .col')?.textContent.trim() || '';
               };
               const normalizeWalk = (raw) => {
@@ -3327,12 +3338,12 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   }
   lines.push(rentStr);
 
-  // 間取り・面積・築年
-  const parts = [];
-  if (prop.layout) parts.push(prop.layout);
-  if (prop.area) parts.push(`${prop.area}m²`);
-  if (prop.building_age) parts.push(prop.building_age);
-  if (parts.length) lines.push(`間取り: ${parts.join(' ｜ ')}`);
+  // 間取り
+  if (prop.layout) lines.push(`間取り: ${prop.layout}`);
+  // 面積
+  if (prop.area) lines.push(`面積: ${prop.area}m²`);
+  // 築年
+  if (prop.building_age) lines.push(`築年: ${prop.building_age}`);
 
   if (prop.address) lines.push(`住所: ${prop.address}`);
   if (prop.station_info) lines.push(`交通: ${prop.station_info}`);
