@@ -2118,18 +2118,29 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 if (!container) return '';
                 return container.querySelector('.row .col')?.textContent.trim() || '';
               };
-              const count = Math.max(lineLabels.length, stationLabels.length);
+              const normalizeWalk = (raw) => {
+                if (!raw) return '';
+                const s = String(raw).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+                const m = s.match(/(\d+)/);
+                if (!m) return '';
+                return `徒歩${m[1]}分`;
+              };
+              const count = Math.max(lineLabels.length, stationLabels.length, walkLabels.length);
               for (let t = 0; t < count; t++) {
                 const line = getValFromLabel(lineLabels[t]);
                 const station = getValFromLabel(stationLabels[t]);
-                const walk = getValFromLabel(walkLabels[t]);
+                const walk = normalizeWalk(getValFromLabel(walkLabels[t]));
                 if (line || station) {
                   let info = [line, station].filter(Boolean).join(' ');
-                  if (walk) info += ' 徒歩' + walk;
+                  if (walk) info += ' ' + walk;
                   transports.push(info);
                 }
               }
-              return transports.join(' / ') || ([getVal('沿線名'), getVal('駅名')].filter(Boolean).join(' ') + (getVal('駅から徒歩') ? ' 徒歩' + getVal('駅から徒歩') : ''));
+              if (transports.length > 0) return transports.join(' / ');
+              // フォールバック: ラベル名違い
+              const fallbackWalk = normalizeWalk(getVal('駅から徒歩') || getVal('駅より徒歩') || getVal('徒歩'));
+              const base = [getVal('沿線名'), getVal('駅名')].filter(Boolean).join(' ');
+              return base + (fallbackWalk ? ' ' + fallbackWalk : '');
             })(),
             room_number: roomNumber || '',
             room_attr: roomAttr || '',
