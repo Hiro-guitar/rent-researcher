@@ -8,7 +8,8 @@
     "alarms",
     "tabs",
     "notifications",
-    "scripting"
+    "scripting",
+    "power"
   ],
   "host_permissions": [
     "https://system.reins.jp/*",
@@ -22,6 +23,10 @@
     "https://catbox.moe/*",
     "https://api.imgbb.com/*",
     "https://i.ibb.co/*",
+    "https://freeimage.host/*",
+    "https://iili.io/*",
+    "https://api.imgur.com/*",
+    "https://i.imgur.com/*",
     "https://api.e-bukken-1.com/*"
   ],
   "background": {

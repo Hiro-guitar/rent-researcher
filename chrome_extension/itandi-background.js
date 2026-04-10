@@ -284,7 +284,9 @@ function resolveItandiEquipmentIds(equipmentText) {
     const id = ITANDI_EQUIPMENT_IDS[item];
     if (id && !seenIds.has(id)) {
       seenIds.add(id);
-      if (ITANDI_SOFT_EQUIPMENT_IDS.has(id)) {
+      // バス・トイレ別(11010): btMode='skip'時はhardに昇格してAPI検索条件に入れる
+      const forceHard = id === 11010 && typeof __btMode !== 'undefined' && __btMode === 'skip';
+      if (ITANDI_SOFT_EQUIPMENT_IDS.has(id) && !forceHard) {
         softIds.push(id);
       } else {
         hardIds.push(id);
@@ -324,6 +326,10 @@ function buildItandiSearchPayload(customer, stationIds) {
   }
   if (customer.rent_max) {
     filterObj['total_rent:lteq'] = parseFloat(customer.rent_max) * 10000;
+    // 下限は上限の70%（明示下限が無い場合のみ）
+    if (!customer.rent_min) {
+      filterObj['total_rent:gteq'] = Math.floor(parseFloat(customer.rent_max) * 10000 * 0.7);
+    }
   }
 
   // 間取り
@@ -336,8 +342,9 @@ function buildItandiSearchPayload(customer, stationIds) {
   }
 
   // 専有面積
-  if (customer.area_min) {
-    filterObj['floor_area_amount:gteq'] = parseFloat(customer.area_min);
+  if (customer.area_min && !String(customer.area_min).includes('指定しない')) {
+    const n = parseFloat(String(customer.area_min).replace(/[^\d.]/g, ''));
+    if (!isNaN(n) && n > 0) filterObj['floor_area_amount:gteq'] = n;
   }
 
   // 築年数
@@ -437,9 +444,11 @@ function parseItandiSearchResponse(data) {
       if (!roomId) continue;
 
       const rent = _parseItandiPriceText(room.rent_text || '');
-      const managementFee = _parseItandiPriceText(
-        room.kanrihi_text || room.kanrihi_kyoekihi_text || ''
-      );
+      // 管理費＋共益費を合算（片方しかない物件にも対応）
+      const __kanrihi = _parseItandiPriceText(room.kanrihi_text || '');
+      const __kyoekihi = _parseItandiPriceText(room.kyoekihi_text || '');
+      const __combined = _parseItandiPriceText(room.kanrihi_kyoekihi_text || '');
+      const managementFee = __combined || (__kanrihi + __kyoekihi);
       const deposit = room.shikikin_text || '';
       const keyMoney = room.reikin_text || '';
       const layout = room.layout_text || '';
@@ -576,7 +585,12 @@ function getItandiFilterRejectReason(prop, customer) {
   const isTestUser = customer.name?.includes('テスト');
   if (!isTestUser) {
     if (prop.listing_status === '申込あり') {
+      try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
       return '申込あり';
+    }
+    // 申込あり以外のステータスが確認できた場合はキャンセル扱いで記録を消す
+    if (prop.listing_status && prop.listing_status !== '申込あり') {
+      try { globalThis.__removeMoshikomiKey && globalThis.__removeMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
     }
     if (prop.web_badge_count >= 1) {
       return `WEBバッジ ${prop.web_badge_count}件`;

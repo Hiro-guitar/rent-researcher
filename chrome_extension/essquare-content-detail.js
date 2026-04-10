@@ -704,10 +704,20 @@
     }
 
     // === 6. ステータス ===
-    const allText = document.body.innerText || '';
-    const knownStatuses = ['申込あり', '成約', '公開停止', '契約済み', '募集中'];
+    // 「申込あり」「募集中」等がUI文言(フィルタ選択肢など)に混在するため、
+    // ステータスバッジ候補の要素に限定して判定する
+    const statusCandidates = [];
+    // バッジ/ラベル系の短いテキスト要素を収集
+    document.querySelectorAll('span, div, p, strong, em, label, li, td').forEach(el => {
+      const txt = (el.textContent || '').trim();
+      if (!txt || txt.length > 12) return;
+      // 子要素を持たないリーフのみ
+      if (el.children.length > 0) return;
+      statusCandidates.push(txt);
+    });
+    const knownStatuses = ['募集中', '申込あり', '成約', '公開停止', '契約済み'];
     for (const s of knownStatuses) {
-      if (allText.includes(s)) {
+      if (statusCandidates.some(t => t === s)) {
         detail.listing_status = s;
         break;
       }

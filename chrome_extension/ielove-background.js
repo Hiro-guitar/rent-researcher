@@ -60,17 +60,21 @@ function buildIeloveSearchUrl(customer, page = 1) {
     parts.push(`prct/${customer.rent_max}`);
   }
 
-  // 賃料下限
+  // 賃料下限（明示指定が無ければ上限の70%）
   if (customer.rent_min) {
     parts.push(`prcf/${customer.rent_min}`);
+  } else if (customer.rent_max) {
+    const min70 = Math.floor(parseFloat(customer.rent_max) * 0.7 * 10) / 10;
+    if (min70 > 0) parts.push(`prcf/${min70}`);
   }
 
   // 管理費込み
   parts.push('ikrh/1');
 
   // 専有面積下限
-  if (customer.area_min) {
-    parts.push(`barf/${parseFloat(customer.area_min).toFixed(2)}`);
+  if (customer.area_min && !String(customer.area_min).includes('指定しない')) {
+    const n = parseFloat(String(customer.area_min).replace(/[^\d.]/g, ''));
+    if (!isNaN(n) && n > 0) parts.push(`barf/${n.toFixed(2)}`);
   }
 
   // 駅徒歩
@@ -105,6 +109,15 @@ function buildIeloveSearchUrl(customer, page = 1) {
     }
   }
 
+  // バス・トイレ別: btMode='skip' + equipにバス・トイレ別指定時のみURL絞り込み
+  {
+    const eqRaw_ = (customer.equipment || '').toLowerCase();
+    const btSkip_ = typeof __btMode !== 'undefined' && __btMode === 'skip';
+    if (btSkip_ && (eqRaw_.includes('バストイレ別') || eqRaw_.includes('バス・トイレ別') || eqRaw_.includes('bt別'))) {
+      parts.push('opts11/1101');
+    }
+  }
+
   // 所在階フィルタ（1階 or 2階以上）
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equipText = toHankaku(customer.equipment || '').toLowerCase();
@@ -130,8 +143,8 @@ function buildIeloveSearchUrl(customer, page = 1) {
     parts.push('reuc/1');
   }
 
-  // 申込みなしのみ
-  parts.push('appl/1');
+  // 申込あり物件もクライアント側で検出するためURLフィルタは使わない
+  // （他サイトとのクロス重複排除のため）
 
   // ソート (登録が新しい順)
   parts.push('order/createTime1');
@@ -295,13 +308,69 @@ async function findOrCreateDedicatedIeloveTab() {
   // ログイン状態を確認
   const tab = await chrome.tabs.get(dedicatedIeloveTabId);
   if (tab.url?.includes('/login')) {
-    await setStorageData({ debugLog: 'いえらぶBBにログインしてください（bb.ielove.jpでログイン後に再実行）' });
-    await closeDedicatedIeloveWindow();
+    await setStorageData({ debugLog: 'いえらぶBBにログインしてください（bb.ielove.jpでログイン後、自動で検索を再開します）' });
+    // ウィンドウをフォーカスしてユーザーに気付かせる
+    try {
+      if (dedicatedIeloveWindowId) {
+        await chrome.windows.update(dedicatedIeloveWindowId, { focused: true });
+      }
+    } catch (e) {}
+    // Discord通知（任意）
+    try {
+      const { discordWebhookUrl } = await new Promise(r => chrome.storage.local.get(['discordWebhookUrl'], r));
+      if (discordWebhookUrl) {
+        await fetch(discordWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: '⚠️ いえらぶBBにログインしてください。ログイン完了後、自動で検索を再開します。' })
+        });
+      }
+    } catch (e) {}
+    // ログイン完了監視を開始
+    __watchIeloveLoginAndResume(dedicatedIeloveTabId);
     return null;
   }
 
   await setStorageData({ debugLog: `専用いえらぶタブ作成: tabId=${dedicatedIeloveTabId}` });
   return tab;
+}
+
+// ログイン完了を監視して、完了したら検索サイクルを再キックする
+let __ieloveLoginWatcher = null;
+function __watchIeloveLoginAndResume(watchTabId) {
+  // 既存リスナーを片付け
+  if (__ieloveLoginWatcher) {
+    try { chrome.tabs.onUpdated.removeListener(__ieloveLoginWatcher); } catch (e) {}
+    __ieloveLoginWatcher = null;
+  }
+  __ieloveLoginWatcher = (tabId, changeInfo, tab) => {
+    if (tabId !== watchTabId) return;
+    const url = changeInfo.url || tab?.url || '';
+    if (!url.includes('bb.ielove.jp')) return;
+    // /login から離れた = ログイン完了
+    if (!url.includes('/login')) {
+      try { chrome.tabs.onUpdated.removeListener(__ieloveLoginWatcher); } catch (e) {}
+      __ieloveLoginWatcher = null;
+      setStorageData({ debugLog: '[いえらぶ] ログイン検知。検索を自動再開します...' });
+      // 少し待ってから再キック
+      setTimeout(() => {
+        try {
+          if (typeof globalThis.runSearchCycle === 'function') {
+            globalThis.runSearchCycle();
+          }
+        } catch (e) {}
+      }, 1500);
+    }
+  };
+  chrome.tabs.onUpdated.addListener(__ieloveLoginWatcher);
+  // タブが閉じられたら監視も解除
+  const onRemoved = (tid) => {
+    if (tid !== watchTabId) return;
+    try { chrome.tabs.onUpdated.removeListener(__ieloveLoginWatcher); } catch (e) {}
+    __ieloveLoginWatcher = null;
+    chrome.tabs.onRemoved.removeListener(onRemoved);
+  };
+  chrome.tabs.onRemoved.addListener(onRemoved);
 }
 
 async function closeDedicatedIeloveWindow() {
@@ -334,7 +403,11 @@ function getIeloveFilterRejectReason(prop, customer) {
 
   // 募集状況フィルタ
   if (prop.listing_status === '申込あり') {
+    try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
     return '申込あり';
+  }
+  if (prop.listing_status && prop.listing_status !== '申込あり') {
+    try { globalThis.__removeMoshikomiKey && globalThis.__removeMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
   }
 
   // 敷金なし・礼金なし・フリーレントフィルタ

@@ -14,6 +14,51 @@
 // { customerName: { service: [stationName, ...], ... }, ... }
 let _unresolvedStations = {};
 
+// 他サイトで「申込あり」として弾いた物件のキーを永続化(7日TTL)
+// 形式: { "<building>|<room>": <timestamp>, ... }
+// REINSが最初に走るため、前回以前の実行で収集したキーを参照する
+const __MOSHIKOMI_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30日。期間内に他サイトが再度申込ありを検出すれば都度延長される
+globalThis.__moshikomiSkipMap = {};
+chrome.storage.local.get(['moshikomiSkipMap'], (d) => {
+  const m = d.moshikomiSkipMap || {};
+  const now = Date.now();
+  for (const k in m) { if (now - m[k] < __MOSHIKOMI_TTL_MS) globalThis.__moshikomiSkipMap[k] = m[k]; }
+});
+globalThis.__normMoshikomiKey = (building, room) => {
+  const nb = String(building || '').replace(/\s+/g, '').toLowerCase();
+  const nr = String(room || '').replace(/[^\d]/g, '');
+  if (!nb || !nr) return '';
+  return `${nb}|${nr}`;
+};
+globalThis.__addMoshikomiKey = (building, room) => {
+  const k = globalThis.__normMoshikomiKey(building, room);
+  if (!k) return;
+  globalThis.__moshikomiSkipMap[k] = Date.now();
+  // 保存(デバウンスせず都度。サイズは小さい想定)
+  chrome.storage.local.set({ moshikomiSkipMap: globalThis.__moshikomiSkipMap }).catch(()=>{});
+};
+globalThis.__removeMoshikomiKey = (building, room) => {
+  const k = globalThis.__normMoshikomiKey(building, room);
+  if (!k) return;
+  if (globalThis.__moshikomiSkipMap[k]) {
+    delete globalThis.__moshikomiSkipMap[k];
+    chrome.storage.local.set({ moshikomiSkipMap: globalThis.__moshikomiSkipMap }).catch(()=>{});
+  }
+};
+globalThis.__hasMoshikomiKey = (building, room) => {
+  const k = globalThis.__normMoshikomiKey(building, room);
+  if (!k) return false;
+  const ts = globalThis.__moshikomiSkipMap[k];
+  return !!(ts && (Date.now() - ts < __MOSHIKOMI_TTL_MS));
+};
+
+// バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
+let __btMode = 'alert';
+chrome.storage.local.get(['btMode'], (d) => { if (d.btMode) __btMode = d.btMode; });
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.btMode) __btMode = changes.btMode.newValue || 'alert';
+});
+
 // いえらぶBB関連ファイルを読み込み
 importScripts('ielove-config.js', 'ielove-background.js');
 // itandi BB関連ファイルを読み込み
@@ -298,6 +343,13 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // 他サイト(itandi/ES-Square/いえらぶ)で申込ありとして弾かれた物件は同一実行内でREINSでもスキップ
+  try {
+    if (globalThis.__hasMoshikomiKey && globalThis.__hasMoshikomiKey(prop.building_name, prop.room_number)) {
+      return '他サイトで申込あり(前回実行)';
+    }
+  } catch(e) {}
+
   // 新築フィルタ（顧客が「新築」指定の場合、新築フラグが「新築」の物件のみ通過）
   if (customer.building_age && String(customer.building_age).includes('新築')) {
     if (!prop.shinchiku_flag || !prop.shinchiku_flag.includes('新築')) {
@@ -337,8 +389,13 @@ function getFilterRejectReason(prop, customer) {
 
     const walkMax = customer.walk ? parseInt(String(customer.walk).replace(/[^\d]/g, '')) : 0;
 
+    const normStn = (s) => String(s || '').replace(/駅$/, '').trim();
     const hasMatch = transports.some(transport => {
-      const stationMatch = allStations.some(s => transport.includes(s));
+      const tNorm = normStn(transport);
+      const stationMatch = allStations.some(s => {
+        const sn = normStn(s);
+        return sn && tNorm.includes(sn);
+      });
       if (!stationMatch) return false;
       if (walkMax > 0) {
         const walkMatch = transport.match(/徒歩\s*(\d+)/);
@@ -469,6 +526,14 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // バス・トイレ別スキップモード（options画面で btMode='skip' 指定時のみ、equipにバス・トイレ別があって設備欄に無ければ除外）
+  if (__btMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
+    const fac = prop.facilities || '';
+    if (!fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
+      return `バス・トイレ別の記載なし`;
+    }
+  }
+
   // ペット可フィルタ（REINS表記: ペット可/ペット相談。記載なし・設備なしは除外）
   if (equip.includes('ペット')) {
     const fac = prop.facilities || '';
@@ -528,12 +593,33 @@ function parseBuildingAge(str) {
   return null;
 }
 
+// --- 自動検索トグルに応じてスリープ抑制を制御 ---
+function __applyKeepAwakeForAutoSearch() {
+  try {
+    chrome.storage.local.get(['autoSearchEnabled'], (d) => {
+      if (!chrome.power) return;
+      if (d.autoSearchEnabled !== false) {
+        try { chrome.power.requestKeepAwake('system'); } catch(e) {}
+      } else {
+        try { chrome.power.releaseKeepAwake(); } catch(e) {}
+      }
+    });
+  } catch(e) {}
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && 'autoSearchEnabled' in changes) __applyKeepAwakeForAutoSearch();
+});
+// SW起動時(ブラウザ起動/SW再起動)にも状態を反映
+__applyKeepAwakeForAutoSearch();
+if (chrome.runtime.onStartup) chrome.runtime.onStartup.addListener(__applyKeepAwakeForAutoSearch);
+
 // --- 初期化 ---
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['searchIntervalMinutes'], (data) => {
     setupAlarm(data.searchIntervalMinutes || 30);
   });
   chrome.storage.local.set({ isSearching: false });
+  __applyKeepAwakeForAutoSearch();
   chrome.storage.local.get(['stats'], (data) => {
     if (!data.stats) {
       chrome.storage.local.set({
@@ -709,7 +795,7 @@ async function reportUnresolvedStations() {
 }
 
 // --- メイン検索サイクル ---
-async function runSearchCycle() {
+globalThis.runSearchCycle = async function runSearchCycle() {
   const { isSearching, gasWebappUrl, enabledServices } = await getStorageData(['isSearching', 'gasWebappUrl', 'enabledServices']);
   if (isSearching) { console.log('検索中のためスキップ'); return; }
   if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }
@@ -739,6 +825,9 @@ async function runSearchCycle() {
   const globalKeepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => {});
   }, 20000);
+
+  // 検索中はスリープを抑制(画面はオフ可・システムスリープのみ防止)
+  try { chrome.power && chrome.power.requestKeepAwake && chrome.power.requestKeepAwake('system'); } catch(e) {}
 
   try {
     // 検索条件を取得（毎回GASから最新を取得）
@@ -788,7 +877,28 @@ async function runSearchCycle() {
       const customer = criteria[ci];
       await setStorageData({ debugLog: `━━ 顧客 ${ci+1}/${criteria.length}: ${customer.name} ━━` });
 
-      // --- REINS ---
+      // --- itandi ---
+      if (services.itandi) {
+        if (isSearchCancelled(searchId)) return;
+        try { await runItandiSearch([customer], seenIds, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[itandi] 検索エラー: ' + err.message); }
+      }
+
+      // --- ES-Square ---
+      if (services.essquare) {
+        if (isSearchCancelled(searchId)) return;
+        try { await runEssquareSearch([customer], seenIds, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[ES-Square] 検索エラー: ' + err.message); }
+      }
+
+      // --- いえらぶ ---
+      if (services.ielove) {
+        if (isSearchCancelled(searchId)) return;
+        try { await runIeloveSearch([customer], seenIds, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[いえらぶ] 検索エラー: ' + err.message); }
+      }
+
+      // --- REINS（他サイトで申込あり検出後に判定するため最後に実行） ---
       if (services.reins && reinsTab && !reinsFatalExit) {
         const cond = formatCustomerCriteria(customer);
         await setStorageData({ debugLog: `[REINS] ${customer.name} 条件: ${cond}` });
@@ -834,27 +944,6 @@ async function runSearchCycle() {
         }
       }
 
-      // --- いえらぶ ---
-      if (services.ielove) {
-        if (isSearchCancelled(searchId)) return;
-        try { await runIeloveSearch([customer], seenIds, searchId); }
-        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[いえらぶ] 検索エラー: ' + err.message); }
-      }
-
-      // --- itandi ---
-      if (services.itandi) {
-        if (isSearchCancelled(searchId)) return;
-        try { await runItandiSearch([customer], seenIds, searchId); }
-        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[itandi] 検索エラー: ' + err.message); }
-      }
-
-      // --- ES-Square ---
-      if (services.essquare) {
-        if (isSearchCancelled(searchId)) return;
-        try { await runEssquareSearch([customer], seenIds, searchId); }
-        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[ES-Square] 検索エラー: ' + err.message); }
-      }
-
       // --- 一括モード: この顧客分だけ重複排除＆通知 ---
       if (notifyMode === 'batch') {
         try { await flushBatchBufferForCustomer(customer.name); }
@@ -877,6 +966,7 @@ async function runSearchCycle() {
     logError('検索サイクルエラー: ' + err.message);
   } finally {
     clearInterval(globalKeepAlive);
+    try { chrome.power && chrome.power.releaseKeepAwake && chrome.power.releaseKeepAwake(); } catch(e) {}
     // 中止時はタブを閉じない（テスト確認用にタブを残す）
     if (!isSearchCancelled(searchId)) {
       await closeDedicatedWindow();
@@ -961,8 +1051,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     await csleep(3000);
   }
 
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都' }, lineNameMap, reinsCodeMap];
-  const __setCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap) => {
+  // SW再起動直後でもbtModeを確実に拾うためストレージから直読み
+  const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'alert')));
+  __btMode = __btModeFresh;
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都' }, lineNameMap, reinsCodeMap, __btModeFresh];
+  const __setCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap, btMode) => {
       // Vueルート取得
       const fi = document.querySelector('.p-textbox-input');
       if (!fi) return { error: 'no_input' };
@@ -1024,13 +1117,27 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
           if (reinsLineName === '\u691c\u7d22\u4e0d\u80fd') continue; // 検索不能
 
-          // 丸ノ内線方南町支線の分岐対応: 支線駅がある場合は路線名を切り替え
+          // 丸ノ内線方南町支線の分岐対応: 本線駅と支線駅を分離
           if (lineName === '東京メトロ丸ノ内線' && colonIdx >= 0) {
             const honanBranchStations = new Set(['中野新橋', '中野富士見町', '方南町']);
             const stns = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
-            if (stns.some(s => honanBranchStations.has(s))) {
+            const mainStns = stns.filter(s => !honanBranchStations.has(s));
+            const branchStns = stns.filter(s => honanBranchStations.has(s));
+            if (branchStns.length > 0 && mainStns.length > 0) {
+              // 混在: 現在のパートを本線駅のみに書き換え、支線を新パートとして追加
+              parts[i] = lineName + '：' + mainStns.join(',');
+              parts.splice(i + 1, 0, lineName + '（方南支線）：' + branchStns.join(','));
+              // reinsLineNameは本線のまま（丸ノ内線）
+            } else if (branchStns.length > 0 && mainStns.length === 0) {
+              // 全駅が支線 → 丸ノ内方南に切り替え
               reinsLineName = '丸ノ内方南';
             }
+            // 全駅が本線の場合はそのまま
+          }
+
+          // 丸ノ内線方南支線パート（上記spliceで追加されたもの）の処理
+          if (lineName === '東京メトロ丸ノ内線（方南支線）') {
+            reinsLineName = '丸ノ内方南';
           }
 
           // 常磐線の分岐対応: 各停駅（綾瀬〜北柏）はREINSでは常磐緩行線
@@ -1171,6 +1278,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       // 賃料上限（万円）
       if (customerData.rent_max) {
         vr.kkkuCnryuTo = String(customerData.rent_max);
+        // 下限は上限の70%（万円、小数1桁）
+        const min70 = Math.floor(parseFloat(customerData.rent_max) * 0.7 * 10) / 10;
+        if (min70 > 0) vr.kkkuCnryuFrom = String(min70);
       }
 
       // 間取りセット（layouts: ["1K", "1DK", "2LDK"] → mdrTyp + mdrHysuFrom/To）
@@ -1229,8 +1339,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       }
 
       // 建物使用部分面積（㎡）
-      if (customerData.area_min) {
-        vr.snyuMnskFrom = String(customerData.area_min);
+      if (customerData.area_min && String(customerData.area_min).trim() && !String(customerData.area_min).includes('指定しない')) {
+        const n = parseFloat(String(customerData.area_min).replace(/[^\d.]/g, ''));
+        if (!isNaN(n) && n > 0) vr.snyuMnskFrom = String(n);
       }
 
       // 築年月（築N年以内 or 新築 → From年をセット）
@@ -1286,6 +1397,19 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       } else if (equip.includes('1階の物件') || equip.includes('1階')) {
         vr.shzikiFrom = '1';
         vr.shzikiTo = '1';
+      }
+
+      // バス・トイレ別スキップモード: 設備・条件・住宅性能等(optKnsk)欄に「バス・トイレ別」を追加してREINS側で絞り込む
+      if (btMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
+        // REINS「こだわり条件選択」モーダルの「バス・トイレ別」= ID '030'
+        // 検索実体は vr.selectedOptIds 配列。表示用 vr.optKnsk も合わせて更新
+        const BT_ID = '030';
+        if (!Array.isArray(vr.selectedOptIds)) vr.selectedOptIds = [];
+        if (!vr.selectedOptIds.includes(BT_ID)) vr.selectedOptIds.push(BT_ID);
+        const cur = (vr.optKnsk || '').trim();
+        if (!cur.includes('バス・トイレ別') && !cur.includes('バストイレ別')) {
+          vr.optKnsk = cur ? (cur + ' バス・トイレ別') : 'バス・トイレ別';
+        }
       }
 
       // セットした全沿線情報をデバッグ用に収集
@@ -1553,8 +1677,20 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const pageText = document.body.textContent.match(/(\d+)～(\d+)件\s*／\s*(\d+)件/);
           if (pageText) {
             pageInfo.totalItems = parseInt(pageText[3], 10);
-            const perPage = parseInt(pageText[2], 10) - parseInt(pageText[1], 10) + 1;
-            if (perPage > 0) pageInfo.totalPages = Math.ceil(pageInfo.totalItems / perPage);
+            // perPage は1ページ目の時のみ信頼可能（最終ページは表示件数が少ないため不正確）
+            const from = parseInt(pageText[1], 10);
+            const to = parseInt(pageText[2], 10);
+            if (from === 1) {
+              const perPage = to - from + 1;
+              if (perPage > 0) {
+                const calc = Math.ceil(pageInfo.totalItems / perPage);
+                // page-link側の値と食い違う場合は小さい方を採用
+                pageInfo.totalPages = Math.min(
+                  pageInfo.totalPages > 1 ? pageInfo.totalPages : calc,
+                  calc
+                );
+              }
+            }
           }
 
           // 各行から物件情報を抽出
@@ -1569,6 +1705,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               propertyNumber,
               buildingName: items[11]?.textContent.trim() || '',      // 物件名
               floor: items[12]?.textContent.trim() || '',             // 階数
+              rentText: items[8]?.textContent.trim() || '',           // 賃料（row2 col5）
+              managementFeeText: items[15]?.textContent.trim() || '', // 管理費（row3 col5）
+              commonFeeText: items[21]?.textContent.trim() || '',     // 共益費（row4 col5）
               depositGuarantee: items[16]?.textContent.trim() || '',  // 敷金／保証金
               keyMoneyRights: items[22]?.textContent.trim() || '',    // 礼金／権利金
               text: row.textContent.substring(0, 200)
@@ -1633,6 +1772,31 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       if (reikinPart && reikinPart !== '-' && reikinPart !== 'なし') {
         await setStorageData({ debugLog: `${customer.name}: ✗ 一覧スキップ: ${result.buildingName} ${result.floor} - 礼金あり(${result.keyMoneyRights})` });
         continue;
+      }
+    }
+
+    // 一覧ページで賃料+管理費+共益費フィルタ（詳細を開く前にスキップ→高速化）
+    if (customer.rent_max && result.rentText) {
+      const parseYen_ = (s) => {
+        if (!s) return 0;
+        const n = s.replace(/[０-９．]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+                   .replace(/,/g, '');
+        const m = n.match(/([\d.]+)/);
+        if (!m) return 0;
+        const v = parseFloat(m[1]);
+        if (isNaN(v)) return 0;
+        return n.includes('万') ? Math.round(v * 10000) : Math.round(v);
+      };
+      const rentYen_ = parseYen_(result.rentText);
+      const mgmtYen_ = parseYen_(result.managementFeeText);
+      const commonYen_ = parseYen_(result.commonFeeText);
+      if (rentYen_ > 0) {
+        const rentMaxYen_ = parseFloat(customer.rent_max) * 10000;
+        const totalYen_ = rentYen_ + mgmtYen_ + commonYen_;
+        if (totalYen_ > rentMaxYen_) {
+          await setStorageData({ debugLog: `${customer.name}: ✗ 一覧スキップ: ${result.buildingName} ${result.floor} - 賃料+管理+共益超過 ${totalYen_}円(${result.rentText}+${result.managementFeeText||'0'}+${result.commonFeeText||'0'}) > ${rentMaxYen_}円` });
+          continue;
+        }
       }
     }
 
@@ -1854,6 +2018,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             const container = el.closest('.p-label')?.parentElement;
             if (!container) return '';
             if (label === '部屋番号') return container.querySelector('.col-sm-4')?.textContent.trim() || '';
+            // 値は内側の .row 直下の div（class="col" のことも "col-2" のこともある）
+            const innerRow = container.querySelector(':scope > .row');
+            if (innerRow) {
+              const valEl = innerRow.querySelector(':scope > [class^="col"], :scope > [class*=" col"]');
+              if (valEl) return valEl.textContent.trim();
+            }
             return container.querySelector('.row .col')?.textContent.trim() || '';
           };
 
@@ -1882,6 +2052,54 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const floorAbove = getVal('地上階層');
           const structure = getVal('建物構造');
           const builtDate = getVal('築年月');
+
+          // 交通情報（交通1〜3）を抽出
+          const __transports = (() => {
+            const list = [];
+            const allLabels = [...document.querySelectorAll('.p-label-title')];
+            const lineLabels = allLabels.filter(e => e.textContent.trim() === '沿線名');
+            const stationLabels = allLabels.filter(e => e.textContent.trim() === '駅名');
+            const walkLabels = allLabels.filter(e => {
+              const t = e.textContent.trim();
+              return t === '駅より徒歩' || t === '駅から徒歩' || t === '徒歩';
+            });
+            const getValFromLabel = (el) => {
+              if (!el) return '';
+              const container = el.closest('.p-label')?.parentElement;
+              if (!container) return '';
+              const innerRow = container.querySelector(':scope > .row');
+              if (innerRow) {
+                const valEl = innerRow.querySelector(':scope > [class^="col"], :scope > [class*=" col"]');
+                if (valEl) return valEl.textContent.trim();
+              }
+              return container.querySelector('.row .col')?.textContent.trim() || '';
+            };
+            const normalizeWalk = (raw) => {
+              if (!raw) return '';
+              const s = String(raw).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+              const m = s.match(/(\d+)/);
+              if (!m) return '';
+              return `徒歩${m[1]}分`;
+            };
+            const count = Math.max(lineLabels.length, stationLabels.length, walkLabels.length);
+            for (let t = 0; t < count; t++) {
+              const line = getValFromLabel(lineLabels[t]);
+              const station = getValFromLabel(stationLabels[t]);
+              const walk = normalizeWalk(getValFromLabel(walkLabels[t]));
+              if (line || station) {
+                let info = [line, station].filter(Boolean).join(' ');
+                if (walk) info += ' ' + walk;
+                list.push(info);
+              }
+            }
+            if (list.length === 0) {
+              const fallbackWalk = normalizeWalk(getVal('駅から徒歩') || getVal('駅より徒歩') || getVal('徒歩'));
+              const base = [getVal('沿線名'), getVal('駅名')].filter(Boolean).join(' ');
+              const single = base + (fallbackWalk ? ' ' + fallbackWalk : '');
+              if (single.trim()) list.push(single);
+            }
+            return list;
+          })();
 
           return {
             building_id: 'reins_' + propertyNumber,
@@ -1950,34 +2168,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               const age = new Date().getFullYear() - builtYear;
               return `築${age}年`;
             })(),
-            station_info: (() => {
-              // 全交通情報を取得（交通1〜3）
-              const transports = [];
-              const labels = ['沿線名', '駅名', '駅より徒歩'];
-              // ラベルが複数ある場合（交通1, 交通2, 交通3...）を探す
-              const allLabels = [...document.querySelectorAll('.p-label-title')];
-              const lineLabels = allLabels.filter(e => e.textContent.trim() === '沿線名');
-              const stationLabels = allLabels.filter(e => e.textContent.trim() === '駅名');
-              const walkLabels = allLabels.filter(e => e.textContent.trim() === '駅より徒歩');
-              const getValFromLabel = (el) => {
-                if (!el) return '';
-                const container = el.closest('.p-label')?.parentElement;
-                if (!container) return '';
-                return container.querySelector('.row .col')?.textContent.trim() || '';
-              };
-              const count = Math.max(lineLabels.length, stationLabels.length);
-              for (let t = 0; t < count; t++) {
-                const line = getValFromLabel(lineLabels[t]);
-                const station = getValFromLabel(stationLabels[t]);
-                const walk = getValFromLabel(walkLabels[t]);
-                if (line || station) {
-                  let info = [line, station].filter(Boolean).join(' ');
-                  if (walk) info += ' 徒歩' + walk;
-                  transports.push(info);
-                }
-              }
-              return transports.join(' / ') || ([getVal('沿線名'), getVal('駅名')].filter(Boolean).join(' ') + (getVal('駅から徒歩') ? ' 徒歩' + getVal('駅から徒歩') : ''));
-            })(),
+            station_info: __transports[0] || '',
+            other_stations: __transports.slice(1),
             room_number: roomNumber || '',
             room_attr: roomAttr || '',
             deposit: getVal('敷金') || '',
@@ -2230,6 +2422,85 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         detail._raw_room_id = detail.room_id;
         detail.room_id = await hashRoomId('reins', 'reins_' + (detail.reins_property_number || ''));
       }
+      // フィルタ先行判定: スキップする物件では画像取得を行わない
+      let __rejectReason = null;
+      if (detail) {
+        __rejectReason = getFilterRejectReason(detail, customer);
+      }
+
+      // === 画像をbase64で抽出（$nuxt walk → bkknGzuList 直読み方式） ===
+      // フィルタでスキップされる物件は画像取得スキップ
+      let imageBase64s = [];
+      if (detail && !__rejectReason) {
+        const imageResults = await Promise.race([
+          chrome.scripting.executeScript({
+          target: { tabId },
+          world: 'MAIN',
+          func: async () => {
+            async function fetchAsBase64(url) {
+              try {
+                const r = await fetch(url, { credentials: 'include' });
+                if (!r.ok) return null;
+                const blob = await r.blob();
+                if (!blob || blob.size < 1000) return null;
+                return await new Promise((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result);
+                  reader.onerror = reject;
+                  reader.readAsDataURL(blob);
+                });
+              } catch (e) { return null; }
+            }
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+            const images = [];
+            // Vueツリーから bkknGzuList を探索
+            const findList = () => {
+              const walk = (c, d = 0) => {
+                if (d > 10 || !c) return null;
+                if (c.$data && Array.isArray(c.$data.bkknGzuList) && c.$data.bkknGzuList.length > 0) {
+                  return c.$data.bkknGzuList;
+                }
+                const children = c.$children || [];
+                for (const ch of children) {
+                  const r = walk(ch, d + 1);
+                  if (r) return r;
+                }
+                return null;
+              };
+              return walk(window.$nuxt);
+            };
+            // Vue マウント待ち（最大5秒）
+            let list = null;
+            for (let i = 0; i < 25; i++) {
+              list = findList();
+              if (list && list.length > 0) break;
+              await sleep(200);
+            }
+            if (!list || list.length === 0) return images;
+            // gzuBngu 昇順でソート
+            const sorted = [...list].sort((a, b) => {
+              const an = parseInt(a.gzuBngu, 10) || 0;
+              const bn = parseInt(b.gzuBngu, 10) || 0;
+              return an - bn;
+            });
+            for (const item of sorted) {
+              let url = item.bkknGzuSrc;
+              if (!url) continue;
+              if (url.startsWith('/')) url = location.origin + url;
+              try {
+                const base64 = await fetchAsBase64(url);
+                if (base64) images.push(base64);
+              } catch (e) {}
+            }
+            return images;
+          }
+        }),
+          new Promise((resolve) => setTimeout(() => resolve(null), 120000))
+        ]);
+        const imgResult = (imageResults && imageResults[0] && imageResults[0].result) || {};
+        imageBase64s = Array.isArray(imgResult) ? imgResult : (imgResult.images || []);
+        await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
+      }
       if (!detail) {
         try {
           const t = await chrome.tabs.get(tabId);
@@ -2251,15 +2522,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         try {
           const uploadedUrls = [];
           let uploadFailed = 0;
+          const uploadErrors = [];
           async function uploadOne(b64) {
             const MAX_ATTEMPTS = 3;
+            let lastErr = null;
             for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
               try {
                 const publicUrl = await uploadBase64ToCatbox(b64);
                 if (publicUrl) return publicUrl;
+                lastErr = 'null_response';
                 if (attempt < MAX_ATTEMPTS - 1) await csleep(1000);
               } catch (e) {
-                if (attempt >= MAX_ATTEMPTS - 1) return null;
+                lastErr = (e && e.message) || String(e);
+                if (attempt >= MAX_ATTEMPTS - 1) {
+                  uploadErrors.push(`b64size=${b64?.length || 0} err=${lastErr}`);
+                  return null;
+                }
                 if (e && e.rateLimited) {
                   const wait = 2000 * Math.pow(2, attempt) + Math.floor(Math.random() * 500);
                   await csleep(wait);
@@ -2268,6 +2546,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 }
               }
             }
+            if (lastErr) uploadErrors.push(`b64size=${b64?.length || 0} err=${lastErr}`);
             return null;
           }
           const BATCH = 6;
@@ -2283,14 +2562,15 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             detail.image_urls = uploadedUrls;
             detail.image_url = uploadedUrls[0];
           }
-          await setStorageData({ debugLog: `${customer.name}: REINS画像アップロード完了 ${uploadedUrls.length}/${imageBase64s.length}件${uploadFailed > 0 ? ` (失敗:${uploadFailed})` : ''}` });
+          const errSample = uploadErrors.length > 0 ? ` [${uploadErrors.slice(0,2).join(' | ')}]` : '';
+          await setStorageData({ debugLog: `${customer.name}: REINS画像アップロード完了 ${uploadedUrls.length}/${imageBase64s.length}件${uploadFailed > 0 ? ` (失敗:${uploadFailed})` : ''}${errSample}` });
         } catch (upErr) {
           logError(`${customer.name}: REINS画像アップロード失敗: ${upErr.message}`);
         }
       }
 
       if (detail) {
-        const rejectReason = getFilterRejectReason(detail, customer);
+        const rejectReason = __rejectReason;
         if (!rejectReason) {
           newProperties.push(detail);
           currentStats.totalFound++;
@@ -2791,7 +3071,7 @@ const discordThreadIds = {};
 const discordPropertyCounters = {};
 
 function buildSearchInfo(customer) {
-  const lines = ['📋 **検索条件**', '━━━━━━━━━━'];
+  const lines = ['**検索条件**', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'];
 
   // 路線・駅
   if (customer.routes && customer.routes.length > 0) {
@@ -2800,49 +3080,49 @@ function buildSearchInfo(customer) {
       const stas = routeStations[route];
       return stas && stas.length > 0 ? `${route}(${stas.join(', ')})` : route;
     });
-    lines.push(`🚉 ${routeParts.join(' / ')}`);
+    lines.push(`路線: ${routeParts.join(' / ')}`);
   }
 
   // 賃料
   if (customer.rent_max) {
-    lines.push(`💰 〜${customer.rent_max}万円`);
+    lines.push(`賃料: 〜${customer.rent_max}万円`);
   }
 
   // 間取り
   if (customer.layouts && customer.layouts.length > 0) {
-    lines.push(`🏠 ${customer.layouts.join(' / ')}`);
+    lines.push(`間取り: ${customer.layouts.join(' / ')}`);
   }
 
   // 面積
   if (customer.area_min) {
-    lines.push(`📐 ${customer.area_min}㎡〜`);
+    lines.push(`面積: ${customer.area_min}㎡〜`);
   }
 
   // 築年数
   if (customer.building_age) {
-    lines.push(`🏗 築${String(customer.building_age).replace(/[^\d]/g, '')}年以内`);
+    lines.push(`築年: 築${String(customer.building_age).replace(/[^\d]/g, '')}年以内`);
   }
 
   // 構造
   if (customer.structures && customer.structures.length > 0) {
-    lines.push(`🏢 ${customer.structures.join(' / ')}`);
+    lines.push(`構造: ${customer.structures.join(' / ')}`);
   }
 
   // 駅徒歩
   if (customer.walk) {
     const walkMin = String(customer.walk).replace(/[^\d]/g, '');
-    if (walkMin) lines.push(`🚶 徒歩${walkMin}分以内`);
+    if (walkMin) lines.push(`駅徒歩: ${walkMin}分以内`);
   }
 
   // 設備・条件
   if (customer.equipment) {
     const equipStr = typeof customer.equipment === 'string' ? customer.equipment : (customer.equipment || []).join(', ');
-    if (equipStr) lines.push(`🔧 ${equipStr}`);
+    if (equipStr) lines.push(`設備: ${equipStr}`);
   }
 
   // 検索URL（いえらぶ等）
   if (customer.search_url) {
-    lines.push(`🔍 [検索結果を開く](${customer.search_url})`);
+    lines.push(`[検索結果を開く](${customer.search_url})`);
   }
 
   return lines.join('\n');
@@ -2983,7 +3263,7 @@ async function sendDiscordNotification(customerName, properties, customer) {
     for (let i = 0; i < properties.length; i++) {
       discordPropertyCounters[customerName]++;
       const msg = buildDiscordMessage(properties[i], discordPropertyCounters[customerName], gasWebappUrl, customerName, customer);
-      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg });
+      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg, flags: 4 });
       if (i < properties.length - 1) await sleep(1000);
     }
 
@@ -3167,37 +3447,40 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (prop.room_number) title += `  ${prop.room_number}`;
 
   const sourceTag = prop.source === 'ielove' ? 'いえらぶ' : prop.source === 'itandi' ? 'itandi' : prop.source === 'essquare' ? 'いい生活スクエア' : 'REINS';
-  const lines = [`**${index}. ${title}** \`[${sourceTag}]\``];
+  // 物件ごとの区切り線（1件目にも入れる。上は検索条件）
+  const lines = [];
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push(`**${index}. ${title}** \`[${sourceTag}]\``);
 
   // 賃料
-  let rentStr = `💰 **${fmtMan(prop.rent)}万円**`;
+  let rentStr = `賃料: **${fmtMan(prop.rent)}万円**`;
   if (prop.management_fee) {
     rentStr += ` (管理費: ${fmtMan(prop.management_fee)}万円)`;
   }
   lines.push(rentStr);
 
-  // 間取り・面積・築年
-  const parts = [];
-  if (prop.layout) parts.push(`🏠 ${prop.layout}`);
-  if (prop.area) parts.push(`📐 ${prop.area}m²`);
-  if (prop.building_age) parts.push(`🏗 ${prop.building_age}`);
-  if (parts.length) lines.push(parts.join(' ｜ '));
+  // 間取り
+  if (prop.layout) lines.push(`間取り: ${prop.layout}`);
+  // 面積
+  if (prop.area) lines.push(`面積: ${prop.area}m²`);
+  // 築年
+  if (prop.building_age) lines.push(`築年: ${prop.building_age}`);
 
-  if (prop.address) lines.push(`📍 ${prop.address}`);
-  if (prop.station_info) lines.push(`🚉 ${prop.station_info}`);
+  if (prop.address) lines.push(`住所: ${prop.address}`);
+  if (prop.station_info) lines.push(`交通: ${prop.station_info}`);
 
   // 階数
   if (prop.floor_text || prop.story_text) {
-    lines.push(`🏢 ${prop.floor_text || '?'}/${prop.story_text || '?'}`);
+    lines.push(`階数: ${prop.floor_text || '?'}/${prop.story_text || '?'}`);
   }
 
   if (prop.deposit || prop.key_money) {
-    lines.push(`💴 敷金: ${prop.deposit || 'なし'} / 礼金: ${prop.key_money || 'なし'}`);
+    lines.push(`敷金: ${prop.deposit || 'なし'} / 礼金: ${prop.key_money || 'なし'}`);
   }
 
   // 入居時期
   if (prop.move_in_date) {
-    lines.push(`📅 入居: ${prop.move_in_date}`);
+    lines.push(`入居: ${prop.move_in_date}`);
   }
 
   // 警告アラート（ANSI黄色コードブロックで表示 — rent-researcher準拠）
@@ -3232,7 +3515,8 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     warnings.push('⚠️ エレベーターかどうか確認してください');
   }
   // バス・トイレ別（REINS: バス・トイレ別, itandi: バス・トイレ別, いえらぶ: バストイレ別）
-  if ((equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
+  // btMode='skip' の場合はフィルタ側で除外済みなのでアラート不要
+  if (__btMode !== 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
     warnings.push('⚠️ バス・トイレ別かどうか確認してください');
   }
   // 温水洗浄便座
@@ -3398,24 +3682,24 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   }
 
   // 広告料・現況・客付会社メッセージ
-  lines.push(`📢 広告料: ${prop.ad_fee || '-'}`);
-  if (prop.current_status) lines.push(`📋 現況: ${prop.current_status}`);
-  else if (prop.listing_status) lines.push(`📋 現況: ${prop.listing_status}`);
-  if (prop.agent_message) lines.push(`💬 メッセージ: ${prop.agent_message}`);
+  lines.push(`広告料: ${prop.ad_fee || '-'}`);
+  if (prop.current_status) lines.push(`現況: ${prop.current_status}`);
+  else if (prop.listing_status) lines.push(`現況: ${prop.listing_status}`);
+  if (prop.agent_message) lines.push(`メッセージ: ${prop.agent_message}`);
 
   // 詳細ページURL
   if (prop.url) {
-    lines.push(`🔗 [詳細ページ](${prop.url})`);
+    lines.push(`[詳細ページ](${prop.url})`);
   } else if (prop.source !== 'ielove' && prop.source !== 'itandi' && prop.source !== 'essquare' && prop.reins_property_number) {
     // REINS: 物件番号検索を自動実行するURL（拡張のcontent-search.jsがhashを検出して検索）
     const cleanNum = String(prop.reins_property_number).replace(/\D/g, '');
-    lines.push(`🔗 [REINSで開く](https://system.reins.jp/main/BK/GBK004100#bukken=${cleanNum})`);
+    lines.push(`[REINSで開く](https://system.reins.jp/main/BK/GBK004100#bukken=${cleanNum})`);
   }
 
   // 承認リンク
   if (gasWebappUrl && customerName) {
     const approveUrl = `${gasWebappUrl}?action=approve&customer=${encodeURIComponent(customerName)}&room_id=${prop.room_id}`;
-    lines.push(`✅ [承認してLINE送信](${approveUrl})`);
+    lines.push(`[承認してLINE送信](${approveUrl})`);
   }
 
   return lines.join('\n');
