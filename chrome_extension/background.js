@@ -795,7 +795,7 @@ async function reportUnresolvedStations() {
 }
 
 // --- メイン検索サイクル ---
-async function runSearchCycle() {
+globalThis.runSearchCycle = async function runSearchCycle() {
   const { isSearching, gasWebappUrl, enabledServices } = await getStorageData(['isSearching', 'gasWebappUrl', 'enabledServices']);
   if (isSearching) { console.log('検索中のためスキップ'); return; }
   if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }

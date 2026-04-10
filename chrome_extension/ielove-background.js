@@ -308,13 +308,69 @@ async function findOrCreateDedicatedIeloveTab() {
   // ログイン状態を確認
   const tab = await chrome.tabs.get(dedicatedIeloveTabId);
   if (tab.url?.includes('/login')) {
-    await setStorageData({ debugLog: 'いえらぶBBにログインしてください（bb.ielove.jpでログイン後に再実行）' });
-    await closeDedicatedIeloveWindow();
+    await setStorageData({ debugLog: 'いえらぶBBにログインしてください（bb.ielove.jpでログイン後、自動で検索を再開します）' });
+    // ウィンドウをフォーカスしてユーザーに気付かせる
+    try {
+      if (dedicatedIeloveWindowId) {
+        await chrome.windows.update(dedicatedIeloveWindowId, { focused: true });
+      }
+    } catch (e) {}
+    // Discord通知（任意）
+    try {
+      const { discordWebhookUrl } = await new Promise(r => chrome.storage.local.get(['discordWebhookUrl'], r));
+      if (discordWebhookUrl) {
+        await fetch(discordWebhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: '⚠️ いえらぶBBにログインしてください。ログイン完了後、自動で検索を再開します。' })
+        });
+      }
+    } catch (e) {}
+    // ログイン完了監視を開始
+    __watchIeloveLoginAndResume(dedicatedIeloveTabId);
     return null;
   }
 
   await setStorageData({ debugLog: `専用いえらぶタブ作成: tabId=${dedicatedIeloveTabId}` });
   return tab;
+}
+
+// ログイン完了を監視して、完了したら検索サイクルを再キックする
+let __ieloveLoginWatcher = null;
+function __watchIeloveLoginAndResume(watchTabId) {
+  // 既存リスナーを片付け
+  if (__ieloveLoginWatcher) {
+    try { chrome.tabs.onUpdated.removeListener(__ieloveLoginWatcher); } catch (e) {}
+    __ieloveLoginWatcher = null;
+  }
+  __ieloveLoginWatcher = (tabId, changeInfo, tab) => {
+    if (tabId !== watchTabId) return;
+    const url = changeInfo.url || tab?.url || '';
+    if (!url.includes('bb.ielove.jp')) return;
+    // /login から離れた = ログイン完了
+    if (!url.includes('/login')) {
+      try { chrome.tabs.onUpdated.removeListener(__ieloveLoginWatcher); } catch (e) {}
+      __ieloveLoginWatcher = null;
+      setStorageData({ debugLog: '[いえらぶ] ログイン検知。検索を自動再開します...' });
+      // 少し待ってから再キック
+      setTimeout(() => {
+        try {
+          if (typeof globalThis.runSearchCycle === 'function') {
+            globalThis.runSearchCycle();
+          }
+        } catch (e) {}
+      }, 1500);
+    }
+  };
+  chrome.tabs.onUpdated.addListener(__ieloveLoginWatcher);
+  // タブが閉じられたら監視も解除
+  const onRemoved = (tid) => {
+    if (tid !== watchTabId) return;
+    try { chrome.tabs.onUpdated.removeListener(__ieloveLoginWatcher); } catch (e) {}
+    __ieloveLoginWatcher = null;
+    chrome.tabs.onRemoved.removeListener(onRemoved);
+  };
+  chrome.tabs.onRemoved.addListener(onRemoved);
 }
 
 async function closeDedicatedIeloveWindow() {
