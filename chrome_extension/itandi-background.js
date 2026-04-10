@@ -444,9 +444,11 @@ function parseItandiSearchResponse(data) {
       if (!roomId) continue;
 
       const rent = _parseItandiPriceText(room.rent_text || '');
-      const managementFee = _parseItandiPriceText(
-        room.kanrihi_text || room.kanrihi_kyoekihi_text || ''
-      );
+      // 管理費＋共益費を合算（片方しかない物件にも対応）
+      const __kanrihi = _parseItandiPriceText(room.kanrihi_text || '');
+      const __kyoekihi = _parseItandiPriceText(room.kyoekihi_text || '');
+      const __combined = _parseItandiPriceText(room.kanrihi_kyoekihi_text || '');
+      const managementFee = __combined || (__kanrihi + __kyoekihi);
       const deposit = room.shikikin_text || '';
       const keyMoney = room.reikin_text || '';
       const layout = room.layout_text || '';
