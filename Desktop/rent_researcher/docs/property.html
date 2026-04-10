@@ -583,13 +583,17 @@ function renderProperty(p) {
     html += '<div class="modal-overlay" id="holdModal" onclick="if(event.target===this)closeHoldModal()">'
       + '<div class="modal-content">'
       + '<div class="modal-title">🏠 お申し込み希望</div>'
-      + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.5;">送信後、担当者がお電話にてお申し込み方法のご案内をいたします。メールアドレスと電話番号を必ずご入力ください。</div>'
+      + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.5;">送信後、担当者がお電話にてお申し込み方法のご案内をいたします。以下の項目を必ずご入力ください。</div>'
       + '<div class="modal-radio-group">'
       + '<label class="modal-radio-label active" id="radioPersonal" onclick="selectRadio(\'個人\')">'
       + '<input type="radio" name="appType" value="個人" checked> 個人申込</label>'
       + '<label class="modal-radio-label" id="radioCorporate" onclick="selectRadio(\'法人\')">'
       + '<input type="radio" name="appType" value="法人"> 法人申込</label>'
       + '</div>'
+      + '<input type="text" class="modal-input" id="nameInput" placeholder="氏名（必須）">'
+      + '<div class="modal-error" id="nameError"></div>'
+      + '<input type="text" class="modal-input" id="furiganaInput" placeholder="フリガナ（必須）">'
+      + '<div class="modal-error" id="furiganaError"></div>'
       + '<input type="email" class="modal-input" id="emailInput" placeholder="メールアドレス（必須）">'
       + '<div class="modal-error" id="emailError"></div>'
       + '<input type="tel" class="modal-input" id="phoneInput" placeholder="電話番号（必須）">'
@@ -1087,6 +1091,18 @@ function selectRadio(value) {
   }
 }
 
+function validateName(val) {
+  val = (val || '').trim();
+  if (!val) return '氏名を入力してください';
+  return null;
+}
+
+function validateFurigana(val) {
+  val = (val || '').trim();
+  if (!val) return 'フリガナを入力してください';
+  return null;
+}
+
 function validateEmail(val) {
   val = (val || '').trim();
   if (!val) return 'メールアドレスを入力してください';
@@ -1104,19 +1120,45 @@ function validatePhone(val) {
 function submitHold() {
   var checkedRadio = document.querySelector('input[name="appType"]:checked');
   var applicationType = checkedRadio ? checkedRadio.value : '個人';
+  var nameInputEl = document.getElementById('nameInput');
+  var furiganaInputEl = document.getElementById('furiganaInput');
   var emailInput = document.getElementById('emailInput');
   var phoneInput = document.getElementById('phoneInput');
+  var applicantName = (nameInputEl.value || '').trim();
+  var furigana = (furiganaInputEl.value || '').trim();
   var email = (emailInput.value || '').trim();
   var phone = (phoneInput.value || '').trim();
+  var nameErrEl = document.getElementById('nameError');
+  var furiganaErrEl = document.getElementById('furiganaError');
   var emailErrEl = document.getElementById('emailError');
   var phoneErrEl = document.getElementById('phoneError');
 
+  var nameError = validateName(applicantName);
+  var furiganaError = validateFurigana(furigana);
   var emailError = validateEmail(email);
   var phoneError = validatePhone(phone);
 
+  var hasError = false;
+  if (nameError) {
+    nameInputEl.classList.add('error');
+    nameErrEl.textContent = nameError;
+    hasError = true;
+  } else {
+    nameInputEl.classList.remove('error');
+    nameErrEl.textContent = '';
+  }
+  if (furiganaError) {
+    furiganaInputEl.classList.add('error');
+    furiganaErrEl.textContent = furiganaError;
+    hasError = true;
+  } else {
+    furiganaInputEl.classList.remove('error');
+    furiganaErrEl.textContent = '';
+  }
   if (emailError) {
     emailInput.classList.add('error');
     emailErrEl.textContent = emailError;
+    hasError = true;
   } else {
     emailInput.classList.remove('error');
     emailErrEl.textContent = '';
@@ -1124,25 +1166,26 @@ function submitHold() {
   if (phoneError) {
     phoneInput.classList.add('error');
     phoneErrEl.textContent = phoneError;
+    hasError = true;
   } else {
     phoneInput.classList.remove('error');
     phoneErrEl.textContent = '';
   }
-  if (emailError || phoneError) return;
+  if (hasError) return;
 
   closeHoldModal();
-  sendAction('hold', applicationType, email, phone);
+  sendAction('hold', applicationType, email, phone, applicantName, furigana);
 }
 
-function sendAction(actionType, applicationType, email, phone) {
+function sendAction(actionType, applicationType, email, phone, applicantName, furigana) {
   if (actionState) return;
 
   updateActionUI(actionType);
   showToast('🏠', 'お申し込み希望を受け付けました', '担当者からお電話でお申し込み方法のご案内をいたします', 4500);
 
   var contactInfo = '';
-  if (email || phone) {
-    contactInfo = [email ? 'Email: ' + email : '', phone ? 'Tel: ' + phone : ''].filter(Boolean).join(' / ');
+  if (applicantName || furigana || email || phone) {
+    contactInfo = [applicantName ? '氏名: ' + applicantName : '', furigana ? 'フリガナ: ' + furigana : '', email ? 'Email: ' + email : '', phone ? 'Tel: ' + phone : ''].filter(Boolean).join(' / ');
   }
 
   try {
@@ -1159,6 +1202,8 @@ function sendAction(actionType, applicationType, email, phone) {
     + '&room_id=' + encodeURIComponent(roomId)
     + '&action_type=' + encodeURIComponent(actionType)
     + '&application_type=' + encodeURIComponent(applicationType || '')
+    + '&applicant_name=' + encodeURIComponent(applicantName || '')
+    + '&furigana=' + encodeURIComponent(furigana || '')
     + '&email=' + encodeURIComponent(email || '')
     + '&phone=' + encodeURIComponent(phone || '')
     + '&contact_info=' + encodeURIComponent(contactInfo || '')

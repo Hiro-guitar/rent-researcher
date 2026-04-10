@@ -639,11 +639,13 @@ function handlePropertyAction(e) {
   var layout = e.parameter.layout || '';
   var stationInfo = e.parameter.station_info || '';
   var applicationType = e.parameter.application_type || '';
+  var applicantName = e.parameter.applicant_name || '';
+  var furigana = e.parameter.furigana || '';
   var email = e.parameter.email || '';
   var phone = e.parameter.phone || '';
   var contactInfo = e.parameter.contact_info || '';
-  if (!contactInfo && (email || phone)) {
-    contactInfo = [email ? 'Email: ' + email : '', phone ? 'Tel: ' + phone : ''].filter(Boolean).join(' / ');
+  if (!contactInfo && (applicantName || furigana || email || phone)) {
+    contactInfo = [applicantName ? '氏名: ' + applicantName : '', furigana ? 'フリガナ: ' + furigana : '', email ? 'Email: ' + email : '', phone ? 'Tel: ' + phone : ''].filter(Boolean).join(' / ');
   }
 
   if (!customerName || !roomId || !actionType) {
@@ -701,9 +703,11 @@ function handlePropertyAction(e) {
         var msg = msgMap[actionType] || '';
         if (!msg) return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount })).setMimeType(ContentService.MimeType.JSON);
 
-        // お申し込みの場合、申込区分・連絡先を表示
+        // お申し込みの場合、申込区分・申込者情報を表示
         if (actionType === 'hold') {
           msg += '\n> 申込区分: ' + (applicationType || '未指定');
+          if (applicantName) msg += '\n> 氏名: ' + applicantName;
+          if (furigana) msg += '\n> フリガナ: ' + furigana;
           if (email) msg += '\n> Email: ' + email;
           if (phone) msg += '\n> Tel: ' + phone;
           msg += '\n> → お電話でお申し込み方法のご案内をお願いします';
