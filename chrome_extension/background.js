@@ -235,7 +235,8 @@ async function gasPost(body) {
 async function fetchCriteria() { return gasGet('get_criteria'); }
 async function fetchSeenIds() { return gasGet('get_seen_ids'); }
 async function submitProperties(customerName, properties) {
-  return gasPost({ action: 'add_reins_property', customer_name: customerName, properties });
+  const threadId = discordThreadIds[customerName] || '';
+  return gasPost({ action: 'add_reins_property', customer_name: customerName, properties, discord_thread_id: threadId });
 }
 // === END GAS API クライアント ===
 
@@ -810,8 +811,8 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   const searchId = ++currentSearchId;
   // 未解決駅の蓄積をリセット
   _unresolvedStations = {};
-  // DiscordスレッドIDキャッシュをクリア
-  Object.keys(discordThreadIds).forEach(k => delete discordThreadIds[k]);
+  // DiscordスレッドIDは永続化のためクリアしない（同じスレッドを再利用）
+  // 物件通し番号はサイクルごとにリセット
   Object.keys(discordPropertyCounters).forEach(k => delete discordPropertyCounters[k]);
   // 一括通知バッファをクリア
   Object.keys(_batchBuffer).forEach(k => delete _batchBuffer[k]);
@@ -3065,9 +3066,16 @@ function showNotification(title, message) {
 
 // === Discord Webhook 送信 ===
 
-// 顧客ごとのDiscordスレッドID（検索サイクル中に保持）
-const discordThreadIds = {};
-// 顧客ごとのDiscord物件通し番号（検索サイクル中に保持）
+// 顧客ごとのDiscordスレッドID（chrome.storage.localに永続化）
+let discordThreadIds = {};
+// 起動時にストレージから復元
+(async () => {
+  try {
+    const data = await getStorageData(['discordThreadIds']);
+    if (data.discordThreadIds) discordThreadIds = data.discordThreadIds;
+  } catch (e) { console.warn('discordThreadIds復元失敗:', e); }
+})();
+// 顧客ごとのDiscord物件通し番号（検索サイクル中に保持・リセットされる）
 const discordPropertyCounters = {};
 
 function buildSearchInfo(customer) {
@@ -3234,6 +3242,8 @@ async function sendDiscordNotification(customerName, properties, customer) {
         return;
       }
       discordThreadIds[customerName] = threadId;
+      // ストレージに永続化
+      try { await setStorageData({ discordThreadIds }); } catch (e) {}
 
       // 検索条件を送信
       if (customer) {
@@ -3258,12 +3268,23 @@ async function sendDiscordNotification(customerName, properties, customer) {
       }
     }
 
-    // 物件ごとに送信（顧客ごとの通し番号）
+    // スレッドが生きているか確認（既存スレッドの場合、最初の投稿で404なら再作成）
     if (!discordPropertyCounters[customerName]) discordPropertyCounters[customerName] = 0;
     for (let i = 0; i < properties.length; i++) {
       discordPropertyCounters[customerName]++;
       const msg = buildDiscordMessage(properties[i], discordPropertyCounters[customerName], gasWebappUrl, customerName, customer);
-      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg, flags: 4 });
+      const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg, flags: 4 });
+      // スレッドが期限切れ/削除された場合は再作成
+      if (postResp && (postResp.status === 404 || postResp.status === 400)) {
+        console.warn(`Discord スレッド無効 (${postResp.status})。${customerName}のスレッドを再作成...`);
+        delete discordThreadIds[customerName];
+        try { await setStorageData({ discordThreadIds }); } catch (e) {}
+        // 再帰的に呼び直し（新スレッド作成される）
+        const remaining = properties.slice(i);
+        discordPropertyCounters[customerName] -= 1; // カウンタ戻す
+        await sendDiscordNotification(customerName, remaining, customer);
+        return;
+      }
       if (i < properties.length - 1) await sleep(1000);
     }
 
@@ -3304,6 +3325,7 @@ async function discordPostWithRetry(url, payload) {
     if (!resp.ok && resp.status !== 204) {
       console.error(`Discord送信エラー: status=${resp.status}`);
     }
+    return resp;
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
@@ -3311,6 +3333,7 @@ async function discordPostWithRetry(url, payload) {
     } else {
       throw err;
     }
+    return null;
   }
 }
 
