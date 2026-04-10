@@ -703,6 +703,13 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
+      // 申込あり物件は一覧の時点で即スキップ（詳細ページ遷移を省略）
+      if (prop.listing_status && (prop.listing_status === '申込あり' || /^申込\d+件$/.test(prop.listing_status))) {
+        try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
+        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - 申込あり(${prop.listing_status})` });
+        continue;
+      }
+
       // 詳細ページから追加情報を取得
       if (prop.url) {
         try {
