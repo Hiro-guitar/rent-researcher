@@ -2925,7 +2925,7 @@ const discordThreadIds = {};
 const discordPropertyCounters = {};
 
 function buildSearchInfo(customer) {
-  const lines = ['📋 **検索条件**', '━━━━━━━━━━'];
+  const lines = ['**検索条件**', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'];
 
   // 路線・駅
   if (customer.routes && customer.routes.length > 0) {
@@ -2934,49 +2934,49 @@ function buildSearchInfo(customer) {
       const stas = routeStations[route];
       return stas && stas.length > 0 ? `${route}(${stas.join(', ')})` : route;
     });
-    lines.push(`🚉 ${routeParts.join(' / ')}`);
+    lines.push(`路線: ${routeParts.join(' / ')}`);
   }
 
   // 賃料
   if (customer.rent_max) {
-    lines.push(`💰 〜${customer.rent_max}万円`);
+    lines.push(`賃料: 〜${customer.rent_max}万円`);
   }
 
   // 間取り
   if (customer.layouts && customer.layouts.length > 0) {
-    lines.push(`🏠 ${customer.layouts.join(' / ')}`);
+    lines.push(`間取り: ${customer.layouts.join(' / ')}`);
   }
 
   // 面積
   if (customer.area_min) {
-    lines.push(`📐 ${customer.area_min}㎡〜`);
+    lines.push(`面積: ${customer.area_min}㎡〜`);
   }
 
   // 築年数
   if (customer.building_age) {
-    lines.push(`🏗 築${String(customer.building_age).replace(/[^\d]/g, '')}年以内`);
+    lines.push(`築年: 築${String(customer.building_age).replace(/[^\d]/g, '')}年以内`);
   }
 
   // 構造
   if (customer.structures && customer.structures.length > 0) {
-    lines.push(`🏢 ${customer.structures.join(' / ')}`);
+    lines.push(`構造: ${customer.structures.join(' / ')}`);
   }
 
   // 駅徒歩
   if (customer.walk) {
     const walkMin = String(customer.walk).replace(/[^\d]/g, '');
-    if (walkMin) lines.push(`🚶 徒歩${walkMin}分以内`);
+    if (walkMin) lines.push(`駅徒歩: ${walkMin}分以内`);
   }
 
   // 設備・条件
   if (customer.equipment) {
     const equipStr = typeof customer.equipment === 'string' ? customer.equipment : (customer.equipment || []).join(', ');
-    if (equipStr) lines.push(`🔧 ${equipStr}`);
+    if (equipStr) lines.push(`設備: ${equipStr}`);
   }
 
   // 検索URL（いえらぶ等）
   if (customer.search_url) {
-    lines.push(`🔍 [検索結果を開く](${customer.search_url})`);
+    lines.push(`[検索結果を開く](${customer.search_url})`);
   }
 
   return lines.join('\n');
@@ -3307,7 +3307,7 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   lines.push(`**${index}. ${title}** \`[${sourceTag}]\``);
 
   // 賃料
-  let rentStr = `💰 **${fmtMan(prop.rent)}万円**`;
+  let rentStr = `**${fmtMan(prop.rent)}万円**`;
   if (prop.management_fee) {
     rentStr += ` (管理費: ${fmtMan(prop.management_fee)}万円)`;
   }
@@ -3315,26 +3315,26 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
 
   // 間取り・面積・築年
   const parts = [];
-  if (prop.layout) parts.push(`🏠 ${prop.layout}`);
-  if (prop.area) parts.push(`📐 ${prop.area}m²`);
-  if (prop.building_age) parts.push(`🏗 ${prop.building_age}`);
+  if (prop.layout) parts.push(prop.layout);
+  if (prop.area) parts.push(`${prop.area}m²`);
+  if (prop.building_age) parts.push(prop.building_age);
   if (parts.length) lines.push(parts.join(' ｜ '));
 
-  if (prop.address) lines.push(`📍 ${prop.address}`);
-  if (prop.station_info) lines.push(`🚉 ${prop.station_info}`);
+  if (prop.address) lines.push(prop.address);
+  if (prop.station_info) lines.push(prop.station_info);
 
   // 階数
   if (prop.floor_text || prop.story_text) {
-    lines.push(`🏢 ${prop.floor_text || '?'}/${prop.story_text || '?'}`);
+    lines.push(`${prop.floor_text || '?'}/${prop.story_text || '?'}`);
   }
 
   if (prop.deposit || prop.key_money) {
-    lines.push(`💴 敷金: ${prop.deposit || 'なし'} / 礼金: ${prop.key_money || 'なし'}`);
+    lines.push(`敷金: ${prop.deposit || 'なし'} / 礼金: ${prop.key_money || 'なし'}`);
   }
 
   // 入居時期
   if (prop.move_in_date) {
-    lines.push(`📅 入居: ${prop.move_in_date}`);
+    lines.push(`入居: ${prop.move_in_date}`);
   }
 
   // 警告アラート（ANSI黄色コードブロックで表示 — rent-researcher準拠）
@@ -3536,24 +3536,24 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   }
 
   // 広告料・現況・客付会社メッセージ
-  lines.push(`📢 広告料: ${prop.ad_fee || '-'}`);
-  if (prop.current_status) lines.push(`📋 現況: ${prop.current_status}`);
-  else if (prop.listing_status) lines.push(`📋 現況: ${prop.listing_status}`);
-  if (prop.agent_message) lines.push(`💬 メッセージ: ${prop.agent_message}`);
+  lines.push(`広告料: ${prop.ad_fee || '-'}`);
+  if (prop.current_status) lines.push(`現況: ${prop.current_status}`);
+  else if (prop.listing_status) lines.push(`現況: ${prop.listing_status}`);
+  if (prop.agent_message) lines.push(`メッセージ: ${prop.agent_message}`);
 
   // 詳細ページURL
   if (prop.url) {
-    lines.push(`🔗 [詳細ページ](${prop.url})`);
+    lines.push(`[詳細ページ](${prop.url})`);
   } else if (prop.source !== 'ielove' && prop.source !== 'itandi' && prop.source !== 'essquare' && prop.reins_property_number) {
     // REINS: 物件番号検索を自動実行するURL（拡張のcontent-search.jsがhashを検出して検索）
     const cleanNum = String(prop.reins_property_number).replace(/\D/g, '');
-    lines.push(`🔗 [REINSで開く](https://system.reins.jp/main/BK/GBK004100#bukken=${cleanNum})`);
+    lines.push(`[REINSで開く](https://system.reins.jp/main/BK/GBK004100#bukken=${cleanNum})`);
   }
 
   // 承認リンク
   if (gasWebappUrl && customerName) {
     const approveUrl = `${gasWebappUrl}?action=approve&customer=${encodeURIComponent(customerName)}&room_id=${prop.room_id}`;
-    lines.push(`✅ [承認してLINE送信](${approveUrl})`);
+    lines.push(`[承認してLINE送信](${approveUrl})`);
   }
 
   return lines.join('\n');
