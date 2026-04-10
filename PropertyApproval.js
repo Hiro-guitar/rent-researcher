@@ -589,16 +589,15 @@ function handleTrackView(e) {
     try {
       var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
       if (webhookUrl) {
-        // 顧客専用スレッドを優先、なければ共有閲覧ログスレッド
-        var threadId = PropertiesService.getScriptProperties().getProperty('DISCORD_THREAD_' + customerName)
-                    || PropertiesService.getScriptProperties().getProperty('VIEW_LOG_THREAD_ID');
+        // 顧客専用スレッドに送信（なければ顧客名でスレッド新規作成）
+        var threadId = PropertiesService.getScriptProperties().getProperty('DISCORD_THREAD_' + customerName);
         var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
         var msg = '\uD83D\uDC40 **' + customerName + '** 様が「' + (buildingName || 'room_id: ' + roomId) + '」を閲覧しました (' + time + ')';
 
         var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
         var payload = { content: msg };
         if (!threadId) {
-          payload.thread_name = '\uD83D\uDC40 閲覧ログ';
+          payload.thread_name = '\uD83C\uDFE0 ' + customerName;
         }
 
         var resp = UrlFetchApp.fetch(url, {
@@ -608,12 +607,12 @@ function handleTrackView(e) {
           muteHttpExceptions: true
         });
 
-        // 新規スレッド作成時は thread_id を保存
+        // 新規スレッド作成時は顧客専用スレッドIDとして保存
         if (!threadId && resp.getResponseCode() === 200) {
           try {
             var body = JSON.parse(resp.getContentText());
             if (body.channel_id) {
-              PropertiesService.getScriptProperties().setProperty('VIEW_LOG_THREAD_ID', body.channel_id);
+              PropertiesService.getScriptProperties().setProperty('DISCORD_THREAD_' + customerName, body.channel_id);
             }
           } catch(e) {}
         }
@@ -689,9 +688,8 @@ function handlePropertyAction(e) {
     try {
       var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
       if (webhookUrl) {
-        // 顧客専用スレッドを優先、なければ共有アクションログスレッド
-        var threadId = PropertiesService.getScriptProperties().getProperty('DISCORD_THREAD_' + customerName)
-                    || PropertiesService.getScriptProperties().getProperty('ACTION_LOG_THREAD_ID');
+        // 顧客専用スレッドに送信（なければ顧客名でスレッド新規作成）
+        var threadId = PropertiesService.getScriptProperties().getProperty('DISCORD_THREAD_' + customerName);
         var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
         var rentText = rent ? _fmtMan(parseInt(rent)) + '万円' : '';
         var propLabel = buildingName || ('room_id: ' + roomId);
@@ -724,7 +722,7 @@ function handlePropertyAction(e) {
         var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
         var payload = { content: msg };
         if (!threadId) {
-          payload.thread_name = '\uD83D\uDCE9 アクションリクエスト';
+          payload.thread_name = '\uD83C\uDFE0 ' + customerName;
         }
 
         var fetchOpts = {
@@ -755,14 +753,9 @@ function handlePropertyAction(e) {
         // スレッドが死んでいる場合（404 等）→ thread_id を消して新規作成
         var isCustomerThread = !!PropertiesService.getScriptProperties().getProperty('DISCORD_THREAD_' + customerName);
         if (threadId && (code === 404 || code === 400)) {
-          // 顧客スレッドが無効化された場合はそのプロパティを削除
-          if (isCustomerThread) {
-            PropertiesService.getScriptProperties().deleteProperty('DISCORD_THREAD_' + customerName);
-          } else {
-            PropertiesService.getScriptProperties().deleteProperty('ACTION_LOG_THREAD_ID');
-          }
-          var retryThreadName = isCustomerThread ? ('\uD83C\uDFE0 ' + customerName) : '\uD83D\uDCE9 アクションリクエスト';
-          var retryPayload = { content: msg, thread_name: retryThreadName };
+          // 顧客スレッドが無効化された場合はプロパティを削除して再作成
+          PropertiesService.getScriptProperties().deleteProperty('DISCORD_THREAD_' + customerName);
+          var retryPayload = { content: msg, thread_name: '\uD83C\uDFE0 ' + customerName };
           var retryResp = UrlFetchApp.fetch(webhookUrl + '?wait=true', {
             method: 'post',
             contentType: 'application/json',
@@ -775,8 +768,7 @@ function handlePropertyAction(e) {
             try {
               var rbody = JSON.parse(retryResp.getContentText());
               if (rbody.channel_id) {
-                var propKey = isCustomerThread ? ('DISCORD_THREAD_' + customerName) : 'ACTION_LOG_THREAD_ID';
-                PropertiesService.getScriptProperties().setProperty(propKey, rbody.channel_id);
+                PropertiesService.getScriptProperties().setProperty('DISCORD_THREAD_' + customerName, rbody.channel_id);
               }
             } catch(e) {}
           }
@@ -784,7 +776,7 @@ function handlePropertyAction(e) {
           try {
             var body = JSON.parse(resp.getContentText());
             if (body.channel_id) {
-              PropertiesService.getScriptProperties().setProperty('ACTION_LOG_THREAD_ID', body.channel_id);
+              PropertiesService.getScriptProperties().setProperty('DISCORD_THREAD_' + customerName, body.channel_id);
             }
           } catch(e) {}
         }
