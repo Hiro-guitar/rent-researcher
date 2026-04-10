@@ -2039,6 +2039,54 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const structure = getVal('建物構造');
           const builtDate = getVal('築年月');
 
+          // 交通情報（交通1〜3）を抽出
+          const __transports = (() => {
+            const list = [];
+            const allLabels = [...document.querySelectorAll('.p-label-title')];
+            const lineLabels = allLabels.filter(e => e.textContent.trim() === '沿線名');
+            const stationLabels = allLabels.filter(e => e.textContent.trim() === '駅名');
+            const walkLabels = allLabels.filter(e => {
+              const t = e.textContent.trim();
+              return t === '駅より徒歩' || t === '駅から徒歩' || t === '徒歩';
+            });
+            const getValFromLabel = (el) => {
+              if (!el) return '';
+              const container = el.closest('.p-label')?.parentElement;
+              if (!container) return '';
+              const innerRow = container.querySelector(':scope > .row');
+              if (innerRow) {
+                const valEl = innerRow.querySelector(':scope > [class^="col"], :scope > [class*=" col"]');
+                if (valEl) return valEl.textContent.trim();
+              }
+              return container.querySelector('.row .col')?.textContent.trim() || '';
+            };
+            const normalizeWalk = (raw) => {
+              if (!raw) return '';
+              const s = String(raw).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+              const m = s.match(/(\d+)/);
+              if (!m) return '';
+              return `徒歩${m[1]}分`;
+            };
+            const count = Math.max(lineLabels.length, stationLabels.length, walkLabels.length);
+            for (let t = 0; t < count; t++) {
+              const line = getValFromLabel(lineLabels[t]);
+              const station = getValFromLabel(stationLabels[t]);
+              const walk = normalizeWalk(getValFromLabel(walkLabels[t]));
+              if (line || station) {
+                let info = [line, station].filter(Boolean).join(' ');
+                if (walk) info += ' ' + walk;
+                list.push(info);
+              }
+            }
+            if (list.length === 0) {
+              const fallbackWalk = normalizeWalk(getVal('駅から徒歩') || getVal('駅より徒歩') || getVal('徒歩'));
+              const base = [getVal('沿線名'), getVal('駅名')].filter(Boolean).join(' ');
+              const single = base + (fallbackWalk ? ' ' + fallbackWalk : '');
+              if (single.trim()) list.push(single);
+            }
+            return list;
+          })();
+
           return {
             building_id: 'reins_' + propertyNumber,
             room_id: 'reins_' + propertyNumber + '_' + (roomNumber || 'no_room'),
@@ -2106,53 +2154,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               const age = new Date().getFullYear() - builtYear;
               return `築${age}年`;
             })(),
-            station_info: (() => {
-              // 全交通情報を取得（交通1〜3）
-              const transports = [];
-              const labels = ['沿線名', '駅名', '駅より徒歩'];
-              // ラベルが複数ある場合（交通1, 交通2, 交通3...）を探す
-              const allLabels = [...document.querySelectorAll('.p-label-title')];
-              const lineLabels = allLabels.filter(e => e.textContent.trim() === '沿線名');
-              const stationLabels = allLabels.filter(e => e.textContent.trim() === '駅名');
-              const walkLabels = allLabels.filter(e => {
-                const t = e.textContent.trim();
-                return t === '駅より徒歩' || t === '駅から徒歩' || t === '徒歩';
-              });
-              const getValFromLabel = (el) => {
-                if (!el) return '';
-                const container = el.closest('.p-label')?.parentElement;
-                if (!container) return '';
-                const innerRow = container.querySelector(':scope > .row');
-                if (innerRow) {
-                  const valEl = innerRow.querySelector(':scope > [class^="col"], :scope > [class*=" col"]');
-                  if (valEl) return valEl.textContent.trim();
-                }
-                return container.querySelector('.row .col')?.textContent.trim() || '';
-              };
-              const normalizeWalk = (raw) => {
-                if (!raw) return '';
-                const s = String(raw).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
-                const m = s.match(/(\d+)/);
-                if (!m) return '';
-                return `徒歩${m[1]}分`;
-              };
-              const count = Math.max(lineLabels.length, stationLabels.length, walkLabels.length);
-              for (let t = 0; t < count; t++) {
-                const line = getValFromLabel(lineLabels[t]);
-                const station = getValFromLabel(stationLabels[t]);
-                const walk = normalizeWalk(getValFromLabel(walkLabels[t]));
-                if (line || station) {
-                  let info = [line, station].filter(Boolean).join(' ');
-                  if (walk) info += ' ' + walk;
-                  transports.push(info);
-                }
-              }
-              if (transports.length > 0) return transports.join(' / ');
-              // フォールバック: ラベル名違い
-              const fallbackWalk = normalizeWalk(getVal('駅から徒歩') || getVal('駅より徒歩') || getVal('徒歩'));
-              const base = [getVal('沿線名'), getVal('駅名')].filter(Boolean).join(' ');
-              return base + (fallbackWalk ? ' ' + fallbackWalk : '');
-            })(),
+            station_info: __transports[0] || '',
+            other_stations: __transports.slice(1),
             room_number: roomNumber || '',
             room_attr: roomAttr || '',
             deposit: getVal('敷金') || '',
