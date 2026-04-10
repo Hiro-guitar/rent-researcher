@@ -734,8 +734,16 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
             const _dUrls = detailResult.detail.image_urls || [];
             await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: 詳細取得 imgs=${_dUrls.length} cats=${_dCats.length} keys=${Object.keys(detailResult.detail).length}` });
 
+            // 検索結果の申込ステータスを保持（詳細ページでは「募集中」に変わることがある）
+            const searchListingStatus = prop.listing_status;
+
             // 詳細情報をマージ
             Object.assign(prop, detailResult.detail);
+
+            // 検索結果で申込系だった場合は詳細ページの値で上書きしない
+            if (searchListingStatus && (searchListingStatus === '申込あり' || /申込/.test(searchListingStatus))) {
+              prop.listing_status = searchListingStatus;
+            }
 
             // 構造名を正規化（いえらぶ表記→REINS/itandi共通名）
             if (prop.structure) {
