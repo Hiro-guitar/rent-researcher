@@ -3117,7 +3117,7 @@ async function sendDiscordNotification(customerName, properties, customer) {
     for (let i = 0; i < properties.length; i++) {
       discordPropertyCounters[customerName]++;
       const msg = buildDiscordMessage(properties[i], discordPropertyCounters[customerName], gasWebappUrl, customerName, customer);
-      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg });
+      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg, flags: 4 });
       if (i < properties.length - 1) await sleep(1000);
     }
 
