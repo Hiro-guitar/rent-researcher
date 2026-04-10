@@ -1117,13 +1117,27 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
           if (reinsLineName === '\u691c\u7d22\u4e0d\u80fd') continue; // 検索不能
 
-          // 丸ノ内線方南町支線の分岐対応: 支線駅がある場合は路線名を切り替え
+          // 丸ノ内線方南町支線の分岐対応: 本線駅と支線駅を分離
           if (lineName === '東京メトロ丸ノ内線' && colonIdx >= 0) {
             const honanBranchStations = new Set(['中野新橋', '中野富士見町', '方南町']);
             const stns = parts[i].substring(colonIdx + 1).split(',').map(s => s.trim()).filter(s => s);
-            if (stns.some(s => honanBranchStations.has(s))) {
+            const mainStns = stns.filter(s => !honanBranchStations.has(s));
+            const branchStns = stns.filter(s => honanBranchStations.has(s));
+            if (branchStns.length > 0 && mainStns.length > 0) {
+              // 混在: 現在のパートを本線駅のみに書き換え、支線を新パートとして追加
+              parts[i] = lineName + '：' + mainStns.join(',');
+              parts.splice(i + 1, 0, lineName + '（方南支線）：' + branchStns.join(','));
+              // reinsLineNameは本線のまま（丸ノ内線）
+            } else if (branchStns.length > 0 && mainStns.length === 0) {
+              // 全駅が支線 → 丸ノ内方南に切り替え
               reinsLineName = '丸ノ内方南';
             }
+            // 全駅が本線の場合はそのまま
+          }
+
+          // 丸ノ内線方南支線パート（上記spliceで追加されたもの）の処理
+          if (lineName === '東京メトロ丸ノ内線（方南支線）') {
+            reinsLineName = '丸ノ内方南';
           }
 
           // 常磐線の分岐対応: 各停駅（綾瀬〜北柏）はREINSでは常磐緩行線
