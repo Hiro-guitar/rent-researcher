@@ -401,12 +401,12 @@ function getIeloveFilterRejectReason(prop, customer) {
     }
   }
 
-  // 募集状況フィルタ
-  if (prop.listing_status === '申込あり') {
+  // 募集状況フィルタ（「申込あり」「申込1件」「申込2件」等すべて対象）
+  if (prop.listing_status && (prop.listing_status === '申込あり' || /^申込\d+件$/.test(prop.listing_status))) {
     try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
-    return '申込あり';
+    return `申込あり(${prop.listing_status})`;
   }
-  if (prop.listing_status && prop.listing_status !== '申込あり') {
+  if (prop.listing_status && prop.listing_status !== '申込あり' && !/^申込\d+件$/.test(prop.listing_status)) {
     try { globalThis.__removeMoshikomiKey && globalThis.__removeMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
   }
 

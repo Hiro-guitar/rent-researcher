@@ -614,6 +614,25 @@ chrome.storage.onChanged.addListener((changes, area) => {
 __applyKeepAwakeForAutoSearch();
 if (chrome.runtime.onStartup) chrome.runtime.onStartup.addListener(__applyKeepAwakeForAutoSearch);
 
+// --- スリープ復帰時に自動検索を再開 ---
+chrome.idle.setDetectionInterval(60); // 60秒操作なしでidle判定
+chrome.idle.onStateChanged.addListener((state) => {
+  if (state === 'active') {
+    // locked/idle → active に戻った = スリープ復帰
+    chrome.storage.local.get(['autoSearchEnabled', 'isSearching', 'businessStartHour', 'businessEndHour'], (data) => {
+      if (data.autoSearchEnabled === false) return;
+      if (data.isSearching) return; // 既に検索中なら不要
+      const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
+      const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
+      const hour = new Date().getHours();
+      if (hour < startH || hour >= endH) return; // 営業時間外
+      console.log('[system] スリープ復帰検知 → 自動検索を再開');
+      setStorageData({ debugLog: '[system] スリープ復帰検知 → 自動検索を再開' });
+      runSearchCycle();
+    });
+  }
+});
+
 // --- 初期化 ---
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['searchIntervalMinutes'], (data) => {
@@ -996,6 +1015,42 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
   await setStorageData({ debugLog: `検索開始: ${customer.name}` });
   const customerSeenIds = seenIds[customer.name] || [];
+
+  // スキップ済み物件IDをロード（詳細ページ遷移を省略して高速化）
+  const skipStorageKey = `reinsSkipped_${customer.name}`;
+  const skipHashKey = `reinsSkipHash_${customer.name}`;
+  const skipData = await getStorageData([skipStorageKey, skipHashKey]);
+  const skippedMap = skipData[skipStorageKey] || {}; // { propertyNumber: { reason, ts } }
+
+  // 条件別ハッシュで、変わった条件に関連するスキップのみリセット
+  const simpleHash = (s) => s.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0).toString(36);
+  const prevHashes = skipData[skipHashKey] || {};
+  const currentHashes = {
+    structures: simpleHash(JSON.stringify(customer.structures || [])),
+    stations: simpleHash(JSON.stringify({ s: customer.stations, r: customer.routes_with_stations, w: customer.walk })),
+    layouts: simpleHash(JSON.stringify(customer.layouts || [])),
+    equipment: simpleHash(JSON.stringify(customer.equipment || '')),
+    building_age: simpleHash(JSON.stringify(customer.building_age || '')),
+  };
+  const conditionToReasonPattern = {
+    structures: /構造不一致|構造不明/,
+    stations: /駅不一致|駅\/徒歩不一致|交通情報なし/,
+    layouts: /間取り不一致/,
+    equipment: /敷金|礼金|定期借家|ロフト/,
+    building_age: /新築でない/,
+  };
+  for (const [category, hash] of Object.entries(currentHashes)) {
+    if (prevHashes[category] && prevHashes[category] !== hash) {
+      const pattern = conditionToReasonPattern[category];
+      if (pattern) {
+        for (const key of Object.keys(skippedMap)) {
+          if (pattern.test(skippedMap[key].reason)) delete skippedMap[key];
+        }
+      }
+    }
+  }
+  await setStorageData({ [skipHashKey]: currentHashes });
+  let skippedMapDirty = false;
 
   // --- Step 1: 検索フォームの準備 ---
   // まずVueハイドレーション確保 + 検索フォームへルーティング
@@ -1754,6 +1809,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       continue; // 既知物件はログなし（大量になるため）
     }
 
+    // スキップ済み物件チェック（前回フィルタで除外された物件は詳細ページに行かない）
+    if (!isTest && skippedMap[result.propertyNumber]) {
+      continue; // スキップ済みはログなし（大量になるため）
+    }
+
     // 一覧ページで敷金/礼金フィルタ（equipment条件に基づく）
     const toHankaku_ = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
     const equip = toHankaku_(customer.equipment || '').toLowerCase();
@@ -2313,110 +2373,6 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       });
 
-      // === 画像抽出: MutationObserver で .image-view の style を監視して全URLを収集 ===
-      // (バックグラウンドタブthrottle対策: polyfillは≤100msのみ対象のため、200ms以上のsetTimeoutを避ける)
-      const imageResults = await Promise.race([
-        chrome.scripting.executeScript({
-        target: { tabId },
-        world: 'MAIN',
-        func: async () => {
-          // throttle非依存の短い遅延ユーティリティ（MessageChannel経由）
-          const mc = new MessageChannel();
-          const mcTasks = [];
-          mc.port1.onmessage = () => { const t = mcTasks.shift(); if (t) t(); };
-          const microDelay = () => new Promise(r => { mcTasks.push(r); mc.port2.postMessage(0); });
-          const shortSleep = async (ms) => {
-            const end = performance.now() + ms;
-            while (performance.now() < end) await microDelay();
-          };
-          async function fetchImageAsBase64(url) {
-            const response = await fetch(url);
-            const blob = await response.blob();
-            return await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result);
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
-            });
-          }
-          const diag = [];
-          // サムネ出現待ち
-          let thumbnails = [];
-          for (let i = 0; i < 100; i++) {
-            thumbnails = document.querySelectorAll('div.mx-auto');
-            if (thumbnails.length > 0) break;
-            await shortSleep(100);
-          }
-          diag.push(`thumbs=${thumbnails.length} focus=${document.hasFocus()} vis=${document.visibilityState}`);
-          // MutationObserverでstyle変化を監視してURL収集
-          const urlOrder = [];
-          const seenUrls = new Set();
-          const observer = new MutationObserver(muts => {
-            for (const m of muts) {
-              if (m.target.classList && m.target.classList.contains('image-view')) {
-                const s = m.target.getAttribute('style') || '';
-                const match = s.match(/url\(["']?(.*?findBkknGzu\?[^"')]+)/);
-                if (match && !seenUrls.has(match[1])) {
-                  seenUrls.add(match[1]);
-                  urlOrder.push(match[1]);
-                }
-              }
-            }
-          });
-          observer.observe(document.body, { attributes: true, attributeFilter: ['style'], subtree: true });
-          const dispatchClick = (el) => {
-            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-          };
-          // 各サムネクリック→URL収集→閉じ切りを確認
-          let idx = 0;
-          for (const thumb of thumbnails) {
-            idx++;
-            const beforeCount = urlOrder.length;
-            let attempts = 0;
-            for (; attempts < 6; attempts++) {
-              dispatchClick(thumb);
-              for (let w = 0; w < 10; w++) {
-                await shortSleep(100);
-                if (urlOrder.length > beforeCount) break;
-              }
-              if (urlOrder.length > beforeCount) break;
-            }
-            diag.push(`#${idx} got=${urlOrder.length - beforeCount} attempts=${attempts+1}`);
-            // close + モーダル要素が消えるまで待機
-            const closeBtn = document.querySelector('.modal .btn.btn-outline, .modal .close');
-            if (closeBtn) dispatchClick(closeBtn);
-            for (let w = 0; w < 15; w++) {
-              await shortSleep(100);
-              if (!document.querySelector('.image-view')) break;
-            }
-          }
-          observer.disconnect();
-          diag.push(`total=${urlOrder.length}`);
-          // 収集したURLを順にfetch
-          const imagesBase64 = [];
-          for (const u of urlOrder) {
-            let full = u.startsWith('/') ? location.origin + u : u;
-            try {
-              const b64 = await fetchImageAsBase64(full);
-              imagesBase64.push(b64);
-            } catch (e) {
-              diag.push(`fetchErr=${e.message}`);
-            }
-          }
-          return { images: imagesBase64, debugUrls: [], diag };
-        }
-      }),
-        new Promise((resolve) => setTimeout(() => resolve(null), 120000))
-      ]);
-      const imgResult = (imageResults && imageResults[0] && imageResults[0].result) || {};
-      const imageBase64s = Array.isArray(imgResult) ? imgResult : (imgResult.images || []);
-      await setStorageData({ debugLog: `${customer.name}: REINS画像 base64取得=${imageBase64s.length}件` });
-      for (const line of (imgResult.diag || [])) {
-        await setStorageData({ debugLog: `${customer.name}: [diag] ${line}` });
-      }
-
       const detail = detailResults && detailResults[0] && detailResults[0].result;
       if (detail) {
         // room_idをハッシュ化（propertyNumberベース・顧客向けURLでソース非表示）
@@ -2593,6 +2549,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           await setStorageData({ stats: currentStats });
         } else {
           await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name} ${detail.room_number || ''} - ${rejectReason}` });
+          // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
+          if (detail.reins_property_number) {
+            skippedMap[detail.reins_property_number] = { reason: rejectReason, ts: Date.now() };
+            skippedMapDirty = true;
+          }
         }
       }
 
@@ -2918,6 +2879,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       break; // 最終ページ処理完了
     }
   } // end pageLoop
+
+  // スキップ済み物件マップを保存（変更があった場合のみ）
+  if (skippedMapDirty) {
+    await setStorageData({ [skipStorageKey]: skippedMap });
+  }
 
   if (newProperties.length === 0) {
     await setStorageData({ debugLog: `${customer.name}: 新規物件なし` });

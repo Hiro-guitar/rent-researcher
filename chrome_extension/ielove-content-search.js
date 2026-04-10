@@ -154,7 +154,7 @@
     if (leasing) {
       for (const td of leasing.querySelectorAll('td')) {
         const text = td.textContent.trim();
-        if (['募集中', '申込あり', '募集中（要確認）'].includes(text)) {
+        if (['募集中', '申込あり', '募集中（要確認）'].includes(text) || /^申込\d+件$/.test(text)) {
           listingStatus = text;
           break;
         }

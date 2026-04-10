@@ -9,7 +9,8 @@
     "tabs",
     "notifications",
     "scripting",
-    "power"
+    "power",
+    "idle"
   ],
   "host_permissions": [
     "https://system.reins.jp/*",
