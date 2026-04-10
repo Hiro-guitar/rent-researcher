@@ -590,10 +590,14 @@ function renderProperty(p) {
       + '<label class="modal-radio-label" id="radioCorporate" onclick="selectRadio(\'法人\')">'
       + '<input type="radio" name="appType" value="法人"> 法人申込</label>'
       + '</div>'
-      + '<input type="text" class="modal-input" id="nameInput" placeholder="氏名（必須）">'
-      + '<div class="modal-error" id="nameError"></div>'
-      + '<input type="text" class="modal-input" id="furiganaInput" placeholder="フリガナ（必須）">'
-      + '<div class="modal-error" id="furiganaError"></div>'
+      + '<div style="display:flex;gap:8px;">'
+      + '<div style="flex:1;"><input type="text" class="modal-input" id="lastNameInput" placeholder="姓（必須）"><div class="modal-error" id="lastNameError"></div></div>'
+      + '<div style="flex:1;"><input type="text" class="modal-input" id="firstNameInput" placeholder="名（必須）"><div class="modal-error" id="firstNameError"></div></div>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;">'
+      + '<div style="flex:1;"><input type="text" class="modal-input" id="lastNameKanaInput" placeholder="セイ（必須）"><div class="modal-error" id="lastNameKanaError"></div></div>'
+      + '<div style="flex:1;"><input type="text" class="modal-input" id="firstNameKanaInput" placeholder="メイ（必須）"><div class="modal-error" id="firstNameKanaError"></div></div>'
+      + '</div>'
       + '<input type="email" class="modal-input" id="emailInput" placeholder="メールアドレス（必須）">'
       + '<div class="modal-error" id="emailError"></div>'
       + '<input type="tel" class="modal-input" id="phoneInput" placeholder="電話番号（必須）">'
@@ -1091,15 +1095,27 @@ function selectRadio(value) {
   }
 }
 
-function validateName(val) {
+function validateLastName(val) {
   val = (val || '').trim();
-  if (!val) return '氏名を入力してください';
+  if (!val) return '姓を入力してください';
   return null;
 }
 
-function validateFurigana(val) {
+function validateFirstName(val) {
   val = (val || '').trim();
-  if (!val) return 'フリガナを入力してください';
+  if (!val) return '名を入力してください';
+  return null;
+}
+
+function validateLastNameKana(val) {
+  val = (val || '').trim();
+  if (!val) return 'セイを入力してください';
+  return null;
+}
+
+function validateFirstNameKana(val) {
+  val = (val || '').trim();
+  if (!val) return 'メイを入力してください';
   return null;
 }
 
@@ -1120,58 +1136,45 @@ function validatePhone(val) {
 function submitHold() {
   var checkedRadio = document.querySelector('input[name="appType"]:checked');
   var applicationType = checkedRadio ? checkedRadio.value : '個人';
-  var nameInputEl = document.getElementById('nameInput');
-  var furiganaInputEl = document.getElementById('furiganaInput');
+  var lastNameEl = document.getElementById('lastNameInput');
+  var firstNameEl = document.getElementById('firstNameInput');
+  var lastNameKanaEl = document.getElementById('lastNameKanaInput');
+  var firstNameKanaEl = document.getElementById('firstNameKanaInput');
   var emailInput = document.getElementById('emailInput');
   var phoneInput = document.getElementById('phoneInput');
-  var applicantName = (nameInputEl.value || '').trim();
-  var furigana = (furiganaInputEl.value || '').trim();
+  var lastName = (lastNameEl.value || '').trim();
+  var firstName = (firstNameEl.value || '').trim();
+  var lastNameKana = (lastNameKanaEl.value || '').trim();
+  var firstNameKana = (firstNameKanaEl.value || '').trim();
   var email = (emailInput.value || '').trim();
   var phone = (phoneInput.value || '').trim();
-  var nameErrEl = document.getElementById('nameError');
-  var furiganaErrEl = document.getElementById('furiganaError');
-  var emailErrEl = document.getElementById('emailError');
-  var phoneErrEl = document.getElementById('phoneError');
 
-  var nameError = validateName(applicantName);
-  var furiganaError = validateFurigana(furigana);
-  var emailError = validateEmail(email);
-  var phoneError = validatePhone(phone);
+  var fields = [
+    { el: lastNameEl, errEl: document.getElementById('lastNameError'), validate: validateLastName, val: lastName },
+    { el: firstNameEl, errEl: document.getElementById('firstNameError'), validate: validateFirstName, val: firstName },
+    { el: lastNameKanaEl, errEl: document.getElementById('lastNameKanaError'), validate: validateLastNameKana, val: lastNameKana },
+    { el: firstNameKanaEl, errEl: document.getElementById('firstNameKanaError'), validate: validateFirstNameKana, val: firstNameKana },
+    { el: emailInput, errEl: document.getElementById('emailError'), validate: validateEmail, val: email },
+    { el: phoneInput, errEl: document.getElementById('phoneError'), validate: validatePhone, val: phone }
+  ];
 
   var hasError = false;
-  if (nameError) {
-    nameInputEl.classList.add('error');
-    nameErrEl.textContent = nameError;
-    hasError = true;
-  } else {
-    nameInputEl.classList.remove('error');
-    nameErrEl.textContent = '';
-  }
-  if (furiganaError) {
-    furiganaInputEl.classList.add('error');
-    furiganaErrEl.textContent = furiganaError;
-    hasError = true;
-  } else {
-    furiganaInputEl.classList.remove('error');
-    furiganaErrEl.textContent = '';
-  }
-  if (emailError) {
-    emailInput.classList.add('error');
-    emailErrEl.textContent = emailError;
-    hasError = true;
-  } else {
-    emailInput.classList.remove('error');
-    emailErrEl.textContent = '';
-  }
-  if (phoneError) {
-    phoneInput.classList.add('error');
-    phoneErrEl.textContent = phoneError;
-    hasError = true;
-  } else {
-    phoneInput.classList.remove('error');
-    phoneErrEl.textContent = '';
+  for (var i = 0; i < fields.length; i++) {
+    var f = fields[i];
+    var err = f.validate(f.val);
+    if (err) {
+      f.el.classList.add('error');
+      f.errEl.textContent = err;
+      hasError = true;
+    } else {
+      f.el.classList.remove('error');
+      f.errEl.textContent = '';
+    }
   }
   if (hasError) return;
+
+  var applicantName = lastName + ' ' + firstName;
+  var furigana = lastNameKana + ' ' + firstNameKana;
 
   closeHoldModal();
   sendAction('hold', applicationType, email, phone, applicantName, furigana);
