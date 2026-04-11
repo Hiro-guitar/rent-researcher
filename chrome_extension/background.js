@@ -1629,32 +1629,51 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     }
   }
 
-  // MutationObserverで検索結果行（.p-table-body-row）の出現を待つ（最大30秒）
-  const rowsReady = await waitForDomReady(tabId, '.p-table-body-row', { timeout: 30000 });
-  if (isSearchCancelled(searchId)) return;
-
+  // MutationObserverで検索結果の描画完了を待つ（行の出現 or 0件表示、最大30秒）
   let resultsReady = false;
-  if (rowsReady.found) {
-    resultsReady = true;
-  } else {
-    // 0件の場合の確認: 結果ページだがデータなし
-    try {
-      const zeroCheck = await chrome.scripting.executeScript({
-        target: { tabId },
-        func: () => {
-          const isResultPage = document.body.textContent.includes('検索結果');
-          const checkboxes = document.querySelectorAll('input[type="checkbox"]').length;
-          const bodyLen = document.body.textContent.length;
-          return { isResultPage, checkboxes, bodyLen };
-        }
-      });
-      const r = zeroCheck?.[0]?.result || {};
-      if (r.isResultPage && r.bodyLen > 200 && r.checkboxes === 0) {
-        await setStorageData({ debugLog: `${customer.name}: 検索結果0件` });
-        return;
+  try {
+    const rowsResult = await chrome.scripting.executeScript({
+      target: { tabId },
+      args: [30000],
+      func: (timeoutMs) => {
+        return new Promise((resolve) => {
+          const check = () => {
+            // 検索結果行が存在する → データあり
+            if (document.querySelectorAll('.p-table-body-row').length > 0) return { type: 'rows' };
+            // 結果ページだが行もチェックボックスもない → 0件
+            const bodyText = document.body?.textContent || '';
+            if (bodyText.includes('検索結果') && bodyText.length > 200
+                && document.querySelectorAll('input[type="checkbox"]').length === 0
+                && document.querySelectorAll('.p-table-body-row').length === 0) {
+              // ページネーションリンクもない場合のみ0件と判定（描画途中を誤検知しない）
+              if (document.querySelectorAll('.page-link').length === 0) return { type: 'zero' };
+            }
+            return null;
+          };
+          const result = check();
+          if (result) { resolve(result); return; }
+          const timer = setTimeout(() => { observer.disconnect(); resolve({ type: 'timeout' }); }, timeoutMs);
+          const observer = new MutationObserver(() => {
+            const result = check();
+            if (result) {
+              observer.disconnect();
+              clearTimeout(timer);
+              resolve(result);
+            }
+          });
+          observer.observe(document.body || document.documentElement, { childList: true, subtree: true, characterData: true });
+        });
       }
-    } catch (_) {}
-  }
+    });
+    const r = rowsResult?.[0]?.result || { type: 'timeout' };
+    if (r.type === 'rows') {
+      resultsReady = true;
+    } else if (r.type === 'zero') {
+      await setStorageData({ debugLog: `${customer.name}: 検索結果0件` });
+      return;
+    }
+  } catch (_) {}
+  if (isSearchCancelled(searchId)) return;
 
   if (!resultsReady) {
     await setStorageData({ debugLog: `${customer.name}: 検索結果が表示されませんでした` });
