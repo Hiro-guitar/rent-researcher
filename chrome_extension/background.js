@@ -3227,7 +3227,7 @@ async function sendDiscordNotification(customerName, properties, customer) {
     if (!discordPropertyCounters[customerName]) discordPropertyCounters[customerName] = 0;
     for (let i = 0; i < properties.length; i++) {
       discordPropertyCounters[customerName]++;
-      const msg = buildDiscordMessage(properties[i], discordPropertyCounters[customerName], gasWebappUrl, customerName, customer);
+      const msg = '@here\n' + buildDiscordMessage(properties[i], discordPropertyCounters[customerName], gasWebappUrl, customerName, customer);
       const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg });
       // スレッドが期限切れ/削除された場合は再作成
       if (postResp && (postResp.status === 404 || postResp.status === 400)) {
