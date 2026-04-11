@@ -633,11 +633,11 @@ function handleTrackView(e) {
           } catch(e) {}
         }
       }
-      // スマホ向けプッシュ通知
-      try { sendPushNotification(customerName + ' 様が「' + (buildingName || roomId) + '」を閲覧', '👀 閲覧通知'); } catch(e) {}
     } catch(e) {
       console.error('Discord view notification error: ' + e.message);
     }
+    // スマホ向けプッシュ通知（Discord通知とは独立して実行）
+    try { sendPushNotification(customerName + ' 様が「' + (buildingName || roomId) + '」を閲覧', '👀 閲覧通知'); } catch(e) { console.error('ntfy view error: ' + e.message); }
   }
 
   return ContentService.createTextOutput(JSON.stringify({ ok: true, first: isFirstView }))
@@ -802,22 +802,25 @@ function handlePropertyAction(e) {
       } else {
         discordStatus = 'no_webhook';
       }
-      // スマホ向けプッシュ通知
-      var pushMsgMap = {
-        'hold': { msg: customerName + ' 様が「' + propLabel + '」に申込希望！', title: '🏠 申込希望' },
-        'hold_intent': { msg: customerName + ' 様が「' + propLabel + '」の申込画面を表示', title: '👀 申込画面表示' },
-        'favorite': { msg: customerName + ' 様が「' + propLabel + '」をお気に入り', title: '⭐ お気に入り' },
-        'not_interested': null,
-        'view': { msg: customerName + ' 様が「' + propLabel + '」を閲覧', title: '📄 閲覧' }
-      };
-      var pushInfo = pushMsgMap[actionType];
-      if (pushInfo) { try { sendPushNotification(pushInfo.msg, pushInfo.title); } catch(e) {} }
     } catch(e) {
       discordStatus = 'exception:' + ((e && e.message ? e.message : String(e))).substring(0, 100);
       console.error('Discord action notification error: ' + e.message);
     }
     // L列(12)に応答コードを記録
     try { sheet.getRange(loggedRowIdx, 12).setValue(discordStatus); } catch(e) {}
+
+    // スマホ向けプッシュ通知（Discord通知とは独立して実行）
+    var propLabel2 = buildingName || ('room_id: ' + roomId);
+    if (roomNumber) propLabel2 += ' ' + roomNumber;
+    var pushMsgMap = {
+      'hold': { msg: customerName + ' 様が「' + propLabel2 + '」に申込希望！', title: '🏠 申込希望' },
+      'hold_intent': { msg: customerName + ' 様が「' + propLabel2 + '」の申込画面を表示', title: '👀 申込画面表示' },
+      'favorite': { msg: customerName + ' 様が「' + propLabel2 + '」をお気に入り', title: '⭐ お気に入り' },
+      'not_interested': null,
+      'view': { msg: customerName + ' 様が「' + propLabel2 + '」を閲覧', title: '📄 閲覧' }
+    };
+    var pushInfo = pushMsgMap[actionType];
+    if (pushInfo) { try { sendPushNotification(pushInfo.msg, pushInfo.title); } catch(e) { console.error('ntfy action error: ' + e.message); } }
   }
 
   // 仮押さえの場合、顧客にLINE確認メッセージを送信
