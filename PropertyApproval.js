@@ -18,6 +18,38 @@ var PENDING_SHEET_NAME = '承認待ち物件';
 var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
 
+// ===== Discord Bot DM通知（スマホプッシュ用） =====
+var DISCORD_DM_USER_ID = '1459814543600390341';
+
+function sendDiscordDm(message) {
+  try {
+    var botToken = PropertiesService.getScriptProperties().getProperty('DISCORD_BOT_TOKEN');
+    if (!botToken) return;
+
+    // DMチャンネルを取得
+    var chResp = UrlFetchApp.fetch('https://discord.com/api/v10/users/@me/channels', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'Authorization': 'Bot ' + botToken },
+      payload: JSON.stringify({ recipient_id: DISCORD_DM_USER_ID }),
+      muteHttpExceptions: true
+    });
+    if (chResp.getResponseCode() !== 200) return;
+    var channelId = JSON.parse(chResp.getContentText()).id;
+
+    // メッセージ送信
+    UrlFetchApp.fetch('https://discord.com/api/v10/channels/' + channelId + '/messages', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'Authorization': 'Bot ' + botToken },
+      payload: JSON.stringify({ content: message }),
+      muteHttpExceptions: true
+    });
+  } catch (e) {
+    console.error('Discord DM error: ' + e.message);
+  }
+}
+
 // ===== GAS Base URL =====
 function getGasBaseUrl() {
   return ScriptApp.getService().getUrl();
@@ -617,6 +649,8 @@ function handleTrackView(e) {
           } catch(e) {}
         }
       }
+      // スマホ向けDM通知
+      try { sendDiscordDm('👀 **' + customerName + '** 様が「' + (buildingName || roomId) + '」を閲覧'); } catch(e) {}
     } catch(e) {
       console.error('Discord view notification error: ' + e.message);
     }
@@ -784,6 +818,16 @@ function handlePropertyAction(e) {
       } else {
         discordStatus = 'no_webhook';
       }
+      // スマホ向けDM通知
+      var dmMsgMap = {
+        'hold': '🏠 **' + customerName + '** 様が「' + propLabel + '」に申込希望！',
+        'hold_intent': '👀 **' + customerName + '** 様が「' + propLabel + '」の申込画面を表示',
+        'favorite': '⭐ **' + customerName + '** 様が「' + propLabel + '」をお気に入り',
+        'not_interested': '👎 **' + customerName + '** 様が「' + propLabel + '」を興味なし',
+        'view': '📄 **' + customerName + '** 様が「' + propLabel + '」を閲覧'
+      };
+      var dmMsg = dmMsgMap[actionType];
+      if (dmMsg) { try { sendDiscordDm(dmMsg); } catch(e) {} }
     } catch(e) {
       discordStatus = 'exception:' + ((e && e.message ? e.message : String(e))).substring(0, 100);
       console.error('Discord action notification error: ' + e.message);
