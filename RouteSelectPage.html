@@ -122,7 +122,8 @@ body {
 .city-item label { font-size: 14px; flex: 1; cursor: pointer; padding: 10px 0; }
 
 /* ── 町名パネル（市区町村の下） ── */
-.town-panel { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #f9f9f9; border-top: 1px solid #eee; }
+.town-panel { display: none; background: #f9f9f9; border-top: 1px solid #eee; }
+.town-panel.open { display: block; }
 .town-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px 2px 44px; font-size: 11px; color: #888; }
 .town-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #ccc; background: #fff; color: #666; cursor: pointer; }
 .town-loading { padding: 10px 12px 10px 44px; font-size: 12px; color: #999; }
@@ -144,7 +145,8 @@ body {
 .town-arrow.open { transform: rotate(90deg); }
 
 /* 丁目パネル（駅パネルと同じ構造） */
-.chome-panel { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #f3f3f3; border-top: 1px solid #eee; }
+.chome-panel { display: none; background: #f3f3f3; border-top: 1px solid #eee; }
+.chome-panel.open { display: block; }
 .chome-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 2px 68px; font-size: 10px; color: #888; }
 .chome-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #ccc; background: #fff; color: #666; cursor: pointer; }
 .chome-list { padding: 2px 12px 6px 68px; display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
@@ -688,10 +690,10 @@ function expandCityTowns(cityName, cid, groupIdx) {
 
   if (!townRendered[cid]) {
     panel.innerHTML = '<div class="town-loading">町名を読み込み中...</div>';
-    panel.style.maxHeight = '40px';
+    panel.classList.add('open');
     fetchTowns(cityName, cid, groupIdx);
   } else {
-    panel.style.maxHeight = panel.scrollHeight + 'px';
+    panel.classList.add('open');
   }
   if (arrow) arrow.classList.add('open');
   updateCityGroupHeight(groupIdx);
@@ -700,7 +702,7 @@ function expandCityTowns(cityName, cid, groupIdx) {
 function collapseCityTowns(cid, groupIdx) {
   var panel = document.getElementById('townPanel_' + cid);
   var arrow = document.getElementById('arrow_' + cid);
-  if (panel) { panel.style.overflow = 'hidden'; panel.style.maxHeight = panel.scrollHeight + 'px'; setTimeout(function() { panel.style.maxHeight = '0'; }, 10); }
+  if (panel) panel.classList.remove('open');
   if (arrow) arrow.classList.remove('open');
   updateCityGroupHeight(groupIdx);
 }
@@ -728,7 +730,7 @@ function fetchTowns(cityName, cid, groupIdx) {
     })
     .catch(function() {
       var panel = document.getElementById('townPanel_' + cid);
-      if (panel) { panel.innerHTML = '<div class="town-loading">町名の取得に失敗しました</div>'; panel.style.maxHeight = '40px'; }
+      if (panel) { panel.innerHTML = '<div class="town-loading">町名の取得に失敗しました</div>'; }
     });
 }
 
@@ -811,9 +813,6 @@ function renderTownPanel(cityName, townData, cid, groupIdx) {
 
   panel.innerHTML = html;
   townRendered[cid] = true;
-  panel.style.maxHeight = panel.scrollHeight + 'px';
-  // アニメーション完了後にoverflowを解除（子パネル展開時の見切れ防止）
-  setTimeout(function() { panel.style.maxHeight = 'none'; panel.style.overflow = 'visible'; }, 350);
   updateCityBadge(cid, cityName);
 
   // 既選択のある丁目グループを展開
@@ -839,30 +838,14 @@ function toggleTownChome(townId, cid, groupIdx) {
   var panel = document.getElementById('chomePanel_' + townId);
   var arrow = document.getElementById('townArrow_' + townId);
   if (!panel) return;
-  if (panel.style.maxHeight && panel.style.maxHeight !== '0px') {
-    panel.style.maxHeight = '0';
+  if (panel.classList.contains('open')) {
+    panel.classList.remove('open');
     if (arrow) arrow.classList.remove('open');
   } else {
-    panel.style.maxHeight = panel.scrollHeight + 'px';
+    panel.classList.add('open');
     if (arrow) arrow.classList.add('open');
   }
-  // 全親パネルの高さを再計算（丁目展開分を反映）
-  recalcAllParentHeights(cid, groupIdx);
-}
-
-function recalcAllParentHeights(cid, groupIdx) {
-  setTimeout(function() {
-    var townPanel = document.getElementById('townPanel_' + cid);
-    if (townPanel && townPanel.style.maxHeight !== '0px') {
-      townPanel.style.maxHeight = townPanel.scrollHeight + 'px';
-    }
-    setTimeout(function() {
-      var content = document.getElementById('cityContent_' + groupIdx);
-      if (content && content.style.maxHeight && content.style.maxHeight !== '0px') {
-        content.style.maxHeight = (content.scrollHeight + 5000) + 'px';
-      }
-    }, 50);
-  }, 50);
+  updateCityGroupHeight(groupIdx);
 }
 
 // 町名グループのチェック → 全丁目チェック
@@ -871,7 +854,7 @@ function onTownGroupCheck(cb, cityName, townId, cid, groupIdx) {
   if (!panel) return;
   var cbs = panel.querySelectorAll('.chome-cb');
   for (var i = 0; i < cbs.length; i++) cbs[i].checked = cb.checked;
-  if (cb.checked && (!panel.style.maxHeight || panel.style.maxHeight === '0px')) {
+  if (cb.checked && !panel.classList.contains('open')) {
     toggleTownChome(townId, cid, groupIdx);
   }
   updateChomeBadge(townId);
