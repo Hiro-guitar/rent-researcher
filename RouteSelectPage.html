@@ -481,9 +481,9 @@ function renderRoutes() {
       var route = company.routes[r];
       var id = 'r_' + c + '_' + r;
       var stationCount = (STATION_DATA[route] || []).length;
-      html += '<div class="route-item" onclick="toggleRouteCheckbox(\'' + id + '\')">';
+      html += '<div class="route-item" onclick="onRouteRowClick(\'' + id + '\')">';
       html += '<input type="checkbox" id="' + id + '" name="route" value="' + esc(route) + '" data-company="' + company.id + '" onchange="onRouteChange(this)" onclick="event.stopPropagation()">';
-      html += '<label>' + esc(route) + '</label>';
+      html += '<label onclick="event.preventDefault(); event.stopPropagation(); onRouteRowClick(\'' + id + '\')">' + esc(route) + '</label>';
       html += '<span class="route-station-badge">' + stationCount + '駅</span>';
       html += '<span class="route-arrow" id="arrow_' + id + '">&#x25B6;</span>';
       html += '</div>';
@@ -509,30 +509,23 @@ function toggleCompanyRoutes(companyIndex) {
   }
 }
 
-function toggleRouteCheckbox(id) {
+// 行クリック → 展開/折りたたみのみ（チェック変更なし）
+function onRouteRowClick(id) {
   var cb = document.getElementById(id);
   if (!cb) return;
-  if (cb.checked) {
-    // チェック済み → パネルの開閉だけ（チェックは変えない）
-    var panel = document.getElementById('panel_' + cb.id);
-    var arrow = document.getElementById('arrow_' + cb.id);
-    if (!panel) return;
-    ensureStationsRendered(cb.value, panel);
-    if (panel.style.maxHeight && panel.style.maxHeight !== '0px') {
-      panel.style.maxHeight = panel.scrollHeight + 'px';
-      requestAnimationFrame(function() { panel.style.maxHeight = '0'; });
-      if (arrow) arrow.classList.remove('open');
-    } else {
-      panel.style.maxHeight = panel.scrollHeight + 'px';
-      if (arrow) arrow.classList.add('open');
-    }
-    // 親のcompany-routesのmax-heightを更新
-    updateCompanyRoutesHeight(cb);
+  var panel = document.getElementById('panel_' + cb.id);
+  var arrow = document.getElementById('arrow_' + cb.id);
+  if (!panel) return;
+  ensureStationsRendered(cb.value, panel);
+  if (panel.style.maxHeight && panel.style.maxHeight !== '0px') {
+    panel.style.maxHeight = panel.scrollHeight + 'px';
+    requestAnimationFrame(function() { panel.style.maxHeight = '0'; });
+    if (arrow) arrow.classList.remove('open');
   } else {
-    // 未チェック → チェックを入れて展開
-    cb.checked = true;
-    expandRoute(cb, true);
+    panel.style.maxHeight = panel.scrollHeight + 'px';
+    if (arrow) arrow.classList.add('open');
   }
+  updateCompanyRoutesHeight(cb);
 }
 
 function updateCompanyRoutesHeight(cb) {
@@ -541,7 +534,25 @@ function updateCompanyRoutesHeight(cb) {
     setTimeout(function() { companyRoutes.style.maxHeight = companyRoutes.scrollHeight + 'px'; }, 350);
   }
 }
-function onRouteChange(cb) { if (cb.checked) expandRoute(cb, true); else collapseRoute(cb, true); }
+function onRouteChange(cb) {
+  if (cb.checked) {
+    expandRoute(cb, true);
+    // 全駅を選択
+    var panel = document.getElementById('panel_' + cb.id);
+    if (panel) {
+      var cbs = panel.querySelectorAll('.station-cb');
+      for (var i = 0; i < cbs.length; i++) cbs[i].checked = true;
+    }
+  } else {
+    // 全駅を解除
+    var panel = document.getElementById('panel_' + cb.id);
+    if (panel) {
+      var cbs = panel.querySelectorAll('.station-cb');
+      for (var i = 0; i < cbs.length; i++) cbs[i].checked = false;
+    }
+    collapseRoute(cb, true);
+  }
+}
 
 function expandRoute(cb, animate) {
   var panel = document.getElementById('panel_' + cb.id);
@@ -668,13 +679,19 @@ var townCache = {};       // { '新宿区': [ { town:'...', ... }, ... ] }
 var townRendered = {};    // { 'city_0_3': true } 既にレンダリング済みか
 
 // チェックボックスをクリック → チェック + 全選択/解除
+var pendingSelectAll = {}; // { cid: true } API取得後に全選択するフラグ
 function onCityCheck(cityName, checkbox, groupIdx) {
   var cid = checkbox.id;
   if (checkbox.checked) {
+    pendingSelectAll[cid] = cityName;
     expandCityTowns(cityName, cid, groupIdx);
-    // 全町名を選択
-    setTimeout(function() { selectAllTownsInCity(cityName, cid, true); }, 400);
+    // 既にレンダリング済みなら即全選択
+    if (townRendered[cid]) {
+      selectAllTownsInCity(cityName, cid, true);
+      delete pendingSelectAll[cid];
+    }
   } else {
+    delete pendingSelectAll[cid];
     // 全町名を解除
     selectAllTownsInCity(cityName, cid, false);
     collapseCityTowns(cid, groupIdx);
@@ -837,6 +854,13 @@ function renderTownPanel(cityName, townData, cid, groupIdx) {
 
   panel.innerHTML = html;
   townRendered[cid] = true;
+
+  // チェックボックスから全選択が要求されていた場合、即実行
+  if (pendingSelectAll[cid]) {
+    selectAllTownsInCity(cityName, cid, true);
+    delete pendingSelectAll[cid];
+  }
+
   updateCityBadge(cid, cityName);
 
   // 既選択のある丁目グループを展開
