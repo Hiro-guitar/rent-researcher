@@ -404,7 +404,7 @@ function buildItandiSearchPayload(customer, stationIds) {
 
   return {
     aggregation: {
-      bucket_size: 5,
+      bucket_size: 100,
       field: 'building_id',
       next_bucket_existance_check: true,
     },
