@@ -291,7 +291,7 @@ function readLatestCriteria(userId) {
 
 /**
  * LINE ユーザーの最終やり取り時刻を記録する。
- * 「LINE Activity」シートに userId と timestamp を保存（upsert）。
+ * 「LINE Activity」シートに userId, timestamp, displayName を保存（upsert）。
  * @param {string} userId - LINE userId
  */
 function recordLineActivity(userId) {
@@ -302,12 +302,19 @@ function recordLineActivity(userId) {
 
     if (!sheet) {
       sheet = ss.insertSheet(sheetName);
-      sheet.appendRow(['userId', 'lastMessageAt']);
+      sheet.appendRow(['userId', 'lastMessageAt', 'displayName']);
     }
+
+    // displayNameを取得
+    var displayName = '';
+    try {
+      var profile = getLineProfile(userId);
+      if (profile && profile.displayName) displayName = profile.displayName;
+    } catch (e) {}
 
     // 追記のみ方式（全行読み込みしないため高速）
     // 読み出し側（getLineActivityMap）で同じuserIdの最新行を採用する
-    sheet.appendRow([userId, new Date()]);
+    sheet.appendRow([userId, new Date(), displayName]);
   } catch (e) {
     // アクティビティ記録の失敗はメッセージ処理をブロックしない
     console.error('recordLineActivity error: ' + e.message);
