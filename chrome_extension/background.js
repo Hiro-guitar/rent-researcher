@@ -946,6 +946,7 @@ globalThis.runSearchCycle = async function runSearchCycle() {
                   routes: rwsChunk.map(r => r.route),
                   routes_with_stations: rwsChunk,
                   cities: cityChunk,
+                  _originalCustomer: customer,
                 };
                 await setStorageData({ debugLog: `[REINS] ${customer.name}: バッチ ${_batchIdx}/${_totalBatches} (路線${rwsChunk.length}件/市区町村${cityChunk.length}件)` });
                 await searchForCustomer(reinsTab.id, batchCustomer, seenIds, reinsDelay, searchId);
@@ -1023,14 +1024,17 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   const skippedMap = skipData[skipStorageKey] || {}; // { propertyNumber: { reason, ts } }
 
   // 条件別ハッシュで、変わった条件に関連するスキップのみリセット
+  // ※ バッチ分割時は routes_with_stations/cities がサブセットになるため、
+  //   元の全条件（_originalCustomer）をハッシュ対象にする
   const simpleHash = (s) => s.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0).toString(36);
   const prevHashes = skipData[skipHashKey] || {};
+  const origCustomer = customer._originalCustomer || customer;
   const currentHashes = {
-    structures: simpleHash(JSON.stringify(customer.structures || [])),
-    stations: simpleHash(JSON.stringify({ s: customer.stations, r: customer.routes_with_stations, w: customer.walk })),
-    layouts: simpleHash(JSON.stringify(customer.layouts || [])),
-    equipment: simpleHash(JSON.stringify(customer.equipment || '')),
-    building_age: simpleHash(JSON.stringify(customer.building_age || '')),
+    structures: simpleHash(JSON.stringify(origCustomer.structures || [])),
+    stations: simpleHash(JSON.stringify({ s: origCustomer.stations, r: origCustomer.routes_with_stations, w: origCustomer.walk })),
+    layouts: simpleHash(JSON.stringify(origCustomer.layouts || [])),
+    equipment: simpleHash(JSON.stringify(origCustomer.equipment || '')),
+    building_age: simpleHash(JSON.stringify(origCustomer.building_age || '')),
   };
   const conditionToReasonPattern = {
     structures: /構造不一致|構造不明/,
