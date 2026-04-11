@@ -700,7 +700,7 @@ function expandCityTowns(cityName, cid, groupIdx) {
 function collapseCityTowns(cid, groupIdx) {
   var panel = document.getElementById('townPanel_' + cid);
   var arrow = document.getElementById('arrow_' + cid);
-  if (panel) panel.style.maxHeight = '0';
+  if (panel) { panel.style.overflow = 'hidden'; panel.style.maxHeight = panel.scrollHeight + 'px'; setTimeout(function() { panel.style.maxHeight = '0'; }, 10); }
   if (arrow) arrow.classList.remove('open');
   updateCityGroupHeight(groupIdx);
 }
@@ -812,6 +812,8 @@ function renderTownPanel(cityName, townData, cid, groupIdx) {
   panel.innerHTML = html;
   townRendered[cid] = true;
   panel.style.maxHeight = panel.scrollHeight + 'px';
+  // アニメーション完了後にoverflowを解除（子パネル展開時の見切れ防止）
+  setTimeout(function() { panel.style.maxHeight = 'none'; panel.style.overflow = 'visible'; }, 350);
   updateCityBadge(cid, cityName);
 
   // 既選択のある丁目グループを展開
@@ -844,12 +846,23 @@ function toggleTownChome(townId, cid, groupIdx) {
     panel.style.maxHeight = panel.scrollHeight + 'px';
     if (arrow) arrow.classList.add('open');
   }
-  // 町名パネルの高さも更新
-  var townPanel = document.getElementById('townPanel_' + cid);
-  if (townPanel) {
-    setTimeout(function() { townPanel.style.maxHeight = townPanel.scrollHeight + 'px'; }, 50);
-  }
-  updateCityGroupHeight(groupIdx);
+  // 全親パネルの高さを再計算（丁目展開分を反映）
+  recalcAllParentHeights(cid, groupIdx);
+}
+
+function recalcAllParentHeights(cid, groupIdx) {
+  setTimeout(function() {
+    var townPanel = document.getElementById('townPanel_' + cid);
+    if (townPanel && townPanel.style.maxHeight !== '0px') {
+      townPanel.style.maxHeight = townPanel.scrollHeight + 'px';
+    }
+    setTimeout(function() {
+      var content = document.getElementById('cityContent_' + groupIdx);
+      if (content && content.style.maxHeight && content.style.maxHeight !== '0px') {
+        content.style.maxHeight = (content.scrollHeight + 5000) + 'px';
+      }
+    }, 50);
+  }, 50);
 }
 
 // 町名グループのチェック → 全丁目チェック
