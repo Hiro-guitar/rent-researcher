@@ -3244,8 +3244,44 @@ async function sendDiscordNotification(customerName, properties, customer) {
     }
 
     console.log(`Discord通知完了: ${customerName} ${properties.length}件`);
+
+    // スマホ向けDM通知
+    try {
+      await sendDiscordDm(`🏠 **${customerName}** 様に新着 ${properties.length}件`);
+    } catch (e) { console.error('DM通知失敗:', e.message); }
   } catch (err) {
     console.error(`Discord通知失敗: ${err.message}`);
+  }
+}
+
+// Discord Bot DM通知（スマホプッシュ用）
+const DISCORD_DM_USER_ID = '1459814543600390341';
+let _discordDmChannelId = null;
+
+async function sendDiscordDm(message) {
+  try {
+    const { discordBotToken } = await getStorageData(['discordBotToken']);
+    if (!discordBotToken) return;
+    // DMチャンネルを取得（キャッシュ）
+    if (!_discordDmChannelId) {
+      const chResp = await fetch('https://discord.com/api/v10/users/@me/channels', {
+        method: 'POST',
+        headers: { 'Authorization': `Bot ${discordBotToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient_id: DISCORD_DM_USER_ID })
+      });
+      if (!chResp.ok) { console.error(`Discord DM channel作成失敗: ${chResp.status}`); return; }
+      const chData = await chResp.json();
+      _discordDmChannelId = chData.id;
+    }
+    // メッセージ送信
+    const msgResp = await fetch(`https://discord.com/api/v10/channels/${_discordDmChannelId}/messages`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bot ${discordBotToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: message })
+    });
+    if (!msgResp.ok) console.error(`Discord DM送信失敗: ${msgResp.status}`);
+  } catch (err) {
+    console.error(`Discord DM送信エラー: ${err.message}`);
   }
 }
 
