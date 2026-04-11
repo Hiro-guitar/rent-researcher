@@ -1067,23 +1067,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       nuxt.refresh();
     }
   });
-  await csleep(5000); // refresh + ルーティング完了待ち
-
-  // .p-textbox-input でフォーム描画完了を待つ（最大30秒）
-  let formFound = false;
-  for (let w = 0; w < 15; w++) {
-    if (isSearchCancelled(searchId)) return;
-    try {
-      const ready = await chrome.scripting.executeScript({
-        target: { tabId },
-        world: 'MAIN',
-        func: () => !!document.querySelector('.p-textbox-input')
-      });
-      if (ready?.[0]?.result) { formFound = true; break; }
-    } catch (_) {}
-    await csleep(2000);
-  }
-  if (!formFound) {
+  // MutationObserverでフォーム描画完了を即座に検知（最大30秒）
+  const formReady = await waitForDomReady(tabId, '.p-textbox-input', { timeout: 30000 });
+  if (isSearchCancelled(searchId)) return;
+  if (!formReady.found) {
     await setStorageData({ debugLog: `${customer.name}: 検索フォームが見つかりません` });
     return;
   }
@@ -1096,16 +1083,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
   await setStorageData({ debugLog: `${customer.name}: stationStr="${stationStr}", rent_max=${customer.rent_max}` });
 
-  // .p-textbox-input が描画されるまでリトライ（最大15秒）
+  // .p-textbox-input が描画されるまで待つ（最大15秒）
   let setResult;
-  for (let retry = 0; retry < 5; retry++) {
-    const inputCheck = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => !!document.querySelector('.p-textbox-input')
-    });
-    if (inputCheck?.[0]?.result) break;
-    await csleep(3000);
-  }
+  await waitForDomReady(tabId, '.p-textbox-input', { timeout: 15000 });
 
   // SW再起動直後でもbtModeを確実に拾うためストレージから直読み
   const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'alert')));
@@ -1514,7 +1494,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   await setStorageData({ debugLog: `${customer.name}: 条件セット完了 ensn=[${setStatus.ensnDebug || '-'}] cities=[${(setStatus.reinsCitiesSet||[]).join(' ') || '-'}] rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}` });
 
   // Vueリアクティブ更新を待つ
-  await csleep(2000);
+  await csleep(500);
 
   // --- Step 3: 検索ボタンをDOMクリック（MAIN world） ---
   // Chromeのバックグラウンドタブスロットリング対策:
@@ -1570,16 +1550,16 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
   // --- Step 4: ダイアログ処理 + ページ遷移待ち ---
   // REINSはSPAのためURLではなくDOM内容で結果ページへの遷移を検出する
-  for (let d = 0; d < 30; d++) {
+  // まずMutationObserverで結果ページまたはダイアログの出現を待つ
+  let step4Done = false;
+  for (let d = 0; d < 60; d++) {
     if (isSearchCancelled(searchId)) return;
-    await csleep(3000);
+    await csleep(1000);
     try {
       // DOM内容で結果ページ/ダイアログを検出
       const pageCheck = await chrome.scripting.executeScript({
         target: { tabId },
         func: () => {
-          // 結果ページのヘッダを検出
-          const headings = document.querySelectorAll('h1, h2, h3, [class*="header"]');
           const bodyText = document.body.textContent;
           const isResultPage = bodyText.includes('検索結果一覧');
 
@@ -1608,6 +1588,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
       if (status.type === 'result_page') {
         await setStorageData({ debugLog: `${customer.name}: 結果ページに遷移` });
+        step4Done = true;
         break;
       }
       if (status.type === 'error') {
@@ -1623,18 +1604,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       }
       if (status.type === 'ok_clicked') {
         await setStorageData({ debugLog: `${customer.name}: 500件超ダイアログOK` });
-        // 結果ページ表示を待つ
-        for (let w = 0; w < 20; w++) {
-          await csleep(2000);
-          const ready = await chrome.scripting.executeScript({
-            target: { tabId },
-            func: () => document.body.textContent.includes('検索結果一覧')
-          });
-          if (ready?.[0]?.result) break;
-        }
+        // MutationObserverで結果ページ表示を待つ
+        const okReady = await waitForDomReady(tabId, null, { textIncludes: '検索結果一覧', timeout: 40000 });
+        step4Done = true;
         break;
       }
-      await setStorageData({ debugLog: `${customer.name}: ダイアログ${d+1}: ${status.type}` });
     } catch (err) {
       await setStorageData({ debugLog: `${customer.name}: ダイアログ${d+1}エラー: ${err.message}` });
     }
@@ -1644,53 +1618,42 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   await setStorageData({ debugLog: `${customer.name}: 検索結果待ち...` });
 
   // DOM内容で結果ページか確認（URLはSPAのため信頼しない）
-  const resultCheck = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => document.body.textContent.includes('検索結果一覧')
-  });
-  if (!resultCheck?.[0]?.result) {
-    await setStorageData({ debugLog: `${customer.name}: 結果ページに遷移していません` });
-    return;
+  if (!step4Done) {
+    const resultCheck = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => document.body.textContent.includes('検索結果一覧')
+    });
+    if (!resultCheck?.[0]?.result) {
+      await setStorageData({ debugLog: `${customer.name}: 結果ページに遷移していません` });
+      return;
+    }
   }
 
-  // SPA遷移後のDOM描画を待つ（最大60秒）
+  // MutationObserverで検索結果行（.p-table-body-row）の出現を待つ（最大30秒）
+  const rowsReady = await waitForDomReady(tabId, '.p-table-body-row', { timeout: 30000 });
+  if (isSearchCancelled(searchId)) return;
+
   let resultsReady = false;
-  for (let i = 0; i < 20; i++) {
-    if (isSearchCancelled(searchId)) return;
-    await csleep(3000);
+  if (rowsReady.found) {
+    resultsReady = true;
+  } else {
+    // 0件の場合の確認: 結果ページだがデータなし
     try {
-      // ISOLATED worldでDOM確認（MAIN worldは不要）
-      const check = await chrome.scripting.executeScript({
+      const zeroCheck = await chrome.scripting.executeScript({
         target: { tabId },
         func: () => {
-          // 結果ページの特徴的な要素を探す
-          const header = document.querySelector('h2, .p-header');
-          const headerText = header?.textContent || '';
-          const isResultPage = headerText.includes('検索結果') || document.body.textContent.includes('検索結果');
+          const isResultPage = document.body.textContent.includes('検索結果');
           const checkboxes = document.querySelectorAll('input[type="checkbox"]').length;
           const bodyLen = document.body.textContent.length;
-          // 検索結果テーブルの行を探す（複数のセレクタを試す）
-          const rows1 = document.querySelectorAll('.p-table-body-row').length;
-          const rows2 = document.querySelectorAll('tr').length;
-          const detailBtns = [...document.querySelectorAll('button')].filter(b => b.textContent.includes('詳細')).length;
-          return { isResultPage, checkboxes, bodyLen, rows1, rows2, detailBtns, url: location.href };
+          return { isResultPage, checkboxes, bodyLen };
         }
       });
-      const r = check?.[0]?.result || {};
-      await setStorageData({ debugLog: `${customer.name}: 結果${i+1}: result=${r.isResultPage} cb=${r.checkboxes} detail=${r.detailBtns} rows=${r.rows1}/${r.rows2}` });
-
-      if (r.detailBtns > 0 || r.rows1 > 0) {
-        resultsReady = true;
-        break;
-      }
-      // 0件の場合もisResultPageがtrueなら完了
+      const r = zeroCheck?.[0]?.result || {};
       if (r.isResultPage && r.bodyLen > 200 && r.checkboxes === 0) {
         await setStorageData({ debugLog: `${customer.name}: 検索結果0件` });
         return;
       }
-    } catch (err) {
-      await setStorageData({ debugLog: `${customer.name}: 結果${i+1}エラー: ${err.message}` });
-    }
+    } catch (_) {}
   }
 
   if (!resultsReady) {
@@ -1869,7 +1832,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       // ダイアログ（連続閲覧警告等）が出ていればOKで閉じる
       let clickStatus = 'not_found';
       let triedRecovery = false;
-      for (let waitTry = 0; waitTry < 12; waitTry++) {
+      for (let waitTry = 0; waitTry < 30; waitTry++) {
         const cr = await chrome.scripting.executeScript({
           target: { tabId },
           func: (propNum, rowIndex) => {
@@ -1903,9 +1866,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         });
         clickStatus = cr?.[0]?.result || 'error';
         if (clickStatus === 'clicked') break;
-        if (clickStatus === 'dialog_closed') { await csleep(1500); continue; }
+        if (clickStatus === 'dialog_closed') { await csleep(500); continue; }
         // no_rows の最初の検出で詳細な状態をダンプ
-        if (clickStatus === 'no_rows' && waitTry === 0) {
+        if (clickStatus === 'no_rows' && waitTry === 1) {
           try {
             const diag = await chrome.scripting.executeScript({
               target: { tabId },
@@ -1935,7 +1898,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
         }
         // no_rowsが続く場合、検索フォームから再検索して復帰
-        if (clickStatus === 'no_rows' && waitTry >= 2 && !triedRecovery) {
+        if (clickStatus === 'no_rows' && waitTry >= 6 && !triedRecovery) {
           triedRecovery = true;
           await setStorageData({ debugLog: `${customer.name}: 結果一覧が空→検索条件を再投入して復帰` });
           // 1) 検索フォームへ
@@ -1947,26 +1910,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               location.href = 'https://system.reins.jp/main/BK/GBK001310';
             }
           });
-          // 2) 入力欄が描画されるまで待つ
-          for (let w = 0; w < 15; w++) {
-            await csleep(2000);
-            const ok = await chrome.scripting.executeScript({ target: { tabId }, func: () => !!document.querySelector('.p-textbox-input') });
-            if (ok?.[0]?.result) break;
-          }
+          // 2) 入力欄が描画されるまで待つ（MutationObserver）
+          await waitForDomReady(tabId, '.p-textbox-input', { timeout: 30000 });
           // 3) 同じ条件設定関数を再実行
           await chrome.scripting.executeScript({
             target: { tabId }, world: 'MAIN',
             func: __setCriteriaFunc, args: __criteriaArgs
           });
-          await csleep(2000);
+          await csleep(500);
           // 4) 検索ボタンクリック
           await chrome.scripting.executeScript({
             target: { tabId }, world: 'MAIN',
             func: () => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '検索'); if (b) b.click(); }
           });
           // 5) ダイアログ処理＆結果ページ待ち
-          for (let rs = 0; rs < 25; rs++) {
-            await csleep(2000);
+          for (let rs = 0; rs < 50; rs++) {
+            await csleep(1000);
             const rsCheck = await chrome.scripting.executeScript({
               target: { tabId },
               func: () => {
@@ -1983,7 +1942,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             });
             const s = rsCheck?.[0]?.result;
             if (s === 'rows') break;
-            if (s === 'ok') await csleep(2500);
+            if (s === 'ok') {
+              // 結果行の出現をMutationObserverで待つ
+              await waitForDomReady(tabId, '.p-table-body-row', { timeout: 30000 });
+              break;
+            }
           }
           // 6) 現在ページまで進める
           if (currentPage > 1) {
@@ -1996,54 +1959,19 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 },
                 args: [np]
               });
-              await csleep(3000);
-            }
-          }
-          // 結果ページ＆ダイアログ処理
-          for (let rs = 0; rs < 20; rs++) {
-            await csleep(2000);
-            const rsCheck = await chrome.scripting.executeScript({
-              target: { tabId },
-              func: () => {
-                const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
-                for (const dialog of dialogs) {
-                  if (dialog.textContent.includes('500件') || dialog.textContent.includes('超えて')) {
-                    const okBtn = [...dialog.querySelectorAll('button')].find(b => b.textContent.trim() === 'OK');
-                    if (okBtn) { okBtn.click(); return 'ok'; }
-                  }
-                }
-                if (document.querySelectorAll('.p-table-body-row, [class*="body-row"]').length > 0) return 'rows';
-                return 'wait';
-              }
-            });
-            const s = rsCheck?.[0]?.result;
-            if (s === 'rows') break;
-            if (s === 'ok') await csleep(2500);
-          }
-          // 現在ページまで進める
-          if (currentPage > 1) {
-            for (let np = 2; np <= currentPage; np++) {
-              await chrome.scripting.executeScript({
-                target: { tabId },
-                func: (page) => {
-                  const links = document.querySelectorAll('.page-link');
-                  for (const l of links) if (l.textContent.trim() === String(page)) { l.click(); return; }
-                },
-                args: [np]
-              });
-              await csleep(3000);
+              await waitForDomReady(tabId, '.p-table-body-row', { timeout: 15000 });
             }
           }
           continue;
         }
-        await csleep(2000);
+        await csleep(500);
       }
       if (clickStatus !== 'clicked') {
         await setStorageData({ debugLog: `${customer.name}: ✗ ${result.buildingName} ${result.floor} 詳細ボタンが見つからない(${clickStatus})→スキップ` });
         continue;
       }
-      await waitForTabLoad(tabId);
-      await csleep(delay);
+      // SPA遷移: 詳細ページのラベル要素出現で描画完了を検知
+      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 5 });
 
       // REINSエラーページ検知（E2171「不適切な画面操作」等）
       const tabInfo = await chrome.tabs.get(tabId);
@@ -2059,15 +1987,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         }
       }
 
-      // 詳細ページのVueコンポーネントがマウントされるまで待つ（最大15秒）
-      for (let w = 0; w < 30; w++) {
-        const ready = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: () => document.querySelectorAll('.p-label-title').length > 10
-        });
-        if (ready?.[0]?.result) break;
-        await csleep(500);
-      }
+      // 詳細ページのVueコンポーネントがマウントされるまで待つ（MutationObserver、最大15秒）
+      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 11 });
 
       // 詳細データ抽出
       const detailResults = await chrome.scripting.executeScript({
@@ -2590,12 +2511,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       });
       // 検索結果一覧(GBK002200)に戻るまで待つ
       let backSuccess = false;
-      for (let bw = 0; bw < 10; bw++) {
-        await csleep(2000);
+      for (let bw = 0; bw < 20; bw++) {
+        await csleep(500);
         const bt = await chrome.tabs.get(tabId);
         await setStorageData({ debugLog: `${customer.name}: 戻り待機 ${bw+1}/10 url=${(bt.url||'').slice(-40)}` });
-        // 3回目以降でまだ詳細ページなら強制的に戻る操作を再度打つ
-        if (bw >= 2 && bt.url?.includes('GBK003200')) {
+        // 3秒（6回）以降でまだ詳細ページなら強制的に戻る操作を再度打つ
+        if (bw >= 6 && bt.url?.includes('GBK003200')) {
           await chrome.scripting.executeScript({
             target: { tabId }, world: 'MAIN',
             func: () => {
@@ -2615,8 +2536,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           });
           const rowCount = rowsCheck?.[0]?.result || 0;
           if (rowCount > 0) { backSuccess = true; break; }
-          // rows=0 が6回続いたら検索フォームに戻して再検索で強制リフレッシュ
-          if (bw >= 5) {
+          // rows=0 が12回（6秒）続いたら検索フォームに戻して再検索で強制リフレッシュ
+          if (bw >= 12) {
             await setStorageData({ debugLog: `${customer.name}: 結果0件→検索フォームへ強制遷移` });
             await chrome.tabs.update(tabId, { url: 'https://system.reins.jp/main/BK/GBK001310' });
             await csleep(3000);
@@ -2638,8 +2559,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           });
           // 結果ページに遷移するまで待つ
           let reSearchOk = false;
-          for (let rs = 0; rs < 30; rs++) {
-            await csleep(3000);
+          for (let rs = 0; rs < 60; rs++) {
+            await csleep(1000);
             const rsCheck = await chrome.scripting.executeScript({
               target: { tabId },
               func: () => {
@@ -2660,7 +2581,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             if (rsStatus === 'result_page' || rsStatus === 'ok_clicked') {
               reSearchOk = true;
               if (rsStatus === 'ok_clicked') {
-                await csleep(3000); // ダイアログ閉じ待ち
+                await waitForDomReady(tabId, '.p-table-body-row', { timeout: 30000 });
               }
               break;
             }
@@ -2680,7 +2601,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                   },
                   args: [navP]
                 });
-                await csleep(3000);
+                await waitForDomReady(tabId, '.p-table-body-row', { timeout: 15000 });
               }
             }
             backSuccess = true;
@@ -2697,7 +2618,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             target: { tabId },
             func: () => { history.back(); }
           });
-          await csleep(3000);
+          await csleep(1500);
           const bt2 = await chrome.tabs.get(tabId);
           if (bt2.url?.includes('GBK002200')) { backSuccess = true; break; }
           if (bt2.url?.includes('GBK001310')) {
@@ -2711,8 +2632,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               }
             });
             let reOk = false;
-            for (let rs = 0; rs < 30; rs++) {
-              await csleep(3000);
+            for (let rs = 0; rs < 60; rs++) {
+              await csleep(1000);
               const rsCheck = await chrome.scripting.executeScript({
                 target: { tabId },
                 func: () => {
@@ -2728,13 +2649,17 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 }
               });
               const s = rsCheck?.[0]?.result;
-              if (s === 'result_page' || s === 'ok_clicked') { reOk = true; if (s === 'ok_clicked') await csleep(3000); break; }
+              if (s === 'result_page' || s === 'ok_clicked') {
+                reOk = true;
+                if (s === 'ok_clicked') await waitForDomReady(tabId, '.p-table-body-row', { timeout: 30000 });
+                break;
+              }
             }
             if (reOk) {
               if (currentPage > 1) {
                 for (let navP = 2; navP <= currentPage; navP++) {
                   await chrome.scripting.executeScript({ target: { tabId }, func: (page) => { const links = document.querySelectorAll('.page-link'); for (const l of links) { if (l.textContent.trim() === String(page)) { l.click(); return; } } }, args: [navP] });
-                  await csleep(3000);
+                  await waitForDomReady(tabId, '.p-table-body-row', { timeout: 15000 });
                 }
               }
               backSuccess = true;
@@ -2769,8 +2694,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
         });
         let recovered = false;
-        for (let bw = 0; bw < 10; bw++) {
-          await csleep(2000);
+        for (let bw = 0; bw < 20; bw++) {
+          await csleep(500);
           const bt = await chrome.tabs.get(tabId);
           if (bt.url?.includes('GBK002200')) { recovered = true; break; }
           if (bt.url?.includes('GBK001310')) {
@@ -2783,8 +2708,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 if (btn) btn.click();
               }
             });
-            for (let rs = 0; rs < 30; rs++) {
-              await csleep(3000);
+            for (let rs = 0; rs < 60; rs++) {
+              await csleep(1000);
               const rsCheck = await chrome.scripting.executeScript({
                 target: { tabId },
                 func: () => {
@@ -2802,7 +2727,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               const s = rsCheck?.[0]?.result;
               if (s === 'result_page' || s === 'ok_clicked') {
                 recovered = true;
-                if (s === 'ok_clicked') await csleep(3000);
+                if (s === 'ok_clicked') await waitForDomReady(tabId, '.p-table-body-row', { timeout: 30000 });
                 break;
               }
             }
@@ -2818,7 +2743,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                   },
                   args: [navP]
                 });
-                await csleep(3000);
+                await waitForDomReady(tabId, '.p-table-body-row', { timeout: 15000 });
               }
             }
             if (!recovered) {
@@ -2867,7 +2792,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           },
           args: [nextPage]
         });
-        await waitForTabLoad(tabId);
+        // SPA遷移: MutationObserverで行の再描画を待つ
+        await waitForDomReady(tabId, '.p-table-body-row', { timeout: 30000 });
         await csleep(delay);
         currentPage = nextPage;
       } catch (err) {
@@ -2959,6 +2885,46 @@ async function closeDedicatedWindow() {
 // 後方互換: 既存コードから呼ばれる場合のエイリアス
 async function findReinsTab() {
   return findOrCreateDedicatedReinsTab();
+}
+
+// MutationObserver で指定セレクタ/条件の要素出現を即座に検知するヘルパー
+// selector: CSSセレクタ文字列、またはDOM判定関数の文字列表現
+// opts.textIncludes: body.textContent にこの文字列が含まれたら成功とみなす
+// opts.timeout: タイムアウト(ms) デフォルト30000
+// 戻り値: { found: true/false }
+async function waitForDomReady(tabId, selector, opts = {}) {
+  const timeout = opts.timeout || 30000;
+  const textIncludes = opts.textIncludes || null;
+  const minCount = opts.minCount || 1;
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      args: [selector, timeout, textIncludes, minCount],
+      func: (sel, timeoutMs, textInc, minCnt) => {
+        return new Promise((resolve) => {
+          // 既に条件を満たしているか即チェック
+          const check = () => {
+            if (sel && document.querySelectorAll(sel).length >= minCnt) return true;
+            if (textInc && document.body?.textContent?.includes(textInc)) return true;
+            return false;
+          };
+          if (check()) { resolve({ found: true }); return; }
+          const timer = setTimeout(() => { observer.disconnect(); resolve({ found: false }); }, timeoutMs);
+          const observer = new MutationObserver(() => {
+            if (check()) {
+              observer.disconnect();
+              clearTimeout(timer);
+              resolve({ found: true });
+            }
+          });
+          observer.observe(document.body || document.documentElement, { childList: true, subtree: true, characterData: true });
+        });
+      }
+    });
+    return results?.[0]?.result || { found: false };
+  } catch (e) {
+    return { found: false, error: e.message };
+  }
 }
 
 function waitForTabLoad(tabId) {
