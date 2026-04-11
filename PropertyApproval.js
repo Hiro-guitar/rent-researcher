@@ -18,35 +18,19 @@ var PENDING_SHEET_NAME = '承認待ち物件';
 var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
 
-// ===== Discord Bot DM通知（スマホプッシュ用） =====
-var DISCORD_DM_USER_ID = '1459814543600390341';
+// ===== ntfy.sh プッシュ通知（スマホ用） =====
+var NTFY_TOPIC = 'ehomaki-rent';
 
-function sendDiscordDm(message) {
+function sendPushNotification(message, title) {
   try {
-    var botToken = PropertiesService.getScriptProperties().getProperty('DISCORD_BOT_TOKEN');
-    if (!botToken) return;
-
-    // DMチャンネルを取得
-    var chResp = UrlFetchApp.fetch('https://discord.com/api/v10/users/@me/channels', {
+    UrlFetchApp.fetch('https://ntfy.sh/' + NTFY_TOPIC, {
       method: 'post',
-      contentType: 'application/json',
-      headers: { 'Authorization': 'Bot ' + botToken },
-      payload: JSON.stringify({ recipient_id: DISCORD_DM_USER_ID }),
-      muteHttpExceptions: true
-    });
-    if (chResp.getResponseCode() !== 200) return;
-    var channelId = JSON.parse(chResp.getContentText()).id;
-
-    // メッセージ送信
-    UrlFetchApp.fetch('https://discord.com/api/v10/channels/' + channelId + '/messages', {
-      method: 'post',
-      contentType: 'application/json',
-      headers: { 'Authorization': 'Bot ' + botToken },
-      payload: JSON.stringify({ content: message }),
+      headers: { 'Title': title || '物件通知' },
+      payload: message,
       muteHttpExceptions: true
     });
   } catch (e) {
-    console.error('Discord DM error: ' + e.message);
+    console.error('ntfy error: ' + e.message);
   }
 }
 
@@ -649,8 +633,8 @@ function handleTrackView(e) {
           } catch(e) {}
         }
       }
-      // スマホ向けDM通知
-      try { sendDiscordDm('👀 **' + customerName + '** 様が「' + (buildingName || roomId) + '」を閲覧'); } catch(e) {}
+      // スマホ向けプッシュ通知
+      try { sendPushNotification(customerName + ' 様が「' + (buildingName || roomId) + '」を閲覧', '👀 閲覧通知'); } catch(e) {}
     } catch(e) {
       console.error('Discord view notification error: ' + e.message);
     }
@@ -818,16 +802,16 @@ function handlePropertyAction(e) {
       } else {
         discordStatus = 'no_webhook';
       }
-      // スマホ向けDM通知
-      var dmMsgMap = {
-        'hold': '🏠 **' + customerName + '** 様が「' + propLabel + '」に申込希望！',
-        'hold_intent': '👀 **' + customerName + '** 様が「' + propLabel + '」の申込画面を表示',
-        'favorite': '⭐ **' + customerName + '** 様が「' + propLabel + '」をお気に入り',
-        'not_interested': '👎 **' + customerName + '** 様が「' + propLabel + '」を興味なし',
-        'view': '📄 **' + customerName + '** 様が「' + propLabel + '」を閲覧'
+      // スマホ向けプッシュ通知
+      var pushMsgMap = {
+        'hold': { msg: customerName + ' 様が「' + propLabel + '」に申込希望！', title: '🏠 申込希望' },
+        'hold_intent': { msg: customerName + ' 様が「' + propLabel + '」の申込画面を表示', title: '👀 申込画面表示' },
+        'favorite': { msg: customerName + ' 様が「' + propLabel + '」をお気に入り', title: '⭐ お気に入り' },
+        'not_interested': null,
+        'view': { msg: customerName + ' 様が「' + propLabel + '」を閲覧', title: '📄 閲覧' }
       };
-      var dmMsg = dmMsgMap[actionType];
-      if (dmMsg) { try { sendDiscordDm(dmMsg); } catch(e) {} }
+      var pushInfo = pushMsgMap[actionType];
+      if (pushInfo) { try { sendPushNotification(pushInfo.msg, pushInfo.title); } catch(e) {} }
     } catch(e) {
       discordStatus = 'exception:' + ((e && e.message ? e.message : String(e))).substring(0, 100);
       console.error('Discord action notification error: ' + e.message);
