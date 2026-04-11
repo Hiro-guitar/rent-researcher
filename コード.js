@@ -261,6 +261,13 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  if (action === 'test_ntfy') {
+    sendPushNotification('GASからのテスト通知', '🧪 GASテスト');
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: 'ok', message: 'ntfy sent' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   // --- REINS Chrome拡張用エンドポイント ---
   if (action === 'get_criteria') {
     return handleGetCriteria(e);
