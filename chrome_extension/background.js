@@ -3247,41 +3247,25 @@ async function sendDiscordNotification(customerName, properties, customer) {
 
     // スマホ向けDM通知
     try {
-      await sendDiscordDm(`🏠 **${customerName}** 様に新着 ${properties.length}件`);
+      await sendPushNotification(`${customerName} 様に新着 ${properties.length}件`, '🏠 新着物件');
     } catch (e) { console.error('DM通知失敗:', e.message); }
   } catch (err) {
     console.error(`Discord通知失敗: ${err.message}`);
   }
 }
 
-// Discord Bot DM通知（スマホプッシュ用）
-const DISCORD_DM_USER_ID = '1459814543600390341';
-let _discordDmChannelId = null;
+// ntfy.sh プッシュ通知（スマホ用）
+const NTFY_TOPIC = 'ehomaki-rent';
 
-async function sendDiscordDm(message) {
+async function sendPushNotification(message, title) {
   try {
-    const { discordBotToken } = await getStorageData(['discordBotToken']);
-    if (!discordBotToken) return;
-    // DMチャンネルを取得（キャッシュ）
-    if (!_discordDmChannelId) {
-      const chResp = await fetch('https://discord.com/api/v10/users/@me/channels', {
-        method: 'POST',
-        headers: { 'Authorization': `Bot ${discordBotToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recipient_id: DISCORD_DM_USER_ID })
-      });
-      if (!chResp.ok) { console.error(`Discord DM channel作成失敗: ${chResp.status}`); return; }
-      const chData = await chResp.json();
-      _discordDmChannelId = chData.id;
-    }
-    // メッセージ送信
-    const msgResp = await fetch(`https://discord.com/api/v10/channels/${_discordDmChannelId}/messages`, {
+    await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
       method: 'POST',
-      headers: { 'Authorization': `Bot ${discordBotToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: message })
+      headers: { 'Title': title || '物件通知' },
+      body: message
     });
-    if (!msgResp.ok) console.error(`Discord DM送信失敗: ${msgResp.status}`);
   } catch (err) {
-    console.error(`Discord DM送信エラー: ${err.message}`);
+    console.error(`ntfy送信エラー: ${err.message}`);
   }
 }
 
