@@ -11,6 +11,7 @@
  *   areaMethod: "",             // 'route' | 'city'
  *   selectedRoutes: [],         // 選択済み路線
  *   selectedCities: [],         // 選択済み市区町村
+ *   selectedTowns: {},          // { '市区町村名': ['町名丁目', ...], ... }
  *   selectedStations: {},       // { '路線名': ['駅A','駅B'], ... }
  *   updatedAt: 1234567890       // 最終更新タイムスタンプ
  * }
@@ -75,6 +76,7 @@ function createInitialState() {
     areaMethod: '',
     selectedRoutes: [],
     selectedCities: [],
+    selectedTowns: {},
     selectedStations: {},
     updatedAt: Date.now()
   };
