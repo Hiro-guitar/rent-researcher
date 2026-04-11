@@ -343,6 +343,7 @@ function doGet(e) {
     template.selectedStations = JSON.stringify(state.selectedStations || {});
     template.tokyoCities = JSON.stringify(TOKYO_CITIES);
     template.selectedCities = JSON.stringify(state.selectedCities || []);
+    template.selectedTowns = JSON.stringify(state.selectedTowns || {});
     template.areaMethod = state.areaMethod || 'route';
     template.selectedRentMax = d.rent_max || '';
     template.selectedLayouts = JSON.stringify(d.layouts || []);
@@ -461,6 +462,7 @@ function processCriteriaSelection(userId, criteria) {
     state.selectedRoutes = criteria.selectedRoutes || [];
     state.selectedStations = criteria.selectedStations || {};
     state.selectedCities = criteria.selectedCities || [];
+    state.selectedTowns = criteria.selectedTowns || {};
 
     state.data.rent_max = criteria.rentMax || '';
     state.data.layouts = criteria.layouts || [];

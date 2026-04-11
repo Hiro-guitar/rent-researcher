@@ -96,6 +96,7 @@ function startChangeFlow(replyToken, userId) {
   state.areaMethod = existing.areaMethod;
   state.selectedRoutes = existing.selectedRoutes;
   state.selectedCities = existing.selectedCities;
+  state.selectedTowns = existing.selectedTowns || {};
   state.selectedStations = existing.selectedStations;
   state.data = {
     name: existing.name,
@@ -743,6 +744,13 @@ function formatConditionSummary(state) {
   // エリア
   if (state.areaMethod === 'city' && cities.length > 0) {
     lines.push('エリア: ' + cities.join(', '));
+    var towns = state.selectedTowns || {};
+    for (var ci = 0; ci < cities.length; ci++) {
+      var cityTowns = towns[cities[ci]];
+      if (cityTowns && cityTowns.length > 0) {
+        lines.push('  ' + cities[ci] + ': ' + cityTowns.join(', '));
+      }
+    }
   }
   if (state.areaMethod === 'route') {
     if (routes.length > 0) lines.push('路線: ' + routes.join(', '));

@@ -22,6 +22,7 @@
  *   P: その他ご希望
  *   Q: ペット種類
  *   R: 居住者
+ *   S: 町名丁目（JSON形式: {"新宿区":["西新宿一丁目","西新宿二丁目"],"渋谷区":["恵比寿一丁目"]}）
  */
 
 /**
@@ -41,6 +42,7 @@ function writeToSheet(userId, state) {
   const selectedRoutes = state.selectedRoutes || [];
   const selectedCities = state.selectedCities || [];
   const selectedStations = state.selectedStations || {};
+  const selectedTowns = state.selectedTowns || {};
 
   // 駅名をフラットに集約（重複排除）
   const allStations = [];
@@ -91,7 +93,8 @@ function writeToSheet(userId, state) {
     d.move_in_date || '',                          // O: 引越し時期
     d.notes || '',                                 // P: その他ご希望
     d.petType || '',                               // Q: ペット種類
-    d.resident || ''                               // R: 居住者
+    d.resident || '',                              // R: 居住者
+    Object.keys(selectedTowns).length > 0 ? JSON.stringify(selectedTowns) : ''  // S: 町名丁目（JSON）
   ];
 
   // スプレッドシートに書き込み（同じ顧客の古い行を削除してから追記）
@@ -217,6 +220,11 @@ function readLatestCriteria(userId) {
     var notes = latestRow[15] ? String(latestRow[15]) : '';
     var petType = latestRow[16] ? String(latestRow[16]) : '';
     var resident = latestRow[17] ? String(latestRow[17]) : '';
+    var townsJson = latestRow[18] ? String(latestRow[18]) : '';
+    var selectedTownsObj = {};
+    if (townsJson) {
+      try { selectedTownsObj = JSON.parse(townsJson); } catch(e) {}
+    }
 
     // 路線(駅名)形式をパースして routes / selectedStations を再構築
     var routes = [];
@@ -281,7 +289,8 @@ function readLatestCriteria(userId) {
       areaMethod: cities.length > 0 ? 'city' : 'route',
       selectedRoutes: routes,
       selectedCities: cities,
-      selectedStations: selectedStations
+      selectedStations: selectedStations,
+      selectedTowns: selectedTownsObj
     };
   } catch (e) {
     console.error('readLatestCriteria error: ' + e.message);
