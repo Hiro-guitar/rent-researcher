@@ -261,24 +261,6 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  if (action === 'test_ntfy') {
-    try {
-      var ntfyResp = UrlFetchApp.fetch('https://ntfy.sh/ehomaki-rent', {
-        method: 'post',
-        headers: { 'Title': 'GAS direct test' },
-        payload: 'GASから直接テスト',
-        muteHttpExceptions: true
-      });
-      return ContentService
-        .createTextOutput(JSON.stringify({ status: 'ok', code: ntfyResp.getResponseCode(), body: ntfyResp.getContentText().substring(0, 200) }))
-        .setMimeType(ContentService.MimeType.JSON);
-    } catch(err) {
-      return ContentService
-        .createTextOutput(JSON.stringify({ status: 'error', message: err.message }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
-  }
-
   // --- REINS Chrome拡張用エンドポイント ---
   if (action === 'get_criteria') {
     return handleGetCriteria(e);

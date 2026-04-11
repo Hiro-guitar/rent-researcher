@@ -18,27 +18,6 @@ var PENDING_SHEET_NAME = '承認待ち物件';
 var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
 
-// ===== ntfy.sh プッシュ通知（スマホ用） =====
-var NTFY_TOPIC = 'ehomaki-rent';
-
-function sendPushNotification(message, title) {
-  try {
-    var resp = UrlFetchApp.fetch('https://ntfy.sh/' + NTFY_TOPIC, {
-      method: 'post',
-      headers: { 'Title': title || '物件通知' },
-      payload: message,
-      muteHttpExceptions: true
-    });
-    console.log('ntfy response: ' + resp.getResponseCode());
-  } catch (e) {
-    console.error('ntfy error: ' + e.message);
-  }
-}
-
-function testNtfy() {
-  sendPushNotification('GASからのテスト通知', '🧪 テスト');
-}
-
 // ===== GAS Base URL =====
 function getGasBaseUrl() {
   return ScriptApp.getService().getUrl();
@@ -641,8 +620,6 @@ function handleTrackView(e) {
     } catch(e) {
       console.error('Discord view notification error: ' + e.message);
     }
-    // スマホ向けプッシュ通知（Discord通知とは独立して実行）
-    try { sendPushNotification(customerName + ' 様が「' + (buildingName || roomId) + '」を閲覧', '👀 閲覧通知'); } catch(e) { console.error('ntfy view error: ' + e.message); }
   }
 
   return ContentService.createTextOutput(JSON.stringify({ ok: true, first: isFirstView }))
@@ -814,18 +791,6 @@ function handlePropertyAction(e) {
     // L列(12)に応答コードを記録
     try { sheet.getRange(loggedRowIdx, 12).setValue(discordStatus); } catch(e) {}
 
-    // スマホ向けプッシュ通知（Discord通知とは独立して実行）
-    var propLabel2 = buildingName || ('room_id: ' + roomId);
-    if (roomNumber) propLabel2 += ' ' + roomNumber;
-    var pushMsgMap = {
-      'hold': { msg: customerName + ' 様が「' + propLabel2 + '」に申込希望！', title: '🏠 申込希望' },
-      'hold_intent': { msg: customerName + ' 様が「' + propLabel2 + '」の申込画面を表示', title: '👀 申込画面表示' },
-      'favorite': { msg: customerName + ' 様が「' + propLabel2 + '」をお気に入り', title: '⭐ お気に入り' },
-      'not_interested': null,
-      'view': { msg: customerName + ' 様が「' + propLabel2 + '」を閲覧', title: '📄 閲覧' }
-    };
-    var pushInfo = pushMsgMap[actionType];
-    if (pushInfo) { try { sendPushNotification(pushInfo.msg, pushInfo.title); } catch(e) { console.error('ntfy action error: ' + e.message); } }
   }
 
   // 仮押さえの場合、顧客にLINE確認メッセージを送信
