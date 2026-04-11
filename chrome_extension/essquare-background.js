@@ -1298,6 +1298,70 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             }
           }
 
+          if (d.listing_status) prop.listing_status = d.listing_status;
+          if (d.facilities) prop.facilities = d.facilities;
+
+          if (d.other_stations?.length) {
+            prop.other_stations = d.other_stations;
+          }
+
+          // 管理費: 詳細ページテキストからパース（検索結果が0の場合のフォールバック）
+          if (d._mgmt_text && !prop.management_fee) {
+            const mgmtMatch = d._mgmt_text.match(/([\d,]+)\s*円/);
+            if (mgmtMatch) {
+              prop.management_fee = parseInt(mgmtMatch[1].replace(/,/g, ''));
+            }
+          }
+
+          // 詳細ページの値で補完するフィールド
+          const detailFields = [
+            'floor_text', 'story_text', 'structure', 'total_units', 'lease_type', 'contract_period',
+            'cancellation_notice', 'renewal_info', 'sunlight', 'free_rent', 'free_rent_detail',
+            'fire_insurance', 'key_exchange_fee', 'guarantee_info', 'guarantee_deposit',
+            'parking_fee', 'bicycle_parking_fee', 'motorcycle_parking_fee',
+            'other_monthly_fee', 'other_onetime_fee', 'move_in_date', 'move_out_date',
+            'preview_start_date', 'layout_detail', 'shikibiki', 'floor',
+            'move_in_conditions', 'pet_deposit', 'renewal_admin_fee',
+            'support_fee_24h', 'additional_deposit', 'water_billing',
+            'cleaning_fee', 'sanitization_fee', 'rights_fee',
+            'ad_fee', 'current_status',
+          ];
+          for (const key of detailFields) {
+            if (d[key] && !prop[key]) {
+              prop[key] = d[key];
+            }
+          }
+
+          // 詳細ページの値で上書きするフィールド
+          const overrideFields = ['deposit', 'key_money', 'renewal_fee', 'move_in_date'];
+          for (const key of overrideFields) {
+            if (d[key]) {
+              let val = d[key];
+              if (key !== 'move_in_date') {
+                val = val.replace(/\/[\-ー－なし]*$/, '').trim();
+              }
+              prop[key] = val;
+            }
+          }
+
+          if (prop.structure) {
+            prop.structure = ESSQUARE_STRUCTURE_NORMALIZE[prop.structure] || prop.structure;
+          }
+
+          if (prop.floor_text && !prop.floor) {
+            const floorMatch = prop.floor_text.match(/(\d+)/);
+            if (floorMatch) prop.floor = parseInt(floorMatch[1]);
+          }
+
+          // フィルタリング（画像取得前に判定し、スキップ物件の画像取得を省略）
+          const earlyRejectReason = getEssquareFilterRejectReason(prop, customer);
+          if (earlyRejectReason) {
+            await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${earlyRejectReason}` });
+            // ブラウザバックで検索結果ページに戻る
+            await _goBackToEssquareSearchResults(tabId);
+            continue;
+          }
+
           // 画像: MAIN worldでギャラリーナビゲーション→canvas base64キャプチャ + fetch URL
           try {
             const galleryResult = await _extractEssquareGalleryImages(tabId);
@@ -1378,60 +1442,6 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             prop.image_urls = d.image_urls;
             if (!prop.image_url && d.image_urls[0]) prop.image_url = d.image_urls[0];
           }
-          if (d.listing_status) prop.listing_status = d.listing_status;
-          if (d.facilities) prop.facilities = d.facilities;
-
-          if (d.other_stations?.length) {
-            prop.other_stations = d.other_stations;
-          }
-
-          // 管理費: 詳細ページテキストからパース（検索結果が0の場合のフォールバック）
-          if (d._mgmt_text && !prop.management_fee) {
-            const mgmtMatch = d._mgmt_text.match(/([\d,]+)\s*円/);
-            if (mgmtMatch) {
-              prop.management_fee = parseInt(mgmtMatch[1].replace(/,/g, ''));
-            }
-          }
-
-          // 詳細ページの値で補完するフィールド
-          const detailFields = [
-            'floor_text', 'story_text', 'structure', 'total_units', 'lease_type', 'contract_period',
-            'cancellation_notice', 'renewal_info', 'sunlight', 'free_rent', 'free_rent_detail',
-            'fire_insurance', 'key_exchange_fee', 'guarantee_info', 'guarantee_deposit',
-            'parking_fee', 'bicycle_parking_fee', 'motorcycle_parking_fee',
-            'other_monthly_fee', 'other_onetime_fee', 'move_in_date', 'move_out_date',
-            'preview_start_date', 'layout_detail', 'shikibiki', 'floor',
-            'move_in_conditions', 'pet_deposit', 'renewal_admin_fee',
-            'support_fee_24h', 'additional_deposit', 'water_billing',
-            'cleaning_fee', 'sanitization_fee', 'rights_fee',
-            'ad_fee', 'current_status',
-          ];
-          for (const key of detailFields) {
-            if (d[key] && !prop[key]) {
-              prop[key] = d[key];
-            }
-          }
-
-          // 詳細ページの値で上書きするフィールド
-          const overrideFields = ['deposit', 'key_money', 'renewal_fee', 'move_in_date'];
-          for (const key of overrideFields) {
-            if (d[key]) {
-              let val = d[key];
-              if (key !== 'move_in_date') {
-                val = val.replace(/\/[\-ー－なし]*$/, '').trim();
-              }
-              prop[key] = val;
-            }
-          }
-
-          if (prop.structure) {
-            prop.structure = ESSQUARE_STRUCTURE_NORMALIZE[prop.structure] || prop.structure;
-          }
-
-          if (prop.floor_text && !prop.floor) {
-            const floorMatch = prop.floor_text.match(/(\d+)/);
-            if (floorMatch) prop.floor = parseInt(floorMatch[1]);
-          }
         }
 
         // ブラウザバックで検索結果ページに戻る
@@ -1450,7 +1460,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         }
       }
 
-      // フィルタリング
+      // フィルタリング（詳細取得失敗時など、早期フィルタを通過しなかった場合の最終チェック）
       const rejectReason = getEssquareFilterRejectReason(prop, customer);
       if (rejectReason) {
         await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}` });
