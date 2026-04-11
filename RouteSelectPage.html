@@ -97,7 +97,7 @@ body {
 .station-item label { font-size: 12px; cursor: pointer; }
 .station-list.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
 
-/* ── 市区町村グループ ── */
+/* ── 市区町村グループ（路線の会社グループと同じ構造） ── */
 .city-group { margin: 4px 8px; border-radius: 8px; overflow: hidden; border: 1px solid #eee; }
 .city-group-header {
   display: flex; justify-content: space-between; align-items: center;
@@ -108,30 +108,32 @@ body {
 .city-group-arrow { font-size: 11px; color: #bbb; transition: transform 0.3s; }
 .city-group-arrow.open { transform: rotate(90deg); }
 .city-group-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
-.city-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; padding: 4px 8px 8px; }
-.city-item { display: flex; align-items: center; padding: 6px 4px; }
-.city-item input[type="checkbox"] { width: 18px; height: 18px; margin-right: 8px; accent-color: #8ec41d; }
-.city-item label { font-size: 13px; cursor: pointer; }
-
-/* ── 町名・丁目（市区町村の下層） ── */
-.city-towns { padding: 0 0 4px 28px; border-top: 1px solid #f0f0f0; background: #fafafa; }
-.city-towns-loading { padding: 8px 12px; font-size: 11px; color: #999; }
-.town-group { margin: 2px 4px; border-radius: 6px; overflow: hidden; border: 1px solid #eee; background: #fff; }
-.town-group-header {
-  display: flex; align-items: center; padding: 6px 8px;
-  cursor: pointer; -webkit-tap-highlight-color: transparent; font-size: 12px;
+/* 市区町村アイテム（路線アイテムと同じ構造） */
+.city-item {
+  display: flex; align-items: center; padding: 0 12px;
+  min-height: 44px; border-bottom: 1px solid #f0f0f0;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.town-group-header:active { background: #f5f5f5; }
-.town-group-header input[type="checkbox"] { width: 16px; height: 16px; margin-right: 6px; accent-color: #8ec41d; }
-.town-group-header label { flex: 1; cursor: pointer; font-size: 12px; }
-.town-group-arrow { font-size: 10px; color: #bbb; transition: transform 0.3s; margin-left: 4px; }
-.town-group-arrow.open { transform: rotate(90deg); }
-.town-chome-panel { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #f9f9f9; }
-.town-chome-list { padding: 2px 8px 6px 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
-.chome-item { display: flex; align-items: center; padding: 3px 0; }
-.chome-item input[type="checkbox"] { width: 14px; height: 14px; margin-right: 6px; accent-color: #8ec41d; }
-.chome-item label { font-size: 11px; cursor: pointer; }
-.town-note { padding: 4px 8px; font-size: 10px; color: #aaa; }
+.city-item:active { background: #f5f5f5; }
+.city-item input[type="checkbox"] {
+  width: 20px; height: 20px; margin-right: 10px;
+  accent-color: #8ec41d; flex-shrink: 0;
+}
+.city-item label { font-size: 14px; flex: 1; cursor: pointer; padding: 10px 0; }
+
+/* ── 町名パネル（路線→駅と同じパターン） ── */
+.town-panel { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #f9f9f9; border-top: 1px solid #eee; }
+.town-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px 2px 44px; font-size: 11px; color: #888; }
+.town-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #ccc; background: #fff; color: #666; cursor: pointer; }
+.town-list { padding: 2px 12px 8px 44px; }
+.town-list.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.town-item { display: flex; align-items: center; padding: 4px 0; }
+.town-item input[type="checkbox"] { width: 16px; height: 16px; margin-right: 8px; accent-color: #8ec41d; }
+.town-item label { font-size: 12px; cursor: pointer; }
+.town-loading { padding: 10px 12px 10px 44px; font-size: 12px; color: #999; }
+.city-town-badge { font-size: 11px; color: #999; white-space: nowrap; margin-left: 4px; }
+.city-arrow { font-size: 11px; color: #bbb; margin-left: 4px; transition: transform 0.3s; }
+.city-arrow.open { transform: rotate(90deg); }
 
 /* ── スライダー ── */
 .slider-container { padding: 8px 16px 16px; }
@@ -612,13 +614,18 @@ function renderCities() {
     html += '<span class="city-group-name">' + esc(group.name) + '（' + group.cities.length + '）</span>';
     html += '<span class="city-group-arrow" id="cityArrow_' + g + '">&#x25B6;</span></div>';
     html += '<div class="city-group-content" id="cityContent_' + g + '">';
-    html += '<div class="city-grid">';
     for (var i = 0; i < group.cities.length; i++) {
       var city = group.cities[i];
       var cid = 'city_' + g + '_' + i;
-      html += '<div class="city-item"><input type="checkbox" id="' + cid + '" name="city" value="' + esc(city) + '" onclick="event.stopPropagation(); onCityCheck(\'' + esc(city) + '\', this, ' + g + ')"><label for="' + cid + '">' + esc(city) + '</label></div>';
+      html += '<div class="city-item" onclick="toggleCityTowns(\'' + esc(city) + '\', \'' + cid + '\', ' + g + ')">';
+      html += '<input type="checkbox" id="' + cid + '" name="city" value="' + esc(city) + '" onclick="event.stopPropagation(); onCityCheck(\'' + esc(city) + '\', this, ' + g + ')">';
+      html += '<label for="' + cid + '" onclick="event.stopPropagation()">' + esc(city) + '</label>';
+      html += '<span class="city-town-badge" id="badge_' + cid + '"></span>';
+      html += '<span class="city-arrow" id="arrow_' + cid + '">&#x25B6;</span>';
+      html += '</div>';
+      html += '<div class="town-panel" id="townPanel_' + cid + '"></div>';
     }
-    html += '</div></div></div>';
+    html += '</div></div>';
   }
   container.innerHTML = html;
 }
@@ -630,54 +637,69 @@ function toggleCityGroup(g) {
     content.style.maxHeight = '0';
     arrow.classList.remove('open');
   } else {
-    content.style.maxHeight = (content.scrollHeight + 2000) + 'px';
+    content.style.maxHeight = (content.scrollHeight + 5000) + 'px';
     arrow.classList.add('open');
   }
 }
 
 // ══════════════════════════════════════════════════════════
-//  町名・丁目 取得・レンダリング
+//  町名・丁目（路線→駅と同じ展開パターン）
 // ══════════════════════════════════════════════════════════
-var townCache = {}; // { '新宿区': [ { town: '愛住町', ... }, ... ] }
+var townCache = {};       // { '新宿区': [ { town:'...', ... }, ... ] }
+var townRendered = {};    // { 'city_0_3': true } 既にレンダリング済みか
 
 function onCityCheck(cityName, checkbox, groupIdx) {
-  var townsContainer = document.getElementById('towns_' + cityName);
+  var cid = checkbox.id;
   if (checkbox.checked) {
-    if (!townsContainer) {
-      // 町名コンテナ作成
-      var cityItem = checkbox.closest('.city-item');
-      var container = document.createElement('div');
-      container.id = 'towns_' + cityName;
-      container.className = 'city-towns';
-      container.innerHTML = '<div class="city-towns-loading">町名を読み込み中...</div>';
-      cityItem.parentNode.insertBefore(container, cityItem.nextSibling);
-      // 親グループの高さを更新
-      updateCityGroupHeight(groupIdx);
-      fetchTowns(cityName, groupIdx);
-    } else {
-      townsContainer.style.display = '';
-      updateCityGroupHeight(groupIdx);
-    }
+    expandCityTowns(cityName, cid, groupIdx);
   } else {
-    if (townsContainer) {
-      townsContainer.style.display = 'none';
-      updateCityGroupHeight(groupIdx);
-    }
+    collapseCityTowns(cid, groupIdx);
   }
+}
+
+// 市区町村の行クリック時（チェックボックスとラベル以外をクリック）
+function toggleCityTowns(cityName, cid, groupIdx) {
+  var cb = document.getElementById(cid);
+  cb.checked = !cb.checked;
+  onCityCheck(cityName, cb, groupIdx);
+}
+
+function expandCityTowns(cityName, cid, groupIdx) {
+  var panel = document.getElementById('townPanel_' + cid);
+  var arrow = document.getElementById('arrow_' + cid);
+  if (!panel) return;
+
+  if (!townRendered[cid]) {
+    panel.innerHTML = '<div class="town-loading">町名を読み込み中...</div>';
+    panel.style.maxHeight = '40px';
+    fetchTowns(cityName, cid, groupIdx);
+  } else {
+    panel.style.maxHeight = panel.scrollHeight + 'px';
+  }
+  if (arrow) arrow.classList.add('open');
+  updateCityGroupHeight(groupIdx);
+}
+
+function collapseCityTowns(cid, groupIdx) {
+  var panel = document.getElementById('townPanel_' + cid);
+  var arrow = document.getElementById('arrow_' + cid);
+  if (panel) panel.style.maxHeight = '0';
+  if (arrow) arrow.classList.remove('open');
+  updateCityGroupHeight(groupIdx);
 }
 
 function updateCityGroupHeight(groupIdx) {
   setTimeout(function() {
     var content = document.getElementById('cityContent_' + groupIdx);
-    if (content && content.style.maxHeight !== '0px') {
-      content.style.maxHeight = (content.scrollHeight + 2000) + 'px';
+    if (content && content.style.maxHeight && content.style.maxHeight !== '0px') {
+      content.style.maxHeight = (content.scrollHeight + 5000) + 'px';
     }
-  }, 50);
+  }, 100);
 }
 
-function fetchTowns(cityName, groupIdx) {
+function fetchTowns(cityName, cid, groupIdx) {
   if (townCache[cityName]) {
-    renderTowns(cityName, townCache[cityName], groupIdx);
+    renderTownPanel(cityName, townCache[cityName], cid, groupIdx);
     return;
   }
   var url = 'https://geolonia.github.io/japanese-addresses/api/ja/東京都/' + encodeURIComponent(cityName) + '.json';
@@ -685,134 +707,64 @@ function fetchTowns(cityName, groupIdx) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       townCache[cityName] = data;
-      renderTowns(cityName, data, groupIdx);
+      renderTownPanel(cityName, data, cid, groupIdx);
     })
-    .catch(function(err) {
-      var container = document.getElementById('towns_' + cityName);
-      if (container) container.innerHTML = '<div class="city-towns-loading">町名の取得に失敗しました</div>';
+    .catch(function() {
+      var panel = document.getElementById('townPanel_' + cid);
+      if (panel) { panel.innerHTML = '<div class="town-loading">町名の取得に失敗しました</div>'; panel.style.maxHeight = '40px'; }
     });
 }
 
-function renderTowns(cityName, townData, groupIdx) {
-  var container = document.getElementById('towns_' + cityName);
-  if (!container) return;
+function renderTownPanel(cityName, townData, cid, groupIdx) {
+  var panel = document.getElementById('townPanel_' + cid);
+  if (!panel) return;
 
-  // 町名をグルーピング（丁目を持つものはベース名でまとめる）
-  var groups = {}; // baseName -> [fullTownName, ...]
-  var order = [];
-  for (var i = 0; i < townData.length; i++) {
-    var name = townData[i].town;
-    if (!name) continue;
-    var match = name.match(/^(.+?)([一二三四五六七八九十]+丁目)$/);
-    var base = match ? match[1] : name;
-    if (!groups[base]) { groups[base] = []; order.push(base); }
-    groups[base].push(name);
-  }
-
-  // 既選択の町名セット
+  // 既選択セット
   var selectedSet = {};
   var prevSelected = SELECTED_TOWNS[cityName] || [];
   for (var i = 0; i < prevSelected.length; i++) selectedSet[prevSelected[i]] = true;
 
-  var html = '<div class="town-note">※ 町名を指定しない場合は' + esc(cityName) + '全体で検索します</div>';
-  for (var i = 0; i < order.length; i++) {
-    var base = order[i];
-    var towns = groups[base];
-    var safeBase = base.replace(/[^a-zA-Z0-9\u3000-\u9FFF]/g, '_');
-    var townGroupId = 'tg_' + cityName + '_' + safeBase;
+  var html = '';
+  html += '<div class="town-header"><span>町名を選択（任意）</span>';
+  html += '<button class="town-toggle-btn" onclick="toggleAllTowns(\'' + esc(cityName) + '\', \'' + esc(cid) + '\')">全選択/解除</button></div>';
+  html += '<div class="town-list two-col">';
 
-    if (towns.length === 1 && towns[0] === base) {
-      // 丁目なし（単独の町名）
-      var checked = selectedSet[base] ? ' checked' : '';
-      html += '<div class="town-group"><div class="town-group-header">';
-      html += '<input type="checkbox" name="town_' + esc(cityName) + '" value="' + esc(base) + '"' + checked + ' onclick="event.stopPropagation()">';
-      html += '<label>' + esc(base) + '</label>';
-      html += '</div></div>';
-    } else {
-      // 丁目あり（グループ）
-      var allChecked = true;
-      var someChecked = false;
-      for (var j = 0; j < towns.length; j++) {
-        if (selectedSet[towns[j]]) someChecked = true;
-        else allChecked = false;
-      }
-      var groupChecked = (towns.length > 0 && allChecked) ? ' checked' : '';
-      html += '<div class="town-group">';
-      html += '<div class="town-group-header" onclick="toggleTownGroup(\'' + esc(townGroupId) + '\')">';
-      html += '<input type="checkbox"' + groupChecked + ' onclick="event.stopPropagation(); toggleTownGroupAll(this, \'' + esc(cityName) + '\', \'' + esc(townGroupId) + '\')">';
-      html += '<label>' + esc(base) + '（' + towns.length + '）</label>';
-      html += '<span class="town-group-arrow" id="arrow_' + esc(townGroupId) + '">&#x25B6;</span>';
-      html += '</div>';
-      html += '<div class="town-chome-panel" id="panel_' + esc(townGroupId) + '">';
-      html += '<div class="town-chome-list">';
-      for (var j = 0; j < towns.length; j++) {
-        var chomeLabel = towns[j].replace(base, '');
-        if (!chomeLabel) chomeLabel = towns[j];
-        var chomeChecked = selectedSet[towns[j]] ? ' checked' : '';
-        var chomeId = 'chome_' + cityName + '_' + i + '_' + j;
-        html += '<div class="chome-item">';
-        html += '<input type="checkbox" id="' + esc(chomeId) + '" name="town_' + esc(cityName) + '" value="' + esc(towns[j]) + '"' + chomeChecked;
-        html += ' onclick="event.stopPropagation(); updateTownGroupCb(\'' + esc(townGroupId) + '\', \'' + esc(cityName) + '\')">';
-        html += '<label for="' + esc(chomeId) + '">' + esc(chomeLabel) + '</label>';
-        html += '</div>';
-      }
-      html += '</div></div></div>';
-    }
+  for (var i = 0; i < townData.length; i++) {
+    var name = townData[i].town;
+    if (!name) continue;
+    var checked = selectedSet[name] ? ' checked' : '';
+    var tid = 'town_' + cid + '_' + i;
+    html += '<div class="town-item">';
+    html += '<input type="checkbox" class="town-cb" id="' + esc(tid) + '" name="town_' + esc(cityName) + '" value="' + esc(name) + '"' + checked;
+    html += ' onclick="updateTownBadge(\'' + esc(cid) + '\', \'' + esc(cityName) + '\')">';
+    html += '<label for="' + esc(tid) + '">' + esc(name) + '</label>';
+    html += '</div>';
   }
-  container.innerHTML = html;
+  html += '</div>';
 
-  // 既選択がある場合、丁目パネルを展開
-  if (prevSelected.length > 0) {
-    for (var i = 0; i < order.length; i++) {
-      var base = order[i];
-      var towns = groups[base];
-      if (towns.length <= 1) continue;
-      for (var j = 0; j < towns.length; j++) {
-        if (selectedSet[towns[j]]) {
-          var safeBase = base.replace(/[^a-zA-Z0-9\u3000-\u9FFF]/g, '_');
-          var townGroupId = 'tg_' + cityName + '_' + safeBase;
-          toggleTownGroup(townGroupId);
-          break;
-        }
-      }
-    }
-  }
-
+  panel.innerHTML = html;
+  townRendered[cid] = true;
+  panel.style.maxHeight = panel.scrollHeight + 'px';
+  updateTownBadge(cid, cityName);
   updateCityGroupHeight(groupIdx);
 }
 
-function toggleTownGroup(townGroupId) {
-  var panel = document.getElementById('panel_' + townGroupId);
-  var arrow = document.getElementById('arrow_' + townGroupId);
+function toggleAllTowns(cityName, cid) {
+  var panel = document.getElementById('townPanel_' + cid);
   if (!panel) return;
-  if (panel.style.maxHeight && panel.style.maxHeight !== '0px') {
-    panel.style.maxHeight = '0';
-    if (arrow) arrow.classList.remove('open');
-  } else {
-    panel.style.maxHeight = panel.scrollHeight + 'px';
-    if (arrow) arrow.classList.add('open');
-  }
-}
-
-function toggleTownGroupAll(groupCb, cityName, townGroupId) {
-  var panel = document.getElementById('panel_' + townGroupId);
-  if (!panel) return;
-  var cbs = panel.querySelectorAll('input[name="town_' + cityName + '"]');
-  for (var i = 0; i < cbs.length; i++) cbs[i].checked = groupCb.checked;
-  if (groupCb.checked && (!panel.style.maxHeight || panel.style.maxHeight === '0px')) {
-    toggleTownGroup(townGroupId);
-  }
-}
-
-function updateTownGroupCb(townGroupId, cityName) {
-  var panel = document.getElementById('panel_' + townGroupId);
-  if (!panel) return;
-  var cbs = panel.querySelectorAll('input[name="town_' + cityName + '"]');
-  var header = panel.parentNode.querySelector('.town-group-header input[type="checkbox"]');
-  if (!header) return;
+  var cbs = panel.querySelectorAll('.town-cb');
   var allChecked = true;
   for (var i = 0; i < cbs.length; i++) { if (!cbs[i].checked) { allChecked = false; break; } }
-  header.checked = allChecked;
+  for (var i = 0; i < cbs.length; i++) cbs[i].checked = !allChecked;
+  updateTownBadge(cid, cityName);
+}
+
+function updateTownBadge(cid, cityName) {
+  var panel = document.getElementById('townPanel_' + cid);
+  var badge = document.getElementById('badge_' + cid);
+  if (!panel || !badge) return;
+  var checked = panel.querySelectorAll('.town-cb:checked').length;
+  badge.textContent = checked > 0 ? checked + '町名' : '';
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1051,9 +1003,8 @@ function restoreSelections() {
     var cb = document.querySelector('input[name="city"][value="' + escSel(cityName) + '"]');
     if (cb) {
       cb.checked = true;
-      // 町名指定がある市区町村は町名をロード
-      var groupIdx = cb.id.split('_')[1];
-      onCityCheck(cityName, cb, parseInt(groupIdx));
+      var groupIdx = parseInt(cb.id.split('_')[1]);
+      expandCityTowns(cityName, cb.id, groupIdx);
     }
   }
   // 市区町村グループを展開（選択がある場合）
