@@ -592,7 +592,7 @@ function handleTrackView(e) {
         // 顧客専用スレッドに送信（なければ顧客名でスレッド新規作成）
         var threadId = PropertiesService.getScriptProperties().getProperty('DISCORD_THREAD_' + customerName);
         var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
-        var msg = '\uD83D\uDC40 **' + customerName + '** 様が「' + (buildingName || 'room_id: ' + roomId) + '」を閲覧しました (' + time + ')';
+        var msg = '@here\n\uD83D\uDC40 **' + customerName + '** 様が「' + (buildingName || 'room_id: ' + roomId) + '」を閲覧しました (' + time + ')';
 
         var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
         var payload = { content: msg };
@@ -704,6 +704,7 @@ function handlePropertyAction(e) {
         };
         var msg = msgMap[actionType] || '';
         if (!msg) return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount })).setMimeType(ContentService.MimeType.JSON);
+        msg = '@here\n' + msg;
 
         // お申し込みの場合、申込区分・申込者情報を表示
         if (actionType === 'hold') {
