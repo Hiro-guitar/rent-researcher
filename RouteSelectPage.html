@@ -121,19 +121,36 @@ body {
 }
 .city-item label { font-size: 14px; flex: 1; cursor: pointer; padding: 10px 0; }
 
-/* ── 町名パネル（路線→駅と同じパターン） ── */
+/* ── 町名パネル（市区町村の下） ── */
 .town-panel { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #f9f9f9; border-top: 1px solid #eee; }
 .town-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px 2px 44px; font-size: 11px; color: #888; }
 .town-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #ccc; background: #fff; color: #666; cursor: pointer; }
-.town-list { padding: 2px 12px 8px 44px; }
-.town-list.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
-.town-item { display: flex; align-items: center; padding: 4px 0; }
-.town-item input[type="checkbox"] { width: 16px; height: 16px; margin-right: 8px; accent-color: #8ec41d; }
-.town-item label { font-size: 12px; cursor: pointer; }
 .town-loading { padding: 10px 12px 10px 44px; font-size: 12px; color: #999; }
 .city-town-badge { font-size: 11px; color: #999; white-space: nowrap; margin-left: 4px; }
 .city-arrow { font-size: 11px; color: #bbb; margin-left: 4px; transition: transform 0.3s; }
 .city-arrow.open { transform: rotate(90deg); }
+
+/* 町名アイテム（路線アイテムと同じ構造） */
+.town-item {
+  display: flex; align-items: center; padding: 0 12px 0 44px;
+  min-height: 40px; border-bottom: 1px solid #f0f0f0;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.town-item:active { background: #f0f0f0; }
+.town-item input[type="checkbox"] { width: 18px; height: 18px; margin-right: 8px; accent-color: #8ec41d; flex-shrink: 0; }
+.town-item label { font-size: 13px; flex: 1; cursor: pointer; padding: 8px 0; }
+.town-chome-badge { font-size: 11px; color: #999; white-space: nowrap; margin-left: 4px; }
+.town-arrow { font-size: 10px; color: #bbb; margin-left: 4px; transition: transform 0.3s; }
+.town-arrow.open { transform: rotate(90deg); }
+
+/* 丁目パネル（駅パネルと同じ構造） */
+.chome-panel { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #f3f3f3; border-top: 1px solid #eee; }
+.chome-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 2px 68px; font-size: 10px; color: #888; }
+.chome-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #ccc; background: #fff; color: #666; cursor: pointer; }
+.chome-list { padding: 2px 12px 6px 68px; display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+.chome-item { display: flex; align-items: center; padding: 3px 0; }
+.chome-item input[type="checkbox"] { width: 15px; height: 15px; margin-right: 6px; accent-color: #8ec41d; }
+.chome-item label { font-size: 12px; cursor: pointer; }
 
 /* ── スライダー ── */
 .slider-container { padding: 8px 16px 16px; }
@@ -719,6 +736,18 @@ function renderTownPanel(cityName, townData, cid, groupIdx) {
   var panel = document.getElementById('townPanel_' + cid);
   if (!panel) return;
 
+  // 町名をグルーピング（丁目→ベース名でまとめる）
+  var groups = {};  // baseName -> [fullName, ...]
+  var order = [];
+  for (var i = 0; i < townData.length; i++) {
+    var name = townData[i].town;
+    if (!name) continue;
+    var match = name.match(/^(.+?)([一二三四五六七八九十百]+丁目)$/);
+    var base = match ? match[1] : name;
+    if (!groups[base]) { groups[base] = []; order.push(base); }
+    groups[base].push(name);
+  }
+
   // 既選択セット
   var selectedSet = {};
   var prevSelected = SELECTED_TOWNS[cityName] || [];
@@ -726,44 +755,179 @@ function renderTownPanel(cityName, townData, cid, groupIdx) {
 
   var html = '';
   html += '<div class="town-header"><span>町名を選択（任意）</span>';
-  html += '<button class="town-toggle-btn" onclick="toggleAllTowns(\'' + esc(cityName) + '\', \'' + esc(cid) + '\')">全選択/解除</button></div>';
-  html += '<div class="town-list two-col">';
+  html += '<button class="town-toggle-btn" onclick="toggleAllTownGroups(\'' + esc(cityName) + '\', \'' + esc(cid) + '\')">全選択/解除</button></div>';
 
-  for (var i = 0; i < townData.length; i++) {
-    var name = townData[i].town;
-    if (!name) continue;
-    var checked = selectedSet[name] ? ' checked' : '';
-    var tid = 'town_' + cid + '_' + i;
-    html += '<div class="town-item">';
-    html += '<input type="checkbox" class="town-cb" id="' + esc(tid) + '" name="town_' + esc(cityName) + '" value="' + esc(name) + '"' + checked;
-    html += ' onclick="updateTownBadge(\'' + esc(cid) + '\', \'' + esc(cityName) + '\')">';
-    html += '<label for="' + esc(tid) + '">' + esc(name) + '</label>';
-    html += '</div>';
+  for (var i = 0; i < order.length; i++) {
+    var base = order[i];
+    var towns = groups[base];
+    var townId = cid + '_t' + i;
+
+    if (towns.length === 1 && towns[0] === base) {
+      // 丁目なし（単独町名）— チェックボックスだけ
+      var checked = selectedSet[base] ? ' checked' : '';
+      html += '<div class="town-item">';
+      html += '<input type="checkbox" class="town-cb" id="' + esc(townId) + '" name="town_' + esc(cityName) + '" value="' + esc(base) + '"' + checked;
+      html += ' onclick="event.stopPropagation(); updateCityBadge(\'' + esc(cid) + '\', \'' + esc(cityName) + '\')">';
+      html += '<label for="' + esc(townId) + '" onclick="event.stopPropagation()">' + esc(base) + '</label>';
+      html += '</div>';
+    } else {
+      // 丁目あり — 展開可能グループ
+      var anyChecked = false;
+      var allChecked = true;
+      for (var j = 0; j < towns.length; j++) {
+        if (selectedSet[towns[j]]) anyChecked = true;
+        else allChecked = false;
+      }
+      var groupChecked = allChecked ? ' checked' : '';
+      var chomeCount = anyChecked ? towns.filter(function(t) { return selectedSet[t]; }).length : 0;
+
+      html += '<div class="town-item" onclick="toggleTownChome(\'' + esc(townId) + '\', \'' + esc(cid) + '\', ' + groupIdx + ')">';
+      html += '<input type="checkbox" class="town-cb" id="' + esc(townId) + '"' + groupChecked;
+      html += ' onclick="event.stopPropagation(); onTownGroupCheck(this, \'' + esc(cityName) + '\', \'' + esc(townId) + '\', \'' + esc(cid) + '\', ' + groupIdx + ')">';
+      html += '<label onclick="event.stopPropagation(); toggleTownChome(\'' + esc(townId) + '\', \'' + esc(cid) + '\', ' + groupIdx + ')">' + esc(base) + '</label>';
+      html += '<span class="town-chome-badge" id="chomeBadge_' + esc(townId) + '">' + (chomeCount > 0 ? chomeCount + '/' + towns.length : towns.length + '丁目') + '</span>';
+      html += '<span class="town-arrow" id="townArrow_' + esc(townId) + '">&#x25B6;</span>';
+      html += '</div>';
+
+      // 丁目パネル
+      html += '<div class="chome-panel" id="chomePanel_' + esc(townId) + '">';
+      html += '<div class="chome-header"><span>丁目</span>';
+      html += '<button class="chome-toggle-btn" onclick="toggleAllChomes(\'' + esc(cityName) + '\', \'' + esc(townId) + '\', \'' + esc(cid) + '\', ' + groupIdx + ')">全選択/解除</button></div>';
+      html += '<div class="chome-list">';
+      for (var j = 0; j < towns.length; j++) {
+        var chomeLabel = towns[j].replace(base, '');
+        if (!chomeLabel) chomeLabel = towns[j];
+        var chomeChecked = selectedSet[towns[j]] ? ' checked' : '';
+        var chomeId = townId + '_c' + j;
+        html += '<div class="chome-item">';
+        html += '<input type="checkbox" class="chome-cb" id="' + esc(chomeId) + '" name="town_' + esc(cityName) + '" value="' + esc(towns[j]) + '"' + chomeChecked;
+        html += ' onclick="onChomeCheck(\'' + esc(cityName) + '\', \'' + esc(townId) + '\', \'' + esc(cid) + '\', ' + groupIdx + ')">';
+        html += '<label for="' + esc(chomeId) + '">' + esc(chomeLabel) + '</label>';
+        html += '</div>';
+      }
+      html += '</div></div>';
+    }
   }
-  html += '</div>';
 
   panel.innerHTML = html;
   townRendered[cid] = true;
   panel.style.maxHeight = panel.scrollHeight + 'px';
-  updateTownBadge(cid, cityName);
+  updateCityBadge(cid, cityName);
+
+  // 既選択のある丁目グループを展開
+  if (prevSelected.length > 0) {
+    for (var i = 0; i < order.length; i++) {
+      var base = order[i];
+      var towns = groups[base];
+      if (towns.length <= 1) continue;
+      for (var j = 0; j < towns.length; j++) {
+        if (selectedSet[towns[j]]) {
+          var townId = cid + '_t' + i;
+          toggleTownChome(townId, cid, groupIdx);
+          break;
+        }
+      }
+    }
+  }
   updateCityGroupHeight(groupIdx);
 }
 
-function toggleAllTowns(cityName, cid) {
-  var panel = document.getElementById('townPanel_' + cid);
+// 町名グループの展開/折りたたみ（丁目パネル）
+function toggleTownChome(townId, cid, groupIdx) {
+  var panel = document.getElementById('chomePanel_' + townId);
+  var arrow = document.getElementById('townArrow_' + townId);
   if (!panel) return;
-  var cbs = panel.querySelectorAll('.town-cb');
+  if (panel.style.maxHeight && panel.style.maxHeight !== '0px') {
+    panel.style.maxHeight = '0';
+    if (arrow) arrow.classList.remove('open');
+  } else {
+    panel.style.maxHeight = panel.scrollHeight + 'px';
+    if (arrow) arrow.classList.add('open');
+  }
+  // 町名パネルの高さも更新
+  var townPanel = document.getElementById('townPanel_' + cid);
+  if (townPanel) {
+    setTimeout(function() { townPanel.style.maxHeight = townPanel.scrollHeight + 'px'; }, 50);
+  }
+  updateCityGroupHeight(groupIdx);
+}
+
+// 町名グループのチェック → 全丁目チェック
+function onTownGroupCheck(cb, cityName, townId, cid, groupIdx) {
+  var panel = document.getElementById('chomePanel_' + townId);
+  if (!panel) return;
+  var cbs = panel.querySelectorAll('.chome-cb');
+  for (var i = 0; i < cbs.length; i++) cbs[i].checked = cb.checked;
+  if (cb.checked && (!panel.style.maxHeight || panel.style.maxHeight === '0px')) {
+    toggleTownChome(townId, cid, groupIdx);
+  }
+  updateChomeBadge(townId);
+  updateCityBadge(cid, cityName);
+}
+
+// 丁目チェック変更時
+function onChomeCheck(cityName, townId, cid, groupIdx) {
+  // 町名グループのチェックボックスを更新
+  var panel = document.getElementById('chomePanel_' + townId);
+  var townCb = document.getElementById(townId);
+  if (panel && townCb) {
+    var cbs = panel.querySelectorAll('.chome-cb');
+    var allChecked = true;
+    for (var i = 0; i < cbs.length; i++) { if (!cbs[i].checked) { allChecked = false; break; } }
+    townCb.checked = allChecked;
+  }
+  updateChomeBadge(townId);
+  updateCityBadge(cid, cityName);
+}
+
+// 丁目の全選択/解除
+function toggleAllChomes(cityName, townId, cid, groupIdx) {
+  var panel = document.getElementById('chomePanel_' + townId);
+  if (!panel) return;
+  var cbs = panel.querySelectorAll('.chome-cb');
   var allChecked = true;
   for (var i = 0; i < cbs.length; i++) { if (!cbs[i].checked) { allChecked = false; break; } }
   for (var i = 0; i < cbs.length; i++) cbs[i].checked = !allChecked;
-  updateTownBadge(cid, cityName);
+  var townCb = document.getElementById(townId);
+  if (townCb) townCb.checked = !allChecked;
+  updateChomeBadge(townId);
+  updateCityBadge(cid, cityName);
 }
 
-function updateTownBadge(cid, cityName) {
+// 町名グループの全選択/解除
+function toggleAllTownGroups(cityName, cid) {
+  var panel = document.getElementById('townPanel_' + cid);
+  if (!panel) return;
+  var allCbs = panel.querySelectorAll('input[name="town_' + cityName + '"]');
+  var townCbs = panel.querySelectorAll('.town-cb');
+  var allChecked = true;
+  for (var i = 0; i < allCbs.length; i++) { if (!allCbs[i].checked) { allChecked = false; break; } }
+  for (var i = 0; i < allCbs.length; i++) allCbs[i].checked = !allChecked;
+  for (var i = 0; i < townCbs.length; i++) townCbs[i].checked = !allChecked;
+  // 全バッジ更新
+  var badges = panel.querySelectorAll('[id^="chomeBadge_"]');
+  for (var i = 0; i < badges.length; i++) {
+    var tid = badges[i].id.replace('chomeBadge_', '');
+    updateChomeBadge(tid);
+  }
+  updateCityBadge(cid, cityName);
+}
+
+function updateChomeBadge(townId) {
+  var panel = document.getElementById('chomePanel_' + townId);
+  var badge = document.getElementById('chomeBadge_' + townId);
+  if (!panel || !badge) return;
+  var cbs = panel.querySelectorAll('.chome-cb');
+  var checked = 0;
+  for (var i = 0; i < cbs.length; i++) { if (cbs[i].checked) checked++; }
+  badge.textContent = checked > 0 ? checked + '/' + cbs.length : cbs.length + '丁目';
+}
+
+function updateCityBadge(cid, cityName) {
   var panel = document.getElementById('townPanel_' + cid);
   var badge = document.getElementById('badge_' + cid);
   if (!panel || !badge) return;
-  var checked = panel.querySelectorAll('.town-cb:checked').length;
+  var checked = panel.querySelectorAll('input[name="town_' + cityName + '"]:checked').length;
   badge.textContent = checked > 0 ? checked + '町名' : '';
 }
 
