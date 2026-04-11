@@ -595,7 +595,7 @@ function handleTrackView(e) {
         var msg = '@here\n\uD83D\uDC40 **' + customerName + '** 様が「' + (buildingName || 'room_id: ' + roomId) + '」を閲覧しました (' + time + ')';
 
         var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
-        var payload = { content: msg };
+        var payload = { content: msg, allowed_mentions: { parse: ['everyone'] } };
         if (!threadId) {
           payload.thread_name = '\uD83C\uDFE0 ' + customerName;
         }
@@ -721,7 +721,7 @@ function handlePropertyAction(e) {
         msg += ' (' + time + ')';
 
         var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
-        var payload = { content: msg };
+        var payload = { content: msg, allowed_mentions: { parse: ['everyone'] } };
         if (!threadId) {
           payload.thread_name = '\uD83C\uDFE0 ' + customerName;
         }
@@ -756,7 +756,7 @@ function handlePropertyAction(e) {
         if (threadId && (code === 404 || code === 400)) {
           // 顧客スレッドが無効化された場合はプロパティを削除して再作成
           PropertiesService.getScriptProperties().deleteProperty('DISCORD_THREAD_' + customerName);
-          var retryPayload = { content: msg, thread_name: '\uD83C\uDFE0 ' + customerName };
+          var retryPayload = { content: msg, thread_name: '\uD83C\uDFE0 ' + customerName, allowed_mentions: { parse: ['everyone'] } };
           var retryResp = UrlFetchApp.fetch(webhookUrl + '?wait=true', {
             method: 'post',
             contentType: 'application/json',
