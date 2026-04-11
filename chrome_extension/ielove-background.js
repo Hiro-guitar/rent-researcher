@@ -644,6 +644,12 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
   const customerSeenIds = seenIds[customer.name] || [];
   let submittedCount = 0;
 
+  // スキップ済み物件キャッシュをロード（詳細ページ遷移を省略して高速化）
+  const skipStorageKey = `ieloveSkipped_${customer.name}`;
+  const skipData = await getStorageData([skipStorageKey]);
+  const skippedMap = skipData[skipStorageKey] || {}; // { room_id: { reason, ts } }
+  let skippedMapDirty = false;
+
   const maxPages = 5;
   let searchUrl = buildIeloveSearchUrl(customer, 1);
   // Discord検索条件メッセージ用にcustomerに検索URLを付与
@@ -700,6 +706,11 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       const isTestUser = customer.name.includes('テスト');
       if (!isTestUser && customerSeenIds.includes(prop.room_id)) {
         await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 通知済み: ${prop.building_name} ${prop.room_number || ''}` });
+        continue;
+      }
+
+      // スキップ済み物件チェック（前回フィルタで除外された物件は詳細ページに行かない）
+      if (!isTestUser && skippedMap[prop.room_id]) {
         continue;
       }
 
@@ -786,6 +797,9 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       const rejectReason = getIeloveFilterRejectReason(prop, customer);
       if (rejectReason) {
         await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}` });
+        // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
+        skippedMap[prop.room_id] = { reason: rejectReason, ts: Date.now() };
+        skippedMapDirty = true;
         continue;
       }
 
@@ -845,6 +859,11 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
 
     // ページ間のランダム遅延
     await csleep(1000 + Math.random() * 2000);
+  }
+
+  // スキップ済み物件マップを保存（変更があった場合のみ）
+  if (skippedMapDirty) {
+    await setStorageData({ [skipStorageKey]: skippedMap });
   }
 
   if (submittedCount > 0) {
