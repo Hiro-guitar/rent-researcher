@@ -601,8 +601,11 @@ function __applyKeepAwakeForAutoSearch() {
       if (!chrome.power) return;
       if (d.autoSearchEnabled !== false) {
         try { chrome.power.requestKeepAwake('system'); } catch(e) {}
+        // SWが停止してもalarmで定期的に起こしてkeepAwakeを再設定
+        chrome.alarms.create('keep-awake', { periodInMinutes: 1 });
       } else {
         try { chrome.power.releaseKeepAwake(); } catch(e) {}
+        chrome.alarms.clear('keep-awake');
       }
     });
   } catch(e) {}
@@ -702,6 +705,11 @@ function setupAlarm(intervalMinutes) {
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
+  // 1分ごとにkeepAwakeを再設定（SW停止による解除を防ぐ）
+  if (alarm.name === 'keep-awake') {
+    try { if (chrome.power) chrome.power.requestKeepAwake('system'); } catch(e) {}
+    return;
+  }
   if (alarm.name === 'reins-search') {
     chrome.storage.local.get(['autoSearchEnabled', 'searchIntervalMinutes', 'businessStartHour', 'businessEndHour'], (data) => {
       const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
