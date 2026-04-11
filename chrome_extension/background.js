@@ -3245,27 +3245,8 @@ async function sendDiscordNotification(customerName, properties, customer) {
 
     console.log(`Discord通知完了: ${customerName} ${properties.length}件`);
 
-    // スマホ向けDM通知
-    try {
-      await sendPushNotification(`${customerName} 様に新着 ${properties.length}件`, '🏠 新着物件');
-    } catch (e) { console.error('DM通知失敗:', e.message); }
   } catch (err) {
     console.error(`Discord通知失敗: ${err.message}`);
-  }
-}
-
-// ntfy.sh プッシュ通知（スマホ用）
-const NTFY_TOPIC = 'ehomaki-rent';
-
-async function sendPushNotification(message, title) {
-  try {
-    await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
-      method: 'POST',
-      headers: { 'Title': title || '物件通知' },
-      body: message
-    });
-  } catch (err) {
-    console.error(`ntfy送信エラー: ${err.message}`);
   }
 }
 
