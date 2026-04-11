@@ -636,9 +636,9 @@ function renderCities() {
     for (var i = 0; i < group.cities.length; i++) {
       var city = group.cities[i];
       var cid = 'city_' + g + '_' + i;
-      html += '<div class="city-item" onclick="toggleCityTowns(\'' + esc(city) + '\', \'' + cid + '\', ' + g + ')">';
+      html += '<div class="city-item" onclick="onCityRowClick(\'' + esc(city) + '\', \'' + cid + '\', ' + g + ')">';
       html += '<input type="checkbox" id="' + cid + '" name="city" value="' + esc(city) + '" onclick="event.stopPropagation(); onCityCheck(\'' + esc(city) + '\', this, ' + g + ')">';
-      html += '<label for="' + cid + '" onclick="event.stopPropagation()">' + esc(city) + '</label>';
+      html += '<label for="' + cid + '" onclick="event.preventDefault(); event.stopPropagation(); onCityRowClick(\'' + esc(city) + '\', \'' + cid + '\', ' + g + ')">' + esc(city) + '</label>';
       html += '<span class="city-town-badge" id="badge_' + cid + '"></span>';
       html += '<span class="city-arrow" id="arrow_' + cid + '">&#x25B6;</span>';
       html += '</div>';
@@ -667,20 +667,44 @@ function toggleCityGroup(g) {
 var townCache = {};       // { '新宿区': [ { town:'...', ... }, ... ] }
 var townRendered = {};    // { 'city_0_3': true } 既にレンダリング済みか
 
+// チェックボックスをクリック → チェック + 全選択/解除
 function onCityCheck(cityName, checkbox, groupIdx) {
   var cid = checkbox.id;
   if (checkbox.checked) {
     expandCityTowns(cityName, cid, groupIdx);
+    // 全町名を選択
+    setTimeout(function() { selectAllTownsInCity(cityName, cid, true); }, 400);
   } else {
+    // 全町名を解除
+    selectAllTownsInCity(cityName, cid, false);
     collapseCityTowns(cid, groupIdx);
   }
 }
 
-// 市区町村の行クリック時（チェックボックスとラベル以外をクリック）
-function toggleCityTowns(cityName, cid, groupIdx) {
-  var cb = document.getElementById(cid);
-  cb.checked = !cb.checked;
-  onCityCheck(cityName, cb, groupIdx);
+// 行クリック → 展開/折りたたみのみ（チェック変更なし）
+function onCityRowClick(cityName, cid, groupIdx) {
+  var panel = document.getElementById('townPanel_' + cid);
+  if (panel && panel.classList.contains('open')) {
+    collapseCityTowns(cid, groupIdx);
+  } else {
+    expandCityTowns(cityName, cid, groupIdx);
+  }
+}
+
+function selectAllTownsInCity(cityName, cid, checked) {
+  var panel = document.getElementById('townPanel_' + cid);
+  if (!panel) return;
+  var cbs = panel.querySelectorAll('input[name="town_' + cityName + '"]');
+  for (var i = 0; i < cbs.length; i++) cbs[i].checked = checked;
+  var townCbs = panel.querySelectorAll('.town-cb');
+  for (var i = 0; i < townCbs.length; i++) townCbs[i].checked = checked;
+  // バッジ更新
+  var badges = panel.querySelectorAll('[id^="chomeBadge_"]');
+  for (var i = 0; i < badges.length; i++) {
+    var tid = badges[i].id.replace('chomeBadge_', '');
+    updateChomeBadge(tid);
+  }
+  updateCityBadge(cid, cityName);
 }
 
 function expandCityTowns(cityName, cid, groupIdx) {
@@ -786,7 +810,7 @@ function renderTownPanel(cityName, townData, cid, groupIdx) {
       html += '<div class="town-item" onclick="toggleTownChome(\'' + esc(townId) + '\', \'' + esc(cid) + '\', ' + groupIdx + ')">';
       html += '<input type="checkbox" class="town-cb" id="' + esc(townId) + '"' + groupChecked;
       html += ' onclick="event.stopPropagation(); onTownGroupCheck(this, \'' + esc(cityName) + '\', \'' + esc(townId) + '\', \'' + esc(cid) + '\', ' + groupIdx + ')">';
-      html += '<label onclick="event.stopPropagation(); toggleTownChome(\'' + esc(townId) + '\', \'' + esc(cid) + '\', ' + groupIdx + ')">' + esc(base) + '</label>';
+      html += '<label onclick="event.preventDefault(); event.stopPropagation(); toggleTownChome(\'' + esc(townId) + '\', \'' + esc(cid) + '\', ' + groupIdx + ')">' + esc(base) + '</label>';
       html += '<span class="town-chome-badge" id="chomeBadge_' + esc(townId) + '">' + (chomeCount > 0 ? chomeCount + '/' + towns.length : towns.length + '丁目') + '</span>';
       html += '<span class="town-arrow" id="townArrow_' + esc(townId) + '">&#x25B6;</span>';
       html += '</div>';
