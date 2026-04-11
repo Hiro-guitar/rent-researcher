@@ -592,10 +592,10 @@ function handleTrackView(e) {
         // 顧客専用スレッドに送信（なければ顧客名でスレッド新規作成）
         var threadId = PropertiesService.getScriptProperties().getProperty('DISCORD_THREAD_' + customerName);
         var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
-        var msg = '@here\n\uD83D\uDC40 **' + customerName + '** 様が「' + (buildingName || 'room_id: ' + roomId) + '」を閲覧しました (' + time + ')';
+        var msg = '<@1459814543600390341>\n\uD83D\uDC40 **' + customerName + '** 様が「' + (buildingName || 'room_id: ' + roomId) + '」を閲覧しました (' + time + ')';
 
         var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
-        var payload = { content: msg, allowed_mentions: { parse: ['everyone'] } };
+        var payload = { content: msg, allowed_mentions: { users: ['1459814543600390341'] } };
         if (!threadId) {
           payload.thread_name = '\uD83C\uDFE0 ' + customerName;
         }
@@ -704,7 +704,7 @@ function handlePropertyAction(e) {
         };
         var msg = msgMap[actionType] || '';
         if (!msg) return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount })).setMimeType(ContentService.MimeType.JSON);
-        msg = '@here\n' + msg;
+        msg = '<@1459814543600390341>\n' + msg;
 
         // お申し込みの場合、申込区分・申込者情報を表示
         if (actionType === 'hold') {
@@ -721,7 +721,7 @@ function handlePropertyAction(e) {
         msg += ' (' + time + ')';
 
         var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
-        var payload = { content: msg, allowed_mentions: { parse: ['everyone'] } };
+        var payload = { content: msg, allowed_mentions: { users: ['1459814543600390341'] } };
         if (!threadId) {
           payload.thread_name = '\uD83C\uDFE0 ' + customerName;
         }
@@ -756,7 +756,7 @@ function handlePropertyAction(e) {
         if (threadId && (code === 404 || code === 400)) {
           // 顧客スレッドが無効化された場合はプロパティを削除して再作成
           PropertiesService.getScriptProperties().deleteProperty('DISCORD_THREAD_' + customerName);
-          var retryPayload = { content: msg, thread_name: '\uD83C\uDFE0 ' + customerName, allowed_mentions: { parse: ['everyone'] } };
+          var retryPayload = { content: msg, thread_name: '\uD83C\uDFE0 ' + customerName, allowed_mentions: { users: ['1459814543600390341'] } };
           var retryResp = UrlFetchApp.fetch(webhookUrl + '?wait=true', {
             method: 'post',
             contentType: 'application/json',
