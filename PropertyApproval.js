@@ -23,15 +23,20 @@ var NTFY_TOPIC = 'ehomaki-rent';
 
 function sendPushNotification(message, title) {
   try {
-    UrlFetchApp.fetch('https://ntfy.sh/' + NTFY_TOPIC, {
+    var resp = UrlFetchApp.fetch('https://ntfy.sh/' + NTFY_TOPIC, {
       method: 'post',
       headers: { 'Title': title || '物件通知' },
       payload: message,
       muteHttpExceptions: true
     });
+    console.log('ntfy response: ' + resp.getResponseCode());
   } catch (e) {
     console.error('ntfy error: ' + e.message);
   }
+}
+
+function testNtfy() {
+  sendPushNotification('GASからのテスト通知', '🧪 テスト');
 }
 
 // ===== GAS Base URL =====
