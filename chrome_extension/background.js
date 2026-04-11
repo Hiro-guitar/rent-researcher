@@ -3250,6 +3250,10 @@ async function sendDiscordNotification(customerName, properties, customer) {
 }
 
 async function discordPostWithRetry(url, payload) {
+  // @here/@everyone メンションを有効にする
+  if (payload && payload.content && !payload.allowed_mentions) {
+    payload.allowed_mentions = { parse: ['everyone'] };
+  }
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
   try {
