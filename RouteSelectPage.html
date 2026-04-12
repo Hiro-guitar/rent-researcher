@@ -601,7 +601,7 @@ function ensureStationsRendered(routeName, panel) {
   for (var i = 0; i < stations.length; i++) {
     var sta = stations[i];
     var stId = 'sta_' + hashCode(routeName + ':' + sta);
-    html += '<div class="station-item"><input type="checkbox" class="station-cb" id="' + stId + '" data-route="' + esc(routeName) + '" value="' + esc(sta) + '" onclick="event.stopPropagation()"><label for="' + stId + '">' + esc(sta) + '</label></div>';
+    html += '<div class="station-item"><input type="checkbox" class="station-cb" id="' + stId + '" data-route="' + esc(routeName) + '" value="' + esc(sta) + '" onclick="event.stopPropagation(); onStationCheck(this)"><label for="' + stId + '">' + esc(sta) + '</label></div>';
   }
   html += '</div>';
   panel.innerHTML = html;
@@ -610,12 +610,24 @@ function ensureStationsRendered(routeName, panel) {
 
 function toggleRouteStations(routeName) {
   var routeCb = document.querySelector('input[name="route"][value="' + escSel(routeName) + '"]');
-  if (!routeCb || !routeCb.checked) return;
+  if (!routeCb) return;
   var panel = document.getElementById('panel_' + routeCb.id);
   var staCbs = panel.querySelectorAll('.station-cb');
   var allChecked = true;
   for (var i = 0; i < staCbs.length; i++) { if (!staCbs[i].checked) { allChecked = false; break; } }
   for (var i = 0; i < staCbs.length; i++) staCbs[i].checked = !allChecked;
+  routeCb.checked = !allChecked;
+}
+
+// 駅チェック時に親路線を自動チェック（全解除時は自動アンチェック）
+function onStationCheck(staCb) {
+  var routeName = staCb.getAttribute('data-route');
+  var routeCb = document.querySelector('input[name="route"][value="' + escSel(routeName) + '"]');
+  if (!routeCb) return;
+  var panel = document.getElementById('panel_' + routeCb.id);
+  if (!panel) return;
+  var anyChecked = panel.querySelector('.station-cb:checked');
+  routeCb.checked = !!anyChecked;
 }
 
 function toggleCompany(companyId) {
