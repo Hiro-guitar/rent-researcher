@@ -770,6 +770,29 @@ async function closeDedicatedEssquareWindow() {
 // === ES-Square固有フィルタ ===
 
 function getEssquareFilterRejectReason(prop, customer) {
+  // 町名丁目フィルタ（selectedTownsが指定されている場合、住所テキストで照合）
+  if (customer.selectedTowns && Object.keys(customer.selectedTowns).length > 0) {
+    const addr = prop.address || '';
+    if (addr) {
+      let townMatch = false;
+      for (const city of Object.keys(customer.selectedTowns)) {
+        const towns = customer.selectedTowns[city];
+        if (!towns || towns.length === 0) continue;
+        if (!addr.includes(city)) continue;
+        for (const town of towns) {
+          if (_addressMatchesTown(addr, town)) {
+            townMatch = true;
+            break;
+          }
+        }
+        if (townMatch) break;
+      }
+      if (!townMatch) {
+        return `町名不一致: ${addr}`;
+      }
+    }
+  }
+
   // 賃料フィルタ（rent + management_fee vs rent_max万円）
   if (customer.rent_max) {
     const totalRent = (prop.rent || 0) + (prop.management_fee || 0);
