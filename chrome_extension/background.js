@@ -60,7 +60,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 // いえらぶBB関連ファイルを読み込み
-importScripts('ielove-config.js', 'ielove-background.js');
+importScripts('ielove-config.js', 'ielove-oaza-config.js', 'ielove-background.js');
 // itandi BB関連ファイルを読み込み
 importScripts('itandi-config.js', 'itandi-background.js');
 // ES-Square関連ファイルを読み込み
@@ -318,8 +318,47 @@ function filterByCustomerCriteria(properties, customer) {
   return properties.filter(prop => !getFilterRejectReason(prop, customer));
 }
 
+// 町名表記を正規化（漢数字→算用数字、全角→半角）
+function _normalizeTownText(s) {
+  if (!s) return '';
+  let r = s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  const kanjiMap = {'一':'1','二':'2','三':'3','四':'4','五':'5','六':'6','七':'7','八':'8','九':'9','十':'10'};
+  r = r.replace(/[一二三四五六七八九十]/g, c => kanjiMap[c] || c);
+  r = r.replace(/\s+/g, '');
+  return r;
+}
+
+// 住所テキストが指定された町名を含むかチェック（表記ゆれ対応）
+function _addressMatchesTown(address, town) {
+  if (address.includes(town)) return true;
+  return _normalizeTownText(address).includes(_normalizeTownText(town));
+}
+
 // フィルタ不合格の理由を返す（合格ならnull）
 function getFilterRejectReason(prop, customer) {
+  // 町名丁目フィルタ（selectedTownsが指定されている場合、住所テキストで照合）
+  if (customer.selectedTowns && Object.keys(customer.selectedTowns).length > 0) {
+    const addr = prop.address || '';
+    if (addr) {
+      let townMatch = false;
+      for (const city of Object.keys(customer.selectedTowns)) {
+        const towns = customer.selectedTowns[city];
+        if (!towns || towns.length === 0) continue;
+        if (!addr.includes(city)) continue;
+        for (const town of towns) {
+          if (_addressMatchesTown(addr, town)) {
+            townMatch = true;
+            break;
+          }
+        }
+        if (townMatch) break;
+      }
+      if (!townMatch) {
+        return `町名不一致: ${addr}`;
+      }
+    }
+  }
+
   // 構造フィルタ（顧客条件は「鉄筋系」等のカテゴリ名、REINS詳細は日本語名に正規化済み）
   if (customer.structures && customer.structures.length > 0) {
     if (!prop.structure) return `構造不明（要求: ${customer.structures.join('/')})`;

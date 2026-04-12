@@ -258,7 +258,7 @@ async function resolveItandiStationIds(tabId, customer) {
     }
   }
 
-  return allIds;
+  return [...new Set(allIds)];
 }
 
 // === 設備テキスト → equipment_ids 変換 ===
@@ -461,8 +461,8 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes) {
     filterObj['reikin:eq'] = 0;
   }
 
-  // jgdc_codes使用時はbucket_size上限99（100だとitandi APIが400を返す）
-  const bucketSize = (jgdcCodes && jgdcCodes.length > 0) ? 99 : 100;
+  // itandi APIはbucket_size上限99（100だと400を返す）
+  const bucketSize = 99;
 
   return {
     aggregation: {
@@ -995,6 +995,10 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
       payload.page.page = page;
       let data;
       try {
+        // デバッグ: 送信ペイロードをログ出力
+        if (page === 1) {
+          await setStorageData({ debugLog: `[itandi] ${customer.name}: payload → ${JSON.stringify(payload).substring(0, 500)}` });
+        }
         // itandibb.comのページコンテキスト上にいることを確認
         const currentTab = await chrome.tabs.get(tabId);
         if (!currentTab.url?.includes('itandibb.com')) {

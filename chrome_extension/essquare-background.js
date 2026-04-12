@@ -38,7 +38,48 @@ function _parseEssquareAreaText(text) {
 
 // === 検索URL構築 ===
 
-function buildEssquareSearchUrl(customer, page) {
+/**
+ * 町名から丁目部分を除去してベース町名を取得
+ * 例: "西新宿一丁目" → "西新宿", "代々木" → "代々木"
+ */
+function _extractBaseTownName(town) {
+  return town.replace(/[一二三四五六七八九十百０-９0-9]+丁目$/, '');
+}
+
+/**
+ * 顧客の selectedTowns + cities から ES-Square 用 jusho リストを構築する。
+ * 駅検索時も町名が指定されていればjushoを追加。
+ * @returns {string[]} jusho値の配列（例: ['13+103+港南', '13+104+西新宿']）
+ */
+function _resolveEssquareJushoList(customer) {
+  const selectedTowns = customer.selectedTowns || {};
+  const hasTowns = Object.keys(selectedTowns).length > 0;
+  if (!hasTowns) return [];
+
+  const addedJusho = new Set();
+  const result = [];
+
+  // 全selectedTownsからjushoリストを構築
+  for (const city of Object.keys(selectedTowns)) {
+    const cityTrimmed = city.trim();
+    const cityCode = ESSQUARE_CITY_CODES[cityTrimmed];
+    if (!cityCode) continue;
+    const towns = selectedTowns[cityTrimmed];
+    if (!towns || towns.length === 0) continue;
+    const baseTowns = [...new Set(towns.map(t => _extractBaseTownName(t)))];
+    for (const baseTown of baseTowns) {
+      const jusho = `${cityCode}+${baseTown}`;
+      if (!addedJusho.has(jusho)) {
+        result.push(jusho);
+        addedJusho.add(jusho);
+      }
+    }
+  }
+
+  return result;
+}
+
+function buildEssquareSearchUrl(customer, page, jushoList) {
   const params = new URLSearchParams();
 
   // 駅コード
@@ -49,13 +90,23 @@ function buildEssquareSearchUrl(customer, page) {
     }
   }
 
-  // 市区町村（駅コードがない場合のフォールバック）
+  // 市区町村・町名（jushoリストは外部から渡される場合はそちらを使用）
   const cities = customer.cities || [];
-  if (stationCodes.length === 0 || stationCodes.length < (customer.stations || []).length) {
-    for (const city of cities) {
-      const cityTrimmed = city.trim();
-      if (ESSQUARE_CITY_CODES[cityTrimmed]) {
-        params.append('jusho', ESSQUARE_CITY_CODES[cityTrimmed]);
+  const selectedTowns = customer.selectedTowns || {};
+  const hasTowns = Object.keys(selectedTowns).length > 0;
+
+  if (jushoList && jushoList.length > 0) {
+    // チャンク分割されたjushoリストを使用
+    for (const jusho of jushoList) {
+      params.append('jusho', jusho);
+    }
+  } else if (!hasTowns) {
+    // 町名指定なし → 市区町村レベル（駅コード不足時のフォールバック）
+    if (stationCodes.length === 0 || stationCodes.length < (customer.stations || []).length) {
+      for (const city of cities) {
+        const cityTrimmed = city.trim();
+        const cityCode = ESSQUARE_CITY_CODES[cityTrimmed];
+        if (cityCode) params.append('jusho', cityCode);
       }
     }
   }
@@ -1147,22 +1198,42 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
   if (customer.rent_max) filterParts.push(`〜${customer.rent_max}万`);
   if (stationCodes.length > 0) filterParts.push(`駅: ${stationCodes.length}件`);
   if (cities.length > 0) filterParts.push(`市区町村: ${cities.join(',')}`);
+  if (customer.selectedTowns && Object.keys(customer.selectedTowns).length > 0) {
+    const townSummary = Object.entries(customer.selectedTowns).map(([c, t]) => `${c}:${t.join('/')}`).join(', ');
+    filterParts.push(`町名: ${townSummary}`);
+  }
   if (customer.layouts?.length) filterParts.push(`間取り: ${customer.layouts.join('/')}`);
   if (customer.area_min) filterParts.push(`面積${customer.area_min}㎡〜`);
   if (customer.building_age) filterParts.push(`築${customer.building_age}年`);
   await setStorageData({ debugLog: `[ES-Square] ${customer.name}: 検索条件 → ${filterParts.join(' / ') || '(条件なし)'}` });
+
+  // jushoリスト解決 + チャンク分割（ES-Square上限: jusho 50件/リクエスト）
+  const JUSHO_CHUNK_SIZE = 50;
+  const allJusho = _resolveEssquareJushoList(customer);
+  const jushoChunks = [];
+  if (allJusho.length > 0) {
+    for (let i = 0; i < allJusho.length; i += JUSHO_CHUNK_SIZE) {
+      jushoChunks.push(allJusho.slice(i, i + JUSHO_CHUNK_SIZE));
+    }
+  } else {
+    jushoChunks.push(null); // 町名指定なし → 通常検索1回
+  }
 
   // ページネーション（最大5ページ × 30件 = 150件）
   // 人間的な動作: 検索結果ページに留まり、物件をクリック→詳細取得→戻る→次の物件
   const maxPages = 5;
   let totalProperties = 0;
 
+  for (let chunkIdx = 0; chunkIdx < jushoChunks.length; chunkIdx++) {
+    const jushoChunk = jushoChunks[chunkIdx];
+    const chunkLabel = jushoChunks.length > 1 ? ` [分割${chunkIdx + 1}/${jushoChunks.length}]` : '';
+
   for (let page = 1; page <= maxPages; page++) {
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
 
-    const url = buildEssquareSearchUrl(customer, page);
+    const url = buildEssquareSearchUrl(customer, page, jushoChunk);
     if (page === 1) {
-      await setStorageData({ debugLog: `[ES-Square] ${customer.name}: 検索URL → ${url}` });
+      await setStorageData({ debugLog: `[ES-Square] ${customer.name}: 検索URL${chunkLabel} → ${url}` });
     }
 
     // ページ遷移
@@ -1531,6 +1602,10 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
     await csleep(1500 + Math.random() * 1500);
   }
+
+    // 分割検索間のwait
+    if (chunkIdx < jushoChunks.length - 1) await csleep(1500);
+  } // end jushoChunks loop
 
   if (submittedCount > 0) {
     await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ${submittedCount}件送信完了` });

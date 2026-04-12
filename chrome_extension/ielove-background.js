@@ -41,13 +41,68 @@ function _normalizeTownText(s) {
   return r;
 }
 
+// === 町名コード解決（静的マッピング） ===
+
+/**
+ * IELOVE_OAZA_CODES（ielove-oaza-config.js）から oazatsusho コードを解決する。
+ * 駅コードと同様の静的ルックアップ方式。ページ遷移不要。
+ *
+ * @param {Object} customer - 顧客条件（selectedTowns を使用）
+ * @returns {string[]} oazatsusho コード配列 (例: ['13_101_001', '13_104_070'])
+ */
+function resolveIeloveOazaCodes(customer) {
+  const selectedTowns = customer.selectedTowns;
+  if (!selectedTowns || Object.keys(selectedTowns).length === 0) return [];
+
+  const allCodes = [];
+
+  for (const city of Object.keys(selectedTowns)) {
+    const towns = selectedTowns[city];
+    if (!towns || towns.length === 0) continue;
+
+    for (const town of towns) {
+      // 丁目を除いたベース町名を取得（例: "西新宿一丁目" → "西新宿"）
+      const baseTown = town.replace(/[一二三四五六七八九十百０-９0-9]+丁目$/, '');
+
+      // IELOVE_OAZA_CODES から直接ルックアップ
+      const code = IELOVE_OAZA_CODES[town]
+        || IELOVE_OAZA_CODES[baseTown]
+        || _findOazaCodeNormalized(town, baseTown);
+
+      if (code) {
+        if (!allCodes.includes(code)) allCodes.push(code);
+      } else {
+        console.warn(`[ielove] oazaコード未登録: '${town}' (${city})`);
+      }
+    }
+  }
+
+  return allCodes;
+}
+
+/**
+ * 正規化マッチでoazaコードを検索（全角半角・漢数字差異を吸収）
+ */
+function _findOazaCodeNormalized(town, baseTown) {
+  const normTown = _normalizeTownText(town);
+  const normBase = _normalizeTownText(baseTown);
+  for (const [k, v] of Object.entries(IELOVE_OAZA_CODES)) {
+    const normK = _normalizeTownText(k);
+    if (normK === normTown || normK === normBase) return v;
+  }
+  return null;
+}
+
 // === URL構築 ===
 
 /**
  * CustomerCriteria から いえらぶBB 検索URLを構築する。
  * Python search.py:_build_search_url() の移植。
+ * @param {Object} customer - 顧客条件
+ * @param {number} page - ページ番号
+ * @param {string[]} oazaCodes - 大字通称コード（町名フィルタ用、例: ['13_101_001']）
  */
-function buildIeloveSearchUrl(customer, page = 1) {
+function buildIeloveSearchUrl(customer, page = 1, oazaCodes = []) {
   const parts = [
     `${IELOVE_BASE_URL}/ielovebb/rent/index`,
   ];
@@ -81,6 +136,11 @@ function buildIeloveSearchUrl(customer, page = 1) {
   } else {
     // フォールバック: 東京都デフォルト
     parts.push(`todofuken/${IELOVE_PREFECTURE_CODE}`);
+  }
+
+  // 大字通称コード（町名フィルタ）
+  for (const code of oazaCodes) {
+    parts.push(`oazatsusho/${code}`);
   }
 
   // 賃料上限 (GASからは万円単位で来る: 例 15 = 15万円)
@@ -703,8 +763,28 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
   const skippedMap = skipData[skipStorageKey] || {}; // { room_id: { reason, ts } }
   let skippedMapDirty = false;
 
+  // 町名コード解決（静的マッピング: IELOVE_OAZA_CODES）
+  const oazaCodes = resolveIeloveOazaCodes(customer);
+  if (oazaCodes.length > 0) {
+    await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: 町名コード ${oazaCodes.length}件 → ${oazaCodes.join(', ')}` });
+  }
+
+  // oazaCodesが多い場合はチャンク分割（URLパス長制限対策）
+  const OAZA_CHUNK_SIZE = 50;
+  const oazaChunks = [];
+  if (oazaCodes.length > 0) {
+    for (let i = 0; i < oazaCodes.length; i += OAZA_CHUNK_SIZE) {
+      oazaChunks.push(oazaCodes.slice(i, i + OAZA_CHUNK_SIZE));
+    }
+  } else {
+    oazaChunks.push([]); // 町名フィルタなし → 通常検索1回
+  }
+
+  for (const chunkCodes of oazaChunks) {
+    if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
+
   const maxPages = 5;
-  let searchUrl = buildIeloveSearchUrl(customer, 1);
+  let searchUrl = buildIeloveSearchUrl(customer, 1, chunkCodes);
   // Discord検索条件メッセージ用にcustomerに検索URLを付与
   customer.search_url = searchUrl;
 
@@ -713,7 +793,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
   for (let page = 1; page <= maxPages; page++) {
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
 
-    const url = page === 1 ? searchUrl : buildIeloveSearchUrl(customer, page);
+    const url = page === 1 ? searchUrl : buildIeloveSearchUrl(customer, page, chunkCodes);
 
     // タブを検索URLに遷移
     await chrome.tabs.update(tabId, { url });
@@ -912,7 +992,9 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
 
     // ページ間のランダム遅延
     await csleep(1000 + Math.random() * 2000);
-  }
+  } // end page loop
+
+  } // end oazaChunk loop
 
   // スキップ済み物件マップを保存（変更があった場合のみ）
   if (skippedMapDirty) {
@@ -994,3 +1076,4 @@ function buildPropertyDataJson(prop) {
     agent_message: prop.agent_message || '',
   };
 }
+
