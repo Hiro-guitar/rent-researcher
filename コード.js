@@ -360,6 +360,11 @@ function doGet(e) {
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
 
+  // ── 管理者用 検索条件管理ページ ──
+  if (action === 'admin') {
+    return handleAdminPage(e);
+  }
+
   // ── LINE友だち一覧（管理者がユーザーを選択して登録） ──
   if (action === 'line_users') {
     return handleLineUsersPage();
@@ -1183,4 +1188,273 @@ function _parseRoutesWithStations(val) {
     }
   }
   return results;
+}
+
+// ══════════════════════════════════════════════════════════
+//  管理者用 検索条件管理ページ
+// ══════════════════════════════════════════════════════════
+
+/**
+ * 管理者ページを表示する。api_keyで認証。
+ */
+function handleAdminPage(e) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
+    return HtmlService.createHtmlOutput(
+      '<html><body style="text-align:center;padding:40px;font-family:sans-serif;">' +
+      '<h3>認証エラー</h3><p>api_key が正しくありません。</p></body></html>'
+    ).setTitle('認証エラー');
+  }
+
+  var customers = getExistingCustomers_();
+  var initCustomer = e.parameter.customer || '';
+
+  var template = HtmlService.createTemplateFromFile('AdminPage');
+  template.routeCompanies = JSON.stringify(ROUTE_COMPANIES);
+  template.stationData = JSON.stringify(STATION_DATA);
+  template.tokyoCities = JSON.stringify(TOKYO_CITIES);
+  template.adminCustomers = JSON.stringify(customers);
+  template.initCustomer = JSON.stringify(initCustomer);
+
+  return template.evaluate()
+    .setTitle('検索条件管理（管理者）')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * 既存顧客の一覧を取得する（管理者ページ用）。
+ * @return {Array<{name: string, lineUserId: string}>}
+ */
+function getExistingCustomers_() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var criteriaSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+
+  // 検索条件シートから顧客名を取得
+  var criteriaData = criteriaSheet.getDataRange().getValues();
+  var customers = [];
+  var nameSet = {};
+  for (var i = 1; i < criteriaData.length; i++) {
+    var name = String(criteriaData[i][1] || '').trim();
+    if (name && !nameSet[name]) {
+      nameSet[name] = true;
+      customers.push({ name: name, lineUserId: '' });
+    }
+  }
+
+  // LINE Usersシートから userId を紐付け
+  if (luSheet) {
+    var luData = luSheet.getDataRange().getValues();
+    for (var i = 1; i < luData.length; i++) {
+      var luName = String(luData[i][1] || '').trim();
+      var luId = String(luData[i][0] || '').trim();
+      for (var j = 0; j < customers.length; j++) {
+        if (customers[j].name === luName && luId) {
+          customers[j].lineUserId = luId;
+          break;
+        }
+      }
+    }
+  }
+
+  return customers;
+}
+
+/**
+ * 顧客名から検索条件を読み込む（管理者ページの動的読み込み用）。
+ * google.script.run から呼ばれる。
+ * @param {string} customerName
+ * @return {Object|null} readLatestCriteria と同じ形式
+ */
+function loadCustomerCriteriaByName(customerName) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return null;
+
+    var data = sheet.getDataRange().getValues();
+    var latestRow = null;
+    for (var j = 1; j < data.length; j++) {
+      if (String(data[j][1] || '').trim() === customerName) {
+        latestRow = data[j];
+      }
+    }
+    if (!latestRow) return null;
+
+    function splitCSV(val) {
+      if (!val) return [];
+      return String(val).split(/[,、]\s*/).filter(function(s) { return s.length > 0; });
+    }
+
+    var cities = splitCSV(latestRow[3]);
+    var routeStationRaw = String(latestRow[4] || '');
+    var stations = splitCSV(latestRow[5]);
+    var walkRaw = latestRow[6] ? String(latestRow[6]) : '';
+    var rentRaw = latestRow[7] ? String(latestRow[7]) : '';
+    var layouts = splitCSV(latestRow[8]);
+    var areaRaw = latestRow[9] ? String(latestRow[9]) : '';
+
+    var walk = walkRaw && walkRaw !== '指定しない' && !/分/.test(walkRaw) ? walkRaw + '分以内' : walkRaw;
+    var rentMax = rentRaw && !/万円/.test(rentRaw) ? rentRaw + '万円' : rentRaw;
+    var areaMin = areaRaw && areaRaw !== '指定しない' && !/m²|m2/.test(areaRaw) ? areaRaw + 'm²' : areaRaw;
+
+    var buildingAge = latestRow[10] ? String(latestRow[10]) : '';
+    var buildingStructures = splitCSV(latestRow[11]);
+    var equipment = splitCSV(latestRow[12]);
+    var reason = latestRow[13] ? String(latestRow[13]) : '';
+    var moveInDate = latestRow[14] ? String(latestRow[14]) : '';
+    var notes = latestRow[15] ? String(latestRow[15]) : '';
+    var petType = latestRow[16] ? String(latestRow[16]) : '';
+    var resident = latestRow[17] ? String(latestRow[17]) : '';
+    var townsJson = latestRow[24] ? String(latestRow[24]) : '';
+    var selectedTownsObj = {};
+    if (townsJson) {
+      try { selectedTownsObj = JSON.parse(townsJson); } catch(e) {}
+    }
+
+    // 路線(駅名)形式をパース
+    var routes = [];
+    var selectedStations = {};
+    if (routeStationRaw) {
+      var parts = [];
+      var depth = 0;
+      var current = '';
+      for (var ci = 0; ci < routeStationRaw.length; ci++) {
+        var ch = routeStationRaw[ci];
+        if (ch === '(') { depth++; current += ch; }
+        else if (ch === ')') { depth--; current += ch; }
+        else if (ch === ',' && depth === 0) { parts.push(current.trim()); current = ''; }
+        else { current += ch; }
+      }
+      if (current.trim()) parts.push(current.trim());
+
+      for (var pi = 0; pi < parts.length; pi++) {
+        var part = parts[pi];
+        var parenIdx = part.indexOf('(');
+        if (parenIdx >= 0 && part.charAt(part.length - 1) === ')') {
+          var routeName = part.substring(0, parenIdx).trim();
+          var stasStr = part.substring(parenIdx + 1, part.length - 1);
+          var stas = stasStr.split(/[,、]\s*/).filter(function(s) { return s.length > 0; });
+          routes.push(routeName);
+          if (stas.length > 0) selectedStations[routeName] = stas;
+        } else {
+          var routeName2 = part.trim();
+          if (routeName2) {
+            routes.push(routeName2);
+            var routeStations2 = STATION_DATA[routeName2] || [];
+            var matched2 = [];
+            for (var s2 = 0; s2 < stations.length; s2++) {
+              if (routeStations2.indexOf(stations[s2]) >= 0) {
+                matched2.push(stations[s2]);
+              }
+            }
+            if (matched2.length > 0) selectedStations[routeName2] = matched2;
+          }
+        }
+      }
+    }
+
+    return {
+      name: customerName,
+      reason: reason,
+      resident: resident,
+      move_in_date: moveInDate,
+      rent_max: rentMax,
+      layouts: layouts,
+      walk: walk || '指定しない',
+      area_min: areaMin || '指定しない',
+      building_age: buildingAge || '指定しない',
+      building_structures: buildingStructures,
+      equipment: equipment,
+      petType: petType,
+      notes: notes,
+      areaMethod: cities.length > 0 ? 'city' : 'route',
+      selectedRoutes: routes,
+      selectedCities: cities,
+      selectedStations: selectedStations,
+      selectedTowns: selectedTownsObj
+    };
+  } catch (e) {
+    console.error('loadCustomerCriteriaByName error: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * 管理者ページから検索条件を保存する。
+ * google.script.run 経由で呼ばれる。
+ * writeToSheet のロジックを再利用するが、LINE state管理はバイパスする。
+ * @param {string} customerName
+ * @param {string} lineUserId
+ * @param {Object} criteria
+ * @return {{success: boolean, message: string}}
+ */
+function processAdminCriteria(customerName, lineUserId, criteria) {
+  try {
+    if (!customerName) {
+      return { success: false, message: '顧客名を入力してください。' };
+    }
+
+    // バリデーション
+    if (criteria.areaMethod === 'route') {
+      var totalStations = 0;
+      for (var route in criteria.selectedStations) {
+        if (criteria.selectedStations[route]) totalStations += criteria.selectedStations[route].length;
+      }
+      if (totalStations === 0) {
+        return { success: false, message: '少なくとも1つの駅を選択してください。' };
+      }
+    } else if (criteria.areaMethod === 'city') {
+      if (!criteria.selectedCities || criteria.selectedCities.length === 0) {
+        return { success: false, message: '少なくとも1つの市区町村を選択してください。' };
+      }
+    }
+
+    // writeToSheet に渡すための state オブジェクトを構築
+    var state = {
+      data: {
+        name: customerName,
+        rent_max: criteria.rentMax || '',
+        layouts: criteria.layouts || [],
+        walk: criteria.walkMax || '指定しない',
+        area_min: criteria.areaMin || '指定しない',
+        building_age: criteria.buildingAge || '指定しない',
+        building_structures: criteria.buildingStructures || [],
+        equipment: criteria.equipment || [],
+        petType: criteria.petType || '',
+        notes: criteria.otherConditions || '',
+        reason: '',
+        move_in_date: '',
+        resident: ''
+      },
+      areaMethod: criteria.areaMethod || 'route',
+      selectedRoutes: criteria.selectedRoutes || [],
+      selectedStations: criteria.selectedStations || {},
+      selectedCities: criteria.selectedCities || [],
+      selectedTowns: criteria.selectedTowns || {}
+    };
+
+    // 既存の理由・引越し時期・居住者を保持（上書きしない）
+    var existing = loadCustomerCriteriaByName(customerName);
+    if (existing) {
+      if (!state.data.reason && existing.reason) state.data.reason = existing.reason;
+      if (!state.data.move_in_date && existing.move_in_date) state.data.move_in_date = existing.move_in_date;
+      if (!state.data.resident && existing.resident) state.data.resident = existing.resident;
+    }
+
+    // userId: LINE User IDがあればそれを、なければダミー
+    var userId = lineUserId || 'admin_' + Date.now();
+
+    // スプレッドシートに書き込み
+    writeToSheet(userId, state);
+
+    // LINE User IDが指定されていれば LINE Users シートにも保存
+    if (lineUserId) {
+      saveLineUser(lineUserId, customerName);
+    }
+
+    return { success: true, message: customerName + ' の検索条件を保存しました。' };
+  } catch (err) {
+    console.error('processAdminCriteria Error: ' + err.message + '\nStack: ' + (err.stack || 'N/A'));
+    return { success: false, message: 'エラーが発生しました: ' + err.message };
+  }
 }
