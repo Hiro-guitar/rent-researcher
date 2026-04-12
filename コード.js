@@ -524,7 +524,16 @@ function buildRegistrationSummary(state) {
   summary += '・引越し時期: ' + (d.move_in_date || '未選択') + '\n';
 
   if (state.areaMethod === 'city' && cities.length > 0) {
-    summary += '・エリア: ' + cities.join(', ') + '\n';
+    var towns = state.selectedTowns || {};
+    for (var ci = 0; ci < cities.length; ci++) {
+      var cityName = cities[ci];
+      var townList = towns[cityName] || [];
+      if (townList.length > 0) {
+        summary += '・' + cityName + ': ' + townList.join(', ') + '\n';
+      } else {
+        summary += '・' + cityName + '\n';
+      }
+    }
   }
   if (state.areaMethod === 'route') {
     if (routes.length > 0) {
