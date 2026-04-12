@@ -661,12 +661,20 @@ chrome.idle.setDetectionInterval(60); // 60秒操作なしでidle判定
 chrome.idle.onStateChanged.addListener((state) => {
   if (state === 'active') {
     // locked/idle → active に戻った = スリープ復帰
-    // アラームがスリープ中に失効している可能性があるので再セットのみ行う（即時実行はしない）
+    // 既存アラームが残っていればそのまま、失効していれば再セット
     chrome.storage.local.get(['autoSearchEnabled', 'searchIntervalMinutes'], (data) => {
       if (data.autoSearchEnabled === false) return;
-      console.log('[system] スリープ復帰検知 → アラーム再セット');
-      setStorageData({ debugLog: '[system] スリープ復帰検知 → アラーム再セット' });
-      setupAlarm(data.searchIntervalMinutes || 30);
+      chrome.alarms.get('reins-search', (alarm) => {
+        if (alarm) {
+          const remainMin = ((alarm.scheduledTime - Date.now()) / 60000).toFixed(1);
+          console.log(`[system] スリープ復帰検知 → 既存アラームあり（残り${remainMin}分）、再セットスキップ`);
+          setStorageData({ debugLog: `[system] スリープ復帰検知 → 既存アラームあり（残り${remainMin}分）、再セットスキップ` });
+        } else {
+          console.log('[system] スリープ復帰検知 → アラーム失効、再セット');
+          setStorageData({ debugLog: '[system] スリープ復帰検知 → アラーム失効、再セット' });
+          setupAlarm(data.searchIntervalMinutes || 30);
+        }
+      });
     });
   }
 });
