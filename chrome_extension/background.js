@@ -1018,6 +1018,15 @@ globalThis.runSearchCycle = async function runSearchCycle() {
         catch (err) { logError(`[system] ${customer.name}: 一括通知エラー: ${err.message}`); }
       }
 
+      // 物件が見つからなかった場合もDiscordに報告
+      if (!discordPropertyCounters[customer.name] || discordPropertyCounters[customer.name] === 0) {
+        try {
+          await sendDiscordNoResultNotification(customer.name, customer);
+        } catch (err) {
+          logError(`[system] ${customer.name}: 新着なし通知エラー: ${err.message}`);
+        }
+      }
+
       if (ci < criteria.length - 1) await sleep(3000);
     }
 
@@ -3315,6 +3324,73 @@ async function sendDiscordNotification(customerName, properties, customer) {
 
   } catch (err) {
     console.error(`Discord通知失敗: ${err.message}`);
+  }
+}
+
+async function sendDiscordNoResultNotification(customerName, customer) {
+  const { discordWebhookUrl } = await getConfig();
+  if (!discordWebhookUrl) return;
+
+  try {
+    let threadId = discordThreadIds[customerName];
+
+    // スレッドがまだなければ作成
+    if (!threadId) {
+      const headerPayload = {
+        content: `**${customerName}** 様の検索結果`,
+        thread_name: `🏠 ${customerName}`
+      };
+      const resp = await fetch(`${discordWebhookUrl}?wait=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(headerPayload)
+      });
+
+      if (!resp.ok) {
+        console.error(`Discord スレッド作成失敗 (no-result): status=${resp.status}`);
+        return;
+      }
+
+      const respData = await resp.json();
+      threadId = respData.channel_id;
+      if (!threadId) {
+        console.error('Discord レスポンスに channel_id なし (no-result)');
+        return;
+      }
+      discordThreadIds[customerName] = threadId;
+      try { await setStorageData({ discordThreadIds }); } catch (e) {}
+    }
+
+    // 検索条件を送信
+    if (customer) {
+      const searchInfo = buildSearchInfo(customer);
+      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: searchInfo });
+      await sleep(500);
+    }
+
+    // 未解決駅があれば警告を送信
+    const custUnresolved = _unresolvedStations[customerName];
+    if (custUnresolved) {
+      const svcParts = [];
+      for (const [svc, names] of Object.entries(custUnresolved)) {
+        if (names.length > 0) svcParts.push(`${svc}: ${names.join(', ')}`);
+      }
+      if (svcParts.length > 0) {
+        const warnMsg = `⚠️ **駅名解決失敗**\n${svcParts.join('\n')}\n該当駅の検索がスキップされています。`;
+        await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: warnMsg });
+        await sleep(500);
+      }
+    }
+
+    // 新着なしメッセージを送信
+    await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, {
+      content: `📭 **${customerName}** 様: 新着物件なし`
+    });
+
+    console.log(`Discord新着なし通知完了: ${customerName}`);
+
+  } catch (err) {
+    console.error(`Discord新着なし通知失敗: ${err.message}`);
   }
 }
 
