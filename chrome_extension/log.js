@@ -113,6 +113,22 @@
     });
   });
 
+  // 条件管理ページを開く
+  document.getElementById('adminPageBtn').addEventListener('click', () => {
+    chrome.storage.local.get(['gasWebappUrl', 'gasApiKey'], (data) => {
+      if (!data.gasWebappUrl) {
+        alert('GAS Web App URLが設定されていません。設定画面から設定してください。');
+        return;
+      }
+      if (!data.gasApiKey) {
+        alert('GAS API Keyが設定されていません。設定画面から設定してください。');
+        return;
+      }
+      const url = data.gasWebappUrl + '?action=admin&api_key=' + encodeURIComponent(data.gasApiKey);
+      window.open(url, '_blank');
+    });
+  });
+
   document.getElementById('openOptions').addEventListener('click', (e) => {
     e.preventDefault();
     chrome.runtime.openOptionsPage();
