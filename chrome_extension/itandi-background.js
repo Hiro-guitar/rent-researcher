@@ -297,16 +297,75 @@ function resolveItandiEquipmentIds(equipmentText) {
   return { hard: hardIds, soft: softIds };
 }
 
+// === JGDC コード解決 ===
+
+/**
+ * 顧客の selectedTowns から itandi の jgdc_codes を解決する。
+ * selectedTowns: { "新宿区": ["西新宿一丁目", "西新宿二丁目"], ... }
+ * @returns {string[]} jgdc_code の配列（空配列 = 町名指定なし）
+ */
+async function resolveItandiJgdcCodes(tabId, customer) {
+  const selectedTowns = customer.selectedTowns;
+  if (!selectedTowns || Object.keys(selectedTowns).length === 0) return [];
+
+  const prefecture = customer.prefecture || '東京都';
+  const allCodes = [];
+
+  for (const city of Object.keys(selectedTowns)) {
+    const towns = selectedTowns[city];
+    if (!towns || towns.length === 0) continue;
+
+    try {
+      // itandi の jgdc_codes API を呼び出し
+      const prefCity = prefecture + city;
+      const url = `https://api.itandibb.com/api/internal/jgdc_codes?prefecture_and_city_text=${encodeURIComponent(prefCity)}`;
+      const data = await itandiApiGet(tabId, url);
+      const jgdcList = data.jgdc_codes || [];
+
+      // 町名でマッチング（丁目の表記ゆれ対応: 漢数字 ↔ 算用数字, 半角全角）
+      for (const town of towns) {
+        const normalizedTown = _normalizeChome(town);
+        const match = jgdcList.find(j => _normalizeChome(j.town) === normalizedTown);
+        if (match) {
+          allCodes.push(match.jgdc_code);
+        }
+      }
+    } catch (err) {
+      console.warn(`[itandi] jgdc_codes解決エラー (${city}):`, err.message);
+    }
+  }
+
+  return allCodes;
+}
+
+/**
+ * 丁目の表記を正規化する（漢数字→算用数字、全角→半角）
+ */
+function _normalizeChome(s) {
+  if (!s) return '';
+  // 全角数字→半角
+  let r = s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  // 漢数字→算用数字
+  const kanjiMap = {'一':'1','二':'2','三':'3','四':'4','五':'5','六':'6','七':'7','八':'8','九':'9','十':'10'};
+  r = r.replace(/[一二三四五六七八九十]/g, c => kanjiMap[c] || c);
+  // スペース除去
+  r = r.replace(/\s+/g, '');
+  return r;
+}
+
 // === 検索ペイロード構築 ===
 
-function buildItandiSearchPayload(customer, stationIds) {
+function buildItandiSearchPayload(customer, stationIds, jgdcCodes) {
   const filterObj = {};
   const prefecture = customer.prefecture || '東京都';
   const prefectureId = ITANDI_PREFECTURE_IDS[prefecture] || null;
 
-  // エリア（市区町村）
+  // エリア（市区町村 or 町名丁目）
   const cities = customer.cities || [];
-  if (cities.length > 0 && prefectureId) {
+  if (jgdcCodes && jgdcCodes.length > 0) {
+    // 町名丁目レベルのjgdc_codesが解決済み → そちらを使用
+    filterObj['address:in'] = [{ jgdc_codes: jgdcCodes }];
+  } else if (cities.length > 0 && prefectureId) {
     filterObj['address:in'] = cities
       .filter(c => c.trim())
       .map(c => ({ city: c.trim(), prefecture_id: prefectureId }));
@@ -402,9 +461,12 @@ function buildItandiSearchPayload(customer, stationIds) {
     filterObj['reikin:eq'] = 0;
   }
 
+  // jgdc_codes使用時はbucket_size上限99（100だとitandi APIが400を返す）
+  const bucketSize = (jgdcCodes && jgdcCodes.length > 0) ? 99 : 100;
+
   return {
     aggregation: {
-      bucket_size: 100,
+      bucket_size: bucketSize,
       field: 'building_id',
       next_bucket_existance_check: true,
     },
@@ -866,68 +928,107 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     }
   }
 
-  // 検索ペイロード構築
-  const payload = buildItandiSearchPayload(customer, stationIds);
+  // 町名丁目のjgdc_codes解決
+  let jgdcCodes = [];
+  if (customer.selectedTowns && Object.keys(customer.selectedTowns).length > 0) {
+    try {
+      jgdcCodes = await resolveItandiJgdcCodes(tabId, customer);
+      if (jgdcCodes.length > 0) {
+        await setStorageData({ debugLog: `[itandi] ${customer.name}: jgdc_codes解決 ${jgdcCodes.length}件` });
+      } else {
+        await setStorageData({ debugLog: `[itandi] ${customer.name}: 町名に一致するjgdc_codeがありません` });
+      }
+    } catch (err) {
+      await setStorageData({ debugLog: `[itandi] ${customer.name}: jgdc_codes解決エラー: ${err.message}` });
+    }
+  }
 
-  // 検索条件をログに出力（確認用）
-  const f = payload.filter;
-  const filterParts = [];
-  if (f['total_rent:lteq']) filterParts.push(`賃料〜${f['total_rent:lteq']/10000}万`);
-  if (f['total_rent:gteq']) filterParts.push(`賃料${f['total_rent:gteq']/10000}万〜`);
-  if (f['station_id:in']) filterParts.push(`駅: ${stationNames.join('・')}(${f['station_id:in'].length}件)`);
-  if (f['address:in']) filterParts.push(`エリア: ${f['address:in'].map(a => a.city || '都道府県').join(',')}`);
-  if (f['room_layout:in']) filterParts.push(`間取り: ${f['room_layout:in'].join('/')}`);
-  if (f['floor_area_amount:gteq']) filterParts.push(`面積${f['floor_area_amount:gteq']}㎡〜`);
-  if (f['building_age:lteq']) filterParts.push(`築${f['building_age:lteq']}年`);
-  if (f['station_walk_minutes:lteq']) filterParts.push(`徒歩${f['station_walk_minutes:lteq']}分`);
-  if (f['structure_type:in']) filterParts.push(`構造: ${f['structure_type:in'].join('/')}`);
-  if (f['option_id:all_in']) filterParts.push(`設備ID: ${f['option_id:all_in'].join(',')}`);
-  if (f['floor:gteq']) filterParts.push('2階以上');
-  if (f['floor:lteq'] === 1) filterParts.push('1階');
-  if (f['shikikin:eq'] === 0) filterParts.push('敷金なし');
-  if (f['reikin:eq'] === 0) filterParts.push('礼金なし');
-  await setStorageData({ debugLog: `[itandi] ${customer.name}: API検索条件 → ${filterParts.join(' / ') || '(条件なし)'}` });
+  // jgdc_codesが100件超の場合は分割（itandi APIの上限: jgdc_codes 100件/リクエスト）
+  const JGDC_CHUNK_SIZE = 100;
+  const jgdcChunks = [];
+  if (jgdcCodes.length > 0) {
+    for (let i = 0; i < jgdcCodes.length; i += JGDC_CHUNK_SIZE) {
+      jgdcChunks.push(jgdcCodes.slice(i, i + JGDC_CHUNK_SIZE));
+    }
+  } else {
+    jgdcChunks.push([]); // 町名指定なし → 1回だけ通常検索
+  }
 
-  // ページネーション（最大10ページ = 200件）
-  const maxPages = 10;
   let allProperties = [];
 
-  for (let page = 1; page <= maxPages; page++) {
+  for (let chunkIdx = 0; chunkIdx < jgdcChunks.length; chunkIdx++) {
+    const chunk = jgdcChunks[chunkIdx];
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
 
-    payload.page.page = page;
-    let data;
-    try {
-      // itandibb.comのページコンテキスト上にいることを確認
-      const currentTab = await chrome.tabs.get(tabId);
-      if (!currentTab.url?.includes('itandibb.com')) {
-        // 詳細ページ遷移後などで別ドメインになっている場合、戻す
-        await chrome.tabs.update(tabId, { url: `${ITANDI_BASE_URL}/rent_rooms/list` });
-        await waitForTabLoad(tabId);
-        await csleep(2000);
+    // 検索ペイロード構築
+    const payload = buildItandiSearchPayload(customer, stationIds, chunk);
+
+    // 検索条件をログに出力（確認用）
+    const f = payload.filter;
+    const filterParts = [];
+    if (f['total_rent:lteq']) filterParts.push(`賃料〜${f['total_rent:lteq']/10000}万`);
+    if (f['total_rent:gteq']) filterParts.push(`賃料${f['total_rent:gteq']/10000}万〜`);
+    if (f['station_id:in']) filterParts.push(`駅: ${stationNames.join('・')}(${f['station_id:in'].length}件)`);
+    if (f['address:in']) {
+      const addrDesc = f['address:in'].map(a => a.jgdc_codes ? `町名${a.jgdc_codes.length}件` : (a.city || '都道府県')).join(',');
+      filterParts.push(`エリア: ${addrDesc}`);
+    }
+    if (f['room_layout:in']) filterParts.push(`間取り: ${f['room_layout:in'].join('/')}`);
+    if (f['floor_area_amount:gteq']) filterParts.push(`面積${f['floor_area_amount:gteq']}㎡〜`);
+    if (f['building_age:lteq']) filterParts.push(`築${f['building_age:lteq']}年`);
+    if (f['station_walk_minutes:lteq']) filterParts.push(`徒歩${f['station_walk_minutes:lteq']}分`);
+    if (f['structure_type:in']) filterParts.push(`構造: ${f['structure_type:in'].join('/')}`);
+    if (f['option_id:all_in']) filterParts.push(`設備ID: ${f['option_id:all_in'].join(',')}`);
+    if (f['floor:gteq']) filterParts.push('2階以上');
+    if (f['floor:lteq'] === 1) filterParts.push('1階');
+    if (f['shikikin:eq'] === 0) filterParts.push('敷金なし');
+    if (f['reikin:eq'] === 0) filterParts.push('礼金なし');
+    const chunkLabel = jgdcChunks.length > 1 ? ` [分割${chunkIdx + 1}/${jgdcChunks.length}]` : '';
+    await setStorageData({ debugLog: `[itandi] ${customer.name}: API検索条件${chunkLabel} → ${filterParts.join(' / ') || '(条件なし)'}` });
+
+    // ページネーション（最大10ページ = 200件）
+    const maxPages = 10;
+
+    for (let page = 1; page <= maxPages; page++) {
+      if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
+
+      payload.page.page = page;
+      let data;
+      try {
+        // itandibb.comのページコンテキスト上にいることを確認
+        const currentTab = await chrome.tabs.get(tabId);
+        if (!currentTab.url?.includes('itandibb.com')) {
+          // 詳細ページ遷移後などで別ドメインになっている場合、戻す
+          await chrome.tabs.update(tabId, { url: `${ITANDI_BASE_URL}/rent_rooms/list` });
+          await waitForTabLoad(tabId);
+          await csleep(2000);
+        }
+        data = await itandiApiPost(tabId, ITANDI_SEARCH_API_URL, payload);
+      } catch (err) {
+        if (err.message === 'ITANDI_LOGIN_REQUIRED') throw err;
+        await setStorageData({ debugLog: `[itandi] ${customer.name}: API page ${page} エラー${chunkLabel}: ${err.message}` });
+        break;
       }
-      data = await itandiApiPost(tabId, ITANDI_SEARCH_API_URL, payload);
-    } catch (err) {
-      if (err.message === 'ITANDI_LOGIN_REQUIRED') throw err;
-      await setStorageData({ debugLog: `[itandi] ${customer.name}: API page ${page} エラー: ${err.message}` });
-      break;
+
+      const pageProps = parseItandiSearchResponse(data);
+      allProperties.push(...pageProps);
+
+      if (page === 1) {
+        const totalCount = data.room_total_count || data.total_count || pageProps.length;
+        await setStorageData({ debugLog: `[itandi] ${customer.name}: ${totalCount}件ヒット${chunkLabel}` });
+      }
+
+      // 次ページ確認
+      const meta = data.meta || {};
+      const agg = data.aggregation || {};
+      const hasNext = meta.next_bucket_exists || agg.next_bucket_exists || false;
+      if (!hasNext) break;
+
+      await csleep(1000);
     }
 
-    const pageProps = parseItandiSearchResponse(data);
-    allProperties.push(...pageProps);
-
-    if (page === 1) {
-      const totalCount = data.room_total_count || data.total_count || pageProps.length;
-      await setStorageData({ debugLog: `[itandi] ${customer.name}: ${totalCount}件ヒット` });
-    }
-
-    // 次ページ確認
-    const meta = data.meta || {};
-    const agg = data.aggregation || {};
-    const hasNext = meta.next_bucket_exists || agg.next_bucket_exists || false;
-    if (!hasNext) break;
-
-    await csleep(1000);
+    // 分割検索間のwait
+    if (chunkIdx < jgdcChunks.length - 1) await csleep(1000);
   }
 
   if (allProperties.length === 0) {

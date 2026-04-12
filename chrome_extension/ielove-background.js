@@ -13,6 +13,34 @@
 let dedicatedIeloveTabId = null;
 let dedicatedIeloveWindowId = null;
 
+// === 町名マッチング ===
+
+/**
+ * 住所テキストが指定された町名を含むかチェックする。
+ * 表記ゆれ対応: 漢数字/全角数字/半角数字 の丁目を統一して比較。
+ * 例: "西新宿一丁目" は "東京都新宿区西新宿１丁目1-2" にマッチ
+ */
+function _addressMatchesTown(address, town) {
+  // まず直接マッチ
+  if (address.includes(town)) return true;
+  // 正規化して比較
+  const normAddr = _normalizeTownText(address);
+  const normTown = _normalizeTownText(town);
+  return normAddr.includes(normTown);
+}
+
+/**
+ * 丁目表記を正規化（漢数字→算用数字、全角→半角）
+ */
+function _normalizeTownText(s) {
+  if (!s) return '';
+  let r = s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  const kanjiMap = {'一':'1','二':'2','三':'3','四':'4','五':'5','六':'6','七':'7','八':'8','九':'9','十':'10'};
+  r = r.replace(/[一二三四五六七八九十]/g, c => kanjiMap[c] || c);
+  r = r.replace(/\s+/g, '');
+  return r;
+}
+
 // === URL構築 ===
 
 /**
@@ -392,6 +420,31 @@ async function closeDedicatedIeloveWindow() {
  * @returns {string|null} 除外理由。nullなら合格。
  */
 function getIeloveFilterRejectReason(prop, customer) {
+  // 町名丁目フィルタ（selectedTownsが指定されている場合、住所テキストで照合）
+  if (customer.selectedTowns && Object.keys(customer.selectedTowns).length > 0) {
+    const addr = prop.address || '';
+    if (addr) {
+      let townMatch = false;
+      for (const city of Object.keys(customer.selectedTowns)) {
+        const towns = customer.selectedTowns[city];
+        if (!towns || towns.length === 0) continue;
+        // 住所がこの市区町村を含むかチェック
+        if (!addr.includes(city)) continue;
+        // いずれかの町名を含めばOK
+        for (const town of towns) {
+          if (_addressMatchesTown(addr, town)) {
+            townMatch = true;
+            break;
+          }
+        }
+        if (townMatch) break;
+      }
+      if (!townMatch) {
+        return `町名不一致: ${addr}`;
+      }
+    }
+  }
+
   // 賃料フィルタ（rent + management_fee の合計 vs rent_max万円）
   if (customer.rent_max) {
     const totalRent = (prop.rent || 0) + (prop.management_fee || 0);
