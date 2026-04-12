@@ -138,12 +138,13 @@
   document.getElementById('autoSearchEnabled').addEventListener('change', () => saveServiceSettings());
 
   // --- 顧客チェックボックス ---
+  // 「除外リスト」方式: excludedCustomers に入っている顧客だけスキップ
+  // → 新規追加された顧客は自動的にチェックON
   function loadCustomerCheckboxes() {
-    chrome.storage.local.get(['customerCriteria', 'selectedCustomers'], (data) => {
+    chrome.storage.local.get(['customerCriteria', 'excludedCustomers'], (data) => {
       const criteria = data.customerCriteria || [];
-      const selected = data.selectedCustomers || null; // null = 全選択
+      const excluded = data.excludedCustomers || []; // 除外リスト
       const container = document.getElementById('customerCheckboxes');
-      // ラベル以外を削除
       const label = container.querySelector('span');
       container.innerHTML = '';
       container.appendChild(label);
@@ -157,7 +158,7 @@
       allBtn.style.cssText = 'padding:2px 6px;font-size:10px;';
       allBtn.addEventListener('click', () => {
         container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
-        saveSelectedCustomers();
+        saveExcludedCustomers();
       });
       container.appendChild(allBtn);
 
@@ -167,7 +168,7 @@
       noneBtn.style.cssText = 'padding:2px 6px;font-size:10px;';
       noneBtn.addEventListener('click', () => {
         container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-        saveSelectedCustomers();
+        saveExcludedCustomers();
       });
       container.appendChild(noneBtn);
 
@@ -177,8 +178,8 @@
         cb.type = 'checkbox';
         cb.className = 'customer-filter';
         cb.value = c.name;
-        cb.checked = selected === null || selected.includes(c.name);
-        cb.addEventListener('change', saveSelectedCustomers);
+        cb.checked = !excluded.includes(c.name); // 除外リストに無い → ON
+        cb.addEventListener('change', saveExcludedCustomers);
         lbl.appendChild(cb);
         lbl.appendChild(document.createTextNode(' ' + c.name));
         container.appendChild(lbl);
@@ -186,16 +187,10 @@
     });
   }
 
-  function saveSelectedCustomers() {
+  function saveExcludedCustomers() {
     const checkboxes = document.querySelectorAll('.customer-filter');
-    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-    if (allChecked) {
-      // 全選択 → null（制限なし）
-      chrome.storage.local.set({ selectedCustomers: null });
-    } else {
-      const names = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
-      chrome.storage.local.set({ selectedCustomers: names });
-    }
+    const excluded = Array.from(checkboxes).filter(cb => !cb.checked).map(cb => cb.value);
+    chrome.storage.local.set({ excludedCustomers: excluded });
   }
 
   // Init dashboard

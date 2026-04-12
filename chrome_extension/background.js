@@ -901,14 +901,15 @@ globalThis.runSearchCycle = async function runSearchCycle() {
       await setStorageData({ debugLog: `検索条件取得失敗: ${err.message}` });
       return;
     }
-    const { customerCriteria: allCriteria, selectedCustomers } = await getStorageData(['customerCriteria', 'selectedCustomers']);
+    const { customerCriteria: allCriteria, excludedCustomers } = await getStorageData(['customerCriteria', 'excludedCustomers']);
     if (!allCriteria || allCriteria.length === 0) {
       await setStorageData({ debugLog: '検索条件がありません（GASに条件が登録されていない可能性）' });
       return;
     }
-    // 選択された顧客のみフィルタ（selectedCustomers が null なら全員）
-    const criteria = selectedCustomers
-      ? allCriteria.filter(c => selectedCustomers.includes(c.name))
+    // 除外リストに入っている顧客をスキップ（新規顧客は自動で検索対象）
+    const excluded = excludedCustomers || [];
+    const criteria = excluded.length > 0
+      ? allCriteria.filter(c => !excluded.includes(c.name))
       : allCriteria;
     if (criteria.length === 0) {
       await setStorageData({ debugLog: '選択された顧客がありません' });
