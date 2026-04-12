@@ -74,7 +74,7 @@ function writeToSheet(userId, state) {
     }
   }
 
-  // 17列の行データを構築（A:Q）
+  // 18列の行データを構築（A:R）— S列以降は配信管理用なので含めない
   const row = [
     timestamp,                                    // A: タイムスタンプ
     d.name || '',                                  // B: お客様名
@@ -94,8 +94,9 @@ function writeToSheet(userId, state) {
     d.notes || '',                                 // P: その他ご希望
     d.petType || '',                               // Q: ペット種類
     d.resident || '',                              // R: 居住者
-    Object.keys(selectedTowns).length > 0 ? JSON.stringify(selectedTowns) : ''  // S: 町名丁目（JSON）
   ];
+  // 町名丁目はY列（25列目）に別途書き込み（S列以降の配信管理カラムを避ける）
+  const townsJson = Object.keys(selectedTowns).length > 0 ? JSON.stringify(selectedTowns) : '';
 
   // スプレッドシートに書き込み（同じ顧客の古い行を削除してから追記）
   const ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
@@ -115,11 +116,16 @@ function writeToSheet(userId, state) {
   }
 
   if (existingRowIndex > 0) {
-    // 既存行を上書き更新（順番を維持）
+    // 既存行を上書き更新（順番を維持）— A〜R列のみ
     sheet.getRange(existingRowIndex, 1, 1, row.length).setValues([row]);
+    // Y列（25列目）に町名丁目を書き込み
+    sheet.getRange(existingRowIndex, 25).setValue(townsJson);
   } else {
     // 新規顧客は末尾に追加
     sheet.appendRow(row);
+    // appendRowの後にY列を書き込み
+    var newRowIndex = sheet.getLastRow();
+    sheet.getRange(newRowIndex, 25).setValue(townsJson);
   }
 
   // LINE Users シートにも記録
@@ -220,7 +226,7 @@ function readLatestCriteria(userId) {
     var notes = latestRow[15] ? String(latestRow[15]) : '';
     var petType = latestRow[16] ? String(latestRow[16]) : '';
     var resident = latestRow[17] ? String(latestRow[17]) : '';
-    var townsJson = latestRow[18] ? String(latestRow[18]) : '';
+    var townsJson = latestRow[24] ? String(latestRow[24]) : '';  // Y列（25列目、index 24）
     var selectedTownsObj = {};
     if (townsJson) {
       try { selectedTownsObj = JSON.parse(townsJson); } catch(e) {}

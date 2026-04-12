@@ -771,7 +771,7 @@ function handleGetCriteria(e) {
     var name = String(row[1] || '').trim();
     if (!name) continue;
 
-    // S列(18): 配信ステータス
+    // S列(18): 配信ステータス, Y列(24): 町名丁目（JSON）
     // V列(21): スヌーズ解除日時, W列(22): 配信頻度, X列(23): 最終配信日時
     var deliveryStatus = String(row[18] || '').trim().toLowerCase();
     var snoozeUntil = row[21];
@@ -816,6 +816,13 @@ function handleGetCriteria(e) {
     var allRoutes = routesWithStations.map(function(r) { return r.route; });
     var allStations = _splitCSV(row[5]);
 
+    // Y列(24): 町名丁目（JSON）
+    var townsJson = String(row[24] || '').trim();
+    var selectedTowns = {};
+    if (townsJson) {
+      try { selectedTowns = JSON.parse(townsJson); } catch (e) {}
+    }
+
     criteria.push({
       name: name,
       cities: _splitCSV(row[3]),
@@ -829,7 +836,8 @@ function handleGetCriteria(e) {
       building_age: String(row[10] || ''),
       structures: _splitCSV(row[11]),
       equipment: String(row[12] || ''),
-      move_in_date: String(row[14] || '')
+      move_in_date: String(row[14] || ''),
+      selectedTowns: selectedTowns
     });
   }
 
