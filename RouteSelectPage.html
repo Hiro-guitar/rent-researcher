@@ -1284,15 +1284,27 @@ function submitCriteria() {
     var checkedCities = document.querySelectorAll('input[name="city"]:checked');
     criteria.selectedCities = [];
     criteria.selectedTowns = {};
+    // チェック済みの市区町村を収集
+    var citySet = {};
     for (var i = 0; i < checkedCities.length; i++) {
       var cityName = checkedCities[i].value;
+      citySet[cityName] = true;
       criteria.selectedCities.push(cityName);
-      // その市区町村の選択済み町名・丁目を収集
+    }
+    // 全市区町村の町名チェックボックスを走査（市区町村未チェックでも町名が選択されていれば含める）
+    var allCityCbs = document.querySelectorAll('input[name="city"]');
+    for (var i = 0; i < allCityCbs.length; i++) {
+      var cityName = allCityCbs[i].value;
       var townCbs = document.querySelectorAll('input[name="town_' + cityName + '"]:checked');
       if (townCbs.length > 0) {
         var towns = [];
         for (var j = 0; j < townCbs.length; j++) towns.push(townCbs[j].value);
         criteria.selectedTowns[cityName] = towns;
+        // 市区町村がまだ含まれていなければ追加
+        if (!citySet[cityName]) {
+          citySet[cityName] = true;
+          criteria.selectedCities.push(cityName);
+        }
       }
     }
     criteria.selectedRoutes = [];
