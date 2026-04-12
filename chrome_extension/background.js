@@ -901,12 +901,22 @@ globalThis.runSearchCycle = async function runSearchCycle() {
       await setStorageData({ debugLog: `検索条件取得失敗: ${err.message}` });
       return;
     }
-    const { customerCriteria: criteria } = await getStorageData(['customerCriteria']);
-    if (!criteria || criteria.length === 0) {
+    const { customerCriteria: allCriteria, selectedCustomers } = await getStorageData(['customerCriteria', 'selectedCustomers']);
+    if (!allCriteria || allCriteria.length === 0) {
       await setStorageData({ debugLog: '検索条件がありません（GASに条件が登録されていない可能性）' });
       return;
     }
-    await setStorageData({ debugLog: `検索条件 ${criteria.length}件取得完了` });
+    // 選択された顧客のみフィルタ（selectedCustomers が null なら全員）
+    const criteria = selectedCustomers
+      ? allCriteria.filter(c => selectedCustomers.includes(c.name))
+      : allCriteria;
+    if (criteria.length === 0) {
+      await setStorageData({ debugLog: '選択された顧客がありません' });
+      return;
+    }
+    const skipped = allCriteria.length - criteria.length;
+    const skippedMsg = skipped > 0 ? `（${skipped}件スキップ）` : '';
+    await setStorageData({ debugLog: `検索条件 ${criteria.length}件取得完了${skippedMsg}` });
 
     let seenIds = {};
     await setStorageData({ debugLog: '既知物件IDを取得中...' });

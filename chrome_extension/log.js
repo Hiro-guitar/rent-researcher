@@ -137,9 +137,71 @@
   document.getElementById('enableItandi').addEventListener('change', () => saveServiceSettings());
   document.getElementById('autoSearchEnabled').addEventListener('change', () => saveServiceSettings());
 
+  // --- 顧客チェックボックス ---
+  function loadCustomerCheckboxes() {
+    chrome.storage.local.get(['customerCriteria', 'selectedCustomers'], (data) => {
+      const criteria = data.customerCriteria || [];
+      const selected = data.selectedCustomers || null; // null = 全選択
+      const container = document.getElementById('customerCheckboxes');
+      // ラベル以外を削除
+      const label = container.querySelector('span');
+      container.innerHTML = '';
+      container.appendChild(label);
+
+      if (criteria.length === 0) return;
+
+      // 全選択/全解除ボタン
+      const allBtn = document.createElement('button');
+      allBtn.className = 'cp-btn';
+      allBtn.textContent = '全選択';
+      allBtn.style.cssText = 'padding:2px 6px;font-size:10px;';
+      allBtn.addEventListener('click', () => {
+        container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+        saveSelectedCustomers();
+      });
+      container.appendChild(allBtn);
+
+      const noneBtn = document.createElement('button');
+      noneBtn.className = 'cp-btn';
+      noneBtn.textContent = '全解除';
+      noneBtn.style.cssText = 'padding:2px 6px;font-size:10px;';
+      noneBtn.addEventListener('click', () => {
+        container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+        saveSelectedCustomers();
+      });
+      container.appendChild(noneBtn);
+
+      for (const c of criteria) {
+        const lbl = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'customer-filter';
+        cb.value = c.name;
+        cb.checked = selected === null || selected.includes(c.name);
+        cb.addEventListener('change', saveSelectedCustomers);
+        lbl.appendChild(cb);
+        lbl.appendChild(document.createTextNode(' ' + c.name));
+        container.appendChild(lbl);
+      }
+    });
+  }
+
+  function saveSelectedCustomers() {
+    const checkboxes = document.querySelectorAll('.customer-filter');
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    if (allChecked) {
+      // 全選択 → null（制限なし）
+      chrome.storage.local.set({ selectedCustomers: null });
+    } else {
+      const names = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+      chrome.storage.local.set({ selectedCustomers: names });
+    }
+  }
+
   // Init dashboard
   loadDashboardStatus();
   loadServiceSettings();
+  loadCustomerCheckboxes();
 
   // ============================================================
   // Log viewer
@@ -270,6 +332,9 @@
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.debugLog || changes.isSearching) {
       pollLog();
+    }
+    if (changes.customerCriteria) {
+      loadCustomerCheckboxes();
     }
   });
 

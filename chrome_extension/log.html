@@ -113,6 +113,12 @@
     }
     .cp-settings:hover { color: #aaa; }
 
+    .cp-customers label {
+      display: flex; align-items: center; gap: 3px;
+      font-size: 11px; color: #bbb; cursor: pointer;
+    }
+    .cp-customers input[type="checkbox"] { margin: 0; cursor: pointer; }
+
     /* === Toolbar (log controls) === */
     .toolbar {
       display: flex;
@@ -229,6 +235,10 @@
     <div class="cp-actions">
       <button id="searchNowBtn" class="cp-btn primary">今すぐ検索</button>
       <button id="stopSearchBtn" class="cp-btn danger" style="display:none">検索中止</button>
+    </div>
+
+    <div class="cp-customers" id="customerCheckboxes" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <span style="font-size:11px;color:#888;">顧客:</span>
     </div>
 
     <div class="cp-stats">
