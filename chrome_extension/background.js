@@ -661,16 +661,12 @@ chrome.idle.setDetectionInterval(60); // 60秒操作なしでidle判定
 chrome.idle.onStateChanged.addListener((state) => {
   if (state === 'active') {
     // locked/idle → active に戻った = スリープ復帰
-    chrome.storage.local.get(['autoSearchEnabled', 'isSearching', 'businessStartHour', 'businessEndHour'], (data) => {
+    // アラームがスリープ中に失効している可能性があるので再セットのみ行う（即時実行はしない）
+    chrome.storage.local.get(['autoSearchEnabled', 'searchIntervalMinutes'], (data) => {
       if (data.autoSearchEnabled === false) return;
-      if (data.isSearching) return; // 既に検索中なら不要
-      const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
-      const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
-      const hour = new Date().getHours();
-      if (hour < startH || hour >= endH) return; // 営業時間外
-      console.log('[system] スリープ復帰検知 → 自動検索を再開');
-      setStorageData({ debugLog: '[system] スリープ復帰検知 → 自動検索を再開' });
-      runSearchCycle();
+      console.log('[system] スリープ復帰検知 → アラーム再セット');
+      setStorageData({ debugLog: '[system] スリープ復帰検知 → アラーム再セット' });
+      setupAlarm(data.searchIntervalMinutes || 30);
     });
   }
 });
