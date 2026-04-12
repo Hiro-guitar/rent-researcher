@@ -3084,13 +3084,26 @@ function buildSearchInfo(customer) {
   const lines = ['**検索条件**', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'];
 
   // 路線・駅
-  if (customer.routes && customer.routes.length > 0) {
-    const routeStations = customer.route_stations || {};
-    const routeParts = customer.routes.map(route => {
-      const stas = routeStations[route];
-      return stas && stas.length > 0 ? `${route}(${stas.join(', ')})` : route;
+  const rws = customer.routes_with_stations || [];
+  if (rws.length > 0) {
+    const routeParts = rws.map(r => {
+      return r.stations && r.stations.length > 0
+        ? `${r.route}（${r.stations.join(', ')}）`
+        : r.route;
     });
     lines.push(`路線: ${routeParts.join(' / ')}`);
+  } else if (customer.stations && customer.stations.length > 0) {
+    lines.push(`駅: ${customer.stations.join(', ')}`);
+  }
+
+  // エリア（市区町村・町名丁目）
+  if (customer.selectedTowns && Object.keys(customer.selectedTowns).length > 0) {
+    const parts = Object.entries(customer.selectedTowns).map(([city, towns]) =>
+      towns && towns.length > 0 ? `${city}（${towns.join(', ')}）` : city
+    );
+    lines.push(`エリア: ${parts.join(' / ')}`);
+  } else if (customer.cities && customer.cities.length > 0) {
+    lines.push(`エリア: ${customer.cities.join(', ')}`);
   }
 
   // 賃料
@@ -3272,6 +3285,14 @@ async function sendDiscordNotification(customerName, properties, customer) {
 
     // スレッドが生きているか確認（既存スレッドの場合、最初の投稿で404なら再作成）
     if (!discordPropertyCounters[customerName]) discordPropertyCounters[customerName] = 0;
+
+    // この検索実行でこの顧客の最初の物件送信なら、先に検索条件を送信
+    if (discordPropertyCounters[customerName] === 0 && customer) {
+      const searchInfo = buildSearchInfo(customer);
+      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: searchInfo });
+      await sleep(500);
+    }
+
     for (let i = 0; i < properties.length; i++) {
       discordPropertyCounters[customerName]++;
       const msg = '<@1459814543600390341>\n' + buildDiscordMessage(properties[i], discordPropertyCounters[customerName], gasWebappUrl, customerName, customer);
