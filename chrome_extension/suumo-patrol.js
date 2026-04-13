@@ -62,10 +62,12 @@ function patrolCriteriaToCustomer(criteria) {
     structures = typeof criteria.structuresJson === 'string' ? JSON.parse(criteria.structuresJson) : (criteria.structuresJson || []);
   } catch (e) {}
 
-  let equipment = [];
+  let equipmentArr = [];
   try {
-    equipment = typeof criteria.equipmentJson === 'string' ? JSON.parse(criteria.equipmentJson) : (criteria.equipmentJson || []);
+    equipmentArr = typeof criteria.equipmentJson === 'string' ? JSON.parse(criteria.equipmentJson) : (criteria.equipmentJson || []);
   } catch (e) {}
+  // 既存の検索関数はequipmentを文字列（カンマ区切り）で期待する
+  const equipment = Array.isArray(equipmentArr) ? equipmentArr.join(',') : String(equipmentArr || '');
 
   const routesWithStations = areaObj.routes_with_stations || [];
   const routes = routesWithStations.map(r => r.route);
@@ -87,7 +89,7 @@ function patrolCriteriaToCustomer(criteria) {
     building_age: criteria.buildingAge || '',
     structures: structures,
     equipment: equipment,
-    petType: equipment.includes('ペット相談可') ? 'ok' : '',
+    petType: equipmentArr.includes('ペット相談可') ? 'ok' : '',
     _rentMin: criteria.rentMin || ''
   };
 }
@@ -164,43 +166,22 @@ async function runSuumoPatrolCycle() {
       // 各サイトの検索結果を収集
       const collectedProperties = [];
 
-      // --- itandi ---
-      if (services.itandi) {
-        try {
-          const props = await runSuumoPatrolForService('itandi', customer, searchId);
-          collectedProperties.push(...props);
-        } catch (err) {
-          await setStorageData({ debugLog: `[SUUMO巡回][itandi] エラー: ${err.message}` });
-        }
-      }
+      const serviceList = [
+        { key: 'itandi', label: 'itandi' },
+        { key: 'essquare', label: 'ES-Square' },
+        { key: 'ielove', label: 'いえらぶ' },
+        { key: 'reins', label: 'REINS' },
+      ];
 
-      // --- ES-Square ---
-      if (services.essquare) {
+      for (const svc of serviceList) {
+        if (!services[svc.key]) continue;
         try {
-          const props = await runSuumoPatrolForService('essquare', customer, searchId);
+          const props = await runSuumoPatrolForService(svc.key, customer, searchId);
+          await setStorageData({ debugLog: `[SUUMO巡回][${svc.label}] ${props.length}件取得` });
           collectedProperties.push(...props);
         } catch (err) {
-          await setStorageData({ debugLog: `[SUUMO巡回][ES-Square] エラー: ${err.message}` });
-        }
-      }
-
-      // --- いえらぶ ---
-      if (services.ielove) {
-        try {
-          const props = await runSuumoPatrolForService('ielove', customer, searchId);
-          collectedProperties.push(...props);
-        } catch (err) {
-          await setStorageData({ debugLog: `[SUUMO巡回][いえらぶ] エラー: ${err.message}` });
-        }
-      }
-
-      // --- REINS ---
-      if (services.reins) {
-        try {
-          const props = await runSuumoPatrolForService('reins', customer, searchId);
-          collectedProperties.push(...props);
-        } catch (err) {
-          await setStorageData({ debugLog: `[SUUMO巡回][REINS] エラー: ${err.message}` });
+          await setStorageData({ debugLog: `[SUUMO巡回][${svc.label}] エラー: ${err.message}` });
+          console.error(`[SUUMO巡回][${svc.label}]`, err);
         }
       }
 
