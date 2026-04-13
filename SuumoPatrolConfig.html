@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SUUMO巡回条件管理</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+  -webkit-text-size-adjust: 100%;
+  background: #f5f5f5;
+  color: #333;
+  padding-bottom: 80px;
+}
+
+/* ── ヘッダー ── */
+.header {
+  position: sticky; top: 0; z-index: 10;
+  background: #1a5276; padding: 14px 16px;
+  border-bottom: 1px solid #154360;
+}
+.header h1 { font-size: 16px; font-weight: 700; text-align: center; color: #d4efdf; }
+.header .badge { font-size: 10px; background: #e74c3c; color: #fff; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle; }
+.header .back-link { display: block; text-align: center; margin-top: 6px; }
+.header .back-link a { color: #85c1e9; font-size: 12px; text-decoration: underline; }
+
+/* ── カード ── */
+.card {
+  background: #fff; margin: 8px; border-radius: 12px;
+  overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.card-title {
+  font-size: 14px; font-weight: 700; color: #1a5276;
+  padding: 12px 16px 8px; background: #d4e6f1;
+  border-bottom: 1px solid #aed6f1;
+}
+.card-body { padding: 12px 16px; }
+
+/* ── フォーム ── */
+.field { margin-bottom: 12px; }
+.field label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; }
+.field input, .field select, .field textarea {
+  width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 8px;
+  font-family: inherit; background: #fff;
+}
+.field textarea { resize: vertical; }
+.field .hint { font-size: 11px; color: #999; margin-top: 4px; }
+.field-row { display: flex; gap: 12px; }
+.field-row .field { flex: 1; }
+
+/* ── チェックボックスグリッド ── */
+.checkbox-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 6px; padding: 4px 0;
+}
+.checkbox-grid label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 400; cursor: pointer;
+  padding: 6px 8px; border-radius: 6px; background: #f8f9fa;
+  border: 1px solid #e9ecef;
+}
+.checkbox-grid label:has(input:checked) {
+  background: #d4efdf; border-color: #82e0aa;
+}
+.checkbox-grid input[type="checkbox"] { width: 16px; height: 16px; accent-color: #27ae60; }
+
+/* ── ボタン ── */
+.btn {
+  display: inline-block; padding: 10px 24px; font-size: 14px; font-weight: 600;
+  border: none; border-radius: 8px; cursor: pointer; transition: all 0.2s;
+}
+.btn-primary { background: #1a5276; color: #fff; }
+.btn-primary:hover { background: #154360; }
+.btn-success { background: #27ae60; color: #fff; }
+.btn-success:hover { background: #219a52; }
+.btn-danger { background: #e74c3c; color: #fff; font-size: 12px; padding: 6px 12px; }
+.btn-danger:hover { background: #c0392b; }
+.btn-secondary { background: #95a5a6; color: #fff; font-size: 12px; padding: 6px 12px; }
+.btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+
+/* ── 条件リスト ── */
+.criteria-list { margin: 8px; }
+.criteria-item {
+  background: #fff; border-radius: 10px; padding: 14px 16px; margin-bottom: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.criteria-item .info { flex: 1; }
+.criteria-item .name { font-size: 14px; font-weight: 600; color: #2c3e50; }
+.criteria-item .detail { font-size: 12px; color: #888; margin-top: 4px; line-height: 1.5; }
+.criteria-item .actions { display: flex; gap: 6px; align-items: center; }
+.criteria-item .toggle-switch {
+  position: relative; width: 44px; height: 24px; cursor: pointer;
+}
+.criteria-item .toggle-switch input { opacity: 0; width: 0; height: 0; }
+.criteria-item .toggle-slider {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: #ccc; border-radius: 12px; transition: 0.3s;
+}
+.criteria-item .toggle-slider::before {
+  content: ""; position: absolute; width: 18px; height: 18px;
+  left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.3s;
+}
+.criteria-item .toggle-switch input:checked + .toggle-slider {
+  background: #27ae60;
+}
+.criteria-item .toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(20px);
+}
+
+/* ── フッター ── */
+.footer {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  padding: 12px 16px; background: #fff;
+  border-top: 1px solid #ddd; z-index: 10;
+  display: flex; gap: 10px;
+}
+.footer .btn { flex: 1; text-align: center; }
+
+/* ── 状態 ── */
+.empty-state {
+  text-align: center; padding: 40px 20px; color: #999; font-size: 14px;
+}
+
+/* ── トースト ── */
+.toast {
+  position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+  background: #1a5276; color: #fff; padding: 10px 20px; border-radius: 8px;
+  font-size: 13px; z-index: 100; opacity: 0; transition: opacity 0.3s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div id="toast" class="toast"></div>
+
+<!-- ===== ヘッダー ===== -->
+<div class="header">
+  <h1>SUUMO巡回条件管理<span class="badge">SUUMO</span></h1>
+  <div class="back-link"><a href="javascript:void(0)" onclick="goBackToAdmin()">← 顧客条件管理に戻る</a></div>
+</div>
+
+<!-- ===== 条件一覧 ===== -->
+<div id="criteriaListView">
+  <div class="card">
+    <div class="card-title">登録済み巡回条件</div>
+    <div class="card-body">
+      <div id="criteriaList" class="empty-state">読み込み中...</div>
+    </div>
+  </div>
+  <div style="text-align:center;margin:16px;">
+    <button class="btn btn-success" onclick="showEditForm(null)">+ 新しい巡回条件を追加</button>
+  </div>
+</div>
+
+<!-- ===== 条件編集フォーム ===== -->
+<div id="editFormView" style="display:none;">
+  <div class="card">
+    <div class="card-title" id="editFormTitle">新しい巡回条件</div>
+    <div class="card-body">
+      <input type="hidden" id="editId">
+
+      <div class="field">
+        <label>条件名 <span style="color:#e74c3c">*</span></label>
+        <input type="text" id="editName" placeholder="例: 新宿1K-1LDK 10万以下">
+      </div>
+
+      <div class="field">
+        <label>エリア（市区町村）</label>
+        <div class="hint">巡回する市区町村を選択してください</div>
+        <div id="cityCheckboxes" class="checkbox-grid" style="margin-top:8px;"></div>
+      </div>
+
+      <div class="field">
+        <label>エリア（駅名）</label>
+        <textarea id="editStations" rows="2" placeholder="駅名をカンマ区切りで入力（例: 新宿,渋谷,池袋）"></textarea>
+        <div class="hint">駅名で絞り込みたい場合に入力（任意）</div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>賃料下限（万円）</label>
+          <input type="number" id="editRentMin" placeholder="例: 6" step="0.5">
+        </div>
+        <div class="field">
+          <label>賃料上限（万円）</label>
+          <input type="number" id="editRentMax" placeholder="例: 12" step="0.5">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>間取り</label>
+        <div id="layoutCheckboxes" class="checkbox-grid"></div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>面積下限（m²）</label>
+          <input type="number" id="editAreaMin" placeholder="例: 20" step="0.1">
+        </div>
+        <div class="field">
+          <label>築年数上限</label>
+          <input type="number" id="editBuildingAge" placeholder="例: 30">
+          <div class="hint">この年数以内の物件のみ</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- フッター -->
+  <div class="footer">
+    <button class="btn btn-secondary" onclick="cancelEdit()" style="flex:0.4;">キャンセル</button>
+    <button class="btn btn-primary" id="saveBtn" onclick="saveCondition()">保存する</button>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  初期データ
+// ══════════════════════════════════════════════════════════
+var TOKYO_CITIES = <?!= tokyoCities ?>;
+var allCriteria = [];
+
+// 間取りオプション
+var LAYOUT_OPTIONS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K','4DK','4LDK'];
+
+// ══════════════════════════════════════════════════════════
+//  初期化
+// ══════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', function() {
+  renderCityCheckboxes();
+  renderLayoutCheckboxes();
+  loadCriteriaList();
+});
+
+function renderCityCheckboxes() {
+  var container = document.getElementById('cityCheckboxes');
+  var html = '';
+  for (var i = 0; i < TOKYO_CITIES.length; i++) {
+    var city = TOKYO_CITIES[i];
+    var name = typeof city === 'string' ? city : (city.name || city);
+    html += '<label><input type="checkbox" value="' + esc(name) + '"> ' + esc(name) + '</label>';
+  }
+  container.innerHTML = html;
+}
+
+function renderLayoutCheckboxes() {
+  var container = document.getElementById('layoutCheckboxes');
+  var html = '';
+  for (var i = 0; i < LAYOUT_OPTIONS.length; i++) {
+    html += '<label><input type="checkbox" value="' + LAYOUT_OPTIONS[i] + '"> ' + LAYOUT_OPTIONS[i] + '</label>';
+  }
+  container.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════
+//  条件一覧の読み込み
+// ══════════════════════════════════════════════════════════
+function loadCriteriaList() {
+  document.getElementById('criteriaList').innerHTML = '<div class="empty-state">読み込み中...</div>';
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      allCriteria = data || [];
+      renderCriteriaList();
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('criteriaList').innerHTML =
+        '<div class="empty-state">読み込みエラー: ' + (err.message || err) + '</div>';
+    })
+    .loadPatrolCriteria();
+}
+
+function renderCriteriaList() {
+  var container = document.getElementById('criteriaList');
+
+  if (allCriteria.length === 0) {
+    container.innerHTML = '<div class="empty-state">巡回条件がまだ登録されていません</div>';
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < allCriteria.length; i++) {
+    var c = allCriteria[i];
+    var area = '';
+    try {
+      var areaObj = typeof c.areaJson === 'string' ? JSON.parse(c.areaJson) : c.areaJson;
+      if (areaObj && areaObj.cities) area = areaObj.cities.join(', ');
+      if (areaObj && areaObj.stations) area += (area ? ' / ' : '') + areaObj.stations.join(', ');
+    } catch(e) {}
+
+    var layouts = '';
+    try {
+      var layoutArr = typeof c.layoutsJson === 'string' ? JSON.parse(c.layoutsJson) : c.layoutsJson;
+      if (layoutArr && layoutArr.length) layouts = layoutArr.join(', ');
+    } catch(e) {}
+
+    var rent = '';
+    if (c.rentMin || c.rentMax) {
+      rent = (c.rentMin || '?') + '〜' + (c.rentMax || '?') + '万円';
+    }
+
+    var detail = [];
+    if (area) detail.push(area);
+    if (rent) detail.push(rent);
+    if (layouts) detail.push(layouts);
+    if (c.areaMin) detail.push(c.areaMin + 'm²以上');
+    if (c.buildingAge) detail.push('築' + c.buildingAge + '年以内');
+
+    var lastPatrol = c.lastPatrolAt ? '最終巡回: ' + c.lastPatrolAt : '未巡回';
+
+    html += '<div class="criteria-item">' +
+      '<div class="info">' +
+        '<div class="name">' + esc(c.name) + '</div>' +
+        '<div class="detail">' + esc(detail.join(' / ')) + '</div>' +
+        '<div class="detail" style="color:#aaa;font-size:11px;">' + esc(lastPatrol) + '</div>' +
+      '</div>' +
+      '<div class="actions">' +
+        '<label class="toggle-switch">' +
+          '<input type="checkbox" ' + (c.enabled ? 'checked' : '') + ' onchange="toggleEnabled(\'' + esc(c.id) + '\', this.checked)">' +
+          '<span class="toggle-slider"></span>' +
+        '</label>' +
+        '<button class="btn btn-primary" style="font-size:12px;padding:6px 10px;" onclick="showEditForm(\'' + esc(c.id) + '\')">編集</button>' +
+        '<button class="btn btn-danger" onclick="deleteCondition(\'' + esc(c.id) + '\')">削除</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════
+//  編集フォーム
+// ══════════════════════════════════════════════════════════
+function showEditForm(criteriaId) {
+  document.getElementById('criteriaListView').style.display = 'none';
+  document.getElementById('editFormView').style.display = 'block';
+
+  // フォームリセット
+  document.getElementById('editId').value = '';
+  document.getElementById('editName').value = '';
+  document.getElementById('editStations').value = '';
+  document.getElementById('editRentMin').value = '';
+  document.getElementById('editRentMax').value = '';
+  document.getElementById('editAreaMin').value = '';
+  document.getElementById('editBuildingAge').value = '';
+  uncheckAll('cityCheckboxes');
+  uncheckAll('layoutCheckboxes');
+
+  if (criteriaId) {
+    // 既存条件を読み込み
+    var c = allCriteria.find(function(x) { return x.id === criteriaId; });
+    if (c) {
+      document.getElementById('editFormTitle').textContent = '条件を編集: ' + c.name;
+      document.getElementById('editId').value = c.id;
+      document.getElementById('editName').value = c.name;
+      document.getElementById('editRentMin').value = c.rentMin || '';
+      document.getElementById('editRentMax').value = c.rentMax || '';
+      document.getElementById('editAreaMin').value = c.areaMin || '';
+      document.getElementById('editBuildingAge').value = c.buildingAge || '';
+
+      try {
+        var areaObj = typeof c.areaJson === 'string' ? JSON.parse(c.areaJson) : c.areaJson;
+        if (areaObj && areaObj.cities) {
+          checkValues('cityCheckboxes', areaObj.cities);
+        }
+        if (areaObj && areaObj.stations) {
+          document.getElementById('editStations').value = areaObj.stations.join(', ');
+        }
+      } catch(e) {}
+
+      try {
+        var layoutArr = typeof c.layoutsJson === 'string' ? JSON.parse(c.layoutsJson) : c.layoutsJson;
+        if (layoutArr) checkValues('layoutCheckboxes', layoutArr);
+      } catch(e) {}
+    }
+  } else {
+    document.getElementById('editFormTitle').textContent = '新しい巡回条件';
+  }
+}
+
+function cancelEdit() {
+  document.getElementById('editFormView').style.display = 'none';
+  document.getElementById('criteriaListView').style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════════
+//  保存・削除・トグル
+// ══════════════════════════════════════════════════════════
+function saveCondition() {
+  var name = document.getElementById('editName').value.trim();
+  if (!name) {
+    showToast('条件名を入力してください');
+    return;
+  }
+
+  var cities = getCheckedValues('cityCheckboxes');
+  var stationsRaw = document.getElementById('editStations').value.trim();
+  var stations = stationsRaw ? stationsRaw.split(/[,、，\s]+/).filter(function(s) { return s; }) : [];
+
+  var data = {
+    id: document.getElementById('editId').value || undefined,
+    name: name,
+    area: { cities: cities, stations: stations },
+    rentMin: document.getElementById('editRentMin').value || '',
+    rentMax: document.getElementById('editRentMax').value || '',
+    layouts: getCheckedValues('layoutCheckboxes'),
+    areaMin: document.getElementById('editAreaMin').value || '',
+    buildingAge: document.getElementById('editBuildingAge').value || ''
+  };
+
+  document.getElementById('saveBtn').disabled = true;
+  document.getElementById('saveBtn').textContent = '保存中...';
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      document.getElementById('saveBtn').disabled = false;
+      document.getElementById('saveBtn').textContent = '保存する';
+      if (result && result.success) {
+        showToast(result.action === 'created' ? '条件を追加しました' : '条件を更新しました');
+        cancelEdit();
+        loadCriteriaList();
+      } else {
+        showToast(result ? result.message : '保存に失敗しました');
+      }
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('saveBtn').disabled = false;
+      document.getElementById('saveBtn').textContent = '保存する';
+      showToast('エラー: ' + (err.message || err));
+    })
+    .savePatrolCriteriaFromAdmin(data);
+}
+
+function deleteCondition(criteriaId) {
+  if (!confirm('この巡回条件を削除しますか？')) return;
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.success) {
+        showToast('条件を削除しました');
+        loadCriteriaList();
+      } else {
+        showToast(result ? result.message : '削除に失敗しました');
+      }
+    })
+    .withFailureHandler(function(err) {
+      showToast('エラー: ' + (err.message || err));
+    })
+    .deletePatrolCriteriaFromAdmin(criteriaId);
+}
+
+function toggleEnabled(criteriaId, enabled) {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.success) {
+        showToast(enabled ? '巡回を有効にしました' : '巡回を無効にしました');
+      }
+    })
+    .withFailureHandler(function(err) {
+      showToast('エラー: ' + (err.message || err));
+      loadCriteriaList(); // リバート
+    })
+    .savePatrolCriteriaFromAdmin({ id: criteriaId, enabled: enabled });
+}
+
+// ══════════════════════════════════════════════════════════
+//  ナビゲーション
+// ══════════════════════════════════════════════════════════
+function goBackToAdmin() {
+  var currentUrl = window.location.href;
+  var baseUrl = currentUrl.split('?')[0];
+  var params = new URLSearchParams(window.location.search);
+  var apiKey = params.get('api_key') || '';
+  var newUrl = baseUrl + '?action=admin' + (apiKey ? '&api_key=' + apiKey : '');
+  window.location.href = newUrl;
+}
+
+// ══════════════════════════════════════════════════════════
+//  ユーティリティ
+// ══════════════════════════════════════════════════════════
+function getCheckedValues(containerId) {
+  var checkboxes = document.querySelectorAll('#' + containerId + ' input[type="checkbox"]:checked');
+  return Array.from(checkboxes).map(function(cb) { return cb.value; });
+}
+
+function checkValues(containerId, values) {
+  var checkboxes = document.querySelectorAll('#' + containerId + ' input[type="checkbox"]');
+  checkboxes.forEach(function(cb) {
+    cb.checked = values.indexOf(cb.value) >= 0;
+  });
+}
+
+function uncheckAll(containerId) {
+  var checkboxes = document.querySelectorAll('#' + containerId + ' input[type="checkbox"]');
+  checkboxes.forEach(function(cb) { cb.checked = false; });
+}
+
+function showToast(msg) {
+  var toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(function() { toast.classList.remove('show'); }, 2500);
+}
+
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>
