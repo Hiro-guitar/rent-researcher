@@ -17,7 +17,7 @@
 
 // ── 巡回状態管理 ──
 let _suumoPatrolRunning = false;
-let _suumoPatrolSearchId = 0;
+// searchIdはbackground.jsのcurrentSearchIdを使用
 
 /**
  * 巡回条件をGASから取得
@@ -112,7 +112,8 @@ async function runSuumoPatrolCycle() {
   }
 
   _suumoPatrolRunning = true;
-  const searchId = ++_suumoPatrolSearchId;
+  // 既存のcurrentSearchIdを使用（isSearchCancelledがこれを参照するため）
+  const searchId = ++currentSearchId;
 
   try {
     await setStorageData({ debugLog: '━━━ SUUMO巡回 開始 ━━━' });
