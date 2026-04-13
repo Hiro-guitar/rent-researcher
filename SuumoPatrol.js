@@ -22,7 +22,8 @@
 
 var SUUMO_PATROL_HEADERS = [
   '条件ID', '条件名', 'エリア情報JSON', '賃料下限', '賃料上限',
-  '間取りJSON', '面積下限', '築年数', '有効', '作成日時', '最終巡回日時'
+  '間取りJSON', '面積下限', '築年数', '有効', '作成日時', '最終巡回日時',
+  '徒歩', '構造JSON', '設備JSON'
 ];
 
 var SUUMO_CANDIDATE_HEADERS = [
@@ -91,6 +92,9 @@ function getPatrolCriteria() {
       enabled: data[i][8] === true || data[i][8] === 'TRUE',
       createdAt: data[i][9],
       lastPatrolAt: data[i][10],
+      walk: data[i][11] || '',
+      structuresJson: data[i][12] || '[]',
+      equipmentJson: data[i][13] || '[]',
       _rowIndex: i + 2
     });
   }
@@ -114,6 +118,8 @@ function savePatrolCriteria(data) {
 
   var areaJson = typeof data.area === 'string' ? data.area : JSON.stringify(data.area || {});
   var layoutsJson = typeof data.layouts === 'string' ? data.layouts : JSON.stringify(data.layouts || []);
+  var structuresJson = typeof data.structures === 'string' ? data.structures : JSON.stringify(data.structures || []);
+  var equipmentJson = typeof data.equipment === 'string' ? data.equipment : JSON.stringify(data.equipment || []);
 
   if (data.id) {
     // 既存条件の更新
@@ -129,6 +135,12 @@ function savePatrolCriteria(data) {
           layoutsJson,
           data.areaMin || '',
           data.buildingAge || ''
+        ]]);
+        // 徒歩・構造・設備 (列12,13,14)
+        sheet.getRange(row, 12, 1, 3).setValues([[
+          data.walk || '',
+          structuresJson,
+          equipmentJson
         ]]);
         if (data.enabled !== undefined) {
           sheet.getRange(row, 9).setValue(data.enabled);
@@ -151,7 +163,10 @@ function savePatrolCriteria(data) {
       data.buildingAge || '',
       true,
       now,
-      ''
+      '',  // 最終巡回日時
+      data.walk || '',
+      structuresJson,
+      equipmentJson
     ]);
     return { success: true, id: newId, action: 'created' };
   }
@@ -515,13 +530,24 @@ function stopSuumoListing(key) {
  * SUUMO巡回条件管理ページを表示
  */
 function handleSuumoPatrolConfigPage(e) {
-  var template = HtmlService.createTemplateFromFile('SuumoPatrolConfig');
-  template.tokyoCities = JSON.stringify(TOKYO_CITIES);
+  try {
+    var template = HtmlService.createTemplateFromFile('SuumoPatrolConfig');
+    template.tokyoCities = JSON.stringify(TOKYO_CITIES);
 
-  return template.evaluate()
-    .setTitle('SUUMO巡回条件管理')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    return template.evaluate()
+      .setTitle('SUUMO巡回条件管理')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  } catch (err) {
+    console.error('SuumoPatrolConfig error: ' + err.message + '\n' + err.stack);
+    return HtmlService.createHtmlOutput(
+      '<html><body style="font-family:sans-serif;padding:40px;text-align:center;">' +
+      '<h2 style="color:#e74c3c;">エラー</h2>' +
+      '<p>' + err.message + '</p>' +
+      '<pre style="text-align:left;background:#f5f5f5;padding:10px;margin:20px auto;max-width:600px;overflow:auto;">' + (err.stack || '') + '</pre>' +
+      '</body></html>'
+    ).setTitle('エラー');
+  }
 }
 
 /**
@@ -831,4 +857,22 @@ function rejectSuumoCandidateFromClient(key) {
  */
 function getActiveListingCountForClient() {
   return getActiveListingCount();
+}
+
+/**
+ * AdminPage から呼ばれる: SUUMO巡回条件管理ページのURLを返す
+ */
+function getSuumoPatrolConfigUrl() {
+  var baseUrl = ScriptApp.getService().getUrl();
+  var apiKey = PropertiesService.getScriptProperties().getProperty('API_KEY') || '';
+  return baseUrl + '?action=suumo_patrol_config&api_key=' + encodeURIComponent(apiKey);
+}
+
+/**
+ * SuumoPatrolConfigPage から呼ばれる: 管理ページURLを返す
+ */
+function getAdminPageUrl() {
+  var baseUrl = ScriptApp.getService().getUrl();
+  var apiKey = PropertiesService.getScriptProperties().getProperty('API_KEY') || '';
+  return baseUrl + '?action=admin&api_key=' + encodeURIComponent(apiKey);
 }
