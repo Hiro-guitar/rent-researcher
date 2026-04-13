@@ -57,6 +57,16 @@ function patrolCriteriaToCustomer(criteria) {
 
   // 顧客名の代わりに条件IDを使用（ログ・識別用）
   // ただし、顧客向け検索との混乱を避けるため、プレフィックス付き
+  let structures = [];
+  try {
+    structures = typeof criteria.structuresJson === 'string' ? JSON.parse(criteria.structuresJson) : (criteria.structuresJson || []);
+  } catch (e) {}
+
+  let equipment = [];
+  try {
+    equipment = typeof criteria.equipmentJson === 'string' ? JSON.parse(criteria.equipmentJson) : (criteria.equipmentJson || []);
+  } catch (e) {}
+
   return {
     name: `[SUUMO巡回] ${criteria.name}`,
     _isSuumoPatrol: true,
@@ -65,17 +75,16 @@ function patrolCriteriaToCustomer(criteria) {
     prefecture: '東京都',
     cities: cities,
     stations: stations,
-    routes_with_stations: [], // 巡回ではルート指定なし（市区町村 or 駅名で検索）
+    routes_with_stations: [],
     routes: [],
     rent_max: criteria.rentMax || '',
     layouts: layouts,
-    walk: '', // 巡回では徒歩分指定なし（幅広く取得）
+    walk: criteria.walk || '',
     area_min: criteria.areaMin || '',
     building_age: criteria.buildingAge || '',
-    structures: [],
-    equipment: [],
-    petType: '',
-    // 巡回用: 賃料下限も考慮
+    structures: structures,
+    equipment: equipment,
+    petType: equipment.includes('ペット相談可') ? 'ok' : '',
     _rentMin: criteria.rentMin || ''
   };
 }
