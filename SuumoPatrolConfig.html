@@ -557,12 +557,14 @@ function loadCriteriaList() {
 
   google.script.run
     .withSuccessHandler(function(data) {
+      console.log('loadPatrolCriteria success:', JSON.stringify(data));
       allCriteria = data || [];
       renderCriteriaList();
     })
     .withFailureHandler(function(err) {
+      console.error('loadPatrolCriteria failure:', err);
       document.getElementById('criteriaList').innerHTML =
-        '<div class="empty-state">読み込みエラー: ' + (err.message || err) + '</div>';
+        '<div class="empty-state" style="color:#e74c3c;">読み込みエラー: ' + (err.message || JSON.stringify(err)) + '</div>';
     })
     .loadPatrolCriteria();
 }
@@ -819,8 +821,10 @@ function saveCondition() {
   document.getElementById('saveBtn').disabled = true;
   document.getElementById('saveBtn').textContent = '保存中...';
 
+  console.log('savePatrolCriteriaFromAdmin sending:', JSON.stringify(data));
   google.script.run
     .withSuccessHandler(function(result) {
+      console.log('savePatrolCriteriaFromAdmin success:', JSON.stringify(result));
       document.getElementById('saveBtn').disabled = false;
       document.getElementById('saveBtn').textContent = '保存する';
       if (result && result.success) {
@@ -828,13 +832,14 @@ function saveCondition() {
         cancelEdit();
         loadCriteriaList();
       } else {
-        showToast(result ? result.message : '保存に失敗しました');
+        showToast('保存失敗: ' + (result ? result.message : '不明なエラー'));
       }
     })
     .withFailureHandler(function(err) {
+      console.error('savePatrolCriteriaFromAdmin failure:', err);
       document.getElementById('saveBtn').disabled = false;
       document.getElementById('saveBtn').textContent = '保存する';
-      showToast('エラー: ' + (err.message || err));
+      showToast('サーバーエラー: ' + (err.message || JSON.stringify(err)));
     })
     .savePatrolCriteriaFromAdmin(data);
 }

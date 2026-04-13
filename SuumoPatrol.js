@@ -49,6 +49,13 @@ function getSuumoSheet_(sheetName, headers) {
     sheet = ss.insertSheet(sheetName);
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
+  } else {
+    // ヘッダー列数が不足している場合は自動拡張
+    var currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (currentHeaders.length < headers.length) {
+      var missing = headers.slice(currentHeaders.length);
+      sheet.getRange(1, currentHeaders.length + 1, 1, missing.length).setValues([missing]);
+    }
   }
   return sheet;
 }
@@ -822,7 +829,14 @@ function handleSetSuumoWebhook(json) {
  * AdminPage から呼ばれる: 巡回条件一覧取得
  */
 function loadPatrolCriteria() {
-  return getPatrolCriteria();
+  try {
+    var result = getPatrolCriteria();
+    console.log('loadPatrolCriteria: ' + result.length + '件取得');
+    return result;
+  } catch (err) {
+    console.error('loadPatrolCriteria error: ' + err.message + '\n' + err.stack);
+    throw err;
+  }
 }
 
 /**
