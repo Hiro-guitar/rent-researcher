@@ -167,6 +167,21 @@ body {
 }
 .toast.show { opacity: 1; }
 
+/* ── 確認モーダル ── */
+.modal-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 200;
+  justify-content: center; align-items: center;
+}
+.modal-overlay.show { display: flex; }
+.modal-box {
+  background: #fff; border-radius: 12px; padding: 24px; width: 300px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2); text-align: center;
+}
+.modal-box .modal-msg { font-size: 14px; color: #333; margin-bottom: 20px; line-height: 1.6; }
+.modal-box .modal-btns { display: flex; gap: 10px; }
+.modal-box .modal-btns .btn { flex: 1; }
+
 /* ── タブ ── */
 .tabs { display: flex; margin-bottom: 0; }
 .tab {
@@ -207,6 +222,15 @@ body {
 <body>
 
 <div id="toast" class="toast"></div>
+<div id="modalOverlay" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-msg" id="modalMsg"></div>
+    <div class="modal-btns">
+      <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-danger" id="modalOkBtn" onclick="">OK</button>
+    </div>
+  </div>
+</div>
 
 <!-- ===== ヘッダー ===== -->
 <div class="header">
@@ -845,21 +869,33 @@ function saveCondition() {
 }
 
 function deleteCondition(criteriaId) {
-  if (!confirm('この巡回条件を削除しますか？')) return;
+  showModal('この巡回条件を削除しますか？', function() {
+    closeModal();
+    google.script.run
+      .withSuccessHandler(function(result) {
+        if (result && result.success) {
+          showToast('条件を削除しました');
+          loadCriteriaList();
+        } else {
+          showToast(result ? result.message : '削除に失敗しました');
+        }
+      })
+      .withFailureHandler(function(err) {
+        showToast('エラー: ' + (err.message || err));
+      })
+      .deletePatrolCriteriaFromAdmin(criteriaId);
+  });
+}
 
-  google.script.run
-    .withSuccessHandler(function(result) {
-      if (result && result.success) {
-        showToast('条件を削除しました');
-        loadCriteriaList();
-      } else {
-        showToast(result ? result.message : '削除に失敗しました');
-      }
-    })
-    .withFailureHandler(function(err) {
-      showToast('エラー: ' + (err.message || err));
-    })
-    .deletePatrolCriteriaFromAdmin(criteriaId);
+function showModal(msg, onOk) {
+  document.getElementById('modalMsg').textContent = msg;
+  var okBtn = document.getElementById('modalOkBtn');
+  okBtn.onclick = onOk;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('show');
 }
 
 function toggleEnabled(criteriaId, enabled) {
