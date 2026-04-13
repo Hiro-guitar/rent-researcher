@@ -110,7 +110,7 @@ function getPatrolCriteria() {
       layoutsJson: String(data[i][5] || '[]'),
       areaMin: String(data[i][6] || ''),
       buildingAge: String(data[i][7] || ''),
-      enabled: data[i][8] === true || data[i][8] === 'TRUE',
+      enabled: data[i][8] === true || data[i][8] === 'TRUE' || String(data[i][8]).toUpperCase() === 'TRUE',
       createdAt: createdAt,
       lastPatrolAt: lastPatrolAt,
       walk: String(data[i][11] || ''),
@@ -716,8 +716,16 @@ function handleGetPatrolCriteria(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  var criteria = getActivePatrolCriteria();
-  return ContentService.createTextOutput(JSON.stringify({ criteria: criteria }))
+  var allCriteria = getPatrolCriteria();
+  var activeCriteria = allCriteria.filter(function(c) { return c.enabled; });
+  console.log('handleGetPatrolCriteria: 全' + allCriteria.length + '件, 有効' + activeCriteria.length + '件');
+  if (allCriteria.length > 0) {
+    console.log('先頭条件 enabled値: ' + JSON.stringify(allCriteria[0].enabled) + ', 生データ8列目確認用');
+  }
+  return ContentService.createTextOutput(JSON.stringify({
+    criteria: activeCriteria,
+    debug: { total: allCriteria.length, active: activeCriteria.length }
+  }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
