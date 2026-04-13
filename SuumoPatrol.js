@@ -254,7 +254,9 @@ function addSuumoCandidates(json) {
 
   for (var j = 0; j < properties.length; j++) {
     var p = properties[j];
-    var key = normalizeSuumoPropertyKey_(p.building || p.buildingName || '', p.room || p.roomNumber || '');
+    var bldg = p.building_name || p.buildingName || p.building || '';
+    var room = p.room_number || p.roomNumber || p.room || '';
+    var key = normalizeSuumoPropertyKey_(bldg, room);
 
     if (existingKeys[key]) {
       duplicates++;
@@ -272,8 +274,8 @@ function addSuumoCandidates(json) {
 
     var row = [
       key,
-      p.building || p.buildingName || '',
-      p.room || p.roomNumber || '',
+      bldg,
+      room,
       (p.pref || '') + (p.addr1 || '') + (p.addr2 || '') + (p.addr3 || ''),
       p.rent || '',
       p.managementFee || p.commonServiceFee || '',
@@ -644,7 +646,10 @@ function handleSuumoApprovePage(e) {
  * @param {string} criteriaName - 巡回条件名
  */
 function sendSuumoDiscordNotification(newProperties, criteriaName) {
-  if (!SUUMO_DISCORD_WEBHOOK_URL || newProperties.length === 0) return;
+  // 実行時にスクリプトプロパティから取得（Config.jsの定数はデプロイ時固定のため）
+  var webhookUrl = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL') || SUUMO_DISCORD_WEBHOOK_URL || '';
+  if (!webhookUrl || newProperties.length === 0) return;
+  console.log('SUUMO Discord通知: ' + newProperties.length + '件送信, URL=' + webhookUrl.substring(0, 50) + '...');
 
   var gasUrl = ScriptApp.getService().getUrl();
 
@@ -653,12 +658,12 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
     var p = entry.property;
     var row = entry.row;
 
-    var building = p.building || p.buildingName || '(建物名なし)';
-    var room = p.room || p.roomNumber || '';
+    var building = p.building_name || p.buildingName || p.building || '(建物名なし)';
+    var room = p.room_number || p.roomNumber || p.room || '';
     var rent = p.rent || '不明';
-    var mgmtFee = p.managementFee || p.commonServiceFee || '-';
-    var layout = (p.madoriRoomCount || '') + (p.madoriType || '');
-    var area = p.usageArea || '';
+    var mgmtFee = p.management_fee || p.managementFee || p.commonServiceFee || '-';
+    var layout = p.layout || ((p.madoriRoomCount || '') + (p.madoriType || ''));
+    var area = p.area || p.usageArea || '';
     var address = (p.pref || '') + (p.addr1 || '') + (p.addr2 || '');
     var source = p.sourceType || '';
 
@@ -686,7 +691,7 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
     };
 
     try {
-      UrlFetchApp.fetch(SUUMO_DISCORD_WEBHOOK_URL, {
+      UrlFetchApp.fetch(webhookUrl, {
         method: 'post',
         contentType: 'application/json',
         payload: JSON.stringify(payload),
