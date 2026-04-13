@@ -769,6 +769,23 @@ function handleSavePatrolCriteriaPost(json) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+/**
+ * POST: SUUMO Discord Webhook URL をスクリプトプロパティに保存
+ */
+function handleSetSuumoWebhook(json) {
+  var apiKey = json.api_key;
+  if (!apiKey || apiKey !== PropertiesService.getScriptProperties().getProperty('API_KEY')) {
+    return ContentService.createTextOutput(JSON.stringify({ error: 'unauthorized' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var webhookUrl = json.webhookUrl || '';
+  PropertiesService.getScriptProperties().setProperty('SUUMO_DISCORD_WEBHOOK_URL', webhookUrl);
+
+  return ContentService.createTextOutput(JSON.stringify({ success: true }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 // ═══════════════════════════════════════════════════════════
 // 7. google.script.run 用ラッパー（AdminPage / SuumoApprovalPage から呼ばれる）
 // ═══════════════════════════════════════════════════════════

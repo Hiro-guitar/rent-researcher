@@ -68,6 +68,9 @@ function doPost(e) {
     if (json.action === 'save_patrol_criteria') {
       return handleSavePatrolCriteriaPost(json);
     }
+    if (json.action === 'set_suumo_webhook') {
+      return handleSetSuumoWebhook(json);
+    }
 
     const event = json.events[0];
     if (!event) return;
