@@ -208,7 +208,9 @@
     const prefSelect = document.getElementById('todofukenList');
     if (!prefSelect) return;
 
-    prefSelect.value = '13'; // 東京都
+    // 都道府県コードを判定（デフォルト: 東京都=13）
+    const prefCode = getPrefCode(data.pref || data.prefecture || '東京都');
+    prefSelect.value = prefCode;
     prefSelect.dispatchEvent(new Event('change'));
 
     await waitFor(800);
@@ -262,17 +264,28 @@
       const t = data.access[i];
       if (!t) continue;
 
+      // station-data.js が読み込まれていれば路線・駅コードを補完
+      let lineCode = t.lineCode || '';
+      let stationCode = t.stationCode || '';
+      if ((!lineCode || !stationCode) && window.stationData) {
+        const match = findStationMatch(t.line || '', t.station || '');
+        if (match) {
+          if (!lineCode) lineCode = match.lineCode;
+          if (!stationCode) stationCode = match.stationCode;
+        }
+      }
+
       setInputById('pkgEnsenNmDisp' + num, t.line || '');
       setInputById('pkgEnsenNm' + num, t.line || '');
-      if (t.lineCode) {
-        setInputByIdWithEvents('pkgEnsenCd' + num, t.lineCode);
+      if (lineCode) {
+        setInputByIdWithEvents('pkgEnsenCd' + num, lineCode);
       }
 
       setInputById('pkgEkiNmDisp' + num, t.station || '');
       setInputById('pkgEkiNm' + num, t.station || '');
-      if (t.stationCode) {
-        const stationCode = t.stationCode.slice(-5);
-        setInputByIdWithEvents('pkgEkiCd' + num, stationCode);
+      if (stationCode) {
+        const code = stationCode.length > 5 ? stationCode.slice(-5) : stationCode;
+        setInputByIdWithEvents('pkgEkiCd' + num, code);
       }
 
       const walkValue = (t.walk || '').replace(/[^\d]/g, '');
@@ -284,6 +297,46 @@
         tohoRadio.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }
+  }
+
+  /**
+   * station-data.js から路線名・駅名でコードを検索
+   */
+  function findStationMatch(lineName, stationName) {
+    if (!window.stationData || !stationName) return null;
+
+    // 路線名の正規化（全角→半角、ＪＲ削除など）
+    const normLine = normalizeLine(lineName);
+    const normStation = stationName.replace(/駅$/, '').trim();
+
+    // 駅名で候補を絞り込み
+    const candidates = window.stationData.filter(s =>
+      s.stationName === normStation
+    );
+
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+
+    // 路線名でさらに絞り込み
+    if (normLine) {
+      const lineMatch = candidates.find(s =>
+        normalizeLine(s.lineName) === normLine ||
+        s.lineName.includes(normLine) ||
+        normLine.includes(s.lineName)
+      );
+      if (lineMatch) return lineMatch;
+    }
+
+    return candidates[0]; // 路線名マッチなしなら最初の候補
+  }
+
+  function normalizeLine(name) {
+    return (name || '')
+      .replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+      .replace(/　/g, ' ')
+      .replace(/^JR|^ＪＲ/, '')
+      .replace(/線$/, '')
+      .trim();
   }
 
   // ── 管理費 ──
@@ -650,28 +703,121 @@
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  /** 都道府県名からコードを返す */
+  function getPrefCode(pref) {
+    const prefMap = {
+      '北海道': '01', '青森県': '02', '岩手県': '03', '宮城県': '04', '秋田県': '05',
+      '山形県': '06', '福島県': '07', '茨城県': '08', '栃木県': '09', '群馬県': '10',
+      '埼玉県': '11', '千葉県': '12', '東京都': '13', '神奈川県': '14',
+      '新潟県': '15', '富山県': '16', '石川県': '17', '福井県': '18', '山梨県': '19',
+      '長野県': '20', '岐阜県': '21', '静岡県': '22', '愛知県': '23', '三重県': '24',
+      '滋賀県': '25', '京都府': '26', '大阪府': '27', '兵庫県': '28', '奈良県': '29',
+      '和歌山県': '30', '鳥取県': '31', '島根県': '32', '岡山県': '33', '広島県': '34',
+      '山口県': '35', '徳島県': '36', '香川県': '37', '愛媛県': '38', '高知県': '39',
+      '福岡県': '40', '佐賀県': '41', '長崎県': '42', '熊本県': '43', '大分県': '44',
+      '宮崎県': '45', '鹿児島県': '46', '沖縄県': '47'
+    };
+    return prefMap[pref] || '13';
+  }
+
 })();
 
 // ══════════════════════════════════════════════════════════
 //  トップフレーム: 入稿キュー監視
 // ══════════════════════════════════════════════════════════
+
+/** ForRent新規登録ページのURLパターン */
+const FORRENT_NEW_PAGE = 'BKR0201';
+let _suumoFillBusy = false;
+
 function initTopFrameMonitor() {
   // 5秒ごとにキューをチェック
   setInterval(checkFillQueue, 5000);
 }
 
 async function checkFillQueue() {
-  return new Promise(resolve => {
-    chrome.storage.local.get(['suumoFillQueue'], (data) => {
-      const queue = data.suumoFillQueue || [];
-      if (queue.length === 0) { resolve(); return; }
+  if (_suumoFillBusy) return;
 
-      const item = queue[0]; // 先頭の1件を処理
-      console.log('[SUUMO自動入稿] キューに物件あり:', item.building);
-
-      // TODO: ForRentの新規登録ページに遷移し、iframe内のフォーム入力をトリガーする
-      // 現段階ではログのみ
-      resolve();
-    });
+  const data = await new Promise(resolve => {
+    chrome.storage.local.get(['suumoFillQueue'], resolve);
   });
+
+  const queue = data.suumoFillQueue || [];
+  if (queue.length === 0) return;
+
+  const item = queue[0];
+  console.log('[SUUMO自動入稿] キューに物件あり:', item.building || item.buildingName);
+
+  // 新規登録ページでない場合は遷移（background.jsが遷移してくれるはずだが念のため）
+  if (!window.location.href.includes(FORRENT_NEW_PAGE)) {
+    console.log('[SUUMO自動入稿] 新規登録ページではないためスキップ（遷移待ち）');
+    return;
+  }
+
+  // iframe を探す
+  const iframe = document.querySelector('iframe[name="mainFrame"], iframe[src*="BKR"], iframe');
+  if (!iframe) {
+    console.log('[SUUMO自動入稿] iframe が見つかりません');
+    return;
+  }
+
+  _suumoFillBusy = true;
+
+  try {
+    // キューから先頭を取り出す
+    const remaining = queue.slice(1);
+    await new Promise(resolve => {
+      chrome.storage.local.set({ suumoFillQueue: remaining }, resolve);
+    });
+
+    console.log('[SUUMO自動入稿] iframe にフォーム入力を送信:', item.building || item.buildingName);
+
+    // iframe 内の content script にメッセージを送信
+    // content script は chrome.runtime.onMessage で SUUMO_FILL_START を待機中
+    const response = await new Promise((resolve, reject) => {
+      // iframe 内のタブにメッセージを送る（同一タブ内の全フレームに配信される）
+      chrome.runtime.sendMessage({
+        type: 'SUUMO_FILL_RELAY',
+        data: item.propertyData || item,
+        imageGenres: item.imageGenres || {}
+      }, (resp) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          resolve(resp);
+        }
+      });
+    });
+
+    console.log('[SUUMO自動入稿] 入力完了:', response);
+
+    // 完了報告をbackground.jsに送信
+    chrome.runtime.sendMessage({
+      type: 'SUUMO_FILL_COMPLETE',
+      data: {
+        propertyKey: item.propertyKey || '',
+        building: item.building || item.buildingName || '',
+        room: item.room || item.roomNumber || '',
+        success: true
+      }
+    });
+
+  } catch (err) {
+    console.error('[SUUMO自動入稿] エラー:', err);
+    // エラー時もキューを復元しない（無限ループ防止）
+    chrome.runtime.sendMessage({
+      type: 'SUUMO_FILL_COMPLETE',
+      data: {
+        propertyKey: item.propertyKey || '',
+        building: item.building || item.buildingName || '',
+        room: item.room || item.roomNumber || '',
+        success: false,
+        error: err.message
+      }
+    });
+  } finally {
+    // 次の物件は保存ボタンクリック→ページリロード後に処理
+    // リロード後に再度 checkFillQueue が走る
+    _suumoFillBusy = false;
+  }
 }

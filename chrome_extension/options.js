@@ -1,9 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode'], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
+    if (data.suumoDiscordWebhookUrl) document.getElementById('suumoDiscordWebhook').value = data.suumoDiscordWebhookUrl;
     if (data.errorWebhookUrl) document.getElementById('errorWebhook').value = data.errorWebhookUrl;
     if (data.searchIntervalMinutes) document.getElementById('interval').value = data.searchIntervalMinutes;
     if (data.pageDelaySeconds) document.getElementById('delay').value = data.pageDelaySeconds;
@@ -23,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const gasWebappUrl = document.getElementById('gasUrl').value.trim();
     const gasApiKey = document.getElementById('apiKey').value.trim();
     const discordWebhookUrl = document.getElementById('discordWebhook').value.trim();
+    const suumoDiscordWebhookUrl = document.getElementById('suumoDiscordWebhook').value.trim();
     const errorWebhookUrl = document.getElementById('errorWebhook').value.trim();
     const searchIntervalMinutes = Math.max(10, Math.min(240, parseInt(document.getElementById('interval').value) || 60));
     const pageDelaySeconds = Math.max(3, Math.min(30, parseInt(document.getElementById('delay').value) || 5));
@@ -36,6 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
       gasWebappUrl,
       gasApiKey,
       discordWebhookUrl,
+      suumoDiscordWebhookUrl,
       errorWebhookUrl,
       searchIntervalMinutes,
       pageDelaySeconds,
@@ -47,6 +50,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });
+
+      // SUUMO Discord Webhook URLをGASにも同期
+      if (gasWebappUrl && suumoDiscordWebhookUrl) {
+        fetch(gasWebappUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'set_suumo_webhook',
+            api_key: gasApiKey,
+            webhookUrl: suumoDiscordWebhookUrl
+          })
+        }).catch(err => console.warn('SUUMO Webhook URL同期失敗:', err));
+      }
 
       const msg = document.getElementById('savedMsg');
       msg.style.display = 'block';

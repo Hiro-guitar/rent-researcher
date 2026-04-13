@@ -10,7 +10,8 @@
     "notifications",
     "scripting",
     "power",
-    "idle"
+    "idle",
+    "webNavigation"
   ],
   "host_permissions": [
     "https://system.reins.jp/*",
@@ -83,8 +84,15 @@
       "matches": [
         "https://www.fn.forrent.jp/fn/*"
       ],
-      "js": ["suumo-fill-auto.js"],
+      "js": ["station-data.js", "suumo-fill-auto.js"],
       "all_frames": true
+    },
+    {
+      "matches": [
+        "https://www.fn.forrent.jp/fn/COM1R0214_2.action*"
+      ],
+      "js": ["popupHandler.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {

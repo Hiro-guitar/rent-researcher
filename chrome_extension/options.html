@@ -113,6 +113,12 @@
   </div>
 
   <div class="field">
+    <label for="suumoDiscordWebhook">SUUMO巡回用 Discord Webhook URL（任意）</label>
+    <input type="text" id="suumoDiscordWebhook" placeholder="https://discord.com/api/webhooks/...">
+    <div class="hint">SUUMO巡回で見つかった新着物件の通知先。空欄なら上の物件通知Webhookを使用</div>
+  </div>
+
+  <div class="field">
     <label for="errorWebhook">エラー通知用 Webhook URL（任意）</label>
     <input type="text" id="errorWebhook" placeholder="https://discord.com/api/webhooks/...">
     <div class="hint">エラーログをここに通知。空欄なら上の物件通知Webhookに送信。同一エラーは5分クールダウン</div>

@@ -803,15 +803,17 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
   // ── SUUMO入稿キューポーリング ──
   if (alarm.name === 'suumo-queue-poll') {
-    pollSuumoApprovalQueue().then(queueData => {
+    pollSuumoApprovalQueue().then(async queueData => {
       if (queueData && queueData.queue && queueData.queue.length > 0) {
         console.log(`[SUUMO入稿] ${queueData.queue.length}件の承認済み物件あり`);
-        // 入稿キューに保存（suumo-fill-auto.jsが処理）
-        chrome.storage.local.set({
+        // 入稿キューに保存
+        await setStorageData({
           suumoFillQueue: queueData.queue,
           suumoActiveListingCount: queueData.activeListingCount,
           suumoStopCandidate: queueData.stopCandidate
         });
+        // ForRentタブを開いて入稿を開始
+        await startSuumoFillProcess();
       }
     }).catch(err => {
       console.log(`[SUUMO入稿] キューポーリング失敗: ${err.message}`);
@@ -865,6 +867,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       sendResponse({ ok: true });
     });
+    return true;
+  }
+  if (msg.type === 'SUUMO_FILL_RELAY') {
+    // トップフレームからiframe内のcontent scriptへメッセージをリレー
+    // 送信元タブの全フレームに SUUMO_FILL_START を送信
+    const tabId = sender.tab?.id;
+    if (tabId) {
+      chrome.tabs.sendMessage(tabId, {
+        type: 'SUUMO_FILL_START',
+        data: msg.data,
+        imageGenres: msg.imageGenres
+      }, { frameId: 0 }).catch(() => {});
+      // iframe（frameId > 0）にも送信
+      chrome.webNavigation.getAllFrames({ tabId }, (frames) => {
+        if (!frames) return;
+        for (const frame of frames) {
+          if (frame.frameId === 0) continue;
+          chrome.tabs.sendMessage(tabId, {
+            type: 'SUUMO_FILL_START',
+            data: msg.data,
+            imageGenres: msg.imageGenres
+          }, { frameId: frame.frameId }).catch(() => {});
+        }
+      });
+      sendResponse({ ok: true, relayed: true });
+    } else {
+      sendResponse({ ok: false, error: 'タブIDが取得できません' });
+    }
     return true;
   }
   if (msg.type === 'SUUMO_FILL_COMPLETE') {
@@ -3969,5 +3999,44 @@ async function notifyDiscordError(message) {
     });
   } catch (e) {
     console.error('Discord エラー通知失敗:', e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SUUMO入稿: ForRentタブ管理・入稿プロセス
+// ══════════════════════════════════════════════════════════════
+
+/** ForRent新規登録ページのURL */
+const FORRENT_NEW_URL = 'https://www.fn.forrent.jp/fn/BKR0201_1.action';
+
+/**
+ * ForRentの入稿プロセスを開始
+ *
+ * 1. 既存のForRentタブを探すか、新規に開く
+ * 2. suumo-fill-auto.js のトップフレーム監視が自動でキューを処理
+ */
+async function startSuumoFillProcess() {
+  try {
+    // 既にForRentタブが開いている場合はそれを使う
+    const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/fn/*' });
+    let forrentTab;
+
+    if (tabs.length > 0) {
+      forrentTab = tabs[0];
+      // 新規登録ページでなければ遷移
+      if (!forrentTab.url.includes('BKR0201')) {
+        await chrome.tabs.update(forrentTab.id, { url: FORRENT_NEW_URL });
+      }
+    } else {
+      // ForRentタブがなければ新規に開く
+      forrentTab = await chrome.tabs.create({ url: FORRENT_NEW_URL, active: false });
+    }
+
+    console.log(`[SUUMO入稿] ForRentタブ準備完了 (tab ${forrentTab.id})`);
+    await setStorageData({ debugLog: `[SUUMO入稿] ForRentタブを開きました` });
+
+  } catch (err) {
+    console.error('[SUUMO入稿] ForRentタブオープン失敗:', err);
+    await setStorageData({ debugLog: `[SUUMO入稿] ForRentタブオープン失敗: ${err.message}` });
   }
 }
