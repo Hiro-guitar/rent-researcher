@@ -757,7 +757,12 @@ function handleGetSuumoQueue(e) {
  * POST: 候補物件追加
  */
 function handleAddSuumoCandidate(json) {
+  console.log('handleAddSuumoCandidate: ' + (json.properties || []).length + '件受信');
   var result = addSuumoCandidates(json);
+  console.log('addSuumoCandidates結果: added=' + result.added + ', dup=' + result.duplicates + ', newProps=' + (result.newProperties || []).length);
+
+  var webhookUrl = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL') || '';
+  console.log('SUUMO_DISCORD_WEBHOOK_URL: ' + (webhookUrl ? webhookUrl.substring(0, 50) + '...' : '(未設定)'));
 
   // 新着があればDiscord通知
   if (result.newProperties && result.newProperties.length > 0) {
