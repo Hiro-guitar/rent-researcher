@@ -23,10 +23,10 @@ let _suumoPatrolSearchId = 0;
  * 巡回条件をGASから取得
  */
 async function fetchPatrolCriteria() {
-  const { gasWebappUrl, apiKey } = await getStorageData(['gasWebappUrl', 'apiKey']);
+  const { gasWebappUrl, gasApiKey } = await getStorageData(['gasWebappUrl', 'gasApiKey']);
   if (!gasWebappUrl) throw new Error('GAS URL未設定');
 
-  const url = `${gasWebappUrl}?action=get_patrol_criteria&api_key=${encodeURIComponent(apiKey || '')}`;
+  const url = `${gasWebappUrl}?action=get_patrol_criteria&api_key=${encodeURIComponent(gasApiKey || '')}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`巡回条件取得失敗: HTTP ${res.status}`);
 
@@ -116,15 +116,25 @@ async function runSuumoPatrolCycle() {
 
     // 1. 巡回条件を取得
     let criteria;
+    let debugInfo;
     try {
-      criteria = await fetchPatrolCriteria();
+      const { gasWebappUrl, gasApiKey } = await getStorageData(['gasWebappUrl', 'gasApiKey']);
+      const url = `${gasWebappUrl}?action=get_patrol_criteria&api_key=${encodeURIComponent(gasApiKey || '')}`;
+      console.log('[SUUMO巡回] リクエストURL:', url);
+      const res = await fetch(url);
+      const rawText = await res.text();
+      console.log('[SUUMO巡回] GAS生レスポンス:', rawText.substring(0, 500));
+      const data = JSON.parse(rawText);
+      criteria = data.criteria || [];
+      debugInfo = data.debug || {};
+      console.log('[SUUMO巡回] パース結果: 全', debugInfo.total, '件, 有効', debugInfo.active, '件');
     } catch (err) {
       await setStorageData({ debugLog: `[SUUMO巡回] 条件取得失敗: ${err.message}` });
       return;
     }
 
     if (!criteria || criteria.length === 0) {
-      await setStorageData({ debugLog: '[SUUMO巡回] 有効な巡回条件がありません' });
+      await setStorageData({ debugLog: `[SUUMO巡回] 有効な巡回条件がありません (debug: 全${debugInfo.total || '?'}件, 有効${debugInfo.active || '?'}件)` });
       return;
     }
 
@@ -318,10 +328,10 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
  * SUUMO承認キューをポーリング
  */
 async function pollSuumoApprovalQueue() {
-  const { gasWebappUrl, apiKey } = await getStorageData(['gasWebappUrl', 'apiKey']);
+  const { gasWebappUrl, gasApiKey } = await getStorageData(['gasWebappUrl', 'gasApiKey']);
   if (!gasWebappUrl) return null;
 
-  const url = `${gasWebappUrl}?action=get_suumo_queue&api_key=${encodeURIComponent(apiKey || '')}`;
+  const url = `${gasWebappUrl}?action=get_suumo_queue&api_key=${encodeURIComponent(gasApiKey || '')}`;
   const res = await fetch(url);
   if (!res.ok) return null;
 
