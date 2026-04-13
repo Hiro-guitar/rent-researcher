@@ -166,6 +166,42 @@ body {
   pointer-events: none;
 }
 .toast.show { opacity: 1; }
+
+/* ── タブ ── */
+.tabs { display: flex; margin-bottom: 0; }
+.tab {
+  flex: 1; text-align: center; padding: 10px; font-size: 14px; font-weight: 600;
+  cursor: pointer; background: #e9ecef; color: #555; border-bottom: 2px solid transparent;
+}
+.tab.active { background: #8bc34a; color: #fff; border-bottom: 2px solid #689f38; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.tab-note { font-size: 11px; color: #e74c3c; padding: 4px 8px; }
+
+/* ── 路線選択 ── */
+.company-group { margin-bottom: 8px; }
+.company-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px; background: #f0f0f0; border-bottom: 1px solid #ddd;
+  font-size: 13px; font-weight: 600; color: #333;
+}
+.company-header button { font-size: 11px; padding: 3px 8px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
+.company-routes { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
+.route-row {
+  display: flex; align-items: center; padding: 6px 16px; border-bottom: 1px solid #f0f0f0; cursor: pointer;
+}
+.route-row:hover { background: #f8f9fa; }
+.route-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: #27ae60; margin-right: 8px; }
+.route-row .route-label { flex: 1; font-size: 13px; }
+.route-row .station-count { font-size: 11px; color: #888; margin-right: 8px; }
+.route-row .arrow { font-size: 12px; color: #999; transition: transform 0.2s; }
+.route-row .arrow.open { transform: rotate(90deg); }
+.station-panel { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; background: #fafafa; padding: 0 16px; }
+.station-panel.open { padding: 8px 16px; }
+.station-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px; }
+.station-item { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.station-item input { width: 14px; height: 14px; accent-color: #27ae60; }
+.station-select-all { font-size: 11px; color: #1a5276; cursor: pointer; text-decoration: underline; margin-bottom: 6px; display: inline-block; }
 </style>
 </head>
 <body>
@@ -203,18 +239,18 @@ body {
         <input type="text" id="editName" placeholder="例: 新宿1K-1LDK 10万以下">
       </div>
 
-      <!-- エリア（市区町村） -->
+      <!-- エリア -->
       <div class="section-title">エリア</div>
-      <div class="field">
-        <label>市区町村</label>
-        <div class="hint">巡回する市区町村を選択してください</div>
-        <div id="cityCheckboxes" class="checkbox-grid" style="margin-top:8px;"></div>
+      <div class="tabs">
+        <div class="tab active" id="tabRoute" onclick="switchTab('route')">路線・駅</div>
+        <div class="tab" id="tabCity" onclick="switchTab('city')">市区町村</div>
       </div>
-
-      <div class="field">
-        <label>駅名</label>
-        <textarea id="editStations" rows="2" placeholder="駅名をカンマ区切りで入力（例: 新宿,渋谷,池袋）"></textarea>
-        <div class="hint">駅名で絞り込みたい場合に入力（任意）</div>
+      <div class="tab-note">※ 路線・駅と市区町村は同時に使用できません。選択中のタブの条件のみ反映されます。</div>
+      <div class="tab-content active" id="contentRoute">
+        <div id="routeList"></div>
+      </div>
+      <div class="tab-content" id="contentCity">
+        <div id="cityCheckboxes" class="checkbox-grid" style="padding:8px;"></div>
       </div>
 
       <!-- 家賃 -->
@@ -295,7 +331,11 @@ body {
 //  初期データ
 // ══════════════════════════════════════════════════════════
 var TOKYO_CITIES = <?!= tokyoCities ?>;
+var ROUTE_COMPANIES = <?!= routeCompanies ?>;
+var STATION_DATA = <?!= stationData ?>;
 var allCriteria = [];
+var activeTab = 'route';
+var renderedRoutes = {};
 
 var LAYOUT_OPTIONS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'];
 
@@ -318,11 +358,128 @@ var EQUIPMENT_CATEGORIES = [
 // ══════════════════════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', function() {
   renderCityCheckboxes();
+  renderRoutes();
   renderLayoutCheckboxes();
   renderStructureCheckboxes();
   renderEquipmentCheckboxes();
   loadCriteriaList();
 });
+
+// ── タブ切替 ──
+function switchTab(tab) {
+  activeTab = tab;
+  document.getElementById('tabRoute').className = 'tab' + (tab === 'route' ? ' active' : '');
+  document.getElementById('tabCity').className = 'tab' + (tab === 'city' ? ' active' : '');
+  document.getElementById('contentRoute').className = 'tab-content' + (tab === 'route' ? ' active' : '');
+  document.getElementById('contentCity').className = 'tab-content' + (tab === 'city' ? ' active' : '');
+}
+
+// ── 路線一覧レンダリング ──
+function renderRoutes() {
+  var container = document.getElementById('routeList');
+  var html = '';
+  for (var ci = 0; ci < ROUTE_COMPANIES.length; ci++) {
+    var company = ROUTE_COMPANIES[ci];
+    var routes = company.routes || [];
+    html += '<div class="company-group" id="cg_' + ci + '">';
+    html += '<div class="company-header"><span>' + esc(company.label) + '（' + routes.length + '路線）</span>';
+    html += '<button onclick="toggleCompany(' + ci + ')">全選択</button></div>';
+    html += '<div class="company-routes" id="cr_' + ci + '">';
+    for (var ri = 0; ri < routes.length; ri++) {
+      var routeName = routes[ri];
+      var stationCount = (STATION_DATA[routeName] || []).length;
+      var cbId = 'r_' + ci + '_' + ri;
+      html += '<div>';
+      html += '<div class="route-row" onclick="onRouteRowClick(\'' + cbId + '\')">';
+      html += '<input type="checkbox" id="' + cbId + '" class="route-cb" data-route="' + esc(routeName) + '" onclick="event.stopPropagation();onRouteChange(this)">';
+      html += '<span class="route-label">' + esc(routeName) + '</span>';
+      html += '<span class="station-count">' + stationCount + '駅</span>';
+      html += '<span class="arrow" id="arrow_' + cbId + '">▶</span>';
+      html += '</div>';
+      html += '<div class="station-panel" id="sp_' + cbId + '"></div>';
+      html += '</div>';
+    }
+    html += '</div></div>';
+  }
+  container.innerHTML = html;
+}
+
+function onRouteRowClick(cbId) {
+  var panel = document.getElementById('sp_' + cbId);
+  var cb = document.getElementById(cbId);
+  var routeName = cb.getAttribute('data-route');
+  ensureStationsRendered(routeName, panel);
+  var arrow = document.getElementById('arrow_' + cbId);
+  if (panel.style.maxHeight && panel.style.maxHeight !== '0px') {
+    panel.style.maxHeight = '0';
+    panel.classList.remove('open');
+    arrow.classList.remove('open');
+  } else {
+    panel.style.maxHeight = panel.scrollHeight + 200 + 'px';
+    panel.classList.add('open');
+    arrow.classList.add('open');
+    // 親のcompany-routesも開く
+    var cr = panel.closest('.company-routes');
+    if (cr) cr.style.maxHeight = cr.scrollHeight + 500 + 'px';
+  }
+}
+
+function onRouteChange(cb) {
+  var routeName = cb.getAttribute('data-route');
+  var cbId = cb.id;
+  var panel = document.getElementById('sp_' + cbId);
+  ensureStationsRendered(routeName, panel);
+  var stations = panel.querySelectorAll('.station-cb');
+  stations.forEach(function(s) { s.checked = cb.checked; });
+  if (cb.checked) {
+    panel.style.maxHeight = panel.scrollHeight + 200 + 'px';
+    panel.classList.add('open');
+    document.getElementById('arrow_' + cbId).classList.add('open');
+    var cr = panel.closest('.company-routes');
+    if (cr) cr.style.maxHeight = cr.scrollHeight + 500 + 'px';
+  }
+}
+
+function ensureStationsRendered(routeName, panel) {
+  if (renderedRoutes[routeName]) return;
+  renderedRoutes[routeName] = true;
+  var stations = STATION_DATA[routeName] || [];
+  if (stations.length === 0) { panel.innerHTML = '<div style="padding:8px;color:#999;font-size:12px;">駅データなし</div>'; return; }
+  var html = '<span class="station-select-all" onclick="toggleRouteStations(\'' + esc(routeName) + '\')">全選択/解除</span>';
+  html += '<div class="station-list">';
+  for (var i = 0; i < stations.length; i++) {
+    html += '<div class="station-item"><input type="checkbox" class="station-cb" data-route="' + esc(routeName) + '" value="' + esc(stations[i]) + '" onchange="onStationCheck(this)"><label>' + esc(stations[i]) + '</label></div>';
+  }
+  html += '</div>';
+  panel.innerHTML = html;
+}
+
+function toggleRouteStations(routeName) {
+  var cbs = document.querySelectorAll('.station-cb[data-route="' + routeName + '"]');
+  var allChecked = Array.from(cbs).every(function(c) { return c.checked; });
+  cbs.forEach(function(c) { c.checked = !allChecked; });
+  // 親路線チェックボックスも更新
+  var routeCb = document.querySelector('.route-cb[data-route="' + routeName + '"]');
+  if (routeCb) routeCb.checked = !allChecked;
+}
+
+function onStationCheck(staCb) {
+  var routeName = staCb.getAttribute('data-route');
+  var routeCb = document.querySelector('.route-cb[data-route="' + routeName + '"]');
+  if (!routeCb) return;
+  var siblings = document.querySelectorAll('.station-cb[data-route="' + routeName + '"]');
+  var anyChecked = Array.from(siblings).some(function(c) { return c.checked; });
+  routeCb.checked = anyChecked;
+}
+
+function toggleCompany(companyIdx) {
+  var cr = document.getElementById('cr_' + companyIdx);
+  if (cr.style.maxHeight && cr.style.maxHeight !== '0px') {
+    cr.style.maxHeight = '0';
+  } else {
+    cr.style.maxHeight = cr.scrollHeight + 2000 + 'px';
+  }
+}
 
 function renderCityCheckboxes() {
   var container = document.getElementById('cityCheckboxes');
@@ -424,8 +581,15 @@ function renderCriteriaList() {
     var area = '';
     try {
       var areaObj = typeof c.areaJson === 'string' ? JSON.parse(c.areaJson) : c.areaJson;
-      if (areaObj && areaObj.cities) area = areaObj.cities.join(', ');
-      if (areaObj && areaObj.stations) area += (area ? ' / ' : '') + areaObj.stations.join(', ');
+      if (areaObj && areaObj.cities && areaObj.cities.length) area = areaObj.cities.join(', ');
+      if (areaObj && areaObj.routes_with_stations && areaObj.routes_with_stations.length) {
+        var routeInfo = areaObj.routes_with_stations.map(function(rws) {
+          return rws.route + '(' + (rws.stations || []).length + '駅)';
+        }).join(', ');
+        area += (area ? ' / ' : '') + routeInfo;
+      } else if (areaObj && areaObj.stations && areaObj.stations.length) {
+        area += (area ? ' / ' : '') + areaObj.stations.join(', ');
+      }
     } catch(e) {}
 
     var layouts = '';
@@ -479,7 +643,6 @@ function showEditForm(criteriaId) {
   // フォームリセット
   document.getElementById('editId').value = '';
   document.getElementById('editName').value = '';
-  document.getElementById('editStations').value = '';
   document.getElementById('editRentMin').value = '';
   document.getElementById('editRentMax').value = '';
   document.getElementById('editAreaMin').value = '';
@@ -496,6 +659,8 @@ function showEditForm(criteriaId) {
   uncheckAll('layoutCheckboxes');
   uncheckAll('structureCheckboxes');
   uncheckAllEquipment();
+  uncheckAllRoutes();
+  switchTab('route');
 
   if (criteriaId) {
     var c = allCriteria.find(function(x) { return x.id === criteriaId; });
@@ -531,8 +696,44 @@ function showEditForm(criteriaId) {
       // エリア
       try {
         var areaObj = typeof c.areaJson === 'string' ? JSON.parse(c.areaJson) : c.areaJson;
-        if (areaObj && areaObj.cities) checkValues('cityCheckboxes', areaObj.cities);
-        if (areaObj && areaObj.stations) document.getElementById('editStations').value = areaObj.stations.join(', ');
+        if (areaObj) {
+          // タブ切替
+          var savedTab = areaObj.tab || (areaObj.routes_with_stations && areaObj.routes_with_stations.length > 0 ? 'route' : 'city');
+          switchTab(savedTab);
+
+          // 市区町村
+          if (areaObj.cities) checkValues('cityCheckboxes', areaObj.cities);
+
+          // 路線・駅を復元
+          if (areaObj.routes_with_stations && areaObj.routes_with_stations.length > 0) {
+            areaObj.routes_with_stations.forEach(function(rws) {
+              var routeName = rws.route;
+              var stationNames = rws.stations || [];
+              // 路線チェックボックスを探してチェック
+              var routeCb = document.querySelector('.route-cb[data-route="' + routeName + '"]');
+              if (routeCb) {
+                routeCb.checked = true;
+                // 駅パネルをレンダリング
+                var panel = document.getElementById('sp_' + routeCb.id);
+                if (panel) {
+                  ensureStationsRendered(routeName, panel);
+                  // 各駅をチェック
+                  stationNames.forEach(function(st) {
+                    var stCb = panel.querySelector('.station-cb[value="' + st + '"]');
+                    if (stCb) stCb.checked = true;
+                  });
+                  // パネルと親を展開
+                  panel.style.maxHeight = panel.scrollHeight + 200 + 'px';
+                  panel.classList.add('open');
+                  var arrow = document.getElementById('arrow_' + routeCb.id);
+                  if (arrow) arrow.classList.add('open');
+                  var cr = panel.closest('.company-routes');
+                  if (cr) cr.style.maxHeight = cr.scrollHeight + 2000 + 'px';
+                }
+              }
+            });
+          }
+        }
       } catch(e) {}
 
       // 間取り
@@ -573,9 +774,28 @@ function saveCondition() {
     return;
   }
 
-  var cities = getCheckedValues('cityCheckboxes');
-  var stationsRaw = document.getElementById('editStations').value.trim();
-  var stations = stationsRaw ? stationsRaw.split(/[,、，\s]+/).filter(function(s) { return s; }) : [];
+  var cities = [];
+  var stations = [];
+  var routes_with_stations = [];
+
+  if (activeTab === 'city') {
+    cities = getCheckedValues('cityCheckboxes');
+  } else {
+    // 路線・駅タブ: チェックされた駅を取得
+    var checkedStations = document.querySelectorAll('.station-cb:checked');
+    var routeMap = {};
+    checkedStations.forEach(function(cb) {
+      var route = cb.getAttribute('data-route');
+      var station = cb.value;
+      stations.push(station);
+      if (!routeMap[route]) routeMap[route] = [];
+      routeMap[route].push(station);
+    });
+    // routes_with_stations: 巡回エンジン用のフォーマット
+    for (var r in routeMap) {
+      routes_with_stations.push({ route: r, stations: routeMap[r] });
+    }
+  }
 
   var walk = '';
   if (!document.getElementById('walkUnspecified').checked) {
@@ -585,7 +805,7 @@ function saveCondition() {
   var data = {
     id: document.getElementById('editId').value || undefined,
     name: name,
-    area: { cities: cities, stations: stations },
+    area: { cities: cities, stations: stations, routes_with_stations: routes_with_stations, tab: activeTab },
     rentMin: document.getElementById('editRentMin').value || '',
     rentMax: document.getElementById('editRentMax').value || '',
     layouts: getCheckedValues('layoutCheckboxes'),
@@ -697,6 +917,20 @@ function checkEquipment(values) {
 function uncheckAllEquipment() {
   var checkboxes = document.querySelectorAll('.equip-cb');
   checkboxes.forEach(function(cb) { cb.checked = false; });
+}
+
+function uncheckAllRoutes() {
+  var routeCbs = document.querySelectorAll('.route-cb');
+  routeCbs.forEach(function(cb) { cb.checked = false; });
+  var staCbs = document.querySelectorAll('.station-cb');
+  staCbs.forEach(function(cb) { cb.checked = false; });
+  // パネルを閉じる
+  var panels = document.querySelectorAll('.station-panel');
+  panels.forEach(function(p) { p.style.maxHeight = '0'; p.classList.remove('open'); });
+  var arrows = document.querySelectorAll('.arrow');
+  arrows.forEach(function(a) { a.classList.remove('open'); });
+  var crs = document.querySelectorAll('.company-routes');
+  crs.forEach(function(cr) { cr.style.maxHeight = '0'; });
 }
 
 function showToast(msg) {

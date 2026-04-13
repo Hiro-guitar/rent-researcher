@@ -533,6 +533,8 @@ function handleSuumoPatrolConfigPage(e) {
   try {
     var template = HtmlService.createTemplateFromFile('SuumoPatrolConfig');
     template.tokyoCities = JSON.stringify(TOKYO_CITIES);
+    template.routeCompanies = JSON.stringify(ROUTE_COMPANIES);
+    template.stationData = JSON.stringify(STATION_DATA);
 
     return template.evaluate()
       .setTitle('SUUMO巡回条件管理')
