@@ -37,6 +37,13 @@ body {
 }
 .card-body { padding: 12px 16px; }
 
+/* ── セクション ── */
+.section-title {
+  font-size: 13px; font-weight: 700; color: #e74c3c;
+  margin: 16px 0 6px; padding-bottom: 4px;
+  border-bottom: 2px solid #fadbd8;
+}
+
 /* ── フォーム ── */
 .field { margin-bottom: 12px; }
 .field label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; }
@@ -48,6 +55,16 @@ body {
 .field .hint { font-size: 11px; color: #999; margin-top: 4px; }
 .field-row { display: flex; gap: 12px; }
 .field-row .field { flex: 1; }
+
+/* ── スライダー ── */
+.slider-row { display: flex; align-items: center; gap: 12px; }
+.slider-row input[type="range"] { flex: 1; }
+.slider-row .slider-value {
+  min-width: 80px; text-align: center;
+  font-size: 16px; font-weight: 700; color: #1a5276;
+}
+.unspecified-row { margin-bottom: 6px; }
+.unspecified-row label { font-size: 13px; font-weight: 400; cursor: pointer; display: flex; align-items: center; gap: 6px; }
 
 /* ── チェックボックスグリッド ── */
 .checkbox-grid {
@@ -64,6 +81,24 @@ body {
   background: #d4efdf; border-color: #82e0aa;
 }
 .checkbox-grid input[type="checkbox"] { width: 16px; height: 16px; accent-color: #27ae60; }
+
+/* ── こだわり条件 ── */
+.equip-category { margin-bottom: 10px; }
+.equip-category-title { font-size: 12px; font-weight: 700; color: #1a5276; margin-bottom: 4px; }
+.equip-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 4px;
+}
+.equip-grid label {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 400; cursor: pointer;
+  padding: 5px 6px; border-radius: 5px; background: #f8f9fa;
+  border: 1px solid #e9ecef;
+}
+.equip-grid label:has(input:checked) {
+  background: #d4efdf; border-color: #82e0aa;
+}
+.equip-grid input[type="checkbox"] { width: 14px; height: 14px; accent-color: #27ae60; }
 
 /* ── ボタン ── */
 .btn {
@@ -168,18 +203,22 @@ body {
         <input type="text" id="editName" placeholder="例: 新宿1K-1LDK 10万以下">
       </div>
 
+      <!-- エリア（市区町村） -->
+      <div class="section-title">エリア</div>
       <div class="field">
-        <label>エリア（市区町村）</label>
+        <label>市区町村</label>
         <div class="hint">巡回する市区町村を選択してください</div>
         <div id="cityCheckboxes" class="checkbox-grid" style="margin-top:8px;"></div>
       </div>
 
       <div class="field">
-        <label>エリア（駅名）</label>
+        <label>駅名</label>
         <textarea id="editStations" rows="2" placeholder="駅名をカンマ区切りで入力（例: 新宿,渋谷,池袋）"></textarea>
         <div class="hint">駅名で絞り込みたい場合に入力（任意）</div>
       </div>
 
+      <!-- 家賃 -->
+      <div class="section-title">家賃</div>
       <div class="field-row">
         <div class="field">
           <label>賃料下限（万円）</label>
@@ -191,22 +230,56 @@ body {
         </div>
       </div>
 
+      <!-- 間取り -->
+      <div class="section-title">間取り</div>
       <div class="field">
-        <label>間取り</label>
         <div id="layoutCheckboxes" class="checkbox-grid"></div>
       </div>
 
+      <!-- 駅徒歩 -->
+      <div class="section-title">駅徒歩</div>
+      <div class="field">
+        <div class="unspecified-row">
+          <label><input type="checkbox" id="walkUnspecified" checked onchange="toggleWalkSlider()"> 指定しない</label>
+        </div>
+        <div id="walkSliderContainer" style="display:none;">
+          <div class="slider-row">
+            <input type="range" id="walkSlider" min="1" max="20" value="10" oninput="updateWalkDisplay()">
+            <div class="slider-value" id="walkDisplay">10分以内</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 面積・築年数 -->
+      <div class="section-title">面積・築年数</div>
       <div class="field-row">
         <div class="field">
-          <label>面積下限（m²）</label>
-          <input type="number" id="editAreaMin" placeholder="例: 20" step="0.1">
+          <label>専有面積下限（m²）</label>
+          <div class="unspecified-row">
+            <label><input type="checkbox" id="areaUnspecified" checked onchange="toggleAreaInput()"> 指定しない</label>
+          </div>
+          <input type="number" id="editAreaMin" placeholder="例: 20" step="0.1" style="display:none;">
         </div>
         <div class="field">
           <label>築年数上限</label>
-          <input type="number" id="editBuildingAge" placeholder="例: 30">
+          <div class="unspecified-row">
+            <label><input type="checkbox" id="ageUnspecified" checked onchange="toggleAgeInput()"> 指定しない</label>
+          </div>
+          <input type="number" id="editBuildingAge" placeholder="例: 30" style="display:none;">
           <div class="hint">この年数以内の物件のみ</div>
         </div>
       </div>
+
+      <!-- 建物構造 -->
+      <div class="section-title">建物構造</div>
+      <div class="field">
+        <div id="structureCheckboxes" class="checkbox-grid"></div>
+        <div class="hint">指定しない場合は全て対象</div>
+      </div>
+
+      <!-- こだわり条件 -->
+      <div class="section-title">こだわり条件</div>
+      <div id="equipmentContainer"></div>
     </div>
   </div>
 
@@ -224,8 +297,21 @@ body {
 var TOKYO_CITIES = <?!= tokyoCities ?>;
 var allCriteria = [];
 
-// 間取りオプション
-var LAYOUT_OPTIONS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K','4DK','4LDK'];
+var LAYOUT_OPTIONS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'];
+
+var STRUCTURE_OPTIONS = ['鉄筋系','鉄骨系','木造','ブロック・その他'];
+
+var EQUIPMENT_CATEGORIES = [
+  { name: '階数・位置', items: ['1階の物件','2階以上','最上階','角部屋','南向き'] },
+  { name: '室内設備', items: ['室内洗濯機置場','ロフト','家具家電付き','エアコン付き','床暖房'] },
+  { name: 'バス・トイレ', items: ['バス・トイレ別','独立洗面台','温水洗浄便座','浴室乾燥機','追い焚き風呂'] },
+  { name: 'キッチン', items: ['ガスコンロ対応','IHコンロ','コンロ2口以上','システムキッチン','カウンターキッチン'] },
+  { name: '建物設備', items: ['駐輪場あり','エレベーター','宅配ボックス','敷地内ゴミ置場','バルコニー付','都市ガス'] },
+  { name: 'セキュリティ', items: ['オートロック','TVモニタ付きインタホン','防犯カメラ'] },
+  { name: '初期費用', items: ['敷金なし','礼金なし','フリーレント'] },
+  { name: '入居条件', items: ['ペット相談可','楽器相談可','事務所利用可','定期借家を含まない'] },
+  { name: '通信・収納', items: ['インターネット無料','収納','ウォークインクローゼット'] }
+];
 
 // ══════════════════════════════════════════════════════════
 //  初期化
@@ -233,6 +319,8 @@ var LAYOUT_OPTIONS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K'
 window.addEventListener('DOMContentLoaded', function() {
   renderCityCheckboxes();
   renderLayoutCheckboxes();
+  renderStructureCheckboxes();
+  renderEquipmentCheckboxes();
   loadCriteriaList();
 });
 
@@ -254,6 +342,54 @@ function renderLayoutCheckboxes() {
     html += '<label><input type="checkbox" value="' + LAYOUT_OPTIONS[i] + '"> ' + LAYOUT_OPTIONS[i] + '</label>';
   }
   container.innerHTML = html;
+}
+
+function renderStructureCheckboxes() {
+  var container = document.getElementById('structureCheckboxes');
+  var html = '';
+  for (var i = 0; i < STRUCTURE_OPTIONS.length; i++) {
+    html += '<label><input type="checkbox" value="' + STRUCTURE_OPTIONS[i] + '"> ' + STRUCTURE_OPTIONS[i] + '</label>';
+  }
+  container.innerHTML = html;
+}
+
+function renderEquipmentCheckboxes() {
+  var container = document.getElementById('equipmentContainer');
+  var html = '';
+  for (var ci = 0; ci < EQUIPMENT_CATEGORIES.length; ci++) {
+    var cat = EQUIPMENT_CATEGORIES[ci];
+    html += '<div class="equip-category">';
+    html += '<div class="equip-category-title">' + esc(cat.name) + '</div>';
+    html += '<div class="equip-grid">';
+    for (var ei = 0; ei < cat.items.length; ei++) {
+      html += '<label><input type="checkbox" class="equip-cb" value="' + esc(cat.items[ei]) + '"> ' + esc(cat.items[ei]) + '</label>';
+    }
+    html += '</div></div>';
+  }
+  container.innerHTML = html;
+}
+
+// ── スライダー・トグル ──
+function toggleWalkSlider() {
+  var unspec = document.getElementById('walkUnspecified').checked;
+  document.getElementById('walkSliderContainer').style.display = unspec ? 'none' : 'block';
+}
+
+function updateWalkDisplay() {
+  var val = document.getElementById('walkSlider').value;
+  document.getElementById('walkDisplay').textContent = val + '分以内';
+}
+
+function toggleAreaInput() {
+  var unspec = document.getElementById('areaUnspecified').checked;
+  document.getElementById('editAreaMin').style.display = unspec ? 'none' : 'block';
+  if (unspec) document.getElementById('editAreaMin').value = '';
+}
+
+function toggleAgeInput() {
+  var unspec = document.getElementById('ageUnspecified').checked;
+  document.getElementById('editBuildingAge').style.display = unspec ? 'none' : 'block';
+  if (unspec) document.getElementById('editBuildingAge').value = '';
 }
 
 // ══════════════════════════════════════════════════════════
@@ -307,6 +443,7 @@ function renderCriteriaList() {
     if (area) detail.push(area);
     if (rent) detail.push(rent);
     if (layouts) detail.push(layouts);
+    if (c.walk) detail.push('徒歩' + c.walk + '分');
     if (c.areaMin) detail.push(c.areaMin + 'm²以上');
     if (c.buildingAge) detail.push('築' + c.buildingAge + '年以内');
 
@@ -347,11 +484,20 @@ function showEditForm(criteriaId) {
   document.getElementById('editRentMax').value = '';
   document.getElementById('editAreaMin').value = '';
   document.getElementById('editBuildingAge').value = '';
+  document.getElementById('walkSlider').value = 10;
+  document.getElementById('walkUnspecified').checked = true;
+  document.getElementById('areaUnspecified').checked = true;
+  document.getElementById('ageUnspecified').checked = true;
+  toggleWalkSlider();
+  toggleAreaInput();
+  toggleAgeInput();
+  updateWalkDisplay();
   uncheckAll('cityCheckboxes');
   uncheckAll('layoutCheckboxes');
+  uncheckAll('structureCheckboxes');
+  uncheckAllEquipment();
 
   if (criteriaId) {
-    // 既存条件を読み込み
     var c = allCriteria.find(function(x) { return x.id === criteriaId; });
     if (c) {
       document.getElementById('editFormTitle').textContent = '条件を編集: ' + c.name;
@@ -359,22 +505,52 @@ function showEditForm(criteriaId) {
       document.getElementById('editName').value = c.name;
       document.getElementById('editRentMin').value = c.rentMin || '';
       document.getElementById('editRentMax').value = c.rentMax || '';
-      document.getElementById('editAreaMin').value = c.areaMin || '';
-      document.getElementById('editBuildingAge').value = c.buildingAge || '';
 
+      // 徒歩
+      if (c.walk) {
+        document.getElementById('walkUnspecified').checked = false;
+        document.getElementById('walkSlider').value = c.walk;
+        toggleWalkSlider();
+        updateWalkDisplay();
+      }
+
+      // 面積
+      if (c.areaMin) {
+        document.getElementById('areaUnspecified').checked = false;
+        document.getElementById('editAreaMin').value = c.areaMin;
+        toggleAreaInput();
+      }
+
+      // 築年数
+      if (c.buildingAge) {
+        document.getElementById('ageUnspecified').checked = false;
+        document.getElementById('editBuildingAge').value = c.buildingAge;
+        toggleAgeInput();
+      }
+
+      // エリア
       try {
         var areaObj = typeof c.areaJson === 'string' ? JSON.parse(c.areaJson) : c.areaJson;
-        if (areaObj && areaObj.cities) {
-          checkValues('cityCheckboxes', areaObj.cities);
-        }
-        if (areaObj && areaObj.stations) {
-          document.getElementById('editStations').value = areaObj.stations.join(', ');
-        }
+        if (areaObj && areaObj.cities) checkValues('cityCheckboxes', areaObj.cities);
+        if (areaObj && areaObj.stations) document.getElementById('editStations').value = areaObj.stations.join(', ');
       } catch(e) {}
 
+      // 間取り
       try {
         var layoutArr = typeof c.layoutsJson === 'string' ? JSON.parse(c.layoutsJson) : c.layoutsJson;
         if (layoutArr) checkValues('layoutCheckboxes', layoutArr);
+      } catch(e) {}
+
+      // 構造
+      try {
+        var structArr = typeof c.structuresJson === 'string' ? JSON.parse(c.structuresJson) : c.structuresJson;
+        if (structArr) checkValues('structureCheckboxes', structArr);
+      } catch(e) {}
+
+      // 設備
+      try {
+        var equipArr = typeof c.equipmentJson === 'string' ? JSON.parse(c.equipmentJson) : c.equipmentJson;
+        if (equipArr) checkEquipment(equipArr);
       } catch(e) {}
     }
   } else {
@@ -401,6 +577,11 @@ function saveCondition() {
   var stationsRaw = document.getElementById('editStations').value.trim();
   var stations = stationsRaw ? stationsRaw.split(/[,、，\s]+/).filter(function(s) { return s; }) : [];
 
+  var walk = '';
+  if (!document.getElementById('walkUnspecified').checked) {
+    walk = document.getElementById('walkSlider').value;
+  }
+
   var data = {
     id: document.getElementById('editId').value || undefined,
     name: name,
@@ -408,8 +589,11 @@ function saveCondition() {
     rentMin: document.getElementById('editRentMin').value || '',
     rentMax: document.getElementById('editRentMax').value || '',
     layouts: getCheckedValues('layoutCheckboxes'),
+    walk: walk,
     areaMin: document.getElementById('editAreaMin').value || '',
-    buildingAge: document.getElementById('editBuildingAge').value || ''
+    buildingAge: document.getElementById('editBuildingAge').value || '',
+    structures: getCheckedValues('structureCheckboxes'),
+    equipment: getCheckedEquipment()
   };
 
   document.getElementById('saveBtn').disabled = true;
@@ -462,7 +646,7 @@ function toggleEnabled(criteriaId, enabled) {
     })
     .withFailureHandler(function(err) {
       showToast('エラー: ' + (err.message || err));
-      loadCriteriaList(); // リバート
+      loadCriteriaList();
     })
     .savePatrolCriteriaFromAdmin({ id: criteriaId, enabled: enabled });
 }
@@ -471,12 +655,11 @@ function toggleEnabled(criteriaId, enabled) {
 //  ナビゲーション
 // ══════════════════════════════════════════════════════════
 function goBackToAdmin() {
-  var currentUrl = window.location.href;
-  var baseUrl = currentUrl.split('?')[0];
-  var params = new URLSearchParams(window.location.search);
-  var apiKey = params.get('api_key') || '';
-  var newUrl = baseUrl + '?action=admin' + (apiKey ? '&api_key=' + apiKey : '');
-  window.location.href = newUrl;
+  google.script.run
+    .withSuccessHandler(function(url) {
+      window.open(url, '_top');
+    })
+    .getAdminPageUrl();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -496,6 +679,23 @@ function checkValues(containerId, values) {
 
 function uncheckAll(containerId) {
   var checkboxes = document.querySelectorAll('#' + containerId + ' input[type="checkbox"]');
+  checkboxes.forEach(function(cb) { cb.checked = false; });
+}
+
+function getCheckedEquipment() {
+  var checkboxes = document.querySelectorAll('.equip-cb:checked');
+  return Array.from(checkboxes).map(function(cb) { return cb.value; });
+}
+
+function checkEquipment(values) {
+  var checkboxes = document.querySelectorAll('.equip-cb');
+  checkboxes.forEach(function(cb) {
+    cb.checked = values.indexOf(cb.value) >= 0;
+  });
+}
+
+function uncheckAllEquipment() {
+  var checkboxes = document.querySelectorAll('.equip-cb');
   checkboxes.forEach(function(cb) { cb.checked = false; });
 }
 

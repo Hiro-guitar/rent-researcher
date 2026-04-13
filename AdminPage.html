@@ -1638,13 +1638,12 @@ function hashCode(str) { var hash = 0; for (var i = 0; i < str.length; i++) { ha
 
 // ── SUUMO巡回条件ページへの遷移 ──
 function openSuumoPatrolConfig() {
-  var currentUrl = window.location.href;
-  var baseUrl = currentUrl.split('?')[0];
-  // api_keyがURLにあれば引き継ぐ
-  var params = new URLSearchParams(window.location.search);
-  var apiKey = params.get('api_key') || '';
-  var newUrl = baseUrl + '?action=suumo_patrol_config' + (apiKey ? '&api_key=' + apiKey : '');
-  window.location.href = newUrl;
+  // GASのiframe sandboxからの遷移は google.script.run でURLを取得して window.open で開く
+  google.script.run
+    .withSuccessHandler(function(url) {
+      window.open(url, '_top');
+    })
+    .getSuumoPatrolConfigUrl();
 }
 </script>
 </body>
