@@ -87,22 +87,36 @@ function getPatrolCriteria() {
   var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_PATROL_HEADERS.length).getValues();
   var result = [];
   for (var i = 0; i < data.length; i++) {
+    // Date オブジェクトを文字列に変換（google.script.run がシリアライズできないため）
+    var createdAt = data[i][9];
+    if (createdAt instanceof Date) {
+      createdAt = Utilities.formatDate(createdAt, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    } else {
+      createdAt = String(createdAt || '');
+    }
+    var lastPatrolAt = data[i][10];
+    if (lastPatrolAt instanceof Date) {
+      lastPatrolAt = Utilities.formatDate(lastPatrolAt, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    } else {
+      lastPatrolAt = String(lastPatrolAt || '');
+    }
+
     result.push({
-      id: data[i][0],
-      name: data[i][1],
-      areaJson: data[i][2],
-      rentMin: data[i][3],
-      rentMax: data[i][4],
-      layoutsJson: data[i][5],
-      areaMin: data[i][6],
-      buildingAge: data[i][7],
+      id: String(data[i][0] || ''),
+      name: String(data[i][1] || ''),
+      areaJson: String(data[i][2] || '{}'),
+      rentMin: String(data[i][3] || ''),
+      rentMax: String(data[i][4] || ''),
+      layoutsJson: String(data[i][5] || '[]'),
+      areaMin: String(data[i][6] || ''),
+      buildingAge: String(data[i][7] || ''),
       enabled: data[i][8] === true || data[i][8] === 'TRUE',
-      createdAt: data[i][9],
-      lastPatrolAt: data[i][10],
-      walk: data[i][11] || '',
-      structuresJson: data[i][12] || '[]',
-      equipmentJson: data[i][13] || '[]',
-      _rowIndex: i + 2
+      createdAt: createdAt,
+      lastPatrolAt: lastPatrolAt,
+      walk: String(data[i][11] || ''),
+      structuresJson: String(data[i][12] || '[]'),
+      equipmentJson: String(data[i][13] || '[]'),
+      rowIndex: i + 2
     });
   }
   return result;
@@ -133,7 +147,7 @@ function savePatrolCriteria(data) {
     var criteria = getPatrolCriteria();
     for (var i = 0; i < criteria.length; i++) {
       if (criteria[i].id === data.id) {
-        var row = criteria[i]._rowIndex;
+        var row = criteria[i].rowIndex;
         sheet.getRange(row, 2, 1, 7).setValues([[
           data.name || criteria[i].name,
           areaJson,
@@ -187,7 +201,7 @@ function deletePatrolCriteria(criteriaId) {
   var criteria = getPatrolCriteria();
   for (var i = 0; i < criteria.length; i++) {
     if (criteria[i].id === criteriaId) {
-      sheet.deleteRow(criteria[i]._rowIndex);
+      sheet.deleteRow(criteria[i].rowIndex);
       return { success: true };
     }
   }
@@ -203,7 +217,7 @@ function updatePatrolLastRun_(criteriaId) {
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   for (var i = 0; i < criteria.length; i++) {
     if (criteria[i].id === criteriaId) {
-      sheet.getRange(criteria[i]._rowIndex, 11).setValue(now);
+      sheet.getRange(criteria[i].rowIndex, 11).setValue(now);
       return;
     }
   }
@@ -320,7 +334,7 @@ function getSuumoApprovalQueue() {
         source: data[i][10],
         propertyData: propertyData,
         imageGenres: imageGenres,
-        _rowIndex: i + 2
+        rowIndex: i + 2
       });
     }
   }
@@ -483,7 +497,7 @@ function findStopCandidate() {
       pv: Number(data[i][5]) || 0,
       inquiries: Number(data[i][6]) || 0,
       score: Number(data[i][7]) || 0,
-      _rowIndex: i + 2
+      rowIndex: i + 2
     };
 
     activeListings.push(listing);
