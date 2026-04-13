@@ -271,6 +271,9 @@ input[type="range"]::-webkit-slider-thumb {
 <div id="app">
   <div class="header">
     <h1>検索条件管理<span class="admin-badge">管理者</span></h1>
+    <div style="text-align:center;margin-top:6px;">
+      <a href="javascript:void(0)" onclick="openSuumoPatrolConfig()" style="color:#3498db;font-size:12px;text-decoration:underline;">SUUMO巡回条件を管理</a>
+    </div>
   </div>
 
   <!-- ═══ 顧客選択セクション ═══ -->
@@ -1632,6 +1635,17 @@ function esc(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 function escSel(str) { return str.replace(/([!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~])/g, '\\$1'); }
 function escAttr(str) { return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
 function hashCode(str) { var hash = 0; for (var i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0; } return Math.abs(hash).toString(36); }
+
+// ── SUUMO巡回条件ページへの遷移 ──
+function openSuumoPatrolConfig() {
+  var currentUrl = window.location.href;
+  var baseUrl = currentUrl.split('?')[0];
+  // api_keyがURLにあれば引き継ぐ
+  var params = new URLSearchParams(window.location.search);
+  var apiKey = params.get('api_key') || '';
+  var newUrl = baseUrl + '?action=suumo_patrol_config' + (apiKey ? '&api_key=' + apiKey : '');
+  window.location.href = newUrl;
+}
 </script>
 </body>
 </html>

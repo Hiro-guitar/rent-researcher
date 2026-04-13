@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SUUMO掲載承認</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+  background: #f0f2f5; color: #333;
+}
+
+/* ── ヘッダー ── */
+.header {
+  position: sticky; top: 0; z-index: 10;
+  background: linear-gradient(135deg, #1a5276, #2e86c1); padding: 16px;
+  color: #fff; text-align: center;
+}
+.header h1 { font-size: 16px; font-weight: 700; }
+.header .badge { background: #e74c3c; font-size: 10px; padding: 2px 8px; border-radius: 10px; margin-left: 6px; vertical-align: middle; }
+
+/* ── カード ── */
+.card {
+  background: #fff; margin: 10px; border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden;
+}
+.card-title {
+  font-size: 14px; font-weight: 700; padding: 12px 16px;
+  background: #eaf2f8; color: #1a5276; border-bottom: 1px solid #d4e6f1;
+}
+.card-body { padding: 14px 16px; }
+
+/* ── 物件情報 ── */
+.prop-row { display: flex; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+.prop-label { width: 90px; font-size: 12px; color: #888; flex-shrink: 0; }
+.prop-value { font-size: 14px; font-weight: 500; flex: 1; }
+.prop-value.highlight { color: #e74c3c; font-weight: 700; }
+
+/* ── 画像ジャンル ── */
+.image-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px; padding: 10px 0;
+}
+.image-card {
+  border: 2px solid #e0e0e0; border-radius: 10px; overflow: hidden;
+  background: #fafafa; transition: border-color 0.2s;
+}
+.image-card.has-genre { border-color: #27ae60; }
+.image-card img {
+  width: 100%; height: 100px; object-fit: cover; display: block;
+}
+.image-card .genre-select {
+  padding: 6px; font-size: 11px;
+}
+.image-card select {
+  width: 100%; padding: 4px; font-size: 12px; border: 1px solid #ccc;
+  border-radius: 4px; background: #fff;
+}
+
+/* ── ジャンルボタン ── */
+.genre-btns {
+  display: flex; flex-wrap: wrap; gap: 3px; padding: 4px 6px;
+}
+.genre-btn {
+  padding: 2px 6px; font-size: 10px; border: 1px solid #ccc;
+  background: #f9f9f9; border-radius: 4px; cursor: pointer;
+  transition: all 0.15s; user-select: none;
+}
+.genre-btn:hover { background: #e0e0e0; }
+.genre-btn.selected { background: #2e86c1; color: #fff; border-color: #1a5276; }
+.genre-btn.used { background: #e8e8e8; color: #999; }
+
+/* ── ステータス ── */
+.status-badge {
+  display: inline-block; padding: 4px 12px; border-radius: 12px;
+  font-size: 12px; font-weight: 600;
+}
+.status-pending { background: #fdebd0; color: #e67e22; }
+.status-approved { background: #d5f5e3; color: #27ae60; }
+.status-rejected { background: #fadbd8; color: #e74c3c; }
+
+/* ── ボタン ── */
+.btn-group {
+  display: flex; gap: 10px; padding: 16px; position: sticky; bottom: 0;
+  background: #fff; border-top: 1px solid #ddd;
+}
+.btn {
+  flex: 1; padding: 14px; font-size: 15px; font-weight: 700;
+  border: none; border-radius: 10px; cursor: pointer; transition: all 0.2s;
+  text-align: center;
+}
+.btn-approve { background: #27ae60; color: #fff; }
+.btn-approve:hover { background: #219a52; }
+.btn-reject { background: #e74c3c; color: #fff; }
+.btn-reject:hover { background: #c0392b; }
+.btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+
+/* ── 結果表示 ── */
+.result-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 100;
+  justify-content: center; align-items: center;
+}
+.result-box {
+  background: #fff; border-radius: 16px; padding: 32px 24px;
+  text-align: center; max-width: 340px; width: 90%;
+}
+.result-box .icon { font-size: 48px; margin-bottom: 12px; }
+.result-box h2 { font-size: 18px; margin-bottom: 8px; }
+.result-box p { font-size: 14px; color: #666; }
+
+/* ── ジャンル カウンター ── */
+.genre-counter {
+  position: sticky; top: 52px; z-index: 5;
+  background: #fff; padding: 8px 16px;
+  border-bottom: 1px solid #eee;
+  font-size: 13px; font-weight: 600; color: #555;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>SUUMO掲載承認<span class="badge">SUUMO</span></h1>
+</div>
+
+<!-- 物件情報プレビュー -->
+<div class="card">
+  <div class="card-title">物件情報</div>
+  <div class="card-body">
+    <div class="prop-row"><div class="prop-label">建物名</div><div class="prop-value" id="pvBuilding"></div></div>
+    <div class="prop-row"><div class="prop-label">部屋番号</div><div class="prop-value" id="pvRoom"></div></div>
+    <div class="prop-row"><div class="prop-label">住所</div><div class="prop-value" id="pvAddress"></div></div>
+    <div class="prop-row"><div class="prop-label">賃料</div><div class="prop-value highlight" id="pvRent"></div></div>
+    <div class="prop-row"><div class="prop-label">管理費</div><div class="prop-value" id="pvMgmtFee"></div></div>
+    <div class="prop-row"><div class="prop-label">間取り</div><div class="prop-value" id="pvLayout"></div></div>
+    <div class="prop-row"><div class="prop-label">面積</div><div class="prop-value" id="pvArea"></div></div>
+    <div class="prop-row"><div class="prop-label">交通</div><div class="prop-value" id="pvStation"></div></div>
+    <div class="prop-row"><div class="prop-label">ソース</div><div class="prop-value" id="pvSource"></div></div>
+    <div class="prop-row"><div class="prop-label">ステータス</div><div class="prop-value" id="pvStatus"></div></div>
+  </div>
+</div>
+
+<!-- 画像ジャンル選択 -->
+<div class="card">
+  <div class="card-title">画像 & ジャンル選択</div>
+  <div class="genre-counter" id="genreCounter">選択ジャンル: 0種類</div>
+  <div class="card-body">
+    <div id="imageGrid" class="image-grid">
+      <p style="color:#999;font-size:13px;">画像を読み込み中...</p>
+    </div>
+  </div>
+</div>
+
+<!-- 承認/却下ボタン -->
+<div class="btn-group">
+  <button class="btn btn-reject" id="rejectBtn" onclick="doReject()">却下</button>
+  <button class="btn btn-approve" id="approveBtn" onclick="doApprove()">承認して入稿</button>
+</div>
+
+<!-- 結果オーバーレイ -->
+<div class="result-overlay" id="resultOverlay">
+  <div class="result-box">
+    <div class="icon" id="resultIcon"></div>
+    <h2 id="resultTitle"></h2>
+    <p id="resultMessage"></p>
+  </div>
+</div>
+
+<script>
+// ── サーバーから注入 ──
+var PROPERTY_KEY = <?!= JSON.stringify(propertyKey) ?>;
+var BUILDING = <?!= JSON.stringify(building) ?>;
+var ROOM = <?!= JSON.stringify(room) ?>;
+var ADDRESS = <?!= JSON.stringify(address) ?>;
+var RENT = <?!= JSON.stringify(rent) ?>;
+var MGMT_FEE = <?!= JSON.stringify(managementFee) ?>;
+var LAYOUT = <?!= JSON.stringify(layout) ?>;
+var AREA = <?!= JSON.stringify(area) ?>;
+var STATION = <?!= JSON.stringify(station) ?>;
+var SOURCE = <?!= JSON.stringify(source) ?>;
+var STATUS = <?!= JSON.stringify(status) ?>;
+var PROPERTY_DATA = <?!= propertyDataJson ?>;
+
+// ジャンル選択肢
+var GENRE_OPTIONS = [
+  "間取り", "外観", "リビング", "その他部屋", "キッチン", "バス", "トイレ", "洗面", "収納",
+  "バルコニー", "庭", "玄関", "セキュリティ", "設備", "眺望", "エントランス", "ロビー",
+  "駐車場", "共用部", "その他"
+];
+
+// 各画像の選択ジャンル
+var imageGenres = {}; // { imageIndex: genreName }
+
+// ── 初期化 ──
+window.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('pvBuilding').textContent = BUILDING;
+  document.getElementById('pvRoom').textContent = ROOM;
+  document.getElementById('pvAddress').textContent = ADDRESS;
+  document.getElementById('pvRent').textContent = RENT;
+  document.getElementById('pvMgmtFee').textContent = MGMT_FEE;
+  document.getElementById('pvLayout').textContent = LAYOUT;
+  document.getElementById('pvArea').textContent = AREA ? AREA + 'm2' : '';
+  document.getElementById('pvStation').textContent = STATION;
+  document.getElementById('pvSource').textContent = SOURCE;
+
+  var statusEl = document.getElementById('pvStatus');
+  var cls = STATUS === 'pending' ? 'status-pending' : STATUS === 'approved' ? 'status-approved' : 'status-rejected';
+  statusEl.innerHTML = '<span class="status-badge ' + cls + '">' + esc(STATUS) + '</span>';
+
+  // 既に承認/却下済みなら操作不可
+  if (STATUS !== 'pending') {
+    document.getElementById('approveBtn').disabled = true;
+    document.getElementById('rejectBtn').disabled = true;
+  }
+
+  renderImages();
+});
+
+// ── 画像レンダリング ──
+function renderImages() {
+  var images = PROPERTY_DATA.images || [];
+  var shubetsu = PROPERTY_DATA.shubetsu || [];
+  var container = document.getElementById('imageGrid');
+
+  if (images.length === 0) {
+    container.innerHTML = '<p style="color:#999;font-size:13px;">画像なし</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+  for (var i = 0; i < images.length; i++) {
+    var imgSrc = images[i];
+    var defaultGenre = normalizeGenre(shubetsu[i] || '');
+
+    if (defaultGenre) {
+      imageGenres[i] = defaultGenre;
+    }
+
+    var card = document.createElement('div');
+    card.className = 'image-card' + (defaultGenre ? ' has-genre' : '');
+    card.setAttribute('data-index', i);
+
+    var img = document.createElement('img');
+    img.src = imgSrc;
+    img.alt = '画像 ' + (i + 1);
+    img.onerror = function() { this.style.background = '#eee'; this.alt = '読込失敗'; };
+    card.appendChild(img);
+
+    var btnsDiv = document.createElement('div');
+    btnsDiv.className = 'genre-btns';
+    renderGenreButtons(btnsDiv, i, defaultGenre);
+    card.appendChild(btnsDiv);
+
+    container.appendChild(card);
+  }
+
+  updateGenreCounter();
+}
+
+function normalizeGenre(genre) {
+  if (!genre) return "";
+  if (genre.includes("間取")) return "間取り";
+  if (genre.includes("バス") || genre.includes("シャワー") || genre.includes("風呂")) return "バス";
+  if (genre.includes("共有")) return "共用部";
+  if (genre.includes("洋室")) return "リビング";
+  var found = GENRE_OPTIONS.find(function(opt) { return genre.includes(opt); });
+  return found || "";
+}
+
+function renderGenreButtons(container, imageIndex, selectedGenre) {
+  var usedGenres = Object.values(imageGenres);
+  container.innerHTML = '';
+
+  for (var g = 0; g < GENRE_OPTIONS.length; g++) {
+    var genre = GENRE_OPTIONS[g];
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'genre-btn';
+    btn.textContent = genre;
+    btn.setAttribute('data-genre', genre);
+
+    if (genre === selectedGenre) {
+      btn.classList.add('selected');
+    } else if (usedGenres.indexOf(genre) >= 0) {
+      btn.classList.add('used');
+    }
+
+    btn.onclick = (function(idx, g) {
+      return function() {
+        var wasSelected = imageGenres[idx] === g;
+        if (wasSelected) {
+          delete imageGenres[idx];
+        } else {
+          imageGenres[idx] = g;
+        }
+        updateAllGenreButtons();
+        updateGenreCounter();
+      };
+    })(imageIndex, genre);
+
+    container.appendChild(btn);
+  }
+}
+
+function updateAllGenreButtons() {
+  var cards = document.querySelectorAll('.image-card');
+  cards.forEach(function(card) {
+    var idx = parseInt(card.getAttribute('data-index'));
+    var btnsDiv = card.querySelector('.genre-btns');
+    var selected = imageGenres[idx] || '';
+    renderGenreButtons(btnsDiv, idx, selected);
+    card.className = 'image-card' + (selected ? ' has-genre' : '');
+  });
+}
+
+function updateGenreCounter() {
+  var uniqueGenres = [];
+  var vals = Object.values(imageGenres);
+  for (var i = 0; i < vals.length; i++) {
+    if (uniqueGenres.indexOf(vals[i]) < 0) uniqueGenres.push(vals[i]);
+  }
+  document.getElementById('genreCounter').textContent =
+    '選択ジャンル: ' + uniqueGenres.length + '種類 / 画像: ' + Object.keys(imageGenres).length + '枚選択';
+}
+
+// ── 承認 ──
+function doApprove() {
+  var btn = document.getElementById('approveBtn');
+  btn.disabled = true;
+  btn.textContent = '承認中...';
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.success) {
+        showResult(true, '承認しました', '入稿キューに追加されました。Chrome拡張が自動的に入稿を開始します。');
+      } else {
+        showResult(false, 'エラー', result ? result.message : '承認に失敗しました');
+        btn.disabled = false;
+        btn.textContent = '承認して入稿';
+      }
+    })
+    .withFailureHandler(function(err) {
+      showResult(false, 'エラー', err.message || err);
+      btn.disabled = false;
+      btn.textContent = '承認して入稿';
+    })
+    .confirmSuumoApproveFromClient(PROPERTY_KEY, imageGenres);
+}
+
+// ── 却下 ──
+function doReject() {
+  if (!confirm('この物件を却下しますか？')) return;
+
+  var btn = document.getElementById('rejectBtn');
+  btn.disabled = true;
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.success) {
+        showResult(true, '却下しました', 'この物件はSUUMOに掲載されません。');
+      } else {
+        showResult(false, 'エラー', result ? result.message : '却下に失敗しました');
+        btn.disabled = false;
+      }
+    })
+    .withFailureHandler(function(err) {
+      showResult(false, 'エラー', err.message || err);
+      btn.disabled = false;
+    })
+    .rejectSuumoCandidateFromClient(PROPERTY_KEY);
+}
+
+// ── 結果表示 ──
+function showResult(success, title, message) {
+  document.getElementById('resultIcon').textContent = success ? '\u2705' : '\u274C';
+  document.getElementById('resultTitle').textContent = title;
+  document.getElementById('resultMessage').textContent = message;
+  document.getElementById('resultOverlay').style.display = 'flex';
+}
+
+function esc(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>

@@ -20,6 +20,14 @@
      // LINE Users シート（userId ↔ 顧客名マッピング）
      const LINE_USERS_SHEET_NAME = 'LINE Users';
 
+     // ── SUUMO自動入稿関連シート ──────────────────────────────
+     const SUUMO_PATROL_CRITERIA_SHEET = 'SUUMO巡回条件';
+     const SUUMO_CANDIDATE_SHEET = 'SUUMO候補物件';
+     const SUUMO_LISTING_SHEET = 'SUUMO掲載管理';
+
+     // ── SUUMO Discord Webhook ────────────────────────────────
+     const SUUMO_DISCORD_WEBHOOK_URL = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL') || '';
+
      // ── LIFF（LINE Front-end Framework）────────────────────
      const LIFF_ID = '2009257618-mx8s5Vuk';
 

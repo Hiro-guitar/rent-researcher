@@ -49,6 +49,26 @@ function doPost(e) {
       return handleLogUnresolvedStations(json);
     }
 
+    // --- SUUMO自動入稿関連POST ---
+    if (json.action === 'add_suumo_candidate') {
+      return handleAddSuumoCandidate(json);
+    }
+    if (json.action === 'confirm_suumo_approve') {
+      return handleConfirmSuumoApprove(json);
+    }
+    if (json.action === 'suumo_post_complete') {
+      return handleSuumoPostComplete(json);
+    }
+    if (json.action === 'update_suumo_performance') {
+      return handleUpdateSuumoPerformance(json);
+    }
+    if (json.action === 'stop_suumo_listing') {
+      return handleStopSuumoListing(json);
+    }
+    if (json.action === 'save_patrol_criteria') {
+      return handleSavePatrolCriteriaPost(json);
+    }
+
     const event = json.events[0];
     if (!event) return;
 
@@ -268,6 +288,23 @@ function doGet(e) {
 
   if (action === 'get_seen_ids') {
     return handleGetSeenIds(e);
+  }
+
+  // --- SUUMO自動入稿関連GETエンドポイント ---
+  if (action === 'get_patrol_criteria') {
+    return handleGetPatrolCriteria(e);
+  }
+
+  if (action === 'get_suumo_queue') {
+    return handleGetSuumoQueue(e);
+  }
+
+  if (action === 'suumo_approve') {
+    return handleSuumoApprovePage(e);
+  }
+
+  if (action === 'suumo_patrol_config') {
+    return handleSuumoPatrolConfigPage(e);
   }
 
   // --- 物件承認ハンドラー ---
