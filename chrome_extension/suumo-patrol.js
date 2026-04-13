@@ -189,7 +189,10 @@ async function runSuumoPatrolCycle() {
       if (collectedProperties.length > 0) {
         const newProperties = [];
         for (const prop of collectedProperties) {
-          const key = normSuumoKey(prop.building || prop.buildingName || '', prop.room || prop.roomNumber || '');
+          const key = normSuumoKey(
+            prop.building_name || prop.buildingName || prop.building || '',
+            prop.room_number || prop.roomNumber || prop.room || ''
+          );
           if (!seenKeys[key]) {
             seenKeys[key] = Date.now();
             newProperties.push(prop);
