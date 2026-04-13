@@ -153,6 +153,18 @@
   document.getElementById('enableItandi').addEventListener('change', () => saveServiceSettings());
   document.getElementById('autoSearchEnabled').addEventListener('change', () => saveServiceSettings());
 
+  // ── SUUMO巡回トグル ──
+  document.getElementById('suumoPatrolEnabled').addEventListener('change', (e) => {
+    chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_TOGGLE', enabled: e.target.checked });
+  });
+  document.getElementById('suumoPatrolNowBtn').addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_NOW' });
+  });
+  // SUUMO巡回状態を初期読み込み
+  chrome.storage.local.get(['suumoPatrolEnabled'], (data) => {
+    document.getElementById('suumoPatrolEnabled').checked = !!data.suumoPatrolEnabled;
+  });
+
   // --- 顧客チェックボックス ---
   // 「除外リスト」方式: excludedCustomers に入っている顧客だけスキップ
   // → 新規追加された顧客は自動的にチェックON

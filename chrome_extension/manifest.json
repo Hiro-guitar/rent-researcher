@@ -28,7 +28,8 @@
     "https://iili.io/*",
     "https://api.imgur.com/*",
     "https://i.imgur.com/*",
-    "https://api.e-bukken-1.com/*"
+    "https://api.e-bukken-1.com/*",
+    "https://www.fn.forrent.jp/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -77,6 +78,13 @@
         "https://rent.es-square.net/bukken/chintai/search/detail/*"
       ],
       "js": ["essquare-content-detail.js"]
+    },
+    {
+      "matches": [
+        "https://www.fn.forrent.jp/fn/*"
+      ],
+      "js": ["suumo-fill-auto.js"],
+      "all_frames": true
     }
   ],
   "action": {

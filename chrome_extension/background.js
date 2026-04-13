@@ -65,6 +65,8 @@ importScripts('ielove-config.js', 'ielove-oaza-config.js', 'ielove-background.js
 importScripts('itandi-config.js', 'itandi-background.js');
 // ES-Square関連ファイルを読み込み
 importScripts('essquare-config.js', 'essquare-background.js');
+// SUUMO巡回・入稿関連ファイルを読み込み
+importScripts('suumo-patrol.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {
@@ -235,6 +237,13 @@ async function gasPost(body) {
 async function fetchCriteria() { return gasGet('get_criteria'); }
 async function fetchSeenIds() { return gasGet('get_seen_ids'); }
 async function submitProperties(customerName, properties) {
+  // SUUMO巡回モードではGASに顧客向け送信しない（コレクターに追加）
+  if (globalThis._suumoPatrolMode && globalThis._suumoPatrolCollector) {
+    for (const prop of properties) {
+      globalThis._suumoPatrolCollector.push(prop);
+    }
+    return { success: true, added: properties.length, _patrolCollected: true };
+  }
   const threadId = discordThreadIds[customerName] || '';
   return gasPost({ action: 'add_reins_property', customer_name: customerName, properties, discord_thread_id: threadId });
 }
@@ -771,6 +780,45 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       setupAlarm(data.searchIntervalMinutes || 60);
     });
   }
+
+  // ── SUUMO巡回アラーム ──
+  if (alarm.name === 'suumo-patrol') {
+    chrome.storage.local.get(['suumoPatrolEnabled', 'businessStartHour', 'businessEndHour'], (data) => {
+      const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
+      const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
+      const hour = new Date().getHours();
+      const inBusiness = hour >= startH && hour < endH;
+
+      if (data.suumoPatrolEnabled !== true) {
+        console.log('[SUUMO巡回] 無効のためスキップ');
+      } else if (!inBusiness) {
+        console.log(`[SUUMO巡回] 営業時間外 (${hour}時) のためスキップ`);
+      } else {
+        runSuumoPatrolCycle();
+      }
+      // 次回SUUMO巡回アラームをセット（60分間隔固定）
+      chrome.alarms.create('suumo-patrol', { delayInMinutes: 60 });
+    });
+  }
+
+  // ── SUUMO入稿キューポーリング ──
+  if (alarm.name === 'suumo-queue-poll') {
+    pollSuumoApprovalQueue().then(queueData => {
+      if (queueData && queueData.queue && queueData.queue.length > 0) {
+        console.log(`[SUUMO入稿] ${queueData.queue.length}件の承認済み物件あり`);
+        // 入稿キューに保存（suumo-fill-auto.jsが処理）
+        chrome.storage.local.set({
+          suumoFillQueue: queueData.queue,
+          suumoActiveListingCount: queueData.activeListingCount,
+          suumoStopCandidate: queueData.stopCandidate
+        });
+      }
+    }).catch(err => {
+      console.log(`[SUUMO入稿] キューポーリング失敗: ${err.message}`);
+    });
+    // 次回ポーリング（5分間隔）
+    chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 5 });
+  }
 });
 
 // --- メッセージ受信 ---
@@ -798,6 +846,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'LOGIN_STATUS') {
     chrome.storage.local.set({ loginDetected: msg.loggedIn });
     return;
+  }
+
+  // ── SUUMO巡回関連メッセージ ──
+  if (msg.type === 'SUUMO_PATROL_NOW') {
+    runSuumoPatrolCycle();
+    sendResponse({ ok: true });
+    return;
+  }
+  if (msg.type === 'SUUMO_PATROL_TOGGLE') {
+    chrome.storage.local.set({ suumoPatrolEnabled: msg.enabled }, () => {
+      if (msg.enabled) {
+        chrome.alarms.create('suumo-patrol', { delayInMinutes: 1 }); // すぐ開始
+        chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 1 });
+      } else {
+        chrome.alarms.clear('suumo-patrol');
+        chrome.alarms.clear('suumo-queue-poll');
+      }
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+  if (msg.type === 'SUUMO_FILL_COMPLETE') {
+    // suumo-fill-auto.jsからの入稿完了報告
+    reportSuumoPostComplete(msg.data).then(result => {
+      sendResponse(result);
+    }).catch(err => {
+      sendResponse({ success: false, message: err.message });
+    });
+    return true;
   }
 });
 
@@ -3200,6 +3277,9 @@ function buildDedupKey(prop) {
 }
 
 async function deliverProperty(customerName, prop, customer, service) {
+  // SUUMO巡回モードではDiscord通知をスキップ
+  if (globalThis._suumoPatrolMode) return;
+
   const { notifyMode } = await getStorageData(['notifyMode']);
   if (notifyMode === 'batch') {
     if (!_batchBuffer[customerName]) _batchBuffer[customerName] = [];
