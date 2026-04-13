@@ -300,6 +300,14 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
   const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
   if (!gasWebappUrl) throw new Error('GAS URL未設定');
 
+  console.log('[SUUMO巡回] GAS送信: ' + properties.length + '件, criteriaId=' + patrolCriteriaId);
+  // 送信データの先頭物件のフィールドを確認
+  if (properties.length > 0) {
+    const p = properties[0];
+    console.log('[SUUMO巡回] 先頭物件フィールド:', Object.keys(p).join(', '));
+    console.log('[SUUMO巡回] building_name=' + (p.building_name || ''), 'room_number=' + (p.room_number || ''));
+  }
+
   const response = await fetch(gasWebappUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -310,8 +318,10 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
     })
   });
 
+  const rawText = await response.text();
+  console.log('[SUUMO巡回] GASレスポンス:', rawText.substring(0, 300));
   if (!response.ok) throw new Error(`GAS応答エラー: HTTP ${response.status}`);
-  return await response.json();
+  return JSON.parse(rawText);
 }
 
 /**
