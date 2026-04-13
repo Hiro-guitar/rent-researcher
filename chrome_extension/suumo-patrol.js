@@ -67,6 +67,9 @@ function patrolCriteriaToCustomer(criteria) {
     equipment = typeof criteria.equipmentJson === 'string' ? JSON.parse(criteria.equipmentJson) : (criteria.equipmentJson || []);
   } catch (e) {}
 
+  const routesWithStations = areaObj.routes_with_stations || [];
+  const routes = routesWithStations.map(r => r.route);
+
   return {
     name: `[SUUMO巡回] ${criteria.name}`,
     _isSuumoPatrol: true,
@@ -75,8 +78,8 @@ function patrolCriteriaToCustomer(criteria) {
     prefecture: '東京都',
     cities: cities,
     stations: stations,
-    routes_with_stations: [],
-    routes: [],
+    routes_with_stations: routesWithStations,
+    routes: routes,
     rent_max: criteria.rentMax || '',
     layouts: layouts,
     walk: criteria.walk || '',
@@ -152,6 +155,8 @@ async function runSuumoPatrolCycle() {
     for (let ci = 0; ci < criteria.length; ci++) {
       const crit = criteria[ci];
       const customer = patrolCriteriaToCustomer(crit);
+      console.log('[SUUMO巡回] GAS条件:', JSON.stringify(crit));
+      console.log('[SUUMO巡回] 変換後customer:', JSON.stringify(customer));
 
       await setStorageData({ debugLog: `[SUUMO巡回] 条件 ${ci+1}/${criteria.length}: ${crit.name}` });
 
