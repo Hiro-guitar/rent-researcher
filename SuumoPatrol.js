@@ -710,8 +710,7 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
  * GET: 巡回条件一覧を返す
  */
 function handleGetPatrolCriteria(e) {
-  var apiKey = e.parameter.api_key;
-  if (!apiKey || apiKey !== PropertiesService.getScriptProperties().getProperty('API_KEY')) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
     return ContentService.createTextOutput(JSON.stringify({ error: 'unauthorized' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
@@ -733,8 +732,7 @@ function handleGetPatrolCriteria(e) {
  * GET: 承認済みキュー（Chrome拡張のポーリング用）
  */
 function handleGetSuumoQueue(e) {
-  var apiKey = e.parameter.api_key;
-  if (!apiKey || apiKey !== PropertiesService.getScriptProperties().getProperty('API_KEY')) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
     return ContentService.createTextOutput(JSON.stringify({ error: 'unauthorized' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
@@ -830,8 +828,7 @@ function handleSavePatrolCriteriaPost(json) {
  * POST: SUUMO Discord Webhook URL をスクリプトプロパティに保存
  */
 function handleSetSuumoWebhook(json) {
-  var apiKey = json.api_key;
-  if (!apiKey || apiKey !== PropertiesService.getScriptProperties().getProperty('API_KEY')) {
+  if (!_validateReinsApiKey(json.api_key)) {
     return ContentService.createTextOutput(JSON.stringify({ error: 'unauthorized' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
@@ -902,7 +899,7 @@ function getActiveListingCountForClient() {
  */
 function getSuumoPatrolConfigUrl() {
   var baseUrl = ScriptApp.getService().getUrl();
-  var apiKey = PropertiesService.getScriptProperties().getProperty('API_KEY') || '';
+  var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
   return baseUrl + '?action=suumo_patrol_config&api_key=' + encodeURIComponent(apiKey);
 }
 
@@ -911,6 +908,6 @@ function getSuumoPatrolConfigUrl() {
  */
 function getAdminPageUrl() {
   var baseUrl = ScriptApp.getService().getUrl();
-  var apiKey = PropertiesService.getScriptProperties().getProperty('API_KEY') || '';
+  var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
   return baseUrl + '?action=admin&api_key=' + encodeURIComponent(apiKey);
 }
