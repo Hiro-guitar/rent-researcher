@@ -869,6 +869,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true;
   }
+  if (msg.type === 'SUUMO_QUEUE_POLL_NOW') {
+    // 即座にキューポーリングを実行
+    pollSuumoApprovalQueue().then(async queueData => {
+      if (queueData && queueData.queue && queueData.queue.length > 0) {
+        console.log(`[SUUMO入稿] 即時ポーリング: ${queueData.queue.length}件の承認済み物件あり`);
+        await setStorageData({
+          suumoFillQueue: queueData.queue,
+          suumoActiveListingCount: queueData.activeListingCount,
+          suumoStopCandidate: queueData.stopCandidate
+        });
+      } else {
+        console.log('[SUUMO入稿] 即時ポーリング: 承認済み物件なし');
+      }
+      sendResponse({ ok: true, count: queueData?.queue?.length || 0 });
+    }).catch(err => {
+      console.error('[SUUMO入稿] 即時ポーリング失敗:', err);
+      sendResponse({ ok: false, error: err.message });
+    });
+    return true;
+  }
   if (msg.type === 'SUUMO_FILL_RELAY') {
     // トップフレームからiframe内のcontent scriptへメッセージをリレー
     // 送信元タブの全フレームに SUUMO_FILL_START を送信
@@ -4006,34 +4026,39 @@ async function notifyDiscordError(message) {
 //  SUUMO入稿: ForRentタブ管理・入稿プロセス
 // ══════════════════════════════════════════════════════════════
 
-/** ForRent新規登録ページのURL */
-const FORRENT_NEW_URL = 'https://www.fn.forrent.jp/fn/BKR0201_1.action';
+/** ForRentのベースURL */
+const FORRENT_BASE_URL = 'https://www.fn.forrent.jp/fn/';
 
 /**
  * ForRentの入稿プロセスを開始
  *
- * 1. 既存のForRentタブを探すか、新規に開く
- * 2. suumo-fill-auto.js のトップフレーム監視が自動でキューを処理
+ * ForRentは動的セッションID管理のため固定URLでは新規登録ページに直接アクセスできない。
+ * 既存ForRentタブがあればそれを使い、なければトップを開く。
+ * content script (suumo-fill-auto.js) が「新規物件登録」タブのクリックとキュー処理を担当。
  */
 async function startSuumoFillProcess() {
   try {
-    // 既にForRentタブが開いている場合はそれを使う
     const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/fn/*' });
     let forrentTab;
 
     if (tabs.length > 0) {
       forrentTab = tabs[0];
-      // 新規登録ページでなければ遷移
-      if (!forrentTab.url.includes('BKR0201')) {
-        await chrome.tabs.update(forrentTab.id, { url: FORRENT_NEW_URL });
-      }
+      console.log(`[SUUMO入稿] 既存ForRentタブ使用 (tab ${forrentTab.id})`);
     } else {
-      // ForRentタブがなければ新規に開く
-      forrentTab = await chrome.tabs.create({ url: FORRENT_NEW_URL, active: false });
+      forrentTab = await chrome.tabs.create({ url: FORRENT_BASE_URL, active: false });
+      console.log(`[SUUMO入稿] ForRentトップを開きました (tab ${forrentTab.id})`);
+      // ページ読み込み待ち
+      await new Promise(resolve => setTimeout(resolve, 5000));
     }
 
-    console.log(`[SUUMO入稿] ForRentタブ準備完了 (tab ${forrentTab.id})`);
-    await setStorageData({ debugLog: `[SUUMO入稿] ForRentタブを開きました` });
+    // content scriptに新規登録ページへの遷移を指示
+    try {
+      await chrome.tabs.sendMessage(forrentTab.id, { type: 'SUUMO_NAVIGATE_NEW_REGISTRATION' });
+    } catch (e) {
+      console.log('[SUUMO入稿] content script通信失敗（ログインが必要かもしれません）:', e.message);
+    }
+
+    await setStorageData({ debugLog: `[SUUMO入稿] ForRentタブ準備完了` });
 
   } catch (err) {
     console.error('[SUUMO入稿] ForRentタブオープン失敗:', err);

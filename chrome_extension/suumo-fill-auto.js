@@ -16,31 +16,334 @@
 (function () {
   'use strict';
 
-  // トップフレームでは実行しない（入力フォームはiframe内）
-  if (window.top === window) {
-    console.log('[SUUMO自動入稿] トップフレーム - 入稿キュー監視を開始');
-    initTopFrameMonitor();
+  // ForRentは<frameset>構造:
+  //   トップ: frameset (bodyなし)
+  //   frame[name=navi]: ナビバー
+  //   frame[name=main]: メインコンテンツ（入力フォームがここ）
+  //
+  // content script は all_frames:true で全フレームにロードされる。
+  // mainフレーム内でキュー監視＋フォーム入力の両方を行う。
+
+  const isTopFrame = (window.top === window);
+  const isNaviFrame = (window.name === 'navi');
+  const isMainFrame = (window.name === 'main');
+
+  if (isTopFrame) {
+    // framesetのトップ - 何もしない（bodyがないため操作不能）
+    console.log('[SUUMO自動入稿] framesetトップ - スキップ');
     return;
   }
 
-  console.log('[SUUMO自動入稿] iframe内 - フォーム入力スクリプト起動');
+  if (isNaviFrame) {
+    // ナビフレーム - スキップ
+    console.log('[SUUMO自動入稿] naviフレーム - スキップ');
+    return;
+  }
 
-  // ── フォーム入力待機 ──
-  // background.js からのメッセージでフォーム入力を開始
+  // mainフレーム or その他のフレーム → キュー監視 + フォーム入力
+  console.log('[SUUMO自動入稿] mainフレーム - キュー監視＋フォーム入力スクリプト起動, URL:', window.location.href);
+  // デバッグ用: DOMにマーカーを追加して読み込み確認
+  if (document.body) {
+    document.body.setAttribute('data-suumo-fill-auto', 'loaded-' + Date.now());
+  }
+
+  // キュー監視を開始（トップフレームの代わりにmainフレームで）
+  initMainFrameMonitor();
+
+  // デバッグ用: ページコンテキストからのテストデータ受信
+  window.addEventListener('message', async (event) => {
+    if (event.data && event.data.type === 'SUUMO_TRIGGER_QUEUE_POLL') {
+      // 即座にキューポーリングを実行
+      chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
+        document.body.setAttribute('data-suumo-poll-result', JSON.stringify(resp || {}));
+      });
+      document.body.setAttribute('data-suumo-poll-triggered', Date.now().toString());
+      return;
+    }
+    if (event.data && event.data.type === 'SUUMO_TEST_FILL') {
+      console.log('[SUUMO自動入稿] テストデータ受信:', event.data.propertyData?.building_name);
+      const normalized = normalizePropertyData(event.data.propertyData);
+      try {
+        await fillForrentForm(normalized, event.data.imageGenres || {});
+        document.body.setAttribute('data-suumo-fill-result', 'success');
+      } catch (err) {
+        console.error('[SUUMO自動入稿] テスト入力エラー:', err);
+        document.body.setAttribute('data-suumo-fill-result', 'error: ' + err.message);
+      }
+    }
+  });
+
+  // ── フォーム入力待機（レガシー: background.jsからのメッセージ経由） ──
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'SUUMO_FILL_START') {
-      console.log('[SUUMO自動入稿] フォーム入力開始:', msg.data?.building);
-      fillForrentForm(msg.data, msg.imageGenres)
-        .then(() => {
-          sendResponse({ success: true });
-        })
+      const normalized = normalizePropertyData(msg.data);
+      console.log('[SUUMO自動入稿] メッセージ経由フォーム入力開始:', normalized.building);
+      fillForrentForm(normalized, msg.imageGenres)
+        .then(() => sendResponse({ success: true }))
         .catch(err => {
           console.error('[SUUMO自動入稿] エラー:', err);
           sendResponse({ success: false, error: err.message });
         });
-      return true; // 非同期応答
+      return true;
     }
   });
+
+  // ══════════════════════════════════════════════════════════
+  //  itandi/ES-Square/いえらぶ → ForRent 形式 正規化
+  // ══════════════════════════════════════════════════════════
+
+  function normalizePropertyData(data) {
+    if (!data) return {};
+
+    // 既にREINS形式（building, room等のフィールド）ならそのまま返す
+    if (data.building && data.addr1 && data.town) return data;
+
+    const d = Object.assign({}, data);
+
+    // ── 建物名・部屋番号 ──
+    d.building = d.building || d.building_name || d.buildingName || '';
+    d.room = d.room || d.room_number || d.roomNumber || '';
+
+    // ── 賃料（円→万円） ──
+    if (typeof d.rent === 'number' && d.rent > 1000) {
+      // 円単位 → 万円単位の文字列（例: 134000 → "13.4"）
+      d.rent = (d.rent / 10000).toString();
+    } else if (typeof d.rent === 'string') {
+      // "13.4万" のような文字列から数値抽出
+      const m = d.rent.match(/([\d.]+)/);
+      if (m) {
+        const v = parseFloat(m[1]);
+        // 1000以上なら円単位と判断
+        if (v > 1000) {
+          d.rent = (v / 10000).toString();
+        } else {
+          d.rent = v.toString();
+        }
+      }
+    }
+
+    // ── 管理費（円→円テキスト or そのまま） ──
+    if (typeof d.management_fee === 'number') {
+      d.managementFee = d.management_fee > 0 ? d.management_fee + '円' : '';
+      d.commonServiceFee = d.managementFee;
+    } else {
+      d.managementFee = d.managementFee || d.management_fee || d.commonServiceFee || '';
+      d.commonServiceFee = d.commonServiceFee || d.managementFee;
+    }
+
+    // ── 敷金・礼金 ──
+    // itandi形式: "1ヶ月" or "10万円" → そのまま使える
+    d.deposit = d.deposit || '';
+    d.gratuity = d.gratuity || d.key_money || '';
+
+    // ── 物件種別 ──
+    d.propertyType = d.propertyType || d.property_type || '';
+
+    // ── 住所パース ──
+    if (!d.addr1 && d.address) {
+      const parsed = parseAddress(d.address);
+      d.pref = parsed.pref || d.pref || d.prefecture || '東京都';
+      d.addr1 = parsed.city || '';      // 市区郡
+      d.town = parsed.town || '';       // 町名
+      d.chome = parsed.chome || '';     // 丁目
+      d.addr3 = parsed.banchi || '';    // 番地
+    }
+    if (!d.pref) d.pref = d.pref || d.prefecture || '東京都';
+
+    // ── 階数パース ──
+    if (!d.floorsAbove && d.story_text) {
+      const m = d.story_text.match(/(\d+)階建/);
+      if (m) d.floorsAbove = m[1];
+    }
+    if (!d.floorLocation && d.floor_text) {
+      // "3階" → "3", "B1階" → "B1"
+      const m = d.floor_text.match(/(B?\d+)/);
+      if (m) d.floorLocation = m[1];
+    }
+
+    // ── 間取りパース ──
+    if (!d.madoriType && d.layout) {
+      const layoutMatch = d.layout.match(/^(\d*)(ワンルーム|R|K|DK|SDK|LDK|SLDK|LK|SK|SLK)$/i);
+      if (layoutMatch) {
+        d.madoriRoomCount = layoutMatch[1] || '';
+        d.madoriType = layoutMatch[2];
+      } else {
+        // 全角対応
+        const hw = toHalfWidth(d.layout).toUpperCase();
+        const layoutMatch2 = hw.match(/^(\d*)(R|K|DK|SDK|LDK|SLDK|LK|SK|SLK)$/);
+        if (layoutMatch2) {
+          d.madoriRoomCount = layoutMatch2[1] || '';
+          d.madoriType = layoutMatch2[2];
+        }
+      }
+    }
+
+    // ── 面積 ──
+    if (!d.usageArea && d.area) {
+      d.usageArea = String(d.area);
+    }
+
+    // ── 築年数→築年（西暦） ──
+    if (!d.builtYear && d.building_age) {
+      const ageStr = String(d.building_age);
+      if (ageStr === '新築') {
+        d.builtYear = String(new Date().getFullYear());
+      }
+      const ageMatch = ageStr.match(/(\d+)/);
+      if (!d.builtYear && ageMatch) {
+        const age = parseInt(ageMatch[1]);
+        if (age < 100) {
+          // 築年数 → 西暦に変換
+          d.builtYear = String(new Date().getFullYear() - age);
+        } else if (age > 1900) {
+          // 既に西暦
+          d.builtYear = String(age);
+        }
+      }
+    }
+
+    // ── 構造 ──
+    d.structure = d.structure || '';
+
+    // ── 交通情報パース ──
+    if (!d.access || d.access.length === 0) {
+      d.access = [];
+      if (d.station_info) {
+        const parsed = parseStationInfo(d.station_info);
+        if (parsed) d.access.push(parsed);
+      }
+      if (d.other_stations && Array.isArray(d.other_stations)) {
+        for (const s of d.other_stations) {
+          const parsed = parseStationInfo(s);
+          if (parsed) d.access.push(parsed);
+        }
+      }
+    }
+
+    // ── 画像 ──
+    d.images = d.images || d.image_urls || [];
+
+    // ── 設備 → features（カンマ区切り文字列） ──
+    if (!d.features && d.facilities) {
+      // facilities は改行区切りテキスト、カテゴリ行を除いてフラットにする
+      const items = [];
+      const lines = String(d.facilities).split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        // カテゴリ行（末尾:や■で始まる行）はスキップ
+        if (trimmed.match(/[:：]$/) || trimmed.match(/^[■▼●【]/)) continue;
+        // カンマ・スラッシュ区切りで分解
+        const parts = trimmed.split(/[,、\/／]/);
+        for (const p of parts) {
+          const item = p.trim();
+          if (item) items.push(item);
+        }
+      }
+      d.features = items.join(',');
+    }
+
+    // ── ソース情報 ──
+    d.sourceType = d.sourceType || d.source || '';
+    d.sourceUrl = d.sourceUrl || d.url || '';
+
+    // ── 保証会社 ──
+    d.guaranteeCompany = d.guaranteeCompany || d.guarantee_info || '';
+
+    console.log('[SUUMO自動入稿] 正規化結果:', JSON.stringify({
+      building: d.building, room: d.room, rent: d.rent,
+      pref: d.pref, addr1: d.addr1, town: d.town,
+      floorsAbove: d.floorsAbove, floorLocation: d.floorLocation,
+      madoriRoomCount: d.madoriRoomCount, madoriType: d.madoriType,
+      access: d.access?.length, images: d.images?.length
+    }));
+
+    return d;
+  }
+
+  /**
+   * 住所テキストをパースして分割
+   * 例: "東京都三鷹市下連雀3-28-14" → { pref, city, town, chome, banchi }
+   */
+  function parseAddress(addr) {
+    if (!addr) return {};
+    let s = String(addr);
+    const result = {};
+
+    // 都道府県
+    const prefMatch = s.match(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/);
+    if (prefMatch) {
+      result.pref = prefMatch[1];
+      s = s.slice(prefMatch[1].length);
+    }
+
+    // 市区郡（「市」「区」「郡」で終わるもの。政令市の区は「○○市○○区」）
+    const cityMatch = s.match(/^(.+?[市区郡])(.+?区)?/);
+    if (cityMatch) {
+      result.city = cityMatch[1] + (cityMatch[2] || '');
+      s = s.slice(result.city.length);
+    }
+
+    // 残りから町名・丁目・番地を分離
+    // パターン1: "下連雀3丁目28-14" or "下連雀３丁目28-14"
+    // パターン2: "下連雀3-28-14"
+    // パターン3: "下連雀三丁目28番14号"
+    const townMatch = s.match(/^([^\d\uff10-\uff19]+?)([\d\uff10-\uff19])/);
+    if (townMatch) {
+      result.town = townMatch[1];
+      s = s.slice(result.town.length);
+
+      // 丁目があるか？
+      // 全角数字を半角に変換してからパース
+      s = s.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+      const chomeMatch = s.match(/^(\d+)丁目(.*)$/);
+      if (chomeMatch) {
+        result.chome = chomeMatch[1] + '丁目';
+        result.banchi = chomeMatch[2].replace(/^[-ー]/, '');
+      } else {
+        // "3-28-14" → 丁目="3丁目", 番地="28-14"
+        const parts = s.split(/[-ーー]/);
+        if (parts.length >= 2) {
+          result.chome = parts[0] + '丁目';
+          result.banchi = parts.slice(1).join('-');
+        } else {
+          result.banchi = s;
+        }
+      }
+    } else {
+      // 町名が見つからない場合は残り全体を番地に
+      result.town = s;
+    }
+
+    return result;
+  }
+
+  /**
+   * 駅情報テキストをパース
+   * 例: "JR中央線 三鷹 徒歩10分" → { line, station, walk }
+   */
+  function parseStationInfo(info) {
+    if (!info) return null;
+    const s = String(info);
+
+    // パターン: "路線名 駅名 徒歩N分" or "路線名/駅名/徒歩N分"
+    const walkMatch = s.match(/徒歩(\d+)分/);
+    const walk = walkMatch ? walkMatch[1] : '';
+
+    // 駅名の前の部分が路線名
+    const parts = s.replace(/徒歩\d+分/, '').replace(/駅$/, '').trim().split(/[\s　]+/);
+    let line = '', station = '';
+
+    if (parts.length >= 2) {
+      line = parts[0];
+      station = parts[1].replace(/駅$/, '');
+    } else if (parts.length === 1) {
+      station = parts[0].replace(/駅$/, '');
+    }
+
+    if (!station) return null;
+    return { line, station, walk };
+  }
 
   // ══════════════════════════════════════════════════════════
   //  ForRent フォーム入力ロジック
@@ -194,13 +497,45 @@
     const tanshinRadio = document.getElementById('tanshinKbnCd2');
     if (tanshinRadio) tanshinRadio.checked = true;
 
+    // ── ペット・楽器・事務所・フリーレント（features判定） ──
+    if (data.features) {
+      const ft = data.features;
+      // ペット
+      if (/ペット.*(可|相談)/.test(ft) && !/ペット.*不可/.test(ft)) {
+        const petRadio = document.getElementById('petKbnCd2');
+        if (petRadio) { petRadio.checked = true; petRadio.click(); }
+      }
+      // 楽器
+      if (ft.includes('楽器')) {
+        const musicRadio = document.getElementById('gakkiKbnCd2');
+        if (musicRadio) { musicRadio.checked = true; musicRadio.click(); }
+      }
+      // 事務所使用可
+      if (ft.includes('事務所使用可')) {
+        const officeRadio = document.getElementById('jimushoRiyoKbnCd2');
+        if (officeRadio) { officeRadio.checked = true; officeRadio.click(); }
+      }
+      // フリーレント
+      if (ft.includes('フリーレント')) {
+        const frCb = document.getElementById('freeRentFlg');
+        const frDiv = document.getElementById('DFreerent');
+        if (frCb && frDiv) {
+          frCb.checked = true;
+          frDiv.style.visibility = 'visible';
+          frDiv.style.display = 'block';
+          frCb.click();
+        }
+      }
+    }
+
     // ── 保証会社 ──
     fillGuaranteeCompany(data);
 
     // ── 周辺環境ポップアップ→保存 ──
-    await waitAndClickShuhenButton();
+    // ※ 初期段階では自動保存をスキップ（手動確認のため）
+    // await waitAndClickShuhenButton();
 
-    console.log('[SUUMO自動入稿] フォーム入力完了');
+    console.log('[SUUMO自動入稿] フォーム入力完了（手動確認モード：保存は手動で行ってください）');
   }
 
   // ── 住所カスケード入力 ──
@@ -239,7 +574,16 @@
               if (!data.chome || data.chome.trim() === '') {
                 azaOpt = Array.from(azaSelect.options).find(opt => opt.value === '000');
               } else {
+                // まず完全一致で検索
                 azaOpt = findOptionByText(azaSelect, data.chome);
+                if (!azaOpt) {
+                  // 「3丁目」→数字部分「3」を抽出し、全角変換して「３」でマッチ
+                  const chomeNum = data.chome.replace(/[^\d]/g, '');
+                  if (chomeNum) {
+                    const zenNum = chomeNum.replace(/\d/g, ch => String.fromCharCode(ch.charCodeAt(0) + 0xFEE0));
+                    azaOpt = Array.from(azaSelect.options).find(opt => opt.text.trim() === zenNum || opt.text.trim() === chomeNum);
+                  }
+                }
               }
               if (azaOpt) {
                 azaSelect.value = azaOpt.value;
@@ -550,26 +894,40 @@
     const featureMap = {
       '分譲タイプ': '0256', '最上階': '0305',
       'エレベータ': '0501', 'エレベーター': '0501',
-      '宅配ボックス': '0517', '宅配BOX': '0517',
-      '24時間ゴミ出し可': '0527', '常時ゴミ出し可能': '0527', '敷地内ゴミ置き場': '0527',
-      '駐輪場': '0816', 'バイク置き場': '0817',
+      '宅配ボックス': '0517', '宅配BOX': '0517', '宅配ＢＯＸ': '0517',
+      '24時間ゴミ出し可': '0527', '２４時間ゴミ出し可': '0527',
+      '常時ゴミ出し可能': '0527', '敷地内ゴミ置き場': '0527', '敷地内ごみ置き場': '0527',
+      'ゴミ出し24時間OK': '0527',
+      '駐輪場': '0816', '駐輪場：有': '0816',
+      'バイク置き場': '0817', 'バイク置場': '0817', 'バイク置き場：有': '0817',
       '角住戸': '1007', '角部屋': '1007',
       'オートロック': '1201', 'モニタ付オートロック': '1201',
-      'ロフト': '1326', '都市ガス': '1436',
+      'モニター付きオートロック': '1201',
+      'ロフト': '1326', '都市ガス': '1436', 'ガス：都市ガス': '1436',
+      'ガスレンジ付': '1413',
       'システムキッチン': '1401', 'カウンターキッチン': '1403',
-      'IHクッキングヒーター': '1416', 'ガスコンロ': '1412',
-      '2口コンロ': '1414', '3口以上コンロ': '1415',
-      '追焚機能': '1505', '追い焚き風呂': '1505',
-      'バス・トイレ別': '1501', 'バストイレ別': '1501',
+      'アイランドキッチン': '1408',
+      'IHクッキングヒーター': '1416', 'ＩＨクッキングヒーター': '1416',
+      'ガスコンロ': '1412',
+      '2口コンロ': '1414', '２口コンロ': '1414', 'コンロ2口': '1414',
+      '3口以上コンロ': '1415', '３口以上コンロ': '1415',
+      '追焚機能': '1505', '追焚き機能': '1505', '追い焚き風呂': '1505',
+      'バス・トイレ別': '1501', 'バストイレ別': '1501', 'Ｂ・Ｔ別': '1501',
       '温水洗浄便座': '1603',
       '洗面台': '1701', '洗面所独立': '1701', '独立洗面台': '1701',
+      '洗面化粧台': '1701', '洗髪洗面化粧台': '1701', '独立洗面': '1701',
       '室内洗濯機置場': '2129', '室内洗濯機置き場': '2129',
-      '浴室乾燥機': '1507',
+      '浴室乾燥機': '1507', '浴室乾燥': '1507',
       'モニター付きインターホン': '2414', 'モニタ付インターホン': '2414',
+      'ＴＶインターホン': '2414', 'TVインターホン': '2414',
       '防犯カメラ': '1211', '床暖房': '1806',
-      'ウォークインクローゼット': '2204', 'シューズボックス': '2207',
-      'フローリング': '2101', 'バルコニー': '2001',
+      'トランクルーム': '2223',
+      'ウォークインクローゼット': '2204',
+      'シューズインクローゼット': '2208', 'シューズボックス': '2207', '玄関収納': '2207',
+      'フローリング': '2101',
+      'バルコニー': '2001', 'ワイドバルコニー': '2001', 'ルーフバルコニー': '2002',
       'インターネット使用料無料': '2406', 'インターネット無料': '2406',
+      'ネット使用料不要': '2406',
       '事務所使用可': '2710'
     };
 
@@ -720,19 +1078,78 @@
     return prefMap[pref] || '13';
   }
 
-})();
+  // ══════════════════════════════════════════════════════════
+  //  mainフレーム: 入稿キュー監視
+  // ══════════════════════════════════════════════════════════
 
-// ══════════════════════════════════════════════════════════
-//  トップフレーム: 入稿キュー監視
-// ══════════════════════════════════════════════════════════
+  let _suumoFillBusy = false;
 
-/** ForRent新規登録ページのURLパターン */
-const FORRENT_NEW_PAGE = 'BKR0201';
-let _suumoFillBusy = false;
+/**
+ * mainフレーム内でのキュー監視を初期化
+ * ForRentは<frameset>構造のため、mainフレーム内で全て処理する
+ */
+function initMainFrameMonitor() {
+  console.log('[SUUMO自動入稿] mainフレーム監視を初期化');
 
-function initTopFrameMonitor() {
+  // background.jsからのメッセージ受信
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === 'SUUMO_NAVIGATE_NEW_REGISTRATION') {
+      console.log('[SUUMO自動入稿] 新規物件登録へ遷移指示');
+      clickNewRegistrationTab();
+      sendResponse({ ok: true });
+    }
+  });
+
   // 5秒ごとにキューをチェック
   setInterval(checkFillQueue, 5000);
+  // 初回チェック
+  setTimeout(checkFillQueue, 2000);
+}
+
+/**
+ * 「新規物件登録」タブリンクをクリック（mainフレーム内のナビ）
+ */
+function clickNewRegistrationTab() {
+  // mainフレーム内のリンクを検索（textContentまたはtitle属性）
+  const links = document.querySelectorAll('a');
+  for (const link of links) {
+    if (link.textContent.includes('新規物件登録') || link.title === '新規物件登録') {
+      console.log('[SUUMO自動入稿] 「新規物件登録」をクリック');
+      link.click();
+      return true;
+    }
+  }
+  // ナビフレーム経由（parent.navi）— 画像ベースメニューのためtitle属性で検索
+  try {
+    const naviFrame = window.parent?.frames?.navi;
+    if (naviFrame) {
+      const naviLinks = naviFrame.document.querySelectorAll('a');
+      for (const link of naviLinks) {
+        if (link.textContent.includes('新規物件登録') || link.title === '新規物件登録') {
+          console.log('[SUUMO自動入稿] naviフレームの「新規物件登録」をクリック');
+          link.click();
+          return true;
+        }
+      }
+    }
+  } catch (e) { /* cross-origin */ }
+
+  console.warn('[SUUMO自動入稿] 「新規物件登録」リンクが見つかりません');
+  return false;
+}
+
+/**
+ * 現在のmainフレームが新規物件登録フォームかどうか判定
+ */
+function isNewRegistrationPage() {
+  // 物件名入力フィールドの存在で判定
+  if (document.getElementById('bukkenNm')) return true;
+  // 画像アップロード要素の存在で判定
+  if (document.getElementById('gazoUploadInfo')) return true;
+  // ページテキストで判定
+  const pageText = document.body?.textContent || '';
+  if (pageText.includes('新規物件登録') && pageText.includes('物件名')) return true;
+  return false;
 }
 
 async function checkFillQueue() {
@@ -743,23 +1160,23 @@ async function checkFillQueue() {
   });
 
   const queue = data.suumoFillQueue || [];
+  // デバッグ: キュー状態をDOMに書き出し
+  if (document.body) {
+    document.body.setAttribute('data-suumo-queue', JSON.stringify({ len: queue.length, first: queue[0]?.building || queue[0]?.propertyData?.building_name || 'none', ts: Date.now() }));
+  }
   if (queue.length === 0) return;
 
   const item = queue[0];
-  console.log('[SUUMO自動入稿] キューに物件あり:', item.building || item.buildingName);
+  console.log('[SUUMO自動入稿] キューに物件あり:', item.building || item.propertyData?.building_name);
 
-  // 新規登録ページでない場合は遷移（background.jsが遷移してくれるはずだが念のため）
-  if (!window.location.href.includes(FORRENT_NEW_PAGE)) {
-    console.log('[SUUMO自動入稿] 新規登録ページではないためスキップ（遷移待ち）');
+  // 新規物件登録ページかチェック
+  if (!isNewRegistrationPage()) {
+    console.log('[SUUMO自動入稿] 新規登録ページではない → 「新規物件登録」をクリック');
+    clickNewRegistrationTab();
     return;
   }
 
-  // iframe を探す
-  const iframe = document.querySelector('iframe[name="mainFrame"], iframe[src*="BKR"], iframe');
-  if (!iframe) {
-    console.log('[SUUMO自動入稿] iframe が見つかりません');
-    return;
-  }
+  console.log('[SUUMO自動入稿] 新規登録フォーム検出 → 入力開始');
 
   _suumoFillBusy = true;
 
@@ -770,26 +1187,37 @@ async function checkFillQueue() {
       chrome.storage.local.set({ suumoFillQueue: remaining }, resolve);
     });
 
-    console.log('[SUUMO自動入稿] iframe にフォーム入力を送信:', item.building || item.buildingName);
+    const rawData = item.propertyData || item;
+    // デバッグ: 正規化前のデータをDOMに書き出し
+    if (document.body) {
+      const rawKeys = Object.keys(rawData);
+      const rawSample = {};
+      for (const k of rawKeys) {
+        const v = rawData[k];
+        rawSample[k] = typeof v === 'string' ? v.substring(0, 100) : (typeof v === 'object' && v !== null ? (Array.isArray(v) ? `[${v.length}]` : '{...}') : v);
+      }
+      document.body.setAttribute('data-suumo-raw', JSON.stringify(rawSample));
+    }
+    const normalized = normalizePropertyData(rawData);
+    // デバッグ: 正規化後のデータもDOMに書き出し
+    if (document.body) {
+      document.body.setAttribute('data-suumo-normalized', JSON.stringify({
+        building: normalized.building, room: normalized.room, rent: normalized.rent,
+        pref: normalized.pref, addr1: normalized.addr1, town: normalized.town,
+        floorsAbove: normalized.floorsAbove, floorLocation: normalized.floorLocation,
+        madoriRoomCount: normalized.madoriRoomCount, madoriType: normalized.madoriType,
+        usageArea: normalized.usageArea, builtYear: normalized.builtYear,
+        propertyType: normalized.propertyType, deposit: normalized.deposit,
+        gratuity: normalized.gratuity, managementFee: normalized.managementFee,
+        access: normalized.access?.length, structure: normalized.structure
+      }));
+    }
+    console.log('[SUUMO自動入稿] フォーム入力開始:', normalized.building || item.building || item.buildingName);
 
-    // iframe 内の content script にメッセージを送信
-    // content script は chrome.runtime.onMessage で SUUMO_FILL_START を待機中
-    const response = await new Promise((resolve, reject) => {
-      // iframe 内のタブにメッセージを送る（同一タブ内の全フレームに配信される）
-      chrome.runtime.sendMessage({
-        type: 'SUUMO_FILL_RELAY',
-        data: item.propertyData || item,
-        imageGenres: item.imageGenres || {}
-      }, (resp) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else {
-          resolve(resp);
-        }
-      });
-    });
+    // mainフレーム内で直接フォーム入力を実行
+    await fillForrentForm(normalized, item.imageGenres || {});
 
-    console.log('[SUUMO自動入稿] 入力完了:', response);
+    console.log('[SUUMO自動入稿] 入力完了');
 
     // 完了報告をbackground.jsに送信
     chrome.runtime.sendMessage({
@@ -821,3 +1249,5 @@ async function checkFillQueue() {
     _suumoFillBusy = false;
   }
 }
+
+})();

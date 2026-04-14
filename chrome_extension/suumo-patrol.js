@@ -319,9 +319,17 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
   });
 
   const rawText = await response.text();
-  console.log('[SUUMO巡回] GASレスポンス:', rawText.substring(0, 300));
+  console.log('[SUUMO巡回] GASレスポンス:', rawText.substring(0, 500));
   if (!response.ok) throw new Error(`GAS応答エラー: HTTP ${response.status}`);
-  return JSON.parse(rawText);
+  const result = JSON.parse(rawText);
+  // Discord通知の結果をデバッグログに出力
+  if (result.discord) {
+    await setStorageData({ debugLog: `[SUUMO巡回] Discord通知結果: ${JSON.stringify(result.discord)}` });
+  }
+  if (result.webhookSet === false) {
+    await setStorageData({ debugLog: `[SUUMO巡回] ⚠️ GAS側にSUUMO Discord Webhook URLが未設定です！オプションページで保存してください` });
+  }
+  return result;
 }
 
 /**
