@@ -455,6 +455,12 @@
       fillFeatures(data.features);
     }
 
+    // ── その他初期費用 ──
+    fillOtherInitialCosts(data);
+
+    // ── その他月額費用 ──
+    fillOtherMonthlyCosts(data);
+
     // ── 会社間流通のチェックを外す ──
     ['bukkenNmDispFlg', 'heyaNoDispFlg', 'heyaNoTokkiFlg', 'shosaiJushoDispFlg1', 'bukkenNmTokkiFlg'].forEach(id => {
       const cb = document.getElementById(id);
@@ -961,6 +967,84 @@
         if (cb) cb.checked = true;
       }
     });
+  }
+
+  // ── その他初期費用 ──
+  function fillOtherInitialCosts(data) {
+    const items = [];
+    const addItem = (name, val) => {
+      if (!val || val === 'なし' || val === '0' || val === '0円') return;
+      const num = parseFloat(String(val).replace(/[^\d.]/g, ''));
+      if (isNaN(num) || num <= 0) return;
+      items.push({ name, amount: num, text: String(val) });
+    };
+
+    addItem('鍵交換費用', data.key_exchange_fee || data.keyExchangeFee);
+    addItem('クリーニング費', data.cleaning_fee || data.cleaningFee);
+    addItem('火災保険', data.fire_insurance || data.fireInsurance);
+    if (data.other_onetime_fee || data.otherOneTimeFee) {
+      addItem('その他', data.other_onetime_fee || data.otherOneTimeFee);
+    }
+    // REINS形式互換
+    for (let i = 1; i <= 5; i++) {
+      if (data['otherFeeName' + i]) addItem(data['otherFeeName' + i], data['otherFeeAmount' + i]);
+    }
+
+    if (items.length === 0) return;
+
+    const totalAmount = items.reduce((sum, i) => sum + i.amount, 0);
+    // ForRentは万円単位
+    const manYen = totalAmount / 10000;
+    const [intPart, decPart] = manYen.toFixed(2).split('.');
+    const detailText = items.map(i => `${i.name} ${i.text}`).join('\n');
+
+    const etcFlg = document.getElementById('etcHiyoFlg');
+    const etcDiv = document.getElementById('DEtcHiyo');
+    const etcDetail = document.getElementById('DEtcHiyoShosai');
+    const inputs = document.querySelectorAll('#DEtcHiyo input.kingakuMInput, #DEtcHiyo input.kingakuLInput');
+    const etcTotal1 = inputs[0] || null;
+    const etcTotal2 = inputs[1] || null;
+    const etcTextarea = document.getElementById('etcHiyoShosaiInput');
+
+    if (etcFlg) {
+      etcFlg.checked = true;
+      if (etcDiv) { etcDiv.style.display = 'block'; etcDiv.style.visibility = 'visible'; }
+      if (etcDetail) { etcDetail.style.display = 'block'; etcDetail.style.visibility = 'visible'; }
+      if (typeof etcFlg.onclick === 'function') etcFlg.onclick();
+    }
+    if (etcTotal1) etcTotal1.value = intPart;
+    if (etcTotal2) etcTotal2.value = decPart;
+    if (etcTextarea) etcTextarea.value = detailText;
+  }
+
+  // ── その他月額費用 ──
+  function fillOtherMonthlyCosts(data) {
+    const items = [];
+    if (data.parking_fee || data.parkingFee) {
+      const v = data.parking_fee || data.parkingFee;
+      if (v !== 'なし' && v !== '0' && v !== '0円') items.push('駐車場 ' + v);
+    }
+    if (data.other_monthly_fee || data.otherMonthlyAmount) {
+      const name = data.otherMonthlyName || 'その他';
+      const v = data.other_monthly_fee || data.otherMonthlyAmount;
+      if (v && v !== 'なし') items.push(name + ' ' + v);
+    }
+    if (data.otherMonthlyName2 && data.otherMonthlyAmount2) {
+      items.push(data.otherMonthlyName2 + ' ' + data.otherMonthlyAmount2);
+    }
+
+    if (items.length === 0) return;
+
+    const flg = document.getElementById('etcShohiyoFlg');
+    const div = document.getElementById('DEtcShohiyoFlg');
+    const textarea = document.getElementById('etcShohiyoShosaiInput');
+
+    if (flg) {
+      flg.checked = true;
+      if (div) { div.style.display = 'block'; div.style.visibility = 'visible'; }
+      if (typeof flg.onclick === 'function') flg.onclick();
+    }
+    if (textarea) textarea.value = items.join('\n');
   }
 
   // ── 保証会社 ──
