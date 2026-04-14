@@ -231,10 +231,20 @@
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        // カテゴリ行（末尾:や■で始まる行）はスキップ
-        if (trimmed.match(/[:：]$/) || trimmed.match(/^[■▼●【]/)) continue;
-        // カンマ・スラッシュ区切りで分解
-        const parts = trimmed.split(/[,、\/／]/);
+        // カテゴリのみの行（末尾:）はスキップ
+        if (trimmed.match(/[:：]$/)) continue;
+        // 【カテゴリ】設備名 の形式 → カテゴリ部分を除去して設備名を抽出
+        let content = trimmed;
+        const bracketMatch = content.match(/^[■▼●]?【[^】]+】\s*(.*)/);
+        if (bracketMatch) {
+          content = bracketMatch[1];
+          if (!content) continue; // カテゴリ名のみの行はスキップ
+        } else if (content.match(/^[■▼●]/)) {
+          // ■カテゴリ名 のみの行はスキップ
+          if (!content.match(/[,、\/／]/)) continue;
+        }
+        // カン���・スラッシュ区切り���分解
+        const parts = content.split(/[,、\/／]/);
         for (const p of parts) {
           const item = p.trim();
           if (item) items.push(item);
@@ -429,8 +439,12 @@
     }
 
     // ── 画像アップロード ──
-    if (data.images && data.images.length > 0 && imageGenres) {
-      await uploadImages(data.images, imageGenres);
+    if (data.images && data.images.length > 0 && imageGenres && Object.keys(imageGenres).length > 0) {
+      try {
+        await uploadImages(data.images, imageGenres);
+      } catch (imgErr) {
+        console.error('[SUUMO自動入稿] 画像アップロードエラー（続行）:', imgErr);
+      }
     }
 
     // ── 設備チェック ──
@@ -1209,7 +1223,9 @@ async function checkFillQueue() {
         usageArea: normalized.usageArea, builtYear: normalized.builtYear,
         propertyType: normalized.propertyType, deposit: normalized.deposit,
         gratuity: normalized.gratuity, managementFee: normalized.managementFee,
-        access: normalized.access?.length, structure: normalized.structure
+        access: normalized.access?.length, structure: normalized.structure,
+        features: (normalized.features || '').substring(0, 200),
+        facilities: (normalized.facilities || '').substring(0, 100)
       }));
     }
     console.log('[SUUMO自動入稿] フォーム入力開始:', normalized.building || item.building || item.buildingName);
