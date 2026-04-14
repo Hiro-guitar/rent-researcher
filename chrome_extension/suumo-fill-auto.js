@@ -138,6 +138,9 @@
 
     // ── 物件種別 ──
     d.propertyType = d.propertyType || d.property_type || '';
+    if (!d.propertyType && d.structure) {
+      d.propertyType = /木造/.test(d.structure) ? 'アパート' : 'マンション';
+    }
 
     // ── 住所パース ──
     if (!d.addr1 && d.address) {
