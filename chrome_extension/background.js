@@ -702,6 +702,8 @@ chrome.runtime.onInstalled.addListener(() => {
       });
     }
   });
+  // SUUMO入稿キューポーリングを常時稼働（巡回ON/OFFに関係なく）
+  chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 5 });
 });
 
 chrome.storage.local.set({ isSearching: false });
@@ -801,25 +803,22 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     });
   }
 
-  // ── SUUMO入稿キューポーリング ──
+  // ── SUUMO入稿キューポーリング（常時稼働・巡回ON/OFF無関係） ──
   if (alarm.name === 'suumo-queue-poll') {
-    pollSuumoApprovalQueue().then(async queueData => {
-      if (queueData && queueData.queue && queueData.queue.length > 0) {
-        console.log(`[SUUMO入稿] ${queueData.queue.length}件の承認済み物件あり`);
-        // 入稿キューに保存
-        await setStorageData({
-          suumoFillQueue: queueData.queue,
-          suumoActiveListingCount: queueData.activeListingCount,
-          suumoStopCandidate: queueData.stopCandidate
-        });
-        // ForRentタブを開いて入稿を開始
-        await startSuumoFillProcess();
-      }
-    }).catch(err => {
+    pollAndStartFillIfNeeded().catch(err => {
       console.log(`[SUUMO入稿] キューポーリング失敗: ${err.message}`);
     });
     // 次回ポーリング（5分間隔）
     chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 5 });
+  }
+
+  // ── ForRent時間外に承認された物件の遅延入稿 ──
+  if (alarm.name === 'suumo-fill-scheduled') {
+    console.log('[SUUMO入稿] スケジュール起動: ForRent利用時間到来');
+    setStorageData({ debugLog: '[SUUMO入稿] ForRent利用時間到来 → 入稿開始' });
+    pollAndStartFillIfNeeded().catch(err => {
+      console.log(`[SUUMO入稿] スケジュール起動失敗: ${err.message}`);
+    });
   }
 });
 
@@ -860,29 +859,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     chrome.storage.local.set({ suumoPatrolEnabled: msg.enabled }, () => {
       if (msg.enabled) {
         chrome.alarms.create('suumo-patrol', { delayInMinutes: 1 }); // すぐ開始
-        chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 1 });
       } else {
         chrome.alarms.clear('suumo-patrol');
-        chrome.alarms.clear('suumo-queue-poll');
+        // 実行中の巡回サイクルを中断（キューポーリングは止めない）
+        currentSearchId++;
+        _suumoPatrolRunning = false;
+        setStorageData({ debugLog: '[SUUMO巡回] 停止しました' });
       }
       sendResponse({ ok: true });
     });
     return true;
   }
   if (msg.type === 'SUUMO_QUEUE_POLL_NOW') {
-    // 即座にキューポーリングを実行
-    pollSuumoApprovalQueue().then(async queueData => {
-      if (queueData && queueData.queue && queueData.queue.length > 0) {
-        console.log(`[SUUMO入稿] 即時ポーリング: ${queueData.queue.length}件の承認済み物件あり`);
-        await setStorageData({
-          suumoFillQueue: queueData.queue,
-          suumoActiveListingCount: queueData.activeListingCount,
-          suumoStopCandidate: queueData.stopCandidate
-        });
-      } else {
-        console.log('[SUUMO入稿] 即時ポーリング: 承認済み物件なし');
-      }
-      sendResponse({ ok: true, count: queueData?.queue?.length || 0 });
+    // 即座にキューポーリング→入稿開始（ForRent時間帯チェック含む）
+    pollAndStartFillIfNeeded().then(() => {
+      sendResponse({ ok: true });
     }).catch(err => {
       console.error('[SUUMO入稿] 即時ポーリング失敗:', err);
       sendResponse({ ok: false, error: err.message });
@@ -4026,39 +4017,128 @@ async function notifyDiscordError(message) {
 //  SUUMO入稿: ForRentタブ管理・入稿プロセス
 // ══════════════════════════════════════════════════════════════
 
-/** ForRentのベースURL */
+/** ForRentのベースURL（suumo_fill=trueでcontent scriptがキュー処理を開始） */
 const FORRENT_BASE_URL = 'https://www.fn.forrent.jp/fn/';
+const FORRENT_FILL_URL = 'https://www.fn.forrent.jp/fn/?suumo_fill=true';
+
+/**
+ * ForRentの利用可能時間チェック
+ *
+ * ご利用可能時間:
+ *   月曜日: 9:00〜24:00
+ *   日曜日: 8:00〜23:00
+ *   その他: 8:00〜24:00
+ *
+ * @returns {{ available: boolean, nextAvailableTime: number|null }}
+ */
+function checkForrentAvailability() {
+  const now = new Date();
+  const day = now.getDay(); // 0=日, 1=月, ...
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const currentMinutes = hour * 60 + minute;
+
+  let startMinutes, endMinutes;
+  if (day === 1) {
+    // 月曜: 9:00〜24:00
+    startMinutes = 9 * 60;
+    endMinutes = 24 * 60;
+  } else if (day === 0) {
+    // 日曜: 8:00〜23:00
+    startMinutes = 8 * 60;
+    endMinutes = 23 * 60;
+  } else {
+    // その他: 8:00〜24:00
+    startMinutes = 8 * 60;
+    endMinutes = 24 * 60;
+  }
+
+  if (currentMinutes >= startMinutes && currentMinutes < endMinutes) {
+    return { available: true, nextAvailableTime: null };
+  }
+
+  // 次の利用可能時刻を計算
+  const next = new Date(now);
+  if (currentMinutes >= endMinutes) {
+    // 今日の利用時間は終了 → 翌日の開始時刻
+    next.setDate(next.getDate() + 1);
+  }
+  // 翌日の曜日に応じた開始時刻
+  const nextDay = next.getDay();
+  let nextStart;
+  if (nextDay === 1) {
+    nextStart = 9 * 60; // 月曜
+  } else {
+    nextStart = 8 * 60; // 日曜・その他
+  }
+  next.setHours(Math.floor(nextStart / 60), nextStart % 60, 0, 0);
+
+  return { available: false, nextAvailableTime: next.getTime() };
+}
+
+/**
+ * GASからキューをポーリングし、物件があれば入稿プロセスを開始
+ * ForRent時間外の場合はアラームでスケジュール
+ */
+async function pollAndStartFillIfNeeded() {
+  const queueData = await pollSuumoApprovalQueue();
+  if (!queueData || !queueData.queue || queueData.queue.length === 0) {
+    return;
+  }
+
+  console.log(`[SUUMO入稿] ${queueData.queue.length}件の承認済み物件あり`);
+  await setStorageData({
+    suumoFillQueue: queueData.queue,
+    suumoActiveListingCount: queueData.activeListingCount,
+    suumoStopCandidate: queueData.stopCandidate
+  });
+
+  // ForRent利用時間チェック
+  const { available, nextAvailableTime } = checkForrentAvailability();
+  if (!available) {
+    const nextDate = new Date(nextAvailableTime);
+    const timeStr = `${nextDate.getMonth()+1}/${nextDate.getDate()} ${String(nextDate.getHours()).padStart(2,'0')}:${String(nextDate.getMinutes()).padStart(2,'0')}`;
+    console.log(`[SUUMO入稿] ForRent時間外 → ${timeStr} にスケジュール`);
+    await setStorageData({ debugLog: `[SUUMO入稿] ForRent利用時間外のため ${timeStr} に入稿予定` });
+    chrome.alarms.create('suumo-fill-scheduled', { when: nextAvailableTime });
+    return;
+  }
+
+  await startSuumoFillProcess();
+}
 
 /**
  * ForRentの入稿プロセスを開始
  *
  * ForRentは動的セッションID管理のため固定URLでは新規登録ページに直接アクセスできない。
- * 既存ForRentタブがあればそれを使い、なければトップを開く。
- * content script (suumo-fill-auto.js) が「新規物件登録」タブのクリックとキュー処理を担当。
+ * 既存ForRentタブがあればそれを使い、なければ ?suumo_fill=true 付きで開く。
+ * content script (suumo-fill-auto.js) が ?suumo_fill=true を検知してキュー処理を開始。
  */
 async function startSuumoFillProcess() {
   try {
-    const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/fn/*' });
-    let forrentTab;
+    // 入稿モードフラグをセット（content scriptがログインページ・通常ページどちらでも検知可能）
+    await setStorageData({ suumoFillMode: true });
 
-    if (tabs.length > 0) {
-      forrentTab = tabs[0];
-      console.log(`[SUUMO入稿] 既存ForRentタブ使用 (tab ${forrentTab.id})`);
-    } else {
-      forrentTab = await chrome.tabs.create({ url: FORRENT_BASE_URL, active: false });
-      console.log(`[SUUMO入稿] ForRentトップを開きました (tab ${forrentTab.id})`);
-      // ページ読み込み待ち
-      await new Promise(resolve => setTimeout(resolve, 5000));
+    // 既に入稿モードのForRentタブがあれば何もしない（重複タブ防止）
+    const { suumoFillTabId } = await getStorageData(['suumoFillTabId']);
+    if (suumoFillTabId) {
+      try {
+        const existingTab = await chrome.tabs.get(suumoFillTabId);
+        if (existingTab && existingTab.url && existingTab.url.includes('fn.forrent.jp')) {
+          console.log(`[SUUMO入稿] 既存入稿タブあり (tab ${suumoFillTabId}) → 新規作成スキップ`);
+          await setStorageData({ debugLog: `[SUUMO入稿] 既存タブで処理中` });
+          return;
+        }
+      } catch (e) {
+        // タブが閉じられている場合 → 続行して新規作成
+      }
     }
 
-    // content scriptに新規登録ページへの遷移を指示
-    try {
-      await chrome.tabs.sendMessage(forrentTab.id, { type: 'SUUMO_NAVIGATE_NEW_REGISTRATION' });
-    } catch (e) {
-      console.log('[SUUMO入稿] content script通信失敗（ログインが必要かもしれません）:', e.message);
-    }
-
-    await setStorageData({ debugLog: `[SUUMO入稿] ForRentタブ準備完了` });
+    // 新規タブを作成（ログイン→ナビゲーション→入力はcontent scriptが全て処理）
+    const forrentTab = await chrome.tabs.create({ url: FORRENT_FILL_URL, active: false });
+    await setStorageData({ suumoFillTabId: forrentTab.id });
+    console.log(`[SUUMO入稿] 入稿用タブを新規作成 (tab ${forrentTab.id})`);
+    await setStorageData({ debugLog: `[SUUMO入稿] ForRentタブ作成完了 (ログイン・ナビゲーションはcontent script側で処理)` });
 
   } catch (err) {
     console.error('[SUUMO入稿] ForRentタブオープン失敗:', err);

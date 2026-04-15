@@ -119,6 +119,7 @@
     const text = document.body.innerText || '';
     const labels = [
       '入居可能時期', '入居時期',
+      '築年数',
       '所在階', '構造', '総戸数',
       '賃貸借の種類', '賃貸借契約の種類', '賃貸借契約区分', '契約区分', '契約形態', '契約期間',
       '解約予告', '解約通知期間',
@@ -277,6 +278,7 @@
       ['契約更新', 'renewal_info'],
       ['入居可能時期', 'move_in_date'],
       ['入居時期', 'move_in_date'],
+      ['築年数', 'building_age'],
       ['所在階', 'floor_text'],
       ['構造', 'structure'],
       ['総戸数', 'total_units'],

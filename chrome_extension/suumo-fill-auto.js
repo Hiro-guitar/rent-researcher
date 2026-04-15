@@ -28,8 +28,43 @@
   const isNaviFrame = (window.name === 'navi');
   const isMainFrame = (window.name === 'main');
 
+  // ── ログインページ検知＆自動ログイン ──
+  // ログインページはframeset構造ではなく単純なページ（isTopFrame === true）
+  // login.action へPOSTするフォームがあればログインページと判定
   if (isTopFrame) {
-    // framesetのトップ - 何もしない（bodyがないため操作不能）
+    const loginForm = document.querySelector('form[action*="login.action"]');
+    const loginIdInput = document.querySelector('input[name="${loginForm.loginId}"]');
+    if (loginForm && loginIdInput) {
+      console.log('[SUUMO自動入稿] ログインページ検知');
+      // ?suumo_fill=true または suumoFillModeフラグがあれば自動ログイン
+      const urlHasFillParam = window.location.href.includes('suumo_fill=true');
+      chrome.storage.local.get(['forrentLoginId', 'forrentPassword', 'suumoFillMode'], (data) => {
+        const shouldAutoLogin = urlHasFillParam || data.suumoFillMode;
+        if (!shouldAutoLogin) {
+          console.log('[SUUMO自動入稿] 手動アクセスのログインページ → スキップ');
+          return;
+        }
+        if (data.forrentLoginId && data.forrentPassword) {
+          console.log('[SUUMO自動入稿] 自動ログイン実行');
+          // ログイン後に?suumo_fill=trueが消えるので、フラグで引き継ぐ
+          // set完了を待ってからログインボタンをクリック
+          chrome.storage.local.set({ suumoFillMode: true }, () => {
+            console.log('[SUUMO自動入稿] suumoFillModeセット完了 → ログイン送信');
+            loginIdInput.value = data.forrentLoginId;
+            const pwInput = document.querySelector('input[name="${loginForm.password}"]');
+            if (pwInput) pwInput.value = data.forrentPassword;
+            const submitBtn = document.getElementById('Image7') || loginForm.querySelector('input[type="image"]');
+            if (submitBtn) {
+              setTimeout(() => submitBtn.click(), 300);
+            }
+          });
+        } else {
+          console.log('[SUUMO自動入稿] ForRent認証情報が未設定 → 手動ログインが必要');
+        }
+      });
+      return;
+    }
+    // framesetのトップ（ログインページ以外）- 何もしない
     console.log('[SUUMO自動入稿] framesetトップ - スキップ');
     return;
   }
@@ -40,15 +75,42 @@
     return;
   }
 
-  // mainフレーム or その他のフレーム → キュー監視 + フォーム入力
-  console.log('[SUUMO自動入稿] mainフレーム - キュー監視＋フォーム入力スクリプト起動, URL:', window.location.href);
+  // mainフレーム or その他のフレーム → フォーム入力（キュー監視はトリガー時のみ）
+  console.log('[SUUMO自動入稿] mainフレーム - スクリプト起動, URL:', window.location.href);
   // デバッグ用: DOMにマーカーを追加して読み込み確認
   if (document.body) {
     document.body.setAttribute('data-suumo-fill-auto', 'loaded-' + Date.now());
   }
 
-  // キュー監視を開始（トップフレームの代わりにmainフレームで）
-  initMainFrameMonitor();
+  // キュー監視の二重起動防止フラグ
+  let _monitorStarted = false;
+
+  // suumoFillModeフラグがONならキュー監視を開始（ログイン後・承認後どちらでも）
+  // フラグはbackground.jsまたはログインcontent scriptがセットする
+  chrome.storage.local.get(['suumoFillMode'], (data) => {
+    if (data.suumoFillMode) {
+      console.log('[SUUMO自動入稿] suumoFillModeフラグ検知 → キュー監視開始 & 即時ポーリング');
+      chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
+        console.log('[SUUMO自動入稿] 即時ポーリング結果:', resp);
+      });
+      initMainFrameMonitor();
+    } else {
+      // URLの?suumo_fill=trueもチェック（承認ページからの直接起動時）
+      const topUrl = (() => {
+        try { return window.top.location.href; } catch (e) { return window.location.href; }
+      })();
+      if (topUrl.includes('suumo_fill=true')) {
+        console.log('[SUUMO自動入稿] ?suumo_fill=true 検知 → キュー監視開始');
+        chrome.storage.local.set({ suumoFillMode: true });
+        chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
+          console.log('[SUUMO自動入稿] 即時ポーリング結果:', resp);
+        });
+        initMainFrameMonitor();
+      } else {
+        console.log('[SUUMO自動入稿] 手動利用 → キュー監視スキップ');
+      }
+    }
+  });
 
   // デバッグ用: ページコンテキストからのテストデータ受信
   window.addEventListener('message', async (event) => {
@@ -70,6 +132,17 @@
         console.error('[SUUMO自動入稿] テスト入力エラー:', err);
         document.body.setAttribute('data-suumo-fill-result', 'error: ' + err.message);
       }
+    }
+  });
+
+  // suumoFillModeがONになったらキュー監視を動的に開始
+  // （既存ForRentタブに対してbackground.jsがフラグをセットした場合）
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.suumoFillMode && changes.suumoFillMode.newValue && !_monitorStarted) {
+      console.log('[SUUMO自動入稿] suumoFillModeフラグ変更検知 → キュー監視開始');
+      chrome.storage.local.set({ suumoFillMode: false });
+      _monitorStarted = true;
+      initMainFrameMonitor();
     }
   });
 
@@ -101,7 +174,7 @@
     const d = Object.assign({}, data);
 
     // ── 建物名・部屋番号 ──
-    d.building = d.building || d.building_name || d.buildingName || '';
+    d.building = d.building || d.building_name || d.buildingName || d.property_name || d.propertyName || '';
     d.room = d.room || d.room_number || d.roomNumber || '';
 
     // ── 賃料（円→万円） ──
@@ -186,21 +259,44 @@
       d.usageArea = String(d.area);
     }
 
-    // ── 築年数→築年（西暦） ──
+    // ── 築年月パース ──
+    // itandi形式: building_age = "2010年3月(築16年)" or "新築"
+    d.builtYear = d.builtYear || d.built_year || '';
+    d.builtMonth = d.builtMonth || d.built_month || '';
+
     if (!d.builtYear && d.building_age) {
       const ageStr = String(d.building_age);
-      if (ageStr === '新築') {
-        d.builtYear = String(new Date().getFullYear());
+
+      // 新築判定: "新築" or "2025年7月(新築)"
+      if (ageStr.includes('新築')) {
+        d.isNewConstruction = true;
       }
-      const ageMatch = ageStr.match(/(\d+)/);
-      if (!d.builtYear && ageMatch) {
-        const age = parseInt(ageMatch[1]);
-        if (age < 100) {
-          // 築年数 → 西暦に変換
-          d.builtYear = String(new Date().getFullYear() - age);
-        } else if (age > 1900) {
-          // 既に西暦
-          d.builtYear = String(age);
+
+      if (ageStr === '新築') {
+        // 年月情報なし → builtYearは空のまま、新築フラグのみ
+      } else {
+        // "2010年3月(築16年)" → 西暦年・月を抽出
+        const dateMatch = ageStr.match(/(\d{4})\s*年\s*(\d{1,2})\s*月/);
+        if (dateMatch) {
+          d.builtYear = dateMatch[1];
+          d.builtMonth = dateMatch[2];
+        } else {
+          // "2010年" のみ（月なし）
+          const yearOnly = ageStr.match(/(\d{4})\s*年/);
+          if (yearOnly) {
+            d.builtYear = yearOnly[1];
+          } else {
+            // "築16年" → 築年数から逆算
+            const ageOnly = ageStr.match(/(\d+)/);
+            if (ageOnly) {
+              const age = parseInt(ageOnly[1]);
+              if (age < 100) {
+                d.builtYear = String(new Date().getFullYear() - age);
+              } else if (age > 1900) {
+                d.builtYear = String(age);
+              }
+            }
+          }
         }
       }
     }
@@ -211,8 +307,9 @@
     // ── 交通情報パース ──
     if (!d.access || d.access.length === 0) {
       d.access = [];
-      if (d.station_info) {
-        const parsed = parseStationInfo(d.station_info);
+      const mainStation = d.station_info || d.traffic || '';
+      if (mainStation) {
+        const parsed = parseStationInfo(mainStation);
         if (parsed) d.access.push(parsed);
       }
       if (d.other_stations && Array.isArray(d.other_stations)) {
@@ -390,11 +487,14 @@
     // ── 建物構造 ──
     if (data.structure) {
       const structureMap = {
-        'RC': '01', '鉄筋コンクリート': '01', 'SRC': '02', '鉄骨鉄筋コンクリート': '02',
-        '木造': '05', '鉄骨造': '06', '鉄骨': '06', '軽量鉄骨': '07', '軽量鉄骨造': '07',
+        'RC': '01', 'RC造': '01', '鉄筋コンクリート': '01', '鉄筋コンクリート造': '01',
+        'SRC': '02', 'SRC造': '02', '鉄骨鉄筋コンクリート': '02', '鉄骨鉄筋コンクリート造': '02',
+        '木造': '05',
+        '鉄骨造': '06', '鉄骨': '06', 'S造': '06',
+        '軽量鉄骨': '07', '軽量鉄骨造': '07',
         'その他': '99'
       };
-      const key = toHalfWidth(data.structure);
+      const key = toHalfWidth(data.structure).trim();
       setSelectByName('${bukkenInputForm.kozoShuCd}', structureMap[key] || '');
     }
 
@@ -409,6 +509,16 @@
           setInputWithEvents(input, String(data.builtMonth).padStart(2, '0'));
         }
       });
+    }
+
+    // ── 新築/中古/未入居 ──
+    // デフォルトは中古(shinchikuKbnCd1=2)、新築の場合のみshinchikuKbnCd2(=1)に切替
+    if (data.isNewConstruction) {
+      const shinchikuRadio = document.getElementById('shinchikuKbnCd2');
+      if (shinchikuRadio) {
+        shinchikuRadio.checked = true;
+        shinchikuRadio.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     }
 
     // ── 住所（カスケード） ──
@@ -454,6 +564,9 @@
     if (data.features) {
       fillFeatures(data.features);
     }
+
+    // ── 損保（火災保険） ──
+    fillSonpo(data);
 
     // ── その他初期費用 ──
     fillOtherInitialCosts(data);
@@ -663,6 +776,22 @@
         tohoRadio.checked = true;
         tohoRadio.dispatchEvent(new Event('change', { bubbles: true }));
       }
+
+      // 表示制御: 「駅から」ブロックを表示、バス・車ブロックを非表示
+      const ekimadeMap = { '': 'DEkimade', '2': 'DEkimade3', '3': 'DEkimade4' };
+      const busteiMap = { '': 'DBustei', '2': 'DBustei3', '3': 'DBustei4' };
+      const kurumaMap = { '': 'DKurumade', '2': 'DKurumade3', '3': 'DKurumade4' };
+
+      const ekimadeDiv = document.getElementById(ekimadeMap[num]);
+      if (ekimadeDiv) {
+        ekimadeDiv.style.display = 'block';
+        ekimadeDiv.style.visibility = 'visible';
+        ekimadeDiv.classList.remove('defaultHidden');
+      }
+      const busDiv = document.getElementById(busteiMap[num]);
+      const carDiv = document.getElementById(kurumaMap[num]);
+      if (busDiv) busDiv.style.display = 'none';
+      if (carDiv) carDiv.style.display = 'none';
     }
   }
 
@@ -969,6 +1098,64 @@
     });
   }
 
+  // ── 損保（火災保険） ──
+  function fillSonpo(data) {
+    const raw = data.fire_insurance || data.fireInsurance;
+    if (!raw || raw === 'なし' || raw === '0' || raw === '0円') return;
+
+    const rawStr = String(raw);
+
+    // 「2年間 16,550円」→ 年数と金額を分離してパース
+    let years = 2; // デフォルト2年
+    let amountYen = 0;
+
+    // 年数を抽出: 「2年間」「2年」
+    const yearMatch = rawStr.match(/(\d+)\s*年/);
+    if (yearMatch) years = parseInt(yearMatch[1]);
+
+    // 金額を抽出: 「16,550円」「16550」— 年数部分を除いた後の数値
+    // 「円」の前の数値、またはカンマ区切り数値を探す
+    const amountMatch = rawStr.match(/([\d,]+)\s*円/);
+    if (amountMatch) {
+      amountYen = parseFloat(amountMatch[1].replace(/,/g, ''));
+    } else {
+      // 「円」がない場合：年数部分を除去してから数値を取得
+      const withoutYears = rawStr.replace(/\d+\s*年\s*(間\s*)?/, '');
+      amountYen = parseFloat(withoutYears.replace(/[^\d.]/g, ''));
+    }
+
+    if (isNaN(amountYen) || amountYen <= 0) return;
+
+    // 万円に変換（正確な値をそのまま入力）
+    const manYen = amountYen / 10000;
+    const intPart = String(Math.floor(manYen));
+    // 小数部をそのまま: 16550円→1.655万円→小数部"655"
+    const remainder = amountYen % 10000;
+    const decPart = remainder > 0 ? String(remainder) : '0';
+
+    const sonpoFlg = document.getElementById('sonpoFlg');
+    if (sonpoFlg) {
+      sonpoFlg.checked = true;
+      if (typeof sonpoFlg.onclick === 'function') sonpoFlg.onclick();
+      // 表示切替
+      const sonpoDiv = sonpoFlg.closest('tr')?.querySelector('[id*="Sonpo"], [id*="sonpo"]')
+        || document.getElementById('DSonpo');
+      if (sonpoDiv) { sonpoDiv.style.display = 'block'; sonpoDiv.style.visibility = 'visible'; }
+    }
+
+    // IDが無いのでname属性で取得
+    const kingaku1 = document.querySelector('input[name="${bukkenInputForm.sonpoKingaku1}"]');
+    const kingaku2 = document.querySelector('input[name="${bukkenInputForm.sonpoKingaku2}"]');
+    if (kingaku1) kingaku1.value = intPart;
+    if (kingaku2) kingaku2.value = decPart.replace(/0+$/, '') || '0';
+
+    // 契約年数
+    const keiyakuCnt = document.querySelector('input[name="${bukkenInputForm.sonpoKeiyakuCnt}"]');
+    if (keiyakuCnt) keiyakuCnt.value = String(years);
+
+    console.log('[SUUMO自動入稿] 損保:', amountYen, '円 →', intPart + '.' + decPart, '万円, 契約年数:', years, '年');
+  }
+
   // ── その他初期費用 ──
   function fillOtherInitialCosts(data) {
     const items = [];
@@ -981,7 +1168,7 @@
 
     addItem('鍵交換費用', data.key_exchange_fee || data.keyExchangeFee);
     addItem('クリーニング費', data.cleaning_fee || data.cleaningFee);
-    addItem('火災保険', data.fire_insurance || data.fireInsurance);
+    // 火災保険は損保セクションで処理するためここでは除外
     if (data.other_onetime_fee || data.otherOneTimeFee) {
       addItem('その他', data.other_onetime_fee || data.otherOneTimeFee);
     }
@@ -1190,7 +1377,12 @@
  * ForRentは<frameset>構造のため、mainフレーム内で全て処理する
  */
 function initMainFrameMonitor() {
-  console.log('[SUUMO自動入稿] mainフレーム監視を初期化');
+  if (_monitorStarted) {
+    console.log('[SUUMO自動入稿] 監視は既に開始済み');
+    return;
+  }
+  _monitorStarted = true;
+  console.log('[SUUMO自動入稿] mainフレーム監視を初期化（入稿モード）');
 
   // background.jsからのメッセージ受信
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

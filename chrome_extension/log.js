@@ -154,15 +154,46 @@
   document.getElementById('autoSearchEnabled').addEventListener('change', () => saveServiceSettings());
 
   // ── SUUMO巡回トグル ──
-  document.getElementById('suumoPatrolEnabled').addEventListener('change', (e) => {
+  const suumoCheckbox = document.getElementById('suumoPatrolEnabled');
+  const suumoStartBtn = document.getElementById('suumoPatrolNowBtn');
+  const suumoStopBtn = document.getElementById('suumoPatrolStopBtn');
+
+  function updateSuumoButtons(enabled) {
+    if (enabled) {
+      suumoStartBtn.style.display = 'none';
+      suumoStopBtn.style.display = '';
+    } else {
+      suumoStartBtn.style.display = '';
+      suumoStopBtn.style.display = 'none';
+    }
+  }
+
+  suumoCheckbox.addEventListener('change', (e) => {
     chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_TOGGLE', enabled: e.target.checked });
+    updateSuumoButtons(e.target.checked);
   });
-  document.getElementById('suumoPatrolNowBtn').addEventListener('click', () => {
+  suumoStartBtn.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_TOGGLE', enabled: true });
     chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_NOW' });
+    suumoCheckbox.checked = true;
+    updateSuumoButtons(true);
+  });
+  suumoStopBtn.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_TOGGLE', enabled: false });
+    suumoCheckbox.checked = false;
+    updateSuumoButtons(false);
   });
   // SUUMO巡回状態を初期読み込み
   chrome.storage.local.get(['suumoPatrolEnabled'], (data) => {
-    document.getElementById('suumoPatrolEnabled').checked = !!data.suumoPatrolEnabled;
+    suumoCheckbox.checked = !!data.suumoPatrolEnabled;
+    updateSuumoButtons(!!data.suumoPatrolEnabled);
+  });
+
+  // ── SUUMO入稿開始ボタン ──
+  document.getElementById('suumoFillNowBtn').addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
+      console.log('SUUMO_QUEUE_POLL_NOW response:', resp);
+    });
   });
 
   // --- 顧客チェックボックス ---

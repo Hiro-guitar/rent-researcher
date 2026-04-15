@@ -156,6 +156,11 @@ async function runSuumoPatrolCycle() {
 
     // 4. 各巡回条件を処理
     for (let ci = 0; ci < criteria.length; ci++) {
+      if (isSearchCancelled(searchId)) {
+        await setStorageData({ debugLog: '[SUUMO巡回] 中断されました' });
+        return;
+      }
+
       const crit = criteria[ci];
       const customer = patrolCriteriaToCustomer(crit);
       console.log('[SUUMO巡回] GAS条件:', JSON.stringify(crit));
@@ -173,44 +178,47 @@ async function runSuumoPatrolCycle() {
         { key: 'reins', label: 'REINS' },
       ];
 
+      let totalNew = 0;
+      let totalCollected = 0;
+
       for (const svc of serviceList) {
+        if (isSearchCancelled(searchId)) {
+          await setStorageData({ debugLog: '[SUUMO巡回] 中断されました' });
+          return;
+        }
         if (!services[svc.key]) continue;
         try {
           const props = await runSuumoPatrolForService(svc.key, customer, searchId);
           await setStorageData({ debugLog: `[SUUMO巡回][${svc.label}] ${props.length}件取得` });
-          collectedProperties.push(...props);
+          totalCollected += props.length;
+
+          // 都度新着判定＆GAS送信（Discordに即通知）
+          for (const prop of props) {
+            const key = normSuumoKey(
+              prop.building_name || prop.buildingName || prop.building || '',
+              prop.room_number || prop.roomNumber || prop.room || ''
+            );
+            if (!seenKeys[key]) {
+              seenKeys[key] = Date.now();
+              totalNew++;
+              try {
+                await sendSuumoCandidatesToGas([prop], crit.id);
+                await setStorageData({ debugLog: `[SUUMO巡回] → ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} 送信完了` });
+              } catch (err) {
+                await setStorageData({ debugLog: `[SUUMO巡回] GAS送信失敗: ${err.message}` });
+              }
+            }
+          }
         } catch (err) {
           await setStorageData({ debugLog: `[SUUMO巡回][${svc.label}] エラー: ${err.message}` });
           console.error(`[SUUMO巡回][${svc.label}]`, err);
         }
       }
 
-      // 5. 新着判定 & GASに送信
-      if (collectedProperties.length > 0) {
-        const newProperties = [];
-        for (const prop of collectedProperties) {
-          const key = normSuumoKey(
-            prop.building_name || prop.buildingName || prop.building || '',
-            prop.room_number || prop.roomNumber || prop.room || ''
-          );
-          if (!seenKeys[key]) {
-            seenKeys[key] = Date.now();
-            newProperties.push(prop);
-          }
-        }
-
-        if (newProperties.length > 0) {
-          await setStorageData({ debugLog: `[SUUMO巡回] ${crit.name}: ${newProperties.length}件の新着物件を検出` });
-
-          // GASに送信
-          try {
-            await sendSuumoCandidatesToGas(newProperties, crit.id);
-          } catch (err) {
-            await setStorageData({ debugLog: `[SUUMO巡回] GAS送信失敗: ${err.message}` });
-          }
-        } else {
-          await setStorageData({ debugLog: `[SUUMO巡回] ${crit.name}: 新着なし（${collectedProperties.length}件中全て既知）` });
-        }
+      if (totalNew > 0) {
+        await setStorageData({ debugLog: `[SUUMO巡回] ${crit.name}: ${totalNew}件の新着物件を検出` });
+      } else if (totalCollected > 0) {
+        await setStorageData({ debugLog: `[SUUMO巡回] ${crit.name}: 新着なし（${totalCollected}件中全て既知）` });
       } else {
         await setStorageData({ debugLog: `[SUUMO巡回] ${crit.name}: 物件取得0件` });
       }

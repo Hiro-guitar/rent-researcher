@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword'], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
@@ -17,6 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const bt = data.btMode || 'alert';
     const btRadio = document.querySelector(`input[name="btMode"][value="${bt}"]`);
     if (btRadio) btRadio.checked = true;
+    if (data.forrentLoginId) document.getElementById('forrentLoginId').value = data.forrentLoginId;
+    if (data.forrentPassword) document.getElementById('forrentPassword').value = data.forrentPassword;
   });
 
   // 保存
@@ -33,6 +35,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const businessEndHour = Math.max(1, Math.min(24, parseInt(document.getElementById('endHour').value) || 24));
     const notifyMode = (document.querySelector('input[name="notifyMode"]:checked') || {}).value || 'immediate';
     const btMode = (document.querySelector('input[name="btMode"]:checked') || {}).value || 'alert';
+    const forrentLoginId = document.getElementById('forrentLoginId').value.trim();
+    const forrentPassword = document.getElementById('forrentPassword').value.trim();
 
     chrome.storage.local.set({
       gasWebappUrl,
@@ -46,7 +50,9 @@ document.addEventListener('DOMContentLoaded', () => {
       businessStartHour,
       businessEndHour,
       notifyMode,
-      btMode
+      btMode,
+      forrentLoginId,
+      forrentPassword
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });
