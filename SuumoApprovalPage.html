@@ -8,7 +8,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
-  background: #f0f2f5; color: #333;
+  background: #f0f2f5; color: #333; padding-bottom: 80px;
 }
 
 /* ── ヘッダー ── */
@@ -28,14 +28,32 @@ body {
 .card-title {
   font-size: 14px; font-weight: 700; padding: 12px 16px;
   background: #eaf2f8; color: #1a5276; border-bottom: 1px solid #d4e6f1;
+  cursor: pointer; display: flex; justify-content: space-between; align-items: center;
 }
+.card-title .toggle { font-size: 12px; color: #888; }
 .card-body { padding: 14px 16px; }
+.card-body.collapsed { display: none; }
 
 /* ── 物件情報 ── */
 .prop-row { display: flex; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
-.prop-label { width: 90px; font-size: 12px; color: #888; flex-shrink: 0; }
-.prop-value { font-size: 14px; font-weight: 500; flex: 1; }
+.prop-label { width: 120px; font-size: 12px; color: #888; flex-shrink: 0; }
+.prop-value { font-size: 14px; font-weight: 500; flex: 1; word-break: break-all; }
 .prop-value.highlight { color: #e74c3c; font-weight: 700; }
+.prop-value.sub { font-size: 12px; color: #666; }
+.prop-row:last-child { border-bottom: none; }
+
+/* ── セクション内小見出し ── */
+.section-sub {
+  font-size: 12px; font-weight: 600; color: #2e86c1; padding: 8px 0 4px;
+  border-bottom: 1px solid #d4e6f1; margin-top: 8px;
+}
+
+/* ── 設備タグ ── */
+.facility-tags { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0; }
+.facility-tag {
+  display: inline-block; padding: 2px 8px; font-size: 11px;
+  background: #eaf2f8; color: #1a5276; border-radius: 4px; border: 1px solid #d4e6f1;
+}
 
 /* ── 画像ジャンル ── */
 .image-grid {
@@ -50,18 +68,14 @@ body {
 .image-card img {
   width: 100%; height: 100px; object-fit: cover; display: block;
 }
-.image-card .genre-select {
-  padding: 6px; font-size: 11px;
-}
+.image-card .genre-select { padding: 6px; font-size: 11px; }
 .image-card select {
   width: 100%; padding: 4px; font-size: 12px; border: 1px solid #ccc;
   border-radius: 4px; background: #fff;
 }
 
 /* ── ジャンルボタン ── */
-.genre-btns {
-  display: flex; flex-wrap: wrap; gap: 3px; padding: 4px 6px;
-}
+.genre-btns { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px 6px; }
 .genre-btn {
   padding: 2px 6px; font-size: 10px; border: 1px solid #ccc;
   background: #f9f9f9; border-radius: 4px; cursor: pointer;
@@ -82,8 +96,8 @@ body {
 
 /* ── ボタン ── */
 .btn-group {
-  display: flex; gap: 10px; padding: 16px; position: sticky; bottom: 0;
-  background: #fff; border-top: 1px solid #ddd;
+  display: flex; gap: 10px; padding: 16px; position: fixed; bottom: 0; left: 0; right: 0;
+  background: #fff; border-top: 1px solid #ddd; z-index: 10;
 }
 .btn {
   flex: 1; padding: 14px; font-size: 15px; font-weight: 700;
@@ -117,6 +131,14 @@ body {
   border-bottom: 1px solid #eee;
   font-size: 13px; font-weight: 600; color: #555;
 }
+
+/* ── 元サイトリンク ── */
+.source-link {
+  display: inline-block; padding: 6px 16px; margin: 8px 0;
+  background: #2e86c1; color: #fff; border-radius: 6px;
+  text-decoration: none; font-size: 13px; font-weight: 600;
+}
+.source-link:hover { background: #1a5276; }
 </style>
 </head>
 <body>
@@ -125,28 +147,104 @@ body {
   <h1>SUUMO掲載承認<span class="badge">SUUMO</span></h1>
 </div>
 
-<!-- 物件情報プレビュー -->
+<!-- 基本情報 -->
 <div class="card">
-  <div class="card-title">物件情報</div>
-  <div class="card-body">
+  <div class="card-title" onclick="toggleCard(this)">基本情報<span class="toggle">-</span></div>
+  <div class="card-body" id="sectionBasic">
     <div class="prop-row"><div class="prop-label">建物名</div><div class="prop-value" id="pvBuilding"></div></div>
     <div class="prop-row"><div class="prop-label">部屋番号</div><div class="prop-value" id="pvRoom"></div></div>
     <div class="prop-row"><div class="prop-label">住所</div><div class="prop-value" id="pvAddress"></div></div>
-    <div class="prop-row"><div class="prop-label">賃料</div><div class="prop-value highlight" id="pvRent"></div></div>
-    <div class="prop-row"><div class="prop-label">管理費</div><div class="prop-value" id="pvMgmtFee"></div></div>
-    <div class="prop-row"><div class="prop-label">間取り</div><div class="prop-value" id="pvLayout"></div></div>
-    <div class="prop-row"><div class="prop-label">面積</div><div class="prop-value" id="pvArea"></div></div>
-    <div class="prop-row"><div class="prop-label">交通</div><div class="prop-value" id="pvStation"></div></div>
     <div class="prop-row"><div class="prop-label">ソース</div><div class="prop-value" id="pvSource"></div></div>
+    <div class="prop-row"><div class="prop-label">元サイト</div><div class="prop-value" id="pvUrl"></div></div>
     <div class="prop-row"><div class="prop-label">ステータス</div><div class="prop-value" id="pvStatus"></div></div>
+    <div class="prop-row"><div class="prop-label">掲載状況</div><div class="prop-value" id="pvListingStatus"></div></div>
+    <div class="prop-row"><div class="prop-label">現況</div><div class="prop-value" id="pvCurrentStatus"></div></div>
+  </div>
+</div>
+
+<!-- 賃料・費用 -->
+<div class="card">
+  <div class="card-title" onclick="toggleCard(this)">賃料・費用<span class="toggle">-</span></div>
+  <div class="card-body" id="sectionCost">
+    <div class="prop-row"><div class="prop-label">賃料</div><div class="prop-value highlight" id="pvRent"></div></div>
+    <div class="prop-row"><div class="prop-label">管理費/共益費</div><div class="prop-value" id="pvMgmtFee"></div></div>
+    <div class="prop-row"><div class="prop-label">敷金</div><div class="prop-value" id="pvDeposit"></div></div>
+    <div class="prop-row"><div class="prop-label">礼金</div><div class="prop-value" id="pvKeyMoney"></div></div>
+    <div class="prop-row"><div class="prop-label">敷引き/償却</div><div class="prop-value" id="pvShikibiki"></div></div>
+    <div class="prop-row"><div class="prop-label">フリーレント</div><div class="prop-value" id="pvFreeRent"></div></div>
+
+    <div class="section-sub">月額費用</div>
+    <div class="prop-row"><div class="prop-label">駐車場代</div><div class="prop-value" id="pvParkingFee"></div></div>
+    <div class="prop-row"><div class="prop-label">駐輪場代</div><div class="prop-value" id="pvBicycleFee"></div></div>
+    <div class="prop-row"><div class="prop-label">バイク置場代</div><div class="prop-value" id="pvMotorcycleFee"></div></div>
+    <div class="prop-row"><div class="prop-label">その他月額</div><div class="prop-value" id="pvOtherMonthly"></div></div>
+
+    <div class="section-sub">一時金</div>
+    <div class="prop-row"><div class="prop-label">鍵交換費</div><div class="prop-value" id="pvKeyExchange"></div></div>
+    <div class="prop-row"><div class="prop-label">火災保険料</div><div class="prop-value" id="pvFireInsurance"></div></div>
+    <div class="prop-row"><div class="prop-label">室内清掃費</div><div class="prop-value" id="pvCleaningFee"></div></div>
+    <div class="prop-row"><div class="prop-label">その他一時金</div><div class="prop-value" id="pvOtherOnetime"></div></div>
+    <div class="prop-row"><div class="prop-label">広告料</div><div class="prop-value" id="pvAdFee"></div></div>
+
+    <div class="section-sub">契約関連</div>
+    <div class="prop-row"><div class="prop-label">更新料</div><div class="prop-value" id="pvRenewalFee"></div></div>
+    <div class="prop-row"><div class="prop-label">更新事務手数料</div><div class="prop-value" id="pvRenewalAdmin"></div></div>
+    <div class="prop-row"><div class="prop-label">保証情報</div><div class="prop-value" id="pvGuarantee"></div></div>
+  </div>
+</div>
+
+<!-- 物件スペック -->
+<div class="card">
+  <div class="card-title" onclick="toggleCard(this)">物件スペック<span class="toggle">-</span></div>
+  <div class="card-body" id="sectionSpec">
+    <div class="prop-row"><div class="prop-label">間取り</div><div class="prop-value" id="pvLayout"></div></div>
+    <div class="prop-row"><div class="prop-label">間取り詳細</div><div class="prop-value" id="pvLayoutDetail"></div></div>
+    <div class="prop-row"><div class="prop-label">面積</div><div class="prop-value" id="pvArea"></div></div>
+    <div class="prop-row"><div class="prop-label">所在階</div><div class="prop-value" id="pvFloor"></div></div>
+    <div class="prop-row"><div class="prop-label">総階数</div><div class="prop-value" id="pvStoryText"></div></div>
+    <div class="prop-row"><div class="prop-label">築年数</div><div class="prop-value" id="pvBuildingAge"></div></div>
+    <div class="prop-row"><div class="prop-label">構造</div><div class="prop-value" id="pvStructure"></div></div>
+    <div class="prop-row"><div class="prop-label">総戸数</div><div class="prop-value" id="pvTotalUnits"></div></div>
+    <div class="prop-row"><div class="prop-label">向き</div><div class="prop-value" id="pvSunlight"></div></div>
+  </div>
+</div>
+
+<!-- 交通 -->
+<div class="card">
+  <div class="card-title" onclick="toggleCard(this)">交通<span class="toggle">-</span></div>
+  <div class="card-body" id="sectionAccess">
+    <div class="prop-row"><div class="prop-label">最寄駅</div><div class="prop-value" id="pvStation"></div></div>
+    <div class="prop-row"><div class="prop-label">その他沿線</div><div class="prop-value" id="pvOtherStations"></div></div>
+  </div>
+</div>
+
+<!-- 契約条件 -->
+<div class="card">
+  <div class="card-title" onclick="toggleCard(this)">契約条件<span class="toggle">-</span></div>
+  <div class="card-body" id="sectionContract">
+    <div class="prop-row"><div class="prop-label">賃貸借種類</div><div class="prop-value" id="pvLeaseType"></div></div>
+    <div class="prop-row"><div class="prop-label">契約期間</div><div class="prop-value" id="pvContractPeriod"></div></div>
+    <div class="prop-row"><div class="prop-label">入居可能時期</div><div class="prop-value" id="pvMoveInDate"></div></div>
+    <div class="prop-row"><div class="prop-label">内見開始日</div><div class="prop-value" id="pvPreviewStart"></div></div>
+    <div class="prop-row"><div class="prop-label">入居条件</div><div class="prop-value" id="pvMoveInConditions"></div></div>
+    <div class="prop-row"><div class="prop-label">解約予告</div><div class="prop-value" id="pvCancellation"></div></div>
+    <div class="prop-row"><div class="prop-label">更新・再契約</div><div class="prop-value" id="pvRenewalInfo"></div></div>
+  </div>
+</div>
+
+<!-- 設備 -->
+<div class="card">
+  <div class="card-title" onclick="toggleCard(this)">設備・条件<span class="toggle">-</span></div>
+  <div class="card-body" id="sectionFacilities">
+    <div id="pvFacilities"></div>
   </div>
 </div>
 
 <!-- 画像ジャンル選択 -->
 <div class="card">
-  <div class="card-title">画像 & ジャンル選択</div>
+  <div class="card-title" onclick="toggleCard(this)">画像 & ジャンル選択<span class="toggle">-</span></div>
   <div class="genre-counter" id="genreCounter">選択ジャンル: 0種類</div>
-  <div class="card-body">
+  <div class="card-body" id="sectionImages">
     <div id="imageGrid" class="image-grid">
       <p style="color:#999;font-size:13px;">画像を読み込み中...</p>
     </div>
@@ -165,6 +263,13 @@ body {
     <div class="icon" id="resultIcon"></div>
     <h2 id="resultTitle"></h2>
     <p id="resultMessage"></p>
+    <div id="resultActions" style="margin-top:16px;display:none;">
+      <a id="fillLink" href="https://www.fn.forrent.jp/fn/?suumo_fill=true" target="_blank"
+         style="display:inline-block;padding:12px 24px;background:#1a5276;color:#fff;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">
+        ForRentで入稿開始
+      </a>
+      <p style="margin-top:8px;font-size:12px;color:#888;">クリックするとForRentが開き、自動入力が始まります</p>
+    </div>
   </div>
 </div>
 
@@ -193,21 +298,105 @@ var GENRE_OPTIONS = [
 // 各画像の選択ジャンル
 var imageGenres = {}; // { imageIndex: genreName }
 
+// ── ヘルパー関数 ──
+function v(val) { return val || '-'; }
+function setText(id, val) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = v(val);
+}
+function setHtml(id, html) {
+  var el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+
+// ── カード開閉 ──
+function toggleCard(titleEl) {
+  var body = titleEl.nextElementSibling;
+  var toggle = titleEl.querySelector('.toggle');
+  if (body.classList.contains('collapsed')) {
+    body.classList.remove('collapsed');
+    toggle.textContent = '-';
+  } else {
+    body.classList.add('collapsed');
+    toggle.textContent = '+';
+  }
+}
+
 // ── 初期化 ──
 window.addEventListener('DOMContentLoaded', function() {
-  document.getElementById('pvBuilding').textContent = BUILDING;
-  document.getElementById('pvRoom').textContent = ROOM;
-  document.getElementById('pvAddress').textContent = ADDRESS;
-  document.getElementById('pvRent').textContent = RENT;
-  document.getElementById('pvMgmtFee').textContent = MGMT_FEE;
-  document.getElementById('pvLayout').textContent = LAYOUT;
-  document.getElementById('pvArea').textContent = AREA ? AREA + 'm2' : '';
-  document.getElementById('pvStation').textContent = STATION;
-  document.getElementById('pvSource').textContent = SOURCE;
+  var p = PROPERTY_DATA || {};
 
+  // 基本情報
+  setText('pvBuilding', BUILDING || p.building_name);
+  setText('pvRoom', ROOM || p.room_number);
+  setText('pvAddress', ADDRESS || p.address);
+  setText('pvSource', SOURCE || p.source);
+  setText('pvListingStatus', p.listing_status);
+  setText('pvCurrentStatus', p.current_status);
+
+  // 元サイトリンク
+  if (p.url) {
+    setHtml('pvUrl', '<a href="' + esc(p.url) + '" target="_blank" class="source-link">元サイトで確認</a>');
+  } else {
+    setText('pvUrl', '-');
+  }
+
+  // ステータス
   var statusEl = document.getElementById('pvStatus');
   var cls = STATUS === 'pending' ? 'status-pending' : STATUS === 'approved' ? 'status-approved' : 'status-rejected';
   statusEl.innerHTML = '<span class="status-badge ' + cls + '">' + esc(STATUS) + '</span>';
+
+  // 賃料・費用
+  setText('pvRent', RENT || p.rent);
+  setText('pvMgmtFee', MGMT_FEE || p.management_fee || p.managementFee || p.commonServiceFee);
+  setText('pvDeposit', p.deposit);
+  setText('pvKeyMoney', p.key_money);
+  setText('pvShikibiki', p.shikibiki);
+  setText('pvFreeRent', p.free_rent || p.free_rent_detail);
+  setText('pvParkingFee', p.parking_fee);
+  setText('pvBicycleFee', p.bicycle_parking_fee);
+  setText('pvMotorcycleFee', p.motorcycle_parking_fee);
+  setText('pvOtherMonthly', p.other_monthly_fee);
+  setText('pvKeyExchange', p.key_exchange_fee);
+  setText('pvFireInsurance', p.fire_insurance);
+  setText('pvCleaningFee', p.cleaning_fee);
+  setText('pvOtherOnetime', p.other_onetime_fee);
+  setText('pvAdFee', p.ad_fee);
+  setText('pvRenewalFee', p.renewal_fee);
+  setText('pvRenewalAdmin', p.renewal_admin_fee);
+  setText('pvGuarantee', p.guarantee_info);
+
+  // 物件スペック
+  setText('pvLayout', LAYOUT || p.layout);
+  setText('pvLayoutDetail', p.layout_detail);
+  setText('pvArea', (AREA || p.area || p.usageArea) ? (AREA || p.area || p.usageArea) + 'm2' : '-');
+  setText('pvFloor', p.floor_text);
+  setText('pvStoryText', p.story_text);
+  setText('pvBuildingAge', p.building_age ? p.building_age + (String(p.building_age).includes('年') ? '' : '年') : '-');
+  setText('pvStructure', p.structure);
+  setText('pvTotalUnits', p.total_units ? p.total_units + '戸' : '-');
+  setText('pvSunlight', p.sunlight);
+
+  // 交通
+  setText('pvStation', STATION || p.station_info);
+  if (p.other_stations && p.other_stations.length > 0) {
+    var stationList = Array.isArray(p.other_stations) ? p.other_stations.join('<br>') : p.other_stations;
+    setHtml('pvOtherStations', stationList || '-');
+  } else {
+    setText('pvOtherStations', '-');
+  }
+
+  // 契約条件
+  setText('pvLeaseType', p.lease_type);
+  setText('pvContractPeriod', p.contract_period);
+  setText('pvMoveInDate', p.move_in_date);
+  setText('pvPreviewStart', p.preview_start_date);
+  setText('pvMoveInConditions', p.move_in_conditions);
+  setText('pvCancellation', p.cancellation_notice);
+  setText('pvRenewalInfo', p.renewal_info);
+
+  // 設備
+  renderFacilities(p.facilities);
 
   // 既に承認/却下済みなら操作不可
   if (STATUS !== 'pending') {
@@ -218,9 +407,64 @@ window.addEventListener('DOMContentLoaded', function() {
   renderImages();
 });
 
+// ── 設備レンダリング ──
+function renderFacilities(facilities) {
+  var container = document.getElementById('pvFacilities');
+  if (!facilities) {
+    container.innerHTML = '<span style="color:#999;font-size:13px;">設備情報なし</span>';
+    return;
+  }
+
+  // 設備は改行区切りのテキスト、またはカテゴリ:アイテムの形式
+  var lines = String(facilities).split('\n');
+  var html = '';
+  var currentCategory = '';
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+
+    // カテゴリ行（末尾が「:」や「：」で終わる場合）
+    if (line.match(/[:：]$/)) {
+      currentCategory = line.replace(/[:：]$/, '');
+      html += '<div class="section-sub">' + esc(currentCategory) + '</div>';
+      html += '<div class="facility-tags">';
+    } else if (line.match(/^[■▼●【]/)) {
+      // 別形式のカテゴリ
+      if (currentCategory) html += '</div>';
+      currentCategory = line.replace(/^[■▼●【]/, '').replace(/[】]$/, '');
+      html += '<div class="section-sub">' + esc(currentCategory) + '</div>';
+      html += '<div class="facility-tags">';
+    } else {
+      // 設備アイテム（カンマやスラッシュ区切りの場合も分解）
+      var items = line.split(/[,、\/／]/);
+      for (var j = 0; j < items.length; j++) {
+        var item = items[j].trim();
+        if (item) {
+          html += '<span class="facility-tag">' + esc(item) + '</span>';
+        }
+      }
+    }
+  }
+  if (currentCategory) html += '</div>';
+
+  // カテゴリなしの場合はフラットに表示
+  if (!html) {
+    html = '<div class="facility-tags">';
+    var allItems = String(facilities).split(/[\n,、\/／]/);
+    for (var k = 0; k < allItems.length; k++) {
+      var itm = allItems[k].trim();
+      if (itm) html += '<span class="facility-tag">' + esc(itm) + '</span>';
+    }
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
 // ── 画像レンダリング ──
 function renderImages() {
-  var images = PROPERTY_DATA.images || [];
+  var images = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
   var shubetsu = PROPERTY_DATA.shubetsu || [];
   var container = document.getElementById('imageGrid');
 
@@ -334,7 +578,7 @@ function doApprove() {
   google.script.run
     .withSuccessHandler(function(result) {
       if (result && result.success) {
-        showResult(true, '承認しました', '入稿キューに追加されました。Chrome拡張が自動的に入稿を開始します。');
+        showResultWithFillLink();
       } else {
         showResult(false, 'エラー', result ? result.message : '承認に失敗しました');
         btn.disabled = false;
@@ -377,6 +621,15 @@ function showResult(success, title, message) {
   document.getElementById('resultIcon').textContent = success ? '\u2705' : '\u274C';
   document.getElementById('resultTitle').textContent = title;
   document.getElementById('resultMessage').textContent = message;
+  document.getElementById('resultActions').style.display = 'none';
+  document.getElementById('resultOverlay').style.display = 'flex';
+}
+
+function showResultWithFillLink() {
+  document.getElementById('resultIcon').textContent = '\u2705';
+  document.getElementById('resultTitle').textContent = '承認しました';
+  document.getElementById('resultMessage').textContent = '入稿キューに追加されました。下のボタンからForRentを開いてください。';
+  document.getElementById('resultActions').style.display = 'block';
   document.getElementById('resultOverlay').style.display = 'flex';
 }
 
