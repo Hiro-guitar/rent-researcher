@@ -848,9 +848,26 @@ function showResult(success, title, message) {
 function showResultWithFillLink() {
   document.getElementById('resultIcon').textContent = '\u2705';
   document.getElementById('resultTitle').textContent = '承認しました';
-  document.getElementById('resultMessage').textContent = '入稿キューに追加されました。下のボタンからForRentを開いてください。';
+  document.getElementById('resultMessage').textContent = '入稿キューに追加されました。Chrome拡張が自動でForRentを開きます。（拡張未インストール時は下のボタンから）';
   document.getElementById('resultActions').style.display = 'block';
   document.getElementById('resultOverlay').style.display = 'flex';
+
+  // Chrome拡張への自動トリガー送信
+  // content script (suumo-approval-trigger.js) がこれを受けてbackgroundに転送し、
+  // 新規タブでForRentを開いて自動入稿を開始する
+  try {
+    window.postMessage({
+      type: 'SUUMO_APPROVAL_SUCCESS',
+      propertyKey: PROPERTY_KEY,
+      building: BUILDING,
+      room: ROOM
+    }, '*');
+    // DOMマーカーも併用（MutationObserver方式のフォールバック用）
+    document.body.setAttribute('data-suumo-approved-key', PROPERTY_KEY);
+    document.body.setAttribute('data-suumo-approved-at', String(Date.now()));
+  } catch (e) {
+    console.warn('拡張トリガー送信失敗:', e);
+  }
 }
 
 function esc(str) {
