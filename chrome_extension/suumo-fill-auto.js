@@ -1729,6 +1729,7 @@ function isNewRegistrationPage() {
 async function checkFillQueue() {
   if (_suumoFillBusy) return;
 
+  // ① まずキューの有無だけをread-onlyで確認（PEEK）。書込はしないので race しない
   const data = await new Promise(resolve => {
     chrome.storage.local.get(['suumoFillQueue'], resolve);
   });
@@ -1740,10 +1741,10 @@ async function checkFillQueue() {
   }
   if (queue.length === 0) return;
 
-  const item = queue[0];
-  console.log('[SUUMO自動入稿] キューに物件あり:', item.building || item.propertyData?.building_name);
+  const peekItem = queue[0];
+  console.log('[SUUMO自動入稿] キューに物件あり:', peekItem.building || peekItem.propertyData?.building_name);
 
-  // 新規物件登録ページかチェック
+  // ② 新規物件登録ページかチェック（未遷移ならPOPせず遷移だけして次の機会に再度チェック）
   if (!isNewRegistrationPage()) {
     console.log('[SUUMO自動入稿] 新規登録ページではない → 「新規物件登録」をクリック');
     clickNewRegistrationTab();
@@ -1755,11 +1756,25 @@ async function checkFillQueue() {
   _suumoFillBusy = true;
 
   try {
-    // キューから先頭を取り出す
-    const remaining = queue.slice(1);
-    await new Promise(resolve => {
-      chrome.storage.local.set({ suumoFillQueue: remaining }, resolve);
+    // ③ background経由で atomic に POP
+    // （background側は mutex で直列化されているので、append との競合が起きない）
+    const popResp = await new Promise(resolve => {
+      chrome.runtime.sendMessage({ type: 'POP_FILL_QUEUE_HEAD' }, (r) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[SUUMO自動入稿] POP応答エラー:', chrome.runtime.lastError.message);
+          resolve(null);
+        } else {
+          resolve(r);
+        }
+      });
     });
+    if (!popResp || !popResp.ok || !popResp.item) {
+      // キューが空 or 競合でpopできなかった → 次ループで再挑戦
+      console.log('[SUUMO自動入稿] POP失敗または空 → スキップ');
+      _suumoFillBusy = false;
+      return;
+    }
+    const item = popResp.item;
 
     const rawData = item.propertyData || item;
     // デバッグ: 正規化前のデータをDOMに書き出し
