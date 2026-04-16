@@ -648,6 +648,9 @@
     // ── 契約条件（features + 個別フィールドから判定） ──
     fillContractConditions(data);
 
+    // ── 定期借家 ──
+    fillTeikiShakuya(data);
+
     // ── 保証会社 ──
     fillGuaranteeCompany(data);
 
@@ -1413,6 +1416,104 @@
     }
 
     console.log('[SUUMO自動入稿] 契約条件設定完了');
+  }
+
+  // ── 定期借家判定・期間/期限入力 ──
+  function fillTeikiShakuya(data) {
+    const leaseType = String(data.lease_type || '');
+    const contractPeriod = String(data.contract_period || '');
+
+    // 定期借家判定: lease_typeに「定期」を含む
+    const isTeiki = /定期/.test(leaseType);
+
+    if (!isTeiki) {
+      // 普通借家（デフォルト）
+      const normalRadio = document.getElementById('teikiShakuyaFlg0');
+      if (normalRadio) normalRadio.checked = true;
+      console.log('[SUUMO自動入稿] 普通借家');
+      return;
+    }
+
+    // 定期借家をチェック
+    const teikiRadio = document.getElementById('teikiShakuyaFlg1');
+    if (teikiRadio) {
+      teikiRadio.checked = true;
+      teikiRadio.click(); // onclick ハンドラ発火（期間入力欄の表示切替）
+    }
+
+    if (!contractPeriod) {
+      console.log('[SUUMO自動入稿] 定期借家（期間情報なし）');
+      return;
+    }
+
+    // --- 期限モード判定: 「YYYY年M月まで」「YYYY/MM/DDまで」「YYYY年M月D日まで」等 ---
+    // パターン1: 「2027年3月まで」「2027年03月まで」「2027年3月31日まで」
+    const deadlineMatch1 = contractPeriod.match(/(\d{4})\s*年\s*(\d{1,2})\s*月/);
+    // パターン2: 「2027/03/31まで」「2027-03-31」
+    const deadlineMatch2 = contractPeriod.match(/(\d{4})[\/\-](\d{1,2})/);
+
+    // 「まで」を含む or 西暦4桁で始まる → 期限モード
+    const hasDeadlineKeyword = /まで/.test(contractPeriod);
+    const startsWithYear = /^\d{4}[年\/\-]/.test(contractPeriod);
+
+    if ((hasDeadlineKeyword || startsWithYear) && (deadlineMatch1 || deadlineMatch2)) {
+      // 期限モード（○年○月まで）
+      const match = deadlineMatch1 || deadlineMatch2;
+      const year = match[1];
+      const month = match[2];
+
+      // 「指定なし」→期間ラジオの切替は不要（期限は teikiShakuyaKbnCd0 = 指定なし のまま年月を入れる）
+      // 実際には「期間」ラジオを選択して期限として入力
+      const kbnRadio = document.getElementById('teikiShakuyaKbnCd1');
+      if (kbnRadio) {
+        kbnRadio.checked = true;
+        kbnRadio.click();
+      }
+
+      setInputByName('${bukkenInputForm.teikiShakuyaNen}', year);
+      setInputByName('${bukkenInputForm.teikiShakuyaGetsu}', String(parseInt(month, 10)));
+
+      console.log(`[SUUMO自動入稿] 定期借家（期限: ${year}年${month}月まで）`);
+      return;
+    }
+
+    // --- 期間モード: 「2年」「3年6ヶ月」「2年間」「24ヶ月」等 ---
+    let periodYear = 0;
+    let periodMonth = 0;
+
+    // 「N年Mヶ月」「N年M月」パターン
+    const ymMatch = contractPeriod.match(/(\d+)\s*年\s*(\d+)\s*[ヶケか]?\s*月/);
+    if (ymMatch) {
+      periodYear = parseInt(ymMatch[1], 10);
+      periodMonth = parseInt(ymMatch[2], 10);
+    } else {
+      // 「N年」パターン
+      const yMatch = contractPeriod.match(/(\d+)\s*年/);
+      if (yMatch) {
+        periodYear = parseInt(yMatch[1], 10);
+      }
+      // 「Nヶ月」パターン（年なし）
+      const mMatch = contractPeriod.match(/(\d+)\s*[ヶケか]?\s*月/);
+      if (mMatch && !yMatch) {
+        periodMonth = parseInt(mMatch[1], 10);
+      }
+    }
+
+    if (periodYear > 0 || periodMonth > 0) {
+      // 「期間」ラジオを選択
+      const kbnRadio = document.getElementById('teikiShakuyaKbnCd1');
+      if (kbnRadio) {
+        kbnRadio.checked = true;
+        kbnRadio.click();
+      }
+
+      setInputByName('${bukkenInputForm.teikiShakuyaNen}', String(periodYear));
+      setInputByName('${bukkenInputForm.teikiShakuyaGetsu}', String(periodMonth));
+
+      console.log(`[SUUMO自動入稿] 定期借家（期間: ${periodYear}年${periodMonth}ヶ月）`);
+    } else {
+      console.log(`[SUUMO自動入稿] 定期借家（期間パース失敗: "${contractPeriod}"）`);
+    }
   }
 
   // ── 周辺環境ポップアップ → 保存ボタン ──
