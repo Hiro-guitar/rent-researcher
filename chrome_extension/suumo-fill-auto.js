@@ -81,28 +81,35 @@
     console.log(`[SUUMO自動入稿] ログインページ検知判定: loginForm=${!!loginForm} loginIdInput=${!!loginIdInput} url=${window.location.href}`);
     if (loginForm && loginIdInput) {
       console.log('[SUUMO自動入稿] ログインページ検知');
-      askAmIFillTab((isFillTab) => {
-        if (!isFillTab) {
-          console.log('[SUUMO自動入稿] 入稿タブではない（手動アクセス） → 自動ログインスキップ');
+      // ログイン判定は「URLに?suumo_fill=true が含まれるか」で行う（以前の方式）。
+      // タブID照合（askAmIFillTab）はbackgroundのstorage書き込みとのrace conditionが起きやすいため、
+      // ログインページだけはURLパラメータで判定する。
+      // 手動でログインページを開いた人は ?suumo_fill=true が付いていないので自動ログインしない。
+      const urlHasFillParam = window.location.href.includes('suumo_fill=true');
+      if (!urlHasFillParam) {
+        console.log('[SUUMO自動入稿] ?suumo_fill=true なし（手動アクセス） → 自動ログインスキップ');
+        return;
+      }
+      chrome.storage.local.get(['forrentLoginId', 'forrentPassword'], (data) => {
+        if (!data.forrentLoginId || !data.forrentPassword) {
+          console.log('[SUUMO自動入稿] ForRent認証情報が未設定 → 手動ログインが必要');
           return;
         }
-        chrome.storage.local.get(['forrentLoginId', 'forrentPassword'], (data) => {
-          if (!data.forrentLoginId || !data.forrentPassword) {
-            console.log('[SUUMO自動入稿] ForRent認証情報が未設定 → 手動ログインが必要');
-            return;
-          }
-          console.log('[SUUMO自動入稿] 入稿タブと確認 → 自動ログイン実行');
-          loginIdInput.value = data.forrentLoginId;
-          const pwInput = document.querySelector('input[name="${loginForm.password}"]')
-            || loginForm.querySelector('input[type="password"]');
-          if (pwInput) pwInput.value = data.forrentPassword;
-          const submitBtn = document.getElementById('Image7')
-            || loginForm.querySelector('input[type="image"]')
-            || loginForm.querySelector('input[type="submit"]')
-            || loginForm.querySelector('button[type="submit"]');
-          if (submitBtn) setTimeout(() => submitBtn.click(), 300);
-          else console.warn('[SUUMO自動入稿] ログイン送信ボタンが見つからない');
-        });
+        console.log('[SUUMO自動入稿] ?suumo_fill=true 検知 → 自動ログイン実行');
+        loginIdInput.value = data.forrentLoginId;
+        const pwInput = document.querySelector('input[name="${loginForm.password}"]')
+          || loginForm.querySelector('input[type="password"]');
+        if (pwInput) pwInput.value = data.forrentPassword;
+        const submitBtn = document.getElementById('Image7')
+          || loginForm.querySelector('input[type="image"]')
+          || loginForm.querySelector('input[type="submit"]')
+          || loginForm.querySelector('button[type="submit"]');
+        if (submitBtn) {
+          console.log('[SUUMO自動入稿] ログイン送信ボタン発見:', submitBtn.tagName, submitBtn.id || submitBtn.name || '(no id/name)');
+          setTimeout(() => submitBtn.click(), 300);
+        } else {
+          console.warn('[SUUMO自動入稿] ログイン送信ボタンが見つからない');
+        }
       });
       return;
     }
