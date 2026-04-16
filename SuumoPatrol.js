@@ -29,7 +29,7 @@ var SUUMO_PATROL_HEADERS = [
 var SUUMO_CANDIDATE_HEADERS = [
   '物件キー', '建物名', '部屋番号', '住所', '賃料', '管理費', '間取り', '面積',
   '最寄駅', '検出日時', 'ソース', 'ステータス', 'property_data_json',
-  '画像ジャンルJSON', '巡回条件ID'
+  '画像ジャンルJSON', '巡回条件ID', 'SUUMO設備チェックJSON'
 ];
 
 var SUUMO_LISTING_HEADERS = [
@@ -327,6 +327,8 @@ function getSuumoApprovalQueue() {
       try { propertyData = JSON.parse(data[i][12]); } catch (ex) {}
       var imageGenres = {};
       try { imageGenres = JSON.parse(data[i][13]); } catch (ex) {}
+      var featureIds = [];
+      try { featureIds = JSON.parse(data[i][15] || '[]'); } catch (ex) {}
 
       result.push({
         key: data[i][0],
@@ -336,6 +338,7 @@ function getSuumoApprovalQueue() {
         source: data[i][10],
         propertyData: propertyData,
         imageGenres: imageGenres,
+        featureIds: featureIds,
         rowIndex: i + 2
       });
     }
@@ -364,7 +367,7 @@ function updateCandidateStatus_(key, newStatus) {
 /**
  * 候補物件に画像ジャンルJSONを保存し、ステータスをapprovedに変更
  */
-function approveSuumoCandidate(key, imageGenresJson) {
+function approveSuumoCandidate(key, imageGenresJson, featureIdsJson) {
   var sheet = getCandidateSheet_();
   var lastRow = sheet.getLastRow();
   if (lastRow <= 1) return { success: false, message: '候補物件が見つかりません' };
@@ -375,6 +378,7 @@ function approveSuumoCandidate(key, imageGenresJson) {
       var row = i + 2;
       sheet.getRange(row, 12).setValue('approved');
       sheet.getRange(row, 14).setValue(imageGenresJson || '');
+      sheet.getRange(row, 16).setValue(featureIdsJson || '');
       return { success: true };
     }
   }
@@ -646,12 +650,21 @@ function handleSuumoApprovePage(e) {
  * @param {string} criteriaName - 巡回条件名
  */
 function sendSuumoDiscordNotification(newProperties, criteriaName) {
-  // 実行時にスクリプトプロパティから取得（Config.jsの定数はデプロイ時固定のため）
-  var webhookUrl = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL') || SUUMO_DISCORD_WEBHOOK_URL || '';
-  if (!webhookUrl || newProperties.length === 0) return;
-  console.log('SUUMO Discord通知: ' + newProperties.length + '件送信, URL=' + webhookUrl.substring(0, 50) + '...');
+  // 実行時にスクリプトプロパティから取得
+  var webhookUrl = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL') || '';
+  console.log('sendSuumoDiscordNotification: webhookUrl=' + (webhookUrl ? webhookUrl.substring(0, 50) + '...' : '(空)') + ', props=' + newProperties.length);
+
+  if (!webhookUrl) {
+    console.log('sendSuumoDiscordNotification: webhookUrlが空のため送信スキップ');
+    return { sent: 0, skipped: true, reason: 'webhook_url_empty' };
+  }
+  if (newProperties.length === 0) {
+    return { sent: 0, skipped: true, reason: 'no_properties' };
+  }
 
   var gasUrl = ScriptApp.getService().getUrl();
+  var sent = 0;
+  var errors = [];
 
   for (var i = 0; i < newProperties.length; i++) {
     var entry = newProperties[i];
@@ -687,24 +700,35 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
       '巡回条件: ' + (criteriaName || '不明');
 
     var payload = {
-      content: content
+      content: content,
+      thread_name: building + ' ' + room + '号室 - ' + rent
     };
 
     try {
-      UrlFetchApp.fetch(webhookUrl, {
+      var resp = UrlFetchApp.fetch(webhookUrl, {
         method: 'post',
         contentType: 'application/json',
         payload: JSON.stringify(payload),
         muteHttpExceptions: true
       });
+      var respCode = resp.getResponseCode();
+      console.log('Discord送信 #' + (i+1) + ': HTTP ' + respCode);
+      if (respCode >= 200 && respCode < 300) {
+        sent++;
+      } else {
+        errors.push('HTTP ' + respCode + ': ' + resp.getContentText().substring(0, 100));
+      }
       // レートリミット対策
       if (i < newProperties.length - 1) {
         Utilities.sleep(1000);
       }
     } catch (err) {
       console.error('SUUMO Discord通知失敗: ' + err.message);
+      errors.push(err.message);
     }
   }
+
+  return { sent: sent, errors: errors };
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -765,6 +789,7 @@ function handleAddSuumoCandidate(json) {
   console.log('SUUMO_DISCORD_WEBHOOK_URL: ' + (webhookUrl ? webhookUrl.substring(0, 50) + '...' : '(未設定)'));
 
   // 新着があればDiscord通知
+  var discordResult = null;
   if (result.newProperties && result.newProperties.length > 0) {
     var criteriaName = '';
     if (json.patrolCriteriaId) {
@@ -776,13 +801,20 @@ function handleAddSuumoCandidate(json) {
         }
       }
     }
-    sendSuumoDiscordNotification(result.newProperties, criteriaName);
+    try {
+      discordResult = sendSuumoDiscordNotification(result.newProperties, criteriaName);
+    } catch (err) {
+      discordResult = { error: err.message };
+      console.error('Discord通知例外: ' + err.message);
+    }
   }
 
   return ContentService.createTextOutput(JSON.stringify({
     success: true,
     added: result.added,
-    duplicates: result.duplicates
+    duplicates: result.duplicates,
+    discord: discordResult,
+    webhookSet: !!webhookUrl
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
@@ -885,9 +917,10 @@ function deletePatrolCriteriaFromAdmin(criteriaId) {
 /**
  * SuumoApprovalPage から呼ばれる: 承認確定
  */
-function confirmSuumoApproveFromClient(key, imageGenres) {
+function confirmSuumoApproveFromClient(key, imageGenres, featureIds) {
   var imageGenresJson = imageGenres ? JSON.stringify(imageGenres) : '';
-  return approveSuumoCandidate(key, imageGenresJson);
+  var featureIdsJson = featureIds ? JSON.stringify(featureIds) : '';
+  return approveSuumoCandidate(key, imageGenresJson, featureIdsJson);
 }
 
 /**

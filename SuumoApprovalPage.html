@@ -55,6 +55,24 @@ body {
   background: #eaf2f8; color: #1a5276; border-radius: 4px; border: 1px solid #d4e6f1;
 }
 
+/* ── SUUMO設備チェック ── */
+.feature-section { margin-top: 10px; }
+.feature-category {
+  font-size: 11px; font-weight: 600; color: #1a5276; padding: 6px 0 3px;
+  border-bottom: 1px solid #eaf2f8; margin-top: 6px;
+}
+.feature-checks { display: flex; flex-wrap: wrap; gap: 2px 4px; padding: 4px 0; }
+.feature-check {
+  display: flex; align-items: center; gap: 3px;
+  padding: 3px 6px; font-size: 11px; border-radius: 4px;
+  cursor: pointer; user-select: none; transition: all 0.15s;
+  background: #f8f8f8; border: 1px solid #e0e0e0;
+}
+.feature-check:hover { background: #eaf2f8; }
+.feature-check input { margin: 0; }
+.feature-check.checked { background: #d5f5e3; border-color: #27ae60; }
+.feature-check.auto { border-color: #2e86c1; background: #eaf2f8; }
+
 /* ── 画像ジャンル ── */
 .image-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -237,6 +255,12 @@ body {
   <div class="card-title" onclick="toggleCard(this)">設備・条件<span class="toggle">-</span></div>
   <div class="card-body" id="sectionFacilities">
     <div id="pvFacilities"></div>
+    <div class="feature-section">
+      <div style="font-size:12px;font-weight:700;color:#1a5276;padding:10px 0 4px;border-top:2px solid #2e86c1;margin-top:10px;">
+        SUUMO特徴チェック <span style="font-weight:400;color:#888;font-size:10px;">（自動判定 + 手動追加可）</span>
+      </div>
+      <div id="featureChecks"></div>
+    </div>
   </div>
 </div>
 
@@ -398,6 +422,10 @@ window.addEventListener('DOMContentLoaded', function() {
   // 設備
   renderFacilities(p.facilities);
 
+  // SUUMO特徴チェック: 自動判定 → レンダリング
+  autoDetectFeatures(p.facilities);
+  renderFeatureChecks();
+
   // 既に承認/却下済みなら操作不可
   if (STATUS !== 'pending') {
     document.getElementById('approveBtn').disabled = true;
@@ -406,6 +434,188 @@ window.addEventListener('DOMContentLoaded', function() {
 
   renderImages();
 });
+
+// ── SUUMO特徴チェック ──
+var SUUMO_FEATURES = [
+  { cat: '構造・工法', items: [
+    { id: '0231', label: 'タワー型マンション' }, { id: '0233', label: 'デザイナーズ' }, { id: '0256', label: '分譲賃貸' }
+  ]},
+  { cat: '階・フロア', items: [{ id: '0305', label: '最上階' }] },
+  { cat: '共用部', items: [
+    { id: '0501', label: 'エレベーター' }, { id: '0502', label: 'エレベーター2基' },
+    { id: '0517', label: '宅配ボックス' }, { id: '0527', label: '敷地内ごみ置き場' }
+  ]},
+  { cat: '駐車・駐輪', items: [
+    { id: '0813', label: '平面駐車場' }, { id: '0814', label: '自走式駐車場' },
+    { id: '0816', label: '駐輪場' }, { id: '0817', label: 'バイク置場' }
+  ]},
+  { cat: '陽当たり', items: [
+    { id: '1001', label: '南向き' }, { id: '1002', label: '東南向き' }, { id: '1003', label: '南西向き' },
+    { id: '1007', label: '角住戸' }, { id: '1008', label: '東南角住戸' },
+    { id: '1009', label: '3方角住戸' }, { id: '1010', label: '南西角住戸' }, { id: '1017', label: '南面リビング' }
+  ]},
+  { cat: '庭', items: [{ id: '1108', label: '専用庭' }] },
+  { cat: '管理・防犯', items: [
+    { id: '1201', label: 'オートロック' }, { id: '1211', label: '防犯カメラ' }
+  ]},
+  { cat: '間取り', items: [{ id: '1326', label: 'ロフト' }, { id: '1327', label: 'メゾネット' }] },
+  { cat: 'キッチン', items: [
+    { id: '1401', label: 'システムキッチン' }, { id: '1403', label: '対面式キッチン' },
+    { id: '1405', label: 'L字型キッチン' }, { id: '1408', label: 'アイランドキッチン' },
+    { id: '1412', label: 'ガスコンロ対応' }, { id: '1413', label: 'ガスレンジ付' },
+    { id: '1414', label: '2口コンロ' }, { id: '1415', label: '3口以上コンロ' },
+    { id: '1416', label: 'IHクッキングヒーター' }, { id: '1436', label: '都市ガス' }
+  ]},
+  { cat: '浴室', items: [
+    { id: '1501', label: 'バストイレ別' }, { id: '1505', label: '追焚機能浴室' }, { id: '1507', label: '浴室乾燥機' }
+  ]},
+  { cat: 'トイレ', items: [{ id: '1603', label: '温水洗浄便座' }] },
+  { cat: '洗面所', items: [{ id: '1701', label: '洗面所独立' }] },
+  { cat: '冷暖房', items: [{ id: '1806', label: '床暖房' }] },
+  { cat: 'バルコニー', items: [
+    { id: '2001', label: 'バルコニー' }, { id: '2002', label: 'ルーフバルコニー' },
+    { id: '2005', label: '南面バルコニー' }, { id: '2006', label: '2面バルコニー' }, { id: '2008', label: '両面バルコニー' }
+  ]},
+  { cat: '室内設備', items: [{ id: '2101', label: 'フローリング' }, { id: '2129', label: '室内洗濯置' }] },
+  { cat: '収納', items: [
+    { id: '2204', label: 'ウォークインクロゼット' }, { id: '2205', label: 'ウォークインクロゼット2' },
+    { id: '2206', label: 'ウォークスルークロゼット' }, { id: '2207', label: 'シューズボックス' },
+    { id: '2208', label: 'シューズWIC' }, { id: '2221', label: '床下収納' }, { id: '2223', label: 'トランクルーム' }
+  ]},
+  { cat: '情報設備・回線', items: [
+    { id: '2401', label: 'BS・CS' }, { id: '2402', label: 'BS' }, { id: '2403', label: 'CS' },
+    { id: '2404', label: 'CATV' }, { id: '2406', label: 'ネット使用料不要' },
+    { id: '2410', label: '光ファイバー' }, { id: '2411', label: 'CATVインターネット' }, { id: '2414', label: 'TVインターホン' }
+  ]},
+  { cat: 'リフォーム', items: [{ id: '2609', label: 'リノベーション' }] },
+  { cat: '条件', items: [
+    { id: '2705', label: 'ペット相談' }, { id: '2710', label: '事務所相談' }, { id: '2737', label: 'IT重説 対応物件' }
+  ]},
+  { cat: '家具・家電', items: [{ id: '2801', label: 'エアコン' }, { id: '2802', label: 'エアコン2台' }] }
+];
+
+// suumo-fill-auto.js と同じマッピング（設備テキスト→SUUMO ID）
+var FEATURE_TEXT_MAP = {
+  'タワーマンション':'0231','タワー型マンション':'0231',
+  'デザイナーズ':'0233','デザイナーズマンション':'0233','デザイナーズ物件':'0233',
+  '分譲タイプ':'0256','分譲賃貸':'0256',
+  '最上階':'0305',
+  'エレベータ':'0501','エレベーター':'0501','EV':'0501',
+  'エレベーター2基':'0502','エレベータ2基':'0502',
+  '宅配ボックス':'0517','宅配BOX':'0517','宅配ＢＯＸ':'0517',
+  '24時間ゴミ出し可':'0527','２４時間ゴミ出し可':'0527','常時ゴミ出し可能':'0527',
+  '敷地内ゴミ置き場':'0527','敷地内ごみ置き場':'0527','ゴミ出し24時間OK':'0527',
+  '平面駐車場':'0813','自走式駐車場':'0814',
+  '駐輪場':'0816','駐輪場：有':'0816','駐輪場あり':'0816',
+  'バイク置き場':'0817','バイク置場':'0817','バイク置き場：有':'0817',
+  '南向き':'1001','東南向き':'1002','南東向き':'1002','南西向き':'1003','西南向き':'1003',
+  '角住戸':'1007','角部屋':'1007',
+  '東南角住戸':'1008','南東角住戸':'1008','3方角住戸':'1009','３方角住戸':'1009',
+  '南西角住戸':'1010','西南角住戸':'1010','南面リビング':'1017',
+  '専用庭':'1108',
+  'オートロック':'1201','モニタ付オートロック':'1201','モニター付きオートロック':'1201','オートロック付':'1201',
+  '防犯カメラ':'1211',
+  'ロフト':'1326','ロフト付き':'1326','ロフト付':'1326','メゾネット':'1327',
+  'システムキッチン':'1401',
+  '対面式キッチン':'1403','カウンターキッチン':'1403','対面キッチン':'1403',
+  'L字型キッチン':'1405','Ｌ字型キッチン':'1405','アイランドキッチン':'1408',
+  'ガスコンロ':'1412','ガスコンロ対応':'1412','ガスコンロ可':'1412','ガスコンロ設置可':'1412',
+  'ガスレンジ付':'1413','ガスレンジ付き':'1413','ガスコンロ設置済み':'1413','ガスコンロ設置済':'1413',
+  '2口コンロ':'1414','２口コンロ':'1414','コンロ2口':'1414','コンロ２口':'1414',
+  '3口以上コンロ':'1415','３口以上コンロ':'1415','コンロ3口':'1415','コンロ3口以上':'1415','コンロ３口以上':'1415',
+  'IHクッキングヒーター':'1416','ＩＨクッキングヒーター':'1416','IHコンロ':'1416',
+  '都市ガス':'1436','ガス：都市ガス':'1436',
+  'バス・トイレ別':'1501','バストイレ別':'1501','Ｂ・Ｔ別':'1501','BT別':'1501','ＢＴ別':'1501',
+  '追焚機能':'1505','追焚き機能':'1505','追い焚き風呂':'1505','追い焚き':'1505','追焚':'1505','追い焚き機能':'1505','追焚機能浴室':'1505',
+  '浴室乾燥機':'1507','浴室乾燥':'1507',
+  '温水洗浄便座':'1603','ウォシュレット':'1603','シャワートイレ':'1603',
+  '洗面台':'1701','洗面所独立':'1701','独立洗面台':'1701','洗面化粧台':'1701','洗髪洗面化粧台':'1701','独立洗面':'1701',
+  '床暖房':'1806',
+  'バルコニー':'2001','ワイドバルコニー':'2001','ルーフバルコニー':'2002',
+  '南面バルコニー':'2005','2面バルコニー':'2006','２面バルコニー':'2006','バルコニー2面':'2006','バルコニー２面':'2006',
+  '両面バルコニー':'2008',
+  'フローリング':'2101',
+  '室内洗濯機置場':'2129','室内洗濯機置き場':'2129','室内洗濯置場':'2129','洗濯機置場（室内）':'2129',
+  'ウォークインクローゼット':'2204','ウォークインクロゼット':'2204','WIC':'2204',
+  'ウォークインクローゼット2':'2205','ウォークインクロゼット2':'2205','ウォークインクロゼット2ヶ所':'2205','ウォークインクローゼット2ヶ所':'2205',
+  'ウォークスルークローゼット':'2206','ウォークスルークロゼット':'2206',
+  'シューズボックス':'2207','玄関収納':'2207','シューズBOX':'2207',
+  'シューズインクローゼット':'2208','シューズWIC':'2208',
+  '床下収納':'2221','トランクルーム':'2223',
+  'BS・CS':'2401','BS･CS':'2401','BS/CS':'2401','BS，CS':'2401','BSCS':'2401',
+  'BS':'2402','BSアンテナ':'2402','BS端子':'2402','CS':'2403','CSアンテナ':'2403',
+  'CATV':'2404','ケーブルTV':'2404','ケーブルテレビ':'2404',
+  'インターネット使用料無料':'2406','インターネット無料':'2406','ネット使用料不要':'2406','ネット無料':'2406',
+  '光ファイバー':'2410','光回線':'2410','光インターネット':'2410','CATVインターネット':'2411',
+  'モニター付きインターホン':'2414','モニタ付インターホン':'2414','モニター付インターホン':'2414',
+  'ＴＶインターホン':'2414','TVインターホン':'2414','TVモニターホン':'2414','テレビモニタ付インターホン':'2414',
+  'リノベーション':'2609','リノベーション物件':'2609',
+  'ペット相談':'2705','ペット可':'2705','ペット相談可':'2705',
+  '事務所使用可':'2710','事務所相談':'2710','事務所使用相談':'2710','事務所相談可':'2710',
+  'エアコン':'2801','エアコン付き':'2801','エアコン付':'2801',
+  'エアコン2台':'2802','エアコン２台':'2802'
+};
+
+var checkedFeatures = {}; // { suumoId: true }
+
+function autoDetectFeatures(facilities) {
+  if (!facilities) return;
+  var lines = String(facilities).split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    if (line.match(/[:：]$/) || line.match(/^[■▼●【]/)) {
+      // カテゴリ行 → 【xxx】の中身を取る
+      var m = line.match(/^[■▼●]?【[^】]+】\s*(.*)/);
+      if (m && m[1]) line = m[1]; else continue;
+    }
+    // カテゴリ】アイテム 形式（開き括弧なし）
+    var bracketMatch2 = line.match(/^[^】]+】\s*(.*)/);
+    if (bracketMatch2 && bracketMatch2[1]) line = bracketMatch2[1];
+    var items = line.split(/[,、\/／]/);
+    for (var j = 0; j < items.length; j++) {
+      var item = items[j].trim();
+      var id = FEATURE_TEXT_MAP[item];
+      if (id) checkedFeatures[id] = true;
+    }
+  }
+}
+
+function renderFeatureChecks() {
+  var container = document.getElementById('featureChecks');
+  var html = '';
+  for (var c = 0; c < SUUMO_FEATURES.length; c++) {
+    var cat = SUUMO_FEATURES[c];
+    html += '<div class="feature-category">' + esc(cat.cat) + '</div><div class="feature-checks">';
+    for (var i = 0; i < cat.items.length; i++) {
+      var f = cat.items[i];
+      var isChecked = !!checkedFeatures[f.id];
+      var cls = 'feature-check' + (isChecked ? ' checked auto' : '');
+      html += '<label class="' + cls + '" id="fl_' + f.id + '">' +
+        '<input type="checkbox" value="' + f.id + '"' + (isChecked ? ' checked' : '') +
+        ' onchange="toggleFeature(this)">' + esc(f.label) + '</label>';
+    }
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function toggleFeature(cb) {
+  var id = cb.value;
+  var label = cb.parentElement;
+  if (cb.checked) {
+    checkedFeatures[id] = true;
+    label.classList.add('checked');
+  } else {
+    delete checkedFeatures[id];
+    label.classList.remove('checked');
+    label.classList.remove('auto');
+  }
+}
+
+function getCheckedFeatureIds() {
+  return Object.keys(checkedFeatures);
+}
 
 // ── 設備レンダリング ──
 function renderFacilities(facilities) {
@@ -424,24 +634,34 @@ function renderFacilities(facilities) {
     var line = lines[i].trim();
     if (!line) continue;
 
-    // カテゴリ行（末尾が「:」や「：」で終わる場合）
-    if (line.match(/[:：]$/)) {
-      currentCategory = line.replace(/[:：]$/, '');
+    // 【カテゴリ】アイテム / アイテム 形式（カテゴリとアイテムが同一行）
+    var catMatch = line.match(/^[■▼●]?【([^】]+)】\s*(.*)/);
+    if (catMatch) {
+      if (currentCategory) html += '</div>';
+      currentCategory = catMatch[1];
       html += '<div class="section-sub">' + esc(currentCategory) + '</div>';
       html += '<div class="facility-tags">';
-    } else if (line.match(/^[■▼●【]/)) {
-      // 別形式のカテゴリ
+      // カテゴリ後にアイテムがあれば表示
+      if (catMatch[2]) {
+        var items = catMatch[2].split(/[,、\/／]/);
+        for (var j = 0; j < items.length; j++) {
+          var item = items[j].trim();
+          if (item) html += '<span class="facility-tag">' + esc(item) + '</span>';
+        }
+      }
+    } else if (line.match(/[:：]$/)) {
+      // カテゴリ行（末尾が「:」や「：」で終わる場合）
       if (currentCategory) html += '</div>';
-      currentCategory = line.replace(/^[■▼●【]/, '').replace(/[】]$/, '');
+      currentCategory = line.replace(/[:：]$/, '');
       html += '<div class="section-sub">' + esc(currentCategory) + '</div>';
       html += '<div class="facility-tags">';
     } else {
       // 設備アイテム（カンマやスラッシュ区切りの場合も分解）
-      var items = line.split(/[,、\/／]/);
-      for (var j = 0; j < items.length; j++) {
-        var item = items[j].trim();
-        if (item) {
-          html += '<span class="facility-tag">' + esc(item) + '</span>';
+      var items2 = line.split(/[,、\/／]/);
+      for (var j2 = 0; j2 < items2.length; j2++) {
+        var item2 = items2[j2].trim();
+        if (item2) {
+          html += '<span class="facility-tag">' + esc(item2) + '</span>';
         }
       }
     }
@@ -590,7 +810,7 @@ function doApprove() {
       btn.disabled = false;
       btn.textContent = '承認して入稿';
     })
-    .confirmSuumoApproveFromClient(PROPERTY_KEY, imageGenres);
+    .confirmSuumoApproveFromClient(PROPERTY_KEY, imageGenres, getCheckedFeatureIds());
 }
 
 // ── 却下 ──
