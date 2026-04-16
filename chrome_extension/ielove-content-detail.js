@@ -123,6 +123,39 @@
       result.image_categories = imageCategories;
     }
 
+    // ── 元付会社名・元付電話番号 ──
+    // 方法①: ページ上部の概要エリア (.bb-detail-info .font-small.mar-top-10)
+    const companyArea = document.querySelector('.bb-detail-info .font-small.mar-top-10');
+    if (companyArea) {
+      const nameSpan = companyArea.querySelector('span.mar-right-12');
+      if (nameSpan) result.owner_company = nameSpan.textContent.trim();
+      // 電話番号はテキストノードとして直接存在
+      const phoneText = Array.from(companyArea.childNodes)
+        .filter(n => n.nodeType === 3)
+        .map(n => n.textContent.trim())
+        .find(t => t.length > 0 && /[\d-]/.test(t));
+      if (phoneText) result.owner_phone = phoneText;
+    }
+    // 方法②フォールバック: 取扱会社タブ (#tabs-4) の「物件確認部署」「物件確認電話番号」
+    if (!result.owner_company || !result.owner_phone) {
+      const tabs4 = document.querySelector('#tabs-4 table.di_table');
+      if (tabs4) {
+        for (const row of tabs4.querySelectorAll('tr')) {
+          const ths = row.querySelectorAll('th');
+          const tds = row.querySelectorAll('td');
+          for (let i = 0; i < ths.length; i++) {
+            const label = ths[i].textContent.trim();
+            if (label === '物件確認部署' && tds[i] && !result.owner_company) {
+              result.owner_company = tds[i].textContent.trim();
+            }
+            if (label === '物件確認電話番号' && tds[i] && !result.owner_phone) {
+              result.owner_phone = tds[i].textContent.trim();
+            }
+          }
+        }
+      }
+    }
+
     return result;
   }
 

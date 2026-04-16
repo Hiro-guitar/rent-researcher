@@ -654,10 +654,17 @@ async function _parseEssquareSearchResults(tabId) {
           let buildingAge = '';
           const shunko = specView.shunko_datejun;
           if (shunko) {
+            // shunko_datejun: 202303103 → 上位4桁=年, 次2桁=月
             const shunkoYear = Math.floor(shunko / 100000);
+            const shunkoMonth = Math.floor((shunko % 100000) / 1000);
             if (shunkoYear > 0) {
               const age = new Date().getFullYear() - shunkoYear;
-              buildingAge = age <= 0 ? '新築' : `築${age}年`;
+              const ageStr = age <= 0 ? '新築' : `築${age}年`;
+              if (shunkoMonth > 0) {
+                buildingAge = `${shunkoYear}年${shunkoMonth}月(${ageStr})`;
+              } else {
+                buildingAge = `${shunkoYear}年(${ageStr})`;
+              }
             }
           }
 
@@ -1116,6 +1123,8 @@ function buildEssquarePropertyDataJson(prop) {
     rights_fee: prop.rights_fee || '',
     free_rent_detail: prop.free_rent_detail || '',
     cancellation_notice: prop.cancellation_notice || '',
+    owner_company: prop.owner_company || '',
+    owner_phone: prop.owner_phone || '',
   };
 }
 
@@ -1419,6 +1428,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             'support_fee_24h', 'additional_deposit', 'water_billing',
             'cleaning_fee', 'sanitization_fee', 'rights_fee',
             'ad_fee', 'current_status',
+            'owner_company', 'owner_phone',
           ];
           for (const key of detailFields) {
             if (d[key] && !prop[key]) {

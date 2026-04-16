@@ -348,6 +348,14 @@
       }
     }
 
+    // ── 元付会社名・元付電話番号（お問い合わせ先セクション） ──
+    const blockRight = document.querySelector('.CompanyInfoArea .CompanyInfoLabel .Block.Right');
+    if (blockRight) {
+      const spans = blockRight.querySelectorAll('span');
+      if (spans[0]) detail.owner_company = spans[0].textContent.trim();
+      if (spans[1]) detail.owner_phone = spans[1].textContent.trim();
+    }
+
     return { ok: true, detail };
   }
 })();

@@ -1074,6 +1074,8 @@ function buildPropertyDataJson(prop) {
     ad_fee: prop.ad_fee || '',
     listing_status: prop.listing_status || '',
     agent_message: prop.agent_message || '',
+    owner_company: prop.owner_company || '',
+    owner_phone: prop.owner_phone || '',
   };
 }
 
