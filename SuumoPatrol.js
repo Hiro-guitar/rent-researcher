@@ -34,7 +34,9 @@ var SUUMO_CANDIDATE_HEADERS = [
 ];
 
 // submittingロックのタイムアウト（ミリ秒）
-var SUUMO_SUBMITTING_TIMEOUT_MS = 10 * 60 * 1000; // 10分
+// キュー内で多数の物件を順次処理するとき、後ろの物件は入稿開始まで時間がかかるため
+// 余裕を持って30分に設定（1件5分×6件までは確実にカバー）
+var SUUMO_SUBMITTING_TIMEOUT_MS = 30 * 60 * 1000; // 30分
 
 var SUUMO_LISTING_HEADERS = [
   '物件キー', '建物名', '部屋番号', '掲載開始日', '賃料', '最終PV数',
