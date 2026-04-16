@@ -342,12 +342,14 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
 
 /**
  * SUUMO承認キューをポーリング
+ * @param {Object} opts - { lock: true で取得と同時にsubmittingロック }
  */
-async function pollSuumoApprovalQueue() {
+async function pollSuumoApprovalQueue(opts) {
   const { gasWebappUrl, gasApiKey } = await getStorageData(['gasWebappUrl', 'gasApiKey']);
   if (!gasWebappUrl) return null;
 
-  const url = `${gasWebappUrl}?action=get_suumo_queue&api_key=${encodeURIComponent(gasApiKey || '')}`;
+  const lockParam = opts && opts.lock ? '&lock=true' : '';
+  const url = `${gasWebappUrl}?action=get_suumo_queue&api_key=${encodeURIComponent(gasApiKey || '')}${lockParam}`;
   const res = await fetch(url);
   if (!res.ok) return null;
 

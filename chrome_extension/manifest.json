@@ -97,6 +97,15 @@
       ],
       "js": ["popupHandler.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://script.google.com/macros/*",
+        "https://script.googleusercontent.com/*"
+      ],
+      "js": ["suumo-approval-trigger.js"],
+      "all_frames": true,
+      "run_at": "document_idle"
     }
   ],
   "action": {

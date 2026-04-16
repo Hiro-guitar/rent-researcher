@@ -702,8 +702,43 @@ chrome.runtime.onInstalled.addListener(() => {
       });
     }
   });
-  // SUUMO入稿キューポーリングを常時稼働（巡回ON/OFFに関係なく）
-  chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 5 });
+  // SUUMO入稿: backup poll（スマホ承認など拡張トリガーを受け取れなかった分の取りこぼし対策）
+  // 基本は承認ページからの即時トリガー(SUUMO_APPROVED_NOW)で起動するので、60分に1回で十分
+  chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
+});
+
+// Chrome起動時: 前回起動中に承認された取りこぼしを1回だけ処理
+chrome.runtime.onStartup.addListener(() => {
+  console.log('[SUUMO入稿] Chrome起動 → backup poll実行');
+  setTimeout(() => {
+    pollAndStartFillIfNeeded().catch(err => {
+      console.log(`[SUUMO入稿] onStartup poll失敗: ${err.message}`);
+    });
+  }, 5000); // ネットワーク初期化待ち
+  // backup pollアラーム再セット
+  chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
+});
+
+// 入稿専用タブのクローズ検知 → suumoFillTabIdをクリア
+chrome.tabs.onRemoved.addListener((tabId) => {
+  chrome.storage.local.get(['suumoFillTabId'], (data) => {
+    if (data.suumoFillTabId === tabId) {
+      console.log(`[SUUMO入稿] 入稿タブ(${tabId})がクローズされた → suumoFillTabIdクリア`);
+      chrome.storage.local.remove(['suumoFillTabId', 'suumoFillQueue']);
+    }
+  });
+});
+
+// 入稿タブがforrent.jp外に遷移したら入稿タブ扱いを解除
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (!changeInfo.url) return;
+  chrome.storage.local.get(['suumoFillTabId'], (data) => {
+    if (data.suumoFillTabId !== tabId) return;
+    if (!changeInfo.url.includes('fn.forrent.jp')) {
+      console.log(`[SUUMO入稿] 入稿タブ(${tabId})がforrent外に遷移 → suumoFillTabIdクリア`);
+      chrome.storage.local.remove(['suumoFillTabId', 'suumoFillQueue']);
+    }
+  });
 });
 
 chrome.storage.local.set({ isSearching: false });
@@ -803,13 +838,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     });
   }
 
-  // ── SUUMO入稿キューポーリング（常時稼働・巡回ON/OFF無関係） ──
+  // ── SUUMO入稿キュー backup poll（60分に1回・取りこぼし対策） ──
+  // 通常は承認ページからの即時トリガー(SUUMO_APPROVED_NOW)で起動する
+  // スマホ承認時などPCに即時通知が届かなかった分をここで拾う
   if (alarm.name === 'suumo-queue-poll') {
     pollAndStartFillIfNeeded().catch(err => {
-      console.log(`[SUUMO入稿] キューポーリング失敗: ${err.message}`);
+      console.log(`[SUUMO入稿] backup poll失敗: ${err.message}`);
     });
-    // 次回ポーリング（5分間隔）
-    chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 5 });
+    chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
   }
 
   // ── ForRent時間外に承認された物件の遅延入稿 ──
@@ -877,6 +913,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }).catch(err => {
       console.error('[SUUMO入稿] 即時ポーリング失敗:', err);
       sendResponse({ ok: false, error: err.message });
+    });
+    return true;
+  }
+  // GAS承認ページの承認ボタン押下時、suumo-approval-trigger.jsが送信
+  // → 新規タブで入稿プロセスを即時起動
+  if (msg.type === 'SUUMO_APPROVED_NOW') {
+    console.log(`[SUUMO入稿] 承認トリガー受信: key=${msg.propertyKey}, ${msg.building} ${msg.room}`);
+    setStorageData({ debugLog: `[SUUMO入稿] 承認検知(${msg.building || msg.propertyKey}) → 入稿開始` });
+    pollAndStartFillIfNeeded().then(() => {
+      sendResponse({ ok: true, started: true });
+    }).catch(err => {
+      console.error('[SUUMO入稿] 承認トリガー処理失敗:', err);
+      sendResponse({ ok: false, error: err.message });
+    });
+    return true;
+  }
+  // content script (suumo-fill-auto.js) からの「このタブは入稿用？」問い合わせ
+  // タブIDが suumoFillTabId と一致する場合のみ true を返す
+  // これにより、手動で開いたForRentタブでは絶対にキュー監視が走らない
+  if (msg.type === 'AM_I_FILL_TAB') {
+    const tabId = sender.tab?.id;
+    chrome.storage.local.get(['suumoFillTabId'], (data) => {
+      const isFillTab = (typeof tabId === 'number') && data.suumoFillTabId === tabId;
+      sendResponse({ isFillTab: !!isFillTab, tabId: tabId, fillTabId: data.suumoFillTabId });
     });
     return true;
   }
@@ -4103,28 +4163,48 @@ function checkForrentAvailability() {
  * ForRent時間外の場合はアラームでスケジュール
  */
 async function pollAndStartFillIfNeeded() {
-  const queueData = await pollSuumoApprovalQueue();
-  if (!queueData || !queueData.queue || queueData.queue.length === 0) {
-    return;
+  // 既に入稿タブが稼働中なら追加起動せず、キューだけ更新することもしない
+  // （タブIDベースの判定に切り替えたため、稼働中タブのcontent scriptが自分のタイミングでキューを消費する）
+  const { suumoFillTabId } = await getStorageData(['suumoFillTabId']);
+  if (suumoFillTabId) {
+    try {
+      const existingTab = await chrome.tabs.get(suumoFillTabId);
+      if (existingTab && existingTab.url && existingTab.url.includes('fn.forrent.jp')) {
+        console.log(`[SUUMO入稿] 入稿タブ(${suumoFillTabId})稼働中 → poll/起動スキップ`);
+        return;
+      }
+    } catch (e) {
+      // タブが存在しない → suumoFillTabIdは古いので続行（後でnew tab作成）
+      await chrome.storage.local.remove(['suumoFillTabId', 'suumoFillQueue']);
+    }
   }
-
-  console.log(`[SUUMO入稿] ${queueData.queue.length}件の承認済み物件あり`);
-  await setStorageData({
-    suumoFillQueue: queueData.queue,
-    suumoActiveListingCount: queueData.activeListingCount,
-    suumoStopCandidate: queueData.stopCandidate
-  });
 
   // ForRent利用時間チェック
   const { available, nextAvailableTime } = checkForrentAvailability();
   if (!available) {
     const nextDate = new Date(nextAvailableTime);
     const timeStr = `${nextDate.getMonth()+1}/${nextDate.getDate()} ${String(nextDate.getHours()).padStart(2,'0')}:${String(nextDate.getMinutes()).padStart(2,'0')}`;
+    // キューを事前に確認（空なら予約しない）
+    const peek = await pollSuumoApprovalQueue({ lock: false });
+    if (!peek || !peek.queue || peek.queue.length === 0) return;
     console.log(`[SUUMO入稿] ForRent時間外 → ${timeStr} にスケジュール`);
     await setStorageData({ debugLog: `[SUUMO入稿] ForRent利用時間外のため ${timeStr} に入稿予定` });
     chrome.alarms.create('suumo-fill-scheduled', { when: nextAvailableTime });
     return;
   }
+
+  // 実入稿フェーズ: ロック付きでキュー取得（取得した瞬間にGAS側でsubmittingに変わり二重取得防止）
+  const queueData = await pollSuumoApprovalQueue({ lock: true });
+  if (!queueData || !queueData.queue || queueData.queue.length === 0) {
+    return;
+  }
+
+  console.log(`[SUUMO入稿] ${queueData.queue.length}件の承認済み物件あり（submittingへロック済み）`);
+  await setStorageData({
+    suumoFillQueue: queueData.queue,
+    suumoActiveListingCount: queueData.activeListingCount,
+    suumoStopCandidate: queueData.stopCandidate
+  });
 
   await startSuumoFillProcess();
 }
@@ -4138,30 +4218,14 @@ async function pollAndStartFillIfNeeded() {
  */
 async function startSuumoFillProcess() {
   try {
-    // 入稿モードフラグをセット（content scriptがログインページ・通常ページどちらでも検知可能）
-    await setStorageData({ suumoFillMode: true });
-
-    // 既に入稿モードのForRentタブがあれば何もしない（重複タブ防止）
-    const { suumoFillTabId } = await getStorageData(['suumoFillTabId']);
-    if (suumoFillTabId) {
-      try {
-        const existingTab = await chrome.tabs.get(suumoFillTabId);
-        if (existingTab && existingTab.url && existingTab.url.includes('fn.forrent.jp')) {
-          console.log(`[SUUMO入稿] 既存入稿タブあり (tab ${suumoFillTabId}) → 新規作成スキップ`);
-          await setStorageData({ debugLog: `[SUUMO入稿] 既存タブで処理中` });
-          return;
-        }
-      } catch (e) {
-        // タブが閉じられている場合 → 続行して新規作成
-      }
-    }
-
-    // 新規タブを作成（ログイン→ナビゲーション→入力はcontent scriptが全て処理）
+    // 新規タブを作成（バックグラウンド）
+    // content script (suumo-fill-auto.js) は AM_I_FILL_TAB メッセージでタブIDをbackgroundに問い合わせ、
+    // suumoFillTabId と一致するときだけキュー監視/ログイン/フォーム入力を行う。
+    // 手動で開いたForRentタブは絶対にこの処理の対象にならない。
     const forrentTab = await chrome.tabs.create({ url: FORRENT_FILL_URL, active: false });
     await setStorageData({ suumoFillTabId: forrentTab.id });
     console.log(`[SUUMO入稿] 入稿用タブを新規作成 (tab ${forrentTab.id})`);
-    await setStorageData({ debugLog: `[SUUMO入稿] ForRentタブ作成完了 (ログイン・ナビゲーションはcontent script側で処理)` });
-
+    await setStorageData({ debugLog: `[SUUMO入稿] ForRent入稿タブ作成(tab=${forrentTab.id})` });
   } catch (err) {
     console.error('[SUUMO入稿] ForRentタブオープン失敗:', err);
     await setStorageData({ debugLog: `[SUUMO入稿] ForRentタブオープン失敗: ${err.message}` });
