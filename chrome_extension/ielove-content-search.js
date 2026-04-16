@@ -180,7 +180,19 @@
       key_money: keyMoney,
       layout,
       area,
-      building_age: buildingAge,
+      building_age: (() => {
+        if (!buildingAge) return '';
+        if (buildingAge === '新築') {
+          return `${new Date().getFullYear()}年(新築)`;
+        }
+        const ageMatch = buildingAge.match(/築(\d+)年/);
+        if (ageMatch) {
+          const age = parseInt(ageMatch[1], 10);
+          const builtYear = new Date().getFullYear() - age;
+          return `${builtYear}年(${buildingAge})`;
+        }
+        return buildingAge;
+      })(),
       station_info: stationInfo,
       listing_status: listingStatus,
       move_in_date: moveInDate,

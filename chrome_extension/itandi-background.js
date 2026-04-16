@@ -833,6 +833,8 @@ function buildItandiPropertyDataJson(prop) {
     cleaning_fee: prop.cleaning_fee || '',
     rights_fee: prop.rights_fee || '',
     current_status: prop.current_status || '',
+    owner_company: prop.owner_company || '',
+    owner_phone: prop.owner_phone || '',
   };
 }
 
@@ -1100,9 +1102,19 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
           'other_monthly_fee', 'other_onetime_fee', 'move_in_conditions', 'move_out_date',
           'move_in_date', 'free_rent_detail', 'layout_detail', 'preview_start_date',
           'ad_fee', 'cleaning_fee', 'rights_fee', 'current_status',
+          'owner_company', 'owner_phone',
         ];
         for (const key of detailFields) {
           if (d[key] && !prop[key]) {
+            prop[key] = d[key];
+          }
+        }
+
+        // 詳細ページの値で上書きするフィールド
+        // building_age: 検索APIは「築4年」、詳細ページは「2021年5月(築4年)」→ 築年月を含む方で上書き
+        const overrideFields = ['building_age'];
+        for (const key of overrideFields) {
+          if (d[key]) {
             prop[key] = d[key];
           }
         }

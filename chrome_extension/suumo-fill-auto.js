@@ -126,7 +126,7 @@
       console.log('[SUUMO自動入稿] テストデータ受信:', event.data.propertyData?.building_name);
       const normalized = normalizePropertyData(event.data.propertyData);
       try {
-        await fillForrentForm(normalized, event.data.imageGenres || {});
+        await fillForrentForm(normalized, event.data.imageGenres || {}, event.data.featureIds || []);
         document.body.setAttribute('data-suumo-fill-result', 'success');
       } catch (err) {
         console.error('[SUUMO自動入稿] テスト入力エラー:', err);
@@ -151,7 +151,7 @@
     if (msg.type === 'SUUMO_FILL_START') {
       const normalized = normalizePropertyData(msg.data);
       console.log('[SUUMO自動入稿] メッセージ経由フォーム入力開始:', normalized.building);
-      fillForrentForm(normalized, msg.imageGenres)
+      fillForrentForm(normalized, msg.imageGenres, msg.featureIds || [])
         .then(() => sendResponse({ success: true }))
         .catch(err => {
           console.error('[SUUMO自動入稿] エラー:', err);
@@ -460,7 +460,7 @@
   //  （suumo-competitor-checker/suumo-fill.js からの移植）
   // ══════════════════════════════════════════════════════════
 
-  async function fillForrentForm(data, imageGenres) {
+  async function fillForrentForm(data, imageGenres, featureIds) {
     if (!data) throw new Error('物件データがありません');
 
     // ── 建物名 ──
@@ -564,6 +564,15 @@
     if (data.features) {
       fillFeatures(data.features);
     }
+    // 承認ページで手動チェックされた設備IDも反映
+    if (featureIds && featureIds.length > 0) {
+      featureIds.forEach(id => {
+        const cb = document.getElementById(id);
+        if (cb && !cb.checked) {
+          cb.checked = true;
+        }
+      });
+    }
 
     // ── 損保（火災保険） ──
     fillSonpo(data);
@@ -594,13 +603,16 @@
       torihikiSelect.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
-    // ── 管理会社情報 ──
-    if (data.shougo) {
-      setInputByName('${bukkenInputForm.mototsukeGyoshaNm}', data.shougo.slice(0, 30));
+    // ── 元付会社情報 ──
+    // REINS: shougo/tel、他ソース: owner_company/owner_phone
+    const ownerCompany = data.shougo || data.owner_company || '';
+    const ownerPhone = data.tel || data.owner_phone || '';
+    if (ownerCompany) {
+      setInputByName('${bukkenInputForm.mototsukeGyoshaNm}', ownerCompany.slice(0, 30));
     }
     setInputByName('${bukkenInputForm.mototsukeTantoNm}', '元付担当者');
-    if (data.tel) {
-      setInputByName('${bukkenInputForm.mototsukeTelNo}', data.tel);
+    if (ownerPhone) {
+      setInputByName('${bukkenInputForm.mototsukeTelNo}', ownerPhone);
     }
     const dateInput = document.querySelector('input[name="${bukkenInputForm.mototsukeKakuninDate}"]');
     if (dateInput) {
@@ -633,36 +645,8 @@
     const tanshinRadio = document.getElementById('tanshinKbnCd2');
     if (tanshinRadio) tanshinRadio.checked = true;
 
-    // ── ペット・楽器・事務所・フリーレント（features判定） ──
-    if (data.features) {
-      const ft = data.features;
-      // ペット
-      if (/ペット.*(可|相談)/.test(ft) && !/ペット.*不可/.test(ft)) {
-        const petRadio = document.getElementById('petKbnCd2');
-        if (petRadio) { petRadio.checked = true; petRadio.click(); }
-      }
-      // 楽器
-      if (ft.includes('楽器')) {
-        const musicRadio = document.getElementById('gakkiKbnCd2');
-        if (musicRadio) { musicRadio.checked = true; musicRadio.click(); }
-      }
-      // 事務所使用可
-      if (ft.includes('事務所使用可')) {
-        const officeRadio = document.getElementById('jimushoRiyoKbnCd2');
-        if (officeRadio) { officeRadio.checked = true; officeRadio.click(); }
-      }
-      // フリーレント
-      if (ft.includes('フリーレント')) {
-        const frCb = document.getElementById('freeRentFlg');
-        const frDiv = document.getElementById('DFreerent');
-        if (frCb && frDiv) {
-          frCb.checked = true;
-          frDiv.style.visibility = 'visible';
-          frDiv.style.display = 'block';
-          frCb.click();
-        }
-      }
-    }
+    // ── 契約条件（features + 個別フィールドから判定） ──
+    fillContractConditions(data);
 
     // ── 保証会社 ──
     fillGuaranteeCompany(data);
@@ -1044,43 +1028,112 @@
   function fillFeatures(featuresStr) {
     const featureList = featuresStr.split(',').map(f => f.trim());
     const featureMap = {
-      '分譲タイプ': '0256', '最上階': '0305',
-      'エレベータ': '0501', 'エレベーター': '0501',
+      // ■構造・工法・仕様
+      'タワーマンション': '0231', 'タワー型マンション': '0231',
+      'デザイナーズ': '0233', 'デザイナーズマンション': '0233', 'デザイナーズ物件': '0233',
+      '分譲タイプ': '0256', '分譲賃貸': '0256',
+      // ■階・フロア
+      '最上階': '0305',
+      // ■共用部
+      'エレベータ': '0501', 'エレベーター': '0501', 'EV': '0501',
+      'エレベーター2基': '0502', 'エレベータ2基': '0502',
       '宅配ボックス': '0517', '宅配BOX': '0517', '宅配ＢＯＸ': '0517',
       '24時間ゴミ出し可': '0527', '２４時間ゴミ出し可': '0527',
       '常時ゴミ出し可能': '0527', '敷地内ゴミ置き場': '0527', '敷地内ごみ置き場': '0527',
       'ゴミ出し24時間OK': '0527',
-      '駐輪場': '0816', '駐輪場：有': '0816',
+      // ■駐車・駐輪
+      '平面駐車場': '0813',
+      '自走式駐車場': '0814',
+      '駐輪場': '0816', '駐輪場：有': '0816', '駐輪場あり': '0816',
       'バイク置き場': '0817', 'バイク置場': '0817', 'バイク置き場：有': '0817',
+      // ■陽当たり・採光
+      '南向き': '1001',
+      '東南向き': '1002', '南東向き': '1002',
+      '南西向き': '1003', '西南向き': '1003',
       '角住戸': '1007', '角部屋': '1007',
+      '東南角住戸': '1008', '南東角住戸': '1008',
+      '3方角住戸': '1009', '３方角住戸': '1009',
+      '南西角住戸': '1010', '西南角住戸': '1010',
+      '南面リビング': '1017',
+      // ■庭
+      '専用庭': '1108',
+      // ■管理・防犯
       'オートロック': '1201', 'モニタ付オートロック': '1201',
-      'モニター付きオートロック': '1201',
-      'ロフト': '1326', '都市ガス': '1436', 'ガス：都市ガス': '1436',
-      'ガスレンジ付': '1413',
-      'システムキッチン': '1401', 'カウンターキッチン': '1403',
+      'モニター付きオートロック': '1201', 'オートロック付': '1201',
+      '防犯カメラ': '1211',
+      // ■間取り
+      'ロフト': '1326', 'ロフト付き': '1326', 'ロフト付': '1326',
+      'メゾネット': '1327',
+      // ■キッチン
+      'システムキッチン': '1401',
+      '対面式キッチン': '1403', 'カウンターキッチン': '1403', '対面キッチン': '1403',
+      'L字型キッチン': '1405', 'Ｌ字型キッチン': '1405',
       'アイランドキッチン': '1408',
-      'IHクッキングヒーター': '1416', 'ＩＨクッキングヒーター': '1416',
-      'ガスコンロ': '1412',
-      '2口コンロ': '1414', '２口コンロ': '1414', 'コンロ2口': '1414',
-      '3口以上コンロ': '1415', '３口以上コンロ': '1415',
-      '追焚機能': '1505', '追焚き機能': '1505', '追い焚き風呂': '1505',
+      'ガスコンロ': '1412', 'ガスコンロ対応': '1412', 'ガスコンロ可': '1412',
+      'ガスコンロ設置可': '1412',
+      'ガスレンジ付': '1413', 'ガスレンジ付き': '1413',
+      'ガスコンロ設置済み': '1413', 'ガスコンロ設置済': '1413',
+      '2口コンロ': '1414', '２口コンロ': '1414', 'コンロ2口': '1414', 'コンロ２口': '1414',
+      '3口以上コンロ': '1415', '３口以上コンロ': '1415', 'コンロ3口': '1415',
+      'コンロ3口以上': '1415', 'コンロ３口以上': '1415',
+      'IHクッキングヒーター': '1416', 'ＩＨクッキングヒーター': '1416', 'IHコンロ': '1416',
+      '都市ガス': '1436', 'ガス：都市ガス': '1436',
+      // ■浴室
       'バス・トイレ別': '1501', 'バストイレ別': '1501', 'Ｂ・Ｔ別': '1501',
-      '温水洗浄便座': '1603',
+      'BT別': '1501', 'ＢＴ別': '1501',
+      '追焚機能': '1505', '追焚き機能': '1505', '追い焚き風呂': '1505',
+      '追い焚き': '1505', '追焚': '1505', '追い焚き機能': '1505',
+      '追焚機能浴室': '1505',
+      '浴室乾燥機': '1507', '浴室乾燥': '1507',
+      // ■トイレ
+      '温水洗浄便座': '1603', 'ウォシュレット': '1603', 'シャワートイレ': '1603',
+      // ■洗面所
       '洗面台': '1701', '洗面所独立': '1701', '独立洗面台': '1701',
       '洗面化粧台': '1701', '洗髪洗面化粧台': '1701', '独立洗面': '1701',
-      '室内洗濯機置場': '2129', '室内洗濯機置き場': '2129',
-      '浴室乾燥機': '1507', '浴室乾燥': '1507',
-      'モニター付きインターホン': '2414', 'モニタ付インターホン': '2414',
-      'ＴＶインターホン': '2414', 'TVインターホン': '2414',
-      '防犯カメラ': '1211', '床暖房': '1806',
-      'トランクルーム': '2223',
-      'ウォークインクローゼット': '2204',
-      'シューズインクローゼット': '2208', 'シューズボックス': '2207', '玄関収納': '2207',
+      // ■冷暖房・空調
+      '床暖房': '1806',
+      // ■バルコニー・テラス
+      'バルコニー': '2001', 'ワイドバルコニー': '2001',
+      'ルーフバルコニー': '2002',
+      '南面バルコニー': '2005',
+      '2面バルコニー': '2006', '２面バルコニー': '2006', 'バルコニー2面': '2006',
+      'バルコニー２面': '2006',
+      '両面バルコニー': '2008',
+      // ■室内設備・仕様
       'フローリング': '2101',
-      'バルコニー': '2001', 'ワイドバルコニー': '2001', 'ルーフバルコニー': '2002',
+      '室内洗濯機置場': '2129', '室内洗濯機置き場': '2129', '室内洗濯置場': '2129',
+      '洗濯機置場（室内）': '2129',
+      // ■収納
+      'ウォークインクローゼット': '2204', 'ウォークインクロゼット': '2204', 'WIC': '2204',
+      'ウォークインクローゼット2': '2205', 'ウォークインクロゼット2': '2205',
+      'ウォークインクロゼット2ヶ所': '2205', 'ウォークインクローゼット2ヶ所': '2205',
+      'ウォークスルークローゼット': '2206', 'ウォークスルークロゼット': '2206',
+      'シューズボックス': '2207', '玄関収納': '2207', 'シューズBOX': '2207',
+      'シューズインクローゼット': '2208', 'シューズWIC': '2208',
+      '床下収納': '2221',
+      'トランクルーム': '2223',
+      // ■情報設備・回線
+      'BS・CS': '2401', 'BS･CS': '2401', 'BS/CS': '2401', 'BS，CS': '2401', 'BSCS': '2401',
+      'BS': '2402', 'BSアンテナ': '2402', 'BS端子': '2402',
+      'CS': '2403', 'CSアンテナ': '2403',
+      'CATV': '2404', 'ケーブルTV': '2404', 'ケーブルテレビ': '2404',
       'インターネット使用料無料': '2406', 'インターネット無料': '2406',
-      'ネット使用料不要': '2406',
-      '事務所使用可': '2710'
+      'ネット使用料不要': '2406', 'ネット無料': '2406',
+      '光ファイバー': '2410', '光回線': '2410', '光インターネット': '2410',
+      'CATVインターネット': '2411',
+      'モニター付きインターホン': '2414', 'モニタ付インターホン': '2414',
+      'モニター付インターホン': '2414',
+      'ＴＶインターホン': '2414', 'TVインターホン': '2414',
+      'TVモニターホン': '2414', 'テレビモニタ付インターホン': '2414',
+      // ■リフォーム
+      'リノベーション': '2609', 'リノベーション物件': '2609',
+      // ■費用・入居・条件
+      'ペット相談': '2705', 'ペット可': '2705', 'ペット相談可': '2705',
+      '事務所使用可': '2710', '事務所相談': '2710', '事務所使用相談': '2710',
+      '事務所相談可': '2710',
+      // ■家具・家電
+      'エアコン': '2801', 'エアコン付き': '2801', 'エアコン付': '2801',
+      'エアコン2台': '2802', 'エアコン２台': '2802',
     };
 
     // 必須項目は常にチェック
@@ -1251,6 +1304,115 @@
     }
     const textarea = document.getElementById('hoshoninDaikoShosai');
     if (textarea) textarea.value = text;
+  }
+
+  // ── 契約条件（二人入居・子供・ペット・楽器・事務所・ルームシェア・フリーレント） ──
+  function fillContractConditions(data) {
+    // facilities, move_in_conditions, free_rent から条件を判定
+    const facilities = String(data.facilities || '');
+    const moveIn = String(data.move_in_conditions || '');
+    const combined = facilities + ' ' + moveIn;
+
+    // --- 二人入居 ---
+    // 「二人入居可」「2人入居可」「２人入居可」「二人入居(可)」「２人入居相談」
+    if (/[二2２]人入居[可相]/.test(combined)) {
+      const el = document.getElementById('futariKbnCd2'); // 可
+      if (el) el.checked = true;
+    }
+
+    // --- 子供 ---
+    // 「子供可」「子供(可)」→ 可にする。不可はチェックしない
+    if (/子供[可(（]/.test(combined) && !/子供[不(（]不/.test(combined)) {
+      // 子供(可) の判定: ES-Square形式 "子供(可)" or 単純 "子供可"
+      if (/子供\(可\)/.test(combined) || /子供可/.test(combined)) {
+        const el = document.getElementById('kodomoKbnCd2'); // 可
+        if (el) el.checked = true;
+      }
+    }
+
+    // --- ペット ---
+    // 「ペット相談」「ペット可」「ペット相談可」「ペット対応」「猫可」「猫相談」
+    // ペット不可は除外
+    const petPositive = /ペット(相談|可|対応)|猫(可|相談)/.test(combined);
+    const petNegative = /ペット不可|ペット\(不可\)/.test(combined);
+    if (petPositive && !petNegative) {
+      const el = document.getElementById('petKbnCd2'); // 相談
+      if (el) {
+        el.checked = true;
+        // onclick="tokuchoToggle(this, '2705')" を発火
+        el.click();
+      }
+    }
+
+    // --- 楽器 ---
+    // 「楽器相談」「楽器相談可」「楽器使用(可)」
+    // 楽器不可・楽器使用(不可) は除外
+    const gakkiPositive = /楽器(相談|可)|楽器使用\(可\)/.test(combined);
+    const gakkiNegative = /楽器不可|楽器使用\(不可\)/.test(combined);
+    if (gakkiPositive && !gakkiNegative) {
+      const el = document.getElementById('gakkiKbnCd2'); // 相談
+      if (el) {
+        el.checked = true;
+        // onclick="tokuchoToggle(this, '2711')" を発火
+        el.click();
+      }
+    }
+
+    // --- 事務所利用 ---
+    // 「事務所使用可」「事務所(可)」→ 相談にする。不可はチェックしない
+    const jimushoPositive = /事務所(使用可|利用可|\(可\))/.test(combined);
+    const jimushoNegative = /事務所(使用不可|不可|\(不可\))/.test(combined);
+    if (jimushoPositive && !jimushoNegative) {
+      const el = document.getElementById('jimushoRiyoKbnCd2'); // 相談
+      if (el) {
+        el.checked = true;
+        el.click();
+      }
+    }
+
+    // --- ルームシェア ---
+    // 「ルームシェア相談」「ルームシェア(可)」→ 相談にする。不可はチェックしない
+    const rsPositive = /ルームシェア(相談|可|\(可\))/.test(combined);
+    const rsNegative = /ルームシェア(不可|\(不可\))/.test(combined);
+    if (rsPositive && !rsNegative) {
+      const el = document.getElementById('roomShareKbnCd2'); // 相談
+      if (el) {
+        el.checked = true;
+        el.click();
+      }
+    }
+
+    // --- フリーレント ---
+    const freeRent = String(data.free_rent || '');
+    // facilitiesに「フリーレント」がある or free_rentフィールドに値がある（「無」「なし」以外）
+    const hasFreeRent = /フリーレント/.test(facilities) ||
+      (freeRent && !/^(無|なし|ー|-|0|)$/.test(freeRent.trim()));
+
+    if (hasFreeRent) {
+      // チェックボックスをON
+      const cb = document.getElementById('freeRentFlg');
+      if (cb && !cb.checked) {
+        cb.checked = true;
+        cb.click(); // onclickハンドラ発火
+      }
+
+      // 月数を抽出: 「該当2ヶ月」「1ヶ月間」「2ヶ月」「フリーレント1ヶ月」等
+      let months = '';
+      const monthMatch = (freeRent + ' ' + facilities).match(/(\d+)\s*[ヶケか]?\s*月/);
+      if (monthMatch) {
+        months = monthMatch[1];
+      }
+
+      if (months) {
+        const input = document.getElementById('freeRentInput');
+        if (input) input.value = months;
+        // 「○ヶ月」ラジオ
+        const kbnRadio = document.getElementById('freeRentKbnCd1');
+        if (kbnRadio) kbnRadio.checked = true;
+      }
+    }
+
+    console.log('[SUUMO自動入稿] 契約条件設定完了');
   }
 
   // ── 周辺環境ポップアップ → 保存ボタン ──
@@ -1510,7 +1672,7 @@ async function checkFillQueue() {
     console.log('[SUUMO自動入稿] フォーム入力開始:', normalized.building || item.building || item.buildingName);
 
     // mainフレーム内で直接フォーム入力を実行
-    await fillForrentForm(normalized, item.imageGenres || {});
+    await fillForrentForm(normalized, item.imageGenres || {}, item.featureIds || []);
 
     console.log('[SUUMO自動入稿] 入力完了');
 

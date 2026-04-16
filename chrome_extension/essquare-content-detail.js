@@ -729,6 +729,40 @@
       if (m) detail.floor = parseInt(m[1]);
     }
 
+    // ── 元付会社名・元付電話番号 ──
+    // 方法①: data-testid="resultItemMotoduke" から取得
+    const motoduke = document.querySelector('[data-testid="resultItemMotoduke"]');
+    if (motoduke) {
+      const children = motoduke.children;
+      // children[3] = 元付会社名, children[4] = 元付電話番号
+      if (children[3]) detail.owner_company = children[3].textContent.trim();
+      if (children[4]) detail.owner_phone = children[4].textContent.trim();
+    }
+    // 方法②フォールバック: 「不動産会社様向け情報」タブ内の「お問合せ先」
+    if (!detail.owner_company || !detail.owner_phone) {
+      // MUIグリッドで「お問合せ先」ラベルを探す
+      const grids = document.querySelectorAll('.MuiGrid-container');
+      for (const grid of grids) {
+        const label = grid.querySelector('div');
+        if (label && label.textContent.trim() === 'お問合せ先') {
+          const valueDiv = grid.querySelectorAll(':scope > div')[1];
+          if (valueDiv) {
+            const inner = valueDiv.querySelector('div > div:first-child');
+            if (inner && !detail.owner_company) {
+              detail.owner_company = inner.textContent.trim();
+            }
+            const telEl = Array.from(valueDiv.querySelectorAll('div'))
+              .find(el => el.textContent.includes('TEL:'));
+            if (telEl && !detail.owner_phone) {
+              const m = telEl.textContent.match(/TEL:\s*([\d-]+)/);
+              if (m) detail.owner_phone = m[1];
+            }
+          }
+          break;
+        }
+      }
+    }
+
     // デバッグ情報
     detail._debug = {
       imageCount: detail.image_urls?.length || 0,
