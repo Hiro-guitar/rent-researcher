@@ -29,8 +29,12 @@ var SUUMO_PATROL_HEADERS = [
 var SUUMO_CANDIDATE_HEADERS = [
   '物件キー', '建物名', '部屋番号', '住所', '賃料', '管理費', '間取り', '面積',
   '最寄駅', '検出日時', 'ソース', 'ステータス', 'property_data_json',
-  '画像ジャンルJSON', '巡回条件ID', 'SUUMO設備チェックJSON'
+  '画像ジャンルJSON', '巡回条件ID', 'SUUMO設備チェックJSON',
+  'submittingTs'
 ];
+
+// submittingロックのタイムアウト（ミリ秒）
+var SUUMO_SUBMITTING_TIMEOUT_MS = 10 * 60 * 1000; // 10分
 
 var SUUMO_LISTING_HEADERS = [
   '物件キー', '建物名', '部屋番号', '掲載開始日', '賃料', '最終PV数',
@@ -312,7 +316,32 @@ function normalizeSuumoPropertyKey_(building, room) {
 }
 
 /**
- * 承認待ち（pending）の候補物件を取得（Chrome拡張ポーリング用）
+ * 10分以上submittingのままの行をapprovedに戻す（失敗/タブクラッシュ対策）
+ */
+function recoverStaleSubmittingQueue_() {
+  var sheet = getCandidateSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return 0;
+
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_CANDIDATE_HEADERS.length).getValues();
+  var now = Date.now();
+  var recovered = 0;
+
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][11] === 'submitting') {
+      var ts = Number(data[i][16] || 0);
+      if (!ts || (now - ts) > SUUMO_SUBMITTING_TIMEOUT_MS) {
+        sheet.getRange(i + 2, 12).setValue('approved');
+        sheet.getRange(i + 2, 17).setValue('');
+        recovered++;
+      }
+    }
+  }
+  return recovered;
+}
+
+/**
+ * 承認済み（approved）の候補物件を取得（閲覧のみ・ロックなし）
  */
 function getSuumoApprovalQueue() {
   var sheet = getCandidateSheet_();
@@ -323,27 +352,60 @@ function getSuumoApprovalQueue() {
   var result = [];
   for (var i = 0; i < data.length; i++) {
     if (data[i][11] === 'approved') {
-      var propertyData = {};
-      try { propertyData = JSON.parse(data[i][12]); } catch (ex) {}
-      var imageGenres = {};
-      try { imageGenres = JSON.parse(data[i][13]); } catch (ex) {}
-      var featureIds = [];
-      try { featureIds = JSON.parse(data[i][15] || '[]'); } catch (ex) {}
-
-      result.push({
-        key: data[i][0],
-        building: data[i][1],
-        room: data[i][2],
-        address: data[i][3],
-        source: data[i][10],
-        propertyData: propertyData,
-        imageGenres: imageGenres,
-        featureIds: featureIds,
-        rowIndex: i + 2
-      });
+      result.push(buildQueueItem_(data[i], i + 2));
     }
   }
   return result;
+}
+
+/**
+ * 承認済みキューを取得すると同時にsubmittingへロック（Chrome拡張の入稿開始時に使用）
+ * - 取得した行は全てsubmittingに変更し、取得時刻を17列目に記録
+ * - 10分以上submittingのまま放置された行は先にapprovedへ復旧
+ */
+function getAndLockSuumoApprovalQueue() {
+  recoverStaleSubmittingQueue_();
+
+  var sheet = getCandidateSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_CANDIDATE_HEADERS.length).getValues();
+  var result = [];
+  var now = Date.now();
+
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][11] === 'approved') {
+      result.push(buildQueueItem_(data[i], i + 2));
+      sheet.getRange(i + 2, 12).setValue('submitting');
+      sheet.getRange(i + 2, 17).setValue(now);
+    }
+  }
+  return result;
+}
+
+/**
+ * シート行からキュー項目オブジェクトを生成
+ */
+function buildQueueItem_(row, rowIndex) {
+  var propertyData = {};
+  try { propertyData = JSON.parse(row[12]); } catch (ex) {}
+  var imageGenres = {};
+  try { imageGenres = JSON.parse(row[13]); } catch (ex) {}
+  var featureIds = [];
+  try { featureIds = JSON.parse(row[15] || '[]'); } catch (ex) {}
+
+  return {
+    key: row[0],
+    building: row[1],
+    room: row[2],
+    address: row[3],
+    source: row[10],
+    propertyData: propertyData,
+    imageGenres: imageGenres,
+    featureIds: featureIds,
+    rowIndex: rowIndex
+  };
 }
 
 /**
@@ -399,13 +461,21 @@ function rejectSuumoCandidate(key) {
 
 /**
  * 入稿完了を記録（Chrome拡張からのPOST）
+ * - data.success === false の場合はsubmittingロックを解除しapprovedに戻す（リトライ可能）
  */
 function recordSuumoPosting(data) {
-  var sheet = getListingSheet_();
-  var candidateSheet = getCandidateSheet_();
-  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
-
   var key = data.key || '';
+  if (!key) return { success: false, message: 'key未指定' };
+
+  // 失敗報告: submittingロックを解除してapprovedに戻す
+  if (data.success === false) {
+    updateCandidateStatus_(key, 'approved');
+    clearSubmittingTimestamp_(key);
+    return { success: false, key: key, recovered: true };
+  }
+
+  var sheet = getListingSheet_();
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
 
   // 掲載管理シートに追加
   sheet.appendRow([
@@ -421,10 +491,28 @@ function recordSuumoPosting(data) {
     ''
   ]);
 
-  // 候補物件シートのステータスをpostedに更新
+  // 候補物件シートのステータスをpostedに更新 + submittingTsクリア
   updateCandidateStatus_(key, 'posted');
+  clearSubmittingTimestamp_(key);
 
   return { success: true, key: key };
+}
+
+/**
+ * submittingTs列（17列目）をクリア
+ */
+function clearSubmittingTimestamp_(key) {
+  var sheet = getCandidateSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return;
+
+  var keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < keys.length; i++) {
+    if (keys[i][0] === key) {
+      sheet.getRange(i + 2, 17).setValue('');
+      return;
+    }
+  }
 }
 
 /**
@@ -759,6 +847,8 @@ function handleGetPatrolCriteria(e) {
 
 /**
  * GET: 承認済みキュー（Chrome拡張のポーリング用）
+ * - lock=true: 取得と同時にsubmittingへロック（拡張が入稿開始する時に使用）
+ * - lock=false or 未指定: 閲覧のみ（古い呼び出し互換）
  */
 function handleGetSuumoQueue(e) {
   if (!_validateReinsApiKey(e.parameter.api_key)) {
@@ -766,12 +856,14 @@ function handleGetSuumoQueue(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  var queue = getSuumoApprovalQueue();
+  var shouldLock = e.parameter.lock === 'true' || e.parameter.lock === '1';
+  var queue = shouldLock ? getAndLockSuumoApprovalQueue() : getSuumoApprovalQueue();
   var listingCount = getActiveListingCount();
   var stopCandidate = listingCount >= 50 ? findStopCandidate() : null;
 
   return ContentService.createTextOutput(JSON.stringify({
     queue: queue,
+    locked: shouldLock,
     activeListingCount: listingCount,
     stopCandidate: stopCandidate
   })).setMimeType(ContentService.MimeType.JSON);
