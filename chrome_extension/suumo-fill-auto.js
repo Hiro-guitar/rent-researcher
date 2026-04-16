@@ -113,19 +113,26 @@
       });
       return;
     }
-    // framesetのトップ（ログインページ以外）- 何もしない
-    console.log('[SUUMO自動入稿] framesetトップ - スキップ');
-    return;
-  }
-
-  if (isNaviFrame) {
+    // ログインページ以外のトップフレーム
+    // ForRentの画面構成には2種類ある:
+    //   (a) 旧: frameset（<frameset>＋<frame name="navi">＋<frame name="main">）
+    //       → トップは何もしない。main/naviフレーム側にcontent scriptが注入される
+    //   (b) 新: 単一ページ（main_r.action など。/fn/下で動作）
+    //       → トップフレームが本体。ここで監視＋フォーム入力をする必要がある
+    if (document.querySelector('frameset')) {
+      console.log('[SUUMO自動入稿] framesetトップ - 各フレームに処理を委譲');
+      return;
+    }
+    console.log('[SUUMO自動入稿] 単一ページ（responsive版）検出 → トップフレームで監視開始');
+    // fall through: 下のmainフレーム相当の処理に進む
+  } else if (isNaviFrame) {
     // ナビフレーム - スキップ
     console.log('[SUUMO自動入稿] naviフレーム - スキップ');
     return;
   }
 
-  // mainフレーム or その他のフレーム → フォーム入力（キュー監視はトリガー時のみ）
-  console.log('[SUUMO自動入稿] mainフレーム - スクリプト起動, URL:', window.location.href);
+  // mainフレーム / 単一ページのトップフレーム / その他のフレーム → フォーム入力＋キュー監視
+  console.log('[SUUMO自動入稿] main相当フレーム - スクリプト起動, URL:', window.location.href);
   // デバッグ用: DOMにマーカーを追加して読み込み確認
   if (document.body) {
     document.body.setAttribute('data-suumo-fill-auto', 'loaded-' + Date.now());
@@ -1721,22 +1728,42 @@ function initMainFrameMonitor() {
  * 「新規物件登録」タブリンクをクリック（mainフレーム内のナビ）
  */
 function clickNewRegistrationTab() {
-  // mainフレーム内のリンクを検索（textContentまたはtitle属性）
-  const links = document.querySelectorAll('a');
-  for (const link of links) {
-    if (link.textContent.includes('新規物件登録') || link.title === '新規物件登録') {
-      console.log('[SUUMO自動入稿] 「新規物件登録」をクリック');
-      link.click();
+  // タグを問わず「新規物件登録」に該当する要素を探す
+  // （responsive版は <a>/<button>/<li> 等、frameset版はtitle属性付き画像リンクの可能性）
+  const candidates = document.querySelectorAll(
+    'a, button, input[type="button"], input[type="submit"], input[type="image"], li, span, div'
+  );
+  for (const el of candidates) {
+    const text = (el.textContent || '').trim();
+    const val = (el.value || '').trim();
+    const alt = (el.alt || '').trim();
+    const title = (el.title || '').trim();
+    const match = text === '新規物件登録' || val === '新規物件登録' || alt === '新規物件登録' || title === '新規物件登録';
+    // textContent===でマッチしない場合の緩い判定（親の<a>等含むため短い要素に限定）
+    const looseMatch = !match && text.length < 30 && text.includes('新規物件登録');
+    if (match || looseMatch) {
+      // クリック対象はできるだけ「本来クリックされる要素」にしたい
+      // aタグかbutton/inputならそのまま、それ以外は内包する<a>/<button>があればそちらを優先
+      let target = el;
+      if (!['A', 'BUTTON', 'INPUT'].includes(el.tagName)) {
+        const nested = el.querySelector('a, button, input[type="button"], input[type="submit"], input[type="image"]');
+        if (nested) target = nested;
+      }
+      console.log('[SUUMO自動入稿] 「新規物件登録」をクリック (tag:' + target.tagName + ' id:' + (target.id || '(none)') + ')');
+      target.click();
       return true;
     }
   }
-  // ナビフレーム経由（parent.navi）— 画像ベースメニューのためtitle属性で検索
+  // ナビフレーム経由（parent.navi）— 旧frameset版対応
   try {
     const naviFrame = window.parent?.frames?.navi;
     if (naviFrame) {
-      const naviLinks = naviFrame.document.querySelectorAll('a');
+      const naviLinks = naviFrame.document.querySelectorAll('a, button, input[type="image"]');
       for (const link of naviLinks) {
-        if (link.textContent.includes('新規物件登録') || link.title === '新規物件登録') {
+        const text = (link.textContent || '').trim();
+        const title = (link.title || '').trim();
+        const alt = (link.alt || '').trim();
+        if (text.includes('新規物件登録') || title === '新規物件登録' || alt === '新規物件登録') {
           console.log('[SUUMO自動入稿] naviフレームの「新規物件登録」をクリック');
           link.click();
           return true;
