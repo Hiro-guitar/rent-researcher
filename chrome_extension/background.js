@@ -4315,12 +4315,16 @@ async function pollAndStartFillIfNeeded(options = {}) {
  */
 async function startSuumoFillProcess() {
   try {
-    // 新規タブを作成（バックグラウンド）
-    // content script (suumo-fill-auto.js) は AM_I_FILL_TAB メッセージでタブIDをbackgroundに問い合わせ、
-    // suumoFillTabId と一致するときだけキュー監視/ログイン/フォーム入力を行う。
-    // 手動で開いたForRentタブは絶対にこの処理の対象にならない。
-    const forrentTab = await chrome.tabs.create({ url: FORRENT_FILL_URL, active: false });
+    // ── race condition対策: 空タブを先に作ってタブIDを storage に書き込んでから URL設定 ──
+    // 旧: tabs.create(url=FORRENT_FILL_URL) → await setStorageData(tabId)
+    //     の順だとログインページが即document_idleになった場合に content script が
+    //     AM_I_FILL_TAB を送った時点で storage にタブIDがまだ書かれておらず
+    //     「入稿タブではない」と判定→自動ログインがスキップされる事象が起きる。
+    // 新: 空タブ(about:blank)作成 → storage書込 → tabs.update(url) の順で、
+    //     content script が走る前に必ずtabIdが確定している状態にする。
+    const forrentTab = await chrome.tabs.create({ url: 'about:blank', active: false });
     await setStorageData({ suumoFillTabId: forrentTab.id });
+    await chrome.tabs.update(forrentTab.id, { url: FORRENT_FILL_URL });
     console.log(`[SUUMO入稿] 入稿用タブを新規作成 (tab ${forrentTab.id})`);
     await setStorageData({ debugLog: `[SUUMO入稿] ForRent入稿タブ作成(tab=${forrentTab.id})` });
   } catch (err) {

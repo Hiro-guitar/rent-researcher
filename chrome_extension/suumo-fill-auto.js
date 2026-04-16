@@ -32,20 +32,40 @@
   // background.jsに「このタブは入稿専用タブか？」を問い合わせる。
   // suumoFillTabId と sender.tab.id が一致するときだけ true が返る。
   // 手動で開いたForRentタブでは絶対に入稿処理は動かない。
-  function askAmIFillTab(callback) {
-    try {
-      chrome.runtime.sendMessage({ type: 'AM_I_FILL_TAB' }, (resp) => {
-        if (chrome.runtime.lastError) {
-          console.warn('[SUUMO自動入稿] AM_I_FILL_TAB応答エラー:', chrome.runtime.lastError.message);
-          callback(false);
-          return;
-        }
-        callback(!!(resp && resp.isFillTab));
-      });
-    } catch (e) {
-      console.warn('[SUUMO自動入稿] AM_I_FILL_TAB送信失敗:', e);
-      callback(false);
-    }
+  //
+  // タイミング問題対策:
+  //   chrome.tabs.create → await setStorageData({suumoFillTabId}) の間に
+  //   ログインページが document_idle になって content script が走るケースがあり得るため、
+  //   false が返った場合は短い間隔でリトライする（手動タブでは結局最終的にfalseで諦める）。
+  function askAmIFillTab(callback, opts) {
+    const retries = (opts && opts.retries !== undefined) ? opts.retries : 6;
+    const retryDelayMs = (opts && opts.retryDelayMs !== undefined) ? opts.retryDelayMs : 500;
+    const attempt = (left) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'AM_I_FILL_TAB' }, (resp) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[SUUMO自動入稿] AM_I_FILL_TAB応答エラー:', chrome.runtime.lastError.message);
+            if (left > 0) return setTimeout(() => attempt(left - 1), retryDelayMs);
+            callback(false);
+            return;
+          }
+          console.log(`[SUUMO自動入稿] AM_I_FILL_TAB結果: isFillTab=${resp && resp.isFillTab} tabId=${resp && resp.tabId} fillTabId=${resp && resp.fillTabId} (残りリトライ${left})`);
+          if (resp && resp.isFillTab) {
+            callback(true);
+          } else if (left > 0) {
+            // race conditionの可能性 → 少し待ってリトライ
+            setTimeout(() => attempt(left - 1), retryDelayMs);
+          } else {
+            callback(false);
+          }
+        });
+      } catch (e) {
+        console.warn('[SUUMO自動入稿] AM_I_FILL_TAB送信失敗:', e);
+        if (left > 0) return setTimeout(() => attempt(left - 1), retryDelayMs);
+        callback(false);
+      }
+    };
+    attempt(retries);
   }
 
   // ── ログインページ検知＆自動ログイン ──
@@ -53,7 +73,12 @@
   // login.action へPOSTするフォームがあればログインページと判定
   if (isTopFrame) {
     const loginForm = document.querySelector('form[action*="login.action"]');
-    const loginIdInput = document.querySelector('input[name="${loginForm.loginId}"]');
+    // 注: ForRentログインHTMLで実際に name="${loginForm.loginId}" の input が描画されている
+    //     （JSP/Strutsのテンプレート評価されていない表記がそのまま出ている）。
+    //     念のため従来通りの候補セレクタも試し、見つかった方を使う。
+    const loginIdInput = document.querySelector('input[name="${loginForm.loginId}"]')
+      || (loginForm && (loginForm.querySelector('input[type="text"]') || loginForm.querySelector('input[name*="login"]')));
+    console.log(`[SUUMO自動入稿] ログインページ検知判定: loginForm=${!!loginForm} loginIdInput=${!!loginIdInput} url=${window.location.href}`);
     if (loginForm && loginIdInput) {
       console.log('[SUUMO自動入稿] ログインページ検知');
       askAmIFillTab((isFillTab) => {
@@ -68,10 +93,15 @@
           }
           console.log('[SUUMO自動入稿] 入稿タブと確認 → 自動ログイン実行');
           loginIdInput.value = data.forrentLoginId;
-          const pwInput = document.querySelector('input[name="${loginForm.password}"]');
+          const pwInput = document.querySelector('input[name="${loginForm.password}"]')
+            || loginForm.querySelector('input[type="password"]');
           if (pwInput) pwInput.value = data.forrentPassword;
-          const submitBtn = document.getElementById('Image7') || loginForm.querySelector('input[type="image"]');
+          const submitBtn = document.getElementById('Image7')
+            || loginForm.querySelector('input[type="image"]')
+            || loginForm.querySelector('input[type="submit"]')
+            || loginForm.querySelector('button[type="submit"]');
           if (submitBtn) setTimeout(() => submitBtn.click(), 300);
+          else console.warn('[SUUMO自動入稿] ログイン送信ボタンが見つからない');
         });
       });
       return;
