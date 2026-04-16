@@ -552,12 +552,31 @@
     }
 
     // ── 画像アップロード ──
+    const imgDebug = {
+      imagesType: typeof data.images,
+      imagesIsArray: Array.isArray(data.images),
+      imagesLength: data.images?.length || 0,
+      imagesSample: Array.isArray(data.images) ? data.images.slice(0, 2).map(u => String(u).substring(0, 80)) : String(data.images).substring(0, 200),
+      imageGenresType: typeof imageGenres,
+      imageGenresKeys: imageGenres ? Object.keys(imageGenres) : null,
+      imageGenresValues: imageGenres ? Object.values(imageGenres).slice(0, 5) : null,
+    };
+    document.body.setAttribute('data-suumo-img-debug', JSON.stringify(imgDebug));
+    console.log('[SUUMO自動入稿] 画像デバッグ:', JSON.stringify(imgDebug));
+
     if (data.images && data.images.length > 0 && imageGenres && Object.keys(imageGenres).length > 0) {
       try {
+        console.log('[SUUMO自動入稿] 画像アップロード開始:', data.images.length, '枚, ジャンル:', Object.keys(imageGenres).length, '件');
         await uploadImages(data.images, imageGenres);
+        document.body.setAttribute('data-suumo-img-result', 'success');
+        console.log('[SUUMO自動入稿] 画像アップロード完了');
       } catch (imgErr) {
+        document.body.setAttribute('data-suumo-img-result', 'error: ' + imgErr.message);
         console.error('[SUUMO自動入稿] 画像アップロードエラー（続行）:', imgErr);
       }
+    } else {
+      document.body.setAttribute('data-suumo-img-result', 'skipped');
+      console.warn('[SUUMO自動入稿] 画像スキップ');
     }
 
     // ── 設備チェック ──
