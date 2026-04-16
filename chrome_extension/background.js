@@ -908,6 +908,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     return true;
   }
+  if (msg.type === 'FETCH_IMAGE_AS_BASE64') {
+    // content script（ForRentページ）から画像URLを受け取り、base64で返す
+    // background service workerはhost_permissionsの全ドメインにfetchできる
+    (async () => {
+      try {
+        const response = await fetch(msg.url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const reader = new FileReader();
+        const dataUrl = await new Promise((resolve, reject) => {
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+        sendResponse({ ok: true, dataUrl });
+      } catch (err) {
+        console.error('[FETCH_IMAGE_AS_BASE64] 失敗:', msg.url, err.message);
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
   if (msg.type === 'SUUMO_FILL_COMPLETE') {
     // suumo-fill-auto.jsからの入稿完了報告
     reportSuumoPostComplete(msg.data).then(result => {

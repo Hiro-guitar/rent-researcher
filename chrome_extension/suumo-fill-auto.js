@@ -1012,9 +1012,31 @@
     if (url.startsWith('data:')) {
       return base64ToFile(url, filename);
     }
-    const response = await fetch(url);
-    const blob = await response.blob();
-    return new File([blob], filename, { type: blob.type });
+    // 画像URLは各ソースサイトのドメインにあるため、ForRentページから直接fetchすると
+    // CORS/認証エラーになる。background service worker経由でfetchしてbase64で受け取る。
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { type: 'FETCH_IMAGE_AS_BASE64', url },
+          (response) => {
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message));
+            } else if (response && response.ok) {
+              resolve(response.dataUrl);
+            } else {
+              reject(new Error(response?.error || '画像取得失敗'));
+            }
+          }
+        );
+      });
+      return base64ToFile(dataUrl, filename);
+    } catch (bgErr) {
+      console.warn('[SUUMO自動入稿] background経由画像取得失敗、直接fetchを試行:', bgErr.message);
+      // フォールバック: 直接fetch（公開URLの場合は成功する可能性あり）
+      const response = await fetch(url);
+      const blob = await response.blob();
+      return new File([blob], filename, { type: blob.type });
+    }
   }
 
   function base64ToFile(base64, filename) {
