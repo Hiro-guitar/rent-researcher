@@ -788,44 +788,83 @@ function handleFileSelect(files) {
   var done = 0;
   var failed = 0;
 
-  fileArr.forEach(function(file) {
-    statusEl.textContent = 'アップロード中... (' + done + '/' + total + ')';
-    fillEl.style.width = (done / total * 100) + '%';
+  var errors = [];
+
+  function uploadNext(idx) {
+    if (idx >= fileArr.length) {
+      // 全ファイル処理完了
+      if (failed > 0) {
+        statusEl.innerHTML = total + '枚中' + (total - failed) + '枚完了（' + failed + '枚失敗）'
+          + '<br><span style="color:#e74c3c;font-size:10px;">' + errors.join('<br>') + '</span>';
+      } else {
+        statusEl.textContent = total + '枚アップロード完了';
+        setTimeout(function() { progressEl.style.display = 'none'; }, 3000);
+      }
+      return;
+    }
+
+    var file = fileArr[idx];
+    statusEl.textContent = 'アップロード中... (' + (idx + 1) + '/' + total + ') ' + file.name;
+    fillEl.style.width = (idx / total * 100) + '%';
 
     var reader = new FileReader();
     reader.onload = function(e) {
       var base64 = e.target.result.split(',')[1];
-      google.script.run
-        .withSuccessHandler(function(result) {
-          done++;
-          if (result && result.success) {
-            addUploadedImage(result.url);
-          } else {
-            failed++;
-            console.error('Upload failed:', result ? result.message : 'unknown');
-          }
-          statusEl.textContent = 'アップロード中... (' + done + '/' + total + ')';
-          fillEl.style.width = (done / total * 100) + '%';
-          if (done === total) {
-            statusEl.textContent = (failed > 0)
-              ? total + '枚中' + (total - failed) + '枚完了（' + failed + '枚失敗）'
-              : total + '枚アップロード完了';
-            setTimeout(function() { progressEl.style.display = 'none'; }, 3000);
-          }
-        })
-        .withFailureHandler(function(err) {
-          done++; failed++;
-          console.error('Upload error:', err);
-          statusEl.textContent = 'エラー: ' + (err.message || err);
-          statusEl.style.color = '#e74c3c';
-          if (done === total) {
-            setTimeout(function() { progressEl.style.display = 'none'; statusEl.style.color = ''; }, 5000);
-          }
-        })
-        .uploadPropertyImageForSuumo(base64, file.name, file.type);
+      // 画像が大きすぎる場合はリサイズ（GAS送信制限対策）
+      resizeImageIfNeeded(e.target.result, 1200, function(resizedBase64) {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            done++;
+            fillEl.style.width = (done / total * 100) + '%';
+            if (result && result.success) {
+              addUploadedImage(result.url);
+            } else {
+              failed++;
+              var msg = file.name + ': ' + (result ? result.message : 'unknown error');
+              errors.push(msg);
+              console.error('Upload failed:', msg);
+            }
+            uploadNext(idx + 1);
+          })
+          .withFailureHandler(function(err) {
+            done++; failed++;
+            var msg = file.name + ': ' + (err.message || String(err));
+            errors.push(msg);
+            console.error('Upload error:', msg);
+            fillEl.style.width = (done / total * 100) + '%';
+            uploadNext(idx + 1);
+          })
+          .uploadPropertyImageForSuumo(resizedBase64, file.name, file.type);
+      });
     };
     reader.readAsDataURL(file);
-  });
+  }
+  uploadNext(0);
+}
+
+// 画像が大きい場合にクライアント側でリサイズ（GAS転送量削減）
+function resizeImageIfNeeded(dataUrl, maxDim, callback) {
+  var img = new Image();
+  img.onload = function() {
+    // 既に小さいならそのまま
+    if (img.width <= maxDim && img.height <= maxDim) {
+      callback(dataUrl.split(',')[1]);
+      return;
+    }
+    var canvas = document.createElement('canvas');
+    var ratio = Math.min(maxDim / img.width, maxDim / img.height);
+    canvas.width = Math.round(img.width * ratio);
+    canvas.height = Math.round(img.height * ratio);
+    var ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    var resized = canvas.toDataURL('image/jpeg', 0.85);
+    callback(resized.split(',')[1]);
+  };
+  img.onerror = function() {
+    // 読み込み失敗時はそのまま送る
+    callback(dataUrl.split(',')[1]);
+  };
+  img.src = dataUrl;
 }
 
 function addUploadedImage(url) {
