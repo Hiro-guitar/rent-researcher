@@ -1011,9 +1011,33 @@ function deletePatrolCriteriaFromAdmin(criteriaId) {
 /**
  * SuumoApprovalPage から呼ばれる: 承認確定
  */
-function confirmSuumoApproveFromClient(key, imageGenres, featureIds) {
+function confirmSuumoApproveFromClient(key, imageGenres, featureIds, updatedImageUrls) {
   var imageGenresJson = imageGenres ? JSON.stringify(imageGenres) : '';
   var featureIdsJson = featureIds ? JSON.stringify(featureIds) : '';
+
+  // 手動追加画像がある場合、property_data_json の image_urls を更新
+  if (updatedImageUrls && Array.isArray(updatedImageUrls) && updatedImageUrls.length > 0) {
+    var sheet = getCandidateSheet_();
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      var keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (var i = 0; i < keys.length; i++) {
+        if (keys[i][0] === key) {
+          var row = i + 2;
+          var propJson = sheet.getRange(row, 13).getValue();
+          try {
+            var propData = JSON.parse(propJson);
+            propData.image_urls = updatedImageUrls;
+            sheet.getRange(row, 13).setValue(JSON.stringify(propData));
+          } catch (ex) {
+            // パース失敗時はスキップ（画像URL更新なし）
+          }
+          break;
+        }
+      }
+    }
+  }
+
   return approveSuumoCandidate(key, imageGenresJson, featureIdsJson);
 }
 

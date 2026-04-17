@@ -103,6 +103,36 @@ body {
 .genre-btn.selected { background: #2e86c1; color: #fff; border-color: #1a5276; }
 .genre-btn.used { background: #e8e8e8; color: #999; }
 
+/* ── 画像アップロード ── */
+.upload-area {
+  border: 2px dashed #aed6f1; border-radius: 10px; padding: 16px;
+  text-align: center; margin-top: 10px; cursor: pointer;
+  transition: all 0.2s; background: #fafcfe;
+}
+.upload-area:hover, .upload-area.dragover {
+  border-color: #2e86c1; background: #eaf2f8;
+}
+.upload-area .upload-icon { font-size: 24px; margin-bottom: 4px; }
+.upload-area .upload-text { font-size: 12px; color: #888; }
+.upload-progress {
+  margin-top: 8px; font-size: 11px; color: #2e86c1;
+  display: none;
+}
+.upload-progress .progress-bar {
+  height: 4px; background: #d4e6f1; border-radius: 2px; margin-top: 4px; overflow: hidden;
+}
+.upload-progress .progress-fill {
+  height: 100%; background: #2e86c1; border-radius: 2px; transition: width 0.3s; width: 0%;
+}
+.image-card .delete-btn {
+  position: absolute; top: 2px; right: 2px; width: 20px; height: 20px;
+  background: rgba(231,76,60,0.85); color: #fff; border: none; border-radius: 50%;
+  font-size: 12px; line-height: 20px; text-align: center; cursor: pointer;
+  display: none; z-index: 2;
+}
+.image-card:hover .delete-btn { display: block; }
+.image-card { position: relative; }
+
 /* ── ステータス ── */
 .status-badge {
   display: inline-block; padding: 4px 12px; border-radius: 12px;
@@ -271,6 +301,15 @@ body {
   <div class="card-body" id="sectionImages">
     <div id="imageGrid" class="image-grid">
       <p style="color:#999;font-size:13px;">画像を読み込み中...</p>
+    </div>
+    <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+      <div class="upload-icon">+</div>
+      <div class="upload-text">画像を追加（クリックまたはドラッグ&ドロップ）</div>
+      <input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="handleFileSelect(this.files)">
+    </div>
+    <div class="upload-progress" id="uploadProgress">
+      <span id="uploadStatus">アップロード中...</span>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     </div>
   </div>
 </div>
@@ -723,6 +762,112 @@ function renderImages() {
   updateGenreCounter();
 }
 
+// ── 画像アップロード ──
+(function setupUploadArea() {
+  var area = document.getElementById('uploadArea');
+  if (!area) return;
+  area.addEventListener('dragover', function(e) { e.preventDefault(); area.classList.add('dragover'); });
+  area.addEventListener('dragleave', function() { area.classList.remove('dragover'); });
+  area.addEventListener('drop', function(e) {
+    e.preventDefault(); area.classList.remove('dragover');
+    handleFileSelect(e.dataTransfer.files);
+  });
+})();
+
+function handleFileSelect(files) {
+  if (!files || files.length === 0) return;
+  var fileArr = Array.from(files).filter(function(f) { return f.type.startsWith('image/'); });
+  if (fileArr.length === 0) { alert('画像ファイルを選択してください'); return; }
+
+  var progressEl = document.getElementById('uploadProgress');
+  var statusEl = document.getElementById('uploadStatus');
+  var fillEl = document.getElementById('progressFill');
+  progressEl.style.display = 'block';
+
+  var total = fileArr.length;
+  var done = 0;
+  var failed = 0;
+
+  fileArr.forEach(function(file) {
+    statusEl.textContent = 'アップロード中... (' + done + '/' + total + ')';
+    fillEl.style.width = (done / total * 100) + '%';
+
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var base64 = e.target.result.split(',')[1];
+      google.script.run
+        .withSuccessHandler(function(result) {
+          done++;
+          if (result && result.success) {
+            addUploadedImage(result.url);
+          } else {
+            failed++;
+            console.error('Upload failed:', result ? result.message : 'unknown');
+          }
+          statusEl.textContent = 'アップロード中... (' + done + '/' + total + ')';
+          fillEl.style.width = (done / total * 100) + '%';
+          if (done === total) {
+            statusEl.textContent = (failed > 0)
+              ? total + '枚中' + (total - failed) + '枚完了（' + failed + '枚失敗）'
+              : total + '枚アップロード完了';
+            setTimeout(function() { progressEl.style.display = 'none'; }, 3000);
+          }
+        })
+        .withFailureHandler(function(err) {
+          done++; failed++;
+          console.error('Upload error:', err);
+          statusEl.textContent = 'エラー: ' + (err.message || err);
+          if (done === total) {
+            setTimeout(function() { progressEl.style.display = 'none'; }, 3000);
+          }
+        })
+        .uploadPropertyImage(base64, file.name, file.type);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function addUploadedImage(url) {
+  var images = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
+  images.push(url);
+  PROPERTY_DATA.image_urls = images;
+  if (!PROPERTY_DATA.shubetsu) PROPERTY_DATA.shubetsu = [];
+
+  var idx = images.length - 1;
+  var container = document.getElementById('imageGrid');
+
+  var card = document.createElement('div');
+  card.className = 'image-card';
+  card.setAttribute('data-index', idx);
+
+  var delBtn = document.createElement('button');
+  delBtn.className = 'delete-btn';
+  delBtn.textContent = 'x';
+  delBtn.onclick = function(e) {
+    e.stopPropagation();
+    if (confirm('この画像を削除しますか？')) {
+      delete imageGenres[idx];
+      card.remove();
+      updateGenreCounter();
+    }
+  };
+  card.appendChild(delBtn);
+
+  var img = document.createElement('img');
+  img.src = url;
+  img.alt = '追加画像 ' + (idx + 1);
+  img.onerror = function() { this.style.background = '#eee'; this.alt = '読込失敗'; };
+  card.appendChild(img);
+
+  var btnsDiv = document.createElement('div');
+  btnsDiv.className = 'genre-btns';
+  renderGenreButtons(btnsDiv, idx, '');
+  card.appendChild(btnsDiv);
+
+  container.appendChild(card);
+  updateGenreCounter();
+}
+
 function normalizeGenre(genre) {
   if (!genre) return "";
   if (genre.includes("間取")) return "間取り";
@@ -810,7 +955,7 @@ function doApprove() {
       btn.disabled = false;
       btn.textContent = '承認して入稿';
     })
-    .confirmSuumoApproveFromClient(PROPERTY_KEY, imageGenres, getCheckedFeatureIds());
+    .confirmSuumoApproveFromClient(PROPERTY_KEY, imageGenres, getCheckedFeatureIds(), PROPERTY_DATA.image_urls || []);
 }
 
 // ── 却下 ──
