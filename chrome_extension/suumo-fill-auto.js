@@ -1937,11 +1937,12 @@ async function checkFillQueue() {
         error: err.message
       }
     });
-  } finally {
-    // 次の物件は保存ボタンクリック→ページリロード後に処理
-    // リロード後に再度 checkFillQueue が走る
+    // エラー時のみ busy を解除（次回 checkFillQueue で再試行可能にする）
     _suumoFillBusy = false;
   }
+  // 成功時は _suumoFillBusy = true のまま保持。
+  // ユーザーが保存→ページリロード → content script再初期化でリセットされる。
+  // これにより、保存前に次の物件で上書きされることを防ぐ。
 }
 
 })();
