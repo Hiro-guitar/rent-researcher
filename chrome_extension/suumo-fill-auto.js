@@ -96,20 +96,25 @@
           return;
         }
         console.log('[SUUMO自動入稿] ?suumo_fill=true 検知 → 自動ログイン実行');
-        loginIdInput.value = data.forrentLoginId;
-        const pwInput = document.querySelector('input[name="${loginForm.password}"]')
-          || loginForm.querySelector('input[type="password"]');
-        if (pwInput) pwInput.value = data.forrentPassword;
-        const submitBtn = document.getElementById('Image7')
-          || loginForm.querySelector('input[type="image"]')
-          || loginForm.querySelector('input[type="submit"]')
-          || loginForm.querySelector('button[type="submit"]');
-        if (submitBtn) {
-          console.log('[SUUMO自動入稿] ログイン送信ボタン発見:', submitBtn.tagName, submitBtn.id || submitBtn.name || '(no id/name)');
-          setTimeout(() => submitBtn.click(), 300);
-        } else {
-          console.warn('[SUUMO自動入稿] ログイン送信ボタンが見つからない');
-        }
+        // ログイン後に ?suumo_fill=true が消えるので、suumoFillModeフラグで引き継ぐ
+        // set完了を待ってからログインボタンをクリック
+        chrome.storage.local.set({ suumoFillMode: true }, () => {
+          console.log('[SUUMO自動入稿] suumoFillModeセット完了 → ログイン送信');
+          loginIdInput.value = data.forrentLoginId;
+          const pwInput = document.querySelector('input[name="${loginForm.password}"]')
+            || loginForm.querySelector('input[type="password"]');
+          if (pwInput) pwInput.value = data.forrentPassword;
+          const submitBtn = document.getElementById('Image7')
+            || loginForm.querySelector('input[type="image"]')
+            || loginForm.querySelector('input[type="submit"]')
+            || loginForm.querySelector('button[type="submit"]');
+          if (submitBtn) {
+            console.log('[SUUMO自動入稿] ログイン送信ボタン発見:', submitBtn.tagName, submitBtn.id || submitBtn.name || '(no id/name)');
+            setTimeout(() => submitBtn.click(), 300);
+          } else {
+            console.warn('[SUUMO自動入稿] ログイン送信ボタンが見つからない');
+          }
+        });
       });
       return;
     }
@@ -141,14 +146,33 @@
   // キュー監視の二重起動防止フラグ
   let _monitorStarted = false;
 
-  // 入稿タブかを問い合わせ → yes のときだけキュー監視を開始
-  // 手動で開いたForRentタブでは何もしない
-  askAmIFillTab((isFillTab) => {
-    if (isFillTab) {
-      console.log('[SUUMO自動入稿] 入稿タブと確認 → キュー監視開始');
+  // suumoFillModeフラグがONならキュー監視を開始（ログイン後・承認後どちらでも）
+  // フラグはログイン時の content script がセットする
+  chrome.storage.local.get(['suumoFillMode'], (data) => {
+    if (data.suumoFillMode) {
+      console.log('[SUUMO自動入稿] suumoFillModeフラグ検知 → キュー監視開始');
       initMainFrameMonitor();
     } else {
-      console.log('[SUUMO自動入稿] 手動タブ → キュー監視スキップ');
+      // URLの?suumo_fill=trueもチェック（承認ページからの直接起動時、ログイン不要でトップに来た場合）
+      const topUrl = (() => {
+        try { return window.top.location.href; } catch (e) { return window.location.href; }
+      })();
+      if (topUrl.includes('suumo_fill=true')) {
+        console.log('[SUUMO自動入稿] ?suumo_fill=true 検知 → キュー監視開始');
+        chrome.storage.local.set({ suumoFillMode: true });
+        initMainFrameMonitor();
+      } else {
+        // フラグもURLパラメータもない → タブID照合でも判定（background.jsが先にIDを書いたケース）
+        askAmIFillTab((isFillTab) => {
+          if (isFillTab) {
+            console.log('[SUUMO自動入稿] タブID照合で入稿タブと確認 → キュー監視開始');
+            chrome.storage.local.set({ suumoFillMode: true });
+            initMainFrameMonitor();
+          } else {
+            console.log('[SUUMO自動入稿] 手動利用 → キュー監視スキップ');
+          }
+        });
+      }
     }
   });
 
