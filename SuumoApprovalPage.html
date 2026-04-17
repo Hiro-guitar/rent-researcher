@@ -817,11 +817,12 @@ function handleFileSelect(files) {
           done++; failed++;
           console.error('Upload error:', err);
           statusEl.textContent = 'エラー: ' + (err.message || err);
+          statusEl.style.color = '#e74c3c';
           if (done === total) {
-            setTimeout(function() { progressEl.style.display = 'none'; }, 3000);
+            setTimeout(function() { progressEl.style.display = 'none'; statusEl.style.color = ''; }, 5000);
           }
         })
-        .uploadPropertyImage(base64, file.name, file.type);
+        .uploadPropertyImageForSuumo(base64, file.name, file.type);
     };
     reader.readAsDataURL(file);
   });

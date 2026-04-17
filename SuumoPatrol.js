@@ -1072,3 +1072,56 @@ function getAdminPageUrl() {
   var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
   return baseUrl + '?action=admin&api_key=' + encodeURIComponent(apiKey);
 }
+
+// ═══════════════════════════════════════════════════════════
+// SUUMO承認画面用: 画像アップロード（imgbb）
+// ═══════════════════════════════════════════════════════════
+var SUUMO_IMGBB_API_KEY = '48cdc51fdcc4a2828c3379b59663db7f';
+
+/**
+ * SUUMO承認画面から呼ばれる画像アップロード
+ * base64データをimgbbにアップロードしてURLを返す
+ */
+function uploadPropertyImageForSuumo(base64Data, filename, mimeType) {
+  try {
+    // imgbb
+    var imgbbResult = uploadToImgbb_(base64Data, filename);
+    if (imgbbResult.success) return imgbbResult;
+
+    // フォールバック: catbox.moe
+    var decoded = Utilities.base64Decode(base64Data);
+    var blob = Utilities.newBlob(decoded, mimeType || 'image/jpeg', filename || 'upload.jpg');
+    var response = UrlFetchApp.fetch('https://catbox.moe/user/api.php', {
+      method: 'POST',
+      payload: { reqtype: 'fileupload', fileToUpload: blob },
+      muteHttpExceptions: true
+    });
+    var url = response.getContentText().trim();
+    if (url.startsWith('https://')) return { success: true, url: url };
+
+    return { success: false, message: 'Both imgbb and catbox failed. catbox response: ' + url.substring(0, 200) };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+function uploadToImgbb_(base64Data, filename) {
+  try {
+    var response = UrlFetchApp.fetch('https://api.imgbb.com/1/upload', {
+      method: 'POST',
+      payload: {
+        key: SUUMO_IMGBB_API_KEY,
+        image: base64Data,
+        name: (filename || 'upload').replace(/\.[^.]+$/, '')
+      },
+      muteHttpExceptions: true
+    });
+    var json = JSON.parse(response.getContentText());
+    if (json && json.success && json.data && json.data.url) {
+      return { success: true, url: json.data.url };
+    }
+    return { success: false, message: 'imgbb: ' + (json.error ? json.error.message : 'unknown error') };
+  } catch (err) {
+    return { success: false, message: 'imgbb error: ' + err.message };
+  }
+}
