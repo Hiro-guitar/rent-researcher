@@ -32,20 +32,40 @@
   // background.jsに「このタブは入稿専用タブか？」を問い合わせる。
   // suumoFillTabId と sender.tab.id が一致するときだけ true が返る。
   // 手動で開いたForRentタブでは絶対に入稿処理は動かない。
-  function askAmIFillTab(callback) {
-    try {
-      chrome.runtime.sendMessage({ type: 'AM_I_FILL_TAB' }, (resp) => {
-        if (chrome.runtime.lastError) {
-          console.warn('[SUUMO自動入稿] AM_I_FILL_TAB応答エラー:', chrome.runtime.lastError.message);
-          callback(false);
-          return;
-        }
-        callback(!!(resp && resp.isFillTab));
-      });
-    } catch (e) {
-      console.warn('[SUUMO自動入稿] AM_I_FILL_TAB送信失敗:', e);
-      callback(false);
-    }
+  //
+  // タイミング問題対策:
+  //   chrome.tabs.create → await setStorageData({suumoFillTabId}) の間に
+  //   ログインページが document_idle になって content script が走るケースがあり得るため、
+  //   false が返った場合は短い間隔でリトライする（手動タブでは結局最終的にfalseで諦める）。
+  function askAmIFillTab(callback, opts) {
+    const retries = (opts && opts.retries !== undefined) ? opts.retries : 6;
+    const retryDelayMs = (opts && opts.retryDelayMs !== undefined) ? opts.retryDelayMs : 500;
+    const attempt = (left) => {
+      try {
+        chrome.runtime.sendMessage({ type: 'AM_I_FILL_TAB' }, (resp) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[SUUMO自動入稿] AM_I_FILL_TAB応答エラー:', chrome.runtime.lastError.message);
+            if (left > 0) return setTimeout(() => attempt(left - 1), retryDelayMs);
+            callback(false);
+            return;
+          }
+          console.log(`[SUUMO自動入稿] AM_I_FILL_TAB結果: isFillTab=${resp && resp.isFillTab} tabId=${resp && resp.tabId} fillTabId=${resp && resp.fillTabId} (残りリトライ${left})`);
+          if (resp && resp.isFillTab) {
+            callback(true);
+          } else if (left > 0) {
+            // race conditionの可能性 → 少し待ってリトライ
+            setTimeout(() => attempt(left - 1), retryDelayMs);
+          } else {
+            callback(false);
+          }
+        });
+      } catch (e) {
+        console.warn('[SUUMO自動入稿] AM_I_FILL_TAB送信失敗:', e);
+        if (left > 0) return setTimeout(() => attempt(left - 1), retryDelayMs);
+        callback(false);
+      }
+    };
+    attempt(retries);
   }
 
   // ── ログインページ検知＆自動ログイン ──
@@ -53,42 +73,71 @@
   // login.action へPOSTするフォームがあればログインページと判定
   if (isTopFrame) {
     const loginForm = document.querySelector('form[action*="login.action"]');
-    const loginIdInput = document.querySelector('input[name="${loginForm.loginId}"]');
+    // 注: ForRentログインHTMLで実際に name="${loginForm.loginId}" の input が描画されている
+    //     （JSP/Strutsのテンプレート評価されていない表記がそのまま出ている）。
+    //     念のため従来通りの候補セレクタも試し、見つかった方を使う。
+    const loginIdInput = document.querySelector('input[name="${loginForm.loginId}"]')
+      || (loginForm && (loginForm.querySelector('input[type="text"]') || loginForm.querySelector('input[name*="login"]')));
+    console.log(`[SUUMO自動入稿] ログインページ検知判定: loginForm=${!!loginForm} loginIdInput=${!!loginIdInput} url=${window.location.href}`);
     if (loginForm && loginIdInput) {
       console.log('[SUUMO自動入稿] ログインページ検知');
-      askAmIFillTab((isFillTab) => {
-        if (!isFillTab) {
-          console.log('[SUUMO自動入稿] 入稿タブではない（手動アクセス） → 自動ログインスキップ');
+      // ログイン判定は「URLに?suumo_fill=true が含まれるか」で行う（以前の方式）。
+      // タブID照合（askAmIFillTab）はbackgroundのstorage書き込みとのrace conditionが起きやすいため、
+      // ログインページだけはURLパラメータで判定する。
+      // 手動でログインページを開いた人は ?suumo_fill=true が付いていないので自動ログインしない。
+      const urlHasFillParam = window.location.href.includes('suumo_fill=true');
+      if (!urlHasFillParam) {
+        console.log('[SUUMO自動入稿] ?suumo_fill=true なし（手動アクセス） → 自動ログインスキップ');
+        return;
+      }
+      chrome.storage.local.get(['forrentLoginId', 'forrentPassword'], (data) => {
+        if (!data.forrentLoginId || !data.forrentPassword) {
+          console.log('[SUUMO自動入稿] ForRent認証情報が未設定 → 手動ログインが必要');
           return;
         }
-        chrome.storage.local.get(['forrentLoginId', 'forrentPassword'], (data) => {
-          if (!data.forrentLoginId || !data.forrentPassword) {
-            console.log('[SUUMO自動入稿] ForRent認証情報が未設定 → 手動ログインが必要');
-            return;
-          }
-          console.log('[SUUMO自動入稿] 入稿タブと確認 → 自動ログイン実行');
+        console.log('[SUUMO自動入稿] ?suumo_fill=true 検知 → 自動ログイン実行');
+        // ログイン後に ?suumo_fill=true が消えるので、suumoFillModeフラグで引き継ぐ
+        // set完了を待ってからログインボタンをクリック
+        chrome.storage.local.set({ suumoFillMode: true }, () => {
+          console.log('[SUUMO自動入稿] suumoFillModeセット完了 → ログイン送信');
           loginIdInput.value = data.forrentLoginId;
-          const pwInput = document.querySelector('input[name="${loginForm.password}"]');
+          const pwInput = document.querySelector('input[name="${loginForm.password}"]')
+            || loginForm.querySelector('input[type="password"]');
           if (pwInput) pwInput.value = data.forrentPassword;
-          const submitBtn = document.getElementById('Image7') || loginForm.querySelector('input[type="image"]');
-          if (submitBtn) setTimeout(() => submitBtn.click(), 300);
+          const submitBtn = document.getElementById('Image7')
+            || loginForm.querySelector('input[type="image"]')
+            || loginForm.querySelector('input[type="submit"]')
+            || loginForm.querySelector('button[type="submit"]');
+          if (submitBtn) {
+            console.log('[SUUMO自動入稿] ログイン送信ボタン発見:', submitBtn.tagName, submitBtn.id || submitBtn.name || '(no id/name)');
+            setTimeout(() => submitBtn.click(), 300);
+          } else {
+            console.warn('[SUUMO自動入稿] ログイン送信ボタンが見つからない');
+          }
         });
       });
       return;
     }
-    // framesetのトップ（ログインページ以外）- 何もしない
-    console.log('[SUUMO自動入稿] framesetトップ - スキップ');
-    return;
-  }
-
-  if (isNaviFrame) {
+    // ログインページ以外のトップフレーム
+    // ForRentの画面構成には2種類ある:
+    //   (a) 旧: frameset（<frameset>＋<frame name="navi">＋<frame name="main">）
+    //       → トップは何もしない。main/naviフレーム側にcontent scriptが注入される
+    //   (b) 新: 単一ページ（main_r.action など。/fn/下で動作）
+    //       → トップフレームが本体。ここで監視＋フォーム入力をする必要がある
+    if (document.querySelector('frameset')) {
+      console.log('[SUUMO自動入稿] framesetトップ - 各フレームに処理を委譲');
+      return;
+    }
+    console.log('[SUUMO自動入稿] 単一ページ（responsive版）検出 → トップフレームで監視開始');
+    // fall through: 下のmainフレーム相当の処理に進む
+  } else if (isNaviFrame) {
     // ナビフレーム - スキップ
     console.log('[SUUMO自動入稿] naviフレーム - スキップ');
     return;
   }
 
-  // mainフレーム or その他のフレーム → フォーム入力（キュー監視はトリガー時のみ）
-  console.log('[SUUMO自動入稿] mainフレーム - スクリプト起動, URL:', window.location.href);
+  // mainフレーム / 単一ページのトップフレーム / その他のフレーム → フォーム入力＋キュー監視
+  console.log('[SUUMO自動入稿] main相当フレーム - スクリプト起動, URL:', window.location.href);
   // デバッグ用: DOMにマーカーを追加して読み込み確認
   if (document.body) {
     document.body.setAttribute('data-suumo-fill-auto', 'loaded-' + Date.now());
@@ -97,14 +146,48 @@
   // キュー監視の二重起動防止フラグ
   let _monitorStarted = false;
 
-  // 入稿タブかを問い合わせ → yes のときだけキュー監視を開始
-  // 手動で開いたForRentタブでは何もしない
-  askAmIFillTab((isFillTab) => {
-    if (isFillTab) {
-      console.log('[SUUMO自動入稿] 入稿タブと確認 → キュー監視開始');
+  // suumoFillModeフラグがONならキュー監視を開始（ログイン後・承認後どちらでも）
+  // フラグはログイン時の content script がセットする
+  chrome.storage.local.get(['suumoFillMode'], (data) => {
+    if (data.suumoFillMode) {
+      console.log('[SUUMO自動入稿] suumoFillModeフラグ検知 → キュー監視開始 & 即時ポーリング');
+      // background.jsにキュー再取得を依頼（ログイン中にキューがクリアされた場合の復旧）
+      chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[SUUMO自動入稿] 即時ポーリング送信エラー:', chrome.runtime.lastError.message);
+        } else {
+          console.log('[SUUMO自動入稿] 即時ポーリング結果:', resp);
+        }
+      });
       initMainFrameMonitor();
     } else {
-      console.log('[SUUMO自動入稿] 手動タブ → キュー監視スキップ');
+      // URLの?suumo_fill=trueもチェック（承認ページからの直接起動時、ログイン不要でトップに来た場合）
+      const topUrl = (() => {
+        try { return window.top.location.href; } catch (e) { return window.location.href; }
+      })();
+      if (topUrl.includes('suumo_fill=true')) {
+        console.log('[SUUMO自動入稿] ?suumo_fill=true 検知 → キュー監視開始 & 即時ポーリング');
+        chrome.storage.local.set({ suumoFillMode: true });
+        chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[SUUMO自動入稿] 即時ポーリング送信エラー:', chrome.runtime.lastError.message);
+          } else {
+            console.log('[SUUMO自動入稿] 即時ポーリング結果:', resp);
+          }
+        });
+        initMainFrameMonitor();
+      } else {
+        // フラグもURLパラメータもない → タブID照合でも判定（background.jsが先にIDを書いたケース）
+        askAmIFillTab((isFillTab) => {
+          if (isFillTab) {
+            console.log('[SUUMO自動入稿] タブID照合で入稿タブと確認 → キュー監視開始');
+            chrome.storage.local.set({ suumoFillMode: true });
+            initMainFrameMonitor();
+          } else {
+            console.log('[SUUMO自動入稿] 手動利用 → キュー監視スキップ');
+          }
+        });
+      }
     }
   });
 
@@ -650,11 +733,19 @@
     // ── 保証会社 ──
     fillGuaranteeCompany(data);
 
-    // ── 周辺環境ポップアップ→保存 ──
-    // ※ 初期段階では自動保存をスキップ（手動確認のため）
-    // await waitAndClickShuhenButton();
-
-    console.log('[SUUMO自動入稿] フォーム入力完了（手動確認モード：保存は手動で行ってください）');
+    // ── 確認画面へ遷移 ──
+    // ForRentのフォーム登録は2段階: 「確認画面へ」→ 確認画面で「登録」
+    // 半自動モード: 確認画面まで自動遷移し、登録はユーザーが手動で行う
+    // TODO: 全自動モード時は確認画面の「登録」ボタンも自動クリックする
+    const confirmBtn = document.getElementById('regButton2');
+    if (confirmBtn) {
+      console.log('[SUUMO自動入稿] フォーム入力完了 → 「確認画面へ」を自動クリック');
+      await new Promise(r => setTimeout(r, 500));
+      confirmBtn.click();
+    } else {
+      console.warn('[SUUMO自動入稿] 「確認画面へ」ボタン(#regButton2)が見つかりません');
+      console.log('[SUUMO自動入稿] フォーム入力完了（確認画面への遷移は手動で行ってください）');
+    }
   }
 
   // ── 住所カスケード入力 ──
@@ -1560,15 +1651,24 @@
   }
 
   function clickSaveButton() {
-    // ForRentの保存ボタンを検索してクリック
-    const saveBtn = document.querySelector('input[type="submit"][value*="保存"]') ||
-                    document.querySelector('button[type="submit"]') ||
-                    document.querySelector('#submitBtn');
-    if (saveBtn) {
-      console.log('[SUUMO自動入稿] 保存ボタンをクリック');
-      saveBtn.click();
+    // ForRentの登録フローは2段階:
+    //   入力フォーム → 「確認画面へ」(#regButton2) → 確認画面 → 「登録」
+    // まず「確認画面へ」を探し、なければ確認画面の登録ボタンを探す
+    const confirmBtn = document.getElementById('regButton2');
+    if (confirmBtn) {
+      console.log('[SUUMO自動入稿] 「確認画面へ」をクリック');
+      confirmBtn.click();
+      return;
+    }
+    // 確認画面の登録ボタン（将来の全自動モード用）
+    const registerBtn = document.querySelector('input[type="submit"][value*="登録"]') ||
+                        document.querySelector('button[type="submit"]') ||
+                        document.querySelector('#submitBtn');
+    if (registerBtn) {
+      console.log('[SUUMO自動入稿] 登録ボタンをクリック');
+      registerBtn.click();
     } else {
-      console.warn('[SUUMO自動入稿] 保存ボタンが見つかりません');
+      console.warn('[SUUMO自動入稿] 確認/登録ボタンが見つかりません');
     }
   }
 
@@ -1684,22 +1784,42 @@ function initMainFrameMonitor() {
  * 「新規物件登録」タブリンクをクリック（mainフレーム内のナビ）
  */
 function clickNewRegistrationTab() {
-  // mainフレーム内のリンクを検索（textContentまたはtitle属性）
-  const links = document.querySelectorAll('a');
-  for (const link of links) {
-    if (link.textContent.includes('新規物件登録') || link.title === '新規物件登録') {
-      console.log('[SUUMO自動入稿] 「新規物件登録」をクリック');
-      link.click();
+  // タグを問わず「新規物件登録」に該当する要素を探す
+  // （responsive版は <a>/<button>/<li> 等、frameset版はtitle属性付き画像リンクの可能性）
+  const candidates = document.querySelectorAll(
+    'a, button, input[type="button"], input[type="submit"], input[type="image"], li, span, div'
+  );
+  for (const el of candidates) {
+    const text = (el.textContent || '').trim();
+    const val = (el.value || '').trim();
+    const alt = (el.alt || '').trim();
+    const title = (el.title || '').trim();
+    const match = text === '新規物件登録' || val === '新規物件登録' || alt === '新規物件登録' || title === '新規物件登録';
+    // textContent===でマッチしない場合の緩い判定（親の<a>等含むため短い要素に限定）
+    const looseMatch = !match && text.length < 30 && text.includes('新規物件登録');
+    if (match || looseMatch) {
+      // クリック対象はできるだけ「本来クリックされる要素」にしたい
+      // aタグかbutton/inputならそのまま、それ以外は内包する<a>/<button>があればそちらを優先
+      let target = el;
+      if (!['A', 'BUTTON', 'INPUT'].includes(el.tagName)) {
+        const nested = el.querySelector('a, button, input[type="button"], input[type="submit"], input[type="image"]');
+        if (nested) target = nested;
+      }
+      console.log('[SUUMO自動入稿] 「新規物件登録」をクリック (tag:' + target.tagName + ' id:' + (target.id || '(none)') + ')');
+      target.click();
       return true;
     }
   }
-  // ナビフレーム経由（parent.navi）— 画像ベースメニューのためtitle属性で検索
+  // ナビフレーム経由（parent.navi）— 旧frameset版対応
   try {
     const naviFrame = window.parent?.frames?.navi;
     if (naviFrame) {
-      const naviLinks = naviFrame.document.querySelectorAll('a');
+      const naviLinks = naviFrame.document.querySelectorAll('a, button, input[type="image"]');
       for (const link of naviLinks) {
-        if (link.textContent.includes('新規物件登録') || link.title === '新規物件登録') {
+        const text = (link.textContent || '').trim();
+        const title = (link.title || '').trim();
+        const alt = (link.alt || '').trim();
+        if (text.includes('新規物件登録') || title === '新規物件登録' || alt === '新規物件登録') {
           console.log('[SUUMO自動入稿] naviフレームの「新規物件登録」をクリック');
           link.click();
           return true;
@@ -1729,6 +1849,7 @@ function isNewRegistrationPage() {
 async function checkFillQueue() {
   if (_suumoFillBusy) return;
 
+  // ① まずキューの有無だけをread-onlyで確認（PEEK）。書込はしないので race しない
   const data = await new Promise(resolve => {
     chrome.storage.local.get(['suumoFillQueue'], resolve);
   });
@@ -1740,26 +1861,48 @@ async function checkFillQueue() {
   }
   if (queue.length === 0) return;
 
-  const item = queue[0];
-  console.log('[SUUMO自動入稿] キューに物件あり:', item.building || item.propertyData?.building_name);
+  const peekItem = queue[0];
+  console.log('[SUUMO自動入稿] キューに物件あり:', peekItem.building || peekItem.propertyData?.building_name);
 
-  // 新規物件登録ページかチェック
+  // ② 新規物件登録ページかチェック（未遷移ならPOPせず遷移だけして次の機会に再度チェック）
   if (!isNewRegistrationPage()) {
     console.log('[SUUMO自動入稿] 新規登録ページではない → 「新規物件登録」をクリック');
     clickNewRegistrationTab();
     return;
   }
 
-  console.log('[SUUMO自動入稿] 新規登録フォーム検出 → 入力開始');
+  // ②-b フォームに既にデータが入っている場合は上書きしない
+  // （禁止文字エラー等でページがリロードされた場合、前回入力したデータが残っている）
+  const existingBukkenNm = document.getElementById('bukkenNm');
+  if (existingBukkenNm && existingBukkenNm.value && existingBukkenNm.value.trim().length > 0) {
+    console.log('[SUUMO自動入稿] フォームに既にデータあり（前回入力が未登録） → 上書きスキップ。物件名:', existingBukkenNm.value);
+    return;
+  }
+
+  console.log('[SUUMO自動入稿] 新規登録フォーム（空）検出 → 入力開始');
 
   _suumoFillBusy = true;
 
   try {
-    // キューから先頭を取り出す
-    const remaining = queue.slice(1);
-    await new Promise(resolve => {
-      chrome.storage.local.set({ suumoFillQueue: remaining }, resolve);
+    // ③ background経由で atomic に POP
+    // （background側は mutex で直列化されているので、append との競合が起きない）
+    const popResp = await new Promise(resolve => {
+      chrome.runtime.sendMessage({ type: 'POP_FILL_QUEUE_HEAD' }, (r) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[SUUMO自動入稿] POP応答エラー:', chrome.runtime.lastError.message);
+          resolve(null);
+        } else {
+          resolve(r);
+        }
+      });
     });
+    if (!popResp || !popResp.ok || !popResp.item) {
+      // キューが空 or 競合でpopできなかった → 次ループで再挑戦
+      console.log('[SUUMO自動入稿] POP失敗または空 → スキップ');
+      _suumoFillBusy = false;
+      return;
+    }
+    const item = popResp.item;
 
     const rawData = item.propertyData || item;
     // デバッグ: 正規化前のデータをDOMに書き出し
@@ -1819,11 +1962,12 @@ async function checkFillQueue() {
         error: err.message
       }
     });
-  } finally {
-    // 次の物件は保存ボタンクリック→ページリロード後に処理
-    // リロード後に再度 checkFillQueue が走る
+    // エラー時のみ busy を解除（次回 checkFillQueue で再試行可能にする）
     _suumoFillBusy = false;
   }
+  // 成功時は _suumoFillBusy = true のまま保持。
+  // ユーザーが保存→ページリロード → content script再初期化でリセットされる。
+  // これにより、保存前に次の物件で上書きされることを防ぐ。
 }
 
 })();
