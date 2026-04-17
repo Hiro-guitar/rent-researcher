@@ -733,11 +733,19 @@
     // ── 保証会社 ──
     fillGuaranteeCompany(data);
 
-    // ── 周辺環境ポップアップ→保存 ──
-    // ※ 初期段階では自動保存をスキップ（手動確認のため）
-    // await waitAndClickShuhenButton();
-
-    console.log('[SUUMO自動入稿] フォーム入力完了（手動確認モード：保存は手動で行ってください）');
+    // ── 確認画面へ遷移 ──
+    // ForRentのフォーム登録は2段階: 「確認画面へ」→ 確認画面で「登録」
+    // 半自動モード: 確認画面まで自動遷移し、登録はユーザーが手動で行う
+    // TODO: 全自動モード時は確認画面の「登録」ボタンも自動クリックする
+    const confirmBtn = document.getElementById('regButton2');
+    if (confirmBtn) {
+      console.log('[SUUMO自動入稿] フォーム入力完了 → 「確認画面へ」を自動クリック');
+      await new Promise(r => setTimeout(r, 500));
+      confirmBtn.click();
+    } else {
+      console.warn('[SUUMO自動入稿] 「確認画面へ」ボタン(#regButton2)が見つかりません');
+      console.log('[SUUMO自動入稿] フォーム入力完了（確認画面への遷移は手動で行ってください）');
+    }
   }
 
   // ── 住所カスケード入力 ──
@@ -1643,15 +1651,24 @@
   }
 
   function clickSaveButton() {
-    // ForRentの保存ボタンを検索してクリック
-    const saveBtn = document.querySelector('input[type="submit"][value*="保存"]') ||
-                    document.querySelector('button[type="submit"]') ||
-                    document.querySelector('#submitBtn');
-    if (saveBtn) {
-      console.log('[SUUMO自動入稿] 保存ボタンをクリック');
-      saveBtn.click();
+    // ForRentの登録フローは2段階:
+    //   入力フォーム → 「確認画面へ」(#regButton2) → 確認画面 → 「登録」
+    // まず「確認画面へ」を探し、なければ確認画面の登録ボタンを探す
+    const confirmBtn = document.getElementById('regButton2');
+    if (confirmBtn) {
+      console.log('[SUUMO自動入稿] 「確認画面へ」をクリック');
+      confirmBtn.click();
+      return;
+    }
+    // 確認画面の登録ボタン（将来の全自動モード用）
+    const registerBtn = document.querySelector('input[type="submit"][value*="登録"]') ||
+                        document.querySelector('button[type="submit"]') ||
+                        document.querySelector('#submitBtn');
+    if (registerBtn) {
+      console.log('[SUUMO自動入稿] 登録ボタンをクリック');
+      registerBtn.click();
     } else {
-      console.warn('[SUUMO自動入稿] 保存ボタンが見つかりません');
+      console.warn('[SUUMO自動入稿] 確認/登録ボタンが見つかりません');
     }
   }
 
