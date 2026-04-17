@@ -907,13 +907,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'SUUMO_QUEUE_POLL_NOW') {
-    // 即座にキューポーリング→入稿開始（ForRent時間帯チェック含む）
-    pollAndStartFillIfNeeded({ source: 'manual' }).then(() => {
-      sendResponse({ ok: true });
-    }).catch(err => {
-      console.error('[SUUMO入稿] 即時ポーリング失敗:', err);
-      sendResponse({ ok: false, error: err.message });
-    });
+    // content scriptからのキュー再取得依頼
+    // 送信元タブは既に入稿タブなので、新タブは作らずGASからキュー取得→追記のみ行う
+    (async () => {
+      try {
+        // 送信元タブを入稿タブとして登録（タブID不一致によるタブ二重作成を防止）
+        if (sender.tab?.id) {
+          await setStorageData({ suumoFillTabId: sender.tab.id });
+        }
+        const { available } = checkForrentAvailability();
+        if (!available) {
+          sendResponse({ ok: false, reason: '時間外' });
+          return;
+        }
+        const queueData = await pollSuumoApprovalQueue({ lock: true });
+        if (queueData && queueData.queue && queueData.queue.length > 0) {
+          const added = await appendFillQueue(queueData.queue);
+          await setStorageData({
+            suumoActiveListingCount: queueData.activeListingCount,
+            suumoStopCandidate: queueData.stopCandidate
+          });
+          console.log(`[SUUMO入稿] QUEUE_POLL_NOW: ${added}件をキューに追加`);
+          sendResponse({ ok: true, added });
+        } else {
+          console.log('[SUUMO入稿] QUEUE_POLL_NOW: GASからの取得結果は0件');
+          sendResponse({ ok: true, added: 0 });
+        }
+      } catch (err) {
+        console.error('[SUUMO入稿] QUEUE_POLL_NOW失敗:', err);
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
     return true;
   }
   // GAS承認ページの承認ボタン押下時、suumo-approval-trigger.jsが送信
