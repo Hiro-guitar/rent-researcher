@@ -1076,63 +1076,88 @@ function getAdminPageUrl() {
 // ═══════════════════════════════════════════════════════════
 // SUUMO承認画面用: 画像アップロード（imgbb）
 // ═══════════════════════════════════════════════════════════
-var SUUMO_IMGBB_API_KEY = '48cdc51fdcc4a2828c3379b59663db7f';
-
 /**
  * SUUMO承認画面から呼ばれる画像アップロード
- * base64データをimgbbにアップロードしてURLを返す
- * フォールバック: Imgur anonymous upload
+ * base64データを画像ホスティングにアップロードしてURLを返す
+ * 優先順: Telegra.ph → freeimage.host → imgbb
  */
 function uploadPropertyImageForSuumo(base64Data, filename, mimeType) {
   var errors = [];
+  var decoded = Utilities.base64Decode(base64Data);
+  var blob = Utilities.newBlob(decoded, mimeType || 'image/jpeg', filename || 'upload.jpg');
 
-  // 1) imgbb
+  // 1) Telegra.ph（APIキー不要）
   try {
-    var resp1 = UrlFetchApp.fetch('https://api.imgbb.com/1/upload', {
+    var resp1 = UrlFetchApp.fetch('https://telegra.ph/upload', {
       method: 'POST',
-      payload: {
-        key: SUUMO_IMGBB_API_KEY,
-        image: base64Data,
-        name: (filename || 'upload').replace(/\.[^.]+$/, '')
-      },
+      payload: { file: blob },
       muteHttpExceptions: true
     });
     var code1 = resp1.getResponseCode();
     var body1 = resp1.getContentText();
     if (code1 === 200) {
       var json1 = JSON.parse(body1);
-      if (json1 && json1.success && json1.data && json1.data.url) {
-        return { success: true, url: json1.data.url };
+      if (Array.isArray(json1) && json1[0] && json1[0].src) {
+        return { success: true, url: 'https://telegra.ph' + json1[0].src };
       }
-      errors.push('imgbb OK but no url: ' + body1.substring(0, 300));
+      errors.push('telegraph parse: ' + body1.substring(0, 200));
     } else {
-      errors.push('imgbb HTTP ' + code1 + ': ' + body1.substring(0, 300));
+      errors.push('telegraph HTTP ' + code1 + ': ' + body1.substring(0, 200));
     }
   } catch (e1) {
-    errors.push('imgbb exception: ' + e1.message);
+    errors.push('telegraph: ' + e1.message);
   }
 
-  // 2) Imgur anonymous upload
+  // 2) freeimage.host（imgbb互換API、別サービス）
   try {
-    var resp2 = UrlFetchApp.fetch('https://api.imgur.com/3/image', {
+    var resp2 = UrlFetchApp.fetch('https://freeimage.host/api/1/upload', {
       method: 'POST',
-      headers: { 'Authorization': 'Client-ID 546c25a59c58ad7' },
-      payload: { image: base64Data, type: 'base64' },
+      payload: {
+        key: '6d207e02198a847aa98d0a2a901485a5',
+        source: base64Data,
+        format: 'json'
+      },
       muteHttpExceptions: true
     });
     var code2 = resp2.getResponseCode();
     var body2 = resp2.getContentText();
     if (code2 === 200) {
       var json2 = JSON.parse(body2);
-      if (json2 && json2.success && json2.data && json2.data.link) {
-        return { success: true, url: json2.data.link };
+      if (json2 && json2.image && json2.image.url) {
+        return { success: true, url: json2.image.url };
       }
-      errors.push('imgur OK but no link: ' + body2.substring(0, 300));
+      errors.push('freeimage parse: ' + body2.substring(0, 200));
     } else {
-      errors.push('imgur HTTP ' + code2 + ': ' + body2.substring(0, 300));
+      errors.push('freeimage HTTP ' + code2 + ': ' + body2.substring(0, 200));
     }
   } catch (e2) {
-    errors.push('imgur exception: ' + e2.message);
+    errors.push('freeimage: ' + e2.message);
+  }
+
+  // 3) imgbb（レート制限に注意）
+  try {
+    var resp3 = UrlFetchApp.fetch('https://api.imgbb.com/1/upload', {
+      method: 'POST',
+      payload: {
+        key: '48cdc51fdcc4a2828c3379b59663db7f',
+        image: base64Data,
+        name: (filename || 'upload').replace(/\.[^.]+$/, '')
+      },
+      muteHttpExceptions: true
+    });
+    var code3 = resp3.getResponseCode();
+    var body3 = resp3.getContentText();
+    if (code3 === 200) {
+      var json3 = JSON.parse(body3);
+      if (json3 && json3.success && json3.data && json3.data.url) {
+        return { success: true, url: json3.data.url };
+      }
+      errors.push('imgbb parse: ' + body3.substring(0, 200));
+    } else {
+      errors.push('imgbb HTTP ' + code3 + ': ' + body3.substring(0, 200));
+    }
+  } catch (e3) {
+    errors.push('imgbb: ' + e3.message);
   }
 
   return { success: false, message: errors.join(' | ') };
