@@ -714,9 +714,9 @@
     const freeMemo = document.getElementById('freeMemo');
     if (freeMemo) {
       if (data.sourceType === 'reins') {
-        freeMemo.value = 'REINS 物件番号: ' + (data.propertyNumber || '');
+        freeMemo.value = sanitizeSuumoText('REINS 物件番号: ' + (data.propertyNumber || ''));
       } else if (data.sourceUrl) {
-        freeMemo.value = data.sourceUrl;
+        freeMemo.value = sanitizeSuumoText(data.sourceUrl);
       }
     }
 
@@ -1396,7 +1396,7 @@
       if (div) { div.style.display = 'block'; div.style.visibility = 'visible'; }
       if (typeof flg.onclick === 'function') flg.onclick();
     }
-    if (textarea) textarea.value = items.join('\n');
+    if (textarea) textarea.value = sanitizeSuumoText(items.join('\n'));
   }
 
   // ── 保証会社 ──
@@ -1415,7 +1415,7 @@
       select.dispatchEvent(new Event('change'));
     }
     const textarea = document.getElementById('hoshoninDaikoShosai');
-    if (textarea) textarea.value = text;
+    if (textarea) textarea.value = sanitizeSuumoText(text);
   }
 
   // ── 契約条件（二人入居・子供・ペット・楽器・事務所・ルームシェア・フリーレント） ──
@@ -1678,14 +1678,14 @@
 
   function setInputById(id, value) {
     const el = document.getElementById(id);
-    if (el) el.value = value || '';
+    if (el) el.value = sanitizeSuumoText(value) || '';
   }
 
   function setInputByIdWithEvents(id, value) {
     const el = document.getElementById(id);
     if (el) {
       el.focus();
-      el.value = value || '';
+      el.value = sanitizeSuumoText(value) || '';
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       el.blur();
@@ -1695,7 +1695,7 @@
   function setInputByName(name, value) {
     const el = document.querySelector('input[name="' + name + '"]');
     if (el) {
-      el.value = value || '';
+      el.value = sanitizeSuumoText(value) || '';
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
     }
@@ -1724,6 +1724,74 @@
   function toHalfWidth(str) {
     return (str || '').replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
       .replace(/　/g, ' ');
+  }
+
+  /**
+   * SUUMO禁止文字サニタイズ
+   * 半角カタカナ→全角、半角記号→全角、環境依存文字→安全な表記に変換
+   */
+  function sanitizeSuumoText(str) {
+    if (!str) return str;
+    var s = str;
+
+    // 1) 半角カタカナ → 全角カタカナ
+    const hankakuMap = {
+      'ｦ':'ヲ','ｧ':'ァ','ｨ':'ィ','ｩ':'ゥ','ｪ':'ェ','ｫ':'ォ','ｬ':'ャ','ｭ':'ュ','ｮ':'ョ','ｯ':'ッ',
+      'ｰ':'ー','ｱ':'ア','ｲ':'イ','ｳ':'ウ','ｴ':'エ','ｵ':'オ','ｶ':'カ','ｷ':'キ','ｸ':'ク','ｹ':'ケ','ｺ':'コ',
+      'ｻ':'サ','ｼ':'シ','ｽ':'ス','ｾ':'セ','ｿ':'ソ','ﾀ':'タ','ﾁ':'チ','ﾂ':'ツ','ﾃ':'テ','ﾄ':'ト',
+      'ﾅ':'ナ','ﾆ':'ニ','ﾇ':'ヌ','ﾈ':'ネ','ﾉ':'ノ','ﾊ':'ハ','ﾋ':'ヒ','ﾌ':'フ','ﾍ':'ヘ','ﾎ':'ホ',
+      'ﾏ':'マ','ﾐ':'ミ','ﾑ':'ム','ﾒ':'メ','ﾓ':'モ','ﾔ':'ヤ','ﾕ':'ユ','ﾖ':'ヨ',
+      'ﾗ':'ラ','ﾘ':'リ','ﾙ':'ル','ﾚ':'レ','ﾛ':'ロ','ﾜ':'ワ','ﾝ':'ン',
+      'ﾞ':'゛','ﾟ':'゜','｡':'。','｢':'「','｣':'」','､':'、','･':'・'
+    };
+    // 半角カタカナ濁点・半濁点の結合処理（ｶﾞ→ガ等）
+    s = s.replace(/([ｳｶ-ｺｻ-ｿﾀ-ﾄﾊ-ﾎ])ﾞ/g, (_, ch) => {
+      const base = hankakuMap[ch];
+      if (!base) return ch + '゛';
+      const code = base.charCodeAt(0);
+      return String.fromCharCode(code + 1); // カ→ガ etc.
+    });
+    s = s.replace(/([ﾊ-ﾎ])ﾟ/g, (_, ch) => {
+      const base = hankakuMap[ch];
+      if (!base) return ch + '゜';
+      const code = base.charCodeAt(0);
+      return String.fromCharCode(code + 2); // ハ→パ etc.
+    });
+    s = s.replace(/[ｦ-ﾟ]/g, ch => hankakuMap[ch] || ch);
+
+    // 2) 半角記号 → 全角記号
+    s = s.replace(/\//g, '／');
+    s = s.replace(/,/g, '、');
+    // 半角スペースは全角スペースに（文中の区切り用途の場合）
+    // ただし英数字間のスペースは残す
+    s = s.replace(/(?<=[^\x20-\x7E]) (?=[^\x20-\x7E])/g, '　');
+
+    // 3) 環境依存の距離単位 → 安全な表記
+    s = s.replace(/㌖/g, 'キロリットル');
+    s = s.replace(/㍍/g, 'メートル');
+    s = s.replace(/㌔/g, 'キロ');
+    s = s.replace(/㎞/g, 'km');
+    s = s.replace(/㎡/g, 'm2');
+    s = s.replace(/㎝/g, 'cm');
+    s = s.replace(/㏄/g, 'cc');
+    s = s.replace(/㍉/g, 'ミリ');
+
+    // 4) ギリシャ文字・ロシア文字の見た目そっくり → ローマ字
+    const lookalike = {
+      'Α':'A','Β':'B','Ε':'E','Ζ':'Z','Η':'H','Ι':'I','Κ':'K','Μ':'M','Ν':'N',
+      'Ο':'O','Ρ':'P','Τ':'T','Υ':'Y','Χ':'X',
+      'α':'a','β':'b','ε':'e','ι':'i','κ':'k','μ':'m','ν':'n','ο':'o','ρ':'p','τ':'t','υ':'u','χ':'x',
+      'А':'A','В':'B','С':'C','Е':'E','Н':'H','К':'K','М':'M','О':'O','Р':'P','Т':'T','Х':'X',
+      'а':'a','с':'c','е':'e','о':'o','р':'p','х':'x'
+    };
+    s = s.replace(/[ΑΒΕΖΗΙΚΜΝΟΡΤΥΧαβειι κμνορτυχАВСЕНКМОРТХасеорх]/g, ch => lookalike[ch] || ch);
+
+    // 5) 顔文字でよく使う特殊文字を除去/置換
+    s = s.replace(/[ωдΩ℃℉†‡‰‱]/g, '');
+    // 全角中黒点゜は残す（SUUMO許可）が半角゜は問題なし
+
+    console.log('[SUUMO禁止文字] サニタイズ適用');
+    return s;
   }
 
   function waitFor(ms) {
