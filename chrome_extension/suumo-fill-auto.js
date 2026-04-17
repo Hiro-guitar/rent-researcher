@@ -1871,7 +1871,15 @@ async function checkFillQueue() {
     return;
   }
 
-  console.log('[SUUMO自動入稿] 新規登録フォーム検出 → 入力開始');
+  // ②-b フォームに既にデータが入っている場合は上書きしない
+  // （禁止文字エラー等でページがリロードされた場合、前回入力したデータが残っている）
+  const existingBukkenNm = document.getElementById('bukkenNm');
+  if (existingBukkenNm && existingBukkenNm.value && existingBukkenNm.value.trim().length > 0) {
+    console.log('[SUUMO自動入稿] フォームに既にデータあり（前回入力が未登録） → 上書きスキップ。物件名:', existingBukkenNm.value);
+    return;
+  }
+
+  console.log('[SUUMO自動入稿] 新規登録フォーム（空）検出 → 入力開始');
 
   _suumoFillBusy = true;
 
