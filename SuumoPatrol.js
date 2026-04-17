@@ -1076,30 +1076,64 @@ function getAdminPageUrl() {
 // ═══════════════════════════════════════════════════════════
 // SUUMO承認画面用: 画像アップロード（imgbb）
 // ═══════════════════════════════════════════════════════════
+var SUUMO_IMGBB_API_KEY = '48cdc51fdcc4a2828c3379b59663db7f';
+
 /**
  * SUUMO承認画面から呼ばれる画像アップロード
- * base64データをGoogleドライブにアップロードし、公開URLを返す
+ * base64データをimgbbにアップロードしてURLを返す
+ * フォールバック: Imgur anonymous upload
  */
 function uploadPropertyImageForSuumo(base64Data, filename, mimeType) {
+  var errors = [];
+
+  // 1) imgbb
   try {
-    var decoded = Utilities.base64Decode(base64Data);
-    var blob = Utilities.newBlob(decoded, mimeType || 'image/jpeg', filename || 'upload.jpg');
-
-    // SUUMO画像用フォルダを取得または作成
-    var folderName = 'SUUMO_Images';
-    var folders = DriveApp.getFoldersByName(folderName);
-    var folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
-
-    // ファイルをドライブにアップロード
-    var file = folder.createFile(blob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-
-    // 直接アクセス可能なURLを生成
-    var fileId = file.getId();
-    var url = 'https://lh3.googleusercontent.com/d/' + fileId;
-
-    return { success: true, url: url };
-  } catch (err) {
-    return { success: false, message: 'Google Drive upload error: ' + err.message };
+    var resp1 = UrlFetchApp.fetch('https://api.imgbb.com/1/upload', {
+      method: 'POST',
+      payload: {
+        key: SUUMO_IMGBB_API_KEY,
+        image: base64Data,
+        name: (filename || 'upload').replace(/\.[^.]+$/, '')
+      },
+      muteHttpExceptions: true
+    });
+    var code1 = resp1.getResponseCode();
+    var body1 = resp1.getContentText();
+    if (code1 === 200) {
+      var json1 = JSON.parse(body1);
+      if (json1 && json1.success && json1.data && json1.data.url) {
+        return { success: true, url: json1.data.url };
+      }
+      errors.push('imgbb OK but no url: ' + body1.substring(0, 300));
+    } else {
+      errors.push('imgbb HTTP ' + code1 + ': ' + body1.substring(0, 300));
+    }
+  } catch (e1) {
+    errors.push('imgbb exception: ' + e1.message);
   }
+
+  // 2) Imgur anonymous upload
+  try {
+    var resp2 = UrlFetchApp.fetch('https://api.imgur.com/3/image', {
+      method: 'POST',
+      headers: { 'Authorization': 'Client-ID 546c25a59c58ad7' },
+      payload: { image: base64Data, type: 'base64' },
+      muteHttpExceptions: true
+    });
+    var code2 = resp2.getResponseCode();
+    var body2 = resp2.getContentText();
+    if (code2 === 200) {
+      var json2 = JSON.parse(body2);
+      if (json2 && json2.success && json2.data && json2.data.link) {
+        return { success: true, url: json2.data.link };
+      }
+      errors.push('imgur OK but no link: ' + body2.substring(0, 300));
+    } else {
+      errors.push('imgur HTTP ' + code2 + ': ' + body2.substring(0, 300));
+    }
+  } catch (e2) {
+    errors.push('imgur exception: ' + e2.message);
+  }
+
+  return { success: false, message: errors.join(' | ') };
 }
