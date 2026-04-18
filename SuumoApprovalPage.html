@@ -637,7 +637,7 @@ function autoDetectFeatures(facilities) {
     // カテゴリ】アイテム 形式（開き括弧なし）
     var bracketMatch2 = line.match(/^[^】]+】\s*(.*)/);
     if (bracketMatch2 && bracketMatch2[1]) line = bracketMatch2[1];
-    var items = line.split(/[,、\/／]/);
+    var items = line.split(/[,、，\/／]/);
     for (var j = 0; j < items.length; j++) {
       var item = items[j].trim();
       var id = FEATURE_TEXT_MAP[item];
@@ -708,7 +708,7 @@ function renderFacilities(facilities) {
       html += '<div class="facility-tags">';
       // カテゴリ後にアイテムがあれば表示
       if (catMatch[2]) {
-        var items = catMatch[2].split(/[,、\/／]/);
+        var items = catMatch[2].split(/[,、，\/／]/);
         for (var j = 0; j < items.length; j++) {
           var item = items[j].trim();
           if (item) html += '<span class="facility-tag">' + esc(item) + '</span>';
@@ -722,7 +722,7 @@ function renderFacilities(facilities) {
       html += '<div class="facility-tags">';
     } else {
       // 設備アイテム（カンマやスラッシュ区切りの場合も分解）
-      var items2 = line.split(/[,、\/／]/);
+      var items2 = line.split(/[,、，\/／]/);
       for (var j2 = 0; j2 < items2.length; j2++) {
         var item2 = items2[j2].trim();
         if (item2) {
