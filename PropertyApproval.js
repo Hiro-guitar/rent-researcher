@@ -665,9 +665,29 @@ function handlePropertyAction(e) {
 
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
+  var ACTION_LOG_HEADERS = ['顧客名', 'room_id', 'アクション', '物件名', '部屋番号', '賃料', '間取り', '最寄駅', '日時', '申込区分', '連絡先', 'Discord応答', 'IP', '国', '都道府県', '市区町村', 'ISP', 'UA', 'LINE内'];
   if (!sheet) {
     sheet = ss.insertSheet(ACTION_LOG_SHEET_NAME);
-    sheet.appendRow(['顧客名', 'room_id', 'アクション', '物件名', '部屋番号', '賃料', '間取り', '最寄駅', '日時', '申込区分', '連絡先', 'Discord応答', 'IP', '国', '都道府県', '市区町村', 'ISP', 'UA', 'LINE内']);
+    sheet.appendRow(ACTION_LOG_HEADERS);
+    try { sheet.getRange(1, 1, 1, ACTION_LOG_HEADERS.length).setFontWeight('bold').setBackground('#e0e0e0'); } catch(e) {}
+  } else {
+    // 既存シートの1行目が空 or 古いヘッダーなら最新ヘッダーに更新
+    try {
+      var firstRow = sheet.getRange(1, 1, 1, ACTION_LOG_HEADERS.length).getValues()[0];
+      var needsUpdate = false;
+      for (var hi = 0; hi < ACTION_LOG_HEADERS.length; hi++) {
+        if (firstRow[hi] !== ACTION_LOG_HEADERS[hi]) { needsUpdate = true; break; }
+      }
+      if (needsUpdate) {
+        // 既存1行目がデータの可能性（顧客名が「顧客名」という文字列でない場合）→ 先頭に新規行を挿入
+        var isHeaderRow = firstRow[0] === '顧客名' || firstRow[0] === '' || firstRow[0] == null;
+        if (!isHeaderRow) {
+          sheet.insertRowBefore(1);
+        }
+        sheet.getRange(1, 1, 1, ACTION_LOG_HEADERS.length).setValues([ACTION_LOG_HEADERS]);
+        sheet.getRange(1, 1, 1, ACTION_LOG_HEADERS.length).setFontWeight('bold').setBackground('#e0e0e0');
+      }
+    } catch(e) {}
   }
 
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
