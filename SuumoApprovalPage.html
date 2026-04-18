@@ -950,6 +950,12 @@ function renderGenreButtons(container, imageIndex, selectedGenre) {
         if (wasSelected) {
           delete imageGenres[idx];
         } else {
+          // SUUMOは画像14枚まで。新規画像を選択しようとしているなら上限チェック
+          var isNewImage = !imageGenres.hasOwnProperty(idx);
+          if (isNewImage && Object.keys(imageGenres).length >= 14) {
+            alert('SUUMOは画像を14枚までしか掲載できません。他の画像のジャンル選択を解除してから選んでください。');
+            return;
+          }
           imageGenres[idx] = g;
         }
         updateAllGenreButtons();
@@ -1014,7 +1020,9 @@ function updateGenreCounter() {
   var score = calculateSuumoScore();
   var el = document.getElementById('genreCounter');
 
-  var basicInfo = '選択ジャンル: ' + uniqueGenres.length + '種類 / 画像: ' + Object.keys(imageGenres).length + '枚選択';
+  var imageSelCount = Object.keys(imageGenres).length;
+  var basicInfo = '選択ジャンル: ' + uniqueGenres.length + '種類 / 画像: ' + imageSelCount + '/14枚選択' +
+    (imageSelCount >= 14 ? '（上限）' : '');
   var scoreInfo =
     '<span class="score-main">主要: ' + score.main + '/25点</span>' +
     '<span class="score-main">その他: ' + score.sub + '/9点</span>' +
