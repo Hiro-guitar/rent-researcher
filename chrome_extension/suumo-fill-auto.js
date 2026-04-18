@@ -1659,9 +1659,31 @@
         kbnRadio.click();
       }
 
-      // ForRentのname属性は文字通り '${bukkenInputForm.xxx}' （JSP ELが未展開）
-      setInputByName('${bukkenInputForm.teikiShakuyaNen}', String(periodYear));
-      setInputByName('${bukkenInputForm.teikiShakuyaGetsu}', String(periodMonth));
+      // name属性で要素取得（文字通り '${bukkenInputForm.xxx}' を検索）
+      const yearInput = document.querySelector('input[name="${bukkenInputForm.teikiShakuyaNen}"]');
+      const monthInput = document.querySelector('input[name="${bukkenInputForm.teikiShakuyaGetsu}"]');
+      console.log('[SUUMO自動入稿] 定期借家 year input:', yearInput, ' month input:', monthInput);
+
+      // getElementsByNameも試す（querySelectorで見つからない場合のフォールバック）
+      const yearEl = yearInput || document.getElementsByName('${bukkenInputForm.teikiShakuyaNen}')[0];
+      const monthEl = monthInput || document.getElementsByName('${bukkenInputForm.teikiShakuyaGetsu}')[0];
+
+      if (yearEl) {
+        yearEl.value = String(periodYear);
+        yearEl.dispatchEvent(new Event('input', { bubbles: true }));
+        yearEl.dispatchEvent(new Event('change', { bubbles: true }));
+        console.log('[SUUMO自動入稿] 年入力後:', yearEl.value);
+      } else {
+        console.warn('[SUUMO自動入稿] 年入力要素が見つからない');
+      }
+      if (monthEl) {
+        monthEl.value = String(periodMonth);
+        monthEl.dispatchEvent(new Event('input', { bubbles: true }));
+        monthEl.dispatchEvent(new Event('change', { bubbles: true }));
+        console.log('[SUUMO自動入稿] 月入力後:', monthEl.value);
+      } else {
+        console.warn('[SUUMO自動入稿] 月入力要素が見つからない');
+      }
 
       console.log(`[SUUMO自動入稿] 定期借家（期間: ${periodYear}年${periodMonth}ヶ月）`);
     } else {
