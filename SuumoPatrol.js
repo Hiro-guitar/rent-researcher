@@ -854,27 +854,61 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
       thread_name: building + ' ' + room + '号室 - ' + rentDisplay
     };
 
-    try {
-      var resp = UrlFetchApp.fetch(webhookUrl, {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true
-      });
-      var respCode = resp.getResponseCode();
-      console.log('Discord送信 #' + (i+1) + ': HTTP ' + respCode);
-      if (respCode >= 200 && respCode < 300) {
-        sent++;
-      } else {
-        errors.push('HTTP ' + respCode + ': ' + resp.getContentText().substring(0, 100));
+    // 429/5xxは指数バックオフでリトライ（最大3回）
+    var sendSuccess = false;
+    var lastErrMsg = '';
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        var resp = UrlFetchApp.fetch(webhookUrl, {
+          method: 'post',
+          contentType: 'application/json',
+          payload: JSON.stringify(payload),
+          muteHttpExceptions: true
+        });
+        var respCode = resp.getResponseCode();
+        console.log('Discord送信 #' + (i+1) + ' attempt=' + (attempt+1) + ': HTTP ' + respCode);
+        if (respCode >= 200 && respCode < 300) {
+          sent++;
+          sendSuccess = true;
+          break;
+        }
+        lastErrMsg = 'HTTP ' + respCode + ': ' + resp.getContentText().substring(0, 100);
+        // 429 or 5xx: リトライ
+        if (respCode === 429 || respCode >= 500) {
+          // Retry-After header を尊重
+          var headers = resp.getAllHeaders();
+          var retryAfter = parseFloat(headers['Retry-After'] || headers['retry-after'] || '0');
+          // Discord JSON body に retry_after がある場合も対応
+          try {
+            var body = JSON.parse(resp.getContentText());
+            if (body.retry_after) retryAfter = Math.max(retryAfter, parseFloat(body.retry_after));
+          } catch (e) {}
+          // Cloudflare 1015 は長めに待つ
+          var waitMs;
+          if (retryAfter > 0) {
+            waitMs = Math.ceil(retryAfter * 1000);
+          } else {
+            // 指数バックオフ: 5s, 15s, 45s
+            waitMs = Math.min(5000 * Math.pow(3, attempt), 60000);
+          }
+          console.log('Discord 429/5xx: ' + waitMs + 'ms待機後リトライ');
+          Utilities.sleep(waitMs);
+          continue;
+        }
+        // その他のエラーはリトライしない
+        break;
+      } catch (err) {
+        console.error('SUUMO Discord通知失敗: ' + err.message);
+        lastErrMsg = err.message;
+        Utilities.sleep(2000);
       }
-      // レートリミット対策
-      if (i < newProperties.length - 1) {
-        Utilities.sleep(1000);
-      }
-    } catch (err) {
-      console.error('SUUMO Discord通知失敗: ' + err.message);
-      errors.push(err.message);
+    }
+    if (!sendSuccess) {
+      errors.push(lastErrMsg);
+    }
+    // 次の物件送信前にレートリミット対策のウェイト
+    if (i < newProperties.length - 1) {
+      Utilities.sleep(1500);
     }
   }
 
