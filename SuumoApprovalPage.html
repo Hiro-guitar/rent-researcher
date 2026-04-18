@@ -397,12 +397,8 @@ window.addEventListener('DOMContentLoaded', function() {
   setText('pvListingStatus', p.listing_status);
   setText('pvCurrentStatus', p.current_status);
 
-  // 元サイトリンク
-  if (p.url) {
-    setHtml('pvUrl', '<a href="' + esc(p.url) + '" target="_blank" class="source-link">元サイトで確認</a>');
-  } else {
-    setText('pvUrl', '-');
-  }
+  // 元サイトリンク（Discord通知側に移動したため承認ページでは非表示）
+  setText('pvUrl', '-');
 
   // ステータス
   var statusEl = document.getElementById('pvStatus');

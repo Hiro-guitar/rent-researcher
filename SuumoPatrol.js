@@ -763,48 +763,86 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
 
     var building = p.building_name || p.buildingName || p.building || '(建物名なし)';
     var room = p.room_number || p.roomNumber || p.room || '';
-    var rent = p.rent || '不明';
-    var mgmtFee = p.management_fee || p.managementFee || p.commonServiceFee || '-';
+    var source = p.sourceType || p.source || '';
+
+    // 金額フォーマット（円→万円）
+    var fmtMan = function(yen) {
+      if (!yen) return '';
+      var v = parseFloat(yen);
+      if (isNaN(v)) return String(yen);
+      if (v >= 10000) return String(parseFloat((v / 10000).toFixed(4))) + '万円';
+      return String(v) + '円';
+    };
+
+    var rentDisplay = p.rent ? fmtMan(p.rent) : '不明';
+    var mgmtFeeRaw = p.management_fee || p.managementFee || p.commonServiceFee || '';
+    var mgmtFee = mgmtFeeRaw ? fmtMan(mgmtFeeRaw) : '';
     var layout = p.layout || ((p.madoriRoomCount || '') + (p.madoriType || ''));
     var area = p.area || p.usageArea || '';
-    var address = (p.pref || '') + (p.addr1 || '') + (p.addr2 || '');
-    var source = p.sourceType || '';
-
-    var stationInfo = '';
-    if (p.access && p.access.length > 0) {
+    // 住所: itandi等はp.address、SUUMOはpref+addr1+addr2
+    var address = p.address || ((p.pref || '') + (p.addr1 || '') + (p.addr2 || ''));
+    // 交通: itandi/essquare等はp.station_info文字列、SUUMOはp.access配列
+    var stationInfo = p.station_info || '';
+    if (!stationInfo && p.access && p.access.length > 0) {
       stationInfo = (p.access[0].line || '') + ' ' + (p.access[0].station || '') + '駅 徒歩' + (p.access[0].walk || '') + '分';
     }
+    var otherStations = (p.other_stations && p.other_stations.length > 0) ? p.other_stations : [];
 
     var approveUrl = gasUrl + '?action=suumo_approve&key=' + encodeURIComponent(row[0]);
 
     // 警告アラート（ANSI黄色コードブロックで表示）
     var warnings = [];
-    // 広告掲載可否 — 「可」以外はアラート
     var adKeisai = p.ad_keisai || p.adKeisai || '';
     if (adKeisai && String(adKeisai).trim() !== '可') {
       warnings.push('⚠️ 広告掲載: ' + String(adKeisai).trim() + '（SUUMO広告掲載の確認が必要です）');
     }
-    var warningBlock = '';
+
+    // メッセージ組立
+    var msgLines = [];
+    msgLines.push('**🏠 新着SUUMO候補物件**');
+    msgLines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    msgLines.push('**' + building + '  ' + room + '号室** `[' + source + ']`');
+    var rentLine = '賃料: **' + rentDisplay + '**';
+    if (mgmtFee) rentLine += ' (管理費: ' + mgmtFee + ')';
+    msgLines.push(rentLine);
+    if (layout) msgLines.push('間取り: ' + layout);
+    if (area) msgLines.push('面積: ' + area + 'm²');
+    if (p.building_age) msgLines.push('築年: ' + p.building_age);
+    if (address) msgLines.push('住所: ' + address);
+    if (stationInfo) msgLines.push('交通: ' + stationInfo);
+    if (otherStations.length > 0) msgLines.push('他の路線: ' + otherStations.join(' / '));
+    if (p.floor_text || p.story_text) {
+      msgLines.push('階数: ' + (p.floor_text || '?') + '/' + (p.story_text || '?'));
+    }
+    if (p.deposit || p.key_money) {
+      msgLines.push('敷金: ' + (p.deposit || 'なし') + ' / 礼金: ' + (p.key_money || 'なし'));
+    }
+    if (p.move_in_date) msgLines.push('入居: ' + p.move_in_date);
+    if (p.reins_property_number) msgLines.push('物件番号: ' + p.reins_property_number);
+    if (p.ad_fee) msgLines.push('広告料: ' + p.ad_fee);
+    if (p.current_status) msgLines.push('現況: ' + p.current_status);
+    else if (p.listing_status) msgLines.push('現況: ' + p.listing_status);
+
     if (warnings.length > 0) {
-      warningBlock = '```ansi\n\u001b[0;33m' + warnings.join('\n') + '\u001b[0m\n```\n';
+      msgLines.push('```ansi\n\u001b[0;33m' + warnings.join('\n') + '\u001b[0m\n```');
     }
 
-    var content =
-      '**🏠 新着SUUMO候補物件**\n' +
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-      '**' + building + '  ' + room + '号室** `[' + source + ']`\n' +
-      '賃料: **' + rent + '** (管理費: ' + mgmtFee + ')\n' +
-      '間取り: ' + layout + ' / 面積: ' + area + 'm²\n' +
-      '住所: ' + address + '\n' +
-      '交通: ' + stationInfo + '\n' +
-      warningBlock +
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-      '[📋 承認ページを開く](' + approveUrl + ')\n' +
-      '巡回条件: ' + (criteriaName || '不明');
+    msgLines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // 元サイトリンク（ディスコに元ページのリンクを入れる）
+    if (p.url) {
+      msgLines.push('[🔗 詳細ページ](' + p.url + ')');
+    } else if (p.reins_property_number) {
+      var cleanNum = String(p.reins_property_number).replace(/\D/g, '');
+      msgLines.push('[🔗 REINSで開く](https://system.reins.jp/main/BK/GBK004100#bukken=' + cleanNum + ')');
+    }
+    msgLines.push('[📋 承認ページを開く](' + approveUrl + ')');
+    msgLines.push('巡回条件: ' + (criteriaName || '不明'));
+
+    var content = msgLines.join('\n');
 
     var payload = {
       content: content,
-      thread_name: building + ' ' + room + '号室 - ' + rent
+      thread_name: building + ' ' + room + '号室 - ' + rentDisplay
     };
 
     try {
