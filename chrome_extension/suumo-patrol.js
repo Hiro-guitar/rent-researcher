@@ -181,6 +181,29 @@ async function runSuumoPatrolCycle() {
       let totalNew = 0;
       let totalCollected = 0;
 
+      // 物件検出時に即座にGASへ送信するコレクター（都度送信）
+      const sendCollector = {
+        _items: [],
+        async push(prop) {
+          this._items.push(prop);
+          totalCollected++;
+          const key = normSuumoKey(
+            prop.building_name || prop.buildingName || prop.building || '',
+            prop.room_number || prop.roomNumber || prop.room || ''
+          );
+          if (seenKeys[key]) return this._items.length;
+          seenKeys[key] = Date.now();
+          totalNew++;
+          try {
+            await sendSuumoCandidatesToGas([prop], crit.id);
+            await setStorageData({ debugLog: `[SUUMO巡回] → ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} 送信完了` });
+          } catch (err) {
+            await setStorageData({ debugLog: `[SUUMO巡回] GAS送信失敗: ${err.message}` });
+          }
+          return this._items.length;
+        }
+      };
+
       for (const svc of serviceList) {
         if (isSearchCancelled(searchId)) {
           await setStorageData({ debugLog: '[SUUMO巡回] 中断されました' });
@@ -188,27 +211,9 @@ async function runSuumoPatrolCycle() {
         }
         if (!services[svc.key]) continue;
         try {
-          const props = await runSuumoPatrolForService(svc.key, customer, searchId);
-          await setStorageData({ debugLog: `[SUUMO巡回][${svc.label}] ${props.length}件取得` });
-          totalCollected += props.length;
-
-          // 都度新着判定＆GAS送信（Discordに即通知）
-          for (const prop of props) {
-            const key = normSuumoKey(
-              prop.building_name || prop.buildingName || prop.building || '',
-              prop.room_number || prop.roomNumber || prop.room || ''
-            );
-            if (!seenKeys[key]) {
-              seenKeys[key] = Date.now();
-              totalNew++;
-              try {
-                await sendSuumoCandidatesToGas([prop], crit.id);
-                await setStorageData({ debugLog: `[SUUMO巡回] → ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} 送信完了` });
-              } catch (err) {
-                await setStorageData({ debugLog: `[SUUMO巡回] GAS送信失敗: ${err.message}` });
-              }
-            }
-          }
+          await runSuumoPatrolForService(svc.key, customer, searchId, sendCollector);
+          const serviceCount = sendCollector._items.length;
+          await setStorageData({ debugLog: `[SUUMO巡回][${svc.label}] 累計${serviceCount}件取得` });
         } catch (err) {
           await setStorageData({ debugLog: `[SUUMO巡回][${svc.label}] エラー: ${err.message}` });
           console.error(`[SUUMO巡回][${svc.label}]`, err);
@@ -252,13 +257,14 @@ async function runSuumoPatrolCycle() {
  *
  * @returns {Array} 物件データ配列
  */
-async function runSuumoPatrolForService(service, customer, searchId) {
-  // 巡回モードで検出した物件を収集するバッファ
-  const collected = [];
+async function runSuumoPatrolForService(service, customer, searchId, collector) {
+  // 巡回モードで検出した物件のコレクター。
+  // 引数で渡されていれば使用（都度送信モード）、なければ配列を生成（従来モード）
+  const activeCollector = collector || [];
 
   // グローバルに巡回用コレクターを設定
   // 既存の通知関数の代わりにこのコレクターが呼ばれるようにする
-  globalThis._suumoPatrolCollector = collected;
+  globalThis._suumoPatrolCollector = activeCollector;
   globalThis._suumoPatrolMode = true;
 
   try {
@@ -289,7 +295,7 @@ async function runSuumoPatrolForService(service, customer, searchId) {
     globalThis._suumoPatrolCollector = null;
   }
 
-  return collected;
+  return activeCollector;
 }
 
 /**

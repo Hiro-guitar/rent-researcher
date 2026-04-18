@@ -240,7 +240,8 @@ async function submitProperties(customerName, properties) {
   // SUUMO巡回モードではGASに顧客向け送信しない（コレクターに追加）
   if (globalThis._suumoPatrolMode && globalThis._suumoPatrolCollector) {
     for (const prop of properties) {
-      globalThis._suumoPatrolCollector.push(prop);
+      // コレクターが async push を持つ場合は await（都度送信モード）
+      await globalThis._suumoPatrolCollector.push(prop);
     }
     return { success: true, added: properties.length, _patrolCollected: true };
   }

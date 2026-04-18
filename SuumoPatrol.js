@@ -777,6 +777,18 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
 
     var approveUrl = gasUrl + '?action=suumo_approve&key=' + encodeURIComponent(row[0]);
 
+    // 警告アラート（ANSI黄色コードブロックで表示）
+    var warnings = [];
+    // 広告掲載可否 — 「可」以外はアラート
+    var adKeisai = p.ad_keisai || p.adKeisai || '';
+    if (adKeisai && String(adKeisai).trim() !== '可') {
+      warnings.push('⚠️ 広告掲載: ' + String(adKeisai).trim() + '（SUUMO広告掲載の確認が必要です）');
+    }
+    var warningBlock = '';
+    if (warnings.length > 0) {
+      warningBlock = '```ansi\n\u001b[0;33m' + warnings.join('\n') + '\u001b[0m\n```\n';
+    }
+
     var content =
       '**🏠 新着SUUMO候補物件**\n' +
       '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
@@ -785,6 +797,7 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
       '間取り: ' + layout + ' / 面積: ' + area + 'm²\n' +
       '住所: ' + address + '\n' +
       '交通: ' + stationInfo + '\n' +
+      warningBlock +
       '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
       '[📋 承認ページを開く](' + approveUrl + ')\n' +
       '巡回条件: ' + (criteriaName || '不明');
