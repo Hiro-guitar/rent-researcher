@@ -1621,11 +1621,9 @@
         kbnRadio.click();
       }
 
-      // IDとnameの両方を試す（SUUMOのHTMLバージョン差異対策）
-      setInputById('teikiShakuyaNen', year);
-      setInputById('teikiShakuyaGetsu', String(parseInt(month, 10)));
-      setInputByName('bukkenInputForm.teikiShakuyaNen', year);
-      setInputByName('bukkenInputForm.teikiShakuyaGetsu', String(parseInt(month, 10)));
+      // ForRentのname属性は文字通り '${bukkenInputForm.xxx}' （JSP ELが未展開）
+      setInputByName('${bukkenInputForm.teikiShakuyaNen}', year);
+      setInputByName('${bukkenInputForm.teikiShakuyaGetsu}', String(parseInt(month, 10)));
 
       console.log(`[SUUMO自動入稿] 定期借家（期限: ${year}年${month}月まで）`);
       return;
@@ -1661,28 +1659,9 @@
         kbnRadio.click();
       }
 
-      // デバッグ: teiki関連の入力要素を列挙
-      const teikiInputs = document.querySelectorAll('input[name*="teiki"], input[id*="teiki"], input[name*="Teiki"], input[id*="Teiki"]');
-      console.log('[SUUMO自動入稿] 定期借家関連の入力要素一覧:');
-      teikiInputs.forEach(el => {
-        console.log('  ', el.tagName, 'id=' + (el.id || '-'), 'name=' + (el.name || '-'), 'type=' + (el.type || '-'));
-      });
-
-      // IDとnameの両方を試す
-      setInputById('teikiShakuyaNen', String(periodYear));
-      setInputById('teikiShakuyaGetsu', String(periodMonth));
-      setInputByName('bukkenInputForm.teikiShakuyaNen', String(periodYear));
-      setInputByName('bukkenInputForm.teikiShakuyaGetsu', String(periodMonth));
-      // さらに「期間」ラジオ近傍の年/月 input を汎用的に探す
-      const kbnDiv = document.getElementById('teikiShakuyaKbnCd1')?.closest('tr, div');
-      if (kbnDiv) {
-        const textInputs = kbnDiv.querySelectorAll('input[type="text"]');
-        if (textInputs.length >= 2) {
-          console.log('[SUUMO自動入稿] 期間ラジオ近傍のtext input数:', textInputs.length);
-          setInputWithEvents(textInputs[0], String(periodYear));
-          setInputWithEvents(textInputs[1], String(periodMonth));
-        }
-      }
+      // ForRentのname属性は文字通り '${bukkenInputForm.xxx}' （JSP ELが未展開）
+      setInputByName('${bukkenInputForm.teikiShakuyaNen}', String(periodYear));
+      setInputByName('${bukkenInputForm.teikiShakuyaGetsu}', String(periodMonth));
 
       console.log(`[SUUMO自動入稿] 定期借家（期間: ${periodYear}年${periodMonth}ヶ月）`);
     } else {
