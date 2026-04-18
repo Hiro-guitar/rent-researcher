@@ -1659,14 +1659,19 @@
         kbnRadio.click();
       }
 
-      // name属性で要素取得（文字通り '${bukkenInputForm.xxx}' を検索）
-      const yearInput = document.querySelector('input[name="${bukkenInputForm.teikiShakuyaNen}"]');
-      const monthInput = document.querySelector('input[name="${bukkenInputForm.teikiShakuyaGetsu}"]');
-      console.log('[SUUMO自動入稿] 定期借家 year input:', yearInput, ' month input:', monthInput);
-
-      // getElementsByNameも試す（querySelectorで見つからない場合のフォールバック）
-      const yearEl = yearInput || document.getElementsByName('${bukkenInputForm.teikiShakuyaNen}')[0];
-      const monthEl = monthInput || document.getElementsByName('${bukkenInputForm.teikiShakuyaGetsu}')[0];
+      // CSS セレクタの $ と {} で問題が起きる可能性があるので、全input走査で検索
+      const allInputs = document.querySelectorAll('input');
+      let yearEl = null, monthEl = null;
+      const teikiRelatedNames = [];
+      for (const el of allInputs) {
+        if (el.name && (el.name.includes('teiki') || el.name.includes('Teiki'))) {
+          teikiRelatedNames.push({ name: el.name, id: el.id, type: el.type });
+        }
+        if (el.name === '${bukkenInputForm.teikiShakuyaNen}') yearEl = el;
+        if (el.name === '${bukkenInputForm.teikiShakuyaGetsu}') monthEl = el;
+      }
+      console.log('[SUUMO自動入稿] teiki関連の全input (走査):', teikiRelatedNames);
+      console.log('[SUUMO自動入稿] year input:', yearEl, ' month input:', monthEl);
 
       if (yearEl) {
         yearEl.value = String(periodYear);
