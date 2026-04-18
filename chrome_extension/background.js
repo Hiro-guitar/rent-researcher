@@ -4063,6 +4063,13 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (prop.needs_confirmation) {
     warnings.push('⚠️ 要物確の物件です');
   }
+  // 広告掲載可否（itandi）— 「可」以外はアラート
+  if (prop.source === 'itandi' && prop.ad_keisai) {
+    const adKeisaiStr = String(prop.ad_keisai).trim();
+    if (adKeisaiStr && adKeisaiStr !== '可') {
+      warnings.push(`⚠️ 広告掲載: ${adKeisaiStr}（SUUMO広告掲載の確認が必要です）`);
+    }
+  }
   // 入居時期アラート
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
   if (moveInWarning) {
