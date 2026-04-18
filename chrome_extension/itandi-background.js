@@ -482,24 +482,6 @@ function parseItandiSearchResponse(data) {
   const properties = [];
   const buildings = data.buildings || [];
 
-  // デバッグ: 初回のみroom/bldgのキー一覧をログ出力（広告掲載フィールド名特定用）
-  if (buildings.length > 0 && buildings[0].rooms && buildings[0].rooms.length > 0 && !globalThis._itandiFieldsLogged) {
-    globalThis._itandiFieldsLogged = true;
-    const firstBldg = buildings[0];
-    const firstRoom = firstBldg.rooms[0];
-    const bldgKeys = Object.keys(firstBldg).filter(k => !['rooms'].includes(k));
-    const roomKeys = Object.keys(firstRoom);
-    const koukokuRelated = [...bldgKeys, ...roomKeys].filter(k =>
-      /koukoku|keisai|ad_|advert|掲載/i.test(k)
-    );
-    try {
-      chrome.storage.local.set({ debugLog: `[itandi] bldg keys: ${bldgKeys.join(',')} | room keys: ${roomKeys.join(',')} | 広告関連: ${koukokuRelated.join(',')}` });
-    } catch(e) {}
-    console.log('[itandi] bldgキー:', bldgKeys);
-    console.log('[itandi] roomキー:', roomKeys);
-    console.log('[itandi] 広告関連フィールド:', koukokuRelated);
-  }
-
   for (const bldg of buildings) {
     if (!bldg || typeof bldg !== 'object') continue;
 
@@ -536,12 +518,6 @@ function parseItandiSearchResponse(data) {
       const imageUrl = room.madori_image_url || imageUrlBldg;
       const roomNumber = room.room_number || '';
 
-      // 広告掲載可否（「可」「不可」「入力なし」等）。複数候補のフィールド名をチェック
-      const adKeisai = room.koukoku_keisai_text || room.koukoku_keisai
-        || room.ad_keisai_text || room.advertising_keisai_text
-        || bldg.koukoku_keisai_text || bldg.koukoku_keisai
-        || room.suumo_keisai_text || room.suumo_keisai || '';
-
       properties.push({
         source: 'itandi',
         building_id: String(propertyId),
@@ -564,7 +540,7 @@ function parseItandiSearchResponse(data) {
         image_url: imageUrl,
         image_urls: [],
         story_text: storyText,
-        ad_keisai: adKeisai,
+        ad_keisai: '', // 詳細ページで補完される
         // 詳細ページで補完されるフィールド
         structure: '',
         facilities: '',
@@ -1127,7 +1103,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
           'other_monthly_fee', 'other_onetime_fee', 'move_in_conditions', 'move_out_date',
           'move_in_date', 'free_rent_detail', 'layout_detail', 'preview_start_date',
           'ad_fee', 'cleaning_fee', 'rights_fee', 'current_status',
-          'owner_company', 'owner_phone',
+          'owner_company', 'owner_phone', 'ad_keisai',
         ];
         for (const key of detailFields) {
           if (d[key] && !prop[key]) {

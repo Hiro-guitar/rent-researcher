@@ -356,6 +356,14 @@
       if (spans[1]) detail.owner_phone = spans[1].textContent.trim();
     }
 
+    // ── 広告掲載可否（DetailTable の「広告掲載可否」行） ──
+    const adKeisaiRow = Array.from(document.querySelectorAll('.DetailTable'))
+      .find(dt => dt.querySelector('.ItemName')?.textContent.trim() === '広告掲載可否');
+    if (adKeisaiRow) {
+      const val = adKeisaiRow.querySelector('.ItemValue')?.textContent.trim() || '';
+      detail.ad_keisai = val;
+    }
+
     return { ok: true, detail };
   }
 })();
