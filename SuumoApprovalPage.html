@@ -973,7 +973,7 @@ function updateAllGenreButtons() {
 }
 
 // SUUMO掲載スコア計算
-// 5主要カテゴリ: 1カテゴリあたり最大5点（画像枚数×1点、5点上限）
+// 5主要カテゴリ: 使用している各カテゴリあたり5点（最大25点）
 // その他カテゴリ: 1カテゴリにつき1点（最大9点）
 // 合計最高34点、32点を超えるのが目標
 var SUUMO_MAIN_CATEGORIES = ['間取り', '外観', 'リビング', 'キッチン', 'バス'];
@@ -985,13 +985,14 @@ function calculateSuumoScore() {
     counts[vals[i]] = (counts[vals[i]] || 0) + 1;
   }
 
-  // 5主要カテゴリ: min(画像数, 5)点 × 5カテゴリ = 最大25点
-  var mainScore = 0;
+  // 5主要カテゴリ: 画像が1枚以上あるカテゴリ×5点、最大25点
+  var mainUsed = 0;
   for (var m = 0; m < SUUMO_MAIN_CATEGORIES.length; m++) {
-    mainScore += Math.min(counts[SUUMO_MAIN_CATEGORIES[m]] || 0, 5);
+    if ((counts[SUUMO_MAIN_CATEGORIES[m]] || 0) > 0) mainUsed++;
   }
+  var mainScore = mainUsed * 5;
 
-  // その他カテゴリ: 使用したカテゴリ数（最大9）
+  // その他カテゴリ: 使用したカテゴリ数×1点、最大9点
   var subCount = 0;
   for (var key in counts) {
     if (counts.hasOwnProperty(key) && SUUMO_MAIN_CATEGORIES.indexOf(key) < 0 && counts[key] > 0) {
