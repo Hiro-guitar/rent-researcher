@@ -779,18 +779,37 @@ function handlePropertyAction(e) {
         };
         var resp = UrlFetchApp.fetch(url, fetchOpts);
         var code = resp.getResponseCode();
-        // 429 はリトライ
-        if (code === 429) {
-          var waitMs = 1000;
+        // 429/503はリトライ（最大5回、指数バックオフ）
+        var retryHistory = [];
+        var attempt = 0;
+        while ((code === 429 || code === 503) && attempt < 5) {
+          var waitMs = 1000 * Math.pow(2, attempt); // 1s, 2s, 4s, 8s, 16s
+          // Retry-After / retry_after を尊重
           try {
             var rb = JSON.parse(resp.getContentText());
-            if (rb && rb.retry_after) waitMs = Math.ceil(parseFloat(rb.retry_after) * 1000) + 100;
+            if (rb && rb.retry_after) {
+              var suggestedMs = Math.ceil(parseFloat(rb.retry_after) * 1000) + 100;
+              if (suggestedMs > waitMs) waitMs = suggestedMs;
+            }
           } catch(e) {}
-          if (waitMs > 5000) waitMs = 5000;
+          try {
+            var headers = resp.getAllHeaders();
+            var ra = parseFloat(headers['Retry-After'] || headers['retry-after'] || '0');
+            if (ra > 0) {
+              var raMs = Math.ceil(ra * 1000) + 100;
+              if (raMs > waitMs) waitMs = raMs;
+            }
+          } catch(e) {}
+          if (waitMs > 30000) waitMs = 30000; // 最大30秒
+          console.log('Discord ' + code + ': ' + waitMs + 'ms待機後リトライ (attempt=' + (attempt + 1) + ')');
           Utilities.sleep(waitMs);
           resp = UrlFetchApp.fetch(url, fetchOpts);
           code = resp.getResponseCode();
-          discordStatus = 'code=429→' + code;
+          retryHistory.push(code);
+          attempt++;
+        }
+        if (retryHistory.length > 0) {
+          discordStatus = 'code=' + retryHistory[0] + '→' + code + '(retry=' + retryHistory.length + ')';
         } else {
           discordStatus = 'code=' + code;
         }
