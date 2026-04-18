@@ -179,8 +179,6 @@ body {
   border-bottom: 1px solid #eee;
   font-size: 13px; font-weight: 600; color: #555;
 }
-.genre-counter.score-low { background: #fff3cd; color: #856404; border-bottom-color: #ffc107; }
-.genre-counter.score-mid { background: #e7f3ff; color: #084298; border-bottom-color: #2196F3; }
 .genre-counter.score-ok {
   background: linear-gradient(90deg, #d4edda, #c3e6cb);
   color: #155724; font-size: 15px; font-weight: 800;
@@ -1028,15 +1026,11 @@ function updateGenreCounter() {
     '<span class="score-main">その他: ' + score.sub + '/9点</span>' +
     '<span class="score-total">合計: <b>' + score.total + '</b>/34点</span>';
 
-  // 32点達成時は強調表示
+  // 32点達成時のみ強調表示
   var cls = '';
   if (score.total >= 32) {
     cls = 'score-ok';
     scoreInfo += '<span class="score-badge">🎉 目標達成</span>';
-  } else if (score.total >= 20) {
-    cls = 'score-mid';
-  } else {
-    cls = 'score-low';
   }
 
   el.className = 'genre-counter ' + cls;
