@@ -1348,6 +1348,13 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
+      // SUUMO巡回モードで広告可バッジがない物件は、詳細モーダルを開かずにスキップ
+      // （広告可※はSUUMO掲載可否の詳細チェックが必要なので詳細モーダルへ進む）
+      if (globalThis._suumoPatrolMode && !prop.ad_status) {
+        await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ（詳細開かず）: ${prop.building_name} ${prop.room_number || ''} - 広告可バッジなし` });
+        continue;
+      }
+
       // 詳細取得: 検索結果ページ上の物件リンクをクリック
       try {
         // 検索結果ページで該当物件のリンクをクリック
