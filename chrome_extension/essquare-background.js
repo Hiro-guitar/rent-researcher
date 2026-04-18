@@ -712,12 +712,13 @@ async function _parseEssquareSearchResults(tabId) {
 
           // 募集状況（申込あり検出）— DOMタグから判定
           let listingStatus = '';
+          let adStatus = ''; // 広告可 / 広告可※ / '' (なし)
           const tagLabels = row.querySelectorAll('.eds-tag__label');
           for (const tag of tagLabels) {
-            if (tag.textContent.trim() === '申込あり') {
-              listingStatus = '申込あり';
-              break;
-            }
+            const txt = tag.textContent.trim();
+            if (txt === '申込あり') listingStatus = '申込あり';
+            if (txt === '広告可') adStatus = '広告可';
+            else if (txt === '広告可※') adStatus = '広告可※';
           }
           // フォールバック: MuiChip-label
           if (!listingStatus) {
@@ -756,6 +757,7 @@ async function _parseEssquareSearchResults(tabId) {
             motozuke: jv.motozuke_gyosha_name || '',
             sales_point: bv.sales_point || '',
             listing_status: listingStatus,
+            ad_status: adStatus, // '広告可' / '広告可※' / ''
           });
         } catch (e) {
           // パースエラーは個別にスキップ
@@ -828,6 +830,19 @@ async function closeDedicatedEssquareWindow() {
 // === ES-Square固有フィルタ ===
 
 function getEssquareFilterRejectReason(prop, customer) {
+  // SUUMO巡回モードのみ: 広告可フィルタ
+  // - 広告可なし（バッジなし） → スキップ
+  // - 広告可※ でSUUMOが掲載許可媒体に含まれない → スキップ
+  if (globalThis._suumoPatrolMode) {
+    const ad = prop.ad_status || '';
+    if (ad !== '広告可' && ad !== '広告可※') {
+      return '広告可バッジなし';
+    }
+    if (ad === '広告可※' && prop.suumo_allowed === false) {
+      return '広告可※だがSUUMO掲載不可';
+    }
+  }
+
   // 町名丁目フィルタ（selectedTownsが指定されている場合、住所テキストで照合）
   if (customer.selectedTowns && Object.keys(customer.selectedTowns).length > 0) {
     const addr = prop.address || '';
@@ -1429,7 +1444,10 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             'cleaning_fee', 'sanitization_fee', 'rights_fee',
             'ad_fee', 'current_status',
             'owner_company', 'owner_phone',
+            'ad_approval_text',
           ];
+          // boolean値は別途コピー
+          if (typeof d.suumo_allowed === 'boolean') prop.suumo_allowed = d.suumo_allowed;
           for (const key of detailFields) {
             if (d[key] && !prop[key]) {
               prop[key] = d[key];

@@ -763,6 +763,44 @@
       }
     }
 
+    // ── 広告可否（「不動産会社様向け情報」タブ内） ──
+    // 必要ならタブをクリックして切り替え
+    try {
+      const tabs = document.querySelectorAll('[role="tab"]');
+      let targetTab = null;
+      for (const t of tabs) {
+        if (t.textContent.trim() === '不動産会社様向け情報') {
+          targetTab = t;
+          break;
+        }
+      }
+      if (targetTab && targetTab.getAttribute('aria-selected') !== 'true') {
+        targetTab.click();
+        // タブ切替のレンダリング待ち（同期的に短く待つ）
+        const start = Date.now();
+        while (Date.now() - start < 1500) {
+          if (document.body.textContent.includes('広告可否')) break;
+        }
+      }
+      // 「広告可否」ラベル行を走査
+      const allGrids = document.querySelectorAll('.MuiGrid-container');
+      for (const grid of allGrids) {
+        const firstDiv = grid.querySelector(':scope > div');
+        if (firstDiv && firstDiv.textContent.trim() === '広告可否') {
+          const valueDiv = grid.querySelectorAll(':scope > div')[1];
+          if (valueDiv) {
+            const text = valueDiv.textContent.trim();
+            detail.ad_approval_text = text;
+            // SUUMOが含まれているかで判定
+            detail.suumo_allowed = /SUUMO/i.test(text);
+          }
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn('[ES-Square] 広告可否抽出エラー:', e.message);
+    }
+
     // デバッグ情報
     detail._debug = {
       imageCount: detail.image_urls?.length || 0,
