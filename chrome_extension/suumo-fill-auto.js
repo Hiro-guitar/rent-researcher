@@ -1366,23 +1366,39 @@
     }
     if (etcTotal1) etcTotal1.value = intPart;
     if (etcTotal2) etcTotal2.value = decPart;
-    if (etcTextarea) etcTextarea.value = detailText;
+    if (etcTextarea) etcTextarea.value = sanitizeSuumoText(detailText);
   }
 
   // ── その他月額費用 ──
   function fillOtherMonthlyCosts(data) {
+    // 金額データが空き状況（「無」「有」「駐車場：無」等）しか含まない場合は除外
+    const isAvailabilityOnly = (v) => {
+      if (!v) return true;
+      const s = String(v).trim();
+      if (!s) return true;
+      // 「無」「有」「なし」「あり」「不要」のみの値や、コロン付き空き状況表記を除外
+      if (/^(無|有|なし|あり|不要|-|−|―)$/.test(s)) return true;
+      // 「駐車場：無」「駐輪場：無」「バイク置き場：無」等は金額ではないため除外
+      if (/[:：](\s*)(無|有|なし|あり|不要)\s*$/.test(s)) return true;
+      // 数字が1つも含まれていなければ金額でない
+      if (!/\d/.test(s)) return true;
+      return false;
+    };
+
     const items = [];
     if (data.parking_fee || data.parkingFee) {
       const v = data.parking_fee || data.parkingFee;
-      if (v !== 'なし' && v !== '0' && v !== '0円') items.push('駐車場 ' + v);
+      if (v !== 'なし' && v !== '0' && v !== '0円' && !isAvailabilityOnly(v)) items.push('駐車場 ' + v);
     }
     if (data.other_monthly_fee || data.otherMonthlyAmount) {
       const name = data.otherMonthlyName || 'その他';
       const v = data.other_monthly_fee || data.otherMonthlyAmount;
-      if (v && v !== 'なし') items.push(name + ' ' + v);
+      if (v && v !== 'なし' && !isAvailabilityOnly(v)) items.push(name + ' ' + v);
     }
     if (data.otherMonthlyName2 && data.otherMonthlyAmount2) {
-      items.push(data.otherMonthlyName2 + ' ' + data.otherMonthlyAmount2);
+      if (!isAvailabilityOnly(data.otherMonthlyAmount2)) {
+        items.push(data.otherMonthlyName2 + ' ' + data.otherMonthlyAmount2);
+      }
     }
 
     if (items.length === 0) return;
