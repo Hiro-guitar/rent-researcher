@@ -1585,11 +1585,16 @@
       return;
     }
 
-    // 定期借家をチェック
+    // 定期借家をチェック + onchangeハンドラ (selectRentHouseFlg) を確実に発火
     const teikiRadio = document.getElementById('teikiShakuyaFlg1');
     if (teikiRadio) {
       teikiRadio.checked = true;
-      teikiRadio.click(); // onclick ハンドラ発火（期間入力欄の表示切替）
+      // change イベントをディスパッチして onchange="selectRentHouseFlg(false);" を実行
+      teikiRadio.dispatchEvent(new Event('change', { bubbles: true }));
+      // インラインonchange属性を直接実行（保険）
+      if (typeof teikiRadio.onchange === 'function') {
+        try { teikiRadio.onchange({ target: teikiRadio, currentTarget: teikiRadio }); } catch (e) {}
+      }
     }
 
     if (!contractPeriod) {
@@ -1618,7 +1623,10 @@
       const kbnRadio = document.getElementById('teikiShakuyaKbnCd1');
       if (kbnRadio) {
         kbnRadio.checked = true;
-        kbnRadio.click();
+        kbnRadio.dispatchEvent(new Event('change', { bubbles: true }));
+        if (typeof kbnRadio.onchange === 'function') {
+          try { kbnRadio.onchange({ target: kbnRadio, currentTarget: kbnRadio }); } catch (e) {}
+        }
       }
 
       // ForRentのname属性は文字通り '${bukkenInputForm.xxx}' （JSP ELが未展開）
@@ -1652,11 +1660,14 @@
     }
 
     if (periodYear > 0 || periodMonth > 0) {
-      // 「期間」ラジオを選択
+      // 「期間」ラジオを選択 + onchangeハンドラ (selectRentHouseKbn) を確実に発火
       const kbnRadio = document.getElementById('teikiShakuyaKbnCd1');
       if (kbnRadio) {
         kbnRadio.checked = true;
-        kbnRadio.click();
+        kbnRadio.dispatchEvent(new Event('change', { bubbles: true }));
+        if (typeof kbnRadio.onchange === 'function') {
+          try { kbnRadio.onchange({ target: kbnRadio, currentTarget: kbnRadio }); } catch (e) {}
+        }
       }
 
       // 定期借家行（id="err44"の<tr>または#DTeisyaku div）から text inputを直接探す
