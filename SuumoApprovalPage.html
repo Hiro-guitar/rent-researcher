@@ -197,6 +197,15 @@ body {
   box-shadow: 0 2px 6px rgba(40,167,69,0.25);
 }
 .genre-counter .score-main { display: inline-block; margin-right: 10px; }
+.genre-counter .main-cats { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.genre-counter .main-cats-label { font-size: 11px; color: #666; font-weight: 600; margin-right: 4px; }
+.genre-counter .cat-pill {
+  display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; border: 1px solid transparent;
+}
+.genre-counter .cat-pill.done { background: #d4edda; color: #155724; border-color: #28a745; }
+.genre-counter .cat-pill.todo { background: #f8d7da; color: #842029; border-color: #dc3545; }
+.genre-counter .cat-pill .mark { margin-right: 3px; font-weight: 800; }
 .genre-counter .score-total { font-size: 16px; }
 .genre-counter.score-ok .score-total { font-size: 18px; color: #155724; }
 .genre-counter .score-badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px; background: #28a745; color: #fff; font-size: 11px; }
@@ -1053,8 +1062,18 @@ function updateGenreCounter() {
     if (grid) grid.classList.remove('score-achieved');
   }
 
+  // 主要カテゴリの個別状態を表示（選択済み=緑✓、未選択=赤✗）
+  var mainCatsHtml = '<div class="main-cats"><span class="main-cats-label">主要カテゴリ:</span>';
+  for (var mc = 0; mc < SUUMO_MAIN_CATEGORIES.length; mc++) {
+    var catName = SUUMO_MAIN_CATEGORIES[mc];
+    var isDone = Object.values(imageGenres).indexOf(catName) >= 0;
+    mainCatsHtml += '<span class="cat-pill ' + (isDone ? 'done' : 'todo') + '">' +
+      '<span class="mark">' + (isDone ? '✓' : '✗') + '</span>' + catName + '</span>';
+  }
+  mainCatsHtml += '</div>';
+
   el.className = 'genre-counter ' + cls;
-  el.innerHTML = basicInfo + '<br>' + scoreInfo;
+  el.innerHTML = basicInfo + '<br>' + scoreInfo + mainCatsHtml;
 }
 
 // ── 承認 ──
