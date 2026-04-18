@@ -2060,6 +2060,10 @@ function buildPropertyFlex(prop, options) {
   if (prop.floor) details.push(['\u968E\u6570', prop.floor + '\u968E']);
   if (prop.address) details.push(['\u6240\u5728\u5730', prop.address]);
   if (prop.stationInfo) details.push(['\u6700\u5BC4\u99C5', prop.stationInfo]);
+  // その他の路線
+  if (prop.otherStations && prop.otherStations.length > 0) {
+    details.push(['\u4ED6\u306E\u8DEF\u7DDA', prop.otherStations.join('\n')]);
+  }
   details.push(['\u6577\u91D1/\u793C\u91D1', (prop.deposit || '0') + ' / ' + (prop.keyMoney || '0')]);
 
   for (var i = 0; i < details.length; i++) {
@@ -2075,9 +2079,12 @@ function buildPropertyFlex(prop, options) {
 
   var heroUrl = options.heroImageUrl || prop.imageUrl || '';
   if (includeImage && heroUrl && heroUrl.indexOf('https://') === 0) {
+    // aspectMode: 'fit' で縦長画像も見切れずに全体表示
+    // aspectRatio: '4:3' で縦長画像にも適度なスペースを確保
     bubble.hero = {
       type: 'image', url: heroUrl, size: 'full',
-      aspectRatio: '20:13', aspectMode: 'cover'
+      aspectRatio: '4:3', aspectMode: 'fit',
+      backgroundColor: '#F5F5F5'
     };
   }
 
