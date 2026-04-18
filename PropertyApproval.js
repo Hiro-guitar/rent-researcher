@@ -649,6 +649,15 @@ function handlePropertyAction(e) {
     contactInfo = [applicantName ? '氏名: ' + applicantName : '', furigana ? 'フリガナ: ' + furigana : '', email ? 'Email: ' + email : '', phone ? 'Tel: ' + phone : ''].filter(Boolean).join(' / ');
   }
 
+  // 閲覧トラッキング用の追加情報（view アクション時に property.html から送信される）
+  var trackIp = e.parameter.ip || '';
+  var trackCountry = e.parameter.country || '';
+  var trackRegion = e.parameter.region || '';
+  var trackCity = e.parameter.city || '';
+  var trackIsp = e.parameter.isp || '';
+  var trackUa = e.parameter.ua || '';
+  var trackIsLine = e.parameter.line === '1';
+
   if (!customerName || !roomId || !actionType) {
     return ContentService.createTextOutput(JSON.stringify({ error: 'missing parameters' }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -658,7 +667,7 @@ function handlePropertyAction(e) {
   var sheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(ACTION_LOG_SHEET_NAME);
-    sheet.appendRow(['顧客名', 'room_id', 'アクション', '物件名', '部屋番号', '賃料', '間取り', '最寄駅', '日時', '申込区分', '連絡先']);
+    sheet.appendRow(['顧客名', 'room_id', 'アクション', '物件名', '部屋番号', '賃料', '間取り', '最寄駅', '日時', '申込区分', '連絡先', 'Discord応答', 'IP', '国', '都道府県', '市区町村', 'ISP', 'UA', 'LINE内']);
   }
 
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
@@ -695,16 +704,52 @@ function handlePropertyAction(e) {
         var propLabel = buildingName || ('room_id: ' + roomId);
         if (roomNumber) propLabel += ' ' + roomNumber;
 
+        // view アクションの場合、LINE外ブラウザからのアクセスは警告表示
+        var viewPrefix = '\uD83D\uDCC4';
+        if (actionType === 'view' && trackUa && !trackIsLine) {
+          viewPrefix = '\u26A0\uFE0F'; // ⚠️
+        }
+
         var msgMap = {
           'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」に **お申し込み希望** をされました！',
           'hold_intent': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **お申し込み希望画面を開きました**（未送信）',
           'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabel + '」を **お気に入り** に追加しました',
           'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabel + '」を **興味なし** にしました',
-          'view': '\uD83D\uDCC4 **' + customerName + '** 様が「' + propLabel + '」を閲覧しました'
+          'view': viewPrefix + ' **' + customerName + '** 様が「' + propLabel + '」を閲覧しました' +
+            (actionType === 'view' && trackUa && !trackIsLine ? ' **（LINE外ブラウザ）**' : '')
         };
         var msg = msgMap[actionType] || '';
         if (!msg) return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount })).setMimeType(ContentService.MimeType.JSON);
         msg = '<@1459814543600390341>\n' + msg;
+
+        // view アクションの場合、地理情報・端末情報を付与
+        if (actionType === 'view') {
+          var locParts = [];
+          if (trackCountry && trackCountry !== 'Japan') locParts.push(trackCountry);
+          if (trackRegion) locParts.push(trackRegion);
+          if (trackCity) locParts.push(trackCity);
+          var locStr = locParts.join(' ');
+          if (locStr || trackIsp) {
+            msg += '\n> \uD83D\uDCCD ' + (locStr || '(地域不明)') + (trackIsp ? ' / ' + trackIsp : '') + (trackIp ? ' (IP: ' + trackIp + ')' : '');
+          }
+          if (trackUa) {
+            // UAから端末/ブラウザを簡易パース
+            var deviceType = /iPhone|iPad|Android|Mobile/.test(trackUa) ? '📱' : '💻';
+            var browser = '';
+            if (/Line\//.test(trackUa)) browser = 'LINE内ブラウザ';
+            else if (/Edg\//.test(trackUa)) browser = 'Edge';
+            else if (/Chrome\//.test(trackUa)) browser = 'Chrome';
+            else if (/Firefox\//.test(trackUa)) browser = 'Firefox';
+            else if (/Safari\//.test(trackUa)) browser = 'Safari';
+            else browser = 'その他ブラウザ';
+            var os = '';
+            if (/iPhone|iPad/.test(trackUa)) os = 'iOS';
+            else if (/Android/.test(trackUa)) os = 'Android';
+            else if (/Mac OS X/.test(trackUa)) os = 'Mac';
+            else if (/Windows/.test(trackUa)) os = 'Windows';
+            msg += '\n> ' + deviceType + ' ' + (os ? os + ' / ' : '') + browser;
+          }
+        }
 
         // お申し込みの場合、申込区分・申込者情報を表示
         if (actionType === 'hold') {
@@ -791,6 +836,20 @@ function handlePropertyAction(e) {
     // L列(12)に応答コードを記録
     try { sheet.getRange(loggedRowIdx, 12).setValue(discordStatus); } catch(e) {}
 
+    // M-S列(13-19): 閲覧トラッキング情報を記録（view アクション時のみ値あり）
+    if (actionType === 'view' && loggedRowIdx > 0) {
+      try {
+        sheet.getRange(loggedRowIdx, 13, 1, 7).setValues([[
+          trackIp,
+          trackCountry,
+          trackRegion,
+          trackCity,
+          trackIsp,
+          trackUa,
+          trackIsLine ? 1 : 0
+        ]]);
+      } catch(e) {}
+    }
   }
 
   // 仮押さえの場合、顧客にLINE確認メッセージを送信
