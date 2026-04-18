@@ -1080,32 +1080,65 @@ async function _uploadImgur(base64) {
   return json.data.link;
 }
 
+// Telegra.ph にアップロード（APIキー不要、安定）
+async function _uploadTelegraph(base64, mime) {
+  // base64 → Blob に変換
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime || 'image/jpeg' });
+
+  const formData = new FormData();
+  formData.append('file', blob, 'upload.jpg');
+
+  // 20秒タイムアウト
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch('https://telegra.ph/upload', { method: 'POST', body: formData, signal: controller.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) {
+      const body = (await resp.text().catch(() => '')).slice(0, 200);
+      const isRate = resp.status === 429 || resp.status === 503;
+      const err = new Error(`telegraph_${resp.status}:${body.replace(/\s+/g, ' ')}`);
+      if (isRate) err.rateLimited = true;
+      throw err;
+    }
+    const json = await resp.json();
+    if (Array.isArray(json) && json[0] && json[0].src) {
+      return 'https://telegra.ph' + json[0].src;
+    }
+    throw new Error('telegraph_unexpected_response');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // ホスト別の最終失敗時刻を記録し、しばらくスキップする(レート制限食らったら60秒避ける)
-const __hostCooldown = { imgbb: 0, freeimage: 0, imgur: 0 };
+const __hostCooldown = { telegraph: 0, imgbb: 0, freeimage: 0, imgur: 0 };
 const COOLDOWN_MS = 60 * 1000;
 
 async function uploadBase64ToCatbox(dataUrl) {
-  // 関数名は過去互換。実体は imgbb→freeimage→imgur のフォールバック
+  // 関数名は過去互換。実体は telegraph→imgbb→freeimage→imgur のフォールバック
   const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!match) return null;
+  const mime = match[1];
   const base64 = match[2];
 
   const now = Date.now();
-  const hosts = [
-    { name: 'imgbb', fn: _uploadImgbb },
-    { name: 'freeimage', fn: _uploadFreeimage },
-    { name: 'imgur', fn: _uploadImgur },
-  ].filter(h => now - __hostCooldown[h.name] > COOLDOWN_MS);
-
-  if (hosts.length === 0) {
-    // 全てクールダウン中 → 強制的に全部試す
-    hosts.push({ name: 'imgbb', fn: _uploadImgbb }, { name: 'freeimage', fn: _uploadFreeimage }, { name: 'imgur', fn: _uploadImgur });
-  }
+  const allHosts = [
+    { name: 'telegraph', fn: () => _uploadTelegraph(base64, mime) },
+    { name: 'imgbb', fn: () => _uploadImgbb(base64) },
+    { name: 'freeimage', fn: () => _uploadFreeimage(base64) },
+    { name: 'imgur', fn: () => _uploadImgur(base64) },
+  ];
+  let hosts = allHosts.filter(h => now - __hostCooldown[h.name] > COOLDOWN_MS);
+  if (hosts.length === 0) hosts = allHosts;
 
   let lastErr = null;
   for (const h of hosts) {
     try {
-      const url = await h.fn(base64);
+      const url = await h.fn();
       if (url) return url;
     } catch (e) {
       lastErr = e;
