@@ -1659,32 +1659,47 @@
         kbnRadio.click();
       }
 
-      // CSS セレクタの $ と {} で問題が起きる可能性があるので、全input走査で検索
-      const allInputs = document.querySelectorAll('input');
+      // 定期借家行（id="err44"の<tr>または#DTeisyaku div）から text inputを直接探す
+      // name属性に ${...} を含むため、クラス/コンテキストで特定する方が確実
+      const teisyakuDiv = document.getElementById('DTeisyaku');
       let yearEl = null, monthEl = null;
-      const teikiRelatedNames = [];
-      for (const el of allInputs) {
-        if (el.name && (el.name.includes('teiki') || el.name.includes('Teiki'))) {
-          teikiRelatedNames.push({ name: el.name, id: el.id, type: el.type });
+      if (teisyakuDiv) {
+        const textInputs = teisyakuDiv.querySelectorAll('input[type="text"]');
+        console.log('[SUUMO自動入稿] #DTeisyaku 内のtext input数:', textInputs.length);
+        if (textInputs.length >= 2) {
+          yearEl = textInputs[0];
+          monthEl = textInputs[1];
         }
-        if (el.name === '${bukkenInputForm.teikiShakuyaNen}') yearEl = el;
-        if (el.name === '${bukkenInputForm.teikiShakuyaGetsu}') monthEl = el;
       }
-      console.log('[SUUMO自動入稿] teiki関連の全input (走査):', teikiRelatedNames);
+      // フォールバック: kingakuLInput / kingakuSInput クラスから探す
+      if (!yearEl || !monthEl) {
+        const row = document.getElementById('teikiShakuyaKbnCd1')?.closest('tr');
+        if (row) {
+          const lInput = row.querySelector('input.kingakuLInput');
+          const sInput = row.querySelector('input.kingakuSInput');
+          if (!yearEl) yearEl = lInput;
+          if (!monthEl) monthEl = sInput;
+        }
+      }
+
       console.log('[SUUMO自動入稿] year input:', yearEl, ' month input:', monthEl);
 
       if (yearEl) {
+        yearEl.focus();
         yearEl.value = String(periodYear);
         yearEl.dispatchEvent(new Event('input', { bubbles: true }));
         yearEl.dispatchEvent(new Event('change', { bubbles: true }));
+        yearEl.blur();
         console.log('[SUUMO自動入稿] 年入力後:', yearEl.value);
       } else {
         console.warn('[SUUMO自動入稿] 年入力要素が見つからない');
       }
       if (monthEl) {
+        monthEl.focus();
         monthEl.value = String(periodMonth);
         monthEl.dispatchEvent(new Event('input', { bubbles: true }));
         monthEl.dispatchEvent(new Event('change', { bubbles: true }));
+        monthEl.blur();
         console.log('[SUUMO自動入稿] 月入力後:', monthEl.value);
       } else {
         console.warn('[SUUMO自動入稿] 月入力要素が見つからない');
