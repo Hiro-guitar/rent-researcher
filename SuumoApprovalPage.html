@@ -179,6 +179,18 @@ body {
   border-bottom: 1px solid #eee;
   font-size: 13px; font-weight: 600; color: #555;
 }
+.genre-counter.score-low { background: #fff3cd; color: #856404; border-bottom-color: #ffc107; }
+.genre-counter.score-mid { background: #e7f3ff; color: #084298; border-bottom-color: #2196F3; }
+.genre-counter.score-ok {
+  background: linear-gradient(90deg, #d4edda, #c3e6cb);
+  color: #155724; font-size: 15px; font-weight: 800;
+  border-bottom: 2px solid #28a745; padding: 12px 16px;
+  box-shadow: 0 2px 6px rgba(40,167,69,0.25);
+}
+.genre-counter .score-main { display: inline-block; margin-right: 10px; }
+.genre-counter .score-total { font-size: 16px; }
+.genre-counter.score-ok .score-total { font-size: 18px; color: #155724; }
+.genre-counter .score-badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px; background: #28a745; color: #fff; font-size: 11px; }
 
 /* ── 元サイトリンク ── */
 .source-link {
@@ -960,14 +972,66 @@ function updateAllGenreButtons() {
   });
 }
 
+// SUUMO掲載スコア計算
+// 5主要カテゴリ: 1カテゴリあたり最大5点（画像枚数×1点、5点上限）
+// その他カテゴリ: 1カテゴリにつき1点（最大9点）
+// 合計最高34点、32点を超えるのが目標
+var SUUMO_MAIN_CATEGORIES = ['間取り', '外観', 'リビング', 'キッチン', 'バス'];
+
+function calculateSuumoScore() {
+  var counts = {};
+  var vals = Object.values(imageGenres);
+  for (var i = 0; i < vals.length; i++) {
+    counts[vals[i]] = (counts[vals[i]] || 0) + 1;
+  }
+
+  // 5主要カテゴリ: min(画像数, 5)点 × 5カテゴリ = 最大25点
+  var mainScore = 0;
+  for (var m = 0; m < SUUMO_MAIN_CATEGORIES.length; m++) {
+    mainScore += Math.min(counts[SUUMO_MAIN_CATEGORIES[m]] || 0, 5);
+  }
+
+  // その他カテゴリ: 使用したカテゴリ数（最大9）
+  var subCount = 0;
+  for (var key in counts) {
+    if (counts.hasOwnProperty(key) && SUUMO_MAIN_CATEGORIES.indexOf(key) < 0 && counts[key] > 0) {
+      subCount++;
+    }
+  }
+  var subScore = Math.min(subCount, 9);
+
+  return { main: mainScore, sub: subScore, total: mainScore + subScore };
+}
+
 function updateGenreCounter() {
   var uniqueGenres = [];
   var vals = Object.values(imageGenres);
   for (var i = 0; i < vals.length; i++) {
     if (uniqueGenres.indexOf(vals[i]) < 0) uniqueGenres.push(vals[i]);
   }
-  document.getElementById('genreCounter').textContent =
-    '選択ジャンル: ' + uniqueGenres.length + '種類 / 画像: ' + Object.keys(imageGenres).length + '枚選択';
+
+  var score = calculateSuumoScore();
+  var el = document.getElementById('genreCounter');
+
+  var basicInfo = '選択ジャンル: ' + uniqueGenres.length + '種類 / 画像: ' + Object.keys(imageGenres).length + '枚選択';
+  var scoreInfo =
+    '<span class="score-main">主要: ' + score.main + '/25点</span>' +
+    '<span class="score-main">その他: ' + score.sub + '/9点</span>' +
+    '<span class="score-total">合計: <b>' + score.total + '</b>/34点</span>';
+
+  // 32点達成時は強調表示
+  var cls = '';
+  if (score.total >= 32) {
+    cls = 'score-ok';
+    scoreInfo += '<span class="score-badge">🎉 目標達成</span>';
+  } else if (score.total >= 20) {
+    cls = 'score-mid';
+  } else {
+    cls = 'score-low';
+  }
+
+  el.className = 'genre-counter ' + cls;
+  el.innerHTML = basicInfo + '<br>' + scoreInfo;
 }
 
 // ── 承認 ──
