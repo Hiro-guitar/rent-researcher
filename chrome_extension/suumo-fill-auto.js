@@ -524,15 +524,7 @@
     if (!data) throw new Error('物件データがありません');
 
     // ── 建物名 ──
-    const buildingName = data.building || data.buildingName || data.building_name || '';
-    console.log('[SUUMO自動入稿] 建物名入力:', {
-      building: data.building,
-      buildingName: data.buildingName,
-      building_name: data.building_name,
-      使用値: buildingName,
-      サニタイズ後: sanitizeSuumoText(buildingName)
-    });
-    setInputById('bukkenNm', buildingName);
+    setInputById('bukkenNm', data.building || '');
 
     // ── 階数・部屋番号 ──
     const fieldMappings = [
