@@ -823,12 +823,14 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
     if (p.current_status) msgLines.push('現況: ' + p.current_status);
     else if (p.listing_status) msgLines.push('現況: ' + p.listing_status);
 
-    // 画像枚数（わかりやすく太字+絵文字で表示）
+    // 画像枚数カウント（11枚以下なら警告）
     var imageCount = 0;
     if (p.image_urls && Array.isArray(p.image_urls)) imageCount = p.image_urls.length;
     else if (p.imageUrls && Array.isArray(p.imageUrls)) imageCount = p.imageUrls.length;
     if (imageCount === 0 && p.image_url) imageCount = 1;
-    msgLines.push('📷 **画像: ' + imageCount + '枚**');
+    if (imageCount <= 11) {
+      warnings.push('⚠️ 画像: ' + imageCount + '枚（11枚以下なので要確認）');
+    }
 
     if (warnings.length > 0) {
       msgLines.push('```ansi\n\u001b[0;33m' + warnings.join('\n') + '\u001b[0m\n```');
