@@ -635,6 +635,11 @@ async function closeDedicatedItandiWindow() {
 // === itandi固有フィルタ ===
 
 function getItandiFilterRejectReason(prop, customer) {
+  // 広告掲載可否フィルタ（SUUMO候補のため「不可」はスキップ）
+  if (prop.ad_keisai && String(prop.ad_keisai).trim() === '不可') {
+    return '広告掲載不可';
+  }
+
   // 賃料フィルタ（rent + management_fee vs rent_max万円）
   if (customer.rent_max) {
     const totalRent = (prop.rent || 0) + (prop.management_fee || 0);
