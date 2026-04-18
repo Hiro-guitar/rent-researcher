@@ -815,6 +815,7 @@ async function _parseEssquareSearchResults(tabId) {
 // === 専用ウィンドウ管理 ===
 
 async function findOrCreateDedicatedEssquareTab() {
+  // メモリ上のIDが生きていればそれを使用
   if (dedicatedEssquareTabId) {
     try {
       const tab = await chrome.tabs.get(dedicatedEssquareTabId);
@@ -828,22 +829,32 @@ async function findOrCreateDedicatedEssquareTab() {
     dedicatedEssquareWindowId = null;
   }
 
-  // 拡張再読み込み後など、dedicatedIdが空でも既存のes-square.netタブがあれば再利用
+  // Service Worker再起動等でメモリがリセットされた場合、
+  // chrome.storage.localに永続化された「自分たちで作った専用ウィンドウID」から復元
+  // 手動で開いたタブを誤って使わないよう、ウィンドウIDで厳密に紐づける
   try {
-    const existingTabs = await chrome.tabs.query({ url: 'https://*.es-square.net/*' });
-    if (existingTabs && existingTabs.length > 0) {
-      // 最初の1つを再利用、残りは閉じる（2つ以上開く問題の防止）
-      const reuse = existingTabs[0];
-      for (let i = 1; i < existingTabs.length; i++) {
-        try { await chrome.tabs.remove(existingTabs[i].id); } catch (e) {}
+    const stored = await getStorageData(['dedicatedEssquareWindowId']);
+    const storedWinId = stored.dedicatedEssquareWindowId;
+    if (storedWinId) {
+      try {
+        const win = await chrome.windows.get(storedWinId, { populate: true });
+        if (win && win.tabs) {
+          const esTab = win.tabs.find(t => t.url?.includes('es-square.net'));
+          if (esTab) {
+            dedicatedEssquareTabId = esTab.id;
+            dedicatedEssquareWindowId = storedWinId;
+            await setStorageData({ debugLog: `[ES-Square] 永続化された専用ウィンドウを復元: tabId=${esTab.id}` });
+            return esTab;
+          }
+        }
+      } catch (e) {
+        // 専用ウィンドウは閉じられている → 新規作成
       }
-      dedicatedEssquareTabId = reuse.id;
-      dedicatedEssquareWindowId = reuse.windowId;
-      await setStorageData({ debugLog: `[ES-Square] 既存タブを再利用: tabId=${reuse.id}` });
-      return reuse;
+      // 無効化
+      await setStorageData({ dedicatedEssquareWindowId: null });
     }
   } catch (e) {
-    // chrome.tabs.query失敗時は下の新規作成にフォールバック
+    // storage失敗は新規作成にフォールバック
   }
 
   await setStorageData({ debugLog: '[ES-Square] 専用ウィンドウを作成中...' });
@@ -858,6 +869,8 @@ async function findOrCreateDedicatedEssquareTab() {
   });
   dedicatedEssquareWindowId = newWindow.id;
   dedicatedEssquareTabId = newWindow.tabs[0].id;
+  // Service Worker再起動後も手動タブと区別できるよう、作った専用ウィンドウIDを永続化
+  await setStorageData({ dedicatedEssquareWindowId: newWindow.id });
 
   await waitForTabLoad(dedicatedEssquareTabId);
   await sleep(3000); // React SPA 考慮
@@ -884,6 +897,8 @@ async function closeDedicatedEssquareWindow() {
     dedicatedEssquareWindowId = null;
     dedicatedEssquareTabId = null;
   }
+  // 永続化IDもクリア
+  try { await setStorageData({ dedicatedEssquareWindowId: null }); } catch (e) {}
 }
 
 // === ES-Square固有フィルタ ===
