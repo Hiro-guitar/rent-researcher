@@ -234,6 +234,13 @@ function buildIeloveSearchUrl(customer, page = 1, oazaCodes = []) {
   // 申込あり物件もクライアント側で検出するためURLフィルタは使わない
   // （他サイトとのクロス重複排除のため）
 
+  // SUUMO巡回モードの時は、掲載許可ポータルでSUUMOを指定
+  // papt=1 (広告可あり), papc=03 (SUUMO)
+  if (typeof globalThis !== 'undefined' && globalThis._suumoPatrolMode) {
+    parts.push('papt/1');
+    parts.push('papc/03');
+  }
+
   // ソート (登録が新しい順)
   parts.push('order/createTime1');
 
