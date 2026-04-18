@@ -621,7 +621,7 @@ async function _parseEssquareSearchResults(tabId) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',  // React Fiber にアクセスするためメインワールドで実行
-    func: () => {
+    func: async () => {
       const properties = [];
 
       // data-testclass="bukkenListItem" で物件行を特定
@@ -713,12 +713,51 @@ async function _parseEssquareSearchResults(tabId) {
           // 募集状況（申込あり検出）— DOMタグから判定
           let listingStatus = '';
           let adStatus = ''; // 広告可 / 広告可※ / '' (なし)
+          let adBadgeElement = null; // ホバー対象のbadge要素
           const tagLabels = row.querySelectorAll('.eds-tag__label');
           for (const tag of tagLabels) {
             const txt = tag.textContent.trim();
             if (txt === '申込あり') listingStatus = '申込あり';
             if (txt === '広告可') adStatus = '広告可';
-            else if (txt === '広告可※') adStatus = '広告可※';
+            else if (txt === '広告可※') {
+              adStatus = '広告可※';
+              adBadgeElement = tag; // 後でホバーする
+            }
+          }
+
+          // 広告可※の場合、ホバーでツールチップを表示してSUUMO掲載可否を判定
+          let suumoAllowed = null;
+          let allowedMediaRaw = null;
+          if (adStatus === '広告可※' && adBadgeElement) {
+            const target = adBadgeElement.closest('.eds-tag') || adBadgeElement;
+            const fire = (el, type) =>
+              el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+
+            // 既存tooltip解除
+            ['mouseleave', 'mouseout', 'pointerleave', 'pointerout', 'blur'].forEach(t => fire(target, t));
+            await new Promise(r => setTimeout(r, 150));
+
+            // ホバー発火
+            ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'focus'].forEach(t => fire(target, t));
+            await new Promise(r => setTimeout(r, 400));
+
+            // tooltip走査
+            const tooltips = document.querySelectorAll('[role="tooltip"]');
+            for (const tp of tooltips) {
+              const txt = tp.innerText.trim();
+              if (txt && (txt.includes('媒体') || txt.includes('・'))) {
+                allowedMediaRaw = txt;
+                suumoAllowed = /SUUMO/.test(txt);
+                break;
+              }
+            }
+
+            // ホバー解除
+            ['mouseleave', 'mouseout', 'pointerleave', 'pointerout', 'blur'].forEach(t => fire(target, t));
+            await new Promise(r => setTimeout(r, 150));
+          } else if (adStatus === '広告可') {
+            // 無条件で広告可 → SUUMO可
+            suumoAllowed = true;
           }
           // フォールバック: MuiChip-label
           if (!listingStatus) {
@@ -758,6 +797,8 @@ async function _parseEssquareSearchResults(tabId) {
             sales_point: bv.sales_point || '',
             listing_status: listingStatus,
             ad_status: adStatus, // '広告可' / '広告可※' / ''
+            suumo_allowed: suumoAllowed, // true / false / null
+            allowed_media_raw: allowedMediaRaw,
           });
         } catch (e) {
           // パースエラーは個別にスキップ
@@ -1348,11 +1389,17 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
-      // SUUMO巡回モードで広告可バッジがない物件は、詳細モーダルを開かずにスキップ
-      // （広告可※はSUUMO掲載可否の詳細チェックが必要なので詳細モーダルへ進む）
-      if (globalThis._suumoPatrolMode && !prop.ad_status) {
-        await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ（詳細開かず）: ${prop.building_name} ${prop.room_number || ''} - 広告可バッジなし` });
-        continue;
+      // SUUMO巡回モードでは、一覧ページのバッジ+ツールチップ情報で
+      // 詳細モーダルを開く前にスキップ判定
+      if (globalThis._suumoPatrolMode) {
+        if (!prop.ad_status) {
+          await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ（詳細開かず）: ${prop.building_name} ${prop.room_number || ''} - 広告可バッジなし` });
+          continue;
+        }
+        if (prop.ad_status === '広告可※' && prop.suumo_allowed === false) {
+          await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ（詳細開かず）: ${prop.building_name} ${prop.room_number || ''} - 広告可※だがSUUMO不可` });
+          continue;
+        }
       }
 
       // 詳細取得: 検索結果ページ上の物件リンクをクリック
@@ -1453,8 +1500,10 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             'owner_company', 'owner_phone',
             'ad_approval_text',
           ];
-          // boolean値は別途コピー
-          if (typeof d.suumo_allowed === 'boolean') prop.suumo_allowed = d.suumo_allowed;
+          // 一覧ページのツールチップで既に判定済みなら詳細ページ値で上書きしない
+          if (typeof d.suumo_allowed === 'boolean' && prop.suumo_allowed === null) {
+            prop.suumo_allowed = d.suumo_allowed;
+          }
           for (const key of detailFields) {
             if (d[key] && !prop[key]) {
               prop[key] = d[key];
