@@ -891,6 +891,7 @@ function handleGetCriteria(e) {
       structures: _splitCSV(row[11]),
       equipment: String(row[12] || ''),
       move_in_date: String(row[14] || ''),
+      notes: String(row[15] || ''),
       selectedTowns: selectedTowns
     });
   }

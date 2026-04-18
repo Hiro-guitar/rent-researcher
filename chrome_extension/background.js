@@ -3870,6 +3870,11 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     lines.push(`入居: ${prop.move_in_date}`);
   }
 
+  // REINS物件番号（REINSソースの場合のみ）
+  if (prop.source !== 'ielove' && prop.source !== 'itandi' && prop.source !== 'essquare' && prop.reins_property_number) {
+    lines.push(`物件番号: ${prop.reins_property_number}`);
+  }
+
   // 警告アラート（ANSI黄色コードブロックで表示 — rent-researcher準拠）
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equip = toHankaku(customer?.equipment || '').toLowerCase();
@@ -4062,6 +4067,10 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   const moveInWarning = _checkMoveInWarning(prop, customer?.move_in_date);
   if (moveInWarning) {
     warnings.push(moveInWarning);
+  }
+  // その他ご希望（顧客の自由入力）
+  if (customer?.notes && String(customer.notes).trim()) {
+    warnings.push(`⚠️ その他ご希望: ${String(customer.notes).trim()}`);
   }
   if (warnings.length > 0) {
     const ansiText = warnings.join('\n');
