@@ -1621,8 +1621,11 @@
         kbnRadio.click();
       }
 
-      setInputByName('${bukkenInputForm.teikiShakuyaNen}', year);
-      setInputByName('${bukkenInputForm.teikiShakuyaGetsu}', String(parseInt(month, 10)));
+      // IDとnameの両方を試す（SUUMOのHTMLバージョン差異対策）
+      setInputById('teikiShakuyaNen', year);
+      setInputById('teikiShakuyaGetsu', String(parseInt(month, 10)));
+      setInputByName('bukkenInputForm.teikiShakuyaNen', year);
+      setInputByName('bukkenInputForm.teikiShakuyaGetsu', String(parseInt(month, 10)));
 
       console.log(`[SUUMO自動入稿] 定期借家（期限: ${year}年${month}月まで）`);
       return;
@@ -1658,8 +1661,11 @@
         kbnRadio.click();
       }
 
-      setInputByName('${bukkenInputForm.teikiShakuyaNen}', String(periodYear));
-      setInputByName('${bukkenInputForm.teikiShakuyaGetsu}', String(periodMonth));
+      // IDとnameの両方を試す
+      setInputById('teikiShakuyaNen', String(periodYear));
+      setInputById('teikiShakuyaGetsu', String(periodMonth));
+      setInputByName('bukkenInputForm.teikiShakuyaNen', String(periodYear));
+      setInputByName('bukkenInputForm.teikiShakuyaGetsu', String(periodMonth));
 
       console.log(`[SUUMO自動入稿] 定期借家（期間: ${periodYear}年${periodMonth}ヶ月）`);
     } else {
