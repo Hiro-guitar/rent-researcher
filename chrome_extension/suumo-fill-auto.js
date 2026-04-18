@@ -524,7 +524,15 @@
     if (!data) throw new Error('物件データがありません');
 
     // ── 建物名 ──
-    setInputById('bukkenNm', data.building || '');
+    const buildingName = data.building || data.buildingName || data.building_name || '';
+    console.log('[SUUMO自動入稿] 建物名入力:', {
+      building: data.building,
+      buildingName: data.buildingName,
+      building_name: data.building_name,
+      使用値: buildingName,
+      サニタイズ後: sanitizeSuumoText(buildingName)
+    });
+    setInputById('bukkenNm', buildingName);
 
     // ── 階数・部屋番号 ──
     const fieldMappings = [
@@ -1324,18 +1332,44 @@
   // ── その他初期費用 ──
   function fillOtherInitialCosts(data) {
     const items = [];
+    // 単一金額の抽出（"2,500円" → 2500）
+    const parseAmount = (val) => {
+      if (!val) return 0;
+      const s = String(val).replace(/[,，、]/g, ''); // カンマ除去
+      const m = s.match(/\d+(?:\.\d+)?/);
+      return m ? parseFloat(m[0]) : 0;
+    };
     const addItem = (name, val) => {
       if (!val || val === 'なし' || val === '0' || val === '0円') return;
-      const num = parseFloat(String(val).replace(/[^\d.]/g, ''));
-      if (isNaN(num) || num <= 0) return;
-      items.push({ name, amount: num, text: String(val) });
+      const amount = parseAmount(val);
+      if (amount <= 0) return;
+      items.push({ name, amount, text: String(val) });
+    };
+    // 複数項目を含むテキストから各金額を抽出（例: "A:2,500円 B:11,000円..."）
+    const addMultiItem = (defaultName, val) => {
+      if (!val || val === 'なし') return;
+      const s = String(val).replace(/[,，、](?=\d)/g, ''); // 桁区切りカンマを削除
+      const regex = /([^\s:：]+)[:：]\s*(\d+)\s*円/g;
+      let matched = false;
+      let m;
+      while ((m = regex.exec(s)) !== null) {
+        const amount = parseFloat(m[2]);
+        if (amount > 0) {
+          items.push({ name: m[1], amount, text: m[2] + '円' });
+          matched = true;
+        }
+      }
+      if (!matched) {
+        // 「名前: 金額円」パターンが見つからない → 単一金額として扱う
+        addItem(defaultName, val);
+      }
     };
 
     addItem('鍵交換費用', data.key_exchange_fee || data.keyExchangeFee);
     addItem('クリーニング費', data.cleaning_fee || data.cleaningFee);
     // 火災保険は損保セクションで処理するためここでは除外
     if (data.other_onetime_fee || data.otherOneTimeFee) {
-      addItem('その他', data.other_onetime_fee || data.otherOneTimeFee);
+      addMultiItem('その他', data.other_onetime_fee || data.otherOneTimeFee);
     }
     // REINS形式互換
     for (let i = 1; i <= 5; i++) {
