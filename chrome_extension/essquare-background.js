@@ -828,6 +828,24 @@ async function findOrCreateDedicatedEssquareTab() {
     dedicatedEssquareWindowId = null;
   }
 
+  // 拡張再読み込み後など、dedicatedIdが空でも既存のes-square.netタブがあれば再利用
+  try {
+    const existingTabs = await chrome.tabs.query({ url: 'https://*.es-square.net/*' });
+    if (existingTabs && existingTabs.length > 0) {
+      // 最初の1つを再利用、残りは閉じる（2つ以上開く問題の防止）
+      const reuse = existingTabs[0];
+      for (let i = 1; i < existingTabs.length; i++) {
+        try { await chrome.tabs.remove(existingTabs[i].id); } catch (e) {}
+      }
+      dedicatedEssquareTabId = reuse.id;
+      dedicatedEssquareWindowId = reuse.windowId;
+      await setStorageData({ debugLog: `[ES-Square] 既存タブを再利用: tabId=${reuse.id}` });
+      return reuse;
+    }
+  } catch (e) {
+    // chrome.tabs.query失敗時は下の新規作成にフォールバック
+  }
+
   await setStorageData({ debugLog: '[ES-Square] 専用ウィンドウを作成中...' });
   const newWindow = await chrome.windows.create({
     url: `${ESSQUARE_BASE_URL}/bukken/chintai/search`,
