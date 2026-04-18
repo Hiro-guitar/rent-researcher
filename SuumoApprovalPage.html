@@ -76,13 +76,24 @@ body {
 /* ── 画像ジャンル ── */
 .image-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px; padding: 10px 0;
+  gap: 10px; padding: 10px; border-radius: 10px;
+  transition: background 0.3s;
+}
+.image-grid.score-achieved {
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+  box-shadow: inset 0 2px 8px rgba(40,167,69,0.15);
 }
 .image-card {
   border: 2px solid #e0e0e0; border-radius: 10px; overflow: hidden;
-  background: #fafafa; transition: border-color 0.2s;
+  background: #fafafa; transition: border-color 0.2s, opacity 0.2s;
 }
 .image-card.has-genre { border-color: #27ae60; }
+/* 14枚上限到達時、未選択画像のジャンルボタンをグレーアウト */
+.image-card.disabled-by-limit .genre-btn:not(.selected) {
+  background: #eeeeee; color: #bbbbbb; border-color: #dddddd;
+  cursor: not-allowed; pointer-events: none;
+}
+.image-card.disabled-by-limit { opacity: 0.6; }
 .image-card img {
   width: 100%; height: 100px; object-fit: cover; display: block;
 }
@@ -966,13 +977,18 @@ function renderGenreButtons(container, imageIndex, selectedGenre) {
 }
 
 function updateAllGenreButtons() {
+  var atLimit = Object.keys(imageGenres).length >= 14;
   var cards = document.querySelectorAll('.image-card');
   cards.forEach(function(card) {
     var idx = parseInt(card.getAttribute('data-index'));
     var btnsDiv = card.querySelector('.genre-btns');
     var selected = imageGenres[idx] || '';
     renderGenreButtons(btnsDiv, idx, selected);
-    card.className = 'image-card' + (selected ? ' has-genre' : '');
+    var classes = 'image-card';
+    if (selected) classes += ' has-genre';
+    // 14枚上限時、未選択画像はグレーアウト（選択済み画像は操作可能のまま）
+    if (atLimit && !selected) classes += ' disabled-by-limit';
+    card.className = classes;
   });
 }
 
@@ -1026,11 +1042,15 @@ function updateGenreCounter() {
     '<span class="score-main">その他: ' + score.sub + '/9点</span>' +
     '<span class="score-total">合計: <b>' + score.total + '</b>/34点</span>';
 
-  // 32点達成時のみ強調表示
+  // 32点達成時のみ強調表示（カウンター + 画像グリッド背景）
   var cls = '';
+  var grid = document.getElementById('imageGrid');
   if (score.total >= 32) {
     cls = 'score-ok';
     scoreInfo += '<span class="score-badge">🎉 目標達成</span>';
+    if (grid) grid.classList.add('score-achieved');
+  } else {
+    if (grid) grid.classList.remove('score-achieved');
   }
 
   el.className = 'genre-counter ' + cls;
