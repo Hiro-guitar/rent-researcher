@@ -1443,7 +1443,10 @@
 
   // ── 保証会社 ──
   function fillGuaranteeCompany(data) {
-    const text = data.guaranteeCompany || '指定保証会社加入要　条件により異なるため、お問い合わせください';
+    // 「-」「−」「ー」「―」等のハイフン類や空白のみの値は「空欄」として扱う
+    const raw = String(data.guaranteeCompany || '').trim();
+    const isEmptyLike = !raw || /^[-−ー―‐‑‒–—]+$/.test(raw);
+    const text = isEmptyLike ? '指定保証会社加入要　条件により異なるため、お問い合わせください' : raw;
     const cb = document.getElementById('hoshoninDaikoFlg');
     if (cb && !cb.checked) {
       cb.checked = true;
