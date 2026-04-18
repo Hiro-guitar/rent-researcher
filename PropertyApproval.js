@@ -1778,34 +1778,89 @@ function saveSelectedImages(rowIndex, selectedImageUrls, selectedImageCategories
   cell.setValue(JSON.stringify(extra));
 }
 
-// ===== 画像アップロード（catbox.moe — 手動アップロード用） =====
-// 承認ページからの手動アップロードは少量のため catbox を使用。
+// ===== 画像アップロード（手動アップロード用） =====
+// 優先順: Telegra.ph → freeimage.host → imgbb
 // 一括スクレイピングの画像は Python 側で Google Drive にアップロードされる。
 function uploadPropertyImage(base64Data, filename, mimeType) {
-  try {
-    var decoded = Utilities.base64Decode(base64Data);
-    var mime = mimeType || 'image/jpeg';
-    var fname = filename || 'upload.jpg';
-    var blob = Utilities.newBlob(decoded, mime, fname);
+  var errors = [];
+  var decoded = Utilities.base64Decode(base64Data);
+  var blob = Utilities.newBlob(decoded, mimeType || 'image/jpeg', filename || 'upload.jpg');
 
-    var response = UrlFetchApp.fetch('https://catbox.moe/user/api.php', {
+  // 1) Telegra.ph（APIキー不要）
+  try {
+    var resp1 = UrlFetchApp.fetch('https://telegra.ph/upload', {
+      method: 'POST',
+      payload: { file: blob },
+      muteHttpExceptions: true
+    });
+    var code1 = resp1.getResponseCode();
+    var body1 = resp1.getContentText();
+    if (code1 === 200) {
+      var json1 = JSON.parse(body1);
+      if (Array.isArray(json1) && json1[0] && json1[0].src) {
+        return { success: true, url: 'https://telegra.ph' + json1[0].src };
+      }
+      errors.push('telegraph parse: ' + body1.substring(0, 200));
+    } else {
+      errors.push('telegraph HTTP ' + code1 + ': ' + body1.substring(0, 200));
+    }
+  } catch (e1) {
+    errors.push('telegraph: ' + e1.message);
+  }
+
+  // 2) freeimage.host
+  try {
+    var resp2 = UrlFetchApp.fetch('https://freeimage.host/api/1/upload', {
       method: 'POST',
       payload: {
-        reqtype: 'fileupload',
-        fileToUpload: blob
+        key: '6d207e02198a847aa98d0a2a901485a5',
+        source: base64Data,
+        format: 'json'
       },
       muteHttpExceptions: true
     });
-
-    var url = response.getContentText().trim();
-    if (url.startsWith('https://')) {
-      return { success: true, url: url };
+    var code2 = resp2.getResponseCode();
+    var body2 = resp2.getContentText();
+    if (code2 === 200) {
+      var json2 = JSON.parse(body2);
+      if (json2 && json2.image && json2.image.url) {
+        return { success: true, url: json2.image.url };
+      }
+      errors.push('freeimage parse: ' + body2.substring(0, 200));
     } else {
-      return { success: false, message: 'Upload failed: ' + url };
+      errors.push('freeimage HTTP ' + code2 + ': ' + body2.substring(0, 200));
     }
-  } catch (err) {
-    return { success: false, message: err.message };
+  } catch (e2) {
+    errors.push('freeimage: ' + e2.message);
   }
+
+  // 3) imgbb
+  try {
+    var resp3 = UrlFetchApp.fetch('https://api.imgbb.com/1/upload', {
+      method: 'POST',
+      payload: {
+        key: '48cdc51fdcc4a2828c3379b59663db7f',
+        image: base64Data,
+        name: (filename || 'upload').replace(/\.[^.]+$/, '')
+      },
+      muteHttpExceptions: true
+    });
+    var code3 = resp3.getResponseCode();
+    var body3 = resp3.getContentText();
+    if (code3 === 200) {
+      var json3 = JSON.parse(body3);
+      if (json3 && json3.success && json3.data && json3.data.url) {
+        return { success: true, url: json3.data.url };
+      }
+      errors.push('imgbb parse: ' + body3.substring(0, 200));
+    } else {
+      errors.push('imgbb HTTP ' + code3 + ': ' + body3.substring(0, 200));
+    }
+  } catch (e3) {
+    errors.push('imgbb: ' + e3.message);
+  }
+
+  return { success: false, message: 'Upload failed: ' + errors.join(' | ') };
 }
 
 // ===== 編集値をシートに反映 =====
