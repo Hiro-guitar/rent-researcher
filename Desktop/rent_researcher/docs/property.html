@@ -810,20 +810,49 @@ function renderProperty(p) {
   checkActionStatus();
 
   // 閲覧トラッキング（アクションログに統合、fire-and-forget）
+  // IP+地理情報を取得してから送信（取れなかったら地理情報なしで送る）
   if (customer && roomId) {
+    var propData = currentProperty || {};
+    var ua = navigator.userAgent || '';
+    var isLine = /Line\//.test(ua) ? '1' : '0';
+
+    var baseParams = 'action=property_action'
+      + '&customer=' + encodeURIComponent(customer)
+      + '&room_id=' + encodeURIComponent(roomId)
+      + '&action_type=view'
+      + '&building_name=' + encodeURIComponent(propData.buildingName || '')
+      + '&room_number=' + encodeURIComponent(propData.roomNumber || '')
+      + '&rent=' + encodeURIComponent(propData.rent || '')
+      + '&layout=' + encodeURIComponent(propData.layout || '')
+      + '&station_info=' + encodeURIComponent(propData.stationInfo || '')
+      + '&ua=' + encodeURIComponent(ua)
+      + '&line=' + isLine;
+
+    // 3秒以内にIP取得できなければgeo情報なしで送る
+    var sent = false;
+    var sendTracking = function(geoParams) {
+      if (sent) return;
+      sent = true;
+      try {
+        fetch(GAS_API_URL + '?' + baseParams + geoParams, { redirect: 'follow' }).catch(function() {});
+      } catch(e) {}
+    };
+    setTimeout(function() { sendTracking(''); }, 3000);
+
     try {
-      var propData = currentProperty || {};
-      var viewParams = 'action=property_action'
-        + '&customer=' + encodeURIComponent(customer)
-        + '&room_id=' + encodeURIComponent(roomId)
-        + '&action_type=view'
-        + '&building_name=' + encodeURIComponent(propData.buildingName || '')
-        + '&room_number=' + encodeURIComponent(propData.roomNumber || '')
-        + '&rent=' + encodeURIComponent(propData.rent || '')
-        + '&layout=' + encodeURIComponent(propData.layout || '')
-        + '&station_info=' + encodeURIComponent(propData.stationInfo || '');
-      fetch(GAS_API_URL + '?' + viewParams, { redirect: 'follow' }).catch(function() {});
-    } catch(e) {}
+      fetch('https://ipapi.co/json/')
+        .then(function(r) { return r.json(); })
+        .then(function(geo) {
+          var geoParams = ''
+            + '&ip=' + encodeURIComponent(geo.ip || '')
+            + '&country=' + encodeURIComponent(geo.country_name || '')
+            + '&region=' + encodeURIComponent(geo.region || '')
+            + '&city=' + encodeURIComponent(geo.city || '')
+            + '&isp=' + encodeURIComponent(geo.org || '');
+          sendTracking(geoParams);
+        })
+        .catch(function() { sendTracking(''); });
+    } catch(e) { sendTracking(''); }
   }
 }
 
