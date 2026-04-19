@@ -197,12 +197,17 @@ async function runSuumoPatrolCycle() {
           // SUUMO競合数を取得して prop.suumo_competitor にアタッチ（失敗しても送信継続）
           try {
             if (typeof globalThis.countSuumoCompetitors === 'function') {
+              await setStorageData({ debugLog:
+                `[SUUMO競合] 入力: addr="${prop.address || ''}" rent=${prop.rent} area=${prop.area || prop.usageArea} structure="${prop.structure || ''}"`
+              });
               const competitor = await globalThis.countSuumoCompetitors(prop);
               if (competitor) {
                 prop.suumo_competitor = competitor;
                 await setStorageData({ debugLog:
-                  `[SUUMO巡回] 競合数: あり${competitor.withName}(HL${competitor.withNameHighlighted})/なし${competitor.withoutName}(HL${competitor.withoutNameHighlighted}) [${prop.building_name || prop.buildingName || ''}]`
+                  `[SUUMO巡回] 競合数: あり${competitor.withName}(HL${competitor.withNameHighlighted})/なし${competitor.withoutName}(HL${competitor.withoutNameHighlighted}) url=${String(competitor.url || '').substring(0, 180)}`
                 });
+              } else {
+                await setStorageData({ debugLog: `[SUUMO巡回] 競合数: null(URL構築失敗 or 全候補fetch失敗)` });
               }
             }
           } catch (compErr) {

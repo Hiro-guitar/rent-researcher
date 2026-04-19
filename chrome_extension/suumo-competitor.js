@@ -145,7 +145,7 @@
   // ── HTMLパース ──────────────────────────────────────────────
 
   function parseSuumoCompetitorCount(htmlText, expectedRent, expectedArea) {
-    const result = { withName: 0, withoutName: 0, withNameHighlighted: 0, withoutNameHighlighted: 0, total: 0 };
+    const result = { withName: 0, withoutName: 0, withNameHighlighted: 0, withoutNameHighlighted: 0, total: 0, _rawCards: 0, _rentMiss: 0, _areaMiss: 0 };
     if (!htmlText || !expectedRent || !expectedArea) return result;
     let doc;
     try {
@@ -154,17 +154,18 @@
       return result;
     }
     const cards = doc.querySelectorAll('div.property.js-property.js-cassetLink');
+    result._rawCards = cards.length;
     cards.forEach(card => {
       try {
         const rentEl = card.querySelector('.detailbox-property-point');
         const rentText = (rentEl && rentEl.textContent || '').trim().replace(/\s/g, '');
         // SUUMO表示は「12.5万円」、期待値は「12.5万」 → startsWith で対応
-        if (!rentText.startsWith(expectedRent)) return;
+        if (!rentText.startsWith(expectedRent)) { result._rentMiss++; return; }
 
         const cols = card.querySelectorAll('td.detailbox-property--col3 > div');
         const areaText = (cols && cols[1] ? cols[1].textContent : '').trim();
         // SUUMO表示は「25.18m²」、期待値は「25.18m」 → startsWith で対応
-        if (!areaText.startsWith(expectedArea)) return;
+        if (!areaText.startsWith(expectedArea)) { result._areaMiss++; return; }
 
         const titleEl = card.querySelector('h2.property_inner-title a, a.js-cassetLinkHref');
         const title = (titleEl && titleEl.textContent || '').trim();
@@ -222,15 +223,24 @@
   async function countSuumoCompetitors(prop) {
     try {
       const built = buildSuumoCompetitorSearchUrl(prop);
-      if (!built) return null;
+      if (!built) {
+        console.warn('[SUUMO競合] URL構築失敗: addr/rent/area のいずれかが欠損', {
+          address: prop && prop.address,
+          rent: prop && prop.rent,
+          area: prop && (prop.area || prop.usageArea),
+        });
+        return null;
+      }
       const expectedRent = built._expectedRent;
       const expectedArea = built._expectedArea;
       const urls = built.candidateUrls;
+      console.log('[SUUMO競合] 試行URLs:', { expectedRent, expectedArea, urls });
 
       let lastCounts = null;
       let lastUrl = urls[urls.length - 1] || null;
       for (const url of urls) {
         const counts = await _fetchAndCount(url, expectedRent, expectedArea);
+        console.log('[SUUMO競合] ', url.slice(0, 200), '→', counts);
         if (counts && counts.total > 0) {
           // ヒットしたら採用
           return {
