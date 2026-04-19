@@ -145,59 +145,68 @@
   // ── HTMLパース ──────────────────────────────────────────────
 
   function parseSuumoCompetitorCount(htmlText, expectedRent, expectedArea) {
-    const result = { withName: 0, withoutName: 0, withNameHighlighted: 0, withoutNameHighlighted: 0, total: 0, _rawCards: 0, _rentMiss: 0, _areaMiss: 0 };
+    const result = { withName: 0, withoutName: 0, withNameHighlighted: 0, withoutNameHighlighted: 0, total: 0, _rawCards: 0, _rentMiss: 0, _areaMiss: 0, _parseMode: '' };
     if (!htmlText || !expectedRent || !expectedArea) return result;
-    let doc;
-    try {
-      doc = new DOMParser().parseFromString(htmlText, 'text/html');
-    } catch (e) {
-      return result;
-    }
-    // Service Worker の DOMParser では複合クラスセレクタが効かないケースがあるため、
-    // より単純な「js-property」単一クラスで取得する（他サイトで誤マッチするリスクは低い）
-    let cards = doc.querySelectorAll('.js-property.js-cassetLink');
-    if (cards.length === 0) cards = doc.querySelectorAll('.js-property');
-    if (cards.length === 0) cards = doc.querySelectorAll('[class~="js-property"]');
-    // 最終手段: 属性セレクタでクラスを直接指定
-    if (cards.length === 0) {
-      const all = doc.querySelectorAll('div');
-      const filtered = [];
-      for (const el of all) {
-        const cn = el.className || '';
-        if (typeof cn === 'string' && cn.indexOf('js-property') >= 0 && cn.indexOf('property') >= 0) {
-          filtered.push(el);
-        }
-      }
-      cards = filtered;
-    }
-    result._rawCards = cards.length;
-    cards.forEach(card => {
+
+    // 診断: HTML文字列中の 'js-property' 出現回数（DOMParser通さずマーカー検出）
+    result._jsPropertyStringCount = (htmlText.match(/js-property/g) || []).length;
+
+    // Service Worker の DOMParser は大容量HTMLで unreliable のため、
+    // 最初から正規表現ベースで物件カード区間を切り出してパースする。
+    // HTMLの各物件カードは <div class="property[...]js-property[...]js-cassetLink"> で始まり、
+    // 次の同パターン or </div>の深さ調整で終わる。ここでは lookahead で次カード開始or末尾まで切る。
+    const cardRegex = /<div\s+class="(property[^"]*js-property[^"]*js-cassetLink[^"]*|property[^"]*js-cassetLink[^"]*js-property[^"]*)"[^>]*>([\s\S]*?)(?=<div\s+class="property[^"]*js-property|<\/div>\s*<\/div>\s*<script|<!--\s*\/\/ \/property_group|<div class="paginate_wrapper">|$)/g;
+    const cardMatches = htmlText.match(cardRegex) || [];
+    result._rawCards = cardMatches.length;
+    result._parseMode = 'regex';
+
+    for (const cardHtml of cardMatches) {
       try {
-        const rentEl = card.querySelector('.detailbox-property-point');
-        const rentText = (rentEl && rentEl.textContent || '').trim().replace(/\s/g, '');
-        // SUUMO表示は「12.5万円」、期待値は「12.5万」 → startsWith で対応
-        if (!rentText.startsWith(expectedRent)) { result._rentMiss++; return; }
+        // rent: <div class="detailbox-property-point">22.9万円</div> 的な
+        const rentMatch = cardHtml.match(/class="[^"]*detailbox-property-point[^"]*"[^>]*>([^<]+)</);
+        const rentText = rentMatch ? rentMatch[1].trim().replace(/\s/g, '') : '';
+        if (!rentText.startsWith(expectedRent)) { result._rentMiss++; continue; }
 
-        const cols = card.querySelectorAll('td.detailbox-property--col3 > div');
-        const areaText = (cols && cols[1] ? cols[1].textContent : '').trim();
-        // SUUMO表示は「25.18m²」、期待値は「25.18m」 → startsWith で対応
-        if (!areaText.startsWith(expectedArea)) { result._areaMiss++; return; }
+        // area: td.detailbox-property--col3 の中の div の2つ目が面積
+        //   <td class="detailbox-property--col3">
+        //     <div>2LDK</div>
+        //     <div>46.32m<sup>2</sup></div>  ← 面積は sup タグで "2" を上付き表示
+        //     <div>-</div>                    ← 向き
+        //   </td>
+        // 旧正規表現 /<div[^>]*>([^<]*)<\/div>/g は [^<]* が <sup> で止まるため、
+        // sup を含む div がマッチせず面積行が取れない。非貪欲 [\s\S]*? で内部タグ毎取り、
+        // 後から <...> タグを文字列除去して純テキストを得る。
+        const col3Match = cardHtml.match(/class="[^"]*detailbox-property--col3[^"]*"[^>]*>([\s\S]*?)<\/td>/);
+        let areaText = '';
+        if (col3Match) {
+          const divContents = [];
+          const divRe = /<div[^>]*>([\s\S]*?)<\/div>/g;
+          let dm;
+          while ((dm = divRe.exec(col3Match[1])) !== null) {
+            divContents.push(dm[1].replace(/<[^>]+>/g, '').trim());
+          }
+          if (divContents.length >= 2) areaText = divContents[1];
+        }
+        if (!areaText.startsWith(expectedArea)) { result._areaMiss++; continue; }
 
-        const titleEl = card.querySelector('h2.property_inner-title a, a.js-cassetLinkHref');
-        const title = (titleEl && titleEl.textContent || '').trim();
-        const cardCls = (card.className && typeof card.className === 'string') ? card.className : '';
-        const isHighlighted = cardCls.indexOf('property--highlight') >= 0;
+        // title: h2.property_inner-title 内のaタグ / a.js-cassetLinkHref
+        let titleMatch = cardHtml.match(/class="[^"]*property_inner-title[^"]*"[^>]*>[\s\S]*?<a[^>]*>([^<]+)</);
+        if (!titleMatch) titleMatch = cardHtml.match(/class="[^"]*js-cassetLinkHref[^"]*"[^>]*>([^<]+)</);
+        const title = titleMatch ? titleMatch[1].trim() : '';
+
+        // highlight判定: カード開始タグに property--highlight が含まれるか
+        const highlightMatch = cardHtml.match(/^<div\s+class="([^"]+)"/);
+        const isHighlighted = highlightMatch ? highlightMatch[1].indexOf('property--highlight') >= 0 : false;
 
         if (SUUMO_COMP_LAYOUT_RE.test(title)) {
-          // タイトルが間取り文字 → 物件名なし扱い
           result.withoutName++;
           if (isHighlighted) result.withoutNameHighlighted++;
         } else {
           result.withName++;
           if (isHighlighted) result.withNameHighlighted++;
         }
-      } catch (e) { /* カード単位のパース失敗は無視 */ }
-    });
+      } catch (e) { /* 1枚のパース失敗は無視 */ }
+    }
     result.total = result.withName + result.withoutName;
     return result;
   }
