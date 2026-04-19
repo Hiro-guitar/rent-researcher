@@ -704,24 +704,11 @@
     }
 
     // === 6. ステータス ===
-    // 「申込あり」「募集中」等がUI文言(フィルタ選択肢など)に混在するため、
-    // ステータスバッジ候補の要素に限定して判定する
-    const statusCandidates = [];
-    // バッジ/ラベル系の短いテキスト要素を収集
-    document.querySelectorAll('span, div, p, strong, em, label, li, td').forEach(el => {
-      const txt = (el.textContent || '').trim();
-      if (!txt || txt.length > 12) return;
-      // 子要素を持たないリーフのみ
-      if (el.children.length > 0) return;
-      statusCandidates.push(txt);
-    });
-    const knownStatuses = ['募集中', '申込あり', '成約', '公開停止', '契約済み'];
-    for (const s of knownStatuses) {
-      if (statusCandidates.some(t => t === s)) {
-        detail.listing_status = s;
-        break;
-      }
-    }
+    // 旧実装: ページ全体をDOM走査して「申込あり」「募集中」等のリーフ要素を拾っていたが、
+    // 詳細モーダルは検索画面の上に重なる構造で、背景の検索フィルタUI等に混在する
+    // 「申込あり」ラベルまで誤って拾ってしまい、全物件が「申込あり」判定される不具合があった。
+    // listing_status は一覧ページ側(essquare-background.js の .eds-tag__label 判定)で
+    // 正確に取れているため、詳細モーダル側の判定は削除。
 
     // === 7. 所在階パース ===
     if (detail.floor_text) {
