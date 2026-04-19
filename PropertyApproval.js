@@ -757,7 +757,10 @@ function handlePropertyAction(e) {
             var deviceType = /iPhone|iPad|Android|Mobile/.test(trackUa) ? '📱' : '💻';
             var browser = '';
             if (/Line\//.test(trackUa)) browser = 'LINE内ブラウザ';
-            else if (/Edg\//.test(trackUa)) browser = 'Edge';
+            else if (/EdgiOS\//.test(trackUa) || /Edg\//.test(trackUa)) browser = 'Edge';
+            else if (/CriOS\//.test(trackUa)) browser = 'Chrome'; // iOS Chrome
+            else if (/FxiOS\//.test(trackUa)) browser = 'Firefox'; // iOS Firefox
+            else if (/OPiOS\//.test(trackUa) || /OPR\//.test(trackUa)) browser = 'Opera';
             else if (/Chrome\//.test(trackUa)) browser = 'Chrome';
             else if (/Firefox\//.test(trackUa)) browser = 'Firefox';
             else if (/Safari\//.test(trackUa)) browser = 'Safari';
