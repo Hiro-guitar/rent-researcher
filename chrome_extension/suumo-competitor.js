@@ -153,7 +153,23 @@
     } catch (e) {
       return result;
     }
-    const cards = doc.querySelectorAll('div.property.js-property.js-cassetLink');
+    // Service Worker の DOMParser では複合クラスセレクタが効かないケースがあるため、
+    // より単純な「js-property」単一クラスで取得する（他サイトで誤マッチするリスクは低い）
+    let cards = doc.querySelectorAll('.js-property.js-cassetLink');
+    if (cards.length === 0) cards = doc.querySelectorAll('.js-property');
+    if (cards.length === 0) cards = doc.querySelectorAll('[class~="js-property"]');
+    // 最終手段: 属性セレクタでクラスを直接指定
+    if (cards.length === 0) {
+      const all = doc.querySelectorAll('div');
+      const filtered = [];
+      for (const el of all) {
+        const cn = el.className || '';
+        if (typeof cn === 'string' && cn.indexOf('js-property') >= 0 && cn.indexOf('property') >= 0) {
+          filtered.push(el);
+        }
+      }
+      cards = filtered;
+    }
     result._rawCards = cards.length;
     cards.forEach(card => {
       try {
@@ -169,7 +185,8 @@
 
         const titleEl = card.querySelector('h2.property_inner-title a, a.js-cassetLinkHref');
         const title = (titleEl && titleEl.textContent || '').trim();
-        const isHighlighted = card.classList.contains('property--highlight');
+        const cardCls = (card.className && typeof card.className === 'string') ? card.className : '';
+        const isHighlighted = cardCls.indexOf('property--highlight') >= 0;
 
         if (SUUMO_COMP_LAYOUT_RE.test(title)) {
           // タイトルが間取り文字 → 物件名なし扱い
