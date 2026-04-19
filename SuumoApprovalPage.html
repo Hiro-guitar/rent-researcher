@@ -236,6 +236,9 @@ body {
     <div class="prop-row"><div class="prop-label">ステータス</div><div class="prop-value" id="pvStatus"></div></div>
     <div class="prop-row"><div class="prop-label">募集状況</div><div class="prop-value" id="pvListingStatus"></div></div>
     <div class="prop-row"><div class="prop-label">現況</div><div class="prop-value" id="pvCurrentStatus"></div></div>
+    <div class="prop-row"><div class="prop-label">元付会社</div><div class="prop-value" id="pvOwnerCompany"></div></div>
+    <div class="prop-row"><div class="prop-label">元付電話番号</div><div class="prop-value" id="pvOwnerPhone"></div></div>
+    <div class="prop-row"><div class="prop-label">広告転載区分</div><div class="prop-value" id="pvAdReprint"></div></div>
   </div>
 </div>
 
@@ -425,6 +428,9 @@ window.addEventListener('DOMContentLoaded', function() {
   setText('pvSource', SOURCE || p.source);
   setText('pvListingStatus', p.listing_status);
   setText('pvCurrentStatus', p.current_status);
+  setText('pvOwnerCompany', p.owner_company || p.reins_shougo);
+  setText('pvOwnerPhone', p.owner_phone || p.reins_tel);
+  setText('pvAdReprint', p.ad_reprint_raw || p.ad_keisai);
 
   // ステータス
   var statusEl = document.getElementById('pvStatus');

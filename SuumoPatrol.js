@@ -828,6 +828,9 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
     if (p.ad_fee) msgLines.push('広告料: ' + p.ad_fee);
     if (p.current_status) msgLines.push('現況: ' + p.current_status);
     else if (p.listing_status) msgLines.push('現況: ' + p.listing_status);
+    var ownerCompany = p.owner_company || p.reins_shougo || '';
+    var ownerPhone = p.owner_phone || p.reins_tel || '';
+    if (ownerCompany) msgLines.push('元付: ' + ownerCompany + (ownerPhone ? ' (' + ownerPhone + ')' : ''));
 
     // 画像枚数カウント（11枚以下なら警告）
     var imageCount = 0;
@@ -921,8 +924,11 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
       errors.push(lastErrMsg);
     }
     // 次の物件送信前にレートリミット対策のウェイト
+    // いい生活(essquare)は1巡回で検出数が多くレート制限に刺さりやすいため長めに待機
     if (i < newProperties.length - 1) {
-      Utilities.sleep(1500);
+      var sourceLower = String(source || '').toLowerCase();
+      var waitAfterSendMs = (sourceLower === 'essquare') ? 5000 : 1500;
+      Utilities.sleep(waitAfterSendMs);
     }
   }
 
