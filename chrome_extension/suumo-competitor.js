@@ -93,13 +93,15 @@
     const rest = s.slice(town.length);
 
     // 丁目を抽出（"3丁目..." or "3-28-14"）
+    // ※SUUMO検索では「4丁目」を付けると0件化する（実測確認済）。数字のみで連結する。
+    //   例: 「東京都新宿区下落合4」←OK / 「東京都新宿区下落合4丁目」←NG
     let chome = '';
     const chomeKanjiMatch = rest.match(/^(\d+)丁目/);
     if (chomeKanjiMatch) {
-      chome = chomeKanjiMatch[1] + '丁目';
+      chome = chomeKanjiMatch[1];
     } else {
       const numMatch = rest.match(/^(\d+)/);
-      if (numMatch) chome = numMatch[1] + '丁目';
+      if (numMatch) chome = numMatch[1];
     }
 
     return pref + city + town + chome;
@@ -107,17 +109,21 @@
 
   // ── URL構築 ──────────────────────────────────────────────
 
+  // SUUMO の fw は「+」連結形式が確実にヒット（実測: %20連結だと不安定なケースあり）。
+  // 各コンポーネントを個別に encodeURIComponent → "+" でつなぐ。
+  function _buildFw(parts) {
+    return parts.filter(Boolean).map(encodeURIComponent).join('+');
+  }
+
   function buildSuumoCompetitorSearchUrl(prop) {
     const rent = _toSuumoRent(prop && prop.rent);
     const area = _toSuumoArea(prop && (prop.area || prop.usageArea));
     const addr = _extractSearchAddr(prop);
     if (!rent || !area || !addr) return null;
     const btype = _inferPropertyType(prop);
-    const fw4 = [addr, btype, area, rent].join(' ');
-    const fw3 = [addr, area, rent].join(' ');
     return {
-      primaryUrl: SUUMO_COMP_BASE + encodeURIComponent(fw4) + '&pc=100',
-      fallbackUrl: SUUMO_COMP_BASE + encodeURIComponent(fw3) + '&pc=100',
+      primaryUrl: SUUMO_COMP_BASE + _buildFw([addr, btype, area, rent]) + '&pc=100',
+      fallbackUrl: SUUMO_COMP_BASE + _buildFw([addr, area, rent]) + '&pc=100',
       _expectedRent: rent,
       _expectedArea: area,
     };
