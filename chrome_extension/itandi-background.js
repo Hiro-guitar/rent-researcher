@@ -649,9 +649,12 @@ function getItandiFilterRejectReason(prop, customer) {
     }
   }
 
-  // ステータス・WEBバッジフィルタ（テストユーザーはスキップ）
+  // ステータス・WEBバッジフィルタ
+  //  - テストユーザー: すべてスキップしない（動作検証用）
+  //  - SUUMO巡回モード: 申込あり・WEBバッジ件数でスキップしない（Discord通知へ流して警告表示する）
   const isTestUser = customer.name?.includes('テスト');
-  if (!isTestUser) {
+  const isSuumoPatrol = !!globalThis._suumoPatrolMode;
+  if (!isTestUser && !isSuumoPatrol) {
     if (prop.listing_status === '申込あり') {
       try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
       return '申込あり';
