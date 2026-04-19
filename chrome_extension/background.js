@@ -394,8 +394,9 @@ function getFilterRejectReason(prop, customer) {
   }
 
   // 他サイト(itandi/ES-Square/いえらぶ)で申込ありとして弾かれた物件は同一実行内でREINSでもスキップ
+  // SUUMO巡回モード時はスキップせずDiscord通知(⚠️ 募集状況: 申込あり)へ流す
   try {
-    if (globalThis.__hasMoshikomiKey && globalThis.__hasMoshikomiKey(prop.building_name, prop.room_number)) {
+    if (!globalThis._suumoPatrolMode && globalThis.__hasMoshikomiKey && globalThis.__hasMoshikomiKey(prop.building_name, prop.room_number)) {
       return '他サイトで申込あり(前回実行)';
     }
   } catch(e) {}
