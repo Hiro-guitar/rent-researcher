@@ -2332,7 +2332,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       }
 
       // 詳細ページのVueコンポーネントがマウントされるまで待つ（MutationObserver、最大15秒）
-      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 11 });
+      // 会員情報・広告転載区分など遅延描画セクションを含めるため minCount を増やす
+      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 20 });
 
       // 詳細データ抽出
       const detailResults = await chrome.scripting.executeScript({
@@ -2344,13 +2345,21 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             const container = el.closest('.p-label')?.parentElement;
             if (!container) return '';
             if (label === '部屋番号') return container.querySelector('.col-sm-4')?.textContent.trim() || '';
+            // レスポンシブ重複(d-sm-none + d-none d-sm-inline 併存)を除外するテキスト取得
+            const extractText = (el) => {
+              if (!el) return '';
+              const clone = el.cloneNode(true);
+              clone.querySelectorAll('.d-sm-none').forEach(n => n.remove());
+              const text = clone.textContent.trim();
+              return text || el.textContent.trim();
+            };
             // 値は内側の .row 直下の div（class="col" のことも "col-2" のこともある）
             const innerRow = container.querySelector(':scope > .row');
             if (innerRow) {
               const valEl = innerRow.querySelector(':scope > [class^="col"], :scope > [class*=" col"]');
-              if (valEl) return valEl.textContent.trim();
+              if (valEl) return extractText(valEl);
             }
-            return container.querySelector('.row .col')?.textContent.trim() || '';
+            return extractText(container.querySelector('.row .col'));
           };
 
           const propertyNumber = getVal('物件番号');
