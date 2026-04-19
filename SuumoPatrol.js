@@ -797,6 +797,12 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
       warnings.push('⚠️ 広告掲載: ' + String(adKeisai).trim() + '（SUUMO広告掲載の確認が必要です）');
     }
 
+    // 申込有無の警告（listing_status が「申込あり」「申込N件」等なら元付に確認が必要）
+    var listingStatus = p.listing_status ? String(p.listing_status).trim() : '';
+    if (listingStatus && (listingStatus === '申込あり' || /^申込\d+件$/.test(listingStatus) || /申込/.test(listingStatus))) {
+      warnings.push('⚠️ 募集状況: ' + listingStatus + '（元付に申込状況の確認が必要です）');
+    }
+
     // メッセージ組立
     var msgLines = [];
     msgLines.push('**🏠 新着SUUMO候補物件**');

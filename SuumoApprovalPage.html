@@ -233,9 +233,8 @@ body {
     <div class="prop-row"><div class="prop-label">部屋番号</div><div class="prop-value" id="pvRoom"></div></div>
     <div class="prop-row"><div class="prop-label">住所</div><div class="prop-value" id="pvAddress"></div></div>
     <div class="prop-row"><div class="prop-label">ソース</div><div class="prop-value" id="pvSource"></div></div>
-    <div class="prop-row"><div class="prop-label">元サイト</div><div class="prop-value" id="pvUrl"></div></div>
     <div class="prop-row"><div class="prop-label">ステータス</div><div class="prop-value" id="pvStatus"></div></div>
-    <div class="prop-row"><div class="prop-label">掲載状況</div><div class="prop-value" id="pvListingStatus"></div></div>
+    <div class="prop-row"><div class="prop-label">募集状況</div><div class="prop-value" id="pvListingStatus"></div></div>
     <div class="prop-row"><div class="prop-label">現況</div><div class="prop-value" id="pvCurrentStatus"></div></div>
   </div>
 </div>
@@ -426,9 +425,6 @@ window.addEventListener('DOMContentLoaded', function() {
   setText('pvSource', SOURCE || p.source);
   setText('pvListingStatus', p.listing_status);
   setText('pvCurrentStatus', p.current_status);
-
-  // 元サイトリンク（Discord通知側に移動したため承認ページでは非表示）
-  setText('pvUrl', '-');
 
   // ステータス
   var statusEl = document.getElementById('pvStatus');
