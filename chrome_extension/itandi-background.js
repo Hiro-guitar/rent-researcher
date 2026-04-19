@@ -243,6 +243,25 @@ async function resolveItandiStationIds(tabId, customer) {
         }
       }
 
+      // 4. prefectureId一致で見つからない場合の最終フォールバック: 他県も含めて検索
+      // 「西船橋」「市川」「本八幡」など隣県駅を希望駅として指定している顧客向け
+      if (matched.length === 0 && prefectureId) {
+        for (const searchName of searchNames) {
+          const url = `${ITANDI_STATIONS_API_URL}?name=${encodeURIComponent(searchName)}`;
+          const data = await itandiApiGet(tabId, url);
+          const stations = data.stations || [];
+          for (const st of stations) {
+            if (st.label !== searchName) continue;
+            // 他県の同名駅もマッチ対象（prefectureId条件を外す）
+            if (!matched.includes(st.id)) matched.push(st.id);
+          }
+          if (matched.length > 0) {
+            console.log(`[itandi] 駅名「${cleanName}」→ 都道府県跨ぎでマッチ (要求pref=${prefectureId})`);
+            break;
+          }
+        }
+      }
+
       itandiStationCache[cacheKey] = matched;
       allIds.push(...matched);
 
