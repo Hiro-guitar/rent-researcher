@@ -203,6 +203,7 @@
     try {
       res = await _fetchWithTimeout(url, SUUMO_COMP_FETCH_TIMEOUT_MS);
     } catch (e) {
+      console.warn('[SUUMO競合] fetch例外:', e && e.message, url.slice(0, 120));
       return null;
     }
     if (res.status === 429 || res.status === 503) {
@@ -213,9 +214,24 @@
         return null;
       }
     }
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn('[SUUMO競合] fetch non-ok:', res.status, url.slice(0, 120));
+      return null;
+    }
     const html = await res.text();
-    return parseSuumoCompetitorCount(html, expectedRent, expectedArea);
+    const counts = parseSuumoCompetitorCount(html, expectedRent, expectedArea);
+    // 診断: HTMLサイズ、カード数が少ない場合はHTML冒頭も出す
+    console.log('[SUUMO競合] fetch結果:', {
+      url: url.slice(0, 150),
+      status: res.status,
+      htmlLen: html.length,
+      rawCards: counts._rawCards,
+      rentMiss: counts._rentMiss,
+      areaMiss: counts._areaMiss,
+      hit: counts.total,
+      htmlHead: counts._rawCards === 0 ? html.slice(0, 500) : '(cards found, skipping html dump)',
+    });
+    return counts;
   }
 
   // ── 統合関数 ───────────────────────────────────────────────
