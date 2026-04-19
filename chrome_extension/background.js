@@ -401,6 +401,12 @@ function getFilterRejectReason(prop, customer) {
     }
   } catch(e) {}
 
+  // SUUMO巡回モードのREINS物件: 広告転載区分「不可」ならスキップ
+  // 「広告可」→通過 / 「広告可（但し要連絡）」→通過（Discord通知で⚠️警告表示）
+  if (globalThis._suumoPatrolMode && prop.ad_keisai === '不可') {
+    return '広告転載区分: 不可';
+  }
+
   // 新築フィルタ（顧客が「新築」指定の場合、新築フラグが「新築」の物件のみ通過）
   if (customer.building_age && String(customer.building_age).includes('新築')) {
     if (!prop.shinchiku_flag || !prop.shinchiku_flag.includes('新築')) {
@@ -2497,7 +2503,18 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             facilities: getVal('設備・条件・住宅性能等') || '',
             sunlight: getVal('バルコニー方向') || '',
             lease_type: getVal('建物賃貸借区分') || '',
-            contract_period: getVal('契約期間') || '',
+            // 契約期間: 「契約期間」ラベル優先。無ければ「建物賃貸借期間」(定期借家の場合こちら)
+            contract_period: getVal('契約期間') || getVal('建物賃貸借期間') || '',
+            // 広告転載区分: 「広告可」→'可'、「不可」→'不可'、「広告可（但し要連絡）」→'要連絡'
+            ad_keisai: (() => {
+              const adReprint = getVal('広告転載区分') || '';
+              if (!adReprint) return '';
+              if (adReprint === '広告可') return '可';
+              if (adReprint === '不可') return '不可';
+              if (adReprint.includes('要連絡')) return '要連絡';
+              return adReprint;
+            })(),
+            ad_reprint_raw: getVal('広告転載区分') || '',
             move_in_date: (() => {
               // 「入居年月」は col-4 と col-8 に分かれている（例: "令和 8年 4月" + "中旬"）
               const allLabels = [...document.querySelectorAll('.p-label-title')];
@@ -2537,7 +2554,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             shinchiku_flag: getVal('新築フラグ') || '',
             reins_property_number: propertyNumber,
             reins_shougo: getVal('商号') || '',
-            reins_tel: getVal('電話番号') || '',
+            // 代表電話番号(会員情報セクション)優先、無ければ旧「電話番号」ラベル
+            reins_tel: getVal('代表電話番号') || getVal('電話番号') || '',
+            // SUUMO承認画面/Discord通知で使う元付フィールド（reins_shougo/telのエイリアス）
+            owner_company: getVal('商号') || '',
+            owner_phone: getVal('代表電話番号') || getVal('電話番号') || '',
             // === 第1弾追加フィールド ===
             // 単価
             sqm_price: getVal('㎡単価') || '',
