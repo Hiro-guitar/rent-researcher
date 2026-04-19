@@ -60,51 +60,56 @@
   }
 
   /**
-   * 住所から SUUMO 検索用に「pref+city+town+chome」を切り出す。
-   * 取れなければ prop.address をそのまま返す。
+   * 住所から SUUMO 検索用の住所候補を優先順に返す。
+   * 「町名+先頭数字」が SUUMO 上の丁目に一致する物件が多いが、
+   * 町名に丁目がない場合（例: 片町1-4）は「町名+1」では 0件 になり、
+   * 「町名のみ」でヒットするケースがある。逆に「上目黒3-4-10」は
+   * 「上目黒3」で検索したい（「上目黒」だと広すぎる）。
+   * → 複数候補を返して countSuumoCompetitors で順次試行する。
+   *
+   * 戻り値: ["町名+数字", "町名のみ"] のような配列（最大2件）
    */
-  function _extractSearchAddr(prop) {
-    if (!prop) return null;
+  function _extractSearchAddrCandidates(prop) {
+    if (!prop) return [];
     const raw = prop.address || ((prop.pref || '') + (prop.addr1 || '') + (prop.addr2 || '') + (prop.addr3 || ''));
-    if (!raw) return null;
+    if (!raw) return [];
     let s = String(raw).trim();
-    if (!s) return null;
+    if (!s) return [];
 
-    // 都道府県
     const prefMatch = s.match(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/);
-    if (!prefMatch) return s; // 都道府県がない時はそのまま返す
+    if (!prefMatch) return [s];
     const pref = prefMatch[1];
     s = s.slice(pref.length);
 
-    // 市区郡（政令市の区も拾う）
     const cityMatch = s.match(/^(.+?[市区郡])(.+?区)?/);
-    if (!cityMatch) return pref + s;
+    if (!cityMatch) return [pref + s];
     const city = cityMatch[1] + (cityMatch[2] || '');
     s = s.slice(city.length);
 
-    // 残りから町名・丁目を分離（番地は捨てる）
     s = s.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
     const townMatch = s.match(/^([^\d]+?)([\d])/);
     if (!townMatch) {
-      // 数字が無い場合は残り全部を町名扱い
-      return pref + city + s;
+      return [pref + city + s];
     }
     const town = townMatch[1];
     const rest = s.slice(town.length);
 
-    // 丁目を抽出（"3丁目..." or "3-28-14"）
-    // ※SUUMO検索では「4丁目」を付けると0件化する（実測確認済）。数字のみで連結する。
-    //   例: 「東京都新宿区下落合4」←OK / 「東京都新宿区下落合4丁目」←NG
-    let chome = '';
+    const townOnly = pref + city + town;
+
+    // 「N丁目」明示 → 数字付きのみ採用（町名のみフォールバックは念のため付ける）
     const chomeKanjiMatch = rest.match(/^(\d+)丁目/);
     if (chomeKanjiMatch) {
-      chome = chomeKanjiMatch[1];
-    } else {
-      const numMatch = rest.match(/^(\d+)/);
-      if (numMatch) chome = numMatch[1];
+      return [pref + city + town + chomeKanjiMatch[1], townOnly];
     }
 
-    return pref + city + town + chome;
+    // 「N-N」「N-N-N」「N」など番地形式 → 「町名+先頭数字」と「町名のみ」の両方試す
+    const numMatch = rest.match(/^(\d+)/);
+    if (numMatch) {
+      return [pref + city + town + numMatch[1], townOnly];
+    }
+
+    // 数字無し → 町名のみ
+    return [townOnly];
   }
 
   // ── URL構築 ──────────────────────────────────────────────
@@ -118,12 +123,20 @@
   function buildSuumoCompetitorSearchUrl(prop) {
     const rent = _toSuumoRent(prop && prop.rent);
     const area = _toSuumoArea(prop && (prop.area || prop.usageArea));
-    const addr = _extractSearchAddr(prop);
-    if (!rent || !area || !addr) return null;
+    const addrCandidates = _extractSearchAddrCandidates(prop);
+    if (!rent || !area || !addrCandidates.length) return null;
     const btype = _inferPropertyType(prop);
+    // 各住所候補について primary(4部 building_type 込み)と fallback(3部) を作る
+    const urls = [];
+    for (const addr of addrCandidates) {
+      urls.push(SUUMO_COMP_BASE + _buildFw([addr, btype, area, rent]) + '&pc=100');
+    }
+    // 最後に「町名のみ × 建物種別なし」も入れて広めに保険
+    if (addrCandidates.length > 0) {
+      urls.push(SUUMO_COMP_BASE + _buildFw([addrCandidates[addrCandidates.length - 1], area, rent]) + '&pc=100');
+    }
     return {
-      primaryUrl: SUUMO_COMP_BASE + _buildFw([addr, btype, area, rent]) + '&pc=100',
-      fallbackUrl: SUUMO_COMP_BASE + _buildFw([addr, area, rent]) + '&pc=100',
+      candidateUrls: urls,
       _expectedRent: rent,
       _expectedArea: area,
     };
@@ -208,36 +221,42 @@
 
   async function countSuumoCompetitors(prop) {
     try {
-      const urls = buildSuumoCompetitorSearchUrl(prop);
-      if (!urls) return null;
-      const expectedRent = urls._expectedRent;
-      const expectedArea = urls._expectedArea;
+      const built = buildSuumoCompetitorSearchUrl(prop);
+      if (!built) return null;
+      const expectedRent = built._expectedRent;
+      const expectedArea = built._expectedArea;
+      const urls = built.candidateUrls;
 
-      let counts = await _fetchAndCount(urls.primaryUrl, expectedRent, expectedArea);
-      let usedUrl = urls.primaryUrl;
-
-      // 4部fwで0件 or null なら、3部fw（建物種別なし）にフォールバック
-      if (!counts || counts.total === 0) {
-        const fbCounts = await _fetchAndCount(urls.fallbackUrl, expectedRent, expectedArea);
-        if (fbCounts && fbCounts.total > 0) {
-          counts = fbCounts;
-          usedUrl = urls.fallbackUrl;
-        } else if (!counts && fbCounts) {
-          // primaryがnull(失敗)、fallbackは0件 → 0件として扱う
-          counts = fbCounts;
-          usedUrl = urls.fallbackUrl;
+      let lastCounts = null;
+      let lastUrl = urls[urls.length - 1] || null;
+      for (const url of urls) {
+        const counts = await _fetchAndCount(url, expectedRent, expectedArea);
+        if (counts && counts.total > 0) {
+          // ヒットしたら採用
+          return {
+            withName: counts.withName,
+            withoutName: counts.withoutName,
+            withNameHighlighted: counts.withNameHighlighted,
+            withoutNameHighlighted: counts.withoutNameHighlighted,
+            total: counts.total,
+            url: url,
+          };
+        }
+        if (counts) { // 0件だが取得自体は成功
+          lastCounts = counts;
+          lastUrl = url;
         }
       }
-      if (!counts) return null;
-
-      return {
-        withName: counts.withName,
-        withoutName: counts.withoutName,
-        withNameHighlighted: counts.withNameHighlighted,
-        withoutNameHighlighted: counts.withoutNameHighlighted,
-        total: counts.total,
-        url: usedUrl,
-      };
+      // 全候補で0件 → 最後の0件結果 + URLを返す（取得失敗のnullとは区別）
+      if (lastCounts) {
+        return {
+          withName: 0, withoutName: 0,
+          withNameHighlighted: 0, withoutNameHighlighted: 0,
+          total: 0, url: lastUrl,
+        };
+      }
+      // 全候補fetch失敗 → null
+      return null;
     } catch (e) {
       console.warn('[SUUMO競合] 取得失敗:', e && e.message);
       return null;
@@ -250,6 +269,6 @@
   globalThis.countSuumoCompetitors = countSuumoCompetitors;
   // テスト/デバッグ用に内部ヘルパーも露出
   globalThis._suumoCompetitorInternals = {
-    _toSuumoRent, _toSuumoArea, _inferPropertyType, _extractSearchAddr,
+    _toSuumoRent, _toSuumoArea, _inferPropertyType, _extractSearchAddrCandidates, _buildFw,
   };
 })();
