@@ -832,6 +832,15 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
     var ownerPhone = p.owner_phone || p.reins_tel || '';
     if (ownerCompany) msgLines.push('元付: ' + ownerCompany + (ownerPhone ? ' (' + ownerPhone + ')' : ''));
 
+    // SUUMO競合数（Chrome拡張のsuumo-competitor.jsが事前にprop.suumo_competitorをアタッチ）
+    if (p.suumo_competitor && typeof p.suumo_competitor === 'object') {
+      var sc = p.suumo_competitor;
+      var compLine = '🏙️ SUUMO競合: 物件名あり:' + (sc.withName || 0) + '件(うちハイライト' + (sc.withNameHighlighted || 0) + '件)'
+                   + ' / なし:' + (sc.withoutName || 0) + '件(うちハイライト' + (sc.withoutNameHighlighted || 0) + '件)';
+      if (sc.url) compLine += ' [[検索結果](' + sc.url + ')]';
+      msgLines.push(compLine);
+    }
+
     // 画像枚数カウント（11枚以下なら警告）
     var imageCount = 0;
     if (p.image_urls && Array.isArray(p.image_urls)) imageCount = p.image_urls.length;
