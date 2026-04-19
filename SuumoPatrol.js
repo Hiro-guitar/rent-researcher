@@ -837,8 +837,8 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
       var sc = p.suumo_competitor;
       var compLine = '🏙️ SUUMO競合: 物件名あり:' + (sc.withName || 0) + '件(うちハイライト' + (sc.withNameHighlighted || 0) + '件)'
                    + ' / なし:' + (sc.withoutName || 0) + '件(うちハイライト' + (sc.withoutNameHighlighted || 0) + '件)';
-      if (sc.url) compLine += ' [[検索結果](' + sc.url + ')]';
       msgLines.push(compLine);
+      if (sc.url) msgLines.push('[🔍 SUUMO検索結果](' + sc.url + ')');
     }
 
     // 画像枚数カウント（11枚以下なら警告）
