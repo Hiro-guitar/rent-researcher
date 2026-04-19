@@ -897,6 +897,14 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
             // 指数バックオフ: 5s, 15s, 45s
             waitMs = Math.min(5000 * Math.pow(3, attempt), 60000);
           }
+          // GAS Utilities.sleep() の最大値は300000ms。それより手前の60秒で打ち切って
+          // 次回巡回に回す（Cloudflare 1015 は数十分待たないと解除されないため）
+          var MAX_RETRY_WAIT_MS = 60000;
+          if (waitMs > MAX_RETRY_WAIT_MS) {
+            lastErrMsg = 'Retry-After過大: ' + Math.round(waitMs / 1000) + 's（次回巡回で再送）';
+            console.log('Discord 429/5xx: ' + lastErrMsg + ' — リトライ打ち切り');
+            break;
+          }
           console.log('Discord 429/5xx: ' + waitMs + 'ms待機後リトライ');
           Utilities.sleep(waitMs);
           continue;
