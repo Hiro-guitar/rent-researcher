@@ -66,7 +66,8 @@ importScripts('itandi-config.js', 'itandi-background.js');
 // ES-Square関連ファイルを読み込み
 importScripts('essquare-config.js', 'essquare-background.js');
 // SUUMO巡回・入稿関連ファイルを読み込み
-importScripts('suumo-patrol.js');
+// suumo-competitor.js は suumo-patrol.js から countSuumoCompetitors を参照するので先にロード
+importScripts('suumo-competitor.js', 'suumo-patrol.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {

@@ -194,6 +194,20 @@ async function runSuumoPatrolCycle() {
           if (seenKeys[key]) return this._items.length;
           seenKeys[key] = Date.now();
           totalNew++;
+          // SUUMO競合数を取得して prop.suumo_competitor にアタッチ（失敗しても送信継続）
+          try {
+            if (typeof globalThis.countSuumoCompetitors === 'function') {
+              const competitor = await globalThis.countSuumoCompetitors(prop);
+              if (competitor) {
+                prop.suumo_competitor = competitor;
+                await setStorageData({ debugLog:
+                  `[SUUMO巡回] 競合数: あり${competitor.withName}(HL${competitor.withNameHighlighted})/なし${competitor.withoutName}(HL${competitor.withoutNameHighlighted}) [${prop.building_name || prop.buildingName || ''}]`
+                });
+              }
+            }
+          } catch (compErr) {
+            console.warn('[SUUMO巡回] 競合数取得例外:', compErr && compErr.message);
+          }
           try {
             await sendSuumoCandidatesToGas([prop], crit.id);
             await setStorageData({ debugLog: `[SUUMO巡回] → ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} 送信完了` });
