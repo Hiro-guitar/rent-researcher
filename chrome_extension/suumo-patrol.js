@@ -166,6 +166,17 @@ async function runSuumoPatrolCycle() {
       console.log('[SUUMO巡回] GAS条件:', JSON.stringify(crit));
       console.log('[SUUMO巡回] 変換後customer:', JSON.stringify(customer));
 
+      // エリア条件が空（cities/stations/routes_with_stations が全て空）なら
+      // 各サイトのAPIが「都道府県全件」扱いで too many properties エラーになるため
+      // この巡回条件はスキップ。
+      const hasCities = Array.isArray(customer.cities) && customer.cities.length > 0;
+      const hasStations = Array.isArray(customer.stations) && customer.stations.length > 0;
+      const hasRws = Array.isArray(customer.routes_with_stations) && customer.routes_with_stations.length > 0;
+      if (!hasCities && !hasStations && !hasRws) {
+        await setStorageData({ debugLog: `[SUUMO巡回] ✗ スキップ: 条件「${crit.name}」にエリア指定(市区町村/駅/路線)がありません` });
+        continue;
+      }
+
       await setStorageData({ debugLog: `[SUUMO巡回] 条件 ${ci+1}/${criteria.length}: ${crit.name}` });
 
       // 各サイトの検索結果を収集
@@ -182,11 +193,9 @@ async function runSuumoPatrolCycle() {
       let totalCollected = 0;
 
       // 物件検出時に即座にGASへ送信するコレクター（都度送信）
-      // Discord Webhook レート制限(Cloudflare 1015)回避のため、
-      // 前回GAS送信からの最小間隔を保証する(MIN_GAS_INTERVAL_MS)。
-      // 画像アップロードが速い物件は連続投稿でレート制限に刺さるため。
-      const MIN_GAS_INTERVAL_MS = 30000; // 30秒
-      let _lastGasSendAt = 0;
+      // 旧実装は前回GAS送信から30秒空ける待機を入れていたが、
+      // 実測で30秒空けてもCloudflare 1015は発生し、失敗分は再送機能で
+      // 最終的に届いているため、待機ロジックは撤廃（巡回速度優先）。
       const sendCollector = {
         _items: [],
         async push(prop) {
@@ -255,20 +264,10 @@ async function runSuumoPatrolCycle() {
             });
             return this._items.length;
           }
-          // 前回GAS送信から MIN_GAS_INTERVAL_MS 未満なら差分を待機。
-          // 画像アップロードが速かった物件で連続投稿になるのを防ぐ。
-          const sinceLast = Date.now() - _lastGasSendAt;
-          if (_lastGasSendAt > 0 && sinceLast < MIN_GAS_INTERVAL_MS) {
-            const waitMs = MIN_GAS_INTERVAL_MS - sinceLast;
-            await setStorageData({ debugLog: `[SUUMO巡回] レート制限回避: ${waitMs}ms待機(前回送信から${sinceLast}ms経過)` });
-            try { await sleep(waitMs); } catch (e) {}
-          }
           try {
             await sendSuumoCandidatesToGas([prop], crit.id);
-            _lastGasSendAt = Date.now();
             await setStorageData({ debugLog: `[SUUMO巡回] → ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} 送信完了` });
           } catch (err) {
-            _lastGasSendAt = Date.now(); // 失敗でも次回まで間隔を空ける
             await setStorageData({ debugLog: `[SUUMO巡回] GAS送信失敗: ${err.message}` });
           }
           return this._items.length;
