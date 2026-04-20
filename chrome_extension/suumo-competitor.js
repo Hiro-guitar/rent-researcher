@@ -127,30 +127,26 @@
     if (!rent || !area || !addrCandidates.length) return null;
     const btype = _inferPropertyType(prop);
     const bname = (prop && (prop.building_name || prop.buildingName || prop.building) || '').toString().trim();
-
-    // SUUMO検索URLは曖昧マッチで結果が広すぎる(例: 住所+建物種別+面積+賃料 → 105件)。
-    // 建物名を fw に入れると同一建物の物件だけに絞れる（実測:105件→49件）。
-    // ただし「住所を町名+数字」にすると絞りすぎて一致物件まで0件になる（実測3件:ほぼ別ユニット）。
-    // 建物名検索では「住所は町名のみ」が最適（＝ addrCandidates の最後＝町名のみ候補）。
-    const urls = [];
-    // 町名のみ候補 = addrCandidates の最後の要素（例: [新小川町1, 新小川町] の場合「新小川町」）
+    // 町名のみ候補（例: [新小川町1, 新小川町] の最後）
     const townOnly = addrCandidates[addrCandidates.length - 1];
 
-    if (bname) {
-      // 第1優先: 町名 + 建物名 + 建物種別 + 面積 + 賃料 （ちょうどいい狭さ）
-      urls.push(SUUMO_COMP_BASE + _buildFw([townOnly, bname, btype, area, rent]) + '&pc=100');
-      // 第2: 町名 + 建物名 + 面積 + 賃料 （建物種別抜き保険）
-      urls.push(SUUMO_COMP_BASE + _buildFw([townOnly, bname, area, rent]) + '&pc=100');
-    }
+    // narrowUrls: 建物名付き検索（同一建物の物件を狭く拾う。マンション名非公開物件はここで0件になる）
+    // broadUrls : 建物名なし検索（マンション名非公開物件含む全体を拾う）
+    const narrowUrls = [];
+    const broadUrls = [];
 
-    // 第3以降: 従来形式（建物名なし版）
-    for (const addr of addrCandidates) {
-      urls.push(SUUMO_COMP_BASE + _buildFw([addr, btype, area, rent]) + '&pc=100');
+    if (bname) {
+      narrowUrls.push(SUUMO_COMP_BASE + _buildFw([townOnly, bname, btype, area, rent]) + '&pc=100');
+      narrowUrls.push(SUUMO_COMP_BASE + _buildFw([townOnly, bname, area, rent]) + '&pc=100');
     }
-    // 最終保険: 町名のみ × 建物種別なし
-    urls.push(SUUMO_COMP_BASE + _buildFw([townOnly, area, rent]) + '&pc=100');
+    for (const addr of addrCandidates) {
+      broadUrls.push(SUUMO_COMP_BASE + _buildFw([addr, btype, area, rent]) + '&pc=100');
+    }
+    broadUrls.push(SUUMO_COMP_BASE + _buildFw([townOnly, area, rent]) + '&pc=100');
+
     return {
-      candidateUrls: urls,
+      narrowUrls: narrowUrls,
+      broadUrls: broadUrls,
       _expectedRent: rent,
       _expectedArea: area,
     };
@@ -289,40 +285,55 @@
       }
       const expectedRent = built._expectedRent;
       const expectedArea = built._expectedArea;
-      const urls = built.candidateUrls;
-      console.log('[SUUMO競合] 試行URLs:', { expectedRent, expectedArea, urls });
+      const narrowUrls = built.narrowUrls || [];
+      const broadUrls = built.broadUrls || [];
+      console.log('[SUUMO競合] 試行URLs:', { expectedRent, expectedArea, narrowUrls, broadUrls });
 
-      let lastCounts = null;
-      let lastUrl = urls[urls.length - 1] || null;
-      for (const url of urls) {
-        const counts = await _fetchAndCount(url, expectedRent, expectedArea);
-        console.log('[SUUMO競合] ', url.slice(0, 200), '→', counts);
-        if (counts && counts.total > 0) {
-          // ヒットしたら採用
-          return {
-            withName: counts.withName,
-            withoutName: counts.withoutName,
-            withNameHighlighted: counts.withNameHighlighted,
-            withoutNameHighlighted: counts.withoutNameHighlighted,
-            total: counts.total,
-            url: url,
-          };
-        }
-        if (counts) { // 0件だが取得自体は成功
-          lastCounts = counts;
-          lastUrl = url;
+      // 集計は「建物名なし」版で行う（マンション名非公開物件も確実に拾う）。
+      // 広いURLで返ってくる結果は多いが、賃料+面積完全一致のカードだけを数えるので
+      // ノイズには強い。0件になった時は次候補URLに進む。
+      let counts = null;
+      for (const url of broadUrls) {
+        const c = await _fetchAndCount(url, expectedRent, expectedArea);
+        console.log('[SUUMO競合][集計] ', url.slice(0, 200), '→', c);
+        if (c && c.total > 0) { counts = c; break; }
+        if (c) counts = c;  // 0件でも最後の結果を保持（全部0件だった場合用）
+      }
+
+      // 表示用URLは「建物名あり」版が優先（ユーザーがリンクを開いた時に自然な件数）。
+      // 建物名版で0件なら、建物名なし版のヒットURLにフォールバック。
+      let displayUrl = null;
+      if (narrowUrls.length > 0) {
+        // 建物名ありの候補を1件試して、ヒットすればそれを採用
+        for (const url of narrowUrls) {
+          const nc = await _fetchAndCount(url, expectedRent, expectedArea);
+          console.log('[SUUMO競合][表示URL] ', url.slice(0, 200), '→', nc);
+          if (nc && nc.total > 0) {
+            displayUrl = url;
+            break;
+          }
         }
       }
-      // 全候補で0件 → 最後の0件結果 + URLを返す（取得失敗のnullとは区別）
-      if (lastCounts) {
+      if (!displayUrl) {
+        // 建物名ありで0件（非公開物件 or 建物名無し）→ broadUrls の最後のURLを表示用に
+        displayUrl = broadUrls[broadUrls.length - 1];
+      }
+
+      if (!counts) {
         return {
           withName: 0, withoutName: 0,
           withNameHighlighted: 0, withoutNameHighlighted: 0,
-          total: 0, url: lastUrl,
+          total: 0, url: displayUrl,
         };
       }
-      // 全候補fetch失敗 → null
-      return null;
+      return {
+        withName: counts.withName,
+        withoutName: counts.withoutName,
+        withNameHighlighted: counts.withNameHighlighted,
+        withoutNameHighlighted: counts.withoutNameHighlighted,
+        total: counts.total,
+        url: displayUrl,
+      };
     } catch (e) {
       console.warn('[SUUMO競合] 取得失敗:', e && e.message);
       return null;
