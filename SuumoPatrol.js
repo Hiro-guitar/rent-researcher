@@ -30,8 +30,14 @@ var SUUMO_CANDIDATE_HEADERS = [
   '物件キー', '建物名', '部屋番号', '住所', '賃料', '管理費', '間取り', '面積',
   '最寄駅', '検出日時', 'ソース', 'ステータス', 'property_data_json',
   '画像ジャンルJSON', '巡回条件ID', 'SUUMO設備チェックJSON',
-  'submittingTs'
+  'submittingTs', 'discordSentTs'
 ];
+
+// Discord通知済みカラムのインデックス（ヘッダー順変更時はここも更新）
+var SUUMO_CANDIDATE_COL_DISCORD_SENT_TS = 18; // 1-indexed: 18列目 = 'discordSentTs'
+
+// 未通知物件再送の対象期間（ms）。古すぎる物件は再送対象から外す。
+var SUUMO_UNSENT_RETRY_WINDOW_MS = 24 * 60 * 60 * 1000; // 24時間
 
 // submittingロックのタイムアウト（ミリ秒）
 // キュー内で多数の物件を順次処理するとき、後ろの物件は入稿開始まで時間がかかるため
@@ -296,8 +302,9 @@ function addSuumoCandidates(json) {
       criteriaId
     ];
 
-    newProperties.push({ row: row, property: p });
     sheet.appendRow(row);
+    // appendRow後の最終行 = 今書いたrow。markSuumoCandidateAsDiscordSent_用に保持
+    newProperties.push({ row: row, property: p, _sheetRowIndex: sheet.getLastRow() });
   }
 
   // 巡回条件の最終実行日時を更新
@@ -306,6 +313,67 @@ function addSuumoCandidates(json) {
   }
 
   return { added: added, duplicates: duplicates, newProperties: newProperties };
+}
+
+/**
+ * 未通知物件（discordSentTs が空 or 未設定の物件）を取得。
+ * Cloudflare 1015等でDiscord通知が失敗した物件を次回以降の巡回で再送するために使う。
+ * - criteriaId: 対象の巡回条件IDに絞る
+ * - 検出日時が 24時間以内 の物件のみ（古い未通知は諦める）
+ * - 最大20件まで（1回の再送で大量処理しないよう制限）
+ * @returns {Array} [{row: [...], property: {...}}, ...]
+ */
+function getUnsentSuumoCandidates_(criteriaId) {
+  var sheet = getCandidateSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var lastCol = sheet.getLastColumn();
+  var data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  var now = new Date().getTime();
+  var results = [];
+
+  for (var i = 0; i < data.length; i++) {
+    var row = data[i];
+    var rowCriteriaId = row[14] || ''; // 巡回条件ID(15列目, 0-indexed:14)
+    if (criteriaId && rowCriteriaId !== criteriaId) continue;
+
+    var discordSentTs = row[SUUMO_CANDIDATE_COL_DISCORD_SENT_TS - 1] || '';
+    if (discordSentTs) continue; // 既に通知済み
+
+    // 検出日時(10列目 = 'yyyy-MM-dd HH:mm:ss' 文字列 or Date)のタイムスタンプ
+    var detectedAtRaw = row[9];
+    var detectedAtMs = 0;
+    if (detectedAtRaw instanceof Date) {
+      detectedAtMs = detectedAtRaw.getTime();
+    } else if (typeof detectedAtRaw === 'string' && detectedAtRaw) {
+      detectedAtMs = new Date(detectedAtRaw.replace(' ', 'T') + '+09:00').getTime();
+    }
+    if (!detectedAtMs || isNaN(detectedAtMs)) continue;
+    if (now - detectedAtMs > SUUMO_UNSENT_RETRY_WINDOW_MS) continue;
+
+    // property_data_json(13列目) から property を復元
+    var propertyJson = row[12] || '';
+    if (!propertyJson) continue;
+    try {
+      var property = JSON.parse(propertyJson);
+      results.push({ row: row, property: property, _sheetRowIndex: i + 2 });
+    } catch (e) { continue; }
+    if (results.length >= 20) break;
+  }
+  return results;
+}
+
+/**
+ * 指定 row (sheetRowIndex は 1-indexed) の discordSentTs 列に現在時刻を記録。
+ */
+function markSuumoCandidateAsDiscordSent_(sheetRowIndex) {
+  try {
+    var sheet = getCandidateSheet_();
+    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    sheet.getRange(sheetRowIndex, SUUMO_CANDIDATE_COL_DISCORD_SENT_TS).setValue(now);
+  } catch (e) {
+    console.warn('markSuumoCandidateAsDiscordSent_ failed:', e && e.message);
+  }
 }
 
 /**
@@ -888,6 +956,10 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
         if (respCode >= 200 && respCode < 300) {
           sent++;
           sendSuccess = true;
+          // 送信成功を物件行にマーク（未通知フラグを消して、次回巡回での再送対象から外す）
+          if (entry && entry._sheetRowIndex) {
+            try { markSuumoCandidateAsDiscordSent_(entry._sheetRowIndex); } catch (e) {}
+          }
           break;
         }
         lastErrMsg = 'HTTP ' + respCode + ': ' + resp.getContentText().substring(0, 100);
@@ -1004,6 +1076,33 @@ function handleAddSuumoCandidate(json) {
 
   var webhookUrl = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL') || '';
   console.log('SUUMO_DISCORD_WEBHOOK_URL: ' + (webhookUrl ? webhookUrl.substring(0, 50) + '...' : '(未設定)'));
+
+  // Cloudflare 1015 等で Discord通知が失敗した過去の物件（24時間以内）も再送対象に加える
+  var unsentProps = [];
+  try {
+    unsentProps = getUnsentSuumoCandidates_(json.patrolCriteriaId || '');
+    if (unsentProps.length > 0) {
+      console.log('[SUUMO巡回] 未通知物件 ' + unsentProps.length + ' 件を再送対象に追加');
+    }
+  } catch (e) {
+    console.warn('[SUUMO巡回] 未通知物件取得失敗:', e && e.message);
+  }
+  // 新着の先頭に未通知を追加（古い順、重複は物件キー一致でスキップ）
+  var combinedProps = [];
+  var seenKeys = {};
+  for (var u = 0; u < unsentProps.length; u++) {
+    var upkey = unsentProps[u].row && unsentProps[u].row[0];
+    if (!upkey || seenKeys[upkey]) continue;
+    seenKeys[upkey] = true;
+    combinedProps.push(unsentProps[u]);
+  }
+  for (var v = 0; v < (result.newProperties || []).length; v++) {
+    var npkey = result.newProperties[v].row && result.newProperties[v].row[0];
+    if (!npkey || seenKeys[npkey]) continue;
+    seenKeys[npkey] = true;
+    combinedProps.push(result.newProperties[v]);
+  }
+  result.newProperties = combinedProps;
 
   // 新着があればDiscord通知
   var discordResult = null;
