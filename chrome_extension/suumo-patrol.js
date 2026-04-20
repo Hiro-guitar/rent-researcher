@@ -197,8 +197,16 @@ async function runSuumoPatrolCycle() {
           // SUUMO競合数を取得して prop.suumo_competitor にアタッチ（失敗しても送信継続）
           try {
             if (typeof globalThis.countSuumoCompetitors === 'function') {
+              // 階建情報の有無を診断ログで出す（無ければ広め検索でフォールバック）
+              let bfDiag = '';
+              try {
+                const bf = globalThis._suumoCompetitorInternals &&
+                           globalThis._suumoCompetitorInternals._toSuumoBuildingFloor &&
+                           globalThis._suumoCompetitorInternals._toSuumoBuildingFloor(prop);
+                bfDiag = bf ? `階建=${bf}` : '階建不明(広め検索でフォールバック)';
+              } catch (e) { bfDiag = '階建判定エラー'; }
               await setStorageData({ debugLog:
-                `[SUUMO競合] 入力: addr="${prop.address || ''}" rent=${prop.rent} area=${prop.area || prop.usageArea} structure="${prop.structure || ''}"`
+                `[SUUMO競合] 入力: addr="${prop.address || ''}" rent=${prop.rent} area=${prop.area || prop.usageArea} structure="${prop.structure || ''}" ${bfDiag}`
               });
               const competitor = await globalThis.countSuumoCompetitors(prop);
               if (competitor) {

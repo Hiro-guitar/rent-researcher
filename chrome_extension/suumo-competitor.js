@@ -18,6 +18,7 @@
 
   const SUUMO_COMP_BASE = 'https://suumo.jp/jj/chintai/ichiran/FR301FC011/?ar=030&bs=040&fw=';
   const SUUMO_COMP_FETCH_TIMEOUT_MS = 8000;
+  const SUUMO_COMP_MAX_PAGES = 3; // 1ページ100件×最大3ページ=300件まで集計
   // タイトルが「1K」「2LDK」「ワンルーム」のような間取り文字列だけのケース → 物件名なし扱い
   const SUUMO_COMP_LAYOUT_RE = /(\d{1,2}[dksl]+|ワンルーム)/i;
 
@@ -251,7 +252,7 @@
     }
   }
 
-  async function _fetchAndCount(url, expectedRent, expectedArea) {
+  async function _fetchAndCountSinglePage(url, expectedRent, expectedArea) {
     let res;
     try {
       res = await _fetchWithTimeout(url, SUUMO_COMP_FETCH_TIMEOUT_MS);
@@ -273,7 +274,6 @@
     }
     const html = await res.text();
     const counts = parseSuumoCompetitorCount(html, expectedRent, expectedArea);
-    // 診断: HTMLサイズ、カード数が少ない場合はHTML冒頭も出す
     console.log('[SUUMO競合] fetch結果:', {
       url: url.slice(0, 150),
       status: res.status,
@@ -285,6 +285,39 @@
       htmlHead: counts._rawCards === 0 ? html.slice(0, 500) : '(cards found, skipping html dump)',
     });
     return counts;
+  }
+
+  // 複数ページ取得版。1ページ目を取得して rawCards が 100 件ちょうど（=次ページ有り濃厚）
+  // なら追加で &page=2, &page=3 を取得して集計を合算する。
+  async function _fetchAndCount(baseUrl, expectedRent, expectedArea) {
+    const first = await _fetchAndCountSinglePage(baseUrl, expectedRent, expectedArea);
+    if (!first) return null;
+    // rawCards が 100 未満なら次ページなし確定
+    if (first._rawCards < 100) return first;
+
+    const merged = Object.assign({}, first);
+    merged._pagesFetched = 1;
+
+    for (let page = 2; page <= SUUMO_COMP_MAX_PAGES; page++) {
+      const pageUrl = baseUrl + '&page=' + page;
+      const next = await _fetchAndCountSinglePage(pageUrl, expectedRent, expectedArea);
+      if (!next) break;
+      merged.withName += next.withName;
+      merged.withoutName += next.withoutName;
+      merged.withNameHighlighted += next.withNameHighlighted;
+      merged.withoutNameHighlighted += next.withoutNameHighlighted;
+      merged._rawCards += next._rawCards;
+      merged._rentMiss += next._rentMiss;
+      merged._areaMiss += next._areaMiss;
+      merged.total = merged.withName + merged.withoutName;
+      merged._pagesFetched++;
+      // 次ページのカード数が100未満なら最終ページ
+      if (next._rawCards < 100) break;
+    }
+    console.log('[SUUMO競合] 合算(' + merged._pagesFetched + 'ページ):', {
+      total: merged.total, rawCards: merged._rawCards,
+    });
+    return merged;
   }
 
   // ── 統合関数 ───────────────────────────────────────────────
