@@ -126,15 +126,29 @@
     const addrCandidates = _extractSearchAddrCandidates(prop);
     if (!rent || !area || !addrCandidates.length) return null;
     const btype = _inferPropertyType(prop);
-    // 各住所候補について primary(4部 building_type 込み)と fallback(3部) を作る
+    const bname = (prop && (prop.building_name || prop.buildingName || prop.building) || '').toString().trim();
+
+    // SUUMO検索URLは曖昧マッチで結果が広すぎる(例: 住所+建物種別+面積+賃料 → 105件)。
+    // 建物名を fw に入れると同一建物の物件だけに絞れる（実測:105件→49件）。
+    // ただし「住所を町名+数字」にすると絞りすぎて一致物件まで0件になる（実測3件:ほぼ別ユニット）。
+    // 建物名検索では「住所は町名のみ」が最適（＝ addrCandidates の最後＝町名のみ候補）。
     const urls = [];
+    // 町名のみ候補 = addrCandidates の最後の要素（例: [新小川町1, 新小川町] の場合「新小川町」）
+    const townOnly = addrCandidates[addrCandidates.length - 1];
+
+    if (bname) {
+      // 第1優先: 町名 + 建物名 + 建物種別 + 面積 + 賃料 （ちょうどいい狭さ）
+      urls.push(SUUMO_COMP_BASE + _buildFw([townOnly, bname, btype, area, rent]) + '&pc=100');
+      // 第2: 町名 + 建物名 + 面積 + 賃料 （建物種別抜き保険）
+      urls.push(SUUMO_COMP_BASE + _buildFw([townOnly, bname, area, rent]) + '&pc=100');
+    }
+
+    // 第3以降: 従来形式（建物名なし版）
     for (const addr of addrCandidates) {
       urls.push(SUUMO_COMP_BASE + _buildFw([addr, btype, area, rent]) + '&pc=100');
     }
-    // 最後に「町名のみ × 建物種別なし」も入れて広めに保険
-    if (addrCandidates.length > 0) {
-      urls.push(SUUMO_COMP_BASE + _buildFw([addrCandidates[addrCandidates.length - 1], area, rent]) + '&pc=100');
-    }
+    // 最終保険: 町名のみ × 建物種別なし
+    urls.push(SUUMO_COMP_BASE + _buildFw([townOnly, area, rent]) + '&pc=100');
     return {
       candidateUrls: urls,
       _expectedRent: rent,
