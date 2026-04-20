@@ -1554,6 +1554,27 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             }
           }
 
+          // 住所: 一覧で specView.jusho_full_text が空のケースがあるため、
+          // 詳細ページの「所在地」ラベル値で補完
+          if (d.address && !prop.address) {
+            prop.address = d.address;
+          }
+
+          // 面積: 一覧で specView.senyu_menseki が空(0)のケースがあるため、
+          // 詳細ページの「専有面積」テキスト(_area_text, 例: "32.45m²")から数値を抽出
+          if (d._area_text && (!prop.area || prop.area === 0)) {
+            const areaMatch = String(d._area_text).match(/([\d.]+)/);
+            if (areaMatch) {
+              const areaNum = parseFloat(areaMatch[1]);
+              if (isFinite(areaNum) && areaNum > 0) prop.area = areaNum;
+            }
+          }
+
+          // 建物名: 詳細の '物件名' ラベルで補完
+          if (d.building_name && !prop.building_name) {
+            prop.building_name = d.building_name;
+          }
+
           // 詳細ページの値で補完するフィールド
           const detailFields = [
             'floor_text', 'story_text', 'structure', 'total_units', 'lease_type', 'contract_period',
