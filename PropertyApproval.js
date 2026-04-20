@@ -692,10 +692,52 @@ function handlePropertyAction(e) {
 
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
   var loggedRowIdx = 0;
+
+  // === 転送疑い検知(view のみ) ===
+  // 過去30分以内の同顧客×同物件アクセスで ISP/都市 が異なるログがあれば転送の疑い
+  var forwardSuspect = null; // {otherIsp, otherCity, otherIp}
+  if (actionType === 'view' && (trackIsp || trackCity)) {
+    try {
+      var nowMs = new Date().getTime();
+      var WINDOW_MS = 30 * 60 * 1000;
+      var lastRow = sheet.getLastRow();
+      if (lastRow > 1) {
+        // 末尾から最大200件を遡ってチェック
+        var startRow = Math.max(2, lastRow - 200);
+        var data = sheet.getRange(startRow, 1, lastRow - startRow + 1, ACTION_LOG_HEADERS.length).getValues();
+        for (var ri = data.length - 1; ri >= 0; ri--) {
+          var r = data[ri];
+          if (r[0] !== customerName) continue;
+          if (r[1] !== roomId) continue;
+          if (r[2] !== 'view') continue;
+          var dt = r[8]; // '日時' 列
+          var dtMs = 0;
+          if (dt instanceof Date) dtMs = dt.getTime();
+          else if (typeof dt === 'string' && dt) dtMs = new Date(dt.replace(/\//g, '-').replace(' ', 'T') + '+09:00').getTime();
+          if (!dtMs || isNaN(dtMs)) continue;
+          if (nowMs - dtMs > WINDOW_MS) break; // 30分より古い → 以降の行も古いはず
+          var rowIp = r[12] || '';
+          var rowCity = r[15] || '';
+          var rowIsp = r[16] || '';
+          var ispDiff = trackIsp && rowIsp && trackIsp !== rowIsp;
+          var cityDiff = trackCity && rowCity && trackCity !== rowCity;
+          if (ispDiff || cityDiff) {
+            forwardSuspect = { otherIsp: rowIsp, otherCity: rowCity, otherIp: rowIp };
+            break;
+          }
+        }
+      }
+    } catch (fe) {
+      console.error('転送検知エラー: ' + fe.message);
+    }
+  }
+
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(5000);
-    sheet.appendRow([customerName, roomId, actionType, buildingName, roomNumber, rent, layout, stationInfo, now, applicationType, contactInfo]);
+    // アクションログには IP/国/都道府県/市区町村/ISP/UA/LINE内 も書き込む(転送検知の履歴源)
+    sheet.appendRow([customerName, roomId, actionType, buildingName, roomNumber, rent, layout, stationInfo, now, applicationType, contactInfo,
+      '', trackIp, trackCountry, trackRegion, trackCity, trackIsp, trackUa, trackIsLine ? 'LINE' : '']);
     SpreadsheetApp.flush();
     loggedRowIdx = sheet.getLastRow();
   } catch(e) {
@@ -724,10 +766,18 @@ function handlePropertyAction(e) {
         var propLabel = buildingName || ('room_id: ' + roomId);
         if (roomNumber) propLabel += ' ' + roomNumber;
 
-        // view アクションの場合、LINE外ブラウザからのアクセスは警告表示
+        // view アクションの場合、以下の場合は警告表示
+        //  - LINE外ブラウザからのアクセス
+        //  - 30分以内の同顧客×同物件アクセスで ISP/都市 が異なる(転送疑い)
         var viewPrefix = '\uD83D\uDCC4';
+        var viewSuffix = '';
         if (actionType === 'view' && trackUa && !trackIsLine) {
           viewPrefix = '\u26A0\uFE0F'; // ⚠️
+          viewSuffix += ' **（LINE外ブラウザ）**';
+        }
+        if (actionType === 'view' && forwardSuspect) {
+          viewPrefix = '\u26A0\uFE0F';
+          viewSuffix += ' **（転送疑い）**';
         }
 
         var msgMap = {
@@ -735,8 +785,7 @@ function handlePropertyAction(e) {
           'hold_intent': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **お申し込み希望画面を開きました**（未送信）',
           'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabel + '」を **お気に入り** に追加しました',
           'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabel + '」を **興味なし** にしました',
-          'view': viewPrefix + ' **' + customerName + '** 様が「' + propLabel + '」を閲覧しました' +
-            (actionType === 'view' && trackUa && !trackIsLine ? ' **（LINE外ブラウザ）**' : '')
+          'view': viewPrefix + ' **' + customerName + '** 様が「' + propLabel + '」を閲覧しました' + viewSuffix
         };
         var msg = msgMap[actionType] || '';
         if (!msg) return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount })).setMimeType(ContentService.MimeType.JSON);
@@ -751,6 +800,14 @@ function handlePropertyAction(e) {
           var locStr = locParts.join(' ');
           if (locStr || trackIsp) {
             msg += '\n> \uD83D\uDCCD ' + (locStr || '(地域不明)') + (trackIsp ? ' / ' + trackIsp : '') + (trackIp ? ' (IP: ' + trackIp + ')' : '');
+          }
+          // 転送疑いの証拠行
+          if (forwardSuspect) {
+            var otherParts = [];
+            if (forwardSuspect.otherCity) otherParts.push(forwardSuspect.otherCity);
+            if (forwardSuspect.otherIsp) otherParts.push(forwardSuspect.otherIsp);
+            var otherDesc = otherParts.join(' / ') || '別アクセス';
+            msg += '\n> \uD83D\uDCE7 **転送疑い**: 直近30分以内に ' + otherDesc + ' からも閲覧あり';
           }
           if (trackUa) {
             // UAから端末/ブラウザを簡易パース
