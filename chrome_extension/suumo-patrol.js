@@ -182,6 +182,11 @@ async function runSuumoPatrolCycle() {
       let totalCollected = 0;
 
       // 物件検出時に即座にGASへ送信するコレクター（都度送信）
+      // Discord Webhook レート制限(Cloudflare 1015)回避のため、
+      // 前回GAS送信からの最小間隔を保証する(MIN_GAS_INTERVAL_MS)。
+      // 画像アップロードが速い物件は連続投稿でレート制限に刺さるため。
+      const MIN_GAS_INTERVAL_MS = 30000; // 30秒
+      let _lastGasSendAt = 0;
       const sendCollector = {
         _items: [],
         async push(prop) {
@@ -221,15 +226,22 @@ async function runSuumoPatrolCycle() {
           } catch (compErr) {
             console.warn('[SUUMO巡回] 競合数取得例外:', compErr && compErr.message);
           }
+          // 前回GAS送信から MIN_GAS_INTERVAL_MS 未満なら差分を待機。
+          // 画像アップロードが速かった物件で連続投稿になるのを防ぐ。
+          const sinceLast = Date.now() - _lastGasSendAt;
+          if (_lastGasSendAt > 0 && sinceLast < MIN_GAS_INTERVAL_MS) {
+            const waitMs = MIN_GAS_INTERVAL_MS - sinceLast;
+            await setStorageData({ debugLog: `[SUUMO巡回] レート制限回避: ${waitMs}ms待機(前回送信から${sinceLast}ms経過)` });
+            try { await sleep(waitMs); } catch (e) {}
+          }
           try {
             await sendSuumoCandidatesToGas([prop], crit.id);
+            _lastGasSendAt = Date.now();
             await setStorageData({ debugLog: `[SUUMO巡回] → ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} 送信完了` });
           } catch (err) {
+            _lastGasSendAt = Date.now(); // 失敗でも次回まで間隔を空ける
             await setStorageData({ debugLog: `[SUUMO巡回] GAS送信失敗: ${err.message}` });
           }
-          // Discord Webhook レート制限(Cloudflare 1015)回避のため、GAS送信後に一律8秒待機。
-          // SUUMO競合検索で既に数秒消費しているため、実質の投稿間隔は10秒前後になる。
-          try { await sleep(8000); } catch (e) {}
           return this._items.length;
         }
       };
