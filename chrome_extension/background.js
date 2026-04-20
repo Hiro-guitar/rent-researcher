@@ -3703,10 +3703,32 @@ async function sendDiscordNoResultSummary() {
     lines.push(nextRunLine);
   }
 
-  const content = lines.join('\n');
+  // Discord Webhook メッセージは 2000 文字が上限。超える場合は行単位で分割送信。
+  const MAX_LEN = 1900; // 余裕を持って1900
+  const full = lines.join('\n');
+  const chunks = [];
+  if (full.length <= MAX_LEN) {
+    chunks.push(full);
+  } else {
+    let buf = '';
+    for (const line of lines) {
+      if (buf.length + line.length + 1 > MAX_LEN) {
+        if (buf) chunks.push(buf);
+        buf = line;
+      } else {
+        buf = buf ? (buf + '\n' + line) : line;
+      }
+    }
+    if (buf) chunks.push(buf);
+  }
   try {
-    await discordPostWithRetry(discordWebhookUrl, { content });
-    console.log(`Discord 新着なしまとめ通知完了: 新着なし${list.length}名 nextRun=${nextRunLine ? 'あり' : 'なし'}`);
+    for (let i = 0; i < chunks.length; i++) {
+      // allowed_mentions.parse: [] で全メンションを無効化（content に<@ID>が無いのに
+      // allowed_mentions.users が指定されると Discord が 400 を返すことがあるため明示）
+      await discordPostWithRetry(discordWebhookUrl, { content: chunks[i], allowed_mentions: { parse: [] } });
+      if (i < chunks.length - 1) await sleep(500);
+    }
+    console.log(`Discord 新着なしまとめ通知完了: 新着なし${list.length}名 chunks=${chunks.length} nextRun=${nextRunLine ? 'あり' : 'なし'}`);
   } catch (err) {
     console.error(`Discord 新着なしまとめ通知失敗: ${err.message}`);
   }
@@ -3812,7 +3834,9 @@ async function discordPostWithRetry(url, payload) {
     }
 
     if (!resp.ok && resp.status !== 204) {
-      console.error(`Discord送信エラー: status=${resp.status}`);
+      let errBody = '';
+      try { errBody = (await resp.text()).substring(0, 500); } catch (e) {}
+      console.error(`Discord送信エラー: status=${resp.status} body=${errBody}`);
     }
     return resp;
   } catch (err) {
