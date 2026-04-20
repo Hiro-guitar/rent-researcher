@@ -227,6 +227,9 @@ async function runSuumoPatrolCycle() {
           } catch (err) {
             await setStorageData({ debugLog: `[SUUMO巡回] GAS送信失敗: ${err.message}` });
           }
+          // Discord Webhook レート制限(Cloudflare 1015)回避のため、GAS送信後に一律8秒待機。
+          // SUUMO競合検索で既に数秒消費しているため、実質の投稿間隔は10秒前後になる。
+          try { await sleep(8000); } catch (e) {}
           return this._items.length;
         }
       };
