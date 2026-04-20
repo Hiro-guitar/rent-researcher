@@ -3721,11 +3721,31 @@ async function sendDiscordNoResultSummary() {
     }
     if (buf) chunks.push(buf);
   }
+  // フォーラムチャンネルのWebhookは thread_name(新スレッド作成) or thread_id(既存スレッド投稿)が必須。
+  // 「巡回サマリー」スレッドを検索サイクル毎に1本作り、分割送信もすべて同スレッドに投稿する。
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const threadName = `📋 巡回サマリー ${now.getMonth() + 1}/${now.getDate()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
   try {
+    let threadId = null;
     for (let i = 0; i < chunks.length; i++) {
-      // allowed_mentions.parse: [] で全メンションを無効化（content に<@ID>が無いのに
-      // allowed_mentions.users が指定されると Discord が 400 を返すことがあるため明示）
-      await discordPostWithRetry(discordWebhookUrl, { content: chunks[i], allowed_mentions: { parse: [] } });
+      // 1投稿目: thread_name を付けて新スレッド作成 (?wait=true で channel_id を取得)
+      // 2投稿目以降: その thread_id に追加投稿
+      let url = discordWebhookUrl;
+      const payload = { content: chunks[i], allowed_mentions: { parse: [] } };
+      if (i === 0) {
+        url = `${discordWebhookUrl}?wait=true`;
+        payload.thread_name = threadName;
+      } else if (threadId) {
+        url = `${discordWebhookUrl}?thread_id=${threadId}`;
+      }
+      const resp = await discordPostWithRetry(url, payload);
+      if (i === 0 && resp && resp.ok) {
+        try {
+          const respData = await resp.json();
+          threadId = respData.channel_id || respData.id;
+        } catch (e) {}
+      }
       if (i < chunks.length - 1) await sleep(500);
     }
     console.log(`Discord 新着なしまとめ通知完了: 新着なし${list.length}名 chunks=${chunks.length} nextRun=${nextRunLine ? 'あり' : 'なし'}`);
