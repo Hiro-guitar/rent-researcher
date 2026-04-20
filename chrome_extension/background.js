@@ -1284,12 +1284,14 @@ globalThis.runSearchCycle = async function runSearchCycle() {
         catch (err) { logError(`[system] ${customer.name}: 一括通知エラー: ${err.message}`); }
       }
 
-      // 物件が見つからなかった場合もDiscordに報告
+      // 物件が見つからなかった顧客は _noResultCustomers に貯めて、
+      // 巡回サイクル全体の終了時に1通のまとめ通知として送る（顧客ごと個別通知が煩わしいため）
       if (!discordPropertyCounters[customer.name] || discordPropertyCounters[customer.name] === 0) {
         try {
-          await sendDiscordNoResultNotification(customer.name, customer);
+          if (!globalThis._noResultCustomers) globalThis._noResultCustomers = [];
+          globalThis._noResultCustomers.push({ name: customer.name });
         } catch (err) {
-          logError(`[system] ${customer.name}: 新着なし通知エラー: ${err.message}`);
+          logError(`[system] ${customer.name}: 新着なし蓄積エラー: ${err.message}`);
         }
       }
 
@@ -1303,6 +1305,13 @@ globalThis.runSearchCycle = async function runSearchCycle() {
 
     // === 未解決駅サマリー ===
     await reportUnresolvedStations();
+
+    // === 新着なし顧客のまとめ通知（1通にまとめてメインチャンネルに投稿） ===
+    try {
+      await sendDiscordNoResultSummary();
+    } catch (err) {
+      logError('新着なしまとめ通知エラー: ' + err.message);
+    }
 
     await setStorageData({ lastSearchTime: Date.now() });
   } catch (err) {
@@ -3617,6 +3626,52 @@ async function sendDiscordNotification(customerName, properties, customer) {
 
   } catch (err) {
     console.error(`Discord通知失敗: ${err.message}`);
+  }
+}
+
+/**
+ * 検索サイクル終了時、新着なしだった顧客を1通のメッセージにまとめて
+ * メインチャンネル(スレッド外)に投稿する。顧客ごとの個別通知による通知ラッシュを
+ * 避けるための関数。未解決駅があった顧客についてはその情報も併記する。
+ */
+async function sendDiscordNoResultSummary() {
+  const list = (globalThis._noResultCustomers || []).slice();
+  globalThis._noResultCustomers = []; // 次回サイクル用にクリア
+  if (list.length === 0) return;
+
+  const { discordWebhookUrl } = await getConfig();
+  if (!discordWebhookUrl) return;
+
+  const lines = [];
+  lines.push(`📭 **新着なし: ${list.length}名**`);
+  const names = list.map(item => `・${item.name}`);
+  lines.push(names.join('\n'));
+
+  // 未解決駅があった顧客だけ追記
+  const unresolvedLines = [];
+  for (const item of list) {
+    const cu = _unresolvedStations[item.name];
+    if (!cu) continue;
+    const svcParts = [];
+    for (const [svc, stations] of Object.entries(cu)) {
+      if (stations.length > 0) svcParts.push(`${svc}: ${stations.join(', ')}`);
+    }
+    if (svcParts.length > 0) {
+      unresolvedLines.push(`⚠️ **${item.name}**: 駅名解決失敗 ${svcParts.join(' / ')}`);
+    }
+  }
+  if (unresolvedLines.length > 0) {
+    lines.push('');
+    lines.push(unresolvedLines.join('\n'));
+  }
+
+  const content = lines.join('\n');
+  // メインチャンネルに投稿(スレッドID指定なし)
+  try {
+    await discordPostWithRetry(discordWebhookUrl, { content });
+    console.log(`Discord 新着なしまとめ通知完了: ${list.length}名`);
+  } catch (err) {
+    console.error(`Discord 新着なしまとめ通知失敗: ${err.message}`);
   }
 }
 
