@@ -132,6 +132,21 @@
   </div>
 
   <div class="field">
+    <label>SUUMO競合数による自動スキップ</label>
+    <div class="hint" style="margin-bottom:6px">4カテゴリの上限値を設定。いずれか1つでも上限を超える物件は完全スキップ（Discord通知も承認キューも無し）。空欄は制限なし。</div>
+    <div style="display:grid;grid-template-columns:auto 80px;gap:6px 12px;align-items:center;margin-top:6px">
+      <span style="font-weight:normal">物件名あり × ハイライトあり</span>
+      <input type="number" id="suumoCompSkipWithNameHL" min="0" placeholder="上限">
+      <span style="font-weight:normal">物件名あり × ハイライトなし</span>
+      <input type="number" id="suumoCompSkipWithName" min="0" placeholder="上限">
+      <span style="font-weight:normal">物件名なし × ハイライトあり</span>
+      <input type="number" id="suumoCompSkipWithoutNameHL" min="0" placeholder="上限">
+      <span style="font-weight:normal">物件名なし × ハイライトなし</span>
+      <input type="number" id="suumoCompSkipWithoutName" min="0" placeholder="上限">
+    </div>
+  </div>
+
+  <div class="field">
     <label for="errorWebhook">エラー通知用 Webhook URL（任意）</label>
     <input type="text" id="errorWebhook" placeholder="https://discord.com/api/webhooks/...">
     <div class="hint">エラーログをここに通知。空欄なら上の物件通知Webhookに送信。同一エラーは5分クールダウン</div>

@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds'], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
@@ -19,6 +19,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btRadio) btRadio.checked = true;
     if (data.forrentLoginId) document.getElementById('forrentLoginId').value = data.forrentLoginId;
     if (data.forrentPassword) document.getElementById('forrentPassword').value = data.forrentPassword;
+    // SUUMO競合スキップ閾値
+    const t = data.suumoCompSkipThresholds || {};
+    if (t.withNameHighlighted !== undefined && t.withNameHighlighted !== null) document.getElementById('suumoCompSkipWithNameHL').value = t.withNameHighlighted;
+    if (t.withName !== undefined && t.withName !== null) document.getElementById('suumoCompSkipWithName').value = t.withName;
+    if (t.withoutNameHighlighted !== undefined && t.withoutNameHighlighted !== null) document.getElementById('suumoCompSkipWithoutNameHL').value = t.withoutNameHighlighted;
+    if (t.withoutName !== undefined && t.withoutName !== null) document.getElementById('suumoCompSkipWithoutName').value = t.withoutName;
   });
 
   // 保存
@@ -38,6 +44,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const forrentLoginId = document.getElementById('forrentLoginId').value.trim();
     const forrentPassword = document.getElementById('forrentPassword').value.trim();
 
+    // SUUMO競合スキップ閾値（空欄なら null で「制限なし」扱い）
+    const parseThreshold = (id) => {
+      const v = document.getElementById(id).value.trim();
+      if (v === '') return null;
+      const n = parseInt(v, 10);
+      return isNaN(n) || n < 0 ? null : n;
+    };
+    const suumoCompSkipThresholds = {
+      withNameHighlighted: parseThreshold('suumoCompSkipWithNameHL'),
+      withName: parseThreshold('suumoCompSkipWithName'),
+      withoutNameHighlighted: parseThreshold('suumoCompSkipWithoutNameHL'),
+      withoutName: parseThreshold('suumoCompSkipWithoutName'),
+    };
+
     chrome.storage.local.set({
       gasWebappUrl,
       gasApiKey,
@@ -52,7 +72,8 @@ document.addEventListener('DOMContentLoaded', () => {
       notifyMode,
       btMode,
       forrentLoginId,
-      forrentPassword
+      forrentPassword,
+      suumoCompSkipThresholds
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });

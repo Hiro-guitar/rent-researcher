@@ -200,6 +200,8 @@ async function runSuumoPatrolCycle() {
           seenKeys[key] = Date.now();
           totalNew++;
           // SUUMO競合数を取得して prop.suumo_competitor にアタッチ（失敗しても送信継続）
+          let skipByCompetition = false;
+          let skipReason = '';
           try {
             if (typeof globalThis.countSuumoCompetitors === 'function') {
               // 階建情報の有無を診断ログで出す（無ければ広め検索でフォールバック）
@@ -219,12 +221,39 @@ async function runSuumoPatrolCycle() {
                 await setStorageData({ debugLog:
                   `[SUUMO巡回] 競合数: あり${competitor.withName}(HL${competitor.withNameHighlighted})/なし${competitor.withoutName}(HL${competitor.withoutNameHighlighted}) url=${competitor.url || ''}`
                 });
+
+                // 設定された上限を超えていたらスキップ（OR条件、nullは無制限）
+                try {
+                  const { suumoCompSkipThresholds } = await getStorageData(['suumoCompSkipThresholds']);
+                  const t = suumoCompSkipThresholds || {};
+                  const checks = [
+                    { key: 'withNameHighlighted', label: '物件名あり×HLあり', actual: competitor.withNameHighlighted || 0, limit: t.withNameHighlighted },
+                    { key: 'withName', label: '物件名あり×HLなし', actual: Math.max(0, (competitor.withName || 0) - (competitor.withNameHighlighted || 0)), limit: t.withName },
+                    { key: 'withoutNameHighlighted', label: '物件名なし×HLあり', actual: competitor.withoutNameHighlighted || 0, limit: t.withoutNameHighlighted },
+                    { key: 'withoutName', label: '物件名なし×HLなし', actual: Math.max(0, (competitor.withoutName || 0) - (competitor.withoutNameHighlighted || 0)), limit: t.withoutName },
+                  ];
+                  for (const c of checks) {
+                    if (c.limit === null || c.limit === undefined) continue;
+                    if (c.actual > c.limit) {
+                      skipByCompetition = true;
+                      skipReason = `SUUMO競合多数(${c.label} ${c.actual}>${c.limit})`;
+                      break;
+                    }
+                  }
+                } catch (_) {}
               } else {
                 await setStorageData({ debugLog: `[SUUMO巡回] 競合数: null(URL構築失敗 or 全候補fetch失敗)` });
               }
             }
           } catch (compErr) {
             console.warn('[SUUMO巡回] 競合数取得例外:', compErr && compErr.message);
+          }
+          // 競合数上限超過 → GAS送信もDiscordも完全スキップ
+          if (skipByCompetition) {
+            await setStorageData({ debugLog:
+              `[SUUMO巡回] ✗ スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} - ${skipReason}`
+            });
+            return this._items.length;
           }
           // 前回GAS送信から MIN_GAS_INTERVAL_MS 未満なら差分を待機。
           // 画像アップロードが速かった物件で連続投稿になるのを防ぐ。
