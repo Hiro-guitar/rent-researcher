@@ -3656,8 +3656,14 @@ async function sendDiscordNoResultSummary() {
           && d.getMonth() === nowDate.getMonth()
           && d.getDate() === nowDate.getDate();
         const prefix = sameDay ? '本日' : `${d.getMonth() + 1}/${d.getDate()}`;
-        const diffMin = Math.max(0, Math.round((alarm.scheduledTime - Date.now()) / 60000));
-        nextRunLine = `🕐 次回巡回予定: ${prefix} ${pad(d.getHours())}:${pad(d.getMinutes())} (約${diffMin}分後)`;
+        const diffMinTotal = Math.max(0, Math.round((alarm.scheduledTime - Date.now()) / 60000));
+        const diffHour = Math.floor(diffMinTotal / 60);
+        const diffMin = diffMinTotal % 60;
+        let diffText;
+        if (diffHour > 0 && diffMin > 0) diffText = `${diffHour}時間${diffMin}分後`;
+        else if (diffHour > 0) diffText = `${diffHour}時間後`;
+        else diffText = `${diffMin}分後`;
+        nextRunLine = `🕐 次回巡回予定: ${prefix} ${pad(d.getHours())}:${pad(d.getMinutes())} (約${diffText})`;
       }
     }
   } catch (e) {
