@@ -126,27 +126,21 @@
     const addrCandidates = _extractSearchAddrCandidates(prop);
     if (!rent || !area || !addrCandidates.length) return null;
     const btype = _inferPropertyType(prop);
-    const bname = (prop && (prop.building_name || prop.buildingName || prop.building) || '').toString().trim();
-    // 町名のみ候補（例: [新小川町1, 新小川町] の最後）
     const townOnly = addrCandidates[addrCandidates.length - 1];
 
-    // narrowUrls: 建物名付き検索（同一建物の物件を狭く拾う。マンション名非公開物件はここで0件になる）
-    // broadUrls : 建物名なし検索（マンション名非公開物件含む全体を拾う）
-    const narrowUrls = [];
-    const broadUrls = [];
-
-    if (bname) {
-      narrowUrls.push(SUUMO_COMP_BASE + _buildFw([townOnly, bname, btype, area, rent]) + '&pc=100');
-      narrowUrls.push(SUUMO_COMP_BASE + _buildFw([townOnly, bname, area, rent]) + '&pc=100');
-    }
+    // 検索URLは全て「建物名なし」版。
+    // 理由: 建物名で絞るとマンション名非公開の競合物件が漏れる。
+    //       URLを開いた時に関係ない物件が多くても、「賃料+面積完全一致」の物件が
+    //       一目でわかるよう集計はDiscord通知メッセージに出しているので実害は小さい。
+    const urls = [];
     for (const addr of addrCandidates) {
-      broadUrls.push(SUUMO_COMP_BASE + _buildFw([addr, btype, area, rent]) + '&pc=100');
+      urls.push(SUUMO_COMP_BASE + _buildFw([addr, btype, area, rent]) + '&pc=100');
     }
-    broadUrls.push(SUUMO_COMP_BASE + _buildFw([townOnly, area, rent]) + '&pc=100');
+    // 最終保険: 町名のみ × 建物種別なし
+    urls.push(SUUMO_COMP_BASE + _buildFw([townOnly, area, rent]) + '&pc=100');
 
     return {
-      narrowUrls: narrowUrls,
-      broadUrls: broadUrls,
+      candidateUrls: urls,
       _expectedRent: rent,
       _expectedArea: area,
     };
@@ -285,55 +279,37 @@
       }
       const expectedRent = built._expectedRent;
       const expectedArea = built._expectedArea;
-      const narrowUrls = built.narrowUrls || [];
-      const broadUrls = built.broadUrls || [];
-      console.log('[SUUMO競合] 試行URLs:', { expectedRent, expectedArea, narrowUrls, broadUrls });
+      const urls = built.candidateUrls;
+      console.log('[SUUMO競合] 試行URLs:', { expectedRent, expectedArea, urls });
 
-      // 集計は「建物名なし」版で行う（マンション名非公開物件も確実に拾う）。
-      // 広いURLで返ってくる結果は多いが、賃料+面積完全一致のカードだけを数えるので
-      // ノイズには強い。0件になった時は次候補URLに進む。
-      let counts = null;
-      for (const url of broadUrls) {
-        const c = await _fetchAndCount(url, expectedRent, expectedArea);
-        console.log('[SUUMO競合][集計] ', url.slice(0, 200), '→', c);
-        if (c && c.total > 0) { counts = c; break; }
-        if (c) counts = c;  // 0件でも最後の結果を保持（全部0件だった場合用）
-      }
-
-      // 表示用URLは「建物名あり」版が優先（ユーザーがリンクを開いた時に自然な件数）。
-      // 建物名版で0件なら、建物名なし版のヒットURLにフォールバック。
-      let displayUrl = null;
-      if (narrowUrls.length > 0) {
-        // 建物名ありの候補を1件試して、ヒットすればそれを採用
-        for (const url of narrowUrls) {
-          const nc = await _fetchAndCount(url, expectedRent, expectedArea);
-          console.log('[SUUMO競合][表示URL] ', url.slice(0, 200), '→', nc);
-          if (nc && nc.total > 0) {
-            displayUrl = url;
-            break;
-          }
+      let lastCounts = null;
+      let lastUrl = urls[urls.length - 1] || null;
+      for (const url of urls) {
+        const counts = await _fetchAndCount(url, expectedRent, expectedArea);
+        console.log('[SUUMO競合] ', url.slice(0, 200), '→', counts);
+        if (counts && counts.total > 0) {
+          return {
+            withName: counts.withName,
+            withoutName: counts.withoutName,
+            withNameHighlighted: counts.withNameHighlighted,
+            withoutNameHighlighted: counts.withoutNameHighlighted,
+            total: counts.total,
+            url: url,
+          };
+        }
+        if (counts) {
+          lastCounts = counts;
+          lastUrl = url;
         }
       }
-      if (!displayUrl) {
-        // 建物名ありで0件（非公開物件 or 建物名無し）→ broadUrls の最後のURLを表示用に
-        displayUrl = broadUrls[broadUrls.length - 1];
-      }
-
-      if (!counts) {
+      if (lastCounts) {
         return {
           withName: 0, withoutName: 0,
           withNameHighlighted: 0, withoutNameHighlighted: 0,
-          total: 0, url: displayUrl,
+          total: 0, url: lastUrl,
         };
       }
-      return {
-        withName: counts.withName,
-        withoutName: counts.withoutName,
-        withNameHighlighted: counts.withNameHighlighted,
-        withoutNameHighlighted: counts.withoutNameHighlighted,
-        total: counts.total,
-        url: displayUrl,
-      };
+      return null;
     } catch (e) {
       console.warn('[SUUMO競合] 取得失敗:', e && e.message);
       return null;
