@@ -358,7 +358,8 @@ function getUnsentSuumoCandidates_(criteriaId) {
       var property = JSON.parse(propertyJson);
       results.push({ row: row, property: property, _sheetRowIndex: i + 2 });
     } catch (e) { continue; }
-    if (results.length >= 20) break;
+    // 1回の巡回で再送する上限(GAS実行時間6分×物件間8秒→最大40件だが余裕を持って10件)
+    if (results.length >= 10) break;
   }
   return results;
 }
@@ -1005,11 +1006,10 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
       errors.push(lastErrMsg);
     }
     // 次の物件送信前にレートリミット対策のウェイト
-    // いい生活(essquare)は1巡回で検出数が多くレート制限に刺さりやすいため長めに待機
+    // 1回のGAS呼び出しで複数物件を送る場合(未通知再送など)もレート制限に刺さらないよう
+    // 全ソース一律8秒(Chrome拡張側のsendCollectorと同じ)
     if (i < newProperties.length - 1) {
-      var sourceLower = String(source || '').toLowerCase();
-      var waitAfterSendMs = (sourceLower === 'essquare') ? 5000 : 1500;
-      Utilities.sleep(waitAfterSendMs);
+      Utilities.sleep(8000);
     }
   }
 
