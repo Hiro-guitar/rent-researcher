@@ -654,8 +654,8 @@ async function closeDedicatedItandiWindow() {
 // === itandi固有フィルタ ===
 
 function getItandiFilterRejectReason(prop, customer) {
-  // 広告掲載可否フィルタ（SUUMO候補のため「不可」はスキップ）
-  if (prop.ad_keisai && String(prop.ad_keisai).trim() === '不可') {
+  // 広告掲載可否フィルタ（SUUMO巡回時のみ「不可」をスキップ。お客様用検索には無関係）
+  if (globalThis._suumoPatrolMode && prop.ad_keisai && String(prop.ad_keisai).trim() === '不可') {
     return '広告掲載不可';
   }
 
