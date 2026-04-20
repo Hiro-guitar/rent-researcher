@@ -3637,39 +3637,70 @@ async function sendDiscordNotification(customerName, properties, customer) {
 async function sendDiscordNoResultSummary() {
   const list = (globalThis._noResultCustomers || []).slice();
   globalThis._noResultCustomers = []; // 次回サイクル用にクリア
-  if (list.length === 0) return;
 
   const { discordWebhookUrl } = await getConfig();
   if (!discordWebhookUrl) return;
 
-  const lines = [];
-  lines.push(`📭 **新着なし: ${list.length}名**`);
-  const names = list.map(item => `・${item.name}`);
-  lines.push(names.join('\n'));
-
-  // 未解決駅があった顧客だけ追記
-  const unresolvedLines = [];
-  for (const item of list) {
-    const cu = _unresolvedStations[item.name];
-    if (!cu) continue;
-    const svcParts = [];
-    for (const [svc, stations] of Object.entries(cu)) {
-      if (stations.length > 0) svcParts.push(`${svc}: ${stations.join(', ')}`);
+  // 次回巡回予定時刻を取得（自動検索ON + アラームが立っている時のみ）
+  let nextRunLine = '';
+  try {
+    const storage = await new Promise(r => chrome.storage.local.get(['autoSearchEnabled'], r));
+    const autoEnabled = storage.autoSearchEnabled !== false; // デフォルトtrue
+    if (autoEnabled) {
+      const alarm = await new Promise(r => chrome.alarms.get('reins-search', r));
+      if (alarm && alarm.scheduledTime) {
+        const d = new Date(alarm.scheduledTime);
+        const pad = n => String(n).padStart(2, '0');
+        const nowDate = new Date();
+        const sameDay = d.getFullYear() === nowDate.getFullYear()
+          && d.getMonth() === nowDate.getMonth()
+          && d.getDate() === nowDate.getDate();
+        const prefix = sameDay ? '本日' : `${d.getMonth() + 1}/${d.getDate()}`;
+        const diffMin = Math.max(0, Math.round((alarm.scheduledTime - Date.now()) / 60000));
+        nextRunLine = `🕐 次回巡回予定: ${prefix} ${pad(d.getHours())}:${pad(d.getMinutes())} (約${diffMin}分後)`;
+      }
     }
-    if (svcParts.length > 0) {
-      unresolvedLines.push(`⚠️ **${item.name}**: 駅名解決失敗 ${svcParts.join(' / ')}`);
+  } catch (e) {
+    console.warn('次回巡回時刻取得失敗:', e && e.message);
+  }
+
+  // 通知する要素が何もなければスキップ（新着なし0名 + 次回時刻なし）
+  if (list.length === 0 && !nextRunLine) return;
+
+  const lines = [];
+  if (list.length > 0) {
+    lines.push(`📭 **新着なし: ${list.length}名**`);
+    const names = list.map(item => `・${item.name}`);
+    lines.push(names.join('\n'));
+
+    // 未解決駅があった顧客だけ追記
+    const unresolvedLines = [];
+    for (const item of list) {
+      const cu = _unresolvedStations[item.name];
+      if (!cu) continue;
+      const svcParts = [];
+      for (const [svc, stations] of Object.entries(cu)) {
+        if (stations.length > 0) svcParts.push(`${svc}: ${stations.join(', ')}`);
+      }
+      if (svcParts.length > 0) {
+        unresolvedLines.push(`⚠️ **${item.name}**: 駅名解決失敗 ${svcParts.join(' / ')}`);
+      }
+    }
+    if (unresolvedLines.length > 0) {
+      lines.push('');
+      lines.push(unresolvedLines.join('\n'));
     }
   }
-  if (unresolvedLines.length > 0) {
-    lines.push('');
-    lines.push(unresolvedLines.join('\n'));
+
+  if (nextRunLine) {
+    if (lines.length > 0) lines.push('');
+    lines.push(nextRunLine);
   }
 
   const content = lines.join('\n');
-  // メインチャンネルに投稿(スレッドID指定なし)
   try {
     await discordPostWithRetry(discordWebhookUrl, { content });
-    console.log(`Discord 新着なしまとめ通知完了: ${list.length}名`);
+    console.log(`Discord 新着なしまとめ通知完了: 新着なし${list.length}名 nextRun=${nextRunLine ? 'あり' : 'なし'}`);
   } catch (err) {
     console.error(`Discord 新着なしまとめ通知失敗: ${err.message}`);
   }
