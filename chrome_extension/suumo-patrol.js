@@ -204,7 +204,7 @@ async function runSuumoPatrolCycle() {
               if (competitor) {
                 prop.suumo_competitor = competitor;
                 await setStorageData({ debugLog:
-                  `[SUUMO巡回] 競合数: あり${competitor.withName}(HL${competitor.withNameHighlighted})/なし${competitor.withoutName}(HL${competitor.withoutNameHighlighted}) url=${String(competitor.url || '').substring(0, 180)}`
+                  `[SUUMO巡回] 競合数: あり${competitor.withName}(HL${competitor.withNameHighlighted})/なし${competitor.withoutName}(HL${competitor.withoutNameHighlighted}) url=${competitor.url || ''}`
                 });
               } else {
                 await setStorageData({ debugLog: `[SUUMO巡回] 競合数: null(URL構築失敗 or 全候補fetch失敗)` });
