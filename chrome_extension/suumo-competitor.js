@@ -59,6 +59,20 @@
     return /木造/.test(s) ? 'アパート' : 'マンション';
   }
 
+  // 階建て情報を SUUMO 検索用に「12階建」の形に正規化
+  //  入力例: "12階建" / "地上12階建" / "12" / 12 / "地上12階・地下1階" / ""
+  //  出力: "12階建"（取れなければ null）
+  function _toSuumoBuildingFloor(prop) {
+    if (!prop) return null;
+    const raw = prop.story_text || prop.buildingFloor || prop.storyText || '';
+    if (!raw) return null;
+    const s = String(raw).replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+    // 「地上N階」を優先的に拾い、無ければ最初の数字+階
+    const m = s.match(/地上\s*(\d+)\s*階/) || s.match(/(\d+)\s*階/);
+    if (!m) return null;
+    return m[1] + '階建';
+  }
+
   /**
    * 住所から SUUMO 検索用の住所候補を優先順に返す。
    * 「町名+先頭数字」が SUUMO 上の丁目に一致する物件が多いが、
@@ -126,13 +140,22 @@
     const addrCandidates = _extractSearchAddrCandidates(prop);
     if (!rent || !area || !addrCandidates.length) return null;
     const btype = _inferPropertyType(prop);
+    const buildingFloor = _toSuumoBuildingFloor(prop); // "12階建" or null
     const townOnly = addrCandidates[addrCandidates.length - 1];
 
-    // 検索URLは全て「建物名なし」版。
-    // 理由: 建物名で絞るとマンション名非公開の競合物件が漏れる。
-    //       URLを開いた時に関係ない物件が多くても、「賃料+面積完全一致」の物件が
-    //       一目でわかるよう集計はDiscord通知メッセージに出しているので実害は小さい。
+    // 検索URLは全て「建物名なし」版。マンション名非公開物件も拾える。
+    // 階建て(story_text)が取れる物件は fw に含めて絞り込みを強化
+    // （実測: 住所+マンション+面積+賃料 = 105件 → +階建 = 55件）。
     const urls = [];
+    if (buildingFloor) {
+      // 第1優先: 住所 + 建物種別 + 階建 + 面積 + 賃料
+      for (const addr of addrCandidates) {
+        urls.push(SUUMO_COMP_BASE + _buildFw([addr, btype, buildingFloor, area, rent]) + '&pc=100');
+      }
+      // 第2: 町名のみ + 階建 + 面積 + 賃料 （建物種別ぬき保険）
+      urls.push(SUUMO_COMP_BASE + _buildFw([townOnly, buildingFloor, area, rent]) + '&pc=100');
+    }
+    // 従来: 住所 + 建物種別 + 面積 + 賃料 （階建取得失敗時のメイン）
     for (const addr of addrCandidates) {
       urls.push(SUUMO_COMP_BASE + _buildFw([addr, btype, area, rent]) + '&pc=100');
     }
@@ -322,6 +345,6 @@
   globalThis.countSuumoCompetitors = countSuumoCompetitors;
   // テスト/デバッグ用に内部ヘルパーも露出
   globalThis._suumoCompetitorInternals = {
-    _toSuumoRent, _toSuumoArea, _inferPropertyType, _extractSearchAddrCandidates, _buildFw,
+    _toSuumoRent, _toSuumoArea, _inferPropertyType, _extractSearchAddrCandidates, _buildFw, _toSuumoBuildingFloor,
   };
 })();
