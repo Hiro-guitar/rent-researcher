@@ -3722,33 +3722,42 @@ async function sendDiscordNoResultSummary() {
     if (buf) chunks.push(buf);
   }
   // フォーラムチャンネルのWebhookは thread_name(新スレッド作成) or thread_id(既存スレッド投稿)が必須。
-  // 「巡回サマリー」スレッドを検索サイクル毎に1本作り、分割送信もすべて同スレッドに投稿する。
-  const now = new Date();
+  // 1日1スレッド方式: 日付キー(YYYY-MM-DD)で threadId を chrome.storage.local に保存。
+  // 同日は thread_id で追記、日をまたいだら新スレッド作成。
+  const nowD = new Date();
   const pad = n => String(n).padStart(2, '0');
-  const threadName = `📋 巡回サマリー ${now.getMonth() + 1}/${now.getDate()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const dateKey = `${nowD.getFullYear()}-${pad(nowD.getMonth() + 1)}-${pad(nowD.getDate())}`;
+  const threadName = `📋 巡回サマリー ${nowD.getMonth() + 1}/${nowD.getDate()}`;
+  const THREAD_STORAGE_KEY = 'patrolSummaryThread'; // { dateKey, threadId }
   try {
-    let threadId = null;
+    const cache = await new Promise(r => chrome.storage.local.get([THREAD_STORAGE_KEY], r));
+    let savedThread = cache[THREAD_STORAGE_KEY];
+    let threadId = (savedThread && savedThread.dateKey === dateKey) ? savedThread.threadId : null;
+
     for (let i = 0; i < chunks.length; i++) {
-      // 1投稿目: thread_name を付けて新スレッド作成 (?wait=true で channel_id を取得)
-      // 2投稿目以降: その thread_id に追加投稿
       let url = discordWebhookUrl;
       const payload = { content: chunks[i], allowed_mentions: { parse: [] } };
-      if (i === 0) {
+      if (!threadId) {
+        // 同日スレッド未作成 → thread_name で新規作成
         url = `${discordWebhookUrl}?wait=true`;
         payload.thread_name = threadName;
-      } else if (threadId) {
+      } else {
+        // 既存スレッドに追記
         url = `${discordWebhookUrl}?thread_id=${threadId}`;
       }
       const resp = await discordPostWithRetry(url, payload);
-      if (i === 0 && resp && resp.ok) {
+      if (!threadId && resp && resp.ok) {
         try {
           const respData = await resp.json();
           threadId = respData.channel_id || respData.id;
+          if (threadId) {
+            await new Promise(r => chrome.storage.local.set({ [THREAD_STORAGE_KEY]: { dateKey, threadId } }, r));
+          }
         } catch (e) {}
       }
       if (i < chunks.length - 1) await sleep(500);
     }
-    console.log(`Discord 新着なしまとめ通知完了: 新着なし${list.length}名 chunks=${chunks.length} nextRun=${nextRunLine ? 'あり' : 'なし'}`);
+    console.log(`Discord 新着なしまとめ通知完了: 新着なし${list.length}名 chunks=${chunks.length} nextRun=${nextRunLine ? 'あり' : 'なし'} threadReused=${!!(savedThread && savedThread.dateKey === dateKey)}`);
   } catch (err) {
     console.error(`Discord 新着なしまとめ通知失敗: ${err.message}`);
   }
