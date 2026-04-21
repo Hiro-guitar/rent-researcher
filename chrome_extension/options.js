@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl'], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
@@ -25,6 +25,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (t.withName !== undefined && t.withName !== null) document.getElementById('suumoCompSkipWithName').value = t.withName;
     if (t.withoutNameHighlighted !== undefined && t.withoutNameHighlighted !== null) document.getElementById('suumoCompSkipWithoutNameHL').value = t.withoutNameHighlighted;
     if (t.withoutName !== undefined && t.withoutName !== null) document.getElementById('suumoCompSkipWithoutName').value = t.withoutName;
+    // SUUMOビジネス設定
+    if (data.suumoBusinessKissCode) document.getElementById('suumoBusinessKissCode').value = data.suumoBusinessKissCode;
+    if (data.suumoBusinessFetchUrl) document.getElementById('suumoBusinessFetchUrl').value = data.suumoBusinessFetchUrl;
   });
 
   // 保存
@@ -43,6 +46,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const btMode = (document.querySelector('input[name="btMode"]:checked') || {}).value || 'alert';
     const forrentLoginId = document.getElementById('forrentLoginId').value.trim();
     const forrentPassword = document.getElementById('forrentPassword').value.trim();
+    const suumoBusinessKissCode = (document.getElementById('suumoBusinessKissCode').value || '').trim().replace(/[^0-9]/g, '');
+    const suumoBusinessFetchUrl = (document.getElementById('suumoBusinessFetchUrl').value || '').trim();
 
     // SUUMO競合スキップ閾値（空欄なら null で「制限なし」扱い）
     const parseThreshold = (id) => {
@@ -73,7 +78,9 @@ document.addEventListener('DOMContentLoaded', () => {
       btMode,
       forrentLoginId,
       forrentPassword,
-      suumoCompSkipThresholds
+      suumoCompSkipThresholds,
+      suumoBusinessKissCode,
+      suumoBusinessFetchUrl
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });
