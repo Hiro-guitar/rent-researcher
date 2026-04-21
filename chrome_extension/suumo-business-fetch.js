@@ -33,8 +33,12 @@ async function runSuumoBusinessFetch() {
     await setStorageData({ debugLog: '[SUUMOビジネス] データ取得開始' });
 
     // 1. Daily Search ページを新規タブで開く
-    //    45日集計にするため pv_date_from/pv_date_to はページの既定を使用
-    const dailyUrl = buildSuumoBusinessDailyUrl();
+    //    kiss_code が未設定だと /reportDaily にリダイレクトされるため必須
+    const dailyUrl = await buildSuumoBusinessDailyUrl();
+    if (!dailyUrl) {
+      await setStorageData({ debugLog: '[SUUMOビジネス] kiss_code 未設定のため中止。オプション画面で設定してください' });
+      return { ok: false, error: 'kiss_code 未設定' };
+    }
     const tab = await chrome.tabs.create({ url: dailyUrl, active: false });
     const tabId = tab.id;
 
@@ -107,14 +111,50 @@ async function runSuumoBusinessFetch() {
 /**
  * Daily Search ページURLを構築
  *
- * 既定では今日から45日前までの集計を取得。
- * filters_i/filters_d パラメータは SUUMO業務管理の仕様依存のため、
- * 必要に応じて options で上書き可能にしておく。
+ * filters_i / filters_d パラメータが必須。未指定だと /reportDaily へリダイレクトされる。
+ * 以下2つのストレージキーから取得:
+ *   - suumoBusinessFetchUrl: 完全URLが設定されていればそのまま使用(日付は差し替えない)
+ *   - suumoBusinessKissCode: kiss_code のみ設定されていれば、日付は動的に計算
+ *
+ * 日付範囲はSUUMO仕様最大45日。直近のデータは反映遅延があるため
+ *   pv_date_to   = 今日の2日前
+ *   pv_date_from = pv_date_to の44日前 (45日inclusive)
+ * を既定とする。
+ *
+ * @returns {Promise<string|null>} URL文字列、kiss_code未設定なら null
  */
-function buildSuumoBusinessDailyUrl() {
-  // デフォルトはシンプルな Daily Search エンドポイント。
-  // 期間指定が無ければページ側の既定(最大45日)が自動適用される。
-  return 'https://business1.suumo.jp/concierge/reportDailySearch';
+async function buildSuumoBusinessDailyUrl() {
+  const { suumoBusinessFetchUrl, suumoBusinessKissCode } = await getStorageData([
+    'suumoBusinessFetchUrl', 'suumoBusinessKissCode'
+  ]);
+
+  // 完全URLが指定されていればそのまま使う(上級者向け: 自前で期間指定したい場合など)
+  if (suumoBusinessFetchUrl && typeof suumoBusinessFetchUrl === 'string' && suumoBusinessFetchUrl.startsWith('https://business1.suumo.jp/')) {
+    return suumoBusinessFetchUrl;
+  }
+
+  const kissCode = (suumoBusinessKissCode || '').toString().replace(/[^0-9]/g, '');
+  if (!kissCode) return null;
+
+  // pv_date_to = 今日-2日、pv_date_from = pv_date_to-44日 の45日ウィンドウ
+  const fmt = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}/${m}/${day}`;
+  };
+  const to = new Date();
+  to.setDate(to.getDate() - 2);
+  const from = new Date(to);
+  from.setDate(from.getDate() - 44);
+
+  // filters_i / filters_d は「キー=値__キー=値」形式を urlencode して送る
+  const filtersI = `kiss_code=${kissCode}__passive_flag=1__empty_flag=1__conflict_flag=0`;
+  const filtersD = `pv_date_from=${fmt(from)}__pv_date_to=${fmt(to)}`;
+
+  return 'https://business1.suumo.jp/concierge/reportDailySearch'
+    + `?filters_i=${encodeURIComponent(filtersI)}`
+    + `&filters_d=${encodeURIComponent(filtersD)}`;
 }
 
 /**

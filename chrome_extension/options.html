@@ -132,6 +132,18 @@
   </div>
 
   <div class="field">
+    <label for="suumoBusinessKissCode">SUUMOビジネス kiss_code</label>
+    <input type="text" id="suumoBusinessKissCode" placeholder="例: 184819001">
+    <div class="hint">SUUMOビジネス Daily Search のURL上の <code>kiss_code</code> 値（9桁の数字）。未設定だと /reportDaily にリダイレクトされて取得できません</div>
+  </div>
+
+  <div class="field">
+    <label for="suumoBusinessFetchUrl">SUUMOビジネス Daily Search URL（任意の上書き）</label>
+    <input type="text" id="suumoBusinessFetchUrl" placeholder="https://business1.suumo.jp/concierge/reportDailySearch?filters_i=...&filters_d=...">
+    <div class="hint">完全URLを入れるとそちらを優先使用。空欄なら kiss_code と日付（当日-2日を上限とする45日ウィンドウ）から自動組み立て</div>
+  </div>
+
+  <div class="field">
     <label>SUUMO競合数による自動スキップ</label>
     <div class="hint" style="margin-bottom:6px">4カテゴリの上限値を設定。いずれか1つでも上限を超える物件は完全スキップ（Discord通知も承認キューも無し）。空欄は制限なし。</div>
     <div style="display:grid;grid-template-columns:auto 80px;gap:6px 12px;align-items:center;margin-top:6px">
