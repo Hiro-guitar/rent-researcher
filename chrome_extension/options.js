@@ -159,7 +159,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (response && response.ok) {
           const r = response.result || {};
-          resultEl.textContent = `完了: 送信${response.count}件 / GAS更新${r.updated || '?'}件・新規${r.inserted || '?'}件`;
+          const fmt = (v) => (v === undefined || v === null) ? '?' : v;
+          resultEl.textContent = `完了: 送信${response.count}件 / GAS更新${fmt(r.updated)}件・新規${fmt(r.inserted)}件`;
           resultEl.style.color = '#065f46';
         } else {
           resultEl.textContent = '失敗: ' + ((response && response.error) || '不明なエラー');

@@ -217,11 +217,14 @@ function scrapeSuumoBusinessTable() {
         total_list_pv: toInt(d[31]),
         total_detail_pv: toInt(d[33]),
         inquiries: toInt(d[35]),
-        // 競合基準値別件数の列インデックスは実測で確定する必要あり。
-        // 暫定で37/38/39を拾っておき、GAS側で数値として成り立っていれば使う。
-        comp_lv1_raw: d[37] || '',
-        comp_lv2_raw: d[38] || '',
-        comp_lv3_raw: d[39] || '',
+        // 競合基準値別件数の列インデックス(実測で確定):
+        //   i=40 → 第3基準値競合物件数
+        //   i=41 → 第2基準値競合物件数
+        //   i=42 → 第1基準値競合物件数
+        // (画面上では第3→第2→第1の並び)
+        comp_lv1_raw: d[42] || '',
+        comp_lv2_raw: d[41] || '',
+        comp_lv3_raw: d[40] || '',
         // 参考: 全セル生データ(デバッグ用途、初回調整時に確認するため保持)
         _all: d,
       });
