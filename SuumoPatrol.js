@@ -46,7 +46,11 @@ var SUUMO_SUBMITTING_TIMEOUT_MS = 30 * 60 * 1000; // 30分
 
 var SUUMO_LISTING_HEADERS = [
   '物件キー', '建物名', '部屋番号', '掲載開始日', '賃料', '最終PV数',
-  '最終問合数', 'パフォーマンススコア', 'ステータス', '停止日'
+  '最終問合数', 'パフォーマンススコア', 'ステータス', '停止日',
+  // ── 以下はSUUMOビジネス Daily Search連携(Phase 1)で追加 ──
+  'suumo_property_code', '合計一覧PV', '合計詳細PV', '問い合わせ数',
+  '掲載日数(SUUMO)', '競合_第1基準値', '競合_第2基準値', '競合_第3基準値',
+  '危険度スコア', '最終取得日時'
 ];
 
 // ── シートアクセスヘルパー ──────────────────────────────────
@@ -987,7 +991,7 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
           var MAX_RETRY_WAIT_MS = 60000;
           if (waitMs > MAX_RETRY_WAIT_MS) {
             lastErrMsg = 'Retry-After過大: ' + Math.round(waitMs / 1000) + 's（次回巡回で再送）';
-            console.log('Discord 429/5xx: ' + lastErrMsg + ' — リトライ打ち切り');
+            console.log('Discord 429/5xx: ' + lastErrMsg + ' — この物件のリトライ打ち切り');
             break;
           }
           console.log('Discord 429/5xx: ' + waitMs + 'ms待機後リトライ');
@@ -1171,6 +1175,162 @@ function handleStopSuumoListing(json) {
   var result = stopSuumoListing(json.key);
   return ContentService.createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * POST: SUUMOビジネス Daily Search からの掲載実績を掲載管理シートに反映(Phase 1)
+ * @param {Object} json - { action, fetchedAt, rows: [ { name, room, suumo_code, ... } ] }
+ * @returns {TextOutput} { success, updated, inserted, matchedByCode, matchedByKey, unmatched }
+ */
+function handleUpdateSuumoListingStats(json) {
+  var result = updateSuumoListingStats_(json);
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * SUUMOビジネスから取得した物件実績を掲載管理シートに反映する内部実装
+ *
+ * マッチング戦略:
+ *   1) 11列目(suumo_property_code)と一致する行があれば上書き
+ *   2) 1列目(物件キー=正規化済 建物名|部屋番号) と一致する行があれば上書き、さらに11列目にcodeを記録
+ *   3) 上記で見つからなければ「新規検出」として追記(ステータス=active, 掲載開始日=fetchedAt)
+ *
+ * 既存の10列(1〜10列目)は active/停止 ステータスや掲載開始日などの運用データなので、
+ * インサート時のみ埋め、更新時は 6〜8列目(最終PV数/問合数/スコア)だけを上書きする。
+ */
+function updateSuumoListingStats_(json) {
+  var rows = (json && json.rows) || [];
+  var fetchedAt = json && json.fetchedAt ? String(json.fetchedAt) : '';
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { success: true, updated: 0, inserted: 0, matchedByCode: 0, matchedByKey: 0, unmatched: 0 };
+  }
+
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  var headerLen = SUUMO_LISTING_HEADERS.length;
+
+  var existing = [];
+  if (lastRow > 1) {
+    existing = sheet.getRange(2, 1, lastRow - 1, headerLen).getValues();
+  }
+
+  // 既存行のインデックスマップ(codeとkey)
+  var codeToRow = {};  // suumo_property_code -> (1-based sheet row)
+  var keyToRow = {};   // 物件キー -> (1-based sheet row)
+  for (var i = 0; i < existing.length; i++) {
+    var sheetRow = i + 2;
+    var existingKey = String(existing[i][0] || '');
+    var existingCode = String(existing[i][10] || ''); // 11列目 = index 10
+    if (existingCode) codeToRow[existingCode] = sheetRow;
+    if (existingKey) keyToRow[existingKey] = sheetRow;
+  }
+
+  var updated = 0;
+  var inserted = 0;
+  var matchedByCode = 0;
+  var matchedByKey = 0;
+  var unmatched = 0;
+
+  var now = fetchedAt || Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r] || {};
+    var name = String(row.name || '');
+    var roomNo = String(row.room || '');
+    var suumoCode = String(row.suumo_code || '').replace(/[^0-9]/g, '');
+    var listedDays = Number(row.listed_days) || 0;
+    var totalListPv = Number(row.total_list_pv) || 0;
+    var totalDetailPv = Number(row.total_detail_pv) || 0;
+    var inquiries = Number(row.inquiries) || 0;
+
+    // 競合基準値別件数は暫定で整数パースのみ(正しい列が未確定の場合は0になる)
+    var compLv1 = parseInt(String(row.comp_lv1_raw || '').replace(/[^0-9]/g, ''), 10) || 0;
+    var compLv2 = parseInt(String(row.comp_lv2_raw || '').replace(/[^0-9]/g, ''), 10) || 0;
+    var compLv3 = parseInt(String(row.comp_lv3_raw || '').replace(/[^0-9]/g, ''), 10) || 0;
+
+    // 危険度スコア(Phase 2の式を先行計算)
+    // 掲載開始日(4列目)は既存行がある場合のみ使うので、ここでは掲載日数ベースの近似で出す
+    var riskScore =
+        (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0)
+      - (inquiries * 30)
+      - Math.max(0, 14 - listedDays) * 5
+      + (listedDays >= 45 ? 100 : 0);
+
+    var propertyKey = normalizeSuumoPropertyKey_(name, roomNo);
+    var targetRow = null;
+    var matchBy = '';
+
+    if (suumoCode && codeToRow[suumoCode]) {
+      targetRow = codeToRow[suumoCode];
+      matchBy = 'code';
+      matchedByCode++;
+    } else if (propertyKey && keyToRow[propertyKey]) {
+      targetRow = keyToRow[propertyKey];
+      matchBy = 'key';
+      matchedByKey++;
+    }
+
+    // 20列分の値(拡張カラム)
+    var extended = [
+      suumoCode,
+      totalListPv,
+      totalDetailPv,
+      inquiries,
+      listedDays,
+      compLv1,
+      compLv2,
+      compLv3,
+      riskScore,
+      now
+    ];
+
+    if (targetRow) {
+      // 既存行を更新: 6-8列目(最終PV/問合/スコア)と 11-20列目(拡張カラム)
+      // 5列目(賃料)や1-4列目・9-10列目の運用データは触らない
+      // パフォーマンススコアは既存ロジックと衝突しないよう、問い合わせ数×10 + 合計詳細PV をセット(更新日時が新しい方として上書き)
+      var derivedScore = totalDetailPv + inquiries * 10;
+      sheet.getRange(targetRow, 6, 1, 3).setValues([[totalDetailPv, inquiries, derivedScore]]);
+      sheet.getRange(targetRow, 11, 1, extended.length).setValues([extended]);
+      updated++;
+
+      // 初マッチ時にsuumo_property_codeを記録済みに更新(キー一致だったケース)
+      if (matchBy === 'key' && suumoCode) {
+        codeToRow[suumoCode] = targetRow;
+      }
+    } else {
+      // 新規検出: フル20列で append
+      var derivedScoreNew = totalDetailPv + inquiries * 10;
+      var newRow = [
+        propertyKey,        // 1  物件キー
+        name,               // 2  建物名
+        roomNo,             // 3  部屋番号
+        now,                // 4  掲載開始日(SUUMOビジネス初検出日時)
+        String(row.rent || ''), // 5  賃料
+        totalDetailPv,      // 6  最終PV数
+        inquiries,          // 7  最終問合数
+        derivedScoreNew,    // 8  パフォーマンススコア
+        'active',           // 9  ステータス
+        ''                  // 10 停止日
+      ].concat(extended);
+      sheet.appendRow(newRow);
+      var newSheetRow = sheet.getLastRow();
+      if (suumoCode) codeToRow[suumoCode] = newSheetRow;
+      if (propertyKey) keyToRow[propertyKey] = newSheetRow;
+      inserted++;
+      unmatched++;
+    }
+  }
+
+  return {
+    success: true,
+    updated: updated,
+    inserted: inserted,
+    matchedByCode: matchedByCode,
+    matchedByKey: matchedByKey,
+    unmatched: unmatched,
+    receivedRows: rows.length
+  };
 }
 
 /**

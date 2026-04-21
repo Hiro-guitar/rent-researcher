@@ -65,6 +65,9 @@ function doPost(e) {
     if (json.action === 'stop_suumo_listing') {
       return handleStopSuumoListing(json);
     }
+    if (json.action === 'update_suumo_listing_stats') {
+      return handleUpdateSuumoListingStats(json);
+    }
     if (json.action === 'save_patrol_criteria') {
       return handleSavePatrolCriteriaPost(json);
     }
