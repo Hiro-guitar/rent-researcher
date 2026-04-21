@@ -60,8 +60,11 @@ async function runSuumoBusinessFetch() {
     await sleep(2000);
 
     // 2a. ログインページに飛ばされていないか確認
-    let currentUrl = await getTabUrl(tabId);
-    if (isSuumoLoginUrl(currentUrl)) {
+    //     URLが reportDailySearch のままでも中身がログインフォームの場合があるため、
+    //     URL判定＋DOM内容判定の両方を行う
+    let loginCheck = await checkLoginPage_(tabId);
+    await setStorageData({ debugLog: `[SUUMOビジネス] 初回URL: ${loginCheck.url} / ログインフォーム: ${loginCheck.hasLoginForm}` });
+    if (loginCheck.hasLoginForm || isSuumoLoginUrl(loginCheck.url)) {
       // 自動ログインを試みる(1回のみ)
       const loginResult = await attemptSuumoBusinessLogin_(tabId);
       if (!loginResult.ok) {
@@ -78,14 +81,14 @@ async function runSuumoBusinessFetch() {
       await waitForTabLoad(tabId, 60000);
       await sleep(2000);
 
-      // もう一度URLチェック: ログイン後なのにまだsigninなら明らかに失敗
-      currentUrl = await getTabUrl(tabId);
-      if (isSuumoLoginUrl(currentUrl)) {
+      // もう一度DOMチェック: ログイン後なのにまだログインフォームがあるなら明らかに失敗
+      loginCheck = await checkLoginPage_(tabId);
+      if (loginCheck.hasLoginForm || isSuumoLoginUrl(loginCheck.url)) {
         try { await chrome.tabs.remove(tabId); } catch (_) {}
         await setStorageData({
           suumoBusinessLoginBlocked: true,
           suumoBusinessLoginBlockedReason: 'login appears failed (still on signin)',
-          debugLog: '[SUUMOビジネス] ⚠️ ログイン試行後もsigninページのままのためブロック',
+          debugLog: '[SUUMOビジネス] ⚠️ ログイン試行後もログインフォームが残っているためブロック',
         });
         return { ok: false, error: 'still on signin after login attempt', blocked: true };
       }
@@ -290,6 +293,32 @@ function isSuumoLoginUrl(url) {
   if (!url) return false;
   // login/signin 系のパスが含まれていればログインページ扱い
   return /business1\.suumo\.jp\/concierge(\/?$|\/signin|\/login|\/$)/i.test(url);
+}
+
+/**
+ * 現在のタブがログイン画面(URL または DOM内容)かどうかを判定
+ * reportDailySearch にアクセスしても URL を変えずにログインフォームだけ
+ * 表示される仕様に対応するため、DOM内容も確認する。
+ */
+async function checkLoginPage_(tabId) {
+  try {
+    const execResult = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: () => {
+        const url = location.href;
+        const form = document.querySelector('form[action*="/concierge/signin"]');
+        const hasIdInput = !!document.querySelector('input[name="loginId"]');
+        const hasPwInput = !!document.querySelector('input[name="password"]');
+        const hasSubmit = !!document.querySelector('form input[type="submit"]');
+        const hasLoginForm = !!form || (hasIdInput && hasPwInput && hasSubmit);
+        return { url, hasLoginForm };
+      },
+    });
+    const r = execResult && execResult[0] && execResult[0].result;
+    return { url: (r && r.url) || '', hasLoginForm: !!(r && r.hasLoginForm) };
+  } catch (_) {
+    return { url: '', hasLoginForm: false };
+  }
 }
 
 /**
