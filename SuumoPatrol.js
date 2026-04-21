@@ -1178,6 +1178,52 @@ function handleStopSuumoListing(json) {
 }
 
 /**
+ * 掲載管理シートの日時カラムをJST表記に一括修正する管理ユーティリティ
+ *
+ * Chrome拡張の初期バージョンがISO8601(UTC)のまま書き込んでいた
+ * 「掲載開始日」(4列目)と「最終取得日時」(20列目)を JST "yyyy-MM-dd HH:mm:ss" に変換する。
+ * 手動実行用(GASエディタから fixSuumoListingTimestampsToJst_ を実行)。
+ */
+function fixSuumoListingTimestampsToJst_() {
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { updated: 0 };
+
+  var headerLen = SUUMO_LISTING_HEADERS.length;
+  var data = sheet.getRange(2, 1, lastRow - 1, headerLen).getValues();
+  var updates = 0;
+
+  // ISO形式("2026-04-21T05:37:42.528Z" 等)を JST に変換する
+  var toJst = function(v) {
+    if (!v) return v;
+    var s = String(v);
+    // 既にJST表記(2026-04-21 22:00:27)のものは触らない
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return v;
+    // タイムゾーン付きっぽいものだけ変換
+    if (!/T.*Z$|[+-]\d{2}:\d{2}$/.test(s)) return v;
+    var d = new Date(s);
+    if (isNaN(d.getTime())) return v;
+    return Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  };
+
+  for (var i = 0; i < data.length; i++) {
+    var startAt = data[i][3];   // 4列目: 掲載開始日
+    var lastFetch = data[i][19]; // 20列目: 最終取得日時
+    var newStart = toJst(startAt);
+    var newFetch = toJst(lastFetch);
+    if (newStart !== startAt) {
+      sheet.getRange(i + 2, 4).setValue(newStart);
+      updates++;
+    }
+    if (newFetch !== lastFetch) {
+      sheet.getRange(i + 2, 20).setValue(newFetch);
+      updates++;
+    }
+  }
+  return { updated: updates };
+}
+
+/**
  * POST: SUUMOビジネス Daily Search からの掲載実績を掲載管理シートに反映(Phase 1)
  * @param {Object} json - { action, fetchedAt, rows: [ { name, room, suumo_code, ... } ] }
  * @returns {TextOutput} { success, updated, inserted, matchedByCode, matchedByKey, unmatched }
@@ -1232,7 +1278,16 @@ function updateSuumoListingStats_(json) {
   var matchedByKey = 0;
   var unmatched = 0;
 
-  var now = fetchedAt || Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  // fetchedAt は Chrome拡張から ISO8601(UTC) で送られてくる。JST表記に統一する。
+  var now;
+  if (fetchedAt) {
+    var d = new Date(fetchedAt);
+    now = isNaN(d.getTime())
+      ? Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')
+      : Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  } else {
+    now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  }
 
   for (var r = 0; r < rows.length; r++) {
     var row = rows[r] || {};
