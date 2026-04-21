@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason'], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
@@ -28,6 +28,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // SUUMOビジネス設定
     if (data.suumoBusinessKissCode) document.getElementById('suumoBusinessKissCode').value = data.suumoBusinessKissCode;
     if (data.suumoBusinessFetchUrl) document.getElementById('suumoBusinessFetchUrl').value = data.suumoBusinessFetchUrl;
+    if (data.suumoBusinessLoginId) document.getElementById('suumoBusinessLoginId').value = data.suumoBusinessLoginId;
+    if (data.suumoBusinessPassword) document.getElementById('suumoBusinessPassword').value = data.suumoBusinessPassword;
+
+    // ログインブロック状態表示
+    const blockedEl = document.getElementById('suumoBusinessLoginBlockedStatus');
+    if (blockedEl) {
+      if (data.suumoBusinessLoginBlocked) {
+        const reason = data.suumoBusinessLoginBlockedReason || '(理由不明)';
+        blockedEl.textContent = '⚠️ ブロック中: ' + reason;
+        blockedEl.style.color = '#dc2626';
+      } else {
+        blockedEl.textContent = '✓ ブロックなし(正常)';
+        blockedEl.style.color = '#065f46';
+      }
+    }
   });
 
   // 保存
@@ -48,6 +63,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const forrentPassword = document.getElementById('forrentPassword').value.trim();
     const suumoBusinessKissCode = (document.getElementById('suumoBusinessKissCode').value || '').trim().replace(/[^0-9]/g, '');
     const suumoBusinessFetchUrl = (document.getElementById('suumoBusinessFetchUrl').value || '').trim();
+    const suumoBusinessLoginId = (document.getElementById('suumoBusinessLoginId').value || '').trim();
+    const suumoBusinessPassword = document.getElementById('suumoBusinessPassword').value || '';
 
     // SUUMO競合スキップ閾値（空欄なら null で「制限なし」扱い）
     const parseThreshold = (id) => {
@@ -80,7 +97,9 @@ document.addEventListener('DOMContentLoaded', () => {
       forrentPassword,
       suumoCompSkipThresholds,
       suumoBusinessKissCode,
-      suumoBusinessFetchUrl
+      suumoBusinessFetchUrl,
+      suumoBusinessLoginId,
+      suumoBusinessPassword
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });
@@ -138,6 +157,20 @@ document.addEventListener('DOMContentLoaded', () => {
       resultEl.textContent = '接続失敗: ' + err.message;
     }
   });
+
+  // SUUMOビジネス ログインブロック解除
+  const unblockBtn = document.getElementById('suumoBusinessUnblockBtn');
+  if (unblockBtn) {
+    unblockBtn.addEventListener('click', () => {
+      chrome.storage.local.remove(['suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason'], () => {
+        const blockedEl = document.getElementById('suumoBusinessLoginBlockedStatus');
+        if (blockedEl) {
+          blockedEl.textContent = '✓ ブロックなし(解除済み)';
+          blockedEl.style.color = '#065f46';
+        }
+      });
+    });
+  }
 
   // SUUMOビジネス データ取得(手動実行ボタン)
   const suumoBusinessBtn = document.getElementById('suumoBusinessFetchBtn');

@@ -32,6 +32,19 @@ async function runSuumoBusinessFetch() {
   try {
     await setStorageData({ debugLog: '[SUUMOビジネス] データ取得開始' });
 
+    // ── 前チェック: ログインブロック中ならいかなる操作も行わない ──
+    // 前回の自動ログイン試行が失敗した場合、連続試行によるアカウントロックを防ぐため
+    // suumoBusinessLoginBlocked=true が立っている間は何もしない。
+    // ユーザーがオプション画面の「ログインブロック解除」ボタンで明示的に解除するまで続く。
+    const { suumoBusinessLoginBlocked, suumoBusinessLoginBlockedReason } = await getStorageData([
+      'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason'
+    ]);
+    if (suumoBusinessLoginBlocked) {
+      const reason = suumoBusinessLoginBlockedReason || '前回ログインに失敗';
+      await setStorageData({ debugLog: `[SUUMOビジネス] ログインブロック中(${reason})。オプション画面で解除してください` });
+      return { ok: false, error: 'login blocked: ' + reason, blocked: true };
+    }
+
     // 1. Daily Search ページを新規タブで開く
     //    kiss_code が未設定だと /reportDaily にリダイレクトされるため必須
     const dailyUrl = await buildSuumoBusinessDailyUrl();
@@ -44,7 +57,41 @@ async function runSuumoBusinessFetch() {
 
     // 2. ページ読み込み完了を待つ
     await waitForTabLoad(tabId, 60000);
-    await sleep(3000); // テーブル描画完了の余裕
+    await sleep(2000);
+
+    // 2a. ログインページに飛ばされていないか確認
+    let currentUrl = await getTabUrl(tabId);
+    if (isSuumoLoginUrl(currentUrl)) {
+      // 自動ログインを試みる(1回のみ)
+      const loginResult = await attemptSuumoBusinessLogin_(tabId);
+      if (!loginResult.ok) {
+        try { await chrome.tabs.remove(tabId); } catch (_) {}
+        await setStorageData({
+          suumoBusinessLoginBlocked: true,
+          suumoBusinessLoginBlockedReason: loginResult.error || 'login failed',
+          debugLog: `[SUUMOビジネス] ⚠️ 自動ログイン失敗のためブロック: ${loginResult.error}。これ以上の試行はアカウントロックの原因になるため中止。オプション画面で手動ログイン→解除してください`,
+        });
+        return { ok: false, error: 'login failed: ' + loginResult.error, blocked: true };
+      }
+      // ログイン後、改めて Daily Search に遷移
+      await chrome.tabs.update(tabId, { url: dailyUrl });
+      await waitForTabLoad(tabId, 60000);
+      await sleep(2000);
+
+      // もう一度URLチェック: ログイン後なのにまだsigninなら明らかに失敗
+      currentUrl = await getTabUrl(tabId);
+      if (isSuumoLoginUrl(currentUrl)) {
+        try { await chrome.tabs.remove(tabId); } catch (_) {}
+        await setStorageData({
+          suumoBusinessLoginBlocked: true,
+          suumoBusinessLoginBlockedReason: 'login appears failed (still on signin)',
+          debugLog: '[SUUMOビジネス] ⚠️ ログイン試行後もsigninページのままのためブロック',
+        });
+        return { ok: false, error: 'still on signin after login attempt', blocked: true };
+      }
+    }
+
+    await sleep(1500); // テーブル描画完了の余裕
 
     // 3. テーブル行をスクレイピング
     const scrapeResult = await chrome.scripting.executeScript({
@@ -234,6 +281,137 @@ function scrapeSuumoBusinessTable() {
     console.error('[SUUMOビジネス] scrape error:', err);
     return [];
   }
+}
+
+/**
+ * URLがSUUMOビジネスのログインページかどうか判定
+ */
+function isSuumoLoginUrl(url) {
+  if (!url) return false;
+  // login/signin 系のパスが含まれていればログインページ扱い
+  return /business1\.suumo\.jp\/concierge(\/?$|\/signin|\/login|\/$)/i.test(url);
+}
+
+/**
+ * タブの現在URLを取得
+ */
+async function getTabUrl(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return (tab && tab.url) || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * SUUMOビジネスへの自動ログインを1回だけ試みる
+ *
+ * 仕様:
+ *   - オプション画面で設定されたID/PWを使用(未設定ならエラー)
+ *   - フォームフィールドはサーバー側でオートフィルされている場合があるが、
+ *     我々の保存値で上書きしてからsubmitする
+ *   - 1回submitしたら待機して結果を検証する(エラー文言検知)
+ *   - 失敗したら絶対にリトライしない(アカウントロック防止)
+ *
+ * @returns {Promise<{ok:boolean, error?:string}>}
+ */
+async function attemptSuumoBusinessLogin_(tabId) {
+  const { suumoBusinessLoginId, suumoBusinessPassword } = await getStorageData([
+    'suumoBusinessLoginId', 'suumoBusinessPassword'
+  ]);
+  if (!suumoBusinessLoginId || !suumoBusinessPassword) {
+    return { ok: false, error: 'ID/パスワード未設定' };
+  }
+
+  await setStorageData({ debugLog: '[SUUMOビジネス] ログイン画面検知、自動ログイン試行(1回のみ)' });
+
+  // フォームに値を入れて submit する。失敗検知のためエラー文言もついでに確認。
+  let submitResult;
+  try {
+    const execResult = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: (loginId, password) => {
+        // 事前エラー文言チェック: 既に「利用することができません」が出ているなら即中止
+        const bodyText = document.body ? document.body.innerText : '';
+        const preError = /利用することができません|一定時間経過後/;
+        if (preError.test(bodyText)) {
+          return { submitted: false, preError: true, message: 'サービス利用不可メッセージあり(アカウントロック中の可能性)' };
+        }
+
+        // フォーム特定
+        const form = document.querySelector('form[action*="/concierge/signin"]')
+          || document.querySelector('form');
+        if (!form) return { submitted: false, error: 'form not found' };
+
+        const idInput = form.querySelector('input[name="loginId"]');
+        const pwInput = form.querySelector('input[name="password"]');
+        const submitBtn = form.querySelector('input[type="submit"], button[type="submit"]');
+        if (!idInput || !pwInput) return { submitted: false, error: 'id/password input not found' };
+        if (!submitBtn) return { submitted: false, error: 'submit button not found' };
+
+        // 既存値を上書き(オートフィル値を信用しない)
+        idInput.value = loginId;
+        pwInput.value = password;
+        // inputイベントを発火(フレームワークが監視している場合向け)
+        idInput.dispatchEvent(new Event('input', { bubbles: true }));
+        pwInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+        // 念のため form.action を確認(signin以外なら誤作動防止で中止)
+        const action = (form.action || '').toString();
+        if (!/\/concierge\/signin/i.test(action)) {
+          return { submitted: false, error: 'form action unexpected: ' + action };
+        }
+
+        submitBtn.click();
+        return { submitted: true };
+      },
+      args: [suumoBusinessLoginId, suumoBusinessPassword],
+    });
+    submitResult = execResult && execResult[0] && execResult[0].result;
+  } catch (err) {
+    return { ok: false, error: 'script inject failed: ' + err.message };
+  }
+
+  if (!submitResult) return { ok: false, error: 'no result from injected script' };
+  if (submitResult.preError) return { ok: false, error: submitResult.message };
+  if (!submitResult.submitted) return { ok: false, error: submitResult.error || 'submit skipped' };
+
+  // submitによるページ遷移を待つ
+  try {
+    await waitForTabLoad(tabId, 30000);
+  } catch (err) {
+    return { ok: false, error: 'navigation timeout after submit' };
+  }
+  await sleep(1500);
+
+  // 遷移後のDOMからエラー文言を検出(ログイン失敗/ロックメッセージ)
+  let postCheck;
+  try {
+    const execResult = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: () => {
+        const url = location.href;
+        const bodyText = document.body ? document.body.innerText : '';
+        const hasLockMsg = /利用することができません|一定時間経過後/.test(bodyText);
+        const hasAuthErr = /(ID|パスワード).*(誤|間違|不正|一致しません)/.test(bodyText)
+                        || /認証に失敗/.test(bodyText);
+        return { url, hasLockMsg, hasAuthErr };
+      },
+    });
+    postCheck = execResult && execResult[0] && execResult[0].result;
+  } catch (err) {
+    return { ok: false, error: 'post-check inject failed: ' + err.message };
+  }
+
+  if (!postCheck) return { ok: false, error: 'no post-check result' };
+  if (postCheck.hasLockMsg) return { ok: false, error: 'アカウントロックメッセージ検知' };
+  if (postCheck.hasAuthErr) return { ok: false, error: 'ID/PW不一致メッセージ検知' };
+  // まだログインページのままなら失敗扱い
+  if (isSuumoLoginUrl(postCheck.url)) return { ok: false, error: 'submit後もログインページのまま' };
+
+  await setStorageData({ debugLog: '[SUUMOビジネス] 自動ログイン成功' });
+  return { ok: true };
 }
 
 /**

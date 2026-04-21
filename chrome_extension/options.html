@@ -138,6 +138,25 @@
   </div>
 
   <div class="field">
+    <label for="suumoBusinessLoginId">SUUMOビジネス ログインID（自動ログイン用）</label>
+    <input type="text" id="suumoBusinessLoginId" placeholder="例: f18481900101">
+    <div class="hint">セッション切れ時の自動ログインに使用。未設定ならセッション切れ時に取得が中止されます</div>
+  </div>
+
+  <div class="field">
+    <label for="suumoBusinessPassword">SUUMOビジネス パスワード（自動ログイン用）</label>
+    <input type="password" id="suumoBusinessPassword" placeholder="パスワード">
+    <div class="hint">⚠️ 1度の自動ログイン失敗で以降の取得を自動停止します（アカウントロック防止）</div>
+  </div>
+
+  <div class="field">
+    <label>SUUMOビジネス ログインブロック状態</label>
+    <div id="suumoBusinessLoginBlockedStatus" style="font-size:13px;margin-bottom:6px">（読み込み中...）</div>
+    <button type="button" id="suumoBusinessUnblockBtn" class="btn-test" style="background:#f59e0b">ログインブロックを解除</button>
+    <div class="hint">自動ログイン失敗でブロック状態になった後、手動ログインで復旧したらこのボタンで解除してください</div>
+  </div>
+
+  <div class="field">
     <label for="suumoBusinessFetchUrl">SUUMOビジネス Daily Search URL（任意の上書き）</label>
     <input type="text" id="suumoBusinessFetchUrl" placeholder="https://business1.suumo.jp/concierge/reportDailySearch?filters_i=...&filters_d=...">
     <div class="hint">完全URLを入れるとそちらを優先使用。空欄なら kiss_code と日付（当日-2日を上限とする45日ウィンドウ）から自動組み立て</div>
