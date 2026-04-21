@@ -131,4 +131,34 @@ document.addEventListener('DOMContentLoaded', () => {
       resultEl.textContent = '接続失敗: ' + err.message;
     }
   });
+
+  // SUUMOビジネス データ取得(手動実行ボタン)
+  const suumoBusinessBtn = document.getElementById('suumoBusinessFetchBtn');
+  if (suumoBusinessBtn) {
+    suumoBusinessBtn.addEventListener('click', () => {
+      const resultEl = document.getElementById('suumoBusinessFetchResult');
+      if (resultEl) {
+        resultEl.textContent = 'SUUMOビジネスを開いてデータ取得中...(数十秒かかることがあります)';
+        resultEl.style.color = '#374151';
+      }
+      suumoBusinessBtn.disabled = true;
+      chrome.runtime.sendMessage({ type: 'SUUMO_BUSINESS_FETCH_NOW' }, (response) => {
+        suumoBusinessBtn.disabled = false;
+        if (!resultEl) return;
+        if (chrome.runtime.lastError) {
+          resultEl.textContent = 'エラー: ' + chrome.runtime.lastError.message;
+          resultEl.style.color = '#dc2626';
+          return;
+        }
+        if (response && response.ok) {
+          const r = response.result || {};
+          resultEl.textContent = `完了: 送信${response.count}件 / GAS更新${r.updated || '?'}件・新規${r.inserted || '?'}件`;
+          resultEl.style.color = '#065f46';
+        } else {
+          resultEl.textContent = '失敗: ' + ((response && response.error) || '不明なエラー');
+          resultEl.style.color = '#dc2626';
+        }
+      });
+    });
+  }
 });

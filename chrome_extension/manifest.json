@@ -36,7 +36,8 @@
     "https://i.imgur.com/*",
     "https://api.e-bukken-1.com/*",
     "https://www.fn.forrent.jp/*",
-    "https://suumo.jp/*"
+    "https://suumo.jp/*",
+    "https://business1.suumo.jp/*"
   ],
   "background": {
     "service_worker": "background.js"
