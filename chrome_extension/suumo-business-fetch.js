@@ -142,8 +142,9 @@ async function runSuumoBusinessFetch() {
       return { ok: false, error: `HTTP ${response.status}` };
     }
 
+    const fmtNum = (v) => (v === undefined || v === null) ? '?' : v;
     await setStorageData({
-      debugLog: `[SUUMOビジネス] 完了: 送信${rows.length}件、GAS側更新${result.updated || '?'}件、新規${result.inserted || '?'}件`,
+      debugLog: `[SUUMOビジネス] 完了: 送信${rows.length}件、GAS側更新${fmtNum(result.updated)}件、新規${fmtNum(result.inserted)}件`,
       suumoBusinessLastFetchAt: Date.now(),
       suumoBusinessLastCount: rows.length,
     });
