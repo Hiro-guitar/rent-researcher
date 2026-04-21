@@ -68,6 +68,8 @@ importScripts('essquare-config.js', 'essquare-background.js');
 // SUUMO巡回・入稿関連ファイルを読み込み
 // suumo-competitor.js は suumo-patrol.js から countSuumoCompetitors を参照するので先にロード
 importScripts('suumo-competitor.js', 'suumo-patrol.js');
+// SUUMOビジネス Daily Search からの掲載実績取得(Phase 1)
+importScripts('suumo-business-fetch.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {
@@ -1048,6 +1050,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }).catch(err => {
       sendResponse({ success: false, message: err.message });
     });
+    return true;
+  }
+  // ── SUUMOビジネス Daily Search 手動取得(Phase 1) ──
+  // options.html の「SUUMOビジネス データ取得」ボタンから送信される
+  if (msg.type === 'SUUMO_BUSINESS_FETCH_NOW') {
+    (async () => {
+      try {
+        const result = await runSuumoBusinessFetch();
+        sendResponse(result);
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
     return true;
   }
 });
