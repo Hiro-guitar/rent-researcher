@@ -81,42 +81,76 @@ async function stopForrentListing(opts) {
       throw new Error((searchResult && searchResult.error) || '検索実行失敗');
     }
 
-    // 検索結果表示を待つ(POSTが完了してテーブル再描画されるのを待機)
-    await waitForTabLoad(tabId, 60000);
-    await sleep(2000);
-
-    // 3. 検索結果の件数を確認 + 「掲載指示」リンクをクリック
-    const clickResult = await runInMainFrame_(tabId, () => {
+    // 検索結果を待つ: mainフレーム内に「掲載指示」リンクが現れるまでポーリング
+    const searchWait = await waitForMainFrameCondition_(tabId, () => {
+      if (!/PUB1R2801/.test(location.href)) return null;
       const links = Array.from(document.querySelectorAll('a'))
         .filter(a => (a.innerText || '').trim() === '掲載指示');
+      if (links.length === 0) return null; // まだ結果描画中の可能性
+      return { ok: true, count: links.length, url: location.href };
+    }, 60000);
 
-      // 検索結果行数(目安: 掲載指示リンクの数 = ヒット件数)
-      if (links.length === 0) {
-        return { ok: false, error: '検索結果0件(物件が見つかりません)', count: 0 };
-      }
-      if (links.length > 1) {
-        return { ok: false, error: `検索結果が複数件(${links.length}件)あるため安全のため中止`, count: links.length };
-      }
+    if (!searchWait) {
+      throw new Error('検索結果の表示がタイムアウト(mainフレームに「掲載指示」リンクが現れない)');
+    }
+    if (searchWait.count === 0) {
+      throw new Error('検索結果0件(物件が見つかりません)');
+    }
+    if (searchWait.count > 1) {
+      throw new Error(`検索結果が複数件(${searchWait.count}件)あるため安全のため中止`);
+    }
+    await setStorageData({ debugLog: `[ForRent停止] 検索1件ヒット、掲載指示リンクをクリック` });
+
+    // 3. 「掲載指示」リンクをクリック
+    const clickResult = await runInMainFrame_(tabId, () => {
+      if (!/PUB1R2801/.test(location.href)) return null;
+      const links = Array.from(document.querySelectorAll('a'))
+        .filter(a => (a.innerText || '').trim() === '掲載指示');
+      if (links.length !== 1) return { ok: false, error: `掲載指示リンクの再取得失敗(count=${links.length})` };
       links[0].click();
-      return { ok: true, count: 1 };
+      return { ok: true };
     });
 
     if (!clickResult || !clickResult.ok) {
       throw new Error((clickResult && clickResult.error) || '掲載指示リンククリック失敗');
     }
 
-    // 4. PUB1R2814.action の読み込み待ち
-    await waitForTabLoad(tabId, 60000);
-    await sleep(2000);
+    // 4. PUB1R2814.action の読み込み完了 + 保留化対象行を特定
+    //    keisaiLocate() は frame内ナビゲーションのため chrome.tabs.onUpdated で検知できない。
+    //    mainフレーム内のURL + 要素存在をポーリングで判定する。
+    //    行番号suffixは物件件数に応じて 0 or 1 始まり(環境依存)のため自動検出する。
+    const pageReady = await waitForMainFrameCondition_(tabId, () => {
+      if (!/PUB1R2814/.test(location.href)) return null;
+      // suffix を 0..20 で走査して最初に見つかった行を採用
+      let suffix = null;
+      for (let i = 0; i <= 20; i++) {
+        if (document.getElementById('shijiFlg1_' + i) && document.getElementById('btn_shijiFlg1_' + i)) {
+          suffix = i;
+          break;
+        }
+      }
+      if (suffix === null) return null;
+      const submitImg = document.getElementById('shijiButton');
+      if (!submitImg) return null;
+      return { ok: true, url: location.href, rowSuffix: suffix };
+    }, 60000);
+
+    if (!pageReady) {
+      throw new Error('PUB1R2814(掲載指示一覧) の要素がタイムアウトまでに見つからない');
+    }
+    const rowSuffix = pageReady.rowSuffix;
+    await setStorageData({ debugLog: `[ForRent停止] PUB1R2814読み込み完了 rowSuffix=${rowSuffix}` });
 
     // 5. 保留化トグル + 状態確認
-    const toggleResult = await runInMainFrame_(tabId, () => {
-      // 1行目(行index=1)のネット掲載フラグを取得
-      const hiddenFlag = document.getElementById('shijiFlg1_1');
-      const toggleBtn = document.getElementById('btn_shijiFlg1_1');
+    const toggleResult = await runInMainFrame_(tabId, (suffix) => {
+      if (!/PUB1R2814/.test(location.href)) return null;
+      const flagId = 'shijiFlg1_' + suffix;
+      const btnId = 'btn_shijiFlg1_' + suffix;
+      const hiddenFlag = document.getElementById(flagId);
+      const toggleBtn = document.getElementById(btnId);
       const submitImg = document.getElementById('shijiButton');
       if (!hiddenFlag || !toggleBtn || !submitImg) {
-        return { ok: false, error: 'PUB1R2814の要素が見つからない(ページ構造変化の可能性)' };
+        return { ok: false, error: `要素未検出(再確認時): ${flagId}/${btnId}/shijiButton` };
       }
       const beforeFlag = hiddenFlag.value;
       const beforeBtnLabel = toggleBtn.value;
@@ -126,14 +160,13 @@ async function stopForrentListing(opts) {
         return { ok: false, alreadyStopped: true, error: '既に保留状態です' };
       }
 
-      // changeKeisaiFlg が window レベルに定義されている前提(ForRent仕様)
       if (typeof window.changeKeisaiFlg !== 'function') {
         return { ok: false, error: 'window.changeKeisaiFlg が存在しません' };
       }
-      window.changeKeisaiFlg('shijiFlg1', '1', true);
+      window.changeKeisaiFlg('shijiFlg1', String(suffix), true);
 
-      const afterFlag = document.getElementById('shijiFlg1_1').value;
-      const afterBtnLabel = document.getElementById('btn_shijiFlg1_1').value;
+      const afterFlag = document.getElementById(flagId).value;
+      const afterBtnLabel = document.getElementById(btnId).value;
       const submitEnabled = !document.getElementById('shijiButton').disabled;
 
       return {
@@ -141,7 +174,7 @@ async function stopForrentListing(opts) {
         before: { flag: beforeFlag, label: beforeBtnLabel },
         after: { flag: afterFlag, label: afterBtnLabel, submitEnabled: submitEnabled }
       };
-    });
+    }, [rowSuffix]);
 
     if (!toggleResult || !toggleResult.ok) {
       if (toggleResult && toggleResult.alreadyStopped) {
@@ -182,19 +215,18 @@ async function stopForrentListing(opts) {
       throw new Error((submitResult && submitResult.error) || 'submit呼び出し失敗');
     }
 
-    // 8. 完了画面へ遷移待機
-    await waitForTabLoad(tabId, 60000);
-    await sleep(2000);
-
-    // 9. 完了判定: PUB1R3910 遷移 or bodyテキスト「完了」
-    const completeCheck = await runInMainFrame_(tabId, () => {
+    // 8. 完了画面へ遷移待機(mainフレームのURL変化をポーリング)
+    const completeCheck = await waitForMainFrameCondition_(tabId, () => {
       const url = location.href;
       const bodyText = (document.body && document.body.innerText) || '';
       const isCompletePage = /PUB1R3910/.test(url);
       const hasSuccessText = /完了|成功|更新しました/.test(bodyText);
       const hasErrorText = /エラー|失敗|できませんでした/.test(bodyText);
+      // PUB1R2814 からまだ遷移していない場合は待機継続
+      if (/PUB1R2814/.test(url) && !isCompletePage) return null;
+      if (!isCompletePage && !hasSuccessText && !hasErrorText) return null;
       return { url, isCompletePage, hasSuccessText, hasErrorText, bodyHead: bodyText.substring(0, 300) };
-    });
+    }, 60000);
 
     if (completeCheck && completeCheck.hasErrorText) {
       throw new Error('完了画面にエラー文言: ' + completeCheck.bodyHead);
@@ -234,6 +266,8 @@ async function stopForrentListing(opts) {
  *
  * ForRent は frameset で main フレーム内に UI があるため、allFrames:true で
  * 全フレームに注入し、main フレームの結果を拾う。
+ * func が null を返したフレームは「対象外(別frame)」とみなして飛ばし、
+ * { ok:true } や { ok:false, error:... } を返したフレームの結果を採用する。
  */
 async function runInMainFrame_(tabId, func, args) {
   try {
@@ -244,15 +278,19 @@ async function runInMainFrame_(tabId, func, args) {
     });
     if (!Array.isArray(results)) return null;
 
-    // main フレームからの結果: 'main' フレームは frame.name が 'main'。
-    // chrome.scripting の結果には frameId だけで name は無いため、
-    // 「意味のある結果(nullでも error でもなく ok プロパティを持つ)」を優先して採用。
+    // 1. 成功(ok:true)を含む結果を最優先
     for (const r of results) {
-      if (r && r.result && typeof r.result === 'object' && ('ok' in r.result || 'error' in r.result)) {
+      if (r && r.result && typeof r.result === 'object' && r.result.ok === true) {
         return r.result;
       }
     }
-    // それ以外: 最初の非null結果を返す
+    // 2. 明示的にエラーを返したフレーム結果(ok:false + errorあり)
+    for (const r of results) {
+      if (r && r.result && typeof r.result === 'object' && r.result.ok === false && r.result.error) {
+        return r.result;
+      }
+    }
+    // 3. null以外の結果があればそれ
     for (const r of results) {
       if (r && r.result !== undefined && r.result !== null) return r.result;
     }
@@ -260,4 +298,40 @@ async function runInMainFrame_(tabId, func, args) {
   } catch (err) {
     return { ok: false, error: 'script execute failed: ' + err.message };
   }
+}
+
+/**
+ * mainフレーム内で指定のpredicateを満たすまでポーリングする。
+ *
+ * frameset内ナビゲーション(keisaiLocate等)は chrome.tabs.onUpdated で検知できないため、
+ * DOM側の条件でポーリングする。predicateはnull/undefinedを返している間は「まだ」扱い。
+ * truthy(オブジェクト等)を返したらそれを返す。
+ *
+ * @param {number} tabId
+ * @param {Function} predicate - フレーム内で実行される関数。targetに達したらtruthyを返す
+ * @param {number} timeoutMs - タイムアウト(ミリ秒、既定30秒)
+ * @returns {Promise<any|null>} predicateが返した値 or タイムアウト時null
+ */
+async function waitForMainFrameCondition_(tabId, predicate, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 30000);
+  const intervalMs = 700;
+  while (Date.now() < deadline) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: predicate,
+      });
+      if (Array.isArray(results)) {
+        for (const r of results) {
+          if (r && r.result !== undefined && r.result !== null) {
+            return r.result;
+          }
+        }
+      }
+    } catch (_) {
+      // タブが遷移中/まだinjectできない場合は継続
+    }
+    await sleep(intervalMs);
+  }
+  return null;
 }
