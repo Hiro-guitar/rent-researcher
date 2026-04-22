@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason', 'suumoForrentStopDryRun'], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
@@ -30,6 +30,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (data.suumoBusinessFetchUrl) document.getElementById('suumoBusinessFetchUrl').value = data.suumoBusinessFetchUrl;
     if (data.suumoBusinessLoginId) document.getElementById('suumoBusinessLoginId').value = data.suumoBusinessLoginId;
     if (data.suumoBusinessPassword) document.getElementById('suumoBusinessPassword').value = data.suumoBusinessPassword;
+
+    // ForRent停止 ドライラン設定(デフォルト true)
+    const dryRunCheckbox = document.getElementById('suumoForrentStopDryRun');
+    if (dryRunCheckbox) {
+      dryRunCheckbox.checked = (data.suumoForrentStopDryRun === undefined || data.suumoForrentStopDryRun === null)
+        ? true
+        : !!data.suumoForrentStopDryRun;
+    }
 
     // ログインブロック状態表示
     const blockedEl = document.getElementById('suumoBusinessLoginBlockedStatus');
@@ -65,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const suumoBusinessFetchUrl = (document.getElementById('suumoBusinessFetchUrl').value || '').trim();
     const suumoBusinessLoginId = (document.getElementById('suumoBusinessLoginId').value || '').trim();
     const suumoBusinessPassword = document.getElementById('suumoBusinessPassword').value || '';
+    const suumoForrentStopDryRun = !!(document.getElementById('suumoForrentStopDryRun') && document.getElementById('suumoForrentStopDryRun').checked);
 
     // SUUMO競合スキップ閾値（空欄なら null で「制限なし」扱い）
     const parseThreshold = (id) => {
@@ -99,7 +108,8 @@ document.addEventListener('DOMContentLoaded', () => {
       suumoBusinessKissCode,
       suumoBusinessFetchUrl,
       suumoBusinessLoginId,
-      suumoBusinessPassword
+      suumoBusinessPassword,
+      suumoForrentStopDryRun
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });
@@ -157,6 +167,68 @@ document.addEventListener('DOMContentLoaded', () => {
       resultEl.textContent = '接続失敗: ' + err.message;
     }
   });
+
+  // ForRent 停止テスト実行
+  const forrentStopBtn = document.getElementById('forrentStopTestBtn');
+  if (forrentStopBtn) {
+    forrentStopBtn.addEventListener('click', () => {
+      const codeInput = document.getElementById('forrentStopTestCode');
+      const resultEl = document.getElementById('forrentStopTestResult');
+      const dryRun = !!(document.getElementById('suumoForrentStopDryRun') || {}).checked;
+      const code = (codeInput.value || '').trim().replace(/[^0-9]/g, '');
+      if (!resultEl) return;
+      if (!code) {
+        resultEl.textContent = 'SUUMO物件コード(12桁)を入力してください';
+        resultEl.style.color = '#dc2626';
+        return;
+      }
+      if (code.length !== 12) {
+        resultEl.textContent = `物件コードは12桁である必要があります(入力: ${code.length}桁)`;
+        resultEl.style.color = '#dc2626';
+        return;
+      }
+      // 本番実行時は最終確認ダイアログ
+      if (!dryRun) {
+        const confirmed = window.confirm(`⚠️ ドライランOFFで実行します。\n\n物件コード ${code} を ForRent で本当に「保留」に切り替えます。\n\n実行してよろしいですか？`);
+        if (!confirmed) {
+          resultEl.textContent = 'キャンセルされました';
+          resultEl.style.color = '#6b7280';
+          return;
+        }
+      }
+      resultEl.textContent = (dryRun ? 'ドライラン実行中...' : '本番実行中...') + '(数十秒かかります)';
+      resultEl.style.color = '#374151';
+      forrentStopBtn.disabled = true;
+      chrome.runtime.sendMessage({ type: 'FORRENT_STOP_TEST', suumoPropertyCode: code, dryRun: dryRun }, (response) => {
+        forrentStopBtn.disabled = false;
+        if (chrome.runtime.lastError) {
+          resultEl.textContent = 'エラー: ' + chrome.runtime.lastError.message;
+          resultEl.style.color = '#dc2626';
+          return;
+        }
+        if (!response) {
+          resultEl.textContent = '応答なし';
+          resultEl.style.color = '#dc2626';
+          return;
+        }
+        if (response.ok) {
+          if (response.dryRun) {
+            resultEl.textContent = 'ドライラン完了: 一括更新実行の直前で停止しました。開いているタブで目視確認してください';
+            resultEl.style.color = '#065f46';
+          } else if (response.alreadyStopped) {
+            resultEl.textContent = '既に保留状態でした(何もせず終了)';
+            resultEl.style.color = '#065f46';
+          } else {
+            resultEl.textContent = `本番実行完了: ${response.warning || '正常終了'}`;
+            resultEl.style.color = response.warning ? '#f59e0b' : '#065f46';
+          }
+        } else {
+          resultEl.textContent = '失敗: ' + (response.error || '不明なエラー');
+          resultEl.style.color = '#dc2626';
+        }
+      });
+    });
+  }
 
   // SUUMOビジネス ログインブロック解除
   const unblockBtn = document.getElementById('suumoBusinessUnblockBtn');

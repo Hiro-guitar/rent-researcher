@@ -157,6 +157,23 @@
   </div>
 
   <div class="field">
+    <label>ForRent 停止処理 ドライラン</label>
+    <label style="display:inline-flex;align-items:center;gap:8px;font-weight:normal">
+      <input type="checkbox" id="suumoForrentStopDryRun" checked>
+      <span>ドライランモード（送信直前で停止し、タブを残して目視確認）</span>
+    </label>
+    <div class="hint">OFFにすると一括更新実行ボタンが自動クリックされ、物件が本当に保留になります。最初はONで挙動を確認してからOFFにしてください</div>
+  </div>
+
+  <div class="field">
+    <label for="forrentStopTestCode">ForRent 停止テスト実行</label>
+    <input type="text" id="forrentStopTestCode" placeholder="SUUMO物件コード12桁 例: 100481810092" style="margin-bottom:6px">
+    <button type="button" id="forrentStopTestBtn" class="btn-test" style="background:#dc2626">この物件を停止（ドライラン/本番は上の設定に従う）</button>
+    <div id="forrentStopTestResult" style="margin-top:8px;font-size:13px"></div>
+    <div class="hint">⚠️ ドライランOFFで押すと本当に保留状態になります</div>
+  </div>
+
+  <div class="field">
     <label for="suumoBusinessFetchUrl">SUUMOビジネス Daily Search URL（任意の上書き）</label>
     <input type="text" id="suumoBusinessFetchUrl" placeholder="https://business1.suumo.jp/concierge/reportDailySearch?filters_i=...&filters_d=...">
     <div class="hint">完全URLを入れるとそちらを優先使用。空欄なら kiss_code と日付（当日-2日を上限とする45日ウィンドウ）から自動組み立て</div>
