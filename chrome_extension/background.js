@@ -4482,6 +4482,107 @@ async function appendFillQueue(items) {
  *   - backup / startup: 重複処理を避けるためスキップ
  *   - scheduled: 基本的に稼働中タブは無いはず。あれば何もしない
  */
+/**
+ * 承認時の自動前処理(Phase 4)
+ *
+ * 順序:
+ *   1. SUUMOビジネス Daily Search からデータ取得 → GAS反映 (best effort, 失敗は続行)
+ *   2. GASから現在の掲載数と停止候補リストを peek (lockなし)
+ *   3. 掲載数 >= 50 なら候補先頭の物件をForRentで停止
+ *      - 停止成功: GASに stop_suumo_listing 反映 → OK返却
+ *      - 停止ドライラン: GAS反映はしない + 警告ログ残して OK返却(入稿続行)
+ *      - 停止失敗: NG返却(呼び出し元で入稿中止)
+ *
+ * @returns {Promise<{ok:boolean, error?:string, stopped?:Object}>}
+ */
+async function runSuumoApprovalPreHook_() {
+  // ── 1. SUUMOビジネスデータ取得 (best effort) ──
+  try {
+    await setStorageData({ debugLog: '[承認前処理] SUUMOビジネスデータ更新開始' });
+    const fetchResult = await runSuumoBusinessFetch();
+    if (!fetchResult || !fetchResult.ok) {
+      await setStorageData({ debugLog: `[承認前処理] データ更新失敗(スキップして続行): ${fetchResult && fetchResult.error}` });
+    }
+  } catch (err) {
+    await setStorageData({ debugLog: `[承認前処理] データ更新例外(スキップ): ${err.message}` });
+  }
+
+  // ── 2. 現在の掲載数と停止候補を peek ──
+  let peek;
+  try {
+    peek = await pollSuumoApprovalQueue({ lock: false });
+  } catch (err) {
+    return { ok: false, error: `停止候補取得失敗: ${err.message}` };
+  }
+  if (!peek) {
+    return { ok: false, error: '停止候補取得失敗(GAS応答なし)' };
+  }
+
+  const activeCount = Number(peek.activeListingCount) || 0;
+  if (activeCount < 50) {
+    await setStorageData({ debugLog: `[承認前処理] 現掲載${activeCount}件 → 停止不要、入稿へ進む` });
+    return { ok: true };
+  }
+
+  // 候補リスト取得: 新API(stopCandidates) → 旧API(stopCandidate単数) の順でフォールバック
+  const candidates = Array.isArray(peek.stopCandidates) && peek.stopCandidates.length > 0
+    ? peek.stopCandidates
+    : (peek.stopCandidate ? [peek.stopCandidate] : []);
+
+  if (candidates.length === 0) {
+    await setStorageData({ debugLog: '[承認前処理] ⚠️ 50件達しているが停止候補なし(全員保護対象?) → 入稿中止' });
+    return { ok: false, error: '50件達しているが停止候補が空(全員保護対象)' };
+  }
+
+  // ── 3. 先頭候補を停止 ──
+  const target = candidates[0];
+  const suumoCode = String(target.suumoPropertyCode || '').replace(/[^0-9]/g, '');
+  if (!suumoCode || suumoCode.length !== 12) {
+    await setStorageData({ debugLog: `[承認前処理] ⚠️ 候補のsuumo_property_codeが不正: "${target.suumoPropertyCode}" → 入稿中止` });
+    return { ok: false, error: `候補のsuumo_property_code不正: ${target.suumoPropertyCode}` };
+  }
+
+  await setStorageData({
+    debugLog: `[承認前処理] 停止実行: ${target.building} ${target.room} (${suumoCode}) score=${target.score}`
+  });
+
+  const stopResult = await stopForrentListing({ suumoPropertyCode: suumoCode });
+
+  if (!stopResult || !stopResult.ok) {
+    return { ok: false, error: `ForRent停止失敗: ${(stopResult && stopResult.error) || '不明'}` };
+  }
+
+  // ── 3b. ドライランの場合: GAS反映せず、ログだけ残して続行 ──
+  if (stopResult.dryRun) {
+    await setStorageData({ debugLog: `[承認前処理] ⚠️ 停止処理はドライラン中のため実際には停止されていない。入稿は続行するが SUUMO側で上限エラーになる可能性あり` });
+    return { ok: true, stopped: target, dryRun: true };
+  }
+
+  // ── 3c. GASに停止を反映 (stop_suumo_listing) ──
+  try {
+    const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
+    if (gasWebappUrl && target.key) {
+      const res = await fetch(gasWebappUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop_suumo_listing', key: target.key })
+      });
+      if (!res.ok) {
+        await setStorageData({ debugLog: `[承認前処理] ⚠️ GAS停止反映HTTP${res.status}(ForRent側は停止済、シート更新のみ失敗)` });
+      }
+    }
+  } catch (err) {
+    await setStorageData({ debugLog: `[承認前処理] ⚠️ GAS停止反映失敗: ${err.message}(ForRent側は停止済)` });
+  }
+
+  await setStorageData({
+    debugLog: `[承認前処理] 停止完了: ${target.building} ${target.room} → 入稿へ進む`,
+    suumoForrentLastAutoStopAt: Date.now(),
+    suumoForrentLastAutoStopTarget: { key: target.key, building: target.building, room: target.room, suumoCode: suumoCode },
+  });
+  return { ok: true, stopped: target };
+}
+
 async function pollAndStartFillIfNeeded(options = {}) {
   const source = options.source || 'approval';
 
@@ -4539,6 +4640,18 @@ async function pollAndStartFillIfNeeded(options = {}) {
     await setStorageData({ debugLog: `[SUUMO入稿] ForRent利用時間外のため ${timeStr} に入稿予定` });
     chrome.alarms.create('suumo-fill-scheduled', { when: nextAvailableTime });
     return;
+  }
+
+  // ── Phase 4: 承認/手動起動時のみ、入稿前に SUUMOビジネス更新 → 50件超なら自動停止 ──
+  //   - データ取得失敗はスキップ(入稿は続行)
+  //   - 停止失敗は入稿中止(50件超過の入稿は SUUMO側でエラーになるため安全優先)
+  //   - 停止ドライラン中はGAS反映せず、ログ警告だけ残して入稿は続行
+  if (source === 'approval' || source === 'manual') {
+    const preHook = await runSuumoApprovalPreHook_();
+    if (!preHook.ok) {
+      await setStorageData({ debugLog: `[SUUMO入稿] 前処理失敗のため入稿中止: ${preHook.error}` });
+      return;
+    }
   }
 
   // 実入稿フェーズ: ロック付きでキュー取得（取得した瞬間にGAS側でsubmittingに変わり二重取得防止）
