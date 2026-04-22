@@ -640,47 +640,46 @@ function updateSuumoPerformance(updates) {
 /**
  * 掲載停止すべき物件を特定(Phase 2 新ロジック)
  *
- * 危険度スコア式:
- *   (第3基準値競合数 × 2.1)
- * + (第2基準値競合数 × 1.6)
- * + (第1基準値競合数 × 1.0)
- * - (問い合わせ数 × 30)
- * - max(0, 14 - 掲載日数) × 5
- * + (掲載日数 >= 45 ? 100 : 0)
- * + (シート掲載日数 >= 60 ? 50 : 0)
+ * 保護ルール(停止対象外):
+ *   - シート掲載日数 < 7 (新着)
+ *   - 問い合わせ数 >= 1 かつ シート掲載日数 < 45
  *
- * 最大スコアの物件を停止対象とする(スコアが高いほど危険=残しておく価値が低い)。
+ * 保護ルール外の物件について以下の危険度スコアを計算し、
+ * スコア降順の上位を停止候補として返す。
  *
- * 保護ルール(強制的に停止対象外):
- *   - SUUMO掲載日数 < 14 (新着)
- *   - 問い合わせ数 >= 1 かつ SUUMO掲載日数 < 45
+ *   score = (第3競合×2.1 + 第2競合×1.6 + 第1競合×1.0) × 10
+ *         + (シート掲載日数 >= 60 ? 9999 : 0)   ← 60日超は確実に落とす
+ *         + (シート掲載日数 >= 45 ? 500 : 0)    ← 45日超は強い停止圧力
  *
- * 保護対象を除いてもなお停止候補が見つからない場合(全員保護対象)、
- * 保護ルールを外して「問い合わせ0 かつ 掲載日数が最長」の物件を返すフォールバック。
- * データ欠損時は旧ロジック(掲載開始日が古い+最低スコア)にフォールバック。
+ * 注: 問い合わせ数による減点はスコア側に入れない(保護ルールで扱うため)。
+ *     SUUMOビジネスの「掲載日数(最大45)」ではなく、シートの「掲載開始日」から
+ *     算出した経過日数を基準日数として使う(ユーザー指示: シート日数のほうが正確)。
+ *
+ * @param {number} topN - 返す候補数の上限(デフォルト10)
+ * @returns {Array<Object>} スコア降順の候補リスト(0件なら空配列)
  */
-function findStopCandidate() {
+function findStopCandidates(topN) {
+  var limit = topN || 10;
   var sheet = getListingSheet_();
   var lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return null;
+  if (lastRow <= 1) return [];
 
   var headerLen = SUUMO_LISTING_HEADERS.length;
   var data = sheet.getRange(2, 1, lastRow - 1, headerLen).getValues();
   var now = new Date();
 
-  var activeListings = [];
+  var candidates = [];
   for (var i = 0; i < data.length; i++) {
     if (data[i][8] !== 'active') continue;
 
-    var listedDays = Number(data[i][14]) || 0; // 15列目: 掲載日数(SUUMO)
-    var compLv1 = Number(data[i][15]) || 0;     // 16列目: 第1基準値
-    var compLv2 = Number(data[i][16]) || 0;     // 17列目: 第2基準値
-    var compLv3 = Number(data[i][17]) || 0;     // 18列目: 第3基準値
-    var inquiries = Number(data[i][13]) || 0;   // 14列目: 問い合わせ数(SUUMOビジネス集計値)
-                                                //         旧フィールド(7列目 data[i][6])より新しい方を採用
-    if (!inquiries) inquiries = Number(data[i][6]) || 0;
+    var suumoListedDays = Number(data[i][14]) || 0; // 15列目: 掲載日数(SUUMO最大45)。参考情報
+    var compLv1 = Number(data[i][15]) || 0;  // 16列目: 第1基準値競合数
+    var compLv2 = Number(data[i][16]) || 0;  // 17列目: 第2基準値競合数
+    var compLv3 = Number(data[i][17]) || 0;  // 18列目: 第3基準値競合数
+    var inquiries = Number(data[i][13]) || 0; // 14列目: 問い合わせ数(SUUMOビジネス集計値)
+    if (!inquiries) inquiries = Number(data[i][6]) || 0; // フォールバック: 旧7列目
 
-    // シート上での掲載開始日からの経過日数
+    // シート上での掲載開始日からの経過日数(これが保護・スコア両方の基準)
     var sheetDays = 0;
     var startRaw = data[i][3];
     if (startRaw) {
@@ -690,23 +689,17 @@ function findStopCandidate() {
       }
     }
 
-    var riskScore =
-        (compLv3 * 2.1)
-      + (compLv2 * 1.6)
-      + (compLv1 * 1.0)
-      - (inquiries * 30)
-      - Math.max(0, 14 - listedDays) * 5
-      + (listedDays >= 45 ? 100 : 0)
-      + (sheetDays >= 60 ? 50 : 0);
+    // 保護判定
+    if (sheetDays < 7) continue;                            // 新着7日保護
+    if (inquiries >= 1 && sheetDays < 45) continue;         // 問合あり&45日未満 保護
 
-    var protectedBy = '';
-    if (listedDays < 14) {
-      protectedBy = 'new14';
-    } else if (inquiries >= 1 && listedDays < 45) {
-      protectedBy = 'hasInquiry';
-    }
+    // 危険度スコア
+    var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
+    var riskScore = weightedComp * 10
+                  + (sheetDays >= 60 ? 9999 : 0)
+                  + (sheetDays >= 45 ? 500 : 0);
 
-    activeListings.push({
+    candidates.push({
       key: data[i][0],
       building: data[i][1],
       room: data[i][2],
@@ -716,38 +709,32 @@ function findStopCandidate() {
       inquiries: inquiries,
       score: riskScore,
       suumoPropertyCode: String(data[i][10] || ''),
-      listedDays: listedDays,
+      suumoListedDays: suumoListedDays,
+      sheetDays: sheetDays,
       compLv1: compLv1,
       compLv2: compLv2,
       compLv3: compLv3,
-      sheetDays: sheetDays,
-      protectedBy: protectedBy,
       rowIndex: i + 2
     });
   }
 
-  if (activeListings.length === 0) return null;
-
-  // 保護対象を除いた候補から「危険度スコア最大」を選ぶ
-  var unprotected = activeListings.filter(function(l) { return !l.protectedBy; });
-  if (unprotected.length > 0) {
-    unprotected.sort(function(a, b) { return b.score - a.score; });
-    return unprotected[0];
-  }
-
-  // 全員保護対象の場合のフォールバック: 問い合わせ0かつ掲載日数が最長 を選ぶ
-  var fallback = activeListings.filter(function(l) { return l.inquiries === 0; });
-  if (fallback.length > 0) {
-    fallback.sort(function(a, b) { return b.listedDays - a.listedDays; });
-    return fallback[0];
-  }
-
-  // それでもなければ旧ロジック: シート掲載日数が最長かつスコア最大
-  activeListings.sort(function(a, b) {
-    if (b.sheetDays !== a.sheetDays) return b.sheetDays - a.sheetDays;
-    return b.score - a.score;
+  // 降順ソートして上位N件を返す
+  candidates.sort(function(a, b) {
+    if (b.score !== a.score) return b.score - a.score;
+    // 同点はシート日数が長い方を優先
+    return b.sheetDays - a.sheetDays;
   });
-  return activeListings[0];
+
+  return candidates.slice(0, limit);
+}
+
+/**
+ * 旧API互換: 最上位1件だけ返す
+ * (handleGetSuumoQueue で stopCandidate を単数返ししていた呼び出し元のため)
+ */
+function findStopCandidate() {
+  var list = findStopCandidates(1);
+  return list.length > 0 ? list[0] : null;
 }
 
 /**
@@ -1119,13 +1106,16 @@ function handleGetSuumoQueue(e) {
   var shouldLock = e.parameter.lock === 'true' || e.parameter.lock === '1';
   var queue = shouldLock ? getAndLockSuumoApprovalQueue() : getSuumoApprovalQueue();
   var listingCount = getActiveListingCount();
-  var stopCandidate = listingCount >= 50 ? findStopCandidate() : null;
+  // 50件超過時のみ候補を計算(計算コスト節約)
+  var stopCandidates = listingCount >= 50 ? findStopCandidates(10) : [];
+  var stopCandidate = stopCandidates.length > 0 ? stopCandidates[0] : null;
 
   return ContentService.createTextOutput(JSON.stringify({
     queue: queue,
     locked: shouldLock,
     activeListingCount: listingCount,
-    stopCandidate: stopCandidate
+    stopCandidate: stopCandidate,       // 後方互換(旧Chrome拡張が読む単数)
+    stopCandidates: stopCandidates      // 新API: 上位10件のリスト
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
