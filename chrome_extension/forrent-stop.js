@@ -1,20 +1,21 @@
 /**
- * forrent-stop.js — ForRent(SUUMO入稿システム)からの物件掲載停止(保留化)自動操作
+ * forrent-stop.js — ForRent(SUUMO入稿システム)からの物件を「成約」に変更して停止
  *
  * SUUMO物件コード(12桁)を指定すると以下を自動実行:
  *   1. PUB1R2801.action (情報更新一覧)を開く
  *   2. 物件コードで検索
- *   3. 検索結果1件を確認後、「掲載指示」リンクをクリック
- *   4. PUB1R2814.action(掲載指示一覧)でネット掲載を保留にトグル
- *   5. shijiUpdateSubmit(1) で一括更新実行POST
- *   6. 完了画面で成功判定
+ *   3. 検索結果1件を確認後、対象行の「空室」ボタンをクリック
+ *      → toggleSeiyaku() が発動 → seiyakuFlg=1(成約), shijiButton が有効化
+ *   4. #shijiButton (一括更新実行) をクリック
+ *      → formToUpdate() → POST PUB1R3900BD.action
+ *   5. 完了画面で成功判定
  *
  * 安全策:
- *   - 既定ではドライラン(手順5直前で停止、タブは残す)
+ *   - 既定ではドライラン(shijiButton直前で停止、タブは残す)
  *   - オプション画面の suumoForrentStopDryRun=false で本番実行可能
  *   - 検索結果0件/2件以上なら中止
- *   - ForRentは frameset で main フレーム操作が必要なため、chrome.scripting に
- *     allFrames:true を指定してフレーム横断で実行する
+ *   - 既に成約(seiyakuFlg=1)なら何もせず alreadyStopped: true で返す
+ *   - 直接 PUB1R2801.action を開いて完結するため frameset 遷移不要
  *
  * background.js から importScripts('forrent-stop.js') で読み込む前提。
  */
@@ -22,12 +23,12 @@
 let _forrentStopRunning = false;
 
 /**
- * ForRentで物件を停止(保留化)する
+ * ForRentで物件を停止(成約化)する
  *
  * @param {Object} opts
  *   - suumoPropertyCode {string} 12桁のSUUMO物件コード(必須)
  *   - dryRun {boolean}            送信直前で止めるか(未指定ならストレージから取得、既定true)
- * @returns {Promise<{ok:boolean, error?:string, dryRun?:boolean, stoppedAt?:string}>}
+ * @returns {Promise<{ok:boolean, error?:string, dryRun?:boolean, alreadyStopped?:boolean, stoppedAt?:string}>}
  */
 async function stopForrentListing(opts) {
   if (_forrentStopRunning) {
@@ -53,154 +54,151 @@ async function stopForrentListing(opts) {
   try {
     await setStorageData({ debugLog: `[ForRent停止] 開始 suumoCode=${suumoCode} dryRun=${dryRun}` });
 
-    // 1. 情報更新一覧(検索画面)を開く
+    // 1. 情報更新一覧を開く (直接アクセスで frameset 回避)
     const searchUrl = 'https://www.fn.forrent.jp/fn/PUB1R2801.action';
     const tab = await chrome.tabs.create({ url: searchUrl, active: false });
     tabId = tab.id;
 
     await waitForTabLoad(tabId, 60000);
-    // frameset内のmainフレームが完了するまで待つ
-    await sleep(3000);
+    await sleep(1500);
 
-    // 2. 検索フォーム入力 → 検索実行 (mainフレーム内)
-    const searchResult = await runInMainFrame_(tabId, (code) => {
+    // 2. 検索フォーム表示を待つ
+    const formReady = await waitForMainFrameCondition_(tabId, () => {
       const input = document.querySelector('input.bukkenCdInput');
-      if (!input) return { ok: false, error: '物件コード入力欄が見つかりません' };
-      input.value = code;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-
-      // 検索ボタン
+      if (!input) return null;
       const searchBtn = Array.from(document.querySelectorAll('input[type="submit"]'))
         .find(b => (b.value || '').trim() === '検索');
-      if (!searchBtn) return { ok: false, error: '検索ボタンが見つかりません' };
+      if (!searchBtn) return null;
+      return { ok: true, url: location.href };
+    }, 60000);
+
+    if (!formReady) {
+      throw new Error('検索フォームが表示されない(ForRentログイン切れの可能性)');
+    }
+
+    // 3. 物件コードを入力して検索実行
+    const searchExec = await runInMainFrame_(tabId, (code) => {
+      const input = document.querySelector('input.bukkenCdInput');
+      if (!input) return null;
+      input.value = code;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const searchBtn = Array.from(document.querySelectorAll('input[type="submit"]'))
+        .find(b => (b.value || '').trim() === '検索');
+      if (!searchBtn) return { ok: false, error: '検索ボタン不在' };
       searchBtn.click();
       return { ok: true };
     }, [suumoCode]);
 
-    if (!searchResult || !searchResult.ok) {
-      throw new Error((searchResult && searchResult.error) || '検索実行失敗');
+    if (!searchExec || !searchExec.ok) {
+      throw new Error((searchExec && searchExec.error) || '検索実行失敗');
     }
 
-    // 検索結果表示を待つ(POSTが完了してテーブル再描画されるのを待機)
-    await waitForTabLoad(tabId, 60000);
-    await sleep(2000);
-
-    // 3. 検索結果の件数を確認 + 「掲載指示」リンクをクリック
-    const clickResult = await runInMainFrame_(tabId, () => {
-      const links = Array.from(document.querySelectorAll('a'))
-        .filter(a => (a.innerText || '').trim() === '掲載指示');
-
-      // 検索結果行数(目安: 掲載指示リンクの数 = ヒット件数)
-      if (links.length === 0) {
-        return { ok: false, error: '検索結果0件(物件が見つかりません)', count: 0 };
-      }
-      if (links.length > 1) {
-        return { ok: false, error: `検索結果が複数件(${links.length}件)あるため安全のため中止`, count: links.length };
-      }
-      links[0].click();
-      return { ok: true, count: 1 };
-    });
-
-    if (!clickResult || !clickResult.ok) {
-      throw new Error((clickResult && clickResult.error) || '掲載指示リンククリック失敗');
-    }
-
-    // 4. PUB1R2814.action の読み込み待ち
-    await waitForTabLoad(tabId, 60000);
-    await sleep(2000);
-
-    // 5. 保留化トグル + 状態確認
-    const toggleResult = await runInMainFrame_(tabId, () => {
-      // 1行目(行index=1)のネット掲載フラグを取得
-      const hiddenFlag = document.getElementById('shijiFlg1_1');
-      const toggleBtn = document.getElementById('btn_shijiFlg1_1');
+    // 4. 検索結果の行を待つ: bukkenCd_<N> の value が検索コードと一致する行
+    const rowReady = await waitForMainFrameCondition_(tabId, (code) => {
+      const matches = Array.from(document.querySelectorAll('[id^="bukkenCd_"]'))
+        .filter(inp => inp.value === code);
+      if (matches.length === 0) return null; // まだ結果描画中 or 0件(タイムアウトで判定)
+      const rowSuffix = matches[0].id.split('_')[1];
+      const seiyakuHidden = document.getElementById('seiyakuFlg_' + rowSuffix);
+      const toggleBtn = document.getElementById('btn_seiyakuFlg_' + rowSuffix);
       const submitImg = document.getElementById('shijiButton');
-      if (!hiddenFlag || !toggleBtn || !submitImg) {
-        return { ok: false, error: 'PUB1R2814の要素が見つからない(ページ構造変化の可能性)' };
-      }
-      const beforeFlag = hiddenFlag.value;
-      const beforeBtnLabel = toggleBtn.value;
-
-      // 既に保留状態(0)なら停止済みとみなして中止
-      if (beforeFlag === '0') {
-        return { ok: false, alreadyStopped: true, error: '既に保留状態です' };
-      }
-
-      // changeKeisaiFlg が window レベルに定義されている前提(ForRent仕様)
-      if (typeof window.changeKeisaiFlg !== 'function') {
-        return { ok: false, error: 'window.changeKeisaiFlg が存在しません' };
-      }
-      window.changeKeisaiFlg('shijiFlg1', '1', true);
-
-      const afterFlag = document.getElementById('shijiFlg1_1').value;
-      const afterBtnLabel = document.getElementById('btn_shijiFlg1_1').value;
-      const submitEnabled = !document.getElementById('shijiButton').disabled;
-
+      if (!seiyakuHidden || !toggleBtn || !submitImg) return null;
       return {
-        ok: afterFlag === '0' && submitEnabled,
-        before: { flag: beforeFlag, label: beforeBtnLabel },
-        after: { flag: afterFlag, label: afterBtnLabel, submitEnabled: submitEnabled }
+        ok: true,
+        matchCount: matches.length,
+        rowSuffix: rowSuffix,
+        seiyakuBefore: seiyakuHidden.value,
+        buttonLabelBefore: toggleBtn.value,
       };
-    });
+    }, 60000, [suumoCode]);
+
+    if (!rowReady) {
+      throw new Error('検索結果の表示タイムアウト(一致する物件コードの行が見つからない)');
+    }
+    if (rowReady.matchCount > 1) {
+      throw new Error(`検索結果が複数件一致(${rowReady.matchCount}件)のため安全のため中止`);
+    }
+
+    const rowSuffix = rowReady.rowSuffix;
+    await setStorageData({ debugLog: `[ForRent停止] 検索1件ヒット row=${rowSuffix} seiyakuBefore=${rowReady.seiyakuBefore}(${rowReady.buttonLabelBefore})` });
+
+    // 5. 既に成約(seiyakuFlg=1)なら何もせず終了
+    if (rowReady.seiyakuBefore === '1') {
+      try { await chrome.tabs.remove(tabId); } catch (_) {}
+      await setStorageData({ debugLog: `[ForRent停止] 既に成約状態(suumoCode=${suumoCode})` });
+      return { ok: true, alreadyStopped: true };
+    }
+
+    // 6. 「空室」ボタンをクリック → toggleSeiyaku() 発動
+    //    .click() は page main world の onclick="toggleSeiyaku(...)" を発火させる
+    const toggleResult = await runInMainFrame_(tabId, (suffix) => {
+      const btn = document.getElementById('btn_seiyakuFlg_' + suffix);
+      if (!btn) return { ok: false, error: 'btn_seiyakuFlg_' + suffix + ' 不在' };
+      btn.click();
+      // トグル後の検証
+      const seiyakuHidden = document.getElementById('seiyakuFlg_' + suffix);
+      const updateFlg = document.getElementById('updateFlg_' + suffix);
+      const submitImg = document.getElementById('shijiButton');
+      return {
+        ok: seiyakuHidden && seiyakuHidden.value === '1' && submitImg && !submitImg.hasAttribute('disabled'),
+        seiyakuAfter: seiyakuHidden ? seiyakuHidden.value : '',
+        updateFlgAfter: updateFlg ? updateFlg.value : '',
+        buttonLabelAfter: btn.value,
+        submitEnabled: submitImg ? !submitImg.hasAttribute('disabled') : false,
+      };
+    }, [rowSuffix]);
 
     if (!toggleResult || !toggleResult.ok) {
-      if (toggleResult && toggleResult.alreadyStopped) {
-        // 既停止は成功扱い
-        try { await chrome.tabs.remove(tabId); } catch (_) {}
-        await setStorageData({ debugLog: `[ForRent停止] 既に保留状態(suumoCode=${suumoCode})` });
-        return { ok: true, alreadyStopped: true };
-      }
-      throw new Error((toggleResult && toggleResult.error) || '保留化トグル失敗');
+      throw new Error('空室→成約トグル失敗: ' + JSON.stringify(toggleResult));
     }
 
-    await setStorageData({ debugLog: `[ForRent停止] 保留化OK: ${toggleResult.before.flag}→${toggleResult.after.flag}` });
+    await setStorageData({
+      debugLog: `[ForRent停止] 成約化OK seiyakuFlg=${toggleResult.seiyakuAfter} ラベル=${toggleResult.buttonLabelAfter} 送信可=${toggleResult.submitEnabled}`
+    });
 
-    // 6. ドライランチェック
+    // 7. ドライランチェック
     if (dryRun) {
-      // タブを残して終了(ユーザーが目視確認&手動送信できるようにactive化)
       try { await chrome.tabs.update(tabId, { active: true }); } catch (_) {}
       await setStorageData({
-        debugLog: `[ForRent停止] DRY RUN: 保留化直後で停止。手動で「一括更新実行」を押せば完了(送信しなかった)`,
+        debugLog: `[ForRent停止] DRY RUN: 「一括更新実行」ボタン直前で停止。タブを残したので目視確認してください(送信しなかった)`
       });
       return { ok: true, dryRun: true };
     }
 
-    // 7. 本番送信: shijiUpdateSubmit(1)
+    // 8. 本番送信: #shijiButton をクリック → formToUpdate() → POST PUB1R3900BD.action
     const submitResult = await runInMainFrame_(tabId, () => {
-      if (typeof window.shijiUpdateSubmit !== 'function') {
-        return { ok: false, error: 'window.shijiUpdateSubmit が存在しません' };
-      }
-      const submitImg = document.getElementById('shijiButton');
-      if (!submitImg || submitImg.disabled) {
-        return { ok: false, error: '一括更新実行ボタンが無効/不在' };
-      }
-      window.shijiUpdateSubmit(1);
+      const btn = document.getElementById('shijiButton');
+      if (!btn) return { ok: false, error: 'shijiButton 不在' };
+      if (btn.hasAttribute('disabled')) return { ok: false, error: 'shijiButton が無効状態' };
+      btn.click();
       return { ok: true };
     });
 
     if (!submitResult || !submitResult.ok) {
-      throw new Error((submitResult && submitResult.error) || 'submit呼び出し失敗');
+      throw new Error((submitResult && submitResult.error) || '一括更新実行クリック失敗');
     }
 
-    // 8. 完了画面へ遷移待機
-    await waitForTabLoad(tabId, 60000);
-    await sleep(2000);
-
-    // 9. 完了判定: PUB1R3910 遷移 or bodyテキスト「完了」
-    const completeCheck = await runInMainFrame_(tabId, () => {
+    // 9. 完了画面への遷移を待つ(PUB1R3900 への遷移 or 成功文言)
+    const completeCheck = await waitForMainFrameCondition_(tabId, () => {
       const url = location.href;
       const bodyText = (document.body && document.body.innerText) || '';
-      const isCompletePage = /PUB1R3910/.test(url);
-      const hasSuccessText = /完了|成功|更新しました/.test(bodyText);
+      // PUB1R2801 からまだ遷移していない間は待機
+      if (/PUB1R2801/.test(url) && !/PUB1R3900|complete/i.test(url)) return null;
+      const isCompletePage = /PUB1R3900/.test(url);
+      const hasSuccessText = /完了|更新しました|更新完了|成功/.test(bodyText);
       const hasErrorText = /エラー|失敗|できませんでした/.test(bodyText);
+      if (!isCompletePage && !hasSuccessText && !hasErrorText) return null;
       return { url, isCompletePage, hasSuccessText, hasErrorText, bodyHead: bodyText.substring(0, 300) };
-    });
+    }, 60000);
 
-    if (completeCheck && completeCheck.hasErrorText) {
+    if (!completeCheck) {
+      throw new Error('完了画面への遷移がタイムアウト');
+    }
+    if (completeCheck.hasErrorText) {
       throw new Error('完了画面にエラー文言: ' + completeCheck.bodyHead);
     }
 
-    const succeeded = completeCheck && (completeCheck.isCompletePage || completeCheck.hasSuccessText);
+    const succeeded = completeCheck.isCompletePage || completeCheck.hasSuccessText;
     try { await chrome.tabs.remove(tabId); } catch (_) {}
 
     const stoppedAt = new Date().toISOString();
@@ -212,7 +210,7 @@ async function stopForrentListing(opts) {
     return {
       ok: !!succeeded,
       stoppedAt,
-      url: completeCheck && completeCheck.url,
+      url: completeCheck.url,
       warning: succeeded ? null : '完了画面の判定が確証なし。ForRentで手動確認してください',
     };
 
@@ -230,10 +228,12 @@ async function stopForrentListing(opts) {
 }
 
 /**
- * タブの main フレームでスクリプトを実行するヘルパー
+ * タブ内の全フレームでスクリプトを実行し、「意味のある結果」を拾うヘルパー
  *
- * ForRent は frameset で main フレーム内に UI があるため、allFrames:true で
- * 全フレームに注入し、main フレームの結果を拾う。
+ * ForRent は main_r.action 経由だと frameset だが、PUB1R2801.action を
+ * 直接開けば frameset なし。allFrames:true でどちらでも動くようにする。
+ * predicate が null を返したフレームは「対象外」として飛ばし、
+ * ok:true / ok:false+error を返したフレームの結果を優先して採用する。
  */
 async function runInMainFrame_(tabId, func, args) {
   try {
@@ -244,15 +244,19 @@ async function runInMainFrame_(tabId, func, args) {
     });
     if (!Array.isArray(results)) return null;
 
-    // main フレームからの結果: 'main' フレームは frame.name が 'main'。
-    // chrome.scripting の結果には frameId だけで name は無いため、
-    // 「意味のある結果(nullでも error でもなく ok プロパティを持つ)」を優先して採用。
+    // 1. 成功(ok:true)
     for (const r of results) {
-      if (r && r.result && typeof r.result === 'object' && ('ok' in r.result || 'error' in r.result)) {
+      if (r && r.result && typeof r.result === 'object' && r.result.ok === true) {
         return r.result;
       }
     }
-    // それ以外: 最初の非null結果を返す
+    // 2. 明示的なエラー(ok:false + error)
+    for (const r of results) {
+      if (r && r.result && typeof r.result === 'object' && r.result.ok === false && r.result.error) {
+        return r.result;
+      }
+    }
+    // 3. null以外
     for (const r of results) {
       if (r && r.result !== undefined && r.result !== null) return r.result;
     }
@@ -260,4 +264,39 @@ async function runInMainFrame_(tabId, func, args) {
   } catch (err) {
     return { ok: false, error: 'script execute failed: ' + err.message };
   }
+}
+
+/**
+ * フレーム内のpredicateが truthy を返すまでポーリングする。
+ * frameset内ナビゲーションや非同期描画を待つのに使う。
+ *
+ * @param {number} tabId
+ * @param {Function} predicate - フレーム内で実行。達成したらtruthyを返す
+ * @param {number} timeoutMs - 既定30秒
+ * @param {Array} args - predicateへの引数
+ * @returns {Promise<any|null>}
+ */
+async function waitForMainFrameCondition_(tabId, predicate, timeoutMs, args) {
+  const deadline = Date.now() + (timeoutMs || 30000);
+  const intervalMs = 700;
+  while (Date.now() < deadline) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: predicate,
+        args: args || [],
+      });
+      if (Array.isArray(results)) {
+        for (const r of results) {
+          if (r && r.result !== undefined && r.result !== null) {
+            return r.result;
+          }
+        }
+      }
+    } catch (_) {
+      // タブ遷移中などで inject できないケースは継続
+    }
+    await sleep(intervalMs);
+  }
+  return null;
 }
