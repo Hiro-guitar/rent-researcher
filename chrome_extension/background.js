@@ -70,6 +70,8 @@ importScripts('essquare-config.js', 'essquare-background.js');
 importScripts('suumo-competitor.js', 'suumo-patrol.js');
 // SUUMOビジネス Daily Search からの掲載実績取得(Phase 1)
 importScripts('suumo-business-fetch.js');
+// ForRent掲載停止(保留化)自動操作(Phase 3)
+importScripts('forrent-stop.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {
@@ -1058,6 +1060,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         const result = await runSuumoBusinessFetch();
+        sendResponse(result);
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+  // ── ForRent停止テスト実行(Phase 3) ──
+  // options.html の「ForRent停止テスト実行」ボタンから送信される
+  if (msg.type === 'FORRENT_STOP_TEST') {
+    (async () => {
+      try {
+        const result = await stopForrentListing({
+          suumoPropertyCode: msg.suumoPropertyCode,
+          dryRun: msg.dryRun, // 未指定ならストレージから判定
+        });
         sendResponse(result);
       } catch (err) {
         sendResponse({ ok: false, error: err.message });
