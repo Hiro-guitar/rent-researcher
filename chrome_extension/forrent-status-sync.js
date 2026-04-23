@@ -203,15 +203,35 @@ async function ensureForrentReady_(tabId) {
       return { ok: false, error: 'ForRent自動ログイン失敗: ' + loginResult.error };
     }
     await setStorageData({ debugLog: '[ForRent状態同期] 自動ログイン成功' });
-    // ログイン後、PUB1R2801.action に遷移
-    await chrome.tabs.update(tabId, { url: 'https://www.fn.forrent.jp/fn/PUB1R2801.action' });
-    try { await waitForTabLoad(tabId, 30000); } catch (_) {}
-    await sleep(2500);
+    // ログイン後は main_r.action に自動遷移し、その main フレームが PUB1R2801 を
+    // 読み込むのが ForRent の自然なフロー。
+    // 強制 URL 遷移すると frameset 経由の初期化が走らず「画面遷移エラー」が再発するため、
+    // ここでは遷移せず、全フレーム横断で bukkenCdInput が現れるまで待つ。
+    await sleep(1500);
     state = await pollInspectForrentPage_(tabId, 20000);
     if (!state) return { ok: false, error: 'ログイン後ページ取得失敗(タイムアウト)' };
     if (state.hasBukkenInput) return { ok: true };
-    // それでもダメ(再ログイン画面など)
-    return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + (state.url || '') + ')' };
+
+    // 自然遷移で PUB1R2801 が開かなかった場合、mainフレーム内の
+    // 「情報更新一覧」メニューをクリックしてみる
+    await setStorageData({ debugLog: '[ForRent状態同期] 自然遷移で検索フォーム未検出 → 情報更新一覧メニューを探索' });
+    const navResult = await runInMainFrame_(tabId, () => {
+      const candidates = Array.from(document.querySelectorAll('a, input[type="submit"], input[type="button"], li, span'));
+      const target = candidates.find(el => {
+        const t = (el.innerText || el.value || el.title || '').trim();
+        return t === '情報更新一覧' || /情報更新.*一覧|一覧.*情報更新/.test(t);
+      });
+      if (!target) return { ok: false, error: '情報更新メニューが見つからない' };
+      target.click();
+      return { ok: true, clickedText: (target.innerText || target.value || '').trim() };
+    });
+    if (navResult && navResult.ok) {
+      await sleep(2000);
+      state = await pollInspectForrentPage_(tabId, 15000);
+      if (state && state.hasBukkenInput) return { ok: true };
+    }
+
+    return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + ((state && state.url) || '') + ')' };
   }
 
   // 検索フォームもログインフォームもエラーも無い → 不明
