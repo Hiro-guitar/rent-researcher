@@ -374,8 +374,20 @@ function _normalizeChome(s) {
 
 // === 検索ペイロード構築 ===
 
-function buildItandiSearchPayload(customer, stationIds, jgdcCodes) {
+function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithinDays) {
   const filterObj = {};
+
+  // SUUMO巡回時のみ: 募集条件更新 N日以内フィルタを付与
+  // API仕様: filterObj['offer_conditions_updated_at:gteq'] = "YYYY-MM-DDT00:00:00.000" (JST解釈、タイムゾーン指定子なし)
+  // 値は「今日00:00 - N日」
+  if (customer && customer._isSuumoPatrol && typeof updatedWithinDays === 'number' && updatedWithinDays >= 0) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - updatedWithinDays);
+    const pad = (n) => String(n).padStart(2, '0');
+    filterObj['offer_conditions_updated_at:gteq'] =
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T00:00:00.000`;
+  }
   const prefecture = customer.prefecture || '東京都';
   const prefectureId = ITANDI_PREFECTURE_IDS[prefecture] || null;
 
@@ -986,12 +998,23 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
 
   let allProperties = [];
 
+  // SUUMO巡回時のみ: 募集条件更新N日以内フィルタの値を storage から取得
+  let itandiUpdatedWithinDays = null;
+  if (customer && customer._isSuumoPatrol) {
+    try {
+      const store = await getStorageData(['itandiUpdatedWithinDays']);
+      if (typeof store.itandiUpdatedWithinDays === 'number' && store.itandiUpdatedWithinDays >= 0) {
+        itandiUpdatedWithinDays = store.itandiUpdatedWithinDays;
+      }
+    } catch (_) {}
+  }
+
   for (let chunkIdx = 0; chunkIdx < jgdcChunks.length; chunkIdx++) {
     const chunk = jgdcChunks[chunkIdx];
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
 
     // 検索ペイロード構築
-    const payload = buildItandiSearchPayload(customer, stationIds, chunk);
+    const payload = buildItandiSearchPayload(customer, stationIds, chunk, itandiUpdatedWithinDays);
 
     // 検索条件をログに出力（確認用）
     const f = payload.filter;

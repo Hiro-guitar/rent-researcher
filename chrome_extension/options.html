@@ -204,6 +204,12 @@
   </div>
 
   <div class="field">
+    <label for="itandiUpdatedWithinDays">SUUMO巡回: itandi 募集条件更新 N日以内のみ取得</label>
+    <input type="number" id="itandiUpdatedWithinDays" min="0" max="30" placeholder="例: 1（空欄なら制限なし）" style="width:120px">
+    <div class="hint">itandi BB API の <code>offer_conditions_updated_at:gteq</code> フィルタを付与します。「1」なら昨日00:00以降に募集条件が更新された物件のみ取得。新着差分だけ拾うので巡回高速化＆SUUMO検索への負荷軽減。SUUMO巡回のみ適用</div>
+  </div>
+
+  <div class="field">
     <label for="errorWebhook">エラー通知用 Webhook URL（任意）</label>
     <input type="text" id="errorWebhook" placeholder="https://discord.com/api/webhooks/...">
     <div class="hint">エラーログをここに通知。空欄なら上の物件通知Webhookに送信。同一エラーは5分クールダウン</div>
