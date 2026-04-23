@@ -1153,8 +1153,8 @@ function handleAddReinsProperty(json) {
 
     sheet.appendRow([
       customerName,                    // A: customer_name
-      p.building_id || '',             // B: building_id
-      roomId,                          // C: room_id
+      String(p.building_id || ''),     // B: building_id (text化)
+      String(roomId),                  // C: room_id (text化)
       p.building_name || '',           // D: building_name
       String(p.rent || 0),             // E: rent
       String(p.management_fee || 0),   // F: management_fee
@@ -1181,6 +1181,18 @@ function handleAddReinsProperty(json) {
         imageUrl: (p.image_urls && p.image_urls[0]) || p.image_url || ''
       })  // N: view_url（minimalUrl で即時表示可）
     ]);
+
+    // 純粋に数字だけのID(building_id, room_id)が Google Sheets側で数値として
+    // 解釈されると、14桁以上だと指数表記(5.34E+13)に化けて精度を失う。
+    // 追記直後にセルをテキストフォーマット('@')に設定し、値を文字列で
+    // 上書きすることで数値化を防ぐ。
+    try {
+      var newRowIdx = sheet.getLastRow();
+      sheet.getRange(newRowIdx, 2).setNumberFormat('@').setValue(String(p.building_id || ''));
+      sheet.getRange(newRowIdx, 3).setNumberFormat('@').setValue(String(roomId));
+    } catch (fmtErr) {
+      console.warn('承認待ち物件 text format設定失敗: ' + fmtErr.message);
+    }
 
     added++;
     existingIds[dedupKey] = true;

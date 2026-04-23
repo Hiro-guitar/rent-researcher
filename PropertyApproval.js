@@ -1724,14 +1724,71 @@ function findPendingRow(customerName, roomId) {
   if (!sheet) return null;
 
   var data = sheet.getDataRange().getValues();
+  var targetCust = String(customerName);
+  var targetRoom = String(roomId);
   for (var i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(customerName) &&
-        String(data[i][2]) === String(roomId) &&
-        String(data[i][10]) === 'pending') {
+    if (String(data[i][0]) !== targetCust) continue;
+    if (String(data[i][10]) !== 'pending') continue;
+    // room_id が数値として保存されている場合、精度欠落で完全一致しないことがある。
+    // その対策として、指数表記化している可能性のある大きな数値は
+    // toFixed(0) でも照合する。
+    var cellVal = data[i][2];
+    if (String(cellVal) === targetRoom) {
       return { rowIndex: i + 1, values: data[i] };
+    }
+    // 数値化されているケースのフォールバック
+    if (typeof cellVal === 'number' && !isNaN(cellVal)) {
+      try {
+        var cellStr = cellVal.toFixed(0);
+        if (cellStr === targetRoom) {
+          return { rowIndex: i + 1, values: data[i] };
+        }
+      } catch (_) {}
     }
   }
   return null;
+}
+
+/**
+ * 承認待ち物件シートの B列(building_id) と C列(room_id) を
+ * テキストフォーマットに一括変更する管理ユーティリティ
+ *
+ * 既に数値として保存されて指数表記化した行は精度が失われているため復元不可だが、
+ * 列フォーマットを '@'(text) に変えておくことで以後の書き込みで数値化を防ぐ。
+ * GASエディタから fixPendingSheetIdColumnsToText を手動実行する想定。
+ */
+function fixPendingSheetIdColumnsToText() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!sheet) return { error: 'sheet not found' };
+
+  var lastRow = Math.max(sheet.getLastRow(), 1);
+  // B列(building_id)と C列(room_id)を text format に
+  sheet.getRange(1, 2, lastRow + 1000, 1).setNumberFormat('@');
+  sheet.getRange(1, 3, lastRow + 1000, 1).setNumberFormat('@');
+
+  // 既に数値として保存されている行の値を文字列に書き直す
+  // (ただし指数表記で精度が失われた行は toFixed(0) で復元できる最大限を試す)
+  var fixed = 0;
+  if (lastRow > 1) {
+    var data = sheet.getRange(2, 2, lastRow - 1, 2).getValues();
+    var writes = [];
+    for (var i = 0; i < data.length; i++) {
+      var b = data[i][0];
+      var c = data[i][1];
+      var newB = b;
+      var newC = c;
+      if (typeof b === 'number' && !isNaN(b)) {
+        try { newB = b.toFixed(0); fixed++; } catch (_) {}
+      }
+      if (typeof c === 'number' && !isNaN(c)) {
+        try { newC = c.toFixed(0); fixed++; } catch (_) {}
+      }
+      writes.push([newB, newC]);
+    }
+    sheet.getRange(2, 2, writes.length, 2).setValues(writes);
+  }
+  return { success: true, fixedCells: fixed };
 }
 
 function findAllPendingRows(customerName) {
