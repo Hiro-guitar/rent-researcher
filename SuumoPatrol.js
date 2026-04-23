@@ -1567,6 +1567,22 @@ function getAdminPageUrl() {
  * base64データを画像ホスティングにアップロードしてURLを返す
  * 優先順: Telegra.ph → freeimage.host → imgbb
  */
+/**
+ * SuumoApprovalPage.html のブラウザJSから google.script.run 経由で呼ばれる。
+ * スクリプトプロパティ IMGBB_API_KEY を返すだけ。ブラウザ側からimgbbへ直接
+ * アップロードするときに使う(ユーザーIPを使うためGAS共有IPのレート制限を回避)。
+ * 個人キー未設定時は空文字列を返す。
+ *
+ * 名前に _ を入れないことで google.script.run から呼べる状態にしている。
+ */
+function getImgbbApiKeyForClient() {
+  try {
+    return PropertiesService.getScriptProperties().getProperty('IMGBB_API_KEY') || '';
+  } catch (_) {
+    return '';
+  }
+}
+
 function uploadPropertyImageForSuumo(base64Data, filename, mimeType) {
   var errors = [];
   var decoded = Utilities.base64Decode(base64Data);
