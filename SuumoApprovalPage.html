@@ -911,7 +911,12 @@ async function uploadFromBrowser_(base64, filename, mimeType) {
     var jsonTmp = null;
     try { jsonTmp = await resTmp.json(); } catch (_) { jsonTmp = null; }
     if (resTmp.ok && jsonTmp && jsonTmp.data && jsonTmp.data.url) {
-      var directUrl = jsonTmp.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+      // tmpfiles のAPIはhttp://を返すが、Chrome拡張のhost_permissionsはhttps://のみ
+      // 許可されているためhttpsに強制変換。
+      // viewerパス(/数字/ファイル)を直接ダウンロードパス(/dl/数字/ファイル)にも変換。
+      var directUrl = jsonTmp.data.url
+        .replace(/^http:\/\//, 'https://')
+        .replace('tmpfiles.org/', 'tmpfiles.org/dl/');
       return { success: true, url: directUrl };
     }
     errors.push('tmpfiles HTTP ' + resTmp.status + ': ' + JSON.stringify(jsonTmp || {}).substring(0, 200));
