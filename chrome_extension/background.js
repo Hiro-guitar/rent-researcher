@@ -74,6 +74,8 @@ importScripts('suumo-business-fetch.js');
 importScripts('forrent-stop.js');
 // ForRent確認画面の登録ボタン自動クリック(Phase 5)
 importScripts('forrent-final-submit.js');
+// ForRent PUB1R2801 の成約状態をシートに直読み同期
+importScripts('forrent-status-sync.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {
@@ -1087,6 +1089,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         const result = await runSuumoBusinessFetch();
+        sendResponse(result);
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+  // ── ForRent状態同期(PUB1R2801直読み) ──
+  if (msg.type === 'SUUMO_FORRENT_STATUS_SYNC') {
+    (async () => {
+      try {
+        const result = await syncForrentListingStatus();
         sendResponse(result);
       } catch (err) {
         sendResponse({ ok: false, error: err.message });
