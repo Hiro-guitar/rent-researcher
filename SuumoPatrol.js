@@ -1227,6 +1227,96 @@ function handleStopSuumoListing(json) {
 }
 
 /**
+ * POST: ForRent PUB1R2801 から取得した成約状態リストをシートに反映
+ *
+ * Chrome拡張が PUB1R2801 を直読みして [{suumoCode, seiyakuFlg, ...}] を送ってくる。
+ * - seiyakuFlg='1' (成約) かつ シート=active → stopped に変更
+ * - seiyakuFlg='0' (空室) かつ シート=stopped → active に復活
+ * - その他はノータッチ
+ *
+ * SUUMOビジネスDaily Searchの2日ラグを埋めるリアルタイム同期用途。
+ */
+function handleSyncForrentListingStatus(json) {
+  var rows = (json && json.rows) || [];
+  var fetchedAt = json && json.fetchedAt ? String(json.fetchedAt) : '';
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true, received: 0, stopped: 0, reactivated: 0, unmatched: 0
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true, received: rows.length, stopped: 0, reactivated: 0, unmatched: rows.length
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var headerLen = SUUMO_LISTING_HEADERS.length;
+  var data = sheet.getRange(2, 1, lastRow - 1, headerLen).getValues();
+
+  // suumo_property_code → (sheetRow, status) のマップ
+  var codeToRow = {};
+  for (var i = 0; i < data.length; i++) {
+    var code = String(data[i][10] || '').replace(/[^0-9]/g, '');
+    if (code) codeToRow[code] = { sheetRow: i + 2, status: data[i][8], rowData: data[i] };
+  }
+
+  var now;
+  if (fetchedAt) {
+    var d = new Date(fetchedAt);
+    now = isNaN(d.getTime())
+      ? Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')
+      : Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  } else {
+    now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  }
+
+  var stopped = 0;
+  var reactivated = 0;
+  var unmatched = 0;
+
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r] || {};
+    var suumoCode = String(row.suumoCode || '').replace(/[^0-9]/g, '');
+    var seiyakuFlg = String(row.seiyakuFlg || '');
+    if (!suumoCode || suumoCode.length !== 12) continue;
+
+    var target = codeToRow[suumoCode];
+    if (!target) {
+      unmatched++;
+      continue;
+    }
+
+    if (seiyakuFlg === '1') {
+      // 成約 → stopped
+      if (target.status !== 'stopped') {
+        sheet.getRange(target.sheetRow, 9).setValue('stopped');
+        sheet.getRange(target.sheetRow, 10).setValue(now + ' (ForRent直読み)');
+        stopped++;
+      }
+    } else if (seiyakuFlg === '0') {
+      // 空室 → active(stopped から復活)
+      if (target.status === 'stopped') {
+        sheet.getRange(target.sheetRow, 9).setValue('active');
+        sheet.getRange(target.sheetRow, 10).setValue('');
+        reactivated++;
+      }
+    }
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true,
+    received: rows.length,
+    stopped: stopped,
+    reactivated: reactivated,
+    unmatched: unmatched
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
  * 掲載管理シートの日時カラムをJST表記に一括修正する管理ユーティリティ
  *
  * Chrome拡張の初期バージョンがISO8601(UTC)のまま書き込んでいた
