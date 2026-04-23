@@ -1572,7 +1572,29 @@ function uploadPropertyImageForSuumo(base64Data, filename, mimeType) {
   var decoded = Utilities.base64Decode(base64Data);
   var blob = Utilities.newBlob(decoded, mimeType || 'image/jpeg', filename || 'upload.jpg');
 
-  // 1) Telegra.ph（APIキー不要）
+  // 0) catbox.moe (APIキー不要、レート制限緩い、ファイル無期限保存)
+  //    優先度1: 最も安定している
+  try {
+    var resp0 = UrlFetchApp.fetch('https://catbox.moe/user/api.php', {
+      method: 'POST',
+      payload: {
+        reqtype: 'fileupload',
+        fileToUpload: blob
+      },
+      muteHttpExceptions: true
+    });
+    var code0 = resp0.getResponseCode();
+    var body0 = resp0.getContentText();
+    // catboxはプレーンテキストで https://files.catbox.moe/xxxxxx.jpg を返す
+    if (code0 === 200 && body0 && body0.indexOf('https://') === 0) {
+      return { success: true, url: body0.trim() };
+    }
+    errors.push('catbox HTTP ' + code0 + ': ' + body0.substring(0, 200));
+  } catch (e0) {
+    errors.push('catbox: ' + e0.message);
+  }
+
+  // 1) Telegra.ph（APIキー不要、ただし2022年以降spam対策で事実上ほぼ失敗する）
   try {
     var resp1 = UrlFetchApp.fetch('https://telegra.ph/upload', {
       method: 'POST',
