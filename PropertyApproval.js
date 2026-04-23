@@ -1944,7 +1944,41 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
   var decoded = Utilities.base64Decode(base64Data);
   var blob = Utilities.newBlob(decoded, mimeType || 'image/jpeg', filename || 'upload.jpg');
 
-  // 0) catbox.moe (APIキー不要、レート制限緩い、ファイル無期限保存) — 最優先
+  // スクリプトプロパティ IMGBB_API_KEY に個人キーが設定されているか確認
+  var personalImgbbKey = null;
+  try {
+    personalImgbbKey = PropertiesService.getScriptProperties().getProperty('IMGBB_API_KEY');
+  } catch (_) {}
+
+  // -1) imgbb (個人キー設定時のみ最優先)
+  if (personalImgbbKey) {
+    try {
+      var respP = UrlFetchApp.fetch('https://api.imgbb.com/1/upload', {
+        method: 'POST',
+        payload: {
+          key: personalImgbbKey,
+          image: base64Data,
+          name: (filename || 'upload').replace(/\.[^.]+$/, '')
+        },
+        muteHttpExceptions: true
+      });
+      var codeP = respP.getResponseCode();
+      var bodyP = respP.getContentText();
+      if (codeP === 200) {
+        var jsonP = JSON.parse(bodyP);
+        if (jsonP && jsonP.success && jsonP.data && jsonP.data.url) {
+          return { success: true, url: jsonP.data.url };
+        }
+        errors.push('imgbb(personal) parse: ' + bodyP.substring(0, 200));
+      } else {
+        errors.push('imgbb(personal) HTTP ' + codeP + ': ' + bodyP.substring(0, 200));
+      }
+    } catch (eP) {
+      errors.push('imgbb(personal): ' + eP.message);
+    }
+  }
+
+  // 0) catbox.moe (APIキー不要、GASサーバーIPから412の可能性あり)
   try {
     var resp0 = UrlFetchApp.fetch('https://catbox.moe/user/api.php', {
       method: 'POST',
@@ -2012,12 +2046,18 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
     errors.push('freeimage: ' + e2.message);
   }
 
-  // 3) imgbb
+  // 3) imgbb（個人APIキー優先、無ければ共有キー）
+  // スクリプトプロパティ IMGBB_API_KEY に個人キーを設定すると個別レート枠で使える
+  var imgbbKey = '48cdc51fdcc4a2828c3379b59663db7f'; // 旧共有キー(レート制限中)
+  try {
+    var personalKey = PropertiesService.getScriptProperties().getProperty('IMGBB_API_KEY');
+    if (personalKey) imgbbKey = personalKey;
+  } catch (_) {}
   try {
     var resp3 = UrlFetchApp.fetch('https://api.imgbb.com/1/upload', {
       method: 'POST',
       payload: {
-        key: '48cdc51fdcc4a2828c3379b59663db7f',
+        key: imgbbKey,
         image: base64Data,
         name: (filename || 'upload').replace(/\.[^.]+$/, '')
       },
