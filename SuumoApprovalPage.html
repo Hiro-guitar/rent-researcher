@@ -837,37 +837,107 @@ function handleFileSelect(files) {
 
     var reader = new FileReader();
     reader.onload = function(e) {
-      var base64 = e.target.result.split(',')[1];
-      // 画像が大きすぎる場合はリサイズ（GAS送信制限対策）
       resizeImageIfNeeded(e.target.result, 1200, function(resizedBase64) {
-        google.script.run
-          .withSuccessHandler(function(result) {
-            done++;
-            fillEl.style.width = (done / total * 100) + '%';
-            if (result && result.success) {
-              addUploadedImage(result.url);
-            } else {
-              failed++;
-              var msg = file.name + ': ' + (result ? result.message : 'unknown error');
-              errors.push(msg);
-              console.error('Upload failed:', msg);
-            }
-            uploadNext(idx + 1);
-          })
-          .withFailureHandler(function(err) {
-            done++; failed++;
-            var msg = file.name + ': ' + (err.message || String(err));
+        // ブラウザから直接画像ホスティングへアップロード(ユーザーIP使用)
+        uploadFromBrowser_(resizedBase64, file.name, file.type).then(function(result) {
+          done++;
+          fillEl.style.width = (done / total * 100) + '%';
+          if (result && result.success) {
+            addUploadedImage(result.url);
+          } else {
+            failed++;
+            var msg = file.name + ': ' + (result ? result.message : 'unknown error');
             errors.push(msg);
-            console.error('Upload error:', msg);
-            fillEl.style.width = (done / total * 100) + '%';
-            uploadNext(idx + 1);
-          })
-          .uploadPropertyImageForSuumo(resizedBase64, file.name, file.type);
+            console.error('Upload failed:', msg);
+          }
+          uploadNext(idx + 1);
+        }).catch(function(err) {
+          done++; failed++;
+          var msg = file.name + ': ' + (err.message || String(err));
+          errors.push(msg);
+          console.error('Upload error:', msg);
+          fillEl.style.width = (done / total * 100) + '%';
+          uploadNext(idx + 1);
+        });
       });
     };
     reader.readAsDataURL(file);
   }
   uploadNext(0);
+}
+
+// ── ブラウザ直接アップロード(ユーザーIP使用) ──
+// GAS経由だと共有IPでレート制限にかかるため、ブラウザから直接送信する。
+// 優先順位:
+//   1. catbox.moe (APIキー不要、Chrome拡張でも使用実績)
+//   2. imgbb 個人キー (GASスクリプトプロパティから取得)
+//   3. GAS経由のサーバーサイドアップロード(最終fallback)
+async function uploadFromBrowser_(base64, filename, mimeType) {
+  var errors = [];
+
+  // base64 → Blob (multipart/form-dataで送るため)
+  var binStr = atob(base64);
+  var bytes = new Uint8Array(binStr.length);
+  for (var i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+  var blob = new Blob([bytes], { type: mimeType || 'image/jpeg' });
+
+  // 1) catbox.moe (APIキー不要)
+  try {
+    var fd1 = new FormData();
+    fd1.append('reqtype', 'fileupload');
+    fd1.append('fileToUpload', blob, filename || 'upload.jpg');
+    var res1 = await fetch('https://catbox.moe/user/api.php', { method: 'POST', body: fd1 });
+    var text1 = await res1.text();
+    if (res1.ok && text1 && text1.indexOf('https://') === 0) {
+      return { success: true, url: text1.trim() };
+    }
+    errors.push('catbox HTTP ' + res1.status + ': ' + (text1 || '').substring(0, 200));
+  } catch (e1) {
+    errors.push('catbox: ' + (e1.message || String(e1)));
+  }
+
+  // 2) imgbb 個人キー(GASから取得)
+  try {
+    var key = await new Promise(function(resolve) {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(function(){ resolve(null); })
+        .getImgbbApiKeyForClient();
+    });
+    if (key) {
+      var fd2 = new FormData();
+      fd2.append('key', key);
+      fd2.append('image', base64);
+      if (filename) fd2.append('name', filename.replace(/\.[^.]+$/, ''));
+      var res2 = await fetch('https://api.imgbb.com/1/upload', { method: 'POST', body: fd2 });
+      var json2 = null;
+      try { json2 = await res2.json(); } catch (_) { json2 = null; }
+      if (res2.ok && json2 && json2.success && json2.data && json2.data.url) {
+        return { success: true, url: json2.data.url };
+      }
+      errors.push('imgbb(browser) HTTP ' + res2.status + ': ' + JSON.stringify((json2 && json2.error) || {}).substring(0, 200));
+    } else {
+      errors.push('imgbb: 個人キー未設定');
+    }
+  } catch (e2) {
+    errors.push('imgbb: ' + (e2.message || String(e2)));
+  }
+
+  // 3) 最終fallback: GAS経由(共有IPで失敗率高いが一応試す)
+  try {
+    var gasResult = await new Promise(function(resolve, reject) {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .uploadPropertyImageForSuumo(base64, filename, mimeType);
+    });
+    if (gasResult && gasResult.success) return gasResult;
+    errors.push('gas: ' + ((gasResult && gasResult.message) || 'unknown'));
+  } catch (e3) {
+    errors.push('gas: ' + (e3.message || String(e3)));
+  }
+
+  return { success: false, message: errors.join(' | ') };
 }
 
 // 画像が大きい場合にクライアント側でリサイズ（GAS転送量削減）
