@@ -881,25 +881,49 @@ async function uploadFromBrowser_(base64, filename, mimeType) {
   for (var i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
   var blob = new Blob([bytes], { type: mimeType || 'image/jpeg' });
 
-  // 1) 0x0.st (APIキー不要、永続保存、CORS対応)
+  // タイムアウト付きfetchヘルパー(無限待機でUIが固まるのを防ぐ)
+  var fetchWithTimeout = function(url, opts, timeoutMs) {
+    var ctrl = new AbortController();
+    var t = setTimeout(function() { ctrl.abort(); }, timeoutMs || 20000);
+    var o = Object.assign({}, opts, { signal: ctrl.signal });
+    return fetch(url, o).finally(function() { clearTimeout(t); });
+  };
+
+  // 1) 0x0.st (APIキー不要、永続保存、CORS対応) — 最優先
   try {
     var fd0 = new FormData();
     fd0.append('file', blob, filename || 'upload.jpg');
-    var res0 = await fetch('https://0x0.st', { method: 'POST', body: fd0 });
+    var res0 = await fetchWithTimeout('https://0x0.st', { method: 'POST', body: fd0 }, 20000);
     var text0 = await res0.text();
     if (res0.ok && text0 && text0.indexOf('https://') === 0) {
       return { success: true, url: text0.trim() };
     }
     errors.push('0x0.st HTTP ' + res0.status + ': ' + (text0 || '').substring(0, 200));
   } catch (e0) {
-    errors.push('0x0.st: ' + (e0.message || String(e0)));
+    errors.push('0x0.st: ' + (e0.name === 'AbortError' ? 'timeout(20s)' : (e0.message || String(e0))));
   }
 
-  // 2) pixeldrain.com (APIキー不要、CORS対応)
+  // 2) tmpfiles.org (APIキー不要、60日保存、CORS対応)
+  try {
+    var fdTmp = new FormData();
+    fdTmp.append('file', blob, filename || 'upload.jpg');
+    var resTmp = await fetchWithTimeout('https://tmpfiles.org/api/v1/upload', { method: 'POST', body: fdTmp }, 20000);
+    var jsonTmp = null;
+    try { jsonTmp = await resTmp.json(); } catch (_) { jsonTmp = null; }
+    if (resTmp.ok && jsonTmp && jsonTmp.data && jsonTmp.data.url) {
+      var directUrl = jsonTmp.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+      return { success: true, url: directUrl };
+    }
+    errors.push('tmpfiles HTTP ' + resTmp.status + ': ' + JSON.stringify(jsonTmp || {}).substring(0, 200));
+  } catch (eTmp) {
+    errors.push('tmpfiles: ' + (eTmp.name === 'AbortError' ? 'timeout(20s)' : (eTmp.message || String(eTmp))));
+  }
+
+  // 3) pixeldrain.com (APIキー不要、CORS対応)
   try {
     var fdPd = new FormData();
     fdPd.append('file', blob, filename || 'upload.jpg');
-    var resPd = await fetch('https://pixeldrain.com/api/file', { method: 'POST', body: fdPd });
+    var resPd = await fetchWithTimeout('https://pixeldrain.com/api/file', { method: 'POST', body: fdPd }, 20000);
     var jsonPd = null;
     try { jsonPd = await resPd.json(); } catch (_) { jsonPd = null; }
     if (resPd.ok && jsonPd && jsonPd.id) {
@@ -907,28 +931,7 @@ async function uploadFromBrowser_(base64, filename, mimeType) {
     }
     errors.push('pixeldrain HTTP ' + resPd.status + ': ' + JSON.stringify(jsonPd || {}).substring(0, 200));
   } catch (ePd) {
-    errors.push('pixeldrain: ' + (ePd.message || String(ePd)));
-  }
-
-  // 3) tmpfiles.org (APIキー不要、60日保存、CORS対応)
-  try {
-    var fdTmp = new FormData();
-    fdTmp.append('file', blob, filename || 'upload.jpg');
-    var resTmp = await fetch('https://tmpfiles.org/api/v1/upload', { method: 'POST', body: fdTmp });
-    var jsonTmp = null;
-    try { jsonTmp = await resTmp.json(); } catch (_) { jsonTmp = null; }
-    if (resTmp.ok && jsonTmp && jsonTmp.data && jsonTmp.data.url) {
-      // tmpfiles返却URLは /x/ パス。SUUMOで直接fetch可能な直リンクに変換: /x/ → /dl/
-      var directUrl = jsonTmp.data.url.replace('/tmpfiles.org/', '/tmpfiles.org/dl/').replace('/x/', '/dl/');
-      // 念のため "tmpfiles.org/" の後に "dl/" が無いなら差し込む
-      if (!/tmpfiles\.org\/dl\//.test(directUrl)) {
-        directUrl = jsonTmp.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
-      }
-      return { success: true, url: directUrl };
-    }
-    errors.push('tmpfiles HTTP ' + resTmp.status + ': ' + JSON.stringify(jsonTmp || {}).substring(0, 200));
-  } catch (eTmp) {
-    errors.push('tmpfiles: ' + (eTmp.message || String(eTmp)));
+    errors.push('pixeldrain: ' + (ePd.name === 'AbortError' ? 'timeout(20s)' : (ePd.message || String(ePd))));
   }
 
   // 4) catbox.moe (APIキー不要だがCORS制限ありの可能性、一応残す)
@@ -936,14 +939,14 @@ async function uploadFromBrowser_(base64, filename, mimeType) {
     var fd1 = new FormData();
     fd1.append('reqtype', 'fileupload');
     fd1.append('fileToUpload', blob, filename || 'upload.jpg');
-    var res1 = await fetch('https://catbox.moe/user/api.php', { method: 'POST', body: fd1 });
+    var res1 = await fetchWithTimeout('https://catbox.moe/user/api.php', { method: 'POST', body: fd1 }, 20000);
     var text1 = await res1.text();
     if (res1.ok && text1 && text1.indexOf('https://') === 0) {
       return { success: true, url: text1.trim() };
     }
     errors.push('catbox HTTP ' + res1.status + ': ' + (text1 || '').substring(0, 200));
   } catch (e1) {
-    errors.push('catbox: ' + (e1.message || String(e1)));
+    errors.push('catbox: ' + (e1.name === 'AbortError' ? 'timeout(20s)' : (e1.message || String(e1))));
   }
 
   // 5) imgbb 個人キー(GASから取得)
