@@ -735,13 +735,60 @@
 
     // ── 確認画面へ遷移 ──
     // ForRentのフォーム登録は2段階: 「確認画面へ」→ 確認画面で「登録」
-    // 半自動モード: 確認画面まで自動遷移し、登録はユーザーが手動で行う
-    // TODO: 全自動モード時は確認画面の「登録」ボタンも自動クリックする
     const confirmBtn = document.getElementById('regButton2');
     if (confirmBtn) {
       console.log('[SUUMO自動入稿] フォーム入力完了 → 「確認画面へ」を自動クリック');
       await new Promise(r => setTimeout(r, 500));
       confirmBtn.click();
+
+      // Phase 5: 確認画面到達を待機して background に通知 → 登録ボタン自動クリックへ
+      // 画像アップロード結果(data-suumo-img-stats)とジャンル設定数を渡して
+      // 事前チェックに使ってもらう。
+      try {
+        const imgStatsAttr = document.body.getAttribute('data-suumo-img-stats') || '{}';
+        const imgStats = JSON.parse(imgStatsAttr);
+        const imageGenresCount = (typeof imageGenres === 'object' && imageGenres) ? Object.keys(imageGenres).length : 0;
+        // 確認画面DOMが現れるまでポーリング(最大30秒)
+        const deadline = Date.now() + 30000;
+        let reached = false;
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 1000));
+          // 確認画面特有の #jikko (登録ボタン) 出現でチェック
+          if (document.getElementById('jikko')
+              || (window.top !== window && (() => {
+                try {
+                  const mw = window.top.frames && window.top.frames['main'];
+                  return !!(mw && mw.document && mw.document.getElementById('jikko'));
+                } catch(_) { return false; }
+              })())) {
+            reached = true;
+            break;
+          }
+          if (/REG1R12001\.action/.test(location.href)) {
+            reached = true;
+            break;
+          }
+        }
+        if (!reached) {
+          console.warn('[SUUMO自動入稿] 確認画面への遷移が30秒で検知できませんでした');
+          return;
+        }
+        console.log('[SUUMO自動入稿] 確認画面到達検知 → Phase5 起動');
+        // background に通知して自動登録を依頼
+        chrome.runtime.sendMessage({
+          type: 'SUUMO_CONFIRM_REACHED',
+          imageGenresCount,
+          imageUploadStats: imgStats
+        }, (resp) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[SUUMO自動入稿] Phase5通知エラー:', chrome.runtime.lastError.message);
+            return;
+          }
+          console.log('[SUUMO自動入稿] Phase5 結果:', JSON.stringify(resp));
+        });
+      } catch (e) {
+        console.warn('[SUUMO自動入稿] Phase5連携エラー:', e.message);
+      }
     } else {
       console.warn('[SUUMO自動入稿] 「確認画面へ」ボタン(#regButton2)が見つかりません');
       console.log('[SUUMO自動入稿] フォーム入力完了（確認画面への遷移は手動で行ってください）');
