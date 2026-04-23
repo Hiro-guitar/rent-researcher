@@ -143,6 +143,50 @@
     document.body.setAttribute('data-suumo-fill-auto', 'loaded-' + Date.now());
   }
 
+  // ── Phase 5: 確認画面到達を検知したら background に通知 ──
+  // 入力フォーム → 「確認画面へ」クリックで画面遷移 → このcontent scriptが
+  // 確認画面で再注入されたタイミングで発火。
+  // storage にフラグ suumoPendingConfirmCheck があるときだけ動く(手動で
+  // 確認画面を開いた場合には反応しないように制限)。
+  (function bootstrapPhase5Notify() {
+    try {
+      const url = window.location.href;
+      if (!/REG1R12001\.action/.test(url)) return;
+      if (!document.getElementById('jikko')) return; // 登録ボタンが無い = 確認画面じゃない
+
+      chrome.storage.local.get(['suumoPendingConfirmCheck'], (data) => {
+        const ctx = data && data.suumoPendingConfirmCheck;
+        if (!ctx) {
+          console.log('[SUUMO自動入稿/Phase5] 確認画面を開いたが pending フラグなし(手動操作扱い、何もしない)');
+          return;
+        }
+        // 古すぎる(10分以上前)のフラグは無効扱いして掃除
+        if (!ctx.at || (Date.now() - ctx.at) > 10 * 60 * 1000) {
+          console.log('[SUUMO自動入稿/Phase5] pending が古いためクリア');
+          chrome.storage.local.remove(['suumoPendingConfirmCheck']);
+          return;
+        }
+        // 一度きりなので即クリア
+        chrome.storage.local.remove(['suumoPendingConfirmCheck'], () => {
+          console.log('[SUUMO自動入稿/Phase5] 確認画面検知 → SUUMO_CONFIRM_REACHED 送信');
+          chrome.runtime.sendMessage({
+            type: 'SUUMO_CONFIRM_REACHED',
+            imageGenresCount: ctx.imageGenresCount || 0,
+            imageUploadStats: ctx.imageUploadStats || {},
+          }, (resp) => {
+            if (chrome.runtime.lastError) {
+              console.warn('[SUUMO自動入稿/Phase5] 通知エラー:', chrome.runtime.lastError.message);
+              return;
+            }
+            console.log('[SUUMO自動入稿/Phase5] 結果:', JSON.stringify(resp));
+          });
+        });
+      });
+    } catch (e) {
+      console.warn('[SUUMO自動入稿/Phase5] bootstrap 例外:', e.message);
+    }
+  })();
+
   // キュー監視の二重起動防止フラグ
   let _monitorStarted = false;
 
@@ -744,57 +788,30 @@
     const confirmBtn = document.getElementById('regButton2');
     if (confirmBtn) {
       console.log('[SUUMO自動入稿] フォーム入力完了 → 「確認画面へ」を自動クリック');
-      await new Promise(r => setTimeout(r, 500));
-      confirmBtn.click();
 
-      // Phase 5: 確認画面到達を待機して background に通知 → 登録ボタン自動クリックへ
-      // 画像アップロード結果(data-suumo-img-stats)とジャンル設定数を渡して
-      // 事前チェックに使ってもらう。
+      // Phase 5 用のコンテキスト情報を保存。
+      // 「確認画面へ」クリックで現在ページが破棄され content script も死ぬため、
+      // 遷移先の確認画面でこの情報を読めるように chrome.storage.local に保存しておく。
       try {
         const imgStatsAttr = document.body.getAttribute('data-suumo-img-stats') || '{}';
         const imgStats = JSON.parse(imgStatsAttr);
         const imageGenresCount = (typeof imageGenres === 'object' && imageGenres) ? Object.keys(imageGenres).length : 0;
-        // 確認画面DOMが現れるまでポーリング(最大30秒)
-        const deadline = Date.now() + 30000;
-        let reached = false;
-        while (Date.now() < deadline) {
-          await new Promise(r => setTimeout(r, 1000));
-          // 確認画面特有の #jikko (登録ボタン) 出現でチェック
-          if (document.getElementById('jikko')
-              || (window.top !== window && (() => {
-                try {
-                  const mw = window.top.frames && window.top.frames['main'];
-                  return !!(mw && mw.document && mw.document.getElementById('jikko'));
-                } catch(_) { return false; }
-              })())) {
-            reached = true;
-            break;
-          }
-          if (/REG1R12001\.action/.test(location.href)) {
-            reached = true;
-            break;
-          }
-        }
-        if (!reached) {
-          console.warn('[SUUMO自動入稿] 確認画面への遷移が30秒で検知できませんでした');
-          return;
-        }
-        console.log('[SUUMO自動入稿] 確認画面到達検知 → Phase5 起動');
-        // background に通知して自動登録を依頼
-        chrome.runtime.sendMessage({
-          type: 'SUUMO_CONFIRM_REACHED',
-          imageGenresCount,
-          imageUploadStats: imgStats
-        }, (resp) => {
-          if (chrome.runtime.lastError) {
-            console.warn('[SUUMO自動入稿] Phase5通知エラー:', chrome.runtime.lastError.message);
-            return;
-          }
-          console.log('[SUUMO自動入稿] Phase5 結果:', JSON.stringify(resp));
+        await new Promise(resolve => {
+          chrome.storage.local.set({
+            suumoPendingConfirmCheck: {
+              at: Date.now(),
+              imageGenresCount,
+              imageUploadStats: imgStats,
+            }
+          }, resolve);
         });
+        console.log('[SUUMO自動入稿] Phase5用コンテキスト保存 (images=' + imageGenresCount + ', stats=' + JSON.stringify(imgStats) + ')');
       } catch (e) {
-        console.warn('[SUUMO自動入稿] Phase5連携エラー:', e.message);
+        console.warn('[SUUMO自動入稿] Phase5コンテキスト保存エラー:', e.message);
       }
+
+      await new Promise(r => setTimeout(r, 500));
+      confirmBtn.click();
     } else {
       console.warn('[SUUMO自動入稿] 「確認画面へ」ボタン(#regButton2)が見つかりません');
       console.log('[SUUMO自動入稿] フォーム入力完了（確認画面への遷移は手動で行ってください）');
