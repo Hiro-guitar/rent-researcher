@@ -178,9 +178,9 @@ async function syncForrentListingStatus() {
  * 1回だけ試行し、失敗したら即中止。
  */
 async function ensureForrentReady_(tabId) {
-  // 1. 現在の状態をチェック
-  let state = await inspectForrentPage_(tabId);
-  if (!state) return { ok: false, error: 'ページ状態取得失敗' };
+  // 1. 現在の状態をチェック(ポーリングで初回injectを安定化)
+  let state = await pollInspectForrentPage_(tabId, 10000);
+  if (!state) return { ok: false, error: 'ページ状態取得失敗(初期)' };
 
   // 検索フォーム表示済み → OK
   if (state.hasBukkenInput) return { ok: true };
@@ -189,10 +189,11 @@ async function ensureForrentReady_(tabId) {
   if (state.hasTransitionError) {
     await setStorageData({ debugLog: '[ForRent状態同期] 画面遷移エラー検知 → ルートへ遷移' });
     await chrome.tabs.update(tabId, { url: 'https://www.fn.forrent.jp/fn/' });
-    await waitForTabLoad(tabId, 30000);
-    await sleep(1500);
-    state = await inspectForrentPage_(tabId);
-    if (!state) return { ok: false, error: 'リダイレクト後ページ取得失敗' };
+    try { await waitForTabLoad(tabId, 30000); } catch (_) {}
+    await sleep(2500);
+    // リダイレクト直後はinjectできない場合があるのでポーリングでリトライ
+    state = await pollInspectForrentPage_(tabId, 15000);
+    if (!state) return { ok: false, error: 'リダイレクト後ページ取得失敗(タイムアウト)' };
   }
 
   // ログインページ → 自動ログイン
@@ -204,10 +205,10 @@ async function ensureForrentReady_(tabId) {
     await setStorageData({ debugLog: '[ForRent状態同期] 自動ログイン成功' });
     // ログイン後、PUB1R2801.action に遷移
     await chrome.tabs.update(tabId, { url: 'https://www.fn.forrent.jp/fn/PUB1R2801.action' });
-    await waitForTabLoad(tabId, 30000);
-    await sleep(2000);
-    state = await inspectForrentPage_(tabId);
-    if (!state) return { ok: false, error: 'ログイン後ページ取得失敗' };
+    try { await waitForTabLoad(tabId, 30000); } catch (_) {}
+    await sleep(2500);
+    state = await pollInspectForrentPage_(tabId, 20000);
+    if (!state) return { ok: false, error: 'ログイン後ページ取得失敗(タイムアウト)' };
     if (state.hasBukkenInput) return { ok: true };
     // それでもダメ(再ログイン画面など)
     return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + (state.url || '') + ')' };
@@ -215,6 +216,22 @@ async function ensureForrentReady_(tabId) {
 
   // 検索フォームもログインフォームもエラーも無い → 不明
   return { ok: false, error: '不明なページ状態(' + JSON.stringify(state).substring(0, 200) + ')' };
+}
+
+/**
+ * inspectForrentPage_ をポーリングして「何か意味ある状態」が返るまで待つ
+ * (ページ遷移直後で inject できないケースに備える)
+ */
+async function pollInspectForrentPage_(tabId, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 15000);
+  while (Date.now() < deadline) {
+    const state = await inspectForrentPage_(tabId);
+    if (state && (state.hasBukkenInput || state.hasLoginForm || state.hasTransitionError || state.url)) {
+      return state;
+    }
+    await sleep(800);
+  }
+  return null;
 }
 
 /**
