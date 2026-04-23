@@ -881,7 +881,57 @@ async function uploadFromBrowser_(base64, filename, mimeType) {
   for (var i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
   var blob = new Blob([bytes], { type: mimeType || 'image/jpeg' });
 
-  // 1) catbox.moe (APIキー不要)
+  // 1) 0x0.st (APIキー不要、永続保存、CORS対応)
+  try {
+    var fd0 = new FormData();
+    fd0.append('file', blob, filename || 'upload.jpg');
+    var res0 = await fetch('https://0x0.st', { method: 'POST', body: fd0 });
+    var text0 = await res0.text();
+    if (res0.ok && text0 && text0.indexOf('https://') === 0) {
+      return { success: true, url: text0.trim() };
+    }
+    errors.push('0x0.st HTTP ' + res0.status + ': ' + (text0 || '').substring(0, 200));
+  } catch (e0) {
+    errors.push('0x0.st: ' + (e0.message || String(e0)));
+  }
+
+  // 2) pixeldrain.com (APIキー不要、CORS対応)
+  try {
+    var fdPd = new FormData();
+    fdPd.append('file', blob, filename || 'upload.jpg');
+    var resPd = await fetch('https://pixeldrain.com/api/file', { method: 'POST', body: fdPd });
+    var jsonPd = null;
+    try { jsonPd = await resPd.json(); } catch (_) { jsonPd = null; }
+    if (resPd.ok && jsonPd && jsonPd.id) {
+      return { success: true, url: 'https://pixeldrain.com/api/file/' + jsonPd.id };
+    }
+    errors.push('pixeldrain HTTP ' + resPd.status + ': ' + JSON.stringify(jsonPd || {}).substring(0, 200));
+  } catch (ePd) {
+    errors.push('pixeldrain: ' + (ePd.message || String(ePd)));
+  }
+
+  // 3) tmpfiles.org (APIキー不要、60日保存、CORS対応)
+  try {
+    var fdTmp = new FormData();
+    fdTmp.append('file', blob, filename || 'upload.jpg');
+    var resTmp = await fetch('https://tmpfiles.org/api/v1/upload', { method: 'POST', body: fdTmp });
+    var jsonTmp = null;
+    try { jsonTmp = await resTmp.json(); } catch (_) { jsonTmp = null; }
+    if (resTmp.ok && jsonTmp && jsonTmp.data && jsonTmp.data.url) {
+      // tmpfiles返却URLは /x/ パス。SUUMOで直接fetch可能な直リンクに変換: /x/ → /dl/
+      var directUrl = jsonTmp.data.url.replace('/tmpfiles.org/', '/tmpfiles.org/dl/').replace('/x/', '/dl/');
+      // 念のため "tmpfiles.org/" の後に "dl/" が無いなら差し込む
+      if (!/tmpfiles\.org\/dl\//.test(directUrl)) {
+        directUrl = jsonTmp.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+      }
+      return { success: true, url: directUrl };
+    }
+    errors.push('tmpfiles HTTP ' + resTmp.status + ': ' + JSON.stringify(jsonTmp || {}).substring(0, 200));
+  } catch (eTmp) {
+    errors.push('tmpfiles: ' + (eTmp.message || String(eTmp)));
+  }
+
+  // 4) catbox.moe (APIキー不要だがCORS制限ありの可能性、一応残す)
   try {
     var fd1 = new FormData();
     fd1.append('reqtype', 'fileupload');
@@ -896,7 +946,7 @@ async function uploadFromBrowser_(base64, filename, mimeType) {
     errors.push('catbox: ' + (e1.message || String(e1)));
   }
 
-  // 2) imgbb 個人キー(GASから取得)
+  // 5) imgbb 個人キー(GASから取得)
   try {
     var key = await new Promise(function(resolve) {
       google.script.run
