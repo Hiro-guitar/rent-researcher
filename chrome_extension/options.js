@@ -260,6 +260,36 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // ForRent状態同期 (PUB1R2801直読み)
+  const forrentSyncBtn = document.getElementById('forrentStatusSyncBtn');
+  if (forrentSyncBtn) {
+    forrentSyncBtn.addEventListener('click', () => {
+      const resultEl = document.getElementById('forrentStatusSyncResult');
+      if (resultEl) {
+        resultEl.textContent = 'ForRent PUB1R2801 から現在の成約状態を取得中...(数十秒)';
+        resultEl.style.color = '#374151';
+      }
+      forrentSyncBtn.disabled = true;
+      chrome.runtime.sendMessage({ type: 'SUUMO_FORRENT_STATUS_SYNC' }, (response) => {
+        forrentSyncBtn.disabled = false;
+        if (!resultEl) return;
+        if (chrome.runtime.lastError) {
+          resultEl.textContent = 'エラー: ' + chrome.runtime.lastError.message;
+          resultEl.style.color = '#dc2626';
+          return;
+        }
+        if (response && response.ok) {
+          const r = response.result || {};
+          resultEl.textContent = `完了: 取得${response.count}件 / stopped化=${r.stopped || 0} 復活=${r.reactivated || 0} 未マッチ=${r.unmatched || 0}`;
+          resultEl.style.color = '#065f46';
+        } else {
+          resultEl.textContent = '失敗: ' + ((response && response.error) || '不明なエラー');
+          resultEl.style.color = '#dc2626';
+        }
+      });
+    });
+  }
+
   // SUUMOビジネス ログインブロック解除
   const unblockBtn = document.getElementById('suumoBusinessUnblockBtn');
   if (unblockBtn) {
