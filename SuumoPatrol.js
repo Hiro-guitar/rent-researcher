@@ -1227,14 +1227,20 @@ function handleStopSuumoListing(json) {
 }
 
 /**
- * POST: ForRent PUB1R2801 から取得した成約状態リストをシートに反映
+ * POST: ForRent PUB1R2801 から取得した「掲載中物件」リストをシートに反映
  *
- * Chrome拡張が PUB1R2801 を直読みして [{suumoCode, seiyakuFlg, ...}] を送ってくる。
- * - seiyakuFlg='1' (成約) かつ シート=active → stopped に変更
- * - seiyakuFlg='0' (空室) かつ シート=stopped → active に復活
- * - その他はノータッチ
+ * Chrome拡張側で「掲載物件のみ」フィルタを適用してスクレイプしているため、
+ * 受け取る rows は「現在実際に掲載中の物件」集合となる。
  *
- * SUUMOビジネスDaily Searchの2日ラグを埋めるリアルタイム同期用途。
+ * 処理:
+ *   A. 取得された suumoCode で既存の stopped 行が見つかれば → active に復活
+ *      (手動で再開/再入稿した物件に対応)
+ *   B. 受信セットに含まれないシート上の active 行 → 既にSUUMO掲載終了と判定
+ *      → stopped化し、停止日に '(ForRent直読み)' を付記
+ *
+ * 安全ガード:
+ *   - 取得件数 < 10 件は自動消去しない(部分fetch疑い)
+ *   - 消去候補が active総数の 50% 超なら中止(API障害対策)
  */
 function handleSyncForrentListingStatus(json) {
   var rows = (json && json.rows) || [];
@@ -1242,7 +1248,7 @@ function handleSyncForrentListingStatus(json) {
 
   if (!Array.isArray(rows) || rows.length === 0) {
     return ContentService.createTextOutput(JSON.stringify({
-      success: true, received: 0, stopped: 0, reactivated: 0, unmatched: 0
+      success: true, received: 0, stopped: 0, reactivated: 0, unmatched: 0, skipped: 'empty'
     })).setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -1257,52 +1263,70 @@ function handleSyncForrentListingStatus(json) {
   var headerLen = SUUMO_LISTING_HEADERS.length;
   var data = sheet.getRange(2, 1, lastRow - 1, headerLen).getValues();
 
-  // suumo_property_code → (sheetRow, status) のマップ
-  var codeToRow = {};
-  for (var i = 0; i < data.length; i++) {
-    var code = String(data[i][10] || '').replace(/[^0-9]/g, '');
-    if (code) codeToRow[code] = { sheetRow: i + 2, status: data[i][8], rowData: data[i] };
+  // 受信側: suumo_property_code のセット(掲載中物件)
+  var liveCodeSet = {};
+  for (var r = 0; r < rows.length; r++) {
+    var c = String((rows[r] || {}).suumoCode || '').replace(/[^0-9]/g, '');
+    if (c && c.length === 12) liveCodeSet[c] = true;
   }
 
   var now;
   if (fetchedAt) {
-    var d = new Date(fetchedAt);
-    now = isNaN(d.getTime())
+    var dd = new Date(fetchedAt);
+    now = isNaN(dd.getTime())
       ? Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')
-      : Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+      : Utilities.formatDate(dd, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   } else {
     now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   }
 
   var stopped = 0;
   var reactivated = 0;
-  var unmatched = 0;
+  var unmatched = 0; // 受信側で、シートに suumo_property_code が一致しないコードの件数
+  var autoStopSkipReason = '';
 
-  for (var r = 0; r < rows.length; r++) {
-    var row = rows[r] || {};
-    var suumoCode = String(row.suumoCode || '').replace(/[^0-9]/g, '');
-    var seiyakuFlg = String(row.seiyakuFlg || '');
-    if (!suumoCode || suumoCode.length !== 12) continue;
-
-    var target = codeToRow[suumoCode];
-    if (!target) {
-      unmatched++;
-      continue;
+  // A. stopped 復活: 受信セットに含まれる code がシート上 stopped なら active に戻す
+  //    + マッチ判定のために codeToSheetRow マップ構築
+  var codeToSheetRow = {};
+  for (var i = 0; i < data.length; i++) {
+    var code = String(data[i][10] || '').replace(/[^0-9]/g, '');
+    if (code) codeToSheetRow[code] = { sheetRow: i + 2, status: data[i][8] };
+  }
+  for (var c2 in liveCodeSet) {
+    var t = codeToSheetRow[c2];
+    if (!t) { unmatched++; continue; }
+    if (t.status === 'stopped') {
+      sheet.getRange(t.sheetRow, 9).setValue('active');
+      sheet.getRange(t.sheetRow, 10).setValue('');
+      reactivated++;
     }
+  }
 
-    if (seiyakuFlg === '1') {
-      // 成約 → stopped
-      if (target.status !== 'stopped') {
-        sheet.getRange(target.sheetRow, 9).setValue('stopped');
-        sheet.getRange(target.sheetRow, 10).setValue(now + ' (ForRent直読み)');
-        stopped++;
+  // B. 受信セットに含まれない active 行を stopped化
+  //    安全ガード: 受信件数<10 or 消去候補が active総数の過半超 なら中止
+  if (rows.length < 10) {
+    autoStopSkipReason = 'fetch件数(' + rows.length + ')が少なすぎる';
+  } else {
+    var activeRows = [];
+    var stopCandidates = [];
+    for (var j = 0; j < data.length; j++) {
+      if (data[j][8] !== 'active') continue;
+      activeRows.push(j);
+      var codeJ = String(data[j][10] || '').replace(/[^0-9]/g, '');
+      // suumo_property_code が無い行は判定不能なので残す
+      if (!codeJ) continue;
+      if (!liveCodeSet[codeJ]) {
+        stopCandidates.push(j);
       }
-    } else if (seiyakuFlg === '0') {
-      // 空室 → active(stopped から復活)
-      if (target.status === 'stopped') {
-        sheet.getRange(target.sheetRow, 9).setValue('active');
-        sheet.getRange(target.sheetRow, 10).setValue('');
-        reactivated++;
+    }
+    if (activeRows.length > 0 && stopCandidates.length > activeRows.length / 2) {
+      autoStopSkipReason = '消去候補(' + stopCandidates.length + ')がactive総数(' + activeRows.length + ')の半分超';
+    } else {
+      for (var m = 0; m < stopCandidates.length; m++) {
+        var jj = stopCandidates[m];
+        sheet.getRange(jj + 2, 9).setValue('stopped');
+        sheet.getRange(jj + 2, 10).setValue(now + ' (ForRent直読み)');
+        stopped++;
       }
     }
   }
@@ -1312,7 +1336,8 @@ function handleSyncForrentListingStatus(json) {
     received: rows.length,
     stopped: stopped,
     reactivated: reactivated,
-    unmatched: unmatched
+    unmatched: unmatched,
+    skipped: autoStopSkipReason
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
