@@ -212,23 +212,66 @@ async function ensureForrentReady_(tabId) {
     if (!state) return { ok: false, error: 'ログイン後ページ取得失敗(タイムアウト)' };
     if (state.hasBukkenInput) return { ok: true };
 
-    // 自然遷移で PUB1R2801 が開かなかった場合、mainフレーム内の
-    // 「情報更新一覧」メニューをクリックしてみる
-    await setStorageData({ debugLog: '[ForRent状態同期] 自然遷移で検索フォーム未検出 → 情報更新一覧メニューを探索' });
-    const navResult = await runInMainFrame_(tabId, () => {
-      const candidates = Array.from(document.querySelectorAll('a, input[type="submit"], input[type="button"], li, span'));
-      const target = candidates.find(el => {
-        const t = (el.innerText || el.value || el.title || '').trim();
-        return t === '情報更新一覧' || /情報更新.*一覧|一覧.*情報更新/.test(t);
-      });
-      if (!target) return { ok: false, error: '情報更新メニューが見つからない' };
-      target.click();
-      return { ok: true, clickedText: (target.innerText || target.value || '').trim() };
+    // 自然遷移で PUB1R2801 が開かなかった場合、ナビフレーム内のリンクを探す
+    await setStorageData({ debugLog: '[ForRent状態同期] 自然遷移で検索フォーム未検出 → ナビメニューを探索' });
+
+    // 全フレームから「更新・掲載指示」「情報更新一覧」等のメニュー/リンクを探す。
+    // ForRentのナビ構造では 更新・掲載指示 → 情報更新一覧(PUB1R2801) に遷移する。
+    // ナビフレームの<a target="main">リンクはメインフレームを書き換える。
+    const navResults = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => {
+        const frameInfo = { url: location.href, frameName: window.name || '(top)' };
+        const candidates = Array.from(document.querySelectorAll('a, input[type="submit"], input[type="button"], input[type="image"], li, span, div'));
+        // 優先度順: 「更新・掲載指示」が最優先(ForRentのトップメニュー)
+        const patterns = [
+          /^更新・掲載指示$/,
+          /^情報更新一覧$/,
+          /^情報更新$/,
+          /更新・掲載指示/,
+          /情報更新/,
+        ];
+        for (const pat of patterns) {
+          const target = candidates.find(el => {
+            const t = (el.innerText || el.value || el.alt || el.title || '').trim();
+            return pat.test(t);
+          });
+          if (target) {
+            const text = (target.innerText || target.value || target.alt || target.title || '').trim().substring(0, 40);
+            const href = target.href || target.getAttribute('onclick') || '';
+            target.click();
+            return { ok: true, clickedText: text, matchedPattern: pat.toString(), href: href.substring(0, 100), frameInfo };
+          }
+        }
+        return { ok: false, error: 'menu not found in this frame', frameInfo };
+      }
     });
-    if (navResult && navResult.ok) {
-      await sleep(2000);
+
+    let clicked = false;
+    const navDiag = [];
+    for (const r of navResults || []) {
+      if (!r || !r.result) continue;
+      navDiag.push(`${r.result.frameInfo.frameName}: ${r.result.ok ? 'CLICKED "' + r.result.clickedText + '"' : r.result.error}`);
+      if (r.result.ok) clicked = true;
+    }
+    await setStorageData({ debugLog: `[ForRent状態同期] ナビ探索結果: ${navDiag.join(' | ')}` });
+
+    if (clicked) {
+      await sleep(2500);
       state = await pollInspectForrentPage_(tabId, 15000);
       if (state && state.hasBukkenInput) return { ok: true };
+      await setStorageData({ debugLog: `[ForRent状態同期] メニュークリック後もフォーム未出現 (url=${state && state.url})` });
+    }
+
+    // 全然ダメなら最後に直接URLへリダイレクト(従来方式)を試す
+    await setStorageData({ debugLog: '[ForRent状態同期] 最終手段: PUB1R2801.action へ直接遷移' });
+    await chrome.tabs.update(tabId, { url: 'https://www.fn.forrent.jp/fn/PUB1R2801.action' });
+    try { await waitForTabLoad(tabId, 30000); } catch (_) {}
+    await sleep(2500);
+    state = await pollInspectForrentPage_(tabId, 20000);
+    if (state && state.hasBukkenInput) return { ok: true };
+    if (state && state.hasTransitionError) {
+      return { ok: false, error: 'PUB1R2801直接遷移で画面遷移エラー(セッションの問題)' };
     }
 
     return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + ((state && state.url) || '') + ')' };
