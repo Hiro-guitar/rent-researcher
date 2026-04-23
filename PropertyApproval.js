@@ -1944,6 +1944,26 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
   var decoded = Utilities.base64Decode(base64Data);
   var blob = Utilities.newBlob(decoded, mimeType || 'image/jpeg', filename || 'upload.jpg');
 
+  // 0) catbox.moe (APIキー不要、レート制限緩い、ファイル無期限保存) — 最優先
+  try {
+    var resp0 = UrlFetchApp.fetch('https://catbox.moe/user/api.php', {
+      method: 'POST',
+      payload: {
+        reqtype: 'fileupload',
+        fileToUpload: blob
+      },
+      muteHttpExceptions: true
+    });
+    var code0 = resp0.getResponseCode();
+    var body0 = resp0.getContentText();
+    if (code0 === 200 && body0 && body0.indexOf('https://') === 0) {
+      return { success: true, url: body0.trim() };
+    }
+    errors.push('catbox HTTP ' + code0 + ': ' + body0.substring(0, 200));
+  } catch (e0) {
+    errors.push('catbox: ' + e0.message);
+  }
+
   // 1) Telegra.ph（APIキー不要）
   try {
     var resp1 = UrlFetchApp.fetch('https://telegra.ph/upload', {
