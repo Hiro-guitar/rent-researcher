@@ -471,12 +471,18 @@
         result.chome = chomeMatch[1] + '丁目';
         result.banchi = chomeMatch[2].replace(/^[-ー]/, '');
       } else {
-        // "3-28-14" → 丁目="3丁目", 番地="28-14"
+        // 丁目の明示表記なし。ハイフン分割で丁目を推定するのは危険なので慎重に:
+        //   "下連雀3-28-14"  → 3丁目+28-14 と推定できる(3パート以上)
+        //   "南元町17-25"    → 丁目なし・番地17-25 (2パートなら丁目なしとして残す)
+        //   "南元町17"       → 丁目なし・番地17 (1パート、そのまま番地)
+        // 3パート以上の場合のみ最初の数字を丁目扱いする。
         const parts = s.split(/[-ーー]/);
-        if (parts.length >= 2) {
+        if (parts.length >= 3) {
           result.chome = parts[0] + '丁目';
           result.banchi = parts.slice(1).join('-');
         } else {
+          // 丁目なし物件として扱う。番地欄に全て入れる。
+          result.chome = '';
           result.banchi = s;
         }
       }
@@ -827,9 +833,16 @@
 
             const azaSelect = document.getElementById('azaList');
             if (azaSelect) {
+              // 「(字丁目なし)」オプションを探すヘルパー
+              const findNoChomeOpt = () => Array.from(azaSelect.options).find(opt =>
+                opt.value === '000'
+                || /字?丁目なし|(字丁目なし)|なし/.test((opt.text || '').trim())
+              );
+
               let azaOpt;
               if (!data.chome || data.chome.trim() === '') {
-                azaOpt = Array.from(azaSelect.options).find(opt => opt.value === '000');
+                // パース結果で丁目なし → 「(字丁目なし)」を選ぶ
+                azaOpt = findNoChomeOpt();
               } else {
                 // まず完全一致で検索
                 azaOpt = findOptionByText(azaSelect, data.chome);
@@ -841,13 +854,28 @@
                     azaOpt = Array.from(azaSelect.options).find(opt => opt.text.trim() === zenNum || opt.text.trim() === chomeNum);
                   }
                 }
+                // それでも見つからない → 「(字丁目なし)」にフォールバック
+                // (例: パースで "17丁目" と推定したが実際は町名のみで丁目がない町の物件)
+                if (!azaOpt) {
+                  console.warn(`[SUUMO自動入稿] 丁目 "${data.chome}" がドロップダウンに無いため(字丁目なし)にフォールバック`);
+                  azaOpt = findNoChomeOpt();
+                }
               }
               if (azaOpt) {
                 azaSelect.value = azaOpt.value;
                 azaSelect.dispatchEvent(new Event('change'));
 
                 await waitFor(1000);
-                setInputById('banchiNm', data.addr3 || '');
+                // (字丁目なし)を選んだ場合は元の data.chome + '-' + data.banchi を番地欄に入れる
+                // (パースで誤って chome="17丁目"、banchi="25"になっていた場合を復元する)
+                let banchiValue = data.addr3 || data.banchi || '';
+                if (azaOpt.value === '000' && data.chome && data.banchi) {
+                  const chomeNumOnly = data.chome.replace(/[^\d]/g, '');
+                  if (chomeNumOnly && !banchiValue.startsWith(chomeNumOnly)) {
+                    banchiValue = chomeNumOnly + '-' + data.banchi;
+                  }
+                }
+                setInputById('banchiNm', banchiValue);
               }
             }
           }
