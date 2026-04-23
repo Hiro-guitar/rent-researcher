@@ -1040,6 +1040,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true, dataUrl });
       } catch (err) {
         console.error('[FETCH_IMAGE_AS_BASE64] 失敗:', msg.url, err.message);
+        // ログ画面にも記録(入稿タブのconsoleに出るwarnは普段見えないため)
+        try {
+          await setStorageData({ debugLog: `[画像fetch失敗] ${String(msg.url).substring(0, 100)} - ${err.message}` });
+        } catch (_) {}
         sendResponse({ ok: false, error: err.message });
       }
     })();
