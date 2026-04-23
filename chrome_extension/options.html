@@ -166,6 +166,15 @@
   </div>
 
   <div class="field">
+    <label>SUUMO入稿 最終登録ボタン ドライラン (Phase 5)</label>
+    <label style="display:inline-flex;align-items:center;gap:8px;font-weight:normal">
+      <input type="checkbox" id="suumoFinalSubmitDryRun" checked>
+      <span>ドライランモード（確認画面の「登録」直前で停止、タブ保持）</span>
+    </label>
+    <div class="hint">ONの間は入稿フォーム入力→確認画面まで自動、最後の「登録」は手動クリック。OFFにすると事前チェック(画像整合性等)を通過した物件のみ自動で登録ボタンがクリックされます</div>
+  </div>
+
+  <div class="field">
     <label for="forrentStopTestCode">ForRent 停止テスト実行</label>
     <input type="text" id="forrentStopTestCode" placeholder="SUUMO物件コード12桁 例: 100481810092" style="margin-bottom:6px">
     <button type="button" id="forrentStopTestBtn" class="btn-test" style="background:#dc2626">この物件を停止（ドライラン/本番は上の設定に従う）</button>

@@ -72,6 +72,8 @@ importScripts('suumo-competitor.js', 'suumo-patrol.js');
 importScripts('suumo-business-fetch.js');
 // ForRent掲載停止(保留化)自動操作(Phase 3)
 importScripts('forrent-stop.js');
+// ForRent確認画面の登録ボタン自動クリック(Phase 5)
+importScripts('forrent-final-submit.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {
@@ -1056,6 +1058,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }).catch(err => {
       sendResponse({ success: false, message: err.message });
     });
+    return true;
+  }
+  // ── Phase 5: 確認画面到達通知 → 事前チェック+登録ボタン自動クリック ──
+  if (msg.type === 'SUUMO_CONFIRM_REACHED') {
+    (async () => {
+      try {
+        const tabId = sender.tab && sender.tab.id;
+        if (!tabId) {
+          sendResponse({ ok: false, error: 'tabId不明' });
+          return;
+        }
+        const result = await tryForrentFinalSubmit({
+          tabId,
+          imageGenresCount: msg.imageGenresCount || 0,
+          imageUploadStats: msg.imageUploadStats || {},
+        });
+        sendResponse(result);
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
     return true;
   }
   // ── SUUMOビジネス Daily Search 手動取得(Phase 1) ──
