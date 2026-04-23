@@ -1030,22 +1030,29 @@
       'ロビー': '030102', '駐車場': '030103', '共用部': '030199', 'その他': '999999'
     };
 
+    // アップロード結果統計
+    const stats = { tried: 0, success: 0, failed: 0 };
+    const recordResult = (r) => {
+      stats.tried++;
+      if (r && r.ok) stats.success++; else stats.failed++;
+    };
+
     // 間取り画像
     const madoriIdx = Object.keys(genres).find(k => genres[k] === '間取り');
     if (madoriIdx !== undefined && images[madoriIdx]) {
-      await uploadToInput(images[madoriIdx], 'file_up_clientMadori');
+      recordResult(await uploadToInput(images[madoriIdx], 'file_up_clientMadori'));
     }
 
     // 外観画像
     const gaikanIdx = Object.keys(genres).find(k => genres[k] === '外観');
     if (gaikanIdx !== undefined && images[gaikanIdx]) {
-      await uploadToInput(images[gaikanIdx], 'file_up_gaikan');
+      recordResult(await uploadToInput(images[gaikanIdx], 'file_up_gaikan'));
     }
 
     // リビング画像
     const livingIdx = Object.keys(genres).find(k => genres[k] === 'リビング');
     if (livingIdx !== undefined && images[livingIdx]) {
-      await uploadToInputWithCategory(images[livingIdx], 'file_up_shitsunai', 'shitsunaiShashinCategory', '040101');
+      recordResult(await uploadToInputWithCategory(images[livingIdx], 'file_up_shitsunai', 'shitsunaiShashinCategory', '040101'));
     }
 
     // その他の画像
@@ -1071,28 +1078,49 @@
       const idx = otherIndexes[i];
       const genre = genres[idx];
       const value = genreToValue[genre] || '999999';
-      await uploadToInputWithCategory(images[idx], otherTargets[i].fileId, otherTargets[i].selectId, value);
+      recordResult(await uploadToInputWithCategory(images[idx], otherTargets[i].fileId, otherTargets[i].selectId, value));
+    }
+
+    console.log(`[SUUMO自動入稿] 画像アップロード結果: 試行${stats.tried}件 成功${stats.success}件 失敗${stats.failed}件`);
+    if (document.body) {
+      document.body.setAttribute('data-suumo-img-stats', JSON.stringify(stats));
     }
   }
 
   async function uploadToInput(imageUrl, inputId) {
-    const input = document.getElementById(inputId);
-    if (!input || !imageUrl) return;
+    // 1枚ごとに例外をトラップし、他の画像のアップロードが止まらないようにする。
+    // (以前は 1枚のfetch失敗で uploadImages 全体が throw → 残りの画像が全部スキップ)
+    try {
+      const input = document.getElementById(inputId);
+      if (!input || !imageUrl) return { ok: false, reason: 'input/url missing' };
 
-    const file = await urlToFile(imageUrl, inputId + '.jpg');
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    input.files = dt.files;
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+      const file = await urlToFile(imageUrl, inputId + '.jpg');
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    } catch (err) {
+      console.warn(`[SUUMO自動入稿] 画像 ${inputId} アップロード失敗: ${err.message} (URL: ${String(imageUrl).substring(0, 80)})`);
+      return { ok: false, reason: err.message };
+    }
   }
 
   async function uploadToInputWithCategory(imageUrl, inputId, selectId, categoryValue) {
-    await uploadToInput(imageUrl, inputId);
-    const select = document.getElementById(selectId);
-    if (select && categoryValue) {
-      select.value = categoryValue;
-      select.dispatchEvent(new Event('change'));
+    const r = await uploadToInput(imageUrl, inputId);
+    // アップロード成功時のみカテゴリを設定
+    if (r && r.ok) {
+      try {
+        const select = document.getElementById(selectId);
+        if (select && categoryValue) {
+          select.value = categoryValue;
+          select.dispatchEvent(new Event('change'));
+        }
+      } catch (err) {
+        console.warn(`[SUUMO自動入稿] カテゴリ設定失敗 ${selectId}: ${err.message}`);
+      }
     }
+    return r;
   }
 
   async function urlToFile(url, filename) {
