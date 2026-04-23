@@ -1326,6 +1326,9 @@ function updateSuumoListingStats_(json) {
   var matchedByCode = 0;
   var matchedByKey = 0;
   var unmatched = 0;
+  // Daily Search結果にマッチしたシート行番号(1-based)を記録
+  // 残ったactive行は「SUUMO側で既に掲載終了」と判定して自動stopped化する
+  var matchedSheetRows = {};
 
   // fetchedAt は Chrome拡張から ISO8601(UTC) で送られてくる。JST表記に統一する。
   var now;
@@ -1397,10 +1400,18 @@ function updateSuumoListingStats_(json) {
       sheet.getRange(targetRow, 6, 1, 3).setValues([[totalDetailPv, inquiries, derivedScore]]);
       sheet.getRange(targetRow, 11, 1, extended.length).setValues([extended]);
       updated++;
+      matchedSheetRows[targetRow] = true;
 
       // 初マッチ時にsuumo_property_codeを記録済みに更新(キー一致だったケース)
       if (matchBy === 'key' && suumoCode) {
         codeToRow[suumoCode] = targetRow;
+      }
+
+      // マッチ時にステータスが stopped のまま復活したケースに備えて active に戻す
+      // (同一物件を再入稿するなどのフロー)
+      if (existing[targetRow - 2] && existing[targetRow - 2][8] === 'stopped') {
+        sheet.getRange(targetRow, 9).setValue('active');
+        sheet.getRange(targetRow, 10).setValue('');
       }
     } else {
       // 新規検出: フル20列で append
@@ -1421,8 +1432,52 @@ function updateSuumoListingStats_(json) {
       var newSheetRow = sheet.getLastRow();
       if (suumoCode) codeToRow[suumoCode] = newSheetRow;
       if (propertyKey) keyToRow[propertyKey] = newSheetRow;
+      matchedSheetRows[newSheetRow] = true;
       inserted++;
       unmatched++;
+    }
+  }
+
+  // Daily Search結果に現れなかったactive行を自動でstoppedに変更
+  //
+  // 理由: SUUMOビジネスの集計は「今日-2日」までなので、この間にSUUMO側で既に
+  //       掲載終了した物件はシート上activeのまま残る。Daily Search のレスポンスは
+  //       現在SUUMOに掲載中の物件すべてを含むため、レスポンスに現れなかった
+  //       active行は「既に掲載終了」と判定できる。
+  //
+  // 安全ガード:
+  //   - fetch件数が少なすぎる(<10件)時は自動消去しない(部分fetchの可能性)
+  //   - 消去対象数が全active行の半分超え(>50%)の時も自動消去しない
+  //     (万一API障害などで大量の行が消されないよう)
+  var autoStopped = 0;
+  var autoStoppedSkipReason = '';
+  if (rows.length < 10) {
+    autoStoppedSkipReason = `fetch件数(${rows.length})が少なすぎる`;
+  } else {
+    // 消去対象候補をカウント
+    var candidateRows = [];
+    for (var j = 0; j < existing.length; j++) {
+      var sheetRowJ = j + 2;
+      var statusJ = existing[j][8];
+      if (statusJ === 'active' && !matchedSheetRows[sheetRowJ]) {
+        candidateRows.push(sheetRowJ);
+      }
+    }
+    // active総数を計算
+    var activeCount = 0;
+    for (var k = 0; k < existing.length; k++) {
+      if (existing[k][8] === 'active') activeCount++;
+    }
+    if (activeCount > 0 && candidateRows.length > activeCount / 2) {
+      autoStoppedSkipReason = `消去候補(${candidateRows.length})がactive総数(${activeCount})の半分超え→安全のため中止`;
+    } else {
+      // 実行: 各候補をstoppedに
+      for (var m = 0; m < candidateRows.length; m++) {
+        var r = candidateRows[m];
+        sheet.getRange(r, 9).setValue('stopped');
+        sheet.getRange(r, 10).setValue(now + ' (自動)');
+        autoStopped++;
+      }
     }
   }
 
@@ -1433,6 +1488,8 @@ function updateSuumoListingStats_(json) {
     matchedByCode: matchedByCode,
     matchedByKey: matchedByKey,
     unmatched: unmatched,
+    autoStopped: autoStopped,
+    autoStoppedSkipReason: autoStoppedSkipReason,
     receivedRows: rows.length
   };
 }
