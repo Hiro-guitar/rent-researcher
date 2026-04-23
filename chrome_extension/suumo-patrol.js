@@ -208,6 +208,23 @@ async function runSuumoPatrolCycle() {
           if (seenKeys[key]) return this._items.length;
           seenKeys[key] = Date.now();
           totalNew++;
+          // 画像枚数による事前スキップ(SUUMO巡回のみ)
+          // 競合検索より先にチェックすることで SUUMO検索呼び出しを減らす
+          try {
+            const { suumoSkipLowImageCount } = await getStorageData(['suumoSkipLowImageCount']);
+            if (suumoSkipLowImageCount) {
+              const imgs = prop.image_urls || prop.images || [];
+              const imgCount = Array.isArray(imgs) ? imgs.length : 0;
+              // 枚数が取得できている(>0) かつ 11枚以下 → スキップ
+              // 0枚(未取得の可能性)は安全側で通す
+              if (imgCount > 0 && imgCount <= 11) {
+                await setStorageData({ debugLog:
+                  `[SUUMO巡回] ✗ スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} - 画像${imgCount}枚(11枚以下)`
+                });
+                return this._items.length;
+              }
+            }
+          } catch (_) {}
           // SUUMO競合数を取得して prop.suumo_competitor にアタッチ（失敗しても送信継続）
           let skipByCompetition = false;
           let skipReason = '';

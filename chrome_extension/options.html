@@ -195,6 +195,15 @@
   </div>
 
   <div class="field">
+    <label>SUUMO巡回: 画像枚数による自動スキップ</label>
+    <label style="display:inline-flex;align-items:center;gap:8px;font-weight:normal">
+      <input type="checkbox" id="suumoSkipLowImageCount">
+      <span>画像11枚以下の物件をスキップ</span>
+    </label>
+    <div class="hint">SUUMO巡回で取得した物件のうち、画像が11枚以下のものをDiscord通知・承認キューから除外します。画像枚数が取得できない物件はスキップしません(安全側)</div>
+  </div>
+
+  <div class="field">
     <label for="errorWebhook">エラー通知用 Webhook URL（任意）</label>
     <input type="text" id="errorWebhook" placeholder="https://discord.com/api/webhooks/...">
     <div class="hint">エラーログをここに通知。空欄なら上の物件通知Webhookに送信。同一エラーは5分クールダウン</div>

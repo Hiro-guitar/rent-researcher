@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason', 'suumoForrentStopDryRun'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason', 'suumoForrentStopDryRun', 'suumoSkipLowImageCount'], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
@@ -30,6 +30,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (data.suumoBusinessFetchUrl) document.getElementById('suumoBusinessFetchUrl').value = data.suumoBusinessFetchUrl;
     if (data.suumoBusinessLoginId) document.getElementById('suumoBusinessLoginId').value = data.suumoBusinessLoginId;
     if (data.suumoBusinessPassword) document.getElementById('suumoBusinessPassword').value = data.suumoBusinessPassword;
+
+    // 画像枚数スキップ(デフォルト false = 無効)
+    const skipLowImgCheckbox = document.getElementById('suumoSkipLowImageCount');
+    if (skipLowImgCheckbox) skipLowImgCheckbox.checked = !!data.suumoSkipLowImageCount;
 
     // ForRent停止 ドライラン設定(デフォルト true)
     const dryRunCheckbox = document.getElementById('suumoForrentStopDryRun');
@@ -74,6 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const suumoBusinessLoginId = (document.getElementById('suumoBusinessLoginId').value || '').trim();
     const suumoBusinessPassword = document.getElementById('suumoBusinessPassword').value || '';
     const suumoForrentStopDryRun = !!(document.getElementById('suumoForrentStopDryRun') && document.getElementById('suumoForrentStopDryRun').checked);
+    const suumoSkipLowImageCount = !!(document.getElementById('suumoSkipLowImageCount') && document.getElementById('suumoSkipLowImageCount').checked);
 
     // SUUMO競合スキップ閾値（空欄なら null で「制限なし」扱い）
     const parseThreshold = (id) => {
@@ -109,7 +114,8 @@ document.addEventListener('DOMContentLoaded', () => {
       suumoBusinessFetchUrl,
       suumoBusinessLoginId,
       suumoBusinessPassword,
-      suumoForrentStopDryRun
+      suumoForrentStopDryRun,
+      suumoSkipLowImageCount
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });
