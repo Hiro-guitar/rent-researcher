@@ -55,6 +55,40 @@ async function syncForrentListingStatus() {
       if (!document.querySelector('input.bukkenCdInput')) return null;
       return { ok: true, url: location.href };
     }, 20000);
+
+    // 「掲載物件のみ」フィルタを適用(掲載中の物件だけを対象にする)
+    // 画面上部の絞込みリンクで切り替える。a[name="kensakuLinkNo"]のうち
+    // innerText="掲載物件のみ"のリンクをクリック。既にアクティブなら何もしない。
+    const filterResult = await runInMainFrame_(tabId, () => {
+      if (!document.querySelector('input.bukkenCdInput')) return null;
+      const active = document.querySelector('td.searchConditionDisp');
+      const activeText = active ? (active.innerText || '').trim() : '';
+      if (activeText === '掲載物件のみ') {
+        return { ok: true, alreadyActive: true };
+      }
+      const link = Array.from(document.querySelectorAll('a[name="kensakuLinkNo"]'))
+        .find(a => (a.innerText || '').trim() === '掲載物件のみ');
+      if (!link) {
+        return { ok: false, error: '「掲載物件のみ」リンクが見つからない', activeText };
+      }
+      link.click();
+      return { ok: true, clicked: true, previousActive: activeText };
+    });
+    if (filterResult && filterResult.clicked) {
+      await setStorageData({ debugLog: `[ForRent状態同期] フィルタ切替: ${filterResult.previousActive}→掲載物件のみ` });
+      // フォーム再送信で再レンダリングされるのを待つ
+      await sleep(3000);
+      // 絞り込み反映待ち: searchConditionDisp = 掲載物件のみ になるまで
+      await waitForMainFrameCondition_(tabId, () => {
+        const e = document.querySelector('td.searchConditionDisp');
+        if (!e) return null;
+        return (e.innerText || '').trim() === '掲載物件のみ' ? { ok: true } : null;
+      }, 15000);
+    } else if (filterResult && filterResult.alreadyActive) {
+      await setStorageData({ debugLog: '[ForRent状態同期] 既に「掲載物件のみ」フィルタ有効' });
+    } else {
+      await setStorageData({ debugLog: `[ForRent状態同期] ⚠️ フィルタ切替できず(${filterResult && filterResult.error})、デフォルト表示のまま続行` });
+    }
     if (!formReady) {
       // 20秒経っても検索フォームが現れない → 診断情報を収集
       const recheckUrl = await getTabUrl_(tabId);
