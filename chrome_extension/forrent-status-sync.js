@@ -42,12 +42,12 @@ async function syncForrentListingStatus() {
     await waitForTabLoad(tabId, 60000);
     await sleep(2000);
 
-    // ログインページにリダイレクトされていたら即中止(60秒ポーリング待たない)
-    const currentUrl = await getTabUrl_(tabId);
-    if (isForrentLoginUrl_(currentUrl)) {
+    // ログイン/エラーページ検知 + 必要なら自動ログイン + PUB1R2801再表示
+    const ensured = await ensureForrentReady_(tabId);
+    if (!ensured.ok) {
       try { await chrome.tabs.update(tabId, { active: true }); } catch (_) {}
-      await setStorageData({ debugLog: `[ForRent状態同期] ログインページ検知(${currentUrl}) → 中止。手動でログインしてから再実行してください` });
-      return { ok: false, error: 'ForRentログインが必要です' };
+      await setStorageData({ debugLog: `[ForRent状態同期] 準備失敗: ${ensured.error}` });
+      return { ok: false, error: ensured.error };
     }
 
     // 検索フォームの読み込みを短めタイムアウトで待つ
@@ -160,6 +160,157 @@ async function syncForrentListingStatus() {
     return { ok: false, error: err.message };
   } finally {
     _forrentStatusSyncRunning = false;
+  }
+}
+
+/**
+ * ForRentで PUB1R2801 の検索フォームが使える状態にする
+ *
+ * 処理:
+ *   1. 現ページの状態を調べる
+ *      - 検索フォーム表示済み → そのままOK
+ *      - ログインページ → 自動ログイン試行
+ *      - 画面遷移エラー → ルート(/fn/)へ遷移 → ログインページ扱いで再試行
+ *   2. ログイン成功後 PUB1R2801.action に遷移
+ *   3. 最終的に input.bukkenCdInput が見えたらOK
+ *
+ * 自動ログインは保存済み forrentLoginId / forrentPassword を使う。
+ * 1回だけ試行し、失敗したら即中止。
+ */
+async function ensureForrentReady_(tabId) {
+  // 1. 現在の状態をチェック
+  let state = await inspectForrentPage_(tabId);
+  if (!state) return { ok: false, error: 'ページ状態取得失敗' };
+
+  // 検索フォーム表示済み → OK
+  if (state.hasBukkenInput) return { ok: true };
+
+  // 画面遷移エラー → ルートへリダイレクト
+  if (state.hasTransitionError) {
+    await setStorageData({ debugLog: '[ForRent状態同期] 画面遷移エラー検知 → ルートへ遷移' });
+    await chrome.tabs.update(tabId, { url: 'https://www.fn.forrent.jp/fn/' });
+    await waitForTabLoad(tabId, 30000);
+    await sleep(1500);
+    state = await inspectForrentPage_(tabId);
+    if (!state) return { ok: false, error: 'リダイレクト後ページ取得失敗' };
+  }
+
+  // ログインページ → 自動ログイン
+  if (state.hasLoginForm) {
+    const loginResult = await doForrentLogin_(tabId);
+    if (!loginResult.ok) {
+      return { ok: false, error: 'ForRent自動ログイン失敗: ' + loginResult.error };
+    }
+    await setStorageData({ debugLog: '[ForRent状態同期] 自動ログイン成功' });
+    // ログイン後、PUB1R2801.action に遷移
+    await chrome.tabs.update(tabId, { url: 'https://www.fn.forrent.jp/fn/PUB1R2801.action' });
+    await waitForTabLoad(tabId, 30000);
+    await sleep(2000);
+    state = await inspectForrentPage_(tabId);
+    if (!state) return { ok: false, error: 'ログイン後ページ取得失敗' };
+    if (state.hasBukkenInput) return { ok: true };
+    // それでもダメ(再ログイン画面など)
+    return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + (state.url || '') + ')' };
+  }
+
+  // 検索フォームもログインフォームもエラーも無い → 不明
+  return { ok: false, error: '不明なページ状態(' + JSON.stringify(state).substring(0, 200) + ')' };
+}
+
+/**
+ * 現在のページ状態を調査(全フレーム横断)
+ */
+async function inspectForrentPage_(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => {
+        const bodyText = document.body ? (document.body.innerText || '') : '';
+        return {
+          url: location.href,
+          frameName: window.name || '(top)',
+          title: document.title,
+          hasBukkenInput: !!document.querySelector('input.bukkenCdInput'),
+          hasLoginForm: !!document.querySelector('form[action*="login.action"]'),
+          hasTransitionError: /画面遷移エラー|ご指定の処理は既に完了/.test(bodyText),
+        };
+      }
+    });
+    // 各フレームの結果を集約: どれか1つでも true ならそれを採用
+    const combined = {
+      url: '',
+      hasBukkenInput: false,
+      hasLoginForm: false,
+      hasTransitionError: false,
+    };
+    for (const r of results || []) {
+      if (!r || !r.result) continue;
+      if (!combined.url) combined.url = r.result.url;
+      if (r.result.hasBukkenInput) combined.hasBukkenInput = true;
+      if (r.result.hasLoginForm) combined.hasLoginForm = true;
+      if (r.result.hasTransitionError) combined.hasTransitionError = true;
+    }
+    return combined;
+  } catch (err) {
+    console.warn('[ForRent状態同期] inspect失敗:', err.message);
+    return null;
+  }
+}
+
+/**
+ * ForRentログインフォームに認証情報を入力して送信
+ */
+async function doForrentLogin_(tabId) {
+  const { forrentLoginId, forrentPassword } = await getStorageData(['forrentLoginId', 'forrentPassword']);
+  if (!forrentLoginId || !forrentPassword) {
+    return { ok: false, error: 'ForRent ID/PW未設定(オプション画面で設定してください)' };
+  }
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: (id, pw) => {
+        const loginForm = document.querySelector('form[action*="login.action"]');
+        if (!loginForm) return null;
+        // 注: Struts EL 未評価のリテラル name="${loginForm.loginId}" が入っている場合があるため
+        //     複数のセレクタを試す
+        const idInput = document.querySelector('input[name="${loginForm.loginId}"]')
+          || loginForm.querySelector('input[type="text"]')
+          || loginForm.querySelector('input[name*="login"]');
+        const pwInput = document.querySelector('input[name="${loginForm.password}"]')
+          || loginForm.querySelector('input[type="password"]');
+        const submitBtn = document.getElementById('Image7')
+          || loginForm.querySelector('input[type="image"]')
+          || loginForm.querySelector('input[type="submit"]')
+          || loginForm.querySelector('button[type="submit"]');
+        if (!idInput || !pwInput) return { ok: false, error: 'ログインフォーム要素不在' };
+        if (!submitBtn) return { ok: false, error: 'ログイン送信ボタン不在' };
+        idInput.value = id;
+        pwInput.value = pw;
+        idInput.dispatchEvent(new Event('input', { bubbles: true }));
+        pwInput.dispatchEvent(new Event('input', { bubbles: true }));
+        submitBtn.click();
+        return { ok: true };
+      },
+      args: [forrentLoginId, forrentPassword]
+    });
+    let submitted = false;
+    for (const r of results || []) {
+      if (r && r.result && r.result.ok) { submitted = true; break; }
+      if (r && r.result && r.result.error) return { ok: false, error: r.result.error };
+    }
+    if (!submitted) return { ok: false, error: 'ログインフォームに辿り着けない' };
+    // submit 後のページ遷移待ち
+    try { await waitForTabLoad(tabId, 30000); } catch (_) {}
+    await sleep(1500);
+    // 遷移後にログインフォームが消えているか確認
+    const after = await inspectForrentPage_(tabId);
+    if (!after) return { ok: false, error: 'ログイン後ページ取得失敗' };
+    if (after.hasLoginForm) {
+      return { ok: false, error: 'ログインフォームが残存(ID/PW誤りの可能性)' };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: 'login inject失敗: ' + err.message };
   }
 }
 
