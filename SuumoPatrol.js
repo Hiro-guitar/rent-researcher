@@ -694,8 +694,10 @@ function findStopCandidates(topN) {
     if (inquiries >= 1 && sheetDays < 45) continue;         // 問合あり&45日未満 保護
 
     // 危険度スコア
+    // 問合は1件あたり -100 (第1基準値競合10件相殺相当)
     var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
     var riskScore = weightedComp * 10
+                  - inquiries * 100
                   + (sheetDays >= 60 ? 9999 : 0)
                   + (sheetDays >= 45 ? 500 : 0);
 
@@ -1471,13 +1473,14 @@ function updateSuumoListingStats_(json) {
     var compLv2 = parseInt(String(row.comp_lv2_raw || '').replace(/[^0-9]/g, ''), 10) || 0;
     var compLv3 = parseInt(String(row.comp_lv3_raw || '').replace(/[^0-9]/g, ''), 10) || 0;
 
-    // 危険度スコア(Phase 2の式を先行計算)
-    // 掲載開始日(4列目)は既存行がある場合のみ使うので、ここでは掲載日数ベースの近似で出す
-    var riskScore =
-        (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0)
-      - (inquiries * 30)
-      - Math.max(0, 14 - listedDays) * 5
-      + (listedDays >= 45 ? 100 : 0);
+    // 危険度スコア(Phase 2 findStopCandidates と同一式で計算)
+    // シート掲載日数は既存行があれば計算できるが、新規insert時はまだ無いので
+    // SUUMO掲載日数 listedDays(最大45) で代用。60日ボーナスは既存行更新時に
+    // findStopCandidates 側がシート日数で正確に判定するので、ここでは控えめに。
+    var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
+    var riskScore = weightedComp * 10
+                  - inquiries * 100
+                  + (listedDays >= 45 ? 500 : 0);
 
     var propertyKey = normalizeSuumoPropertyKey_(name, roomNo);
     var targetRow = null;
