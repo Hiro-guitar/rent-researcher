@@ -689,17 +689,24 @@ function findStopCandidates(topN) {
       }
     }
 
+    // 実効掲載日数 = max(シート日数, SUUMO集計日数)
+    // SUUMOビジネス側の「掲載日数」は最大45でcap される。45達成 = 少なくとも
+    // 45日以上SUUMO掲載中と判断できる。初期投入でシート日数が浅い物件でも
+    // SUUMO側の実績で保護判定/45日ボーナス判定できる。
+    var effectiveDays = Math.max(sheetDays, suumoListedDays);
+
     // 保護判定
-    if (sheetDays < 7) continue;                            // 新着7日保護
-    if (inquiries >= 1 && sheetDays < 45) continue;         // 問合あり&45日未満 保護
+    if (effectiveDays < 7) continue;                           // 新着7日保護
+    if (inquiries >= 1 && effectiveDays < 45) continue;        // 問合あり&45日未満 保護
 
     // 危険度スコア
     // 問合は1件あたり -100 (第1基準値競合10件相殺相当)
+    // 60日ボーナスは「シート上の実日数」で判定(SUUMO側は45で頭打ちなので識別不能)
     var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
     var riskScore = weightedComp * 10
                   - inquiries * 100
                   + (sheetDays >= 60 ? 9999 : 0)
-                  + (sheetDays >= 45 ? 500 : 0);
+                  + (effectiveDays >= 45 ? 500 : 0);
 
     candidates.push({
       key: data[i][0],
