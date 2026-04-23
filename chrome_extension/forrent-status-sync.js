@@ -42,13 +42,31 @@ async function syncForrentListingStatus() {
     await waitForTabLoad(tabId, 60000);
     await sleep(2000);
 
-    // ログインページに飛ばされていないか、検索フォームの読み込みを待つ
+    // ログインページにリダイレクトされていたら即中止(60秒ポーリング待たない)
+    const currentUrl = await getTabUrl_(tabId);
+    if (isForrentLoginUrl_(currentUrl)) {
+      try { await chrome.tabs.update(tabId, { active: true }); } catch (_) {}
+      await setStorageData({ debugLog: `[ForRent状態同期] ログインページ検知(${currentUrl}) → 中止。手動でログインしてから再実行してください` });
+      return { ok: false, error: 'ForRentログインが必要です' };
+    }
+
+    // 検索フォームの読み込みを短めタイムアウトで待つ
     const formReady = await waitForMainFrameCondition_(tabId, () => {
       if (!document.querySelector('input.bukkenCdInput')) return null;
       return { ok: true, url: location.href };
-    }, 60000);
+    }, 20000);
     if (!formReady) {
-      throw new Error('PUB1R2801の検索フォームが表示されない(ログイン切れの可能性)');
+      // 20秒経っても検索フォームが現れない → 診断情報を収集
+      const recheckUrl = await getTabUrl_(tabId);
+      if (isForrentLoginUrl_(recheckUrl)) {
+        try { await chrome.tabs.update(tabId, { active: true }); } catch (_) {}
+        return { ok: false, error: 'ForRentログインが必要です (URL=' + recheckUrl + ')' };
+      }
+      // 各フレームの状態を診断ログに出す
+      const diag = await diagnosePageState_(tabId);
+      await setStorageData({ debugLog: `[ForRent状態同期] 診断: topUrl=${recheckUrl} / ${diag}` });
+      try { await chrome.tabs.update(tabId, { active: true }); } catch (_) {}
+      throw new Error('PUB1R2801の検索フォームが20秒以内に表示されない(診断ログ参照、タブを残しました)');
     }
 
     // 既に結果行があるか確認。なければ「検索」ボタンを押して全件表示
@@ -109,6 +127,64 @@ async function syncForrentListingStatus() {
   } finally {
     _forrentStatusSyncRunning = false;
   }
+}
+
+/**
+ * 各フレームの診断情報を取得(どんなページが表示されているかを調べる)
+ */
+async function diagnosePageState_(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => {
+        const hasBukkenInput = !!document.querySelector('input.bukkenCdInput');
+        const hasSearchBtn = !!Array.from(document.querySelectorAll('input[type="submit"]')).find(b => (b.value || '').trim() === '検索');
+        const bukkenRows = document.querySelectorAll('[id^="bukkenCd_"]').length;
+        const forms = Array.from(document.querySelectorAll('form')).map(f => ({ action: f.action, name: f.name })).slice(0, 3);
+        const bodyText = (document.body && document.body.innerText) || '';
+        return {
+          url: location.href,
+          frameName: window.name || '(top)',
+          title: document.title,
+          hasBukkenInput,
+          hasSearchBtn,
+          bukkenRows,
+          forms: JSON.stringify(forms).substring(0, 200),
+          bodyHead: bodyText.substring(0, 150).replace(/\s+/g, ' ').trim(),
+        };
+      }
+    });
+    const diags = [];
+    for (const r of results || []) {
+      if (r && r.result) {
+        diags.push(`[frame:${r.result.frameName}] url=${r.result.url.substring(0, 80)} title="${r.result.title}" rows=${r.result.bukkenRows} hasInput=${r.result.hasBukkenInput}`);
+      }
+    }
+    return diags.join(' || ');
+  } catch (err) {
+    return 'diagnose failed: ' + err.message;
+  }
+}
+
+/**
+ * タブの現在URLを取得
+ */
+async function getTabUrl_(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    return (tab && tab.url) || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+/**
+ * ForRentログインページ系URLか判定
+ */
+function isForrentLoginUrl_(url) {
+  if (!url) return false;
+  return /fn\.forrent\.jp\/fn\/(login|LOG|index|COM1R0214|IDPW)/i.test(url)
+      || /fn\.forrent\.jp\/?$/.test(url);
 }
 
 /**
