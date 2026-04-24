@@ -147,7 +147,7 @@ async function syncForrentListingStatus() {
     try { await chrome.tabs.remove(tabId); } catch (_) {}
 
     await setStorageData({
-      debugLog: `[ForRent状態同期] 完了: 取得${scrape.length}件 / GAS処理 stopped化=${gasResult.stopped || 0} 復活=${gasResult.reactivated || 0} 未マッチ=${gasResult.unmatched || 0}`
+      debugLog: `[ForRent状態同期] 完了: 取得${scrape.length}件 / GAS処理 stopped化=${gasResult.stopped || 0} 復活=${gasResult.reactivated || 0} 新規追加=${gasResult.inserted || 0} 未マッチ=${gasResult.unmatched || 0}`
     });
 
     return { ok: true, count: scrape.length, result: gasResult };
