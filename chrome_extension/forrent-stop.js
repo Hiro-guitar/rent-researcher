@@ -62,7 +62,17 @@ async function stopForrentListing(opts) {
     await waitForTabLoad(tabId, 60000);
     await sleep(1500);
 
-    // 2. 検索フォーム表示を待つ
+    // 2. ログイン/エラーページ検知 + 必要なら自動ログイン
+    //    (forrent-status-sync.js の ensureForrentReady_ を再利用)
+    if (typeof ensureForrentReady_ === 'function') {
+      const ensured = await ensureForrentReady_(tabId);
+      if (!ensured.ok) {
+        try { await chrome.tabs.update(tabId, { active: true }); } catch (_) {}
+        throw new Error('ForRent準備失敗: ' + ensured.error);
+      }
+    }
+
+    // 3. 検索フォーム表示を待つ
     const formReady = await waitForMainFrameCondition_(tabId, () => {
       const input = document.querySelector('input.bukkenCdInput');
       if (!input) return null;
@@ -70,10 +80,10 @@ async function stopForrentListing(opts) {
         .find(b => (b.value || '').trim() === '検索');
       if (!searchBtn) return null;
       return { ok: true, url: location.href };
-    }, 60000);
+    }, 30000);
 
     if (!formReady) {
-      throw new Error('検索フォームが表示されない(ForRentログイン切れの可能性)');
+      throw new Error('検索フォームが表示されない(ForRent画面構造変化の可能性)');
     }
 
     // 3. 物件コードを入力して検索実行
