@@ -1066,6 +1066,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SUUMO_FILL_COMPLETE') {
     // suumo-fill-auto.jsからの入稿完了報告
     reportSuumoPostComplete(msg.data).then(result => {
+      // 入稿完了したら suumoFillMode フラグをクリア(以降の誤起動防止)
+      try { chrome.storage.local.remove(['suumoFillMode', 'suumoFillModeSetAt']); } catch (_) {}
       sendResponse(result);
     }).catch(err => {
       sendResponse({ success: false, message: err.message });

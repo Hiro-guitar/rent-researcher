@@ -98,7 +98,7 @@
         console.log('[SUUMO自動入稿] ?suumo_fill=true 検知 → 自動ログイン実行');
         // ログイン後に ?suumo_fill=true が消えるので、suumoFillModeフラグで引き継ぐ
         // set完了を待ってからログインボタンをクリック
-        chrome.storage.local.set({ suumoFillMode: true }, () => {
+        chrome.storage.local.set({ suumoFillMode: true, suumoFillModeSetAt: Date.now() }, () => {
           console.log('[SUUMO自動入稿] suumoFillModeセット完了 → ログイン送信');
           loginIdInput.value = data.forrentLoginId;
           const pwInput = document.querySelector('input[name="${loginForm.password}"]')
@@ -191,8 +191,16 @@
   let _monitorStarted = false;
 
   // suumoFillModeフラグがONならキュー監視を開始（ログイン後・承認後どちらでも）
-  // フラグはログイン時の content script がセットする
-  chrome.storage.local.get(['suumoFillMode'], (data) => {
+  // フラグはログイン時の content script がセットする。
+  // ただしフラグは 30分で自動失効。古いフラグで勝手に入稿が開始されるのを防ぐ。
+  const SUUMO_FILL_MODE_TTL_MS = 30 * 60 * 1000;
+  chrome.storage.local.get(['suumoFillMode', 'suumoFillModeSetAt'], (data) => {
+    // 30分経過していれば期限切れとみなしてクリア
+    if (data.suumoFillMode && data.suumoFillModeSetAt && (Date.now() - data.suumoFillModeSetAt > SUUMO_FILL_MODE_TTL_MS)) {
+      console.log('[SUUMO自動入稿] suumoFillMode 30分経過で期限切れ → クリアして通常モード');
+      chrome.storage.local.remove(['suumoFillMode', 'suumoFillModeSetAt']);
+      data.suumoFillMode = false;
+    }
     if (data.suumoFillMode) {
       console.log('[SUUMO自動入稿] suumoFillModeフラグ検知 → キュー監視開始 & 即時ポーリング');
       // background.jsにキュー再取得を依頼（ログイン中にキューがクリアされた場合の復旧）
@@ -211,7 +219,7 @@
       })();
       if (topUrl.includes('suumo_fill=true')) {
         console.log('[SUUMO自動入稿] ?suumo_fill=true 検知 → キュー監視開始 & 即時ポーリング');
-        chrome.storage.local.set({ suumoFillMode: true });
+        chrome.storage.local.set({ suumoFillMode: true, suumoFillModeSetAt: Date.now() });
         chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
           if (chrome.runtime.lastError) {
             console.warn('[SUUMO自動入稿] 即時ポーリング送信エラー:', chrome.runtime.lastError.message);
@@ -225,7 +233,7 @@
         askAmIFillTab((isFillTab) => {
           if (isFillTab) {
             console.log('[SUUMO自動入稿] タブID照合で入稿タブと確認 → キュー監視開始');
-            chrome.storage.local.set({ suumoFillMode: true });
+            chrome.storage.local.set({ suumoFillMode: true, suumoFillModeSetAt: Date.now() });
             initMainFrameMonitor();
           } else {
             console.log('[SUUMO自動入稿] 手動利用 → キュー監視スキップ');
