@@ -203,12 +203,17 @@ async function ensureForrentReady_(tabId) {
       return { ok: false, error: 'ForRent自動ログイン失敗: ' + loginResult.error };
     }
     await setStorageData({ debugLog: '[ForRent状態同期] 自動ログイン成功' });
-    // ログイン後は main_r.action に自動遷移し、frameset 内の main フレームが
-    // 自動で PUB1R2801 または別のデフォルトページを読み込む。
-    // 強制 URL 遷移すると frameset 経由の初期化が走らず「画面遷移エラー」が
-    // 再発するため、ここでは遷移せず、bukkenCdInput を「特定条件」として長めに待つ。
+    // ログイン後は main_r.action に自動遷移。ForRentのログイン後デフォルトページは
+    // トップ画面(TOP1R0000)なので、bukkenCdInputは出現しない。
+    // frameset の main frame が TOP1R0000 か PUB1R2801 かを判定し、
+    //   - PUB1R2801 ならそのまま待機
+    //   - TOP1R0000 なら即メニュー探索に進む(25秒ポーリングを無駄にしない)
     await sleep(3000); // frameset 初期化の余裕を取る
-    state = await pollForBukkenInput_(tabId, 25000);
+    const postLoginState = await pollInspectForrentPage_(tabId, 10000);
+    if (postLoginState && postLoginState.hasBukkenInput) return { ok: true };
+    // mainフレームが TOP1R0000 or その他ならすぐナビ探索へ。
+    // main frame のURLを念のため確認するため、短めの bukkenCdInput 待ちを挟む(希望的観測)
+    state = await pollForBukkenInput_(tabId, 5000);
     if (state && state.hasBukkenInput) return { ok: true };
 
     // 25秒待っても PUB1R2801 が開かない = ログイン後のデフォルトは別画面。
