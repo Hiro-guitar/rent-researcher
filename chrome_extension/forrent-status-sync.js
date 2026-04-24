@@ -203,82 +203,114 @@ async function ensureForrentReady_(tabId) {
       return { ok: false, error: 'ForRent自動ログイン失敗: ' + loginResult.error };
     }
     await setStorageData({ debugLog: '[ForRent状態同期] 自動ログイン成功' });
-    // ログイン後は main_r.action に自動遷移し、その main フレームが PUB1R2801 を
-    // 読み込むのが ForRent の自然なフロー。
-    // 強制 URL 遷移すると frameset 経由の初期化が走らず「画面遷移エラー」が再発するため、
-    // ここでは遷移せず、全フレーム横断で bukkenCdInput が現れるまで待つ。
-    await sleep(1500);
-    state = await pollInspectForrentPage_(tabId, 20000);
-    if (!state) return { ok: false, error: 'ログイン後ページ取得失敗(タイムアウト)' };
-    if (state.hasBukkenInput) return { ok: true };
+    // ログイン後は main_r.action に自動遷移し、frameset 内の main フレームが
+    // 自動で PUB1R2801 または別のデフォルトページを読み込む。
+    // 強制 URL 遷移すると frameset 経由の初期化が走らず「画面遷移エラー」が
+    // 再発するため、ここでは遷移せず、bukkenCdInput を「特定条件」として長めに待つ。
+    await sleep(3000); // frameset 初期化の余裕を取る
+    state = await pollForBukkenInput_(tabId, 25000);
+    if (state && state.hasBukkenInput) return { ok: true };
 
-    // 自然遷移で PUB1R2801 が開かなかった場合、ナビフレーム内のリンクを探す
+    // 25秒待っても PUB1R2801 が開かない = ログイン後のデフォルトは別画面。
+    // ナビフレームの「更新・掲載指示」メニューを探してクリック。
+    // frameset 内のフレーム初期化が遅い場合に備えて複数回リトライ。
     await setStorageData({ debugLog: '[ForRent状態同期] 自然遷移で検索フォーム未検出 → ナビメニューを探索' });
+    const clickedDiag = await clickForrentNavMenuWithRetry_(tabId, 15000);
+    await setStorageData({ debugLog: `[ForRent状態同期] ナビ探索結果: ${clickedDiag.summary}` });
 
-    // 全フレームから「更新・掲載指示」「情報更新一覧」等のメニュー/リンクを探す。
-    // ForRentのナビ構造では 更新・掲載指示 → 情報更新一覧(PUB1R2801) に遷移する。
-    // ナビフレームの<a target="main">リンクはメインフレームを書き換える。
-    const navResults = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      func: () => {
-        const frameInfo = { url: location.href, frameName: window.name || '(top)' };
-        const candidates = Array.from(document.querySelectorAll('a, input[type="submit"], input[type="button"], input[type="image"], li, span, div'));
-        // 優先度順: 「更新・掲載指示」が最優先(ForRentのトップメニュー)
-        const patterns = [
-          /^更新・掲載指示$/,
-          /^情報更新一覧$/,
-          /^情報更新$/,
-          /更新・掲載指示/,
-          /情報更新/,
-        ];
-        for (const pat of patterns) {
-          const target = candidates.find(el => {
-            const t = (el.innerText || el.value || el.alt || el.title || '').trim();
-            return pat.test(t);
-          });
-          if (target) {
-            const text = (target.innerText || target.value || target.alt || target.title || '').trim().substring(0, 40);
-            const href = target.href || target.getAttribute('onclick') || '';
-            target.click();
-            return { ok: true, clickedText: text, matchedPattern: pat.toString(), href: href.substring(0, 100), frameInfo };
-          }
-        }
-        return { ok: false, error: 'menu not found in this frame', frameInfo };
-      }
-    });
-
-    let clicked = false;
-    const navDiag = [];
-    for (const r of navResults || []) {
-      if (!r || !r.result) continue;
-      navDiag.push(`${r.result.frameInfo.frameName}: ${r.result.ok ? 'CLICKED "' + r.result.clickedText + '"' : r.result.error}`);
-      if (r.result.ok) clicked = true;
-    }
-    await setStorageData({ debugLog: `[ForRent状態同期] ナビ探索結果: ${navDiag.join(' | ')}` });
-
-    if (clicked) {
-      await sleep(2500);
-      state = await pollInspectForrentPage_(tabId, 15000);
+    if (clickedDiag.clicked) {
+      await sleep(3000);
+      state = await pollForBukkenInput_(tabId, 20000);
       if (state && state.hasBukkenInput) return { ok: true };
       await setStorageData({ debugLog: `[ForRent状態同期] メニュークリック後もフォーム未出現 (url=${state && state.url})` });
     }
 
-    // 全然ダメなら最後に直接URLへリダイレクト(従来方式)を試す
-    await setStorageData({ debugLog: '[ForRent状態同期] 最終手段: PUB1R2801.action へ直接遷移' });
-    await chrome.tabs.update(tabId, { url: 'https://www.fn.forrent.jp/fn/PUB1R2801.action' });
-    try { await waitForTabLoad(tabId, 30000); } catch (_) {}
-    await sleep(2500);
-    state = await pollInspectForrentPage_(tabId, 20000);
-    if (state && state.hasBukkenInput) return { ok: true };
-    if (state && state.hasTransitionError) {
-      return { ok: false, error: 'PUB1R2801直接遷移で画面遷移エラー(セッションの問題)' };
-    }
-
-    return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + ((state && state.url) || '') + ')' };
+    return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + ((state && state.url) || '') + ')。ForRentで手動で「更新・掲載指示 > 情報更新一覧」を開いてから再実行してみてください' };
   }
 
   // 検索フォームもログインフォームもエラーも無い → 不明
   return { ok: false, error: '不明なページ状態(' + JSON.stringify(state).substring(0, 200) + ')' };
+}
+
+/**
+ * bukkenCdInput が出現するまで長めにポーリング。
+ * ログイン直後の frameset 初期化待ち + 内部フレームの非同期ロードを許容する。
+ */
+async function pollForBukkenInput_(tabId, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 30000);
+  let last = null;
+  while (Date.now() < deadline) {
+    const state = await inspectForrentPage_(tabId);
+    if (state) {
+      last = state;
+      if (state.hasBukkenInput) return state;
+    }
+    await sleep(1000);
+  }
+  return last;
+}
+
+/**
+ * 「更新・掲載指示」などのナビメニューをリトライ付きで探索・クリック。
+ * frameset 内の navi/main フレーム初期化が遅いケースに対応。
+ */
+async function clickForrentNavMenuWithRetry_(tabId, timeoutMs) {
+  const deadline = Date.now() + (timeoutMs || 15000);
+  const allDiag = [];
+  while (Date.now() < deadline) {
+    try {
+      const navResults = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => {
+          const frameInfo = { url: location.href, frameName: window.name || '(top)' };
+          // frameset の top は body 無しのことが多いので skip
+          if (!document.body || document.body.children.length === 0) {
+            return { ok: false, error: 'empty body', frameInfo };
+          }
+          const candidates = Array.from(document.querySelectorAll('a, input[type="submit"], input[type="button"], input[type="image"], li, span, div'));
+          const patterns = [
+            /^更新・掲載指示$/,
+            /^情報更新一覧$/,
+            /^情報更新$/,
+            /更新・掲載指示/,
+            /情報更新/,
+          ];
+          for (const pat of patterns) {
+            const target = candidates.find(el => {
+              const t = (el.innerText || el.value || el.alt || el.title || '').trim();
+              return pat.test(t);
+            });
+            if (target) {
+              const text = (target.innerText || target.value || target.alt || target.title || '').trim().substring(0, 40);
+              target.click();
+              return { ok: true, clickedText: text, frameInfo };
+            }
+          }
+          return { ok: false, error: 'menu not found', frameInfo };
+        }
+      });
+      const diag = [];
+      let clicked = null;
+      for (const r of navResults || []) {
+        if (!r || !r.result) continue;
+        const name = r.result.frameInfo ? r.result.frameInfo.frameName : '?';
+        if (r.result.ok) {
+          diag.push(`${name}: CLICKED "${r.result.clickedText}"`);
+          clicked = r.result;
+        } else {
+          diag.push(`${name}: ${r.result.error}`);
+        }
+      }
+      allDiag.push(diag.join(' | '));
+      if (clicked) {
+        return { clicked: true, clickedText: clicked.clickedText, summary: diag.join(' | ') };
+      }
+    } catch (err) {
+      allDiag.push('err: ' + err.message);
+    }
+    await sleep(1000);
+  }
+  return { clicked: false, summary: allDiag.slice(-3).join(' || ') || 'no frames inspected' };
 }
 
 /**
