@@ -54,16 +54,21 @@ async function stopForrentListing(opts) {
   try {
     await setStorageData({ debugLog: `[ForRent停止] 開始 suumoCode=${suumoCode} dryRun=${dryRun}` });
 
-    // 1. 情報更新一覧を開く (直接アクセスで frameset 回避)
-    const searchUrl = 'https://www.fn.forrent.jp/fn/PUB1R2801.action';
-    const tab = await chrome.tabs.create({ url: searchUrl, active: false });
+    // 1. 常に ForRent のトップ(main_r.action)経由で開く
+    //    → 直接 PUB1R2801.action にアクセスすると「既に完了」系エラーや
+    //      セッション状態不整合が起きることがあるため、フロー的には
+    //      必ず main_r.action → 掲載指示メニュー経由で PUB1R2801 に到達させる
+    const entryUrl = 'https://www.fn.forrent.jp/fn/main_r.action';
+    const tab = await chrome.tabs.create({ url: entryUrl, active: false });
     tabId = tab.id;
 
     await waitForTabLoad(tabId, 60000);
-    await sleep(1500);
+    await sleep(2000);
 
     // 2. ログイン/エラーページ検知 + 必要なら自動ログイン
     //    (forrent-status-sync.js の ensureForrentReady_ を再利用)
+    //    ensureForrentReady_ は検索フォーム(bukkenCdInput)が見えるまで
+    //    ログイン+ナビ遷移を行う
     if (typeof ensureForrentReady_ === 'function') {
       const ensured = await ensureForrentReady_(tabId);
       if (!ensured.ok) {
@@ -90,8 +95,11 @@ async function stopForrentListing(opts) {
     const searchExec = await runInMainFrame_(tabId, (code) => {
       const input = document.querySelector('input.bukkenCdInput');
       if (!input) return null;
+      // ForRent側のフォーム状態に確実に反映させるため input/change の両方発火
+      input.focus();
       input.value = code;
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
       const searchBtn = Array.from(document.querySelectorAll('input[type="submit"]'))
         .find(b => (b.value || '').trim() === '検索');
       if (!searchBtn) return { ok: false, error: '検索ボタン不在' };
@@ -195,8 +203,8 @@ async function stopForrentListing(opts) {
       // PUB1R2801 からまだ遷移していない間は待機
       if (/PUB1R2801/.test(url) && !/PUB1R3900|complete/i.test(url)) return null;
       const isCompletePage = /PUB1R3900/.test(url);
-      const hasSuccessText = /完了|更新しました|更新完了|成功/.test(bodyText);
-      const hasErrorText = /エラー|失敗|できませんでした/.test(bodyText);
+      const hasSuccessText = /更新しました|更新完了/.test(bodyText);
+      const hasErrorText = /エラー|失敗|できませんでした|既に完了/.test(bodyText);
       if (!isCompletePage && !hasSuccessText && !hasErrorText) return null;
       return { url, isCompletePage, hasSuccessText, hasErrorText, bodyHead: bodyText.substring(0, 300) };
     }, 60000);
