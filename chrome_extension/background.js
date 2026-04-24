@@ -937,6 +937,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: false, reason: '時間外' });
           return;
         }
+        // Phase 4: 承認→ForRentボタン経由ルートでも必ず前処理(データ更新+停止)を実行。
+        // ただし1巡の承認フロー中に何度もSUUMO_QUEUE_POLL_NOWが走ることがあるため、
+        // 直近N分以内に実行済みならスキップしてover-stopを防ぐ。
+        const { suumoLastPreHookAt } = await getStorageData(['suumoLastPreHookAt']);
+        const nowMs = Date.now();
+        if (!suumoLastPreHookAt || (nowMs - Number(suumoLastPreHookAt)) > 5 * 60 * 1000) {
+          await setStorageData({ suumoLastPreHookAt: nowMs });
+          const preHook = await runSuumoApprovalPreHook_();
+          if (!preHook.ok) {
+            await setStorageData({ debugLog: `[SUUMO入稿] QUEUE_POLL経路の前処理失敗: ${preHook.error}` });
+            sendResponse({ ok: false, error: '前処理失敗: ' + preHook.error });
+            return;
+          }
+        } else {
+          await setStorageData({ debugLog: `[SUUMO入稿] QUEUE_POLL経路: 直近${Math.floor((nowMs-suumoLastPreHookAt)/1000)}秒以内に前処理済み→スキップ` });
+        }
         const queueData = await pollSuumoApprovalQueue({ lock: true });
         if (queueData && queueData.queue && queueData.queue.length > 0) {
           const added = await appendFillQueue(queueData.queue);
@@ -4626,6 +4642,7 @@ async function runSuumoApprovalPreHook_() {
 
 async function pollAndStartFillIfNeeded(options = {}) {
   const source = options.source || 'approval';
+  await setStorageData({ debugLog: `[SUUMO入稿] pollAndStartFillIfNeeded 開始 source=${source}` });
 
   // 稼働中入稿タブの有無を確認
   const { suumoFillTabId } = await getStorageData(['suumoFillTabId']);
@@ -4641,6 +4658,7 @@ async function pollAndStartFillIfNeeded(options = {}) {
       await chrome.storage.local.remove(['suumoFillTabId', 'suumoFillQueue']);
     }
   }
+  await setStorageData({ debugLog: `[SUUMO入稿] tabAlive=${tabAlive} suumoFillTabId=${suumoFillTabId}` });
 
   // ── 稼働中タブあり ──
   if (tabAlive) {
