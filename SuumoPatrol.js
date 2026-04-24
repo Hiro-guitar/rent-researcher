@@ -555,7 +555,9 @@ function rejectSuumoCandidate(key) {
  * - data.success === false の場合はsubmittingロックを解除しapprovedに戻す（リトライ可能）
  */
 function recordSuumoPosting(data) {
-  var key = data.key || '';
+  // Chrome拡張(suumo-fill-auto.js) は propertyKey を送ってくるが、
+  // 旧互換のため key も受け付ける
+  var key = data.key || data.propertyKey || '';
   if (!key) return { success: false, message: 'key未指定' };
 
   // 失敗報告: submittingロックを解除してapprovedに戻す
@@ -1413,6 +1415,35 @@ function handleSyncForrentListingStatus(json) {
     inserted: inserted,
     skipped: autoStopSkipReason
   })).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * SUUMO候補物件シートで submitting / approved のまま残っている行を
+ * 一括で expired に変更する管理ユーティリティ
+ *
+ * Chrome拡張の過去バグ(propertyKey↔key mismatch)で submitting のまま残った
+ * 物件を一気にクリーンアップする用途。GASエディタから手動実行。
+ *
+ * 安全策: 実行しても削除はしない(ステータスを expired に変えるのみ)。
+ */
+function cleanupStaleCandidateStatuses() {
+  var sheet = getCandidateSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { before: 0, expired: 0 };
+
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_CANDIDATE_HEADERS.length).getValues();
+  var changed = 0;
+  var counts = { submitting: 0, approved: 0 };
+  for (var i = 0; i < data.length; i++) {
+    var status = data[i][11];
+    if (status === 'submitting' || status === 'approved') {
+      counts[status] = (counts[status] || 0) + 1;
+      sheet.getRange(i + 2, 12).setValue('expired');
+      sheet.getRange(i + 2, 17).setValue(''); // submittingTsクリア
+      changed++;
+    }
+  }
+  return { expired: changed, breakdown: counts };
 }
 
 /**
