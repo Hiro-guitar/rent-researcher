@@ -92,26 +92,76 @@ async function stopForrentListing(opts) {
     }
 
     // 3. 物件コードを入力して検索実行
-    const searchExec = await runInMainFrame_(tabId, (code) => {
-      const input = document.querySelector('input.bukkenCdInput');
-      if (!input) return null;
-      // ForRent側のフォーム状態に確実に反映させるため input/change の両方発火
-      input.focus();
-      input.value = code;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      const searchBtn = Array.from(document.querySelectorAll('input[type="submit"]'))
-        .find(b => (b.value || '').trim() === '検索');
-      if (!searchBtn) return { ok: false, error: '検索ボタン不在' };
-      searchBtn.click();
-      return { ok: true };
-    }, [suumoCode]);
+    //    - searchForm を特定してそのフォーム内で操作
+    //    - native input value setter でフレームワークが期待する形にvalue設定
+    //    - form.submit() で確実に送信(click経由の間接発火を避ける)
+    const searchExec = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      world: 'MAIN',
+      func: (code) => {
+        try {
+          // bukkenCdInput を含む form を特定 (searchForm)
+          const input = document.querySelector('input.bukkenCdInput');
+          if (!input) return null; // このフレームは対象外
+          const form = input.closest('form');
+          if (!form) return { ok: false, error: 'input の closest form が見つからない' };
+
+          // native setter で value を設定(フレームワーク互換)
+          const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          nativeSetter.call(input, code);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+
+          // 同一フォーム内の「検索」ボタンを探す
+          const searchBtn = Array.from(form.querySelectorAll('input[type="submit"], input[type="image"], button'))
+            .find(b => {
+              const v = (b.value || b.alt || b.innerText || '').trim();
+              return v === '検索';
+            });
+
+          const formInfo = { action: form.action, name: form.name, id: form.id, inputValueAfter: input.value };
+          if (searchBtn) {
+            searchBtn.click();
+            return { ok: true, via: 'button.click', formInfo };
+          }
+          // フォールバック: form.submit() を呼ぶ
+          form.submit();
+          return { ok: true, via: 'form.submit', formInfo };
+        } catch (e) {
+          return { ok: false, error: 'search exception: ' + e.message };
+        }
+      },
+      args: [suumoCode],
+    });
+    // 結果集約
+    let searchOk = false;
+    let searchVia = '';
+    let searchErr = '';
+    let searchFormInfo = null;
+    for (const r of searchExec || []) {
+      if (r && r.result) {
+        if (r.result.ok) { searchOk = true; searchVia = r.result.via || ''; searchFormInfo = r.result.formInfo; break; }
+        if (r.result.error) { searchErr = r.result.error; }
+      }
+    }
+    if (!searchOk) {
+      throw new Error((searchErr || '検索実行失敗: bukkenCdInput が見つからない'));
+    }
+    await setStorageData({ debugLog: `[ForRent停止] 検索送信 via=${searchVia} formAction=${(searchFormInfo && searchFormInfo.action) || ''}` });
 
     if (!searchExec || !searchExec.ok) {
       throw new Error((searchExec && searchExec.error) || '検索実行失敗');
     }
 
-    // 4. 検索結果の行を待つ: bukkenCd_<N> の value が検索コードと一致する行
+    // 4. フォーム再描画(CSRFトークン更新)を待つ
+    //    search click は form submit で page reload を引き起こすが、
+    //    我々のinjectが旧DOMに当たるとstale authenticityToken で submit して
+    //    「既に完了」エラーになる。再描画を確実に待つため、
+    //    フォーム再描画サイン(再検索結果として bukkenCd_N の value を見る)を
+    //    一定時間持って観察する。
+    await sleep(3000); // 再描画の余裕
+
+    // 4b. 検索結果の行を待つ: bukkenCd_<N> の value が検索コードと一致する行
     const rowReady = await waitForMainFrameCondition_(tabId, (code) => {
       const matches = Array.from(document.querySelectorAll('[id^="bukkenCd_"]'))
         .filter(inp => inp.value === code);
