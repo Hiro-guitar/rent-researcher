@@ -796,9 +796,6 @@ function renderImages() {
     container.appendChild(card);
   }
 
-  // container側のドロップハンドラをセットアップ(初回のみ)
-  installContainerDragHandlers();
-
   updateGenreCounter();
 }
 
@@ -846,105 +843,136 @@ function buildImageCard(idx, imgSrc, genre, altText) {
   return card;
 }
 
-// ── ドラッグ&ドロップによる画像並び替え ──
-var _draggedCard = null;
-var _dragHandlersInstalled = false;
-
-// grid gapの領域にドロップしたときに認識できるよう、container側にも最小限のハンドラを付ける
-function installContainerDragHandlers() {
-  if (_dragHandlersInstalled) return;
-  var container = document.getElementById('imageGrid');
-  if (!container) return;
-  container.addEventListener('dragover', function(e) {
-    if (!_draggedCard) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  });
-  container.addEventListener('drop', function(e) {
-    if (!_draggedCard) return;
-    // 最も近い .image-card を検出してその前後に挿入
-    var cards = container.querySelectorAll('.image-card');
-    var nearest = null;
-    var nearestDist = Infinity;
-    var insertBefore = false;
-    for (var i = 0; i < cards.length; i++) {
-      var c = cards[i];
-      if (c === _draggedCard) continue;
-      var rect = c.getBoundingClientRect();
-      var cx = rect.left + rect.width / 2;
-      var cy = rect.top + rect.height / 2;
-      var dx = e.clientX - cx;
-      var dy = e.clientY - cy;
-      var d = dx*dx + dy*dy;
-      if (d < nearestDist) {
-        nearestDist = d;
-        nearest = c;
-        insertBefore = e.clientX < cx;
-      }
-    }
-    if (nearest) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (insertBefore) container.insertBefore(_draggedCard, nearest);
-      else container.insertBefore(_draggedCard, nearest.nextSibling);
-      rebuildImageDataFromDOM();
-    }
-  });
-  _dragHandlersInstalled = true;
-}
+// ── Pointer Events による画像並び替え ──
+// HTML5 drag-drop APIは GAS iframe 下で不安定なため、
+// Pointer Events で自前実装(環境差異なし)
+var _dragState = null;
 
 function attachDragHandlers(card) {
-  // property と HTML属性の両方で設定(ブラウザ差異対策)
-  card.draggable = true;
-  card.setAttribute('draggable', 'true');
-  card.addEventListener('dragstart', function(e) {
-    _draggedCard = card;
-    card.classList.add('dragging');
-    // Firefox互換: dataTransferに何か入れないとドラッグが開始されない環境がある
-    try { e.dataTransfer.setData('text/plain', card.getAttribute('data-index') || ''); } catch (_) {}
-    e.dataTransfer.effectAllowed = 'move';
-  });
-  card.addEventListener('dragover', function(e) {
-    if (!_draggedCard || _draggedCard === card) return;
+  // HTML5 drag APIは使わない。ネイティブドラッグを明示的に抑止。
+  card.draggable = false;
+  card.setAttribute('draggable', 'false');
+
+  card.addEventListener('pointerdown', function(e) {
+    // 左クリックのみ、削除/ジャンルボタン上は無視
+    if (e.button !== 0) return;
+    if (e.target.closest('button')) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    // マウス位置で「左寄り=このカードの手前に挿入」「右寄り=このカードの後ろに挿入」を示す
+
     var rect = card.getBoundingClientRect();
-    var midX = rect.left + rect.width / 2;
-    card.classList.remove('drag-over-left', 'drag-over-right');
-    if (e.clientX < midX) card.classList.add('drag-over-left');
-    else card.classList.add('drag-over-right');
-  });
-  card.addEventListener('dragleave', function() {
-    card.classList.remove('drag-over-left', 'drag-over-right');
-  });
-  card.addEventListener('drop', function(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    card.classList.remove('drag-over-left', 'drag-over-right');
-    if (!_draggedCard || _draggedCard === card) return;
-    var container = document.getElementById('imageGrid');
-    var rect = card.getBoundingClientRect();
-    var midX = rect.left + rect.width / 2;
-    if (e.clientX < midX) {
-      container.insertBefore(_draggedCard, card);
-    } else {
-      container.insertBefore(_draggedCard, card.nextSibling);
-    }
-    rebuildImageDataFromDOM();
-  });
-  card.addEventListener('dragend', function() {
-    card.classList.remove('dragging');
-    var container = document.getElementById('imageGrid');
-    if (container) {
-      var all = container.querySelectorAll('.image-card');
-      for (var k = 0; k < all.length; k++) {
-        all[k].classList.remove('drag-over-left', 'drag-over-right', 'dragging');
-      }
-    }
-    _draggedCard = null;
+    _dragState = {
+      card: card,
+      startX: e.clientX,
+      startY: e.clientY,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+      width: rect.width,
+      height: rect.height,
+      moved: false,
+      ghost: null,
+      pointerId: e.pointerId
+    };
+    // ポインタ追跡のキャプチャ(離れてもイベントを受け続ける)
+    try { card.setPointerCapture(e.pointerId); } catch (_) {}
   });
 }
+
+// ドキュメント全体で pointermove / pointerup を捉える(ポインタがカード外に出ても追従)
+document.addEventListener('pointermove', function(e) {
+  if (!_dragState) return;
+  var st = _dragState;
+  // 5px以上動いたら「ドラッグ中」判定
+  if (!st.moved) {
+    var dx = Math.abs(e.clientX - st.startX);
+    var dy = Math.abs(e.clientY - st.startY);
+    if (dx < 5 && dy < 5) return;
+    st.moved = true;
+    // ゴースト画像(半透明の複製)を作成
+    var ghost = st.card.cloneNode(true);
+    ghost.style.position = 'fixed';
+    ghost.style.pointerEvents = 'none';
+    ghost.style.opacity = '0.75';
+    ghost.style.zIndex = '9999';
+    ghost.style.width = st.width + 'px';
+    ghost.style.height = st.height + 'px';
+    ghost.style.transform = 'rotate(-2deg)';
+    ghost.style.boxShadow = '0 8px 20px rgba(0,0,0,0.3)';
+    ghost.style.left = (e.clientX - st.offsetX) + 'px';
+    ghost.style.top = (e.clientY - st.offsetY) + 'px';
+    document.body.appendChild(ghost);
+    st.ghost = ghost;
+    st.card.classList.add('dragging');
+  }
+  if (st.ghost) {
+    st.ghost.style.left = (e.clientX - st.offsetX) + 'px';
+    st.ghost.style.top = (e.clientY - st.offsetY) + 'px';
+  }
+  // 最近接カード + 左右判定でハイライト更新
+  var container = document.getElementById('imageGrid');
+  if (!container) return;
+  var cards = container.querySelectorAll('.image-card');
+  var nearest = null;
+  var nearestDist = Infinity;
+  var insertBefore = false;
+  for (var i = 0; i < cards.length; i++) {
+    var c = cards[i];
+    if (c === st.card) continue;
+    c.classList.remove('drag-over-left', 'drag-over-right');
+    var rect = c.getBoundingClientRect();
+    var cx = rect.left + rect.width / 2;
+    var cy = rect.top + rect.height / 2;
+    var d = (e.clientX - cx) * (e.clientX - cx) + (e.clientY - cy) * (e.clientY - cy);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = c;
+      insertBefore = e.clientX < cx;
+    }
+  }
+  st._nearest = nearest;
+  st._insertBefore = insertBefore;
+  if (nearest) {
+    nearest.classList.add(insertBefore ? 'drag-over-left' : 'drag-over-right');
+  }
+});
+
+document.addEventListener('pointerup', function(e) {
+  if (!_dragState) return;
+  var st = _dragState;
+  _dragState = null;
+  st.card.classList.remove('dragging');
+  if (st.ghost) {
+    try { st.ghost.remove(); } catch (_) {}
+  }
+  // ハイライトを全部消す
+  var container = document.getElementById('imageGrid');
+  if (container) {
+    var all = container.querySelectorAll('.image-card');
+    for (var k = 0; k < all.length; k++) {
+      all[k].classList.remove('drag-over-left', 'drag-over-right', 'dragging');
+    }
+  }
+  try { st.card.releasePointerCapture(st.pointerId); } catch (_) {}
+  // 実際に動いていなければ何もしない(ただのクリック扱い)
+  if (!st.moved || !st._nearest || !container) return;
+  if (st._insertBefore) container.insertBefore(st.card, st._nearest);
+  else container.insertBefore(st.card, st._nearest.nextSibling);
+  rebuildImageDataFromDOM();
+});
+
+document.addEventListener('pointercancel', function() {
+  if (!_dragState) return;
+  var st = _dragState;
+  _dragState = null;
+  st.card.classList.remove('dragging');
+  if (st.ghost) { try { st.ghost.remove(); } catch (_) {} }
+  var container = document.getElementById('imageGrid');
+  if (container) {
+    var all = container.querySelectorAll('.image-card');
+    for (var k = 0; k < all.length; k++) {
+      all[k].classList.remove('drag-over-left', 'drag-over-right', 'dragging');
+    }
+  }
+});
 
 // DOM の現在の順序から PROPERTY_DATA.image_urls / imageGenres / shubetsu を再構築
 // その後 renderImages() で data-index / クロージャ参照を全て新しいインデックスに更新
