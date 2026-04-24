@@ -857,15 +857,14 @@ async function findOrCreateDedicatedEssquareTab() {
     // storage失敗は新規作成にフォールバック
   }
 
+  // 専用ウィンドウを作成(最小化状態で作成し、作業中のユーザーを邪魔しない)
+  // ログイン要求時のみ別処理で前面化する
   await setStorageData({ debugLog: '[ES-Square] 専用ウィンドウを作成中...' });
   const newWindow = await chrome.windows.create({
     url: `${ESSQUARE_BASE_URL}/bukken/chintai/search`,
     focused: false,
-    width: 1200,
-    height: 800,
-    left: 0,
-    top: 0,
-    type: 'normal'
+    type: 'normal',
+    state: 'minimized'
   });
   dedicatedEssquareWindowId = newWindow.id;
   dedicatedEssquareTabId = newWindow.tabs[0].id;

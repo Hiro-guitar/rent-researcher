@@ -621,16 +621,14 @@ async function findOrCreateDedicatedItandiTab() {
     dedicatedItandiWindowId = null;
   }
 
-  // 専用ウィンドウを作成
+  // 専用ウィンドウを作成(最小化状態で作成し、作業中のユーザーを邪魔しない)
+  // ログイン要求時のみ別処理で前面化する
   await setStorageData({ debugLog: '[itandi] 専用ウィンドウを作成中...' });
   const newWindow = await chrome.windows.create({
     url: `${ITANDI_BASE_URL}/rent_rooms/list`,
     focused: false,
-    width: 1200,
-    height: 800,
-    left: 0,
-    top: 0,
-    type: 'normal'
+    type: 'normal',
+    state: 'minimized'
   });
   dedicatedItandiWindowId = newWindow.id;
   dedicatedItandiTabId = newWindow.tabs[0].id;

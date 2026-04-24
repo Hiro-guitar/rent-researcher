@@ -382,16 +382,14 @@ async function findOrCreateDedicatedIeloveTab() {
     dedicatedIeloveWindowId = null;
   }
 
-  // 専用ウィンドウを作成
+  // 専用ウィンドウを作成(最小化状態で作成し、作業中のユーザーを邪魔しない)
+  // ログイン要求時のみ別処理で前面化する
   await setStorageData({ debugLog: '専用いえらぶウィンドウを作成中...' });
   const newWindow = await chrome.windows.create({
     url: `${IELOVE_BASE_URL}/ielovebb/top/`,
     focused: false,
-    width: 1200,
-    height: 800,
-    left: 0,
-    top: 0,
-    type: 'normal'
+    type: 'normal',
+    state: 'minimized'
   });
   dedicatedIeloveWindowId = newWindow.id;
   dedicatedIeloveTabId = newWindow.tabs[0].id;
@@ -404,10 +402,10 @@ async function findOrCreateDedicatedIeloveTab() {
   const tab = await chrome.tabs.get(dedicatedIeloveTabId);
   if (tab.url?.includes('/login')) {
     await setStorageData({ debugLog: 'いえらぶBBにログインしてください（bb.ielove.jpでログイン後、自動で検索を再開します）' });
-    // ウィンドウをフォーカスしてユーザーに気付かせる
+    // ウィンドウをフォーカスしてユーザーに気付かせる(最小化状態から復元)
     try {
       if (dedicatedIeloveWindowId) {
-        await chrome.windows.update(dedicatedIeloveWindowId, { focused: true });
+        await chrome.windows.update(dedicatedIeloveWindowId, { state: 'normal', focused: true });
       }
     } catch (e) {}
     // Discord通知（任意）
