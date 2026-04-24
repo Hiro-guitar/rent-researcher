@@ -183,14 +183,52 @@ async function stopForrentListing(opts) {
       return { ok: true, dryRun: true };
     }
 
-    // 8. 本番送信: #shijiButton をクリック → formToUpdate() → POST PUB1R3900BD.action
-    const submitResult = await runInMainFrame_(tabId, () => {
-      const btn = document.getElementById('shijiButton');
-      if (!btn) return { ok: false, error: 'shijiButton 不在' };
-      if (btn.hasAttribute('disabled')) return { ok: false, error: 'shijiButton が無効状態' };
-      btn.click();
-      return { ok: true };
+    // 8. 本番送信: MAIN世界で動作する formToUpdate() を直接呼ぶ
+    //    btn.click() だと isolated world から onclick 経由で呼ばれるが
+    //    confirm() 等がブロッキングになる可能性があるため、直接関数呼びに。
+    //    confirm を自動OKするモンキーパッチも入れる(念のため)。
+    const submitResult = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      world: 'MAIN',
+      func: () => {
+        try {
+          // confirm をスタブ化(削除選択が残っていても強制進行)
+          const origConfirm = window.confirm;
+          window.confirm = function() { return true; };
+          try {
+            const btn = document.getElementById('shijiButton');
+            if (!btn) return { ok: false, error: 'shijiButton 不在' };
+            if (btn.disabled || btn.hasAttribute('disabled')) return { ok: false, error: 'shijiButton が無効' };
+            // 優先: formToUpdate() 直接呼び
+            if (typeof window.formToUpdate === 'function') {
+              window.formToUpdate();
+              return { ok: true, via: 'formToUpdate' };
+            }
+            // フォールバック: ボタンクリック
+            btn.click();
+            return { ok: true, via: 'click' };
+          } finally {
+            window.confirm = origConfirm;
+          }
+        } catch (e) {
+          return { ok: false, error: 'submit inject exception: ' + e.message };
+        }
+      }
     });
+    // 結果集約
+    let subOk = false;
+    let subVia = '';
+    let subErr = '';
+    for (const r of submitResult || []) {
+      if (r && r.result) {
+        if (r.result.ok) { subOk = true; subVia = r.result.via || ''; break; }
+        if (r.result.error) { subErr = r.result.error; }
+      }
+    }
+    if (!subOk) {
+      throw new Error((subErr || '一括更新実行の送信失敗'));
+    }
+    await setStorageData({ debugLog: `[ForRent停止] 送信実行 via=${subVia}` });
 
     if (!submitResult || !submitResult.ok) {
       throw new Error((submitResult && submitResult.error) || '一括更新実行クリック失敗');
