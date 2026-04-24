@@ -290,6 +290,7 @@ async function stopForrentListing(opts) {
     const verifyResult = await waitForMainFrameCondition_(tabId, (code) => {
       const url = location.href;
       const bodyText = (document.body && document.body.innerText) || '';
+      const title = document.title || '';
 
       // x) 画面遷移エラー(既に完了) は明確に失敗
       if (/ご指定の処理は既に完了/.test(bodyText)) {
@@ -301,43 +302,49 @@ async function stopForrentListing(opts) {
         return { ok: true, via: 'PUB1R3900 遷移', url };
       }
 
-      // b) 更新成功メッセージ検知
-      if (/更新しました|更新完了/.test(bodyText)) {
-        return { ok: true, via: '成功メッセージ検知', url };
+      // b) 更新成功メッセージ or タイトル検知(body, title どちらでも)
+      if (/更新しました|更新完了/.test(bodyText) || /更新完了|情報更新完了/.test(title)) {
+        return { ok: true, via: '成功メッセージ検知(body/title)', url, title };
       }
 
       // PUB1R2801 の検索フォーム/一覧が再描画完了するまで待つ
       const input = document.querySelector('input.bukkenCdInput');
       if (!input) return null; // まだページロード中
 
-      // c) 該当物件が一覧から消えている(掲載物件のみフィルタでは成約物件は非表示)
-      //    ただし、フィルタ未適用の場合は物件はまだ表示されて seiyakuFlg=1 になっているはず
-      //    → まずフィルタ状態を確認
-      const allBukkenCds = Array.from(document.querySelectorAll('[id^="bukkenCd_"]'));
-      const matches = allBukkenCds.filter(inp => inp.value === code);
-
+      // c) bukkenCd 一覧を確認
+      const matches = Array.from(document.querySelectorAll('[id^="bukkenCd_"]'))
+        .filter(inp => inp.value === code);
       if (matches.length === 0) {
-        // 該当なし → 一覧から消えた = 成約になってフィルタ対象外になった可能性大
-        // また念のため "検索結果が該当しません" 的な文字をチェック
-        const hasNoResultMsg = /該当しません|0 ?件/.test(bodyText);
-        return { ok: true, via: matches.length === 0 ? 'bukkenCd一覧消失(=成約でフィルタ外)' : 'no-result-msg', url };
+        // 該当なし = 成約になってフィルタ対象外 = 成功
+        return { ok: true, via: 'bukkenCd一覧消失(=成約でフィルタ外)', url };
       }
-
-      // d) 該当行が存在 → seiyakuFlg を直接チェック
+      // d) 該当行残存 → seiyakuFlg 直接確認
       const suffix = matches[0].id.split('_')[1];
       const seiyaku = document.getElementById('seiyakuFlg_' + suffix);
       if (seiyaku) {
         if (seiyaku.value === '1') {
           return { ok: true, via: 'seiyakuFlg=1確認', url };
         }
-        // y) 該当行があって seiyakuFlg=0 → 失敗
         return { ok: false, error: '成約フラグが0のまま(seiyaku=' + seiyaku.value + ')', url };
       }
-      // seiyakuFlg element が無い = 画面構造不明
       return null;
     }, 30000, [suumoCode]);
 
     if (!verifyResult) {
+      // タイムアウト時に各フレームの状態をダンプして診断
+      try {
+        const diag = await chrome.scripting.executeScript({
+          target: { tabId, allFrames: true },
+          func: () => ({
+            frameName: window.name || '(top)',
+            url: location.href,
+            title: document.title,
+            bodyHead: ((document.body && document.body.innerText) || '').substring(0, 200).replace(/\s+/g, ' ')
+          })
+        });
+        const dump = (diag || []).map(r => r && r.result ? `[${r.result.frameName}] url=${(r.result.url||'').substring(0,60)} title="${r.result.title}" body="${r.result.bodyHead}"` : '').filter(Boolean).join(' || ');
+        await setStorageData({ debugLog: `[ForRent停止] タイムアウト時診断: ${dump}` });
+      } catch (_) {}
       throw new Error('送信後の成約状態確認タイムアウト(30秒)');
     }
     if (!verifyResult.ok) {
