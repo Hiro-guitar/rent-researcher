@@ -537,26 +537,47 @@ async function scrapeForrentStatusRows_(tabId) {
           if (!suumoCode || suumoCode.length !== 12) continue;
           const seiyakuEl = document.getElementById('seiyakuFlg_' + suffix);
           const seiyakuFlg = seiyakuEl ? String(seiyakuEl.value || '') : '';
-          // 物件名・部屋番号も見つかれば添える(デバッグ用)
+          // PUB1R2801 の行レイアウト(全50件均一):
+          //   1物件 = 1TR = 16TD
+          //   td[3] に「建物名 部屋番号」同一セル格納(例: "ファインズコート北新宿 202号室")
+          //   td[1] に路線駅+住所、 td[4] に賃料ブロック
+          //   bukkenCd hidden input は td[14] に属する
           let buildingName = '';
           let roomNo = '';
+          let rentText = '';
           try {
-            const row = inp.closest('tr');
-            if (row) {
-              // 一般的にbukkenCdの近くに物件名セルがある
-              const cells = row.querySelectorAll('td');
-              // テキストセルから物件名と推定されるものを拾う(ベストエフォート)
-              for (const c of cells) {
-                const t = (c.innerText || '').trim();
-                if (t.length > 0 && t.length < 60 && !/^\d+$/.test(t)) {
-                  if (!buildingName) buildingName = t;
-                  else if (!roomNo && /\d/.test(t) && t.length < 15) roomNo = t;
+            const tr = inp.closest('tr');
+            if (tr && tr.cells && tr.cells.length === 16) {
+              // 建物名+部屋番号 パース
+              const td3Text = (tr.cells[3] ? tr.cells[3].innerText : '').trim().replace(/\s+/g, ' ');
+              if (td3Text) {
+                // 末尾の「XXX号室」を部屋番号として分離
+                // 対応パターン: "建物名 202号室" / "建物名\n202号室" / "建物名 B1-2号室" / "建物名 101"
+                const m = td3Text.match(/^(.*?)[\s ]+([0-9A-Za-zB\-]+号?室?)\s*$/);
+                if (m) {
+                  buildingName = m[1].trim();
+                  roomNo = m[2].trim();
+                } else {
+                  // フォールバック: 末尾スペース区切り
+                  const lastSpace = td3Text.lastIndexOf(' ');
+                  if (lastSpace > 0) {
+                    buildingName = td3Text.substring(0, lastSpace).trim();
+                    roomNo = td3Text.substring(lastSpace + 1).trim();
+                  } else {
+                    buildingName = td3Text;
+                  }
                 }
-                if (buildingName && roomNo) break;
+              }
+              // 賃料(td[4]の1行目が総額「8.5万円」のような表示)
+              const td4Text = (tr.cells[4] ? tr.cells[4].innerText : '').trim();
+              if (td4Text) {
+                const firstLine = td4Text.split(/\r?\n/)[0].trim();
+                const rentMatch = firstLine.match(/([0-9]+(?:\.[0-9]+)?)万円?/);
+                if (rentMatch) rentText = rentMatch[1];
               }
             }
           } catch (_) {}
-          rows.push({ suumoCode, seiyakuFlg, buildingName, roomNo, rowSuffix: suffix });
+          rows.push({ suumoCode, seiyakuFlg, buildingName, roomNo, rent: rentText, rowSuffix: suffix });
         }
         return rows;
       },
