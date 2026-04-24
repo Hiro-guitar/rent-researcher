@@ -938,20 +938,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
         // Phase 4: 承認→ForRentボタン経由ルートでも必ず前処理(データ更新+停止)を実行。
-        // ただし1巡の承認フロー中に何度もSUUMO_QUEUE_POLL_NOWが走ることがあるため、
-        // 直近N分以内に実行済みならスキップしてover-stopを防ぐ。
-        const { suumoLastPreHookAt } = await getStorageData(['suumoLastPreHookAt']);
-        const nowMs = Date.now();
-        if (!suumoLastPreHookAt || (nowMs - Number(suumoLastPreHookAt)) > 5 * 60 * 1000) {
-          await setStorageData({ suumoLastPreHookAt: nowMs });
-          const preHook = await runSuumoApprovalPreHook_();
-          if (!preHook.ok) {
-            await setStorageData({ debugLog: `[SUUMO入稿] QUEUE_POLL経路の前処理失敗: ${preHook.error}` });
-            sendResponse({ ok: false, error: '前処理失敗: ' + preHook.error });
-            return;
-          }
-        } else {
-          await setStorageData({ debugLog: `[SUUMO入稿] QUEUE_POLL経路: 直近${Math.floor((nowMs-suumoLastPreHookAt)/1000)}秒以内に前処理済み→スキップ` });
+        // 複数のSUUMO_QUEUE_POLL_NOWが並列で来た場合、同時に複数preHookが走ったり、
+        // 片方がskipして先にキュー取得に進んで入稿開始してしまうレースを防ぐため、
+        // ミューテックスで直列化する(前処理完了まで全呼び出しが待つ)。
+        const preHookResult = await getOrRunSuumoPreHook_();
+        if (!preHookResult.ok) {
+          await setStorageData({ debugLog: `[SUUMO入稿] QUEUE_POLL経路の前処理失敗: ${preHookResult.error}` });
+          sendResponse({ ok: false, error: '前処理失敗: ' + preHookResult.error });
+          return;
         }
         const queueData = await pollSuumoApprovalQueue({ lock: true });
         if (queueData && queueData.queue && queueData.queue.length > 0) {
@@ -4552,6 +4546,43 @@ async function appendFillQueue(items) {
  *
  * @returns {Promise<{ok:boolean, error?:string, stopped?:Object}>}
  */
+/**
+ * Phase 4 前処理のミューテックス付き実行
+ *
+ * - 実行中の preHook Promise を _preHookInFlight に保持、並列呼び出しは同じPromiseを待つ
+ * - 直近5分以内に成功済みなら即OK返却(再実行不要)
+ * - 失敗した場合はキャッシュしない(次回リトライ可能)
+ */
+let _preHookInFlight = null;
+let _preHookSucceededAt = 0;
+
+async function getOrRunSuumoPreHook_() {
+  const nowMs = Date.now();
+  // 直近5分以内に成功済みなら再実行しない(over-stop防止)
+  if (_preHookSucceededAt && (nowMs - _preHookSucceededAt) < 5 * 60 * 1000) {
+    return { ok: true, cached: true };
+  }
+  // 実行中のpreHookがあれば同じ結果を待つ
+  if (_preHookInFlight) {
+    return await _preHookInFlight;
+  }
+  // 新規実行
+  _preHookInFlight = (async () => {
+    try {
+      const result = await runSuumoApprovalPreHook_();
+      if (result && result.ok) {
+        _preHookSucceededAt = Date.now();
+      }
+      return result || { ok: false, error: 'no result' };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    } finally {
+      _preHookInFlight = null;
+    }
+  })();
+  return await _preHookInFlight;
+}
+
 async function runSuumoApprovalPreHook_() {
   // ── 1. SUUMOビジネスデータ取得 (best effort) ──
   try {
@@ -4679,7 +4710,7 @@ async function pollAndStartFillIfNeeded(options = {}) {
     // 以前は tabAlive=true の時に前処理をスキップしていたため、
     // 50件超過時に停止されずに追加キュー投入され、SUUMO側で「掲載数オーバー」エラーになっていた
     if (source === 'approval' || source === 'manual') {
-      const preHook = await runSuumoApprovalPreHook_();
+      const preHook = await getOrRunSuumoPreHook_();
       if (!preHook.ok) {
         await setStorageData({ debugLog: `[SUUMO入稿] 前処理失敗のため稼働中タブへの追加も中止: ${preHook.error}` });
         return;
@@ -4718,7 +4749,7 @@ async function pollAndStartFillIfNeeded(options = {}) {
   //   - 停止失敗は入稿中止(50件超過の入稿は SUUMO側でエラーになるため安全優先)
   //   - 停止ドライラン中はGAS反映せず、ログ警告だけ残して入稿は続行
   if (source === 'approval' || source === 'manual') {
-    const preHook = await runSuumoApprovalPreHook_();
+    const preHook = await getOrRunSuumoPreHook_();
     if (!preHook.ok) {
       await setStorageData({ debugLog: `[SUUMO入稿] 前処理失敗のため入稿中止: ${preHook.error}` });
       return;
