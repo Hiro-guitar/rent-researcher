@@ -196,27 +196,45 @@ async function stopForrentListing(opts) {
       throw new Error((submitResult && submitResult.error) || '一括更新実行クリック失敗');
     }
 
-    // 9. 完了画面への遷移を待つ(PUB1R3900 への遷移 or 成功文言)
-    const completeCheck = await waitForMainFrameCondition_(tabId, () => {
+    // 9. 完了確認: 送信後のページで「実際に成約フラグが1になっているか」を検証
+    //    URLや本文テキストで判定するのは誤判定が多いため、
+    //    再度 bukkenCd で検索して seiyakuFlg の値を直接確認する方式。
+    //    「画面遷移エラー」「既に完了」等の応答も、実際には更新されていない
+    //    (false 失敗も false 成功も起こるため、値で真偽判定する)。
+    await sleep(3000); // 送信反映の余裕
+
+    const verifyResult = await waitForMainFrameCondition_(tabId, (code) => {
       const url = location.href;
+      // 画面遷移エラー表示のままなら即座に失敗判定(そこから復帰しないため)
       const bodyText = (document.body && document.body.innerText) || '';
-      // PUB1R2801 からまだ遷移していない間は待機
-      if (/PUB1R2801/.test(url) && !/PUB1R3900|complete/i.test(url)) return null;
-      const isCompletePage = /PUB1R3900/.test(url);
-      const hasSuccessText = /更新しました|更新完了/.test(bodyText);
-      const hasErrorText = /エラー|失敗|できませんでした|既に完了/.test(bodyText);
-      if (!isCompletePage && !hasSuccessText && !hasErrorText) return null;
-      return { url, isCompletePage, hasSuccessText, hasErrorText, bodyHead: bodyText.substring(0, 300) };
-    }, 60000);
+      if (/ご指定の処理は既に完了/.test(bodyText)) {
+        return { ok: false, error: '画面遷移エラー(既に完了応答→未更新)', url };
+      }
+      // PUB1R2801 の検索フォームが使える状態になるまで待つ
+      const input = document.querySelector('input.bukkenCdInput');
+      if (!input) return null;
+      const matches = Array.from(document.querySelectorAll('[id^="bukkenCd_"]'))
+        .filter(inp => inp.value === code);
+      // 掲載物件のみのリストに表示される場合は再検索不要 / 一覧更新済み
+      if (matches.length > 0) {
+        const suffix = matches[0].id.split('_')[1];
+        const seiyaku = document.getElementById('seiyakuFlg_' + suffix);
+        if (seiyaku) {
+          return { ok: seiyaku.value === '1', seiyaku: seiyaku.value, url };
+        }
+      }
+      // まだ描画中 → 少し待つ
+      return null;
+    }, 30000, [suumoCode]);
 
-    if (!completeCheck) {
-      throw new Error('完了画面への遷移がタイムアウト');
+    if (!verifyResult) {
+      throw new Error('送信後の成約状態確認タイムアウト(30秒)');
     }
-    if (completeCheck.hasErrorText) {
-      throw new Error('完了画面にエラー文言: ' + completeCheck.bodyHead);
+    if (!verifyResult.ok) {
+      throw new Error((verifyResult.error || '成約フラグが1になっていない(seiyaku=' + verifyResult.seiyaku + ')'));
     }
 
-    const succeeded = completeCheck.isCompletePage || completeCheck.hasSuccessText;
+    const succeeded = true;
     try { await chrome.tabs.remove(tabId); } catch (_) {}
 
     const stoppedAt = new Date().toISOString();
