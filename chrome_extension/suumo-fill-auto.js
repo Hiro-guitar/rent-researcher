@@ -913,9 +913,22 @@
   function fillTrafficInfo(data) {
     if (!data.access || data.access.length === 0) return;
     const maxTraffic = 3;
-    for (let i = 0; i < Math.min(data.access.length, maxTraffic); i++) {
+    // 駅名重複を除去: ForRentは「交通1と交通2が同じです」で弾くため、
+    // 同一駅名の2つ目以降は入れない(路線が違っても駅名が同じだとNG判定)。
+    const dedupedAccess = [];
+    const seenStations = new Set();
+    for (const t of data.access) {
+      if (!t) continue;
+      const stationKey = (t.station || '').replace(/\s+/g, '').trim();
+      if (!stationKey) continue;
+      if (seenStations.has(stationKey)) continue;
+      seenStations.add(stationKey);
+      dedupedAccess.push(t);
+    }
+
+    for (let i = 0; i < Math.min(dedupedAccess.length, maxTraffic); i++) {
       const num = i === 0 ? '' : String(i + 1);
-      const t = data.access[i];
+      const t = dedupedAccess[i];
       if (!t) continue;
 
       // station-data.js が読み込まれていれば路線・駅コードを補完
