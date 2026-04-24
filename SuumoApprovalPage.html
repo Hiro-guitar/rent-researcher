@@ -142,7 +142,21 @@ body {
   display: none; z-index: 2;
 }
 .image-card:hover .delete-btn { display: block; }
-.image-card { position: relative; }
+.image-card { position: relative; cursor: grab; }
+.image-card:active { cursor: grabbing; }
+/* ドラッグ中の見た目 */
+.image-card.dragging { opacity: 0.4; border-color: #2e86c1; }
+/* ドロップ先ハイライト(左右どちらに挿入するか) */
+.image-card.drag-over-left { box-shadow: -4px 0 0 0 #2e86c1; }
+.image-card.drag-over-right { box-shadow: 4px 0 0 0 #2e86c1; }
+/* 画像左上の順序バッジ */
+.image-card .order-badge {
+  position: absolute; top: 4px; left: 4px;
+  background: rgba(0,0,0,0.65); color: #fff;
+  font-size: 11px; font-weight: 700;
+  padding: 2px 6px; border-radius: 10px;
+  z-index: 2; pointer-events: none;
+}
 
 /* ── ステータス ── */
 .status-badge {
@@ -763,31 +777,154 @@ function renderImages() {
   container.innerHTML = '';
   for (var i = 0; i < images.length; i++) {
     var imgSrc = images[i];
-    var defaultGenre = normalizeGenre(shubetsu[i] || '');
-
-    if (defaultGenre) {
-      imageGenres[i] = defaultGenre;
+    // imageGenres[i] が既にあればそれを優先(並び替え後の再描画対応)
+    // 無ければ shubetsu のデフォルトを normalizeして採用
+    var currentGenre = imageGenres[i];
+    if (!currentGenre) {
+      var defaultGenre = normalizeGenre(shubetsu[i] || '');
+      if (defaultGenre) {
+        imageGenres[i] = defaultGenre;
+        currentGenre = defaultGenre;
+      }
     }
 
-    var card = document.createElement('div');
-    card.className = 'image-card' + (defaultGenre ? ' has-genre' : '');
-    card.setAttribute('data-index', i);
-
-    var img = document.createElement('img');
-    img.src = imgSrc;
-    img.alt = '画像 ' + (i + 1);
-    img.onerror = function() { this.style.background = '#eee'; this.alt = '読込失敗'; };
-    card.appendChild(img);
-
-    var btnsDiv = document.createElement('div');
-    btnsDiv.className = 'genre-btns';
-    renderGenreButtons(btnsDiv, i, defaultGenre);
-    card.appendChild(btnsDiv);
-
+    var card = buildImageCard(i, imgSrc, currentGenre || '', '画像 ' + (i + 1));
     container.appendChild(card);
   }
 
   updateGenreCounter();
+}
+
+// 画像カードを1枚生成(renderImages と addUploadedImage で共通利用)
+function buildImageCard(idx, imgSrc, genre, altText) {
+  var card = document.createElement('div');
+  card.className = 'image-card' + (genre ? ' has-genre' : '');
+  card.setAttribute('data-index', idx);
+
+  // 順序バッジ(1,2,3...)
+  var badge = document.createElement('div');
+  badge.className = 'order-badge';
+  badge.textContent = (idx + 1);
+  card.appendChild(badge);
+
+  // 削除ボタン
+  var delBtn = document.createElement('button');
+  delBtn.className = 'delete-btn';
+  delBtn.type = 'button';
+  delBtn.textContent = 'x';
+  delBtn.title = '削除';
+  delBtn.onclick = function(e) {
+    e.stopPropagation();
+    if (!confirm('この画像を削除しますか？')) return;
+    // DOM からカード除去 → データを再構築して再描画
+    card.remove();
+    rebuildImageDataFromDOM();
+  };
+  card.appendChild(delBtn);
+
+  var img = document.createElement('img');
+  img.src = imgSrc;
+  img.alt = altText || ('画像 ' + (idx + 1));
+  img.draggable = false; // ネイティブimgドラッグは無効化(カード自体のドラッグに任せる)
+  img.onerror = function() { this.style.background = '#eee'; this.alt = '読込失敗'; };
+  card.appendChild(img);
+
+  var btnsDiv = document.createElement('div');
+  btnsDiv.className = 'genre-btns';
+  renderGenreButtons(btnsDiv, idx, genre || '');
+  card.appendChild(btnsDiv);
+
+  // ドラッグ&ドロップで並び替え
+  attachDragHandlers(card);
+  return card;
+}
+
+// ── ドラッグ&ドロップによる画像並び替え ──
+var _draggedCard = null;
+
+function attachDragHandlers(card) {
+  card.draggable = true;
+  card.addEventListener('dragstart', function(e) {
+    _draggedCard = card;
+    card.classList.add('dragging');
+    // Firefox互換: dataTransferに何か入れないとドラッグが開始されない環境がある
+    try { e.dataTransfer.setData('text/plain', card.getAttribute('data-index') || ''); } catch (_) {}
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  card.addEventListener('dragover', function(e) {
+    if (!_draggedCard || _draggedCard === card) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    // マウス位置で「左寄り=このカードの手前に挿入」「右寄り=このカードの後ろに挿入」を示す
+    var rect = card.getBoundingClientRect();
+    var midX = rect.left + rect.width / 2;
+    card.classList.remove('drag-over-left', 'drag-over-right');
+    if (e.clientX < midX) card.classList.add('drag-over-left');
+    else card.classList.add('drag-over-right');
+  });
+  card.addEventListener('dragleave', function() {
+    card.classList.remove('drag-over-left', 'drag-over-right');
+  });
+  card.addEventListener('drop', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    card.classList.remove('drag-over-left', 'drag-over-right');
+    if (!_draggedCard || _draggedCard === card) return;
+    var container = document.getElementById('imageGrid');
+    var rect = card.getBoundingClientRect();
+    var midX = rect.left + rect.width / 2;
+    if (e.clientX < midX) {
+      container.insertBefore(_draggedCard, card);
+    } else {
+      container.insertBefore(_draggedCard, card.nextSibling);
+    }
+    rebuildImageDataFromDOM();
+  });
+  card.addEventListener('dragend', function() {
+    card.classList.remove('dragging');
+    var container = document.getElementById('imageGrid');
+    if (container) {
+      var all = container.querySelectorAll('.image-card');
+      for (var k = 0; k < all.length; k++) {
+        all[k].classList.remove('drag-over-left', 'drag-over-right', 'dragging');
+      }
+    }
+    _draggedCard = null;
+  });
+}
+
+// DOM の現在の順序から PROPERTY_DATA.image_urls / imageGenres / shubetsu を再構築
+// その後 renderImages() で data-index / クロージャ参照を全て新しいインデックスに更新
+function rebuildImageDataFromDOM() {
+  var container = document.getElementById('imageGrid');
+  if (!container) return;
+  var cards = Array.prototype.slice.call(container.querySelectorAll('.image-card'));
+  var oldImages = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
+  var oldShubetsu = PROPERTY_DATA.shubetsu || [];
+  var newImages = [];
+  var newShubetsu = [];
+  var newGenres = {};
+  for (var i = 0; i < cards.length; i++) {
+    var card = cards[i];
+    var oldIdx = parseInt(card.getAttribute('data-index'), 10);
+    // 画像URLは oldIdx 経由で取り出す(DOM上のimg.srcはエラー画像に化けている可能性を回避)
+    var url = (oldIdx >= 0 && oldIdx < oldImages.length)
+              ? oldImages[oldIdx]
+              : (card.querySelector('img') ? card.querySelector('img').src : '');
+    newImages.push(url);
+    if (oldIdx >= 0 && oldIdx < oldShubetsu.length && oldShubetsu[oldIdx]) {
+      newShubetsu.push(oldShubetsu[oldIdx]);
+    } else {
+      newShubetsu.push('');
+    }
+    if (imageGenres.hasOwnProperty(oldIdx)) {
+      newGenres[i] = imageGenres[oldIdx];
+    }
+  }
+  PROPERTY_DATA.image_urls = newImages;
+  PROPERTY_DATA.shubetsu = newShubetsu;
+  imageGenres = newGenres;
+  renderImages();
 }
 
 // ── 画像アップロード ──
@@ -1028,38 +1165,15 @@ function addUploadedImage(url) {
   images.push(url);
   PROPERTY_DATA.image_urls = images;
   if (!PROPERTY_DATA.shubetsu) PROPERTY_DATA.shubetsu = [];
+  // 新規追加分のshubetsuスロットも空で埋めておく(インデックス同期)
+  while (PROPERTY_DATA.shubetsu.length < images.length) PROPERTY_DATA.shubetsu.push('');
+
+  // 空メッセージを消してから共通レンダーで1枚追加
+  var container = document.getElementById('imageGrid');
+  if (container && container.querySelector('p')) container.innerHTML = '';
 
   var idx = images.length - 1;
-  var container = document.getElementById('imageGrid');
-
-  var card = document.createElement('div');
-  card.className = 'image-card';
-  card.setAttribute('data-index', idx);
-
-  var delBtn = document.createElement('button');
-  delBtn.className = 'delete-btn';
-  delBtn.textContent = 'x';
-  delBtn.onclick = function(e) {
-    e.stopPropagation();
-    if (confirm('この画像を削除しますか？')) {
-      delete imageGenres[idx];
-      card.remove();
-      updateGenreCounter();
-    }
-  };
-  card.appendChild(delBtn);
-
-  var img = document.createElement('img');
-  img.src = url;
-  img.alt = '追加画像 ' + (idx + 1);
-  img.onerror = function() { this.style.background = '#eee'; this.alt = '読込失敗'; };
-  card.appendChild(img);
-
-  var btnsDiv = document.createElement('div');
-  btnsDiv.className = 'genre-btns';
-  renderGenreButtons(btnsDiv, idx, '');
-  card.appendChild(btnsDiv);
-
+  var card = buildImageCard(idx, url, '', '追加画像 ' + (idx + 1));
   container.appendChild(card);
   updateGenreCounter();
 }
