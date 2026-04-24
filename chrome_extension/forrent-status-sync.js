@@ -296,14 +296,15 @@ async function clickForrentNavMenuWithRetry_(tabId, timeoutMs) {
           if (!document.body || document.body.children.length === 0) {
             return { ok: false, error: 'empty body', frameInfo };
           }
-          const candidates = Array.from(document.querySelectorAll('a, input[type="submit"], input[type="button"], input[type="image"], li, span, div'));
+          // ナビメニューは <a> 要素で実装されている。
+          // li/span/div を対象に substring 検索すると、
+          // mainフレームの長文テキスト("入居・取引態様・掲載指示...") に誤マッチする。
+          // → <a>タグのみに絞り、テキスト完全一致で探す。
+          const candidates = Array.from(document.querySelectorAll('a'));
           // テキストを正規化(全角/半角中黒点、空白の差異を吸収)
           const norm = (s) => (s || '')
-            .replace(/[\s\u3000]/g, '')      // 空白除去
-            .replace(/[・･·\u2022\u30FB\uFF65]/g, ''); // 中黒系除去
-          // 正規化後のテキストで照合するパターン(中黒点/空白除去済)
-          // ForRent 実測: navi フレームに「掲載指示」というリンクがある。
-          // これを最優先、フォールバックで他の表現も試す。
+            .replace(/[\s\u3000]/g, '')
+            .replace(/[・･·\u2022\u30FB\uFF65]/g, '');
           const patterns = [
             '掲載指示',
             '更新掲載指示',
@@ -312,11 +313,12 @@ async function clickForrentNavMenuWithRetry_(tabId, timeoutMs) {
           ];
           for (const pat of patterns) {
             const target = candidates.find(el => {
-              const t = norm(el.innerText || el.value || el.alt || el.title || '');
-              return t === pat || t.indexOf(pat) >= 0;
+              const t = norm(el.innerText || el.title || '');
+              // 完全一致のみ
+              return t === pat;
             });
             if (target) {
-              const text = (target.innerText || target.value || target.alt || target.title || '').trim().substring(0, 40);
+              const text = (target.innerText || target.title || '').trim().substring(0, 40);
               target.click();
               return { ok: true, clickedText: text, matchedPattern: pat, frameInfo };
             }

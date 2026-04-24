@@ -123,6 +123,9 @@ async function tryForrentFinalSubmit(opts) {
     }
 
     await setStorageData({ debugLog: `[Phase5] 登録完了 (遷移先URL: ${postCheck.url})` });
+    // 登録成功後は入稿タブとキューをクリーンアップ(タブが残り続けないように)
+    try { await chrome.tabs.remove(tabId); } catch (_) {}
+    try { await chrome.storage.local.remove(['suumoFillTabId', 'suumoFillMode', 'suumoFillModeSetAt', 'suumoPendingConfirmCheck']); } catch (_) {}
     return { ok: true, finalUrl: postCheck.url };
 
   } catch (err) {
