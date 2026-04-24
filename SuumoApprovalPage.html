@@ -150,6 +150,8 @@ body {
 .image-card:active { cursor: grabbing; }
 /* ドラッグ中の見た目 */
 .image-card.dragging { opacity: 0.4; border-color: #2e86c1; }
+/* ドラッグ中は画面全体のカーソルを grabbing で固定 */
+body.dragging-image, body.dragging-image * { cursor: grabbing !important; }
 /* ドロップ先ハイライト(左右どちらに挿入するか) */
 .image-card.drag-over-left { box-shadow: -4px 0 0 0 #2e86c1; }
 .image-card.drag-over-right { box-shadow: 4px 0 0 0 #2e86c1; }
@@ -902,6 +904,7 @@ document.addEventListener('pointermove', function(e) {
     document.body.appendChild(ghost);
     st.ghost = ghost;
     st.card.classList.add('dragging');
+    document.body.classList.add('dragging-image');
   }
   if (st.ghost) {
     st.ghost.style.left = (e.clientX - st.offsetX) + 'px';
@@ -943,6 +946,7 @@ document.addEventListener('pointerup', function(e) {
   if (st.ghost) {
     try { st.ghost.remove(); } catch (_) {}
   }
+  document.body.classList.remove('dragging-image');
   // ハイライトを全部消す
   var container = document.getElementById('imageGrid');
   if (container) {
