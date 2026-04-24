@@ -18,11 +18,20 @@
 (function () {
   'use strict';
 
+  // ロード確認ログ(content scriptが実際にページで走っているかの確認)
+  console.log('[SUUMO承認トリガー] content script loaded, url=' + location.href);
+
   var _alreadyFired = new Set();
 
   function fireApprovalTrigger(propertyKey, building, room) {
-    if (!propertyKey) return;
-    if (_alreadyFired.has(propertyKey)) return;
+    if (!propertyKey) {
+      console.warn('[SUUMO承認トリガー] propertyKey空でスキップ');
+      return;
+    }
+    if (_alreadyFired.has(propertyKey)) {
+      console.log('[SUUMO承認トリガー] 既に送信済み:', propertyKey);
+      return;
+    }
     _alreadyFired.add(propertyKey);
 
     console.log('[SUUMO承認トリガー] 承認検知 → background通知:', propertyKey, building, room);
@@ -47,7 +56,12 @@
   // ── 主経路: window.postMessage を受信 ──
   window.addEventListener('message', function (event) {
     var data = event.data;
+    // 全postMessage を一旦ログ(デバッグ用)
+    if (data && data.type) {
+      console.log('[SUUMO承認トリガー] postMessage受信:', data.type);
+    }
     if (!data || data.type !== 'SUUMO_APPROVAL_SUCCESS') return;
+    console.log('[SUUMO承認トリガー] SUUMO_APPROVAL_SUCCESS検知:', data);
     fireApprovalTrigger(data.propertyKey, data.building, data.room);
   });
 
