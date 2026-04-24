@@ -1292,23 +1292,69 @@ function handleSyncForrentListingStatus(json) {
   var stopped = 0;
   var reactivated = 0;
   var unmatched = 0; // 受信側で、シートに suumo_property_code が一致しないコードの件数
+  var inserted = 0;  // 未マッチ行をシートに新規追加した件数
   var autoStopSkipReason = '';
 
-  // A. stopped 復活: 受信セットに含まれる code がシート上 stopped なら active に戻す
-  //    + マッチ判定のために codeToSheetRow マップ構築
+  // A. stopped 復活 + 新規物件の追加
+  //    マッチ判定のために codeToSheetRow マップ構築
+  //    さらに、シートに無い suumoCode は新規行としてinsert(掲載開始日=今日)
   var codeToSheetRow = {};
   for (var i = 0; i < data.length; i++) {
     var code = String(data[i][10] || '').replace(/[^0-9]/g, '');
     if (code) codeToSheetRow[code] = { sheetRow: i + 2, status: data[i][8] };
   }
+
+  // 受信rowsを suumoCode → { buildingName, roomNo } のマップに変換
+  // (scrape時にbuildingName/roomNoも取っているため、これを使って新規挿入する)
+  var codeToMeta = {};
+  for (var rr = 0; rr < rows.length; rr++) {
+    var row = rows[rr] || {};
+    var c = String(row.suumoCode || '').replace(/[^0-9]/g, '');
+    if (c && c.length === 12) {
+      codeToMeta[c] = {
+        buildingName: String(row.buildingName || ''),
+        roomNo: String(row.roomNo || ''),
+      };
+    }
+  }
+
   for (var c2 in liveCodeSet) {
     var t = codeToSheetRow[c2];
-    if (!t) { unmatched++; continue; }
-    if (t.status === 'stopped') {
-      sheet.getRange(t.sheetRow, 9).setValue('active');
-      sheet.getRange(t.sheetRow, 10).setValue('');
-      reactivated++;
+    if (t) {
+      // 既存マッチ: stopped → active 復活
+      if (t.status === 'stopped') {
+        sheet.getRange(t.sheetRow, 9).setValue('active');
+        sheet.getRange(t.sheetRow, 10).setValue('');
+        reactivated++;
+      }
+      continue;
     }
+    // 未マッチ: ForRent掲載中なのにシートに無い → 新規行として追加
+    // 掲載開始日 = 現在時刻(= 最新のForRent状態同期時刻)。
+    // 毎日この同期を回せば、新規入稿物件も最大1日のラグで実日付が入る。
+    var meta = codeToMeta[c2] || {};
+    var buildingName = meta.buildingName || '';
+    var roomNo = meta.roomNo || '';
+    var propertyKey = normalizeSuumoPropertyKey_(buildingName, roomNo);
+    var newRow = [
+      propertyKey,     // 1  物件キー
+      buildingName,    // 2  建物名
+      roomNo,          // 3  部屋番号
+      now,             // 4  掲載開始日(= 今日、ForRent出現日)
+      '',              // 5  賃料
+      0, 0, 0,         // 6-8 最終PV/問合/スコア(未取得)
+      'active',        // 9  ステータス
+      '',              // 10 停止日
+      c2,              // 11 suumo_property_code
+      0, 0, 0,         // 12-14 合計一覧PV/合計詳細PV/問い合わせ数
+      0,               // 15 掲載日数(SUUMO)
+      0, 0, 0,         // 16-18 競合_第1/第2/第3
+      0,               // 19 危険度スコア
+      now              // 20 最終取得日時(ここではForRent直読み時刻)
+    ];
+    sheet.appendRow(newRow);
+    inserted++;
+    unmatched++;
   }
 
   // B. 受信セットに含まれない active 行を stopped化
@@ -1346,6 +1392,7 @@ function handleSyncForrentListingStatus(json) {
     stopped: stopped,
     reactivated: reactivated,
     unmatched: unmatched,
+    inserted: inserted,
     skipped: autoStopSkipReason
   })).setMimeType(ContentService.MimeType.JSON);
 }
