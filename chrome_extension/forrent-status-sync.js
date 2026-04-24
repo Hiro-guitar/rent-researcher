@@ -296,7 +296,11 @@ async function clickForrentNavMenuWithRetry_(tabId, timeoutMs) {
           const norm = (s) => (s || '')
             .replace(/[\s\u3000]/g, '')      // 空白除去
             .replace(/[・･·\u2022\u30FB\uFF65]/g, ''); // 中黒系除去
+          // 正規化後のテキストで照合するパターン(中黒点/空白除去済)
+          // ForRent 実測: navi フレームに「掲載指示」というリンクがある。
+          // これを最優先、フォールバックで他の表現も試す。
           const patterns = [
+            '掲載指示',
             '更新掲載指示',
             '情報更新一覧',
             '情報更新',
