@@ -364,7 +364,8 @@ async function stopForrentListing(opts) {
     return {
       ok: !!succeeded,
       stoppedAt,
-      url: completeCheck.url,
+      url: (verifyResult && verifyResult.url) || null,
+      via: (verifyResult && verifyResult.via) || null,
       warning: succeeded ? null : '完了画面の判定が確証なし。ForRentで手動確認してください',
     };
 
