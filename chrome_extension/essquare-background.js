@@ -820,6 +820,8 @@ async function findOrCreateDedicatedEssquareTab() {
     try {
       const tab = await chrome.tabs.get(dedicatedEssquareTabId);
       if (tab && tab.url?.includes('es-square.net')) {
+        // 再利用時も最小化に強制(作業中のユーザーを邪魔しないため)
+        try { await chrome.windows.update(tab.windowId, { state: 'minimized' }); } catch (_) {}
         return tab;
       }
     } catch (e) {
@@ -843,6 +845,8 @@ async function findOrCreateDedicatedEssquareTab() {
           if (esTab) {
             dedicatedEssquareTabId = esTab.id;
             dedicatedEssquareWindowId = storedWinId;
+            // 復元時も最小化に強制
+            try { await chrome.windows.update(storedWinId, { state: 'minimized' }); } catch (_) {}
             await setStorageData({ debugLog: `[ES-Square] 永続化された専用ウィンドウを復元: tabId=${esTab.id}` });
             return esTab;
           }

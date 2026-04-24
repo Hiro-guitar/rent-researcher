@@ -373,6 +373,8 @@ async function findOrCreateDedicatedIeloveTab() {
     try {
       const tab = await chrome.tabs.get(dedicatedIeloveTabId);
       if (tab && tab.url?.includes('bb.ielove.jp')) {
+        // 再利用時も最小化に強制(作業中のユーザーを邪魔しないため)
+        try { await chrome.windows.update(tab.windowId, { state: 'minimized' }); } catch (_) {}
         return tab;
       }
     } catch (e) {

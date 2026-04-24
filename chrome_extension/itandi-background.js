@@ -612,6 +612,8 @@ async function findOrCreateDedicatedItandiTab() {
     try {
       const tab = await chrome.tabs.get(dedicatedItandiTabId);
       if (tab && tab.url?.includes('itandibb.com')) {
+        // 再利用時も最小化に強制(作業中のユーザーを邪魔しないため)
+        try { await chrome.windows.update(tab.windowId, { state: 'minimized' }); } catch (_) {}
         return tab;
       }
     } catch (e) {
