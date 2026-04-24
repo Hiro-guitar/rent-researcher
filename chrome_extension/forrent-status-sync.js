@@ -567,6 +567,8 @@ async function scrapeForrentStatusRows_(tabId) {
                     buildingName = td3Text;
                   }
                 }
+                // 部屋番号から末尾の「号室」「号」「室」を除去 (例: "202号室" → "202")
+                roomNo = roomNo.replace(/号室$|号$|室$/, '').trim();
               }
               // 賃料(td[4]の1行目が総額「8.5万円」のような表示)
               const td4Text = (tr.cells[4] ? tr.cells[4].innerText : '').trim();
