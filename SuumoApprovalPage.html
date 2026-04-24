@@ -142,27 +142,7 @@ body {
   display: none; z-index: 2;
 }
 .image-card:hover .delete-btn { display: block; }
-.image-card {
-  position: relative; cursor: grab;
-  /* ドラッグ時にテキスト選択が起動するのを防ぐ */
-  user-select: none; -webkit-user-select: none;
-}
-.image-card:active { cursor: grabbing; }
-/* ドラッグ中の見た目 */
-.image-card.dragging { opacity: 0.4; border-color: #2e86c1; }
-/* ドラッグ中は画面全体のカーソルを grabbing で固定 */
-body.dragging-image, body.dragging-image * { cursor: grabbing !important; }
-/* ドロップ先ハイライト(左右どちらに挿入するか) */
-.image-card.drag-over-left { box-shadow: -4px 0 0 0 #2e86c1; }
-.image-card.drag-over-right { box-shadow: 4px 0 0 0 #2e86c1; }
-/* 画像左上の順序バッジ */
-.image-card .order-badge {
-  position: absolute; top: 4px; left: 4px;
-  background: rgba(0,0,0,0.65); color: #fff;
-  font-size: 11px; font-weight: 700;
-  padding: 2px 6px; border-radius: 10px;
-  z-index: 2; pointer-events: none;
-}
+.image-card { position: relative; }
 
 /* ── ステータス ── */
 .status-badge {
@@ -783,233 +763,31 @@ function renderImages() {
   container.innerHTML = '';
   for (var i = 0; i < images.length; i++) {
     var imgSrc = images[i];
-    // imageGenres[i] が既にあればそれを優先(並び替え後の再描画対応)
-    // 無ければ shubetsu のデフォルトを normalizeして採用
-    var currentGenre = imageGenres[i];
-    if (!currentGenre) {
-      var defaultGenre = normalizeGenre(shubetsu[i] || '');
-      if (defaultGenre) {
-        imageGenres[i] = defaultGenre;
-        currentGenre = defaultGenre;
-      }
+    var defaultGenre = normalizeGenre(shubetsu[i] || '');
+
+    if (defaultGenre) {
+      imageGenres[i] = defaultGenre;
     }
 
-    var card = buildImageCard(i, imgSrc, currentGenre || '', '画像 ' + (i + 1));
+    var card = document.createElement('div');
+    card.className = 'image-card' + (defaultGenre ? ' has-genre' : '');
+    card.setAttribute('data-index', i);
+
+    var img = document.createElement('img');
+    img.src = imgSrc;
+    img.alt = '画像 ' + (i + 1);
+    img.onerror = function() { this.style.background = '#eee'; this.alt = '読込失敗'; };
+    card.appendChild(img);
+
+    var btnsDiv = document.createElement('div');
+    btnsDiv.className = 'genre-btns';
+    renderGenreButtons(btnsDiv, i, defaultGenre);
+    card.appendChild(btnsDiv);
+
     container.appendChild(card);
   }
 
   updateGenreCounter();
-}
-
-// 画像カードを1枚生成(renderImages と addUploadedImage で共通利用)
-function buildImageCard(idx, imgSrc, genre, altText) {
-  var card = document.createElement('div');
-  card.className = 'image-card' + (genre ? ' has-genre' : '');
-  card.setAttribute('data-index', idx);
-
-  // 順序バッジ(1,2,3...)
-  var badge = document.createElement('div');
-  badge.className = 'order-badge';
-  badge.textContent = (idx + 1);
-  card.appendChild(badge);
-
-  // 削除ボタン
-  var delBtn = document.createElement('button');
-  delBtn.className = 'delete-btn';
-  delBtn.type = 'button';
-  delBtn.textContent = 'x';
-  delBtn.title = '削除';
-  delBtn.onclick = function(e) {
-    e.stopPropagation();
-    if (!confirm('この画像を削除しますか？')) return;
-    // DOM からカード除去 → データを再構築して再描画
-    card.remove();
-    rebuildImageDataFromDOM();
-  };
-  card.appendChild(delBtn);
-
-  var img = document.createElement('img');
-  img.src = imgSrc;
-  img.alt = altText || ('画像 ' + (idx + 1));
-  img.draggable = false; // ネイティブimgドラッグは無効化(カード自体のドラッグに任せる)
-  img.onerror = function() { this.style.background = '#eee'; this.alt = '読込失敗'; };
-  card.appendChild(img);
-
-  var btnsDiv = document.createElement('div');
-  btnsDiv.className = 'genre-btns';
-  renderGenreButtons(btnsDiv, idx, genre || '');
-  card.appendChild(btnsDiv);
-
-  // ドラッグ&ドロップで並び替え
-  attachDragHandlers(card);
-  return card;
-}
-
-// ── Pointer Events による画像並び替え ──
-// HTML5 drag-drop APIは GAS iframe 下で不安定なため、
-// Pointer Events で自前実装(環境差異なし)
-var _dragState = null;
-
-function attachDragHandlers(card) {
-  // HTML5 drag APIは使わない。ネイティブドラッグを明示的に抑止。
-  card.draggable = false;
-  card.setAttribute('draggable', 'false');
-
-  card.addEventListener('pointerdown', function(e) {
-    // 左クリックのみ、削除/ジャンルボタン上は無視
-    if (e.button !== 0) return;
-    if (e.target.closest('button')) return;
-    e.preventDefault();
-
-    var rect = card.getBoundingClientRect();
-    _dragState = {
-      card: card,
-      startX: e.clientX,
-      startY: e.clientY,
-      offsetX: e.clientX - rect.left,
-      offsetY: e.clientY - rect.top,
-      width: rect.width,
-      height: rect.height,
-      moved: false,
-      ghost: null,
-      pointerId: e.pointerId
-    };
-    // ポインタ追跡のキャプチャ(離れてもイベントを受け続ける)
-    try { card.setPointerCapture(e.pointerId); } catch (_) {}
-  });
-}
-
-// ドキュメント全体で pointermove / pointerup を捉える(ポインタがカード外に出ても追従)
-document.addEventListener('pointermove', function(e) {
-  if (!_dragState) return;
-  var st = _dragState;
-  // 5px以上動いたら「ドラッグ中」判定
-  if (!st.moved) {
-    var dx = Math.abs(e.clientX - st.startX);
-    var dy = Math.abs(e.clientY - st.startY);
-    if (dx < 5 && dy < 5) return;
-    st.moved = true;
-    // ゴースト画像(半透明の複製)を作成
-    var ghost = st.card.cloneNode(true);
-    ghost.style.position = 'fixed';
-    ghost.style.pointerEvents = 'none';
-    ghost.style.opacity = '0.75';
-    ghost.style.zIndex = '9999';
-    ghost.style.width = st.width + 'px';
-    ghost.style.height = st.height + 'px';
-    ghost.style.transform = 'rotate(-2deg)';
-    ghost.style.boxShadow = '0 8px 20px rgba(0,0,0,0.3)';
-    ghost.style.left = (e.clientX - st.offsetX) + 'px';
-    ghost.style.top = (e.clientY - st.offsetY) + 'px';
-    document.body.appendChild(ghost);
-    st.ghost = ghost;
-    st.card.classList.add('dragging');
-    document.body.classList.add('dragging-image');
-  }
-  if (st.ghost) {
-    st.ghost.style.left = (e.clientX - st.offsetX) + 'px';
-    st.ghost.style.top = (e.clientY - st.offsetY) + 'px';
-  }
-  // 最近接カード + 左右判定でハイライト更新
-  var container = document.getElementById('imageGrid');
-  if (!container) return;
-  var cards = container.querySelectorAll('.image-card');
-  var nearest = null;
-  var nearestDist = Infinity;
-  var insertBefore = false;
-  for (var i = 0; i < cards.length; i++) {
-    var c = cards[i];
-    if (c === st.card) continue;
-    c.classList.remove('drag-over-left', 'drag-over-right');
-    var rect = c.getBoundingClientRect();
-    var cx = rect.left + rect.width / 2;
-    var cy = rect.top + rect.height / 2;
-    var d = (e.clientX - cx) * (e.clientX - cx) + (e.clientY - cy) * (e.clientY - cy);
-    if (d < nearestDist) {
-      nearestDist = d;
-      nearest = c;
-      insertBefore = e.clientX < cx;
-    }
-  }
-  st._nearest = nearest;
-  st._insertBefore = insertBefore;
-  if (nearest) {
-    nearest.classList.add(insertBefore ? 'drag-over-left' : 'drag-over-right');
-  }
-});
-
-document.addEventListener('pointerup', function(e) {
-  if (!_dragState) return;
-  var st = _dragState;
-  _dragState = null;
-  st.card.classList.remove('dragging');
-  if (st.ghost) {
-    try { st.ghost.remove(); } catch (_) {}
-  }
-  document.body.classList.remove('dragging-image');
-  // ハイライトを全部消す
-  var container = document.getElementById('imageGrid');
-  if (container) {
-    var all = container.querySelectorAll('.image-card');
-    for (var k = 0; k < all.length; k++) {
-      all[k].classList.remove('drag-over-left', 'drag-over-right', 'dragging');
-    }
-  }
-  try { st.card.releasePointerCapture(st.pointerId); } catch (_) {}
-  // 実際に動いていなければ何もしない(ただのクリック扱い)
-  if (!st.moved || !st._nearest || !container) return;
-  if (st._insertBefore) container.insertBefore(st.card, st._nearest);
-  else container.insertBefore(st.card, st._nearest.nextSibling);
-  rebuildImageDataFromDOM();
-});
-
-document.addEventListener('pointercancel', function() {
-  if (!_dragState) return;
-  var st = _dragState;
-  _dragState = null;
-  st.card.classList.remove('dragging');
-  if (st.ghost) { try { st.ghost.remove(); } catch (_) {} }
-  var container = document.getElementById('imageGrid');
-  if (container) {
-    var all = container.querySelectorAll('.image-card');
-    for (var k = 0; k < all.length; k++) {
-      all[k].classList.remove('drag-over-left', 'drag-over-right', 'dragging');
-    }
-  }
-});
-
-// DOM の現在の順序から PROPERTY_DATA.image_urls / imageGenres / shubetsu を再構築
-// その後 renderImages() で data-index / クロージャ参照を全て新しいインデックスに更新
-function rebuildImageDataFromDOM() {
-  var container = document.getElementById('imageGrid');
-  if (!container) return;
-  var cards = Array.prototype.slice.call(container.querySelectorAll('.image-card'));
-  var oldImages = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
-  var oldShubetsu = PROPERTY_DATA.shubetsu || [];
-  var newImages = [];
-  var newShubetsu = [];
-  var newGenres = {};
-  for (var i = 0; i < cards.length; i++) {
-    var card = cards[i];
-    var oldIdx = parseInt(card.getAttribute('data-index'), 10);
-    // 画像URLは oldIdx 経由で取り出す(DOM上のimg.srcはエラー画像に化けている可能性を回避)
-    var url = (oldIdx >= 0 && oldIdx < oldImages.length)
-              ? oldImages[oldIdx]
-              : (card.querySelector('img') ? card.querySelector('img').src : '');
-    newImages.push(url);
-    if (oldIdx >= 0 && oldIdx < oldShubetsu.length && oldShubetsu[oldIdx]) {
-      newShubetsu.push(oldShubetsu[oldIdx]);
-    } else {
-      newShubetsu.push('');
-    }
-    if (imageGenres.hasOwnProperty(oldIdx)) {
-      newGenres[i] = imageGenres[oldIdx];
-    }
-  }
-  PROPERTY_DATA.image_urls = newImages;
-  PROPERTY_DATA.shubetsu = newShubetsu;
-  imageGenres = newGenres;
-  renderImages();
 }
 
 // ── 画像アップロード ──
@@ -1250,15 +1028,38 @@ function addUploadedImage(url) {
   images.push(url);
   PROPERTY_DATA.image_urls = images;
   if (!PROPERTY_DATA.shubetsu) PROPERTY_DATA.shubetsu = [];
-  // 新規追加分のshubetsuスロットも空で埋めておく(インデックス同期)
-  while (PROPERTY_DATA.shubetsu.length < images.length) PROPERTY_DATA.shubetsu.push('');
-
-  // 空メッセージを消してから共通レンダーで1枚追加
-  var container = document.getElementById('imageGrid');
-  if (container && container.querySelector('p')) container.innerHTML = '';
 
   var idx = images.length - 1;
-  var card = buildImageCard(idx, url, '', '追加画像 ' + (idx + 1));
+  var container = document.getElementById('imageGrid');
+
+  var card = document.createElement('div');
+  card.className = 'image-card';
+  card.setAttribute('data-index', idx);
+
+  var delBtn = document.createElement('button');
+  delBtn.className = 'delete-btn';
+  delBtn.textContent = 'x';
+  delBtn.onclick = function(e) {
+    e.stopPropagation();
+    if (confirm('この画像を削除しますか？')) {
+      delete imageGenres[idx];
+      card.remove();
+      updateGenreCounter();
+    }
+  };
+  card.appendChild(delBtn);
+
+  var img = document.createElement('img');
+  img.src = url;
+  img.alt = '追加画像 ' + (idx + 1);
+  img.onerror = function() { this.style.background = '#eee'; this.alt = '読込失敗'; };
+  card.appendChild(img);
+
+  var btnsDiv = document.createElement('div');
+  btnsDiv.className = 'genre-btns';
+  renderGenreButtons(btnsDiv, idx, '');
+  card.appendChild(btnsDiv);
+
   container.appendChild(card);
   updateGenreCounter();
 }
