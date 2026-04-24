@@ -201,6 +201,14 @@ async function runSuumoPatrolCycle() {
         async push(prop) {
           this._items.push(prop);
           totalCollected++;
+          // 元付電話番号からハイフン類を除去（全サイト共通の正規化）
+          //   例: "03-1234-5678" → "0312345678"
+          //   全角ハイフン/長音符/EN DASH/EM DASH/MINUS SIGN も対象
+          if (prop.owner_phone) {
+            prop.owner_phone = String(prop.owner_phone)
+              .replace(/[-\u2010-\u2015\u2212\uFF0D\u30FC]/g, '')
+              .trim();
+          }
           const key = normSuumoKey(
             prop.building_name || prop.buildingName || prop.building || '',
             prop.room_number || prop.roomNumber || prop.room || ''
