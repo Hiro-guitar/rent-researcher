@@ -1304,8 +1304,8 @@ function handleSyncForrentListingStatus(json) {
     if (code) codeToSheetRow[code] = { sheetRow: i + 2, status: data[i][8] };
   }
 
-  // 受信rowsを suumoCode → { buildingName, roomNo } のマップに変換
-  // (scrape時にbuildingName/roomNoも取っているため、これを使って新規挿入する)
+  // 受信rowsを suumoCode → { buildingName, roomNo, rent } のマップに変換
+  // (scrape時に建物名/部屋番号/賃料も取っているため、これを使って新規挿入する)
   var codeToMeta = {};
   for (var rr = 0; rr < rows.length; rr++) {
     var row = rows[rr] || {};
@@ -1314,6 +1314,7 @@ function handleSyncForrentListingStatus(json) {
       codeToMeta[c] = {
         buildingName: String(row.buildingName || ''),
         roomNo: String(row.roomNo || ''),
+        rent: String(row.rent || ''),
       };
     }
   }
@@ -1335,13 +1336,14 @@ function handleSyncForrentListingStatus(json) {
     var meta = codeToMeta[c2] || {};
     var buildingName = meta.buildingName || '';
     var roomNo = meta.roomNo || '';
+    var rent = meta.rent || '';
     var propertyKey = normalizeSuumoPropertyKey_(buildingName, roomNo);
     var newRow = [
       propertyKey,     // 1  物件キー
       buildingName,    // 2  建物名
       roomNo,          // 3  部屋番号
       now,             // 4  掲載開始日(= 今日、ForRent出現日)
-      '',              // 5  賃料
+      rent,            // 5  賃料(ForRentから抽出、無ければ空)
       0, 0, 0,         // 6-8 最終PV/問合/スコア(未取得)
       'active',        // 9  ステータス
       '',              // 10 停止日
@@ -1395,6 +1397,39 @@ function handleSyncForrentListingStatus(json) {
     inserted: inserted,
     skipped: autoStopSkipReason
   })).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * SUUMO掲載管理シートの不完全行を掃除する管理ユーティリティ
+ *
+ * ForRent状態同期で新規追加された直後の行は 建物名/部屋番号/賃料 が空欄
+ * (suumo_property_code だけ入ってる状態)。本来は次回SUUMOビジネス取得で
+ * 埋まるが、バグや取得漏れで残ってしまった行を掃除したい時に使う。
+ *
+ * GASエディタから手動で cleanupIncompleteSuumoListingRows を実行。
+ * 削除はしない、情報出力のみ(削除したい場合はシート上で手動削除)。
+ */
+function cleanupIncompleteSuumoListingRows() {
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { incomplete: 0 };
+
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
+  var incomplete = [];
+  for (var i = 0; i < data.length; i++) {
+    var building = String(data[i][1] || '').trim();
+    var room = String(data[i][2] || '').trim();
+    var code = String(data[i][10] || '').trim();
+    if (!building && !room && code) {
+      incomplete.push({
+        row: i + 2,
+        suumoCode: code,
+        status: data[i][8],
+        startDate: data[i][3]
+      });
+    }
+  }
+  return { incomplete: incomplete.length, rows: incomplete };
 }
 
 /**
@@ -1577,6 +1612,27 @@ function updateSuumoListingStats_(json) {
       // 初マッチ時にsuumo_property_codeを記録済みに更新(キー一致だったケース)
       if (matchBy === 'key' && suumoCode) {
         codeToRow[suumoCode] = targetRow;
+      }
+
+      // 建物名(2列目)・部屋番号(3列目)・物件キー(1列目)が空の行は Daily Search の値で埋める。
+      // (ForRent状態同期で新規追加された行は建物名/部屋番号が空欄なので、
+      //  SUUMOビジネス取得タイミングで正確な値に置き換える)
+      var existingBuilding = String(existing[targetRow - 2][1] || '').trim();
+      var existingRoom = String(existing[targetRow - 2][2] || '').trim();
+      var existingKey = String(existing[targetRow - 2][0] || '').trim();
+      if (!existingBuilding && name) {
+        sheet.getRange(targetRow, 2).setValue(name);
+      }
+      if (!existingRoom && roomNo) {
+        sheet.getRange(targetRow, 3).setValue(roomNo);
+      }
+      if (!existingKey && propertyKey) {
+        sheet.getRange(targetRow, 1).setValue(propertyKey);
+      }
+      // 賃料(5列目)も空なら埋める
+      var existingRent = String(existing[targetRow - 2][4] || '').trim();
+      if (!existingRent && row.rent) {
+        sheet.getRange(targetRow, 5).setValue(String(row.rent));
       }
 
       // ステータス(active/stopped)はSUUMOビジネスデータでは変更しない。
