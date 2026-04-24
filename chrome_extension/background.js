@@ -4557,12 +4557,19 @@ async function appendFillQueue(items) {
  */
 let _preHookInFlight = null;
 let _preHookSucceededAt = 0;
+let _preHookFailedAt = 0;
+let _preHookFailedError = '';
 
 async function getOrRunSuumoPreHook_() {
   const nowMs = Date.now();
   // 直近5分以内に成功済みなら再実行しない(over-stop防止)
   if (_preHookSucceededAt && (nowMs - _preHookSucceededAt) < 5 * 60 * 1000) {
     return { ok: true, cached: true };
+  }
+  // 直近60秒以内に失敗していれば再実行しない(無限ループ防止)
+  // 同じエラーで何度もForRentを叩き続けるのを回避
+  if (_preHookFailedAt && (nowMs - _preHookFailedAt) < 60 * 1000) {
+    return { ok: false, cached: true, error: '直近失敗中(cooldown): ' + _preHookFailedError };
   }
   // 実行中のpreHookがあれば同じ結果を待つ
   if (_preHookInFlight) {
@@ -4574,9 +4581,16 @@ async function getOrRunSuumoPreHook_() {
       const result = await runSuumoApprovalPreHook_();
       if (result && result.ok) {
         _preHookSucceededAt = Date.now();
+        _preHookFailedAt = 0;
+        _preHookFailedError = '';
+      } else {
+        _preHookFailedAt = Date.now();
+        _preHookFailedError = (result && result.error) || 'no result';
       }
       return result || { ok: false, error: 'no result' };
     } catch (err) {
+      _preHookFailedAt = Date.now();
+      _preHookFailedError = err.message;
       return { ok: false, error: err.message };
     } finally {
       _preHookInFlight = null;
