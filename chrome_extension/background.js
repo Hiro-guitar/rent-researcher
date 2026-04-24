@@ -3322,17 +3322,15 @@ async function findOrCreateDedicatedReinsTab() {
     dedicatedReinsWindowId = null;
   }
 
-  // 専用ウィンドウを作成（最小化）してREINSを開く
+  // 専用ウィンドウを作成（最小化状態）してREINSを開く
   // クッキー共有でログイン済みセッションを引き継ぐ
+  // 最小化ウィンドウでも content script とページロードは正常動作する
   await setStorageData({ debugLog: '専用REINSウィンドウを作成中...' });
   const newWindow = await chrome.windows.create({
     url: 'https://system.reins.jp/main/BK/GBK001310',
     focused: false,
-    width: 1200,
-    height: 800,
-    left: 0,
-    top: 0,
-    type: 'normal'
+    type: 'normal',
+    state: 'minimized'
   });
   dedicatedReinsWindowId = newWindow.id;
   dedicatedReinsTabId = newWindow.tabs[0].id;
