@@ -395,6 +395,10 @@ async function findOrCreateDedicatedIeloveTab() {
   });
   dedicatedIeloveWindowId = newWindow.id;
   dedicatedIeloveTabId = newWindow.tabs[0].id;
+  // Service Worker再起動やonCreatedリスナーから識別できるよう永続化
+  await setStorageData({ dedicatedIeloveWindowId: newWindow.id });
+  // create時の state:'minimized' が効かないケースの保険
+  try { await chrome.windows.update(newWindow.id, { state: 'minimized' }); } catch (_) {}
 
   // ページ読み込み完了を待つ
   await waitForTabLoad(dedicatedIeloveTabId);

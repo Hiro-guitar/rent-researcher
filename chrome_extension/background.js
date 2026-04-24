@@ -92,29 +92,59 @@ const __DEDICATED_DOMAINS = [
   'rent.es-square.net',
   'bb.ielove.jp',
 ];
-chrome.windows.onCreated.addListener(async (win) => {
+const __PENDING_MINIMIZE = new Set(); // windowId→監視中
+
+async function __isDedicatedWindow(winId) {
   try {
-    // 専用ウィンドウIDをstorageから全部取得
     const keys = ['dedicatedReinsWindowId', 'dedicatedItandiWindowId', 'dedicatedEssquareWindowId', 'dedicatedIeloveWindowId'];
     const r = await new Promise(res => chrome.storage.local.get(keys, res));
-    const dedicatedIds = new Set(keys.map(k => r[k]).filter(Boolean));
-    if (!dedicatedIds.has(win.id)) {
-      // URL内容で判定(storageに未登録だが対象ドメインなら自動最小化)
-      const full = await chrome.windows.get(win.id, { populate: true });
-      const urls = (full.tabs || []).map(t => t.url || t.pendingUrl || '');
-      const hit = urls.some(u => __DEDICATED_DOMAINS.some(d => u.includes(d)));
-      if (!hit) return;
-    }
-    // 少し待ってから最小化(タブロード中の衝突を避ける)
-    setTimeout(async () => {
-      try {
-        const w = await chrome.windows.get(win.id);
-        if (w && w.state !== 'minimized') {
-          await chrome.windows.update(win.id, { state: 'minimized' });
-        }
-      } catch (_) {}
-    }, 300);
+    for (const k of keys) if (r[k] === winId) return true;
   } catch (_) {}
+  return false;
+}
+
+async function __forceMinimize(winId) {
+  try {
+    const w = await chrome.windows.get(winId);
+    if (w && w.state !== 'minimized') {
+      await chrome.windows.update(winId, { state: 'minimized' });
+    }
+  } catch (_) {}
+}
+
+chrome.windows.onCreated.addListener(async (win) => {
+  try {
+    // 即時: 作成時点で storage の専用ID と一致すれば即最小化
+    if (await __isDedicatedWindow(win.id)) {
+      await __forceMinimize(win.id);
+      return;
+    }
+    // 作成直後は URL/pendingUrl が未確定のため、onUpdated で監視
+    __PENDING_MINIMIZE.add(win.id);
+    // 念のため URL 即チェック(既に埋まっている場合)
+    try {
+      const full = await chrome.windows.get(win.id, { populate: true });
+      const urls = (full.tabs || []).flatMap(t => [t.url || '', t.pendingUrl || '']).filter(Boolean);
+      if (urls.some(u => __DEDICATED_DOMAINS.some(d => u.includes(d)))) {
+        __PENDING_MINIMIZE.delete(win.id);
+        await __forceMinimize(win.id);
+        return;
+      }
+    } catch (_) {}
+    // 5秒経っても対象ドメインにならなければ監視停止(ユーザーの通常ウィンドウ)
+    setTimeout(() => __PENDING_MINIMIZE.delete(win.id), 5000);
+  } catch (_) {}
+});
+
+// タブ更新イベントで保留中ウィンドウのURLが対象ドメインになったら最小化
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (!tab || !__PENDING_MINIMIZE.has(tab.windowId)) return;
+  const url = changeInfo.url || tab.url || tab.pendingUrl || '';
+  if (!url) return;
+  if (__DEDICATED_DOMAINS.some(d => url.includes(d))) {
+    __PENDING_MINIMIZE.delete(tab.windowId);
+    await __forceMinimize(tab.windowId);
+  }
 });
 
 // === REINS物件番号オートサーチ（Discordリンクから #bukken=XXX で起動） ===
@@ -3371,6 +3401,10 @@ async function findOrCreateDedicatedReinsTab() {
   });
   dedicatedReinsWindowId = newWindow.id;
   dedicatedReinsTabId = newWindow.tabs[0].id;
+  // Service Worker再起動やonCreatedリスナーから識別できるよう永続化
+  await setStorageData({ dedicatedReinsWindowId: newWindow.id });
+  // create時の state:'minimized' が効かないケースの保険
+  try { await chrome.windows.update(newWindow.id, { state: 'minimized' }); } catch (_) {}
 
   // ページ読み込み完了を待つ
   await waitForTabLoad(dedicatedReinsTabId);

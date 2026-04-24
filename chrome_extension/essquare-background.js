@@ -874,6 +874,8 @@ async function findOrCreateDedicatedEssquareTab() {
   dedicatedEssquareTabId = newWindow.tabs[0].id;
   // Service Worker再起動後も手動タブと区別できるよう、作った専用ウィンドウIDを永続化
   await setStorageData({ dedicatedEssquareWindowId: newWindow.id });
+  // create時の state:'minimized' が効かないケースの保険
+  try { await chrome.windows.update(newWindow.id, { state: 'minimized' }); } catch (_) {}
 
   await waitForTabLoad(dedicatedEssquareTabId);
   await sleep(3000); // React SPA 考慮
