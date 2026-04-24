@@ -112,6 +112,76 @@
     <div class="hint">顧客設定の設備欄に「バス・トイレ別」が指定されている場合のみ適用</div>
   </div>
 
+  <h2 style="font-size:15px;margin:28px 0 12px;padding-top:16px;border-top:1px solid #e5e7eb;">各サービス 自動ログイン</h2>
+  <div class="hint" style="margin-bottom:16px">
+    顧客検索中にログインページへ遷移した場合、保存したID/PWで自動ログインします。<br>
+    <strong>⚠️ 1度の自動ログイン失敗で該当サービスをブロックします（アカウントロック防止）。</strong>
+    失敗後は手動でログインしてから「ブロック解除」ボタンを押してください。
+  </div>
+
+  <!-- REINS -->
+  <div class="field">
+    <label for="reinsLoginId">REINS ログインID</label>
+    <input type="text" id="reinsLoginId" placeholder="例: 12345678">
+  </div>
+  <div class="field">
+    <label for="reinsPassword">REINS パスワード</label>
+    <input type="password" id="reinsPassword" placeholder="パスワード">
+    <div class="hint">「所属機構の規程及びガイドラインを遵守します」の同意チェックは自動でONにします</div>
+  </div>
+  <div class="field">
+    <label>REINS ログインブロック状態</label>
+    <div id="reinsLoginBlockedStatus" style="font-size:13px;margin-bottom:6px">（読み込み中...）</div>
+    <button type="button" id="reinsUnblockBtn" class="btn-test" style="background:#f59e0b">ログインブロックを解除</button>
+  </div>
+
+  <!-- itandi -->
+  <div class="field">
+    <label for="itandiLoginId">itandi BB ログインID（メールアドレス）</label>
+    <input type="text" id="itandiLoginId" placeholder="例: example@example.co.jp">
+  </div>
+  <div class="field">
+    <label for="itandiPassword">itandi BB パスワード</label>
+    <input type="password" id="itandiPassword" placeholder="パスワード">
+    <div class="hint">itandi-accounts.com (OAuth SSO) でログインします</div>
+  </div>
+  <div class="field">
+    <label>itandi BB ログインブロック状態</label>
+    <div id="itandiLoginBlockedStatus" style="font-size:13px;margin-bottom:6px">（読み込み中...）</div>
+    <button type="button" id="itandiUnblockBtn" class="btn-test" style="background:#f59e0b">ログインブロックを解除</button>
+  </div>
+
+  <!-- ES-Square (いい生活) -->
+  <div class="field">
+    <label for="essquareLoginId">いい生活 Square ログインID（メールアドレス）</label>
+    <input type="text" id="essquareLoginId" placeholder="例: example@example.co.jp">
+  </div>
+  <div class="field">
+    <label for="essquarePassword">いい生活 Square パスワード</label>
+    <input type="password" id="essquarePassword" placeholder="パスワード">
+    <div class="hint">auth.es-account.com (Auth0) でログインします</div>
+  </div>
+  <div class="field">
+    <label>いい生活 Square ログインブロック状態</label>
+    <div id="essquareLoginBlockedStatus" style="font-size:13px;margin-bottom:6px">（読み込み中...）</div>
+    <button type="button" id="essquareUnblockBtn" class="btn-test" style="background:#f59e0b">ログインブロックを解除</button>
+  </div>
+
+  <!-- いえらぶ -->
+  <div class="field">
+    <label for="ieloveLoginId">いえらぶ BB ログインID</label>
+    <input type="text" id="ieloveLoginId" placeholder="ログインID">
+  </div>
+  <div class="field">
+    <label for="ielovePassword">いえらぶ BB パスワード</label>
+    <input type="password" id="ielovePassword" placeholder="パスワード">
+  </div>
+  <div class="field">
+    <label>いえらぶ BB ログインブロック状態</label>
+    <div id="ieloveLoginBlockedStatus" style="font-size:13px;margin-bottom:6px">（読み込み中...）</div>
+    <button type="button" id="ieloveUnblockBtn" class="btn-test" style="background:#f59e0b">ログインブロックを解除</button>
+  </div>
+
   <h2 style="font-size:15px;margin:28px 0 12px;padding-top:16px;border-top:1px solid #e5e7eb;">ForRent (SUUMO入稿)</h2>
 
   <div class="field">

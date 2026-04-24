@@ -1,6 +1,12 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason', 'suumoForrentStopDryRun', 'suumoSkipLowImageCount', 'itandiUpdatedWithinDays', 'suumoFinalSubmitDryRun'], (data) => {
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason', 'suumoForrentStopDryRun', 'suumoSkipLowImageCount', 'itandiUpdatedWithinDays', 'suumoFinalSubmitDryRun',
+    // 4サービス自動ログイン
+    'reinsLoginId', 'reinsPassword', 'reinsLoginBlocked', 'reinsLoginBlockedReason',
+    'itandiLoginId', 'itandiPassword', 'itandiLoginBlocked', 'itandiLoginBlockedReason',
+    'essquareLoginId', 'essquarePassword', 'essquareLoginBlocked', 'essquareLoginBlockedReason',
+    'ieloveLoginId', 'ielovePassword', 'ieloveLoginBlocked', 'ieloveLoginBlockedReason'
+  ], (data) => {
     if (data.gasWebappUrl) document.getElementById('gasUrl').value = data.gasWebappUrl;
     if (data.gasApiKey) document.getElementById('apiKey').value = data.gasApiKey;
     if (data.discordWebhookUrl) document.getElementById('discordWebhook').value = data.discordWebhookUrl;
@@ -69,6 +75,37 @@ document.addEventListener('DOMContentLoaded', () => {
         blockedEl.style.color = '#065f46';
       }
     }
+
+    // 4サービス自動ログイン: 既存値の反映とブロック状態表示
+    const renderBlockStatus = (elId, blockedKey, reasonKey) => {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      if (data[blockedKey]) {
+        const reason = data[reasonKey] || '(理由不明)';
+        el.textContent = '⚠️ ブロック中: ' + reason;
+        el.style.color = '#dc2626';
+      } else {
+        el.textContent = '✓ ブロックなし(正常)';
+        el.style.color = '#065f46';
+      }
+    };
+    const fillValue = (elId, val) => {
+      if (!val) return;
+      const el = document.getElementById(elId);
+      if (el) el.value = val;
+    };
+    fillValue('reinsLoginId', data.reinsLoginId);
+    fillValue('reinsPassword', data.reinsPassword);
+    renderBlockStatus('reinsLoginBlockedStatus', 'reinsLoginBlocked', 'reinsLoginBlockedReason');
+    fillValue('itandiLoginId', data.itandiLoginId);
+    fillValue('itandiPassword', data.itandiPassword);
+    renderBlockStatus('itandiLoginBlockedStatus', 'itandiLoginBlocked', 'itandiLoginBlockedReason');
+    fillValue('essquareLoginId', data.essquareLoginId);
+    fillValue('essquarePassword', data.essquarePassword);
+    renderBlockStatus('essquareLoginBlockedStatus', 'essquareLoginBlocked', 'essquareLoginBlockedReason');
+    fillValue('ieloveLoginId', data.ieloveLoginId);
+    fillValue('ielovePassword', data.ielovePassword);
+    renderBlockStatus('ieloveLoginBlockedStatus', 'ieloveLoginBlocked', 'ieloveLoginBlockedReason');
   });
 
   // 保存
@@ -116,6 +153,16 @@ document.addEventListener('DOMContentLoaded', () => {
       withoutName: parseThreshold('suumoCompSkipWithoutName'),
     };
 
+    // 4サービス 自動ログイン情報
+    const reinsLoginId = (document.getElementById('reinsLoginId').value || '').trim();
+    const reinsPassword = document.getElementById('reinsPassword').value || '';
+    const itandiLoginId = (document.getElementById('itandiLoginId').value || '').trim();
+    const itandiPassword = document.getElementById('itandiPassword').value || '';
+    const essquareLoginId = (document.getElementById('essquareLoginId').value || '').trim();
+    const essquarePassword = document.getElementById('essquarePassword').value || '';
+    const ieloveLoginId = (document.getElementById('ieloveLoginId').value || '').trim();
+    const ielovePassword = document.getElementById('ielovePassword').value || '';
+
     chrome.storage.local.set({
       gasWebappUrl,
       gasApiKey,
@@ -139,7 +186,11 @@ document.addEventListener('DOMContentLoaded', () => {
       suumoForrentStopDryRun,
       suumoSkipLowImageCount,
       itandiUpdatedWithinDays,
-      suumoFinalSubmitDryRun
+      suumoFinalSubmitDryRun,
+      reinsLoginId, reinsPassword,
+      itandiLoginId, itandiPassword,
+      essquareLoginId, essquarePassword,
+      ieloveLoginId, ielovePassword
     }, () => {
       // アラームを再設定
       chrome.runtime.sendMessage({ type: 'UPDATE_ALARM' });
@@ -303,6 +354,25 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
   }
+
+  // 4サービス ログインブロック解除ボタン(共通)
+  const bindUnblock = (btnId, blockedKey, reasonKey, statusId) => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      chrome.storage.local.remove([blockedKey, reasonKey], () => {
+        const el = document.getElementById(statusId);
+        if (el) {
+          el.textContent = '✓ ブロックなし(解除済み)';
+          el.style.color = '#065f46';
+        }
+      });
+    });
+  };
+  bindUnblock('reinsUnblockBtn', 'reinsLoginBlocked', 'reinsLoginBlockedReason', 'reinsLoginBlockedStatus');
+  bindUnblock('itandiUnblockBtn', 'itandiLoginBlocked', 'itandiLoginBlockedReason', 'itandiLoginBlockedStatus');
+  bindUnblock('essquareUnblockBtn', 'essquareLoginBlocked', 'essquareLoginBlockedReason', 'essquareLoginBlockedStatus');
+  bindUnblock('ieloveUnblockBtn', 'ieloveLoginBlocked', 'ieloveLoginBlockedReason', 'ieloveLoginBlockedStatus');
 
   // SUUMOビジネス データ取得(手動実行ボタン)
   const suumoBusinessBtn = document.getElementById('suumoBusinessFetchBtn');

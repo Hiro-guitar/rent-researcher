@@ -397,9 +397,31 @@ async function findOrCreateDedicatedIeloveTab() {
   await sleep(2000);
 
   // ログイン状態を確認
-  const tab = await chrome.tabs.get(dedicatedIeloveTabId);
+  let tab = await chrome.tabs.get(dedicatedIeloveTabId);
   if (tab.url?.includes('/login')) {
-    await setStorageData({ debugLog: 'いえらぶBBにログインしてください（bb.ielove.jpでログイン後、自動で検索を再開します）' });
+    // 自動ログイン試行
+    const autoLogin = await attemptIeloveAutoLogin_(dedicatedIeloveTabId);
+    if (autoLogin.ok) {
+      tab = await chrome.tabs.get(dedicatedIeloveTabId);
+      // トップ画面に戻す
+      if (!tab.url?.includes('/ielovebb/top')) {
+        await chrome.tabs.update(dedicatedIeloveTabId, { url: `${IELOVE_BASE_URL}/ielovebb/top/` });
+        await waitForTabLoad(dedicatedIeloveTabId);
+        await sleep(2000);
+        tab = await chrome.tabs.get(dedicatedIeloveTabId);
+      }
+      await setStorageData({ debugLog: `専用いえらぶタブ作成: tabId=${dedicatedIeloveTabId}` });
+      return tab;
+    }
+    if (autoLogin.skipped) {
+      await setStorageData({ debugLog: `いえらぶBBにログインしてください (${autoLogin.reason})` });
+    } else {
+      await setStorageData({
+        ieloveLoginBlocked: true,
+        ieloveLoginBlockedReason: autoLogin.error || 'login failed',
+        debugLog: `[いえらぶ] ⚠️ 自動ログイン失敗のためブロック: ${autoLogin.error}。手動ログイン後にオプション画面でブロック解除してください`
+      });
+    }
     // ログインタブをアクティブに(ただし別ウィンドウにフォーカスは奪わない)
     try {
       await chrome.tabs.update(dedicatedIeloveTabId, { active: true });
@@ -460,6 +482,82 @@ function __watchIeloveLoginAndResume(watchTabId) {
     chrome.tabs.onRemoved.removeListener(onRemoved);
   };
   chrome.tabs.onRemoved.addListener(onRemoved);
+}
+
+/**
+ * いえらぶ 自動ログイン(1回のみ、失敗でBlock)
+ * フォーム: form#loginForm (method=POST, action=/ielovebb/login/login/)
+ * - ID: form#loginForm input[type="text"].item__form
+ * - PW: form#loginForm input[type="password"].item__form
+ * - 送信: input#loginButton
+ * - CSRF: input[name="loginToken"] hidden で自動同梱
+ * 注: name/id はハッシュ化されているので type + form scope で取る
+ */
+async function attemptIeloveAutoLogin_(tabId) {
+  const { ieloveLoginId, ielovePassword, ieloveLoginBlocked } = await getStorageData([
+    'ieloveLoginId', 'ielovePassword', 'ieloveLoginBlocked'
+  ]);
+  if (ieloveLoginBlocked) return { ok: false, skipped: true, reason: '前回ログイン失敗でブロック中' };
+  if (!ieloveLoginId || !ielovePassword) return { ok: false, skipped: true, reason: 'ID/PW未設定' };
+
+  await setStorageData({ debugLog: '[いえらぶ] ログインページ検知 → 自動ログイン試行(1回のみ)' });
+
+  let submitResult;
+  try {
+    const execResult = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: (loginId, password) => {
+        const form = document.querySelector('form#loginForm')
+          || document.querySelector('form[name="loginForm"]');
+        if (!form) return { submitted: false, error: 'loginForm not found' };
+        // name/id がハッシュ化されているため type で取る
+        const idInput = form.querySelector('input[type="text"].item__form')
+          || form.querySelector('input[type="text"]');
+        const pwInput = form.querySelector('input[type="password"].item__form')
+          || form.querySelector('input[type="password"]');
+        const submitBtn = form.querySelector('input#loginButton[type="submit"]')
+          || form.querySelector('input[type="submit"]')
+          || form.querySelector('button[type="submit"]');
+        if (!idInput || !pwInput) return { submitted: false, error: 'id/password input not found' };
+        if (!submitBtn) return { submitted: false, error: 'submit button not found' };
+
+        const setNativeValue = (el, value) => {
+          const proto = Object.getPrototypeOf(el);
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+          setter.call(el, value);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        setNativeValue(idInput, loginId);
+        setNativeValue(pwInput, password);
+
+        // action チェック(誤フォーム防止)
+        const action = (form.action || '').toString();
+        if (!/\/ielovebb\/login\//i.test(action)) {
+          return { submitted: false, error: 'form action unexpected: ' + action };
+        }
+        submitBtn.click();
+        return { submitted: true };
+      },
+      args: [ieloveLoginId, ielovePassword],
+    });
+    submitResult = execResult && execResult[0] && execResult[0].result;
+  } catch (err) {
+    return { ok: false, error: 'submit inject failed: ' + err.message };
+  }
+
+  if (!submitResult) return { ok: false, error: 'no result from submit script' };
+  if (!submitResult.submitted) return { ok: false, error: submitResult.error || 'submit skipped' };
+
+  try { await waitForTabLoad(tabId, 30000); } catch (_) {}
+  await sleep(2500);
+
+  const postTab = await chrome.tabs.get(tabId);
+  if (postTab.url?.includes('/login/')) {
+    return { ok: false, error: 'submit後も/login/のまま(ID/PW不一致の可能性)' };
+  }
+  await setStorageData({ debugLog: '[いえらぶ] 自動ログイン成功' });
+  return { ok: true };
 }
 
 async function closeDedicatedIeloveWindow() {

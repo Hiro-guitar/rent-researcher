@@ -3339,15 +3339,208 @@ async function findOrCreateDedicatedReinsTab() {
   await sleep(3000);
 
   // ログイン状態を確認
-  const tab = await chrome.tabs.get(dedicatedReinsTabId);
-  if (tab.url?.includes('login') || tab.url?.includes('GKG001')) {
-    await setStorageData({ debugLog: '専用タブでREINSログインが必要です' });
-    await closeDedicatedWindow();
-    return null;
+  let tab = await chrome.tabs.get(dedicatedReinsTabId);
+  const needsLogin = isReinsLoginState_(tab.url) || await isReinsSessionTimeoutPage_(dedicatedReinsTabId);
+  if (needsLogin) {
+    // 自動ログインを試行(ID/PW設定があり、Block中でなければ)
+    const autoLogin = await attemptReinsAutoLogin_(dedicatedReinsTabId);
+    if (autoLogin.ok) {
+      tab = await chrome.tabs.get(dedicatedReinsTabId);
+      // ログイン成功後、業務画面へ遷移が必要な場合は /main/BK/GBK001310 を開き直す
+      if (!/\/main\//.test(tab.url)) {
+        await chrome.tabs.update(dedicatedReinsTabId, { url: 'https://system.reins.jp/main/BK/GBK001310' });
+        await waitForTabLoad(dedicatedReinsTabId);
+        await sleep(2000);
+        tab = await chrome.tabs.get(dedicatedReinsTabId);
+      }
+    } else if (autoLogin.skipped) {
+      // ID/PW 未設定 or Block中 → 従来通りユーザーに手動ログインを促して終了
+      await setStorageData({ debugLog: `専用タブでREINSログインが必要です (${autoLogin.reason})` });
+      await closeDedicatedWindow();
+      return null;
+    } else {
+      // 自動ログイン失敗 → Block立てて終了
+      await setStorageData({
+        reinsLoginBlocked: true,
+        reinsLoginBlockedReason: autoLogin.error || 'login failed',
+        debugLog: `[REINS] ⚠️ 自動ログイン失敗のためブロック: ${autoLogin.error}。手動ログイン後にオプション画面でブロック解除してください`
+      });
+      await closeDedicatedWindow();
+      return null;
+    }
   }
 
   await setStorageData({ debugLog: `専用REINSタブ作成: tabId=${dedicatedReinsTabId}` });
   return tab;
+}
+
+// REINSログイン系URL判定
+function isReinsLoginState_(url) {
+  if (!url) return false;
+  return /\/login\//.test(url) || /GKG001/.test(url);
+}
+
+// REINS「セッションタイムアウト」ページ判定(業務系URLのまま本文にタイムアウト文言が出るパターン)
+async function isReinsSessionTimeoutPage_(tabId) {
+  try {
+    const r = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: () => {
+        const body = (document.body && document.body.innerText) || '';
+        return /セッションがタイムアウト/.test(body);
+      }
+    });
+    return !!(r && r[0] && r[0].result);
+  } catch (_) { return false; }
+}
+
+/**
+ * REINS 自動ログイン試行(1回のみ、失敗でBlock)
+ * 戻り値: { ok, skipped, reason?, error? }
+ */
+async function attemptReinsAutoLogin_(tabId) {
+  const { reinsLoginId, reinsPassword, reinsLoginBlocked } = await getStorageData([
+    'reinsLoginId', 'reinsPassword', 'reinsLoginBlocked'
+  ]);
+  if (reinsLoginBlocked) return { ok: false, skipped: true, reason: '前回ログイン失敗でブロック中' };
+  if (!reinsLoginId || !reinsPassword) return { ok: false, skipped: true, reason: 'ID/PW未設定' };
+
+  await setStorageData({ debugLog: '[REINS] ログインページ検知 → 自動ログイン試行(1回のみ)' });
+
+  // ステップ1: セッションタイムアウト画面なら「再ログインへ」をクリック
+  //           トップページ(REINS IP)なら「ログイン」リンクをクリック
+  try {
+    const navResult = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: () => {
+        const body = (document.body && document.body.innerText) || '';
+        const url = location.href;
+        // セッションタイムアウト → 再ログインへ
+        if (/セッションがタイムアウト/.test(body)) {
+          const btns = Array.from(document.querySelectorAll('a, button, input[type="button"], input[type="submit"]'));
+          const target = btns.find(el => /再ログイン/.test((el.textContent || el.value || '').trim()));
+          if (target) { target.click(); return { clicked: 'timeout-relogin' }; }
+        }
+        // トップページ(REINS IP) → ログインボタン
+        if (!/\/login\//.test(url)) {
+          const loginLink = document.querySelector('#login-button, a#login-button');
+          if (loginLink) { loginLink.click(); return { clicked: 'top-login' }; }
+        }
+        return { clicked: null };
+      }
+    });
+    const clicked = navResult && navResult[0] && navResult[0].result && navResult[0].result.clicked;
+    if (clicked) {
+      await waitForTabLoad(tabId, 30000);
+      await sleep(2000);
+    }
+  } catch (err) {
+    return { ok: false, error: 'navigation step failed: ' + err.message };
+  }
+
+  // ステップ2: ログインフォームに値を入れて同意チェック+送信
+  let submitResult;
+  try {
+    const execResult = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: (loginId, password) => {
+        // ログインフォーム要素を特定(Vue SPA、p-textbox親経由)
+        const idWrap = document.querySelector('.p-textbox.p-textbox-type-ascii');
+        const pwWrap = document.querySelector('.p-textbox.p-textbox-type-password');
+        if (!idWrap || !pwWrap) return { submitted: false, error: 'ID/PW input wrapper not found' };
+        const idInput = idWrap.querySelector('input.p-textbox-input');
+        const pwInput = pwWrap.querySelector('input.p-textbox-input');
+        if (!idInput || !pwInput) return { submitted: false, error: 'input element not found' };
+
+        // native setter で値をセット(Vueリアクティブ対応)
+        const setNativeValue = (el, value) => {
+          const proto = Object.getPrototypeOf(el);
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+          setter.call(el, value);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        setNativeValue(idInput, loginId);
+        setNativeValue(pwInput, password);
+
+        // 同意チェックボックスを ON (2つ目の .p-checkbox が「所属機構の規程...」)
+        const checkboxes = document.querySelectorAll('.p-checkbox input[type="checkbox"]');
+        let agreementChecked = false;
+        for (const cb of checkboxes) {
+          // 同意関連のラベルを探す
+          const label = cb.closest('.p-checkbox')?.textContent || '';
+          if (/遵守|規程|ガイドライン/.test(label)) {
+            if (!cb.checked) {
+              cb.click(); // Vueのv-model反応のためclick経由
+            }
+            agreementChecked = cb.checked;
+            break;
+          }
+        }
+
+        // フォールバック: 2つあれば2つ目が同意
+        if (!agreementChecked && checkboxes.length >= 2) {
+          const cb = checkboxes[1];
+          if (!cb.checked) cb.click();
+          agreementChecked = cb.checked;
+        }
+        if (!agreementChecked) {
+          return { submitted: false, error: 'agreement checkbox not found or not checked' };
+        }
+
+        // 送信ボタンを見つけてクリック(disabled解除を少し待つ)
+        const findLoginBtn = () => {
+          const btns = Array.from(document.querySelectorAll('button.btn.p-button.btn-primary'));
+          return btns.find(b => /ログイン/.test((b.textContent || '').trim()));
+        };
+        const loginBtn = findLoginBtn();
+        if (!loginBtn) return { submitted: false, error: 'login button not found' };
+
+        // disabled が外れるまで少し待つ(Vueが同意チェックを反映する猶予)
+        return new Promise((resolve) => {
+          let tries = 0;
+          const tick = () => {
+            if (!loginBtn.disabled) {
+              loginBtn.click();
+              resolve({ submitted: true });
+              return;
+            }
+            tries++;
+            if (tries > 20) { // 2秒で諦める
+              resolve({ submitted: false, error: 'login button remained disabled' });
+              return;
+            }
+            setTimeout(tick, 100);
+          };
+          tick();
+        });
+      },
+      args: [reinsLoginId, reinsPassword],
+    });
+    submitResult = execResult && execResult[0] && execResult[0].result;
+  } catch (err) {
+    return { ok: false, error: 'submit inject failed: ' + err.message };
+  }
+
+  if (!submitResult) return { ok: false, error: 'no result from submit script' };
+  if (!submitResult.submitted) return { ok: false, error: submitResult.error || 'submit skipped' };
+
+  // 送信後のページ遷移を待つ
+  try {
+    await waitForTabLoad(tabId, 30000);
+  } catch (_) {}
+  await sleep(2500);
+
+  // 遷移後の状態チェック
+  const postCheck = await chrome.tabs.get(tabId);
+  if (isReinsLoginState_(postCheck.url)) {
+    return { ok: false, error: 'submit後もログインページのまま(ID/PW不一致の可能性)' };
+  }
+  if (await isReinsSessionTimeoutPage_(tabId)) {
+    return { ok: false, error: 'submit後もセッションタイムアウト画面' };
+  }
+  await setStorageData({ debugLog: '[REINS] 自動ログイン成功' });
+  return { ok: true };
 }
 
 async function closeDedicatedWindow() {

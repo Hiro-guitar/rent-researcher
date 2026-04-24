@@ -636,15 +636,105 @@ async function findOrCreateDedicatedItandiTab() {
   await sleep(3000); // React SPA 考慮
 
   // ログイン状態を確認
-  const tab = await chrome.tabs.get(dedicatedItandiTabId);
+  let tab = await chrome.tabs.get(dedicatedItandiTabId);
   if (tab.url?.includes('itandi-accounts.com') || tab.url?.includes('/login')) {
-    await setStorageData({ debugLog: '[itandi] itandiにログインしてください（itandibb.comでログイン後に再実行）' });
-    await closeDedicatedItandiWindow();
-    return null;
+    // 自動ログインを試行
+    const autoLogin = await attemptItandiAutoLogin_(dedicatedItandiTabId);
+    if (autoLogin.ok) {
+      tab = await chrome.tabs.get(dedicatedItandiTabId);
+      // 業務画面に戻す
+      if (!tab.url?.includes('itandibb.com/rent_rooms')) {
+        await chrome.tabs.update(dedicatedItandiTabId, { url: `${ITANDI_BASE_URL}/rent_rooms/list` });
+        await waitForTabLoad(dedicatedItandiTabId);
+        await sleep(3000);
+        tab = await chrome.tabs.get(dedicatedItandiTabId);
+      }
+    } else if (autoLogin.skipped) {
+      await setStorageData({ debugLog: `[itandi] itandiにログインしてください (${autoLogin.reason})` });
+      await closeDedicatedItandiWindow();
+      return null;
+    } else {
+      await setStorageData({
+        itandiLoginBlocked: true,
+        itandiLoginBlockedReason: autoLogin.error || 'login failed',
+        debugLog: `[itandi] ⚠️ 自動ログイン失敗のためブロック: ${autoLogin.error}。手動ログイン後にオプション画面でブロック解除してください`
+      });
+      await closeDedicatedItandiWindow();
+      return null;
+    }
   }
 
   await setStorageData({ debugLog: `[itandi] 専用タブ作成: tabId=${dedicatedItandiTabId}` });
   return tab;
+}
+
+/**
+ * itandi 自動ログイン(1回のみ、失敗でBlock)
+ * フォーム: itandi-accounts.com/login (Rails Devise, OAuth Authorization Code Flow)
+ * - input#email / input#password / input[type=submit][name=commit]
+ * - authenticity_token は hidden で自動同梱
+ */
+async function attemptItandiAutoLogin_(tabId) {
+  const { itandiLoginId, itandiPassword, itandiLoginBlocked } = await getStorageData([
+    'itandiLoginId', 'itandiPassword', 'itandiLoginBlocked'
+  ]);
+  if (itandiLoginBlocked) return { ok: false, skipped: true, reason: '前回ログイン失敗でブロック中' };
+  if (!itandiLoginId || !itandiPassword) return { ok: false, skipped: true, reason: 'ID/PW未設定' };
+
+  await setStorageData({ debugLog: '[itandi] ログインページ検知 → 自動ログイン試行(1回のみ)' });
+
+  let submitResult;
+  try {
+    const execResult = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: (loginId, password) => {
+        const form = document.querySelector('form[action*="itandi-accounts.com/login"]')
+          || document.querySelector('form');
+        if (!form) return { submitted: false, error: 'form not found' };
+        const emailInput = form.querySelector('input#email, input[name="email"]');
+        const pwInput = form.querySelector('input#password, input[name="password"]');
+        const submitBtn = form.querySelector('input[type="submit"][name="commit"], input[type="submit"], button[type="submit"]');
+        if (!emailInput || !pwInput) return { submitted: false, error: 'email/password input not found' };
+        if (!submitBtn) return { submitted: false, error: 'submit button not found' };
+
+        const setNativeValue = (el, value) => {
+          const proto = Object.getPrototypeOf(el);
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+          setter.call(el, value);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        setNativeValue(emailInput, loginId);
+        setNativeValue(pwInput, password);
+
+        // action チェック(誤フォーム防止)
+        const action = (form.action || '').toString();
+        if (!/itandi-accounts\.com\/login/i.test(action)) {
+          return { submitted: false, error: 'form action unexpected: ' + action };
+        }
+        submitBtn.click();
+        return { submitted: true };
+      },
+      args: [itandiLoginId, itandiPassword],
+    });
+    submitResult = execResult && execResult[0] && execResult[0].result;
+  } catch (err) {
+    return { ok: false, error: 'submit inject failed: ' + err.message };
+  }
+
+  if (!submitResult) return { ok: false, error: 'no result from submit script' };
+  if (!submitResult.submitted) return { ok: false, error: submitResult.error || 'submit skipped' };
+
+  try { await waitForTabLoad(tabId, 30000); } catch (_) {}
+  await sleep(2500);
+
+  // 成功判定: ホストが itandibb.com に戻っていれば成功
+  const postTab = await chrome.tabs.get(tabId);
+  if (postTab.url?.includes('itandi-accounts.com')) {
+    return { ok: false, error: 'submit後もitandi-accounts.comに残ったまま(ID/PW不一致の可能性)' };
+  }
+  await setStorageData({ debugLog: '[itandi] 自動ログイン成功' });
+  return { ok: true };
 }
 
 async function closeDedicatedItandiWindow() {

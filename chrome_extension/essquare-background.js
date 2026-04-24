@@ -849,15 +849,98 @@ async function findOrCreateDedicatedEssquareTab() {
   await sleep(3000); // React SPA 考慮
 
   // ログイン状態を確認
-  const tab = await chrome.tabs.get(dedicatedEssquareTabId);
-  if (tab.url?.includes('/login')) {
-    await setStorageData({ debugLog: '[ES-Square] ログインが必要です。rent.es-square.netでログイン後に再実行してください。' });
-    await closeDedicatedEssquareWindow();
-    return null;
+  let tab = await chrome.tabs.get(dedicatedEssquareTabId);
+  // Auth0 (auth.es-account.com) にリダイレクトされている or /login を含む
+  if (tab.url?.includes('auth.es-account.com') || tab.url?.includes('/login')) {
+    const autoLogin = await attemptEssquareAutoLogin_(dedicatedEssquareTabId);
+    if (autoLogin.ok) {
+      tab = await chrome.tabs.get(dedicatedEssquareTabId);
+      if (!tab.url?.includes('rent.es-square.net')) {
+        await chrome.tabs.update(dedicatedEssquareTabId, { url: `${ESSQUARE_BASE_URL}/bukken/chintai/search` });
+        await waitForTabLoad(dedicatedEssquareTabId);
+        await sleep(3000);
+        tab = await chrome.tabs.get(dedicatedEssquareTabId);
+      }
+    } else if (autoLogin.skipped) {
+      await setStorageData({ debugLog: `[ES-Square] ログインが必要です (${autoLogin.reason})` });
+      await closeDedicatedEssquareWindow();
+      return null;
+    } else {
+      await setStorageData({
+        essquareLoginBlocked: true,
+        essquareLoginBlockedReason: autoLogin.error || 'login failed',
+        debugLog: `[ES-Square] ⚠️ 自動ログイン失敗のためブロック: ${autoLogin.error}。手動ログイン後にオプション画面でブロック解除してください`
+      });
+      await closeDedicatedEssquareWindow();
+      return null;
+    }
   }
 
   await setStorageData({ debugLog: `[ES-Square] 専用タブ作成: tabId=${dedicatedEssquareTabId}` });
   return tab;
+}
+
+/**
+ * ES-Square 自動ログイン(1回のみ、失敗でBlock)
+ * フォーム: auth.es-account.com/u/login (Auth0 Universal Login)
+ * - input#username / input#password / button[type=submit][name=action][value=default]
+ * - hidden input[name="state"] が自動同梱される
+ */
+async function attemptEssquareAutoLogin_(tabId) {
+  const { essquareLoginId, essquarePassword, essquareLoginBlocked } = await getStorageData([
+    'essquareLoginId', 'essquarePassword', 'essquareLoginBlocked'
+  ]);
+  if (essquareLoginBlocked) return { ok: false, skipped: true, reason: '前回ログイン失敗でブロック中' };
+  if (!essquareLoginId || !essquarePassword) return { ok: false, skipped: true, reason: 'ID/PW未設定' };
+
+  await setStorageData({ debugLog: '[ES-Square] Auth0ログインページ検知 → 自動ログイン試行(1回のみ)' });
+
+  let submitResult;
+  try {
+    const execResult = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: (loginId, password) => {
+        const form = document.querySelector('form');
+        if (!form) return { submitted: false, error: 'form not found' };
+        const userInput = form.querySelector('input#username, input[name="username"]');
+        const pwInput = form.querySelector('input#password, input[name="password"]');
+        const submitBtn = form.querySelector('button[type="submit"][name="action"][value="default"]')
+          || form.querySelector('button[type="submit"]');
+        if (!userInput || !pwInput) return { submitted: false, error: 'username/password input not found' };
+        if (!submitBtn) return { submitted: false, error: 'submit button not found' };
+
+        const setNativeValue = (el, value) => {
+          const proto = Object.getPrototypeOf(el);
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+          setter.call(el, value);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        setNativeValue(userInput, loginId);
+        setNativeValue(pwInput, password);
+
+        submitBtn.click();
+        return { submitted: true };
+      },
+      args: [essquareLoginId, essquarePassword],
+    });
+    submitResult = execResult && execResult[0] && execResult[0].result;
+  } catch (err) {
+    return { ok: false, error: 'submit inject failed: ' + err.message };
+  }
+
+  if (!submitResult) return { ok: false, error: 'no result from submit script' };
+  if (!submitResult.submitted) return { ok: false, error: submitResult.error || 'submit skipped' };
+
+  try { await waitForTabLoad(tabId, 30000); } catch (_) {}
+  await sleep(2500);
+
+  const postTab = await chrome.tabs.get(tabId);
+  if (postTab.url?.includes('auth.es-account.com')) {
+    return { ok: false, error: 'submit後もauth.es-account.comに残ったまま(ID/PW不一致の可能性)' };
+  }
+  await setStorageData({ debugLog: '[ES-Square] 自動ログイン成功' });
+  return { ok: true };
 }
 
 async function closeDedicatedEssquareWindow() {
