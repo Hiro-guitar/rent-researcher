@@ -2260,7 +2260,7 @@ async function checkFillQueue() {
     chrome.runtime.sendMessage({
       type: 'SUUMO_FILL_COMPLETE',
       data: {
-        propertyKey: item.propertyKey || '',
+        propertyKey: item.propertyKey || item.key || '',
         building: item.building || item.buildingName || '',
         room: item.room || item.roomNumber || '',
         success: true
@@ -2273,7 +2273,7 @@ async function checkFillQueue() {
     chrome.runtime.sendMessage({
       type: 'SUUMO_FILL_COMPLETE',
       data: {
-        propertyKey: item.propertyKey || '',
+        propertyKey: item.propertyKey || item.key || '',
         building: item.building || item.buildingName || '',
         room: item.room || item.roomNumber || '',
         success: false,
