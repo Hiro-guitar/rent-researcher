@@ -292,22 +292,24 @@ async function clickForrentNavMenuWithRetry_(tabId, timeoutMs) {
             return { ok: false, error: 'empty body', frameInfo };
           }
           const candidates = Array.from(document.querySelectorAll('a, input[type="submit"], input[type="button"], input[type="image"], li, span, div'));
+          // テキストを正規化(全角/半角中黒点、空白の差異を吸収)
+          const norm = (s) => (s || '')
+            .replace(/[\s\u3000]/g, '')      // 空白除去
+            .replace(/[・･·\u2022\u30FB\uFF65]/g, ''); // 中黒系除去
           const patterns = [
-            /^更新・掲載指示$/,
-            /^情報更新一覧$/,
-            /^情報更新$/,
-            /更新・掲載指示/,
-            /情報更新/,
+            '更新掲載指示',
+            '情報更新一覧',
+            '情報更新',
           ];
           for (const pat of patterns) {
             const target = candidates.find(el => {
-              const t = (el.innerText || el.value || el.alt || el.title || '').trim();
-              return pat.test(t);
+              const t = norm(el.innerText || el.value || el.alt || el.title || '');
+              return t === pat || t.indexOf(pat) >= 0;
             });
             if (target) {
               const text = (target.innerText || target.value || target.alt || target.title || '').trim().substring(0, 40);
               target.click();
-              return { ok: true, clickedText: text, frameInfo };
+              return { ok: true, clickedText: text, matchedPattern: pat, frameInfo };
             }
           }
           return { ok: false, error: 'menu not found', frameInfo };
