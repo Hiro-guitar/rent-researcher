@@ -4586,6 +4586,20 @@ async function getOrRunSuumoPreHook_() {
 }
 
 async function runSuumoApprovalPreHook_() {
+  // ── 0. ForRent状態同期 (実態と整合) ──
+  // SUUMOビジネスは今日-2日までの集計のため、直近の停止・入稿を反映できない。
+  // ForRent PUB1R2801 を直読みしてシートの active/stopped を正確化してから
+  // 以降の判定を行う(掲載数オーバーエラー対策)。
+  try {
+    await setStorageData({ debugLog: '[承認前処理] ForRent状態同期(実態反映)開始' });
+    const syncResult = await syncForrentListingStatus();
+    if (!syncResult || !syncResult.ok) {
+      await setStorageData({ debugLog: `[承認前処理] ForRent状態同期失敗(スキップして続行): ${syncResult && syncResult.error}` });
+    }
+  } catch (err) {
+    await setStorageData({ debugLog: `[承認前処理] ForRent状態同期例外(スキップ): ${err.message}` });
+  }
+
   // ── 1. SUUMOビジネスデータ取得 (best effort) ──
   try {
     await setStorageData({ debugLog: '[承認前処理] SUUMOビジネスデータ更新開始' });
