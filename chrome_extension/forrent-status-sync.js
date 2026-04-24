@@ -225,7 +225,31 @@ async function ensureForrentReady_(tabId) {
       await setStorageData({ debugLog: `[ForRent状態同期] メニュークリック後もフォーム未出現 (url=${state && state.url})` });
     }
 
-    return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + ((state && state.url) || '') + ')。ForRentで手動で「更新・掲載指示 > 情報更新一覧」を開いてから再実行してみてください' };
+    // メニュー探索失敗時の診断: ナビフレームに何があるかダンプ
+    try {
+      const dumpResults = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: () => {
+          const frameName = window.name || '(top)';
+          const url = location.href;
+          const bodyText = (document.body && document.body.innerText) || '';
+          const links = Array.from(document.querySelectorAll('a, img, input[type="image"], input[type="submit"], button')).map(el => {
+            const t = (el.innerText || el.value || el.alt || el.title || '').trim().substring(0, 30);
+            return t;
+          }).filter(t => t.length > 0).slice(0, 30);
+          return { frameName, url, bodyTextHead: bodyText.substring(0, 200).replace(/\s+/g, ' '), linkTexts: links };
+        }
+      });
+      const dumpLines = [];
+      for (const r of dumpResults || []) {
+        if (r && r.result) {
+          dumpLines.push(`[${r.result.frameName}] url=${r.result.url.substring(0, 60)} / links=${JSON.stringify(r.result.linkTexts).substring(0, 300)}`);
+        }
+      }
+      await setStorageData({ debugLog: `[ForRent状態同期] 診断ダンプ: ${dumpLines.join(' || ')}` });
+    } catch (_) {}
+
+    return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + ((state && state.url) || '') + ')。診断ログを確認してください' };
   }
 
   // 検索フォームもログインフォームもエラーも無い → 不明
