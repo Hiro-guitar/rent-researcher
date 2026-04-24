@@ -398,19 +398,35 @@ function recoverStaleSubmittingQueue_() {
   var lastRow = sheet.getLastRow();
   if (lastRow <= 1) return 0;
 
+  // submitting の回復は、SUUMO_SUBMITTING_TIMEOUT_MS(30分) 〜 MAX_RECOVER_AGE_MS(24時間)
+  // の範囲に限定する。24時間超過した submitting は「入稿試行失敗の過去遺産」と判定して
+  // expired ステータスにし、以降自動再処理されないようにする(誤再入稿防止)。
+  var MAX_RECOVER_AGE_MS = 24 * 60 * 60 * 1000; // 24時間
+
   var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_CANDIDATE_HEADERS.length).getValues();
   var now = Date.now();
   var recovered = 0;
+  var expired = 0;
 
   for (var i = 0; i < data.length; i++) {
-    if (data[i][11] === 'submitting') {
-      var ts = Number(data[i][16] || 0);
-      if (!ts || (now - ts) > SUUMO_SUBMITTING_TIMEOUT_MS) {
-        sheet.getRange(i + 2, 12).setValue('approved');
-        sheet.getRange(i + 2, 17).setValue('');
-        recovered++;
-      }
+    if (data[i][11] !== 'submitting') continue;
+    var ts = Number(data[i][16] || 0);
+    var ageMs = ts ? (now - ts) : Number.MAX_SAFE_INTEGER;
+
+    if (ageMs > MAX_RECOVER_AGE_MS) {
+      // 24時間超過 → expired (以後自動処理されない)
+      sheet.getRange(i + 2, 12).setValue('expired');
+      expired++;
+    } else if (ageMs > SUUMO_SUBMITTING_TIMEOUT_MS) {
+      // 30分〜24時間 → approved に戻す(入稿タブクラッシュ等からの復旧)
+      sheet.getRange(i + 2, 12).setValue('approved');
+      sheet.getRange(i + 2, 17).setValue('');
+      recovered++;
     }
+    // 30分未満は処理中として放置
+  }
+  if (recovered > 0 || expired > 0) {
+    console.log('recoverStaleSubmittingQueue_: recovered=' + recovered + ' expired=' + expired);
   }
   return recovered;
 }
