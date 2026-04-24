@@ -82,6 +82,41 @@ chrome.action.onClicked.addListener(() => {
   openLogTab();
 });
 
+// === 専用ウィンドウ強制最小化ガード ===
+// 顧客検索で作成された専用ウィンドウが何らかの理由で前面化しないよう、
+// 対象ドメインで開かれた新規ウィンドウを即座に最小化する保険。
+// 対象: REINS / itandi / ES-Square / いえらぶ
+const __DEDICATED_DOMAINS = [
+  'system.reins.jp',
+  'itandibb.com',
+  'rent.es-square.net',
+  'bb.ielove.jp',
+];
+chrome.windows.onCreated.addListener(async (win) => {
+  try {
+    // 専用ウィンドウIDをstorageから全部取得
+    const keys = ['dedicatedReinsWindowId', 'dedicatedItandiWindowId', 'dedicatedEssquareWindowId', 'dedicatedIeloveWindowId'];
+    const r = await new Promise(res => chrome.storage.local.get(keys, res));
+    const dedicatedIds = new Set(keys.map(k => r[k]).filter(Boolean));
+    if (!dedicatedIds.has(win.id)) {
+      // URL内容で判定(storageに未登録だが対象ドメインなら自動最小化)
+      const full = await chrome.windows.get(win.id, { populate: true });
+      const urls = (full.tabs || []).map(t => t.url || t.pendingUrl || '');
+      const hit = urls.some(u => __DEDICATED_DOMAINS.some(d => u.includes(d)));
+      if (!hit) return;
+    }
+    // 少し待ってから最小化(タブロード中の衝突を避ける)
+    setTimeout(async () => {
+      try {
+        const w = await chrome.windows.get(win.id);
+        if (w && w.state !== 'minimized') {
+          await chrome.windows.update(win.id, { state: 'minimized' });
+        }
+      } catch (_) {}
+    }, 300);
+  } catch (_) {}
+});
+
 // === REINS物件番号オートサーチ（Discordリンクから #bukken=XXX で起動） ===
 const __reinsAutoSearchHandled = new Set(); // tabIdごとに進行中フラグ
 async function __getAutomationTabId() {
