@@ -4600,17 +4600,25 @@ async function runSuumoApprovalPreHook_() {
     await setStorageData({ debugLog: `[承認前処理] ForRent状態同期例外(スキップ): ${err.message}` });
   }
 
-  // ── 1. SUUMOビジネスデータ取得 (24時間キャッシュ) ──
-  // SUUMOビジネスは1日1回しかデータ更新されないので、24時間以内の取得はスキップ
+  // ── 1. SUUMOビジネスデータ取得 (JST日次キャッシュ) ──
+  // SUUMOビジネスは1日1回しかデータ更新されないので、当日(JST)に一度取得済みなら
+  // 日付が変わるまで再取得しない
   try {
     const { suumoBusinessLastFetchAt } = await getStorageData(['suumoBusinessLastFetchAt']);
-    const SUUMO_BUSINESS_CACHE_MS = 24 * 60 * 60 * 1000;
-    const nowMs = Date.now();
-    if (suumoBusinessLastFetchAt && (nowMs - Number(suumoBusinessLastFetchAt)) < SUUMO_BUSINESS_CACHE_MS) {
-      const hoursAgo = Math.floor((nowMs - Number(suumoBusinessLastFetchAt)) / (60 * 60 * 1000));
-      await setStorageData({ debugLog: `[承認前処理] SUUMOビジネスデータは${hoursAgo}時間前に取得済み → スキップ` });
+    const toJstDate = (ms) => {
+      // JST(UTC+9)の日付を YYYY-MM-DD 形式で取得
+      const d = new Date(Number(ms) + 9 * 60 * 60 * 1000);
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    const todayJst = toJstDate(Date.now());
+    const lastJst = suumoBusinessLastFetchAt ? toJstDate(suumoBusinessLastFetchAt) : null;
+    if (lastJst && lastJst === todayJst) {
+      await setStorageData({ debugLog: `[承認前処理] SUUMOビジネスデータは本日(${todayJst})取得済み → スキップ` });
     } else {
-      await setStorageData({ debugLog: '[承認前処理] SUUMOビジネスデータ更新開始' });
+      await setStorageData({ debugLog: '[承認前処理] SUUMOビジネスデータ更新開始(本日初取得)' });
       const fetchResult = await runSuumoBusinessFetch();
       if (!fetchResult || !fetchResult.ok) {
         await setStorageData({ debugLog: `[承認前処理] データ更新失敗(スキップして続行): ${fetchResult && fetchResult.error}` });
