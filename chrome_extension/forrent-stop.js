@@ -230,10 +230,6 @@ async function stopForrentListing(opts) {
     }
     await setStorageData({ debugLog: `[ForRent停止] 送信実行 via=${subVia}` });
 
-    if (!submitResult || !submitResult.ok) {
-      throw new Error((submitResult && submitResult.error) || '一括更新実行クリック失敗');
-    }
-
     // 9. 完了確認: 送信後のページで「実際に成約フラグが1になっているか」を検証
     //    URLや本文テキストで判定するのは誤判定が多いため、
     //    再度 bukkenCd で検索して seiyakuFlg の値を直接確認する方式。
