@@ -142,7 +142,11 @@ body {
   display: none; z-index: 2;
 }
 .image-card:hover .delete-btn { display: block; }
-.image-card { position: relative; cursor: grab; }
+.image-card {
+  position: relative; cursor: grab;
+  /* ドラッグ時にテキスト選択が起動するのを防ぐ */
+  user-select: none; -webkit-user-select: none;
+}
 .image-card:active { cursor: grabbing; }
 /* ドラッグ中の見た目 */
 .image-card.dragging { opacity: 0.4; border-color: #2e86c1; }
@@ -792,6 +796,9 @@ function renderImages() {
     container.appendChild(card);
   }
 
+  // container側のドロップハンドラをセットアップ(初回のみ)
+  installContainerDragHandlers();
+
   updateGenreCounter();
 }
 
@@ -841,9 +848,55 @@ function buildImageCard(idx, imgSrc, genre, altText) {
 
 // ── ドラッグ&ドロップによる画像並び替え ──
 var _draggedCard = null;
+var _dragHandlersInstalled = false;
+
+// grid gapの領域にドロップしたときに認識できるよう、container側にも最小限のハンドラを付ける
+function installContainerDragHandlers() {
+  if (_dragHandlersInstalled) return;
+  var container = document.getElementById('imageGrid');
+  if (!container) return;
+  container.addEventListener('dragover', function(e) {
+    if (!_draggedCard) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  });
+  container.addEventListener('drop', function(e) {
+    if (!_draggedCard) return;
+    // 最も近い .image-card を検出してその前後に挿入
+    var cards = container.querySelectorAll('.image-card');
+    var nearest = null;
+    var nearestDist = Infinity;
+    var insertBefore = false;
+    for (var i = 0; i < cards.length; i++) {
+      var c = cards[i];
+      if (c === _draggedCard) continue;
+      var rect = c.getBoundingClientRect();
+      var cx = rect.left + rect.width / 2;
+      var cy = rect.top + rect.height / 2;
+      var dx = e.clientX - cx;
+      var dy = e.clientY - cy;
+      var d = dx*dx + dy*dy;
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearest = c;
+        insertBefore = e.clientX < cx;
+      }
+    }
+    if (nearest) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (insertBefore) container.insertBefore(_draggedCard, nearest);
+      else container.insertBefore(_draggedCard, nearest.nextSibling);
+      rebuildImageDataFromDOM();
+    }
+  });
+  _dragHandlersInstalled = true;
+}
 
 function attachDragHandlers(card) {
+  // property と HTML属性の両方で設定(ブラウザ差異対策)
   card.draggable = true;
+  card.setAttribute('draggable', 'true');
   card.addEventListener('dragstart', function(e) {
     _draggedCard = card;
     card.classList.add('dragging');
