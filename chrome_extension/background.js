@@ -4600,12 +4600,22 @@ async function runSuumoApprovalPreHook_() {
     await setStorageData({ debugLog: `[承認前処理] ForRent状態同期例外(スキップ): ${err.message}` });
   }
 
-  // ── 1. SUUMOビジネスデータ取得 (best effort) ──
+  // ── 1. SUUMOビジネスデータ取得 (24時間キャッシュ) ──
+  // SUUMOビジネスは1日1回しかデータ更新されないので、24時間以内の取得はスキップ
   try {
-    await setStorageData({ debugLog: '[承認前処理] SUUMOビジネスデータ更新開始' });
-    const fetchResult = await runSuumoBusinessFetch();
-    if (!fetchResult || !fetchResult.ok) {
-      await setStorageData({ debugLog: `[承認前処理] データ更新失敗(スキップして続行): ${fetchResult && fetchResult.error}` });
+    const { suumoBusinessLastFetchAt } = await getStorageData(['suumoBusinessLastFetchAt']);
+    const SUUMO_BUSINESS_CACHE_MS = 24 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+    if (suumoBusinessLastFetchAt && (nowMs - Number(suumoBusinessLastFetchAt)) < SUUMO_BUSINESS_CACHE_MS) {
+      const hoursAgo = Math.floor((nowMs - Number(suumoBusinessLastFetchAt)) / (60 * 60 * 1000));
+      await setStorageData({ debugLog: `[承認前処理] SUUMOビジネスデータは${hoursAgo}時間前に取得済み → スキップ` });
+    } else {
+      await setStorageData({ debugLog: '[承認前処理] SUUMOビジネスデータ更新開始' });
+      const fetchResult = await runSuumoBusinessFetch();
+      if (!fetchResult || !fetchResult.ok) {
+        await setStorageData({ debugLog: `[承認前処理] データ更新失敗(スキップして続行): ${fetchResult && fetchResult.error}` });
+      }
+      // runSuumoBusinessFetch内で成功時にsuumoBusinessLastFetchAtを更新している
     }
   } catch (err) {
     await setStorageData({ debugLog: `[承認前処理] データ更新例外(スキップ): ${err.message}` });
