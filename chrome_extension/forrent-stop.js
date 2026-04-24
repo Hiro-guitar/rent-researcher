@@ -149,10 +149,6 @@ async function stopForrentListing(opts) {
     }
     await setStorageData({ debugLog: `[ForRent停止] 検索送信 via=${searchVia} formAction=${(searchFormInfo && searchFormInfo.action) || ''}` });
 
-    if (!searchExec || !searchExec.ok) {
-      throw new Error((searchExec && searchExec.error) || '検索実行失敗');
-    }
-
     // 4. フォーム再描画(CSRFトークン更新)を待つ
     //    search click は form submit で page reload を引き起こすが、
     //    我々のinjectが旧DOMに当たるとstale authenticityToken で submit して
