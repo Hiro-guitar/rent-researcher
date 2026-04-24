@@ -82,70 +82,6 @@ chrome.action.onClicked.addListener(() => {
   openLogTab();
 });
 
-// === 専用ウィンドウ強制最小化ガード ===
-// 顧客検索で作成された専用ウィンドウが何らかの理由で前面化しないよう、
-// 対象ドメインで開かれた新規ウィンドウを即座に最小化する保険。
-// 対象: REINS / itandi / ES-Square / いえらぶ
-const __DEDICATED_DOMAINS = [
-  'system.reins.jp',
-  'itandibb.com',
-  'rent.es-square.net',
-  'bb.ielove.jp',
-];
-const __PENDING_MINIMIZE = new Set(); // windowId→監視中
-
-async function __isDedicatedWindow(winId) {
-  try {
-    const keys = ['dedicatedReinsWindowId', 'dedicatedItandiWindowId', 'dedicatedEssquareWindowId', 'dedicatedIeloveWindowId'];
-    const r = await new Promise(res => chrome.storage.local.get(keys, res));
-    for (const k of keys) if (r[k] === winId) return true;
-  } catch (_) {}
-  return false;
-}
-
-async function __forceMinimize(winId) {
-  try {
-    const w = await chrome.windows.get(winId);
-    if (w && w.state !== 'minimized') {
-      await chrome.windows.update(winId, { state: 'minimized' });
-    }
-  } catch (_) {}
-}
-
-chrome.windows.onCreated.addListener(async (win) => {
-  try {
-    // 即時: 作成時点で storage の専用ID と一致すれば即最小化
-    if (await __isDedicatedWindow(win.id)) {
-      await __forceMinimize(win.id);
-      return;
-    }
-    // 作成直後は URL/pendingUrl が未確定のため、onUpdated で監視
-    __PENDING_MINIMIZE.add(win.id);
-    // 念のため URL 即チェック(既に埋まっている場合)
-    try {
-      const full = await chrome.windows.get(win.id, { populate: true });
-      const urls = (full.tabs || []).flatMap(t => [t.url || '', t.pendingUrl || '']).filter(Boolean);
-      if (urls.some(u => __DEDICATED_DOMAINS.some(d => u.includes(d)))) {
-        __PENDING_MINIMIZE.delete(win.id);
-        await __forceMinimize(win.id);
-        return;
-      }
-    } catch (_) {}
-    // 5秒経っても対象ドメインにならなければ監視停止(ユーザーの通常ウィンドウ)
-    setTimeout(() => __PENDING_MINIMIZE.delete(win.id), 5000);
-  } catch (_) {}
-});
-
-// タブ更新イベントで保留中ウィンドウのURLが対象ドメインになったら最小化
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (!tab || !__PENDING_MINIMIZE.has(tab.windowId)) return;
-  const url = changeInfo.url || tab.url || tab.pendingUrl || '';
-  if (!url) return;
-  if (__DEDICATED_DOMAINS.some(d => url.includes(d))) {
-    __PENDING_MINIMIZE.delete(tab.windowId);
-    await __forceMinimize(tab.windowId);
-  }
-});
 
 // === REINS物件番号オートサーチ（Discordリンクから #bukken=XXX で起動） ===
 const __reinsAutoSearchHandled = new Set(); // tabIdごとに進行中フラグ
@@ -3370,7 +3306,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 
 // 拡張専用のREINSタブID（検索中のみ有効）
 let dedicatedReinsTabId = null;
-let dedicatedReinsWindowId = null;
+let dedicatedReinsWindowId = null; // 後方互換用(使わない)
 
 async function findOrCreateDedicatedReinsTab() {
   // 既存の専用タブが生きているか確認
@@ -3378,8 +3314,6 @@ async function findOrCreateDedicatedReinsTab() {
     try {
       const tab = await chrome.tabs.get(dedicatedReinsTabId);
       if (tab && tab.url?.includes('system.reins.jp')) {
-        // 再利用時も最小化に強制(作業中のユーザーを邪魔しないため)
-        try { await chrome.windows.update(tab.windowId, { state: 'minimized' }); } catch (_) {}
         return tab;
       }
     } catch (e) {
@@ -3389,22 +3323,16 @@ async function findOrCreateDedicatedReinsTab() {
     dedicatedReinsWindowId = null;
   }
 
-  // 専用ウィンドウを作成（最小化状態）してREINSを開く
+  // 既存ウィンドウ内に非アクティブタブとして作成
+  // active:false なのでフォーカスを一切奪わない
   // クッキー共有でログイン済みセッションを引き継ぐ
-  // 最小化ウィンドウでも content script とページロードは正常動作する
-  await setStorageData({ debugLog: '専用REINSウィンドウを作成中...' });
-  const newWindow = await chrome.windows.create({
+  await setStorageData({ debugLog: '専用REINSタブを作成中...' });
+  const newTab = await chrome.tabs.create({
     url: 'https://system.reins.jp/main/BK/GBK001310',
-    focused: false,
-    type: 'normal',
-    state: 'minimized'
+    active: false
   });
-  dedicatedReinsWindowId = newWindow.id;
-  dedicatedReinsTabId = newWindow.tabs[0].id;
-  // Service Worker再起動やonCreatedリスナーから識別できるよう永続化
-  await setStorageData({ dedicatedReinsWindowId: newWindow.id });
-  // create時の state:'minimized' が効かないケースの保険
-  try { await chrome.windows.update(newWindow.id, { state: 'minimized' }); } catch (_) {}
+  dedicatedReinsTabId = newTab.id;
+  dedicatedReinsWindowId = newTab.windowId;
 
   // ページ読み込み完了を待つ
   await waitForTabLoad(dedicatedReinsTabId);
@@ -3413,19 +3341,19 @@ async function findOrCreateDedicatedReinsTab() {
   // ログイン状態を確認
   const tab = await chrome.tabs.get(dedicatedReinsTabId);
   if (tab.url?.includes('login') || tab.url?.includes('GKG001')) {
-    await setStorageData({ debugLog: '専用ウィンドウでREINSログインが必要です' });
+    await setStorageData({ debugLog: '専用タブでREINSログインが必要です' });
     await closeDedicatedWindow();
     return null;
   }
 
-  await setStorageData({ debugLog: `専用REINSタブ作成: tabId=${dedicatedReinsTabId}, windowId=${dedicatedReinsWindowId}` });
+  await setStorageData({ debugLog: `専用REINSタブ作成: tabId=${dedicatedReinsTabId}` });
   return tab;
 }
 
 async function closeDedicatedWindow() {
-  if (dedicatedReinsWindowId) {
+  if (dedicatedReinsTabId) {
     try {
-      await chrome.windows.remove(dedicatedReinsWindowId);
+      await chrome.tabs.remove(dedicatedReinsTabId);
     } catch (e) {
       // 既に閉じられている
     }

@@ -373,8 +373,6 @@ async function findOrCreateDedicatedIeloveTab() {
     try {
       const tab = await chrome.tabs.get(dedicatedIeloveTabId);
       if (tab && tab.url?.includes('bb.ielove.jp')) {
-        // 再利用時も最小化に強制(作業中のユーザーを邪魔しないため)
-        try { await chrome.windows.update(tab.windowId, { state: 'minimized' }); } catch (_) {}
         return tab;
       }
     } catch (e) {
@@ -384,21 +382,15 @@ async function findOrCreateDedicatedIeloveTab() {
     dedicatedIeloveWindowId = null;
   }
 
-  // 専用ウィンドウを作成(最小化状態で作成し、作業中のユーザーを邪魔しない)
-  // ログイン要求時のみ別処理で前面化する
-  await setStorageData({ debugLog: '専用いえらぶウィンドウを作成中...' });
-  const newWindow = await chrome.windows.create({
+  // 既存ウィンドウ内に非アクティブタブとして作成
+  // active:false でフォーカスを一切奪わない
+  await setStorageData({ debugLog: '専用いえらぶタブを作成中...' });
+  const newTab = await chrome.tabs.create({
     url: `${IELOVE_BASE_URL}/ielovebb/top/`,
-    focused: false,
-    type: 'normal',
-    state: 'minimized'
+    active: false
   });
-  dedicatedIeloveWindowId = newWindow.id;
-  dedicatedIeloveTabId = newWindow.tabs[0].id;
-  // Service Worker再起動やonCreatedリスナーから識別できるよう永続化
-  await setStorageData({ dedicatedIeloveWindowId: newWindow.id });
-  // create時の state:'minimized' が効かないケースの保険
-  try { await chrome.windows.update(newWindow.id, { state: 'minimized' }); } catch (_) {}
+  dedicatedIeloveTabId = newTab.id;
+  dedicatedIeloveWindowId = newTab.windowId;
 
   // ページ読み込み完了を待つ
   await waitForTabLoad(dedicatedIeloveTabId);
@@ -408,11 +400,9 @@ async function findOrCreateDedicatedIeloveTab() {
   const tab = await chrome.tabs.get(dedicatedIeloveTabId);
   if (tab.url?.includes('/login')) {
     await setStorageData({ debugLog: 'いえらぶBBにログインしてください（bb.ielove.jpでログイン後、自動で検索を再開します）' });
-    // ウィンドウをフォーカスしてユーザーに気付かせる(最小化状態から復元)
+    // ログインタブをアクティブに(ただし別ウィンドウにフォーカスは奪わない)
     try {
-      if (dedicatedIeloveWindowId) {
-        await chrome.windows.update(dedicatedIeloveWindowId, { state: 'normal', focused: true });
-      }
+      await chrome.tabs.update(dedicatedIeloveTabId, { active: true });
     } catch (e) {}
     // Discord通知（任意）
     try {
@@ -473,9 +463,9 @@ function __watchIeloveLoginAndResume(watchTabId) {
 }
 
 async function closeDedicatedIeloveWindow() {
-  if (dedicatedIeloveWindowId) {
+  if (dedicatedIeloveTabId) {
     try {
-      await chrome.windows.remove(dedicatedIeloveWindowId);
+      await chrome.tabs.remove(dedicatedIeloveTabId);
     } catch (e) {
       // 既に閉じられている
     }

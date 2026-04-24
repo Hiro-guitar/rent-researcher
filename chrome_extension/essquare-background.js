@@ -820,8 +820,6 @@ async function findOrCreateDedicatedEssquareTab() {
     try {
       const tab = await chrome.tabs.get(dedicatedEssquareTabId);
       if (tab && tab.url?.includes('es-square.net')) {
-        // 再利用時も最小化に強制(作業中のユーザーを邪魔しないため)
-        try { await chrome.windows.update(tab.windowId, { state: 'minimized' }); } catch (_) {}
         return tab;
       }
     } catch (e) {
@@ -831,51 +829,21 @@ async function findOrCreateDedicatedEssquareTab() {
     dedicatedEssquareWindowId = null;
   }
 
-  // Service Worker再起動等でメモリがリセットされた場合、
-  // chrome.storage.localに永続化された「自分たちで作った専用ウィンドウID」から復元
-  // 手動で開いたタブを誤って使わないよう、ウィンドウIDで厳密に紐づける
+  // Service Worker再起動等でメモリがリセットされた場合は新規作成するだけでOK
+  // (タブ方式では永続化不要)
   try {
-    const stored = await getStorageData(['dedicatedEssquareWindowId']);
-    const storedWinId = stored.dedicatedEssquareWindowId;
-    if (storedWinId) {
-      try {
-        const win = await chrome.windows.get(storedWinId, { populate: true });
-        if (win && win.tabs) {
-          const esTab = win.tabs.find(t => t.url?.includes('es-square.net'));
-          if (esTab) {
-            dedicatedEssquareTabId = esTab.id;
-            dedicatedEssquareWindowId = storedWinId;
-            // 復元時も最小化に強制
-            try { await chrome.windows.update(storedWinId, { state: 'minimized' }); } catch (_) {}
-            await setStorageData({ debugLog: `[ES-Square] 永続化された専用ウィンドウを復元: tabId=${esTab.id}` });
-            return esTab;
-          }
-        }
-      } catch (e) {
-        // 専用ウィンドウは閉じられている → 新規作成
-      }
-      // 無効化
-      await setStorageData({ dedicatedEssquareWindowId: null });
-    }
-  } catch (e) {
-    // storage失敗は新規作成にフォールバック
-  }
+    await setStorageData({ dedicatedEssquareWindowId: null });
+  } catch (e) {}
 
-  // 専用ウィンドウを作成(最小化状態で作成し、作業中のユーザーを邪魔しない)
-  // ログイン要求時のみ別処理で前面化する
-  await setStorageData({ debugLog: '[ES-Square] 専用ウィンドウを作成中...' });
-  const newWindow = await chrome.windows.create({
+  // 既存ウィンドウ内に非アクティブタブとして作成
+  // active:false でフォーカスを一切奪わない
+  await setStorageData({ debugLog: '[ES-Square] 専用タブを作成中...' });
+  const newTab = await chrome.tabs.create({
     url: `${ESSQUARE_BASE_URL}/bukken/chintai/search`,
-    focused: false,
-    type: 'normal',
-    state: 'minimized'
+    active: false
   });
-  dedicatedEssquareWindowId = newWindow.id;
-  dedicatedEssquareTabId = newWindow.tabs[0].id;
-  // Service Worker再起動後も手動タブと区別できるよう、作った専用ウィンドウIDを永続化
-  await setStorageData({ dedicatedEssquareWindowId: newWindow.id });
-  // create時の state:'minimized' が効かないケースの保険
-  try { await chrome.windows.update(newWindow.id, { state: 'minimized' }); } catch (_) {}
+  dedicatedEssquareTabId = newTab.id;
+  dedicatedEssquareWindowId = newTab.windowId;
 
   await waitForTabLoad(dedicatedEssquareTabId);
   await sleep(3000); // React SPA 考慮
@@ -893,9 +861,9 @@ async function findOrCreateDedicatedEssquareTab() {
 }
 
 async function closeDedicatedEssquareWindow() {
-  if (dedicatedEssquareWindowId) {
+  if (dedicatedEssquareTabId) {
     try {
-      await chrome.windows.remove(dedicatedEssquareWindowId);
+      await chrome.tabs.remove(dedicatedEssquareTabId);
     } catch (e) {
       // 既に閉じられている
     }

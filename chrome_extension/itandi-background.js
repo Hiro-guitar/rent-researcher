@@ -612,8 +612,6 @@ async function findOrCreateDedicatedItandiTab() {
     try {
       const tab = await chrome.tabs.get(dedicatedItandiTabId);
       if (tab && tab.url?.includes('itandibb.com')) {
-        // 再利用時も最小化に強制(作業中のユーザーを邪魔しないため)
-        try { await chrome.windows.update(tab.windowId, { state: 'minimized' }); } catch (_) {}
         return tab;
       }
     } catch (e) {
@@ -623,21 +621,15 @@ async function findOrCreateDedicatedItandiTab() {
     dedicatedItandiWindowId = null;
   }
 
-  // 専用ウィンドウを作成(最小化状態で作成し、作業中のユーザーを邪魔しない)
-  // ログイン要求時のみ別処理で前面化する
-  await setStorageData({ debugLog: '[itandi] 専用ウィンドウを作成中...' });
-  const newWindow = await chrome.windows.create({
+  // 既存ウィンドウ内に非アクティブタブとして作成
+  // active:false でフォーカスを一切奪わない
+  await setStorageData({ debugLog: '[itandi] 専用タブを作成中...' });
+  const newTab = await chrome.tabs.create({
     url: `${ITANDI_BASE_URL}/rent_rooms/list`,
-    focused: false,
-    type: 'normal',
-    state: 'minimized'
+    active: false
   });
-  dedicatedItandiWindowId = newWindow.id;
-  dedicatedItandiTabId = newWindow.tabs[0].id;
-  // Service Worker再起動やonCreatedリスナーから識別できるよう永続化
-  await setStorageData({ dedicatedItandiWindowId: newWindow.id });
-  // create時の state:'minimized' が効かないケースの保険
-  try { await chrome.windows.update(newWindow.id, { state: 'minimized' }); } catch (_) {}
+  dedicatedItandiTabId = newTab.id;
+  dedicatedItandiWindowId = newTab.windowId;
 
   // ページ読み込み完了を待つ
   await waitForTabLoad(dedicatedItandiTabId);
@@ -656,9 +648,9 @@ async function findOrCreateDedicatedItandiTab() {
 }
 
 async function closeDedicatedItandiWindow() {
-  if (dedicatedItandiWindowId) {
+  if (dedicatedItandiTabId) {
     try {
-      await chrome.windows.remove(dedicatedItandiWindowId);
+      await chrome.tabs.remove(dedicatedItandiTabId);
     } catch (e) {
       // 既に閉じられている
     }
