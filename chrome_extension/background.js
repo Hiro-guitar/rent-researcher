@@ -4656,6 +4656,18 @@ async function pollAndStartFillIfNeeded(options = {}) {
       console.log('[SUUMO入稿] タブ稼働中・時間外 → 追加取得スキップ');
       return;
     }
+
+    // ── Phase 4: 稼働中タブでも approval/manual なら前処理(データ更新+必要なら停止)を実行 ──
+    // 以前は tabAlive=true の時に前処理をスキップしていたため、
+    // 50件超過時に停止されずに追加キュー投入され、SUUMO側で「掲載数オーバー」エラーになっていた
+    if (source === 'approval' || source === 'manual') {
+      const preHook = await runSuumoApprovalPreHook_();
+      if (!preHook.ok) {
+        await setStorageData({ debugLog: `[SUUMO入稿] 前処理失敗のため稼働中タブへの追加も中止: ${preHook.error}` });
+        return;
+      }
+    }
+
     const queueData = await pollSuumoApprovalQueue({ lock: true });
     if (queueData && queueData.queue && queueData.queue.length > 0) {
       const added = await appendFillQueue(queueData.queue);
