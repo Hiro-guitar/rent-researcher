@@ -946,6 +946,24 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
+      // SUUMO巡回モード: 詳細取得済みで階建情報も揃っている時点で競合数をチェック
+      // 閾値超過なら property_data_json 構築・GAS送信・Discord通知を省略する。
+      // 競合結果は prop.suumo_competitor に保存し sendCollector.push() で再取得しない。
+      if (globalThis._suumoPatrolMode && typeof globalThis.checkSuumoCompetitorPreSkip === 'function') {
+        try {
+          const preResult = await globalThis.checkSuumoCompetitorPreSkip(prop);
+          if (preResult.competitor) {
+            prop.suumo_competitor = preResult.competitor;
+          }
+          if (preResult.skip) {
+            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像処理前に判定)` });
+            continue;
+          }
+        } catch (e) {
+          console.warn('[いえらぶ] 競合先行判定エラー:', e && e.message);
+        }
+      }
+
       // property_data_json を構築（GAS承認ページ用）
       prop.property_data_json = JSON.stringify(buildPropertyDataJson(prop));
 

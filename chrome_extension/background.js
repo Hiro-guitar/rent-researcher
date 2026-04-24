@@ -2770,6 +2770,25 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         __rejectReason = getFilterRejectReason(detail, customer);
       }
 
+      // SUUMO巡回モード: 画像base64取得前にSUUMO競合数をチェック
+      // (REINSの画像取得は fetch + blob→base64 変換で重いため効果大)
+      if (detail && !__rejectReason &&
+          globalThis._suumoPatrolMode &&
+          typeof globalThis.checkSuumoCompetitorPreSkip === 'function') {
+        try {
+          const preResult = await globalThis.checkSuumoCompetitorPreSkip(detail);
+          if (preResult.competitor) {
+            detail.suumo_competitor = preResult.competitor;
+          }
+          if (preResult.skip) {
+            __rejectReason = `${preResult.reason}(画像取得前に判定)`;
+            await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name || ''} ${detail.room_number || ''} - ${__rejectReason}` });
+          }
+        } catch (e) {
+          console.warn('[REINS] 競合先行判定エラー:', e && e.message);
+        }
+      }
+
       // === 画像をbase64で抽出（$nuxt walk → bkknGzuList 直読み方式） ===
       // フィルタでスキップされる物件は画像取得スキップ
       let imageBase64s = [];

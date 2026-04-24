@@ -225,12 +225,40 @@ async function runSuumoPatrolCycle() {
               }
             }
           } catch (_) {}
-          // SUUMO競合数を取得して prop.suumo_competitor にアタッチ（失敗しても送信継続）
+          // SUUMO競合数:
+          //   各サイトの詳細スクレイプ内で「画像取得直前」に
+          //   checkSuumoCompetitorPreSkip 済みの物件は prop.suumo_competitor が
+          //   既にアタッチされている。その場合は再取得しない。
+          //   未アタッチ(旧経路/REINS以外のフォールバック)なら従来通りここで取得。
           let skipByCompetition = false;
           let skipReason = '';
           try {
-            if (typeof globalThis.countSuumoCompetitors === 'function') {
-              // 階建情報の有無を診断ログで出す（無ければ広め検索でフォールバック）
+            if (prop.suumo_competitor && typeof prop.suumo_competitor === 'object') {
+              // 詳細スクレイプ側で取得済み → 閾値判定のみ再評価(念のため)
+              const competitor = prop.suumo_competitor;
+              await setStorageData({ debugLog:
+                `[SUUMO巡回] 競合数(詳細側で取得済): あり${competitor.withName}(HL${competitor.withNameHighlighted})/なし${competitor.withoutName}(HL${competitor.withoutNameHighlighted})`
+              });
+              try {
+                const { suumoCompSkipThresholds } = await getStorageData(['suumoCompSkipThresholds']);
+                const t = suumoCompSkipThresholds || {};
+                const checks = [
+                  { label: '物件名あり×HLあり', actual: competitor.withNameHighlighted || 0, limit: t.withNameHighlighted },
+                  { label: '物件名あり×HLなし', actual: Math.max(0, (competitor.withName || 0) - (competitor.withNameHighlighted || 0)), limit: t.withName },
+                  { label: '物件名なし×HLあり', actual: competitor.withoutNameHighlighted || 0, limit: t.withoutNameHighlighted },
+                  { label: '物件名なし×HLなし', actual: Math.max(0, (competitor.withoutName || 0) - (competitor.withoutNameHighlighted || 0)), limit: t.withoutName },
+                ];
+                for (const c of checks) {
+                  if (c.limit === null || c.limit === undefined) continue;
+                  if (c.actual > c.limit) {
+                    skipByCompetition = true;
+                    skipReason = `SUUMO競合多数(${c.label} ${c.actual}>${c.limit})`;
+                    break;
+                  }
+                }
+              } catch (_) {}
+            } else if (typeof globalThis.countSuumoCompetitors === 'function') {
+              // 詳細スクレイプ側で未取得 → フォールバックで取得
               let bfDiag = '';
               try {
                 const bf = globalThis._suumoCompetitorInternals &&
@@ -239,7 +267,7 @@ async function runSuumoPatrolCycle() {
                 bfDiag = bf ? `階建=${bf}` : '階建不明(広め検索でフォールバック)';
               } catch (e) { bfDiag = '階建判定エラー'; }
               await setStorageData({ debugLog:
-                `[SUUMO競合] 入力: addr="${prop.address || ''}" rent=${prop.rent} area=${prop.area || prop.usageArea} structure="${prop.structure || ''}" ${bfDiag}`
+                `[SUUMO競合] 入力(送信直前フォールバック): addr="${prop.address || ''}" rent=${prop.rent} area=${prop.area || prop.usageArea} structure="${prop.structure || ''}" ${bfDiag}`
               });
               const competitor = await globalThis.countSuumoCompetitors(prop);
               if (competitor) {
@@ -247,16 +275,14 @@ async function runSuumoPatrolCycle() {
                 await setStorageData({ debugLog:
                   `[SUUMO巡回] 競合数: あり${competitor.withName}(HL${competitor.withNameHighlighted})/なし${competitor.withoutName}(HL${competitor.withoutNameHighlighted}) url=${competitor.url || ''}`
                 });
-
-                // 設定された上限を超えていたらスキップ（OR条件、nullは無制限）
                 try {
                   const { suumoCompSkipThresholds } = await getStorageData(['suumoCompSkipThresholds']);
                   const t = suumoCompSkipThresholds || {};
                   const checks = [
-                    { key: 'withNameHighlighted', label: '物件名あり×HLあり', actual: competitor.withNameHighlighted || 0, limit: t.withNameHighlighted },
-                    { key: 'withName', label: '物件名あり×HLなし', actual: Math.max(0, (competitor.withName || 0) - (competitor.withNameHighlighted || 0)), limit: t.withName },
-                    { key: 'withoutNameHighlighted', label: '物件名なし×HLあり', actual: competitor.withoutNameHighlighted || 0, limit: t.withoutNameHighlighted },
-                    { key: 'withoutName', label: '物件名なし×HLなし', actual: Math.max(0, (competitor.withoutName || 0) - (competitor.withoutNameHighlighted || 0)), limit: t.withoutName },
+                    { label: '物件名あり×HLあり', actual: competitor.withNameHighlighted || 0, limit: t.withNameHighlighted },
+                    { label: '物件名あり×HLなし', actual: Math.max(0, (competitor.withName || 0) - (competitor.withNameHighlighted || 0)), limit: t.withName },
+                    { label: '物件名なし×HLあり', actual: competitor.withoutNameHighlighted || 0, limit: t.withoutNameHighlighted },
+                    { label: '物件名なし×HLなし', actual: Math.max(0, (competitor.withoutName || 0) - (competitor.withoutNameHighlighted || 0)), limit: t.withoutName },
                   ];
                   for (const c of checks) {
                     if (c.limit === null || c.limit === undefined) continue;

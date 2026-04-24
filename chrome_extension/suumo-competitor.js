@@ -372,10 +372,57 @@
     }
   }
 
+  /**
+   * 事前競合判定: 物件に競合数を付与し、閾値超過なら skip=true を返す。
+   * 画像取得コストの高いサイト(ES-Square, REINS)で、
+   * 詳細ページスクレイプ内の「画像取得直前」に呼び出すことで、
+   * スキップされる物件の画像取得を完全に省略する。
+   *
+   * 前提: propには住所/賃料/面積/構造/階建(story_text) が既に揃っていること。
+   *      (階建を持った状態で呼ぶことで、競合検索の品質は既存と同一)
+   *
+   * 戻り値: {
+   *   skip: boolean,           // true=画像取得前にスキップすべき
+   *   reason?: string,          // skipの理由ログ
+   *   competitor?: object|null  // prop.suumo_competitor に保存すべき値(nullなら取得失敗)
+   * }
+   */
+  async function checkSuumoCompetitorPreSkip(prop) {
+    try {
+      const competitor = await countSuumoCompetitors(prop);
+      if (!competitor) {
+        return { skip: false, competitor: null };
+      }
+      // 閾値取得
+      let t = {};
+      try {
+        const data = await chrome.storage.local.get(['suumoCompSkipThresholds']);
+        t = data.suumoCompSkipThresholds || {};
+      } catch (_) {}
+      const checks = [
+        { label: '物件名あり×HLあり', actual: competitor.withNameHighlighted || 0, limit: t.withNameHighlighted },
+        { label: '物件名あり×HLなし', actual: Math.max(0, (competitor.withName || 0) - (competitor.withNameHighlighted || 0)), limit: t.withName },
+        { label: '物件名なし×HLあり', actual: competitor.withoutNameHighlighted || 0, limit: t.withoutNameHighlighted },
+        { label: '物件名なし×HLなし', actual: Math.max(0, (competitor.withoutName || 0) - (competitor.withoutNameHighlighted || 0)), limit: t.withoutName },
+      ];
+      for (const c of checks) {
+        if (c.limit === null || c.limit === undefined) continue;
+        if (c.actual > c.limit) {
+          return { skip: true, reason: `SUUMO競合多数(${c.label} ${c.actual}>${c.limit})`, competitor };
+        }
+      }
+      return { skip: false, competitor };
+    } catch (e) {
+      console.warn('[SUUMO競合] 事前判定例外:', e && e.message);
+      return { skip: false, competitor: null };
+    }
+  }
+
   // ── グローバルエクスポート（service worker / background scope） ──
   globalThis.buildSuumoCompetitorSearchUrl = buildSuumoCompetitorSearchUrl;
   globalThis.parseSuumoCompetitorCount = parseSuumoCompetitorCount;
   globalThis.countSuumoCompetitors = countSuumoCompetitors;
+  globalThis.checkSuumoCompetitorPreSkip = checkSuumoCompetitorPreSkip;
   // テスト/デバッグ用に内部ヘルパーも露出
   globalThis._suumoCompetitorInternals = {
     _toSuumoRent, _toSuumoArea, _inferPropertyType, _extractSearchAddrCandidates, _buildFw, _toSuumoBuildingFloor,

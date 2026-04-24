@@ -1630,6 +1630,24 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             continue;
           }
 
+          // SUUMO巡回モード: 画像取得前にSUUMO競合数をチェックし、閾値超過なら画像取得を省略
+          // (ES-Squareの画像取得は canvas base64 + catboxアップロード で非常に重いため効果大)
+          if (globalThis._suumoPatrolMode && typeof globalThis.checkSuumoCompetitorPreSkip === 'function') {
+            try {
+              const preResult = await globalThis.checkSuumoCompetitorPreSkip(prop);
+              if (preResult.competitor) {
+                prop.suumo_competitor = preResult.competitor;
+              }
+              if (preResult.skip) {
+                await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像取得前に判定)` });
+                await _goBackToEssquareSearchResults(tabId);
+                continue;
+              }
+            } catch (e) {
+              console.warn('[ES-Square] 競合先行判定エラー:', e && e.message);
+            }
+          }
+
           // 画像: MAIN worldでギャラリーナビゲーション→canvas base64キャプチャ + fetch URL
           try {
             const galleryResult = await _extractEssquareGalleryImages(tabId);

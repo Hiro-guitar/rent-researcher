@@ -1195,6 +1195,25 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
       continue;
     }
 
+    // SUUMO巡回モード: 詳細取得済みで階建情報も揃っている時点で
+    // 競合数をチェックし、閾値超過ならこの先の処理(property_data_json構築・
+    // GAS送信・Discord通知)を省略する。
+    // 競合結果は prop.suumo_competitor に保存し、sendCollector.push() で再取得しない。
+    if (globalThis._suumoPatrolMode && typeof globalThis.checkSuumoCompetitorPreSkip === 'function') {
+      try {
+        const preResult = await globalThis.checkSuumoCompetitorPreSkip(prop);
+        if (preResult.competitor) {
+          prop.suumo_competitor = preResult.competitor;
+        }
+        if (preResult.skip) {
+          await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像処理前に判定)` });
+          continue;
+        }
+      } catch (e) {
+        console.warn('[itandi] 競合先行判定エラー:', e && e.message);
+      }
+    }
+
     // property_data_json構築
     prop.property_data_json = JSON.stringify(buildItandiPropertyDataJson(prop));
 
