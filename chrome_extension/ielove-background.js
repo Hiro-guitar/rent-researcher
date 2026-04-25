@@ -936,15 +936,23 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
     for (const prop of pageProperties) {
       if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
 
-      // 重複チェック（テストユーザーはスキップしない）
+      // 重複チェック (強制再取得リストに含まれる場合はバイパス)
       const isTestUser = customer.name.includes('テスト');
-      if (!isTestUser && customerSeenIds.includes(prop.room_id)) {
+      const forceSet = globalThis._oneShotForceRefetchSet;
+      const isForced = !!(forceSet && (
+        forceSet.has(String(prop._raw_room_id || '')) ||
+        forceSet.has(String(prop.room_id || ''))
+      ));
+      if (!isForced && !isTestUser && customerSeenIds.includes(prop.room_id)) {
         await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 通知済み: ${prop.building_name} ${prop.room_number || ''}` });
         continue;
       }
+      if (isForced) {
+        await setStorageData({ debugLog: `[強制再取得] [いえらぶ] ${customer.name}: ${prop._raw_room_id || prop.room_id} を強制再取得対象として処理` });
+      }
 
       // スキップ済み物件チェック（前回フィルタで除外された物件は詳細ページに行かない）
-      if (!isTestUser && skippedMap[prop.room_id]) {
+      if (!isForced && !isTestUser && skippedMap[prop.room_id]) {
         continue;
       }
 

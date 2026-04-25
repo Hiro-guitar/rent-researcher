@@ -112,6 +112,25 @@
     <div class="hint">顧客設定の設備欄に「バス・トイレ別」が指定されている場合のみ適用</div>
   </div>
 
+  <h2 style="font-size:15px;margin:28px 0 12px;padding-top:16px;border-top:1px solid #e5e7eb;">失敗物件 強制再取得（ワンショット）</h2>
+  <div class="hint" style="margin-bottom:12px">
+    画像取得失敗などで再取得したい物件の <strong>物件番号</strong> を1行に1つずつ貼り付けてください。<br>
+    「リストを保存」→「今すぐ検索を実行」で、リストの物件は seen/skipped を無視して再取得されます。<br>
+    検索完了時にリストは自動でクリアされます（1回限り）。
+  </div>
+
+  <div class="field">
+    <label for="forceRefetchList">物件番号リスト（1行1件）</label>
+    <textarea id="forceRefetchList" rows="6" placeholder="例:&#10;100481810092&#10;100482029381&#10;rent_room_id_xxx" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:4px;font-size:14px;font-family:monospace"></textarea>
+    <div id="forceRefetchCurrent" style="font-size:12px;color:#6b7280;margin-top:4px"></div>
+  </div>
+  <div class="field" style="display:flex;gap:8px;flex-wrap:wrap">
+    <button type="button" id="forceRefetchSaveBtn" class="btn-test" style="background:#2563eb">リストを保存</button>
+    <button type="button" id="forceRefetchClearBtn" class="btn-test" style="background:#6b7280">リストをクリア</button>
+    <button type="button" id="forceRefetchRunBtn" class="btn-test" style="background:#059669">今すぐ検索を実行</button>
+  </div>
+  <div id="forceRefetchStatus" style="font-size:13px;margin-top:8px"></div>
+
   <h2 style="font-size:15px;margin:28px 0 12px;padding-top:16px;border-top:1px solid #e5e7eb;">各サービス 自動ログイン</h2>
   <div class="hint" style="margin-bottom:16px">
     顧客検索中にログインページへ遷移した場合、保存したID/PWで自動ログインします。<br>

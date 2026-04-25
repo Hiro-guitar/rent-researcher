@@ -1227,6 +1227,19 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ', services.itandi && 'itandi', services.essquare && 'ES-Square'].filter(Boolean).join('・');
   await setStorageData({ isSearching: true, debugLog: `━━━ 検索開始 (${serviceNames}) ━━━` });
 
+  // ワンショット強制再取得リストを読み込み(検索終了時にクリア)
+  // 各サイトの seen/skipped チェックがこのSetを参照してバイパスする
+  try {
+    const { oneShotForceRefetch } = await getStorageData(['oneShotForceRefetch']);
+    const list = Array.isArray(oneShotForceRefetch) ? oneShotForceRefetch.map(s => String(s).trim()).filter(Boolean) : [];
+    globalThis._oneShotForceRefetchSet = new Set(list);
+    if (list.length > 0) {
+      await setStorageData({ debugLog: `[強制再取得] ${list.length}件の物件番号を再取得対象として登録: ${list.slice(0, 5).join(', ')}${list.length > 5 ? '...' : ''}` });
+    }
+  } catch (_) {
+    globalThis._oneShotForceRefetchSet = new Set();
+  }
+
   // ログタブを自動オープン（既に開いていればフォーカス）
   await openLogTab();
 
@@ -1413,6 +1426,9 @@ globalThis.runSearchCycle = async function runSearchCycle() {
       await closeDedicatedItandiWindow();
       await closeDedicatedEssquareWindow();
     }
+    // ワンショット強制再取得リストを使い切ったのでクリア(中止でもクリア)
+    globalThis._oneShotForceRefetchSet = new Set();
+    try { await setStorageData({ oneShotForceRefetch: [] }); } catch (_) {}
     await setStorageData({ isSearching: false });
   }
 }
@@ -2204,17 +2220,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     const result = searchResults[i];
     if (!result.propertyNumber) continue;
     const isTest = customer.name.includes('テスト');
+    // 強制再取得リストに含まれる物件番号は seen/skipped チェックをバイパス
+    const isForced = !!(globalThis._oneShotForceRefetchSet && globalThis._oneShotForceRefetchSet.has(String(result.propertyNumber)));
     // room_idはハッシュ化済みなのでpropertyNumber単位で完全一致チェック
     const reinsRoomHash = await hashRoomId('reins', 'reins_' + result.propertyNumber);
-    if (!isTest && (
+    if (!isForced && !isTest && (
       customerSeenIds.includes(reinsRoomHash) ||
       customerSeenIds.some(id => id.includes(result.propertyNumber)) // 旧形式（生ID）互換
     )) {
       continue; // 既知物件はログなし（大量になるため）
     }
+    if (isForced) {
+      await setStorageData({ debugLog: `[強制再取得] ${customer.name}: ${result.propertyNumber} を強制再取得対象として処理` });
+    }
 
     // スキップ済み物件チェック（前回フィルタで除外された物件は詳細ページに行かない）
-    if (!isTest && skippedMap[result.propertyNumber]) {
+    if (!isForced && !isTest && skippedMap[result.propertyNumber]) {
       continue; // スキップ済みはログなし（大量になるため）
     }
 

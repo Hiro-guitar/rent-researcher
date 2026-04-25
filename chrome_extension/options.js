@@ -355,6 +355,94 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // ワンショット強制再取得リスト
+  const forceList = document.getElementById('forceRefetchList');
+  const forceCurrent = document.getElementById('forceRefetchCurrent');
+  const forceStatus = document.getElementById('forceRefetchStatus');
+  const renderForceCurrent = (arr) => {
+    if (!forceCurrent) return;
+    const list = Array.isArray(arr) ? arr : [];
+    if (list.length === 0) {
+      forceCurrent.textContent = '現在の登録: なし';
+      forceCurrent.style.color = '#6b7280';
+    } else {
+      forceCurrent.textContent = `現在の登録: ${list.length}件 (${list.slice(0,3).join(', ')}${list.length > 3 ? '...' : ''})`;
+      forceCurrent.style.color = '#059669';
+    }
+  };
+  // 既存値を読み込み
+  chrome.storage.local.get(['oneShotForceRefetch'], (data) => {
+    const arr = Array.isArray(data.oneShotForceRefetch) ? data.oneShotForceRefetch : [];
+    if (forceList) forceList.value = arr.join('\n');
+    renderForceCurrent(arr);
+  });
+  const parseForceListText = (text) => {
+    return (text || '')
+      .split(/[\n,;]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+  };
+  const forceSaveBtn = document.getElementById('forceRefetchSaveBtn');
+  if (forceSaveBtn) {
+    forceSaveBtn.addEventListener('click', () => {
+      const arr = parseForceListText(forceList && forceList.value);
+      chrome.storage.local.set({ oneShotForceRefetch: arr }, () => {
+        renderForceCurrent(arr);
+        if (forceStatus) {
+          forceStatus.textContent = `${arr.length}件を保存しました`;
+          forceStatus.style.color = '#059669';
+        }
+      });
+    });
+  }
+  const forceClearBtn = document.getElementById('forceRefetchClearBtn');
+  if (forceClearBtn) {
+    forceClearBtn.addEventListener('click', () => {
+      chrome.storage.local.set({ oneShotForceRefetch: [] }, () => {
+        if (forceList) forceList.value = '';
+        renderForceCurrent([]);
+        if (forceStatus) {
+          forceStatus.textContent = 'リストをクリアしました';
+          forceStatus.style.color = '#6b7280';
+        }
+      });
+    });
+  }
+  const forceRunBtn = document.getElementById('forceRefetchRunBtn');
+  if (forceRunBtn) {
+    forceRunBtn.addEventListener('click', () => {
+      // textareaの現在値を保存してから検索を実行
+      const arr = parseForceListText(forceList && forceList.value);
+      if (arr.length === 0) {
+        if (forceStatus) {
+          forceStatus.textContent = 'リストが空です。物件番号を入力してください';
+          forceStatus.style.color = '#dc2626';
+        }
+        return;
+      }
+      chrome.storage.local.set({ oneShotForceRefetch: arr }, () => {
+        renderForceCurrent(arr);
+        if (forceStatus) {
+          forceStatus.textContent = `${arr.length}件を保存 → 検索開始リクエスト送信中...`;
+          forceStatus.style.color = '#059669';
+        }
+        chrome.runtime.sendMessage({ type: 'SEARCH_NOW' }, (response) => {
+          if (chrome.runtime.lastError) {
+            if (forceStatus) {
+              forceStatus.textContent = '検索開始エラー: ' + chrome.runtime.lastError.message;
+              forceStatus.style.color = '#dc2626';
+            }
+            return;
+          }
+          if (forceStatus) {
+            forceStatus.textContent = `${arr.length}件の強制再取得つきで検索を開始しました。ログ画面で進行を確認してください`;
+            forceStatus.style.color = '#059669';
+          }
+        });
+      });
+    });
+  }
+
   // 4サービス ログインブロック解除ボタン(共通)
   const bindUnblock = (btnId, blockedKey, reasonKey, statusId) => {
     const btn = document.getElementById(btnId);

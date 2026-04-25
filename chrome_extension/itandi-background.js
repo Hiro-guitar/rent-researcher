@@ -1191,10 +1191,18 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
   for (const prop of allProperties) {
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
 
-    // 重複チェック
+    // 重複チェック (強制再取得リストに含まれる場合はバイパス)
     const isTestUser = customer.name.includes('テスト');
-    if (!isTestUser && customerSeenIds.includes(prop.room_id)) {
+    const forceSet = globalThis._oneShotForceRefetchSet;
+    const isForced = !!(forceSet && (
+      forceSet.has(String(prop._raw_room_id || '')) ||
+      forceSet.has(String(prop.room_id || ''))
+    ));
+    if (!isForced && !isTestUser && customerSeenIds.includes(prop.room_id)) {
       continue;
+    }
+    if (isForced) {
+      await setStorageData({ debugLog: `[強制再取得] [itandi] ${customer.name}: ${prop._raw_room_id || prop.room_id} を強制再取得対象として処理` });
     }
 
     // 詳細ページからスクレイピング
