@@ -146,6 +146,29 @@ async function runSuumoPatrolCycle() {
 
     await setStorageData({ debugLog: `[SUUMO巡回] ${criteria.length}件の条件で巡回開始` });
 
+    // 巡回スレッドを作成(forum チャンネルへの投稿で1巡回=1スレッドにまとめる)
+    // Discord rate limit緩和のため、毎物件ごとの新スレッド作成を避ける
+    let suumoPatrolThreadId = '';
+    try {
+      const threadResp = await fetch(gasWebappUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create_suumo_patrol_thread',
+          criteriaName: criteria.map(c => c.name).slice(0, 3).join(', ') + (criteria.length > 3 ? ' 他' : '')
+        })
+      });
+      const threadJson = await threadResp.json();
+      if (threadJson.success && threadJson.thread_id) {
+        suumoPatrolThreadId = threadJson.thread_id;
+        await setStorageData({ debugLog: `[SUUMO巡回] Discord巡回スレッド作成OK: ${threadJson.thread_name || ''}` });
+      } else {
+        await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成失敗(後方互換で物件ごと新スレッド): ${threadJson.error || '原因不明'}` });
+      }
+    } catch (err) {
+      await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成例外(後方互換で物件ごと新スレッド): ${err.message}` });
+    }
+
     // 2. 既知物件キーセットを読み込み（ローカル）
     const { suumoSeenKeys } = await getStorageData(['suumoSeenKeys']);
     const seenKeys = suumoSeenKeys || {};
@@ -336,7 +359,7 @@ async function runSuumoPatrolCycle() {
             return this._items.length;
           }
           try {
-            await sendSuumoCandidatesToGas([prop], crit.id);
+            await sendSuumoCandidatesToGas([prop], crit.id, suumoPatrolThreadId);
             await setStorageData({ debugLog: `[SUUMO巡回] → ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} 送信完了` });
           } catch (err) {
             await setStorageData({ debugLog: `[SUUMO巡回] GAS送信失敗: ${err.message}` });
@@ -451,7 +474,7 @@ function normSuumoKey(building, room) {
 /**
  * 新着物件をGASに送信
  */
-async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
+async function sendSuumoCandidatesToGas(properties, patrolCriteriaId, suumoPatrolThreadId) {
   const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
   if (!gasWebappUrl) throw new Error('GAS URL未設定');
 
@@ -476,7 +499,8 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
       body: JSON.stringify({
         action: 'add_suumo_candidate',
         properties: properties,
-        patrolCriteriaId: patrolCriteriaId
+        patrolCriteriaId: patrolCriteriaId,
+        suumoPatrolThreadId: suumoPatrolThreadId || ''
       })
     });
   } catch (err) {
