@@ -150,7 +150,9 @@ async function runSuumoPatrolCycle() {
     // Discord rate limit緩和のため、毎物件ごとの新スレッド作成を避ける
     let suumoPatrolThreadId = '';
     try {
-      const threadResp = await fetch(gasWebappUrl, {
+      const { gasWebappUrl: __gasUrl } = await getStorageData(['gasWebappUrl']);
+      if (!__gasUrl) throw new Error('gasWebappUrl未設定');
+      const threadResp = await fetch(__gasUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
