@@ -1157,32 +1157,12 @@ function handleAddSuumoCandidate(json) {
   var webhookUrl = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL') || '';
   console.log('SUUMO_DISCORD_WEBHOOK_URL: ' + (webhookUrl ? webhookUrl.substring(0, 50) + '...' : '(未設定)'));
 
-  // Cloudflare 1015 等で Discord通知が失敗した過去の物件（24時間以内）も再送対象に加える
-  var unsentProps = [];
-  try {
-    unsentProps = getUnsentSuumoCandidates_(json.patrolCriteriaId || '');
-    if (unsentProps.length > 0) {
-      console.log('[SUUMO巡回] 未通知物件 ' + unsentProps.length + ' 件を再送対象に追加');
-    }
-  } catch (e) {
-    console.warn('[SUUMO巡回] 未通知物件取得失敗:', e && e.message);
-  }
-  // 新着の先頭に未通知を追加（古い順、重複は物件キー一致でスキップ）
-  var combinedProps = [];
-  var seenKeys = {};
-  for (var u = 0; u < unsentProps.length; u++) {
-    var upkey = unsentProps[u].row && unsentProps[u].row[0];
-    if (!upkey || seenKeys[upkey]) continue;
-    seenKeys[upkey] = true;
-    combinedProps.push(unsentProps[u]);
-  }
-  for (var v = 0; v < (result.newProperties || []).length; v++) {
-    var npkey = result.newProperties[v].row && result.newProperties[v].row[0];
-    if (!npkey || seenKeys[npkey]) continue;
-    seenKeys[npkey] = true;
-    combinedProps.push(result.newProperties[v]);
-  }
-  result.newProperties = combinedProps;
+  // 顧客検索と同じく「今来た物件のみ通知」とする。
+  // 旧実装は過去24時間の未通知物件を毎回再送していたが、Discord rate limit時に
+  // 失敗が雪だるま式に積み上がって avalanche を起こしていた(同じ物件を毎回再送→
+  // どんどん未通知が増える→1物件あたりN件送信になる→レート制限で1時間Ban)。
+  // 顧客検索ではこの再送ロジックがなく問題が起きていないため、踏襲する。
+  // result.newProperties はそのまま使う(新着のみ)
 
   // 新着があればDiscord通知
   var discordResult = null;
