@@ -53,6 +53,9 @@ function doPost(e) {
     if (json.action === 'add_suumo_candidate') {
       return handleAddSuumoCandidate(json);
     }
+    if (json.action === 'create_suumo_patrol_thread') {
+      return handleCreateSuumoPatrolThread(json);
+    }
     if (json.action === 'confirm_suumo_approve') {
       return handleConfirmSuumoApprove(json);
     }

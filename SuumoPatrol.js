@@ -881,11 +881,65 @@ function handleSuumoApprovePage(e) {
 // ═══════════════════════════════════════════════════════════
 
 /**
+ * 巡回開始時に Discord forum チャンネルにスレッドを1つ作成し、thread_id を返す。
+ * 巡回中の全物件はこのスレッドに追記される(Discord rate limit緩和のため)。
+ * Chrome拡張から action=create_suumo_patrol_thread で呼ばれる。
+ */
+function handleCreateSuumoPatrolThread(json) {
+  var webhookUrl = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL') || '';
+  if (!webhookUrl) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false, error: 'SUUMO_DISCORD_WEBHOOK_URL未設定'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var criteriaName = (json && json.criteriaName) || '';
+  var jstNow = Utilities.formatDate(new Date(), 'JST', 'yyyy-MM-dd HH:mm');
+  var threadName = '🌀 SUUMO巡回 ' + jstNow + (criteriaName ? ' / ' + criteriaName : '');
+
+  // ?wait=true でメッセージ作成結果を取得 → channel_id がスレッドIDになる
+  try {
+    var resp = UrlFetchApp.fetch(webhookUrl + '?wait=true', {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        thread_name: threadName,
+        content: '━━━ SUUMO巡回 開始 ━━━\n📅 ' + jstNow + (criteriaName ? '\n📋 条件: ' + criteriaName : '')
+      }),
+      muteHttpExceptions: true
+    });
+    var code = resp.getResponseCode();
+    var bodyText = resp.getContentText();
+    if (code < 200 || code >= 300) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false, error: 'webhook HTTP ' + code + ': ' + bodyText.substring(0, 200)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    var body = JSON.parse(bodyText);
+    // forum チャンネルへの thread_name 付き投稿時、channel_id が新スレッドのID
+    var threadId = body.channel_id || body.thread_id || (body.channel && body.channel.id) || '';
+    if (!threadId) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false, error: 'thread_id取得失敗', responseSnippet: bodyText.substring(0, 200)
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true, thread_id: threadId, thread_name: threadName
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false, error: err.message
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+/**
  * SUUMO候補物件のDiscord通知を送信
  * @param {Array} newProperties - addSuumoCandidates()の戻り値のnewProperties
  * @param {string} criteriaName - 巡回条件名
+ * @param {string} threadId - 既存スレッドID(巡回開始時に作成済みなら指定。そのスレッドに投稿)
  */
-function sendSuumoDiscordNotification(newProperties, criteriaName) {
+function sendSuumoDiscordNotification(newProperties, criteriaName, threadId) {
   // 実行時にスクリプトプロパティから取得
   var webhookUrl = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL') || '';
   console.log('sendSuumoDiscordNotification: webhookUrl=' + (webhookUrl ? webhookUrl.substring(0, 50) + '...' : '(空)') + ', props=' + newProperties.length);
@@ -1013,17 +1067,23 @@ function sendSuumoDiscordNotification(newProperties, criteriaName) {
 
     var content = msgLines.join('\n');
 
-    var payload = {
-      content: content,
-      thread_name: building + ' ' + room + '号室 - ' + rentDisplay
-    };
+    // threadId 指定があれば既存スレッドに投稿、無ければ従来通り forum で新スレッド作成
+    var payload = { content: content };
+    var postUrl = webhookUrl;
+    if (threadId) {
+      // forum スレッドに追記: ?thread_id=xxx を付ける
+      postUrl = webhookUrl + (webhookUrl.indexOf('?') >= 0 ? '&' : '?') + 'thread_id=' + encodeURIComponent(threadId);
+    } else {
+      // 後方互換: thread_id無しなら毎回新スレッド作成(Discord forum)
+      payload.thread_name = building + ' ' + room + '号室 - ' + rentDisplay;
+    }
 
     // 429/5xxは指数バックオフでリトライ（最大3回）
     var sendSuccess = false;
     var lastErrMsg = '';
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        var resp = UrlFetchApp.fetch(webhookUrl, {
+        var resp = UrlFetchApp.fetch(postUrl, {
           method: 'post',
           contentType: 'application/json',
           payload: JSON.stringify(payload),
@@ -1178,7 +1238,10 @@ function handleAddSuumoCandidate(json) {
       }
     }
     try {
-      discordResult = sendSuumoDiscordNotification(result.newProperties, criteriaName);
+      // Chrome拡張側が巡回開始時にスレッドを作成済みなら threadId が含まれる
+      // → そのスレッドに追記投稿(forumへの新スレッド作成を回避してrate limit緩和)
+      var threadId = (json && json.suumoPatrolThreadId) || '';
+      discordResult = sendSuumoDiscordNotification(result.newProperties, criteriaName, threadId);
     } catch (err) {
       discordResult = { error: err.message };
       console.error('Discord通知例外: ' + err.message);
