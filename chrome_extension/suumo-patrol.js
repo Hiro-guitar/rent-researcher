@@ -268,9 +268,8 @@ async function runSuumoPatrolCycle() {
             if (suumoSkipLowImageCount) {
               const imgs = prop.image_urls || prop.images || [];
               const imgCount = Array.isArray(imgs) ? imgs.length : 0;
-              // 枚数が取得できている(>0) かつ 11枚以下 → スキップ
-              // 0枚(未取得の可能性)は安全側で通す
-              if (imgCount > 0 && imgCount <= 11) {
+              // 11枚以下(0枚含む) → スキップ
+              if (imgCount <= 11) {
                 await setStorageData({ debugLog:
                   `[SUUMO巡回] ✗ スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} - 画像${imgCount}枚(11枚以下)`
                 });
