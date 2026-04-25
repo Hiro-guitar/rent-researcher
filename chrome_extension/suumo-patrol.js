@@ -463,15 +463,30 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
     console.log('[SUUMO巡回] building_name=' + (p.building_name || ''), 'room_number=' + (p.room_number || ''));
   }
 
-  const response = await fetch(gasWebappUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      action: 'add_suumo_candidate',
-      properties: properties,
-      patrolCriteriaId: patrolCriteriaId
-    })
-  });
+  // 90秒タイムアウト付き fetch
+  // GAS が Discord レート制限などで詰まった場合に巡回全体を止めないため
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
+  let response;
+  try {
+    response = await fetch(gasWebappUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        action: 'add_suumo_candidate',
+        properties: properties,
+        patrolCriteriaId: patrolCriteriaId
+      })
+    });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err && err.name === 'AbortError') {
+      throw new Error('GAS送信タイムアウト(90秒): Discord等で詰まっている可能性。次回巡回で再試行');
+    }
+    throw err;
+  }
+  clearTimeout(timeoutId);
 
   const rawText = await response.text();
   console.log('[SUUMO巡回] GASレスポンス:', rawText.substring(0, 500));
