@@ -213,7 +213,27 @@ async function runSuumoPatrolCycle() {
             prop.building_name || prop.buildingName || prop.building || '',
             prop.room_number || prop.roomNumber || prop.room || ''
           );
-          if (seenKeys[key]) return this._items.length;
+          // 強制再取得リストにある物件は seenKeys バイパス
+          // (room_id / _raw_room_id / propertyNumber いずれか一致でOK)
+          const forceSet = globalThis._oneShotForceRefetchSet;
+          const isForced = !!(forceSet && forceSet.size > 0 && (
+            forceSet.has(String(prop.room_id || '')) ||
+            forceSet.has(String(prop._raw_room_id || '')) ||
+            forceSet.has(String(prop.propertyNumber || '')) ||
+            forceSet.has(String(prop.reins_property_number || ''))
+          ));
+          if (seenKeys[key] && !isForced) {
+            // 既知物件: ログを出して透明にする(従来は無言スキップ)
+            await setStorageData({ debugLog:
+              `[SUUMO巡回] ✗ 既知スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} (前回までに通知済み)`
+            });
+            return this._items.length;
+          }
+          if (isForced) {
+            await setStorageData({ debugLog:
+              `[SUUMO巡回] [強制再取得] ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} を再処理対象として通過`
+            });
+          }
           seenKeys[key] = Date.now();
           totalNew++;
           // 画像枚数による事前スキップ(SUUMO巡回のみ)
