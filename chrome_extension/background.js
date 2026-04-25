@@ -1229,12 +1229,20 @@ globalThis.runSearchCycle = async function runSearchCycle() {
 
   // ワンショット強制再取得リストを読み込み(検索終了時にクリア)
   // 各サイトの seen/skipped チェックがこのSetを参照してバイパスする
+  // プレフィックス対応: "reins_100138898060" のような形式も自動的に剥がして登録
   try {
     const { oneShotForceRefetch } = await getStorageData(['oneShotForceRefetch']);
-    const list = Array.isArray(oneShotForceRefetch) ? oneShotForceRefetch.map(s => String(s).trim()).filter(Boolean) : [];
-    globalThis._oneShotForceRefetchSet = new Set(list);
-    if (list.length > 0) {
-      await setStorageData({ debugLog: `[強制再取得] ${list.length}件の物件番号を再取得対象として登録: ${list.slice(0, 5).join(', ')}${list.length > 5 ? '...' : ''}` });
+    const rawList = Array.isArray(oneShotForceRefetch) ? oneShotForceRefetch.map(s => String(s).trim()).filter(Boolean) : [];
+    const expanded = new Set();
+    for (const raw of rawList) {
+      expanded.add(raw); // 生形式
+      // reins_ / itandi_ / ielove_ / essquare_ プレフィックスを剥がす
+      const stripped = raw.replace(/^(reins_|itandi_|ielove_|essquare_)/, '');
+      if (stripped !== raw) expanded.add(stripped);
+    }
+    globalThis._oneShotForceRefetchSet = expanded;
+    if (rawList.length > 0) {
+      await setStorageData({ debugLog: `[強制再取得] ${rawList.length}件の物件番号を再取得対象として登録(プレフィックス展開後${expanded.size}件): ${rawList.slice(0, 5).join(', ')}${rawList.length > 5 ? '...' : ''}` });
     }
   } catch (_) {
     globalThis._oneShotForceRefetchSet = new Set();
