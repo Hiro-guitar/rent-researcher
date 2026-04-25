@@ -492,15 +492,11 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
     filterObj['reikin:eq'] = 0;
   }
 
-  // itandi APIはbucket_size上限99（100だと400を返す）
-  const bucketSize = 99;
-
+  // aggregation を使わずに room ベースで全件 paginate する。
+  // 旧実装では aggregation by building_id で「同じ建物の複数空室は1部屋に集約」
+  // されていたため、569件ヒットでも 23件しか取れない問題があった。
+  // 代わりに page で素直に paginate する(最大10ページ × limit:20 = 200件まで)。
   return {
-    aggregation: {
-      bucket_size: bucketSize,
-      field: 'building_id',
-      next_bucket_existance_check: true,
-    },
     filter: filterObj,
     page: { limit: 20, page: 1 },
     sort: [{ last_status_opened_at: 'desc' }],
@@ -511,7 +507,31 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
 
 function parseItandiSearchResponse(data) {
   const properties = [];
-  const buildings = data.buildings || [];
+  let buildings = data.buildings || [];
+
+  // フォールバック: aggregation 無しのレスポンスで rooms が直接配列で返る場合
+  // → 各 room を仮の building にラップして従来パスで処理する
+  if (buildings.length === 0 && Array.isArray(data.rooms) && data.rooms.length > 0) {
+    const grouped = new Map();
+    for (const r of data.rooms) {
+      const bId = r.building_id || (r.building && r.building.id) || 'unknown';
+      if (!grouped.has(bId)) {
+        const b = r.building || {};
+        grouped.set(bId, {
+          property_id: bId,
+          name: b.name || r.building_name || '',
+          address_text: b.address_text || r.address_text || '',
+          building_age_text: b.building_age_text || r.building_age_text || '',
+          image_url: b.image_url || r.image_url || '',
+          story_text: b.story_text || r.story_text || '',
+          nearby_train_station_texts: b.nearby_train_station_texts || r.nearby_train_station_texts || [],
+          rooms: [],
+        });
+      }
+      grouped.get(bId).rooms.push(r);
+    }
+    buildings = Array.from(grouped.values());
+  }
 
   for (const bldg of buildings) {
     if (!bldg || typeof bldg !== 'object') continue;
@@ -1161,11 +1181,14 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
         await setStorageData({ debugLog: `[itandi] ${customer.name}: ${totalCount}件ヒット${chunkLabel}` });
       }
 
-      // 次ページ確認
-      const meta = data.meta || {};
-      const agg = data.aggregation || {};
-      const hasNext = meta.next_bucket_exists || agg.next_bucket_exists || false;
-      if (!hasNext) break;
+      // 次ページ確認(aggregation削除後はrooms数ベースで判定)
+      // 取得件数が limit に達していなければ最終ページ
+      // また、room_total_count があれば既取得数と比較
+      const limit = (payload.page && payload.page.limit) || 20;
+      const totalCount = data.room_total_count || data.total_count || 0;
+      if (pageProps.length === 0) break;
+      if (pageProps.length < limit) break;
+      if (totalCount > 0 && allProperties.length >= totalCount) break;
 
       await csleep(1000);
     }
