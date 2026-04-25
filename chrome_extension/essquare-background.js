@@ -1104,13 +1104,131 @@ function sendEssquareContentMessage(tabId, message, timeoutMs = 15000) {
   });
 }
 
-// === 画像アップロード（imgbb → freeimage.host → imgur フォールバック） ===
+// === 画像アップロード（catbox → 0x0.st → telegraph → imgbb → freeimage → tmpfiles → pixeldrain → imgur フォールバック） ===
 
 const IMGBB_API_KEY = '48cdc51fdcc4a2828c3379b59663db7f';
 // freeimage.host の公開コミュニティキー(広く知られた無料キー)
 const FREEIMAGE_API_KEY = '6d207e02198a847aa98d0a2a901485a5';
 // imgur Client-ID（未設定時は自動でスキップ）
 const IMGUR_CLIENT_ID = '';
+
+// ─── 共通ヘルパー: base64 → Blob ───
+function _base64ToBlob(base64, mime) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime || 'image/jpeg' });
+}
+
+// ─── catbox.moe (APIキー不要、最も安定) ───
+async function _uploadCatbox(base64, mime) {
+  const blob = _base64ToBlob(base64, mime);
+  const formData = new FormData();
+  formData.append('reqtype', 'fileupload');
+  formData.append('fileToUpload', blob, 'upload.jpg');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch('https://catbox.moe/user/api.php', {
+      method: 'POST', body: formData, signal: controller.signal
+    });
+    if (!resp.ok) {
+      const body = (await resp.text().catch(() => '')).slice(0, 200);
+      const isRate = resp.status === 429 || resp.status === 503;
+      const err = new Error(`catbox_${resp.status}:${body.replace(/\s+/g, ' ')}`);
+      if (isRate) err.rateLimited = true;
+      throw err;
+    }
+    const text = (await resp.text()).trim();
+    if (!/^https?:\/\/.+catbox\.moe\//i.test(text)) {
+      throw new Error('catbox_unexpected_response:' + text.slice(0, 80));
+    }
+    return text;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ─── 0x0.st (APIキー不要、シンプル) ───
+async function _upload0x0(base64, mime) {
+  const blob = _base64ToBlob(base64, mime);
+  const formData = new FormData();
+  formData.append('file', blob, 'upload.jpg');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch('https://0x0.st/', {
+      method: 'POST', body: formData, signal: controller.signal
+    });
+    if (!resp.ok) {
+      const body = (await resp.text().catch(() => '')).slice(0, 200);
+      const isRate = resp.status === 429 || resp.status === 503;
+      const err = new Error(`0x0_${resp.status}:${body.replace(/\s+/g, ' ')}`);
+      if (isRate) err.rateLimited = true;
+      throw err;
+    }
+    const text = (await resp.text()).trim();
+    if (!/^https?:\/\/0x0\.st\//i.test(text)) {
+      throw new Error('0x0_unexpected_response:' + text.slice(0, 80));
+    }
+    return text;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ─── tmpfiles.org (APIキー不要) ───
+async function _uploadTmpfiles(base64, mime) {
+  const blob = _base64ToBlob(base64, mime);
+  const formData = new FormData();
+  formData.append('file', blob, 'upload.jpg');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch('https://tmpfiles.org/api/v1/upload', {
+      method: 'POST', body: formData, signal: controller.signal
+    });
+    if (!resp.ok) {
+      const body = (await resp.text().catch(() => '')).slice(0, 200);
+      const isRate = resp.status === 429 || resp.status === 503;
+      const err = new Error(`tmpfiles_${resp.status}:${body.replace(/\s+/g, ' ')}`);
+      if (isRate) err.rateLimited = true;
+      throw err;
+    }
+    const json = await resp.json();
+    if (!json || !json.data || !json.data.url) throw new Error('tmpfiles_unexpected_response');
+    // tmpfiles の url は /downloads/ ではなく /dl/ に書き換えると直接画像取得できる
+    return json.data.url.replace('://tmpfiles.org/', '://tmpfiles.org/dl/').replace(/^http:\/\//, 'https://');
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ─── pixeldrain (APIキー不要、PUT送信) ───
+async function _uploadPixeldrain(base64, mime) {
+  const blob = _base64ToBlob(base64, mime);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch('https://pixeldrain.com/api/file', {
+      method: 'POST',
+      body: (() => { const fd = new FormData(); fd.append('file', blob, 'upload.jpg'); return fd; })(),
+      signal: controller.signal
+    });
+    if (!resp.ok) {
+      const body = (await resp.text().catch(() => '')).slice(0, 200);
+      const isRate = resp.status === 429 || resp.status === 503;
+      const err = new Error(`pixeldrain_${resp.status}:${body.replace(/\s+/g, ' ')}`);
+      if (isRate) err.rateLimited = true;
+      throw err;
+    }
+    const json = await resp.json();
+    if (!json || !json.id) throw new Error('pixeldrain_unexpected_response');
+    return `https://pixeldrain.com/api/file/${json.id}`;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 // imgbb にアップロード
 async function _uploadImgbb(base64) {
@@ -1207,11 +1325,14 @@ async function _uploadTelegraph(base64, mime) {
 }
 
 // ホスト別の最終失敗時刻を記録し、しばらくスキップする(レート制限食らったら60秒避ける)
-const __hostCooldown = { telegraph: 0, imgbb: 0, freeimage: 0, imgur: 0 };
+const __hostCooldown = {
+  catbox: 0, '0x0': 0, telegraph: 0, imgbb: 0,
+  freeimage: 0, tmpfiles: 0, pixeldrain: 0, imgur: 0
+};
 const COOLDOWN_MS = 60 * 1000;
 
 async function uploadBase64ToCatbox(dataUrl) {
-  // 関数名は過去互換。実体は telegraph→imgbb→freeimage→imgur のフォールバック
+  // 関数名は過去互換。実体は catbox→0x0→telegraph→imgbb→freeimage→tmpfiles→pixeldrain→imgur のフォールバック
   const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!match) return null;
   const mime = match[1];
@@ -1219,27 +1340,35 @@ async function uploadBase64ToCatbox(dataUrl) {
 
   const now = Date.now();
   const allHosts = [
+    // 安定度の高い順: catbox / 0x0.st (APIキー不要、長期運用) → telegraph (安定) → imgbb (たまに429)
+    // → freeimage (たまにレート制限) → tmpfiles (一時保存) → pixeldrain → imgur (キー無しだとスキップ)
+    { name: 'catbox', fn: () => _uploadCatbox(base64, mime) },
+    { name: '0x0', fn: () => _upload0x0(base64, mime) },
     { name: 'telegraph', fn: () => _uploadTelegraph(base64, mime) },
     { name: 'imgbb', fn: () => _uploadImgbb(base64) },
     { name: 'freeimage', fn: () => _uploadFreeimage(base64) },
+    { name: 'tmpfiles', fn: () => _uploadTmpfiles(base64, mime) },
+    { name: 'pixeldrain', fn: () => _uploadPixeldrain(base64, mime) },
     { name: 'imgur', fn: () => _uploadImgur(base64) },
   ];
   let hosts = allHosts.filter(h => now - __hostCooldown[h.name] > COOLDOWN_MS);
   if (hosts.length === 0) hosts = allHosts;
 
-  let lastErr = null;
+  const errors = [];
   for (const h of hosts) {
     try {
       const url = await h.fn();
       if (url) return url;
+      errors.push(`${h.name}=null_url`);
     } catch (e) {
-      lastErr = e;
+      errors.push(`${h.name}=${(e && e.message) || e}`.slice(0, 120));
       if (e && e.rateLimited) __hostCooldown[h.name] = Date.now();
       // 次のホストへフォールバック
     }
   }
-  if (lastErr) throw lastErr;
-  return null;
+  // 全部失敗 → エラーチェーン全体を含めてthrow
+  const aggregated = new Error(`all_hosts_failed: ${errors.join(' | ')}`);
+  throw aggregated;
 }
 
 // === property_data_json構築 ===
