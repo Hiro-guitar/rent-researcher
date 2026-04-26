@@ -242,17 +242,21 @@ async function runSuumoPatrolCycle() {
           totalNew++;
           // 画像枚数による事前スキップ(SUUMO巡回のみ)
           // 競合検索より先にチェックすることで SUUMO検索呼び出しを減らす
+          // REINSは仕様上画像が最大10枚までなので、11枚以下スキップの対象外
           try {
             const { suumoSkipLowImageCount } = await getStorageData(['suumoSkipLowImageCount']);
             if (suumoSkipLowImageCount) {
-              const imgs = prop.image_urls || prop.images || [];
-              const imgCount = Array.isArray(imgs) ? imgs.length : 0;
-              // 11枚以下(0枚含む) → スキップ
-              if (imgCount <= 11) {
-                await setStorageData({ debugLog:
-                  `[SUUMO巡回] ✗ スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} - 画像${imgCount}枚(11枚以下)`
-                });
-                return this._items.length;
+              const isReins = prop.source === 'reins' || prop.sourceType === 'reins';
+              if (!isReins) {
+                const imgs = prop.image_urls || prop.images || [];
+                const imgCount = Array.isArray(imgs) ? imgs.length : 0;
+                // 11枚以下(0枚含む) → スキップ
+                if (imgCount <= 11) {
+                  await setStorageData({ debugLog:
+                    `[SUUMO巡回] ✗ スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} - 画像${imgCount}枚(11枚以下)`
+                  });
+                  return this._items.length;
+                }
               }
             }
           } catch (_) {}
@@ -658,11 +662,13 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
   }
 
   // 画像枚数カウント(11枚以下なら警告)
+  // ただしREINSは仕様上最大10枚なので警告対象外
   let imageCount = 0;
   if (p.image_urls && Array.isArray(p.image_urls)) imageCount = p.image_urls.length;
   else if (p.imageUrls && Array.isArray(p.imageUrls)) imageCount = p.imageUrls.length;
   if (imageCount === 0 && p.image_url) imageCount = 1;
-  if (imageCount <= 11) {
+  const isReinsForWarn = source === 'reins' || p.sourceType === 'reins';
+  if (imageCount <= 11 && !isReinsForWarn) {
     warnings.push('⚠️ 画像: ' + imageCount + '枚(11枚以下なので要確認)');
   }
 
