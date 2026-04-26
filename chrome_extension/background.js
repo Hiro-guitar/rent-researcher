@@ -2800,6 +2800,22 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         __rejectReason = getFilterRejectReason(detail, customer);
       }
 
+      // 元付会社名キーワードによる早期スキップ(SUUMO巡回モードのみ)
+      // 競合数取得や画像base64取得より前に判定して無駄な処理を省略
+      if (detail && !__rejectReason &&
+          globalThis._suumoPatrolMode &&
+          typeof globalThis.checkSuumoOwnerKeywordSkip === 'function') {
+        try {
+          const ownerSkip = await globalThis.checkSuumoOwnerKeywordSkip(detail);
+          if (ownerSkip.skip) {
+            __rejectReason = ownerSkip.reason;
+            await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name || ''} ${detail.room_number || ''} - ${__rejectReason}` });
+          }
+        } catch (e) {
+          console.warn('[REINS] 元付キーワード判定エラー:', e && e.message);
+        }
+      }
+
       // SUUMO巡回モード: 画像base64取得前にSUUMO競合数をチェック
       // (REINSの画像取得は fetch + blob→base64 変換で重いため効果大)
       if (detail && !__rejectReason &&

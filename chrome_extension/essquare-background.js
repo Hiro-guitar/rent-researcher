@@ -1818,6 +1818,21 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             continue;
           }
 
+          // 元付会社名キーワードによる早期スキップ(SUUMO巡回モードのみ)
+          // 競合数取得や画像取得より前に判定して無駄な処理を省略
+          if (globalThis._suumoPatrolMode && typeof globalThis.checkSuumoOwnerKeywordSkip === 'function') {
+            try {
+              const ownerSkip = await globalThis.checkSuumoOwnerKeywordSkip(prop);
+              if (ownerSkip.skip) {
+                await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${ownerSkip.reason}` });
+                await _goBackToEssquareSearchResults(tabId);
+                continue;
+              }
+            } catch (e) {
+              console.warn('[ES-Square] 元付キーワード判定エラー:', e && e.message);
+            }
+          }
+
           // SUUMO巡回モード: 画像取得前にSUUMO競合数をチェックし、閾値超過なら画像取得を省略
           // (ES-Squareの画像取得は canvas base64 + catboxアップロード で非常に重いため効果大)
           if (globalThis._suumoPatrolMode && typeof globalThis.checkSuumoCompetitorPreSkip === 'function') {

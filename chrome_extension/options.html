@@ -302,6 +302,12 @@
   </div>
 
   <div class="field">
+    <label for="suumoExcludeOwnerKeywords">SUUMO巡回: 元付会社名 除外キーワード</label>
+    <textarea id="suumoExcludeOwnerKeywords" rows="3" placeholder="例:&#10;レオパレス&#10;サブリース太郎" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:4px;font-size:14px;font-family:monospace"></textarea>
+    <div class="hint">物件の <code>owner_company</code>(元付会社名) にここのキーワードが<strong>含まれる</strong>物件をスキップします。1行に1キーワード(部分一致、大文字小文字無視)。<strong>競合数取得・画像取得より前</strong>に判定するため、無駄な処理が発生しません。SUUMO巡回のみ適用</div>
+  </div>
+
+  <div class="field">
     <label for="itandiUpdatedWithinDays">SUUMO巡回: itandi 募集条件更新 N日以内のみ取得</label>
     <input type="number" id="itandiUpdatedWithinDays" min="0" max="30" placeholder="例: 1（空欄なら制限なし）" style="width:120px">
     <div class="hint">itandi BB API の <code>offer_conditions_updated_at:gteq</code> フィルタを付与します。「1」なら昨日00:00以降に募集条件が更新された物件のみ取得。新着差分だけ拾うので巡回高速化＆SUUMO検索への負荷軽減。SUUMO巡回のみ適用</div>

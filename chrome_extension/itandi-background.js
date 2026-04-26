@@ -1315,6 +1315,20 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     // SUUMO巡回モード: 詳細取得済みで階建情報も揃っている時点で
     // 競合数をチェックし、閾値超過ならこの先の処理(property_data_json構築・
     // GAS送信・Discord通知)を省略する。
+    // 元付会社名キーワードによる早期スキップ(SUUMO巡回モードのみ)
+    // 競合数取得や画像取得より前に判定して無駄な処理を省略
+    if (globalThis._suumoPatrolMode && typeof globalThis.checkSuumoOwnerKeywordSkip === 'function') {
+      try {
+        const ownerSkip = await globalThis.checkSuumoOwnerKeywordSkip(prop);
+        if (ownerSkip.skip) {
+          await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${ownerSkip.reason}` });
+          continue;
+        }
+      } catch (e) {
+        console.warn('[itandi] 元付キーワード判定エラー:', e && e.message);
+      }
+    }
+
     // 競合結果は prop.suumo_competitor に保存し、sendCollector.push() で再取得しない。
     if (globalThis._suumoPatrolMode && typeof globalThis.checkSuumoCompetitorPreSkip === 'function') {
       try {

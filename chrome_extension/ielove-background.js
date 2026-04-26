@@ -1046,6 +1046,20 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
+      // 元付会社名キーワードによる早期スキップ(SUUMO巡回モードのみ)
+      // 競合数取得や画像処理より前に判定して無駄な処理を省略
+      if (globalThis._suumoPatrolMode && typeof globalThis.checkSuumoOwnerKeywordSkip === 'function') {
+        try {
+          const ownerSkip = await globalThis.checkSuumoOwnerKeywordSkip(prop);
+          if (ownerSkip.skip) {
+            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${ownerSkip.reason}` });
+            continue;
+          }
+        } catch (e) {
+          console.warn('[いえらぶ] 元付キーワード判定エラー:', e && e.message);
+        }
+      }
+
       // SUUMO巡回モード: 詳細取得済みで階建情報も揃っている時点で競合数をチェック
       // 閾値超過なら property_data_json 構築・GAS送信・Discord通知を省略する。
       // 競合結果は prop.suumo_competitor に保存し sendCollector.push() で再取得しない。

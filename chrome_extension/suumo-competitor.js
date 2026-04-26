@@ -418,11 +418,41 @@
     }
   }
 
+  /**
+   * 元付会社名(owner_company) に除外キーワードが含まれるかチェック。
+   * 含まれる場合は { skip:true, reason } を返す。
+   * 競合数取得・画像取得より前に呼ぶことで、無駄な処理を省略できる。
+   *
+   * 設定: chrome.storage.local の suumoExcludeOwnerKeywords (string[])
+   * 部分一致(includes)で大文字小文字無視。
+   */
+  async function checkSuumoOwnerKeywordSkip(prop) {
+    try {
+      const data = await chrome.storage.local.get(['suumoExcludeOwnerKeywords']);
+      const keywords = Array.isArray(data.suumoExcludeOwnerKeywords) ? data.suumoExcludeOwnerKeywords : [];
+      if (keywords.length === 0) return { skip: false };
+      const ownerCompany = String(prop && (prop.owner_company || prop.ownerCompany) || '').toLowerCase();
+      if (!ownerCompany) return { skip: false };
+      for (const kw of keywords) {
+        const k = String(kw || '').trim().toLowerCase();
+        if (!k) continue;
+        if (ownerCompany.includes(k)) {
+          return { skip: true, reason: `元付除外キーワード一致("${kw}" in "${prop.owner_company || prop.ownerCompany}")` };
+        }
+      }
+      return { skip: false };
+    } catch (e) {
+      console.warn('[元付スキップ] 例外:', e && e.message);
+      return { skip: false };
+    }
+  }
+
   // ── グローバルエクスポート（service worker / background scope） ──
   globalThis.buildSuumoCompetitorSearchUrl = buildSuumoCompetitorSearchUrl;
   globalThis.parseSuumoCompetitorCount = parseSuumoCompetitorCount;
   globalThis.countSuumoCompetitors = countSuumoCompetitors;
   globalThis.checkSuumoCompetitorPreSkip = checkSuumoCompetitorPreSkip;
+  globalThis.checkSuumoOwnerKeywordSkip = checkSuumoOwnerKeywordSkip;
   // テスト/デバッグ用に内部ヘルパーも露出
   globalThis._suumoCompetitorInternals = {
     _toSuumoRent, _toSuumoArea, _inferPropertyType, _extractSearchAddrCandidates, _buildFw, _toSuumoBuildingFloor,

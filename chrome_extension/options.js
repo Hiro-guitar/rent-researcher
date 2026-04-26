@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason', 'suumoForrentStopDryRun', 'suumoSkipLowImageCount', 'itandiUpdatedWithinDays', 'suumoFinalSubmitDryRun',
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason', 'suumoForrentStopDryRun', 'suumoSkipLowImageCount', 'suumoExcludeOwnerKeywords', 'itandiUpdatedWithinDays', 'suumoFinalSubmitDryRun',
     // 4サービス自動ログイン
     'reinsLoginId', 'reinsPassword', 'reinsLoginBlocked', 'reinsLoginBlockedReason',
     'itandiLoginId', 'itandiPassword', 'itandiLoginBlocked', 'itandiLoginBlockedReason',
@@ -40,6 +40,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // 画像枚数スキップ(デフォルト false = 無効)
     const skipLowImgCheckbox = document.getElementById('suumoSkipLowImageCount');
     if (skipLowImgCheckbox) skipLowImgCheckbox.checked = !!data.suumoSkipLowImageCount;
+
+    // 元付除外キーワード(改行区切り文字列で表示)
+    const excludeOwnerEl = document.getElementById('suumoExcludeOwnerKeywords');
+    if (excludeOwnerEl) {
+      const arr = Array.isArray(data.suumoExcludeOwnerKeywords) ? data.suumoExcludeOwnerKeywords : [];
+      excludeOwnerEl.value = arr.join('\n');
+    }
 
     // itandi 募集条件更新N日以内(デフォルト空欄 = 制限なし)
     const itandiDaysInput = document.getElementById('itandiUpdatedWithinDays');
@@ -131,6 +138,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const suumoForrentStopDryRun = !!(document.getElementById('suumoForrentStopDryRun') && document.getElementById('suumoForrentStopDryRun').checked);
     const suumoFinalSubmitDryRun = !!(document.getElementById('suumoFinalSubmitDryRun') && document.getElementById('suumoFinalSubmitDryRun').checked);
     const suumoSkipLowImageCount = !!(document.getElementById('suumoSkipLowImageCount') && document.getElementById('suumoSkipLowImageCount').checked);
+    // 元付除外キーワード(改行区切り → 配列、空白除去)
+    const suumoExcludeOwnerKeywordsRaw = (document.getElementById('suumoExcludeOwnerKeywords') && document.getElementById('suumoExcludeOwnerKeywords').value) || '';
+    const suumoExcludeOwnerKeywords = suumoExcludeOwnerKeywordsRaw
+      .split(/\n+/)
+      .map(s => s.trim())
+      .filter(Boolean);
     // itandiUpdatedWithinDays: 数値(1..30) / 空欄ならnullで「制限なし」
     const itandiDaysRaw = (document.getElementById('itandiUpdatedWithinDays').value || '').trim();
     let itandiUpdatedWithinDays = null;
