@@ -719,32 +719,45 @@
     }
 
     // ── 元付会社名・元付電話番号 ──
-    // ES-Square SPA では前の物件のモーダルDOMが残ったまま新しいモーダルが追加される
-    // ことがあり、document.querySelector で取ると初回物件の情報を拾い続ける問題が
-    // 発生していた。「現在表示されている要素のうち最後のもの」を採用する。
-    const pickLatestVisible = (selector) => {
-      const all = Array.from(document.querySelectorAll(selector));
-      if (all.length === 0) return null;
-      // offsetParent !== null なら可視
-      const visible = all.filter(el => el.offsetParent !== null);
-      return visible.length > 0 ? visible[visible.length - 1] : all[all.length - 1];
-    };
+    // ES-Square SPA では一覧ページの各物件カードにも [data-testid="resultItemMotoduke"]
+    // が含まれており、document.querySelector で取ると一覧の物件(最初 or 最後)の元付を
+    // 拾ってしまう問題があった。詳細モーダル/詳細スライドの内側に限定して検索する。
 
-    // 方法①: data-testid="resultItemMotoduke" から取得
-    const motoduke = pickLatestVisible('[data-testid="resultItemMotoduke"]');
+    // 詳細モーダル/スライドのコンテナを特定 (MUI Dialog/Drawer などを総当たり)
+    const findDetailContainer = () => {
+      const selectors = [
+        '[role="dialog"]',
+        '.MuiDialog-root',
+        '.MuiModal-root',
+        '[class*="drawer"]',
+        '[class*="Drawer"]',
+        '[class*="detailContainer"]',
+        '[class*="DetailContainer"]',
+      ];
+      const candidates = [];
+      for (const sel of selectors) {
+        document.querySelectorAll(sel).forEach(el => {
+          if (el.offsetParent !== null && !candidates.includes(el)) candidates.push(el);
+        });
+      }
+      // 複数あれば最後のもの(一番新しく開かれた)を採用
+      return candidates.length > 0 ? candidates[candidates.length - 1] : null;
+    };
+    const detailContainer = findDetailContainer();
+    const scope = detailContainer || document;
+
+    // 方法①: 詳細スコープ内の data-testid="resultItemMotoduke"
+    const motoduke = scope.querySelector('[data-testid="resultItemMotoduke"]');
     if (motoduke) {
       const children = motoduke.children;
       // children[3] = 元付会社名, children[4] = 元付電話番号
       if (children[3]) detail.owner_company = children[3].textContent.trim();
       if (children[4]) detail.owner_phone = children[4].textContent.trim();
     }
-    // 方法②フォールバック: 「不動産会社様向け情報」タブ内の「お問合せ先」
+    // 方法②フォールバック: 詳細スコープ内の「お問合せ先」MUIグリッド
     if (!detail.owner_company || !detail.owner_phone) {
-      // 可視な MUIグリッドで「お問合せ先」ラベルを探す(後ろから検索 = 最新モーダル優先)
-      const allGrids = Array.from(document.querySelectorAll('.MuiGrid-container'))
-        .filter(el => el.offsetParent !== null);
-      for (let gi = allGrids.length - 1; gi >= 0; gi--) {
-        const grid = allGrids[gi];
+      const grids = scope.querySelectorAll('.MuiGrid-container');
+      for (const grid of grids) {
         const label = grid.querySelector('div');
         if (label && label.textContent.trim() === 'お問合せ先') {
           const valueDiv = grid.querySelectorAll(':scope > div')[1];
