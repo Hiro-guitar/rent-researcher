@@ -407,12 +407,13 @@
       ];
       // 競合数の詳細サマリ(ログ用) - スキップ理由に常に含めて全件数が見えるようにする
       const compSummary = `あり${competitor.withName || 0}(HL${competitor.withNameHighlighted || 0})/なし${competitor.withoutName || 0}(HL${competitor.withoutNameHighlighted || 0})`;
+      const compUrlPart = competitor.url ? ` ${competitor.url}` : '';
       for (const c of checks) {
         if (c.limit === null || c.limit === undefined) continue;
         if (c.actual > c.limit) {
           return {
             skip: true,
-            reason: `SUUMO競合多数(${c.label} ${c.actual}>${c.limit}) [全件: ${compSummary}]`,
+            reason: `SUUMO競合多数(${c.label} ${c.actual}>${c.limit}) [全件: ${compSummary}]${compUrlPart}`,
             competitor
           };
         }
