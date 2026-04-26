@@ -369,6 +369,24 @@ function getUnsentSuumoCandidates_(criteriaId) {
 }
 
 /**
+ * Chrome拡張から呼ばれる: Discord送信成功した sheetRowIndex 群を一括マーク。
+ * sheetRowIndexes: number[]
+ */
+function handleMarkSuumoDiscordSent(json) {
+  var indexes = (json && json.sheetRowIndexes) || [];
+  var marked = 0;
+  for (var i = 0; i < indexes.length; i++) {
+    try {
+      markSuumoCandidateAsDiscordSent_(indexes[i]);
+      marked++;
+    } catch (e) {}
+  }
+  return ContentService.createTextOutput(JSON.stringify({
+    success: true, marked: marked
+  })).setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
  * 指定 row (sheetRowIndex は 1-indexed) の discordSentTs 列に現在時刻を記録。
  */
 function markSuumoCandidateAsDiscordSent_(sheetRowIndex) {
@@ -1224,27 +1242,34 @@ function handleAddSuumoCandidate(json) {
   // 顧客検索ではこの再送ロジックがなく問題が起きていないため、踏襲する。
   // result.newProperties はそのまま使う(新着のみ)
 
-  // 新着があればDiscord通知
-  var discordResult = null;
-  if (result.newProperties && result.newProperties.length > 0) {
-    var criteriaName = '';
-    if (json.patrolCriteriaId) {
-      var criteria = getPatrolCriteria();
-      for (var i = 0; i < criteria.length; i++) {
-        if (criteria[i].id === json.patrolCriteriaId) {
-          criteriaName = criteria[i].name;
-          break;
-        }
+  // 巡回条件名を取得
+  var criteriaName = '';
+  if (json.patrolCriteriaId) {
+    var criteria = getPatrolCriteria();
+    for (var i = 0; i < criteria.length; i++) {
+      if (criteria[i].id === json.patrolCriteriaId) {
+        criteriaName = criteria[i].name;
+        break;
       }
     }
-    try {
-      // Chrome拡張側が巡回開始時にスレッドを作成済みなら threadId が含まれる
-      // → そのスレッドに追記投稿(forumへの新スレッド作成を回避してrate limit緩和)
-      var threadId = (json && json.suumoPatrolThreadId) || '';
-      discordResult = sendSuumoDiscordNotification(result.newProperties, criteriaName, threadId);
-    } catch (err) {
-      discordResult = { error: err.message };
-      console.error('Discord通知例外: ' + err.message);
+  }
+
+  // Discord通知は GAS 側では一切送らず、Chrome拡張側でユーザーIPから送る形に変更。
+  // 理由: GAS共用IPプールが他のユーザーの乱用で Cloudflare 1015 にフラグされるのを回避するため。
+  // Chrome拡張で必要な情報をレスポンスに含めて返す:
+  //   - newProperties: 各物件の row(主キーつき) と property オブジェクト
+  //   - criteriaName: 巡回条件名(メッセージに使う)
+  //   - gasUrl: 承認URLを Chrome拡張側で構築するために返す
+  var gasUrl = ScriptApp.getService().getUrl();
+  var notifyProps = [];
+  if (result.newProperties) {
+    for (var np = 0; np < result.newProperties.length; np++) {
+      var entry = result.newProperties[np];
+      notifyProps.push({
+        key: entry.row && entry.row[0],
+        property: entry.property,
+        sheetRowIndex: entry._sheetRowIndex || null
+      });
     }
   }
 
@@ -1252,8 +1277,12 @@ function handleAddSuumoCandidate(json) {
     success: true,
     added: result.added,
     duplicates: result.duplicates,
-    discord: discordResult,
-    webhookSet: !!webhookUrl
+    webhookSet: !!webhookUrl,
+    // Chrome拡張がユーザーIPからDiscord送信するための情報
+    notifyProps: notifyProps,
+    criteriaName: criteriaName,
+    gasUrl: gasUrl,
+    discordWebhookUrl: webhookUrl
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
