@@ -803,14 +803,6 @@
       console.warn('[ES-Square] 広告可否抽出エラー:', e.message);
     }
 
-    // デバッグ情報
-    detail._debug = {
-      imageCount: detail.image_urls?.length || 0,
-      facilitiesLength: detail.facilities?.length || 0,
-      facilitiesPreview: (detail.facilities || '').substring(0, 200),
-      fieldCount: Object.keys(detail).filter(k => !k.startsWith('_')).length,
-    };
-
     return { ok: true, detail };
   }
 })();
