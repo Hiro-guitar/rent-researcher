@@ -146,30 +146,9 @@ async function runSuumoPatrolCycle() {
 
     await setStorageData({ debugLog: `[SUUMO巡回] ${criteria.length}件の条件で巡回開始` });
 
-    // 巡回スレッドを作成(forum チャンネルへの投稿で1巡回=1スレッドにまとめる)
-    // Discord rate limit緩和のため、毎物件ごとの新スレッド作成を避ける
-    let suumoPatrolThreadId = '';
-    try {
-      const { gasWebappUrl: __gasUrl } = await getStorageData(['gasWebappUrl']);
-      if (!__gasUrl) throw new Error('gasWebappUrl未設定');
-      const threadResp = await fetch(__gasUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create_suumo_patrol_thread',
-          criteriaName: criteria.map(c => c.name).slice(0, 3).join(', ') + (criteria.length > 3 ? ' 他' : '')
-        })
-      });
-      const threadJson = await threadResp.json();
-      if (threadJson.success && threadJson.thread_id) {
-        suumoPatrolThreadId = threadJson.thread_id;
-        await setStorageData({ debugLog: `[SUUMO巡回] Discord巡回スレッド作成OK: ${threadJson.thread_name || ''}` });
-      } else {
-        await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成失敗(後方互換で物件ごと新スレッド): ${threadJson.error || '原因不明'}` });
-      }
-    } catch (err) {
-      await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成例外(後方互換で物件ごと新スレッド): ${err.message}` });
-    }
+    // Discord通知は Chrome拡張側(ユーザーIP)で行う方式に変更したため、
+    // ここでは GAS にスレッド作成を依頼しない。
+    // スレッド管理は Discord通知送信時に getOrCreateSuumoDailyThread_ が日付ごとに行う。
 
     // 2. 既知物件キーセットを読み込み（ローカル）
     const { suumoSeenKeys } = await getStorageData(['suumoSeenKeys']);
@@ -360,7 +339,7 @@ async function runSuumoPatrolCycle() {
             return this._items.length;
           }
           try {
-            await sendSuumoCandidatesToGas([prop], crit.id, suumoPatrolThreadId);
+            await sendSuumoCandidatesToGas([prop], crit.id);
             await setStorageData({ debugLog: `[SUUMO巡回] → ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} 送信完了` });
           } catch (err) {
             await setStorageData({ debugLog: `[SUUMO巡回] GAS送信失敗: ${err.message}` });
@@ -475,12 +454,11 @@ function normSuumoKey(building, room) {
 /**
  * 新着物件をGASに送信
  */
-async function sendSuumoCandidatesToGas(properties, patrolCriteriaId, suumoPatrolThreadId) {
+async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
   const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
   if (!gasWebappUrl) throw new Error('GAS URL未設定');
 
   console.log('[SUUMO巡回] GAS送信: ' + properties.length + '件, criteriaId=' + patrolCriteriaId);
-  // 送信データの先頭物件のフィールドを確認
   if (properties.length > 0) {
     const p = properties[0];
     console.log('[SUUMO巡回] 先頭物件フィールド:', Object.keys(p).join(', '));
@@ -488,7 +466,6 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId, suumoPatro
   }
 
   // 90秒タイムアウト付き fetch
-  // GAS が Discord レート制限などで詰まった場合に巡回全体を止めないため
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 90000);
   let response;
@@ -500,14 +477,13 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId, suumoPatro
       body: JSON.stringify({
         action: 'add_suumo_candidate',
         properties: properties,
-        patrolCriteriaId: patrolCriteriaId,
-        suumoPatrolThreadId: suumoPatrolThreadId || ''
+        patrolCriteriaId: patrolCriteriaId
       })
     });
   } catch (err) {
     clearTimeout(timeoutId);
     if (err && err.name === 'AbortError') {
-      throw new Error('GAS送信タイムアウト(90秒): Discord等で詰まっている可能性。次回巡回で再試行');
+      throw new Error('GAS送信タイムアウト(90秒): 次回巡回で再試行');
     }
     throw err;
   }
@@ -517,14 +493,296 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId, suumoPatro
   console.log('[SUUMO巡回] GASレスポンス:', rawText.substring(0, 500));
   if (!response.ok) throw new Error(`GAS応答エラー: HTTP ${response.status}`);
   const result = JSON.parse(rawText);
-  // Discord通知の結果をデバッグログに出力
-  if (result.discord) {
-    await setStorageData({ debugLog: `[SUUMO巡回] Discord通知結果: ${JSON.stringify(result.discord)}` });
-  }
+
   if (result.webhookSet === false) {
     await setStorageData({ debugLog: `[SUUMO巡回] ⚠️ GAS側にSUUMO Discord Webhook URLが未設定です！オプションページで保存してください` });
   }
+
+  // GAS が返した notifyProps を使って Chrome拡張側(ユーザーIP)から Discord 通知
+  // GAS の IP プールを使わないことで Cloudflare 1015 を回避
+  if (Array.isArray(result.notifyProps) && result.notifyProps.length > 0 && result.discordWebhookUrl) {
+    try {
+      const sendResult = await sendSuumoDiscordFromExtension_(
+        result.notifyProps,
+        result.criteriaName || '',
+        result.gasUrl || gasWebappUrl,
+        result.discordWebhookUrl
+      );
+      const errSnippet = sendResult.errors.length > 0 ? ` 失敗${sendResult.errors.length}件: ${sendResult.errors.slice(0,1).join('|').substring(0,120)}` : '';
+      await setStorageData({ debugLog: `[SUUMO巡回] Discord送信結果(拡張側): ${sendResult.sent}/${result.notifyProps.length}件${errSnippet}` });
+      // 送信成功した行を GAS にマーク依頼
+      if (sendResult.sheetRowIndexes.length > 0) {
+        await markSuumoDiscordSentInGas_(sendResult.sheetRowIndexes);
+      }
+    } catch (e) {
+      await setStorageData({ debugLog: `[SUUMO巡回] Discord送信例外: ${e.message}` });
+    }
+  }
   return result;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SUUMO巡回 Discord 通知 (Chrome拡張側で実行 = ユーザーIPから送信)
+// 旧実装は GAS の UrlFetchApp.fetch から webhook を叩いていたが、GAS共用IP
+// プールが Cloudflare 1015 にフラグされる事象が頻発したため、お客様検索と
+// 同様にユーザーIP(Chrome拡張)から送信する形に変更。
+// ════════════════════════════════════════════════════════════════════
+
+/**
+ * 日付ごとの SUUMO巡回 Discord スレッドを取得・作成
+ * - 同じ JST日付なら既存スレッドを再利用(スレッド作成は1日1回のみ)
+ * - 別日 or 未作成なら新規スレッド作成
+ * - スレッド作成失敗時は null を返す(呼び出し側でフォールバック扱い)
+ */
+async function getOrCreateSuumoDailyThread_(webhookUrl) {
+  if (!webhookUrl) return null;
+  const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const todayJst = jstNow.getUTCFullYear() + '-'
+    + String(jstNow.getUTCMonth() + 1).padStart(2, '0') + '-'
+    + String(jstNow.getUTCDate()).padStart(2, '0');
+
+  const { suumoDailyThreadId, suumoDailyThreadDate } = await getStorageData([
+    'suumoDailyThreadId', 'suumoDailyThreadDate'
+  ]);
+  if (suumoDailyThreadId && suumoDailyThreadDate === todayJst) {
+    return suumoDailyThreadId;
+  }
+
+  // 新スレッド作成 (forum チャンネルへの thread_name付き投稿で channel_id 取得)
+  const threadName = '🌀 SUUMO巡回 ' + todayJst;
+  const headerContent = '━━━ SUUMO巡回 ' + todayJst + ' ━━━';
+  try {
+    const resp = await fetch(webhookUrl + (webhookUrl.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ thread_name: threadName, content: headerContent })
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成失敗: HTTP ${resp.status} ${text.substring(0,150)}` });
+      return null;
+    }
+    const data = await resp.json();
+    const threadId = data.channel_id || data.thread_id || (data.channel && data.channel.id) || '';
+    if (!threadId) {
+      await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成失敗: thread_id取得不可` });
+      return null;
+    }
+    await setStorageData({
+      suumoDailyThreadId: threadId,
+      suumoDailyThreadDate: todayJst,
+      debugLog: `[SUUMO巡回] 本日(${todayJst})のDiscordスレッド作成OK`
+    });
+    return threadId;
+  } catch (err) {
+    await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成例外: ${err.message}` });
+    return null;
+  }
+}
+
+/**
+ * 1物件分の Discord メッセージ content を構築
+ * 既存のGAS sendSuumoDiscordNotification と完全同一フォーマット
+ */
+function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) {
+  const fmtMan = (yen) => {
+    if (!yen) return '';
+    const v = parseFloat(yen);
+    if (isNaN(v)) return String(yen);
+    if (v >= 10000) return String(parseFloat((v / 10000).toFixed(4))) + '万円';
+    return String(v) + '円';
+  };
+
+  const building = p.building_name || p.buildingName || p.building || '(建物名なし)';
+  const room = p.room_number || p.roomNumber || p.room || '';
+  const source = p.sourceType || p.source || '';
+  const rentDisplay = p.rent ? fmtMan(p.rent) : '不明';
+  const mgmtFeeRaw = p.management_fee || p.managementFee || p.commonServiceFee || '';
+  const mgmtFee = mgmtFeeRaw ? fmtMan(mgmtFeeRaw) : '';
+  const layout = p.layout || ((p.madoriRoomCount || '') + (p.madoriType || ''));
+  const area = p.area || p.usageArea || '';
+  const address = p.address || ((p.pref || '') + (p.addr1 || '') + (p.addr2 || ''));
+  let stationInfo = p.station_info || '';
+  if (!stationInfo && p.access && p.access.length > 0) {
+    stationInfo = (p.access[0].line || '') + ' ' + (p.access[0].station || '') + '駅 徒歩' + (p.access[0].walk || '') + '分';
+  }
+  const otherStations = (p.other_stations && p.other_stations.length > 0) ? p.other_stations : [];
+  const approveUrl = (gasUrl || '') + '?action=suumo_approve&key=' + encodeURIComponent(propertyKey || '');
+
+  // 警告アラート
+  const warnings = [];
+  const adKeisai = p.ad_keisai || p.adKeisai || '';
+  if (adKeisai && String(adKeisai).trim() !== '可') {
+    warnings.push('⚠️ 広告掲載: ' + String(adKeisai).trim() + '(SUUMO広告掲載の確認が必要です)');
+  }
+  const listingStatus = p.listing_status ? String(p.listing_status).trim() : '';
+  if (listingStatus && (listingStatus === '申込あり' || /^申込\d+件$/.test(listingStatus) || /申込/.test(listingStatus))) {
+    warnings.push('⚠️ 募集状況: ' + listingStatus);
+  }
+
+  const msgLines = [];
+  msgLines.push('**🏠 新着SUUMO候補物件**');
+  msgLines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  msgLines.push('**' + building + '  ' + room + '号室** `[' + source + ']`');
+  let rentLine = '賃料: **' + rentDisplay + '**';
+  if (mgmtFee) rentLine += ' (管理費: ' + mgmtFee + ')';
+  msgLines.push(rentLine);
+  if (layout) msgLines.push('間取り: ' + layout);
+  if (area) msgLines.push('面積: ' + area + 'm²');
+  if (p.building_age) msgLines.push('築年: ' + p.building_age);
+  if (address) msgLines.push('住所: ' + address);
+  if (stationInfo) msgLines.push('交通: ' + stationInfo);
+  if (otherStations.length > 0) msgLines.push('他の路線: ' + otherStations.join(' / '));
+  if (p.floor_text || p.story_text) {
+    msgLines.push('階数: ' + (p.floor_text || '?') + '/' + (p.story_text || '?'));
+  }
+  if (p.deposit || p.key_money) {
+    msgLines.push('敷金: ' + (p.deposit || 'なし') + ' / 礼金: ' + (p.key_money || 'なし'));
+  }
+  if (p.move_in_date) msgLines.push('入居: ' + p.move_in_date);
+  if (p.reins_property_number) msgLines.push('物件番号: ' + p.reins_property_number);
+  if (p.ad_fee) msgLines.push('広告料: ' + p.ad_fee);
+  if (p.current_status) msgLines.push('現況: ' + p.current_status);
+  else if (p.listing_status) msgLines.push('現況: ' + p.listing_status);
+  const ownerCompany = p.owner_company || p.reins_shougo || '';
+  const ownerPhone = p.owner_phone || p.reins_tel || '';
+  if (ownerCompany) msgLines.push('元付: ' + ownerCompany + (ownerPhone ? ' (' + ownerPhone + ')' : ''));
+
+  // SUUMO競合数
+  if (p.suumo_competitor && typeof p.suumo_competitor === 'object') {
+    const sc = p.suumo_competitor;
+    const compLine = '🏙️ SUUMO競合: 物件名あり:' + (sc.withName || 0) + '件(うちハイライト' + (sc.withNameHighlighted || 0) + '件)'
+                   + ' / なし:' + (sc.withoutName || 0) + '件(うちハイライト' + (sc.withoutNameHighlighted || 0) + '件)';
+    msgLines.push(compLine);
+    if (sc.url) msgLines.push('[🔍 SUUMO検索結果](' + sc.url + ')');
+  }
+
+  // 画像枚数カウント(11枚以下なら警告)
+  let imageCount = 0;
+  if (p.image_urls && Array.isArray(p.image_urls)) imageCount = p.image_urls.length;
+  else if (p.imageUrls && Array.isArray(p.imageUrls)) imageCount = p.imageUrls.length;
+  if (imageCount === 0 && p.image_url) imageCount = 1;
+  if (imageCount <= 11) {
+    warnings.push('⚠️ 画像: ' + imageCount + '枚(11枚以下なので要確認)');
+  }
+
+  if (warnings.length > 0) {
+    msgLines.push('```ansi\n\u001b[0;33m' + warnings.join('\n') + '\u001b[0m\n```');
+  }
+
+  msgLines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  if (p.url) {
+    msgLines.push('[🔗 詳細ページ](' + p.url + ')');
+  } else if (p.reins_property_number) {
+    const cleanNum = String(p.reins_property_number).replace(/\D/g, '');
+    msgLines.push('[🔗 REINSで開く](https://system.reins.jp/main/BK/GBK004100#bukken=' + cleanNum + ')');
+  }
+  msgLines.push('[📋 承認ページを開く](' + approveUrl + ')');
+  msgLines.push('巡回条件: ' + (criteriaName || '不明'));
+
+  return msgLines.join('\n');
+}
+
+/**
+ * SUUMO巡回 Discord 通知をユーザーIPから送信
+ * @param {Array} notifyProps - GAS が返した newProperties の整形版 [{key, property, sheetRowIndex}]
+ * @param {string} criteriaName
+ * @param {string} gasUrl - 承認URL構築用
+ * @param {string} webhookUrl - SUUMO_DISCORD_WEBHOOK_URL
+ * @returns {Promise<{sent: number, errors: string[], sheetRowIndexes: number[]}>}
+ *   sheetRowIndexes: 送信成功した sheetRowIndex の配列(GAS にマーク依頼用)
+ */
+async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl, webhookUrl) {
+  if (!webhookUrl || !notifyProps || notifyProps.length === 0) {
+    return { sent: 0, errors: [], sheetRowIndexes: [] };
+  }
+
+  // 日付ごとスレッドを取得(無ければ作成)
+  const threadId = await getOrCreateSuumoDailyThread_(webhookUrl);
+
+  let sent = 0;
+  const errors = [];
+  const successIndexes = [];
+  for (let i = 0; i < notifyProps.length; i++) {
+    const item = notifyProps[i];
+    const p = item.property || {};
+    const content = buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, item.key);
+
+    const payload = { content };
+    let postUrl = webhookUrl;
+    if (threadId) {
+      // 既存スレッドに追記投稿
+      postUrl = webhookUrl + (webhookUrl.indexOf('?') >= 0 ? '&' : '?') + 'thread_id=' + encodeURIComponent(threadId);
+    } else {
+      // スレッド取得失敗時のフォールバック: forum 新スレッド作成
+      const building = p.building_name || p.buildingName || p.building || '';
+      const room = p.room_number || p.roomNumber || p.room || '';
+      const rentDisplay = p.rent ? (p.rent / 10000).toFixed(2) + '万円' : '不明';
+      payload.thread_name = building + ' ' + room + '号室 - ' + rentDisplay;
+    }
+
+    // 429/5xxは指数バックオフでリトライ(最大3回)
+    let success = false;
+    let lastErr = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const resp = await fetch(postUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (resp.ok) {
+          sent++;
+          success = true;
+          if (item.sheetRowIndex) successIndexes.push(item.sheetRowIndex);
+          break;
+        }
+        const bodyText = (await resp.text().catch(() => '')).substring(0, 200);
+        lastErr = `HTTP ${resp.status}: ${bodyText.replace(/\s+/g, ' ')}`;
+        if (resp.status === 429 || resp.status >= 500) {
+          // Retry-After 尊重
+          let waitMs = 0;
+          const retryHeader = resp.headers.get('Retry-After');
+          if (retryHeader) waitMs = parseFloat(retryHeader) * 1000;
+          try {
+            const j = JSON.parse(bodyText);
+            if (j.retry_after) waitMs = Math.max(waitMs, parseFloat(j.retry_after) * 1000);
+          } catch (_) {}
+          if (waitMs <= 0) waitMs = Math.min(5000 * Math.pow(3, attempt), 60000);
+          if (waitMs > 60000) {
+            lastErr = `Retry-After過大: ${Math.round(waitMs/1000)}s(次回巡回で再送)`;
+            break;
+          }
+          await sleep(waitMs);
+          continue;
+        }
+        break; // その他エラーはリトライしない
+      } catch (err) {
+        lastErr = err.message;
+        await sleep(2000);
+      }
+    }
+    if (!success) errors.push(lastErr);
+    // 物件間ディレイ(レート制限緩和)
+    if (i < notifyProps.length - 1) await sleep(1000);
+  }
+  return { sent, errors, sheetRowIndexes: successIndexes };
+}
+
+/**
+ * Chrome拡張から GAS へ「Discord送信成功した sheetRowIndex 群をマークして」と依頼
+ */
+async function markSuumoDiscordSentInGas_(sheetRowIndexes) {
+  if (!sheetRowIndexes || sheetRowIndexes.length === 0) return;
+  try {
+    const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
+    if (!gasWebappUrl) return;
+    await fetch(gasWebappUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'mark_suumo_discord_sent', sheetRowIndexes })
+    });
+  } catch (_) {}
 }
 
 /**
