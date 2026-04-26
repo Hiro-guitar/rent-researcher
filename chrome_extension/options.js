@@ -198,6 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
       suumoBusinessPassword,
       suumoForrentStopDryRun,
       suumoSkipLowImageCount,
+      suumoExcludeOwnerKeywords,
       itandiUpdatedWithinDays,
       suumoFinalSubmitDryRun,
       reinsLoginId, reinsPassword,
