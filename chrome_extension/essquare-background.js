@@ -1723,14 +1723,9 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
         if (detailResult?.ok && detailResult.detail) {
           const d = detailResult.detail;
-          // デバッグログ
-          if (d._debug) {
-            const dbg = d._debug;
-            await setStorageData({ debugLog: `[ES-Square] 詳細: imgs=${dbg.imageCount}, fac=${dbg.facilitiesLength}` });
-            if (dbg.facilitiesPreview) {
-              await setStorageData({ debugLog: `[ES-Square] 設備: ${dbg.facilitiesPreview.substring(0, 150)}` });
-            }
-          }
+          // デバッグログ(冗長なので削除)
+          // 旧: imgs/fac件数 + 設備プレビューを毎物件出力していたが、
+          //     ログが大量に流れて見づらくなるため非表示化
 
           if (d.listing_status) prop.listing_status = d.listing_status;
           if (d.facilities) prop.facilities = d.facilities;
