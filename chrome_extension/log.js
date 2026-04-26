@@ -151,6 +151,7 @@
   document.getElementById('enableReins').addEventListener('change', () => saveServiceSettings());
   document.getElementById('enableIelove').addEventListener('change', () => saveServiceSettings());
   document.getElementById('enableItandi').addEventListener('change', () => saveServiceSettings());
+  document.getElementById('enableEssquare').addEventListener('change', () => saveServiceSettings());
   document.getElementById('autoSearchEnabled').addEventListener('change', () => saveServiceSettings());
 
   // ── SUUMO巡回トグル ──
