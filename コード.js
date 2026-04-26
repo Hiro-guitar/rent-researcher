@@ -56,6 +56,9 @@ function doPost(e) {
     if (json.action === 'create_suumo_patrol_thread') {
       return handleCreateSuumoPatrolThread(json);
     }
+    if (json.action === 'mark_suumo_discord_sent') {
+      return handleMarkSuumoDiscordSent(json);
+    }
     if (json.action === 'confirm_suumo_approve') {
       return handleConfirmSuumoApprove(json);
     }
