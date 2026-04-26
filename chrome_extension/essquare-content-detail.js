@@ -10,13 +10,15 @@
   'use strict';
 
   // 重複注入防止（SPA遷移で手動注入されるため）
+  // 重要: 一度ロードされたら __essquareContentDetailLoaded を絶対に false に戻さない。
+  // false に戻すと、background.jsの chrome.scripting.executeScript({files: [...]}) で
+  // 再注入されたときにIIFEが再実行されて onMessage.addListener が重複登録される。
+  // 重複登録されると同じメッセージに複数のリスナーが反応してデータの混濁が起きる。
   if (window.__essquareContentDetailLoaded) return;
   window.__essquareContentDetailLoaded = true;
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'ESSQUARE_EXTRACT_DETAIL') {
-      // 次回の注入を許可（次の物件用）
-      window.__essquareContentDetailLoaded = false;
       try {
         const result = extractDetail();
         // 画像はbackground.jsからMAIN worldで別途取得する
@@ -717,8 +719,19 @@
     }
 
     // ── 元付会社名・元付電話番号 ──
+    // ES-Square SPA では前の物件のモーダルDOMが残ったまま新しいモーダルが追加される
+    // ことがあり、document.querySelector で取ると初回物件の情報を拾い続ける問題が
+    // 発生していた。「現在表示されている要素のうち最後のもの」を採用する。
+    const pickLatestVisible = (selector) => {
+      const all = Array.from(document.querySelectorAll(selector));
+      if (all.length === 0) return null;
+      // offsetParent !== null なら可視
+      const visible = all.filter(el => el.offsetParent !== null);
+      return visible.length > 0 ? visible[visible.length - 1] : all[all.length - 1];
+    };
+
     // 方法①: data-testid="resultItemMotoduke" から取得
-    const motoduke = document.querySelector('[data-testid="resultItemMotoduke"]');
+    const motoduke = pickLatestVisible('[data-testid="resultItemMotoduke"]');
     if (motoduke) {
       const children = motoduke.children;
       // children[3] = 元付会社名, children[4] = 元付電話番号
@@ -727,9 +740,11 @@
     }
     // 方法②フォールバック: 「不動産会社様向け情報」タブ内の「お問合せ先」
     if (!detail.owner_company || !detail.owner_phone) {
-      // MUIグリッドで「お問合せ先」ラベルを探す
-      const grids = document.querySelectorAll('.MuiGrid-container');
-      for (const grid of grids) {
+      // 可視な MUIグリッドで「お問合せ先」ラベルを探す(後ろから検索 = 最新モーダル優先)
+      const allGrids = Array.from(document.querySelectorAll('.MuiGrid-container'))
+        .filter(el => el.offsetParent !== null);
+      for (let gi = allGrids.length - 1; gi >= 0; gi--) {
+        const grid = allGrids[gi];
         const label = grid.querySelector('div');
         if (label && label.textContent.trim() === 'お問合せ先') {
           const valueDiv = grid.querySelectorAll(':scope > div')[1];
