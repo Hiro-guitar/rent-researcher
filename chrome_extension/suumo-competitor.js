@@ -405,10 +405,16 @@
         { label: '物件名なし×HLあり', actual: competitor.withoutNameHighlighted || 0, limit: t.withoutNameHighlighted },
         { label: '物件名なし×HLなし', actual: Math.max(0, (competitor.withoutName || 0) - (competitor.withoutNameHighlighted || 0)), limit: t.withoutName },
       ];
+      // 競合数の詳細サマリ(ログ用) - スキップ理由に常に含めて全件数が見えるようにする
+      const compSummary = `あり${competitor.withName || 0}(HL${competitor.withNameHighlighted || 0})/なし${competitor.withoutName || 0}(HL${competitor.withoutNameHighlighted || 0})`;
       for (const c of checks) {
         if (c.limit === null || c.limit === undefined) continue;
         if (c.actual > c.limit) {
-          return { skip: true, reason: `SUUMO競合多数(${c.label} ${c.actual}>${c.limit})`, competitor };
+          return {
+            skip: true,
+            reason: `SUUMO競合多数(${c.label} ${c.actual}>${c.limit}) [全件: ${compSummary}]`,
+            competitor
+          };
         }
       }
       return { skip: false, competitor };
