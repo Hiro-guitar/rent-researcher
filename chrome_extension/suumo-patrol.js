@@ -662,13 +662,11 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
   }
 
   // 画像枚数カウント(11枚以下なら警告)
-  // ただしREINSは仕様上最大10枚なので警告対象外
   let imageCount = 0;
   if (p.image_urls && Array.isArray(p.image_urls)) imageCount = p.image_urls.length;
   else if (p.imageUrls && Array.isArray(p.imageUrls)) imageCount = p.imageUrls.length;
   if (imageCount === 0 && p.image_url) imageCount = 1;
-  const isReinsForWarn = source === 'reins' || p.sourceType === 'reins';
-  if (imageCount <= 11 && !isReinsForWarn) {
+  if (imageCount <= 11) {
     warnings.push('⚠️ 画像: ' + imageCount + '枚(11枚以下なので要確認)');
   }
 
