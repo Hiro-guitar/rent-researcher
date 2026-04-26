@@ -2808,8 +2808,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         try {
           const ownerSkip = await globalThis.checkSuumoOwnerKeywordSkip(detail);
           if (ownerSkip.skip) {
+            // __rejectReason を立てるのみ(下流の最終判定でログ集約)
             __rejectReason = ownerSkip.reason;
-            await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name || ''} ${detail.room_number || ''} - ${__rejectReason}` });
           }
         } catch (e) {
           console.warn('[REINS] 元付キーワード判定エラー:', e && e.message);
@@ -2827,8 +2827,9 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             detail.suumo_competitor = preResult.competitor;
           }
           if (preResult.skip) {
+            // __rejectReason を立てるのみ。スキップログは下流の最終判定箇所(line ~3001)で
+            // 一括出力されるため、ここでログを出すと重複してしまう。
             __rejectReason = `${preResult.reason}(画像取得前に判定)`;
-            await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name || ''} ${detail.room_number || ''} - ${__rejectReason}` });
           }
         } catch (e) {
           console.warn('[REINS] 競合先行判定エラー:', e && e.message);
