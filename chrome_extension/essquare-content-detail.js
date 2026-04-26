@@ -719,62 +719,45 @@
     }
 
     // ── 元付会社名・元付電話番号 ──
-    // ES-Square SPA では一覧ページの各物件カードにも [data-testid="resultItemMotoduke"]
-    // が含まれており、document.querySelector で取ると一覧の物件(最初 or 最後)の元付を
-    // 拾ってしまう問題があった。詳細モーダル/詳細スライドの内側に限定して検索する。
+    // 重要: ES-Square SPA では一覧の各物件カードに [data-testid="resultItemMotoduke"]
+    // が100個 (=items_per_page分) 含まれていて、詳細モーダルを開いても一覧DOMは破棄
+    // されない。よって resultItemMotoduke を querySelector で拾うと「一覧1番目の物件」
+    // の元付情報になってしまう (これが「全物件で同じ元付」バグの原因)。
+    //
+    // 詳細モーダル(MuiDrawer)内には専用の data-testid="header-motoduke" が存在し、
+    // ページ全体で1個のみ。これが「現在開いている物件」の元付情報。
+    //
+    // 構造:
+    //   <div data-testid="header-motoduke">
+    //     <p>元付</p>                      ← children[0]: ラベル
+    //     <div>株式会社○○</div>           ← children[1]: 元付会社名
+    //     <div><p>050-XXX-XXXX</p></div>   ← children[2]: 電話番号包含
+    //   </div>
 
-    // 詳細モーダル/スライドのコンテナを特定 (MUI Dialog/Drawer などを総当たり)
-    const findDetailContainer = () => {
-      const selectors = [
-        '[role="dialog"]',
-        '.MuiDialog-root',
-        '.MuiModal-root',
-        '[class*="drawer"]',
-        '[class*="Drawer"]',
-        '[class*="detailContainer"]',
-        '[class*="DetailContainer"]',
-      ];
-      const candidates = [];
-      for (const sel of selectors) {
-        document.querySelectorAll(sel).forEach(el => {
-          if (el.offsetParent !== null && !candidates.includes(el)) candidates.push(el);
-        });
+    // 方法①(本命): header-motoduke から取得 (詳細モーダル専用、1個のみ)
+    // 念のため drawer 配下にスコープを絞る (将来同名要素が増えた場合の保険)
+    const headerMotoduke = document.querySelector('.MuiDrawer-paper [data-testid="header-motoduke"]')
+                          || document.querySelector('[data-testid="header-motoduke"]');
+    if (headerMotoduke) {
+      const children = headerMotoduke.children;
+      // children[1] = 元付会社名 (div)
+      if (children[1]) detail.owner_company = children[1].textContent.trim();
+      // children[2] = 電話番号を包含する div、その中の <p> が電話番号
+      if (children[2]) {
+        const phoneP = children[2].querySelector('p');
+        if (phoneP) detail.owner_phone = phoneP.textContent.trim();
       }
-      // 複数あれば最後のもの(一番新しく開かれた)を採用
-      return candidates.length > 0 ? candidates[candidates.length - 1] : null;
-    };
-    const detailContainer = findDetailContainer();
-    const scope = detailContainer || document;
-
-    // 方法①: 詳細スコープ内の data-testid="resultItemMotoduke"
-    const motoduke = scope.querySelector('[data-testid="resultItemMotoduke"]');
-    if (motoduke) {
-      const children = motoduke.children;
-      // children[3] = 元付会社名, children[4] = 元付電話番号
-      if (children[3]) detail.owner_company = children[3].textContent.trim();
-      if (children[4]) detail.owner_phone = children[4].textContent.trim();
     }
-    // 方法②フォールバック: 詳細スコープ内の「お問合せ先」MUIグリッド
+    // 方法②フォールバック: 旧UI / 別画面用の data-testid="resultItemMotoduke"
+    // (現在のES-Squareは header-motoduke を使うので、この経路は通常使われない)
     if (!detail.owner_company || !detail.owner_phone) {
-      const grids = scope.querySelectorAll('.MuiGrid-container');
-      for (const grid of grids) {
-        const label = grid.querySelector('div');
-        if (label && label.textContent.trim() === 'お問合せ先') {
-          const valueDiv = grid.querySelectorAll(':scope > div')[1];
-          if (valueDiv) {
-            const inner = valueDiv.querySelector('div > div:first-child');
-            if (inner && !detail.owner_company) {
-              detail.owner_company = inner.textContent.trim();
-            }
-            const telEl = Array.from(valueDiv.querySelectorAll('div'))
-              .find(el => el.textContent.includes('TEL:'));
-            if (telEl && !detail.owner_phone) {
-              const m = telEl.textContent.match(/TEL:\s*([\d-]+)/);
-              if (m) detail.owner_phone = m[1];
-            }
-          }
-          break;
-        }
+      // 詳細drawer内に限定して検索(一覧カードの誤検出を回避)
+      const drawer = document.querySelector('.MuiDrawer-paper');
+      const motoduke = drawer ? drawer.querySelector('[data-testid="resultItemMotoduke"]') : null;
+      if (motoduke) {
+        const children = motoduke.children;
+        if (children[3] && !detail.owner_company) detail.owner_company = children[3].textContent.trim();
+        if (children[4] && !detail.owner_phone) detail.owner_phone = children[4].textContent.trim();
       }
     }
 
