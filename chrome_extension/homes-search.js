@@ -353,12 +353,32 @@ function _matchBuildingScore(input, detailMeta) {
 }
 
 function _isSameType(input, detailMeta) {
-  if (!input.layout || !detailMeta.layout) return false;
-  if (_normalizeLayout(input.layout) !== _normalizeLayout(detailMeta.layout)) return false;
-  if (input.area && detailMeta.area) {
-    const diff = Math.abs(Number(input.area) - Number(detailMeta.area));
-    if (diff > 0.5) return false;
+  // 同タイプ判定: 間取り一致 AND 面積完全一致(小数2桁単位)
+  if (!input.layout || !detailMeta.layout) {
+    console.log('[homes-search] sameType=false (layout欠損)',
+      'input.layout=', input.layout, 'detail.layout=', detailMeta.layout);
+    return false;
   }
+  const inLay = _normalizeLayout(input.layout);
+  const dtLay = _normalizeLayout(detailMeta.layout);
+  if (inLay !== dtLay) {
+    console.log('[homes-search] sameType=false (layout不一致)',
+      'input=', inLay, 'detail=', dtLay);
+    return false;
+  }
+  if (!input.area || !detailMeta.area) {
+    console.log('[homes-search] sameType=false (area欠損)',
+      'input.area=', input.area, 'detail.area=', detailMeta.area);
+    return false;
+  }
+  const inArea = Number(input.area).toFixed(2);
+  const dtArea = Number(detailMeta.area).toFixed(2);
+  if (inArea !== dtArea) {
+    console.log('[homes-search] sameType=false (area不一致)',
+      'input=', inArea, 'detail=', dtArea);
+    return false;
+  }
+  console.log('[homes-search] sameType=true', inLay, inArea + '㎡');
   return true;
 }
 
