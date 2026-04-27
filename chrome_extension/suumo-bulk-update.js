@@ -45,7 +45,7 @@ async function maybeRunSuumoBulkAdUpdate() {
     } else {
       await setStorageData({
         lastSuumoBulkUpdateError: result.error || 'unknown',
-        debugLog: `[SUUMO広告一括更新] 失敗: ${result.error} → 翌日リトライ`
+        debugLog: `[SUUMO広告一括更新] 失敗: ${result.error} → 次回巡回でリトライ`
       });
     }
     try { await _notifyBulkUpdateResult(result); } catch (_) {}
@@ -79,33 +79,33 @@ async function _runSuumoBulkAdUpdate() {
     try { await waitForTabLoad(tabId); } catch (_) {}
     await sleep(2500);
 
-    // パスワード期限切れバナー検知
+    let passwordExpiredWarn = false;
+
+    // パスワード期限切れバナーは警告のみ (機能自体は使える想定で続行)
     const initialState = await _inspectBulkPage(tabId);
-    if (initialState.passwordExpired) {
-      return { ok: false, error: 'forrent パスワード期限切れ(画面にバナー表示あり)。手動でパスワード変更が必要' };
-    }
+    if (initialState.passwordExpired) passwordExpiredWarn = true;
 
     // ログインフォームが見えていればログイン実行
     if (initialState.hasLoginForm) {
       if (typeof doForrentLogin_ !== 'function') {
-        return { ok: false, error: 'doForrentLogin_ 関数が見つからない (forrent-status-sync.js のロード順を確認)' };
+        return { ok: false, error: 'doForrentLogin_ 関数が見つからない (forrent-status-sync.js のロード順を確認)', passwordExpiredWarn };
       }
       const loginResult = await doForrentLogin_(tabId);
       if (!loginResult.ok) {
-        return { ok: false, error: 'ForRentログイン失敗: ' + loginResult.error };
+        return { ok: false, error: 'ForRentログイン失敗: ' + loginResult.error, passwordExpiredWarn };
       }
-      // ログイン後の状態確認
       await sleep(1500);
       const after = await _inspectBulkPage(tabId);
-      if (after.passwordExpired) {
-        return { ok: false, error: 'forrent パスワード期限切れ(ログイン後)' };
-      }
+      if (after.passwordExpired) passwordExpiredWarn = true;
+    }
+    if (passwordExpiredWarn) {
+      await setStorageData({ debugLog: '[SUUMO広告一括更新] 警告: パスワード期限切れバナーあり (続行)' });
     }
 
     // 「更新・掲載指示」メニュー → 「元付確認」タブへ
     const navResult = await _navigateToMototsukeTab(tabId);
     if (!navResult.ok) {
-      return { ok: false, error: '元付確認タブへの遷移失敗: ' + navResult.error };
+      return { ok: false, error: '元付確認タブへの遷移失敗: ' + navResult.error, passwordExpiredWarn };
     }
 
     // ページ単位で繰り返し
@@ -115,15 +115,15 @@ async function _runSuumoBulkAdUpdate() {
       await sleep(2000);
       const pageInfo = await _getMototsukePageInfo(tabId);
       if (!pageInfo.ok) {
-        return { ok: false, error: '元付確認ページ情報取得失敗: ' + pageInfo.error, totalUpdated, pagesProcessed };
+        return { ok: false, error: '元付確認ページ情報取得失敗: ' + pageInfo.error, totalUpdated, pagesProcessed, passwordExpiredWarn };
       }
       if (pageInfo.bukkenCount === 0) {
-        return { ok: true, totalUpdated, pagesProcessed };
+        return { ok: true, totalUpdated, pagesProcessed, passwordExpiredWarn };
       }
 
       const execResult = await _executePageBulkUpdate(tabId);
       if (!execResult.ok) {
-        return { ok: false, error: '一括更新実行失敗: ' + execResult.error, totalUpdated, pagesProcessed };
+        return { ok: false, error: '一括更新実行失敗: ' + execResult.error, totalUpdated, pagesProcessed, passwordExpiredWarn };
       }
       totalUpdated += execResult.count || pageInfo.bukkenCount;
       pagesProcessed++;
@@ -136,11 +136,10 @@ async function _runSuumoBulkAdUpdate() {
       const back = await _navigateToMototsukeTab(tabId);
       if (!back.ok) {
         // 戻れなければ完了画面のまま終了 (1ページしか処理していなかったケース等)
-        return { ok: true, totalUpdated, pagesProcessed, note: '元付確認タブへの再遷移失敗だが処理は実行済み' };
+        return { ok: true, totalUpdated, pagesProcessed, passwordExpiredWarn, note: '元付確認タブへの再遷移失敗だが処理は実行済み' };
       }
     }
-    // ループ上限に達した
-    return { ok: false, error: `ページ処理上限(${_SUUMO_BULK_UPDATE_MAX_PAGES})に到達。一括更新が無限ループしている可能性`, totalUpdated, pagesProcessed };
+    return { ok: false, error: `ページ処理上限(${_SUUMO_BULK_UPDATE_MAX_PAGES})に到達。一括更新が無限ループしている可能性`, totalUpdated, pagesProcessed, passwordExpiredWarn };
   } finally {
     if (tabId !== null) {
       try { await chrome.tabs.remove(tabId); } catch (_) {}
@@ -329,10 +328,13 @@ async function _notifyBulkUpdateResult(result) {
   } else {
     content = `⚠️ **SUUMO広告一括更新 失敗**\n`
       + `理由: ${result.error || 'unknown'}\n`
-      + `(明日のSUUMO巡回でリトライします)`;
+      + `(次回のSUUMO巡回でリトライします)`;
     if (typeof result.totalUpdated === 'number' && result.totalUpdated > 0) {
       content += `\n途中まで: ${result.totalUpdated}件 (${result.pagesProcessed || 0}ページ)`;
     }
+  }
+  if (result.passwordExpiredWarn) {
+    content += `\n⚠️ パスワード有効期限が切れています(画面バナー表示あり)。早めに変更推奨`;
   }
   let postUrl = suumoDiscordWebhookUrl;
   if (threadId) {
