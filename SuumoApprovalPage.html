@@ -343,6 +343,31 @@ body {
       <span id="uploadStatus">アップロード中...</span>
       <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
     </div>
+
+    <!-- ホームズ画像検索 -->
+    <div style="margin-top:12px;padding:10px;border:1px dashed #2e86c1;border-radius:6px;background:#f5fafe;">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <button type="button" id="homesSearchBtn" onclick="requestHomesImageSearch()"
+          style="padding:8px 14px;background:#2e86c1;color:#fff;border:none;border-radius:5px;font-size:13px;font-weight:700;cursor:pointer;">
+          🏠 ホームズ画像を検索
+        </button>
+        <span id="homesSearchStatus" style="font-size:12px;color:#666;"></span>
+      </div>
+      <div id="homesCandidatesArea" style="display:none;margin-top:10px;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
+          <span id="homesCandidatesSummary" style="font-size:12px;color:#1a5276;font-weight:700;"></span>
+          <button type="button" onclick="toggleAllHomesCandidates(true)"
+            style="padding:4px 8px;font-size:11px;background:#fff;border:1px solid #2e86c1;color:#2e86c1;border-radius:4px;cursor:pointer;">全選択</button>
+          <button type="button" onclick="toggleAllHomesCandidates(false)"
+            style="padding:4px 8px;font-size:11px;background:#fff;border:1px solid #888;color:#666;border-radius:4px;cursor:pointer;">全解除</button>
+          <button type="button" id="homesAdoptBtn" onclick="adoptSelectedHomesImages()"
+            style="padding:4px 12px;font-size:12px;background:#27ae60;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:700;">
+            選択した画像を追加
+          </button>
+        </div>
+        <div id="homesCandidatesGrid"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1290,6 +1315,236 @@ function showResultWithFillLink() {
 function esc(str) {
   if (!str) return '';
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ============================================================
+// ホームズ画像検索 (Chrome拡張連携)
+// ============================================================
+
+var _homesCandidates = [];
+var _homesRequestId = 0;
+var _homesPending = {};
+
+// HOME'Sジャンル → SUUMOジャンル(GENRE_OPTIONS) のマッピング
+var HOMES_TO_SUUMO_GENRE = {
+  '間取り': '間取り',
+  '外観': '外観',
+  'リビング/ダイニング': 'リビング', 'リビング・ダイニング': 'リビング',
+  'リビング': 'リビング', 'ダイニング': 'リビング',
+  '室内': 'その他部屋', '居室': 'その他部屋', '寝室': 'その他部屋',
+  '洋室': 'その他部屋', '和室': 'その他部屋', '子供部屋': 'その他部屋',
+  'キッチン': 'キッチン',
+  '浴室': 'バス',
+  'トイレ': 'トイレ',
+  '洗面': '洗面',
+  '収納': '収納',
+  '玄関': '玄関',
+  'バルコニー': 'バルコニー', 'ベランダ': 'バルコニー',
+  'エントランス': 'エントランス', '共用部': '共用部',
+  '駐車場': '駐車場',
+  '設備': '設備',
+  '眺望': '眺望',
+  '周辺': 'その他',
+  'その他': 'その他'
+};
+
+function _buildHomesSearchInput() {
+  // SuumoApprovalPage に注入されているグローバル変数から検索入力を作る
+  var addr = String(ADDRESS || '').trim();
+  var totalFloors = null;
+  var floorText = (PROPERTY_DATA && PROPERTY_DATA.floor_text) || (PROPERTY_DATA && PROPERTY_DATA.floorText) || '';
+  if (floorText) {
+    var fm = String(floorText).match(/(\d+)\s*階建/);
+    if (fm) totalFloors = parseInt(fm[1], 10);
+  }
+  return {
+    prefecture: '',
+    city: '',
+    address: addr,
+    buildingName: BUILDING || '',
+    builtYearMonth: null,
+    totalFloors: totalFloors,
+    layout: LAYOUT || '',
+    area: Number(AREA) || null
+  };
+}
+
+function requestHomesImageSearch() {
+  var btn = document.getElementById('homesSearchBtn');
+  var statusEl = document.getElementById('homesSearchStatus');
+  if (!btn || btn.disabled) return;
+
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  statusEl.textContent = '検索中... (10〜20秒かかります)';
+
+  var input = _buildHomesSearchInput();
+  var requestId = 'homes-' + (++_homesRequestId) + '-' + Date.now();
+
+  var timeoutId = setTimeout(function () {
+    if (_homesPending[requestId]) {
+      delete _homesPending[requestId];
+      _onHomesSearchResult({ ok: false, errors: ['タイムアウト(60秒)。Chrome拡張が反応しません'], candidates: [] });
+    }
+  }, 60000);
+
+  _homesPending[requestId] = function (result) {
+    clearTimeout(timeoutId);
+    _onHomesSearchResult(result);
+  };
+
+  try {
+    window.postMessage({
+      type: 'HOMES_IMAGE_SEARCH_REQUEST',
+      requestId: requestId,
+      input: input
+    }, '*');
+  } catch (e) {
+    delete _homesPending[requestId];
+    clearTimeout(timeoutId);
+    _onHomesSearchResult({ ok: false, errors: ['送信失敗: ' + e.message], candidates: [] });
+  }
+}
+
+window.addEventListener('message', function (event) {
+  var data = event.data;
+  if (!data || data.type !== 'HOMES_IMAGE_SEARCH_RESPONSE') return;
+  var cb = _homesPending[data.requestId];
+  if (cb) {
+    delete _homesPending[data.requestId];
+    cb(data.result);
+  }
+});
+
+function _onHomesSearchResult(result) {
+  var btn = document.getElementById('homesSearchBtn');
+  var statusEl = document.getElementById('homesSearchStatus');
+  btn.disabled = false;
+  btn.style.opacity = '1';
+
+  if (!result || !result.ok) {
+    var msg = (result && result.errors && result.errors.length) ? result.errors.join(' / ') : '検索失敗';
+    statusEl.textContent = '⚠️ ' + msg;
+    statusEl.style.color = '#e74c3c';
+    return;
+  }
+
+  _homesCandidates = result.candidates || [];
+  var conf = result.matched && result.matched.confidence ? result.matched.confidence : 'unknown';
+  statusEl.textContent = '✅ ' + _homesCandidates.length + '件取得 (信頼度: ' + conf + ')';
+  statusEl.style.color = '#27ae60';
+
+  if (_homesCandidates.length === 0) {
+    document.getElementById('homesCandidatesArea').style.display = 'none';
+    return;
+  }
+  _renderHomesCandidates();
+}
+
+function _renderHomesCandidates() {
+  var area = document.getElementById('homesCandidatesArea');
+  var grid = document.getElementById('homesCandidatesGrid');
+  var summary = document.getElementById('homesCandidatesSummary');
+  area.style.display = 'block';
+  grid.innerHTML = '';
+
+  // ジャンル別にグループ化
+  var groups = {};
+  for (var i = 0; i < _homesCandidates.length; i++) {
+    var c = _homesCandidates[i];
+    var g = c.genre || 'その他';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push({ idx: i, cand: c });
+  }
+  var genreOrder = ['外観', '間取り', 'リビング/ダイニング', '室内', '寝室', '洋室', '子供部屋',
+    'キッチン', '浴室', 'トイレ', '洗面', '収納', '玄関', 'バルコニー',
+    'エントランス', '駐車場', '設備', '眺望', '周辺', 'その他'];
+
+  function genreOrderIndex(g) {
+    var i = genreOrder.indexOf(g);
+    return i < 0 ? 999 : i;
+  }
+  var sortedGenres = Object.keys(groups).sort(function (a, b) {
+    return genreOrderIndex(a) - genreOrderIndex(b);
+  });
+
+  summary.textContent = _homesCandidates.length + '件 / ' + sortedGenres.length + 'ジャンル';
+
+  for (var gi = 0; gi < sortedGenres.length; gi++) {
+    var genre = sortedGenres[gi];
+    var section = document.createElement('div');
+    section.style.marginBottom = '8px';
+    var h = document.createElement('div');
+    h.style.cssText = 'font-size:12px;font-weight:700;color:#1a5276;margin-bottom:4px;';
+    h.textContent = genre + ' (' + groups[genre].length + ')';
+    section.appendChild(h);
+
+    var rowGrid = document.createElement('div');
+    rowGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px;';
+    for (var k = 0; k < groups[genre].length; k++) {
+      var item = groups[genre][k];
+      var cand = item.cand;
+      var card = document.createElement('label');
+      card.style.cssText = 'position:relative;display:block;border:1px solid #ddd;border-radius:4px;cursor:pointer;overflow:hidden;background:#fff;';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'homes-cand-cb';
+      cb.setAttribute('data-cand-idx', item.idx);
+      cb.style.cssText = 'position:absolute;top:4px;left:4px;z-index:2;transform:scale(1.3);';
+      var img = document.createElement('img');
+      img.src = cand.url;
+      img.alt = genre;
+      img.style.cssText = 'width:100%;height:80px;object-fit:cover;display:block;';
+      img.onerror = function () { this.style.background = '#eee'; };
+      var lbl = document.createElement('div');
+      lbl.style.cssText = 'font-size:10px;color:#666;padding:2px 4px;background:#f8f8f8;';
+      lbl.textContent = cand.matchType === 'same-room' ? '同タイプ' : (cand.matchType === 'archive' ? '過去物件' : '同建物');
+      card.appendChild(cb);
+      card.appendChild(img);
+      card.appendChild(lbl);
+      rowGrid.appendChild(card);
+    }
+    section.appendChild(rowGrid);
+    grid.appendChild(section);
+  }
+}
+
+function toggleAllHomesCandidates(checked) {
+  var cbs = document.querySelectorAll('.homes-cand-cb');
+  for (var i = 0; i < cbs.length; i++) cbs[i].checked = checked;
+}
+
+function adoptSelectedHomesImages() {
+  var cbs = document.querySelectorAll('.homes-cand-cb:checked');
+  if (cbs.length === 0) {
+    alert('画像を選択してください');
+    return;
+  }
+  var added = 0;
+  for (var i = 0; i < cbs.length; i++) {
+    var idx = parseInt(cbs[i].getAttribute('data-cand-idx'), 10);
+    var cand = _homesCandidates[idx];
+    if (!cand) continue;
+    // 高解像度版を優先
+    var url = cand.urlHires || cand.url;
+    addUploadedImage(url);
+    // ジャンル自動割当(SUUMOジャンルにマップできるもののみ、未選択ジャンル限定)
+    var suumoGenre = HOMES_TO_SUUMO_GENRE[cand.genre];
+    if (suumoGenre) {
+      var images = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
+      var newIdx = images.length - 1;
+      var used = Object.values(imageGenres);
+      if (used.indexOf(suumoGenre) < 0 && Object.keys(imageGenres).length < 14) {
+        imageGenres[newIdx] = suumoGenre;
+      }
+    }
+    added++;
+  }
+  if (typeof updateAllGenreButtons === 'function') updateAllGenreButtons();
+  if (typeof updateGenreCounter === 'function') updateGenreCounter();
+  alert(added + '件をホームズから追加しました');
+  // 採用後はチェックを外す(再採用を避ける)
+  for (var j = 0; j < cbs.length; j++) cbs[j].checked = false;
 }
 </script>
 </body>
