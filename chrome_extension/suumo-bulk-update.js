@@ -128,9 +128,16 @@ async function _runSuumoBulkAdUpdate() {
       totalUpdated += execResult.count || pageInfo.bukkenCount;
       pagesProcessed++;
 
-      // submit後のナビゲーション完了を待つ
+      // submit後のナビゲーション完了を待つ (確認画面に遷移)
       try { await waitForTabLoad(tabId, 30000); } catch (_) {}
       await sleep(2500);
+
+      // 確認画面で再度「一括更新実行」をクリック (2段階submit)
+      const confirmResult = await _confirmAndExecuteIfNeeded(tabId);
+      if (confirmResult.clicked) {
+        try { await waitForTabLoad(tabId, 30000); } catch (_) {}
+        await sleep(2500);
+      }
 
       // 結果画面から元付確認タブに戻る
       const back = await _navigateToMototsukeTab(tabId);
@@ -312,6 +319,56 @@ async function _executePageBulkUpdate(tabId) {
     return { ok: false, error: '実行スクリプトが応答しない' };
   } catch (err) {
     return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * 確認画面で「一括更新実行」を再クリック (2段階submit)
+ * - submit後の遷移先が「確認画面」(chk0なし + exec0あり) なら exec0を押す
+ * - 元付確認画面に戻っていた場合(chk0あり)は何もしない
+ * - 完了画面(exec0なし)は何もしない
+ */
+async function _confirmAndExecuteIfNeeded(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      world: 'MAIN',
+      func: () => {
+        const exec = document.querySelector('#exec0');
+        if (!exec) return { type: 'no-exec' };
+
+        // chk0 が存在 = 元付確認画面に既に戻っている → 何もしない
+        if (document.querySelector('#chk0')) return { type: 'list-page' };
+
+        if (exec.disabled) return { type: 'disabled' };
+
+        // 確認画面と判定 → クリック
+        const form = document.mainForm || document.forms['mainForm'];
+        try {
+          if (form && typeof ImageButton !== 'undefined' && ImageButton && typeof ImageButton.onceSubmit === 'function') {
+            ImageButton.onceSubmit(form, null, exec);
+          } else if (form) {
+            form.submit();
+          } else {
+            exec.click();
+          }
+          return { type: 'confirm-clicked' };
+        } catch (e) {
+          return { type: 'confirm-error', error: e.message };
+        }
+      }
+    });
+    for (const r of results || []) {
+      if (r && r.result && r.result.type === 'confirm-clicked') {
+        return { clicked: true };
+      }
+      if (r && r.result && r.result.type === 'confirm-error') {
+        return { clicked: false, error: r.result.error };
+      }
+    }
+    return { clicked: false };
+  } catch (err) {
+    return { clicked: false, error: err.message };
   }
 }
 
