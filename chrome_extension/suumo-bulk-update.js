@@ -111,6 +111,7 @@ async function _runSuumoBulkAdUpdate() {
     // ページ単位で繰り返し
     let totalUpdated = 0;
     let pagesProcessed = 0;
+    let prevSnapshotKey = null;
     for (let i = 0; i < _SUUMO_BULK_UPDATE_MAX_PAGES; i++) {
       await sleep(2000);
       const pageInfo = await _getMototsukePageInfo(tabId);
@@ -120,6 +121,19 @@ async function _runSuumoBulkAdUpdate() {
       if (pageInfo.bukkenCount === 0) {
         return { ok: true, totalUpdated, pagesProcessed, passwordExpiredWarn };
       }
+
+      // 進展なし検知: 前回と同じ物件IDセットならエラー物件等で進まないので終了
+      const snapshotKey = JSON.stringify((pageInfo.bukkenCds || []).slice().sort());
+      if (prevSnapshotKey !== null && prevSnapshotKey === snapshotKey) {
+        return {
+          ok: true,
+          totalUpdated,
+          pagesProcessed,
+          passwordExpiredWarn,
+          note: `${pageInfo.bukkenCount}件残ったまま(エラー物件等で進展なし)`
+        };
+      }
+      prevSnapshotKey = snapshotKey;
 
       const execResult = await _executePageBulkUpdate(tabId);
       if (!execResult.ok) {
@@ -149,7 +163,12 @@ async function _runSuumoBulkAdUpdate() {
     return { ok: false, error: `ページ処理上限(${_SUUMO_BULK_UPDATE_MAX_PAGES})に到達。一括更新が無限ループしている可能性`, totalUpdated, pagesProcessed, passwordExpiredWarn };
   } finally {
     if (tabId !== null) {
-      try { await chrome.tabs.remove(tabId); } catch (_) {}
+      try {
+        await chrome.tabs.remove(tabId);
+        await setStorageData({ debugLog: '[SUUMO広告一括更新] タブをクローズしました' });
+      } catch (e) {
+        await setStorageData({ debugLog: `[SUUMO広告一括更新] タブclose失敗: ${e.message}` });
+      }
     }
   }
 }
@@ -242,13 +261,21 @@ async function _getMototsukePageInfo(tabId) {
         try {
           if (typeof bukkenCdList === 'undefined') return null;
           const list = bukkenCdList || [];
-          return { bukkenCount: list.length, url: location.href };
+          return {
+            bukkenCount: list.length,
+            bukkenCds: Array.isArray(list) ? list.slice(0, 200).map(String) : [],
+            url: location.href
+          };
         } catch (_) { return null; }
       }
     });
     for (const r of results || []) {
       if (r && r.result && typeof r.result.bukkenCount === 'number') {
-        return { ok: true, bukkenCount: r.result.bukkenCount };
+        return {
+          ok: true,
+          bukkenCount: r.result.bukkenCount,
+          bukkenCds: r.result.bukkenCds || []
+        };
       }
     }
     return { ok: false, error: 'bukkenCdList を持つフレームが見つからない' };
