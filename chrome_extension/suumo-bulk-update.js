@@ -324,9 +324,16 @@ async function _executePageBulkUpdate(tabId) {
 
 /**
  * 確認画面で「一括更新実行」を再クリック (2段階submit)
- * - submit後の遷移先が「確認画面」(chk0なし + exec0あり) なら exec0を押す
- * - 元付確認画面に戻っていた場合(chk0あり)は何もしない
- * - 完了画面(exec0なし)は何もしない
+ *
+ * 確認画面 (UPD1R3210.action) の構造:
+ *   - URL pathname: /fn/UPD1R3210.action
+ *   - 実行ボタン: #update1 (or #update2) - id="update1", name="button/UPD1R3910"
+ *   - 「訂正」ボタン: #back1 / #back2 (戻る、誤押下しないこと)
+ *   - フォーム: form1 (mainForm ではない)
+ *   - ImageButton.onceSubmit は利用可だが update1.click() の方が安全
+ *     (onclick内でImageButton.onceSubmit(form1, this.name, ...) が呼ばれる)
+ *   - 押下後は自動で UPD1R2800 (一覧) にリダイレクトで戻る
+ *   - chk0 / bukkenCdList / exec0 は確認画面には存在しない
  */
 async function _confirmAndExecuteIfNeeded(tabId) {
   try {
@@ -334,24 +341,14 @@ async function _confirmAndExecuteIfNeeded(tabId) {
       target: { tabId, allFrames: true },
       world: 'MAIN',
       func: () => {
-        const exec = document.querySelector('#exec0');
-        if (!exec) return { type: 'no-exec' };
+        // 確認画面の判定: #update1 が存在し、かつ chk0 が存在しない
+        const update1 = document.getElementById('update1');
+        if (!update1) return { type: 'no-update1' };
+        if (document.getElementById('chk0')) return { type: 'list-page' };
 
-        // chk0 が存在 = 元付確認画面に既に戻っている → 何もしない
-        if (document.querySelector('#chk0')) return { type: 'list-page' };
-
-        if (exec.disabled) return { type: 'disabled' };
-
-        // 確認画面と判定 → クリック
-        const form = document.mainForm || document.forms['mainForm'];
+        // 「訂正」ボタンを誤って押さないよう update1 を直接クリック
         try {
-          if (form && typeof ImageButton !== 'undefined' && ImageButton && typeof ImageButton.onceSubmit === 'function') {
-            ImageButton.onceSubmit(form, null, exec);
-          } else if (form) {
-            form.submit();
-          } else {
-            exec.click();
-          }
+          update1.click();
           return { type: 'confirm-clicked' };
         } catch (e) {
           return { type: 'confirm-error', error: e.message };
