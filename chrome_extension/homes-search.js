@@ -464,11 +464,12 @@ function _sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// 物件画像として有用でないジャンル (不動産会社のスタッフ・店舗写真等)
+// 物件画像として有用でないジャンル (不動産会社のスタッフ・店舗写真、周辺地図等)
 const _EXCLUDED_GENRES = new Set([
   'スタッフ', 'スタッフ写真', 'スタッフ紹介',
   '店内の様子', '店舗の外観', '店舗', '店内',
-  '会社', '会社外観', '会社案内'
+  '会社', '会社外観', '会社案内',
+  '周辺', '周辺環境', '周辺写真', '地図'
 ]);
 
 function _appendImagesAsCandidates(candidates, images, matchType, source, sourceLabel) {
