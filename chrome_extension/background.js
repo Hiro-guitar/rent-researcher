@@ -929,6 +929,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true;
   }
+  if (msg.type === 'HOMES_IMAGE_SEARCH') {
+    // 承認ページからのホームズ画像候補検索リクエスト
+    (async () => {
+      try {
+        if (typeof searchHomesImagesForProperty !== 'function') {
+          sendResponse({ ok: false, errors: ['searchHomesImagesForProperty が未ロード'], candidates: [] });
+          return;
+        }
+        const result = await searchHomesImagesForProperty(msg.input || {});
+        sendResponse(result);
+      } catch (err) {
+        sendResponse({ ok: false, errors: ['例外: ' + err.message], candidates: [] });
+      }
+    })();
+    return true; // async sendResponse
+  }
   if (msg.type === 'SUUMO_QUEUE_POLL_NOW') {
     // content scriptからのキュー再取得依頼
     // 送信元タブは既に入稿タブなので、新タブは作らずGASからキュー取得→追記のみ行う

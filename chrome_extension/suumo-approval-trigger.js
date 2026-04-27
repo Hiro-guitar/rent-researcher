@@ -60,9 +60,37 @@
     if (data && data.type) {
       console.log('[SUUMO承認トリガー] postMessage受信:', data.type);
     }
-    if (!data || data.type !== 'SUUMO_APPROVAL_SUCCESS') return;
-    console.log('[SUUMO承認トリガー] SUUMO_APPROVAL_SUCCESS検知:', data);
-    fireApprovalTrigger(data.propertyKey, data.building, data.room);
+    if (!data) return;
+
+    if (data.type === 'SUUMO_APPROVAL_SUCCESS') {
+      console.log('[SUUMO承認トリガー] SUUMO_APPROVAL_SUCCESS検知:', data);
+      fireApprovalTrigger(data.propertyKey, data.building, data.room);
+      return;
+    }
+
+    // ホームズ画像検索リクエストを background に転送
+    if (data.type === 'HOMES_IMAGE_SEARCH_REQUEST') {
+      console.log('[SUUMO承認トリガー] HOMES_IMAGE_SEARCH_REQUEST受信:', data.requestId);
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'HOMES_IMAGE_SEARCH', input: data.input },
+          function (result) {
+            var err = chrome.runtime.lastError ? chrome.runtime.lastError.message : null;
+            window.postMessage({
+              type: 'HOMES_IMAGE_SEARCH_RESPONSE',
+              requestId: data.requestId,
+              result: err ? { ok: false, errors: [err], candidates: [] } : result
+            }, '*');
+          }
+        );
+      } catch (e) {
+        window.postMessage({
+          type: 'HOMES_IMAGE_SEARCH_RESPONSE',
+          requestId: data.requestId,
+          result: { ok: false, errors: ['sendMessage例外: ' + e.message], candidates: [] }
+        }, '*');
+      }
+    }
   });
 
   // ── フォールバック: data-suumo-approved-key 属性の変化を監視 ──
