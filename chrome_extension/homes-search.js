@@ -58,7 +58,7 @@ const _HOMES_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Apple
 async function searchHomesImagesForProperty(input) {
   const result = {
     ok: false,
-    matched: { confidence: 'none', buildingDetailUrls: [], archiveBuildingIds: [] },
+    matched: { confidence: 'none', buildingDetailUrls: [], archiveBuildingIds: [], searchUrls: [] },
     candidates: [],
     errors: []
   };
@@ -70,7 +70,9 @@ async function searchHomesImagesForProperty(input) {
     }
 
     // 1. 賃貸検索: 市区+建物名 or 番地キーワードで候補一覧
-    const candidates = await _findHomesRentalCandidates(input);
+    const search = await _findHomesRentalCandidates(input);
+    result.matched.searchUrls = search.searchUrls || [];
+    const candidates = search.urls || [];
     if (candidates.length === 0) {
       result.errors.push('賃貸検索の候補が見つからない');
     }
@@ -104,7 +106,8 @@ async function searchHomesImagesForProperty(input) {
       // 確定物件本体の画像
       _appendImagesAsCandidates(result.candidates, mb.detail.images,
         _isSameType(input, mb.detail.meta) ? 'same-room' : 'same-building',
-        'rental', `${mb.detail.meta.layout || ''} ${mb.detail.meta.floor || ''}階`);
+        'rental', `${mb.detail.meta.layout || ''} ${mb.detail.meta.floor || ''}階`,
+        mb.url);
 
       // 同建物の他の部屋リンク
       for (const roomUrl of mb.detail.sameBuildingRoomUrls.slice(0, 10)) {
@@ -115,7 +118,8 @@ async function searchHomesImagesForProperty(input) {
         if (!roomDetail.ok) continue;
         _appendImagesAsCandidates(result.candidates, roomDetail.images,
           _isSameType(input, roomDetail.meta) ? 'same-room' : 'same-building',
-          'rental', `${roomDetail.meta.layout || ''} ${roomDetail.meta.floor || ''}階`);
+          'rental', `${roomDetail.meta.layout || ''} ${roomDetail.meta.floor || ''}階`,
+          roomUrl);
       }
     }
 
@@ -126,7 +130,8 @@ async function searchHomesImagesForProperty(input) {
       await _sleep(_HOMES_FETCH_DELAY_MS);
       const archiveImages = await _fetchHomesArchiveGalleryImages(aid);
       _appendImagesAsCandidates(result.candidates, archiveImages,
-        'archive', 'archive', `archive b-${aid}`);
+        'archive', 'archive', `archive b-${aid}`,
+        `${_HOMES_BASE}/archive/b-${aid}/gallery/`);
     }
 
     // 5. 重複排除 (URLベース)
@@ -174,10 +179,12 @@ async function _findHomesRentalCandidates(input) {
   }
 
   const candidates = new Set();
+  const searchUrls = [];
   for (let i = 0; i < queries.length; i++) {
     const q = queries[i];
     if (i > 0) await _sleep(_HOMES_FETCH_DELAY_MS);
     const url = `${_HOMES_BASE}/chintai/list/?cond%5Bfreeword%5D=${encodeURIComponent(q)}&cond%5Bfwtype%5D=1`;
+    searchUrls.push({ query: q, url });
     console.log('[homes-search] searching:', q);
     const html = await _fetchText(url);
     if (!html) {
@@ -194,7 +201,7 @@ async function _findHomesRentalCandidates(input) {
     console.log('[homes-search] query:', q, 'newly found:', candidates.size - before, 'html length:', html.length);
     if (candidates.size >= _HOMES_MAX_BUILDING_CANDIDATES) break;
   }
-  return Array.from(candidates);
+  return { urls: Array.from(candidates), searchUrls };
 }
 
 // ============================================================
@@ -472,7 +479,7 @@ const _EXCLUDED_GENRES = new Set([
   '周辺', '周辺環境', '周辺写真', '地図'
 ]);
 
-function _appendImagesAsCandidates(candidates, images, matchType, source, sourceLabel) {
+function _appendImagesAsCandidates(candidates, images, matchType, source, sourceLabel, sourceUrl) {
   for (const img of images) {
     const genre = img.genre || 'その他';
     if (_EXCLUDED_GENRES.has(genre)) continue;
@@ -482,7 +489,8 @@ function _appendImagesAsCandidates(candidates, images, matchType, source, source
       urlHires: _toHiresUrl(img.url),
       source,
       matchType,
-      sourceLabel
+      sourceLabel,
+      sourceUrl: sourceUrl || ''
     });
   }
 }
