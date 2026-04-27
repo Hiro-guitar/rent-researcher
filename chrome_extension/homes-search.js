@@ -64,8 +64,8 @@ async function searchHomesImagesForProperty(input) {
   };
 
   try {
-    if (!input || (!input.address && !input.buildingName)) {
-      result.errors.push('address または buildingName のいずれかが必要');
+    if (!input || !input.address) {
+      result.errors.push('address が必須 (住所が取得できませんでした)');
       return result;
     }
 
