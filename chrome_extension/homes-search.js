@@ -64,8 +64,8 @@ async function searchHomesImagesForProperty(input) {
   };
 
   try {
-    if (!input || !input.prefecture || !input.city || !input.address) {
-      result.errors.push('prefecture / city / address が必須');
+    if (!input || !input.address) {
+      result.errors.push('address が必須 (フル住所を渡してください)');
       return result;
     }
 
