@@ -389,6 +389,15 @@ async function runSuumoPatrolCycle() {
 
     await setStorageData({ debugLog: '━━━ SUUMO巡回 完了 ━━━' });
 
+    // 巡回終了後フック: 1日1回、SUUMO広告一括更新を実行
+    try {
+      if (typeof globalThis.maybeRunSuumoBulkAdUpdate === 'function') {
+        await globalThis.maybeRunSuumoBulkAdUpdate();
+      }
+    } catch (e) {
+      await setStorageData({ debugLog: `[SUUMO巡回] 広告一括更新フック例外: ${e.message}` });
+    }
+
   } catch (err) {
     await setStorageData({ debugLog: `[SUUMO巡回] 致命的エラー: ${err.message}` });
     console.error('[SUUMO巡回] エラー:', err);

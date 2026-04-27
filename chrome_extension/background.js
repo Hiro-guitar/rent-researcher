@@ -76,6 +76,9 @@ importScripts('forrent-stop.js');
 importScripts('forrent-final-submit.js');
 // ForRent PUB1R2801 の成約状態をシートに直読み同期
 importScripts('forrent-status-sync.js');
+// SUUMO広告一括更新(1日1回、SUUMO巡回終了後フック)
+// forrent-status-sync.js の doForrentLogin_ と suumo-patrol.js の getOrCreateSuumoDailyThread_ を参照するため最後にロード
+importScripts('suumo-bulk-update.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {
