@@ -174,18 +174,24 @@ async function _findHomesRentalCandidates(input) {
   }
 
   const candidates = new Set();
-  for (const q of queries) {
-    await _sleep(_HOMES_FETCH_DELAY_MS);
+  for (let i = 0; i < queries.length; i++) {
+    const q = queries[i];
+    if (i > 0) await _sleep(_HOMES_FETCH_DELAY_MS);
     const url = `${_HOMES_BASE}/chintai/list/?cond%5Bfreeword%5D=${encodeURIComponent(q)}&cond%5Bfwtype%5D=1`;
+    console.log('[homes-search] searching:', q);
     const html = await _fetchText(url);
-    if (!html) continue;
-    // 候補抽出: 賃貸物件 b-{13桁} と room/{hash} の両方
+    if (!html) {
+      console.warn('[homes-search] empty html for query:', q);
+      continue;
+    }
     const re = /\/chintai\/(b-\d{13}|room\/[a-f0-9]{32,})\//g;
+    const before = candidates.size;
     let m;
     while ((m = re.exec(html)) !== null) {
       candidates.add(`${_HOMES_BASE}/chintai/${m[1]}/`);
       if (candidates.size >= 20) break;
     }
+    console.log('[homes-search] query:', q, 'newly found:', candidates.size - before, 'html length:', html.length);
     if (candidates.size >= _HOMES_MAX_BUILDING_CANDIDATES) break;
   }
   return Array.from(candidates);
@@ -438,14 +444,18 @@ function _escapeRegExp(s) {
 
 async function _fetchText(url) {
   try {
+    // User-Agent は Chrome 拡張の fetch では forbidden header で無視されるため設定しない
     const resp = await fetch(url, {
-      headers: { 'User-Agent': _HOMES_USER_AGENT, 'Accept-Language': 'ja-JP,ja;q=0.9' },
-      credentials: 'omit',
+      headers: { 'Accept-Language': 'ja-JP,ja;q=0.9' },
       redirect: 'follow'
     });
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      console.warn('[homes-search] fetch failed:', resp.status, resp.url || url);
+      return null;
+    }
     return await resp.text();
   } catch (err) {
+    console.warn('[homes-search] fetch exception:', err.message, url);
     return null;
   }
 }
