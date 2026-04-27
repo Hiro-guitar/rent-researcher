@@ -181,14 +181,14 @@ async function _inspectBulkPage(tabId) {
  */
 async function _navigateToMototsukeTab(tabId) {
   try {
-    // navi フレームの menu_3 (掲載指示メニュー) をクリック
+    // 掲載指示メニュー (menu_3) を含むフレームでクリック
     await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
       func: () => {
         const menu3 = document.getElementById('menu_3');
-        if (menu3 && (window.name === 'navi' || /掲載指示/.test(menu3.title || menu3.alt || ''))) {
+        if (menu3) {
           menu3.click();
-          return { clicked: 'menu_3' };
+          return { clicked: 'menu_3', frame: window.name || '(top)' };
         }
         return null;
       }
@@ -230,10 +230,13 @@ async function _getMototsukePageInfo(tabId) {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
+      world: 'MAIN',
       func: () => {
-        if (typeof window.bukkenCdList === 'undefined') return null;
-        const list = window.bukkenCdList || [];
-        return { bukkenCount: list.length, url: location.href };
+        try {
+          if (typeof bukkenCdList === 'undefined') return null;
+          const list = bukkenCdList || [];
+          return { bukkenCount: list.length, url: location.href };
+        } catch (_) { return null; }
       }
     });
     for (const r of results || []) {
@@ -254,9 +257,12 @@ async function _executePageBulkUpdate(tabId) {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
+      world: 'MAIN',
       func: () => {
-        if (typeof window.bukkenCdList === 'undefined') return null;
-        const list = window.bukkenCdList || [];
+        try {
+          if (typeof bukkenCdList === 'undefined') return null;
+        } catch (_) { return null; }
+        const list = bukkenCdList || [];
         if (list.length === 0) return { skipped: true };
 
         const chk0 = document.querySelector('#chk0');
@@ -267,13 +273,13 @@ async function _executePageBulkUpdate(tabId) {
 
         chk0.checked = true;
         try {
-          if (typeof window.ikCheckKakuninOnOff === 'function') {
-            window.ikCheckKakuninOnOff(list, true);
+          if (typeof ikCheckKakuninOnOff === 'function') {
+            ikCheckKakuninOnOff(list, true);
           }
         } catch (e) { return { error: 'ikCheckKakuninOnOff: ' + e.message }; }
         try {
-          if (typeof window.toggleExecBtnDisable === 'function') {
-            window.toggleExecBtnDisable(list, ['confirm', 'seiyaku']);
+          if (typeof toggleExecBtnDisable === 'function') {
+            toggleExecBtnDisable(list, ['confirm', 'seiyaku']);
           }
         } catch (e) { return { error: 'toggleExecBtnDisable: ' + e.message }; }
 
@@ -285,10 +291,8 @@ async function _executePageBulkUpdate(tabId) {
         if (!form) return { error: 'mainForm が見つからない' };
 
         try {
-          if (typeof window.ImageButton !== 'undefined'
-            && window.ImageButton
-            && typeof window.ImageButton.onceSubmit === 'function') {
-            window.ImageButton.onceSubmit(form, null, exec);
+          if (typeof ImageButton !== 'undefined' && ImageButton && typeof ImageButton.onceSubmit === 'function') {
+            ImageButton.onceSubmit(form, null, exec);
           } else {
             form.submit();
           }
