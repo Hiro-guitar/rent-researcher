@@ -1351,8 +1351,15 @@ var HOMES_TO_SUUMO_GENRE = {
 function _buildHomesSearchInput() {
   // SuumoApprovalPage に注入されているグローバル変数から検索入力を作る
   var addr = String(ADDRESS || '').trim();
+  if (!addr && PROPERTY_DATA) {
+    addr = String(PROPERTY_DATA.address || PROPERTY_DATA.full_address || '').trim();
+  }
+  var building = String(BUILDING || '').trim();
+  if (!building && PROPERTY_DATA) {
+    building = String(PROPERTY_DATA.building_name || PROPERTY_DATA.buildingName || '').trim();
+  }
   var totalFloors = null;
-  var floorText = (PROPERTY_DATA && PROPERTY_DATA.floor_text) || (PROPERTY_DATA && PROPERTY_DATA.floorText) || '';
+  var floorText = (PROPERTY_DATA && (PROPERTY_DATA.floor_text || PROPERTY_DATA.floorText)) || '';
   if (floorText) {
     var fm = String(floorText).match(/(\d+)\s*階建/);
     if (fm) totalFloors = parseInt(fm[1], 10);
@@ -1361,7 +1368,7 @@ function _buildHomesSearchInput() {
     prefecture: '',
     city: '',
     address: addr,
-    buildingName: BUILDING || '',
+    buildingName: building,
     builtYearMonth: null,
     totalFloors: totalFloors,
     layout: LAYOUT || '',
