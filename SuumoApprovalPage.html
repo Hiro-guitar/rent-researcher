@@ -1394,11 +1394,18 @@ function requestHomesImageSearch() {
   };
 
   try {
-    window.postMessage({
+    // GAS userHtmlFrame は sandbox iframe で content script が注入されない可能性
+    // があるため、親frame (script.google.com) に向けて送信する
+    var msg = {
       type: 'HOMES_IMAGE_SEARCH_REQUEST',
       requestId: requestId,
       input: input
-    }, '*');
+    };
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage(msg, '*');
+    } else {
+      window.postMessage(msg, '*');
+    }
   } catch (e) {
     delete _homesPending[requestId];
     clearTimeout(timeoutId);
