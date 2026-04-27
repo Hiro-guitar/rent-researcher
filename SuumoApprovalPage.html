@@ -1324,6 +1324,7 @@ function esc(str) {
 var _homesCandidates = [];
 var _homesRequestId = 0;
 var _homesPending = {};
+var _homesLastSearchUrls = [];
 
 // HOME'Sジャンル → SUUMOジャンル(GENRE_OPTIONS) のマッピング
 var HOMES_TO_SUUMO_GENRE = {
@@ -1444,9 +1445,22 @@ function _onHomesSearchResult(result) {
   }
 
   _homesCandidates = result.candidates || [];
+  _homesLastSearchUrls = (result.matched && result.matched.searchUrls) || [];
   var conf = result.matched && result.matched.confidence ? result.matched.confidence : 'unknown';
-  statusEl.textContent = '✅ ' + _homesCandidates.length + '件取得 (信頼度: ' + conf + ')';
+  statusEl.innerHTML = '✅ ' + _homesCandidates.length + '件取得 (信頼度: ' + conf + ')';
   statusEl.style.color = '#27ae60';
+  // 検索URL一覧をstatus欄の隣に表示
+  for (var si = 0; si < _homesLastSearchUrls.length; si++) {
+    var s = _homesLastSearchUrls[si];
+    var a = document.createElement('a');
+    a.href = s.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = ' 🔗 検索結果' + (_homesLastSearchUrls.length > 1 ? (si + 1) : '') + 'を見る';
+    a.style.cssText = 'color:#1a5276;text-decoration:underline;font-size:11px;margin-left:8px;';
+    a.title = s.query;
+    statusEl.appendChild(a);
+  }
 
   if (_homesCandidates.length === 0) {
     document.getElementById('homesCandidatesArea').style.display = 'none';
@@ -1531,8 +1545,21 @@ function _renderHomesCandidates() {
       img.onerror = function () { this.style.background = '#eee'; };
 
       var lbl = document.createElement('div');
-      lbl.style.cssText = 'font-size:11px;color:#666;padding:3px 6px;background:#f8f8f8;';
-      lbl.textContent = cand.matchType === 'same-room' ? '同タイプ' : (cand.matchType === 'archive' ? '過去物件' : '同建物');
+      lbl.style.cssText = 'font-size:11px;color:#666;padding:3px 6px;background:#f8f8f8;display:flex;justify-content:space-between;align-items:center;gap:4px;';
+      var lblText = document.createElement('span');
+      lblText.textContent = cand.matchType === 'same-room' ? '同タイプ' : (cand.matchType === 'archive' ? '過去物件' : '同建物');
+      lbl.appendChild(lblText);
+      // 出処物件URLが分かる場合はリンクを追加
+      if (cand.sourceUrl) {
+        var sa = document.createElement('a');
+        sa.href = cand.sourceUrl;
+        sa.target = '_blank';
+        sa.rel = 'noopener noreferrer';
+        sa.textContent = '📄 出処';
+        sa.title = cand.sourceUrl;
+        sa.style.cssText = 'color:#1a5276;text-decoration:underline;font-size:11px;';
+        lbl.appendChild(sa);
+      }
 
       card.appendChild(cbLabel);
       card.appendChild(openLink);
