@@ -1359,6 +1359,14 @@ function _buildHomesSearchInput() {
   if (!building && PROPERTY_DATA) {
     building = String(PROPERTY_DATA.building_name || PROPERTY_DATA.buildingName || '').trim();
   }
+  var layout = String(LAYOUT || '').trim();
+  if (!layout && PROPERTY_DATA) {
+    layout = String(PROPERTY_DATA.layout || PROPERTY_DATA.madori || '').trim();
+  }
+  var area = Number(AREA) || null;
+  if (!area && PROPERTY_DATA) {
+    area = Number(PROPERTY_DATA.area) || Number(PROPERTY_DATA.usage_area) || null;
+  }
   var totalFloors = null;
   var floorText = (PROPERTY_DATA && (PROPERTY_DATA.floor_text || PROPERTY_DATA.floorText)) || '';
   if (floorText) {
@@ -1372,8 +1380,8 @@ function _buildHomesSearchInput() {
     buildingName: building,
     builtYearMonth: null,
     totalFloors: totalFloors,
-    layout: LAYOUT || '',
-    area: Number(AREA) || null
+    layout: layout,
+    area: area
   };
 }
 
