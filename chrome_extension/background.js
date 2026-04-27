@@ -79,6 +79,8 @@ importScripts('forrent-status-sync.js');
 // SUUMO広告一括更新(1日1回、SUUMO巡回終了後フック)
 // forrent-status-sync.js の doForrentLogin_ と suumo-patrol.js の getOrCreateSuumoDailyThread_ を参照するため最後にロード
 importScripts('suumo-bulk-update.js');
+// LIFULL HOME'S 画像候補検索 (SUUMO承認時の入稿画像補完用)
+importScripts('homes-search.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {

@@ -1,0 +1,531 @@
+/**
+ * homes-search.js
+ * LIFULL HOME'S (https://www.homes.co.jp/) から、入力された物件情報に
+ * マッチする「同じ建物・同タイプ部屋」と「建物全体(archive含む)」の
+ * 画像候補を取得する。
+ *
+ * メインAPI:
+ *   globalThis.searchHomesImagesForProperty(input) → Promise<output>
+ *
+ * input:
+ *   {
+ *     prefecture:     "東京都",        // 必須
+ *     city:           "新宿区",        // 必須
+ *     address:        "大久保1丁目7-11", // 必須
+ *     buildingName:   "ガルナ大久保",    // 任意 (表記揺れあり)
+ *     builtYearMonth: "2016-01",        // 任意 ("YYYY-MM")
+ *     totalFloors:    10,               // 任意
+ *     layout:         "1K",             // 任意
+ *     area:           25.5,             // 任意 (㎡)
+ *     structure:      "RC"              // 任意
+ *   }
+ *
+ * output:
+ *   {
+ *     ok: true,
+ *     matched: {
+ *       confidence: 'high' | 'medium' | 'low' | 'none',
+ *       buildingDetailUrls: [],
+ *       archiveBuildingIds: []
+ *     },
+ *     candidates: [
+ *       {
+ *         genre:        "外観",
+ *         url:          "https://image1.homes.jp/smallimg/...",
+ *         urlHires:     "https://image1.homes.jp/...&width=1200&height=900",
+ *         source:       "rental" | "archive",
+ *         matchType:    "same-room" | "same-building" | "archive",
+ *         sourceLabel:  "賃貸物件 b-XXX 5階" 等
+ *       }, ...
+ *     ],
+ *     errors: []
+ *   }
+ *
+ * 制約:
+ * - service worker では DOMParser が使えないため、HTMLは正規表現でパース
+ * - homes.co.jp への fetch は host_permissions で許可される必要あり
+ * - 連続アクセスは 1〜2秒/req に抑制
+ */
+
+const _HOMES_BASE = 'https://www.homes.co.jp';
+const _HOMES_FETCH_DELAY_MS = 1500;
+const _HOMES_MAX_BUILDING_CANDIDATES = 5;
+const _HOMES_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+
+/**
+ * メインAPI: 物件情報からホームズの画像候補リストを取得
+ */
+async function searchHomesImagesForProperty(input) {
+  const result = {
+    ok: false,
+    matched: { confidence: 'none', buildingDetailUrls: [], archiveBuildingIds: [] },
+    candidates: [],
+    errors: []
+  };
+
+  try {
+    if (!input || !input.prefecture || !input.city || !input.address) {
+      result.errors.push('prefecture / city / address が必須');
+      return result;
+    }
+
+    // 1. 賃貸検索: 市区+建物名 or 番地キーワードで候補一覧
+    const candidates = await _findHomesRentalCandidates(input);
+    if (candidates.length === 0) {
+      result.errors.push('賃貸検索の候補が見つからない');
+    }
+
+    // 2. 各候補の詳細を取得 → 住所+築年月+階建で同一建物判定
+    const matchedBuildings = [];
+    for (const candUrl of candidates.slice(0, _HOMES_MAX_BUILDING_CANDIDATES)) {
+      await _sleep(_HOMES_FETCH_DELAY_MS);
+      const detail = await _fetchHomesDetail(candUrl);
+      if (!detail.ok) continue;
+      const score = _matchBuildingScore(input, detail.meta);
+      if (score >= 2) {
+        matchedBuildings.push({ url: candUrl, detail, score });
+      }
+    }
+
+    if (matchedBuildings.length === 0 && candidates.length > 0) {
+      // フォールバック: 最初の候補を「low confidence」として扱う
+      const first = candidates[0];
+      const detail = await _fetchHomesDetail(first);
+      if (detail.ok) {
+        matchedBuildings.push({ url: first, detail, score: 1 });
+      }
+    }
+
+    // 3. 同建物の各部屋から画像を集約
+    const visitedRoomUrls = new Set();
+    for (const mb of matchedBuildings) {
+      result.matched.buildingDetailUrls.push(mb.url);
+
+      // 確定物件本体の画像
+      _appendImagesAsCandidates(result.candidates, mb.detail.images,
+        _isSameType(input, mb.detail.meta) ? 'same-room' : 'same-building',
+        'rental', `${mb.detail.meta.layout || ''} ${mb.detail.meta.floor || ''}階`);
+
+      // 同建物の他の部屋リンク
+      for (const roomUrl of mb.detail.sameBuildingRoomUrls.slice(0, 10)) {
+        if (visitedRoomUrls.has(roomUrl)) continue;
+        visitedRoomUrls.add(roomUrl);
+        await _sleep(_HOMES_FETCH_DELAY_MS);
+        const roomDetail = await _fetchHomesDetail(roomUrl);
+        if (!roomDetail.ok) continue;
+        _appendImagesAsCandidates(result.candidates, roomDetail.images,
+          _isSameType(input, roomDetail.meta) ? 'same-room' : 'same-building',
+          'rental', `${roomDetail.meta.layout || ''} ${roomDetail.meta.floor || ''}階`);
+      }
+    }
+
+    // 4. archive 側 (過去物件含む共用部・全体ギャラリー) を取得
+    const archiveIds = await _findHomesArchiveBuildingIds(input);
+    for (const aid of archiveIds.slice(0, 3)) {
+      result.matched.archiveBuildingIds.push(aid);
+      await _sleep(_HOMES_FETCH_DELAY_MS);
+      const archiveImages = await _fetchHomesArchiveGalleryImages(aid);
+      _appendImagesAsCandidates(result.candidates, archiveImages,
+        'archive', 'archive', `archive b-${aid}`);
+    }
+
+    // 5. 重複排除 (URLベース)
+    const seen = new Set();
+    result.candidates = result.candidates.filter(c => {
+      const key = c.url.replace(/[?&]width=\d+|[?&]height=\d+/g, '');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // 6. confidence判定
+    if (matchedBuildings.length > 0 && matchedBuildings[0].score >= 3) {
+      result.matched.confidence = 'high';
+    } else if (matchedBuildings.length > 0 && matchedBuildings[0].score >= 2) {
+      result.matched.confidence = 'medium';
+    } else if (result.candidates.length > 0) {
+      result.matched.confidence = 'low';
+    }
+
+    result.ok = true;
+    return result;
+  } catch (err) {
+    result.errors.push(`例外: ${err.message}`);
+    return result;
+  }
+}
+
+// ============================================================
+// 賃貸検索: 候補URL一覧
+// ============================================================
+
+async function _findHomesRentalCandidates(input) {
+  const cityPath = _toCityPath(input.prefecture, input.city);
+  if (!cityPath) return [];
+
+  const queries = [];
+  if (input.buildingName) {
+    queries.push(input.buildingName);
+  }
+  // 番地キーワードも試す (建物名なし or 当たらない場合の保険)
+  const banchi = _extractBanchi(input.address);
+  if (banchi) queries.push(banchi);
+
+  const candidates = new Set();
+  for (const q of queries) {
+    await _sleep(_HOMES_FETCH_DELAY_MS);
+    const url = `${_HOMES_BASE}/chintai/${cityPath}/list/?keyword=${encodeURIComponent(q)}`;
+    const html = await _fetchText(url);
+    if (!html) continue;
+    // 物件詳細リンク `/chintai/b-{13桁}/` を抽出
+    const re = /\/chintai\/b-(\d{13})\//g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      candidates.add(`${_HOMES_BASE}/chintai/b-${m[1]}/`);
+      if (candidates.size >= 20) break;
+    }
+    if (candidates.size >= _HOMES_MAX_BUILDING_CANDIDATES) break;
+  }
+  return Array.from(candidates);
+}
+
+function _toCityPath(prefecture, city) {
+  // 都道府県→ローマ字スラグ変換 (主要都市のみ。本番運用では拡張要)
+  const prefMap = {
+    '東京都': 'tokyo', '神奈川県': 'kanagawa', '埼玉県': 'saitama',
+    '千葉県': 'chiba', '大阪府': 'osaka', '愛知県': 'aichi',
+    '兵庫県': 'hyogo', '京都府': 'kyoto', '福岡県': 'fukuoka',
+    '北海道': 'hokkaido'
+  };
+  const prefSlug = prefMap[prefecture];
+  if (!prefSlug) return null;
+  // 市区町村: 「新宿区」 → 'shinjuku-city'のようなURLがHOME'Sでは使われるが
+  // 日本語のままURLエンコードして渡しても動くケースが多い
+  // フォールバックとして都道府県だけで広く検索する
+  const cityClean = (city || '').replace(/[市区町村]$/, '').trim();
+  if (cityClean) {
+    return `${prefSlug}/${encodeURIComponent(cityClean)}-city`;
+  }
+  return prefSlug;
+}
+
+function _extractBanchi(address) {
+  // "大久保1丁目7-11" → "大久保1-7"
+  if (!address) return null;
+  const m = address.match(/([^\s\d]+?)(\d+)\s*(?:丁目)?(?:[-―ー]?(\d+))?/);
+  if (!m) return null;
+  const town = m[1];
+  const a = m[2];
+  const b = m[3];
+  return b ? `${town}${a}-${b}` : `${town}${a}`;
+}
+
+// ============================================================
+// 物件詳細ページ取得・パース
+// ============================================================
+
+async function _fetchHomesDetail(detailUrl) {
+  const html = await _fetchText(detailUrl);
+  if (!html) return { ok: false, error: 'fetch failed' };
+
+  const meta = _extractMetaFromHtml(html);
+  const images = _extractImagesFromHtml(html);
+  const sameBuildingRoomUrls = _extractSameBuildingRoomUrls(html);
+
+  return { ok: true, meta, images, sameBuildingRoomUrls };
+}
+
+function _extractMetaFromHtml(html) {
+  const meta = {};
+  // tr > th + td パターン
+  const trRe = /<tr[^>]*>[\s\S]*?<th[^>]*>([\s\S]*?)<\/th>[\s\S]*?<td[^>]*>([\s\S]*?)<\/td>[\s\S]*?<\/tr>/g;
+  let m;
+  while ((m = trRe.exec(html)) !== null) {
+    const key = _stripTags(m[1]).trim();
+    const val = _stripTags(m[2]).trim();
+    if (key && val && !meta[key]) meta[key] = val;
+  }
+  // dt + dd パターン
+  const dtRe = /<dt[^>]*>([\s\S]*?)<\/dt>\s*<dd[^>]*>([\s\S]*?)<\/dd>/g;
+  while ((m = dtRe.exec(html)) !== null) {
+    const key = _stripTags(m[1]).trim();
+    const val = _stripTags(m[2]).trim();
+    if (key && val && !meta[key]) meta[key] = val;
+  }
+
+  // 構造化値の抽出
+  const out = {
+    address: meta['所在地'] || '',
+    builtYearMonth: _parseBuiltYearMonth(meta['築年月'] || ''),
+    layout: _parseLayout(meta['間取り'] || ''),
+    area: _parseArea(meta['専有面積'] || ''),
+    structure: meta['建物構造'] || '',
+    totalUnits: meta['総戸数'] || ''
+  };
+  const fl = _parseFloorInfo(meta['所在階/階数'] || meta['所在階'] || '');
+  out.floor = fl.floor;
+  out.totalFloors = fl.totalFloors;
+  out._raw = meta;
+  return out;
+}
+
+function _extractImagesFromHtml(html) {
+  // 物件画像一覧 region を抽出
+  const regionMatch = html.match(/<[^>]+aria-label="物件画像一覧"[\s\S]*?<\/(?:section|div|ul)>/);
+  const target = regionMatch ? regionMatch[0] : html;
+
+  // <img alt="..." src="https://image[1-4].homes.jp/..." />
+  // alt と src の順序が逆もある
+  const imgs = [];
+  const re1 = /<img[^>]*\balt="([^"]*)"[^>]*\bsrc="(https:\/\/image\d?\.homes\.jp\/[^"]+)"/g;
+  const re2 = /<img[^>]*\bsrc="(https:\/\/image\d?\.homes\.jp\/[^"]+)"[^>]*\balt="([^"]*)"/g;
+  let m;
+  while ((m = re1.exec(target)) !== null) {
+    imgs.push({ genre: m[1] || 'その他', url: _decodeHtml(m[2]) });
+  }
+  while ((m = re2.exec(target)) !== null) {
+    imgs.push({ genre: m[2] || 'その他', url: _decodeHtml(m[1]) });
+  }
+  // 重複除去
+  const seen = new Set();
+  return imgs.filter(i => {
+    if (seen.has(i.url)) return false;
+    seen.add(i.url);
+    return true;
+  });
+}
+
+function _extractSameBuildingRoomUrls(html) {
+  const urls = new Set();
+  const re = /\/chintai\/room\/([a-f0-9]{32,})\//g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    urls.add(`${_HOMES_BASE}/chintai/room/${m[1]}/`);
+  }
+  return Array.from(urls);
+}
+
+// ============================================================
+// archive 側
+// ============================================================
+
+async function _findHomesArchiveBuildingIds(input) {
+  const cityPath = _toCityPath(input.prefecture, input.city);
+  if (!cityPath) return [];
+
+  // archive の市区エリアページから建物リストを取得
+  const url = `${_HOMES_BASE}/archive/address/${cityPath}/`;
+  const html = await _fetchText(url);
+  if (!html) return [];
+
+  // /archive/b-{8桁}/ 形式で建物ID抽出
+  const allIds = new Set();
+  const re = /\/archive\/b-(\d{8})\//g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    allIds.add(m[1]);
+  }
+  if (allIds.size === 0) return [];
+
+  // 建物名で絞り込み (HTML内に建物名が並んでいるはず)
+  // 単純に全部返すと多すぎるので、先頭数件
+  const ids = Array.from(allIds);
+  if (input.buildingName) {
+    // 建物名を含む箇所の近傍IDを優先
+    const nameNorm = _normalizeForSearch(input.buildingName);
+    const nameRe = new RegExp(_escapeRegExp(nameNorm), 'i');
+    const filtered = [];
+    for (const id of ids) {
+      const idx = html.indexOf(`b-${id}`);
+      if (idx < 0) continue;
+      const slice = html.slice(Math.max(0, idx - 500), idx + 500);
+      if (nameRe.test(_normalizeForSearch(slice))) {
+        filtered.push(id);
+      }
+    }
+    if (filtered.length > 0) return filtered.slice(0, 3);
+  }
+  return ids.slice(0, 3);
+}
+
+async function _fetchHomesArchiveGalleryImages(archiveBuildingId) {
+  const url = `${_HOMES_BASE}/archive/b-${archiveBuildingId}/gallery/`;
+  const html = await _fetchText(url);
+  if (!html) return [];
+
+  const imgs = [];
+  // archive画像URLパターン: archive-image.homes.co.jp/v2/resize/{gid}/{hash}.jpg?width=...
+  const re = /<img[^>]*\bsrc="(https:\/\/archive-image\.homes\.co\.jp\/v2\/resize\/[^"]+)"[^>]*(?:\balt="([^"]*)")?/g;
+  const re2 = /<img[^>]*\balt="([^"]*)"[^>]*\bsrc="(https:\/\/archive-image\.homes\.co\.jp\/v2\/resize\/[^"]+)"/g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    imgs.push({ genre: m[2] || 'その他', url: _decodeHtml(m[1]) });
+  }
+  while ((m = re2.exec(html)) !== null) {
+    imgs.push({ genre: m[1] || 'その他', url: _decodeHtml(m[2]) });
+  }
+  // h2/h3 直前のジャンル見出し対応 (簡易: alt が空の場合は前後のh2/h3テキストでジャンル推定)
+  // → MVPでは alt が無いものは「その他」扱い
+  const seen = new Set();
+  return imgs.filter(i => {
+    if (seen.has(i.url)) return false;
+    seen.add(i.url);
+    return true;
+  });
+}
+
+// ============================================================
+// マッチング
+// ============================================================
+
+function _matchBuildingScore(input, detailMeta) {
+  let score = 0;
+  if (_normalizeAddress(input.address) === _normalizeAddress(detailMeta.address)) score += 2;
+  else if (_addressMatchPartial(input.address, detailMeta.address)) score += 1;
+
+  if (input.builtYearMonth && detailMeta.builtYearMonth
+    && input.builtYearMonth === detailMeta.builtYearMonth) score += 1;
+
+  if (input.totalFloors && detailMeta.totalFloors
+    && Number(input.totalFloors) === Number(detailMeta.totalFloors)) score += 1;
+
+  return score;
+}
+
+function _isSameType(input, detailMeta) {
+  if (!input.layout || !detailMeta.layout) return false;
+  if (_normalizeLayout(input.layout) !== _normalizeLayout(detailMeta.layout)) return false;
+  if (input.area && detailMeta.area) {
+    const diff = Math.abs(Number(input.area) - Number(detailMeta.area));
+    if (diff > 0.5) return false;
+  }
+  return true;
+}
+
+// ============================================================
+// 文字列正規化
+// ============================================================
+
+function _normalizeAddress(addr) {
+  if (!addr) return '';
+  return addr
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/丁目/g, '-')
+    .replace(/[‐－―ー−]/g, '-')
+    .replace(/[\s 　]+/g, '')
+    .replace(/番地$|番$|号$/g, '')
+    .toLowerCase();
+}
+
+function _addressMatchPartial(a, b) {
+  if (!a || !b) return false;
+  const na = _normalizeAddress(a);
+  const nb = _normalizeAddress(b);
+  // 番地最後の数字を除いて一致するか
+  return na.split('-').slice(0, -1).join('-') === nb.split('-').slice(0, -1).join('-')
+    && na.split('-').slice(0, -1).length > 0;
+}
+
+function _normalizeLayout(layout) {
+  if (!layout) return '';
+  return layout.replace(/\s+/g, '').toUpperCase();
+}
+
+function _normalizeForSearch(s) {
+  return (s || '').replace(/\s+/g, '').toLowerCase();
+}
+
+function _parseBuiltYearMonth(text) {
+  if (!text) return null;
+  const m = text.match(/(\d{4})\s*年\s*(\d{1,2})\s*月/);
+  if (!m) return null;
+  return `${m[1]}-${String(m[2]).padStart(2, '0')}`;
+}
+
+function _parseLayout(text) {
+  if (!text) return '';
+  // "3LDK ( リビング..." → "3LDK"
+  const m = text.match(/^(\d?\s*[SLDKR]+)/i);
+  return m ? m[1].replace(/\s+/g, '').toUpperCase() : text.trim();
+}
+
+function _parseArea(text) {
+  if (!text) return null;
+  const m = text.match(/([\d.]+)\s*(?:㎡|m2|平米)/);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function _parseFloorInfo(text) {
+  if (!text) return { floor: null, totalFloors: null };
+  // "5階/10階建" or "5階" or "10階建"
+  const m = text.match(/(\d+)\s*階\s*\/\s*(\d+)\s*階建/);
+  if (m) return { floor: parseInt(m[1], 10), totalFloors: parseInt(m[2], 10) };
+  const m2 = text.match(/(\d+)\s*階建/);
+  const m3 = text.match(/(\d+)\s*階/);
+  return {
+    floor: m3 ? parseInt(m3[1], 10) : null,
+    totalFloors: m2 ? parseInt(m2[1], 10) : null
+  };
+}
+
+function _stripTags(html) {
+  return (html || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function _decodeHtml(s) {
+  return (s || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
+}
+
+function _escapeRegExp(s) {
+  return (s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ============================================================
+// 共通ヘルパー
+// ============================================================
+
+async function _fetchText(url) {
+  try {
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': _HOMES_USER_AGENT, 'Accept-Language': 'ja-JP,ja;q=0.9' },
+      credentials: 'omit',
+      redirect: 'follow'
+    });
+    if (!resp.ok) return null;
+    return await resp.text();
+  } catch (err) {
+    return null;
+  }
+}
+
+function _sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+function _appendImagesAsCandidates(candidates, images, matchType, source, sourceLabel) {
+  for (const img of images) {
+    candidates.push({
+      genre: img.genre || 'その他',
+      url: img.url,
+      urlHires: _toHiresUrl(img.url),
+      source,
+      matchType,
+      sourceLabel
+    });
+  }
+}
+
+function _toHiresUrl(url) {
+  if (!url) return url;
+  return url
+    .replace(/([?&])width=\d+/, '$1width=1200')
+    .replace(/([?&])height=\d+/, '$1height=900');
+}
+
+// グローバル登録
+globalThis.searchHomesImagesForProperty = searchHomesImagesForProperty;

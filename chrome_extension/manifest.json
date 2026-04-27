@@ -43,7 +43,14 @@
     "https://api.e-bukken-1.com/*",
     "https://www.fn.forrent.jp/*",
     "https://suumo.jp/*",
-    "https://business1.suumo.jp/*"
+    "https://business1.suumo.jp/*",
+    "https://www.homes.co.jp/*",
+    "https://image.homes.jp/*",
+    "https://image1.homes.jp/*",
+    "https://image2.homes.jp/*",
+    "https://image3.homes.jp/*",
+    "https://image4.homes.jp/*",
+    "https://archive-image.homes.co.jp/*"
   ],
   "background": {
     "service_worker": "background.js"
