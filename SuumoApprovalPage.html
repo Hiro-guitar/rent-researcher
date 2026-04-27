@@ -1494,26 +1494,48 @@ function _renderHomesCandidates() {
     section.appendChild(h);
 
     var rowGrid = document.createElement('div');
-    rowGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px;';
+    rowGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;';
     for (var k = 0; k < groups[genre].length; k++) {
       var item = groups[genre][k];
       var cand = item.cand;
-      var card = document.createElement('label');
-      card.style.cssText = 'position:relative;display:block;border:1px solid #ddd;border-radius:4px;cursor:pointer;overflow:hidden;background:#fff;';
+      var card = document.createElement('div');
+      card.style.cssText = 'position:relative;display:block;border:1px solid #ddd;border-radius:4px;overflow:hidden;background:#fff;';
+
+      // チェックボックス (画像と独立、左上)
+      var cbLabel = document.createElement('label');
+      cbLabel.style.cssText = 'position:absolute;top:6px;left:6px;z-index:3;background:rgba(255,255,255,0.92);border-radius:3px;padding:2px 4px;cursor:pointer;display:flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:#1a5276;';
       var cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.className = 'homes-cand-cb';
       cb.setAttribute('data-cand-idx', item.idx);
-      cb.style.cssText = 'position:absolute;top:4px;left:4px;z-index:2;transform:scale(1.3);';
+      cb.style.cssText = 'transform:scale(1.3);margin:0;';
+      cbLabel.appendChild(cb);
+      var cbText = document.createElement('span');
+      cbText.textContent = '採用';
+      cbLabel.appendChild(cbText);
+
+      // 原画リンク (右上、新規タブで高解像度版を開く=透かし確認用)
+      var openLink = document.createElement('a');
+      openLink.href = cand.urlHires || cand.url;
+      openLink.target = '_blank';
+      openLink.rel = 'noopener noreferrer';
+      openLink.title = '高解像度で開く(透かし確認)';
+      openLink.style.cssText = 'position:absolute;top:6px;right:6px;z-index:3;background:rgba(255,255,255,0.92);border-radius:3px;padding:3px 6px;font-size:11px;font-weight:700;color:#1a5276;text-decoration:none;cursor:pointer;';
+      openLink.textContent = '🔍 拡大';
+
+      // 透かし確認のため全体表示。背景を濃いめのグレーにして余白を可視化
       var img = document.createElement('img');
       img.src = cand.url;
       img.alt = genre;
-      img.style.cssText = 'width:100%;height:80px;object-fit:cover;display:block;';
+      img.style.cssText = 'width:100%;height:200px;object-fit:contain;background:#222;display:block;';
       img.onerror = function () { this.style.background = '#eee'; };
+
       var lbl = document.createElement('div');
-      lbl.style.cssText = 'font-size:10px;color:#666;padding:2px 4px;background:#f8f8f8;';
+      lbl.style.cssText = 'font-size:11px;color:#666;padding:3px 6px;background:#f8f8f8;';
       lbl.textContent = cand.matchType === 'same-room' ? '同タイプ' : (cand.matchType === 'archive' ? '過去物件' : '同建物');
-      card.appendChild(cb);
+
+      card.appendChild(cbLabel);
+      card.appendChild(openLink);
       card.appendChild(img);
       card.appendChild(lbl);
       rowGrid.appendChild(card);
