@@ -120,6 +120,16 @@ async function runSuumoPatrolCycle() {
   try {
     await setStorageData({ debugLog: '━━━ SUUMO巡回 開始 ━━━' });
 
+    // 巡回開始前フック: 1日1回、SUUMO広告一括更新を実行
+    // (forrent広告更新は巡回処理(各サイトAPI)と干渉しないため開始前に実施)
+    try {
+      if (typeof globalThis.maybeRunSuumoBulkAdUpdate === 'function') {
+        await globalThis.maybeRunSuumoBulkAdUpdate();
+      }
+    } catch (e) {
+      await setStorageData({ debugLog: `[SUUMO巡回] 広告一括更新フック例外: ${e.message}` });
+    }
+
     // 1. 巡回条件を取得
     let criteria;
     let debugInfo;
@@ -388,15 +398,6 @@ async function runSuumoPatrolCycle() {
     await setStorageData({ suumoSeenKeys: seenKeys });
 
     await setStorageData({ debugLog: '━━━ SUUMO巡回 完了 ━━━' });
-
-    // 巡回終了後フック: 1日1回、SUUMO広告一括更新を実行
-    try {
-      if (typeof globalThis.maybeRunSuumoBulkAdUpdate === 'function') {
-        await globalThis.maybeRunSuumoBulkAdUpdate();
-      }
-    } catch (e) {
-      await setStorageData({ debugLog: `[SUUMO巡回] 広告一括更新フック例外: ${e.message}` });
-    }
 
   } catch (err) {
     await setStorageData({ debugLog: `[SUUMO巡回] 致命的エラー: ${err.message}` });
