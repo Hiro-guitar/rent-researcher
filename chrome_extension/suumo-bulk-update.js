@@ -156,10 +156,21 @@ async function _runSuumoBulkAdUpdate() {
         await sleep(2500);
       }
 
-      // 結果画面から元付確認タブに戻る
+      // 完了画面 (元付更新完了) を検知したら処理終了
+      const completion = await _isCompletionScreen(tabId);
+      if (completion.completed) {
+        return {
+          ok: true,
+          totalUpdated,
+          pagesProcessed,
+          passwordExpiredWarn,
+          note: completion.completedCount != null ? `${completion.completedCount}件確認済みに更新` : null
+        };
+      }
+
+      // 完了画面でない場合(キャッシュ等で確認画面のままなど)は元付確認タブに戻る
       const back = await _navigateToMototsukeTab(tabId);
       if (!back.ok) {
-        // 戻れなければ完了画面のまま終了 (1ページしか処理していなかったケース等)
         return { ok: true, totalUpdated, pagesProcessed, passwordExpiredWarn, note: '元付確認タブへの再遷移失敗だが処理は実行済み' };
       }
     }
@@ -396,6 +407,41 @@ async function _confirmAndExecuteIfNeeded(tabId) {
     return { clicked: false };
   } catch (err) {
     return { clicked: false, error: err.message };
+  }
+}
+
+/**
+ * 完了画面 (元付更新完了 / main_r.action) を検知
+ * - URL pathname に main_r.action を含む
+ * - 「元付更新完了」「N件の物件を確認済みにしました」テキスト
+ */
+async function _isCompletionScreen(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      world: 'MAIN',
+      func: () => {
+        const url = location.href || '';
+        const text = (document.body && document.body.innerText) || '';
+        if (/元付更新完了/.test(text) || /件の物件を確認済みにしました/.test(text)) {
+          const m = text.match(/(\d+)\s*件の物件を確認済み/);
+          return {
+            completed: true,
+            completedCount: m ? parseInt(m[1], 10) : null,
+            url
+          };
+        }
+        return null;
+      }
+    });
+    for (const r of results || []) {
+      if (r && r.result && r.result.completed) {
+        return r.result;
+      }
+    }
+    return { completed: false };
+  } catch (err) {
+    return { completed: false, error: err.message };
   }
 }
 
