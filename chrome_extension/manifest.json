@@ -27,6 +27,7 @@
     "https://*.ielove.jp/*",
     "https://script.google.com/*",
     "https://script.googleusercontent.com/*",
+    "https://*.googleusercontent.com/*",
     "https://catbox.moe/*",
     "https://files.catbox.moe/*",
     "https://telegra.ph/*",
@@ -117,7 +118,8 @@
     {
       "matches": [
         "https://script.google.com/macros/*",
-        "https://script.googleusercontent.com/*"
+        "https://script.googleusercontent.com/*",
+        "https://*.googleusercontent.com/*"
       ],
       "js": ["suumo-approval-trigger.js"],
       "all_frames": true,
