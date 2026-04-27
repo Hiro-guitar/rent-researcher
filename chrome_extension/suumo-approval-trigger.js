@@ -69,26 +69,36 @@
     }
 
     // ホームズ画像検索リクエストを background に転送
+    // GAS HTMLは sandbox iframe で動くため content script が直接注入できない場合がある
+    // GAS HTML側からは parent.postMessage で送られてくるので、親frameで受けて
+    // 結果は event.source.postMessage で子iframeに返送する
     if (data.type === 'HOMES_IMAGE_SEARCH_REQUEST') {
       console.log('[SUUMO承認トリガー] HOMES_IMAGE_SEARCH_REQUEST受信:', data.requestId);
+      var sourceWin = event.source || window;
       try {
         chrome.runtime.sendMessage(
           { type: 'HOMES_IMAGE_SEARCH', input: data.input },
           function (result) {
             var err = chrome.runtime.lastError ? chrome.runtime.lastError.message : null;
-            window.postMessage({
-              type: 'HOMES_IMAGE_SEARCH_RESPONSE',
-              requestId: data.requestId,
-              result: err ? { ok: false, errors: [err], candidates: [] } : result
-            }, '*');
+            try {
+              sourceWin.postMessage({
+                type: 'HOMES_IMAGE_SEARCH_RESPONSE',
+                requestId: data.requestId,
+                result: err ? { ok: false, errors: [err], candidates: [] } : result
+              }, '*');
+            } catch (e2) {
+              console.warn('[SUUMO承認トリガー] response送信失敗:', e2);
+            }
           }
         );
       } catch (e) {
-        window.postMessage({
-          type: 'HOMES_IMAGE_SEARCH_RESPONSE',
-          requestId: data.requestId,
-          result: { ok: false, errors: ['sendMessage例外: ' + e.message], candidates: [] }
-        }, '*');
+        try {
+          sourceWin.postMessage({
+            type: 'HOMES_IMAGE_SEARCH_RESPONSE',
+            requestId: data.requestId,
+            result: { ok: false, errors: ['sendMessage例外: ' + e.message], candidates: [] }
+          }, '*');
+        } catch (_) {}
       }
     }
   });
