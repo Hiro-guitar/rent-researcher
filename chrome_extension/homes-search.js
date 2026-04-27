@@ -241,23 +241,28 @@ function _extractMetaFromHtml(html) {
 }
 
 function _extractImagesFromHtml(html) {
-  // 物件画像一覧 region を抽出
-  const regionMatch = html.match(/<[^>]+aria-label="物件画像一覧"[\s\S]*?<\/(?:section|div|ul)>/);
-  const target = regionMatch ? regionMatch[0] : html;
-
-  // <img alt="..." src="https://image[1-4].homes.jp/..." />
-  // alt と src の順序が逆もある
+  // HOME'Sは lazy load のため `data-src` / `data-original` / `src` のいずれかに
+  // 画像URLが入る。region 限定だと正規表現の早期終了で漏れるため、HTML全体から
+  // image[1-4].homes.jp / archive-image.homes.co.jp を含む <img> タグを抽出する。
   const imgs = [];
-  const re1 = /<img[^>]*\balt="([^"]*)"[^>]*\bsrc="(https:\/\/image\d?\.homes\.jp\/[^"]+)"/g;
-  const re2 = /<img[^>]*\bsrc="(https:\/\/image\d?\.homes\.jp\/[^"]+)"[^>]*\balt="([^"]*)"/g;
+  const imgTagRe = /<img\b[^>]*>/g;
   let m;
-  while ((m = re1.exec(target)) !== null) {
-    imgs.push({ genre: m[1] || 'その他', url: _decodeHtml(m[2]) });
+  while ((m = imgTagRe.exec(html)) !== null) {
+    const tag = m[0];
+    // src / data-src / data-original のいずれかを取得 (優先順位: data-src > data-original > src)
+    let srcMatch = tag.match(/\bdata-src="([^"]+)"/)
+      || tag.match(/\bdata-original="([^"]+)"/)
+      || tag.match(/\bsrc="([^"]+)"/);
+    if (!srcMatch) continue;
+    const src = _decodeHtml(srcMatch[1]);
+    if (!/^https:\/\/image\d?\.homes\.jp\//.test(src)
+      && !/^https:\/\/archive-image\.homes\.co\.jp\//.test(src)) continue;
+
+    const altMatch = tag.match(/\balt="([^"]*)"/);
+    const alt = altMatch ? _decodeHtml(altMatch[1]) : '';
+
+    imgs.push({ genre: alt || 'その他', url: src });
   }
-  while ((m = re2.exec(target)) !== null) {
-    imgs.push({ genre: m[2] || 'その他', url: _decodeHtml(m[1]) });
-  }
-  // 重複除去
   const seen = new Set();
   return imgs.filter(i => {
     if (seen.has(i.url)) return false;
