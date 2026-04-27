@@ -464,10 +464,19 @@ function _sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// 物件画像として有用でないジャンル (不動産会社のスタッフ・店舗写真等)
+const _EXCLUDED_GENRES = new Set([
+  'スタッフ', 'スタッフ写真', 'スタッフ紹介',
+  '店内の様子', '店舗の外観', '店舗', '店内',
+  '会社', '会社外観', '会社案内'
+]);
+
 function _appendImagesAsCandidates(candidates, images, matchType, source, sourceLabel) {
   for (const img of images) {
+    const genre = img.genre || 'その他';
+    if (_EXCLUDED_GENRES.has(genre)) continue;
     candidates.push({
-      genre: img.genre || 'その他',
+      genre,
       url: img.url,
       urlHires: _toHiresUrl(img.url),
       source,
