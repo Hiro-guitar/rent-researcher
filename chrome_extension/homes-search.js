@@ -160,64 +160,35 @@ async function searchHomesImagesForProperty(input) {
 // ============================================================
 
 async function _findHomesRentalCandidates(input) {
-  const cityPath = _toCityPath(input.prefecture, input.city);
-  if (!cityPath) return [];
-
+  // 検索URLは form action="/chintai/list/" の cond[freeword] パラメータ式 (GET互換)
+  // 推奨クエリ: 都道府県+市区+町名+番地 を1つの freeword に渡す
   const queries = [];
+
+  // メイン: 住所まるごと (最も精度が高い)
+  const fullAddr = `${input.prefecture || ''}${input.city || ''}${input.address || ''}`.trim();
+  if (fullAddr) queries.push(fullAddr);
+
+  // フォールバック1: 建物名のみ (市区を併記して精度補強)
   if (input.buildingName) {
-    queries.push(input.buildingName);
+    queries.push(`${input.city || ''} ${input.buildingName}`.trim());
   }
-  // 番地キーワードも試す (建物名なし or 当たらない場合の保険)
-  const banchi = _extractBanchi(input.address);
-  if (banchi) queries.push(banchi);
 
   const candidates = new Set();
   for (const q of queries) {
     await _sleep(_HOMES_FETCH_DELAY_MS);
-    const url = `${_HOMES_BASE}/chintai/${cityPath}/list/?keyword=${encodeURIComponent(q)}`;
+    const url = `${_HOMES_BASE}/chintai/list/?cond%5Bfreeword%5D=${encodeURIComponent(q)}&cond%5Bfwtype%5D=1`;
     const html = await _fetchText(url);
     if (!html) continue;
-    // 物件詳細リンク `/chintai/b-{13桁}/` を抽出
-    const re = /\/chintai\/b-(\d{13})\//g;
+    // 候補抽出: 賃貸物件 b-{13桁} と room/{hash} の両方
+    const re = /\/chintai\/(b-\d{13}|room\/[a-f0-9]{32,})\//g;
     let m;
     while ((m = re.exec(html)) !== null) {
-      candidates.add(`${_HOMES_BASE}/chintai/b-${m[1]}/`);
+      candidates.add(`${_HOMES_BASE}/chintai/${m[1]}/`);
       if (candidates.size >= 20) break;
     }
     if (candidates.size >= _HOMES_MAX_BUILDING_CANDIDATES) break;
   }
   return Array.from(candidates);
-}
-
-function _toCityPath(prefecture, city) {
-  // 都道府県→ローマ字スラグ変換 (主要都市のみ。本番運用では拡張要)
-  const prefMap = {
-    '東京都': 'tokyo', '神奈川県': 'kanagawa', '埼玉県': 'saitama',
-    '千葉県': 'chiba', '大阪府': 'osaka', '愛知県': 'aichi',
-    '兵庫県': 'hyogo', '京都府': 'kyoto', '福岡県': 'fukuoka',
-    '北海道': 'hokkaido'
-  };
-  const prefSlug = prefMap[prefecture];
-  if (!prefSlug) return null;
-  // 市区町村: 「新宿区」 → 'shinjuku-city'のようなURLがHOME'Sでは使われるが
-  // 日本語のままURLエンコードして渡しても動くケースが多い
-  // フォールバックとして都道府県だけで広く検索する
-  const cityClean = (city || '').replace(/[市区町村]$/, '').trim();
-  if (cityClean) {
-    return `${prefSlug}/${encodeURIComponent(cityClean)}-city`;
-  }
-  return prefSlug;
-}
-
-function _extractBanchi(address) {
-  // "大久保1丁目7-11" → "大久保1-7"
-  if (!address) return null;
-  const m = address.match(/([^\s\d]+?)(\d+)\s*(?:丁目)?(?:[-―ー]?(\d+))?/);
-  if (!m) return null;
-  const town = m[1];
-  const a = m[2];
-  const b = m[3];
-  return b ? `${town}${a}-${b}` : `${town}${a}`;
 }
 
 // ============================================================
@@ -310,42 +281,13 @@ function _extractSameBuildingRoomUrls(html) {
 // ============================================================
 
 async function _findHomesArchiveBuildingIds(input) {
-  const cityPath = _toCityPath(input.prefecture, input.city);
-  if (!cityPath) return [];
-
-  // archive の市区エリアページから建物リストを取得
-  const url = `${_HOMES_BASE}/archive/address/${cityPath}/`;
-  const html = await _fetchText(url);
-  if (!html) return [];
-
-  // /archive/b-{8桁}/ 形式で建物ID抽出
-  const allIds = new Set();
-  const re = /\/archive\/b-(\d{8})\//g;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    allIds.add(m[1]);
-  }
-  if (allIds.size === 0) return [];
-
-  // 建物名で絞り込み (HTML内に建物名が並んでいるはず)
-  // 単純に全部返すと多すぎるので、先頭数件
-  const ids = Array.from(allIds);
-  if (input.buildingName) {
-    // 建物名を含む箇所の近傍IDを優先
-    const nameNorm = _normalizeForSearch(input.buildingName);
-    const nameRe = new RegExp(_escapeRegExp(nameNorm), 'i');
-    const filtered = [];
-    for (const id of ids) {
-      const idx = html.indexOf(`b-${id}`);
-      if (idx < 0) continue;
-      const slice = html.slice(Math.max(0, idx - 500), idx + 500);
-      if (nameRe.test(_normalizeForSearch(slice))) {
-        filtered.push(id);
-      }
-    }
-    if (filtered.length > 0) return filtered.slice(0, 3);
-  }
-  return ids.slice(0, 3);
+  // archive側はフリーワード検索が存在せず、ドリルダウンのみ。
+  // 確実に動作させるには /archive/address/{pref-slug}/{city-slug}/ の
+  // 英語スラグマップが必要。当面は確定済みの賃貸物件詳細ページから
+  // 建物名リンクで archive ID を発見できるケースのみ対応する。
+  // この関数のフォールバック実装として、賃貸詳細HTML中の archive リンクを
+  // 利用する処理を _fetchHomesDetail 側で行うのが望ましい。
+  return [];
 }
 
 async function _fetchHomesArchiveGalleryImages(archiveBuildingId) {
