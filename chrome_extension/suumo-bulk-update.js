@@ -123,7 +123,10 @@ async function _runSuumoBulkAdUpdate() {
       }
 
       // 進展なし検知: 前回と同じ物件IDセットならエラー物件等で進まないので終了
-      const snapshotKey = JSON.stringify((pageInfo.bukkenCds || []).slice().sort());
+      const sortedCds = (pageInfo.bukkenCds || []).slice().sort();
+      const snapshotKey = JSON.stringify(sortedCds);
+      const head = sortedCds.slice(0, 3).join(',');
+      await setStorageData({ debugLog: `[SUUMO広告一括更新] ページ${pagesProcessed + 1}: ${pageInfo.bukkenCount}件 [${head}...]` });
       if (prevSnapshotKey !== null && prevSnapshotKey === snapshotKey) {
         return {
           ok: true,
