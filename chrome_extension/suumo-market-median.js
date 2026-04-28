@@ -87,19 +87,20 @@
     let url;
     let isNewUrl = false;
     if (sc) {
-      // 新URL: ta=13(東京都)+sc=市区町村コード+fw2=町名+面積範囲
+      // 新URL: ta=13(東京都)+sc=市区町村コード+fw2=町名+間取り
+      // 注: SUUMOの mb/mt は㎡数値ではなく面積コード(1〜10等)を期待する仕様らしく
+      //     不正値(33等)を渡すとエラーページが返る。よって mb=0/mt=9999999 で
+      //     SUUMO側絞り込みは無効化し、面積±10%フィルタは _filterCards で自前処理。
       const fw2Terms = [];
       const banchi = _extractBanchiKeyword(input.address);
       if (banchi) fw2Terms.push(banchi);
       if (input.layout) fw2Terms.push(input.layout);
       if (input.propertyType) fw2Terms.push(input.propertyType);
       const fw2 = fw2Terms.filter(Boolean).join('+');
-      const mb = Math.max(0, Math.floor(input.area * 0.9));
-      const mt = Math.ceil(input.area * 1.1);
       url = SUUMO_BASE_NEW
         + '?ar=030&bs=040&ta=13&sc=' + sc
         + '&cb=0.0&ct=9999999&et=9999999&cn=9999999'
-        + '&mb=' + mb + '&mt=' + mt
+        + '&mb=0&mt=9999999'
         + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
         + '&fw2=' + encodeURIComponent(fw2)
         + '&srch_navi=1';
