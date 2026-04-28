@@ -155,4 +155,115 @@ function _clamp(min, max, v) {
   return Math.max(min, Math.min(max, v));
 }
 
+// ============================================================
+// 物件データ → スコア入力 への変換ヘルパー
+// 4サイト (itandi/ES-Square/いえらぶ/REINS) は概ね統一フィールド
+// (facilities, deposit, key_money, floor, floor_text, rent, management_fee,
+//  area, building_age, station_info, access) を使う前提
+// ============================================================
+
+/**
+ * 物件オブジェクトから equipmentFlags を抽出
+ */
+function extractEquipmentFlags(prop) {
+  const facilities = String((prop && prop.facilities) || '');
+  return {
+    autoLock:        /オートロック/.test(facilities),
+    deliveryBox:     /宅配(ボックス|BOX|box)/.test(facilities),
+    washbasin:       /独立洗面/.test(facilities),
+    reHeating:       /追い?(焚き|だき|たき)/.test(facilities),
+    monitorIntercom: /モニター(付|フォン)|TV(モニター|ドアホン|インターホン)|カラーモニター/.test(facilities),
+    walkInCloset:    /ウォーク[イi]ンクロ|WIC/i.test(facilities),
+    bathDryer:       /浴室乾燥/.test(facilities),
+    floor2OrAbove:   _isFloor2OrAbove(prop),
+    depositZero:     _isZeroOrNone(prop && (prop.deposit !== undefined ? prop.deposit : prop.shikikin)),
+    keyMoneyZero:    _isZeroOrNone(prop && (prop.key_money !== undefined ? prop.key_money : prop.reikin))
+  };
+}
+
+function _isFloor2OrAbove(prop) {
+  if (!prop) return false;
+  const f = Number(prop.floor);
+  if (isFinite(f) && f >= 2) return true;
+  if (isFinite(f) && f >= 1) return false; // 1階確定
+  const ft = String(prop.floor_text || prop.floorText || '');
+  const m = ft.match(/(\d+)\s*階(?!建)/);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    return n >= 2;
+  }
+  return false;
+}
+
+function _isZeroOrNone(value) {
+  if (value === 0 || value === '0') return true;
+  if (value === undefined || value === null || value === '') return false;
+  const s = String(value).replace(/\s+/g, '');
+  if (/^(なし|無し|無|無料|0|０|‐|-|—|ゼロ|0円|0万|0ヶ月|0ケ月|0か月|ゼロ円|0万円)$/.test(s)) return true;
+  return false;
+}
+
+/**
+ * 物件オブジェクトから「最寄り駅徒歩分(最短)」を抽出
+ */
+function extractWalkMinutes(prop) {
+  if (!prop) return null;
+  // 1. station_walk_minutes (数値)
+  if (prop.station_walk_minutes !== undefined) {
+    const n = Number(prop.station_walk_minutes);
+    if (isFinite(n) && n >= 0) return n;
+  }
+  // 2. access 配列 [{walk: 5}, ...]
+  if (Array.isArray(prop.access) && prop.access.length > 0) {
+    const ws = prop.access.map(a => Number(a && a.walk)).filter(v => isFinite(v) && v > 0);
+    if (ws.length > 0) return Math.min(...ws);
+  }
+  // 3. station_info テキストから「徒歩X分」抽出
+  if (prop.station_info) {
+    const all = String(prop.station_info).match(/(?:徒歩|歩)\s*(\d+)\s*分/g) || [];
+    const mins = all.map(s => parseInt(s.match(/\d+/)[0], 10)).filter(v => isFinite(v) && v > 0);
+    if (mins.length > 0) return Math.min(...mins);
+  }
+  return null;
+}
+
+/**
+ * 物件オブジェクトから「築年数(年)」を抽出
+ */
+function extractBuildingAge(prop) {
+  if (!prop) return null;
+  const ba = String(prop.building_age || prop.buildingAge || '');
+  if (/新築/.test(ba)) return 0;
+  // "築X年" を最優先
+  const m = ba.match(/築\s*(\d+)\s*年/);
+  if (m) return parseInt(m[1], 10);
+  // 年月表記から計算 (例: "2021年5月")
+  const ym = ba.match(/(\d{4})\s*年/);
+  if (ym) {
+    const y = parseInt(ym[1], 10);
+    const now = new Date();
+    return Math.max(0, now.getFullYear() - y);
+  }
+  return null;
+}
+
+/**
+ * 物件オブジェクト + 相場中央値 → calculateInquiryScore の input 形式に変換
+ */
+function buildInquiryScoreInput(prop, marketMedianPerSqm) {
+  return {
+    rent: Number(prop && prop.rent) || 0,
+    managementFee: Number(prop && prop.management_fee) || 0,
+    area: Number(prop && prop.area) || 0,
+    walkMinutes: extractWalkMinutes(prop),
+    buildingAge: extractBuildingAge(prop),
+    equipmentFlags: extractEquipmentFlags(prop),
+    marketMedianPerSqm: marketMedianPerSqm
+  };
+}
+
 globalThis.calculateInquiryScore = calculateInquiryScore;
+globalThis.extractEquipmentFlags = extractEquipmentFlags;
+globalThis.extractWalkMinutes = extractWalkMinutes;
+globalThis.extractBuildingAge = extractBuildingAge;
+globalThis.buildInquiryScoreInput = buildInquiryScoreInput;
