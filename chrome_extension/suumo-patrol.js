@@ -750,12 +750,19 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     const p = item.property || {};
 
     // 反響予測スコアを事前計算 (失敗してもメッセージ送信は継続)
+    const _bldName = p.building_name || p.buildingName || p.building || '';
+    const _roomNo = p.room_number || p.roomNumber || p.room || '';
     try {
-      if (typeof getSuumoMarketMedian === 'function'
+      const fnsOk = (typeof getSuumoMarketMedian === 'function'
         && typeof calculateInquiryScore === 'function'
         && typeof buildInquiryScoreInput === 'function'
         && typeof extractWalkMinutes === 'function'
-        && typeof extractBuildingAge === 'function') {
+        && typeof extractBuildingAge === 'function');
+      console.log('[SUUMO反響] 計算開始', _bldName, _roomNo, 'fnsOk=', fnsOk,
+        'address=', p.address, 'layout=', p.layout, 'area=', p.area);
+      if (!fnsOk) {
+        await setStorageData({ debugLog: '[反響スコア] 関数未ロード ' + _bldName + ' ' + _roomNo });
+      } else {
         const propertyType = (p.structure && /木造/.test(p.structure)) ? 'アパート' : 'マンション';
         const median = await getSuumoMarketMedian({
           address: p.address,
@@ -765,15 +772,25 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
           walkMinutes: extractWalkMinutes(p),
           propertyType: propertyType
         });
+        console.log('[SUUMO反響] median結果', _bldName, 'ok=', median && median.ok,
+          'sampleSize=', median && median.sampleSize, 'errors=', median && median.errors);
         if (median && median.ok) {
           const input = buildInquiryScoreInput(p, median.median);
           const scoreResult = calculateInquiryScore(input);
           p.inquiry_score = scoreResult;
           p.inquiry_market = median;
+          await setStorageData({ debugLog:
+            '[反響スコア] ' + _bldName + ' ' + _roomNo + ' → ' + scoreResult.score + '点 (' + scoreResult.label + ')'
+          });
+        } else {
+          await setStorageData({ debugLog:
+            '[反響スコア] ' + _bldName + ' ' + _roomNo + ' → 計算失敗: ' + ((median && median.errors && median.errors.join(',')) || 'unknown')
+          });
         }
       }
     } catch (e) {
       console.warn('[SUUMO巡回] 反響スコア計算失敗:', e && e.message);
+      await setStorageData({ debugLog: '[反響スコア] ' + _bldName + ' ' + _roomNo + ' → 例外: ' + (e && e.message) });
     }
 
     const content = buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, item.key);
