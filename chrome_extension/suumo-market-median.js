@@ -34,7 +34,9 @@
 (() => {
   'use strict';
 
-  const SUUMO_BASE = 'https://suumo.jp/jj/chintai/ichiran/FR301FC011/?ar=030&bs=040&fw=';
+  // FR301FC001 = 物件単位 (重複排除済み、お客さん向け表示)
+  // FR301FC011 (旧) = 広告単位 (同物件が複数広告会社で重複表示)
+  const SUUMO_BASE = 'https://suumo.jp/jj/chintai/ichiran/FR301FC001/?ar=030&bs=040';
   const FETCH_TIMEOUT_MS = 10000;
   const MIN_SAMPLE_SIZE = 5; // この件数を下回ったらフィルタを段階緩和
 
@@ -56,11 +58,20 @@
       return result;
     }
 
-    // 1. 検索URL構築 (住所+間取り+建物種別)
+    // 1. 検索URL構築
+    //   - fw2: 住所+間取り+建物種別 のフリーワード
+    //   - mb/mt: 面積範囲 (±10%) でサーバー側絞り込み
+    //   サーバー側で重複排除+面積絞り込み済みなので、1ページで母集団網羅できる
     const fwTerms = [_normalizeAddress(input.address), input.layout];
     if (input.propertyType) fwTerms.push(input.propertyType);
     const fw = fwTerms.filter(Boolean).join('+');
-    const url = SUUMO_BASE + encodeURIComponent(fw) + '&pc=100';
+    const mb = Math.max(0, Math.floor(input.area * 0.9));
+    const mt = Math.ceil(input.area * 1.1);
+    const url = SUUMO_BASE
+      + '&fw2=' + encodeURIComponent(fw)
+      + '&mb=' + mb
+      + '&mt=' + mt
+      + '&pc=100';
     result.searchUrl = url;
 
     // 2. 検索結果HTML取得
