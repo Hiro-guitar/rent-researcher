@@ -1506,13 +1506,49 @@ function _renderHomesCandidates() {
 
   summary.textContent = _homesCandidates.length + '件 / ' + sortedGenres.length + 'ジャンル';
 
+  // ジャンルナビゲーション (各ジャンルセクションへジャンプ)
+  var navWrap = document.createElement('div');
+  navWrap.id = 'homesGenreNav';
+  navWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;padding:6px;background:#eef6ff;border-radius:4px;';
+  var navLabel = document.createElement('span');
+  navLabel.textContent = 'ジャンルへジャンプ:';
+  navLabel.style.cssText = 'font-size:11px;color:#1a5276;font-weight:700;align-self:center;margin-right:4px;';
+  navWrap.appendChild(navLabel);
+  for (var gni = 0; gni < sortedGenres.length; gni++) {
+    var ng = sortedGenres[gni];
+    var nbtn = document.createElement('button');
+    nbtn.type = 'button';
+    nbtn.textContent = ng + '(' + groups[ng].length + ')';
+    nbtn.style.cssText = 'padding:3px 8px;font-size:11px;background:#fff;border:1px solid #2e86c1;color:#2e86c1;border-radius:4px;cursor:pointer;';
+    nbtn.onclick = (function (idx) {
+      return function () {
+        var el = document.getElementById('homesGenreSection-' + idx);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+    })(gni);
+    navWrap.appendChild(nbtn);
+  }
+  grid.appendChild(navWrap);
+
   for (var gi = 0; gi < sortedGenres.length; gi++) {
     var genre = sortedGenres[gi];
     var section = document.createElement('div');
-    section.style.marginBottom = '8px';
+    section.id = 'homesGenreSection-' + gi;
+    section.style.marginBottom = '12px';
     var h = document.createElement('div');
-    h.style.cssText = 'font-size:12px;font-weight:700;color:#1a5276;margin-bottom:4px;';
-    h.textContent = genre + ' (' + groups[genre].length + ')';
+    h.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:#1a5276;margin-bottom:4px;';
+    var hLabel = document.createElement('span');
+    hLabel.textContent = genre + ' (' + groups[genre].length + ')';
+    h.appendChild(hLabel);
+    var backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.textContent = '↑ 検索エリアに戻る';
+    backBtn.style.cssText = 'padding:2px 8px;font-size:10px;background:#fff;border:1px solid #888;color:#666;border-radius:4px;cursor:pointer;';
+    backBtn.onclick = function () {
+      var top = document.getElementById('homesSearchBtn');
+      if (top) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+    h.appendChild(backBtn);
     section.appendChild(h);
 
     var rowGrid = document.createElement('div');
