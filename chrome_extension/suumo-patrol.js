@@ -674,12 +674,10 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
   // 反響予測スコア (事前計算済みの場合のみ表示)
   if (p.inquiry_score && typeof p.inquiry_score.score === 'number') {
     const s = p.inquiry_score;
-    msgLines.push('📊 反響予測: **' + s.score + '点 / 100** ' + s.label);
+    msgLines.push('📊 反響予測: **' + s.score + '点** ' + s.label);
     if (p.inquiry_market && p.inquiry_market.median) {
       const im = p.inquiry_market;
-      let mLine = '  └ 相場 ¥' + im.median + '/㎡ (' + im.sampleSize + '件・filter:' + im.filterUsed + ')';
-      if (im.searchUrl) mLine += ' [🔍相場検索](' + im.searchUrl + ')';
-      msgLines.push(mLine);
+      msgLines.push('  └ 相場 ¥' + im.median + '/㎡ (' + im.sampleSize + '件・filter:' + im.filterUsed + ')');
     }
     if (s.breakdown) {
       const b = s.breakdown;
@@ -687,7 +685,7 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
       if (b.score1 !== null) parts.push('単価:' + b.score1);
       if (b.score2 !== null) parts.push('徒歩:' + b.score2);
       if (b.score3 !== null) parts.push('築年:' + b.score3);
-      if (parts.length > 0) msgLines.push('  └ 内訳(各0-100): ' + parts.join(' / ') + ' (設備' + b.equipmentCount + '個)');
+      if (parts.length > 0) msgLines.push('  └ 内訳: ' + parts.join(' / ') + ' (設備' + b.equipmentCount + '個)');
     }
   }
 
