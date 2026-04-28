@@ -49,7 +49,7 @@
 
 const _HOMES_BASE = 'https://www.homes.co.jp';
 const _HOMES_FETCH_DELAY_MS = 1500;
-const _HOMES_MAX_BUILDING_CANDIDATES = 5;
+const _HOMES_MAX_BUILDING_CANDIDATES = 20;
 const _HOMES_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
 /**
