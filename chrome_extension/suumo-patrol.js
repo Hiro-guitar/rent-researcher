@@ -677,7 +677,9 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
     msgLines.push('📊 反響予測: **' + s.score + '点** ' + s.label);
     if (p.inquiry_market && p.inquiry_market.median) {
       const im = p.inquiry_market;
-      msgLines.push('  └ 相場 ¥' + im.median + '/㎡ (' + im.sampleSize + '件・filter:' + im.filterUsed + ')');
+      let mLine = '  └ 相場 ¥' + im.median + '/㎡ (' + im.sampleSize + '件・filter:' + im.filterUsed + ')';
+      if (im.searchUrl) mLine += ' [🔍相場検索](' + im.searchUrl + ')';
+      msgLines.push(mLine);
     }
     if (s.breakdown) {
       const b = s.breakdown;
