@@ -177,7 +177,7 @@ async function _findHomesRentalCandidates(input) {
       console.warn('[homes-search] empty html for query:', q);
       continue;
     }
-    const re = /\/chintai\/(b-\d{10,16}|room\/[a-f0-9]{32,64})\//g;
+    const re = /\/chintai\/(b-\d{13}|room\/[a-f0-9]{32,64})\//g;
     const before = candidates.size;
     let m;
     while ((m = re.exec(html)) !== null) {
