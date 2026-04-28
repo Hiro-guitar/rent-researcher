@@ -81,6 +81,8 @@ importScripts('forrent-status-sync.js');
 importScripts('suumo-bulk-update.js');
 // LIFULL HOME'S 画像候補検索 (SUUMO承認時の入稿画像補完用)
 importScripts('homes-search.js');
+// 反響予測スコア計算 (4サイト共通の物件評価)
+importScripts('inquiry-score.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {
