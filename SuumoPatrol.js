@@ -153,31 +153,40 @@ function savePatrolCriteria(data) {
   var sheet = getPatrolCriteriaSheet_();
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
 
-  var areaJson = typeof data.area === 'string' ? data.area : JSON.stringify(data.area || {});
-  var layoutsJson = typeof data.layouts === 'string' ? data.layouts : JSON.stringify(data.layouts || []);
-  var structuresJson = typeof data.structures === 'string' ? data.structures : JSON.stringify(data.structures || []);
-  var equipmentJson = typeof data.equipment === 'string' ? data.equipment : JSON.stringify(data.equipment || []);
-
+  // 部分更新対応: data に明示的にキーがあれば上書き、無ければ既存値を維持
+  // (toggleEnabled が {id, enabled} だけ送るケースで、area/layouts等が空で
+  //  上書きされて条件が消えるバグを回避)
   if (data.id) {
-    // 既存条件の更新
     var criteria = getPatrolCriteria();
     for (var i = 0; i < criteria.length; i++) {
       if (criteria[i].id === data.id) {
-        var row = criteria[i].rowIndex;
+        var existing = criteria[i];
+        var row = existing.rowIndex;
+
+        var newName = data.name !== undefined ? data.name : existing.name;
+        var newAreaJson = data.area !== undefined
+          ? (typeof data.area === 'string' ? data.area : JSON.stringify(data.area || {}))
+          : existing.areaJson;
+        var newRentMin = data.rentMin !== undefined ? data.rentMin : existing.rentMin;
+        var newRentMax = data.rentMax !== undefined ? data.rentMax : existing.rentMax;
+        var newLayoutsJson = data.layouts !== undefined
+          ? (typeof data.layouts === 'string' ? data.layouts : JSON.stringify(data.layouts || []))
+          : existing.layoutsJson;
+        var newAreaMin = data.areaMin !== undefined ? data.areaMin : existing.areaMin;
+        var newBuildingAge = data.buildingAge !== undefined ? data.buildingAge : existing.buildingAge;
+        var newWalk = data.walk !== undefined ? data.walk : existing.walk;
+        var newStructuresJson = data.structures !== undefined
+          ? (typeof data.structures === 'string' ? data.structures : JSON.stringify(data.structures || []))
+          : existing.structuresJson;
+        var newEquipmentJson = data.equipment !== undefined
+          ? (typeof data.equipment === 'string' ? data.equipment : JSON.stringify(data.equipment || []))
+          : existing.equipmentJson;
+
         sheet.getRange(row, 2, 1, 7).setValues([[
-          data.name || criteria[i].name,
-          areaJson,
-          data.rentMin || '',
-          data.rentMax || '',
-          layoutsJson,
-          data.areaMin || '',
-          data.buildingAge || ''
+          newName, newAreaJson, newRentMin, newRentMax, newLayoutsJson, newAreaMin, newBuildingAge
         ]]);
-        // 徒歩・構造・設備 (列12,13,14)
         sheet.getRange(row, 12, 1, 3).setValues([[
-          data.walk || '',
-          structuresJson,
-          equipmentJson
+          newWalk, newStructuresJson, newEquipmentJson
         ]]);
         if (data.enabled !== undefined) {
           sheet.getRange(row, 9).setValue(data.enabled);
@@ -187,6 +196,10 @@ function savePatrolCriteria(data) {
     }
     return { success: false, message: '条件ID ' + data.id + ' が見つかりません' };
   } else {
+    var areaJson = typeof data.area === 'string' ? data.area : JSON.stringify(data.area || {});
+    var layoutsJson = typeof data.layouts === 'string' ? data.layouts : JSON.stringify(data.layouts || []);
+    var structuresJson = typeof data.structures === 'string' ? data.structures : JSON.stringify(data.structures || []);
+    var equipmentJson = typeof data.equipment === 'string' ? data.equipment : JSON.stringify(data.equipment || []);
     // 新規条件の作成
     var newId = 'patrol-' + Utilities.getUuid().substring(0, 8);
     sheet.appendRow([
