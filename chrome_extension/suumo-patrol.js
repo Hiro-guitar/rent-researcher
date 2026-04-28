@@ -671,24 +671,14 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
     if (sc.url) msgLines.push('[🔍 SUUMO検索結果](' + sc.url + ')');
   }
 
-  // 反響予測スコア (事前計算済みの場合のみ表示)
+  // 反響予測スコア (Discord表示はシンプルに点数+ラベル+相場検索URLのみ。詳細はログ)
   if (p.inquiry_score && typeof p.inquiry_score.score === 'number') {
     const s = p.inquiry_score;
-    msgLines.push('📊 反響予測: **' + s.score + '点 / 100** ' + s.label);
-    if (p.inquiry_market && p.inquiry_market.median) {
-      const im = p.inquiry_market;
-      let mLine = '  └ 相場 ¥' + im.median + '/㎡ (' + im.sampleSize + '件・filter:' + im.filterUsed + ')';
-      if (im.searchUrl) mLine += ' [🔍相場検索](' + im.searchUrl + ')';
-      msgLines.push(mLine);
+    let scoreLine = '📊 反響予測: **' + s.score + '点 / 100** ' + s.label;
+    if (p.inquiry_market && p.inquiry_market.searchUrl) {
+      scoreLine += ' [🔍相場検索](' + p.inquiry_market.searchUrl + ')';
     }
-    if (s.breakdown) {
-      const b = s.breakdown;
-      const parts = [];
-      if (b.score1 !== null) parts.push('単価:' + b.score1);
-      if (b.score2 !== null) parts.push('徒歩:' + b.score2);
-      if (b.score3 !== null) parts.push('築年:' + b.score3);
-      if (parts.length > 0) msgLines.push('  └ 内訳(各0-100): ' + parts.join(' / ') + ' (設備' + b.equipmentCount + '個)');
-    }
+    msgLines.push(scoreLine);
   }
 
   // 画像枚数カウント(11枚以下なら警告)
@@ -762,6 +752,20 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
           const scoreResult = calculateInquiryScore(input);
           p.inquiry_score = scoreResult;
           p.inquiry_market = median;
+
+          // 詳細はログ画面でだけ確認できるようにする (Discordはシンプル表示)
+          try {
+            const b = scoreResult.breakdown || {};
+            const _v = (v) => (v === null || v === undefined) ? '-' : v;
+            const building = p.building_name || p.buildingName || p.building || '';
+            const room = p.room_number || p.roomNumber || p.room || '';
+            await setStorageData({ debugLog:
+              '[反響スコア] ' + building + ' ' + room + ' → ' + scoreResult.score + '点 (' + scoreResult.label + ') '
+              + '相場¥' + median.median + '/㎡(' + median.sampleSize + '件 ' + median.filterUsed + ') '
+              + '単価:' + _v(b.score1) + ' 徒歩:' + _v(b.score2) + ' 築年:' + _v(b.score3)
+              + ' 設備:' + _v(b.equipmentCount) + '個'
+            });
+          } catch (_) {}
         }
       }
     } catch (e) {
