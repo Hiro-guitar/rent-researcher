@@ -348,8 +348,13 @@ async function _fetchHomesArchiveGalleryImages(archiveBuildingId) {
 
 function _matchBuildingScore(input, detailMeta) {
   let score = 0;
-  if (_normalizeAddress(input.address) === _normalizeAddress(detailMeta.address)) score += 2;
-  else if (_addressMatchPartial(input.address, detailMeta.address)) score += 1;
+  const inAddr = _normalizeAddress(input.address);
+  const dtAddr = _normalizeAddress(detailMeta.address);
+  if (inAddr && dtAddr) {
+    if (inAddr === dtAddr) score += 2;
+    else if (dtAddr.indexOf(inAddr) >= 0 || inAddr.indexOf(dtAddr) >= 0) score += 2;
+    else if (_addressMatchPartial(input.address, detailMeta.address)) score += 1;
+  }
 
   if (input.builtYearMonth && detailMeta.builtYearMonth
     && input.builtYearMonth === detailMeta.builtYearMonth) score += 1;
@@ -357,6 +362,9 @@ function _matchBuildingScore(input, detailMeta) {
   if (input.totalFloors && detailMeta.totalFloors
     && Number(input.totalFloors) === Number(detailMeta.totalFloors)) score += 1;
 
+  console.log('[homes-search] matchScore=', score,
+    'input=', inAddr, 'detail=', dtAddr,
+    'detailUrl=', (detailMeta._raw && detailMeta._raw['ID']) || '');
   return score;
 }
 
@@ -400,6 +408,9 @@ function _normalizeAddress(addr) {
     .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
     .replace(/丁目/g, '-')
     .replace(/[‐－―ー−]/g, '-')
+    // HOME'S のメタ表示由来のノイズを除去
+    .replace(/地図を見る|地図表示|マップ|map/gi, '')
+    .replace(/\([^)]*\)/g, '')   // 括弧書き
     .replace(/[\s 　]+/g, '')
     .replace(/番地$|番$|号$/g, '')
     .toLowerCase();
