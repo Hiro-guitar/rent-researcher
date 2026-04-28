@@ -503,6 +503,9 @@ function _appendImagesAsCandidates(candidates, images, matchType, source, source
   for (const img of images) {
     const genre = img.genre || 'その他';
     if (_EXCLUDED_GENRES.has(genre)) continue;
+    if (genre === '間取り') {
+      console.log('[homes-search] 間取り画像', { matchType, sourceUrl, imgUrl: img.url });
+    }
     candidates.push({
       genre,
       url: img.url,
