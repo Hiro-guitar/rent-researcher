@@ -1400,9 +1400,9 @@ function requestHomesImageSearch() {
   var timeoutId = setTimeout(function () {
     if (_homesPending[requestId]) {
       delete _homesPending[requestId];
-      _onHomesSearchResult({ ok: false, errors: ['タイムアウト(60秒)。Chrome拡張が反応しません'], candidates: [] });
+      _onHomesSearchResult({ ok: false, errors: ['タイムアウト(180秒)。Chrome拡張が反応しません'], candidates: [] });
     }
-  }, 60000);
+  }, 180000);
 
   _homesPending[requestId] = function (result) {
     clearTimeout(timeoutId);
