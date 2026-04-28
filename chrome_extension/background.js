@@ -83,6 +83,8 @@ importScripts('suumo-bulk-update.js');
 importScripts('homes-search.js');
 // 反響予測スコア計算 (4サイト共通の物件評価)
 importScripts('inquiry-score.js');
+// SUUMO検索から相場中央値を取得 (反響予測スコアの相場ソース)
+importScripts('suumo-market-median.js');
 
 // 拡張アイコンクリックでダッシュボード（log.html）を開く
 chrome.action.onClicked.addListener(() => {
