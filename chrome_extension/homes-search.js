@@ -257,12 +257,13 @@ function _extractImagesFromHtml(html) {
   // HOME'Sは lazy load のため `data-src` / `data-original` / `src` のいずれかに
   // 画像URLが入る。region 限定だと正規表現の早期終了で漏れるため、HTML全体から
   // image[1-4].homes.jp / archive-image.homes.co.jp を含む <img> タグを抽出する。
+  // ただし「同建物の他の部屋一覧」のサムネ (width<=200) は本物件の画像ではない
+  // ノイズなので除外する (本体画像は通常 width=640 以上)。
   const imgs = [];
   const imgTagRe = /<img\b[^>]*>/g;
   let m;
   while ((m = imgTagRe.exec(html)) !== null) {
     const tag = m[0];
-    // src / data-src / data-original のいずれかを取得 (優先順位: data-src > data-original > src)
     let srcMatch = tag.match(/\bdata-src="([^"]+)"/)
       || tag.match(/\bdata-original="([^"]+)"/)
       || tag.match(/\bsrc="([^"]+)"/);
@@ -270,6 +271,13 @@ function _extractImagesFromHtml(html) {
     const src = _decodeHtml(srcMatch[1]);
     if (!/^https:\/\/image\d?\.homes\.jp\//.test(src)
       && !/^https:\/\/archive-image\.homes\.co\.jp\//.test(src)) continue;
+
+    // サムネサイズ (他の部屋一覧用) を除外: width=100 / 200 など小サイズ
+    const wm = src.match(/[?&]width=(\d+)/);
+    if (wm) {
+      const w = parseInt(wm[1], 10);
+      if (w > 0 && w <= 300) continue;
+    }
 
     const altMatch = tag.match(/\balt="([^"]*)"/);
     const alt = altMatch ? _decodeHtml(altMatch[1]) : '';
