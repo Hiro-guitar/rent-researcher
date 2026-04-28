@@ -1535,8 +1535,10 @@ function _renderHomesCandidates() {
     var section = document.createElement('div');
     section.id = 'homesGenreSection-' + gi;
     section.style.marginBottom = '12px';
+    // scroll-margin-top で固定ヘッダー分オフセットして見切れ防止
+    section.style.scrollMarginTop = '100px';
     var h = document.createElement('div');
-    h.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:12px;font-weight:700;color:#1a5276;margin-bottom:4px;';
+    h.style.cssText = 'display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;color:#1a5276;margin-bottom:4px;';
     var hLabel = document.createElement('span');
     hLabel.textContent = genre + ' (' + groups[genre].length + ')';
     h.appendChild(hLabel);
@@ -1546,7 +1548,10 @@ function _renderHomesCandidates() {
     backBtn.style.cssText = 'padding:2px 8px;font-size:10px;background:#fff;border:1px solid #888;color:#666;border-radius:4px;cursor:pointer;';
     backBtn.onclick = function () {
       var top = document.getElementById('homesSearchBtn');
-      if (top) top.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (top) {
+        top.style.scrollMarginTop = '100px';
+        top.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     };
     h.appendChild(backBtn);
     section.appendChild(h);
