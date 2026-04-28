@@ -1506,29 +1506,35 @@ function _renderHomesCandidates() {
 
   summary.textContent = _homesCandidates.length + '件 / ' + sortedGenres.length + 'ジャンル';
 
-  // ジャンルナビゲーション (各ジャンルセクションへジャンプ)
-  var navWrap = document.createElement('div');
-  navWrap.id = 'homesGenreNav';
-  navWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;padding:6px;background:#eef6ff;border-radius:4px;';
-  var navLabel = document.createElement('span');
-  navLabel.textContent = 'ジャンルへジャンプ:';
-  navLabel.style.cssText = 'font-size:11px;color:#1a5276;font-weight:700;align-self:center;margin-right:4px;';
-  navWrap.appendChild(navLabel);
-  for (var gni = 0; gni < sortedGenres.length; gni++) {
-    var ng = sortedGenres[gni];
-    var nbtn = document.createElement('button');
-    nbtn.type = 'button';
-    nbtn.textContent = ng + '(' + groups[ng].length + ')';
-    nbtn.style.cssText = 'padding:3px 8px;font-size:11px;background:#fff;border:1px solid #2e86c1;color:#2e86c1;border-radius:4px;cursor:pointer;';
-    nbtn.onclick = (function (idx) {
-      return function () {
-        var el = document.getElementById('homesGenreSection-' + idx);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      };
-    })(gni);
-    navWrap.appendChild(nbtn);
+  // ジャンルナビゲーション生成関数 (上部+各ジャンル内で再利用)
+  // currentIdx を渡すとそのジャンルはスキップする (自分のジャンルへのボタンは不要)
+  function _buildGenreNav(currentIdx) {
+    var navWrap = document.createElement('div');
+    navWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;padding:6px;background:#eef6ff;border-radius:4px;';
+    var navLabel = document.createElement('span');
+    navLabel.textContent = 'ジャンルへジャンプ:';
+    navLabel.style.cssText = 'font-size:11px;color:#1a5276;font-weight:700;align-self:center;margin-right:4px;';
+    navWrap.appendChild(navLabel);
+    for (var gni = 0; gni < sortedGenres.length; gni++) {
+      if (gni === currentIdx) continue;
+      var ng = sortedGenres[gni];
+      var nbtn = document.createElement('button');
+      nbtn.type = 'button';
+      nbtn.textContent = ng + '(' + groups[ng].length + ')';
+      nbtn.style.cssText = 'padding:3px 8px;font-size:11px;background:#fff;border:1px solid #2e86c1;color:#2e86c1;border-radius:4px;cursor:pointer;';
+      nbtn.onclick = (function (idx) {
+        return function () {
+          var el = document.getElementById('homesGenreSection-' + idx);
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+      })(gni);
+      navWrap.appendChild(nbtn);
+    }
+    return navWrap;
   }
-  grid.appendChild(navWrap);
+
+  // 上部のジャンルナビ
+  grid.appendChild(_buildGenreNav(-1));
 
   for (var gi = 0; gi < sortedGenres.length; gi++) {
     var genre = sortedGenres[gi];
@@ -1555,6 +1561,9 @@ function _renderHomesCandidates() {
     };
     h.appendChild(backBtn);
     section.appendChild(h);
+
+    // 各ジャンルセクション内に「他のジャンルへ」ナビを表示 (自分のジャンルは除く)
+    section.appendChild(_buildGenreNav(gi));
 
     var rowGrid = document.createElement('div');
     rowGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;';
