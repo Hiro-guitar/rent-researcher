@@ -169,7 +169,6 @@ async function _findHomesRentalCandidates(input) {
   for (let i = 0; i < queries.length; i++) {
     const q = queries[i];
     // 検索1で1件以上取れたら検索2 (建物名フォールバック) はスキップ
-    // (重複候補を取りに行くのは時間の無駄)
     if (i > 0) {
       if (candidates.size > 0) break;
       await _sleep(_HOMES_FETCH_DELAY_MS);
@@ -182,6 +181,8 @@ async function _findHomesRentalCandidates(input) {
       console.warn('[homes-search] empty html for query:', q);
       continue;
     }
+
+    // Step 1: 初期HTMLから物件URLを抽出
     const re = /\/chintai\/(b-\d{13}|room\/[a-f0-9]{32,64})\//g;
     const before = candidates.size;
     let m;
@@ -190,9 +191,127 @@ async function _findHomesRentalCandidates(input) {
       if (candidates.size >= 50) break;
     }
     console.log('[homes-search] query:', q, 'newly found:', candidates.size - before, 'html length:', html.length);
+
+    // Step 2: 棟内に「もっと見る」(prg-roomDisplay) ボタンがあれば AJAX で残りを取得
+    // HOME'Sは初期HTMLでは棟内最大15件にトリミングしているため
+    try {
+      const extras = await _fetchHomesBuildingMoreRooms(html, q);
+      let added = 0;
+      for (const u of extras) {
+        if (!candidates.has(u)) {
+          candidates.add(u);
+          added++;
+        }
+        if (candidates.size >= 50) break;
+      }
+      if (added > 0) console.log('[homes-search] AJAX more rooms added:', added);
+    } catch (e) {
+      console.warn('[homes-search] AJAX more rooms 失敗:', e.message);
+    }
+
     if (candidates.size >= _HOMES_MAX_BUILDING_CANDIDATES) break;
   }
   return { urls: Array.from(candidates), searchUrls };
+}
+
+/**
+ * 検索結果HTMLから「もっと見る」が必要な棟を検出して AJAX で残り部屋URLを取得する
+ *
+ * 仕組み:
+ * - 検索結果HTMLには棟ごとに button.prg-roomDisplay 「N件を表示する（全M件）」がある
+ * - N < M の棟があれば、POST /_ajax/list/building/more/ で残りを取得
+ * - ペイロードには cond[freeword]/cond[fwtype]/cond[tykey] と not_kykey[] (既表示分) が必要
+ */
+async function _fetchHomesBuildingMoreRooms(html, freeword) {
+  const extras = [];
+
+  // 棟ブロックを大まかに切り出す: `prg-roomDisplay` の存在で判定
+  // 各棟内にある data-tykey と data-kykey を抽出するため、
+  // 棟ブロック単位で HTML を分割するのは難しいので、まず全 tykey を取得し
+  // 各 tykey 周辺の data-kykey と「全N件」を関連付ける。
+  const tykeyRe = /\bdata-tykey="([^"]+)"/g;
+  const tykeys = [];
+  let tk;
+  while ((tk = tykeyRe.exec(html)) !== null) {
+    if (!tykeys.includes(tk[1])) tykeys.push(tk[1]);
+  }
+  if (tykeys.length === 0) return extras;
+
+  // 「全N件」テキストを持つ棟があるか確認 (なければ全件初期HTMLに含まれている)
+  // ボタンクラス: prg-roomDisplay
+  const moreBtnRe = /class="[^"]*prg-roomDisplay[^"]*"[\s\S]{0,500}?全\s*(\d+)\s*件/g;
+  const totalsByOrder = [];
+  let mb;
+  while ((mb = moreBtnRe.exec(html)) !== null) {
+    totalsByOrder.push(parseInt(mb[1], 10));
+  }
+  // 棟順と totalsByOrder の対応は不確実なので、各棟ごとに POST を試みる
+  // (既に取得済みのkykeyを除外するので、不要なら空応答)
+
+  // 各棟の data-kykey 一覧を抽出 (棟ブロックを単純化: 全 data-kykey を取得)
+  // HOME'Sの実装上、検索結果HTML全体に並ぶ data-kykey はその検索の表示部屋分
+  const kykeyRe = /\bdata-kykey="([^"]+)"/g;
+  const allKykeys = [];
+  let kk;
+  while ((kk = kykeyRe.exec(html)) !== null) {
+    if (!allKykeys.includes(kk[1])) allKykeys.push(kk[1]);
+  }
+
+  for (let ti = 0; ti < tykeys.length; ti++) {
+    const tykey = tykeys[ti];
+    const total = totalsByOrder[ti];
+    // 全件表示済みなら追加リクエスト不要
+    if (total !== undefined && allKykeys.length >= total) continue;
+
+    await _sleep(_HOMES_FETCH_DELAY_MS);
+    const body = new URLSearchParams();
+    body.set('cond[freeword]', freeword);
+    body.set('cond[fwtype]', '1');
+    body.set('cond[sortby]', 'recommend');
+    body.set('cond[precond]', '3000');
+    body.set('cond[mbg][3001]', '3001');
+    body.set('cond[mbg][3002]', '3002');
+    body.set('cond[mbg][3003]', '3003');
+    body.set('cond[monthmoneyroom]', '0');
+    body.set('cond[monthmoneyroomh]', '0');
+    body.set('cond[housearea]', '0');
+    body.set('cond[houseareah]', '0');
+    body.set('cond[walkminutesh]', '0');
+    body.set('cond[houseageh]', '0');
+    body.set('cond[newdate]', '0');
+    body.set('cond[exfreeword]', '');
+    body.set('cond[tykey]', tykey);
+    for (let i = 0; i < allKykeys.length; i++) {
+      body.append('not_kykey[' + i + ']', allKykeys[i]);
+    }
+
+    try {
+      const resp = await fetch(`${_HOMES_BASE}/_ajax/list/building/more/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept-Language': 'ja-JP,ja;q=0.9'
+        },
+        body: body.toString(),
+        redirect: 'follow'
+      });
+      if (!resp.ok) {
+        console.warn('[homes-search] AJAX more rooms HTTP', resp.status);
+        continue;
+      }
+      const json = await resp.json().catch(() => null);
+      if (!json || !json.list) continue;
+      const re2 = /\/chintai\/(room\/[a-f0-9]{32,64})\//g;
+      let mm;
+      while ((mm = re2.exec(json.list)) !== null) {
+        extras.push(`${_HOMES_BASE}/chintai/${mm[1]}/`);
+      }
+    } catch (e) {
+      console.warn('[homes-search] AJAX more rooms exception:', e.message);
+    }
+  }
+  return extras;
 }
 
 // ============================================================
