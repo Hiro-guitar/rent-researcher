@@ -671,6 +671,24 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
     if (sc.url) msgLines.push('[🔍 SUUMO検索結果](' + sc.url + ')');
   }
 
+  // 反響予測スコア (事前計算済みの場合のみ表示)
+  if (p.inquiry_score && typeof p.inquiry_score.score === 'number') {
+    const s = p.inquiry_score;
+    msgLines.push('📊 反響予測: **' + s.score + '点** ' + s.label);
+    if (p.inquiry_market && p.inquiry_market.median) {
+      const im = p.inquiry_market;
+      msgLines.push('  └ 相場 ¥' + im.median + '/㎡ (' + im.sampleSize + '件・filter:' + im.filterUsed + ')');
+    }
+    if (s.breakdown) {
+      const b = s.breakdown;
+      const parts = [];
+      if (b.score1 !== null) parts.push('単価:' + b.score1);
+      if (b.score2 !== null) parts.push('徒歩:' + b.score2);
+      if (b.score3 !== null) parts.push('築年:' + b.score3);
+      if (parts.length > 0) msgLines.push('  └ 内訳: ' + parts.join(' / ') + ' (設備' + b.equipmentCount + '個)');
+    }
+  }
+
   // 画像枚数カウント(11枚以下なら警告)
   let imageCount = 0;
   if (p.image_urls && Array.isArray(p.image_urls)) imageCount = p.image_urls.length;
@@ -720,6 +738,34 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
   for (let i = 0; i < notifyProps.length; i++) {
     const item = notifyProps[i];
     const p = item.property || {};
+
+    // 反響予測スコアを事前計算 (失敗してもメッセージ送信は継続)
+    try {
+      if (typeof getSuumoMarketMedian === 'function'
+        && typeof calculateInquiryScore === 'function'
+        && typeof buildInquiryScoreInput === 'function'
+        && typeof extractWalkMinutes === 'function'
+        && typeof extractBuildingAge === 'function') {
+        const propertyType = (p.structure && /木造/.test(p.structure)) ? 'アパート' : 'マンション';
+        const median = await getSuumoMarketMedian({
+          address: p.address,
+          layout: p.layout || '',
+          area: Number(p.area) || 0,
+          buildingAge: extractBuildingAge(p),
+          walkMinutes: extractWalkMinutes(p),
+          propertyType: propertyType
+        });
+        if (median && median.ok) {
+          const input = buildInquiryScoreInput(p, median.median);
+          const scoreResult = calculateInquiryScore(input);
+          p.inquiry_score = scoreResult;
+          p.inquiry_market = median;
+        }
+      }
+    } catch (e) {
+      console.warn('[SUUMO巡回] 反響スコア計算失敗:', e && e.message);
+    }
+
     const content = buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, item.key);
 
     const payload = { content };
