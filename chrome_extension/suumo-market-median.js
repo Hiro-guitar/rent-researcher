@@ -36,7 +36,29 @@
 
   // FR301FC001 = 物件単位 (重複排除済み、お客さん向け表示)
   // FR301FC011 (旧) = 広告単位 (同物件が複数広告会社で重複表示)
-  const SUUMO_BASE = 'https://suumo.jp/jj/chintai/ichiran/FR301FC001/?ar=030&bs=040';
+  const SUUMO_BASE_NEW = 'https://suumo.jp/jj/chintai/ichiran/FR301FC001/';
+  const SUUMO_BASE_OLD = 'https://suumo.jp/jj/chintai/ichiran/FR301FC011/?ar=030&bs=040&fw=';
+
+  // 東京都 市区町村JISコード (sc パラメータ用)
+  const TOKYO_SC_MAP = {
+    '千代田区': '13101', '中央区': '13102', '港区': '13103', '新宿区': '13104',
+    '文京区': '13105', '台東区': '13106', '墨田区': '13107', '江東区': '13108',
+    '品川区': '13109', '目黒区': '13110', '大田区': '13111', '世田谷区': '13112',
+    '渋谷区': '13113', '中野区': '13114', '杉並区': '13115', '豊島区': '13116',
+    '北区': '13117', '荒川区': '13118', '板橋区': '13119', '練馬区': '13120',
+    '足立区': '13121', '葛飾区': '13122', '江戸川区': '13123',
+    '八王子市': '13201', '立川市': '13202', '武蔵野市': '13203', '三鷹市': '13204',
+    '青梅市': '13205', '府中市': '13206', '昭島市': '13207', '調布市': '13208',
+    '町田市': '13209', '小金井市': '13210', '小平市': '13211', '日野市': '13212',
+    '東村山市': '13213', '国分寺市': '13214', '国立市': '13215', '福生市': '13218',
+    '狛江市': '13219', '東大和市': '13220', '清瀬市': '13221', '東久留米市': '13222',
+    '武蔵村山市': '13223', '多摩市': '13224', '稲城市': '13225', '羽村市': '13227',
+    'あきる野市': '13228', '西東京市': '13229',
+    '瑞穂町': '13303', '日の出町': '13305', '檜原村': '13307', '奥多摩町': '13308',
+    '大島町': '13361', '利島村': '13362', '新島村': '13363', '神津島村': '13364',
+    '三宅村': '13381', '御蔵島村': '13382', '八丈町': '13401', '青ヶ島村': '13402',
+    '小笠原村': '13421'
+  };
   const FETCH_TIMEOUT_MS = 10000;
   const MIN_SAMPLE_SIZE = 5; // この件数を下回ったらフィルタを段階緩和
 
@@ -59,19 +81,36 @@
     }
 
     // 1. 検索URL構築
-    //   - fw2: 住所+間取り+建物種別 のフリーワード
-    //   - mb/mt: 面積範囲 (±10%) でサーバー側絞り込み
-    //   サーバー側で重複排除+面積絞り込み済みなので、1ページで母集団網羅できる
-    const fwTerms = [_normalizeAddress(input.address), input.layout];
-    if (input.propertyType) fwTerms.push(input.propertyType);
-    const fw = fwTerms.filter(Boolean).join('+');
-    const mb = Math.max(0, Math.floor(input.area * 0.9));
-    const mt = Math.ceil(input.area * 1.1);
-    const url = SUUMO_BASE
-      + '&fw2=' + encodeURIComponent(fw)
-      + '&mb=' + mb
-      + '&mt=' + mt
-      + '&pc=100';
+    //   - 東京都の住所なら新URL (FR301FC001、物件単位、重複排除済み)
+    //   - それ以外は旧URL (FR301FC011) にフォールバック (重複あり)
+    const sc = _findTokyoScCode(input.address);
+    let url;
+    let isNewUrl = false;
+    if (sc) {
+      // 新URL: ta=13(東京都)+sc=市区町村コード+fw2=町名+面積範囲
+      const fw2Terms = [];
+      const banchi = _extractBanchiKeyword(input.address);
+      if (banchi) fw2Terms.push(banchi);
+      if (input.layout) fw2Terms.push(input.layout);
+      if (input.propertyType) fw2Terms.push(input.propertyType);
+      const fw2 = fw2Terms.filter(Boolean).join('+');
+      const mb = Math.max(0, Math.floor(input.area * 0.9));
+      const mt = Math.ceil(input.area * 1.1);
+      url = SUUMO_BASE_NEW
+        + '?ar=030&bs=040&ta=13&sc=' + sc
+        + '&cb=0.0&ct=9999999&et=9999999&cn=9999999'
+        + '&mb=' + mb + '&mt=' + mt
+        + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
+        + '&fw2=' + encodeURIComponent(fw2)
+        + '&srch_navi=1';
+      isNewUrl = true;
+    } else {
+      // フォールバック: 旧URL (重複あり)
+      const fwTerms = [_normalizeAddress(input.address), input.layout];
+      if (input.propertyType) fwTerms.push(input.propertyType);
+      const fw = fwTerms.filter(Boolean).join('+');
+      url = SUUMO_BASE_OLD + encodeURIComponent(fw) + '&pc=100';
+    }
     result.searchUrl = url;
 
     // 2. 検索結果HTML取得
@@ -82,7 +121,8 @@
     }
 
     // 3. 物件カードから賃料/管理費/面積/築年/徒歩を抽出
-    const allCards = _parseSuumoCards(html);
+    //   新URL(FR301FC001)と旧URL(FR301FC011)はHTML構造が違うので分岐
+    const allCards = isNewUrl ? _parseSuumoCardsNew(html) : _parseSuumoCards(html);
     if (allCards.length === 0) {
       result.errors.push('物件カード抽出0件');
       return result;
@@ -144,6 +184,109 @@
     const m = s.match(/^([^\s\d]+?)(\d+)(?:丁目|-)?/);
     if (m) return m[1] + m[2];
     return s.split(/[-\s]/)[0];
+  }
+
+  /**
+   * 住所文字列から東京都の市区町村JISコードを返す
+   * 該当しなければ null (= 旧URLにフォールバック)
+   */
+  function _findTokyoScCode(addr) {
+    if (!addr) return null;
+    const s = String(addr);
+    // 東京都以外なら null
+    if (!/東京都/.test(s)) return null;
+    for (const name in TOKYO_SC_MAP) {
+      if (s.indexOf(name) >= 0) return TOKYO_SC_MAP[name];
+    }
+    return null;
+  }
+
+  /**
+   * 住所から「町名+先頭数字」 (例: 北新宿1) を取り出す。fw2フリーワード用。
+   * 都道府県・市区町村は sc コードで指定済みなので、町名以降だけ渡す。
+   */
+  function _extractBanchiKeyword(addr) {
+    if (!addr) return '';
+    let s = String(addr).trim();
+    // 都道府県を削除
+    s = s.replace(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/, '');
+    // 市区町村 (TOKYO_SC_MAP に含まれる名前) を削除
+    for (const name in TOKYO_SC_MAP) {
+      if (s.indexOf(name) === 0) { s = s.slice(name.length); break; }
+    }
+    // 「町名1丁目18-9」 → 「町名1」 にトリム
+    const m = s.match(/^([^\s\d]+?)(\d+)(?:丁目|-)?/);
+    if (m) return m[1] + m[2];
+    return s.split(/[-\s]/)[0];
+  }
+
+  /**
+   * 新URL(FR301FC001 = 物件単位、重複排除済み)用のHTMLパーサ
+   *  - .cassetteitem (建物単位) を反復
+   *  - 各 cassetteitem 内の <tr class="js-cassette_link"> (部屋単位) を反復
+   *  - 建物属性 (タイトル/住所/駅徒歩/築年) はヘッダから1度取得して各部屋に共通付与
+   */
+  function _parseSuumoCardsNew(html) {
+    const cards = [];
+    const cassetteRe = /<div class="cassetteitem"[^>]*>([\s\S]*?)(?=<div class="cassetteitem"[^>]*>|<div class="pagination_set-nav"|<\/section\s*>|$)/g;
+    let cm;
+    while ((cm = cassetteRe.exec(html)) !== null) {
+      const cassetteHtml = cm[1];
+
+      // 駅徒歩 (col2 内の各 div、最短)
+      let walkMinutes = null;
+      const col2Match = cassetteHtml.match(/<li class="cassetteitem_detail-col2[^"]*"[^>]*>([\s\S]*?)<\/li>/);
+      if (col2Match) {
+        const walks = col2Match[1].match(/歩\s*(\d+)\s*分/g) || [];
+        const mins = walks.map(s => parseInt(s.match(/\d+/)[0], 10)).filter(v => isFinite(v) && v > 0);
+        if (mins.length > 0) walkMinutes = Math.min(...mins);
+      }
+
+      // 築年数 (col3 の最初の div)
+      let ageYears = null;
+      const col3Match = cassetteHtml.match(/<li class="cassetteitem_detail-col3"[^>]*>\s*<div>([^<]+)<\/div>/);
+      if (col3Match) {
+        const ageText = col3Match[1].trim();
+        if (/新築/.test(ageText)) ageYears = 0;
+        else {
+          const am = ageText.match(/築\s*(\d+)\s*年/);
+          if (am) ageYears = parseInt(am[1], 10);
+        }
+      }
+
+      // 部屋単位 (<tr class="js-cassette_link">) をループ
+      const rowRe = /<tr class="js-cassette_link[^"]*"[^>]*>([\s\S]*?)<\/tr>/g;
+      let rm;
+      while ((rm = rowRe.exec(cassetteHtml)) !== null) {
+        const rowHtml = rm[1];
+
+        // 賃料 ("12.5万円")
+        const rentMatch = rowHtml.match(/cassetteitem_price--rent[^>]*>[\s\S]*?<span[^>]*>([\d.]+)\s*万円/);
+        const rentYen = rentMatch ? Math.round(parseFloat(rentMatch[1]) * 10000) : 0;
+        if (!rentYen) continue;
+
+        // 管理費 ("13000円" or "-")
+        let mgmtYen = 0;
+        const adminMatch = rowHtml.match(/cassetteitem_price--administration[^>]*>([^<]+)</);
+        if (adminMatch) {
+          const t = adminMatch[1].trim().replace(/[,円\s]/g, '');
+          const n = parseInt(t, 10);
+          if (isFinite(n) && n > 0) mgmtYen = n;
+        }
+
+        // 間取り
+        const madoriMatch = rowHtml.match(/<span class="cassetteitem_madori">([^<]+)</);
+        const layout = madoriMatch ? madoriMatch[1].trim() : '';
+
+        // 専有面積 ("57.29m<sup>2</sup>")
+        const areaMatch = rowHtml.match(/<span class="cassetteitem_menseki">([\d.]+)\s*m/);
+        const areaSqm = areaMatch ? parseFloat(areaMatch[1]) : 0;
+        if (!areaSqm) continue;
+
+        cards.push({ rentYen, mgmtYen, areaSqm, ageYears, walkMinutes, layout });
+      }
+    }
+    return cards;
   }
 
   /**
