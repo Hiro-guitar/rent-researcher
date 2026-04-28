@@ -176,10 +176,14 @@
   // 内部ヘルパー
   // ============================================================
 
+  function _toHalfWidthDigits(s) {
+    return String(s || '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  }
+
   function _normalizeAddress(addr) {
-    // SUUMO検索向け: 都道府県を削除し、丁目→数字、番地末尾は除去
+    // SUUMO検索向け: 全角数字を半角化 + 都道府県を削除 + 丁目→数字 + 番地末尾除去
     if (!addr) return '';
-    let s = String(addr).trim();
+    let s = _toHalfWidthDigits(String(addr).trim());
     s = s.replace(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/, '');
     // 「町名1丁目18-9」 → 「町名1」 (町名+先頭数字)
     const m = s.match(/^([^\s\d]+?)(\d+)(?:丁目|-)?/);
@@ -208,7 +212,8 @@
    */
   function _extractBanchiKeyword(addr) {
     if (!addr) return '';
-    let s = String(addr).trim();
+    // 全角数字を半角化 (HOME'S/SUUMO検索でハマる定番)
+    let s = _toHalfWidthDigits(String(addr).trim());
     // 都道府県を削除
     s = s.replace(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/, '');
     // 市区町村 (TOKYO_SC_MAP に含まれる名前) を削除
