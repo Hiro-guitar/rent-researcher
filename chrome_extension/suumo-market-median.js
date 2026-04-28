@@ -75,8 +75,8 @@
       errors: []
     };
 
-    if (!input || !input.address || !input.area) {
-      result.errors.push('address / area が必須');
+    if (!input || !input.address || !input.layout || !input.area) {
+      result.errors.push('address / layout / area が必須');
       return result;
     }
 
