@@ -49,7 +49,7 @@
 
 const _HOMES_BASE = 'https://www.homes.co.jp';
 const _HOMES_FETCH_DELAY_MS = 1500;
-const _HOMES_MAX_BUILDING_CANDIDATES = 20;
+const _HOMES_MAX_BUILDING_CANDIDATES = 50;
 const _HOMES_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
 /**
@@ -98,29 +98,15 @@ async function searchHomesImagesForProperty(input) {
       }
     }
 
-    // 3. 同建物の各部屋から画像を集約
-    const visitedRoomUrls = new Set();
+    // 3. 各 matched 物件から画像を集約
+    // (検索結果ページに同建物の物件が並んでいる前提なので、sameBuildingRoomUrls
+    //  をたどる処理は撤廃 — 重複処理を避け、処理時間を短縮)
     for (const mb of matchedBuildings) {
       result.matched.buildingDetailUrls.push(mb.url);
-
-      // 確定物件本体の画像
       _appendImagesAsCandidates(result.candidates, mb.detail.images,
         _isSameType(input, mb.detail.meta) ? 'same-room' : 'same-building',
         'rental', `${mb.detail.meta.layout || ''} ${mb.detail.meta.floor || ''}階`,
         mb.url);
-
-      // 同建物の他の部屋リンク
-      for (const roomUrl of mb.detail.sameBuildingRoomUrls.slice(0, 10)) {
-        if (visitedRoomUrls.has(roomUrl)) continue;
-        visitedRoomUrls.add(roomUrl);
-        await _sleep(_HOMES_FETCH_DELAY_MS);
-        const roomDetail = await _fetchHomesDetail(roomUrl);
-        if (!roomDetail.ok) continue;
-        _appendImagesAsCandidates(result.candidates, roomDetail.images,
-          _isSameType(input, roomDetail.meta) ? 'same-room' : 'same-building',
-          'rental', `${roomDetail.meta.layout || ''} ${roomDetail.meta.floor || ''}階`,
-          roomUrl);
-      }
     }
 
     // 4. archive 側 (過去物件含む共用部・全体ギャラリー) を取得
@@ -196,7 +182,7 @@ async function _findHomesRentalCandidates(input) {
     let m;
     while ((m = re.exec(html)) !== null) {
       candidates.add(`${_HOMES_BASE}/chintai/${m[1]}/`);
-      if (candidates.size >= 20) break;
+      if (candidates.size >= 50) break;
     }
     console.log('[homes-search] query:', q, 'newly found:', candidates.size - before, 'html length:', html.length);
     if (candidates.size >= _HOMES_MAX_BUILDING_CANDIDATES) break;
