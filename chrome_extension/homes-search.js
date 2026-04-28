@@ -168,7 +168,12 @@ async function _findHomesRentalCandidates(input) {
   const searchUrls = [];
   for (let i = 0; i < queries.length; i++) {
     const q = queries[i];
-    if (i > 0) await _sleep(_HOMES_FETCH_DELAY_MS);
+    // 検索1で1件以上取れたら検索2 (建物名フォールバック) はスキップ
+    // (重複候補を取りに行くのは時間の無駄)
+    if (i > 0) {
+      if (candidates.size > 0) break;
+      await _sleep(_HOMES_FETCH_DELAY_MS);
+    }
     const url = `${_HOMES_BASE}/chintai/list/?cond%5Bfreeword%5D=${encodeURIComponent(q)}&cond%5Bfwtype%5D=1`;
     searchUrls.push({ query: q, url });
     console.log('[homes-search] searching:', q);
