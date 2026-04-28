@@ -213,6 +213,14 @@ async function runSuumoPatrolCycle() {
       const sendCollector = {
         _items: [],
         async push(prop) {
+          // 間取り情報がない物件は反響予測スコアが計算できないためスキップ
+          const layout = (prop.layout || prop.madori || '').toString().trim();
+          if (!layout) {
+            await setStorageData({ debugLog:
+              `[SUUMO巡回] ✗ スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} (間取り情報なし)`
+            });
+            return this._items.length;
+          }
           this._items.push(prop);
           totalCollected++;
           // 元付電話番号からハイフン類を除去（全サイト共通の正規化）
