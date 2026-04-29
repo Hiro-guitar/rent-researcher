@@ -168,16 +168,25 @@ function _clamp(min, max, v) {
 
 /**
  * 物件オブジェクトから equipmentFlags を抽出
+ *
+ * 設備名のバリエーションは background.js (line 4445-4602) の辞書に厳密準拠。
+ * 4サイト (itandi/いい生活/いえらぶ/REINS) の実際の表記を網羅:
+ *   - 独立洗面: シャンプードレッサー / 独立洗面 / 洗面所独立 / 洗面化粧台 / シャワー付洗面
+ *   - 追い焚き: 追焚 / 追い焚 / 追いだき
+ *   - モニターIH: モニター付 / TV(orＴＶ)モニタ / TV(orＴＶ)インターホン
+ *   - WIC: ウォークインクローゼット / クロゼット / ウォークスルークロゼット / WIC
+ *
+ * 注: 「浴室暖房乾燥機」「追い炊き」等は4サイトに存在しないため意図的に未対応。
  */
 function extractEquipmentFlags(prop) {
   const facilities = String((prop && prop.facilities) || '');
   return {
     autoLock:        /オートロック/.test(facilities),
-    deliveryBox:     /宅配(ボックス|BOX|box)/.test(facilities),
-    washbasin:       /独立洗面/.test(facilities),
-    reHeating:       /追い?(焚き|だき|たき)/.test(facilities),
-    monitorIntercom: /モニター(付|フォン)|TV(モニター|ドアホン|インターホン)|カラーモニター/.test(facilities),
-    walkInCloset:    /ウォーク[イi]ンクロ|WIC/i.test(facilities),
+    deliveryBox:     /宅配(ボックス|BOX)/.test(facilities),
+    washbasin:       /シャンプードレッサー|独立洗面|洗面所独立|洗面化粧台|シャワー付洗面/.test(facilities),
+    reHeating:       /追焚|追い焚|追いだき/.test(facilities),
+    monitorIntercom: /モニター付|[TＴ][VＶ](モニタ|インターホン)/.test(facilities),
+    walkInCloset:    /ウォーク(イン|スルー)クロ[ーゼ]?ゼット|WIC/.test(facilities),
     bathDryer:       /浴室乾燥/.test(facilities),
     floor2OrAbove:   _isFloor2OrAbove(prop),
     depositZero:     _isZeroOrNone(prop && (prop.deposit !== undefined ? prop.deposit : prop.shikikin)),
