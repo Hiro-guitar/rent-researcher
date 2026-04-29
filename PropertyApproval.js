@@ -3217,12 +3217,15 @@ function makeViewHtml(prop) {
 // ===== HTML: 編集可能な入力行 =====
 function _inputRow(label, name, value) {
   var v = (value !== undefined && value !== null && String(value) !== '' && value !== 0) ? String(value) : '\u30FC';
+  // 「0.33万円」など1万円未満の不自然な万円表記を「3,300円」に正規化 (1万以上は維持)
+  v = _normalizeYenInText(v);
   return '<div class="detail-row"><span class="detail-label">' + label + '</span>'
     + '<input class="detail-input" name="' + name + '" value="' + _esc(v) + '"></div>';
 }
 
 function _textareaRow(label, name, value) {
   var v = (value !== undefined && value !== null && String(value) !== '') ? String(value) : '\u30FC';
+  v = _normalizeYenInText(v);
   return '<div class="detail-row"><span class="detail-label">' + label + '</span>'
     + '<textarea class="detail-textarea" name="' + name + '">' + _esc(v) + '</textarea></div>';
 }
