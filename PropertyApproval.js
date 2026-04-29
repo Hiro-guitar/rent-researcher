@@ -14,6 +14,38 @@ function _fmtMan(yen) {
   return String(yen / 10000);
 }
 
+/**
+ * 円単位の金額を、適切な単位付きで表示する。
+ *  - 1,100円 / 5,000円 のように1万未満は3桁区切りで「円」付き
+ *  - 14万円 / 14.3万円 のように1万以上は「万円」付き
+ *  - 顧客向けページで「0.11万円」のような不自然な表記を回避するため
+ */
+function _fmtPriceFull(yen) {
+  if (!yen) return '0円';
+  var n = Number(yen);
+  if (!isFinite(n) || n <= 0) return '0円';
+  if (n < 10000) {
+    return n.toLocaleString('ja-JP') + '円';
+  }
+  return (n / 10000) + '万円';
+}
+
+/**
+ * 文字列中の「0.XX万円」パターンを「X,XXX円」に置換する。
+ * 「書類代: 0.33万円」のように既にフォーマット済みの混在テキストに対して使う。
+ *  - "0.33万円" → "3,300円"
+ *  - "1万円" / "13.5万円" など1万以上はそのまま維持
+ */
+function _normalizeYenInText(str) {
+  if (!str) return str;
+  return String(str).replace(/(\d*\.?\d+)万円/g, function(match, numStr) {
+    var n = parseFloat(numStr);
+    if (!isFinite(n) || n >= 1) return match;
+    var yen = Math.round(n * 10000);
+    return yen.toLocaleString('ja-JP') + '円';
+  });
+}
+
 var PENDING_SHEET_NAME = '承認待ち物件';
 var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
@@ -2316,14 +2348,16 @@ function buildPropertyFlex(prop, options) {
   var includeImage = options.includeImage !== false;
   var viewUrl = options.viewUrl || '';
 
-  var rentMan = prop.rent ? _fmtMan(prop.rent) : '0';
-  var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
+  // 1万未満は「1,100円」、1万以上は「14万円」のように表示
+  var rentText = prop.rent ? _fmtPriceFull(prop.rent) : '0\u5186';
+  var mgmtText = prop.managementFee ? _fmtPriceFull(prop.managementFee) : '0\u5186';
+  var rentMan = prop.rent ? _fmtMan(prop.rent) : '0'; // altText 用に温存
 
   var bodyContents = [
     { type: 'text', text: prop.buildingName + (prop.roomNumber ? ' ' + prop.roomNumber : ''), weight: 'bold', size: 'lg', wrap: true },
     { type: 'box', layout: 'baseline', spacing: 'sm', contents: [
-      { type: 'text', text: rentMan + '\u4E07\u5186', weight: 'bold', size: 'xl', color: '#E05252' },
-      { type: 'text', text: '\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186', size: 'sm', color: '#999999', flex: 0 }
+      { type: 'text', text: rentText, weight: 'bold', size: 'xl', color: '#E05252' },
+      { type: 'text', text: '\u7BA1\u7406\u8CBB ' + mgmtText, size: 'sm', color: '#999999', flex: 0 }
     ]},
     { type: 'separator', margin: 'lg' }
   ];
@@ -2880,8 +2914,9 @@ function makePreviewAllHtml(props, customerName) {
 
 // ===== HTML: お客さん向け物件資料ページ =====
 function makeViewHtml(prop) {
-  var rentMan = prop.rent ? _fmtMan(prop.rent) : '0';
-  var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
+  // 1万未満は「1,100円」、1万以上は「14万円」のように適切に表示
+  var rentText = prop.rent ? _fmtPriceFull(prop.rent) : '0円';
+  var mgmtText = prop.managementFee ? _fmtPriceFull(prop.managementFee) : '0円';
 
   // 表示する画像: 承認時に選択されたものがあればそれ、なければ全画像
   var viewImages = prop.selectedImageUrls || prop.imageUrls || [];
@@ -2951,8 +2986,8 @@ function makeViewHtml(prop) {
     + '<div class="title">' + _esc(prop.buildingName) + (prop.roomNumber ? ' ' + _esc(prop.roomNumber) : '') + '</div>';
 
   html += '<div class="price-box">'
-    + '<div class="price-main">' + rentMan + '\u4E07\u5186<span style="font-size:16px">/\u6708</span></div>'
-    + '<div class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtMan + '\u4E07\u5186 | \u6577\u91D1 ' + _esc(prop.deposit || '0') + ' | \u793C\u91D1 ' + _esc(prop.keyMoney || '0') + '</div>'
+    + '<div class="price-main">' + rentText + '<span style="font-size:16px">/\u6708</span></div>'
+    + '<div class="price-sub">\u7BA1\u7406\u8CBB ' + mgmtText + ' | \u6577\u91D1 ' + _esc(prop.deposit || '0') + ' | \u793C\u91D1 ' + _esc(prop.keyMoney || '0') + '</div>'
     + '</div>';
 
   // 値が有効か判定（「ー」「-」「入力なし」「なし」は非表示）
@@ -3103,7 +3138,7 @@ function makeViewHtml(prop) {
   if (costRows.length > 0) {
     html += '<div class="section"><div class="section-title">\u8CBB\u7528</div>';
     for (var i = 0; i < costRows.length; i++) {
-      html += '<div class="row"><span class="row-label">' + costRows[i][0] + '</span><span class="row-value">' + _esc(costRows[i][1]).replace(/\n/g, '<br>') + '</span></div>';
+      html += '<div class="row"><span class="row-label">' + costRows[i][0] + '</span><span class="row-value">' + _esc(_normalizeYenInText(costRows[i][1])).replace(/\n/g, '<br>') + '</span></div>';
     }
     html += '</div>';
   }
