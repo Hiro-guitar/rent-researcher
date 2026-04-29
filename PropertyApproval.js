@@ -2437,7 +2437,7 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '.img-item{position:relative;border-radius:8px;overflow:hidden;border:3px solid #4CAF50;transition:border-color 0.2s,opacity 0.2s}'
     + '.img-item.unchecked{border-color:#ddd;opacity:0.5}'
     + '.img-item img{width:100%;height:200px;object-fit:contain;background:#222;display:block;cursor:pointer}'
-    + '.img-item .zoom-link{position:absolute;bottom:6px;right:6px;z-index:3;background:rgba(255,255,255,0.92);border-radius:3px;padding:3px 6px;font-size:11px;font-weight:700;color:#1a5276;text-decoration:none;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.3)}'
+    + '.img-item .zoom-link{position:absolute;top:4px;left:32px;z-index:3;background:rgba(255,255,255,0.92);border-radius:3px;padding:3px 6px;font-size:11px;font-weight:700;color:#1a5276;text-decoration:none;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.3)}'
     + '.img-item .cb-wrap{position:absolute;top:4px;left:4px;z-index:2}'
     + '.img-item .cb-wrap input{width:18px;height:18px;cursor:pointer}'
     + '.img-item .idx{position:absolute;top:4px;right:4px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px}'
@@ -2618,7 +2618,7 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'card.addEventListener("pointerdown",function(e){'
     + 'if(e.button!==0)return;'
     // チェックボックス・矢印ボタン・画像クリック(モーダル)はドラッグ扱いしない
-    + 'if(e.target.closest("input,button"))return;'
+    + 'if(e.target.closest("input,button,a"))return;'
     + 'if(e.target.tagName==="IMG")e.preventDefault();'
     + 'var rect=card.getBoundingClientRect();'
     + '_dragSt={card:card,sx:e.clientX,sy:e.clientY,ox:e.clientX-rect.left,oy:e.clientY-rect.top,w:rect.width,h:rect.height,moved:false,ghost:null,pid:e.pointerId};'
