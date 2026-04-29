@@ -117,8 +117,12 @@ function calculateInquiryScore(input) {
   }
 
   // === score3: 築年数 (重み15%) ===
+  // 築15年までは線形(100→55)、それ以降は緩和カーブ。最低20で底打ち。
+  // 反響実績との照合: 築30年でも割安+設備が揃えば反響が出るため、線形3pt減点は厳しすぎた
   if (!isNaN(age) && age >= 0) {
-    const score3 = Math.max(10, 100 - age * 3);
+    const score3 = age <= 15
+      ? 100 - age * 3
+      : Math.max(20, 55 - (age - 15) * 1.5);
     result.breakdown.score3 = Math.round(score3 * 10) / 10;
   }
 
