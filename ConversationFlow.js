@@ -54,7 +54,11 @@ PREV_STEP[STEPS.CONFIRM] = STEPS.CRITERIA_SELECT;
  * @param {string} userId
  */
 function startSearchFlow(replyToken, userId) {
+  // [PERF-flow] 計測用 — 条件登録の遅延調査のため一時的に追加 (2026-04-29)
+  var _t = Date.now();
+  console.log('[PERF-flow] start userId=' + userId);
   var state = createInitialState();
+  console.log('[PERF-flow] +' + (Date.now() - _t) + 'ms createInitialState');
 
   // 名前はフロー後半（CONFIRM or 保存時）で取得する（体感速度向上のためここでは取得しない）
   state = updateStateData(state, 'name', '');
@@ -62,12 +66,14 @@ function startSearchFlow(replyToken, userId) {
   // REASONステップへ直接進む
   state.step = STEPS.REASON;
   saveState(userId, state);
+  console.log('[PERF-flow] +' + (Date.now() - _t) + 'ms saveState');
 
   var items = REASONS.map(r => qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r));
   replyMessage(replyToken, [
     textMsg('お部屋探しの条件を登録します！\nいくつかの質問にお答えください。\n\n途中でやめたい場合は「キャンセル」と送ってください。'),
     textMsgWithQuickReply('お部屋探しの理由を教えてください。', items)
   ]);
+  console.log('[PERF-flow] +' + (Date.now() - _t) + 'ms replyMessage完了');
 }
 
 // ══════════════════════════════════════════════════════════

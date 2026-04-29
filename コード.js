@@ -37,6 +37,8 @@ function doPost(e) {
   }
 
   try {
+    // [PERF-doPost] 計測用 — 条件登録の遅延調査のため一時的に追加 (2026-04-29)
+    var _doPostT = Date.now();
     const json = JSON.parse(e.postData.contents);
 
     // --- REINS Chrome拡張からのPOST ---
@@ -125,6 +127,8 @@ function doPost(e) {
 
       // コマンド: 条件登録
       if (message === '条件登録' || message === 'じょうけんとうろく') {
+        // [PERF-doPost] 計測用
+        console.log('[PERF-doPost] +' + (Date.now() - _doPostT) + 'ms startSearchFlow直前');
         startSearchFlow(replyToken, userId);
         return;
       }
