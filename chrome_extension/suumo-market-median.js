@@ -94,7 +94,8 @@
       const fw2Terms = [];
       const banchi = _extractBanchiKeyword(input.address);
       if (banchi) fw2Terms.push(banchi);
-      if (input.layout) fw2Terms.push(input.layout);
+      const normalizedLayout = _normalizeLayoutForSuumo(input.layout);
+      if (normalizedLayout) fw2Terms.push(normalizedLayout);
       if (input.propertyType) fw2Terms.push(input.propertyType);
       const fw2 = fw2Terms.filter(Boolean).join('+');
       url = SUUMO_BASE_NEW
@@ -107,7 +108,7 @@
       isNewUrl = true;
     } else {
       // フォールバック: 旧URL (重複あり)
-      const fwTerms = [_normalizeAddress(input.address), input.layout];
+      const fwTerms = [_normalizeAddress(input.address), _normalizeLayoutForSuumo(input.layout)];
       if (input.propertyType) fwTerms.push(input.propertyType);
       const fw = fwTerms.filter(Boolean).join('+');
       url = SUUMO_BASE_OLD + encodeURIComponent(fw) + '&pc=100';
@@ -204,6 +205,24 @@
       if (s.indexOf(name) >= 0) return TOKYO_SC_MAP[name];
     }
     return null;
+  }
+
+  /**
+   * 4サイト由来の間取り表記を SUUMO検索の fw2 用に正規化する。
+   * SUUMO物件詳細テキストでは「ワンルーム」が主流のため、4サイト側で
+   * 「1R」と保持されている場合に検索結果が0件になる問題を回避する。
+   *
+   * 例: 1R / 1ｒ / １Ｒ → ワンルーム
+   *     1K / 1LDK / 2DK 等はそのまま (SUUMO物件テキストでも同表記)
+   */
+  function _normalizeLayoutForSuumo(layout) {
+    if (!layout) return '';
+    const s = String(layout).trim();
+    if (!s) return '';
+    // 全角英数を半角化してから判定
+    const half = s.replace(/[０-９Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    if (/^1R$/i.test(half) || /ワンルーム/.test(s)) return 'ワンルーム';
+    return s;
   }
 
   /**
