@@ -1307,11 +1307,17 @@ function submitCriteria() {
     var allCityCbs = document.querySelectorAll('input[name="city"]');
     for (var i = 0; i < allCityCbs.length; i++) {
       var cityName = allCityCbs[i].value;
+      var allTownCbs = document.querySelectorAll('input[name="town_' + cityName + '"]');
       var townCbs = document.querySelectorAll('input[name="town_' + cityName + '"]:checked');
       if (townCbs.length > 0) {
-        var towns = [];
-        for (var j = 0; j < townCbs.length; j++) towns.push(townCbs[j].value);
-        criteria.selectedTowns[cityName] = towns;
+        // 全町名がチェックされている場合は町名フィルタ不要 (区指定だけで全町名対象)
+        // → 各サイト検索で 277 件などの全町名で個別クエリ発行する重い処理を回避
+        var allChecked = (allTownCbs.length > 0 && townCbs.length === allTownCbs.length);
+        if (!allChecked) {
+          var towns = [];
+          for (var j = 0; j < townCbs.length; j++) towns.push(townCbs[j].value);
+          criteria.selectedTowns[cityName] = towns;
+        }
         // 市区町村がまだ含まれていなければ追加
         if (!citySet[cityName]) {
           citySet[cityName] = true;
