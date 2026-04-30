@@ -1721,6 +1721,21 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
           console.warn(`[ES-Square] 詳細取得失敗 (${prop.building_name}):`, err.message);
         }
 
+        // 設備が空の場合は React/MUI の遅延レンダリングが原因の可能性あり
+        // 2秒追加で待ってから再度取得を試みる(他フィールドは初回成功のものを保持)
+        if (detailResult?.ok && detailResult.detail && !detailResult.detail.facilities) {
+          try {
+            await sleep(2000);
+            const retry = await sendEssquareContentMessage(tabId, { type: 'ESSQUARE_EXTRACT_DETAIL' }, 60000);
+            if (retry?.ok && retry.detail?.facilities) {
+              console.log(`[ES-Square] 設備リトライで取得成功 (${prop.building_name})`);
+              detailResult.detail.facilities = retry.detail.facilities;
+            }
+          } catch (err) {
+            console.warn(`[ES-Square] 設備リトライ失敗 (${prop.building_name}):`, err.message);
+          }
+        }
+
         if (detailResult?.ok && detailResult.detail) {
           const d = detailResult.detail;
           // デバッグログ(冗長なので削除)
