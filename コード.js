@@ -383,12 +383,9 @@ function doGet(e) {
     const state = getState(userId);
     // CRITERIA_SELECT以降のステップならアクセス可能（再編集対応）
     if (!isCriteriaPageAllowed(state.step)) {
-      return HtmlService.createHtmlOutput(
-        '<html><body style="text-align:center;padding:40px;font-family:sans-serif;">' +
-        '<h3>このページは現在使用できません</h3>' +
-        '<p style="color:#666;margin-top:12px;">LINEに戻って操作をやり直してください。</p></body></html>'
-      ).setTitle('条件選択')
-       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+      return HtmlService.createHtmlOutput(_buildCriteriaPageBlockedHtml(state.step))
+        .setTitle('条件選択')
+        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
     }
     const d = state.data || {};
     const template = HtmlService.createTemplateFromFile('RouteSelectPage');
@@ -485,6 +482,56 @@ function isCriteriaPageAllowed(step) {
     STEPS.EQUIPMENT
   ];
   return allowed.indexOf(step) >= 0;
+}
+
+/**
+ * 条件選択ページにアクセスできない時の親切なガイドHTMLを生成する。
+ * 状態に応じて文言を切り替えて、何をすればいいかが分かるようにする。
+ *  - state=IDLE/DONE: 「条件登録を最初から始めてください」
+ *  - state=途中: 「まだ質問が残っています。LINEで続きをお答えください」
+ */
+function _buildCriteriaPageBlockedHtml(step) {
+  // 条件登録フローの途中ステップ
+  var inProgressSteps = [
+    STEPS.NAME, STEPS.REASON, STEPS.REASON_CUSTOM,
+    STEPS.RESIDENT, STEPS.RESIDENT_CUSTOM,
+    STEPS.MOVE_IN_DATE, STEPS.MOVE_IN_PERIOD
+  ];
+  var inProgress = inProgressSteps.indexOf(step) >= 0;
+
+  var icon = inProgress ? '✏️' : '📋';
+  var title = inProgress
+    ? '条件登録の途中です'
+    : '条件登録から始めてください';
+  var msg = inProgress
+    ? 'まだ全ての質問にお答えいただいていないようです。<br>LINEのトーク画面に戻って、<br><b>残りの質問にお答えください</b>。'
+    : 'このページを開く前に、LINEのトーク画面で<br><b>「条件登録」</b>とメッセージを送って、<br>いくつかの質問にお答えいただく必要があります。';
+  var howto = inProgress
+    ? '操作中の質問が見つからない場合は<br>「キャンセル」と送ってから、もう一度「条件登録」と送ってください。'
+    : 'すでに登録済みの方は<br>「<b>条件変更</b>」と送ってください。';
+
+  return '<!DOCTYPE html><html><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>条件選択</title>'
+    + '<style>'
+    + '*{box-sizing:border-box;margin:0;padding:0}'
+    + 'body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;background:#f8f9fa;color:#333;padding:24px 16px;min-height:100vh}'
+    + '.card{background:#fff;border-radius:16px;padding:32px 24px;max-width:480px;margin:24px auto;box-shadow:0 2px 12px rgba(0,0,0,0.08);text-align:center}'
+    + '.icon{font-size:56px;margin-bottom:16px;display:block}'
+    + 'h2{font-size:18px;margin-bottom:16px;color:#2c3e50;font-weight:bold}'
+    + 'p{font-size:15px;line-height:1.8;color:#444;margin-bottom:20px}'
+    + 'p.hint{font-size:13px;color:#888;margin-top:24px;padding-top:20px;border-top:1px solid #eee}'
+    + '.btn{display:block;width:100%;background:#06C755;color:#fff;padding:14px 24px;border-radius:24px;text-decoration:none;font-weight:bold;font-size:16px;margin:16px 0;border:none;cursor:pointer}'
+    + '.btn:active{opacity:0.85}'
+    + 'b{color:#06C755}'
+    + '</style></head><body>'
+    + '<div class="card">'
+    + '<span class="icon">' + icon + '</span>'
+    + '<h2>' + title + '</h2>'
+    + '<p>' + msg + '</p>'
+    + '<button class="btn" onclick="window.close()">LINEに戻る</button>'
+    + '<p class="hint">' + howto + '</p>'
+    + '</div></body></html>';
 }
 
 /**
