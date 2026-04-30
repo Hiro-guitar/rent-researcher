@@ -96,7 +96,10 @@
       if (banchi) fw2Terms.push(banchi);
       const normalizedLayout = _normalizeLayoutForSuumo(input.layout);
       if (normalizedLayout) fw2Terms.push(normalizedLayout);
-      if (input.propertyType) fw2Terms.push(input.propertyType);
+      // 注: propertyType (マンション/アパート) は fw2 に含めない。
+      //     SUUMO の bs=040 は賃貸物件全般 (マンション+アパート) をカバーするため
+      //     fw2 にキーワードで入れると、木造でもマンション名で掲載されている
+      //     物件などがマッチせず0件になる。bs だけで分類可能。
       const fw2 = fw2Terms.filter(Boolean).join('+');
       url = SUUMO_BASE_NEW
         + '?ar=030&bs=040&ta=13&sc=' + sc
@@ -108,8 +111,8 @@
       isNewUrl = true;
     } else {
       // フォールバック: 旧URL (重複あり)
+      // propertyType は fw2 同様マッチを狭めすぎるため除外
       const fwTerms = [_normalizeAddress(input.address), _normalizeLayoutForSuumo(input.layout)];
-      if (input.propertyType) fwTerms.push(input.propertyType);
       const fw = fwTerms.filter(Boolean).join('+');
       url = SUUMO_BASE_OLD + encodeURIComponent(fw) + '&pc=100';
     }
