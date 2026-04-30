@@ -229,12 +229,13 @@ function handleVacancyQuery(replyToken, userId, raw) {
       var missCount = (prevState.data && prevState.data.vacancyMissCount) || 0;
       missCount++;
       if (missCount >= MAX_VACANCY_MISS) {
-        // 自動終了
+        // 自動終了 (Quick Replyで再開ボタン提示)
         clearState(userId);
-        replyMessage(replyToken, [textMsg(
+        replyMessage(replyToken, [textMsgWithQuickReply(
           '何度かお調べしましたが、該当する物件が見つかりませんでした。\n\n' +
           '空室確認を一度終了します。\n' +
-          'もう一度お調べしたい場合は「空室確認」と送ってください。'
+          'もう一度お調べしたい場合は下のボタンをタップしてください。',
+          [qrMessage('🏠 空室確認', '空室確認')]
         )]);
         return;
       }
