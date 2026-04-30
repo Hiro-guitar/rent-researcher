@@ -244,7 +244,7 @@ function handleVacancyQuery(replyToken, userId, raw) {
       prevState.data.vacancyMissCount = missCount;
       saveState(userId, prevState);
       replyMessage(replyToken, [textMsg(
-        '該当する物件が見つかりませんでした。(' + missCount + '/' + MAX_VACANCY_MISS + ')\n\n' +
+        '該当する物件が見つかりませんでした。\n\n' +
         '以下のいずれかでお調べできます：\n\n' +
         '　・物件名（例: ○○マンション101）\n' +
         '　・所在地（例: 渋谷区神宮前）\n' +
