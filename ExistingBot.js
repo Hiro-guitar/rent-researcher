@@ -222,10 +222,28 @@ function handleVacancyQuery(replyToken, userId, raw) {
       }
     }
 
-    // 0件 → ポジティブ案内（state継続して再入力待ち）
+    // 0件 → 数回まで再入力受付。既定回数を超えたら自動終了 (永遠ループ防止)
+    var MAX_VACANCY_MISS = 3;
     if (matched.length === 0) {
+      var prevState = getState(userId);
+      var missCount = (prevState.data && prevState.data.vacancyMissCount) || 0;
+      missCount++;
+      if (missCount >= MAX_VACANCY_MISS) {
+        // 自動終了
+        clearState(userId);
+        replyMessage(replyToken, [textMsg(
+          '何度かお調べしましたが、該当する物件が見つかりませんでした。\n\n' +
+          '空室確認を一度終了します。\n' +
+          'もう一度お調べしたい場合は「空室確認」と送ってください。'
+        )]);
+        return;
+      }
+      // 継続して再入力待ち (missCount を保存)
+      prevState.data = prevState.data || {};
+      prevState.data.vacancyMissCount = missCount;
+      saveState(userId, prevState);
       replyMessage(replyToken, [textMsg(
-        '該当する物件が見つかりませんでした。\n\n' +
+        '該当する物件が見つかりませんでした。(' + missCount + '/' + MAX_VACANCY_MISS + ')\n\n' +
         '以下のいずれかでお調べできます：\n\n' +
         '　・物件名（例: ○○マンション101）\n' +
         '　・所在地（例: 渋谷区神宮前）\n' +
@@ -237,8 +255,13 @@ function handleVacancyQuery(replyToken, userId, raw) {
       return;
     }
 
-    // 件数超過 → 件数のみ返して絞込誘導（state継続）
+    // 件数超過 → 件数のみ返して絞込誘導（state継続、ただしミスカウントはリセット）
     if (matched.length > 12) {
+      var prevState2 = getState(userId);
+      if (prevState2.data && prevState2.data.vacancyMissCount) {
+        prevState2.data.vacancyMissCount = 0;
+        saveState(userId, prevState2);
+      }
       replyMessage(replyToken, [textMsg(
         '「' + raw + '」で' + matched.length + '件見つかりました。\n\n' +
         '物件名や専有面積でも絞り込めますので、別の条件でもお試しください。'
