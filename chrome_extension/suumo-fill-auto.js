@@ -339,9 +339,29 @@
     if (!d.pref) d.pref = d.pref || d.prefecture || '東京都';
 
     // ── 階数パース ──
-    if (!d.floorsAbove && d.story_text) {
-      const m = d.story_text.match(/(\d+)階建/);
-      if (m) d.floorsAbove = m[1];
+    // 「地上31階, 地下2階建」「地上31階建」「地下2階」「31階建」等の表記に対応
+    // 注: 単純な /(\d+)階建/ だと「地下2階建」を先にマッチして地上階を誤認するため
+    //     地上/地下 を別々に抽出する
+    if (d.story_text) {
+      // 地上階
+      if (!d.floorsAbove) {
+        const aboveMatch = d.story_text.match(/地上\s*(\d+)\s*階/);
+        if (aboveMatch) {
+          d.floorsAbove = aboveMatch[1];
+        } else {
+          // 「地上」表記なし & 「地下」も含まれない場合に限り、X階建 を地上階として採用
+          // (地下が混ざっている文字列に対して /(\d+)階建/ は誤マッチするため除外)
+          if (!/地下/.test(d.story_text)) {
+            const buildMatch = d.story_text.match(/(\d+)\s*階建/);
+            if (buildMatch) d.floorsAbove = buildMatch[1];
+          }
+        }
+      }
+      // 地下階
+      if (!d.floorsBelow) {
+        const belowMatch = d.story_text.match(/地下\s*(\d+)\s*階/);
+        if (belowMatch) d.floorsBelow = belowMatch[1];
+      }
     }
     if (!d.floorLocation && d.floor_text) {
       // "3階" → "3", "B1階" → "B1"
