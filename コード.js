@@ -155,6 +155,12 @@ function doPost(e) {
         return;
       }
 
+      // コマンド: 条件変更 (どのフロー中でも常に効くように上位で受ける)
+      if (message === '条件変更' || message === 'じょうけんへんこう') {
+        startChangeFlow(replyToken, userId);
+        return;
+      }
+
       // コマンド: 空室確認 → state を WAITING_VACANCY にして案内文返信
       if (message === '空室確認' || message === 'くうしつかくにん') {
         saveState(userId, { step: STEPS.WAITING_VACANCY, data: {} });
@@ -235,11 +241,7 @@ function doPost(e) {
         return;
       }
 
-      // コマンド: 条件変更
-      if (message === '条件変更' || message === 'じょうけんへんこう') {
-        startChangeFlow(replyToken, userId);
-        return;
-      }
+      // コマンド: 条件変更 ← 上位でハンドル済みのためここでは省略
 
       // コマンド: キャンセル（フロー外でも受け付ける）
       if ((message === 'キャンセル' || message === 'きゃんせる') && state.step !== STEPS.IDLE) {
