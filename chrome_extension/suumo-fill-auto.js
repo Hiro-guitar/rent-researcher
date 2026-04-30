@@ -980,6 +980,125 @@
       if (busDiv) busDiv.style.display = 'none';
       if (carDiv) carDiv.style.display = 'none';
     }
+
+    // 既存駅が3未満なら SUUMO の「らくらく交通入力」で空きスロットを補完
+    // (既存駅は触らず、空きスロットだけ追加する)
+    const filledCount = Math.min(dedupedAccess.length, maxTraffic);
+    if (filledCount > 0 && filledCount < maxTraffic) {
+      autoFillEmptyStationSlots(filledCount).catch(err => {
+        console.warn('[SUUMO自動入稿] 駅補完エラー:', err && err.message);
+      });
+    }
+  }
+
+  /**
+   * SUUMO の「らくらく交通入力」を発動して空きスロット (2/3) に近隣駅を自動補完。
+   * - 既存駅 (スロット1=空きスロット番号未満) は絶対上書きしない
+   * - ポップアップでラジオを「空きスロット分だけ」選択 → 「登録」で反映
+   * @param {number} filledCount 既存スロット数 (1 or 2)
+   */
+  async function autoFillEmptyStationSlots(filledCount) {
+    const btn = document.getElementById('rakurakuKotsu');
+    if (!btn) return;
+
+    // ポップアップ参照を取得しつつボタン発動
+    const popup = window.open('', 'RakurakuKotsu', 'width=530,height=700,scrollbars=yes');
+    if (!popup) {
+      console.warn('[SUUMO自動入稿] ポップアップブロック');
+      return;
+    }
+    btn.click();
+
+    // ポップアップロード完了待ち (最大10秒)
+    const ready = await waitForPopupReady(popup, 10000);
+    if (!ready) {
+      console.warn('[SUUMO自動入稿] らくらく交通入力 ロード失敗');
+      try { popup.close(); } catch (_) {}
+      return;
+    }
+
+    // 候補抽出
+    const candidates = [];
+    for (let i = 1; ; i++) {
+      const ekiNmEl = popup.document.getElementById('ekiNm' + i);
+      if (!ekiNmEl) break;
+      candidates.push({
+        idx: i,
+        ensenCd: popup.document.getElementById('ensenCd' + i)?.value || '',
+        ensenNm: popup.document.getElementById('ensenNm' + i)?.value || '',
+        ekiCd: popup.document.getElementById('ekiCd' + i)?.value || '',
+        ekiNm: ekiNmEl.value || '',
+        tohofun: parseInt(popup.document.getElementById('tohofun' + i)?.value || '0', 10) || 0
+      });
+    }
+
+    if (candidates.length === 0) {
+      console.warn('[SUUMO自動入稿] 駅候補0件');
+      try { popup.close(); } catch (_) {}
+      return;
+    }
+
+    // 既存スロットの駅名を収集 (重複排除用)
+    const existingStations = new Set();
+    ['', '2', '3'].forEach(n => {
+      const v = (document.getElementById('pkgEkiNmDisp' + n)?.value || '').trim();
+      if (v) existingStations.add(v);
+    });
+
+    // 既存駅と重複しない候補を徒歩分昇順で必要数選定
+    const needed = 3 - filledCount;
+    const eligibleCandidates = candidates
+      .filter(c => !existingStations.has(c.ekiNm))
+      .sort((a, b) => a.tohofun - b.tohofun)
+      .slice(0, needed);
+
+    if (eligibleCandidates.length === 0) {
+      console.warn('[SUUMO自動入稿] 重複しない候補なし');
+      try { popup.close(); } catch (_) {}
+      return;
+    }
+
+    // 空きスロット (filledCount+1, +2, ...) のラジオだけ選択
+    // → SUUMO の「登録」が選択されたスロットだけ書き換える挙動を利用
+    for (let i = 0; i < eligibleCandidates.length; i++) {
+      const slotNum = filledCount + i + 1;
+      const candIdx = eligibleCandidates[i].idx;
+      const radio = popup.document.getElementById(`koutu_${slotNum}-${candIdx}`);
+      if (radio) {
+        radio.checked = true;
+        radio.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }
+
+    // 「登録」ボタン押下 → 親フォームの空きスロットだけ書き換わる
+    const registBtn = popup.document.getElementById('registButton');
+    if (registBtn) {
+      registBtn.click();
+      console.log('[SUUMO自動入稿] らくらく交通入力で空きスロットに'
+        + eligibleCandidates.length + '駅を追加: '
+        + eligibleCandidates.map(c => c.ekiNm).join(', '));
+    } else {
+      // 登録ボタン無ければキャンセル
+      console.warn('[SUUMO自動入稿] 登録ボタン無し');
+      try { popup.close(); } catch (_) {}
+    }
+  }
+
+  /** ポップアップの DOM ロード完了待ち */
+  function waitForPopupReady(popup, timeoutMs) {
+    return new Promise((resolve) => {
+      const start = Date.now();
+      (function check() {
+        if (popup.closed) return resolve(false);
+        try {
+          const ready = popup.document && popup.document.readyState === 'complete'
+            && popup.document.getElementById('ekiNm1');
+          if (ready) return resolve(true);
+        } catch (_) {}
+        if (Date.now() - start > timeoutMs) return resolve(false);
+        setTimeout(check, 200);
+      })();
+    });
   }
 
   /**
