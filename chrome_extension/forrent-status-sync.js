@@ -257,15 +257,20 @@ async function ensureForrentReady_(tabId) {
     return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + ((state && state.url) || '') + ')。診断ログを確認してください' };
   }
 
-  // ── 既ログイン状態で main_r.action / TOP1R0000 等のメイン画面に着地 ──
+  // ── ① 既ログイン状態で main_r.action / TOP1R0000 等のメイン画面に着地 ──
   // hasBukkenInput=false / hasLoginForm=false / hasTransitionError=false で、
-  // URL が ForRent 内部の場合は「ログイン済みでメイン画面に居る」状態。
+  // URL がトップ系ページ(main_r.action / TOP1R0000 / index / /fn/ ルート)の場合は
+  // 「ログイン済みでメイン画面に居る」状態。
   // post-login と同じ「更新・掲載指示」メニュー経由で PUB1R2801 へ誘導する。
   // (旧実装ではこの分岐が無く「不明なページ状態」で即 abort し、
   //  掲載停止フローや承認前処理が連鎖的に失敗していた)
+  // 注意: PUB1R2801.action 等の本来 bukkenInput を持つべきページで誤発火しないよう
+  //       URL を限定する。
   const stateUrl = (state && state.url) || '';
-  const isLoggedInLanding = /https?:\/\/www\.fn\.forrent\.jp\/fn\//.test(stateUrl);
-  if (isLoggedInLanding) {
+  const isLandingPage =
+    /\/fn\/(main_r\.action|TOP1R0000(?:\.action)?|index(?:\.action)?)(?:[?#]|$)/i.test(stateUrl)
+    || /\/fn\/?(?:[?#]|$)/.test(stateUrl);
+  if (isLandingPage) {
     await setStorageData({ debugLog: `[ForRent状態同期] 既ログインのメイン画面検知 (url=${stateUrl}) → ナビメニュー探索` });
     await sleep(2000); // frameset 内の navi/main フレーム初期化待ち
     const clickedDiag = await clickForrentNavMenuWithRetry_(tabId, 15000);
@@ -276,7 +281,64 @@ async function ensureForrentReady_(tabId) {
       if (after && after.hasBukkenInput) return { ok: true };
       await setStorageData({ debugLog: `[ForRent状態同期] (既ログイン)メニュークリック後もフォーム未出現 url=${after && after.url}` });
     }
-    return { ok: false, error: 'ログイン済みだが検索フォーム未到達 (' + stateUrl + ')' };
+    // メニュー見つからず ⇒ サイレント session expired の可能性大。
+    // /fn/ ルートに移動して login.action にリダイレクトさせ、下のリカバリパスに流す。
+    await setStorageData({ debugLog: '[ForRent状態同期] ナビ探索失敗 → セッション切れ疑いで /fn/ ルートへリダイレクト' });
+    await chrome.tabs.update(tabId, { url: 'https://www.fn.forrent.jp/fn/' });
+    try { await waitForTabLoad(tabId, 30000); } catch (_) {}
+    await sleep(2500);
+    const afterRedirect = await pollInspectForrentPage_(tabId, 15000);
+    if (afterRedirect && afterRedirect.hasBukkenInput) return { ok: true };
+    if (afterRedirect && afterRedirect.hasLoginForm) {
+      await setStorageData({ debugLog: '[ForRent状態同期] /fn/ 着地でログインフォーム検出 → 自動ログインへ合流' });
+      const loginResult = await doForrentLogin_(tabId);
+      if (!loginResult.ok) {
+        return { ok: false, error: 'サイレントsession切れ→再ログイン失敗: ' + loginResult.error };
+      }
+      // 再ログイン後に再度フォームを待つ
+      await sleep(3000);
+      const postRelogin = await pollForBukkenInput_(tabId, 20000);
+      if (postRelogin && postRelogin.hasBukkenInput) return { ok: true };
+      // 再ログイン後もフォームが出ない場合はナビ探索を再試行
+      const reClicked = await clickForrentNavMenuWithRetry_(tabId, 15000);
+      if (reClicked.clicked) {
+        await sleep(3000);
+        const finalState = await pollForBukkenInput_(tabId, 20000);
+        if (finalState && finalState.hasBukkenInput) return { ok: true };
+      }
+      return { ok: false, error: '再ログイン後も検索フォーム未到達' };
+    }
+    return { ok: false, error: 'ログイン済みだが検索フォーム未到達 (' + stateUrl + ' / 再ナビ後も login form 未出現)' };
+  }
+
+  // ── ② サイレント session expired のフォールバック ──
+  // ForRent 配下だがランディングページでもない & 3フラグ全 false の状態。
+  // PUB1R2801 等で session が切れていて、サーバーが空白/エラーページを返している可能性。
+  // /fn/ ルートに飛ばして login redirect → 自動ログインに合流。
+  if (/https?:\/\/www\.fn\.forrent\.jp\/fn\//.test(stateUrl)) {
+    await setStorageData({ debugLog: `[ForRent状態同期] /fn/配下だが3フラグ全false (url=${stateUrl}) → セッション切れ疑い、/fn/へ` });
+    await chrome.tabs.update(tabId, { url: 'https://www.fn.forrent.jp/fn/' });
+    try { await waitForTabLoad(tabId, 30000); } catch (_) {}
+    await sleep(2500);
+    const recovered = await pollInspectForrentPage_(tabId, 15000);
+    if (recovered && recovered.hasBukkenInput) return { ok: true };
+    if (recovered && recovered.hasLoginForm) {
+      const loginResult = await doForrentLogin_(tabId);
+      if (!loginResult.ok) {
+        return { ok: false, error: 'サイレントsession切れ→再ログイン失敗: ' + loginResult.error };
+      }
+      await sleep(3000);
+      const post = await pollForBukkenInput_(tabId, 20000);
+      if (post && post.hasBukkenInput) return { ok: true };
+      const navAfter = await clickForrentNavMenuWithRetry_(tabId, 15000);
+      if (navAfter.clicked) {
+        await sleep(3000);
+        const final = await pollForBukkenInput_(tabId, 20000);
+        if (final && final.hasBukkenInput) return { ok: true };
+      }
+      return { ok: false, error: 'サイレントsession切れ→再ログイン後もフォーム未到達' };
+    }
+    return { ok: false, error: 'session 切れ疑いで /fn/ へリダイレクト後も状態不明 (' + ((recovered && recovered.url) || '') + ')' };
   }
 
   // それでもどれにも該当しない真の不明
