@@ -1056,40 +1056,26 @@
    * @param {number} filledCount 既存スロット数 (1 or 2)
    */
   async function autoFillEmptyStationSlots(filledCount) {
-    console.log('[SUUMO自動入稿] 駅補完開始 (filledCount=' + filledCount + ')');
     try {
-      // らくらく交通入力ページをfetch (現在のセッションcookieで)
-      // 注: 直接 fetch だと SUUMO 側セッションに住所が未登録で 0件返る場合があるため、
-      //     SUUMOの「らくらく交通入力」ボタンクリックで内部 setup を発動してから fetch する
+      // SUUMO「らくらく交通入力」のボタン click でサーバーセッションに住所を登録 (setup)
+      // → 直 fetch だけだとセッション未確立で 0件返ることがあるため必須
+      // popup は window.open フックで即時 close (ユーザー画面に出さない)
       const trigBtn = document.getElementById('rakurakuKotsu');
       if (trigBtn) {
-        // window.open をフックしてポップアップ自動close + クリック実行
         const origOpen = window.open;
-        let triggered = false;
         window.open = function() {
-          triggered = true;
-          // 開くフリだけして閉じる(セッション設定だけ済ませる)
           const w = origOpen.apply(this, arguments);
           if (w) { try { w.close(); } catch(_){} }
           return w;
         };
         try { trigBtn.click(); } catch(_){}
         window.open = origOpen;
-        if (triggered) {
-          // setup を発動できた → 少し待ってから fetch
-          await new Promise(r => setTimeout(r, 500));
-          console.log('[SUUMO自動入稿] らくらく交通入力 setup発動成功');
-        } else {
-          console.log('[SUUMO自動入稿] setup発動できず (ボタンclick失敗)');
-        }
-      } else {
-        console.log('[SUUMO自動入稿] らくらく交通入力ボタン無し');
+        await new Promise(r => setTimeout(r, 500));
       }
 
       const res = await fetch('https://www.fn.forrent.jp/fn/COM1R02167.action', {
         credentials: 'include'
       });
-      console.log('[SUUMO自動入稿] fetch結果 status=' + res.status);
       if (!res.ok) {
         console.warn('[SUUMO自動入稿] らくらく交通入力 fetch失敗:', res.status);
         return;
@@ -1099,7 +1085,6 @@
       //  マッチせず、結果として既存駅も含めて全件追加候補と判定されてしまう)
       const buf = await res.arrayBuffer();
       const html = new TextDecoder('shift-jis').decode(buf);
-      console.log('[SUUMO自動入稿] HTML長=' + html.length + ' / ekiNm1含む=' + html.includes('ekiNm1'));
       const doc = new DOMParser().parseFromString(html, 'text/html');
 
       // 候補抽出
