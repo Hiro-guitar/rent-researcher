@@ -1012,113 +1012,121 @@
   }
 
   /**
-   * SUUMO の「らくらく交通入力」を発動して空きスロット (2/3) に近隣駅を自動補完。
+   * SUUMO の「らくらく交通入力」相当の駅候補を取得して空きスロット (2/3) に
+   * 近隣駅を自動補完する。
+   *
    * - 既存駅 (スロット1=空きスロット番号未満) は絶対上書きしない
-   * - ポップアップでラジオを「空きスロット分だけ」選択 → 「登録」で反映
+   * - ポップアップは popup-blocker でブロックされるため、fetch() で直接候補HTMLを取得
+   * - 候補データを親フォームの空きスロットに直接書き込む (SUUMO の「登録」ボタンは使わない)
+   *
    * @param {number} filledCount 既存スロット数 (1 or 2)
    */
   async function autoFillEmptyStationSlots(filledCount) {
-    const btn = document.getElementById('rakurakuKotsu');
-    if (!btn) return;
-
-    // ポップアップ参照を取得しつつボタン発動
-    const popup = window.open('', 'RakurakuKotsu', 'width=530,height=700,scrollbars=yes');
-    if (!popup) {
-      console.warn('[SUUMO自動入稿] ポップアップブロック');
-      return;
-    }
-    btn.click();
-
-    // ポップアップロード完了待ち (最大10秒)
-    const ready = await waitForPopupReady(popup, 10000);
-    if (!ready) {
-      console.warn('[SUUMO自動入稿] らくらく交通入力 ロード失敗');
-      try { popup.close(); } catch (_) {}
-      return;
-    }
-
-    // 候補抽出
-    const candidates = [];
-    for (let i = 1; ; i++) {
-      const ekiNmEl = popup.document.getElementById('ekiNm' + i);
-      if (!ekiNmEl) break;
-      candidates.push({
-        idx: i,
-        ensenCd: popup.document.getElementById('ensenCd' + i)?.value || '',
-        ensenNm: popup.document.getElementById('ensenNm' + i)?.value || '',
-        ekiCd: popup.document.getElementById('ekiCd' + i)?.value || '',
-        ekiNm: ekiNmEl.value || '',
-        tohofun: parseInt(popup.document.getElementById('tohofun' + i)?.value || '0', 10) || 0
+    try {
+      // らくらく交通入力ページをfetch (現在のセッションcookieで)
+      // 注: ポップアップで開く方式は popup-blocker と isolated/main world の問題で
+      //     不安定なため、fetch で直接HTMLを取得して中身をパースする方式に変更。
+      const res = await fetch('https://www.fn.forrent.jp/fn/COM1R02167.action', {
+        credentials: 'include'
       });
-    }
-
-    if (candidates.length === 0) {
-      console.warn('[SUUMO自動入稿] 駅候補0件');
-      try { popup.close(); } catch (_) {}
-      return;
-    }
-
-    // 既存スロットの駅名を収集 (重複排除用)
-    const existingStations = new Set();
-    ['', '2', '3'].forEach(n => {
-      const v = (document.getElementById('pkgEkiNmDisp' + n)?.value || '').trim();
-      if (v) existingStations.add(v);
-    });
-
-    // 既存駅と重複しない候補を徒歩分昇順で必要数選定
-    const needed = 3 - filledCount;
-    const eligibleCandidates = candidates
-      .filter(c => !existingStations.has(c.ekiNm))
-      .sort((a, b) => a.tohofun - b.tohofun)
-      .slice(0, needed);
-
-    if (eligibleCandidates.length === 0) {
-      console.warn('[SUUMO自動入稿] 重複しない候補なし');
-      try { popup.close(); } catch (_) {}
-      return;
-    }
-
-    // 空きスロット (filledCount+1, +2, ...) のラジオだけ選択
-    // → SUUMO の「登録」が選択されたスロットだけ書き換える挙動を利用
-    for (let i = 0; i < eligibleCandidates.length; i++) {
-      const slotNum = filledCount + i + 1;
-      const candIdx = eligibleCandidates[i].idx;
-      const radio = popup.document.getElementById(`koutu_${slotNum}-${candIdx}`);
-      if (radio) {
-        radio.checked = true;
-        radio.dispatchEvent(new Event('change', { bubbles: true }));
+      if (!res.ok) {
+        console.warn('[SUUMO自動入稿] らくらく交通入力 fetch失敗:', res.status);
+        return;
       }
-    }
+      const html = await res.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
 
-    // 「登録」ボタン押下 → 親フォームの空きスロットだけ書き換わる
-    const registBtn = popup.document.getElementById('registButton');
-    if (registBtn) {
-      registBtn.click();
-      console.log('[SUUMO自動入稿] らくらく交通入力で空きスロットに'
-        + eligibleCandidates.length + '駅を追加: '
-        + eligibleCandidates.map(c => c.ekiNm).join(', '));
-    } else {
-      // 登録ボタン無ければキャンセル
-      console.warn('[SUUMO自動入稿] 登録ボタン無し');
-      try { popup.close(); } catch (_) {}
-    }
-  }
+      // 候補抽出
+      const candidates = [];
+      for (let i = 1; ; i++) {
+        const ekiNmEl = doc.getElementById('ekiNm' + i);
+        if (!ekiNmEl) break;
+        candidates.push({
+          idx: i,
+          ensenCd: doc.getElementById('ensenCd' + i)?.value || '',
+          ensenNm: doc.getElementById('ensenNm' + i)?.value || '',
+          ekiCd: doc.getElementById('ekiCd' + i)?.value || '',
+          ekiNm: ekiNmEl.value || '',
+          tohofun: parseInt(doc.getElementById('tohofun' + i)?.value || '0', 10) || 0
+        });
+      }
 
-  /** ポップアップの DOM ロード完了待ち */
-  function waitForPopupReady(popup, timeoutMs) {
-    return new Promise((resolve) => {
-      const start = Date.now();
-      (function check() {
-        if (popup.closed) return resolve(false);
-        try {
-          const ready = popup.document && popup.document.readyState === 'complete'
-            && popup.document.getElementById('ekiNm1');
-          if (ready) return resolve(true);
-        } catch (_) {}
-        if (Date.now() - start > timeoutMs) return resolve(false);
-        setTimeout(check, 200);
-      })();
-    });
+      if (candidates.length === 0) {
+        console.warn('[SUUMO自動入稿] 駅候補0件 (セッション未確立の可能性)');
+        return;
+      }
+
+      // 既存スロットの駅名を収集 (重複排除用)
+      const existingStations = new Set();
+      ['', '2', '3'].forEach(n => {
+        const v = (document.getElementById('pkgEkiNmDisp' + n)?.value || '').trim();
+        if (v) existingStations.add(v);
+      });
+
+      // 既存駅と重複しない候補を徒歩分昇順で必要数選定
+      const needed = 3 - filledCount;
+      const eligibleCandidates = candidates
+        .filter(c => !existingStations.has(c.ekiNm))
+        .sort((a, b) => a.tohofun - b.tohofun)
+        .slice(0, needed);
+
+      if (eligibleCandidates.length === 0) {
+        console.warn('[SUUMO自動入稿] 重複しない駅候補なし');
+        return;
+      }
+
+      // 空きスロット (filledCount+1, +2, ...) に直接書き込み
+      // 既存駅は触らない (スロット1は filledCount=1なら2,3に、=2なら3だけに書く)
+      for (let i = 0; i < eligibleCandidates.length; i++) {
+        const slotNum = filledCount + i + 1;
+        const num = slotNum === 1 ? '' : String(slotNum);
+        const c = eligibleCandidates[i];
+
+        setInputById('pkgEnsenNmDisp' + num, c.ensenNm);
+        setInputById('pkgEnsenNm' + num, c.ensenNm);
+        if (c.ensenCd) {
+          setInputByIdWithEvents('pkgEnsenCd' + num, c.ensenCd);
+        }
+
+        setInputById('pkgEkiNmDisp' + num, c.ekiNm);
+        setInputById('pkgEkiNm' + num, c.ekiNm);
+        if (c.ekiCd) {
+          // 駅コードは下5桁が SUUMO 内部での値
+          const code = c.ekiCd.length > 5 ? c.ekiCd.slice(-5) : c.ekiCd;
+          setInputByIdWithEvents('pkgEkiCd' + num, code);
+        }
+
+        setInputById('tohofun' + num, String(c.tohofun));
+
+        // 「駅から」ラジオを ON
+        const tohoRadio = document.getElementById('toho' + num) || (slotNum === 1 ? document.getElementById('toho') : null);
+        if (tohoRadio) {
+          tohoRadio.checked = true;
+          tohoRadio.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        // 「駅から」ブロック表示・バス/車ブロック非表示
+        const ekimadeMap = { '': 'DEkimade', '2': 'DEkimade3', '3': 'DEkimade4' };
+        const busteiMap = { '': 'DBustei', '2': 'DBustei3', '3': 'DBustei4' };
+        const kurumaMap = { '': 'DKurumade', '2': 'DKurumade3', '3': 'DKurumade4' };
+        const ekimadeDiv = document.getElementById(ekimadeMap[num]);
+        if (ekimadeDiv) {
+          ekimadeDiv.style.display = 'block';
+          ekimadeDiv.style.visibility = 'visible';
+          ekimadeDiv.classList.remove('defaultHidden');
+        }
+        const busDiv = document.getElementById(busteiMap[num]);
+        const carDiv = document.getElementById(kurumaMap[num]);
+        if (busDiv) busDiv.style.display = 'none';
+        if (carDiv) carDiv.style.display = 'none';
+      }
+
+      console.log('[SUUMO自動入稿] 空きスロットに'
+        + eligibleCandidates.length + '駅を直接追加: '
+        + eligibleCandidates.map(c => c.ekiNm + '(徒歩' + c.tohofun + '分)').join(', '));
+    } catch (e) {
+      console.warn('[SUUMO自動入稿] 駅補完エラー:', e && e.message);
+    }
   }
 
   /**
