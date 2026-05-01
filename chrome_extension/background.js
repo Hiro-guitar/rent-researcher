@@ -4880,32 +4880,79 @@ async function getOrRunSuumoPreHook_() {
 }
 
 async function runSuumoApprovalPreHook_() {
-  // ── 0a. content scriptキャプチャ済みの掲載数をストレージから即読み取り ──
-  // suumo-fill-auto.js が ForRent管理画面ページを開くたびに「ネット掲載 N 指示」を
-  // chrome.storage.local に保存してくれている。ログイン後トップページを通った
-  // 直後ならフレッシュな値が入っている (= 連続入稿時にも常に最新)。
+  // ── 0. SUUMO入稿システムのトップページ TOP1R0000 を毎回fetchして
+  //       「ネット掲載 N 指示」をリアルタイム取得する ──
+  // 既存ForRentタブ (admin が開いてるはず) で chrome.scripting.executeScript で
+  // fetch+Shift-JISデコードして抽出。
+  // 既存タブが無ければ新規にmain_r.actionを開く。
+  // → 入稿のたびに必ず最新値を取得 (ストレージキャッシュ依存をやめた)
   let liveActiveCountFromForrent = null;
-  let captureFresh = false;
   try {
-    const { suumoListedCount, suumoListedCapturedAt } = await getStorageData(['suumoListedCount', 'suumoListedCapturedAt']);
-    if (typeof suumoListedCount === 'number' && suumoListedCapturedAt) {
-      const ageMs = Date.now() - Number(suumoListedCapturedAt);
-      // 30分以内なら新鮮として採用
-      if (ageMs < 30 * 60 * 1000) {
-        liveActiveCountFromForrent = suumoListedCount;
-        captureFresh = true;
-        await setStorageData({ debugLog: `[承認前処理] storage掲載数=${liveActiveCountFromForrent} (${Math.round(ageMs/1000)}秒前にキャプチャ)` });
-      }
+    const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/*' });
+    let targetTabId;
+    let createdTab = false;
+    if (tabs && tabs.length > 0) {
+      targetTabId = tabs[0].id;
+    } else {
+      const created = await chrome.tabs.create({
+        url: 'https://www.fn.forrent.jp/fn/main_r.action',
+        active: false
+      });
+      targetTabId = created.id;
+      createdTab = true;
+      await waitForTabLoad(targetTabId, 30000);
+      await sleep(2000);
     }
-  } catch (_) {}
 
-  // ── 0b. ストレージに新鮮値がなければ ForRent状態同期 (PUB1R2801) で取得 ──
-  // 戻り値の count は ForRent から実際に取得した掲載件数 (≒ SUUMO上の活性掲載数)。
-  // シート側のステータス更新がセーフガードでスキップされた場合でも、この生件数を
-  // 信頼すれば accurate な active count が得られる。
-  if (!captureFresh) {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: targetTabId, allFrames: true },
+      func: async () => {
+        try {
+          const r = await fetch('https://www.fn.forrent.jp/fn/TOP1R0000.action?id=' + Date.now(), {
+            credentials: 'include'
+          });
+          if (!r.ok) return { ok: false, error: 'HTTP' + r.status };
+          const buf = await r.arrayBuffer();
+          const html = new TextDecoder('shift-jis').decode(buf);
+          const stripped = html
+            .replace(/<script[\s\S]*?<\/script>/g, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/\s+/g, ' ');
+          const m = stripped.match(/ネット掲載\s+(\d+)\s*指示\s*\/\s*(\d+)\s*枠/);
+          if (m) return { ok: true, listed: parseInt(m[1], 10), max: parseInt(m[2], 10) };
+          const isLogin = /ログイン|login|ID.{0,5}パスワード/i.test(stripped);
+          return { ok: false, error: isLogin ? 'ログイン切れ' : 'パターン不一致' };
+        } catch (e) {
+          return { ok: false, error: e.message };
+        }
+      }
+    });
+
+    let parsed = null;
+    for (const r of (results || [])) {
+      if (r && r.result && r.result.ok) { parsed = r.result; break; }
+    }
+
+    if (createdTab) {
+      try { await chrome.tabs.remove(targetTabId); } catch (_) {}
+    }
+
+    if (parsed) {
+      liveActiveCountFromForrent = parsed.listed;
+      await setStorageData({ debugLog: `[承認前処理] TOP1R0000直読み(リアルタイム): ネット掲載=${liveActiveCountFromForrent}/${parsed.max}枠` });
+    } else {
+      const errors = (results || []).map(r => (r && r.result && r.result.error) || '?').slice(0, 3).join(' / ');
+      await setStorageData({ debugLog: `[承認前処理] TOP1R0000リアルタイム取得失敗: ${errors}` });
+    }
+  } catch (err) {
+    await setStorageData({ debugLog: `[承認前処理] TOP1R0000取得例外: ${err.message}` });
+  }
+
+  // ── 0b. TOP1R0000リアルタイム取得が失敗した時のみ、PUB1R2801フォールバック ──
+  if (liveActiveCountFromForrent === null) {
     try {
-      await setStorageData({ debugLog: '[承認前処理] ForRent状態同期(実態反映)開始' });
+      await setStorageData({ debugLog: '[承認前処理] フォールバック: ForRent状態同期(PUB1R2801)実行' });
       const syncResult = await syncForrentListingStatus();
       if (!syncResult || !syncResult.ok) {
         await setStorageData({ debugLog: `[承認前処理] ForRent状態同期失敗(スキップして続行): ${syncResult && syncResult.error}` });
