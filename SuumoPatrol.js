@@ -1870,12 +1870,15 @@ function deletePatrolCriteriaFromAdmin(criteriaId) {
 /**
  * SuumoApprovalPage から呼ばれる: 承認確定
  */
-function confirmSuumoApproveFromClient(key, imageGenres, featureIds, updatedImageUrls) {
+function confirmSuumoApproveFromClient(key, imageGenres, featureIds, updatedImageUrls, editedFields) {
   var imageGenresJson = imageGenres ? JSON.stringify(imageGenres) : '';
   var featureIdsJson = featureIds ? JSON.stringify(featureIds) : '';
 
-  // 手動追加画像がある場合、property_data_json の image_urls を更新
-  if (updatedImageUrls && Array.isArray(updatedImageUrls) && updatedImageUrls.length > 0) {
+  var hasImageUpdate = updatedImageUrls && Array.isArray(updatedImageUrls) && updatedImageUrls.length > 0;
+  var hasEditedFields = editedFields && typeof editedFields === 'object' && Object.keys(editedFields).length > 0;
+
+  // 手動追加画像 / 承認画面で編集されたフィールドがあれば property_data_json を更新
+  if (hasImageUpdate || hasEditedFields) {
     var sheet = getCandidateSheet_();
     var lastRow = sheet.getLastRow();
     if (lastRow > 1) {
@@ -1886,10 +1889,19 @@ function confirmSuumoApproveFromClient(key, imageGenres, featureIds, updatedImag
           var propJson = sheet.getRange(row, 13).getValue();
           try {
             var propData = JSON.parse(propJson);
-            propData.image_urls = updatedImageUrls;
+            if (hasImageUpdate) {
+              propData.image_urls = updatedImageUrls;
+            }
+            if (hasEditedFields) {
+              for (var k in editedFields) {
+                if (Object.prototype.hasOwnProperty.call(editedFields, k)) {
+                  propData[k] = editedFields[k];
+                }
+              }
+            }
             sheet.getRange(row, 13).setValue(JSON.stringify(propData));
           } catch (ex) {
-            // パース失敗時はスキップ（画像URL更新なし）
+            // パース失敗時はスキップ
           }
           break;
         }

@@ -35,12 +35,24 @@ body {
 .card-body.collapsed { display: none; }
 
 /* ── 物件情報 ── */
-.prop-row { display: flex; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+.prop-row { display: flex; padding: 6px 0; border-bottom: 1px solid #f0f0f0; align-items: center; }
 .prop-label { width: 120px; font-size: 12px; color: #888; flex-shrink: 0; }
 .prop-value { font-size: 14px; font-weight: 500; flex: 1; word-break: break-all; }
 .prop-value.highlight { color: #e74c3c; font-weight: 700; }
 .prop-value.sub { font-size: 12px; color: #666; }
 .prop-row:last-child { border-bottom: none; }
+
+/* 編集可能フィールド (input/textarea を prop-value のスロットに) */
+input.prop-value, textarea.prop-value {
+  border: 1px solid #e0e0e0; border-radius: 4px; padding: 4px 8px;
+  font-family: inherit; background: #fff; box-sizing: border-box;
+  width: 100%; min-width: 0;
+}
+textarea.prop-value { resize: vertical; min-height: 32px; line-height: 1.4; }
+input.prop-value:focus, textarea.prop-value:focus {
+  border-color: #6699cc; outline: none; background: #fafcff;
+}
+input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
 
 /* ── セクション内小見出し ── */
 .section-sub {
@@ -229,16 +241,16 @@ body {
 <div class="card">
   <div class="card-title" onclick="toggleCard(this)">基本情報<span class="toggle">-</span></div>
   <div class="card-body" id="sectionBasic">
-    <div class="prop-row"><div class="prop-label">建物名</div><div class="prop-value" id="pvBuilding"></div></div>
-    <div class="prop-row"><div class="prop-label">部屋番号</div><div class="prop-value" id="pvRoom"></div></div>
-    <div class="prop-row"><div class="prop-label">住所</div><div class="prop-value" id="pvAddress"></div></div>
+    <div class="prop-row"><div class="prop-label">建物名</div><input type="text" class="prop-value" id="pvBuilding" data-field="building_name"></div>
+    <div class="prop-row"><div class="prop-label">部屋番号</div><input type="text" class="prop-value" id="pvRoom" data-field="room_number"></div>
+    <div class="prop-row"><div class="prop-label">住所</div><input type="text" class="prop-value" id="pvAddress" data-field="address"></div>
     <div class="prop-row"><div class="prop-label">ソース</div><div class="prop-value" id="pvSource"></div></div>
     <div class="prop-row"><div class="prop-label">ステータス</div><div class="prop-value" id="pvStatus"></div></div>
-    <div class="prop-row"><div class="prop-label">募集状況</div><div class="prop-value" id="pvListingStatus"></div></div>
-    <div class="prop-row"><div class="prop-label">現況</div><div class="prop-value" id="pvCurrentStatus"></div></div>
-    <div class="prop-row"><div class="prop-label">元付会社</div><div class="prop-value" id="pvOwnerCompany"></div></div>
-    <div class="prop-row"><div class="prop-label">元付電話番号</div><div class="prop-value" id="pvOwnerPhone"></div></div>
-    <div class="prop-row"><div class="prop-label">広告転載区分</div><div class="prop-value" id="pvAdReprint"></div></div>
+    <div class="prop-row"><div class="prop-label">募集状況</div><input type="text" class="prop-value" id="pvListingStatus" data-field="listing_status"></div>
+    <div class="prop-row"><div class="prop-label">現況</div><input type="text" class="prop-value" id="pvCurrentStatus" data-field="current_status"></div>
+    <div class="prop-row"><div class="prop-label">元付会社</div><input type="text" class="prop-value" id="pvOwnerCompany" data-field="owner_company"></div>
+    <div class="prop-row"><div class="prop-label">元付電話番号</div><input type="text" class="prop-value" id="pvOwnerPhone" data-field="owner_phone"></div>
+    <div class="prop-row"><div class="prop-label">広告転載区分</div><input type="text" class="prop-value" id="pvAdReprint" data-field="ad_reprint_raw"></div>
   </div>
 </div>
 
@@ -246,30 +258,30 @@ body {
 <div class="card">
   <div class="card-title" onclick="toggleCard(this)">賃料・費用<span class="toggle">-</span></div>
   <div class="card-body" id="sectionCost">
-    <div class="prop-row"><div class="prop-label">賃料</div><div class="prop-value highlight" id="pvRent"></div></div>
-    <div class="prop-row"><div class="prop-label">管理費/共益費</div><div class="prop-value" id="pvMgmtFee"></div></div>
-    <div class="prop-row"><div class="prop-label">敷金</div><div class="prop-value" id="pvDeposit"></div></div>
-    <div class="prop-row"><div class="prop-label">礼金</div><div class="prop-value" id="pvKeyMoney"></div></div>
-    <div class="prop-row"><div class="prop-label">敷引き/償却</div><div class="prop-value" id="pvShikibiki"></div></div>
-    <div class="prop-row"><div class="prop-label">フリーレント</div><div class="prop-value" id="pvFreeRent"></div></div>
+    <div class="prop-row"><div class="prop-label">賃料</div><input type="text" class="prop-value highlight" id="pvRent" data-field="rent"></div>
+    <div class="prop-row"><div class="prop-label">管理費/共益費</div><input type="text" class="prop-value" id="pvMgmtFee" data-field="management_fee"></div>
+    <div class="prop-row"><div class="prop-label">敷金</div><input type="text" class="prop-value" id="pvDeposit" data-field="deposit"></div>
+    <div class="prop-row"><div class="prop-label">礼金</div><input type="text" class="prop-value" id="pvKeyMoney" data-field="key_money"></div>
+    <div class="prop-row"><div class="prop-label">敷引き/償却</div><input type="text" class="prop-value" id="pvShikibiki" data-field="shikibiki"></div>
+    <div class="prop-row"><div class="prop-label">フリーレント</div><input type="text" class="prop-value" id="pvFreeRent" data-field="free_rent"></div>
 
     <div class="section-sub">月額費用</div>
-    <div class="prop-row"><div class="prop-label">駐車場代</div><div class="prop-value" id="pvParkingFee"></div></div>
-    <div class="prop-row"><div class="prop-label">駐輪場代</div><div class="prop-value" id="pvBicycleFee"></div></div>
-    <div class="prop-row"><div class="prop-label">バイク置場代</div><div class="prop-value" id="pvMotorcycleFee"></div></div>
-    <div class="prop-row"><div class="prop-label">その他月額</div><div class="prop-value" id="pvOtherMonthly"></div></div>
+    <div class="prop-row"><div class="prop-label">駐車場代</div><input type="text" class="prop-value" id="pvParkingFee" data-field="parking_fee"></div>
+    <div class="prop-row"><div class="prop-label">駐輪場代</div><input type="text" class="prop-value" id="pvBicycleFee" data-field="bicycle_parking_fee"></div>
+    <div class="prop-row"><div class="prop-label">バイク置場代</div><input type="text" class="prop-value" id="pvMotorcycleFee" data-field="motorcycle_parking_fee"></div>
+    <div class="prop-row"><div class="prop-label">その他月額</div><input type="text" class="prop-value" id="pvOtherMonthly" data-field="other_monthly_fee"></div>
 
     <div class="section-sub">一時金</div>
-    <div class="prop-row"><div class="prop-label">鍵交換費</div><div class="prop-value" id="pvKeyExchange"></div></div>
-    <div class="prop-row"><div class="prop-label">火災保険料</div><div class="prop-value" id="pvFireInsurance"></div></div>
-    <div class="prop-row"><div class="prop-label">室内清掃費</div><div class="prop-value" id="pvCleaningFee"></div></div>
-    <div class="prop-row"><div class="prop-label">その他一時金</div><div class="prop-value" id="pvOtherOnetime"></div></div>
-    <div class="prop-row"><div class="prop-label">広告料</div><div class="prop-value" id="pvAdFee"></div></div>
+    <div class="prop-row"><div class="prop-label">鍵交換費</div><input type="text" class="prop-value" id="pvKeyExchange" data-field="key_exchange_fee"></div>
+    <div class="prop-row"><div class="prop-label">火災保険料</div><input type="text" class="prop-value" id="pvFireInsurance" data-field="fire_insurance"></div>
+    <div class="prop-row"><div class="prop-label">室内清掃費</div><input type="text" class="prop-value" id="pvCleaningFee" data-field="cleaning_fee"></div>
+    <div class="prop-row"><div class="prop-label">その他一時金</div><input type="text" class="prop-value" id="pvOtherOnetime" data-field="other_onetime_fee"></div>
+    <div class="prop-row"><div class="prop-label">広告料</div><input type="text" class="prop-value" id="pvAdFee" data-field="ad_fee"></div>
 
     <div class="section-sub">契約関連</div>
-    <div class="prop-row"><div class="prop-label">更新料</div><div class="prop-value" id="pvRenewalFee"></div></div>
-    <div class="prop-row"><div class="prop-label">更新事務手数料</div><div class="prop-value" id="pvRenewalAdmin"></div></div>
-    <div class="prop-row"><div class="prop-label">保証情報</div><div class="prop-value" id="pvGuarantee"></div></div>
+    <div class="prop-row"><div class="prop-label">更新料</div><input type="text" class="prop-value" id="pvRenewalFee" data-field="renewal_fee"></div>
+    <div class="prop-row"><div class="prop-label">更新事務手数料</div><input type="text" class="prop-value" id="pvRenewalAdmin" data-field="renewal_admin_fee"></div>
+    <div class="prop-row"><div class="prop-label">保証情報</div><textarea class="prop-value" id="pvGuarantee" data-field="guarantee_info" rows="2"></textarea></div>
   </div>
 </div>
 
@@ -277,15 +289,15 @@ body {
 <div class="card">
   <div class="card-title" onclick="toggleCard(this)">物件スペック<span class="toggle">-</span></div>
   <div class="card-body" id="sectionSpec">
-    <div class="prop-row"><div class="prop-label">間取り</div><div class="prop-value" id="pvLayout"></div></div>
-    <div class="prop-row"><div class="prop-label">間取り詳細</div><div class="prop-value" id="pvLayoutDetail"></div></div>
-    <div class="prop-row"><div class="prop-label">面積</div><div class="prop-value" id="pvArea"></div></div>
-    <div class="prop-row"><div class="prop-label">所在階</div><div class="prop-value" id="pvFloor"></div></div>
-    <div class="prop-row"><div class="prop-label">総階数</div><div class="prop-value" id="pvStoryText"></div></div>
-    <div class="prop-row"><div class="prop-label">築年数</div><div class="prop-value" id="pvBuildingAge"></div></div>
-    <div class="prop-row"><div class="prop-label">構造</div><div class="prop-value" id="pvStructure"></div></div>
-    <div class="prop-row"><div class="prop-label">総戸数</div><div class="prop-value" id="pvTotalUnits"></div></div>
-    <div class="prop-row"><div class="prop-label">向き</div><div class="prop-value" id="pvSunlight"></div></div>
+    <div class="prop-row"><div class="prop-label">間取り</div><input type="text" class="prop-value" id="pvLayout" data-field="layout"></div>
+    <div class="prop-row"><div class="prop-label">間取り詳細</div><textarea class="prop-value" id="pvLayoutDetail" data-field="layout_detail" rows="2"></textarea></div>
+    <div class="prop-row"><div class="prop-label">面積</div><input type="text" class="prop-value" id="pvArea" data-field="area" placeholder="m²"></div>
+    <div class="prop-row"><div class="prop-label">所在階</div><input type="text" class="prop-value" id="pvFloor" data-field="floor_text"></div>
+    <div class="prop-row"><div class="prop-label">総階数</div><input type="text" class="prop-value" id="pvStoryText" data-field="story_text"></div>
+    <div class="prop-row"><div class="prop-label">築年数</div><input type="text" class="prop-value" id="pvBuildingAge" data-field="building_age" placeholder="例: 1992年4月"></div>
+    <div class="prop-row"><div class="prop-label">構造</div><input type="text" class="prop-value" id="pvStructure" data-field="structure"></div>
+    <div class="prop-row"><div class="prop-label">総戸数</div><input type="text" class="prop-value" id="pvTotalUnits" data-field="total_units" placeholder="戸"></div>
+    <div class="prop-row"><div class="prop-label">向き</div><input type="text" class="prop-value" id="pvSunlight" data-field="sunlight"></div>
   </div>
 </div>
 
@@ -293,7 +305,7 @@ body {
 <div class="card">
   <div class="card-title" onclick="toggleCard(this)">交通<span class="toggle">-</span></div>
   <div class="card-body" id="sectionAccess">
-    <div class="prop-row"><div class="prop-label">最寄駅</div><div class="prop-value" id="pvStation"></div></div>
+    <div class="prop-row"><div class="prop-label">最寄駅</div><input type="text" class="prop-value" id="pvStation" data-field="station_info"></div>
     <div class="prop-row"><div class="prop-label">その他沿線</div><div class="prop-value" id="pvOtherStations"></div></div>
   </div>
 </div>
@@ -302,13 +314,13 @@ body {
 <div class="card">
   <div class="card-title" onclick="toggleCard(this)">契約条件<span class="toggle">-</span></div>
   <div class="card-body" id="sectionContract">
-    <div class="prop-row"><div class="prop-label">賃貸借種類</div><div class="prop-value" id="pvLeaseType"></div></div>
-    <div class="prop-row"><div class="prop-label">契約期間</div><div class="prop-value" id="pvContractPeriod"></div></div>
-    <div class="prop-row"><div class="prop-label">入居可能時期</div><div class="prop-value" id="pvMoveInDate"></div></div>
-    <div class="prop-row"><div class="prop-label">内見開始日</div><div class="prop-value" id="pvPreviewStart"></div></div>
-    <div class="prop-row"><div class="prop-label">入居条件</div><div class="prop-value" id="pvMoveInConditions"></div></div>
-    <div class="prop-row"><div class="prop-label">解約予告</div><div class="prop-value" id="pvCancellation"></div></div>
-    <div class="prop-row"><div class="prop-label">更新・再契約</div><div class="prop-value" id="pvRenewalInfo"></div></div>
+    <div class="prop-row"><div class="prop-label">賃貸借種類</div><input type="text" class="prop-value" id="pvLeaseType" data-field="lease_type"></div>
+    <div class="prop-row"><div class="prop-label">契約期間</div><input type="text" class="prop-value" id="pvContractPeriod" data-field="contract_period"></div>
+    <div class="prop-row"><div class="prop-label">入居可能時期</div><input type="text" class="prop-value" id="pvMoveInDate" data-field="move_in_date"></div>
+    <div class="prop-row"><div class="prop-label">内見開始日</div><input type="text" class="prop-value" id="pvPreviewStart" data-field="preview_start_date"></div>
+    <div class="prop-row"><div class="prop-label">入居条件</div><textarea class="prop-value" id="pvMoveInConditions" data-field="move_in_conditions" rows="2"></textarea></div>
+    <div class="prop-row"><div class="prop-label">解約予告</div><input type="text" class="prop-value" id="pvCancellation" data-field="cancellation_notice"></div>
+    <div class="prop-row"><div class="prop-label">更新・再契約</div><textarea class="prop-value" id="pvRenewalInfo" data-field="renewal_info" rows="2"></textarea></div>
   </div>
 </div>
 
@@ -422,11 +434,29 @@ var imageGenres = {}; // { imageIndex: genreName }
 function v(val) { return val || '-'; }
 function setText(id, val) {
   var el = document.getElementById(id);
-  if (el) el.textContent = v(val);
+  if (!el) return;
+  // INPUT / TEXTAREA は編集可能フィールド: 値が空なら '-' でなく空欄を入れる
+  if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+    el.value = (val === undefined || val === null) ? '' : String(val);
+  } else {
+    el.textContent = v(val);
+  }
 }
 function setHtml(id, html) {
   var el = document.getElementById(id);
   if (el) el.innerHTML = html;
+}
+// 編集された値を data-field 属性付きの input/textarea から集約
+function collectEditedFields() {
+  var edited = {};
+  var nodes = document.querySelectorAll('[data-field]');
+  for (var i = 0; i < nodes.length; i++) {
+    var el = nodes[i];
+    var key = el.getAttribute('data-field');
+    if (!key) continue;
+    edited[key] = el.value;
+  }
+  return edited;
 }
 
 // ── カード開閉 ──
@@ -485,12 +515,12 @@ window.addEventListener('DOMContentLoaded', function() {
   // 物件スペック
   setText('pvLayout', LAYOUT || p.layout);
   setText('pvLayoutDetail', p.layout_detail);
-  setText('pvArea', (AREA || p.area || p.usageArea) ? (AREA || p.area || p.usageArea) + 'm2' : '-');
+  setText('pvArea', AREA || p.area || p.usageArea);
   setText('pvFloor', p.floor_text);
   setText('pvStoryText', p.story_text);
-  setText('pvBuildingAge', p.building_age ? p.building_age + (String(p.building_age).includes('年') ? '' : '年') : '-');
+  setText('pvBuildingAge', p.building_age);
   setText('pvStructure', p.structure);
-  setText('pvTotalUnits', p.total_units ? p.total_units + '戸' : '-');
+  setText('pvTotalUnits', p.total_units);
   setText('pvSunlight', p.sunlight);
 
   // 交通
@@ -1309,7 +1339,7 @@ function doApprove() {
       btn.disabled = false;
       btn.textContent = '承認して入稿';
     })
-    .confirmSuumoApproveFromClient(PROPERTY_KEY, imageGenres, getCheckedFeatureIds(), PROPERTY_DATA.image_urls || []);
+    .confirmSuumoApproveFromClient(PROPERTY_KEY, imageGenres, getCheckedFeatureIds(), PROPERTY_DATA.image_urls || [], collectEditedFields());
 }
 
 // ── 却下 ──
