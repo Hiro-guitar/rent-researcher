@@ -4879,6 +4879,7 @@ async function getOrRunSuumoPreHook_() {
   return await _preHookInFlight;
 }
 
+async function runSuumoApprovalPreHook_() {
   // ── 0. SUUMOトップページから現在の掲載数を取得 (リアルタイム・即時) ──
   // SUUMO入稿システムのトップページ TOP1R0000.action には常に最新の
   // 「ネット掲載 N 指示 / 50 枠 残り... 枠」が表示されているため、これを
