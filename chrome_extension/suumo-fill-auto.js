@@ -28,6 +28,40 @@
   const isNaviFrame = (window.name === 'navi');
   const isMainFrame = (window.name === 'main');
 
+  // ── ネット掲載数 自動キャプチャ ──
+  // ForRent管理画面 main_r.action のトップページ (TOP1R0000.action) には
+  // 「ネット掲載 N 指示 / 50 枠 残り... 枠」がリアルタイム表示されている。
+  // そのページが表示されるたびにこの値を chrome.storage.local に保存して、
+  // 入稿前の50件チェックがストレージから即読み取れるようにする。
+  // (background.js の重い ForRent状態同期 を使わずに済む)
+  (function captureSuumoListedCount() {
+    const tryCapture = () => {
+      try {
+        const text = (document.body && document.body.innerText) || '';
+        const m = text.match(/ネット掲載\s+(\d+)\s*指示\s*\/\s*(\d+)\s*枠/);
+        if (m) {
+          const listed = parseInt(m[1], 10);
+          const max = parseInt(m[2], 10);
+          if (isFinite(listed) && isFinite(max) && max > 0) {
+            chrome.storage.local.set({
+              suumoListedCount: listed,
+              suumoListedMax: max,
+              suumoListedCapturedAt: Date.now()
+            });
+            return true;
+          }
+        }
+      } catch (_) {}
+      return false;
+    };
+
+    // 即時試行 → ダメなら load イベント後 → さらに少し待ってから
+    if (tryCapture()) return;
+    const after = () => { setTimeout(tryCapture, 800); };
+    if (document.readyState === 'complete') after();
+    else window.addEventListener('load', after, { once: true });
+  })();
+
   // ── 入稿タブ判定 ──
   // background.jsに「このタブは入稿専用タブか？」を問い合わせる。
   // suumoFillTabId と sender.tab.id が一致するときだけ true が返る。

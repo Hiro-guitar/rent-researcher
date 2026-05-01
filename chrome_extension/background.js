@@ -4880,25 +4880,42 @@ async function getOrRunSuumoPreHook_() {
 }
 
 async function runSuumoApprovalPreHook_() {
-  // ── 0. ForRent状態同期 (実態と整合) ──
-  // SUUMOビジネスは今日-2日までの集計のため、直近の停止・入稿を反映できない。
-  // ForRent PUB1R2801 を直読みしてシートの active/stopped を正確化してから
-  // 以降の判定を行う(掲載数オーバーエラー対策)。
+  // ── 0a. content scriptキャプチャ済みの掲載数をストレージから即読み取り ──
+  // suumo-fill-auto.js が ForRent管理画面ページを開くたびに「ネット掲載 N 指示」を
+  // chrome.storage.local に保存してくれている。ログイン後トップページを通った
+  // 直後ならフレッシュな値が入っている (= 連続入稿時にも常に最新)。
+  let liveActiveCountFromForrent = null;
+  let captureFresh = false;
+  try {
+    const { suumoListedCount, suumoListedCapturedAt } = await getStorageData(['suumoListedCount', 'suumoListedCapturedAt']);
+    if (typeof suumoListedCount === 'number' && suumoListedCapturedAt) {
+      const ageMs = Date.now() - Number(suumoListedCapturedAt);
+      // 30分以内なら新鮮として採用
+      if (ageMs < 30 * 60 * 1000) {
+        liveActiveCountFromForrent = suumoListedCount;
+        captureFresh = true;
+        await setStorageData({ debugLog: `[承認前処理] storage掲載数=${liveActiveCountFromForrent} (${Math.round(ageMs/1000)}秒前にキャプチャ)` });
+      }
+    }
+  } catch (_) {}
+
+  // ── 0b. ストレージに新鮮値がなければ ForRent状態同期 (PUB1R2801) で取得 ──
   // 戻り値の count は ForRent から実際に取得した掲載件数 (≒ SUUMO上の活性掲載数)。
   // シート側のステータス更新がセーフガードでスキップされた場合でも、この生件数を
   // 信頼すれば accurate な active count が得られる。
-  let liveActiveCountFromForrent = null;
-  try {
-    await setStorageData({ debugLog: '[承認前処理] ForRent状態同期(実態反映)開始' });
-    const syncResult = await syncForrentListingStatus();
-    if (!syncResult || !syncResult.ok) {
-      await setStorageData({ debugLog: `[承認前処理] ForRent状態同期失敗(スキップして続行): ${syncResult && syncResult.error}` });
-    } else if (typeof syncResult.count === 'number') {
-      liveActiveCountFromForrent = syncResult.count;
-      await setStorageData({ debugLog: `[承認前処理] ForRent直読み掲載件数=${liveActiveCountFromForrent}` });
+  if (!captureFresh) {
+    try {
+      await setStorageData({ debugLog: '[承認前処理] ForRent状態同期(実態反映)開始' });
+      const syncResult = await syncForrentListingStatus();
+      if (!syncResult || !syncResult.ok) {
+        await setStorageData({ debugLog: `[承認前処理] ForRent状態同期失敗(スキップして続行): ${syncResult && syncResult.error}` });
+      } else if (typeof syncResult.count === 'number') {
+        liveActiveCountFromForrent = syncResult.count;
+        await setStorageData({ debugLog: `[承認前処理] ForRent直読み掲載件数=${liveActiveCountFromForrent}` });
+      }
+    } catch (err) {
+      await setStorageData({ debugLog: `[承認前処理] ForRent状態同期例外(スキップ): ${err.message}` });
     }
-  } catch (err) {
-    await setStorageData({ debugLog: `[承認前処理] ForRent状態同期例外(スキップ): ${err.message}` });
   }
 
   // ── 1. SUUMOビジネスデータ取得 (JST日次キャッシュ) ──
