@@ -900,6 +900,63 @@ function handleFileSelect(files) {
 async function uploadFromBrowser_(base64, filename, mimeType) {
   var errors = [];
 
+  // ── 0) Chrome拡張ブリッジ経由 (最優先) ──
+  // GAS HtmlService の iframe sandbox はCSPで外部 fetch がほぼ全滅する。
+  // 拡張(suumo-approval-trigger.js → background.js)経由なら host_permissions
+  // で外部サービスに POST 可能。拡張未インストール時は応答が来ない or
+  // タイムアウトするので、その場合は下のブラウザ直接フォールバックに進む。
+  try {
+    var bridgeResult = await new Promise(function(resolve) {
+      var requestId = 'upload_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      var settled = false;
+      var onResp = function(ev) {
+        var d = ev.data;
+        if (!d || d.type !== 'UPLOAD_IMAGE_RESPONSE' || d.requestId !== requestId) return;
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('message', onResp);
+        resolve(d.result || { ok: false, error: 'empty result' });
+      };
+      window.addEventListener('message', onResp);
+      // 拡張からの応答が来なければ 8秒で諦めてブラウザ直接ルートへ
+      setTimeout(function() {
+        if (settled) return;
+        settled = true;
+        window.removeEventListener('message', onResp);
+        resolve({ ok: false, error: 'extension_timeout(8s)' });
+      }, 8000);
+      // GAS HTMLは sandbox iframe で動く想定。parent.postMessage で content script に届ける
+      try {
+        window.parent.postMessage({
+          type: 'UPLOAD_IMAGE_REQUEST',
+          requestId: requestId,
+          base64: base64,
+          mimeType: mimeType || 'image/jpeg',
+          filename: filename || 'upload.jpg'
+        }, '*');
+      } catch (_) {
+        // parent が無い等の場合は同じウィンドウにも投げる(両方届けば content script 側で重複対応)
+      }
+      try {
+        window.postMessage({
+          type: 'UPLOAD_IMAGE_REQUEST',
+          requestId: requestId,
+          base64: base64,
+          mimeType: mimeType || 'image/jpeg',
+          filename: filename || 'upload.jpg'
+        }, '*');
+      } catch (_) {}
+    });
+    if (bridgeResult && bridgeResult.ok && bridgeResult.url) {
+      return { success: true, url: bridgeResult.url };
+    }
+    if (bridgeResult && bridgeResult.error) {
+      errors.push('extension_bridge: ' + String(bridgeResult.error).substring(0, 200));
+    }
+  } catch (eExt) {
+    errors.push('extension_bridge_exception: ' + (eExt.message || String(eExt)));
+  }
+
   // base64 → Blob (multipart/form-dataで送るため)
   var binStr = atob(base64);
   var bytes = new Uint8Array(binStr.length);
