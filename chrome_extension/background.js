@@ -4880,73 +4880,25 @@ async function getOrRunSuumoPreHook_() {
 }
 
 async function runSuumoApprovalPreHook_() {
-  // ── 0. SUUMOトップページから現在の掲載数を取得 (リアルタイム・即時) ──
-  // SUUMO入稿システムのトップページ TOP1R0000.action には常に最新の
-  // 「ネット掲載 N 指示 / 50 枠」がリアルタイム表示されているため、これを
-  // 取得して N (= 現在の掲載数) を読む。
-  //
-  // 注: background.js (chrome-extension://) からの fetch + credentials:'include' は
-  //     fn.forrent.jp のセッションcookieが正しく送られないケースがある。
-  //     そのため、ForRent の既存タブを探してそこで fetch を実行する方式に変更。
-  //     既存タブが無ければ新規タブを開く。
+  // ── 0. ForRent状態同期 (実態と整合) ──
+  // SUUMOビジネスは今日-2日までの集計のため、直近の停止・入稿を反映できない。
+  // ForRent PUB1R2801 を直読みしてシートの active/stopped を正確化してから
+  // 以降の判定を行う(掲載数オーバーエラー対策)。
+  // 戻り値の count は ForRent から実際に取得した掲載件数 (≒ SUUMO上の活性掲載数)。
+  // シート側のステータス更新がセーフガードでスキップされた場合でも、この生件数を
+  // 信頼すれば accurate な active count が得られる。
   let liveActiveCountFromForrent = null;
   try {
-    const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/*' });
-    let targetTabId;
-    let createdTab = false;
-    if (tabs && tabs.length > 0) {
-      targetTabId = tabs[0].id;
-    } else {
-      const created = await chrome.tabs.create({
-        url: 'https://www.fn.forrent.jp/fn/main_r.action',
-        active: false
-      });
-      targetTabId = created.id;
-      createdTab = true;
-      await waitForTabLoad(targetTabId, 30000);
-      await sleep(1500);
-    }
-
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: targetTabId },
-      world: 'MAIN',
-      func: async () => {
-        try {
-          const r = await fetch('https://www.fn.forrent.jp/fn/TOP1R0000.action?id=' + Date.now(), {
-            credentials: 'include'
-          });
-          if (!r.ok) return { ok: false, error: 'HTTP' + r.status };
-          const buf = await r.arrayBuffer();
-          const html = new TextDecoder('shift-jis').decode(buf);
-          const stripped = html
-            .replace(/<script[\s\S]*?<\/script>/g, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/\s+/g, ' ');
-          const m = stripped.match(/ネット掲載\s+(\d+)\s*指示\s*\/\s*(\d+)\s*枠/);
-          if (m) return { ok: true, listed: parseInt(m[1], 10), max: parseInt(m[2], 10) };
-          // ログイン切れ判定 (ログインページが返った場合)
-          const isLogin = /ログイン|login|ID.{0,5}パスワード/i.test(stripped);
-          return { ok: false, error: isLogin ? 'ログイン切れ' : 'パターン不一致', snippet: stripped.substring(0, 200) };
-        } catch (e) {
-          return { ok: false, error: e.message };
-        }
-      }
-    });
-
-    // 新規作成したタブは閉じる
-    if (createdTab) {
-      try { await chrome.tabs.remove(targetTabId); } catch (_) {}
-    }
-
-    if (result && result.ok) {
-      liveActiveCountFromForrent = result.listed;
-      await setStorageData({ debugLog: `[承認前処理] TOP1R0000直読み: ネット掲載=${liveActiveCountFromForrent}/${result.max}枠` });
-    } else {
-      await setStorageData({ debugLog: `[承認前処理] TOP1R0000パース失敗: ${result && result.error} ${result && result.snippet ? '/ snippet=' + result.snippet : ''}` });
+    await setStorageData({ debugLog: '[承認前処理] ForRent状態同期(実態反映)開始' });
+    const syncResult = await syncForrentListingStatus();
+    if (!syncResult || !syncResult.ok) {
+      await setStorageData({ debugLog: `[承認前処理] ForRent状態同期失敗(スキップして続行): ${syncResult && syncResult.error}` });
+    } else if (typeof syncResult.count === 'number') {
+      liveActiveCountFromForrent = syncResult.count;
+      await setStorageData({ debugLog: `[承認前処理] ForRent直読み掲載件数=${liveActiveCountFromForrent}` });
     }
   } catch (err) {
-    await setStorageData({ debugLog: `[承認前処理] TOP1R0000取得例外: ${err.message}` });
+    await setStorageData({ debugLog: `[承認前処理] ForRent状態同期例外(スキップ): ${err.message}` });
   }
 
   // ── 1. SUUMOビジネスデータ取得 (JST日次キャッシュ) ──
@@ -4989,15 +4941,17 @@ async function runSuumoApprovalPreHook_() {
     return { ok: false, error: '停止候補取得失敗(GAS応答なし)' };
   }
 
-  // TOP1R0000直読みのリアルタイム件数があればそれを優先採用。
-  // シート側のステータス集計はステータス書き換え失敗時に過剰になることがあり、
-  // その場合のシート由来件数を信用すると 50件未満なのに停止が走るバグを生む。
+  // ForRent直読みの生件数 (liveActiveCountFromForrent) があればそれを優先採用。
+  // シート側のステータス更新は安全ガードでスキップされる場合があり (例: ForRent取得が
+  // 半数超stopped判定になる/取得件数<10など)、過剰stopped反映を防ぐために
+  // シート上 active 数が ForRent 実態より多くなることがあるため、その場合のシート由来
+  // 件数を信用すると 50件未満なのに停止が走るバグを生む。
   const sheetActiveCount = Number(peek.activeListingCount) || 0;
   const activeCount = (typeof liveActiveCountFromForrent === 'number' && liveActiveCountFromForrent >= 0)
     ? liveActiveCountFromForrent
     : sheetActiveCount;
   if (activeCount < 50) {
-    await setStorageData({ debugLog: `[承認前処理] 現掲載${activeCount}件 (TOP1R0000=${liveActiveCountFromForrent}件 / シート=${sheetActiveCount}件) → 停止不要、入稿へ進む` });
+    await setStorageData({ debugLog: `[承認前処理] 現掲載${activeCount}件 (ForRent直読み=${liveActiveCountFromForrent}件 / シート=${sheetActiveCount}件) → 停止不要、入稿へ進む` });
     return { ok: true };
   }
 
