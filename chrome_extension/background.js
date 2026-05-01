@@ -4884,11 +4884,18 @@ async function runSuumoApprovalPreHook_() {
   // SUUMOビジネスは今日-2日までの集計のため、直近の停止・入稿を反映できない。
   // ForRent PUB1R2801 を直読みしてシートの active/stopped を正確化してから
   // 以降の判定を行う(掲載数オーバーエラー対策)。
+  // 戻り値の count は ForRent から実際に取得した掲載件数 (≒ SUUMO上の活性掲載数)。
+  // シート側のステータス更新がセーフガードでスキップされた場合でも、この生件数を
+  // 信頼すれば accurate な active count が得られる。
+  let liveActiveCountFromForrent = null;
   try {
     await setStorageData({ debugLog: '[承認前処理] ForRent状態同期(実態反映)開始' });
     const syncResult = await syncForrentListingStatus();
     if (!syncResult || !syncResult.ok) {
       await setStorageData({ debugLog: `[承認前処理] ForRent状態同期失敗(スキップして続行): ${syncResult && syncResult.error}` });
+    } else if (typeof syncResult.count === 'number') {
+      liveActiveCountFromForrent = syncResult.count;
+      await setStorageData({ debugLog: `[承認前処理] ForRent直読み掲載件数=${liveActiveCountFromForrent}` });
     }
   } catch (err) {
     await setStorageData({ debugLog: `[承認前処理] ForRent状態同期例外(スキップ): ${err.message}` });
@@ -4934,9 +4941,17 @@ async function runSuumoApprovalPreHook_() {
     return { ok: false, error: '停止候補取得失敗(GAS応答なし)' };
   }
 
-  const activeCount = Number(peek.activeListingCount) || 0;
+  // ForRent直読みの生件数 (liveActiveCountFromForrent) があればそれを優先採用。
+  // シート側のステータス更新は安全ガードでスキップされる場合があり (例: ForRent取得が
+  // 半数超stopped判定になる/取得件数<10など)、過剰stopped反映を防ぐために
+  // シート上 active 数が ForRent 実態より多くなることがあるため、その場合のシート由来
+  // 件数を信用すると 50件未満なのに停止が走るバグを生む。
+  const sheetActiveCount = Number(peek.activeListingCount) || 0;
+  const activeCount = (typeof liveActiveCountFromForrent === 'number' && liveActiveCountFromForrent >= 0)
+    ? liveActiveCountFromForrent
+    : sheetActiveCount;
   if (activeCount < 50) {
-    await setStorageData({ debugLog: `[承認前処理] 現掲載${activeCount}件 → 停止不要、入稿へ進む` });
+    await setStorageData({ debugLog: `[承認前処理] 現掲載${activeCount}件 (ForRent直読み=${liveActiveCountFromForrent}件 / シート=${sheetActiveCount}件) → 停止不要、入稿へ進む` });
     return { ok: true };
   }
 
