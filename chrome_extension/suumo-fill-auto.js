@@ -1094,7 +1094,11 @@
         console.warn('[SUUMO自動入稿] らくらく交通入力 fetch失敗:', res.status);
         return;
       }
-      const html = await res.text();
+      // SUUMOは Shift-JIS を返すため、arrayBuffer + TextDecoder で正しくデコード
+      // (デフォルトの res.text() は UTF-8 解釈なので駅名が文字化けして既存駅と
+      //  マッチせず、結果として既存駅も含めて全件追加候補と判定されてしまう)
+      const buf = await res.arrayBuffer();
+      const html = new TextDecoder('shift-jis').decode(buf);
       console.log('[SUUMO自動入稿] HTML長=' + html.length + ' / ekiNm1含む=' + html.includes('ekiNm1'));
       const doc = new DOMParser().parseFromString(html, 'text/html');
 
