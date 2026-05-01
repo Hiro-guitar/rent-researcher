@@ -101,6 +101,43 @@
         } catch (_) {}
       }
     }
+
+    // ローカル画像アップロード要求(GAS sandbox iframe からは外部fetchがCSPでブロックされるため
+    // 拡張のbackground経由でアップロードする)
+    if (data.type === 'UPLOAD_IMAGE_REQUEST') {
+      console.log('[SUUMO承認トリガー] UPLOAD_IMAGE_REQUEST受信:', data.requestId, data.filename);
+      var srcWin = event.source || window;
+      try {
+        chrome.runtime.sendMessage(
+          {
+            type: 'UPLOAD_IMAGE_FROM_GAS',
+            base64: data.base64,
+            mimeType: data.mimeType,
+            filename: data.filename
+          },
+          function (result) {
+            var err = chrome.runtime.lastError ? chrome.runtime.lastError.message : null;
+            try {
+              srcWin.postMessage({
+                type: 'UPLOAD_IMAGE_RESPONSE',
+                requestId: data.requestId,
+                result: err ? { ok: false, error: err } : (result || { ok: false, error: 'no result' })
+              }, '*');
+            } catch (e3) {
+              console.warn('[SUUMO承認トリガー] UPLOAD response送信失敗:', e3);
+            }
+          }
+        );
+      } catch (e) {
+        try {
+          srcWin.postMessage({
+            type: 'UPLOAD_IMAGE_RESPONSE',
+            requestId: data.requestId,
+            result: { ok: false, error: 'sendMessage例外: ' + e.message }
+          }, '*');
+        } catch (_) {}
+      }
+    }
   });
 
   // ── フォールバック: data-suumo-approved-key 属性の変化を監視 ──

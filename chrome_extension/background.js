@@ -1089,6 +1089,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })();
     return true;
   }
+  if (msg.type === 'UPLOAD_IMAGE_FROM_GAS') {
+    // SUUMO承認ページ(GAS HtmlService)からのローカル画像アップロード要求。
+    // GAS sandbox iframe からは外部fetchがCSPでブロックされるため、
+    // 拡張のbackground経由(host_permissions有効)でアップロードする。
+    // 受信: { base64, mimeType, filename } (base64は純粋なbase64文字列、data:プレフィックス無し)
+    // 返却: { ok: true, url } または { ok: false, error }
+    (async () => {
+      try {
+        const base64 = msg.base64 || '';
+        const mime = msg.mimeType || 'image/jpeg';
+        if (!base64) throw new Error('base64 が空');
+        // uploadBase64ToCatbox は data:URL 形式を期待
+        const dataUrl = `data:${mime};base64,${base64}`;
+        const url = await uploadBase64ToCatbox(dataUrl);
+        if (!url) throw new Error('全アップロード失敗(null)');
+        sendResponse({ ok: true, url });
+      } catch (err) {
+        console.error('[UPLOAD_IMAGE_FROM_GAS] 失敗:', err && err.message);
+        sendResponse({ ok: false, error: (err && err.message) || String(err) });
+      }
+    })();
+    return true;
+  }
   if (msg.type === 'SUUMO_FILL_COMPLETE') {
     // suumo-fill-auto.jsからの入稿完了報告
     reportSuumoPostComplete(msg.data).then(result => {
