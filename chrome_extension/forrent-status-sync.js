@@ -257,7 +257,29 @@ async function ensureForrentReady_(tabId) {
     return { ok: false, error: 'ログイン後も検索フォームが表示されない(' + ((state && state.url) || '') + ')。診断ログを確認してください' };
   }
 
-  // 検索フォームもログインフォームもエラーも無い → 不明
+  // ── 既ログイン状態で main_r.action / TOP1R0000 等のメイン画面に着地 ──
+  // hasBukkenInput=false / hasLoginForm=false / hasTransitionError=false で、
+  // URL が ForRent 内部の場合は「ログイン済みでメイン画面に居る」状態。
+  // post-login と同じ「更新・掲載指示」メニュー経由で PUB1R2801 へ誘導する。
+  // (旧実装ではこの分岐が無く「不明なページ状態」で即 abort し、
+  //  掲載停止フローや承認前処理が連鎖的に失敗していた)
+  const stateUrl = (state && state.url) || '';
+  const isLoggedInLanding = /https?:\/\/www\.fn\.forrent\.jp\/fn\//.test(stateUrl);
+  if (isLoggedInLanding) {
+    await setStorageData({ debugLog: `[ForRent状態同期] 既ログインのメイン画面検知 (url=${stateUrl}) → ナビメニュー探索` });
+    await sleep(2000); // frameset 内の navi/main フレーム初期化待ち
+    const clickedDiag = await clickForrentNavMenuWithRetry_(tabId, 15000);
+    await setStorageData({ debugLog: `[ForRent状態同期] ナビ探索結果(既ログイン): ${clickedDiag.summary}` });
+    if (clickedDiag.clicked) {
+      await sleep(3000);
+      const after = await pollForBukkenInput_(tabId, 20000);
+      if (after && after.hasBukkenInput) return { ok: true };
+      await setStorageData({ debugLog: `[ForRent状態同期] (既ログイン)メニュークリック後もフォーム未出現 url=${after && after.url}` });
+    }
+    return { ok: false, error: 'ログイン済みだが検索フォーム未到達 (' + stateUrl + ')' };
+  }
+
+  // それでもどれにも該当しない真の不明
   return { ok: false, error: '不明なページ状態(' + JSON.stringify(state).substring(0, 200) + ')' };
 }
 
