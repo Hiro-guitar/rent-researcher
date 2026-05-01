@@ -4882,38 +4882,68 @@ async function getOrRunSuumoPreHook_() {
 async function runSuumoApprovalPreHook_() {
   // ── 0. SUUMOトップページから現在の掲載数を取得 (リアルタイム・即時) ──
   // SUUMO入稿システムのトップページ TOP1R0000.action には常に最新の
-  // 「ネット掲載 N 指示 / 50 枠 残り... 枠」が表示されているため、これを
-  // fetch して N (= 現在の掲載数) を読む。Shift-JIS なので注意。
+  // 「ネット掲載 N 指示 / 50 枠」がリアルタイム表示されているため、これを
+  // 取得して N (= 現在の掲載数) を読む。
   //
-  // 旧実装は ForRent PUB1R2801 を別タブで開いてスクレイピングしていたが
-  //  - 5-15秒/回かかる
-  //  - 5分キャッシュのため連続入稿時に古い件数のままバグる
-  //  - シートステータス書き換えと混在で複雑
-  // という問題があり、TOP1R0000 直fetchに置き換えた。
+  // 注: background.js (chrome-extension://) からの fetch + credentials:'include' は
+  //     fn.forrent.jp のセッションcookieが正しく送られないケースがある。
+  //     そのため、ForRent の既存タブを探してそこで fetch を実行する方式に変更。
+  //     既存タブが無ければ新規タブを開く。
   let liveActiveCountFromForrent = null;
   try {
-    const id = Date.now();
-    const r = await fetch('https://www.fn.forrent.jp/fn/TOP1R0000.action?id=' + id, {
-      credentials: 'include'
-    });
-    if (r.ok) {
-      const buf = await r.arrayBuffer();
-      const html = new TextDecoder('shift-jis').decode(buf);
-      // <script>除外してから「ネット掲載 N 指示」を抽出
-      const stripped = html
-        .replace(/<script[\s\S]*?<\/script>/g, '')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;/g, ' ')
-        .replace(/\s+/g, ' ');
-      const m = stripped.match(/ネット掲載\s+(\d+)\s*指示\s*\/\s*(\d+)\s*枠/);
-      if (m) {
-        liveActiveCountFromForrent = parseInt(m[1], 10);
-        await setStorageData({ debugLog: `[承認前処理] TOP1R0000直読み: ネット掲載=${liveActiveCountFromForrent}/${m[2]}枠` });
-      } else {
-        await setStorageData({ debugLog: '[承認前処理] TOP1R0000のネット掲載件数パース失敗(ログイン切れ?)' });
-      }
+    const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/*' });
+    let targetTabId;
+    let createdTab = false;
+    if (tabs && tabs.length > 0) {
+      targetTabId = tabs[0].id;
     } else {
-      await setStorageData({ debugLog: `[承認前処理] TOP1R0000取得HTTP${r.status}` });
+      const created = await chrome.tabs.create({
+        url: 'https://www.fn.forrent.jp/fn/main_r.action',
+        active: false
+      });
+      targetTabId = created.id;
+      createdTab = true;
+      await waitForTabLoad(targetTabId, 30000);
+      await sleep(1500);
+    }
+
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: targetTabId },
+      world: 'MAIN',
+      func: async () => {
+        try {
+          const r = await fetch('https://www.fn.forrent.jp/fn/TOP1R0000.action?id=' + Date.now(), {
+            credentials: 'include'
+          });
+          if (!r.ok) return { ok: false, error: 'HTTP' + r.status };
+          const buf = await r.arrayBuffer();
+          const html = new TextDecoder('shift-jis').decode(buf);
+          const stripped = html
+            .replace(/<script[\s\S]*?<\/script>/g, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/\s+/g, ' ');
+          const m = stripped.match(/ネット掲載\s+(\d+)\s*指示\s*\/\s*(\d+)\s*枠/);
+          if (m) return { ok: true, listed: parseInt(m[1], 10), max: parseInt(m[2], 10) };
+          // ログイン切れ判定 (ログインページが返った場合)
+          const isLogin = /ログイン|login|ID.{0,5}パスワード/i.test(stripped);
+          return { ok: false, error: isLogin ? 'ログイン切れ' : 'パターン不一致', snippet: stripped.substring(0, 200) };
+        } catch (e) {
+          return { ok: false, error: e.message };
+        }
+      }
+    });
+
+    // 新規作成したタブは閉じる
+    if (createdTab) {
+      try { await chrome.tabs.remove(targetTabId); } catch (_) {}
+    }
+
+    if (result && result.ok) {
+      liveActiveCountFromForrent = result.listed;
+      await setStorageData({ debugLog: `[承認前処理] TOP1R0000直読み: ネット掲載=${liveActiveCountFromForrent}/${result.max}枠` });
+    } else {
+      await setStorageData({ debugLog: `[承認前処理] TOP1R0000パース失敗: ${result && result.error} ${result && result.snippet ? '/ snippet=' + result.snippet : ''}` });
     }
   } catch (err) {
     await setStorageData({ debugLog: `[承認前処理] TOP1R0000取得例外: ${err.message}` });
