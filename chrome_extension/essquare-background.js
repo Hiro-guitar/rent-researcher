@@ -1331,6 +1331,31 @@ const __hostCooldown = {
 };
 const COOLDOWN_MS = 60 * 1000;
 
+// アップロード成功 URL の死活確認。
+// catbox 等が API には 200 で URL を返すが実体は保存されていない「偽成功」を弾くため。
+// 実体サイズが期待値の半分未満なら破損とみなす（base64 → binary は約 0.75 倍）。
+async function _verifyImageUrl(url, expectedB64Length) {
+  const minSize = Math.max(1024, Math.floor(expectedB64Length * 0.4));
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal, cache: 'no-store' });
+    if (!r.ok) return { ok: false, reason: `http_${r.status}` };
+    const blob = await r.blob();
+    if (!blob || blob.size < minSize) {
+      return { ok: false, reason: `size_${blob ? blob.size : 0}_lt_${minSize}` };
+    }
+    if (!/^image\//.test(blob.type || '')) {
+      return { ok: false, reason: `mime_${blob.type || 'empty'}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: 'verify_err:' + ((e && e.message) || e).toString().slice(0, 60) };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function uploadBase64ToCatbox(dataUrl) {
   // 関数名は過去互換。実体は catbox→0x0→telegraph→imgbb→freeimage→tmpfiles→pixeldrain→imgur のフォールバック
   const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
@@ -1358,8 +1383,15 @@ async function uploadBase64ToCatbox(dataUrl) {
   for (const h of hosts) {
     try {
       const url = await h.fn();
-      if (url) return url;
-      errors.push(`${h.name}=null_url`);
+      if (!url) {
+        errors.push(`${h.name}=null_url`);
+        continue;
+      }
+      // 偽成功(API 200 だが実体壊れ)を弾く
+      const verify = await _verifyImageUrl(url, base64.length);
+      if (verify.ok) return url;
+      __hostCooldown[h.name] = Date.now();
+      errors.push(`${h.name}=verify_failed(${verify.reason})_url=${url.slice(0, 60)}`);
     } catch (e) {
       errors.push(`${h.name}=${(e && e.message) || e}`.slice(0, 120));
       if (e && e.rateLimited) __hostCooldown[h.name] = Date.now();
