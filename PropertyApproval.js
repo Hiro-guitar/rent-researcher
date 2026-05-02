@@ -879,6 +879,12 @@ function handlePropertyAction(e) {
 
         var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
         var payload = { content: msg, allowed_mentions: { users: ['1459814543600390341'] } };
+        // 申し込み送信(hold)以外はサイレント送信。
+        // メッセージは届くが Discord クライアントのプッシュ通知音は鳴らない。
+        // hold だけは音を鳴らして担当者の対応漏れを防ぐ。
+        if (actionType !== 'hold') {
+          payload.flags = 4096; // SUPPRESS_NOTIFICATIONS
+        }
         if (!threadId) {
           payload.thread_name = '\uD83C\uDFE0 ' + customerName;
         }
