@@ -158,7 +158,7 @@ async function runSuumoPatrolCycle() {
 
     // Discord通知は Chrome拡張側(ユーザーIP)で行う方式に変更したため、
     // ここでは GAS にスレッド作成を依頼しない。
-    // スレッド管理は Discord通知送信時に getOrCreateSuumoDailyThread_ が日付ごとに行う。
+    // スレッド管理は Discord通知送信時に createSuumoPatrolThread_ が巡回ごとに行う。
 
     // 2. 既知物件キーセットを読み込み（ローカル）
     const { suumoSeenKeys } = await getStorageData(['suumoSeenKeys']);
@@ -551,10 +551,58 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
 // ════════════════════════════════════════════════════════════════════
 
 /**
- * 日付ごとの SUUMO巡回 Discord スレッドを取得・作成
+ * 巡回ごとに新規 Discord スレッドを作成
+ * - 1巡回 = 1スレッド (sendSuumoDiscordFromExtension_ 1回呼ばれるごとに作成)
+ * - スレッド名: "🌀 SUUMO巡回 YYYY-MM-DD HH:mm" (JST 日時で巡回単位を識別)
+ * - スレッド作成失敗時は null を返す(呼び出し側でフォールバック扱い)
+ *
+ * 注: 過去のレート制限問題は GAS 共有IPが原因 (Chrome拡張へ移行で解消済み)。
+ *     スレッド数を抑える理由はないため日毎統合をやめて巡回ごとに分けている。
+ */
+async function createSuumoPatrolThread_(webhookUrl) {
+  if (!webhookUrl) return null;
+  const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const dateStr = jstNow.getUTCFullYear() + '-'
+    + String(jstNow.getUTCMonth() + 1).padStart(2, '0') + '-'
+    + String(jstNow.getUTCDate()).padStart(2, '0');
+  const timeStr = String(jstNow.getUTCHours()).padStart(2, '0') + ':'
+    + String(jstNow.getUTCMinutes()).padStart(2, '0');
+  const threadName = '🌀 SUUMO巡回 ' + dateStr + ' ' + timeStr;
+  const headerContent = '━━━ SUUMO巡回 ' + dateStr + ' ' + timeStr + ' ━━━';
+  try {
+    const resp = await fetch(webhookUrl + (webhookUrl.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ thread_name: threadName, content: headerContent })
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成失敗: HTTP ${resp.status} ${text.substring(0,150)}` });
+      return null;
+    }
+    const data = await resp.json();
+    const threadId = data.channel_id || data.thread_id || (data.channel && data.channel.id) || '';
+    if (!threadId) {
+      await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成失敗: thread_id取得不可` });
+      return null;
+    }
+    await setStorageData({
+      debugLog: `[SUUMO巡回] Discordスレッド作成OK ${threadName} (id=${threadId})`
+    });
+    return threadId;
+  } catch (err) {
+    await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成例外: ${err.message}` });
+    return null;
+  }
+}
+
+/**
+ * (旧) 日付ごとの SUUMO巡回 Discord スレッドを取得・作成
  * - 同じ JST日付なら既存スレッドを再利用(スレッド作成は1日1回のみ)
  * - 別日 or 未作成なら新規スレッド作成
  * - スレッド作成失敗時は null を返す(呼び出し側でフォールバック扱い)
+ *
+ * suumo-bulk-update.js (一括更新) で引き続き使用。
  */
 async function getOrCreateSuumoDailyThread_(webhookUrl) {
   if (!webhookUrl) return null;
@@ -739,8 +787,8 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     return { sent: 0, errors: [], sheetRowIndexes: [] };
   }
 
-  // 日付ごとスレッドを取得(無ければ作成)
-  const threadId = await getOrCreateSuumoDailyThread_(webhookUrl);
+  // 巡回ごとに新規スレッド作成
+  const threadId = await createSuumoPatrolThread_(webhookUrl);
 
   let sent = 0;
   const errors = [];
