@@ -107,7 +107,42 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
 }
 .image-card.disabled-by-limit { opacity: 0.6; }
 .image-card img {
-  width: 100%; height: 100px; object-fit: cover; display: block;
+  width: 100%; height: 200px; object-fit: contain;
+  background: #222; display: block; cursor: pointer;
+}
+.image-card .zoom-link {
+  position: absolute; top: 4px; right: 28px; z-index: 3;
+  background: rgba(255,255,255,0.92); border-radius: 3px;
+  padding: 3px 6px; font-size: 11px; font-weight: 700;
+  color: #1a5276; text-decoration: none; cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+/* ── 画像拡大モーダル ── */
+.modal-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.85); z-index: 9999;
+  justify-content: center; align-items: center;
+}
+.modal-overlay.active { display: flex; }
+.modal-overlay img { max-width: 85%; max-height: 85vh; object-fit: contain; }
+.modal-close {
+  position: fixed; top: 16px; right: 16px; color: #fff;
+  font-size: 32px; cursor: pointer; z-index: 10000; user-select: none;
+}
+.modal-nav {
+  position: fixed; top: 50%; color: #fff; font-size: 40px; cursor: pointer;
+  z-index: 10000; user-select: none; padding: 12px 16px;
+  background: rgba(255,255,255,0.15); border-radius: 50%;
+  line-height: 1; transform: translateY(-50%);
+}
+.modal-nav:active { background: rgba(255,255,255,0.3); }
+.modal-prev { left: 8px; }
+.modal-next { right: 8px; }
+.modal-counter {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  color: #fff; font-size: 14px; z-index: 10000;
+  background: rgba(0,0,0,0.5); padding: 4px 14px; border-radius: 12px;
 }
 .image-card .genre-select { padding: 6px; font-size: 11px; }
 .image-card select {
@@ -387,6 +422,15 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
 <div class="btn-group">
   <button class="btn btn-reject" id="rejectBtn" onclick="doReject()">却下</button>
   <button class="btn btn-approve" id="approveBtn" onclick="doApprove()">承認して入稿</button>
+</div>
+
+<!-- 画像拡大モーダル -->
+<div id="imgModal" class="modal-overlay" onclick="closeModalBg(event)">
+  <span class="modal-close" onclick="event.stopPropagation();closeModal()">&times;</span>
+  <span class="modal-nav modal-prev" onclick="event.stopPropagation();navModal(-1)">&#10094;</span>
+  <img id="modalImg" src="" alt="" onclick="event.stopPropagation()">
+  <span class="modal-nav modal-next" onclick="event.stopPropagation();navModal(1)">&#10095;</span>
+  <div id="modalCounter" class="modal-counter"></div>
 </div>
 
 <!-- 結果オーバーレイ -->
@@ -804,6 +848,63 @@ function renderFacilities(facilities) {
   container.innerHTML = html;
 }
 
+// ── 画像拡大モーダル制御 ──
+// 表示中の全画像URL一覧 (renderImages / addUploadedImage で更新)
+var __allImageUrls = [];
+var __currentModalIdx = -1;
+
+function openModal(src) {
+  var m = document.getElementById('imgModal');
+  if (!m) return;
+  document.getElementById('modalImg').src = src;
+  __currentModalIdx = -1;
+  for (var i = 0; i < __allImageUrls.length; i++) {
+    if (__allImageUrls[i] === src) { __currentModalIdx = i; break; }
+  }
+  updateModalCounter();
+  m.classList.add('active');
+}
+function closeModal() {
+  var m = document.getElementById('imgModal');
+  if (m) m.classList.remove('active');
+  __currentModalIdx = -1;
+}
+function closeModalBg(e) {
+  if (e.target.id === 'imgModal') closeModal();
+}
+function navModal(dir) {
+  if (__currentModalIdx < 0) return;
+  var n = __currentModalIdx + dir;
+  if (n < 0 || n >= __allImageUrls.length) return;
+  __currentModalIdx = n;
+  document.getElementById('modalImg').src = __allImageUrls[n];
+  updateModalCounter();
+}
+function updateModalCounter() {
+  var el = document.getElementById('modalCounter');
+  if (!el) return;
+  if (__currentModalIdx >= 0) el.textContent = (__currentModalIdx + 1) + ' / ' + __allImageUrls.length;
+  else el.textContent = '';
+}
+document.addEventListener('keydown', function(e) {
+  var modal = document.getElementById('imgModal');
+  if (!modal || !modal.classList.contains('active')) return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); navModal(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); navModal(1); }
+  else if (e.key === 'Escape') closeModal();
+});
+(function setupModalSwipe() {
+  var sx = 0;
+  var modal = document.getElementById('imgModal');
+  if (!modal) return;
+  modal.addEventListener('touchstart', function(e) { sx = e.touches[0].clientX; }, { passive: true });
+  modal.addEventListener('touchend', function(e) {
+    var dx = e.changedTouches[0].clientX - sx;
+    if (dx > 50) navModal(-1);
+    else if (dx < -50) navModal(1);
+  });
+})();
+
 // ── 画像レンダリング ──
 function renderImages() {
   var images = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
@@ -811,6 +912,9 @@ function renderImages() {
   // (いえらぶ拡張側で li.textContent を画像ごとに保存している)
   var shubetsu = PROPERTY_DATA.shubetsu || PROPERTY_DATA.image_categories || [];
   var container = document.getElementById('imageGrid');
+
+  // モーダルナビ用の全画像URL一覧を更新
+  __allImageUrls = images.slice();
 
   if (images.length === 0) {
     container.innerHTML = '<p style="color:#999;font-size:13px;">画像なし</p>';
@@ -834,7 +938,19 @@ function renderImages() {
     img.src = imgSrc;
     img.alt = '画像 ' + (i + 1);
     img.onerror = function() { this.style.background = '#eee'; this.alt = '読込失敗'; };
+    img.onclick = (function(s) { return function() { openModal(s); }; })(imgSrc);
     card.appendChild(img);
+
+    // 拡大リンク (新タブで原寸表示)
+    var zoom = document.createElement('a');
+    zoom.className = 'zoom-link';
+    zoom.href = imgSrc;
+    zoom.target = '_blank';
+    zoom.rel = 'noopener noreferrer';
+    zoom.textContent = '🔍 拡大';
+    zoom.title = '画像を新タブで開く';
+    zoom.onclick = function(e) { e.stopPropagation(); };
+    card.appendChild(zoom);
 
     var btnsDiv = document.createElement('div');
     btnsDiv.className = 'genre-btns';
@@ -1142,6 +1258,7 @@ function addUploadedImage(url) {
   images.push(url);
   PROPERTY_DATA.image_urls = images;
   if (!PROPERTY_DATA.shubetsu) PROPERTY_DATA.shubetsu = [];
+  __allImageUrls.push(url); // モーダルナビ用に同期
 
   var idx = images.length - 1;
   var container = document.getElementById('imageGrid');
@@ -1158,6 +1275,9 @@ function addUploadedImage(url) {
     if (confirm('この画像を削除しますか？')) {
       delete imageGenres[idx];
       card.remove();
+      // __allImageUrls からも削除
+      var rmIdx = __allImageUrls.indexOf(url);
+      if (rmIdx >= 0) __allImageUrls.splice(rmIdx, 1);
       updateGenreCounter();
     }
   };
@@ -1167,7 +1287,19 @@ function addUploadedImage(url) {
   img.src = url;
   img.alt = '追加画像 ' + (idx + 1);
   img.onerror = function() { this.style.background = '#eee'; this.alt = '読込失敗'; };
+  img.onclick = function() { openModal(url); };
   card.appendChild(img);
+
+  // 拡大リンク
+  var zoom = document.createElement('a');
+  zoom.className = 'zoom-link';
+  zoom.href = url;
+  zoom.target = '_blank';
+  zoom.rel = 'noopener noreferrer';
+  zoom.textContent = '🔍 拡大';
+  zoom.title = '画像を新タブで開く';
+  zoom.onclick = function(e) { e.stopPropagation(); };
+  card.appendChild(zoom);
 
   var btnsDiv = document.createElement('div');
   btnsDiv.className = 'genre-btns';
