@@ -1529,40 +1529,43 @@ async function runEssquareSearch(criteria, seenIds, searchId) {
   const essquareTab = await findOrCreateDedicatedEssquareTab();
   if (!essquareTab) return;
 
-  try {
-    for (let ci = 0; ci < criteria.length; ci++) {
-      if (isSearchCancelled(searchId)) return;
+  // タブクリーンアップは上位の検索ループ終了時に一括で行う (background.js
+  // の closeDedicatedEssquareWindow 呼び出し)。
+  // ここで顧客ごとに try/finally で close すると、お客様1人ずつ
+  // runEssquareSearch([customer]) で呼び出される構造のため、毎回:
+  //   タブ作成→検索→close→次の顧客でまた新規タブ作成
+  // が起こり、新規セッションからの連続アクセスとして ES-Square の WAF が
+  // 反応してレート制限される (実測: 14-22人目で「検索中にエラーが発生しました」)。
+  // 同じタブを使い回すことで人間の操作 (1タブで条件を切り替えながら検索) に
+  // 近い形になる。
+  for (let ci = 0; ci < criteria.length; ci++) {
+    if (isSearchCancelled(searchId)) return;
 
-      const customer = criteria[ci];
-      await setStorageData({ debugLog: `[ES-Square] 顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
-      try {
-        const cond = formatCustomerCriteria(customer);
-        await setStorageData({ debugLog: `[ES-Square] 条件: ${cond}` });
-      } catch (e) {
-        await setStorageData({ debugLog: `[ES-Square] 条件表示エラー: ${e.message}` });
-      }
-
-      try {
-        await searchEssquareForCustomer(dedicatedEssquareTabId, customer, seenIds, searchId);
-      } catch (err) {
-        if (err.message === 'SEARCH_CANCELLED') return;
-        if (err.message === 'SLEEP_DETECTED') {
-          await setStorageData({ debugLog: '[ES-Square] PCスリープ検知→検索中断' });
-          return;
-        }
-        if (err.message === 'ESSQUARE_LOGIN_REQUIRED') {
-          await setStorageData({ debugLog: '[ES-Square] ログインが必要です。rent.es-square.netでログインしてください。' });
-          return;
-        }
-        logError(`[ES-Square] ${customer.name}の検索失敗: ${err.message}`);
-      }
-
-      if (ci < criteria.length - 1) await sleep(3000);
+    const customer = criteria[ci];
+    await setStorageData({ debugLog: `[ES-Square] 顧客 ${ci+1}/${criteria.length}: ${customer.name}` });
+    try {
+      const cond = formatCustomerCriteria(customer);
+      await setStorageData({ debugLog: `[ES-Square] 条件: ${cond}` });
+    } catch (e) {
+      await setStorageData({ debugLog: `[ES-Square] 条件表示エラー: ${e.message}` });
     }
-  } finally {
-    if (!isSearchCancelled(searchId)) {
-      await closeDedicatedEssquareWindow();
+
+    try {
+      await searchEssquareForCustomer(dedicatedEssquareTabId, customer, seenIds, searchId);
+    } catch (err) {
+      if (err.message === 'SEARCH_CANCELLED') return;
+      if (err.message === 'SLEEP_DETECTED') {
+        await setStorageData({ debugLog: '[ES-Square] PCスリープ検知→検索中断' });
+        return;
+      }
+      if (err.message === 'ESSQUARE_LOGIN_REQUIRED') {
+        await setStorageData({ debugLog: '[ES-Square] ログインが必要です。rent.es-square.netでログインしてください。' });
+        return;
+      }
+      logError(`[ES-Square] ${customer.name}の検索失敗: ${err.message}`);
     }
+
+    if (ci < criteria.length - 1) await sleep(3000);
   }
 }
 
