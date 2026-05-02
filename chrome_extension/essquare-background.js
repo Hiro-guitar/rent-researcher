@@ -254,6 +254,53 @@ function _resolveEssquareStationCodes(customer) {
   return codes;
 }
 
+// === SPAナビゲーション (フルリロード回避) ===
+
+/**
+ * ES-Square 検索ページ間で URL を直接書き換え (chrome.tabs.update) すると
+ * 毎回 HTML+JS+CSS+API が完全にフルリロードされる。本来 React SPA では
+ * 「次ページ」click や検索ボタン click で history.pushState による
+ * SPA ルーティングが起き、API 1本だけが走る。
+ *
+ * 連続フルリロードは SPA 検知ロジックが反応するため、history.pushState +
+ * popstate を MAIN world で発火して SPA 内ルーティングを起こす。
+ *
+ * 同一ドメインかつ既にロード済みの場合のみ試行。それ以外 (login画面、
+ * about:blank 等) では false を返し、呼び出し側で URL 直接遷移にフォールバック。
+ *
+ * @returns {boolean} SPA ナビゲーションが発火できたら true
+ */
+async function navigateEssquareSpa_(tabId, url) {
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (e) {
+    return false;
+  }
+  const currentUrl = tab.url || '';
+  if (!currentUrl.startsWith(ESSQUARE_BASE_URL)) return false;
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: (newUrl) => {
+        try {
+          history.pushState(null, '', newUrl);
+          window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: String(e && e.message || e) };
+        }
+      },
+      args: [url],
+    });
+    return !!(results && results[0] && results[0].result && results[0].result.ok);
+  } catch (e) {
+    return false;
+  }
+}
+
 // === SPAレンダリング待ち ===
 
 async function _waitForEssquareRender(tabId, timeoutMs) {
@@ -1587,9 +1634,16 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
       await setStorageData({ debugLog: `[ES-Square] ${customer.name}: 検索URL${chunkLabel} → ${url}` });
     }
 
-    // ページ遷移
-    await chrome.tabs.update(tabId, { url });
-    await waitForTabLoad(tabId);
+    // ページ遷移: SPAナビゲーションを優先 (フルリロード回避→bot検知回避)。
+    // 同一ドメイン外 or pushState 失敗時は URL 直接遷移にフォールバック。
+    const spaNavigated = await navigateEssquareSpa_(tabId, url);
+    if (!spaNavigated) {
+      await chrome.tabs.update(tabId, { url });
+      await waitForTabLoad(tabId);
+    } else {
+      // SPA ルーティングは load イベント発火しないので短く待機
+      await sleep(500);
+    }
 
     // SPAレンダリング待ち
     const renderStatus = await _waitForEssquareRender(tabId, 20000);
