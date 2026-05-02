@@ -807,7 +807,9 @@ function renderFacilities(facilities) {
 // ── 画像レンダリング ──
 function renderImages() {
   var images = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
-  var shubetsu = PROPERTY_DATA.shubetsu || [];
+  // 旧フィールド shubetsu 優先 + いえらぶで取得した image_categories を fallback
+  // (いえらぶ拡張側で li.textContent を画像ごとに保存している)
+  var shubetsu = PROPERTY_DATA.shubetsu || PROPERTY_DATA.image_categories || [];
   var container = document.getElementById('imageGrid');
 
   if (images.length === 0) {
