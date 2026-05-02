@@ -603,17 +603,29 @@
   /**
    * 駅情報テキストをパース
    * 例: "JR中央線 三鷹 徒歩10分" → { line, station, walk }
+   * 例: "京王電鉄京王線「つつじヶ丘」駅 徒歩6分" → { line, station, walk } (いえらぶ形式)
    */
   function parseStationInfo(info) {
     if (!info) return null;
     const s = String(info);
 
-    // パターン: "路線名 駅名 徒歩N分" or "路線名/駅名/徒歩N分"
+    // 徒歩分数 (どのフォーマットでも共通)
     const walkMatch = s.match(/徒歩(\d+)分/);
     const walk = walkMatch ? walkMatch[1] : '';
 
-    // 駅名の前の部分が路線名
-    const parts = s.replace(/徒歩\d+分/, '').replace(/駅$/, '').trim().split(/[\s　]+/);
+    // パターン1: いえらぶ形式 "路線名「駅名」駅 徒歩N分"
+    //   駅名を「」で囲んでいるため、空白で split しても駅名が分離できない
+    const bracketMatch = s.match(/^\s*(.+?)「([^」]+)」/);
+    if (bracketMatch) {
+      return {
+        line: bracketMatch[1].trim(),
+        station: bracketMatch[2].replace(/駅$/, '').trim(),
+        walk: walk
+      };
+    }
+
+    // パターン2: 既存 "路線名 駅名 徒歩N分" (空白/スラッシュ区切り)
+    const parts = s.replace(/徒歩\d+分/, '').replace(/駅$/, '').trim().split(/[\s　/／]+/);
     let line = '', station = '';
 
     if (parts.length >= 2) {
