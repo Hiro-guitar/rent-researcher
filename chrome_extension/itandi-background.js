@@ -1104,15 +1104,22 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
 
   let allProperties = [];
 
-  // SUUMO巡回時のみ: 募集条件更新N日以内フィルタの値を storage から取得
+  // SUUMO巡回時の「募集条件更新 N日以内」フィルタ。
+  // 優先順: (1) 巡回条件 customer.daysWithin (新仕様、条件ごと指定)
+  //         (2) chrome.storage.local.itandiUpdatedWithinDays (旧仕様、グローバル)
+  // itandi の API は 0〜14日のみサポート (UI の select 範囲に合わせる)。
   let itandiUpdatedWithinDays = null;
   if (customer && customer._isSuumoPatrol) {
-    try {
-      const store = await getStorageData(['itandiUpdatedWithinDays']);
-      if (typeof store.itandiUpdatedWithinDays === 'number' && store.itandiUpdatedWithinDays >= 0) {
-        itandiUpdatedWithinDays = store.itandiUpdatedWithinDays;
-      }
-    } catch (_) {}
+    if (typeof customer.daysWithin === 'number' && customer.daysWithin >= 0) {
+      itandiUpdatedWithinDays = Math.min(customer.daysWithin, 14);
+    } else {
+      try {
+        const store = await getStorageData(['itandiUpdatedWithinDays']);
+        if (typeof store.itandiUpdatedWithinDays === 'number' && store.itandiUpdatedWithinDays >= 0) {
+          itandiUpdatedWithinDays = Math.min(store.itandiUpdatedWithinDays, 14);
+        }
+      } catch (_) {}
+    }
   }
 
   for (let chunkIdx = 0; chunkIdx < jgdcChunks.length; chunkIdx++) {

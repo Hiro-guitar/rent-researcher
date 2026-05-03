@@ -90,7 +90,15 @@ function patrolCriteriaToCustomer(criteria) {
     structures: structures,
     equipment: equipment,
     petType: equipmentArr.includes('ペット相談可') ? 'ok' : '',
-    _rentMin: criteria.rentMin || ''
+    _rentMin: criteria.rentMin || '',
+    // 登録日数フィルタ (各サイトの「N日以内に登録/最終更新」絞り込みに使う)
+    // 文字列で来る可能性があるので number 変換、空 or 不正値なら null。
+    daysWithin: (function () {
+      const v = criteria.daysWithin;
+      if (v === undefined || v === null || v === '') return null;
+      const n = parseInt(String(v), 10);
+      return isNaN(n) || n < 0 ? null : n;
+    })()
   };
 }
 
