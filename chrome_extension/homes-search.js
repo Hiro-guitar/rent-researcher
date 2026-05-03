@@ -128,11 +128,18 @@ async function searchHomesImagesForProperty(input) {
     }
     if (archiveIdSet.size === 0) {
       const fromSearch = await _findHomesArchiveBuildingIds(input);
-      for (const id of fromSearch) archiveIdSet.add(id);
+      for (const id of fromSearch.ids) archiveIdSet.add(id);
+      // archive 検索URL は内部追跡のみ。表示は archive 建物URL に集約 (下記)
     }
     const archiveIds = Array.from(archiveIdSet);
     for (const aid of archiveIds.slice(0, 3)) {
       result.matched.archiveBuildingIds.push(aid);
+      // archive 建物URL を表示候補リンクに追加
+      result.matched.searchUrls.push({
+        query: `b-${aid}`,
+        url: `${_HOMES_BASE}/archive/b-${aid}/`,
+        label: 'archive建物'
+      });
       await _sleep(_HOMES_FETCH_DELAY_MS);
       // (1) 建物ページから部屋一覧取得
       const rooms = await _fetchHomesArchiveBuildingRooms(aid);
@@ -140,6 +147,8 @@ async function searchHomesImagesForProperty(input) {
       const sameTypeRooms = rooms.filter(r => _isSameType(input, { layout: r.layout, area: r.area }));
       console.log('[homes-search] archive same-type rooms:', aid, 'all=', rooms.length, 'same=', sameTypeRooms.length);
       // (3) 各部屋詳細ページから画像取得 (最大3部屋まで)
+      //     room.url は /archive/b-{B}/u-{U}/ で各画像の取得元URLとして candidates の
+      //     sourceUrl に入る。お客様承認ページで画像ごとに「🔗 取得元」リンクとして表示。
       for (const room of sameTypeRooms.slice(0, 3)) {
         await _sleep(_HOMES_FETCH_DELAY_MS);
         const imgs = await _fetchHomesArchiveRoomImages(room.url);
@@ -203,7 +212,7 @@ async function _findHomesRentalCandidates(input) {
       await _sleep(_HOMES_FETCH_DELAY_MS);
     }
     const url = `${_HOMES_BASE}/chintai/list/?cond%5Bfreeword%5D=${encodeURIComponent(q)}&cond%5Bfwtype%5D=1`;
-    searchUrls.push({ query: q, url });
+    searchUrls.push({ query: q, url, label: '賃貸検索' });
     console.log('[homes-search] searching:', q);
     const html = await _fetchText(url);
     if (!html) {
@@ -471,6 +480,9 @@ async function _findHomesArchiveBuildingIds(input) {
       await _sleep(_HOMES_FETCH_DELAY_MS);
     }
     const url = `${_HOMES_BASE}/archive/list/search/?keyword=${encodeURIComponent(q)}`;
+    // searchUrls は内部追跡のみ。お客様承認ページには archive 建物URLを表示する方針
+    // (検索URLは複数候補リストになるため、建物確定済の場合は不要)。
+    searchUrls.push({ query: q, url, label: 'archive検索' });
     console.log('[homes-search] archive search:', q);
     const html = await _fetchText(url);
     if (!html) {
@@ -489,7 +501,7 @@ async function _findHomesArchiveBuildingIds(input) {
     }
     console.log('[homes-search] archive search:', q, 'found:', ids.length);
   }
-  return ids;
+  return { ids, searchUrls };
 }
 
 /**
