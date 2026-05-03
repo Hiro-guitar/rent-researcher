@@ -109,15 +109,44 @@ async function searchHomesImagesForProperty(input) {
         mb.url);
     }
 
-    // 4. archive 側 (過去物件含む共用部・全体ギャラリー) を取得
-    const archiveIds = await _findHomesArchiveBuildingIds(input);
+    // 4. archive 側 (過去物件) から「同タイプの部屋」のみ画像を取得
+    //
+    //    archive にも /archive/b-{建物}/u-{部屋}/ で部屋詳細ページが存在し、
+    //    建物ページに各部屋カード (階/面積/間取り/部屋URL) がリスト化されている。
+    //    つまり間取り+面積で同タイプ判定が可能 = 賃貸検索 same-room と同様の精度。
+    //
+    //    archive 建物 ID の取得経路:
+    //    (a) 賃貸詳細HTML中の /archive/b-{id}/ 直リンク
+    //        (= 一番確実。建物名検索なし、追加リクエストなし)
+    //    (b) なければ /archive/list/search/?keyword=... でキーワード検索
+    //        (= 賃貸検索でヒットしない or 詳細に archive リンクが無い場合)
+    const archiveIdSet = new Set();
+    for (const mb of matchedBuildings) {
+      if (mb.detail && mb.detail.archiveBuildingId) {
+        archiveIdSet.add(mb.detail.archiveBuildingId);
+      }
+    }
+    if (archiveIdSet.size === 0) {
+      const fromSearch = await _findHomesArchiveBuildingIds(input);
+      for (const id of fromSearch) archiveIdSet.add(id);
+    }
+    const archiveIds = Array.from(archiveIdSet);
     for (const aid of archiveIds.slice(0, 3)) {
       result.matched.archiveBuildingIds.push(aid);
       await _sleep(_HOMES_FETCH_DELAY_MS);
-      const archiveImages = await _fetchHomesArchiveGalleryImages(aid);
-      _appendImagesAsCandidates(result.candidates, archiveImages,
-        'archive', 'archive', `archive b-${aid}`,
-        `${_HOMES_BASE}/archive/b-${aid}/gallery/`);
+      // (1) 建物ページから部屋一覧取得
+      const rooms = await _fetchHomesArchiveBuildingRooms(aid);
+      // (2) 同タイプ (間取り完全一致 + 面積完全一致小数2桁) の部屋のみ
+      const sameTypeRooms = rooms.filter(r => _isSameType(input, { layout: r.layout, area: r.area }));
+      console.log('[homes-search] archive same-type rooms:', aid, 'all=', rooms.length, 'same=', sameTypeRooms.length);
+      // (3) 各部屋詳細ページから画像取得 (最大3部屋まで)
+      for (const room of sameTypeRooms.slice(0, 3)) {
+        await _sleep(_HOMES_FETCH_DELAY_MS);
+        const imgs = await _fetchHomesArchiveRoomImages(room.url);
+        _appendImagesAsCandidates(result.candidates, imgs,
+          'archive', 'archive', `archive ${room.layout || ''} ${room.area || ''}m²`,
+          room.url);
+      }
     }
 
     // 5. 重複排除 (URLベース)
@@ -326,7 +355,12 @@ async function _fetchHomesDetail(detailUrl) {
   const images = _extractImagesFromHtml(html);
   const sameBuildingRoomUrls = _extractSameBuildingRoomUrls(html);
 
-  return { ok: true, meta, images, sameBuildingRoomUrls };
+  // 賃貸詳細HTML中に含まれる /archive/b-{id}/ への直リンクを抽出。
+  // これがあれば住所/建物名で別途 archive 検索しなくても archive 画像を取れる。
+  const archiveMatch = html.match(/\/archive\/b-(\d+)\//);
+  const archiveBuildingId = archiveMatch ? archiveMatch[1] : null;
+
+  return { ok: true, meta, images, sameBuildingRoomUrls, archiveBuildingId };
 }
 
 function _extractMetaFromHtml(html) {
@@ -417,13 +451,124 @@ function _extractSameBuildingRoomUrls(html) {
 // ============================================================
 
 async function _findHomesArchiveBuildingIds(input) {
-  // archive側はフリーワード検索が存在せず、ドリルダウンのみ。
-  // 確実に動作させるには /archive/address/{pref-slug}/{city-slug}/ の
-  // 英語スラグマップが必要。当面は確定済みの賃貸物件詳細ページから
-  // 建物名リンクで archive ID を発見できるケースのみ対応する。
-  // この関数のフォールバック実装として、賃貸詳細HTML中の archive リンクを
-  // 利用する処理を _fetchHomesDetail 側で行うのが望ましい。
-  return [];
+  // /archive/list/search/?keyword=<クエリ> に対するキーワード検索。
+  // 「物件名・住所などを入力してください」と書かれた archive 専用の検索口。
+  // 1. buildingName で検索 (最も精度高い、ほぼ1件で確定)
+  // 2. 0件なら住所(prefecture+city+address) で検索
+  const queries = [];
+  if (input.buildingName) queries.push(input.buildingName);
+  const fullAddr = `${input.prefecture || ''}${input.city || ''}${input.address || ''}`.trim();
+  if (fullAddr) queries.push(fullAddr);
+  if (queries.length === 0) return [];
+
+  const ids = [];
+  const seen = new Set();
+  for (let i = 0; i < queries.length; i++) {
+    const q = queries[i];
+    if (i > 0) {
+      // 前のクエリで取れていたら追加検索しない
+      if (ids.length > 0) break;
+      await _sleep(_HOMES_FETCH_DELAY_MS);
+    }
+    const url = `${_HOMES_BASE}/archive/list/search/?keyword=${encodeURIComponent(q)}`;
+    console.log('[homes-search] archive search:', q);
+    const html = await _fetchText(url);
+    if (!html) {
+      console.warn('[homes-search] archive empty html for query:', q);
+      continue;
+    }
+    // /archive/b-{数字}/ を全件抽出
+    const re = /\/archive\/b-(\d+)\//g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const id = m[1];
+      if (seen.has(id)) continue;
+      seen.add(id);
+      ids.push(id);
+      if (ids.length >= 5) break;
+    }
+    console.log('[homes-search] archive search:', q, 'found:', ids.length);
+  }
+  return ids;
+}
+
+/**
+ * archive 建物ページから部屋カード一覧を抽出する。
+ * 各部屋カードは <a class="block h-full" href="/archive/b-{B}/u-{U}/"> で
+ * 1部屋分のリンク + サムネ + 階/面積/間取り の <ul><li>...</li></ul> を持つ。
+ *
+ * 戻り値: [{ url, layout, area, floor, thumbnail }]
+ */
+async function _fetchHomesArchiveBuildingRooms(archiveBuildingId) {
+  const buildingUrl = `${_HOMES_BASE}/archive/b-${archiveBuildingId}/`;
+  const html = await _fetchText(buildingUrl);
+  if (!html) return [];
+
+  const rooms = [];
+  // <a ... href="/archive/b-{B}/u-{U}/" ...> ... <ul>...</ul> ... </a>
+  const aRe = /<a[^>]+href="(\/archive\/b-\d+\/u-\d+\/)"[\s\S]*?<\/a>/g;
+  let am;
+  while ((am = aRe.exec(html)) !== null) {
+    const block = am[0];
+    const path = am[1];
+    // <ul>...</ul> 内の <li> を抽出
+    const ulMatch = block.match(/<ul[^>]*>([\s\S]*?)<\/ul>/);
+    if (!ulMatch) continue;
+    const liRe = /<li[^>]*>([\s\S]*?)<\/li>/g;
+    const items = [];
+    let lm;
+    while ((lm = liRe.exec(ulMatch[1])) !== null) {
+      // タグ除去 + trim
+      const txt = lm[1].replace(/<[^>]+>/g, '').replace(/\s+/g, '').trim();
+      if (txt) items.push(txt);
+    }
+    let floor = '', area = null, layout = '';
+    for (const it of items) {
+      // 階: "2階" "1階" など
+      if (/^\d+階$/.test(it)) floor = it;
+      // 面積: "41.77m²" "33m²" "33.36㎡" など
+      else if (/\d+(?:\.\d+)?\s*(?:m²|㎡|m2)/i.test(it)) {
+        const m = it.match(/(\d+(?:\.\d+)?)/);
+        if (m) area = parseFloat(m[1]);
+      }
+      // 間取り: "1LDK" "1DK" "1K" "ワンルーム" など
+      else if (/[A-Z]/.test(it) || /ワンルーム/.test(it)) layout = it;
+    }
+    // サムネ: a 内の最初の <img>
+    const imgMatch = block.match(/<img[^>]*\bsrc="(https:\/\/archive-image\.homes\.co\.jp\/v2\/resize\/[^"]+)"/);
+    const thumbnail = imgMatch ? _decodeHtml(imgMatch[1]) : null;
+    rooms.push({
+      url: `${_HOMES_BASE}${path}`,
+      layout,
+      area,
+      floor,
+      thumbnail
+    });
+  }
+  console.log('[homes-search] archive building rooms:', archiveBuildingId, 'count=', rooms.length);
+  return rooms;
+}
+
+/**
+ * archive 部屋詳細ページから画像URL一覧を抽出する。
+ * 1部屋あたり通常 10〜30枚 の画像 (間取り/リビング/キッチン/浴室/...) が取れる。
+ */
+async function _fetchHomesArchiveRoomImages(roomUrl) {
+  const html = await _fetchText(roomUrl);
+  if (!html) return [];
+
+  const imgs = [];
+  const seen = new Set();
+  // src のみで抽出 (alt は連番 "1 / 21" のことが多いため genre 取得には使わない)
+  const srcRe = /<img[^>]*\bsrc="(https:\/\/archive-image\.homes\.co\.jp\/v2\/resize\/[^"]+)"[^>]*>/g;
+  let m;
+  while ((m = srcRe.exec(html)) !== null) {
+    const url = _decodeHtml(m[1]);
+    if (seen.has(url)) continue;
+    seen.add(url);
+    imgs.push({ url, genre: 'その他' });
+  }
+  return imgs;
 }
 
 async function _fetchHomesArchiveGalleryImages(archiveBuildingId) {
