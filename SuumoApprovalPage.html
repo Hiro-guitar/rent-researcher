@@ -1690,6 +1690,15 @@ function _onHomesSearchResult(result) {
     a.title = s.query;
     statusEl.appendChild(a);
   }
+  // archive 建物URLが無ければ「archive未登録」表示 (バグと区別するため)
+  var hasArchive = _homesLastSearchUrls.some(function (u) { return u.label === 'archive建物'; });
+  if (!hasArchive) {
+    var na = document.createElement('span');
+    na.textContent = ' (archive未登録)';
+    na.style.cssText = 'color:#999;font-size:11px;margin-left:8px;font-style:italic;';
+    na.title = 'ホームズの不動産アーカイブにこの建物のデータがありません';
+    statusEl.appendChild(na);
+  }
 
   if (_homesCandidates.length === 0) {
     document.getElementById('homesCandidatesArea').style.display = 'none';
