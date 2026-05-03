@@ -1317,7 +1317,11 @@ function normalizeGenre(genre) {
   if (genre.includes("間取")) return "間取り";
   if (genre.includes("バス") || genre.includes("シャワー") || genre.includes("風呂") || genre.includes("浴室")) return "バス";
   if (genre.includes("共有")) return "共用部";
-  if (genre.includes("洋室")) return "リビング";
+  // 部屋系 (洋室/和室/寝室/子供部屋/居室/室内) は SUUMO「その他部屋」に集約。
+  // 旧コードでは「洋室」→「リビング」になっていたが HOMES_TO_SUUMO_GENRE と
+  // 不整合だったため修正。
+  if (genre.includes("洋室") || genre.includes("和室") || genre.includes("寝室") ||
+      genre.includes("子供部屋") || genre.includes("居室") || genre.includes("室内")) return "その他部屋";
   var found = GENRE_OPTIONS.find(function(opt) { return genre.includes(opt); });
   return found || "";
 }
