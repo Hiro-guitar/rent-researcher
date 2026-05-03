@@ -564,6 +564,14 @@ async function _fetchHomesArchiveBuildingRooms(archiveBuildingId) {
 /**
  * archive 部屋詳細ページから画像URL一覧を抽出する。
  * 1部屋あたり通常 10〜30枚 の画像 (間取り/リビング/キッチン/浴室/...) が取れる。
+ *
+ * archive 部屋詳細ページの構造:
+ *   <li>
+ *     <img src=".../resize/{id}/{hash}.jpg" alt="1 / 21">
+ *     間取り |
+ *   </li>
+ * alt 属性は "1 / 21" のような連番なので使わず、親 <li> のテキストから
+ * ジャンル名 (「間取り」「キッチン」「浴室」等) を抽出する。
  */
 async function _fetchHomesArchiveRoomImages(roomUrl) {
   const html = await _fetchText(roomUrl);
@@ -571,10 +579,27 @@ async function _fetchHomesArchiveRoomImages(roomUrl) {
 
   const imgs = [];
   const seen = new Set();
-  // src のみで抽出 (alt は連番 "1 / 21" のことが多いため genre 取得には使わない)
-  const srcRe = /<img[^>]*\bsrc="(https:\/\/archive-image\.homes\.co\.jp\/v2\/resize\/[^"]+)"[^>]*>/g;
+  // (1) <li> ... <img> ... ジャンル名 ... </li> パターン
+  const liRe = /<li[^>]*>([\s\S]*?)<\/li>/g;
   let m;
-  while ((m = srcRe.exec(html)) !== null) {
+  while ((m = liRe.exec(html)) !== null) {
+    const liInner = m[1];
+    const imgMatch = liInner.match(/<img[^>]*\bsrc="(https:\/\/archive-image\.homes\.co\.jp\/v2\/resize\/[^"]+)"/);
+    if (!imgMatch) continue;
+    const url = _decodeHtml(imgMatch[1]);
+    if (seen.has(url)) continue;
+    seen.add(url);
+    // <img> 等のタグを除去した残りテキスト → ジャンル名候補
+    const txt = liInner.replace(/<[^>]+>/g, ' ')
+      .replace(/\|/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const genre = txt || 'その他';
+    imgs.push({ url, genre });
+  }
+  // (2) <li> 構造に該当しない画像も拾うフォールバック
+  const fallbackRe = /<img[^>]*\bsrc="(https:\/\/archive-image\.homes\.co\.jp\/v2\/resize\/[^"]+)"[^>]*>/g;
+  while ((m = fallbackRe.exec(html)) !== null) {
     const url = _decodeHtml(m[1]);
     if (seen.has(url)) continue;
     seen.add(url);
