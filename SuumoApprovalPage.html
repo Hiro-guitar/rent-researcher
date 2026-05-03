@@ -1685,7 +1685,7 @@ function _onHomesSearchResult(result) {
     a.href = s.url;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
-    a.textContent = ' 🔗 検索結果' + (_homesLastSearchUrls.length > 1 ? (si + 1) : '') + 'を見る';
+    a.textContent = ' 🔗 ' + (s.label || '検索結果' + (_homesLastSearchUrls.length > 1 ? (si + 1) : '')) + 'を見る';
     a.style.cssText = 'color:#1a5276;text-decoration:underline;font-size:11px;margin-left:8px;';
     a.title = s.query;
     statusEl.appendChild(a);
