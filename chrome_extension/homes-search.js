@@ -468,9 +468,10 @@ async function _findHomesArchiveBuildingIds(input) {
   if (input.buildingName) queries.push(input.buildingName);
   const fullAddr = `${input.prefecture || ''}${input.city || ''}${input.address || ''}`.trim();
   if (fullAddr) queries.push(fullAddr);
-  if (queries.length === 0) return [];
+  if (queries.length === 0) return { ids: [], searchUrls: [] };
 
   const ids = [];
+  const searchUrls = [];
   const seen = new Set();
   for (let i = 0; i < queries.length; i++) {
     const q = queries[i];
