@@ -1409,12 +1409,28 @@ function calculateSuumoScore() {
   return { main: mainScore, sub: subScore, total: mainScore + subScore };
 }
 
+// ホームズ候補ジャンル見出しの「✓ メイン選択済み」バッジ表示を更新。
+// メイン画像でジャンルが選択された/解除された時に呼ぶ。
+function updateHomesUsedTags() {
+  var sections = document.querySelectorAll('[data-suumo-genre]');
+  if (sections.length === 0) return;
+  var usedGenres = Object.values(imageGenres);
+  for (var i = 0; i < sections.length; i++) {
+    var sg = sections[i].getAttribute('data-suumo-genre');
+    var tag = sections[i].querySelector('.homes-used-tag');
+    if (!tag) continue;
+    tag.style.display = (sg && usedGenres.indexOf(sg) >= 0) ? 'inline-block' : 'none';
+  }
+}
+
 function updateGenreCounter() {
   var uniqueGenres = [];
   var vals = Object.values(imageGenres);
   for (var i = 0; i < vals.length; i++) {
     if (uniqueGenres.indexOf(vals[i]) < 0) uniqueGenres.push(vals[i]);
   }
+  // ホームズ候補が表示中なら「メイン選択済み」バッジを更新
+  updateHomesUsedTags();
 
   var score = calculateSuumoScore();
   var el = document.getElementById('genreCounter');
@@ -1773,11 +1789,19 @@ function _renderHomesCandidates() {
     section.style.marginBottom = '12px';
     // scroll-margin-top で固定ヘッダー分オフセットして見切れ防止
     section.style.scrollMarginTop = '100px';
+    // メイン画像で同ジャンルが選択中かチェック用に SUUMO 正規ジャンルを data 属性で保持
+    section.setAttribute('data-suumo-genre', normalizeGenre(genre));
     var h = document.createElement('div');
     h.style.cssText = 'display:flex;align-items:center;gap:10px;font-size:12px;font-weight:700;color:#1a5276;margin-bottom:4px;';
     var hLabel = document.createElement('span');
     hLabel.textContent = genre + ' (' + groups[genre].length + ')';
     h.appendChild(hLabel);
+    // 「✓ メイン選択済み」バッジ (updateHomesUsedTags で表示切替)
+    var usedTag = document.createElement('span');
+    usedTag.className = 'homes-used-tag';
+    usedTag.textContent = '✓ メインで選択済み';
+    usedTag.style.cssText = 'padding:2px 8px;font-size:10px;font-weight:700;color:#fff;background:#27ae60;border-radius:10px;display:none;';
+    h.appendChild(usedTag);
     var backBtn = document.createElement('button');
     backBtn.type = 'button';
     backBtn.textContent = '↑ 検索エリアに戻る';
@@ -1858,6 +1882,8 @@ function _renderHomesCandidates() {
     section.appendChild(rowGrid);
     grid.appendChild(section);
   }
+  // 描画完了後に「メインで選択済み」バッジを初期表示
+  if (typeof updateHomesUsedTags === 'function') updateHomesUsedTags();
 }
 
 function toggleAllHomesCandidates(checked) {
