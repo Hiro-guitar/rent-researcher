@@ -558,6 +558,12 @@ async function _fetchHomesArchiveBuildingRooms(archiveBuildingId) {
       floor,
       thumbnail
     });
+    // DEBUG: 各部屋の生 <li> 抽出結果と最終的な layout/area/floor の整合確認
+    console.log('[homes-search] archive room raw:', {
+      path,
+      items: items.slice(0, 12),
+      parsed: { floor, area, layout }
+    });
   }
   console.log('[homes-search] archive building rooms:', archiveBuildingId, 'count=', rooms.length);
   return rooms;
