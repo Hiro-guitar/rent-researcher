@@ -23,7 +23,7 @@
 var SUUMO_PATROL_HEADERS = [
   '条件ID', '条件名', 'エリア情報JSON', '賃料下限', '賃料上限',
   '間取りJSON', '面積下限', '築年数', '有効', '作成日時', '最終巡回日時',
-  '徒歩', '構造JSON', '設備JSON'
+  '徒歩', '構造JSON', '設備JSON', '登録日数フィルタ'
 ];
 
 var SUUMO_CANDIDATE_HEADERS = [
@@ -132,6 +132,7 @@ function getPatrolCriteria() {
       walk: String(data[i][11] || ''),
       structuresJson: String(data[i][12] || '[]'),
       equipmentJson: String(data[i][13] || '[]'),
+      daysWithin: String(data[i][14] || ''),
       rowIndex: i + 2
     });
   }
@@ -181,12 +182,13 @@ function savePatrolCriteria(data) {
         var newEquipmentJson = data.equipment !== undefined
           ? (typeof data.equipment === 'string' ? data.equipment : JSON.stringify(data.equipment || []))
           : existing.equipmentJson;
+        var newDaysWithin = data.daysWithin !== undefined ? data.daysWithin : existing.daysWithin;
 
         sheet.getRange(row, 2, 1, 7).setValues([[
           newName, newAreaJson, newRentMin, newRentMax, newLayoutsJson, newAreaMin, newBuildingAge
         ]]);
-        sheet.getRange(row, 12, 1, 3).setValues([[
-          newWalk, newStructuresJson, newEquipmentJson
+        sheet.getRange(row, 12, 1, 4).setValues([[
+          newWalk, newStructuresJson, newEquipmentJson, newDaysWithin
         ]]);
         if (data.enabled !== undefined) {
           sheet.getRange(row, 9).setValue(data.enabled);
@@ -216,7 +218,8 @@ function savePatrolCriteria(data) {
       '',  // 最終巡回日時
       data.walk || '',
       structuresJson,
-      equipmentJson
+      equipmentJson,
+      data.daysWithin || ''
     ]);
     return { success: true, id: newId, action: 'created' };
   }

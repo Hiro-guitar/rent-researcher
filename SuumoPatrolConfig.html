@@ -330,6 +330,17 @@ body {
         </div>
       </div>
 
+      <!-- 登録日数フィルタ -->
+      <div class="section-title">登録日数フィルタ</div>
+      <div class="field">
+        <label>登録から N日以内の物件のみ取得</label>
+        <div class="unspecified-row">
+          <label><input type="checkbox" id="daysUnspecified" checked onchange="toggleDaysInput()"> 指定しない</label>
+        </div>
+        <input type="number" id="editDaysWithin" placeholder="例: 7" min="1" step="1" style="display:none;">
+        <div class="hint">各サイトで「最終更新日」or「登録日」がこの日数以内の物件に絞り込み</div>
+      </div>
+
       <!-- 建物構造 -->
       <div class="section-title">建物構造</div>
       <div class="field">
@@ -573,6 +584,12 @@ function toggleAgeInput() {
   if (unspec) document.getElementById('editBuildingAge').value = '';
 }
 
+function toggleDaysInput() {
+  var unspec = document.getElementById('daysUnspecified').checked;
+  document.getElementById('editDaysWithin').style.display = unspec ? 'none' : 'block';
+  if (unspec) document.getElementById('editDaysWithin').value = '';
+}
+
 // ══════════════════════════════════════════════════════════
 //  条件一覧の読み込み
 // ══════════════════════════════════════════════════════════
@@ -636,6 +653,7 @@ function renderCriteriaList() {
     if (c.walk) detail.push('徒歩' + c.walk + '分');
     if (c.areaMin) detail.push(c.areaMin + 'm²以上');
     if (c.buildingAge) detail.push('築' + c.buildingAge + '年以内');
+    if (c.daysWithin) detail.push(c.daysWithin + '日以内');
 
     var lastPatrol = c.lastPatrolAt ? '最終巡回: ' + c.lastPatrolAt : '未巡回';
 
@@ -673,13 +691,16 @@ function showEditForm(criteriaId) {
   document.getElementById('editRentMax').value = '';
   document.getElementById('editAreaMin').value = '';
   document.getElementById('editBuildingAge').value = '';
+  document.getElementById('editDaysWithin').value = '';
   document.getElementById('walkSlider').value = 10;
   document.getElementById('walkUnspecified').checked = true;
   document.getElementById('areaUnspecified').checked = true;
   document.getElementById('ageUnspecified').checked = true;
+  document.getElementById('daysUnspecified').checked = true;
   toggleWalkSlider();
   toggleAreaInput();
   toggleAgeInput();
+  toggleDaysInput();
   updateWalkDisplay();
   uncheckAll('cityCheckboxes');
   uncheckAll('layoutCheckboxes');
@@ -717,6 +738,13 @@ function showEditForm(criteriaId) {
         document.getElementById('ageUnspecified').checked = false;
         document.getElementById('editBuildingAge').value = c.buildingAge;
         toggleAgeInput();
+      }
+
+      // 登録日数フィルタ
+      if (c.daysWithin) {
+        document.getElementById('daysUnspecified').checked = false;
+        document.getElementById('editDaysWithin').value = c.daysWithin;
+        toggleDaysInput();
       }
 
       // エリア
@@ -838,6 +866,7 @@ function saveCondition() {
     walk: walk,
     areaMin: document.getElementById('editAreaMin').value || '',
     buildingAge: document.getElementById('editBuildingAge').value || '',
+    daysWithin: document.getElementById('editDaysWithin').value || '',
     structures: getCheckedValues('structureCheckboxes'),
     equipment: getCheckedEquipment()
   };
