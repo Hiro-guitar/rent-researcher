@@ -1312,8 +1312,10 @@ function addUploadedImage(url) {
 
 function normalizeGenre(genre) {
   if (!genre) return "";
+  // ホームズの完全一致マッピングを優先 (例: 「浴室」→「バス」)
+  if (HOMES_TO_SUUMO_GENRE[genre]) return HOMES_TO_SUUMO_GENRE[genre];
   if (genre.includes("間取")) return "間取り";
-  if (genre.includes("バス") || genre.includes("シャワー") || genre.includes("風呂")) return "バス";
+  if (genre.includes("バス") || genre.includes("シャワー") || genre.includes("風呂") || genre.includes("浴室")) return "バス";
   if (genre.includes("共有")) return "共用部";
   if (genre.includes("洋室")) return "リビング";
   var found = GENRE_OPTIONS.find(function(opt) { return genre.includes(opt); });
