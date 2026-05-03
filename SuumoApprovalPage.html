@@ -1865,7 +1865,18 @@ function _renderHomesCandidates() {
       var lbl = document.createElement('div');
       lbl.style.cssText = 'font-size:11px;color:#666;padding:3px 6px;background:#f8f8f8;display:flex;justify-content:space-between;align-items:center;gap:4px;';
       var lblText = document.createElement('span');
-      lblText.textContent = cand.matchType === 'same-room' ? '同タイプ' : (cand.matchType === 'archive' ? '過去物件' : '同建物');
+      // matchType に応じた色付きバッジ表示
+      var badgeStyle = 'display:inline-block;padding:2px 7px;border-radius:3px;font-size:11px;font-weight:700;color:#fff;';
+      if (cand.matchType === 'same-room') {
+        lblText.style.cssText = badgeStyle + 'background:#27ae60;';
+        lblText.textContent = '📍 募集中(同タイプ)';
+      } else if (cand.matchType === 'archive') {
+        lblText.style.cssText = badgeStyle + 'background:#d35400;';
+        lblText.textContent = '📦 過去物件';
+      } else {
+        lblText.style.cssText = badgeStyle + 'background:#8e44ad;';
+        lblText.textContent = '🏢 同建物(別タイプ)';
+      }
       lbl.appendChild(lblText);
       // 出処物件URLが分かる場合はリンクを追加
       if (cand.sourceUrl) {
