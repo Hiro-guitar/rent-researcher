@@ -518,8 +518,9 @@ async function _fetchHomesArchiveBuildingRooms(archiveBuildingId) {
   if (!html) return [];
 
   const rooms = [];
-  // <a ... href="/archive/b-{B}/u-{U}/" ...> ... <ul>...</ul> ... </a>
-  const aRe = /<a[^>]+href="(\/archive\/b-\d+\/u-\d+\/)"[\s\S]*?<\/a>/g;
+  // <a ... href="(https://www.homes.co.jp)?/archive/b-{B}/u-{U}/" ...> ... </a>
+  // ホームズは href を絶対URLで出力するため [^"]*? で許容する。
+  const aRe = /<a[^>]+href="[^"]*?(\/archive\/b-\d+\/u-\d+\/)"[\s\S]*?<\/a>/g;
   let am;
   while ((am = aRe.exec(html)) !== null) {
     const block = am[0];
