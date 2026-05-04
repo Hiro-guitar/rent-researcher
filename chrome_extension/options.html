@@ -4,362 +4,514 @@
   <meta charset="UTF-8">
   <title>REINS物件自動取得 - 設定</title>
   <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      max-width: 500px;
-      margin: 40px auto;
-      padding: 0 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
+      background: #f5f5f5;
       color: #333;
+      padding-bottom: 100px;
+      -webkit-text-size-adjust: 100%;
     }
-    h1 { font-size: 18px; margin-bottom: 20px; }
-    .field { margin-bottom: 16px; }
-    label {
-      display: block;
-      font-size: 13px;
-      font-weight: 500;
-      margin-bottom: 4px;
-      color: #555;
+
+    /* ── ヘッダー ── */
+    .header {
+      position: sticky; top: 0; z-index: 10;
+      background: #2c3e50; padding: 14px 16px;
+      border-bottom: 1px solid #1a252f;
     }
-    input[type="text"], input[type="number"], input[type="password"] {
-      width: 100%;
-      padding: 8px 10px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      font-size: 14px;
+    .header h1 {
+      font-size: 16px; font-weight: 700;
+      text-align: center; color: #ecf0f1;
+      max-width: 720px; margin: 0 auto;
     }
-    .hint {
-      font-size: 11px;
-      color: #888;
-      margin-top: 2px;
+
+    /* ── レイアウト ── */
+    .container {
+      max-width: 720px; margin: 0 auto; padding: 8px 0;
     }
-    .actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 24px;
+
+    /* ── カード ── */
+    .card {
+      background: #fff; margin: 8px; border-radius: 12px;
+      overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
-    button {
-      padding: 8px 20px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 13px;
+    .card-title {
+      font-size: 14px; font-weight: 700; color: #8ec41d;
+      padding: 12px 16px 8px; background: #f0faf4;
+      border-bottom: 1px solid #e8f5e9;
     }
-    .btn-save { background: #2563eb; color: white; }
-    .btn-save:hover { background: #1d4ed8; }
-    .btn-test { background: #f3f4f6; color: #374151; }
-    .btn-test:hover { background: #e5e7eb; }
-    #testResult {
-      margin-top: 12px;
-      padding: 8px 10px;
-      border-radius: 4px;
-      font-size: 12px;
-      display: none;
+    .card-title .sub { font-size: 11px; color: #888; font-weight: 400; margin-left: 8px; }
+    .card-body { padding: 0; }
+
+    /* ── 内部見出し（サービスごとなど）── */
+    .section-title {
+      font-size: 13px; font-weight: 700; color: #555;
+      margin: 0; padding: 12px 16px 6px;
+      background: #fafafa;
+      border-top: 1px solid #f0f0f0;
     }
-    .success { background: #f0fdf4; color: #16a34a; display: block !important; }
-    .error { background: #fef2f2; color: #dc2626; display: block !important; }
+    .section-title:first-child { border-top: none; }
+
+    /* ── フィールド ── */
+    .field { padding: 10px 16px; }
+    .field label.field-label {
+      display: block; font-size: 13px; font-weight: 600;
+      color: #555; margin-bottom: 6px;
+    }
+    .field input[type="text"],
+    .field input[type="number"],
+    .field input[type="password"],
+    .field textarea {
+      width: 100%; padding: 10px 12px; font-size: 14px;
+      border: 1px solid #ccc; border-radius: 8px;
+      font-family: inherit; background: #fff;
+    }
+    .field textarea { resize: vertical; }
+    .field input:focus,
+    .field textarea:focus {
+      outline: none; border-color: #8ec41d;
+      box-shadow: 0 0 0 3px rgba(142,196,29,0.15);
+    }
+    .field .hint {
+      font-size: 11px; color: #888;
+      margin-top: 6px; line-height: 1.5;
+    }
+    .field .hint code {
+      background: #f0f0f0; padding: 1px 4px;
+      border-radius: 3px; font-size: 11px; color: #c0392b;
+    }
+    .field-row { display: flex; gap: 12px; padding: 10px 16px; align-items: center; flex-wrap: wrap; }
+
+    /* ── ラジオ・チェックボックス ── */
+    .opt-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+    .opt-list label {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; font-weight: 400; color: #444;
+      cursor: pointer; padding: 4px 0;
+    }
+    .opt-list input[type="checkbox"],
+    .opt-list input[type="radio"] {
+      width: 18px; height: 18px; accent-color: #8ec41d; flex-shrink: 0;
+    }
+
+    /* ── ボタン ── */
+    .btn {
+      display: inline-block; padding: 10px 20px; font-size: 14px; font-weight: 600;
+      border: none; border-radius: 8px; cursor: pointer;
+      transition: all 0.15s; -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active:not(:disabled) { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: #2c3e50; color: #fff; }
+    .btn-primary:hover { background: #1a252f; }
+    .btn-success { background: #8ec41d; color: #fff; }
+    .btn-success:hover { background: #7aa819; }
+    .btn-warning { background: #f59e0b; color: #fff; }
+    .btn-warning:hover { background: #d97706; }
+    .btn-danger { background: #e74c3c; color: #fff; }
+    .btn-danger:hover { background: #c0392b; }
+    .btn-secondary { background: #ecf0f1; color: #2c3e50; }
+    .btn-secondary:hover { background: #bdc3c7; }
+    .btn-sm { font-size: 12px; padding: 7px 14px; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 16px 14px; }
+
+    /* ── ステータス表示 ── */
+    .status-line { font-size: 13px; padding: 6px 0; color: #555; }
+    .status-line.error { color: #c0392b; }
+    .status-line.ok { color: #16a34a; }
+
+    /* ── ログインブロック表示 ── */
+    .login-block-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 16px 12px; flex-wrap: wrap;
+    }
+    .login-block-row .status { font-size: 13px; color: #555; flex: 1; min-width: 200px; }
+
+    /* ── 競合スキップグリッド ── */
+    .grid-2col {
+      display: grid; grid-template-columns: 1fr 100px;
+      gap: 8px 12px; align-items: center;
+      padding: 4px 16px 10px;
+    }
+    .grid-2col span {
+      font-size: 13px; color: #444; font-weight: 400;
+    }
+    .grid-2col input[type="number"] {
+      padding: 8px 10px; font-size: 13px;
+      border: 1px solid #ccc; border-radius: 6px;
+    }
+
+    /* ── アクションバー（フッター） ── */
+    .action-bar {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+      background: #fff; border-top: 1px solid #e0e0e0;
+      padding: 12px 16px;
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+    }
+    .action-bar .inner {
+      max-width: 720px; margin: 0 auto;
+      display: flex; gap: 8px; flex-wrap: wrap;
+    }
+    .action-bar .btn { flex: 1; min-width: 120px; padding: 12px 16px; }
+
+    /* ── 保存／結果メッセージ ── */
     #savedMsg {
-      color: #16a34a;
-      font-size: 13px;
+      position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+      background: #16a34a; color: #fff; padding: 10px 24px;
+      border-radius: 8px; font-size: 13px; z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
       display: none;
-      margin-top: 8px;
+    }
+    #savedMsg.show { display: block; }
+
+    /* testBtn の結果（options.js が className を 'success'/'error' に直接書き換えるため、ID 限定で扱う） */
+    #testResult {
+      display: none; margin: 8px 16px;
+      padding: 10px 12px; border-radius: 8px; font-size: 13px;
+    }
+    #testResult.success { display: block; background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+    #testResult.error { display: block; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    /* SUUMOビジネス取得・ForRent状態同期 結果（textContent と style.color のみ JS で操作） */
+    .action-result {
+      margin: 0 16px 8px; padding: 6px 0;
+      font-size: 13px; line-height: 1.5; min-height: 0;
     }
   </style>
 </head>
 <body>
+
+<div class="header">
   <h1>REINS物件自動取得 - 設定</h1>
+</div>
 
-  <div class="field">
-    <label for="gasUrl">GAS Web App URL</label>
-    <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/...">
-    <div class="hint">GASデプロイ後のWeb App URLを入力</div>
-  </div>
+<div class="container">
 
-  <div class="field">
-    <label for="apiKey">API Key</label>
-    <input type="password" id="apiKey" placeholder="GASで設定したAPIキー">
-    <div class="hint">GASのスクリプトプロパティ REINS_API_KEY の値</div>
-  </div>
-
-  <div class="field">
-    <label for="discordWebhook">Discord Webhook URL</label>
-    <input type="text" id="discordWebhook" placeholder="https://discord.com/api/webhooks/...">
-    <div class="hint">Forumチャンネルの Webhook URL（空欄で通知無効）</div>
-  </div>
-
-  <div class="field">
-    <label>通知モード</label>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
-      <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
-        <input type="radio" name="notifyMode" value="immediate" checked> 即時（見つけた瞬間に1件ずつ通知）
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
-        <input type="radio" name="notifyMode" value="batch"> 一括・集約（全サイト検索後、顧客ごとにまとめて通知）
-      </label>
-    </div>
-    <div class="hint">一括モードは複数サイトで重複した物件を排除してから通知します</div>
-  </div>
-
-  <div class="field">
-    <label>バス・トイレ別が設備欄にない場合</label>
-    <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
-      <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
-        <input type="radio" name="btMode" value="alert" checked> アラート（通知に⚠️を付けて知らせる）
-      </label>
-      <label style="display:flex;align-items:center;gap:6px;font-weight:normal">
-        <input type="radio" name="btMode" value="skip"> スキップ（物件自体を除外）
-      </label>
-    </div>
-    <div class="hint">顧客設定の設備欄に「バス・トイレ別」が指定されている場合のみ適用</div>
-  </div>
-
-  <h2 style="font-size:15px;margin:28px 0 12px;padding-top:16px;border-top:1px solid #e5e7eb;">失敗物件 強制再取得（ワンショット）</h2>
-  <div class="hint" style="margin-bottom:12px">
-    画像取得失敗などで再取得したい物件の <strong>物件番号</strong> を1行に1つずつ貼り付けてください。<br>
-    「リストを保存」→「今すぐ検索を実行」で、リストの物件は seen/skipped を無視して再取得されます。<br>
-    検索完了時にリストは自動でクリアされます（1回限り）。
-  </div>
-
-  <div class="field">
-    <label for="forceRefetchList">物件番号リスト（1行1件）</label>
-    <textarea id="forceRefetchList" rows="6" placeholder="例:&#10;100481810092&#10;100482029381&#10;rent_room_id_xxx" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:4px;font-size:14px;font-family:monospace"></textarea>
-    <div id="forceRefetchCurrent" style="font-size:12px;color:#6b7280;margin-top:4px"></div>
-  </div>
-  <div class="field" style="display:flex;gap:8px;flex-wrap:wrap">
-    <button type="button" id="forceRefetchSaveBtn" class="btn-test" style="background:#2563eb">リストを保存</button>
-    <button type="button" id="forceRefetchClearBtn" class="btn-test" style="background:#6b7280">リストをクリア</button>
-    <button type="button" id="forceRefetchRunBtn" class="btn-test" style="background:#059669">今すぐ検索を実行</button>
-  </div>
-  <div id="forceRefetchStatus" style="font-size:13px;margin-top:8px"></div>
-
-  <h2 style="font-size:15px;margin:28px 0 12px;padding-top:16px;border-top:1px solid #e5e7eb;">各サービス 自動ログイン</h2>
-  <div class="hint" style="margin-bottom:16px">
-    顧客検索中にログインページへ遷移した場合、保存したID/PWで自動ログインします。<br>
-    <strong>⚠️ 1度の自動ログイン失敗で該当サービスをブロックします（アカウントロック防止）。</strong>
-    失敗後は手動でログインしてから「ブロック解除」ボタンを押してください。
-  </div>
-
-  <!-- REINS -->
-  <div class="field">
-    <label for="reinsLoginId">REINS ログインID</label>
-    <input type="text" id="reinsLoginId" placeholder="例: 12345678">
-  </div>
-  <div class="field">
-    <label for="reinsPassword">REINS パスワード</label>
-    <input type="password" id="reinsPassword" placeholder="パスワード">
-    <div class="hint">「所属機構の規程及びガイドラインを遵守します」の同意チェックは自動でONにします</div>
-  </div>
-  <div class="field">
-    <label>REINS ログインブロック状態</label>
-    <div id="reinsLoginBlockedStatus" style="font-size:13px;margin-bottom:6px">（読み込み中...）</div>
-    <button type="button" id="reinsUnblockBtn" class="btn-test" style="background:#f59e0b">ログインブロックを解除</button>
-  </div>
-
-  <!-- itandi -->
-  <div class="field">
-    <label for="itandiLoginId">itandi BB ログインID（メールアドレス）</label>
-    <input type="text" id="itandiLoginId" placeholder="例: example@example.co.jp">
-  </div>
-  <div class="field">
-    <label for="itandiPassword">itandi BB パスワード</label>
-    <input type="password" id="itandiPassword" placeholder="パスワード">
-    <div class="hint">itandi-accounts.com (OAuth SSO) でログインします</div>
-  </div>
-  <div class="field">
-    <label>itandi BB ログインブロック状態</label>
-    <div id="itandiLoginBlockedStatus" style="font-size:13px;margin-bottom:6px">（読み込み中...）</div>
-    <button type="button" id="itandiUnblockBtn" class="btn-test" style="background:#f59e0b">ログインブロックを解除</button>
-  </div>
-
-  <!-- ES-Square (いい生活) -->
-  <div class="field">
-    <label for="essquareLoginId">いい生活 Square ログインID（メールアドレス）</label>
-    <input type="text" id="essquareLoginId" placeholder="例: example@example.co.jp">
-  </div>
-  <div class="field">
-    <label for="essquarePassword">いい生活 Square パスワード</label>
-    <input type="password" id="essquarePassword" placeholder="パスワード">
-    <div class="hint">auth.es-account.com (Auth0) でログインします</div>
-  </div>
-  <div class="field">
-    <label>いい生活 Square ログインブロック状態</label>
-    <div id="essquareLoginBlockedStatus" style="font-size:13px;margin-bottom:6px">（読み込み中...）</div>
-    <button type="button" id="essquareUnblockBtn" class="btn-test" style="background:#f59e0b">ログインブロックを解除</button>
-  </div>
-
-  <!-- いえらぶ -->
-  <div class="field">
-    <label for="ieloveLoginId">いえらぶ BB ログインID</label>
-    <input type="text" id="ieloveLoginId" placeholder="ログインID">
-  </div>
-  <div class="field">
-    <label for="ielovePassword">いえらぶ BB パスワード</label>
-    <input type="password" id="ielovePassword" placeholder="パスワード">
-  </div>
-  <div class="field">
-    <label>いえらぶ BB ログインブロック状態</label>
-    <div id="ieloveLoginBlockedStatus" style="font-size:13px;margin-bottom:6px">（読み込み中...）</div>
-    <button type="button" id="ieloveUnblockBtn" class="btn-test" style="background:#f59e0b">ログインブロックを解除</button>
-  </div>
-
-  <h2 style="font-size:15px;margin:28px 0 12px;padding-top:16px;border-top:1px solid #e5e7eb;">ForRent (SUUMO入稿)</h2>
-
-  <div class="field">
-    <label for="forrentLoginId">ForRent ログインID</label>
-    <input type="text" id="forrentLoginId" placeholder="ログインID">
-  </div>
-
-  <div class="field">
-    <label for="forrentPassword">ForRent パスワード</label>
-    <input type="password" id="forrentPassword" placeholder="パスワード">
-    <div class="hint">自動入稿時にログインが必要な場合に使用</div>
-  </div>
-
-  <div class="field">
-    <label for="suumoDiscordWebhook">SUUMO巡回用 Discord Webhook URL（任意）</label>
-    <input type="text" id="suumoDiscordWebhook" placeholder="https://discord.com/api/webhooks/...">
-    <div class="hint">SUUMO巡回で見つかった新着物件の通知先。空欄なら上の物件通知Webhookを使用</div>
-  </div>
-
-  <div class="field">
-    <label for="suumoBusinessKissCode">SUUMOビジネス kiss_code</label>
-    <input type="text" id="suumoBusinessKissCode" placeholder="例: 184819001">
-    <div class="hint">SUUMOビジネス Daily Search のURL上の <code>kiss_code</code> 値（9桁の数字）。未設定だと /reportDaily にリダイレクトされて取得できません</div>
-  </div>
-
-  <div class="field">
-    <label for="suumoBusinessLoginId">SUUMOビジネス ログインID（自動ログイン用）</label>
-    <input type="text" id="suumoBusinessLoginId" placeholder="例: f18481900101">
-    <div class="hint">セッション切れ時の自動ログインに使用。未設定ならセッション切れ時に取得が中止されます</div>
-  </div>
-
-  <div class="field">
-    <label for="suumoBusinessPassword">SUUMOビジネス パスワード（自動ログイン用）</label>
-    <input type="password" id="suumoBusinessPassword" placeholder="パスワード">
-    <div class="hint">⚠️ 1度の自動ログイン失敗で以降の取得を自動停止します（アカウントロック防止）</div>
-  </div>
-
-  <div class="field">
-    <label>SUUMOビジネス ログインブロック状態</label>
-    <div id="suumoBusinessLoginBlockedStatus" style="font-size:13px;margin-bottom:6px">（読み込み中...）</div>
-    <button type="button" id="suumoBusinessUnblockBtn" class="btn-test" style="background:#f59e0b">ログインブロックを解除</button>
-    <div class="hint">自動ログイン失敗でブロック状態になった後、手動ログインで復旧したらこのボタンで解除してください</div>
-  </div>
-
-  <div class="field">
-    <label>ForRent 停止処理 ドライラン</label>
-    <label style="display:inline-flex;align-items:center;gap:8px;font-weight:normal">
-      <input type="checkbox" id="suumoForrentStopDryRun" checked>
-      <span>ドライランモード（送信直前で停止し、タブを残して目視確認）</span>
-    </label>
-    <div class="hint">OFFにすると一括更新実行ボタンが自動クリックされ、物件が本当に保留になります。最初はONで挙動を確認してからOFFにしてください</div>
-  </div>
-
-  <div class="field">
-    <label>SUUMO入稿 最終登録ボタン ドライラン (Phase 5)</label>
-    <label style="display:inline-flex;align-items:center;gap:8px;font-weight:normal">
-      <input type="checkbox" id="suumoFinalSubmitDryRun" checked>
-      <span>ドライランモード（確認画面の「登録」直前で停止、タブ保持）</span>
-    </label>
-    <div class="hint">ONの間は入稿フォーム入力→確認画面まで自動、最後の「登録」は手動クリック。OFFにすると事前チェック(画像整合性等)を通過した物件のみ自動で登録ボタンがクリックされます</div>
-  </div>
-
-  <div class="field">
-    <label for="forrentStopTestCode">ForRent 停止テスト実行</label>
-    <input type="text" id="forrentStopTestCode" placeholder="SUUMO物件コード12桁 例: 100481810092" style="margin-bottom:6px">
-    <button type="button" id="forrentStopTestBtn" class="btn-test" style="background:#dc2626">この物件を停止（ドライラン/本番は上の設定に従う）</button>
-    <div id="forrentStopTestResult" style="margin-top:8px;font-size:13px"></div>
-    <div class="hint">⚠️ ドライランOFFで押すと本当に保留状態になります</div>
-  </div>
-
-  <div class="field">
-    <label for="suumoBusinessFetchUrl">SUUMOビジネス Daily Search URL（任意の上書き）</label>
-    <input type="text" id="suumoBusinessFetchUrl" placeholder="https://business1.suumo.jp/concierge/reportDailySearch?filters_i=...&filters_d=...">
-    <div class="hint">完全URLを入れるとそちらを優先使用。空欄なら kiss_code と日付（当日-2日を上限とする45日ウィンドウ）から自動組み立て</div>
-  </div>
-
-  <div class="field">
-    <label>SUUMO競合数による自動スキップ</label>
-    <div class="hint" style="margin-bottom:6px">4カテゴリの上限値を設定。いずれか1つでも上限を超える物件は完全スキップ（Discord通知も承認キューも無し）。空欄は制限なし。</div>
-    <div style="display:grid;grid-template-columns:auto 80px;gap:6px 12px;align-items:center;margin-top:6px">
-      <span style="font-weight:normal">物件名あり × ハイライトあり</span>
-      <input type="number" id="suumoCompSkipWithNameHL" min="0" placeholder="上限">
-      <span style="font-weight:normal">物件名あり × ハイライトなし</span>
-      <input type="number" id="suumoCompSkipWithName" min="0" placeholder="上限">
-      <span style="font-weight:normal">物件名なし × ハイライトあり</span>
-      <input type="number" id="suumoCompSkipWithoutNameHL" min="0" placeholder="上限">
-      <span style="font-weight:normal">物件名なし × ハイライトなし</span>
-      <input type="number" id="suumoCompSkipWithoutName" min="0" placeholder="上限">
+  <!-- ═══ GAS接続 ═══ -->
+  <div class="card">
+    <div class="card-title">GAS接続</div>
+    <div class="card-body">
+      <div class="field">
+        <label class="field-label" for="gasUrl">GAS Web App URL</label>
+        <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/...">
+        <div class="hint">GASデプロイ後のWeb App URLを入力</div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="apiKey">API Key</label>
+        <input type="password" id="apiKey" placeholder="GASで設定したAPIキー">
+        <div class="hint">GASのスクリプトプロパティ <code>REINS_API_KEY</code> の値</div>
+      </div>
     </div>
   </div>
 
-  <div class="field">
-    <label>SUUMO巡回: 画像枚数による自動スキップ</label>
-    <label style="display:inline-flex;align-items:center;gap:8px;font-weight:normal">
-      <input type="checkbox" id="suumoSkipLowImageCount">
-      <span>画像11枚以下の物件をスキップ</span>
-    </label>
-    <div class="hint">SUUMO巡回で取得した物件のうち、画像が11枚以下のものをDiscord通知・承認キューから除外します。画像枚数が取得できない物件はスキップしません(安全側)</div>
-  </div>
-
-  <div class="field">
-    <label for="suumoExcludeOwnerKeywords">SUUMO巡回: 元付会社名 除外キーワード</label>
-    <textarea id="suumoExcludeOwnerKeywords" rows="3" placeholder="例:&#10;レオパレス&#10;サブリース太郎" style="width:100%;padding:8px 10px;border:1px solid #d1d5db;border-radius:4px;font-size:14px;font-family:monospace"></textarea>
-    <div class="hint">物件の <code>owner_company</code>(元付会社名) にここのキーワードが<strong>含まれる</strong>物件をスキップします。1行に1キーワード(部分一致、大文字小文字無視)。<strong>競合数取得・画像取得より前</strong>に判定するため、無駄な処理が発生しません。SUUMO巡回のみ適用</div>
-  </div>
-
-  <div class="field">
-    <label for="itandiUpdatedWithinDays">SUUMO巡回: itandi 募集条件更新 N日以内のみ取得</label>
-    <input type="number" id="itandiUpdatedWithinDays" min="0" max="30" placeholder="例: 1（空欄なら制限なし）" style="width:120px">
-    <div class="hint">itandi BB API の <code>offer_conditions_updated_at:gteq</code> フィルタを付与します。「1」なら昨日00:00以降に募集条件が更新された物件のみ取得。新着差分だけ拾うので巡回高速化＆SUUMO検索への負荷軽減。SUUMO巡回のみ適用</div>
-  </div>
-
-  <div class="field">
-    <label for="errorWebhook">エラー通知用 Webhook URL（任意）</label>
-    <input type="text" id="errorWebhook" placeholder="https://discord.com/api/webhooks/...">
-    <div class="hint">エラーログをここに通知。空欄なら上の物件通知Webhookに送信。同一エラーは5分クールダウン</div>
-  </div>
-
-  <div class="field">
-    <label for="interval">検索間隔（分）</label>
-    <input type="number" id="interval" min="10" max="240" value="60">
-    <div class="hint">10〜240分（デフォルト60分）。bot対策で±ジッター幅だけランダム化されます</div>
-  </div>
-
-  <div class="field">
-    <label for="jitterPercent">ジッター幅（％）</label>
-    <input type="number" id="jitterPercent" min="0" max="50" value="20">
-    <div class="hint">0〜50%。例: 60分間隔・20%なら 48〜72分のランダム間隔</div>
-  </div>
-
-  <div class="field">
-    <label>営業時間</label>
-    <div style="display:flex;gap:8px;align-items:center">
-      <input type="number" id="startHour" min="0" max="23" value="10" style="width:70px">
-      <span>時 〜</span>
-      <input type="number" id="endHour" min="1" max="24" value="20" style="width:70px">
-      <span>時</span>
+  <!-- ═══ Discord通知 ═══ -->
+  <div class="card">
+    <div class="card-title">Discord通知</div>
+    <div class="card-body">
+      <div class="field">
+        <label class="field-label" for="discordWebhook">物件通知 Webhook URL</label>
+        <input type="text" id="discordWebhook" placeholder="https://discord.com/api/webhooks/...">
+        <div class="hint">Forumチャンネルの Webhook URL（空欄で通知無効）</div>
+      </div>
+      <div class="field">
+        <label class="field-label">通知モード</label>
+        <div class="opt-list">
+          <label><input type="radio" name="notifyMode" value="immediate" checked> 即時（見つけた瞬間に1件ずつ通知）</label>
+          <label><input type="radio" name="notifyMode" value="batch"> 一括・集約（全サイト検索後、顧客ごとにまとめて通知）</label>
+        </div>
+        <div class="hint">一括モードは複数サイトで重複した物件を排除してから通知します</div>
+      </div>
+      <div class="field">
+        <label class="field-label">バス・トイレ別が設備欄にない場合</label>
+        <div class="opt-list">
+          <label><input type="radio" name="btMode" value="alert" checked> アラート（通知に⚠️を付けて知らせる）</label>
+          <label><input type="radio" name="btMode" value="skip"> スキップ（物件自体を除外）</label>
+        </div>
+        <div class="hint">顧客設定の設備欄に「バス・トイレ別」が指定されている場合のみ適用</div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="errorWebhook">エラー通知用 Webhook URL（任意）</label>
+        <input type="text" id="errorWebhook" placeholder="https://discord.com/api/webhooks/...">
+        <div class="hint">エラーログをここに通知。空欄なら上の物件通知Webhookに送信。同一エラーは5分クールダウン</div>
+      </div>
     </div>
-    <div class="hint">この時間帯のみ自動検索を実行（24時間稼働なら 0〜24）</div>
   </div>
 
-  <div class="field">
-    <label for="delay">ページ遷移遅延（秒）</label>
-    <input type="number" id="delay" min="3" max="30" value="5">
-    <div class="hint">REINS内のページ遷移間の待機時間</div>
+  <!-- ═══ 失敗物件 強制再取得 ═══ -->
+  <div class="card">
+    <div class="card-title">失敗物件 強制再取得<span class="sub">ワンショット</span></div>
+    <div class="card-body">
+      <div class="field">
+        <div class="hint" style="margin-top:0;margin-bottom:10px">
+          画像取得失敗などで再取得したい物件の <strong>物件番号</strong> を1行に1つずつ貼り付けてください。<br>
+          「リストを保存」→「今すぐ検索を実行」で、リストの物件は seen/skipped を無視して再取得されます。<br>
+          検索完了時にリストは自動でクリアされます（1回限り）。
+        </div>
+        <label class="field-label" for="forceRefetchList">物件番号リスト（1行1件）</label>
+        <textarea id="forceRefetchList" rows="6" placeholder="例:&#10;100481810092&#10;100482029381&#10;rent_room_id_xxx" style="font-family:monospace"></textarea>
+        <div id="forceRefetchCurrent" class="hint" style="margin-top:6px"></div>
+      </div>
+      <div class="btn-row">
+        <button type="button" id="forceRefetchSaveBtn" class="btn btn-primary btn-sm">リストを保存</button>
+        <button type="button" id="forceRefetchClearBtn" class="btn btn-secondary btn-sm">リストをクリア</button>
+        <button type="button" id="forceRefetchRunBtn" class="btn btn-success btn-sm">今すぐ検索を実行</button>
+      </div>
+      <div id="forceRefetchStatus" class="status-line" style="padding:0 16px 12px"></div>
+    </div>
   </div>
 
-  <div class="actions">
-    <button class="btn-save" id="saveBtn">保存</button>
-    <button class="btn-test" id="testBtn">接続テスト</button>
-    <button class="btn-test" id="suumoBusinessFetchBtn" style="background:#fb7185">SUUMOビジネス データ取得</button>
-    <button class="btn-test" id="forrentStatusSyncBtn" style="background:#059669">ForRent状態同期(停止反映)</button>
+  <!-- ═══ 各サービス自動ログイン ═══ -->
+  <div class="card">
+    <div class="card-title">各サービス 自動ログイン</div>
+    <div class="card-body">
+      <div class="field">
+        <div class="hint" style="margin-top:0">
+          顧客検索中にログインページへ遷移した場合、保存したID/PWで自動ログインします。<br>
+          <strong>⚠️ 1度の自動ログイン失敗で該当サービスをブロックします（アカウントロック防止）。</strong>
+          失敗後は手動でログインしてから「ブロック解除」ボタンを押してください。
+        </div>
+      </div>
+
+      <!-- REINS -->
+      <div class="section-title">REINS</div>
+      <div class="field">
+        <label class="field-label" for="reinsLoginId">ログインID</label>
+        <input type="text" id="reinsLoginId" placeholder="例: 12345678">
+      </div>
+      <div class="field">
+        <label class="field-label" for="reinsPassword">パスワード</label>
+        <input type="password" id="reinsPassword" placeholder="パスワード">
+        <div class="hint">「所属機構の規程及びガイドラインを遵守します」の同意チェックは自動でONにします</div>
+      </div>
+      <div class="login-block-row">
+        <div class="status">ブロック状態: <span id="reinsLoginBlockedStatus">（読み込み中...）</span></div>
+        <button type="button" id="reinsUnblockBtn" class="btn btn-warning btn-sm">ブロック解除</button>
+      </div>
+
+      <!-- itandi -->
+      <div class="section-title">itandi BB</div>
+      <div class="field">
+        <label class="field-label" for="itandiLoginId">ログインID（メールアドレス）</label>
+        <input type="text" id="itandiLoginId" placeholder="例: example@example.co.jp">
+      </div>
+      <div class="field">
+        <label class="field-label" for="itandiPassword">パスワード</label>
+        <input type="password" id="itandiPassword" placeholder="パスワード">
+        <div class="hint">itandi-accounts.com (OAuth SSO) でログインします</div>
+      </div>
+      <div class="login-block-row">
+        <div class="status">ブロック状態: <span id="itandiLoginBlockedStatus">（読み込み中...）</span></div>
+        <button type="button" id="itandiUnblockBtn" class="btn btn-warning btn-sm">ブロック解除</button>
+      </div>
+
+      <!-- ES-Square (いい生活) -->
+      <div class="section-title">いい生活 Square</div>
+      <div class="field">
+        <label class="field-label" for="essquareLoginId">ログインID（メールアドレス）</label>
+        <input type="text" id="essquareLoginId" placeholder="例: example@example.co.jp">
+      </div>
+      <div class="field">
+        <label class="field-label" for="essquarePassword">パスワード</label>
+        <input type="password" id="essquarePassword" placeholder="パスワード">
+        <div class="hint">auth.es-account.com (Auth0) でログインします</div>
+      </div>
+      <div class="login-block-row">
+        <div class="status">ブロック状態: <span id="essquareLoginBlockedStatus">（読み込み中...）</span></div>
+        <button type="button" id="essquareUnblockBtn" class="btn btn-warning btn-sm">ブロック解除</button>
+      </div>
+
+      <!-- いえらぶ -->
+      <div class="section-title">いえらぶ BB</div>
+      <div class="field">
+        <label class="field-label" for="ieloveLoginId">ログインID</label>
+        <input type="text" id="ieloveLoginId" placeholder="ログインID">
+      </div>
+      <div class="field">
+        <label class="field-label" for="ielovePassword">パスワード</label>
+        <input type="password" id="ielovePassword" placeholder="パスワード">
+      </div>
+      <div class="login-block-row">
+        <div class="status">ブロック状態: <span id="ieloveLoginBlockedStatus">（読み込み中...）</span></div>
+        <button type="button" id="ieloveUnblockBtn" class="btn btn-warning btn-sm">ブロック解除</button>
+      </div>
+    </div>
   </div>
 
-  <div id="savedMsg">保存しました</div>
+  <!-- ═══ ForRent (SUUMO入稿) ═══ -->
+  <div class="card">
+    <div class="card-title">ForRent<span class="sub">SUUMO入稿</span></div>
+    <div class="card-body">
+      <div class="field">
+        <label class="field-label" for="forrentLoginId">ログインID</label>
+        <input type="text" id="forrentLoginId" placeholder="ログインID">
+      </div>
+      <div class="field">
+        <label class="field-label" for="forrentPassword">パスワード</label>
+        <input type="password" id="forrentPassword" placeholder="パスワード">
+        <div class="hint">自動入稿時にログインが必要な場合に使用</div>
+      </div>
+
+      <div class="section-title">ドライラン設定</div>
+      <div class="field">
+        <label class="field-label">ForRent 停止処理</label>
+        <div class="opt-list">
+          <label><input type="checkbox" id="suumoForrentStopDryRun" checked> ドライランモード（送信直前で停止し、タブを残して目視確認）</label>
+        </div>
+        <div class="hint">OFFにすると一括更新実行ボタンが自動クリックされ、物件が本当に保留になります。最初はONで挙動を確認してからOFFにしてください</div>
+      </div>
+      <div class="field">
+        <label class="field-label">SUUMO入稿 最終登録ボタン (Phase 5)</label>
+        <div class="opt-list">
+          <label><input type="checkbox" id="suumoFinalSubmitDryRun" checked> ドライランモード（確認画面の「登録」直前で停止、タブ保持）</label>
+        </div>
+        <div class="hint">ONの間は入稿フォーム入力→確認画面まで自動、最後の「登録」は手動クリック。OFFにすると事前チェック(画像整合性等)を通過した物件のみ自動で登録ボタンがクリックされます</div>
+      </div>
+
+      <div class="section-title">停止テスト実行</div>
+      <div class="field">
+        <label class="field-label" for="forrentStopTestCode">SUUMO物件コード（12桁）</label>
+        <input type="text" id="forrentStopTestCode" placeholder="例: 100481810092">
+        <div class="hint">⚠️ ドライランOFFで押すと本当に保留状態になります</div>
+      </div>
+      <div class="btn-row">
+        <button type="button" id="forrentStopTestBtn" class="btn btn-danger btn-sm">この物件を停止</button>
+      </div>
+      <div id="forrentStopTestResult" class="status-line" style="padding:0 16px 12px"></div>
+    </div>
+  </div>
+
+  <!-- ═══ SUUMOビジネス ═══ -->
+  <div class="card">
+    <div class="card-title">SUUMOビジネス<span class="sub">Daily Search</span></div>
+    <div class="card-body">
+      <div class="field">
+        <label class="field-label" for="suumoBusinessKissCode">kiss_code</label>
+        <input type="text" id="suumoBusinessKissCode" placeholder="例: 184819001">
+        <div class="hint">SUUMOビジネス Daily Search のURL上の <code>kiss_code</code> 値（9桁の数字）。未設定だと /reportDaily にリダイレクトされて取得できません</div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="suumoBusinessLoginId">ログインID（自動ログイン用）</label>
+        <input type="text" id="suumoBusinessLoginId" placeholder="例: f18481900101">
+        <div class="hint">セッション切れ時の自動ログインに使用。未設定ならセッション切れ時に取得が中止されます</div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="suumoBusinessPassword">パスワード（自動ログイン用）</label>
+        <input type="password" id="suumoBusinessPassword" placeholder="パスワード">
+        <div class="hint">⚠️ 1度の自動ログイン失敗で以降の取得を自動停止します（アカウントロック防止）</div>
+      </div>
+      <div class="login-block-row">
+        <div class="status">ブロック状態: <span id="suumoBusinessLoginBlockedStatus">（読み込み中...）</span></div>
+        <button type="button" id="suumoBusinessUnblockBtn" class="btn btn-warning btn-sm">ブロック解除</button>
+      </div>
+      <div class="field" style="padding-top:0">
+        <div class="hint">自動ログイン失敗でブロック状態になった後、手動ログインで復旧したらこのボタンで解除してください</div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="suumoBusinessFetchUrl">Daily Search URL（任意の上書き）</label>
+        <input type="text" id="suumoBusinessFetchUrl" placeholder="https://business1.suumo.jp/concierge/reportDailySearch?filters_i=...&filters_d=...">
+        <div class="hint">完全URLを入れるとそちらを優先使用。空欄なら kiss_code と日付（当日-2日を上限とする45日ウィンドウ）から自動組み立て</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ SUUMO巡回 ═══ -->
+  <div class="card">
+    <div class="card-title">SUUMO巡回</div>
+    <div class="card-body">
+      <div class="field">
+        <label class="field-label" for="suumoDiscordWebhook">SUUMO巡回用 Discord Webhook URL（任意）</label>
+        <input type="text" id="suumoDiscordWebhook" placeholder="https://discord.com/api/webhooks/...">
+        <div class="hint">SUUMO巡回で見つかった新着物件の通知先。空欄なら上の物件通知Webhookを使用</div>
+      </div>
+
+      <div class="section-title">競合数による自動スキップ</div>
+      <div class="field" style="padding-bottom:4px">
+        <div class="hint" style="margin-top:0">4カテゴリの上限値を設定。いずれか1つでも上限を超える物件は完全スキップ（Discord通知も承認キューも無し）。空欄は制限なし。</div>
+      </div>
+      <div class="grid-2col">
+        <span>物件名あり × ハイライトあり</span>
+        <input type="number" id="suumoCompSkipWithNameHL" min="0" placeholder="上限">
+        <span>物件名あり × ハイライトなし</span>
+        <input type="number" id="suumoCompSkipWithName" min="0" placeholder="上限">
+        <span>物件名なし × ハイライトあり</span>
+        <input type="number" id="suumoCompSkipWithoutNameHL" min="0" placeholder="上限">
+        <span>物件名なし × ハイライトなし</span>
+        <input type="number" id="suumoCompSkipWithoutName" min="0" placeholder="上限">
+      </div>
+
+      <div class="section-title">画像枚数による自動スキップ</div>
+      <div class="field">
+        <div class="opt-list">
+          <label><input type="checkbox" id="suumoSkipLowImageCount"> 画像11枚以下の物件をスキップ</label>
+        </div>
+        <div class="hint">SUUMO巡回で取得した物件のうち、画像が11枚以下のものをDiscord通知・承認キューから除外します。画像枚数が取得できない物件はスキップしません(安全側)</div>
+      </div>
+
+      <div class="section-title">元付会社名 除外キーワード</div>
+      <div class="field">
+        <textarea id="suumoExcludeOwnerKeywords" rows="3" placeholder="例:&#10;レオパレス&#10;サブリース太郎" style="font-family:monospace"></textarea>
+        <div class="hint">物件の <code>owner_company</code>(元付会社名) にここのキーワードが<strong>含まれる</strong>物件をスキップします。1行に1キーワード(部分一致、大文字小文字無視)。<strong>競合数取得・画像取得より前</strong>に判定するため、無駄な処理が発生しません。SUUMO巡回のみ適用</div>
+      </div>
+
+      <div class="section-title">itandi 募集条件更新フィルタ</div>
+      <div class="field">
+        <label class="field-label" for="itandiUpdatedWithinDays">N日以内に更新された物件のみ取得</label>
+        <input type="number" id="itandiUpdatedWithinDays" min="0" max="30" placeholder="例: 1（空欄なら制限なし）" style="width:140px">
+        <div class="hint">itandi BB API の <code>offer_conditions_updated_at:gteq</code> フィルタを付与します。「1」なら昨日00:00以降に募集条件が更新された物件のみ取得。新着差分だけ拾うので巡回高速化＆SUUMO検索への負荷軽減。SUUMO巡回のみ適用</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 動作設定 ═══ -->
+  <div class="card">
+    <div class="card-title">動作設定</div>
+    <div class="card-body">
+      <div class="field">
+        <label class="field-label" for="interval">検索間隔（分）</label>
+        <input type="number" id="interval" min="10" max="240" value="60" style="width:140px">
+        <div class="hint">10〜240分（デフォルト60分）。bot対策で±ジッター幅だけランダム化されます</div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="jitterPercent">ジッター幅（％）</label>
+        <input type="number" id="jitterPercent" min="0" max="50" value="20" style="width:140px">
+        <div class="hint">0〜50%。例: 60分間隔・20%なら 48〜72分のランダム間隔</div>
+      </div>
+      <div class="field">
+        <label class="field-label">営業時間</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="number" id="startHour" min="0" max="23" value="10" style="width:80px">
+          <span>時 〜</span>
+          <input type="number" id="endHour" min="1" max="24" value="20" style="width:80px">
+          <span>時</span>
+        </div>
+        <div class="hint">この時間帯のみ自動検索を実行（24時間稼働なら 0〜24）</div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="delay">ページ遷移遅延（秒）</label>
+        <input type="number" id="delay" min="3" max="30" value="5" style="width:140px">
+        <div class="hint">REINS内のページ遷移間の待機時間</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 結果表示 -->
   <div id="testResult"></div>
-  <div id="suumoBusinessFetchResult" style="margin-top:8px;font-size:13px;color:#374151"></div>
-  <div id="forrentStatusSyncResult" style="margin-top:8px;font-size:13px;color:#374151"></div>
+  <div id="suumoBusinessFetchResult" class="action-result"></div>
+  <div id="forrentStatusSyncResult" class="action-result"></div>
 
-  <script src="options.js"></script>
+</div>
+
+<!-- ═══ アクションバー ═══ -->
+<div class="action-bar">
+  <div class="inner">
+    <button class="btn btn-primary" id="saveBtn">保存</button>
+    <button class="btn btn-secondary" id="testBtn">接続テスト</button>
+    <button class="btn btn-warning" id="suumoBusinessFetchBtn">SUUMOビジネス取得</button>
+    <button class="btn btn-success" id="forrentStatusSyncBtn">ForRent状態同期</button>
+  </div>
+</div>
+
+<div id="savedMsg">保存しました</div>
+
+<script src="options.js"></script>
 </body>
 </html>
