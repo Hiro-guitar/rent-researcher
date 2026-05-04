@@ -4171,11 +4171,20 @@ async function sendDiscordNotification(customerName, properties, customer) {
 
   try {
     let threadId = discordThreadIds[customerName];
+    // この検索実行で顧客の1物件目に検索条件を prepend するか
+    // (新規スレッド時は最初の投稿に統合、既存スレッド時は1物件目に統合)
+    let pendingSearchInfo = (customer && (!discordPropertyCounters[customerName] || discordPropertyCounters[customerName] === 0))
+      ? buildSearchInfo(customer)
+      : '';
 
-    // スレッドがまだなければ作成＋検索条件を送信
+    // スレッドがまだなければ作成（最初の投稿は検索条件のみ。物件1メッセージは下のループで送る）
+    // ※ Discord forum の thread 作成 = 最初の投稿。ここに content を入れることで
+    //    スレッド作成 + 検索条件メッセージを 1 メッセージに統合できる(従来は2メッセージ)。
     if (!threadId) {
+      // ヘッダー content: 検索条件があればそれを使う(無ければ顧客名)
+      const headerContent = pendingSearchInfo || `**${customerName}** 様の新着物件`;
       const headerPayload = {
-        content: `**${customerName}** 様の新着物件`,
+        content: headerContent,
         thread_name: `🏠 ${customerName}`
       };
       const resp = await fetch(`${discordWebhookUrl}?wait=true`, {
@@ -4199,13 +4208,9 @@ async function sendDiscordNotification(customerName, properties, customer) {
       // ストレージに永続化
       try { await setStorageData({ discordThreadIds }); } catch (e) {}
 
-      // 検索条件を送信
-      if (customer) {
-        const searchInfo = buildSearchInfo(customer);
-        await sleep(500);
-        await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: searchInfo });
-        await sleep(500);
-      }
+      // スレッド作成時に検索条件は最初の投稿として送信済み → 1物件目では prepend しない
+      pendingSearchInfo = '';
+      await sleep(500);
 
       // 未解決駅があればスレッド内に警告を送信
       const custUnresolved = _unresolvedStations[customerName];
@@ -4225,16 +4230,25 @@ async function sendDiscordNotification(customerName, properties, customer) {
     // スレッドが生きているか確認（既存スレッドの場合、最初の投稿で404なら再作成）
     if (!discordPropertyCounters[customerName]) discordPropertyCounters[customerName] = 0;
 
-    // この検索実行でこの顧客の最初の物件送信なら、先に検索条件を送信
-    if (discordPropertyCounters[customerName] === 0 && customer) {
-      const searchInfo = buildSearchInfo(customer);
-      await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: searchInfo });
-      await sleep(500);
-    }
-
     for (let i = 0; i < properties.length; i++) {
       discordPropertyCounters[customerName]++;
-      const msg = '<@1459814543600390341>\n' + buildDiscordMessage(properties[i], discordPropertyCounters[customerName], gasWebappUrl, customerName, customer);
+      const propMsg = buildDiscordMessage(properties[i], discordPropertyCounters[customerName], gasWebappUrl, customerName, customer);
+      let msg = '<@1459814543600390341>\n' + propMsg;
+
+      // 既存スレッドの1物件目: 検索条件を物件メッセージに prepend して通知数を1つに統合。
+      // 文字数(2000上限)に余裕がない場合は別送信に fallback。
+      if (i === 0 && pendingSearchInfo) {
+        const combined = `<@1459814543600390341>\n${pendingSearchInfo}\n\n${propMsg}`;
+        if (combined.length <= 1900) {
+          msg = combined;
+        } else {
+          // 文字数超過 → 検索条件を別メッセージで先に送信
+          await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: pendingSearchInfo });
+          await sleep(500);
+        }
+        pendingSearchInfo = '';
+      }
+
       const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg });
       // スレッドが期限切れ/削除された場合は再作成
       if (postResp && (postResp.status === 404 || postResp.status === 400)) {
