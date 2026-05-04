@@ -446,43 +446,27 @@ async function _isCompletionScreen(tabId) {
 }
 
 /**
- * Discord通知 (SUUMO巡回スレッドに混ぜる)
+ * SUUMO広告一括更新の結果ログ (Discord通知は廃止、debugLog のみ)。
+ * 旧仕様では Discord 日毎スレッド (getOrCreateSuumoDailyThread_) に通知して
+ * いたが、巡回ごとスレッドに統一した時点で「中身のない一括更新スレッド」が
+ * 1日1回立つだけになり、不要との判断 (2026-05)。
+ * パスワード期限切れ等のクリティカル警告は debugLog で十分追える。
  */
 async function _notifyBulkUpdateResult(result) {
-  const { suumoDiscordWebhookUrl } = await getStorageData(['suumoDiscordWebhookUrl']);
-  if (!suumoDiscordWebhookUrl) return;
-  if (typeof getOrCreateSuumoDailyThread_ !== 'function') return;
-  const threadId = await getOrCreateSuumoDailyThread_(suumoDiscordWebhookUrl);
-
   let content;
   if (result.ok) {
-    content = `🔄 **SUUMO広告一括更新 完了**\n`
-      + `更新件数: ${result.totalUpdated || 0}件 (${result.pagesProcessed || 0}ページ)`;
-    if (result.note) content += `\n${result.note}`;
+    content = `[SUUMO一括更新] 完了: ${result.totalUpdated || 0}件 (${result.pagesProcessed || 0}ページ)`;
+    if (result.note) content += ` / ${result.note}`;
   } else {
-    content = `⚠️ **SUUMO広告一括更新 失敗**\n`
-      + `理由: ${result.error || 'unknown'}\n`
-      + `(次回のSUUMO巡回でリトライします)`;
+    content = `[SUUMO一括更新] ⚠️ 失敗: ${result.error || 'unknown'} (次回SUUMO巡回でリトライ)`;
     if (typeof result.totalUpdated === 'number' && result.totalUpdated > 0) {
-      content += `\n途中まで: ${result.totalUpdated}件 (${result.pagesProcessed || 0}ページ)`;
+      content += ` / 途中まで: ${result.totalUpdated}件 (${result.pagesProcessed || 0}ページ)`;
     }
   }
   if (result.passwordExpiredWarn) {
-    content += `\n⚠️ パスワード有効期限が切れています(画面バナー表示あり)。早めに変更推奨`;
+    content += ` / ⚠️ SUUMOビジネスのパスワード期限切れ(早めに変更推奨)`;
   }
-  let postUrl = suumoDiscordWebhookUrl;
-  if (threadId) {
-    postUrl = suumoDiscordWebhookUrl
-      + (suumoDiscordWebhookUrl.indexOf('?') >= 0 ? '&' : '?')
-      + 'thread_id=' + encodeURIComponent(threadId);
-  }
-  try {
-    await fetch(postUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content })
-    });
-  } catch (_) {}
+  await setStorageData({ debugLog: content });
 }
 
 globalThis.maybeRunSuumoBulkAdUpdate = maybeRunSuumoBulkAdUpdate;

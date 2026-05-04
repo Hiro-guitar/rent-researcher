@@ -605,12 +605,15 @@ async function createSuumoPatrolThread_(webhookUrl) {
 }
 
 /**
- * (旧) 日付ごとの SUUMO巡回 Discord スレッドを取得・作成
- * - 同じ JST日付なら既存スレッドを再利用(スレッド作成は1日1回のみ)
- * - 別日 or 未作成なら新規スレッド作成
- * - スレッド作成失敗時は null を返す(呼び出し側でフォールバック扱い)
+ * (旧/未使用) 日付ごとの SUUMO Discord スレッドを取得・作成
  *
- * suumo-bulk-update.js (一括更新) で引き続き使用。
+ * 経緯:
+ *   - 旧: SUUMO巡回が 1日1スレッドだった頃、巡回も一括更新もこの関数を使用
+ *   - 中: SUUMO巡回は createSuumoPatrolThread_ (巡回ごと) に切り替え、
+ *         本関数は suumo-bulk-update.js (一括更新) でのみ使用
+ *   - 現在 (2026-05): 一括更新の Discord 通知も廃止 → 本関数は事実上未使用
+ *
+ * 呼び出し元が無くなったが、将来再利用する可能性に備えて関数自体は残置。
  */
 async function getOrCreateSuumoDailyThread_(webhookUrl) {
   if (!webhookUrl) return null;
@@ -627,8 +630,10 @@ async function getOrCreateSuumoDailyThread_(webhookUrl) {
   }
 
   // 新スレッド作成 (forum チャンネルへの thread_name付き投稿で channel_id 取得)
-  const threadName = '🌀 SUUMO巡回 ' + todayJst;
-  const headerContent = '━━━ SUUMO巡回 ' + todayJst + ' ━━━';
+  // 用途: SUUMO広告一括更新 (1日1回)。SUUMO巡回 (createSuumoPatrolThread_)
+  // とはスレッド名・絵文字で区別する。
+  const threadName = '🔄 SUUMO一括更新 ' + todayJst;
+  const headerContent = '━━━ SUUMO一括更新 ' + todayJst + ' ━━━';
   try {
     const resp = await fetch(webhookUrl + (webhookUrl.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
       method: 'POST',
@@ -637,23 +642,23 @@ async function getOrCreateSuumoDailyThread_(webhookUrl) {
     });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
-      await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成失敗: HTTP ${resp.status} ${text.substring(0,150)}` });
+      await setStorageData({ debugLog: `[SUUMO一括更新] スレッド作成失敗: HTTP ${resp.status} ${text.substring(0,150)}` });
       return null;
     }
     const data = await resp.json();
     const threadId = data.channel_id || data.thread_id || (data.channel && data.channel.id) || '';
     if (!threadId) {
-      await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成失敗: thread_id取得不可` });
+      await setStorageData({ debugLog: `[SUUMO一括更新] スレッド作成失敗: thread_id取得不可` });
       return null;
     }
     await setStorageData({
       suumoDailyThreadId: threadId,
       suumoDailyThreadDate: todayJst,
-      debugLog: `[SUUMO巡回] 本日(${todayJst})のDiscordスレッド作成OK`
+      debugLog: `[SUUMO一括更新] 本日(${todayJst})のDiscordスレッド作成OK`
     });
     return threadId;
   } catch (err) {
-    await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成例外: ${err.message}` });
+    await setStorageData({ debugLog: `[SUUMO一括更新] スレッド作成例外: ${err.message}` });
     return null;
   }
 }

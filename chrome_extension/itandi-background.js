@@ -1149,8 +1149,14 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     if (f['floor:lteq'] === 1) filterParts.push('1階');
     if (f['shikikin:eq'] === 0) filterParts.push('敷金なし');
     if (f['reikin:eq'] === 0) filterParts.push('礼金なし');
+    // 募集条件更新フィルタ (SUUMO巡回時のみ): "2026-05-03T00:00:00.000" 形式
+    if (f['offer_conditions_updated_at:gteq']) {
+      const fromStr = String(f['offer_conditions_updated_at:gteq']).substring(0, 10);
+      filterParts.push(`更新${fromStr}以降`);
+    }
     const chunkLabel = jgdcChunks.length > 1 ? ` [分割${chunkIdx + 1}/${jgdcChunks.length}]` : '';
     await setStorageData({ debugLog: `[itandi] ${customer.name}: API検索条件${chunkLabel} → ${filterParts.join(' / ') || '(条件なし)'}` });
+    console.log(`[itandi] API検索条件: ${filterParts.join(' / ') || '(条件なし)'}`, 'payload.filter:', f);
 
     // ページネーション（最大10ページ = 200件）
     const maxPages = 10;
