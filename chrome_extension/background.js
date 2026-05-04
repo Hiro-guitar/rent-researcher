@@ -1584,7 +1584,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   // SW再起動直後でもbtModeを確実に拾うためストレージから直読み
   const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'alert')));
   __btMode = __btModeFresh;
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都' }, lineNameMap, reinsCodeMap, __btModeFresh];
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null) }, lineNameMap, reinsCodeMap, __btModeFresh];
   const __setCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap, btMode) => {
       // Vueルート取得
       const fi = document.querySelector('.p-textbox-input');
@@ -1616,6 +1616,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       vr.mdrTyp = []; vr.mdrHysuFrom = ''; vr.mdrHysuTo = '';
       vr.snyuMnskFrom = ''; vr.snyuMnskTo = '';
       vr.hnkuNngppFrom = ''; vr.hnkuNngppTo = '';
+      // 登録年月日もリセット (turk = touroku)
+      vr.turkKkn = '0';
+      vr.turkNngppFrom = ''; vr.turkNngppTo = '';
+      vr.turkNngppDisabled = true;
 
       // 物件種別: 賃貸マンション
       vr.bkknShbt1 = '03';
@@ -1940,6 +1944,30 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         if (!cur.includes('バス・トイレ別') && !cur.includes('バストイレ別')) {
           vr.optKnsk = cur ? (cur + ' バス・トイレ別') : 'バス・トイレ別';
         }
+      }
+
+      // SUUMO巡回時の「登録年月日 N日以内」フィルタ。
+      // REINS は Vue $data 直書きで動作 (turkKkn='4' = 「日付を指定」)。
+      //   turkKkn       : '0'(指定なし) | '1'(3日以内) | '2'(1週間以内) |
+      //                   '3'(1ヶ月以内) | '4'(日付を指定) | '5'(前日) | '6'(当日)
+      //   turkNngppFrom : 'YYYY-MM-DD' (ISO date)
+      //   turkNngppTo   : 'YYYY-MM-DD'
+      //   turkNngppDisabled : Boolean (= turkKkn !== '4' 時 true)
+      // プリセット (1/2/3) と日付指定で結果同等のはずなので、任意日数対応のため
+      // 一律 turkKkn='4' (日付指定) を使用。
+      if (customerData && customerData._isSuumoPatrol &&
+          typeof customerData.daysWithin === 'number' && customerData.daysWithin >= 0) {
+        const __pad = (n) => String(n).padStart(2, '0');
+        const __today = new Date();
+        __today.setHours(0, 0, 0, 0);
+        const __todayStr = __today.getFullYear() + '-' + __pad(__today.getMonth() + 1) + '-' + __pad(__today.getDate());
+        const __from = new Date(__today);
+        __from.setDate(__from.getDate() - customerData.daysWithin);
+        const __fromStr = __from.getFullYear() + '-' + __pad(__from.getMonth() + 1) + '-' + __pad(__from.getDate());
+        vr.turkKkn = '4';
+        vr.turkNngppFrom = __fromStr;
+        vr.turkNngppTo = __todayStr;
+        vr.turkNngppDisabled = false;
       }
 
       // セットした全沿線情報をデバッグ用に収集
