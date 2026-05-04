@@ -793,7 +793,7 @@ function getItandiFilterRejectReason(prop, customer) {
   const isSuumoPatrol = !!globalThis._suumoPatrolMode;
   if (!isTestUser && !isSuumoPatrol) {
     if (prop.listing_status === '申込あり') {
-      try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
+      try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number, prop.url, 'itandi'); } catch(e) {}
       return '申込あり';
     }
     // 申込あり以外のステータスが確認できた場合はキャンセル扱いで記録を消す

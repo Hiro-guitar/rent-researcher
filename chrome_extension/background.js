@@ -14,15 +14,22 @@
 // { customerName: { service: [stationName, ...], ... }, ... }
 let _unresolvedStations = {};
 
-// 他サイトで「申込あり」として弾いた物件のキーを永続化(7日TTL)
-// 形式: { "<building>|<room>": <timestamp>, ... }
-// REINSが最初に走るため、前回以前の実行で収集したキーを参照する
+// 他サイトで「申込あり」として弾いた物件のキーを永続化(30日TTL)
+// 形式: { "<building>|<room>": { ts: <timestamp>, url: <検出時の物件URL>, source: <検出元サイト名> }, ... }
+// 旧形式 ({ "<key>": <timestamp> }) との後方互換も維持。
+// REINS が最後に走るため、前段で収集したキーを参照して「前回実行で他サイトが申込ありと判定」を検知する。
 const __MOSHIKOMI_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30日。期間内に他サイトが再度申込ありを検出すれば都度延長される
 globalThis.__moshikomiSkipMap = {};
 chrome.storage.local.get(['moshikomiSkipMap'], (d) => {
   const m = d.moshikomiSkipMap || {};
   const now = Date.now();
-  for (const k in m) { if (now - m[k] < __MOSHIKOMI_TTL_MS) globalThis.__moshikomiSkipMap[k] = m[k]; }
+  for (const k in m) {
+    const v = m[k];
+    const ts = (typeof v === 'number') ? v : ((v && v.ts) || 0);
+    if (ts && now - ts < __MOSHIKOMI_TTL_MS) {
+      globalThis.__moshikomiSkipMap[k] = (typeof v === 'number') ? { ts: v, url: '', source: '' } : v;
+    }
+  }
 });
 globalThis.__normMoshikomiKey = (building, room) => {
   const nb = String(building || '').replace(/\s+/g, '').toLowerCase();
@@ -30,10 +37,14 @@ globalThis.__normMoshikomiKey = (building, room) => {
   if (!nb || !nr) return '';
   return `${nb}|${nr}`;
 };
-globalThis.__addMoshikomiKey = (building, room) => {
+globalThis.__addMoshikomiKey = (building, room, url, source) => {
   const k = globalThis.__normMoshikomiKey(building, room);
   if (!k) return;
-  globalThis.__moshikomiSkipMap[k] = Date.now();
+  globalThis.__moshikomiSkipMap[k] = {
+    ts: Date.now(),
+    url: url || '',
+    source: source || ''
+  };
   // 保存(デバウンスせず都度。サイズは小さい想定)
   chrome.storage.local.set({ moshikomiSkipMap: globalThis.__moshikomiSkipMap }).catch(()=>{});
 };
@@ -48,14 +59,24 @@ globalThis.__removeMoshikomiKey = (building, room) => {
 globalThis.__hasMoshikomiKey = (building, room) => {
   const k = globalThis.__normMoshikomiKey(building, room);
   if (!k) return false;
-  const ts = globalThis.__moshikomiSkipMap[k];
+  const v = globalThis.__moshikomiSkipMap[k];
+  const ts = (typeof v === 'number') ? v : (v && v.ts);
   return !!(ts && (Date.now() - ts < __MOSHIKOMI_TTL_MS));
+};
+// 申込ありとして弾いた時の検出元情報 (URL, source) を返す
+globalThis.__getMoshikomiInfo = (building, room) => {
+  const k = globalThis.__normMoshikomiKey(building, room);
+  if (!k) return null;
+  const v = globalThis.__moshikomiSkipMap[k];
+  if (!v) return null;
+  if (typeof v === 'number') return { ts: v, url: '', source: '' };
+  return v;
 };
 
 // スキップログ末尾に追記する「物件URL」を返すヘルパー (空文字 or 先頭スペース付きURL)。
 // - prop.url があればそれ
 // - REINS 物件は url を持たないため、reins_property_number から「REINS で開く」相当URLを構築
-//   (background.js:4694 の Discord リンクと同じ形式)
+//   (background.js の Discord リンクと同じ形式)
 globalThis.__formatPropSkipUrl = (prop) => {
   if (!prop) return '';
   if (prop.url) return ' ' + prop.url;
@@ -64,6 +85,20 @@ globalThis.__formatPropSkipUrl = (prop) => {
     if (clean) return ' https://system.reins.jp/main/BK/GBK004100#bukken=' + clean;
   }
   return '';
+};
+
+// reason に応じてスキップログ末尾に付ける URL を切り替えるヘルパー。
+// - reason が「他サイトで申込あり」を含む場合: 申込ありを最初に検出したサイトのURLを返す
+//   (例: itandi で申込あり判定 → REINSスキップ時に itandi の物件URLが見たい)
+// - それ以外: 通常通り当該物件のURL (__formatPropSkipUrl)
+globalThis.__formatPropSkipUrlWithReason = (prop, reason) => {
+  if (prop && typeof reason === 'string' && reason.includes('他サイトで申込あり')) {
+    const info = globalThis.__getMoshikomiInfo && globalThis.__getMoshikomiInfo(prop.building_name, prop.room_number);
+    if (info && info.url) {
+      return ' ' + info.url + (info.source ? ` (${info.source}検出)` : '');
+    }
+  }
+  return globalThis.__formatPropSkipUrl(prop);
 };
 
 // バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
@@ -3089,7 +3124,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
           await setStorageData({ stats: currentStats });
         } else {
-          await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name} ${detail.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(detail)}` });
+          await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name} ${detail.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrlWithReason(detail, rejectReason)}` });
           // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
           if (detail.reins_property_number) {
             skippedMap[detail.reins_property_number] = { reason: rejectReason, ts: Date.now() };

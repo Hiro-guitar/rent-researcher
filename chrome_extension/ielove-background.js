@@ -634,7 +634,7 @@ function getIeloveFilterRejectReason(prop, customer) {
   // SUUMO巡回モード時はスキップせずDiscord通知へ流す（警告表示）
   const isSuumoPatrol = !!globalThis._suumoPatrolMode;
   if (!isSuumoPatrol && prop.listing_status && (prop.listing_status === '申込あり' || /^申込\d+件$/.test(prop.listing_status))) {
-    try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
+    try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number, prop.url, 'いえらぶ'); } catch(e) {}
     return `申込あり(${prop.listing_status})`;
   }
   if (prop.listing_status && prop.listing_status !== '申込あり' && !/^申込\d+件$/.test(prop.listing_status)) {
@@ -976,7 +976,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       // 申込あり物件は一覧の時点で即スキップ（詳細ページ遷移を省略）
       // SUUMO巡回モード時はスキップせず、詳細取得→GAS送信→Discord通知(⚠️ 募集状況: 申込あり)へ流す
       if (!globalThis._suumoPatrolMode && prop.listing_status && (prop.listing_status === '申込あり' || /^申込\d+件$/.test(prop.listing_status))) {
-        try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
+        try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number, prop.url, 'いえらぶ'); } catch(e) {}
         await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - 申込あり(${prop.listing_status})${globalThis.__formatPropSkipUrl(prop)}` });
         continue;
       }

@@ -1082,7 +1082,7 @@ function getEssquareFilterRejectReason(prop, customer) {
   const isSuumoPatrol = !!globalThis._suumoPatrolMode;
   if (!isTestUser && !isSuumoPatrol) {
     if (prop.listing_status === '申込あり') {
-      try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
+      try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number, prop.url, 'ES-Square'); } catch(e) {}
       return '申込あり';
     }
     if (prop.listing_status && prop.listing_status !== '申込あり') {
