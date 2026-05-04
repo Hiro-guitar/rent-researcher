@@ -17,108 +17,129 @@ body {
 /* ── ヘッダー ── */
 .header {
   position: sticky; top: 0; z-index: 10;
-  background: #1a5276; padding: 14px 16px;
-  border-bottom: 1px solid #154360;
+  background: #2c3e50; padding: 14px 16px;
+  border-bottom: 1px solid #1a252f;
 }
-.header h1 { font-size: 16px; font-weight: 700; text-align: center; color: #d4efdf; }
+.header h1 { font-size: 16px; font-weight: 700; text-align: center; color: #ecf0f1; }
 .header .badge { font-size: 10px; background: #e74c3c; color: #fff; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle; }
 .header .back-link { display: block; text-align: center; margin-top: 6px; }
-.header .back-link a { color: #85c1e9; font-size: 12px; text-decoration: underline; }
+.header .back-link a { color: #3498db; font-size: 12px; text-decoration: underline; }
 
-/* ── カード ── */
+/* ── カード（セクション） ── */
 .card {
   background: #fff; margin: 8px; border-radius: 12px;
   overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 .card-title {
-  font-size: 14px; font-weight: 700; color: #1a5276;
-  padding: 12px 16px 8px; background: #d4e6f1;
-  border-bottom: 1px solid #aed6f1;
+  font-size: 14px; font-weight: 700; color: #8ec41d;
+  padding: 12px 16px 8px; background: #f0faf4;
+  border-bottom: 1px solid #e8f5e9;
 }
-.card-body { padding: 12px 16px; }
+.card-body { padding: 0; }
 
-/* ── セクション ── */
+/* ── 内部セクション見出し ── */
 .section-title {
-  font-size: 13px; font-weight: 700; color: #e74c3c;
-  margin: 16px 0 6px; padding-bottom: 4px;
-  border-bottom: 2px solid #fadbd8;
+  font-size: 13px; font-weight: 700; color: #8ec41d;
+  margin: 0; padding: 12px 16px 6px;
+  background: #fafffa;
+  border-top: 1px solid #f0f7eb;
+  border-bottom: 1px solid #f0f7eb;
 }
+.section-title:first-child { border-top: none; }
+.section-subtitle { font-size: 12px; color: #888; font-weight: 400; margin-left: 8px; }
 
 /* ── フォーム ── */
-.field { margin-bottom: 12px; }
-.field label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; }
+.field { padding: 10px 16px; }
+.field label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 6px; }
 .field input, .field select, .field textarea {
   width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 8px;
   font-family: inherit; background: #fff;
 }
 .field textarea { resize: vertical; }
 .field .hint { font-size: 11px; color: #999; margin-top: 4px; }
-.field-row { display: flex; gap: 12px; }
-.field-row .field { flex: 1; }
+.field-row { display: flex; gap: 12px; padding: 10px 16px; }
+.field-row .field { flex: 1; padding: 0; }
 
 /* ── スライダー ── */
+.slider-container { padding: 8px 16px 16px; }
+.slider-value {
+  font-size: 22px; font-weight: 700; color: #8ec41d;
+  text-align: center; margin: 4px 0 8px;
+}
 .slider-row { display: flex; align-items: center; gap: 12px; }
 .slider-row input[type="range"] { flex: 1; }
-.slider-row .slider-value {
-  min-width: 80px; text-align: center;
-  font-size: 16px; font-weight: 700; color: #1a5276;
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 6px; border-radius: 3px;
+  background: #e0e0e0; outline: none;
 }
-.unspecified-row { margin-bottom: 6px; }
-.unspecified-row label { font-size: 13px; font-weight: 400; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: #8ec41d; cursor: pointer; border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.slider-label { font-size: 11px; color: #999; white-space: nowrap; }
+.unspecified-row { padding: 6px 0 4px; }
+.unspecified-row label {
+  font-size: 13px; color: #666; font-weight: 400; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+}
+.unspecified-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: #8ec41d; }
 
-/* ── チェックボックスグリッド ── */
+/* ── チェックボックスグリッド（間取り・建物構造など） ── */
 .checkbox-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 6px; padding: 4px 0;
+  display: grid; grid-template-columns: 1fr 1fr 1fr;
+  gap: 0; padding: 8px 12px 12px;
 }
+.checkbox-grid.cols-2 { grid-template-columns: 1fr 1fr; }
 .checkbox-grid label {
   display: flex; align-items: center; gap: 6px;
   font-size: 13px; font-weight: 400; cursor: pointer;
-  padding: 6px 8px; border-radius: 6px; background: #f8f9fa;
-  border: 1px solid #e9ecef;
+  padding: 6px 4px;
 }
-.checkbox-grid label:has(input:checked) {
-  background: #d4efdf; border-color: #82e0aa;
-}
-.checkbox-grid input[type="checkbox"] { width: 16px; height: 16px; accent-color: #27ae60; }
+.checkbox-grid input[type="checkbox"] { width: 18px; height: 18px; accent-color: #8ec41d; flex-shrink: 0; }
+/* .field 内に grid を直接ネストした場合の二重 padding 対策 */
+.field > .checkbox-grid, .field > .equip-grid { padding: 0; }
 
-/* ── こだわり条件 ── */
-.equip-category { margin-bottom: 10px; }
-.equip-category-title { font-size: 12px; font-weight: 700; color: #1a5276; margin-bottom: 4px; }
+/* ── こだわり条件アコーディオン ── */
+.equip-category { border-bottom: 1px solid #f0f0f0; }
+.equip-category:last-child { border-bottom: none; }
+.equip-category-title {
+  font-size: 14px; font-weight: 600; color: #444;
+  padding: 10px 16px; background: #fff;
+}
 .equip-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 4px;
+  display: grid; grid-template-columns: 1fr 1fr 1fr;
+  gap: 0; padding: 0 12px 8px;
 }
 .equip-grid label {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 12px; font-weight: 400; cursor: pointer;
-  padding: 5px 6px; border-radius: 5px; background: #f8f9fa;
-  border: 1px solid #e9ecef;
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 400; cursor: pointer;
+  padding: 6px 4px;
 }
-.equip-grid label:has(input:checked) {
-  background: #d4efdf; border-color: #82e0aa;
-}
-.equip-grid input[type="checkbox"] { width: 14px; height: 14px; accent-color: #27ae60; }
+.equip-grid input[type="checkbox"] { width: 18px; height: 18px; accent-color: #8ec41d; flex-shrink: 0; }
 
 /* ── ボタン ── */
 .btn {
   display: inline-block; padding: 10px 24px; font-size: 14px; font-weight: 600;
   border: none; border-radius: 8px; cursor: pointer; transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent;
 }
-.btn-primary { background: #1a5276; color: #fff; }
-.btn-primary:hover { background: #154360; }
-.btn-success { background: #27ae60; color: #fff; }
-.btn-success:hover { background: #219a52; }
+.btn-primary { background: #2c3e50; color: #fff; }
+.btn-primary:hover, .btn-primary:active { background: #1a252f; }
+.btn-success { background: #8ec41d; color: #fff; }
+.btn-success:hover, .btn-success:active { background: #7aa819; }
 .btn-danger { background: #e74c3c; color: #fff; font-size: 12px; padding: 6px 12px; }
-.btn-danger:hover { background: #c0392b; }
+.btn-danger:hover, .btn-danger:active { background: #c0392b; }
 .btn-secondary { background: #95a5a6; color: #fff; font-size: 12px; padding: 6px 12px; }
 .btn:disabled { background: #bdc3c7; cursor: not-allowed; }
 
 /* ── 条件リスト ── */
-.criteria-list { margin: 8px; }
+#criteriaList { padding: 8px 8px 4px; }
 .criteria-item {
-  background: #fff; border-radius: 10px; padding: 14px 16px; margin-bottom: 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  background: #fafafa; border: 1px solid #eee; border-radius: 10px;
+  padding: 12px 14px; margin: 0 0 8px;
   display: flex; justify-content: space-between; align-items: center;
 }
 .criteria-item .info { flex: 1; }
@@ -138,7 +159,7 @@ body {
   left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: 0.3s;
 }
 .criteria-item .toggle-switch input:checked + .toggle-slider {
-  background: #27ae60;
+  background: #8ec41d;
 }
 .criteria-item .toggle-switch input:checked + .toggle-slider::before {
   transform: translateX(20px);
@@ -146,12 +167,21 @@ body {
 
 /* ── フッター ── */
 .footer {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  padding: 12px 16px; background: #fff;
-  border-top: 1px solid #ddd; z-index: 10;
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+  background: #fff; padding: 12px 16px;
+  border-top: 1px solid #e0e0e0;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
   display: flex; gap: 10px;
 }
-.footer .btn { flex: 1; text-align: center; }
+.footer .btn {
+  flex: 1; padding: 14px; font-size: 16px; font-weight: 700;
+  border-radius: 8px; text-align: center;
+}
+.footer .btn-secondary {
+  flex: 0.4; font-size: 14px; font-weight: 600;
+  background: #ecf0f1; color: #2c3e50; padding: 14px;
+}
+.footer .btn-secondary:hover, .footer .btn-secondary:active { background: #bdc3c7; }
 
 /* ── 状態 ── */
 .empty-state {
@@ -161,7 +191,7 @@ body {
 /* ── トースト ── */
 .toast {
   position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
-  background: #1a5276; color: #fff; padding: 10px 20px; border-radius: 8px;
+  background: #2c3e50; color: #fff; padding: 10px 20px; border-radius: 8px;
   font-size: 13px; z-index: 100; opacity: 0; transition: opacity 0.3s;
   pointer-events: none;
 }
@@ -180,43 +210,72 @@ body {
 }
 .modal-box .modal-msg { font-size: 14px; color: #333; margin-bottom: 20px; line-height: 1.6; }
 .modal-box .modal-btns { display: flex; gap: 10px; }
-.modal-box .modal-btns .btn { flex: 1; }
+.modal-box .modal-btns .btn { flex: 1; padding: 10px; font-size: 14px; }
 
 /* ── タブ ── */
-.tabs { display: flex; margin-bottom: 0; }
-.tab {
-  flex: 1; text-align: center; padding: 10px; font-size: 14px; font-weight: 600;
-  cursor: pointer; background: #e9ecef; color: #555; border-bottom: 2px solid transparent;
+.tabs {
+  display: flex; margin: 10px 16px 8px;
+  border: 2px solid #8ec41d; border-radius: 8px; overflow: hidden;
 }
-.tab.active { background: #8bc34a; color: #fff; border-bottom: 2px solid #689f38; }
+.tab {
+  flex: 1; padding: 10px; text-align: center; font-size: 14px; font-weight: 600;
+  cursor: pointer; background: #fff; color: #8ec41d;
+  border: none; -webkit-tap-highlight-color: transparent;
+  transition: all 0.2s;
+}
+.tab.active { background: #8ec41d; color: #fff; }
 .tab-content { display: none; }
 .tab-content.active { display: block; }
-.tab-note { font-size: 11px; color: #e74c3c; padding: 4px 8px; }
+.tab-note { font-size: 11px; color: #e67e22; padding: 6px 16px 2px; }
 
-/* ── 路線選択 ── */
-.company-group { margin-bottom: 8px; }
+/* ── 路線選択（AdminPage 風アコーディオン） ── */
+.company-group {
+  margin: 4px 8px; border-radius: 8px;
+  overflow: hidden; border: 1px solid #eee;
+}
 .company-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px; background: #f0f0f0; border-bottom: 1px solid #ddd;
-  font-size: 13px; font-weight: 600; color: #333;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 12px; background: #fafafa; border-bottom: 1px solid #eee;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  font-size: 14px; font-weight: 700; color: #555;
 }
-.company-header button { font-size: 11px; padding: 3px 8px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer; }
-.company-routes { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; }
+.company-header:active { background: #f0f0f0; }
+.company-header button {
+  font-size: 11px; padding: 3px 10px; border-radius: 14px;
+  border: 1px solid #aaa; background: #fff; color: #666;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.company-routes { overflow: hidden; max-height: 0; transition: max-height 0.3s ease-out; }
 .route-row {
-  display: flex; align-items: center; padding: 6px 16px; border-bottom: 1px solid #f0f0f0; cursor: pointer;
+  display: flex; align-items: center;
+  padding: 0 12px; min-height: 44px; border-bottom: 1px solid #f0f0f0;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.route-row:hover { background: #f8f9fa; }
-.route-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: #27ae60; margin-right: 8px; }
-.route-row .route-label { flex: 1; font-size: 13px; }
-.route-row .station-count { font-size: 11px; color: #888; margin-right: 8px; }
-.route-row .arrow { font-size: 12px; color: #999; transition: transform 0.2s; }
+.route-row:active { background: #f5f5f5; }
+.route-row input[type="checkbox"] {
+  width: 20px; height: 20px; margin-right: 10px;
+  accent-color: #8ec41d; flex-shrink: 0;
+}
+.route-row .route-label { flex: 1; font-size: 14px; padding: 10px 0; }
+.route-row .station-count { font-size: 11px; color: #999; white-space: nowrap; margin-left: 4px; }
+.route-row .arrow { font-size: 11px; color: #bbb; margin-left: 4px; transition: transform 0.3s; }
 .route-row .arrow.open { transform: rotate(90deg); }
-.station-panel { overflow: hidden; max-height: 0; transition: max-height 0.3s ease; background: #fafafa; padding: 0 16px; }
+.station-panel {
+  overflow: hidden; max-height: 0; transition: max-height 0.3s ease-out;
+  background: #f9f9f9; border-top: 1px solid #eee; padding: 0 16px;
+}
 .station-panel.open { padding: 8px 16px; }
-.station-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 4px; }
-.station-item { display: flex; align-items: center; gap: 4px; font-size: 12px; }
-.station-item input { width: 14px; height: 14px; accent-color: #27ae60; }
-.station-select-all { font-size: 11px; color: #1a5276; cursor: pointer; text-decoration: underline; margin-bottom: 6px; display: inline-block; }
+.station-list {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  padding: 2px 0 4px;
+}
+.station-item { display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+.station-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: #8ec41d; }
+.station-item label { font-size: 12px; cursor: pointer; }
+.station-select-all {
+  font-size: 11px; color: #8ec41d; cursor: pointer;
+  text-decoration: underline; margin-bottom: 6px; display: inline-block;
+}
 </style>
 </head>
 <body>
@@ -243,7 +302,7 @@ body {
   <div class="card">
     <div class="card-title">登録済み巡回条件</div>
     <div class="card-body">
-      <div id="criteriaList" class="empty-state">読み込み中...</div>
+      <div id="criteriaList"><div class="empty-state">読み込み中...</div></div>
     </div>
   </div>
   <div style="text-align:center;margin:16px;">
