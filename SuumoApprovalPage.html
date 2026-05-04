@@ -117,6 +117,18 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
   color: #1a5276; text-decoration: none; cursor: pointer;
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
+/* 90度回転ボタン (時計回り/反時計回り) */
+.image-card .rotate-btns {
+  position: absolute; top: 32px; right: 4px; z-index: 3;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.image-card .rotate-btn {
+  background: rgba(255,255,255,0.92); border: none; border-radius: 3px;
+  padding: 2px 5px; font-size: 12px; font-weight: 700; color: #1a5276;
+  cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.3); line-height: 1;
+}
+.image-card .rotate-btn:disabled { opacity: 0.5; cursor: wait; }
+.image-card.rotating { opacity: 0.5; pointer-events: none; }
 
 /* ── 画像拡大モーダル ── */
 .modal-overlay {
@@ -905,6 +917,101 @@ document.addEventListener('keydown', function(e) {
   });
 })();
 
+// ── 画像90度回転 (Chrome拡張のbackground経由でCanvas回転+再アップロード) ──
+var _rotatePending = {};
+function _createRotateButtons(idx) {
+  var div = document.createElement('div');
+  div.className = 'rotate-btns';
+  var btnCw = document.createElement('button');
+  btnCw.className = 'rotate-btn';
+  btnCw.type = 'button';
+  btnCw.textContent = '↻'; // ↻
+  btnCw.title = '時計回りに90度回転';
+  btnCw.onclick = function(e) { e.stopPropagation(); rotateImg(idx, 90); };
+  div.appendChild(btnCw);
+  var btnCcw = document.createElement('button');
+  btnCcw.className = 'rotate-btn';
+  btnCcw.type = 'button';
+  btnCcw.textContent = '↺'; // ↺
+  btnCcw.title = '反時計回りに90度回転';
+  btnCcw.onclick = function(e) { e.stopPropagation(); rotateImg(idx, -90); };
+  div.appendChild(btnCcw);
+  return div;
+}
+function rotateImg(idx, degrees) {
+  if (_rotatePending[idx]) return;
+  var card = document.querySelector('.image-card[data-index="' + idx + '"]');
+  if (!card) return;
+  var img = card.querySelector('img');
+  if (!img) return;
+  var origUrl = img.src;
+  if (!origUrl) return;
+
+  _rotatePending[idx] = true;
+  card.classList.add('rotating');
+
+  var requestId = 'rot_' + idx + '_' + Date.now();
+  var done = false;
+  var timeoutId = setTimeout(function() {
+    if (done) return;
+    done = true;
+    _rotatePending[idx] = false;
+    card.classList.remove('rotating');
+    window.removeEventListener('message', listener);
+    alert('画像回転タイムアウト (60秒)。\nChrome拡張がインストール・有効化されているか確認してください。');
+  }, 60000);
+
+  var listener = function(e) {
+    var d = e.data;
+    if (!d || d.type !== 'ROTATE_IMAGE_RESPONSE' || d.requestId !== requestId) return;
+    if (done) return;
+    done = true;
+    clearTimeout(timeoutId);
+    window.removeEventListener('message', listener);
+    _rotatePending[idx] = false;
+    card.classList.remove('rotating');
+    var r = d.result || {};
+    if (r.ok && r.url) {
+      // imgソース更新
+      img.src = r.url;
+      // PROPERTY_DATA.image_urls 更新
+      if (PROPERTY_DATA.image_urls && PROPERTY_DATA.image_urls[idx] !== undefined) {
+        PROPERTY_DATA.image_urls[idx] = r.url;
+      }
+      if (PROPERTY_DATA.images && PROPERTY_DATA.images[idx] !== undefined) {
+        PROPERTY_DATA.images[idx] = r.url;
+      }
+      // __allImageUrls 更新 (モーダルナビ用)
+      var ai = __allImageUrls.indexOf(origUrl);
+      if (ai >= 0) __allImageUrls[ai] = r.url;
+      // 拡大リンクと onclick を新URLに更新
+      var zoom = card.querySelector('.zoom-link');
+      if (zoom) zoom.href = r.url;
+      img.onclick = (function(s) { return function() { openModal(s); }; })(r.url);
+    } else {
+      alert('画像回転失敗: ' + (r.error || 'unknown') + '\n(元の画像を維持します)');
+    }
+  };
+  window.addEventListener('message', listener);
+
+  try {
+    var msg = { type: 'ROTATE_IMAGE_REQUEST', requestId: requestId, url: origUrl, degrees: degrees };
+    // GAS sandboxed iframe → 親frameに転送 (content scriptは親frameで動くため)
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage(msg, '*');
+    } else {
+      window.postMessage(msg, '*');
+    }
+  } catch (err) {
+    done = true;
+    clearTimeout(timeoutId);
+    _rotatePending[idx] = false;
+    window.removeEventListener('message', listener);
+    card.classList.remove('rotating');
+    alert('画像回転送信失敗: ' + (err.message || err));
+  }
+}
+
 // ── 画像レンダリング ──
 function renderImages() {
   var images = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
@@ -951,6 +1058,9 @@ function renderImages() {
     zoom.title = '画像を新タブで開く';
     zoom.onclick = function(e) { e.stopPropagation(); };
     card.appendChild(zoom);
+
+    // 90度回転ボタン (時計回り/反時計回り)
+    card.appendChild(_createRotateButtons(i));
 
     var btnsDiv = document.createElement('div');
     btnsDiv.className = 'genre-btns';
@@ -1300,6 +1410,9 @@ function addUploadedImage(url) {
   zoom.title = '画像を新タブで開く';
   zoom.onclick = function(e) { e.stopPropagation(); };
   card.appendChild(zoom);
+
+  // 90度回転ボタン
+  card.appendChild(_createRotateButtons(idx));
 
   var btnsDiv = document.createElement('div');
   btnsDiv.className = 'genre-btns';
