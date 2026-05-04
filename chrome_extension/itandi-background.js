@@ -1323,7 +1323,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     // フィルタリング
     const rejectReason = getItandiFilterRejectReason(prop, customer);
     if (rejectReason) {
-      await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}` });
+      await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
       continue;
     }
 
@@ -1336,7 +1336,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
       try {
         const ownerSkip = await globalThis.checkSuumoOwnerKeywordSkip(prop);
         if (ownerSkip.skip) {
-          await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${ownerSkip.reason}` });
+          await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${ownerSkip.reason}${globalThis.__formatPropSkipUrl(prop)}` });
           continue;
         }
       } catch (e) {
@@ -1352,7 +1352,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
           prop.suumo_competitor = preResult.competitor;
         }
         if (preResult.skip) {
-          await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像処理前に判定)` });
+          await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像処理前に判定)${globalThis.__formatPropSkipUrl(prop)}` });
           continue;
         }
       } catch (e) {

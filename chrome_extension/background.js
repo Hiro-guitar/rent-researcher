@@ -52,6 +52,20 @@ globalThis.__hasMoshikomiKey = (building, room) => {
   return !!(ts && (Date.now() - ts < __MOSHIKOMI_TTL_MS));
 };
 
+// スキップログ末尾に追記する「物件URL」を返すヘルパー (空文字 or 先頭スペース付きURL)。
+// - prop.url があればそれ
+// - REINS 物件は url を持たないため、reins_property_number から「REINS で開く」相当URLを構築
+//   (background.js:4694 の Discord リンクと同じ形式)
+globalThis.__formatPropSkipUrl = (prop) => {
+  if (!prop) return '';
+  if (prop.url) return ' ' + prop.url;
+  if (prop.reins_property_number) {
+    const clean = String(prop.reins_property_number).replace(/\D/g, '');
+    if (clean) return ' https://system.reins.jp/main/BK/GBK004100#bukken=' + clean;
+  }
+  return '';
+};
+
 // バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
 let __btMode = 'alert';
 chrome.storage.local.get(['btMode'], (d) => { if (d.btMode) __btMode = d.btMode; });
@@ -3075,7 +3089,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
           await setStorageData({ stats: currentStats });
         } else {
-          await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name} ${detail.room_number || ''} - ${rejectReason}` });
+          await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name} ${detail.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(detail)}` });
           // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
           if (detail.reins_property_number) {
             skippedMap[detail.reins_property_number] = { reason: rejectReason, ts: Date.now() };

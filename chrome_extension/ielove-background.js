@@ -977,7 +977,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       // SUUMO巡回モード時はスキップせず、詳細取得→GAS送信→Discord通知(⚠️ 募集状況: 申込あり)へ流す
       if (!globalThis._suumoPatrolMode && prop.listing_status && (prop.listing_status === '申込あり' || /^申込\d+件$/.test(prop.listing_status))) {
         try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number); } catch(e) {}
-        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - 申込あり(${prop.listing_status})` });
+        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - 申込あり(${prop.listing_status})${globalThis.__formatPropSkipUrl(prop)}` });
         continue;
       }
 
@@ -1056,7 +1056,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       // フィルタリング
       const rejectReason = getIeloveFilterRejectReason(prop, customer);
       if (rejectReason) {
-        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}` });
+        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
         // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
         skippedMap[prop.room_id] = { reason: rejectReason, ts: Date.now() };
         skippedMapDirty = true;
@@ -1069,7 +1069,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         try {
           const ownerSkip = await globalThis.checkSuumoOwnerKeywordSkip(prop);
           if (ownerSkip.skip) {
-            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${ownerSkip.reason}` });
+            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${ownerSkip.reason}${globalThis.__formatPropSkipUrl(prop)}` });
             continue;
           }
         } catch (e) {
@@ -1087,7 +1087,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
             prop.suumo_competitor = preResult.competitor;
           }
           if (preResult.skip) {
-            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像処理前に判定)` });
+            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像処理前に判定)${globalThis.__formatPropSkipUrl(prop)}` });
             continue;
           }
         } catch (e) {

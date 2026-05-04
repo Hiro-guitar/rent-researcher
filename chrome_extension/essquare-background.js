@@ -1767,11 +1767,11 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
       // 詳細モーダルを開く前にスキップ判定
       if (globalThis._suumoPatrolMode) {
         if (!prop.ad_status) {
-          await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ（詳細開かず）: ${prop.building_name} ${prop.room_number || ''} - 広告可バッジなし` });
+          await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ（詳細開かず）: ${prop.building_name} ${prop.room_number || ''} - 広告可バッジなし${globalThis.__formatPropSkipUrl(prop)}` });
           continue;
         }
         if (prop.ad_status === '広告可※' && prop.suumo_allowed === false) {
-          await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ（詳細開かず）: ${prop.building_name} ${prop.room_number || ''} - 広告可※だがSUUMO不可` });
+          await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ（詳細開かず）: ${prop.building_name} ${prop.room_number || ''} - 広告可※だがSUUMO不可${globalThis.__formatPropSkipUrl(prop)}` });
           continue;
         }
       }
@@ -1939,7 +1939,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
           // フィルタリング（画像取得前に判定し、スキップ物件の画像取得を省略）
           const earlyRejectReason = getEssquareFilterRejectReason(prop, customer);
           if (earlyRejectReason) {
-            await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${earlyRejectReason}` });
+            await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${earlyRejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
             // ブラウザバックで検索結果ページに戻る
             await _goBackToEssquareSearchResults(tabId);
             continue;
@@ -1951,7 +1951,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             try {
               const ownerSkip = await globalThis.checkSuumoOwnerKeywordSkip(prop);
               if (ownerSkip.skip) {
-                await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${ownerSkip.reason}` });
+                await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${ownerSkip.reason}${globalThis.__formatPropSkipUrl(prop)}` });
                 await _goBackToEssquareSearchResults(tabId);
                 continue;
               }
@@ -1969,7 +1969,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
                 prop.suumo_competitor = preResult.competitor;
               }
               if (preResult.skip) {
-                await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像取得前に判定)` });
+                await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像取得前に判定)${globalThis.__formatPropSkipUrl(prop)}` });
                 await _goBackToEssquareSearchResults(tabId);
                 continue;
               }
@@ -2079,7 +2079,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
       // フィルタリング（詳細取得失敗時など、早期フィルタを通過しなかった場合の最終チェック）
       const rejectReason = getEssquareFilterRejectReason(prop, customer);
       if (rejectReason) {
-        await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}` });
+        await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
         continue;
       }
 
