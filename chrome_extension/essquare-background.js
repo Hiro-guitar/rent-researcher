@@ -204,18 +204,27 @@ function buildEssquareSearchUrl(customer, page, jushoList) {
   // 申込あり物件もクライアント側で検出するためURLフィルタは使わない
   // （他サイトとのクロス重複排除のため）
 
-  // SUUMO巡回時の「最終更新日 N日以内」フィルタ。
-  // ES-Square のプリセット (today/threeDays/sevenDays) は 1/3/7日のみで
-  // 任意日数に対応できないため、一律 customRange (期間指定) で送る。
-  // 結果はプリセットと同じ動作 (URL に saishu_koshin_time:gteq=YYYY-MM-DD を載せる)。
+  // SUUMO巡回時の「情報公開日 N日以内」フィルタ。
+  // ES-Square には「最終更新日」(saishu_koshin_time) と「情報公開日」
+  // (kokai_date) の2系統あるが、SUUMO巡回では新着発見が目的なので
+  // 「情報公開日」を使用 (= 物件が ES-Square に初掲載された日)。
+  //
+  // 実機 URL 例 (ユーザーが手動操作で確定):
+  //   ?kokai_radio_state=select
+  //    &kokai_date.from=2026-05-01T00:00:00+09:00
+  //
+  // 最終更新日とパラメータ命名規則が違う点に注意:
+  //   - 最終更新日: koshin_radio_state=customRange + saishu_koshin_time:gteq=YYYY-MM-DD
+  //   - 情報公開日: kokai_radio_state=select + kokai_date.from=YYYY-MM-DDT00:00:00+09:00 (ISO+JST)
   if (customer && customer._isSuumoPatrol && typeof customer.daysWithin === 'number' && customer.daysWithin >= 0) {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - customer.daysWithin);
     const pad = (n) => String(n).padStart(2, '0');
-    const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    params.append('koshin_radio_state', 'customRange');
-    params.append('saishu_koshin_time:gteq', dateStr);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const from = new Date(today);
+    from.setDate(from.getDate() - customer.daysWithin);
+    const fromIso = `${from.getFullYear()}-${pad(from.getMonth() + 1)}-${pad(from.getDate())}T00:00:00+09:00`;
+    params.append('kokai_radio_state', 'select');
+    params.append('kokai_date.from', fromIso);
   }
 
   // ソート: 最終更新日順
