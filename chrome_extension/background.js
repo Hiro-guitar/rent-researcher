@@ -101,6 +101,93 @@ globalThis.__formatPropSkipUrlWithReason = (prop, reason) => {
   return globalThis.__formatPropSkipUrl(prop);
 };
 
+// ─────────────────────────────────────────────────────────────
+// 通知済み物件の重複検知 (お客様向け検索のみ、SUUMO巡回は対象外)
+//
+// 同じ物件が別管理会社・別サイト・別タイミングで複数登録されるケース
+// (例: 今日itandiに「ラック上北沢 201」、明日REINSに「LUCK上北沢 201」が
+//  別物件番号でアップ) で、お客様に同じ物件が30日以内に重複通知されないようにする。
+//
+// 識別キー = __buildPropertyDedupKey(prop) =
+//   住所(町・丁目まで) + 部屋番号 + 面積(小数2桁) + 間取り
+// 建物名は表記揺れ (カタカナ/英字、全角/半角等) が大きすぎるため使わない。
+// 住所は番地以降を切り捨てて掲載粒度の差を吸収。
+//
+// 形式: { "<customer>": { "<dedupKey>": { ts, source, url }, ... }, ... }
+const __NOTIFIED_DEDUP_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30日
+globalThis.__notifiedDedupMap = {};
+chrome.storage.local.get(['notifiedDedupMap'], (d) => {
+  const m = d.notifiedDedupMap || {};
+  const now = Date.now();
+  for (const cust in m) {
+    const inner = m[cust] || {};
+    const cleaned = {};
+    for (const k in inner) {
+      const v = inner[k];
+      const ts = (typeof v === 'number') ? v : (v && v.ts) || 0;
+      if (ts && now - ts < __NOTIFIED_DEDUP_TTL_MS) {
+        cleaned[k] = (typeof v === 'number') ? { ts: v, source: '', url: '' } : v;
+      }
+    }
+    if (Object.keys(cleaned).length > 0) globalThis.__notifiedDedupMap[cust] = cleaned;
+  }
+});
+
+// 識別キー生成
+globalThis.__buildPropertyDedupKey = (prop) => {
+  if (!prop) return '';
+  let addr = String(prop.address || '');
+  // 全角数字 → 半角
+  addr = addr.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  // 「N丁目X-Y」「N丁目X番Y号」等の番地以降を切り捨て
+  addr = addr.replace(/(\d+)丁目.*$/, '$1丁目');
+  addr = addr.replace(/\s+/g, '').toLowerCase();
+  const room = String(prop.room_number || '')
+    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+    .replace(/[^\d]/g, '');
+  const area = Math.round((parseFloat(prop.area) || 0) * 100);
+  const layout = String(prop.layout || '').replace(/\s+/g, '').toLowerCase();
+  // 4要素揃わない物件はキー化できない (= 重複判定対象外、通常通り通知)
+  if (!addr || !room || !area || !layout) return '';
+  return `${addr}|${room}|${area}|${layout}`;
+};
+
+globalThis.__hasNotifiedDedupKey = (customerName, prop) => {
+  if (!customerName) return false;
+  const k = globalThis.__buildPropertyDedupKey(prop);
+  if (!k) return false;
+  const inner = globalThis.__notifiedDedupMap[customerName];
+  if (!inner) return false;
+  const v = inner[k];
+  const ts = (typeof v === 'number') ? v : (v && v.ts);
+  return !!(ts && (Date.now() - ts < __NOTIFIED_DEDUP_TTL_MS));
+};
+
+globalThis.__getNotifiedDedupInfo = (customerName, prop) => {
+  if (!customerName) return null;
+  const k = globalThis.__buildPropertyDedupKey(prop);
+  if (!k) return null;
+  const inner = globalThis.__notifiedDedupMap[customerName];
+  if (!inner) return null;
+  const v = inner[k];
+  if (!v) return null;
+  if (typeof v === 'number') return { ts: v, source: '', url: '' };
+  return v;
+};
+
+globalThis.__addNotifiedDedupKey = (customerName, prop, source) => {
+  if (!customerName) return;
+  const k = globalThis.__buildPropertyDedupKey(prop);
+  if (!k) return;
+  if (!globalThis.__notifiedDedupMap[customerName]) globalThis.__notifiedDedupMap[customerName] = {};
+  globalThis.__notifiedDedupMap[customerName][k] = {
+    ts: Date.now(),
+    source: source || (prop && prop.source) || '',
+    url: (prop && prop.url) || ''
+  };
+  chrome.storage.local.set({ notifiedDedupMap: globalThis.__notifiedDedupMap }).catch(() => {});
+};
+
 // バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
 let __btMode = 'alert';
 chrome.storage.local.get(['btMode'], (d) => { if (d.btMode) __btMode = d.btMode; });
@@ -4007,6 +4094,27 @@ async function sendDiscordNotification(customerName, properties, customer) {
   const { discordWebhookUrl, gasWebappUrl } = await getConfig();
   if (!discordWebhookUrl || properties.length === 0) return;
 
+  // SUUMO巡回モードは別経路 (createSuumoPatrolThread_) で通知するため、ここに来るのは
+  // お客様向け検索のみ。重複検知 (住所+部屋番号+面積+間取り、30日以内) を適用する。
+  // 同物件が別管理会社・別サイト・別タイミングで複数登録されるケースで重複通知を防ぐ。
+  if (!globalThis._suumoPatrolMode && globalThis.__hasNotifiedDedupKey) {
+    const filtered = [];
+    for (const prop of properties) {
+      try {
+        if (globalThis.__hasNotifiedDedupKey(customerName, prop)) {
+          const info = globalThis.__getNotifiedDedupInfo(customerName, prop) || {};
+          const sourceTag = info.source ? ` (元: ${info.source})` : '';
+          const prevUrl = info.url ? ` ${info.url}` : '';
+          await setStorageData({ debugLog: `${customerName}: ✗ 重複通知スキップ: ${prop.building_name || ''} ${prop.room_number || ''} - 30日以内に同物件通知済${sourceTag}${prevUrl}` });
+          continue;
+        }
+      } catch (e) {}
+      filtered.push(prop);
+    }
+    if (filtered.length === 0) return; // 全部重複なら何もしない
+    properties = filtered;
+  }
+
   try {
     let threadId = discordThreadIds[customerName];
 
@@ -4084,6 +4192,10 @@ async function sendDiscordNotification(customerName, properties, customer) {
         discordPropertyCounters[customerName] -= 1; // カウンタ戻す
         await sendDiscordNotification(customerName, remaining, customer);
         return;
+      }
+      // 通知成功 → 30日以内の重複通知防止のため、識別キーを記録
+      if (!globalThis._suumoPatrolMode && globalThis.__addNotifiedDedupKey) {
+        try { globalThis.__addNotifiedDedupKey(customerName, properties[i], properties[i].source); } catch (e) {}
       }
       if (i < properties.length - 1) await sleep(1000);
     }
