@@ -129,6 +129,22 @@
     });
   });
 
+  // SUUMO巡回条件管理ページを直接開く
+  document.getElementById('suumoConfigBtn').addEventListener('click', () => {
+    chrome.storage.local.get(['gasWebappUrl', 'gasApiKey'], (data) => {
+      if (!data.gasWebappUrl) {
+        alert('GAS Web App URLが設定されていません。設定画面から設定してください。');
+        return;
+      }
+      if (!data.gasApiKey) {
+        alert('GAS API Keyが設定されていません。設定画面から設定してください。');
+        return;
+      }
+      const url = data.gasWebappUrl + '?action=suumo_patrol_config&api_key=' + encodeURIComponent(data.gasApiKey);
+      window.open(url, '_blank');
+    });
+  });
+
   document.getElementById('openOptions').addEventListener('click', (e) => {
     e.preventDefault();
     chrome.runtime.openOptionsPage();
