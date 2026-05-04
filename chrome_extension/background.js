@@ -528,9 +528,11 @@ function getFilterRejectReason(prop, customer) {
   if (customer.structures && customer.structures.length > 0) {
     if (!prop.structure) return `構造不明（要求: ${customer.structures.join('/')})`;
     // カテゴリ→許可する日本語構造名の展開
+    // 「鉄骨造」「鉄骨」のように「造」あり/なし表記が両方ありえるため両方含める
+    // (ES-Square 詳細ページから「鉄骨」「軽量鉄骨」が取得されるケースの対応)
     const categoryMap = {
       '鉄筋系': ['鉄筋コンクリート', '鉄骨鉄筋コンクリート'],
-      '鉄骨系': ['鉄骨造', '軽量鉄骨造'],
+      '鉄骨系': ['鉄骨造', '軽量鉄骨造', '鉄骨', '軽量鉄骨'],
       '木造': ['木造'],
       'ブロック・その他': ['コンクリートブロック', 'ALC造', 'プレキャストコンクリート', '鉄骨プレキャストコンクリート', 'その他']
     };
