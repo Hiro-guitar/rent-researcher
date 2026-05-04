@@ -4177,14 +4177,11 @@ async function sendDiscordNotification(customerName, properties, customer) {
       ? buildSearchInfo(customer)
       : '';
 
-    // スレッドがまだなければ作成（最初の投稿は検索条件のみ。物件1メッセージは下のループで送る）
-    // ※ Discord forum の thread 作成 = 最初の投稿。ここに content を入れることで
-    //    スレッド作成 + 検索条件メッセージを 1 メッセージに統合できる(従来は2メッセージ)。
+    // スレッドがまだなければ作成。ヘッダーはシンプルな顧客名のみ。
+    // 検索条件は新規/既存どちらの場合も 1物件目メッセージの先頭に prepend して統合送信。
     if (!threadId) {
-      // ヘッダー content: 検索条件があればそれを使う(無ければ顧客名)
-      const headerContent = pendingSearchInfo || `**${customerName}** 様の新着物件`;
       const headerPayload = {
-        content: headerContent,
+        content: `**${customerName}** 様の新着物件`,
         thread_name: `🏠 ${customerName}`
       };
       const resp = await fetch(`${discordWebhookUrl}?wait=true`, {
@@ -4208,8 +4205,6 @@ async function sendDiscordNotification(customerName, properties, customer) {
       // ストレージに永続化
       try { await setStorageData({ discordThreadIds }); } catch (e) {}
 
-      // スレッド作成時に検索条件は最初の投稿として送信済み → 1物件目では prepend しない
-      pendingSearchInfo = '';
       await sleep(500);
 
       // 未解決駅があればスレッド内に警告を送信
