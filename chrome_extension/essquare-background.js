@@ -204,6 +204,20 @@ function buildEssquareSearchUrl(customer, page, jushoList) {
   // 申込あり物件もクライアント側で検出するためURLフィルタは使わない
   // （他サイトとのクロス重複排除のため）
 
+  // SUUMO巡回時の「最終更新日 N日以内」フィルタ。
+  // ES-Square のプリセット (today/threeDays/sevenDays) は 1/3/7日のみで
+  // 任意日数に対応できないため、一律 customRange (期間指定) で送る。
+  // 結果はプリセットと同じ動作 (URL に saishu_koshin_time:gteq=YYYY-MM-DD を載せる)。
+  if (customer && customer._isSuumoPatrol && typeof customer.daysWithin === 'number' && customer.daysWithin >= 0) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - customer.daysWithin);
+    const pad = (n) => String(n).padStart(2, '0');
+    const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    params.append('koshin_radio_state', 'customRange');
+    params.append('saishu_koshin_time:gteq', dateStr);
+  }
+
   // ソート: 最終更新日順
   params.append('order', 'saishu_koshin_time.desc');
   params.append('items_per_page', '30');
