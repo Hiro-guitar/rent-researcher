@@ -138,6 +138,41 @@
         } catch (_) {}
       }
     }
+
+    // 画像90度回転要求 (承認ページから拡張へブリッジ)
+    if (data.type === 'ROTATE_IMAGE_REQUEST') {
+      console.log('[SUUMO承認トリガー] ROTATE_IMAGE_REQUEST受信:', data.requestId, data.degrees);
+      var srcWin = event.source || window;
+      try {
+        chrome.runtime.sendMessage(
+          {
+            type: 'ROTATE_IMAGE_REQUEST',
+            url: data.url,
+            degrees: data.degrees
+          },
+          function (result) {
+            var err = chrome.runtime.lastError ? chrome.runtime.lastError.message : null;
+            try {
+              srcWin.postMessage({
+                type: 'ROTATE_IMAGE_RESPONSE',
+                requestId: data.requestId,
+                result: err ? { ok: false, error: err } : (result || { ok: false, error: 'no result' })
+              }, '*');
+            } catch (e3) {
+              console.warn('[SUUMO承認トリガー] ROTATE response送信失敗:', e3);
+            }
+          }
+        );
+      } catch (e) {
+        try {
+          srcWin.postMessage({
+            type: 'ROTATE_IMAGE_RESPONSE',
+            requestId: data.requestId,
+            result: { ok: false, error: 'sendMessage例外: ' + e.message }
+          }, '*');
+        } catch (_) {}
+      }
+    }
   });
 
   // ── フォールバック: data-suumo-approved-key 属性の変化を監視 ──

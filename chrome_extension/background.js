@@ -1227,6 +1227,58 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })();
     return true;
   }
+  if (msg.type === 'ROTATE_IMAGE_REQUEST') {
+    // 承認ページからの画像90度回転要求。
+    // GAS の sandbox iframe からは外部fetch が CSPで阻止されるため、
+    // 拡張のbackground (host_permissions有効) で fetch → OffscreenCanvas
+    // で回転 → 既存のアップロードヘルパー (catbox→0x0→...のチェーン) で再保存。
+    // 入力: { url, degrees: 90 | -90 }
+    // 返却: { ok: true, url: <新URL> } または { ok: false, error }
+    (async () => {
+      try {
+        const srcUrl = msg.url;
+        const degrees = Number(msg.degrees) || 0;
+        if (!srcUrl) throw new Error('url が空');
+        if (degrees === 0 || (degrees % 90) !== 0) throw new Error('degrees は90の倍数のみ');
+
+        // 1. 元画像を fetch (host_permissions あり、CORS 制限なし)
+        const resp = await fetch(srcUrl);
+        if (!resp.ok) throw new Error(`fetch HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        if (!blob || blob.size < 100) throw new Error('blob が小さすぎ');
+
+        // 2. ImageBitmap 経由で OffscreenCanvas へ描画
+        const bitmap = await createImageBitmap(blob);
+        const w = bitmap.width, h = bitmap.height;
+        const swap = (Math.abs(degrees) === 90 || Math.abs(degrees) === 270);
+        const canvas = new OffscreenCanvas(swap ? h : w, swap ? w : h);
+        const ctx = canvas.getContext('2d');
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(degrees * Math.PI / 180);
+        ctx.drawImage(bitmap, -w / 2, -h / 2);
+        bitmap.close();
+
+        // 3. blob 化 (元の MIME を尊重、PNG 以外は JPEG に統一)
+        const outType = (blob.type === 'image/png') ? 'image/png' : 'image/jpeg';
+        const outBlob = await canvas.convertToBlob({ type: outType, quality: 0.92 });
+
+        // 4. base64 化 (data URL) → 既存アップロードヘルパー
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(outBlob);
+        });
+        const newUrl = await uploadBase64ToCatbox(dataUrl);
+        if (!newUrl) throw new Error('全アップロード失敗(null)');
+        sendResponse({ ok: true, url: newUrl });
+      } catch (err) {
+        console.error('[ROTATE_IMAGE_REQUEST] 失敗:', err && err.message);
+        sendResponse({ ok: false, error: (err && err.message) || String(err) });
+      }
+    })();
+    return true;
+  }
   if (msg.type === 'UPLOAD_IMAGE_FROM_GAS') {
     // SUUMO承認ページ(GAS HtmlService)からのローカル画像アップロード要求。
     // GAS sandbox iframe からは外部fetchがCSPでブロックされるため、
