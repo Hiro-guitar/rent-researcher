@@ -710,8 +710,16 @@ function updateSuumoPerformance(updates) {
  * @param {number} topN - 返す候補数の上限(デフォルト10)
  * @returns {Array<Object>} スコア降順の候補リスト(0件なら空配列)
  */
-function findStopCandidates(topN) {
+function findStopCandidates(topN, options) {
   var limit = topN || 10;
+  options = options || {};
+  // protectRelaxLevel: 0=標準 / 1=緩い / 2=最小 / 3=保護無視
+  // 0: 新着7日保護 + 問合あり&45日未満保護 (デフォルト)
+  // 1: 新着3日保護 + 問合あり&30日未満保護
+  // 2: 新着1日保護のみ (新規入稿直後だけ守る)
+  // 3: 保護なし (最終手段、 50件埋まり全員保護該当の詰み回避)
+  var relaxLevel = options.protectRelaxLevel || 0;
+
   var sheet = getListingSheet_();
   var lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
@@ -747,9 +755,17 @@ function findStopCandidates(topN) {
     // SUUMO側の実績で保護判定/45日ボーナス判定できる。
     var effectiveDays = Math.max(sheetDays, suumoListedDays);
 
-    // 保護判定
-    if (effectiveDays < 7) continue;                           // 新着7日保護
-    if (inquiries >= 1 && effectiveDays < 45) continue;        // 問合あり&45日未満 保護
+    // 保護判定 (relaxLevel に応じて段階的に緩和)
+    if (relaxLevel === 0) {
+      if (effectiveDays < 7) continue;                           // 新着7日保護
+      if (inquiries >= 1 && effectiveDays < 45) continue;        // 問合あり&45日未満 保護
+    } else if (relaxLevel === 1) {
+      if (effectiveDays < 3) continue;                           // 新着3日保護
+      if (inquiries >= 1 && effectiveDays < 30) continue;        // 問合あり&30日未満 保護
+    } else if (relaxLevel === 2) {
+      if (effectiveDays < 1) continue;                           // 新着1日保護のみ
+    }
+    // relaxLevel === 3 は保護なし (active なら全員候補)
 
     // 危険度スコア
     // 問合は1件あたり -100 (第1基準値競合10件相殺相当)
@@ -775,7 +791,8 @@ function findStopCandidates(topN) {
       compLv1: compLv1,
       compLv2: compLv2,
       compLv3: compLv3,
-      rowIndex: i + 2
+      rowIndex: i + 2,
+      protectRelaxLevel: relaxLevel  // どの保護段階で拾われたかを記録
     });
   }
 
@@ -787,6 +804,27 @@ function findStopCandidates(topN) {
   });
 
   return candidates.slice(0, limit);
+}
+
+/**
+ * 段階的保護緩和つきの候補取得。
+ *
+ * 標準ルール (level 0) で 0 件なら段階的に緩めて、 必ず 1 件以上の候補を返す。
+ * (50件埋まり + 全員保護対象 で詰むのを回避するため)
+ *
+ * @param {number} topN 上限件数
+ * @returns {{ candidates: Array, finalLevel: number }}
+ *   candidates: 候補リスト (空配列は active 行が 1 件もない場合のみ)
+ *   finalLevel: 最終的に採用した relaxLevel (0..3)
+ */
+function findStopCandidatesWithGracefulRelax(topN) {
+  for (var level = 0; level <= 3; level++) {
+    var list = findStopCandidates(topN, { protectRelaxLevel: level });
+    if (list.length > 0) {
+      return { candidates: list, finalLevel: level };
+    }
+  }
+  return { candidates: [], finalLevel: 3 };
 }
 
 /**
@@ -1345,7 +1383,12 @@ function handleGetSuumoQueue(e) {
   var queue = shouldLock ? getAndLockSuumoApprovalQueue() : getSuumoApprovalQueue();
   var listingCount = getActiveListingCount();
   // 50件超過時のみ候補を計算(計算コスト節約)
-  var stopCandidates = listingCount >= 50 ? findStopCandidates(10) : [];
+  // 標準保護ルールで 0 件なら段階的に緩めて必ず 1 件以上返すようにする
+  // (50件埋まり + 全員保護対象 で詰む状態の自動回避)
+  var relaxResult = listingCount >= 50
+    ? findStopCandidatesWithGracefulRelax(10)
+    : { candidates: [], finalLevel: 0 };
+  var stopCandidates = relaxResult.candidates;
   var stopCandidate = stopCandidates.length > 0 ? stopCandidates[0] : null;
 
   return ContentService.createTextOutput(JSON.stringify({
@@ -1353,7 +1396,8 @@ function handleGetSuumoQueue(e) {
     locked: shouldLock,
     activeListingCount: listingCount,
     stopCandidate: stopCandidate,       // 後方互換(旧Chrome拡張が読む単数)
-    stopCandidates: stopCandidates      // 新API: 上位10件のリスト
+    stopCandidates: stopCandidates,     // 新API: 上位10件のリスト
+    stopCandidateRelaxLevel: relaxResult.finalLevel  // どの保護段階で拾ったか (0=標準/3=保護無視)
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
