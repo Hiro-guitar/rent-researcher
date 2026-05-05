@@ -32,8 +32,9 @@
     const urlPath = (location.pathname || '').slice(0, 40);
     try {
       const audio = new Audio();
-      // 約1秒の無音 WAV (8kHz mono 16bit)
-      audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+      // 1サンプルの無音 WAV (8kHz mono 8bit)
+      // 旧: data size=0 で Chrome が "no supported source" エラー → 1サンプル(0x80)に修正
+      audio.src = 'data:audio/wav;base64,UklGRiUAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQEAAACA';
       audio.loop = true;
       audio.volume = 0.001;
       audio.muted = false; // muted=true だと audible 判定にならない
