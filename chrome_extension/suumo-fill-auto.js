@@ -234,12 +234,9 @@
   // ため、 top + 各 iframe で content script が個別に起動する。
   // 各フレームが独立に SUUMO_QUEUE_POLL_NOW を送ると、 同じ承認前処理 (preHook)
   // が逐次に複数回走ってログが汚れる (mutex は並列だけ抑止し、 逐次は素通し)。
-  // 対策: POLL_NOW 送信は top frame のみに限定する。
-  // initMainFrameMonitor() (フォーム要素監視) は各フレームで動かす必要があるため
-  // 限定しない (フォームが iframe 内にあるケースに対応するため)。
-  const isTopFrame = (() => {
-    try { return window.top === window; } catch (e) { return true; }
-  })();
+  // 対策: POLL_NOW 送信は top frame のみに限定する (line 27 で定義済みの isTopFrame
+  // を流用)。 initMainFrameMonitor() (フォーム要素監視) は各フレームで動かす必要が
+  // あるため限定しない (フォームが iframe 内にあるケースに対応するため)。
 
   function sendQueuePollNowIfTop_(triggerLabel) {
     if (!isTopFrame) {
