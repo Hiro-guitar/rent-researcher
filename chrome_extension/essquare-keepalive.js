@@ -17,8 +17,19 @@
   if (window.__essquareKeepaliveLoaded) return;
   window.__essquareKeepaliveLoaded = true;
 
+  // ダッシュボードログに転送 (タブを開かずに状態確認するため)
+  function diagToBg(msg) {
+    try { console.log('[ES-Square keepalive]', msg); } catch (e) {}
+    try {
+      chrome.runtime.sendMessage({ type: 'DEBUG_LOG', message: '[ES-Square keepalive] ' + msg }, () => {
+        if (chrome.runtime.lastError) {} // 無視
+      });
+    } catch (e) {}
+  }
+
   function startSilentAudio() {
     if (window.__essquareSilentAudio) return;
+    const urlPath = (location.pathname || '').slice(0, 40);
     try {
       const audio = new Audio();
       // 約1秒の無音 WAV (8kHz mono 16bit)
@@ -28,13 +39,13 @@
       audio.muted = false; // muted=true だと audible 判定にならない
       window.__essquareSilentAudio = audio;
       audio.play().then(() => {
-        console.log('[ES-Square] silent audio started → bg throttling回避');
+        diagToBg('audio起動OK ' + urlPath);
       }).catch((err) => {
         // autoplay blocked: 初回 user gesture を待って再試行
-        console.warn('[ES-Square] silent audio autoplay blocked:', err && err.message);
+        diagToBg('audio autoplay失敗(' + (err && err.message || '?') + ') ' + urlPath);
         const tryStart = () => {
           audio.play().then(() => {
-            console.log('[ES-Square] silent audio started (after user gesture)');
+            diagToBg('audio起動OK(user gesture後) ' + urlPath);
           }).catch(() => {});
           ['click','keydown','touchstart','pointerdown'].forEach(ev =>
             document.removeEventListener(ev, tryStart, true));
@@ -43,7 +54,7 @@
           document.addEventListener(ev, tryStart, { capture: true, passive: true }));
       });
     } catch (e) {
-      console.warn('[ES-Square] silent audio init失敗:', e && e.message);
+      diagToBg('audio init失敗: ' + (e && e.message || '?'));
     }
   }
   startSilentAudio();
