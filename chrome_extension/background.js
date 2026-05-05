@@ -5129,9 +5129,7 @@ async function appendFillQueue(items) {
  * 注: 以前は「直近5分以内に成功済みなら即OK返却」のキャッシュがあったが、
  *     1物件目で 49→50件になったのに 2物件目の preHook がキャッシュ返却して
  *     停止判定がスキップされ、 50件超過になるバグの原因になっていたため廃止
- *     (2026-05-05)。 入稿タブを壊さない安全策として preHook 専用タブ
- *     (getOrCreatePreHookForrentTab_) を使うようにしたので、 連続呼び出しでも
- *     入稿タブに干渉しない。
+ *     (2026-05-05)。 連続入稿でも毎回 preHook で件数判定する。
  */
 let _preHookInFlight = null;
 let _preHookFailedAt = 0;
@@ -5171,52 +5169,30 @@ async function getOrRunSuumoPreHook_() {
   return await _preHookInFlight;
 }
 
-// preHook 専用 ForRent タブを取得 or 作成。
-// 入稿タブ (suumoFillTabId) を絶対に使わないことで、 preHook の処理が
-// 入稿タブの URL を書き換えたり content script に影響したりするのを防ぐ。
-// 既存の専用タブがあれば再利用 (毎回作り直すと bot 検知の懸念)。
-let _preHookDedicatedTabId = null;
-
-async function getOrCreatePreHookForrentTab_() {
-  // 既存の専用タブが生きているか確認
-  if (_preHookDedicatedTabId) {
-    try {
-      const tab = await chrome.tabs.get(_preHookDedicatedTabId);
-      if (tab && tab.url && tab.url.includes('fn.forrent.jp')) {
-        return { tabId: _preHookDedicatedTabId, created: false };
-      }
-    } catch (_) {
-      _preHookDedicatedTabId = null;
-    }
-  }
-  // 入稿タブを除外して既存の ForRent タブを探す
-  const { suumoFillTabId } = await getStorageData(['suumoFillTabId']);
-  const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/*' });
-  for (const t of tabs || []) {
-    if (t.id !== suumoFillTabId) {
-      _preHookDedicatedTabId = t.id;
-      return { tabId: t.id, created: false };
-    }
-  }
-  // 専用タブを新規作成 (active: false でフォーカス奪わない)
-  const created = await chrome.tabs.create({
-    url: 'https://www.fn.forrent.jp/fn/main_r.action',
-    active: false
-  });
-  _preHookDedicatedTabId = created.id;
-  await waitForTabLoad(created.id, 30000);
-  await sleep(2000);
-  return { tabId: created.id, created: true };
-}
-
 async function runSuumoApprovalPreHook_() {
   // ── 0. SUUMO入稿システムのトップページ TOP1R0000 を毎回fetchして
   //       「ネット掲載 N 指示」をリアルタイム取得する ──
-  // preHook 専用タブ (入稿タブとは別) で fetch+Shift-JISデコードして抽出。
-  // → 入稿のたびに必ず最新値を取得 + 入稿タブには一切触らない
+  // 既存ForRentタブ (admin が開いてるはず) で chrome.scripting.executeScript で
+  // fetch+Shift-JISデコードして抽出。
+  // 既存タブが無ければ新規にmain_r.actionを開く。
+  // → 入稿のたびに必ず最新値を取得 (ストレージキャッシュ依存をやめた)
   let liveActiveCountFromForrent = null;
   try {
-    const { tabId: targetTabId, created: createdTab } = await getOrCreatePreHookForrentTab_();
+    const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/*' });
+    let targetTabId;
+    let createdTab = false;
+    if (tabs && tabs.length > 0) {
+      targetTabId = tabs[0].id;
+    } else {
+      const created = await chrome.tabs.create({
+        url: 'https://www.fn.forrent.jp/fn/main_r.action',
+        active: false
+      });
+      targetTabId = created.id;
+      createdTab = true;
+      await waitForTabLoad(targetTabId, 30000);
+      await sleep(2000);
+    }
 
     const results = await chrome.scripting.executeScript({
       target: { tabId: targetTabId, allFrames: true },
@@ -5248,8 +5224,9 @@ async function runSuumoApprovalPreHook_() {
       if (r && r.result && r.result.ok) { parsed = r.result; break; }
     }
 
-    // 専用タブは閉じない (次回入稿時に再利用 → ログイン省略 + bot 検知緩和)
-    // 旧実装は毎回 createdTab=true で閉じていたが、専用タブの永続化で削除。
+    if (createdTab) {
+      try { await chrome.tabs.remove(targetTabId); } catch (_) {}
+    }
 
     if (parsed) {
       liveActiveCountFromForrent = parsed.listed;
@@ -5262,20 +5239,13 @@ async function runSuumoApprovalPreHook_() {
     await setStorageData({ debugLog: `[承認前処理] TOP1R0000取得例外: ${err.message}` });
   }
 
-  // ── 0b. TOP1R0000リアルタイム取得が失敗した時のみ、PUB1R2801フォールバック ──
+  // ── 0b. TOP1R0000リアルタイム取得が失敗していたら preHook を中止して入稿スキップ ──
+  // 旧実装はここで syncForrentListingStatus (PUB1R2801) フォールバックを実行していたが、
+  // それが入稿タブの URL を書き換えて入稿フローを破壊するバグの原因だったため廃止。
+  // 失敗時は素直に入稿スキップして次サイクルで再試行 (2026-05-05)。
   if (liveActiveCountFromForrent === null) {
-    try {
-      await setStorageData({ debugLog: '[承認前処理] フォールバック: ForRent状態同期(PUB1R2801)実行' });
-      const syncResult = await syncForrentListingStatus();
-      if (!syncResult || !syncResult.ok) {
-        await setStorageData({ debugLog: `[承認前処理] ForRent状態同期失敗(スキップして続行): ${syncResult && syncResult.error}` });
-      } else if (typeof syncResult.count === 'number') {
-        liveActiveCountFromForrent = syncResult.count;
-        await setStorageData({ debugLog: `[承認前処理] ForRent直読み掲載件数=${liveActiveCountFromForrent}` });
-      }
-    } catch (err) {
-      await setStorageData({ debugLog: `[承認前処理] ForRent状態同期例外(スキップ): ${err.message}` });
-    }
+    await setStorageData({ debugLog: '[承認前処理] TOP1R0000取得失敗のため入稿スキップ(次回リトライ)' });
+    return { ok: false, error: 'TOP1R0000取得失敗' };
   }
 
   // ── 1. SUUMOビジネスデータ取得 (JST日次キャッシュ) ──
