@@ -5124,27 +5124,26 @@ async function appendFillQueue(items) {
  * Phase 4 前処理のミューテックス付き実行
  *
  * - 実行中の preHook Promise を _preHookInFlight に保持、並列呼び出しは同じPromiseを待つ
- * - 失敗時は60秒 cooldown (同じエラーでForRentを叩き続けるのを防止)
- *
- * 注: 以前は「直近5分以内に成功済みなら即OK返却」のキャッシュがあったが、
- *     1物件目で 49→50件になったのに 2物件目の preHook がキャッシュ返却して
- *     停止判定がスキップされ、 50件超過になるバグの原因になっていたため廃止
- *     (2026-05-05)。 入稿タブを壊さない安全策として preHook 専用タブ
- *     (getOrCreatePreHookForrentTab_) を使うようにしたので、 連続呼び出しでも
- *     入稿タブに干渉しない。
+ * - 直近5分以内に成功済みなら即OK返却(再実行不要)
+ * - 失敗した場合はキャッシュしない(次回リトライ可能)
  */
 let _preHookInFlight = null;
+let _preHookSucceededAt = 0;
 let _preHookFailedAt = 0;
 let _preHookFailedError = '';
 
 async function getOrRunSuumoPreHook_() {
   const nowMs = Date.now();
+  // 直近5分以内に成功済みなら再実行しない(over-stop防止)
+  if (_preHookSucceededAt && (nowMs - _preHookSucceededAt) < 5 * 60 * 1000) {
+    return { ok: true, cached: true };
+  }
   // 直近60秒以内に失敗していれば再実行しない(無限ループ防止)
   // 同じエラーで何度もForRentを叩き続けるのを回避
   if (_preHookFailedAt && (nowMs - _preHookFailedAt) < 60 * 1000) {
     return { ok: false, cached: true, error: '直近失敗中(cooldown): ' + _preHookFailedError };
   }
-  // 実行中のpreHookがあれば同じ結果を待つ (並列呼び出しの直列化)
+  // 実行中のpreHookがあれば同じ結果を待つ
   if (_preHookInFlight) {
     return await _preHookInFlight;
   }
@@ -5153,6 +5152,7 @@ async function getOrRunSuumoPreHook_() {
     try {
       const result = await runSuumoApprovalPreHook_();
       if (result && result.ok) {
+        _preHookSucceededAt = Date.now();
         _preHookFailedAt = 0;
         _preHookFailedError = '';
       } else {
@@ -5171,52 +5171,30 @@ async function getOrRunSuumoPreHook_() {
   return await _preHookInFlight;
 }
 
-// preHook 専用 ForRent タブを取得 or 作成。
-// 入稿タブ (suumoFillTabId) を絶対に使わないことで、 preHook の処理が
-// 入稿タブの URL を書き換えたり content script に影響したりするのを防ぐ。
-// 既存の専用タブがあれば再利用 (毎回作り直すと bot 検知の懸念)。
-let _preHookDedicatedTabId = null;
-
-async function getOrCreatePreHookForrentTab_() {
-  // 既存の専用タブが生きているか確認
-  if (_preHookDedicatedTabId) {
-    try {
-      const tab = await chrome.tabs.get(_preHookDedicatedTabId);
-      if (tab && tab.url && tab.url.includes('fn.forrent.jp')) {
-        return { tabId: _preHookDedicatedTabId, created: false };
-      }
-    } catch (_) {
-      _preHookDedicatedTabId = null;
-    }
-  }
-  // 入稿タブを除外して既存の ForRent タブを探す
-  const { suumoFillTabId } = await getStorageData(['suumoFillTabId']);
-  const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/*' });
-  for (const t of tabs || []) {
-    if (t.id !== suumoFillTabId) {
-      _preHookDedicatedTabId = t.id;
-      return { tabId: t.id, created: false };
-    }
-  }
-  // 専用タブを新規作成 (active: false でフォーカス奪わない)
-  const created = await chrome.tabs.create({
-    url: 'https://www.fn.forrent.jp/fn/main_r.action',
-    active: false
-  });
-  _preHookDedicatedTabId = created.id;
-  await waitForTabLoad(created.id, 30000);
-  await sleep(2000);
-  return { tabId: created.id, created: true };
-}
-
 async function runSuumoApprovalPreHook_() {
   // ── 0. SUUMO入稿システムのトップページ TOP1R0000 を毎回fetchして
   //       「ネット掲載 N 指示」をリアルタイム取得する ──
-  // preHook 専用タブ (入稿タブとは別) で fetch+Shift-JISデコードして抽出。
-  // → 入稿のたびに必ず最新値を取得 + 入稿タブには一切触らない
+  // 既存ForRentタブ (admin が開いてるはず) で chrome.scripting.executeScript で
+  // fetch+Shift-JISデコードして抽出。
+  // 既存タブが無ければ新規にmain_r.actionを開く。
+  // → 入稿のたびに必ず最新値を取得 (ストレージキャッシュ依存をやめた)
   let liveActiveCountFromForrent = null;
   try {
-    const { tabId: targetTabId, created: createdTab } = await getOrCreatePreHookForrentTab_();
+    const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/*' });
+    let targetTabId;
+    let createdTab = false;
+    if (tabs && tabs.length > 0) {
+      targetTabId = tabs[0].id;
+    } else {
+      const created = await chrome.tabs.create({
+        url: 'https://www.fn.forrent.jp/fn/main_r.action',
+        active: false
+      });
+      targetTabId = created.id;
+      createdTab = true;
+      await waitForTabLoad(targetTabId, 30000);
+      await sleep(2000);
+    }
 
     const results = await chrome.scripting.executeScript({
       target: { tabId: targetTabId, allFrames: true },
@@ -5248,8 +5226,9 @@ async function runSuumoApprovalPreHook_() {
       if (r && r.result && r.result.ok) { parsed = r.result; break; }
     }
 
-    // 専用タブは閉じない (次回入稿時に再利用 → ログイン省略 + bot 検知緩和)
-    // 旧実装は毎回 createdTab=true で閉じていたが、専用タブの永続化で削除。
+    if (createdTab) {
+      try { await chrome.tabs.remove(targetTabId); } catch (_) {}
+    }
 
     if (parsed) {
       liveActiveCountFromForrent = parsed.listed;
