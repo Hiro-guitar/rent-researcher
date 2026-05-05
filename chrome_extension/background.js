@@ -1105,13 +1105,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // async sendResponse
   }
   if (msg.type === 'SUUMO_QUEUE_POLL_NOW') {
-    // content scriptからのキュー再取得依頼。
-    // 役割: 既に入稿フローが起動している (= SUUMO_APPROVED_NOW で preHook 通過済) 状態で
-    //       「次のキューを取得」 する。 件数判定 (preHook) はここでは行わない。
-    //       preHook は SUUMO_APPROVED_NOW でのみ実行 → 1物件承認 = 1回の件数判定/停止。
-    //       (旧実装はここで preHook を呼んでいたため、 全フレームから連発で送られると
-    //        preHook が重複実行され、 同じ物件を何度も停止しようとする問題があった
-    //        2026-05-05)
+    // content scriptからのキュー再取得依頼
+    // 送信元タブは既に入稿タブなので、新タブは作らずGASからキュー取得→追記のみ行う
     (async () => {
       try {
         // 送信元タブを入稿タブとして登録（タブID不一致によるタブ二重作成を防止）
@@ -1121,6 +1116,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const { available } = checkForrentAvailability();
         if (!available) {
           sendResponse({ ok: false, reason: '時間外' });
+          return;
+        }
+        // Phase 4: 承認→ForRentボタン経由ルートでも必ず前処理(データ更新+停止)を実行。
+        // 複数のSUUMO_QUEUE_POLL_NOWが並列で来た場合、同時に複数preHookが走ったり、
+        // 片方がskipして先にキュー取得に進んで入稿開始してしまうレースを防ぐため、
+        // ミューテックスで直列化する(前処理完了まで全呼び出しが待つ)。
+        const preHookResult = await getOrRunSuumoPreHook_();
+        if (!preHookResult.ok) {
+          await setStorageData({ debugLog: `[SUUMO入稿] QUEUE_POLL経路の前処理失敗: ${preHookResult.error}` });
+          sendResponse({ ok: false, error: '前処理失敗: ' + preHookResult.error });
           return;
         }
         const queueData = await pollSuumoApprovalQueue({ lock: true });
