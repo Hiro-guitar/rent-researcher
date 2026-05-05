@@ -1343,6 +1343,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           tabId,
           imageGenresCount: msg.imageGenresCount || 0,
           imageUploadStats: msg.imageUploadStats || {},
+          // Phase5 登録完了後に GAS の suumo_post_complete を送るための物件識別情報
+          propertyKey: msg.propertyKey || '',
+          building: msg.building || '',
+          room: msg.room || '',
+          rent: msg.rent || '',
         });
         sendResponse(result);
       } catch (err) {

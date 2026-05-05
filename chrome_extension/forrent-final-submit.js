@@ -36,6 +36,42 @@ async function tryForrentFinalSubmit(opts) {
     return { ok: false, error: 'tabId 未指定' };
   }
 
+  // GAS への post_complete 報告に必要な物件識別情報
+  // SUUMO_CONFIRM_REACHED の payload で background.js から渡される
+  const propertyKey = (opts && opts.propertyKey) || '';
+  const building = (opts && opts.building) || '';
+  const room = (opts && opts.room) || '';
+  const rent = (opts && opts.rent) || '';
+
+  // GAS に suumo_post_complete を投げるヘルパー
+  // success:false なら active 行追加せず submitting ロック解除のみ
+  // success:true なら active 行追加 + posted 状態に
+  async function reportPhase5Result_(success, extra) {
+    if (!propertyKey) {
+      console.warn('[Phase5] propertyKey 未指定のため GAS 報告スキップ', extra);
+      return;
+    }
+    try {
+      const result = await reportSuumoPostComplete({
+        propertyKey,
+        building,
+        room,
+        rent,
+        success: !!success,
+        ...(extra || {})
+      });
+      await setStorageData({
+        debugLog: `[Phase5] GAS 報告完了 (success=${!!success}) → ${JSON.stringify(result).substring(0, 150)}`
+      });
+    } catch (e) {
+      await setStorageData({
+        debugLog: `[Phase5] GAS 報告失敗 (success=${!!success}): ${e.message}`
+      });
+    }
+    // 入稿モードフラグも掃除
+    try { await chrome.storage.local.remove(['suumoFillMode', 'suumoFillModeSetAt']); } catch (_) {}
+  }
+
   try {
     await setStorageData({ debugLog: '[Phase5] 最終登録処理開始' });
 
@@ -47,6 +83,8 @@ async function tryForrentFinalSubmit(opts) {
     const pageCheck = await checkConfirmScreen_(tabId);
     if (!pageCheck.ok) {
       await setStorageData({ debugLog: `[Phase5] 確認画面検証NG: ${pageCheck.error}` });
+      // 確認画面に到達できなかった = 入稿失敗 → GAS 側のロックを解除し approved に戻す
+      await reportPhase5Result_(false, { error: '確認画面検証NG: ' + pageCheck.error });
       return { ok: false, error: 'not on confirm screen: ' + pageCheck.error };
     }
     await setStorageData({ debugLog: `[Phase5] 確認画面検証OK (URL=${pageCheck.url})` });
@@ -63,6 +101,10 @@ async function tryForrentFinalSubmit(opts) {
         debugLog: `[Phase5] ⚠️ 画像アップロード不完全 (期待${expected}枚/成功${actualSuccess}枚) → 登録中止`
       });
       try { await chrome.tabs.update(tabId, { active: true }); } catch (_) {}
+      await reportPhase5Result_(false, {
+        error: `画像${expected}枚指定のうち${actualSuccess}枚しか成功していない`,
+        abortReason: 'image_mismatch'
+      });
       return {
         ok: false,
         abortReason: 'image_mismatch',
@@ -81,6 +123,7 @@ async function tryForrentFinalSubmit(opts) {
     if (!buttonCheck.ok) {
       await setStorageData({ debugLog: `[Phase5] 登録ボタン状態NG: ${buttonCheck.error}` });
       try { await chrome.tabs.update(tabId, { active: true }); } catch (_) {}
+      await reportPhase5Result_(false, { error: '登録ボタン無効: ' + buttonCheck.error, abortReason: 'button_disabled' });
       return { ok: false, abortReason: 'button_disabled', error: buttonCheck.error };
     }
 
@@ -98,6 +141,7 @@ async function tryForrentFinalSubmit(opts) {
     if (!clickResult.ok) {
       await setStorageData({ debugLog: `[Phase5] 登録クリック失敗: ${clickResult.error}` });
       try { await chrome.tabs.update(tabId, { active: true }); } catch (_) {}
+      await reportPhase5Result_(false, { error: '登録クリック失敗: ' + clickResult.error });
       return { ok: false, error: clickResult.error };
     }
     await setStorageData({ debugLog: '[Phase5] 登録ボタンクリック実行' });
@@ -114,6 +158,12 @@ async function tryForrentFinalSubmit(opts) {
         await setStorageData({
           debugLog: `[Phase5] ⚠️ 登録後も確認画面のまま。手動確認してください。エラー検出: ${JSON.stringify(recheck.errors || []).substring(0, 200)}`
         });
+        // 50件オーバーや禁止文字エラー等で確認画面に戻されたケース
+        // GAS 側のロックを解除し approved に戻す (active 行は追加しない)
+        await reportPhase5Result_(false, {
+          error: '登録クリック後も確認画面のまま',
+          postErrors: (recheck.errors || []).slice(0, 3).join(' / ')
+        });
         return {
           ok: false,
           error: '登録クリック後も確認画面のまま',
@@ -123,6 +173,10 @@ async function tryForrentFinalSubmit(opts) {
     }
 
     await setStorageData({ debugLog: `[Phase5] 登録完了 (遷移先URL: ${postCheck.url})` });
+    // ★★ 登録が確実に成功した時点ではじめて GAS の active 行に追加 ★★
+    // (旧実装ではフォーム入力完了時に追加していたため Phase5 失敗でも active 行が残り
+    //  「停止候補」として永遠に検出される無限ループ問題があった。2026-05-05 修正)
+    await reportPhase5Result_(true, { finalUrl: postCheck.url });
     // 登録成功後は入稿タブとキューをクリーンアップ(タブが残り続けないように)
     try { await chrome.tabs.remove(tabId); } catch (_) {}
     try { await chrome.storage.local.remove(['suumoFillTabId', 'suumoFillMode', 'suumoFillModeSetAt', 'suumoPendingConfirmCheck']); } catch (_) {}
@@ -134,6 +188,8 @@ async function tryForrentFinalSubmit(opts) {
     if (tabId) {
       try { await chrome.tabs.update(tabId, { active: true }); } catch (_) {}
     }
+    // 例外時もロック解除のため GAS 報告 (success:false)
+    try { await reportPhase5Result_(false, { error: '例外: ' + err.message }); } catch (_) {}
     return { ok: false, error: err.message };
   } finally {
     _forrentFinalSubmitRunning = false;

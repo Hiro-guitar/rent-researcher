@@ -202,11 +202,16 @@
         }
         // 一度きりなので即クリア
         chrome.storage.local.remove(['suumoPendingConfirmCheck'], () => {
-          console.log('[SUUMO自動入稿/Phase5] 確認画面検知 → SUUMO_CONFIRM_REACHED 送信');
+          console.log('[SUUMO自動入稿/Phase5] 確認画面検知 → SUUMO_CONFIRM_REACHED 送信 key=' + (ctx.propertyKey || '?'));
           chrome.runtime.sendMessage({
             type: 'SUUMO_CONFIRM_REACHED',
             imageGenresCount: ctx.imageGenresCount || 0,
             imageUploadStats: ctx.imageUploadStats || {},
+            // Phase5 登録完了時に GAS の suumo_post_complete に渡す物件識別情報
+            propertyKey: ctx.propertyKey || '',
+            building: ctx.building || '',
+            room: ctx.room || '',
+            rent: ctx.rent || '',
           }, (resp) => {
             if (chrome.runtime.lastError) {
               console.warn('[SUUMO自動入稿/Phase5] 通知エラー:', chrome.runtime.lastError.message);
@@ -870,16 +875,22 @@
         const imgStatsAttr = document.body.getAttribute('data-suumo-img-stats') || '{}';
         const imgStats = JSON.parse(imgStatsAttr);
         const imageGenresCount = (typeof imageGenres === 'object' && imageGenres) ? Object.keys(imageGenres).length : 0;
+        // 物件識別情報も保存 → Phase5 登録完了後に GAS の suumo_post_complete 報告で使用
+        const itemInfo = window.__suumoFillCurrentItem || {};
         await new Promise(resolve => {
           chrome.storage.local.set({
             suumoPendingConfirmCheck: {
               at: Date.now(),
               imageGenresCount,
               imageUploadStats: imgStats,
+              propertyKey: itemInfo.propertyKey || itemInfo.key || '',
+              building: itemInfo.building || itemInfo.buildingName || '',
+              room: itemInfo.room || itemInfo.roomNumber || '',
+              rent: itemInfo.rent || ''
             }
           }, resolve);
         });
-        console.log('[SUUMO自動入稿] Phase5用コンテキスト保存 (images=' + imageGenresCount + ', stats=' + JSON.stringify(imgStats) + ')');
+        console.log('[SUUMO自動入稿] Phase5用コンテキスト保存 (images=' + imageGenresCount + ', stats=' + JSON.stringify(imgStats) + ', key=' + (itemInfo.propertyKey || '?') + ')');
       } catch (e) {
         console.warn('[SUUMO自動入稿] Phase5コンテキスト保存エラー:', e.message);
       }
@@ -2445,6 +2456,9 @@ async function checkFillQueue() {
       return;
     }
     const item = popResp.item;
+    // Phase5 (確認画面登録完了) 後に GAS へ propertyKey/building/room を渡すため
+    // window 経由で fillForrentForm 内 (suumoPendingConfirmCheck 保存処理) から参照できるようにする
+    window.__suumoFillCurrentItem = item;
 
     const rawData = item.propertyData || item;
     // デバッグ: 正規化前のデータをDOMに書き出し
@@ -2478,22 +2492,19 @@ async function checkFillQueue() {
     // mainフレーム内で直接フォーム入力を実行
     await fillForrentForm(normalized, item.imageGenres || {}, item.featureIds || []);
 
-    console.log('[SUUMO自動入稿] 入力完了');
+    console.log('[SUUMO自動入稿] 入力完了 → 確認画面遷移待ち (Phase5 で最終登録 → GAS反映)');
 
-    // 完了報告をbackground.jsに送信
-    chrome.runtime.sendMessage({
-      type: 'SUUMO_FILL_COMPLETE',
-      data: {
-        propertyKey: item.propertyKey || item.key || '',
-        building: item.building || item.buildingName || '',
-        room: item.room || item.roomNumber || '',
-        success: true
-      }
-    });
+    // ※ 旧実装はここで SUUMO_FILL_COMPLETE success:true を送信していたが、
+    //   実際はまだ確認画面遷移 + Phase5 (登録ボタン押下) が走っていない。
+    //   Phase5 が失敗 (確認画面検証 NG など) しても GAS に active 行が追加されてしまい、
+    //   重複登録 → 永遠に「停止候補」 として現れる無限ループの原因になっていた。
+    //   → Phase5 登録完了で GAS 報告するよう forrent-final-submit.js に移管 (2026-05-05)。
+    //   suumoPendingConfirmCheck に propertyKey 等を含めて Phase5 で参照する (下の fillFromQueue 親で保存)。
 
   } catch (err) {
     console.error('[SUUMO自動入稿] エラー:', err);
-    // エラー時もキューを復元しない（無限ループ防止）
+    // 失敗報告: GAS 側で submitting ロック解除 + approved に戻すために必須。
+    // GAS の recordSuumoPosting は success:false なら active 行追加せずロック解除のみ。
     chrome.runtime.sendMessage({
       type: 'SUUMO_FILL_COMPLETE',
       data: {
