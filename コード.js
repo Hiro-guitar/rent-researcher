@@ -73,6 +73,9 @@ function doPost(e) {
     if (json.action === 'stop_suumo_listing') {
       return handleStopSuumoListing(json);
     }
+    if (json.action === 'cleanup_duplicate_listings') {
+      return handleCleanupDuplicateListings(json);
+    }
     if (json.action === 'update_suumo_listing_stats') {
       return handleUpdateSuumoListingStats(json);
     }

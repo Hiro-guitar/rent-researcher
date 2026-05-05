@@ -1459,6 +1459,19 @@ function handleStopSuumoListing(json) {
 }
 
 /**
+ * POST: 重複行をいっぺんに削除 (メンテナンス用)
+ *
+ * curl 例:
+ *   curl -X POST "$GAS_URL" -H "Content-Type: application/json" \
+ *     -d '{"action":"cleanup_duplicate_listings","dryRun":true}'
+ */
+function handleCleanupDuplicateListings(json) {
+  var result = cleanupDuplicateListings({ dryRun: !!json.dryRun });
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
  * POST: ForRent PUB1R2801 から取得した「掲載中物件」リストをシートに反映
  *
  * Chrome拡張側で「掲載物件のみ」フィルタを適用してスクレイプしているため、
