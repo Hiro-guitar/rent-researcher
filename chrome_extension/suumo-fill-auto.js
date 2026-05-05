@@ -224,6 +224,13 @@
   // キュー監視の二重起動防止フラグ
   let _monitorStarted = false;
 
+  // フレーム判定: top frame でのみ SUUMO_QUEUE_POLL_NOW を送る (重複防止)
+  // manifest の all_frames:true で全フレームに注入されるため、 各フレームで
+  // ポーリングメッセージを送ると preHook が複数回走る (1物件承認で 3-4 回)。
+  const isTopFrame = (() => {
+    try { return window === window.top; } catch (e) { return false; }
+  })();
+
   // suumoFillModeフラグがONならキュー監視を開始（ログイン後・承認後どちらでも）
   // フラグはログイン時の content script がセットする。
   // ただしフラグは 30分で自動失効。古いフラグで勝手に入稿が開始されるのを防ぐ。
@@ -236,24 +243,9 @@
       data.suumoFillMode = false;
     }
     if (data.suumoFillMode) {
-      console.log('[SUUMO自動入稿] suumoFillModeフラグ検知 → キュー監視開始 & 即時ポーリング');
-      // background.jsにキュー再取得を依頼（ログイン中にキューがクリアされた場合の復旧）
-      chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
-        if (chrome.runtime.lastError) {
-          console.warn('[SUUMO自動入稿] 即時ポーリング送信エラー:', chrome.runtime.lastError.message);
-        } else {
-          console.log('[SUUMO自動入稿] 即時ポーリング結果:', resp);
-        }
-      });
-      initMainFrameMonitor();
-    } else {
-      // URLの?suumo_fill=trueもチェック（承認ページからの直接起動時、ログイン不要でトップに来た場合）
-      const topUrl = (() => {
-        try { return window.top.location.href; } catch (e) { return window.location.href; }
-      })();
-      if (topUrl.includes('suumo_fill=true')) {
-        console.log('[SUUMO自動入稿] ?suumo_fill=true 検知 → キュー監視開始 & 即時ポーリング');
-        chrome.storage.local.set({ suumoFillMode: true, suumoFillModeSetAt: Date.now() });
+      console.log('[SUUMO自動入稿] suumoFillModeフラグ検知 → キュー監視開始' + (isTopFrame ? ' & 即時ポーリング' : ' (サブフレーム: ポーリングはtop frameに任せる)'));
+      // background.jsにキュー再取得を依頼 (top frame からのみ送る、 重複防止)
+      if (isTopFrame) {
         chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
           if (chrome.runtime.lastError) {
             console.warn('[SUUMO自動入稿] 即時ポーリング送信エラー:', chrome.runtime.lastError.message);
@@ -261,6 +253,25 @@
             console.log('[SUUMO自動入稿] 即時ポーリング結果:', resp);
           }
         });
+      }
+      initMainFrameMonitor();
+    } else {
+      // URLの?suumo_fill=trueもチェック（承認ページからの直接起動時、ログイン不要でトップに来た場合）
+      const topUrl = (() => {
+        try { return window.top.location.href; } catch (e) { return window.location.href; }
+      })();
+      if (topUrl.includes('suumo_fill=true')) {
+        console.log('[SUUMO自動入稿] ?suumo_fill=true 検知 → キュー監視開始' + (isTopFrame ? ' & 即時ポーリング' : ' (サブフレーム)'));
+        chrome.storage.local.set({ suumoFillMode: true, suumoFillModeSetAt: Date.now() });
+        if (isTopFrame) {
+          chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
+            if (chrome.runtime.lastError) {
+              console.warn('[SUUMO自動入稿] 即時ポーリング送信エラー:', chrome.runtime.lastError.message);
+            } else {
+              console.log('[SUUMO自動入稿] 即時ポーリング結果:', resp);
+            }
+          });
+        }
         initMainFrameMonitor();
       } else {
         // フラグもURLパラメータもない → タブID照合でも判定（background.jsが先にIDを書いたケース）
