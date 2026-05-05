@@ -1007,10 +1007,19 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   // 通常は承認ページからの即時トリガー(SUUMO_APPROVED_NOW)で起動する
   // スマホ承認時などPCに即時通知が届かなかった分をここで拾う
   if (alarm.name === 'suumo-queue-poll') {
-    pollAndStartFillIfNeeded({ source: 'backup' }).catch(err => {
-      console.log(`[SUUMO入稿] backup poll失敗: ${err.message}`);
+    // 顧客検索中は並列実行で詰まることがあるためスキップ。10分後に再試行する。
+    chrome.storage.local.get(['isSearching'], (data) => {
+      if (data.isSearching) {
+        console.log('[SUUMO入稿] backup poll: 顧客検索中のためスキップ → 10分後にリトライ');
+        setStorageData({ debugLog: '[SUUMO入稿] backup poll: 顧客検索中のためスキップ → 10分後にリトライ' });
+        chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 10 });
+        return;
+      }
+      pollAndStartFillIfNeeded({ source: 'backup' }).catch(err => {
+        console.log(`[SUUMO入稿] backup poll失敗: ${err.message}`);
+      });
+      chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
     });
-    chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
   }
 
   // ── ForRent時間外に承認された物件の遅延入稿 ──
