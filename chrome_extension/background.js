@@ -5124,26 +5124,25 @@ async function appendFillQueue(items) {
  * Phase 4 前処理のミューテックス付き実行
  *
  * - 実行中の preHook Promise を _preHookInFlight に保持、並列呼び出しは同じPromiseを待つ
- * - 直近5分以内に成功済みなら即OK返却(再実行不要)
- * - 失敗した場合はキャッシュしない(次回リトライ可能)
+ * - 失敗時は60秒 cooldown (同じエラーでForRentを叩き続けるのを防止)
+ *
+ * 注: 以前は「直近5分以内に成功済みなら即OK返却」のキャッシュがあったが、
+ *     1物件目で 49→50件になったのに 2物件目の preHook がキャッシュ返却して
+ *     停止判定がスキップされ、 50件超過になるバグの原因になっていたため廃止
+ *     (2026-05-05)。 連続入稿でも毎回 preHook で件数判定する。
  */
 let _preHookInFlight = null;
-let _preHookSucceededAt = 0;
 let _preHookFailedAt = 0;
 let _preHookFailedError = '';
 
 async function getOrRunSuumoPreHook_() {
   const nowMs = Date.now();
-  // 直近5分以内に成功済みなら再実行しない(over-stop防止)
-  if (_preHookSucceededAt && (nowMs - _preHookSucceededAt) < 5 * 60 * 1000) {
-    return { ok: true, cached: true };
-  }
   // 直近60秒以内に失敗していれば再実行しない(無限ループ防止)
   // 同じエラーで何度もForRentを叩き続けるのを回避
   if (_preHookFailedAt && (nowMs - _preHookFailedAt) < 60 * 1000) {
     return { ok: false, cached: true, error: '直近失敗中(cooldown): ' + _preHookFailedError };
   }
-  // 実行中のpreHookがあれば同じ結果を待つ
+  // 実行中のpreHookがあれば同じ結果を待つ (並列呼び出しの直列化)
   if (_preHookInFlight) {
     return await _preHookInFlight;
   }
@@ -5152,7 +5151,6 @@ async function getOrRunSuumoPreHook_() {
     try {
       const result = await runSuumoApprovalPreHook_();
       if (result && result.ok) {
-        _preHookSucceededAt = Date.now();
         _preHookFailedAt = 0;
         _preHookFailedError = '';
       } else {
@@ -5241,20 +5239,13 @@ async function runSuumoApprovalPreHook_() {
     await setStorageData({ debugLog: `[承認前処理] TOP1R0000取得例外: ${err.message}` });
   }
 
-  // ── 0b. TOP1R0000リアルタイム取得が失敗した時のみ、PUB1R2801フォールバック ──
+  // ── 0b. TOP1R0000リアルタイム取得が失敗していたら preHook を中止して入稿スキップ ──
+  // 旧実装はここで syncForrentListingStatus (PUB1R2801) フォールバックを実行していたが、
+  // それが入稿タブの URL を書き換えて入稿フローを破壊するバグの原因だったため廃止。
+  // 失敗時は素直に入稿スキップして次サイクルで再試行 (2026-05-05)。
   if (liveActiveCountFromForrent === null) {
-    try {
-      await setStorageData({ debugLog: '[承認前処理] フォールバック: ForRent状態同期(PUB1R2801)実行' });
-      const syncResult = await syncForrentListingStatus();
-      if (!syncResult || !syncResult.ok) {
-        await setStorageData({ debugLog: `[承認前処理] ForRent状態同期失敗(スキップして続行): ${syncResult && syncResult.error}` });
-      } else if (typeof syncResult.count === 'number') {
-        liveActiveCountFromForrent = syncResult.count;
-        await setStorageData({ debugLog: `[承認前処理] ForRent直読み掲載件数=${liveActiveCountFromForrent}` });
-      }
-    } catch (err) {
-      await setStorageData({ debugLog: `[承認前処理] ForRent状態同期例外(スキップ): ${err.message}` });
-    }
+    await setStorageData({ debugLog: '[承認前処理] TOP1R0000取得失敗のため入稿スキップ(次回リトライ)' });
+    return { ok: false, error: 'TOP1R0000取得失敗' };
   }
 
   // ── 1. SUUMOビジネスデータ取得 (JST日次キャッシュ) ──
