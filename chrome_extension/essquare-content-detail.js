@@ -17,16 +17,45 @@
   if (window.__essquareContentDetailLoaded) return;
   window.__essquareContentDetailLoaded = true;
 
+  // 設備セクション (h3「区画設備」「建物設備」など + 直後の MuiGrid container) が
+  // 描画されるまで最大 timeoutMs ミリ秒待つ。React SPA で hydration 前に
+  // extractDetail を呼ぶと facilities が空文字になっていた事象 (2026-05-05) の対策。
+  async function waitForFacilitySection(timeoutMs) {
+    const TARGETS = ['区画設備', '建物設備', 'セキュリティ', '屋外設備',
+                     '共用設備', '室内設備', 'キッチン設備', '水回り設備'];
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      for (const h3 of document.querySelectorAll('h3')) {
+        const t = (h3.textContent || '').trim();
+        if (TARGETS.includes(t)) {
+          const next = h3.nextElementSibling;
+          // Grid container にラベル/値ペアが少なくとも1組ある (children >= 2) かを確認。
+          // 「設備詳細」見出しだけ先に挿入されて中身が後追いで描画されるケースに備える。
+          if (next && next.children && next.children.length >= 2) {
+            return true;
+          }
+        }
+      }
+      await new Promise(r => setTimeout(r, 200));
+    }
+    return false;
+  }
+
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'ESSQUARE_EXTRACT_DETAIL') {
-      try {
-        const result = extractDetail();
-        // 画像はbackground.jsからMAIN worldで別途取得する
-        sendResponse(result);
-      } catch (err) {
-        sendResponse({ ok: false, error: err.message });
-      }
-      return true;
+      (async () => {
+        try {
+          // 設備セクションが描画されるまで最大8秒待つ
+          // (タイムアウトしても extractDetail は実行 — facilities 以外は取れる可能性があるため)
+          await waitForFacilitySection(8000);
+          const result = extractDetail();
+          // 画像はbackground.jsからMAIN worldで別途取得する
+          sendResponse(result);
+        } catch (err) {
+          sendResponse({ ok: false, error: err.message });
+        }
+      })();
+      return true; // async sendResponse
     }
 
     if (msg.type === 'ESSQUARE_CHECK_LOGIN') {
