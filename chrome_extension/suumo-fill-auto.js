@@ -1751,10 +1751,35 @@
   // ── その他初期費用 ──
   function fillOtherInitialCosts(data) {
     const items = [];
-    // 単一金額の抽出（"2,500円" → 2500）
+    // 単一金額の抽出
+    //   "2,500円"      → 2500
+    //   "2万2,000円"   → 22000
+    //   "2万円"        → 20000
+    //   "10万円"       → 100000
+    //   "１万５千円"   → 15000 (全角数字 + 千)
+    // 旧実装は「万」「千」 を解釈せず最初の数字だけ取っていたため、
+    // "2万2,000円" が 2円扱いになり初期費用合計に反映されなかった (2026-05-05 修正)。
     const parseAmount = (val) => {
       if (!val) return 0;
-      const s = String(val).replace(/[,，、]/g, ''); // カンマ除去
+      let s = String(val)
+        .replace(/[,，、]/g, '')                                                 // 桁区切り除去
+        .replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)); // 全角→半角
+      // 「N 万 M」 パターン: N*10000 + (M*1000 if 千 else M)
+      const manMatch = s.match(/(\d+(?:\.\d+)?)\s*万\s*(?:(\d+(?:\.\d+)?)\s*千)?\s*(\d+(?:\.\d+)?)?/);
+      if (manMatch) {
+        const man = parseFloat(manMatch[1]) * 10000;
+        const sen = manMatch[2] ? parseFloat(manMatch[2]) * 1000 : 0;
+        const sub = manMatch[3] ? parseFloat(manMatch[3]) : 0;
+        return man + sen + sub;
+      }
+      // 「N 千 M」パターン (万なし)
+      const senMatch = s.match(/(\d+(?:\.\d+)?)\s*千\s*(\d+(?:\.\d+)?)?/);
+      if (senMatch) {
+        const sen = parseFloat(senMatch[1]) * 1000;
+        const sub = senMatch[2] ? parseFloat(senMatch[2]) : 0;
+        return sen + sub;
+      }
+      // 単純な数字のみ
       const m = s.match(/\d+(?:\.\d+)?/);
       return m ? parseFloat(m[0]) : 0;
     };
@@ -1765,14 +1790,16 @@
       items.push({ name, amount, text: String(val) });
     };
     // 複数項目を含むテキストから各金額を抽出（例: "A:2,500円 B:11,000円..."）
+    // 金額表記の「万」「千」 にも対応 (parseAmount に委譲)
     const addMultiItem = (defaultName, val) => {
       if (!val || val === 'なし') return;
       const s = String(val).replace(/[,，、](?=\d)/g, ''); // 桁区切りカンマを削除
-      const regex = /([^\s:：]+)[:：]\s*(\d+)\s*円/g;
+      // 数字 / 万 / 千 / ドット を含む金額部分を捕捉
+      const regex = /([^\s:：]+)[:：]\s*([\d.万千]+)\s*円/g;
       let matched = false;
       let m;
       while ((m = regex.exec(s)) !== null) {
-        const amount = parseFloat(m[2]);
+        const amount = parseAmount(m[2] + '円');
         if (amount > 0) {
           items.push({ name: m[1], amount, text: m[2] + '円' });
           matched = true;
