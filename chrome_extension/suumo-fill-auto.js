@@ -725,7 +725,9 @@
     await fillAddress(data);
 
     // ── 交通情報 ──
-    fillTrafficInfo(data);
+    // ⚠️ 駅補完 (autoFillEmptyStationSlots) は fetch を含むため非同期。
+    //    await しないと後続の画像アップ・確認画面遷移が先に走って補完が間に合わない。
+    await fillTrafficInfo(data);
 
     // ── 賃料 ──
     if (data.rent) {
@@ -998,7 +1000,7 @@
   }
 
   // ── 交通情報 ──
-  function fillTrafficInfo(data) {
+  async function fillTrafficInfo(data) {
     if (!data.access || data.access.length === 0) return;
     const maxTraffic = 3;
     // 駅名重複を除去: ForRentは「交通1と交通2が同じです」で弾くため、
@@ -1071,11 +1073,20 @@
 
     // 既存駅が3未満なら SUUMO の「らくらく交通入力」で空きスロットを補完
     // (既存駅は触らず、空きスロットだけ追加する)
+    // ⚠️ ここを await しないと駅補完完了前に確認画面遷移ボタンが押されて
+    //    補完が反映されない (旧実装は fire-and-forget だった)。
     const filledCount = Math.min(dedupedAccess.length, maxTraffic);
     if (filledCount > 0 && filledCount < maxTraffic) {
-      autoFillEmptyStationSlots(filledCount).catch(err => {
+      try {
+        await autoFillEmptyStationSlots(filledCount);
+      } catch (err) {
         console.warn('[SUUMO自動入稿] 駅補完エラー:', err && err.message);
-      });
+      }
+    } else if (filledCount === 0) {
+      // ソース側で駅が 1 つも取れなかった = 補完すべき土台がないケース
+      // (autoFillEmptyStationSlots は住所から候補を引くため、 駅が 0 でも理論的
+      //  には動かせるが、 既存実装は filledCount > 0 を前提にしている)
+      console.warn('[SUUMO自動入稿] 駅補完スキップ: ソース側に駅が0件');
     }
   }
 
@@ -1090,11 +1101,25 @@
    * @param {number} filledCount 既存スロット数 (1 or 2)
    */
   async function autoFillEmptyStationSlots(filledCount) {
+    // ダッシュボードログ送信ヘルパー (console.log だと拡張のコンソールでしか
+    // 見えないため、 主要ポイントは DEBUG_LOG で background → ダッシュボードへ転送)
+    const dlog = (msg) => {
+      console.log('[SUUMO自動入稿/駅補完] ' + msg);
+      try {
+        chrome.runtime.sendMessage({ type: 'DEBUG_LOG', message: '[駅補完] ' + msg }, () => {
+          if (chrome.runtime.lastError) {} // 無視
+        });
+      } catch (_) {}
+    };
     try {
+      dlog('開始: 既存' + filledCount + '駅 → 残り' + (3 - filledCount) + '駅を補完試行');
       // SUUMO「らくらく交通入力」のボタン click でサーバーセッションに住所を登録 (setup)
       // → 直 fetch だけだとセッション未確立で 0件返ることがあるため必須
       // popup は window.open フックで即時 close (ユーザー画面に出さない)
       const trigBtn = document.getElementById('rakurakuKotsu');
+      if (!trigBtn) {
+        dlog('⚠️ #rakurakuKotsu ボタンが見つからない (DOM 構造変化の可能性)');
+      }
       if (trigBtn) {
         const origOpen = window.open;
         window.open = function() {
@@ -1111,7 +1136,7 @@
         credentials: 'include'
       });
       if (!res.ok) {
-        console.warn('[SUUMO自動入稿] らくらく交通入力 fetch失敗:', res.status);
+        dlog('⚠️ COM1R02167 fetch失敗 HTTP ' + res.status);
         return;
       }
       // SUUMOは Shift-JIS を返すため、arrayBuffer + TextDecoder で正しくデコード
@@ -1135,10 +1160,10 @@
           tohofun: parseInt(doc.getElementById('tohofun' + i)?.value || '0', 10) || 0
         });
       }
-      console.log('[SUUMO自動入稿] 候補数=' + candidates.length, candidates.map(c => c.ekiNm + '/' + c.tohofun + '分'));
+      dlog('候補' + candidates.length + '件: ' + candidates.slice(0, 8).map(c => c.ekiNm + '(' + c.tohofun + '分)').join(', '));
 
       if (candidates.length === 0) {
-        console.warn('[SUUMO自動入稿] 駅候補0件 (セッション未確立の可能性)');
+        dlog('⚠️ 駅候補0件 (らくらく交通入力のセッション未確立の可能性)');
         return;
       }
 
@@ -1157,7 +1182,7 @@
         .slice(0, needed);
 
       if (eligibleCandidates.length === 0) {
-        console.warn('[SUUMO自動入稿] 重複しない駅候補なし');
+        dlog('⚠️ 既存駅 [' + Array.from(existingStations).join(',') + '] と重複しない候補なし → 補完なし');
         return;
       }
 
@@ -1207,11 +1232,10 @@
         if (carDiv) carDiv.style.display = 'none';
       }
 
-      console.log('[SUUMO自動入稿] 空きスロットに'
-        + eligibleCandidates.length + '駅を直接追加: '
+      dlog('完了: ' + eligibleCandidates.length + '駅追加 → '
         + eligibleCandidates.map(c => c.ekiNm + '(徒歩' + c.tohofun + '分)').join(', '));
     } catch (e) {
-      console.warn('[SUUMO自動入稿] 駅補完エラー:', e && e.message);
+      dlog('⚠️ 例外: ' + (e && e.message));
     }
   }
 
