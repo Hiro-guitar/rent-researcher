@@ -1126,11 +1126,54 @@
       if (!trigBtn) {
         dlog('⚠️ #rakurakuKotsu ボタンが見つからない (DOM 構造変化の可能性)');
       }
-      let popupRef = null;
+
+      // ── 診断: ボタンの onclick 属性をダンプして POST URL を特定する ──
+      // popup blocker を回避するため、 popup を介さず直接 fetch で
+      // セッション確立用 URL を叩く方針に切り替えるための情報収集。
+      let extractedSetupUrl = '';
       if (trigBtn) {
+        const onclickAttr = trigBtn.getAttribute('onclick') || '';
+        const onclickFunc = trigBtn.onclick ? String(trigBtn.onclick).substring(0, 300) : '';
+        dlog('rakurakuKotsu onclick属性: ' + (onclickAttr.substring(0, 200) || '(なし)'));
+        if (onclickFunc) dlog('rakurakuKotsu onclick関数: ' + onclickFunc);
+        // onclick 属性から URL らしき部分を抽出 (window.open('URL', ...) 等)
+        const urlMatch = (onclickAttr + ' ' + onclickFunc).match(/['"]([\w./?=&%-]+\.action[^'"]*)['"]/);
+        if (urlMatch) {
+          extractedSetupUrl = urlMatch[1];
+          // 相対 URL なら絶対化
+          if (!/^https?:/i.test(extractedSetupUrl)) {
+            extractedSetupUrl = 'https://www.fn.forrent.jp/fn/' + extractedSetupUrl.replace(/^\/+fn\/?/, '');
+          }
+          dlog('セットアップ URL 候補: ' + extractedSetupUrl);
+        }
+      }
+
+      // ── セッション確立試行 ──
+      // 方針 A: onclick から抽出した URL を直接 fetch (popup 不要)
+      // 方針 B: 抽出失敗時のみ従来の popup 方式にフォールバック
+      let sessionEstablished = false;
+      if (extractedSetupUrl) {
+        try {
+          const setupRes = await fetch(extractedSetupUrl, {
+            credentials: 'include',
+            cache: 'no-store'
+          });
+          dlog('セットアップ fetch HTTP ' + setupRes.status + ' (popup 回避)');
+          if (setupRes.ok) {
+            sessionEstablished = true;
+            // 念のため少し待ってからクッキー反映
+            await new Promise(r => setTimeout(r, 300));
+          }
+        } catch (e) {
+          dlog('⚠️ セットアップ fetch 例外: ' + (e && e.message));
+        }
+      }
+
+      // 方針 B: フォールバック (popup 経由)
+      if (!sessionEstablished && trigBtn) {
+        let popupRef = null;
         const origOpen = window.open;
         window.open = function(url, name, features) {
-          // 画面外に小さく開く (ユーザー視覚的にはほぼ見えない) + バックグラウンド扱い
           const offscreenFeatures = 'left=-10000,top=-10000,width=1,height=1,menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=no';
           const w = origOpen.call(this, url, name || '_blank', offscreenFeatures);
           popupRef = w;
@@ -1139,13 +1182,11 @@
         try { trigBtn.click(); } catch(_){}
         window.open = origOpen;
         if (popupRef) {
-          // ポップアップが住所 POST を完走するのを待つ。
-          // (実測で 800ms 〜 1.2s 程度かかるケースがあるため余裕をもって 2s)
           await new Promise(r => setTimeout(r, 2000));
           try { popupRef.close(); } catch(_){}
-          dlog('らくらく交通入力 popup 起動・close 完了 (セッション確立試行)');
+          dlog('popup 経由セッション確立試行 完了');
         } else {
-          dlog('⚠️ window.open が null を返した (popup blocker?) → セッション未確立の可能性');
+          dlog('⚠️ window.open が null (popup blocker) かつ URL 抽出失敗 → セッション未確立');
         }
       }
 
