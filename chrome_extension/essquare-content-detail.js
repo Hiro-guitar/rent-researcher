@@ -19,15 +19,14 @@
 
   // 無音 audio 起動は essquare-keepalive.js (検索/詳細両方に注入) で行う
 
-  // ─── 診断ログ (一時的) ───
-  // content script の console.log は ES-Square 詳細タブで F12 → Console で確認可能。
-  // 加えて拡張ダッシュボードのログにも転送するため background 経由で debugLog を更新。
+  // 異常時のみダッシュボードログに残す軽量 helper
+  // (通常時の診断ログは原因特定後に削除済み)
   function diag(msg) {
-    const text = '[ES-Square診断] ' + msg;
+    const text = '[ES-Square] ' + msg;
     try { console.log(text); } catch (e) {}
     try {
       chrome.runtime.sendMessage({ type: 'DEBUG_LOG', message: text }, () => {
-        if (chrome.runtime.lastError) {} // 無視
+        if (chrome.runtime.lastError) {}
       });
     } catch (e) {}
   }
@@ -63,52 +62,33 @@
     const TARGETS = ['区画設備', '建物設備', 'セキュリティ', '屋外設備',
                      '共用設備', '室内設備', 'キッチン設備', '水回り設備'];
     const start = Date.now();
-    let iter = 0;
     while (Date.now() - start < timeoutMs) {
-      iter++;
-      let foundH3 = 0;
-      let foundReady = 0;
       for (const h3 of document.querySelectorAll('h3')) {
         const t = (h3.textContent || '').trim();
         if (TARGETS.includes(t)) {
-          foundH3++;
           const next = h3.nextElementSibling;
           if (next && next.children && next.children.length >= 2) {
-            foundReady++;
+            return true;
           }
         }
       }
-      if (iter <= 3 || iter % 5 === 0) {
-        diag(`waitForFacilitySection iter=${iter} elapsed=${Date.now() - start}ms foundH3=${foundH3} foundReady=${foundReady} h3total=${document.querySelectorAll('h3').length}`);
-      }
-      if (foundReady > 0) {
-        diag(`waitForFacilitySection 出現検知 iter=${iter} elapsed=${Date.now() - start}ms foundReady=${foundReady}`);
-        return true;
-      }
       await new Promise(r => setTimeout(r, 200));
     }
-    diag(`waitForFacilitySection タイムアウト iter=${iter} timeout=${timeoutMs}ms`);
+    // タイムアウト時のみ警告ログ (異常検知用)
+    diag(`設備セクション出現待ちタイムアウト ${timeoutMs}ms url=${location.href.slice(-80)}`);
     return false;
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === 'ESSQUARE_EXTRACT_DETAIL') {
-      const t0 = Date.now();
-      diag(`ESSQUARE_EXTRACT_DETAIL 受信 url=${(location.href || '').slice(-80)} readyState=${document.readyState}`);
       (async () => {
         try {
           // 「物件情報」タブを必ず選択 (前回「不動産会社様向け情報」が残っている場合に備える)
           await ensurePropertyInfoTabSelected();
           // 設備セクションが描画されるまで最大8秒待つ
           // (タイムアウトしても extractDetail は実行 — facilities 以外は取れる可能性があるため)
-          const waitResult = await waitForFacilitySection(8000);
-          const t1 = Date.now();
+          await waitForFacilitySection(8000);
           const result = extractDetail();
-          const facilitiesLen = (result && result.detail && result.detail.facilities || '').length;
-          diag(`extractDetail完了 wait=${waitResult} waitMs=${t1 - t0}ms extractMs=${Date.now() - t1}ms facilities長=${facilitiesLen}`);
-          if (facilitiesLen === 0) {
-            diag(`facilities空 → 詳細: 設備h3数=${Array.from(document.querySelectorAll('h3')).filter(h => /区画設備|建物設備|セキュリティ|屋外設備|共用設備|室内設備|キッチン設備|水回り設備/.test(h.textContent.trim())).length}`);
-          }
           // 画像はbackground.jsからMAIN worldで別途取得する
           sendResponse(result);
         } catch (err) {
