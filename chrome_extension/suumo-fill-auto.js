@@ -1114,56 +1114,85 @@
     try {
       dlog('開始: 既存' + filledCount + '駅 → 残り' + (3 - filledCount) + '駅を補完試行');
       // SUUMO「らくらく交通入力」のボタン click でサーバーセッションに住所を登録 (setup)
-      // → 直 fetch だけだとセッション未確立で 0件返ることがあるため必須
-      // popup は window.open フックで即時 close (ユーザー画面に出さない)
+      // → 直 fetch だけだとセッション未確立で 0件返ることがあるため必須。
+      //
+      // 旧実装は window.open フックで popup を即 close していたため、
+      // ポップアップ内で実行される住所 POST が完了する前にウィンドウが閉じられ、
+      // セッション確立失敗 → 候補 0 件 になっていた (2026-05-05 修正)。
+      //
+      // 新実装は popup を画面外に開いてバックグラウンドで POST を完走させ、
+      // その後 close する。
       const trigBtn = document.getElementById('rakurakuKotsu');
       if (!trigBtn) {
         dlog('⚠️ #rakurakuKotsu ボタンが見つからない (DOM 構造変化の可能性)');
       }
+      let popupRef = null;
       if (trigBtn) {
         const origOpen = window.open;
-        window.open = function() {
-          const w = origOpen.apply(this, arguments);
-          if (w) { try { w.close(); } catch(_){} }
+        window.open = function(url, name, features) {
+          // 画面外に小さく開く (ユーザー視覚的にはほぼ見えない) + バックグラウンド扱い
+          const offscreenFeatures = 'left=-10000,top=-10000,width=1,height=1,menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=no';
+          const w = origOpen.call(this, url, name || '_blank', offscreenFeatures);
+          popupRef = w;
           return w;
         };
         try { trigBtn.click(); } catch(_){}
         window.open = origOpen;
-        await new Promise(r => setTimeout(r, 500));
+        if (popupRef) {
+          // ポップアップが住所 POST を完走するのを待つ。
+          // (実測で 800ms 〜 1.2s 程度かかるケースがあるため余裕をもって 2s)
+          await new Promise(r => setTimeout(r, 2000));
+          try { popupRef.close(); } catch(_){}
+          dlog('らくらく交通入力 popup 起動・close 完了 (セッション確立試行)');
+        } else {
+          dlog('⚠️ window.open が null を返した (popup blocker?) → セッション未確立の可能性');
+        }
       }
 
-      const res = await fetch('https://www.fn.forrent.jp/fn/COM1R02167.action', {
-        credentials: 'include'
-      });
-      if (!res.ok) {
-        dlog('⚠️ COM1R02167 fetch失敗 HTTP ' + res.status);
-        return;
-      }
-      // SUUMOは Shift-JIS を返すため、arrayBuffer + TextDecoder で正しくデコード
-      // (デフォルトの res.text() は UTF-8 解釈なので駅名が文字化けして既存駅と
-      //  マッチせず、結果として既存駅も含めて全件追加候補と判定されてしまう)
-      const buf = await res.arrayBuffer();
-      const html = new TextDecoder('shift-jis').decode(buf);
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-
-      // 候補抽出
-      const candidates = [];
-      for (let i = 1; ; i++) {
-        const ekiNmEl = doc.getElementById('ekiNm' + i);
-        if (!ekiNmEl) break;
-        candidates.push({
-          idx: i,
-          ensenCd: doc.getElementById('ensenCd' + i)?.value || '',
-          ensenNm: doc.getElementById('ensenNm' + i)?.value || '',
-          ekiCd: doc.getElementById('ekiCd' + i)?.value || '',
-          ekiNm: ekiNmEl.value || '',
-          tohofun: parseInt(doc.getElementById('tohofun' + i)?.value || '0', 10) || 0
+      // 候補が 0 件なら最大 2 回までリトライ (セッション確立に時間がかかるケース)
+      let candidates = [];
+      let lastFetchStatus = '';
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const res = await fetch('https://www.fn.forrent.jp/fn/COM1R02167.action', {
+          credentials: 'include',
+          cache: 'no-store'
         });
+        if (!res.ok) {
+          lastFetchStatus = 'HTTP ' + res.status;
+          dlog('⚠️ COM1R02167 fetch失敗 ' + lastFetchStatus + ' (試行' + attempt + '/3)');
+          await new Promise(r => setTimeout(r, 800));
+          continue;
+        }
+        // SUUMOは Shift-JIS を返すため、arrayBuffer + TextDecoder で正しくデコード
+        // (デフォルトの res.text() は UTF-8 解釈なので駅名が文字化けして既存駅と
+        //  マッチせず、結果として既存駅も含めて全件追加候補と判定されてしまう)
+        const buf = await res.arrayBuffer();
+        const html = new TextDecoder('shift-jis').decode(buf);
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        candidates = [];
+        for (let i = 1; ; i++) {
+          const ekiNmEl = doc.getElementById('ekiNm' + i);
+          if (!ekiNmEl) break;
+          candidates.push({
+            idx: i,
+            ensenCd: doc.getElementById('ensenCd' + i)?.value || '',
+            ensenNm: doc.getElementById('ensenNm' + i)?.value || '',
+            ekiCd: doc.getElementById('ekiCd' + i)?.value || '',
+            ekiNm: ekiNmEl.value || '',
+            tohofun: parseInt(doc.getElementById('tohofun' + i)?.value || '0', 10) || 0
+          });
+        }
+        if (candidates.length > 0) {
+          if (attempt > 1) dlog('候補取得成功 (試行' + attempt + '/3)');
+          break;
+        }
+        dlog('候補0件 → セッション再確立待機 (試行' + attempt + '/3)');
+        await new Promise(r => setTimeout(r, 1000));
       }
       dlog('候補' + candidates.length + '件: ' + candidates.slice(0, 8).map(c => c.ekiNm + '(' + c.tohofun + '分)').join(', '));
 
       if (candidates.length === 0) {
-        dlog('⚠️ 駅候補0件 (らくらく交通入力のセッション未確立の可能性)');
+        dlog('⚠️ 駅候補0件 (3回試行しても取得できず → 住所未入力 or サーバー側問題の可能性)');
         return;
       }
 
