@@ -5172,71 +5172,44 @@ async function getOrRunSuumoPreHook_() {
 async function runSuumoApprovalPreHook_() {
   // ── 0. SUUMO入稿システムのトップページ TOP1R0000 を毎回fetchして
   //       「ネット掲載 N 指示」をリアルタイム取得する ──
-  // 既存ForRentタブ (admin が開いてるはず) で chrome.scripting.executeScript で
-  // fetch+Shift-JISデコードして抽出。
-  // 既存タブが無ければ新規にmain_r.actionを開く。
-  // → 入稿のたびに必ず最新値を取得 (ストレージキャッシュ依存をやめた)
+  // Service Worker から直接 fetch (host_permissions あり、 cookie 自動送信)。
+  // 入稿タブのコンテキストで実行しないので、 入稿タブの状態に依存しない。
+  // 失敗時のリトライ: 短時間で 2 回まで (一時的なネットワーク・セッション揺れ対策)。
   let liveActiveCountFromForrent = null;
-  try {
-    const tabs = await chrome.tabs.query({ url: 'https://www.fn.forrent.jp/*' });
-    let targetTabId;
-    let createdTab = false;
-    if (tabs && tabs.length > 0) {
-      targetTabId = tabs[0].id;
-    } else {
-      const created = await chrome.tabs.create({
-        url: 'https://www.fn.forrent.jp/fn/main_r.action',
-        active: false
+  let lastFetchError = '';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const r = await fetch('https://www.fn.forrent.jp/fn/TOP1R0000.action?id=' + Date.now(), {
+        credentials: 'include',
+        cache: 'no-store'
       });
-      targetTabId = created.id;
-      createdTab = true;
-      await waitForTabLoad(targetTabId, 30000);
-      await sleep(2000);
-    }
-
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: targetTabId, allFrames: true },
-      func: async () => {
-        try {
-          const r = await fetch('https://www.fn.forrent.jp/fn/TOP1R0000.action?id=' + Date.now(), {
-            credentials: 'include'
-          });
-          if (!r.ok) return { ok: false, error: 'HTTP' + r.status };
-          const buf = await r.arrayBuffer();
-          const html = new TextDecoder('shift-jis').decode(buf);
-          const stripped = html
-            .replace(/<script[\s\S]*?<\/script>/g, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/\s+/g, ' ');
-          const m = stripped.match(/ネット掲載\s+(\d+)\s*指示\s*\/\s*(\d+)\s*枠/);
-          if (m) return { ok: true, listed: parseInt(m[1], 10), max: parseInt(m[2], 10) };
-          const isLogin = /ログイン|login|ID.{0,5}パスワード/i.test(stripped);
-          return { ok: false, error: isLogin ? 'ログイン切れ' : 'パターン不一致' };
-        } catch (e) {
-          return { ok: false, error: e.message };
+      if (!r.ok) {
+        lastFetchError = 'HTTP' + r.status;
+      } else {
+        const buf = await r.arrayBuffer();
+        const html = new TextDecoder('shift-jis').decode(buf);
+        const stripped = html
+          .replace(/<script[\s\S]*?<\/script>/g, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&nbsp;/g, ' ')
+          .replace(/\s+/g, ' ');
+        const m = stripped.match(/ネット掲載\s+(\d+)\s*指示\s*\/\s*(\d+)\s*枠/);
+        if (m) {
+          liveActiveCountFromForrent = parseInt(m[1], 10);
+          await setStorageData({ debugLog: `[承認前処理] TOP1R0000直読み(SW fetch): ネット掲載=${liveActiveCountFromForrent}/${parseInt(m[2], 10)}枠` });
+          break;
         }
+        lastFetchError = /ログイン|login|ID.{0,5}パスワード/i.test(stripped) ? 'ログイン切れ' : 'パターン不一致';
       }
-    });
-
-    let parsed = null;
-    for (const r of (results || [])) {
-      if (r && r.result && r.result.ok) { parsed = r.result; break; }
+    } catch (e) {
+      lastFetchError = e.message || String(e);
     }
-
-    if (createdTab) {
-      try { await chrome.tabs.remove(targetTabId); } catch (_) {}
+    if (attempt < 2) {
+      await sleep(800); // 短いリトライバッファ
     }
-
-    if (parsed) {
-      liveActiveCountFromForrent = parsed.listed;
-      await setStorageData({ debugLog: `[承認前処理] TOP1R0000直読み(リアルタイム): ネット掲載=${liveActiveCountFromForrent}/${parsed.max}枠` });
-    } else {
-      const errors = (results || []).map(r => (r && r.result && r.result.error) || '?').slice(0, 3).join(' / ');
-      await setStorageData({ debugLog: `[承認前処理] TOP1R0000リアルタイム取得失敗: ${errors}` });
-    }
-  } catch (err) {
-    await setStorageData({ debugLog: `[承認前処理] TOP1R0000取得例外: ${err.message}` });
+  }
+  if (liveActiveCountFromForrent === null) {
+    await setStorageData({ debugLog: `[承認前処理] TOP1R0000リアルタイム取得失敗(2回): ${lastFetchError}` });
   }
 
   // ── 0b. TOP1R0000リアルタイム取得が失敗していたら preHook を中止して入稿スキップ ──
