@@ -915,6 +915,14 @@ async function findOrCreateDedicatedEssquareTab() {
   dedicatedEssquareTabId = newTab.id;
   dedicatedEssquareWindowId = newTab.windowId;
 
+  // タブの自動破棄を防ぐ (Chrome のメモリ圧迫時の自動 discard を抑制)
+  // 補助的対策。bg throttling 回避は content script 側の無音 audio で行う。
+  try {
+    await chrome.tabs.update(dedicatedEssquareTabId, { autoDiscardable: false });
+  } catch (e) {
+    console.warn('[ES-Square] autoDiscardable設定失敗:', e && e.message);
+  }
+
   await waitForTabLoad(dedicatedEssquareTabId);
   await sleep(3000); // React SPA 考慮
 
