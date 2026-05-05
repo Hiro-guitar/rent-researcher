@@ -27,35 +27,46 @@
     } catch (e) {}
   }
 
+  // Web Audio API (AudioContext + OscillatorNode) で無音を生成
+  // dataURL <audio> はESQuareのCSP `media-src` 制限でブロックされるため、
+  // src 不要の AudioContext を使用。
   function startSilentAudio() {
-    if (window.__essquareSilentAudio) return;
+    if (window.__essquareAudioCtx) return;
     const urlPath = (location.pathname || '').slice(0, 40);
     try {
-      const audio = new Audio();
-      // 1サンプルの無音 WAV (8kHz mono 8bit)
-      // 旧: data size=0 で Chrome が "no supported source" エラー → 1サンプル(0x80)に修正
-      audio.src = 'data:audio/wav;base64,UklGRiUAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQEAAACA';
-      audio.loop = true;
-      audio.volume = 0.001;
-      audio.muted = false; // muted=true だと audible 判定にならない
-      window.__essquareSilentAudio = audio;
-      audio.play().then(() => {
-        diagToBg('audio起動OK ' + urlPath);
-      }).catch((err) => {
-        // autoplay blocked: 初回 user gesture を待って再試行
-        diagToBg('audio autoplay失敗(' + (err && err.message || '?') + ') ' + urlPath);
-        const tryStart = () => {
-          audio.play().then(() => {
-            diagToBg('audio起動OK(user gesture後) ' + urlPath);
-          }).catch(() => {});
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) {
+        diagToBg('AudioContext API なし');
+        return;
+      }
+      const ctx = new Ctx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      gain.gain.value = 0.001; // ほぼ無音 (0だと Chrome が audible 判定しない可能性)
+      osc.frequency.value = 1; // 1Hz の超低周波 (人間に聴こえない)
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      window.__essquareAudioCtx = ctx;
+      diagToBg('AudioContext起動 state=' + ctx.state + ' ' + urlPath);
+
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(() => {
+          diagToBg('AudioContext resumed state=' + ctx.state);
+        }).catch((err) => {
+          diagToBg('AudioContext resume失敗(' + (err && err.message || '?') + ')');
+          // user gesture フォールバック
+          const tryResume = () => {
+            ctx.resume().then(() => diagToBg('AudioContext resumed(user gesture後)')).catch(() => {});
+            ['click','keydown','touchstart','pointerdown'].forEach(ev =>
+              document.removeEventListener(ev, tryResume, true));
+          };
           ['click','keydown','touchstart','pointerdown'].forEach(ev =>
-            document.removeEventListener(ev, tryStart, true));
-        };
-        ['click','keydown','touchstart','pointerdown'].forEach(ev =>
-          document.addEventListener(ev, tryStart, { capture: true, passive: true }));
-      });
+            document.addEventListener(ev, tryResume, { capture: true, passive: true }));
+        });
+      }
     } catch (e) {
-      diagToBg('audio init失敗: ' + (e && e.message || '?'));
+      diagToBg('AudioContext init失敗: ' + (e && e.message || '?'));
     }
   }
   startSilentAudio();
