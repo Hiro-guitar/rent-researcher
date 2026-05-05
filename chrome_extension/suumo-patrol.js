@@ -17,6 +17,11 @@
 
 // ── 巡回状態管理 ──
 let _suumoPatrolRunning = false;
+// 同一巡回内で共有する Discord スレッドID
+// (1巡回 = 1スレッド、複数の巡回条件で同じスレッドに集約するため)
+// runSuumoPatrolCycle 開始時に null にリセットし、最初の通知発生時に
+// createSuumoPatrolThread_ が作成・キャッシュする。巡回終了で null に戻す。
+let _currentPatrolThreadId = null;
 // searchIdはbackground.jsのcurrentSearchIdを使用
 
 /**
@@ -122,6 +127,10 @@ async function runSuumoPatrolCycle() {
   }
 
   _suumoPatrolRunning = true;
+  // 巡回開始時に Discord スレッドIDキャッシュをリセット
+  // (以後 createSuumoPatrolThread_ が最初の通知発生時に新規作成し、
+  //  同一巡回内の以後の通知はそのスレッドに集約される)
+  _currentPatrolThreadId = null;
   // 既存のcurrentSearchIdを使用（isSearchCancelledがこれを参照するため）
   const searchId = ++currentSearchId;
 
@@ -420,6 +429,8 @@ async function runSuumoPatrolCycle() {
     console.error('[SUUMO巡回] エラー:', err);
   } finally {
     _suumoPatrolRunning = false;
+    // 巡回終了 → Discord スレッドIDキャッシュをクリア (次回巡回時に新規作成される)
+    _currentPatrolThreadId = null;
   }
 }
 
@@ -559,16 +570,20 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
 // ════════════════════════════════════════════════════════════════════
 
 /**
- * 巡回ごとに新規 Discord スレッドを作成
- * - 1巡回 = 1スレッド (sendSuumoDiscordFromExtension_ 1回呼ばれるごとに作成)
+ * 巡回ごとに 1度だけ Discord スレッドを作成し、同一巡回内では再利用
+ * - 1巡回 = 1スレッド (複数の巡回条件で同じスレッドに通知を集約)
  * - スレッド名: "🌀 SUUMO巡回 YYYY-MM-DD HH:mm" (JST 日時で巡回単位を識別)
+ * - 既に作成済み (_currentPatrolThreadId が set) ならそれを返す
  * - スレッド作成失敗時は null を返す(呼び出し側でフォールバック扱い)
  *
  * 注: 過去のレート制限問題は GAS 共有IPが原因 (Chrome拡張へ移行で解消済み)。
- *     スレッド数を抑える理由はないため日毎統合をやめて巡回ごとに分けている。
+ *     スレッド数を抑える理由はないため日毎統合はせず巡回ごとに分ける。
  */
 async function createSuumoPatrolThread_(webhookUrl) {
   if (!webhookUrl) return null;
+  // 同一巡回内で既に作成済みなら再利用
+  if (_currentPatrolThreadId) return _currentPatrolThreadId;
+
   const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
   const dateStr = jstNow.getUTCFullYear() + '-'
     + String(jstNow.getUTCMonth() + 1).padStart(2, '0') + '-'
@@ -594,6 +609,8 @@ async function createSuumoPatrolThread_(webhookUrl) {
       await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成失敗: thread_id取得不可` });
       return null;
     }
+    // キャッシュして同一巡回内の以後の呼び出しでは再利用
+    _currentPatrolThreadId = threadId;
     await setStorageData({
       debugLog: `[SUUMO巡回] Discordスレッド作成OK ${threadName} (id=${threadId})`
     });
