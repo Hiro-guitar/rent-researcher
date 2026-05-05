@@ -5288,9 +5288,14 @@ async function runSuumoApprovalPreHook_() {
     ? peek.stopCandidates
     : (peek.stopCandidate ? [peek.stopCandidate] : []);
 
+  // GAS が段階的保護緩和をどのレベルで採用したかを取得 (0=標準/1=緩い/2=最小/3=保護無視)
+  // GAS が古い (relaxLevel 未対応) なら undefined → 0 扱い
+  const relaxLevel = typeof peek.stopCandidateRelaxLevel === 'number' ? peek.stopCandidateRelaxLevel : 0;
+  const relaxLabel = ['標準', '緩和1(3日/問合30日)', '緩和2(1日のみ)', '保護無視(最終手段)'][relaxLevel] || '不明';
+
   if (candidates.length === 0) {
-    await setStorageData({ debugLog: '[承認前処理] ⚠️ 50件達しているが停止候補なし(全員保護対象?) → 入稿中止' });
-    return { ok: false, error: '50件達しているが停止候補が空(全員保護対象)' };
+    await setStorageData({ debugLog: '[承認前処理] ⚠️ 50件達しているが停止候補なし(active 行なし or GAS 旧版) → 入稿中止' });
+    return { ok: false, error: '50件達しているが停止候補が空' };
   }
 
   // ── 3. 先頭候補を停止 ──
@@ -5301,8 +5306,14 @@ async function runSuumoApprovalPreHook_() {
     return { ok: false, error: `候補のsuumo_property_code不正: ${target.suumoPropertyCode}` };
   }
 
+  if (relaxLevel > 0) {
+    // 標準ルールでは候補ゼロだったが、 緩和ルールで救済したケース
+    await setStorageData({
+      debugLog: `[承認前処理] ⚠️ 標準ルールで候補ゼロ → 保護緩和[${relaxLabel}]で停止候補を確保`
+    });
+  }
   await setStorageData({
-    debugLog: `[承認前処理] 停止実行: ${target.building} ${target.room} (${suumoCode}) score=${target.score}`
+    debugLog: `[承認前処理] 停止実行: ${target.building} ${target.room} (${suumoCode}) score=${target.score} 保護=${relaxLabel}`
   });
 
   const stopResult = await stopForrentListing({ suumoPropertyCode: suumoCode });
