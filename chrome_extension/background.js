@@ -5124,27 +5124,26 @@ async function appendFillQueue(items) {
  * Phase 4 前処理のミューテックス付き実行
  *
  * - 実行中の preHook Promise を _preHookInFlight に保持、並列呼び出しは同じPromiseを待つ
- * - 失敗時は60秒 cooldown (同じエラーでForRentを叩き続けるのを防止)
- *
- * 注: 以前は「直近5分以内に成功済みなら即OK返却」のキャッシュがあったが、
- *     連続入稿 (1物件目入稿後すぐに2物件目) のとき、 1物件目で 49→50件になった
- *     のに 2物件目の preHook がキャッシュ返却して停止判定がスキップされ、
- *     50件超過になるバグの原因になっていたため廃止 (2026-05-05)。
- *     ForRent 件数取得は内部で毎回実行されるが、 SUUMOビジネスデータ更新は
- *     日次キャッシュなので負荷増は限定的。
+ * - 直近5分以内に成功済みなら即OK返却(再実行不要)
+ * - 失敗した場合はキャッシュしない(次回リトライ可能)
  */
 let _preHookInFlight = null;
+let _preHookSucceededAt = 0;
 let _preHookFailedAt = 0;
 let _preHookFailedError = '';
 
 async function getOrRunSuumoPreHook_() {
   const nowMs = Date.now();
+  // 直近5分以内に成功済みなら再実行しない(over-stop防止)
+  if (_preHookSucceededAt && (nowMs - _preHookSucceededAt) < 5 * 60 * 1000) {
+    return { ok: true, cached: true };
+  }
   // 直近60秒以内に失敗していれば再実行しない(無限ループ防止)
   // 同じエラーで何度もForRentを叩き続けるのを回避
   if (_preHookFailedAt && (nowMs - _preHookFailedAt) < 60 * 1000) {
     return { ok: false, cached: true, error: '直近失敗中(cooldown): ' + _preHookFailedError };
   }
-  // 実行中のpreHookがあれば同じ結果を待つ (並列呼び出しの直列化)
+  // 実行中のpreHookがあれば同じ結果を待つ
   if (_preHookInFlight) {
     return await _preHookInFlight;
   }
@@ -5153,6 +5152,7 @@ async function getOrRunSuumoPreHook_() {
     try {
       const result = await runSuumoApprovalPreHook_();
       if (result && result.ok) {
+        _preHookSucceededAt = Date.now();
         _preHookFailedAt = 0;
         _preHookFailedError = '';
       } else {
