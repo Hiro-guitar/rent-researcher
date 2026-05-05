@@ -808,15 +808,112 @@ function stopSuumoListing(key) {
 
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   var keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  var statuses = sheet.getRange(2, 9, lastRow - 1, 1).getValues();
+  var stoppedCount = 0;
+  // 同じ key の行が複数あるケース (再承認で重複登録された等) に対応するため、
+  // 最初の1行だけでなく該当する全行を stopped 化する。
+  // 旧実装は早期 return していたため、 1物件目だけ stopped、 残りは active のまま
+  // → ForRent との不整合で「既に成約」 ループ → 入稿不能のバグになっていた
+  // (2026-05-05)
   for (var i = 0; i < keys.length; i++) {
-    if (keys[i][0] === key) {
+    if (keys[i][0] === key && statuses[i][0] !== 'stopped') {
       var row = i + 2;
       sheet.getRange(row, 9).setValue('stopped');
       sheet.getRange(row, 10).setValue(now);
-      return { success: true };
+      stoppedCount++;
     }
   }
-  return { success: false, message: '物件が見つかりません' };
+  if (stoppedCount === 0) {
+    return { success: false, message: '該当の active 行が見つかりません (key=' + key + ')' };
+  }
+  return { success: true, stoppedCount: stoppedCount };
+}
+
+/**
+ * 掲載管理シートの重複行を一掃する
+ *
+ * 経緯 (2026-05-05):
+ *   旧 suumo-fill-auto.js が「フォーム入力完了 = 入稿成功」 と誤判定し、
+ *   Phase5 (確認画面登録) が失敗しても active 行が追加されていた。
+ *   その結果、 同じ key の active 行が複数並ぶシートになり、
+ *   「停止候補」 として永遠に検出される無限ループを引き起こしていた。
+ *
+ * 動作:
+ *   各 key について active 行が複数ある場合、 最新 (最大行番号) の 1 行だけを残し、
+ *   古い方を stopped 化する。 stopped 行はそのまま (履歴として保持)。
+ *   既に stopped の行は触らない。
+ *
+ * @param {Object} [opts]
+ *   - dryRun {boolean}  true なら結果を返すだけで書き換えない (確認用)
+ * @returns {{ success: boolean, processedKeys: number, stoppedRows: number, details: Array }}
+ */
+function cleanupDuplicateListings(opts) {
+  opts = opts || {};
+  var dryRun = !!opts.dryRun;
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return { success: true, processedKeys: 0, stoppedRows: 0, details: [], message: 'シートが空です' };
+  }
+
+  // 1..lastRow-1 の各行 (ヘッダ行を除く) を読む
+  // 列: A=key, I=status (9), B=building, C=room, D=postedAt
+  var values = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+
+  // key ごとに active 行のインデックス (sheet 上の row 番号) を集める
+  var activeRowsByKey = {};
+  for (var i = 0; i < values.length; i++) {
+    var key = values[i][0];
+    var status = values[i][8];
+    if (!key) continue;
+    if (status !== 'active') continue;
+    if (!activeRowsByKey[key]) activeRowsByKey[key] = [];
+    activeRowsByKey[key].push({
+      sheetRow: i + 2,
+      building: values[i][1],
+      room: values[i][2],
+      postedAt: values[i][3]
+    });
+  }
+
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  var stoppedRows = 0;
+  var processedKeys = 0;
+  var details = [];
+
+  Object.keys(activeRowsByKey).forEach(function (key) {
+    var rows = activeRowsByKey[key];
+    if (rows.length <= 1) return;
+    processedKeys++;
+    // 最新 (最大 sheetRow) を残し、 それ以外を stopped 化
+    rows.sort(function (a, b) { return b.sheetRow - a.sheetRow; });
+    var keep = rows[0];
+    for (var j = 1; j < rows.length; j++) {
+      var r = rows[j];
+      if (!dryRun) {
+        sheet.getRange(r.sheetRow, 9).setValue('stopped');
+        sheet.getRange(r.sheetRow, 10).setValue(now);
+      }
+      stoppedRows++;
+      details.push({
+        key: key,
+        building: r.building,
+        room: r.room,
+        droppedRow: r.sheetRow,
+        keptRow: keep.sheetRow
+      });
+    }
+  });
+
+  return {
+    success: true,
+    dryRun: dryRun,
+    processedKeys: processedKeys,
+    stoppedRows: stoppedRows,
+    details: details,
+    message: (dryRun ? '[DRY RUN] ' : '') + processedKeys + ' 件の key で重複 active を検出 → '
+             + stoppedRows + ' 行を stopped 化' + (dryRun ? ' (実書込なし)' : '')
+  };
 }
 
 // ═══════════════════════════════════════════════════════════
