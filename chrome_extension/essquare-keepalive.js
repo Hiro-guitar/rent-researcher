@@ -51,16 +51,16 @@
       gain.connect(ctx.destination);
       osc.start();
       window.__essquareAudioCtx = ctx;
-      diagToBg('AudioContext起動 state=' + ctx.state + ' ' + urlPath);
+      // 起動成功はコンソールログのみ (ダッシュボード汚染を避ける)
+      console.log('[ES-Square keepalive] AudioContext started state=' + ctx.state);
 
       if (ctx.state === 'suspended') {
-        ctx.resume().then(() => {
-          diagToBg('AudioContext resumed state=' + ctx.state);
-        }).catch((err) => {
-          diagToBg('AudioContext resume失敗(' + (err && err.message || '?') + ')');
+        ctx.resume().catch((err) => {
+          // resume 失敗はダッシュボードに通知 (要対応の可能性)
+          diagToBg('AudioContext resume失敗(' + (err && err.message || '?') + ') — 音声許可設定を確認してください');
           // user gesture フォールバック
           const tryResume = () => {
-            ctx.resume().then(() => diagToBg('AudioContext resumed(user gesture後)')).catch(() => {});
+            ctx.resume().catch(() => {});
             ['click','keydown','touchstart','pointerdown'].forEach(ev =>
               document.removeEventListener(ev, tryResume, true));
           };
