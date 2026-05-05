@@ -5294,7 +5294,23 @@ async function runSuumoApprovalPreHook_() {
   const relaxLabel = ['標準', '緩和1(3日/問合30日)', '緩和2(1日のみ)', '保護無視(最終手段)'][relaxLevel] || '不明';
 
   if (candidates.length === 0) {
-    await setStorageData({ debugLog: '[承認前処理] ⚠️ 50件達しているが停止候補なし(active 行なし or GAS 旧版) → 入稿中止' });
+    // GAS レスポンスの中身をすべてログに出して原因特定
+    let peekDump = '(空)';
+    try {
+      peekDump = JSON.stringify({
+        activeListingCount: peek.activeListingCount,
+        stopCandidate: peek.stopCandidate,
+        stopCandidatesLength: Array.isArray(peek.stopCandidates) ? peek.stopCandidates.length : 'not-array',
+        stopCandidateRelaxLevel: peek.stopCandidateRelaxLevel,
+        keys: Object.keys(peek || {}),
+        firstCandidate: Array.isArray(peek.stopCandidates) && peek.stopCandidates[0] ? {
+          building: peek.stopCandidates[0].building,
+          score: peek.stopCandidates[0].score,
+          rowIndex: peek.stopCandidates[0].rowIndex,
+        } : null,
+      });
+    } catch (_) { peekDump = '(JSON dump 失敗)'; }
+    await setStorageData({ debugLog: '[承認前処理] ⚠️ 50件達しているが停止候補なし → 入稿中止 (peek=' + peekDump + ')' });
     return { ok: false, error: '50件達しているが停止候補が空' };
   }
 
