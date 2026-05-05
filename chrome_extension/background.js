@@ -1034,6 +1034,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // --- メッセージ受信 ---
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // 汎用デバッグログ転送 (content script からの診断用)
+  // content script は debugLog を直接書けないので、background 経由で setStorageData する
+  if (msg.type === 'DEBUG_LOG' && msg.message) {
+    setStorageData({ debugLog: String(msg.message) });
+    sendResponse({ ok: true });
+    return;
+  }
+
   if (msg.type === 'SEARCH_NOW') {
     runSearchCycle();
     sendResponse({ ok: true });
