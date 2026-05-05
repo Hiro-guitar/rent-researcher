@@ -830,22 +830,26 @@ function stopSuumoListing(key) {
 }
 
 /**
- * 掲載管理シートの重複行を一掃する
+ * 掲載管理シートの重複行をいっぺんに削除する
  *
  * 経緯 (2026-05-05):
  *   旧 suumo-fill-auto.js が「フォーム入力完了 = 入稿成功」 と誤判定し、
  *   Phase5 (確認画面登録) が失敗しても active 行が追加されていた。
- *   その結果、 同じ key の active 行が複数並ぶシートになり、
- *   「停止候補」 として永遠に検出される無限ループを引き起こしていた。
+ *   その結果、 同じ key の行が複数並ぶシートになり、 「停止候補」として永遠に
+ *   検出される無限ループを引き起こしていた。
  *
  * 動作:
- *   各 key について active 行が複数ある場合、 最新 (最大行番号) の 1 行だけを残し、
- *   古い方を stopped 化する。 stopped 行はそのまま (履歴として保持)。
- *   既に stopped の行は触らない。
+ *   各 key について行を集約し、 1 行だけ残してそれ以外は **行ごと削除** する。
+ *   残す行の優先順位:
+ *     1) status=active がある場合 → active のうち最新 (最大行番号) を 1 行残す
+ *     2) active が無い場合 → stopped のうち最新 (最大行番号) を 1 行残す
+ *   それ以外の重複行はゴミとして物理削除 (deleteRow)。
+ *
+ *   削除は後ろの行から実施する (前から削除すると行番号がずれるため)。
  *
  * @param {Object} [opts]
- *   - dryRun {boolean}  true なら結果を返すだけで書き換えない (確認用)
- * @returns {{ success: boolean, processedKeys: number, stoppedRows: number, details: Array }}
+ *   - dryRun {boolean}  true なら結果を返すだけで削除しない (確認用)
+ * @returns {{ success: boolean, processedKeys: number, deletedRows: number, details: Array }}
  */
 function cleanupDuplicateListings(opts) {
   opts = opts || {};
@@ -853,66 +857,82 @@ function cleanupDuplicateListings(opts) {
   var sheet = getListingSheet_();
   var lastRow = sheet.getLastRow();
   if (lastRow <= 1) {
-    return { success: true, processedKeys: 0, stoppedRows: 0, details: [], message: 'シートが空です' };
+    return {
+      success: true, dryRun: dryRun, processedKeys: 0, deletedRows: 0, details: [],
+      message: 'シートが空です'
+    };
   }
 
-  // 1..lastRow-1 の各行 (ヘッダ行を除く) を読む
-  // 列: A=key, I=status (9), B=building, C=room, D=postedAt
+  // 列: A=key(1), B=building(2), C=room(3), D=postedAt(4), I=status(9)
   var values = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
 
-  // key ごとに active 行のインデックス (sheet 上の row 番号) を集める
-  var activeRowsByKey = {};
+  // key ごとに全行を集める
+  var rowsByKey = {};
   for (var i = 0; i < values.length; i++) {
     var key = values[i][0];
-    var status = values[i][8];
     if (!key) continue;
-    if (status !== 'active') continue;
-    if (!activeRowsByKey[key]) activeRowsByKey[key] = [];
-    activeRowsByKey[key].push({
+    if (!rowsByKey[key]) rowsByKey[key] = [];
+    rowsByKey[key].push({
       sheetRow: i + 2,
+      key: key,
       building: values[i][1],
       room: values[i][2],
-      postedAt: values[i][3]
+      postedAt: values[i][3],
+      status: values[i][8]
     });
   }
 
-  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
-  var stoppedRows = 0;
+  // 削除対象の行番号を集める (重複している key の中から「残す 1 行」以外)
+  var toDelete = []; // [{ sheetRow, key, building, room, status, keptRow, keptStatus }, ...]
   var processedKeys = 0;
-  var details = [];
 
-  Object.keys(activeRowsByKey).forEach(function (key) {
-    var rows = activeRowsByKey[key];
-    if (rows.length <= 1) return;
+  Object.keys(rowsByKey).forEach(function (key) {
+    var rows = rowsByKey[key];
+    if (rows.length <= 1) return; // 重複なし
     processedKeys++;
-    // 最新 (最大 sheetRow) を残し、 それ以外を stopped 化
-    rows.sort(function (a, b) { return b.sheetRow - a.sheetRow; });
-    var keep = rows[0];
-    for (var j = 1; j < rows.length; j++) {
-      var r = rows[j];
-      if (!dryRun) {
-        sheet.getRange(r.sheetRow, 9).setValue('stopped');
-        sheet.getRange(r.sheetRow, 10).setValue(now);
-      }
-      stoppedRows++;
-      details.push({
-        key: key,
+
+    // 残す 1 行を決定: active > stopped、 同種内では最大 sheetRow
+    var actives = rows.filter(function (r) { return r.status === 'active'; });
+    var keep;
+    if (actives.length > 0) {
+      actives.sort(function (a, b) { return b.sheetRow - a.sheetRow; });
+      keep = actives[0];
+    } else {
+      var sorted = rows.slice().sort(function (a, b) { return b.sheetRow - a.sheetRow; });
+      keep = sorted[0];
+    }
+
+    rows.forEach(function (r) {
+      if (r.sheetRow === keep.sheetRow) return;
+      toDelete.push({
+        sheetRow: r.sheetRow,
+        key: r.key,
         building: r.building,
         room: r.room,
-        droppedRow: r.sheetRow,
-        keptRow: keep.sheetRow
+        status: r.status,
+        keptRow: keep.sheetRow,
+        keptStatus: keep.status
       });
-    }
+    });
   });
+
+  // 物理削除は **行番号が大きい方から** 実行 (前から消すと番号がずれる)
+  toDelete.sort(function (a, b) { return b.sheetRow - a.sheetRow; });
+
+  if (!dryRun) {
+    for (var j = 0; j < toDelete.length; j++) {
+      sheet.deleteRow(toDelete[j].sheetRow);
+    }
+  }
 
   return {
     success: true,
     dryRun: dryRun,
     processedKeys: processedKeys,
-    stoppedRows: stoppedRows,
-    details: details,
-    message: (dryRun ? '[DRY RUN] ' : '') + processedKeys + ' 件の key で重複 active を検出 → '
-             + stoppedRows + ' 行を stopped 化' + (dryRun ? ' (実書込なし)' : '')
+    deletedRows: toDelete.length,
+    details: toDelete,
+    message: (dryRun ? '[DRY RUN] ' : '') + processedKeys + ' 件の key で重複検出 → '
+             + toDelete.length + ' 行を' + (dryRun ? '削除予定 (実削除なし)' : '物理削除')
   };
 }
 
@@ -1434,6 +1454,19 @@ function handleUpdateSuumoPerformance(json) {
  */
 function handleStopSuumoListing(json) {
   var result = stopSuumoListing(json.key);
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * POST: 重複行をいっぺんに削除 (メンテナンス用)
+ *
+ * curl 例:
+ *   curl -X POST "$GAS_URL" -H "Content-Type: application/json" \
+ *     -d '{"action":"cleanup_duplicate_listings","dryRun":true}'
+ */
+function handleCleanupDuplicateListings(json) {
+  var result = cleanupDuplicateListings({ dryRun: !!json.dryRun });
   return ContentService.createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
 }
