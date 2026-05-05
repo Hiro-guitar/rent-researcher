@@ -32,6 +32,30 @@
     } catch (e) {}
   }
 
+  // 物件詳細モーダルには3つのタブがある: 「物件情報」「地図・近隣情報」「不動産会社様向け情報」
+  // SPA がタブ選択状態をメモリ保持しているため、前の物件で「不動産会社様向け情報」が
+  // 選択された状態で次の物件詳細を開くと、 同タブが選択されたまま表示される。
+  // 設備情報 (区画設備/建物設備/セキュリティ) は「物件情報」タブにのみあるので、
+  // extractDetail の前に必ず「物件情報」タブを選択する。
+  async function ensurePropertyInfoTabSelected() {
+    const tabs = document.querySelectorAll('[role="tab"], .MuiTab-root');
+    for (const tab of tabs) {
+      const text = (tab.textContent || '').trim();
+      if (text === '物件情報') {
+        const selected = tab.getAttribute('aria-selected') === 'true';
+        if (!selected) {
+          diag('物件情報タブ未選択 → クリックして切替');
+          tab.click();
+          // タブ切替アニメーション完了待ち
+          await new Promise(r => setTimeout(r, 300));
+        }
+        return true;
+      }
+    }
+    diag('物件情報タブが見つからない (タブUIなし or 別構造)');
+    return false;
+  }
+
   // 設備セクション (h3「区画設備」「建物設備」など + 直後の MuiGrid container) が
   // 描画されるまで最大 timeoutMs ミリ秒待つ。React SPA で hydration 前に
   // extractDetail を呼ぶと facilities が空文字になっていた事象 (2026-05-05) の対策。
@@ -73,6 +97,8 @@
       diag(`ESSQUARE_EXTRACT_DETAIL 受信 url=${(location.href || '').slice(-80)} readyState=${document.readyState}`);
       (async () => {
         try {
+          // 「物件情報」タブを必ず選択 (前回「不動産会社様向け情報」が残っている場合に備える)
+          await ensurePropertyInfoTabSelected();
           // 設備セクションが描画されるまで最大8秒待つ
           // (タイムアウトしても extractDetail は実行 — facilities 以外は取れる可能性があるため)
           const waitResult = await waitForFacilitySection(8000);

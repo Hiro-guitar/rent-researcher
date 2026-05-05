@@ -42,8 +42,11 @@
       const ctx = new Ctx();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      gain.gain.value = 0.001; // ほぼ無音 (0だと Chrome が audible 判定しない可能性)
-      osc.frequency.value = 1; // 1Hz の超低周波 (人間に聴こえない)
+      // Chrome の audible 判定を確実に通すため、人間の可聴域内 (440Hz=A音) で
+      // gain を極小に設定。1Hz超低周波 + gain 0.001 だと audible 判定が
+      // 通らないケースがあった。
+      osc.frequency.value = 440; // A音
+      gain.gain.value = 0.001; // 極小ボリューム (聴感上はほぼ無音)
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
