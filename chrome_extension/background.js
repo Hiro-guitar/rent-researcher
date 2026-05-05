@@ -5184,7 +5184,10 @@ async function runSuumoApprovalPreHook_() {
   let lastFetchError = '';
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const r = await fetch('https://www.fn.forrent.jp/fn/TOP1R0000.action?id=' + Date.now(), {
+      // ⚠️ ?id= は ForRent がセッション ID として解釈する (URL に伝播 → 入稿タブで
+      //   「ブラウザを複数開いている」 画面遷移エラーになる) ため、 キャッシュバスト
+      //   には _t= を使う (ForRent が予約していないパラメータ名)。
+      const r = await fetch('https://www.fn.forrent.jp/fn/TOP1R0000.action?_t=' + Date.now(), {
         credentials: 'include',
         cache: 'no-store'
       });
