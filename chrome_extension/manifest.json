@@ -97,6 +97,13 @@
     },
     {
       "matches": [
+        "https://rent.es-square.net/bukken/chintai/*"
+      ],
+      "js": ["essquare-keepalive.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
         "https://rent.es-square.net/bukken/chintai/search/detail/*"
       ],
       "js": ["essquare-content-detail.js"]

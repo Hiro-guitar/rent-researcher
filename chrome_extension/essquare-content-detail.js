@@ -17,44 +17,7 @@
   if (window.__essquareContentDetailLoaded) return;
   window.__essquareContentDetailLoaded = true;
 
-  // ─── バックグラウンドタブ throttling 回避: 無音 audio 再生 ───
-  // 経緯 (2026-05-05): 9ffd3c2 でタブ使い回し方式に変更後、Chrome の bg tab throttling
-  // で setTimeout が 1秒丸めされたり React レンダリングが間に合わなかったりして、
-  // 「設備が空」「巡回がタブを開かないと再開しない」事象が発生。
-  // 解決策: タブを「audible 状態」にすると Chrome は throttle しない仕様を利用。
-  // 約1秒の無音 WAV をループ再生することで audible 判定を維持する。
-  // autoplay policy で失敗しうるが、ES-Square のページは基本ログイン後遷移なので
-  // user gesture が既に発生している → resume 可能なケースが多い。
-  function startSilentAudio() {
-    if (window.__essquareSilentAudio) return;
-    try {
-      const audio = new Audio();
-      // 約1秒の無音 WAV (8kHz mono 16bit)
-      audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-      audio.loop = true;
-      audio.volume = 0.001;
-      audio.muted = false; // muted=true だと audible 判定にならない
-      window.__essquareSilentAudio = audio;
-      audio.play().then(() => {
-        console.log('[ES-Square] silent audio started → bg throttling回避');
-      }).catch((err) => {
-        // autoplay blocked: 初回 user gesture を待って再試行
-        console.warn('[ES-Square] silent audio autoplay blocked:', err && err.message);
-        const tryStart = () => {
-          audio.play().then(() => {
-            console.log('[ES-Square] silent audio started (after user gesture)');
-          }).catch(() => {});
-          ['click','keydown','touchstart','pointerdown'].forEach(ev =>
-            document.removeEventListener(ev, tryStart, true));
-        };
-        ['click','keydown','touchstart','pointerdown'].forEach(ev =>
-          document.addEventListener(ev, tryStart, { capture: true, passive: true }));
-      });
-    } catch (e) {
-      console.warn('[ES-Square] silent audio init失敗:', e && e.message);
-    }
-  }
-  startSilentAudio();
+  // 無音 audio 起動は essquare-keepalive.js (検索/詳細両方に注入) で行う
 
   // ─── 診断ログ (一時的) ───
   // content script の console.log は ES-Square 詳細タブで F12 → Console で確認可能。
