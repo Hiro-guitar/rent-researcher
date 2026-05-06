@@ -1367,7 +1367,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               window.open = function(url, name, features) {
                 openCount++;
                 lastUrl = String(url || '').substring(0, 80);
-                const w = origOpen.apply(this, arguments);
+                // features を上書きして popup を画面外 1x1 で開く (UX 影響回避)
+                // ZenrinCommon.js のデフォルト features (width=530,height=700,left=10,top=30)
+                // だとユーザーに見えてしまうため、 強制的にオフスクリーン化する。
+                const stealthFeatures = 'left=-10000,top=-10000,width=1,height=1,menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=no';
+                const w = origOpen.call(this, url, name || '_blank', stealthFeatures);
                 if (w) {
                   openedOk = true;
                   // ⚠️ すぐ close すると popup 内の Zenrin SDK が住所→座標
