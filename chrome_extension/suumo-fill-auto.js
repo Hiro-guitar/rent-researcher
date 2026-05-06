@@ -1130,34 +1130,72 @@
       // で動かなかったため、 動作実績のあるこの方式に戻す。
 
       // ── ステップ 1: popup を一瞬開いてサーバーセッションに座標登録 ──
+      // ⚠️ MAIN world / ISOLATED world の壁:
+      //    onclick="openRakurakuKotsu(...)" は MAIN world で実行される。
+      //    ISOLATED world (拡張 content script) で window.open をフックしても
+      //    捉えられない。 そこで <script> タグを inject して MAIN world 内で
+      //    window.open フック + click を全部やる。 これで同一 world なので
+      //    フック可能 + click 元も MAIN world で user gesture 自然継承。
       const trigBtn = document.getElementById('rakurakuKotsu');
       if (trigBtn) {
-        let openCallCount = 0;
-        let openedOk = false;
-        let lastUrl = '';
-        const origOpen = window.open;
-        window.open = function(url, name, features) {
-          openCallCount++;
-          lastUrl = String(url || '').substring(0, 80);
-          const w = origOpen.apply(this, arguments);
-          if (w) {
-            openedOk = true;
-            try { w.close(); } catch(_){}
-          }
-          return w;
-        };
-        try { trigBtn.click(); } catch(e) {
-          dlog('⚠️ trigBtn.click() 例外: ' + (e && e.message));
-        }
-        window.open = origOpen;
-        if (openCallCount === 0) {
-          dlog('⚠️ trigBtn.click() しても window.open が呼ばれず (onclick handler 未登録?)');
-        } else if (!openedOk) {
-          dlog('⚠️ window.open 呼び出し ' + openCallCount + ' 回 / popup blocker でブロック (url=' + lastUrl + ')');
+        // MAIN world で実行するスクリプトをページに注入
+        // 結果は CustomEvent (window) で ISOLATED world に通知
+        const injected = document.createElement('script');
+        injected.textContent = `
+          (function() {
+            try {
+              const origOpen = window.open;
+              let openCount = 0;
+              let openedOk = false;
+              let lastUrl = '';
+              window.open = function(url, name, features) {
+                openCount++;
+                lastUrl = String(url || '').substring(0, 80);
+                const w = origOpen.apply(this, arguments);
+                if (w) { openedOk = true; try { w.close(); } catch(_){} }
+                return w;
+              };
+              const btn = document.getElementById('rakurakuKotsu');
+              if (btn) btn.click();
+              window.open = origOpen;
+              window.dispatchEvent(new CustomEvent('__suumoFillRakuRes', {
+                detail: { openCount, openedOk, lastUrl, hadBtn: !!btn }
+              }));
+            } catch (e) {
+              window.dispatchEvent(new CustomEvent('__suumoFillRakuRes', {
+                detail: { error: String(e && e.message || e) }
+              }));
+            }
+          })();
+        `;
+        const resultPromise = new Promise(resolve => {
+          const handler = (e) => {
+            window.removeEventListener('__suumoFillRakuRes', handler);
+            resolve(e.detail || {});
+          };
+          window.addEventListener('__suumoFillRakuRes', handler);
+          setTimeout(() => {
+            window.removeEventListener('__suumoFillRakuRes', handler);
+            resolve({ timeout: true });
+          }, 3000);
+        });
+        (document.head || document.documentElement).appendChild(injected);
+        injected.remove();
+        const r = await resultPromise;
+        if (r.error) {
+          dlog('⚠️ inject script 例外: ' + r.error);
+        } else if (r.timeout) {
+          dlog('⚠️ inject script タイムアウト (event 来ず)');
+        } else if (!r.hadBtn) {
+          dlog('⚠️ inject 内で #rakurakuKotsu 取得できず');
+        } else if (r.openCount === 0) {
+          dlog('⚠️ click しても window.open 呼ばれず (MAIN world でも未発火 → ボタン onclick が機能していない)');
+        } else if (!r.openedOk) {
+          dlog('⚠️ popup blocker でブロック (call=' + r.openCount + ', url=' + r.lastUrl + ')');
         } else {
-          dlog('popup 一瞬起動 OK (url=' + lastUrl + ', call=' + openCallCount + '回)');
+          dlog('popup 一瞬起動 OK (MAIN world inject, url=' + r.lastUrl + ', call=' + r.openCount + ')');
         }
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r2 => setTimeout(r2, 500));
       } else {
         dlog('⚠️ #rakurakuKotsu ボタンが見つからない');
       }
