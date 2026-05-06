@@ -1077,19 +1077,16 @@
       if (carDiv) carDiv.style.display = 'none';
     }
 
-    // ── 駅補完の自動実行は無効化 (2026-05-06) ──
-    // ForRent の「らくらく交通入力」 機能は サーバー側セッションに座標を登録する
-    // ためにユーザー操作で popup ウィンドウを開くことが必須 (popup blocker のため
-    // 拡張から自動でクリック発火しても block される)。 また座標登録は popup 内で
-    // 走る Zenrin SDK 経由のため、 拡張側で再現することは構造的に不可能。
-    // → 駅補完を諦め、 ソース取得分の駅 (1〜2 駅) のまま入稿完了させる。
-    //   3 駅目が欲しい場合はユーザーが入稿前に手動で ForRent の「らくらく交通入力」
-    //   ボタンを押せば良い (これは拡張ではなく ForRent 側の標準機能で動く)。
-    // 関数本体 (autoFillEmptyStationSlots) は将来の参照用に残してあるが、
-    // 呼び出し側からは無効化している。
+    // 既存駅が3未満なら SUUMO の「らくらく交通入力」で空きスロットを補完
+    // ⚠️ await しないと駅補完完了前に確認画面遷移ボタンが押されて
+    //    補完が反映されない (旧実装は fire-and-forget だった)。
     const filledCount = Math.min(dedupedAccess.length, maxTraffic);
     if (filledCount > 0 && filledCount < maxTraffic) {
-      console.log('[SUUMO自動入稿] 駅補完: 既存' + filledCount + '駅 → 自動補完は無効化中 (' + (maxTraffic - filledCount) + '駅分は空のまま)');
+      try {
+        await autoFillEmptyStationSlots(filledCount);
+      } catch (err) {
+        console.warn('[SUUMO自動入稿] 駅補完エラー:', err && err.message);
+      }
     } else if (filledCount === 0) {
       console.warn('[SUUMO自動入稿] 駅補完スキップ: ソース側に駅が0件');
     }
