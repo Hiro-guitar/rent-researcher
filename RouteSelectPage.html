@@ -26,6 +26,24 @@ body {
 .section {
   background: #fff; margin: 8px; border-radius: 12px;
   overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  transition: box-shadow 0.2s, outline 0.2s;
+}
+/* 未選択エラー時のハイライト (submitCriteria でクラス付与) */
+.section.has-error {
+  outline: 2px solid #e74c3c;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.15);
+  animation: errorShake 0.4s ease-in-out;
+}
+.section.has-error .section-title {
+  color: #e74c3c;
+  background: #fdecea;
+  border-bottom-color: #f5c2bd;
+}
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
 }
 .section-title {
   font-size: 14px; font-weight: 700; color: #8ec41d;
@@ -248,7 +266,7 @@ input[type="range"]::-webkit-slider-thumb {
   <div class="header"><h1>お部屋の条件を選択</h1></div>
 
   <!-- ═══ エリア ═══ -->
-  <div class="section">
+  <div class="section" id="areaSection">
     <div class="section-title">エリア</div>
     <div class="tabs">
       <div class="tab active" id="tabRoute" onclick="switchTab('route')">路線・駅</div>
@@ -264,7 +282,7 @@ input[type="range"]::-webkit-slider-thumb {
   </div>
 
   <!-- ═══ 家賃上限 ═══ -->
-  <div class="section">
+  <div class="section" id="rentSection">
     <div class="section-title">家賃上限<span class="section-subtitle">（管理費・共益費を含む）</span></div>
     <div class="slider-container">
       <div class="slider-value" id="rentDisplay">未選択</div>
@@ -283,7 +301,7 @@ input[type="range"]::-webkit-slider-thumb {
   </div>
 
   <!-- ═══ 徒歩分数 ═══ -->
-  <div class="section">
+  <div class="section" id="walkSection">
     <div class="section-title">駅徒歩</div>
     <div class="unspecified-row">
       <label><input type="checkbox" id="walkUnspecified" onchange="onWalkUnspecifiedChange()"> 指定しない</label>
@@ -299,7 +317,7 @@ input[type="range"]::-webkit-slider-thumb {
   </div>
 
   <!-- ═══ 面積 ═══ -->
-  <div class="section">
+  <div class="section" id="areaMinSection">
     <div class="section-title">専有面積<span class="section-subtitle">（下限）</span></div>
     <div class="unspecified-row">
       <label><input type="checkbox" id="areaUnspecified" onchange="onAreaUnspecifiedChange()"> 指定しない</label>
@@ -322,7 +340,7 @@ input[type="range"]::-webkit-slider-thumb {
   </div>
 
   <!-- ═══ 築年数 ═══ -->
-  <div class="section">
+  <div class="section" id="ageSection">
     <div class="section-title">築年数</div>
     <div class="unspecified-row">
       <label><input type="checkbox" id="ageUnspecified" onchange="onAgeUnspecifiedChange()"> 指定しない</label>
@@ -1398,23 +1416,47 @@ function submitCriteria() {
     criteria.selectedStations = {};
   }
 
-  // バリデーション
+  // ── 一括バリデーション ──
+  // 未選択項目を全部集めて 1 回の アラートでまとめて表示する。
+  // 該当 section に has-error クラスを付与して赤くハイライト + スクロール。
+  var missing = [];
+  var missingSectionIds = [];
+
+  // 既存のエラーハイライトをクリア
+  document.querySelectorAll('.section.has-error').forEach(function(el) {
+    el.classList.remove('has-error');
+  });
+
+  // エリア (駅 or 市区町村)
   if (activeTab === 'route') {
     var totalSta = 0;
     for (var r in criteria.selectedStations) totalSta += criteria.selectedStations[r].length;
-    if (totalSta === 0) { showAlert('少なくとも1つの駅を選択してください。'); return; }
+    if (totalSta === 0) { missing.push('駅 (少なくとも1つ)'); missingSectionIds.push('areaSection'); }
   } else {
-    if (criteria.selectedCities.length === 0) { showAlert('少なくとも1つの市区町村を選択してください。'); return; }
+    if (criteria.selectedCities.length === 0) { missing.push('市区町村 (少なくとも1つ)'); missingSectionIds.push('areaSection'); }
   }
 
-  // ── スライダー系の未選択チェック ──
-  // 家賃・駅徒歩・専有面積・築年数 いずれもデフォルト未選択。
-  // ユーザーが触らずに送信しようとした場合は警告して中止する
-  // (デフォルト値が「希望」 と誤認されるのを防ぐ目的、 2026-05-06)。
-  if (!rentUserSelected) { showAlert('家賃上限を選択してください。'); return; }
-  if (!walkUserSelected) { showAlert('駅徒歩を選択してください (「指定しない」 の選択も可)。'); return; }
-  if (!areaUserSelected) { showAlert('専有面積を選択してください (「指定しない」 の選択も可)。'); return; }
-  if (!ageUserSelected) { showAlert('築年数を選択してください (「指定しない」 の選択も可)。'); return; }
+  // スライダー系 (家賃・駅徒歩・専有面積・築年数)
+  // デフォルト未選択。 ユーザーが触らないと送信できない。
+  if (!rentUserSelected) { missing.push('家賃上限'); missingSectionIds.push('rentSection'); }
+  if (!walkUserSelected) { missing.push('駅徒歩'); missingSectionIds.push('walkSection'); }
+  if (!areaUserSelected) { missing.push('専有面積'); missingSectionIds.push('areaMinSection'); }
+  if (!ageUserSelected) { missing.push('築年数'); missingSectionIds.push('ageSection'); }
+
+  if (missing.length > 0) {
+    // 該当 section を赤くハイライト
+    missingSectionIds.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.add('has-error');
+    });
+    // 最初のエラー section までスクロール
+    var firstErr = document.getElementById(missingSectionIds[0]);
+    if (firstErr) {
+      try { firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+    }
+    showAlert('以下の項目を選択してください:\n\n・' + missing.join('\n・') + '\n\n(駅徒歩・専有面積・築年数は 「指定しない」 でも OK)');
+    return;
+  }
 
   // 家賃
   criteria.rentMax = RENT_VALUES[document.getElementById('rentSlider').value];
