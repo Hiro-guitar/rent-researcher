@@ -1138,73 +1138,33 @@
       //    フック可能 + click 元も MAIN world で user gesture 自然継承。
       const trigBtn = document.getElementById('rakurakuKotsu');
       if (trigBtn) {
-        // MAIN world で実行するスクリプトをページに注入。
-        // CustomEvent は world 間で detail が伝播しないことがあるため
-        // (Chrome の cross-world isolation で wrapping される)、 結果は
-        // documentElement の data-* 属性 経由で ISOLATED world に渡す。
-        // 同期的に setAttribute → 同期的に getAttribute で確実に取得できる。
-        const RESULT_ATTR = 'data-suumo-raku-result';
-        const STARTED_ATTR = 'data-suumo-raku-started';
-        // 既存値クリア
-        document.documentElement.removeAttribute(RESULT_ATTR);
-        document.documentElement.removeAttribute(STARTED_ATTR);
-
-        const injected = document.createElement('script');
-        injected.textContent = `
-          (function() {
-            try {
-              document.documentElement.setAttribute(${JSON.stringify(STARTED_ATTR)}, '1');
-              const origOpen = window.open;
-              let openCount = 0;
-              let openedOk = false;
-              let lastUrl = '';
-              window.open = function(url, name, features) {
-                openCount++;
-                lastUrl = String(url || '').substring(0, 80);
-                const w = origOpen.apply(this, arguments);
-                if (w) { openedOk = true; try { w.close(); } catch(_){} }
-                return w;
-              };
-              const btn = document.getElementById('rakurakuKotsu');
-              if (btn) btn.click();
-              window.open = origOpen;
-              document.documentElement.setAttribute(${JSON.stringify(RESULT_ATTR)}, JSON.stringify({
-                openCount, openedOk, lastUrl, hadBtn: !!btn
-              }));
-            } catch (e) {
-              document.documentElement.setAttribute(${JSON.stringify(RESULT_ATTR)}, JSON.stringify({
-                error: String(e && e.message || e)
-              }));
+        // background.js の chrome.scripting.executeScript({ world: 'MAIN' }) 経由で
+        // ForRent の MAIN world に直接関数を注入し、 window.open フック + click を行う。
+        // この経路は拡張権限なので ForRent ページの CSP の影響を受けない
+        // (旧来の <script> タグ inline 注入は CSP block されていた 2026-05-06 確認)。
+        const triggerResp = await new Promise(resolve => {
+          chrome.runtime.sendMessage({ type: 'TRIGGER_RAKURAKU_CLICK' }, (r) => {
+            if (chrome.runtime.lastError) {
+              resolve({ ok: false, error: chrome.runtime.lastError.message });
+            } else {
+              resolve(r || { ok: false, error: '応答なし' });
             }
-          })();
-        `;
-        (document.head || document.documentElement).appendChild(injected);
-        injected.remove();
-
-        // 同期実行された inject script の結果を読む
-        // (script tag の appendChild は同期的に実行される)
-        const startedFlag = document.documentElement.getAttribute(STARTED_ATTR);
-        const resultStr = document.documentElement.getAttribute(RESULT_ATTR);
-        document.documentElement.removeAttribute(STARTED_ATTR);
-        document.documentElement.removeAttribute(RESULT_ATTR);
-
-        if (!startedFlag) {
-          dlog('⚠️ inject script が実行されなかった (CSP block?)');
-        } else if (!resultStr) {
-          dlog('⚠️ inject script は実行されたが結果属性が無い (途中で例外?)');
+          });
+        });
+        if (!triggerResp.ok) {
+          dlog('⚠️ background 経由 click 失敗: ' + triggerResp.error);
         } else {
-          let r = {};
-          try { r = JSON.parse(resultStr); } catch (_) {}
+          const r = triggerResp.result || {};
           if (r.error) {
-            dlog('⚠️ inject script 例外: ' + r.error);
+            dlog('⚠️ MAIN world click 例外: ' + r.error);
           } else if (!r.hadBtn) {
-            dlog('⚠️ inject 内で #rakurakuKotsu 取得できず');
+            dlog('⚠️ MAIN world で #rakurakuKotsu 取得できず');
           } else if (r.openCount === 0) {
-            dlog('⚠️ click しても window.open 呼ばれず (ボタン onclick が機能していない)');
+            dlog('⚠️ click しても window.open 呼ばれず (onclick 未動作)');
           } else if (!r.openedOk) {
             dlog('⚠️ popup blocker でブロック (call=' + r.openCount + ', url=' + r.lastUrl + ')');
           } else {
-            dlog('popup 一瞬起動 OK (MAIN world inject, url=' + r.lastUrl + ', call=' + r.openCount + ')');
+            dlog('popup 一瞬起動 OK (chrome.scripting MAIN world, url=' + r.lastUrl + ', call=' + r.openCount + ')');
           }
         }
         await new Promise(r2 => setTimeout(r2, 500));

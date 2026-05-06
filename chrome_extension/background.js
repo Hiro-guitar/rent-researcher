@@ -1330,12 +1330,67 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true;
   }
-  // ── 駅補完: ForRent「らくらく交通入力」 popup を拡張権限で開く ──
-  // content script からの window.open() は popup blocker でブロックされるため、
-  // chrome.windows.create で拡張権限の独立 popup として開く (blocker の対象外)。
-  // popup 内で ForRent の Zenrin SDK が住所→座標変換 + サーバーセッションに登録する。
-  // 一定時間待ってから popup を close → content script 側が同セッションの iframe で
-  // COM1R02167.action を読み込んで駅候補入り HTML を取得する流れ。
+  // ── 駅補完: MAIN world で「らくらく交通入力」 ボタンを click ──
+  // ForRent ページの CSP で <script> inline 注入が拒否されるため、
+  // chrome.scripting.executeScript({ world: 'MAIN' }) で MAIN world に
+  // 関数を注入する (拡張権限なので CSP の影響を受けない)。
+  // MAIN world で click → onclick="openRakurakuKotsu(...)" が走り、
+  // ZenrinCommon.js の関数経由で popup が開く (= サーバーセッションに座標登録)。
+  // window.open フックも MAIN world 内で行うため確実に捉えられる。
+  if (msg.type === 'TRIGGER_RAKURAKU_CLICK') {
+    (async () => {
+      try {
+        const tabId = sender.tab?.id;
+        if (!tabId) {
+          sendResponse({ ok: false, error: 'tabId 不明' });
+          return;
+        }
+        // sender.frameId が指定されていればそのフレームのみ、
+        // なければ allFrames で main フレームを含めて全フレーム実行
+        const target = { tabId };
+        if (typeof sender.frameId === 'number') {
+          target.frameIds = [sender.frameId];
+        } else {
+          target.allFrames = true;
+        }
+        const results = await chrome.scripting.executeScript({
+          target,
+          world: 'MAIN',
+          func: () => {
+            try {
+              const btn = document.getElementById('rakurakuKotsu');
+              if (!btn) return { hadBtn: false };
+              const origOpen = window.open;
+              let openCount = 0;
+              let openedOk = false;
+              let lastUrl = '';
+              window.open = function(url, name, features) {
+                openCount++;
+                lastUrl = String(url || '').substring(0, 80);
+                const w = origOpen.apply(this, arguments);
+                if (w) { openedOk = true; try { w.close(); } catch(_){} }
+                return w;
+              };
+              btn.click();
+              window.open = origOpen;
+              return { hadBtn: true, openCount, openedOk, lastUrl };
+            } catch (e) {
+              return { error: String(e && e.message || e) };
+            }
+          },
+        });
+        // 複数フレームから結果が返るので #rakurakuKotsu が見つかったフレームを優先
+        const valid = (results || [])
+          .map(r => r && r.result)
+          .filter(r => r && (r.hadBtn || r.error));
+        sendResponse({ ok: true, result: valid[0] || results[0]?.result || { hadBtn: false } });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+  // ── 旧: chrome.windows.create で popup を開く経路 (現在は未使用、 future-proof) ──
   if (msg.type === 'OPEN_RAKURAKU_POPUP') {
     (async () => {
       try {
