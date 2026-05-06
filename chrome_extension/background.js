@@ -148,7 +148,24 @@ globalThis.__buildPropertyDedupKey = (prop) => {
   const area = Math.round((parseFloat(prop.area) || 0) * 100);
   const layout = String(prop.layout || '').replace(/\s+/g, '').toLowerCase();
   // 4要素揃わない物件はキー化できない (= 重複判定対象外、通常通り通知)
-  if (!addr || !room || !area || !layout) return '';
+  if (!addr || !room || !area || !layout) {
+    // どの要素が欠けているかをコンソールに記録 (重複検知が効かない物件の調査用)
+    try {
+      const missing = [];
+      if (!addr) missing.push('address');
+      if (!room) missing.push('room_number');
+      if (!area) missing.push('area');
+      if (!layout) missing.push('layout');
+      console.log('[重複検知] キー生成不可: 欠落=' + missing.join(',')
+        + ' building=' + (prop.building_name || '?')
+        + ' source=' + (prop.source || '?')
+        + ' addr=' + (prop.address || '').substring(0, 30)
+        + ' room=' + (prop.room_number || '')
+        + ' area=' + (prop.area || '')
+        + ' layout=' + (prop.layout || ''));
+    } catch (_) {}
+    return '';
+  }
   return `${addr}|${room}|${area}|${layout}`;
 };
 
@@ -4297,17 +4314,31 @@ async function sendDiscordNotification(customerName, properties, customer) {
   // 同物件が別管理会社・別サイト・別タイミングで複数登録されるケースで重複通知を防ぐ。
   if (!globalThis._suumoPatrolMode && globalThis.__hasNotifiedDedupKey) {
     const filtered = [];
+    let dupSkipped = 0;       // 重複として弾いた数
+    let keyableCount = 0;     // dedup キー生成できた物件数
+    let unkeyableCount = 0;   // キー生成不可 (4要素欠落) 物件数
     for (const prop of properties) {
       try {
+        // キー生成可否を集計 (デバッグ用)
+        const k = globalThis.__buildPropertyDedupKey(prop);
+        if (k) keyableCount++; else unkeyableCount++;
+
         if (globalThis.__hasNotifiedDedupKey(customerName, prop)) {
           const info = globalThis.__getNotifiedDedupInfo(customerName, prop) || {};
           const sourceTag = info.source ? ` (元: ${info.source})` : '';
           const prevUrl = info.url ? ` ${info.url}` : '';
           await setStorageData({ debugLog: `${customerName}: ✗ 重複通知スキップ: ${prop.building_name || ''} ${prop.room_number || ''} - 30日以内に同物件通知済${sourceTag}${prevUrl}` });
+          dupSkipped++;
           continue;
         }
       } catch (e) {}
       filtered.push(prop);
+    }
+    // サマリログ (重複検知の動作確認用)
+    if (properties.length > 0) {
+      await setStorageData({
+        debugLog: `${customerName}: 重複検知サマリ - 入力${properties.length}件 (キー化可${keyableCount} / 不可${unkeyableCount}) → 重複スキップ${dupSkipped}件 / 通知対象${filtered.length}件`
+      });
     }
     if (filtered.length === 0) return; // 全部重複なら何もしない
     properties = filtered;
