@@ -922,9 +922,11 @@
     if (!prefSelect) return;
 
     // 都道府県コードを判定（デフォルト: 東京都=13）
+    // ⚠️ change イベントは必ず bubbles: true。 ForRent の jQuery 1.3.2
+    //    ハンドラが拾わず後続のカスケード読み込みが走らないバグを防ぐため。
     const prefCode = getPrefCode(data.pref || data.prefecture || '東京都');
     prefSelect.value = prefCode;
-    prefSelect.dispatchEvent(new Event('change'));
+    prefSelect.dispatchEvent(new Event('change', { bubbles: true }));
 
     await waitFor(800);
 
@@ -933,7 +935,7 @@
       const cityOpt = findOptionByText(citySelect, data.addr1);
       if (cityOpt) {
         citySelect.value = cityOpt.value;
-        citySelect.dispatchEvent(new Event('change'));
+        citySelect.dispatchEvent(new Event('change', { bubbles: true }));
 
         await waitFor(800);
 
@@ -942,7 +944,7 @@
           const townOpt = findOptionByText(townSelect, data.town);
           if (townOpt) {
             townSelect.value = townOpt.value;
-            townSelect.dispatchEvent(new Event('change'));
+            townSelect.dispatchEvent(new Event('change', { bubbles: true }));
 
             await waitFor(800);
 
@@ -978,7 +980,7 @@
               }
               if (azaOpt) {
                 azaSelect.value = azaOpt.value;
-                azaSelect.dispatchEvent(new Event('change'));
+                azaSelect.dispatchEvent(new Event('change', { bubbles: true }));
 
                 await waitFor(1000);
                 // (字丁目なし)を選んだ場合は元の data.chome + '-' + data.banchi を番地欄に入れる
@@ -990,7 +992,11 @@
                     banchiValue = chomeNumOnly + '-' + data.banchi;
                   }
                 }
-                setInputById('banchiNm', banchiValue);
+                // ⚠️ 番地は setInputByIdWithEvents (focus + input/change + blur) で入れる。
+                //    旧実装の setInputById は値を入れるだけで blur が発火せず、
+                //    ForRent の Zenrin SDK 処理 (住所→仮座標) が起動しなかったため
+                //    駅補完 (#tmpKeidoFull / #tmpIdoFull) が空のままだった (2026-05-06 修正)。
+                setInputByIdWithEvents('banchiNm', banchiValue);
               }
             }
           }
