@@ -1378,11 +1378,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                   // 開いた直後に画面外に移動 + サイズ最小化
                   try { w.moveTo(-10000, -10000); } catch (_) {}
                   try { w.resizeTo(1, 1); } catch (_) {}
-                  // ロード完了タイミングでも再度位置調整 (移動が無視された場合の保険)
+                  // ★ フォーカスを親 window に戻す (popup がアクティブになるのを防ぐ)
+                  try { w.blur(); } catch (_) {}
+                  try { window.focus(); } catch (_) {}
+                  // ロード完了タイミングでも再度位置調整 + フォーカス戻し
                   try {
                     w.addEventListener('load', () => {
                       try { w.moveTo(-10000, -10000); } catch (_) {}
                       try { w.resizeTo(1, 1); } catch (_) {}
+                      try { w.blur(); } catch (_) {}
+                      try { window.focus(); } catch (_) {}
                     });
                   } catch (_) {}
                   // ⚠️ すぐ close すると popup 内の Zenrin SDK が住所→座標
@@ -1405,6 +1410,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const valid = (results || [])
           .map(r => r && r.result)
           .filter(r => r && (r.hadBtn || r.error));
+        // popup が新タブ / 新 window として開かれてフォーカスを奪うケースに対応:
+        // 元タブを active にし直して、 さらに元 window を focused に戻す。
+        try {
+          await chrome.tabs.update(tabId, { active: true });
+          const tabInfo = await chrome.tabs.get(tabId);
+          if (tabInfo && tabInfo.windowId) {
+            await chrome.windows.update(tabInfo.windowId, { focused: true });
+          }
+        } catch (_) {}
         sendResponse({ ok: true, result: valid[0] || results[0]?.result || { hadBtn: false } });
       } catch (err) {
         sendResponse({ ok: false, error: err.message });
