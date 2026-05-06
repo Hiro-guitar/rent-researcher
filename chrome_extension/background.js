@@ -1330,6 +1330,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true;
   }
+  // ── 駅補完: ForRent「らくらく交通入力」 popup を拡張権限で開く ──
+  // content script からの window.open() は popup blocker でブロックされるため、
+  // chrome.windows.create で拡張権限の独立 popup として開く (blocker の対象外)。
+  // popup 内で ForRent の Zenrin SDK が住所→座標変換 + サーバーセッションに登録する。
+  // 一定時間待ってから popup を close → content script 側が同セッションの iframe で
+  // COM1R02167.action を読み込んで駅候補入り HTML を取得する流れ。
+  if (msg.type === 'OPEN_RAKURAKU_POPUP') {
+    (async () => {
+      try {
+        const popupUrl = msg.url || 'https://www.fn.forrent.jp/fn/COM1R02167.action';
+        const waitMs = Math.max(1000, Math.min(8000, msg.waitMs || 3000));
+        const win = await chrome.windows.create({
+          url: popupUrl,
+          type: 'popup',
+          width: 1,
+          height: 1,
+          left: 99999,    // 画面外配置 (UX 影響回避)
+          top: 99999,
+          focused: false, // 親タブのフォーカス維持
+        });
+        // popup 内で Zenrin SDK が走るのを待つ
+        await new Promise(r => setTimeout(r, waitMs));
+        // close
+        try { await chrome.windows.remove(win.id); } catch (_) {}
+        sendResponse({ ok: true, waitMs });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
   // ── Phase 5: 確認画面到達通知 → 事前チェック+登録ボタン自動クリック ──
   if (msg.type === 'SUUMO_CONFIRM_REACHED') {
     (async () => {

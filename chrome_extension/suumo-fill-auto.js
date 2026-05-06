@@ -1128,34 +1128,29 @@
       // popup を開く際の window.open は content script からの click() 発火だと
       // user gesture 継承で blocker を抜けるケースが多い (過去動作実績あり)。
 
-      const trigBtn = document.getElementById('rakurakuKotsu');
-      if (!trigBtn) {
-        dlog('⚠️ #rakurakuKotsu ボタンが見つからない → 補完不可');
-        return;
-      }
-
       // ── ステップ 1: popup を開いてサーバーセッションに座標登録 ──
-      let popupRef = null;
-      const origOpen = window.open;
-      window.open = function(url, name, features) {
-        const w = origOpen.apply(this, arguments);
-        popupRef = w;
-        return w;
-      };
-      try {
-        trigBtn.click();
-      } catch (_) {}
-      window.open = origOpen;
-
-      if (!popupRef) {
-        dlog('⚠️ popup が開けなかった (popup blocker) → 補完不可');
+      // content script から trigBtn.click() / window.open() を直接呼ぶと
+      // Chrome の popup blocker でブロックされる (実機検証済 2026-05-06)。
+      // 代わりに background.js 経由で chrome.windows.create で開く。
+      // この経路は拡張権限の独立 popup なので blocker の対象外。
+      // 画面外 + focused: false で開くため UX への影響なし。
+      // popup 内で ForRent の Zenrin SDK が住所→座標変換 + サーバーセッション
+      // 登録を行う。 background.js は 3 秒待って popup を close する。
+      dlog('popup 経由 Zenrin 座標登録 開始 (chrome.windows.create)');
+      const popupResp = await new Promise(resolve => {
+        chrome.runtime.sendMessage({ type: 'OPEN_RAKURAKU_POPUP', waitMs: 3000 }, (r) => {
+          if (chrome.runtime.lastError) {
+            resolve({ ok: false, error: chrome.runtime.lastError.message });
+          } else {
+            resolve(r || { ok: false, error: '応答なし' });
+          }
+        });
+      });
+      if (!popupResp.ok) {
+        dlog('⚠️ popup 経由起動失敗: ' + popupResp.error + ' → 補完不可');
         return;
       }
-      dlog('popup 起動 → Zenrin 座標登録待機 (3秒)');
-      // popup 内で Zenrin SDK が住所→座標変換してサーバーセッションに POST するのを待つ
-      // 実測 800ms〜1.2s 程度なので 3 秒で十分
-      await new Promise(r => setTimeout(r, 3000));
-      try { popupRef.close(); } catch (_) {}
+      dlog('popup 経由 Zenrin 完了 (待機' + popupResp.waitMs + 'ms)');
 
       // ── ステップ 2: iframe で COM1R02167.action を読んで候補抽出 ──
       // popup でセッションに座標が登録された状態なので、 iframe で読み込めば
