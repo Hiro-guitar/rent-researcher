@@ -1116,93 +1116,68 @@
     try {
       dlog('開始: 既存' + filledCount + '駅 → 残り' + (3 - filledCount) + '駅を補完試行');
 
-      // ── 駅候補取得経路 (2026-05-06 確定仕様) ──
+      // ── 駅候補取得経路 (2026-05-01 動作確認済 実装に復帰) ──
       // 1. 「らくらく交通入力」 ボタン (#rakurakuKotsu) を click() で発火
-      //    → ZenrinCommon.js の openRakurakuKotsu が window.open で popup を開く
-      //    → popup 内で Zenrin SDK が住所→座標変換 + サーバーセッションに登録
-      // 2. popup の Zenrin 処理が完了するのを待ってから popup を close
-      // 3. その後、 同じセッションの iframe で COM1R02167.action を読み込む
-      //    → サーバーが駅候補をインライン展開した HTML を返す
-      // 4. iframe から候補を抽出して親フォームに反映
+      //    → window.open フックで popup を捕捉して即 close (画面に出さない)
+      //    → 開く瞬間に ForRent の Zenrin SDK がサーバーセッションに座標登録
+      // 2. 500ms 待つ
+      // 3. fetch で COM1R02167.action を取得 (Shift-JIS デコード)
+      //    → セッションに座標があるのでサーバーが駅候補入り HTML を返す
+      // 4. 候補を抽出して親フォームの空きスロットに反映
       //
-      // popup を開く際の window.open は content script からの click() 発火だと
-      // user gesture 継承で blocker を抜けるケースが多い (過去動作実績あり)。
+      // 5/1 時点 (commit 153193f) で「横浜駅周辺の物件で検証 → 動作確認済」 の実装。
+      // chrome.windows.create / iframe 経路は別 cookie store / window.opener=null
+      // で動かなかったため、 動作実績のあるこの方式に戻す。
 
-      // ── ステップ 1: popup を開いてサーバーセッションに座標登録 ──
-      // content script から trigBtn.click() / window.open() を直接呼ぶと
-      // Chrome の popup blocker でブロックされる (実機検証済 2026-05-06)。
-      // 代わりに background.js 経由で chrome.windows.create で開く。
-      // この経路は拡張権限の独立 popup なので blocker の対象外。
-      // 画面外 + focused: false で開くため UX への影響なし。
-      // popup 内で ForRent の Zenrin SDK が住所→座標変換 + サーバーセッション
-      // 登録を行う。 background.js は 3 秒待って popup を close する。
-      dlog('popup 経由 Zenrin 座標登録 開始 (chrome.windows.create)');
-      const popupResp = await new Promise(resolve => {
-        chrome.runtime.sendMessage({ type: 'OPEN_RAKURAKU_POPUP', waitMs: 3000 }, (r) => {
-          if (chrome.runtime.lastError) {
-            resolve({ ok: false, error: chrome.runtime.lastError.message });
-          } else {
-            resolve(r || { ok: false, error: '応答なし' });
-          }
-        });
+      // ── ステップ 1: popup を一瞬開いてサーバーセッションに座標登録 ──
+      const trigBtn = document.getElementById('rakurakuKotsu');
+      if (trigBtn) {
+        const origOpen = window.open;
+        window.open = function() {
+          const w = origOpen.apply(this, arguments);
+          if (w) { try { w.close(); } catch(_){} }
+          return w;
+        };
+        try { trigBtn.click(); } catch(_){}
+        window.open = origOpen;
+        await new Promise(r => setTimeout(r, 500));
+      } else {
+        dlog('⚠️ #rakurakuKotsu ボタンが見つからない');
+      }
+
+      // ── ステップ 2: fetch で COM1R02167.action を取得 ──
+      const res = await fetch('https://www.fn.forrent.jp/fn/COM1R02167.action', {
+        credentials: 'include'
       });
-      if (!popupResp.ok) {
-        dlog('⚠️ popup 経由起動失敗: ' + popupResp.error + ' → 補完不可');
+      if (!res.ok) {
+        dlog('⚠️ COM1R02167 fetch失敗 HTTP ' + res.status);
         return;
       }
-      dlog('popup 経由 Zenrin 完了 (待機' + popupResp.waitMs + 'ms)');
+      // Shift-JIS デコード (UTF-8 解釈すると駅名が文字化けして既存駅と
+      // マッチせず、 結果として既存駅も含めて全件追加候補と判定されてしまう)
+      const buf = await res.arrayBuffer();
+      const html = new TextDecoder('shift-jis').decode(buf);
+      const doc = new DOMParser().parseFromString(html, 'text/html');
 
-      // ── ステップ 2: iframe で COM1R02167.action を読んで候補抽出 ──
-      // popup でセッションに座標が登録された状態なので、 iframe で読み込めば
-      // サーバーが駅候補をインライン展開した HTML を返す。
-      let candidates = [];
-      const iframe = document.createElement('iframe');
-      iframe.style.cssText = 'position:fixed;left:-10000px;top:-10000px;width:1px;height:1px;border:0;visibility:hidden';
-      iframe.src = 'COM1R02167.action';
-      try {
-        document.body.appendChild(iframe);
-        await Promise.race([
-          new Promise(resolve => { iframe.onload = resolve; }),
-          new Promise(resolve => setTimeout(resolve, 8000)),
-        ]);
-        await new Promise(r => setTimeout(r, 500));
-
-        const idoc = iframe.contentDocument;
-        if (!idoc) {
-          dlog('⚠️ iframe.contentDocument が null (X-Frame-Options ブロック?) → 補完不可');
-          return;
-        }
-        // 候補ラジオから駅 index を抽出 (id 形式: koutu_<枠>-<idx>、 chg は除外)
-        const radioIds = Array.from(idoc.querySelectorAll('input.kouhoGroup'))
-          .map(r => r.id || '')
-          .filter(id => /^koutu_\d+-\d+$/.test(id));
-        const idxSet = new Set();
-        radioIds.forEach(id => {
-          const m = id.match(/^koutu_\d+-(\d+)$/);
-          if (m) idxSet.add(m[1]);
+      // 候補抽出
+      const candidates = [];
+      for (let i = 1; ; i++) {
+        const ekiNmEl = doc.getElementById('ekiNm' + i);
+        if (!ekiNmEl) break;
+        candidates.push({
+          idx: i,
+          ensenCd: doc.getElementById('ensenCd' + i)?.value || '',
+          ensenNm: doc.getElementById('ensenNm' + i)?.value || '',
+          ekiCd: doc.getElementById('ekiCd' + i)?.value || '',
+          ekiNm: ekiNmEl.value || '',
+          tohofun: parseInt(doc.getElementById('tohofun' + i)?.value || '0', 10) || 0,
         });
-        idxSet.forEach(idx => {
-          const ekiNm = idoc.getElementById('ekiNm' + idx)?.value || '';
-          if (!ekiNm) return;
-          candidates.push({
-            idx: idx,
-            ensenCd: idoc.getElementById('ensenCd' + idx)?.value || '',
-            ensenNm: idoc.getElementById('ensenNm' + idx)?.value || '',
-            ekiCd: idoc.getElementById('ekiCd' + idx)?.value || '',
-            ekiNm: ekiNm,
-            tohofun: parseInt(idoc.getElementById('tohofun' + idx)?.value || '0', 10) || 0,
-          });
-        });
-      } catch (e) {
-        dlog('⚠️ iframe 経由取得で例外: ' + (e && e.message));
-      } finally {
-        try { iframe.remove(); } catch (_) {}
       }
 
       dlog('候補' + candidates.length + '件: ' + candidates.slice(0, 8).map(c => c.ekiNm + '(' + c.tohofun + '分)').join(', '));
 
       if (candidates.length === 0) {
-        dlog('⚠️ 駅候補0件 (popup → iframe 経路で取得できず)');
+        dlog('⚠️ 駅候補0件 (セッション未確立 or 駅が圏内に無い)');
         return;
       }
 
