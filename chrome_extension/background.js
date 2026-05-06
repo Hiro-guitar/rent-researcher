@@ -142,17 +142,40 @@ const __toHalfWidthAlnum = (s) => {
   );
 };
 
+// 漢数字 → アラビア数字 (住所の「五丁目」 vs 「5丁目」 揺れに対応)
+// 1〜10 程度の単純数字のみ対応 (住所の丁目数字に十分)。
+// 「十一」 等の複合表現は実用上 丁目では出ないため非対応。
+const __KANJI_DIGITS = { '一':'1','二':'2','三':'3','四':'4','五':'5','六':'6','七':'7','八':'8','九':'9','十':'10' };
+const __kanjiToArabic = (s) => {
+  return String(s || '').replace(/[一二三四五六七八九十]/g, c => __KANJI_DIGITS[c] || c);
+};
+
+// 間取りの表記揺れ統一
+// - 「ワンルーム」「わんるーむ」 → 「1r」 (1R と同義扱い)
+// - 全角英字を半角に、 lowercase 化
+const __normalizeLayoutForKey = (s) => {
+  let v = __toHalfWidthAlnum(s).replace(/\s+/g, '').toLowerCase();
+  v = v.replace(/ワンルーム|わんるーむ|wanru-mu/g, '1r');
+  return v;
+};
+
 // 識別キー生成
 globalThis.__buildPropertyDedupKey = (prop) => {
   if (!prop) return '';
-  // 住所: 全角英数字を半角に + 「N丁目X-Y」 等の番地以降切り捨て
+  // 住所: 全角英数字 → 半角、 漢数字 → アラビア、 「N丁目X-Y」 等の番地以降切り捨て
   let addr = __toHalfWidthAlnum(prop.address);
+  addr = __kanjiToArabic(addr);
   addr = addr.replace(/(\d+)丁目.*$/, '$1丁目');
   addr = addr.replace(/\s+/g, '').toLowerCase();
-  const room = __toHalfWidthAlnum(prop.room_number).replace(/[^\d]/g, '');
+  // 部屋番号: 全角→半角 + 漢数字→アラビア + 数字以外を除去
+  // (「301号室」 「三〇一」 「301」 等いずれも「301」 にしたいが漢数字混じりは
+  //  「三〇一」 → 「3〇1」 で 〇 が残る。 〇 (漢数字のゼロ U+3007) も 0 に変換)
+  let room = __toHalfWidthAlnum(prop.room_number);
+  room = __kanjiToArabic(room).replace(/[〇○]/g, '0');
+  room = room.replace(/[^\d]/g, '');
   const area = Math.round((parseFloat(prop.area) || 0) * 100);
-  // 間取り: 全角英字を半角化してから lowercase (1Ｋ → 1k と 1K → 1k がマッチするように)
-  const layout = __toHalfWidthAlnum(prop.layout).replace(/\s+/g, '').toLowerCase();
+  // 間取り: 全角英字を半角化 + lowercase + 「ワンルーム」 を「1r」 に統一
+  const layout = __normalizeLayoutForKey(prop.layout);
   // 4要素揃わない物件はキー化できない (= 重複判定対象外、通常通り通知)
   if (!addr || !room || !area || !layout) {
     // どの要素が欠けているかをコンソールに記録 (重複検知が効かない物件の調査用)
