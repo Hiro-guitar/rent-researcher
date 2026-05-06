@@ -1368,7 +1368,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 openCount++;
                 lastUrl = String(url || '').substring(0, 80);
                 const w = origOpen.apply(this, arguments);
-                if (w) { openedOk = true; try { w.close(); } catch(_){} }
+                if (w) {
+                  openedOk = true;
+                  // ⚠️ すぐ close すると popup 内の Zenrin SDK が住所→座標
+                  //    変換 + サーバーセッション登録を完了する前にウィンドウが
+                  //    閉じてしまい、 セッション未確立になる。
+                  //    3 秒待ってから close する (実測 1〜2 秒で完了)。
+                  setTimeout(() => { try { w.close(); } catch(_){} }, 3000);
+                }
                 return w;
               };
               btn.click();

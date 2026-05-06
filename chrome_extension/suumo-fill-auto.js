@@ -1167,7 +1167,11 @@
             dlog('popup 一瞬起動 OK (chrome.scripting MAIN world, url=' + r.lastUrl + ', call=' + r.openCount + ')');
           }
         }
-        await new Promise(r2 => setTimeout(r2, 500));
+        // popup 内の Zenrin SDK が住所→座標変換 + サーバーセッション登録するのを待つ。
+        // popup 自身は MAIN world の setTimeout(close, 3000) で 3 秒後に close される。
+        // 同じ 3 秒間に Zenrin の通信が完了するため、 こちらも 3.5 秒待ってから fetch。
+        dlog('Zenrin 処理完了待機 (3.5秒)');
+        await new Promise(r2 => setTimeout(r2, 3500));
       } else {
         dlog('⚠️ #rakurakuKotsu ボタンが見つからない');
       }
