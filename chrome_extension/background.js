@@ -1367,13 +1367,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               window.open = function(url, name, features) {
                 openCount++;
                 lastUrl = String(url || '').substring(0, 80);
-                // features を上書きして popup を画面外 1x1 で開く (UX 影響回避)
                 // ZenrinCommon.js のデフォルト features (width=530,height=700,left=10,top=30)
-                // だとユーザーに見えてしまうため、 強制的にオフスクリーン化する。
+                // だとユーザーに見えてしまう。 Chrome は features の left/top を
+                // 画面内に強制する場合があるため、 開いた直後に moveTo + resizeTo で
+                // 画面外 1x1 に飛ばす (一瞬見える可能性はあるが連続して隠す)。
                 const stealthFeatures = 'left=-10000,top=-10000,width=1,height=1,menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=no';
                 const w = origOpen.call(this, url, name || '_blank', stealthFeatures);
                 if (w) {
                   openedOk = true;
+                  // 開いた直後に画面外に移動 + サイズ最小化
+                  try { w.moveTo(-10000, -10000); } catch (_) {}
+                  try { w.resizeTo(1, 1); } catch (_) {}
+                  // ロード完了タイミングでも再度位置調整 (移動が無視された場合の保険)
+                  try {
+                    w.addEventListener('load', () => {
+                      try { w.moveTo(-10000, -10000); } catch (_) {}
+                      try { w.resizeTo(1, 1); } catch (_) {}
+                    });
+                  } catch (_) {}
                   // ⚠️ すぐ close すると popup 内の Zenrin SDK が住所→座標
                   //    変換 + サーバーセッション登録を完了する前にウィンドウが
                   //    閉じてしまい、 セッション未確立になる。
