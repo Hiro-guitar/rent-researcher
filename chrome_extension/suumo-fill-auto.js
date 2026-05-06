@@ -1113,127 +1113,89 @@
     };
     try {
       dlog('開始: 既存' + filledCount + '駅 → 残り' + (3 - filledCount) + '駅を補完試行');
-      // SUUMO「らくらく交通入力」のボタン click でサーバーセッションに住所を登録 (setup)
-      // → 直 fetch だけだとセッション未確立で 0件返ることがあるため必須。
+
+      // ── 駅候補取得経路 (2026-05-06 確定仕様) ──
+      // SUUMO 入稿フォームの「らくらく交通入力」 機能は popup window.open で
+      // COM1R02167.action を別ウィンドウとして開き、 サーバーがインライン展開した
+      // HTML から駅候補を読み取る仕様。 直接 fetch では Referer / フレーム文脈の
+      // 違いで駅候補ゼロが返る。
+      // 一方、 親ページ内の **iframe** で COM1R02167.action を読み込むと、
+      // popup blocker を回避しつつサーバーが駅候補を返してくれることが実機検証で
+      // 確定 (popup と同じ Referer・同じセッション・同じ frame コンテキスト)。
       //
-      // 旧実装は window.open フックで popup を即 close していたため、
-      // ポップアップ内で実行される住所 POST が完了する前にウィンドウが閉じられ、
-      // セッション確立失敗 → 候補 0 件 になっていた (2026-05-05 修正)。
-      //
-      // 新実装は popup を画面外に開いてバックグラウンドで POST を完走させ、
-      // その後 close する。
-      const trigBtn = document.getElementById('rakurakuKotsu');
-      if (!trigBtn) {
-        dlog('⚠️ #rakurakuKotsu ボタンが見つからない (DOM 構造変化の可能性)');
-      }
+      // 前提: 親フォームの hidden #tmpKeidoFull / #tmpIdoFull に仮座標が
+      //   埋まっていること。 これはユーザー手動操作なら住所入力時に Zenrin SDK
+      //   経由で自動的に入る。 拡張の自動入力では programmatic イベント発火の
+      //   ため Zenrin が走らないケースがあり得るため、 値の有無を事前チェック。
 
-      // ── 診断: ボタンの onclick 属性をダンプして POST URL を特定する ──
-      // popup blocker を回避するため、 popup を介さず直接 fetch で
-      // セッション確立用 URL を叩く方針に切り替えるための情報収集。
-      let extractedSetupUrl = '';
-      if (trigBtn) {
-        const onclickAttr = trigBtn.getAttribute('onclick') || '';
-        const onclickFunc = trigBtn.onclick ? String(trigBtn.onclick).substring(0, 300) : '';
-        dlog('rakurakuKotsu onclick属性: ' + (onclickAttr.substring(0, 200) || '(なし)'));
-        if (onclickFunc) dlog('rakurakuKotsu onclick関数: ' + onclickFunc);
-        // onclick 属性から URL らしき部分を抽出 (window.open('URL', ...) 等)
-        const urlMatch = (onclickAttr + ' ' + onclickFunc).match(/['"]([\w./?=&%-]+\.action[^'"]*)['"]/);
-        if (urlMatch) {
-          extractedSetupUrl = urlMatch[1];
-          // 相対 URL なら絶対化
-          if (!/^https?:/i.test(extractedSetupUrl)) {
-            extractedSetupUrl = 'https://www.fn.forrent.jp/fn/' + extractedSetupUrl.replace(/^\/+fn\/?/, '');
-          }
-          dlog('セットアップ URL 候補: ' + extractedSetupUrl);
-        }
+      // 仮座標が埋まるのを最大 4 秒待つ (Zenrin の非同期処理 余裕)
+      const tmpKeidoEl = document.getElementById('tmpKeidoFull');
+      const tmpIdoEl = document.getElementById('tmpIdoFull');
+      let waitedMs = 0;
+      while ((!tmpKeidoEl?.value || !tmpIdoEl?.value) && waitedMs < 4000) {
+        await new Promise(r => setTimeout(r, 500));
+        waitedMs += 500;
       }
-
-      // ── セッション確立試行 ──
-      // 方針 A: onclick から抽出した URL を直接 fetch (popup 不要)
-      // 方針 B: 抽出失敗時のみ従来の popup 方式にフォールバック
-      let sessionEstablished = false;
-      if (extractedSetupUrl) {
-        try {
-          const setupRes = await fetch(extractedSetupUrl, {
-            credentials: 'include',
-            cache: 'no-store'
-          });
-          dlog('セットアップ fetch HTTP ' + setupRes.status + ' (popup 回避)');
-          if (setupRes.ok) {
-            sessionEstablished = true;
-            // 念のため少し待ってからクッキー反映
-            await new Promise(r => setTimeout(r, 300));
-          }
-        } catch (e) {
-          dlog('⚠️ セットアップ fetch 例外: ' + (e && e.message));
-        }
+      const tmpKeido = tmpKeidoEl?.value || '';
+      const tmpIdo = tmpIdoEl?.value || '';
+      if (!tmpKeido || !tmpIdo) {
+        dlog('⚠️ tmpKeidoFull/tmpIdoFull が空のまま (Zenrin 仮座標未取得) → 駅補完スキップ');
+        return;
       }
+      dlog('仮座標確認 OK (tmpKeidoFull=' + tmpKeido + ' tmpIdoFull=' + tmpIdo + ')');
 
-      // 方針 B: フォールバック (popup 経由)
-      if (!sessionEstablished && trigBtn) {
-        let popupRef = null;
-        const origOpen = window.open;
-        window.open = function(url, name, features) {
-          const offscreenFeatures = 'left=-10000,top=-10000,width=1,height=1,menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=no';
-          const w = origOpen.call(this, url, name || '_blank', offscreenFeatures);
-          popupRef = w;
-          return w;
-        };
-        try { trigBtn.click(); } catch(_){}
-        window.open = origOpen;
-        if (popupRef) {
-          await new Promise(r => setTimeout(r, 2000));
-          try { popupRef.close(); } catch(_){}
-          dlog('popup 経由セッション確立試行 完了');
-        } else {
-          dlog('⚠️ window.open が null (popup blocker) かつ URL 抽出失敗 → セッション未確立');
-        }
-      }
-
-      // 候補が 0 件なら最大 2 回までリトライ (セッション確立に時間がかかるケース)
+      // iframe で COM1R02167.action を読み込み、 候補 HTML を取得
       let candidates = [];
-      let lastFetchStatus = '';
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        const res = await fetch('https://www.fn.forrent.jp/fn/COM1R02167.action', {
-          credentials: 'include',
-          cache: 'no-store'
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = 'position:fixed;left:-10000px;top:-10000px;width:1px;height:1px;border:0;visibility:hidden';
+      iframe.src = 'COM1R02167.action';
+      try {
+        document.body.appendChild(iframe);
+        // ロード完了待ち (タイムアウト 8 秒)
+        await Promise.race([
+          new Promise(resolve => { iframe.onload = resolve; }),
+          new Promise(resolve => setTimeout(resolve, 8000)),
+        ]);
+        // iframe 内 JS の追加実行余裕
+        await new Promise(r => setTimeout(r, 500));
+
+        const idoc = iframe.contentDocument;
+        if (!idoc) {
+          dlog('⚠️ iframe.contentDocument が null (X-Frame-Options ブロック?) → 補完不可');
+          return;
+        }
+        // 候補ラジオから駅 index を抽出 (id 形式: koutu_<枠>-<idx>、 chg は除外)
+        const radioIds = Array.from(idoc.querySelectorAll('input.kouhoGroup'))
+          .map(r => r.id || '')
+          .filter(id => /^koutu_\d+-\d+$/.test(id));
+        // idx の重複排除 (同じ駅が交通枠 1/2/3 で 3 回出るため)
+        const idxSet = new Set();
+        radioIds.forEach(id => {
+          const m = id.match(/^koutu_\d+-(\d+)$/);
+          if (m) idxSet.add(m[1]);
         });
-        if (!res.ok) {
-          lastFetchStatus = 'HTTP ' + res.status;
-          dlog('⚠️ COM1R02167 fetch失敗 ' + lastFetchStatus + ' (試行' + attempt + '/3)');
-          await new Promise(r => setTimeout(r, 800));
-          continue;
-        }
-        // SUUMOは Shift-JIS を返すため、arrayBuffer + TextDecoder で正しくデコード
-        // (デフォルトの res.text() は UTF-8 解釈なので駅名が文字化けして既存駅と
-        //  マッチせず、結果として既存駅も含めて全件追加候補と判定されてしまう)
-        const buf = await res.arrayBuffer();
-        const html = new TextDecoder('shift-jis').decode(buf);
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        candidates = [];
-        for (let i = 1; ; i++) {
-          const ekiNmEl = doc.getElementById('ekiNm' + i);
-          if (!ekiNmEl) break;
+        idxSet.forEach(idx => {
+          const ekiNm = idoc.getElementById('ekiNm' + idx)?.value || '';
+          if (!ekiNm) return;
           candidates.push({
-            idx: i,
-            ensenCd: doc.getElementById('ensenCd' + i)?.value || '',
-            ensenNm: doc.getElementById('ensenNm' + i)?.value || '',
-            ekiCd: doc.getElementById('ekiCd' + i)?.value || '',
-            ekiNm: ekiNmEl.value || '',
-            tohofun: parseInt(doc.getElementById('tohofun' + i)?.value || '0', 10) || 0
+            idx: idx,
+            ensenCd: idoc.getElementById('ensenCd' + idx)?.value || '',
+            ensenNm: idoc.getElementById('ensenNm' + idx)?.value || '',
+            ekiCd: idoc.getElementById('ekiCd' + idx)?.value || '',
+            ekiNm: ekiNm,
+            tohofun: parseInt(idoc.getElementById('tohofun' + idx)?.value || '0', 10) || 0,
           });
-        }
-        if (candidates.length > 0) {
-          if (attempt > 1) dlog('候補取得成功 (試行' + attempt + '/3)');
-          break;
-        }
-        dlog('候補0件 → セッション再確立待機 (試行' + attempt + '/3)');
-        await new Promise(r => setTimeout(r, 1000));
+        });
+      } catch (e) {
+        dlog('⚠️ iframe 経由取得で例外: ' + (e && e.message));
+      } finally {
+        try { iframe.remove(); } catch (_) {}
       }
+
       dlog('候補' + candidates.length + '件: ' + candidates.slice(0, 8).map(c => c.ekiNm + '(' + c.tohofun + '分)').join(', '));
 
       if (candidates.length === 0) {
-        dlog('⚠️ 駅候補0件 (3回試行しても取得できず → 住所未入力 or サーバー側問題の可能性)');
+        dlog('⚠️ 駅候補0件 (iframe で取得できず → サーバー側に駅候補なし)');
         return;
       }
 
