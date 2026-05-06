@@ -133,20 +133,26 @@ chrome.storage.local.get(['notifiedDedupMap'], (d) => {
   }
 });
 
+// 全角英数字 → 半角に正規化するヘルパー (重複検知の安定化用、 2026-05-06 追加)
+// String.toLowerCase() は ASCII しか変換しないため、 全角「Ｋ」 と半角「k」 が
+// マッチせず重複検知が効かないケースがあった (例: いえらぶ「1K」 vs REINS「1Ｋ」)。
+const __toHalfWidthAlnum = (s) => {
+  return String(s || '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, c =>
+    String.fromCharCode(c.charCodeAt(0) - 0xFEE0)
+  );
+};
+
 // 識別キー生成
 globalThis.__buildPropertyDedupKey = (prop) => {
   if (!prop) return '';
-  let addr = String(prop.address || '');
-  // 全角数字 → 半角
-  addr = addr.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
-  // 「N丁目X-Y」「N丁目X番Y号」等の番地以降を切り捨て
+  // 住所: 全角英数字を半角に + 「N丁目X-Y」 等の番地以降切り捨て
+  let addr = __toHalfWidthAlnum(prop.address);
   addr = addr.replace(/(\d+)丁目.*$/, '$1丁目');
   addr = addr.replace(/\s+/g, '').toLowerCase();
-  const room = String(prop.room_number || '')
-    .replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
-    .replace(/[^\d]/g, '');
+  const room = __toHalfWidthAlnum(prop.room_number).replace(/[^\d]/g, '');
   const area = Math.round((parseFloat(prop.area) || 0) * 100);
-  const layout = String(prop.layout || '').replace(/\s+/g, '').toLowerCase();
+  // 間取り: 全角英字を半角化してから lowercase (1Ｋ → 1k と 1K → 1k がマッチするように)
+  const layout = __toHalfWidthAlnum(prop.layout).replace(/\s+/g, '').toLowerCase();
   // 4要素揃わない物件はキー化できない (= 重複判定対象外、通常通り通知)
   if (!addr || !room || !area || !layout) {
     // どの要素が欠けているかをコンソールに記録 (重複検知が効かない物件の調査用)
