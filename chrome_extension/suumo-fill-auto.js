@@ -1077,21 +1077,20 @@
       if (carDiv) carDiv.style.display = 'none';
     }
 
-    // 既存駅が3未満なら SUUMO の「らくらく交通入力」で空きスロットを補完
-    // (既存駅は触らず、空きスロットだけ追加する)
-    // ⚠️ ここを await しないと駅補完完了前に確認画面遷移ボタンが押されて
-    //    補完が反映されない (旧実装は fire-and-forget だった)。
+    // ── 駅補完の自動実行は無効化 (2026-05-06) ──
+    // ForRent の「らくらく交通入力」 機能は サーバー側セッションに座標を登録する
+    // ためにユーザー操作で popup ウィンドウを開くことが必須 (popup blocker のため
+    // 拡張から自動でクリック発火しても block される)。 また座標登録は popup 内で
+    // 走る Zenrin SDK 経由のため、 拡張側で再現することは構造的に不可能。
+    // → 駅補完を諦め、 ソース取得分の駅 (1〜2 駅) のまま入稿完了させる。
+    //   3 駅目が欲しい場合はユーザーが入稿前に手動で ForRent の「らくらく交通入力」
+    //   ボタンを押せば良い (これは拡張ではなく ForRent 側の標準機能で動く)。
+    // 関数本体 (autoFillEmptyStationSlots) は将来の参照用に残してあるが、
+    // 呼び出し側からは無効化している。
     const filledCount = Math.min(dedupedAccess.length, maxTraffic);
     if (filledCount > 0 && filledCount < maxTraffic) {
-      try {
-        await autoFillEmptyStationSlots(filledCount);
-      } catch (err) {
-        console.warn('[SUUMO自動入稿] 駅補完エラー:', err && err.message);
-      }
+      console.log('[SUUMO自動入稿] 駅補完: 既存' + filledCount + '駅 → 自動補完は無効化中 (' + (maxTraffic - filledCount) + '駅分は空のまま)');
     } else if (filledCount === 0) {
-      // ソース側で駅が 1 つも取れなかった = 補完すべき土台がないケース
-      // (autoFillEmptyStationSlots は住所から候補を引くため、 駅が 0 でも理論的
-      //  には動かせるが、 既存実装は filledCount > 0 を前提にしている)
       console.warn('[SUUMO自動入稿] 駅補完スキップ: ソース側に駅が0件');
     }
   }
@@ -1121,48 +1120,59 @@
       dlog('開始: 既存' + filledCount + '駅 → 残り' + (3 - filledCount) + '駅を補完試行');
 
       // ── 駅候補取得経路 (2026-05-06 確定仕様) ──
-      // SUUMO 入稿フォームの「らくらく交通入力」 機能は popup window.open で
-      // COM1R02167.action を別ウィンドウとして開き、 サーバーがインライン展開した
-      // HTML から駅候補を読み取る仕様。 直接 fetch では Referer / フレーム文脈の
-      // 違いで駅候補ゼロが返る。
-      // 一方、 親ページ内の **iframe** で COM1R02167.action を読み込むと、
-      // popup blocker を回避しつつサーバーが駅候補を返してくれることが実機検証で
-      // 確定 (popup と同じ Referer・同じセッション・同じ frame コンテキスト)。
+      // 1. 「らくらく交通入力」 ボタン (#rakurakuKotsu) を click() で発火
+      //    → ZenrinCommon.js の openRakurakuKotsu が window.open で popup を開く
+      //    → popup 内で Zenrin SDK が住所→座標変換 + サーバーセッションに登録
+      // 2. popup の Zenrin 処理が完了するのを待ってから popup を close
+      // 3. その後、 同じセッションの iframe で COM1R02167.action を読み込む
+      //    → サーバーが駅候補をインライン展開した HTML を返す
+      // 4. iframe から候補を抽出して親フォームに反映
       //
-      // 前提: 親フォームの hidden #tmpKeidoFull / #tmpIdoFull に仮座標が
-      //   埋まっていること。 これはユーザー手動操作なら住所入力時に Zenrin SDK
-      //   経由で自動的に入る。 拡張の自動入力では programmatic イベント発火の
-      //   ため Zenrin が走らないケースがあり得るため、 値の有無を事前チェック。
+      // popup を開く際の window.open は content script からの click() 発火だと
+      // user gesture 継承で blocker を抜けるケースが多い (過去動作実績あり)。
 
-      // 仮座標が埋まるのを最大 4 秒待つ (Zenrin の非同期処理 余裕)
-      const tmpKeidoEl = document.getElementById('tmpKeidoFull');
-      const tmpIdoEl = document.getElementById('tmpIdoFull');
-      let waitedMs = 0;
-      while ((!tmpKeidoEl?.value || !tmpIdoEl?.value) && waitedMs < 4000) {
-        await new Promise(r => setTimeout(r, 500));
-        waitedMs += 500;
-      }
-      const tmpKeido = tmpKeidoEl?.value || '';
-      const tmpIdo = tmpIdoEl?.value || '';
-      if (!tmpKeido || !tmpIdo) {
-        dlog('⚠️ tmpKeidoFull/tmpIdoFull が空のまま (Zenrin 仮座標未取得) → 駅補完スキップ');
+      const trigBtn = document.getElementById('rakurakuKotsu');
+      if (!trigBtn) {
+        dlog('⚠️ #rakurakuKotsu ボタンが見つからない → 補完不可');
         return;
       }
-      dlog('仮座標確認 OK (tmpKeidoFull=' + tmpKeido + ' tmpIdoFull=' + tmpIdo + ')');
 
-      // iframe で COM1R02167.action を読み込み、 候補 HTML を取得
+      // ── ステップ 1: popup を開いてサーバーセッションに座標登録 ──
+      let popupRef = null;
+      const origOpen = window.open;
+      window.open = function(url, name, features) {
+        const w = origOpen.apply(this, arguments);
+        popupRef = w;
+        return w;
+      };
+      try {
+        trigBtn.click();
+      } catch (_) {}
+      window.open = origOpen;
+
+      if (!popupRef) {
+        dlog('⚠️ popup が開けなかった (popup blocker) → 補完不可');
+        return;
+      }
+      dlog('popup 起動 → Zenrin 座標登録待機 (3秒)');
+      // popup 内で Zenrin SDK が住所→座標変換してサーバーセッションに POST するのを待つ
+      // 実測 800ms〜1.2s 程度なので 3 秒で十分
+      await new Promise(r => setTimeout(r, 3000));
+      try { popupRef.close(); } catch (_) {}
+
+      // ── ステップ 2: iframe で COM1R02167.action を読んで候補抽出 ──
+      // popup でセッションに座標が登録された状態なので、 iframe で読み込めば
+      // サーバーが駅候補をインライン展開した HTML を返す。
       let candidates = [];
       const iframe = document.createElement('iframe');
       iframe.style.cssText = 'position:fixed;left:-10000px;top:-10000px;width:1px;height:1px;border:0;visibility:hidden';
       iframe.src = 'COM1R02167.action';
       try {
         document.body.appendChild(iframe);
-        // ロード完了待ち (タイムアウト 8 秒)
         await Promise.race([
           new Promise(resolve => { iframe.onload = resolve; }),
           new Promise(resolve => setTimeout(resolve, 8000)),
         ]);
-        // iframe 内 JS の追加実行余裕
         await new Promise(r => setTimeout(r, 500));
 
         const idoc = iframe.contentDocument;
@@ -1174,7 +1184,6 @@
         const radioIds = Array.from(idoc.querySelectorAll('input.kouhoGroup'))
           .map(r => r.id || '')
           .filter(id => /^koutu_\d+-\d+$/.test(id));
-        // idx の重複排除 (同じ駅が交通枠 1/2/3 で 3 回出るため)
         const idxSet = new Set();
         radioIds.forEach(id => {
           const m = id.match(/^koutu_\d+-(\d+)$/);
@@ -1201,7 +1210,7 @@
       dlog('候補' + candidates.length + '件: ' + candidates.slice(0, 8).map(c => c.ekiNm + '(' + c.tohofun + '分)').join(', '));
 
       if (candidates.length === 0) {
-        dlog('⚠️ 駅候補0件 (iframe で取得できず → サーバー側に駅候補なし)');
+        dlog('⚠️ 駅候補0件 (popup → iframe 経路で取得できず)');
         return;
       }
 
