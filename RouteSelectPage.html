@@ -208,11 +208,15 @@ input[type="range"]::-webkit-slider-thumb {
 .pet-input-row .hint { font-size: 11px; color: #999; margin-top: 4px; }
 
 /* ── フッター ── */
+/* 旧: position:fixed で常時表示 → ユーザーが全項目スクロールせずに決定ボタンを
+   押せてしまい、 デフォルト値のまま登録するケースがあったため、
+   通常の document flow に戻して最下部までスクロールしないと見えないようにする
+   (お客さんが全項目目視 + 設定したことを担保するため) (2026-05-06) */
 .footer {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
   background: #fff; padding: 12px 16px;
   border-top: 1px solid #e0e0e0;
   padding-bottom: max(12px, env(safe-area-inset-bottom));
+  margin-top: 16px;
 }
 .submit-btn {
   width: 100%; padding: 14px; font-size: 16px; font-weight: 700;
@@ -263,7 +267,7 @@ input[type="range"]::-webkit-slider-thumb {
   <div class="section">
     <div class="section-title">家賃上限<span class="section-subtitle">（管理費・共益費を含む）</span></div>
     <div class="slider-container">
-      <div class="slider-value" id="rentDisplay">8万円</div>
+      <div class="slider-value" id="rentDisplay">未選択</div>
       <div class="slider-row">
         <span class="slider-label">6万</span>
         <input type="range" id="rentSlider" min="0" max="0" value="0" oninput="onRentChange()">
@@ -285,7 +289,7 @@ input[type="range"]::-webkit-slider-thumb {
       <label><input type="checkbox" id="walkUnspecified" onchange="onWalkUnspecifiedChange()"> 指定しない</label>
     </div>
     <div class="slider-container" id="walkSliderContainer">
-      <div class="slider-value" id="walkDisplay">10分以内</div>
+      <div class="slider-value" id="walkDisplay">未選択</div>
       <div class="slider-row">
         <span class="slider-label">1分</span>
         <input type="range" id="walkSlider" min="0" max="19" value="9" oninput="onWalkChange()">
@@ -301,7 +305,7 @@ input[type="range"]::-webkit-slider-thumb {
       <label><input type="checkbox" id="areaUnspecified" onchange="onAreaUnspecifiedChange()"> 指定しない</label>
     </div>
     <div class="slider-container" id="areaSliderContainer">
-      <div class="slider-value" id="areaDisplay">25m²</div>
+      <div class="slider-value" id="areaDisplay">未選択</div>
       <div class="slider-row" id="areaSliderRow">
         <span class="slider-label">15m²</span>
         <input type="range" id="areaSlider" min="0" max="9" value="2" oninput="onAreaChange()">
@@ -324,7 +328,7 @@ input[type="range"]::-webkit-slider-thumb {
       <label><input type="checkbox" id="ageUnspecified" onchange="onAgeUnspecifiedChange()"> 指定しない</label>
     </div>
     <div class="slider-container" id="ageSliderContainer">
-      <div class="slider-value" id="ageDisplay">10年以内</div>
+      <div class="slider-value" id="ageDisplay">未選択</div>
       <div class="slider-row" id="ageSliderRow">
         <span class="slider-label">新築</span>
         <input type="range" id="ageSlider" min="0" max="12" value="6" oninput="onAgeChange()">
@@ -993,15 +997,27 @@ function updateCityBadge(cid, cityName) {
 function initRentSlider() {
   var slider = document.getElementById('rentSlider');
   slider.max = RENT_VALUES.length - 1;
-  var idx = 20; // default 8万円
+  // 初期値:
+  // - INIT_RENT_MAX あり (条件変更時) → そのまま採用、 ユーザー操作済み扱い
+  // - なし (新規登録) → 「未選択」 状態。 ユーザーが触るまで rentUserSelected=false
   if (INIT_RENT_MAX) {
+    var idx = 0;
     for (var i = 0; i < RENT_VALUES.length; i++) { if (RENT_VALUES[i] === INIT_RENT_MAX) { idx = i; break; } }
+    slider.value = idx;
+    rentUserSelected = true;
+    onRentChange();
+  } else {
+    slider.value = 0;
+    rentUserSelected = false;
+    document.getElementById('rentDisplay').textContent = '未選択';
   }
-  slider.value = idx;
-  onRentChange();
 }
 
+// ユーザーが家賃スライダーを操作したかを記録 (バリデーション用)
+var rentUserSelected = false;
+
 function onRentChange() {
+  rentUserSelected = true;
   var val = RENT_VALUES[document.getElementById('rentSlider').value];
   document.getElementById('rentDisplay').textContent = val;
 }
@@ -1022,59 +1038,95 @@ function renderLayouts() {
 // ══════════════════════════════════════════════════════════
 //  徒歩スライダー
 // ══════════════════════════════════════════════════════════
+// ユーザーが駅徒歩を選択したかを記録 (スライダー操作 or 「指定しない」 チェック で true に)
+var walkUserSelected = false;
+
 function initWalkSlider() {
   var slider = document.getElementById('walkSlider');
   slider.max = WALK_VALUES.length - 1;
   if (INIT_WALK && INIT_WALK === '指定しない') {
     document.getElementById('walkUnspecified').checked = true;
+    walkUserSelected = true;
     onWalkUnspecifiedChange();
-  } else {
+  } else if (INIT_WALK) {
     document.getElementById('walkUnspecified').checked = false;
-    if (INIT_WALK) { for (var i = 0; i < WALK_VALUES.length; i++) { if (WALK_VALUES[i] === INIT_WALK) { slider.value = i; break; } } }
+    for (var i = 0; i < WALK_VALUES.length; i++) { if (WALK_VALUES[i] === INIT_WALK) { slider.value = i; break; } }
+    walkUserSelected = true;
     onWalkChange();
+  } else {
+    // 新規登録: 「未選択」 状態
+    document.getElementById('walkUnspecified').checked = false;
+    walkUserSelected = false;
+    document.getElementById('walkDisplay').textContent = '未選択';
   }
 }
 
-function onWalkChange() { document.getElementById('walkDisplay').textContent = WALK_VALUES[document.getElementById('walkSlider').value]; }
+function onWalkChange() {
+  walkUserSelected = true;
+  document.getElementById('walkDisplay').textContent = WALK_VALUES[document.getElementById('walkSlider').value];
+}
 function onWalkUnspecifiedChange() {
+  walkUserSelected = true;
   var checked = document.getElementById('walkUnspecified').checked;
   document.getElementById('walkSliderContainer').style.opacity = checked ? '0.3' : '1';
   document.getElementById('walkSlider').disabled = checked;
+  // 「指定しない」 を外したらまた未選択状態に戻す
+  if (!checked) {
+    document.getElementById('walkDisplay').textContent = '未選択';
+    walkUserSelected = false;
+  }
 }
 
 // ══════════════════════════════════════════════════════════
 //  面積スライダー
 // ══════════════════════════════════════════════════════════
+// ユーザーが専有面積を選択したかを記録 (スライダー操作 / 任意入力 / 「指定しない」 で true)
+var areaUserSelected = false;
+
 function initAreaSlider() {
   var slider = document.getElementById('areaSlider');
   slider.max = AREA_VALUES.length - 1;
   if (INIT_AREA_MIN && INIT_AREA_MIN === '指定しない') {
     document.getElementById('areaUnspecified').checked = true;
+    areaUserSelected = true;
     onAreaUnspecifiedChange();
-  } else {
+  } else if (INIT_AREA_MIN) {
     document.getElementById('areaUnspecified').checked = false;
-    if (INIT_AREA_MIN) {
-      var found = false;
-      for (var i = 0; i < AREA_VALUES.length; i++) { if (AREA_VALUES[i] === INIT_AREA_MIN) { slider.value = i; found = true; break; } }
-      if (!found) {
-        document.getElementById('areaCustomToggle').checked = true;
-        onAreaCustomToggle();
-        document.getElementById('areaCustomInput').value = parseInt(INIT_AREA_MIN);
-      }
+    var found = false;
+    for (var i = 0; i < AREA_VALUES.length; i++) { if (AREA_VALUES[i] === INIT_AREA_MIN) { slider.value = i; found = true; break; } }
+    if (!found) {
+      document.getElementById('areaCustomToggle').checked = true;
+      onAreaCustomToggle();
+      document.getElementById('areaCustomInput').value = parseInt(INIT_AREA_MIN);
     }
+    areaUserSelected = true;
     onAreaChange();
+  } else {
+    // 新規登録: 「未選択」 状態
+    document.getElementById('areaUnspecified').checked = false;
+    areaUserSelected = false;
+    document.getElementById('areaDisplay').textContent = '未選択';
   }
 }
 
-function onAreaChange() { document.getElementById('areaDisplay').textContent = AREA_VALUES[document.getElementById('areaSlider').value]; }
+function onAreaChange() {
+  areaUserSelected = true;
+  document.getElementById('areaDisplay').textContent = AREA_VALUES[document.getElementById('areaSlider').value];
+}
 function onAreaUnspecifiedChange() {
+  areaUserSelected = true;
   var checked = document.getElementById('areaUnspecified').checked;
   document.getElementById('areaSliderContainer').style.opacity = checked ? '0.3' : '1';
   document.getElementById('areaSlider').disabled = checked;
   document.getElementById('areaCustomToggle').disabled = checked;
   document.getElementById('areaCustomInput').disabled = checked;
+  if (!checked) {
+    document.getElementById('areaDisplay').textContent = '未選択';
+    areaUserSelected = false;
+  }
 }
 function onAreaCustomToggle() {
+  areaUserSelected = true;
   var custom = document.getElementById('areaCustomToggle').checked;
   document.getElementById('areaSliderRow').style.display = custom ? 'none' : 'flex';
   document.getElementById('areaDisplay').style.display = custom ? 'none' : 'block';
@@ -1084,36 +1136,53 @@ function onAreaCustomToggle() {
 // ══════════════════════════════════════════════════════════
 //  築年数スライダー
 // ══════════════════════════════════════════════════════════
+// ユーザーが築年数を選択したかを記録
+var ageUserSelected = false;
+
 function initAgeSlider() {
   var slider = document.getElementById('ageSlider');
   slider.max = AGE_VALUES.length - 1;
   if (INIT_BUILDING_AGE && INIT_BUILDING_AGE === '指定しない') {
     document.getElementById('ageUnspecified').checked = true;
+    ageUserSelected = true;
     onAgeUnspecifiedChange();
-  } else {
+  } else if (INIT_BUILDING_AGE) {
     document.getElementById('ageUnspecified').checked = false;
-    if (INIT_BUILDING_AGE) {
-      var found = false;
-      for (var i = 0; i < AGE_VALUES.length; i++) { if (AGE_VALUES[i] === INIT_BUILDING_AGE) { slider.value = i; found = true; break; } }
-      if (!found) {
-        document.getElementById('ageCustomToggle').checked = true;
-        onAgeCustomToggle();
-        document.getElementById('ageCustomInput').value = parseInt(INIT_BUILDING_AGE);
-      }
+    var found = false;
+    for (var i = 0; i < AGE_VALUES.length; i++) { if (AGE_VALUES[i] === INIT_BUILDING_AGE) { slider.value = i; found = true; break; } }
+    if (!found) {
+      document.getElementById('ageCustomToggle').checked = true;
+      onAgeCustomToggle();
+      document.getElementById('ageCustomInput').value = parseInt(INIT_BUILDING_AGE);
     }
+    ageUserSelected = true;
     onAgeChange();
+  } else {
+    // 新規登録: 「未選択」 状態
+    document.getElementById('ageUnspecified').checked = false;
+    ageUserSelected = false;
+    document.getElementById('ageDisplay').textContent = '未選択';
   }
 }
 
-function onAgeChange() { document.getElementById('ageDisplay').textContent = AGE_VALUES[document.getElementById('ageSlider').value]; }
+function onAgeChange() {
+  ageUserSelected = true;
+  document.getElementById('ageDisplay').textContent = AGE_VALUES[document.getElementById('ageSlider').value];
+}
 function onAgeUnspecifiedChange() {
+  ageUserSelected = true;
   var checked = document.getElementById('ageUnspecified').checked;
   document.getElementById('ageSliderContainer').style.opacity = checked ? '0.3' : '1';
   document.getElementById('ageSlider').disabled = checked;
   document.getElementById('ageCustomToggle').disabled = checked;
   document.getElementById('ageCustomInput').disabled = checked;
+  if (!checked) {
+    document.getElementById('ageDisplay').textContent = '未選択';
+    ageUserSelected = false;
+  }
 }
 function onAgeCustomToggle() {
+  ageUserSelected = true;
   var custom = document.getElementById('ageCustomToggle').checked;
   document.getElementById('ageSliderRow').style.display = custom ? 'none' : 'flex';
   document.getElementById('ageDisplay').style.display = custom ? 'none' : 'block';
@@ -1337,6 +1406,15 @@ function submitCriteria() {
   } else {
     if (criteria.selectedCities.length === 0) { showAlert('少なくとも1つの市区町村を選択してください。'); return; }
   }
+
+  // ── スライダー系の未選択チェック ──
+  // 家賃・駅徒歩・専有面積・築年数 いずれもデフォルト未選択。
+  // ユーザーが触らずに送信しようとした場合は警告して中止する
+  // (デフォルト値が「希望」 と誤認されるのを防ぐ目的、 2026-05-06)。
+  if (!rentUserSelected) { showAlert('家賃上限を選択してください。'); return; }
+  if (!walkUserSelected) { showAlert('駅徒歩を選択してください (「指定しない」 の選択も可)。'); return; }
+  if (!areaUserSelected) { showAlert('専有面積を選択してください (「指定しない」 の選択も可)。'); return; }
+  if (!ageUserSelected) { showAlert('築年数を選択してください (「指定しない」 の選択も可)。'); return; }
 
   // 家賃
   criteria.rentMax = RENT_VALUES[document.getElementById('rentSlider').value];
