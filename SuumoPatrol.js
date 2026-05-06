@@ -974,6 +974,87 @@ function cleanupDuplicateListings(opts) {
   };
 }
 
+/**
+ * 掲載管理シートの「stopped」行のうち、 停止日 (J 列) から指定日数以上経過した
+ * 行を物理削除する。
+ *
+ * 用途:
+ *   stopped (掲載終了) になった物件の履歴は古くなるとシートを圧迫するため、
+ *   2 週間 (14 日) 経過したら自動削除して掃除する。
+ *
+ * @param {number} [daysOld=14] 何日経過した stopped 行を削除対象にするか
+ * @param {Object} [opts]
+ *   - dryRun {boolean} true なら結果を返すだけで削除しない
+ * @returns {{ success: boolean, deletedRows: number, details: Array }}
+ */
+function purgeOldStoppedListings_(daysOld, opts) {
+  var threshold = ((daysOld == null ? 14 : daysOld)) * 24 * 60 * 60 * 1000;
+  var dryRun = !!(opts && opts.dryRun);
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: true, deletedRows: 0, details: [] };
+
+  // I 列 (status) と J 列 (停止日) を含む 10 列分を読み込む
+  var values = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+  var now = Date.now();
+  var rowsToDelete = [];
+
+  for (var i = 0; i < values.length; i++) {
+    var status = values[i][8]; // I 列
+    if (status !== 'stopped') continue;
+    var stoppedAt = values[i][9]; // J 列
+    if (!stoppedAt) continue; // 停止日 不明 → 触らない (安全側)
+    var stoppedDate = (stoppedAt instanceof Date) ? stoppedAt : new Date(stoppedAt);
+    if (isNaN(stoppedDate.getTime())) continue;
+    if (now - stoppedDate.getTime() >= threshold) {
+      rowsToDelete.push({
+        sheetRow: i + 2,
+        key: values[i][0],
+        building: values[i][1],
+        room: values[i][2],
+        stoppedAt: stoppedAt
+      });
+    }
+  }
+
+  // 物理削除は **行番号が大きい方から** 実行 (前から消すと番号ズレ)
+  rowsToDelete.sort(function (a, b) { return b.sheetRow - a.sheetRow; });
+
+  if (!dryRun) {
+    for (var j = 0; j < rowsToDelete.length; j++) {
+      sheet.deleteRow(rowsToDelete[j].sheetRow);
+    }
+  }
+
+  return {
+    success: true,
+    dryRun: dryRun,
+    deletedRows: rowsToDelete.length,
+    details: rowsToDelete,
+  };
+}
+
+/**
+ * 24 時間に 1 度だけ purgeOldStoppedListings_ を実行 (高頻度のシート操作を回避)。
+ * SUUMO 関連の主要関数 (handleGetSuumoQueue や recordSuumoPosting) の冒頭で呼ぶ。
+ * ScriptProperties に最終実行時刻を記録して、 24h 経っていれば再実行する。
+ */
+function maybePurgeOldStoppedListings_() {
+  var now = Date.now();
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var last = parseInt(props.getProperty('LAST_STOPPED_PURGE_AT') || '0', 10);
+    if (last && now - last < 24 * 60 * 60 * 1000) return;
+    var result = purgeOldStoppedListings_(14);
+    props.setProperty('LAST_STOPPED_PURGE_AT', String(now));
+    if (result.deletedRows > 0) {
+      console.log('[SUUMO掲載管理] 14日経過 stopped 行を自動削除: ' + result.deletedRows + '件');
+    }
+  } catch (e) {
+    console.error('maybePurgeOldStoppedListings_ 例外: ' + (e && e.message));
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 // 4. 承認ページ
 // ═══════════════════════════════════════════════════════════
@@ -1378,6 +1459,11 @@ function handleGetSuumoQueue(e) {
     return ContentService.createTextOutput(JSON.stringify({ error: 'unauthorized' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+
+  // 24h に 1 回、 14日経過した stopped 行を自動削除する (掲載管理シートの掃除)
+  // SUUMO 巡回・入稿の度に呼ばれる関数なので、 ここで定期掃除のフックを置くのが
+  // ユーザーが何もしなくても自動で掃除されて都合が良い。
+  try { maybePurgeOldStoppedListings_(); } catch (_) {}
 
   var shouldLock = e.parameter.lock === 'true' || e.parameter.lock === '1';
   var queue = shouldLock ? getAndLockSuumoApprovalQueue() : getSuumoApprovalQueue();
