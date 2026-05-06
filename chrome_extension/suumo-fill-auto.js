@@ -1132,14 +1132,31 @@
       // ── ステップ 1: popup を一瞬開いてサーバーセッションに座標登録 ──
       const trigBtn = document.getElementById('rakurakuKotsu');
       if (trigBtn) {
+        let openCallCount = 0;
+        let openedOk = false;
+        let lastUrl = '';
         const origOpen = window.open;
-        window.open = function() {
+        window.open = function(url, name, features) {
+          openCallCount++;
+          lastUrl = String(url || '').substring(0, 80);
           const w = origOpen.apply(this, arguments);
-          if (w) { try { w.close(); } catch(_){} }
+          if (w) {
+            openedOk = true;
+            try { w.close(); } catch(_){}
+          }
           return w;
         };
-        try { trigBtn.click(); } catch(_){}
+        try { trigBtn.click(); } catch(e) {
+          dlog('⚠️ trigBtn.click() 例外: ' + (e && e.message));
+        }
         window.open = origOpen;
+        if (openCallCount === 0) {
+          dlog('⚠️ trigBtn.click() しても window.open が呼ばれず (onclick handler 未登録?)');
+        } else if (!openedOk) {
+          dlog('⚠️ window.open 呼び出し ' + openCallCount + ' 回 / popup blocker でブロック (url=' + lastUrl + ')');
+        } else {
+          dlog('popup 一瞬起動 OK (url=' + lastUrl + ', call=' + openCallCount + '回)');
+        }
         await new Promise(r => setTimeout(r, 500));
       } else {
         dlog('⚠️ #rakurakuKotsu ボタンが見つからない');
