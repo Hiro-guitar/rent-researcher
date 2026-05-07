@@ -939,6 +939,7 @@ function handleGetCriteria(e) {
   // 候補となる active な顧客の userId を先に集める
   var allUserIds = [];
   var nameToUserId = {}; // name -> userId
+  var noUserIdNames = []; // userId 未紐付けの顧客名 (デバッグ用)
   for (var pi = 1; pi < data.length; pi++) {
     var pname = String(data[pi][1] || '').trim();
     if (!pname) continue;
@@ -948,10 +949,29 @@ function handleGetCriteria(e) {
     if (puid) {
       nameToUserId[pname] = puid;
       allUserIds.push(puid);
+    } else {
+      noUserIdNames.push(pname);
     }
   }
+  console.log('[LINEブロック判定] 対象顧客数=' + allUserIds.length
+    + ' / userId未紐付け=' + noUserIdNames.length
+    + (noUserIdNames.length > 0 ? ' [' + noUserIdNames.slice(0, 5).join(',') + '...]' : ''));
+
   // 並列ブロック判定
   var blockedMap = (allUserIds.length > 0) ? bulkCheckLineBlocked(allUserIds) : {};
+
+  // 判定結果のサマリログ
+  var blockedTrue = 0, blockedFalse = 0, blockedNull = 0;
+  for (var bk in blockedMap) {
+    if (blockedMap[bk] === true) blockedTrue++;
+    else if (blockedMap[bk] === false) blockedFalse++;
+    else blockedNull++;
+  }
+  console.log('[LINEブロック判定] 結果: ブロック中=' + blockedTrue
+    + ' / 通常=' + blockedFalse + ' / 不明=' + blockedNull);
+  // Discord webhook 設定確認
+  var _wh = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL');
+  console.log('[LINEブロック判定] Discord webhook 設定=' + (_wh ? 'あり' : 'なし'));
 
   var criteria = [];
   for (var i = 1; i < data.length; i++) {
