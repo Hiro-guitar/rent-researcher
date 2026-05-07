@@ -2288,13 +2288,17 @@ function adoptSelectedHomesImages() {
     // 高解像度版を優先
     var url = cand.urlHires || cand.url;
     addUploadedImage(url);
-    // ジャンル自動割当(SUUMOジャンルにマップできるもののみ、未選択ジャンル限定)
+    // ジャンル自動割当 (SUUMOジャンルにマップできるもの全て)
+    // 旧: 「メインに既にある同ジャンルとは重複しない場合のみ」 と限定していたが、
+    //     ユーザーがホームズで意図的に採用した画像は必ずジャンル付きで追加してほしい
+    //     (重複は既存の「⚠️ ジャンル重複」 ハイライトで分かるため、 後から手動調整可能)
+    //     2026-05-07 修正
     var suumoGenre = HOMES_TO_SUUMO_GENRE[cand.genre];
     if (suumoGenre) {
       var images = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
       var newIdx = images.length - 1;
-      var used = Object.values(imageGenres);
-      if (used.indexOf(suumoGenre) < 0 && Object.keys(imageGenres).length < 14) {
+      // 14枚上限のみチェック (重複は許容)
+      if (Object.keys(imageGenres).length < 14) {
         imageGenres[newIdx] = suumoGenre;
       }
     }
