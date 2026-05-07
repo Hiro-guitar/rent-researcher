@@ -893,6 +893,9 @@ function _getLineUserIdMapByCustomerName_() {
 
 /**
  * LINE ブロック検知時に Discord (オペレーター用 webhook) に通知
+ *
+ * リトライ付き: 429 (レートリミット) のときは Retry-After ヘッダー or
+ * Cloudflare 1015 のときは固定 10秒 待機して 最大 3回までリトライ。
  */
 function _notifyLineBlockedToDiscord_(customerName) {
   try {
@@ -901,17 +904,57 @@ function _notifyLineBlockedToDiscord_(customerName) {
       console.log('[LINEブロック通知] webhook 未設定でスキップ: ' + customerName);
       return;
     }
-    var res = UrlFetchApp.fetch(webhook, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify({
-        content: '⚠️ **LINE ブロック検知**\n' + customerName + ' 様\n→ 物件検索を自動的に停止しました (ブロック解除されれば次回検索時に自動再開)'
-      }),
-      muteHttpExceptions: true
+    var payload = JSON.stringify({
+      content: '⚠️ **LINE ブロック検知**\n' + customerName + ' 様\n→ 物件検索を自動的に停止しました (ブロック解除されれば次回検索時に自動再開)'
     });
-    var code = res.getResponseCode();
-    var body = (res.getContentText() || '').substring(0, 200);
-    console.log('[LINEブロック通知] 送信: ' + customerName + ' → HTTP ' + code + ' body=' + body);
+
+    var maxAttempts = 3;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      var res = UrlFetchApp.fetch(webhook, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: payload,
+        muteHttpExceptions: true
+      });
+      var code = res.getResponseCode();
+      var body = (res.getContentText() || '').substring(0, 200);
+
+      // 成功 (Discord は通常 204 No Content / 200)
+      if (code >= 200 && code < 300) {
+        console.log('[LINEブロック通知] 送信成功: ' + customerName + ' → HTTP ' + code + ' (試行' + attempt + '/' + maxAttempts + ')');
+        return;
+      }
+
+      // 429: Discord 側 or Cloudflare 1015 のレートリミット → リトライ
+      if (code === 429) {
+        // Discord 標準: retry_after (秒, JSON) or Retry-After ヘッダー
+        // Cloudflare 1015: 固定で 10 秒待機
+        var waitMs = 10000; // デフォルト 10 秒
+        try {
+          var json = JSON.parse(body);
+          if (json && typeof json.retry_after === 'number') waitMs = Math.ceil(json.retry_after * 1000);
+        } catch (_) {}
+        var headers = res.getAllHeaders ? res.getAllHeaders() : {};
+        var retryAfterHeader = headers['Retry-After'] || headers['retry-after'];
+        if (retryAfterHeader) waitMs = parseInt(retryAfterHeader, 10) * 1000;
+        // Cloudflare 1015 の場合は body に "error code: 1015" が含まれる
+        if (body.indexOf('1015') >= 0) waitMs = Math.max(waitMs, 10000);
+        // 上限 30 秒 (GAS の 6分制限を圧迫しないため)
+        waitMs = Math.min(waitMs, 30000);
+
+        console.log('[LINEブロック通知] レートリミット (HTTP 429): ' + customerName + ' → ' + waitMs + 'ms 待機後リトライ (試行' + attempt + '/' + maxAttempts + ') body=' + body);
+        if (attempt < maxAttempts) {
+          Utilities.sleep(waitMs);
+          continue;
+        }
+      }
+
+      // その他のエラー (4xx/5xx) → リトライしない
+      console.log('[LINEブロック通知] 送信失敗 (リトライ対象外): ' + customerName + ' → HTTP ' + code + ' body=' + body);
+      return;
+    }
+
+    console.log('[LINEブロック通知] リトライ上限到達で諦め: ' + customerName);
   } catch (e) {
     console.error('_notifyLineBlockedToDiscord_ error: ' + e.message);
   }
