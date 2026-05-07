@@ -506,47 +506,6 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
 // === 検索レスポンスパース ===
 
 function parseItandiSearchResponse(data) {
-  // ── 調査用: 1 セッションに 1 回だけ、 検索 API レスポンスの 1 物件目の構造をダンプ ──
-  // listing_status / web_badge_count 等が検索 API レスポンスに含まれているかを確認するため。
-  // 含まれていれば 詳細ページ遷移なしで一覧段階フィルタが可能になる。
-  try {
-    if (!globalThis.__itandiResponseSampleDumped) {
-      var sampleRoom = null;
-      if (Array.isArray(data.rooms) && data.rooms.length > 0) {
-        sampleRoom = data.rooms[0];
-      } else if (Array.isArray(data.buildings) && data.buildings.length > 0 && data.buildings[0].rooms && data.buildings[0].rooms.length > 0) {
-        sampleRoom = data.buildings[0].rooms[0];
-      }
-      if (sampleRoom) {
-        var allKeys = Object.keys(sampleRoom).sort();
-        var interestingKeys = allKeys.filter(function(k) {
-          return /status|recruit|appli|moushi|moshi|web|badge|count|state|stage|kbn/i.test(k);
-        });
-        var sampleValues = {};
-        interestingKeys.forEach(function(k) {
-          var v = sampleRoom[k];
-          // オブジェクトは JSON 文字列化して短縮
-          if (typeof v === 'object' && v !== null) {
-            sampleValues[k] = JSON.stringify(v).substring(0, 100);
-          } else {
-            sampleValues[k] = v;
-          }
-        });
-        console.log('[itandi APIレスポンス調査] 全キー数=' + allKeys.length);
-        console.log('[itandi APIレスポンス調査] 全キー: ' + allKeys.join(','));
-        console.log('[itandi APIレスポンス調査] 注目キー: ' + JSON.stringify(interestingKeys));
-        console.log('[itandi APIレスポンス調査] 注目値: ' + JSON.stringify(sampleValues));
-        // ダッシュボードログにも転送
-        try {
-          chrome.storage.local.set({
-            debugLog: '[itandi調査] 注目キー=' + JSON.stringify(interestingKeys) + ' 値=' + JSON.stringify(sampleValues).substring(0, 400)
-          });
-        } catch (_) {}
-        globalThis.__itandiResponseSampleDumped = true;
-      }
-    }
-  } catch (_) {}
-
   const properties = [];
   let buildings = data.buildings || [];
 
@@ -610,6 +569,14 @@ function parseItandiSearchResponse(data) {
       const imageUrl = room.madori_image_url || imageUrlBldg;
       const roomNumber = room.room_number || '';
 
+      // 検索 API の status_type を listing_status に変換 (一覧段階 申込判定用、 2026-05-07 追加)
+      // 値分布調査結果: 検索 API は "available" (募集中) と "offered" (申込あり) のみ返す。
+      // (契約済み・公開停止はサーバ側でフィルタアウトされて検索結果には出ない)
+      // → "offered" を「申込あり」 にマップして既存の evaluateProperty で除外できるようにする。
+      // 詳細取得は通知対象 (= available) のみに絞れるので、 大幅な高速化が可能。
+      const statusType = room.status_type || '';
+      const initialListingStatus = (statusType === 'offered') ? '申込あり' : '';
+
       properties.push({
         source: 'itandi',
         building_id: String(propertyId),
@@ -633,12 +600,13 @@ function parseItandiSearchResponse(data) {
         image_urls: [],
         story_text: storyText,
         ad_keisai: '', // 詳細ページで補完される
+        status_type: statusType, // available / offered (一覧フィルタ用、 デバッグ用にも保持)
         // 詳細ページで補完されるフィールド
         structure: '',
         facilities: '',
         move_in_date: '',
         lease_type: '',
-        listing_status: '',
+        listing_status: initialListingStatus, // offered なら '申込あり'、 available なら '' (詳細で上書きされる)
         sunlight: '',
         total_units: '',
         contract_period: '',
@@ -1282,6 +1250,18 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     }
     if (isForced) {
       await setStorageData({ debugLog: `[強制再取得] [itandi] ${customer.name}: ${prop._raw_room_id || prop.room_id} を強制再取得対象として処理` });
+    }
+
+    // ── 一覧段階フィルタ (申込あり物件は詳細ページ遷移せず即スキップ) ──
+    // 検索 API レスポンスの status_type === 'offered' で「申込あり」 と判定済み。
+    // テストユーザー・SUUMO 巡回モード・強制再取得は対象外 (既存仕様と整合)。
+    // 効果: 範囲広い顧客で 100 件中 30〜50 件が申込あり → 該当数の詳細遷移をスキップ
+    //       (1 物件あたり数秒の遷移 → 数十分 → 数分に短縮)
+    const isSuumoPatrolEarly = !!globalThis._suumoPatrolMode;
+    if (!isForced && !isTestUser && !isSuumoPatrolEarly && prop.listing_status === '申込あり') {
+      try { globalThis.__addMoshikomiKey && globalThis.__addMoshikomiKey(prop.building_name, prop.room_number, prop.url, 'itandi'); } catch(e) {}
+      await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ 一覧段階スキップ: ${prop.building_name} ${prop.room_number || ''} - 申込あり (status_type=${prop.status_type})${globalThis.__formatPropSkipUrl(prop)}` });
+      continue;
     }
 
     // 詳細ページからスクレイピング
