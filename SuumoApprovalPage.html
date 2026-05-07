@@ -2289,18 +2289,20 @@ function adoptSelectedHomesImages() {
     var url = cand.urlHires || cand.url;
     addUploadedImage(url);
     // ジャンル自動割当 (SUUMOジャンルにマップできるもの全て)
-    // 旧: 「メインに既にある同ジャンルとは重複しない場合のみ」 と限定していたが、
-    //     ユーザーがホームズで意図的に採用した画像は必ずジャンル付きで追加してほしい
-    //     (重複は既存の「⚠️ ジャンル重複」 ハイライトで分かるため、 後から手動調整可能)
-    //     2026-05-07 修正
     var suumoGenre = HOMES_TO_SUUMO_GENRE[cand.genre];
+    var images = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
+    var newIdx = images.length - 1;
+    console.log('[ホームズ採用] cand.genre="' + cand.genre + '" → suumoGenre="' + suumoGenre + '" newIdx=' + newIdx + ' imageGenres数=' + Object.keys(imageGenres).length);
     if (suumoGenre) {
-      var images = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
-      var newIdx = images.length - 1;
-      // 14枚上限のみチェック (重複は許容)
+      // 14枚上限のみチェック (重複は許容、 既存の重複ハイライトで分かる)
       if (Object.keys(imageGenres).length < 14) {
         imageGenres[newIdx] = suumoGenre;
+        console.log('[ホームズ採用] ジャンル割当成功: imageGenres[' + newIdx + ']="' + suumoGenre + '"');
+      } else {
+        console.warn('[ホームズ採用] 14枚上限のためジャンル割当スキップ');
       }
+    } else {
+      console.warn('[ホームズ採用] HOMES_TO_SUUMO_GENRE に未登録のジャンル: cand.genre="' + cand.genre + '" (マッピング追加が必要)');
     }
     added++;
   }
