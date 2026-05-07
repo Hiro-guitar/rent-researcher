@@ -454,6 +454,27 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
   </div>
 </div>
 
+<!-- フローティングジャンルナビバー (ホームズ候補表示中のみ、 スコアバーの上に位置) -->
+<div id="floatingGenreNav"
+  style="position:fixed;bottom:128px;left:0;right:0;z-index:11;
+         background:#eef6ff;border-top:1px solid #b3d4f1;border-bottom:1px solid #b3d4f1;
+         padding:6px 12px;overflow-x:auto;white-space:nowrap;
+         display:none;font-size:11px;
+         box-shadow:0 -1px 3px rgba(0,0,0,0.05);">
+  <!-- updateFloatingGenreNav で内容更新 -->
+</div>
+
+<!-- フローティングスコアバー (画面のどこにいても常に見える) -->
+<!-- 承認ボタンの上に位置 (bottom: 約78px = 承認ボタンの高さ分) -->
+<div id="floatingScoreBar"
+  style="position:fixed;bottom:78px;left:0;right:0;z-index:11;
+         background:rgba(255,255,255,0.97);border-top:2px solid #2e86c1;
+         padding:6px 16px;box-shadow:0 -2px 8px rgba(0,0,0,0.12);
+         font-size:12px;font-weight:700;color:#1a5276;
+         display:none;">
+  <!-- updateGenreCounter で内容更新 -->
+</div>
+
 <!-- 承認/却下ボタン -->
 <div class="btn-group">
   <button class="btn btn-reject" id="rejectBtn" onclick="doReject()">却下</button>
@@ -1590,6 +1611,43 @@ function calculateProjectedSuumoScore() {
   return _calcScoreFromGenreSet(merged);
 }
 
+// フローティングジャンルナビバーを更新 (画面下部固定、 横スクロール対応)
+// _renderHomesCandidates から呼ぶ。 ボタンの色分けは updateHomesUsedTags で行うので
+// ここではボタンの DOM 構築 + クリックイベントのみ担当する。
+function _updateFloatingGenreNav(sortedGenres, groups) {
+  var nav = document.getElementById('floatingGenreNav');
+  if (!nav) return;
+  if (!sortedGenres || sortedGenres.length === 0) {
+    nav.style.display = 'none';
+    nav.innerHTML = '';
+    return;
+  }
+  nav.innerHTML = '';
+  var label = document.createElement('span');
+  label.textContent = 'ジャンル: ';
+  label.style.cssText = 'font-size:11px;color:#1a5276;font-weight:700;margin-right:4px;';
+  nav.appendChild(label);
+  for (var gni = 0; gni < sortedGenres.length; gni++) {
+    var ng = sortedGenres[gni];
+    var nbtn = document.createElement('button');
+    nbtn.type = 'button';
+    nbtn.className = 'homes-nav-btn';
+    nbtn.setAttribute('data-suumo-genre', normalizeGenre(ng));
+    nbtn.textContent = ng + '(' + groups[ng].length + ')';
+    nbtn.style.cssText = 'padding:3px 8px;font-size:11px;background:#fff;border:1px solid #2e86c1;color:#2e86c1;border-radius:4px;cursor:pointer;margin-right:4px;flex-shrink:0;';
+    nbtn.onclick = (function (idx) {
+      return function () {
+        var el = document.getElementById('homesGenreSection-' + idx);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+    })(gni);
+    nav.appendChild(nbtn);
+  }
+  nav.style.display = 'block';
+  // 色分け (✓ メイン / 📌 採用予定 / 未選択) は updateHomesUsedTags 側で実施
+  if (typeof updateHomesUsedTags === 'function') updateHomesUsedTags();
+}
+
 // ホームズ採用 (チェックボックス) 中のジャンル集合を取得 (SUUMO 正規ジャンル)
 function getHomesAdoptedGenresSet() {
   var adopted = {};
@@ -1724,31 +1782,43 @@ function updateGenreCounter() {
   el.className = 'genre-counter ' + cls;
   el.innerHTML = basicInfo + '<br>' + scoreInfo + mainCatsHtml;
 
-  // ホームズ作業エリア内の mini スコアパネルも更新 (sticky で常に見える)
-  // 上部 genreCounter まで戻らずホームズ画像作業中もスコアが分かるように
+  // mini スコアパネル + フローティングスコアバー の HTML を共通生成
+  // (同じ内容を ホームズエリア内 + 画面下部固定 の 2 箇所に表示)
+  var adoptedSetCache = getHomesAdoptedGenresSet();
+  var miniLine = '合計: <b style="font-size:15px;">' + score.total + '</b>/34点';
+  if (score.total >= 32) {
+    miniLine += ' <span style="background:#28a745;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px;">🎉 目標達成</span>';
+  } else if (projected.total >= 32) {
+    miniLine += ' <span style="background:#3498db;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px;">✨ 採用予定込みで目標達成</span>';
+  }
+  if (projected.total > score.total) {
+    miniLine += ' <span style="color:#1a5276;margin-left:8px;">採用予定込み: <b>' + projected.total + '</b>/34点 (+' + (projected.total - score.total) + ')</span>';
+  }
+  var miniCats = ' <span style="margin-left:8px;font-size:11px;font-weight:600;color:#666;">主要:</span>';
+  for (var mci = 0; mci < SUUMO_MAIN_CATEGORIES.length; mci++) {
+    var cn = SUUMO_MAIN_CATEGORIES[mci];
+    var doneInMain = Object.values(imageGenres).indexOf(cn) >= 0;
+    var doneInAdopt = !!adoptedSetCache[cn];
+    var mark = doneInMain ? '✓' : (doneInAdopt ? '📌' : '✗');
+    var color = doneInMain ? '#155724' : (doneInAdopt ? '#1a5276' : '#842029');
+    var bg = doneInMain ? '#d4edda' : (doneInAdopt ? '#d6eaf8' : '#f8d7da');
+    miniCats += ' <span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:11px;background:' + bg + ';color:' + color + ';margin-left:2px;">' + mark + cn + '</span>';
+  }
+  var miniHtml = miniLine + miniCats;
+
+  // ホームズ作業エリア内 mini スコアパネル (ホームズエリアにいる時用)
   var miniEl = document.getElementById('homesMiniScore');
-  if (miniEl) {
-    var miniLine = '合計: <b style="font-size:15px;">' + score.total + '</b>/34点';
-    if (score.total >= 32) {
-      miniLine += ' <span style="background:#28a745;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px;">🎉 目標達成</span>';
-    } else if (projected.total >= 32) {
-      miniLine += ' <span style="background:#3498db;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px;">✨ 採用予定込みで目標達成</span>';
-    }
-    if (projected.total > score.total) {
-      miniLine += ' <span style="color:#1a5276;margin-left:8px;">採用予定込み: <b>' + projected.total + '</b>/34点 (+' + (projected.total - score.total) + ')</span>';
-    }
-    // 主要カテゴリの簡易表示
-    var miniCats = ' <span style="margin-left:8px;font-size:11px;font-weight:600;color:#666;">主要:</span>';
-    for (var mci = 0; mci < SUUMO_MAIN_CATEGORIES.length; mci++) {
-      var cn = SUUMO_MAIN_CATEGORIES[mci];
-      var doneInMain = Object.values(imageGenres).indexOf(cn) >= 0;
-      var doneInAdopt = !!getHomesAdoptedGenresSet()[cn];
-      var mark = doneInMain ? '✓' : (doneInAdopt ? '📌' : '✗');
-      var color = doneInMain ? '#155724' : (doneInAdopt ? '#1a5276' : '#842029');
-      var bg = doneInMain ? '#d4edda' : (doneInAdopt ? '#d6eaf8' : '#f8d7da');
-      miniCats += ' <span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:11px;background:' + bg + ';color:' + color + ';margin-left:2px;">' + mark + cn + '</span>';
-    }
-    miniEl.innerHTML = miniLine + miniCats;
+  if (miniEl) miniEl.innerHTML = miniHtml;
+
+  // 画面下部 フローティングスコアバー (どのエリアにいても常に見える、 2026-05-07)
+  // ジャンル選択の対象がある場合 (= 画像が読み込まれた後) のみ表示
+  var floatEl = document.getElementById('floatingScoreBar');
+  if (floatEl) {
+    var hasAnyImage = (typeof PROPERTY_DATA !== 'undefined' && PROPERTY_DATA &&
+      ((PROPERTY_DATA.image_urls && PROPERTY_DATA.image_urls.length) ||
+       (PROPERTY_DATA.images && PROPERTY_DATA.images.length)));
+    floatEl.style.display = hasAnyImage ? 'block' : 'none';
+    floatEl.innerHTML = miniHtml;
   }
 }
 
@@ -2002,6 +2072,9 @@ function _onHomesSearchResult(result) {
 
   if (_homesCandidates.length === 0) {
     document.getElementById('homesCandidatesArea').style.display = 'none';
+    // フローティングジャンルナビも非表示に
+    var fnav = document.getElementById('floatingGenreNav');
+    if (fnav) { fnav.style.display = 'none'; fnav.innerHTML = ''; }
     return;
   }
   _renderHomesCandidates();
@@ -2070,8 +2143,10 @@ function _renderHomesCandidates() {
     return navWrap;
   }
 
-  // 上部のジャンルナビ
-  grid.appendChild(_buildGenreNav(-1));
+  // ジャンルナビは画面下部のフローティングバーに一本化したため、
+  // 上部とセクション内の埋め込みナビは廃止 (2026-05-07)。
+  // 代わりに floatingGenreNav を更新。
+  _updateFloatingGenreNav(sortedGenres, groups);
 
   for (var gi = 0; gi < sortedGenres.length; gi++) {
     var genre = sortedGenres[gi];
@@ -2108,9 +2183,7 @@ function _renderHomesCandidates() {
     h.appendChild(backBtn);
     section.appendChild(h);
 
-    // 各ジャンルセクション内に「他のジャンルへ」ナビを表示 (自分のジャンルは除く)
-    section.appendChild(_buildGenreNav(gi));
-
+    // セクション内の埋め込みナビは廃止 (フローティングバーに一本化、 2026-05-07)
     var rowGrid = document.createElement('div');
     rowGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;';
     for (var k = 0; k < groups[genre].length; k++) {
