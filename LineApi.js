@@ -149,6 +149,51 @@ function checkLineBlocked(userId) {
 }
 
 /**
+ * 複数 userId の LINE ブロック状態を並列で判定する (UrlFetchApp.fetchAll 使用)。
+ *
+ * UrlFetchApp.fetchAll は同時並列上限が 100 件なので、 100 件超は自動で
+ * チャンク分割する。
+ *
+ * @param {string[]} userIds - LINE userId 配列
+ * @returns {Object} { userId: true/false/null, ... }
+ *   true=ブロック中, false=ブロックされてない, null=判定不能 (一時障害等)
+ */
+function bulkCheckLineBlocked(userIds) {
+  var result = {};
+  if (!userIds || userIds.length === 0) return result;
+
+  var CHUNK_SIZE = 100; // fetchAll 並列上限
+  for (var ci = 0; ci < userIds.length; ci += CHUNK_SIZE) {
+    var chunk = userIds.slice(ci, ci + CHUNK_SIZE);
+    var requests = chunk.map(function(uid) {
+      return {
+        url: 'https://api.line.me/v2/bot/profile/' + uid,
+        method: 'get',
+        headers: { 'Authorization': 'Bearer ' + CHANNEL_ACCESS_TOKEN },
+        muteHttpExceptions: true
+      };
+    });
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      console.error('bulkCheckLineBlocked fetchAll error: ' + e.message);
+      // チャンク全体を null (判定不能) として返す
+      for (var ki = 0; ki < chunk.length; ki++) result[chunk[ki]] = null;
+      continue;
+    }
+    for (var ri = 0; ri < responses.length; ri++) {
+      var code = responses[ri].getResponseCode();
+      var uid2 = chunk[ri];
+      if (code === 200) result[uid2] = false;
+      else if (code === 403 || code === 404) result[uid2] = true;
+      else result[uid2] = null;
+    }
+  }
+  return result;
+}
+
+/**
  * テキストメッセージを作成する。
  * @param {string} text - 送信テキスト
  * @return {Object} LINE text message object

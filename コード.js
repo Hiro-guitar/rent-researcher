@@ -902,7 +902,7 @@ function _notifyLineBlockedToDiscord_(customerName) {
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify({
-        content: '⚠️ **LINE ブロック検知**\n' + customerName + ' 様\n→ 物件検索を自動的に停止しました (LINE で再度メッセージが来れば自動再開)'
+        content: '⚠️ **LINE ブロック検知**\n' + customerName + ' 様\n→ 物件検索を自動的に停止しました (ブロック解除されれば次回検索時に自動再開)'
       }),
       muteHttpExceptions: true
     });
@@ -929,12 +929,30 @@ function handleGetCriteria(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
-  // LINE ブロック検知用の userId マップ + 24時間 TTL キャッシュ
-  // (検索のたびに getProfile 呼ばないように、 24時間以内チェック済みはスキップ)
+  // ── LINE ブロック検知 (リアルタイム・並列化) ──
+  // 全顧客の userId を集めて UrlFetchApp.fetchAll で一括並列判定。
+  // 100件超は自動チャンク分割 (bulkCheckLineBlocked 内)。
+  // 50人で 1-2秒 で完了するためキャッシュ不要。
   var lineUserIdMap = _getLineUserIdMapByCustomerName_();
-  var BLOCK_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
-
   var data = sheet.getDataRange().getValues();
+
+  // 候補となる active な顧客の userId を先に集める
+  var allUserIds = [];
+  var nameToUserId = {}; // name -> userId
+  for (var pi = 1; pi < data.length; pi++) {
+    var pname = String(data[pi][1] || '').trim();
+    if (!pname) continue;
+    var pstatus = String(data[pi][18] || '').trim().toLowerCase();
+    if (pstatus === 'paused') continue; // paused は除外、 ブロック判定不要
+    var puid = lineUserIdMap[pname];
+    if (puid) {
+      nameToUserId[pname] = puid;
+      allUserIds.push(puid);
+    }
+  }
+  // 並列ブロック判定
+  var blockedMap = (allUserIds.length > 0) ? bulkCheckLineBlocked(allUserIds) : {};
+
   var criteria = [];
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
@@ -943,7 +961,6 @@ function handleGetCriteria(e) {
 
     // S列(18): 配信ステータス, Y列(24): 町名丁目（JSON）
     // V列(21): スヌーズ解除日時, W列(22): 配信頻度, X列(23): 最終配信日時
-    // Z列(25): LINE_BLOCKED フラグ, AA列(26): BLOCK_CHECKED_AT
     var deliveryStatus = String(row[18] || '').trim().toLowerCase();
     var snoozeUntil = row[21];
     var frequency = String(row[22] || '').trim().toLowerCase();
@@ -964,46 +981,33 @@ function handleGetCriteria(e) {
     }
     if (deliveryStatus === 'paused') continue;
 
-    // ── LINE ブロック判定 (24時間 TTL キャッシュ) ──
-    // userId が分かる場合のみ判定。 24時間以内に未チェックなら getProfile で再判定。
-    // ブロック検知 → 配信ステータスを 'blocked' に変更 + Discord 通知
+    // ── LINE ブロック状態反映 (事前一括判定の結果を参照) ──
+    // ブロック検知 → 配信ステータスを 'blocked' に変更 + Discord 通知 + 検索除外
     // ブロック解除検知 → 'blocked' から 'active' に戻す (自動復活)
-    var customerUserId = lineUserIdMap[name] || '';
+    // null (一時障害等で判定不能) は何もせず通常処理
+    var customerUserId = nameToUserId[name];
     if (customerUserId) {
-      var blockCheckedAt = row[26]; // AA列
-      var lastCheckMs = (blockCheckedAt instanceof Date) ? blockCheckedAt.getTime() : 0;
-      var needCheck = !lastCheckMs || (nowMs - lastCheckMs > BLOCK_CHECK_TTL_MS);
-      if (needCheck) {
-        var blocked = checkLineBlocked(customerUserId);
-        if (blocked === true) {
-          var wasBlocked = (deliveryStatus === 'blocked');
-          try {
-            sheet.getRange(i + 1, 19).setValue('blocked');  // S列: 配信ステータス
-            sheet.getRange(i + 1, 26).setValue(true);        // Z列: LINE_BLOCKED
-            sheet.getRange(i + 1, 27).setValue(new Date()); // AA列: チェック日時
-          } catch (e) {}
-          // 新規検知時のみ Discord 通知 (既に blocked だった場合は通知しない)
-          if (!wasBlocked) {
-            _notifyLineBlockedToDiscord_(name);
-          }
-          continue; // 検索条件から除外
-        } else if (blocked === false) {
-          try {
-            sheet.getRange(i + 1, 26).setValue(false);
-            sheet.getRange(i + 1, 27).setValue(new Date());
-            // 'blocked' から自動復活 → 'active' に戻す
-            if (deliveryStatus === 'blocked') {
-              sheet.getRange(i + 1, 19).setValue('active');
-              deliveryStatus = 'active';
-            }
-          } catch (e) {}
+      var blocked = blockedMap[customerUserId];
+      if (blocked === true) {
+        var wasBlocked = (deliveryStatus === 'blocked');
+        try {
+          sheet.getRange(i + 1, 19).setValue('blocked');  // S列: 配信ステータス
+        } catch (e) {}
+        // 新規検知時のみ Discord 通知 (既に blocked だった場合は通知しない)
+        if (!wasBlocked) {
+          _notifyLineBlockedToDiscord_(name);
         }
-        // null (ネットワーク障害等で判定不能) は何もせず通常処理
-      } else {
-        // キャッシュ有効期間内 → Z 列の値を信用
-        var cachedBlocked = (row[25] === true || String(row[25]).toLowerCase() === 'true');
-        if (cachedBlocked) continue;
+        continue; // 検索条件から除外
+      } else if (blocked === false) {
+        // 'blocked' から自動復活 → 'active' に戻す
+        if (deliveryStatus === 'blocked') {
+          try {
+            sheet.getRange(i + 1, 19).setValue('active');
+          } catch (e) {}
+          deliveryStatus = 'active';
+        }
       }
+      // null は判定不能 → 既存ステータスのまま処理続行
     }
     if (deliveryStatus === 'blocked') continue;
 
