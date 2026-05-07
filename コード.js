@@ -869,6 +869,49 @@ function _validateReinsApiKey(apiKey) {
 }
 
 /**
+ * 顧客名 → LINE userId のマップを取得 (LINE Users シートから)
+ */
+function _getLineUserIdMapByCustomerName_() {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName('LINE Users');
+    if (!sheet) return {};
+    var data = sheet.getDataRange().getValues();
+    var map = {};
+    // 1行目はヘッダー (LINE userId / 顧客名 / 登録日時)
+    for (var i = 1; i < data.length; i++) {
+      var userId = String(data[i][0] || '').trim();
+      var customerName = String(data[i][1] || '').trim();
+      if (userId && customerName) map[customerName] = userId;
+    }
+    return map;
+  } catch (e) {
+    console.error('_getLineUserIdMapByCustomerName_ error: ' + e.message);
+    return {};
+  }
+}
+
+/**
+ * LINE ブロック検知時に Discord (オペレーター用 webhook) に通知
+ */
+function _notifyLineBlockedToDiscord_(customerName) {
+  try {
+    var webhook = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL');
+    if (!webhook) return;
+    UrlFetchApp.fetch(webhook, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        content: '⚠️ **LINE ブロック検知**\n' + customerName + ' 様\n→ 物件検索を自動的に停止しました (LINE で再度メッセージが来れば自動再開)'
+      }),
+      muteHttpExceptions: true
+    });
+  } catch (e) {
+    console.error('_notifyLineBlockedToDiscord_ error: ' + e.message);
+  }
+}
+
+/**
  * GET: 顧客検索条件を返す
  */
 function handleGetCriteria(e) {
@@ -886,6 +929,11 @@ function handleGetCriteria(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  // LINE ブロック検知用の userId マップ + 24時間 TTL キャッシュ
+  // (検索のたびに getProfile 呼ばないように、 24時間以内チェック済みはスキップ)
+  var lineUserIdMap = _getLineUserIdMapByCustomerName_();
+  var BLOCK_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
+
   var data = sheet.getDataRange().getValues();
   var criteria = [];
   for (var i = 1; i < data.length; i++) {
@@ -895,6 +943,7 @@ function handleGetCriteria(e) {
 
     // S列(18): 配信ステータス, Y列(24): 町名丁目（JSON）
     // V列(21): スヌーズ解除日時, W列(22): 配信頻度, X列(23): 最終配信日時
+    // Z列(25): LINE_BLOCKED フラグ, AA列(26): BLOCK_CHECKED_AT
     var deliveryStatus = String(row[18] || '').trim().toLowerCase();
     var snoozeUntil = row[21];
     var frequency = String(row[22] || '').trim().toLowerCase();
@@ -914,6 +963,49 @@ function handleGetCriteria(e) {
       }
     }
     if (deliveryStatus === 'paused') continue;
+
+    // ── LINE ブロック判定 (24時間 TTL キャッシュ) ──
+    // userId が分かる場合のみ判定。 24時間以内に未チェックなら getProfile で再判定。
+    // ブロック検知 → 配信ステータスを 'blocked' に変更 + Discord 通知
+    // ブロック解除検知 → 'blocked' から 'active' に戻す (自動復活)
+    var customerUserId = lineUserIdMap[name] || '';
+    if (customerUserId) {
+      var blockCheckedAt = row[26]; // AA列
+      var lastCheckMs = (blockCheckedAt instanceof Date) ? blockCheckedAt.getTime() : 0;
+      var needCheck = !lastCheckMs || (nowMs - lastCheckMs > BLOCK_CHECK_TTL_MS);
+      if (needCheck) {
+        var blocked = checkLineBlocked(customerUserId);
+        if (blocked === true) {
+          var wasBlocked = (deliveryStatus === 'blocked');
+          try {
+            sheet.getRange(i + 1, 19).setValue('blocked');  // S列: 配信ステータス
+            sheet.getRange(i + 1, 26).setValue(true);        // Z列: LINE_BLOCKED
+            sheet.getRange(i + 1, 27).setValue(new Date()); // AA列: チェック日時
+          } catch (e) {}
+          // 新規検知時のみ Discord 通知 (既に blocked だった場合は通知しない)
+          if (!wasBlocked) {
+            _notifyLineBlockedToDiscord_(name);
+          }
+          continue; // 検索条件から除外
+        } else if (blocked === false) {
+          try {
+            sheet.getRange(i + 1, 26).setValue(false);
+            sheet.getRange(i + 1, 27).setValue(new Date());
+            // 'blocked' から自動復活 → 'active' に戻す
+            if (deliveryStatus === 'blocked') {
+              sheet.getRange(i + 1, 19).setValue('active');
+              deliveryStatus = 'active';
+            }
+          } catch (e) {}
+        }
+        // null (ネットワーク障害等で判定不能) は何もせず通常処理
+      } else {
+        // キャッシュ有効期間内 → Z 列の値を信用
+        var cachedBlocked = (row[25] === true || String(row[25]).toLowerCase() === 'true');
+        if (cachedBlocked) continue;
+      }
+    }
+    if (deliveryStatus === 'blocked') continue;
 
     // 配信頻度フィルタ
     if (frequency === 'weekly' || frequency === 'every2' || frequency === 'every3' || frequency === 'biweekly') {

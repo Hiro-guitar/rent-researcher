@@ -120,6 +120,35 @@ function getLineProfile(userId) {
 }
 
 /**
+ * LINE ユーザーがボットをブロックしているかを判定する。
+ * getProfile API のレスポンスコードで判定:
+ *   200 → 友だち登録中 (ブロックされていない)
+ *   403/404 → ブロック / 友だち削除
+ *   その他 → 不明 (ネットワーク等の一時障害扱い)
+ *
+ * Push メッセージではないので API コストは発生しない。
+ *
+ * @param {string} userId - LINE userId
+ * @returns {boolean|null} true=ブロック中, false=ブロックされてない, null=不明
+ */
+function checkLineBlocked(userId) {
+  if (!userId) return null;
+  try {
+    var res = UrlFetchApp.fetch('https://api.line.me/v2/bot/profile/' + userId, {
+      headers: { 'Authorization': 'Bearer ' + CHANNEL_ACCESS_TOKEN },
+      muteHttpExceptions: true
+    });
+    var code = res.getResponseCode();
+    if (code === 200) return false;
+    if (code === 403 || code === 404) return true;
+    return null;
+  } catch (e) {
+    console.error('checkLineBlocked error: ' + e.message);
+    return null;
+  }
+}
+
+/**
  * テキストメッセージを作成する。
  * @param {string} text - 送信テキスト
  * @return {Object} LINE text message object
