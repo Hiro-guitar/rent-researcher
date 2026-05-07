@@ -443,6 +443,11 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
             選択した画像を追加
           </button>
         </div>
+        <!-- ホームズ作業エリア内 mini スコアパネル (上部の sticky スコアまでスクロールで戻らなくても見えるように) -->
+        <div id="homesMiniScore"
+          style="position:sticky;top:80px;z-index:6;background:#fff;border:1px solid #2e86c1;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:13px;font-weight:700;color:#1a5276;box-shadow:0 2px 6px rgba(0,0,0,0.08);">
+          <!-- updateGenreCounter で内容が更新される -->
+        </div>
         <div id="homesCandidatesGrid"></div>
       </div>
     </div>
@@ -1718,6 +1723,33 @@ function updateGenreCounter() {
 
   el.className = 'genre-counter ' + cls;
   el.innerHTML = basicInfo + '<br>' + scoreInfo + mainCatsHtml;
+
+  // ホームズ作業エリア内の mini スコアパネルも更新 (sticky で常に見える)
+  // 上部 genreCounter まで戻らずホームズ画像作業中もスコアが分かるように
+  var miniEl = document.getElementById('homesMiniScore');
+  if (miniEl) {
+    var miniLine = '合計: <b style="font-size:15px;">' + score.total + '</b>/34点';
+    if (score.total >= 32) {
+      miniLine += ' <span style="background:#28a745;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px;">🎉 目標達成</span>';
+    } else if (projected.total >= 32) {
+      miniLine += ' <span style="background:#3498db;color:#fff;padding:2px 8px;border-radius:10px;font-size:11px;margin-left:6px;">✨ 採用予定込みで目標達成</span>';
+    }
+    if (projected.total > score.total) {
+      miniLine += ' <span style="color:#1a5276;margin-left:8px;">採用予定込み: <b>' + projected.total + '</b>/34点 (+' + (projected.total - score.total) + ')</span>';
+    }
+    // 主要カテゴリの簡易表示
+    var miniCats = ' <span style="margin-left:8px;font-size:11px;font-weight:600;color:#666;">主要:</span>';
+    for (var mci = 0; mci < SUUMO_MAIN_CATEGORIES.length; mci++) {
+      var cn = SUUMO_MAIN_CATEGORIES[mci];
+      var doneInMain = Object.values(imageGenres).indexOf(cn) >= 0;
+      var doneInAdopt = !!getHomesAdoptedGenresSet()[cn];
+      var mark = doneInMain ? '✓' : (doneInAdopt ? '📌' : '✗');
+      var color = doneInMain ? '#155724' : (doneInAdopt ? '#1a5276' : '#842029');
+      var bg = doneInMain ? '#d4edda' : (doneInAdopt ? '#d6eaf8' : '#f8d7da');
+      miniCats += ' <span style="display:inline-block;padding:1px 6px;border-radius:8px;font-size:11px;background:' + bg + ';color:' + color + ';margin-left:2px;">' + mark + cn + '</span>';
+    }
+    miniEl.innerHTML = miniLine + miniCats;
+  }
 }
 
 // ── 承認 ──
