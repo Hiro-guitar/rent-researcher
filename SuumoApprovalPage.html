@@ -1548,20 +1548,21 @@ function updateAllGenreButtons() {
 var SUUMO_MAIN_CATEGORIES = ['間取り', '外観', 'リビング', 'キッチン', 'バス'];
 
 function calculateSuumoScore() {
-  var counts = {};
-  var vals = Object.values(imageGenres);
-  for (var i = 0; i < vals.length; i++) {
-    counts[vals[i]] = (counts[vals[i]] || 0) + 1;
-  }
+  return _calcScoreFromGenreSet(Object.values(imageGenres));
+}
 
-  // 5主要カテゴリ: 画像が1枚以上あるカテゴリ×5点、最大25点
+// 共通スコア計算: ジャンル文字列の配列から計算
+function _calcScoreFromGenreSet(genreList) {
+  var counts = {};
+  for (var i = 0; i < genreList.length; i++) {
+    if (!genreList[i]) continue;
+    counts[genreList[i]] = (counts[genreList[i]] || 0) + 1;
+  }
   var mainUsed = 0;
   for (var m = 0; m < SUUMO_MAIN_CATEGORIES.length; m++) {
     if ((counts[SUUMO_MAIN_CATEGORIES[m]] || 0) > 0) mainUsed++;
   }
   var mainScore = mainUsed * 5;
-
-  // その他カテゴリ: 使用したカテゴリ数×1点、最大9点
   var subCount = 0;
   for (var key in counts) {
     if (counts.hasOwnProperty(key) && SUUMO_MAIN_CATEGORIES.indexOf(key) < 0 && counts[key] > 0) {
@@ -1569,8 +1570,19 @@ function calculateSuumoScore() {
     }
   }
   var subScore = Math.min(subCount, 9);
-
   return { main: mainScore, sub: subScore, total: mainScore + subScore };
+}
+
+// メイン選択済み + ホームズ採用予定 を合算した予測スコアを計算
+function calculateProjectedSuumoScore() {
+  var adoptedSet = getHomesAdoptedGenresSet();
+  var merged = Object.values(imageGenres).slice();
+  // 採用予定ジャンルが imageGenres に未含 ならマージ (重複の場合は count++ するだけで
+  // スコアには影響しないので そのまま追加でも OK)
+  for (var g in adoptedSet) {
+    if (Object.prototype.hasOwnProperty.call(adoptedSet, g)) merged.push(g);
+  }
+  return _calcScoreFromGenreSet(merged);
 }
 
 // ホームズ採用 (チェックボックス) 中のジャンル集合を取得 (SUUMO 正規ジャンル)
@@ -1658,6 +1670,7 @@ function updateGenreCounter() {
   updateHomesUsedTags();
 
   var score = calculateSuumoScore();
+  var projected = calculateProjectedSuumoScore();
   var el = document.getElementById('genreCounter');
 
   var imageSelCount = Object.keys(imageGenres).length;
@@ -1677,6 +1690,20 @@ function updateGenreCounter() {
     if (grid) grid.classList.add('score-achieved');
   } else {
     if (grid) grid.classList.remove('score-achieved');
+  }
+
+  // 採用予定込みの予測スコア (メイン未到達でも、 採用予定込みで超えるかを表示)
+  // 現状スコアで既に目標達成しているか、 採用予定が無い場合は予測表示しない
+  if (projected.total > score.total) {
+    var diff = projected.total - score.total;
+    var projTotalHtml = '採用予定込み: <b>' + projected.total + '</b>/34点 (+' + diff + ')';
+    if (projected.total >= 32 && score.total < 32) {
+      // 採用予定込みで初めて 32 点超え → 目標達成見込みバッジ
+      scoreInfo += '<span class="score-badge" style="background:#3498db;">✨ 採用予定込みで目標達成</span>';
+      scoreInfo += '<span class="score-projected" style="color:#1a5276;font-weight:700;margin-left:8px;">' + projTotalHtml + '</span>';
+    } else {
+      scoreInfo += '<span class="score-projected" style="color:#1a5276;font-weight:600;margin-left:8px;">' + projTotalHtml + '</span>';
+    }
   }
 
   // 主要カテゴリの個別状態を表示（選択済み=緑✓、未選択=赤✗）
