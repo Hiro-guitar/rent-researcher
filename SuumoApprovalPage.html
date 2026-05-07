@@ -1468,8 +1468,21 @@ function addUploadedImage(url) {
   updateGenreCounter();
 }
 
+// ホームズ候補の cand.genre に紛れ込む「2 / 22枚 」 等のインデックス・全枚数
+// プレフィックスを除去してジャンル名のコア部分だけを返す。
+//   "2 / 22枚 リビング/ダイニング" → "リビング/ダイニング"
+//   "リビング/ダイニング"          → "リビング/ダイニング" (そのまま)
+function _extractHomesGenreCore(rawGenre) {
+  if (!rawGenre) return '';
+  var s = String(rawGenre);
+  var m = s.match(/^\s*\d+\s*\/\s*\d+\s*枚\s*(.+)$/);
+  return m ? m[1].trim() : s.trim();
+}
+
 function normalizeGenre(genre) {
   if (!genre) return "";
+  // ホームズ「2 / 22枚 リビング/ダイニング」 等の混入プレフィックスを除去
+  genre = _extractHomesGenreCore(genre);
   // ホームズの完全一致マッピングを優先 (例: 「浴室」→「バス」)
   if (HOMES_TO_SUUMO_GENRE[genre]) return HOMES_TO_SUUMO_GENRE[genre];
   if (genre.includes("間取")) return "間取り";
@@ -2091,7 +2104,8 @@ function _renderHomesCandidates() {
   var groups = {};
   for (var i = 0; i < _homesCandidates.length; i++) {
     var c = _homesCandidates[i];
-    var g = c.genre || 'その他';
+    // ホームズ「2 / 22枚 リビング/ダイニング」 等の混入プレフィックスを除去してグループ化
+    var g = _extractHomesGenreCore(c.genre) || 'その他';
     if (!groups[g]) groups[g] = [];
     groups[g].push({ idx: i, cand: c });
   }
@@ -2289,20 +2303,17 @@ function adoptSelectedHomesImages() {
     var url = cand.urlHires || cand.url;
     addUploadedImage(url);
     // ジャンル自動割当 (SUUMOジャンルにマップできるもの全て)
-    var suumoGenre = HOMES_TO_SUUMO_GENRE[cand.genre];
+    // cand.genre に紛れ込む「2 / 22枚 」 等のプレフィックスを除去してから
+    // 完全一致マッピング、 ダメなら normalizeGenre フォールバック (部分一致)。
+    var genreCore = _extractHomesGenreCore(cand.genre);
+    var suumoGenre = HOMES_TO_SUUMO_GENRE[genreCore] || normalizeGenre(genreCore);
     var images = PROPERTY_DATA.image_urls || PROPERTY_DATA.images || [];
     var newIdx = images.length - 1;
-    console.log('[ホームズ採用] cand.genre="' + cand.genre + '" → suumoGenre="' + suumoGenre + '" newIdx=' + newIdx + ' imageGenres数=' + Object.keys(imageGenres).length);
     if (suumoGenre) {
       // 14枚上限のみチェック (重複は許容、 既存の重複ハイライトで分かる)
       if (Object.keys(imageGenres).length < 14) {
         imageGenres[newIdx] = suumoGenre;
-        console.log('[ホームズ採用] ジャンル割当成功: imageGenres[' + newIdx + ']="' + suumoGenre + '"');
-      } else {
-        console.warn('[ホームズ採用] 14枚上限のためジャンル割当スキップ');
       }
-    } else {
-      console.warn('[ホームズ採用] HOMES_TO_SUUMO_GENRE に未登録のジャンル: cand.genre="' + cand.genre + '" (マッピング追加が必要)');
     }
     added++;
   }
