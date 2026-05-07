@@ -904,8 +904,11 @@ function _notifyLineBlockedToDiscord_(customerName) {
       console.log('[LINEブロック通知] webhook 未設定でスキップ: ' + customerName);
       return;
     }
+    // SUUMO_DISCORD_WEBHOOK_URL がフォーラムチャンネルに紐付いているため
+    // thread_name 必須 (Discord API: code 220001)。 顧客ごとに新規スレッド作成。
     var payload = JSON.stringify({
-      content: '⚠️ **LINE ブロック検知**\n' + customerName + ' 様\n→ 物件検索を自動的に停止しました (ブロック解除されれば次回検索時に自動再開)'
+      content: '⚠️ **LINE ブロック検知**\n' + customerName + ' 様\n→ 物件検索を自動的に停止しました (ブロック解除されれば次回検索時に自動再開)',
+      thread_name: '⚠️ LINE ブロック検知: ' + customerName
     });
 
     var maxAttempts = 3;
