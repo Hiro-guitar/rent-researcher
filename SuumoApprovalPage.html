@@ -100,6 +100,20 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
   background: #fafafa; transition: border-color 0.2s, opacity 0.2s;
 }
 .image-card.has-genre { border-color: #27ae60; }
+/* ジャンル重複時のハイライト (同一ジャンルが複数画像に設定された場合) */
+.image-card.duplicated-genre {
+  border-color: #e67e22;
+  box-shadow: 0 0 0 3px rgba(230, 126, 34, 0.35);
+  position: relative;
+}
+.image-card.duplicated-genre::after {
+  content: '⚠️ ジャンル重複';
+  position: absolute; top: 4px; left: 4px; z-index: 4;
+  background: #e67e22; color: #fff;
+  padding: 2px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 700;
+  pointer-events: none;
+}
 /* 14枚上限到達時、未選択画像のジャンルボタンをグレーアウト */
 .image-card.disabled-by-limit .genre-btn:not(.selected) {
   background: #eeeeee; color: #bbbbbb; border-color: #dddddd;
@@ -172,6 +186,11 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
 .genre-btn:hover { background: #e0e0e0; }
 .genre-btn.selected { background: #2e86c1; color: #fff; border-color: #1a5276; }
 .genre-btn.used { background: #e8e8e8; color: #999; }
+/* 自分が選んでいる + 他の画像でも同じジャンルが使われている (= 重複) */
+.genre-btn.selected.duplicated {
+  background: #e67e22; border-color: #b9651b;
+  box-shadow: 0 0 0 2px rgba(230, 126, 34, 0.3);
+}
 
 /* ── 画像アップロード ── */
 .upload-area {
@@ -1441,6 +1460,12 @@ function normalizeGenre(genre) {
 
 function renderGenreButtons(container, imageIndex, selectedGenre) {
   var usedGenres = Object.values(imageGenres);
+  // ジャンル別の使用回数 (重複検出用)
+  var genreCounts = {};
+  for (var ui = 0; ui < usedGenres.length; ui++) {
+    var ug = usedGenres[ui];
+    if (ug) genreCounts[ug] = (genreCounts[ug] || 0) + 1;
+  }
   container.innerHTML = '';
 
   for (var g = 0; g < GENRE_OPTIONS.length; g++) {
@@ -1453,6 +1478,10 @@ function renderGenreButtons(container, imageIndex, selectedGenre) {
 
     if (genre === selectedGenre) {
       btn.classList.add('selected');
+      // 自分が選んでいるジャンルが他の画像でも使われている = 重複
+      if (genreCounts[genre] >= 2) {
+        btn.classList.add('duplicated');
+      }
     } else if (usedGenres.indexOf(genre) >= 0) {
       btn.classList.add('used');
     }
@@ -1482,6 +1511,20 @@ function renderGenreButtons(container, imageIndex, selectedGenre) {
 
 function updateAllGenreButtons() {
   var atLimit = Object.keys(imageGenres).length >= 14;
+
+  // ジャンル別の使用回数を集計 → 2 枚以上で重複扱い
+  var genreCounts = {};
+  for (var idxKey in imageGenres) {
+    if (!Object.prototype.hasOwnProperty.call(imageGenres, idxKey)) continue;
+    var g = imageGenres[idxKey];
+    if (!g) continue;
+    genreCounts[g] = (genreCounts[g] || 0) + 1;
+  }
+  var duplicatedGenres = {};
+  for (var dg in genreCounts) {
+    if (genreCounts[dg] >= 2) duplicatedGenres[dg] = true;
+  }
+
   var cards = document.querySelectorAll('.image-card');
   cards.forEach(function(card) {
     var idx = parseInt(card.getAttribute('data-index'));
@@ -1490,6 +1533,8 @@ function updateAllGenreButtons() {
     renderGenreButtons(btnsDiv, idx, selected);
     var classes = 'image-card';
     if (selected) classes += ' has-genre';
+    // 重複ジャンル: 自分も同じジャンルを使っていてかつ重複している場合
+    if (selected && duplicatedGenres[selected]) classes += ' duplicated-genre';
     // 14枚上限時、未選択画像はグレーアウト（選択済み画像は操作可能のまま）
     if (atLimit && !selected) classes += ' disabled-by-limit';
     card.className = classes;
