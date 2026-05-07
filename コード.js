@@ -629,7 +629,14 @@ function buildRegistrationSummary(state) {
 
   var summary = '── 登録内容 ──\n';
   summary += '・お名前: ' + (d.name || '未入力') + '\n';
-  summary += '・引越し時期: ' + (d.move_in_date || '未選択') + '\n';
+  // 引越し時期: Date 型のまま渡されるケース (Google Sheets 自動型変換) に備えて日本語化
+  var moveInLabel = '未選択';
+  if (d.move_in_date instanceof Date) {
+    moveInLabel = (d.move_in_date.getMonth() + 1) + '月' + d.move_in_date.getDate() + '日';
+  } else if (d.move_in_date) {
+    moveInLabel = String(d.move_in_date);
+  }
+  summary += '・引越し時期: ' + moveInLabel + '\n';
 
   if (state.areaMethod === 'city' && cities.length > 0) {
     var towns = state.selectedTowns || {};

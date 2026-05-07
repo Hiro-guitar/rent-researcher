@@ -222,7 +222,16 @@ function readLatestCriteria(userId) {
     var buildingStructures = splitCSV(latestRow[11]);
     var equipment = splitCSV(latestRow[12]);
     var reason = latestRow[13] ? String(latestRow[13]) : '';
-    var moveInDate = latestRow[14] ? String(latestRow[14]) : '';
+    // 引越し時期: Google Sheets が「7月1日」 を Date オブジェクトとして自動解釈する
+    // ことがあり、 String(Date) すると "Wed Jul 01 2026 00:00:00 GMT+0900 (日本標準時)"
+    // のような英語表記になってしまう。 Date 型なら日本語フォーマットに変換する。
+    var rawMoveIn = latestRow[14];
+    var moveInDate = '';
+    if (rawMoveIn instanceof Date) {
+      moveInDate = (rawMoveIn.getMonth() + 1) + '月' + rawMoveIn.getDate() + '日';
+    } else if (rawMoveIn) {
+      moveInDate = String(rawMoveIn);
+    }
     var notes = latestRow[15] ? String(latestRow[15]) : '';
     var petType = latestRow[16] ? String(latestRow[16]) : '';
     var resident = latestRow[17] ? String(latestRow[17]) : '';
