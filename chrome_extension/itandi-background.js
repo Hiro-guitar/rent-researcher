@@ -506,6 +506,47 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
 // === 検索レスポンスパース ===
 
 function parseItandiSearchResponse(data) {
+  // ── 調査用: 1 セッションに 1 回だけ、 検索 API レスポンスの 1 物件目の構造をダンプ ──
+  // listing_status / web_badge_count 等が検索 API レスポンスに含まれているかを確認するため。
+  // 含まれていれば 詳細ページ遷移なしで一覧段階フィルタが可能になる。
+  try {
+    if (!globalThis.__itandiResponseSampleDumped) {
+      var sampleRoom = null;
+      if (Array.isArray(data.rooms) && data.rooms.length > 0) {
+        sampleRoom = data.rooms[0];
+      } else if (Array.isArray(data.buildings) && data.buildings.length > 0 && data.buildings[0].rooms && data.buildings[0].rooms.length > 0) {
+        sampleRoom = data.buildings[0].rooms[0];
+      }
+      if (sampleRoom) {
+        var allKeys = Object.keys(sampleRoom).sort();
+        var interestingKeys = allKeys.filter(function(k) {
+          return /status|recruit|appli|moushi|moshi|web|badge|count|state|stage|kbn/i.test(k);
+        });
+        var sampleValues = {};
+        interestingKeys.forEach(function(k) {
+          var v = sampleRoom[k];
+          // オブジェクトは JSON 文字列化して短縮
+          if (typeof v === 'object' && v !== null) {
+            sampleValues[k] = JSON.stringify(v).substring(0, 100);
+          } else {
+            sampleValues[k] = v;
+          }
+        });
+        console.log('[itandi APIレスポンス調査] 全キー数=' + allKeys.length);
+        console.log('[itandi APIレスポンス調査] 全キー: ' + allKeys.join(','));
+        console.log('[itandi APIレスポンス調査] 注目キー: ' + JSON.stringify(interestingKeys));
+        console.log('[itandi APIレスポンス調査] 注目値: ' + JSON.stringify(sampleValues));
+        // ダッシュボードログにも転送
+        try {
+          chrome.storage.local.set({
+            debugLog: '[itandi調査] 注目キー=' + JSON.stringify(interestingKeys) + ' 値=' + JSON.stringify(sampleValues).substring(0, 400)
+          });
+        } catch (_) {}
+        globalThis.__itandiResponseSampleDumped = true;
+      }
+    }
+  } catch (_) {}
+
   const properties = [];
   let buildings = data.buildings || [];
 
