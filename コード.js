@@ -897,8 +897,11 @@ function _getLineUserIdMapByCustomerName_() {
 function _notifyLineBlockedToDiscord_(customerName) {
   try {
     var webhook = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL');
-    if (!webhook) return;
-    UrlFetchApp.fetch(webhook, {
+    if (!webhook) {
+      console.log('[LINEブロック通知] webhook 未設定でスキップ: ' + customerName);
+      return;
+    }
+    var res = UrlFetchApp.fetch(webhook, {
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify({
@@ -906,6 +909,9 @@ function _notifyLineBlockedToDiscord_(customerName) {
       }),
       muteHttpExceptions: true
     });
+    var code = res.getResponseCode();
+    var body = (res.getContentText() || '').substring(0, 200);
+    console.log('[LINEブロック通知] 送信: ' + customerName + ' → HTTP ' + code + ' body=' + body);
   } catch (e) {
     console.error('_notifyLineBlockedToDiscord_ error: ' + e.message);
   }
@@ -1010,6 +1016,7 @@ function handleGetCriteria(e) {
       var blocked = blockedMap[customerUserId];
       if (blocked === true) {
         var wasBlocked = (deliveryStatus === 'blocked');
+        console.log('[LINEブロック判定] ブロック検知: ' + name + ' status=「' + deliveryStatus + '」 wasBlocked=' + wasBlocked + ' → ' + (wasBlocked ? '既知の為通知スキップ' : '新規検知 → 通知送信'));
         try {
           sheet.getRange(i + 1, 19).setValue('blocked');  // S列: 配信ステータス
         } catch (e) {}
