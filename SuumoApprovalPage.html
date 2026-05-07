@@ -1573,35 +1573,76 @@ function calculateSuumoScore() {
   return { main: mainScore, sub: subScore, total: mainScore + subScore };
 }
 
-// ホームズ候補ジャンル見出しの「✓ メイン選択済み」バッジ + ナビボタンの状態表示を更新。
-// メイン画像でジャンルが選択された/解除された時に呼ぶ。
-// ナビボタンも色分け (緑=選択済み / 青=未選択) して、 ホームズ画像を選ぶ前から
-// 「メインで何のジャンルを選んでいるか」 が一目で分かるようにする (2026-05-07)。
+// ホームズ採用 (チェックボックス) 中のジャンル集合を取得 (SUUMO 正規ジャンル)
+function getHomesAdoptedGenresSet() {
+  var adopted = {};
+  if (!_homesCandidates || _homesCandidates.length === 0) return adopted;
+  var cbs = document.querySelectorAll('.homes-cand-cb:checked');
+  for (var i = 0; i < cbs.length; i++) {
+    var idx = parseInt(cbs[i].getAttribute('data-cand-idx'), 10);
+    var cand = _homesCandidates[idx];
+    if (!cand) continue;
+    var sg = normalizeGenre(cand.genre);
+    if (sg) adopted[sg] = true;
+  }
+  return adopted;
+}
+
+// ホームズ候補ジャンル見出しの「メイン選択済み / 採用予定」バッジ + ナビボタンの
+// 状態表示を更新。 メイン画像でジャンルが選択された/解除された時 + ホームズ採用
+// チェックが変わった時に呼ぶ (2026-05-07 ホームズ採用予定も反映)。
+//
+// 状態:
+//   ✓ メインで選択済み (imageGenres に含まれる) → 緑バッジ・緑ナビボタン
+//   📌 ホームズ採用予定  (.homes-cand-cb:checked のジャンル) → 青系バッジ・ナビボタン
+//   両方                                                     → 緑バッジ・緑ナビボタン (✓ + 📌 マーク両方)
+//   未選択                                                   → バッジ非表示・青系ナビボタン
 function updateHomesUsedTags() {
   var usedGenres = Object.values(imageGenres);
-  // セクション見出しのバッジ更新
+  var adoptedSet = getHomesAdoptedGenresSet();
+
+  // セクション見出しバッジ
   var sections = document.querySelectorAll('#homesCandidatesGrid [data-suumo-genre]');
   for (var i = 0; i < sections.length; i++) {
     if (sections[i].tagName === 'BUTTON') continue; // ナビボタンは下で別処理
     var sg = sections[i].getAttribute('data-suumo-genre');
     var tag = sections[i].querySelector('.homes-used-tag');
     if (!tag) continue;
-    tag.style.display = (sg && usedGenres.indexOf(sg) >= 0) ? 'inline-block' : 'none';
+    var inMain = (sg && usedGenres.indexOf(sg) >= 0);
+    var inAdopt = !!(sg && adoptedSet[sg]);
+    if (inMain) {
+      tag.textContent = '✓ メインで選択済み';
+      tag.style.background = '#27ae60';
+      tag.style.boxShadow = '0 1px 3px rgba(39,174,96,0.4)';
+      tag.style.display = 'inline-block';
+    } else if (inAdopt) {
+      tag.textContent = '📌 ホームズで採用予定';
+      tag.style.background = '#3498db';
+      tag.style.boxShadow = '0 1px 3px rgba(52,152,219,0.4)';
+      tag.style.display = 'inline-block';
+    } else {
+      tag.style.display = 'none';
+    }
   }
-  // ナビボタンの色分け + ✓ マーク
+
+  // ナビボタン: メインに含まれる → 緑、 採用予定のみ → 青ライト、 未選択 → 青枠
   var navBtns = document.querySelectorAll('.homes-nav-btn[data-suumo-genre]');
   for (var ni = 0; ni < navBtns.length; ni++) {
     var btn = navBtns[ni];
     var bg = btn.getAttribute('data-suumo-genre');
-    var isUsed = (bg && usedGenres.indexOf(bg) >= 0);
-    // テキスト先頭の「✓ 」 を一旦除去してから、 選択済みなら付け直す
-    var text = btn.textContent.replace(/^✓\s*/, '');
-    btn.textContent = (isUsed ? '✓ ' : '') + text;
-    if (isUsed) {
-      // 選択済み: 緑系 (背景緑+白文字)
+    var inMain = (bg && usedGenres.indexOf(bg) >= 0);
+    var inAdopt = !!(bg && adoptedSet[bg]);
+    // テキスト先頭の状態マーク (✓ / 📌) を一旦除去
+    var origText = btn.textContent.replace(/^[✓📌\s]+/, '');
+    var prefix = '';
+    if (inMain) prefix += '✓ ';
+    if (inAdopt) prefix += '📌 ';
+    btn.textContent = prefix + origText;
+    if (inMain) {
       btn.style.cssText = 'padding:3px 8px;font-size:11px;background:#27ae60;border:1px solid #1e8449;color:#fff;border-radius:4px;cursor:pointer;font-weight:700;';
+    } else if (inAdopt) {
+      btn.style.cssText = 'padding:3px 8px;font-size:11px;background:#3498db;border:1px solid #1f618d;color:#fff;border-radius:4px;cursor:pointer;font-weight:700;';
     } else {
-      // 未選択: 元の青系 (デフォルトに戻す)
       btn.style.cssText = 'padding:3px 8px;font-size:11px;background:#fff;border:1px solid #2e86c1;color:#2e86c1;border-radius:4px;cursor:pointer;';
     }
   }
@@ -2027,6 +2068,10 @@ function _renderHomesCandidates() {
       cb.className = 'homes-cand-cb';
       cb.setAttribute('data-cand-idx', item.idx);
       cb.style.cssText = 'transform:scale(1.3);margin:0;';
+      // チェック切替で 採用予定 状態を即座に他ジャンルナビ/見出しバッジへ反映
+      cb.addEventListener('change', function () {
+        if (typeof updateHomesUsedTags === 'function') updateHomesUsedTags();
+      });
       cbLabel.appendChild(cb);
       var cbText = document.createElement('span');
       cbText.textContent = '採用';
