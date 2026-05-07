@@ -155,6 +155,28 @@ function normalizeForMatch(s) {
     .toUpperCase();
 }
 
+/**
+ * ラベル付き複数行入力 (例:「物件名：VIVACE301\n所在地：...\n最寄駅：...」) から
+ * ラベル部分を除去して各値だけを抽出する。
+ * 全角/半角コロン両対応。 ラベル無しの行はそのまま値として採用。
+ *
+ * @param {string} raw - ユーザー入力
+ * @returns {string[]} 抽出された値の配列 (順序維持)
+ */
+function extractStructuredValues(raw) {
+  if (!raw) return [];
+  var lines = String(raw).split(/\r?\n/);
+  var values = [];
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    // 「ラベル：値」 形式 (ラベル長は 20 文字以内、 値部分にコロンが含まれてもOK)
+    var m = line.match(/^[^:：\n]{1,20}[:：]\s*(.+)$/);
+    values.push(m ? m[1].trim() : line);
+  }
+  return values;
+}
+
 /** 入力から面積を抽出（「24」「24.32」「24m²」「24㎡」「24平米」等に対応） */
 function extractAreaNumber(message) {
   if (message == null) return null;
@@ -208,16 +230,45 @@ function handleVacancyQuery(replyToken, userId, raw) {
     }
 
     // 3. 自由テキスト（物件名+部屋番号 / 所在地 / 最寄駅 を全部対象に部分一致）
+    //
+    // ⚠️ 双方向の包含チェック (2026-05-07 修正):
+    //   旧: nameRoom.indexOf(q) のみ = 「シート値の中に入力全体が含まれるか」
+    //       → ユーザーが「物件名：VIVACE301\n最寄り駅：...\n所在地：...」 のような
+    //         ラベル付き複数行で送ると、 入力がシート値より長くて絶対にマッチしない
+    //   新: 双方向 (シート値 ⊆ 入力) もチェック
+    //       → 入力に「VIVACE301」 が含まれていればシートの「VIVACE301」 にマッチ
+    //
+    // 加えて、 ラベル付き複数行入力は extractStructuredValues で各値を抽出し、
+    // 個別に検索することで誤検知 (例: ラベル文字「物件名」 が他物件にマッチ) を防ぐ。
     if (matched.length === 0) {
-      var q = normalizeForMatch(raw);
-      if (q.length >= 2) {
+      var queries = [];
+      // (a) 入力全体を 1 つの query として
+      var qWhole = normalizeForMatch(raw);
+      if (qWhole.length >= 2) queries.push(qWhole);
+      // (b) ラベル付き複数行入力 → 各値も個別 query に追加
+      var structuredValues = extractStructuredValues(raw);
+      for (var sv = 0; sv < structuredValues.length; sv++) {
+        var qv = normalizeForMatch(structuredValues[sv]);
+        if (qv.length >= 2 && queries.indexOf(qv) === -1) queries.push(qv);
+      }
+
+      if (queries.length > 0) {
         for (var i = 1; i < data.length; i++) {
           var nameRoom = normalizeForMatch(String(data[i][0]) + String(data[i][1]));
           var addr = normalizeForMatch(data[i][2]);
           var stn  = normalizeForMatch(data[i][3]);
-          if (nameRoom.indexOf(q) !== -1 || addr.indexOf(q) !== -1 || stn.indexOf(q) !== -1) {
-            addRow(data[i], i);
+          var sheetVals = [nameRoom, addr, stn];
+          var hit = false;
+          for (var qi = 0; qi < queries.length && !hit; qi++) {
+            var q = queries[qi];
+            for (var sj = 0; sj < sheetVals.length && !hit; sj++) {
+              var sv2 = sheetVals[sj];
+              if (!sv2 || sv2.length < 2) continue;
+              // 双方向の包含チェック
+              if (sv2.indexOf(q) !== -1 || q.indexOf(sv2) !== -1) hit = true;
+            }
           }
+          if (hit) addRow(data[i], i);
         }
       }
     }
