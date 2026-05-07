@@ -1573,17 +1573,37 @@ function calculateSuumoScore() {
   return { main: mainScore, sub: subScore, total: mainScore + subScore };
 }
 
-// ホームズ候補ジャンル見出しの「✓ メイン選択済み」バッジ表示を更新。
+// ホームズ候補ジャンル見出しの「✓ メイン選択済み」バッジ + ナビボタンの状態表示を更新。
 // メイン画像でジャンルが選択された/解除された時に呼ぶ。
+// ナビボタンも色分け (緑=選択済み / 青=未選択) して、 ホームズ画像を選ぶ前から
+// 「メインで何のジャンルを選んでいるか」 が一目で分かるようにする (2026-05-07)。
 function updateHomesUsedTags() {
-  var sections = document.querySelectorAll('[data-suumo-genre]');
-  if (sections.length === 0) return;
   var usedGenres = Object.values(imageGenres);
+  // セクション見出しのバッジ更新
+  var sections = document.querySelectorAll('#homesCandidatesGrid [data-suumo-genre]');
   for (var i = 0; i < sections.length; i++) {
+    if (sections[i].tagName === 'BUTTON') continue; // ナビボタンは下で別処理
     var sg = sections[i].getAttribute('data-suumo-genre');
     var tag = sections[i].querySelector('.homes-used-tag');
     if (!tag) continue;
     tag.style.display = (sg && usedGenres.indexOf(sg) >= 0) ? 'inline-block' : 'none';
+  }
+  // ナビボタンの色分け + ✓ マーク
+  var navBtns = document.querySelectorAll('.homes-nav-btn[data-suumo-genre]');
+  for (var ni = 0; ni < navBtns.length; ni++) {
+    var btn = navBtns[ni];
+    var bg = btn.getAttribute('data-suumo-genre');
+    var isUsed = (bg && usedGenres.indexOf(bg) >= 0);
+    // テキスト先頭の「✓ 」 を一旦除去してから、 選択済みなら付け直す
+    var text = btn.textContent.replace(/^✓\s*/, '');
+    btn.textContent = (isUsed ? '✓ ' : '') + text;
+    if (isUsed) {
+      // 選択済み: 緑系 (背景緑+白文字)
+      btn.style.cssText = 'padding:3px 8px;font-size:11px;background:#27ae60;border:1px solid #1e8449;color:#fff;border-radius:4px;cursor:pointer;font-weight:700;';
+    } else {
+      // 未選択: 元の青系 (デフォルトに戻す)
+      btn.style.cssText = 'padding:3px 8px;font-size:11px;background:#fff;border:1px solid #2e86c1;color:#2e86c1;border-radius:4px;cursor:pointer;';
+    }
   }
 }
 
@@ -1918,8 +1938,11 @@ function _renderHomesCandidates() {
 
   // ジャンルナビゲーション生成関数 (上部+各ジャンル内で再利用)
   // currentIdx を渡すとそのジャンルはスキップする (自分のジャンルへのボタンは不要)
+  // メイン画像で既に選択済みのジャンルは ✓ マーク + 緑色で表示する
+  // (「あれ？トイレはあったっけ？」 と迷わないため、 2026-05-07)
   function _buildGenreNav(currentIdx) {
     var navWrap = document.createElement('div');
+    navWrap.className = 'homes-genre-nav';
     navWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;padding:6px;background:#eef6ff;border-radius:4px;';
     var navLabel = document.createElement('span');
     navLabel.textContent = 'ジャンルへジャンプ:';
@@ -1930,6 +1953,10 @@ function _renderHomesCandidates() {
       var ng = sortedGenres[gni];
       var nbtn = document.createElement('button');
       nbtn.type = 'button';
+      nbtn.className = 'homes-nav-btn';
+      // SUUMO 正規ジャンルに変換 (例: 「浴室」 → 「バス」) して、 メイン画像と
+      // 同じ判定基準で選択済みかチェックする (data 属性で保持)
+      nbtn.setAttribute('data-suumo-genre', normalizeGenre(ng));
       nbtn.textContent = ng + '(' + groups[ng].length + ')';
       nbtn.style.cssText = 'padding:3px 8px;font-size:11px;background:#fff;border:1px solid #2e86c1;color:#2e86c1;border-radius:4px;cursor:pointer;';
       nbtn.onclick = (function (idx) {
@@ -1961,10 +1988,11 @@ function _renderHomesCandidates() {
     hLabel.textContent = genre + ' (' + groups[genre].length + ')';
     h.appendChild(hLabel);
     // 「✓ メイン選択済み」バッジ (updateHomesUsedTags で表示切替)
+    // 視認性を上げるため少し大きく、 影も付けて目立たせる
     var usedTag = document.createElement('span');
     usedTag.className = 'homes-used-tag';
     usedTag.textContent = '✓ メインで選択済み';
-    usedTag.style.cssText = 'padding:2px 8px;font-size:10px;font-weight:700;color:#fff;background:#27ae60;border-radius:10px;display:none;';
+    usedTag.style.cssText = 'padding:3px 10px;font-size:11px;font-weight:700;color:#fff;background:#27ae60;border-radius:10px;display:none;box-shadow:0 1px 3px rgba(39,174,96,0.4);';
     h.appendChild(usedTag);
     var backBtn = document.createElement('button');
     backBtn.type = 'button';
