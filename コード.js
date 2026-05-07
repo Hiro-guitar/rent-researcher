@@ -892,19 +892,20 @@ function _getLineUserIdMapByCustomerName_() {
 }
 
 /**
- * LINE ブロック検知時に Discord (rent-researcher オペレーター用 webhook) に通知
+ * LINE ブロック検知時に Discord (rent-researcher 用 webhook) に通知
  *
- * 通知先: スクリプトプロパティ OPERATOR_DISCORD_WEBHOOK_URL
- * (SUUMO_DISCORD_WEBHOOK_URL は SUUMO 巡回専用なので流用しない)
+ * 通知先: スクリプトプロパティ DISCORD_WEBHOOK_URL
+ * (PropertyApproval.js でお客様向け物件通知に使用している webhook と同じ)
+ * SUUMO_DISCORD_WEBHOOK_URL は SUUMO 巡回専用なので流用しない。
  *
  * リトライ付き: 429 (レートリミット) のときは Retry-After ヘッダー or
  * Cloudflare 1015 のときは固定 10秒 待機して 最大 3回までリトライ。
  */
 function _notifyLineBlockedToDiscord_(customerName) {
   try {
-    var webhook = PropertiesService.getScriptProperties().getProperty('OPERATOR_DISCORD_WEBHOOK_URL');
+    var webhook = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
     if (!webhook) {
-      console.log('[LINEブロック通知] OPERATOR_DISCORD_WEBHOOK_URL 未設定でスキップ: ' + customerName);
+      console.log('[LINEブロック通知] DISCORD_WEBHOOK_URL 未設定でスキップ: ' + customerName);
       return;
     }
     // フォーラムチャンネルの場合は thread_name 必須 (Discord API: code 220001)
@@ -1024,9 +1025,9 @@ function handleGetCriteria(e) {
   }
   console.log('[LINEブロック判定] 結果: ブロック中=' + blockedTrue
     + ' / 通常=' + blockedFalse + ' / 不明=' + blockedNull);
-  // Discord webhook (オペレーター用) 設定確認
-  var _wh = PropertiesService.getScriptProperties().getProperty('OPERATOR_DISCORD_WEBHOOK_URL');
-  console.log('[LINEブロック判定] OPERATOR_DISCORD_WEBHOOK_URL 設定=' + (_wh ? 'あり' : 'なし'));
+  // Discord webhook 設定確認 (rent-researcher 用)
+  var _wh = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+  console.log('[LINEブロック判定] DISCORD_WEBHOOK_URL 設定=' + (_wh ? 'あり' : 'なし'));
 
   var criteria = [];
   for (var i = 1; i < data.length; i++) {
