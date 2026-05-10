@@ -14,6 +14,30 @@
 // { customerName: { service: [stationName, ...], ... }, ... }
 let _unresolvedStations = {};
 
+// === 一時的な顧客履歴クリア（実行後この関数ブロックは削除すること） ===
+// notifiedDedupMap / moshikomiSkipMap から指定顧客のエントリを除去。
+// chrome.storage.local の __cleanedKurata_v1 フラグで再実行を防止。
+chrome.storage.local.get(['__cleanedKurata_v1', 'notifiedDedupMap'], (d) => {
+  if (d.__cleanedKurata_v1) return;
+  const targetName = '倉田 豊大';
+  const normalize = (s) => String(s || '').replace(/[\s　]+/g, '').trim();
+  const targetNorm = normalize(targetName);
+  const map = d.notifiedDedupMap || {};
+  let removed = 0;
+  for (const cust of Object.keys(map)) {
+    if (normalize(cust) === targetNorm) {
+      removed += Object.keys(map[cust] || {}).length;
+      delete map[cust];
+    }
+  }
+  chrome.storage.local.set({
+    notifiedDedupMap: map,
+    __cleanedKurata_v1: { ts: Date.now(), removed: removed }
+  }).then(() => {
+    console.log('[一時クリア] 倉田 豊大: notifiedDedupMap から ' + removed + ' エントリを削除');
+  });
+});
+
 // 他サイトで「申込あり」として弾いた物件のキーを永続化(30日TTL)
 // 形式: { "<building>|<room>": { ts: <timestamp>, url: <検出時の物件URL>, source: <検出元サイト名> }, ... }
 // 旧形式 ({ "<key>": <timestamp> }) との後方互換も維持。
