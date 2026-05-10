@@ -417,7 +417,8 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
   if (customer.rent_max) {
     filterObj['total_rent:lteq'] = parseFloat(customer.rent_max) * 10000;
     // 下限は上限の70%（明示下限が無い場合のみ）
-    if (!customer.rent_min) {
+    // SUUMO巡回(_isSuumoPatrol)は自動下限を入れない（巡回は新着検知が目的のため）
+    if (!customer.rent_min && !customer._isSuumoPatrol) {
       filterObj['total_rent:gteq'] = Math.floor(parseFloat(customer.rent_max) * 10000 * 0.7);
     }
   }

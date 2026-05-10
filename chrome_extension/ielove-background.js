@@ -149,9 +149,10 @@ function buildIeloveSearchUrl(customer, page = 1, oazaCodes = []) {
   }
 
   // 賃料下限（明示指定が無ければ上限の70%）
+  // SUUMO巡回(_isSuumoPatrol)は自動下限を入れない（巡回は新着検知が目的のため）
   if (customer.rent_min) {
     parts.push(`prcf/${customer.rent_min}`);
-  } else if (customer.rent_max) {
+  } else if (customer.rent_max && !customer._isSuumoPatrol) {
     const min70 = Math.floor(parseFloat(customer.rent_max) * 0.7 * 10) / 10;
     if (min70 > 0) parts.push(`prcf/${min70}`);
   }

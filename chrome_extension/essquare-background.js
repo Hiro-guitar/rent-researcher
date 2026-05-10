@@ -115,8 +115,11 @@ function buildEssquareSearchUrl(customer, page, jushoList) {
   if (customer.rent_max) {
     params.append('komi_chinryo.to', String(parseFloat(customer.rent_max) * 10000));
     // 下限は上限の70%
-    const minYen = Math.floor(parseFloat(customer.rent_max) * 10000 * 0.7);
-    params.append('komi_chinryo.from', String(minYen));
+    // SUUMO巡回(_isSuumoPatrol)は自動下限を入れない（巡回は新着検知が目的のため）
+    if (!customer._isSuumoPatrol) {
+      const minYen = Math.floor(parseFloat(customer.rent_max) * 10000 * 0.7);
+      params.append('komi_chinryo.from', String(minYen));
+    }
   }
 
   // 間取り
