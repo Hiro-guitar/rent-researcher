@@ -88,6 +88,7 @@ function patrolCriteriaToCustomer(criteria) {
     routes_with_stations: routesWithStations,
     routes: routes,
     rent_max: criteria.rentMax || '',
+    rent_min: criteria.rentMin || '',
     layouts: layouts,
     walk: criteria.walk || '',
     area_min: criteria.areaMin || '',
@@ -95,7 +96,6 @@ function patrolCriteriaToCustomer(criteria) {
     structures: structures,
     equipment: equipment,
     petType: equipmentArr.includes('ペット相談可') ? 'ok' : '',
-    _rentMin: criteria.rentMin || '',
     // 登録日数フィルタ (各サイトの「N日以内に登録/最終更新」絞り込みに使う)
     // 文字列で来る可能性があるので number 変換、空 or 不正値なら null。
     daysWithin: (function () {

@@ -114,12 +114,14 @@ function buildEssquareSearchUrl(customer, page, jushoList) {
   // 賃料（管理費込み・万円→円）
   if (customer.rent_max) {
     params.append('komi_chinryo.to', String(parseFloat(customer.rent_max) * 10000));
-    // 下限は上限の70%
-    // SUUMO巡回(_isSuumoPatrol)は自動下限を入れない（巡回は新着検知が目的のため）
-    if (!customer._isSuumoPatrol) {
-      const minYen = Math.floor(parseFloat(customer.rent_max) * 10000 * 0.7);
-      params.append('komi_chinryo.from', String(minYen));
-    }
+  }
+  // 賃料下限: 明示指定があれば優先。無ければ rent_max の70%を自動設定。
+  // SUUMO巡回(_isSuumoPatrol)は明示指定が無い限り下限を入れない（新着検知が目的のため）。
+  if (customer.rent_min) {
+    params.append('komi_chinryo.from', String(parseFloat(customer.rent_min) * 10000));
+  } else if (customer.rent_max && !customer._isSuumoPatrol) {
+    const minYen = Math.floor(parseFloat(customer.rent_max) * 10000 * 0.7);
+    params.append('komi_chinryo.from', String(minYen));
   }
 
   // 間取り

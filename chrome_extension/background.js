@@ -2216,12 +2216,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       // 賃料上限（万円）
       if (customerData.rent_max) {
         vr.kkkuCnryuTo = String(customerData.rent_max);
-        // 下限は上限の70%（万円、小数1桁）
-        // SUUMO巡回(_isSuumoPatrol)は自動下限を入れない（巡回は新着検知が目的のため）
-        if (!customerData._isSuumoPatrol) {
-          const min70 = Math.floor(parseFloat(customerData.rent_max) * 0.7 * 10) / 10;
-          if (min70 > 0) vr.kkkuCnryuFrom = String(min70);
-        }
+      }
+      // 賃料下限（万円・小数1桁）: 明示指定があれば優先。無ければ rent_max の70%を自動設定。
+      // SUUMO巡回(_isSuumoPatrol)は明示指定が無い限り下限を入れない（新着検知が目的のため）。
+      if (customerData.rent_min) {
+        vr.kkkuCnryuFrom = String(customerData.rent_min);
+      } else if (customerData.rent_max && !customerData._isSuumoPatrol) {
+        const min70 = Math.floor(parseFloat(customerData.rent_max) * 0.7 * 10) / 10;
+        if (min70 > 0) vr.kkkuCnryuFrom = String(min70);
       }
 
       // 間取りセット（layouts: ["1K", "1DK", "2LDK"] → mdrTyp + mdrHysuFrom/To）
