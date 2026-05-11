@@ -142,9 +142,11 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 12px 14px; margin: 0 0 8px;
   display: flex; justify-content: space-between; align-items: center;
 }
-.criteria-item .info { flex: 1; }
+.criteria-item .info { flex: 1; min-width: 0; }
 .criteria-item .name { font-size: 14px; font-weight: 600; color: #2c3e50; }
-.criteria-item .detail { font-size: 12px; color: #888; margin-top: 4px; line-height: 1.5; }
+.criteria-item .detail { font-size: 12px; color: #888; margin-top: 4px; line-height: 1.5; word-break: break-word; }
+.criteria-item .detail-row { margin-top: 2px; }
+.criteria-item .detail-label { color: #555; font-weight: 600; }
 .criteria-item .actions { display: flex; gap: 6px; align-items: center; }
 .criteria-item .toggle-switch {
   position: relative; width: 44px; height: 24px; cursor: pointer;
@@ -680,46 +682,82 @@ function renderCriteriaList() {
   var html = '';
   for (var i = 0; i < allCriteria.length; i++) {
     var c = allCriteria[i];
-    var area = '';
+
+    // ── エリア（路線・駅／市区町村） ──
+    var areaParts = [];
     try {
       var areaObj = typeof c.areaJson === 'string' ? JSON.parse(c.areaJson) : c.areaJson;
-      if (areaObj && areaObj.cities && areaObj.cities.length) area = areaObj.cities.join(', ');
+      if (areaObj && areaObj.cities && areaObj.cities.length) {
+        areaParts.push('市区町村: ' + areaObj.cities.join('、'));
+      }
       if (areaObj && areaObj.routes_with_stations && areaObj.routes_with_stations.length) {
         var routeInfo = areaObj.routes_with_stations.map(function(rws) {
-          return rws.route + '(' + (rws.stations || []).length + '駅)';
-        }).join(', ');
-        area += (area ? ' / ' : '') + routeInfo;
+          var stations = rws.stations || [];
+          return rws.route + '（' + stations.length + '駅: ' + stations.join('、') + '）';
+        }).join(' / ');
+        areaParts.push(routeInfo);
       } else if (areaObj && areaObj.stations && areaObj.stations.length) {
-        area += (area ? ' / ' : '') + areaObj.stations.join(', ');
+        areaParts.push('駅: ' + areaObj.stations.join('、'));
       }
     } catch(e) {}
 
+    // ── 間取り ──
     var layouts = '';
     try {
       var layoutArr = typeof c.layoutsJson === 'string' ? JSON.parse(c.layoutsJson) : c.layoutsJson;
       if (layoutArr && layoutArr.length) layouts = layoutArr.join(', ');
     } catch(e) {}
 
+    // ── 構造 ──
+    var structures = '';
+    try {
+      var sArr = typeof c.structuresJson === 'string' ? JSON.parse(c.structuresJson) : c.structuresJson;
+      if (sArr && sArr.length) structures = sArr.join('、');
+    } catch(e) {}
+
+    // ── こだわり条件（設備） ──
+    var equipment = '';
+    try {
+      var eArr = typeof c.equipmentJson === 'string' ? JSON.parse(c.equipmentJson) : c.equipmentJson;
+      if (eArr && eArr.length) equipment = eArr.join('、');
+    } catch(e) {}
+
+    // ── 賃料 ──
     var rent = '';
     if (c.rentMin || c.rentMax) {
       rent = (c.rentMin || '?') + '〜' + (c.rentMax || '?') + '万円';
     }
 
-    var detail = [];
-    if (area) detail.push(area);
-    if (rent) detail.push(rent);
-    if (layouts) detail.push(layouts);
-    if (c.walk) detail.push('徒歩' + c.walk + '分');
-    if (c.areaMin) detail.push(c.areaMin + 'm²以上');
-    if (c.buildingAge) detail.push('築' + c.buildingAge + '年以内');
-    if (c.daysWithin) detail.push(c.daysWithin + '日以内');
+    // 1行目: 賃料 / 間取り / 徒歩 / 面積 / 築年数 / 巡回間隔
+    var primary = [];
+    if (rent) primary.push(rent);
+    if (layouts) primary.push(layouts);
+    if (c.walk) primary.push('徒歩' + c.walk + '分');
+    if (c.areaMin) primary.push(c.areaMin + 'm²以上');
+    if (c.buildingAge) primary.push('築' + c.buildingAge + '年以内');
+    if (c.daysWithin) primary.push(c.daysWithin + '日以内');
 
     var lastPatrol = c.lastPatrolAt ? '最終巡回: ' + c.lastPatrolAt : '未巡回';
+
+    // 詳細行を組み立て（区分ごとに改行で見やすく）
+    var detailRows = '';
+    for (var ai = 0; ai < areaParts.length; ai++) {
+      detailRows += '<div class="detail-row">' + esc(areaParts[ai]) + '</div>';
+    }
+    if (primary.length) {
+      detailRows += '<div class="detail-row">' + esc(primary.join(' / ')) + '</div>';
+    }
+    if (structures) {
+      detailRows += '<div class="detail-row"><span class="detail-label">構造:</span> ' + esc(structures) + '</div>';
+    }
+    if (equipment) {
+      detailRows += '<div class="detail-row"><span class="detail-label">こだわり条件:</span> ' + esc(equipment) + '</div>';
+    }
 
     html += '<div class="criteria-item">' +
       '<div class="info">' +
         '<div class="name">' + esc(c.name) + '</div>' +
-        '<div class="detail">' + esc(detail.join(' / ')) + '</div>' +
+        '<div class="detail">' + detailRows + '</div>' +
         '<div class="detail" style="color:#aaa;font-size:11px;">' + esc(lastPatrol) + '</div>' +
       '</div>' +
       '<div class="actions">' +
