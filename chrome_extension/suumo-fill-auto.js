@@ -177,6 +177,79 @@
     document.body.setAttribute('data-suumo-fill-auto', 'loaded-' + Date.now());
   }
 
+  // ── Phase 6: 「登録完了画面」を検知して手動完結ケースを自動で記録 ──
+  // 確認画面でエラーが出て、ユーザーが手動でエラーを修正して登録ボタンを
+  // 押下した場合、Phase5(forrent-final-submit.js)は既に失敗で終了しているため
+  // GASに完了報告が届かず、submittingのまま放置される問題への対処。
+  //
+  // 仕組み:
+  // 1. 確認画面到達時(suumo-fill-auto.js内)に suumoAwaitingPostComplete を
+  //    chrome.storage.localに60分有効で保存している。
+  // 2. その後、フレームが「登録完了画面」(DOMに「新規物件登録完了」または
+  //    「登録完了しました」テキスト) にロードされたらここで検知。
+  // 3. 自動的に GAS の suumo_post_complete(success:true) を送信し、フラグクリア。
+  //
+  // Phase5 が自動成功した場合は forrent-final-submit.js 側でフラグを既にクリア
+  // しているので、ここでは何もしない(二重送信防止)。
+  (function bootstrapPhase6CompletionDetect() {
+    try {
+      // ① 完了画面の特徴をチェック (どのフレームでも判定OK)
+      const bodyText = (document.body && document.body.innerText) || '';
+      const isCompletionScreen =
+        /新規物件登録完了/.test(bodyText) ||
+        /登録完了しました/.test(bodyText);
+      if (!isCompletionScreen) return;
+      if (document.body.getAttribute('data-suumo-phase6-done') === '1') return;
+
+      // ② フラグを取得して、有効なら GAS に通知
+      chrome.storage.local.get(['suumoAwaitingPostComplete'], (data) => {
+        const aw = data && data.suumoAwaitingPostComplete;
+        if (!aw) return;
+        // 60分以上経過したフラグは破棄
+        if (!aw.at || (Date.now() - aw.at) > 60 * 60 * 1000) {
+          chrome.storage.local.remove(['suumoAwaitingPostComplete']);
+          return;
+        }
+        if (!aw.propertyKey) return;
+
+        // 物件コードを抽出(完了画面に「物件コード:100505875810」のような12桁数字あり)
+        let suumoPropertyCode = '';
+        const codeMatch = bodyText.match(/物件コード[\s:：]*([0-9]{6,14})/);
+        if (codeMatch) suumoPropertyCode = codeMatch[1];
+
+        // 二重処理ガード
+        document.body.setAttribute('data-suumo-phase6-done', '1');
+
+        console.log('[SUUMO自動入稿/Phase6] 登録完了画面を検知 → 自動でGAS通知 key=' + aw.propertyKey + ' code=' + suumoPropertyCode);
+
+        chrome.runtime.sendMessage({
+          type: 'SUUMO_FILL_COMPLETE',
+          // background.js 側のハンドラは msg.data を reportSuumoPostComplete に渡す
+          data: {
+            key: aw.propertyKey,
+            propertyKey: aw.propertyKey,
+            building: aw.building || '',
+            room: aw.room || '',
+            rent: aw.rent || '',
+            success: true,
+            manualCompletion: true,
+            suumoPropertyCode: suumoPropertyCode
+          }
+        }, (resp) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[SUUMO自動入稿/Phase6] 通知エラー:', chrome.runtime.lastError.message);
+            return;
+          }
+          console.log('[SUUMO自動入稿/Phase6] 通知結果:', JSON.stringify(resp));
+          // 成功通知できたらフラグクリア
+          chrome.storage.local.remove(['suumoAwaitingPostComplete']);
+        });
+      });
+    } catch (e) {
+      console.warn('[SUUMO自動入稿/Phase6] bootstrap 例外:', e.message);
+    }
+  })();
+
   // ── Phase 5: 確認画面到達を検知したら background に通知 ──
   // 入力フォーム → 「確認画面へ」クリックで画面遷移 → このcontent scriptが
   // 確認画面で再注入されたタイミングで発火。
@@ -896,6 +969,18 @@
               at: Date.now(),
               imageGenresCount,
               imageUploadStats: imgStats,
+              propertyKey: itemInfo.propertyKey || itemInfo.key || '',
+              building: itemInfo.building || itemInfo.buildingName || '',
+              room: itemInfo.room || itemInfo.roomNumber || '',
+              rent: itemInfo.rent || ''
+            },
+            // 手動完結検知用の長期フラグ（60分）
+            // Phase5 が自動成功すれば forrent-final-submit.js でクリア。
+            // Phase5 が失敗し、ユーザーが手動で「登録完了」まで到達した場合に
+            // 完了画面の DOM テキスト「登録完了しました」を検知して自動で
+            // suumo_post_complete を送るのに使う。
+            suumoAwaitingPostComplete: {
+              at: Date.now(),
               propertyKey: itemInfo.propertyKey || itemInfo.key || '',
               building: itemInfo.building || itemInfo.buildingName || '',
               room: itemInfo.room || itemInfo.roomNumber || '',

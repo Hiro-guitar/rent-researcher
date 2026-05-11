@@ -179,7 +179,9 @@ async function tryForrentFinalSubmit(opts) {
     await reportPhase5Result_(true, { finalUrl: postCheck.url });
     // 登録成功後は入稿タブとキューをクリーンアップ(タブが残り続けないように)
     try { await chrome.tabs.remove(tabId); } catch (_) {}
-    try { await chrome.storage.local.remove(['suumoFillTabId', 'suumoFillMode', 'suumoFillModeSetAt', 'suumoPendingConfirmCheck']); } catch (_) {}
+    // suumoAwaitingPostComplete は Phase6(手動完結検知) の長期フラグ。
+    // Phase5 が自動成功した時点で不要なのでクリア(二重送信防止)。
+    try { await chrome.storage.local.remove(['suumoFillTabId', 'suumoFillMode', 'suumoFillModeSetAt', 'suumoPendingConfirmCheck', 'suumoAwaitingPostComplete']); } catch (_) {}
     return { ok: true, finalUrl: postCheck.url };
 
   } catch (err) {
