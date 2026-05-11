@@ -875,6 +875,8 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
 
   const customerSeenIds = seenIds[customer.name] || [];
   let submittedCount = 0;
+  // 個別ログを出さずに件数だけ集計する silent スキップ用カウンタ
+  const silentSkipStats = { seen: 0, cached: 0 };
 
   // スキップ済み物件キャッシュをロード（詳細ページ遷移を省略して高速化）
   const skipStorageKey = `ieloveSkipped_${customer.name}`;
@@ -962,7 +964,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         forceSet.has(String(prop.room_id || ''))
       ));
       if (!isForced && !isTestUser && customerSeenIds.includes(prop.room_id)) {
-        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 通知済み: ${prop.building_name} ${prop.room_number || ''}` });
+        silentSkipStats.seen++;
         continue;
       }
       if (isForced) {
@@ -971,6 +973,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
 
       // スキップ済み物件チェック（前回フィルタで除外された物件は詳細ページに行かない）
       if (!isForced && !isTestUser && skippedMap[prop.room_id]) {
+        silentSkipStats.cached++;
         continue;
       }
 
@@ -1159,6 +1162,14 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
   // スキップ済み物件マップを保存（変更があった場合のみ）
   if (skippedMapDirty) {
     await setStorageData({ [skipStorageKey]: skippedMap });
+  }
+
+  // 個別ログを出さなかった silent スキップを集約ログで出す
+  const silentParts = [];
+  if (silentSkipStats.seen > 0) silentParts.push(`通知済み ${silentSkipStats.seen}件`);
+  if (silentSkipStats.cached > 0) silentParts.push(`フィルタ済キャッシュ ${silentSkipStats.cached}件`);
+  if (silentParts.length > 0) {
+    await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: スキップ内訳 → ${silentParts.join(' / ')}` });
   }
 
   if (submittedCount > 0) {

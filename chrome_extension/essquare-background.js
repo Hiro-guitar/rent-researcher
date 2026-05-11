@@ -1621,6 +1621,8 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
   const customerSeenIds = seenIds[customer.name] || [];
   let submittedCount = 0;
+  // 個別ログを出さずに件数だけ集計する silent スキップ用カウンタ
+  const silentSkipStats = { seen: 0 };
 
   // エリア指定チェック
   const stationCodes = _resolveEssquareStationCodes(customer);
@@ -1770,6 +1772,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         forceSet.has(String(prop.room_id || ''))
       ));
       if (!isForced && !isTestUser && customerSeenIds.includes(prop.room_id)) {
+        silentSkipStats.seen++;
         continue;
       }
       if (isForced) {
@@ -2141,6 +2144,13 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
     // 分割検索間のwait
     if (chunkIdx < jushoChunks.length - 1) await csleep(1500);
   } // end jushoChunks loop
+
+  // 個別ログを出さなかった silent スキップを集約ログで出す
+  const silentParts = [];
+  if (silentSkipStats.seen > 0) silentParts.push(`通知済み ${silentSkipStats.seen}件`);
+  if (silentParts.length > 0) {
+    await setStorageData({ debugLog: `[ES-Square] ${customer.name}: スキップ内訳 → ${silentParts.join(' / ')}` });
+  }
 
   if (submittedCount > 0) {
     await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ${submittedCount}件送信完了` });

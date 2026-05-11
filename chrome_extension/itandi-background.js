@@ -1065,6 +1065,8 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
 
   const customerSeenIds = seenIds[customer.name] || [];
   let submittedCount = 0;
+  // 個別ログを出さずに件数だけ集計する silent スキップ用カウンタ
+  const silentSkipStats = { seen: 0 };
 
   // 駅名→station_id解決
   let stationIds = null;
@@ -1247,6 +1249,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
       forceSet.has(String(prop.room_id || ''))
     ));
     if (!isForced && !isTestUser && customerSeenIds.includes(prop.room_id)) {
+      silentSkipStats.seen++;
       continue;
     }
     if (isForced) {
@@ -1416,6 +1419,13 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     // 物件間のランダム遅延
     const delayMs = 2000 + Math.random() * 2000;
     await csleep(delayMs);
+  }
+
+  // 個別ログを出さなかった silent スキップを集約ログで出す
+  const silentParts = [];
+  if (silentSkipStats.seen > 0) silentParts.push(`通知済み ${silentSkipStats.seen}件`);
+  if (silentParts.length > 0) {
+    await setStorageData({ debugLog: `[itandi] ${customer.name}: スキップ内訳 → ${silentParts.join(' / ')}` });
   }
 
   if (submittedCount > 0) {
