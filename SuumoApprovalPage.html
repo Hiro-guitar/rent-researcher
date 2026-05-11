@@ -313,6 +313,23 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
   font-size: 11px;
   margin-right: 4px;
 }
+/* ⚠ = 条件付き必須（定期借家のときの契約期間など） */
+.prop-label.suumo-required-conditional::before {
+  content: '⚠';
+  color: #d97706;
+  font-weight: 700;
+  font-size: 12px;
+  margin-right: 4px;
+}
+.prop-label.suumo-required-conditional::after {
+  content: '（定期借家は必須）';
+  font-size: 10px;
+  color: #92400e;
+  margin-left: 4px;
+  background: #fef3c7;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
 /* 必須項目が空のときに付くエラー強調 */
 .prop-value.field-error,
 input.prop-value.field-error,
@@ -426,8 +443,8 @@ textarea.prop-value.field-error {
 <div class="card">
   <div class="card-title" onclick="toggleCard(this)">契約条件<span class="toggle">-</span></div>
   <div class="card-body" id="sectionContract">
-    <div class="prop-row"><div class="prop-label">賃貸借種類</div><input type="text" class="prop-value" id="pvLeaseType" data-field="lease_type"></div>
-    <div class="prop-row"><div class="prop-label">契約期間</div><input type="text" class="prop-value" id="pvContractPeriod" data-field="contract_period"></div>
+    <div class="prop-row"><div class="prop-label">賃貸借種類</div><input type="text" class="prop-value" id="pvLeaseType" data-field="lease_type" oninput="updateContractPeriodConditionalMark()"></div>
+    <div class="prop-row"><div class="prop-label" id="lblContractPeriod">契約期間</div><input type="text" class="prop-value" id="pvContractPeriod" data-field="contract_period"></div>
     <div class="prop-row"><div class="prop-label suumo-required-display">入居可能時期</div><input type="text" class="prop-value" id="pvMoveInDate" data-field="move_in_date"></div>
     <div class="prop-row"><div class="prop-label">内見開始日</div><input type="text" class="prop-value" id="pvPreviewStart" data-field="preview_start_date"></div>
     <div class="prop-row"><div class="prop-label">入居条件</div><textarea class="prop-value" id="pvMoveInConditions" data-field="move_in_conditions" rows="2"></textarea></div>
@@ -689,6 +706,8 @@ window.addEventListener('DOMContentLoaded', function() {
   // 契約条件
   setText('pvLeaseType', p.lease_type);
   setText('pvContractPeriod', p.contract_period);
+  // 賃貸借種類が定期借家なら「契約期間」ラベルに条件付き必須マークを表示
+  updateContractPeriodConditionalMark();
   setText('pvMoveInDate', p.move_in_date);
   setText('pvPreviewStart', p.preview_start_date);
   setText('pvMoveInConditions', p.move_in_conditions);
@@ -1920,7 +1939,43 @@ function validateSuumoRequiredFields() {
       el.classList.add('field-error');
     }
   });
+
+  // 条件付き必須: 賃貸借種類が「定期借家」の場合は契約期間(期間または期限)が必須
+  var leaseTypeEl = document.getElementById('pvLeaseType');
+  var contractPeriodEl = document.getElementById('pvContractPeriod');
+  if (leaseTypeEl && contractPeriodEl) {
+    contractPeriodEl.classList.remove('field-error');
+    var leaseType = (leaseTypeEl.value || '').trim();
+    // 「定期借家」「定期建物賃貸借」「定借」のいずれかを含めば定期借家扱い
+    var isTeiki = /定期借家|定期建物賃貸借|定借/.test(leaseType);
+    if (isTeiki) {
+      var period = (contractPeriodEl.value || '').trim();
+      if (!period) {
+        missing.push({
+          id: 'pvContractPeriod',
+          label: '契約期間（定期借家のため必須・期間または期限を入力）',
+          mark: '⚠'
+        });
+        contractPeriodEl.classList.add('field-error');
+      }
+    }
+  }
+
   return missing;
+}
+
+// 賃貸借種類の値変更で「契約期間」ラベルに条件付き必須マークを動的表示
+function updateContractPeriodConditionalMark() {
+  var leaseTypeEl = document.getElementById('pvLeaseType');
+  var lbl = document.getElementById('lblContractPeriod');
+  if (!leaseTypeEl || !lbl) return;
+  var leaseType = (leaseTypeEl.value || '').trim();
+  var isTeiki = /定期借家|定期建物賃貸借|定借/.test(leaseType);
+  if (isTeiki) {
+    lbl.classList.add('suumo-required-conditional');
+  } else {
+    lbl.classList.remove('suumo-required-conditional');
+  }
 }
 
 function showSuumoRequiredErrorBanner(missing) {
