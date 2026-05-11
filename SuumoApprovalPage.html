@@ -295,6 +295,52 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
   text-decoration: none; font-size: 13px; font-weight: 600;
 }
 .source-link:hover { background: #1a5276; }
+
+/* ── SUUMO入稿必須項目マーク ── */
+/* ■ = SUUMO入稿で必須入力（空だとエラー） */
+.prop-label.suumo-required::before {
+  content: '■';
+  color: #e74c3c;
+  font-weight: 700;
+  font-size: 11px;
+  margin-right: 4px;
+}
+/* ▲ = SUUMO掲載必須入力（空だと掲載できない） */
+.prop-label.suumo-required-display::before {
+  content: '▲';
+  color: #f39c12;
+  font-weight: 700;
+  font-size: 11px;
+  margin-right: 4px;
+}
+/* 必須項目が空のときに付くエラー強調 */
+.prop-value.field-error,
+input.prop-value.field-error,
+textarea.prop-value.field-error {
+  background: #fdecea !important;
+  border: 2px solid #e74c3c !important;
+}
+/* 承認前バリデーションエラーバナー */
+.required-error-banner {
+  position: fixed;
+  top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 99999;
+  background: #fff;
+  border: 2px solid #e74c3c;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 13px; color: #c0392b;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  max-width: 90%;
+  display: none;
+}
+.required-error-banner.show { display: block; }
+.required-error-banner b { display: block; margin-bottom: 6px; font-size: 14px; }
+.required-error-banner ul { margin: 0; padding-left: 18px; }
+.required-error-banner button {
+  margin-top: 8px; padding: 4px 10px; font-size: 11px;
+  background: #e74c3c; color: #fff; border: 0; border-radius: 4px; cursor: pointer;
+}
 </style>
 </head>
 <body>
@@ -307,15 +353,15 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
 <div class="card">
   <div class="card-title" onclick="toggleCard(this)">基本情報<span class="toggle">-</span></div>
   <div class="card-body" id="sectionBasic">
-    <div class="prop-row"><div class="prop-label">建物名</div><input type="text" class="prop-value" id="pvBuilding" data-field="building_name"></div>
+    <div class="prop-row"><div class="prop-label suumo-required">建物名</div><input type="text" class="prop-value" id="pvBuilding" data-field="building_name"></div>
     <div class="prop-row"><div class="prop-label">部屋番号</div><input type="text" class="prop-value" id="pvRoom" data-field="room_number"></div>
-    <div class="prop-row"><div class="prop-label">住所</div><input type="text" class="prop-value" id="pvAddress" data-field="address"></div>
+    <div class="prop-row"><div class="prop-label suumo-required">住所</div><input type="text" class="prop-value" id="pvAddress" data-field="address"></div>
     <div class="prop-row"><div class="prop-label">ソース</div><div class="prop-value" id="pvSource"></div></div>
     <div class="prop-row"><div class="prop-label">ステータス</div><div class="prop-value" id="pvStatus"></div></div>
     <div class="prop-row"><div class="prop-label">募集状況</div><input type="text" class="prop-value" id="pvListingStatus" data-field="listing_status"></div>
     <div class="prop-row"><div class="prop-label">現況</div><input type="text" class="prop-value" id="pvCurrentStatus" data-field="current_status"></div>
-    <div class="prop-row"><div class="prop-label">元付会社</div><input type="text" class="prop-value" id="pvOwnerCompany" data-field="owner_company"></div>
-    <div class="prop-row"><div class="prop-label">元付電話番号</div><input type="text" class="prop-value" id="pvOwnerPhone" data-field="owner_phone"></div>
+    <div class="prop-row"><div class="prop-label suumo-required-display">元付会社</div><input type="text" class="prop-value" id="pvOwnerCompany" data-field="owner_company"></div>
+    <div class="prop-row"><div class="prop-label suumo-required-display">元付電話番号</div><input type="text" class="prop-value" id="pvOwnerPhone" data-field="owner_phone"></div>
     <div class="prop-row"><div class="prop-label">広告転載区分</div><input type="text" class="prop-value" id="pvAdReprint" data-field="ad_reprint_raw"></div>
   </div>
 </div>
@@ -324,7 +370,7 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
 <div class="card">
   <div class="card-title" onclick="toggleCard(this)">賃料・費用<span class="toggle">-</span></div>
   <div class="card-body" id="sectionCost">
-    <div class="prop-row"><div class="prop-label">賃料</div><input type="text" class="prop-value highlight" id="pvRent" data-field="rent"></div>
+    <div class="prop-row"><div class="prop-label suumo-required">賃料</div><input type="text" class="prop-value highlight" id="pvRent" data-field="rent"></div>
     <div class="prop-row"><div class="prop-label">管理費/共益費</div><input type="text" class="prop-value" id="pvMgmtFee" data-field="management_fee"></div>
     <div class="prop-row"><div class="prop-label">敷金</div><input type="text" class="prop-value" id="pvDeposit" data-field="deposit"></div>
     <div class="prop-row"><div class="prop-label">礼金</div><input type="text" class="prop-value" id="pvKeyMoney" data-field="key_money"></div>
@@ -355,13 +401,13 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
 <div class="card">
   <div class="card-title" onclick="toggleCard(this)">物件スペック<span class="toggle">-</span></div>
   <div class="card-body" id="sectionSpec">
-    <div class="prop-row"><div class="prop-label">間取り</div><input type="text" class="prop-value" id="pvLayout" data-field="layout"></div>
+    <div class="prop-row"><div class="prop-label suumo-required-display">間取り</div><input type="text" class="prop-value" id="pvLayout" data-field="layout"></div>
     <div class="prop-row"><div class="prop-label">間取り詳細</div><textarea class="prop-value" id="pvLayoutDetail" data-field="layout_detail" rows="2"></textarea></div>
-    <div class="prop-row"><div class="prop-label">面積</div><input type="text" class="prop-value" id="pvArea" data-field="area" placeholder="m²"></div>
-    <div class="prop-row"><div class="prop-label">所在階</div><input type="text" class="prop-value" id="pvFloor" data-field="floor_text"></div>
-    <div class="prop-row"><div class="prop-label">総階数</div><input type="text" class="prop-value" id="pvStoryText" data-field="story_text"></div>
-    <div class="prop-row"><div class="prop-label">築年数</div><input type="text" class="prop-value" id="pvBuildingAge" data-field="building_age" placeholder="例: 1992年4月"></div>
-    <div class="prop-row"><div class="prop-label">構造</div><input type="text" class="prop-value" id="pvStructure" data-field="structure"></div>
+    <div class="prop-row"><div class="prop-label suumo-required-display">面積</div><input type="text" class="prop-value" id="pvArea" data-field="area" placeholder="m²"></div>
+    <div class="prop-row"><div class="prop-label suumo-required">所在階</div><input type="text" class="prop-value" id="pvFloor" data-field="floor_text"></div>
+    <div class="prop-row"><div class="prop-label suumo-required">総階数</div><input type="text" class="prop-value" id="pvStoryText" data-field="story_text"></div>
+    <div class="prop-row"><div class="prop-label suumo-required-display">築年数</div><input type="text" class="prop-value" id="pvBuildingAge" data-field="building_age" placeholder="例: 1992年4月"></div>
+    <div class="prop-row"><div class="prop-label suumo-required-display">構造</div><input type="text" class="prop-value" id="pvStructure" data-field="structure"></div>
     <div class="prop-row"><div class="prop-label">総戸数</div><input type="text" class="prop-value" id="pvTotalUnits" data-field="total_units" placeholder="戸"></div>
     <div class="prop-row"><div class="prop-label">向き</div><input type="text" class="prop-value" id="pvSunlight" data-field="sunlight"></div>
   </div>
@@ -371,7 +417,7 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
 <div class="card">
   <div class="card-title" onclick="toggleCard(this)">交通<span class="toggle">-</span></div>
   <div class="card-body" id="sectionAccess">
-    <div class="prop-row"><div class="prop-label">最寄駅</div><input type="text" class="prop-value" id="pvStation" data-field="station_info"></div>
+    <div class="prop-row"><div class="prop-label suumo-required-display">最寄駅</div><input type="text" class="prop-value" id="pvStation" data-field="station_info"></div>
     <div class="prop-row"><div class="prop-label">その他沿線</div><div class="prop-value" id="pvOtherStations"></div></div>
   </div>
 </div>
@@ -382,7 +428,7 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
   <div class="card-body" id="sectionContract">
     <div class="prop-row"><div class="prop-label">賃貸借種類</div><input type="text" class="prop-value" id="pvLeaseType" data-field="lease_type"></div>
     <div class="prop-row"><div class="prop-label">契約期間</div><input type="text" class="prop-value" id="pvContractPeriod" data-field="contract_period"></div>
-    <div class="prop-row"><div class="prop-label">入居可能時期</div><input type="text" class="prop-value" id="pvMoveInDate" data-field="move_in_date"></div>
+    <div class="prop-row"><div class="prop-label suumo-required-display">入居可能時期</div><input type="text" class="prop-value" id="pvMoveInDate" data-field="move_in_date"></div>
     <div class="prop-row"><div class="prop-label">内見開始日</div><input type="text" class="prop-value" id="pvPreviewStart" data-field="preview_start_date"></div>
     <div class="prop-row"><div class="prop-label">入居条件</div><textarea class="prop-value" id="pvMoveInConditions" data-field="move_in_conditions" rows="2"></textarea></div>
     <div class="prop-row"><div class="prop-label">解約予告</div><input type="text" class="prop-value" id="pvCancellation" data-field="cancellation_notice"></div>
@@ -473,6 +519,13 @@ input.prop-value.highlight { color: #e74c3c; font-weight: 700; }
          font-size:12px;font-weight:700;color:#1a5276;
          display:none;">
   <!-- updateGenreCounter で内容更新 -->
+</div>
+
+<!-- SUUMO入稿必須項目チェックのエラーバナー -->
+<div id="requiredErrorBanner" class="required-error-banner">
+  <b>⚠️ SUUMO入稿に必要な項目が未入力です</b>
+  <div id="requiredErrorMessage" style="font-size:12px;line-height:1.6;"></div>
+  <button onclick="document.getElementById('requiredErrorBanner').classList.remove('show')">閉じる</button>
 </div>
 
 <!-- 承認/却下ボタン -->
@@ -1835,8 +1888,69 @@ function updateGenreCounter() {
   }
 }
 
+// ── SUUMO入稿必須項目バリデーション ──
+// SUUMO 入稿ページで ■(必須) / ▲(掲載必須) マークが付いている項目を、
+// 承認画面で対応するフィールドに対して空チェック。
+// 1項目でも空なら承認をブロックし、エラーバナーで通知。
+function validateSuumoRequiredFields() {
+  var checks = [
+    // [id, ラベル, '■' or '▲']
+    ['pvBuilding',     '建物名',         '■'],
+    ['pvAddress',      '住所',           '■'],
+    ['pvRent',         '賃料',           '■'],
+    ['pvFloor',        '所在階',         '■'],
+    ['pvStoryText',    '総階数',         '■'],
+    ['pvStructure',    '構造',           '▲'],
+    ['pvBuildingAge',  '築年数',         '▲'],
+    ['pvStation',      '最寄駅',         '▲'],
+    ['pvLayout',       '間取り',         '▲'],
+    ['pvArea',         '面積',           '▲'],
+    ['pvMoveInDate',   '入居可能時期',   '▲'],
+    ['pvOwnerCompany', '元付会社',       '▲'],
+    ['pvOwnerPhone',   '元付電話番号',   '▲']
+  ];
+  var missing = [];
+  checks.forEach(function(c) {
+    var el = document.getElementById(c[0]);
+    if (!el) return;
+    el.classList.remove('field-error');
+    var v = (el.value != null ? el.value : el.textContent || '').trim();
+    if (!v) {
+      missing.push({ id: c[0], label: c[1], mark: c[2] });
+      el.classList.add('field-error');
+    }
+  });
+  return missing;
+}
+
+function showSuumoRequiredErrorBanner(missing) {
+  var banner = document.getElementById('requiredErrorBanner');
+  var msg = document.getElementById('requiredErrorMessage');
+  if (!banner || !msg) return;
+  var html = '<ul>';
+  missing.forEach(function(m) {
+    html += '<li>' + m.mark + ' ' + m.label + '</li>';
+  });
+  html += '</ul>';
+  html += '<div style="margin-top:6px;font-size:11px;color:#7f1d1d;">■=SUUMO入稿で必須 / ▲=SUUMO掲載で必須</div>';
+  msg.innerHTML = html;
+  banner.classList.add('show');
+  // 最初の未入力フィールドへスクロール
+  var first = document.querySelector('.prop-value.field-error');
+  if (first) {
+    setTimeout(function(){ first.scrollIntoView({ behavior:'smooth', block:'center' }); }, 100);
+  }
+}
+
 // ── 承認 ──
 function doApprove() {
+  // SUUMO入稿必須項目チェック
+  var missing = validateSuumoRequiredFields();
+  if (missing.length > 0) {
+    showSuumoRequiredErrorBanner(missing);
+    return;
+  }
+
   var btn = document.getElementById('approveBtn');
   btn.disabled = true;
   btn.textContent = '承認中...';
