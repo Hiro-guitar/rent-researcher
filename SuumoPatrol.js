@@ -2208,6 +2208,129 @@ function getAdminPageUrl() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// AdminPage 用: submitting 状態の物件管理（手動入稿完了報告）
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * submitting 状態のまま放置されている候補物件をリスト化
+ * AdminPage.html から google.script.run 経由で呼ばれる。
+ * - submitting タイムアウト(30分)を超過した行のみ返す
+ * - 各行に経過時間(分)を付与
+ */
+function listSubmittingProperties() {
+  var sheet = getCandidateSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_CANDIDATE_HEADERS.length).getValues();
+  var nowMs = Date.now();
+  var results = [];
+
+  for (var i = 0; i < data.length; i++) {
+    var status = data[i][11]; // 12列目: ステータス
+    if (status !== 'submitting') continue;
+
+    var submittingTsRaw = data[i][16]; // 17列目: submittingTs
+    var submittingMs = 0;
+    if (submittingTsRaw instanceof Date) {
+      submittingMs = submittingTsRaw.getTime();
+    } else if (submittingTsRaw) {
+      var dd = new Date(submittingTsRaw);
+      if (!isNaN(dd.getTime())) submittingMs = dd.getTime();
+    }
+    var ageMs = submittingMs ? (nowMs - submittingMs) : 0;
+    var ageMin = Math.floor(ageMs / 60000);
+
+    var foundAtRaw = data[i][9]; // 10列目: 検出日時
+    var foundAt = '';
+    if (foundAtRaw instanceof Date) {
+      foundAt = Utilities.formatDate(foundAtRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    } else if (foundAtRaw) {
+      foundAt = String(foundAtRaw);
+    }
+
+    var submittingAt = '';
+    if (submittingMs) {
+      submittingAt = Utilities.formatDate(new Date(submittingMs), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    }
+
+    results.push({
+      key: String(data[i][0] || ''),
+      building: String(data[i][1] || ''),
+      room: String(data[i][2] || ''),
+      address: String(data[i][3] || ''),
+      rent: data[i][4] || '',
+      layout: String(data[i][6] || ''),
+      station: String(data[i][8] || ''),
+      foundAt: foundAt,
+      submittingAt: submittingAt,
+      ageMin: ageMin,
+      isTimeout: ageMs >= SUUMO_SUBMITTING_TIMEOUT_MS,
+      rowIndex: i + 2
+    });
+  }
+
+  // 新しい submitting 順にソート（経過時間が長いものが上）
+  results.sort(function(a, b) { return b.ageMin - a.ageMin; });
+  return results;
+}
+
+/**
+ * 手動で入稿完了したものとしてマーク（AdminPage の「手動入稿完了」ボタンから呼ばれる）
+ * 候補物件シートから building/room/rent を取得して recordSuumoPosting を呼ぶ。
+ * 結果: submitting → posted + SUUMO 掲載管理シートに行追加
+ */
+function markSuumoManuallyPosted(propertyKey) {
+  if (!propertyKey) return { success: false, message: 'propertyKey未指定' };
+
+  var sheet = getCandidateSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { success: false, message: '候補物件シートが空' };
+
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_CANDIDATE_HEADERS.length).getValues();
+  var target = null;
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0]) === String(propertyKey)) {
+      target = {
+        key: data[i][0],
+        building: data[i][1],
+        room: data[i][2],
+        rent: data[i][4],
+        status: data[i][11]
+      };
+      break;
+    }
+  }
+  if (!target) return { success: false, message: '該当物件が候補シートに見つかりません: ' + propertyKey };
+
+  // submitting でなくても許可するが、ログ出力
+  if (target.status !== 'submitting') {
+    Logger.log('markSuumoManuallyPosted: status=' + target.status + ' (submittingではないが処理続行) key=' + propertyKey);
+  }
+
+  // recordSuumoPosting を呼んで通常の post_complete(success:true) と同じ処理を実行
+  var result = recordSuumoPosting({
+    key: target.key,
+    building: target.building,
+    room: target.room,
+    rent: target.rent,
+    success: true
+  });
+  return result;
+}
+
+/**
+ * 手動で却下扱いに戻す（submittingロックを解除して approved に戻す）
+ * AdminPage の「却下扱いで戻す」ボタンから呼ばれる。
+ */
+function unlockSubmittingProperty(propertyKey) {
+  if (!propertyKey) return { success: false, message: 'propertyKey未指定' };
+  // recordSuumoPosting に success:false を渡すと submitting → approved に戻す
+  var result = recordSuumoPosting({ key: propertyKey, success: false });
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════
 // SUUMO承認画面用: 画像アップロード（imgbb）
 // ═══════════════════════════════════════════════════════════
 /**

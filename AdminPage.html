@@ -276,6 +276,20 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
   </div>
 
+  <!-- ═══ SUUMO入稿 submitting 放置物件セクション ═══ -->
+  <div id="submittingSection" class="section" style="display:none;border:2px solid #e67e22;background:#fff8f0;">
+    <div class="section-title" style="color:#a04000;">
+      ⚠️ SUUMO入稿で submitting のまま放置されている物件
+      <span id="submittingCountBadge" style="display:inline-block;margin-left:6px;padding:2px 8px;background:#e67e22;color:#fff;border-radius:10px;font-size:11px;">0件</span>
+      <button onclick="refreshSubmittingList()" style="float:right;font-size:11px;padding:3px 10px;background:#fff;border:1px solid #999;border-radius:4px;cursor:pointer;">🔄 更新</button>
+    </div>
+    <div style="font-size:11px;color:#666;margin-bottom:8px;">
+      自動入稿でエラーが起き、手動で登録完了した物件は、ここで「手動で入稿完了済み」を押してください。<br>
+      入稿を諦めた物件は「却下扱いで戻す」を押すと再承認できる状態に戻ります。
+    </div>
+    <div id="submittingList"></div>
+  </div>
+
   <!-- ═══ 顧客選択セクション ═══ -->
   <div class="section">
     <div class="section-title">顧客情報</div>
@@ -1651,6 +1665,105 @@ function openSuumoPatrolConfig() {
     })
     .getSuumoPatrolConfigUrl();
 }
+
+// ──────────────────────────────────────────────────────────
+// SUUMO入稿 submitting 放置物件の管理
+// ──────────────────────────────────────────────────────────
+function refreshSubmittingList() {
+  var listEl = document.getElementById('submittingList');
+  var sectionEl = document.getElementById('submittingSection');
+  var badgeEl = document.getElementById('submittingCountBadge');
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="color:#666;font-size:12px;">読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(items) {
+      items = items || [];
+      badgeEl.textContent = items.length + '件';
+      if (items.length === 0) {
+        // 0件のときはセクションごと非表示にする
+        sectionEl.style.display = 'none';
+        return;
+      }
+      sectionEl.style.display = '';
+      var html = '';
+      items.forEach(function(it) {
+        var key = escAttr(it.key);
+        var timeoutBadge = it.isTimeout
+          ? '<span style="display:inline-block;margin-left:4px;padding:1px 5px;font-size:10px;background:#e74c3c;color:#fff;border-radius:3px;">タイムアウト</span>'
+          : '';
+        html += '<div style="background:#fff;border:1px solid #f0c080;border-radius:6px;padding:10px 12px;margin-bottom:8px;">' +
+          '<div style="font-size:13px;font-weight:600;color:#7d3c00;margin-bottom:4px;">' +
+            esc(it.building) + ' ' + esc(it.room) + timeoutBadge +
+          '</div>' +
+          '<div style="font-size:11px;color:#666;margin-bottom:6px;">' +
+            esc(String(it.rent)) + '万 / ' + esc(it.layout) + ' / ' + esc(it.station) + '<br>' +
+            '住所: ' + esc(it.address) + '<br>' +
+            '検出: ' + esc(it.foundAt) + ' / submitting開始: ' + esc(it.submittingAt) +
+            ' （経過: <b>' + it.ageMin + '分</b>）' +
+          '</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+            '<button onclick="markManuallyPosted(\'' + key + '\', this)" style="padding:5px 12px;font-size:12px;background:#27ae60;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">手動で入稿完了済みにする</button>' +
+            '<button onclick="unlockSubmitting(\'' + key + '\', this)" style="padding:5px 12px;font-size:12px;background:#95a5a6;color:#fff;border:none;border-radius:4px;cursor:pointer;">却下扱いで戻す</button>' +
+          '</div>' +
+        '</div>';
+      });
+      listEl.innerHTML = html;
+    })
+    .withFailureHandler(function(err) {
+      listEl.innerHTML = '<div style="color:#c00;font-size:12px;">読み込み失敗: ' + esc(err.message || String(err)) + '</div>';
+    })
+    .listSubmittingProperties();
+}
+
+function markManuallyPosted(propertyKey, btn) {
+  if (!confirm('この物件を「手動で入稿完了済み」として記録します。\nSUUMO掲載管理シートに追加されます。よろしいですか？')) return;
+  if (btn) { btn.disabled = true; btn.textContent = '処理中...'; }
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.success) {
+        showToast('入稿完了として記録しました');
+        refreshSubmittingList();
+      } else {
+        alert('失敗: ' + (result && result.message ? result.message : '不明なエラー'));
+        if (btn) { btn.disabled = false; btn.textContent = '手動で入稿完了済みにする'; }
+      }
+    })
+    .withFailureHandler(function(err) {
+      alert('エラー: ' + (err.message || String(err)));
+      if (btn) { btn.disabled = false; btn.textContent = '手動で入稿完了済みにする'; }
+    })
+    .markSuumoManuallyPosted(propertyKey);
+}
+
+function unlockSubmitting(propertyKey, btn) {
+  if (!confirm('submitting ロックを解除して、再承認できる approved 状態に戻します。よろしいですか？')) return;
+  if (btn) { btn.disabled = true; btn.textContent = '処理中...'; }
+  google.script.run
+    .withSuccessHandler(function(result) {
+      showToast('submitting を解除しました');
+      refreshSubmittingList();
+    })
+    .withFailureHandler(function(err) {
+      alert('エラー: ' + (err.message || String(err)));
+      if (btn) { btn.disabled = false; btn.textContent = '却下扱いで戻す'; }
+    })
+    .unlockSubmittingProperty(propertyKey);
+}
+
+// 軽量トースト（既存の toast 要素を流用）
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  if (!t) { alert(msg); return; }
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function(){ t.classList.remove('show'); }, 2500);
+}
+
+// ページロード時に1回読み込み
+window.addEventListener('DOMContentLoaded', function() {
+  // 他の初期化が一段落してから submitting リストを読みに行く
+  setTimeout(refreshSubmittingList, 500);
+});
 </script>
 </body>
 </html>
