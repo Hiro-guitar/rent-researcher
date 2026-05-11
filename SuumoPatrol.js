@@ -605,6 +605,8 @@ function recordSuumoPosting(data) {
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
 
   // 掲載管理シートに追加
+  // suumoPropertyCode: 登録完了画面に表示される 12 桁のSUUMO物件コード。
+  // 手動完結検知(Phase6) から取れる場合に 11 列目(suumo_property_code) に書き込む。
   sheet.appendRow([
     key,
     data.building || '',
@@ -615,7 +617,8 @@ function recordSuumoPosting(data) {
     0,  // 問合初期値
     0,  // スコア初期値
     'active',
-    ''
+    '',
+    String(data.suumoPropertyCode || '')  // 11列目: suumo_property_code
   ]);
 
   // 候補物件シートのステータスをpostedに更新 + submittingTsクリア
