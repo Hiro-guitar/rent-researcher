@@ -1317,17 +1317,26 @@ async function _uploadPixeldrain(base64, mime) {
 async function _uploadImgbb(base64) {
   const formData = new FormData();
   formData.append('image', base64);
-  const resp = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, { method: 'POST', body: formData });
-  if (!resp.ok) {
-    let body = ''; try { body = (await resp.text()).slice(0, 200); } catch(e){}
-    const isRate = resp.status === 429 || resp.status === 503 || /rate limit/i.test(body);
-    const err = new Error(`imgbb_${resp.status}:${body.replace(/\s+/g,' ')}`);
-    if (isRate) err.rateLimited = true;
-    throw err;
+  // タイムアウト 20 秒 (応答しない場合に永久ハングするのを防ぐ)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+      method: 'POST', body: formData, signal: controller.signal
+    });
+    if (!resp.ok) {
+      let body = ''; try { body = (await resp.text()).slice(0, 200); } catch(e){}
+      const isRate = resp.status === 429 || resp.status === 503 || /rate limit/i.test(body);
+      const err = new Error(`imgbb_${resp.status}:${body.replace(/\s+/g,' ')}`);
+      if (isRate) err.rateLimited = true;
+      throw err;
+    }
+    const json = await resp.json();
+    if (!json || !json.success || !json.data || !json.data.url) throw new Error('imgbb_unexpected_response');
+    return json.data.url;
+  } finally {
+    clearTimeout(timeout);
   }
-  const json = await resp.json();
-  if (!json || !json.success || !json.data || !json.data.url) throw new Error('imgbb_unexpected_response');
-  return json.data.url;
 }
 
 // freeimage.host にアップロード(Cheveretoベース、imgbb互換フォーマット)
@@ -1337,17 +1346,26 @@ async function _uploadFreeimage(base64) {
   formData.append('action', 'upload');
   formData.append('source', base64);
   formData.append('format', 'json');
-  const resp = await fetch('https://freeimage.host/api/1/upload', { method: 'POST', body: formData });
-  if (!resp.ok) {
-    let body = ''; try { body = (await resp.text()).slice(0, 200); } catch(e){}
-    const isRate = resp.status === 429 || resp.status === 503 || /rate limit/i.test(body);
-    const err = new Error(`freeimage_${resp.status}:${body.replace(/\s+/g,' ')}`);
-    if (isRate) err.rateLimited = true;
-    throw err;
+  // タイムアウト 20 秒 (応答しない場合に永久ハングするのを防ぐ)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch('https://freeimage.host/api/1/upload', {
+      method: 'POST', body: formData, signal: controller.signal
+    });
+    if (!resp.ok) {
+      let body = ''; try { body = (await resp.text()).slice(0, 200); } catch(e){}
+      const isRate = resp.status === 429 || resp.status === 503 || /rate limit/i.test(body);
+      const err = new Error(`freeimage_${resp.status}:${body.replace(/\s+/g,' ')}`);
+      if (isRate) err.rateLimited = true;
+      throw err;
+    }
+    const json = await resp.json();
+    if (!json || !json.image || !json.image.url) throw new Error('freeimage_unexpected_response');
+    return json.image.url;
+  } finally {
+    clearTimeout(timeout);
   }
-  const json = await resp.json();
-  if (!json || !json.image || !json.image.url) throw new Error('freeimage_unexpected_response');
-  return json.image.url;
 }
 
 // imgur にアップロード(Client-ID必須)
@@ -1356,21 +1374,29 @@ async function _uploadImgur(base64) {
   const formData = new FormData();
   formData.append('image', base64);
   formData.append('type', 'base64');
-  const resp = await fetch('https://api.imgur.com/3/image', {
-    method: 'POST',
-    headers: { 'Authorization': `Client-ID ${IMGUR_CLIENT_ID}` },
-    body: formData,
-  });
-  if (!resp.ok) {
-    let body = ''; try { body = (await resp.text()).slice(0, 200); } catch(e){}
-    const isRate = resp.status === 429 || resp.status === 503 || /rate limit|quota/i.test(body);
-    const err = new Error(`imgur_${resp.status}:${body.replace(/\s+/g,' ')}`);
-    if (isRate) err.rateLimited = true;
-    throw err;
+  // タイムアウト 20 秒 (応答しない場合に永久ハングするのを防ぐ)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch('https://api.imgur.com/3/image', {
+      method: 'POST',
+      headers: { 'Authorization': `Client-ID ${IMGUR_CLIENT_ID}` },
+      body: formData,
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      let body = ''; try { body = (await resp.text()).slice(0, 200); } catch(e){}
+      const isRate = resp.status === 429 || resp.status === 503 || /rate limit|quota/i.test(body);
+      const err = new Error(`imgur_${resp.status}:${body.replace(/\s+/g,' ')}`);
+      if (isRate) err.rateLimited = true;
+      throw err;
+    }
+    const json = await resp.json();
+    if (!json || !json.success || !json.data || !json.data.link) throw new Error('imgur_unexpected_response');
+    return json.data.link;
+  } finally {
+    clearTimeout(timeout);
   }
-  const json = await resp.json();
-  if (!json || !json.success || !json.data || !json.data.link) throw new Error('imgur_unexpected_response');
-  return json.data.link;
 }
 
 // Telegra.ph にアップロード（APIキー不要、安定）

@@ -3421,7 +3421,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             let lastErr = null;
             for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
               try {
-                const publicUrl = await uploadBase64ToCatbox(b64);
+                // 保険として 60秒の絶対タイムアウトを設ける
+                // (uploadBase64ToCatbox 内の各ホストはそれぞれ 20秒だが、想定外のハングに備える)
+                const publicUrl = await Promise.race([
+                  uploadBase64ToCatbox(b64),
+                  new Promise((_, reject) => setTimeout(
+                    () => reject(new Error('upload_overall_timeout_60s')), 60000
+                  ))
+                ]);
                 if (publicUrl) return publicUrl;
                 lastErr = 'null_response';
                 if (attempt < MAX_ATTEMPTS - 1) await csleep(1000);
