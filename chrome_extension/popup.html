@@ -53,6 +53,13 @@
       color: white;
     }
     .btn:hover { background: #1d4ed8; }
+    .btn-secondary {
+      background: #fff;
+      color: #2563eb;
+      border: 1px solid #2563eb;
+      margin-top: 6px;
+    }
+    .btn-secondary:hover { background: #eff6ff; }
   </style>
 </head>
 <body>
@@ -62,6 +69,7 @@
     <span id="statusText">-</span>
   </div>
   <button id="openDashboard" class="btn">ダッシュボードを開く</button>
+  <button id="openHelp" class="btn btn-secondary">📖 使い方を見る</button>
   <script src="popup.js"></script>
 </body>
 </html>

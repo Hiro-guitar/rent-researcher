@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>rent_researcher - 使い方</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', sans-serif;
+    background: #f5f5f5; color: #2c3e50;
+    margin: 0; padding: 20px 16px 60px;
+    -webkit-text-size-adjust: 100%;
+  }
+  .container { max-width: 820px; margin: 0 auto; }
+  header { margin-bottom: 12px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { font-size: 12px; color: #888; }
+  .toc {
+    background: #fff; border-radius: 8px; padding: 12px 16px;
+    margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    font-size: 13px;
+  }
+  .toc ul { margin: 4px 0 0 18px; padding: 0; }
+  .toc li { margin: 2px 0; }
+  .toc a { color: #2980b9; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  section {
+    background: #fff; border-radius: 8px; padding: 16px 20px;
+    margin: 0 0 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  h2 {
+    font-size: 16px; color: #27ae60; margin: 0 0 10px;
+    border-bottom: 2px solid #e8f5e9; padding-bottom: 6px;
+  }
+  h3 {
+    font-size: 14px; color: #2c3e50; margin: 14px 0 6px;
+  }
+  ul, ol { margin: 4px 0 8px 22px; padding: 0; }
+  li { margin: 3px 0; font-size: 13px; line-height: 1.6; }
+  p { font-size: 13px; line-height: 1.6; margin: 4px 0 8px; }
+  code {
+    background: #f0f0f0; padding: 1px 5px; border-radius: 3px;
+    font-family: 'SF Mono', Menlo, monospace; font-size: 12px;
+    color: #c0392b;
+  }
+  pre {
+    background: #2c3e50; color: #ecf0f1; padding: 10px 12px;
+    border-radius: 6px; overflow-x: auto; font-size: 11px;
+    line-height: 1.5;
+  }
+  .note {
+    background: #fff8e1; border-left: 3px solid #f39c12;
+    padding: 8px 12px; margin: 8px 0; font-size: 12px;
+  }
+  .warn {
+    background: #fdecea; border-left: 3px solid #e74c3c;
+    padding: 8px 12px; margin: 8px 0; font-size: 12px;
+  }
+  .tip {
+    background: #e8f5e9; border-left: 3px solid #27ae60;
+    padding: 8px 12px; margin: 8px 0; font-size: 12px;
+  }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+    margin: 6px 0;
+  }
+  th, td {
+    border: 1px solid #ddd; padding: 5px 8px; text-align: left;
+  }
+  th { background: #f5f5f5; }
+  .key { display: inline-block; padding: 1px 6px; background: #ecf0f1; border: 1px solid #bdc3c7; border-radius: 3px; font-family: monospace; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="container">
+<header>
+  <h1>rent_researcher 使い方メモ</h1>
+  <div class="subtitle">自分用・要点のみ・2026-05-13 時点</div>
+</header>
+
+<!-- 目次 -->
+<div class="toc">
+  <b>目次</b>
+  <ul>
+    <li><a href="#customer">1. お客さんの物件検索</a></li>
+    <li><a href="#suumo">2. SUUMO巡回（自動入稿）</a></li>
+    <li><a href="#logs">3. ログの読み方</a></li>
+    <li><a href="#trouble">4. トラブル時の対処</a></li>
+    <li><a href="#files">5. 関連ファイル / リンク</a></li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 1. お客さんの物件検索 -->
+<!-- ═══════════════════════════════════════════════ -->
+<section id="customer">
+<h2>1. お客さんの物件検索</h2>
+
+<h3>使うサービス（4つ）</h3>
+<ul>
+  <li><b>REINS</b>: ログイン必須。各サイトで1番遅いが情報量◎</li>
+  <li><b>itandi (BB)</b>: ログイン必須。API直叩きで超速い</li>
+  <li><b>いえらぶ (BB)</b>: ログイン必須。URLパラメータで絞り込み</li>
+  <li><b>ES-Square</b>: ログイン必須。広告可バッジでフィルタ</li>
+</ul>
+
+<h3>お客さん新規登録</h3>
+<ol>
+  <li>AdminPage（検索条件管理）を開く</li>
+  <li>「— 新規顧客 —」を選択した状態で、顧客名・LINE User ID（任意）を入力</li>
+  <li>エリア（路線・駅 or 市区町村）を選択 ※同時併用不可</li>
+  <li>賃料・間取り・徒歩・面積・築年数・構造・設備を入力</li>
+  <li>「保存」</li>
+</ol>
+
+<h3>検索の起動</h3>
+<ul>
+  <li><b>手動</b>: 拡張アイコン → ダッシュボード → 「検索開始」</li>
+  <li><b>自動</b>: 定刻で cron トリガー（実装次第）</li>
+</ul>
+
+<h3>結果通知</h3>
+<ul>
+  <li>新着物件 → Discord（forum チャンネルにスレッド形式）</li>
+  <li>LINE User ID 登録済みお客さん → LINE にも条件マッチ通知（実装次第）</li>
+</ul>
+
+<h3>賃料下限の挙動</h3>
+<ul>
+  <li>顧客の <code>rent_min</code> 指定あり → その値を下限</li>
+  <li>顧客の <code>rent_min</code> 未指定 → <b>rent_max の70%</b> を自動で下限に設定（極端に安い物件を除外）</li>
+  <li>SUUMO巡回時は <code>_isSuumoPatrol</code> フラグで70%自動設定をスキップ</li>
+</ul>
+
+<div class="tip">バス・トイレ別の処理は拡張オプションで「alert / skip」を切替可能。skip にすると条件不一致で自動除外、alert は通過してアラート表示のみ。</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 2. SUUMO巡回 -->
+<!-- ═══════════════════════════════════════════════ -->
+<section id="suumo">
+<h2>2. SUUMO巡回（自動入稿）</h2>
+
+<h3>全体フロー</h3>
+<pre>巡回条件で4サイト検索 → 新着発見
+  ↓
+SUUMO候補物件シートに保存（status=新着）
+  ↓
+Discord通知（thread形式） → 「承認ページを開く」リンク
+  ↓
+承認ページで内容確認 + 必須項目チェック + 画像ジャンル選択
+  ↓
+「承認して入稿」クリック → submitting
+  ↓
+ForRent タブで自動入稿（Phase1〜5）
+  ↓
+登録完了画面検知（Phase6） → posted + SUUMO掲載管理シートに行追加</pre>
+
+<h3>巡回条件の管理</h3>
+<ol>
+  <li>AdminPage → 「SUUMO巡回条件を管理」</li>
+  <li>条件は最大50件枠で運用（active状態の上限）</li>
+  <li>各条件: 名前 / 路線・駅 or 市区町村 / 賃料 / 間取り / 徒歩 / 面積 / 築年数 / 構造 / 設備 / 巡回間隔</li>
+  <li>巡回間隔は「N日以内」（各サイトの新着絞り込み）</li>
+</ol>
+
+<h3>承認画面の必須項目</h3>
+<p>SUUMO 入稿で必須の項目には承認画面でマーク表示。承認ボタン押下時にバリデーション。</p>
+<ul>
+  <li>🟥 <b>■</b> = SUUMO入稿で必須（空だとエラー）: 建物名 / 住所 / 賃料 / 所在階 / 総階数</li>
+  <li>🟧 <b>▲</b> = SUUMO掲載必須: 構造 / 築年数 / 最寄駅 / 間取り / 面積 / 入居可能時期 / 元付会社 / 元付電話番号</li>
+  <li>🟨 <b>⚠</b> = 条件付き必須: 定期借家のとき契約期間（期間または期限）</li>
+</ul>
+
+<h3>画像ジャンルとスコア</h3>
+<table>
+  <tr><th>分類</th><th>カテゴリ</th><th>配点</th></tr>
+  <tr><td>主要</td><td>間取り / 外観 / リビング / キッチン / バス</td><td>各5点（max 25点）</td></tr>
+  <tr><td>その他</td><td>トイレ・洗面・収納・その他部屋・玄関 等</td><td>1ジャンル1点（max 9点）</td></tr>
+</table>
+<p>合計34点満点で<b>32点が目標</b>。同じジャンル複数枚使っても加点は1回のみ。</p>
+<p>ホームズ画像検索ボタンで補完候補を表示 → 採用予定込みの「予測スコア」が画面下部のフローティングバーに常時表示。</p>
+
+<h3>入稿フローの段階</h3>
+<table>
+  <tr><th>Phase</th><th>場所</th><th>処理</th></tr>
+  <tr><td>1</td><td>承認画面</td><td>imgbb等に画像アップロード、property_data_json構築</td></tr>
+  <tr><td>2</td><td>ForRent入力フォーム</td><td>各フィールドに自動入力 → 「確認画面へ」クリック</td></tr>
+  <tr><td>3</td><td>確認画面</td><td>必須項目チェック → 画像数チェック</td></tr>
+  <tr><td>4</td><td>確認画面</td><td><code>#jikko</code>（登録ボタン）クリック</td></tr>
+  <tr><td>5</td><td>遷移先</td><td>URL変化を確認 → 成功なら GAS に <code>suumo_post_complete</code>(success:true)</td></tr>
+  <tr><td>6</td><td>登録完了画面</td><td>「登録完了しました」DOM検知 → 手動完結ケースを自動でGAS通知</td></tr>
+</table>
+
+<h3>停止候補ロジック（入れ替え）</h3>
+<p>50件枠が埋まっている時、新規承認の前に <code>findStopCandidates</code> が呼ばれて落とす候補を選出。</p>
+<p><b>保護ルール</b>（候補対象外、relaxLevel 0→3で段階的に緩和）:</p>
+<ul>
+  <li>level 0: 新着7日 / 問合あり&lt;45日</li>
+  <li>level 1: 新着3日 / 問合あり&lt;30日</li>
+  <li>level 2: 新着1日のみ</li>
+  <li>level 3: 保護なし</li>
+</ul>
+<p><b>危険度スコア</b>:</p>
+<pre>weightedComp = compLv3 × 2.1 + compLv2 × 1.6 + compLv1 × 1.0
+riskScore = weightedComp × 10
+         − inquiries × 100      (1問合せ = 競合10件相殺)
+         + (sheetDays ≥ 60 ? 9999 : 0)
+         + (effectiveDays ≥ 45 ? 500 : 0)</pre>
+<p>スコア降順で上位を停止候補に。SUUMOビジネスの第1〜3基準値競合数を使う。</p>
+
+<h3>submitting 放置物件の救済</h3>
+<p>承認後に自動入稿が失敗してユーザーが手動完結した場合の救済UIがAdminPageにある。</p>
+<ul>
+  <li>AdminPage の上部に「⚠️ SUUMO入稿で submitting のまま放置されている物件」セクション（0件なら非表示）</li>
+  <li>「手動で入稿完了済みにする」 → posted化 + SUUMO掲載管理シートに行追加</li>
+  <li>「却下扱いで戻す」 → submitting解除 → approved に戻る（再承認可能）</li>
+</ul>
+<div class="tip">Phase6 の登録完了画面自動検知が動けば、放置されることはほぼ無くなる。AdminPage の救済UIは保険。</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 3. ログ -->
+<!-- ═══════════════════════════════════════════════ -->
+<section id="logs">
+<h2>3. ログの読み方</h2>
+
+<h3>確認場所</h3>
+<ul>
+  <li>拡張アイコン → 「ダッシュボードを開く」 → <code>log.html</code></li>
+  <li>chrome://extensions/ → 「サービスワーカーを検査」 → Console</li>
+</ul>
+
+<h3>検索結果のスキップ集約ログ</h3>
+<p>各サイトの顧客検索終了時に「内訳」が1行で出る:</p>
+<pre>[いえらぶ] こが: スキップ内訳 → 通知済み 6件 / フィルタ済キャッシュ 10件</pre>
+<ul>
+  <li><b>通知済み</b>: 過去にこの顧客に通知済みの物件（room_id一致）</li>
+  <li><b>フィルタ済キャッシュ</b>: 前回フィルタで除外した物件を再スキップ（ielove のみ実装）</li>
+</ul>
+<p>個別ログ（理由付き）が出るもの:</p>
+<ul>
+  <li>申込あり（一覧/詳細段階）</li>
+  <li>条件不一致（南向きでない、徒歩超過、etc）</li>
+  <li>元付除外キーワード（SUUMO巡回時）</li>
+  <li>SUUMO競合多数（SUUMO巡回時）</li>
+  <li>他サイトで申込あり（前回実行）</li>
+</ul>
+
+<h3>REINS画像アップロードログ</h3>
+<pre>顧客名: REINS画像 base64取得=10件
+顧客名: REINS画像アップロード完了 10/10件 via=catbox:8,0x0:2</pre>
+<ul>
+  <li><code>via=...</code> でどの画像ホスティングサービスで成功したか分かる</li>
+  <li>失敗時は <code>(失敗:N) [b64size=... err=...]</code> がつく</li>
+  <li>ホストは catbox → 0x0 → telegraph → imgbb → freeimage → tmpfiles → pixeldrain → imgur の順でフォールバック</li>
+  <li>失敗ホストは30分クールダウン（chrome.storage に永続化）</li>
+</ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 4. トラブル時 -->
+<!-- ═══════════════════════════════════════════════ -->
+<section id="trouble">
+<h2>4. トラブル時の対処</h2>
+
+<h3>検索が途中で止まる</h3>
+<ol>
+  <li>まずダッシュボードで最後のログを確認（どのサイト・どの段階で止まった？）</li>
+  <li>各サイトのログイン切れ → 該当サイトに手動ログイン → 再検索</li>
+  <li>Service Worker が固まってる → <span class="key">chrome://extensions/</span> → サービスワーカーを「停止」 → 自動で再起動</li>
+  <li>それでもダメ → 拡張アイコン右クリック → 「拡張機能を管理」 → 更新ボタン（🔄）で再読み込み</li>
+</ol>
+
+<h3>REINS画像アップロードが遅い・止まる（47秒以上）</h3>
+<ul>
+  <li>ログの <code>via=...</code> を確認 → どのホストが効いているか</li>
+  <li>catbox長期障害 → 自動で30分クールダウンしてフォールバック</li>
+  <li>2週間に1回・朝起こる謎の遅延 → SW Cold Start + DNS遅延の可能性。1回成功すれば治る</li>
+  <li>全ホストダメ → <code>all_hosts_failed: ...</code> がログに出る</li>
+</ul>
+
+<h3>SUUMO入稿が失敗した</h3>
+<ul>
+  <li>確認画面でエラー出た → 手動でエラー修正して登録ボタン押下</li>
+  <li>登録完了画面に到達すれば <b>Phase6が自動検知</b> → 60分以内ならGASに通知される</li>
+  <li>60分超えてしまった or 一度諦めた → AdminPage の「submitting 放置物件」セクションで救済</li>
+</ul>
+
+<h3>SUUMO候補物件が submittingで残ってる</h3>
+<ul>
+  <li>AdminPage 上部に表示される</li>
+  <li>「手動で入稿完了済みにする」or「却下扱いで戻す」で対処</li>
+  <li>30分タイムアウトで自動的に approved に戻る仕組みもある</li>
+</ul>
+
+<h3>Chrome拡張の変更が反映されない</h3>
+<ul>
+  <li>chrome_extension はローカル読み込み → <span class="key">chrome://extensions/</span> で更新ボタン押下</li>
+  <li>Service Worker は5分idle で終了 → 次のイベントで新コードがロードされる</li>
+</ul>
+
+<h3>GASコードの変更が反映されない</h3>
+<ul>
+  <li><code>gas_deploy.sh</code> 実行で全 deployment を新版に更新</li>
+  <li>nice-feistel ワークツリーが main と同期されている必要あり（gas_deploy.shが警告してくれる）</li>
+</ul>
+</section>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- 5. 関連ファイル -->
+<!-- ═══════════════════════════════════════════════ -->
+<section id="files">
+<h2>5. 関連ファイル / リンク</h2>
+
+<h3>Chrome 拡張（~/chrome_extension/）</h3>
+<table>
+  <tr><th>ファイル</th><th>役割</th></tr>
+  <tr><td><code>background.js</code></td><td>Service Worker・検索オーケストレーション・状態管理</td></tr>
+  <tr><td><code>itandi-background.js</code></td><td>itandi BB のAPI検索ロジック</td></tr>
+  <tr><td><code>ielove-background.js</code></td><td>いえらぶ BB のURL検索ロジック</td></tr>
+  <tr><td><code>essquare-background.js</code></td><td>ES-Square 検索 + 画像アップロード関数群</td></tr>
+  <tr><td><code>suumo-patrol.js</code></td><td>SUUMO巡回エンジン</td></tr>
+  <tr><td><code>suumo-fill-auto.js</code></td><td>ForRent 自動入力（Phase2 + Phase6完了検知）</td></tr>
+  <tr><td><code>forrent-final-submit.js</code></td><td>ForRent 登録ボタンクリック（Phase5）</td></tr>
+  <tr><td><code>suumo-competitor.js</code></td><td>SUUMO競合数取得・事前スキップ判定</td></tr>
+  <tr><td><code>suumo-business-fetch.js</code></td><td>SUUMOビジネスから掲載中物件・PV・問合数取得</td></tr>
+  <tr><td><code>popup.html / options.html / log.html / help.html</code></td><td>拡張UI</td></tr>
+</table>
+
+<h3>GAS（nice-feistelワークツリー）</h3>
+<table>
+  <tr><th>ファイル</th><th>役割</th></tr>
+  <tr><td><code>コード.js</code></td><td>エントリポイント（doGet / doPost ディスパッチ）</td></tr>
+  <tr><td><code>PropertyApproval.js</code></td><td>承認待ち物件・通知済み物件・アクションログ</td></tr>
+  <tr><td><code>SuumoPatrol.js</code></td><td>SUUMO候補物件・掲載管理シート・recordSuumoPosting</td></tr>
+  <tr><td><code>ConversationFlow.js</code></td><td>LINE 会話フロー</td></tr>
+  <tr><td><code>ExistingBot.js</code></td><td>遅延返信キュー</td></tr>
+  <tr><td><code>AdminPage.html</code></td><td>顧客検索条件管理 + submitting放置救済UI</td></tr>
+  <tr><td><code>SuumoApprovalPage.html</code></td><td>SUUMO承認画面（必須項目チェック含む）</td></tr>
+  <tr><td><code>SuumoPatrolConfig.html</code></td><td>SUUMO巡回条件管理</td></tr>
+</table>
+
+<h3>スプレッドシート</h3>
+<ul>
+  <li><b>検索条件</b>: 顧客マスタ</li>
+  <li><b>承認待ち物件</b>: 自動取得後、承認前に貯まる</li>
+  <li><b>通知済み物件</b>: 顧客に通知した物件の room_id 履歴</li>
+  <li><b>SUUMO巡回条件</b>: 巡回検索の条件</li>
+  <li><b>SUUMO候補物件</b>: 巡回ヒット物件・承認状態</li>
+  <li><b>SUUMO掲載管理</b>: 入稿成功した物件・PV/問合/危険度スコア</li>
+  <li><b>LINE Users</b>: LINE userId ↔ 顧客名 マッピング</li>
+</ul>
+
+<h3>その他</h3>
+<ul>
+  <li>Discord webhook: 物件通知（forumチャンネル・スレッド形式）</li>
+  <li>画像ホスティング: catbox→0x0→telegraph→imgbb→freeimage→tmpfiles→pixeldrain→imgur</li>
+</ul>
+
+<div class="note">変更後の運用ルール:
+<ul style="margin-top:4px;">
+  <li>GASファイルは nice-feistel ワークツリーでのみ編集 → 他ワークツリーで触ると <code>gas_deploy.sh</code> 時に上書き消滅</li>
+  <li>デプロイ前に <code>git merge main</code> でnice-feistelをmainに同期</li>
+  <li>Chrome拡張の変更は再読み込みだけでOK（デプロイ不要）</li>
+</ul>
+</div>
+</section>
+
+</div>
+</body>
+</html>

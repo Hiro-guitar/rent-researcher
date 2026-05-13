@@ -24,4 +24,10 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.tabs.create({ url: chrome.runtime.getURL('log.html') });
     window.close();
   });
+
+  // 使い方ページ（help.html）を開く
+  document.getElementById('openHelp').addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('help.html') });
+    window.close();
+  });
 });
