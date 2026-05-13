@@ -3416,6 +3416,8 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const uploadedUrls = [];
           let uploadFailed = 0;
           const uploadErrors = [];
+          // 成功ホストの統計 (どのホストで救われたかをログに残す)
+          const viaStats = {};
           async function uploadOne(b64) {
             const MAX_ATTEMPTS = 3;
             let lastErr = null;
@@ -3429,7 +3431,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                     () => reject(new Error('upload_overall_timeout_60s')), 60000
                   ))
                 ]);
-                if (publicUrl) return publicUrl;
+                if (publicUrl) {
+                  // 成功 - どのホストで救われたか集計
+                  const via = globalThis.__lastImageUploadVia || '?';
+                  viaStats[via] = (viaStats[via] || 0) + 1;
+                  return publicUrl;
+                }
                 lastErr = 'null_response';
                 if (attempt < MAX_ATTEMPTS - 1) await csleep(1000);
               } catch (e) {
@@ -3463,7 +3470,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             detail.image_url = uploadedUrls[0];
           }
           const errSample = uploadErrors.length > 0 ? ` [${uploadErrors.slice(0,2).join(' | ')}]` : '';
-          await setStorageData({ debugLog: `${customer.name}: REINS画像アップロード完了 ${uploadedUrls.length}/${imageBase64s.length}件${uploadFailed > 0 ? ` (失敗:${uploadFailed})` : ''}${errSample}` });
+          // どのホストで成功したかの内訳 (例: via=imgbb:8,0x0:2)
+          const viaSummary = Object.keys(viaStats).length > 0
+            ? ' via=' + Object.entries(viaStats).map(([k, v]) => `${k}:${v}`).join(',')
+            : '';
+          await setStorageData({ debugLog: `${customer.name}: REINS画像アップロード完了 ${uploadedUrls.length}/${imageBase64s.length}件${uploadFailed > 0 ? ` (失敗:${uploadFailed})` : ''}${viaSummary}${errSample}` });
         } catch (upErr) {
           logError(`${customer.name}: REINS画像アップロード失敗: ${upErr.message}`);
         }

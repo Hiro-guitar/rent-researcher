@@ -1433,12 +1433,30 @@ async function _uploadTelegraph(base64, mime) {
   }
 }
 
-// ホスト別の最終失敗時刻を記録し、しばらくスキップする(レート制限食らったら60秒避ける)
+// ホスト別の最終失敗時刻を記録し、しばらくスキップする。
+// MV3 では Service Worker が ~5分 idle で終了してメモリが揮発するため、
+// chrome.storage.local にも永続化して再起動後も状態を維持する。
 const __hostCooldown = {
   catbox: 0, '0x0': 0, telegraph: 0, imgbb: 0,
   freeimage: 0, tmpfiles: 0, pixeldrain: 0, imgur: 0
 };
-const COOLDOWN_MS = 60 * 1000;
+// 30分: catbox/imgbb のような長期障害があるホストを 30分単位でスキップして
+// 毎回タイムアウト分(20秒x3リトライ=60秒)を消費するのを避ける
+const COOLDOWN_MS = 30 * 60 * 1000;
+
+// 起動時に永続化された cooldown 状態を復元
+try {
+  chrome.storage.local.get(['imageHostCooldown'], (data) => {
+    if (data && data.imageHostCooldown && typeof data.imageHostCooldown === 'object') {
+      Object.assign(__hostCooldown, data.imageHostCooldown);
+    }
+  });
+} catch (_) {}
+
+function _markHostCooldown(name) {
+  __hostCooldown[name] = Date.now();
+  try { chrome.storage.local.set({ imageHostCooldown: __hostCooldown }); } catch (_) {}
+}
 
 // アップロード成功 URL の死活確認。
 // catbox 等が API には 200 で URL を返すが実体は保存されていない「偽成功」を弾くため。
@@ -1494,16 +1512,24 @@ async function uploadBase64ToCatbox(dataUrl) {
       const url = await h.fn();
       if (!url) {
         errors.push(`${h.name}=null_url`);
+        _markHostCooldown(h.name);  // null も連続したら次回スキップ
         continue;
       }
       // 偽成功(API 200 だが実体壊れ)を弾く
       const verify = await _verifyImageUrl(url, base64.length);
-      if (verify.ok) return url;
-      __hostCooldown[h.name] = Date.now();
+      if (verify.ok) {
+        // 成功ホスト名を呼び出し側に伝達するためグローバルに記録
+        globalThis.__lastImageUploadVia = h.name;
+        return url;
+      }
+      _markHostCooldown(h.name);
       errors.push(`${h.name}=verify_failed(${verify.reason})_url=${url.slice(0, 60)}`);
     } catch (e) {
       errors.push(`${h.name}=${(e && e.message) || e}`.slice(0, 120));
-      if (e && e.rateLimited) __hostCooldown[h.name] = Date.now();
+      // タイムアウト/レート制限/接続エラーなど、全例外でクールダウン設定。
+      // (旧実装はレート制限時のみだったが、catbox の連続タイムアウトでも
+      //  毎回 20秒待つことになるため、より積極的にスキップする)
+      _markHostCooldown(h.name);
       // 次のホストへフォールバック
     }
   }
