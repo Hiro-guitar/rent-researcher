@@ -790,22 +790,31 @@ function findStopCandidates(topN, options) {
     // SUUMO側の実績で保護判定/45日ボーナス判定できる。
     var effectiveDays = Math.max(sheetDays, suumoListedDays);
 
-    // 保護判定 (relaxLevel に応じて段階的に緩和)
+    // 60日超は無条件で停止候補対象 (相手の反響予測が高くても、シート日数60日を
+    // 超えた物件は強制的に落とす。ここで保護スキップして Step2 の +9999 で確実に
+    // 最優先落としにする)
+    var isLongStay = (sheetDays >= 60);
+
+    // 保護判定 (relaxLevel に応じて段階的に緩和、60日超は保護対象外)
     // 反響予測スコアによる保護: 物件のスペック上「本来人気が期待できる」物件は、
     // 競合に埋もれていても落とさない (パターン3: 競合落ちで後から見られる物件を救済)
-    if (relaxLevel === 0) {
-      if (effectiveDays < 7) continue;                           // 新着7日保護
-      if (inquiries >= 1 && effectiveDays < 45) continue;        // 問合あり&45日未満 保護
-      if (inquiryScore >= 70) continue;                          // 反響予測≥70点(👍標準以上) 保護
-    } else if (relaxLevel === 1) {
-      if (effectiveDays < 3) continue;                           // 新着3日保護
-      if (inquiries >= 1 && effectiveDays < 30) continue;        // 問合あり&30日未満 保護
-      if (inquiryScore >= 80) continue;                          // 反響予測≥80点(🔥高反響予測) 保護
-    } else if (relaxLevel === 2) {
-      if (effectiveDays < 1) continue;                           // 新着1日保護のみ
-      if (inquiryScore >= 90) continue;                          // 反響予測≥90点 のみ保護
+    if (!isLongStay) {
+      if (relaxLevel === 0) {
+        if (effectiveDays < 7) continue;                           // 新着7日保護
+        if (inquiries >= 1 && effectiveDays < 45) continue;        // 問合あり&45日未満 保護
+        if (inquiryScore >= 70) continue;                          // 反響予測≥70点(👍標準以上) 保護
+      } else if (relaxLevel === 1) {
+        if (effectiveDays < 3) continue;                           // 新着3日保護
+        if (inquiries >= 1 && effectiveDays < 30) continue;        // 問合あり&30日未満 保護
+        if (inquiryScore >= 80) continue;                          // 反響予測≥80点(🔥高反響予測) 保護
+      } else if (relaxLevel === 2) {
+        if (effectiveDays < 1) continue;                           // 新着1日保護のみ
+        if (inquiryScore >= 90) continue;                          // 反響予測≥90点 のみ保護
+      }
+      // relaxLevel === 3 は保護なし (active なら全員候補)
     }
-    // relaxLevel === 3 は保護なし (active なら全員候補)
+    // isLongStay (sheetDays >= 60) の物件は relaxLevel 問わず全て候補入り。
+    // Step2 の長期掲載ボーナス(+9999) でほぼ最優先で落ちる。
 
     // 危険度スコア
     // 問合は1件あたり -100 (第1基準値競合10件相殺相当)
