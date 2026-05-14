@@ -67,6 +67,9 @@ function doPost(e) {
     if (json.action === 'suumo_post_complete') {
       return handleSuumoPostComplete(json);
     }
+    if (json.action === 'update_candidate_inquiry_scores') {
+      return handleUpdateSuumoCandidateInquiryScores(json);
+    }
     if (json.action === 'update_suumo_performance') {
       return handleUpdateSuumoPerformance(json);
     }

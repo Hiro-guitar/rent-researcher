@@ -30,7 +30,10 @@ var SUUMO_CANDIDATE_HEADERS = [
   '物件キー', '建物名', '部屋番号', '住所', '賃料', '管理費', '間取り', '面積',
   '最寄駅', '検出日時', 'ソース', 'ステータス', 'property_data_json',
   '画像ジャンルJSON', '巡回条件ID', 'SUUMO設備チェックJSON',
-  'submittingTs', 'discordSentTs'
+  'submittingTs', 'discordSentTs',
+  // 巡回時の反響予測スコア (0-100、Chrome拡張 inquiry-score.js で算出)
+  // 物件の本来の人気度を示し、停止候補判定で「競合多くても保護したい物件」を識別する
+  '反響予測スコア'
 ];
 
 // Discord通知済みカラムのインデックス（ヘッダー順変更時はここも更新）
@@ -50,7 +53,10 @@ var SUUMO_LISTING_HEADERS = [
   // ── 以下はSUUMOビジネス Daily Search連携(Phase 1)で追加 ──
   'suumo_property_code', '合計一覧PV', '合計詳細PV', '問い合わせ数',
   '掲載日数(SUUMO)', '競合_第1基準値', '競合_第2基準値', '競合_第3基準値',
-  '危険度スコア', '最終取得日時'
+  '危険度スコア', '最終取得日時',
+  // 入稿時に候補物件シートから引き継いだ反響予測スコア (0-100)
+  // findStopCandidates で「本来人気だけど競合に埋もれている物件」を保護するのに使う
+  '反響予測スコア'
 ];
 
 // ── シートアクセスヘルパー ──────────────────────────────────
@@ -604,7 +610,27 @@ function recordSuumoPosting(data) {
   var sheet = getListingSheet_();
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
 
-  // 掲載管理シートに追加
+  // 候補物件シートから反響予測スコアを取得して掲載管理シートにコピー
+  // (停止候補判定で「本来人気だが競合多い物件」を保護するのに使う)
+  var inquiryScore = 0;
+  try {
+    var candSheet = getCandidateSheet_();
+    var candLastRow = candSheet.getLastRow();
+    var scoreColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('反響予測スコア') + 1;
+    if (candLastRow > 1 && scoreColIdx > 0) {
+      var candKeys = candSheet.getRange(2, 1, candLastRow - 1, 1).getValues();
+      for (var ci = 0; ci < candKeys.length; ci++) {
+        if (candKeys[ci][0] === key) {
+          inquiryScore = Number(candSheet.getRange(ci + 2, scoreColIdx).getValue()) || 0;
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    Logger.log('recordSuumoPosting: 反響予測スコア取得失敗 ' + e.message);
+  }
+
+  // 掲載管理シートに追加 (21列、SUUMO_LISTING_HEADERS に合わせる)
   // suumoPropertyCode: 登録完了画面に表示される 12 桁のSUUMO物件コード。
   // 手動完結検知(Phase6) から取れる場合に 11 列目(suumo_property_code) に書き込む。
   sheet.appendRow([
@@ -618,7 +644,11 @@ function recordSuumoPosting(data) {
     0,  // スコア初期値
     'active',
     '',
-    String(data.suumoPropertyCode || '')  // 11列目: suumo_property_code
+    String(data.suumoPropertyCode || ''),  // 11列目: suumo_property_code
+    '', '', '', '',                        // 12-15: SUUMOビジネス連携で後から更新される
+    '', '', '', '',                        // 16-19: 競合数・危険度(SUUMOビジネス連携で更新)
+    '',                                    // 20: 最終取得日時
+    inquiryScore                           // 21: 反響予測スコア (入稿時に候補から引き継ぎ)
   ]);
 
   // 候補物件シートのステータスをpostedに更新 + submittingTsクリア
@@ -741,6 +771,8 @@ function findStopCandidates(topN, options) {
     var compLv3 = Number(data[i][17]) || 0;  // 18列目: 第3基準値競合数
     var inquiries = Number(data[i][13]) || 0; // 14列目: 問い合わせ数(SUUMOビジネス集計値)
     if (!inquiries) inquiries = Number(data[i][6]) || 0; // フォールバック: 旧7列目
+    // 21列目: 反響予測スコア (入稿時に候補から引き継ぎ、0-100)
+    var inquiryScore = Number(data[i][20]) || 0;
 
     // シート上での掲載開始日からの経過日数(これが保護・スコア両方の基準)
     var sheetDays = 0;
@@ -759,23 +791,30 @@ function findStopCandidates(topN, options) {
     var effectiveDays = Math.max(sheetDays, suumoListedDays);
 
     // 保護判定 (relaxLevel に応じて段階的に緩和)
+    // 反響予測スコアによる保護: 物件のスペック上「本来人気が期待できる」物件は、
+    // 競合に埋もれていても落とさない (パターン3: 競合落ちで後から見られる物件を救済)
     if (relaxLevel === 0) {
       if (effectiveDays < 7) continue;                           // 新着7日保護
       if (inquiries >= 1 && effectiveDays < 45) continue;        // 問合あり&45日未満 保護
+      if (inquiryScore >= 70) continue;                          // 反響予測≥70点(👍標準以上) 保護
     } else if (relaxLevel === 1) {
       if (effectiveDays < 3) continue;                           // 新着3日保護
       if (inquiries >= 1 && effectiveDays < 30) continue;        // 問合あり&30日未満 保護
+      if (inquiryScore >= 80) continue;                          // 反響予測≥80点(🔥高反響予測) 保護
     } else if (relaxLevel === 2) {
       if (effectiveDays < 1) continue;                           // 新着1日保護のみ
+      if (inquiryScore >= 90) continue;                          // 反響予測≥90点 のみ保護
     }
     // relaxLevel === 3 は保護なし (active なら全員候補)
 
     // 危険度スコア
     // 問合は1件あたり -100 (第1基準値競合10件相殺相当)
+    // 反響予測スコアは1点あたり -30 (80点なら-2400 ≒ 競合200件分の好材料)
     // 60日ボーナスは「シート上の実日数」で判定(SUUMO側は45で頭打ちなので識別不能)
     var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
     var riskScore = weightedComp * 10
                   - inquiries * 100
+                  - inquiryScore * 30
                   + (sheetDays >= 60 ? 9999 : 0)
                   + (effectiveDays >= 45 ? 500 : 0);
 
@@ -1574,6 +1613,46 @@ function handleSuumoPostComplete(json) {
 }
 
 /**
+ * POST: 候補物件の反響予測スコアを一括更新
+ * Chrome拡張側で Discord 通知後にまとめて送信される。
+ * payload: { action: 'update_candidate_inquiry_scores', updates: [{key, score}, ...] }
+ */
+function handleUpdateSuumoCandidateInquiryScores(json) {
+  var updates = (json && json.updates) || [];
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return ContentService.createTextOutput(JSON.stringify({ success: true, updated: 0 }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var sheet = getCandidateSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return ContentService.createTextOutput(JSON.stringify({ success: true, updated: 0 }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var keyCol = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  var keyToRow = {};
+  for (var i = 0; i < keyCol.length; i++) keyToRow[keyCol[i][0]] = i + 2;
+  var scoreColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('反響予測スコア') + 1;  // 1-indexed
+  if (scoreColIdx <= 0) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, message: '反響予測スコア列が見つからない' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var updated = 0;
+  for (var u = 0; u < updates.length; u++) {
+    var k = updates[u] && updates[u].key;
+    if (!k) continue;
+    var row = keyToRow[k];
+    if (!row) continue;
+    var score = Number(updates[u].score);
+    if (isNaN(score)) continue;
+    sheet.getRange(row, scoreColIdx).setValue(score);
+    updated++;
+  }
+  return ContentService.createTextOutput(JSON.stringify({ success: true, updated: updated }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
  * POST: パフォーマンスデータ更新
  */
 function handleUpdateSuumoPerformance(json) {
@@ -2003,6 +2082,7 @@ function updateSuumoListingStats_(json) {
       // パフォーマンススコアは既存ロジックと衝突しないよう、問い合わせ数×10 + 合計詳細PV をセット(更新日時が新しい方として上書き)
       var derivedScore = totalDetailPv + inquiries * 10;
       sheet.getRange(targetRow, 6, 1, 3).setValues([[totalDetailPv, inquiries, derivedScore]]);
+      // 11-20列目を更新 (21列目=反響予測スコアは入稿時にセットされたまま保持)
       sheet.getRange(targetRow, 11, 1, extended.length).setValues([extended]);
       updated++;
       matchedSheetRows[targetRow] = true;
