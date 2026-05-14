@@ -193,22 +193,44 @@ ForRent タブで自動入稿（Phase1〜5）
   <tr><td>6</td><td>登録完了画面</td><td>「登録完了しました」DOM検知 → 手動完結ケースを自動でGAS通知</td></tr>
 </table>
 
+<h3>反響予測スコア（人気証跡）</h3>
+<p>巡回時にDiscord通知の冒頭に表示される <code>📊 反響予測: 74点 👍 標準以上</code> のスコア。
+物件の <b>本来の人気度（=スペック上の魅力）</b> を 0〜100 点で算出する。</p>
+<table>
+  <tr><th>指標</th><th>重み</th><th>内容</th></tr>
+  <tr><td>score1: 平米単価 vs 期待相場</td><td>60%</td><td>同条件のSUUMO相場中央値と実賃料を比較。設備数で期待値ブースト</td></tr>
+  <tr><td>score2: 駅徒歩</td><td>25%</td><td>1分=100点、5分=80点、20分=5点（線形）</td></tr>
+  <tr><td>score3: 築年数</td><td>15%</td><td>築15年まで線形(100→55)、以降緩和カーブ、最低20点</td></tr>
+</table>
+<table>
+  <tr><th>スコア</th><th>ラベル</th></tr>
+  <tr><td>80以上</td><td>🔥 高反響予測</td></tr>
+  <tr><td>60-79</td><td>👍 標準以上</td></tr>
+  <tr><td>40-59</td><td>➖ 普通</td></tr>
+  <tr><td>20-39</td><td>🔻 反響少なめ</td></tr>
+  <tr><td>0-19</td><td>⚠️ 厳しい</td></tr>
+</table>
+<p>計算ロジック: <code>chrome_extension/inquiry-score.js</code> の <code>calculateInquiryScore()</code></p>
+<p>このスコアは候補物件シートと掲載管理シートにも保存され、停止候補判定で「本来人気だが競合に埋もれた物件」を保護するのに使う。</p>
+
 <h3>停止候補ロジック（入れ替え）</h3>
 <p>50件枠が埋まっている時、新規承認の前に <code>findStopCandidates</code> が呼ばれて落とす候補を選出。</p>
 <p><b>保護ルール</b>（候補対象外、relaxLevel 0→3で段階的に緩和）:</p>
 <ul>
-  <li>level 0: 新着7日 / 問合あり&lt;45日</li>
-  <li>level 1: 新着3日 / 問合あり&lt;30日</li>
-  <li>level 2: 新着1日のみ</li>
+  <li>level 0: 新着7日 / 問合あり&lt;45日 / <b>反響予測≥70点</b></li>
+  <li>level 1: 新着3日 / 問合あり&lt;30日 / <b>反響予測≥80点</b></li>
+  <li>level 2: 新着1日 / <b>反響予測≥90点</b></li>
   <li>level 3: 保護なし</li>
 </ul>
 <p><b>危険度スコア</b>:</p>
 <pre>weightedComp = compLv3 × 2.1 + compLv2 × 1.6 + compLv1 × 1.0
 riskScore = weightedComp × 10
-         − inquiries × 100      (1問合せ = 競合10件相殺)
+         − inquiries × 100        (1問合せ = 競合10件相殺)
+         − inquiryScore × 30      (反響予測80点 = -2400 = 競合200件分の好材料)
          + (sheetDays ≥ 60 ? 9999 : 0)
          + (effectiveDays ≥ 45 ? 500 : 0)</pre>
 <p>スコア降順で上位を停止候補に。SUUMOビジネスの第1〜3基準値競合数を使う。</p>
+<div class="tip">パターン3（新規掲載後に競合が増えて埋もれるが、競合落ちで後から見られる物件）を保護するため、反響予測スコアを強い負のペナルティとして使う。スペックが良い物件は競合 200 件あっても落とされない。</div>
 
 <h3>submitting 放置物件の救済</h3>
 <p>承認後に自動入稿が失敗してユーザーが手動完結した場合の救済UIがAdminPageにある。</p>

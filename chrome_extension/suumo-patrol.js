@@ -931,6 +931,35 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     // 物件間ディレイ(レート制限緩和)
     if (i < notifyProps.length - 1) await sleep(1000);
   }
+
+  // 計算済みの反響予測スコアをまとめて GAS の候補物件シートに保存。
+  // SUUMO 停止候補ロジックで「本来人気だが競合に埋もれている物件」を保護するのに使う。
+  try {
+    const scoreUpdates = [];
+    for (const it of notifyProps) {
+      const ip = (it && it.property) || {};
+      if (ip.inquiry_score && typeof ip.inquiry_score.score === 'number' && it.key) {
+        scoreUpdates.push({ key: it.key, score: ip.inquiry_score.score });
+      }
+    }
+    if (scoreUpdates.length > 0) {
+      const { gasWebappUrl: gasUrl2 } = await getStorageData(['gasWebappUrl']);
+      if (gasUrl2) {
+        await fetch(gasUrl2, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'update_candidate_inquiry_scores',
+            updates: scoreUpdates
+          })
+        });
+        await setStorageData({ debugLog: `[SUUMO反響] スコア保存 ${scoreUpdates.length}件をGAS送信` });
+      }
+    }
+  } catch (e) {
+    console.warn('[SUUMO反響] スコア保存失敗:', e && e.message);
+  }
+
   return { sent, errors, sheetRowIndexes: successIndexes };
 }
 
