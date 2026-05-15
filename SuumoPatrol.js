@@ -2178,15 +2178,24 @@ function handleSyncForrentListingStatus(json) {
   var reactivated = 0;
   var unmatched = 0; // 受信側で、シートに suumo_property_code が一致しないコードの件数
   var inserted = 0;  // 未マッチ行をシートに新規追加した件数
+  var healed = 0;    // 既存 active 行の空 suumo_code を ForRent 直読み値で補完した件数
   var autoStopSkipReason = '';
 
   // A. stopped 復活 + 新規物件の追加
   //    マッチ判定のために codeToSheetRow マップ構築
   //    さらに、シートに無い suumoCode は新規行としてinsert(掲載開始日=今日)
   var codeToSheetRow = {};
+  // 補助マップ: 「propertyKey → { sheetRow, hasCode }」(active かつ suumo_code 空の行を特定するため)
+  // SUUMO の完了画面 DOM が想定外で Phase5/Phase6 とも regex 不一致 → 空コードのまま
+  // appendRow されてしまうケースの自動修復用。
+  var keyToEmptyCodeRow = {};
   for (var i = 0; i < data.length; i++) {
     var code = String(data[i][10] || '').replace(/[^0-9]/g, '');
     if (code) codeToSheetRow[code] = { sheetRow: i + 2, status: data[i][8] };
+    if (!code && data[i][8] === 'active') {
+      var emptyKey = String(data[i][0] || '');
+      if (emptyKey) keyToEmptyCodeRow[emptyKey] = { sheetRow: i + 2 };
+    }
   }
 
   // 受信rowsを suumoCode → { buildingName, roomNo, rent } のマップに変換
@@ -2223,6 +2232,21 @@ function handleSyncForrentListingStatus(json) {
     var roomNo = meta.roomNo || '';
     var rent = meta.rent || '';
     var propertyKey = normalizeSuumoPropertyKey_(buildingName, roomNo);
+
+    // 自動修復: ForRent側の suumoCode はあるがシートのコード列(11)では未マッチ。
+    // しかし「同じ propertyKey の active 行で suumo_code が空」のものが見つかれば、
+    // それは Phase5/Phase6 で DOM regex 不一致だった行 → 新規挿入せずに code を補完して終了。
+    // これにより「空コード行 + 後日の新規行」という重複発生を構造的にゼロにする。
+    if (propertyKey && keyToEmptyCodeRow[propertyKey]) {
+      var healRow = keyToEmptyCodeRow[propertyKey].sheetRow;
+      sheet.getRange(healRow, 11).setValue(c2);
+      delete keyToEmptyCodeRow[propertyKey]; // 同じ key で複数 code に補完されないよう除外
+      Logger.log('handleSyncForrentListingStatus: 空コード行を自動修復 row=' + healRow +
+                 ' key=' + propertyKey + ' code=' + c2);
+      healed++;
+      continue;
+    }
+
     var newRow = [
       propertyKey,     // 1  物件キー
       buildingName,    // 2  建物名
@@ -2280,6 +2304,7 @@ function handleSyncForrentListingStatus(json) {
     reactivated: reactivated,
     unmatched: unmatched,
     inserted: inserted,
+    healed: healed,
     skipped: autoStopSkipReason
   })).setMimeType(ContentService.MimeType.JSON);
 }
