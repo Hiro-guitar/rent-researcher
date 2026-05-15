@@ -123,6 +123,9 @@ async function runSuumoPatrolCycle() {
   }
 
   _suumoPatrolRunning = true;
+  // ダッシュボード側でボタン表示を切り替えるためのフラグも storage に書き出す
+  // (定期巡回チェック(suumoPatrolEnabled)とは独立して「実行中か否か」を示す)
+  await setStorageData({ suumoPatrolRunning: true });
   // 巡回開始時に Discord スレッドIDキャッシュをリセット
   // (以後 createSuumoPatrolThread_ が最初の通知発生時に新規作成し、
   //  同一巡回内の以後の通知はそのスレッドに集約される)
@@ -445,6 +448,8 @@ async function runSuumoPatrolCycle() {
     console.error('[SUUMO巡回] エラー:', err);
   } finally {
     _suumoPatrolRunning = false;
+    // ダッシュボード側のボタン表示を「巡回実行」に戻すためのフラグクリア
+    try { await setStorageData({ suumoPatrolRunning: false }); } catch (_) {}
     // 巡回終了 → Discord スレッドIDキャッシュをクリア (次回巡回時に新規作成される)
     _currentPatrolThreadId = null;
   }

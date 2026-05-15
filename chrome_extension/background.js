@@ -1138,22 +1138,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // ── SUUMO巡回関連メッセージ ──
+  // SUUMO_PATROL_NOW: 単発実行のみ (定期巡回チェックには触れない)
   if (msg.type === 'SUUMO_PATROL_NOW') {
     runSuumoPatrolCycle();
     sendResponse({ ok: true });
     return;
   }
+  // SUUMO_PATROL_TOGGLE: 定期巡回 (60分アラーム) の ON/OFF だけを切り替える。
+  // 実行中サイクルには干渉しない (止めるには SUUMO_PATROL_STOP を使う)。
   if (msg.type === 'SUUMO_PATROL_TOGGLE') {
     chrome.storage.local.set({ suumoPatrolEnabled: msg.enabled }, () => {
       if (msg.enabled) {
-        chrome.alarms.create('suumo-patrol', { delayInMinutes: 1 }); // すぐ開始
+        chrome.alarms.create('suumo-patrol', { delayInMinutes: 60 });
+        setStorageData({ debugLog: '[SUUMO巡回] 定期巡回を有効化 (60分ごと)' });
       } else {
         chrome.alarms.clear('suumo-patrol');
-        // 実行中の巡回サイクルを中断（キューポーリングは止めない）
-        currentSearchId++;
-        _suumoPatrolRunning = false;
-        setStorageData({ debugLog: '[SUUMO巡回] 停止しました' });
+        setStorageData({ debugLog: '[SUUMO巡回] 定期巡回を無効化' });
       }
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+  // SUUMO_PATROL_STOP: 実行中サイクルだけを中断する。
+  // 定期巡回チェック(suumoPatrolEnabled)/アラームには触れないので、次回アラーム
+  // (60分後) では引き続き自動実行される。
+  if (msg.type === 'SUUMO_PATROL_STOP') {
+    currentSearchId++;
+    if (typeof _suumoPatrolRunning !== 'undefined') _suumoPatrolRunning = false;
+    chrome.storage.local.set({ suumoPatrolRunning: false }, () => {
+      setStorageData({ debugLog: '[SUUMO巡回] 実行中サイクルを中断' });
       sendResponse({ ok: true });
     });
     return true;

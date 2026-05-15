@@ -171,12 +171,17 @@
   document.getElementById('autoSearchEnabled').addEventListener('change', () => saveServiceSettings());
 
   // ── SUUMO巡回トグル ──
+  // 仕様 (A案: 完全分離):
+  //   - チェックボックス(suumoPatrolEnabled) = 定期巡回(60分アラーム) の ON/OFF のみ
+  //   - 「巡回実行」ボタン = 単発実行のみ。チェックには触れない
+  //   - 「巡回停止」ボタン = 実行中サイクルの中断のみ。チェック/アラームには触れない
+  //   - ボタン表示は「実行中か否か」(suumoPatrolRunning) で切替。チェック状態と独立
   const suumoCheckbox = document.getElementById('suumoPatrolEnabled');
   const suumoStartBtn = document.getElementById('suumoPatrolNowBtn');
   const suumoStopBtn = document.getElementById('suumoPatrolStopBtn');
 
-  function updateSuumoButtons(enabled) {
-    if (enabled) {
+  function updateSuumoButtons(running) {
+    if (running) {
       suumoStartBtn.style.display = 'none';
       suumoStopBtn.style.display = '';
     } else {
@@ -185,25 +190,37 @@
     }
   }
 
+  // チェックボックス: 定期巡回 ON/OFF だけ
   suumoCheckbox.addEventListener('change', (e) => {
     chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_TOGGLE', enabled: e.target.checked });
-    updateSuumoButtons(e.target.checked);
   });
+  // 巡回実行: 単発のみ (チェックには触らない)
   suumoStartBtn.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_TOGGLE', enabled: true });
     chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_NOW' });
-    suumoCheckbox.checked = true;
+    // 実行中フラグは background 側で立てるが、UX 上ここで先行表示
     updateSuumoButtons(true);
   });
+  // 巡回停止: 実行中サイクルの中断のみ (チェック/アラームには触らない)
   suumoStopBtn.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_TOGGLE', enabled: false });
-    suumoCheckbox.checked = false;
+    chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_STOP' });
     updateSuumoButtons(false);
   });
-  // SUUMO巡回状態を初期読み込み
-  chrome.storage.local.get(['suumoPatrolEnabled'], (data) => {
+
+  // 初期状態の読み込み
+  chrome.storage.local.get(['suumoPatrolEnabled', 'suumoPatrolRunning'], (data) => {
     suumoCheckbox.checked = !!data.suumoPatrolEnabled;
-    updateSuumoButtons(!!data.suumoPatrolEnabled);
+    updateSuumoButtons(!!data.suumoPatrolRunning);
+  });
+
+  // 実行状態の変化を監視して、ボタン表示を自動で切替
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.suumoPatrolRunning) {
+      updateSuumoButtons(!!changes.suumoPatrolRunning.newValue);
+    }
+    if (changes.suumoPatrolEnabled) {
+      suumoCheckbox.checked = !!changes.suumoPatrolEnabled.newValue;
+    }
   });
 
   // ── SUUMO巡回 N日以内フィルタ ──
