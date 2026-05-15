@@ -171,7 +171,31 @@ async function runSuumoPatrolCycle() {
       return;
     }
 
-    await setStorageData({ debugLog: `[SUUMO巡回] ${criteria.length}件の条件で巡回開始` });
+    // ダッシュボードからの「今回のN日以内」一時上書きを読む。
+    //   ""(空) → 条件側の daysWithin をそのまま使用 (= 上書き無し)
+    //   "1"〜"30" → 数値として上書き
+    //   "unlimited" → null (制限なし) で上書き
+    // どれにもマッチしなければ「上書き無し」。
+    let _daysWithinOverride = undefined; // undefined = 上書きしない
+    let _daysWithinOverrideLabel = '';
+    try {
+      const { suumoPatrolDaysWithinOverride } = await getStorageData(['suumoPatrolDaysWithinOverride']);
+      if (suumoPatrolDaysWithinOverride === 'unlimited') {
+        _daysWithinOverride = null;
+        _daysWithinOverrideLabel = '制限なし';
+      } else if (suumoPatrolDaysWithinOverride !== '' && suumoPatrolDaysWithinOverride !== undefined && suumoPatrolDaysWithinOverride !== null) {
+        const n = parseInt(String(suumoPatrolDaysWithinOverride), 10);
+        if (!isNaN(n) && n >= 0) {
+          _daysWithinOverride = n;
+          _daysWithinOverrideLabel = n + '日以内';
+        }
+      }
+    } catch (e) {}
+
+    await setStorageData({
+      debugLog: `[SUUMO巡回] ${criteria.length}件の条件で巡回開始` +
+        (_daysWithinOverrideLabel ? ` (今回: ${_daysWithinOverrideLabel} 上書き)` : '')
+    });
 
     // Discord通知は Chrome拡張側(ユーザーIP)で行う方式に変更したため、
     // ここでは GAS にスレッド作成を依頼しない。
@@ -194,6 +218,11 @@ async function runSuumoPatrolCycle() {
 
       const crit = criteria[ci];
       const customer = patrolCriteriaToCustomer(crit);
+      // ダッシュボードからの一時上書きが指定されていれば、条件側の daysWithin を上書き。
+      // (_daysWithinOverride: undefined=上書き無し / null=制限なし / number=N日以内)
+      if (_daysWithinOverride !== undefined) {
+        customer.daysWithin = _daysWithinOverride;
+      }
       console.log('[SUUMO巡回] GAS条件:', JSON.stringify(crit));
       console.log('[SUUMO巡回] 変換後customer:', JSON.stringify(customer));
 

@@ -206,6 +206,22 @@
     updateSuumoButtons(!!data.suumoPatrolEnabled);
   });
 
+  // ── SUUMO巡回 N日以内フィルタの一時上書き ──
+  // 条件側に保存された daysWithin より優先して適用される。
+  // 値: ""(条件設定値を使う) / "1","3","7","14","30"(N日以内) / "unlimited"(制限なし)
+  // chrome.storage.local.suumoPatrolDaysWithinOverride に保存して、
+  // 自動アラーム実行時にも引き続き反映される。
+  const daysWithinSel = document.getElementById('suumoPatrolDaysWithin');
+  if (daysWithinSel) {
+    chrome.storage.local.get(['suumoPatrolDaysWithinOverride'], (data) => {
+      const v = data && data.suumoPatrolDaysWithinOverride;
+      daysWithinSel.value = (v === undefined || v === null) ? '' : String(v);
+    });
+    daysWithinSel.addEventListener('change', () => {
+      chrome.storage.local.set({ suumoPatrolDaysWithinOverride: daysWithinSel.value });
+    });
+  }
+
   // ── SUUMO入稿開始ボタン ──
   document.getElementById('suumoFillNowBtn').addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'SUUMO_QUEUE_POLL_NOW' }, (resp) => {
