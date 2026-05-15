@@ -172,17 +172,25 @@ async function tryForrentFinalSubmit(opts) {
       }
     }
 
-    await setStorageData({ debugLog: `[Phase5] 登録完了 (遷移先URL: ${postCheck.url})` });
+    await setStorageData({
+      debugLog: `[Phase5] 登録完了 (遷移先URL: ${postCheck.url}` +
+        (postCheck.suumoPropertyCode ? `, suumo_code: ${postCheck.suumoPropertyCode}` : '') +
+        ')'
+    });
     // ★★ 登録が確実に成功した時点ではじめて GAS の active 行に追加 ★★
     // (旧実装ではフォーム入力完了時に追加していたため Phase5 失敗でも active 行が残り
     //  「停止候補」として永遠に検出される無限ループ問題があった。2026-05-05 修正)
-    await reportPhase5Result_(true, { finalUrl: postCheck.url });
+    // 完了画面から取得した suumo_property_code も渡してK列を埋める。
+    await reportPhase5Result_(true, {
+      finalUrl: postCheck.url,
+      suumoPropertyCode: postCheck.suumoPropertyCode || ''
+    });
     // 登録成功後は入稿タブとキューをクリーンアップ(タブが残り続けないように)
     try { await chrome.tabs.remove(tabId); } catch (_) {}
     // suumoAwaitingPostComplete は Phase6(手動完結検知) の長期フラグ。
     // Phase5 が自動成功した時点で不要なのでクリア(二重送信防止)。
     try { await chrome.storage.local.remove(['suumoFillTabId', 'suumoFillMode', 'suumoFillModeSetAt', 'suumoPendingConfirmCheck', 'suumoAwaitingPostComplete']); } catch (_) {}
-    return { ok: true, finalUrl: postCheck.url };
+    return { ok: true, finalUrl: postCheck.url, suumoPropertyCode: postCheck.suumoPropertyCode || '' };
 
   } catch (err) {
     console.error('[Phase5] エラー:', err);
@@ -302,7 +310,9 @@ async function clickRegisterButton_(tabId) {
 }
 
 /**
- * 登録クリック後の状態確認
+ * 登録クリック後の状態確認 (Phase5)
+ * 遷移先のフレームをスキャンして、登録完了画面なら DOM から suumo_property_code を抽出。
+ * これで Phase5 完了時にも K列(suumo_property_code) が埋まるようになる。
  */
 async function checkPostSubmit_(tabId) {
   try {
@@ -312,6 +322,8 @@ async function checkPostSubmit_(tabId) {
         const url = location.href;
         const stayedOnConfirm = /REG1R12001\.action/.test(url);
         let errors = [];
+        let suumoPropertyCode = '';
+        let completionDetected = false;
         if (stayedOnConfirm) {
           // エラー要素をスキャン
           const errEls = document.querySelectorAll(
@@ -321,15 +333,30 @@ async function checkPostSubmit_(tabId) {
             .filter(e => e.offsetParent !== null && (e.innerText || '').trim().length > 0)
             .map(e => (e.innerText || '').trim().substring(0, 150))
             .slice(0, 5);
+        } else {
+          // 登録完了画面の特徴: 「新規物件登録完了」「登録完了しました」テキスト
+          // + 「物件コード:NNNNNNNNNNNN」 (12桁数字) が表示される。
+          const bodyText = (document.body && document.body.innerText) || '';
+          completionDetected = /新規物件登録完了/.test(bodyText) || /登録完了しました/.test(bodyText);
+          const codeMatch = bodyText.match(/物件コード[\s:：]*([0-9]{6,14})/);
+          if (codeMatch) suumoPropertyCode = codeMatch[1];
         }
-        return { url, stayed: stayedOnConfirm, errors };
+        return { url, stayed: stayedOnConfirm, errors, suumoPropertyCode, completionDetected };
       }
     });
+    // 複数フレームの結果のうち、suumoPropertyCode が取れたフレームを優先
+    let best = null;
     for (const r of results || []) {
-      if (r && r.result && r.result.url) return r.result;
+      if (!r || !r.result || !r.result.url) continue;
+      if (!best) best = r.result;
+      if (r.result.suumoPropertyCode) {
+        best = r.result;
+        break;
+      }
     }
-    return { url: '', stayed: false, errors: [] };
+    if (best) return best;
+    return { url: '', stayed: false, errors: [], suumoPropertyCode: '', completionDetected: false };
   } catch (_) {
-    return { url: '', stayed: false, errors: [] };
+    return { url: '', stayed: false, errors: [], suumoPropertyCode: '', completionDetected: false };
   }
 }
