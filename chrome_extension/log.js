@@ -15,7 +15,8 @@
   function loadDashboardStatus() {
     chrome.storage.local.get([
       'isSearching', 'loginDetected', 'lastSearchTime',
-      'searchIntervalMinutes', 'stats', 'gasWebappUrl'
+      'searchIntervalMinutes', 'stats', 'gasWebappUrl',
+      'suumoPatrolLastRunTime', 'suumoPatrolEnabled'
     ], (data) => {
       const dot = document.getElementById('loginStatus');
       const statusText = document.getElementById('statusText');
@@ -34,15 +35,33 @@
         statusText.textContent = 'REINSにログインしてください';
       }
 
-      // 最終検索
+      // 顧客物件検索: 最終
       const lastSearch = document.getElementById('lastSearch');
       lastSearch.textContent = data.lastSearchTime ? formatTime(data.lastSearchTime) : '-';
 
-      // 次回検索
+      // 顧客物件検索: 次回 (アラーム scheduledTime)
       const nextSearch = document.getElementById('nextSearch');
       chrome.alarms.get('reins-search', (alarm) => {
         nextSearch.textContent = alarm ? formatTime(alarm.scheduledTime) : '-';
       });
+
+      // SUUMO巡回: 最終
+      const lastPatrol = document.getElementById('lastSuumoPatrol');
+      if (lastPatrol) {
+        lastPatrol.textContent = data.suumoPatrolLastRunTime ? formatTime(data.suumoPatrolLastRunTime) : '-';
+      }
+
+      // SUUMO巡回: 次回 (定期巡回 OFF なら "-")
+      const nextPatrol = document.getElementById('nextSuumoPatrol');
+      if (nextPatrol) {
+        if (!data.suumoPatrolEnabled) {
+          nextPatrol.textContent = '-';
+        } else {
+          chrome.alarms.get('suumo-patrol', (alarm) => {
+            nextPatrol.textContent = alarm ? formatTime(alarm.scheduledTime) : '-';
+          });
+        }
+      }
 
       // 統計
       const stats = data.stats || {};

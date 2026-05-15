@@ -456,7 +456,8 @@ async function runSuumoPatrolCycle() {
   } finally {
     _suumoPatrolRunning = false;
     // ダッシュボード側のボタン表示を「巡回実行」に戻すためのフラグクリア
-    try { await setStorageData({ suumoPatrolRunning: false }); } catch (_) {}
+    // 同時に最終巡回時刻も記録 (ダッシュボードの「SUUMO巡回 最終」表示用)
+    try { await setStorageData({ suumoPatrolRunning: false, suumoPatrolLastRunTime: Date.now() }); } catch (_) {}
     // 巡回終了 → Discord スレッドIDキャッシュをクリア (次回巡回時に新規作成される)
     _currentPatrolThreadId = null;
   }
