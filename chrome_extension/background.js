@@ -1028,6 +1028,21 @@ function setupAlarm(intervalMinutes) {
   });
 }
 
+// SUUMO巡回アラームの設定 (顧客検索の setupAlarm と同じ営業時間/ジッター方式)
+function setupSuumoPatrolAlarm(intervalMinutes) {
+  chrome.storage.local.get(['jitterPercent', 'businessStartHour', 'businessEndHour'], (data) => {
+    const jitter = data.jitterPercent !== undefined ? data.jitterPercent : 20;
+    const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
+    const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
+    const delayMs = computeNextRunDelayMs(intervalMinutes, jitter, startH, endH);
+    chrome.alarms.clear('suumo-patrol', () => {
+      chrome.alarms.create('suumo-patrol', { when: Date.now() + delayMs });
+      const mins = (delayMs / 60000).toFixed(1);
+      console.log(`SUUMO巡回アラーム設定: 次回 ${mins}分後 (営業${startH}-${endH}時, ジッター±${jitter}%)`);
+    });
+  });
+}
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   // 1分ごとにkeepAwakeを再設定（SW停止による解除を防ぐ）
   if (alarm.name === 'keep-awake') {
@@ -1090,8 +1105,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       } else {
         runSuumoPatrolCycle();
       }
-      // 次回SUUMO巡回アラームを設定値で再セット
-      chrome.alarms.create('suumo-patrol', { delayInMinutes: interval });
+      // 次回SUUMO巡回アラームを設定値で再セット (営業時間外なら次の営業開始時刻に自動スナップ)
+      setupSuumoPatrolAlarm(interval);
     });
   }
 
@@ -1148,8 +1163,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'UPDATE_ALARM') {
-    chrome.storage.local.get(['searchIntervalMinutes'], (data) => {
+    chrome.storage.local.get(['searchIntervalMinutes', 'suumoPatrolEnabled', 'suumoPatrolIntervalMinutes'], (data) => {
       setupAlarm(data.searchIntervalMinutes || 30);
+      // SUUMO巡回も options 保存時に間隔が変わるので再セット (有効時のみ)
+      if (data.suumoPatrolEnabled) {
+        const interval = Math.max(15, Math.min(1440, Number(data.suumoPatrolIntervalMinutes) || 180));
+        setupSuumoPatrolAlarm(interval);
+      }
       sendResponse({ ok: true });
     });
     return true;
@@ -1174,8 +1194,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg.enabled) {
         chrome.storage.local.get(['suumoPatrolIntervalMinutes'], (d) => {
           const interval = Math.max(15, Math.min(1440, Number(d.suumoPatrolIntervalMinutes) || 180));
-          chrome.alarms.create('suumo-patrol', { delayInMinutes: interval });
-          setStorageData({ debugLog: `[SUUMO巡回] 定期巡回を有効化 (${interval}分ごと)` });
+          // 営業時間考慮 + ジッター付きで次回アラームをセット (顧客検索と同じ仕組み)
+          setupSuumoPatrolAlarm(interval);
+          setStorageData({ debugLog: `[SUUMO巡回] 定期巡回を有効化 (${interval}分ごと、営業時間内のみ)` });
           sendResponse({ ok: true });
         });
       } else {
