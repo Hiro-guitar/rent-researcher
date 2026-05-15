@@ -471,20 +471,28 @@
     </div>
   </div>
 
-  <!-- ═══ 動作設定 ═══ -->
+  <!-- ═══ 顧客物件検索 (顧客向け自動検索の挙動) ═══ -->
   <div class="card">
-    <div class="card-title">動作設定</div>
+    <div class="card-title">顧客物件検索</div>
     <div class="card-body">
       <div class="field">
         <label class="field-label" for="interval">検索間隔（分）</label>
         <input type="number" id="interval" min="10" max="240" value="60" style="width:140px">
-        <div class="hint">10〜240分（デフォルト60分）。bot対策で±ジッター幅だけランダム化されます</div>
+        <div class="hint">10〜240分（デフォルト60分）。bot対策で営業時間内では下の「ジッター幅」だけランダム化されます</div>
       </div>
       <div class="field">
-        <label class="field-label" for="jitterPercent">ジッター幅（％）</label>
-        <input type="number" id="jitterPercent" min="0" max="50" value="20" style="width:140px">
-        <div class="hint">0〜50%。例: 60分間隔・20%なら 48〜72分のランダム間隔</div>
+        <label class="field-label" for="delay">ページ遷移遅延（秒）</label>
+        <input type="number" id="delay" min="3" max="30" value="5" style="width:140px">
+        <div class="hint">REINS内のページ遷移間の待機時間</div>
       </div>
+    </div>
+  </div>
+
+  <!-- ═══ 動作設定（共通） ═══ -->
+  <div class="card">
+    <div class="card-title">動作設定（共通）</div>
+    <div class="card-body">
+      <div class="hint" style="margin-bottom:8px">ここの設定は<strong>顧客物件検索とSUUMO巡回の両方</strong>に適用されます</div>
       <div class="field">
         <label class="field-label">営業時間</label>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -493,12 +501,12 @@
           <input type="number" id="endHour" min="1" max="24" value="20" style="width:80px">
           <span>時</span>
         </div>
-        <div class="hint">この時間帯のみ自動検索を実行（24時間稼働なら 0〜24）</div>
+        <div class="hint">この時間帯のみ自動実行（24時間稼働なら 0〜24）。営業時間外に発火したアラームは次の営業開始時刻まで自動で繰り延べ</div>
       </div>
       <div class="field">
-        <label class="field-label" for="delay">ページ遷移遅延（秒）</label>
-        <input type="number" id="delay" min="3" max="30" value="5" style="width:140px">
-        <div class="hint">REINS内のページ遷移間の待機時間</div>
+        <label class="field-label" for="jitterPercent">ジッター幅（％）</label>
+        <input type="number" id="jitterPercent" min="0" max="50" value="20" style="width:140px">
+        <div class="hint">0〜50%。設定した間隔の前後にこの比率分だけ実行時刻をランダム化（例: 60分・20%なら48〜72分）</div>
       </div>
     </div>
   </div>
