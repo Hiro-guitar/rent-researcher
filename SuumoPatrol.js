@@ -60,7 +60,30 @@ var SUUMO_LISTING_HEADERS = [
   // 22列目: 物件空室管理シート(PROPERTY_SHEET_ID)のK列「終了日」を初回検出した日。
   // 一度書き込んだら永続 (キャンセル等で空室管理側がクリアされても保持)。
   // findStopCandidates で「掲載開始 → 申込までの日数」を二乗減衰で人気度補正。
-  '初回申込検知日'
+  '初回申込検知日',
+  // 23列目: 危険度スコアの内訳 JSON (findStopCandidates 実行時に更新)。
+  // {"comp":N,"inq":N,"score":N,"moshi":N,"resi":N,"long":N,"e45":N,"hi":N,"total":N}
+  // 各物件がなぜそのスコアになったかを後から検証できるようにする。
+  'スコア内訳'
+];
+
+// 停止候補ログシート (毎回の findStopCandidates 実行履歴を蓄積)
+// Phase B (1〜2週後) でこれを分析して誤検知率を計測する。
+var SUUMO_STOP_LOG_SHEET = 'SUUMO停止候補ログ';
+var SUUMO_STOP_LOG_HEADERS = [
+  '実行日時',
+  'relaxLevel',
+  '物件キー',
+  '建物名',
+  '部屋番号',
+  '危険度スコア',
+  'スコア内訳',
+  '選出',
+  '反響予測スコア',
+  '問い合わせ数',
+  '初回申込検知日',
+  'シート掲載日数',
+  '掲載日数(SUUMO)'
 ];
 
 // ── シートアクセスヘルパー ──────────────────────────────────
@@ -92,6 +115,10 @@ function getPatrolCriteriaSheet_() {
 
 function getCandidateSheet_() {
   return getSuumoSheet_(SUUMO_CANDIDATE_SHEET, SUUMO_CANDIDATE_HEADERS);
+}
+
+function getStopLogSheet_() {
+  return getSuumoSheet_(SUUMO_STOP_LOG_SHEET, SUUMO_STOP_LOG_HEADERS);
 }
 
 /**
@@ -764,7 +791,7 @@ function recordSuumoPosting(data) {
     Logger.log('recordSuumoPosting: 反響予測スコア取得失敗 ' + e.message);
   }
 
-  // 掲載管理シートに追加 (22列、SUUMO_LISTING_HEADERS に合わせる)
+  // 掲載管理シートに追加 (23列、SUUMO_LISTING_HEADERS に合わせる)
   // suumoPropertyCode: 登録完了画面に表示される 12 桁のSUUMO物件コード。
   // 手動完結検知(Phase6) から取れる場合に 11 列目(suumo_property_code) に書き込む。
   sheet.appendRow([
@@ -783,7 +810,8 @@ function recordSuumoPosting(data) {
     '', '', '', '',                        // 16-19: 競合数・危険度(SUUMOビジネス連携で更新)
     '',                                    // 20: 最終取得日時
     inquiryScore,                          // 21: 反響予測スコア (入稿時に候補から引き継ぎ)
-    ''                                     // 22: 初回申込検知日 (findStopCandidatesで動的に書き込み)
+    '',                                    // 22: 初回申込検知日 (findStopCandidatesで動的に書き込み)
+    ''                                     // 23: スコア内訳 (findStopCandidatesで動的に書き込み)
   ]);
 
   // 候補物件シートのステータスをpostedに更新 + submittingTsクリア
@@ -901,8 +929,12 @@ function findStopCandidates(topN, options) {
   // 物件はマップに含まれない。
   var vacancyEndedMap = _buildVacancyEndedMap_();
 
-  // 初回申込検知日の列インデックス (1-indexed)
+  // 列インデックス (1-indexed)
   var moshikomiColIdx = SUUMO_LISTING_HEADERS.indexOf('初回申込検知日') + 1;
+  var breakdownColIdx = SUUMO_LISTING_HEADERS.indexOf('スコア内訳') + 1;
+
+  // 停止候補選出ログ用 (実行ごとに全 active 物件を記録、Phase B の評価データ蓄積)
+  var logRows = [];
 
   var candidates = [];
   for (var i = 0; i < data.length; i++) {
@@ -916,6 +948,8 @@ function findStopCandidates(topN, options) {
     if (!inquiries) inquiries = Number(data[i][6]) || 0; // フォールバック: 旧7列目
     // 21列目: 反響予測スコア (入稿時に候補から引き継ぎ、0-100)
     var inquiryScore = Number(data[i][20]) || 0;
+    // 13列目: 合計詳細PV (一日PV算出に使う)
+    var totalDetailPv = Number(data[i][12]) || 0;
 
     // シート上での掲載開始日からの経過日数(これが保護・スコア両方の基準)
     var sheetDays = 0;
@@ -977,53 +1011,117 @@ function findStopCandidates(topN, options) {
 
     var forceCandidate = isLongStay || forceFromInquiries;
 
-    // 保護判定 (relaxLevel に応じて段階的に緩和、強制落とし対象は保護スキップ)
-    // 反響予測スコアによる保護: 物件のスペック上「本来人気が期待できる」物件は、
-    // 競合に埋もれていても落とさない (パターン3: 競合落ちで後から見られる物件を救済)
-    if (!forceCandidate) {
-      if (relaxLevel === 0) {
-        if (effectiveDays < 7) continue;                           // 新着7日保護
-        if (inquiries >= 1 && effectiveDays < 45) continue;        // 問合あり&45日未満 保護
-        if (inquiryScore >= 70) continue;                          // 反響予測≥70点(👍標準以上) 保護
-      } else if (relaxLevel === 1) {
-        if (effectiveDays < 3) continue;                           // 新着3日保護
-        if (inquiries >= 1 && effectiveDays < 30) continue;        // 問合あり&30日未満 保護
-        if (inquiryScore >= 80) continue;                          // 反響予測≥80点(🔥高反響予測) 保護
-      } else if (relaxLevel === 2) {
-        if (effectiveDays < 1) continue;                           // 新着1日保護のみ
-        if (inquiryScore >= 90) continue;                          // 反響予測≥90点 のみ保護
-      }
-      // relaxLevel === 3 は保護なし (active なら全員候補)
-    }
-    // forceCandidate の物件は relaxLevel 問わず全て候補入り、Step2 の +9999 で確実落とし。
+    // ── スコア計算 (全 active 物件で計算、保護判定の前に) ─────
+    // 評価機能のため、保護された物件もスコアを計算してシートに記録する。
+    // 候補リストに入れるかは別途、保護判定で決める。
 
-    // ── 申込検知の人気度補正 (二乗減衰) ─────────────
-    // 掲載開始 → 初回申込検知 までの経過日数が短いほど人気物件 → 強い負ペナルティ。
-    // 30日以上(または検知なし)はペナルティ ゼロ。
+    // ① 競合の脅威
+    var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
+    var compBonus = weightedComp * 10;
+
+    // ② 問合せの好材料
+    var inquiriesBonus = -inquiries * 100;
+
+    // ③ 反響予測スコアの好材料
+    var inquiryScoreBonus = -inquiryScore * 30;
+
+    // ④ 申込スピード補正 (二乗減衰)
     // 例: 0日(即日)=-1500, 7日=-867, 14日=-427, 21日=-135, 30日以上=0
     var moshikomiBonus = 0;
+    var daysToMoshikomi = null;
     if (hasMoshikomi && startDate) {
       var diffMs = initialMoshikomiDate.getTime() - startDate.getTime();
-      var daysToMoshikomi = Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+      daysToMoshikomi = Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
       if (daysToMoshikomi < 30) {
         moshikomiBonus = -Math.round(1500 * Math.pow(1 - daysToMoshikomi / 30, 2));
       }
     }
 
-    // 危険度スコア
-    // 問合は1件あたり -100 (第1基準値競合10件相殺相当)
-    // 反響予測スコアは1点あたり -30 (80点なら-2400 ≒ 競合200件分の好材料)
-    // 申込検知補正は二乗減衰 (即日申込で-1500、30日で0、検知なしで0)
-    // 60日ボーナスは「シート上の実日数」で判定(SUUMO側は45で頭打ちなので識別不能)
-    // forceFromInquiries(反響30+申込検知済) は +9999 で最優先落とし扱い
-    var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
-    var riskScore = weightedComp * 10
-                  - inquiries * 100
-                  - inquiryScore * 30
-                  + moshikomiBonus
-                  + (sheetDays >= 60 ? 9999 : 0)
-                  + (effectiveDays >= 45 ? 500 : 0)
-                  + (forceFromInquiries ? 9999 : 0);
+    // ⑤ 競合 resistance 補正 (競合多いのに PV ある物件=埋もれずに見られている)
+    // 一日詳細PV / weightedComp が高いほど人気。
+    // weightedComp >= 5 の物件のみ評価対象 (競合少ない物件は普通に見られている)。
+    // 上限 -1500。
+    var dailyDetailPv = totalDetailPv / Math.max(1, effectiveDays);
+    var competitiveResistance = (weightedComp >= 5)
+      ? (dailyDetailPv / weightedComp)
+      : 0;
+    var resistanceBonus = -Math.min(1500, Math.round(competitiveResistance * 200));
+
+    // ⑥ 長期掲載ボーナス
+    var longStayBonus = (sheetDays >= 60) ? 9999 : 0;
+    var effective45Bonus = (effectiveDays >= 45) ? 500 : 0;
+
+    // ⑦ 反響30+申込検知ボーナス
+    var highInquiryBonus = forceFromInquiries ? 9999 : 0;
+
+    var riskScore = compBonus + inquiriesBonus + inquiryScoreBonus
+                  + moshikomiBonus + resistanceBonus
+                  + longStayBonus + effective45Bonus + highInquiryBonus;
+
+    // スコア内訳 JSON (23列目に保存して後から検証可能に)
+    var breakdown = {
+      comp: compBonus,           // 競合の脅威 (プラス)
+      inq: inquiriesBonus,       // 問合せ好材料 (マイナス)
+      iScore: inquiryScoreBonus, // 反響予測好材料 (マイナス)
+      moshi: moshikomiBonus,     // 申込スピード補正 (マイナス)
+      resi: resistanceBonus,     // 競合resistance補正 (マイナス)
+      long: longStayBonus,       // 60日超 (+9999)
+      e45: effective45Bonus,     // 45日超 (+500)
+      hi: highInquiryBonus,      // 反響30+申込検知 (+9999)
+      total: riskScore,
+      // 参考情報
+      dailyPv: Math.round(dailyDetailPv * 100) / 100,
+      compResist: Math.round(competitiveResistance * 100) / 100,
+      d2moshi: daysToMoshikomi
+    };
+    var breakdownJson = JSON.stringify(breakdown);
+
+    // 23列目にスコア内訳を書き込み
+    if (breakdownColIdx > 0) {
+      try {
+        sheet.getRange(i + 2, breakdownColIdx).setValue(breakdownJson);
+      } catch (e) {
+        Logger.log('スコア内訳の書き込み失敗 row=' + (i + 2) + ': ' + e.message);
+      }
+    }
+
+    // ── 保護判定 ──────────────────────────────
+    var protectedReason = '';
+    if (!forceCandidate) {
+      if (relaxLevel === 0) {
+        if (effectiveDays < 7) protectedReason = 'new7';
+        else if (inquiries >= 1 && effectiveDays < 45) protectedReason = 'inq45';
+        else if (inquiryScore >= 70) protectedReason = 'iScore70';
+      } else if (relaxLevel === 1) {
+        if (effectiveDays < 3) protectedReason = 'new3';
+        else if (inquiries >= 1 && effectiveDays < 30) protectedReason = 'inq30';
+        else if (inquiryScore >= 80) protectedReason = 'iScore80';
+      } else if (relaxLevel === 2) {
+        if (effectiveDays < 1) protectedReason = 'new1';
+        else if (inquiryScore >= 90) protectedReason = 'iScore90';
+      }
+      // relaxLevel === 3 は保護なし
+    }
+    // forceCandidate の物件は保護スキップ、Step2 の +9999 で確実落とし。
+
+    // ログ用エントリ (全 active 物件を記録)
+    logRows.push([
+      now,
+      relaxLevel,
+      data[i][0],                       // 物件キー
+      data[i][1] || '',                 // 建物名
+      data[i][2] || '',                 // 部屋番号
+      riskScore,
+      breakdownJson,
+      protectedReason ? ('保護:' + protectedReason) : '候補',
+      inquiryScore,
+      inquiries,
+      initialMoshikomiDate || '',
+      sheetDays,
+      suumoListedDays
+    ]);
+
+    if (protectedReason) continue;
 
     candidates.push({
       key: data[i][0],
@@ -1031,9 +1129,10 @@ function findStopCandidates(topN, options) {
       room: data[i][2],
       startDate: startRaw,
       rent: data[i][4],
-      pv: Number(data[i][12]) || Number(data[i][5]) || 0, // 合計詳細PV優先
+      pv: totalDetailPv || Number(data[i][5]) || 0, // 合計詳細PV優先
       inquiries: inquiries,
       score: riskScore,
+      breakdown: breakdown,
       suumoPropertyCode: String(data[i][10] || ''),
       suumoListedDays: suumoListedDays,
       sheetDays: sheetDays,
@@ -1043,6 +1142,18 @@ function findStopCandidates(topN, options) {
       rowIndex: i + 2,
       protectRelaxLevel: relaxLevel  // どの保護段階で拾われたかを記録
     });
+  }
+
+  // 停止候補ログシートに一括追記 (Phase B の評価データ蓄積)
+  if (logRows.length > 0) {
+    try {
+      var logSheet = getStopLogSheet_();
+      var logStart = logSheet.getLastRow() + 1;
+      logSheet.getRange(logStart, 1, logRows.length, SUUMO_STOP_LOG_HEADERS.length)
+        .setValues(logRows);
+    } catch (e) {
+      Logger.log('停止候補ログ書き込み失敗: ' + e.message);
+    }
   }
 
   // 降順ソートして上位N件を返す
