@@ -4445,7 +4445,29 @@ async function deliverProperty(customerName, prop, customer, service) {
   await sendDiscordNotification(customerName, [prop], customer);
 }
 
+// 物件の画像枚数を取得 (image_urls が標準フォーマット。複数のフィールド名にフォールバック)
+function _countImages(prop) {
+  if (!prop) return 0;
+  if (Array.isArray(prop.image_urls)) return prop.image_urls.length;
+  if (Array.isArray(prop.imageUrls)) return prop.imageUrls.length;
+  if (Array.isArray(prop.images)) return prop.images.length;
+  if (Array.isArray(prop.image_base64s)) return prop.image_base64s.length;
+  return 0;
+}
+
+// バッファ内の2エントリの「勝ち」を判定:
+//   1. 画像枚数の多い方が勝ち
+//   2. 同数ならサービス優先度 (itandi > essquare > ielove > reins) で決める
+// 戻り値: a が勝てば >0, b が勝てば <0, タイなら 0
+function _compareDedupCandidates(a, b) {
+  const ai = _countImages(a.prop);
+  const bi = _countImages(b.prop);
+  if (ai !== bi) return ai - bi;
+  return (_serviceRank[a.service] || 0) - (_serviceRank[b.service] || 0);
+}
+
 // 特定顧客のバッファをフラッシュ（重複排除→通知）
+// 同じ物件が複数サービスから来た場合、画像枚数が多い方を優先 (枚数同じならサービス優先度)。
 async function flushBatchBufferForCustomer(customerName) {
   const entries = _batchBuffer[customerName];
   if (!entries || entries.length === 0) return;
@@ -4458,13 +4480,13 @@ async function flushBatchBufferForCustomer(customerName) {
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, e);
-    } else if ((_serviceRank[e.service] || 0) > (_serviceRank[existing.service] || 0)) {
-      // 既存より優先度が高い → 入れ替え。既存を dropped へ
-      dropped.push({ ...existing, _winnerService: e.service });
+    } else if (_compareDedupCandidates(e, existing) > 0) {
+      // 新エントリの方が画像多い (or 画像同数で優先度高い) → 入れ替え
+      dropped.push({ ...existing, _winnerService: e.service, _winnerImages: _countImages(e.prop) });
       byKey.set(key, e);
     } else {
-      // 既存の方が優先 → こちらを dropped へ
-      dropped.push({ ...e, _winnerService: existing.service });
+      // 既存の方が勝ち → こちらを dropped へ
+      dropped.push({ ...e, _winnerService: existing.service, _winnerImages: _countImages(existing.prop) });
     }
   }
   const winners = [...byKey.values(), ...noKey];
@@ -4475,7 +4497,9 @@ async function flushBatchBufferForCustomer(customerName) {
   for (const d of dropped) {
     const name = d.prop.building_name || d.prop.buildingName || '(建物名なし)';
     const room = d.prop.room_number || d.prop.roomNumber || '';
-    await setStorageData({ debugLog: `[system] ${customerName}: ✗ 重複スキップ: ${name} ${room} (${d.service} → ${d._winnerService}優先)` });
+    const lostImages = _countImages(d.prop);
+    const winImages = (typeof d._winnerImages === 'number') ? d._winnerImages : '?';
+    await setStorageData({ debugLog: `[system] ${customerName}: ✗ 重複スキップ: ${name} ${room} (${d.service} 画像${lostImages}枚 → ${d._winnerService} 画像${winImages}枚 が勝ち)` });
   }
   try {
     await sendDiscordNotification(customerName, props, customer);
