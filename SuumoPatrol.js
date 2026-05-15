@@ -114,6 +114,81 @@ function _normalizeBuildingRoomKey_(building, room) {
  * K列に値が無い (まだ申込検知されてない) 物件はマップに含めない。
  * findStopCandidates から呼ばれて、SUUMO掲載物件と突合する。
  */
+/**
+ * メンテナンス用: 物件空室管理シート(PROPERTY_SHEET_ID) のK列「終了日」を、
+ * SUUMO掲載管理シートの 22列目「初回申込検知日」に一括反映する。
+ * 既に値が入っている行は触らない (永続化のため)。
+ * active な行のみが対象。
+ *
+ * GAS エディタの「関数を選択」プルダウンから手動実行する想定。
+ */
+function backfillInitialMoshikomiDates() {
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    Logger.log('backfill: 掲載管理シートが空');
+    return { scanned: 0, updated: 0 };
+  }
+
+  var headerLen = SUUMO_LISTING_HEADERS.length;
+  var data = sheet.getRange(2, 1, lastRow - 1, headerLen).getValues();
+  var moshikomiColIdx = SUUMO_LISTING_HEADERS.indexOf('初回申込検知日') + 1;
+  if (moshikomiColIdx <= 0) {
+    Logger.log('backfill: 初回申込検知日列が見つからない');
+    return { error: '初回申込検知日列が見つからない' };
+  }
+
+  var vacancyEndedMap = _buildVacancyEndedMap_();
+  var mapKeyCount = Object.keys(vacancyEndedMap).length;
+  Logger.log('backfill: 物件空室管理シートから ' + mapKeyCount + ' 件の終了日を取得');
+
+  var updated = 0;
+  var scanned = 0;
+  var skippedAlreadyFilled = 0;
+  var skippedNoMatch = 0;
+  var updatedRows = [];
+
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][8] !== 'active') continue;
+    scanned++;
+
+    var existing = data[i][moshikomiColIdx - 1];
+    if (existing) {
+      skippedAlreadyFilled++;
+      continue;
+    }
+
+    var bldName = String(data[i][1] || '');
+    var roomNo = String(data[i][2] || '');
+    var vkey = _normalizeBuildingRoomKey_(bldName, roomNo);
+    var foundEnded = vacancyEndedMap[vkey];
+    if (!(foundEnded instanceof Date)) {
+      skippedNoMatch++;
+      continue;
+    }
+
+    sheet.getRange(i + 2, moshikomiColIdx).setValue(foundEnded);
+    updated++;
+    updatedRows.push(bldName + ' ' + roomNo + ' → ' +
+                     Utilities.formatDate(foundEnded, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm'));
+  }
+
+  Logger.log('backfill完了: scanned=' + scanned +
+             ' updated=' + updated +
+             ' skipAlreadyFilled=' + skippedAlreadyFilled +
+             ' skipNoMatch=' + skippedNoMatch);
+  if (updatedRows.length > 0) {
+    Logger.log('更新した物件:\n  ' + updatedRows.join('\n  '));
+  }
+  return {
+    scanned: scanned,
+    updated: updated,
+    skippedAlreadyFilled: skippedAlreadyFilled,
+    skippedNoMatch: skippedNoMatch,
+    updatedRows: updatedRows
+  };
+}
+
 function _buildVacancyEndedMap_() {
   var map = {};
   try {
