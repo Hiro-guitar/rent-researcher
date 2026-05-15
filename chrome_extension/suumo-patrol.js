@@ -32,7 +32,7 @@ async function fetchPatrolCriteria() {
   if (!gasWebappUrl) throw new Error('GAS URL未設定');
 
   const url = `${gasWebappUrl}?action=get_patrol_criteria&api_key=${encodeURIComponent(gasApiKey || '')}`;
-  const res = await fetch(url);
+  const res = await _fetchWithTimeout_(url, undefined, 30000);
   if (!res.ok) throw new Error(`巡回条件取得失敗: HTTP ${res.status}`);
 
   const data = await res.json();
@@ -154,7 +154,7 @@ async function runSuumoPatrolCycle() {
       const { gasWebappUrl, gasApiKey } = await getStorageData(['gasWebappUrl', 'gasApiKey']);
       const url = `${gasWebappUrl}?action=get_patrol_criteria&api_key=${encodeURIComponent(gasApiKey || '')}`;
       console.log('[SUUMO巡回] リクエストURL:', url);
-      const res = await fetch(url);
+      const res = await _fetchWithTimeout_(url, undefined, 30000);
       const rawText = await res.text();
       console.log('[SUUMO巡回] GAS生レスポンス:', rawText.substring(0, 500));
       const data = JSON.parse(rawText);
@@ -493,6 +493,25 @@ function normSuumoKey(building, room) {
 }
 
 /**
+ * \u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u4ed8\u304d fetch \u30d8\u30eb\u30d1\u30fc\u3002
+ * MV3 \u306e\u30b5\u30fc\u30d3\u30b9\u30ef\u30fc\u30ab\u30fc\u3067\u5fdc\u7b54\u7121\u3057 fetch \u306b\u5f53\u305f\u308b\u3068\u6c38\u4e45\u306b\u30cf\u30f3\u30b0\u3057\u3066
+ * SUUMO\u5de1\u56de\u30eb\u30fc\u30d7\u5168\u4f53\u304c\u6b62\u307e\u308b\u305f\u3081\u3001\u3059\u3079\u3066\u306e fetch \u306b\u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u3092\u4ed8\u3051\u308b\u3002
+ * @param {string} url
+ * @param {RequestInit} init
+ * @param {number} timeoutMs - \u30c7\u30d5\u30a9\u30eb\u30c8 30\u79d2
+ */
+async function _fetchWithTimeout_(url, init, timeoutMs) {
+  const ms = (typeof timeoutMs === 'number') ? timeoutMs : 30000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...(init || {}), signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * 新着物件をGASに送信
  */
 async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
@@ -593,11 +612,11 @@ async function createSuumoPatrolThread_(webhookUrl) {
   const threadName = '🌀 SUUMO巡回 ' + dateStr + ' ' + timeStr;
   const headerContent = '━━━ SUUMO巡回 ' + dateStr + ' ' + timeStr + ' ━━━';
   try {
-    const resp = await fetch(webhookUrl + (webhookUrl.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
+    const resp = await _fetchWithTimeout_(webhookUrl + (webhookUrl.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ thread_name: threadName, content: headerContent })
-    });
+    }, 15000);
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       await setStorageData({ debugLog: `[SUUMO巡回] スレッド作成失敗: HTTP ${resp.status} ${text.substring(0,150)}` });
@@ -652,11 +671,11 @@ async function getOrCreateSuumoDailyThread_(webhookUrl) {
   const threadName = '🔄 SUUMO一括更新 ' + todayJst;
   const headerContent = '━━━ SUUMO一括更新 ' + todayJst + ' ━━━';
   try {
-    const resp = await fetch(webhookUrl + (webhookUrl.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
+    const resp = await _fetchWithTimeout_(webhookUrl + (webhookUrl.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ thread_name: threadName, content: headerContent })
-    });
+    }, 15000);
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       await setStorageData({ debugLog: `[SUUMO一括更新] スレッド作成失敗: HTTP ${resp.status} ${text.substring(0,150)}` });
@@ -891,11 +910,11 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     let lastErr = '';
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const resp = await fetch(postUrl, {
+        const resp = await _fetchWithTimeout_(postUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
-        });
+        }, 15000);
         if (resp.ok) {
           sent++;
           success = true;
@@ -945,14 +964,14 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     if (scoreUpdates.length > 0) {
       const { gasWebappUrl: gasUrl2 } = await getStorageData(['gasWebappUrl']);
       if (gasUrl2) {
-        await fetch(gasUrl2, {
+        await _fetchWithTimeout_(gasUrl2, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'update_candidate_inquiry_scores',
             updates: scoreUpdates
           })
-        });
+        }, 30000);
         await setStorageData({ debugLog: `[SUUMO反響] スコア保存 ${scoreUpdates.length}件をGAS送信` });
       }
     }
@@ -971,12 +990,19 @@ async function markSuumoDiscordSentInGas_(sheetRowIndexes) {
   try {
     const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
     if (!gasWebappUrl) return;
-    await fetch(gasWebappUrl, {
+    await _fetchWithTimeout_(gasWebappUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'mark_suumo_discord_sent', sheetRowIndexes })
-    });
-  } catch (_) {}
+    }, 30000);
+  } catch (e) {
+    // タイムアウトや GAS 障害でループ全体が止まらないよう、失敗ログだけ残して続行
+    try {
+      await setStorageData({
+        debugLog: `[SUUMO巡回] markSuumoDiscordSentInGas 失敗 (続行): ${(e && e.message) || e}`
+      });
+    } catch (_) {}
+  }
 }
 
 /**
@@ -989,10 +1015,13 @@ async function pollSuumoApprovalQueue(opts) {
 
   const lockParam = opts && opts.lock ? '&lock=true' : '';
   const url = `${gasWebappUrl}?action=get_suumo_queue&api_key=${encodeURIComponent(gasApiKey || '')}${lockParam}`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
-
-  return await res.json();
+  try {
+    const res = await _fetchWithTimeout_(url, undefined, 30000);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
 }
 
 /**
@@ -1002,14 +1031,14 @@ async function reportSuumoPostComplete(data) {
   const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
   if (!gasWebappUrl) throw new Error('GAS URL未設定');
 
-  const response = await fetch(gasWebappUrl, {
+  const response = await _fetchWithTimeout_(gasWebappUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       action: 'suumo_post_complete',
       ...data
     })
-  });
+  }, 30000);
 
   if (!response.ok) throw new Error(`GAS応答エラー: HTTP ${response.status}`);
   return await response.json();
