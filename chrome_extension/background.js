@@ -1035,7 +1035,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     return;
   }
   if (alarm.name === 'reins-search') {
-    chrome.storage.local.get(['autoSearchEnabled', 'searchIntervalMinutes', 'businessStartHour', 'businessEndHour'], (data) => {
+    chrome.storage.local.get(['autoSearchEnabled', 'searchIntervalMinutes', 'businessStartHour', 'businessEndHour', 'suumoPatrolRunning'], (data) => {
       const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
       const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
       const hour = new Date().getHours();
@@ -1043,33 +1043,55 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
       if (data.autoSearchEnabled === false) {
         console.log('[system] 自動検索が無効のためスキップ');
+        // 通常のインターバルで次回をセット
+        setupAlarm(data.searchIntervalMinutes || 60);
       } else if (!inBusiness) {
         console.log(`[system] 営業時間外 (${hour}時) のためスキップ`);
+        setupAlarm(data.searchIntervalMinutes || 60);
+      } else if (data.suumoPatrolRunning) {
+        // SUUMO巡回が走ってる間は顧客検索を見送る (5分後リトライ)
+        console.log('[system] SUUMO巡回中のため顧客検索を5分後にリトライ');
+        setStorageData({ debugLog: '[system] SUUMO巡回中のため顧客検索を5分後にリトライ' });
+        chrome.alarms.create('reins-search', { delayInMinutes: 5 });
       } else {
         runSearchCycle();
+        setupAlarm(data.searchIntervalMinutes || 60);
       }
-      // 次回アラームを再セット（ジッター付き / 営業時間考慮）
-      setupAlarm(data.searchIntervalMinutes || 60);
     });
   }
 
   // ── SUUMO巡回アラーム ──
+  // 仕様:
+  //  - 通常は suumoPatrolIntervalMinutes (デフォルト180分=3時間) ごとに自動実行
+  //  - 顧客検索が走っている時は suumoPatrolPending フラグを立てて待機
+  //    → 顧客検索の finally で chain起動される
+  //  - 次回アラームは設定値ベースで再セット (デフォルト180分)
   if (alarm.name === 'suumo-patrol') {
-    chrome.storage.local.get(['suumoPatrolEnabled', 'businessStartHour', 'businessEndHour'], (data) => {
+    chrome.storage.local.get(['suumoPatrolEnabled', 'businessStartHour', 'businessEndHour', 'suumoPatrolIntervalMinutes', 'isSearching'], (data) => {
       const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
       const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
       const hour = new Date().getHours();
       const inBusiness = hour >= startH && hour < endH;
+      const interval = Math.max(15, Math.min(1440,
+        Number(data.suumoPatrolIntervalMinutes) || 180
+      ));
 
       if (data.suumoPatrolEnabled !== true) {
         console.log('[SUUMO巡回] 無効のためスキップ');
       } else if (!inBusiness) {
         console.log(`[SUUMO巡回] 営業時間外 (${hour}時) のためスキップ`);
+      } else if (data.isSearching) {
+        // 顧客検索中: pending フラグだけ立てて、検索完了時に chain起動される
+        console.log('[SUUMO巡回] 顧客検索中 → pending フラグを立てて待機');
+        setStorageData({
+          suumoPatrolPending: true,
+          debugLog: '[SUUMO巡回] 顧客検索中のため待機(完了後に自動起動)'
+        });
       } else {
         runSuumoPatrolCycle();
       }
-      // 次回SUUMO巡回アラームをセット（60分間隔固定）
-      chrome.alarms.create('suumo-patrol', { delayInMinutes: 60 });
+      // 次回SUUMO巡回アラームを設定値で再セット
+      chrome.alarms.create('suumo-patrol', { delayInMinutes: interval });
     });
   }
 
@@ -1144,18 +1166,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     return;
   }
-  // SUUMO_PATROL_TOGGLE: 定期巡回 (60分アラーム) の ON/OFF だけを切り替える。
+  // SUUMO_PATROL_TOGGLE: 定期巡回アラーム の ON/OFF だけを切り替える。
   // 実行中サイクルには干渉しない (止めるには SUUMO_PATROL_STOP を使う)。
+  // 間隔は suumoPatrolIntervalMinutes (options で設定可、デフォルト180分)。
   if (msg.type === 'SUUMO_PATROL_TOGGLE') {
     chrome.storage.local.set({ suumoPatrolEnabled: msg.enabled }, () => {
       if (msg.enabled) {
-        chrome.alarms.create('suumo-patrol', { delayInMinutes: 60 });
-        setStorageData({ debugLog: '[SUUMO巡回] 定期巡回を有効化 (60分ごと)' });
+        chrome.storage.local.get(['suumoPatrolIntervalMinutes'], (d) => {
+          const interval = Math.max(15, Math.min(1440, Number(d.suumoPatrolIntervalMinutes) || 180));
+          chrome.alarms.create('suumo-patrol', { delayInMinutes: interval });
+          setStorageData({ debugLog: `[SUUMO巡回] 定期巡回を有効化 (${interval}分ごと)` });
+          sendResponse({ ok: true });
+        });
       } else {
         chrome.alarms.clear('suumo-patrol');
+        // pending もクリア (無効化されたら chain も走らせない)
+        chrome.storage.local.set({ suumoPatrolPending: false });
         setStorageData({ debugLog: '[SUUMO巡回] 定期巡回を無効化' });
+        sendResponse({ ok: true });
       }
-      sendResponse({ ok: true });
     });
     return true;
   }
@@ -1903,6 +1932,34 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     globalThis._oneShotForceRefetchSet = new Set();
     try { await setStorageData({ oneShotForceRefetch: [] }); } catch (_) {}
     await setStorageData({ isSearching: false });
+
+    // ── チェイン起動: 検索中に SUUMO巡回アラームが pending を立てていた場合、
+    //    顧客検索完了直後にここで自動起動する ──
+    try {
+      const { suumoPatrolPending, suumoPatrolEnabled, businessStartHour, businessEndHour } =
+        await getStorageData(['suumoPatrolPending', 'suumoPatrolEnabled', 'businessStartHour', 'businessEndHour']);
+      if (suumoPatrolPending && suumoPatrolEnabled) {
+        const startH = businessStartHour !== undefined ? businessStartHour : 10;
+        const endH = businessEndHour !== undefined ? businessEndHour : 20;
+        const hour = new Date().getHours();
+        const inBusiness = hour >= startH && hour < endH;
+        if (inBusiness) {
+          // ペンディングをクリア (runSuumoPatrolCycle 内でもクリアされるが、二重起動防止のためここでも先にクリア)
+          await setStorageData({
+            suumoPatrolPending: false,
+            debugLog: '[SUUMO巡回] 顧客検索完了 → ペンディングを検出、チェイン起動'
+          });
+          if (typeof runSuumoPatrolCycle === 'function') {
+            runSuumoPatrolCycle();
+          }
+        } else {
+          // 営業時間外: ペンディングはそのまま残し、次回アラームで処理させる
+          await setStorageData({ debugLog: '[SUUMO巡回] チェイン候補だが営業時間外のため次回アラーム待ち' });
+        }
+      }
+    } catch (chainErr) {
+      console.warn('[SUUMO巡回] チェイン起動チェックでエラー:', chainErr.message);
+    }
   }
 }
 

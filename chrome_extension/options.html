@@ -455,6 +455,13 @@
         <div class="hint">物件の <code>owner_company</code>(元付会社名) にここのキーワードが<strong>含まれる</strong>物件をスキップします。1行に1キーワード(部分一致、大文字小文字無視)。<strong>競合数取得・画像取得より前</strong>に判定するため、無駄な処理が発生しません。SUUMO巡回のみ適用</div>
       </div>
 
+      <div class="section-title">巡回間隔</div>
+      <div class="field">
+        <label class="field-label" for="suumoPatrolIntervalMinutes">N分ごとに自動巡回</label>
+        <input type="number" id="suumoPatrolIntervalMinutes" min="15" max="1440" value="180" style="width:140px">
+        <div class="hint">15〜1440分（デフォルト180分=3時間）。<strong>定期巡回チェック</strong> ON 時のみ有効。<br>顧客検索が走っている時はその完了を待ってから巡回開始（チェイン動作）。</div>
+      </div>
+
       <div class="section-title">itandi 募集条件更新フィルタ</div>
       <div class="field">
         <label class="field-label" for="itandiUpdatedWithinDays">N日以内に更新された物件のみ取得</label>

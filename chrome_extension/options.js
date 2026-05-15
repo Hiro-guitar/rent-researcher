@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
   // 保存済み設定を読み込み
-  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason', 'suumoForrentStopDryRun', 'suumoSkipLowImageCount', 'suumoExcludeOwnerKeywords', 'itandiUpdatedWithinDays', 'suumoFinalSubmitDryRun',
+  chrome.storage.local.get(['gasWebappUrl', 'gasApiKey', 'searchIntervalMinutes', 'pageDelaySeconds', 'discordWebhookUrl', 'suumoDiscordWebhookUrl', 'errorWebhookUrl', 'jitterPercent', 'businessStartHour', 'businessEndHour', 'notifyMode', 'btMode', 'forrentLoginId', 'forrentPassword', 'suumoCompSkipThresholds', 'suumoBusinessKissCode', 'suumoBusinessFetchUrl', 'suumoBusinessLoginId', 'suumoBusinessPassword', 'suumoBusinessLoginBlocked', 'suumoBusinessLoginBlockedReason', 'suumoForrentStopDryRun', 'suumoSkipLowImageCount', 'suumoExcludeOwnerKeywords', 'itandiUpdatedWithinDays', 'suumoPatrolIntervalMinutes', 'suumoFinalSubmitDryRun',
     // 4サービス自動ログイン
     'reinsLoginId', 'reinsPassword', 'reinsLoginBlocked', 'reinsLoginBlockedReason',
     'itandiLoginId', 'itandiPassword', 'itandiLoginBlocked', 'itandiLoginBlockedReason',
@@ -52,6 +52,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const itandiDaysInput = document.getElementById('itandiUpdatedWithinDays');
     if (itandiDaysInput && data.itandiUpdatedWithinDays !== undefined && data.itandiUpdatedWithinDays !== null && data.itandiUpdatedWithinDays !== '') {
       itandiDaysInput.value = data.itandiUpdatedWithinDays;
+    }
+
+    // SUUMO巡回間隔(デフォルト180分=3時間)
+    const patrolIntervalInput = document.getElementById('suumoPatrolIntervalMinutes');
+    if (patrolIntervalInput) {
+      patrolIntervalInput.value = (data.suumoPatrolIntervalMinutes !== undefined && data.suumoPatrolIntervalMinutes !== null)
+        ? data.suumoPatrolIntervalMinutes
+        : 180;
     }
 
     // ForRent停止 ドライラン設定(デフォルト true)
@@ -152,6 +160,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!isNaN(n) && n >= 0 && n <= 30) itandiUpdatedWithinDays = n;
     }
 
+    // SUUMO巡回の自動実行間隔(分)。15〜1440、デフォルト180(3時間)
+    const suumoPatrolIntervalMinutes = Math.max(15, Math.min(1440,
+      parseInt((document.getElementById('suumoPatrolIntervalMinutes') || {}).value, 10) || 180
+    ));
+
     // SUUMO競合スキップ閾値（空欄なら null で「制限なし」扱い）
     const parseThreshold = (id) => {
       const v = document.getElementById(id).value.trim();
@@ -200,6 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
       suumoSkipLowImageCount,
       suumoExcludeOwnerKeywords,
       itandiUpdatedWithinDays,
+      suumoPatrolIntervalMinutes,
       suumoFinalSubmitDryRun,
       reinsLoginId, reinsPassword,
       itandiLoginId, itandiPassword,

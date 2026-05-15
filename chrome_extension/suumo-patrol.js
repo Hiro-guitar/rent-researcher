@@ -115,17 +115,24 @@ async function runSuumoPatrolCycle() {
     return;
   }
 
-  // 顧客検索が実行中の場合もスキップ（タブの競合を避ける）
+  // 顧客検索が実行中の場合は pending フラグを立てて待機。
+  // (顧客検索の finally でこのフラグを検出し、自動的に chain起動される)
+  // タブ競合・currentSearchId 共有問題を回避するため、絶対に並列実行しない。
   const { isSearching } = await getStorageData(['isSearching']);
   if (isSearching) {
-    console.log('[SUUMO巡回] 顧客検索が実行中のためスキップ');
+    console.log('[SUUMO巡回] 顧客検索が実行中のため pending を立てて待機');
+    await setStorageData({
+      suumoPatrolPending: true,
+      debugLog: '[SUUMO巡回] 顧客検索中のため待機(完了後に自動起動)'
+    });
     return;
   }
 
   _suumoPatrolRunning = true;
+  // 開始したら pending はクリア (検索終了の chain と alarm が同時にぶつかっても二重起動しない)
   // ダッシュボード側でボタン表示を切り替えるためのフラグも storage に書き出す
   // (定期巡回チェック(suumoPatrolEnabled)とは独立して「実行中か否か」を示す)
-  await setStorageData({ suumoPatrolRunning: true });
+  await setStorageData({ suumoPatrolRunning: true, suumoPatrolPending: false });
   // 巡回開始時に Discord スレッドIDキャッシュをリセット
   // (以後 createSuumoPatrolThread_ が最初の通知発生時に新規作成し、
   //  同一巡回内の以後の通知はそのスレッドに集約される)
