@@ -1773,6 +1773,13 @@ function handleCheckAction(e) {
  * 該当行が無い / J列(property_data_json)が壊れている / url 未設定 の場合は '' を返す。
  *
  * status は pending/sent どちらでも引っかける (承認済みでもアクションは起き得るため)。
+ *
+ * URL 解決順:
+ *   1. extra.url があればそれ (itandi/いえらぶ/ES-Square は直 URL を持つ)
+ *   2. REINS は直 URL を持たないため、reins_property_number から
+ *      物件番号検索ページのフラグメント形式 URL を構築
+ *      (https://system.reins.jp/main/BK/GBK004100#bukken=NNNNN)
+ *      → SuumoPatrol/Chrome拡張の Discord リンクと同じ形式
  */
 function _findPendingPropertySourceUrl_(customerName, roomId) {
   try {
@@ -1793,12 +1800,14 @@ function _findPendingPropertySourceUrl_(customerName, roomId) {
       if (!match) continue;
       var status = String(data[i][10] || '');
       if (status !== 'pending' && status !== 'sent') continue;
-      try {
-        var extra = JSON.parse(data[i][9] || '{}');
-        return extra.url || '';
-      } catch (_) {
-        return '';
-      }
+      var extra = {};
+      try { extra = JSON.parse(data[i][9] || '{}'); } catch (_) { return ''; }
+      // 1. itandi/いえらぶ/ES-Square 等は直接の物件URL
+      if (extra.url) return extra.url;
+      // 2. REINS は物件番号検索ページの URL を構築
+      var num = String(extra.reins_property_number || '').replace(/[^0-9]/g, '');
+      if (num) return 'https://system.reins.jp/main/BK/GBK004100#bukken=' + num;
+      return '';
     }
   } catch (e) {
     console.error('[_findPendingPropertySourceUrl_] エラー: ' + e.message);
