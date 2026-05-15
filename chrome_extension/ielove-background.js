@@ -1067,6 +1067,20 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
+      // 通知済み重複(30日)の先行チェック - 顧客向け検索のみ
+      // notifiedDedupMap で過去30日以内に通知済みの物件は GAS送信・Discord通知を省略。
+      // 注: スキップ済みマップには記録しない (次回検索時に再評価したいケースがあるため)
+      if (!globalThis._suumoPatrolMode &&
+          typeof globalThis.__hasNotifiedDedupKey === 'function' &&
+          globalThis.__hasNotifiedDedupKey(customer.name, prop)) {
+        const info = (typeof globalThis.__getNotifiedDedupInfo === 'function')
+          ? (globalThis.__getNotifiedDedupInfo(customer.name, prop) || {})
+          : {};
+        const sourceTag = info.source ? ` (元: ${info.source})` : '';
+        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - 30日以内に同物件通知済${sourceTag}(画像取得前に判定)${globalThis.__formatPropSkipUrl(prop)}` });
+        continue;
+      }
+
       // 元付会社名キーワードによる早期スキップ(SUUMO巡回モードのみ)
       // 競合数取得や画像処理より前に判定して無駄な処理を省略
       if (globalThis._suumoPatrolMode && typeof globalThis.checkSuumoOwnerKeywordSkip === 'function') {

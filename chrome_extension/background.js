@@ -3376,6 +3376,19 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         __rejectReason = getFilterRejectReason(detail, customer);
       }
 
+      // 通知済み重複(30日)の先行チェック - 顧客向け検索のみ
+      // notifiedDedupMap で過去30日以内に通知済みの物件は、ここで弾いて画像取得を省略する。
+      // (REINSの画像取得は fetch + base64変換で重いため効果大)
+      if (detail && !__rejectReason && !globalThis._suumoPatrolMode &&
+          typeof globalThis.__hasNotifiedDedupKey === 'function' &&
+          globalThis.__hasNotifiedDedupKey(customer.name, detail)) {
+        const info = (typeof globalThis.__getNotifiedDedupInfo === 'function')
+          ? (globalThis.__getNotifiedDedupInfo(customer.name, detail) || {})
+          : {};
+        const sourceTag = info.source ? ` (元: ${info.source})` : '';
+        __rejectReason = `30日以内に同物件通知済${sourceTag}(画像取得前に判定)`;
+      }
+
       // 元付会社名キーワードによる早期スキップ(SUUMO巡回モードのみ)
       // 競合数取得や画像base64取得より前に判定して無駄な処理を省略
       if (detail && !__rejectReason &&

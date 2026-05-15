@@ -1352,6 +1352,19 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
       continue;
     }
 
+    // 通知済み重複(30日)の先行チェック - 顧客向け検索のみ
+    // GAS送信・Discord通知・後続処理をまるごと省略
+    if (!globalThis._suumoPatrolMode &&
+        typeof globalThis.__hasNotifiedDedupKey === 'function' &&
+        globalThis.__hasNotifiedDedupKey(customer.name, prop)) {
+      const info = (typeof globalThis.__getNotifiedDedupInfo === 'function')
+        ? (globalThis.__getNotifiedDedupInfo(customer.name, prop) || {})
+        : {};
+      const sourceTag = info.source ? ` (元: ${info.source})` : '';
+      await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - 30日以内に同物件通知済${sourceTag}(画像取得前に判定)${globalThis.__formatPropSkipUrl(prop)}` });
+      continue;
+    }
+
     // SUUMO巡回モード: 詳細取得済みで階建情報も揃っている時点で
     // 競合数をチェックし、閾値超過ならこの先の処理(property_data_json構築・
     // GAS送信・Discord通知)を省略する。
