@@ -243,15 +243,9 @@
       <label><input type="checkbox" id="suumoPatrolEnabled"> SUUMO巡回</label>
       <button id="suumoPatrolNowBtn" class="cp-btn primary" style="font-size:11px;padding:3px 8px;">巡回実行</button>
       <button id="suumoPatrolStopBtn" class="cp-btn danger" style="font-size:11px;padding:3px 8px;display:none;">巡回停止</button>
-      <select id="suumoPatrolDaysWithin" style="font-size:11px;padding:2px 4px;background:#222;color:#ddd;border:1px solid #555;" title="今回の巡回で使う「N日以内」フィルタ(各サイトの新着絞り込み)。条件設定値を一時上書きする">
-        <option value="">日数: 条件設定値</option>
-        <option value="1">1日以内</option>
-        <option value="3">3日以内</option>
-        <option value="7">7日以内</option>
-        <option value="14">14日以内</option>
-        <option value="30">30日以内</option>
-        <option value="unlimited">制限なし</option>
-      </select>
+      <span style="font-size:11px;color:#999;">N日以内:</span>
+      <input type="number" id="suumoPatrolDaysWithin" min="0" max="365" step="1" placeholder="制限なし" style="font-size:11px;padding:2px 4px;background:#222;color:#ddd;border:1px solid #555;width:70px;" title="今回の巡回で使う「N日以内」フィルタ(各サイトの新着絞り込み)。空欄なら制限なし">
+      <span style="font-size:11px;color:#777;">日</span>
       <button id="suumoConfigBtn" class="cp-btn" style="font-size:11px;padding:3px 8px;" title="SUUMO巡回条件管理ページを開く">条件管理</button>
       <span style="color:#555">|</span>
       <button id="suumoFillNowBtn" class="cp-btn primary" style="font-size:11px;padding:3px 8px;">入稿開始</button>

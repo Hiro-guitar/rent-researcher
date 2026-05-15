@@ -96,14 +96,10 @@ function patrolCriteriaToCustomer(criteria) {
     structures: structures,
     equipment: equipment,
     petType: equipmentArr.includes('ペット相談可') ? 'ok' : '',
-    // 登録日数フィルタ (各サイトの「N日以内に登録/最終更新」絞り込みに使う)
-    // 文字列で来る可能性があるので number 変換、空 or 不正値なら null。
-    daysWithin: (function () {
-      const v = criteria.daysWithin;
-      if (v === undefined || v === null || v === '') return null;
-      const n = parseInt(String(v), 10);
-      return isNaN(n) || n < 0 ? null : n;
-    })()
+    // 登録日数フィルタはダッシュボード側で一元管理 (chrome.storage.local.suumoPatrolDaysWithin)。
+    // 旧条件シートに残っている daysWithin 値は無視する。ここでは null を入れ、
+    // runSuumoPatrolCycle 内でダッシュボード値に置き換える。
+    daysWithin: null
   };
 }
 
@@ -171,30 +167,24 @@ async function runSuumoPatrolCycle() {
       return;
     }
 
-    // ダッシュボードからの「今回のN日以内」一時上書きを読む。
-    //   ""(空) → 条件側の daysWithin をそのまま使用 (= 上書き無し)
-    //   "1"〜"30" → 数値として上書き
-    //   "unlimited" → null (制限なし) で上書き
-    // どれにもマッチしなければ「上書き無し」。
-    let _daysWithinOverride = undefined; // undefined = 上書きしない
-    let _daysWithinOverrideLabel = '';
+    // ダッシュボードで指定された「N日以内」フィルタを全条件に適用する。
+    // 空欄/不正値 → null (制限なし、各サイトの新着絞り込み無し)
+    // 数値 → その日数で絞り込み
+    let _daysWithinValue = null;
+    let _daysWithinLabel = '制限なし';
     try {
-      const { suumoPatrolDaysWithinOverride } = await getStorageData(['suumoPatrolDaysWithinOverride']);
-      if (suumoPatrolDaysWithinOverride === 'unlimited') {
-        _daysWithinOverride = null;
-        _daysWithinOverrideLabel = '制限なし';
-      } else if (suumoPatrolDaysWithinOverride !== '' && suumoPatrolDaysWithinOverride !== undefined && suumoPatrolDaysWithinOverride !== null) {
-        const n = parseInt(String(suumoPatrolDaysWithinOverride), 10);
+      const { suumoPatrolDaysWithin } = await getStorageData(['suumoPatrolDaysWithin']);
+      if (suumoPatrolDaysWithin !== '' && suumoPatrolDaysWithin !== undefined && suumoPatrolDaysWithin !== null) {
+        const n = parseInt(String(suumoPatrolDaysWithin), 10);
         if (!isNaN(n) && n >= 0) {
-          _daysWithinOverride = n;
-          _daysWithinOverrideLabel = n + '日以内';
+          _daysWithinValue = n;
+          _daysWithinLabel = n + '日以内';
         }
       }
     } catch (e) {}
 
     await setStorageData({
-      debugLog: `[SUUMO巡回] ${criteria.length}件の条件で巡回開始` +
-        (_daysWithinOverrideLabel ? ` (今回: ${_daysWithinOverrideLabel} 上書き)` : '')
+      debugLog: `[SUUMO巡回] ${criteria.length}件の条件で巡回開始 (N日以内: ${_daysWithinLabel})`
     });
 
     // Discord通知は Chrome拡張側(ユーザーIP)で行う方式に変更したため、
@@ -218,11 +208,8 @@ async function runSuumoPatrolCycle() {
 
       const crit = criteria[ci];
       const customer = patrolCriteriaToCustomer(crit);
-      // ダッシュボードからの一時上書きが指定されていれば、条件側の daysWithin を上書き。
-      // (_daysWithinOverride: undefined=上書き無し / null=制限なし / number=N日以内)
-      if (_daysWithinOverride !== undefined) {
-        customer.daysWithin = _daysWithinOverride;
-      }
+      // ダッシュボードで指定された N日以内 を全条件に適用
+      customer.daysWithin = _daysWithinValue;
       console.log('[SUUMO巡回] GAS条件:', JSON.stringify(crit));
       console.log('[SUUMO巡回] 変換後customer:', JSON.stringify(customer));
 
