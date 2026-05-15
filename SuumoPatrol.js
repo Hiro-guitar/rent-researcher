@@ -86,6 +86,26 @@ var SUUMO_STOP_LOG_HEADERS = [
   '掲載日数(SUUMO)'
 ];
 
+// 競合履歴シート (SUUMOビジネス取得毎に各物件のスナップショットを蓄積)
+// updateSuumoListingStats から毎日 append。
+// 30日以上溜まったら「直近7日平均 vs 14〜21日前7日平均」等のトレンド検知に使う (Phase B以降)。
+// 90日で自動削除。
+var SUUMO_COMPETITION_LOG_SHEET = 'SUUMO競合履歴';
+var SUUMO_COMPETITION_LOG_HEADERS = [
+  '取得日時',
+  '物件キー',
+  '建物名',
+  '部屋番号',
+  '競合_第1基準値',
+  '競合_第2基準値',
+  '競合_第3基準値',
+  '合計一覧PV',
+  '合計詳細PV',
+  '問い合わせ数',
+  '掲載日数(SUUMO)'
+];
+var SUUMO_COMPETITION_LOG_RETENTION_DAYS = 90;
+
 // ── シートアクセスヘルパー ──────────────────────────────────
 
 /**
@@ -119,6 +139,50 @@ function getCandidateSheet_() {
 
 function getStopLogSheet_() {
   return getSuumoSheet_(SUUMO_STOP_LOG_SHEET, SUUMO_STOP_LOG_HEADERS);
+}
+
+function getCompetitionLogSheet_() {
+  return getSuumoSheet_(SUUMO_COMPETITION_LOG_SHEET, SUUMO_COMPETITION_LOG_HEADERS);
+}
+
+/**
+ * 競合履歴シートから 90日超のログを削除 (1日に1回くらい走る想定)。
+ * 毎回 updateSuumoListingStats から呼ばれるが、内部でフラグを使って
+ * 1日 1回だけ実行する。
+ */
+function _purgeOldCompetitionLogs_() {
+  try {
+    // 1日に1回だけ実行 (Script Properties でフラグ管理)
+    var props = PropertiesService.getScriptProperties();
+    var lastPurge = props.getProperty('SUUMO_COMP_LOG_LAST_PURGE');
+    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    if (lastPurge === today) return;
+
+    var sheet = getCompetitionLogSheet_();
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) {
+      props.setProperty('SUUMO_COMP_LOG_LAST_PURGE', today);
+      return;
+    }
+    var cutoff = new Date(Date.now() - SUUMO_COMPETITION_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    var data = sheet.getRange(2, 1, lastRow - 1, 1).getValues(); // 1列目: 取得日時
+    var deletedCount = 0;
+    // 後ろから削除 (削除中に行番号がズレないように)
+    for (var i = data.length - 1; i >= 0; i--) {
+      var ts = data[i][0];
+      var d = (ts instanceof Date) ? ts : new Date(ts);
+      if (!isNaN(d.getTime()) && d.getTime() < cutoff.getTime()) {
+        sheet.deleteRow(i + 2);
+        deletedCount++;
+      }
+    }
+    props.setProperty('SUUMO_COMP_LOG_LAST_PURGE', today);
+    if (deletedCount > 0) {
+      Logger.log('競合履歴 90日超ログ削除: ' + deletedCount + '行');
+    }
+  } catch (e) {
+    Logger.log('競合履歴 purge 失敗: ' + e.message);
+  }
 }
 
 /**
@@ -2342,6 +2406,10 @@ function updateSuumoListingStats_(json) {
     now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   }
 
+  // 競合履歴 (Phase A+) 用に各物件のスナップショットを集める。
+  // ループ終了後にまとめて履歴シートへ append (個別 appendRow より高速)。
+  var competitionLogRows = [];
+
   for (var r = 0; r < rows.length; r++) {
     var row = rows[r] || {};
     var name = String(row.name || '');
@@ -2405,6 +2473,21 @@ function updateSuumoListingStats_(json) {
       updated++;
       matchedSheetRows[targetRow] = true;
 
+      // 競合履歴に append 用エントリ追加 (Phase A+ 時系列トレンド分析用)
+      competitionLogRows.push([
+        now,
+        propertyKey,
+        name,
+        roomNo,
+        compLv1,
+        compLv2,
+        compLv3,
+        totalListPv,
+        totalDetailPv,
+        inquiries,
+        listedDays
+      ]);
+
       // 初マッチ時にsuumo_property_codeを記録済みに更新(キー一致だったケース)
       if (matchBy === 'key' && suumoCode) {
         codeToRow[suumoCode] = targetRow;
@@ -2463,6 +2546,24 @@ function updateSuumoListingStats_(json) {
   // Daily Searchは2日前までの集計なので、直近停止物件の状態判定には使えない。
   // active/stopped の同期は ForRent状態同期(PUB1R2801直読み) で別途行う。
 
+  // 競合履歴シートに一括append (Phase A+ 時系列トレンド分析用、Phase B以降で活用)
+  var competitionLogged = 0;
+  if (competitionLogRows.length > 0) {
+    try {
+      var compLogSheet = getCompetitionLogSheet_();
+      var compLogStart = compLogSheet.getLastRow() + 1;
+      compLogSheet.getRange(compLogStart, 1,
+                             competitionLogRows.length,
+                             SUUMO_COMPETITION_LOG_HEADERS.length)
+        .setValues(competitionLogRows);
+      competitionLogged = competitionLogRows.length;
+    } catch (e) {
+      Logger.log('競合履歴 append 失敗: ' + e.message);
+    }
+  }
+  // 90日超の古いログを1日1回だけ削除 (Script Properties で実行日記録)
+  _purgeOldCompetitionLogs_();
+
   return {
     success: true,
     updated: updated,
@@ -2470,7 +2571,8 @@ function updateSuumoListingStats_(json) {
     matchedByCode: matchedByCode,
     matchedByKey: matchedByKey,
     unmatched: unmatched,
-    receivedRows: rows.length
+    receivedRows: rows.length,
+    competitionLogged: competitionLogged
   };
 }
 
