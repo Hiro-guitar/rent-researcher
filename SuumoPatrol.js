@@ -835,6 +835,39 @@ function recordSuumoPosting(data) {
   var sheet = getListingSheet_();
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
 
+  // 二重登録防止: 既に同じ物件キーで active 行が存在する場合は appendRow せず、
+  // suumo_property_code (11列目) が空ならその情報だけ補完する。
+  // Phase5 と Phase6 がほぼ同時に suumo_post_complete を投げると二重登録される
+  // ことがあるため、ここで防御する。
+  var listingLastRow = sheet.getLastRow();
+  if (listingLastRow > 1) {
+    try {
+      var keysCol = sheet.getRange(2, 1, listingLastRow - 1, 1).getValues();
+      var statusCol = sheet.getRange(2, 9, listingLastRow - 1, 1).getValues();
+      var existingCodeCol = sheet.getRange(2, 11, listingLastRow - 1, 1).getValues();
+      for (var ei = 0; ei < keysCol.length; ei++) {
+        if (keysCol[ei][0] === key && statusCol[ei][0] === 'active') {
+          // 既に active 行あり → suumo_property_code を補完するだけで終了
+          var newCode = String(data.suumoPropertyCode || '');
+          var existingCode = String(existingCodeCol[ei][0] || '');
+          if (newCode && !existingCode) {
+            sheet.getRange(ei + 2, 11).setValue(newCode);
+            Logger.log('recordSuumoPosting: 既存active行に suumo_code を補完 row=' +
+                       (ei + 2) + ' key=' + key + ' code=' + newCode);
+          } else {
+            Logger.log('recordSuumoPosting: 二重登録回避 row=' + (ei + 2) + ' key=' + key);
+          }
+          // candidate シート側の状態はそのまま posted へ
+          updateCandidateStatus_(key, 'posted');
+          clearSubmittingTimestamp_(key);
+          return { success: true, key: key, deduped: true, existingRow: ei + 2 };
+        }
+      }
+    } catch (e) {
+      Logger.log('recordSuumoPosting: 重複チェック失敗 (続行) ' + e.message);
+    }
+  }
+
   // 候補物件シートから反響予測スコアを取得して掲載管理シートにコピー
   // (停止候補判定で「本来人気だが競合多い物件」を保護するのに使う)
   var inquiryScore = 0;
@@ -857,7 +890,7 @@ function recordSuumoPosting(data) {
 
   // 掲載管理シートに追加 (23列、SUUMO_LISTING_HEADERS に合わせる)
   // suumoPropertyCode: 登録完了画面に表示される 12 桁のSUUMO物件コード。
-  // 手動完結検知(Phase6) から取れる場合に 11 列目(suumo_property_code) に書き込む。
+  // Phase5 (forrent-final-submit.js) と Phase6 (suumo-fill-auto.js) どちらでも取得して送る。
   sheet.appendRow([
     key,
     data.building || '',
