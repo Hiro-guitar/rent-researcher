@@ -798,11 +798,14 @@ function handlePropertyAction(e) {
         var propLabel = buildingName || ('room_id: ' + roomId);
         if (roomNumber) propLabel += ' ' + roomNumber;
 
-        // 物件詳細ページのURLを生成し、Discordメッセージ内の物件名をクリッカブルリンクに。
-        // <URL> で囲んで Discord の自動 embed プレビューを抑える (URL自体は通常の property.html)
-        var propDetailUrl = 'https://form.ehomaki.com/property.html?customer=' +
-          encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId);
-        var propLabelLinked = '[' + propLabel + '](<' + propDetailUrl + '>)';
+        // 承認待ちシートから物件のソース元URL (itandi/いえらぶ/ES-Square/REINS等
+        // の元サイト物件ページ) を引いてきて、Discordメッセージ内の物件名を
+        // クリッカブルリンクに。<URL>で囲んで自動embedプレビューを抑える。
+        // 見つからない場合 (シート未登録/古いデータ等) はテキストのままにフォールバック。
+        var sourceUrl = _findPendingPropertySourceUrl_(customerName, roomId);
+        var propLabelLinked = sourceUrl
+          ? '[' + propLabel + '](<' + sourceUrl + '>)'
+          : propLabel;
 
         // viewアクションの場合、以下の場合は警告表示
         //  - LINE外ブラウザからのアクセス
@@ -1762,6 +1765,47 @@ function handleCheckAction(e) {
 }
 
 // ===== シート操作 =====
+/**
+ * 承認待ち物件シートから、customer + roomId に該当する物件のソース元URL
+ * (itandi / いえらぶ / ES-Square / REINS の物件詳細ページURL) を取得する。
+ *
+ * Discord 通知メッセージで物件名をクリッカブルにする用途。
+ * 該当行が無い / J列(property_data_json)が壊れている / url 未設定 の場合は '' を返す。
+ *
+ * status は pending/sent どちらでも引っかける (承認済みでもアクションは起き得るため)。
+ */
+function _findPendingPropertySourceUrl_(customerName, roomId) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    if (!sheet) return '';
+    var data = sheet.getDataRange().getValues();
+    var targetCust = String(customerName);
+    var targetRoom = String(roomId);
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) !== targetCust) continue;
+      // C列(roomId)が数値化されている可能性に備えて文字列照合
+      var cellVal = data[i][2];
+      var match = (String(cellVal) === targetRoom);
+      if (!match && typeof cellVal === 'number' && !isNaN(cellVal)) {
+        try { match = (cellVal.toFixed(0) === targetRoom); } catch (_) {}
+      }
+      if (!match) continue;
+      var status = String(data[i][10] || '');
+      if (status !== 'pending' && status !== 'sent') continue;
+      try {
+        var extra = JSON.parse(data[i][9] || '{}');
+        return extra.url || '';
+      } catch (_) {
+        return '';
+      }
+    }
+  } catch (e) {
+    console.error('[_findPendingPropertySourceUrl_] エラー: ' + e.message);
+  }
+  return '';
+}
+
 function findPendingRow(customerName, roomId) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
