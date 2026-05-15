@@ -1,0 +1,264 @@
+/**
+ * ConditionSuggestion.gs — 条件変更提案メッセージの送信機能
+ *
+ * 目的:
+ *   条件登録をしてくれたが、物件をまだ紹介できていない (= 該当物件が見つから
+ *   ない) 顧客に対して、「条件を緩めてみませんか」というLINEメッセージを
+ *   送る。
+ *
+ * 候補抽出ロジック:
+ *   - 配信ステータスが active (paused/blocked/snoozed は除外)
+ *   - LINE userId が紐付いている (LINE Users シート登録あり)
+ *   - 最終物件通知 (PENDING_SHEET status=sent の最新) から 14 日以上経過
+ *     → 通知がない場合は登録日 (A列) から 14 日以上経過したかで判定
+ *   - 前回の条件変更提案送信 (検索条件シートZ列) から 14 日以上経過
+ *
+ * メッセージ:
+ *   Flex Message で 5 ボタン:
+ *     - 家賃の上限を上げる   → 条件編集ページ #rentSection
+ *     - エリアを広げる        → 条件編集ページ #areaSection
+ *     - 築年数を緩める        → 条件編集ページ #ageSection
+ *     - 面積を緩める          → 条件編集ページ #areaMinSection
+ *     - もう少し条件を見直す  → 条件編集ページ (全体)
+ *
+ * シート拡張:
+ *   検索条件シート Z列 (26列目, 配列index 25) を「条件変更提案 最終送信日時」
+ *   として利用。空欄なら未送信扱い。
+ *
+ * 公開API (google.script.run から呼ばれる):
+ *   - listConditionSuggestionCandidates() → 候補一覧
+ *   - sendConditionSuggestionMessages(names) → 指定顧客に送信
+ */
+
+// 条件変更提案の閾値 (日数)
+var CONDITION_SUGGESTION_THRESHOLD_DAYS = 14;
+// 検索条件シートで「条件変更提案 最終送信日時」を記録する列 (1-based)
+var CONDITION_SUGGESTION_SENT_COL = 26;
+
+/**
+ * 候補顧客の一覧を返す。AdminPage の「条件変更提案」セクションから呼ばれる。
+ * @return {Array<Object>}
+ */
+function listConditionSuggestionCandidates() {
+  try {
+    return getConditionSuggestionCandidates_();
+  } catch (e) {
+    console.error('listConditionSuggestionCandidates error: ' + (e.stack || e.message));
+    return [];
+  }
+}
+
+/**
+ * 指定顧客に条件変更提案 Flex メッセージを送信する。
+ * @param {string[]} customerNames - 送信対象の顧客名配列
+ * @return {{sent: number, skipped: string[], failed: Array<{name:string, error:string}>}}
+ */
+function sendConditionSuggestionMessages(customerNames) {
+  var result = { sent: 0, skipped: [], failed: [] };
+  if (!Array.isArray(customerNames) || customerNames.length === 0) {
+    return result;
+  }
+  var candidates = getConditionSuggestionCandidates_();
+  var byName = {};
+  for (var i = 0; i < candidates.length; i++) {
+    byName[candidates[i].name] = candidates[i];
+  }
+
+  for (var k = 0; k < customerNames.length; k++) {
+    var name = customerNames[k];
+    var c = byName[name];
+    if (!c) {
+      result.skipped.push(name);
+      continue;
+    }
+    try {
+      var flex = buildConditionSuggestionFlex_(c);
+      pushMessage(c.lineUserId, [flex]);
+      // 送信日時を Z列 に記録
+      try {
+        var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+        var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+        sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_SENT_COL).setValue(new Date());
+      } catch (writeErr) {
+        console.warn('条件変更提案 Z列 書き込み失敗 (' + name + '): ' + writeErr.message);
+      }
+      result.sent++;
+    } catch (err) {
+      result.failed.push({ name: name, error: err.message || String(err) });
+    }
+  }
+  return result;
+}
+
+// ──────────────────────────────────────────────────────────────
+// 候補抽出
+// ──────────────────────────────────────────────────────────────
+function getConditionSuggestionCandidates_() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) return [];
+
+  // 一括取得
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var lastCol = Math.max(sheet.getLastColumn(), CONDITION_SUGGESTION_SENT_COL);
+  var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+
+  // LINE userId マップ
+  var lineUserIdMap = _getLineUserIdMapByCustomerName_();
+
+  // 顧客ごとの「最終物件通知日」を PENDING_SHEET から一括取得
+  var lastDeliveryMap = _buildLastDeliveryMap_();
+
+  var now = Date.now();
+  var thresholdMs = CONDITION_SUGGESTION_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+  var dayMs = 24 * 60 * 60 * 1000;
+
+  var candidates = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var name = String(row[1] || '').trim();
+    if (!name) continue;
+
+    // 配信ステータス: active のみ対象 (paused/snoozed/blocked は除外)
+    var status = String(row[18] || '').trim().toLowerCase();
+    if (status && status !== 'active') continue;
+
+    var userId = lineUserIdMap[name];
+    if (!userId) continue; // LINE紐付け無し → 送れないのでスキップ
+
+    // 提案を14日以内に送ってる → 除外
+    var lastSuggestAt = row[CONDITION_SUGGESTION_SENT_COL - 1];
+    if (lastSuggestAt instanceof Date && (now - lastSuggestAt.getTime()) < thresholdMs) {
+      continue;
+    }
+
+    // 最終物件通知日 or 登録日 (A列) から14日以上か?
+    var regDate = row[0] instanceof Date ? row[0] : null;
+    var lastDelivery = lastDeliveryMap[name] || null;
+    var refDate = lastDelivery || regDate;
+    if (!refDate) continue;
+
+    var elapsedMs = now - refDate.getTime();
+    if (elapsedMs < thresholdMs) continue;
+
+    candidates.push({
+      name: name,
+      lineUserId: userId,
+      rowIndex: i + 1, // 1-based row in sheet
+      registeredAt: regDate ? Utilities.formatDate(regDate, 'Asia/Tokyo', 'yyyy-MM-dd') : '',
+      lastDeliveryAt: lastDelivery ? Utilities.formatDate(lastDelivery, 'Asia/Tokyo', 'yyyy-MM-dd') : '',
+      daysSinceReference: Math.floor(elapsedMs / dayMs),
+      lastSuggestAt: lastSuggestAt instanceof Date
+        ? Utilities.formatDate(lastSuggestAt, 'Asia/Tokyo', 'yyyy-MM-dd')
+        : '',
+      // 現条件 (Flex メッセージ + 一覧表示用)
+      rentMax: String(row[7] || ''),
+      layouts: String(row[8] || ''),
+      walkMax: String(row[6] || ''),
+      areaMin: String(row[9] || ''),
+      ageMax: String(row[10] || ''),
+      city: String(row[3] || ''),
+      stations: String(row[5] || '')
+    });
+  }
+
+  // 経過日数が多い順
+  candidates.sort(function(a, b) { return b.daysSinceReference - a.daysSinceReference; });
+  return candidates;
+}
+
+/**
+ * PENDING_SHEET (承認待ち物件) から、顧客ごとに「最終物件通知日」のマップを作る。
+ * status='sent' の行のうち、column M (index 12) のタイムスタンプを集約。
+ * @return {Object<string, Date>}
+ */
+function _buildLastDeliveryMap_() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!sheet) return {};
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return {};
+  var data = sheet.getRange(2, 1, lastRow - 1, 13).getValues(); // A..M
+
+  var map = {};
+  for (var i = 0; i < data.length; i++) {
+    var name = String(data[i][0] || '').trim();
+    if (!name) continue;
+    if (String(data[i][10]) !== 'sent') continue;
+    var ts = data[i][12];
+    var d = null;
+    if (ts instanceof Date) {
+      d = ts;
+    } else if (typeof ts === 'string' && ts) {
+      // 'yyyy-MM-dd HH:mm:ss' 形式 (PropertyApproval.updatePendingStatus 由来)
+      var parsed = new Date(ts.replace(' ', 'T') + '+09:00');
+      if (!isNaN(parsed.getTime())) d = parsed;
+    }
+    if (!d) continue;
+    if (!map[name] || d.getTime() > map[name].getTime()) {
+      map[name] = d;
+    }
+  }
+  return map;
+}
+
+// ──────────────────────────────────────────────────────────────
+// Flex Message 生成
+// ──────────────────────────────────────────────────────────────
+function buildConditionSuggestionFlex_(c) {
+  var liffBase = 'https://liff.line.me/' + LIFF_ID
+    + '?action=selectCriteria&userId=' + encodeURIComponent(c.lineUserId);
+
+  // 現条件の要約行
+  var summary = [];
+  if (c.rentMax) summary.push({ type: 'text', text: '💰 家賃上限: ' + c.rentMax + '万円', size: 'xs', color: '#444', wrap: true });
+  if (c.city)    summary.push({ type: 'text', text: '🗺 エリア: ' + c.city, size: 'xs', color: '#444', wrap: true });
+  if (c.stations) summary.push({ type: 'text', text: '🚉 駅: ' + c.stations, size: 'xs', color: '#444', wrap: true });
+  if (c.layouts) summary.push({ type: 'text', text: '🚪 間取り: ' + c.layouts, size: 'xs', color: '#444', wrap: true });
+  if (c.areaMin) summary.push({ type: 'text', text: '📏 面積: ' + c.areaMin + 'm²以上', size: 'xs', color: '#444', wrap: true });
+  if (c.ageMax)  summary.push({ type: 'text', text: '🏗 築年数: ' + c.ageMax + '年以内', size: 'xs', color: '#444', wrap: true });
+  if (c.walkMax) summary.push({ type: 'text', text: '🚶 駅徒歩: ' + c.walkMax + '分以内', size: 'xs', color: '#444', wrap: true });
+
+  return {
+    type: 'flex',
+    altText: 'ご登録の条件で物件がまだ見つかっていません。条件を見直しませんか？',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: [
+          { type: 'text', text: '🔍 物件をお探ししていますが…', weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
+          { type: 'text', text: 'ご登録いただいた条件に該当する物件がまだ見つかっていません。', size: 'sm', color: '#666', wrap: true },
+          { type: 'separator' },
+          { type: 'text', text: '現在ご登録の条件', size: 'xs', color: '#888', weight: 'bold' },
+          {
+            type: 'box', layout: 'vertical', spacing: 'xs',
+            contents: summary.length > 0 ? summary : [{ type: 'text', text: '(条件情報を取得できませんでした)', size: 'xs', color: '#aaa' }]
+          },
+          { type: 'separator' },
+          { type: 'text', text: '以下のいずれかを少し緩めると、ご紹介できる物件が増える可能性があります。', size: 'sm', color: '#555', wrap: true }
+        ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        contents: [
+          { type: 'button', style: 'primary', color: '#8ec41d', height: 'sm',
+            action: { type: 'uri', label: '💰 家賃の上限を上げる', uri: liffBase + '&focus=rent' } },
+          { type: 'button', style: 'primary', color: '#8ec41d', height: 'sm',
+            action: { type: 'uri', label: '🗺 エリアを広げる', uri: liffBase + '&focus=area' } },
+          { type: 'button', style: 'primary', color: '#8ec41d', height: 'sm',
+            action: { type: 'uri', label: '🏗 築年数を緩める', uri: liffBase + '&focus=age' } },
+          { type: 'button', style: 'primary', color: '#8ec41d', height: 'sm',
+            action: { type: 'uri', label: '📏 面積を緩める', uri: liffBase + '&focus=area_min' } },
+          { type: 'button', style: 'secondary', height: 'sm',
+            action: { type: 'uri', label: '💬 もう少し条件を見直す', uri: liffBase } }
+        ]
+      }
+    }
+  };
+}
