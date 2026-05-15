@@ -798,7 +798,13 @@ function handlePropertyAction(e) {
         var propLabel = buildingName || ('room_id: ' + roomId);
         if (roomNumber) propLabel += ' ' + roomNumber;
 
-        // view アクションの場合、以下の場合は警告表示
+        // 物件詳細ページのURLを生成し、Discordメッセージ内の物件名をクリッカブルリンクに。
+        // <URL> で囲んで Discord の自動 embed プレビューを抑える (URL自体は通常の property.html)
+        var propDetailUrl = 'https://form.ehomaki.com/property.html?customer=' +
+          encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId);
+        var propLabelLinked = '[' + propLabel + '](<' + propDetailUrl + '>)';
+
+        // viewアクションの場合、以下の場合は警告表示
         //  - LINE外ブラウザからのアクセス
         //  - 30分以内の同顧客×同物件アクセスで ISP/都市 が異なる(転送疑い)
         var viewPrefix = '\uD83D\uDCC4';
@@ -813,11 +819,11 @@ function handlePropertyAction(e) {
         }
 
         var msgMap = {
-          'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabel + '」に **お申し込み希望** をされました！',
-          'hold_intent': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabel + '」の **お申し込み希望画面を開きました**（未送信）',
-          'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabel + '」を **お気に入り** に追加しました',
-          'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabel + '」を **興味なし** にしました',
-          'view': viewPrefix + ' **' + customerName + '** 様が「' + propLabel + '」を閲覧しました' + viewSuffix
+          'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabelLinked + '」に **お申し込み希望** をされました！',
+          'hold_intent': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabelLinked + '」の **お申し込み希望画面を開きました**（未送信）',
+          'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabelLinked + '」を **お気に入り** に追加しました',
+          'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabelLinked + '」を **興味なし** にしました',
+          'view': viewPrefix + ' **' + customerName + '** 様が「' + propLabelLinked + '」を閲覧しました' + viewSuffix
         };
         var msg = msgMap[actionType] || '';
         if (!msg) return ContentService.createTextOutput(JSON.stringify({ ok: true, favoriteCount: favoriteCount })).setMimeType(ContentService.MimeType.JSON);
