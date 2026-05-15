@@ -276,6 +276,29 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
   </div>
 
+  <!-- ═══ 条件変更提案セクション (物件未マッチ顧客へのLINE提案) ═══ -->
+  <div id="suggestionSection" class="section" style="display:none;border:2px solid #3498db;background:#f0f8ff;">
+    <div class="section-title" style="color:#1f5e8b;">
+      💬 条件変更提案 — 14日以上 物件をご紹介できていない顧客
+      <span id="suggestionCountBadge" style="display:inline-block;margin-left:6px;padding:2px 8px;background:#3498db;color:#fff;border-radius:10px;font-size:11px;">0件</span>
+      <button onclick="refreshSuggestionList()" style="float:right;font-size:11px;padding:3px 10px;background:#fff;border:1px solid #999;border-radius:4px;cursor:pointer;">🔄 更新</button>
+    </div>
+    <div style="font-size:11px;color:#666;margin:0 12px 8px;">
+      最終物件通知 (もしくは登録日) から 14 日以上経過し、提案メッセージも14日以内に送ってない顧客に、<br>
+      LINE で「家賃を上げる / エリアを広げる / 築年数を緩める / 面積を緩める」のボタン付きメッセージを送れます。<br>
+      送信したい顧客にチェックを入れて下のボタンを押してください。
+    </div>
+    <div id="suggestionList" style="padding:0 8px 8px;"></div>
+    <div id="suggestionFooter" style="display:none;padding:8px 12px;border-top:1px solid #cfe1f3;background:#e8f3fb;">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <button onclick="suggestionSelectAll(true)" style="font-size:11px;padding:4px 10px;background:#fff;border:1px solid #999;border-radius:4px;cursor:pointer;">全選択</button>
+        <button onclick="suggestionSelectAll(false)" style="font-size:11px;padding:4px 10px;background:#fff;border:1px solid #999;border-radius:4px;cursor:pointer;">全解除</button>
+        <button id="suggestionSendBtn" onclick="sendSuggestionMessages()" style="margin-left:auto;padding:6px 14px;font-size:12px;background:#3498db;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">📨 選択した顧客に送信</button>
+      </div>
+      <div id="suggestionResult" style="font-size:11px;color:#444;margin-top:6px;"></div>
+    </div>
+  </div>
+
   <!-- ═══ SUUMO入稿 submitting 放置物件セクション ═══ -->
   <div id="submittingSection" class="section" style="display:none;border:2px solid #e67e22;background:#fff8f0;">
     <div class="section-title" style="color:#a04000;">
@@ -1761,9 +1784,107 @@ function showToast(msg) {
 
 // ページロード時に1回読み込み
 window.addEventListener('DOMContentLoaded', function() {
-  // 他の初期化が一段落してから submitting リストを読みに行く
+  // 他の初期化が一段落してから submitting リスト + 条件変更提案候補を読みに行く
   setTimeout(refreshSubmittingList, 500);
+  setTimeout(refreshSuggestionList, 700);
 });
+
+// ──────────────────────────────────────────────────────────
+// 条件変更提案: 候補リスト読み込み・送信
+// ──────────────────────────────────────────────────────────
+function refreshSuggestionList() {
+  var listEl = document.getElementById('suggestionList');
+  var sectionEl = document.getElementById('suggestionSection');
+  var badgeEl = document.getElementById('suggestionCountBadge');
+  var footerEl = document.getElementById('suggestionFooter');
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="color:#666;font-size:12px;padding:8px 4px;">読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(items) {
+      items = items || [];
+      badgeEl.textContent = items.length + '件';
+      if (items.length === 0) {
+        // 0件のときはセクションごと非表示
+        sectionEl.style.display = 'none';
+        footerEl.style.display = 'none';
+        return;
+      }
+      sectionEl.style.display = '';
+      footerEl.style.display = '';
+      var html = '';
+      items.forEach(function(c) {
+        var name = escAttr(c.name);
+        var refLabel = c.lastDeliveryAt
+          ? ('最終通知: ' + esc(c.lastDeliveryAt))
+          : ('未通知 / 登録: ' + esc(c.registeredAt || '?'));
+        var lastSuggest = c.lastSuggestAt ? ' / 前回提案: ' + esc(c.lastSuggestAt) : '';
+        // 現条件サマリ
+        var sumParts = [];
+        if (c.rentMax) sumParts.push('家賃 ' + esc(c.rentMax) + '万');
+        if (c.layouts) sumParts.push(esc(c.layouts));
+        if (c.areaMin) sumParts.push(esc(c.areaMin) + 'm²+');
+        if (c.ageMax) sumParts.push('築' + esc(c.ageMax) + '年');
+        if (c.walkMax) sumParts.push('徒歩' + esc(c.walkMax) + '分');
+        if (c.city) sumParts.push(esc(c.city));
+        if (c.stations) sumParts.push(esc(c.stations));
+        var summary = sumParts.join(' / ');
+        html += '<div style="background:#fff;border:1px solid #cfe1f3;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;align-items:flex-start;gap:8px;">' +
+          '<input type="checkbox" class="suggestion-cb" data-name="' + name + '" checked style="margin-top:2px;flex-shrink:0;width:18px;height:18px;accent-color:#3498db;">' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="font-size:13px;font-weight:600;color:#1f5e8b;">' + esc(c.name) + ' <span style="font-size:11px;color:#666;font-weight:normal;">(' + c.daysSinceReference + '日経過)</span></div>' +
+            '<div style="font-size:11px;color:#666;margin-top:2px;">' + refLabel + lastSuggest + '</div>' +
+            (summary ? '<div style="font-size:11px;color:#444;margin-top:2px;">' + summary + '</div>' : '') +
+          '</div>' +
+        '</div>';
+      });
+      listEl.innerHTML = html;
+    })
+    .withFailureHandler(function(err) {
+      listEl.innerHTML = '<div style="color:#c00;font-size:12px;">読み込み失敗: ' + esc(err.message || String(err)) + '</div>';
+    })
+    .listConditionSuggestionCandidates();
+}
+
+function suggestionSelectAll(checked) {
+  var cbs = document.querySelectorAll('.suggestion-cb');
+  for (var i = 0; i < cbs.length; i++) cbs[i].checked = checked;
+}
+
+function sendSuggestionMessages() {
+  var cbs = document.querySelectorAll('.suggestion-cb');
+  var names = [];
+  for (var i = 0; i < cbs.length; i++) {
+    if (cbs[i].checked) names.push(cbs[i].getAttribute('data-name'));
+  }
+  if (names.length === 0) {
+    showToast('送信対象が選択されていません');
+    return;
+  }
+  if (!confirm(names.length + ' 名の顧客に条件変更提案 LINEメッセージを送信します。よろしいですか？')) return;
+  var btn = document.getElementById('suggestionSendBtn');
+  var resultEl = document.getElementById('suggestionResult');
+  btn.disabled = true; btn.textContent = '送信中...';
+  resultEl.textContent = '';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false; btn.textContent = '📨 選択した顧客に送信';
+      var msg = '✅ 送信: ' + (res.sent || 0) + '件';
+      if (res.skipped && res.skipped.length > 0) msg += ' / ⚠️ 候補から外れ: ' + res.skipped.length + '件';
+      if (res.failed && res.failed.length > 0) {
+        msg += ' / ❌ 失敗: ' + res.failed.length + '件';
+        msg += '<br>' + res.failed.map(function(f){ return '・' + esc(f.name) + ': ' + esc(f.error); }).join('<br>');
+      }
+      resultEl.innerHTML = msg;
+      showToast('送信完了 (' + (res.sent || 0) + '件)');
+      // リスト更新（送信済みは候補から外れる）
+      setTimeout(refreshSuggestionList, 1000);
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false; btn.textContent = '📨 選択した顧客に送信';
+      resultEl.innerHTML = '<span style="color:#c00;">エラー: ' + esc(err.message || String(err)) + '</span>';
+    })
+    .sendConditionSuggestionMessages(names);
+}
 </script>
 </body>
 </html>

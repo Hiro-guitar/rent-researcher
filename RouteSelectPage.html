@@ -45,6 +45,15 @@ body {
   25% { transform: translateX(-4px); }
   75% { transform: translateX(4px); }
 }
+/* 条件変更提案の focus 用ハイライト (LINEメッセージ→該当セクション遷移時) */
+.section.focused-section {
+  animation: focusPulse 1.6s ease-in-out;
+}
+@keyframes focusPulse {
+  0%, 100% { box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  30% { box-shadow: 0 0 0 4px rgba(142, 196, 29, 0.45), 0 1px 3px rgba(0,0,0,0.06); }
+  60% { box-shadow: 0 0 0 2px rgba(142, 196, 29, 0.25), 0 1px 3px rgba(0,0,0,0.06); }
+}
 .section-title {
   font-size: 14px; font-weight: 700; color: #8ec41d;
   padding: 12px 16px 8px; background: #f0faf4;
@@ -470,7 +479,59 @@ window.onload = function() {
   initAgeSlider();
   restoreSelections();
   if (INIT_AREA_METHOD === 'city') switchTab('city');
+  // 条件変更提案 (LINE) からの focus パラメータ:
+  //   focus=rent     → 家賃上限セクション
+  //   focus=area     → エリアセクション
+  //   focus=age      → 築年数セクション
+  //   focus=area_min → 専有面積セクション
+  //   focus=walk     → 駅徒歩セクション
+  applyConditionFocus_();
 };
+
+// ══════════════════════════════════════════════════════════
+//  条件変更提案 LINEメッセージのボタンからの focus 処理
+// ══════════════════════════════════════════════════════════
+function applyConditionFocus_() {
+  try {
+    var params = new URLSearchParams(location.search);
+    var focus = (params.get('focus') || '').toLowerCase();
+    if (!focus) return;
+    var sectionMap = {
+      'rent': 'rentSection',
+      'area': 'areaSection',
+      'age': 'ageSection',
+      'area_min': 'areaMinSection',
+      'walk': 'walkSection'
+    };
+    var sid = sectionMap[focus];
+    if (!sid) return;
+    var el = document.getElementById(sid);
+    if (!el) return;
+    // 「指定しない」がONなら自動でOFFにして編集できる状態にする
+    if (focus === 'age') {
+      var u = document.getElementById('ageUnspecified');
+      if (u && u.checked) { u.checked = false; if (typeof onAgeUnspecifiedChange === 'function') onAgeUnspecifiedChange(); }
+    } else if (focus === 'walk') {
+      var u2 = document.getElementById('walkUnspecified');
+      if (u2 && u2.checked) { u2.checked = false; if (typeof onWalkUnspecifiedChange === 'function') onWalkUnspecifiedChange(); }
+    } else if (focus === 'area_min') {
+      var u3 = document.getElementById('areaUnspecified');
+      if (u3 && u3.checked) { u3.checked = false; if (typeof onAreaUnspecifiedChange === 'function') onAreaUnspecifiedChange(); }
+    } else if (focus === 'area') {
+      // エリアタブの切替は restoreSelections の後でOK
+    }
+    // スクロール + ハイライト
+    setTimeout(function () {
+      try {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.classList.add('focused-section');
+        setTimeout(function () { el.classList.remove('focused-section'); }, 3500);
+      } catch (_) {}
+    }, 200);
+  } catch (e) {
+    console.warn('applyConditionFocus_ error:', e);
+  }
+}
 
 // ══════════════════════════════════════════════════════════
 //  タブ切替
