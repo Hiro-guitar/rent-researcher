@@ -1358,8 +1358,10 @@ function cleanupDuplicateListings(opts) {
     };
   }
 
-  // 列: A=key(1), B=building(2), C=room(3), D=postedAt(4), I=status(9)
-  var values = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
+  // 列: A=key(1), B=building(2), C=room(3), D=postedAt(4), I=status(9),
+  //     K=suumo_property_code(11), L=合計一覧PV(12), M=合計詳細PV(13)
+  // 23列ぶん取って残す行判定に使う。
+  var values = sheet.getRange(2, 1, lastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
 
   // key ごとに全行を集める
   var rowsByKey = {};
@@ -1373,7 +1375,11 @@ function cleanupDuplicateListings(opts) {
       building: values[i][1],
       room: values[i][2],
       postedAt: values[i][3],
-      status: values[i][8]
+      status: values[i][8],
+      suumoCode: String(values[i][10] || '').trim(),
+      totalListPv: Number(values[i][11]) || 0,
+      totalDetailPv: Number(values[i][12]) || 0,
+      inquiryScore: Number(values[i][20]) || 0
     });
   }
 
@@ -1386,16 +1392,28 @@ function cleanupDuplicateListings(opts) {
     if (rows.length <= 1) return; // 重複なし
     processedKeys++;
 
-    // 残す 1 行を決定: active > stopped、 同種内では最大 sheetRow
-    var actives = rows.filter(function (r) { return r.status === 'active'; });
-    var keep;
-    if (actives.length > 0) {
-      actives.sort(function (a, b) { return b.sheetRow - a.sheetRow; });
-      keep = actives[0];
-    } else {
-      var sorted = rows.slice().sort(function (a, b) { return b.sheetRow - a.sheetRow; });
-      keep = sorted[0];
+    // 残す 1 行を決定:
+    // 優先順位:
+    //   1) status === 'active' を優先 (stopped は最後)
+    //   2) suumo_property_code が入っている行を優先 (SUUMOビジネス連携で値あり)
+    //   3) 合計詳細PV + 合計一覧PV の合計が大きい行を優先 (データ豊富)
+    //   4) 反響予測スコアが入っている行を優先
+    //   5) 最大 sheetRow (新しい行)
+    function scoreForKeep(r) {
+      var s = 0;
+      if (r.status === 'active') s += 10000000;
+      if (r.suumoCode) s += 1000000;
+      s += Math.min(999999, r.totalDetailPv + r.totalListPv);
+      if (r.inquiryScore > 0) s += 100;
+      return s;
     }
+    var sorted = rows.slice().sort(function (a, b) {
+      var sa = scoreForKeep(a);
+      var sb = scoreForKeep(b);
+      if (sa !== sb) return sb - sa;
+      return b.sheetRow - a.sheetRow;
+    });
+    var keep = sorted[0];
 
     rows.forEach(function (r) {
       if (r.sheetRow === keep.sheetRow) return;
@@ -1405,8 +1423,12 @@ function cleanupDuplicateListings(opts) {
         building: r.building,
         room: r.room,
         status: r.status,
+        suumoCode: r.suumoCode || '',
+        totalDetailPv: r.totalDetailPv,
         keptRow: keep.sheetRow,
-        keptStatus: keep.status
+        keptStatus: keep.status,
+        keptSuumoCode: keep.suumoCode || '',
+        keptTotalDetailPv: keep.totalDetailPv
       });
     });
   });
