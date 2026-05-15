@@ -56,7 +56,11 @@ var SUUMO_LISTING_HEADERS = [
   '危険度スコア', '最終取得日時',
   // 入稿時に候補物件シートから引き継いだ反響予測スコア (0-100)
   // findStopCandidates で「本来人気だけど競合に埋もれている物件」を保護するのに使う
-  '反響予測スコア'
+  '反響予測スコア',
+  // 22列目: 物件空室管理シート(PROPERTY_SHEET_ID)のK列「終了日」を初回検出した日。
+  // 一度書き込んだら永続 (キャンセル等で空室管理側がクリアされても保持)。
+  // findStopCandidates で「掲載開始 → 申込までの日数」を二乗減衰で人気度補正。
+  '初回申込検知日'
 ];
 
 // ── シートアクセスヘルパー ──────────────────────────────────
@@ -88,6 +92,61 @@ function getPatrolCriteriaSheet_() {
 
 function getCandidateSheet_() {
   return getSuumoSheet_(SUUMO_CANDIDATE_SHEET, SUUMO_CANDIDATE_HEADERS);
+}
+
+/**
+ * 建物名+部屋番号でマッチング用のキーを生成。
+ * 物件空室管理シート(PROPERTY_SHEET_ID) と SUUMO掲載管理シート(SUUMO_LISTING_SHEET)
+ * の照合に使う。全角/半角・空白・大文字小文字の揺れを吸収する。
+ */
+function _normalizeBuildingRoomKey_(building, room) {
+  var b = String(building || '')
+    .replace(/[\s　]/g, '')   // 半角/全角スペース除去
+    .toLowerCase();
+  // 部屋番号は数字部分のみ抽出 (「101号室」 → 「101」)
+  var r = String(room || '').replace(/[^0-9]/g, '');
+  return b + '|' + r;
+}
+
+/**
+ * 物件空室管理シート(PROPERTY_SHEET_ID/PROPERTY_SHEET_NAME) を読んで、
+ * 「建物名+部屋番号 → K列の終了日(Date)」のマップを返す。
+ * K列に値が無い (まだ申込検知されてない) 物件はマップに含めない。
+ * findStopCandidates から呼ばれて、SUUMO掲載物件と突合する。
+ */
+function _buildVacancyEndedMap_() {
+  var map = {};
+  try {
+    var ss = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+    var sheet = ss.getSheetByName(PROPERTY_SHEET_NAME);
+    if (!sheet) return map;
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return map;
+    // A=物件名, B=部屋番号, K=終了日 (11列目まで読めば十分)
+    var data = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var building = String(data[i][0] || '').trim();
+      if (!building) continue;
+      var room = String(data[i][1] || '').trim();
+      var endedRaw = data[i][10]; // K列 (0-indexed 10)
+      var endedDate = null;
+      if (endedRaw instanceof Date) {
+        endedDate = endedRaw;
+      } else if (endedRaw) {
+        var dd = new Date(String(endedRaw));
+        if (!isNaN(dd.getTime())) endedDate = dd;
+      }
+      if (!endedDate) continue;
+      var key = _normalizeBuildingRoomKey_(building, room);
+      // 既に同じキーで登録済みの場合、より古い日付を優先 (初回申込検知のため)
+      if (!map[key] || endedDate.getTime() < map[key].getTime()) {
+        map[key] = endedDate;
+      }
+    }
+  } catch (e) {
+    Logger.log('_buildVacancyEndedMap_ 取得失敗: ' + (e && e.message));
+  }
+  return map;
 }
 
 function getListingSheet_() {
@@ -630,7 +689,7 @@ function recordSuumoPosting(data) {
     Logger.log('recordSuumoPosting: 反響予測スコア取得失敗 ' + e.message);
   }
 
-  // 掲載管理シートに追加 (21列、SUUMO_LISTING_HEADERS に合わせる)
+  // 掲載管理シートに追加 (22列、SUUMO_LISTING_HEADERS に合わせる)
   // suumoPropertyCode: 登録完了画面に表示される 12 桁のSUUMO物件コード。
   // 手動完結検知(Phase6) から取れる場合に 11 列目(suumo_property_code) に書き込む。
   sheet.appendRow([
@@ -648,7 +707,8 @@ function recordSuumoPosting(data) {
     '', '', '', '',                        // 12-15: SUUMOビジネス連携で後から更新される
     '', '', '', '',                        // 16-19: 競合数・危険度(SUUMOビジネス連携で更新)
     '',                                    // 20: 最終取得日時
-    inquiryScore                           // 21: 反響予測スコア (入稿時に候補から引き継ぎ)
+    inquiryScore,                          // 21: 反響予測スコア (入稿時に候補から引き継ぎ)
+    ''                                     // 22: 初回申込検知日 (findStopCandidatesで動的に書き込み)
   ]);
 
   // 候補物件シートのステータスをpostedに更新 + submittingTsクリア
@@ -761,6 +821,14 @@ function findStopCandidates(topN, options) {
   var data = sheet.getRange(2, 1, lastRow - 1, headerLen).getValues();
   var now = new Date();
 
+  // 物件空室管理シート(PROPERTY_SHEET_ID) の K列「終了日」を参照するためのマップ。
+  // 「建物名+部屋番号」→ 終了日(Date) の形。終了日がない (まだ申込検知されてない)
+  // 物件はマップに含まれない。
+  var vacancyEndedMap = _buildVacancyEndedMap_();
+
+  // 初回申込検知日の列インデックス (1-indexed)
+  var moshikomiColIdx = SUUMO_LISTING_HEADERS.indexOf('初回申込検知日') + 1;
+
   var candidates = [];
   for (var i = 0; i < data.length; i++) {
     if (data[i][8] !== 'active') continue;
@@ -777,10 +845,13 @@ function findStopCandidates(topN, options) {
     // シート上での掲載開始日からの経過日数(これが保護・スコア両方の基準)
     var sheetDays = 0;
     var startRaw = data[i][3];
+    var startDate = null;
     if (startRaw) {
-      var startDate = (startRaw instanceof Date) ? startRaw : new Date(startRaw);
+      startDate = (startRaw instanceof Date) ? startRaw : new Date(startRaw);
       if (!isNaN(startDate.getTime())) {
         sheetDays = Math.floor((now.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+      } else {
+        startDate = null;
       }
     }
 
@@ -790,15 +861,51 @@ function findStopCandidates(topN, options) {
     // SUUMO側の実績で保護判定/45日ボーナス判定できる。
     var effectiveDays = Math.max(sheetDays, suumoListedDays);
 
+    // ── 初回申込検知日 (22列目) を取得 ──────────────────
+    // 1. シートの値が入っていればそれを使う
+    // 2. 入っていなければ、物件空室管理シートから建物名+部屋番号で検索
+    //    マッチして終了日があれば、ここで初回検知として書き込み (永続化)
+    var initialMoshikomiDate = null;
+    if (moshikomiColIdx > 0) {
+      var existing = data[i][moshikomiColIdx - 1];
+      if (existing instanceof Date) {
+        initialMoshikomiDate = existing;
+      } else if (existing) {
+        var ed = new Date(String(existing));
+        if (!isNaN(ed.getTime())) initialMoshikomiDate = ed;
+      }
+      if (!initialMoshikomiDate) {
+        var bldName = String(data[i][1] || '');
+        var roomNo = String(data[i][2] || '');
+        var vkey = _normalizeBuildingRoomKey_(bldName, roomNo);
+        var foundEnded = vacancyEndedMap[vkey];
+        if (foundEnded instanceof Date) {
+          initialMoshikomiDate = foundEnded;
+          // シートに永続化 (キャンセル等で空室管理側がクリアされても保持)
+          try {
+            sheet.getRange(i + 2, moshikomiColIdx).setValue(foundEnded);
+          } catch (e) {
+            Logger.log('初回申込検知日の書き込み失敗 row=' + (i + 2) + ': ' + e.message);
+          }
+        }
+      }
+    }
+
     // 60日超は無条件で停止候補対象 (相手の反響予測が高くても、シート日数60日を
-    // 超えた物件は強制的に落とす。ここで保護スキップして Step2 の +9999 で確実に
-    // 最優先落としにする)
+    // 超えた物件は強制的に落とす)
     var isLongStay = (sheetDays >= 60);
 
-    // 保護判定 (relaxLevel に応じて段階的に緩和、60日超は保護対象外)
+    // 反響30超+申込検知ありは「役目を果たした」として強制落とし対象に。
+    // 申込検知なし(または不明) なら、たとえ反響30超でも保護を維持する。
+    var hasMoshikomi = (initialMoshikomiDate instanceof Date);
+    var forceFromInquiries = (inquiries >= 30 && hasMoshikomi);
+
+    var forceCandidate = isLongStay || forceFromInquiries;
+
+    // 保護判定 (relaxLevel に応じて段階的に緩和、強制落とし対象は保護スキップ)
     // 反響予測スコアによる保護: 物件のスペック上「本来人気が期待できる」物件は、
     // 競合に埋もれていても落とさない (パターン3: 競合落ちで後から見られる物件を救済)
-    if (!isLongStay) {
+    if (!forceCandidate) {
       if (relaxLevel === 0) {
         if (effectiveDays < 7) continue;                           // 新着7日保護
         if (inquiries >= 1 && effectiveDays < 45) continue;        // 問合あり&45日未満 保護
@@ -813,19 +920,35 @@ function findStopCandidates(topN, options) {
       }
       // relaxLevel === 3 は保護なし (active なら全員候補)
     }
-    // isLongStay (sheetDays >= 60) の物件は relaxLevel 問わず全て候補入り。
-    // Step2 の長期掲載ボーナス(+9999) でほぼ最優先で落ちる。
+    // forceCandidate の物件は relaxLevel 問わず全て候補入り、Step2 の +9999 で確実落とし。
+
+    // ── 申込検知の人気度補正 (二乗減衰) ─────────────
+    // 掲載開始 → 初回申込検知 までの経過日数が短いほど人気物件 → 強い負ペナルティ。
+    // 30日以上(または検知なし)はペナルティ ゼロ。
+    // 例: 0日(即日)=-1500, 7日=-867, 14日=-427, 21日=-135, 30日以上=0
+    var moshikomiBonus = 0;
+    if (hasMoshikomi && startDate) {
+      var diffMs = initialMoshikomiDate.getTime() - startDate.getTime();
+      var daysToMoshikomi = Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+      if (daysToMoshikomi < 30) {
+        moshikomiBonus = -Math.round(1500 * Math.pow(1 - daysToMoshikomi / 30, 2));
+      }
+    }
 
     // 危険度スコア
     // 問合は1件あたり -100 (第1基準値競合10件相殺相当)
     // 反響予測スコアは1点あたり -30 (80点なら-2400 ≒ 競合200件分の好材料)
+    // 申込検知補正は二乗減衰 (即日申込で-1500、30日で0、検知なしで0)
     // 60日ボーナスは「シート上の実日数」で判定(SUUMO側は45で頭打ちなので識別不能)
+    // forceFromInquiries(反響30+申込検知済) は +9999 で最優先落とし扱い
     var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
     var riskScore = weightedComp * 10
                   - inquiries * 100
                   - inquiryScore * 30
+                  + moshikomiBonus
                   + (sheetDays >= 60 ? 9999 : 0)
-                  + (effectiveDays >= 45 ? 500 : 0);
+                  + (effectiveDays >= 45 ? 500 : 0)
+                  + (forceFromInquiries ? 9999 : 0);
 
     candidates.push({
       key: data[i][0],
