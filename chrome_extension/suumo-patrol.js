@@ -462,6 +462,33 @@ async function runSuumoPatrolCycle() {
     try { await setStorageData({ suumoPatrolRunning: false, suumoPatrolLastRunTime: Date.now() }); } catch (_) {}
     // 巡回終了 → Discord スレッドIDキャッシュをクリア (次回巡回時に新規作成される)
     _currentPatrolThreadId = null;
+
+    // ── チェイン起動: 巡回中に顧客検索が pending を立てていた場合、
+    //    巡回完了直後にここで自動起動する (顧客検索 → 巡回 のチェインと対称)。
+    try {
+      const { customerSearchPending, autoSearchEnabled, businessStartHour, businessEndHour } =
+        await getStorageData(['customerSearchPending', 'autoSearchEnabled', 'businessStartHour', 'businessEndHour']);
+      if (customerSearchPending && autoSearchEnabled !== false) {
+        const startH = businessStartHour !== undefined ? businessStartHour : 10;
+        const endH = businessEndHour !== undefined ? businessEndHour : 20;
+        const hour = new Date().getHours();
+        const inBusiness = hour >= startH && hour < endH;
+        if (inBusiness) {
+          // pending クリア (二重起動防止のためここでも先にクリア)
+          await setStorageData({
+            customerSearchPending: false,
+            debugLog: '[system] SUUMO巡回完了 → 顧客検索ペンディング検出、チェイン起動'
+          });
+          if (typeof globalThis.runSearchCycle === 'function') {
+            globalThis.runSearchCycle();
+          }
+        } else {
+          await setStorageData({ debugLog: '[system] 顧客検索チェイン候補だが営業時間外のため次回アラーム待ち' });
+        }
+      }
+    } catch (chainErr) {
+      console.warn('[system] 顧客検索チェイン起動チェックでエラー:', chainErr.message);
+    }
   }
 }
 

@@ -1071,9 +1071,14 @@ chrome.alarms.onAlarm.addListener((alarm) => {
         console.log(`[system] 営業時間外 (${hour}時) のためスキップ`);
         setupAlarm(data.searchIntervalMinutes || 60);
       } else if (data.suumoPatrolRunning) {
-        // SUUMO巡回が走ってる間は顧客検索を見送る (5分後リトライ)
-        console.log('[system] SUUMO巡回中のため顧客検索を5分後にリトライ');
-        setStorageData({ debugLog: '[system] SUUMO巡回中のため顧客検索を5分後にリトライ' });
+        // SUUMO巡回が走ってる間は顧客検索を見送る。
+        // pending を立てて巡回完了時のチェインに任せつつ、5分後アラームも保険で
+        // セット (チェインが何らかの理由で発火しなかった時のセーフティ)。
+        console.log('[system] SUUMO巡回中のため顧客検索を pending (5分後にも再試行)');
+        setStorageData({
+          customerSearchPending: true,
+          debugLog: '[system] SUUMO巡回中のため顧客検索を pending → 巡回完了時に自動起動 (5分後にも再試行)'
+        });
         chrome.alarms.create('reins-search', { delayInMinutes: 5 });
       } else {
         runSearchCycle();
@@ -1734,12 +1739,18 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   if (isSearching) { console.log('検索中のためスキップ'); return; }
   // SUUMO巡回中は顧客検索を起動しない (currentSearchIdを共有していた頃の
   // 相互キャンセル事故を防ぐ。手動 SEARCH_NOW・アラーム両方で適用)。
+  // ペンディングフラグを立てておくと、巡回完了の finally でチェイン起動される。
   if (suumoPatrolRunning) {
-    console.log('SUUMO巡回中のため顧客検索をスキップ');
-    await setStorageData({ debugLog: '[system] SUUMO巡回中のため顧客検索をスキップ' });
+    console.log('SUUMO巡回中のため顧客検索をスキップ (巡回完了時にチェイン起動)');
+    await setStorageData({
+      customerSearchPending: true,
+      debugLog: '[system] SUUMO巡回中のため顧客検索を pending → 巡回完了時に自動起動'
+    });
     return;
   }
   if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }
+  // 自分が走り始めたら pending はクリア (二重起動防止)
+  try { await setStorageData({ customerSearchPending: false }); } catch (_) {}
 
   const services = enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
 
