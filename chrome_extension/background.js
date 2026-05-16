@@ -979,10 +979,17 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 chrome.storage.local.set({ isSearching: false });
 
 // 検索サイクルID（中止判定用）
-let currentSearchId = 0;
+//   顧客検索 (runSearchCycle) と SUUMO巡回 (runSuumoPatrolCycle) で別カウンタを
+//   持つ。以前は currentSearchId を共有していたため、SUUMO巡回が ++currentSearchId
+//   した瞬間に顧客検索が isSearchCancelled で誤キャンセルされる問題があった。
+let currentSearchId = 0;       // 顧客検索 (runSearchCycle) の世代
+let currentPatrolSearchId = 0; // SUUMO巡回 (runSuumoPatrolCycle) の世代
 
+// isSearchCancelled は両方のカウンタを見て、「自分のカウンタが進められた場合のみ
+// キャンセル」と判定する。OR 判定なので、もう一方の cycle が進んでも自分はそのまま
+// 走り続けられる。
 function isSearchCancelled(searchId) {
-  return searchId !== currentSearchId;
+  return searchId !== currentSearchId && searchId !== currentPatrolSearchId;
 }
 
 // --- アラーム（営業時間 + ジッター対応） ---
@@ -1212,8 +1219,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // SUUMO_PATROL_STOP: 実行中サイクルだけを中断する。
   // 定期巡回チェック(suumoPatrolEnabled)/アラームには触れないので、次回アラーム
   // (60分後) では引き続き自動実行される。
+  // currentPatrolSearchId のみインクリメントするので、顧客検索が並行で走っていて
+  // も巻き込まない。
   if (msg.type === 'SUUMO_PATROL_STOP') {
-    currentSearchId++;
+    currentPatrolSearchId++;
     if (typeof _suumoPatrolRunning !== 'undefined') _suumoPatrolRunning = false;
     chrome.storage.local.set({ suumoPatrolRunning: false }, () => {
       setStorageData({ debugLog: '[SUUMO巡回] 実行中サイクルを中断' });
@@ -1720,8 +1729,16 @@ async function reportUnresolvedStations() {
 
 // --- メイン検索サイクル ---
 globalThis.runSearchCycle = async function runSearchCycle() {
-  const { isSearching, gasWebappUrl, enabledServices } = await getStorageData(['isSearching', 'gasWebappUrl', 'enabledServices']);
+  const { isSearching, suumoPatrolRunning, gasWebappUrl, enabledServices } =
+    await getStorageData(['isSearching', 'suumoPatrolRunning', 'gasWebappUrl', 'enabledServices']);
   if (isSearching) { console.log('検索中のためスキップ'); return; }
+  // SUUMO巡回中は顧客検索を起動しない (currentSearchIdを共有していた頃の
+  // 相互キャンセル事故を防ぐ。手動 SEARCH_NOW・アラーム両方で適用)。
+  if (suumoPatrolRunning) {
+    console.log('SUUMO巡回中のため顧客検索をスキップ');
+    await setStorageData({ debugLog: '[system] SUUMO巡回中のため顧客検索をスキップ' });
+    return;
+  }
   if (!gasWebappUrl) { console.log('GAS URL未設定のためスキップ'); return; }
 
   const services = enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };

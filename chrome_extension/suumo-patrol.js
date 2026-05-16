@@ -137,8 +137,10 @@ async function runSuumoPatrolCycle() {
   // (以後 createSuumoPatrolThread_ が最初の通知発生時に新規作成し、
   //  同一巡回内の以後の通知はそのスレッドに集約される)
   _currentPatrolThreadId = null;
-  // 既存のcurrentSearchIdを使用（isSearchCancelledがこれを参照するため）
-  const searchId = ++currentSearchId;
+  // 巡回専用のカウンタを使う (顧客検索の currentSearchId とは独立)。
+  // isSearchCancelled は両カウンタを OR で見るので、顧客検索が並行で動いていても
+  // 巻き込み合わない。
+  const searchId = ++currentPatrolSearchId;
 
   try {
     await setStorageData({ debugLog: '━━━ SUUMO巡回 開始 ━━━' });
