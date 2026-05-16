@@ -377,7 +377,7 @@ function buildConditionSuggestionFlex_(c) {
           { type: 'button', style: 'secondary', height: 'sm',
             action: { type: 'uri', label: 'エリアを広げる', uri: liffBase + '&focus=area' } },
           { type: 'button', style: 'secondary', height: 'sm',
-            action: { type: 'uri', label: '条件編集ページを開く', uri: liffBase } }
+            action: { type: 'uri', label: 'まとめて変更する', uri: liffBase } }
         ]
       }
     }
