@@ -261,13 +261,13 @@ function buildConditionSuggestionFlex_(c) {
 
   // 現条件の要約行
   var summary = [];
-  if (c.rentMax) summary.push({ type: 'text', text: '💰 家賃上限: ' + c.rentMax + '万円', size: 'xs', color: '#444', wrap: true });
-  if (c.city)    summary.push({ type: 'text', text: '🗺 エリア: ' + c.city, size: 'xs', color: '#444', wrap: true });
-  if (c.stations) summary.push({ type: 'text', text: '🚉 駅: ' + c.stations, size: 'xs', color: '#444', wrap: true });
-  if (c.layouts) summary.push({ type: 'text', text: '🚪 間取り: ' + c.layouts, size: 'xs', color: '#444', wrap: true });
-  if (c.areaMin) summary.push({ type: 'text', text: '📏 面積: ' + c.areaMin + 'm²以上', size: 'xs', color: '#444', wrap: true });
-  if (c.ageMax)  summary.push({ type: 'text', text: '🏗 築年数: ' + c.ageMax + '年以内', size: 'xs', color: '#444', wrap: true });
-  if (c.walkMax) summary.push({ type: 'text', text: '🚶 駅徒歩: ' + c.walkMax + '分以内', size: 'xs', color: '#444', wrap: true });
+  if (c.rentMax) summary.push({ type: 'text', text: '💰 家賃上限: ' + c.rentMax + '万円', size: 'xs', color: '#444444', wrap: true });
+  if (c.city)    summary.push({ type: 'text', text: '🗺 エリア: ' + c.city, size: 'xs', color: '#444444', wrap: true });
+  if (c.stations) summary.push({ type: 'text', text: '🚉 駅: ' + c.stations, size: 'xs', color: '#444444', wrap: true });
+  if (c.layouts) summary.push({ type: 'text', text: '🚪 間取り: ' + c.layouts, size: 'xs', color: '#444444', wrap: true });
+  if (c.areaMin) summary.push({ type: 'text', text: '📏 面積: ' + c.areaMin + 'm²以上', size: 'xs', color: '#444444', wrap: true });
+  if (c.ageMax)  summary.push({ type: 'text', text: '🏗 築年数: ' + c.ageMax + '年以内', size: 'xs', color: '#444444', wrap: true });
+  if (c.walkMax) summary.push({ type: 'text', text: '🚶 駅徒歩: ' + c.walkMax + '分以内', size: 'xs', color: '#444444', wrap: true });
 
   return {
     type: 'flex',
@@ -280,15 +280,15 @@ function buildConditionSuggestionFlex_(c) {
         spacing: 'md',
         contents: [
           { type: 'text', text: '🔍 物件をお探ししていますが…', weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
-          { type: 'text', text: 'ご登録いただいた条件に該当する物件がまだ見つかっていません。', size: 'sm', color: '#666', wrap: true },
+          { type: 'text', text: 'ご登録いただいた条件に該当する物件がまだ見つかっていません。', size: 'sm', color: '#666666', wrap: true },
           { type: 'separator' },
-          { type: 'text', text: '現在ご登録の条件', size: 'xs', color: '#888', weight: 'bold' },
+          { type: 'text', text: '現在ご登録の条件', size: 'xs', color: '#888888', weight: 'bold' },
           {
             type: 'box', layout: 'vertical', spacing: 'xs',
-            contents: summary.length > 0 ? summary : [{ type: 'text', text: '(条件情報を取得できませんでした)', size: 'xs', color: '#aaa' }]
+            contents: summary.length > 0 ? summary : [{ type: 'text', text: '(条件情報を取得できませんでした)', size: 'xs', color: '#aaaaaa' }]
           },
           { type: 'separator' },
-          { type: 'text', text: '以下のいずれかを少し緩めると、ご紹介できる物件が増える可能性があります。', size: 'sm', color: '#555', wrap: true }
+          { type: 'text', text: '以下のいずれかを少し緩めると、ご紹介できる物件が増える可能性があります。', size: 'sm', color: '#555555', wrap: true }
         ]
       },
       footer: {
