@@ -707,19 +707,29 @@ function _applyConditionChange_(replyToken, userId, category, newValue) {
     return;
   }
 
-  // 値を書き込み (空欄なら指定なし)
-  var writeVal = (newValue === undefined || newValue === null || newValue === '') ? '' : String(newValue);
-  sheet.getRange(targetRowIndex, col).setValue(writeVal);
+  // 既存シートの書き込み慣例に合わせる:
+  //   K列(築年数): "20年以内" / 指定なしなら "指定しない"
+  //   H列(賃料), G列(徒歩), J列(面積): 数字のみ / 指定なしなら "指定しない"
+  var rawNum = (newValue === undefined || newValue === null || newValue === '') ? '' : String(newValue);
+  var sheetValue;
+  if (rawNum === '') {
+    sheetValue = '指定しない';
+  } else if (category === 'age') {
+    sheetValue = rawNum + '年以内';
+  } else {
+    sheetValue = rawNum;
+  }
+  sheet.getRange(targetRowIndex, col).setValue(sheetValue);
 
-  // 確認テキスト
+  // 確認テキスト用
   var labels = {
-    rent: { name: '家賃の上限', suffix: '万円', clearText: '指定なし' },
-    age: { name: '築年数', suffix: '年以内', clearText: '指定なし' },
-    area_min: { name: '専有面積', suffix: 'm² 以上', clearText: '指定なし' },
-    walk: { name: '駅徒歩', suffix: '分以内', clearText: '指定なし' }
+    rent: { name: '家賃の上限', suffix: '万円' },
+    age: { name: '築年数', suffix: '年以内' },
+    area_min: { name: '専有面積', suffix: 'm² 以上' },
+    walk: { name: '駅徒歩', suffix: '分以内' }
   };
   var info = labels[category];
-  var changedText = writeVal === '' ? info.clearText : (writeVal + info.suffix);
+  var changedText = rawNum === '' ? '指定なし' : (rawNum + info.suffix);
   var msg = '✅ ' + info.name + 'を ' + changedText + ' に変更しました。\n次の検索から反映されます。';
   replyMessage(replyToken, [{ type: 'text', text: msg }]);
 }
