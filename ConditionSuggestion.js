@@ -481,6 +481,48 @@ function handleConditionSuggestionPostback(replyToken, userId, data) {
   }
 }
 
+// multi-select (間取り・構造) で「現在 + 追加候補」を累積的に提案する。
+//   eligibleList: 追加候補を「先頭から追加すべき順」に並べた配列
+//   戻り値: 最大3つの選択肢 [{value: '<full-list-csv>', label: '...'}]
+//
+// 例 (eligible 3つ以上): [鉄骨系, 木造, ブロック・その他]
+//   Opt1: 鉄骨系 も含める          (先頭1個)
+//   Opt2: 鉄骨系・木造 も含める     (先頭2個)
+//   Opt3: 全てを含める              (3個まとめて = 全部)
+//
+// 例 (eligible 2つ): [木造, ブロック・その他]
+//   Opt1: 木造 も含める
+//   Opt2: 全てを含める               (=2個追加)
+//
+// 例 (eligible 1つ): [ワンルーム]
+//   Opt1: ワンルーム も含める         (これ1つだけ)
+function _generateRelaxCumulativeOptions_(currentList, eligibleList) {
+  if (!eligibleList || eligibleList.length === 0) return [];
+  var opts = [];
+  // Opt 1: 先頭1個追加
+  opts.push({
+    addList: [eligibleList[0]],
+    label: eligibleList[0] + ' も含める'
+  });
+  if (eligibleList.length === 2) {
+    opts.push({ addList: eligibleList.slice(), label: '全てを含める' });
+  } else if (eligibleList.length >= 3) {
+    // Opt 2: 先頭2個
+    opts.push({
+      addList: [eligibleList[0], eligibleList[1]],
+      label: eligibleList[0] + '・' + eligibleList[1] + ' も含める'
+    });
+    // Opt 3: 全て
+    opts.push({ addList: eligibleList.slice(), label: '全てを含める' });
+  }
+  return opts.map(function (o) {
+    return {
+      value: currentList.concat(o.addList).join(','),
+      label: o.label
+    };
+  });
+}
+
 // 家賃を価格帯に応じた単位で「切り上げ」る
 //   < 15万: 0.1万 (千円) 単位
 //   15-20万: 0.5万 単位
@@ -575,35 +617,51 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
     };
   } else if (category === 'layouts' || category === 'structures') {
     // 間取り・構造 は「現在の選択肢に追加」方式 (multi-select)
-    var standardList = (category === 'layouts')
-      ? ['ワンルーム', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3K', '3DK', '3LDK', '4K以上']
-      : ['鉄筋系', '鉄骨系', '木造', 'ブロック・その他'];
-    var labelMap = (category === 'layouts')
-      ? { title: '間取りを増やす', label: '間取り', noun: '間取り' }
-      : { title: '構造を増やす', label: '建物構造', noun: '構造' };
+    // 緩める向きは category ごとに異なる:
+    //   layouts → 「現在より小さい間取りだけ追加」(大きい間取り = 高い・選びにくいので不要)
+    //   structures → ladder順で未選択を「次の1個 → 次の2個 → 全て」と段階的に追加
+    var ladder, direction, mtitle, mprompt;
+    if (category === 'layouts') {
+      ladder = ['ワンルーム', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3K', '3DK', '3LDK', '4K以上'];
+      direction = 'smaller';
+      mtitle = '間取りを増やす';
+      mprompt = '今ご登録の間取りに加えたい候補をお選びください。';
+    } else {
+      ladder = ['鉄筋系', '鉄骨系', '木造', 'ブロック・その他'];
+      direction = 'cumulative';
+      mtitle = '構造を増やす';
+      mprompt = '今ご登録の構造に加えたい候補をお選びください。';
+    }
+
     var currentList = String(currentValue || '').split(/[,、]/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
-    // 標準リストから未選択を3つ抽出
-    var mopts = [];
-    for (var li = 0; li < standardList.length && mopts.length < 3; li++) {
-      var item = standardList[li];
-      if (currentList.indexOf(item) < 0) {
-        // 追加後の完全リスト (現在 + item) をカンマで連結
-        var newList = currentList.concat([item]).join(',');
-        mopts.push({ value: newList, label: item + ' も含める' });
+
+    // eligible: 緩めの方向で並べた「追加候補リスト」
+    var eligible = [];
+    if (direction === 'smaller') {
+      // 現在選択中の中で「最も大きい」インデックスを基準に、それより小さい未選択を
+      // 「現在に近い順」(=index 大きい順) に並べる
+      var currentIdxs = currentList.map(function (item) { return ladder.indexOf(item); })
+        .filter(function (i) { return i >= 0; });
+      if (currentIdxs.length > 0) {
+        var maxIdx = Math.max.apply(null, currentIdxs);
+        for (var li = maxIdx - 1; li >= 0; li--) {
+          if (currentList.indexOf(ladder[li]) < 0) eligible.push(ladder[li]);
+        }
+      }
+    } else {
+      // cumulative: 未選択を ladder 順に並べる
+      for (var si = 0; si < ladder.length; si++) {
+        if (currentList.indexOf(ladder[si]) < 0) eligible.push(ladder[si]);
       }
     }
-    var currentText = currentList.length > 0
-      ? '現在: ' + currentList.join('、')
-      : '現在: 指定なし';
+
+    var mopts = _generateRelaxCumulativeOptions_(currentList, eligible);
     cfg = {
-      title: labelMap.title,
-      currentText: currentText,
+      title: mtitle,
+      currentText: currentList.length > 0 ? '現在: ' + currentList.join('、') : '現在: 指定なし',
       options: mopts,
       allowClear: false,
-      // multi-select はキー名が長くなる傾向あるので、各 option の data は
-      // condsug:set:<category>:<full-list> の形で持つ (set ハンドラ側で
-      // カンマ区切りリストとして保存される)
-      promptText: '今ご登録の' + labelMap.noun + 'に追加したいものを選んでください。'
+      promptText: mprompt
     };
   } else {
     return null;
