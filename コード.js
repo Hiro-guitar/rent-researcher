@@ -402,12 +402,51 @@ function doGet(e) {
       ).setTitle('エラー')
        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
     }
-    const state = getState(userId);
-    // CRITERIA_SELECT以降のステップならアクセス可能（再編集対応）
+    let state = getState(userId);
+    // CRITERIA_SELECT以降のステップならアクセス可能（再編集対応）。
+    // ステップ範囲外の場合 (登録完了後の DONE/IDLE 等):
+    //   - シートに既存条件があれば自動で読み込んで CRITERIA_SELECT に整備
+    //     (条件変更提案メッセージの「まとめて変更する」「エリアを広げる」等で
+    //      LIFF 経由でいきなりここに来るケースに対応)
+    //   - 既存条件もなければブロック画面を出す
     if (!isCriteriaPageAllowed(state.step)) {
-      return HtmlService.createHtmlOutput(_buildCriteriaPageBlockedHtml(state.step))
-        .setTitle('条件選択')
-        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+      try {
+        const existing = typeof readLatestCriteria === 'function' ? readLatestCriteria(userId) : null;
+        if (existing) {
+          state.step = STEPS.CRITERIA_SELECT;
+          state.isChangeFlow = true;
+          state.areaMethod = existing.areaMethod;
+          state.selectedRoutes = existing.selectedRoutes;
+          state.selectedCities = existing.selectedCities;
+          state.selectedTowns = existing.selectedTowns || {};
+          state.selectedStations = existing.selectedStations;
+          state.data = {
+            name: existing.name,
+            reason: existing.reason,
+            resident: existing.resident,
+            move_in_date: existing.move_in_date,
+            rent_max: existing.rent_max,
+            layouts: existing.layouts,
+            walk: existing.walk,
+            area_min: existing.area_min,
+            building_age: existing.building_age,
+            building_structures: existing.building_structures,
+            equipment: existing.equipment,
+            petType: existing.petType,
+            notes: existing.notes
+          };
+          saveState(userId, state);
+        } else {
+          return HtmlService.createHtmlOutput(_buildCriteriaPageBlockedHtml(state.step))
+            .setTitle('条件選択')
+            .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+        }
+      } catch (loadErr) {
+        console.error('selectCriteria 自動ロード失敗: ' + loadErr.message);
+        return HtmlService.createHtmlOutput(_buildCriteriaPageBlockedHtml(state.step))
+          .setTitle('条件選択')
+          .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+      }
     }
     const d = state.data || {};
     const template = HtmlService.createTemplateFromFile('RouteSelectPage');
