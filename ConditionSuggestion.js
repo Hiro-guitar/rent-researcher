@@ -481,6 +481,59 @@ function handleConditionSuggestionPostback(replyToken, userId, data) {
   }
 }
 
+// 間取り名を (部屋数, 種類ランク) にパース。
+//   ワンルーム → (0, 0)
+//   NK   → (N, 1)
+//   NDK  → (N, 2)
+//   NLDK → (N, 3)
+//   4K以上 → (4, 1)
+function _parseLayout_(name) {
+  if (!name) return null;
+  if (name === 'ワンルーム') return { rooms: 0, type: 0 };
+  if (name === '4K以上') return { rooms: 4, type: 1 };
+  var m = String(name).match(/^(\d+)(LDK|DK|K)$/);
+  if (!m) return null;
+  return {
+    rooms: parseInt(m[1], 10),
+    type: m[2] === 'LDK' ? 3 : (m[2] === 'DK' ? 2 : 1)
+  };
+}
+
+// 現在選択中の間取りに対して「近い順で smaller な候補」を limit 個返す。
+//   smaller: 部屋数 < max部屋数、または 部屋数==max かつ 種類 < max種類
+//   距離: |部屋数差| + |種類差|
+//   同距離なら「max と同じ種類ランク」を優先
+function _findNearestSmallerLayouts_(currentList, limit) {
+  var LAYOUTS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'];
+  var parsedCurrent = currentList.map(_parseLayout_).filter(function (p) { return p; });
+  if (parsedCurrent.length === 0) return [];
+  // 最も「大きい」現在値 (rooms*10 + type で評価)
+  var maxCurrent = parsedCurrent.reduce(function (a, b) {
+    return (b.rooms * 10 + b.type) > (a.rooms * 10 + a.type) ? b : a;
+  });
+
+  var candidates = [];
+  for (var i = 0; i < LAYOUTS.length; i++) {
+    var name = LAYOUTS[i];
+    if (currentList.indexOf(name) >= 0) continue;
+    var p = _parseLayout_(name);
+    if (!p) continue;
+    // larger 判定: rooms > maxCurrent.rooms、または rooms == max かつ type > max.type
+    if (p.rooms > maxCurrent.rooms) continue;
+    if (p.rooms === maxCurrent.rooms && p.type > maxCurrent.type) continue;
+    // smaller か等しい (等しいケースは現在選択中なので continue 済み)
+    var dist = Math.abs(p.rooms - maxCurrent.rooms) + Math.abs(p.type - maxCurrent.type);
+    var typeMatch = (p.type === maxCurrent.type) ? 0 : 1; // 0 が優先 (同じ種類)
+    candidates.push({ name: name, dist: dist, typeMatch: typeMatch });
+  }
+  candidates.sort(function (a, b) {
+    if (a.dist !== b.dist) return a.dist - b.dist;
+    if (a.typeMatch !== b.typeMatch) return a.typeMatch - b.typeMatch;
+    return 0;
+  });
+  return candidates.slice(0, limit).map(function (c) { return c.name; });
+}
+
 // multi-select (間取り・構造) で「現在 + 追加候補」を累積的に提案する。
 //   eligibleList: 追加候補を「先頭から追加すべき順」に並べた配列
 //   戻り値: 最大3つの選択肢 [{value: '<full-list-csv>', label: '...'}]
@@ -637,18 +690,11 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
 
     var mopts = [];
     if (direction === 'smaller') {
-      // 間取り: 現在より小さい未選択を「現在に近い順」(=index大きい順) に並べる。
-      // 「全てを含める」(2LDK→ワンルームまで一気) は不要なので、近い2つまでに絞り、
-      // 1個追加 / 2個追加 の2択 (具体名ラベル) で提示する。
-      var currentIdxs = currentList.map(function (item) { return ladder.indexOf(item); })
-        .filter(function (i) { return i >= 0; });
-      var nearer = [];
-      if (currentIdxs.length > 0) {
-        var maxIdx = Math.max.apply(null, currentIdxs);
-        for (var li = maxIdx - 1; li >= 0 && nearer.length < 2; li--) {
-          if (currentList.indexOf(ladder[li]) < 0) nearer.push(ladder[li]);
-        }
-      }
+      // 間取り: (部屋数, 種類ランク) の 2次元空間で「近い順」に2つ選ぶ。
+      //   ワンルーム=(0,0), NK=(N,1), NDK=(N,2), NLDK=(N,3), 4K以上=(4,1)
+      // 「より大きい」(部屋数>maxOrイコールで種類>max) は除外。
+      // 同距離なら同じ種類 (LDK→LDK 等) を優先 → 2LDK→1LDK が 2LDK→2DK より上位に。
+      var nearer = _findNearestSmallerLayouts_(currentList, 2);
       if (nearer.length >= 1) {
         mopts.push({
           value: currentList.concat([nearer[0]]).join(','),
