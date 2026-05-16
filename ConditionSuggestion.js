@@ -479,15 +479,21 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
       allowClear: false
     };
   } else if (category === 'age') {
+    // 築年数: 新しいほど細かく、古いほど粗く刻む。
+    // 標準ラダー (条件編集ページの AGE_VALUES と同じ系列) から、
+    // 現在値より大きい次の3つを採用する。
+    var AGE_LADDER = [1, 2, 3, 4, 5, 7, 10, 15, 20, 25, 30, 35, 40];
     var ac = isNaN(current) ? 20 : current;
+    var ageOpts = [];
+    for (var ai = 0; ai < AGE_LADDER.length && ageOpts.length < 3; ai++) {
+      if (AGE_LADDER[ai] > ac) {
+        ageOpts.push({ value: String(AGE_LADDER[ai]), label: AGE_LADDER[ai] + '年以内' });
+      }
+    }
     cfg = {
       title: '築年数を緩める',
       currentText: '現在: ' + (currentValue || '?') + '年以内',
-      options: [
-        { value: String(ac + 5), label: (ac + 5) + '年以内' },
-        { value: String(ac + 10), label: (ac + 10) + '年以内' },
-        { value: String(ac + 15), label: (ac + 15) + '年以内' }
-      ],
+      options: ageOpts,
       allowClear: true,
       clearLabel: '築年数の指定をなくす'
     };
