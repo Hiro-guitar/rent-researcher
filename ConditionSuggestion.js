@@ -323,6 +323,11 @@ function buildConditionSuggestionFlex_(c) {
   if (c.ageMax) summary.push(_summaryLine_('築年数', c.ageMax + '年以内'));
   if (c.walkMax) summary.push(_summaryLine_('駅徒歩', c.walkMax + '分以内'));
 
+  // postback data に現在値を載せる (再取得不要にして応答を早くする)
+  var rentCurr = c.rentMax || '';
+  var ageCurr = c.ageMax || '';
+  var areaMinCurr = c.areaMin || '';
+
   return {
     type: 'flex',
     altText: 'ご条件の変更をしてみませんか？',
@@ -331,7 +336,7 @@ function buildConditionSuggestionFlex_(c) {
       body: {
         type: 'box',
         layout: 'vertical',
-        spacing: 'lg', // 大セクション間の縦間隔を広めに
+        spacing: 'lg',
         paddingAll: 'lg',
         contents: [
           { type: 'text', text: 'ご条件の変更をしてみませんか？', weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
@@ -340,7 +345,7 @@ function buildConditionSuggestionFlex_(c) {
           { type: 'text', text: '現在ご登録の条件', size: 'md', color: '#666666', weight: 'bold', margin: 'md' },
           {
             type: 'box', layout: 'vertical',
-            spacing: 'md', // 条件1行ごとに少し余白を入れて見やすく
+            spacing: 'md',
             margin: 'sm',
             contents: summary.length > 0 ? summary : [{ type: 'text', text: '(条件情報を取得できませんでした)', size: 'sm', color: '#aaaaaa' }]
           }
@@ -352,18 +357,259 @@ function buildConditionSuggestionFlex_(c) {
         spacing: 'sm',
         paddingAll: 'lg',
         contents: [
+          // ── サクッと変更 (postback で値選択 → 即反映) ──
+          { type: 'text', text: 'サクッと変更', size: 'xs', color: '#888888', weight: 'bold' },
           { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'uri', label: '家賃の上限を上げる', uri: liffBase + '&focus=rent' } },
+            action: { type: 'postback', label: '家賃の上限を上げる',
+              data: 'condsug:open:rent:' + rentCurr,
+              displayText: '家賃の上限を上げる' } },
           { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'uri', label: 'エリアを広げる', uri: liffBase + '&focus=area' } },
+            action: { type: 'postback', label: '築年数を緩める',
+              data: 'condsug:open:age:' + ageCurr,
+              displayText: '築年数を緩める' } },
           { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'uri', label: '築年数を緩める', uri: liffBase + '&focus=age' } },
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'uri', label: '面積を緩める', uri: liffBase + '&focus=area_min' } },
+            action: { type: 'postback', label: '面積を緩める',
+              data: 'condsug:open:area_min:' + areaMinCurr,
+              displayText: '面積を緩める' } },
+          { type: 'separator', margin: 'md' },
+          // ── じっくり見直す (LIFF で全項目編集) ──
+          { type: 'text', text: 'じっくり見直す', size: 'xs', color: '#888888', weight: 'bold', margin: 'md' },
           { type: 'button', style: 'secondary', height: 'sm',
-            action: { type: 'uri', label: 'もう少し条件を見直す', uri: liffBase } }
+            action: { type: 'uri', label: 'エリアを広げる', uri: liffBase + '&focus=area' } },
+          { type: 'button', style: 'secondary', height: 'sm',
+            action: { type: 'uri', label: '条件編集ページを開く', uri: liffBase } }
         ]
       }
     }
   };
+}
+
+// ──────────────────────────────────────────────────────────────
+// Postback ハンドラ (LIFF にせず LINE 内で値変更を完結させる)
+// ──────────────────────────────────────────────────────────────
+/**
+ * LINE webhook の postback (data: condsug:...) を処理する。
+ * コード.js の doPost dispatch から呼ばれる。
+ *
+ * data 形式:
+ *   condsug:open:<category>:<currentValue>   → 値選択 Flex を返信
+ *   condsug:set:<category>:<newValue>        → 検索条件シートを更新して確認返信
+ *
+ * @param {string} replyToken
+ * @param {string} userId
+ * @param {string} data
+ */
+function handleConditionSuggestionPostback(replyToken, userId, data) {
+  try {
+    var parts = String(data || '').split(':');
+    if (parts.length < 3 || parts[0] !== 'condsug') {
+      replyMessage(replyToken, [{ type: 'text', text: '条件変更の指示を解釈できませんでした。' }]);
+      return;
+    }
+    var action = parts[1];
+    var category = parts[2];
+    var value = parts.slice(3).join(':'); // category の後の値部分 (空欄もありうる)
+
+    if (action === 'open') {
+      var flex = _buildValueSelectionFlex_(category, value, userId);
+      if (!flex) {
+        replyMessage(replyToken, [{ type: 'text', text: '値選択の準備に失敗しました。' }]);
+        return;
+      }
+      replyMessage(replyToken, [flex]);
+      return;
+    }
+    if (action === 'set') {
+      _applyConditionChange_(replyToken, userId, category, value);
+      return;
+    }
+    replyMessage(replyToken, [{ type: 'text', text: '不明な操作です: ' + action }]);
+  } catch (e) {
+    console.error('handleConditionSuggestionPostback error: ' + e.message);
+    try { replyMessage(replyToken, [{ type: 'text', text: 'エラー: ' + e.message }]); } catch (_) {}
+  }
+}
+
+/**
+ * Step 2: カテゴリごとに現在値から提案値を計算して値選択 Flex を組み立てる。
+ */
+function _buildValueSelectionFlex_(category, currentValue, userId) {
+  var current = parseFloat(currentValue);
+  var liffBase = 'https://liff.line.me/' + LIFF_ID
+    + '?action=selectCriteria&userId=' + encodeURIComponent(userId);
+
+  var cfg;
+  if (category === 'rent') {
+    var rc = isNaN(current) ? 8 : current;
+    cfg = {
+      title: '家賃の上限を上げる',
+      currentText: '現在: ' + (currentValue || '?') + '万円',
+      options: [
+        { value: String(rc + 1), label: (rc + 1) + '万円' },
+        { value: String(rc + 2), label: (rc + 2) + '万円' },
+        { value: String(rc + 4), label: (rc + 4) + '万円' }
+      ],
+      liffFocus: 'rent',
+      liffLabel: '自分で入力する',
+      allowClear: false
+    };
+  } else if (category === 'age') {
+    var ac = isNaN(current) ? 20 : current;
+    cfg = {
+      title: '築年数を緩める',
+      currentText: '現在: ' + (currentValue || '?') + '年以内',
+      options: [
+        { value: String(ac + 5), label: (ac + 5) + '年以内' },
+        { value: String(ac + 10), label: (ac + 10) + '年以内' },
+        { value: String(ac + 15), label: (ac + 15) + '年以内' }
+      ],
+      liffFocus: 'age',
+      liffLabel: '自分で入力する',
+      allowClear: true,
+      clearLabel: '築年数の指定をなくす'
+    };
+  } else if (category === 'area_min') {
+    var sc = isNaN(current) ? 25 : current;
+    var opts = [];
+    if (sc - 3 > 0) opts.push({ value: String(sc - 3), label: (sc - 3) + 'm² 以上' });
+    if (sc - 5 > 0) opts.push({ value: String(sc - 5), label: (sc - 5) + 'm² 以上' });
+    if (sc - 10 > 0) opts.push({ value: String(sc - 10), label: (sc - 10) + 'm² 以上' });
+    cfg = {
+      title: '専有面積を緩める',
+      currentText: '現在: ' + (currentValue || '?') + 'm² 以上',
+      options: opts,
+      liffFocus: 'area_min',
+      liffLabel: '自分で入力する',
+      allowClear: true,
+      clearLabel: '面積の指定をなくす'
+    };
+  } else {
+    return null;
+  }
+
+  var footerButtons = cfg.options.map(function (opt) {
+    return {
+      type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+      action: {
+        type: 'postback',
+        label: opt.label + ' に変更',
+        data: 'condsug:set:' + category + ':' + opt.value,
+        displayText: opt.label + ' に変更'
+      }
+    };
+  });
+  if (cfg.allowClear) {
+    footerButtons.push({
+      type: 'button', style: 'secondary', height: 'sm',
+      action: {
+        type: 'postback',
+        label: cfg.clearLabel || '指定なしにする',
+        data: 'condsug:set:' + category + ':',
+        displayText: cfg.clearLabel || '指定なしにする'
+      }
+    });
+  }
+  footerButtons.push({
+    type: 'button', style: 'secondary', height: 'sm',
+    action: { type: 'uri', label: cfg.liffLabel, uri: liffBase + '&focus=' + cfg.liffFocus }
+  });
+
+  return {
+    type: 'flex',
+    altText: cfg.title,
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        paddingAll: 'lg',
+        contents: [
+          { type: 'text', text: cfg.title, weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
+          { type: 'text', text: cfg.currentText, size: 'sm', color: '#666666', margin: 'sm', wrap: true },
+          { type: 'text', text: 'いくつに変更しますか？', size: 'sm', color: '#555555', margin: 'md', wrap: true }
+        ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        paddingAll: 'lg',
+        contents: footerButtons
+      }
+    }
+  };
+}
+
+/**
+ * Step 3: 検索条件シートを更新して、確認テキストを返信する。
+ *
+ * 列マッピング (Config.js & SheetWriter.js 準拠):
+ *   G(6)  : 徒歩 (walk)
+ *   H(7)  : 賃料上限 (rent_max)
+ *   J(9)  : 面積下限 (area_min)
+ *   K(10) : 築年数 (building_age)
+ */
+function _applyConditionChange_(replyToken, userId, category, newValue) {
+  // category → column index (1-based for getRange)
+  var colMap = { rent: 8, age: 11, area_min: 10, walk: 7 };
+  var col = colMap[category];
+  if (!col) {
+    replyMessage(replyToken, [{ type: 'text', text: '不明なカテゴリです: ' + category }]);
+    return;
+  }
+
+  // userId → 顧客名 (LINE Users シート)
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+  var customerName = '';
+  if (luSheet) {
+    var luData = luSheet.getDataRange().getValues();
+    for (var i = 1; i < luData.length; i++) {
+      if (String(luData[i][0] || '').trim() === userId) {
+        customerName = String(luData[i][1] || '').trim();
+        break;
+      }
+    }
+  }
+  if (!customerName) {
+    replyMessage(replyToken, [{ type: 'text', text: 'お客様情報が見つかりませんでした。担当者にご連絡ください。' }]);
+    return;
+  }
+
+  // 検索条件シートで customerName を探して該当列を更新
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) {
+    replyMessage(replyToken, [{ type: 'text', text: '検索条件シートが見つかりませんでした。' }]);
+    return;
+  }
+  var lastRow = sheet.getLastRow();
+  var data = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
+  var targetRowIndex = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][1] || '').trim() === customerName) {
+      targetRowIndex = r + 1; // 1-based
+      break;
+    }
+  }
+  if (targetRowIndex < 0) {
+    replyMessage(replyToken, [{ type: 'text', text: 'ご登録の条件が見つかりませんでした。' }]);
+    return;
+  }
+
+  // 値を書き込み (空欄なら指定なし)
+  var writeVal = (newValue === undefined || newValue === null || newValue === '') ? '' : String(newValue);
+  sheet.getRange(targetRowIndex, col).setValue(writeVal);
+
+  // 確認テキスト
+  var labels = {
+    rent: { name: '家賃の上限', suffix: '万円', clearText: '指定なし' },
+    age: { name: '築年数', suffix: '年以内', clearText: '指定なし' },
+    area_min: { name: '専有面積', suffix: 'm² 以上', clearText: '指定なし' },
+    walk: { name: '駅徒歩', suffix: '分以内', clearText: '指定なし' }
+  };
+  var info = labels[category];
+  var changedText = writeVal === '' ? info.clearText : (writeVal + info.suffix);
+  var msg = '✅ ' + info.name + 'を ' + changedText + ' に変更しました。\n次の検索から反映されます。';
+  replyMessage(replyToken, [{ type: 'text', text: msg }]);
 }
