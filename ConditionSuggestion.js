@@ -635,27 +635,41 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
 
     var currentList = String(currentValue || '').split(/[,、]/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
 
-    // eligible: 緩めの方向で並べた「追加候補リスト」
-    var eligible = [];
+    var mopts = [];
     if (direction === 'smaller') {
-      // 現在選択中の中で「最も大きい」インデックスを基準に、それより小さい未選択を
-      // 「現在に近い順」(=index 大きい順) に並べる
+      // 間取り: 現在より小さい未選択を「現在に近い順」(=index大きい順) に並べる。
+      // 「全てを含める」(2LDK→ワンルームまで一気) は不要なので、近い2つまでに絞り、
+      // 1個追加 / 2個追加 の2択 (具体名ラベル) で提示する。
       var currentIdxs = currentList.map(function (item) { return ladder.indexOf(item); })
         .filter(function (i) { return i >= 0; });
+      var nearer = [];
       if (currentIdxs.length > 0) {
         var maxIdx = Math.max.apply(null, currentIdxs);
-        for (var li = maxIdx - 1; li >= 0; li--) {
-          if (currentList.indexOf(ladder[li]) < 0) eligible.push(ladder[li]);
+        for (var li = maxIdx - 1; li >= 0 && nearer.length < 2; li--) {
+          if (currentList.indexOf(ladder[li]) < 0) nearer.push(ladder[li]);
         }
       }
+      if (nearer.length >= 1) {
+        mopts.push({
+          value: currentList.concat([nearer[0]]).join(','),
+          label: nearer[0] + ' も含める'
+        });
+      }
+      if (nearer.length >= 2) {
+        mopts.push({
+          value: currentList.concat([nearer[0], nearer[1]]).join(','),
+          label: nearer[0] + '・' + nearer[1] + ' も含める'
+        });
+      }
     } else {
-      // cumulative: 未選択を ladder 順に並べる
+      // 構造: ladder 順で未選択を取り、「次の1個 → 次の2個 → 全て」の累積追加
+      var eligible = [];
       for (var si = 0; si < ladder.length; si++) {
         if (currentList.indexOf(ladder[si]) < 0) eligible.push(ladder[si]);
       }
+      mopts = _generateRelaxCumulativeOptions_(currentList, eligible);
     }
 
-    var mopts = _generateRelaxCumulativeOptions_(currentList, eligible);
     cfg = {
       title: mtitle,
       currentText: currentList.length > 0 ? '現在: ' + currentList.join('、') : '現在: 指定なし',
