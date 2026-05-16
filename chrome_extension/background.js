@@ -283,14 +283,65 @@ globalThis.__getNotifiedDedupInfo = (customerName, prop) => {
   return v;
 };
 
+// セカンダリキー: 建物名(正規化) + 部屋番号(数字のみ)
+// プライマリキー (address|room|area|layout) が食い違ったケースを自動検知するために
+// 並行で計算する。
+function _buildSecondaryDedupKey_(prop) {
+  if (!prop) return '';
+  var name = String(prop.building_name || prop.buildingName || '');
+  name = name.normalize('NFKC').replace(/[\s　]+/g, '').replace(/[()（）\-－ｰ・,、.。]/g, '').toUpperCase();
+  if (!name) return '';
+  var room = String(prop.room_number || prop.roomNumber || '');
+  room = room.normalize('NFKC').replace(/[^\d]/g, '');
+  return name + '|' + room;
+}
+
 globalThis.__addNotifiedDedupKey = (customerName, prop, source) => {
   const k = customerName ? globalThis.__buildPropertyDedupKey(prop) : '';
   if (customerName && k) {
     if (!globalThis.__notifiedDedupMap[customerName]) globalThis.__notifiedDedupMap[customerName] = {};
+
+    // ── dedup 漏れ自動検知 ──
+    // 同顧客のマップで「建物名+部屋号が同じ・プライマリキーが違う」エントリが
+    // 直近1時間以内にあれば、dedup が効くべきだったのに効かなかった可能性が高い。
+    try {
+      const newSecondary = _buildSecondaryDedupKey_(prop);
+      if (newSecondary) {
+        const inner = globalThis.__notifiedDedupMap[customerName];
+        const HOUR_MS = 60 * 60 * 1000;
+        for (const existingKey of Object.keys(inner)) {
+          if (existingKey === k) continue;
+          const v = inner[existingKey];
+          const ts = (typeof v === 'number') ? v : (v && v.ts);
+          if (!ts || (Date.now() - ts) > HOUR_MS) continue;
+          // 既存エントリの prop 情報を持ってないので、existingKey の文字列構造から
+          // 建物名+部屋号は復元できない → 建物名は別途比較できないが、
+          // 「直近 1時間以内に追加された別キー」が複数あること自体が異常サイン。
+          // より厳密にやるには map のエントリ自体に building_name/room_number を
+          // 保存しておく必要があるので、それも下で追加する。
+          const evSecondary = v && v.secondary;
+          if (evSecondary && evSecondary === newSecondary) {
+            const warn = '[重複検知/⚠️漏れ] ' + customerName
+              + ': 同物件 (' + (prop.building_name || '?') + ' ' + (prop.room_number || '') + ')'
+              + ' が異なるキーで2回追加された。dedupが効くべきだった可能性大。\n'
+              + '  既存 key: ' + existingKey + ' (元: ' + (v.source || '?') + ')\n'
+              + '  新規 key: ' + k + ' (元: ' + (source || prop.source || '?') + ')';
+            console.warn(warn);
+            if (typeof setStorageData === 'function') setStorageData({ debugLog: warn });
+            break;
+          }
+        }
+      }
+    } catch (warnErr) {
+      console.warn('[重複検知] 漏れ判定エラー:', warnErr.message);
+    }
+
     globalThis.__notifiedDedupMap[customerName][k] = {
       ts: Date.now(),
       source: source || (prop && prop.source) || '',
-      url: (prop && prop.url) || ''
+      url: (prop && prop.url) || '',
+      // セカンダリキー (建物名+部屋号) もマップに保存して、次回の漏れ判定で参照できるようにする
+      secondary: _buildSecondaryDedupKey_(prop)
     };
     chrome.storage.local.set({ notifiedDedupMap: globalThis.__notifiedDedupMap }).catch(() => {});
   }
