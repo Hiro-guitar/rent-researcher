@@ -211,20 +211,22 @@ globalThis.__buildPropertyDedupKey = (prop) => {
   const layout = __normalizeLayoutForKey(prop.layout);
   // 4要素揃わない物件はキー化できない (= 重複判定対象外、通常通り通知)
   if (!addr || !room || !area || !layout) {
-    // どの要素が欠けているかをコンソールに記録 (重複検知が効かない物件の調査用)
+    // どの要素が欠けているかを log.html ダッシュボードログにも記録
     try {
       const missing = [];
       if (!addr) missing.push('address');
       if (!room) missing.push('room_number');
       if (!area) missing.push('area');
       if (!layout) missing.push('layout');
-      console.log('[重複検知] キー生成不可: 欠落=' + missing.join(',')
+      const line = '[重複検知] キー生成不可: 欠落=' + missing.join(',')
         + ' building=' + (prop.building_name || '?')
         + ' source=' + (prop.source || '?')
-        + ' addr=' + (prop.address || '').substring(0, 30)
-        + ' room=' + (prop.room_number || '')
-        + ' area=' + (prop.area || '')
-        + ' layout=' + (prop.layout || ''));
+        + ' addr="' + (prop.address || '').substring(0, 40) + '"'
+        + ' room="' + (prop.room_number || '') + '"'
+        + ' area="' + (prop.area || '') + '"'
+        + ' layout="' + (prop.layout || '') + '"';
+      console.log(line);
+      if (typeof setStorageData === 'function') setStorageData({ debugLog: line });
     } catch (_) {}
     return '';
   }
@@ -253,18 +255,19 @@ function _logDedupEvent_(action, customerName, prop, key, matched) {
 }
 
 globalThis.__hasNotifiedDedupKey = (customerName, prop) => {
-  if (!customerName) return false;
-  const k = globalThis.__buildPropertyDedupKey(prop);
-  if (!k) return false;
-  const inner = globalThis.__notifiedDedupMap[customerName];
+  const k = customerName ? globalThis.__buildPropertyDedupKey(prop) : '';
   let matched = false;
-  if (inner) {
-    const v = inner[k];
-    const ts = (typeof v === 'number') ? v : (v && v.ts);
-    matched = !!(ts && (Date.now() - ts < __NOTIFIED_DEDUP_TTL_MS));
+  if (customerName && k) {
+    const inner = globalThis.__notifiedDedupMap[customerName];
+    if (inner) {
+      const v = inner[k];
+      const ts = (typeof v === 'number') ? v : (v && v.ts);
+      matched = !!(ts && (Date.now() - ts < __NOTIFIED_DEDUP_TTL_MS));
+    }
   }
-  // 調査用ログ: チェック時のキーを出力
-  _logDedupEvent_('check', customerName, prop, k, matched);
+  // 調査用ログ: 早期 return ケース (customerName 無し / キー生成失敗) も含めて
+  //              必ず出力する。これで「dedupされなかったのにログにも出ない」を防ぐ。
+  _logDedupEvent_('check', customerName || '(顧客名なし)', prop, k || '(キー生成不可)', matched);
   return matched;
 };
 
@@ -281,18 +284,18 @@ globalThis.__getNotifiedDedupInfo = (customerName, prop) => {
 };
 
 globalThis.__addNotifiedDedupKey = (customerName, prop, source) => {
-  if (!customerName) return;
-  const k = globalThis.__buildPropertyDedupKey(prop);
-  if (!k) return;
-  if (!globalThis.__notifiedDedupMap[customerName]) globalThis.__notifiedDedupMap[customerName] = {};
-  globalThis.__notifiedDedupMap[customerName][k] = {
-    ts: Date.now(),
-    source: source || (prop && prop.source) || '',
-    url: (prop && prop.url) || ''
-  };
-  chrome.storage.local.set({ notifiedDedupMap: globalThis.__notifiedDedupMap }).catch(() => {});
-  // 調査用ログ: 追加時のキーを出力
-  _logDedupEvent_('add', customerName, prop, k, false);
+  const k = customerName ? globalThis.__buildPropertyDedupKey(prop) : '';
+  if (customerName && k) {
+    if (!globalThis.__notifiedDedupMap[customerName]) globalThis.__notifiedDedupMap[customerName] = {};
+    globalThis.__notifiedDedupMap[customerName][k] = {
+      ts: Date.now(),
+      source: source || (prop && prop.source) || '',
+      url: (prop && prop.url) || ''
+    };
+    chrome.storage.local.set({ notifiedDedupMap: globalThis.__notifiedDedupMap }).catch(() => {});
+  }
+  // 調査用ログ: 早期 return ケースも含めて必ず出力する。
+  _logDedupEvent_('add', customerName || '(顧客名なし)', prop, k || '(キー生成不可)', false);
 };
 
 // バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
