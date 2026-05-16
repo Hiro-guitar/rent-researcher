@@ -304,7 +304,7 @@ input[type="range"]::-webkit-slider-thumb {
   </div>
 
   <!-- ═══ 間取り ═══ -->
-  <div class="section">
+  <div class="section" id="layoutSection">
     <div class="section-title">間取り</div>
     <div class="checkbox-grid" id="layoutGrid"></div>
   </div>
@@ -372,7 +372,7 @@ input[type="range"]::-webkit-slider-thumb {
   </div>
 
   <!-- ═══ 建物構造 ═══ -->
-  <div class="section">
+  <div class="section" id="structureSection">
     <div class="section-title">建物構造</div>
     <div class="checkbox-grid cols-2" id="structureGrid"></div>
   </div>
@@ -511,7 +511,9 @@ function applyConditionFocus_() {
       'area': 'areaSection',
       'age': 'ageSection',
       'area_min': 'areaMinSection',
-      'walk': 'walkSection'
+      'walk': 'walkSection',
+      'layouts': 'layoutSection',
+      'structures': 'structureSection'
     };
     var sid = sectionMap[focus];
     if (!sid) return;

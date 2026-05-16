@@ -93,6 +93,7 @@ function sendConditionSuggestionTest(customerName) {
       walkMax: String(row[6] || ''),
       areaMin: String(row[9] || ''),
       ageMax: String(row[10] || ''),
+      structures: String(row[11] || ''),
       city: String(row[3] || ''),
       stations: String(row[5] || ''),
       routesWithStations: routesWithStations
@@ -223,6 +224,7 @@ function getConditionSuggestionCandidates_() {
       walkMax: String(row[6] || ''),
       areaMin: String(row[9] || ''),
       ageMax: String(row[10] || ''),
+      structures: String(row[11] || ''),
       city: String(row[3] || ''),
       stations: String(row[5] || ''),
       routesWithStations: routesWithStations  // [{ route: '路線名', stations: ['駅A', '駅B'] }, ...]
@@ -355,6 +357,10 @@ function buildConditionSuggestionFlex_(c) {
   var rentCurr = c.rentMax || '';
   var ageCurr = c.ageMax || '';
   var areaMinCurr = c.areaMin || '';
+  var walkCurr = c.walkMax || '';
+  // 間取り・構造 はカンマ区切り (postbackのコロンと被らないため安全)
+  var layoutsCurr = (c.layouts || '').replace(/[:|]/g, ''); // 安全のため : | を除去
+  var structuresCurr = (c.structures || '').replace(/[:|]/g, '');
 
   return {
     type: 'flex',
@@ -399,6 +405,18 @@ function buildConditionSuggestionFlex_(c) {
             action: { type: 'postback', label: '面積を緩める',
               data: 'condsug:open:area_min:' + areaMinCurr,
               displayText: '面積を緩める' } },
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'postback', label: '駅徒歩を伸ばす',
+              data: 'condsug:open:walk:' + walkCurr,
+              displayText: '駅徒歩を伸ばす' } },
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'postback', label: '間取りを増やす',
+              data: 'condsug:open:layouts:' + layoutsCurr,
+              displayText: '間取りを増やす' } },
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'postback', label: '構造を増やす',
+              data: 'condsug:open:structures:' + structuresCurr,
+              displayText: '構造を増やす' } },
           { type: 'separator', margin: 'md' },
           // ── じっくり見直す (LIFF で全項目編集) ──
           { type: 'text', text: 'じっくり見直す', size: 'xs', color: '#888888', weight: 'bold', margin: 'md' },
@@ -538,6 +556,55 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
       allowClear: true,
       clearLabel: '面積の指定をなくす'
     };
+  } else if (category === 'walk') {
+    // 駅徒歩: ラダー方式。現在値より大きい次の3つを採用
+    var WALK_LADDER = [1, 3, 5, 7, 10, 12, 15, 20];
+    var wc = isNaN(current) ? 10 : current;
+    var walkOpts = [];
+    for (var wi = 0; wi < WALK_LADDER.length && walkOpts.length < 3; wi++) {
+      if (WALK_LADDER[wi] > wc) {
+        walkOpts.push({ value: String(WALK_LADDER[wi]), label: WALK_LADDER[wi] + '分以内' });
+      }
+    }
+    cfg = {
+      title: '駅徒歩を伸ばす',
+      currentText: '現在: ' + (currentValue || '?') + '分以内',
+      options: walkOpts,
+      allowClear: true,
+      clearLabel: '駅徒歩の指定をなくす'
+    };
+  } else if (category === 'layouts' || category === 'structures') {
+    // 間取り・構造 は「現在の選択肢に追加」方式 (multi-select)
+    var standardList = (category === 'layouts')
+      ? ['ワンルーム', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3K', '3DK', '3LDK', '4K以上']
+      : ['鉄筋系', '鉄骨系', '木造', 'ブロック・その他'];
+    var labelMap = (category === 'layouts')
+      ? { title: '間取りを増やす', label: '間取り', noun: '間取り' }
+      : { title: '構造を増やす', label: '建物構造', noun: '構造' };
+    var currentList = String(currentValue || '').split(/[,、]/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+    // 標準リストから未選択を3つ抽出
+    var mopts = [];
+    for (var li = 0; li < standardList.length && mopts.length < 3; li++) {
+      var item = standardList[li];
+      if (currentList.indexOf(item) < 0) {
+        // 追加後の完全リスト (現在 + item) をカンマで連結
+        var newList = currentList.concat([item]).join(',');
+        mopts.push({ value: newList, label: item + ' も含める' });
+      }
+    }
+    var currentText = currentList.length > 0
+      ? '現在: ' + currentList.join('、')
+      : '現在: 指定なし';
+    cfg = {
+      title: labelMap.title,
+      currentText: currentText,
+      options: mopts,
+      allowClear: false,
+      // multi-select はキー名が長くなる傾向あるので、各 option の data は
+      // condsug:set:<category>:<full-list> の形で持つ (set ハンドラ側で
+      // カンマ区切りリストとして保存される)
+      promptText: '今ご登録の' + labelMap.noun + 'に追加したいものを選んでください。'
+    };
   } else {
     return null;
   }
@@ -564,16 +631,30 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
       }
     });
   }
-  // 自分で入力する → postback で待機状態に入る (次のテキスト入力を受ける)
-  footerButtons.push({
-    type: 'button', style: 'secondary', height: 'sm',
-    action: {
-      type: 'postback',
-      label: '自分で入力する',
-      data: 'condsug:input:' + category,
-      displayText: '自分で入力する'
-    }
-  });
+  // 自分で入力する / 自分で選び直す
+  //   数値カテゴリ (rent/age/area_min/walk) → LINE内テキスト入力フロー
+  //   multi-select カテゴリ (layouts/structures) → LIFFの該当セクションへ遷移
+  if (category === 'layouts' || category === 'structures') {
+    var liffBase2 = 'https://liff.line.me/' + LIFF_ID
+      + '?action=selectCriteria&userId=' + encodeURIComponent(userId);
+    footerButtons.push({
+      type: 'button', style: 'secondary', height: 'sm',
+      action: { type: 'uri', label: '自分で選び直す', uri: liffBase2 + '&focus=' + category }
+    });
+  } else {
+    footerButtons.push({
+      type: 'button', style: 'secondary', height: 'sm',
+      action: {
+        type: 'postback',
+        label: '自分で入力する',
+        data: 'condsug:input:' + category,
+        displayText: '自分で入力する'
+      }
+    });
+  }
+
+  // body のプロンプト文 (multi-select 用にも対応)
+  var promptText = cfg.promptText || 'いくつに変更しますか？';
 
   return {
     type: 'flex',
@@ -588,7 +669,7 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
         contents: [
           { type: 'text', text: cfg.title, weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
           { type: 'text', text: cfg.currentText, size: 'sm', color: '#666666', margin: 'sm', wrap: true },
-          { type: 'text', text: 'いくつに変更しますか？', size: 'sm', color: '#555555', margin: 'md', wrap: true }
+          { type: 'text', text: promptText, size: 'sm', color: '#555555', margin: 'md', wrap: true }
         ]
       },
       footer: {
@@ -690,7 +771,8 @@ function handleConditionSuggestionTextInput(replyToken, userId, message, state) 
  */
 function _applyConditionChange_(replyToken, userId, category, newValue) {
   // category → column index (1-based for getRange)
-  var colMap = { rent: 8, age: 11, area_min: 10, walk: 7 };
+  // G(7):徒歩 H(8):賃料 I(9):間取り J(10):面積 K(11):築年 L(12):構造
+  var colMap = { rent: 8, age: 11, area_min: 10, walk: 7, layouts: 9, structures: 12 };
   var col = colMap[category];
   if (!col) {
     replyMessage(replyToken, [{ type: 'text', text: '不明なカテゴリです: ' + category }]);
@@ -738,14 +820,20 @@ function _applyConditionChange_(replyToken, userId, category, newValue) {
   // 既存シートの書き込み慣例に合わせる:
   //   K列(築年数): "20年以内" / 指定なしなら "指定しない"
   //   H列(賃料), G列(徒歩), J列(面積): 数字のみ / 指定なしなら "指定しない"
-  var rawNum = (newValue === undefined || newValue === null || newValue === '') ? '' : String(newValue);
+  //   I列(間取り), L列(構造): カンマ区切り(ない場合は空白 or "指定しない")
+  var rawValue = (newValue === undefined || newValue === null || newValue === '') ? '' : String(newValue);
   var sheetValue;
-  if (rawNum === '') {
+  if (rawValue === '') {
     sheetValue = '指定しない';
   } else if (category === 'age') {
-    sheetValue = rawNum + '年以内';
+    sheetValue = rawValue + '年以内';
+  } else if (category === 'layouts' || category === 'structures') {
+    // カンマ区切りに整形 (空要素除去)
+    var items = rawValue.split(/[,、]/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+    sheetValue = items.join(', ');
+    if (!sheetValue) sheetValue = '指定しない';
   } else {
-    sheetValue = rawNum;
+    sheetValue = rawValue;
   }
   sheet.getRange(targetRowIndex, col).setValue(sheetValue);
 
@@ -754,10 +842,19 @@ function _applyConditionChange_(replyToken, userId, category, newValue) {
     rent: { name: '家賃の上限', suffix: '万円' },
     age: { name: '築年数', suffix: '年以内' },
     area_min: { name: '専有面積', suffix: 'm² 以上' },
-    walk: { name: '駅徒歩', suffix: '分以内' }
+    walk: { name: '駅徒歩', suffix: '分以内' },
+    layouts: { name: '間取り', suffix: '' },
+    structures: { name: '建物構造', suffix: '' }
   };
   var info = labels[category];
-  var changedText = rawNum === '' ? '指定なし' : (rawNum + info.suffix);
+  var changedText;
+  if (rawValue === '') {
+    changedText = '指定なし';
+  } else if (category === 'layouts' || category === 'structures') {
+    changedText = sheetValue; // カンマ区切りリストそのまま
+  } else {
+    changedText = rawValue + info.suffix;
+  }
   var msg = '✅ ' + info.name + 'を ' + changedText + ' に変更しました。\n次の検索から反映されます。';
   replyMessage(replyToken, [{ type: 'text', text: msg }]);
 }
