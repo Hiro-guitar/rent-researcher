@@ -499,15 +499,23 @@ function _parseLayout_(name) {
   };
 }
 
-// 現在選択中の間取りに対して「近い順で smaller な候補」を limit 個返す。
-//   smaller: 部屋数 < max部屋数、または 部屋数==max かつ 種類 < max種類
-//   距離: |部屋数差| + |種類差|
-//   同距離なら「max と同じ種類ランク」を優先
+// 現在選択中の間取り (複数可) に対して「近い順で smaller な候補」を limit 個返す。
+//
+// 仕様:
+//   - 「larger」(部屋数も種類も最大値より大きい) 候補は除外
+//   - 距離は「現在選択中のいずれかの間取り」との 2D マンハッタン距離で
+//     最も近い値 (min distance) を採用 → 複数選択でも自然な近さ判定
+//   - 同距離なら「最も近い現在値と同じ種類ランク」を優先 (LDK ↔ LDK 等)
+//
+// 例:
+//   [1K, 1LDK] → 1DK, ワンルーム は各 current への最小距離で評価される
+//   [2LDK] → 1LDK (同type, room-1) と 2DK (同room, type-1) が同距離 →
+//            type一致の 1LDK が先
 function _findNearestSmallerLayouts_(currentList, limit) {
   var LAYOUTS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'];
   var parsedCurrent = currentList.map(_parseLayout_).filter(function (p) { return p; });
   if (parsedCurrent.length === 0) return [];
-  // 最も「大きい」現在値 (rooms*10 + type で評価)
+  // 「larger 除外」判定の基準として、現在の中で最も大きい間取り (rooms*10+type) を取る。
   var maxCurrent = parsedCurrent.reduce(function (a, b) {
     return (b.rooms * 10 + b.type) > (a.rooms * 10 + a.type) ? b : a;
   });
@@ -521,17 +529,30 @@ function _findNearestSmallerLayouts_(currentList, limit) {
     // larger 判定: rooms > maxCurrent.rooms、または rooms == max かつ type > max.type
     if (p.rooms > maxCurrent.rooms) continue;
     if (p.rooms === maxCurrent.rooms && p.type > maxCurrent.type) continue;
-    // smaller か等しい (等しいケースは現在選択中なので continue 済み)
-    var dist = Math.abs(p.rooms - maxCurrent.rooms) + Math.abs(p.type - maxCurrent.type);
-    var typeMatch = (p.type === maxCurrent.type) ? 0 : 1; // 0 が優先 (同じ種類)
-    candidates.push({ name: name, dist: dist, typeMatch: typeMatch });
+    // 現在選択中のうち最も近いものまでの距離を取る
+    var minDist = Infinity;
+    var nearestCur = parsedCurrent[0];
+    for (var ci = 0; ci < parsedCurrent.length; ci++) {
+      var cur = parsedCurrent[ci];
+      var d = Math.abs(p.rooms - cur.rooms) + Math.abs(p.type - cur.type);
+      if (d < minDist) { minDist = d; nearestCur = cur; }
+    }
+    var typeMatch = (p.type === nearestCur.type) ? 0 : 1; // 0 が優先 (同じ種類)
+    candidates.push({ name: name, dist: minDist, typeMatch: typeMatch });
   }
   candidates.sort(function (a, b) {
     if (a.dist !== b.dist) return a.dist - b.dist;
     if (a.typeMatch !== b.typeMatch) return a.typeMatch - b.typeMatch;
     return 0;
   });
-  return candidates.slice(0, limit).map(function (c) { return c.name; });
+  var result = candidates.slice(0, limit).map(function (c) { return c.name; });
+
+  // 特別ケース: 「ワンルーム」だけ選択中の場合、より小さい候補は無いが
+  // 1K は実質的に同等扱いされることが多いため例外的に提案する。
+  if (result.length === 0 && currentList.length === 1 && currentList[0] === 'ワンルーム') {
+    return ['1K'];
+  }
+  return result;
 }
 
 // multi-select (間取り・構造) で「現在 + 追加候補」を累積的に提案する。
