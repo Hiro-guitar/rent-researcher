@@ -117,6 +117,14 @@ function doPost(e) {
         return;
       }
 
+      // 条件変更提案 LINE Flex のボタン postback (condsug:...)
+      if (typeof data === 'string' && data.indexOf('condsug:') === 0) {
+        if (typeof handleConditionSuggestionPostback === 'function') {
+          handleConditionSuggestionPostback(replyToken, userId, data);
+        }
+        return;
+      }
+
       // 検索条件フロー関連の postback（datetimepicker用にeventも渡す）
       if (handleSearchFlowPostback(replyToken, userId, data, state, event)) return;
 
