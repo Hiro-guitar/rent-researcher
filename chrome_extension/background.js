@@ -234,11 +234,9 @@ globalThis.__buildPropertyDedupKey = (prop) => {
   return key;
 };
 
-// 重複検知の調査用ログ (顧客検索でキー生成の度に呼ばれると煩いので、
-// __hasNotifiedDedupKey と __addNotifiedDedupKey から呼ぶ)。
-// ダッシュボードログ (log.html) にも出すので、サービスワーカーを開かなくても
-// 何が違うか追えるようにする。
-function _logDedupEvent_(action, customerName, prop, key, matched) {
+// 重複検知の調査用ログ。ダッシュボードログ (log.html) にも出す。
+// matchedBy: 'primary' / 'secondary(<existingKey>)' / ''
+function _logDedupEvent_(action, customerName, prop, key, matched, matchedBy) {
   try {
     var line = '[重複検知/' + action + '] '
       + (customerName || '?')
@@ -246,7 +244,7 @@ function _logDedupEvent_(action, customerName, prop, key, matched) {
       + (prop.building_name || prop.buildingName || '?')
       + ' ' + (prop.room_number || prop.roomNumber || '')
       + ' key=' + (key || '(空)')
-      + (matched ? ' → ヒット(スキップ)' : '');
+      + (matched ? ' → ヒット(スキップ' + (matchedBy ? ' by ' + matchedBy : '') + ')' : '');
     if (typeof setStorageData === 'function') {
       setStorageData({ debugLog: line });
     }
@@ -257,17 +255,41 @@ function _logDedupEvent_(action, customerName, prop, key, matched) {
 globalThis.__hasNotifiedDedupKey = (customerName, prop) => {
   const k = customerName ? globalThis.__buildPropertyDedupKey(prop) : '';
   let matched = false;
-  if (customerName && k) {
+  let matchedBy = '';
+  if (customerName) {
     const inner = globalThis.__notifiedDedupMap[customerName];
     if (inner) {
-      const v = inner[k];
-      const ts = (typeof v === 'number') ? v : (v && v.ts);
-      matched = !!(ts && (Date.now() - ts < __NOTIFIED_DEDUP_TTL_MS));
+      // 1段目: プライマリキー (住所|部屋|面積|間取り) で完全一致
+      if (k) {
+        const v = inner[k];
+        const ts = (typeof v === 'number') ? v : (v && v.ts);
+        if (ts && (Date.now() - ts < __NOTIFIED_DEDUP_TTL_MS)) {
+          matched = true;
+          matchedBy = 'primary';
+        }
+      }
+      // 2段目: セカンダリキー (建物名(正規化)+部屋号(数字)) で照合
+      // 管理会社による住所/面積/間取りの表記揺れで primary が外れた時の保険。
+      // 建物名+部屋号は通常一意性が高いので false positive リスクは低い。
+      if (!matched) {
+        const newSecondary = _buildSecondaryDedupKey_(prop);
+        if (newSecondary) {
+          for (const existingKey of Object.keys(inner)) {
+            const v = inner[existingKey];
+            const ts = (typeof v === 'number') ? v : (v && v.ts);
+            if (!ts || (Date.now() - ts) > __NOTIFIED_DEDUP_TTL_MS) continue;
+            if (v && v.secondary === newSecondary) {
+              matched = true;
+              matchedBy = 'secondary[' + existingKey + ']';
+              break;
+            }
+          }
+        }
+      }
     }
   }
-  // 調査用ログ: 早期 return ケース (customerName 無し / キー生成失敗) も含めて
-  //              必ず出力する。これで「dedupされなかったのにログにも出ない」を防ぐ。
-  _logDedupEvent_('check', customerName || '(顧客名なし)', prop, k || '(キー生成不可)', matched);
+  // 早期 return ケース (customerName 無し / キー生成失敗) も含めて必ず出力。
+  _logDedupEvent_('check', customerName || '(顧客名なし)', prop, k || '(キー生成不可)', matched, matchedBy);
   return matched;
 };
 
@@ -343,7 +365,7 @@ globalThis.__addNotifiedDedupKey = (customerName, prop, source) => {
     chrome.storage.local.set({ notifiedDedupMap: globalThis.__notifiedDedupMap }).catch(() => {});
   }
   // 調査用ログ: 早期 return ケースも含めて必ず出力する。
-  _logDedupEvent_('add', customerName || '(顧客名なし)', prop, k || '(キー生成不可)', false);
+  _logDedupEvent_('add', customerName || '(顧客名なし)', prop, k || '(キー生成不可)', false, '');
 };
 
 // バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
