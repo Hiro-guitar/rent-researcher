@@ -183,12 +183,21 @@ const __normalizeLayoutForKey = (s) => {
   return v;
 };
 
+// 都道府県プレフィックス除去 (47都道府県をカバー)。
+// itandi API は時に "渋谷区..." と都道府県なしで来るが、いえらぶは詳細スクレイピング
+// で「東京都...」と必ず付ける → dedup キーが食い違う原因だった。
+// マッチパターン: 東京都 / 北海道 / 大阪府 / 京都府 / N文字+県 (43県)
+const __PREF_PREFIX_RE = /^(東京都|北海道|大阪府|京都府|.{2,3}県)/;
+const __stripPrefecturePrefix = (s) => String(s || '').replace(__PREF_PREFIX_RE, '');
+
 // 識別キー生成
 globalThis.__buildPropertyDedupKey = (prop) => {
   if (!prop) return '';
-  // 住所: 全角英数字 → 半角、 漢数字 → アラビア、 「N丁目X-Y」 等の番地以降切り捨て
+  // 住所: 全角英数字 → 半角、 漢数字 → アラビア、 都道府県プレフィックス除去、
+  //       「N丁目X-Y」 等の番地以降切り捨て
   let addr = __toHalfWidthAlnum(prop.address);
   addr = __kanjiToArabic(addr);
+  addr = __stripPrefecturePrefix(addr);
   addr = addr.replace(/(\d+)丁目.*$/, '$1丁目');
   addr = addr.replace(/\s+/g, '').toLowerCase();
   // 部屋番号: 全角→半角 + 漢数字→アラビア + 数字以外を除去
@@ -219,7 +228,14 @@ globalThis.__buildPropertyDedupKey = (prop) => {
     } catch (_) {}
     return '';
   }
-  return `${addr}|${room}|${area}|${layout}`;
+  var key = `${addr}|${room}|${area}|${layout}`;
+  // デバッグ: 生成された dedup キーをログ (重複しなかった時の原因究明用)
+  try {
+    console.log('[重複検知] key=' + key
+      + ' source=' + (prop.source || '?')
+      + ' building=' + (prop.building_name || prop.buildingName || '?'));
+  } catch (_) {}
+  return key;
 };
 
 globalThis.__hasNotifiedDedupKey = (customerName, prop) => {
