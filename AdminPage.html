@@ -277,7 +277,7 @@ input[type="range"]::-webkit-slider-thumb {
   </div>
 
   <!-- ═══ 条件変更提案セクション (物件未マッチ顧客へのLINE提案) ═══ -->
-  <div id="suggestionSection" class="section" style="display:none;border:2px solid #3498db;background:#f0f8ff;">
+  <div id="suggestionSection" class="section" style="border:2px solid #3498db;background:#f0f8ff;">
     <div class="section-title" style="color:#1f5e8b;">
       💬 条件変更提案 — 14日以上 物件をご紹介できていない顧客
       <span id="suggestionCountBadge" style="display:inline-block;margin-left:6px;padding:2px 8px;background:#3498db;color:#fff;border-radius:10px;font-size:11px;">0件</span>
@@ -287,6 +287,17 @@ input[type="range"]::-webkit-slider-thumb {
       最終物件通知 (もしくは登録日) から 14 日以上経過し、提案メッセージも14日以内に送ってない顧客に、<br>
       LINE で「家賃を上げる / エリアを広げる / 築年数を緩める / 面積を緩める」のボタン付きメッセージを送れます。<br>
       送信したい顧客にチェックを入れて下のボタンを押してください。
+    </div>
+    <!-- テスト送信: 候補条件を無視して任意の顧客にお試し送信 -->
+    <div style="margin:0 12px 8px;padding:8px 10px;background:#fffbea;border:1px dashed #f5d76e;border-radius:6px;">
+      <div style="font-size:11px;color:#7a5d00;margin-bottom:4px;font-weight:600;">🧪 テスト送信 (候補条件・14日制限を無視)</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+        <select id="suggestionTestCustomer" style="font-size:12px;padding:4px 6px;flex:1;min-width:140px;">
+          <option value="">— 顧客を選択 —</option>
+        </select>
+        <button onclick="sendSuggestionTest()" style="padding:5px 12px;font-size:12px;background:#f39c12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">テスト送信</button>
+      </div>
+      <div id="suggestionTestResult" style="font-size:11px;color:#444;margin-top:4px;"></div>
     </div>
     <div id="suggestionList" style="padding:0 8px 8px;"></div>
     <div id="suggestionFooter" style="display:none;padding:8px 12px;border-top:1px solid #cfe1f3;background:#e8f3fb;">
@@ -548,12 +559,20 @@ window.onload = function() {
 // ══════════════════════════════════════════════════════════
 function renderCustomerDropdown() {
   var sel = document.getElementById('customerSelect');
+  var testSel = document.getElementById('suggestionTestCustomer');
   for (var i = 0; i < ADMIN_CUSTOMERS.length; i++) {
     var c = ADMIN_CUSTOMERS[i];
     var opt = document.createElement('option');
     opt.value = c.name;
     opt.textContent = c.name + (c.lineUserId ? ' (LINE連携済)' : '');
     sel.appendChild(opt);
+    // 条件変更提案のテスト送信用ドロップダウンにも追加 (LINE連携済の顧客のみ)
+    if (testSel && c.lineUserId) {
+      var opt2 = document.createElement('option');
+      opt2.value = c.name;
+      opt2.textContent = c.name;
+      testSel.appendChild(opt2);
+    }
   }
 }
 
@@ -1804,12 +1823,11 @@ function refreshSuggestionList() {
       items = items || [];
       badgeEl.textContent = items.length + '件';
       if (items.length === 0) {
-        // 0件のときはセクションごと非表示
-        sectionEl.style.display = 'none';
+        // 候補ゼロ → リスト/送信ボタンは非表示。テスト送信フォームは残す
+        listEl.innerHTML = '<div style="color:#666;font-size:12px;padding:6px 4px;">該当する顧客はいません（最終通知から14日未満 / LINE未連携 / paused 等）</div>';
         footerEl.style.display = 'none';
         return;
       }
-      sectionEl.style.display = '';
       footerEl.style.display = '';
       var html = '';
       items.forEach(function(c) {
@@ -1848,6 +1866,31 @@ function refreshSuggestionList() {
 function suggestionSelectAll(checked) {
   var cbs = document.querySelectorAll('.suggestion-cb');
   for (var i = 0; i < cbs.length; i++) cbs[i].checked = checked;
+}
+
+function sendSuggestionTest() {
+  var sel = document.getElementById('suggestionTestCustomer');
+  var name = sel ? sel.value : '';
+  var resultEl = document.getElementById('suggestionTestResult');
+  if (!name) {
+    if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">顧客を選択してください</span>';
+    return;
+  }
+  if (!confirm('「' + name + '」に条件変更提案メッセージをテスト送信します。よろしいですか？\n(Z列・候補条件は無視されるので何度でも送れます)')) return;
+  if (resultEl) resultEl.textContent = '送信中...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        if (resultEl) resultEl.innerHTML = '<span style="color:#1e8449;">✅ ' + esc(res.message || '送信成功') + '</span>';
+        showToast('テスト送信完了');
+      } else {
+        if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">❌ ' + esc((res && res.message) || '失敗') + '</span>';
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">エラー: ' + esc(err.message || String(err)) + '</span>';
+    })
+    .sendConditionSuggestionTest(name);
 }
 
 function sendSuggestionMessages() {
