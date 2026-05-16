@@ -49,6 +49,55 @@ function listConditionSuggestionCandidates() {
 }
 
 /**
+ * テスト送信用: 候補条件を無視して指定顧客に Flex メッセージを送信する。
+ * 14日制限・Z列更新を行わないため、何度でも送れる。
+ * @param {string} customerName
+ * @return {{success: boolean, message: string}}
+ */
+function sendConditionSuggestionTest(customerName) {
+  if (!customerName) return { success: false, message: '顧客名が未指定です' };
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { success: false, message: '検索条件シートが見つかりません' };
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { success: false, message: '検索条件シートが空です' };
+    var data = sheet.getRange(1, 1, lastRow, sheet.getLastColumn()).getValues();
+
+    var row = null;
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1] || '').trim() === String(customerName).trim()) {
+        row = data[i];
+        break;
+      }
+    }
+    if (!row) return { success: false, message: '「' + customerName + '」が検索条件シートに見つかりません' };
+
+    var lineUserIdMap = _getLineUserIdMapByCustomerName_();
+    var userId = lineUserIdMap[customerName];
+    if (!userId) return { success: false, message: '「' + customerName + '」の LINE userId が紐付いていません' };
+
+    var candidate = {
+      name: customerName,
+      lineUserId: userId,
+      rentMax: String(row[7] || ''),
+      layouts: String(row[8] || ''),
+      walkMax: String(row[6] || ''),
+      areaMin: String(row[9] || ''),
+      ageMax: String(row[10] || ''),
+      city: String(row[3] || ''),
+      stations: String(row[5] || '')
+    };
+    var flex = buildConditionSuggestionFlex_(candidate);
+    pushMessage(userId, [flex]);
+    return { success: true, message: '「' + customerName + '」に送信しました (テスト送信: Z列は更新しません)' };
+  } catch (e) {
+    return { success: false, message: 'エラー: ' + (e.message || String(e)) };
+  }
+}
+
+/**
  * 指定顧客に条件変更提案 Flex メッセージを送信する。
  * @param {string[]} customerNames - 送信対象の顧客名配列
  * @return {{sent: number, skipped: string[], failed: Array<{name:string, error:string}>}}
