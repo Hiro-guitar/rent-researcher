@@ -139,6 +139,12 @@ function doPost(e) {
       const message = event.message.text.trim();
       const state = getState(userId);
 
+      // 条件変更提案「自分で入力する」モード中ならそのテキストを数値として受ける
+      if (typeof handleConditionSuggestionTextInput === 'function'
+          && handleConditionSuggestionTextInput(replyToken, userId, message, state)) {
+        return;
+      }
+
       // コマンド: 条件登録
       if (message === '条件登録' || message === 'じょうけんとうろく') {
         // [PERF-doPost] 計測用

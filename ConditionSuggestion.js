@@ -423,6 +423,11 @@ function handleConditionSuggestionPostback(replyToken, userId, data) {
       _applyConditionChange_(replyToken, userId, category, value);
       return;
     }
+    if (action === 'input') {
+      // 自分で入力モード: state を CONDSUG_INPUT_<CATEGORY> にして、次のテキストを待つ
+      _enterConditionInputMode_(replyToken, userId, category);
+      return;
+    }
     replyMessage(replyToken, [{ type: 'text', text: '不明な操作です: ' + action }]);
   } catch (e) {
     console.error('handleConditionSuggestionPostback error: ' + e.message);
@@ -430,27 +435,47 @@ function handleConditionSuggestionPostback(replyToken, userId, data) {
   }
 }
 
+// 家賃を価格帯に応じた単位で「切り上げ」る
+//   < 15万: 0.1万 (千円) 単位
+//   15-20万: 0.5万 単位
+//   >= 20万: 1万 単位
+function _ceilRentToStep_(v) {
+  if (v < 15) return Math.ceil(v * 10) / 10;
+  if (v < 20) return Math.ceil(v * 2) / 2;
+  return Math.ceil(v);
+}
+
+// 表示用に小数を綺麗にフォーマット (8.0 → '8', 8.5 → '8.5')
+function _fmtNum_(v) {
+  return (v === Math.floor(v)) ? String(v) : String(Math.round(v * 10) / 10);
+}
+
 /**
  * Step 2: カテゴリごとに現在値から提案値を計算して値選択 Flex を組み立てる。
  */
 function _buildValueSelectionFlex_(category, currentValue, userId) {
   var current = parseFloat(currentValue);
-  var liffBase = 'https://liff.line.me/' + LIFF_ID
-    + '?action=selectCriteria&userId=' + encodeURIComponent(userId);
 
   var cfg;
   if (category === 'rent') {
+    // 家賃: 現在値の +3% / +5% / +7% を価格帯単位で切り上げ
     var rc = isNaN(current) ? 8 : current;
+    var r3 = _ceilRentToStep_(rc * 1.03);
+    var r5 = _ceilRentToStep_(rc * 1.05);
+    var r7 = _ceilRentToStep_(rc * 1.07);
+    var seen = {};
+    var opts = [];
+    [r3, r5, r7].forEach(function (v) {
+      if (v <= rc) return;       // 現在値以下は除外 (微小%で同値になるケース)
+      var key = _fmtNum_(v);
+      if (seen[key]) return;     // 重複除外
+      seen[key] = true;
+      opts.push({ value: key, label: key + '万円' });
+    });
     cfg = {
       title: '家賃の上限を上げる',
       currentText: '現在: ' + (currentValue || '?') + '万円',
-      options: [
-        { value: String(rc + 1), label: (rc + 1) + '万円' },
-        { value: String(rc + 2), label: (rc + 2) + '万円' },
-        { value: String(rc + 4), label: (rc + 4) + '万円' }
-      ],
-      liffFocus: 'rent',
-      liffLabel: '自分で入力する',
+      options: opts,
       allowClear: false
     };
   } else if (category === 'age') {
@@ -463,23 +488,19 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
         { value: String(ac + 10), label: (ac + 10) + '年以内' },
         { value: String(ac + 15), label: (ac + 15) + '年以内' }
       ],
-      liffFocus: 'age',
-      liffLabel: '自分で入力する',
       allowClear: true,
       clearLabel: '築年数の指定をなくす'
     };
   } else if (category === 'area_min') {
     var sc = isNaN(current) ? 25 : current;
-    var opts = [];
-    if (sc - 3 > 0) opts.push({ value: String(sc - 3), label: (sc - 3) + 'm² 以上' });
-    if (sc - 5 > 0) opts.push({ value: String(sc - 5), label: (sc - 5) + 'm² 以上' });
-    if (sc - 10 > 0) opts.push({ value: String(sc - 10), label: (sc - 10) + 'm² 以上' });
+    var aopts = [];
+    if (sc - 3 > 0) aopts.push({ value: String(sc - 3), label: (sc - 3) + 'm² 以上' });
+    if (sc - 5 > 0) aopts.push({ value: String(sc - 5), label: (sc - 5) + 'm² 以上' });
+    if (sc - 10 > 0) aopts.push({ value: String(sc - 10), label: (sc - 10) + 'm² 以上' });
     cfg = {
       title: '専有面積を緩める',
       currentText: '現在: ' + (currentValue || '?') + 'm² 以上',
-      options: opts,
-      liffFocus: 'area_min',
-      liffLabel: '自分で入力する',
+      options: aopts,
       allowClear: true,
       clearLabel: '面積の指定をなくす'
     };
@@ -509,9 +530,15 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
       }
     });
   }
+  // 自分で入力する → postback で待機状態に入る (次のテキスト入力を受ける)
   footerButtons.push({
     type: 'button', style: 'secondary', height: 'sm',
-    action: { type: 'uri', label: cfg.liffLabel, uri: liffBase + '&focus=' + cfg.liffFocus }
+    action: {
+      type: 'postback',
+      label: '自分で入力する',
+      data: 'condsug:input:' + category,
+      displayText: '自分で入力する'
+    }
   });
 
   return {
@@ -539,6 +566,83 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
       }
     }
   };
+}
+
+// カテゴリ別のヒント文・入力レンジ (自分で入力モード時に使う)
+var _CONDSUG_INPUT_PROMPT = {
+  rent:     { name: '家賃の上限', unit: '万円', example: '例: 9.5', min: 1,  max: 100 },
+  age:      { name: '築年数',     unit: '年',   example: '例: 30',  min: 0,  max: 100 },
+  area_min: { name: '専有面積',   unit: 'm²',   example: '例: 20',  min: 1,  max: 300 },
+  walk:     { name: '駅徒歩',     unit: '分',   example: '例: 15',  min: 1,  max: 60 }
+};
+
+/**
+ * 「自分で入力する」が押された時: state を CONDSUG_INPUT_<CATEGORY> にして
+ * 次のテキストメッセージを待つ。
+ */
+function _enterConditionInputMode_(replyToken, userId, category) {
+  var info = _CONDSUG_INPUT_PROMPT[category];
+  if (!info) {
+    replyMessage(replyToken, [{ type: 'text', text: '入力モード非対応の項目です。' }]);
+    return;
+  }
+  try {
+    var state = (typeof getState === 'function') ? getState(userId) : { step: '', data: {}, updatedAt: Date.now() };
+    state.step = 'CONDSUG_INPUT_' + category.toUpperCase();
+    if (typeof saveState === 'function') saveState(userId, state);
+  } catch (e) {
+    console.warn('_enterConditionInputMode_ saveState error: ' + e.message);
+  }
+  replyMessage(replyToken, [{
+    type: 'text',
+    text: info.name + 'を数字で入力してください。\n単位: ' + info.unit + '（' + info.example + '）\n\n中止する場合は「キャンセル」と送信してください。'
+  }]);
+}
+
+/**
+ * テキストメッセージハンドラ (コード.js から呼ばれる)。
+ * 戻り値: true なら処理済み (呼び元はそれ以上ディスパッチしない)。
+ */
+function handleConditionSuggestionTextInput(replyToken, userId, message, state) {
+  if (!state || !state.step || state.step.indexOf('CONDSUG_INPUT_') !== 0) return false;
+  var category = state.step.replace('CONDSUG_INPUT_', '').toLowerCase();
+  var info = _CONDSUG_INPUT_PROMPT[category];
+  if (!info) {
+    try { if (typeof clearState === 'function') clearState(userId); } catch (_) {}
+    return false;
+  }
+
+  // キャンセル
+  if (/^(キャンセル|cancel|中止|やめる)$/i.test(message)) {
+    try { if (typeof clearState === 'function') clearState(userId); } catch (_) {}
+    replyMessage(replyToken, [{ type: 'text', text: '入力をキャンセルしました。' }]);
+    return true;
+  }
+
+  // 数値パース (全角→半角、単位文字除去)
+  var raw = String(message).normalize('NFKC').replace(/[^0-9.]/g, '');
+  var n = parseFloat(raw);
+  if (isNaN(n)) {
+    replyMessage(replyToken, [{
+      type: 'text',
+      text: '数字としてご入力ください。\n' + info.name + '（' + info.unit + '）\n' + info.example + '\n\n中止は「キャンセル」'
+    }]);
+    return true;
+  }
+  if (n < info.min || n > info.max) {
+    replyMessage(replyToken, [{
+      type: 'text',
+      text: info.name + 'の範囲外です（' + info.min + '〜' + info.max + ' ' + info.unit + ' の範囲でご入力ください）。\n\n中止は「キャンセル」'
+    }]);
+    return true;
+  }
+
+  // 状態クリアして適用
+  try { if (typeof clearState === 'function') clearState(userId); } catch (_) {}
+  // 整数なら整数表示 / 小数なら .1 桁まで
+  var writeValue = (n === Math.floor(n)) ? String(n) : String(Math.round(n * 10) / 10);
+  _applyConditionChange_(replyToken, userId, category, writeValue);
+  return true;
 }
 
 /**
