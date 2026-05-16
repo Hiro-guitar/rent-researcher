@@ -337,7 +337,7 @@ function buildConditionSuggestionFlex_(c) {
           { type: 'text', text: 'ご条件の変更をしてみませんか？', weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
           { type: 'text', text: '条件を少し緩めると、ご紹介できる物件が増える可能性があります。', size: 'sm', color: '#555555', wrap: true, margin: 'sm' },
           { type: 'separator', margin: 'lg' },
-          { type: 'text', text: '現在ご登録の条件', size: 'sm', color: '#888888', weight: 'bold', margin: 'md' },
+          { type: 'text', text: '現在ご登録の条件', size: 'md', color: '#666666', weight: 'bold', margin: 'md' },
           {
             type: 'box', layout: 'vertical',
             spacing: 'md', // 条件1行ごとに少し余白を入れて見やすく
