@@ -229,24 +229,43 @@ globalThis.__buildPropertyDedupKey = (prop) => {
     return '';
   }
   var key = `${addr}|${room}|${area}|${layout}`;
-  // デバッグ: 生成された dedup キーをログ (重複しなかった時の原因究明用)
-  try {
-    console.log('[重複検知] key=' + key
-      + ' source=' + (prop.source || '?')
-      + ' building=' + (prop.building_name || prop.buildingName || '?'));
-  } catch (_) {}
   return key;
 };
+
+// 重複検知の調査用ログ (顧客検索でキー生成の度に呼ばれると煩いので、
+// __hasNotifiedDedupKey と __addNotifiedDedupKey から呼ぶ)。
+// ダッシュボードログ (log.html) にも出すので、サービスワーカーを開かなくても
+// 何が違うか追えるようにする。
+function _logDedupEvent_(action, customerName, prop, key, matched) {
+  try {
+    var line = '[重複検知/' + action + '] '
+      + (customerName || '?')
+      + ' [' + (prop.source || '?') + '] '
+      + (prop.building_name || prop.buildingName || '?')
+      + ' ' + (prop.room_number || prop.roomNumber || '')
+      + ' key=' + (key || '(空)')
+      + (matched ? ' → ヒット(スキップ)' : '');
+    if (typeof setStorageData === 'function') {
+      setStorageData({ debugLog: line });
+    }
+    console.log(line);
+  } catch (_) {}
+}
 
 globalThis.__hasNotifiedDedupKey = (customerName, prop) => {
   if (!customerName) return false;
   const k = globalThis.__buildPropertyDedupKey(prop);
   if (!k) return false;
   const inner = globalThis.__notifiedDedupMap[customerName];
-  if (!inner) return false;
-  const v = inner[k];
-  const ts = (typeof v === 'number') ? v : (v && v.ts);
-  return !!(ts && (Date.now() - ts < __NOTIFIED_DEDUP_TTL_MS));
+  let matched = false;
+  if (inner) {
+    const v = inner[k];
+    const ts = (typeof v === 'number') ? v : (v && v.ts);
+    matched = !!(ts && (Date.now() - ts < __NOTIFIED_DEDUP_TTL_MS));
+  }
+  // 調査用ログ: チェック時のキーを出力
+  _logDedupEvent_('check', customerName, prop, k, matched);
+  return matched;
 };
 
 globalThis.__getNotifiedDedupInfo = (customerName, prop) => {
@@ -272,6 +291,8 @@ globalThis.__addNotifiedDedupKey = (customerName, prop, source) => {
     url: (prop && prop.url) || ''
   };
   chrome.storage.local.set({ notifiedDedupMap: globalThis.__notifiedDedupMap }).catch(() => {});
+  // 調査用ログ: 追加時のキーを出力
+  _logDedupEvent_('add', customerName, prop, k, false);
 };
 
 // バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
