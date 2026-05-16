@@ -304,24 +304,52 @@ function _summaryLine_(label, value) {
   };
 }
 
+// 値文字列から既存サフィックスを剥がして数字部分だけ返す。
+// 「指定しない」「指定なし」「空」は null を返す → 呼び元で「指定なし」表示にする。
+function _stripCondSuffix_(value, suffixRe) {
+  if (value === undefined || value === null) return null;
+  var s = String(value).trim();
+  if (!s || s === '指定しない' || s === '指定なし') return null;
+  if (suffixRe) s = s.replace(suffixRe, '');
+  return s || null;
+}
+
+// 「値 + 単位 / 指定なし」のテキスト要素を作る
+function _condLine_(label, raw, suffix, suffixRe) {
+  var v = _stripCondSuffix_(raw, suffixRe);
+  var text = v ? (v + suffix) : '指定なし';
+  return _summaryLine_(label, text);
+}
+
 function buildConditionSuggestionFlex_(c) {
   var liffBase = 'https://liff.line.me/' + LIFF_ID
     + '?action=selectCriteria&userId=' + encodeURIComponent(c.lineUserId);
 
-  // 現条件の要約 (絵文字なし、項目名を明確に、路線名も含める)
+  // 現条件の要約 (絵文字なし、項目名を明確に、路線名も含める)。
+  // 各項目は必ず表示する (空/指定しない なら「指定なし」と明示)。
   var summary = [];
-  if (c.rentMax) summary.push(_summaryLine_('家賃の上限', c.rentMax + '万円'));
+  summary.push(_condLine_('家賃の上限', c.rentMax, '万円', /万円$/));
+
+  // エリアは路線・駅 / 市区町村 / どちらも未指定 のいずれか
   var routesDisplay = _formatRoutesForDisplay_(c.routesWithStations);
   if (routesDisplay) {
     summary.push(_summaryLine_('沿線・駅', routesDisplay));
   } else if (c.stations) {
     summary.push(_summaryLine_('駅', c.stations));
+  } else if (c.city) {
+    summary.push(_summaryLine_('市区町村', c.city));
+  } else {
+    summary.push(_summaryLine_('エリア', '指定なし'));
   }
-  if (c.city) summary.push(_summaryLine_('市区町村', c.city));
-  if (c.layouts) summary.push(_summaryLine_('間取り', c.layouts));
-  if (c.areaMin) summary.push(_summaryLine_('専有面積', c.areaMin + 'm² 以上'));
-  if (c.ageMax) summary.push(_summaryLine_('築年数', c.ageMax + '年以内'));
-  if (c.walkMax) summary.push(_summaryLine_('駅徒歩', c.walkMax + '分以内'));
+
+  if (c.layouts) {
+    summary.push(_summaryLine_('間取り', c.layouts));
+  } else {
+    summary.push(_summaryLine_('間取り', '指定なし'));
+  }
+  summary.push(_condLine_('専有面積', c.areaMin, 'm² 以上', /m²?\s*以上$|㎡\s*以上$/));
+  summary.push(_condLine_('築年数', c.ageMax, '年以内', /年以内$/));
+  summary.push(_condLine_('駅徒歩', c.walkMax, '分以内', /分以内$/));
 
   // postback data に現在値を載せる (再取得不要にして応答を早くする)
   var rentCurr = c.rentMax || '';
