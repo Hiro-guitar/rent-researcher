@@ -191,6 +191,14 @@ function getConditionSuggestionCandidates_() {
     var elapsedMs = now - refDate.getTime();
     if (elapsedMs < thresholdMs) continue;
 
+    // 路線・駅 (E列): "路線名(駅A, 駅B), 路線名(駅C)" 形式
+    var routesWithStations = [];
+    try {
+      if (typeof _parseRoutesWithStations === 'function') {
+        routesWithStations = _parseRoutesWithStations(row[4]) || [];
+      }
+    } catch (_) {}
+
     candidates.push({
       name: name,
       lineUserId: userId,
@@ -208,7 +216,8 @@ function getConditionSuggestionCandidates_() {
       areaMin: String(row[9] || ''),
       ageMax: String(row[10] || ''),
       city: String(row[3] || ''),
-      stations: String(row[5] || '')
+      stations: String(row[5] || ''),
+      routesWithStations: routesWithStations  // [{ route: '路線名', stations: ['駅A', '駅B'] }, ...]
     });
   }
 
@@ -255,23 +264,60 @@ function _buildLastDeliveryMap_() {
 // ──────────────────────────────────────────────────────────────
 // Flex Message 生成
 // ──────────────────────────────────────────────────────────────
+// 路線・駅の表示文字列を生成。
+//   [{route:'西武新宿線', stations:['上石神井','武蔵関']}, ...]
+//   → "西武新宿線（上石神井、武蔵関）／JR山手線（新宿）"
+function _formatRoutesForDisplay_(routesWithStations) {
+  if (!Array.isArray(routesWithStations) || routesWithStations.length === 0) return '';
+  var parts = [];
+  for (var i = 0; i < routesWithStations.length; i++) {
+    var rws = routesWithStations[i] || {};
+    var route = String(rws.route || '').trim();
+    var stations = Array.isArray(rws.stations) ? rws.stations.filter(function(s) { return s; }) : [];
+    if (route && stations.length > 0) {
+      parts.push(route + '（' + stations.join('、') + '）');
+    } else if (route) {
+      parts.push(route);
+    } else if (stations.length > 0) {
+      parts.push(stations.join('、'));
+    }
+  }
+  return parts.join(' ／ ');
+}
+
+// 1行分のラベル+値テキスト要素 (絵文字なし・項目名は明確に)
+function _summaryLine_(label, value) {
+  return {
+    type: 'text',
+    text: label + '：' + value,
+    size: 'sm',
+    color: '#444444',
+    wrap: true
+  };
+}
+
 function buildConditionSuggestionFlex_(c) {
   var liffBase = 'https://liff.line.me/' + LIFF_ID
     + '?action=selectCriteria&userId=' + encodeURIComponent(c.lineUserId);
 
-  // 現条件の要約行
+  // 現条件の要約 (絵文字なし、項目名を明確に、路線名も含める)
   var summary = [];
-  if (c.rentMax) summary.push({ type: 'text', text: '💰 家賃上限: ' + c.rentMax + '万円', size: 'xs', color: '#444444', wrap: true });
-  if (c.city)    summary.push({ type: 'text', text: '🗺 エリア: ' + c.city, size: 'xs', color: '#444444', wrap: true });
-  if (c.stations) summary.push({ type: 'text', text: '🚉 駅: ' + c.stations, size: 'xs', color: '#444444', wrap: true });
-  if (c.layouts) summary.push({ type: 'text', text: '🚪 間取り: ' + c.layouts, size: 'xs', color: '#444444', wrap: true });
-  if (c.areaMin) summary.push({ type: 'text', text: '📏 面積: ' + c.areaMin + 'm²以上', size: 'xs', color: '#444444', wrap: true });
-  if (c.ageMax)  summary.push({ type: 'text', text: '🏗 築年数: ' + c.ageMax + '年以内', size: 'xs', color: '#444444', wrap: true });
-  if (c.walkMax) summary.push({ type: 'text', text: '🚶 駅徒歩: ' + c.walkMax + '分以内', size: 'xs', color: '#444444', wrap: true });
+  if (c.rentMax) summary.push(_summaryLine_('家賃の上限', c.rentMax + '万円'));
+  var routesDisplay = _formatRoutesForDisplay_(c.routesWithStations);
+  if (routesDisplay) {
+    summary.push(_summaryLine_('沿線・駅', routesDisplay));
+  } else if (c.stations) {
+    summary.push(_summaryLine_('駅', c.stations));
+  }
+  if (c.city) summary.push(_summaryLine_('市区町村', c.city));
+  if (c.layouts) summary.push(_summaryLine_('間取り', c.layouts));
+  if (c.areaMin) summary.push(_summaryLine_('専有面積', c.areaMin + 'm² 以上'));
+  if (c.ageMax) summary.push(_summaryLine_('築年数', c.ageMax + '年以内'));
+  if (c.walkMax) summary.push(_summaryLine_('駅徒歩', c.walkMax + '分以内'));
 
   return {
     type: 'flex',
-    altText: 'ご登録の条件で物件がまだ見つかっていません。条件を見直しませんか？',
+    altText: 'ご条件の変更をしてみませんか？',
     contents: {
       type: 'bubble',
       body: {
@@ -279,16 +325,14 @@ function buildConditionSuggestionFlex_(c) {
         layout: 'vertical',
         spacing: 'md',
         contents: [
-          { type: 'text', text: '🔍 物件をお探ししていますが…', weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
-          { type: 'text', text: 'ご登録いただいた条件に該当する物件がまだ見つかっていません。', size: 'sm', color: '#666666', wrap: true },
+          { type: 'text', text: 'ご条件の変更をしてみませんか？', weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
+          { type: 'text', text: '条件を少し緩めると、ご紹介できる物件が増える可能性があります。', size: 'sm', color: '#555555', wrap: true },
           { type: 'separator' },
-          { type: 'text', text: '現在ご登録の条件', size: 'xs', color: '#888888', weight: 'bold' },
+          { type: 'text', text: '現在ご登録の条件', size: 'sm', color: '#888888', weight: 'bold' },
           {
             type: 'box', layout: 'vertical', spacing: 'xs',
-            contents: summary.length > 0 ? summary : [{ type: 'text', text: '(条件情報を取得できませんでした)', size: 'xs', color: '#aaaaaa' }]
-          },
-          { type: 'separator' },
-          { type: 'text', text: '以下のいずれかを少し緩めると、ご紹介できる物件が増える可能性があります。', size: 'sm', color: '#555555', wrap: true }
+            contents: summary.length > 0 ? summary : [{ type: 'text', text: '(条件情報を取得できませんでした)', size: 'sm', color: '#aaaaaa' }]
+          }
         ]
       },
       footer: {
@@ -296,16 +340,16 @@ function buildConditionSuggestionFlex_(c) {
         layout: 'vertical',
         spacing: 'sm',
         contents: [
-          { type: 'button', style: 'primary', color: '#8ec41d', height: 'sm',
-            action: { type: 'uri', label: '💰 家賃の上限を上げる', uri: liffBase + '&focus=rent' } },
-          { type: 'button', style: 'primary', color: '#8ec41d', height: 'sm',
-            action: { type: 'uri', label: '🗺 エリアを広げる', uri: liffBase + '&focus=area' } },
-          { type: 'button', style: 'primary', color: '#8ec41d', height: 'sm',
-            action: { type: 'uri', label: '🏗 築年数を緩める', uri: liffBase + '&focus=age' } },
-          { type: 'button', style: 'primary', color: '#8ec41d', height: 'sm',
-            action: { type: 'uri', label: '📏 面積を緩める', uri: liffBase + '&focus=area_min' } },
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'uri', label: '家賃の上限を上げる', uri: liffBase + '&focus=rent' } },
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'uri', label: 'エリアを広げる', uri: liffBase + '&focus=area' } },
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'uri', label: '築年数を緩める', uri: liffBase + '&focus=age' } },
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'uri', label: '面積を緩める', uri: liffBase + '&focus=area_min' } },
           { type: 'button', style: 'secondary', height: 'sm',
-            action: { type: 'uri', label: '💬 もう少し条件を見直す', uri: liffBase } }
+            action: { type: 'uri', label: 'もう少し条件を見直す', uri: liffBase } }
         ]
       }
     }

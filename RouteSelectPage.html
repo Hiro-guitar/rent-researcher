@@ -429,6 +429,9 @@ var INIT_BUILDING_STRUCTURES = <?!= selectedBuildingStructures ?>;
 var INIT_EQUIPMENT = <?!= selectedEquipment ?>;
 var INIT_PET_TYPE = '<?= petType ?>';
 var INIT_OTHER_CONDITIONS = '<?= otherConditions ?>';
+// 条件変更提案 LINEメッセージのボタンからの focus パラメータ。
+// テンプレート経由で渡される (LIFF 経由だと location.search に出ない場合があるため)。
+var INIT_FOCUS = '<?= initFocus ?>';
 
 // ══════════════════════════════════════════════════════════
 //  データ定義
@@ -490,11 +493,18 @@ window.onload = function() {
 
 // ══════════════════════════════════════════════════════════
 //  条件変更提案 LINEメッセージのボタンからの focus 処理
+//  INIT_FOCUS (テンプレート経由) を優先し、無ければ location.search も見る。
 // ══════════════════════════════════════════════════════════
 function applyConditionFocus_() {
   try {
-    var params = new URLSearchParams(location.search);
-    var focus = (params.get('focus') || '').toLowerCase();
+    var focus = (INIT_FOCUS || '').toLowerCase();
+    if (!focus) {
+      // フォールバック: URL クエリから直接読む (LIFF経由でない通常アクセス時)
+      try {
+        var params = new URLSearchParams(location.search);
+        focus = (params.get('focus') || '').toLowerCase();
+      } catch (_) {}
+    }
     if (!focus) return;
     var sectionMap = {
       'rent': 'rentSection',
@@ -517,17 +527,15 @@ function applyConditionFocus_() {
     } else if (focus === 'area_min') {
       var u3 = document.getElementById('areaUnspecified');
       if (u3 && u3.checked) { u3.checked = false; if (typeof onAreaUnspecifiedChange === 'function') onAreaUnspecifiedChange(); }
-    } else if (focus === 'area') {
-      // エリアタブの切替は restoreSelections の後でOK
     }
-    // スクロール + ハイライト
+    // スクロール + ハイライト (描画とレイアウトが落ち着いてから)
     setTimeout(function () {
       try {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         el.classList.add('focused-section');
         setTimeout(function () { el.classList.remove('focused-section'); }, 3500);
       } catch (_) {}
-    }, 200);
+    }, 400);
   } catch (e) {
     console.warn('applyConditionFocus_ error:', e);
   }

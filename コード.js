@@ -415,6 +415,8 @@ function doGet(e) {
     template.selectedEquipment = JSON.stringify(d.equipment || []);
     template.petType = d.petType || '';
     template.otherConditions = d.otherConditions || '';
+    // 条件変更提案のLINEメッセージから飛んできた時、該当セクションへフォーカス
+    template.initFocus = String(e.parameter.focus || '').toLowerCase();
     return template.evaluate()
       .setTitle('お部屋の条件選択')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
