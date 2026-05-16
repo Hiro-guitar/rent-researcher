@@ -78,6 +78,13 @@ function sendConditionSuggestionTest(customerName) {
     var userId = lineUserIdMap[customerName];
     if (!userId) return { success: false, message: '「' + customerName + '」の LINE userId が紐付いていません' };
 
+    // 路線・駅 (E列) を Flex 表示用にパース
+    var routesWithStations = [];
+    try {
+      if (typeof _parseRoutesWithStations === 'function') {
+        routesWithStations = _parseRoutesWithStations(row[4]) || [];
+      }
+    } catch (_) {}
     var candidate = {
       name: customerName,
       lineUserId: userId,
@@ -87,7 +94,8 @@ function sendConditionSuggestionTest(customerName) {
       areaMin: String(row[9] || ''),
       ageMax: String(row[10] || ''),
       city: String(row[3] || ''),
-      stations: String(row[5] || '')
+      stations: String(row[5] || ''),
+      routesWithStations: routesWithStations
     };
     var flex = buildConditionSuggestionFlex_(candidate);
     pushMessage(userId, [flex]);
@@ -323,14 +331,17 @@ function buildConditionSuggestionFlex_(c) {
       body: {
         type: 'box',
         layout: 'vertical',
-        spacing: 'md',
+        spacing: 'lg', // 大セクション間の縦間隔を広めに
+        paddingAll: 'lg',
         contents: [
           { type: 'text', text: 'ご条件の変更をしてみませんか？', weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
-          { type: 'text', text: '条件を少し緩めると、ご紹介できる物件が増える可能性があります。', size: 'sm', color: '#555555', wrap: true },
-          { type: 'separator' },
-          { type: 'text', text: '現在ご登録の条件', size: 'sm', color: '#888888', weight: 'bold' },
+          { type: 'text', text: '条件を少し緩めると、ご紹介できる物件が増える可能性があります。', size: 'sm', color: '#555555', wrap: true, margin: 'sm' },
+          { type: 'separator', margin: 'lg' },
+          { type: 'text', text: '現在ご登録の条件', size: 'sm', color: '#888888', weight: 'bold', margin: 'md' },
           {
-            type: 'box', layout: 'vertical', spacing: 'xs',
+            type: 'box', layout: 'vertical',
+            spacing: 'md', // 条件1行ごとに少し余白を入れて見やすく
+            margin: 'sm',
             contents: summary.length > 0 ? summary : [{ type: 'text', text: '(条件情報を取得できませんでした)', size: 'sm', color: '#aaaaaa' }]
           }
         ]
@@ -339,6 +350,7 @@ function buildConditionSuggestionFlex_(c) {
         type: 'box',
         layout: 'vertical',
         spacing: 'sm',
+        paddingAll: 'lg',
         contents: [
           { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
             action: { type: 'uri', label: '家賃の上限を上げる', uri: liffBase + '&focus=rent' } },
