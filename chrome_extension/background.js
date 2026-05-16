@@ -303,28 +303,25 @@ globalThis.__addNotifiedDedupKey = (customerName, prop, source) => {
 
     // ── dedup 漏れ自動検知 ──
     // 同顧客のマップで「建物名+部屋号が同じ・プライマリキーが違う」エントリが
-    // 直近1時間以内にあれば、dedup が効くべきだったのに効かなかった可能性が高い。
+    // 30日 (dedupTTL) 以内にあれば、dedup が効くべきだったのに効かなかった
+    // 可能性が高い。注意: 同じプライマリキーで上書きされる場合は警告しない
+    // (それは正常な更新)。
     try {
       const newSecondary = _buildSecondaryDedupKey_(prop);
       if (newSecondary) {
         const inner = globalThis.__notifiedDedupMap[customerName];
-        const HOUR_MS = 60 * 60 * 1000;
         for (const existingKey of Object.keys(inner)) {
           if (existingKey === k) continue;
           const v = inner[existingKey];
           const ts = (typeof v === 'number') ? v : (v && v.ts);
-          if (!ts || (Date.now() - ts) > HOUR_MS) continue;
-          // 既存エントリの prop 情報を持ってないので、existingKey の文字列構造から
-          // 建物名+部屋号は復元できない → 建物名は別途比較できないが、
-          // 「直近 1時間以内に追加された別キー」が複数あること自体が異常サイン。
-          // より厳密にやるには map のエントリ自体に building_name/room_number を
-          // 保存しておく必要があるので、それも下で追加する。
+          if (!ts || (Date.now() - ts) > __NOTIFIED_DEDUP_TTL_MS) continue;
           const evSecondary = v && v.secondary;
           if (evSecondary && evSecondary === newSecondary) {
+            const elapsedMin = Math.round((Date.now() - ts) / 60000);
             const warn = '[重複検知/⚠️漏れ] ' + customerName
               + ': 同物件 (' + (prop.building_name || '?') + ' ' + (prop.room_number || '') + ')'
               + ' が異なるキーで2回追加された。dedupが効くべきだった可能性大。\n'
-              + '  既存 key: ' + existingKey + ' (元: ' + (v.source || '?') + ')\n'
+              + '  既存 key: ' + existingKey + ' (元: ' + (v.source || '?') + ', ' + elapsedMin + '分前)\n'
               + '  新規 key: ' + k + ' (元: ' + (source || prop.source || '?') + ')';
             console.warn(warn);
             if (typeof setStorageData === 'function') setStorageData({ debugLog: warn });
