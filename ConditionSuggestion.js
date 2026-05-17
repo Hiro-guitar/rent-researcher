@@ -94,6 +94,7 @@ function sendConditionSuggestionTest(customerName) {
       areaMin: String(row[9] || ''),
       ageMax: String(row[10] || ''),
       structures: String(row[11] || ''),
+      equipment: String(row[12] || ''),
       city: String(row[3] || ''),
       stations: String(row[5] || ''),
       routesWithStations: routesWithStations
@@ -225,6 +226,7 @@ function getConditionSuggestionCandidates_() {
       areaMin: String(row[9] || ''),
       ageMax: String(row[10] || ''),
       structures: String(row[11] || ''),
+      equipment: String(row[12] || ''),
       city: String(row[3] || ''),
       stations: String(row[5] || ''),
       routesWithStations: routesWithStations  // [{ route: '路線名', stations: ['駅A', '駅B'] }, ...]
@@ -352,15 +354,25 @@ function buildConditionSuggestionFlex_(c) {
   summary.push(_condLine_('専有面積', c.areaMin, 'm² 以上', /m²?\s*以上$|㎡\s*以上$/));
   summary.push(_condLine_('築年数', c.ageMax, '年以内', /年以内$/));
   summary.push(_condLine_('駅徒歩', c.walkMax, '分以内', /分以内$/));
+  // 設備 (こだわり条件) は項目数が多くなりがちなので 3 件 + "他N項目" にトリミング
+  var eqItems = (c.equipment || '').split(/[,、]/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+  if (eqItems.length === 0) {
+    summary.push(_summaryLine_('こだわり', '指定なし'));
+  } else if (eqItems.length <= 3) {
+    summary.push(_summaryLine_('こだわり', eqItems.join('、')));
+  } else {
+    summary.push(_summaryLine_('こだわり', eqItems.slice(0, 3).join('、') + ' 他' + (eqItems.length - 3) + '項目'));
+  }
 
   // postback data に現在値を載せる (再取得不要にして応答を早くする)
   var rentCurr = c.rentMax || '';
   var ageCurr = c.ageMax || '';
   var areaMinCurr = c.areaMin || '';
   var walkCurr = c.walkMax || '';
-  // 間取り・構造 はカンマ区切り (postbackのコロンと被らないため安全)
+  // 間取り・構造・設備 はカンマ区切り (postbackのコロンと被らないため安全)
   var layoutsCurr = (c.layouts || '').replace(/[:|]/g, ''); // 安全のため : | を除去
   var structuresCurr = (c.structures || '').replace(/[:|]/g, '');
+  var equipmentCurr = (c.equipment || '').replace(/[:|]/g, '');
 
   return {
     type: 'flex',
@@ -417,6 +429,10 @@ function buildConditionSuggestionFlex_(c) {
             action: { type: 'postback', label: '構造を増やす',
               data: 'condsug:open:structures:' + structuresCurr,
               displayText: '構造を増やす' } },
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'postback', label: 'こだわり条件を見直す',
+              data: 'condsug:open:equipment:' + equipmentCurr,
+              displayText: 'こだわり条件を見直す' } },
           { type: 'separator', margin: 'md' },
           // ── じっくり見直す (LIFF で全項目編集) ──
           { type: 'text', text: 'じっくり見直す', size: 'xs', color: '#888888', weight: 'bold', margin: 'md' },
@@ -689,6 +705,28 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
       allowClear: true,
       clearLabel: '駅徒歩の指定をなくす'
     };
+  } else if (category === 'equipment') {
+    // こだわり条件: 現在選択中の各項目を「X を諦める」ボタンに変換。
+    // ワンタップで個別に諦められる。複数諦めたいなら最初の提案メッセージに戻って再タップ。
+    var eqList = String(currentValue || '').split(/[,、]/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+    var eopts = [];
+    for (var ei = 0; ei < eqList.length; ei++) {
+      var item = eqList[ei];
+      // 諦める = 現在リストから item を除いた新リストに更新
+      var newList = eqList.slice(0, ei).concat(eqList.slice(ei + 1));
+      eopts.push({
+        value: newList.join(','),
+        label: item + ' を諦める'
+      });
+    }
+    cfg = {
+      title: 'こだわり条件を見直す',
+      currentText: eqList.length > 0 ? '現在: ' + eqList.join('、') : '現在: 指定なし',
+      options: eopts,
+      allowClear: eqList.length > 0,
+      clearLabel: '全て諦める',
+      promptText: '諦めても良いこだわり条件をタップしてください。'
+    };
   } else if (category === 'layouts' || category === 'structures') {
     // 間取り・構造 は「現在の選択肢に追加」方式 (multi-select)
     // 緩める向きは category ごとに異なる:
@@ -772,8 +810,8 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
   }
   // 自分で入力する / 自分で選び直す
   //   数値カテゴリ (rent/age/area_min/walk) → LINE内テキスト入力フロー
-  //   multi-select カテゴリ (layouts/structures) → LIFFの該当セクションへ遷移
-  if (category === 'layouts' || category === 'structures') {
+  //   multi-select カテゴリ (layouts/structures/equipment) → LIFFの該当セクションへ遷移
+  if (category === 'layouts' || category === 'structures' || category === 'equipment') {
     var liffBase2 = 'https://liff.line.me/' + LIFF_ID
       + '?action=selectCriteria&userId=' + encodeURIComponent(userId);
     footerButtons.push({
@@ -910,8 +948,8 @@ function handleConditionSuggestionTextInput(replyToken, userId, message, state) 
  */
 function _applyConditionChange_(replyToken, userId, category, newValue) {
   // category → column index (1-based for getRange)
-  // G(7):徒歩 H(8):賃料 I(9):間取り J(10):面積 K(11):築年 L(12):構造
-  var colMap = { rent: 8, age: 11, area_min: 10, walk: 7, layouts: 9, structures: 12 };
+  // G(7):徒歩 H(8):賃料 I(9):間取り J(10):面積 K(11):築年 L(12):構造 M(13):設備
+  var colMap = { rent: 8, age: 11, area_min: 10, walk: 7, layouts: 9, structures: 12, equipment: 13 };
   var col = colMap[category];
   if (!col) {
     replyMessage(replyToken, [{ type: 'text', text: '不明なカテゴリです: ' + category }]);
@@ -966,7 +1004,7 @@ function _applyConditionChange_(replyToken, userId, category, newValue) {
     sheetValue = '指定しない';
   } else if (category === 'age') {
     sheetValue = rawValue + '年以内';
-  } else if (category === 'layouts' || category === 'structures') {
+  } else if (category === 'layouts' || category === 'structures' || category === 'equipment') {
     // カンマ区切りに整形 (空要素除去)
     var items = rawValue.split(/[,、]/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
     sheetValue = items.join(', ');
@@ -983,13 +1021,14 @@ function _applyConditionChange_(replyToken, userId, category, newValue) {
     area_min: { name: '専有面積', suffix: 'm² 以上' },
     walk: { name: '駅徒歩', suffix: '分以内' },
     layouts: { name: '間取り', suffix: '' },
-    structures: { name: '建物構造', suffix: '' }
+    structures: { name: '建物構造', suffix: '' },
+    equipment: { name: 'こだわり条件', suffix: '' }
   };
   var info = labels[category];
   var changedText;
   if (rawValue === '') {
     changedText = '指定なし';
-  } else if (category === 'layouts' || category === 'structures') {
+  } else if (category === 'layouts' || category === 'structures' || category === 'equipment') {
     changedText = sheetValue; // カンマ区切りリストそのまま
   } else {
     changedText = rawValue + info.suffix;
