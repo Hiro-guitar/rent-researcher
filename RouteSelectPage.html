@@ -378,7 +378,7 @@ input[type="range"]::-webkit-slider-thumb {
   </div>
 
   <!-- ═══ こだわり条件 ═══ -->
-  <div class="section">
+  <div class="section" id="equipmentSection">
     <div class="section-title">こだわり条件</div>
     <div id="equipmentList"></div>
   </div>
@@ -513,7 +513,8 @@ function applyConditionFocus_() {
       'area_min': 'areaMinSection',
       'walk': 'walkSection',
       'layouts': 'layoutSection',
-      'structures': 'structureSection'
+      'structures': 'structureSection',
+      'equipment': 'equipmentSection'
     };
     var sid = sectionMap[focus];
     if (!sid) return;
