@@ -49,6 +49,123 @@ function listConditionSuggestionCandidates() {
 }
 
 /**
+ * 自動送信: GAS の時間トリガーから呼ばれる想定。
+ *   1. 候補抽出
+ *   2. 全員に送信
+ *   3. Discord に結果通知
+ *
+ * 無効化したい時は ScriptProperties で
+ *   CONDITION_SUGGESTION_AUTO_ENABLED = 'false'
+ * を設定する。
+ *
+ * 初回セットアップは setupConditionSuggestionAutoTrigger() を1回手動実行で
+ * トリガー登録できる。
+ */
+function runConditionSuggestionAutoSend() {
+  var ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  try {
+    // 無効化スイッチ
+    var props = PropertiesService.getScriptProperties();
+    var enabled = props.getProperty('CONDITION_SUGGESTION_AUTO_ENABLED');
+    if (enabled === 'false' || enabled === 'FALSE') {
+      console.log('[条件変更提案/自動] 無効化されているためスキップ (' + ts + ')');
+      return;
+    }
+
+    var candidates = getConditionSuggestionCandidates_();
+    if (!candidates || candidates.length === 0) {
+      console.log('[条件変更提案/自動] 候補なし (' + ts + ')');
+      _notifyAutoSendToDiscord_(0, { sent: 0, skipped: [], failed: [] }, ts);
+      return;
+    }
+
+    var names = candidates.map(function (c) { return c.name; });
+    var result = sendConditionSuggestionMessages(names);
+    console.log('[条件変更提案/自動] 送信完了: 候補' + candidates.length + ' 送信' + result.sent
+      + ' スキップ' + (result.skipped || []).length + ' 失敗' + (result.failed || []).length);
+    _notifyAutoSendToDiscord_(candidates.length, result, ts);
+  } catch (err) {
+    console.error('[条件変更提案/自動] 致命エラー: ' + err.message + '\n' + err.stack);
+    try { _notifyAutoSendErrorToDiscord_(err, ts); } catch (_) {}
+  }
+}
+
+/**
+ * Discord に自動送信結果を通知。失敗一覧も含める。
+ */
+function _notifyAutoSendToDiscord_(total, result, ts) {
+  try {
+    var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+    if (!webhookUrl) return;
+    var lines = [];
+    lines.push('🔔 **条件変更提案メッセージ 自動送信**');
+    lines.push('時刻: ' + (ts || ''));
+    lines.push('候補: ' + total + '名');
+    if (total > 0) {
+      lines.push('・✅ 送信成功: ' + (result.sent || 0) + '件');
+      if ((result.skipped || []).length > 0) {
+        lines.push('・⏭ スキップ (候補外): ' + result.skipped.length + '件 ' + result.skipped.slice(0, 5).join(', '));
+      }
+      if ((result.failed || []).length > 0) {
+        lines.push('・❌ 失敗: ' + result.failed.length + '件');
+        for (var i = 0; i < Math.min(result.failed.length, 5); i++) {
+          var f = result.failed[i];
+          lines.push('   - ' + f.name + ': ' + (f.error || '不明').substring(0, 80));
+        }
+      }
+    } else {
+      lines.push('(該当する顧客なし)');
+    }
+    UrlFetchApp.fetch(webhookUrl, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ content: lines.join('\n') }),
+      muteHttpExceptions: true
+    });
+  } catch (e) {
+    console.warn('_notifyAutoSendToDiscord_ failed: ' + e.message);
+  }
+}
+
+function _notifyAutoSendErrorToDiscord_(err, ts) {
+  var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+  if (!webhookUrl) return;
+  UrlFetchApp.fetch(webhookUrl, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({
+      content: '⚠️ **条件変更提案 自動送信エラー**\n時刻: ' + ts + '\nエラー: ' + (err.message || '不明')
+    }),
+    muteHttpExceptions: true
+  });
+}
+
+/**
+ * 初回セットアップ用: 既存トリガーを削除して、毎日 10:00 (JST) に
+ * runConditionSuggestionAutoSend を実行するトリガーを登録する。
+ * GAS エディタから1回手動実行する。
+ */
+function setupConditionSuggestionAutoTrigger() {
+  // 既存の同名トリガーを削除
+  var existing = ScriptApp.getProjectTriggers();
+  var deleted = 0;
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'runConditionSuggestionAutoSend') {
+      ScriptApp.deleteTrigger(existing[i]);
+      deleted++;
+    }
+  }
+  // 毎日10時にトリガー登録
+  ScriptApp.newTrigger('runConditionSuggestionAutoSend')
+    .timeBased()
+    .everyDays(1)
+    .atHour(10)
+    .inTimezone('Asia/Tokyo')
+    .create();
+  return '✅ 既存トリガー' + deleted + '個を削除し、毎日10:00 (JST) のトリガーを新規登録しました。';
+}
+
+/**
  * テスト送信用: 候補条件を無視して指定顧客に Flex メッセージを送信する。
  * 14日制限・Z列更新を行わないため、何度でも送れる。
  * @param {string} customerName
