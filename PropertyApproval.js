@@ -2577,8 +2577,10 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'body.dragging-image,body.dragging-image *{cursor:grabbing !important}'
     + '.insert-pos{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:14px}'
     + '.insert-pos select{padding:5px 8px;border-radius:6px;border:1px solid #ccc;font-size:14px;background:#fff}'
+    + '.customer-banner{background:#e8f5e9;border-left:4px solid #4CAF50;padding:10px 14px;border-radius:6px;margin-bottom:12px;font-size:14px;color:#1b5e20;font-weight:bold}'
     + '</style></head><body><div class="card">'
     + '<h2>\uD83D\uDD0D \u627F\u8A8D\u30D7\u30EC\u30D3\u30E5\u30FC\uFF08\u7DE8\u96C6\u53EF\uFF09</h2>'
+    + '<div class="customer-banner">\uD83D\uDC64 ' + _esc(customerName || '') + ' \u69D8 \u3054\u5E0C\u671B\u306E\u7269\u4EF6</div>'
     + '<div class="prop-name"><input class="detail-input" name="headerBuildingName" value="' + _esc(prop.buildingName) + '" style="font-size:20px;font-weight:bold;color:#222;border:1px solid #e0e0e0;max-width:70%;display:inline-block" oninput="document.querySelector(\'input[name=buildingName]\').value=this.value"> <input class="detail-input" name="headerRoomNumber" value="' + _esc(prop.roomNumber || '') + '" style="font-size:20px;font-weight:bold;color:#222;border:1px solid #e0e0e0;width:80px;display:inline-block" oninput="document.querySelector(\'input[name=roomNumber]\').value=this.value"></div>'
     + '<div class="price"><input class="detail-input" name="headerRent" value="' + rentMan + '" style="font-size:24px;font-weight:bold;color:#E05252;width:80px;display:inline-block;border:1px solid #e0e0e0" oninput="document.querySelector(\'input[name=rent]\').value=Math.round(parseFloat(this.value)*10000)||0">\u4E07\u5186 <span class="price-sub">\u7BA1\u7406\u8CBB <input class="detail-input" name="headerMgmt" value="' + mgmtMan + '" style="font-size:14px;color:#888;width:60px;display:inline-block;border:1px solid #e0e0e0" oninput="document.querySelector(\'input[name=managementFee]\').value=Math.round(parseFloat(this.value)*10000)||0">\u4E07\u5186</span></div>';
 
@@ -3136,8 +3138,10 @@ function makePreviewAllHtml(props, customerName) {
     + '.actions{text-align:center;margin:20px 0}'
     + '.btn{display:inline-block;padding:14px 40px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:bold;cursor:pointer;border:none}'
     + '.btn-approve{background:#4CAF50;color:#fff}'
+    + '.customer-banner{background:#e8f5e9;border-left:4px solid #4CAF50;padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:15px;color:#1b5e20;font-weight:bold}'
     + '</style></head><body><div class="container">'
-    + '<h2>\uD83D\uDD0D \u4E00\u62EC\u627F\u8A8D\u30D7\u30EC\u30D3\u30E5\u30FC (' + props.length + '\u4EF6)</h2>';
+    + '<h2>\uD83D\uDD0D \u4E00\u62EC\u627F\u8A8D\u30D7\u30EC\u30D3\u30E5\u30FC (' + props.length + '\u4EF6)</h2>'
+    + '<div class="customer-banner">\uD83D\uDC64 ' + _esc(customerName || '') + ' \u69D8 \u3054\u5E0C\u671B\u306E\u7269\u4EF6</div>';
 
   for (var i = 0; i < props.length; i++) {
     var p = props[i];
