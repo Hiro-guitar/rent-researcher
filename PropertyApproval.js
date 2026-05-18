@@ -2047,7 +2047,8 @@ function rowToProperty(row) {
     freeRentDetail: _normalizeValue(extra.free_rent_detail),
     layoutDetail: _normalizeValue(extra.layout_detail),
     adFee: _normalizeValue(extra.ad_fee),
-    currentStatus: _normalizeValue(extra.current_status)
+    currentStatus: _normalizeValue(extra.current_status),
+    warningsText: _normalizeValue(extra.warnings_text)
   };
 }
 
@@ -2644,6 +2645,12 @@ function makePreviewHtml(prop, customerName, roomId) {
   // ── 設備・詳細 ──
   html += '<div class="section-header">\u8A2D\u5099\u30FB\u8A73\u7D30</div>';
   html += _textareaRow('\u8A2D\u5099', 'facilities', prop.facilities);
+
+  // \u2500\u2500 \u78BA\u8A8D\u4E8B\u9805\uFF08\u8B66\u544A\u30A2\u30E9\u30FC\u30C8\uFF09 \u2500\u2500
+  if (prop.warningsText) {
+    html += '<div class="section-header">\u26A0\uFE0F \u78BA\u8A8D\u4E8B\u9805</div>';
+    html += '<div class="warnings-box" style="background:#fff8e1;border-left:4px solid #f9a825;padding:10px 14px;border-radius:6px;font-size:13px;white-space:pre-wrap;color:#5d4037;margin-bottom:12px">' + _esc(prop.warningsText) + '</div>';
+  }
 
   // 画像セクション（統合グリッド + アップロード）
   html += '<div class="images-title">'
@@ -3466,6 +3473,13 @@ function makeViewHtml(prop) {
   if (_hv(facStr)) {
     html += '<div class="section"><div class="section-title">\u8A2D\u5099\u30FB\u8A73\u7D30</div>';
     html += _buildFacilityTags(facStr);
+    html += '</div>';
+  }
+
+  // \u78BA\u8A8D\u4E8B\u9805\uFF08\u8B66\u544A\u30A2\u30E9\u30FC\u30C8\uFF09 \u2014 \u30A8\u30FC\u30B8\u30A7\u30F3\u30C8\u5411\u3051
+  if (prop.warningsText) {
+    html += '<div class="section"><div class="section-title">\u26A0\uFE0F \u78BA\u8A8D\u4E8B\u9805</div>';
+    html += '<div style="background:#fff8e1;border-left:4px solid #f9a825;padding:10px 14px;border-radius:6px;font-size:13px;white-space:pre-wrap;color:#5d4037">' + _esc(prop.warningsText) + '</div>';
     html += '</div>';
   }
 
