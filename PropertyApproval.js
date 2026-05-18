@@ -1348,66 +1348,10 @@ function handleStopReasonText(replyToken, userId, message, state) {
       return true;
     }
 
-    // 忙しくて/通知が多い は下で分岐して status 変更しない
-
-    if (reason === '忙しくて見る時間がない') {
-      // スヌーズ案内
-      saveState(userId, { step: STEPS.WAITING_SNOOZE_PERIOD, data: {} });
-      replyMessage(replyToken, [{
-        type: 'text',
-        text: 'かしこまりました。\nもしよろしければ、完全に停止する代わりに「一定期間だけお休み」することもできます。期間が経過すると自動で配信を再開いたします。\n\n期間を選ぶか、このまま配信を停止する場合は「配信停止」を選んでください。',
-        quickReply: {
-          items: [
-            { type: 'action', action: { type: 'message', label: '24時間休む', text: '24時間停止' } },
-            { type: 'action', action: { type: 'message', label: '3日休む', text: '3日間停止' } },
-            { type: 'action', action: { type: 'message', label: '1週間休む', text: '1週間停止' } },
-            { type: 'action', action: { type: 'message', label: '2週間休む', text: '2週間停止' } },
-            { type: 'action', action: { type: 'message', label: '1ヶ月休む', text: '1ヶ月停止' } },
-            { type: 'action', action: { type: 'message', label: '配信停止', text: '配信停止（期間なし）' } },
-            { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
-          ]
-        }
-      }]);
-      return true;
-    }
-
-    if (reason === '希望に合わない') {
-      // 完全停止の代わりに条件変更を提案
-      saveState(userId, { step: STEPS.WAITING_MISMATCH_CHOICE, data: {} });
-      replyMessage(replyToken, [{
-        type: 'text',
-        text: 'ご希望に沿えず申し訳ございません。\nよろしければ、希望条件を変更してみませんか？条件を見直すと、よりマッチする物件をお届けできるかもしれません。\n\n条件を変更するか、このまま配信を停止する場合は「配信停止」を選んでください。',
-        quickReply: {
-          items: [
-            { type: 'action', action: { type: 'message', label: '条件を変更する', text: '条件変更' } },
-            { type: 'action', action: { type: 'message', label: '配信停止', text: 'ミスマッチ:停止' } },
-            { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
-          ]
-        }
-      }]);
-      return true;
-    }
-
-    if (reason === '通知が多い') {
-      // 完全停止の代わりに頻度を下げる提案。いったん paused のまま選択を待つ
-      saveState(userId, { step: STEPS.WAITING_FREQUENCY, data: {} });
-      replyMessage(replyToken, [{
-        type: 'text',
-        text: '通知が多くてご不便をおかけして申し訳ございません。\nもしよろしければ、完全に停止する代わりに通知の頻度を下げることもできます。\n\n頻度を選ぶか、このまま配信を停止する場合は「配信停止」を選んでください。',
-        quickReply: {
-          items: [
-            { type: 'action', action: { type: 'message', label: '2日に1回', text: '頻度:2日に1回' } },
-            { type: 'action', action: { type: 'message', label: '3日に1回', text: '頻度:3日に1回' } },
-            { type: 'action', action: { type: 'message', label: '週1回', text: '頻度:週1回' } },
-            { type: 'action', action: { type: 'message', label: '配信停止', text: '頻度:停止' } },
-            { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
-          ]
-        }
-      }]);
-      return true;
-    }
-
-    // 引越し先が決まった など → 停止確定
+    // 旧仕様: 「忙しい」「希望に合わない」「通知が多い」 は代替案を提示してから停止
+    //         していたが、ユーザー要望で撤廃。すべての理由を即停止する。
+    //         (スヌーズ案内 / 条件変更提案 / 頻度ダウン提案 のロジックは
+    //          関連 STEPS / handler が他に残置されているが、ここからの遷移は行わない)
     _finalizeStop(userId, reason);
     clearState(userId);
     replyMessage(replyToken, [textMsg(
@@ -1652,38 +1596,33 @@ function handleHelpCommand(replyToken, userId) {
     var features = [
       {
         title: '空室確認',
-        desc: '気になる物件の空室状況をその場で確認できます。物件名・所在地・最寄駅・専有面積・募集ページURLのいずれかを送ってください。',
+        desc: '気になるお部屋の空室状況をその場で確認できます。物件名・所在地・最寄駅・専有面積・募集ページURLのいずれかを送ってください。',
         trigger: '空室確認'
       },
       {
-        title: '条件登録',
-        desc: 'お引越し条件（エリア・賃料・間取りなど）を登録すると、条件に合う物件をスタッフが厳選してお届けします。',
+        title: 'お部屋を探す',
+        desc: 'ご希望のエリア・賃料・間取りなどをご登録いただくと、条件にぴったりのお部屋をスタッフが厳選してお届けします。',
         trigger: '条件登録'
       },
       {
-        title: '条件変更',
-        desc: '登録済みの希望条件をいつでも見直せます。お引越し時期や予算が変わった際にご利用ください。',
+        title: 'お部屋探しの条件を変える',
+        desc: 'ご登録いただいた条件をいつでも見直せます。エリアを広げたい・予算が変わった・引越し時期が変わったなど、状況に合わせて調整してください。',
         trigger: '条件変更'
       },
       {
         title: 'お気に入り',
-        desc: 'これまでに⭐ボタンで保存した物件を一覧で確認できます。後からまとめて見比べたいときに便利です。',
+        desc: 'これまでに ⭐ ボタンで保存したお部屋を一覧で確認できます。後からまとめて見比べたい時に便利です。',
         trigger: 'お気に入り'
       },
-      {
-        title: 'その他ご質問',
-        desc: '内見予約・お申込み・契約・その他なんでもご相談ください。担当スタッフが順番にお返事いたします。',
-        trigger: 'その他ご質問'
-      },
       isPaused ? {
-        title: '配信を再開',
-        desc: '現在、新着物件の配信を停止中です。再開するとご希望条件に合う物件のお届けを再開します。',
-        trigger: '配信再開',
+        title: '配信の停止/再開',
+        desc: '現在、お部屋情報の配信を停止中です。タップすると配信を再開します。',
+        trigger: '配信切替',
         btnLabel: '配信を再開する'
       } : {
-        title: '配信を停止',
-        desc: '新着物件のお届けを一時的に止めたいときにご利用ください。再開はいつでもできます。条件登録は残ります。',
-        trigger: '配信停止',
+        title: '配信の停止/再開',
+        desc: 'お部屋情報のお届けを一時的に止めたい時にご利用ください。タップすると停止理由をお伺いします。再開はいつでもできて、ご登録条件は残ります。',
+        trigger: '配信切替',
         btnLabel: '配信を停止する'
       }
     ];
