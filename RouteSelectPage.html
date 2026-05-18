@@ -63,6 +63,30 @@ body {
   font-size: 12px; color: #888; font-weight: 400; margin-left: 8px;
 }
 
+/* ── プログレッシブレンダリング用プレースホルダー ── */
+.progressive-loading {
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: #aaa;
+  font-style: italic;
+}
+.progressive-loading::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  vertical-align: middle;
+  border: 2px solid #e0e0e0;
+  border-top-color: #8ec41d;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── タブ ── */
 .tabs {
   display: flex; margin: 0 16px 8px;
@@ -283,10 +307,10 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
     <div style="padding:6px 16px 2px;font-size:11px;color:#e67e22;">※ 路線・駅と市区町村は同時に使用できません。選択中のタブの条件のみ反映されます。</div>
     <div class="tab-content active" id="contentRoute">
-      <div id="routeList"></div>
+      <div id="routeList"><div class="progressive-loading">路線を読み込み中…</div></div>
     </div>
     <div class="tab-content" id="contentCity">
-      <div id="cityList"></div>
+      <div id="cityList"><div class="progressive-loading">市区町村を読み込み中…</div></div>
     </div>
   </div>
 
@@ -380,7 +404,7 @@ input[type="range"]::-webkit-slider-thumb {
   <!-- ═══ こだわり条件 ═══ -->
   <div class="section" id="equipmentSection">
     <div class="section-title">こだわり条件</div>
-    <div id="equipmentList"></div>
+    <div id="equipmentList"><div class="progressive-loading">こだわり条件を読み込み中…</div></div>
   </div>
 
   <!-- ═══ その他 ═══ -->
@@ -469,26 +493,66 @@ var activeTab = 'route';
 //  初期化
 // ══════════════════════════════════════════════════════════
 window.onload = function() {
-  renderRoutes();
-  renderCities();
+  // ══════════════════════════════════════════════════════════
+  //  プログレッシブレンダリング
+  //  軽い項目(家賃・間取り・構造・スライダー)を先に描画し、ブラウザに
+  //  描画チャンスを渡してから、重い項目(路線・市区町村・こだわり条件)を
+  //  順次レンダリングする。これにより「真っ白画面」「全部レンダリング
+  //  終わるまで操作不可」を回避する。
+  // ══════════════════════════════════════════════════════════
+  var _tRender = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  function _mark(label) {
+    var now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    try { console.log('[PERF-render] +' + Math.round(now - _tRender) + 'ms ' + label); } catch (_) {}
+  }
+
+  // ── Phase 1: 軽い項目を即座にレンダリング (同期) ──
   renderLayouts();
   renderStructures();
-  renderEquipment();
-  // こだわり条件のアコーディオンを全て開く
-  for (var c = 0; c < EQUIPMENT_CATEGORIES.length; c++) toggleEquipCategory(c);
   initRentSlider();
   initWalkSlider();
   initAreaSlider();
   initAgeSlider();
-  restoreSelections();
-  if (INIT_AREA_METHOD === 'city') switchTab('city');
-  // 条件変更提案 (LINE) からの focus パラメータ:
-  //   focus=rent     → 家賃上限セクション
-  //   focus=area     → エリアセクション
-  //   focus=age      → 築年数セクション
-  //   focus=area_min → 専有面積セクション
-  //   focus=walk     → 駅徒歩セクション
-  applyConditionFocus_();
+  _mark('Phase1: 軽量レンダ完了');
+
+  // 次フレームでブラウザに描画を譲ってから重い処理へ
+  function nextFrame(fn) {
+    if (window.requestAnimationFrame) requestAnimationFrame(function() { setTimeout(fn, 0); });
+    else setTimeout(fn, 0);
+  }
+
+  // ── Phase 2: 市区町村 (デフォルトでは非表示タブだが先に作る) ──
+  nextFrame(function() {
+    renderCities();
+    _mark('Phase2: 市区町村完了');
+
+    // ── Phase 3: 路線・駅 (一番重い) ──
+    nextFrame(function() {
+      renderRoutes();
+      _mark('Phase3: 路線完了');
+
+      // ── Phase 4: こだわり条件 ──
+      nextFrame(function() {
+        renderEquipment();
+        for (var c = 0; c < EQUIPMENT_CATEGORIES.length; c++) toggleEquipCategory(c);
+        _mark('Phase4: こだわり条件完了');
+
+        // ── Phase 5: 復元・タブ切替・focus ──
+        nextFrame(function() {
+          restoreSelections();
+          if (INIT_AREA_METHOD === 'city') switchTab('city');
+          // 条件変更提案 (LINE) からの focus パラメータ:
+          //   focus=rent     → 家賃上限セクション
+          //   focus=area     → エリアセクション
+          //   focus=age      → 築年数セクション
+          //   focus=area_min → 専有面積セクション
+          //   focus=walk     → 駅徒歩セクション
+          applyConditionFocus_();
+          _mark('Phase5: 復元完了・全レンダ完了');
+        });
+      });
+    });
+  });
 };
 
 // ══════════════════════════════════════════════════════════

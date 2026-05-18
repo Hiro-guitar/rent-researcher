@@ -333,6 +333,13 @@ function doGet(e) {
 
   const action = e.parameter.action;
 
+  // keepalive: GASをウォームに保つためのpingエンドポイント (5分ごとにself-fetchで叩く)
+  if (action === 'keepalive') {
+    return ContentService
+      .createTextOutput('ok')
+      .setMimeType(ContentService.MimeType.TEXT);
+  }
+
   if (action === 'status') {
     return ContentService
       .createTextOutput(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }))
@@ -411,6 +418,9 @@ function doGet(e) {
 
   // ── 総合条件選択Webページ ──
   if (action === 'selectCriteria' || action === 'selectRoutes') {
+    // [PERF-doGet-criteria] 計測用 — 条件選択ページの遅延調査
+    var _tCriteria = Date.now();
+    console.log('[PERF-doGet-criteria] start action=' + action);
     const userId = e.parameter.userId;
     if (!userId) {
       return HtmlService.createHtmlOutput(
@@ -420,6 +430,7 @@ function doGet(e) {
        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
     }
     let state = getState(userId);
+    console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms getState完了 step=' + state.step);
     // CRITERIA_SELECT以降のステップならアクセス可能（再編集対応）。
     // ステップ範囲外の場合 (登録完了後の DONE/IDLE 等):
     //   - シートに既存条件があれば自動で読み込んで CRITERIA_SELECT に整備
@@ -428,7 +439,9 @@ function doGet(e) {
     //   - 既存条件もなければブロック画面を出す
     if (!isCriteriaPageAllowed(state.step)) {
       try {
+        var _tRead = Date.now();
         const existing = typeof readLatestCriteria === 'function' ? readLatestCriteria(userId) : null;
+        console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms readLatestCriteria完了 (内部' + (Date.now() - _tRead) + 'ms) existing=' + !!existing);
         if (existing) {
           state.step = STEPS.CRITERIA_SELECT;
           state.isChangeFlow = true;
@@ -466,6 +479,7 @@ function doGet(e) {
       }
     }
     const d = state.data || {};
+    console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms テンプレ生成直前');
     const template = HtmlService.createTemplateFromFile('RouteSelectPage');
     template.userId = userId;
     template.routeCompanies = JSON.stringify(ROUTE_COMPANIES);
@@ -487,10 +501,13 @@ function doGet(e) {
     template.otherConditions = d.otherConditions || '';
     // 条件変更提案のLINEメッセージから飛んできた時、該当セクションへフォーカス
     template.initFocus = String(e.parameter.focus || '').toLowerCase();
-    return template.evaluate()
+    console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms template.evaluate直前');
+    var _evaluated = template.evaluate()
       .setTitle('お部屋の条件選択')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms evaluate完了・return');
+    return _evaluated;
   }
 
   // ── 管理者用 検索条件管理ページ ──
@@ -1842,4 +1859,57 @@ function processAdminCriteria(customerName, lineUserId, criteria) {
     console.error('processAdminCriteria Error: ' + err.message + '\nStack: ' + (err.stack || 'N/A'));
     return { success: false, message: 'エラーが発生しました: ' + err.message };
   }
+}
+
+// ══════════════════════════════════════════════════════════
+//  Web App keepalive (条件登録フォームのコールドスタート対策)
+// ══════════════════════════════════════════════════════════
+
+/**
+ * Web App をウォームに保つために doGet?action=keepalive を定期的に self-fetch する。
+ * GAS の時間ベーストリガーから 5 分間隔で実行する想定。
+ *
+ * 初回セットアップ:
+ *   GAS エディタから setupKeepAliveTrigger() を1回手動実行する。
+ */
+function pingWebAppKeepAlive_() {
+  try {
+    var url = ScriptApp.getService().getUrl();
+    if (!url) return;
+    var resp = UrlFetchApp.fetch(url + '?action=keepalive', {
+      muteHttpExceptions: true,
+      followRedirects: true
+    });
+    var code = resp.getResponseCode();
+    if (code >= 200 && code < 300) {
+      // 成功時はログ控えめ（毎5分実行のため）
+      console.log('[keepalive] ok ' + code);
+    } else {
+      console.warn('[keepalive] HTTP ' + code);
+    }
+  } catch (e) {
+    console.warn('[keepalive] error: ' + (e && e.message));
+  }
+}
+
+/**
+ * pingWebAppKeepAlive_ を5分ごとに実行するトリガーを登録する。
+ * GAS エディタから1回手動実行する。
+ */
+function setupKeepAliveTrigger() {
+  // 既存の同名トリガーを削除
+  var existing = ScriptApp.getProjectTriggers();
+  var deleted = 0;
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'pingWebAppKeepAlive_') {
+      ScriptApp.deleteTrigger(existing[i]);
+      deleted++;
+    }
+  }
+  // 5分ごとにトリガー登録
+  ScriptApp.newTrigger('pingWebAppKeepAlive_')
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+  return '✅ 既存トリガー' + deleted + '個を削除し、5分ごとのkeepaliveトリガーを新規登録しました。';
 }
