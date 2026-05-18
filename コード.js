@@ -334,7 +334,21 @@ function doGet(e) {
   const action = e.parameter.action;
 
   // keepalive: GASをウォームに保つためのpingエンドポイント (5分ごとにself-fetchで叩く)
+  // 初回ヒット時にトリガー未登録なら自動登録する (bootstrap)
   if (action === 'keepalive') {
+    try {
+      var _triggers = ScriptApp.getProjectTriggers();
+      var _hasKA = false;
+      for (var _i = 0; _i < _triggers.length; _i++) {
+        if (_triggers[_i].getHandlerFunction() === 'pingWebAppKeepAlive_') { _hasKA = true; break; }
+      }
+      if (!_hasKA) {
+        ScriptApp.newTrigger('pingWebAppKeepAlive_').timeBased().everyMinutes(5).create();
+        console.log('[keepalive] bootstrap: 5分トリガーを自動登録');
+      }
+    } catch (_eKA) {
+      console.warn('[keepalive] bootstrap失敗: ' + (_eKA && _eKA.message));
+    }
     return ContentService
       .createTextOutput('ok')
       .setMimeType(ContentService.MimeType.TEXT);
