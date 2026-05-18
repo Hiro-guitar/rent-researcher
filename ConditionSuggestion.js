@@ -354,14 +354,12 @@ function buildConditionSuggestionFlex_(c) {
   summary.push(_condLine_('専有面積', c.areaMin, 'm² 以上', /m²?\s*以上$|㎡\s*以上$/));
   summary.push(_condLine_('築年数', c.ageMax, '年以内', /年以内$/));
   summary.push(_condLine_('駅徒歩', c.walkMax, '分以内', /分以内$/));
-  // 設備 (こだわり条件) は項目数が多くなりがちなので 3 件 + "他N項目" にトリミング
+  // こだわり条件は全項目を表示 (顧客が自分の登録状態を完全に把握できるように)
   var eqItems = (c.equipment || '').split(/[,、]/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
   if (eqItems.length === 0) {
     summary.push(_summaryLine_('こだわり', '指定なし'));
-  } else if (eqItems.length <= 3) {
-    summary.push(_summaryLine_('こだわり', eqItems.join('、')));
   } else {
-    summary.push(_summaryLine_('こだわり', eqItems.slice(0, 3).join('、') + ' 他' + (eqItems.length - 3) + '項目'));
+    summary.push(_summaryLine_('こだわり', eqItems.join('、')));
   }
 
   // (旧仕様で各カテゴリの postback data 用に現在値を計算していた変数は撤去。
