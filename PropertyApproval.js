@@ -1313,7 +1313,7 @@ function handleStopReasonText(replyToken, userId, message, state) {
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         '配信を停止しました。ご回答ありがとうございます。\n\n' +
-        '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
       )]);
       return true;
     }
@@ -1356,7 +1356,7 @@ function handleStopReasonText(replyToken, userId, message, state) {
     clearState(userId);
     replyMessage(replyToken, [textMsg(
       '配信を停止しました。ご回答ありがとうございます。\n\n' +
-      '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+      '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
     )]);
     return true;
   } catch (err) {
@@ -1462,7 +1462,7 @@ function handleSnoozePeriodText(replyToken, userId, message) {
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         '新着物件の配信を停止しました。\n\n' +
-        '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
       )]);
       return true;
     }
@@ -1509,7 +1509,7 @@ function handleFrequencyText(replyToken, userId, message) {
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         '新着物件の配信を停止しました。\n\n' +
-        '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
       )]);
       return true;
     }
@@ -1546,7 +1546,7 @@ function handleMismatchChoiceText(replyToken, userId, message) {
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         '配信を停止しました。ご回答ありがとうございます。\n\n' +
-        '再開したくなったら、「配信再開」とお送りいただくか、「使い方」メニューから再開できます。'
+        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
       )]);
       return true;
     }
@@ -1575,13 +1575,48 @@ function handleDeliveryResumeCommand(replyToken, userId) {
   try {
     var result = setDeliveryStatus(userId, 'active');
     if (!result.ok) {
-      replyMessage(replyToken, [textMsg('ご希望条件が未登録のようです。まずは「条件登録」からお願いいたします。')]);
+      replyMessage(replyToken, [textMsg('ご希望条件が未登録のようです。まずは「お部屋を探す」からお願いいたします。')]);
       return;
     }
-    replyMessage(replyToken, [textMsg(
-      '新着物件の配信を再開しました。\n\n' +
-      'ご希望に合う物件が見つかり次第、お届けいたします。'
-    )]);
+
+    // 現在登録中の条件サマリーを構築 (再開時に念のため見せる)
+    var summary = '';
+    try {
+      if (typeof readLatestCriteria === 'function' && typeof formatConditionSummary === 'function') {
+        var existing = readLatestCriteria(userId);
+        if (existing) {
+          var stateLike = {
+            areaMethod: existing.areaMethod,
+            selectedRoutes: existing.selectedRoutes,
+            selectedStations: existing.selectedStations,
+            selectedCities: existing.selectedCities,
+            selectedTowns: existing.selectedTowns || {},
+            data: {
+              move_in_date: existing.move_in_date,
+              rent_max: existing.rent_max,
+              layouts: existing.layouts,
+              walk: existing.walk,
+              area_min: existing.area_min,
+              building_age: existing.building_age,
+              building_structures: existing.building_structures,
+              equipment: existing.equipment,
+              petType: existing.petType
+            }
+          };
+          summary = formatConditionSummary(stateLike);
+        }
+      }
+    } catch (e) {
+      console.warn('handleDeliveryResumeCommand summary build error: ' + e.message);
+    }
+
+    var msg = '新着物件の配信を再開しました。\nご希望に合うお部屋が見つかり次第、お届けいたします。';
+    if (summary && summary !== '（条件なし）') {
+      msg += '\n\n──── 現在ご登録の条件 ────\n' + summary;
+      msg += '\n\n条件を変えたい時は、メニューの「お部屋探しの条件を変える」からご変更ください。';
+    }
+
+    replyMessage(replyToken, [textMsg(msg)]);
   } catch (err) {
     console.error('handleDeliveryResumeCommand error: ' + err.message + '\n' + err.stack);
     try { replyMessage(replyToken, [textMsg('配信再開の処理に失敗しました。時間をおいて再度お試しください。')]); } catch(e) {}
