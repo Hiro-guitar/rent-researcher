@@ -174,6 +174,23 @@ function doPost(e) {
         handleDeliveryResumeCommand(replyToken, userId);
         return;
       }
+      // コマンド: 配信切替 (リッチメニューの「配信の停止/再開」タイル用)
+      //   現在ステータスを見て stop / resume を自動で切り替える。
+      if (message === '配信切替' || message === 'はいしんきりかえ') {
+        try {
+          var currentDeliveryStatus = (typeof getDeliveryStatus === 'function')
+            ? getDeliveryStatus(userId) : 'active';
+          if (currentDeliveryStatus === 'paused') {
+            handleDeliveryResumeCommand(replyToken, userId);
+          } else {
+            handleDeliveryStopCommand(replyToken, userId);
+          }
+        } catch (e) {
+          console.error('配信切替 error: ' + e.message);
+          handleDeliveryStopCommand(replyToken, userId); // フォールバック
+        }
+        return;
+      }
 
       // コマンド: 条件変更 (どのフロー中でも常に効くように上位で受ける)
       if (message === '条件変更' || message === 'じょうけんへんこう') {
