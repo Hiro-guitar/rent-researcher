@@ -74,8 +74,8 @@ function runConditionSuggestionAutoSend() {
 
     var candidates = getConditionSuggestionCandidates_();
     if (!candidates || candidates.length === 0) {
+      // 候補なしの日は Discord 通知不要 (毎日0件の通知でノイズになるため)
       console.log('[条件変更提案/自動] 候補なし (' + ts + ')');
-      _notifyAutoSendToDiscord_(0, { sent: 0, skipped: [], failed: [] }, ts);
       return;
     }
 
