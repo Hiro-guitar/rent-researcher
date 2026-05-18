@@ -364,15 +364,9 @@ function buildConditionSuggestionFlex_(c) {
     summary.push(_summaryLine_('こだわり', eqItems.slice(0, 3).join('、') + ' 他' + (eqItems.length - 3) + '項目'));
   }
 
-  // postback data に現在値を載せる (再取得不要にして応答を早くする)
-  var rentCurr = c.rentMax || '';
-  var ageCurr = c.ageMax || '';
-  var areaMinCurr = c.areaMin || '';
-  var walkCurr = c.walkMax || '';
-  // 間取り・構造・設備 はカンマ区切り (postbackのコロンと被らないため安全)
-  var layoutsCurr = (c.layouts || '').replace(/[:|]/g, ''); // 安全のため : | を除去
-  var structuresCurr = (c.structures || '').replace(/[:|]/g, '');
-  var equipmentCurr = (c.equipment || '').replace(/[:|]/g, '');
+  // (旧仕様で各カテゴリの postback data 用に現在値を計算していた変数は撤去。
+  //  詳細カスケードを復活させる際は c.rentMax / c.ageMax / c.areaMin /
+  //  c.walkMax / c.layouts / c.structures / c.equipment から組み立てる)
 
   return {
     type: 'flex',
@@ -403,45 +397,32 @@ function buildConditionSuggestionFlex_(c) {
         spacing: 'sm',
         paddingAll: 'lg',
         contents: [
-          // ── サクッと変更 (postback で値選択 → 即反映) ──
-          { type: 'text', text: 'サクッと変更', size: 'xs', color: '#888888', weight: 'bold' },
           { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'postback', label: '家賃の上限を上げる',
-              data: 'condsug:open:rent:' + rentCurr,
-              displayText: '家賃の上限を上げる' } },
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'postback', label: '築年数を緩める',
-              data: 'condsug:open:age:' + ageCurr,
-              displayText: '築年数を緩める' } },
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'postback', label: '面積を緩める',
-              data: 'condsug:open:area_min:' + areaMinCurr,
-              displayText: '面積を緩める' } },
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'postback', label: '駅徒歩を伸ばす',
-              data: 'condsug:open:walk:' + walkCurr,
-              displayText: '駅徒歩を伸ばす' } },
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'postback', label: '間取りを増やす',
-              data: 'condsug:open:layouts:' + layoutsCurr,
-              displayText: '間取りを増やす' } },
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'postback', label: '構造を増やす',
-              data: 'condsug:open:structures:' + structuresCurr,
-              displayText: '構造を増やす' } },
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'postback', label: 'こだわり条件を見直す',
-              data: 'condsug:open:equipment:' + equipmentCurr,
-              displayText: 'こだわり条件を見直す' } },
-          { type: 'separator', margin: 'md' },
-          // ── じっくり見直す (LIFF で全項目編集) ──
-          { type: 'text', text: 'じっくり見直す', size: 'xs', color: '#888888', weight: 'bold', margin: 'md' },
+            action: { type: 'uri', label: '条件を変更する', uri: liffBase } },
           { type: 'button', style: 'secondary', height: 'sm',
-            action: { type: 'uri', label: 'エリアを広げる', uri: liffBase + '&focus=area' } },
+            action: { type: 'postback', label: 'このまま様子を見る',
+              data: 'condsug:keep',
+              displayText: 'このまま様子を見る' } },
           { type: 'button', style: 'secondary', height: 'sm',
-            action: { type: 'uri', label: 'まとめて変更する', uri: liffBase } }
+            action: { type: 'postback', label: '配信を停止する',
+              data: 'condsug:pause',
+              displayText: '配信を停止する' } }
         ]
       }
+      // ──────────────────────────────────────────────────────────────
+      // ※ 旧仕様: 「サクッと変更」ボタン群 (家賃/築年/面積/駅徒歩/間取り/構造/こだわり)
+      //   は撤去したが、postback ハンドラと値選択 Flex / 適用ロジックは
+      //   ConditionSuggestion.js 内に残してある (次回の仕様変更で再利用するため)。
+      //   - _buildValueSelectionFlex_
+      //   - _applyConditionChange_
+      //   - _findNearestSmallerLayouts_ / _generateRelaxCumulativeOptions_
+      //   - _parseLayout_ / _CONDSUG_INPUT_PROMPT
+      //   - _enterConditionInputMode_ / handleConditionSuggestionTextInput
+      //   - handleConditionSuggestionPostback の condsug:open / condsug:set /
+      //     condsug:input アクション
+      //   (現メッセージにはこれらのボタンが出ないだけ。過去送信メッセージで古い
+      //    ボタンをタップされた場合は今までと同じ挙動になる。)
+      // ──────────────────────────────────────────────────────────────
     }
   };
 }
@@ -464,11 +445,33 @@ function buildConditionSuggestionFlex_(c) {
 function handleConditionSuggestionPostback(replyToken, userId, data) {
   try {
     var parts = String(data || '').split(':');
-    if (parts.length < 3 || parts[0] !== 'condsug') {
+    if (parts.length < 2 || parts[0] !== 'condsug') {
       replyMessage(replyToken, [{ type: 'text', text: '条件変更の指示を解釈できませんでした。' }]);
       return;
     }
     var action = parts[1];
+    // 新仕様の 2 アクション (3ボタン Flex から飛んでくる) を先に処理
+    if (action === 'keep') {
+      replyMessage(replyToken, [{
+        type: 'text',
+        text: '承知いたしました。引き続き、お客様にぴったりの物件をお探ししてお届けします。\n\n気が変わった時は、いつでも「条件変更」とお送りください。'
+      }]);
+      return;
+    }
+    if (action === 'pause') {
+      // 既存の配信停止フローに委譲 (理由を聞く quickReply が出る)
+      if (typeof handleDeliveryStopCommand === 'function') {
+        handleDeliveryStopCommand(replyToken, userId);
+      } else {
+        replyMessage(replyToken, [{ type: 'text', text: '配信停止の処理を呼び出せませんでした。「配信停止」と直接お送りください。' }]);
+      }
+      return;
+    }
+    // ── 旧仕様 (詳細カスケード) のハンドラ。互換のため残置 ──
+    if (parts.length < 3) {
+      replyMessage(replyToken, [{ type: 'text', text: '条件変更の指示を解釈できませんでした。' }]);
+      return;
+    }
     var category = parts[2];
     var value = parts.slice(3).join(':'); // category の後の値部分 (空欄もありうる)
 
