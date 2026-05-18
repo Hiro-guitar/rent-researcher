@@ -5159,58 +5159,9 @@ function _checkMoveInWarning(prop, customerMoveIn) {
   return null;
 }
 
-function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) {
-  const fmtMan = (yen) => {
-    if (!yen) return '0';
-    const v = yen / 10000;
-    return String(parseFloat(v.toFixed(4)));
-  };
-
-  let title = prop.building_name || '物件情報';
-  if (prop.room_number) title += `  ${prop.room_number}`;
-
-  const sourceTag = prop.source === 'ielove' ? 'いえらぶ' : prop.source === 'itandi' ? 'itandi' : prop.source === 'essquare' ? 'いい生活スクエア' : 'REINS';
-  // 物件ごとの区切り線（1件目にも入れる。上は検索条件）
-  const lines = [];
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  lines.push(`**${index}. ${title}** \`[${sourceTag}]\``);
-
-  // 賃料
-  let rentStr = `賃料: **${fmtMan(prop.rent)}万円**`;
-  if (prop.management_fee) {
-    rentStr += ` (管理費: ${fmtMan(prop.management_fee)}万円)`;
-  }
-  lines.push(rentStr);
-
-  // 間取り
-  if (prop.layout) lines.push(`間取り: ${prop.layout}`);
-  // 面積
-  if (prop.area) lines.push(`面積: ${prop.area}m²`);
-  // 築年
-  if (prop.building_age) lines.push(`築年: ${prop.building_age}`);
-
-  if (prop.address) lines.push(`住所: ${prop.address}`);
-  if (prop.station_info) lines.push(`交通: ${prop.station_info}`);
-
-  // 階数
-  if (prop.floor_text || prop.story_text) {
-    lines.push(`階数: ${prop.floor_text || '?'}/${prop.story_text || '?'}`);
-  }
-
-  if (prop.deposit || prop.key_money) {
-    lines.push(`敷金: ${prop.deposit || 'なし'} / 礼金: ${prop.key_money || 'なし'}`);
-  }
-
-  // 入居時期
-  if (prop.move_in_date) {
-    lines.push(`入居: ${prop.move_in_date}`);
-  }
-
-  // REINS物件番号（REINSソースの場合のみ）
-  if (prop.source !== 'ielove' && prop.source !== 'itandi' && prop.source !== 'essquare' && prop.reins_property_number) {
-    lines.push(`物件番号: ${prop.reins_property_number}`);
-  }
-
+// 警告アラート計算: 顧客の希望条件と物件情報を比較し、要確認事項のリストを返す。
+// buildDiscordMessage と 承認プレビュー両方で使えるよう globalThis に公開。
+globalThis.__computePropertyWarnings = function(prop, customer) {
   // 警告アラート（ANSI黄色コードブロックで表示 — rent-researcher準拠）
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equip = toHankaku(customer?.equipment || '').toLowerCase();
@@ -5415,6 +5366,64 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (customer?.notes && String(customer.notes).trim()) {
     warnings.push(`⚠️ その他ご希望: ${String(customer.notes).trim()}`);
   }
+  return warnings;
+};
+
+function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) {
+  const fmtMan = (yen) => {
+    if (!yen) return '0';
+    const v = yen / 10000;
+    return String(parseFloat(v.toFixed(4)));
+  };
+
+  let title = prop.building_name || '物件情報';
+  if (prop.room_number) title += `  ${prop.room_number}`;
+
+  const sourceTag = prop.source === 'ielove' ? 'いえらぶ' : prop.source === 'itandi' ? 'itandi' : prop.source === 'essquare' ? 'いい生活スクエア' : 'REINS';
+  // 物件ごとの区切り線（1件目にも入れる。上は検索条件）
+  const lines = [];
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  lines.push(`**${index}. ${title}** \`[${sourceTag}]\``);
+
+  // 賃料
+  let rentStr = `賃料: **${fmtMan(prop.rent)}万円**`;
+  if (prop.management_fee) {
+    rentStr += ` (管理費: ${fmtMan(prop.management_fee)}万円)`;
+  }
+  lines.push(rentStr);
+
+  // 間取り
+  if (prop.layout) lines.push(`間取り: ${prop.layout}`);
+  // 面積
+  if (prop.area) lines.push(`面積: ${prop.area}m²`);
+  // 築年
+  if (prop.building_age) lines.push(`築年: ${prop.building_age}`);
+
+  if (prop.address) lines.push(`住所: ${prop.address}`);
+  if (prop.station_info) lines.push(`交通: ${prop.station_info}`);
+
+  // 階数
+  if (prop.floor_text || prop.story_text) {
+    lines.push(`階数: ${prop.floor_text || '?'}/${prop.story_text || '?'}`);
+  }
+
+  if (prop.deposit || prop.key_money) {
+    lines.push(`敷金: ${prop.deposit || 'なし'} / 礼金: ${prop.key_money || 'なし'}`);
+  }
+
+  // 入居時期
+  if (prop.move_in_date) {
+    lines.push(`入居: ${prop.move_in_date}`);
+  }
+
+  // REINS物件番号（REINSソースの場合のみ）
+  if (prop.source !== 'ielove' && prop.source !== 'itandi' && prop.source !== 'essquare' && prop.reins_property_number) {
+    lines.push(`物件番号: ${prop.reins_property_number}`);
+  }
+
+  // 警告アラート (globalThis.__computePropertyWarnings に抽出済み)
+  const warnings = (typeof globalThis.__computePropertyWarnings === 'function')
+    ? globalThis.__computePropertyWarnings(prop, customer) : [];
   if (warnings.length > 0) {
     const ansiText = warnings.join('\n');
     lines.push(`\`\`\`ansi\n\u001b[0;33m${ansiText}\u001b[0m\n\`\`\``);

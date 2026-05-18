@@ -991,6 +991,7 @@ function buildItandiPropertyDataJson(prop) {
     current_status: prop.current_status || '',
     owner_company: prop.owner_company || '',
     owner_phone: prop.owner_phone || '',
+    warnings_text: prop.warnings_text || '',
   };
 }
 
@@ -1397,6 +1398,13 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
         console.warn('[itandi] 競合先行判定エラー:', e && e.message);
       }
     }
+
+    // 警告アラート（承認プレビューでも表示するため、property_data_json構築前に計算）
+    try {
+      const _w = (typeof globalThis.__computePropertyWarnings === 'function')
+        ? globalThis.__computePropertyWarnings(prop, customer) : [];
+      prop.warnings_text = (_w || []).join('\n');
+    } catch (_) { prop.warnings_text = ''; }
 
     // property_data_json構築
     prop.property_data_json = JSON.stringify(buildItandiPropertyDataJson(prop));

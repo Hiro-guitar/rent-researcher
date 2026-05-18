@@ -1602,6 +1602,7 @@ function buildEssquarePropertyDataJson(prop) {
     cancellation_notice: prop.cancellation_notice || '',
     owner_company: prop.owner_company || '',
     owner_phone: prop.owner_phone || '',
+    warnings_text: prop.warnings_text || '',
   };
 }
 
@@ -2164,6 +2165,13 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
         continue;
       }
+
+      // 警告アラート（承認プレビューでも表示するため、property_data_json構築前に計算）
+      try {
+        const _w = (typeof globalThis.__computePropertyWarnings === 'function')
+          ? globalThis.__computePropertyWarnings(prop, customer) : [];
+        prop.warnings_text = (_w || []).join('\n');
+      } catch (_) { prop.warnings_text = ''; }
 
       // property_data_json構築
       prop.property_data_json = JSON.stringify(buildEssquarePropertyDataJson(prop));

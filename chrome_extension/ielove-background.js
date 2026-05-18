@@ -1113,6 +1113,13 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         }
       }
 
+      // 警告アラート（承認プレビューでも表示するため、property_data_json構築前に計算）
+      try {
+        const _w = (typeof globalThis.__computePropertyWarnings === 'function')
+          ? globalThis.__computePropertyWarnings(prop, customer) : [];
+        prop.warnings_text = (_w || []).join('\n');
+      } catch (_) { prop.warnings_text = ''; }
+
       // property_data_json を構築（GAS承認ページ用）
       prop.property_data_json = JSON.stringify(buildPropertyDataJson(prop));
 
@@ -1261,6 +1268,7 @@ function buildPropertyDataJson(prop) {
     agent_message: prop.agent_message || '',
     owner_company: prop.owner_company || '',
     owner_phone: prop.owner_phone || '',
+    warnings_text: prop.warnings_text || '',
   };
 }
 
