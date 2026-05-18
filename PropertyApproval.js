@@ -1235,9 +1235,10 @@ function handleDeliveryStopCommand(replyToken, userId) {
       type: 'text',
       text: '配信停止の前に、差し支えなければ理由を教えていただけますか？\n' +
         '今後のサービス改善に活用させていただきます。\n\n' +
-        'やめる場合は「キャンセル」とお送りください。',
+        'やめる場合は「キャンセル」を選んでください。',
       quickReply: {
         items: [
+          { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } },
           { type: 'action', action: { type: 'message', label: '引越し先が決まった', text: '停止理由:引越し先が決まった' } },
           { type: 'action', action: { type: 'message', label: '忙しくて見る時間がない', text: '停止理由:忙しくて見る時間がない' } },
           { type: 'action', action: { type: 'message', label: '希望に合わない', text: '停止理由:希望に合わない' } },
