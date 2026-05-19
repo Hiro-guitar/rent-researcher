@@ -728,6 +728,18 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
   var messages = prefixMessages ? prefixMessages.slice() : [];
   messages.push(flexMessage);
   replyMessage(replyToken, messages);
+
+  // LINE返信後、フォームHTMLを事前レンダリングしてCacheServiceに保存する。
+  // ユーザーがLIFFボタンをタップする前にキャッシュが準備できるため、
+  // doGet 側はキャッシュヒット → テンプレ処理スキップで瞬時にHTMLを返却可能。
+  // 失敗してもユーザー体験には影響しない (通常レンダリングにフォールバック)。
+  try {
+    if (typeof prerenderAndCacheCriteriaHtml_ === 'function') {
+      prerenderAndCacheCriteriaHtml_(userId);
+    }
+  } catch (e) {
+    console.warn('showCriteriaSelectLink プリレンダ失敗: ' + (e && e.message));
+  }
 }
 
 // ══════════════════════════════════════════════════════════

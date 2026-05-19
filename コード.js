@@ -443,6 +443,26 @@ function doGet(e) {
       ).setTitle('エラー')
        .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
     }
+
+    // プリレンダキャッシュチェック (focus パラメータが無い時のみ)
+    // focus パラメータは条件変更提案の遷移時に該当セクションをハイライトするため
+    // 個別レンダリングが必要なのでキャッシュをスキップする
+    var _hasFocus = !!e.parameter.focus;
+    if (!_hasFocus) {
+      try {
+        var _cached = CacheService.getScriptCache().get('criteria_html_' + userId);
+        if (_cached) {
+          console.log('[PERF-doGet-criteria] cache hit +' + (Date.now() - _tCriteria) + 'ms size=' + _cached.length);
+          return HtmlService.createHtmlOutput(_cached)
+            .setTitle('お部屋の条件選択')
+            .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+            .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+        }
+      } catch (_eC) {
+        console.warn('[PERF-doGet-criteria] cache取得失敗: ' + (_eC && _eC.message));
+      }
+    }
+
     let state = getState(userId);
     console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms getState完了 step=' + state.step);
     // CRITERIA_SELECT以降のステップならアクセス可能（再編集対応）。
@@ -1872,6 +1892,66 @@ function processAdminCriteria(customerName, lineUserId, criteria) {
   } catch (err) {
     console.error('processAdminCriteria Error: ' + err.message + '\nStack: ' + (err.stack || 'N/A'));
     return { success: false, message: 'エラーが発生しました: ' + err.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  条件登録フォームのプリレンダリング & GASキャッシュ
+//  (LINEメッセージ送信時にHTMLを事前生成 → CacheServiceに保存 →
+//   ユーザーがLIFFタップした時はキャッシュから即返却)
+// ══════════════════════════════════════════════════════════
+
+/**
+ * 指定 userId のフォームHTMLを事前レンダリングしてCacheServiceに保存する。
+ * 保存キー: criteria_html_<userId>  TTL: 10分
+ *
+ * @param {string} userId
+ * @return {boolean} 成功なら true
+ */
+function prerenderAndCacheCriteriaHtml_(userId) {
+  try {
+    if (!userId) return false;
+    var _t0 = Date.now();
+    var state = getState(userId);
+    if (!isCriteriaPageAllowed(state.step)) {
+      // CRITERIA_SELECT 範囲外の場合は doGet 側で readLatestCriteria が必要なため
+      // ここではプリレンダしない (cacheミス → 通常フロー)
+      return false;
+    }
+    var d = state.data || {};
+    var template = HtmlService.createTemplateFromFile('RouteSelectPage');
+    template.userId = userId;
+    template.routeCompanies = JSON.stringify(ROUTE_COMPANIES);
+    template.selectedRoutes = JSON.stringify(state.selectedRoutes || []);
+    template.stationData = JSON.stringify(STATION_DATA);
+    template.selectedStations = JSON.stringify(state.selectedStations || {});
+    template.tokyoCities = JSON.stringify(TOKYO_CITIES);
+    template.selectedCities = JSON.stringify(state.selectedCities || []);
+    template.selectedTowns = JSON.stringify(state.selectedTowns || {});
+    template.areaMethod = state.areaMethod || 'route';
+    template.selectedRentMax = d.rent_max || '';
+    template.selectedLayouts = JSON.stringify(d.layouts || []);
+    template.walkMax = d.walk || '';
+    template.areaMin = d.area_min || '';
+    template.buildingAge = d.building_age || '';
+    template.selectedBuildingStructures = JSON.stringify(d.building_structures || []);
+    template.selectedEquipment = JSON.stringify(d.equipment || []);
+    template.petType = d.petType || '';
+    template.otherConditions = d.otherConditions || '';
+    template.initFocus = ''; // プリレンダはfocus無し版 (focusありは個別レンダ)
+
+    var html = template.evaluate().getContent();
+    // CacheService 値サイズ上限: 100KB (102400 bytes). 余裕を見て 95KB を上限に。
+    if (html.length > 95000) {
+      console.warn('[prerender] HTMLサイズ ' + html.length + 'bytes が大きすぎてキャッシュ不可');
+      return false;
+    }
+    CacheService.getScriptCache().put('criteria_html_' + userId, html, 600); // 10分
+    console.log('[prerender] cache保存 userId=' + userId + ' size=' + html.length + 'bytes (' + (Date.now() - _t0) + 'ms)');
+    return true;
+  } catch (e) {
+    console.warn('[prerender] error: ' + (e && e.message));
+    return false;
   }
 }
 
