@@ -461,8 +461,9 @@ function _condLine_(label, raw, suffix, suffixRe) {
 }
 
 function buildConditionSuggestionFlex_(c) {
+  // LIFF endpoint = https://form.ehomaki.com/criteria.html に設定済み (静的HTML版)
   var liffBase = 'https://liff.line.me/' + LIFF_ID
-    + '?action=selectCriteria&userId=' + encodeURIComponent(c.lineUserId);
+    + '?userId=' + encodeURIComponent(c.lineUserId);
 
   // 現条件の要約 (絵文字なし、項目名を明確に、路線名も含める)。
   // 各項目は必ず表示する (空/指定しない なら「指定なし」と明示)。
@@ -948,8 +949,9 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
   //   数値カテゴリ (rent/age/area_min/walk) → LINE内テキスト入力フロー
   //   multi-select カテゴリ (layouts/structures/equipment) → LIFFの該当セクションへ遷移
   if (category === 'layouts' || category === 'structures' || category === 'equipment') {
+    // LIFF endpoint = https://form.ehomaki.com/criteria.html に設定済み
     var liffBase2 = 'https://liff.line.me/' + LIFF_ID
-      + '?action=selectCriteria&userId=' + encodeURIComponent(userId);
+      + '?userId=' + encodeURIComponent(userId);
     footerButtons.push({
       type: 'button', style: 'secondary', height: 'sm',
       action: { type: 'uri', label: '自分で選び直す', uri: liffBase2 + '&focus=' + category }
