@@ -296,6 +296,10 @@ input[type="range"]::-webkit-slider-thumb {
   <!-- GAS API への TLS ハンドシェイクを事前に済ませる -->
   <link rel="preconnect" href="https://script.google.com" crossorigin>
   <link rel="dns-prefetch" href="https://script.google.com">
+  <!-- LINE アプリ・WebView 側のキャッシュ抑止 (フォーム更新時の反映を早めるため) -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <style>
     /* LIFF WebView のヘッダーが既にページタイトルを表示するため、
        ページ内 .header は非表示にする (form.ehomaki.com への直接アクセス時のみ
