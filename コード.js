@@ -384,6 +384,39 @@ function doGet(e) {
     }
   }
 
+  // LIFF endpoint URL 自動更新 (1回限り、bootstrap用)
+  // 使い方: doGet?action=update_liff_endpoint&new_url=...&liff_id=...
+  if (action === 'update_liff_endpoint') {
+    var _newUrl = e.parameter.new_url;
+    var _liffId = e.parameter.liff_id || LIFF_ID;
+    if (!_newUrl) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, msg: 'new_url required' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    try {
+      var _resp = UrlFetchApp.fetch('https://api.line.me/liff/v1/apps/' + _liffId, {
+        method: 'put',
+        contentType: 'application/json',
+        headers: { 'Authorization': 'Bearer ' + CHANNEL_ACCESS_TOKEN },
+        payload: JSON.stringify({
+          view: { type: 'tall', url: _newUrl }
+        }),
+        muteHttpExceptions: true
+      });
+      var _code = _resp.getResponseCode();
+      var _body = _resp.getContentText();
+      console.log('[update_liff_endpoint] HTTP ' + _code + ' body=' + _body);
+      return ContentService.createTextOutput(JSON.stringify({
+        ok: _code >= 200 && _code < 300,
+        code: _code,
+        body: _body
+      })).setMimeType(ContentService.MimeType.JSON);
+    } catch (eLF) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, msg: eLF.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // keepalive: GASをウォームに保つためのpingエンドポイント (5分ごとにself-fetchで叩く)
   // 初回ヒット時にトリガー未登録なら自動登録する (bootstrap)
   if (action === 'keepalive') {
