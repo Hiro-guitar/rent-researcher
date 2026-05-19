@@ -318,11 +318,31 @@ input[type="range"]::-webkit-slider-thumb {
     .skel-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 16px; }
     .skel-list { padding: 8px 16px; }
     .skel-list .skel-row { width: 100%; }
+
+    /* ロード中バナー (property.htmlのprogress-overlayと同じデザイン) */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .progress-overlay { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+      background: #8ec41d; color: #fff; padding: 10px 20px; border-radius: 30px;
+      font-size: 14px; font-weight: bold; box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+      white-space: nowrap; transition: opacity 0.3s; display: flex; align-items: center;
+      gap: 10px; z-index: 9999; }
+    .progress-overlay::before { content: ""; width: 14px; height: 14px;
+      border: 2px solid #fff; border-top-color: transparent; border-radius: 50%;
+      animation: spin 0.8s linear infinite; display: inline-block; }
+
+    /* ロード中はフォーム編集を禁止 (誤って触ってfetch完了後に上書きされるのを防ぐ) */
+    body.is-loading #app .section input,
+    body.is-loading #app .section button,
+    body.is-loading #app .section label,
+    body.is-loading #app .section select,
+    body.is-loading #app .footer { pointer-events: none; }
+    body.is-loading #app { opacity: 0.92; transition: opacity 0.2s; }
   </style>
 </head>
 <body>
 
-
+<div id="loadingBanner" class="progress-overlay">条件を読み込み中…</div>
+<script>document.body.classList.add("is-loading");</script>
 
 <!-- ===== メイン画面 ===== -->
 <div id="app">
@@ -812,6 +832,13 @@ window.onload = function() {
           //   focus=walk     → 駅徒歩セクション
           applyConditionFocus_();
           _mark('Phase5: 復元完了・全レンダ完了');
+          // ロード完了: 上部バナーを消し、フォーム編集を解禁
+          document.body.classList.remove('is-loading');
+          var _bnr = document.getElementById('loadingBanner');
+          if (_bnr) {
+            _bnr.style.opacity = '0';
+            setTimeout(function() { if (_bnr.parentNode) _bnr.parentNode.removeChild(_bnr); }, 350);
+          }
         });
       });
     });

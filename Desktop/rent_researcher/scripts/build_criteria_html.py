@@ -110,6 +110,25 @@ def main() -> None:
     .skel-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 16px; }
     .skel-list { padding: 8px 16px; }
     .skel-list .skel-row { width: 100%; }
+
+    /* ロード中バナー (property.htmlのprogress-overlayと同じデザイン) */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .progress-overlay { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+      background: #8ec41d; color: #fff; padding: 10px 20px; border-radius: 30px;
+      font-size: 14px; font-weight: bold; box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+      white-space: nowrap; transition: opacity 0.3s; display: flex; align-items: center;
+      gap: 10px; z-index: 9999; }
+    .progress-overlay::before { content: ""; width: 14px; height: 14px;
+      border: 2px solid #fff; border-top-color: transparent; border-radius: 50%;
+      animation: spin 0.8s linear infinite; display: inline-block; }
+
+    /* ロード中はフォーム編集を禁止 (誤って触ってfetch完了後に上書きされるのを防ぐ) */
+    body.is-loading #app .section input,
+    body.is-loading #app .section button,
+    body.is-loading #app .section label,
+    body.is-loading #app .section select,
+    body.is-loading #app .footer { pointer-events: none; }
+    body.is-loading #app { opacity: 0.92; transition: opacity 0.2s; }
   </style>
 </head>"""
     html = html.replace("</head>", head_inject, 1)
@@ -322,7 +341,7 @@ window.onload = function() {"""
     html = html.replace(submit_old, submit_new, 1)
 
     # 7. #initialLoading フルスクリーン overlay を撤去し、
-    #    代わりに各セクションのスケルトン表示で初期状態を埋める
+    #    代わりに各セクションのスケルトン表示 + 上部バナー で初期状態を埋める
     init_loading_block_start = '<!-- ===== 初期ローディング'
     init_loading_block_end = '<style>@keyframes initSpin { to { transform: rotate(360deg); } }</style>'
     s = html.find(init_loading_block_start)
@@ -330,19 +349,38 @@ window.onload = function() {"""
     if s == -1 or e == -1:
         raise RuntimeError("could not find #initialLoading block to remove")
     e += len(init_loading_block_end)
-    html = html[:s] + html[e:]
+    # 代わりに上部進捗バナー (ロード完了で消える) を挿入し、body に is-loading クラスを付与
+    new_overlay = (
+        '<div id="loadingBanner" class="progress-overlay">条件を読み込み中…</div>\n'
+        '<script>document.body.classList.add("is-loading");</script>'
+    )
+    html = html[:s] + new_overlay + html[e:]
 
     # JS 側の #initialLoading 撤去 (Phase 1 完了後のフェードアウト処理)
     init_loading_js_start = "  // Phase 1 完了で初期ローディングを消す"
-    init_loading_js_end = "  }"
     s2 = html.find(init_loading_js_start)
     if s2 == -1:
         raise RuntimeError("could not find Phase1 initialLoading JS")
-    # 該当ブロックの末尾の `}` を見つける (最初の単独 `}` 行を採用)
     block_end = html.find('\n  }\n', s2)
     if block_end == -1:
         raise RuntimeError("could not find end of initialLoading JS block")
     html = html[:s2] + html[block_end + 5:]
+
+    # Phase 5 完了後に is-loading クラス除去 + ロード中バナー削除する JS を挿入
+    phase5_mark = "_mark('Phase5: 復元完了・全レンダ完了');"
+    phase5_idx = html.find(phase5_mark)
+    if phase5_idx == -1:
+        raise RuntimeError("could not find Phase5 marker")
+    insert_pos = phase5_idx + len(phase5_mark)
+    phase5_done = """
+          // ロード完了: 上部バナーを消し、フォーム編集を解禁
+          document.body.classList.remove('is-loading');
+          var _bnr = document.getElementById('loadingBanner');
+          if (_bnr) {
+            _bnr.style.opacity = '0';
+            setTimeout(function() { if (_bnr.parentNode) _bnr.parentNode.removeChild(_bnr); }, 350);
+          }"""
+    html = html[:insert_pos] + phase5_done + html[insert_pos:]
 
     # 各セクションの空コンテナをスケルトンで埋める
     # 間取り (layoutGrid)
