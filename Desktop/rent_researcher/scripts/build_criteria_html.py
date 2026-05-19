@@ -97,6 +97,19 @@ def main() -> None:
        ページ内 .header は非表示にする (form.ehomaki.com への直接アクセス時のみ
        影響するが、本番フローではLIFF経由のみなのでOK) */
     .header { display: none !important; }
+
+    /* property.html と同じスタイルのスケルトン (shimmer) */
+    @keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+    .skel { background: linear-gradient(90deg, #eee 0px, #f5f5f5 200px, #eee 400px);
+            background-size: 800px 100%; animation: shimmer 1.4s infinite linear;
+            border-radius: 6px; display: inline-block; }
+    .skel-row { height: 36px; margin: 6px 0; display: block; }
+    .skel-row-narrow { height: 24px; margin: 8px 0; }
+    .skel-row-tall { height: 48px; margin: 10px 0; }
+    .skel-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 12px 16px; }
+    .skel-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 16px; }
+    .skel-list { padding: 8px 16px; }
+    .skel-list .skel-row { width: 100%; }
   </style>
 </head>"""
     html = html.replace("</head>", head_inject, 1)
@@ -308,7 +321,86 @@ window.onload = function() {"""
         raise RuntimeError("could not find submit handler to patch")
     html = html.replace(submit_old, submit_new, 1)
 
-    # 7. 出力
+    # 7. #initialLoading フルスクリーン overlay を撤去し、
+    #    代わりに各セクションのスケルトン表示で初期状態を埋める
+    init_loading_block_start = '<!-- ===== 初期ローディング'
+    init_loading_block_end = '<style>@keyframes initSpin { to { transform: rotate(360deg); } }</style>'
+    s = html.find(init_loading_block_start)
+    e = html.find(init_loading_block_end)
+    if s == -1 or e == -1:
+        raise RuntimeError("could not find #initialLoading block to remove")
+    e += len(init_loading_block_end)
+    html = html[:s] + html[e:]
+
+    # JS 側の #initialLoading 撤去 (Phase 1 完了後のフェードアウト処理)
+    init_loading_js_start = "  // Phase 1 完了で初期ローディングを消す"
+    init_loading_js_end = "  }"
+    s2 = html.find(init_loading_js_start)
+    if s2 == -1:
+        raise RuntimeError("could not find Phase1 initialLoading JS")
+    # 該当ブロックの末尾の `}` を見つける (最初の単独 `}` 行を採用)
+    block_end = html.find('\n  }\n', s2)
+    if block_end == -1:
+        raise RuntimeError("could not find end of initialLoading JS block")
+    html = html[:s2] + html[block_end + 5:]
+
+    # 各セクションの空コンテナをスケルトンで埋める
+    # 間取り (layoutGrid)
+    html = html.replace(
+        '<div class="checkbox-grid" id="layoutGrid"></div>',
+        '<div class="checkbox-grid" id="layoutGrid">'
+        '<div class="skel-grid">'
+        '<span class="skel skel-row"></span><span class="skel skel-row"></span><span class="skel skel-row"></span>'
+        '<span class="skel skel-row"></span><span class="skel skel-row"></span><span class="skel skel-row"></span>'
+        '<span class="skel skel-row"></span><span class="skel skel-row"></span><span class="skel skel-row"></span>'
+        '</div>'
+        '</div>',
+        1
+    )
+    # 構造 (structureGrid)
+    html = html.replace(
+        '<div class="checkbox-grid cols-2" id="structureGrid"></div>',
+        '<div class="checkbox-grid cols-2" id="structureGrid">'
+        '<div class="skel-grid-2">'
+        '<span class="skel skel-row"></span><span class="skel skel-row"></span>'
+        '<span class="skel skel-row"></span><span class="skel skel-row"></span>'
+        '</div>'
+        '</div>',
+        1
+    )
+    # 路線・市区町村・こだわり条件は既に progressive-loading があるが、
+    # shimmer スタイルに統一する
+    html = html.replace(
+        '<div id="routeList"><div class="progressive-loading">路線を読み込み中…</div></div>',
+        '<div id="routeList"><div class="skel-list">'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '</div></div>',
+        1
+    )
+    html = html.replace(
+        '<div id="cityList"><div class="progressive-loading">市区町村を読み込み中…</div></div>',
+        '<div id="cityList"><div class="skel-list">'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '</div></div>',
+        1
+    )
+    html = html.replace(
+        '<div id="equipmentList"><div class="progressive-loading">こだわり条件を読み込み中…</div></div>',
+        '<div id="equipmentList"><div class="skel-list">'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '<span class="skel skel-row skel-row-tall"></span>'
+        '</div></div>',
+        1
+    )
+
+    # 8. 出力
     TARGET_HTML.parent.mkdir(parents=True, exist_ok=True)
     TARGET_HTML.write_text(html, encoding="utf-8")
     print(f"✅ wrote {TARGET_HTML} ({len(html.encode('utf-8'))} bytes)")
