@@ -218,6 +218,15 @@ function sendConditionSuggestionTest(customerName) {
     };
     var flex = buildConditionSuggestionFlex_(candidate);
     pushMessage(userId, [flex]);
+    // 「条件を変更する」LIFFボタンタップ時の応答を高速化するため
+    // フォームHTMLをプリレンダしてCacheServiceに保存する。
+    try {
+      if (typeof prerenderAndCacheCriteriaHtml_ === 'function') {
+        prerenderAndCacheCriteriaHtml_(userId);
+      }
+    } catch (_ePR) {
+      console.warn('条件変更提案テストプリレンダ失敗: ' + (_ePR && _ePR.message));
+    }
     return { success: true, message: '「' + customerName + '」に送信しました (テスト送信: Z列は更新しません)' };
   } catch (e) {
     return { success: false, message: 'エラー: ' + (e.message || String(e)) };
@@ -250,6 +259,15 @@ function sendConditionSuggestionMessages(customerNames) {
     try {
       var flex = buildConditionSuggestionFlex_(c);
       pushMessage(c.lineUserId, [flex]);
+      // 「条件を変更する」LIFFボタンタップ時の応答を高速化するため
+      // フォームHTMLをプリレンダしてCacheServiceに保存する。
+      try {
+        if (typeof prerenderAndCacheCriteriaHtml_ === 'function') {
+          prerenderAndCacheCriteriaHtml_(c.lineUserId);
+        }
+      } catch (_ePR) {
+        console.warn('条件変更提案プリレンダ失敗: ' + (_ePR && _ePR.message));
+      }
       // 送信日時を Z列 に記録
       try {
         var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);

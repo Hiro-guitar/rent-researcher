@@ -476,6 +476,8 @@ function doGet(e) {
         var _tRead = Date.now();
         const existing = typeof readLatestCriteria === 'function' ? readLatestCriteria(userId) : null;
         console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms readLatestCriteria完了 (内部' + (Date.now() - _tRead) + 'ms) existing=' + !!existing);
+        // NOTE: 以下の state 復元ロジックは _restoreStateForCriteriaPage_ にも複製されている。
+        //       prerenderAndCacheCriteriaHtml_ から再利用される。
         if (existing) {
           state.step = STEPS.CRITERIA_SELECT;
           state.isChangeFlow = true;
@@ -1902,6 +1904,45 @@ function processAdminCriteria(customerName, lineUserId, criteria) {
 // ══════════════════════════════════════════════════════════
 
 /**
+ * state.step が CRITERIA_SELECT 範囲外の場合、シートの既存条件を読み込んで
+ * state を CRITERIA_SELECT に復元する。doGet と prerender で共通利用するヘルパ。
+ *
+ * @param {string} userId
+ * @param {Object} state
+ * @return {Object|null} 復元後の state、できなければ null
+ */
+function _restoreStateForCriteriaPage_(userId, state) {
+  if (!state) state = getState(userId);
+  if (isCriteriaPageAllowed(state.step)) return state;
+  var existing = typeof readLatestCriteria === 'function' ? readLatestCriteria(userId) : null;
+  if (!existing) return null;
+  state.step = STEPS.CRITERIA_SELECT;
+  state.isChangeFlow = true;
+  state.areaMethod = existing.areaMethod;
+  state.selectedRoutes = existing.selectedRoutes;
+  state.selectedCities = existing.selectedCities;
+  state.selectedTowns = existing.selectedTowns || {};
+  state.selectedStations = existing.selectedStations;
+  state.data = {
+    name: existing.name,
+    reason: existing.reason,
+    resident: existing.resident,
+    move_in_date: existing.move_in_date,
+    rent_max: existing.rent_max,
+    layouts: existing.layouts,
+    walk: existing.walk,
+    area_min: existing.area_min,
+    building_age: existing.building_age,
+    building_structures: existing.building_structures,
+    equipment: existing.equipment,
+    petType: existing.petType,
+    notes: existing.notes
+  };
+  saveState(userId, state);
+  return state;
+}
+
+/**
  * 指定 userId のフォームHTMLを事前レンダリングしてCacheServiceに保存する。
  * 保存キー: criteria_html_<userId>  TTL: 10分
  *
@@ -1914,9 +1955,13 @@ function prerenderAndCacheCriteriaHtml_(userId) {
     var _t0 = Date.now();
     var state = getState(userId);
     if (!isCriteriaPageAllowed(state.step)) {
-      // CRITERIA_SELECT 範囲外の場合は doGet 側で readLatestCriteria が必要なため
-      // ここではプリレンダしない (cacheミス → 通常フロー)
-      return false;
+      // 登録完了後 (DONE/IDLE 等) → シートの既存条件で state を復元する
+      // (条件変更提案メッセージ用のフロー)
+      state = _restoreStateForCriteriaPage_(userId, state);
+      if (!state) {
+        // 既存条件もない → プリレンダ不可
+        return false;
+      }
     }
     var d = state.data || {};
     var template = HtmlService.createTemplateFromFile('RouteSelectPage');
