@@ -88,6 +88,12 @@ def main() -> None:
   <!-- GAS API への TLS ハンドシェイクを事前に済ませる -->
   <link rel="preconnect" href="https://script.google.com" crossorigin>
   <link rel="dns-prefetch" href="https://script.google.com">
+  <style>
+    /* LIFF WebView のヘッダーが既にページタイトルを表示するため、
+       ページ内 .header は非表示にする (form.ehomaki.com への直接アクセス時のみ
+       影響するが、本番フローではLIFF経由のみなのでOK) */
+    .header { display: none !important; }
+  </style>
 </head>"""
     html = html.replace("</head>", head_inject, 1)
 
