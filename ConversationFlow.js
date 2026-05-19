@@ -647,7 +647,10 @@ function showMoveInPeriod(replyToken, month, monthKey, prefixMessages) {
  * @param {string} [conditionSummary] - 条件変更時に表示する条件サマリー
  */
 function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow, conditionSummary) {
-  const selectUrl = 'https://liff.line.me/' + LIFF_ID + '?action=selectCriteria&userId=' + encodeURIComponent(userId);
+  // LIFF endpoint = https://form.ehomaki.com/criteria.html に設定済み (静的HTML版)
+  // 旧: GAS Web App (テンプレ処理で遅い)
+  // 新: form.ehomaki.com の静的HTML (即表示 + fetch でstate取得)
+  const selectUrl = 'https://liff.line.me/' + LIFF_ID + '?userId=' + encodeURIComponent(userId);
 
   var footerContents = [
     {

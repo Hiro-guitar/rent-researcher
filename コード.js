@@ -41,6 +41,14 @@ function doPost(e) {
     var _doPostT = Date.now();
     const json = JSON.parse(e.postData.contents);
 
+    // --- 条件登録フォーム (form.ehomaki.com) からの送信 ---
+    if (json.action === 'criteria_submit') {
+      var _result = processCriteriaSelection(json.userId, json.criteria);
+      return ContentService
+        .createTextOutput(JSON.stringify(_result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // --- REINS Chrome拡張からのPOST ---
     if (json.action === 'add_reins_property') {
       return handleAddReinsProperty(json);
@@ -332,6 +340,49 @@ function doGet(e) {
   }
 
   const action = e.parameter.action;
+
+  // criteria_state: form.ehomaki.com/criteria.html がユーザー現在状態をfetchするためのJSON返却
+  if (action === 'criteria_state') {
+    var _userIdC = e.parameter.userId;
+    if (!_userIdC) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, message: 'userId required' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    try {
+      var _stateC = getState(_userIdC);
+      if (!isCriteriaPageAllowed(_stateC.step)) {
+        _stateC = _restoreStateForCriteriaPage_(_userIdC, _stateC);
+        if (!_stateC) {
+          return ContentService.createTextOutput(JSON.stringify({
+            success: false,
+            message: '条件登録から始めてください',
+            step: getState(_userIdC).step
+          })).setMimeType(ContentService.MimeType.JSON);
+        }
+      }
+      var _dC = _stateC.data || {};
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        selectedRoutes: _stateC.selectedRoutes || [],
+        selectedStations: _stateC.selectedStations || {},
+        selectedCities: _stateC.selectedCities || [],
+        selectedTowns: _stateC.selectedTowns || {},
+        areaMethod: _stateC.areaMethod || 'route',
+        rentMax: _dC.rent_max || '',
+        layouts: _dC.layouts || [],
+        walkMax: _dC.walk || '',
+        areaMin: _dC.area_min || '',
+        buildingAge: _dC.building_age || '',
+        buildingStructures: _dC.building_structures || [],
+        equipment: _dC.equipment || [],
+        petType: _dC.petType || '',
+        otherConditions: _dC.otherConditions || ''
+      })).setMimeType(ContentService.MimeType.JSON);
+    } catch (eCS) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, message: eCS.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
 
   // keepalive: GASをウォームに保つためのpingエンドポイント (5分ごとにself-fetchで叩く)
   // 初回ヒット時にトリガー未登録なら自動登録する (bootstrap)
