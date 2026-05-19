@@ -450,7 +450,7 @@ function doGet(e) {
     var _hasFocus = !!e.parameter.focus;
     if (!_hasFocus) {
       try {
-        var _cached = CacheService.getScriptCache().get('criteria_html_' + userId);
+        var _cached = _getCachedCriteriaHtml_(userId);
         if (_cached) {
           console.log('[PERF-doGet-criteria] cache hit +' + (Date.now() - _tCriteria) + 'ms size=' + _cached.length);
           return HtmlService.createHtmlOutput(_cached)
@@ -1986,17 +1986,41 @@ function prerenderAndCacheCriteriaHtml_(userId) {
     template.initFocus = ''; // プリレンダはfocus無し版 (focusありは個別レンダ)
 
     var html = template.evaluate().getContent();
-    // CacheService 値サイズ上限: 100KB (102400 bytes). 余裕を見て 95KB を上限に。
-    if (html.length > 95000) {
-      console.warn('[prerender] HTMLサイズ ' + html.length + 'bytes が大きすぎてキャッシュ不可');
+    var rawSize = html.length;
+
+    // CacheService 値サイズ上限: 100KB (102400 bytes).
+    // 通常 評価後HTML は ~100KB前後 → gzip+base64 圧縮して保存
+    var compressed = Utilities.gzip(Utilities.newBlob(html, 'text/html'));
+    var b64 = Utilities.base64Encode(compressed.getBytes());
+    if (b64.length > 95000) {
+      console.warn('[prerender] gzip後でも大きすぎてキャッシュ不可 raw=' + rawSize + 'bytes b64=' + b64.length + 'bytes');
       return false;
     }
-    CacheService.getScriptCache().put('criteria_html_' + userId, html, 600); // 10分
-    console.log('[prerender] cache保存 userId=' + userId + ' size=' + html.length + 'bytes (' + (Date.now() - _t0) + 'ms)');
+    CacheService.getScriptCache().put('criteria_html_' + userId, b64, 600); // 10分
+    console.log('[prerender] cache保存 userId=' + userId + ' raw=' + rawSize + 'bytes b64=' + b64.length + 'bytes (' + (Date.now() - _t0) + 'ms)');
     return true;
   } catch (e) {
     console.warn('[prerender] error: ' + (e && e.message));
     return false;
+  }
+}
+
+/**
+ * CacheServiceに保存した gzip+base64 HTML を取り出して展開する。
+ *
+ * @param {string} userId
+ * @return {string|null} 展開後HTML、無ければnull
+ */
+function _getCachedCriteriaHtml_(userId) {
+  try {
+    var b64 = CacheService.getScriptCache().get('criteria_html_' + userId);
+    if (!b64) return null;
+    var bytes = Utilities.base64Decode(b64);
+    var blob = Utilities.newBlob(bytes, 'application/x-gzip');
+    return Utilities.ungzip(blob).getDataAsString();
+  } catch (e) {
+    console.warn('[cache取得] gzip展開失敗: ' + (e && e.message));
+    return null;
   }
 }
 
