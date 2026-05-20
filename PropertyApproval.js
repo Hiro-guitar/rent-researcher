@@ -2654,14 +2654,19 @@ function buildPropertyFlex(prop, options) {
 
 // ===== HTML: 簡易レスポンス =====
 function makeHtml(title, message) {
+  var isSuccess = (title === '\u5B8C\u4E86'); // \u5B8C\u4E86
   var html = '<html><head><meta charset="utf-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1">'
     + '<style>body{font-family:sans-serif;text-align:center;padding:40px;background:#f5f5f5}'
     + '.card{background:#fff;border-radius:12px;padding:30px;max-width:400px;margin:0 auto;box-shadow:0 2px 8px rgba(0,0,0,0.1)}'
     + 'h2{color:#333;margin-bottom:16px}.msg{color:#555;line-height:1.6}'
-    + '.ok{color:#4CAF50}.err{color:#E05252}.warn{color:#FF9800}</style></head>'
+    + '.ok{color:#4CAF50}.err{color:#E05252}.warn{color:#FF9800}'
+    + '.close-hint{margin-top:20px;padding:10px 16px;background:#f0f4f8;border-radius:8px;color:#555;font-size:13px;display:none}'
+    + '.close-hint.show{display:block}'
+    + '.countdown{display:inline-block;color:#888;font-size:13px;margin-top:12px}'
+    + '</style></head>'
     + '<body><div class="card">';
-  if (title === '\u5B8C\u4E86') {
+  if (isSuccess) {
     html += '<h2 class="ok">\u2705 ' + title + '</h2>';
   } else if (title === '\u30A8\u30E9\u30FC') {
     html += '<h2 class="err">\u274C ' + title + '</h2>';
@@ -2669,6 +2674,29 @@ function makeHtml(title, message) {
     html += '<h2 class="warn">\u26A0\uFE0F ' + title + '</h2>';
   }
   html += '<p class="msg">' + message + '</p>';
+  if (isSuccess) {
+    // \u5B8C\u4E86\u753B\u9762\u306F2\u79D2\u5F8C\u306B\u30BF\u30D6\u3092\u81EA\u52D5\u30AF\u30ED\u30FC\u30BA\u8A66\u884C (\u5931\u6557\u6642\u306F\u624B\u52D5\u30D2\u30F3\u30C8\u3092\u8868\u793A)
+    html += '<div class="countdown" id="cd">2\u79D2\u5F8C\u306B\u30BF\u30D6\u3092\u9589\u3058\u307E\u3059\u2026</div>';
+    html += '<div class="close-hint" id="closeHint">\u26A0\uFE0F \u30D6\u30E9\u30A6\u30B6\u306E\u5236\u9650\u3067\u30BF\u30D6\u3092\u81EA\u52D5\u3067\u9589\u3058\u3089\u308C\u307E\u305B\u3093\u3067\u3057\u305F\u3002<br>\u3053\u306E\u30BF\u30D6\u306F\u624B\u52D5\u3067\u9589\u3058\u3066\u304F\u3060\u3055\u3044\u3002</div>';
+    html += '<script>'
+      + '(function(){'
+      +   'var n=2;'
+      +   'var cd=document.getElementById("cd");'
+      +   'var t=setInterval(function(){n--;'
+      +     'if(cd)cd.textContent=n+"\u79D2\u5F8C\u306B\u30BF\u30D6\u3092\u9589\u3058\u307E\u3059\u2026";'
+      +     'if(n<=0){clearInterval(t);'
+      +       'try{window.top.close();}catch(e){}'
+      +       'try{window.close();}catch(e){}'
+      +       'setTimeout(function(){'
+      +         'if(cd)cd.style.display="none";'
+      +         'var h=document.getElementById("closeHint");'
+      +         'if(h)h.className="close-hint show";'
+      +       '},400);'
+      +     '}'
+      +   '},1000);'
+      + '})();'
+      + '<\/script>';
+  }
   html += '</div></body></html>';
   return HtmlService.createHtmlOutput(html)
     .setTitle(title)
