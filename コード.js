@@ -1548,6 +1548,7 @@ function handleAddReinsProperty(json) {
         other_onetime_fee: p.other_onetime_fee || '',
         move_in_conditions: p.move_in_conditions || '',
         source: p.source || 'reins',
+        warnings_text: p.warnings_text || '',
         reins_property_number: p.reins_property_number || '',
         reins_shougo: p.reins_shougo || '',
         reins_tel: p.reins_tel || '',
