@@ -63,13 +63,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .row-label{color:#6b7280;font-size:13px;width:110px;flex-shrink:0}
 .row-value{color:#1a2538;font-size:14px;font-weight:500;flex:1}
 .facilities-text{font-size:13px;color:#444;line-height:1.7;white-space:pre-wrap}
-.fac-cat{margin-bottom:12px}
-.fac-cat-name{font-size:11px;color:#6b7280;font-weight:700;margin-bottom:6px;letter-spacing:0.5px}
-.fac-tags{display:flex;flex-wrap:wrap;gap:5px}
-.fac-tag{display:inline-block;font-size:12px;color:#3a4a5e;background:#f5f7fa;border-radius:6px;padding:3px 9px;line-height:1.6}
-/* お客さん希望にマッチした設備タグは ✓ アイコン + 緑文字でさり気なく強調 */
-.fac-tag.matched{color:#3d6909;font-weight:600}
-.fac-tag.matched::before{content:"\2713";margin-right:3px;color:#6ea814;font-weight:700}
+.fac-cat{margin-bottom:14px}
+.fac-cat-name{font-size:12px;color:#3a4a5e;font-weight:700;margin-bottom:8px;letter-spacing:0.3px;padding-left:8px;border-left:2px solid #6ea814}
+.fac-tags{display:flex;flex-wrap:wrap;gap:6px}
+/* 設備タグ: 柔らかい緑系のピル形でテンションが上がる感じに */
+.fac-tag{display:inline-block;font-size:13px;color:#2d5016;background:#f0faf4;border:1px solid #d4e7a8;border-radius:20px;padding:5px 13px;line-height:1.5;font-weight:500}
 .cond-ok{background:#f0faf4;color:#3d6909}
 .cond-ng{background:#f5f5f5;color:#9ca3af}
 .footer{text-align:center;padding:20px;color:#aaa;font-size:12px}
@@ -426,8 +424,7 @@ function buildFacilityTags(facStr) {
   });
   var out = '<div class="fac-tags">';
   for (var i = 0; i < items.length; i++) {
-    var isMatchFb = _matchesCustomerEquipment(items[i]);
-    out += '<span class="fac-tag' + (isMatchFb ? ' matched' : '') + '">' + escHtml(items[i]) + '</span>';
+    out += '<span class="fac-tag">' + escHtml(items[i]) + '</span>';
   }
   return out + '</div>';
 }
@@ -505,25 +502,11 @@ function renderFacBuckets(order, buckets) {
     if (arr.length === 0) continue;
     out += '<div class="fac-cat"><div class="fac-cat-name">' + escHtml(name) + '</div><div class="fac-tags">';
     for (var j = 0; j < arr.length; j++) {
-      var isMatch = _matchesCustomerEquipment(arr[j]);
-      out += '<span class="fac-tag' + (isMatch ? ' matched' : '') + '">' + escHtml(arr[j]) + '</span>';
+      out += '<span class="fac-tag">' + escHtml(arr[j]) + '</span>';
     }
     out += '</div></div>';
   }
   return out;
-}
-
-// 設備タグがお客さんのこだわり条件に含まれるか判定 (部分一致 + 正規化)
-function _matchesCustomerEquipment(tagText) {
-  if (!customerEquipmentList || customerEquipmentList.length === 0) return false;
-  var t = String(tagText || '').toLowerCase().replace(/\s+/g, '');
-  if (!t) return false;
-  for (var k = 0; k < customerEquipmentList.length; k++) {
-    var c = String(customerEquipmentList[k] || '').toLowerCase().replace(/\s+/g, '');
-    if (!c) continue;
-    if (t.indexOf(c) >= 0 || c.indexOf(t) >= 0) return true;
-  }
-  return false;
 }
 
 function renderProperty(p) {
