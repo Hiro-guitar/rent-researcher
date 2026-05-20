@@ -617,7 +617,7 @@ function renderProperty(p) {
   // フィードバックボタン（customer と roomId がある場合のみ）
   if (customer && roomId) {
     html += '<div class="feedback-bar">'
-      + '<button class="feedback-btn fav" id="favBtn" onclick="sendFeedback(\'favorite\')">お気に入りに追加</button>'
+      + '<button class="feedback-btn fav" id="favBtn" onclick="sendFeedback(\'favorite\')">⭐ お気に入りに追加</button>'
       + '<button class="feedback-btn nope" id="nopeBtn" onclick="sendFeedback(\'not_interested\')">興味なし</button>'
       + '</div>'
       + '<div class="feedback-status" id="feedbackStatus"></div>';
@@ -945,16 +945,16 @@ function updateFeedbackUI(action) {
 
   if (action === 'favorite') {
     favBtn.classList.add('active');
-    favBtn.textContent = 'お気に入り済み ✓';
+    favBtn.textContent = '⭐ お気に入り済み ✓';
     nopeBtn.textContent = '興味なし';
     status.textContent = '';
   } else if (action === 'not_interested') {
     nopeBtn.classList.add('active');
     nopeBtn.textContent = '興味なし ✓';
-    favBtn.textContent = 'お気に入りに追加';
+    favBtn.textContent = '⭐ お気に入りに追加';
     status.textContent = '';
   } else {
-    favBtn.textContent = 'お気に入りに追加';
+    favBtn.textContent = '⭐ お気に入りに追加';
     nopeBtn.textContent = '興味なし';
     status.textContent = '';
   }
