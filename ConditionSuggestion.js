@@ -511,14 +511,16 @@ function _formatRoutesForDisplay_(routesWithStations) {
   return parts.join(' ／ ');
 }
 
-// 1行分のラベル+値テキスト要素 (絵文字なし・項目名は明確に)
+// 1行分のラベル+値要素。アイコン付きラベル左、値を右側に配置 (両端揃え寄り)。
 function _summaryLine_(label, value) {
   return {
-    type: 'text',
-    text: label + '：' + value,
-    size: 'sm',
-    color: '#444444',
-    wrap: true
+    type: 'box',
+    layout: 'horizontal',
+    spacing: 'sm',
+    contents: [
+      { type: 'text', text: label, size: 'sm', color: '#666666', flex: 4 },
+      { type: 'text', text: String(value || ''), size: 'sm', color: '#222222', flex: 7, wrap: true, align: 'end' }
+    ]
   };
 }
 
@@ -544,37 +546,37 @@ function buildConditionSuggestionFlex_(c) {
   var liffBase = 'https://liff.line.me/' + LIFF_ID
     + '?userId=' + encodeURIComponent(c.lineUserId);
 
-  // 現条件の要約 (絵文字なし、項目名を明確に、路線名も含める)。
+  // 現条件の要約 (アイコン+項目名、路線名も含める)。
   // 各項目は必ず表示する (空/指定しない なら「指定なし」と明示)。
   var summary = [];
-  summary.push(_condLine_('家賃の上限', c.rentMax, '万円', /万円$/));
+  summary.push(_condLine_('💴 家賃の上限', c.rentMax, '万円', /万円$/));
 
   // エリアは路線・駅 / 市区町村 / どちらも未指定 のいずれか
   var routesDisplay = _formatRoutesForDisplay_(c.routesWithStations);
   if (routesDisplay) {
-    summary.push(_summaryLine_('沿線・駅', routesDisplay));
+    summary.push(_summaryLine_('🚉 沿線・駅', routesDisplay));
   } else if (c.stations) {
-    summary.push(_summaryLine_('駅', c.stations));
+    summary.push(_summaryLine_('🚉 駅', c.stations));
   } else if (c.city) {
-    summary.push(_summaryLine_('市区町村', c.city));
+    summary.push(_summaryLine_('📍 市区町村', c.city));
   } else {
-    summary.push(_summaryLine_('エリア', '指定なし'));
+    summary.push(_summaryLine_('📍 エリア', '指定なし'));
   }
 
   if (c.layouts) {
-    summary.push(_summaryLine_('間取り', c.layouts));
+    summary.push(_summaryLine_('🏠 間取り', c.layouts));
   } else {
-    summary.push(_summaryLine_('間取り', '指定なし'));
+    summary.push(_summaryLine_('🏠 間取り', '指定なし'));
   }
-  summary.push(_condLine_('専有面積', c.areaMin, 'm² 以上', /m²?\s*以上$|㎡\s*以上$/));
-  summary.push(_condLine_('築年数', c.ageMax, '年以内', /年以内$/));
-  summary.push(_condLine_('駅徒歩', c.walkMax, '分以内', /分以内$/));
+  summary.push(_condLine_('📐 専有面積', c.areaMin, 'm² 以上', /m²?\s*以上$|㎡\s*以上$/));
+  summary.push(_condLine_('🏛️ 築年数', c.ageMax, '年以内', /年以内$/));
+  summary.push(_condLine_('🚶 駅徒歩', c.walkMax, '分以内', /分以内$/));
   // こだわり条件は全項目を表示 (顧客が自分の登録状態を完全に把握できるように)
   var eqItems = (c.equipment || '').split(/[,、]/).map(function (s) { return s.trim(); }).filter(function (s) { return s; });
   if (eqItems.length === 0) {
-    summary.push(_summaryLine_('こだわり', '指定なし'));
+    summary.push(_summaryLine_('⭐ こだわり', '指定なし'));
   } else {
-    summary.push(_summaryLine_('こだわり', eqItems.join('、')));
+    summary.push(_summaryLine_('⭐ こだわり', eqItems.join('、')));
   }
 
   // (旧仕様で各カテゴリの postback data 用に現在値を計算していた変数は撤去。
@@ -594,30 +596,63 @@ function buildConditionSuggestionFlex_(c) {
   var _altText = _isNoView
     ? 'お部屋探しの状況はいかがですか？'
     : 'ご条件の変更をしてみませんか？';
+  var _headerEmoji = _isNoView ? '🏡' : '💡';
 
   return {
     type: 'flex',
     altText: _altText,
     contents: {
       type: 'bubble',
+      size: 'mega',
+
+      // ── ヘッダー (カラーブロック + アイコン + タイトル) ──
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#6ea814',
+        paddingAll: 'xl',
+        paddingTop: 'lg',
+        paddingBottom: 'lg',
+        contents: [
+          { type: 'text', text: _headerEmoji, size: 'xxl', align: 'center', color: '#ffffff' },
+          { type: 'text', text: _title, weight: 'bold', size: 'lg', color: '#ffffff', wrap: true, align: 'center', margin: 'sm' }
+        ]
+      },
+
       body: {
         type: 'box',
         layout: 'vertical',
         spacing: 'lg',
-        paddingAll: 'lg',
+        paddingAll: 'xl',
         contents: [
-          { type: 'text', text: _title, weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
-          { type: 'text', text: _desc, size: 'sm', color: '#555555', wrap: true, margin: 'sm' },
-          { type: 'separator', margin: 'lg' },
-          { type: 'text', text: '現在ご登録の条件', size: 'md', color: '#666666', weight: 'bold', margin: 'md' },
+          // 説明文
+          { type: 'text', text: _desc, size: 'sm', color: '#555555', wrap: true, lineSpacing: '6px' },
+
+          // 現在の条件カード (背景色付き)
           {
-            type: 'box', layout: 'vertical',
+            type: 'box',
+            layout: 'vertical',
+            backgroundColor: '#f5f9ee',
+            cornerRadius: 'md',
+            paddingAll: 'lg',
             spacing: 'md',
-            margin: 'sm',
-            contents: summary.length > 0 ? summary : [{ type: 'text', text: '(条件情報を取得できませんでした)', size: 'sm', color: '#aaaaaa' }]
+            margin: 'md',
+            contents: [
+              {
+                type: 'box',
+                layout: 'horizontal',
+                spacing: 'sm',
+                contents: [
+                  { type: 'text', text: '📋', size: 'sm', flex: 0 },
+                  { type: 'text', text: '現在ご登録の条件', size: 'sm', color: '#3d6909', weight: 'bold' }
+                ]
+              },
+              { type: 'separator', margin: 'sm', color: '#d4e7a8' }
+            ].concat(summary.length > 0 ? summary : [{ type: 'text', text: '(条件情報を取得できませんでした)', size: 'sm', color: '#aaaaaa' }])
           }
         ]
       },
+
       footer: {
         type: 'box',
         layout: 'vertical',
@@ -625,12 +660,12 @@ function buildConditionSuggestionFlex_(c) {
         paddingAll: 'lg',
         contents: [
           { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'uri', label: '条件を変更する', uri: liffBase } },
+            action: { type: 'uri', label: '✏️ 条件を変更する', uri: liffBase } },
           { type: 'button', style: 'secondary', height: 'sm',
             action: { type: 'postback', label: 'このまま様子を見る',
               data: 'condsug:keep',
               displayText: 'このまま様子を見る' } },
-          { type: 'button', style: 'secondary', height: 'sm',
+          { type: 'button', style: 'link', height: 'sm', color: '#aaaaaa',
             action: { type: 'postback', label: '配信を停止する',
               data: 'condsug:pause',
               displayText: '配信を停止する' } }
