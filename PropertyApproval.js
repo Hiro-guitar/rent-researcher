@@ -2394,35 +2394,69 @@ function buildPropertyFlex(prop, options) {
   var mgmtText = prop.managementFee ? _fmtPriceFull(prop.managementFee) : '0\u5186';
   var rentMan = prop.rent ? _fmtMan(prop.rent) : '0'; // altText 用に温存
 
-  var bodyContents = [
-    { type: 'text', text: prop.buildingName + (prop.roomNumber ? ' ' + prop.roomNumber : ''), weight: 'bold', size: 'lg', wrap: true },
-    { type: 'box', layout: 'baseline', spacing: 'sm', contents: [
-      { type: 'text', text: rentText, weight: 'bold', size: 'xl', color: '#E05252' },
-      { type: 'text', text: '\u7BA1\u7406\u8CBB ' + mgmtText, size: 'sm', color: '#999999', flex: 0 }
-    ]},
-    { type: 'separator', margin: 'lg' }
-  ];
+  // ── タイトル (建物名 + 部屋番号) ──
+  var titleBlock = {
+    type: 'text',
+    text: prop.buildingName + (prop.roomNumber ? ' ' + prop.roomNumber : ''),
+    weight: 'bold', size: 'lg', color: '#1a2538', wrap: true
+  };
 
-  var details = [];
-  if (prop.layout) details.push(['\u9593\u53D6\u308A', prop.layout]);
-  if (prop.area) details.push(['\u9762\u7A4D', prop.area + 'm\u00B2']);
-  if (prop.buildingAge) details.push(['\u7BC9\u5E74\u6570', prop.buildingAge]);
-  if (prop.floor) details.push(['\u968E\u6570', prop.floor + '\u968E']);
-  if (prop.address) details.push(['\u6240\u5728\u5730', prop.address]);
-  if (prop.stationInfo) details.push(['\u6700\u5BC4\u99C5', prop.stationInfo]);
-  // その他の路線
-  if (prop.otherStations && prop.otherStations.length > 0) {
-    details.push(['\u4ED6\u306E\u8DEF\u7DDA', prop.otherStations.join('\n')]);
+  // ── 賃料ブロック (大きく目立たせる) ──
+  var subRent = '管理費 ' + mgmtText
+    + '   ・   敷金 ' + (prop.deposit || '0')
+    + ' / 礼金 ' + (prop.keyMoney || '0');
+  var rentBlock = {
+    type: 'box', layout: 'vertical', spacing: 'xs', margin: 'sm',
+    contents: [
+      {
+        type: 'box', layout: 'baseline', spacing: 'sm',
+        contents: [
+          { type: 'text', text: rentText, weight: 'bold', size: 'xxl', color: '#E05252' },
+          { type: 'text', text: '/ 月', size: 'xs', color: '#999999', flex: 0 }
+        ]
+      },
+      { type: 'text', text: subRent, size: 'xs', color: '#888888', wrap: true }
+    ]
+  };
+
+  // ── クイックファクト (チップ風) ──
+  function _chip(text) {
+    return {
+      type: 'box', layout: 'baseline',
+      backgroundColor: '#f0faf4',
+      cornerRadius: 'md',
+      paddingTop: '4px', paddingBottom: '4px', paddingStart: 'md', paddingEnd: 'md',
+      flex: 0,
+      contents: [{ type: 'text', text: text, size: 'xs', color: '#3d6909', weight: 'bold' }]
+    };
   }
-  details.push(['\u6577\u91D1/\u793C\u91D1', (prop.deposit || '0') + ' / ' + (prop.keyMoney || '0')]);
+  var chipsContents = [];
+  if (prop.layout) chipsContents.push(_chip(prop.layout));
+  if (prop.area) chipsContents.push(_chip(prop.area + 'm²'));
+  if (prop.buildingAge) chipsContents.push(_chip(prop.buildingAge));
+  if (prop.floor) chipsContents.push(_chip(prop.floor + '階'));
 
-  for (var i = 0; i < details.length; i++) {
-    bodyContents.push({
-      type: 'box', layout: 'horizontal', margin: 'md', contents: [
-        { type: 'text', text: details[i][0], size: 'sm', color: '#555555', flex: 2 },
-        { type: 'text', text: details[i][1], size: 'sm', color: '#111111', flex: 5, wrap: true }
-      ]
-    });
+  // ── 立地情報 ──
+  var locationLines = [];
+  if (prop.address) {
+    locationLines.push({ type: 'text', text: prop.address, size: 'sm', color: '#444444', wrap: true });
+  }
+  if (prop.stationInfo) {
+    locationLines.push({ type: 'text', text: prop.stationInfo, size: 'sm', color: '#444444', wrap: true });
+  }
+  if (prop.otherStations && prop.otherStations.length > 0) {
+    locationLines.push({ type: 'text', text: 'その他の路線：' + prop.otherStations.join('、'),
+      size: 'xs', color: '#888888', wrap: true });
+  }
+
+  // ── body 組み立て ──
+  var bodyContents = [titleBlock, rentBlock];
+  if (chipsContents.length > 0) {
+    bodyContents.push({ type: 'box', layout: 'horizontal', spacing: 'sm', margin: 'md', contents: chipsContents });
+  }
+  if (locationLines.length > 0) {
+    bodyContents.push({ type: 'separator', margin: 'lg', color: '#eeeeee' });
+    bodyContents.push({ type: 'box', layout: 'vertical', spacing: 'xs', margin: 'md', contents: locationLines });
   }
 
   var bubble = { type: 'bubble', size: 'mega' };
@@ -2430,7 +2464,6 @@ function buildPropertyFlex(prop, options) {
   var heroUrl = options.heroImageUrl || prop.imageUrl || '';
   if (includeImage && heroUrl && heroUrl.indexOf('https://') === 0) {
     // aspectMode: 'fit' で縦長画像も見切れずに全体表示
-    // aspectRatio: '4:3' で縦長画像にも適度なスペースを確保
     bubble.hero = {
       type: 'image', url: heroUrl, size: 'full',
       aspectRatio: '4:3', aspectMode: 'fit',
@@ -2438,13 +2471,17 @@ function buildPropertyFlex(prop, options) {
     };
   }
 
-  bubble.body = { type: 'box', layout: 'vertical', spacing: 'md', contents: bodyContents };
+  bubble.body = {
+    type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
+    contents: bodyContents
+  };
 
   if (viewUrl) {
     bubble.footer = {
-      type: 'box', layout: 'vertical', spacing: 'sm', contents: [
-        { type: 'button', style: 'primary', color: '#00AAFF',
-          action: { type: 'uri', label: '\u7269\u4EF6\u8A73\u7D30\u3092\u898B\u308B', uri: viewUrl }
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
+      contents: [
+        { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+          action: { type: 'uri', label: '物件詳細を見る', uri: viewUrl }
         }
       ]
     };
