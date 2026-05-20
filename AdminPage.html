@@ -291,11 +291,16 @@ input[type="range"]::-webkit-slider-thumb {
     <!-- テスト送信: 候補条件を無視して任意の顧客にお試し送信 -->
     <div style="margin:0 12px 8px;padding:8px 10px;background:#fffbea;border:1px dashed #f5d76e;border-radius:6px;">
       <div style="font-size:11px;color:#7a5d00;margin-bottom:4px;font-weight:600;">🧪 テスト送信 (候補条件・14日制限を無視)</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
         <select id="suggestionTestCustomer" style="font-size:12px;padding:4px 6px;flex:1;min-width:140px;">
           <option value="">— 顧客を選択 —</option>
         </select>
         <button onclick="sendSuggestionTest()" style="padding:5px 12px;font-size:12px;background:#f39c12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">テスト送信</button>
+      </div>
+      <div style="font-size:11px;color:#7a5d00;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <span style="font-weight:600;">メッセージパターン:</span>
+        <label style="cursor:pointer;"><input type="radio" name="suggestionTestPattern" value="no_delivery" checked style="margin-right:3px;vertical-align:middle;">🔵 通知なし (条件を緩める…)</label>
+        <label style="cursor:pointer;"><input type="radio" name="suggestionTestPattern" value="no_view" style="margin-right:3px;vertical-align:middle;">🟡 閲覧なし (お部屋探しの状況は…)</label>
       </div>
       <div id="suggestionTestResult" style="font-size:11px;color:#444;margin-top:4px;"></div>
     </div>
@@ -1902,7 +1907,11 @@ function sendSuggestionTest() {
     if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">顧客を選択してください</span>';
     return;
   }
-  if (!confirm('「' + name + '」に条件変更提案メッセージをテスト送信します。よろしいですか？\n(Z列・候補条件は無視されるので何度でも送れます)')) return;
+  // 選択されたメッセージパターン (no_delivery / no_view)
+  var patternRadio = document.querySelector('input[name="suggestionTestPattern"]:checked');
+  var pattern = patternRadio ? patternRadio.value : 'no_delivery';
+  var patternLabel = pattern === 'no_view' ? '「閲覧なし」パターン' : '「通知なし」パターン';
+  if (!confirm('「' + name + '」に条件変更提案メッセージをテスト送信します。\nメッセージ: ' + patternLabel + '\n\nよろしいですか？\n(Z列・候補条件は無視されるので何度でも送れます)')) return;
   if (resultEl) resultEl.textContent = '送信中...';
   google.script.run
     .withSuccessHandler(function(res) {
@@ -1916,7 +1925,7 @@ function sendSuggestionTest() {
     .withFailureHandler(function(err) {
       if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">エラー: ' + esc(err.message || String(err)) + '</span>';
     })
-    .sendConditionSuggestionTest(name);
+    .sendConditionSuggestionTest(name, pattern);
 }
 
 function sendSuggestionMessages() {

@@ -169,9 +169,11 @@ function setupConditionSuggestionAutoTrigger() {
  * テスト送信用: 候補条件を無視して指定顧客に Flex メッセージを送信する。
  * 14日制限・Z列更新を行わないため、何度でも送れる。
  * @param {string} customerName
+ * @param {string} [reasonCode] - 'no_delivery' (default) or 'no_view'
+ *                                 buildConditionSuggestionFlex_ の文言切替に使う
  * @return {{success: boolean, message: string}}
  */
-function sendConditionSuggestionTest(customerName) {
+function sendConditionSuggestionTest(customerName, reasonCode) {
   if (!customerName) return { success: false, message: '顧客名が未指定です' };
   try {
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
@@ -205,6 +207,8 @@ function sendConditionSuggestionTest(customerName) {
     var candidate = {
       name: customerName,
       lineUserId: userId,
+      // テスト送信時はメッセージパターンを呼び出し元で選択可能 (デフォルトはno_delivery)
+      reasonCode: (reasonCode === 'no_view') ? 'no_view' : 'no_delivery',
       rentMax: String(row[7] || ''),
       layouts: String(row[8] || ''),
       walkMax: String(row[6] || ''),
@@ -227,7 +231,8 @@ function sendConditionSuggestionTest(customerName) {
     } catch (_ePR) {
       console.warn('条件変更提案テストプリレンダ失敗: ' + (_ePR && _ePR.message));
     }
-    return { success: true, message: '「' + customerName + '」に送信しました (テスト送信: Z列は更新しません)' };
+    var _patternLabel = (candidate.reasonCode === 'no_view') ? '「閲覧なし」' : '「通知なし」';
+    return { success: true, message: '「' + customerName + '」に ' + _patternLabel + ' パターンで送信しました (テスト送信: Z列は更新しません)' };
   } catch (e) {
     return { success: false, message: 'エラー: ' + (e.message || String(e)) };
   }
