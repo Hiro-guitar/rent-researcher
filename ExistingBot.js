@@ -600,23 +600,6 @@ function processReplyQueue() {
         contents: {
           type: 'bubble',
           size: 'mega',
-          // ── ヘッダー: 緑カラーブロックで「お知らせ」 ──
-          header: {
-            type: 'box',
-            layout: 'vertical',
-            backgroundColor: '#6ea814',
-            paddingAll: 'lg',
-            contents: [
-              {
-                type: 'text',
-                text: 'お知らせ',
-                color: '#ffffff',
-                weight: 'bold',
-                size: 'md',
-                align: 'center'
-              }
-            ]
-          },
           body: {
             type: 'box',
             layout: 'vertical',
@@ -751,15 +734,6 @@ function testSendConditionButton() {
       contents: {
         type: 'bubble',
         size: 'mega',
-        header: {
-          type: 'box',
-          layout: 'vertical',
-          backgroundColor: '#6ea814',
-          paddingAll: 'lg',
-          contents: [
-            { type: 'text', text: 'お知らせ (テスト)', color: '#ffffff', weight: 'bold', size: 'md', align: 'center' }
-          ]
-        },
         body: {
           type: 'box',
           layout: 'vertical',
