@@ -394,9 +394,11 @@ function createPropertyBubble(p) {
     // 営業時間内: 数分以内 / 営業時間外: 翌営業日 と返信目安を案内
     var _now = new Date();
     var _jstHour = (typeof getJstHour === 'function') ? getJstHour(_now) : _now.getUTCHours() + 9;
-    var _etaMsg = (_jstHour >= 10 && _jstHour < 20)
+    var _isOpen = (_jstHour >= 10 && _jstHour < 20);
+    var _statusLine = _isOpen ? 'スタッフが確認中です' : 'お問い合わせを受け付けました';
+    var _etaMsg = _isOpen
       ? '数分以内にスタッフよりご返信いたします'
-      : '営業時間外のため、翌営業日の朝にご返信いたします';
+      : '営業時間外のため、翌営業日の朝にスタッフよりご返信いたします';
     bodyContents.push({
       type: 'box',
       layout: 'vertical',
@@ -406,7 +408,7 @@ function createPropertyBubble(p) {
       margin: 'md',
       spacing: 'xs',
       contents: [
-        { type: 'text', text: 'スタッフが確認中です', size: 'sm', weight: 'bold', color: '#c8650b' },
+        { type: 'text', text: _statusLine, size: 'sm', weight: 'bold', color: '#c8650b' },
         { type: 'text', text: _etaMsg, size: 'xs', color: '#8c5410', wrap: true }
       ]
     });
