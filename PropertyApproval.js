@@ -558,7 +558,9 @@ function handlePropertyViewApi(e) {
     freeRentDetail: prop.freeRentDetail,
     layoutDetail: prop.layoutDetail,
     adFee: prop.adFee,
-    currentStatus: prop.currentStatus
+    currentStatus: prop.currentStatus,
+    // お客さん希望のこだわり条件 (設備タグの強調表示に使う)
+    customerEquipment: _getCustomerEquipmentList_(customerName)
   };
 
   // キャッシュに保存（24時間）
@@ -2478,6 +2480,34 @@ function _getCustomerSelectedStations_(customerName) {
     }
   } catch (e) {
     console.warn('_getCustomerSelectedStations_ error: ' + (e && e.message));
+  }
+  return [];
+}
+
+/**
+ * 顧客名から検索条件シートを引いて、選択こだわり条件(設備)の配列を返す。
+ * 検索条件シート M列 (index 12) に「ペット可,オートロック,...」形式で保存されている想定。
+ *
+ * @param {string} customerName
+ * @return {string[]}
+ */
+function _getCustomerEquipmentList_(customerName) {
+  if (!customerName) return [];
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return [];
+    var last = sheet.getLastRow();
+    if (last < 2) return [];
+    var data = sheet.getRange(2, 1, last - 1, 13).getValues(); // up to M
+    for (var i = data.length - 1; i >= 0; i--) {
+      if (String(data[i][1] || '').trim() === String(customerName).trim()) {
+        var raw = String(data[i][12] || '');
+        return raw.split(/[,、]\s*/).map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+      }
+    }
+  } catch (e) {
+    console.warn('_getCustomerEquipmentList_ error: ' + (e && e.message));
   }
   return [];
 }
