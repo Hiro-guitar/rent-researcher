@@ -2519,19 +2519,20 @@ function buildPropertyFlex(prop, options) {
     ]
   };
 
-  // ── クイックファクト (チップ風: 4つ均等幅で並べる) ──
-  // 各チップは vertical layout + flex:1 で均等幅、text を中央寄せで表示する。
-  // (前回 baseline + flex:0 で中身が空に見える問題が出たため修正)
+  // ── クイックファクト (チップ風: 均等幅で並べる) ──
+  // 各チップは vertical layout + flex:1、text は中央寄せ + wrap で見切れ防止。
   function _chip(text) {
     return {
       type: 'box', layout: 'vertical',
       backgroundColor: '#f0faf4',
       cornerRadius: 'md',
-      paddingAll: '6px',
+      paddingTop: '4px', paddingBottom: '4px',
+      paddingStart: '4px', paddingEnd: '4px',
       flex: 1,
       contents: [{
         type: 'text', text: text,
-        size: 'xs', color: '#3d6909', weight: 'bold', align: 'center'
+        size: 'xs', color: '#3d6909', weight: 'bold',
+        align: 'center', wrap: true
       }]
     };
   }
@@ -2606,21 +2607,21 @@ function buildPropertyFlex(prop, options) {
       // 単一画像: メイン1枚のみ
       bubble.hero = _imgEl(heroImages[0], '4:3', 'fit');
     } else if (heroImages.length === 2) {
-      // 2枚: 50/50 で横並び (1:1 cover)
+      // 2枚: 50/50 で横並び (1:1 fit — 間取り図など見切れ防止のため cover ではなく fit)
       bubble.hero = {
         type: 'box', layout: 'horizontal', spacing: 'xs',
         contents: [
-          _imgEl(heroImages[0], '1:1', 'cover'),
-          _imgEl(heroImages[1], '1:1', 'cover')
+          _imgEl(heroImages[0], '1:1', 'fit'),
+          _imgEl(heroImages[1], '1:1', 'fit')
         ]
       };
     } else {
-      // 3-4枚: メイン1枚 + サムネ最大3枚のコンポジット
+      // 3-4枚: メイン1枚 + サムネ最大3枚のコンポジット (全て fit で見切れ防止)
       var thumbs = heroImages.slice(1, 4);
       var heroChildren = [_imgEl(heroImages[0], '4:3', 'fit')];
       heroChildren.push({
         type: 'box', layout: 'horizontal', spacing: 'xs',
-        contents: thumbs.map(function(u) { return _imgEl(u, '1:1', 'cover'); })
+        contents: thumbs.map(function(u) { return _imgEl(u, '1:1', 'fit'); })
       });
       bubble.hero = {
         type: 'box', layout: 'vertical', spacing: 'xs',
