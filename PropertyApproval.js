@@ -2419,25 +2419,27 @@ function buildPropertyFlex(prop, options) {
     ]
   };
 
-  // ── クイックファクト (太字インラインで中点区切り) ──
-  var quickFacts = [];
-  if (prop.layout) quickFacts.push(prop.layout);
-  if (prop.area) quickFacts.push(prop.area + 'm²');
-  if (prop.buildingAge) quickFacts.push(prop.buildingAge);
-  if (prop.floor) quickFacts.push(prop.floor + '階');
-  var quickFactsBlock = (quickFacts.length > 0)
-    ? {
-        type: 'box', layout: 'vertical',
-        backgroundColor: '#f0faf4',
-        cornerRadius: 'md',
-        paddingAll: 'sm',
-        margin: 'md',
-        contents: [
-          { type: 'text', text: quickFacts.join('  ・  '),
-            size: 'sm', color: '#3d6909', weight: 'bold', align: 'center', wrap: true }
-        ]
-      }
-    : null;
+  // ── クイックファクト (チップ風: 4つ均等幅で並べる) ──
+  // 各チップは vertical layout + flex:1 で均等幅、text を中央寄せで表示する。
+  // (前回 baseline + flex:0 で中身が空に見える問題が出たため修正)
+  function _chip(text) {
+    return {
+      type: 'box', layout: 'vertical',
+      backgroundColor: '#f0faf4',
+      cornerRadius: 'md',
+      paddingAll: '6px',
+      flex: 1,
+      contents: [{
+        type: 'text', text: text,
+        size: 'xs', color: '#3d6909', weight: 'bold', align: 'center'
+      }]
+    };
+  }
+  var chipsContents = [];
+  if (prop.layout) chipsContents.push(_chip(prop.layout));
+  if (prop.area) chipsContents.push(_chip(prop.area + 'm²'));
+  if (prop.buildingAge) chipsContents.push(_chip(prop.buildingAge));
+  if (prop.floor) chipsContents.push(_chip(prop.floor + '階'));
 
   // ── 立地情報 ──
   var locationLines = [];
@@ -2454,8 +2456,11 @@ function buildPropertyFlex(prop, options) {
 
   // ── body 組み立て ──
   var bodyContents = [titleBlock, rentBlock];
-  if (quickFactsBlock) {
-    bodyContents.push(quickFactsBlock);
+  if (chipsContents.length > 0) {
+    bodyContents.push({
+      type: 'box', layout: 'horizontal', spacing: 'sm', margin: 'md',
+      contents: chipsContents
+    });
   }
   if (locationLines.length > 0) {
     bodyContents.push({ type: 'separator', margin: 'lg', color: '#eeeeee' });
