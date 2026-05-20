@@ -2494,34 +2494,33 @@ function buildPropertyFlex(prop, options) {
 
   if (includeImage && heroImages.length > 0) {
     var _imgAction = viewUrl ? { type: 'uri', uri: viewUrl } : undefined;
-    if (heroImages.length === 1) {
-      // 単一画像
-      bubble.hero = {
-        type: 'image', url: heroImages[0], size: 'full',
-        aspectRatio: '4:3', aspectMode: 'fit',
+    function _imgEl(u, ratio, mode) {
+      return {
+        type: 'image', url: u, size: 'full',
+        aspectRatio: ratio, aspectMode: mode,
         backgroundColor: '#F5F5F5',
         action: _imgAction
       };
+    }
+    if (heroImages.length === 1) {
+      // 単一画像: メイン1枚のみ
+      bubble.hero = _imgEl(heroImages[0], '4:3', 'fit');
+    } else if (heroImages.length === 2) {
+      // 2枚: 50/50 で横並び (1:1 cover)
+      bubble.hero = {
+        type: 'box', layout: 'horizontal', spacing: 'xs',
+        contents: [
+          _imgEl(heroImages[0], '1:1', 'cover'),
+          _imgEl(heroImages[1], '1:1', 'cover')
+        ]
+      };
     } else {
-      // メイン1枚 + サムネ最大3枚 のコンポジット
+      // 3-4枚: メイン1枚 + サムネ最大3枚のコンポジット
       var thumbs = heroImages.slice(1, 4);
-      var heroChildren = [
-        {
-          type: 'image', url: heroImages[0], size: 'full',
-          aspectRatio: '4:3', aspectMode: 'fit',
-          backgroundColor: '#F5F5F5',
-          action: _imgAction
-        }
-      ];
+      var heroChildren = [_imgEl(heroImages[0], '4:3', 'fit')];
       heroChildren.push({
         type: 'box', layout: 'horizontal', spacing: 'xs',
-        contents: thumbs.map(function(u) {
-          return {
-            type: 'image', url: u, size: 'full',
-            aspectRatio: '1:1', aspectMode: 'cover',
-            action: _imgAction
-          };
-        })
+        contents: thumbs.map(function(u) { return _imgEl(u, '1:1', 'cover'); })
       });
       bubble.hero = {
         type: 'box', layout: 'vertical', spacing: 'xs',
