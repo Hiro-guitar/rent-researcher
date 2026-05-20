@@ -341,6 +341,21 @@ function doGet(e) {
 
   const action = e.parameter.action;
 
+  // 診断: スプレッドシート内の全シート名を返す
+  if (action === 'debug_list_sheets') {
+    try {
+      var _ss2 = SpreadsheetApp.openById(SPREADSHEET_ID);
+      var _names = _ss2.getSheets().map(function(s) { return s.getName(); });
+      return ContentService.createTextOutput(JSON.stringify({
+        spreadsheetId: SPREADSHEET_ID,
+        sheets: _names
+      }, null, 2)).setMimeType(ContentService.MimeType.JSON);
+    } catch (_eDS) {
+      return ContentService.createTextOutput(JSON.stringify({ error: _eDS.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // 診断: 閲覧ログから指定顧客のレコードを返す (条件変更提案の判定確認用)
   if (action === 'debug_view_log') {
     var _name = e.parameter.customer || '';
