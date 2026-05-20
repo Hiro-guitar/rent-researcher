@@ -3728,6 +3728,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           newProperties.push(detail);
           currentStats.totalFound++;
           await setStorageData({ debugLog: `${customer.name}: ✓ 送信対象（${detail.building_name} ${detail.room_number || ''} ${detail.floor_text} ${detail.rent ? (detail.rent/10000)+'万' : ''}）` });
+          // 警告アラート計算 (承認プレビューでも表示するため、GAS送信前に計算)
+          try {
+            const _w = (typeof globalThis.__computePropertyWarnings === 'function')
+              ? globalThis.__computePropertyWarnings(detail, customer) : [];
+            detail.warnings_text = (_w || []).join('\n');
+          } catch (_) { detail.warnings_text = ''; }
           // リアルタイムでGAS送信＋Discord通知
           try {
             const submitResult = await submitProperties(customer.name, [detail]);
