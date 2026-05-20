@@ -409,30 +409,34 @@ function getConditionSuggestionCandidates_() {
  * @return {Object<string, Date>}
  */
 /**
- * 閲覧ログから、顧客ごとの「最終物件閲覧日」マップを作る。
- * 閲覧ログ列: [顧客名, room_id, 物件名, 閲覧日時 ('yyyy/MM/dd HH:mm:ss')]
+ * アクションログから、顧客ごとの「最終物件閲覧日」マップを作る。
+ * アクションログ列: [顧客名(0), room_id(1), アクション(2), 物件名(3), 部屋番号(4),
+ *                    賃料(5), 間取り(6), 最寄駅(7), 日時(8), ...]
+ *  アクション === 'view' の行のみ集計。
  *
  * @return {Object<string, Date>}
  */
 function _buildLastViewMap_() {
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var sheet = ss.getSheetByName('閲覧ログ');
+    var sheet = ss.getSheetByName('アクションログ');
     if (!sheet) return {};
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return {};
-    var data = sheet.getRange(2, 1, lastRow - 1, 4).getValues(); // A..D
+    var data = sheet.getRange(2, 1, lastRow - 1, 9).getValues(); // A..I
 
     var map = {};
     for (var i = 0; i < data.length; i++) {
       var name = String(data[i][0] || '').trim();
       if (!name) continue;
-      var ts = data[i][3];
+      var action = String(data[i][2] || '').trim().toLowerCase();
+      if (action !== 'view') continue;
+      var ts = data[i][8];
       var d = null;
       if (ts instanceof Date) {
         d = ts;
       } else if (typeof ts === 'string' && ts) {
-        // 'yyyy/MM/dd HH:mm:ss' 形式 を parse
+        // 'yyyy/MM/dd HH:mm:ss' or 'yyyy-MM-dd HH:mm:ss' を parse
         var parsed = new Date(ts.replace(/\//g, '-').replace(' ', 'T') + '+09:00');
         if (!isNaN(parsed.getTime())) d = parsed;
       }
