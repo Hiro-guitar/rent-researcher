@@ -599,83 +599,114 @@ function processReplyQueue() {
         altText: '「' + displayName + '」の確認結果をお知らせします',
         contents: {
           type: 'bubble',
+          size: 'mega',
+          // ── ヘッダー: 緑カラーブロックで「お知らせ」 ──
+          header: {
+            type: 'box',
+            layout: 'vertical',
+            backgroundColor: '#6ea814',
+            paddingAll: 'lg',
+            contents: [
+              {
+                type: 'text',
+                text: 'お知らせ',
+                color: '#ffffff',
+                weight: 'bold',
+                size: 'md',
+                align: 'center'
+              }
+            ]
+          },
           body: {
             type: 'box',
             layout: 'vertical',
             spacing: 'md',
+            paddingAll: 'xl',
             contents: [
+              // 残念な結果 (控えめに伝える)
               {
                 type: 'text',
-                text: 'お待たせいたしました。' + displayName + 'について確認いたしましたが、残念ながら現在こちらの物件はご案内が難しい状況でした。',
-                wrap: true,
+                text: 'お待たせいたしました。',
                 size: 'sm',
                 color: '#666666'
               },
-              { type: 'separator' },
               {
                 type: 'text',
-                text: '似た条件の物件のご案内はご希望されますか？',
-                wrap: true,
+                text: displayName,
                 size: 'md',
-                color: '#333333',
-                weight: 'bold'
+                color: '#1a2538',
+                weight: 'bold',
+                wrap: true,
+                margin: 'sm'
+              },
+              {
+                type: 'text',
+                text: '確認いたしましたが、現在ご案内が難しい状況でした。',
+                size: 'sm',
+                color: '#666666',
+                wrap: true,
+                margin: 'sm'
+              },
+              { type: 'separator', margin: 'xl', color: '#eeeeee' },
+              // 提案 (こっちが本命、目立つように)
+              {
+                type: 'box',
+                layout: 'vertical',
+                backgroundColor: '#f5f9ee',
+                cornerRadius: 'md',
+                paddingAll: 'lg',
+                margin: 'lg',
+                spacing: 'sm',
+                contents: [
+                  {
+                    type: 'text',
+                    text: '似た条件で\nお部屋を探しませんか？',
+                    size: 'lg',
+                    color: '#3d6909',
+                    weight: 'bold',
+                    wrap: true,
+                    align: 'center'
+                  },
+                  {
+                    type: 'text',
+                    text: 'ご希望に合う物件が見つかり次第\nすぐにお知らせします',
+                    size: 'xs',
+                    color: '#5a7a3f',
+                    wrap: true,
+                    align: 'center',
+                    margin: 'sm'
+                  }
+                ]
               }
             ]
           },
           footer: {
             type: 'box',
-            layout: 'horizontal',
-            spacing: 'md',
+            layout: 'vertical',
+            spacing: 'sm',
+            paddingAll: 'lg',
             contents: [
               {
-                type: 'box',
-                layout: 'vertical',
-                flex: 1,
-                cornerRadius: 'md',
-                backgroundColor: '#6ea814',
-                paddingAll: 'sm',
-                justifyContent: 'center',
-                alignItems: 'center',
+                type: 'button',
+                style: 'primary',
+                color: '#6ea814',
+                height: 'sm',
                 action: {
                   type: 'message',
-                  label: 'はい',
+                  label: 'はい、お部屋を探す',
                   text: '条件登録'
-                },
-                contents: [
-                  {
-                    type: 'text',
-                    text: 'はい',
-                    color: '#FFFFFF',
-                    weight: 'bold',
-                    size: 'sm',
-                    align: 'center'
-                  }
-                ]
+                }
               },
               {
-                type: 'box',
-                layout: 'vertical',
-                flex: 1,
-                cornerRadius: 'md',
-                backgroundColor: '#EEEEEE',
-                paddingAll: 'sm',
-                justifyContent: 'center',
-                alignItems: 'center',
+                type: 'button',
+                style: 'link',
+                color: '#999999',
+                height: 'sm',
                 action: {
                   type: 'message',
-                  label: 'いいえ',
+                  label: '今回はキャンセル',
                   text: '類似物件不要'
-                },
-                contents: [
-                  {
-                    type: 'text',
-                    text: 'いいえ',
-                    color: '#666666',
-                    weight: 'bold',
-                    size: 'sm',
-                    align: 'center'
-                  }
-                ]
+                }
               }
             ]
           }
@@ -719,64 +750,48 @@ function testSendConditionButton() {
       altText: 'テスト: 類似物件提案メッセージ確認',
       contents: {
         type: 'bubble',
+        size: 'mega',
+        header: {
+          type: 'box',
+          layout: 'vertical',
+          backgroundColor: '#6ea814',
+          paddingAll: 'lg',
+          contents: [
+            { type: 'text', text: 'お知らせ (テスト)', color: '#ffffff', weight: 'bold', size: 'md', align: 'center' }
+          ]
+        },
         body: {
           type: 'box',
           layout: 'vertical',
           spacing: 'md',
+          paddingAll: 'xl',
           contents: [
+            { type: 'text', text: 'お問い合わせありがとうございます。', size: 'sm', color: '#666666' },
+            { type: 'text', text: 'テスト物件 101号室', size: 'md', color: '#1a2538', weight: 'bold', wrap: true, margin: 'sm' },
+            { type: 'text', text: '確認したところ、現在ご案内が難しい状況でした。', size: 'sm', color: '#666666', wrap: true, margin: 'sm' },
+            { type: 'separator', margin: 'xl', color: '#eeeeee' },
             {
-              type: 'text',
-              text: '「テスト物件 101号室」の確認結果',
-              weight: 'bold',
-              size: 'lg',
-              wrap: true
-            },
-            {
-              type: 'text',
-              text: 'お問い合わせありがとうございます。確認したところ、現在こちらの物件はご案内が難しい状況でした。',
-              wrap: true,
-              size: 'sm',
-              color: '#666666'
-            },
-            { type: 'separator' },
-            {
-              type: 'text',
-              text: '似た条件の物件をお探ししましょうか？',
-              wrap: true,
-              size: 'md',
-              color: '#333333',
-              weight: 'bold'
+              type: 'box', layout: 'vertical',
+              backgroundColor: '#f5f9ee',
+              cornerRadius: 'md',
+              paddingAll: 'lg', margin: 'lg', spacing: 'sm',
+              contents: [
+                { type: 'text', text: '似た条件で\nお部屋を探しませんか？', size: 'lg', color: '#3d6909', weight: 'bold', wrap: true, align: 'center' },
+                { type: 'text', text: 'ご希望に合う物件が見つかり次第\nすぐにお知らせします', size: 'xs', color: '#5a7a3f', wrap: true, align: 'center', margin: 'sm' }
+              ]
             }
           ]
         },
         footer: {
           type: 'box',
-          layout: 'horizontal',
-          spacing: 'md',
+          layout: 'vertical',
+          spacing: 'sm',
+          paddingAll: 'lg',
           contents: [
-            {
-              type: 'button',
-              style: 'primary',
-              color: '#6ea814',
-              height: 'sm',
-              flex: 1,
-              action: {
-                type: 'message',
-                label: 'はい、お願いします',
-                text: '条件登録'
-              }
-            },
-            {
-              type: 'button',
-              style: 'secondary',
-              height: 'sm',
-              flex: 1,
-              action: {
-                type: 'message',
-                label: 'いいえ、大丈夫です',
-                text: '類似物件不要'
-              }
-            }
+            { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+              action: { type: 'message', label: 'はい、お部屋を探す', text: '条件登録' } },
+            { type: 'button', style: 'link', color: '#999999', height: 'sm',
+              action: { type: 'message', label: '今回はキャンセル', text: '類似物件不要' } }
           ]
         }
       }
