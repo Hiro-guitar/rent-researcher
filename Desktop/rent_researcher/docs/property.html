@@ -67,8 +67,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .fac-cat-name{font-size:11px;color:#6b7280;font-weight:700;margin-bottom:6px;letter-spacing:0.5px}
 .fac-tags{display:flex;flex-wrap:wrap;gap:5px}
 .fac-tag{display:inline-block;font-size:12px;color:#3a4a5e;background:#f5f7fa;border-radius:6px;padding:3px 9px;line-height:1.6}
-/* お客さん希望にマッチした設備タグを強調 */
-.fac-tag.matched{background:#f0faf4;color:#3d6909;font-weight:700;border:1px solid #b8d490}
+/* お客さん希望にマッチした設備タグは ✓ アイコン + 緑文字でさり気なく強調 */
+.fac-tag.matched{color:#3d6909;font-weight:600}
+.fac-tag.matched::before{content:"\2713";margin-right:3px;color:#6ea814;font-weight:700}
 .cond-ok{background:#f0faf4;color:#3d6909}
 .cond-ng{background:#f5f5f5;color:#9ca3af}
 .footer{text-align:center;padding:20px;color:#aaa;font-size:12px}
