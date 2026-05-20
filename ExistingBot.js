@@ -390,11 +390,25 @@ function createPropertyBubble(p) {
       size: 'md', margin: 'md', color: '#8ec41d', wrap: true
     });
   } else {
-    // I列が空欄 or その他 → スタッフ確認メッセージを表示
+    // I列が空欄 or その他 → スタッフ確認中のステータスボックスを表示
+    // 営業時間内: 数分以内 / 営業時間外: 翌営業日 と返信目安を案内
+    var _now = new Date();
+    var _jstHour = (typeof getJstHour === 'function') ? getJstHour(_now) : _now.getUTCHours() + 9;
+    var _etaMsg = (_jstHour >= 10 && _jstHour < 20)
+      ? '数分以内にスタッフよりご返信いたします'
+      : '営業時間外のため、翌営業日の朝にご返信いたします';
     bodyContents.push({
-      type: 'text',
-      text: 'スタッフが確認してご返信いたしますので、お待ちください。',
-      size: 'md', margin: 'md', color: '#aa0000', wrap: true
+      type: 'box',
+      layout: 'vertical',
+      backgroundColor: '#fff8e1',
+      cornerRadius: 'md',
+      paddingAll: 'md',
+      margin: 'md',
+      spacing: 'xs',
+      contents: [
+        { type: 'text', text: 'スタッフが空室確認中です', size: 'sm', weight: 'bold', color: '#c8650b' },
+        { type: 'text', text: _etaMsg, size: 'xs', color: '#8c5410', wrap: true }
+      ]
     });
   }
 
