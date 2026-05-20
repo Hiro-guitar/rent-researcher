@@ -2419,22 +2419,25 @@ function buildPropertyFlex(prop, options) {
     ]
   };
 
-  // ── クイックファクト (チップ風) ──
-  function _chip(text) {
-    return {
-      type: 'box', layout: 'baseline',
-      backgroundColor: '#f0faf4',
-      cornerRadius: 'md',
-      paddingTop: '4px', paddingBottom: '4px', paddingStart: 'md', paddingEnd: 'md',
-      flex: 0,
-      contents: [{ type: 'text', text: text, size: 'xs', color: '#3d6909', weight: 'bold' }]
-    };
-  }
-  var chipsContents = [];
-  if (prop.layout) chipsContents.push(_chip(prop.layout));
-  if (prop.area) chipsContents.push(_chip(prop.area + 'm²'));
-  if (prop.buildingAge) chipsContents.push(_chip(prop.buildingAge));
-  if (prop.floor) chipsContents.push(_chip(prop.floor + '階'));
+  // ── クイックファクト (太字インラインで中点区切り) ──
+  var quickFacts = [];
+  if (prop.layout) quickFacts.push(prop.layout);
+  if (prop.area) quickFacts.push(prop.area + 'm²');
+  if (prop.buildingAge) quickFacts.push(prop.buildingAge);
+  if (prop.floor) quickFacts.push(prop.floor + '階');
+  var quickFactsBlock = (quickFacts.length > 0)
+    ? {
+        type: 'box', layout: 'vertical',
+        backgroundColor: '#f0faf4',
+        cornerRadius: 'md',
+        paddingAll: 'sm',
+        margin: 'md',
+        contents: [
+          { type: 'text', text: quickFacts.join('  ・  '),
+            size: 'sm', color: '#3d6909', weight: 'bold', align: 'center', wrap: true }
+        ]
+      }
+    : null;
 
   // ── 立地情報 ──
   var locationLines = [];
@@ -2451,8 +2454,8 @@ function buildPropertyFlex(prop, options) {
 
   // ── body 組み立て ──
   var bodyContents = [titleBlock, rentBlock];
-  if (chipsContents.length > 0) {
-    bodyContents.push({ type: 'box', layout: 'horizontal', spacing: 'sm', margin: 'md', contents: chipsContents });
+  if (quickFactsBlock) {
+    bodyContents.push(quickFactsBlock);
   }
   if (locationLines.length > 0) {
     bodyContents.push({ type: 'separator', margin: 'lg', color: '#eeeeee' });
