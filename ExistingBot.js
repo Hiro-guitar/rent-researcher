@@ -608,6 +608,24 @@ function processReplyQueue() {
     var roomNumber = data[i][2];
     var displayName = propertyName + (roomNumber ? ' ' + roomNumber + '号室' : '');
 
+    // 既に条件登録済みかチェック (登録済みなら「条件登録ボタン」は出さず通知のみ)
+    var _hasRegistered = false;
+    try {
+      var _existing = (typeof readLatestCriteria === 'function') ? readLatestCriteria(userId) : null;
+      _hasRegistered = !!_existing;
+    } catch (_) {}
+
+    if (_hasRegistered) {
+      // 既に条件が登録されている顧客: シンプルなテキスト通知 (条件登録への誘導は不要)
+      pushMessage(userId, [{
+        type: 'text',
+        text: 'お待たせいたしました。\n「' + displayName + '」について確認いたしましたが、現在ご案内が難しい状況でした。\n\n引き続き、ご希望の条件に合うお部屋が見つかり次第すぐにご案内いたします。'
+      }]);
+      // ステータス更新
+      sheet.getRange(i + 1, 6).setValue('sent');
+      continue;
+    }
+
     // Push メッセージ送信（Flex - 確認結果 + 類似物件の提案）
     pushMessage(userId, [
       {
