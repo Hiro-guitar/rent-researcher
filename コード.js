@@ -341,6 +341,48 @@ function doGet(e) {
 
   const action = e.parameter.action;
 
+  // 診断: 閲覧ログから指定顧客のレコードを返す (条件変更提案の判定確認用)
+  if (action === 'debug_view_log') {
+    var _name = e.parameter.customer || '';
+    try {
+      var _ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      var _sheet = _ss.getSheetByName('閲覧ログ');
+      if (!_sheet) {
+        return ContentService.createTextOutput(JSON.stringify({ error: '閲覧ログ シートなし' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      var _last = _sheet.getLastRow();
+      var _data = _sheet.getRange(1, 1, _last, 4).getValues();
+      var _hits = [];
+      for (var _i = 1; _i < _data.length; _i++) {
+        var _n = String(_data[_i][0] || '');
+        if (!_name || _n.indexOf(_name) >= 0 || _name.indexOf(_n) >= 0) {
+          _hits.push({
+            row: _i + 1,
+            name: _n,
+            nameLen: _n.length,
+            nameChars: _n.split('').map(function(c) { return c.charCodeAt(0); }),
+            roomId: String(_data[_i][1] || ''),
+            building: String(_data[_i][2] || ''),
+            ts: _data[_i][3] instanceof Date
+              ? 'DATE:' + _data[_i][3].toISOString()
+              : 'STR:' + String(_data[_i][3] || ''),
+            tsType: typeof _data[_i][3]
+          });
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        searched: _name,
+        totalRows: _last - 1,
+        matchedRows: _hits.length,
+        hits: _hits.slice(0, 20)
+      }, null, 2)).setMimeType(ContentService.MimeType.JSON);
+    } catch (_eDV) {
+      return ContentService.createTextOutput(JSON.stringify({ error: _eDV.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // criteria_state: form.ehomaki.com/criteria.html がユーザー現在状態をfetchするためのJSON返却
   if (action === 'criteria_state') {
     var _userIdC = e.parameter.userId;
