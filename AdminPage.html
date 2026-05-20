@@ -1830,13 +1830,18 @@ function refreshSuggestionList() {
       }
       footerEl.style.display = '';
       var html = '';
+      // 単位の重複を避けるヘルパ (スプレッドシートの値が "30年以内" など
+      // 既にサフィックスを含むケースに対応)
+      var _fmtRent = function(v) { v = String(v || ''); return v && !/(万|円)/.test(v) ? v + '万' : v; };
+      var _fmtArea = function(v) { v = String(v || ''); if (!v || v === '指定しない') return v;
+        return /(m²|㎡|m2)/.test(v) ? v + '以上' : v + 'm²以上'; };
+      var _fmtAge = function(v) { v = String(v || ''); if (!v || v === '新築' || v === '指定しない') return v;
+        return /(年以内|年|新築)/.test(v) ? v : v + '年以内'; };
+      var _fmtWalk = function(v) { v = String(v || ''); if (!v || v === '指定しない') return v;
+        return /(分以内|分)/.test(v) ? v : v + '分以内'; };
+
       items.forEach(function(c) {
         var name = escAttr(c.name);
-        var refLabel = c.lastDeliveryAt
-          ? ('最終通知: ' + esc(c.lastDeliveryAt))
-          : ('未通知 / 登録: ' + esc(c.registeredAt || '?'));
-        if (c.lastViewAt) refLabel += ' / 最終閲覧: ' + esc(c.lastViewAt);
-        var lastSuggest = c.lastSuggestAt ? ' / 前回提案: ' + esc(c.lastSuggestAt) : '';
         // 候補理由バッジ
         var reasonBadge = '';
         if (c.reasonCode === 'no_view') {
@@ -1844,23 +1849,35 @@ function refreshSuggestionList() {
         } else if (c.reasonCode === 'no_delivery') {
           reasonBadge = '<span style="display:inline-block;font-size:10px;background:#e8f4f8;color:#1f5e8b;border:1px solid #b8dce8;padding:1px 6px;border-radius:10px;margin-left:6px;font-weight:600;">通知なし</span>';
         }
-        // 現条件サマリ
-        var sumParts = [];
-        if (c.rentMax) sumParts.push('家賃 ' + esc(c.rentMax) + '万');
-        if (c.layouts) sumParts.push(esc(c.layouts));
-        if (c.areaMin) sumParts.push(esc(c.areaMin) + 'm²+');
-        if (c.ageMax) sumParts.push('築' + esc(c.ageMax) + '年');
-        if (c.walkMax) sumParts.push('徒歩' + esc(c.walkMax) + '分');
-        if (c.city) sumParts.push(esc(c.city));
-        if (c.stations) sumParts.push(esc(c.stations));
-        var summary = sumParts.join(' / ');
-        html += '<div style="background:#fff;border:1px solid #cfe1f3;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;align-items:flex-start;gap:8px;">' +
+        // 日付サマリ (登録/最終通知/最終閲覧/前回提案)
+        var dateParts = [];
+        if (c.registeredAt) dateParts.push('登録 ' + esc(c.registeredAt));
+        dateParts.push('最終通知 ' + (c.lastDeliveryAt ? esc(c.lastDeliveryAt) : '—'));
+        dateParts.push('最終閲覧 ' + (c.lastViewAt ? esc(c.lastViewAt) : '—'));
+        if (c.lastSuggestAt) dateParts.push('前回提案 ' + esc(c.lastSuggestAt));
+        var dateLine = dateParts.join('　/　');
+        // 条件サマリ (路線/エリアは別行)
+        var condParts = [];
+        if (c.rentMax) condParts.push('家賃 ' + _fmtRent(c.rentMax));
+        if (c.layouts) condParts.push(esc(c.layouts));
+        if (c.areaMin) condParts.push(_fmtArea(c.areaMin));
+        if (c.ageMax) condParts.push('築' + _fmtAge(c.ageMax));
+        if (c.walkMax) condParts.push('徒歩' + _fmtWalk(c.walkMax));
+        var condLine = condParts.join('　・　');
+        // エリア (市区町村 + 駅)
+        var areaParts = [];
+        if (c.city) areaParts.push(esc(c.city));
+        if (c.stations) areaParts.push(esc(c.stations));
+        var areaLine = areaParts.join('　/　');
+
+        html += '<div style="background:#fff;border:1px solid #cfe1f3;border-radius:6px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:flex-start;gap:8px;">' +
           '<input type="checkbox" class="suggestion-cb" data-name="' + name + '" checked style="margin-top:2px;flex-shrink:0;width:18px;height:18px;accent-color:#3498db;">' +
           '<div style="flex:1;min-width:0;">' +
-            '<div style="font-size:13px;font-weight:600;color:#1f5e8b;">' + esc(c.name) + ' <span style="font-size:11px;color:#666;font-weight:normal;">(' + c.daysSinceReference + '日経過)</span>' + reasonBadge + '</div>' +
-            (c.reasonText ? '<div style="font-size:10px;color:#856404;margin-top:2px;">' + esc(c.reasonText) + '</div>' : '') +
-            '<div style="font-size:11px;color:#666;margin-top:2px;">' + refLabel + lastSuggest + '</div>' +
-            (summary ? '<div style="font-size:11px;color:#444;margin-top:2px;">' + summary + '</div>' : '') +
+            '<div style="font-size:13px;font-weight:600;color:#1f5e8b;">' + esc(c.name) + reasonBadge + '</div>' +
+            (c.reasonText ? '<div style="font-size:11px;color:#856404;margin-top:3px;">' + esc(c.reasonText) + '</div>' : '') +
+            '<div style="font-size:11px;color:#666;margin-top:4px;">📅 ' + dateLine + '</div>' +
+            (condLine ? '<div style="font-size:11px;color:#444;margin-top:3px;">🏠 ' + condLine + '</div>' : '') +
+            (areaLine ? '<div style="font-size:11px;color:#444;margin-top:3px;">📍 ' + areaLine + '</div>' : '') +
           '</div>' +
         '</div>';
       });
