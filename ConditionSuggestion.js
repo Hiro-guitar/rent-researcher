@@ -304,6 +304,9 @@ function getConditionSuggestionCandidates_() {
   // 顧客ごとの「最終物件通知日」を PENDING_SHEET から一括取得
   var lastDeliveryMap = _buildLastDeliveryMap_();
 
+  // 顧客ごとの「最終物件閲覧日」を 閲覧ログ から一括取得
+  var lastViewMap = _buildLastViewMap_();
+
   var now = Date.now();
   var thresholdMs = CONDITION_SUGGESTION_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
   var dayMs = 24 * 60 * 60 * 1000;
@@ -327,14 +330,38 @@ function getConditionSuggestionCandidates_() {
       continue;
     }
 
-    // 最終物件通知日 or 登録日 (A列) から14日以上か?
+    // 候補判定: 以下のいずれかを満たす
+    //   ケースA: 最終物件通知日 (or 登録日) から14日以上経過
+    //           (物件が来ていない / フローが止まっている人)
+    //   ケースB: 物件は最近14日以内に来ているが、14日以上閲覧していない
+    //           (送ってるのに開いてない人)
     var regDate = row[0] instanceof Date ? row[0] : null;
     var lastDelivery = lastDeliveryMap[name] || null;
+    var lastView = lastViewMap[name] || null;
     var refDate = lastDelivery || regDate;
     if (!refDate) continue;
 
     var elapsedMs = now - refDate.getTime();
-    if (elapsedMs < thresholdMs) continue;
+    var caseA = elapsedMs >= thresholdMs;
+
+    // ケースB: 物件は来てるが見てない
+    //   - 登録から14日以上経過 (登録直後の判断は早すぎる)
+    //   - 物件が直近14日以内に送信されている
+    //   - 閲覧履歴なし、または最終閲覧から14日以上経過
+    var regOldEnough = regDate && (now - regDate.getTime()) >= thresholdMs;
+    var hasRecentDelivery = lastDelivery && (now - lastDelivery.getTime()) < thresholdMs;
+    var lastViewOldOrNone = !lastView || (now - lastView.getTime()) >= thresholdMs;
+    var caseB = regOldEnough && hasRecentDelivery && lastViewOldOrNone;
+
+    if (!caseA && !caseB) continue;
+
+    // 候補に入れる理由 (admin画面での表示用)
+    var reasonCode = caseA ? 'no_delivery' : 'no_view';
+    var reasonText = caseA
+      ? Math.floor(elapsedMs / dayMs) + '日間 物件通知なし'
+      : (lastView
+          ? Math.floor((now - lastView.getTime()) / dayMs) + '日間 閲覧なし (物件は届いている)'
+          : '一度も閲覧なし (物件は届いている)');
 
     // 路線・駅 (E列): "路線名(駅A, 駅B), 路線名(駅C)" 形式
     var routesWithStations = [];
@@ -350,7 +377,10 @@ function getConditionSuggestionCandidates_() {
       rowIndex: i + 1, // 1-based row in sheet
       registeredAt: regDate ? Utilities.formatDate(regDate, 'Asia/Tokyo', 'yyyy-MM-dd') : '',
       lastDeliveryAt: lastDelivery ? Utilities.formatDate(lastDelivery, 'Asia/Tokyo', 'yyyy-MM-dd') : '',
+      lastViewAt: lastView ? Utilities.formatDate(lastView, 'Asia/Tokyo', 'yyyy-MM-dd') : '',
       daysSinceReference: Math.floor(elapsedMs / dayMs),
+      reasonCode: reasonCode,
+      reasonText: reasonText,
       lastSuggestAt: lastSuggestAt instanceof Date
         ? Utilities.formatDate(lastSuggestAt, 'Asia/Tokyo', 'yyyy-MM-dd')
         : '',
@@ -378,6 +408,46 @@ function getConditionSuggestionCandidates_() {
  * status='sent' の行のうち、column M (index 12) のタイムスタンプを集約。
  * @return {Object<string, Date>}
  */
+/**
+ * 閲覧ログから、顧客ごとの「最終物件閲覧日」マップを作る。
+ * 閲覧ログ列: [顧客名, room_id, 物件名, 閲覧日時 ('yyyy/MM/dd HH:mm:ss')]
+ *
+ * @return {Object<string, Date>}
+ */
+function _buildLastViewMap_() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName('閲覧ログ');
+    if (!sheet) return {};
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return {};
+    var data = sheet.getRange(2, 1, lastRow - 1, 4).getValues(); // A..D
+
+    var map = {};
+    for (var i = 0; i < data.length; i++) {
+      var name = String(data[i][0] || '').trim();
+      if (!name) continue;
+      var ts = data[i][3];
+      var d = null;
+      if (ts instanceof Date) {
+        d = ts;
+      } else if (typeof ts === 'string' && ts) {
+        // 'yyyy/MM/dd HH:mm:ss' 形式 を parse
+        var parsed = new Date(ts.replace(/\//g, '-').replace(' ', 'T') + '+09:00');
+        if (!isNaN(parsed.getTime())) d = parsed;
+      }
+      if (!d) continue;
+      if (!map[name] || d.getTime() > map[name].getTime()) {
+        map[name] = d;
+      }
+    }
+    return map;
+  } catch (e) {
+    console.warn('_buildLastViewMap_ error: ' + (e && e.message));
+    return {};
+  }
+}
+
 function _buildLastDeliveryMap_() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);

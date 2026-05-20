@@ -1835,7 +1835,15 @@ function refreshSuggestionList() {
         var refLabel = c.lastDeliveryAt
           ? ('最終通知: ' + esc(c.lastDeliveryAt))
           : ('未通知 / 登録: ' + esc(c.registeredAt || '?'));
+        if (c.lastViewAt) refLabel += ' / 最終閲覧: ' + esc(c.lastViewAt);
         var lastSuggest = c.lastSuggestAt ? ' / 前回提案: ' + esc(c.lastSuggestAt) : '';
+        // 候補理由バッジ
+        var reasonBadge = '';
+        if (c.reasonCode === 'no_view') {
+          reasonBadge = '<span style="display:inline-block;font-size:10px;background:#fff3cd;color:#856404;border:1px solid #ffeaa7;padding:1px 6px;border-radius:10px;margin-left:6px;font-weight:600;">閲覧なし</span>';
+        } else if (c.reasonCode === 'no_delivery') {
+          reasonBadge = '<span style="display:inline-block;font-size:10px;background:#e8f4f8;color:#1f5e8b;border:1px solid #b8dce8;padding:1px 6px;border-radius:10px;margin-left:6px;font-weight:600;">通知なし</span>';
+        }
         // 現条件サマリ
         var sumParts = [];
         if (c.rentMax) sumParts.push('家賃 ' + esc(c.rentMax) + '万');
@@ -1849,7 +1857,8 @@ function refreshSuggestionList() {
         html += '<div style="background:#fff;border:1px solid #cfe1f3;border-radius:6px;padding:8px 10px;margin-bottom:6px;display:flex;align-items:flex-start;gap:8px;">' +
           '<input type="checkbox" class="suggestion-cb" data-name="' + name + '" checked style="margin-top:2px;flex-shrink:0;width:18px;height:18px;accent-color:#3498db;">' +
           '<div style="flex:1;min-width:0;">' +
-            '<div style="font-size:13px;font-weight:600;color:#1f5e8b;">' + esc(c.name) + ' <span style="font-size:11px;color:#666;font-weight:normal;">(' + c.daysSinceReference + '日経過)</span></div>' +
+            '<div style="font-size:13px;font-weight:600;color:#1f5e8b;">' + esc(c.name) + ' <span style="font-size:11px;color:#666;font-weight:normal;">(' + c.daysSinceReference + '日経過)</span>' + reasonBadge + '</div>' +
+            (c.reasonText ? '<div style="font-size:10px;color:#856404;margin-top:2px;">' + esc(c.reasonText) + '</div>' : '') +
             '<div style="font-size:11px;color:#666;margin-top:2px;">' + refLabel + lastSuggest + '</div>' +
             (summary ? '<div style="font-size:11px;color:#444;margin-top:2px;">' + summary + '</div>' : '') +
           '</div>' +
