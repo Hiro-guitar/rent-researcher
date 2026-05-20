@@ -572,9 +572,23 @@ function buildConditionSuggestionFlex_(c) {
   //  詳細カスケードを復活させる際は c.rentMax / c.ageMax / c.areaMin /
   //  c.walkMax / c.layouts / c.structures / c.equipment から組み立てる)
 
+  // 候補理由 (reasonCode) によってメッセージを変える
+  //   - 'no_delivery' (caseA): 物件が来ていない人向け
+  //   - 'no_view' (caseB): 物件は来てるが見ていない人向け
+  var _isNoView = (c.reasonCode === 'no_view');
+  var _title = _isNoView
+    ? 'お部屋探しの状況はいかがですか？'
+    : 'ご条件の変更をしてみませんか？';
+  var _desc = _isNoView
+    ? 'お送りしているお部屋情報、もしピンとくるものがなければ、条件を少し変えると、よりご希望に合うお部屋が見つかるかもしれません。'
+    : '条件を少し緩めると、ご紹介できる物件が増える可能性があります。';
+  var _altText = _isNoView
+    ? 'お部屋探しの状況はいかがですか？'
+    : 'ご条件の変更をしてみませんか？';
+
   return {
     type: 'flex',
-    altText: 'ご条件の変更をしてみませんか？',
+    altText: _altText,
     contents: {
       type: 'bubble',
       body: {
@@ -583,8 +597,8 @@ function buildConditionSuggestionFlex_(c) {
         spacing: 'lg',
         paddingAll: 'lg',
         contents: [
-          { type: 'text', text: 'ご条件の変更をしてみませんか？', weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
-          { type: 'text', text: '条件を少し緩めると、ご紹介できる物件が増える可能性があります。', size: 'sm', color: '#555555', wrap: true, margin: 'sm' },
+          { type: 'text', text: _title, weight: 'bold', size: 'lg', color: '#2c3e50', wrap: true },
+          { type: 'text', text: _desc, size: 'sm', color: '#555555', wrap: true, margin: 'sm' },
           { type: 'separator', margin: 'lg' },
           { type: 'text', text: '現在ご登録の条件', size: 'md', color: '#666666', weight: 'bold', margin: 'md' },
           {
