@@ -2402,20 +2402,22 @@ function buildPropertyFlex(prop, options) {
   };
 
   // ── 賃料ブロック (大きく目立たせる) ──
-  var subRent = '管理費 ' + mgmtText
-    + '   ・   敷金 ' + (prop.deposit || '0')
-    + ' / 礼金 ' + (prop.keyMoney || '0');
+  // 賃料と「/月」を flex:0 にして隣接させる (default flex:1 だと「/月」が右に押される)。
+  // 管理費・敷金礼金は別行で sm サイズに格上げ (前バージョンの xs は見づらかった)。
   var rentBlock = {
     type: 'box', layout: 'vertical', spacing: 'xs', margin: 'sm',
     contents: [
       {
         type: 'box', layout: 'baseline', spacing: 'sm',
         contents: [
-          { type: 'text', text: rentText, weight: 'bold', size: 'xxl', color: '#E05252' },
+          { type: 'text', text: rentText, weight: 'bold', size: 'xxl', color: '#E05252', flex: 0 },
           { type: 'text', text: '/ 月', size: 'xs', color: '#999999', flex: 0 }
         ]
       },
-      { type: 'text', text: subRent, size: 'xs', color: '#888888', wrap: true }
+      { type: 'text', text: '管理費 ' + mgmtText, size: 'sm', color: '#666666' },
+      { type: 'text',
+        text: '敷金 ' + (prop.deposit || '0') + ' / 礼金 ' + (prop.keyMoney || '0'),
+        size: 'sm', color: '#666666' }
     ]
   };
 
@@ -2449,9 +2451,13 @@ function buildPropertyFlex(prop, options) {
   if (prop.stationInfo) {
     locationLines.push({ type: 'text', text: prop.stationInfo, size: 'sm', color: '#444444', wrap: true });
   }
+  // その他の路線: 複数ある場合は1路線1行で表示 (詰まらず読みやすい)
   if (prop.otherStations && prop.otherStations.length > 0) {
-    locationLines.push({ type: 'text', text: 'その他の路線：' + prop.otherStations.join('、'),
-      size: 'xs', color: '#888888', wrap: true });
+    locationLines.push({ type: 'text', text: 'その他の路線', size: 'xs', color: '#888888', margin: 'sm' });
+    for (var os = 0; os < prop.otherStations.length; os++) {
+      locationLines.push({ type: 'text', text: prop.otherStations[os],
+        size: 'sm', color: '#666666', wrap: true });
+    }
   }
 
   // ── body 組み立て ──
