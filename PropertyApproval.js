@@ -208,7 +208,7 @@ function handleConfirmApprove(e) {
 
   var flex = buildPropertyFlex(prop, {
     includeImage: selectedImageUrls.length > 0,
-    heroImageUrl: selectedImageUrls.length > 0 ? selectedImageUrls[0] : '',
+    heroImageUrls: selectedImageUrls,
     viewUrl: viewUrl
   });
 
@@ -278,7 +278,7 @@ function handleConfirmApproveAll(e) {
 
     var flex = buildPropertyFlex(prop, {
       includeImage: includeImage,
-      heroImageUrl: selectedUrls.length > 0 ? selectedUrls[0] : '',
+      heroImageUrls: selectedUrls,
       viewUrl: viewUrl
     });
 
@@ -1132,10 +1132,10 @@ function handleFavoritesCommand(replyToken, userId) {
       var minimalUrl = buildMinimalViewUrl(customerName, rid, prop);
       var viewUrl = savedViewUrl || (minimalUrl.length <= 1000 ? minimalUrl : plainUrl);
 
-      var heroImageUrl = (prop.imageUrls && prop.imageUrls.length > 0) ? prop.imageUrls[0] : (prop.imageUrl || '');
+      var heroImageUrls = (prop.imageUrls && prop.imageUrls.length > 0) ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
       var flex = buildPropertyFlex(prop, {
-        includeImage: !!heroImageUrl,
-        heroImageUrl: heroImageUrl,
+        includeImage: heroImageUrls.length > 0,
+        heroImageUrls: heroImageUrls,
         viewUrl: viewUrl
       });
       // buildPropertyFlex は { type:'flex', altText, contents:bubble } を返すので bubble だけ取り出す
@@ -2475,14 +2475,59 @@ function buildPropertyFlex(prop, options) {
 
   var bubble = { type: 'bubble', size: 'mega' };
 
-  var heroUrl = options.heroImageUrl || prop.imageUrl || '';
-  if (includeImage && heroUrl && heroUrl.indexOf('https://') === 0) {
-    // aspectMode: 'fit' で縦長画像も見切れずに全体表示
-    bubble.hero = {
-      type: 'image', url: heroUrl, size: 'full',
-      aspectRatio: '4:3', aspectMode: 'fit',
-      backgroundColor: '#F5F5F5'
-    };
+  // ── ヒーロー画像 (1枚 or 1+3サムネ コンポジット) ──
+  // options.heroImageUrls (配列) が渡されたら最大4枚をコンポジット表示。
+  // 単一の options.heroImageUrl も後方互換でサポート。
+  var heroImages = [];
+  if (Array.isArray(options.heroImageUrls)) {
+    heroImages = options.heroImageUrls.slice(0, 4);
+  } else if (options.heroImageUrl) {
+    heroImages = [options.heroImageUrl];
+  } else if (prop.imageUrls && prop.imageUrls.length > 0) {
+    heroImages = prop.imageUrls.slice(0, 4);
+  } else if (prop.imageUrl) {
+    heroImages = [prop.imageUrl];
+  }
+  heroImages = heroImages.filter(function(u) {
+    return u && typeof u === 'string' && u.indexOf('https://') === 0;
+  });
+
+  if (includeImage && heroImages.length > 0) {
+    var _imgAction = viewUrl ? { type: 'uri', uri: viewUrl } : undefined;
+    if (heroImages.length === 1) {
+      // 単一画像
+      bubble.hero = {
+        type: 'image', url: heroImages[0], size: 'full',
+        aspectRatio: '4:3', aspectMode: 'fit',
+        backgroundColor: '#F5F5F5',
+        action: _imgAction
+      };
+    } else {
+      // メイン1枚 + サムネ最大3枚 のコンポジット
+      var thumbs = heroImages.slice(1, 4);
+      var heroChildren = [
+        {
+          type: 'image', url: heroImages[0], size: 'full',
+          aspectRatio: '4:3', aspectMode: 'fit',
+          backgroundColor: '#F5F5F5',
+          action: _imgAction
+        }
+      ];
+      heroChildren.push({
+        type: 'box', layout: 'horizontal', spacing: 'xs',
+        contents: thumbs.map(function(u) {
+          return {
+            type: 'image', url: u, size: 'full',
+            aspectRatio: '1:1', aspectMode: 'cover',
+            action: _imgAction
+          };
+        })
+      });
+      bubble.hero = {
+        type: 'box', layout: 'vertical', spacing: 'xs',
+        contents: heroChildren
+      };
+    }
   }
 
   bubble.body = {
