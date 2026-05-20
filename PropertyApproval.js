@@ -2519,20 +2519,20 @@ function buildPropertyFlex(prop, options) {
     ]
   };
 
-  // ── クイックファクト (チップ風: 均等幅で並べる) ──
-  // 各チップは vertical layout + flex:1、text は中央寄せ + wrap で見切れ防止。
+  // ── クイックファクト (チップ風: 内容に合わせて自動幅) ──
+  // flex:0 + vertical layout で各チップが必要な幅だけ確保。
+  // 横並びは justifyContent:'space-around' で適度な間隔を空けて配置。
   function _chip(text) {
     return {
       type: 'box', layout: 'vertical',
       backgroundColor: '#f0faf4',
       cornerRadius: 'md',
       paddingTop: '4px', paddingBottom: '4px',
-      paddingStart: '4px', paddingEnd: '4px',
-      flex: 1,
+      paddingStart: 'md', paddingEnd: 'md',
+      flex: 0,
       contents: [{
         type: 'text', text: text,
-        size: 'xs', color: '#3d6909', weight: 'bold',
-        align: 'center', wrap: true
+        size: 'xs', color: '#3d6909', weight: 'bold'
       }]
     };
   }
@@ -2564,8 +2564,10 @@ function buildPropertyFlex(prop, options) {
   // ── body 組み立て ──
   var bodyContents = [titleBlock, rentBlock];
   if (chipsContents.length > 0) {
+    // flex:0 のチップを横並びにして余白は justifyContent で均等配分
     bodyContents.push({
       type: 'box', layout: 'horizontal', spacing: 'sm', margin: 'md',
+      justifyContent: 'space-around',
       contents: chipsContents
     });
   }
