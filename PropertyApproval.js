@@ -209,7 +209,8 @@ function handleConfirmApprove(e) {
   var flex = buildPropertyFlex(prop, {
     includeImage: selectedImageUrls.length > 0,
     heroImageUrls: selectedImageUrls,
-    viewUrl: viewUrl
+    viewUrl: viewUrl,
+    customerStations: _getCustomerSelectedStations_(customerName)
   });
 
   pushMessage(lineUserId, [flex]);
@@ -251,6 +252,8 @@ function handleConfirmApproveAll(e) {
   }
 
   var sentCount = 0;
+  // バッチ送信時はお客さん希望駅をループ前に1回だけ取得 (シート読込を減らす)
+  var batchCustStations = _getCustomerSelectedStations_(customerName);
 
   for (var i = 0; i < rows.length; i++) {
     var prop = rowToProperty(rows[i].values);
@@ -279,7 +282,8 @@ function handleConfirmApproveAll(e) {
     var flex = buildPropertyFlex(prop, {
       includeImage: includeImage,
       heroImageUrls: selectedUrls,
-      viewUrl: viewUrl
+      viewUrl: viewUrl,
+      customerStations: batchCustStations
     });
 
     pushMessage(lineUserId, [flex]);
@@ -1120,6 +1124,8 @@ function handleFavoritesCommand(replyToken, userId) {
       replyMessage(replyToken, [textMsg('お気に入り物件はまだありません。\n\n物件ページの ⭐ ボタンでお気に入りに追加できます。')]);
       return;
     }
+    // お気に入り一覧時もお客さん希望駅を1回だけ取得
+    var favCustStations = _getCustomerSelectedStations_(customerName);
 
     // 承認時と同じ Flex を構築（buildPropertyFlex）
     var bubbles = [];
@@ -1136,7 +1142,8 @@ function handleFavoritesCommand(replyToken, userId) {
       var flex = buildPropertyFlex(prop, {
         includeImage: heroImageUrls.length > 0,
         heroImageUrls: heroImageUrls,
-        viewUrl: viewUrl
+        viewUrl: viewUrl,
+        customerStations: favCustStations
       });
       // buildPropertyFlex は { type:'flex', altText, contents:bubble } を返すので bubble だけ取り出す
       if (flex && flex.contents) {
@@ -2384,6 +2391,97 @@ function buildMinimalViewUrl(customerName, roomId, prop) {
 }
 
 // ===== Flex Message =====
+// 「西武新宿線 下落合駅 徒歩7分」のような文字列から駅名のみ抽出。
+function _extractStationName_(s) {
+  var m = String(s || '').match(/([^\s駅]+)駅/);
+  return m ? m[1].trim() : '';
+}
+// 同じ文字列から「徒歩X分」のX (分) を抽出。なければ大きい値。
+function _extractWalkMin_(s) {
+  var m = String(s || '').match(/徒歩\s*(\d+)\s*分/);
+  return m ? parseInt(m[1], 10) : 9999;
+}
+// stationStr の駅名が customerStations の中にあるか
+function _matchesCustomerStation_(stationStr, customerStations) {
+  if (!customerStations || customerStations.length === 0) return false;
+  var name = _extractStationName_(stationStr);
+  if (!name) return false;
+  for (var i = 0; i < customerStations.length; i++) {
+    var cs = String(customerStations[i] || '').trim().replace(/駅$/, '');
+    if (cs && cs === name) return true;
+  }
+  return false;
+}
+/**
+ * メイン最寄駅 (prop.stationInfo) がお客さん希望駅でない場合、
+ * 「その他の路線」に希望駅があれば、それをメインに昇格して入れ替える。
+ * 候補が複数ある場合は徒歩分数が最小の駅を選ぶ。
+ *
+ * @param {Object} prop - 物件オブジェクト
+ * @param {string[]} customerStations - お客さんが選んでいる駅名の配列
+ * @return {{main: string, others: string[]}}
+ */
+function _reorderStationsForCustomer_(prop, customerStations) {
+  var main = String(prop && prop.stationInfo || '');
+  var others = (prop && prop.otherStations) ? prop.otherStations.slice() : [];
+  if (!customerStations || customerStations.length === 0) {
+    return { main: main, others: others };
+  }
+  // 既にメインがお客さん希望駅ならそのまま
+  if (_matchesCustomerStation_(main, customerStations)) {
+    return { main: main, others: others };
+  }
+  // others の中で希望駅マッチのもの全てを抽出
+  var matchedIdxs = [];
+  for (var i = 0; i < others.length; i++) {
+    if (_matchesCustomerStation_(others[i], customerStations)) matchedIdxs.push(i);
+  }
+  if (matchedIdxs.length === 0) {
+    return { main: main, others: others };
+  }
+  // マッチ候補が複数なら徒歩分数最小を選ぶ
+  var bestIdx = matchedIdxs[0];
+  var bestWalk = _extractWalkMin_(others[bestIdx]);
+  for (var k = 1; k < matchedIdxs.length; k++) {
+    var w = _extractWalkMin_(others[matchedIdxs[k]]);
+    if (w < bestWalk) { bestWalk = w; bestIdx = matchedIdxs[k]; }
+  }
+  var newMain = others[bestIdx];
+  var newOthers = others.slice(0, bestIdx).concat(others.slice(bestIdx + 1));
+  // 元のメインを others 先頭に降格
+  if (main) newOthers.unshift(main);
+  return { main: newMain, others: newOthers };
+}
+
+/**
+ * 顧客名から検索条件シートを引いて、選択駅の配列を返す。
+ * 駅は F列 (index 5) にカンマ/読点区切りで保存されている想定。
+ *
+ * @param {string} customerName
+ * @return {string[]}
+ */
+function _getCustomerSelectedStations_(customerName) {
+  if (!customerName) return [];
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return [];
+    var last = sheet.getLastRow();
+    if (last < 2) return [];
+    var data = sheet.getRange(2, 1, last - 1, 6).getValues();
+    // 最終行が最新条件 (同名複数あり得る)
+    for (var i = data.length - 1; i >= 0; i--) {
+      if (String(data[i][1] || '').trim() === String(customerName).trim()) {
+        var raw = String(data[i][5] || '');
+        return raw.split(/[,、]\s*/).map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+      }
+    }
+  } catch (e) {
+    console.warn('_getCustomerSelectedStations_ error: ' + (e && e.message));
+  }
+  return [];
+}
+
 function buildPropertyFlex(prop, options) {
   options = options || {};
   var includeImage = options.includeImage !== false;
@@ -2444,18 +2542,20 @@ function buildPropertyFlex(prop, options) {
   if (prop.floor) chipsContents.push(_chip(prop.floor + '階'));
 
   // ── 立地情報 ──
+  // お客さん希望駅が「その他の路線」に含まれる場合、メインに昇格させる
+  var stationData = _reorderStationsForCustomer_(prop, options.customerStations);
   var locationLines = [];
   if (prop.address) {
     locationLines.push({ type: 'text', text: prop.address, size: 'sm', color: '#444444', wrap: true });
   }
-  if (prop.stationInfo) {
-    locationLines.push({ type: 'text', text: prop.stationInfo, size: 'sm', color: '#444444', wrap: true });
+  if (stationData.main) {
+    locationLines.push({ type: 'text', text: stationData.main, size: 'sm', color: '#444444', wrap: true });
   }
   // その他の路線: 複数ある場合は1路線1行で表示 (詰まらず読みやすい)
-  if (prop.otherStations && prop.otherStations.length > 0) {
+  if (stationData.others && stationData.others.length > 0) {
     locationLines.push({ type: 'text', text: 'その他の路線', size: 'xs', color: '#888888', margin: 'sm' });
-    for (var os = 0; os < prop.otherStations.length; os++) {
-      locationLines.push({ type: 'text', text: prop.otherStations[os],
+    for (var os = 0; os < stationData.others.length; os++) {
+      locationLines.push({ type: 'text', text: stationData.others[os],
         size: 'sm', color: '#666666', wrap: true });
     }
   }
