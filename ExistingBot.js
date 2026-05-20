@@ -406,7 +406,7 @@ function createPropertyBubble(p) {
       margin: 'md',
       spacing: 'xs',
       contents: [
-        { type: 'text', text: 'スタッフが空室確認中です', size: 'sm', weight: 'bold', color: '#c8650b' },
+        { type: 'text', text: 'スタッフが確認中です', size: 'sm', weight: 'bold', color: '#c8650b' },
         { type: 'text', text: _etaMsg, size: 'xs', color: '#8c5410', wrap: true }
       ]
     });
