@@ -581,7 +581,7 @@ function renderProperty(p) {
   // アクションボタン（customer と roomId がある場合のみ）
   if (customer && roomId) {
     html += '<div class="action-bar">'
-      + '<button class="action-btn primary" id="holdBtn" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
+      + '<button class="action-btn primary hold-btn" id="holdBtn" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
       + '</div>';
     // お申し込みモーダル
     html += '<div class="modal-overlay" id="holdModal" onclick="if(event.target===this)closeHoldModal()">'
@@ -795,6 +795,12 @@ function renderProperty(p) {
     html += '</div>';
   }
 
+  // 末尾にも「お申し込み希望」ボタン (スクロール後にすぐ押せるよう冗長配置)
+  if (customer && roomId) {
+    html += '<div class="action-bar">'
+      + '<button class="action-btn primary hold-btn" id="holdBtnBottom" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
+      + '</div>';
+  }
   html += '<div class="line-link">\uD83D\uDCAC <a href="https://line.me/R/" target="_blank">ご質問はLINEでお気軽にどうぞ</a></div>';
   html += '<div class="footer">\u203b 詳細は担当者にお問い合わせください</div>';
   html += '</div>';
@@ -1063,16 +1069,20 @@ function getActionKey() {
 
 function updateActionUI(actionType) {
   actionState = actionType;
-  var holdBtn = document.getElementById('holdBtn');
-  if (!holdBtn) return;
-
-  holdBtn.classList.remove('active');
-  holdBtn.disabled = false;
-
-  if (actionType === 'hold' || actionType === 'viewing') {
-    holdBtn.classList.add('active');
-    holdBtn.textContent = '✅ お申し込み希望受付済み';
-    holdBtn.disabled = true;
+  // 上部・末尾の両方の「お申し込み」ボタンを同期更新
+  var holdBtns = document.querySelectorAll('.hold-btn');
+  if (!holdBtns || holdBtns.length === 0) return;
+  for (var i = 0; i < holdBtns.length; i++) {
+    var btn = holdBtns[i];
+    btn.classList.remove('active');
+    btn.disabled = false;
+    if (actionType === 'hold' || actionType === 'viewing') {
+      btn.classList.add('active');
+      btn.textContent = '✅ お申し込み希望受付済み';
+      btn.disabled = true;
+    } else {
+      btn.textContent = 'この物件にお申し込み希望をする';
+    }
   }
 }
 
