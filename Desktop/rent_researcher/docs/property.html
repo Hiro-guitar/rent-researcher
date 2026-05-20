@@ -49,25 +49,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .hero{width:100%;max-width:600px;max-height:50vh;object-fit:contain;display:block;margin:0 auto}
 /* コンテンツ */
 .content{max-width:600px;margin:0 auto;padding:20px}
-.title{font-size:22px;font-weight:bold;color:#222;margin-bottom:8px}
-.price-box{background:linear-gradient(135deg,#E05252,#ff6b6b);color:#fff;border-radius:12px;padding:16px;margin:12px 0}
-.price-main{font-size:28px;font-weight:bold}
-.price-sub{font-size:14px;opacity:0.9;margin-top:4px}
-.section{background:#fff;border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
-.section-title{font-size:14px;color:#888;font-weight:bold;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px}
-.row{display:flex;padding:8px 0;border-bottom:1px solid #f5f5f5}
+.title{font-size:24px;font-weight:800;color:#1a2538;margin-bottom:6px;letter-spacing:-0.3px;line-height:1.35}
+/* 価格BOX: 深いネイビーに上品な赤アクセント */
+.price-box{background:#1a2538;color:#fff;border-radius:14px;padding:18px 20px;margin:14px 0;box-shadow:0 4px 14px rgba(26,37,56,0.18)}
+.price-main{font-size:30px;font-weight:800;color:#FF7B72;letter-spacing:-0.5px;line-height:1.2}
+.price-sub{font-size:13px;color:rgba(255,255,255,0.78);margin-top:8px;letter-spacing:0.3px}
+/* セクションカード: 統一感のある柔らかい影 + 細い枠線 */
+.section{background:#fff;border-radius:14px;padding:18px 18px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #f0f0f0}
+/* セクション見出し: ブランド緑の縦バーアクセント + 通常文字 */
+.section-title{font-size:14px;color:#1a2538;font-weight:700;margin-bottom:14px;padding-left:10px;border-left:3px solid #6ea814;text-transform:none;letter-spacing:0;line-height:1.2}
+.row{display:flex;padding:10px 0;border-bottom:1px solid #f3f4f6}
 .row:last-child{border-bottom:none}
-.row-label{color:#888;font-size:14px;width:130px;flex-shrink:0}
-.row-value{color:#333;font-size:14px;flex:1}
-.facilities-text{font-size:13px;color:#555;line-height:1.7;white-space:pre-wrap}
-.fac-cat{margin-bottom:10px}
-.fac-cat-name{font-size:12px;color:#888;font-weight:bold;margin-bottom:4px}
-.fac-tags{display:flex;flex-wrap:wrap;gap:4px}
-.fac-tag{display:inline-block;font-size:12px;color:#444;background:#f0f4f8;border-radius:4px;padding:2px 8px;line-height:1.6}
-.cond-ok{background:#e8f5e9;color:#2e7d32}
-.cond-ng{background:#f5f5f5;color:#999}
+.row-label{color:#6b7280;font-size:13px;width:110px;flex-shrink:0}
+.row-value{color:#1a2538;font-size:14px;font-weight:500;flex:1}
+.facilities-text{font-size:13px;color:#444;line-height:1.7;white-space:pre-wrap}
+.fac-cat{margin-bottom:12px}
+.fac-cat-name{font-size:11px;color:#6b7280;font-weight:700;margin-bottom:6px;letter-spacing:0.5px}
+.fac-tags{display:flex;flex-wrap:wrap;gap:5px}
+.fac-tag{display:inline-block;font-size:12px;color:#3a4a5e;background:#f5f7fa;border-radius:6px;padding:3px 9px;line-height:1.6}
+.cond-ok{background:#f0faf4;color:#3d6909}
+.cond-ng{background:#f5f5f5;color:#9ca3af}
 .footer{text-align:center;padding:20px;color:#aaa;font-size:12px}
-.customer-badge{text-align:center;padding:8px;font-size:12px;color:#888;letter-spacing:0.5px}
+/* 顧客バッジ: チップ風で控えめに */
+.customer-badge{display:inline-block;padding:5px 14px;background:#f5f9ee;color:#3d6909;font-size:12px;font-weight:600;border-radius:16px;border:1px solid #d4e7a8;letter-spacing:0.3px;margin-bottom:10px}
 /* フィードバックボタン */
 .feedback-bar{display:flex;gap:10px;margin:16px 0;padding:0}
 .feedback-btn{flex:1;padding:14px 0;border-radius:12px;border:2px solid #e0e0e0;background:#fff;font-size:15px;font-weight:bold;cursor:pointer;transition:all 0.2s;text-align:center;color:#555}
@@ -78,25 +82,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .feedback-btn.nope.active{background:#6B7280;border-color:#4B5563;color:#fff;box-shadow:0 2px 8px rgba(107,114,128,0.3)}
 .feedback-btn:disabled{opacity:0.6;cursor:not-allowed}
 .feedback-status{text-align:center;font-size:13px;color:#888;margin:-8px 0 8px;min-height:18px}
-/* アクションボタン */
-.action-bar{display:flex;flex-direction:column;gap:10px;margin:20px 0 12px}
-.action-btn{width:100%;padding:16px 0;border-radius:12px;border:none;font-size:16px;font-weight:bold;cursor:pointer;transition:all 0.2s;text-align:center}
+/* アクションボタン: ブランド緑統一 + 質感UP */
+.action-bar{display:flex;flex-direction:column;gap:10px;margin:24px 0 12px}
+.action-btn{width:100%;padding:18px 0;border-radius:14px;border:none;font-size:16px;font-weight:700;cursor:pointer;transition:all 0.2s;text-align:center;letter-spacing:0.3px}
 .action-btn:active{transform:scale(0.97)}
-.action-btn.primary{background:#4CAF50;color:#fff;box-shadow:0 2px 8px rgba(76,175,80,0.3)}
-.action-btn.primary.active{background:#E8F5E9;color:#2E7D32;border:2px solid #4CAF50;box-shadow:none}
-.action-btn.secondary{background:#fff;color:#4CAF50;border:2px solid #4CAF50}
-.action-btn.secondary.active{background:#E8F5E9;color:#2E7D32;border-color:#4CAF50}
-.action-btn:disabled{opacity:0.7;cursor:not-allowed;transform:none}
+.action-btn.primary{background:#6ea814;color:#fff;box-shadow:0 4px 14px rgba(110,168,20,0.32)}
+.action-btn.primary.active{background:#f0faf4;color:#3d6909;border:2px solid #6ea814;box-shadow:none}
+.action-btn.secondary{background:#fff;color:#3d6909;border:2px solid #6ea814}
+.action-btn.secondary.active{background:#f0faf4;color:#3d6909;border-color:#6ea814}
+.action-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
 /* モーダル */
 .modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9000;align-items:center;justify-content:center;padding:16px}
 .modal-content{background:#fff;max-width:400px;width:100%;border-radius:16px;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.2)}
 .modal-title{font-size:18px;font-weight:bold;text-align:center;margin-bottom:20px}
 .modal-radio-group{display:flex;gap:10px;margin-bottom:16px}
 .modal-radio-label{flex:1;text-align:center;padding:14px 8px;border:2px solid #e0e0e0;border-radius:10px;cursor:pointer;font-size:15px;font-weight:bold;color:#555;transition:all 0.2s}
-.modal-radio-label.active{border-color:#4CAF50;background:#E8F5E9;color:#2E7D32}
+.modal-radio-label.active{border-color:#6ea814;background:#f0faf4;color:#3d6909}
 .modal-radio-label input[type="radio"]{display:none}
 .modal-input{width:100%;border:1px solid #ddd;border-radius:8px;padding:12px;font-size:15px;box-sizing:border-box}
-.modal-input:focus{border-color:#4CAF50;outline:none}
+.modal-input:focus{border-color:#6ea814;outline:none}
 .modal-input.error{border-color:#E05252}
 .modal-error{color:#E05252;font-size:13px;margin-top:4px;min-height:18px}
 .modal-actions{display:flex;gap:10px;margin-top:20px}
@@ -577,12 +581,12 @@ function renderProperty(p) {
   // アクションボタン（customer と roomId がある場合のみ）
   if (customer && roomId) {
     html += '<div class="action-bar">'
-      + '<button class="action-btn primary" id="holdBtn" onclick="openHoldModal()">🏠 この物件にお申し込み希望をする</button>'
+      + '<button class="action-btn primary" id="holdBtn" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
       + '</div>';
     // お申し込みモーダル
     html += '<div class="modal-overlay" id="holdModal" onclick="if(event.target===this)closeHoldModal()">'
       + '<div class="modal-content">'
-      + '<div class="modal-title">🏠 お申し込み希望</div>'
+      + '<div class="modal-title">お申し込み希望</div>'
       + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.5;">送信後、担当者がお電話にてお申し込み方法のご案内をいたします。以下の項目を必ずご入力ください。</div>'
       + '<div class="modal-radio-group">'
       + '<label class="modal-radio-label active" id="radioPersonal" onclick="selectRadio(\'個人\')">'
@@ -613,8 +617,8 @@ function renderProperty(p) {
   // フィードバックボタン（customer と roomId がある場合のみ）
   if (customer && roomId) {
     html += '<div class="feedback-bar">'
-      + '<button class="feedback-btn fav" id="favBtn" onclick="sendFeedback(\'favorite\')">\u2B50 お気に入りに追加</button>'
-      + '<button class="feedback-btn nope" id="nopeBtn" onclick="sendFeedback(\'not_interested\')">\uD83D\uDC4E 興味なし</button>'
+      + '<button class="feedback-btn fav" id="favBtn" onclick="sendFeedback(\'favorite\')">お気に入りに追加</button>'
+      + '<button class="feedback-btn nope" id="nopeBtn" onclick="sendFeedback(\'not_interested\')">興味なし</button>'
       + '</div>'
       + '<div class="feedback-status" id="feedbackStatus"></div>';
   }
@@ -941,17 +945,17 @@ function updateFeedbackUI(action) {
 
   if (action === 'favorite') {
     favBtn.classList.add('active');
-    favBtn.textContent = '⭐ お気に入り済み ✓';
-    nopeBtn.textContent = '👎 興味なし';
+    favBtn.textContent = 'お気に入り済み ✓';
+    nopeBtn.textContent = '興味なし';
     status.textContent = '';
   } else if (action === 'not_interested') {
     nopeBtn.classList.add('active');
-    nopeBtn.textContent = '👎 興味なし ✓';
-    favBtn.textContent = '⭐ お気に入りに追加';
+    nopeBtn.textContent = '興味なし ✓';
+    favBtn.textContent = 'お気に入りに追加';
     status.textContent = '';
   } else {
-    favBtn.textContent = '⭐ お気に入りに追加';
-    nopeBtn.textContent = '👎 興味なし';
+    favBtn.textContent = 'お気に入りに追加';
+    nopeBtn.textContent = '興味なし';
     status.textContent = '';
   }
 }
