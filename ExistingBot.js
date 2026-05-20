@@ -504,8 +504,8 @@ function enqueueDelayedReply(userId, propertyName, roomNumber) {
   var scheduledAt;
 
   if (jstHour >= 10 && jstHour < 20) {
-    // 営業時間内: 4〜23分後
-    var delayMin = 4 + Math.floor(Math.random() * 20);
+    // 営業時間内: 2〜8分後 (確認後すぐ感を演出しつつ自動感を抑える)
+    var delayMin = 2 + Math.floor(Math.random() * 7);
     scheduledAt = new Date(now.getTime() + delayMin * 60 * 1000);
     // 送信予定が営業時間外になる場合は翌日に繰り延べ
     if (getJstHour(scheduledAt) >= 20 || getJstHour(scheduledAt) < 10) {
