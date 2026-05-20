@@ -130,7 +130,8 @@ function startChangeFlow(replyToken, userId) {
     summary = '（条件の読み込みに失敗しました）';
   }
 
-  showCriteriaSelectLink(replyToken, userId, null, true, summary);
+  // state を渡すと _buildConditionSummaryRows_ で構造化レンダリング (summary 文字列は無視)
+  showCriteriaSelectLink(replyToken, userId, null, true, state);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -472,7 +473,7 @@ function handleBackAction(replyToken, userId, state) {
   if (state.isChangeFlow && (state.step === STEPS.MOVE_IN_DATE || state.step === STEPS.MOVE_IN_PERIOD)) {
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
-    showCriteriaSelectLink(replyToken, userId, null, true, formatConditionSummary(state));
+    showCriteriaSelectLink(replyToken, userId, null, true, state);
     return true;
   }
 
@@ -531,7 +532,7 @@ function showStepQuestion(replyToken, userId, state, guideText) {
       showMoveInPeriod(replyToken, parseInt(mp[1], 10) || 0, state.data.move_in_month || '', prefix);
       break;
     case STEPS.CRITERIA_SELECT:
-      showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow, state.isChangeFlow ? formatConditionSummary(state) : undefined);
+      showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow, state.isChangeFlow ? state : undefined);
       break;
     case STEPS.NOTES:
       replyMessage(replyToken, prefix.concat([
@@ -646,6 +647,105 @@ function showMoveInPeriod(replyToken, month, monthKey, prefixMessages) {
  * @param {boolean} [isChangeFlow] - 条件変更フローの場合true
  * @param {string} [conditionSummary] - 条件変更時に表示する条件サマリー
  */
+/**
+ * 条件変更画面の現在条件サマリ用ヘルパ: state から Flex contents の配列を返す。
+ * 各行は vertical layout で「ラベル(小・グレー) + 値(通常・黒)」のフォーム風。
+ * 駅・市区町村は路線/市ごとに改行して詰まらないようにする。
+ */
+function _buildConditionSummaryRows_(state) {
+  var d = (state && state.data) || {};
+  var routes = (state && state.selectedRoutes) || [];
+  var cities = (state && state.selectedCities) || [];
+  var stations = (state && state.selectedStations) || {};
+  var towns = (state && state.selectedTowns) || {};
+
+  function row(label, value) {
+    return {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'xs',
+      contents: [
+        { type: 'text', text: label, size: 'xs', color: '#888888' },
+        { type: 'text', text: String(value || ''), size: 'sm', color: '#222222', wrap: true }
+      ]
+    };
+  }
+  function fmtUnit(v, suffixRe, suffix) {
+    if (!v || v === '指定しない') return '指定なし';
+    var s = String(v);
+    return suffixRe.test(s) ? s : s + suffix;
+  }
+
+  var rows = [];
+
+  // 入居時期
+  if (d.move_in_date) rows.push(row('入居時期', d.move_in_date));
+
+  // エリア
+  if (state && state.areaMethod === 'city' && cities.length > 0) {
+    var cityLines = cities.map(function(c) {
+      var ct = towns[c] || [];
+      return ct.length > 0 ? c + '（' + ct.join('、') + '）' : c;
+    });
+    rows.push(row('市区町村', cityLines.join('\n')));
+  } else if (state && state.areaMethod === 'route' && routes.length > 0) {
+    var routeLines = routes.map(function(r) {
+      var stas = stations[r] || [];
+      return stas.length > 0 ? r + '（' + stas.join('、') + '）' : r;
+    });
+    rows.push(row('沿線・駅', routeLines.join('\n')));
+  } else {
+    rows.push(row('エリア', '指定なし'));
+  }
+
+  // 家賃上限
+  if (d.rent_max) {
+    var rentDisplay = String(d.rent_max);
+    if (!/万円/.test(rentDisplay)) {
+      rentDisplay = (!isNaN(d.rent_max) ? parseFloat(d.rent_max) : d.rent_max) + '万円';
+    }
+    rows.push(row('家賃の上限', rentDisplay));
+  } else {
+    rows.push(row('家賃の上限', '指定なし'));
+  }
+
+  // 間取り
+  rows.push(row('間取り', (d.layouts && d.layouts.length > 0) ? d.layouts.join('、') : '指定なし'));
+
+  // 専有面積
+  rows.push(row('専有面積', fmtUnit(d.area_min, /(m²|m2|㎡).*以上$|(m²|m2|㎡)$/, '㎡以上')));
+
+  // 築年数
+  if (d.building_age && d.building_age !== '指定しない') {
+    var ageStr = String(d.building_age);
+    if (ageStr === '新築') {
+      rows.push(row('築年数', '新築'));
+    } else if (/年/.test(ageStr)) {
+      rows.push(row('築年数', /以内$/.test(ageStr) ? ageStr : ageStr + '以内'));
+    } else {
+      rows.push(row('築年数', ageStr + '年以内'));
+    }
+  } else {
+    rows.push(row('築年数', '指定なし'));
+  }
+
+  // 駅徒歩
+  rows.push(row('駅徒歩', fmtUnit(d.walk, /分以内$|分$/, '分以内')));
+
+  // 建物構造
+  if (d.building_structures && d.building_structures.length > 0) {
+    rows.push(row('建物構造', d.building_structures.join('、')));
+  }
+
+  // こだわり
+  rows.push(row('こだわり', (d.equipment && d.equipment.length > 0) ? d.equipment.join('、') : '指定なし'));
+
+  // ペット
+  if (d.petType) rows.push(row('ペット', d.petType));
+
+  return rows;
+}
+
 function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow, conditionSummary) {
   // LIFF endpoint = https://form.ehomaki.com/criteria.html に設定済み (静的HTML版)
   // 旧: GAS Web App (テンプレ処理で遅い)
@@ -682,23 +782,56 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
     });
   }
 
-  // body contents
+  // body / header contents
   var bodyContents = [];
+  var headerBlock = null;
+  // 条件変更フローでは state から構造化されたサマリ行を作る (見やすさ重視)
+  // conditionSummary に state オブジェクトが渡されていれば使い、文字列なら従来通り
+  var stateForSummary = null;
+  if (isChangeFlow && conditionSummary && typeof conditionSummary === 'object' && conditionSummary.data) {
+    stateForSummary = conditionSummary;
+  }
 
-  if (isChangeFlow && conditionSummary) {
-    bodyContents.push({ type: 'text', text: '現在の登録条件', weight: 'bold', size: 'xl' });
+  if (isChangeFlow) {
+    // ヘッダー: 緑のカラーブロック + 白文字タイトル中央寄せ (条件変更提案メッセージと統一)
+    headerBlock = {
+      type: 'box',
+      layout: 'vertical',
+      backgroundColor: '#6ea814',
+      paddingAll: 'xl',
+      paddingTop: 'lg',
+      paddingBottom: 'lg',
+      contents: [
+        { type: 'text', text: 'お部屋の条件変更', weight: 'bold', size: 'lg', color: '#ffffff', wrap: true, align: 'center' }
+      ]
+    };
+
+    var summaryRows;
+    if (stateForSummary) {
+      summaryRows = _buildConditionSummaryRows_(stateForSummary);
+    } else {
+      // 後方互換: 文字列が渡されたらそのまま表示
+      summaryRows = [{ type: 'text', text: String(conditionSummary || ''), wrap: true, size: 'sm', color: '#222222' }];
+    }
+
+    // 現在の条件カード (薄緑背景)
+    bodyContents.push({
+      type: 'box',
+      layout: 'vertical',
+      backgroundColor: '#f5f9ee',
+      cornerRadius: 'md',
+      paddingAll: 'lg',
+      spacing: 'lg',
+      contents: [
+        { type: 'text', text: '現在ご登録の条件', size: 'sm', color: '#3d6909', weight: 'bold' },
+        { type: 'separator', margin: 'sm', color: '#d4e7a8' }
+      ].concat(summaryRows)
+    });
+
     bodyContents.push({
       type: 'text',
-      text: conditionSummary,
-      wrap: true, margin: 'md', size: 'sm', color: '#333333'
-    });
-    bodyContents.push({
-      type: 'separator', margin: 'lg'
-    });
-    bodyContents.push({
-      type: 'text',
-      text: '変更したい項目のボタンをタップしてください。',
-      wrap: true, margin: 'md', size: 'sm', color: '#666666'
+      text: '変更したい項目を編集して保存してください。',
+      wrap: true, margin: 'lg', size: 'xs', color: '#666666', align: 'center'
     });
   } else {
     bodyContents.push({ type: 'text', text: 'お部屋の条件選択', weight: 'bold', size: 'xl' });
@@ -709,23 +842,30 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
     });
   }
 
+  var bubble = {
+    type: 'bubble',
+    size: 'mega',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'lg',
+      paddingAll: 'xl',
+      contents: bodyContents
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      paddingAll: 'lg',
+      contents: footerContents
+    }
+  };
+  if (headerBlock) bubble.header = headerBlock;
+
   const flexMessage = {
     type: 'flex',
     altText: 'お部屋の条件を選択してください',
-    contents: {
-      type: 'bubble',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        contents: bodyContents
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: footerContents
-      }
-    }
+    contents: bubble
   };
 
   var messages = prefixMessages ? prefixMessages.slice() : [];
