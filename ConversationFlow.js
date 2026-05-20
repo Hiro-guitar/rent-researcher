@@ -828,11 +828,6 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
       ].concat(summaryRows)
     });
 
-    bodyContents.push({
-      type: 'text',
-      text: '変更したい項目を編集して保存してください。',
-      wrap: true, margin: 'lg', size: 'xs', color: '#666666', align: 'center'
-    });
   } else {
     bodyContents.push({ type: 'text', text: 'お部屋の条件選択', weight: 'bold', size: 'xl' });
     bodyContents.push({
