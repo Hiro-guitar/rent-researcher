@@ -492,13 +492,14 @@ function renderAvailabilityStatus(status, checkedAt) {
   if (!statusEl || !checkedAtEl) return;
   var label, cls;
   switch (status) {
-    case 'available':   label = '募集中';     cls = 's-available'; break;
-    case 'applied':     label = '申込あり';   cls = 's-applied';   break;
-    case 'closed':      label = '募集終了';   cls = 's-closed';    break;
-    case 'reins_listed': label = '確認中・LINEでご連絡いたします'; cls = 's-applied'; break;
-    case 'unknown':     label = '確認中';     cls = 's-unknown';   break;
-    case '':            label = '未確認';     cls = 's-unknown';   break;
-    default:            label = '確認中';     cls = 's-unknown';
+    case 'available':         label = '募集中';     cls = 's-available'; break;
+    case 'applied':           label = '申込あり';   cls = 's-applied';   break;
+    case 'closed':            label = '募集終了';   cls = 's-closed';    break;
+    case 'reins_listed':
+    case 'needs_confirmation': label = '確認中・LINEでご連絡いたします'; cls = 's-applied'; break;
+    case 'unknown':           label = '確認中';     cls = 's-unknown';   break;
+    case '':                  label = '未確認';     cls = 's-unknown';   break;
+    default:                  label = '確認中';     cls = 's-unknown';
   }
   statusEl.className = 'availability-status ' + cls;
   statusEl.innerHTML = '<span class="availability-dot"></span>' + escHtml(label);
