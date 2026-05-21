@@ -2002,8 +2002,17 @@ function addToSeenSheet(customerName, prop) {
   } catch (_) {}
   // F列: current_status (空室状況: 'available' / 'closed' / 'reins_listed' / 'unknown')
   // G列: status_checked_at (最終確認日時)
-  // H列: source_url (元物件ページURL — 空室確認で再アクセスするため)
+  // H列: source_ref (空室確認用の参照値)
+  //   - itandi/ielove/essquare: 物件URL
+  //   - reins: REINS物件番号 (URLが安定しないため番号で再検索)
   // 新規追加時はチェック未実施なので F/G は空で開始する。
+  var sourceRef = '';
+  if (source === 'reins') {
+    sourceRef = String((prop && prop.reinsPropertyNumber) || (prop && prop.reins_property_number) || '');
+    if (!sourceRef && prop && prop.url) sourceRef = String(prop.url); // フォールバック
+  } else {
+    sourceRef = String((prop && prop.url) || '');
+  }
   sheet.appendRow([
     customerName,
     prop.roomId,
@@ -2012,7 +2021,7 @@ function addToSeenSheet(customerName, prop) {
     source,
     '', // current_status
     '', // status_checked_at
-    String((prop && prop.url) || '')
+    sourceRef
   ]);
 }
 
@@ -2168,18 +2177,32 @@ function getAvailabilityCheckQueue(options) {
         : String(checkedRaw || '');
       if (status === 'closed') { diag.isClosed++; continue; }
       if (checkedAt && checkedAt > intervalCutoff) { diag.recentlyChecked++; continue; }
-      // URLは H列 を最優先、無ければ承認待ち物件JSON (urlMap) からフォールバック
-      var seenUrl = String(sData[j][7] || '').trim();
+      // H列を最優先 (REINS は物件番号、その他は URL)
+      // 無ければ承認待ち物件JSON からフォールバック
+      var seenRef = String(sData[j][7] || '').trim();
       var info = urlMap[customer + '|' + roomId] || {};
-      var finalUrl = seenUrl || info.url || '';
-      if (!finalUrl) { diag.noUrl++; continue; }
-      if (seenUrl) diag.urlFromSeen++; else diag.urlFromPending++;
+      var srcType = String(sData[j][4] || '') || info.source || 'reins';
+      var finalUrl = '';
+      var finalReinsPropNo = '';
+      if (srcType === 'reins') {
+        // REINS: 物件番号を優先
+        finalReinsPropNo = seenRef || info.reinsPropNo || '';
+        // URLがあれば一応持っておく (フォールバック用)
+        if (info.url) finalUrl = info.url;
+      } else {
+        // 他: URL を使う
+        finalUrl = seenRef || info.url || '';
+      }
+      // チェックに必要な情報がない → スキップ
+      var hasInfo = finalUrl || finalReinsPropNo;
+      if (!hasInfo) { diag.noUrl++; continue; }
+      if (seenRef) diag.urlFromSeen++; else diag.urlFromPending++;
       out.push({
         customer: customer,
         roomId: roomId,
-        source: String(sData[j][4] || '') || info.source || 'reins',
+        source: srcType,
         url: finalUrl,
-        reinsPropNo: info.reinsPropNo || '',
+        reinsPropNo: finalReinsPropNo,
         sentAt: sentAtStr,
         currentStatus: status,
         statusCheckedAt: checkedAtStr
@@ -2253,7 +2276,7 @@ function backfillSeenSheetSource(customerFilter) {
     var filterName = customerFilter ? String(customerFilter).trim() : '';
     var hasFilter = !!filterName;
 
-    // 1. 承認待ち物件から (customer|roomId) → {source, url} のマップを作成
+    // 1. 承認待ち物件から (customer|roomId) → {source, url, reinsPropNo} のマップを作成
     var pendingData = pendingSheet.getDataRange().getValues();
     var infoMap = {};
     for (var i = 1; i < pendingData.length; i++) {
@@ -2264,48 +2287,55 @@ function backfillSeenSheetSource(customerFilter) {
       var jsonStr = String(pendingData[i][9] || '');
       var pSource = '';
       var pUrl = '';
+      var pReinsNo = '';
       try {
         var parsed = JSON.parse(jsonStr);
         if (parsed) {
           if (parsed.source) pSource = String(parsed.source);
           if (parsed.url) pUrl = String(parsed.url);
+          if (parsed.reins_property_number) pReinsNo = String(parsed.reins_property_number);
         }
       } catch (_) {}
-      if (pSource || pUrl) {
-        infoMap[pCustomer + '|' + pRoomId] = { source: pSource, url: pUrl };
+      if (pSource || pUrl || pReinsNo) {
+        infoMap[pCustomer + '|' + pRoomId] = { source: pSource, url: pUrl, reinsPropNo: pReinsNo };
       }
     }
 
-    // 2. 通知済み物件 のソース列(E) / URL列(H) 空欄行をバックフィル
+    // 2. 通知済み物件 のソース列(E) / H列(URL or REINS物件番号) 空欄行をバックフィル
     var seenLastRow = seenSheet.getLastRow();
     if (seenLastRow < 2) return { updated: 0, message: '通知済み物件シートが空です' };
-    // 8列 (顧客/room_id/建物名/通知日時/ソース/状態/確認日時/URL)
+    // 8列 (顧客/room_id/建物名/通知日時/ソース/状態/確認日時/参照値)
     var seenData = seenSheet.getRange(2, 1, seenLastRow - 1, 8).getValues();
     var rowsToUpdate = [];
     var counts = {};
-    var urlBackfilled = 0;
+    var refBackfilled = 0;
     for (var j = 0; j < seenData.length; j++) {
       var sCustomer = String(seenData[j][0] || '').trim();
       if (hasFilter && sCustomer !== filterName) continue;
       var sRoomId = String(seenData[j][1] || '').trim();
       var existingSource = String(seenData[j][4] || '').trim();
-      var existingUrl = String(seenData[j][7] || '').trim();
+      var existingRef = String(seenData[j][7] || '').trim();
       var info = infoMap[sCustomer + '|' + sRoomId] || {};
+      var srcDeterm = existingSource || info.source || 'reins';
+      // REINS の場合は物件番号、それ以外は URL を H列に
+      var inferredRef = (srcDeterm === 'reins')
+        ? (info.reinsPropNo || info.url || '')
+        : (info.url || '');
       var needSource = !existingSource;
-      var needUrl = !existingUrl && !!info.url;
-      if (!needSource && !needUrl) continue;
-      var newSource = needSource ? (info.source || 'reins') : null;
-      var newUrl = needUrl ? info.url : null;
-      rowsToUpdate.push({ row: j + 2, source: newSource, url: newUrl });
+      var needRef = !existingRef && !!inferredRef;
+      if (!needSource && !needRef) continue;
+      var newSource = needSource ? srcDeterm : null;
+      var newRef = needRef ? inferredRef : null;
+      rowsToUpdate.push({ row: j + 2, source: newSource, ref: newRef });
       if (needSource) counts[newSource] = (counts[newSource] || 0) + 1;
-      if (needUrl) urlBackfilled++;
+      if (needRef) refBackfilled++;
     }
 
-    // 3. シートへ反映 (E列ソース, H列URL)
+    // 3. シートへ反映 (E列ソース, H列参照値)
     for (var k = 0; k < rowsToUpdate.length; k++) {
       var r = rowsToUpdate[k];
       if (r.source !== null) seenSheet.getRange(r.row, 5).setValue(r.source);
-      if (r.url !== null) seenSheet.getRange(r.row, 8).setValue(r.url);
+      if (r.ref !== null) seenSheet.getRange(r.row, 8).setValue(r.ref);
     }
 
     var breakdown = Object.keys(counts).map(function(s) {
@@ -2315,7 +2345,7 @@ function backfillSeenSheetSource(customerFilter) {
     return {
       updated: rowsToUpdate.length,
       sourceCounts: counts,
-      message: scopeLabel + ' を ' + rowsToUpdate.length + ' 行バックフィル (ソース: ' + (breakdown || '0件') + ' / URL: ' + urlBackfilled + '件)'
+      message: scopeLabel + ' を ' + rowsToUpdate.length + ' 行バックフィル (ソース: ' + (breakdown || '0件') + ' / URL or REINS番号: ' + refBackfilled + '件)'
     };
   } catch (e) {
     console.error('backfillSeenSheetSource error: ' + e.message);
@@ -2587,7 +2617,8 @@ function rowToProperty(row) {
     adFee: _normalizeValue(extra.ad_fee),
     currentStatus: _normalizeValue(extra.current_status),
     warningsText: _normalizeValue(extra.warnings_text),
-    source: String(extra.source || '')
+    source: String(extra.source || ''),
+    reins_property_number: String(extra.reins_property_number || '')
   };
 }
 
