@@ -417,6 +417,46 @@ function doGet(e) {
     }
   }
 
+  // 診断用: 承認待ち物件のJ列(JSON)を新しい順に表示。reins source を優先抽出
+  if (action === 'debug_pending_json') {
+    try {
+      var _ss3 = SpreadsheetApp.openById(SPREADSHEET_ID);
+      var _ps = _ss3.getSheetByName(PENDING_SHEET_NAME);
+      if (!_ps) {
+        return ContentService.createTextOutput(JSON.stringify({ error: 'PENDING sheet なし' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      var _lr = _ps.getLastRow();
+      if (_lr < 2) return ContentService.createTextOutput(JSON.stringify({ rows: [] }))
+        .setMimeType(ContentService.MimeType.JSON);
+      var _pData = _ps.getRange(2, 1, _lr - 1, 11).getValues();
+      var _out = [];
+      for (var _pi = _pData.length - 1; _pi >= 0 && _out.length < 5; _pi--) {
+        var _r = _pData[_pi];
+        var _json = String(_r[9] || '');
+        var _parsed = null;
+        try { _parsed = JSON.parse(_json); } catch (_) {}
+        var _src = _parsed && _parsed.source || '?';
+        var _wt = _parsed && _parsed.warnings_text || '';
+        _out.push({
+          row: _pi + 2,
+          customer: _r[0],
+          building: _r[3],
+          source: _src,
+          hasWarnings: !!_wt,
+          warningsLen: _wt.length,
+          warningsPreview: _wt.substring(0, 200),
+          jsonSize: _json.length
+        });
+      }
+      return ContentService.createTextOutput(JSON.stringify(_out, null, 2))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (e) {
+      return ContentService.createTextOutput(JSON.stringify({ error: e.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // keepalive: GASをウォームに保つためのpingエンドポイント (5分ごとにself-fetchで叩く)
   // 初回ヒット時にトリガー未登録なら自動登録する (bootstrap)
   if (action === 'keepalive') {
