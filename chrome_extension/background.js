@@ -1944,6 +1944,39 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     try {
       const seenResult = await fetchSeenIds();
       if (seenResult && seenResult.seen_ids) seenIds = seenResult.seen_ids;
+      // AdminPage で履歴リセットされた顧客×ソース の dedup マップを処理
+      // GAS の pending_dedup_resets を受け取り、notifiedDedupMap から該当エントリを削除
+      const resets = (seenResult && Array.isArray(seenResult.pending_dedup_resets)) ? seenResult.pending_dedup_resets : [];
+      if (resets.length > 0) {
+        let totalCleared = 0;
+        for (const r of resets) {
+          const cust = String(r.customer || '');
+          const src = String(r.source || '*');
+          if (!cust) continue;
+          const inner = globalThis.__notifiedDedupMap[cust];
+          if (!inner) continue;
+          const beforeCount = Object.keys(inner).length;
+          if (src === '*') {
+            // 顧客の全エントリを削除
+            delete globalThis.__notifiedDedupMap[cust];
+            totalCleared += beforeCount;
+          } else {
+            // ソース一致エントリのみ削除 (source未設定エントリは 'reins' とみなす)
+            for (const k of Object.keys(inner)) {
+              const entrySrc = (inner[k] && inner[k].source) ? String(inner[k].source) : 'reins';
+              if (entrySrc === src) {
+                delete inner[k];
+                totalCleared++;
+              }
+            }
+            if (Object.keys(inner).length === 0) delete globalThis.__notifiedDedupMap[cust];
+          }
+        }
+        if (totalCleared > 0) {
+          await chrome.storage.local.set({ notifiedDedupMap: globalThis.__notifiedDedupMap });
+          await setStorageData({ debugLog: `[リセット連携] notifiedDedupMap から ${totalCleared} エントリを削除 (GASからの ${resets.length} リセット要求を処理)` });
+        }
+      }
       await setStorageData({ debugLog: `既知物件ID取得完了` });
     } catch (err) {
       await setStorageData({ debugLog: `既知物件ID取得失敗（続行）: ${err.message}` });
