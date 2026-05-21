@@ -2036,7 +2036,9 @@ function addToSeenSheet(customerName, prop) {
  */
 function setPropertyAvailability(customerName, roomId, status) {
   if (!customerName || !roomId) return { ok: false, message: 'customer/roomId が未指定' };
-  var validStatuses = ['available', 'closed', 'reins_listed', 'unknown'];
+  // 'applied' = 申込あり (掲載は続いてるが申込が入ってる、再オープン余地あり)
+  // 'closed'  = 募集終了 (404/掲載削除/完全終了)
+  var validStatuses = ['available', 'applied', 'closed', 'reins_listed', 'unknown'];
   if (validStatuses.indexOf(status) < 0) return { ok: false, message: '不正なstatus: ' + status };
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
