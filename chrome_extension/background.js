@@ -386,6 +386,8 @@ importScripts('essquare-config.js', 'essquare-background.js');
 importScripts('suumo-competitor.js', 'suumo-patrol.js');
 // SUUMOビジネス Daily Search からの掲載実績取得(Phase 1)
 importScripts('suumo-business-fetch.js');
+// 空室状況チェック (通知済み物件の current_status 更新)
+importScripts('availability-checker.js');
 // ForRent掲載停止(保留化)自動操作(Phase 3)
 importScripts('forrent-stop.js');
 // ForRent確認画面の登録ボタン自動クリック(Phase 5)

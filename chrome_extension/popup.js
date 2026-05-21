@@ -30,4 +30,29 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.tabs.create({ url: chrome.runtime.getURL('help.html') });
     window.close();
   });
+
+  // 空室状況チェック (手動トリガー)
+  const availBtn = document.getElementById('runAvailability');
+  const availResult = document.getElementById('availabilityResult');
+  if (availBtn) {
+    availBtn.addEventListener('click', async () => {
+      availBtn.disabled = true;
+      availBtn.textContent = '⏳ 確認中...';
+      if (availResult) availResult.textContent = '送付済み物件の空室状況を確認しています...';
+      try {
+        const response = await chrome.runtime.sendMessage({ action: 'run_availability_check', options: { limit: 20 } });
+        if (response && typeof response.processed === 'number') {
+          if (availResult) availResult.textContent = `✅ ${response.processed} 件の物件を確認しました`;
+        } else if (response && response.error) {
+          if (availResult) availResult.textContent = `❌ エラー: ${response.error}`;
+        } else {
+          if (availResult) availResult.textContent = '✅ 完了 (詳細は log.html で確認)';
+        }
+      } catch (e) {
+        if (availResult) availResult.textContent = `❌ ${e.message}`;
+      }
+      availBtn.disabled = false;
+      availBtn.textContent = '🔍 空室状況をチェック';
+    });
+  }
 });
