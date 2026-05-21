@@ -544,6 +544,39 @@ function doGet(e) {
     }
   }
 
+  // 空室確認機能のテストユーザー判定 (property.html がボタン表示の有無を決めるのに使う)
+  if (action === 'is_availability_test_user') {
+    try {
+      var custTu = e.parameter.customer || '';
+      var enabled = (typeof isAvailabilityTestUser === 'function') && isAvailabilityTestUser(custTu);
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, enabled: !!enabled }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (eTu) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, enabled: false, error: eTu.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  // テストユーザーリスト管理 (api_key 必須): add / remove / list
+  if (action === 'manage_availability_test_users') {
+    try {
+      if (!_validateReinsApiKey(e.parameter.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      var op = e.parameter.op || 'list';
+      var custM = e.parameter.customer || '';
+      var rM = (typeof manageAvailabilityTestUsers === 'function')
+        ? manageAvailabilityTestUsers(op, custM)
+        : { ok: false, message: 'function not defined' };
+      return ContentService.createTextOutput(JSON.stringify(rM))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (eM) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, message: eM.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // keepalive: GASをウォームに保つためのpingエンドポイント (5分ごとにself-fetchで叩く)
   // 初回ヒット時にトリガー未登録なら自動登録する (bootstrap)
   if (action === 'keepalive') {

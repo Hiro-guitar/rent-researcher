@@ -2054,8 +2054,8 @@ function setPropertyAvailability(customerName, roomId, status) {
     if (!sheet) return { ok: false, message: 'シートが見つかりません' };
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return { ok: false, message: 'シートが空です' };
-    // A〜E列を読む (E列=source: 'reins' 等)
-    var data = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+    // A〜I列を読む (E列=source, C列=building_name, H列=source_ref, I列=priority_requested_at)
+    var data = sheet.getRange(2, 1, lastRow - 1, 9).getValues();
     var nameTrim = String(customerName).trim();
     var ridTrim = String(roomId).trim();
     var updated = 0;
@@ -2066,6 +2066,8 @@ function setPropertyAvailability(customerName, roomId, status) {
       if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
         var rowNum = i + 2;
         var source = String(data[i][4] || '').trim().toLowerCase();
+        var buildingName = String(data[i][2] || '');
+        var sourceRef = String(data[i][7] || '');  // REINSの場合は物件番号
 
         // REINS で closed → REINS から物件が消えている = 確実に募集終了。
         // 通知済みシートから削除して空室確認の対象外にする (キューが軽くなる)。
@@ -2073,6 +2075,22 @@ function setPropertyAvailability(customerName, roomId, status) {
           rowsToDelete.push(rowNum);
           deleted++;
           continue;
+        }
+
+        // REINS で reins_listed → 掲載はあるが実際の空室状況は不明。
+        //   直近 1時間以内に お客さんからの優先依頼があれば、Discord にスタッフ確認依頼を通知。
+        //   (元付業者に電話確認が必要なため、スタッフの介入を促す)
+        if (source === 'reins' && status === 'reins_listed') {
+          var priorityRaw = data[i][8];
+          var priorityAt = _parseDateFlexible_(priorityRaw);
+          var nowMs = Date.now();
+          if (priorityAt > 0 && priorityAt > nowMs - 60 * 60 * 1000) {
+            try {
+              _notifyReinsConfirmationRequestToDiscord_(nameTrim, ridTrim, buildingName, sourceRef);
+            } catch (eN) {
+              console.warn('[setPropertyAvailability] Discord通知失敗: ' + eN.message);
+            }
+          }
         }
 
         sheet.getRange(rowNum, 6).setValue(status);
@@ -2279,6 +2297,133 @@ function getAvailabilityCheckQueue(options) {
   } catch (e) {
     console.warn('getAvailabilityCheckQueue error: ' + e.message);
     return [];
+  }
+}
+
+/**
+ * 空室確認機能のテストユーザーかどうかを判定。
+ * ScriptProperties キー 'availability_test_customers' にカンマ区切り or JSON配列で保存。
+ *
+ * @param {string} customerName
+ * @return {boolean}
+ */
+function isAvailabilityTestUser(customerName) {
+  if (!customerName) return false;
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty('availability_test_customers');
+    if (!raw) return false;
+    var list = [];
+    try {
+      list = JSON.parse(raw);
+      if (!Array.isArray(list)) list = [];
+    } catch (_) {
+      list = String(raw).split(',').map(function(s) { return s.trim(); });
+    }
+    var trimmed = String(customerName).trim();
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i]).trim() === trimmed) return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * テストユーザーリストを操作 (追加 / 削除 / 一覧取得)。
+ *
+ * @param {'add'|'remove'|'list'} op
+ * @param {string} [customerName]
+ * @return {{ok:boolean, list:string[], message?:string}}
+ */
+function manageAvailabilityTestUsers(op, customerName) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty('availability_test_customers');
+    var list = [];
+    if (raw) {
+      try {
+        list = JSON.parse(raw);
+        if (!Array.isArray(list)) list = [];
+      } catch (_) {
+        list = String(raw).split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+      }
+    }
+    if (op === 'add') {
+      if (!customerName) return { ok: false, message: 'customerName 必須' };
+      var nameTrim = String(customerName).trim();
+      if (list.indexOf(nameTrim) < 0) list.push(nameTrim);
+      props.setProperty('availability_test_customers', JSON.stringify(list));
+      return { ok: true, list: list, message: nameTrim + ' を追加しました' };
+    }
+    if (op === 'remove') {
+      if (!customerName) return { ok: false, message: 'customerName 必須' };
+      var nameTrim2 = String(customerName).trim();
+      list = list.filter(function(s) { return s !== nameTrim2; });
+      props.setProperty('availability_test_customers', JSON.stringify(list));
+      return { ok: true, list: list, message: nameTrim2 + ' を削除しました' };
+    }
+    // list
+    return { ok: true, list: list };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+/**
+ * REINS物件の空室確認依頼を Discord に通知する。
+ * お客さんが「最新の空室状況を確認」を押し、Chrome拡張がチェックして
+ * reins_listed (REINSに掲載あり=募集中の可能性) と判定した時に呼ばれる。
+ * 重複防止: 同一 顧客×roomId は1日1回まで通知。
+ *
+ * @param {string} customerName
+ * @param {string} roomId
+ * @param {string} buildingName
+ * @param {string} reinsPropNo
+ */
+function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildingName, reinsPropNo) {
+  try {
+    var DISCORD_WEBHOOK_URL = (typeof DISCORD_WEBHOOK_RENT_RESEARCHER_URL !== 'undefined')
+      ? DISCORD_WEBHOOK_RENT_RESEARCHER_URL
+      : PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+    if (!DISCORD_WEBHOOK_URL) {
+      console.log('[REINS空室確認依頼] DISCORD_WEBHOOK_URL 未設定でスキップ: ' + customerName);
+      return;
+    }
+    // 重複防止: 同一 顧客|roomId|日付 は1回のみ
+    var props = PropertiesService.getScriptProperties();
+    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    var dedupKey = 'reins_notify_' + customerName + '|' + roomId + '|' + today;
+    if (props.getProperty(dedupKey)) {
+      console.log('[REINS空室確認依頼] 本日通知済みスキップ: ' + dedupKey);
+      return;
+    }
+    var lines = [
+      '🔔 **REINS物件 空室確認依頼**',
+      '顧客: ' + customerName + ' 様',
+      '物件: ' + (buildingName || '(建物名不明)'),
+      'room_id: ' + roomId
+    ];
+    if (reinsPropNo) lines.push('REINS物件番号: ' + reinsPropNo);
+    lines.push('');
+    lines.push('→ お客さんが空室状況の確認を依頼しています。');
+    lines.push('→ 元付業者に電話確認のうえ、LINEでお返事をお願いします。');
+    var payload = {
+      content: lines.join('\n'),
+      thread_name: '🔔 REINS空室確認: ' + customerName
+    };
+    UrlFetchApp.fetch(DISCORD_WEBHOOK_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    props.setProperty(dedupKey, '1');
+    // 30日後に dedup キーを自動削除 (Properties の上限対策)
+    // (GASにExpireはないので、定期クリーンアップで削除する想定)
+    console.log('[REINS空室確認依頼] Discord通知送信: ' + customerName);
+  } catch (e) {
+    console.warn('[REINS空室確認依頼] Discord通知失敗: ' + e.message);
   }
 }
 
