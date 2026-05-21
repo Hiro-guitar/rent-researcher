@@ -484,6 +484,27 @@ function doGet(e) {
     }
   }
 
+  // 空室状況確認キュー (Chrome拡張から定期的に取得して各物件をチェック)
+  if (action === 'get_availability_queue') {
+    try {
+      if (!_validateReinsApiKey(e.parameter.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      var queueOpts = {
+        limit: parseInt(e.parameter.limit || '50', 10),
+        maxAgeDays: parseInt(e.parameter.max_age_days || '60', 10),
+        maxIntervalHours: parseInt(e.parameter.max_interval_hours || '24', 10)
+      };
+      var queue = (typeof getAvailabilityCheckQueue === 'function') ? getAvailabilityCheckQueue(queueOpts) : [];
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, items: queue }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (eQ) {
+      return ContentService.createTextOutput(JSON.stringify({ error: eQ.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // keepalive: GASをウォームに保つためのpingエンドポイント (5分ごとにself-fetchで叩く)
   // 初回ヒット時にトリガー未登録なら自動登録する (bootstrap)
   if (action === 'keepalive') {

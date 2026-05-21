@@ -2056,6 +2056,94 @@ function setPropertyAvailability(customerName, roomId, status) {
 }
 
 /**
+ * 空室状況確認キュー: 通知済み物件のうち、確認が必要な物件のリストを返す。
+ *   - sentAt が maxAgeDays 以内 (デフォルト 60日)
+ *   - status_checked_at が空 OR maxIntervalHours 以上経過 (デフォルト 24時間)
+ * 各物件には URL も付与 (承認待ちシート JSON から取得)
+ *
+ * @param {{limit?: number, maxAgeDays?: number, maxIntervalHours?: number}} [options]
+ * @return {Array<{customer, roomId, source, url, sentAt, currentStatus, statusCheckedAt}>}
+ */
+function getAvailabilityCheckQueue(options) {
+  options = options || {};
+  var limit = options.limit || 50;
+  var maxAgeDays = options.maxAgeDays || 60;
+  var maxIntervalHours = options.maxIntervalHours || 24;
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    if (!seenSheet) return [];
+
+    // 1. 承認待ち から (customer|roomId) → {url, source} のマップを作る
+    var urlMap = {};
+    if (pendingSheet) {
+      var pLast = pendingSheet.getLastRow();
+      if (pLast >= 2) {
+        var pData = pendingSheet.getRange(2, 1, pLast - 1, 10).getValues();
+        for (var i = 0; i < pData.length; i++) {
+          var pCust = String(pData[i][0] || '').trim();
+          var pRoom = String(pData[i][2] || '').trim();
+          if (!pCust || !pRoom) continue;
+          try {
+            var parsed = JSON.parse(String(pData[i][9] || ''));
+            if (parsed && parsed.url) {
+              urlMap[pCust + '|' + pRoom] = {
+                url: String(parsed.url),
+                source: String(parsed.source || 'reins'),
+                reinsPropNo: String(parsed.reins_property_number || '')
+              };
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    // 2. 通知済み物件 から確認対象を抽出
+    var seenLast = seenSheet.getLastRow();
+    if (seenLast < 2) return [];
+    var sData = seenSheet.getRange(2, 1, seenLast - 1, 7).getValues();
+    var now = Date.now();
+    var ageCutoff = now - maxAgeDays * 24 * 60 * 60 * 1000;
+    var intervalCutoff = now - maxIntervalHours * 60 * 60 * 1000;
+    var out = [];
+    for (var j = 0; j < sData.length; j++) {
+      var customer = String(sData[j][0] || '').trim();
+      var roomId = String(sData[j][1] || '').trim();
+      if (!customer || !roomId) continue;
+      var sentAtStr = String(sData[j][3] || '');
+      var sentAt = sentAtStr ? new Date(sentAtStr.replace(' ', 'T') + '+09:00').getTime() : 0;
+      if (!sentAt || sentAt < ageCutoff) continue;
+      var status = String(sData[j][5] || '');
+      var checkedAtStr = String(sData[j][6] || '');
+      var checkedAt = checkedAtStr ? new Date(checkedAtStr.replace(' ', 'T') + '+09:00').getTime() : 0;
+      // closed (募集終了) は再チェック不要
+      if (status === 'closed') continue;
+      // 直近チェック済みはスキップ
+      if (checkedAt && checkedAt > intervalCutoff) continue;
+      var info = urlMap[customer + '|' + roomId] || {};
+      // URL が無い物件はスキップ (確認できない)
+      if (!info.url) continue;
+      out.push({
+        customer: customer,
+        roomId: roomId,
+        source: info.source || String(sData[j][4] || '') || 'reins',
+        url: info.url,
+        reinsPropNo: info.reinsPropNo || '',
+        sentAt: sentAtStr,
+        currentStatus: status,
+        statusCheckedAt: checkedAtStr
+      });
+      if (out.length >= limit) break;
+    }
+    return out;
+  } catch (e) {
+    console.warn('getAvailabilityCheckQueue error: ' + e.message);
+    return [];
+  }
+}
+
+/**
  * 顧客の送付済み物件一覧 + 各物件の空室状況を返す。
  * 顧客の履歴ページや管理者の再送UIで使う。
  *
