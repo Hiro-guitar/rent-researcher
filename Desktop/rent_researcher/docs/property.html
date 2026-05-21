@@ -308,9 +308,22 @@ if (inlineProp) {
   fetchProperty(customer, roomId);
 } else if (customer && roomId) {
   // 3. パラメータ無し → view_api 経由（最遅、フォールバック）
+  //    埋め込みデータがない = 古いリンク / 削除済み の可能性が高いので
+  //    スケルトンの本体は隠してシンプルな読込画面のみ表示する
+  showSimpleLoading();
   fetchProperty(customer, roomId);
 } else {
   showError('パラメータが不足しています。');
+}
+
+// スケルトンの中身を一旦隠し、シンプルな「確認中…」だけにする
+function showSimpleLoading() {
+  var loading = document.getElementById('loading');
+  if (!loading) return;
+  loading.innerHTML =
+    '<div style="text-align:center;padding:80px 20px;color:#888;">'
+    + '<div style="font-size:14px;letter-spacing:0.5px;">確認中…</div>'
+    + '</div>';
 }
 
 function fetchProperty(customer, roomId) {
