@@ -212,8 +212,20 @@ async function runAvailabilityCheckBatch(options) {
   }
   const items = (queue && Array.isArray(queue.items)) ? queue.items : [];
   if (items.length === 0) {
-    await setStorageData({ debugLog: `[空室確認] 確認対象なし` });
-    return { processed: 0 };
+    // diag があれば理由を表示
+    const d = queue && queue.diag;
+    let reason = '確認対象なし';
+    if (d) {
+      reason += ` (総行数:${d.total} / URLマップ:${d.urlMapSize}件`;
+      if (d.tooOld) reason += ` / 60日超過:${d.tooOld}`;
+      if (d.isClosed) reason += ` / closed:${d.isClosed}`;
+      if (d.recentlyChecked) reason += ` / 24h以内チェック済:${d.recentlyChecked}`;
+      if (d.noUrl) reason += ` / URL無し:${d.noUrl}`;
+      if (d.noSentAt) reason += ` / 通知日時無し:${d.noSentAt}`;
+      reason += ')';
+    }
+    await setStorageData({ debugLog: `[空室確認] ${reason}` });
+    return { processed: 0, diag: d };
   }
   await setStorageData({ debugLog: `[空室確認] ${items.length}件を確認します` });
 
