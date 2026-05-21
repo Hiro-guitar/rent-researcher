@@ -2454,14 +2454,11 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
       console.log('[空室確認依頼] DISCORD_WEBHOOK_URL 未設定でスキップ: ' + customerName);
       return;
     }
-    // 重複防止: 同一 顧客|roomId|日付 は1回のみ
-    var props = PropertiesService.getScriptProperties();
-    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
-    var dedupKey = 'avail_notify_' + customerName + '|' + roomId + '|' + today;
-    if (props.getProperty(dedupKey)) {
-      console.log('[空室確認依頼] 本日通知済みスキップ: ' + dedupKey);
-      return;
-    }
+    // [テスト中] 重複防止は無効化。本番運用時は再度有効化
+    //   var props = PropertiesService.getScriptProperties();
+    //   var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    //   var dedupKey = 'avail_notify_' + customerName + '|' + roomId + '|' + today;
+    //   if (props.getProperty(dedupKey)) { ... return; }
     var srcLabel = (source || '').toLowerCase();
     var statusLabel = (status === 'needs_confirmation') ? '要物確・要確認' : 'REINS掲載中';
     var sourceDisplay = {
@@ -2493,7 +2490,7 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
       payload: JSON.stringify(payload),
       muteHttpExceptions: true
     });
-    props.setProperty(dedupKey, '1');
+    // [テスト中] 重複防止 props.setProperty(dedupKey, '1') は無効化
     console.log('[空室確認依頼] Discord通知送信: ' + customerName + ' (' + sourceDisplay + '/' + statusLabel + ')');
   } catch (e) {
     console.warn('[空室確認依頼] Discord通知失敗: ' + e.message);
@@ -2535,14 +2532,11 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
       return;
     }
 
-    // 重複防止
-    var props = PropertiesService.getScriptProperties();
-    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
-    var dedupKey = 'avail_line_' + customerName + '|' + roomId + '|' + today;
-    if (props.getProperty(dedupKey)) {
-      console.log('[空室結果LINE] 本日通知済みスキップ: ' + dedupKey);
-      return;
-    }
+    // [テスト中] 重複防止は無効化。本番運用時は再度有効化
+    //   var props = PropertiesService.getScriptProperties();
+    //   var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    //   var dedupKey = 'avail_line_' + customerName + '|' + roomId + '|' + today;
+    //   if (props.getProperty(dedupKey)) { ... return; }
 
     // ステータスごとの文言
     var building = buildingName || 'お部屋';
@@ -2570,7 +2564,7 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
     // LINE プッシュメッセージ送信 (LineApi.js の pushMessage を使用)
     if (typeof pushMessage === 'function') {
       pushMessage(userId, [{ type: 'text', text: text }]);
-      props.setProperty(dedupKey, '1');
+      // [テスト中] 重複防止 props.setProperty(dedupKey, '1') は無効化
       console.log('[空室結果LINE] 送信成功: ' + customerName + ' (' + status + ')');
     } else {
       console.warn('[空室結果LINE] pushMessage 関数が未定義');
