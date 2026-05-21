@@ -484,30 +484,16 @@ function setRequestedState() {
   }
 }
 
-// ページロード時: テストユーザー判定 → 対象ならセクション表示 + 依頼中なら依頼済み表示
+// ページロード時: テストユーザー判定 → 対象ならセクション表示
+// (テスト中につき「依頼済み」復元ロジックは無効化、リロードで未依頼状態に戻る)
 function loadInitialAvailabilityStatus() {
   if (!customer || !roomId) return;
   var testUrl = GAS_API_URL + '?action=is_availability_test_user&customer=' + encodeURIComponent(customer);
   fetch(testUrl).then(function(r) { return r.text(); }).then(function(t) {
     var d; try { d = JSON.parse(t); } catch(_) { return; }
     if (!d || !d.enabled) return;
-    // テストユーザー: セクションを表示
     var section = document.getElementById('availabilitySection');
     if (section) section.style.display = '';
-    // 既に依頼中(priorityRequestedAt が直近1時間以内)なら「依頼済み」表示
-    var url = GAS_API_URL + '?action=get_availability_status&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
-    return fetch(url).then(function(r2) { return r2.text(); }).then(function(t2) {
-      var d2; try { d2 = JSON.parse(t2); } catch(_) { return; }
-      if (!d2 || !d2.found || !d2.priorityRequestedAt) return;
-      // priorityRequestedAt が直近1時間以内かチェック (古い依頼はリセット表示)
-      var m = String(d2.priorityRequestedAt).match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})[\s T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
-      if (!m) return;
-      var reqMs = new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10),
-                            parseInt(m[4],10), parseInt(m[5],10), m[6] ? parseInt(m[6],10) : 0).getTime();
-      if (Date.now() - reqMs < 60 * 60 * 1000) {
-        setRequestedState();
-      }
-    });
   }).catch(function(){});
 }
 
