@@ -1976,7 +1976,7 @@ function updatePendingStatus(rowIndex, newStatus, viewUrl) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   sheet.getRange(rowIndex, 11).setValue(newStatus);
-  sheet.getRange(rowIndex, 13).setValue(new Date().toISOString().replace('T', ' ').substring(0, 19));
+  sheet.getRange(rowIndex, 13).setValue(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss'));
   if (viewUrl) {
     sheet.getRange(rowIndex, 14).setValue(viewUrl);
   }
@@ -2007,7 +2007,7 @@ function addToSeenSheet(customerName, prop) {
     customerName,
     prop.roomId,
     prop.buildingName,
-    new Date().toISOString().replace('T', ' ').substring(0, 19),
+    Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss'),
     source,
     '', // current_status
     ''  // status_checked_at
@@ -2037,7 +2037,7 @@ function setPropertyAvailability(customerName, roomId, status) {
     var nameTrim = String(customerName).trim();
     var ridTrim = String(roomId).trim();
     var updated = 0;
-    var now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
         var rowNum = i + 2;

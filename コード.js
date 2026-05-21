@@ -1616,7 +1616,7 @@ function handleAddReinsProperty(json) {
     existingRows[key] = i + 1; // シートの行番号（1-based、ヘッダー分+1）
   }
 
-  var now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   var added = 0;
   var skipped = 0;
 
