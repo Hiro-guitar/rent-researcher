@@ -2113,13 +2113,42 @@ function getAvailabilityCheckQueue(options) {
       var customer = String(sData[j][0] || '').trim();
       var roomId = String(sData[j][1] || '').trim();
       if (!customer || !roomId) { diag.noCustOrRoom++; continue; }
-      var sentAtStr = String(sData[j][3] || '');
-      var sentAt = sentAtStr ? new Date(sentAtStr.replace(' ', 'T') + '+09:00').getTime() : 0;
+      // D列の通知日時を Date に変換。Sheets が Date 型に変換してる場合 / 文字列の場合 両対応
+      var sentRaw = sData[j][3];
+      var sentAt = 0;
+      var sentAtStr = '';
+      if (sentRaw instanceof Date) {
+        sentAt = sentRaw.getTime();
+        sentAtStr = Utilities.formatDate(sentRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+      } else if (sentRaw) {
+        sentAtStr = String(sentRaw);
+        // "2026-05-21 13:50:00" / "2026/05/21 13:50:00" / ISO 各種に対応
+        var normalized = sentAtStr.replace(/\//g, '-');
+        // タイムゾーンが既にあるならそのまま、無ければ +09:00 を補う
+        if (!/[+\-]\d{2}:?\d{2}$|Z$/.test(normalized)) {
+          normalized = normalized.replace(' ', 'T') + '+09:00';
+        }
+        var parsed = new Date(normalized);
+        if (!isNaN(parsed.getTime())) {
+          sentAt = parsed.getTime();
+        }
+      }
       if (!sentAt) { diag.noSentAt++; continue; }
       if (sentAt < ageCutoff) { diag.tooOld++; continue; }
       var status = String(sData[j][5] || '');
-      var checkedAtStr = String(sData[j][6] || '');
-      var checkedAt = checkedAtStr ? new Date(checkedAtStr.replace(' ', 'T') + '+09:00').getTime() : 0;
+      var checkedRaw = sData[j][6];
+      var checkedAt = 0;
+      var checkedAtStr = '';
+      if (checkedRaw instanceof Date) {
+        checkedAt = checkedRaw.getTime();
+        checkedAtStr = Utilities.formatDate(checkedRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+      } else if (checkedRaw) {
+        checkedAtStr = String(checkedRaw);
+        var cNorm = checkedAtStr.replace(/\//g, '-');
+        if (!/[+\-]\d{2}:?\d{2}$|Z$/.test(cNorm)) cNorm = cNorm.replace(' ', 'T') + '+09:00';
+        var cp = new Date(cNorm);
+        if (!isNaN(cp.getTime())) checkedAt = cp.getTime();
+      }
       if (status === 'closed') { diag.isClosed++; continue; }
       if (checkedAt && checkedAt > intervalCutoff) { diag.recentlyChecked++; continue; }
       var info = urlMap[customer + '|' + roomId] || {};
