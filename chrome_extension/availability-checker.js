@@ -36,8 +36,8 @@ async function checkOneAvailability(item) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// itandi: 物件ページの「Block Left」div に「募集中」が含まれるか
-// vacancy-checker (Python) と同じロジック
+// itandi: 「Block Left」div / body テキストから判定
+// 募集中 → available / 申込あり → applied / 404/掲載削除 → closed
 // ──────────────────────────────────────────────────────────────────
 async function _checkItandiAvailability(url) {
   if (!url || url.indexOf('itandibb.com') < 0) return 'unknown';
@@ -48,22 +48,23 @@ async function _checkItandiAvailability(url) {
   try {
     await chrome.tabs.update(tab.id, { url: url });
     await _waitForTabLoad(tab.id, 15000);
-    await new Promise(r => setTimeout(r, 2000)); // SPAレンダ待ち
+    await new Promise(r => setTimeout(r, 2000));
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        // 「Block Left」div 内に「募集中」テキストがあれば募集中
+        const bodyText = document.body.innerText || '';
+        // 404 / 掲載削除 (closed)
+        if (/このページは存在しません|お探しのページ|404\s*Not\s*Found|ページが見つかりません/i.test(bodyText)) return 'closed';
+        // 申込あり (applied) - 募集中表記より優先
+        if (/申込\s*あり|status[_-]?type\s*[:=]\s*offered/i.test(bodyText)) return 'applied';
+        // 募集中
         const blocks = document.querySelectorAll('div[class*="Block"][class*="Left"], .BlockLeft, div.block.left');
         for (const el of blocks) {
           if ((el.textContent || '').includes('募集中')) return 'available';
         }
-        // フォールバック: bodyテキスト全体で判定
-        const bodyText = document.body.innerText || '';
         if (/募集中/.test(bodyText)) return 'available';
-        // 404 / ページ削除
-        if (/このページは存在しません|お探しのページ|404|ページが見つかりません/.test(bodyText)) return 'closed';
-        // 申込あり / 取り下げ表記
-        if (/申込\s*あり|取り下げ|募集停止|募集終了/.test(bodyText)) return 'closed';
+        // 取り下げ / 募集終了 → closed
+        if (/取り下げ|募集停止|募集終了/.test(bodyText)) return 'closed';
         return 'unknown';
       }
     });
@@ -75,8 +76,10 @@ async function _checkItandiAvailability(url) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// いえらぶ (ielove BB): 専用セレクタ exists_application_for_confirm / for-rent
-// vacancy-checker (Python) と同じロジック
+// いえらぶ (ielove BB):
+//   募集状況 「申込N件」 or span.exists_application_for_confirm → applied
+//   span.for-rent / 募集中表記 → available
+//   既に掲載が終了 → closed
 // ──────────────────────────────────────────────────────────────────
 async function _checkIeloveAvailability(url) {
   if (!url || (url.indexOf('ielove') < 0 && url.indexOf('homes.co.jp') < 0)) return 'unknown';
@@ -91,17 +94,21 @@ async function _checkIeloveAvailability(url) {
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        // 専用セレクタで判定
-        const app = document.querySelector('span.exists_application_for_confirm');
-        if (app) return 'closed';
-        const forRent = document.querySelector('span.for-rent');
-        if (forRent) return 'available';
-        // 掲載終了
         const bodyText = document.body.innerText || '';
-        if (/既に掲載が終了した物件|掲載が終了|物件は存在しません|該当する物件はありません/.test(bodyText)) return 'closed';
-        // フォールバック: テキストパターン
-        if (/申込\s*あり|入居予定者あり|申込済|募集停止|募集終了/.test(bodyText)) return 'closed';
+        // 掲載終了 (closed)
+        if (/既に掲載が終了|掲載が終了|物件は存在しません|該当する物件はありません/.test(bodyText)) return 'closed';
+        // 申込あり (applied)
+        //   - 「申込N件」 (募集状況バッジ) → applied
+        //   - span.exists_application_for_confirm → applied
+        //   - 「申込あり」「入居予定者あり」「申込済」 → applied
+        if (/申込\s*\d+\s*件/.test(bodyText)) return 'applied';
+        if (document.querySelector('span.exists_application_for_confirm')) return 'applied';
+        if (/申込\s*あり|入居予定者あり|申込済/.test(bodyText)) return 'applied';
+        // 募集中 (available)
+        if (document.querySelector('span.for-rent')) return 'available';
         if (/募集中|入居可能/.test(bodyText)) return 'available';
+        // 募集停止/終了 → closed
+        if (/募集停止|募集終了/.test(bodyText)) return 'closed';
         return 'unknown';
       }
     });
@@ -113,8 +120,10 @@ async function _checkIeloveAvailability(url) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// いい生活 (es-square): eds-tag__label 「申込あり」 or 404 → closed
-// 404モーダルはルートDOMに別途レンダされるので、document全体から検索する。
+// いい生活 (es-square):
+//   404モーダル / ページ削除 → closed
+//   eds-tag__label 「申込あり」 → applied
+//   それ以外 → available
 // ──────────────────────────────────────────────────────────────────
 async function _checkEssquareAvailability(url) {
   if (!url || (url.indexOf('es-square') < 0 && url.indexOf('iisesq') < 0)) return 'unknown';
@@ -129,13 +138,7 @@ async function _checkEssquareAvailability(url) {
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        // 申込ありタグ
-        const tags = document.querySelectorAll('span.eds-tag__label');
-        for (const el of tags) {
-          if ((el.textContent || '').trim() === '申込あり') return 'closed';
-        }
-        // 404モーダル / 削除済み / 見つからない (document全体テキストで判定)
-        // モーダルはルートDOMに別レンダされるため document.documentElement.innerText で取得
+        // 404モーダル / 削除済み を最優先で判定 (closed)
         const allText = (document.documentElement && document.documentElement.innerText) || document.body.innerText || '';
         const closedPatterns = [
           /お探しのページ.{0,10}見つかりません/,
@@ -149,9 +152,13 @@ async function _checkEssquareAvailability(url) {
         for (const re of closedPatterns) {
           if (re.test(allText)) return 'closed';
         }
-        // タイトルに「Not Found」「見つかりません」も追加チェック
         const title = (document.title || '').toLowerCase();
         if (title.includes('not found') || title.includes('404') || (document.title || '').includes('見つかりません')) return 'closed';
+        // 申込あり (applied) — eds-tag__label
+        const tags = document.querySelectorAll('span.eds-tag__label');
+        for (const el of tags) {
+          if ((el.textContent || '').trim() === '申込あり') return 'applied';
+        }
         // それ以外は available
         return 'available';
       }
