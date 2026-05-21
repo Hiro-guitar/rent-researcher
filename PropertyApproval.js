@@ -2088,8 +2088,9 @@ function backfillSeenSheetSource(customerFilter) {
 }
 
 /**
- * 通知済み物件シートから、指定顧客 + 指定ソース の行を削除する。
- * source が空文字または '*' の場合は全ソース対象 (＝顧客全件)。
+ * 通知済み物件シート + 承認待ち物件シートから、指定顧客 + 指定ソース の行を
+ * 両方とも削除する。これで Chrome 拡張の次回検索で seen_ids から消えて
+ * 再度 Discord 通知 + 承認待ち追加される。
  *
  * @param {string} customerName
  * @param {string} source - 'itandi' | 'ielove' | 'essquare' | 'reins' | '*' (全件)
@@ -2099,29 +2100,70 @@ function resetSeenForCustomerSource(customerName, source) {
   if (!customerName) return { deleted: 0, message: '顧客名が未指定です' };
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
-    if (!sheet) return { deleted: 0, message: '通知済み物件シートが見つかりません' };
-    var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return { deleted: 0, message: '通知済み物件シートが空です' };
-    // 5列分を取得 (顧客名/room_id/建物名/通知日時/ソース)
-    var data = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
     var allSources = !source || source === '*';
-    var matchedIdxs = [];
-    for (var i = 0; i < data.length; i++) {
-      var rowCustomer = String(data[i][0] || '').trim();
-      var rowSource = String(data[i][4] || '').trim();
-      if (rowCustomer !== String(customerName).trim()) continue;
-      if (!allSources && rowSource !== String(source).trim()) continue;
-      matchedIdxs.push(i + 2); // シートの行番号 (1-based, ヘッダー考慮)
-    }
-    // 末尾から削除 (行番号がずれないように)
-    for (var k = matchedIdxs.length - 1; k >= 0; k--) {
-      sheet.deleteRow(matchedIdxs[k]);
-    }
     var label = allSources ? '全サイト' : source;
+    var nameTrim = String(customerName).trim();
+
+    // 1. 通知済み物件シート (5列: 顧客名/room_id/建物名/通知日時/ソース) から削除
+    var seenDeleted = 0;
+    var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (seenSheet) {
+      var seenLast = seenSheet.getLastRow();
+      if (seenLast >= 2) {
+        var seenData = seenSheet.getRange(2, 1, seenLast - 1, 5).getValues();
+        var seenIdxs = [];
+        for (var i = 0; i < seenData.length; i++) {
+          var rCust = String(seenData[i][0] || '').trim();
+          var rSrc = String(seenData[i][4] || '').trim();
+          if (rCust !== nameTrim) continue;
+          if (!allSources && rSrc !== String(source).trim()) continue;
+          seenIdxs.push(i + 2);
+        }
+        for (var k = seenIdxs.length - 1; k >= 0; k--) {
+          seenSheet.deleteRow(seenIdxs[k]);
+        }
+        seenDeleted = seenIdxs.length;
+      }
+    }
+
+    // 2. 承認待ち物件シート から削除
+    //    顧客名 + JSON.source で絞り込み。Discord通知時点で seen_ids に乗るので、
+    //    status (pending/sent/skipped) に関わらず削除して次回検索で再ヒットさせる。
+    var pendingDeleted = 0;
+    var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    if (pendingSheet) {
+      var pLast = pendingSheet.getLastRow();
+      if (pLast >= 2) {
+        var pData = pendingSheet.getRange(2, 1, pLast - 1, 11).getValues();
+        var pIdxs = [];
+        for (var j = 0; j < pData.length; j++) {
+          var pCust = String(pData[j][0] || '').trim();
+          if (pCust !== nameTrim) continue;
+          if (allSources) {
+            pIdxs.push(j + 2);
+          } else {
+            var pSrc = '';
+            try {
+              var parsed = JSON.parse(String(pData[j][9] || ''));
+              if (parsed && parsed.source) pSrc = String(parsed.source);
+            } catch (_) {}
+            // source未設定 → REINSとみなす (handleAddReinsPropertyのデフォルト)
+            if (!pSrc) pSrc = 'reins';
+            if (pSrc === String(source).trim()) pIdxs.push(j + 2);
+          }
+        }
+        for (var m = pIdxs.length - 1; m >= 0; m--) {
+          pendingSheet.deleteRow(pIdxs[m]);
+        }
+        pendingDeleted = pIdxs.length;
+      }
+    }
+
+    var total = seenDeleted + pendingDeleted;
     return {
-      deleted: matchedIdxs.length,
-      message: '「' + customerName + '」の' + label + '通知済み履歴 ' + matchedIdxs.length + '件 を削除しました'
+      deleted: total,
+      message: '「' + customerName + '」の' + label + '履歴を削除しました '
+        + '(通知済み: ' + seenDeleted + '件 / 承認待ち: ' + pendingDeleted + '件)'
     };
   } catch (e) {
     return { deleted: 0, message: 'エラー: ' + e.message };
