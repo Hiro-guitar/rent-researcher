@@ -32,6 +32,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .error-card{background:#fff;border-radius:12px;padding:30px;max-width:400px;margin:40px auto;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
 .error-card h2{color:#E05252;margin-bottom:12px}
 .error-card p{color:#666;line-height:1.6}
+/* 募集終了カード (Not Found) */
+.notfound-card{background:#fff;border-radius:16px;padding:36px 28px 30px;max-width:420px;margin:40px auto;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.08);border:1px solid #f0f0f0}
+.notfound-icon{font-size:54px;line-height:1;margin-bottom:16px;display:block}
+.notfound-title{font-size:20px;font-weight:800;color:#1a2538;margin-bottom:10px;letter-spacing:-0.3px}
+.notfound-msg{color:#666;line-height:1.7;font-size:14px;margin-bottom:24px}
+.notfound-actions{display:flex;flex-direction:column;gap:10px}
+.notfound-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 22px;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;letter-spacing:0.3px;border:none;cursor:pointer;font-family:inherit}
+.notfound-btn-primary{background:#06C755;color:#fff;box-shadow:0 2px 6px rgba(6,199,85,0.25)}
+.notfound-btn-primary:hover{background:#04a747}
+.notfound-btn-secondary{background:#f5f7fa;color:#1a2538;border:1px solid #e0e4ec}
+.notfound-note{margin-top:18px;padding-top:18px;border-top:1px solid #f0f0f0;color:#999;font-size:12px;line-height:1.6}
 /* カルーセル */
 .carousel{position:relative;width:100%;max-width:600px;margin:0 auto;background:#000;overflow:hidden}
 .carousel-inner{display:flex;transition:transform 0.3s ease;width:100%}
@@ -312,11 +323,23 @@ function fetchProperty(customer, roomId) {
     .then(function(text) {
       var data;
       try { data = JSON.parse(text); } catch(e) { throw new Error('レスポンス解析エラー'); }
-      if (data.error) throw new Error(data.error);
+      if (data.error) {
+        if (data.notFound) {
+          showNotFound();
+          return;
+        }
+        throw new Error(data.error);
+      }
       renderProperty(data);
     })
     .catch(function(err) {
-      showError(err.message || '物件情報の取得に失敗しました。');
+      var msg = err && err.message ? err.message : '物件情報の取得に失敗しました。';
+      // フォールバック: メッセージから「終了/見つかりません/表示できません」を含む場合は notFound 扱い
+      if (/募集.*終了|表示できません|見つかりま/.test(msg)) {
+        showNotFound();
+      } else {
+        showError(msg);
+      }
     });
 }
 
@@ -400,6 +423,43 @@ function showError(msg) {
   document.getElementById('app').style.display = 'block';
   document.getElementById('app').innerHTML =
     '<div class="error-card"><h2>\u26a0\ufe0f エラー</h2><p>' + escHtml(msg) + '</p></div>';
+}
+
+// 物件が見つからない / 削除済みの場合のフレンドリーな表示
+function showNotFound() {
+  document.getElementById('loading').style.display = 'none';
+  var app = document.getElementById('app');
+  app.style.display = 'block';
+  app.innerHTML =
+    '<div class="notfound-card">'
+    + '<span class="notfound-icon">\ud83c\udfe0</span>'
+    + '<div class="notfound-title">この物件の募集は終了しました</div>'
+    + '<div class="notfound-msg">ご覧の物件は募集を終了したか、掲載期間 (90日) を過ぎたため詳細を表示できません。<br>引き続きLINEで新着物件をお送りしておりますので、ぜひご確認ください。</div>'
+    + '<div class="notfound-actions">'
+    + '<button class="notfound-btn notfound-btn-primary" onclick="closeOrBack()">LINEに戻る</button>'
+    + '</div>'
+    + '<div class="notfound-note">他に気になる条件がございましたら、LINEでお気軽にご相談ください。</div>'
+    + '</div>';
+}
+
+function closeOrBack() {
+  // 1. LIFF経由なら liff.closeWindow
+  try {
+    if (typeof liff !== 'undefined' && liff && liff.closeWindow) {
+      liff.closeWindow();
+      return;
+    }
+  } catch(_) {}
+  // 2. window.close (JSで開いたタブのみ動作)
+  try {
+    window.close();
+    setTimeout(function() {
+      try { if (!window.closed) history.back(); } catch(_) {}
+    }, 300);
+    return;
+  } catch(_) {}
+  // 3. フォールバック
+  try { history.back(); } catch(_) {}
 }
 
 // ===== 設備カテゴリタグ =====
