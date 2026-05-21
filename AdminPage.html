@@ -353,12 +353,18 @@ input[type="range"]::-webkit-slider-thumb {
     <div id="resetSeenResult" style="font-size:12px;color:#444;margin-top:8px;"></div>
     <!-- 既存データのソース後付け (バックフィル) -->
     <div style="margin-top:12px;padding:10px;background:#fffbea;border:1px dashed #e0c060;border-radius:6px;">
-      <div style="font-size:11px;color:#7a5d00;margin-bottom:6px;font-weight:600;">📥 既存データのソース後付け (初回1回のみ実行)</div>
+      <div style="font-size:11px;color:#7a5d00;margin-bottom:6px;font-weight:600;">📥 既存データのソース後付け</div>
       <div style="font-size:11px;color:#666;margin-bottom:6px;">
         通知済み物件シートでE列(ソース)が空欄の行を、承認待ち物件のJSONから推測して埋めます。
         見つからない行は<b>REINS</b>とみなされます。
+        <br>※ 全顧客一括は時間がかかるので、まず1顧客で試すのを推奨。
       </div>
-      <button onclick="runBackfillSeenSource()" style="padding:5px 12px;font-size:12px;background:#f39c12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">ソース列をバックフィル</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+        <select id="backfillCustomerSelect" style="font-size:12px;padding:4px 6px;flex:1;min-width:140px;">
+          <option value="">— 全顧客一括 —</option>
+        </select>
+        <button onclick="runBackfillSeenSource()" style="padding:5px 12px;font-size:12px;background:#f39c12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">ソース列をバックフィル</button>
+      </div>
       <div id="backfillResult" style="font-size:11px;color:#444;margin-top:6px;"></div>
     </div>
   </div>
@@ -619,6 +625,14 @@ function renderCustomerDropdown() {
       opt3.value = c.name;
       opt3.textContent = c.name;
       resetSel.appendChild(opt3);
+    }
+    // バックフィル用ドロップダウンにも追加 (全顧客)
+    var backfillSel = document.getElementById('backfillCustomerSelect');
+    if (backfillSel) {
+      var opt4 = document.createElement('option');
+      opt4.value = c.name;
+      opt4.textContent = c.name;
+      backfillSel.appendChild(opt4);
     }
   }
 }
@@ -1760,7 +1774,10 @@ function openSuumoPatrolConfig() {
 // ──────────────────────────────────────────────────────────
 function runBackfillSeenSource() {
   var resultEl = document.getElementById('backfillResult');
-  if (!confirm('通知済み物件シートのE列(ソース)が空欄の行を、承認待ち物件のJSONから推測して埋めます。\n\nJSONが無い/sourceが無い場合はREINSとして扱われます。\n\n実行しますか？')) return;
+  var custSel = document.getElementById('backfillCustomerSelect');
+  var custName = custSel ? custSel.value : '';
+  var scopeLabel = custName ? '「' + custName + '」' : '全顧客一括';
+  if (!confirm(scopeLabel + ' の通知済み物件 E列(ソース)が空欄の行を埋めます。\n\nJSONが無い/sourceが無い行は REINS として扱われます。\n\n実行しますか？')) return;
   if (resultEl) resultEl.textContent = '処理中... (行数によっては数秒〜数十秒かかります)';
   google.script.run
     .withSuccessHandler(function(r) {
@@ -1774,7 +1791,7 @@ function runBackfillSeenSource() {
     .withFailureHandler(function(err) {
       if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">エラー: ' + esc(err.message || String(err)) + '</span>';
     })
-    .backfillSeenSheetSource();
+    .backfillSeenSheetSource(custName);
 }
 
 function runResetSeen() {
