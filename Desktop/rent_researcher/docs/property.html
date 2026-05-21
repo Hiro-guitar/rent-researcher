@@ -537,7 +537,7 @@ function requestAvailabilityRecheck() {
   btn.disabled = true;
   btn.innerHTML = '<span class="spin"></span><span>確認中…</span>';
   msg.className = 'availability-msg';
-  msg.textContent = 'スタッフPCに依頼中です。最大1時間以内に結果を表示します。';
+  msg.textContent = '最新の空室状況を確認しています…';
 
   var reqUrl = GAS_API_URL + '?action=request_priority_check&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
   fetch(reqUrl).then(function(r) { return r.text(); }).then(function(t) {
@@ -602,7 +602,7 @@ function startAvailabilityPolling() {
       // 1分経過: メッセージ更新
       if (pollCount === 20) {
         var msg2 = document.getElementById('availabilityMsg');
-        if (msg2) msg2.textContent = 'スタッフPCの応答を待っています…';
+        if (msg2) msg2.textContent = 'もう少しお待ちください…';
       }
       // 1時間タイムアウト
       if (Date.now() > availabilityPollUntil) {
@@ -611,7 +611,7 @@ function startAvailabilityPolling() {
         var msg3 = document.getElementById('availabilityMsg');
         if (msg3) {
           msg3.className = 'availability-msg error';
-          msg3.textContent = '現在、空室状況を確認できませんでした。お手数ですがLINEからお問い合わせください。';
+          msg3.textContent = '空室状況の取得に時間がかかっております。お手数ですがLINEからお問い合わせください。';
         }
         resetRecheckBtn();
       }
