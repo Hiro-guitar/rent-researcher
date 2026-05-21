@@ -2002,7 +2002,8 @@ function addToSeenSheet(customerName, prop) {
   } catch (_) {}
   // F列: current_status (空室状況: 'available' / 'closed' / 'reins_listed' / 'unknown')
   // G列: status_checked_at (最終確認日時)
-  // 新規追加時はチェック未実施なので両方空で開始する。
+  // H列: source_url (元物件ページURL — 空室確認で再アクセスするため)
+  // 新規追加時はチェック未実施なので F/G は空で開始する。
   sheet.appendRow([
     customerName,
     prop.roomId,
@@ -2010,7 +2011,8 @@ function addToSeenSheet(customerName, prop) {
     Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss'),
     source,
     '', // current_status
-    ''  // status_checked_at
+    '', // status_checked_at
+    String((prop && prop.url) || '')
   ]);
 }
 
@@ -2137,13 +2139,15 @@ function getAvailabilityCheckQueue(options) {
     // 2. 通知済み物件 から確認対象を抽出
     var seenLast = seenSheet.getLastRow();
     if (seenLast < 2) return [];
-    var sData = seenSheet.getRange(2, 1, seenLast - 1, 7).getValues();
+    // 8列 (顧客/room_id/建物名/通知日時/ソース/状態/確認日時/URL)
+    var sData = seenSheet.getRange(2, 1, seenLast - 1, 8).getValues();
     var now = Date.now();
     var ageCutoff = now - maxAgeDays * 24 * 60 * 60 * 1000;
     var intervalCutoff = now - maxIntervalHours * 60 * 60 * 1000;
     var out = [];
     var diag = { total: sData.length, noCustOrRoom: 0, noSentAt: 0, tooOld: 0,
-                  isClosed: 0, recentlyChecked: 0, noUrl: 0, urlMapSize: Object.keys(urlMap).length };
+                  isClosed: 0, recentlyChecked: 0, noUrl: 0, urlMapSize: Object.keys(urlMap).length,
+                  urlFromSeen: 0, urlFromPending: 0 };
     for (var j = 0; j < sData.length; j++) {
       var customer = String(sData[j][0] || '').trim();
       var roomId = String(sData[j][1] || '').trim();
@@ -2164,13 +2168,17 @@ function getAvailabilityCheckQueue(options) {
         : String(checkedRaw || '');
       if (status === 'closed') { diag.isClosed++; continue; }
       if (checkedAt && checkedAt > intervalCutoff) { diag.recentlyChecked++; continue; }
+      // URLは H列 を最優先、無ければ承認待ち物件JSON (urlMap) からフォールバック
+      var seenUrl = String(sData[j][7] || '').trim();
       var info = urlMap[customer + '|' + roomId] || {};
-      if (!info.url) { diag.noUrl++; continue; }
+      var finalUrl = seenUrl || info.url || '';
+      if (!finalUrl) { diag.noUrl++; continue; }
+      if (seenUrl) diag.urlFromSeen++; else diag.urlFromPending++;
       out.push({
         customer: customer,
         roomId: roomId,
-        source: info.source || String(sData[j][4] || '') || 'reins',
-        url: info.url,
+        source: String(sData[j][4] || '') || info.source || 'reins',
+        url: finalUrl,
         reinsPropNo: info.reinsPropNo || '',
         sentAt: sentAtStr,
         currentStatus: status,
@@ -2245,10 +2253,9 @@ function backfillSeenSheetSource(customerFilter) {
     var filterName = customerFilter ? String(customerFilter).trim() : '';
     var hasFilter = !!filterName;
 
-    // 1. 承認待ち物件から (customer|roomId) → source のマップを作成
-    //    フィルタ顧客がある場合はその顧客分だけで十分
+    // 1. 承認待ち物件から (customer|roomId) → {source, url} のマップを作成
     var pendingData = pendingSheet.getDataRange().getValues();
-    var sourceMap = {};
+    var infoMap = {};
     for (var i = 1; i < pendingData.length; i++) {
       var pCustomer = String(pendingData[i][0] || '').trim();
       var pRoomId = String(pendingData[i][2] || '').trim();
@@ -2256,36 +2263,49 @@ function backfillSeenSheetSource(customerFilter) {
       if (hasFilter && pCustomer !== filterName) continue;
       var jsonStr = String(pendingData[i][9] || '');
       var pSource = '';
+      var pUrl = '';
       try {
         var parsed = JSON.parse(jsonStr);
-        if (parsed && parsed.source) pSource = String(parsed.source);
+        if (parsed) {
+          if (parsed.source) pSource = String(parsed.source);
+          if (parsed.url) pUrl = String(parsed.url);
+        }
       } catch (_) {}
-      if (pSource) {
-        sourceMap[pCustomer + '|' + pRoomId] = pSource;
+      if (pSource || pUrl) {
+        infoMap[pCustomer + '|' + pRoomId] = { source: pSource, url: pUrl };
       }
     }
 
-    // 2. 通知済み物件シートの空ソース行をバックフィル
+    // 2. 通知済み物件 のソース列(E) / URL列(H) 空欄行をバックフィル
     var seenLastRow = seenSheet.getLastRow();
     if (seenLastRow < 2) return { updated: 0, message: '通知済み物件シートが空です' };
-    var seenData = seenSheet.getRange(2, 1, seenLastRow - 1, 5).getValues();
-    var rowsToUpdate = []; // 連続書き込みのため [行番号, 値] を蓄積
+    // 8列 (顧客/room_id/建物名/通知日時/ソース/状態/確認日時/URL)
+    var seenData = seenSheet.getRange(2, 1, seenLastRow - 1, 8).getValues();
+    var rowsToUpdate = [];
     var counts = {};
+    var urlBackfilled = 0;
     for (var j = 0; j < seenData.length; j++) {
       var sCustomer = String(seenData[j][0] || '').trim();
       if (hasFilter && sCustomer !== filterName) continue;
-      var existingSource = String(seenData[j][4] || '').trim();
-      if (existingSource) continue;
       var sRoomId = String(seenData[j][1] || '').trim();
-      var key = sCustomer + '|' + sRoomId;
-      var src = sourceMap[key] || 'reins'; // 見つからなければ reins とみなす
-      rowsToUpdate.push({ row: j + 2, source: src });
-      counts[src] = (counts[src] || 0) + 1;
+      var existingSource = String(seenData[j][4] || '').trim();
+      var existingUrl = String(seenData[j][7] || '').trim();
+      var info = infoMap[sCustomer + '|' + sRoomId] || {};
+      var needSource = !existingSource;
+      var needUrl = !existingUrl && !!info.url;
+      if (!needSource && !needUrl) continue;
+      var newSource = needSource ? (info.source || 'reins') : null;
+      var newUrl = needUrl ? info.url : null;
+      rowsToUpdate.push({ row: j + 2, source: newSource, url: newUrl });
+      if (needSource) counts[newSource] = (counts[newSource] || 0) + 1;
+      if (needUrl) urlBackfilled++;
     }
 
-    // 3. シートへ反映
+    // 3. シートへ反映 (E列ソース, H列URL)
     for (var k = 0; k < rowsToUpdate.length; k++) {
-      seenSheet.getRange(rowsToUpdate[k].row, 5).setValue(rowsToUpdate[k].source);
+      var r = rowsToUpdate[k];
+      if (r.source !== null) seenSheet.getRange(r.row, 5).setValue(r.source);
+      if (r.url !== null) seenSheet.getRange(r.row, 8).setValue(r.url);
     }
 
     var breakdown = Object.keys(counts).map(function(s) {
@@ -2295,7 +2315,7 @@ function backfillSeenSheetSource(customerFilter) {
     return {
       updated: rowsToUpdate.length,
       sourceCounts: counts,
-      message: scopeLabel + ' の通知済み物件ソース列を ' + rowsToUpdate.length + ' 行バックフィルしました ' + (breakdown ? '(' + breakdown + ')' : '')
+      message: scopeLabel + ' を ' + rowsToUpdate.length + ' 行バックフィル (ソース: ' + (breakdown || '0件') + ' / URL: ' + urlBackfilled + '件)'
     };
   } catch (e) {
     console.error('backfillSeenSheetSource error: ' + e.message);
