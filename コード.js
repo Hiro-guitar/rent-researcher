@@ -494,11 +494,12 @@ function doGet(e) {
       var queueOpts = {
         limit: parseInt(e.parameter.limit || '50', 10),
         maxAgeDays: parseInt(e.parameter.max_age_days || '60', 10),
-        maxIntervalHours: parseInt(e.parameter.max_interval_hours || '24', 10)
+        maxIntervalHours: parseInt(e.parameter.max_interval_hours || '24', 10),
+        priorityOnly: e.parameter.priority_only === '1',
+        maxPriorityAgeMinutes: parseInt(e.parameter.max_priority_age_minutes || '60', 10)
       };
       var queue = (typeof getAvailabilityCheckQueue === 'function') ? getAvailabilityCheckQueue(queueOpts) : [];
       var diagInfo = (queue && queue._diag) ? queue._diag : null;
-      // _diag は items から除外して別フィールドで返す
       var itemsClean = Array.isArray(queue) ? queue.slice() : [];
       return ContentService.createTextOutput(JSON.stringify({
         ok: true,
@@ -507,6 +508,38 @@ function doGet(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     } catch (eQ) {
       return ContentService.createTextOutput(JSON.stringify({ error: eQ.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  // お客さんからの優先空室確認リクエスト (property.html がボタン押下時に呼ぶ)
+  if (action === 'request_priority_check') {
+    try {
+      var custP = e.parameter.customer || '';
+      var roomP = e.parameter.room_id || '';
+      var rP = (typeof requestPriorityAvailabilityCheck === 'function')
+        ? requestPriorityAvailabilityCheck(custP, roomP)
+        : { ok: false, message: 'function not defined' };
+      return ContentService.createTextOutput(JSON.stringify(rP))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (eP) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, message: eP.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  // 物件1件の現在の空室ステータス取得 (property.html がポーリング)
+  if (action === 'get_availability_status') {
+    try {
+      var custS = e.parameter.customer || '';
+      var roomS = e.parameter.room_id || '';
+      var rS = (typeof getAvailabilityStatus === 'function')
+        ? getAvailabilityStatus(custS, roomS)
+        : { found: false, error: 'function not defined' };
+      return ContentService.createTextOutput(JSON.stringify(rS))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (eS) {
+      return ContentService.createTextOutput(JSON.stringify({ found: false, error: eS.message }))
         .setMimeType(ContentService.MimeType.JSON);
     }
   }

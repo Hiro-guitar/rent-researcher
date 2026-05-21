@@ -2142,6 +2142,10 @@ function getAvailabilityCheckQueue(options) {
   var limit = options.limit || 50;
   var maxAgeDays = options.maxAgeDays || 60;
   var maxIntervalHours = options.maxIntervalHours || 24;
+  // priorityOnly=true なら I列 priority_requested_at が直近 maxPriorityAgeMinutes 以内の行のみ返す
+  // (お客さんがボタンを押した時の優先処理用)
+  var priorityOnly = !!options.priorityOnly;
+  var maxPriorityAgeMinutes = options.maxPriorityAgeMinutes || 60;
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
@@ -2175,20 +2179,21 @@ function getAvailabilityCheckQueue(options) {
     // 2. 通知済み物件 から確認対象を抽出
     var seenLast = seenSheet.getLastRow();
     if (seenLast < 2) return [];
-    // 8列 (顧客/room_id/建物名/通知日時/ソース/状態/確認日時/URL)
-    var sData = seenSheet.getRange(2, 1, seenLast - 1, 8).getValues();
+    // 9列 (顧客/room_id/建物名/通知日時/ソース/状態/確認日時/URL/priority_requested_at)
+    var sData = seenSheet.getRange(2, 1, seenLast - 1, 9).getValues();
     var now = Date.now();
     var ageCutoff = now - maxAgeDays * 24 * 60 * 60 * 1000;
     var intervalCutoff = now - maxIntervalHours * 60 * 60 * 1000;
-    var out = [];
+    var priorityCutoff = now - maxPriorityAgeMinutes * 60 * 1000;
+    var rawCandidates = [];  // 先に候補を集めて、優先度順にソートしてから limit 適用
     var diag = { total: sData.length, noCustOrRoom: 0, noSentAt: 0, tooOld: 0,
                   isClosed: 0, recentlyChecked: 0, noUrl: 0, urlMapSize: Object.keys(urlMap).length,
-                  urlFromSeen: 0, urlFromPending: 0 };
+                  urlFromSeen: 0, urlFromPending: 0, priorityCount: 0 };
     for (var j = 0; j < sData.length; j++) {
       var customer = String(sData[j][0] || '').trim();
       var roomId = String(sData[j][1] || '').trim();
       if (!customer || !roomId) { diag.noCustOrRoom++; continue; }
-      // D列の通知日時を Date に変換。Sheets が Date 型に変換してる場合 / 文字列の場合 両対応
+      // D列の通知日時を Date に変換
       var sentRaw = sData[j][3];
       var sentAt = _parseDateFlexible_(sentRaw);
       var sentAtStr = (sentRaw instanceof Date)
@@ -2202,29 +2207,41 @@ function getAvailabilityCheckQueue(options) {
       var checkedAtStr = (checkedRaw instanceof Date)
         ? Utilities.formatDate(checkedRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')
         : String(checkedRaw || '');
-      if (status === 'closed') { diag.isClosed++; continue; }
-      if (checkedAt && checkedAt > intervalCutoff) { diag.recentlyChecked++; continue; }
+
+      // I列: priority_requested_at (お客さんからの即時確認依頼)
+      var priorityRaw = sData[j][8];
+      var priorityAt = _parseDateFlexible_(priorityRaw);
+      // 優先依頼が直近で、かつ依頼時刻より後にチェックされていない場合 = 優先処理対象
+      var isPriority = priorityAt > 0 && priorityAt > priorityCutoff &&
+                       (!checkedAt || checkedAt < priorityAt);
+      if (isPriority) diag.priorityCount++;
+
+      // priorityOnly モードなら優先依頼のみ抽出
+      if (priorityOnly && !isPriority) continue;
+
+      // 通常モード: closed / 直近チェック済みはスキップ。ただし優先依頼があれば例外。
+      if (!isPriority) {
+        if (status === 'closed') { diag.isClosed++; continue; }
+        if (checkedAt && checkedAt > intervalCutoff) { diag.recentlyChecked++; continue; }
+      }
+
       // H列を最優先 (REINS は物件番号、その他は URL)
-      // 無ければ承認待ち物件JSON からフォールバック
       var seenRef = String(sData[j][7] || '').trim();
       var info = urlMap[customer + '|' + roomId] || {};
       var srcType = String(sData[j][4] || '') || info.source || 'reins';
       var finalUrl = '';
       var finalReinsPropNo = '';
       if (srcType === 'reins') {
-        // REINS: 物件番号を優先
         finalReinsPropNo = seenRef || info.reinsPropNo || '';
-        // URLがあれば一応持っておく (フォールバック用)
         if (info.url) finalUrl = info.url;
       } else {
-        // 他: URL を使う
         finalUrl = seenRef || info.url || '';
       }
-      // チェックに必要な情報がない → スキップ
       var hasInfo = finalUrl || finalReinsPropNo;
       if (!hasInfo) { diag.noUrl++; continue; }
       if (seenRef) diag.urlFromSeen++; else diag.urlFromPending++;
-      out.push({
+
+      rawCandidates.push({
         customer: customer,
         roomId: roomId,
         source: srcType,
@@ -2232,17 +2249,119 @@ function getAvailabilityCheckQueue(options) {
         reinsPropNo: finalReinsPropNo,
         sentAt: sentAtStr,
         currentStatus: status,
-        statusCheckedAt: checkedAtStr
+        statusCheckedAt: checkedAtStr,
+        isPriority: isPriority,
+        priorityAt: priorityAt
       });
-      if (out.length >= limit) break;
     }
+
+    // 優先依頼を先頭にソート (priorityAt 降順)
+    rawCandidates.sort(function(a, b) {
+      if (a.isPriority !== b.isPriority) return a.isPriority ? -1 : 1;
+      if (a.isPriority && b.isPriority) return b.priorityAt - a.priorityAt;
+      return 0;
+    });
+
+    var out = rawCandidates.slice(0, limit);
+    // isPriority / priorityAt は内部用なので返却時に除去
+    out = out.map(function(o) {
+      var c = {};
+      for (var k in o) {
+        if (k === 'isPriority' || k === 'priorityAt') continue;
+        c[k] = o[k];
+      }
+      return c;
+    });
+
     console.log('[availability queue] diag: ' + JSON.stringify(diag) + ' returned: ' + out.length);
-    // diag を埋め込みで返す (debugLog用)
     out._diag = diag;
     return out;
   } catch (e) {
     console.warn('getAvailabilityCheckQueue error: ' + e.message);
     return [];
+  }
+}
+
+/**
+ * お客さんからの「最新の空室状況を確認」リクエスト。
+ * 該当行の I列 priority_requested_at に現在時刻を記録する。
+ * Chrome 拡張が定期ポーリングで優先キューを取得して即実行する。
+ *
+ * @param {string} customerName
+ * @param {string} roomId
+ * @return {{ok: boolean, message: string}}
+ */
+function requestPriorityAvailabilityCheck(customerName, roomId) {
+  if (!customerName || !roomId) return { ok: false, message: 'customer/roomId が未指定' };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return { ok: false, message: 'シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: false, message: 'シートが空です' };
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    var updated = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
+        sheet.getRange(i + 2, 9).setValue(now);  // I列 (9): priority_requested_at
+        updated++;
+      }
+    }
+    return {
+      ok: updated > 0,
+      message: updated + '行に優先確認依頼を記録しました',
+      requestedAt: now
+    };
+  } catch (e) {
+    return { ok: false, message: 'エラー: ' + e.message };
+  }
+}
+
+/**
+ * 物件1件の現在の空室ステータスを取得する。
+ * お客さんが property.html でポーリングするための API。
+ *
+ * @param {string} customerName
+ * @param {string} roomId
+ * @return {{found:boolean, currentStatus:string, statusCheckedAt:string,
+ *           priorityRequestedAt:string, source:string}}
+ */
+function getAvailabilityStatus(customerName, roomId) {
+  if (!customerName || !roomId) return { found: false, error: 'customer/roomId が未指定' };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return { found: false, error: 'シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { found: false };
+    var data = sheet.getRange(2, 1, lastRow - 1, 9).getValues();
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() !== nameTrim) continue;
+      if (String(data[i][1]).trim() !== ridTrim) continue;
+      var checkedRaw = data[i][6];
+      var checkedAtStr = (checkedRaw instanceof Date)
+        ? Utilities.formatDate(checkedRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')
+        : String(checkedRaw || '');
+      var priorityRaw = data[i][8];
+      var priorityAtStr = (priorityRaw instanceof Date)
+        ? Utilities.formatDate(priorityRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')
+        : String(priorityRaw || '');
+      return {
+        found: true,
+        currentStatus: String(data[i][5] || ''),
+        statusCheckedAt: checkedAtStr,
+        priorityRequestedAt: priorityAtStr,
+        source: String(data[i][4] || '')
+      };
+    }
+    return { found: false };
+  } catch (e) {
+    return { found: false, error: e.message };
   }
 }
 
