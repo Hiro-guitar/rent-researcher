@@ -36,8 +36,9 @@ async function checkOneAvailability(item) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// itandi: 「Block Left」div / body テキストから判定
-// 募集中 → available / 申込あり → applied / 404/掲載削除 → closed
+// itandi: 募集中 / 申込あり / 募集終了 を判定。
+//   - 申込ありは「キャンセル待ち可」「キャンセル待ち不可」の2種類あり、
+//     不可は実質募集終了扱いとして closed を返す。
 // ──────────────────────────────────────────────────────────────────
 async function _checkItandiAvailability(url) {
   if (!url || url.indexOf('itandibb.com') < 0) return 'unknown';
@@ -55,8 +56,36 @@ async function _checkItandiAvailability(url) {
         const bodyText = document.body.innerText || '';
         // 404 / 掲載削除 (closed)
         if (/このページは存在しません|お探しのページ|404\s*Not\s*Found|ページが見つかりません/i.test(bodyText)) return 'closed';
-        // 申込あり (applied) - 募集中表記より優先
-        if (/申込\s*あり|status[_-]?type\s*[:=]\s*offered/i.test(bodyText)) return 'applied';
+        const hasOffered = /申込\s*あり|status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
+        if (hasOffered) {
+          // 申込あり: キャンセル待ち可能性を判定
+          //   - キャンセル待ち登録ボタン or 「キャンセル待ち」テキストあり → applied
+          //   - 申込受付終了 / キャンセル待ち不可 / 内見/Web申込ボタンが disabled → closed
+          // ボタンの disabled 判定: aria-disabled / disabled 属性 / class に disable を含む
+          function isDisabled(el) {
+            if (!el) return true;
+            if (el.disabled) return true;
+            if (el.getAttribute && el.getAttribute('aria-disabled') === 'true') return true;
+            const cls = (el.className || '').toString();
+            if (/disable|inactive|gray|gray-?out/i.test(cls)) return true;
+            return false;
+          }
+          // 「キャンセル待ち」関連ボタン / リンク
+          const cancelWaitEls = [...document.querySelectorAll('button, a, [role="button"]')]
+            .filter(el => /キャンセル待ち|キャンセル待\s/.test(el.textContent || ''));
+          if (cancelWaitEls.length > 0 && cancelWaitEls.some(el => !isDisabled(el))) {
+            return 'applied'; // キャンセル待ち登録できる
+          }
+          // 「申込受付終了」「キャンセル待ち不可」テキスト → closed
+          if (/申込受付終了|キャンセル待ち\s*不可|受付終了/i.test(bodyText)) return 'closed';
+          // Web申込・内見予約ボタンの活性チェック
+          const webApply = [...document.querySelectorAll('button, a')].find(el => /Web\s*申込|ウェブ申込/i.test(el.textContent || ''));
+          const naiken   = [...document.querySelectorAll('button, a')].find(el => /内見/i.test(el.textContent || ''));
+          const webOk    = webApply && !isDisabled(webApply);
+          const naikenOk = naiken   && !isDisabled(naiken);
+          if (!webOk && !naikenOk) return 'closed'; // 両方押せない=キャンセル待ち不可
+          return 'applied';
+        }
         // 募集中
         const blocks = document.querySelectorAll('div[class*="Block"][class*="Left"], .BlockLeft, div.block.left');
         for (const el of blocks) {
