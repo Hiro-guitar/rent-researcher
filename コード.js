@@ -447,7 +447,11 @@ function doGet(e) {
           warningsLen: _wt.length,
           warningsPreview: _wt.substring(0, 200),
           jsonSize: _json.length,
-          allKeys: _parsed ? Object.keys(_parsed).slice(0, 100) : []
+          // 警告判定に効く値もスナップショット
+          facilities: _parsed && _parsed.facilities ? String(_parsed.facilities).substring(0, 300) : '',
+          move_in_date: _parsed && _parsed.move_in_date || '',
+          floor_text: _parsed && _parsed.floor_text || '',
+          story_text: _parsed && _parsed.story_text || ''
         });
       }
       return ContentService.createTextOutput(JSON.stringify(_out, null, 2))
