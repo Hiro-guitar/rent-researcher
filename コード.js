@@ -566,8 +566,9 @@ function doGet(e) {
       }
       var op = e.parameter.op || 'list';
       var custM = e.parameter.customer || '';
+      var userIdM = e.parameter.user_id || '';
       var rM = (typeof manageAvailabilityTestUsers === 'function')
-        ? manageAvailabilityTestUsers(op, custM)
+        ? manageAvailabilityTestUsers(op, custM, userIdM)
         : { ok: false, message: 'function not defined' };
       return ContentService.createTextOutput(JSON.stringify(rM))
         .setMimeType(ContentService.MimeType.JSON);
