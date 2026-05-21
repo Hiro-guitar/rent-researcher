@@ -2054,22 +2054,39 @@ function setPropertyAvailability(customerName, roomId, status) {
     if (!sheet) return { ok: false, message: 'シートが見つかりません' };
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return { ok: false, message: 'シートが空です' };
-    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    // A〜E列を読む (E列=source: 'reins' 等)
+    var data = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
     var nameTrim = String(customerName).trim();
     var ridTrim = String(roomId).trim();
     var updated = 0;
+    var deleted = 0;
+    var rowsToDelete = [];
     var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
         var rowNum = i + 2;
+        var source = String(data[i][4] || '').trim().toLowerCase();
+
+        // REINS で closed → REINS から物件が消えている = 確実に募集終了。
+        // 通知済みシートから削除して空室確認の対象外にする (キューが軽くなる)。
+        if (source === 'reins' && status === 'closed') {
+          rowsToDelete.push(rowNum);
+          deleted++;
+          continue;
+        }
+
         sheet.getRange(rowNum, 6).setValue(status);
         sheet.getRange(rowNum, 7).setValue(now);
         updated++;
       }
     }
+    // 削除は下から行う (行番号がずれないように)
+    for (var j = rowsToDelete.length - 1; j >= 0; j--) {
+      sheet.deleteRow(rowsToDelete[j]);
+    }
     return {
-      ok: updated > 0,
-      message: updated + '行 更新しました'
+      ok: (updated + deleted) > 0,
+      message: updated + '行 更新、' + deleted + '行 削除しました'
     };
   } catch (e) {
     return { ok: false, message: 'エラー: ' + e.message };
