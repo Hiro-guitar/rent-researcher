@@ -3729,11 +3729,20 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           currentStats.totalFound++;
           await setStorageData({ debugLog: `${customer.name}: ✓ 送信対象（${detail.building_name} ${detail.room_number || ''} ${detail.floor_text} ${detail.rent ? (detail.rent/10000)+'万' : ''}）` });
           // 警告アラート計算 (承認プレビューでも表示するため、GAS送信前に計算)
+          // [DIAG] 診断ログ: 警告計算の入力と出力を debugLog に出す
           try {
+            const _equipType = Array.isArray(customer?.equipment) ? 'array' : typeof customer?.equipment;
+            const _equipSample = Array.isArray(customer?.equipment)
+              ? customer.equipment.slice(0, 3).join(',')
+              : String(customer?.equipment || '').substring(0, 60);
             const _w = (typeof globalThis.__computePropertyWarnings === 'function')
               ? globalThis.__computePropertyWarnings(detail, customer) : [];
             detail.warnings_text = (_w || []).join('\n');
-          } catch (_) { detail.warnings_text = ''; }
+            await setStorageData({ debugLog: `[WARN-DIAG] REINS ${customer.name}: equipType=${_equipType} equip=${_equipSample} warnings=${_w.length}件 text="${(detail.warnings_text||'').substring(0,80)}"` });
+          } catch (eW) {
+            detail.warnings_text = '';
+            await setStorageData({ debugLog: `[WARN-DIAG] REINS ${customer.name}: ERROR ${eW.message}` });
+          }
           // リアルタイムでGAS送信＋Discord通知
           try {
             const submitResult = await submitProperties(customer.name, [detail]);
