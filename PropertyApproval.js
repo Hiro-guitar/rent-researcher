@@ -2077,19 +2077,30 @@ function setPropertyAvailability(customerName, roomId, status) {
           continue;
         }
 
-        // reins_listed (REINS掲載中) / needs_confirmation (要物確・要確認) → スタッフ確認必要
-        //   直近 1時間以内に お客さんからの優先依頼があれば、Discord にスタッフ確認依頼を通知。
-        //   (元付業者に電話確認が必要なため、スタッフの介入を促す)
-        if ((source === 'reins' && status === 'reins_listed') ||
-            status === 'needs_confirmation') {
-          var priorityRaw = data[i][8];
-          var priorityAt = _parseDateFlexible_(priorityRaw);
-          var nowMs = Date.now();
-          if (priorityAt > 0 && priorityAt > nowMs - 60 * 60 * 1000) {
+        // 優先依頼が直近1時間以内なら、結果に応じてお客さんに通知する。
+        var priorityRaw = data[i][8];
+        var priorityAt = _parseDateFlexible_(priorityRaw);
+        var nowMs = Date.now();
+        var hasRecentPriority = (priorityAt > 0 && priorityAt > nowMs - 60 * 60 * 1000);
+
+        if (hasRecentPriority) {
+          if ((source === 'reins' && status === 'reins_listed') ||
+              status === 'needs_confirmation') {
+            // スタッフ確認必要 → Discord通知 (お客さんへはスタッフが手動LINE)
+            //   priority_requested_at はクリアしない (スタッフが確認するまで「依頼中」のまま)
             try {
               _notifyReinsConfirmationRequestToDiscord_(nameTrim, ridTrim, buildingName, sourceRef, source, status);
             } catch (eN) {
               console.warn('[setPropertyAvailability] Discord通知失敗: ' + eN.message);
+            }
+          } else if (status === 'available' || status === 'applied' || status === 'closed') {
+            // 自動で確定 → お客さんにLINEプッシュ通知
+            try {
+              _notifyAvailabilityResultToCustomer_(nameTrim, ridTrim, buildingName, status);
+              // 通知後は priority_requested_at をクリア (依頼完了)
+              sheet.getRange(rowNum, 9).setValue('');
+            } catch (eL) {
+              console.warn('[setPropertyAvailability] LINE通知失敗: ' + eL.message);
             }
           }
         }
@@ -2486,6 +2497,86 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
     console.log('[空室確認依頼] Discord通知送信: ' + customerName + ' (' + sourceDisplay + '/' + statusLabel + ')');
   } catch (e) {
     console.warn('[空室確認依頼] Discord通知失敗: ' + e.message);
+  }
+}
+
+/**
+ * 空室確認結果をお客さんに LINE プッシュ通知する。
+ * 自動で確定できるステータス (available / applied / closed) のみが対象。
+ *   - reins_listed / needs_confirmation はスタッフが手動で連絡するため対象外
+ *
+ * 重複防止: 同一 顧客×roomId×日付 は1回のみ
+ *
+ * @param {string} customerName
+ * @param {string} roomId
+ * @param {string} buildingName
+ * @param {'available'|'applied'|'closed'} status
+ */
+function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName, status) {
+  try {
+    // 顧客 → LINE userId を解決
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (!luSheet) {
+      console.warn('[空室結果LINE] LINE_USERSシートが見つかりません');
+      return;
+    }
+    var luData = luSheet.getDataRange().getValues();
+    var userId = null;
+    var nameTrim = String(customerName).trim();
+    for (var i = 1; i < luData.length; i++) {
+      if (String(luData[i][1]).trim() === nameTrim) {
+        userId = String(luData[i][0]).trim();
+        break;
+      }
+    }
+    if (!userId) {
+      console.warn('[空室結果LINE] userIdが見つかりません: ' + customerName);
+      return;
+    }
+
+    // 重複防止
+    var props = PropertiesService.getScriptProperties();
+    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    var dedupKey = 'avail_line_' + customerName + '|' + roomId + '|' + today;
+    if (props.getProperty(dedupKey)) {
+      console.log('[空室結果LINE] 本日通知済みスキップ: ' + dedupKey);
+      return;
+    }
+
+    // ステータスごとの文言
+    var building = buildingName || 'お部屋';
+    var text;
+    switch (status) {
+      case 'available':
+        text = '【空室状況のご連絡】\n\n' +
+               '「' + building + '」は現在も募集中でした！\n\n' +
+               'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
+        break;
+      case 'applied':
+        text = '【空室状況のご連絡】\n\n' +
+               '「' + building + '」は現在、お申し込みが入っているようです。\n\n' +
+               'キャンセル待ちのご相談も可能ですので、ご希望の場合はお気軽にお声がけください。';
+        break;
+      case 'closed':
+        text = '【空室状況のご連絡】\n\n' +
+               '「' + building + '」は申し訳ございません、募集を終了しておりました。\n\n' +
+               '似たような条件のお部屋が出てきましたら、改めてご案内いたします。';
+        break;
+      default:
+        return;
+    }
+
+    // LINE プッシュメッセージ送信 (LineApi.js の pushMessage を使用)
+    if (typeof pushMessage === 'function') {
+      pushMessage(userId, [{ type: 'text', text: text }]);
+      props.setProperty(dedupKey, '1');
+      console.log('[空室結果LINE] 送信成功: ' + customerName + ' (' + status + ')');
+    } else {
+      console.warn('[空室結果LINE] pushMessage 関数が未定義');
+    }
+  } catch (e) {
+    console.warn('[空室結果LINE] エラー: ' + e.message);
   }
 }
 
