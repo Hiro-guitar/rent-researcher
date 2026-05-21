@@ -2107,23 +2107,23 @@ function getAvailabilityCheckQueue(options) {
     var ageCutoff = now - maxAgeDays * 24 * 60 * 60 * 1000;
     var intervalCutoff = now - maxIntervalHours * 60 * 60 * 1000;
     var out = [];
+    var diag = { total: sData.length, noCustOrRoom: 0, noSentAt: 0, tooOld: 0,
+                  isClosed: 0, recentlyChecked: 0, noUrl: 0, urlMapSize: Object.keys(urlMap).length };
     for (var j = 0; j < sData.length; j++) {
       var customer = String(sData[j][0] || '').trim();
       var roomId = String(sData[j][1] || '').trim();
-      if (!customer || !roomId) continue;
+      if (!customer || !roomId) { diag.noCustOrRoom++; continue; }
       var sentAtStr = String(sData[j][3] || '');
       var sentAt = sentAtStr ? new Date(sentAtStr.replace(' ', 'T') + '+09:00').getTime() : 0;
-      if (!sentAt || sentAt < ageCutoff) continue;
+      if (!sentAt) { diag.noSentAt++; continue; }
+      if (sentAt < ageCutoff) { diag.tooOld++; continue; }
       var status = String(sData[j][5] || '');
       var checkedAtStr = String(sData[j][6] || '');
       var checkedAt = checkedAtStr ? new Date(checkedAtStr.replace(' ', 'T') + '+09:00').getTime() : 0;
-      // closed (募集終了) は再チェック不要
-      if (status === 'closed') continue;
-      // 直近チェック済みはスキップ
-      if (checkedAt && checkedAt > intervalCutoff) continue;
+      if (status === 'closed') { diag.isClosed++; continue; }
+      if (checkedAt && checkedAt > intervalCutoff) { diag.recentlyChecked++; continue; }
       var info = urlMap[customer + '|' + roomId] || {};
-      // URL が無い物件はスキップ (確認できない)
-      if (!info.url) continue;
+      if (!info.url) { diag.noUrl++; continue; }
       out.push({
         customer: customer,
         roomId: roomId,
@@ -2136,6 +2136,9 @@ function getAvailabilityCheckQueue(options) {
       });
       if (out.length >= limit) break;
     }
+    console.log('[availability queue] diag: ' + JSON.stringify(diag) + ' returned: ' + out.length);
+    // diag を埋め込みで返す (debugLog用)
+    out._diag = diag;
     return out;
   } catch (e) {
     console.warn('getAvailabilityCheckQueue error: ' + e.message);

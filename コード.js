@@ -497,8 +497,14 @@ function doGet(e) {
         maxIntervalHours: parseInt(e.parameter.max_interval_hours || '24', 10)
       };
       var queue = (typeof getAvailabilityCheckQueue === 'function') ? getAvailabilityCheckQueue(queueOpts) : [];
-      return ContentService.createTextOutput(JSON.stringify({ ok: true, items: queue }))
-        .setMimeType(ContentService.MimeType.JSON);
+      var diagInfo = (queue && queue._diag) ? queue._diag : null;
+      // _diag は items から除外して別フィールドで返す
+      var itemsClean = Array.isArray(queue) ? queue.slice() : [];
+      return ContentService.createTextOutput(JSON.stringify({
+        ok: true,
+        items: itemsClean,
+        diag: diagInfo
+      })).setMimeType(ContentService.MimeType.JSON);
     } catch (eQ) {
       return ContentService.createTextOutput(JSON.stringify({ error: eQ.message }))
         .setMimeType(ContentService.MimeType.JSON);
