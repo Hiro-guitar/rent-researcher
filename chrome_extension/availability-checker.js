@@ -58,32 +58,38 @@ async function _checkItandiAvailability(url) {
         if (/このページは存在しません|お探しのページ|404\s*Not\s*Found|ページが見つかりません/i.test(bodyText)) return 'closed';
 
         // ──────────────────────────────────────────────
-        // 「WEB申込」ボタン (.CommonButton.isDetail) の状態で判定する。
+        // 判定:
+        //   申込ありシグナル (テキスト「申込あり」) が **ある** 場合のみ、
+        //   WEB申込ボタン (.CommonButton.isDetail) の状態で applied/closed を切り分け。
         //
-        // ・<a href="https://bukkakun.com/.../select_apply">…</a> でラップされていて
-        //   button が disabled でない    → キャンセル待ち可能 = applied
-        // ・button[disabled] / button.Mui-disabled、もしくは
-        //   .MuiBadge-badge が "?"         → キャンセル待ち不可 = closed
+        //   ・hasApplyLink (a[href*="bukkakun.com"][href*="select_apply"]) + 非 disabled
+        //       → applied (キャンセル待ち可)
+        //   ・button[disabled] / button.Mui-disabled / badge "?"
+        //       → closed (キャンセル待ち不可)
         //
-        // 募集中 (申込なし) は別ロジックで判定する。
+        //   申込ありシグナル **なし** の場合、ボタンの disabled は判定に使わない。
+        //   (Web申込非対応店舗でも disabled になるため、available に倒す)
         // ──────────────────────────────────────────────
         const commonButtons = [...document.querySelectorAll('.CommonButton.isDetail')];
         const webCommonBtn = commonButtons.find(el => /^WEB/i.test((el.textContent || '').trim()));
+        const hasOfferedText = /申込\s*あり|status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
+
         if (webCommonBtn) {
           const hasApplyLink = !!webCommonBtn.querySelector('a[href*="bukkakun.com"][href*="select_apply"]');
           const webBtnDisabled = !!webCommonBtn.querySelector('button[disabled], button.Mui-disabled');
           const badgeText = (webCommonBtn.querySelector('.MuiBadge-badge')?.textContent || '').trim();
 
-          const hasOfferedText = /申込\s*あり|status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
-
-          // applied: WEB申込リンクが活きていて、かつ申込ありの場合 = キャンセル待ち可
-          if (hasOfferedText && hasApplyLink && !webBtnDisabled) return 'applied';
-          // closed: 申込ありで WEB ボタンが押せない or バッジが "?"
-          if (hasOfferedText && (webBtnDisabled || badgeText === '?')) return 'closed';
-          // available: 申込ありテキストが無く、WEB申込が押せる → 募集中
-          if (!hasOfferedText && hasApplyLink && !webBtnDisabled) return 'available';
-          // fallback for offered but ambiguous
-          if (hasOfferedText) return webBtnDisabled ? 'closed' : 'applied';
+          if (hasOfferedText) {
+            // 申込ありシグナルがある時のみキャンセル待ち可/不可で細分判定
+            if (hasApplyLink && !webBtnDisabled) return 'applied';   // キャンセル待ち可
+            if (webBtnDisabled || badgeText === '?') return 'closed'; // キャンセル待ち不可
+            return 'applied';  // ambiguous: 申込ありだが詳細不明
+          }
+          // 申込ありシグナルなし → ボタンの disabled は判定材料にしない
+          // (Web申込非対応店舗で disabled になるため誤判定の元)
+          // 明示的な募集終了テキストだけ closed として拾う
+          if (/取り下げ|募集停止|募集終了|申込受付終了/.test(bodyText)) return 'closed';
+          return 'available';
         }
 
         // CommonButton が見つからない場合のフォールバック
@@ -187,11 +193,21 @@ async function _checkIeloveAvailability(url) {
 // ──────────────────────────────────────────────────────────────────
 // いい生活 (es-square):
 //   404モーダル / ページ削除 → closed
-//   詳細パネル上部の「申込」ボタン (MuiButton-outlinedPrimary) を見つけ、
-//     ・disabled / Mui-disabled / aria-disabled → closed (キャンセル待ち不可)
-//     ・eds-tag 「申込あり」(赤系ソフトタグ) あり → applied (キャンセル待ち可)
-//     ・どちらでもない → available (募集中)
-//   ※ MuiChip の「申込あり」は申込済/募集中の両方に出るため判定に使わない。
+//
+//   申込ボタン (MuiButton-outlinedPrimary, テキスト「申込」) の状態 +
+//   「申込あり」を示す2種類のタグ で判定:
+//
+//     ・eds-tag 「申込あり」(赤系ソフトタグ) = キャンセル待ち可ケース固有
+//     ・MuiChip 「申込あり」 = 申込中なら付くチップ (URL1/URL2両方)
+//     ・申込ボタン disabled = キャンセル待ち不可 OR Web申込非対応店舗
+//
+//   判定ロジック:
+//     1. eds-tag 「申込あり」あり + ボタン活性  → applied (キャンセル待ち可)
+//     2. eds-tag 「申込あり」あり + ボタン無効  → closed  (異常ケース)
+//     3. MuiChip 「申込あり」あり + ボタン無効 → closed  (URL1: キャンセル待ち不可)
+//     4. MuiChip 「申込あり」あり + ボタン活性 → applied (キャンセル待ち可と推定)
+//     5. ボタン無効のみ (申込タグなし)         → available (Web申込非対応店舗の可能性大)
+//     6. それ以外 (ボタン活性 + タグなし)       → available (募集中)
 // ──────────────────────────────────────────────────────────────────
 async function _checkEssquareAvailability(url) {
   if (!url || (url.indexOf('es-square') < 0 && url.indexOf('iisesq') < 0)) return 'unknown';
@@ -242,24 +258,44 @@ async function _checkEssquareAvailability(url) {
         });
         const applyBtn = applyBtnCandidates[0];
 
-        // 補助: eds-tag 「申込あり」(MuiChip ではなく eds-tag のもの)
+        // 「申込あり」を示すタグを2系統チェック
+        //   - eds-tag (赤系ソフトタグ): キャンセル待ち可ケースに固有
+        //   - MuiChip: 申込中なら付く (キャンセル待ち可/不可 両方)
         const edsApplyTag = [...document.querySelectorAll('span.eds-tag, span[class*="eds-tag"]')]
           .find(el => (el.textContent || '').trim() === '申込あり');
+        const muiApplyChip = [...document.querySelectorAll('.MuiChip-root, span[class*="MuiChip"]')]
+          .find(el => /申込あり/.test((el.textContent || '').trim()));
 
         if (applyBtn) {
           const isDisabled =
             applyBtn.disabled ||
             applyBtn.getAttribute('aria-disabled') === 'true' ||
             /Mui-disabled/.test(applyBtn.className || '');
-          if (isDisabled) return 'closed';        // キャンセル待ち不可 / 募集終了
-          if (edsApplyTag) return 'applied';      // 申込あり = キャンセル待ち可
-          return 'available';                     // 募集中・申込なし
+
+          // 1. eds-tag 「申込あり」あり = キャンセル待ち可ケース
+          if (edsApplyTag) {
+            return isDisabled ? 'closed' : 'applied';
+          }
+          // 2. MuiChip 「申込あり」あり + ボタン無効 = キャンセル待ち不可 (URL1パターン)
+          // 3. MuiChip 「申込あり」あり + ボタン活性 = applied (キャンセル待ち可と推定)
+          if (muiApplyChip) {
+            return isDisabled ? 'closed' : 'applied';
+          }
+          // 4. 申込タグなし + ボタン無効
+          //    → キャンセル待ち不可 OR Web申込非対応店舗
+          //    → 申込シグナルが無い以上、available 寄りで判定 (誤って closed にしない)
+          if (isDisabled) {
+            // 念のため募集終了テキストもチェック
+            if (/申込受付終了|募集終了|募集停止|成約|契約済/.test(allText)) return 'closed';
+            return 'available';
+          }
+          // 5. ボタン活性 + 申込タグなし → 募集中
+          return 'available';
         }
 
         // 申込ボタンが見つからない場合のフォールバック
-        if (edsApplyTag) return 'applied';
-        // 「申込受付終了」「募集終了」のテキスト
-        if (/申込受付終了|募集終了|募集停止/.test(allText)) return 'closed';
+        if (edsApplyTag || muiApplyChip) return 'applied';
+        if (/申込受付終了|募集終了|募集停止|成約|契約済/.test(allText)) return 'closed';
         return 'available';
       }
     });
