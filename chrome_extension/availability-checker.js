@@ -36,21 +36,23 @@ async function checkOneAvailability(item) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// itandi: 物件検索 (itandi-content-detail.js) と同じシグナルで判定。
+// itandi:
+//   判定優先順位 (ユーザールールに準拠):
 //
-//   優先順位:
-//     1. 404 / 掲載削除                                → closed
-//     2. listing_status = 成約 / 契約済 / 公開停止     → closed
-//     3. 「要物確」「要確認」テキストあり              → needs_confirmation
-//        (REINS reins_listed と同様、スタッフ確認が必要)
-//     4. 「申込あり」(listing_status or status_type)
-//        + WEB申込ボタンの状態で applied/closed 細分:
-//          - apply link あり + 活性 → applied (キャンセル待ち可)
-//          - disabled / badge "?"   → closed (キャンセル待ち不可)
-//     5. 「募集中」(listing_status) + WEBバッジ ≥ 1
-//        → applied (Web申込予約あり = 実質申込予定者あり)
-//     6. 「募集中」(listing_status) + WEBバッジなし    → available
-//     7. それ以外                                      → unknown
+//   1. 404 / 掲載削除                              → closed
+//   2. listing_status = 成約 / 契約済 / 公開停止   → closed
+//   3. listing_status = 申込あり                   → applied
+//      (要物確であっても、ボタン disabled でも申込あり優先)
+//      理由: 申込済みでも、キャンセル発生時に通知できる価値がある
+//   4. (申込ありでない) + 要物確 / 要確認          → needs_confirmation
+//      (募集中だが元付業者への物確が必要、Discord通知)
+//   5. WEBバッジ ≥ 1                              → applied
+//      (バッジに数字が入っている = 申込予約あり)
+//   6. listing_status = 募集中                     → available
+//   7. それ以外                                    → unknown
+//
+//   ※ ボタンの disabled / apply link 判定は使わない
+//     (申込ありの細分判定は不要、Web申込非対応店舗誤検出も回避)
 // ──────────────────────────────────────────────────────────────────
 async function _checkItandiAvailability(url) {
   if (!url || url.indexOf('itandibb.com') < 0) return 'unknown';
@@ -80,26 +82,14 @@ async function _checkItandiAvailability(url) {
           return 'closed';
         }
 
-        // 3. 要物確 / 要確認 → スタッフ確認が必要
+        // 3. 「申込あり」は要物確より優先 (キャンセル発生時通知の価値あり)
+        const hasOfferedText = listingStatus === '申込あり' || /status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
+        if (hasOfferedText) return 'applied';
+
+        // 4. (申込ありでない) + 要物確 / 要確認 → スタッフ確認必要
         if (/要物確|要確認/.test(bodyText)) return 'needs_confirmation';
 
-        // 4. 申込あり (キャンセル待ち可/不可 を細分判定)
-        const commonButtons = [...document.querySelectorAll('.CommonButton.isDetail')];
-        const webCommonBtn = commonButtons.find(el => /^WEB/i.test((el.textContent || '').trim()));
-        const hasOfferedText = listingStatus === '申込あり' || /status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
-
-        if (hasOfferedText) {
-          if (webCommonBtn) {
-            const hasApplyLink = !!webCommonBtn.querySelector('a[href*="bukkakun.com"][href*="select_apply"]');
-            const webBtnDisabled = !!webCommonBtn.querySelector('button[disabled], button.Mui-disabled');
-            const badgeText = (webCommonBtn.querySelector('.MuiBadge-badge')?.textContent || '').trim();
-            if (hasApplyLink && !webBtnDisabled) return 'applied';   // キャンセル待ち可
-            if (webBtnDisabled || badgeText === '?') return 'closed'; // キャンセル待ち不可
-          }
-          return 'applied';  // 詳細不明なら applied 扱い
-        }
-
-        // 5. 募集中 + WEBバッジ ≥ 1 → 申込予約あり
+        // 5. WEBバッジ ≥ 1 → 申込予約あり
         //    itandi-content-detail.js と同じ 3段階フォールバック でバッジ数を取得
         let webBadgeCount = -1;
         // Approach A: MuiBadge
