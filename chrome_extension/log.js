@@ -272,17 +272,26 @@
 
   // ── 空室状況チェック ボタン ──
   const availBtn = document.getElementById('availabilityCheckBtn');
+  const availStopBtn = document.getElementById('availabilityStopBtn');
   const availStatus = document.getElementById('availabilityCheckStatus');
   if (availBtn) {
     availBtn.addEventListener('click', async () => {
       availBtn.disabled = true;
       const oldText = availBtn.textContent;
       availBtn.textContent = '⏳ 確認中...';
-      if (availStatus) availStatus.textContent = '送付済み物件をスキャンしています...';
+      if (availStopBtn) availStopBtn.style.display = '';
+      if (availStatus) availStatus.textContent = '送付済み物件を全件スキャン中...';
       try {
-        const response = await chrome.runtime.sendMessage({ action: 'run_availability_check', options: { limit: 20 } });
-        if (response && typeof response.processed === 'number') {
-          if (availStatus) availStatus.textContent = `✅ ${response.processed} 件確認完了 (詳細はログで)`;
+        // batchSize 単位で GAS から取得し、キューが空になるまでループ
+        const response = await chrome.runtime.sendMessage({
+          action: 'run_availability_check',
+          options: { batchSize: 30 }
+        });
+        if (response && response.stopped) {
+          if (availStatus) availStatus.textContent = `⏹ 中断 (${response.processed || 0} 件 確認済)`;
+        } else if (response && typeof response.processed === 'number') {
+          const errStr = response.errors ? ` / エラー ${response.errors}` : '';
+          if (availStatus) availStatus.textContent = `✅ ${response.processed} 件確認完了${errStr}`;
         } else if (response && response.error) {
           if (availStatus) availStatus.textContent = `❌ ${response.error}`;
         } else {
@@ -293,6 +302,21 @@
       }
       availBtn.disabled = false;
       availBtn.textContent = oldText;
+      if (availStopBtn) availStopBtn.style.display = 'none';
+    });
+  }
+  if (availStopBtn) {
+    availStopBtn.addEventListener('click', async () => {
+      availStopBtn.disabled = true;
+      availStopBtn.textContent = '中断中...';
+      try {
+        await chrome.runtime.sendMessage({ action: 'stop_availability_check' });
+        if (availStatus) availStatus.textContent = '⏹ 中断要求を送信...';
+      } catch (e) {
+        if (availStatus) availStatus.textContent = `❌ 中断失敗: ${e.message}`;
+      }
+      availStopBtn.disabled = false;
+      availStopBtn.textContent = '中断';
     });
   }
 

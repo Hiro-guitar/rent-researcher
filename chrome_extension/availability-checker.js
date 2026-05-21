@@ -56,44 +56,47 @@ async function _checkItandiAvailability(url) {
         const bodyText = document.body.innerText || '';
         // 404 / 掲載削除 (closed)
         if (/このページは存在しません|お探しのページ|404\s*Not\s*Found|ページが見つかりません/i.test(bodyText)) return 'closed';
-        const hasOffered = /申込\s*あり|status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
-        if (hasOffered) {
-          // 申込あり: キャンセル待ち可能性を判定
-          //   - キャンセル待ち登録ボタン or 「キャンセル待ち」テキストあり → applied
-          //   - 申込受付終了 / キャンセル待ち不可 / 内見/Web申込ボタンが disabled → closed
-          // ボタンの disabled 判定: aria-disabled / disabled 属性 / class に disable を含む
-          function isDisabled(el) {
-            if (!el) return true;
-            if (el.disabled) return true;
-            if (el.getAttribute && el.getAttribute('aria-disabled') === 'true') return true;
-            const cls = (el.className || '').toString();
-            if (/disable|inactive|gray|gray-?out/i.test(cls)) return true;
-            return false;
-          }
-          // 「キャンセル待ち」関連ボタン / リンク
-          const cancelWaitEls = [...document.querySelectorAll('button, a, [role="button"]')]
-            .filter(el => /キャンセル待ち|キャンセル待\s/.test(el.textContent || ''));
-          if (cancelWaitEls.length > 0 && cancelWaitEls.some(el => !isDisabled(el))) {
-            return 'applied'; // キャンセル待ち登録できる
-          }
-          // 「申込受付終了」「キャンセル待ち不可」テキスト → closed
-          if (/申込受付終了|キャンセル待ち\s*不可|受付終了/i.test(bodyText)) return 'closed';
-          // Web申込・内見予約ボタンの活性チェック
-          const webApply = [...document.querySelectorAll('button, a')].find(el => /Web\s*申込|ウェブ申込/i.test(el.textContent || ''));
-          const naiken   = [...document.querySelectorAll('button, a')].find(el => /内見/i.test(el.textContent || ''));
-          const webOk    = webApply && !isDisabled(webApply);
-          const naikenOk = naiken   && !isDisabled(naiken);
-          if (!webOk && !naikenOk) return 'closed'; // 両方押せない=キャンセル待ち不可
-          return 'applied';
+
+        // ──────────────────────────────────────────────
+        // 「WEB申込」ボタン (.CommonButton.isDetail) の状態で判定する。
+        //
+        // ・<a href="https://bukkakun.com/.../select_apply">…</a> でラップされていて
+        //   button が disabled でない    → キャンセル待ち可能 = applied
+        // ・button[disabled] / button.Mui-disabled、もしくは
+        //   .MuiBadge-badge が "?"         → キャンセル待ち不可 = closed
+        //
+        // 募集中 (申込なし) は別ロジックで判定する。
+        // ──────────────────────────────────────────────
+        const commonButtons = [...document.querySelectorAll('.CommonButton.isDetail')];
+        const webCommonBtn = commonButtons.find(el => /^WEB/i.test((el.textContent || '').trim()));
+        if (webCommonBtn) {
+          const hasApplyLink = !!webCommonBtn.querySelector('a[href*="bukkakun.com"][href*="select_apply"]');
+          const webBtnDisabled = !!webCommonBtn.querySelector('button[disabled], button.Mui-disabled');
+          const badgeText = (webCommonBtn.querySelector('.MuiBadge-badge')?.textContent || '').trim();
+
+          const hasOfferedText = /申込\s*あり|status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
+
+          // applied: WEB申込リンクが活きていて、かつ申込ありの場合 = キャンセル待ち可
+          if (hasOfferedText && hasApplyLink && !webBtnDisabled) return 'applied';
+          // closed: 申込ありで WEB ボタンが押せない or バッジが "?"
+          if (hasOfferedText && (webBtnDisabled || badgeText === '?')) return 'closed';
+          // available: 申込ありテキストが無く、WEB申込が押せる → 募集中
+          if (!hasOfferedText && hasApplyLink && !webBtnDisabled) return 'available';
+          // fallback for offered but ambiguous
+          if (hasOfferedText) return webBtnDisabled ? 'closed' : 'applied';
         }
+
+        // CommonButton が見つからない場合のフォールバック
         // 募集中
         const blocks = document.querySelectorAll('div[class*="Block"][class*="Left"], .BlockLeft, div.block.left');
         for (const el of blocks) {
           if ((el.textContent || '').includes('募集中')) return 'available';
         }
         if (/募集中/.test(bodyText)) return 'available';
+        // 申込あり (キャンセル待ち判定不能なら applied 扱い)
+        if (/申込\s*あり/.test(bodyText)) return 'applied';
         // 取り下げ / 募集終了 → closed
-        if (/取り下げ|募集停止|募集終了/.test(bodyText)) return 'closed';
+        if (/取り下げ|募集停止|募集終了|申込受付終了/.test(bodyText)) return 'closed';
         return 'unknown';
       }
     });
@@ -106,9 +109,17 @@ async function _checkItandiAvailability(url) {
 
 // ──────────────────────────────────────────────────────────────────
 // いえらぶ (ielove BB):
-//   募集状況 「申込N件」 or span.exists_application_for_confirm → applied
-//   span.for-rent / 募集中表記 → available
-//   既に掲載が終了 → closed
+//   判定の主軸は申込書出力ボタン (button.export_application) の活性状態。
+//
+//   ・button.export_application が disabled / disabled_btn / fa-bt-dis
+//       → closed (キャンセル待ち不可・募集終了)
+//   ・ボタン活性 + span.exists_application_for_confirm 「申込あり」
+//       → applied (キャンセル待ち可)
+//   ・ボタン活性 + 「申込あり」表示なし
+//       → available (募集中)
+//
+//   ※ span.exists_application_for_confirm は両状態で存在し、テキストが
+//     「申込あり」/「申込N件」で変わるため "有無" では判定しない。
 // ──────────────────────────────────────────────────────────────────
 async function _checkIeloveAvailability(url) {
   if (!url || (url.indexOf('ielove') < 0 && url.indexOf('homes.co.jp') < 0)) return 'unknown';
@@ -124,19 +135,39 @@ async function _checkIeloveAvailability(url) {
       target: { tabId: tab.id },
       func: () => {
         const bodyText = document.body.innerText || '';
-        // 掲載終了 (closed)
-        if (/既に掲載が終了|掲載が終了|物件は存在しません|該当する物件はありません/.test(bodyText)) return 'closed';
-        // 申込あり (applied)
-        //   - 「申込N件」 (募集状況バッジ) → applied
-        //   - span.exists_application_for_confirm → applied
-        //   - 「申込あり」「入居予定者あり」「申込済」 → applied
+        // 掲載終了 / 削除済 (closed)
+        if (/既に掲載が終了|掲載が終了|物件は存在しません|該当する物件はありません|ページが見つかりません/.test(bodyText)) {
+          return 'closed';
+        }
+
+        // ─── メイン判定: 申込書出力ボタン ───
+        const applyBtn = document.querySelector('button.export_application');
+        const statusSpan = document.querySelector('span.exists_application_for_confirm');
+        const statusText = statusSpan ? (statusSpan.textContent || '').trim() : '';
+
+        if (applyBtn) {
+          const cls = (applyBtn.className || '').toString();
+          const isDisabled =
+            applyBtn.disabled === true ||
+            applyBtn.getAttribute('aria-disabled') === 'true' ||
+            /\b(disabled_btn|fa-bt-dis)\b/.test(cls) ||
+            !applyBtn.getAttribute('onclick');
+          if (isDisabled) return 'closed';        // 募集終了 / キャンセル待ち不可
+          if (/申込あり/.test(statusText)) return 'applied';   // キャンセル待ち可
+          // 「申込N件」表示 + ボタン活性 という稀ケースも一応 applied 扱い
+          if (/申込\s*\d+\s*件/.test(statusText)) return 'applied';
+          return 'available';                     // 募集中
+        }
+
+        // ─── ボタンが見つからない時のフォールバック ───
+        // 申込N件 → applied (formal 申込あり)
         if (/申込\s*\d+\s*件/.test(bodyText)) return 'applied';
-        if (document.querySelector('span.exists_application_for_confirm')) return 'applied';
+        if (statusSpan && /申込あり/.test(statusText)) return 'applied';
         if (/申込\s*あり|入居予定者あり|申込済/.test(bodyText)) return 'applied';
-        // 募集中 (available)
+        // 募集中
         if (document.querySelector('span.for-rent')) return 'available';
         if (/募集中|入居可能/.test(bodyText)) return 'available';
-        // 募集停止/終了 → closed
+        // 募集停止/終了
         if (/募集停止|募集終了/.test(bodyText)) return 'closed';
         return 'unknown';
       }
@@ -151,8 +182,11 @@ async function _checkIeloveAvailability(url) {
 // ──────────────────────────────────────────────────────────────────
 // いい生活 (es-square):
 //   404モーダル / ページ削除 → closed
-//   eds-tag__label 「申込あり」 → applied
-//   それ以外 → available
+//   詳細パネル上部の「申込」ボタン (MuiButton-outlinedPrimary) を見つけ、
+//     ・disabled / Mui-disabled / aria-disabled → closed (キャンセル待ち不可)
+//     ・eds-tag 「申込あり」(赤系ソフトタグ) あり → applied (キャンセル待ち可)
+//     ・どちらでもない → available (募集中)
+//   ※ MuiChip の「申込あり」は申込済/募集中の両方に出るため判定に使わない。
 // ──────────────────────────────────────────────────────────────────
 async function _checkEssquareAvailability(url) {
   if (!url || (url.indexOf('es-square') < 0 && url.indexOf('iisesq') < 0)) return 'unknown';
@@ -163,7 +197,7 @@ async function _checkEssquareAvailability(url) {
   try {
     await chrome.tabs.update(tab.id, { url: url });
     await _waitForTabLoad(tab.id, 15000);
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 2500));
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
@@ -183,12 +217,44 @@ async function _checkEssquareAvailability(url) {
         }
         const title = (document.title || '').toLowerCase();
         if (title.includes('not found') || title.includes('404') || (document.title || '').includes('見つかりません')) return 'closed';
-        // 申込あり (applied) — eds-tag__label
-        const tags = document.querySelectorAll('span.eds-tag__label');
-        for (const el of tags) {
-          if ((el.textContent || '').trim() === '申込あり') return 'applied';
+
+        // ──────────────────────────────────────────────
+        // 「申込」ボタン (MuiButton-outlinedPrimary) を探す
+        //   - テキストが正確に「申込」のラベル要素を内包する <button>
+        //   - 複数あれば最も上部 (top が小さい) のものを優先
+        // ──────────────────────────────────────────────
+        const applyBtnCandidates = [...document.querySelectorAll('button')].filter(btn => {
+          if (!/MuiButton-outlinedPrimary/.test(btn.className || '')) return false;
+          const labelEl = [...btn.querySelectorAll('div, span')]
+            .find(el => el.children.length === 0 && (el.textContent || '').trim() === '申込');
+          return !!labelEl;
+        });
+        // 上部に近いものを優先
+        applyBtnCandidates.sort((a, b) => {
+          const ra = a.getBoundingClientRect();
+          const rb = b.getBoundingClientRect();
+          return ra.top - rb.top;
+        });
+        const applyBtn = applyBtnCandidates[0];
+
+        // 補助: eds-tag 「申込あり」(MuiChip ではなく eds-tag のもの)
+        const edsApplyTag = [...document.querySelectorAll('span.eds-tag, span[class*="eds-tag"]')]
+          .find(el => (el.textContent || '').trim() === '申込あり');
+
+        if (applyBtn) {
+          const isDisabled =
+            applyBtn.disabled ||
+            applyBtn.getAttribute('aria-disabled') === 'true' ||
+            /Mui-disabled/.test(applyBtn.className || '');
+          if (isDisabled) return 'closed';        // キャンセル待ち不可 / 募集終了
+          if (edsApplyTag) return 'applied';      // 申込あり = キャンセル待ち可
+          return 'available';                     // 募集中・申込なし
         }
-        // それ以外は available
+
+        // 申込ボタンが見つからない場合のフォールバック
+        if (edsApplyTag) return 'applied';
+        // 「申込受付終了」「募集終了」のテキスト
+        if (/申込受付終了|募集終了|募集停止/.test(allText)) return 'closed';
         return 'available';
       }
     });
@@ -329,67 +395,161 @@ function _waitForTabLoad(tabId, timeoutMs) {
 
 // ──────────────────────────────────────────────────────────────────
 // バッチ実行: GASからキューを取得 → 各物件チェック → 結果を一括送信
+//   options.singleBatch=true なら1サイクルで終了 (旧挙動)
+//   それ以外はキューが空になるまでループ (全件モード)
+//   chrome.storage.local.__availabilityCheckStop=true で途中中断
 // ──────────────────────────────────────────────────────────────────
 async function runAvailabilityCheckBatch(options) {
   options = options || {};
-  const limit = options.limit || 20;
+  const batchSize = options.batchSize || options.limit || 30;
   const maxAgeDays = options.maxAgeDays || 60;
   const maxIntervalHours = options.maxIntervalHours || 24;
-  await setStorageData({ debugLog: `[空室確認] バッチ開始 (limit=${limit})` });
+  const singleBatch = options.singleBatch === true;
+  const maxCycles = options.maxCycles || 200; // 安全上限 (batchSize=30 で最大 6000 件)
 
-  // 1. キューを取得
-  let queue;
+  // 開始時に中断フラグをクリア & 実行フラグON
+  await new Promise(r => chrome.storage.local.set({
+    __availabilityCheckStop: false,
+    __availabilityCheckRunning: true
+  }, r));
+
+  await setStorageData({
+    debugLog: singleBatch
+      ? `[空室確認] バッチ開始 (limit=${batchSize})`
+      : `[空室確認] 全件モード開始 (batchSize=${batchSize})`
+  });
+
+  let totalProcessed = 0;
+  let totalErrors = 0;
+  let cycle = 0;
+  let lastDiag = null;
+  const seenKeys = new Set();  // 二度目に同じ key が出てきたら無限ループ判定で中断
+
   try {
-    queue = await gasGet('get_availability_queue', {
-      limit: limit,
-      max_age_days: maxAgeDays,
-      max_interval_hours: maxIntervalHours
-    });
-  } catch (e) {
-    await setStorageData({ debugLog: `[空室確認] キュー取得失敗: ${e.message}` });
-    return { processed: 0, error: e.message };
-  }
-  const items = (queue && Array.isArray(queue.items)) ? queue.items : [];
-  if (items.length === 0) {
-    // diag があれば理由を表示
-    const d = queue && queue.diag;
-    let reason = '確認対象なし';
-    if (d) {
-      reason += ` (総行数:${d.total} / URLマップ:${d.urlMapSize}件`;
-      if (d.tooOld) reason += ` / 60日超過:${d.tooOld}`;
-      if (d.isClosed) reason += ` / closed:${d.isClosed}`;
-      if (d.recentlyChecked) reason += ` / 24h以内チェック済:${d.recentlyChecked}`;
-      if (d.noUrl) reason += ` / URL無し:${d.noUrl}`;
-      if (d.noSentAt) reason += ` / 通知日時無し:${d.noSentAt}`;
-      reason += ')';
+    while (cycle < maxCycles) {
+      cycle++;
+
+      // 中断フラグ確認
+      const stopFlag = await new Promise(r =>
+        chrome.storage.local.get(['__availabilityCheckStop'], d => r(!!d.__availabilityCheckStop))
+      );
+      if (stopFlag) {
+        await setStorageData({ debugLog: `[空室確認] 中断要求を検知。停止します (累計 ${totalProcessed} 件)` });
+        return { processed: totalProcessed, cycles: cycle - 1, stopped: true };
+      }
+
+      // 1. キュー取得
+      let queue;
+      try {
+        queue = await gasGet('get_availability_queue', {
+          limit: batchSize,
+          max_age_days: maxAgeDays,
+          max_interval_hours: maxIntervalHours
+        });
+      } catch (e) {
+        await setStorageData({ debugLog: `[空室確認] キュー取得失敗: ${e.message}` });
+        return { processed: totalProcessed, error: e.message };
+      }
+      const items = (queue && Array.isArray(queue.items)) ? queue.items : [];
+      lastDiag = queue && queue.diag;
+
+      if (items.length === 0) {
+        // 1サイクル目で 0 件 → 対象なし
+        if (cycle === 1) {
+          let reason = '確認対象なし';
+          if (lastDiag) {
+            reason += ` (総行数:${lastDiag.total} / URLマップ:${lastDiag.urlMapSize}件`;
+            if (lastDiag.tooOld) reason += ` / 60日超過:${lastDiag.tooOld}`;
+            if (lastDiag.isClosed) reason += ` / closed:${lastDiag.isClosed}`;
+            if (lastDiag.recentlyChecked) reason += ` / 24h以内チェック済:${lastDiag.recentlyChecked}`;
+            if (lastDiag.noUrl) reason += ` / URL無し:${lastDiag.noUrl}`;
+            if (lastDiag.noSentAt) reason += ` / 通知日時無し:${lastDiag.noSentAt}`;
+            reason += ')';
+          }
+          await setStorageData({ debugLog: `[空室確認] ${reason}` });
+          return { processed: 0, diag: lastDiag };
+        }
+        // ループ完了
+        await setStorageData({ debugLog: `[空室確認] 全件完了 (累計 ${totalProcessed} 件 / ${cycle - 1} サイクル / エラー ${totalErrors})` });
+        return { processed: totalProcessed, cycles: cycle - 1, errors: totalErrors };
+      }
+
+      // 無限ループ防止: このサイクルの全アイテムが既出ならばエラーで停止
+      const allSeen = items.every(it => seenKeys.has(it.customer + '|' + it.roomId));
+      if (allSeen && !singleBatch) {
+        await setStorageData({
+          debugLog: `[空室確認] 同じ ${items.length} 件を再受信。チェック結果がGAS側で反映されていない可能性。中断します (累計 ${totalProcessed})`
+        });
+        return { processed: totalProcessed, cycles: cycle, error: 'duplicate_batch' };
+      }
+      items.forEach(it => seenKeys.add(it.customer + '|' + it.roomId));
+
+      const cyclePrefix = singleBatch ? '' : `[サイクル${cycle}] `;
+      await setStorageData({ debugLog: `[空室確認] ${cyclePrefix}${items.length}件を確認します (累計 ${totalProcessed})` });
+
+      // 2. 各物件をチェック
+      const results = [];
+      for (let i = 0; i < items.length; i++) {
+        // 物件毎に中断フラグ確認
+        const stopMid = await new Promise(r =>
+          chrome.storage.local.get(['__availabilityCheckStop'], d => r(!!d.__availabilityCheckStop))
+        );
+        if (stopMid) {
+          await setStorageData({ debugLog: `[空室確認] 中断要求を検知。サイクル中で停止 (このサイクルの ${results.length} 件のみ更新)` });
+          break;
+        }
+        const it = items[i];
+        try {
+          const status = await checkOneAvailability(it);
+          results.push({ customer: it.customer, room_id: it.roomId, status: status });
+          await setStorageData({
+            debugLog: `[空室確認] ${totalProcessed + i + 1}: ${it.customer} ${it.source} → ${status}`
+          });
+        } catch (e) {
+          totalErrors++;
+          // 例外時も 'unknown' を返して checkedAt を更新 (次サイクルでスキップ)
+          results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
+          await setStorageData({
+            debugLog: `[空室確認] ${totalProcessed + i + 1}: ${it.customer} エラー ${e.message} (unknown扱い)`
+          });
+        }
+      }
+
+      // 3. 一括 POST (このサイクル分)
+      if (results.length > 0) {
+        try {
+          await gasPost({ action: 'update_availability', items: results });
+        } catch (e) {
+          await setStorageData({ debugLog: `[空室確認] 更新POST失敗: ${e.message} (中断)` });
+          return { processed: totalProcessed + results.length, error: e.message };
+        }
+      }
+      totalProcessed += results.length;
+
+      // 中断確認 (POST後の最終チェック)
+      const stopAfter = await new Promise(r =>
+        chrome.storage.local.get(['__availabilityCheckStop'], d => r(!!d.__availabilityCheckStop))
+      );
+      if (stopAfter) {
+        await setStorageData({ debugLog: `[空室確認] 中断完了 (累計 ${totalProcessed} 件)` });
+        return { processed: totalProcessed, cycles: cycle, stopped: true };
+      }
+
+      if (singleBatch) break;
     }
-    await setStorageData({ debugLog: `[空室確認] ${reason}` });
-    return { processed: 0, diag: d };
-  }
-  await setStorageData({ debugLog: `[空室確認] ${items.length}件を確認します` });
 
-  // 2. 各物件をチェック
-  const results = [];
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    try {
-      const status = await checkOneAvailability(it);
-      results.push({ customer: it.customer, room_id: it.roomId, status: status });
-      await setStorageData({ debugLog: `[空室確認] ${i+1}/${items.length} ${it.customer}: ${it.source} → ${status}` });
-    } catch (e) {
-      await setStorageData({ debugLog: `[空室確認] ${i+1}/${items.length} ${it.customer}: エラー ${e.message}` });
+    if (cycle >= maxCycles) {
+      await setStorageData({ debugLog: `[空室確認] 安全上限 ${maxCycles} サイクル到達。停止します (累計 ${totalProcessed} 件)` });
     }
+    return { processed: totalProcessed, cycles: cycle, errors: totalErrors };
+  } finally {
+    await new Promise(r => chrome.storage.local.set({ __availabilityCheckRunning: false }, r));
   }
+}
 
-  // 3. 一括 POST
-  try {
-    await gasPost({ action: 'update_availability', items: results });
-    await setStorageData({ debugLog: `[空室確認] バッチ完了 (${results.length}件 更新)` });
-  } catch (e) {
-    await setStorageData({ debugLog: `[空室確認] 更新POST失敗: ${e.message}` });
-  }
-
-  return { processed: results.length, results: results };
+// 外部から中断要求を受け取る
+async function stopAvailabilityCheck() {
+  await new Promise(r => chrome.storage.local.set({ __availabilityCheckStop: true }, r));
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -400,7 +560,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     runAvailabilityCheckBatch(msg.options || {}).then(r => sendResponse(r)).catch(e => sendResponse({ error: e.message }));
     return true; // async response
   }
+  if (msg && msg.action === 'stop_availability_check') {
+    stopAvailabilityCheck().then(() => sendResponse({ ok: true })).catch(e => sendResponse({ error: e.message }));
+    return true;
+  }
 });
 
 globalThis.runAvailabilityCheckBatch = runAvailabilityCheckBatch;
 globalThis.checkOneAvailability = checkOneAvailability;
+globalThis.stopAvailabilityCheck = stopAvailabilityCheck;
