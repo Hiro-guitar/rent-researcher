@@ -542,6 +542,7 @@ function doGet(e) {
   }
 
   // 手動クリーンアップ: doGet?action=cleanup_now&max_age_days=90
+  //   90日経過の物件削除 + 1週間経過の paused/blocked/orphan 顧客削除 を一括実行
   if (action === 'cleanup_now') {
     try {
       if (!_validateReinsApiKey(e.parameter.api_key)) {
@@ -554,6 +555,23 @@ function doGet(e) {
         .setMimeType(ContentService.MimeType.JSON);
     } catch (eC) {
       return ContentService.createTextOutput(JSON.stringify({ error: eC.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  // 配信停止/ブロック/手動削除顧客の物件削除 (1週間経過分のみ): 手動トリガー
+  if (action === 'cleanup_inactive_now') {
+    try {
+      if (!_validateReinsApiKey(e.parameter.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      var iDays = parseInt(e.parameter.max_age_days || '7', 10);
+      var ir = cleanupInactiveCustomerProperties(iDays);
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, result: ir }))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (eCI) {
+      return ContentService.createTextOutput(JSON.stringify({ error: eCI.message }))
         .setMimeType(ContentService.MimeType.JSON);
     }
   }
@@ -1408,6 +1426,11 @@ function handleGetCriteria(e) {
         console.log('[LINEブロック判定] ブロック検知: ' + name + ' status=「' + deliveryStatus + '」 wasBlocked=' + wasBlocked + ' → ' + (wasBlocked ? '既知の為通知スキップ' : '新規検知 → 通知送信'));
         try {
           sheet.getRange(i + 1, 19).setValue('blocked');  // S列: 配信ステータス
+          // U列(21): 停止/ブロック日時を記録 (まだ未記録の場合のみ — 1週間カウントの起点)
+          var existingTs = sheet.getRange(i + 1, 21).getValue();
+          if (!existingTs) {
+            sheet.getRange(i + 1, 21).setValue(new Date());
+          }
         } catch (e) {}
         // 新規検知時のみ Discord 通知 (既に blocked だった場合は通知しない)
         if (!wasBlocked) {

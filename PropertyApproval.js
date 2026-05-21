@@ -1410,7 +1410,8 @@ function handleStopReasonText(replyToken, userId, message, state) {
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         '配信を停止しました。ご回答ありがとうございます。\n\n' +
-        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
+        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
+        '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。'
       )]);
       return true;
     }
@@ -1559,7 +1560,8 @@ function handleSnoozePeriodText(replyToken, userId, message) {
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         '新着物件の配信を停止しました。\n\n' +
-        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
+        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
+        '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。'
       )]);
       return true;
     }
@@ -1606,7 +1608,8 @@ function handleFrequencyText(replyToken, userId, message) {
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         '新着物件の配信を停止しました。\n\n' +
-        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
+        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
+        '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。'
       )]);
       return true;
     }
@@ -1643,7 +1646,8 @@ function handleMismatchChoiceText(replyToken, userId, message) {
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         '配信を停止しました。ご回答ありがとうございます。\n\n' +
-        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
+        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
+        '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。'
       )]);
       return true;
     }
@@ -2282,13 +2286,207 @@ function cleanupOldPropertyRecords(maxAgeDays) {
       }
     }
 
-    console.log('[cleanup] ' + JSON.stringify(result));
+    console.log('[cleanup-old] ' + JSON.stringify(result));
+
+    // 続けて配信停止/ブロック/手動削除 顧客の物件も一括削除 (1週間経過)
+    try {
+      var inactiveResult = cleanupInactiveCustomerProperties(7);
+      result.inactive = inactiveResult;
+    } catch (eIn) {
+      console.warn('cleanupInactiveCustomerProperties chained error: ' + eIn.message);
+    }
+
     return result;
   } catch (e) {
     console.warn('cleanupOldPropertyRecords error: ' + e.message);
     result.error = e.message;
     return result;
   }
+}
+
+/**
+ * 配信停止 / ブロック / 検索条件シートから削除 された顧客の物件を一括削除する。
+ *
+ * 削除対象 (いずれも 1 週間 = maxAgeDays 日経過後):
+ *   1. status='paused' or 'blocked' で U列(停止日時)が maxAgeDays 日以上前
+ *   2. 検索条件シートから手動削除されてから maxAgeDays 日以上経過した顧客
+ *      (孤立顧客の初検出時刻は ScriptProperties に記録、再登録されたら消去)
+ *
+ * snoozed は対象外 (自動復活が予定されているので残す)。
+ *
+ * @param {number} [maxAgeDays=7]
+ * @return {{deletedSeenRows:number, deletedPendingRows:number, customers:string[]}}
+ */
+function cleanupInactiveCustomerProperties(maxAgeDays) {
+  maxAgeDays = (typeof maxAgeDays === 'number' && maxAgeDays > 0) ? maxAgeDays : 7;
+  var nowMs = Date.now();
+  var cutoffMs = nowMs - maxAgeDays * 24 * 60 * 60 * 1000;
+  var ORPHAN_KEY = 'orphan_customers_tracking_v1';
+  var result = {
+    deletedSeenRows: 0,
+    deletedPendingRows: 0,
+    customers: [],
+    orphansPending: [],
+    maxAgeDays: maxAgeDays
+  };
+
+  try {
+    // 1. 検索条件シートから「削除すべき顧客」のセットを構築
+    var critSs = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var critSheet = critSs.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!critSheet) {
+      result.error = 'no_criteria_sheet';
+      return result;
+    }
+    var critData = critSheet.getDataRange().getValues();
+    var existingCustomers = {};          // 検索条件シートに存在する顧客名
+    var toDeleteCustomers = {};          // 1週間経過 paused/blocked
+    for (var ci = 1; ci < critData.length; ci++) {
+      var cname = String(critData[ci][1] || '').trim();  // B列
+      if (!cname) continue;
+      existingCustomers[cname] = true;
+      var cstatus = String(critData[ci][18] || '').trim();  // S列 (19) = index 18
+      if (cstatus !== 'paused' && cstatus !== 'blocked') continue;
+      var ctsRaw = critData[ci][20];  // U列 (21) = index 20
+      var cts = _parseDateFlexible_(ctsRaw);
+      if (!cts) {
+        // タイムスタンプ未記録 → 現時点を起点に書き込み (次サイクルで判定)
+        try {
+          critSheet.getRange(ci + 1, 21).setValue(new Date());
+        } catch (_) {}
+        continue;
+      }
+      if (cts < cutoffMs) {
+        toDeleteCustomers[cname] = { reason: cstatus, stoppedAt: ctsRaw };
+      }
+    }
+
+    // 1-b. 孤立顧客 (検索条件シート不在) の追跡
+    //   - 初検出時刻を ScriptProperties に記録
+    //   - 1週間経過 → 削除対象に追加
+    //   - 検索条件シートに戻った顧客 → トラッキングから削除
+    var props = PropertiesService.getScriptProperties();
+    var orphanMap = {};
+    try {
+      var raw = props.getProperty(ORPHAN_KEY);
+      if (raw) orphanMap = JSON.parse(raw);
+    } catch (_) { orphanMap = {}; }
+    // 既知の orphan が criteria シートに復活していたら除外
+    for (var ok in orphanMap) {
+      if (existingCustomers[ok]) delete orphanMap[ok];
+    }
+
+    // 2. 物件シートを走査して該当顧客の行を削除
+    var propSs = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+    // 先に SEEN + PENDING の顧客名を一度集めて孤立顧客を更新
+    var allCustomers = {};
+    var seen = propSs.getSheetByName(SEEN_SHEET_NAME);
+    var pend = propSs.getSheetByName(PENDING_SHEET_NAME);
+    if (seen) {
+      var sLast0 = seen.getLastRow();
+      if (sLast0 >= 2) {
+        var sNamesAll = seen.getRange(2, 1, sLast0 - 1, 1).getValues();
+        for (var sa = 0; sa < sNamesAll.length; sa++) {
+          var snm = String(sNamesAll[sa][0] || '').trim();
+          if (snm) allCustomers[snm] = true;
+        }
+      }
+    }
+    if (pend) {
+      var pLast0 = pend.getLastRow();
+      if (pLast0 >= 2) {
+        var pNamesAll = pend.getRange(2, 1, pLast0 - 1, 1).getValues();
+        for (var pa = 0; pa < pNamesAll.length; pa++) {
+          var pnm = String(pNamesAll[pa][0] || '').trim();
+          if (pnm) allCustomers[pnm] = true;
+        }
+      }
+    }
+    // 孤立顧客 (物件シートにあるが criteria に無い) を検出
+    for (var aname in allCustomers) {
+      if (existingCustomers[aname]) continue;
+      if (toDeleteCustomers[aname]) continue;  // すでに paused/blocked 経路で削除予定
+      if (!orphanMap[aname]) {
+        // 初検出: タイムスタンプ記録
+        orphanMap[aname] = nowMs;
+        result.orphansPending.push(aname);
+      } else if (orphanMap[aname] < cutoffMs) {
+        // 1週間経過 → 削除対象に追加
+        toDeleteCustomers[aname] = { reason: 'orphan', detectedAt: new Date(orphanMap[aname]).toISOString() };
+        delete orphanMap[aname];
+      } else {
+        result.orphansPending.push(aname);
+      }
+    }
+    // 更新した orphanMap を保存
+    try {
+      props.setProperty(ORPHAN_KEY, JSON.stringify(orphanMap));
+    } catch (_) {}
+
+    function shouldDeleteCustomer(name) {
+      if (!name) return false;
+      return !!toDeleteCustomers[name];
+    }
+
+    // 2-1. SEEN_SHEET (通知済み物件): A列 = 顧客名
+    if (seen) {
+      var sLast = seen.getLastRow();
+      if (sLast >= 2) {
+        var sNames = seen.getRange(2, 1, sLast - 1, 1).getValues();
+        var sRows = [];
+        for (var i = 0; i < sNames.length; i++) {
+          var sn = String(sNames[i][0] || '').trim();
+          if (shouldDeleteCustomer(sn)) {
+            sRows.push(i + 2);
+            if (result.customers.indexOf(sn) < 0) result.customers.push(sn);
+          }
+        }
+        for (var j = sRows.length - 1; j >= 0; j--) {
+          seen.deleteRow(sRows[j]);
+        }
+        result.deletedSeenRows = sRows.length;
+      }
+    }
+
+    // 2-2. PENDING_SHEET (承認待ち物件): A列 = 顧客名
+    if (pend) {
+      var pLast = pend.getLastRow();
+      if (pLast >= 2) {
+        var pNames = pend.getRange(2, 1, pLast - 1, 1).getValues();
+        var pRows = [];
+        for (var k = 0; k < pNames.length; k++) {
+          var pn = String(pNames[k][0] || '').trim();
+          if (shouldDeleteCustomer(pn)) {
+            pRows.push(k + 2);
+            if (result.customers.indexOf(pn) < 0) result.customers.push(pn);
+          }
+        }
+        for (var m = pRows.length - 1; m >= 0; m--) {
+          pend.deleteRow(pRows[m]);
+        }
+        result.deletedPendingRows = pRows.length;
+      }
+    }
+
+    console.log('[cleanup-inactive] ' + JSON.stringify(result));
+    return result;
+  } catch (e) {
+    console.warn('cleanupInactiveCustomerProperties error: ' + e.message);
+    result.error = e.message;
+    return result;
+  }
+}
+
+/**
+ * 日次クリーンアップトリガーから呼ばれるラッパ。
+ * cleanupOldPropertyRecords (90日) + cleanupInactiveCustomerProperties (7日) を順番に実行。
+ */
+function runDailyCleanup() {
+  var r1 = cleanupOldPropertyRecords(90);
+  var r2 = cleanupInactiveCustomerProperties(7);
+  console.log('[daily-cleanup] old=' + JSON.stringify(r1) + ' inactive=' + JSON.stringify(r2));
+  return { old: r1, inactive: r2 };
 }
 
 /**
