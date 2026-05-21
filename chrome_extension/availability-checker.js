@@ -36,11 +36,11 @@ async function checkOneAvailability(item) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// itandi: 物件ページに「申込あり」or 募集中 を判定
+// itandi: 物件ページの「Block Left」div に「募集中」が含まれるか
+// vacancy-checker (Python) と同じロジック
 // ──────────────────────────────────────────────────────────────────
 async function _checkItandiAvailability(url) {
   if (!url || url.indexOf('itandibb.com') < 0) return 'unknown';
-  // 専用タブで開く (ログイン済みセッション利用)
   const tab = await (typeof findOrCreateDedicatedItandiTab === 'function'
     ? findOrCreateDedicatedItandiTab()
     : null);
@@ -48,20 +48,22 @@ async function _checkItandiAvailability(url) {
   try {
     await chrome.tabs.update(tab.id, { url: url });
     await _waitForTabLoad(tab.id, 15000);
-    await new Promise(r => setTimeout(r, 1500)); // SPAレンダ待ち
+    await new Promise(r => setTimeout(r, 2000)); // SPAレンダ待ち
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        // 「申込あり」or「募集中」を判定
-        const bodyText = document.body.innerText || '';
-        if (/募集中/.test(bodyText)) {
-          // 申込ありが優先 (申込ありで募集中タグも残ってる可能性)
-          if (/申込\s*あり|status_type[:=]\s*offered/.test(bodyText)) return 'closed';
-          return 'available';
+        // 「Block Left」div 内に「募集中」テキストがあれば募集中
+        const blocks = document.querySelectorAll('div[class*="Block"][class*="Left"], .BlockLeft, div.block.left');
+        for (const el of blocks) {
+          if ((el.textContent || '').includes('募集中')) return 'available';
         }
-        if (/申込\s*あり/.test(bodyText)) return 'closed';
-        // 404 / ページが存在しない
-        if (/ページが見つかりません|404|お探しのページ/.test(bodyText)) return 'closed';
+        // フォールバック: bodyテキスト全体で判定
+        const bodyText = document.body.innerText || '';
+        if (/募集中/.test(bodyText)) return 'available';
+        // 404 / ページ削除
+        if (/このページは存在しません|お探しのページ|404|ページが見つかりません/.test(bodyText)) return 'closed';
+        // 申込あり / 取り下げ表記
+        if (/申込\s*あり|取り下げ|募集停止|募集終了/.test(bodyText)) return 'closed';
         return 'unknown';
       }
     });
@@ -73,7 +75,8 @@ async function _checkItandiAvailability(url) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// いえらぶ (ielove): 物件ページに 申込ステータス を判定
+// いえらぶ (ielove BB): 専用セレクタ exists_application_for_confirm / for-rent
+// vacancy-checker (Python) と同じロジック
 // ──────────────────────────────────────────────────────────────────
 async function _checkIeloveAvailability(url) {
   if (!url || (url.indexOf('ielove') < 0 && url.indexOf('homes.co.jp') < 0)) return 'unknown';
@@ -84,17 +87,21 @@ async function _checkIeloveAvailability(url) {
   try {
     await chrome.tabs.update(tab.id, { url: url });
     await _waitForTabLoad(tab.id, 15000);
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 2000));
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
+        // 専用セレクタで判定
+        const app = document.querySelector('span.exists_application_for_confirm');
+        if (app) return 'closed';
+        const forRent = document.querySelector('span.for-rent');
+        if (forRent) return 'available';
+        // 掲載終了
         const bodyText = document.body.innerText || '';
-        // 404 / 削除済み
-        if (/物件が見つかりません|該当する物件はありません|404|ページが存在/.test(bodyText)) return 'closed';
-        // 申込状況の表記
-        if (/申込\s*あり|入居予定者あり|申込済み|募集停止|募集終了/.test(bodyText)) return 'closed';
-        // 募集中の表記
-        if (/募集中|空室|入居可能/.test(bodyText)) return 'available';
+        if (/既に掲載が終了した物件|掲載が終了|物件は存在しません|該当する物件はありません/.test(bodyText)) return 'closed';
+        // フォールバック: テキストパターン
+        if (/申込\s*あり|入居予定者あり|申込済|募集停止|募集終了/.test(bodyText)) return 'closed';
+        if (/募集中|入居可能/.test(bodyText)) return 'available';
         return 'unknown';
       }
     });
@@ -106,7 +113,8 @@ async function _checkIeloveAvailability(url) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// いい生活 (essquare): 「申込あり」タグ or 404 で closed 判定
+// いい生活 (es-square): eds-tag__label 「申込あり」 or 404 → closed
+// vacancy-checker (Python) と同じロジック
 // ──────────────────────────────────────────────────────────────────
 async function _checkEssquareAvailability(url) {
   if (!url || (url.indexOf('es-square') < 0 && url.indexOf('iisesq') < 0)) return 'unknown';
@@ -117,17 +125,19 @@ async function _checkEssquareAvailability(url) {
   try {
     await chrome.tabs.update(tab.id, { url: url });
     await _waitForTabLoad(tab.id, 15000);
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 2000));
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        // 申込ありタグ (eds-tag__label) or 404 → closed
-        const tags = Array.from(document.querySelectorAll('.eds-tag__label, .eds-tag__label *'));
-        const hasApplied = tags.some(el => /申込\s*あり/.test(el.textContent || ''));
-        if (hasApplied) return 'closed';
+        // 申込ありタグ
+        const tags = document.querySelectorAll('span.eds-tag__label');
+        for (const el of tags) {
+          if ((el.textContent || '').trim() === '申込あり') return 'closed';
+        }
+        // 404
         const bodyText = document.body.innerText || '';
         if (/エラーコード[::]?\s*404|404\s*Not Found|物件が見つかりません/.test(bodyText)) return 'closed';
-        // 募集中タグ的なもの (なければ available)
+        // それ以外は available (vacancy-checker と同じ挙動)
         return 'available';
       }
     });
