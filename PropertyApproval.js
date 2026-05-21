@@ -2015,9 +2015,10 @@ function addToSeenSheet(customerName, prop) {
  * 承認待ち物件シートの J列 property_data_json から source を取得し、
  * 見つからなければ 'reins' をデフォルトとして書き込む。
  *
+ * @param {string} [customerFilter] - 指定顧客のみ処理 (空・undefined なら全顧客)
  * @return {{updated: number, sourceCounts: Object, message: string}}
  */
-function backfillSeenSheetSource() {
+function backfillSeenSheetSource(customerFilter) {
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
@@ -2025,13 +2026,18 @@ function backfillSeenSheetSource() {
     if (!pendingSheet) return { updated: 0, message: '承認待ち物件シートが見つかりません' };
     if (!seenSheet) return { updated: 0, message: '通知済み物件シートが見つかりません' };
 
+    var filterName = customerFilter ? String(customerFilter).trim() : '';
+    var hasFilter = !!filterName;
+
     // 1. 承認待ち物件から (customer|roomId) → source のマップを作成
+    //    フィルタ顧客がある場合はその顧客分だけで十分
     var pendingData = pendingSheet.getDataRange().getValues();
     var sourceMap = {};
     for (var i = 1; i < pendingData.length; i++) {
       var pCustomer = String(pendingData[i][0] || '').trim();
       var pRoomId = String(pendingData[i][2] || '').trim();
       if (!pCustomer || !pRoomId) continue;
+      if (hasFilter && pCustomer !== filterName) continue;
       var jsonStr = String(pendingData[i][9] || '');
       var pSource = '';
       try {
@@ -2050,9 +2056,10 @@ function backfillSeenSheetSource() {
     var rowsToUpdate = []; // 連続書き込みのため [行番号, 値] を蓄積
     var counts = {};
     for (var j = 0; j < seenData.length; j++) {
+      var sCustomer = String(seenData[j][0] || '').trim();
+      if (hasFilter && sCustomer !== filterName) continue;
       var existingSource = String(seenData[j][4] || '').trim();
       if (existingSource) continue;
-      var sCustomer = String(seenData[j][0] || '').trim();
       var sRoomId = String(seenData[j][1] || '').trim();
       var key = sCustomer + '|' + sRoomId;
       var src = sourceMap[key] || 'reins'; // 見つからなければ reins とみなす
@@ -2068,10 +2075,11 @@ function backfillSeenSheetSource() {
     var breakdown = Object.keys(counts).map(function(s) {
       return s + ': ' + counts[s] + '件';
     }).join(', ');
+    var scopeLabel = hasFilter ? '「' + filterName + '」' : '全顧客';
     return {
       updated: rowsToUpdate.length,
       sourceCounts: counts,
-      message: '通知済み物件のソース列を ' + rowsToUpdate.length + ' 行バックフィルしました ' + (breakdown ? '(' + breakdown + ')' : '')
+      message: scopeLabel + ' の通知済み物件ソース列を ' + rowsToUpdate.length + ' 行バックフィルしました ' + (breakdown ? '(' + breakdown + ')' : '')
     };
   } catch (e) {
     console.error('backfillSeenSheetSource error: ' + e.message);
