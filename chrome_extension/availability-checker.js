@@ -114,7 +114,7 @@ async function _checkIeloveAvailability(url) {
 
 // ──────────────────────────────────────────────────────────────────
 // いい生活 (es-square): eds-tag__label 「申込あり」 or 404 → closed
-// vacancy-checker (Python) と同じロジック
+// 404モーダルはルートDOMに別途レンダされるので、document全体から検索する。
 // ──────────────────────────────────────────────────────────────────
 async function _checkEssquareAvailability(url) {
   if (!url || (url.indexOf('es-square') < 0 && url.indexOf('iisesq') < 0)) return 'unknown';
@@ -134,10 +134,25 @@ async function _checkEssquareAvailability(url) {
         for (const el of tags) {
           if ((el.textContent || '').trim() === '申込あり') return 'closed';
         }
-        // 404
-        const bodyText = document.body.innerText || '';
-        if (/エラーコード[::]?\s*404|404\s*Not Found|物件が見つかりません/.test(bodyText)) return 'closed';
-        // それ以外は available (vacancy-checker と同じ挙動)
+        // 404モーダル / 削除済み / 見つからない (document全体テキストで判定)
+        // モーダルはルートDOMに別レンダされるため document.documentElement.innerText で取得
+        const allText = (document.documentElement && document.documentElement.innerText) || document.body.innerText || '';
+        const closedPatterns = [
+          /お探しのページ.{0,10}見つかりません/,
+          /エラーコード[::\s]*404/,
+          /404\s*Not\s*Found/i,
+          /物件が見つかりません/,
+          /アクセスができないか/,
+          /移動または削除された/,
+          /該当する物件はありません/
+        ];
+        for (const re of closedPatterns) {
+          if (re.test(allText)) return 'closed';
+        }
+        // タイトルに「Not Found」「見つかりません」も追加チェック
+        const title = (document.title || '').toLowerCase();
+        if (title.includes('not found') || title.includes('404') || (document.title || '').includes('見つかりません')) return 'closed';
+        // それ以外は available
         return 'available';
       }
     });
