@@ -329,6 +329,30 @@ input[type="range"]::-webkit-slider-thumb {
     <div id="submittingList"></div>
   </div>
 
+  <!-- ═══ 通知済み履歴リセット (お客さま✕サイト別) ═══ -->
+  <div class="section">
+    <div class="section-title">🔁 通知済み履歴のリセット</div>
+    <div style="font-size:12px;color:#666;margin-bottom:10px;">
+      指定したお客さまの「通知済み物件」から、選択したサイトの行を削除します。<br>
+      → 削除後、次回の物件検索でその物件が再度ヒットして承認待ちに復活します。<br>
+      <span style="color:#856404;">※ 「承認待ち物件」シートには触りません（管理者の作業中データを保護）。</span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <select id="resetCustomerSelect" style="font-size:13px;padding:5px 8px;flex:1;min-width:140px;">
+        <option value="">— 顧客を選択 —</option>
+      </select>
+      <select id="resetSourceSelect" style="font-size:13px;padding:5px 8px;min-width:140px;">
+        <option value="itandi">itandi</option>
+        <option value="ielove">いえらぶ</option>
+        <option value="essquare">いい生活</option>
+        <option value="reins">REINS</option>
+        <option value="*">全サイト一括</option>
+      </select>
+      <button onclick="runResetSeen()" style="padding:6px 14px;font-size:13px;background:#e74c3c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">履歴リセット</button>
+    </div>
+    <div id="resetSeenResult" style="font-size:12px;color:#444;margin-top:8px;"></div>
+  </div>
+
   <!-- ═══ 顧客選択セクション ═══ -->
   <div class="section">
     <div class="section-title">顧客情報</div>
@@ -565,6 +589,7 @@ window.onload = function() {
 function renderCustomerDropdown() {
   var sel = document.getElementById('customerSelect');
   var testSel = document.getElementById('suggestionTestCustomer');
+  var resetSel = document.getElementById('resetCustomerSelect');
   for (var i = 0; i < ADMIN_CUSTOMERS.length; i++) {
     var c = ADMIN_CUSTOMERS[i];
     var opt = document.createElement('option');
@@ -577,6 +602,13 @@ function renderCustomerDropdown() {
       opt2.value = c.name;
       opt2.textContent = c.name;
       testSel.appendChild(opt2);
+    }
+    // 通知済み履歴リセット用ドロップダウンにも追加 (全顧客)
+    if (resetSel) {
+      var opt3 = document.createElement('option');
+      opt3.value = c.name;
+      opt3.textContent = c.name;
+      resetSel.appendChild(opt3);
     }
   }
 }
@@ -1716,6 +1748,38 @@ function openSuumoPatrolConfig() {
 // ──────────────────────────────────────────────────────────
 // SUUMO入稿 submitting 放置物件の管理
 // ──────────────────────────────────────────────────────────
+function runResetSeen() {
+  var custSel = document.getElementById('resetCustomerSelect');
+  var srcSel = document.getElementById('resetSourceSelect');
+  var resultEl = document.getElementById('resetSeenResult');
+  var name = custSel ? custSel.value : '';
+  var src = srcSel ? srcSel.value : '';
+  if (!name) {
+    if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">顧客を選択してください</span>';
+    return;
+  }
+  var srcLabel = src === '*' ? '全サイト一括' : src;
+  if (!confirm('「' + name + '」 の ' + srcLabel + ' の通知済み履歴を削除します。\n\nこれにより、過去に通知済みでスキップされていた物件が次回検索で再ヒットして承認待ちに復活します。\n\nよろしいですか？')) return;
+  if (resultEl) resultEl.textContent = '処理中...';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && typeof r.deleted === 'number') {
+        if (r.deleted > 0) {
+          if (resultEl) resultEl.innerHTML = '<span style="color:#1e8449;">✅ ' + esc(r.message || '') + '</span>';
+          showToast('履歴を ' + r.deleted + '件 削除しました');
+        } else {
+          if (resultEl) resultEl.innerHTML = '<span style="color:#856404;">⚠️ ' + esc(r.message || '該当行なし') + '</span>';
+        }
+      } else {
+        if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">❌ 失敗</span>';
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">エラー: ' + esc(err.message || String(err)) + '</span>';
+    })
+    .resetSeenForCustomerSource(name, src);
+}
+
 function refreshSubmittingList() {
   var listEl = document.getElementById('submittingList');
   var sectionEl = document.getElementById('submittingSection');

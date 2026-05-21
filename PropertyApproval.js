@@ -1986,12 +1986,69 @@ function addToSeenSheet(customerName, prop) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
   if (!sheet) return;
+  // E列にソース (itandi/ielove/essquare/reins) を記録 →
+  // サイト別の履歴リセット機能に利用
+  var source = '';
+  try {
+    if (prop && prop.source) {
+      source = String(prop.source);
+    } else if (prop && prop.url) {
+      // prop.source が未設定の場合、url から推測
+      var u = String(prop.url).toLowerCase();
+      if (u.indexOf('itandibb.com') >= 0 || u.indexOf('rent.itandi') >= 0) source = 'itandi';
+      else if (u.indexOf('ielove') >= 0 || u.indexOf('homes.co.jp') >= 0) source = 'ielove';
+      else if (u.indexOf('es-square') >= 0 || u.indexOf('iisesq') >= 0) source = 'essquare';
+      else if (u.indexOf('reins') >= 0) source = 'reins';
+    }
+  } catch (_) {}
   sheet.appendRow([
     customerName,
     prop.roomId,
     prop.buildingName,
-    new Date().toISOString().replace('T', ' ').substring(0, 19)
+    new Date().toISOString().replace('T', ' ').substring(0, 19),
+    source
   ]);
+}
+
+/**
+ * 通知済み物件シートから、指定顧客 + 指定ソース の行を削除する。
+ * source が空文字または '*' の場合は全ソース対象 (＝顧客全件)。
+ *
+ * @param {string} customerName
+ * @param {string} source - 'itandi' | 'ielove' | 'essquare' | 'reins' | '*' (全件)
+ * @return {{deleted: number, message: string}}
+ */
+function resetSeenForCustomerSource(customerName, source) {
+  if (!customerName) return { deleted: 0, message: '顧客名が未指定です' };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return { deleted: 0, message: '通知済み物件シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { deleted: 0, message: '通知済み物件シートが空です' };
+    // 5列分を取得 (顧客名/room_id/建物名/通知日時/ソース)
+    var data = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+    var allSources = !source || source === '*';
+    var matchedIdxs = [];
+    for (var i = 0; i < data.length; i++) {
+      var rowCustomer = String(data[i][0] || '').trim();
+      var rowSource = String(data[i][4] || '').trim();
+      if (rowCustomer !== String(customerName).trim()) continue;
+      if (!allSources && rowSource !== String(source).trim()) continue;
+      matchedIdxs.push(i + 2); // シートの行番号 (1-based, ヘッダー考慮)
+    }
+    // 末尾から削除 (行番号がずれないように)
+    for (var k = matchedIdxs.length - 1; k >= 0; k--) {
+      sheet.deleteRow(matchedIdxs[k]);
+    }
+    var label = allSources ? '全サイト' : source;
+    return {
+      deleted: matchedIdxs.length,
+      message: '「' + customerName + '」の' + label + '通知済み履歴 ' + matchedIdxs.length + '件 を削除しました'
+    };
+  } catch (e) {
+    return { deleted: 0, message: 'エラー: ' + e.message };
+  }
 }
 
 // ===== データ変換 =====
@@ -2141,7 +2198,8 @@ function rowToProperty(row) {
     layoutDetail: _normalizeValue(extra.layout_detail),
     adFee: _normalizeValue(extra.ad_fee),
     currentStatus: _normalizeValue(extra.current_status),
-    warningsText: _normalizeValue(extra.warnings_text)
+    warningsText: _normalizeValue(extra.warnings_text),
+    source: String(extra.source || '')
   };
 }
 
