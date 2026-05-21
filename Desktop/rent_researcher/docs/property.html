@@ -48,14 +48,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .notfound-btn-secondary{background:#f5f7fa;color:#1a2538;border:1px solid #e0e4ec}
 .notfound-note{margin-top:18px;padding-top:18px;border-top:1px solid #f0f0f0;color:#999;font-size:12px;line-height:1.6}
 /* 空室確認依頼セクション */
-.availability-section{background:#fff;border-radius:14px;padding:18px 18px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #f0f0f0}
-.availability-intro{font-size:13px;color:#3a4a5e;text-align:center;margin-bottom:12px;line-height:1.5}
-.availability-recheck-btn{width:100%;padding:13px 0;border-radius:10px;border:1.5px solid #6ea814;background:#fff;color:#3d6909;font-size:14px;font-weight:700;cursor:pointer;transition:all 0.2s;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px}
-.availability-recheck-btn:active{transform:scale(0.98)}
+.availability-section{text-align:center;margin:12px 0 4px}
+.availability-recheck-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;border-radius:8px;border:1px solid #6ea814;background:#fff;color:#3d6909;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;font-family:inherit}
+.availability-recheck-btn:active{transform:scale(0.97)}
 .availability-recheck-btn:hover{background:#f0faf4}
-.availability-recheck-btn:disabled{opacity:0.65;cursor:not-allowed;background:#f5f7fa;color:#6ea814;border-color:#d4e7a8}
-.availability-recheck-btn .spin{display:inline-block;width:14px;height:14px;border:2px solid #6ea814;border-top-color:transparent;border-radius:50%;animation:simpleLoadingSpin 0.8s linear infinite}
-.availability-msg{font-size:13px;color:#3d6909;text-align:center;margin-top:10px;line-height:1.5}
+.availability-recheck-btn:disabled{opacity:0.7;cursor:not-allowed;background:#f5f7fa;color:#6ea814;border-color:#d4e7a8}
+.availability-recheck-btn .spin{display:inline-block;width:12px;height:12px;border:2px solid #6ea814;border-top-color:transparent;border-radius:50%;animation:simpleLoadingSpin 0.8s linear infinite}
+.availability-msg{font-size:12px;color:#3d6909;text-align:center;margin-top:6px;line-height:1.5}
 .availability-msg.error{color:#9b1c1c}
 /* カルーセル */
 .carousel{position:relative;width:100%;max-width:600px;margin:0 auto;background:#000;overflow:hidden}
@@ -741,7 +740,6 @@ function renderProperty(p) {
   // デフォルトは非表示 → テストユーザー判定 API で許可された場合のみ表示
   if (customer && roomId) {
     html += '<div class="availability-section" id="availabilitySection" style="display:none;">'
-      + '<div class="availability-intro">気になるお部屋の空室状況をお調べします</div>'
       + '<button class="availability-recheck-btn" id="availabilityRecheckBtn" onclick="requestAvailabilityRecheck()">空室確認を依頼する</button>'
       + '<div class="availability-msg" id="availabilityMsg"></div>'
       + '</div>';
