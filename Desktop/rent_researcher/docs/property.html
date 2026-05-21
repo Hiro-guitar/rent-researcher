@@ -772,9 +772,11 @@ function renderProperty(p) {
 
   // フィードバックボタン + 空室確認ボタン（customer と roomId がある場合のみ）
   // 空室確認はテストユーザーのみ表示 (loadInitialAvailabilityStatus で制御)
+  // 「興味なし」ボタンは現状非表示。復活する場合は下記コメント行を有効化する
   if (customer && roomId) {
     html += '<div class="feedback-bar">'
       + '<button class="feedback-btn fav" id="favBtn" onclick="sendFeedback(\'favorite\')">⭐ お気に入りに追加</button>'
+      // + '<button class="feedback-btn nope" id="nopeBtn" onclick="sendFeedback(\'not_interested\')">興味なし</button>'
       + '<button class="feedback-btn avail" id="availabilityRecheckBtn" style="display:none;" onclick="requestAvailabilityRecheck()">空室確認</button>'
       + '</div>'
       + '<div class="feedback-status" id="feedbackStatus"></div>';
@@ -1102,16 +1104,27 @@ function getFeedbackKey() {
 function updateFeedbackUI(action) {
   feedbackState = action;
   var favBtn = document.getElementById('favBtn');
+  // 「興味なし」ボタンは現状非表示。復活時は #nopeBtn を有効化すれば動く
+  var nopeBtn = document.getElementById('nopeBtn');
   var status = document.getElementById('feedbackStatus');
   if (!favBtn) return;
 
   favBtn.classList.remove('active');
+  if (nopeBtn) nopeBtn.classList.remove('active');
 
   if (action === 'favorite') {
     favBtn.classList.add('active');
     favBtn.textContent = '⭐ お気に入り済み ✓';
+    if (nopeBtn) nopeBtn.textContent = '興味なし';
+  } else if (action === 'not_interested') {
+    if (nopeBtn) {
+      nopeBtn.classList.add('active');
+      nopeBtn.textContent = '興味なし ✓';
+    }
+    favBtn.textContent = '⭐ お気に入りに追加';
   } else {
     favBtn.textContent = '⭐ お気に入りに追加';
+    if (nopeBtn) nopeBtn.textContent = '興味なし';
   }
   if (status) status.textContent = '';
 }
