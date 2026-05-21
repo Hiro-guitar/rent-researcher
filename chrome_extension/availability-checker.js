@@ -149,32 +149,106 @@ async function _checkEssquareAvailability(url) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// REINS: 物件番号で検索して存在するか確認
-// 残っている=空室確定はできないので 'reins_listed' を返す (UI側で 要確認 表示)
-// 残っていない=募集終了 'closed' を返す
+// REINS: 既存の reinsAutoSearchByNumber と同じ手順で物件番号検索
+// 検索結果ページ (GBK004200) で行があれば reins_listed、なければ closed
+// (空室確定はできないので available は返さない)
 // ──────────────────────────────────────────────────────────────────
 async function _checkReinsAvailability(reinsPropNo) {
   if (!reinsPropNo) return 'unknown';
-  const tab = await (typeof findReinsTab === 'function' ? findReinsTab() : null);
+  const tab = await (typeof findOrCreateDedicatedReinsTab === 'function'
+    ? findOrCreateDedicatedReinsTab()
+    : (typeof findReinsTab === 'function' ? findReinsTab() : null));
   if (!tab) return 'unknown';
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   try {
-    // REINSの物件番号検索ページに移動
-    const searchUrl = 'https://system.reins.jp/main/KGRC0010/KGRC001010Action.do';
-    await chrome.tabs.update(tab.id, { url: searchUrl });
-    await _waitForTabLoad(tab.id, 15000);
-    await new Promise(r => setTimeout(r, 2000));
-    // 物件番号で検索を実行 (REINS は Vue 2 SPA なので JS で直接フォームを操作)
+    // ログイン未完了ならスキップ
+    const tab0 = await chrome.tabs.get(tab.id);
+    if (/login|GKG001/i.test(tab0.url || '')) return 'unknown';
+
+    // 1) 物件番号検索ページへ遷移 (Vueルーター経由)
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      func: () => {
+        try {
+          const n = window.$nuxt;
+          if (n && n.$router) { n.$router.push('/main/BK/GBK004100'); return 'router'; }
+        } catch (e) {}
+        location.assign('https://system.reins.jp/main/BK/GBK004100');
+      }
+    });
+
+    // 2) GBK004100到達 & 物件番号入力欄出現を待つ
+    let reachedSearch = false;
+    for (let i = 0; i < 30; i++) {
+      await sleep(500);
+      const t = await chrome.tabs.get(tab.id);
+      if (!t.url?.includes('GBK004100')) continue;
+      const ready = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          const inputs = [...document.querySelectorAll('input[type="text"], input:not([type])')];
+          for (const el of inputs) {
+            const ctx = el.closest('.p-label, .form-group, div')?.parentElement?.textContent || '';
+            if (ctx.includes('物件番号')) return true;
+          }
+          return false;
+        }
+      });
+      if (ready?.[0]?.result) { reachedSearch = true; break; }
+    }
+    if (!reachedSearch) return 'unknown';
+
+    // 3) 物件番号入力 → 検索ボタンクリック
+    const setRes = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: 'MAIN',
+      func: (number) => {
+        const inputs = [...document.querySelectorAll('input[type="text"], input:not([type])')];
+        let target = null;
+        for (const el of inputs) {
+          const ctx = el.closest('.p-label, .form-group, div')?.parentElement?.textContent || '';
+          if (ctx.includes('物件番号')) { target = el; break; }
+        }
+        if (!target) return 'no_input';
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        setter.call(target, number);
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+        setTimeout(() => {
+          const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === '検索');
+          if (btn) btn.click();
+        }, 300);
+        return 'ok';
+      },
+      args: [reinsPropNo]
+    });
+    if (setRes?.[0]?.result !== 'ok') return 'unknown';
+
+    // 4) 検索結果ページ到達 (GBK004200) を待ち、結果行の有無を判定
+    let resultPage = false;
+    for (let i = 0; i < 30; i++) {
+      await sleep(500);
+      const t = await chrome.tabs.get(tab.id);
+      if (t.url?.includes('GBK004200')) { resultPage = true; break; }
+    }
+    if (!resultPage) return 'unknown';
+
+    // 結果行の有無を判定 (詳細ボタン or テーブル行 or 「該当なし」テキスト)
+    await sleep(1500); // テーブル描画待ち
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: (propNo) => {
-        // 物件番号入力欄を探して入力 → 検索ボタン押下
-        // 簡易実装: REINSのVue構造に依存せず、ページ全体テキストで判定する
-        // (実際はもう少し精緻に実装が必要だが、Phase 2のMVPとして)
-        // → 別途、reins-extension の既存ロジックを再利用する形に置き換え予定
-        const text = document.body.innerText || '';
-        // 仮: ページ上に物件番号が表示されてれば存在、なければ存在しない
-        if (text.indexOf(propNo) >= 0) return 'reins_listed';
-        return 'closed';
+        const bodyText = document.body.innerText || '';
+        // 「該当なし」「0件」「検索結果なし」 → closed
+        if (/該当(?:するデータが)?(?:あり|有り)?ません|検索結果が0件|0\s*件/.test(bodyText)) return 'closed';
+        // 詳細ボタンがあれば結果行あり
+        const hasDetail = [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '詳細');
+        if (hasDetail) return 'reins_listed';
+        // 物件番号がページ上に表示されていれば存在
+        if (bodyText.indexOf(propNo) >= 0) return 'reins_listed';
+        // それ以外: 不明 (テーブル未描画など)
+        return 'unknown';
       },
       args: [reinsPropNo]
     });
