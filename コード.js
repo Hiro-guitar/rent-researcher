@@ -443,10 +443,11 @@ function doGet(e) {
           customer: _r[0],
           building: _r[3],
           source: _src,
-          hasWarnings: !!_wt,
+          hasWarningsKey: _parsed ? ('warnings_text' in _parsed) : false,
           warningsLen: _wt.length,
           warningsPreview: _wt.substring(0, 200),
-          jsonSize: _json.length
+          jsonSize: _json.length,
+          allKeys: _parsed ? Object.keys(_parsed).slice(0, 100) : []
         });
       }
       return ContentService.createTextOutput(JSON.stringify(_out, null, 2))
