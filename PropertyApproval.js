@@ -2056,6 +2056,41 @@ function setPropertyAvailability(customerName, roomId, status) {
 }
 
 /**
+ * 柔軟な日時パース。
+ * - Date オブジェクト
+ * - "2026-05-21 13:50:00" / "2026-05-21 4:14:09" (1桁時刻含む)
+ * - "2026/05/21 13:50:00"
+ * - ISO 8601
+ *  すべて JST (Asia/Tokyo) として解釈する。
+ *
+ * @param {*} raw
+ * @return {number} unix ms (0 = parse失敗)
+ */
+function _parseDateFlexible_(raw) {
+  if (!raw) return 0;
+  if (raw instanceof Date) return raw.getTime();
+  var s = String(raw).trim();
+  if (!s) return 0;
+  // 「YYYY-MM-DD H(or HH):MM:SS」「YYYY/MM/DD H:MM:SS」を正規表現で分解
+  var m = s.match(/^(\d{4})[\-\/](\d{1,2})[\-\/](\d{1,2})[\s T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+  if (m) {
+    var y = parseInt(m[1], 10);
+    var mo = parseInt(m[2], 10) - 1;
+    var d = parseInt(m[3], 10);
+    var h = parseInt(m[4], 10);
+    var mi = parseInt(m[5], 10);
+    var sc = m[6] ? parseInt(m[6], 10) : 0;
+    // GAS の Date() は スクリプトのタイムゾーンで解釈される (本プロジェクトは JST 設定)
+    var dt = new Date(y, mo, d, h, mi, sc);
+    if (!isNaN(dt.getTime())) return dt.getTime();
+  }
+  // Fallback: 標準パース
+  var fb = new Date(s);
+  if (!isNaN(fb.getTime())) return fb.getTime();
+  return 0;
+}
+
+/**
  * 空室状況確認キュー: 通知済み物件のうち、確認が必要な物件のリストを返す。
  *   - sentAt が maxAgeDays 以内 (デフォルト 60日)
  *   - status_checked_at が空 OR maxIntervalHours 以上経過 (デフォルト 24時間)
@@ -2115,40 +2150,18 @@ function getAvailabilityCheckQueue(options) {
       if (!customer || !roomId) { diag.noCustOrRoom++; continue; }
       // D列の通知日時を Date に変換。Sheets が Date 型に変換してる場合 / 文字列の場合 両対応
       var sentRaw = sData[j][3];
-      var sentAt = 0;
-      var sentAtStr = '';
-      if (sentRaw instanceof Date) {
-        sentAt = sentRaw.getTime();
-        sentAtStr = Utilities.formatDate(sentRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
-      } else if (sentRaw) {
-        sentAtStr = String(sentRaw);
-        // "2026-05-21 13:50:00" / "2026/05/21 13:50:00" / ISO 各種に対応
-        var normalized = sentAtStr.replace(/\//g, '-');
-        // タイムゾーンが既にあるならそのまま、無ければ +09:00 を補う
-        if (!/[+\-]\d{2}:?\d{2}$|Z$/.test(normalized)) {
-          normalized = normalized.replace(' ', 'T') + '+09:00';
-        }
-        var parsed = new Date(normalized);
-        if (!isNaN(parsed.getTime())) {
-          sentAt = parsed.getTime();
-        }
-      }
+      var sentAt = _parseDateFlexible_(sentRaw);
+      var sentAtStr = (sentRaw instanceof Date)
+        ? Utilities.formatDate(sentRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')
+        : String(sentRaw || '');
       if (!sentAt) { diag.noSentAt++; continue; }
       if (sentAt < ageCutoff) { diag.tooOld++; continue; }
       var status = String(sData[j][5] || '');
       var checkedRaw = sData[j][6];
-      var checkedAt = 0;
-      var checkedAtStr = '';
-      if (checkedRaw instanceof Date) {
-        checkedAt = checkedRaw.getTime();
-        checkedAtStr = Utilities.formatDate(checkedRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
-      } else if (checkedRaw) {
-        checkedAtStr = String(checkedRaw);
-        var cNorm = checkedAtStr.replace(/\//g, '-');
-        if (!/[+\-]\d{2}:?\d{2}$|Z$/.test(cNorm)) cNorm = cNorm.replace(' ', 'T') + '+09:00';
-        var cp = new Date(cNorm);
-        if (!isNaN(cp.getTime())) checkedAt = cp.getTime();
-      }
+      var checkedAt = _parseDateFlexible_(checkedRaw);
+      var checkedAtStr = (checkedRaw instanceof Date)
+        ? Utilities.formatDate(checkedRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')
+        : String(checkedRaw || '');
       if (status === 'closed') { diag.isClosed++; continue; }
       if (checkedAt && checkedAt > intervalCutoff) { diag.recentlyChecked++; continue; }
       var info = urlMap[customer + '|' + roomId] || {};
