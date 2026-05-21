@@ -2126,9 +2126,10 @@ function resetSeenForCustomerSource(customerName, source) {
       }
     }
 
-    // 2. 承認待ち物件シート から削除
-    //    顧客名 + JSON.source で絞り込み。Discord通知時点で seen_ids に乗るので、
-    //    status (pending/sent/skipped) に関わらず削除して次回検索で再ヒットさせる。
+    // 2. 承認待ち物件シート: status='pending' / 'skipped' のみ削除
+    //    status='sent' は お客さんの LINE リンクが指している行なので保護する。
+    //    handleGetSeenIds 側で 'sent' は seen_ids から除外しているため、
+    //    通知済み物件シートからの削除だけで seen_ids から解放される。
     var pendingDeleted = 0;
     var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
     if (pendingSheet) {
@@ -2139,6 +2140,10 @@ function resetSeenForCustomerSource(customerName, source) {
         for (var j = 0; j < pData.length; j++) {
           var pCust = String(pData[j][0] || '').trim();
           if (pCust !== nameTrim) continue;
+          var pStatus = String(pData[j][10] || '').trim();
+          // status='sent' は顧客のリンク先のため保護
+          if (pStatus === 'sent') continue;
+          // status='pending' / 'skipped' / その他 を削除対象に
           if (allSources) {
             pIdxs.push(j + 2);
           } else {
@@ -2147,7 +2152,7 @@ function resetSeenForCustomerSource(customerName, source) {
               var parsed = JSON.parse(String(pData[j][9] || ''));
               if (parsed && parsed.source) pSrc = String(parsed.source);
             } catch (_) {}
-            // source未設定 → REINSとみなす (handleAddReinsPropertyのデフォルト)
+            // source未設定 → REINSとみなす
             if (!pSrc) pSrc = 'reins';
             if (pSrc === String(source).trim()) pIdxs.push(j + 2);
           }
@@ -2163,7 +2168,8 @@ function resetSeenForCustomerSource(customerName, source) {
     return {
       deleted: total,
       message: '「' + customerName + '」の' + label + '履歴を削除しました '
-        + '(通知済み: ' + seenDeleted + '件 / 承認待ち: ' + pendingDeleted + '件)'
+        + '(通知済み: ' + seenDeleted + '件 / 承認待ち非sent: ' + pendingDeleted + '件)'
+        + ' ※ status=sent はお客さんのリンク維持のため削除されません'
     };
   } catch (e) {
     return { deleted: 0, message: 'エラー: ' + e.message };

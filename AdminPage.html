@@ -333,9 +333,11 @@ input[type="range"]::-webkit-slider-thumb {
   <div class="section">
     <div class="section-title">🔁 通知済み履歴のリセット</div>
     <div style="font-size:12px;color:#666;margin-bottom:10px;">
-      指定したお客さまの該当サイト履歴を「通知済み物件」「承認待ち物件」両シートから削除します。<br>
-      → 削除後、次回の物件検索でその物件が再度ヒット → Discord に再通知 → 承認待ちに復活します。<br>
-      <span style="color:#856404;">※ 承認待ち物件シートからも削除されるため、status='pending' (作業中) の行も消えます。</span>
+      指定したお客さまの該当サイト履歴を削除します。次回検索で再ヒット → Discord に再通知 → 承認待ちに復活します。<br>
+      ・通知済み物件シート: 該当行削除<br>
+      ・承認待ち物件シート: status='pending' / 'skipped' の行を削除<br>
+      <span style="color:#1e8449;">※ status='sent' (お客さんに送信済) の行は<b>保護</b>されます<br>
+      → お客さんのLINEから過去物件詳細を引き続き閲覧可能</span>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
       <select id="resetCustomerSelect" style="font-size:13px;padding:5px 8px;flex:1;min-width:140px;">
