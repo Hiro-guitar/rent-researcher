@@ -2011,6 +2011,75 @@ function addToSeenSheet(customerName, prop) {
 }
 
 /**
+ * 通知済み物件シートのソース列 (E列) が空欄の行をバックフィル。
+ * 承認待ち物件シートの J列 property_data_json から source を取得し、
+ * 見つからなければ 'reins' をデフォルトとして書き込む。
+ *
+ * @return {{updated: number, sourceCounts: Object, message: string}}
+ */
+function backfillSeenSheetSource() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!pendingSheet) return { updated: 0, message: '承認待ち物件シートが見つかりません' };
+    if (!seenSheet) return { updated: 0, message: '通知済み物件シートが見つかりません' };
+
+    // 1. 承認待ち物件から (customer|roomId) → source のマップを作成
+    var pendingData = pendingSheet.getDataRange().getValues();
+    var sourceMap = {};
+    for (var i = 1; i < pendingData.length; i++) {
+      var pCustomer = String(pendingData[i][0] || '').trim();
+      var pRoomId = String(pendingData[i][2] || '').trim();
+      if (!pCustomer || !pRoomId) continue;
+      var jsonStr = String(pendingData[i][9] || '');
+      var pSource = '';
+      try {
+        var parsed = JSON.parse(jsonStr);
+        if (parsed && parsed.source) pSource = String(parsed.source);
+      } catch (_) {}
+      if (pSource) {
+        sourceMap[pCustomer + '|' + pRoomId] = pSource;
+      }
+    }
+
+    // 2. 通知済み物件シートの空ソース行をバックフィル
+    var seenLastRow = seenSheet.getLastRow();
+    if (seenLastRow < 2) return { updated: 0, message: '通知済み物件シートが空です' };
+    var seenData = seenSheet.getRange(2, 1, seenLastRow - 1, 5).getValues();
+    var rowsToUpdate = []; // 連続書き込みのため [行番号, 値] を蓄積
+    var counts = {};
+    for (var j = 0; j < seenData.length; j++) {
+      var existingSource = String(seenData[j][4] || '').trim();
+      if (existingSource) continue;
+      var sCustomer = String(seenData[j][0] || '').trim();
+      var sRoomId = String(seenData[j][1] || '').trim();
+      var key = sCustomer + '|' + sRoomId;
+      var src = sourceMap[key] || 'reins'; // 見つからなければ reins とみなす
+      rowsToUpdate.push({ row: j + 2, source: src });
+      counts[src] = (counts[src] || 0) + 1;
+    }
+
+    // 3. シートへ反映
+    for (var k = 0; k < rowsToUpdate.length; k++) {
+      seenSheet.getRange(rowsToUpdate[k].row, 5).setValue(rowsToUpdate[k].source);
+    }
+
+    var breakdown = Object.keys(counts).map(function(s) {
+      return s + ': ' + counts[s] + '件';
+    }).join(', ');
+    return {
+      updated: rowsToUpdate.length,
+      sourceCounts: counts,
+      message: '通知済み物件のソース列を ' + rowsToUpdate.length + ' 行バックフィルしました ' + (breakdown ? '(' + breakdown + ')' : '')
+    };
+  } catch (e) {
+    console.error('backfillSeenSheetSource error: ' + e.message);
+    return { updated: 0, message: 'エラー: ' + e.message };
+  }
+}
+
+/**
  * 通知済み物件シートから、指定顧客 + 指定ソース の行を削除する。
  * source が空文字または '*' の場合は全ソース対象 (＝顧客全件)。
  *

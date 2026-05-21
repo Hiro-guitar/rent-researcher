@@ -351,6 +351,16 @@ input[type="range"]::-webkit-slider-thumb {
       <button onclick="runResetSeen()" style="padding:6px 14px;font-size:13px;background:#e74c3c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">履歴リセット</button>
     </div>
     <div id="resetSeenResult" style="font-size:12px;color:#444;margin-top:8px;"></div>
+    <!-- 既存データのソース後付け (バックフィル) -->
+    <div style="margin-top:12px;padding:10px;background:#fffbea;border:1px dashed #e0c060;border-radius:6px;">
+      <div style="font-size:11px;color:#7a5d00;margin-bottom:6px;font-weight:600;">📥 既存データのソース後付け (初回1回のみ実行)</div>
+      <div style="font-size:11px;color:#666;margin-bottom:6px;">
+        通知済み物件シートでE列(ソース)が空欄の行を、承認待ち物件のJSONから推測して埋めます。
+        見つからない行は<b>REINS</b>とみなされます。
+      </div>
+      <button onclick="runBackfillSeenSource()" style="padding:5px 12px;font-size:12px;background:#f39c12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">ソース列をバックフィル</button>
+      <div id="backfillResult" style="font-size:11px;color:#444;margin-top:6px;"></div>
+    </div>
   </div>
 
   <!-- ═══ 顧客選択セクション ═══ -->
@@ -1748,6 +1758,25 @@ function openSuumoPatrolConfig() {
 // ──────────────────────────────────────────────────────────
 // SUUMO入稿 submitting 放置物件の管理
 // ──────────────────────────────────────────────────────────
+function runBackfillSeenSource() {
+  var resultEl = document.getElementById('backfillResult');
+  if (!confirm('通知済み物件シートのE列(ソース)が空欄の行を、承認待ち物件のJSONから推測して埋めます。\n\nJSONが無い/sourceが無い場合はREINSとして扱われます。\n\n実行しますか？')) return;
+  if (resultEl) resultEl.textContent = '処理中... (行数によっては数秒〜数十秒かかります)';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && typeof r.updated === 'number') {
+        if (resultEl) resultEl.innerHTML = '<span style="color:#1e8449;">✅ ' + esc(r.message || '') + '</span>';
+        showToast('ソース列を ' + r.updated + '行 バックフィル完了');
+      } else {
+        if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">❌ 失敗</span>';
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">エラー: ' + esc(err.message || String(err)) + '</span>';
+    })
+    .backfillSeenSheetSource();
+}
+
 function runResetSeen() {
   var custSel = document.getElementById('resetCustomerSelect');
   var srcSel = document.getElementById('resetSourceSelect');
