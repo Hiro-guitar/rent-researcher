@@ -557,26 +557,6 @@ function doGet(e) {
     }
   }
 
-  // [一時] テストユーザー bootstrap: api_key 不要で1名追加 (運用開始時のみ)
-  // セキュリティ: user_id は LINE userId フォーマット (Uで始まり33文字) のみ受け付け
-  if (action === 'bootstrap_availability_test_user') {
-    try {
-      var bUid = String(e.parameter.user_id || '').trim();
-      if (!/^U[a-f0-9]{32}$/i.test(bUid)) {
-        return ContentService.createTextOutput(JSON.stringify({ ok: false, message: '不正な user_id 形式' }))
-          .setMimeType(ContentService.MimeType.JSON);
-      }
-      var bR = (typeof manageAvailabilityTestUsers === 'function')
-        ? manageAvailabilityTestUsers('add', null, bUid)
-        : { ok: false, message: 'function not defined' };
-      return ContentService.createTextOutput(JSON.stringify(bR))
-        .setMimeType(ContentService.MimeType.JSON);
-    } catch (eB) {
-      return ContentService.createTextOutput(JSON.stringify({ ok: false, message: eB.message }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
-  }
-
   // テストユーザーリスト管理 (api_key 必須): add / remove / list
   if (action === 'manage_availability_test_users') {
     try {
