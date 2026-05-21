@@ -509,24 +509,25 @@ function requestAvailabilityRecheck() {
   var btn = document.getElementById('availabilityRecheckBtn');
   if (!btn) return;
 
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spin"></span><span>送信中…</span>';
+  // 楽観的UI更新: 即座に「依頼済み」表示 (お気に入りボタンと同じパターン)
+  setAvailabilityRequestedState();
+  showToast('✓', '空室確認を依頼しました', 'LINEでご連絡いたします', 4000);
 
+  // バックグラウンドでAPI送信、失敗時のみUIを戻す
   var reqUrl = GAS_API_URL + '?action=request_priority_check&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
   fetch(reqUrl).then(function(r) { return r.text(); }).then(function(t) {
     var d; try { d = JSON.parse(t); } catch(_) { d = null; }
-    if (d && d.ok) {
-      setAvailabilityRequestedState();
-      showToast('✓', '空室確認を依頼しました', 'LINEでご連絡いたします', 4000);
-    } else {
+    if (!d || !d.ok) {
       var em = (d && d.message) || '依頼の送信に失敗しました。';
       showToast('⚠️', em, '', 3000);
       btn.disabled = false;
+      btn.classList.remove('requested');
       btn.innerHTML = '空室確認';
     }
   }).catch(function(err) {
     showToast('⚠️', '通信エラー', (err && err.message) || 'unknown', 3000);
     btn.disabled = false;
+    btn.classList.remove('requested');
     btn.innerHTML = '空室確認';
   });
 }
