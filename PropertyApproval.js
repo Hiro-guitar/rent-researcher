@@ -579,7 +579,11 @@ function handlePropertyViewApi(e) {
   }
 
   if (!prop) {
-    return ContentService.createTextOutput(JSON.stringify({error: 'この物件情報は表示できません。'}))
+    // 90日経過で削除済み or 元々登録されていない物件
+    return ContentService.createTextOutput(JSON.stringify({
+      error: 'この物件の募集は終了しました。',
+      notFound: true
+    }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -2218,6 +2222,99 @@ function getAvailabilityCheckQueue(options) {
   } catch (e) {
     console.warn('getAvailabilityCheckQueue error: ' + e.message);
     return [];
+  }
+}
+
+/**
+ * 通知済み物件・承認待ち物件のうち、一定期間 (デフォルト 90 日) より古い行を削除する。
+ *   - 通知済み物件 (SEEN_SHEET): D列 (sent_at) を基準
+ *   - 承認待ち物件 (PENDING_SHEET): L列 (created_at, index 11) を基準
+ *
+ * 空室確認キューにも自動的に乗らなくなるので、対象が無限に貯まるのを防ぐ。
+ *
+ * @param {number} [maxAgeDays=90]
+ * @return {{seen:number, pending:number, cutoff:string}}
+ */
+function cleanupOldPropertyRecords(maxAgeDays) {
+  maxAgeDays = (typeof maxAgeDays === 'number' && maxAgeDays > 0) ? maxAgeDays : 90;
+  var nowMs = Date.now();
+  var cutoffMs = nowMs - maxAgeDays * 24 * 60 * 60 * 1000;
+  var cutoffStr = Utilities.formatDate(new Date(cutoffMs), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  var result = { seen: 0, pending: 0, cutoff: cutoffStr, maxAgeDays: maxAgeDays };
+
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+    // ── SEEN_SHEET (通知済み物件): D列 (index 3) = sent_at ──
+    var seen = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (seen) {
+      var sLast = seen.getLastRow();
+      if (sLast >= 2) {
+        var sentValues = seen.getRange(2, 4, sLast - 1, 1).getValues();
+        var sRows = [];
+        for (var i = 0; i < sentValues.length; i++) {
+          var t = _parseDateFlexible_(sentValues[i][0]);
+          if (t > 0 && t < cutoffMs) sRows.push(i + 2);
+        }
+        // 下から削除しないと行番号がずれる
+        for (var j = sRows.length - 1; j >= 0; j--) {
+          seen.deleteRow(sRows[j]);
+        }
+        result.seen = sRows.length;
+      }
+    }
+
+    // ── PENDING_SHEET (承認待ち物件): L列 (index 11) = created_at ──
+    var pend = ss.getSheetByName(PENDING_SHEET_NAME);
+    if (pend) {
+      var pLast = pend.getLastRow();
+      if (pLast >= 2) {
+        var pCreated = pend.getRange(2, 12, pLast - 1, 1).getValues();
+        var pRows = [];
+        for (var k = 0; k < pCreated.length; k++) {
+          var pt = _parseDateFlexible_(pCreated[k][0]);
+          if (pt > 0 && pt < cutoffMs) pRows.push(k + 2);
+        }
+        for (var m = pRows.length - 1; m >= 0; m--) {
+          pend.deleteRow(pRows[m]);
+        }
+        result.pending = pRows.length;
+      }
+    }
+
+    console.log('[cleanup] ' + JSON.stringify(result));
+    return result;
+  } catch (e) {
+    console.warn('cleanupOldPropertyRecords error: ' + e.message);
+    result.error = e.message;
+    return result;
+  }
+}
+
+/**
+ * 日次クリーンアップトリガーを登録 (既に登録済みならスキップ)。
+ * 毎朝 03:00 JST に cleanupOldPropertyRecords() を実行。
+ *
+ * 初回は手動で呼ぶか、bootstrap 経由で自動登録される。
+ *
+ * @return {{ok:boolean, message:string}}
+ */
+function registerCleanupTriggerIfMissing() {
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+      if (triggers[i].getHandlerFunction() === 'cleanupOldPropertyRecords') {
+        return { ok: true, message: '既に登録済みです' };
+      }
+    }
+    ScriptApp.newTrigger('cleanupOldPropertyRecords')
+      .timeBased()
+      .atHour(3)
+      .everyDays(1)
+      .create();
+    return { ok: true, message: '日次クリーンアップトリガー (毎朝3時) を登録しました' };
+  } catch (e) {
+    return { ok: false, message: 'トリガー登録失敗: ' + e.message };
   }
 }
 
