@@ -1052,6 +1052,8 @@ chrome.runtime.onInstalled.addListener(() => {
   // SUUMO入稿: backup poll（スマホ承認など拡張トリガーを受け取れなかった分の取りこぼし対策）
   // 基本は承認ページからの即時トリガー(SUUMO_APPROVED_NOW)で起動するので、60分に1回で十分
   chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
+  // 優先空室確認ポーリング: 1分毎にGASから優先キューを取得
+  chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
 });
 
 // Chrome起動時: 前回起動中に承認された取りこぼしを1回だけ処理
@@ -1064,6 +1066,8 @@ chrome.runtime.onStartup.addListener(() => {
   }, 5000); // ネットワーク初期化待ち
   // backup pollアラーム再セット
   chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
+  // 優先空室確認ポーリングも再セット
+  chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
 });
 
 // 入稿専用タブのクローズ検知 → suumoFillTabIdをクリア
@@ -1260,6 +1264,16 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     pollAndStartFillIfNeeded({ source: 'scheduled' }).catch(err => {
       console.log(`[SUUMO入稿] スケジュール起動失敗: ${err.message}`);
     });
+  }
+
+  // ── 優先空室確認ポーリング (お客さんからのリアルタイム依頼) ──
+  // 1分毎に GAS から優先キューを取得、依頼があれば即座にチェック実行
+  if (alarm.name === 'priority-availability-poll') {
+    if (typeof runPriorityAvailabilityPoll === 'function') {
+      runPriorityAvailabilityPoll().catch(err => {
+        console.log(`[優先空室確認] poll失敗: ${err.message}`);
+      });
+    }
   }
 });
 

@@ -594,6 +594,62 @@ async function stopAvailabilityCheck() {
 }
 
 // ──────────────────────────────────────────────────────────────────
+// 優先キューのポーリング (お客さんがボタンを押した物件をリアルタイム処理)
+// 1分毎の alarm で呼ばれる。priority_only=1 で優先依頼のみ取得。
+// ──────────────────────────────────────────────────────────────────
+async function runPriorityAvailabilityPoll() {
+  // 全件モード実行中ならスキップ (衝突防止)
+  const running = await new Promise(r =>
+    chrome.storage.local.get(['__availabilityCheckRunning'], d => r(!!d.__availabilityCheckRunning))
+  );
+  if (running) {
+    console.log('[priority-poll] 通常モード実行中のためスキップ');
+    return { skipped: 'running' };
+  }
+
+  let queue;
+  try {
+    queue = await gasGet('get_availability_queue', {
+      limit: 5,
+      priority_only: 1,
+      max_priority_age_minutes: 60
+    });
+  } catch (e) {
+    console.warn('[priority-poll] キュー取得失敗: ' + e.message);
+    return { error: e.message };
+  }
+  const items = (queue && Array.isArray(queue.items)) ? queue.items : [];
+  if (items.length === 0) return { processed: 0 };
+
+  await setStorageData({ debugLog: `[優先空室確認] ${items.length}件の即時依頼を処理` });
+
+  const results = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    try {
+      const status = await checkOneAvailability(it);
+      results.push({ customer: it.customer, room_id: it.roomId, status: status });
+      await setStorageData({
+        debugLog: `[優先空室確認] ${it.customer} ${it.source} → ${status}`
+      });
+    } catch (e) {
+      results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
+      await setStorageData({
+        debugLog: `[優先空室確認] ${it.customer} エラー ${e.message}`
+      });
+    }
+  }
+
+  try {
+    await gasPost({ action: 'update_availability', items: results });
+  } catch (e) {
+    await setStorageData({ debugLog: `[優先空室確認] 結果POST失敗: ${e.message}` });
+    return { processed: results.length, error: e.message };
+  }
+  return { processed: results.length };
+}
+
+// ──────────────────────────────────────────────────────────────────
 // メッセージリスナー: popup から手動トリガー
 // ──────────────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -610,3 +666,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 globalThis.runAvailabilityCheckBatch = runAvailabilityCheckBatch;
 globalThis.checkOneAvailability = checkOneAvailability;
 globalThis.stopAvailabilityCheck = stopAvailabilityCheck;
+globalThis.runPriorityAvailabilityPoll = runPriorityAvailabilityPoll;
