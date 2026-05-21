@@ -1993,7 +1993,6 @@ function addToSeenSheet(customerName, prop) {
     if (prop && prop.source) {
       source = String(prop.source);
     } else if (prop && prop.url) {
-      // prop.source が未設定の場合、url から推測
       var u = String(prop.url).toLowerCase();
       if (u.indexOf('itandibb.com') >= 0 || u.indexOf('rent.itandi') >= 0) source = 'itandi';
       else if (u.indexOf('ielove') >= 0 || u.indexOf('homes.co.jp') >= 0) source = 'ielove';
@@ -2001,13 +2000,97 @@ function addToSeenSheet(customerName, prop) {
       else if (u.indexOf('reins') >= 0) source = 'reins';
     }
   } catch (_) {}
+  // F列: current_status (空室状況: 'available' / 'closed' / 'reins_listed' / 'unknown')
+  // G列: status_checked_at (最終確認日時)
+  // 新規追加時はチェック未実施なので両方空で開始する。
   sheet.appendRow([
     customerName,
     prop.roomId,
     prop.buildingName,
     new Date().toISOString().replace('T', ' ').substring(0, 19),
-    source
+    source,
+    '', // current_status
+    ''  // status_checked_at
   ]);
+}
+
+/**
+ * 通知済み物件シートの該当行に空室状況を書き込む。
+ * Chrome拡張側から定期的に呼ばれる想定。
+ *
+ * @param {string} customerName
+ * @param {string} roomId
+ * @param {string} status - 'available' / 'closed' / 'reins_listed' / 'unknown'
+ * @return {{ok: boolean, message: string}}
+ */
+function setPropertyAvailability(customerName, roomId, status) {
+  if (!customerName || !roomId) return { ok: false, message: 'customer/roomId が未指定' };
+  var validStatuses = ['available', 'closed', 'reins_listed', 'unknown'];
+  if (validStatuses.indexOf(status) < 0) return { ok: false, message: '不正なstatus: ' + status };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return { ok: false, message: 'シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: false, message: 'シートが空です' };
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    var updated = 0;
+    var now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
+        var rowNum = i + 2;
+        sheet.getRange(rowNum, 6).setValue(status);
+        sheet.getRange(rowNum, 7).setValue(now);
+        updated++;
+      }
+    }
+    return {
+      ok: updated > 0,
+      message: updated + '行 更新しました'
+    };
+  } catch (e) {
+    return { ok: false, message: 'エラー: ' + e.message };
+  }
+}
+
+/**
+ * 顧客の送付済み物件一覧 + 各物件の空室状況を返す。
+ * 顧客の履歴ページや管理者の再送UIで使う。
+ *
+ * @param {string} customerName
+ * @return {Array<{roomId, buildingName, sentAt, source, currentStatus, statusCheckedAt}>}
+ */
+function getCustomerSentPropertiesWithStatus(customerName) {
+  if (!customerName) return [];
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return [];
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return [];
+    var data = sheet.getRange(2, 1, lastRow - 1, 7).getValues();
+    var out = [];
+    var nameTrim = String(customerName).trim();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0] || '').trim() !== nameTrim) continue;
+      out.push({
+        roomId: String(data[i][1] || ''),
+        buildingName: String(data[i][2] || ''),
+        sentAt: String(data[i][3] || ''),
+        source: String(data[i][4] || ''),
+        currentStatus: String(data[i][5] || ''),
+        statusCheckedAt: String(data[i][6] || '')
+      });
+    }
+    // 新しい送付順
+    out.sort(function(a, b) { return (b.sentAt || '').localeCompare(a.sentAt || ''); });
+    return out;
+  } catch (e) {
+    console.warn('getCustomerSentPropertiesWithStatus error: ' + e.message);
+    return [];
+  }
 }
 
 /**

@@ -54,6 +54,28 @@ function doPost(e) {
       return handleAddReinsProperty(json);
     }
 
+    // --- 空室状況の更新 (Chrome拡張から定期/手動で呼ばれる) ---
+    if (json.action === 'update_availability') {
+      try {
+        if (!_validateReinsApiKey(json.api_key)) {
+          return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+            .setMimeType(ContentService.MimeType.JSON);
+        }
+        var items = Array.isArray(json.items) ? json.items : [];
+        var results = [];
+        for (var iu = 0; iu < items.length; iu++) {
+          var it = items[iu] || {};
+          var r = setPropertyAvailability(it.customer, it.room_id, it.status);
+          results.push({ customer: it.customer, room_id: it.room_id, status: it.status, ok: r.ok });
+        }
+        return ContentService.createTextOutput(JSON.stringify({ ok: true, results: results }))
+          .setMimeType(ContentService.MimeType.JSON);
+      } catch (eU) {
+        return ContentService.createTextOutput(JSON.stringify({ error: eU.message }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
     // --- 駅名解決失敗ログ ---
     if (json.action === 'log_unresolved_stations') {
       return handleLogUnresolvedStations(json);
