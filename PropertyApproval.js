@@ -2088,6 +2088,29 @@ function backfillSeenSheetSource(customerFilter) {
 }
 
 /**
+ * Chrome拡張側の notifiedDedupMap (30日TTL) もリセットするための「シグナル」を
+ * ScriptProperties に蓄積する。Chrome拡張は次回 get_seen_ids でこれを受け取って
+ * 自分の chrome.storage.local の notifiedDedupMap から該当エントリを削除する。
+ *
+ * 24時間以内のエントリを保持し、それより古いものは自動でクリーンアップ。
+ */
+function _appendDedupResetSignal_(customerName, source) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty('pending_dedup_resets') || '[]';
+    var list;
+    try { list = JSON.parse(raw); } catch (_) { list = []; }
+    var now = Date.now();
+    var cutoff = now - 24 * 60 * 60 * 1000; // 24時間
+    list = list.filter(function(entry) { return entry && entry.ts && entry.ts > cutoff; });
+    list.push({ customer: String(customerName), source: String(source || '*'), ts: now });
+    props.setProperty('pending_dedup_resets', JSON.stringify(list));
+  } catch (e) {
+    console.warn('_appendDedupResetSignal_ error: ' + e.message);
+  }
+}
+
+/**
  * 通知済み物件シート + 承認待ち物件シートから、指定顧客 + 指定ソース の行を
  * 両方とも削除する。これで Chrome 拡張の次回検索で seen_ids から消えて
  * 再度 Discord 通知 + 承認待ち追加される。
@@ -2164,11 +2187,15 @@ function resetSeenForCustomerSource(customerName, source) {
       }
     }
 
+    // Chrome拡張側の30日重複マップもクリアするシグナルを残す
+    _appendDedupResetSignal_(nameTrim, source || '*');
+
     var total = seenDeleted + pendingDeleted;
     return {
       deleted: total,
       message: '「' + customerName + '」の' + label + '履歴を削除しました '
         + '(通知済み: ' + seenDeleted + '件 / 承認待ち非sent: ' + pendingDeleted + '件)'
+        + '。Chrome拡張側の30日重複も次回検索時に自動クリアされます。'
         + ' ※ status=sent はお客さんのリンク維持のため削除されません'
     };
   } catch (e) {

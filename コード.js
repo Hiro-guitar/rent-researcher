@@ -1455,8 +1455,29 @@ function handleGetSeenIds(e) {
     }
   }
 
+  // Chrome 拡張に伝える「30日重複マップから消すべきエントリ」のリスト
+  //   - AdminPage で履歴リセットされた際に蓄積される
+  //   - 24時間以内のものを返す (Chrome拡張側は冪等処理なので二重実行OK)
+  var pendingDedupResets = [];
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty('pending_dedup_resets') || '[]';
+    var allList = JSON.parse(raw);
+    if (Array.isArray(allList)) {
+      var nowMs = Date.now();
+      var cutoffMs = nowMs - 24 * 60 * 60 * 1000;
+      pendingDedupResets = allList.filter(function(e) {
+        return e && e.ts && e.ts > cutoffMs;
+      });
+    }
+  } catch (eR) {
+    console.warn('pending_dedup_resets read error: ' + eR.message);
+  }
+
   return ContentService
-    .createTextOutput(JSON.stringify({ seen_ids: seen_ids }))
+    .createTextOutput(JSON.stringify({
+      seen_ids: seen_ids,
+      pending_dedup_resets: pendingDedupResets
+    }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
