@@ -70,7 +70,9 @@ function handleApprove(e) {
   }
 
   var prop = rowToProperty(row.values);
-  return makePreviewHtml(prop, customerName, roomId);
+  // 同じ物件 (roomId) で承認待ちになっている他のお客様を検出
+  var otherCustomers = _findOtherPendingCustomersForRoom_(roomId, customerName);
+  return makePreviewHtml(prop, customerName, roomId, otherCustomers);
 }
 
 // ===== 承認プレビュー（一括） =====
@@ -101,8 +103,16 @@ function handleApproveAll(e) {
 function confirmApproveFromClient(formData) {
   var e = { parameter: formData };
   try {
+    globalThis.__lastMultiSendResult = null;
     handleConfirmApprove(e); // 実処理（LINE送信・シート更新）
-    return { success: true, message: (formData.buildingName || '物件') + ' を ' + formData.customer + ' さんに LINE 送信しました。' };
+    var msg = (formData.buildingName || '物件') + ' を ' + formData.customer + ' さんに LINE 送信しました。';
+    // 一括送信結果を反映
+    var msr = globalThis.__lastMultiSendResult;
+    if (msr && msr.count > 0) msg += ' (他 ' + msr.count + ' 名にも同送)';
+    if (msr && msr.failed && msr.failed.length > 0) {
+      msg += ' [送信失敗: ' + msr.failed.join(', ') + ']';
+    }
+    return { success: true, message: msg };
   } catch (err) {
     console.error('confirmApproveFromClient Error: ' + err.message + '\nStack: ' + err.stack);
     return { success: false, message: err.message };
@@ -217,7 +227,81 @@ function handleConfirmApprove(e) {
   updatePendingStatus(row.rowIndex, 'sent', viewUrl);
   addToSeenSheet(customerName, prop);
 
-  return makeHtml('完了', prop.buildingName + ' を ' + customerName + ' さんに LINE 送信しました。');
+  // ── 一括送信: 他のお客様にも同じ内容で送信 ──
+  var multiSendList = [];
+  try { multiSendList = JSON.parse(e.parameter.multi_send_customers || '[]'); } catch (_) {}
+  var multiSentCount = 0;
+  var multiFailedInfo = [];
+  // 編集フィールドリスト (上の if ブロック内と同じ。スコープ外で参照するため再宣言)
+  var _editFieldsForMulti = ['buildingName','roomNumber','layout','buildingAge','floorText','storyText',
+    'structure','totalUnits','sunlight','moveInDate','stationInfo','address',
+    'deposit','keyMoney','shikibiki','petDeposit','renewalFee','fireInsurance',
+    'renewalAdminFee','guaranteeInfo','keyExchangeFee',
+    'supportFee24h','rightsFee','additionalDeposit','guaranteeDeposit',
+    'waterBilling','parkingFee','bicycleParkingFee','motorcycleParkingFee',
+    'otherMonthlyFee','otherOnetimeFee','moveInConditions','moveOutDate',
+    'freeRentDetail','layoutDetail',
+    'leaseType','contractPeriod',
+    'cancellationNotice','renewalInfo','freeRent','facilities'];
+  for (var ms = 0; ms < multiSendList.length; ms++) {
+    var msName = String(multiSendList[ms] || '').trim();
+    if (!msName || msName === customerName) continue;
+    try {
+      var msRow = findPendingRow(msName, roomId);
+      if (!msRow) { multiFailedInfo.push(msName + '(承認待ち行なし)'); continue; }
+      var msLineId = findLineUserId(msName);
+      if (!msLineId) { multiFailedInfo.push(msName + '(LINEなし)'); continue; }
+      var msProp = rowToProperty(msRow.values);
+      // メイン顧客の編集値を msProp にも適用
+      for (var mef = 0; mef < _editFieldsForMulti.length; mef++) {
+        var mfld = _editFieldsForMulti[mef];
+        if (e.parameter[mfld] !== undefined) msProp[mfld] = e.parameter[mfld];
+      }
+      if (e.parameter.rent !== undefined) msProp.rent = Number(e.parameter.rent) || 0;
+      if (e.parameter.managementFee !== undefined) msProp.managementFee = Number(e.parameter.managementFee) || 0;
+      if (e.parameter.area !== undefined) msProp.area = Number(e.parameter.area) || 0;
+      if (e.parameter.otherStations !== undefined) {
+        msProp.otherStations = e.parameter.otherStations.split('\n').filter(function(s) { return s.trim() !== ''; });
+      }
+      // 画像保存
+      if (selectedImageUrls.length > 0) {
+        saveSelectedImages(msRow.rowIndex, selectedImageUrls, selectedImageCategories);
+      }
+      // 編集値保存
+      if (e.parameter.buildingName !== undefined) {
+        updateSheetWithEdits(msRow.rowIndex, msProp);
+      }
+      // ビューURL生成 (各顧客固有)
+      var msPlainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(msName) + '&room_id=' + roomId;
+      var msHashUrl = buildViewUrl(msName, roomId, msProp, []);
+      var msMinimalUrl = buildMinimalViewUrl(msName, roomId, msProp);
+      var msViewUrl = msHashUrl.length <= 1000 ? msHashUrl : (msMinimalUrl.length <= 1000 ? msMinimalUrl : msPlainUrl);
+      // 画像キャッシュ
+      cachePropertyImages(msName, roomId, selectedImageUrls, selectedImageCategories);
+      // Flex
+      var msFlex = buildPropertyFlex(msProp, {
+        includeImage: selectedImageUrls.length > 0,
+        heroImageUrls: selectedImageUrls,
+        viewUrl: msViewUrl,
+        customerStations: _getCustomerSelectedStations_(msName)
+      });
+      pushMessage(msLineId, [msFlex]);
+      updatePendingStatus(msRow.rowIndex, 'sent', msViewUrl);
+      addToSeenSheet(msName, msProp);
+      multiSentCount++;
+    } catch (msErr) {
+      console.error('一括送信エラー (' + msName + '): ' + msErr.message);
+      multiFailedInfo.push(msName + '(' + msErr.message + ')');
+    }
+  }
+  // confirmApproveFromClient が読むためにモジュール変数に保存
+  globalThis.__lastMultiSendResult = { count: multiSentCount, failed: multiFailedInfo };
+
+  var resultMsg = prop.buildingName + ' を ' + customerName + ' さんに LINE 送信しました。';
+  if (multiSentCount > 0) resultMsg += ' (他 ' + multiSentCount + ' 名にも同送)';
+  if (multiFailedInfo.length > 0) resultMsg += ' [送信失敗: ' + multiFailedInfo.join(', ') + ']';
+
+  return makeHtml('完了', resultMsg);
 }
 
 // ===== google.script.run 用ラッパー（一括承認） =====
@@ -2485,6 +2569,44 @@ function _getCustomerSelectedStations_(customerName) {
 }
 
 /**
+ * 同じ roomId で承認待ち(pending)になっている、他のお客様の名前リストを返す。
+ * 承認画面の「一括送信」機能で他のお客様を検出するために使う。
+ *
+ * @param {string} roomId
+ * @param {string} excludeCustomer
+ * @return {Array<{customerName: string, warningsText: string, rowIndex: number}>}
+ */
+function _findOtherPendingCustomersForRoom_(roomId, excludeCustomer) {
+  if (!roomId) return [];
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    if (!sheet) return [];
+    var data = sheet.getDataRange().getValues();
+    var out = [];
+    for (var i = 1; i < data.length; i++) {
+      var status = String(data[i][10] || '');
+      if (status !== 'pending') continue;
+      var rowCustomer = String(data[i][0] || '');
+      var rowRoomId = String(data[i][2] || '');
+      if (rowRoomId !== String(roomId)) continue;
+      if (excludeCustomer && rowCustomer === excludeCustomer) continue;
+      var extra = {};
+      try { extra = JSON.parse(data[i][9] || '{}'); } catch (e) {}
+      out.push({
+        customerName: rowCustomer,
+        warningsText: String(extra.warnings_text || ''),
+        rowIndex: i + 1
+      });
+    }
+    return out;
+  } catch (e) {
+    console.warn('_findOtherPendingCustomersForRoom_ error: ' + e.message);
+    return [];
+  }
+}
+
+/**
  * 顧客名から検索条件シートを引いて、選択こだわり条件(設備)の配列を返す。
  * 検索条件シート M列 (index 12) に「ペット可,オートロック,...」形式で保存されている想定。
  *
@@ -2737,7 +2859,8 @@ function makeHtml(title, message) {
 }
 
 // ===== HTML: 承認プレビュー（単一・編集可能） =====
-function makePreviewHtml(prop, customerName, roomId) {
+function makePreviewHtml(prop, customerName, roomId, otherCustomers) {
+  otherCustomers = otherCustomers || [];
   var baseUrl = getGasBaseUrl();
   var rentMan = prop.rent ? _fmtMan(prop.rent) : '0';
   var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
@@ -2951,6 +3074,32 @@ function makePreviewHtml(prop, customerName, roomId) {
     + '</div>';
 
   var skipUrl = baseUrl + '?action=skip&customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
+
+  // \u2500\u2500 \u4ED6\u306E\u304A\u5BA2\u69D8\u306B\u3082\u4E00\u62EC\u9001\u4FE1\u306E\u30BB\u30AF\u30B7\u30E7\u30F3 (\u540C\u3058\u7269\u4EF6\u304C\u8907\u6570\u9867\u5BA2\u306E\u627F\u8A8D\u5F85\u3061\u306B\u3042\u308B\u6642) \u2500\u2500
+  if (otherCustomers && otherCustomers.length > 0) {
+    html += '<div class="multi-send-box" style="background:#f5f9ee;border:2px solid #6ea814;border-radius:10px;padding:14px 16px;margin:20px 0;">'
+      + '<div style="font-size:14px;font-weight:700;color:#3d6909;margin-bottom:10px;">\uD83D\uDCCB \u4ED6\u306E\u304A\u5BA2\u69D8\u306B\u3082\u540C\u3058\u7269\u4EF6\u304C\u627F\u8A8D\u5F85\u3061\u3067\u3059 (' + otherCustomers.length + '\u540D)</div>'
+      + '<label style="display:flex;align-items:center;font-size:13px;color:#3d6909;cursor:pointer;margin-bottom:8px;">'
+      +   '<input type="checkbox" id="multiSendMaster" checked onchange="toggleAllMultiSend()" style="margin-right:8px;width:18px;height:18px;accent-color:#6ea814;">'
+      +   '<b>\u9078\u629E\u3057\u305F\u304A\u5BA2\u69D8\u306B\u3082\u540C\u3058\u5185\u5BB9\u3067\u9001\u4FE1\u3059\u308B</b>'
+      + '</label>'
+      + '<div style="padding-left:24px;display:flex;flex-direction:column;gap:6px;">';
+    for (var oc = 0; oc < otherCustomers.length; oc++) {
+      var ocItem = otherCustomers[oc];
+      var ocName = _esc(ocItem.customerName);
+      var ocWarn = (ocItem.warningsText || '').replace(/\u26A0\uFE0F\s*/g, '').replace(/\n/g, ' / ').trim();
+      var ocWarnLines = (ocItem.warningsText || '').split('\n').filter(function(s) { return s.trim(); });
+      var ocWarnLabel = ocWarnLines.length > 0
+        ? '<span style="color:#856404;font-size:11px;margin-left:8px;">\u26A0\uFE0F ' + ocWarnLines.length + '\u4EF6: ' + _esc(ocWarn).substring(0, 120) + '</span>'
+        : '<span style="color:#3d6909;font-size:11px;margin-left:8px;">\u2713 \u8B66\u544A\u306A\u3057</span>';
+      html += '<label style="display:flex;align-items:center;font-size:13px;color:#333;cursor:pointer;">'
+        +   '<input type="checkbox" class="multi-send-cb" data-customer="' + ocName + '" checked style="margin-right:8px;width:16px;height:16px;accent-color:#6ea814;">'
+        +   '<span style="font-weight:600;">' + ocName + ' \u3055\u3093</span>'
+        +   ocWarnLabel
+        + '</label>';
+    }
+    html += '</div></div>';
+  }
 
   html += '<div class="actions">'
     + '<a id="approveBtn" class="btn btn-approve" href="#" onclick="submitApprove();return false;">\u2705 \u627F\u8A8D\u3057\u3066LINE\u9001\u4FE1</a><br>'
@@ -3343,6 +3492,13 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'statusEl.style.color="#27ae60";'
     + '}'
     // 送信
+    // 一括送信用: マスター切替で全チェックボックスをON/OFF
+    + 'function toggleAllMultiSend(){'
+    + 'var master=document.getElementById("multiSendMaster");'
+    + 'var on=master&&master.checked;'
+    + 'var cbs=document.querySelectorAll(".multi-send-cb");'
+    + 'for(var i=0;i<cbs.length;i++)cbs[i].checked=on;'
+    + '}'
     + 'function submitApprove(){'
     + 'var btn=document.getElementById("approveBtn");'
     + 'btn.textContent="\\u2B50 \\u9001\\u4FE1\\u4E2D...";btn.style.opacity="0.6";btn.style.pointerEvents="none";'
@@ -3357,6 +3513,14 @@ function makePreviewHtml(prop, customerName, roomId) {
     + 'fd.include_image=selUrls.length>0?"1":"0";'
     + 'var inputs=document.querySelectorAll(".detail-input,.detail-textarea");'
     + 'for(var i=0;i<inputs.length;i++){fd[inputs[i].name]=inputs[i].value}'
+    // 一括送信: チェックされた他のお客様名を収集
+    + 'var multiNames=[];'
+    + 'var multiMaster=document.getElementById("multiSendMaster");'
+    + 'if(multiMaster&&multiMaster.checked){'
+    +   'var mcbs=document.querySelectorAll(".multi-send-cb");'
+    +   'for(var mi=0;mi<mcbs.length;mi++){if(mcbs[mi].checked)multiNames.push(mcbs[mi].getAttribute("data-customer"))}'
+    + '}'
+    + 'fd.multi_send_customers=JSON.stringify(multiNames);'
     + 'google.script.run'
     + '.withSuccessHandler(function(r){'
     + 'if(r.success){'
