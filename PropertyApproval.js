@@ -2046,7 +2046,7 @@ function setPropertyAvailability(customerName, roomId, status) {
   if (!customerName || !roomId) return { ok: false, message: 'customer/roomId が未指定' };
   // 'applied' = 申込あり (掲載は続いてるが申込が入ってる、再オープン余地あり)
   // 'closed'  = 募集終了 (404/掲載削除/完全終了)
-  var validStatuses = ['available', 'applied', 'closed', 'reins_listed', 'unknown'];
+  var validStatuses = ['available', 'applied', 'closed', 'reins_listed', 'needs_confirmation', 'unknown'];
   if (validStatuses.indexOf(status) < 0) return { ok: false, message: '不正なstatus: ' + status };
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -2077,16 +2077,17 @@ function setPropertyAvailability(customerName, roomId, status) {
           continue;
         }
 
-        // REINS で reins_listed → 掲載はあるが実際の空室状況は不明。
+        // reins_listed (REINS掲載中) / needs_confirmation (要物確・要確認) → スタッフ確認必要
         //   直近 1時間以内に お客さんからの優先依頼があれば、Discord にスタッフ確認依頼を通知。
         //   (元付業者に電話確認が必要なため、スタッフの介入を促す)
-        if (source === 'reins' && status === 'reins_listed') {
+        if ((source === 'reins' && status === 'reins_listed') ||
+            status === 'needs_confirmation') {
           var priorityRaw = data[i][8];
           var priorityAt = _parseDateFlexible_(priorityRaw);
           var nowMs = Date.now();
           if (priorityAt > 0 && priorityAt > nowMs - 60 * 60 * 1000) {
             try {
-              _notifyReinsConfirmationRequestToDiscord_(nameTrim, ridTrim, buildingName, sourceRef);
+              _notifyReinsConfirmationRequestToDiscord_(nameTrim, ridTrim, buildingName, sourceRef, source, status);
             } catch (eN) {
               console.warn('[setPropertyAvailability] Discord通知失敗: ' + eN.message);
             }
@@ -2420,46 +2421,60 @@ function addTestUserByLineId() {
 }
 
 /**
- * REINS物件の空室確認依頼を Discord に通知する。
+ * 空室確認依頼を Discord に通知する。
  * お客さんが「最新の空室状況を確認」を押し、Chrome拡張がチェックして
- * reins_listed (REINSに掲載あり=募集中の可能性) と判定した時に呼ばれる。
- * 重複防止: 同一 顧客×roomId は1日1回まで通知。
+ *   - reins_listed (REINSに掲載あり)
+ *   - needs_confirmation (itandi等の「要物確」「要確認」)
+ * と判定した時に呼ばれる。重複防止: 同一 顧客×roomId は1日1回まで。
  *
  * @param {string} customerName
  * @param {string} roomId
  * @param {string} buildingName
- * @param {string} reinsPropNo
+ * @param {string} sourceRef - URL or REINS物件番号
+ * @param {string} [source] - 'reins' / 'itandi' / 'ielove' / 'essquare'
+ * @param {string} [status] - 'reins_listed' / 'needs_confirmation'
  */
-function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildingName, reinsPropNo) {
+function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildingName, sourceRef, source, status) {
   try {
     var DISCORD_WEBHOOK_URL = (typeof DISCORD_WEBHOOK_RENT_RESEARCHER_URL !== 'undefined')
       ? DISCORD_WEBHOOK_RENT_RESEARCHER_URL
       : PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
     if (!DISCORD_WEBHOOK_URL) {
-      console.log('[REINS空室確認依頼] DISCORD_WEBHOOK_URL 未設定でスキップ: ' + customerName);
+      console.log('[空室確認依頼] DISCORD_WEBHOOK_URL 未設定でスキップ: ' + customerName);
       return;
     }
     // 重複防止: 同一 顧客|roomId|日付 は1回のみ
     var props = PropertiesService.getScriptProperties();
     var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
-    var dedupKey = 'reins_notify_' + customerName + '|' + roomId + '|' + today;
+    var dedupKey = 'avail_notify_' + customerName + '|' + roomId + '|' + today;
     if (props.getProperty(dedupKey)) {
-      console.log('[REINS空室確認依頼] 本日通知済みスキップ: ' + dedupKey);
+      console.log('[空室確認依頼] 本日通知済みスキップ: ' + dedupKey);
       return;
     }
+    var srcLabel = (source || '').toLowerCase();
+    var statusLabel = (status === 'needs_confirmation') ? '要物確・要確認' : 'REINS掲載中';
+    var sourceDisplay = {
+      reins: 'REINS',
+      itandi: 'itandi',
+      ielove: 'いえらぶ',
+      essquare: 'いい生活'
+    }[srcLabel] || (source || '不明');
     var lines = [
-      '🔔 **REINS物件 空室確認依頼**',
+      '🔔 **' + sourceDisplay + ' 物件 空室確認依頼** (' + statusLabel + ')',
       '顧客: ' + customerName + ' 様',
       '物件: ' + (buildingName || '(建物名不明)'),
       'room_id: ' + roomId
     ];
-    if (reinsPropNo) lines.push('REINS物件番号: ' + reinsPropNo);
+    if (sourceRef) {
+      if (srcLabel === 'reins') lines.push('REINS物件番号: ' + sourceRef);
+      else lines.push('URL: ' + sourceRef);
+    }
     lines.push('');
     lines.push('→ お客さんが空室状況の確認を依頼しています。');
     lines.push('→ 元付業者に電話確認のうえ、LINEでお返事をお願いします。');
     var payload = {
       content: lines.join('\n'),
-      thread_name: '🔔 REINS空室確認: ' + customerName
+      thread_name: '🔔 空室確認 (' + sourceDisplay + '): ' + customerName
     };
     UrlFetchApp.fetch(DISCORD_WEBHOOK_URL, {
       method: 'post',
@@ -2468,11 +2483,9 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
       muteHttpExceptions: true
     });
     props.setProperty(dedupKey, '1');
-    // 30日後に dedup キーを自動削除 (Properties の上限対策)
-    // (GASにExpireはないので、定期クリーンアップで削除する想定)
-    console.log('[REINS空室確認依頼] Discord通知送信: ' + customerName);
+    console.log('[空室確認依頼] Discord通知送信: ' + customerName + ' (' + sourceDisplay + '/' + statusLabel + ')');
   } catch (e) {
-    console.warn('[REINS空室確認依頼] Discord通知失敗: ' + e.message);
+    console.warn('[空室確認依頼] Discord通知失敗: ' + e.message);
   }
 }
 
