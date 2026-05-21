@@ -153,15 +153,15 @@ async function _checkItandiAvailability(url) {
 
 // ──────────────────────────────────────────────────────────────────
 // いえらぶ (ielove BB):
-//   判定の主軸は「募集状況」を表す3つのspan + 「要物確」テキスト。
+//   判定の主軸は「募集状況」を表す4つのspan。
 //   申込書出力ボタンの disabled は判定材料に使わない
 //   (Web申込非対応の管理会社でも disabled になるため誤判定の元)
 //
 //   優先順位:
 //     1. 404 / 削除済 → closed
-//     2. 「要物確」「要確認」テキスト → needs_confirmation
-//        (スタッフが元付業者に物件確認が必要、Discord通知される)
-//        ※ 募集中でも要物確の場合があるため、これを最優先で判定
+//     2. span.confirm-required (「要物確」専用クラス) → needs_confirmation
+//        (スタッフが元付業者に物件確認が必要、Discord通知)
+//        ※ 募集中でも要物確の場合があるため最優先で判定
 //     3. span.no-confirm 「物確不要」 → closed (確実に募集終了)
 //     4. span.exists_application_for_confirm のテキスト
 //        - 「申込N件」(件数つき) → applied (キャンセル時通知可能)
@@ -189,20 +189,22 @@ async function _checkIeloveAvailability(url) {
           return 'closed';
         }
 
-        // 2. 「要物確」「要確認」テキスト → needs_confirmation
-        //    募集中でも要物確の場合があるため最優先で判定
-        //    (スタッフが元付業者への物確が必要、Discord通知)
-        //    ※ より精密な DOM セレクタは後で URL 調査して差し替え予定
-        if (/要物確|要確認/.test(bodyText)) return 'needs_confirmation';
-
         // ── 募集状況の主要シグナル ──
         const forRentEl = document.querySelector('span.for-rent');
         const existsAppEl = document.querySelector('span.exists_application_for_confirm');
         const noConfirmEl = document.querySelector('span.no-confirm');
+        const confirmRequiredEl = document.querySelector('span.confirm-required');
 
         const forRentText = forRentEl ? (forRentEl.textContent || '').trim() : '';
         const existsAppText = existsAppEl ? (existsAppEl.textContent || '').trim() : '';
         const noConfirmText = noConfirmEl ? (noConfirmEl.textContent || '').trim() : '';
+
+        // 2. span.confirm-required (「要物確」専用クラス) → needs_confirmation
+        //    募集中でも要物確の場合があるため最優先で判定
+        //    (スタッフが元付業者への物確が必要、Discord通知)
+        if (confirmRequiredEl) return 'needs_confirmation';
+        // フォールバック: テキスト判定
+        if (/要物確|要確認/.test(bodyText)) return 'needs_confirmation';
 
         // 3. 「物確不要」 → closed (確実に募集終了)
         if (/物確不要/.test(noConfirmText)) return 'closed';
