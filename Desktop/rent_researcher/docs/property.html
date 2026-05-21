@@ -32,6 +32,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .error-card{background:#fff;border-radius:12px;padding:30px;max-width:400px;margin:40px auto;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
 .error-card h2{color:#E05252;margin-bottom:12px}
 .error-card p{color:#666;line-height:1.6}
+/* シンプル読込カード (埋め込みデータ無しのリンクで使用) */
+.simple-loading{background:#fff;border-radius:16px;padding:48px 28px;max-width:420px;margin:40px auto;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.08);border:1px solid #f0f0f0}
+.simple-loading-spinner{width:42px;height:42px;border:3px solid #e8f0d8;border-top-color:#6ea814;border-radius:50%;margin:0 auto 22px;animation:simpleLoadingSpin 0.8s linear infinite}
+@keyframes simpleLoadingSpin{to{transform:rotate(360deg)}}
+.simple-loading-text{font-size:16px;font-weight:700;color:#1a2538;margin-bottom:6px;letter-spacing:0.3px}
+.simple-loading-sub{font-size:13px;color:#888;letter-spacing:0.3px}
 /* 募集終了カード (Not Found) */
 .notfound-card{background:#fff;border-radius:16px;padding:32px 28px 26px;max-width:420px;margin:40px auto;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.08);border:1px solid #f0f0f0}
 .notfound-title{font-size:20px;font-weight:800;color:#1a2538;margin-bottom:22px;letter-spacing:-0.3px}
@@ -316,13 +322,15 @@ if (inlineProp) {
   showError('パラメータが不足しています。');
 }
 
-// スケルトンの中身を一旦隠し、シンプルな「確認中…」だけにする
+// スケルトンの中身を一旦隠し、スピナー付きの読込カードを表示
 function showSimpleLoading() {
   var loading = document.getElementById('loading');
   if (!loading) return;
   loading.innerHTML =
-    '<div style="text-align:center;padding:80px 20px;color:#888;">'
-    + '<div style="font-size:14px;letter-spacing:0.5px;">確認中…</div>'
+    '<div class="simple-loading">'
+    + '<div class="simple-loading-spinner"></div>'
+    + '<div class="simple-loading-text">物件情報を確認しています</div>'
+    + '<div class="simple-loading-sub">少々お待ちください…</div>'
     + '</div>';
 }
 
