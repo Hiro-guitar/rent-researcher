@@ -109,17 +109,19 @@ async function _checkItandiAvailability(url) {
 
 // ──────────────────────────────────────────────────────────────────
 // いえらぶ (ielove BB):
-//   判定の主軸は申込書出力ボタン (button.export_application) の活性状態。
+//   判定の主軸は「募集状況」を表す3つのspan。
+//   申込書出力ボタンの disabled は判定材料に使わない
+//   (Web申込非対応の管理会社でも disabled になるため誤判定の元)
 //
-//   ・button.export_application が disabled / disabled_btn / fa-bt-dis
-//       → closed (キャンセル待ち不可・募集終了)
-//   ・ボタン活性 + span.exists_application_for_confirm 「申込あり」
-//       → applied (キャンセル待ち可)
-//   ・ボタン活性 + 「申込あり」表示なし
-//       → available (募集中)
-//
-//   ※ span.exists_application_for_confirm は両状態で存在し、テキストが
-//     「申込あり」/「申込N件」で変わるため "有無" では判定しない。
+//   優先順位:
+//     1. span.no-confirm 「物確不要」あり → closed (募集終了の強いシグナル)
+//     2. span.exists_application_for_confirm のテキスト
+//        - 「申込N件」(件数つき) → closed
+//        - 「申込あり」          → applied (キャンセル待ち可)
+//        - その他                → applied
+//     3. span.for-rent 「募集中」あり → available
+//        (Web申込ボタンの disabled は無視)
+//     4. どれも該当なし → unknown
 // ──────────────────────────────────────────────────────────────────
 async function _checkIeloveAvailability(url) {
   if (!url || (url.indexOf('ielove') < 0 && url.indexOf('homes.co.jp') < 0)) return 'unknown';
@@ -140,35 +142,38 @@ async function _checkIeloveAvailability(url) {
           return 'closed';
         }
 
-        // ─── メイン判定: 申込書出力ボタン ───
-        const applyBtn = document.querySelector('button.export_application');
-        const statusSpan = document.querySelector('span.exists_application_for_confirm');
-        const statusText = statusSpan ? (statusSpan.textContent || '').trim() : '';
+        // ── 募集状況の主要シグナル ──
+        const forRentEl = document.querySelector('span.for-rent');
+        const existsAppEl = document.querySelector('span.exists_application_for_confirm');
+        const noConfirmEl = document.querySelector('span.no-confirm');
 
-        if (applyBtn) {
-          const cls = (applyBtn.className || '').toString();
-          const isDisabled =
-            applyBtn.disabled === true ||
-            applyBtn.getAttribute('aria-disabled') === 'true' ||
-            /\b(disabled_btn|fa-bt-dis)\b/.test(cls) ||
-            !applyBtn.getAttribute('onclick');
-          if (isDisabled) return 'closed';        // 募集終了 / キャンセル待ち不可
-          if (/申込あり/.test(statusText)) return 'applied';   // キャンセル待ち可
-          // 「申込N件」表示 + ボタン活性 という稀ケースも一応 applied 扱い
-          if (/申込\s*\d+\s*件/.test(statusText)) return 'applied';
-          return 'available';                     // 募集中
+        const forRentText = forRentEl ? (forRentEl.textContent || '').trim() : '';
+        const existsAppText = existsAppEl ? (existsAppEl.textContent || '').trim() : '';
+        const noConfirmText = noConfirmEl ? (noConfirmEl.textContent || '').trim() : '';
+
+        // 1. 「物確不要」 → closed (募集終了)
+        if (/物確不要/.test(noConfirmText)) return 'closed';
+
+        // 2. 申込状況テキスト
+        if (existsAppText) {
+          // 「申込N件」(件数表示) → closed
+          if (/^申込\s*\d+\s*件$/.test(existsAppText)) return 'closed';
+          // 「申込あり」 → applied (キャンセル待ち可)
+          if (/申込\s*あり/.test(existsAppText)) return 'applied';
+          // その他のテキスト (申込済 等) → applied
+          return 'applied';
         }
 
-        // ─── ボタンが見つからない時のフォールバック ───
-        // 申込N件 → applied (formal 申込あり)
-        if (/申込\s*\d+\s*件/.test(bodyText)) return 'applied';
-        if (statusSpan && /申込あり/.test(statusText)) return 'applied';
+        // 3. 「募集中」 → available
+        //    (申込書出力ボタンが disabled でも Web申込非対応の管理会社なので無視)
+        if (/募集中/.test(forRentText)) return 'available';
+
+        // 4. フォールバック (3spanが取れなかった場合のテキスト判定)
+        if (/募集\s*中止|募集停止|募集終了|成約|契約済/.test(bodyText)) return 'closed';
+        if (/申込\s*\d+\s*件/.test(bodyText)) return 'closed';
         if (/申込\s*あり|入居予定者あり|申込済/.test(bodyText)) return 'applied';
-        // 募集中
-        if (document.querySelector('span.for-rent')) return 'available';
         if (/募集中|入居可能/.test(bodyText)) return 'available';
-        // 募集停止/終了
-        if (/募集停止|募集終了/.test(bodyText)) return 'closed';
+
         return 'unknown';
       }
     });
