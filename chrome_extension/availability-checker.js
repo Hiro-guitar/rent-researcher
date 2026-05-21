@@ -153,19 +153,21 @@ async function _checkItandiAvailability(url) {
 
 // ──────────────────────────────────────────────────────────────────
 // いえらぶ (ielove BB):
-//   判定の主軸は「募集状況」を表す3つのspan。
+//   判定の主軸は「募集状況」を表す3つのspan + 「要物確」テキスト。
 //   申込書出力ボタンの disabled は判定材料に使わない
 //   (Web申込非対応の管理会社でも disabled になるため誤判定の元)
 //
 //   優先順位:
-//     1. span.no-confirm 「物確不要」あり → closed (募集終了の強いシグナル)
-//     2. span.exists_application_for_confirm のテキスト
-//        - 「申込N件」(件数つき) → closed
-//        - 「申込あり」          → applied (キャンセル待ち可)
-//        - その他                → applied
-//     3. span.for-rent 「募集中」あり → available
-//        (Web申込ボタンの disabled は無視)
-//     4. どれも該当なし → unknown
+//     1. 404 / 削除済 → closed
+//     2. 「要物確」「要確認」テキスト → needs_confirmation
+//        (スタッフが元付業者に物件確認が必要、Discord通知される)
+//        ※ 募集中でも要物確の場合があるため、これを最優先で判定
+//     3. span.no-confirm 「物確不要」 → closed (確実に募集終了)
+//     4. span.exists_application_for_confirm のテキスト
+//        - 「申込N件」(件数つき) → applied (キャンセル時通知可能)
+//        - 「申込あり」          → applied (2番手申込可能 or キャンセル時通知)
+//     5. span.for-rent 「募集中」 → available
+//     6. どれも該当なし → unknown
 // ──────────────────────────────────────────────────────────────────
 async function _checkIeloveAvailability(url) {
   if (!url || (url.indexOf('ielove') < 0 && url.indexOf('homes.co.jp') < 0)) return 'unknown';
@@ -181,10 +183,17 @@ async function _checkIeloveAvailability(url) {
       target: { tabId: tab.id },
       func: () => {
         const bodyText = document.body.innerText || '';
-        // 掲載終了 / 削除済 (closed)
+
+        // 1. 掲載終了 / 削除済 (closed)
         if (/既に掲載が終了|掲載が終了|物件は存在しません|該当する物件はありません|ページが見つかりません/.test(bodyText)) {
           return 'closed';
         }
+
+        // 2. 「要物確」「要確認」テキスト → needs_confirmation
+        //    募集中でも要物確の場合があるため最優先で判定
+        //    (スタッフが元付業者への物確が必要、Discord通知)
+        //    ※ より精密な DOM セレクタは後で URL 調査して差し替え予定
+        if (/要物確|要確認/.test(bodyText)) return 'needs_confirmation';
 
         // ── 募集状況の主要シグナル ──
         const forRentEl = document.querySelector('span.for-rent');
@@ -195,26 +204,25 @@ async function _checkIeloveAvailability(url) {
         const existsAppText = existsAppEl ? (existsAppEl.textContent || '').trim() : '';
         const noConfirmText = noConfirmEl ? (noConfirmEl.textContent || '').trim() : '';
 
-        // 1. 「物確不要」 → closed (募集終了)
+        // 3. 「物確不要」 → closed (確実に募集終了)
         if (/物確不要/.test(noConfirmText)) return 'closed';
 
-        // 2. 申込状況テキスト
+        // 4. 申込状況テキスト
+        //    「申込N件」も「申込あり」も applied 扱い
+        //    (前者: 件数あり=実質終了寄りだが、キャンセル発生時に通知可能)
+        //    (後者: 2番手申込可能 or キャンセル時通知)
         if (existsAppText) {
-          // 「申込N件」(件数表示) → closed
-          if (/^申込\s*\d+\s*件$/.test(existsAppText)) return 'closed';
-          // 「申込あり」 → applied (キャンセル待ち可)
+          if (/^申込\s*\d+\s*件$/.test(existsAppText)) return 'applied';
           if (/申込\s*あり/.test(existsAppText)) return 'applied';
-          // その他のテキスト (申込済 等) → applied
           return 'applied';
         }
 
-        // 3. 「募集中」 → available
-        //    (申込書出力ボタンが disabled でも Web申込非対応の管理会社なので無視)
+        // 5. 「募集中」 → available
         if (/募集中/.test(forRentText)) return 'available';
 
-        // 4. フォールバック (3spanが取れなかった場合のテキスト判定)
+        // 6. フォールバック
         if (/募集\s*中止|募集停止|募集終了|成約|契約済/.test(bodyText)) return 'closed';
-        if (/申込\s*\d+\s*件/.test(bodyText)) return 'closed';
+        if (/申込\s*\d+\s*件/.test(bodyText)) return 'applied';
         if (/申込\s*あり|入居予定者あり|申込済/.test(bodyText)) return 'applied';
         if (/募集中|入居可能/.test(bodyText)) return 'available';
 
