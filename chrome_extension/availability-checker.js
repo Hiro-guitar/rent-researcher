@@ -36,9 +36,21 @@ async function checkOneAvailability(item) {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// itandi: 募集中 / 申込あり / 募集終了 を判定。
-//   - 申込ありは「キャンセル待ち可」「キャンセル待ち不可」の2種類あり、
-//     不可は実質募集終了扱いとして closed を返す。
+// itandi: 物件検索 (itandi-content-detail.js) と同じシグナルで判定。
+//
+//   優先順位:
+//     1. 404 / 掲載削除                                → closed
+//     2. listing_status = 成約 / 契約済 / 公開停止     → closed
+//     3. 「要物確」「要確認」テキストあり              → needs_confirmation
+//        (REINS reins_listed と同様、スタッフ確認が必要)
+//     4. 「申込あり」(listing_status or status_type)
+//        + WEB申込ボタンの状態で applied/closed 細分:
+//          - apply link あり + 活性 → applied (キャンセル待ち可)
+//          - disabled / badge "?"   → closed (キャンセル待ち不可)
+//     5. 「募集中」(listing_status) + WEBバッジ ≥ 1
+//        → applied (Web申込予約あり = 実質申込予定者あり)
+//     6. 「募集中」(listing_status) + WEBバッジなし    → available
+//     7. それ以外                                      → unknown
 // ──────────────────────────────────────────────────────────────────
 async function _checkItandiAvailability(url) {
   if (!url || url.indexOf('itandibb.com') < 0) return 'unknown';
@@ -54,54 +66,80 @@ async function _checkItandiAvailability(url) {
       target: { tabId: tab.id },
       func: () => {
         const bodyText = document.body.innerText || '';
-        // 404 / 掲載削除 (closed)
+
+        // 1. 404 / 掲載削除
         if (/このページは存在しません|お探しのページ|404\s*Not\s*Found|ページが見つかりません/i.test(bodyText)) return 'closed';
 
-        // ──────────────────────────────────────────────
-        // 判定:
-        //   申込ありシグナル (テキスト「申込あり」) が **ある** 場合のみ、
-        //   WEB申込ボタン (.CommonButton.isDetail) の状態で applied/closed を切り分け。
-        //
-        //   ・hasApplyLink (a[href*="bukkakun.com"][href*="select_apply"]) + 非 disabled
-        //       → applied (キャンセル待ち可)
-        //   ・button[disabled] / button.Mui-disabled / badge "?"
-        //       → closed (キャンセル待ち不可)
-        //
-        //   申込ありシグナル **なし** の場合、ボタンの disabled は判定に使わない。
-        //   (Web申込非対応店舗でも disabled になるため、available に倒す)
-        // ──────────────────────────────────────────────
+        // 2. listing_status (テキスト検出: itandi-content-detail.js と同じ順序)
+        const knownStatuses = ['申込あり', '成約', '公開停止', '契約済み', '募集中'];
+        let listingStatus = '';
+        for (const s of knownStatuses) {
+          if (bodyText.includes(s)) { listingStatus = s; break; }
+        }
+        if (listingStatus === '成約' || listingStatus === '契約済み' || listingStatus === '公開停止') {
+          return 'closed';
+        }
+
+        // 3. 要物確 / 要確認 → スタッフ確認が必要
+        if (/要物確|要確認/.test(bodyText)) return 'needs_confirmation';
+
+        // 4. 申込あり (キャンセル待ち可/不可 を細分判定)
         const commonButtons = [...document.querySelectorAll('.CommonButton.isDetail')];
         const webCommonBtn = commonButtons.find(el => /^WEB/i.test((el.textContent || '').trim()));
-        const hasOfferedText = /申込\s*あり|status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
+        const hasOfferedText = listingStatus === '申込あり' || /status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
 
-        if (webCommonBtn) {
-          const hasApplyLink = !!webCommonBtn.querySelector('a[href*="bukkakun.com"][href*="select_apply"]');
-          const webBtnDisabled = !!webCommonBtn.querySelector('button[disabled], button.Mui-disabled');
-          const badgeText = (webCommonBtn.querySelector('.MuiBadge-badge')?.textContent || '').trim();
-
-          if (hasOfferedText) {
-            // 申込ありシグナルがある時のみキャンセル待ち可/不可で細分判定
+        if (hasOfferedText) {
+          if (webCommonBtn) {
+            const hasApplyLink = !!webCommonBtn.querySelector('a[href*="bukkakun.com"][href*="select_apply"]');
+            const webBtnDisabled = !!webCommonBtn.querySelector('button[disabled], button.Mui-disabled');
+            const badgeText = (webCommonBtn.querySelector('.MuiBadge-badge')?.textContent || '').trim();
             if (hasApplyLink && !webBtnDisabled) return 'applied';   // キャンセル待ち可
             if (webBtnDisabled || badgeText === '?') return 'closed'; // キャンセル待ち不可
-            return 'applied';  // ambiguous: 申込ありだが詳細不明
           }
-          // 申込ありシグナルなし → ボタンの disabled は判定材料にしない
-          // (Web申込非対応店舗で disabled になるため誤判定の元)
-          // 明示的な募集終了テキストだけ closed として拾う
-          if (/取り下げ|募集停止|募集終了|申込受付終了/.test(bodyText)) return 'closed';
-          return 'available';
+          return 'applied';  // 詳細不明なら applied 扱い
         }
 
-        // CommonButton が見つからない場合のフォールバック
-        // 募集中
-        const blocks = document.querySelectorAll('div[class*="Block"][class*="Left"], .BlockLeft, div.block.left');
-        for (const el of blocks) {
-          if ((el.textContent || '').includes('募集中')) return 'available';
+        // 5. 募集中 + WEBバッジ ≥ 1 → 申込予約あり
+        //    itandi-content-detail.js と同じ 3段階フォールバック でバッジ数を取得
+        let webBadgeCount = -1;
+        // Approach A: MuiBadge
+        const badges = document.querySelectorAll('[class*="Badge-badge"], [class*="badge"]');
+        for (const badge of badges) {
+          const parent = badge.closest('[class*="Badge-root"]') || badge.parentElement;
+          if (parent && parent.textContent.includes('WEB')) {
+            const num = parseInt((badge.textContent || '').trim(), 10);
+            webBadgeCount = isNaN(num) ? 0 : num;
+            break;
+          }
         }
+        // Approach B: WEBテキスト + 兄弟バッジ
+        if (webBadgeCount === -1) {
+          const allEls = document.querySelectorAll('button, span, a');
+          for (const el of allEls) {
+            const txt = (el.textContent || '').trim();
+            if (txt === 'WEB' || txt.startsWith('WEB')) {
+              const badgeEl = el.querySelector('[class*="badge"], [class*="Badge"]')
+                           || (el.parentElement && el.parentElement.querySelector('[class*="badge"], [class*="Badge"]'));
+              if (badgeEl) {
+                const num = parseInt((badgeEl.textContent || '').trim(), 10);
+                webBadgeCount = isNaN(num) ? 0 : num;
+                break;
+              }
+            }
+          }
+        }
+        // Approach C: テキスト正規表現
+        if (webBadgeCount === -1) {
+          const webMatch = bodyText.match(/WEB[\s\n]+(\d+)/);
+          if (webMatch) webBadgeCount = parseInt(webMatch[1], 10);
+        }
+
+        if (webBadgeCount >= 1) return 'applied';  // WEB申込予約あり
+
+        // 6. 募集中
+        if (listingStatus === '募集中') return 'available';
+        // 7. listing_status 取れない場合のフォールバック
         if (/募集中/.test(bodyText)) return 'available';
-        // 申込あり (キャンセル待ち判定不能なら applied 扱い)
-        if (/申込\s*あり/.test(bodyText)) return 'applied';
-        // 取り下げ / 募集終了 → closed
         if (/取り下げ|募集停止|募集終了|申込受付終了/.test(bodyText)) return 'closed';
         return 'unknown';
       }
