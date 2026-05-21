@@ -205,7 +205,11 @@ async function runAvailabilityCheckBatch(options) {
   // 1. キューを取得
   let queue;
   try {
-    queue = await gasGet(`get_availability_queue&limit=${limit}&max_age_days=${maxAgeDays}&max_interval_hours=${maxIntervalHours}`);
+    queue = await gasGet('get_availability_queue', {
+      limit: limit,
+      max_age_days: maxAgeDays,
+      max_interval_hours: maxIntervalHours
+    });
   } catch (e) {
     await setStorageData({ debugLog: `[空室確認] キュー取得失敗: ${e.message}` });
     return { processed: 0, error: e.message };
