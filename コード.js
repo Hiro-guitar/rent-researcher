@@ -1420,10 +1420,16 @@ function handleGetSeenIds(e) {
   var seen_ids = {};
 
   // 承認待ち物件
+  // status='sent' (送信済み) は 通知済み物件 シートで管理されるためここでは除外。
+  // → 通知済み物件 から削除するだけでスキップ解除が効くようになる。
+  // status='pending' (承認待ち) / 'skipped' (スキップ) は引き続きカウントして
+  // 同サイクル中の重複追加を防ぐ。
   var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (pendingSheet) {
     var pData = pendingSheet.getDataRange().getValues();
     for (var i = 1; i < pData.length; i++) {
+      var pStatus = String(pData[i][10] || '');
+      if (pStatus === 'sent') continue; // 通知済み物件シート側で管理
       var customer = String(pData[i][0] || '');
       var roomId = String(pData[i][2] || '');
       if (customer && roomId) {
