@@ -270,6 +270,32 @@
     });
   });
 
+  // ── 空室状況チェック ボタン ──
+  const availBtn = document.getElementById('availabilityCheckBtn');
+  const availStatus = document.getElementById('availabilityCheckStatus');
+  if (availBtn) {
+    availBtn.addEventListener('click', async () => {
+      availBtn.disabled = true;
+      const oldText = availBtn.textContent;
+      availBtn.textContent = '⏳ 確認中...';
+      if (availStatus) availStatus.textContent = '送付済み物件をスキャンしています...';
+      try {
+        const response = await chrome.runtime.sendMessage({ action: 'run_availability_check', options: { limit: 20 } });
+        if (response && typeof response.processed === 'number') {
+          if (availStatus) availStatus.textContent = `✅ ${response.processed} 件確認完了 (詳細はログで)`;
+        } else if (response && response.error) {
+          if (availStatus) availStatus.textContent = `❌ ${response.error}`;
+        } else {
+          if (availStatus) availStatus.textContent = '✅ 完了';
+        }
+      } catch (e) {
+        if (availStatus) availStatus.textContent = `❌ ${e.message}`;
+      }
+      availBtn.disabled = false;
+      availBtn.textContent = oldText;
+    });
+  }
+
   // --- 顧客チェックボックス ---
   // 「除外リスト」方式: excludedCustomers に入っている顧客だけスキップ
   // → 新規追加された顧客は自動的にチェックON
