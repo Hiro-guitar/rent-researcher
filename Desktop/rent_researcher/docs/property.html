@@ -495,7 +495,7 @@ function renderAvailabilityStatus(status, checkedAt) {
     case 'available':   label = '募集中';     cls = 's-available'; break;
     case 'applied':     label = '申込あり';   cls = 's-applied';   break;
     case 'closed':      label = '募集終了';   cls = 's-closed';    break;
-    case 'reins_listed': label = '募集中';    cls = 's-available'; break;
+    case 'reins_listed': label = '確認中・LINEでご連絡いたします'; cls = 's-applied'; break;
     case 'unknown':     label = '確認中';     cls = 's-unknown';   break;
     case '':            label = '未確認';     cls = 's-unknown';   break;
     default:            label = '確認中';     cls = 's-unknown';
@@ -512,15 +512,23 @@ function renderAvailabilityStatus(status, checkedAt) {
   }
 }
 
-// ページロード時にキャッシュされた最終ステータスを取得して表示
+// ページロード時にテストユーザー判定 → 対象ならセクション表示してステータス取得
 function loadInitialAvailabilityStatus() {
   if (!customer || !roomId) return;
-  var url = GAS_API_URL + '?action=get_availability_status&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
-  fetch(url).then(function(r) { return r.text(); }).then(function(t) {
+  var testUrl = GAS_API_URL + '?action=is_availability_test_user&customer=' + encodeURIComponent(customer);
+  fetch(testUrl).then(function(r) { return r.text(); }).then(function(t) {
     var d; try { d = JSON.parse(t); } catch(_) { return; }
-    if (d && d.found) {
-      renderAvailabilityStatus(d.currentStatus || '', d.statusCheckedAt || '');
-    }
+    if (!d || !d.enabled) return;
+    // テストユーザー: セクションを表示してステータス取得
+    var section = document.getElementById('availabilitySection');
+    if (section) section.style.display = '';
+    var url = GAS_API_URL + '?action=get_availability_status&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
+    return fetch(url).then(function(r2) { return r2.text(); }).then(function(t2) {
+      var d2; try { d2 = JSON.parse(t2); } catch(_) { return; }
+      if (d2 && d2.found) {
+        renderAvailabilityStatus(d2.currentStatus || '', d2.statusCheckedAt || '');
+      }
+    });
   }).catch(function(){});
 }
 
@@ -822,8 +830,9 @@ function renderProperty(p) {
     + '</div>';
 
   // 空室状況セクション (customer と roomId がある場合のみ)
+  // デフォルトは非表示 → テストユーザー判定 API で許可された場合のみ表示
   if (customer && roomId) {
-    html += '<div class="availability-section" id="availabilitySection">'
+    html += '<div class="availability-section" id="availabilitySection" style="display:none;">'
       + '<div class="availability-row">'
       +   '<span class="availability-label">空室状況</span>'
       +   '<span class="availability-status s-unknown" id="availabilityStatus"><span class="availability-dot"></span>確認していません</span>'
