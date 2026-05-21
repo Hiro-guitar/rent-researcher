@@ -495,10 +495,10 @@ function renderAvailabilityStatus(status, checkedAt) {
     case 'available':   label = '募集中';     cls = 's-available'; break;
     case 'applied':     label = '申込あり';   cls = 's-applied';   break;
     case 'closed':      label = '募集終了';   cls = 's-closed';    break;
-    case 'reins_listed': label = '掲載あり';  cls = 's-unknown';   break;
-    case 'unknown':     label = '判定不能';   cls = 's-unknown';   break;
-    case '':            label = '確認していません'; cls = 's-unknown'; break;
-    default:            label = status;       cls = 's-unknown';
+    case 'reins_listed': label = '募集中';    cls = 's-available'; break;
+    case 'unknown':     label = '確認中';     cls = 's-unknown';   break;
+    case '':            label = '未確認';     cls = 's-unknown';   break;
+    default:            label = '確認中';     cls = 's-unknown';
   }
   statusEl.className = 'availability-status ' + cls;
   statusEl.innerHTML = '<span class="availability-dot"></span>' + escHtml(label);
