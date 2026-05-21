@@ -47,15 +47,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .notfound-btn-primary:hover{background:#04a747}
 .notfound-btn-secondary{background:#f5f7fa;color:#1a2538;border:1px solid #e0e4ec}
 .notfound-note{margin-top:18px;padding-top:18px;border-top:1px solid #f0f0f0;color:#999;font-size:12px;line-height:1.6}
-/* 空室確認依頼セクション */
-.availability-section{text-align:center;margin:12px 0 4px}
-.availability-recheck-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;border-radius:8px;border:1px solid #6ea814;background:#fff;color:#3d6909;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;font-family:inherit}
-.availability-recheck-btn:active{transform:scale(0.97)}
-.availability-recheck-btn:hover{background:#f0faf4}
-.availability-recheck-btn:disabled{opacity:0.7;cursor:not-allowed;background:#f5f7fa;color:#6ea814;border-color:#d4e7a8}
-.availability-recheck-btn .spin{display:inline-block;width:12px;height:12px;border:2px solid #6ea814;border-top-color:transparent;border-radius:50%;animation:simpleLoadingSpin 0.8s linear infinite}
-.availability-msg{font-size:12px;color:#3d6909;text-align:center;margin-top:6px;line-height:1.5}
-.availability-msg.error{color:#9b1c1c}
 /* カルーセル */
 .carousel{position:relative;width:100%;max-width:600px;margin:0 auto;background:#000;overflow:hidden}
 .carousel-inner{display:flex;transition:transform 0.3s ease;width:100%}
@@ -99,12 +90,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .customer-badge{display:inline-block;padding:5px 14px;background:#f5f9ee;color:#3d6909;font-size:12px;font-weight:600;border-radius:16px;border:1px solid #d4e7a8;letter-spacing:0.3px;margin-bottom:10px}
 /* フィードバックボタン */
 .feedback-bar{display:flex;gap:10px;margin:16px 0;padding:0}
-.feedback-btn{flex:1;padding:14px 0;border-radius:12px;border:2px solid #e0e0e0;background:#fff;font-size:15px;font-weight:bold;cursor:pointer;transition:all 0.2s;text-align:center;color:#555}
+.feedback-btn{flex:1;padding:14px 0;border-radius:12px;border:2px solid #e0e0e0;background:#fff;font-size:15px;font-weight:bold;cursor:pointer;transition:all 0.2s;text-align:center;color:#555;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .feedback-btn:active{transform:scale(0.97)}
 .feedback-btn.fav{border-color:#F59E0B;color:#D97706;background:#FFFBEB}
 .feedback-btn.fav.active{background:#F59E0B;border-color:#D97706;color:#fff;box-shadow:0 2px 8px rgba(245,158,11,0.3)}
 .feedback-btn.nope{border-color:#9CA3AF;color:#6B7280;background:#F9FAFB}
 .feedback-btn.nope.active{background:#6B7280;border-color:#4B5563;color:#fff;box-shadow:0 2px 8px rgba(107,114,128,0.3)}
+.feedback-btn.avail{border-color:#6ea814;color:#3d6909;background:#f6fbef}
+.feedback-btn.avail.requested{background:#6ea814;border-color:#5a8810;color:#fff;cursor:not-allowed;box-shadow:0 2px 8px rgba(110,168,20,0.3)}
+.feedback-btn.avail .spin{display:inline-block;width:13px;height:13px;border:2px solid #3d6909;border-top-color:transparent;border-radius:50%;animation:simpleLoadingSpin 0.8s linear infinite}
 .feedback-btn:disabled{opacity:0.6;cursor:not-allowed}
 .feedback-status{text-align:center;font-size:13px;color:#888;margin:-8px 0 8px;min-height:18px}
 /* アクションボタン: ブランド緑統一 + 質感UP */
@@ -468,28 +462,23 @@ function showNotFound() {
     + '</div>';
 }
 
-// ===== 空室確認の依頼 =====
-// 依頼 → GAS が記録 → ボタンが「依頼済み」表示 → 結果はLINEプッシュ通知で受け取る
+// ===== 空室確認の依頼 (お気に入り横のボタン) =====
+// 依頼 → GAS が記録 → ボタン「✓ 依頼済み」表示 → 結果はLINEプッシュ通知で受け取る
 
-function setRequestedState() {
+function setAvailabilityRequestedState() {
   var btn = document.getElementById('availabilityRecheckBtn');
-  var msg = document.getElementById('availabilityMsg');
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '✓ 依頼済み';
-  }
-  if (msg) {
-    msg.className = 'availability-msg';
-    msg.textContent = '空室状況の確認を依頼しました。\nLINEでご連絡いたします。';
-  }
+  if (!btn) return;
+  btn.disabled = true;
+  btn.classList.add('requested');
+  btn.innerHTML = '✓ 依頼済み';  // ✓ 依頼済み
 }
 
-// ページロード時: テストユーザー判定 → 対象ならセクション表示
+// ページロード時: テストユーザー判定 → 対象ならボタン表示
 // localStorage キャッシュで2回目以降は即時表示 (API待ち時間なし)
 function loadInitialAvailabilityStatus() {
   if (!customer || !roomId) return;
-  var section = document.getElementById('availabilitySection');
-  if (!section) return;
+  var btn = document.getElementById('availabilityRecheckBtn');
+  if (!btn) return;
 
   // 1) localStorage から即時取得 (キャッシュ有効期限 7日)
   var cacheKey = 'availTestUser:' + customer;
@@ -498,7 +487,7 @@ function loadInitialAvailabilityStatus() {
     if (raw) {
       var cached = JSON.parse(raw);
       if (cached && typeof cached.t === 'number' && (Date.now() - cached.t < 7 * 24 * 60 * 60 * 1000)) {
-        if (cached.enabled) section.style.display = '';
+        if (cached.enabled) btn.style.display = '';
       }
     }
   } catch(_) {}
@@ -508,21 +497,17 @@ function loadInitialAvailabilityStatus() {
   fetch(testUrl).then(function(r) { return r.text(); }).then(function(t) {
     var d; try { d = JSON.parse(t); } catch(_) { return; }
     if (!d) return;
-    // キャッシュ更新
     try {
       localStorage.setItem(cacheKey, JSON.stringify({ enabled: !!d.enabled, t: Date.now() }));
     } catch(_) {}
-    // 表示を最新状態に同期
-    if (d.enabled) section.style.display = '';
-    else section.style.display = 'none';
+    btn.style.display = d.enabled ? '' : 'none';
   }).catch(function(){});
 }
 
 function requestAvailabilityRecheck() {
   if (!customer || !roomId) return;
   var btn = document.getElementById('availabilityRecheckBtn');
-  var msg = document.getElementById('availabilityMsg');
-  if (!btn || !msg) return;
+  if (!btn) return;
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spin"></span><span>送信中…</span>';
@@ -531,19 +516,18 @@ function requestAvailabilityRecheck() {
   fetch(reqUrl).then(function(r) { return r.text(); }).then(function(t) {
     var d; try { d = JSON.parse(t); } catch(_) { d = null; }
     if (d && d.ok) {
-      setRequestedState();
+      setAvailabilityRequestedState();
+      showToast('✓', '空室確認を依頼しました', 'LINEでご連絡いたします', 4000);
     } else {
       var em = (d && d.message) || '依頼の送信に失敗しました。';
-      msg.className = 'availability-msg error';
-      msg.textContent = em;
+      showToast('⚠️', em, '', 3000);
       btn.disabled = false;
-      btn.innerHTML = '空室確認を依頼する';
+      btn.innerHTML = '空室確認';
     }
   }).catch(function(err) {
-    msg.className = 'availability-msg error';
-    msg.textContent = '通信エラー: ' + (err.message || 'unknown');
+    showToast('⚠️', '通信エラー', (err && err.message) || 'unknown', 3000);
     btn.disabled = false;
-    btn.innerHTML = '空室確認を依頼する';
+    btn.innerHTML = '空室確認';
   });
 }
 
@@ -749,14 +733,6 @@ function renderProperty(p) {
     + '<div class="price-sub">' + priceSub + '</div>'
     + '</div>';
 
-  // 空室確認依頼セクション (customer と roomId がある場合のみ)
-  // デフォルトは非表示 → テストユーザー判定 API で許可された場合のみ表示
-  if (customer && roomId) {
-    html += '<div class="availability-section" id="availabilitySection" style="display:none;">'
-      + '<button class="availability-recheck-btn" id="availabilityRecheckBtn" onclick="requestAvailabilityRecheck()">空室確認を依頼する</button>'
-      + '<div class="availability-msg" id="availabilityMsg"></div>'
-      + '</div>';
-  }
 
   // アクションボタン（customer と roomId がある場合のみ）
   if (customer && roomId) {
@@ -794,11 +770,12 @@ function renderProperty(p) {
       + '</div>';
   }
 
-  // フィードバックボタン（customer と roomId がある場合のみ）
+  // フィードバックボタン + 空室確認ボタン（customer と roomId がある場合のみ）
+  // 空室確認はテストユーザーのみ表示 (loadInitialAvailabilityStatus で制御)
   if (customer && roomId) {
     html += '<div class="feedback-bar">'
       + '<button class="feedback-btn fav" id="favBtn" onclick="sendFeedback(\'favorite\')">⭐ お気に入りに追加</button>'
-      + '<button class="feedback-btn nope" id="nopeBtn" onclick="sendFeedback(\'not_interested\')">興味なし</button>'
+      + '<button class="feedback-btn avail" id="availabilityRecheckBtn" style="display:none;" onclick="requestAvailabilityRecheck()">空室確認</button>'
       + '</div>'
       + '<div class="feedback-status" id="feedbackStatus"></div>';
   }
@@ -1125,28 +1102,18 @@ function getFeedbackKey() {
 function updateFeedbackUI(action) {
   feedbackState = action;
   var favBtn = document.getElementById('favBtn');
-  var nopeBtn = document.getElementById('nopeBtn');
   var status = document.getElementById('feedbackStatus');
-  if (!favBtn || !nopeBtn) return;
+  if (!favBtn) return;
 
   favBtn.classList.remove('active');
-  nopeBtn.classList.remove('active');
 
   if (action === 'favorite') {
     favBtn.classList.add('active');
     favBtn.textContent = '⭐ お気に入り済み ✓';
-    nopeBtn.textContent = '興味なし';
-    status.textContent = '';
-  } else if (action === 'not_interested') {
-    nopeBtn.classList.add('active');
-    nopeBtn.textContent = '興味なし ✓';
-    favBtn.textContent = '⭐ お気に入りに追加';
-    status.textContent = '';
   } else {
     favBtn.textContent = '⭐ お気に入りに追加';
-    nopeBtn.textContent = '興味なし';
-    status.textContent = '';
   }
+  if (status) status.textContent = '';
 }
 
 function sendFeedback(action) {
