@@ -99,10 +99,12 @@ api_call() {
         -H "Content-Type: application/json")
 
     if [[ -n "$body" ]]; then
-        args+=(-d "$body")
+        # body をstdin経由で渡す (引数長制限を回避)
+        args+=(--data-binary "@-")
+        printf '%s' "$body" | curl "${args[@]}"
+    else
+        curl "${args[@]}"
     fi
-
-    curl "${args[@]}"
 }
 
 # ---------- Step 1: Ensure access token is valid ----------
