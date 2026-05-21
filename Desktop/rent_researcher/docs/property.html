@@ -485,15 +485,36 @@ function setRequestedState() {
 }
 
 // ページロード時: テストユーザー判定 → 対象ならセクション表示
-// (テスト中につき「依頼済み」復元ロジックは無効化、リロードで未依頼状態に戻る)
+// localStorage キャッシュで2回目以降は即時表示 (API待ち時間なし)
 function loadInitialAvailabilityStatus() {
   if (!customer || !roomId) return;
+  var section = document.getElementById('availabilitySection');
+  if (!section) return;
+
+  // 1) localStorage から即時取得 (キャッシュ有効期限 7日)
+  var cacheKey = 'availTestUser:' + customer;
+  try {
+    var raw = localStorage.getItem(cacheKey);
+    if (raw) {
+      var cached = JSON.parse(raw);
+      if (cached && typeof cached.t === 'number' && (Date.now() - cached.t < 7 * 24 * 60 * 60 * 1000)) {
+        if (cached.enabled) section.style.display = '';
+      }
+    }
+  } catch(_) {}
+
+  // 2) API で最新判定を取得 (バックグラウンドでキャッシュ更新)
   var testUrl = GAS_API_URL + '?action=is_availability_test_user&customer=' + encodeURIComponent(customer);
   fetch(testUrl).then(function(r) { return r.text(); }).then(function(t) {
     var d; try { d = JSON.parse(t); } catch(_) { return; }
-    if (!d || !d.enabled) return;
-    var section = document.getElementById('availabilitySection');
-    if (section) section.style.display = '';
+    if (!d) return;
+    // キャッシュ更新
+    try {
+      localStorage.setItem(cacheKey, JSON.stringify({ enabled: !!d.enabled, t: Date.now() }));
+    } catch(_) {}
+    // 表示を最新状態に同期
+    if (d.enabled) section.style.display = '';
+    else section.style.display = 'none';
   }).catch(function(){});
 }
 
