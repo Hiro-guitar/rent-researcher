@@ -2331,12 +2331,15 @@ function isAvailabilityTestUser(customerName) {
 
 /**
  * テストユーザーリストを操作 (追加 / 削除 / 一覧取得)。
+ * customerName か userId のどちらかを指定可。userId なら LINE_USERS シートで
+ * 顧客名を解決してから登録する。
  *
  * @param {'add'|'remove'|'list'} op
  * @param {string} [customerName]
+ * @param {string} [userId] - LINE userId (顧客名の代わりにこれを指定可)
  * @return {{ok:boolean, list:string[], message?:string}}
  */
-function manageAvailabilityTestUsers(op, customerName) {
+function manageAvailabilityTestUsers(op, customerName, userId) {
   try {
     var props = PropertiesService.getScriptProperties();
     var raw = props.getProperty('availability_test_customers');
@@ -2349,15 +2352,24 @@ function manageAvailabilityTestUsers(op, customerName) {
         list = String(raw).split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
       }
     }
+
+    // userId 指定なら顧客名に解決
+    if ((op === 'add' || op === 'remove') && !customerName && userId) {
+      customerName = _resolveUserIdToCustomerName_(userId);
+      if (!customerName) {
+        return { ok: false, message: 'userId に対応する顧客名が見つかりません: ' + userId };
+      }
+    }
+
     if (op === 'add') {
-      if (!customerName) return { ok: false, message: 'customerName 必須' };
+      if (!customerName) return { ok: false, message: 'customerName または userId 必須' };
       var nameTrim = String(customerName).trim();
       if (list.indexOf(nameTrim) < 0) list.push(nameTrim);
       props.setProperty('availability_test_customers', JSON.stringify(list));
-      return { ok: true, list: list, message: nameTrim + ' を追加しました' };
+      return { ok: true, list: list, message: nameTrim + ' を追加しました', resolvedCustomerName: nameTrim };
     }
     if (op === 'remove') {
-      if (!customerName) return { ok: false, message: 'customerName 必須' };
+      if (!customerName) return { ok: false, message: 'customerName または userId 必須' };
       var nameTrim2 = String(customerName).trim();
       list = list.filter(function(s) { return s !== nameTrim2; });
       props.setProperty('availability_test_customers', JSON.stringify(list));
@@ -2368,6 +2380,43 @@ function manageAvailabilityTestUsers(op, customerName) {
   } catch (e) {
     return { ok: false, message: e.message };
   }
+}
+
+/**
+ * LINE userId → 検索条件シートの顧客名 を解決する。
+ */
+function _resolveUserIdToCustomerName_(userId) {
+  if (!userId) return null;
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (!lu) return null;
+    var data = lu.getDataRange().getValues();
+    var uTrim = String(userId).trim();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() === uTrim) {
+        return String(data[i][1] || '').trim();
+      }
+    }
+    return null;
+  } catch (e) {
+    console.warn('_resolveUserIdToCustomerName_ error: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * GASエディタから一発で実行できるヘルパー: 特定の LINE userId を
+ * 空室確認テストユーザーに登録する。
+ *
+ * 使い方: GASエディタで右の関数選択から `addTestUserByLineId` を実行
+ * (userId は関数内で書き換える)。
+ */
+function addTestUserByLineId() {
+  var userId = 'U182d6e2fac80f959ab835cc96077e9e8';
+  var result = manageAvailabilityTestUsers('add', null, userId);
+  Logger.log(JSON.stringify(result, null, 2));
+  return result;
 }
 
 /**
