@@ -2974,17 +2974,57 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
       case 'available':
         // 募集中。バッジ取得状況で文言切り分け
         if (orderText && badgeCount >= 1) {
-          // バッジあり = 既にお申し込み予約者がいる
+          // バッジあり = 既にお申し込み予約者がいる (テキスト)
           text = '【空室状況のご連絡】\n\n' +
                  '「' + building + '」はお申し込みが入っていますが、\n' +
                  '現在 ' + orderText + ' でお申し込みいただけます。\n\n' +
                  'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
         } else if (orderText) {
-          // バッジ0 = 1番手 (完全空き)
-          text = '【空室状況のご連絡】\n\n' +
-                 '「' + building + '」は現在募集中です！\n' +
-                 '1番手でお申し込みいただけます。\n\n' +
-                 'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
+          // バッジ0 = 完全空き → Flex メッセージで詳細リンク + 申込ボタン
+          var propUrlAvail = 'https://form.ehomaki.com/property.html?customer=' +
+                              encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId);
+          var applyUrlAvail = propUrlAvail + '&apply=1';
+          var availFlex = {
+            type: 'flex',
+            altText: building + 'のお申し込み状況',
+            contents: {
+              type: 'bubble',
+              body: {
+                type: 'box',
+                layout: 'vertical',
+                contents: [
+                  { type: 'text', text: '【空室状況のご連絡】', size: 'sm', color: '#3a4a5e', weight: 'bold' },
+                  { type: 'text', text: building, size: 'lg', weight: 'bold', wrap: true, margin: 'sm', color: '#1a2538' },
+                  { type: 'separator', margin: 'md' },
+                  { type: 'text', text: '現在も募集中です!', wrap: true, size: 'sm', margin: 'md', weight: 'bold', color: '#3d6909' },
+                  { type: 'text', text: 'お申し込みをご希望の場合はお気軽にどうぞ。', wrap: true, size: 'sm', margin: 'sm', color: '#555555' }
+                ]
+              },
+              footer: {
+                type: 'box',
+                layout: 'vertical',
+                spacing: 'sm',
+                contents: [
+                  {
+                    type: 'button',
+                    style: 'primary',
+                    color: '#6ea814',
+                    action: { type: 'uri', label: 'お申し込みを希望する', uri: applyUrlAvail }
+                  },
+                  {
+                    type: 'button',
+                    style: 'secondary',
+                    action: { type: 'uri', label: '物件詳細を見る', uri: propUrlAvail }
+                  }
+                ]
+              }
+            }
+          };
+          if (typeof pushMessage === 'function') {
+            pushMessage(userId, [availFlex]);
+            console.log('[空室結果LINE] Flex送信成功 (available/完全空き): ' + customerName);
+          }
+          return;
         } else {
           // バッジ取得できない (itandi以外) は従来通り
           text = '【空室状況のご連絡】\n\n' +
