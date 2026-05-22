@@ -3036,6 +3036,8 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
           if (propDataForFlex && typeof buildPropertyFlex === 'function') {
             var availFlex = buildPropertyFlex(propDataForFlex, {
               viewUrl: propUrlAvail,
+              headerTitle: '空室確認の結果',
+              headerColor: '#6ea814',
               statusBadge: { text: '現在も募集中', color: '#6ea814' },
               customFooterButtons: [
                 { label: 'お申し込みを希望する', uri: applyUrlAvail, style: 'primary', color: '#6ea814' },
@@ -4515,6 +4517,18 @@ function buildPropertyFlex(prop, options) {
   }
 
   var bubble = { type: 'bubble', size: 'mega' };
+
+  // ── ヘッダー (オプション): 「空室確認の結果」 等の用途明示 ──
+  if (options.headerTitle) {
+    bubble.header = {
+      type: 'box', layout: 'vertical', paddingAll: 'md',
+      backgroundColor: options.headerColor || '#6ea814',
+      contents: [{
+        type: 'text', text: options.headerTitle,
+        size: 'sm', weight: 'bold', color: '#ffffff', align: 'center'
+      }]
+    };
+  }
 
   // ── ヒーロー画像 (1枚 or 1+3サムネ コンポジット) ──
   // options.heroImageUrls (配列) が渡されたら最大4枚をコンポジット表示。
