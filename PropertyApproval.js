@@ -2597,15 +2597,15 @@ function _notifyCancellationOccurredToCustomer_(customerName, roomId, buildingNa
       : '';
     var text;
     if (status === 'available') {
-      text = '【🎉 キャンセル発生のお知らせ】\n\n' +
+      text = '【キャンセル発生のお知らせ】\n\n' +
              '以前ご希望いただいていた\n' +
-             '「' + building + '」にキャンセルが発生し、再び募集中となりました！\n\n' +
+             '「' + building + '」にキャンセルが発生し、再び募集中となりました!\n\n' +
              (orderText ? ('現在 ' + orderText + ' でお申し込みいただけます。\n\n') : '') +
              'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
     } else if (status === 'applied') {
-      text = '【🎉 キャンセル発生のお知らせ】\n\n' +
+      text = '【キャンセル発生のお知らせ】\n\n' +
              '以前ご希望いただいていた\n' +
-             '「' + building + '」にキャンセルが発生し、お申し込みが可能になりました！\n\n' +
+             '「' + building + '」にキャンセルが発生し、お申し込みが可能になりました!\n\n' +
              (orderText ? ('現在 ' + orderText + ' でお申し込みいただけます。\n\n') : '') +
              'お申し込みをご希望の場合はお気軽にお声がけください。';
     } else {
@@ -2734,13 +2734,21 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
     var text;
     switch (status) {
       case 'available':
-        // 募集中。バッジが取れていれば「N番手」、取れていなければ通常メッセージ
-        if (orderText) {
+        // 募集中。バッジ取得状況で文言切り分け
+        if (orderText && badgeCount >= 1) {
+          // バッジあり = 既にお申し込み予約者がいる
           text = '【空室状況のご連絡】\n\n' +
-                 '「' + building + '」は現在募集中です！\n' +
+                 '「' + building + '」はお申し込みが入っていますが、\n' +
                  '現在 ' + orderText + ' でお申し込みいただけます。\n\n' +
                  'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
+        } else if (orderText) {
+          // バッジ0 = 1番手 (完全空き)
+          text = '【空室状況のご連絡】\n\n' +
+                 '「' + building + '」は現在募集中です！\n' +
+                 '1番手でお申し込みいただけます。\n\n' +
+                 'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
         } else {
+          // バッジ取得できない (itandi以外) は従来通り
           text = '【空室状況のご連絡】\n\n' +
                  '「' + building + '」は現在も募集中でした！\n\n' +
                  'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
