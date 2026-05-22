@@ -564,17 +564,22 @@ function doGet(e) {
   // Discord webhook 設定確認 + テスト送信
   if (action === 'check_discord') {
     try {
-      var dUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+      // 空室確認用の webhook を優先 (共通 webhook の流用は Cloudflare 1015 を引き起こすため)
+      var props2 = PropertiesService.getScriptProperties();
+      var dUrl = props2.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL') || props2.getProperty('DISCORD_WEBHOOK_URL');
+      var usedKey = props2.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL')
+        ? 'DISCORD_WEBHOOK_AVAILABILITY_URL (空室確認専用)'
+        : 'DISCORD_WEBHOOK_URL (共通)';
       if (!dUrl) {
         return HtmlService.createHtmlOutput(
-          '<h2>❌ DISCORD_WEBHOOK_URL 未設定</h2>'
+          '<h2>❌ Discord webhook URL 未設定</h2>'
           + '<p>GASエディタ → 「プロジェクトの設定」 → 「スクリプトプロパティ」で '
-          + '<code>DISCORD_WEBHOOK_URL</code> を追加してください。</p>'
+          + '<code>DISCORD_WEBHOOK_AVAILABILITY_URL</code> を追加してください。</p>'
           + '<p>Discord 側で webhook URL を取得する方法:</p>'
           + '<ol><li>Discord でチャンネルを選択</li>'
           + '<li>歯車アイコン → 「連携サービス」 → 「ウェブフック」</li>'
           + '<li>「新しいウェブフック」を作成 → URLをコピー</li>'
-          + '<li>そのURLをスクリプトプロパティ <code>DISCORD_WEBHOOK_URL</code> に設定</li></ol>'
+          + '<li>そのURLをスクリプトプロパティ <code>DISCORD_WEBHOOK_AVAILABILITY_URL</code> に設定</li></ol>'
         );
       }
       // テスト送信
@@ -607,7 +612,8 @@ function doGet(e) {
       }
       // 設定確認のみ
       return HtmlService.createHtmlOutput(
-        '<h2>✅ DISCORD_WEBHOOK_URL 設定済み</h2>'
+        '<h2>✅ Discord webhook 設定済み</h2>'
+        + '<p>使用キー: <code>' + usedKey + '</code></p>'
         + '<p>URL: <code>' + dUrl.substring(0, 60) + '...</code></p>'
         + '<p><a href="?action=check_discord&send=1" target="_top">テスト送信してみる</a></p>'
       );
