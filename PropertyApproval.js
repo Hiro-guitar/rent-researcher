@@ -3081,7 +3081,7 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
           statusBadgeApp = {
             text: '申込あり',
             color: '#f59e0b',
-            subText: '現在お申し込みが入っており、追加のお申し込みはお受けできない状態です。キャンセル発生時にご通知できます。'
+            subText: '現在お申し込みが入っております。キャンセルが発生した際にご通知できます。'
           };
           footerBtnsApp = [
             { label: 'キャンセル通知を希望する', postbackData: watchPostback, style: 'primary', color: '#6ea814' },
