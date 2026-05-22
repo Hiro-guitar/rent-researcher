@@ -580,20 +580,29 @@ function doGet(e) {
       // テスト送信
       if (e.parameter.send === '1') {
         try {
-          UrlFetchApp.fetch(dUrl, {
+          var resp = UrlFetchApp.fetch(dUrl, {
             method: 'post',
             contentType: 'application/json',
             payload: JSON.stringify({ content: '🧪 空室確認システム: テスト通知です' }),
             muteHttpExceptions: true
           });
+          var code = resp.getResponseCode();
+          var body = resp.getContentText();
+          var success = (code >= 200 && code < 300);
+          var urlPreview = dUrl.length > 60
+            ? dUrl.substring(0, 40) + '...' + dUrl.substring(dUrl.length - 20)
+            : dUrl;
           return HtmlService.createHtmlOutput(
-            '<h2>✅ テスト送信完了</h2>'
-            + '<p>Discord にテストメッセージを送信しました。</p>'
-            + '<p>URL: <code>' + dUrl.substring(0, 60) + '...</code></p>'
-            + '<p>Discord を確認してください。</p>'
+            '<h2>' + (success ? '✅ 送信成功 (HTTP ' + code + ')' : '❌ 送信失敗 (HTTP ' + code + ')') + '</h2>'
+            + '<p><b>URL:</b> <code>' + urlPreview + '</code></p>'
+            + '<p><b>レスポンス:</b></p>'
+            + '<pre style="background:#f5f5f5;padding:10px;border-radius:6px;white-space:pre-wrap">' + (body || '(空レスポンス)') + '</pre>'
+            + (success
+              ? '<p>Discord を確認してください。</p>'
+              : '<p style="color:#9b1c1c">webhook URL が無効または期限切れの可能性があります。Discord で再作成してください。</p>')
           );
         } catch (eD) {
-          return HtmlService.createHtmlOutput('<h2>❌ 送信エラー</h2><pre>' + eD.message + '</pre>');
+          return HtmlService.createHtmlOutput('<h2>❌ 送信エラー (例外)</h2><pre>' + eD.message + '</pre>');
         }
       }
       // 設定確認のみ
