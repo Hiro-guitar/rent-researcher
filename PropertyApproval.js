@@ -2526,6 +2526,66 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
 }
 
 /**
+ * 通知済み物件シートの J列 (10) にキャンセル通知希望時刻を記録する。
+ * Chrome拡張がこのフラグを参照して、定期的にステータス変化をチェックする。
+ *
+ * @param {string} customerName
+ * @param {string} roomId
+ * @return {{ok:boolean, message:string}}
+ */
+function setCancellationWatch(customerName, roomId) {
+  if (!customerName || !roomId) return { ok: false, message: 'customer/roomId が未指定' };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return { ok: false, message: 'シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: false, message: 'シートが空です' };
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    var updated = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
+        sheet.getRange(i + 2, 10).setValue(now);  // J列 (10): watch_for_cancellation_at
+        updated++;
+      }
+    }
+    return {
+      ok: updated > 0,
+      message: updated + '行にキャンセル通知希望を記録しました'
+    };
+  } catch (e) {
+    return { ok: false, message: 'エラー: ' + e.message };
+  }
+}
+
+/**
+ * キャンセル通知希望をクリア (キャンセル発生して通知済みの場合に呼ぶ)。
+ */
+function clearCancellationWatch(customerName, roomId) {
+  if (!customerName || !roomId) return;
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return;
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return;
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
+        sheet.getRange(i + 2, 10).setValue('');
+      }
+    }
+  } catch (e) {
+    console.warn('[clearCancellationWatch] ' + e.message);
+  }
+}
+
+/**
  * 空室確認結果をお客さんに LINE プッシュ通知する。
  * 自動で確定できるステータス (available / applied / closed) のみが対象。
  *   - reins_listed / needs_confirmation はスタッフが手動で連絡するため対象外
@@ -2594,12 +2654,51 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
       case 'applied':
         // 申込あり: バッジ0 + listing_status=申込あり = 順番不明 → 順番待ち
         // バッジ ≥ 1 → (バッジ+1)番手で申込可能
-        // canApply=false (申込ボタン押せない) = キャンセル待ち通知のみ可能
+        // canApply=false (申込ボタン押せない) = キャンセル待ち通知のみ可能 → Flex メッセージ
         if (canApply === false) {
-          text = '【空室状況のご連絡】\n\n' +
-                 '「' + building + '」は現在お申し込みが入っており、追加のお申し込みはお受けできない状態です。\n\n' +
-                 'キャンセルが発生した場合に通知をご希望でしたら、お気軽にお声がけください。';
-        } else if (orderText && badgeCount >= 1) {
+          var flexMsg = {
+            type: 'flex',
+            altText: building + 'のお申し込み状況のお知らせ',
+            contents: {
+              type: 'bubble',
+              body: {
+                type: 'box',
+                layout: 'vertical',
+                contents: [
+                  { type: 'text', text: '【空室状況のご連絡】', size: 'sm', color: '#3a4a5e', weight: 'bold' },
+                  { type: 'text', text: building, size: 'lg', weight: 'bold', wrap: true, margin: 'sm', color: '#1a2538' },
+                  { type: 'separator', margin: 'md' },
+                  { type: 'text', text: '現在お申し込みが入っており、追加のお申し込みはお受けできない状態です。', wrap: true, size: 'sm', margin: 'md', color: '#555555' },
+                  { type: 'text', text: 'キャンセルが発生した場合に通知をご希望ですか?', wrap: true, size: 'sm', weight: 'bold', margin: 'md', color: '#1a2538' }
+                ]
+              },
+              footer: {
+                type: 'box',
+                layout: 'vertical',
+                spacing: 'sm',
+                contents: [
+                  {
+                    type: 'button',
+                    style: 'primary',
+                    color: '#6ea814',
+                    action: {
+                      type: 'postback',
+                      label: 'キャンセル通知を希望する',
+                      data: 'action=availability_watch_cancellation&customer=' + encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId),
+                      displayText: 'キャンセル通知を希望する'
+                    }
+                  }
+                ]
+              }
+            }
+          };
+          if (typeof pushMessage === 'function') {
+            pushMessage(userId, [flexMsg]);
+            console.log('[空室結果LINE] Flex送信成功 (applied/不可): ' + customerName);
+          }
+          return;
+        }
+        if (orderText && badgeCount >= 1) {
           text = '【空室状況のご連絡】\n\n' +
                  '「' + building + '」は現在お申し込みが入っているようです。\n' +
                  'ただし、' + orderText + ' でお申し込みいただけます。\n\n' +
