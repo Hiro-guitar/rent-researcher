@@ -65,7 +65,12 @@ function doPost(e) {
         var results = [];
         for (var iu = 0; iu < items.length; iu++) {
           var it = items[iu] || {};
-          var r = setPropertyAvailability(it.customer, it.room_id, it.status);
+          var extras = {
+            badgeCount: (typeof it.badge_count === 'number') ? it.badge_count : null,
+            canApply: (typeof it.can_apply === 'boolean') ? it.can_apply : null,
+            listingStatus: it.listing_status || ''
+          };
+          var r = setPropertyAvailability(it.customer, it.room_id, it.status, extras);
           results.push({ customer: it.customer, room_id: it.room_id, status: it.status, ok: r.ok });
         }
         return ContentService.createTextOutput(JSON.stringify({ ok: true, results: results }))
