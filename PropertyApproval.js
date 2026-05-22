@@ -2621,6 +2621,100 @@ function _notifyCancellationOccurredToCustomer_(customerName, roomId, buildingNa
 }
 
 /**
+ * テスト用: 任意の物件URLを指定して、Hirokiさん用に SEEN_SHEET + PENDING_SHEET に
+ * 行を手動追加する。これで「空室確認を依頼する」ボタンの動作をテストできる。
+ *
+ * 使い方: GASエディタで関数を実行 (内部の url / source を書き換える)
+ *
+ * @return {{ok:boolean, viewUrl:string, message:string}}
+ */
+function addTestAvailabilityProperty() {
+  // ↓ ここをテストしたい物件に書き換えて実行
+  var customerName = 'Hiroki';
+  var buildingName = 'テスト物件';
+  var url = 'https://bb.ielove.jp/ielovebb/rent/detail/id/82911297/';  // 申込1件+物確不要のURL
+  var source = 'ielove';   // 'itandi' / 'ielove' / 'essquare' / 'reins'
+  var reinsPropNo = '';     // REINSの場合は物件番号
+
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!pendingSheet || !seenSheet) return { ok: false, message: 'シートが見つかりません' };
+
+    var roomId = 'test_' + Date.now();
+    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+
+    // 最小限の property_data_json
+    var dataJson = JSON.stringify({
+      url: url,
+      source: source,
+      reins_property_number: reinsPropNo,
+      building_name: buildingName,
+      room_number: '',
+      rent: 80000,
+      management_fee: 5000,
+      layout: '1K',
+      area: 25,
+      building_age: '築15年',
+      station_info: 'テスト駅 徒歩5分',
+      address: 'テスト住所',
+      deposit: '1ヶ月',
+      key_money: '1ヶ月',
+      image_urls: []
+    });
+
+    // PENDING_SHEET (14列) に追加
+    pendingSheet.appendRow([
+      customerName,                    // A
+      'test_building_' + roomId,       // B
+      roomId,                          // C
+      buildingName,                    // D
+      '80000',                         // E
+      '5000',                          // F
+      '1K',                            // G
+      '25',                            // H
+      'テスト駅 徒歩5分',                // I
+      dataJson,                        // J
+      'sent',                          // K (sent扱い、view_apiから取得可能)
+      now,                             // L (created_at)
+      now,                             // M (updated_at)
+      ''                                // N (view_url、空でOK)
+    ]);
+
+    // SEEN_SHEET (8列) に追加
+    seenSheet.appendRow([
+      customerName,                                // A
+      roomId,                                      // B
+      buildingName,                                // C
+      now,                                          // D (sent_at)
+      source,                                       // E
+      '',                                           // F (current_status)
+      '',                                           // G (status_checked_at)
+      source === 'reins' ? reinsPropNo : url       // H (source_ref)
+    ]);
+
+    var viewUrl = 'https://form.ehomaki.com/property.html?customer=' +
+                  encodeURIComponent(customerName) + '&room_id=' + roomId;
+
+    var result = {
+      ok: true,
+      viewUrl: viewUrl,
+      customer: customerName,
+      roomId: roomId,
+      message: 'テスト物件を追加しました'
+    };
+    Logger.log(JSON.stringify(result, null, 2));
+    Logger.log('▼ このURLを開いて「空室確認を依頼する」ボタンをテスト:');
+    Logger.log(viewUrl);
+    return result;
+  } catch (e) {
+    Logger.log('エラー: ' + e.message);
+    return { ok: false, message: e.message };
+  }
+}
+
+/**
  * 通知済み物件シートの J列 (10) にキャンセル通知希望時刻を記録する。
  * Chrome拡張がこのフラグを参照して、定期的にステータス変化をチェックする。
  *
