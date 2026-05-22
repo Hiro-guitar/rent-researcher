@@ -2455,11 +2455,6 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
       console.log('[空室確認依頼] DISCORD_WEBHOOK_URL 未設定でスキップ: ' + customerName);
       return;
     }
-    // [テスト中] 重複防止は無効化。本番運用時は再度有効化
-    //   var props = PropertiesService.getScriptProperties();
-    //   var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
-    //   var dedupKey = 'avail_notify_' + customerName + '|' + roomId + '|' + today;
-    //   if (props.getProperty(dedupKey)) { ... return; }
     var srcLabel = (source || '').toLowerCase();
     var statusLabel = (status === 'needs_confirmation') ? '要物確・要確認' : 'REINS掲載中';
     var sourceDisplay = {
@@ -2468,22 +2463,55 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
       ielove: 'いえらぶ',
       essquare: 'いい生活'
     }[srcLabel] || (source || '不明');
+
+    // 物件詳細URL を構築
+    //   - itandi/ielove/essquare: sourceRef は物件URL
+    //   - reins: sourceRef は物件番号 → REINS検索ページ + #bukken=NNNN
+    var propertyUrl = '';
+    if (srcLabel === 'reins') {
+      var num = String(sourceRef || '').replace(/[^0-9]/g, '');
+      if (num) propertyUrl = 'https://system.reins.jp/main/BK/GBK004100#bukken=' + num;
+    } else if (sourceRef && /^https?:\/\//.test(sourceRef)) {
+      propertyUrl = sourceRef;
+    }
+
+    // スタッフ返答用 URL (api_key付き、ステータスごと)
+    var webAppUrl = ScriptApp.getService().getUrl();
+    var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
+    function buildReplyUrl(replyStatus, badgeCount, canApply) {
+      var params = [
+        'action=staff_reply_availability',
+        'customer=' + encodeURIComponent(customerName),
+        'room_id=' + encodeURIComponent(roomId),
+        'status=' + encodeURIComponent(replyStatus),
+        'api_key=' + encodeURIComponent(apiKey)
+      ];
+      if (typeof badgeCount === 'number') params.push('badge_count=' + badgeCount);
+      if (typeof canApply === 'boolean') params.push('can_apply=' + (canApply ? '1' : '0'));
+      return webAppUrl + '?' + params.join('&');
+    }
+
     var lines = [
       '🔔 **' + sourceDisplay + ' 物件 空室確認依頼** (' + statusLabel + ')',
       '顧客: ' + customerName + ' 様',
       '物件: ' + (buildingName || '(建物名不明)'),
       'room_id: ' + roomId
     ];
-    if (sourceRef) {
-      if (srcLabel === 'reins') lines.push('REINS物件番号: ' + sourceRef);
-      else lines.push('URL: ' + sourceRef);
-    }
+    if (srcLabel === 'reins' && sourceRef) lines.push('REINS物件番号: ' + sourceRef);
+    if (propertyUrl) lines.push('📋 物件詳細を確認: ' + propertyUrl);
     lines.push('');
-    lines.push('→ お客さんが空室状況の確認を依頼しています。');
-    lines.push('→ 元付業者に電話確認のうえ、LINEでお返事をお願いします。');
+    lines.push('→ 元付業者に電話確認のうえ、以下から状況を選択してください:');
+    lines.push('🟢 [募集中(1番手で申込可)](' + buildReplyUrl('available', 0, true) + ')');
+    lines.push('🟡 [申込あり(順番待ちで申込可)](' + buildReplyUrl('applied', 0, true) + ')');
+    lines.push('🟠 [申込あり(キャンセル待ち通知のみ)](' + buildReplyUrl('applied', 1, false) + ')');
+    lines.push('🔴 [募集終了](' + buildReplyUrl('closed') + ')');
+    lines.push('');
+    lines.push('※ クリック後、自動でお客さんにLINE通知されます');
+
     var payload = {
       content: lines.join('\n'),
-      thread_name: '🔔 空室確認 (' + sourceDisplay + '): ' + customerName
+      thread_name: '🔔 空室確認 (' + sourceDisplay + '): ' + customerName,
+      allowed_mentions: { parse: [] }
     };
     UrlFetchApp.fetch(DISCORD_WEBHOOK_URL, {
       method: 'post',
@@ -2491,7 +2519,6 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
       payload: JSON.stringify(payload),
       muteHttpExceptions: true
     });
-    // [テスト中] 重複防止 props.setProperty(dedupKey, '1') は無効化
     console.log('[空室確認依頼] Discord通知送信: ' + customerName + ' (' + sourceDisplay + '/' + statusLabel + ')');
   } catch (e) {
     console.warn('[空室確認依頼] Discord通知失敗: ' + e.message);
