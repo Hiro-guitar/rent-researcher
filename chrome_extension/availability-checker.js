@@ -628,7 +628,11 @@ async function runAvailabilityCheckBatch(options) {
       // 3. 一括 POST (このサイクル分)
       if (results.length > 0) {
         try {
-          await gasPost({ action: 'update_availability', items: results });
+          const postRes = await gasPost({ action: 'update_availability', items: results });
+          // Discord 通知 (Cloudflare 1015 回避のため Chrome拡張側で送信)
+          if (postRes && Array.isArray(postRes.discord_notify_items)) {
+            await _sendDiscordNotificationsFromExtension(postRes.discord_notify_items);
+          }
         } catch (e) {
           await setStorageData({ debugLog: `[空室確認] 更新POST失敗: ${e.message} (中断)` });
           return { processed: totalProcessed + results.length, error: e.message };
@@ -660,6 +664,41 @@ async function runAvailabilityCheckBatch(options) {
 // 外部から中断要求を受け取る
 async function stopAvailabilityCheck() {
   await new Promise(r => chrome.storage.local.set({ __availabilityCheckStop: true }, r));
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Discord 通知を Chrome拡張のユーザーIPから送信する
+// (GAS共用IPプールが Cloudflare 1015 にフラグされる問題を回避)
+// gasPost(update_availability) のレスポンスに discord_notify_items が
+// あれば呼ばれる。
+// ──────────────────────────────────────────────────────────────────
+async function _sendDiscordNotificationsFromExtension(items) {
+  if (!Array.isArray(items) || items.length === 0) return;
+  for (const item of items) {
+    if (!item || !item.webhook_url || !item.content) continue;
+    try {
+      const resp = await fetch(item.webhook_url + (item.webhook_url.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: item.content })
+      });
+      const code = resp.status;
+      if (code >= 200 && code < 300) {
+        await setStorageData({
+          debugLog: `[Discord通知] ✓ 送信成功: ${item.customer} (${item.source}) HTTP=${code}`
+        });
+      } else {
+        const body = await resp.text();
+        await setStorageData({
+          debugLog: `[Discord通知] ✗ 失敗: ${item.customer} HTTP=${code} body=${body.substring(0, 100)}`
+        });
+      }
+    } catch (e) {
+      await setStorageData({
+        debugLog: `[Discord通知] ✗ 例外: ${item.customer || '?'} ${e.message}`
+      });
+    }
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -718,7 +757,10 @@ async function runPriorityAvailabilityPoll() {
   }
 
   try {
-    await gasPost({ action: 'update_availability', items: results });
+    const postRes = await gasPost({ action: 'update_availability', items: results });
+    if (postRes && Array.isArray(postRes.discord_notify_items)) {
+      await _sendDiscordNotificationsFromExtension(postRes.discord_notify_items);
+    }
   } catch (e) {
     await setStorageData({ debugLog: `[優先空室確認] 結果POST失敗: ${e.message}` });
     return { processed: results.length, error: e.message };
@@ -794,7 +836,10 @@ async function runCancellationWatchPoll() {
   }
 
   try {
-    await gasPost({ action: 'update_availability', items: results });
+    const postRes = await gasPost({ action: 'update_availability', items: results });
+    if (postRes && Array.isArray(postRes.discord_notify_items)) {
+      await _sendDiscordNotificationsFromExtension(postRes.discord_notify_items);
+    }
   } catch (e) {
     await setStorageData({ debugLog: `[キャンセル監視] 結果POST失敗: ${e.message}` });
     return { processed: results.length, error: e.message };
