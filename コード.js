@@ -160,6 +160,33 @@ function doPost(e) {
         return;
       }
 
+      // 空室確認: キャンセル通知希望ボタンの postback
+      //   data="action=availability_watch_cancellation&customer=...&room_id=..."
+      if (typeof data === 'string' && data.indexOf('action=availability_watch_cancellation') === 0) {
+        try {
+          var params = {};
+          data.split('&').forEach(function(kv) {
+            var p = kv.split('=');
+            if (p.length === 2) params[p[0]] = decodeURIComponent(p[1] || '');
+          });
+          var watchRes = (typeof setCancellationWatch === 'function')
+            ? setCancellationWatch(params.customer, params.room_id)
+            : { ok: false, message: 'function not defined' };
+          if (watchRes.ok) {
+            replyMessage(replyToken, [textMsg(
+              '承知しました。\n\n' +
+              'キャンセルが発生次第、すぐにお知らせいたします。'
+            )]);
+          } else {
+            replyMessage(replyToken, [textMsg('登録に失敗しました。お手数ですが、もう一度お試しください。')]);
+          }
+        } catch (eAW) {
+          console.warn('[キャンセル通知希望] エラー: ' + eAW.message);
+          try { replyMessage(replyToken, [textMsg('処理に失敗しました。')]); } catch(_) {}
+        }
+        return;
+      }
+
       // 検索条件フロー関連の postback（datetimepicker用にeventも渡す）
       if (handleSearchFlowPostback(replyToken, userId, data, state, event)) return;
 
