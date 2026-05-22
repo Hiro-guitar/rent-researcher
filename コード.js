@@ -63,6 +63,7 @@ function doPost(e) {
         }
         var items = Array.isArray(json.items) ? json.items : [];
         var results = [];
+        var discordNotifyItems = [];  // Chrome拡張側で送信する Discord 通知
         for (var iu = 0; iu < items.length; iu++) {
           var it = items[iu] || {};
           var extras = {
@@ -72,9 +73,17 @@ function doPost(e) {
           };
           var r = setPropertyAvailability(it.customer, it.room_id, it.status, extras);
           results.push({ customer: it.customer, room_id: it.room_id, status: it.status, ok: r.ok });
+          if (r && Array.isArray(r.discordPayloads)) {
+            for (var dp = 0; dp < r.discordPayloads.length; dp++) {
+              discordNotifyItems.push(r.discordPayloads[dp]);
+            }
+          }
         }
-        return ContentService.createTextOutput(JSON.stringify({ ok: true, results: results }))
-          .setMimeType(ContentService.MimeType.JSON);
+        return ContentService.createTextOutput(JSON.stringify({
+          ok: true,
+          results: results,
+          discord_notify_items: discordNotifyItems
+        })).setMimeType(ContentService.MimeType.JSON);
       } catch (eU) {
         return ContentService.createTextOutput(JSON.stringify({ error: eU.message }))
           .setMimeType(ContentService.MimeType.JSON);

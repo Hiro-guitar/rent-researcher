@@ -2062,6 +2062,7 @@ function setPropertyAvailability(customerName, roomId, status, extras) {
     var updated = 0;
     var deleted = 0;
     var rowsToDelete = [];
+    var discordPayloads = [];  // Chrome拡張側で送信するDiscord通知ペイロード
     var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
@@ -2116,12 +2117,14 @@ function setPropertyAvailability(customerName, roomId, status, extras) {
         if (hasRecentPriority) {
           if ((source === 'reins' && status === 'reins_listed') ||
               status === 'needs_confirmation') {
-            // スタッフ確認必要 → Discord通知 (お客さんへはスタッフが手動LINE)
+            // スタッフ確認必要 → Discord通知用 payload を生成して返却
+            //   GAS側からは直接送らず、Chrome拡張側でユーザーIPから送信 (Cloudflare 1015対策)
             //   priority_requested_at はクリアしない (スタッフが確認するまで「依頼中」のまま)
             try {
-              _notifyReinsConfirmationRequestToDiscord_(nameTrim, ridTrim, buildingName, sourceRef, source, status);
+              var dPayload = _buildAvailabilityDiscordPayload_(nameTrim, ridTrim, buildingName, sourceRef, source, status);
+              if (dPayload) discordPayloads.push(dPayload);
             } catch (eN) {
-              console.warn('[setPropertyAvailability] Discord通知失敗: ' + eN.message);
+              console.warn('[setPropertyAvailability] Discord payload生成失敗: ' + eN.message);
             }
           } else if (status === 'available' || status === 'applied' || status === 'closed') {
             // 自動で確定 → お客さんにLINEプッシュ通知
@@ -2146,7 +2149,8 @@ function setPropertyAvailability(customerName, roomId, status, extras) {
     }
     return {
       ok: (updated + deleted) > 0,
-      message: updated + '行 更新、' + deleted + '行 削除しました'
+      message: updated + '行 更新、' + deleted + '行 削除しました',
+      discordPayloads: discordPayloads
     };
   } catch (e) {
     return { ok: false, message: 'エラー: ' + e.message };
@@ -2533,6 +2537,78 @@ function _sendDiscordWithRetry_(webhookUrl, payload, maxAttempts) {
     }
   }
   return { ok: false, error: lastErr };
+}
+
+/**
+ * 空室確認依頼の Discord 通知用ペイロード + webhook URL を生成する。
+ * GAS から直接送信せず、Chrome拡張側で送信する (Cloudflare 1015対策)。
+ *
+ * @return {{webhook_url:string, content:string, customer:string, source:string}|null}
+ */
+function _buildAvailabilityDiscordPayload_(customerName, roomId, buildingName, sourceRef, source, status) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var webhookUrl = props.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL')
+      || ((typeof DISCORD_WEBHOOK_RENT_RESEARCHER_URL !== 'undefined') ? DISCORD_WEBHOOK_RENT_RESEARCHER_URL : null)
+      || props.getProperty('DISCORD_WEBHOOK_URL');
+    if (!webhookUrl) return null;
+
+    var srcLabel = (source || '').toLowerCase();
+    var statusLabel = (status === 'needs_confirmation') ? '要物確・要確認' : 'REINS掲載中';
+    var sourceDisplay = {
+      reins: 'REINS', itandi: 'itandi', ielove: 'いえらぶ', essquare: 'いい生活'
+    }[srcLabel] || (source || '不明');
+
+    var propertyUrl = '';
+    if (srcLabel === 'reins') {
+      var num = String(sourceRef || '').replace(/[^0-9]/g, '');
+      if (num) propertyUrl = 'https://system.reins.jp/main/BK/GBK004100#bukken=' + num;
+    } else if (sourceRef && /^https?:\/\//.test(sourceRef)) {
+      propertyUrl = sourceRef;
+    }
+
+    var webAppUrl = ScriptApp.getService().getUrl();
+    var apiKey = props.getProperty('REINS_API_KEY') || '';
+    function buildReplyUrl(replyStatus, badgeCount, canApply) {
+      var params = [
+        'action=staff_reply_availability',
+        'customer=' + encodeURIComponent(customerName),
+        'room_id=' + encodeURIComponent(roomId),
+        'status=' + encodeURIComponent(replyStatus),
+        'api_key=' + encodeURIComponent(apiKey)
+      ];
+      if (typeof badgeCount === 'number') params.push('badge_count=' + badgeCount);
+      if (typeof canApply === 'boolean') params.push('can_apply=' + (canApply ? '1' : '0'));
+      return webAppUrl + '?' + params.join('&');
+    }
+
+    var lines = [
+      '🔔 **' + sourceDisplay + ' 物件 空室確認依頼** (' + statusLabel + ')',
+      '顧客: ' + customerName + ' 様',
+      '物件: ' + (buildingName || '(建物名不明)'),
+      'room_id: ' + roomId
+    ];
+    if (srcLabel === 'reins' && sourceRef) lines.push('REINS物件番号: ' + sourceRef);
+    if (propertyUrl) lines.push('📋 物件詳細を確認: ' + propertyUrl);
+    lines.push('');
+    lines.push('→ 元付業者に電話確認のうえ、以下から状況を選択してください:');
+    lines.push('🟢 [募集中(1番手で申込可)](' + buildReplyUrl('available', 0, true) + ')');
+    lines.push('🟡 [申込あり(順番待ちで申込可)](' + buildReplyUrl('applied', 0, true) + ')');
+    lines.push('🟠 [申込あり(キャンセル待ち通知のみ)](' + buildReplyUrl('applied', 1, false) + ')');
+    lines.push('🔴 [募集終了](' + buildReplyUrl('closed') + ')');
+    lines.push('');
+    lines.push('※ クリック後、自動でお客さんにLINE通知されます');
+
+    return {
+      webhook_url: webhookUrl,
+      content: lines.join('\n'),
+      customer: customerName,
+      source: source
+    };
+  } catch (e) {
+    console.warn('[Discord payload生成] エラー: ' + e.message);
+    return null;
+  }
 }
 
 /**
