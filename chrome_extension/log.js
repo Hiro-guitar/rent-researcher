@@ -148,6 +148,21 @@
     });
   });
 
+  // キャンセル監視中物件一覧
+  const cancellationWatchListBtn = document.getElementById('cancellationWatchListBtn');
+  if (cancellationWatchListBtn) {
+    cancellationWatchListBtn.addEventListener('click', () => {
+      chrome.storage.local.get(['gasWebappUrl'], (data) => {
+        if (!data.gasWebappUrl) {
+          alert('GAS Web App URLが設定されていません。設定画面から設定してください。');
+          return;
+        }
+        const url = data.gasWebappUrl + '?action=list_cancellation_watches';
+        window.open(url, '_blank');
+      });
+    });
+  }
+
   // SUUMO巡回条件管理ページを直接開く
   document.getElementById('suumoConfigBtn').addEventListener('click', () => {
     chrome.storage.local.get(['gasWebappUrl', 'gasApiKey'], (data) => {
