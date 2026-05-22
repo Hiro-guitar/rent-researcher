@@ -533,6 +533,59 @@ function doGet(e) {
     }
   }
 
+  // スタッフが Discord で空室状況を返答するエンドポイント
+  //   Discord メッセージのリンククリックで呼ばれ、HTML レスポンスを返す
+  if (action === 'staff_reply_availability') {
+    try {
+      if (!_validateReinsApiKey(e.parameter.api_key)) {
+        return HtmlService.createHtmlOutput('<h2>❌ 認証エラー</h2><p>api_keyが不正です。</p>');
+      }
+      var custSR = e.parameter.customer || '';
+      var roomSR = e.parameter.room_id || '';
+      var statusSR = e.parameter.status || '';
+      var validStatusesSR = ['available', 'applied', 'closed'];
+      if (validStatusesSR.indexOf(statusSR) < 0) {
+        return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><p>不正なstatus: ' + statusSR + '</p>');
+      }
+      var extrasSR = {};
+      if (e.parameter.badge_count !== undefined) {
+        var bc = parseInt(e.parameter.badge_count, 10);
+        if (!isNaN(bc)) extrasSR.badgeCount = bc;
+      }
+      if (e.parameter.can_apply !== undefined) {
+        extrasSR.canApply = (e.parameter.can_apply === '1' || e.parameter.can_apply === 'true');
+      }
+      var resSR = setPropertyAvailability(custSR, roomSR, statusSR, extrasSR);
+      var statusLabel = {
+        available: '🟢 募集中 (1番手で申込可)',
+        applied: extrasSR.canApply === false ? '🟠 申込あり (キャンセル待ち通知のみ)' : '🟡 申込あり (順番待ちで申込可)',
+        closed: '🔴 募集終了'
+      }[statusSR] || statusSR;
+      var html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
+        + '<title>空室状況更新</title>'
+        + '<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f5f7fa;padding:30px 20px;color:#1a2538}'
+        + '.card{background:#fff;border-radius:12px;padding:30px;max-width:500px;margin:0 auto;box-shadow:0 4px 16px rgba(0,0,0,0.08)}'
+        + 'h2{color:#3d6909;margin-bottom:16px}'
+        + 'table{width:100%;margin:16px 0}td{padding:8px 0;font-size:14px}td:first-child{color:#6b7280;width:120px}'
+        + '.note{margin-top:20px;padding:12px;background:#f0faf4;border-radius:8px;font-size:13px;color:#3d6909}'
+        + '</style></head><body>'
+        + '<div class="card">'
+        + '<h2>' + (resSR.ok ? '✅ 更新完了' : '⚠️ 更新失敗') + '</h2>'
+        + '<table>'
+        + '<tr><td>顧客</td><td>' + custSR + ' 様</td></tr>'
+        + '<tr><td>room_id</td><td>' + roomSR + '</td></tr>'
+        + '<tr><td>ステータス</td><td>' + statusLabel + '</td></tr>'
+        + '</table>'
+        + (resSR.ok
+          ? '<div class="note">✓ お客さんに自動的にLINE通知が送信されます。<br>このタブは閉じてOKです。</div>'
+          : '<div class="note" style="color:#9b1c1c">' + (resSR.message || '不明なエラー') + '</div>')
+        + '</div></body></html>';
+      return HtmlService.createHtmlOutput(html);
+    } catch (eSR) {
+      return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><pre>' + eSR.message + '</pre>');
+    }
+  }
+
   // 物件1件の現在の空室ステータス取得 (property.html がポーリング)
   if (action === 'get_availability_status') {
     try {
