@@ -2486,11 +2486,15 @@ function addTestUserByLineId() {
  */
 function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildingName, sourceRef, source, status) {
   try {
-    var DISCORD_WEBHOOK_URL = (typeof DISCORD_WEBHOOK_RENT_RESEARCHER_URL !== 'undefined')
-      ? DISCORD_WEBHOOK_RENT_RESEARCHER_URL
-      : PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+    // 専用 webhook (AVAILABILITY) を優先、なければ共通 webhook にフォールバック
+    // Cloudflare が同じ webhook URL への多機能アクセスでレート制限 (1015) を課す
+    // ため、空室確認は独自の webhook を持つのが安全
+    var props = PropertiesService.getScriptProperties();
+    var DISCORD_WEBHOOK_URL = props.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL')
+      || ((typeof DISCORD_WEBHOOK_RENT_RESEARCHER_URL !== 'undefined') ? DISCORD_WEBHOOK_RENT_RESEARCHER_URL : null)
+      || props.getProperty('DISCORD_WEBHOOK_URL');
     if (!DISCORD_WEBHOOK_URL) {
-      console.log('[空室確認依頼] DISCORD_WEBHOOK_URL 未設定でスキップ: ' + customerName);
+      console.log('[空室確認依頼] Discord webhook URL 未設定でスキップ: ' + customerName);
       return;
     }
     var srcLabel = (source || '').toLowerCase();
