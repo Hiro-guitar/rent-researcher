@@ -561,6 +561,127 @@ function doGet(e) {
     }
   }
 
+  // 空室確認テスト用: ブラウザで開いてフォーム入力 → 1クリックでテスト物件追加
+  //   GET ?action=availability_test_form
+  //   GET ?action=availability_test_form&url=...&source=... → 追加して結果表示
+  if (action === 'availability_test_form') {
+    try {
+      if (!_validateReinsApiKey(e.parameter.api_key)) {
+        return HtmlService.createHtmlOutput('<h2>❌ 認証エラー</h2><p>api_keyが必要です。URL末尾に &api_key=... を付けてください。</p>');
+      }
+      var fUrl = (e.parameter.url || '').trim();
+      var fSource = (e.parameter.source || '').trim();
+      var fCustomer = (e.parameter.customer || 'Hiroki').trim();
+      var fBuilding = (e.parameter.building || 'テスト物件').trim();
+      var fReinsNo = (e.parameter.reins_prop_no || '').trim();
+      var fApiKey = e.parameter.api_key;
+
+      // パラメータあり → 追加処理
+      var resultHtml = '';
+      if (fUrl || (fSource === 'reins' && fReinsNo)) {
+        if (!fSource) {
+          resultHtml = '<div class="msg err">source が未指定です</div>';
+        } else {
+          try {
+            var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+            var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+            var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+            var roomId = 'test_' + Date.now();
+            var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+            var dataJson = JSON.stringify({
+              url: fUrl, source: fSource, reins_property_number: fReinsNo,
+              building_name: fBuilding, room_number: '',
+              rent: 80000, management_fee: 5000, layout: '1K', area: 25,
+              building_age: '築15年', station_info: 'テスト駅 徒歩5分',
+              address: 'テスト住所', deposit: '1ヶ月', key_money: '1ヶ月',
+              image_urls: []
+            });
+            pendingSheet.appendRow([
+              fCustomer, 'test_b_' + roomId, roomId, fBuilding,
+              '80000', '5000', '1K', '25', 'テスト駅 徒歩5分',
+              dataJson, 'sent', now, now, ''
+            ]);
+            seenSheet.appendRow([
+              fCustomer, roomId, fBuilding, now, fSource,
+              '', '', (fSource === 'reins' ? fReinsNo : fUrl)
+            ]);
+            var viewUrl = 'https://form.ehomaki.com/property.html?customer=' +
+                          encodeURIComponent(fCustomer) + '&room_id=' + roomId;
+            resultHtml = '<div class="msg ok">' +
+              '✓ テスト物件を追加しました<br>' +
+              '<b>customer:</b> ' + fCustomer + '<br>' +
+              '<b>room_id:</b> ' + roomId + '<br>' +
+              '<b>source:</b> ' + fSource + '<br>' +
+              '<b>URL:</b> ' + (fSource === 'reins' ? ('REINS物件番号: ' + fReinsNo) : fUrl) +
+              '</div>' +
+              '<a href="' + viewUrl + '" target="_blank" class="big-btn">📱 物件詳細ページを開いてテスト</a>' +
+              '<div class="note">↑ 押すと別タブで開きます。「空室確認を依頼する」を押してテスト</div>';
+          } catch (eAdd) {
+            resultHtml = '<div class="msg err">エラー: ' + eAdd.message + '</div>';
+          }
+        }
+      }
+
+      var sources = ['itandi', 'ielove', 'essquare', 'reins'];
+      var sourceOptions = sources.map(function(s) {
+        return '<option value="' + s + '"' + (s === fSource ? ' selected' : '') + '>' + s + '</option>';
+      }).join('');
+
+      var formHtml = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
+        + '<title>空室確認テスト</title>'
+        + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        + '<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f5f7fa;padding:20px;color:#1a2538;max-width:600px;margin:0 auto}'
+        + 'h1{font-size:20px;margin-bottom:16px;color:#3d6909}'
+        + '.card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 4px 16px rgba(0,0,0,0.08);margin-bottom:16px}'
+        + 'label{display:block;margin-top:12px;font-size:13px;color:#6b7280;font-weight:600}'
+        + 'input,select{width:100%;padding:10px;font-size:14px;border:1px solid #ddd;border-radius:6px;margin-top:4px;box-sizing:border-box;font-family:inherit}'
+        + 'input:focus,select:focus{outline:none;border-color:#6ea814}'
+        + 'button{width:100%;padding:12px;margin-top:16px;font-size:15px;font-weight:700;border:none;border-radius:8px;background:#6ea814;color:#fff;cursor:pointer;font-family:inherit}'
+        + 'button:hover{background:#5a8810}'
+        + '.msg{padding:12px;border-radius:8px;margin-top:8px;font-size:14px;line-height:1.6}'
+        + '.msg.ok{background:#f0faf4;color:#3d6909;border:1px solid #d4e7a8}'
+        + '.msg.err{background:#fef2f2;color:#9b1c1c;border:1px solid #f5c2c2}'
+        + '.big-btn{display:block;text-align:center;margin-top:12px;padding:14px;background:#06C755;color:#fff;text-decoration:none;border-radius:8px;font-weight:700;font-size:15px}'
+        + '.big-btn:hover{background:#04a747}'
+        + '.note{font-size:12px;color:#888;margin-top:8px;text-align:center}'
+        + '.examples{font-size:12px;color:#6b7280;margin-top:6px;line-height:1.6}'
+        + '.examples code{background:#f5f5f5;padding:2px 6px;border-radius:3px;font-size:11px}'
+        + '</style></head><body>'
+        + '<h1>🧪 空室確認テスト</h1>'
+        + (resultHtml ? ('<div class="card">' + resultHtml + '</div>') : '')
+        + '<div class="card">'
+        + '<form method="GET" action="">'
+        + '<input type="hidden" name="action" value="availability_test_form">'
+        + '<input type="hidden" name="api_key" value="' + fApiKey + '">'
+        + '<label>顧客名</label>'
+        + '<input type="text" name="customer" value="' + fCustomer + '" required>'
+        + '<label>建物名</label>'
+        + '<input type="text" name="building" value="' + fBuilding + '">'
+        + '<label>ソース</label>'
+        + '<select name="source" required><option value="">選択してください</option>' + sourceOptions + '</select>'
+        + '<label>物件URL <span style="color:#999;font-weight:400;">(REINS以外)</span></label>'
+        + '<input type="url" name="url" value="' + fUrl + '" placeholder="https://...">'
+        + '<label>REINS物件番号 <span style="color:#999;font-weight:400;">(REINSの場合)</span></label>'
+        + '<input type="text" name="reins_prop_no" value="' + fReinsNo + '" placeholder="例: 12345">'
+        + '<button type="submit">🚀 テスト物件を追加</button>'
+        + '</form>'
+        + '</div>'
+        + '<div class="card" style="font-size:12px;color:#666">'
+        + '<b>📚 サンプルURL</b><div class="examples">'
+        + '<b>ielove:</b><br><code>https://bb.ielove.jp/ielovebb/rent/detail/id/83533980/</code> (申込あり活性)<br>'
+        + '<code>https://bb.ielove.jp/ielovebb/rent/detail/id/82911297/</code> (申込N件+物確不要)<br>'
+        + '<code>https://bb.ielove.jp/ielovebb/rent/detail/id/83729590/</code> (Web申込NG/募集中)<br>'
+        + '<code>https://bb.ielove.jp/ielovebb/rent/detail/id/83850922/</code> (要物確)<br>'
+        + '<b>itandi:</b><br><code>https://itandibb.com/rent_rooms/52325996</code> (キャンセル待ち可)<br>'
+        + '<code>https://itandibb.com/rent_rooms/74047171</code> (キャンセル待ち不可)<br>'
+        + '</div></div>'
+        + '</body></html>';
+      return HtmlService.createHtmlOutput(formHtml).setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    } catch (eF) {
+      return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><pre>' + eF.message + '</pre>');
+    }
+  }
+
   // スタッフが Discord で空室状況を返答するエンドポイント
   //   Discord メッセージのリンククリックで呼ばれ、HTML レスポンスを返す
   if (action === 'staff_reply_availability') {
