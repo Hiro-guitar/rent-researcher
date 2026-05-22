@@ -564,23 +564,23 @@ function doGet(e) {
   // 空室確認テスト用: ブラウザで開いてフォーム入力 → 1クリックでテスト物件追加
   //   GET ?action=availability_test_form
   //   GET ?action=availability_test_form&url=...&source=... → 追加して結果表示
+  //   保護: 顧客名がテストユーザーリストに含まれる場合のみ追加可能
   if (action === 'availability_test_form') {
     try {
-      if (!_validateReinsApiKey(e.parameter.api_key)) {
-        return HtmlService.createHtmlOutput('<h2>❌ 認証エラー</h2><p>api_keyが必要です。URL末尾に &api_key=... を付けてください。</p>');
-      }
       var fUrl = (e.parameter.url || '').trim();
       var fSource = (e.parameter.source || '').trim();
       var fCustomer = (e.parameter.customer || 'Hiroki').trim();
       var fBuilding = (e.parameter.building || 'テスト物件').trim();
       var fReinsNo = (e.parameter.reins_prop_no || '').trim();
-      var fApiKey = e.parameter.api_key;
 
-      // パラメータあり → 追加処理
+      // パラメータあり → 追加処理 (テストユーザー判定で保護)
       var resultHtml = '';
       if (fUrl || (fSource === 'reins' && fReinsNo)) {
         if (!fSource) {
           resultHtml = '<div class="msg err">source が未指定です</div>';
+        } else if (typeof isAvailabilityTestUser === 'function' && !isAvailabilityTestUser(fCustomer)) {
+          resultHtml = '<div class="msg err">顧客「' + fCustomer + '」はテストユーザーに登録されていません。<br>'
+            + 'まず GASエディタで <code>manageAvailabilityTestUsers(\'add\', \'' + fCustomer + '\')</code> を実行してください。</div>';
         } else {
           try {
             var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -652,7 +652,6 @@ function doGet(e) {
         + '<div class="card">'
         + '<form method="GET" action="">'
         + '<input type="hidden" name="action" value="availability_test_form">'
-        + '<input type="hidden" name="api_key" value="' + fApiKey + '">'
         + '<label>顧客名</label>'
         + '<input type="text" name="customer" value="' + fCustomer + '" required>'
         + '<label>建物名</label>'
