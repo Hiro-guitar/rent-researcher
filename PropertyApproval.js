@@ -2471,6 +2471,71 @@ function addTestUserByLineId() {
 }
 
 /**
+ * Discord webhook に POST。Cloudflare 1015 / Discord 429 対策で
+ * 指数バックオフリトライを実装 (SUUMO patrol と同パターン)。
+ *
+ * @param {string} webhookUrl
+ * @param {object} payload
+ * @param {number} [maxAttempts=3]
+ * @return {{ok:boolean, code?:number, body?:string, attempt?:number, error?:string}}
+ */
+function _sendDiscordWithRetry_(webhookUrl, payload, maxAttempts) {
+  maxAttempts = maxAttempts || 3;
+  // wait=true で Discord が完全に処理完了するまで待つ (より正確なステータス取得)
+  var postUrl = (webhookUrl.indexOf('wait=') >= 0)
+    ? webhookUrl
+    : (webhookUrl + (webhookUrl.indexOf('?') >= 0 ? '&' : '?') + 'wait=true');
+  var lastErr = '';
+  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      var resp = UrlFetchApp.fetch(postUrl, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+      });
+      var code = resp.getResponseCode();
+      var body = resp.getContentText();
+      if (code >= 200 && code < 300) {
+        return { ok: true, code: code, body: body, attempt: attempt };
+      }
+      // 429 (Discord/Cloudflare) or 5xx → リトライ
+      if (code === 429 || code >= 500) {
+        var headers = resp.getAllHeaders();
+        var retryAfter = parseFloat(headers['Retry-After'] || headers['retry-after'] || '0');
+        try {
+          var bodyJson = JSON.parse(body);
+          if (bodyJson && bodyJson.retry_after) retryAfter = Math.max(retryAfter, parseFloat(bodyJson.retry_after));
+        } catch (_) {}
+        // Cloudflare 1015 (error code: 1015) は長期制限なので待つ意味なし
+        var isCloudflare1015 = (code === 429 && body.indexOf('1015') >= 0);
+        if (isCloudflare1015) {
+          lastErr = 'Cloudflare 1015 (長期レート制限)';
+          // 1015 はリトライ無意味、即終了
+          break;
+        }
+        var waitMs = (retryAfter > 0) ? Math.ceil(retryAfter * 1000) : 5000 * attempt;
+        if (waitMs > 60000) {
+          lastErr = 'HTTP ' + code + ' / wait ' + waitMs + 'ms > 60s 上限超過';
+          break;
+        }
+        lastErr = 'HTTP ' + code + ' (リトライ ' + attempt + '/' + maxAttempts + ', wait ' + waitMs + 'ms)';
+        console.log('[Discord] ' + lastErr);
+        Utilities.sleep(waitMs);
+        continue;
+      }
+      // それ以外のエラー (4xx) は致命的なのでリトライしない
+      lastErr = 'HTTP ' + code + ': ' + (body || '').substring(0, 100);
+      break;
+    } catch (e) {
+      lastErr = 'fetch error: ' + e.message;
+      Utilities.sleep(2000);
+    }
+  }
+  return { ok: false, error: lastErr };
+}
+
+/**
  * 空室確認依頼を Discord に通知する。
  * お客さんが「最新の空室状況を確認」を押し、Chrome拡張がチェックして
  *   - reins_listed (REINSに掲載あり)
@@ -2553,15 +2618,13 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
     var payload = {
       content: lines.join('\n')
     };
-    var resp = UrlFetchApp.fetch(DISCORD_WEBHOOK_URL, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
-    var respCode = resp.getResponseCode();
-    var respBody = resp.getContentText();
-    console.log('[空室確認依頼] Discord通知 HTTP=' + respCode + ' body=' + (respBody || '(empty)') + ' for ' + customerName + ' (' + sourceDisplay + '/' + statusLabel + ')');
+    // 429 / 5xx で指数バックオフリトライ (SUUMO patrol と同じパターン)
+    var sendResult = _sendDiscordWithRetry_(DISCORD_WEBHOOK_URL, payload, 3);
+    if (sendResult.ok) {
+      console.log('[空室確認依頼] Discord通知成功: ' + customerName + ' (' + sourceDisplay + '/' + statusLabel + ') HTTP=' + sendResult.code + ' attempt=' + sendResult.attempt);
+    } else {
+      console.warn('[空室確認依頼] Discord通知失敗: ' + customerName + ' / ' + sendResult.error);
+    }
   } catch (e) {
     console.warn('[空室確認依頼] Discord通知失敗: ' + e.message);
   }
