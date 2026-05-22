@@ -18,21 +18,27 @@
 // ──────────────────────────────────────────────────────────────────
 
 /**
+ * 物件1件の空室状況を確認。
  * @param {{source: string, url: string, reinsPropNo: string}} item
- * @return {Promise<'available'|'closed'|'reins_listed'|'unknown'>}
+ * @return {Promise<{status:string, badgeCount?:number, canApply?:boolean, listingStatus?:string}>}
  */
 async function checkOneAvailability(item) {
   const source = String(item.source || '').toLowerCase();
   const url = String(item.url || '');
   try {
-    if (source === 'itandi') return await _checkItandiAvailability(url);
-    if (source === 'ielove') return await _checkIeloveAvailability(url);
-    if (source === 'essquare') return await _checkEssquareAvailability(url);
-    if (source === 'reins') return await _checkReinsAvailability(item.reinsPropNo || '');
+    let res;
+    if (source === 'itandi')   res = await _checkItandiAvailability(url);
+    else if (source === 'ielove')   res = await _checkIeloveAvailability(url);
+    else if (source === 'essquare') res = await _checkEssquareAvailability(url);
+    else if (source === 'reins')    res = await _checkReinsAvailability(item.reinsPropNo || '');
+    else return { status: 'unknown' };
+    // 後方互換: 文字列が返ってきた場合は status のみとして包む
+    if (typeof res === 'string') return { status: res };
+    return res || { status: 'unknown' };
   } catch (e) {
     console.warn(`[availability] ${source} check failed: ${e.message}`);
   }
-  return 'unknown';
+  return { status: 'unknown' };
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -55,11 +61,11 @@ async function checkOneAvailability(item) {
 //     (申込ありの細分判定は不要、Web申込非対応店舗誤検出も回避)
 // ──────────────────────────────────────────────────────────────────
 async function _checkItandiAvailability(url) {
-  if (!url || url.indexOf('itandibb.com') < 0) return 'unknown';
+  if (!url || url.indexOf('itandibb.com') < 0) return { status: 'unknown' };
   const tab = await (typeof findOrCreateDedicatedItandiTab === 'function'
     ? findOrCreateDedicatedItandiTab()
     : null);
-  if (!tab) return 'unknown';
+  if (!tab) return { status: 'unknown' };
   try {
     await chrome.tabs.update(tab.id, { url: url });
     await _waitForTabLoad(tab.id, 15000);
@@ -69,30 +75,8 @@ async function _checkItandiAvailability(url) {
       func: () => {
         const bodyText = document.body.innerText || '';
 
-        // 1. 404 / 掲載削除
-        if (/このページは存在しません|お探しのページ|404\s*Not\s*Found|ページが見つかりません/i.test(bodyText)) return 'closed';
-
-        // 2. listing_status (テキスト検出: itandi-content-detail.js と同じ順序)
-        const knownStatuses = ['申込あり', '成約', '公開停止', '契約済み', '募集中'];
-        let listingStatus = '';
-        for (const s of knownStatuses) {
-          if (bodyText.includes(s)) { listingStatus = s; break; }
-        }
-        if (listingStatus === '成約' || listingStatus === '契約済み' || listingStatus === '公開停止') {
-          return 'closed';
-        }
-
-        // 3. 「申込あり」は要物確より優先 (キャンセル発生時通知の価値あり)
-        const hasOfferedText = listingStatus === '申込あり' || /status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
-        if (hasOfferedText) return 'applied';
-
-        // 4. (申込ありでない) + 要物確 / 要確認 → スタッフ確認必要
-        if (/要物確|要確認/.test(bodyText)) return 'needs_confirmation';
-
-        // 5. WEBバッジ ≥ 1 → 申込予約あり
-        //    itandi-content-detail.js と同じ 3段階フォールバック でバッジ数を取得
+        // ── 共通: WEBバッジ数取得 ──
         let webBadgeCount = -1;
-        // Approach A: MuiBadge
         const badges = document.querySelectorAll('[class*="Badge-badge"], [class*="badge"]');
         for (const badge of badges) {
           const parent = badge.closest('[class*="Badge-root"]') || badge.parentElement;
@@ -102,7 +86,6 @@ async function _checkItandiAvailability(url) {
             break;
           }
         }
-        // Approach B: WEBテキスト + 兄弟バッジ
         if (webBadgeCount === -1) {
           const allEls = document.querySelectorAll('button, span, a');
           for (const el of allEls) {
@@ -118,26 +101,67 @@ async function _checkItandiAvailability(url) {
             }
           }
         }
-        // Approach C: テキスト正規表現
         if (webBadgeCount === -1) {
           const webMatch = bodyText.match(/WEB[\s\n]+(\d+)/);
           if (webMatch) webBadgeCount = parseInt(webMatch[1], 10);
         }
 
-        if (webBadgeCount >= 1) return 'applied';  // WEB申込予約あり
+        // ── 共通: WEB申込ボタンの可否 ──
+        const commonButtons = [...document.querySelectorAll('.CommonButton.isDetail')];
+        const webCommonBtn = commonButtons.find(el => /^WEB/i.test((el.textContent || '').trim()));
+        let canApply = null;  // 不明
+        if (webCommonBtn) {
+          const webBtnDisabled = !!webCommonBtn.querySelector('button[disabled], button.Mui-disabled');
+          canApply = !webBtnDisabled;
+        }
+
+        const badgeOut = (webBadgeCount >= 0) ? webBadgeCount : null;
+
+        // 1. 404 / 掲載削除
+        if (/このページは存在しません|お探しのページ|404\s*Not\s*Found|ページが見つかりません/i.test(bodyText)) {
+          return { status: 'closed' };
+        }
+
+        // 2. listing_status (テキスト検出)
+        const knownStatuses = ['申込あり', '成約', '公開停止', '契約済み', '募集中'];
+        let listingStatus = '';
+        for (const s of knownStatuses) {
+          if (bodyText.includes(s)) { listingStatus = s; break; }
+        }
+        if (listingStatus === '成約' || listingStatus === '契約済み' || listingStatus === '公開停止') {
+          return { status: 'closed', listingStatus: listingStatus };
+        }
+
+        // 3. 「申込あり」 (要物確より優先)
+        const hasOfferedText = listingStatus === '申込あり' || /status[_-]?type\s*[:=]\s*offered/i.test(bodyText);
+        if (hasOfferedText) {
+          return { status: 'applied', badgeCount: badgeOut, canApply: canApply, listingStatus: '申込あり' };
+        }
+
+        // 4. (申込ありでない) + 要物確 → スタッフ確認必要
+        if (/要物確|要確認/.test(bodyText)) {
+          return { status: 'needs_confirmation', listingStatus: listingStatus || '募集中' };
+        }
+
+        // 5. WEBバッジ ≥ 1 → 申込予約あり
+        if (badgeOut !== null && badgeOut >= 1) {
+          return { status: 'applied', badgeCount: badgeOut, canApply: canApply, listingStatus: listingStatus || '募集中' };
+        }
 
         // 6. 募集中
-        if (listingStatus === '募集中') return 'available';
-        // 7. listing_status 取れない場合のフォールバック
-        if (/募集中/.test(bodyText)) return 'available';
-        if (/取り下げ|募集停止|募集終了|申込受付終了/.test(bodyText)) return 'closed';
-        return 'unknown';
+        if (listingStatus === '募集中') {
+          return { status: 'available', badgeCount: badgeOut, canApply: canApply, listingStatus: '募集中' };
+        }
+        // 7. フォールバック
+        if (/募集中/.test(bodyText)) return { status: 'available', badgeCount: badgeOut, canApply: canApply };
+        if (/取り下げ|募集停止|募集終了|申込受付終了/.test(bodyText)) return { status: 'closed' };
+        return { status: 'unknown' };
       }
     });
-    return result || 'unknown';
+    return result || { status: 'unknown' };
   } catch (e) {
     console.warn('[availability/itandi] ' + e.message);
-    return 'unknown';
+    return { status: 'unknown' };
   }
 }
 
@@ -579,14 +603,21 @@ async function runAvailabilityCheckBatch(options) {
         }
         const it = items[i];
         try {
-          const status = await checkOneAvailability(it);
-          results.push({ customer: it.customer, room_id: it.roomId, status: status });
+          const res = await checkOneAvailability(it);
+          const status = (res && res.status) || 'unknown';
+          results.push({
+            customer: it.customer,
+            room_id: it.roomId,
+            status: status,
+            badge_count: (res && typeof res.badgeCount === 'number') ? res.badgeCount : null,
+            can_apply: (res && typeof res.canApply === 'boolean') ? res.canApply : null,
+            listing_status: (res && res.listingStatus) || ''
+          });
           await setStorageData({
             debugLog: `[空室確認] ${totalProcessed + i + 1}: ${it.customer} ${it.source} → ${status}`
           });
         } catch (e) {
           totalErrors++;
-          // 例外時も 'unknown' を返して checkedAt を更新 (次サイクルでスキップ)
           results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
           await setStorageData({
             debugLog: `[空室確認] ${totalProcessed + i + 1}: ${it.customer} エラー ${e.message} (unknown扱い)`
@@ -665,8 +696,16 @@ async function runPriorityAvailabilityPoll() {
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
     try {
-      const status = await checkOneAvailability(it);
-      results.push({ customer: it.customer, room_id: it.roomId, status: status });
+      const res = await checkOneAvailability(it);
+      const status = (res && res.status) || 'unknown';
+      results.push({
+        customer: it.customer,
+        room_id: it.roomId,
+        status: status,
+        badge_count: (res && typeof res.badgeCount === 'number') ? res.badgeCount : null,
+        can_apply: (res && typeof res.canApply === 'boolean') ? res.canApply : null,
+        listing_status: (res && res.listingStatus) || ''
+      });
       await setStorageData({
         debugLog: `[優先空室確認] ${it.customer} ${it.source} → ${status}`
       });
