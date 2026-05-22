@@ -481,6 +481,53 @@ function doGet(e) {
   }
 
   // 診断用: 承認待ち物件のJ列(JSON)を新しい順に表示。reins source を優先抽出
+  // 顧客の重複検知状態確認: ?action=debug_dedup_state&customer=倉田豊大
+  if (action === 'debug_dedup_state') {
+    try {
+      var dcCustomer = (e.parameter.customer || '').trim();
+      if (!dcCustomer) return ContentService.createTextOutput(JSON.stringify({ error: 'customer required' })).setMimeType(ContentService.MimeType.JSON);
+      var dcSs = SpreadsheetApp.openById(SPREADSHEET_ID);
+      var dcResult = { customer: dcCustomer, pending: [], seen: [] };
+      var dcPend = dcSs.getSheetByName(PENDING_SHEET_NAME);
+      if (dcPend) {
+        var dcPdata = dcPend.getDataRange().getValues();
+        var dcNorm = function(s) { return String(s || '').replace(/[\s　]+/g, '').trim(); };
+        var dcTarget = dcNorm(dcCustomer);
+        for (var dcI = 1; dcI < dcPdata.length; dcI++) {
+          if (dcNorm(dcPdata[dcI][0]) !== dcTarget) continue;
+          dcResult.pending.push({
+            row: dcI + 1,
+            building_name: String(dcPdata[dcI][3] || ''),
+            room_id: String(dcPdata[dcI][2] || ''),
+            status: String(dcPdata[dcI][10] || ''),
+            created_at: String(dcPdata[dcI][11] || '')
+          });
+        }
+      }
+      var dcSeen = dcSs.getSheetByName(SEEN_SHEET_NAME);
+      if (dcSeen) {
+        var dcSdata = dcSeen.getDataRange().getValues();
+        for (var dcJ = 1; dcJ < dcSdata.length; dcJ++) {
+          if (String(dcSdata[dcJ][0] || '').trim() !== dcCustomer) continue;
+          dcResult.seen.push({
+            row: dcJ + 1,
+            room_id: String(dcSdata[dcJ][1] || ''),
+            building_name: String(dcSdata[dcJ][2] || ''),
+            sent_at: String(dcSdata[dcJ][3] || ''),
+            source: String(dcSdata[dcJ][4] || ''),
+            current_status: String(dcSdata[dcJ][5] || '')
+          });
+        }
+      }
+      dcResult.pendingCount = dcResult.pending.length;
+      dcResult.seenCount = dcResult.seen.length;
+      return ContentService.createTextOutput(JSON.stringify(dcResult, null, 2))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (eDC) {
+      return ContentService.createTextOutput(JSON.stringify({ error: eDC.message })).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   if (action === 'debug_pending_json') {
     try {
       var _ss3 = SpreadsheetApp.openById(SPREADSHEET_ID);
