@@ -601,9 +601,12 @@ function doGet(e) {
               '80000', '5000', '1K', '25', 'テスト駅 徒歩5分',
               dataJson, 'sent', now, now, ''
             ]);
+            // SEEN_SHEET: A〜I 列 (I = priority_requested_at をテスト用に即座にセット)
+            var setNow = (e.parameter.run_now === '1');
             seenSheet.appendRow([
               fCustomer, roomId, fBuilding, now, fSource,
-              '', '', (fSource === 'reins' ? fReinsNo : fUrl)
+              '', '', (fSource === 'reins' ? fReinsNo : fUrl),
+              setNow ? now : ''  // I列: priority_requested_at
             ]);
             var viewUrl = 'https://form.ehomaki.com/property.html?customer=' +
                           encodeURIComponent(fCustomer) + '&room_id=' + roomId;
@@ -613,9 +616,12 @@ function doGet(e) {
               '<b>room_id:</b> ' + roomId + '<br>' +
               '<b>source:</b> ' + fSource + '<br>' +
               '<b>URL:</b> ' + (fSource === 'reins' ? ('REINS物件番号: ' + fReinsNo) : fUrl) +
+              (setNow ? '<br><b>✓ 優先キューにセット済み</b> (1分以内にChrome拡張がチェック)' : '') +
               '</div>' +
-              '<a href="' + viewUrl + '" target="_blank" class="big-btn">📱 物件詳細ページを開いてテスト</a>' +
-              '<div class="note">↑ 押すと別タブで開きます。「空室確認を依頼する」を押してテスト</div>';
+              (setNow
+                ? '<div class="note">📱 拡張のダッシュボード(log.html)で「[優先空室確認]」ログを確認してください。<br>1分以内に LINE 通知 or Discord 通知が来るはずです。</div>'
+                : '<a href="' + viewUrl + '" target="_blank" class="big-btn">📱 物件詳細ページを開いてテスト</a>'
+              + '<div class="note">↑ 押すと別タブで開きます。「空室確認を依頼する」を押してテスト</div>');
           } catch (eAdd) {
             resultHtml = '<div class="msg err">エラー: ' + eAdd.message + '</div>';
           }
@@ -663,6 +669,10 @@ function doGet(e) {
         + '<input type="url" id="f_url" value="' + fUrl + '" placeholder="https://...">'
         + '<label>REINS物件番号 <span style="color:#999;font-weight:400;">(REINSの場合)</span></label>'
         + '<input type="text" id="f_reins" value="' + fReinsNo + '" placeholder="例: 12345">'
+        + '<label style="margin-top:16px;display:flex;align-items:center;gap:8px;font-weight:400;">'
+        + '<input type="checkbox" id="f_run_now" checked style="width:auto;margin:0;"> '
+        + '<span>追加と同時に空室確認を実行 (推奨)</span></label>'
+        + '<div style="font-size:11px;color:#888;margin-top:4px;">OFF にすると物件詳細ページのボタン経由でテストする形になります</div>'
         + '<button onclick="submitTest()">🚀 テスト物件を追加</button>'
         + '</div>'
         + '<script>'
@@ -675,6 +685,7 @@ function doGet(e) {
         + ' p.set("source", document.getElementById("f_source").value);'
         + ' p.set("url", document.getElementById("f_url").value);'
         + ' p.set("reins_prop_no", document.getElementById("f_reins").value);'
+        + ' if (document.getElementById("f_run_now").checked) p.set("run_now", "1");'
         + ' window.top.location.href = u + "?" + p.toString();'
         + '}'
         + 'function setUrl(url){document.getElementById("f_url").value = url;}'
