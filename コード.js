@@ -561,6 +561,52 @@ function doGet(e) {
     }
   }
 
+  // Discord webhook 設定確認 + テスト送信
+  if (action === 'check_discord') {
+    try {
+      var dUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+      if (!dUrl) {
+        return HtmlService.createHtmlOutput(
+          '<h2>❌ DISCORD_WEBHOOK_URL 未設定</h2>'
+          + '<p>GASエディタ → 「プロジェクトの設定」 → 「スクリプトプロパティ」で '
+          + '<code>DISCORD_WEBHOOK_URL</code> を追加してください。</p>'
+          + '<p>Discord 側で webhook URL を取得する方法:</p>'
+          + '<ol><li>Discord でチャンネルを選択</li>'
+          + '<li>歯車アイコン → 「連携サービス」 → 「ウェブフック」</li>'
+          + '<li>「新しいウェブフック」を作成 → URLをコピー</li>'
+          + '<li>そのURLをスクリプトプロパティ <code>DISCORD_WEBHOOK_URL</code> に設定</li></ol>'
+        );
+      }
+      // テスト送信
+      if (e.parameter.send === '1') {
+        try {
+          UrlFetchApp.fetch(dUrl, {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({ content: '🧪 空室確認システム: テスト通知です' }),
+            muteHttpExceptions: true
+          });
+          return HtmlService.createHtmlOutput(
+            '<h2>✅ テスト送信完了</h2>'
+            + '<p>Discord にテストメッセージを送信しました。</p>'
+            + '<p>URL: <code>' + dUrl.substring(0, 60) + '...</code></p>'
+            + '<p>Discord を確認してください。</p>'
+          );
+        } catch (eD) {
+          return HtmlService.createHtmlOutput('<h2>❌ 送信エラー</h2><pre>' + eD.message + '</pre>');
+        }
+      }
+      // 設定確認のみ
+      return HtmlService.createHtmlOutput(
+        '<h2>✅ DISCORD_WEBHOOK_URL 設定済み</h2>'
+        + '<p>URL: <code>' + dUrl.substring(0, 60) + '...</code></p>'
+        + '<p><a href="?action=check_discord&send=1" target="_top">テスト送信してみる</a></p>'
+      );
+    } catch (eC) {
+      return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><pre>' + eC.message + '</pre>');
+    }
+  }
+
   // 空室確認テスト用: ブラウザで開いてフォーム入力 → 1クリックでテスト物件追加
   //   GET ?action=availability_test_form
   //   GET ?action=availability_test_form&url=...&source=... → 追加して結果表示
