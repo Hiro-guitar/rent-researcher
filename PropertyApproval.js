@@ -2589,13 +2589,14 @@ function _buildAvailabilityDiscordPayload_(customerName, roomId, buildingName, s
       'room_id: ' + roomId
     ];
     if (srcLabel === 'reins' && sourceRef) lines.push('REINS物件番号: ' + sourceRef);
-    if (propertyUrl) lines.push('📋 物件詳細を確認: ' + propertyUrl);
+    // URL を <> で囲んで Discord の自動プレビュー (= 勝手にGETアクセス) を無効化
+    if (propertyUrl) lines.push('📋 物件詳細を確認: <' + propertyUrl + '>');
     lines.push('');
     lines.push('→ 元付業者に電話確認のうえ、以下から状況を選択してください:');
-    lines.push('🟢 [募集中(1番手で申込可)](' + buildReplyUrl('available', 0, true) + ')');
-    lines.push('🟡 [申込あり(順番待ちで申込可)](' + buildReplyUrl('applied', 0, true) + ')');
-    lines.push('🟠 [申込あり(キャンセル待ち通知のみ)](' + buildReplyUrl('applied', 1, false) + ')');
-    lines.push('🔴 [募集終了](' + buildReplyUrl('closed') + ')');
+    lines.push('🟢 [募集中(1番手で申込可)](<' + buildReplyUrl('available', 0, true) + '>)');
+    lines.push('🟡 [申込あり(順番待ちで申込可)](<' + buildReplyUrl('applied', 0, true) + '>)');
+    lines.push('🟠 [申込あり(キャンセル待ち通知のみ)](<' + buildReplyUrl('applied', 1, false) + '>)');
+    lines.push('🔴 [募集終了](<' + buildReplyUrl('closed') + '>)');
     lines.push('');
     lines.push('※ クリック後、自動でお客さんにLINE通知されます');
 
