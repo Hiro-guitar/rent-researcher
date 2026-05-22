@@ -1973,6 +1973,33 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     try {
       const seenResult = await fetchSeenIds();
       if (seenResult && seenResult.seen_ids) seenIds = seenResult.seen_ids;
+
+      // 通知済み物件の dedupキー一覧 → notifiedDedupMap に反映
+      //   GAS の承認待ちシート (sent行) から address+room_number+area+layout で
+      //   生成された dedup キー一覧を受け取り、Chrome拡張側のマップを補完。
+      //   これで itandi の property_id が変動 (再掲載で別ID) しても、 同じ物件は
+      //   重複検知でスキップできる。
+      const dedupKeysFromGas = (seenResult && seenResult.seen_dedup_keys) || {};
+      let dedupKeysAdded = 0;
+      const nowMs = Date.now();
+      for (const cust in dedupKeysFromGas) {
+        const keys = dedupKeysFromGas[cust] || [];
+        if (!Array.isArray(keys) || keys.length === 0) continue;
+        if (!globalThis.__notifiedDedupMap[cust]) globalThis.__notifiedDedupMap[cust] = {};
+        const inner = globalThis.__notifiedDedupMap[cust];
+        for (const k of keys) {
+          if (!k) continue;
+          if (!inner[k]) {
+            inner[k] = { ts: nowMs, source: 'gas_sync', url: '' };
+            dedupKeysAdded++;
+          }
+        }
+      }
+      if (dedupKeysAdded > 0) {
+        await chrome.storage.local.set({ notifiedDedupMap: globalThis.__notifiedDedupMap });
+        await setStorageData({ debugLog: `[GAS同期] 通知済み物件の dedup キー ${dedupKeysAdded} 件を notifiedDedupMap に追加` });
+      }
+
       // AdminPage で履歴リセットされた顧客×ソース の dedup マップを処理
       // GAS の pending_dedup_resets を受け取り、notifiedDedupMap から該当エントリを削除
       const resets = (seenResult && Array.isArray(seenResult.pending_dedup_resets)) ? seenResult.pending_dedup_resets : [];
