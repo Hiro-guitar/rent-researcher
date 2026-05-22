@@ -3077,9 +3077,9 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
         var statusBadgeApp = null;
         var footerBtnsApp = [];
         if (canApply === false) {
-          // 🟠 キャンセル待ち登録不可
+          // 🟠 申込あり (キャンセル待ち登録不可だが、キャンセル発生時に通知できる)
           statusBadgeApp = {
-            text: 'キャンセル待ち登録不可',
+            text: '申込あり',
             color: '#f59e0b',
             subText: '現在お申し込みが入っており、追加のお申し込みはお受けできない状態です。キャンセル発生時にご通知できます。'
           };
