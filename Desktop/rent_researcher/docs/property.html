@@ -982,6 +982,14 @@ function renderProperty(p) {
   // アクション状態チェック
   checkActionStatus();
 
+  // URL パラメータ ?apply=1 でお申し込みモーダルを自動展開
+  // (LINE通知の「お申し込みを希望する」ボタンから来た場合)
+  if (params.get('apply') === '1') {
+    setTimeout(function() {
+      if (typeof openHoldModal === 'function') openHoldModal();
+    }, 300);
+  }
+
   // 閲覧トラッキング（アクションログに統合、fire-and-forget）
   // IP+地理情報を取得してから送信（取れなかったら地理情報なしで送る）
   if (customer && roomId) {
