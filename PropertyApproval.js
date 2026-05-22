@@ -2859,6 +2859,54 @@ function addTestAvailabilityProperty() {
 }
 
 /**
+ * PENDING_SHEET から物件詳細を取得し、buildPropertyFlex 用の prop オブジェクトを返す。
+ * 空室確認結果通知 (LINE Flex) で物件詳細をリッチに表示するために使う。
+ *
+ * @return {Object|null} prop形式のオブジェクト (rowToProperty相当)
+ */
+function _getPendingPropForFlex_(customerName, roomId) {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    if (!sheet) return null;
+    var data = sheet.getDataRange().getValues();
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() !== nameTrim) continue;
+      if (String(data[i][2]).trim() !== ridTrim) continue;
+      var status = String(data[i][10] || '');
+      if (status !== 'sent' && status !== 'pending') continue;
+      try {
+        var d = JSON.parse(String(data[i][9] || ''));
+        // buildPropertyFlex が期待する camelCase 形式に変換
+        return {
+          buildingName: d.building_name || '',
+          roomNumber: d.room_number || '',
+          rent: d.rent || 0,
+          managementFee: d.management_fee || 0,
+          layout: d.layout || '',
+          area: d.area || 0,
+          buildingAge: d.building_age || '',
+          floor: d.floor || 0,
+          floorText: d.floor_text || '',
+          stationInfo: d.station_info || '',
+          otherStations: d.other_stations || [],
+          address: d.address || '',
+          deposit: d.deposit || '',
+          keyMoney: d.key_money || '',
+          imageUrls: d.image_urls || [],
+          imageUrl: (d.image_urls && d.image_urls[0]) || ''
+        };
+      } catch (_) { return null; }
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
  * 通知済み物件シートの J列 (10) にキャンセル通知希望時刻を記録する。
  * Chrome拡張がこのフラグを参照して、定期的にステータス変化をチェックする。
  *
@@ -2980,50 +3028,31 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
                  '現在 ' + orderText + ' でお申し込みいただけます。\n\n' +
                  'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
         } else if (orderText) {
-          // バッジ0 = 完全空き → Flex メッセージで詳細リンク + 申込ボタン
+          // バッジ0 = 完全空き → リッチな Flex メッセージ (物件詳細 + 申込ボタン)
           var propUrlAvail = 'https://form.ehomaki.com/property.html?customer=' +
                               encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId);
           var applyUrlAvail = propUrlAvail + '&apply=1';
-          var availFlex = {
-            type: 'flex',
-            altText: building + 'のお申し込み状況',
-            contents: {
-              type: 'bubble',
-              body: {
-                type: 'box',
-                layout: 'vertical',
-                contents: [
-                  { type: 'text', text: '【空室状況のご連絡】', size: 'sm', color: '#3a4a5e', weight: 'bold' },
-                  { type: 'text', text: building, size: 'lg', weight: 'bold', wrap: true, margin: 'sm', color: '#1a2538' },
-                  { type: 'separator', margin: 'md' },
-                  { type: 'text', text: '現在も募集中です', wrap: true, size: 'md', margin: 'lg', weight: 'bold', color: '#3d6909', align: 'center' }
-                ]
-              },
-              footer: {
-                type: 'box',
-                layout: 'vertical',
-                spacing: 'sm',
-                contents: [
-                  {
-                    type: 'button',
-                    style: 'primary',
-                    color: '#6ea814',
-                    action: { type: 'uri', label: 'お申し込みを希望する', uri: applyUrlAvail }
-                  },
-                  {
-                    type: 'button',
-                    style: 'secondary',
-                    action: { type: 'uri', label: '物件詳細を見る', uri: propUrlAvail }
-                  }
-                ]
-              }
+          var propDataForFlex = _getPendingPropForFlex_(customerName, roomId);
+          if (propDataForFlex && typeof buildPropertyFlex === 'function') {
+            var availFlex = buildPropertyFlex(propDataForFlex, {
+              viewUrl: propUrlAvail,
+              statusBadge: { text: '現在も募集中', color: '#6ea814' },
+              customFooterButtons: [
+                { label: 'お申し込みを希望する', uri: applyUrlAvail, style: 'primary', color: '#6ea814' },
+                { label: '物件詳細を見る', uri: propUrlAvail, style: 'secondary' }
+              ]
+            });
+            if (typeof pushMessage === 'function') {
+              pushMessage(userId, [availFlex]);
+              console.log('[空室結果LINE] リッチFlex送信成功 (available/完全空き): ' + customerName);
             }
-          };
-          if (typeof pushMessage === 'function') {
-            pushMessage(userId, [availFlex]);
-            console.log('[空室結果LINE] Flex送信成功 (available/完全空き): ' + customerName);
+            return;
           }
-          return;
+          // フォールバック: 物件詳細取得失敗時はシンプルテキスト
+          text = '【空室状況のご連絡】\n\n' +
+                 '「' + building + '」は現在も募集中です。\n\n' +
+                 'お申し込みご希望の場合は以下のURLからどうぞ:\n' +
+                 applyUrlAvail;
         } else {
           // バッジ取得できない (itandi以外) は従来通り
           text = '【空室状況のご連絡】\n\n' +
@@ -4458,7 +4487,20 @@ function buildPropertyFlex(prop, options) {
   }
 
   // ── body 組み立て ──
-  var bodyContents = [titleBlock, rentBlock];
+  // ステータスバッジ (オプション): タイトルの上に「● 現在も募集中」 等を表示
+  var bodyContents = [];
+  if (options.statusBadge && options.statusBadge.text) {
+    bodyContents.push({
+      type: 'box', layout: 'baseline', spacing: 'xs', margin: 'none',
+      contents: [
+        { type: 'text', text: '●', size: 'xs', color: options.statusBadge.color || '#6ea814', flex: 0 },
+        { type: 'text', text: options.statusBadge.text, size: 'sm',
+          color: options.statusBadge.color || '#6ea814', weight: 'bold', flex: 0, margin: 'xs' }
+      ]
+    });
+  }
+  bodyContents.push(titleBlock);
+  bodyContents.push(rentBlock);
   if (chipsContents.length > 0) {
     // flex:0 のチップを横並びにして余白は justifyContent で均等配分
     bodyContents.push({
@@ -4533,7 +4575,21 @@ function buildPropertyFlex(prop, options) {
     contents: bodyContents
   };
 
-  if (viewUrl) {
+  // ── footer (オプション: カスタムボタン群を指定可) ──
+  if (Array.isArray(options.customFooterButtons) && options.customFooterButtons.length > 0) {
+    bubble.footer = {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
+      contents: options.customFooterButtons.map(function(b) {
+        return {
+          type: 'button',
+          style: b.style || 'primary',
+          color: b.color,
+          height: 'sm',
+          action: { type: 'uri', label: b.label, uri: b.uri }
+        };
+      })
+    };
+  } else if (viewUrl) {
     bubble.footer = {
       type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
       contents: [
