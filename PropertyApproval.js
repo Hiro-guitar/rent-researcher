@@ -2078,6 +2078,35 @@ function setPropertyAvailability(customerName, roomId, status, extras) {
           continue;
         }
 
+        // キャンセル通知希望 (J列) チェック
+        //   watch 中物件で「申込可能」になった = キャンセル発生
+        var watchRaw = data[i][9];  // J列 (index 9)
+        var isWatching = !!watchRaw;
+        if (isWatching) {
+          var prevStatus = String(data[i][5] || '');
+          // キャンセル発生判定:
+          //   - status が available になった
+          //   - status が applied で canApply !== false (申込可能になった)
+          //   - status が applied で badgeCount が直近より減少 ... は省略 (シンプル化)
+          var cancellationDetected = false;
+          if (status === 'available') {
+            cancellationDetected = true;
+          } else if (status === 'applied' && extras.canApply !== false) {
+            // 前回 canApply=false → 今回 canApply=true は確実にキャンセル
+            // 前回情報が分からない場合も、ボタンが押せるなら通知
+            cancellationDetected = true;
+          }
+          if (cancellationDetected) {
+            try {
+              _notifyCancellationOccurredToCustomer_(nameTrim, ridTrim, buildingName, status, extras);
+              // watch フラグクリア (通知済み)
+              sheet.getRange(rowNum, 10).setValue('');
+            } catch (eC) {
+              console.warn('[setPropertyAvailability] キャンセル通知失敗: ' + eC.message);
+            }
+          }
+        }
+
         // 優先依頼が直近1時間以内なら、結果に応じてお客さんに通知する。
         var priorityRaw = data[i][8];
         var priorityAt = _parseDateFlexible_(priorityRaw);
@@ -2177,6 +2206,9 @@ function getAvailabilityCheckQueue(options) {
   // (お客さんがボタンを押した時の優先処理用)
   var priorityOnly = !!options.priorityOnly;
   var maxPriorityAgeMinutes = options.maxPriorityAgeMinutes || 60;
+  // watchOnly=true なら J列 watch_for_cancellation_at が空でない行のみ返す
+  // (キャンセル通知希望物件の定期チェック用)
+  var watchOnly = !!options.watchOnly;
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
@@ -2210,8 +2242,8 @@ function getAvailabilityCheckQueue(options) {
     // 2. 通知済み物件 から確認対象を抽出
     var seenLast = seenSheet.getLastRow();
     if (seenLast < 2) return [];
-    // 9列 (顧客/room_id/建物名/通知日時/ソース/状態/確認日時/URL/priority_requested_at)
-    var sData = seenSheet.getRange(2, 1, seenLast - 1, 9).getValues();
+    // 10列 (顧客/room_id/建物名/通知日時/ソース/状態/確認日時/URL/priority_requested_at/watch_for_cancellation_at)
+    var sData = seenSheet.getRange(2, 1, seenLast - 1, 10).getValues();
     var now = Date.now();
     var ageCutoff = now - maxAgeDays * 24 * 60 * 60 * 1000;
     var intervalCutoff = now - maxIntervalHours * 60 * 60 * 1000;
@@ -2242,16 +2274,22 @@ function getAvailabilityCheckQueue(options) {
       // I列: priority_requested_at (お客さんからの即時確認依頼)
       var priorityRaw = sData[j][8];
       var priorityAt = _parseDateFlexible_(priorityRaw);
-      // 優先依頼が直近で、かつ依頼時刻より後にチェックされていない場合 = 優先処理対象
       var isPriority = priorityAt > 0 && priorityAt > priorityCutoff &&
                        (!checkedAt || checkedAt < priorityAt);
       if (isPriority) diag.priorityCount++;
 
+      // J列: watch_for_cancellation_at (キャンセル通知希望)
+      var watchRaw = sData[j][9];
+      var isWatching = !!watchRaw;
+
+      // watchOnly モードなら watch 中のみ抽出
+      if (watchOnly && !isWatching) continue;
+
       // priorityOnly モードなら優先依頼のみ抽出
       if (priorityOnly && !isPriority) continue;
 
-      // 通常モード: closed / 直近チェック済みはスキップ。ただし優先依頼があれば例外。
-      if (!isPriority) {
+      // 通常モード: closed / 直近チェック済みはスキップ。ただし優先依頼/watch中があれば例外。
+      if (!isPriority && !isWatching) {
         if (status === 'closed') { diag.isClosed++; continue; }
         if (checkedAt && checkedAt > intervalCutoff) { diag.recentlyChecked++; continue; }
       }
@@ -2522,6 +2560,63 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
     console.log('[空室確認依頼] Discord通知送信: ' + customerName + ' (' + sourceDisplay + '/' + statusLabel + ')');
   } catch (e) {
     console.warn('[空室確認依頼] Discord通知失敗: ' + e.message);
+  }
+}
+
+/**
+ * キャンセル発生をお客さんに LINE プッシュ通知する。
+ * watch 中物件で空き (available or applied + canApply=true) になった時に呼ばれる。
+ *
+ * @param {string} customerName
+ * @param {string} roomId
+ * @param {string} buildingName
+ * @param {string} status
+ * @param {object} extras - { badgeCount, canApply, listingStatus }
+ */
+function _notifyCancellationOccurredToCustomer_(customerName, roomId, buildingName, status, extras) {
+  extras = extras || {};
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (!luSheet) return;
+    var luData = luSheet.getDataRange().getValues();
+    var userId = null;
+    var nameTrim = String(customerName).trim();
+    for (var i = 1; i < luData.length; i++) {
+      if (String(luData[i][1]).trim() === nameTrim) {
+        userId = String(luData[i][0]).trim();
+        break;
+      }
+    }
+    if (!userId) return;
+
+    var building = buildingName || 'お部屋';
+    var badgeCount = (typeof extras.badgeCount === 'number') ? extras.badgeCount : null;
+    var orderText = (badgeCount !== null && badgeCount >= 0)
+      ? (badgeCount + 1) + '番手'
+      : '';
+    var text;
+    if (status === 'available') {
+      text = '【🎉 キャンセル発生のお知らせ】\n\n' +
+             '以前ご希望いただいていた\n' +
+             '「' + building + '」にキャンセルが発生し、再び募集中となりました！\n\n' +
+             (orderText ? ('現在 ' + orderText + ' でお申し込みいただけます。\n\n') : '') +
+             'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
+    } else if (status === 'applied') {
+      text = '【🎉 キャンセル発生のお知らせ】\n\n' +
+             '以前ご希望いただいていた\n' +
+             '「' + building + '」にキャンセルが発生し、お申し込みが可能になりました！\n\n' +
+             (orderText ? ('現在 ' + orderText + ' でお申し込みいただけます。\n\n') : '') +
+             'お申し込みをご希望の場合はお気軽にお声がけください。';
+    } else {
+      return;
+    }
+    if (typeof pushMessage === 'function') {
+      pushMessage(userId, [{ type: 'text', text: text }]);
+      console.log('[キャンセル発生LINE] 送信: ' + customerName + ' (' + status + ')');
+    }
+  } catch (e) {
+    console.warn('[キャンセル発生LINE] エラー: ' + e.message);
   }
 }
 
