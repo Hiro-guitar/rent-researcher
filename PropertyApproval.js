@@ -4489,16 +4489,21 @@ function buildPropertyFlex(prop, options) {
   }
 
   // ── body 組み立て ──
-  // ステータスバッジ (オプション): タイトルの上に「● 現在も募集中」 等を表示
+  // ステータスバッジ (オプション): 緑塗りつぶしの目立つバッジで表示
   var bodyContents = [];
   if (options.statusBadge && options.statusBadge.text) {
+    var badgeColor = options.statusBadge.color || '#6ea814';
     bodyContents.push({
-      type: 'box', layout: 'baseline', spacing: 'xs', margin: 'none',
-      contents: [
-        { type: 'text', text: '●', size: 'xs', color: options.statusBadge.color || '#6ea814', flex: 0 },
-        { type: 'text', text: options.statusBadge.text, size: 'sm',
-          color: options.statusBadge.color || '#6ea814', weight: 'bold', flex: 0, margin: 'xs' }
-      ]
+      type: 'box', layout: 'vertical',
+      backgroundColor: badgeColor,
+      cornerRadius: 'md',
+      paddingTop: 'md', paddingBottom: 'md',
+      paddingStart: 'lg', paddingEnd: 'lg',
+      margin: 'none',
+      contents: [{
+        type: 'text', text: options.statusBadge.text,
+        size: 'xl', color: '#ffffff', weight: 'bold', align: 'center'
+      }]
     });
   }
   bodyContents.push(titleBlock);
