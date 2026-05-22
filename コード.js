@@ -481,6 +481,95 @@ function doGet(e) {
   }
 
   // 診断用: 承認待ち物件のJ列(JSON)を新しい順に表示。reins source を優先抽出
+  // キャンセル通知希望物件の一覧表示: ?action=list_cancellation_watches
+  if (action === 'list_cancellation_watches') {
+    try {
+      var lcSs = SpreadsheetApp.openById(SPREADSHEET_ID);
+      var lcSeen = lcSs.getSheetByName(SEEN_SHEET_NAME);
+      var lcPend = lcSs.getSheetByName(PENDING_SHEET_NAME);
+      var lcRows = [];
+      if (lcSeen) {
+        var lcLast = lcSeen.getLastRow();
+        if (lcLast >= 2) {
+          var lcData = lcSeen.getRange(2, 1, lcLast - 1, 10).getValues();
+          for (var lcI = 0; lcI < lcData.length; lcI++) {
+            var watchRaw = lcData[lcI][9]; // J列 (index 9)
+            if (!watchRaw) continue;
+            lcRows.push({
+              row: lcI + 2,
+              customer: String(lcData[lcI][0] || ''),
+              roomId: String(lcData[lcI][1] || ''),
+              buildingName: String(lcData[lcI][2] || ''),
+              sentAt: (lcData[lcI][3] instanceof Date) ? Utilities.formatDate(lcData[lcI][3], 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : String(lcData[lcI][3] || ''),
+              source: String(lcData[lcI][4] || ''),
+              currentStatus: String(lcData[lcI][5] || ''),
+              statusCheckedAt: (lcData[lcI][6] instanceof Date) ? Utilities.formatDate(lcData[lcI][6], 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : String(lcData[lcI][6] || ''),
+              sourceRef: String(lcData[lcI][7] || ''),
+              watchedAt: (watchRaw instanceof Date) ? Utilities.formatDate(watchRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : String(watchRaw || '')
+            });
+          }
+        }
+      }
+      // 顧客名で並べる、 watchedAt 降順
+      lcRows.sort(function(a, b) {
+        if (a.customer !== b.customer) return a.customer < b.customer ? -1 : 1;
+        return (b.watchedAt || '').localeCompare(a.watchedAt || '');
+      });
+
+      var srcDisplay = function(s) {
+        return ({ reins: 'REINS', itandi: 'itandi', ielove: 'いえらぶ', essquare: 'いい生活' })[String(s).toLowerCase()] || s;
+      };
+      var statusDisplay = function(s) {
+        return ({
+          available: '🟢 募集中',
+          applied: '🟡 申込あり',
+          closed: '🔴 募集終了',
+          reins_listed: '⚪ REINS掲載',
+          needs_confirmation: '⚪ 要確認',
+          unknown: '⚪ 不明',
+          '': '― 未確認'
+        })[s] || s;
+      };
+      var rowsHtml = lcRows.map(function(r) {
+        var propUrl = (r.source && r.source !== 'reins' && r.sourceRef) ? r.sourceRef
+                   : (r.source === 'reins' && r.sourceRef) ? ('https://system.reins.jp/main/BK/GBK004100#bukken=' + r.sourceRef)
+                   : '';
+        return '<tr>'
+          + '<td>' + r.customer + '</td>'
+          + '<td>' + (r.buildingName || '(物件名なし)') + '<br><span class="sub">room_id: ' + r.roomId + '</span></td>'
+          + '<td>' + srcDisplay(r.source) + '</td>'
+          + '<td>' + statusDisplay(r.currentStatus) + '<br><span class="sub">' + (r.statusCheckedAt || '未チェック') + '</span></td>'
+          + '<td>' + (r.watchedAt || '') + '</td>'
+          + '<td>' + (propUrl ? '<a href="' + propUrl + '" target="_blank">開く</a>' : '-') + '</td>'
+          + '</tr>';
+      }).join('');
+      var html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><base target="_top">'
+        + '<title>キャンセル通知希望物件</title>'
+        + '<style>body{font-family:-apple-system,sans-serif;background:#f5f7fa;padding:20px;color:#1a2538;max-width:1100px;margin:0 auto}'
+        + 'h1{font-size:20px;color:#3d6909;margin-bottom:8px}'
+        + '.summary{font-size:13px;color:#666;margin-bottom:16px}'
+        + 'table{width:100%;border-collapse:collapse;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.06);border-radius:8px;overflow:hidden}'
+        + 'th,td{padding:10px 12px;font-size:13px;text-align:left;border-bottom:1px solid #f0f0f0;vertical-align:top}'
+        + 'th{background:#f0faf4;color:#3d6909;font-weight:700;font-size:12px}'
+        + 'tr:hover{background:#f9fafb}'
+        + '.sub{font-size:11px;color:#999}'
+        + 'a{color:#6ea814;text-decoration:none}a:hover{text-decoration:underline}'
+        + '.empty{padding:40px;text-align:center;color:#888;background:#fff;border-radius:8px}'
+        + '</style></head><body>'
+        + '<h1>🔔 キャンセル通知希望物件</h1>'
+        + '<div class="summary">該当 ' + lcRows.length + ' 件 (30分毎に自動チェック / キャンセル発生で顧客にLINE通知)</div>'
+        + (lcRows.length === 0
+          ? '<div class="empty">現在、キャンセル通知希望の物件はありません</div>'
+          : '<table><thead><tr>'
+            + '<th>顧客</th><th>物件</th><th>ソース</th><th>現状ステータス</th><th>希望日時</th><th>詳細</th>'
+            + '</tr></thead><tbody>' + rowsHtml + '</tbody></table>')
+        + '</body></html>';
+      return HtmlService.createHtmlOutput(html);
+    } catch (eLC) {
+      return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><pre>' + eLC.message + '</pre>');
+    }
+  }
+
   // 顧客の重複検知状態確認: ?action=debug_dedup_state&customer=倉田豊大
   if (action === 'debug_dedup_state') {
     try {
