@@ -3062,74 +3062,104 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
                  'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
         }
         break;
-      case 'applied':
-        // 申込あり: バッジ0 + listing_status=申込あり = 順番不明 → 順番待ち
-        // バッジ ≥ 1 → (バッジ+1)番手で申込可能
-        // canApply=false (申込ボタン押せない) = キャンセル待ち通知のみ可能 → Flex メッセージ
+      case 'applied': {
+        // applied: バッジ数・canApply で4パターンに分岐
+        var propDataApp = _getPendingPropForFlex_(customerName, roomId);
+        var propUrlApp = 'https://form.ehomaki.com/property.html?customer=' +
+                         encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId);
+        var applyUrlApp = propUrlApp + '&apply=1';
+        var watchPostback = 'action=availability_watch_cancellation&customer=' +
+                            encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId);
+        var badgeTextApp = '';
+        var footerBtnsApp = [];
         if (canApply === false) {
-          var flexMsg = {
-            type: 'flex',
-            altText: building + 'のお申し込み状況のお知らせ',
-            contents: {
-              type: 'bubble',
-              body: {
-                type: 'box',
-                layout: 'vertical',
-                contents: [
-                  { type: 'text', text: '【空室状況のご連絡】', size: 'sm', color: '#3a4a5e', weight: 'bold' },
-                  { type: 'text', text: building, size: 'lg', weight: 'bold', wrap: true, margin: 'sm', color: '#1a2538' },
-                  { type: 'separator', margin: 'md' },
-                  { type: 'text', text: '現在お申し込みが入っており、追加のお申し込みはお受けできない状態です。', wrap: true, size: 'sm', margin: 'md', color: '#555555' },
-                  { type: 'text', text: 'キャンセルが発生した場合に通知をご希望ですか?', wrap: true, size: 'sm', weight: 'bold', margin: 'md', color: '#1a2538' }
-                ]
-              },
-              footer: {
-                type: 'box',
-                layout: 'vertical',
-                spacing: 'sm',
-                contents: [
-                  {
-                    type: 'button',
-                    style: 'primary',
-                    color: '#6ea814',
-                    action: {
-                      type: 'postback',
-                      label: 'キャンセル通知を希望する',
-                      data: 'action=availability_watch_cancellation&customer=' + encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId),
-                      displayText: 'キャンセル通知を希望する'
-                    }
-                  }
-                ]
-              }
-            }
-          };
+          // 🟠 キャンセル待ち通知のみ
+          badgeTextApp = '申込あり (キャンセル待ち登録不可)';
+          footerBtnsApp = [
+            { label: 'キャンセル通知を希望する', postbackData: watchPostback, style: 'primary', color: '#6ea814' },
+            { label: '物件詳細を見る', uri: propUrlApp, style: 'secondary' }
+          ];
+        } else if (orderText && badgeCount >= 1) {
+          // 🟡 N+1番手で申込可
+          badgeTextApp = '申込あり (' + orderText + 'で申込可)';
+          footerBtnsApp = [
+            { label: 'お申し込みを希望する', uri: applyUrlApp, style: 'primary', color: '#6ea814' },
+            { label: '物件詳細を見る', uri: propUrlApp, style: 'secondary' }
+          ];
+        } else if (listingStatus === '申込あり' && badgeCount === 0) {
+          // 🟡 順番待ち
+          badgeTextApp = '申込あり (順番待ちで申込可)';
+          footerBtnsApp = [
+            { label: 'お申し込みを希望する', uri: applyUrlApp, style: 'primary', color: '#6ea814' },
+            { label: '物件詳細を見る', uri: propUrlApp, style: 'secondary' }
+          ];
+        } else {
+          badgeTextApp = '申込あり';
+          footerBtnsApp = [
+            { label: 'お申し込みを希望する', uri: applyUrlApp, style: 'primary', color: '#6ea814' },
+            { label: '物件詳細を見る', uri: propUrlApp, style: 'secondary' }
+          ];
+        }
+        if (propDataApp && typeof buildPropertyFlex === 'function') {
+          var flexApp = buildPropertyFlex(propDataApp, {
+            viewUrl: propUrlApp,
+            headerTitle: '空室確認の結果',
+            headerColor: '#f59e0b',
+            statusBadge: { text: badgeTextApp, color: '#f59e0b' },
+            customFooterButtons: footerBtnsApp
+          });
           if (typeof pushMessage === 'function') {
-            pushMessage(userId, [flexMsg]);
-            console.log('[空室結果LINE] Flex送信成功 (applied/不可): ' + customerName);
+            pushMessage(userId, [flexApp]);
+            console.log('[空室結果LINE] リッチFlex送信成功 (applied): ' + customerName + ' badge=' + badgeTextApp);
           }
           return;
         }
-        if (orderText && badgeCount >= 1) {
+        // フォールバックテキスト
+        if (canApply === false) {
           text = '【空室状況のご連絡】\n\n' +
-                 '「' + building + '」は現在お申し込みが入っているようです。\n' +
-                 'ただし、' + orderText + ' でお申し込みいただけます。\n\n' +
-                 'ご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
+                 '「' + building + '」は現在お申し込みが入っており、追加のお申し込みはお受けできない状態です。\n\n' +
+                 'キャンセル通知をご希望の場合はお気軽にお声がけください。';
+        } else if (orderText && badgeCount >= 1) {
+          text = '【空室状況のご連絡】\n\n' +
+                 '「' + building + '」は ' + orderText + ' でお申し込みいただけます。\n\n' +
+                 'ご希望の場合は物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
         } else if (listingStatus === '申込あり' && badgeCount === 0) {
-          // パターン7: 申込ありだがバッジに数字がない (順番不明)
           text = '【空室状況のご連絡】\n\n' +
-                 '「' + building + '」は現在お申し込みが入っているようです。\n' +
-                 '順番待ちでお申し込みいただけますので、ご希望の場合はお気軽にお声がけください。';
+                 '「' + building + '」は順番待ちでお申し込みいただけます。\n\n' +
+                 'ご希望の場合はお気軽にお声がけください。';
         } else {
           text = '【空室状況のご連絡】\n\n' +
-                 '「' + building + '」は現在、お申し込みが入っているようです。\n\n' +
-                 'キャンセル待ちのご相談も可能ですので、ご希望の場合はお気軽にお声がけください。';
+                 '「' + building + '」はお申し込みが入っているようです。\n\n' +
+                 'キャンセル待ちのご相談も可能です。';
         }
         break;
-      case 'closed':
+      }
+      case 'closed': {
+        // 🔴 募集終了 → リッチFlex (赤いヘッダー・赤バッジ、 詳細ボタンのみ)
+        var propDataC = _getPendingPropForFlex_(customerName, roomId);
+        var propUrlC = 'https://form.ehomaki.com/property.html?customer=' +
+                       encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId);
+        if (propDataC && typeof buildPropertyFlex === 'function') {
+          var flexC = buildPropertyFlex(propDataC, {
+            viewUrl: propUrlC,
+            headerTitle: '空室確認の結果',
+            headerColor: '#dc2626',
+            statusBadge: { text: '募集終了', color: '#dc2626' },
+            customFooterButtons: [
+              { label: '物件詳細を見る', uri: propUrlC, style: 'secondary' }
+            ]
+          });
+          if (typeof pushMessage === 'function') {
+            pushMessage(userId, [flexC]);
+            console.log('[空室結果LINE] リッチFlex送信成功 (closed): ' + customerName);
+          }
+          return;
+        }
         text = '【空室状況のご連絡】\n\n' +
                '「' + building + '」は申し訳ございません、募集を終了しておりました。\n\n' +
                '似たような条件のお部屋が出てきましたら、改めてご案内いたします。';
         break;
+      }
       default:
         return;
     }
@@ -4599,12 +4629,19 @@ function buildPropertyFlex(prop, options) {
     bubble.footer = {
       type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
       contents: options.customFooterButtons.map(function(b) {
+        var act;
+        if (b.postbackData) {
+          act = { type: 'postback', label: b.label, data: b.postbackData,
+                  displayText: b.displayText || b.label };
+        } else {
+          act = { type: 'uri', label: b.label, uri: b.uri };
+        }
         return {
           type: 'button',
           style: b.style || 'primary',
           color: b.color,
           height: 'sm',
-          action: { type: 'uri', label: b.label, uri: b.uri }
+          action: act
         };
       })
     };
