@@ -3038,7 +3038,7 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
               viewUrl: propUrlAvail,
               headerTitle: '空室確認の結果',
               headerColor: '#6ea814',
-              statusBadge: { text: '現在も募集中', color: '#6ea814' },
+              statusBadge: { text: '募集中', color: '#6ea814' },
               customFooterButtons: [
                 { label: 'お申し込みを希望する', uri: applyUrlAvail, style: 'primary', color: '#6ea814' },
                 { label: '物件詳細を見る', uri: propUrlAvail, style: 'secondary' }
