@@ -3038,7 +3038,11 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
               viewUrl: propUrlAvail,
               headerTitle: '空室確認の結果',
               headerColor: '#6ea814',
-              statusBadge: { text: '募集中', color: '#6ea814' },
+              statusBadge: {
+                text: '募集中',
+                color: '#6ea814',
+                subText: 'お申し込みいただけます。'
+              },
               customFooterButtons: [
                 { label: 'お申し込みを希望する', uri: applyUrlAvail, style: 'primary', color: '#6ea814' },
                 { label: '物件詳細を見る', uri: propUrlAvail, style: 'secondary' }
@@ -3070,31 +3074,37 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
         var applyUrlApp = propUrlApp + '&apply=1';
         var watchPostback = 'action=availability_watch_cancellation&customer=' +
                             encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId);
-        var badgeTextApp = '';
+        var statusBadgeApp = null;
         var footerBtnsApp = [];
         if (canApply === false) {
-          // 🟠 キャンセル待ち通知のみ
-          badgeTextApp = '申込あり (キャンセル待ち登録不可)';
+          // 🟠 キャンセル待ち登録不可
+          statusBadgeApp = {
+            text: 'キャンセル待ち登録不可',
+            color: '#f59e0b',
+            subText: '現在お申し込みが入っており、追加のお申し込みはお受けできない状態です。キャンセル発生時にご通知できます。'
+          };
           footerBtnsApp = [
             { label: 'キャンセル通知を希望する', postbackData: watchPostback, style: 'primary', color: '#6ea814' },
             { label: '物件詳細を見る', uri: propUrlApp, style: 'secondary' }
           ];
-        } else if (orderText && badgeCount >= 1) {
+        } else if (orderText && badgeCount !== null && badgeCount >= 1) {
           // 🟡 N+1番手で申込可
-          badgeTextApp = '申込あり (' + orderText + 'で申込可)';
-          footerBtnsApp = [
-            { label: 'お申し込みを希望する', uri: applyUrlApp, style: 'primary', color: '#6ea814' },
-            { label: '物件詳細を見る', uri: propUrlApp, style: 'secondary' }
-          ];
-        } else if (listingStatus === '申込あり' && badgeCount === 0) {
-          // 🟡 順番待ち
-          badgeTextApp = '申込あり (順番待ちで申込可)';
+          statusBadgeApp = {
+            text: orderText + 'で申込可',
+            color: '#f59e0b',
+            subText: '現在お申し込みが入っていますが、' + orderText + 'でのお申し込みが可能です。'
+          };
           footerBtnsApp = [
             { label: 'お申し込みを希望する', uri: applyUrlApp, style: 'primary', color: '#6ea814' },
             { label: '物件詳細を見る', uri: propUrlApp, style: 'secondary' }
           ];
         } else {
-          badgeTextApp = '申込あり';
+          // 🟡 順番待ち (badgeCount=0 or null、 canApply !== false)
+          statusBadgeApp = {
+            text: '順番待ちで申込可',
+            color: '#f59e0b',
+            subText: '現在お申し込みが入っていますが、順番待ちでのお申し込みが可能です。'
+          };
           footerBtnsApp = [
             { label: 'お申し込みを希望する', uri: applyUrlApp, style: 'primary', color: '#6ea814' },
             { label: '物件詳細を見る', uri: propUrlApp, style: 'secondary' }
@@ -3105,12 +3115,12 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
             viewUrl: propUrlApp,
             headerTitle: '空室確認の結果',
             headerColor: '#f59e0b',
-            statusBadge: { text: badgeTextApp, color: '#f59e0b' },
+            statusBadge: statusBadgeApp,
             customFooterButtons: footerBtnsApp
           });
           if (typeof pushMessage === 'function') {
             pushMessage(userId, [flexApp]);
-            console.log('[空室結果LINE] リッチFlex送信成功 (applied): ' + customerName + ' badge=' + badgeTextApp);
+            console.log('[空室結果LINE] リッチFlex送信成功 (applied): ' + customerName + ' badge=' + (statusBadgeApp && statusBadgeApp.text));
           }
           return;
         }
@@ -3144,7 +3154,11 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
             viewUrl: propUrlC,
             headerTitle: '空室確認の結果',
             headerColor: '#dc2626',
-            statusBadge: { text: '募集終了', color: '#dc2626' },
+            statusBadge: {
+              text: '募集終了',
+              color: '#dc2626',
+              subText: '申し訳ございません、募集を終了しておりました。似たような条件のお部屋が出てきましたら改めてご案内いたします。'
+            },
             customFooterButtons: [
               { label: '物件詳細を見る', uri: propUrlC, style: 'secondary' }
             ]
@@ -4519,7 +4533,8 @@ function buildPropertyFlex(prop, options) {
   }
 
   // ── body 組み立て ──
-  // ステータスバッジ (オプション): 緑塗りつぶしの目立つバッジで表示
+  // ステータスバッジ (オプション): 塗りつぶしの目立つバッジで表示
+  //   options.statusBadge.subText: バッジの下に小さい補足テキスト
   var bodyContents = [];
   if (options.statusBadge && options.statusBadge.text) {
     var badgeColor = options.statusBadge.color || '#6ea814';
@@ -4532,9 +4547,15 @@ function buildPropertyFlex(prop, options) {
       margin: 'none',
       contents: [{
         type: 'text', text: options.statusBadge.text,
-        size: 'xl', color: '#ffffff', weight: 'bold', align: 'center'
+        size: 'xl', color: '#ffffff', weight: 'bold', align: 'center', wrap: true
       }]
     });
+    if (options.statusBadge.subText) {
+      bodyContents.push({
+        type: 'text', text: options.statusBadge.subText,
+        size: 'sm', color: '#555555', wrap: true, margin: 'md', align: 'center'
+      });
+    }
   }
   bodyContents.push(titleBlock);
   bodyContents.push(rentBlock);
