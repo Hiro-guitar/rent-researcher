@@ -2551,17 +2551,17 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
     lines.push('※ クリック後、自動でお客さんにLINE通知されます');
 
     var payload = {
-      content: lines.join('\n'),
-      thread_name: '🔔 空室確認 (' + sourceDisplay + '): ' + customerName,
-      allowed_mentions: { parse: [] }
+      content: lines.join('\n')
     };
-    UrlFetchApp.fetch(DISCORD_WEBHOOK_URL, {
+    var resp = UrlFetchApp.fetch(DISCORD_WEBHOOK_URL, {
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify(payload),
       muteHttpExceptions: true
     });
-    console.log('[空室確認依頼] Discord通知送信: ' + customerName + ' (' + sourceDisplay + '/' + statusLabel + ')');
+    var respCode = resp.getResponseCode();
+    var respBody = resp.getContentText();
+    console.log('[空室確認依頼] Discord通知 HTTP=' + respCode + ' body=' + (respBody || '(empty)') + ' for ' + customerName + ' (' + sourceDisplay + '/' + statusLabel + ')');
   } catch (e) {
     console.warn('[空室確認依頼] Discord通知失敗: ' + e.message);
   }
