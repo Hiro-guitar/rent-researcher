@@ -2042,8 +2042,9 @@ function addToSeenSheet(customerName, prop) {
  * @param {string} status - 'available' / 'closed' / 'reins_listed' / 'unknown'
  * @return {{ok: boolean, message: string}}
  */
-function setPropertyAvailability(customerName, roomId, status) {
+function setPropertyAvailability(customerName, roomId, status, extras) {
   if (!customerName || !roomId) return { ok: false, message: 'customer/roomId が未指定' };
+  extras = extras || {};
   // 'applied' = 申込あり (掲載は続いてるが申込が入ってる、再オープン余地あり)
   // 'closed'  = 募集終了 (404/掲載削除/完全終了)
   var validStatuses = ['available', 'applied', 'closed', 'reins_listed', 'needs_confirmation', 'unknown'];
@@ -2096,7 +2097,7 @@ function setPropertyAvailability(customerName, roomId, status) {
           } else if (status === 'available' || status === 'applied' || status === 'closed') {
             // 自動で確定 → お客さんにLINEプッシュ通知
             try {
-              _notifyAvailabilityResultToCustomer_(nameTrim, ridTrim, buildingName, status);
+              _notifyAvailabilityResultToCustomer_(nameTrim, ridTrim, buildingName, status, extras);
               // 通知後は priority_requested_at をクリア (依頼完了)
               sheet.getRange(rowNum, 9).setValue('');
             } catch (eL) {
@@ -2509,7 +2510,8 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
  * @param {string} buildingName
  * @param {'available'|'applied'|'closed'} status
  */
-function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName, status) {
+function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName, status, extras) {
+  extras = extras || {};
   try {
     // 顧客 → LINE userId を解決
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
@@ -2538,19 +2540,53 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
     //   var dedupKey = 'avail_line_' + customerName + '|' + roomId + '|' + today;
     //   if (props.getProperty(dedupKey)) { ... return; }
 
-    // ステータスごとの文言
+    // ステータスごとの文言 + 番手情報
     var building = buildingName || 'お部屋';
+    var badgeCount = (typeof extras.badgeCount === 'number') ? extras.badgeCount : null;
+    var canApply = (typeof extras.canApply === 'boolean') ? extras.canApply : null;
+    var listingStatus = extras.listingStatus || '';
+    // 番手 = バッジ + 1 (バッジ取得できた場合)
+    var orderText = (badgeCount !== null && badgeCount >= 0)
+      ? (badgeCount + 1) + '番手'
+      : '';
     var text;
     switch (status) {
       case 'available':
-        text = '【空室状況のご連絡】\n\n' +
-               '「' + building + '」は現在も募集中でした！\n\n' +
-               'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
+        // 募集中。バッジが取れていれば「N番手」、取れていなければ通常メッセージ
+        if (orderText) {
+          text = '【空室状況のご連絡】\n\n' +
+                 '「' + building + '」は現在募集中です！\n' +
+                 '現在 ' + orderText + ' でお申し込みいただけます。\n\n' +
+                 'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
+        } else {
+          text = '【空室状況のご連絡】\n\n' +
+                 '「' + building + '」は現在も募集中でした！\n\n' +
+                 'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
+        }
         break;
       case 'applied':
-        text = '【空室状況のご連絡】\n\n' +
-               '「' + building + '」は現在、お申し込みが入っているようです。\n\n' +
-               'キャンセル待ちのご相談も可能ですので、ご希望の場合はお気軽にお声がけください。';
+        // 申込あり: バッジ0 + listing_status=申込あり = 順番不明 → 順番待ち
+        // バッジ ≥ 1 → (バッジ+1)番手で申込可能
+        // canApply=false (申込ボタン押せない) = キャンセル待ち通知のみ可能
+        if (canApply === false) {
+          text = '【空室状況のご連絡】\n\n' +
+                 '「' + building + '」は現在お申し込みが入っており、追加のお申し込みはお受けできない状態です。\n\n' +
+                 'キャンセルが発生した場合に通知をご希望でしたら、お気軽にお声がけください。';
+        } else if (orderText && badgeCount >= 1) {
+          text = '【空室状況のご連絡】\n\n' +
+                 '「' + building + '」は現在お申し込みが入っているようです。\n' +
+                 'ただし、' + orderText + ' でお申し込みいただけます。\n\n' +
+                 'ご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
+        } else if (listingStatus === '申込あり' && badgeCount === 0) {
+          // パターン7: 申込ありだがバッジに数字がない (順番不明)
+          text = '【空室状況のご連絡】\n\n' +
+                 '「' + building + '」は現在お申し込みが入っているようです。\n' +
+                 '順番待ちでお申し込みいただけますので、ご希望の場合はお気軽にお声がけください。';
+        } else {
+          text = '【空室状況のご連絡】\n\n' +
+                 '「' + building + '」は現在、お申し込みが入っているようです。\n\n' +
+                 'キャンセル待ちのご相談も可能ですので、ご希望の場合はお気軽にお声がけください。';
+        }
         break;
       case 'closed':
         text = '【空室状況のご連絡】\n\n' +
