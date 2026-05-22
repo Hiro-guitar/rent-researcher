@@ -1054,6 +1054,8 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
   // 優先空室確認ポーリング: 1分毎にGASから優先キューを取得
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
+  // キャンセル通知希望物件の定期巡回: 30分毎にチェック
+  chrome.alarms.create('cancellation-watch-poll', { periodInMinutes: 30 });
 });
 
 // Chrome起動時: 前回起動中に承認された取りこぼしを1回だけ処理
@@ -1272,6 +1274,17 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     if (typeof runPriorityAvailabilityPoll === 'function') {
       runPriorityAvailabilityPoll().catch(err => {
         console.log(`[優先空室確認] poll失敗: ${err.message}`);
+      });
+    }
+  }
+
+  // ── キャンセル通知希望物件の定期巡回 ──
+  // 30分毎にGASから watch中物件を取得、ステータスをチェック
+  // キャンセル発生 (申込可能化) を検知 → GAS が自動で LINE 通知
+  if (alarm.name === 'cancellation-watch-poll') {
+    if (typeof runCancellationWatchPoll === 'function') {
+      runCancellationWatchPoll().catch(err => {
+        console.log(`[キャンセル監視] poll失敗: ${err.message}`);
       });
     }
   }

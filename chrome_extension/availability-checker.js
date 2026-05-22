@@ -740,7 +740,70 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+// ──────────────────────────────────────────────────────────────────
+// キャンセル通知希望物件の定期巡回
+// 30分毎の alarm で呼ばれる。watch_only=1 で watch中物件のみ取得し、
+// キャンセル発生 (available 化 or canApply true 化) を検知 → GAS が
+// お客さんに LINE 通知。
+// ──────────────────────────────────────────────────────────────────
+async function runCancellationWatchPoll() {
+  // 全件モード実行中ならスキップ
+  const running = await new Promise(r =>
+    chrome.storage.local.get(['__availabilityCheckRunning'], d => r(!!d.__availabilityCheckRunning))
+  );
+  if (running) {
+    console.log('[キャンセル監視] 通常モード実行中のためスキップ');
+    return { skipped: 'running' };
+  }
+
+  let queue;
+  try {
+    queue = await gasGet('get_availability_queue', {
+      limit: 20,
+      watch_only: 1
+    });
+  } catch (e) {
+    console.warn('[キャンセル監視] キュー取得失敗: ' + e.message);
+    return { error: e.message };
+  }
+  const items = (queue && Array.isArray(queue.items)) ? queue.items : [];
+  if (items.length === 0) return { processed: 0 };
+
+  await setStorageData({ debugLog: `[キャンセル監視] ${items.length}件の watch中物件をチェック` });
+
+  const results = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    try {
+      const res = await checkOneAvailability(it);
+      const status = (res && res.status) || 'unknown';
+      results.push({
+        customer: it.customer,
+        room_id: it.roomId,
+        status: status,
+        badge_count: (res && typeof res.badgeCount === 'number') ? res.badgeCount : null,
+        can_apply: (res && typeof res.canApply === 'boolean') ? res.canApply : null,
+        listing_status: (res && res.listingStatus) || ''
+      });
+      await setStorageData({
+        debugLog: `[キャンセル監視] ${it.customer} ${it.source} → ${status}${(res && res.canApply !== undefined) ? ' canApply=' + res.canApply : ''}`
+      });
+    } catch (e) {
+      results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
+    }
+  }
+
+  try {
+    await gasPost({ action: 'update_availability', items: results });
+  } catch (e) {
+    await setStorageData({ debugLog: `[キャンセル監視] 結果POST失敗: ${e.message}` });
+    return { processed: results.length, error: e.message };
+  }
+  return { processed: results.length };
+}
+
 globalThis.runAvailabilityCheckBatch = runAvailabilityCheckBatch;
 globalThis.checkOneAvailability = checkOneAvailability;
 globalThis.stopAvailabilityCheck = stopAvailabilityCheck;
 globalThis.runPriorityAvailabilityPoll = runPriorityAvailabilityPoll;
+globalThis.runCancellationWatchPoll = runCancellationWatchPoll;
