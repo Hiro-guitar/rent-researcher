@@ -2996,7 +2996,7 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
                   { type: 'text', text: '【空室状況のご連絡】', size: 'sm', color: '#3a4a5e', weight: 'bold' },
                   { type: 'text', text: building, size: 'lg', weight: 'bold', wrap: true, margin: 'sm', color: '#1a2538' },
                   { type: 'separator', margin: 'md' },
-                  { type: 'text', text: '現在もお申し込み可能です', wrap: true, size: 'md', margin: 'lg', weight: 'bold', color: '#3d6909', align: 'center' }
+                  { type: 'text', text: '現在も募集中です', wrap: true, size: 'md', margin: 'lg', weight: 'bold', color: '#3d6909', align: 'center' }
                 ]
               },
               footer: {
