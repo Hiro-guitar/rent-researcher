@@ -598,24 +598,29 @@ function doGet(e) {
             ? dUrl.substring(0, 40) + '...' + dUrl.substring(dUrl.length - 20)
             : dUrl;
           return HtmlService.createHtmlOutput(
-            '<h2>' + (success ? '✅ 送信成功 (HTTP ' + code + ')' : '❌ 送信失敗 (HTTP ' + code + ')') + '</h2>'
+            '<!DOCTYPE html><html><head><meta charset="UTF-8"><base target="_top"></head><body>'
+            + '<h2>' + (success ? '✅ 送信成功 (HTTP ' + code + ')' : '❌ 送信失敗 (HTTP ' + code + ')') + '</h2>'
             + '<p><b>URL:</b> <code>' + urlPreview + '</code></p>'
             + '<p><b>レスポンス:</b></p>'
             + '<pre style="background:#f5f5f5;padding:10px;border-radius:6px;white-space:pre-wrap">' + (body || '(空レスポンス)') + '</pre>'
             + (success
               ? '<p>Discord を確認してください。</p>'
               : '<p style="color:#9b1c1c">webhook URL が無効または期限切れの可能性があります。Discord で再作成してください。</p>')
+            + '</body></html>'
           );
         } catch (eD) {
           return HtmlService.createHtmlOutput('<h2>❌ 送信エラー (例外)</h2><pre>' + eD.message + '</pre>');
         }
       }
       // 設定確認のみ
+      var webAppUrlCheck = ScriptApp.getService().getUrl();
       return HtmlService.createHtmlOutput(
-        '<h2>✅ Discord webhook 設定済み</h2>'
+        '<!DOCTYPE html><html><head><meta charset="UTF-8"><base target="_top"></head><body>'
+        + '<h2>✅ Discord webhook 設定済み</h2>'
         + '<p>使用キー: <code>' + usedKey + '</code></p>'
         + '<p>URL: <code>' + dUrl.substring(0, 60) + '...</code></p>'
-        + '<p><a href="?action=check_discord&send=1" target="_top">テスト送信してみる</a></p>'
+        + '<p><a href="' + webAppUrlCheck + '?action=check_discord&send=1">テスト送信してみる</a></p>'
+        + '</body></html>'
       );
     } catch (eC) {
       return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><pre>' + eC.message + '</pre>');
