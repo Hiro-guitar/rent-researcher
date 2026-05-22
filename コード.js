@@ -1936,20 +1936,43 @@ function handleGetSeenIds(e) {
 
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var seen_ids = {};
+  // dedupキー (住所+部屋番号+面積+間取り) ベースの重複検知用に、 sent 行からも
+  // dedupキーを収集して返す。Chrome拡張側で room_id ではなく dedupキーで
+  // 照合することで、 itandi の property_id 変動 (再掲載で別IDになる) でも
+  // 同じ物件として認識できる。
+  var seen_dedup_keys = {};
 
   // 承認待ち物件
   // status='sent' (送信済み) は 通知済み物件 シートで管理されるためここでは除外。
-  // → 通知済み物件 から削除するだけでスキップ解除が効くようになる。
-  // status='pending' (承認待ち) / 'skipped' (スキップ) は引き続きカウントして
-  // 同サイクル中の重複追加を防ぐ。
+  // ただし dedupキー生成のために JSON は読み取る。
   var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (pendingSheet) {
     var pData = pendingSheet.getDataRange().getValues();
     for (var i = 1; i < pData.length; i++) {
       var pStatus = String(pData[i][10] || '');
-      if (pStatus === 'sent') continue; // 通知済み物件シート側で管理
       var customer = String(pData[i][0] || '');
       var roomId = String(pData[i][2] || '');
+
+      // sent 行も含めて dedup キーを生成
+      if (pStatus === 'sent' || pStatus === 'pending') {
+        try {
+          var parsedDk = JSON.parse(String(pData[i][9] || ''));
+          var dk = _buildDedupKeyForGas_({
+            address: parsedDk.address,
+            room_number: parsedDk.room_number,
+            area: parsedDk.area,
+            layout: parsedDk.layout
+          });
+          if (dk && customer) {
+            if (!seen_dedup_keys[customer]) seen_dedup_keys[customer] = [];
+            if (seen_dedup_keys[customer].indexOf(dk) < 0) {
+              seen_dedup_keys[customer].push(dk);
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (pStatus === 'sent') continue; // room_id は SEEN_SHEET で管理
       if (customer && roomId) {
         if (!seen_ids[customer]) seen_ids[customer] = [];
         seen_ids[customer].push(roomId);
@@ -1994,9 +2017,51 @@ function handleGetSeenIds(e) {
   return ContentService
     .createTextOutput(JSON.stringify({
       seen_ids: seen_ids,
+      seen_dedup_keys: seen_dedup_keys,
       pending_dedup_resets: pendingDedupResets
     }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * dedup キー生成 (Chrome拡張の __buildPropertyDedupKey と同等のロジック)。
+ * 住所(町丁目まで) + 部屋番号 + 面積(小数2桁) + 間取り を正規化して連結。
+ */
+function _buildDedupKeyForGas_(prop) {
+  if (!prop) return '';
+  // 全角英数字 → 半角
+  var toHalf = function(s) {
+    return String(s || '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(c) {
+      return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+    });
+  };
+  // 漢数字 → アラビア
+  var kanjiMap = { '一':'1','二':'2','三':'3','四':'4','五':'5','六':'6','七':'7','八':'8','九':'9','十':'10' };
+  var kanjiToA = function(s) {
+    return String(s || '').replace(/[一二三四五六七八九十]/g, function(c) { return kanjiMap[c] || c; });
+  };
+  // 都道府県プレフィックス除去
+  var stripPref = function(s) {
+    return String(s || '').replace(/^(東京都|北海道|大阪府|京都府|.{2,3}県)/, '');
+  };
+  // 住所処理
+  var addr = toHalf(prop.address);
+  addr = kanjiToA(addr);
+  addr = stripPref(addr);
+  addr = addr.replace(/(\d+)丁目.*$/, '$1丁目');
+  addr = addr.replace(/\s+/g, '').toLowerCase();
+  // 部屋番号
+  var room = toHalf(prop.room_number);
+  room = kanjiToA(room).replace(/[〇○]/g, '0');
+  room = room.replace(/[^\d]/g, '');
+  // 面積 (小数2桁にして100倍)
+  var area = Math.round((parseFloat(prop.area) || 0) * 100);
+  // 間取り
+  var layout = toHalf(prop.layout).replace(/\s+/g, '').toLowerCase();
+  layout = layout.replace(/ワンルーム|わんるーむ|wanru-mu/g, '1r');
+  // 4要素揃わないとキー化不可
+  if (!addr || !room || !area || !layout) return '';
+  return addr + '|' + room + '|' + area + '|' + layout;
 }
 
 /**
