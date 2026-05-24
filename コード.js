@@ -145,8 +145,18 @@ function doPost(e) {
     // ── 返信処理を IIFE で包み、完了後にアクティビティ記録（体感速度向上のため後回し） ──
     (function dispatch() {
     // ── Follow イベント（友だち追加時）──
-    // 挨拶メッセージは LINE Manager 側で設定しているため、ここでは何も返さない
+    // 挨拶メッセージは LINE Manager 側で設定。追加でメアド入力を促す。
     if (event.type === 'follow') {
+      try {
+        var props = PropertiesService.getUserProperties();
+        props.setProperty('email_pending_' + userId, 'true');
+        pushMessage(userId, [textMsg(
+          'SUUMOからお問い合わせいただいた方は、お問い合わせ時のメールアドレスをこちらに送信してください。\n\n' +
+          'メールの配信が自動で停止されます。'
+        )]);
+      } catch (eFollow) {
+        console.error('follow pushMessage error: ' + eFollow.message);
+      }
       return;
     }
 
@@ -209,6 +219,27 @@ function doPost(e) {
     if (event.type === 'message' && event.message.type === 'text') {
       const message = event.message.text.trim();
       const state = getState(userId);
+
+      // ── メアド入力待ち（LINE友だち追加後のフォローアップ停止用）──
+      var _emailPendingKey = 'email_pending_' + userId;
+      var _emailPending = PropertiesService.getUserProperties().getProperty(_emailPendingKey);
+      if (_emailPending) {
+        PropertiesService.getUserProperties().deleteProperty(_emailPendingKey);
+        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message)) {
+          var _saved = saveLineRegisteredEmail(userId, message);
+          if (_saved) {
+            replyMessage(replyToken, [textMsg(
+              'メールアドレスを登録しました。\n' + message + ' への配信を停止いたします。\n\n' +
+              '今後のお部屋探しはこちらのLINEからお気軽にどうぞ！'
+            )]);
+          } else {
+            replyMessage(replyToken, [textMsg(
+              'このメールアドレスはすでに登録済みです。\n\nお部屋探しはこちらのLINEからお気軽にどうぞ！'
+            )]);
+          }
+          return;
+        }
+      }
 
       // 条件変更提案「自分で入力する」モード中ならそのテキストを数値として受ける
       if (typeof handleConditionSuggestionTextInput === 'function'
@@ -1316,6 +1347,34 @@ function doGet(e) {
 
     return ContentService
       .createTextOutput(JSON.stringify({ success: true, userId: lineUserId }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // ── SUUMO フォローアップメール: 検索条件自動登録 ──
+  if (action === 'register_suumo_criteria') {
+    return handleRegisterSuumoCriteria(e);
+  }
+
+  // ── SUUMO フォローアップメール: 類似物件検索API ──
+  if (action === 'get_similar_properties') {
+    return handleGetSimilarProperties(e);
+  }
+
+  // ── SUUMO フォローアップメール: 配信停止 ──
+  if (action === 'unsubscribe') {
+    return handleUnsubscribe(e);
+  }
+
+  // ── SUUMO フォローアップメール: ステータス確認API ──
+  if (action === 'check_followup_status') {
+    return handleCheckFollowupStatus(e);
+  }
+
+  // ── Claude AI 自動承認（手動実行用） ──
+  if (action === 'auto_approve') {
+    var result = autoApprovePendingProperties();
+    return ContentService
+      .createTextOutput(JSON.stringify(result))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -2904,4 +2963,389 @@ function setupKeepAliveTrigger() {
     .everyMinutes(5)
     .create();
   return '✅ 既存トリガー' + deleted + '個を削除し、5分ごとのkeepaliveトリガーを新規登録しました。';
+}
+
+// ══════════════════════════════════════════════════════════════
+// SUUMO フォローアップメール関連
+// ══════════════════════════════════════════════════════════════
+
+var UNSUBSCRIBE_SECRET = PropertiesService.getScriptProperties().getProperty('UNSUBSCRIBE_SECRET') || 'ehomaki_unsub_2026';
+var LINE_EMAIL_SHEET_NAME = 'LINE登録メール';
+var UNSUBSCRIBE_SHEET_NAME = '配信停止';
+
+function _generateUnsubscribeToken(emailAddr) {
+  var raw = emailAddr + UNSUBSCRIBE_SECRET;
+  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw);
+  var hex = digest.map(function(b) {
+    var v = (b < 0) ? b + 256 : b;
+    return ('0' + v.toString(16)).slice(-2);
+  }).join('');
+  return hex.substring(0, 32);
+}
+
+function handleUnsubscribe(e) {
+  var emailAddr = e.parameter.email || '';
+  var token = e.parameter.token || '';
+
+  if (!emailAddr || !token) {
+    return HtmlService.createHtmlOutput(
+      _buildSimpleHtml('パラメータエラー', 'メールアドレスまたはトークンが不正です。', '#e74c3c')
+    ).setTitle('配信停止');
+  }
+
+  var expected = _generateUnsubscribeToken(emailAddr);
+  if (token !== expected) {
+    return HtmlService.createHtmlOutput(
+      _buildSimpleHtml('リンク無効', 'この配信停止リンクは無効です。', '#e74c3c')
+    ).setTitle('配信停止');
+  }
+
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(UNSUBSCRIBE_SHEET_NAME);
+    if (!sheet) {
+      sheet = ss.insertSheet(UNSUBSCRIBE_SHEET_NAME);
+      sheet.appendRow(['メールアドレス', '停止日時']);
+    }
+
+    var existing = sheet.getDataRange().getValues();
+    for (var i = 1; i < existing.length; i++) {
+      if (existing[i][0] === emailAddr) {
+        return HtmlService.createHtmlOutput(
+          _buildSimpleHtml('配信停止済み', 'このメールアドレスはすでに配信停止されています。', '#3498db')
+        ).setTitle('配信停止');
+      }
+    }
+
+    sheet.appendRow([emailAddr, new Date().toISOString()]);
+
+    return HtmlService.createHtmlOutput(
+      _buildSimpleHtml('配信停止完了', emailAddr + ' への配信を停止しました。', '#27ae60')
+    ).setTitle('配信停止');
+  } catch (err) {
+    console.error('handleUnsubscribe error: ' + err.message);
+    return HtmlService.createHtmlOutput(
+      _buildSimpleHtml('エラー', '処理中にエラーが発生しました。', '#e74c3c')
+    ).setTitle('配信停止');
+  }
+}
+
+function handleCheckFollowupStatus(e) {
+  var emailAddr = e.parameter.email || '';
+  if (!emailAddr) {
+    return ContentService.createTextOutput(JSON.stringify({ error: 'email required' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var lineRegistered = false;
+    var unsubscribed = false;
+
+    var lineSheet = ss.getSheetByName(LINE_EMAIL_SHEET_NAME);
+    if (lineSheet) {
+      var lineData = lineSheet.getDataRange().getValues();
+      for (var i = 1; i < lineData.length; i++) {
+        if (lineData[i][0] === emailAddr) {
+          lineRegistered = true;
+          break;
+        }
+      }
+    }
+
+    var unsubSheet = ss.getSheetByName(UNSUBSCRIBE_SHEET_NAME);
+    if (unsubSheet) {
+      var unsubData = unsubSheet.getDataRange().getValues();
+      for (var j = 1; j < unsubData.length; j++) {
+        if (unsubData[j][0] === emailAddr) {
+          unsubscribed = true;
+          break;
+        }
+      }
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({
+      lineRegistered: lineRegistered,
+      unsubscribed: unsubscribed
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    console.error('handleCheckFollowupStatus error: ' + err.message);
+    return ContentService.createTextOutput(JSON.stringify({ error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function saveLineRegisteredEmail(userId, emailAddr) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(LINE_EMAIL_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(LINE_EMAIL_SHEET_NAME);
+    sheet.appendRow(['メールアドレス', 'userId', '表示名', '登録日時']);
+  }
+
+  var existing = sheet.getDataRange().getValues();
+  for (var i = 1; i < existing.length; i++) {
+    if (existing[i][0] === emailAddr) {
+      return false;
+    }
+  }
+
+  var displayName = '';
+  try {
+    var profile = getLineProfile(userId);
+    displayName = (profile && profile.displayName) ? profile.displayName : '';
+  } catch (e) {}
+
+  sheet.appendRow([emailAddr, userId, displayName, new Date().toISOString()]);
+  return true;
+}
+
+function handleRegisterSuumoCriteria(e) {
+  var name = e.parameter.name || '';
+  var station = e.parameter.station || '';
+  var rent = e.parameter.rent || '';
+  var layout = e.parameter.layout || '';
+  var area = e.parameter.area || '';
+  var walk = e.parameter.walk || '';
+
+  if (!name) {
+    return ContentService.createTextOutput(JSON.stringify({ error: 'name required' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+
+    // 同名の既存行があるか確認
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1]) === name) {
+        return ContentService.createTextOutput(JSON.stringify({
+          success: true, message: 'already exists', row: i + 1
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
+    // SUUMOフォーマット「ＪＲ中央線/阿佐ケ谷」を路線名と駅名に分割
+    var routeName = '';
+    var stationFlat = '';
+    var slashIdx = station.indexOf('/');
+    if (slashIdx >= 0) {
+      routeName = station.substring(0, slashIdx).trim();
+      stationFlat = station.substring(slashIdx + 1).trim();
+    } else {
+      stationFlat = station.replace(/.*線\s*/, '').trim();
+      routeName = station.replace(/[\/].*/, '').trim();
+    }
+    // STATION_DATA から路線名を検証・修正
+    if (typeof STATION_DATA !== 'undefined' && routeName) {
+      var matchedRoute = _findMatchingRoute(routeName, stationFlat);
+      if (matchedRoute) routeName = matchedRoute;
+    }
+    // 路線(駅名) 形式で構築
+    var routeStation = routeName ? routeName + '(' + stationFlat + ')' : stationFlat;
+
+    // 賃料を万円単位の数値に変換
+    var rentMax = '';
+    if (rent) {
+      var rentNum = parseFloat(String(rent).replace(/[万円,\s]/g, ''));
+      if (!isNaN(rentNum)) {
+        // 上限は問い合わせ賃料の+2万円（幅を持たせる）
+        rentMax = String(rentNum + 2);
+      }
+    }
+
+    // 面積を数値に（下限は-5m²で幅を持たせる）
+    var areaMin = '';
+    if (area) {
+      var areaNum = parseFloat(String(area).replace(/[m²㎡\s]/g, ''));
+      if (!isNaN(areaNum)) {
+        areaMin = String(Math.max(0, Math.floor(areaNum - 5)));
+      }
+    }
+
+    // 徒歩分数
+    var walkMin = '';
+    if (walk) {
+      var walkNum = parseInt(String(walk).replace(/[分\s]/g, ''));
+      if (!isNaN(walkNum)) {
+        walkMin = String(Math.min(walkNum + 5, 20));
+      }
+    }
+
+    var now = new Date();
+    var timestamp = Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
+
+    var row = [
+      timestamp,          // A: タイムスタンプ
+      name,               // B: お客様名
+      '東京都',           // C: 都道府県
+      '',                 // D: 市区町村
+      routeStation,       // E: 路線(駅名)
+      stationFlat,        // F: 駅名（フラット）
+      walkMin,            // G: 駅徒歩
+      rentMax,            // H: 賃料上限
+      layout,             // I: 間取り
+      areaMin,            // J: 専有面積下限
+      '',                 // K: 築年数
+      '',                 // L: 構造
+      '',                 // M: 設備
+      'SUUMO問い合わせ',  // N: 部屋探しの理由
+      '',                 // O: 引越し時期
+      '',                 // P: その他ご希望
+      '',                 // Q: ペット種類
+      '',                 // R: 居住者
+    ];
+
+    sheet.appendRow(row);
+
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true, message: 'registered', name: name
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    console.error('handleRegisterSuumoCriteria error: ' + err.message);
+    return ContentService.createTextOutput(JSON.stringify({ error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function handleGetSimilarProperties(e) {
+  var customerName = e.parameter.customer || '';
+
+  if (!customerName) {
+    return ContentService.createTextOutput(JSON.stringify({ properties: [] }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var results = [];
+    var seenRoomIds = {};
+
+    // 承認待ち物件シートからこの顧客の物件を検索
+    var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    if (pendingSheet) {
+      var pendData = pendingSheet.getDataRange().getValues();
+      for (var j = 1; j < pendData.length; j++) {
+        if (String(pendData[j][0]) !== customerName) continue;
+        var pRoomId = String(pendData[j][2] || '');
+        if (seenRoomIds[pRoomId]) continue;
+        seenRoomIds[pRoomId] = true;
+
+        var pExtra = {};
+        try { pExtra = JSON.parse(pendData[j][9] || '{}'); } catch(_) {}
+
+        results.push({
+          buildingName: String(pendData[j][3] || ''),
+          rent: Number(pendData[j][4]) || 0,
+          managementFee: Number(pendData[j][5]) || 0,
+          layout: String(pendData[j][6] || ''),
+          area: Number(pendData[j][7]) || 0,
+          stationInfo: String(pendData[j][8] || ''),
+          address: pExtra.address || '',
+          roomId: pRoomId,
+          customerName: customerName
+        });
+      }
+    }
+
+    // 通知済み物件シートからも検索（承認待ちから消えている場合がある）
+    var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (seenSheet) {
+      var seenData = seenSheet.getDataRange().getValues();
+      for (var i = 1; i < seenData.length; i++) {
+        if (String(seenData[i][0]) !== customerName) continue;
+        var roomId = String(seenData[i][1] || '');
+        if (seenRoomIds[roomId]) continue;
+        // closed は除外
+        var currentStatus = String(seenData[i][5] || '').toLowerCase();
+        if (currentStatus === 'closed') continue;
+        seenRoomIds[roomId] = true;
+
+        // 通知済みシートには詳細がないので承認待ちから補完
+        var detail = _findPendingDetail(pendingSheet, roomId);
+        if (detail) {
+          results.push(detail);
+        }
+      }
+    }
+
+    // 最大3件に絞る
+    results = results.slice(0, 3);
+
+    return ContentService.createTextOutput(JSON.stringify({ properties: results }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    console.error('handleGetSimilarProperties error: ' + err.message);
+    return ContentService.createTextOutput(JSON.stringify({ properties: [], error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function _findMatchingRoute(routeName, stationName) {
+  if (typeof STATION_DATA === 'undefined') return null;
+  // まず路線名の完全一致を試す
+  if (STATION_DATA[routeName]) {
+    if (!stationName || STATION_DATA[routeName].indexOf(stationName) >= 0) {
+      return routeName;
+    }
+  }
+  // 部分一致で路線を探す
+  var keys = Object.keys(STATION_DATA);
+  for (var i = 0; i < keys.length; i++) {
+    if (keys[i].indexOf(routeName) >= 0 || routeName.indexOf(keys[i]) >= 0) {
+      if (!stationName || STATION_DATA[keys[i]].indexOf(stationName) >= 0) {
+        return keys[i];
+      }
+    }
+  }
+  // 駅名だけで路線を逆引き
+  if (stationName) {
+    for (var j = 0; j < keys.length; j++) {
+      if (STATION_DATA[keys[j]].indexOf(stationName) >= 0) {
+        return keys[j];
+      }
+    }
+  }
+  return null;
+}
+
+function _findPendingDetail(pendingSheet, roomId, customerName) {
+  if (!pendingSheet) return null;
+  var data = pendingSheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][2] || '') === roomId) {
+      var extra = {};
+      try { extra = JSON.parse(data[i][9] || '{}'); } catch(_) {}
+      return {
+        buildingName: String(data[i][3] || ''),
+        rent: Number(data[i][4]) || 0,
+        managementFee: Number(data[i][5]) || 0,
+        layout: String(data[i][6] || ''),
+        area: Number(data[i][7]) || 0,
+        stationInfo: String(data[i][8] || ''),
+        address: extra.address || '',
+        roomId: roomId,
+        customerName: customerName || String(data[i][0] || '')
+      };
+    }
+  }
+  return null;
+}
+
+function _buildSimpleHtml(title, message, color) {
+  return '<!DOCTYPE html><html><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<style>'
+    + '*{box-sizing:border-box;margin:0;padding:0}'
+    + 'body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;background:#f8f9fa;color:#333;padding:24px 16px;min-height:100vh;display:flex;align-items:center;justify-content:center}'
+    + '.card{background:#fff;border-radius:16px;padding:40px 24px;max-width:480px;width:100%;box-shadow:0 2px 12px rgba(0,0,0,0.08);text-align:center}'
+    + 'h2{font-size:20px;margin-bottom:16px;color:' + color + '}'
+    + 'p{font-size:15px;line-height:1.8;color:#555}'
+    + '</style></head><body>'
+    + '<div class="card">'
+    + '<h2>' + title + '</h2>'
+    + '<p>' + message + '</p>'
+    + '</div></body></html>';
 }

@@ -5834,3 +5834,230 @@ function _esc(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+// ===== Claude AI 自動承認 =====
+
+function autoApprovePendingProperties() {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  if (!apiKey) {
+    console.error('ANTHROPIC_API_KEY が未設定です。GASエディタ→プロジェクトの設定→スクリプトプロパティに追加してください。');
+    return { processed: 0, error: 'API key not set' };
+  }
+
+  if (isDryRun_()) {
+    console.log('[DRY_RUN] autoApprovePendingProperties skipped');
+    return { processed: 0, dryRun: true };
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!sheet) return { processed: 0 };
+
+  var data = sheet.getDataRange().getValues();
+  var pendingRows = [];
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][10]) === 'pending') {
+      pendingRows.push({ rowIndex: i + 1, values: data[i] });
+    }
+  }
+
+  if (pendingRows.length === 0) return { processed: 0 };
+
+  var processed = 0;
+  var approved = 0;
+  var rejected = 0;
+  var errors = [];
+
+  for (var j = 0; j < pendingRows.length; j++) {
+    var row = pendingRows[j];
+    var customerName = String(row.values[0]);
+    var roomId = String(row.values[2]);
+    var prop = rowToProperty(row.values);
+
+    var lineUserId = findLineUserId(customerName);
+    if (!lineUserId) {
+      console.log('Auto-approve skip: ' + customerName + ' (LINE ID not found)');
+      continue;
+    }
+
+    var criteria = loadCustomerCriteriaByName(customerName);
+
+    try {
+      var evaluation = _evaluatePropertyWithClaude(apiKey, prop, criteria);
+
+      if (evaluation.approve) {
+        _autoApproveSingleProperty(customerName, roomId, row, prop, lineUserId);
+        approved++;
+        console.log('Auto-approved: ' + prop.buildingName + ' → ' + customerName);
+      } else {
+        updatePendingStatus(row.rowIndex, 'auto_rejected');
+        console.log('Auto-rejected: ' + prop.buildingName + ' → ' + customerName + ' (' + evaluation.reason + ')');
+        rejected++;
+      }
+      processed++;
+    } catch (err) {
+      console.error('Auto-approve error for ' + prop.buildingName + ': ' + err.message);
+      errors.push(customerName + '/' + prop.buildingName + ': ' + err.message);
+    }
+  }
+
+  console.log('Auto-approve done: processed=' + processed + ' approved=' + approved + ' rejected=' + rejected);
+  return { processed: processed, approved: approved, rejected: rejected, errors: errors };
+}
+
+function _evaluatePropertyWithClaude(apiKey, prop, criteria) {
+  var model = PropertiesService.getScriptProperties().getProperty('CLAUDE_MODEL') || 'claude-haiku-4-5-20251001';
+
+  var propertyInfo = '物件名: ' + (prop.buildingName || '不明') + '\n'
+    + '賃料: ' + (prop.rent ? (prop.rent / 10000) + '万円' : '不明') + '\n'
+    + '管理費: ' + (prop.managementFee ? (prop.managementFee / 10000) + '万円' : '0円') + '\n'
+    + '間取り: ' + (prop.layout || '不明') + '\n'
+    + '面積: ' + (prop.area ? prop.area + 'm²' : '不明') + '\n'
+    + '最寄り駅: ' + (prop.stationInfo || '不明') + '\n'
+    + '住所: ' + (prop.address || '不明') + '\n'
+    + '築年数: ' + (prop.buildingAge || '不明') + '\n'
+    + '敷金: ' + (prop.deposit || 'なし') + '\n'
+    + '礼金: ' + (prop.keyMoney || 'なし') + '\n'
+    + '階: ' + (prop.floorText || '不明') + '\n'
+    + '構造: ' + (prop.structure || '不明') + '\n';
+
+  if (prop.warningsText) {
+    propertyInfo += '警告: ' + prop.warningsText + '\n';
+  }
+  if (prop.leaseType) {
+    propertyInfo += '契約種別: ' + prop.leaseType + '\n';
+  }
+  if (prop.facilities) {
+    propertyInfo += '設備: ' + prop.facilities + '\n';
+  }
+
+  var criteriaInfo = '（検索条件なし）';
+  if (criteria) {
+    criteriaInfo = '希望賃料上限: ' + (criteria.rent_max || '指定なし') + '\n'
+      + '希望間取り: ' + (criteria.layouts && criteria.layouts.length > 0 ? criteria.layouts.join(', ') : '指定なし') + '\n'
+      + '希望面積: ' + (criteria.area_min || '指定なし') + '\n'
+      + '希望駅: ' + (criteria.selectedStations ? Object.values(criteria.selectedStations).flat().join(', ') : '指定なし') + '\n'
+      + '徒歩: ' + (criteria.walk || '指定なし') + '\n'
+      + '築年数: ' + (criteria.building_age || '指定なし') + '\n'
+      + '設備: ' + (criteria.equipment && criteria.equipment.length > 0 ? criteria.equipment.join(', ') : '指定なし') + '\n';
+  }
+
+  var systemPrompt = 'あなたは不動産仲介会社のアシスタントです。物件データの品質と顧客条件との適合度を評価してください。\n\n'
+    + '承認基準:\n'
+    + '1. 物件名・賃料・間取り・面積が存在すること（必須項目）\n'
+    + '2. 賃料が0円や異常に低い値（1万円未満）でないこと\n'
+    + '3. 警告テキストに重大な問題がないこと（例: 取引不可、掲載終了 等）\n'
+    + '4. 顧客の検索条件がある場合、大きく逸脱していないこと（賃料が上限の1.2倍以内、間取りや面積が概ね合致）\n'
+    + '5. 定期借家の場合でも承認する（顧客に判断を委ねる）\n\n'
+    + '軽微な不足（築年数不明、階数不明など）は承認してよい。\n'
+    + '必ず以下のJSON形式のみで回答してください:\n'
+    + '{"approve": true, "reason": "承認理由"}\n'
+    + 'または\n'
+    + '{"approve": false, "reason": "却下理由"}';
+
+  var userMessage = '【物件情報】\n' + propertyInfo + '\n【顧客の検索条件】\n' + criteriaInfo;
+
+  var payload = {
+    model: model,
+    max_tokens: 200,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userMessage }]
+  };
+
+  var resp = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+    method: 'post',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+
+  var code = resp.getResponseCode();
+  if (code !== 200) {
+    throw new Error('Claude API error: ' + code + ' ' + resp.getContentText().substring(0, 200));
+  }
+
+  var result = JSON.parse(resp.getContentText());
+  var text = '';
+  for (var k = 0; k < result.content.length; k++) {
+    if (result.content[k].type === 'text') {
+      text += result.content[k].text;
+    }
+  }
+
+  var jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    console.warn('Claude response not JSON: ' + text);
+    return { approve: true, reason: 'JSON解析失敗のためデフォルト承認' };
+  }
+
+  try {
+    return JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    console.warn('Claude JSON parse error: ' + text);
+    return { approve: true, reason: 'JSON解析失敗のためデフォルト承認' };
+  }
+}
+
+function _autoApproveSingleProperty(customerName, roomId, row, prop, lineUserId) {
+  var imageUrls = prop.selectedImageUrls || prop.imageUrls || [];
+  var imageCategories = prop.selectedImageCategories || prop.imageCategories || [];
+  if (imageUrls.length === 0 && prop.imageUrl) {
+    imageUrls = [prop.imageUrl];
+    imageCategories = [''];
+  }
+  imageUrls = imageUrls.filter(function(u) {
+    return u && typeof u === 'string' && u.indexOf('https://') === 0;
+  });
+
+  if (imageUrls.length > 0) {
+    saveSelectedImages(row.rowIndex, imageUrls, imageCategories);
+  }
+
+  var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
+  var hashUrl = buildViewUrl(customerName, roomId, prop, []);
+  var minimalUrl = buildMinimalViewUrl(customerName, roomId, prop);
+  var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl);
+
+  cachePropertyImages(customerName, roomId, imageUrls, imageCategories);
+
+  var flex = buildPropertyFlex(prop, {
+    includeImage: imageUrls.length > 0,
+    heroImageUrls: imageUrls.slice(0, 4),
+    viewUrl: viewUrl,
+    customerStations: _getCustomerSelectedStations_(customerName)
+  });
+
+  pushMessage(lineUserId, [flex]);
+  updatePendingStatus(row.rowIndex, 'sent', viewUrl);
+  addToSeenSheet(customerName, prop);
+}
+
+function setupAutoApprovalTrigger() {
+  var existing = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'autoApprovePendingProperties') {
+      ScriptApp.deleteTrigger(existing[i]);
+    }
+  }
+  ScriptApp.newTrigger('autoApprovePendingProperties')
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+  console.log('Auto-approval trigger set: every 5 minutes');
+}
+
+function removeAutoApprovalTrigger() {
+  var existing = ScriptApp.getProjectTriggers();
+  var removed = 0;
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'autoApprovePendingProperties') {
+      ScriptApp.deleteTrigger(existing[i]);
+      removed++;
+    }
+  }
+  console.log('Removed ' + removed + ' auto-approval trigger(s)');
+}
