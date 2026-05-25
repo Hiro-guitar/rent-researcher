@@ -1370,6 +1370,11 @@ function doGet(e) {
     return handleCheckFollowupStatus(e);
   }
 
+  // ── メール送信履歴ログ ──
+  if (action === 'log_email_send') {
+    return handleLogEmailSend(e);
+  }
+
   // ── Claude AI 自動承認（手動実行用） ──
   if (action === 'auto_approve') {
     var result = autoApprovePendingProperties();
@@ -3070,6 +3075,39 @@ function handleCheckFollowupStatus(e) {
     })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     console.error('handleCheckFollowupStatus error: ' + err.message);
+    return ContentService.createTextOutput(JSON.stringify({ error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function handleLogEmailSend(e) {
+  var p = e.parameter;
+  if (!p.email) {
+    return ContentService.createTextOutput(JSON.stringify({ error: 'email required' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheetName = 'メール送信履歴';
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      sheet.appendRow(['送信日時', 'メールアドレス', '名前', '物件名', '種別', '経過日数', '送信回数']);
+      sheet.setFrozenRows(1);
+    }
+    sheet.appendRow([
+      new Date(),
+      p.email || '',
+      p.name || '',
+      p.property_name || '',
+      p.type || '',
+      p.days || '',
+      p.send_count || ''
+    ]);
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    console.error('handleLogEmailSend error: ' + err.message);
     return ContentService.createTextOutput(JSON.stringify({ error: err.message }))
       .setMimeType(ContentService.MimeType.JSON);
   }
