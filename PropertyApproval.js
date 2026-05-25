@@ -3892,6 +3892,286 @@ function _splitRoomNumber(buildingName, roomNumber) {
   return { name: buildingName, room: '' };
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Gemini AI による物件情報整理
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Gemini API を呼び出す共通ヘルパー。
+ * @param {string} systemPrompt
+ * @param {Array} userParts - [{text}|{inlineData:{mimeType,data}}]
+ * @param {string} [model='gemini-2.5-flash']
+ * @return {string} 応答テキスト
+ */
+function _callGeminiApi_(systemPrompt, userParts, model) {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) throw new Error('GEMINI_API_KEY 未設定');
+  model = model || 'gemini-2.5-flash';
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey;
+  var payload = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: 'user', parts: userParts }],
+    generationConfig: { temperature: 0.0, maxOutputTokens: 2000 }
+  };
+  var resp = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  var code = resp.getResponseCode();
+  if (code !== 200) {
+    throw new Error('Gemini API error: ' + code + ' ' + resp.getContentText().substring(0, 200));
+  }
+  var result = JSON.parse(resp.getContentText());
+  var text = '';
+  if (result.candidates && result.candidates[0] && result.candidates[0].content && result.candidates[0].content.parts) {
+    for (var i = 0; i < result.candidates[0].content.parts.length; i++) {
+      if (result.candidates[0].content.parts[i].text) {
+        text += result.candidates[0].content.parts[i].text;
+      }
+    }
+  }
+  return text;
+}
+
+/**
+ * 物件名から AD/業務連絡/期限などを除去し、 物件名のみを返す。
+ */
+function _aiCleanBuildingName_(currentName) {
+  if (!currentName) return currentName;
+  try {
+    var sys = 'あなたは不動産物件名のクリーニングを行うアシスタントです。' +
+      '入力された物件名から、 純粋な物件名以外の情報 ' +
+      '(AD表記、 業務連絡、 仲手、 期限、 注釈、 「@」 で始まる連絡事項、 ★や■などの装飾記号など) を除去し、 ' +
+      '建物名 + 部屋番号のみを返してください。\n' +
+      '出力は JSON 形式のみ: {"cleaned": "クリーンな物件名"}\n' +
+      'もし元から綺麗な場合は同じ文字列を返してください。';
+    var userParts = [{ text: '【元の物件名】\n' + currentName }];
+    var text = _callGeminiApi_(sys, userParts);
+    var m = text.match(/\{[\s\S]*?\}/);
+    if (!m) return currentName;
+    var parsed = JSON.parse(m[0]);
+    return parsed.cleaned || currentName;
+  } catch (e) {
+    console.warn('[AI物件名] エラー: ' + e.message);
+    return currentName;
+  }
+}
+
+/**
+ * アラート (warnings) を分析し、 物件情報を元に「クリア推奨/要確認」 を判定。
+ * @return {Array<{alert:string, status:'clear'|'need_check', comment:string}>}
+ */
+function _aiAnalyzeWarnings_(warningsText, propInfoText) {
+  if (!warningsText || warningsText.trim() === '') return [];
+  try {
+    var sys = 'あなたは不動産物件のアラート項目を分析するアシスタントです。' +
+      '各アラート項目について、 物件情報の中にそれを解決する情報があるか確認し、' +
+      '"clear" (情報あり、 クリア推奨) または "need_check" (情報なし、 要確認) を判定してください。' +
+      '理由 (comment) も短く添えてください。\n' +
+      '出力は JSON 形式のみ: {"results": [{"alert": "...", "status": "clear|need_check", "comment": "..."}]}';
+    var userText = '【アラート項目 (改行区切り)】\n' + warningsText + '\n\n【物件情報】\n' + propInfoText;
+    var text = _callGeminiApi_(sys, [{ text: userText }]);
+    var m = text.match(/\{[\s\S]*\}/);
+    if (!m) return [];
+    var parsed = JSON.parse(m[0]);
+    return parsed.results || [];
+  } catch (e) {
+    console.warn('[AIアラート] エラー: ' + e.message);
+    return [];
+  }
+}
+
+/**
+ * 画像URL の配列を Gemini Vision で分類し、 並び替えた URL 配列を返す。
+ * 並び順: 1=図面, 2=外観, 3=室内, 4=室内, 残りは適当 (キッチン/浴室/玄関/その他)。
+ *
+ * @return {{ordered:string[], categories:string[]}}
+ */
+function _aiClassifyAndReorderImages_(imageUrls) {
+  if (!imageUrls || imageUrls.length === 0) return { ordered: [], categories: [] };
+  try {
+    var sys = 'あなたは不動産物件画像を分類するアシスタントです。' +
+      '各画像を以下のカテゴリに分類してください:\n' +
+      ' - "floorplan" (間取り図/図面)\n' +
+      ' - "exterior" (建物外観)\n' +
+      ' - "interior" (室内/リビング/居室)\n' +
+      ' - "kitchen" (キッチン)\n' +
+      ' - "bath" (浴室/トイレ/洗面所)\n' +
+      ' - "entrance" (玄関/共用部/エントランス)\n' +
+      ' - "view" (景色/眺望/バルコニー)\n' +
+      ' - "other" (その他)\n' +
+      '出力は JSON 形式のみ: {"results": [{"index": 0, "category": "floorplan"}, ...]}';
+    var parts = [{ text: '画像を順に分類してください。' }];
+    var validIndices = [];
+    for (var i = 0; i < imageUrls.length; i++) {
+      try {
+        var imgResp = UrlFetchApp.fetch(imageUrls[i], { muteHttpExceptions: true });
+        if (imgResp.getResponseCode() !== 200) continue;
+        var blob = imgResp.getBlob();
+        var mime = blob.getContentType() || 'image/jpeg';
+        if (mime.indexOf('image/') !== 0) continue;
+        parts.push({ text: '画像 ' + (validIndices.length) + ':' });
+        parts.push({ inlineData: { mimeType: mime, data: Utilities.base64Encode(blob.getBytes()) } });
+        validIndices.push(i);
+      } catch (_) {}
+    }
+    if (validIndices.length === 0) return { ordered: imageUrls.slice(), categories: imageUrls.map(function() { return ''; }) };
+
+    var text = _callGeminiApi_(sys, parts);
+    var m = text.match(/\{[\s\S]*\}/);
+    if (!m) return { ordered: imageUrls.slice(), categories: imageUrls.map(function() { return ''; }) };
+    var parsed;
+    try { parsed = JSON.parse(m[0]); } catch (e) { return { ordered: imageUrls.slice(), categories: imageUrls.map(function() { return ''; }) }; }
+    var classifications = parsed.results || [];
+
+    // index → category マップ (元の imageUrls の index 基準)
+    var idxToCat = {};
+    for (var c = 0; c < classifications.length; c++) {
+      var apiIdx = classifications[c].index;
+      if (typeof apiIdx === 'number' && apiIdx < validIndices.length) {
+        var origIdx = validIndices[apiIdx];
+        idxToCat[origIdx] = classifications[c].category || 'other';
+      }
+    }
+
+    // カテゴリ別にグループ化
+    var byCat = { floorplan: [], exterior: [], interior: [], kitchen: [], bath: [], entrance: [], view: [], other: [] };
+    for (var u = 0; u < imageUrls.length; u++) {
+      var cat = idxToCat[u] || 'other';
+      if (!byCat[cat]) cat = 'other';
+      byCat[cat].push({ url: imageUrls[u], cat: cat });
+    }
+
+    // 並び替え: 1=floorplan, 2=exterior, 3=interior, 4=interior, 残り
+    var ordered = [];
+    var cats = [];
+    function take(c) {
+      if (byCat[c] && byCat[c].length > 0) {
+        var item = byCat[c].shift();
+        ordered.push(item.url);
+        cats.push(item.cat);
+      }
+    }
+    take('floorplan');
+    take('exterior');
+    take('interior');
+    take('interior');
+    ['kitchen', 'bath', 'entrance', 'view', 'floorplan', 'exterior', 'interior', 'other'].forEach(function(c) {
+      while (byCat[c].length > 0) {
+        var item = byCat[c].shift();
+        ordered.push(item.url);
+        cats.push(item.cat);
+      }
+    });
+    return { ordered: ordered, categories: cats };
+  } catch (e) {
+    console.warn('[AI画像分類] エラー: ' + e.message);
+    return { ordered: imageUrls.slice(), categories: imageUrls.map(function() { return ''; }) };
+  }
+}
+
+/**
+ * 物件情報を AI で整理して PENDING_SHEET を更新する。
+ * 承認ページの「🤖 AIで整理」 ボタンから呼ばれる。
+ *
+ * @return {{ok:boolean, changes:object, message:string}}
+ */
+function aiPreprocessProperty(customerName, roomId) {
+  if (!customerName || !roomId) return { ok: false, message: 'パラメータ不足' };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    if (!sheet) return { ok: false, message: 'PENDING_SHEETなし' };
+    var data = sheet.getDataRange().getValues();
+    var targetRow = -1;
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() !== String(customerName).trim()) continue;
+      if (String(data[i][2]).trim() !== String(roomId).trim()) continue;
+      var st = String(data[i][10] || '');
+      if (st !== 'pending' && st !== 'sent') continue;
+      targetRow = i + 1;
+      break;
+    }
+    if (targetRow < 0) return { ok: false, message: '対象行なし (' + customerName + '/' + roomId + ')' };
+
+    var prop = rowToProperty(data[targetRow - 1]);
+    var changes = {};
+
+    // 1. 物件名クリーニング
+    var origName = prop.buildingName + (prop.roomNumber ? ' ' + prop.roomNumber : '');
+    var cleanedName = _aiCleanBuildingName_(origName);
+    if (cleanedName && cleanedName !== origName) {
+      changes.buildingName = { from: origName, to: cleanedName };
+    }
+
+    // 2. アラート分析
+    var warnings = prop.warningsText || '';
+    var aiWarningComments = [];
+    if (warnings.trim() !== '') {
+      var propInfo = '間取り: ' + (prop.layout || '') +
+        ' / 面積: ' + (prop.area || '') + 'm² / 築年数: ' + (prop.buildingAge || '') +
+        ' / 構造: ' + (prop.structure || '') +
+        ' / 駅: ' + (prop.stationInfo || '') +
+        '\n設備: ' + (prop.facilities || '');
+      aiWarningComments = _aiAnalyzeWarnings_(warnings, propInfo);
+      if (aiWarningComments.length > 0) {
+        changes.warningComments = aiWarningComments;
+      }
+    }
+
+    // 3. 画像分類 + 並び替え
+    var imageUrls = prop.imageUrls || (prop.imageUrl ? [prop.imageUrl] : []);
+    if (imageUrls.length > 0) {
+      var classified = _aiClassifyAndReorderImages_(imageUrls);
+      if (classified.ordered.length > 0) {
+        var orderChanged = false;
+        for (var oi = 0; oi < classified.ordered.length; oi++) {
+          if (classified.ordered[oi] !== imageUrls[oi]) { orderChanged = true; break; }
+        }
+        if (orderChanged) {
+          changes.imageOrder = {
+            from: imageUrls.slice(0, 4),
+            to: classified.ordered.slice(0, 4),
+            categories: classified.categories.slice(0, 4)
+          };
+        }
+      }
+    }
+
+    // PENDING_SHEET の J列 JSON を更新
+    try {
+      var jsonRaw = String(data[targetRow - 1][9] || '');
+      var jsonObj = jsonRaw ? JSON.parse(jsonRaw) : {};
+      if (changes.buildingName) {
+        jsonObj.building_name = changes.buildingName.to;
+        // D列 (building_name) も更新
+        sheet.getRange(targetRow, 4).setValue(changes.buildingName.to);
+      }
+      if (changes.imageOrder) {
+        jsonObj.image_urls = changes.imageOrder.to.concat(
+          (jsonObj.image_urls || []).filter(function(u) { return changes.imageOrder.to.indexOf(u) < 0; })
+        );
+        jsonObj.image_categories = changes.imageOrder.categories.concat(
+          (jsonObj.image_categories || []).slice(changes.imageOrder.categories.length)
+        );
+      }
+      if (changes.warningComments) {
+        jsonObj.ai_warning_comments = changes.warningComments;
+      }
+      jsonObj.ai_processed_at = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+      sheet.getRange(targetRow, 10).setValue(JSON.stringify(jsonObj));
+    } catch (eUpd) {
+      console.warn('[AI整理] JSON更新エラー: ' + eUpd.message);
+    }
+
+    return { ok: true, changes: changes, message: 'AI整理完了' };
+  } catch (e) {
+    return { ok: false, message: 'AI整理エラー: ' + e.message };
+  }
+}
+
 function rowToProperty(row) {
   var extra = {};
   try { extra = JSON.parse(row[9] || '{}'); } catch(e) {}
@@ -4835,9 +5115,25 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers) {
     + '.insert-pos{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:14px}'
     + '.insert-pos select{padding:5px 8px;border-radius:6px;border:1px solid #ccc;font-size:14px;background:#fff}'
     + '.customer-banner{background:#e8f5e9;border-left:4px solid #4CAF50;padding:10px 14px;border-radius:6px;margin-bottom:12px;font-size:14px;color:#1b5e20;font-weight:bold}'
+    + '.ai-section{background:#f0faf4;border:1px solid #c8e6c9;border-radius:8px;padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}'
+    + '.ai-btn{background:#6ea814;color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:bold;cursor:pointer}'
+    + '.ai-btn:hover{background:#5a8810}'
+    + '.ai-btn:disabled{opacity:0.6;cursor:not-allowed}'
+    + '.ai-status{font-size:12px;color:#3d6909}'
+    + '.ai-result{margin-top:8px;font-size:12px;color:#555;line-height:1.5;width:100%}'
+    + '.ai-result .change{padding:4px 8px;background:#fff;border-left:3px solid #6ea814;margin:4px 0;border-radius:3px}'
+    + '.ai-comments{margin-top:6px}'
+    + '.ai-comments .item{padding:4px 8px;margin:3px 0;border-radius:4px;font-size:11px}'
+    + '.ai-comments .item.clear{background:#e8f5e9;color:#2e7d32}'
+    + '.ai-comments .item.need{background:#fff3e0;color:#e65100}'
     + '</style></head><body><div class="card">'
     + '<h2>\uD83D\uDD0D \u627F\u8A8D\u30D7\u30EC\u30D3\u30E5\u30FC\uFF08\u7DE8\u96C6\u53EF\uFF09</h2>'
     + '<div class="customer-banner">\uD83D\uDC64 ' + _esc(customerName || '') + ' \u69D8 \u3054\u5E0C\u671B\u306E\u7269\u4EF6</div>'
+    + '<div class="ai-section">'
+    +   '<button class="ai-btn" id="aiPreprocessBtn" onclick="runAiPreprocess()">\uD83E\uDD16 AI\u3067\u6574\u7406</button>'
+    +   '<span class="ai-status" id="aiStatus">\u7269\u4EF6\u540D\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0 / \u753B\u50CF\u4E26\u3073\u66FF\u3048 / \u30A2\u30E9\u30FC\u30C8\u30C1\u30A7\u30C3\u30AF</span>'
+    +   '<div class="ai-result" id="aiResult"></div>'
+    + '</div>'
     + '<div class="prop-name"><input class="detail-input" name="headerBuildingName" value="' + _esc(prop.buildingName) + '" style="font-size:20px;font-weight:bold;color:#222;border:1px solid #e0e0e0;max-width:70%;display:inline-block" oninput="document.querySelector(\'input[name=buildingName]\').value=this.value"> <input class="detail-input" name="headerRoomNumber" value="' + _esc(prop.roomNumber || '') + '" style="font-size:20px;font-weight:bold;color:#222;border:1px solid #e0e0e0;width:80px;display:inline-block" oninput="document.querySelector(\'input[name=roomNumber]\').value=this.value"></div>'
     + '<div class="price"><input class="detail-input" name="headerRent" value="' + rentMan + '" style="font-size:24px;font-weight:bold;color:#E05252;width:80px;display:inline-block;border:1px solid #e0e0e0" oninput="document.querySelector(\'input[name=rent]\').value=Math.round(parseFloat(this.value)*10000)||0">\u4E07\u5186 <span class="price-sub">\u7BA1\u7406\u8CBB <input class="detail-input" name="headerMgmt" value="' + mgmtMan + '" style="font-size:14px;color:#888;width:60px;display:inline-block;border:1px solid #e0e0e0" oninput="document.querySelector(\'input[name=managementFee]\').value=Math.round(parseFloat(this.value)*10000)||0">\u4E07\u5186</span></div>';
 
@@ -5376,6 +5672,29 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers) {
     + 'var cbs=document.querySelectorAll(".multi-send-cb");'
     + 'for(var i=0;i<cbs.length;i++)cbs[i].checked=on;'
     + '}'
+    + 'function runAiPreprocess(){'
+    + 'var btn=document.getElementById("aiPreprocessBtn");'
+    + 'var st=document.getElementById("aiStatus");'
+    + 'var rs=document.getElementById("aiResult");'
+    + 'btn.disabled=true;btn.textContent="🤖 AI処理中...";'
+    + 'st.textContent="画像分析中 (15-30秒)...";rs.innerHTML="";'
+    + 'var url="' + baseUrl + '?action=ai_preprocess_property&customer="+encodeURIComponent(customerName)+"&room_id="+encodeURIComponent(roomId);'
+    + 'fetch(url).then(function(r){return r.json()}).then(function(d){'
+    + 'btn.disabled=false;btn.textContent="🤖 AIで整理";'
+    + 'if(!d.ok){st.textContent="❌ "+(d.message||"失敗");return}'
+    + 'st.textContent="✓ 整理完了。 ページを再読み込みします (5秒後)...";'
+    + 'var c=d.changes||{};var html="";'
+    + 'if(c.buildingName){html+="<div class=\\"change\\"><b>物件名:</b> "+escapeHtml(c.buildingName.from)+" → <b>"+escapeHtml(c.buildingName.to)+"</b></div>"}'
+    + 'if(c.imageOrder){html+="<div class=\\"change\\"><b>画像並び替え:</b> "+(c.imageOrder.categories||[]).join(" / ")+"</div>"}'
+    + 'if(c.warningComments&&c.warningComments.length>0){html+="<div class=\\"ai-comments\\"><b>アラート判定:</b>";'
+    +   'for(var i=0;i<c.warningComments.length;i++){var w=c.warningComments[i];var cls=w.status==="clear"?"clear":"need";html+="<div class=\\"item "+cls+"\\">"+(w.status==="clear"?"✓ クリア推奨":"⚠ 要確認")+": "+escapeHtml(w.alert||"")+" — "+escapeHtml(w.comment||"")+"</div>"}'
+    +   'html+="</div>"}'
+    + 'if(!html)html="<div style=\\"color:#888\\">整理する項目はありませんでした</div>";'
+    + 'rs.innerHTML=html;'
+    + 'setTimeout(function(){window.location.reload()},5000);'
+    + '}).catch(function(e){btn.disabled=false;btn.textContent="🤖 AIで整理";st.textContent="❌ 通信エラー: "+e.message})'
+    + '}'
+    + 'function escapeHtml(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}'
     + 'function submitApprove(){'
     + 'var btn=document.getElementById("approveBtn");'
     + 'btn.textContent="\\u2B50 \\u9001\\u4FE1\\u4E2D...";btn.style.opacity="0.6";btn.style.pointerEvents="none";'

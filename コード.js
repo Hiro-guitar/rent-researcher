@@ -1375,6 +1375,22 @@ function doGet(e) {
     return handleLogEmailSend(e);
   }
 
+  // ── Gemini AI 物件整理 (承認ページから手動実行) ──
+  if (action === 'ai_preprocess_property') {
+    try {
+      var apCustomer = e.parameter.customer || '';
+      var apRoomId = e.parameter.room_id || '';
+      var apResult = (typeof aiPreprocessProperty === 'function')
+        ? aiPreprocessProperty(apCustomer, apRoomId)
+        : { ok: false, message: 'function not defined' };
+      return ContentService.createTextOutput(JSON.stringify(apResult))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (eAP) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, message: eAP.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // ── Claude AI 自動承認（手動実行用） ──
   if (action === 'auto_approve') {
     var result = autoApprovePendingProperties();
