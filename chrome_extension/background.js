@@ -6064,7 +6064,12 @@ async function pollAndStartFillIfNeeded(options = {}) {
 
   // 実入稿フェーズ: ロック付きでキュー取得（取得した瞬間にGAS側でsubmittingに変わり二重取得防止）
   const queueData = await pollSuumoApprovalQueue({ lock: true });
-  if (!queueData || !queueData.queue || queueData.queue.length === 0) {
+  if (!queueData) {
+    await setStorageData({ debugLog: '[SUUMO入稿] GASキュー取得失敗 (null返却) → 入稿スキップ' });
+    return;
+  }
+  if (!queueData.queue || queueData.queue.length === 0) {
+    await setStorageData({ debugLog: `[SUUMO入稿] 承認済みキュー空 → 入稿スキップ (active=${queueData.activeListingCount})` });
     return;
   }
 
@@ -6072,7 +6077,8 @@ async function pollAndStartFillIfNeeded(options = {}) {
   await setStorageData({
     suumoFillQueue: queueData.queue,
     suumoActiveListingCount: queueData.activeListingCount,
-    suumoStopCandidate: queueData.stopCandidate
+    suumoStopCandidate: queueData.stopCandidate,
+    debugLog: `[SUUMO入稿] ${queueData.queue.length}件の承認済み物件あり → 入稿タブ作成へ`
   });
 
   await startSuumoFillProcess();
