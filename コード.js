@@ -1484,11 +1484,15 @@ function _buildCriteriaPageBlockedHtml(step) {
  */
 function processCriteriaSelection(userId, criteria) {
   try {
-    const state = getState(userId);
+    var state = getState(userId);
     console.log('processCriteriaSelection: userId=' + userId + ', step=' + state.step);
 
     if (!isCriteriaPageAllowed(state.step)) {
-      return { success: false, message: '無効な状態です。LINEに戻ってやり直してください。（step=' + state.step + '）' };
+      state = _restoreStateForCriteriaPage_(userId, state);
+      if (!state) {
+        return { success: false, message: '無効な状態です。LINEに戻ってやり直してください。（step=' + getState(userId).step + '）' };
+      }
+      console.log('processCriteriaSelection: state restored to ' + state.step);
     }
 
     // エリア検証
