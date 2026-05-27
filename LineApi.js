@@ -46,10 +46,18 @@ function replyMessage(replyToken, messages) {
  * @param {string} userId - LINE userId
  * @param {Object[]} messages - メッセージオブジェクトの配列（最大5件）
  */
-function pushMessage(userId, messages) {
+function pushMessage(userId, messages, options) {
   if (isDryRun_()) {
     Logger.log('[DRY_RUN] pushMessage to ' + userId + ': ' + JSON.stringify(messages));
     return;
+  }
+  var body = {
+    to: userId,
+    messages: messages
+  };
+  // options.silent = true で通知音・バイブレーションを無効化
+  if (options && options.silent) {
+    body.notificationDisabled = true;
   }
   UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
     method: 'post',
@@ -57,10 +65,7 @@ function pushMessage(userId, messages) {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + CHANNEL_ACCESS_TOKEN
     },
-    payload: JSON.stringify({
-      to: userId,
-      messages: messages
-    })
+    payload: JSON.stringify(body)
   });
 }
 

@@ -6186,6 +6186,8 @@ function autoApprovePendingProperties() {
   var approved = 0;
   var rejected = 0;
   var errors = [];
+  // 顧客ごとの承認数を集計（サマリー通知用）
+  var approvedPerCustomer = {};
 
   for (var j = 0; j < pendingRows.length; j++) {
     var row = pendingRows[j];
@@ -6207,6 +6209,9 @@ function autoApprovePendingProperties() {
       if (evaluation.approve) {
         _autoApproveSingleProperty(customerName, roomId, row, prop, lineUserId);
         approved++;
+        // 顧客ごとの承認数をカウント
+        if (!approvedPerCustomer[lineUserId]) approvedPerCustomer[lineUserId] = 0;
+        approvedPerCustomer[lineUserId]++;
         console.log('Auto-approved: ' + prop.buildingName + ' → ' + customerName);
       } else {
         updatePendingStatus(row.rowIndex, 'auto_rejected');
@@ -6217,6 +6222,16 @@ function autoApprovePendingProperties() {
     } catch (err) {
       console.error('Auto-approve error for ' + prop.buildingName + ': ' + err.message);
       errors.push(customerName + '/' + prop.buildingName + ': ' + err.message);
+    }
+  }
+
+  // 顧客ごとにサマリー通知を送信（通知音あり）
+  for (var uid in approvedPerCustomer) {
+    var count = approvedPerCustomer[uid];
+    try {
+      pushMessage(uid, [textMsg('新着物件を' + count + '件お届けしました\n上のメッセージをご確認ください。')]);
+    } catch (eSummary) {
+      console.warn('サマリー通知送信失敗: ' + uid + ' / ' + eSummary.message);
     }
   }
 
@@ -6350,7 +6365,7 @@ function _autoApproveSingleProperty(customerName, roomId, row, prop, lineUserId)
     customerStations: _getCustomerSelectedStations_(customerName)
   });
 
-  pushMessage(lineUserId, [flex]);
+  pushMessage(lineUserId, [flex], { silent: true });
   updatePendingStatus(row.rowIndex, 'sent', viewUrl);
   addToSeenSheet(customerName, prop);
 }
