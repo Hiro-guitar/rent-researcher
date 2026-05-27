@@ -4677,12 +4677,18 @@ async function deliverProperty(customerName, prop, customer, service) {
   // SUUMO巡回モードではDiscord通知をスキップ
   if (globalThis._suumoPatrolMode) return;
 
-  // 入居時期厳守モード: 間に合わない物件はスキップ
+  // 入居時期厳守モード: 物件の最も早い入居可能日が期限を過ぎている場合のみスキップ
+  // 期間が重なる場合（例: 顧客7/11希望 + 物件7月中旬）はアラート付きで届ける
   if (customer?.move_in_strict && customer?.move_in_date) {
     const warning = _checkMoveInWarning(prop, customer.move_in_date);
     if (warning && warning.includes('入居可能') && warning.includes('のため要確認')) {
-      await setStorageData({ debugLog: `${customerName}: [入居時期厳守] スキップ: ${prop.building_name || ''} ${prop.room_number || ''} - ${warning}` });
-      return;
+      const propMoveIn = (prop.move_in_date || '').trim();
+      const customerDeadline = _parseMoveInDate(customer.move_in_date, true);
+      const propEarliest = _parseMoveInDate(propMoveIn, false, true);
+      if (propEarliest && customerDeadline && propEarliest > customerDeadline) {
+        await setStorageData({ debugLog: `${customerName}: [入居時期厳守] スキップ: ${prop.building_name || ''} ${prop.room_number || ''} - ${warning}` });
+        return;
+      }
     }
   }
 
@@ -5182,7 +5188,7 @@ async function discordPostWithRetry(url, payload) {
  * @param {boolean} asDeadline - true: 旬の末日（顧客の希望期限）、false: 旬の初日（物件の入居可能開始日）
  * @returns {Date|null}
  */
-function _parseMoveInDate(text, asDeadline = false) {
+function _parseMoveInDate(text, asDeadline = false, earliest = false) {
   if (!text) return null;
   text = text.trim();
 
@@ -5228,19 +5234,24 @@ function _parseMoveInDate(text, asDeadline = false) {
   }
 
   // 日の決定
-  // asDeadline=true（顧客の期限）: 期間の最終日（顧客に有利に）
-  // asDeadline=false（物件の入居可能日）: 期間の最終日（最も遅い可能性で比較）
-  // → どちらも期間の最終日を使う（物件「7月上旬」= 最悪10日まで入居不可）
+  // earliest=true: 期間の最初の日（厳守スキップ判定用: 最も早い入居可能日）
+  // earliest=false: 期間の最終日（警告判定用: 最も遅い入居可能日）
   let day;
   if (dayMatch) {
     day = parseInt(dayMatch[1]);
   } else if (period !== null) {
-    if (period === 'early') day = 10;
-    else if (period === 'mid') day = 20;
-    else day = new Date(year, month, 0).getDate(); // 月末
+    if (earliest) {
+      if (period === 'early') day = 1;
+      else if (period === 'mid') day = 11;
+      else day = 21;
+    } else {
+      if (period === 'early') day = 10;
+      else if (period === 'mid') day = 20;
+      else day = new Date(year, month, 0).getDate(); // 月末
+    }
   } else {
-    // 月のみ指定 → 月末
-    day = new Date(year, month, 0).getDate();
+    // 月のみ指定
+    day = earliest ? 1 : new Date(year, month, 0).getDate();
   }
 
   try {
