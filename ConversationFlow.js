@@ -40,6 +40,7 @@ PREV_STEP[STEPS.RESIDENT] = STEPS.REASON;
 PREV_STEP[STEPS.RESIDENT_CUSTOM] = STEPS.RESIDENT;
 PREV_STEP[STEPS.MOVE_IN_DATE] = STEPS.RESIDENT;
 PREV_STEP[STEPS.MOVE_IN_PERIOD] = STEPS.MOVE_IN_DATE;
+PREV_STEP[STEPS.MOVE_IN_STRICT] = STEPS.MOVE_IN_DATE;
 PREV_STEP[STEPS.CRITERIA_SELECT] = STEPS.MOVE_IN_DATE;
 PREV_STEP[STEPS.NOTES] = STEPS.CRITERIA_SELECT;
 PREV_STEP[STEPS.CONFIRM] = STEPS.CRITERIA_SELECT;
@@ -109,6 +110,7 @@ function startChangeFlow(replyToken, userId) {
     reason: existing.reason,
     resident: existing.resident,
     move_in_date: existing.move_in_date,
+    move_in_strict: existing.move_in_strict || false,
     rent_max: existing.rent_max,
     layouts: existing.layouts,
     walk: existing.walk,
@@ -169,6 +171,7 @@ function handleSearchFlowText(replyToken, userId, message, state) {
       return handleNotesInput(replyToken, userId, message, state);
     case STEPS.MOVE_IN_DATE:
     case STEPS.MOVE_IN_PERIOD:
+    case STEPS.MOVE_IN_STRICT:
     case STEPS.CONFIRM:
       // ボタン選択ステップで手入力された場合、案内メッセージ付きで質問を再表示
       showStepQuestion(replyToken, userId, state, GUIDE_TEXT_BUTTON);
@@ -383,12 +386,40 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     return true;
   }
 
-  // ── 引越し時期: 上旬/中旬/下旬 選択 ──
+  // ── 引越し時期: 上旬/中旬/下旬 選択 → 入居厳守確認へ ──
   if (data.startsWith('movein_period|')) {
     var period = data.substring(14); // '上旬', '中旬', '下旬'
     var monthData = (state.data.move_in_month || '').split('-');
     var displayDate = parseInt(monthData[1], 10) + '月' + period;
     state = updateStateData(state, 'move_in_date', displayDate);
+    state.step = STEPS.MOVE_IN_STRICT;
+    saveState(userId, state);
+    showMoveInStrictSelect(replyToken);
+    return true;
+  }
+
+  // ── 引越し時期: 具体的な日付（カレンダー選択）→ 入居厳守確認へ ──
+  if (data === 'movein_exact_date') {
+    var selectedDate = '';
+    if (event && event.postback && event.postback.params && event.postback.params.date) {
+      selectedDate = event.postback.params.date; // 'YYYY-MM-DD'
+    }
+    if (selectedDate) {
+      var dp = selectedDate.split('-');
+      var displayDate2 = parseInt(dp[1], 10) + '月' + parseInt(dp[2], 10) + '日';
+      state = updateStateData(state, 'move_in_date', displayDate2);
+      state.step = STEPS.MOVE_IN_STRICT;
+      saveState(userId, state);
+      // カレンダー選択はdisplayTextが無いので、選択結果をテキストで表示してから厳守確認へ
+      showMoveInStrictSelect(replyToken, [textMsg(displayDate2 + ' を選択しました')]);
+    }
+    return true;
+  }
+
+  // ── 入居時期厳守 選択 ──
+  if (data.startsWith('movein_strict|')) {
+    var isStrict = data.substring(14) === 'true';
+    state = updateStateData(state, 'move_in_strict', isStrict);
     if (state.isChangeFlow) {
       writeToSheet(userId, state);
       clearState(userId);
@@ -400,32 +431,6 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
     showCriteriaSelectLink(replyToken, userId);
-    return true;
-  }
-
-  // ── 引越し時期: 具体的な日付（カレンダー選択）──
-  if (data === 'movein_exact_date') {
-    var selectedDate = '';
-    if (event && event.postback && event.postback.params && event.postback.params.date) {
-      selectedDate = event.postback.params.date; // 'YYYY-MM-DD'
-    }
-    if (selectedDate) {
-      var dp = selectedDate.split('-');
-      var displayDate2 = parseInt(dp[1], 10) + '月' + parseInt(dp[2], 10) + '日';
-      state = updateStateData(state, 'move_in_date', displayDate2);
-      state.step = STEPS.CRITERIA_SELECT;
-      saveState(userId, state);
-      // カレンダー選択はdisplayTextが無いので、選択結果をテキストで表示
-      if (state.isChangeFlow) {
-        writeToSheet(userId, state);
-        clearState(userId);
-        replyMessage(replyToken, [
-          textMsg('条件を更新しました！\n\n' + buildRegistrationSummary(state) + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
-        ]);
-      } else {
-        showCriteriaSelectLink(replyToken, userId, [textMsg(displayDate2 + ' を選択しました')]);
-      }
-    }
     return true;
   }
 
@@ -470,7 +475,7 @@ function handleBackAction(replyToken, userId, state) {
   }
 
   // 条件変更フローで入居時期変更中に戻る場合はCRITERIA_SELECTに戻る
-  if (state.isChangeFlow && (state.step === STEPS.MOVE_IN_DATE || state.step === STEPS.MOVE_IN_PERIOD)) {
+  if (state.isChangeFlow && (state.step === STEPS.MOVE_IN_DATE || state.step === STEPS.MOVE_IN_PERIOD || state.step === STEPS.MOVE_IN_STRICT)) {
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
     showCriteriaSelectLink(replyToken, userId, null, true, state);
@@ -530,6 +535,9 @@ function showStepQuestion(replyToken, userId, state, guideText) {
     case STEPS.MOVE_IN_PERIOD:
       var mp = (state.data.move_in_month || '').split('-');
       showMoveInPeriod(replyToken, parseInt(mp[1], 10) || 0, state.data.move_in_month || '', prefix);
+      break;
+    case STEPS.MOVE_IN_STRICT:
+      showMoveInStrictSelect(replyToken, prefix);
       break;
     case STEPS.CRITERIA_SELECT:
       showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow, state.isChangeFlow ? state : undefined);
@@ -636,6 +644,29 @@ function showMoveInPeriod(replyToken, month, monthKey, prefixMessages) {
 }
 
 // ══════════════════════════════════════════════════════════
+//  表示ヘルパー — 入居時期厳守確認
+// ══════════════════════════════════════════════════════════
+
+/**
+ * 入居時期を必ず守りたいか、できればで良いかを確認する。
+ * @param {string} replyToken
+ * @param {Array} [prefixMessages] - 前に表示するメッセージ
+ */
+function showMoveInStrictSelect(replyToken, prefixMessages) {
+  var items = [
+    qrPostback('紹介してほしい', 'movein_strict|false', '紹介してほしい'),
+    qrPostback('間に合う物件だけ', 'movein_strict|true', '間に合う物件だけ'),
+    qrPostback('◀ 戻る', 'action=back', '戻る')
+  ];
+  replyMessage(replyToken, (prefixMessages || []).concat([
+    textMsgWithQuickReply(
+      'ご希望の時期よりご入居が遅くなる物件もご紹介してもいいですか？',
+      items
+    )
+  ]));
+}
+
+// ══════════════════════════════════════════════════════════
 //  表示ヘルパー — 条件選択LIFFページリンク
 // ══════════════════════════════════════════════════════════
 
@@ -679,7 +710,11 @@ function _buildConditionSummaryRows_(state) {
   var rows = [];
 
   // 入居時期
-  if (d.move_in_date) rows.push(row('入居時期', d.move_in_date));
+  if (d.move_in_date) {
+    var moveInText = d.move_in_date;
+    if (d.move_in_strict) moveInText += '（厳守）';
+    rows.push(row('入居時期', moveInText));
+  }
 
   // エリア
   if (state && state.areaMethod === 'city' && cities.length > 0) {
@@ -895,7 +930,11 @@ function formatConditionSummary(state) {
   var lines = [];
 
   // 入居時期
-  if (d.move_in_date) lines.push('入居時期: ' + d.move_in_date);
+  if (d.move_in_date) {
+    var moveInLine = '入居時期: ' + d.move_in_date;
+    if (d.move_in_strict) moveInLine += '（厳守）';
+    lines.push(moveInLine);
+  }
 
   // エリア
   if (state.areaMethod === 'city' && cities.length > 0) {
@@ -963,7 +1002,9 @@ function showConfirmation(replyToken, state, prefixMessages) {
   details += '・お名前: ' + (d.name || '未入力') + '\n';
   details += '・理由: ' + (d.reason || '未選択') + '\n';
   details += '・居住者: ' + (d.resident || '未選択') + '\n';
-  details += '・引越し時期: ' + (d.move_in_date || '未選択') + '\n';
+  details += '・引越し時期: ' + (d.move_in_date || '未選択');
+  if (d.move_in_strict) details += '（厳守）';
+  details += '\n';
   details += sep;
 
   // エリア

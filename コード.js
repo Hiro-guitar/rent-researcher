@@ -470,7 +470,9 @@ function doGet(e) {
         buildingStructures: _dC.building_structures || [],
         equipment: _dC.equipment || [],
         petType: _dC.petType || '',
-        otherConditions: _dC.otherConditions || ''
+        otherConditions: _dC.otherConditions || '',
+        moveInDate: _dC.move_in_date || '',
+        moveInStrict: !!_dC.move_in_strict
       })).setMimeType(ContentService.MimeType.JSON);
     } catch (eCS) {
       return ContentService.createTextOutput(JSON.stringify({ success: false, message: eCS.message }))
@@ -1253,6 +1255,7 @@ function doGet(e) {
             reason: existing.reason,
             resident: existing.resident,
             move_in_date: existing.move_in_date,
+            move_in_strict: existing.move_in_strict || false,
             rent_max: existing.rent_max,
             layouts: existing.layouts,
             walk: existing.walk,
@@ -1538,6 +1541,11 @@ function processCriteriaSelection(userId, criteria) {
     if (criteria.otherConditions) {
       state.data.notes = criteria.otherConditions;
     }
+    // 入居時期（フォームから送信された場合）
+    if (criteria.move_in_date) {
+      state.data.move_in_date = criteria.move_in_date;
+    }
+    state.data.move_in_strict = !!criteria.move_in_strict;
 
     // 条件変更フローの場合は直接保存して完了
     if (state.isChangeFlow) {
@@ -2092,6 +2100,7 @@ function handleGetCriteria(e) {
       structures: _splitCSV(row[11]),
       equipment: String(row[12] || ''),
       move_in_date: String(row[14] || ''),
+      move_in_strict: String(row[26] || '').trim().toLowerCase() === 'true',  // AA列(27): 入居時期厳守
       notes: String(row[15] || ''),
       selectedTowns: selectedTowns
     });
@@ -2846,6 +2855,7 @@ function _restoreStateForCriteriaPage_(userId, state) {
     reason: existing.reason,
     resident: existing.resident,
     move_in_date: existing.move_in_date,
+    move_in_strict: existing.move_in_strict || false,
     rent_max: existing.rent_max,
     layouts: existing.layouts,
     walk: existing.walk,
