@@ -1409,6 +1409,13 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     // property_data_json構築
     prop.property_data_json = JSON.stringify(buildItandiPropertyDataJson(prop));
 
+    // 入居時期厳守チェック（送信対象ログの前に判定）
+    const strictSkipReason = shouldMoveInStrictSkip(prop, customer);
+    if (strictSkipReason) {
+      await setStorageData({ debugLog: `[itandi] ${customer.name}: [入居時期厳守] スキップ: ${prop.building_name || ''} ${prop.room_number || ''} - ${strictSkipReason}` });
+      continue;
+    }
+
     submittedCount++;
     await setStorageData({ debugLog: `[itandi] ${customer.name}: ✓ 送信対象（${prop.building_name} ${prop.room_number || ''} ${prop.rent ? (prop.rent/10000)+'万' : ''}）` });
 

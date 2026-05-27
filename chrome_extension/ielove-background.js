@@ -1123,6 +1123,13 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       // property_data_json を構築（GAS承認ページ用）
       prop.property_data_json = JSON.stringify(buildPropertyDataJson(prop));
 
+      // 入居時期厳守チェック（送信対象ログの前に判定）
+      const strictSkipReason = shouldMoveInStrictSkip(prop, customer);
+      if (strictSkipReason) {
+        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: [入居時期厳守] スキップ: ${prop.building_name || ''} ${prop.room_number || ''} - ${strictSkipReason}` });
+        continue;
+      }
+
       // DEBUG: 画像カテゴリ情報を送信対象ログに含める
       const _cats = prop.image_categories || [];
       const _catInfo = `imgCat:${_cats.length}/${_cats.filter(c=>c).length} pdj:${(prop.property_data_json||'').length}`;

@@ -3814,6 +3814,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       if (detail) {
         const rejectReason = __rejectReason;
         if (!rejectReason) {
+          // 入居時期厳守チェック（送信対象ログの前に判定）
+          const strictSkipReason = shouldMoveInStrictSkip(detail, customer);
+          if (strictSkipReason) {
+            await setStorageData({ debugLog: `${customer.name}: [入居時期厳守] スキップ: ${detail.building_name || ''} ${detail.room_number || ''} - ${strictSkipReason}` });
+          } else {
           newProperties.push(detail);
           currentStats.totalFound++;
           await setStorageData({ debugLog: `${customer.name}: ✓ 送信対象（${detail.building_name} ${detail.room_number || ''} ${detail.floor_text} ${detail.rent ? (detail.rent/10000)+'万' : ''}）` });
@@ -3847,6 +3852,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             logError(`${customer.name}: ${detail.building_name} ${detail.room_number || ''} Discord通知失敗: ${err.message}`);
           }
           await setStorageData({ stats: currentStats });
+          } // end strictSkip else
         } else {
           await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name} ${detail.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrlWithReason(detail, rejectReason)}` });
           // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
@@ -4673,24 +4679,28 @@ function buildDedupKey(prop) {
   return `${name}|${floor}|${area}`;
 }
 
+/**
+ * 入居時期厳守モードで物件をスキップすべきか判定する。
+ * 物件の最も早い入居可能日が顧客の期限を過ぎている場合のみスキップ。
+ * 期間が重なる場合（例: 顧客7/11希望 + 物件7月中旬）はスキップしない（アラート付きで届ける）。
+ * @returns {string|null} スキップ理由メッセージ、スキップしない場合はnull
+ */
+function shouldMoveInStrictSkip(prop, customer) {
+  if (!customer?.move_in_strict || !customer?.move_in_date) return null;
+  const warning = _checkMoveInWarning(prop, customer.move_in_date);
+  if (!warning || !warning.includes('入居可能') || !warning.includes('のため要確認')) return null;
+  const propMoveIn = (prop.move_in_date || '').trim();
+  const customerDeadline = _parseMoveInDate(customer.move_in_date, true);
+  const propEarliest = _parseMoveInDate(propMoveIn, false, true);
+  if (propEarliest && customerDeadline && propEarliest > customerDeadline) {
+    return warning;
+  }
+  return null;
+}
+
 async function deliverProperty(customerName, prop, customer, service) {
   // SUUMO巡回モードではDiscord通知をスキップ
   if (globalThis._suumoPatrolMode) return;
-
-  // 入居時期厳守モード: 物件の最も早い入居可能日が期限を過ぎている場合のみスキップ
-  // 期間が重なる場合（例: 顧客7/11希望 + 物件7月中旬）はアラート付きで届ける
-  if (customer?.move_in_strict && customer?.move_in_date) {
-    const warning = _checkMoveInWarning(prop, customer.move_in_date);
-    if (warning && warning.includes('入居可能') && warning.includes('のため要確認')) {
-      const propMoveIn = (prop.move_in_date || '').trim();
-      const customerDeadline = _parseMoveInDate(customer.move_in_date, true);
-      const propEarliest = _parseMoveInDate(propMoveIn, false, true);
-      if (propEarliest && customerDeadline && propEarliest > customerDeadline) {
-        await setStorageData({ debugLog: `${customerName}: [入居時期厳守] スキップ: ${prop.building_name || ''} ${prop.room_number || ''} - ${warning}` });
-        return;
-      }
-    }
-  }
 
   const { notifyMode } = await getStorageData(['notifyMode']);
   if (notifyMode === 'batch') {
