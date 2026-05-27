@@ -2831,6 +2831,97 @@ function processAdminCriteria(customerName, lineUserId, criteria) {
   }
 }
 
+/**
+ * 管理者ページから顧客にLINEで検索条件サマリーを送信する。
+ * google.script.run 経由で呼ばれる。
+ */
+function sendConditionSummaryToLine(customerName) {
+  try {
+    if (!customerName) return { success: false, message: '顧客名が指定されていません。' };
+
+    var criteria = loadCustomerCriteriaByName(customerName);
+    if (!criteria) return { success: false, message: customerName + ' の検索条件が見つかりません。' };
+
+    var lineUserId = findLineUserId(customerName);
+    if (!lineUserId) return { success: false, message: customerName + ' のLINE User IDが登録されていません。' };
+
+    // _buildConditionSummaryRows_ 用の state オブジェクトを構築
+    var state = {
+      data: {
+        move_in_date: criteria.move_in_date || '',
+        move_in_strict: criteria.move_in_strict || false,
+        rent_max: criteria.rent_max || '',
+        layouts: criteria.layouts || [],
+        walk: criteria.walk || '指定しない',
+        area_min: criteria.area_min || '指定しない',
+        building_age: criteria.building_age || '指定しない',
+        building_structures: criteria.building_structures || [],
+        equipment: criteria.equipment || [],
+        petType: criteria.petType || '',
+        notes: criteria.notes || ''
+      },
+      areaMethod: criteria.areaMethod || 'route',
+      selectedRoutes: criteria.selectedRoutes || [],
+      selectedCities: criteria.selectedCities || [],
+      selectedStations: criteria.selectedStations || {},
+      selectedTowns: criteria.selectedTowns || {}
+    };
+
+    var summaryRows = _buildConditionSummaryRows_(state);
+
+    // Flex Message を構築
+    var bubble = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#6ea814',
+        paddingAll: 'xl',
+        paddingTop: 'lg',
+        paddingBottom: 'lg',
+        contents: [
+          { type: 'text', text: 'お部屋探しの条件', weight: 'bold', size: 'lg', color: '#ffffff', wrap: true, align: 'center' }
+        ]
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'lg',
+        paddingAll: 'xl',
+        contents: [
+          {
+            type: 'box',
+            layout: 'vertical',
+            backgroundColor: '#f5f9ee',
+            cornerRadius: 'md',
+            paddingAll: 'lg',
+            spacing: 'lg',
+            contents: [
+              { type: 'text', text: 'ご登録いただいた条件', size: 'sm', color: '#3d6909', weight: 'bold' },
+              { type: 'separator', margin: 'sm', color: '#d4e7a8' }
+            ].concat(summaryRows)
+          },
+          { type: 'text', text: 'この条件で物件をお探しします。\n条件の変更はいつでもお申し付けください。', wrap: true, size: 'xs', color: '#888888' }
+        ]
+      }
+    };
+
+    var flexMessage = {
+      type: 'flex',
+      altText: customerName + ' 様のお部屋探し条件',
+      contents: bubble
+    };
+
+    pushMessage(lineUserId, [flexMessage]);
+
+    return { success: true, message: customerName + ' にLINEで条件を送信しました。' };
+  } catch (err) {
+    console.error('sendConditionSummaryToLine Error: ' + err.message);
+    return { success: false, message: 'エラーが発生しました: ' + err.message };
+  }
+}
+
 // ══════════════════════════════════════════════════════════
 //  条件登録フォームのプリレンダリング & GASキャッシュ
 //  (LINEメッセージ送信時にHTMLを事前生成 → CacheServiceに保存 →
