@@ -120,12 +120,15 @@ function writeToSheet(userId, state) {
     sheet.getRange(existingRowIndex, 1, 1, row.length).setValues([row]);
     // Y列（25列目）に町名丁目を書き込み
     sheet.getRange(existingRowIndex, 25).setValue(townsJson);
+    // AA列（27列目）に入居時期厳守フラグを書き込み
+    sheet.getRange(existingRowIndex, 27).setValue(d.move_in_strict ? 'true' : '');
   } else {
     // 新規顧客は末尾に追加
     sheet.appendRow(row);
-    // appendRowの後にY列を書き込み
+    // appendRowの後にY列・AA列を書き込み
     var newRowIndex = sheet.getLastRow();
     sheet.getRange(newRowIndex, 25).setValue(townsJson);
+    sheet.getRange(newRowIndex, 27).setValue(d.move_in_strict ? 'true' : '');
   }
 
   // LINE Users シートにも記録
@@ -236,6 +239,7 @@ function readLatestCriteria(userId) {
     var petType = latestRow[16] ? String(latestRow[16]) : '';
     var resident = latestRow[17] ? String(latestRow[17]) : '';
     var townsJson = latestRow[24] ? String(latestRow[24]) : '';  // Y列（25列目、index 24）
+    var moveInStrict = String(latestRow[26] || '').trim().toLowerCase() === 'true';  // AA列（27列目、index 26）
     var selectedTownsObj = {};
     if (townsJson) {
       try { selectedTownsObj = JSON.parse(townsJson); } catch(e) {}
@@ -305,7 +309,8 @@ function readLatestCriteria(userId) {
       selectedRoutes: routes,
       selectedCities: cities,
       selectedStations: selectedStations,
-      selectedTowns: selectedTownsObj
+      selectedTowns: selectedTownsObj,
+      move_in_strict: moveInStrict
     };
   } catch (e) {
     console.error('readLatestCriteria error: ' + e.message);
