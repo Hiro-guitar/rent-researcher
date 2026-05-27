@@ -2086,7 +2086,20 @@ globalThis.runSearchCycle = async function runSearchCycle() {
         const cond = formatCustomerCriteria(customer);
         await setStorageData({ debugLog: `[REINS] ${customer.name} 条件: ${cond}` });
         try {
-          const rws = customer.routes_with_stations || [];
+          const rwsRaw = customer.routes_with_stations || [];
+          // 環状線（山手線・大江戸線）は1駅ずつ分割（From/To指定で逆回り駅が含まれるのを防止）
+          const CIRCULAR_LINE_KEYWORDS = ['山手線', '大江戸線'];
+          const rws = [];
+          for (const r of rwsRaw) {
+            const isCircular = CIRCULAR_LINE_KEYWORDS.some(kw => (r.route || '').includes(kw));
+            if (isCircular && r.stations && r.stations.length > 1) {
+              for (const st of r.stations) {
+                rws.push({ route: r.route, stations: [st] });
+              }
+            } else {
+              rws.push(r);
+            }
+          }
           const cities = customer.cities || [];
           const _rwsChunks = rws.length > 0
             ? Array.from({length: Math.ceil(rws.length/3)}, (_,i) => rws.slice(i*3, i*3+3))
@@ -4828,7 +4841,8 @@ async function sendDiscordNotification(customerName, properties, customer) {
     if (!threadId) {
       const headerPayload = {
         content: `**${customerName}** 様の新着物件`,
-        thread_name: `🏠 ${customerName}`
+        thread_name: `🏠 ${customerName}`,
+        flags: 4096
       };
       const resp = await fetch(`${discordWebhookUrl}?wait=true`, {
         method: 'POST',
@@ -4862,7 +4876,7 @@ async function sendDiscordNotification(customerName, properties, customer) {
         }
         if (svcParts.length > 0) {
           const warnMsg = `⚠️ **駅名解決失敗**\n${svcParts.join('\n')}\n該当駅の検索がスキップされています。`;
-          await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: warnMsg });
+          await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: warnMsg, flags: 4096 });
           await sleep(500);
         }
       }
@@ -4884,13 +4898,13 @@ async function sendDiscordNotification(customerName, properties, customer) {
           msg = combined;
         } else {
           // 文字数超過 → 検索条件を別メッセージで先に送信
-          await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: pendingSearchInfo });
+          await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: pendingSearchInfo, flags: 4096 });
           await sleep(500);
         }
         pendingSearchInfo = '';
       }
 
-      const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg, allowed_mentions: { parse: [] } });
+      const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg, allowed_mentions: { parse: [] }, flags: 4096 });
       // スレッドが期限切れ/削除された場合は再作成
       if (postResp && (postResp.status === 404 || postResp.status === 400)) {
         console.warn(`Discord スレッド無効 (${postResp.status})。${customerName}のスレッドを再作成...`);
@@ -5205,6 +5219,17 @@ function _parseMoveInDate(text, asDeadline = false, earliest = false) {
   // 制約なし・即時入居可能 → 比較不要
   const skipKeywords = ['いい物件見つかり次第', '即入居可', '即入居', '即時', '即日', '未定'];
   if (skipKeywords.some(kw => text.includes(kw))) return null;
+
+  // スラッシュ形式を日本語形式に変換（ES-Square API: "2026/7/15" → "2026年7月15日", "2026/7" → "2026年7月"）
+  const slashFull = text.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (slashFull) {
+    text = `${slashFull[1]}年${slashFull[2]}月${slashFull[3]}日`;
+  } else {
+    const slashYM = text.match(/^(\d{4})\/(\d{1,2})$/);
+    if (slashYM) {
+      text = `${slashYM[1]}年${slashYM[2]}月`;
+    }
+  }
 
   // 和暦→西暦変換（"令和 8年 4月" → "2026年4月"）
   const warekiMatch = text.match(/(?:令和|平成|昭和)\s*(\d{1,2})\s*年/);
