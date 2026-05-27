@@ -990,9 +990,16 @@ function renderProperty(p) {
     }, 300);
   }
 
+  // 管理者モード: ?admin_mode=1 でアクセスするとフラグ保存、以降トラッキングしない
+  if (/[?&]admin_mode=1/.test(location.search)) {
+    try { localStorage.setItem('admin_mode', '1'); } catch(e) {}
+  }
+  var isAdmin = false;
+  try { isAdmin = localStorage.getItem('admin_mode') === '1'; } catch(e) {}
+
   // 閲覧トラッキング（アクションログに統合、fire-and-forget）
-  // IP+地理情報を取得してから送信（取れなかったら地理情報なしで送る）
-  if (customer && roomId) {
+  // IP+地理情報を取得してから送信（管理者モードではスキップ）
+  if (customer && roomId && !isAdmin) {
     var propData = currentProperty || {};
     var ua = navigator.userAgent || '';
     var isLine = /Line\//.test(ua) ? '1' : '0';
