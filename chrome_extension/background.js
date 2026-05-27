@@ -4677,6 +4677,15 @@ async function deliverProperty(customerName, prop, customer, service) {
   // SUUMO巡回モードではDiscord通知をスキップ
   if (globalThis._suumoPatrolMode) return;
 
+  // 入居時期厳守モード: 間に合わない物件はスキップ
+  if (customer?.move_in_strict && customer?.move_in_date) {
+    const warning = _checkMoveInWarning(prop, customer.move_in_date);
+    if (warning && warning.includes('入居可能') && warning.includes('のため要確認')) {
+      await setStorageData({ debugLog: `${customerName}: [入居時期厳守] スキップ: ${prop.building_name || ''} ${prop.room_number || ''} - ${warning}` });
+      return;
+    }
+  }
+
   const { notifyMode } = await getStorageData(['notifyMode']);
   if (notifyMode === 'batch') {
     if (!_batchBuffer[customerName]) _batchBuffer[customerName] = [];
@@ -5219,26 +5228,19 @@ function _parseMoveInDate(text, asDeadline = false) {
   }
 
   // 日の決定
+  // asDeadline=true（顧客の期限）: 期間の最終日（顧客に有利に）
+  // asDeadline=false（物件の入居可能日）: 期間の最終日（最も遅い可能性で比較）
+  // → どちらも期間の最終日を使う（物件「7月上旬」= 最悪10日まで入居不可）
   let day;
   if (dayMatch) {
     day = parseInt(dayMatch[1]);
   } else if (period !== null) {
-    if (asDeadline) {
-      if (period === 'early') day = 10;
-      else if (period === 'mid') day = 20;
-      else day = new Date(year, month, 0).getDate(); // 月末
-    } else {
-      if (period === 'early') day = 1;
-      else if (period === 'mid') day = 11;
-      else day = 21;
-    }
+    if (period === 'early') day = 10;
+    else if (period === 'mid') day = 20;
+    else day = new Date(year, month, 0).getDate(); // 月末
   } else {
-    // 月のみ指定
-    if (asDeadline) {
-      day = new Date(year, month, 0).getDate(); // 月末
-    } else {
-      day = 1;
-    }
+    // 月のみ指定 → 月末
+    day = new Date(year, month, 0).getDate();
   }
 
   try {

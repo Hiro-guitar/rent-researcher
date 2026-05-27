@@ -79,11 +79,11 @@ function _resolveEssquareJushoList(customer) {
   return result;
 }
 
-function buildEssquareSearchUrl(customer, page, jushoList) {
+function buildEssquareSearchUrl(customer, page, jushoList, stationChunk) {
   const params = new URLSearchParams();
 
-  // 駅コード
-  const stationCodes = _resolveEssquareStationCodes(customer);
+  // 駅コード（チャンク分割対応: stationChunk があればそれを使う）
+  const stationCodes = stationChunk || _resolveEssquareStationCodes(customer);
   if (stationCodes.length > 0) {
     for (const code of stationCodes) {
       params.append('station', code);
@@ -1677,10 +1677,10 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
   // 個別ログを出さずに件数だけ集計する silent スキップ用カウンタ
   const silentSkipStats = { seen: 0 };
 
-  // エリア指定チェック
-  const stationCodes = _resolveEssquareStationCodes(customer);
+  // エリア指定チェック（駅コード解決は1回だけ、後のチャンク分割でも再利用）
+  const allStationCodesEarly = _resolveEssquareStationCodes(customer);
   const cities = (customer.cities || []).filter(c => ESSQUARE_CITY_CODES[c.trim()]);
-  if (stationCodes.length === 0 && cities.length === 0) {
+  if (allStationCodesEarly.length === 0 && cities.length === 0) {
     await setStorageData({ debugLog: `[ES-Square] ${customer.name}: エリア指定なし → スキップ` });
     return;
   }
@@ -1688,7 +1688,7 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
   // 検索条件ログ
   const filterParts = [];
   if (customer.rent_max) filterParts.push(`〜${customer.rent_max}万`);
-  if (stationCodes.length > 0) filterParts.push(`駅: ${stationCodes.length}件`);
+  if (allStationCodesEarly.length > 0) filterParts.push(`駅: ${allStationCodesEarly.length}件`);
   if (cities.length > 0) filterParts.push(`市区町村: ${cities.join(',')}`);
   if (customer.selectedTowns && Object.keys(customer.selectedTowns).length > 0) {
     const townSummary = Object.entries(customer.selectedTowns).map(([c, t]) => `${c}:${t.join('/')}`).join(', ');
@@ -1711,19 +1711,36 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
     jushoChunks.push(null); // 町名指定なし → 通常検索1回
   }
 
+  // 駅コードのチャンク分割（49件超で分割）
+  const STATION_CHUNK_SIZE = 49;
+  const allStationCodes = allStationCodesEarly;
+  const stationChunks = [];
+  if (allStationCodes.length > STATION_CHUNK_SIZE) {
+    for (let i = 0; i < allStationCodes.length; i += STATION_CHUNK_SIZE) {
+      stationChunks.push(allStationCodes.slice(i, i + STATION_CHUNK_SIZE));
+    }
+    await setStorageData({ debugLog: `[ES-Square] ${customer.name}: 駅${allStationCodes.length}件 → ${stationChunks.length}分割 (${STATION_CHUNK_SIZE}件ずつ)` });
+  } else {
+    stationChunks.push(allStationCodes.length > 0 ? allStationCodes : null);
+  }
+
   // ページネーション（最大5ページ × 30件 = 150件）
   // 人間的な動作: 検索結果ページに留まり、物件をクリック→詳細取得→戻る→次の物件
   const maxPages = 5;
   let totalProperties = 0;
 
+  for (let staChunkIdx = 0; staChunkIdx < stationChunks.length; staChunkIdx++) {
+    const stationChunk = stationChunks[staChunkIdx];
+    const staChunkLabel = stationChunks.length > 1 ? ` [駅分割${staChunkIdx + 1}/${stationChunks.length}]` : '';
+
   for (let chunkIdx = 0; chunkIdx < jushoChunks.length; chunkIdx++) {
     const jushoChunk = jushoChunks[chunkIdx];
-    const chunkLabel = jushoChunks.length > 1 ? ` [分割${chunkIdx + 1}/${jushoChunks.length}]` : '';
+    const chunkLabel = (jushoChunks.length > 1 ? ` [住所分割${chunkIdx + 1}/${jushoChunks.length}]` : '') + staChunkLabel;
 
   for (let page = 1; page <= maxPages; page++) {
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
 
-    const url = buildEssquareSearchUrl(customer, page, jushoChunk);
+    const url = buildEssquareSearchUrl(customer, page, jushoChunk, stationChunk);
     if (page === 1) {
       await setStorageData({ debugLog: `[ES-Square] ${customer.name}: 検索URL${chunkLabel} → ${url}` });
     }
@@ -2215,9 +2232,13 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
     await csleep(1500 + Math.random() * 1500);
   }
 
-    // 分割検索間のwait
+    // 住所分割検索間のwait
     if (chunkIdx < jushoChunks.length - 1) await csleep(1500);
   } // end jushoChunks loop
+
+    // 駅分割検索間のwait
+    if (staChunkIdx < stationChunks.length - 1) await csleep(1500);
+  } // end stationChunks loop
 
   // 個別ログを出さなかった silent スキップを集約ログで出す
   const silentParts = [];
