@@ -736,6 +736,116 @@ var renderedRoutes = {};
 var activeTab = 'route';
 
 // ══════════════════════════════════════════════════════════
+//  下書き自動保存 (localStorage)
+//  入力途中でページを閉じても、再度開けば前回の入力が復元される。
+//  送信成功時にクリア。30日で自動失効。
+// ══════════════════════════════════════════════════════════
+var DRAFT_KEY = 'criteria_draft_' + USER_ID;
+var DRAFT_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
+
+function _collectDraft() {
+  var d = { ts: Date.now(), am: activeTab };
+  // 路線・駅
+  var routes = [], stations = {};
+  var cbs = document.querySelectorAll('input[name="route"]:checked');
+  for (var i = 0; i < cbs.length; i++) {
+    var rn = cbs[i].value; routes.push(rn);
+    if (renderedRoutes[rn]) {
+      var p = document.getElementById('panel_' + cbs[i].id);
+      if (p) { var sc = p.querySelectorAll('.station-cb:checked'), sl = []; for (var j = 0; j < sc.length; j++) sl.push(sc[j].value); if (sl.length) stations[rn] = sl; }
+    }
+  }
+  d.sr = routes; d.ss = stations;
+  // 市区町村・町名
+  var cities = [], towns = {};
+  var ccbs = document.querySelectorAll('input[name="city"]:checked');
+  for (var i = 0; i < ccbs.length; i++) cities.push(ccbs[i].value);
+  var allC = document.querySelectorAll('input[name="city"]');
+  for (var i = 0; i < allC.length; i++) {
+    var cn = allC[i].value, tc = document.querySelectorAll('input[name="town_' + cn + '"]:checked');
+    if (tc.length) { var t = []; for (var j = 0; j < tc.length; j++) t.push(tc[j].value); towns[cn] = t; if (cities.indexOf(cn) < 0) cities.push(cn); }
+  }
+  d.sc = cities; d.st = towns;
+  // 家賃
+  d.rm = rentUserSelected ? RENT_VALUES[document.getElementById('rentSlider').value] : '';
+  // 間取り
+  var lc = document.querySelectorAll('input[name="layout"]:checked'); d.la = []; for (var i = 0; i < lc.length; i++) d.la.push(lc[i].value);
+  // 駅徒歩
+  var wu = document.getElementById('walkUnspecified');
+  d.wm = walkUserSelected ? (wu && wu.checked ? '指定しない' : WALK_VALUES[document.getElementById('walkSlider').value]) : '';
+  // 専有面積
+  if (areaUserSelected) {
+    var au = document.getElementById('areaUnspecified'), ac = document.getElementById('areaCustomToggle');
+    if (au && au.checked) d.ai = '指定しない';
+    else if (ac && ac.checked) d.ai = (document.getElementById('areaCustomInput').value || '') + 'm²';
+    else d.ai = AREA_VALUES[document.getElementById('areaSlider').value];
+  } else d.ai = '';
+  // 築年数
+  if (ageUserSelected) {
+    var gu = document.getElementById('ageUnspecified'), gc = document.getElementById('ageCustomToggle');
+    if (gu && gu.checked) d.ba = '指定しない';
+    else if (gc && gc.checked) d.ba = (document.getElementById('ageCustomInput').value || '') + '年以内';
+    else d.ba = AGE_VALUES[document.getElementById('ageSlider').value];
+  } else d.ba = '';
+  // 建物構造
+  var stc = document.querySelectorAll('input[name="structure"]:checked'); d.bs = []; for (var i = 0; i < stc.length; i++) d.bs.push(stc[i].value);
+  // こだわり条件
+  var ec = document.querySelectorAll('input[name="equipment"]:checked'); d.eq = []; for (var i = 0; i < ec.length; i++) d.eq.push(ec[i].value);
+  // ペット・その他
+  var pi = document.getElementById('petTypeInput'); d.pt = pi ? pi.value.trim() : '';
+  var oi = document.getElementById('otherConditionsInput'); d.oc = oi ? oi.value.trim() : '';
+  return d;
+}
+
+var _draftTimer = null;
+function _saveDraft() {
+  if (_draftTimer) clearTimeout(_draftTimer);
+  _draftTimer = setTimeout(function() { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(_collectDraft())); } catch(e) {} }, 500);
+}
+
+function _loadDraft() {
+  try {
+    var raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return false;
+    var d = JSON.parse(raw);
+    if (!d || !d.ts || Date.now() - d.ts > DRAFT_EXPIRY_MS) { localStorage.removeItem(DRAFT_KEY); return false; }
+    INIT_AREA_METHOD = d.am || 'route';
+    SELECTED_ROUTES = d.sr || [];
+    SELECTED_STATIONS = d.ss || {};
+    SELECTED_CITIES = d.sc || [];
+    SELECTED_TOWNS = d.st || {};
+    INIT_RENT_MAX = d.rm || '';
+    INIT_LAYOUTS = d.la || [];
+    INIT_WALK = d.wm || '';
+    INIT_AREA_MIN = d.ai || '';
+    INIT_BUILDING_AGE = d.ba || '';
+    INIT_BUILDING_STRUCTURES = d.bs || [];
+    INIT_EQUIPMENT = d.eq || [];
+    INIT_PET_TYPE = d.pt || '';
+    INIT_OTHER_CONDITIONS = d.oc || '';
+    return true;
+  } catch(e) { return false; }
+}
+
+function _clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch(e) {} }
+
+function _showDraftToast() {
+  var t = document.createElement('div');
+  t.textContent = '前回の入力内容を復元しました';
+  t.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;z-index:999;opacity:0;transition:opacity 0.3s;pointer-events:none;';
+  document.body.appendChild(t);
+  requestAnimationFrame(function() { t.style.opacity = '0.9'; });
+  setTimeout(function() { t.style.opacity = '0'; setTimeout(function() { if (t.parentNode) t.parentNode.removeChild(t); }, 400); }, 3000);
+}
+
+function _initDraftAutoSave() {
+  var app = document.getElementById('app');
+  if (!app) return;
+  app.addEventListener('change', _saveDraft);
+  app.addEventListener('input', _saveDraft);
+}
+
+// ══════════════════════════════════════════════════════════
 //  初期化
 // ══════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════
@@ -788,6 +898,9 @@ window.onload = function() {
   // GAS API から状態を取得してから描画を進める
   _fetchUserState(function() {
 
+  // 下書き復元: サーバーデータよりローカル下書きを優先（ユーザーの最新入力を尊重）
+  var _draftRestored = _loadDraft();
+
   // ── Phase 1: 軽い項目を即座にレンダリング (同期) ──
   renderLayouts();
   renderStructures();
@@ -832,6 +945,9 @@ window.onload = function() {
           //   focus=walk     → 駅徒歩セクション
           applyConditionFocus_();
           _mark('Phase5: 復元完了・全レンダ完了');
+          // 下書き自動保存を開始 + 復元トースト
+          _initDraftAutoSave();
+          if (_draftRestored) _showDraftToast();
           // ロード完了: 上部バナーを消し、フォーム編集を解禁
           document.body.classList.remove('is-loading');
           var _bnr = document.getElementById('loadingBanner');
@@ -1952,6 +2068,7 @@ function submitCriteria() {
       var result; try { result = JSON.parse(text); } catch(e) { result = null; }
       document.getElementById('loading').style.display = 'none';
       if (result && result.success) {
+        _clearDraft();
         document.getElementById('success').style.display = 'flex';
         setTimeout(function() {
           // LIFF 経由なら liff.closeWindow() で閉じる
