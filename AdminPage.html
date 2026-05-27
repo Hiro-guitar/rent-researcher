@@ -565,7 +565,9 @@ input[type="range"]::-webkit-slider-thumb {
   <div class="icon">&#x2705;</div>
   <h2>保存しました</h2>
   <p id="successMessage">検索条件を保存しました。</p>
-  <button class="load-btn" style="margin-top:20px;background:#2c3e50;" onclick="resetForm()">続けて編集する</button>
+  <button id="sendLineBtn" class="load-btn" style="margin-top:16px;background:#06C755;color:#fff;font-weight:600;" onclick="sendConditionToLine()">LINEで条件を送信</button>
+  <p id="sendLineResult" style="margin-top:8px;font-size:13px;display:none;"></p>
+  <button class="load-btn" style="margin-top:12px;background:#2c3e50;" onclick="resetForm()">続けて編集する</button>
 </div>
 
 <script>
@@ -1826,6 +1828,9 @@ function submitAdminCriteria() {
       if (result && result.success) {
         document.getElementById('successMessage').textContent = customerName + ' の検索条件を保存しました。';
         document.getElementById('success').style.display = 'flex';
+        // LINE送信ボタン用に顧客名を保持
+        window._savedCustomerName = customerName;
+        document.getElementById('sendLineResult').style.display = 'none';
       } else {
         showAlert(result ? result.message : 'エラーが発生しました。');
         document.getElementById('app').style.display = 'block';
@@ -1837,6 +1842,38 @@ function submitAdminCriteria() {
       document.getElementById('app').style.display = 'block';
     })
     .processAdminCriteria(customerName, lineUserId, criteria);
+}
+
+function sendConditionToLine() {
+  var name = window._savedCustomerName;
+  if (!name) { showAlert('顧客名が不明です。'); return; }
+  var btn = document.getElementById('sendLineBtn');
+  var result = document.getElementById('sendLineResult');
+  btn.disabled = true;
+  btn.textContent = '送信中...';
+  result.style.display = 'none';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false;
+      btn.textContent = 'LINEで条件を送信';
+      result.style.display = 'block';
+      if (res && res.success) {
+        result.style.color = '#27ae60';
+        result.textContent = res.message;
+      } else {
+        result.style.color = '#e74c3c';
+        result.textContent = res ? res.message : '送信に失敗しました。';
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      btn.textContent = 'LINEで条件を送信';
+      result.style.display = 'block';
+      result.style.color = '#e74c3c';
+      result.textContent = 'エラー: ' + (err.message || err);
+    })
+    .sendConditionSummaryToLine(name);
 }
 
 function resetForm() {
