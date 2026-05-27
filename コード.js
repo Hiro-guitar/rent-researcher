@@ -2675,6 +2675,7 @@ function loadCustomerCriteriaByName(customerName) {
     if (townsJson) {
       try { selectedTownsObj = JSON.parse(townsJson); } catch(e) {}
     }
+    var moveInStrict = String(latestRow[26] || '').trim().toLowerCase() === 'true';
 
     // 路線(駅名)形式をパース
     var routes = [];
@@ -2723,6 +2724,7 @@ function loadCustomerCriteriaByName(customerName) {
       reason: reason,
       resident: resident,
       move_in_date: moveInDate,
+      move_in_strict: moveInStrict,
       rent_max: rentMax,
       layouts: layouts,
       walk: walk || '指定しない',
@@ -2788,7 +2790,8 @@ function processAdminCriteria(customerName, lineUserId, criteria) {
         petType: criteria.petType || '',
         notes: criteria.otherConditions || '',
         reason: '',
-        move_in_date: '',
+        move_in_date: criteria.moveInDate || '',
+        move_in_strict: !!criteria.moveInStrict,
         resident: ''
       },
       areaMethod: criteria.areaMethod || 'route',
@@ -2802,7 +2805,11 @@ function processAdminCriteria(customerName, lineUserId, criteria) {
     var existing = loadCustomerCriteriaByName(customerName);
     if (existing) {
       if (!state.data.reason && existing.reason) state.data.reason = existing.reason;
-      if (!state.data.move_in_date && existing.move_in_date) state.data.move_in_date = existing.move_in_date;
+      if (!state.data.move_in_date && existing.move_in_date) {
+        state.data.move_in_date = existing.move_in_date;
+        // 入居時期を変更しなかった場合、既存のstrict設定も保持
+        if (!criteria.moveInDate) state.data.move_in_strict = existing.move_in_strict || false;
+      }
       if (!state.data.resident && existing.resident) state.data.resident = existing.resident;
     }
 
