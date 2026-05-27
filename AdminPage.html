@@ -408,6 +408,27 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
   </div>
 
+  <!-- ═══ 入居時期 ═══ -->
+  <div class="section">
+    <div class="section-title green">入居時期</div>
+    <div class="admin-field-row">
+      <div class="admin-field">
+        <label>入居時期</label>
+        <select id="moveInSelect" onchange="onMoveInChange()">
+          <option value="">変更しない</option>
+          <option value="いい物件見つかり次第">いい物件見つかり次第</option>
+        </select>
+      </div>
+      <div class="admin-field" id="moveInStrictField" style="display:none;">
+        <label>入居時期の扱い</label>
+        <select id="moveInStrictSelect">
+          <option value="false">遅い物件も紹介する</option>
+          <option value="true">間に合う物件だけ</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ エリア ═══ -->
   <div class="section">
     <div class="section-title green">エリア</div>
@@ -604,6 +625,7 @@ window.onload = function() {
   initWalkSlider();
   initAreaSlider();
   initAgeSlider();
+  initMoveInSelect();
 
   // URLパラメータで顧客指定されている場合
   if (INIT_CUSTOMER) {
@@ -752,6 +774,26 @@ function populateForm(data) {
     for (var g = 0; g < 3; g++) toggleCityGroup(g);
   }
 
+  // 入居時期
+  if (data.move_in_date) {
+    var moveInSel = document.getElementById('moveInSelect');
+    var found = false;
+    for (var i = 0; i < moveInSel.options.length; i++) {
+      if (moveInSel.options[i].value === data.move_in_date) { moveInSel.value = data.move_in_date; found = true; break; }
+    }
+    if (!found && data.move_in_date) {
+      var opt = document.createElement('option');
+      opt.value = data.move_in_date;
+      opt.textContent = data.move_in_date;
+      moveInSel.appendChild(opt);
+      moveInSel.value = data.move_in_date;
+    }
+    onMoveInChange();
+  }
+  if (data.move_in_strict) {
+    document.getElementById('moveInStrictSelect').value = 'true';
+  }
+
   // 家賃
   if (data.rent_max) {
     for (var i = 0; i < RENT_VALUES.length; i++) {
@@ -893,6 +935,10 @@ function clearFormSelections() {
   if (petInput) petInput.value = '';
   // その他
   document.getElementById('otherConditionsInput').value = '';
+  // 入居時期リセット
+  document.getElementById('moveInSelect').value = '';
+  document.getElementById('moveInStrictSelect').value = 'false';
+  onMoveInChange();
   // スライダーリセット
   document.getElementById('walkUnspecified').checked = false;
   onWalkUnspecifiedChange();
@@ -1509,6 +1555,33 @@ function onAgeCustomToggle() {
 }
 
 // ══════════════════════════════════════════════════════════
+//  入居時期セレクト
+// ══════════════════════════════════════════════════════════
+function initMoveInSelect() {
+  var sel = document.getElementById('moveInSelect');
+  var now = new Date();
+  var periods = ['上旬', '中旬', '下旬'];
+  for (var i = 0; i < 6; i++) {
+    var d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    var m = d.getMonth() + 1;
+    for (var p = 0; p < periods.length; p++) {
+      var val = m + '月' + periods[p];
+      var opt = document.createElement('option');
+      opt.value = val;
+      opt.textContent = val;
+      sel.appendChild(opt);
+    }
+  }
+}
+
+function onMoveInChange() {
+  var val = document.getElementById('moveInSelect').value;
+  var show = val && val !== 'いい物件見つかり次第';
+  document.getElementById('moveInStrictField').style.display = show ? '' : 'none';
+  if (!show) document.getElementById('moveInStrictSelect').value = 'false';
+}
+
+// ══════════════════════════════════════════════════════════
 //  建物構造チェックボックス
 // ══════════════════════════════════════════════════════════
 function renderStructures() {
@@ -1706,6 +1779,10 @@ function submitAdminCriteria() {
 
   // その他
   criteria.otherConditions = document.getElementById('otherConditionsInput').value.trim();
+
+  // 入居時期
+  criteria.moveInDate = document.getElementById('moveInSelect').value;
+  criteria.moveInStrict = document.getElementById('moveInStrictSelect').value === 'true';
 
   // UI切替
   document.getElementById('app').style.display = 'none';
