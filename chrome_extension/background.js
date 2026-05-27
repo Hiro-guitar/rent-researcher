@@ -4865,7 +4865,7 @@ async function sendDiscordNotification(customerName, properties, customer) {
         pendingSearchInfo = '';
       }
 
-      const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg });
+      const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg, allowed_mentions: { parse: [] } });
       // スレッドが期限切れ/削除された場合は再作成
       if (postResp && (postResp.status === 404 || postResp.status === 400)) {
         console.warn(`Discord スレッド無効 (${postResp.status})。${customerName}のスレッドを再作成...`);
@@ -4932,11 +4932,34 @@ async function sendDiscordNoResultSummary() {
     console.warn('次回巡回時刻取得失敗:', e && e.message);
   }
 
-  // 通知する要素が何もなければスキップ（新着なし0名 + 次回時刻なし）
-  if (list.length === 0 && !nextRunLine) return;
+  // === 新着あり顧客の物件数サマリーを収集 ===
+  const foundLines = [];
+  let totalFound = 0;
+  for (const [name, count] of Object.entries(discordPropertyCounters)) {
+    if (count > 0) {
+      foundLines.push(`・${name}: ${count}件`);
+      totalFound += count;
+    }
+  }
+
+  // 通知する要素が何もなければスキップ
+  if (list.length === 0 && foundLines.length === 0 && !nextRunLine) return;
 
   const lines = [];
+
+  // メンション（通知音を鳴らすため）
+  lines.push('<@1459814543600390341>');
+  lines.push('');
+
+  // 新着あり顧客のサマリー
+  if (foundLines.length > 0) {
+    lines.push(`🏠 **新着あり: ${foundLines.length}名 (計${totalFound}件)**`);
+    lines.push(foundLines.join('\n'));
+  }
+
+  // 新着なし顧客のサマリー
   if (list.length > 0) {
+    if (foundLines.length > 0) lines.push('');
     lines.push(`📭 **新着なし: ${list.length}名**`);
     const names = list.map(item => `・${item.name}`);
     lines.push(names.join('\n'));
@@ -4998,7 +5021,8 @@ async function sendDiscordNoResultSummary() {
 
     for (let i = 0; i < chunks.length; i++) {
       let url = discordWebhookUrl;
-      const payload = { content: chunks[i], allowed_mentions: { parse: [] } };
+      // メンション通知を有効化（巡回サマリーのみ通知音を鳴らす）
+      const payload = { content: chunks[i] };
       if (!threadId) {
         // 同日スレッド未作成 → thread_name で新規作成
         url = `${discordWebhookUrl}?wait=true`;
