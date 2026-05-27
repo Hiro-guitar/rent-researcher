@@ -417,7 +417,12 @@ input[type="range"]::-webkit-slider-thumb {
         <select id="moveInSelect" onchange="onMoveInChange()">
           <option value="">変更しない</option>
           <option value="いい物件見つかり次第">いい物件見つかり次第</option>
+          <option value="__custom__">日付を指定</option>
         </select>
+      </div>
+      <div class="admin-field" id="moveInCustomField" style="display:none;">
+        <label>日付</label>
+        <input type="date" id="moveInCustomDate">
       </div>
       <div class="admin-field" id="moveInStrictField" style="display:none;">
         <label>入居時期の扱い</label>
@@ -782,11 +787,24 @@ function populateForm(data) {
       if (moveInSel.options[i].value === data.move_in_date) { moveInSel.value = data.move_in_date; found = true; break; }
     }
     if (!found && data.move_in_date) {
-      var opt = document.createElement('option');
-      opt.value = data.move_in_date;
-      opt.textContent = data.move_in_date;
-      moveInSel.appendChild(opt);
-      moveInSel.value = data.move_in_date;
+      // 「○月○日」形式ならカスタム日付入力に復元
+      var dateMatch = data.move_in_date.match(/^(\d{1,2})月(\d{1,2})日$/);
+      if (dateMatch) {
+        moveInSel.value = '__custom__';
+        var now = new Date();
+        var m = parseInt(dateMatch[1], 10);
+        var d = parseInt(dateMatch[2], 10);
+        var y = m >= (now.getMonth() + 1) ? now.getFullYear() : now.getFullYear() + 1;
+        var dateStr = y + '-' + (m < 10 ? '0' + m : m) + '-' + (d < 10 ? '0' + d : d);
+        document.getElementById('moveInCustomDate').value = dateStr;
+      } else {
+        // その他の形式はオプションを追加
+        var opt = document.createElement('option');
+        opt.value = data.move_in_date;
+        opt.textContent = data.move_in_date;
+        moveInSel.appendChild(opt);
+        moveInSel.value = data.move_in_date;
+      }
     }
     onMoveInChange();
   }
@@ -937,6 +955,7 @@ function clearFormSelections() {
   document.getElementById('otherConditionsInput').value = '';
   // 入居時期リセット
   document.getElementById('moveInSelect').value = '';
+  document.getElementById('moveInCustomDate').value = '';
   document.getElementById('moveInStrictSelect').value = 'false';
   onMoveInChange();
   // スライダーリセット
@@ -1576,9 +1595,22 @@ function initMoveInSelect() {
 
 function onMoveInChange() {
   var val = document.getElementById('moveInSelect').value;
-  var show = val && val !== 'いい物件見つかり次第';
-  document.getElementById('moveInStrictField').style.display = show ? '' : 'none';
-  if (!show) document.getElementById('moveInStrictSelect').value = 'false';
+  var isCustom = val === '__custom__';
+  var hasDate = val && val !== '' && val !== 'いい物件見つかり次第';
+  document.getElementById('moveInCustomField').style.display = isCustom ? '' : 'none';
+  document.getElementById('moveInStrictField').style.display = hasDate ? '' : 'none';
+  if (!hasDate) document.getElementById('moveInStrictSelect').value = 'false';
+}
+
+function getMoveInValue() {
+  var val = document.getElementById('moveInSelect').value;
+  if (val === '__custom__') {
+    var dateVal = document.getElementById('moveInCustomDate').value;
+    if (!dateVal) return '';
+    var parts = dateVal.split('-');
+    return parseInt(parts[1], 10) + '月' + parseInt(parts[2], 10) + '日';
+  }
+  return val;
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1781,7 +1813,7 @@ function submitAdminCriteria() {
   criteria.otherConditions = document.getElementById('otherConditionsInput').value.trim();
 
   // 入居時期
-  criteria.moveInDate = document.getElementById('moveInSelect').value;
+  criteria.moveInDate = getMoveInValue();
   criteria.moveInStrict = document.getElementById('moveInStrictSelect').value === 'true';
 
   // UI切替
