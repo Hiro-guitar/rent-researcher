@@ -1490,9 +1490,14 @@ function processCriteriaSelection(userId, criteria) {
     if (!isCriteriaPageAllowed(state.step)) {
       state = _restoreStateForCriteriaPage_(userId, state);
       if (!state) {
-        return { success: false, message: '無効な状態です。LINEに戻ってやり直してください。（step=' + getState(userId).step + '）' };
+        // 既存条件がない場合（初回登録中にstateがリセットされたケース）でも
+        // フォームから全条件データが来ているので、新しいstateを作って処理を続行する
+        console.log('processCriteriaSelection: no existing criteria to restore, creating fresh state');
+        state = createInitialState();
+        state.step = STEPS.CRITERIA_SELECT;
+        state.data = {};
       }
-      console.log('processCriteriaSelection: state restored to ' + state.step);
+      console.log('processCriteriaSelection: state restored/created, step=' + state.step);
     }
 
     // エリア検証
