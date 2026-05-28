@@ -2900,8 +2900,7 @@ function sendConditionSummaryToLine(customerName) {
             contents: [
               { type: 'separator', margin: 'sm', color: '#d4e7a8' }
             ].concat(summaryRows)
-          },
-          { type: 'text', text: 'この条件で物件をお探しします。\n条件の変更はメニューの「お部屋探しの条件を変える」からお願いします。', wrap: true, size: 'xs', color: '#888888' }
+          }
         ]
       }
     };
@@ -2912,7 +2911,12 @@ function sendConditionSummaryToLine(customerName) {
       contents: bubble
     };
 
-    pushMessage(lineUserId, [flexMessage]);
+    var followUpMessage = {
+      type: 'text',
+      text: 'この条件で物件をお探しします。\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。'
+    };
+
+    pushMessage(lineUserId, [flexMessage, followUpMessage]);
 
     return { success: true, message: customerName + ' にLINEで条件を送信しました。' };
   } catch (err) {
