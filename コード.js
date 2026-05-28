@@ -2898,11 +2898,10 @@ function sendConditionSummaryToLine(customerName) {
             paddingAll: 'lg',
             spacing: 'lg',
             contents: [
-              { type: 'text', text: 'ご登録いただいた条件', size: 'sm', color: '#3d6909', weight: 'bold' },
               { type: 'separator', margin: 'sm', color: '#d4e7a8' }
             ].concat(summaryRows)
           },
-          { type: 'text', text: 'この条件で物件をお探しします。\n条件の変更はいつでもお申し付けください。', wrap: true, size: 'xs', color: '#888888' }
+          { type: 'text', text: 'この条件で物件をお探しします。\n条件の変更はメニューの「お部屋探しの条件を変える」からお願いします。', wrap: true, size: 'xs', color: '#888888' }
         ]
       }
     };
