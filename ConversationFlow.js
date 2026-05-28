@@ -778,6 +778,9 @@ function _buildConditionSummaryRows_(state) {
   // ペット
   if (d.petType) rows.push(row('ペット', d.petType));
 
+  // その他（備考・コメント）
+  if (d.notes) rows.push(row('その他', d.notes));
+
   return rows;
 }
 
