@@ -38,15 +38,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 @keyframes simpleLoadingSpin{to{transform:rotate(360deg)}}
 .simple-loading-text{font-size:16px;font-weight:700;color:#1a2538;margin-bottom:6px;letter-spacing:0.3px}
 .simple-loading-sub{font-size:13px;color:#888;letter-spacing:0.3px}
-/* 募集終了オーバーレイ（closedステータス検知時） */
-#closed-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeInOverlay 0.3s ease}
-@keyframes fadeInOverlay{from{opacity:0}to{opacity:1}}
-.closed-banner{background:#fff;border-radius:20px;padding:36px 28px 28px;max-width:380px;width:100%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,0.25)}
-.closed-icon{font-size:48px;margin-bottom:12px}
-.closed-title{font-size:20px;font-weight:800;color:#1a2538;margin-bottom:8px;letter-spacing:-0.3px}
-.closed-sub{font-size:13px;color:#888;margin-bottom:24px;line-height:1.5}
-.closed-actions{display:flex;flex-direction:column;gap:10px}
-/* 募集終了カード (Not Found) */
+/* 募集終了カード (Not Found / Closed) */
 .notfound-card{background:#fff;border-radius:16px;padding:32px 28px 26px;max-width:420px;margin:40px auto;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.08);border:1px solid #f0f0f0}
 .notfound-title{font-size:20px;font-weight:800;color:#1a2538;margin-bottom:22px;letter-spacing:-0.3px}
 .notfound-actions{display:flex;flex-direction:column;gap:10px}
@@ -322,6 +314,7 @@ if (inlineProp) {
   if (customer && roomId) {
     checkClosedStatus(customer, roomId);
   }
+
 } else if (minimalProp && customer && roomId) {
   // 2. 最小データ → スケルトンに即注入してから view_api で残りを取得
   // （view_api が画像も返すので images_api は呼ばない）
@@ -364,11 +357,11 @@ function fetchProperty(customer, roomId) {
         }
         throw new Error(data.error);
       }
-      renderProperty(data);
-      // 募集終了チェック（物件データは表示した上でバナーを被せる）
       if (data.isClosed) {
-        showClosedOverlay();
+        showNotFound();
+        return;
       }
+      renderProperty(data);
     })
     .catch(function(err) {
       var msg = err && err.message ? err.message : '物件情報の取得に失敗しました。';
@@ -463,32 +456,7 @@ function showError(msg) {
     '<div class="error-card"><h2>\u26a0\ufe0f エラー</h2><p>' + escHtml(msg) + '</p></div>';
 }
 
-// 募集終了（物件データはあるが空室確認でclosedになった場合）
-// 物件詳細は表示したまま、上にオーバーレイを被せる
-function showClosedOverlay() {
-  // 既存のオーバーレイがあれば何もしない
-  if (document.getElementById('closed-overlay')) return;
-  var overlay = document.createElement('div');
-  overlay.id = 'closed-overlay';
-  overlay.innerHTML =
-    '<div class="closed-banner">'
-    + '<div class="closed-icon">&#x1f6d1;</div>'
-    + '<div class="closed-title">この物件の募集は終了しました</div>'
-    + '<div class="closed-sub">最新の空室確認で募集終了が確認されました。</div>'
-    + '<div class="closed-actions">'
-    + '<button class="notfound-btn notfound-btn-primary" onclick="closeOrBack()">LINEに戻る</button>'
-    + '<button class="notfound-btn notfound-btn-secondary" onclick="dismissClosedOverlay()">物件情報を見る</button>'
-    + '</div>'
-    + '</div>';
-  document.body.insertBefore(overlay, document.body.firstChild);
-}
-
-function dismissClosedOverlay() {
-  var overlay = document.getElementById('closed-overlay');
-  if (overlay) overlay.remove();
-}
-
-// インラインデータ表示時に募集終了かどうかだけAPIで確認する（軽量チェック）
+// インラインデータ表示時に募集終了かどうかだけAPIで確認する
 function checkClosedStatus(customer, roomId) {
   var url = GAS_API_URL + '?action=view_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
   fetch(url, { redirect: 'follow' })
@@ -496,8 +464,7 @@ function checkClosedStatus(customer, roomId) {
     .then(function(text) {
       try {
         var data = JSON.parse(text);
-        if (data.isClosed) showClosedOverlay();
-        if (data.notFound) showClosedOverlay();
+        if (data.isClosed || data.notFound) showNotFound();
       } catch(e) {}
     })
     .catch(function() {});
