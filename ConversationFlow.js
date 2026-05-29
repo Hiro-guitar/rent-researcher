@@ -715,7 +715,7 @@ function _buildConditionSummaryRows_(state) {
   // 入居時期
   if (d.move_in_date) {
     var moveInText = d.move_in_date;
-    if (d.move_in_strict) moveInText += '（厳守）';
+    if (d.move_in_strict) moveInText += 'までに入居希望';
     rows.push(row('入居時期', moveInText));
   }
 
@@ -987,7 +987,7 @@ function formatConditionSummary(state) {
   // 入居時期
   if (d.move_in_date) {
     var moveInLine = '入居時期: ' + d.move_in_date;
-    if (d.move_in_strict) moveInLine += '（厳守）';
+    if (d.move_in_strict) moveInLine += 'までに入居希望';
     lines.push(moveInLine);
   }
 
@@ -1058,7 +1058,7 @@ function showConfirmation(replyToken, state, prefixMessages) {
   details += '・理由: ' + (d.reason || '未選択') + '\n';
   details += '・居住者: ' + (d.resident || '未選択') + '\n';
   details += '・引越し時期: ' + (d.move_in_date || '未選択');
-  if (d.move_in_strict) details += '（厳守）';
+  if (d.move_in_strict) details += 'までに入居希望';
   details += '\n';
   details += sep;
 
