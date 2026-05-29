@@ -371,29 +371,40 @@ function recordLineActivity(userId) {
  * 手動実行 or 時間トリガーから呼ぶ想定。
  */
 function cleanupLineActivitySheet() {
-  try {
-    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
-    var sheet = ss.getSheetByName('LINE Activity');
-    if (!sheet) return;
-    var data = sheet.getDataRange().getValues();
-    if (data.length <= 1) return;
-    var header = data[0];
-    var latest = {};
-    for (var i = 1; i < data.length; i++) {
-      var uid = data[i][0];
-      var ts = data[i][1] ? new Date(data[i][1]).getTime() : 0;
-      if (!uid) continue;
-      if (!latest[uid] || latest[uid].ts < ts) {
-        latest[uid] = { ts: ts, row: data[i] };
-      }
-    }
-    var newRows = [header];
-    Object.keys(latest).forEach(function(k) { newRows.push(latest[k].row); });
-    sheet.clearContents();
-    sheet.getRange(1, 1, newRows.length, header.length).setValues(newRows);
-  } catch (e) {
-    console.error('cleanupLineActivitySheet error: ' + e.message);
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName('LINE Activity');
+  if (!sheet) {
+    console.log('cleanupLineActivitySheet: sheet not found');
+    return;
   }
+  var data = sheet.getDataRange().getValues();
+  console.log('cleanupLineActivitySheet: total rows=' + data.length + ', cols=' + (data[0] ? data[0].length : 0));
+  if (data.length <= 1) {
+    console.log('cleanupLineActivitySheet: no data rows');
+    return;
+  }
+  var header = data[0];
+  var latest = {};
+  var totalWithUid = 0;
+  for (var i = 1; i < data.length; i++) {
+    var uid = String(data[i][0]).trim();
+    if (!uid) continue;
+    totalWithUid++;
+    var ts = data[i][1] ? new Date(data[i][1]).getTime() : 0;
+    if (!latest[uid] || latest[uid].ts < ts) {
+      latest[uid] = { ts: ts, row: data[i] };
+    }
+  }
+  var uniqueCount = Object.keys(latest).length;
+  console.log('cleanupLineActivitySheet: rows with userId=' + totalWithUid + ', unique userIds=' + uniqueCount);
+  var newRows = [header];
+  Object.keys(latest).forEach(function(k) { newRows.push(latest[k].row); });
+  // ヘッダーはA:Cの3列だけに制限（余計な空列を除去）
+  var colCount = 3;
+  var trimmedRows = newRows.map(function(row) { return row.slice(0, colCount); });
+  sheet.clear(); // clearContents + formatting
+  sheet.getRange(1, 1, trimmedRows.length, colCount).setValues(trimmedRows);
+  console.log('cleanupLineActivitySheet: done. wrote ' + trimmedRows.length + ' rows');
 }
 
 function getLineActivityMap() {
