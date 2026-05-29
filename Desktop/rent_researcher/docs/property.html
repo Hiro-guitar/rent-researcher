@@ -313,9 +313,9 @@ if (inlineProp) {
     renderProperty(inlineProp);
   }
 } else if (minimalProp && customer && roomId) {
-  // 2. 最小データ → スケルトンに即注入してから view_api で残りを取得
-  // （view_api が画像も返すので images_api は呼ばない）
-  injectMinimalToSkeleton(minimalProp);
+  // 2. 最小データ → API確認を先にして、closedなら募集終了画面を表示
+  //    物件情報のちらつきを防ぐため、スケルトン注入はAPI確認後に行う
+  showSimpleLoading();
   fetchProperty(customer, roomId);
 } else if (customer && roomId) {
   // 3. パラメータ無し → view_api 経由（最遅、フォールバック）
