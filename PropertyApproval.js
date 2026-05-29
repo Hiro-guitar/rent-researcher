@@ -72,6 +72,24 @@ function handleApprove(e) {
   var prop = rowToProperty(row.values);
   // 同じ物件 (roomId) で承認待ちになっている他のお客様を検出
   var otherCustomers = _findOtherPendingCustomersForRoom_(roomId, customerName);
+
+  // 他のお客様の警告アラートをGAS側で再計算（保存値が空/古い場合の補完）
+  if (otherCustomers.length > 0) {
+    var ocNames = otherCustomers.map(function(oc) { return oc.customerName; });
+    var equipMap = _getCustomerEquipmentMap_(ocNames);
+    for (var oci = 0; oci < otherCustomers.length; oci++) {
+      var ocName = otherCustomers[oci].customerName;
+      var ocEquip = equipMap[ocName];
+      if (ocEquip) {
+        // 常にGAS側で再計算（最新の設備条件を使用）
+        var computed = _computePropertyWarningsGAS_(prop, ocEquip.equipment, ocEquip.notes);
+        if (computed) {
+          otherCustomers[oci].warningsText = computed;
+        }
+      }
+    }
+  }
+
   return makePreviewHtml(prop, customerName, roomId, otherCustomers);
 }
 
@@ -4665,6 +4683,248 @@ function _getCustomerSelectedStations_(customerName) {
     console.warn('_getCustomerSelectedStations_ error: ' + (e && e.message));
   }
   return [];
+}
+
+/**
+ * GAS側で物件の警告アラートを計算する。
+ * Chrome拡張の __computePropertyWarnings と同等のロジック。
+ * 承認プレビューで他のお客様の警告を動的に再計算するために使う。
+ *
+ * @param {Object} prop - rowToProperty() の結果 (物件データ)
+ * @param {string} equipmentStr - カンマ区切りの設備条件文字列 (検索条件シートM列)
+ * @param {string} [notesStr] - その他希望 (検索条件シートP列)
+ * @return {string} 警告テキスト (改行区切り)。警告なしなら空文字列。
+ */
+function _computePropertyWarningsGAS_(prop, equipmentStr, notesStr) {
+  if (!equipmentStr && !notesStr) return '';
+  var equip = String(equipmentStr || '').replace(/[０-９]/g, function(c) {
+    return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+  }).toLowerCase();
+  var floorMatch = String(prop.floorText || '').replace(/[０-９]/g, function(c) {
+    return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+  }).match(/(\d+)/);
+  var floorNum = floorMatch ? parseInt(floorMatch[1]) : 0;
+  var storyMatch = String(prop.storyText || '').replace(/[０-９]/g, function(c) {
+    return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+  }).match(/(\d+)/);
+  var storyNum = storyMatch ? parseInt(storyMatch[1]) : 0;
+  var fac = prop.facilities || '';
+  var warnings = [];
+
+  // 階数系
+  if (equip.indexOf('最上階') >= 0 && (floorNum === 0 || storyNum === 0)) {
+    warnings.push('⚠️ 最上階かどうか確認してください');
+  }
+  if (equip.indexOf('2階以上') >= 0 && floorNum === 0) {
+    warnings.push('⚠️ 2階以上かどうか確認してください');
+  }
+  if (equip.indexOf('1階') >= 0 && equip.indexOf('2階以上') < 0 && floorNum === 0) {
+    warnings.push('⚠️ 1階かどうか確認してください');
+  }
+  // 方角
+  if (equip.indexOf('南向き') >= 0 && !prop.sunlight) {
+    warnings.push('⚠️ 南向きかどうか確認してください');
+  }
+  // 角部屋
+  if (equip.indexOf('角部屋') >= 0 && fac.indexOf('角部屋') < 0 && fac.indexOf('角住戸') < 0) {
+    warnings.push('⚠️ 角部屋かどうか確認してください');
+  }
+  // 追い焚き
+  if ((equip.indexOf('追い焚き') >= 0 || equip.indexOf('追いだき') >= 0 || equip.indexOf('追い炊き') >= 0) && fac.indexOf('追焚') < 0 && fac.indexOf('追い焚') < 0 && fac.indexOf('追いだき') < 0) {
+    warnings.push('⚠️ 追い焚き機能かどうか確認してください');
+  }
+  // エレベーター
+  if ((equip.indexOf('エレベーター') >= 0 || equip.indexOf('ev') >= 0) && fac.indexOf('エレベータ') < 0 && fac.indexOf('エレベーター') < 0) {
+    warnings.push('⚠️ エレベーターかどうか確認してください');
+  }
+  // バス・トイレ別
+  if ((equip.indexOf('バストイレ別') >= 0 || equip.indexOf('バス・トイレ別') >= 0 || equip.indexOf('bt別') >= 0) && fac.indexOf('バス・トイレ別') < 0 && fac.indexOf('バストイレ別') < 0) {
+    warnings.push('⚠️ バス・トイレ別かどうか確認してください');
+  }
+  // 温水洗浄便座
+  if ((equip.indexOf('温水洗浄便座') >= 0 || equip.indexOf('ウォシュレット') >= 0) && fac.indexOf('温水洗浄便座') < 0) {
+    warnings.push('⚠️ 温水洗浄便座かどうか確認してください');
+  }
+  // 浴室乾燥機
+  if (equip.indexOf('浴室乾燥') >= 0 && fac.indexOf('浴室乾燥') < 0) {
+    warnings.push('⚠️ 浴室乾燥機かどうか確認してください');
+  }
+  // 室内洗濯機置場
+  if ((equip.indexOf('室内洗濯機置場') >= 0 || equip.indexOf('室内洗濯') >= 0) && fac.indexOf('室内洗濯機') < 0) {
+    warnings.push('⚠️ 室内洗濯機置場かどうか確認してください');
+  }
+  // エアコン
+  if (equip.indexOf('エアコン') >= 0 && fac.indexOf('エアコン') < 0) {
+    warnings.push('⚠️ エアコン付きかどうか確認してください');
+  }
+  // 床暖房
+  if (equip.indexOf('床暖房') >= 0 && fac.indexOf('床暖房') < 0) {
+    warnings.push('⚠️ 床暖房かどうか確認してください');
+  }
+  // 独立洗面台
+  if (equip.indexOf('独立洗面') >= 0) {
+    if (fac.indexOf('シャンプードレッサー') >= 0 || fac.indexOf('独立洗面') >= 0 || fac.indexOf('洗面所独立') >= 0 || fac.indexOf('洗面化粧台') >= 0 || fac.indexOf('シャワー付洗面') >= 0) {
+      // 確定 → アラート不要
+    } else if (fac.indexOf('洗面台') >= 0) {
+      warnings.push('⚠️ 独立洗面台があるかどうか確認してください（洗面台の記載あり、ユニットバスの可能性）');
+    } else {
+      warnings.push('⚠️ 独立洗面台があるかどうか確認してください');
+    }
+  }
+  // ガスコンロ
+  if (equip.indexOf('ガスコンロ') >= 0 && fac.indexOf('ガスコンロ') < 0 && fac.indexOf('ガスキッチン') < 0) {
+    warnings.push('⚠️ ガスコンロ対応かどうか確認してください');
+  }
+  // IH
+  if (equip.indexOf('ih') >= 0 && fac.indexOf('ＩＨ') < 0 && fac.indexOf('IH') < 0) {
+    warnings.push('⚠️ IHコンロかどうか確認してください');
+  }
+  // コンロ2口以上
+  if (equip.indexOf('コンロ2口以上') >= 0 || equip.indexOf('2口以上') >= 0 || equip.indexOf('コンロ２口以上') >= 0) {
+    if (fac.indexOf('2口') < 0 && fac.indexOf('２口') < 0 && fac.indexOf('3口') < 0 && fac.indexOf('３口') < 0) {
+      warnings.push('⚠️ コンロ2口以上かどうか確認してください');
+    }
+  }
+  // システムキッチン
+  if (equip.indexOf('システムキッチン') >= 0 && fac.indexOf('システムキッチン') < 0) {
+    warnings.push('⚠️ システムキッチンかどうか確認してください');
+  }
+  // カウンターキッチン
+  if (equip.indexOf('カウンターキッチン') >= 0 && fac.indexOf('カウンターキッチン') < 0 && fac.indexOf('対面キッチン') < 0 && fac.indexOf('オープンキッチン') < 0 && fac.indexOf('アイランドキッチン') < 0) {
+    warnings.push('⚠️ カウンターキッチンかどうか確認してください');
+  }
+  // 駐輪場
+  if (equip.indexOf('駐輪場') >= 0 && fac.indexOf('駐輪場') < 0) {
+    warnings.push('⚠️ 駐輪場ありかどうか確認してください');
+  }
+  // 宅配ボックス
+  if ((equip.indexOf('宅配ボックス') >= 0 || equip.indexOf('宅配box') >= 0) && fac.indexOf('宅配ボックス') < 0 && fac.indexOf('宅配BOX') < 0) {
+    warnings.push('⚠️ 宅配ボックスかどうか確認してください');
+  }
+  // ゴミ置場
+  if ((equip.indexOf('ゴミ置') >= 0 || equip.indexOf('ごみ置') >= 0 || equip.indexOf('ゴミ捨') >= 0 || equip.indexOf('ごみ捨') >= 0) && fac.indexOf('ゴミ出し') < 0 && fac.indexOf('ゴミ置') < 0 && fac.indexOf('ごみ置') < 0 && fac.indexOf('ごみ出し') < 0) {
+    warnings.push('⚠️ 敷地内ゴミ置場かどうか確認してください');
+  }
+  // ロフト
+  if (equip.indexOf('ロフト') >= 0) {
+    if (equip.indexOf('ロフトng') >= 0 || equip.indexOf('ロフト不可') >= 0) {
+      if (fac.indexOf('ロフト') < 0) warnings.push('⚠️ ロフトがないか確認してください（ロフトNG）');
+    } else if (fac.indexOf('ロフト') < 0) {
+      warnings.push('⚠️ ロフト付きかどうか確認してください');
+    }
+  }
+  // 家具家電付き
+  if (equip.indexOf('家具') >= 0 || equip.indexOf('家電') >= 0) {
+    warnings.push('⚠️ 家具家電付きかどうか確認してください');
+  }
+  // バルコニー
+  if (equip.indexOf('バルコニー') >= 0 && equip.indexOf('ルーフバルコニー') < 0) {
+    if (fac.indexOf('バルコニー') < 0) {
+      warnings.push('⚠️ バルコニー付きかどうか確認してください');
+    }
+  }
+  // ルーフバルコニー
+  if (equip.indexOf('ルーフバルコニー') >= 0 && fac.indexOf('ルーフバルコニー') < 0) {
+    warnings.push('⚠️ ルーフバルコニー付きかどうか確認してください');
+  }
+  // 専用庭
+  if (equip.indexOf('専用庭') >= 0 && fac.indexOf('専用庭') < 0) {
+    warnings.push('⚠️ 専用庭かどうか確認してください');
+  }
+  // 都市ガス
+  if (equip.indexOf('都市ガス') >= 0 && fac.indexOf('都市ガス') < 0 && fac.indexOf('プロパン') < 0 && fac.indexOf('LPガス') < 0 && fac.indexOf('ＬＰガス') < 0) {
+    warnings.push('⚠️ 都市ガスかどうか確認してください');
+  }
+  // プロパンガス
+  if ((equip.indexOf('プロパン') >= 0 || equip.indexOf('lpガス') >= 0) && fac.indexOf('プロパン') < 0 && fac.indexOf('LPガス') < 0 && fac.indexOf('ＬＰガス') < 0 && fac.indexOf('都市ガス') < 0) {
+    warnings.push('⚠️ プロパンガスかどうか確認してください');
+  }
+  // オートロック
+  if (equip.indexOf('オートロック') >= 0 && fac.indexOf('オートロック') < 0) {
+    warnings.push('⚠️ オートロックかどうか確認してください');
+  }
+  // TVモニタ付きインターホン
+  if ((equip.indexOf('tvモニタ') >= 0 || equip.indexOf('モニター付') >= 0 || equip.indexOf('モニタ付') >= 0 || equip.indexOf('tvインターホン') >= 0 || equip.indexOf('tvインターフォン') >= 0) && fac.indexOf('モニター付') < 0 && fac.indexOf('TVインターホン') < 0 && fac.indexOf('ＴＶインターホン') < 0 && fac.indexOf('TVモニタ') < 0) {
+    warnings.push('⚠️ TVモニタ付きインターホンかどうか確認してください');
+  }
+  // 防犯カメラ
+  if (equip.indexOf('防犯カメラ') >= 0 && fac.indexOf('防犯カメラ') < 0) {
+    warnings.push('⚠️ 防犯カメラかどうか確認してください');
+  }
+  // 楽器
+  if (equip.indexOf('楽器') >= 0 && fac.indexOf('楽器使用可') < 0 && fac.indexOf('楽器相談') < 0) {
+    warnings.push('⚠️ 楽器可かどうか確認してください');
+  }
+  // ルームシェア
+  if ((equip.indexOf('ルームシェア') >= 0 || equip.indexOf('シェアハウス') >= 0) && fac.indexOf('ルームシェア') < 0 && fac.indexOf('シェアハウス') < 0) {
+    warnings.push('⚠️ ルームシェア可かどうか確認してください');
+  }
+  // 高齢者
+  if (equip.indexOf('高齢者') >= 0 && fac.indexOf('高齢者向') < 0 && fac.indexOf('高齢者相談') < 0 && fac.indexOf('高齢者歓迎') < 0 && fac.indexOf('高齢者限定') < 0 && fac.indexOf('高齢者世帯') < 0) {
+    warnings.push('⚠️ 高齢者歓迎かどうか確認してください');
+  }
+  // インターネット無料
+  if ((equip.indexOf('インターネット無料') >= 0 || equip.indexOf('ネット無料') >= 0) && fac.indexOf('インターネット無料') < 0 && fac.indexOf('ネット無料') < 0 && fac.indexOf('ネット使用料不要') < 0) {
+    warnings.push('⚠️ インターネット無料かどうか確認してください');
+  }
+  // 収納
+  if (equip.indexOf('収納') >= 0 && equip.indexOf('ウォークイン') < 0 && equip.indexOf('シューズ') < 0) {
+    if (fac.indexOf('収納') < 0 && fac.indexOf('クロゼット') < 0 && fac.indexOf('クローゼット') < 0 && fac.indexOf('物置') < 0 && fac.indexOf('グルニエ') < 0) {
+      warnings.push('⚠️ 収納があるか確認してください');
+    }
+  }
+  // シューズボックス
+  if (equip.indexOf('シューズ') >= 0) {
+    if (fac.indexOf('シューズインクローゼット') < 0 && fac.indexOf('シューズボックス') < 0 && fac.indexOf('シューズBOX') < 0 && fac.indexOf('シューズクロゼット') < 0 && fac.indexOf('シューズクローク') < 0 && fac.indexOf('シューズWIC') < 0) {
+      warnings.push('⚠️ シューズボックスがあるか確認してください');
+    }
+  }
+  // ウォークインクローゼット
+  if (equip.indexOf('ウォークイン') >= 0) {
+    if (fac.indexOf('ウォークインクローゼット') < 0 && fac.indexOf('ウォークインクロゼット') < 0 && fac.indexOf('ウォークスルークロゼット') < 0 && fac.indexOf('WIC') < 0) {
+      warnings.push('⚠️ ウォークインクローゼットがあるか確認してください');
+    }
+  }
+  // その他ご希望
+  if (notesStr && String(notesStr).trim()) {
+    warnings.push('⚠️ その他ご希望: ' + String(notesStr).trim());
+  }
+  return warnings.join('\n');
+}
+
+/**
+ * 顧客名から設備条件(M列)とその他希望(P列)を取得する。
+ * _computePropertyWarningsGAS_ に渡すためのユーティリティ。
+ *
+ * @param {string[]} customerNames
+ * @return {Object<string, {equipment: string, notes: string}>}
+ */
+function _getCustomerEquipmentMap_(customerNames) {
+  if (!customerNames || customerNames.length === 0) return {};
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return {};
+    var last = sheet.getLastRow();
+    if (last < 2) return {};
+    var data = sheet.getRange(2, 1, last - 1, 16).getValues(); // up to P (column 16)
+    var nameSet = {};
+    for (var n = 0; n < customerNames.length; n++) nameSet[customerNames[n]] = true;
+    var result = {};
+    for (var i = data.length - 1; i >= 0; i--) {
+      var name = String(data[i][1] || '').trim();
+      if (nameSet[name] && !result[name]) {
+        result[name] = {
+          equipment: String(data[i][12] || ''),
+          notes: String(data[i][15] || '')
+        };
+      }
+    }
+    return result;
+  } catch (e) {
+    console.warn('_getCustomerEquipmentMap_ error: ' + (e && e.message));
+    return {};
+  }
 }
 
 /**
