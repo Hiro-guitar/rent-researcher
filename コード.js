@@ -1551,9 +1551,9 @@ function processCriteriaSelection(userId, criteria) {
     if (state.isChangeFlow) {
       writeToSheet(userId, state);
       clearState(userId);
-      var changeSummary = buildRegistrationSummary(state);
       pushMessage(userId, [
-        textMsg('条件を更新しました！\n\n' + changeSummary + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
+        buildConditionSummaryFlex(state, '条件を更新しました'),
+        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
       ]);
       return { success: true, message: '条件を更新しました。' };
     }
@@ -1562,9 +1562,9 @@ function processCriteriaSelection(userId, criteria) {
     writeToSheet(userId, state);
     clearState(userId);
 
-    var regSummary = buildRegistrationSummary(state);
     pushMessage(userId, [
-      textMsg('ご登録ありがとうございます！\n以下の条件で登録しました。\n\n' + regSummary + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件を変更したい場合は「条件変更」と送ってください。')
+      buildConditionSummaryFlex(state, 'ご登録ありがとうございます'),
+      textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
     ]);
 
     return { success: true, message: '条件を登録しました。' };

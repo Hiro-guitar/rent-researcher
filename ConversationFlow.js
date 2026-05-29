@@ -339,9 +339,9 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     }
     writeToSheet(userId, state);
     clearState(userId);
-    var confirmSummary = buildRegistrationSummary(state);
     replyMessage(replyToken, [
-      textMsg('条件を更新しました！\n\n' + confirmSummary + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
+      buildConditionSummaryFlex(state, '条件を更新しました'),
+      textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
     ]);
     return true;
   }
@@ -365,7 +365,8 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       writeToSheet(userId, state);
       clearState(userId);
       replyMessage(replyToken, [
-        textMsg('条件を更新しました！\n\n' + buildRegistrationSummary(state) + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
+        buildConditionSummaryFlex(state, '条件を更新しました'),
+        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
       ]);
       return true;
     }
@@ -424,7 +425,8 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       writeToSheet(userId, state);
       clearState(userId);
       replyMessage(replyToken, [
-        textMsg('条件を更新しました！\n\n' + buildRegistrationSummary(state) + '\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n再度変更したい場合は「条件変更」と送ってください。')
+        buildConditionSummaryFlex(state, '条件を更新しました'),
+        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
       ]);
       return true;
     }
@@ -447,7 +449,8 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     writeToSheet(userId, state);
     clearState(userId);
     replyMessage(replyToken, [
-      textMsg('ご登録ありがとうございます！\n条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件を変更したい場合は「条件変更」と送ってください。')
+      buildConditionSummaryFlex(state, 'ご登録ありがとうございます'),
+      textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
     ]);
     return true;
   }
@@ -916,6 +919,55 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
   } catch (e) {
     console.warn('showCriteriaSelectLink プリレンダ失敗: ' + (e && e.message));
   }
+}
+
+/**
+ * 条件サマリーの Flex Message を構築する（登録完了・条件更新時に顧客に送信）。
+ * @param {Object} state - 条件 state オブジェクト
+ * @param {string} headerText - ヘッダーに表示するテキスト
+ * @returns {Object} LINE Flex Message オブジェクト
+ */
+function buildConditionSummaryFlex(state, headerText) {
+  var summaryRows = _buildConditionSummaryRows_(state);
+  var bubble = {
+    type: 'bubble',
+    size: 'mega',
+    header: {
+      type: 'box',
+      layout: 'vertical',
+      backgroundColor: '#6ea814',
+      paddingAll: 'xl',
+      paddingTop: 'lg',
+      paddingBottom: 'lg',
+      contents: [
+        { type: 'text', text: headerText, weight: 'bold', size: 'lg', color: '#ffffff', wrap: true, align: 'center' }
+      ]
+    },
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'lg',
+      paddingAll: 'xl',
+      contents: [
+        {
+          type: 'box',
+          layout: 'vertical',
+          backgroundColor: '#f5f9ee',
+          cornerRadius: 'md',
+          paddingAll: 'lg',
+          spacing: 'lg',
+          contents: [
+            { type: 'separator', margin: 'sm', color: '#d4e7a8' }
+          ].concat(summaryRows)
+        }
+      ]
+    }
+  };
+  return {
+    type: 'flex',
+    altText: headerText,
+    contents: bubble
+  };
 }
 
 // ══════════════════════════════════════════════════════════
