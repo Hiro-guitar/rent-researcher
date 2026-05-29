@@ -261,6 +261,97 @@ input[type="range"]::-webkit-slider-thumb {
   pointer-events: none;
 }
 .toast.show { opacity: 1; }
+
+/* ── 管理ツールセクション ── */
+.admin-tools-divider {
+  margin: 12px 8px 4px;
+  border: none; border-top: 2px dashed #d5a440;
+  opacity: 0.5;
+}
+.admin-section {
+  background: #fff; margin: 8px; border-radius: 12px;
+  overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  border: 1px solid #e0e0e0;
+}
+.admin-section-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; background: #f8f9fa;
+  border-bottom: 1px solid #e9ecef; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.admin-section-header:active { background: #eef1f5; }
+.admin-section-title {
+  font-size: 14px; font-weight: 700; color: #2c3e50;
+  display: flex; align-items: center; gap: 8px;
+}
+.admin-section-title .badge {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; color: #fff;
+}
+.admin-section-title .badge-blue { background: #3498db; }
+.admin-section-title .badge-orange { background: #e67e22; }
+.admin-section-title .badge-off { background: #95a5a6; }
+.admin-section-right { display: flex; align-items: center; gap: 8px; }
+.admin-section-arrow {
+  font-size: 11px; color: #bbb; transition: transform 0.3s;
+}
+.admin-section-arrow.open { transform: rotate(90deg); }
+.admin-section-body {
+  max-height: 0; overflow: hidden; transition: max-height 0.4s ease-out;
+}
+.admin-section-body.open { max-height: 2000px; }
+.admin-desc {
+  font-size: 12px; color: #666; line-height: 1.7;
+  padding: 12px 16px 8px; margin: 0;
+}
+.admin-action-row {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  padding: 8px 16px 12px;
+}
+.admin-action-row select {
+  font-size: 13px; padding: 6px 8px; border: 1px solid #ccc;
+  border-radius: 6px; flex: 1; min-width: 140px; background: #fff;
+}
+.admin-sub {
+  margin: 8px 12px 12px; padding: 10px 12px;
+  background: #fafbfc; border: 1px solid #e9ecef; border-radius: 8px;
+}
+.admin-sub-title {
+  font-size: 12px; color: #555; margin-bottom: 6px; font-weight: 600;
+}
+.admin-sub-desc {
+  font-size: 11px; color: #888; line-height: 1.6; margin-bottom: 8px;
+}
+.admin-result {
+  font-size: 12px; color: #444; margin-top: 6px; padding: 0 16px 8px;
+}
+/* ── 管理ツールボタン ── */
+.btn-admin {
+  padding: 6px 14px; font-size: 12px; font-weight: 600;
+  border: none; border-radius: 6px; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; white-space: nowrap;
+}
+.btn-admin:active { opacity: 0.8; }
+.btn-blue { background: #3498db; color: #fff; }
+.btn-orange { background: #f39c12; color: #fff; }
+.btn-red { background: #e74c3c; color: #fff; }
+.btn-green { background: #27ae60; color: #fff; }
+.btn-outline {
+  background: #fff; color: #666; border: 1px solid #bbb;
+  padding: 4px 10px; font-size: 11px;
+}
+.btn-link {
+  display: inline-block; padding: 8px 16px; font-size: 13px;
+  background: #f59e0b; color: #fff; border-radius: 6px;
+  text-decoration: none; font-weight: 600;
+}
+.btn-link:active { opacity: 0.8; }
+/* ── ラジオ行 ── */
+.radio-row {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  font-size: 12px; color: #555; padding: 4px 16px 8px;
+}
+.radio-row label { cursor: pointer; display: flex; align-items: center; gap: 3px; }
 </style>
 </head>
 <body>
@@ -276,112 +367,129 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
   </div>
 
-  <!-- ═══ 条件変更提案セクション (物件未マッチ顧客へのLINE提案) ═══ -->
-  <div id="suggestionSection" class="section" style="border:2px solid #3498db;background:#f0f8ff;">
-    <div class="section-title" style="color:#1f5e8b;">
-      💬 条件変更提案 — 14日以上 物件をご紹介できていない顧客
-      <span id="suggestionCountBadge" style="display:inline-block;margin-left:6px;padding:2px 8px;background:#3498db;color:#fff;border-radius:10px;font-size:11px;">0件</span>
-      <button onclick="refreshSuggestionList()" style="float:right;font-size:11px;padding:3px 10px;background:#fff;border:1px solid #999;border-radius:4px;cursor:pointer;">🔄 更新</button>
-    </div>
-    <div style="font-size:11px;color:#666;margin:0 12px 8px;">
-      最終物件通知 (もしくは登録日) から 14 日以上経過し、提案メッセージも14日以内に送ってない顧客に、<br>
-      LINE で「家賃を上げる / エリアを広げる / 築年数を緩める / 面積を緩める」のボタン付きメッセージを送れます。<br>
-      送信したい顧客にチェックを入れて下のボタンを押してください。
-    </div>
-    <!-- テスト送信: 候補条件を無視して任意の顧客にお試し送信 -->
-    <div style="margin:0 12px 8px;padding:8px 10px;background:#fffbea;border:1px dashed #f5d76e;border-radius:6px;">
-      <div style="font-size:11px;color:#7a5d00;margin-bottom:4px;font-weight:600;">🧪 テスト送信 (候補条件・14日制限を無視)</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
-        <select id="suggestionTestCustomer" style="font-size:12px;padding:4px 6px;flex:1;min-width:140px;">
-          <option value="">— 顧客を選択 —</option>
-        </select>
-        <button onclick="sendSuggestionTest()" style="padding:5px 12px;font-size:12px;background:#f39c12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">テスト送信</button>
+  <!-- ═══ 条件変更提案 ═══ -->
+  <div id="suggestionSection" class="admin-section">
+    <div class="admin-section-header" onclick="toggleAdminSection('suggestion')">
+      <div class="admin-section-title">
+        💬 条件変更提案
+        <span id="suggestionCountBadge" class="badge badge-off">0件</span>
       </div>
-      <div style="font-size:11px;color:#7a5d00;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-        <span style="font-weight:600;">メッセージパターン:</span>
-        <label style="cursor:pointer;"><input type="radio" name="suggestionTestPattern" value="no_delivery" checked style="margin-right:3px;vertical-align:middle;">🔵 通知なし (条件を緩める…)</label>
-        <label style="cursor:pointer;"><input type="radio" name="suggestionTestPattern" value="no_view" style="margin-right:3px;vertical-align:middle;">🟡 閲覧なし (お部屋探しの状況は…)</label>
+      <div class="admin-section-right">
+        <button class="btn-admin btn-outline" onclick="event.stopPropagation();refreshSuggestionList()">更新</button>
+        <span id="suggestionArrow" class="admin-section-arrow open">▶</span>
       </div>
-      <div id="suggestionTestResult" style="font-size:11px;color:#444;margin-top:4px;"></div>
     </div>
-    <div id="suggestionList" style="padding:0 8px 8px;"></div>
-    <div id="suggestionFooter" style="display:none;padding:8px 12px;border-top:1px solid #cfe1f3;background:#e8f3fb;">
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-        <button onclick="suggestionSelectAll(true)" style="font-size:11px;padding:4px 10px;background:#fff;border:1px solid #999;border-radius:4px;cursor:pointer;">全選択</button>
-        <button onclick="suggestionSelectAll(false)" style="font-size:11px;padding:4px 10px;background:#fff;border:1px solid #999;border-radius:4px;cursor:pointer;">全解除</button>
-        <button id="suggestionSendBtn" onclick="sendSuggestionMessages()" style="margin-left:auto;padding:6px 14px;font-size:12px;background:#3498db;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">📨 選択した顧客に送信</button>
+    <div id="suggestionBody" class="admin-section-body open">
+      <p class="admin-desc">
+        14日以上 物件を紹介できていない顧客に、条件緩和のボタン付きメッセージを送信します。
+      </p>
+      <div class="admin-sub">
+        <div class="admin-sub-title">テスト送信 (候補条件・14日制限を無視)</div>
+        <div class="admin-action-row" style="padding:4px 0 0;">
+          <select id="suggestionTestCustomer">
+            <option value="">— 顧客を選択 —</option>
+          </select>
+          <button class="btn-admin btn-orange" onclick="sendSuggestionTest()">テスト送信</button>
+        </div>
+        <div class="radio-row" style="padding:4px 0 0;">
+          <span style="font-weight:600;">パターン:</span>
+          <label><input type="radio" name="suggestionTestPattern" value="no_delivery" checked> 通知なし</label>
+          <label><input type="radio" name="suggestionTestPattern" value="no_view"> 閲覧なし</label>
+        </div>
+        <div id="suggestionTestResult" class="admin-result" style="padding:0;"></div>
       </div>
-      <div id="suggestionResult" style="font-size:11px;color:#444;margin-top:6px;"></div>
+      <div id="suggestionList" style="padding:0 8px 8px;"></div>
+      <div id="suggestionFooter" style="display:none;padding:8px 12px;border-top:1px solid #e9ecef;background:#f8f9fa;">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <button class="btn-admin btn-outline" onclick="suggestionSelectAll(true)">全選択</button>
+          <button class="btn-admin btn-outline" onclick="suggestionSelectAll(false)">全解除</button>
+          <button id="suggestionSendBtn" class="btn-admin btn-blue" style="margin-left:auto;" onclick="sendSuggestionMessages()">選択した顧客に送信</button>
+        </div>
+        <div id="suggestionResult" class="admin-result"></div>
+      </div>
     </div>
   </div>
 
-  <!-- ═══ SUUMO入稿 submitting 放置物件セクション ═══ -->
-  <div id="submittingSection" class="section" style="display:none;border:2px solid #e67e22;background:#fff8f0;">
-    <div class="section-title" style="color:#a04000;">
-      ⚠️ SUUMO入稿で submitting のまま放置されている物件
-      <span id="submittingCountBadge" style="display:inline-block;margin-left:6px;padding:2px 8px;background:#e67e22;color:#fff;border-radius:10px;font-size:11px;">0件</span>
-      <button onclick="refreshSubmittingList()" style="float:right;font-size:11px;padding:3px 10px;background:#fff;border:1px solid #999;border-radius:4px;cursor:pointer;">🔄 更新</button>
+  <!-- ═══ SUUMO入稿 submitting 放置物件 ═══ -->
+  <div id="submittingSection" class="admin-section" style="display:none;">
+    <div class="admin-section-header" onclick="toggleAdminSection('submitting')">
+      <div class="admin-section-title">
+        ⚠️ SUUMO入稿 放置物件
+        <span id="submittingCountBadge" class="badge badge-orange">0件</span>
+      </div>
+      <div class="admin-section-right">
+        <button class="btn-admin btn-outline" onclick="event.stopPropagation();refreshSubmittingList()">更新</button>
+        <span id="submittingArrow" class="admin-section-arrow open">▶</span>
+      </div>
     </div>
-    <div style="font-size:11px;color:#666;margin-bottom:8px;">
-      自動入稿でエラーが起き、手動で登録完了した物件は、ここで「手動で入稿完了済み」を押してください。<br>
-      入稿を諦めた物件は「却下扱いで戻す」を押すと再承認できる状態に戻ります。
+    <div id="submittingBody" class="admin-section-body open">
+      <p class="admin-desc">
+        自動入稿でエラーが起きた物件を手動処理します。
+      </p>
+      <div id="submittingList" style="padding:0 12px 8px;"></div>
     </div>
-    <div id="submittingList"></div>
   </div>
 
   <!-- ═══ 空室確認・キャンセル監視 ═══ -->
-  <div class="section">
-    <div class="section-title">🔔 空室確認・キャンセル監視</div>
-    <div style="font-size:12px;color:#666;margin-bottom:10px;">
-      お客さんから「キャンセル通知を希望」 された物件の一覧。30分毎に自動チェックし、キャンセル発生時にLINE通知します。
+  <div class="admin-section">
+    <div class="admin-section-header" onclick="toggleAdminSection('cancellation')">
+      <div class="admin-section-title">🔔 キャンセル監視</div>
+      <span id="cancellationArrow" class="admin-section-arrow">▶</span>
     </div>
-    <a href="<?= ScriptApp.getService().getUrl() ?>?action=list_cancellation_watches" target="_blank"
-       style="display:inline-block;padding:8px 16px;font-size:13px;background:#f59e0b;color:#fff;border-radius:4px;text-decoration:none;font-weight:600;">
-      🔔 キャンセル監視中の物件一覧を開く
-    </a>
+    <div id="cancellationBody" class="admin-section-body">
+      <p class="admin-desc">
+        キャンセル通知希望の物件を30分毎にチェックし、LINE通知します。
+      </p>
+      <div style="padding:0 16px 12px;">
+        <a href="<?= ScriptApp.getService().getUrl() ?>?action=list_cancellation_watches" target="_blank" class="btn-link">
+          監視中の物件一覧を開く
+        </a>
+      </div>
+    </div>
   </div>
 
-  <!-- ═══ 通知済み履歴リセット (お客さま✕サイト別) ═══ -->
-  <div class="section">
-    <div class="section-title">🔁 通知済み履歴のリセット</div>
-    <div style="font-size:12px;color:#666;margin-bottom:10px;">
-      指定したお客さまの該当サイト履歴を削除します。次回検索で再ヒット → Discord に再通知 → 承認待ちに復活します。<br>
-      ・通知済み物件シート: 該当行削除<br>
-      ・承認待ち物件シート: status='pending' / 'skipped' の行を削除<br>
-      <span style="color:#1e8449;">※ status='sent' (お客さんに送信済) の行は<b>保護</b>されます<br>
-      → お客さんのLINEから過去物件詳細を引き続き閲覧可能</span>
+  <!-- ═══ 通知済み履歴リセット ═══ -->
+  <div class="admin-section">
+    <div class="admin-section-header" onclick="toggleAdminSection('reset')">
+      <div class="admin-section-title">🔁 通知済み履歴リセット</div>
+      <span id="resetArrow" class="admin-section-arrow">▶</span>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-      <select id="resetCustomerSelect" style="font-size:13px;padding:5px 8px;flex:1;min-width:140px;">
-        <option value="">— 顧客を選択 —</option>
-      </select>
-      <select id="resetSourceSelect" style="font-size:13px;padding:5px 8px;min-width:140px;">
-        <option value="itandi">itandi</option>
-        <option value="ielove">いえらぶ</option>
-        <option value="essquare">いい生活</option>
-        <option value="reins">REINS</option>
-        <option value="*">全サイト一括</option>
-      </select>
-      <button onclick="runResetSeen()" style="padding:6px 14px;font-size:13px;background:#e74c3c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">履歴リセット</button>
-    </div>
-    <div id="resetSeenResult" style="font-size:12px;color:#444;margin-top:8px;"></div>
-    <!-- 既存データのソース後付け (バックフィル) -->
-    <div style="margin-top:12px;padding:10px;background:#fffbea;border:1px dashed #e0c060;border-radius:6px;">
-      <div style="font-size:11px;color:#7a5d00;margin-bottom:6px;font-weight:600;">📥 既存データのソース後付け</div>
-      <div style="font-size:11px;color:#666;margin-bottom:6px;">
-        通知済み物件シートでE列(ソース)が空欄の行を、承認待ち物件のJSONから推測して埋めます。
-        見つからない行は<b>REINS</b>とみなされます。
-        <br>※ 全顧客一括は時間がかかるので、まず1顧客で試すのを推奨。
-      </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-        <select id="backfillCustomerSelect" style="font-size:12px;padding:4px 6px;flex:1;min-width:140px;">
-          <option value="">— 全顧客一括 —</option>
+    <div id="resetBody" class="admin-section-body">
+      <p class="admin-desc">
+        指定顧客の該当サイト履歴を削除し、再検索で再通知されるようにします。<br>
+        <span style="color:#1e8449;">※ 送信済(sent)の行は保護 — LINEからの閲覧は引き続き可能</span>
+      </p>
+      <div class="admin-action-row">
+        <select id="resetCustomerSelect">
+          <option value="">— 顧客を選択 —</option>
         </select>
-        <button onclick="runBackfillSeenSource()" style="padding:5px 12px;font-size:12px;background:#f39c12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600;">ソース列をバックフィル</button>
+        <select id="resetSourceSelect" style="min-width:120px;">
+          <option value="itandi">itandi</option>
+          <option value="ielove">いえらぶ</option>
+          <option value="essquare">いい生活</option>
+          <option value="reins">REINS</option>
+          <option value="*">全サイト一括</option>
+        </select>
+        <button class="btn-admin btn-red" onclick="runResetSeen()">履歴リセット</button>
       </div>
-      <div id="backfillResult" style="font-size:11px;color:#444;margin-top:6px;"></div>
+      <div id="resetSeenResult" class="admin-result"></div>
+      <div class="admin-sub">
+        <div class="admin-sub-title">ソース列バックフィル</div>
+        <div class="admin-sub-desc">
+          通知済み物件シートのソース空欄行を承認待ちJSONから推測して埋めます。
+        </div>
+        <div class="admin-action-row" style="padding:4px 0 0;">
+          <select id="backfillCustomerSelect">
+            <option value="">— 全顧客一括 —</option>
+          </select>
+          <button class="btn-admin btn-orange" onclick="runBackfillSeenSource()">バックフィル</button>
+        </div>
+        <div id="backfillResult" class="admin-result" style="padding:0;"></div>
+      </div>
     </div>
   </div>
+
+  <hr class="admin-tools-divider">
 
   <!-- ═══ 顧客選択セクション ═══ -->
   <div class="section">
@@ -616,6 +724,17 @@ var townCache = {};
 var townRendered = {};
 var pendingSelectAll = {};
 var currentSelectedTowns = {};  // 読み込んだ顧客のselectedTowns
+
+// ══════════════════════════════════════════════════════════
+//  管理セクション開閉
+// ══════════════════════════════════════════════════════════
+function toggleAdminSection(id) {
+  var body = document.getElementById(id + 'Body');
+  var arrow = document.getElementById(id + 'Arrow');
+  if (!body) return;
+  body.classList.toggle('open');
+  if (arrow) arrow.classList.toggle('open');
+}
 
 // ══════════════════════════════════════════════════════════
 //  初期化
