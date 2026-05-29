@@ -306,15 +306,12 @@ function injectMinimalToSkeleton(p) {
 
 // 1. フルデータがあれば即時描画（最速 < 0.3秒）
 if (inlineProp) {
-  renderProperty(inlineProp);
-  if ((!inlineProp.images || inlineProp.images.length === 0) && customer && roomId) {
-    fetchImages(customer, roomId);
-  }
-  // 募集終了チェック（インラインデータにはisClosed情報がないのでAPIで確認）
   if (customer && roomId) {
-    checkClosedStatus(customer, roomId);
+    // 募集終了チェックを先にAPI確認してから描画（ちらつき防止）
+    fetchPropertyOrClosed(customer, roomId, inlineProp);
+  } else {
+    renderProperty(inlineProp);
   }
-
 } else if (minimalProp && customer && roomId) {
   // 2. 最小データ → スケルトンに即注入してから view_api で残りを取得
   // （view_api が画像も返すので images_api は呼ばない）
@@ -456,18 +453,33 @@ function showError(msg) {
     '<div class="error-card"><h2>\u26a0\ufe0f エラー</h2><p>' + escHtml(msg) + '</p></div>';
 }
 
-// インラインデータ表示時に募集終了かどうかだけAPIで確認する
-function checkClosedStatus(customer, roomId) {
+// インラインデータがある場合にAPI確認を先にしてから描画する
+// closedなら募集終了画面、それ以外ならインラインデータで即描画
+function fetchPropertyOrClosed(customer, roomId, inlineProp) {
   var url = GAS_API_URL + '?action=view_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
   fetch(url, { redirect: 'follow' })
     .then(function(res) { return res.text(); })
     .then(function(text) {
       try {
         var data = JSON.parse(text);
-        if (data.isClosed || data.notFound) showNotFound();
-      } catch(e) {}
+        if (data.isClosed || data.notFound) {
+          showNotFound();
+          return;
+        }
+        // API成功 → APIデータで描画（画像等の最新データを含む）
+        renderProperty(data);
+      } catch(e) {
+        // パースエラー → インラインデータで描画
+        renderProperty(inlineProp);
+      }
     })
-    .catch(function() {});
+    .catch(function() {
+      // ネットワークエラー → インラインデータで描画（オフライン対応）
+      renderProperty(inlineProp);
+      if ((!inlineProp.images || inlineProp.images.length === 0)) {
+        fetchImages(customer, roomId);
+      }
+    });
 }
 
 // 物件が見つからない / 削除済みの場合のフレンドリーな表示
