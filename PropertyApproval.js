@@ -613,6 +613,29 @@ function handlePropertyViewApi(e) {
     viewCategories = [''];
   }
 
+  // 通知済み物件シートから空室状況を取得（Chrome拡張が定期的に更新している）
+  var isClosed = false;
+  var statusCheckedAt = '';
+  try {
+    var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (seenSheet) {
+      var seenData = seenSheet.getDataRange().getValues();
+      for (var si = seenData.length - 1; si >= 1; si--) {
+        if (String(seenData[si][0]) === String(customerName) &&
+            String(seenData[si][1]) === String(roomId)) {
+          var seenStatus = String(seenData[si][5] || '');  // F列: current_status
+          if (seenStatus === 'closed') {
+            isClosed = true;
+            statusCheckedAt = seenData[si][6] ? String(seenData[si][6]) : '';
+          }
+          break;
+        }
+      }
+    }
+  } catch (seenErr) {
+    console.warn('seen sheet status check error: ' + seenErr.message);
+  }
+
   var result = {
     buildingName: prop.buildingName,
     roomNumber: prop.roomNumber,
@@ -665,6 +688,9 @@ function handlePropertyViewApi(e) {
     layoutDetail: prop.layoutDetail,
     adFee: prop.adFee,
     currentStatus: prop.currentStatus,
+    // 空室状況（通知済み物件シートから）
+    isClosed: isClosed,
+    statusCheckedAt: statusCheckedAt,
     // お客さん希望のこだわり条件 (設備タグの強調表示に使う)
     customerEquipment: _getCustomerEquipmentList_(customerName)
   };
