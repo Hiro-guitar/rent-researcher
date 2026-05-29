@@ -304,18 +304,22 @@ function injectMinimalToSkeleton(p) {
   }
 }
 
+// 0. localStorageにclosedキャッシュがあれば即座に募集終了画面を表示
+var closedCacheKey = customer && roomId ? 'closed_' + customer + '_' + roomId : '';
+if (closedCacheKey && localStorage.getItem(closedCacheKey) === '1') {
+  showNotFound();
+} else
 // 1. フルデータがあれば即時描画（最速 < 0.3秒）
 if (inlineProp) {
   if (customer && roomId) {
-    // 募集終了チェックを先にAPI確認してから描画（ちらつき防止）
+    // API確認でclosed判定 → closedならキャッシュ保存して募集終了画面
     fetchPropertyOrClosed(customer, roomId, inlineProp);
   } else {
     renderProperty(inlineProp);
   }
 } else if (minimalProp && customer && roomId) {
-  // 2. 最小データ → API確認を先にして、closedなら募集終了画面を表示
-  //    物件情報のちらつきを防ぐため、スケルトン注入はAPI確認後に行う
-  showSimpleLoading();
+  // 2. 最小データ → スケルトンに即注入してから view_api で残りを取得
+  injectMinimalToSkeleton(minimalProp);
   fetchProperty(customer, roomId);
 } else if (customer && roomId) {
   // 3. パラメータ無し → view_api 経由（最遅、フォールバック）
@@ -484,6 +488,10 @@ function fetchPropertyOrClosed(customer, roomId, inlineProp) {
 
 // 物件が見つからない / 削除済みの場合のフレンドリーな表示
 function showNotFound() {
+  // closedキャッシュを保存（次回以降は即表示）
+  if (closedCacheKey) {
+    try { localStorage.setItem(closedCacheKey, '1'); } catch(e) {}
+  }
   document.getElementById('loading').style.display = 'none';
   var app = document.getElementById('app');
   app.style.display = 'block';
