@@ -304,19 +304,12 @@ function injectMinimalToSkeleton(p) {
   }
 }
 
-// 0. localStorageにclosedキャッシュがあれば即座に募集終了画面を表示
-//    ただし裏でAPI確認して、募集再開されていたらキャッシュを消して物件を再表示
-var closedCacheKey = customer && roomId ? 'closed_' + customer + '_' + roomId : '';
-if (closedCacheKey && localStorage.getItem(closedCacheKey) === '1') {
-  showNotFound();
-  // 裏でAPI確認（募集再開チェック）
-  verifyClosed(customer, roomId, inlineProp || minimalProp);
-} else
 // 1. フルデータがあれば即時描画（最速 < 0.3秒）
 if (inlineProp) {
   if (customer && roomId) {
-    // API確認でclosed判定 → closedならキャッシュ保存して募集終了画面
-    fetchPropertyOrClosed(customer, roomId, inlineProp);
+    // スケルトンに即注入 → API確認でclosedなら募集終了画面に切替
+    injectMinimalToSkeleton(inlineProp);
+    fetchProperty(customer, roomId);
   } else {
     renderProperty(inlineProp);
   }
@@ -460,41 +453,8 @@ function showError(msg) {
     '<div class="error-card"><h2>\u26a0\ufe0f エラー</h2><p>' + escHtml(msg) + '</p></div>';
 }
 
-// インラインデータがある場合にAPI確認を先にしてから描画する
-// closedなら募集終了画面、それ以外ならインラインデータで即描画
-function fetchPropertyOrClosed(customer, roomId, inlineProp) {
-  var url = GAS_API_URL + '?action=view_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
-  fetch(url, { redirect: 'follow' })
-    .then(function(res) { return res.text(); })
-    .then(function(text) {
-      try {
-        var data = JSON.parse(text);
-        if (data.isClosed || data.notFound) {
-          showNotFound();
-          return;
-        }
-        // API成功 → APIデータで描画（画像等の最新データを含む）
-        renderProperty(data);
-      } catch(e) {
-        // パースエラー → インラインデータで描画
-        renderProperty(inlineProp);
-      }
-    })
-    .catch(function() {
-      // ネットワークエラー → インラインデータで描画（オフライン対応）
-      renderProperty(inlineProp);
-      if ((!inlineProp.images || inlineProp.images.length === 0)) {
-        fetchImages(customer, roomId);
-      }
-    });
-}
-
 // 物件が見つからない / 削除済みの場合のフレンドリーな表示
 function showNotFound() {
-  // closedキャッシュを保存（次回以降は即表示）
-  if (closedCacheKey) {
-    try { localStorage.setItem(closedCacheKey, '1'); } catch(e) {}
-  }
   document.getElementById('loading').style.display = 'none';
   var app = document.getElementById('app');
   app.style.display = 'block';
@@ -506,24 +466,6 @@ function showNotFound() {
     + '</div>'
     + '<div class="notfound-note">他に気になる条件がございましたら、LINEでお気軽にご相談ください。</div>'
     + '</div>';
-}
-
-// 裏でAPI確認して、募集再開されていたらキャッシュを消して物件を再表示
-function verifyClosed(customer, roomId, fallbackProp) {
-  var url = GAS_API_URL + '?action=view_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
-  fetch(url, { redirect: 'follow' })
-    .then(function(res) { return res.text(); })
-    .then(function(text) {
-      try {
-        var data = JSON.parse(text);
-        if (!data.isClosed && !data.notFound && !data.error) {
-          // 募集再開された → キャッシュ削除して物件を表示
-          try { localStorage.removeItem(closedCacheKey); } catch(e) {}
-          renderProperty(data);
-        }
-      } catch(e) {}
-    })
-    .catch(function() {});
 }
 
 // ===== 空室確認の依頼 (お気に入り横のボタン) =====
