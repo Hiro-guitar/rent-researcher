@@ -341,9 +341,21 @@ function recordLineActivity(userId) {
       if (profile && profile.displayName) displayName = profile.displayName;
     } catch (e) {}
 
-    // 追記のみ方式（全行読み込みしないため高速）
-    // 読み出し側（getLineActivityMap）で同じuserIdの最新行を採用する
-    sheet.appendRow([userId, new Date(), displayName]);
+    // upsert: 既存行があれば更新、なければ追加（重複を防ぐ）
+    var data = sheet.getDataRange().getValues();
+    var foundRow = -1;
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]) === String(userId)) {
+        foundRow = i + 1; // 1-based row number
+        break;
+      }
+    }
+    if (foundRow > 0) {
+      sheet.getRange(foundRow, 2).setValue(new Date());
+      if (displayName) sheet.getRange(foundRow, 3).setValue(displayName);
+    } else {
+      sheet.appendRow([userId, new Date(), displayName]);
+    }
   } catch (e) {
     // アクティビティ記録の失敗はメッセージ処理をブロックしない
     console.error('recordLineActivity error: ' + e.message);
