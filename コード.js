@@ -2677,12 +2677,19 @@ function getExistingCustomers_() {
     }
   }
 
-  // LINE Usersシートから userId を紐付け
+  // LINE Usersシートから userId を紐付け + 配信ステータスで除外
+  var excludeNames = {};
   if (luSheet) {
     var luData = luSheet.getDataRange().getValues();
     for (var i = 1; i < luData.length; i++) {
       var luName = String(luData[i][1] || '').trim();
       var luId = String(luData[i][0] || '').trim();
+      // S列 (index 18): 配信ステータス — blocked/paused は除外
+      var deliveryStatus = String(luData[i][18] || '').trim().toLowerCase();
+      if (deliveryStatus === 'blocked' || deliveryStatus === 'paused') {
+        excludeNames[luName] = true;
+        continue;
+      }
       for (var j = 0; j < customers.length; j++) {
         if (customers[j].name === luName && luId) {
           customers[j].lineUserId = luId;
@@ -2691,6 +2698,9 @@ function getExistingCustomers_() {
       }
     }
   }
+
+  // ブロック・配信停止の顧客を除外
+  customers = customers.filter(function(c) { return !excludeNames[c.name]; });
 
   return customers;
 }
