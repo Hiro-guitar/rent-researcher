@@ -166,6 +166,21 @@ function setupConditionSuggestionAutoTrigger() {
 }
 
 /**
+ * 条件変更提案の自動送信トリガーが登録されているか確認する。
+ * AdminPage から google.script.run で呼ばれる。
+ * @return {{exists: boolean, message: string}}
+ */
+function checkConditionSuggestionTrigger() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'runConditionSuggestionAutoSend') {
+      return { exists: true, message: '✅ トリガー登録済み（毎日10:00 JST）' };
+    }
+  }
+  return { exists: false, message: '⚠️ トリガー未登録。「セットアップ」ボタンで登録してください。' };
+}
+
+/**
  * テスト送信用: 候補条件を無視して指定顧客に Flex メッセージを送信する。
  * 14日制限・Z列更新を行わないため、何度でも送れる。
  * @param {string} customerName
