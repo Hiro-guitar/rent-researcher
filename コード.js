@@ -564,17 +564,18 @@ function doGet(e) {
           '': '― 未確認'
         })[s] || s;
       };
-      var rowsHtml = lcRows.map(function(r) {
+      var rowsHtml = lcRows.map(function(r, idx) {
         var propUrl = (r.source && r.source !== 'reins' && r.sourceRef) ? r.sourceRef
                    : (r.source === 'reins' && r.sourceRef) ? ('https://system.reins.jp/main/BK/GBK004100#bukken=' + r.sourceRef)
                    : '';
-        return '<tr>'
+        return '<tr id="watch-row-' + idx + '">'
           + '<td>' + r.customer + '</td>'
           + '<td>' + (r.buildingName || '(物件名なし)') + '<br><span class="sub">room_id: ' + r.roomId + '</span></td>'
           + '<td>' + srcDisplay(r.source) + '</td>'
           + '<td>' + statusDisplay(r.currentStatus) + '<br><span class="sub">' + (r.statusCheckedAt || '未チェック') + '</span></td>'
           + '<td>' + (r.watchedAt || '') + '</td>'
           + '<td>' + (propUrl ? '<a href="' + propUrl + '" target="_blank">開く</a>' : '-') + '</td>'
+          + '<td><button class="cancel-btn" onclick="cancelWatch(' + idx + ',\'' + r.customer.replace(/'/g, "\\'") + '\',\'' + r.roomId.replace(/'/g, "\\'") + '\')">解除</button></td>'
           + '</tr>';
       }).join('');
       var html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><base target="_top">'
@@ -589,14 +590,39 @@ function doGet(e) {
         + '.sub{font-size:11px;color:#999}'
         + 'a{color:#6ea814;text-decoration:none}a:hover{text-decoration:underline}'
         + '.empty{padding:40px;text-align:center;color:#888;background:#fff;border-radius:8px}'
+        + '.cancel-btn{background:#e74c3c;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600}'
+        + '.cancel-btn:hover{background:#c0392b}'
+        + '.cancel-btn:disabled{opacity:0.5;cursor:not-allowed}'
+        + '.cancelled{opacity:0.4;text-decoration:line-through}'
         + '</style></head><body>'
         + '<h1>🔔 キャンセル通知希望物件</h1>'
         + '<div class="summary">該当 ' + lcRows.length + ' 件 (30分毎に自動チェック / キャンセル発生で顧客にLINE通知)</div>'
         + (lcRows.length === 0
           ? '<div class="empty">現在、キャンセル通知希望の物件はありません</div>'
           : '<table><thead><tr>'
-            + '<th>顧客</th><th>物件</th><th>ソース</th><th>現状ステータス</th><th>希望日時</th><th>詳細</th>'
+            + '<th>顧客</th><th>物件</th><th>ソース</th><th>現状ステータス</th><th>希望日時</th><th>詳細</th><th>操作</th>'
             + '</tr></thead><tbody>' + rowsHtml + '</tbody></table>')
+        + '<script>'
+        + 'function cancelWatch(idx, customer, roomId) {'
+        + '  var btn = document.querySelector("#watch-row-" + idx + " .cancel-btn");'
+        + '  if (!btn) return;'
+        + '  if (!confirm(customer + " のキャンセル監視を解除しますか？")) return;'
+        + '  btn.disabled = true;'
+        + '  btn.textContent = "解除中...";'
+        + '  google.script.run'
+        + '    .withSuccessHandler(function() {'
+        + '      var row = document.getElementById("watch-row-" + idx);'
+        + '      if (row) row.classList.add("cancelled");'
+        + '      btn.textContent = "✓ 解除済";'
+        + '    })'
+        + '    .withFailureHandler(function(err) {'
+        + '      btn.disabled = false;'
+        + '      btn.textContent = "解除";'
+        + '      alert("エラー: " + (err && err.message || err));'
+        + '    })'
+        + '    .clearCancellationWatch(customer, roomId);'
+        + '}'
+        + '<\/script>'
         + '</body></html>';
       return HtmlService.createHtmlOutput(html);
     } catch (eLC) {
