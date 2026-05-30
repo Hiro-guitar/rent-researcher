@@ -2853,7 +2853,6 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     }
   });
   await setStorageData({ debugLog: `${customer.name}: 検索ボタンクリック` });
-  globalThis.__incrementReinsUsage('search');
 
   // --- Step 4: ダイアログ処理 + ページ遷移待ち ---
   // REINSはSPAのためURLではなくDOM内容で結果ページへの遷移を検出する
@@ -2987,6 +2986,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     return;
   }
 
+  globalThis.__incrementReinsUsage('search');
   await csleep(delay);
   await setStorageData({ debugLog: `${customer.name}: 検索結果ページ到達` });
 
