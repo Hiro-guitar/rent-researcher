@@ -2165,7 +2165,7 @@ function setPropertyAvailability(customerName, roomId, status, extras) {
             //   GAS側からは直接送らず、Chrome拡張側でユーザーIPから送信 (Cloudflare 1015対策)
             //   priority_requested_at はクリアしない (スタッフが確認するまで「依頼中」のまま)
             try {
-              var dPayload = _buildAvailabilityDiscordPayload_(nameTrim, ridTrim, buildingName, sourceRef, source, status);
+              var dPayload = _buildAvailabilityDiscordPayload_(nameTrim, ridTrim, buildingName, sourceRef, source, status, extras.application_status);
               if (dPayload) discordPayloads.push(dPayload);
             } catch (eN) {
               console.warn('[setPropertyAvailability] Discord payload生成失敗: ' + eN.message);
@@ -2589,7 +2589,7 @@ function _sendDiscordWithRetry_(webhookUrl, payload, maxAttempts) {
  *
  * @return {{webhook_url:string, content:string, customer:string, source:string}|null}
  */
-function _buildAvailabilityDiscordPayload_(customerName, roomId, buildingName, sourceRef, source, status) {
+function _buildAvailabilityDiscordPayload_(customerName, roomId, buildingName, sourceRef, source, status, applicationStatus) {
   try {
     var props = PropertiesService.getScriptProperties();
     var webhookUrl = props.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL')
@@ -2599,6 +2599,10 @@ function _buildAvailabilityDiscordPayload_(customerName, roomId, buildingName, s
 
     var srcLabel = (source || '').toLowerCase();
     var statusLabel = (status === 'needs_confirmation') ? '要物確・要確認' : 'REINS掲載中';
+    // 申込情報がある場合はステータスラベルに追加 (例: 「要物確・要確認 (申込1件)」)
+    if (applicationStatus && status === 'needs_confirmation') {
+      statusLabel += ' (' + applicationStatus + ')';
+    }
     var sourceDisplay = {
       reins: 'REINS', itandi: 'itandi', ielove: 'いえらぶ', essquare: 'いい生活'
     }[srcLabel] || (source || '不明');

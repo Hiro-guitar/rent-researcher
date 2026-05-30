@@ -167,28 +167,36 @@ async function _checkItandiAvailability(url) {
 
 // ──────────────────────────────────────────────────────────────────
 // いえらぶ (ielove BB):
-//   判定の主軸は「募集状況」を表す4つのspan。
-//   申込書出力ボタンの disabled は判定材料に使わない
-//   (Web申込非対応の管理会社でも disabled になるため誤判定の元)
+//   判定の主軸は「募集状況」を表す4つのspan + Web申込みボタン状態。
 //
-//   優先順位:
-//     1. 404 / 削除済 → closed
-//     2. span.confirm-required (「要物確」専用クラス) → needs_confirmation
+//   DOM構造 (詳細ページ):
+//     - table.leasing-detail-info 内の span で募集状況を判定
+//     - .right-side-menu の子要素 BUTTON+SPAN ペアで Web申込み活性を検出
+//       (Web申込み BUTTON: disabled属性 or disabled_btn/disable-btn クラス)
+//       (Web申込み SPAN: disable-text クラス)
+//
+//   canApply の注意点:
+//     Web申込み disabled ≠ 募集終了。Web申込非対応の管理会社でも disabled に
+//     なるため、canApply は主判定には使わない。情報としてのみ返す。
+//
+//   判定優先順位:
+//     1. 掲載終了テキスト                            → closed
+//     2. span.confirm-required「要物確」             → needs_confirmation
 //        (スタッフが元付業者に物件確認が必要、Discord通知)
 //        ※ 募集中でも要物確の場合があるため最優先で判定
-//     3. span.no-confirm 「物確不要」 → closed (確実に募集終了)
-//     4. span.exists_application_for_confirm のテキスト
-//        - 「申込N件」(件数つき) → applied (キャンセル時通知可能)
-//        - 「申込あり」          → applied (2番手申込可能 or キャンセル時通知)
-//     5. span.for-rent 「募集中」 → available
-//     6. どれも該当なし → unknown
+//     3. span.no-confirm「物確不要」                 → closed (確実に募集終了)
+//     4. span.exists_application_for_confirm
+//        「申込N件」/「申込あり」                     → applied
+//        (2番手申込可能 or キャンセル時通知)
+//     5. span.for-rent「募集中」                     → available
+//     6. どれも該当なし                               → unknown
 // ──────────────────────────────────────────────────────────────────
 async function _checkIeloveAvailability(url) {
-  if (!url || (url.indexOf('ielove') < 0 && url.indexOf('homes.co.jp') < 0)) return 'unknown';
+  if (!url || (url.indexOf('ielove') < 0 && url.indexOf('homes.co.jp') < 0)) return { status: 'unknown' };
   const tab = await (typeof findOrCreateDedicatedIeloveTab === 'function'
     ? findOrCreateDedicatedIeloveTab()
     : null);
-  if (!tab) return 'unknown';
+  if (!tab) return { status: 'unknown' };
   try {
     await chrome.tabs.update(tab.id, { url: url });
     await _waitForTabLoad(tab.id, 15000);
@@ -200,10 +208,10 @@ async function _checkIeloveAvailability(url) {
 
         // 1. 掲載終了 / 削除済 (closed)
         if (/既に掲載が終了|掲載が終了|物件は存在しません|該当する物件はありません|ページが見つかりません/.test(bodyText)) {
-          return 'closed';
+          return { status: 'closed', listingStatus: '掲載終了' };
         }
 
-        // ── 募集状況の主要シグナル ──
+        // ── 募集状況の主要シグナル (4つのspan) ──
         const forRentEl = document.querySelector('span.for-rent');
         const existsAppEl = document.querySelector('span.exists_application_for_confirm');
         const noConfirmEl = document.querySelector('span.no-confirm');
@@ -213,70 +221,113 @@ async function _checkIeloveAvailability(url) {
         const existsAppText = existsAppEl ? (existsAppEl.textContent || '').trim() : '';
         const noConfirmText = noConfirmEl ? (noConfirmEl.textContent || '').trim() : '';
 
-        // 2. span.confirm-required (「要物確」専用クラス) → needs_confirmation
-        //    募集中でも要物確の場合があるため最優先で判定
-        //    (スタッフが元付業者への物確が必要、Discord通知)
-        if (confirmRequiredEl) return 'needs_confirmation';
-        // フォールバック: テキスト判定
-        if (/要物確|要確認/.test(bodyText)) return 'needs_confirmation';
+        // ── Web申込みボタンの活性/無効 (canApply) ──
+        // .right-side-menu の子要素で BUTTON + SPAN "Web申込み" ペアを探す
+        // ※ 主判定には使わない (Web申込非対応店舗で disabled になるため)
+        // ※ キャンセル監視で canApply の変化を検知するために情報として返す
+        let canApply = null;
+        const sideMenu = document.querySelector('.right-side-menu');
+        if (sideMenu) {
+          const children = [...sideMenu.children];
+          for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (child.tagName === 'SPAN' && /Web申込/.test(child.textContent)) {
+              // この SPAN の直前の BUTTON が Web申込みボタン
+              const btn = (i > 0 && children[i - 1].tagName === 'BUTTON') ? children[i - 1] : null;
+              if (btn) {
+                const isDisabled = btn.disabled
+                  || /disabled_btn|disable-btn/.test(btn.className || '');
+                canApply = !isDisabled;
+              } else {
+                // BUTTON が見つからない場合は SPAN のクラスで判定
+                canApply = !/disable-text/.test(child.className || '');
+              }
+              break;
+            }
+          }
+        }
+
+        // 2. span.confirm-required (「要物確」) → needs_confirmation
+        //    要物確がある時点で Discord 通知
+        //    申込情報がある場合は applicationStatus に含めて返す
+        if (confirmRequiredEl) {
+          return {
+            status: 'needs_confirmation',
+            listingStatus: '要物確',
+            applicationStatus: existsAppText || null,
+            canApply
+          };
+        }
 
         // 3. 「物確不要」 → closed (確実に募集終了)
-        if (/物確不要/.test(noConfirmText)) return 'closed';
+        if (/物確不要/.test(noConfirmText)) {
+          return { status: 'closed', listingStatus: '物確不要' };
+        }
 
-        // 4. 申込状況テキスト
-        //    「申込N件」も「申込あり」も applied 扱い
-        //    (前者: 件数あり=実質終了寄りだが、キャンセル発生時に通知可能)
-        //    (後者: 2番手申込可能 or キャンセル時通知)
+        // 4. 申込状況テキスト → applied
+        //    「申込N件」「申込あり」いずれも applied
+        //    canApply=true なら 2番手でキャンセル待ち申込可能
         if (existsAppText) {
-          if (/^申込\s*\d+\s*件$/.test(existsAppText)) return 'applied';
-          if (/申込\s*あり/.test(existsAppText)) return 'applied';
-          return 'applied';
+          return { status: 'applied', listingStatus: existsAppText, canApply };
         }
 
         // 5. 「募集中」 → available
-        if (/募集中/.test(forRentText)) return 'available';
+        if (/募集中/.test(forRentText)) {
+          return { status: 'available', listingStatus: '募集中', canApply };
+        }
 
-        // 6. フォールバック
-        if (/募集\s*中止|募集停止|募集終了|成約|契約済/.test(bodyText)) return 'closed';
-        if (/申込\s*\d+\s*件/.test(bodyText)) return 'applied';
-        if (/申込\s*あり|入居予定者あり|申込済/.test(bodyText)) return 'applied';
-        if (/募集中|入居可能/.test(bodyText)) return 'available';
+        // 6. フォールバック (テキストベース判定)
+        if (/募集\s*中止|募集停止|募集終了|成約|契約済/.test(bodyText)) {
+          return { status: 'closed', listingStatus: '募集終了' };
+        }
+        if (/申込\s*\d+\s*件/.test(bodyText)) {
+          const m = bodyText.match(/申込\s*\d+\s*件/);
+          return { status: 'applied', listingStatus: m ? m[0] : '申込あり', canApply };
+        }
+        if (/申込\s*あり|入居予定者あり|申込済/.test(bodyText)) {
+          return { status: 'applied', listingStatus: '申込あり', canApply };
+        }
+        if (/募集中|入居可能/.test(bodyText)) {
+          return { status: 'available', listingStatus: '募集中', canApply };
+        }
 
-        return 'unknown';
+        return { status: 'unknown' };
       }
     });
-    return result || 'unknown';
+    return result || { status: 'unknown' };
   } catch (e) {
     console.warn('[availability/ielove] ' + e.message);
-    return 'unknown';
+    return { status: 'unknown' };
   }
 }
 
 // ──────────────────────────────────────────────────────────────────
 // いい生活 (es-square):
-//   404モーダル / ページ削除 → closed
+//   DOM構造 (詳細パネル):
+//     - ヘッダーに「申込」ボタン (MuiButton-outlinedPrimary, テキスト「申込」)
+//     - ボタン内SVGの data-testid でアイコン種別を判別:
+//       FeatherIcon = Web申込対応 (ペンアイコン)
+//       PhoneIcon   = Web申込非対応 (電話マーク、元付に電話確認が必要)
+//     - eds-tag__label 「申込あり」= 申込が入っている物件
+//     - 404はモーダルダイアログで表示
 //
-//   申込ボタン (MuiButton-outlinedPrimary, テキスト「申込」) の状態 +
-//   「申込あり」を示す2種類のタグ で判定:
-//
-//     ・eds-tag 「申込あり」(赤系ソフトタグ) = キャンセル待ち可ケース固有
-//     ・MuiChip 「申込あり」 = 申込中なら付くチップ (URL1/URL2両方)
-//     ・申込ボタン disabled = キャンセル待ち不可 OR Web申込非対応店舗
-//
-//   判定ロジック:
-//     1. eds-tag 「申込あり」あり + ボタン活性  → applied (キャンセル待ち可)
-//     2. eds-tag 「申込あり」あり + ボタン無効  → closed  (異常ケース)
-//     3. MuiChip 「申込あり」あり + ボタン無効 → closed  (URL1: キャンセル待ち不可)
-//     4. MuiChip 「申込あり」あり + ボタン活性 → applied (キャンセル待ち可と推定)
-//     5. ボタン無効のみ (申込タグなし)         → available (Web申込非対応店舗の可能性大)
-//     6. それ以外 (ボタン活性 + タグなし)       → available (募集中)
+//   判定優先順位:
+//     1. 404モーダル / ページ削除                    → closed
+//     2. 申込ボタンが PhoneIcon (電話マーク)         → needs_confirmation
+//        (Web申込非対応、スタッフが元付に電話確認が必要、Discord通知)
+//     3. eds-tag「申込あり」あり                      → applied
+//        canApply = ボタン活性 (FeatherIcon) かどうか
+//     4. ボタン活性 (FeatherIcon) + 申込タグなし      → available
+//     5. ボタン無効 (Mui-disabled) + 申込タグなし     → available
+//        (Web申込非対応店舗でもボタン無効になるため closed にしない)
+//     6. どれも該当なし                               → unknown
 // ──────────────────────────────────────────────────────────────────
 async function _checkEssquareAvailability(url) {
-  if (!url || (url.indexOf('es-square') < 0 && url.indexOf('iisesq') < 0)) return 'unknown';
+  if (!url || (url.indexOf('es-square') < 0 && url.indexOf('iisesq') < 0)) return { status: 'unknown' };
   const tab = await (typeof findOrCreateDedicatedEssquareTab === 'function'
     ? findOrCreateDedicatedEssquareTab()
     : null);
-  if (!tab) return 'unknown';
+  if (!tab) return { status: 'unknown' };
   try {
     await chrome.tabs.update(tab.id, { url: url });
     await _waitForTabLoad(tab.id, 15000);
@@ -284,8 +335,9 @@ async function _checkEssquareAvailability(url) {
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        // 404モーダル / 削除済み を最優先で判定 (closed)
         const allText = (document.documentElement && document.documentElement.innerText) || document.body.innerText || '';
+
+        // 1. 404モーダル / 削除済み → closed
         const closedPatterns = [
           /お探しのページ.{0,10}見つかりません/,
           /エラーコード[::\s]*404/,
@@ -296,23 +348,21 @@ async function _checkEssquareAvailability(url) {
           /該当する物件はありません/
         ];
         for (const re of closedPatterns) {
-          if (re.test(allText)) return 'closed';
+          if (re.test(allText)) return { status: 'closed', listingStatus: '掲載終了' };
         }
         const title = (document.title || '').toLowerCase();
-        if (title.includes('not found') || title.includes('404') || (document.title || '').includes('見つかりません')) return 'closed';
+        if (title.includes('not found') || title.includes('404') || (document.title || '').includes('見つかりません')) {
+          return { status: 'closed', listingStatus: '掲載終了' };
+        }
 
         // ──────────────────────────────────────────────
-        // 「申込」ボタン (MuiButton-outlinedPrimary) を探す
-        //   - テキストが正確に「申込」のラベル要素を内包する <button>
-        //   - 複数あれば最も上部 (top が小さい) のものを優先
+        // 「申込」ボタンを探す (ヘッダー内、最も上部のものを優先)
         // ──────────────────────────────────────────────
         const applyBtnCandidates = [...document.querySelectorAll('button')].filter(btn => {
-          if (!/MuiButton-outlinedPrimary/.test(btn.className || '')) return false;
           const labelEl = [...btn.querySelectorAll('div, span')]
             .find(el => el.children.length === 0 && (el.textContent || '').trim() === '申込');
           return !!labelEl;
         });
-        // 上部に近いものを優先
         applyBtnCandidates.sort((a, b) => {
           const ra = a.getBoundingClientRect();
           const rb = b.getBoundingClientRect();
@@ -320,51 +370,71 @@ async function _checkEssquareAvailability(url) {
         });
         const applyBtn = applyBtnCandidates[0];
 
-        // 「申込あり」を示すタグを2系統チェック
-        //   - eds-tag (赤系ソフトタグ): キャンセル待ち可ケースに固有
-        //   - MuiChip: 申込中なら付く (キャンセル待ち可/不可 両方)
-        const edsApplyTag = [...document.querySelectorAll('span.eds-tag, span[class*="eds-tag"]')]
-          .find(el => (el.textContent || '').trim() === '申込あり');
-        const muiApplyChip = [...document.querySelectorAll('.MuiChip-root, span[class*="MuiChip"]')]
-          .find(el => /申込あり/.test((el.textContent || '').trim()));
-
+        // ── ボタン内SVGのアイコン種別を検出 ──
+        let iconType = '';  // 'feather' | 'phone' | ''
         if (applyBtn) {
-          const isDisabled =
-            applyBtn.disabled ||
-            applyBtn.getAttribute('aria-disabled') === 'true' ||
-            /Mui-disabled/.test(applyBtn.className || '');
-
-          // 1. eds-tag 「申込あり」あり = キャンセル待ち可ケース
-          if (edsApplyTag) {
-            return isDisabled ? 'closed' : 'applied';
+          const svg = applyBtn.querySelector('svg');
+          if (svg) {
+            const testId = (svg.getAttribute('data-testid') || '').toLowerCase();
+            if (testId.includes('feather')) iconType = 'feather';
+            else if (testId.includes('phone') || testId.includes('call')) iconType = 'phone';
           }
-          // 2. MuiChip 「申込あり」あり + ボタン無効 = キャンセル待ち不可 (URL1パターン)
-          // 3. MuiChip 「申込あり」あり + ボタン活性 = applied (キャンセル待ち可と推定)
-          if (muiApplyChip) {
-            return isDisabled ? 'closed' : 'applied';
-          }
-          // 4. 申込タグなし + ボタン無効
-          //    → キャンセル待ち不可 OR Web申込非対応店舗
-          //    → 申込シグナルが無い以上、available 寄りで判定 (誤って closed にしない)
-          if (isDisabled) {
-            // 念のため募集終了テキストもチェック
-            if (/申込受付終了|募集終了|募集停止|成約|契約済/.test(allText)) return 'closed';
-            return 'available';
-          }
-          // 5. ボタン活性 + 申込タグなし → 募集中
-          return 'available';
         }
 
-        // 申込ボタンが見つからない場合のフォールバック
-        if (edsApplyTag || muiApplyChip) return 'applied';
-        if (/申込受付終了|募集終了|募集停止|成約|契約済/.test(allText)) return 'closed';
-        return 'available';
+        // ── ボタンの活性/無効 ──
+        let isDisabled = false;
+        let canApply = null;
+        if (applyBtn) {
+          isDisabled = applyBtn.disabled
+            || applyBtn.getAttribute('aria-disabled') === 'true'
+            || /Mui-disabled/.test(applyBtn.className || '');
+          canApply = !isDisabled && iconType !== 'phone';
+        }
+
+        // ── 「申込あり」タグ ──
+        const edsApplyTag = [...document.querySelectorAll('.eds-tag__label, span.eds-tag, span[class*="eds-tag"]')]
+          .find(el => (el.textContent || '').trim() === '申込あり');
+
+        // 2. 電話マーク (PhoneIcon) → needs_confirmation (Discord通知)
+        //    Web申込非対応の管理会社 → スタッフが電話確認する必要あり
+        if (iconType === 'phone') {
+          const applicationStatus = edsApplyTag ? '申込あり' : null;
+          return { status: 'needs_confirmation', listingStatus: '電話確認', applicationStatus, canApply: false };
+        }
+
+        // 3. eds-tag「申込あり」→ applied
+        if (edsApplyTag) {
+          return { status: 'applied', listingStatus: '申込あり', canApply };
+        }
+
+        // 4. ボタン活性 (FeatherIcon) + 申込タグなし → available (募集中)
+        if (applyBtn && !isDisabled) {
+          return { status: 'available', listingStatus: '募集中', canApply: true };
+        }
+
+        // 5. ボタン無効 + 申込タグなし → available
+        //    (Web申込非対応店舗でも disabled になるため closed にしない)
+        if (applyBtn && isDisabled) {
+          if (/申込受付終了|募集終了|募集停止|成約|契約済/.test(allText)) {
+            return { status: 'closed', listingStatus: '募集終了' };
+          }
+          return { status: 'available', listingStatus: '募集中', canApply: false };
+        }
+
+        // 6. 申込ボタンが見つからない場合のフォールバック
+        if (/申込受付終了|募集終了|募集停止|成約|契約済/.test(allText)) {
+          return { status: 'closed', listingStatus: '募集終了' };
+        }
+        if (/申込\s*あり/.test(allText)) {
+          return { status: 'applied', listingStatus: '申込あり', canApply: null };
+        }
+        return { status: 'unknown' };
       }
     });
-    return result || 'unknown';
+    return result || { status: 'unknown' };
   } catch (e) {
     console.warn('[availability/essquare] ' + e.message);
-    return 'unknown';
+    return { status: 'unknown' };
   }
 }
 
@@ -611,7 +681,8 @@ async function runAvailabilityCheckBatch(options) {
             status: status,
             badge_count: (res && typeof res.badgeCount === 'number') ? res.badgeCount : null,
             can_apply: (res && typeof res.canApply === 'boolean') ? res.canApply : null,
-            listing_status: (res && res.listingStatus) || ''
+            listing_status: (res && res.listingStatus) || '',
+            application_status: (res && res.applicationStatus) || ''
           });
           await setStorageData({
             debugLog: `[空室確認] ${totalProcessed + i + 1}: ${it.customer} ${it.source} → ${status}`
@@ -743,7 +814,8 @@ async function runPriorityAvailabilityPoll() {
         status: status,
         badge_count: (res && typeof res.badgeCount === 'number') ? res.badgeCount : null,
         can_apply: (res && typeof res.canApply === 'boolean') ? res.canApply : null,
-        listing_status: (res && res.listingStatus) || ''
+        listing_status: (res && res.listingStatus) || '',
+        application_status: (res && res.applicationStatus) || ''
       });
       await setStorageData({
         debugLog: `[優先空室確認] ${it.customer} ${it.source} → ${status}`
@@ -825,7 +897,8 @@ async function runCancellationWatchPoll() {
         status: status,
         badge_count: (res && typeof res.badgeCount === 'number') ? res.badgeCount : null,
         can_apply: (res && typeof res.canApply === 'boolean') ? res.canApply : null,
-        listing_status: (res && res.listingStatus) || ''
+        listing_status: (res && res.listingStatus) || '',
+        application_status: (res && res.applicationStatus) || ''
       });
       await setStorageData({
         debugLog: `[キャンセル監視] ${it.customer} ${it.source} → ${status}${(res && res.canApply !== undefined) ? ' canApply=' + res.canApply : ''}`

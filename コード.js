@@ -69,7 +69,8 @@ function doPost(e) {
           var extras = {
             badgeCount: (typeof it.badge_count === 'number') ? it.badge_count : null,
             canApply: (typeof it.can_apply === 'boolean') ? it.can_apply : null,
-            listingStatus: it.listing_status || ''
+            listingStatus: it.listing_status || '',
+            application_status: it.application_status || ''
           };
           var r = setPropertyAvailability(it.customer, it.room_id, it.status, extras);
           results.push({ customer: it.customer, room_id: it.room_id, status: it.status, ok: r.ok });
