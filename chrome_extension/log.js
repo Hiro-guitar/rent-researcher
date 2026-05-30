@@ -381,7 +381,7 @@
 
       // 全選択/全解除ボタン
       const allBtn = document.createElement('button');
-      allBtn.className = 'cp-btn';
+      allBtn.className = 'dp-btn';
       allBtn.textContent = '全選択';
       allBtn.style.cssText = 'padding:2px 6px;font-size:10px;';
       allBtn.addEventListener('click', () => {
@@ -391,7 +391,7 @@
       container.appendChild(allBtn);
 
       const noneBtn = document.createElement('button');
-      noneBtn.className = 'cp-btn';
+      noneBtn.className = 'dp-btn';
       noneBtn.textContent = '全解除';
       noneBtn.style.cssText = 'padding:2px 6px;font-size:10px;';
       noneBtn.addEventListener('click', () => {
