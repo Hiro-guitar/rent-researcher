@@ -14,6 +14,35 @@
 // { customerName: { service: [stationName, ...], ... }, ... }
 let _unresolvedStations = {};
 
+// ═══ REINS検索カウンター（日次＋月次累計） ═══
+// REINSの課金対象アクセス数を日別に記録し、月次累計も算出可能にする
+// { month: 'YYYY-MM', days: { 'YYYY-MM-DD': { s: N, d: N }, ... } }
+globalThis.__reinsUsageMonthly = { month: '', days: {} };
+chrome.storage.local.get(['reinsUsageMonthly'], (d) => {
+  const now = new Date();
+  const curMonth = now.toLocaleDateString('sv-SE').slice(0, 7); // YYYY-MM
+  if (d.reinsUsageMonthly && d.reinsUsageMonthly.month === curMonth) {
+    globalThis.__reinsUsageMonthly = d.reinsUsageMonthly;
+  } else {
+    globalThis.__reinsUsageMonthly = { month: curMonth, days: {} };
+    chrome.storage.local.set({ reinsUsageMonthly: globalThis.__reinsUsageMonthly });
+  }
+});
+globalThis.__incrementReinsUsage = (type) => {
+  const today = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD
+  const curMonth = today.slice(0, 7);
+  if (globalThis.__reinsUsageMonthly.month !== curMonth) {
+    globalThis.__reinsUsageMonthly = { month: curMonth, days: {} };
+  }
+  if (!globalThis.__reinsUsageMonthly.days[today]) {
+    globalThis.__reinsUsageMonthly.days[today] = { s: 0, d: 0 };
+  }
+  const day = globalThis.__reinsUsageMonthly.days[today];
+  if (type === 'search') day.s++;
+  else if (type === 'detail') day.d++;
+  chrome.storage.local.set({ reinsUsageMonthly: globalThis.__reinsUsageMonthly });
+};
+
 // === 一時的な顧客履歴クリア（実行後この関数ブロックは削除すること） ===
 // notifiedDedupMap / moshikomiSkipMap から指定顧客のエントリを除去。
 // chrome.storage.local の __cleanedKurata_v1 フラグで再実行を防止。
@@ -2957,6 +2986,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     return;
   }
 
+  globalThis.__incrementReinsUsage('search');
   await csleep(delay);
   await setStorageData({ debugLog: `${customer.name}: 検索結果ページ到達` });
 
@@ -3224,6 +3254,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             target: { tabId }, world: 'MAIN',
             func: () => { const b = [...document.querySelectorAll('button')].find(x => x.textContent.trim() === '検索'); if (b) b.click(); }
           });
+          globalThis.__incrementReinsUsage('search');
           // 5) ダイアログ処理＆結果ページ待ち
           for (let rs = 0; rs < 50; rs++) {
             await csleep(1000);
@@ -3271,6 +3302,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         await setStorageData({ debugLog: `${customer.name}: ✗ ${result.buildingName} ${result.floor} 詳細ボタンが見つからない(${clickStatus})→スキップ` });
         continue;
       }
+      globalThis.__incrementReinsUsage('detail');
       // SPA遷移: 詳細ページのラベル要素出現で描画完了を検知
       await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 5 });
 
@@ -3970,6 +4002,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               if (searchBtn) searchBtn.click();
             }
           });
+          globalThis.__incrementReinsUsage('search');
           // 結果ページに遷移するまで待つ
           let reSearchOk = false;
           for (let rs = 0; rs < 60; rs++) {
@@ -4044,6 +4077,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 if (btn) btn.click();
               }
             });
+            globalThis.__incrementReinsUsage('search');
             let reOk = false;
             for (let rs = 0; rs < 60; rs++) {
               await csleep(1000);
@@ -4121,6 +4155,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
                 if (btn) btn.click();
               }
             });
+            globalThis.__incrementReinsUsage('search');
             for (let rs = 0; rs < 60; rs++) {
               await csleep(1000);
               const rsCheck = await chrome.scripting.executeScript({
