@@ -15,29 +15,44 @@
       flex-direction: column;
     }
 
-    /* === Control Panel (top dashboard) === */
+    /* === Dashboard header === */
     #control-panel {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 10px 14px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
       background: #252526;
       border-bottom: 1px solid #404040;
       flex-shrink: 0;
-      flex-wrap: wrap;
     }
-    #control-panel .cp-title {
-      font-size: 14px;
+
+    /* 各セクション共通 */
+    .dp-section {
+      padding: 8px 14px;
+      border-bottom: 1px solid #333;
+    }
+    .dp-section:nth-child(odd) { border-right: 1px solid #333; }
+    .dp-section-title {
+      font-size: 10px;
       font-weight: 600;
-      color: #e0e0e0;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 5px;
+    }
+    .dp-row {
       display: flex;
       align-items: center;
       gap: 8px;
+      flex-wrap: wrap;
     }
+    .dp-row + .dp-row { margin-top: 4px; }
+
+    /* ステータスドット */
     .status-dot {
-      width: 9px; height: 9px;
+      width: 8px; height: 8px;
       border-radius: 50%;
       display: inline-block;
+      flex-shrink: 0;
     }
     .status-dot.online { background: #4ec9b0; }
     .status-dot.offline { background: #f44747; }
@@ -50,18 +65,16 @@
       50% { opacity: 0.3; }
     }
 
-    .cp-services {
-      display: flex; gap: 10px; align-items: center;
-    }
-    .cp-services label {
+    /* チェックボックスラベル */
+    .dp-cb {
       display: flex; align-items: center; gap: 3px;
       font-size: 11px; color: #bbb; cursor: pointer;
     }
-    .cp-services input[type="checkbox"] { margin: 0; cursor: pointer; }
+    .dp-cb input[type="checkbox"] { margin: 0; cursor: pointer; }
 
-    .cp-actions { display: flex; gap: 6px; }
-    .cp-btn {
-      padding: 4px 12px;
+    /* ボタン */
+    .dp-btn {
+      padding: 3px 10px;
       border: 1px solid #555;
       border-radius: 3px;
       background: #3c3c3c;
@@ -69,55 +82,54 @@
       cursor: pointer;
       font-size: 11px;
       font-family: inherit;
+      white-space: nowrap;
     }
-    .cp-btn:hover { background: #4a4a4a; }
-    .cp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .cp-btn.primary {
-      background: #264f78;
-      border-color: #3a7bd5;
-      color: #fff;
-    }
-    .cp-btn.primary:hover:not(:disabled) { background: #305d8f; }
-    .cp-btn.danger {
-      background: #6b2020;
-      border-color: #d44;
-      color: #faa;
-    }
-    .cp-btn.danger:hover:not(:disabled) { background: #8b2a2a; }
+    .dp-btn:hover { background: #4a4a4a; }
+    .dp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .dp-btn.primary { background: #264f78; border-color: #3a7bd5; color: #fff; }
+    .dp-btn.primary:hover:not(:disabled) { background: #305d8f; }
+    .dp-btn.danger { background: #6b2020; border-color: #d44; color: #faa; }
+    .dp-btn.danger:hover:not(:disabled) { background: #8b2a2a; }
 
-    .cp-stats {
-      display: flex; gap: 12px; align-items: center;
-      margin-left: auto;
-      font-size: 11px; color: #888;
-    }
-    .cp-stats .stat-val { color: #d4d4d4; font-weight: 600; margin-left: 3px; }
-    .cp-stats .stat-err { color: #f44747; }
+    /* 統計値 */
+    .dp-stat { font-size: 11px; color: #888; }
+    .dp-stat-val { color: #d4d4d4; font-weight: 600; margin: 0 2px; }
+    .dp-stat-err { color: #f44747; font-weight: 600; margin: 0 2px; }
+    .dp-stat-dim { color: #555; }
 
-    .cp-times {
-      display: flex; gap: 12px;
-      font-size: 11px; color: #888;
-    }
-    .cp-times span { color: #aaa; }
+    /* 時刻 */
+    .dp-time { font-size: 11px; color: #888; }
+    .dp-time-val { color: #aaa; }
 
-    #statusText {
-      font-size: 11px;
-      color: #888;
-    }
+    /* 顧客チェックボックスエリア (全幅) */
+    .dp-full { grid-column: 1 / -1; }
 
-    /* === Settings link === */
-    .cp-settings {
+    /* リンク */
+    .dp-link {
       font-size: 11px;
       color: #666;
       text-decoration: none;
       cursor: pointer;
     }
-    .cp-settings:hover { color: #aaa; }
+    .dp-link:hover { color: #aaa; }
+    .dp-link.warn { color: #844; }
 
-    .cp-customers label {
-      display: flex; align-items: center; gap: 3px;
-      font-size: 11px; color: #bbb; cursor: pointer;
+    /* REINS利用テーブル */
+    .reins-usage-tbl {
+      font-size: 11px;
+      border-collapse: collapse;
+      width: 100%;
     }
-    .cp-customers input[type="checkbox"] { margin: 0; cursor: pointer; }
+    .reins-usage-tbl th {
+      text-align: left;
+      color: #888;
+      font-weight: normal;
+      padding: 1px 8px 1px 0;
+    }
+    .reins-usage-tbl td {
+      padding: 1px 8px 1px 0;
+      text-align: right;
+    }
 
     /* === Toolbar (log controls) === */
     .toolbar {
@@ -215,79 +227,97 @@
 </head>
 <body>
 
-  <!-- Control Panel (dashboard header) -->
+  <!-- ═══ Dashboard ═══ -->
   <div id="control-panel">
-    <div class="cp-title">
-      <span id="loginStatus" class="status-dot offline"></span>
-      物件自動取得
-      <a href="help.html" target="_blank" style="margin-left:8px;font-size:11px;color:#8ec41d;text-decoration:underline;font-weight:normal;">📖 使い方</a>
-    </div>
-    <span id="statusText">未接続</span>
 
-    <div class="cp-services">
-      <label><input type="checkbox" id="autoSearchEnabled"> 自動検索</label>
-      <span style="color:#555">|</span>
-      <label><input type="checkbox" id="enableItandi" checked> itandi</label>
-      <label><input type="checkbox" id="enableEssquare" checked> ES-Square</label>
-      <label><input type="checkbox" id="enableIelove" checked> いえらぶBB</label>
-      <label><input type="checkbox" id="enableReins" checked> REINS</label>
-    </div>
-
-    <div class="cp-actions">
-      <button id="searchNowBtn" class="cp-btn primary">今すぐ検索</button>
-      <button id="stopSearchBtn" class="cp-btn danger" style="display:none">検索中止</button>
-      <button id="adminPageBtn" class="cp-btn" title="検索条件管理ページを開く">条件管理</button>
-    </div>
-
-    <div class="cp-services" style="margin-top:6px;border-top:1px solid #444;padding-top:6px;">
-      <label><input type="checkbox" id="suumoPatrolEnabled"> SUUMO巡回</label>
-      <button id="suumoPatrolNowBtn" class="cp-btn primary" style="font-size:11px;padding:3px 8px;">巡回実行</button>
-      <button id="suumoPatrolStopBtn" class="cp-btn danger" style="font-size:11px;padding:3px 8px;display:none;">巡回停止</button>
-      <span style="font-size:11px;color:#999;">N日以内:</span>
-      <input type="number" id="suumoPatrolDaysWithin" min="0" max="365" step="1" placeholder="制限なし" style="font-size:11px;padding:2px 4px;background:#222;color:#ddd;border:1px solid #555;width:70px;" title="今回の巡回で使う「N日以内」フィルタ(各サイトの新着絞り込み)。空欄なら制限なし">
-      <span style="font-size:11px;color:#777;">日</span>
-      <button id="suumoConfigBtn" class="cp-btn" style="font-size:11px;padding:3px 8px;" title="SUUMO巡回条件管理ページを開く">条件管理</button>
-      <span style="color:#555">|</span>
-      <button id="suumoFillNowBtn" class="cp-btn primary" style="font-size:11px;padding:3px 8px;">入稿開始</button>
-      <span style="color:#555">|</span>
-      <button id="availabilityCheckBtn" class="cp-btn" style="font-size:11px;padding:3px 8px;" title="送付済み物件の現在の空室状況を全件確認 (時間がかかります)">🔍 空室状況チェック</button>
-      <button id="availabilityStopBtn" class="cp-btn danger" style="font-size:11px;padding:3px 8px;display:none;" title="空室確認を中断">中断</button>
-      <button id="cancellationWatchListBtn" class="cp-btn" style="font-size:11px;padding:3px 8px;" title="お客さんがキャンセル通知を希望中の物件一覧">🔔 キャンセル監視中</button>
-      <span id="availabilityCheckStatus" style="font-size:11px;color:#888;"></span>
-    </div>
-
-    <div class="cp-customers" id="customerCheckboxes" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <span style="font-size:11px;color:#888;">顧客:</span>
-    </div>
-
-    <div class="cp-stats">
-      <span>検出<span id="totalFound" class="stat-val">0</span></span>
-      <span>送信<span id="totalSubmitted" class="stat-val">0</span></span>
-      <span>エラー<span id="totalErrors" class="stat-val stat-err">0</span></span>
-    </div>
-
-    <div class="cp-times" style="display:flex;flex-direction:column;gap:2px;font-size:11px;">
-      <div style="color:#888;" title="REINS課金対象アクセス数（6,000を超えると@3円）">
-        <span style="color:#569cd6;">REINS利用</span>
-        &nbsp;条件検索 今日:<span id="reinsSearchCount" style="color:#d4d4d4;font-weight:600;margin:0 2px;">0</span>
-        月累計:<span id="reinsMonthSearchCount" style="color:#d4d4d4;font-weight:600;margin:0 2px;">0</span><span style="color:#666">/ 6,000</span>
-        &nbsp;|&nbsp;詳細 今日:<span id="reinsDetailCount" style="color:#d4d4d4;font-weight:600;margin:0 2px;">0</span>
-        月累計:<span id="reinsMonthDetailCount" style="color:#d4d4d4;font-weight:600;margin:0 2px;">0</span><span style="color:#666">/ 6,000</span>
+    <!-- 左上: ステータス + 顧客物件検索 -->
+    <div class="dp-section">
+      <div class="dp-section-title">顧客物件検索</div>
+      <div class="dp-row">
+        <span id="loginStatus" class="status-dot offline"></span>
+        <span id="statusText" style="font-size:11px;color:#888;">未接続</span>
+        <a href="help.html" target="_blank" style="font-size:10px;color:#8ec41d;text-decoration:underline;">使い方</a>
       </div>
-      <div>
-        <span style="color:#888;">顧客物件検索</span>
-        &nbsp;最終: <span id="lastSearch">-</span>
-        &nbsp;|&nbsp;次回: <span id="nextSearch">-</span>
+      <div class="dp-row">
+        <label class="dp-cb"><input type="checkbox" id="autoSearchEnabled"> 自動</label>
+        <label class="dp-cb"><input type="checkbox" id="enableItandi" checked> itandi</label>
+        <label class="dp-cb"><input type="checkbox" id="enableEssquare" checked> ES-Square</label>
+        <label class="dp-cb"><input type="checkbox" id="enableIelove" checked> いえらぶ</label>
+        <label class="dp-cb"><input type="checkbox" id="enableReins" checked> REINS</label>
       </div>
-      <div>
-        <span style="color:#888;">SUUMO巡回</span>
-        &nbsp;最終: <span id="lastSuumoPatrol">-</span>
-        &nbsp;|&nbsp;次回: <span id="nextSuumoPatrol">-</span>
+      <div class="dp-row">
+        <button id="searchNowBtn" class="dp-btn primary">今すぐ検索</button>
+        <button id="stopSearchBtn" class="dp-btn danger" style="display:none">検索中止</button>
+        <button id="adminPageBtn" class="dp-btn" title="検索条件管理ページを開く">条件管理</button>
+      </div>
+      <div class="dp-row dp-time">
+        最終: <span id="lastSearch" class="dp-time-val">-</span>
+        &nbsp;次回: <span id="nextSearch" class="dp-time-val">-</span>
       </div>
     </div>
 
-    <a class="cp-settings" id="openOptions">設定</a>
-    <a class="cp-settings" id="resetBtn" style="color:#844">リセット</a>
+    <!-- 右上: SUUMO巡回 + 入稿 + 空室 -->
+    <div class="dp-section">
+      <div class="dp-section-title">SUUMO巡回 / 入稿 / 空室確認</div>
+      <div class="dp-row">
+        <label class="dp-cb"><input type="checkbox" id="suumoPatrolEnabled"> SUUMO巡回</label>
+        <button id="suumoPatrolNowBtn" class="dp-btn primary">巡回実行</button>
+        <button id="suumoPatrolStopBtn" class="dp-btn danger" style="display:none;">巡回停止</button>
+        <span class="dp-stat">N日以内:</span>
+        <input type="number" id="suumoPatrolDaysWithin" min="0" max="365" step="1" placeholder="--" style="font-size:11px;padding:2px 4px;background:#2a2a2a;color:#ddd;border:1px solid #555;width:50px;" title="新着絞り込み日数。空欄なら制限なし">
+        <button id="suumoConfigBtn" class="dp-btn" title="SUUMO巡回条件管理ページを開く">条件管理</button>
+      </div>
+      <div class="dp-row">
+        <button id="suumoFillNowBtn" class="dp-btn primary">入稿開始</button>
+        <button id="availabilityCheckBtn" class="dp-btn" title="送付済み物件の空室状況を全件確認">空室チェック</button>
+        <button id="availabilityStopBtn" class="dp-btn danger" style="display:none;" title="空室確認を中断">中断</button>
+        <button id="cancellationWatchListBtn" class="dp-btn" title="キャンセル通知希望の物件一覧">キャンセル監視</button>
+        <span id="availabilityCheckStatus" class="dp-stat"></span>
+      </div>
+      <div class="dp-row dp-time">
+        最終: <span id="lastSuumoPatrol" class="dp-time-val">-</span>
+        &nbsp;次回: <span id="nextSuumoPatrol" class="dp-time-val">-</span>
+      </div>
+    </div>
+
+    <!-- 左下: 統計 + REINS利用状況 -->
+    <div class="dp-section">
+      <div class="dp-section-title">統計</div>
+      <div class="dp-row dp-stat">
+        <span>検出 <span class="dp-stat-val" id="totalFound">0</span></span>
+        <span>送信 <span class="dp-stat-val" id="totalSubmitted">0</span></span>
+        <span>エラー <span class="dp-stat-err" id="totalErrors">0</span></span>
+      </div>
+      <table class="reins-usage-tbl" title="REINS課金: 6,000を超えると1件@3円">
+        <tr>
+          <th></th><th>今日</th><th>月累計</th><th></th>
+        </tr>
+        <tr>
+          <th>REINS 条件検索</th>
+          <td><span class="dp-stat-val" id="reinsSearchCount">0</span></td>
+          <td><span class="dp-stat-val" id="reinsMonthSearchCount">0</span></td>
+          <td class="dp-stat-dim">/ 6,000</td>
+        </tr>
+        <tr>
+          <th>REINS 詳細</th>
+          <td><span class="dp-stat-val" id="reinsDetailCount">0</span></td>
+          <td><span class="dp-stat-val" id="reinsMonthDetailCount">0</span></td>
+          <td class="dp-stat-dim">/ 6,000</td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- 右下: 顧客 + 設定 -->
+    <div class="dp-section">
+      <div class="dp-section-title">顧客フィルタ</div>
+      <div class="dp-row" id="customerCheckboxes" style="flex-wrap:wrap;">
+      </div>
+      <div class="dp-row" style="margin-top:6px;">
+        <a class="dp-link" id="openOptions">設定</a>
+        <a class="dp-link warn" id="resetBtn">リセット</a>
+      </div>
+    </div>
+
   </div>
 
   <!-- Log toolbar -->
