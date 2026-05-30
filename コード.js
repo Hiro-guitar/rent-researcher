@@ -2403,6 +2403,8 @@ function handleAddReinsProperty(json) {
         image_urls: p.image_urls || [],
         image_categories: p.image_categories || [],
         room_number: p.room_number || '',
+        area: p.area || 0,
+        layout: p.layout || '',
         building_age: p.building_age || '',
         move_in_date: p.move_in_date || '',
         floor: p.floor || 0,
@@ -2487,6 +2489,32 @@ function handleAddReinsProperty(json) {
         cache.remove('imgs_' + customerName + '_' + roomId);
         cache.remove('prop2_' + customerName + '_' + roomId);
       } catch(ce) {}
+      // 既存 sent 行の場合、SEEN_SHEET にエントリがなければ補完する
+      // (履歴リセット後に SEEN_SHEET が空になると seenIds チェックをすり抜けるため)
+      try {
+        var existingStatus = String(existingData[rowNum - 1][10] || '');
+        if (existingStatus === 'sent') {
+          var seenSh = ss.getSheetByName(SEEN_SHEET_NAME);
+          if (seenSh) {
+            var seenAllData = seenSh.getDataRange().getValues();
+            var foundInSeen = false;
+            for (var si = 1; si < seenAllData.length; si++) {
+              if (String(seenAllData[si][0]) === customerName && String(seenAllData[si][1]) === roomId) {
+                foundInSeen = true;
+                break;
+              }
+            }
+            if (!foundInSeen) {
+              var source = p.source || 'reins';
+              var sourceRef = (source === 'reins') ? (p.reins_property_number || '') : (p.url || '');
+              seenSh.appendRow([customerName, roomId, p.building_name || '', now, source, '', '', sourceRef]);
+              console.log('[SEEN補完] ' + customerName + ' / ' + roomId + ' をSEEN_SHEETに追加');
+            }
+          }
+        }
+      } catch (seenErr) {
+        console.warn('SEEN_SHEET 補完エラー: ' + seenErr.message);
+      }
       skipped++;
       continue;
     }
