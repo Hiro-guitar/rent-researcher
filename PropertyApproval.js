@@ -616,6 +616,11 @@ function handlePropertyViewApi(e) {
   // 通知済み物件シートから空室状況を取得（Chrome拡張が定期的に更新している）
   var isClosed = false;
   var statusCheckedAt = '';
+  var availabilityStatus = '';   // available/applied/needs_confirmation/reins_listed/unknown
+  var availCanApply = null;      // true/false/null
+  var availBadgeCount = null;    // 申込件数 (number or null)
+  var isWatchingCancellation = false;  // キャンセル待ち通知中か
+  var availApplicationStatus = '';     // 申込ステータス（"申込1件"等）
   try {
     var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
     if (seenSheet) {
@@ -624,10 +629,24 @@ function handlePropertyViewApi(e) {
         if (String(seenData[si][0]) === String(customerName) &&
             String(seenData[si][1]) === String(roomId)) {
           var seenStatus = String(seenData[si][5] || '');  // F列: current_status
+          availabilityStatus = seenStatus;
           if (seenStatus === 'closed') {
             isClosed = true;
-            statusCheckedAt = seenData[si][6] ? String(seenData[si][6]) : '';
           }
+          statusCheckedAt = seenData[si][6] ? String(seenData[si][6]) : '';
+          // K列: can_apply
+          var canApplyRaw = seenData[si][10];
+          if (canApplyRaw === 'TRUE' || canApplyRaw === true) availCanApply = true;
+          else if (canApplyRaw === 'FALSE' || canApplyRaw === false) availCanApply = false;
+          // L列: badge_count
+          var badgeRaw = seenData[si][11];
+          if (typeof badgeRaw === 'number' && badgeRaw >= 0) availBadgeCount = badgeRaw;
+          else if (badgeRaw !== '' && !isNaN(Number(badgeRaw))) availBadgeCount = Number(badgeRaw);
+          // M列: application_status
+          var appStatRaw = seenData[si][12];
+          if (appStatRaw) availApplicationStatus = String(appStatRaw);
+          // J列: キャンセル待ち通知希望
+          if (seenData[si][9]) isWatchingCancellation = true;
           break;
         }
       }
@@ -691,6 +710,11 @@ function handlePropertyViewApi(e) {
     // 空室状況（通知済み物件シートから）
     isClosed: isClosed,
     statusCheckedAt: statusCheckedAt,
+    availabilityStatus: availabilityStatus,
+    availCanApply: availCanApply,
+    availBadgeCount: availBadgeCount,
+    availApplicationStatus: availApplicationStatus,
+    isWatchingCancellation: isWatchingCancellation,
     // お客さん希望のこだわり条件 (設備タグの強調表示に使う)
     customerEquipment: _getCustomerEquipmentList_(customerName)
   };
@@ -2196,6 +2220,16 @@ function setPropertyAvailability(customerName, roomId, status, extras) {
 
         sheet.getRange(rowNum, 6).setValue(status);
         sheet.getRange(rowNum, 7).setValue(now);
+        // K列: can_apply, L列: badge_count, M列: application_status (property.html のステータス表示用)
+        if (typeof extras.canApply === 'boolean') {
+          sheet.getRange(rowNum, 11).setValue(extras.canApply ? 'TRUE' : 'FALSE');
+        }
+        if (typeof extras.badgeCount === 'number') {
+          sheet.getRange(rowNum, 12).setValue(extras.badgeCount);
+        } else {
+          sheet.getRange(rowNum, 12).setValue('');
+        }
+        sheet.getRange(rowNum, 13).setValue(extras.application_status || '');
         updated++;
       }
     }
