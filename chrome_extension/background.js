@@ -43,29 +43,6 @@ globalThis.__incrementReinsUsage = (type) => {
   chrome.storage.local.set({ reinsUsageMonthly: globalThis.__reinsUsageMonthly });
 };
 
-// === 一時的な顧客履歴クリア（実行後この関数ブロックは削除すること） ===
-// notifiedDedupMap / moshikomiSkipMap から指定顧客のエントリを除去。
-// chrome.storage.local の __cleanedKurata_v1 フラグで再実行を防止。
-chrome.storage.local.get(['__cleanedKurata_v1', 'notifiedDedupMap'], (d) => {
-  if (d.__cleanedKurata_v1) return;
-  const targetName = '倉田 豊大';
-  const normalize = (s) => String(s || '').replace(/[\s　]+/g, '').trim();
-  const targetNorm = normalize(targetName);
-  const map = d.notifiedDedupMap || {};
-  let removed = 0;
-  for (const cust of Object.keys(map)) {
-    if (normalize(cust) === targetNorm) {
-      removed += Object.keys(map[cust] || {}).length;
-      delete map[cust];
-    }
-  }
-  chrome.storage.local.set({
-    notifiedDedupMap: map,
-    __cleanedKurata_v1: { ts: Date.now(), removed: removed }
-  }).then(() => {
-    console.log('[一時クリア] 倉田 豊大: notifiedDedupMap から ' + removed + ' エントリを削除');
-  });
-});
 
 // 他サイトで「申込あり」として弾いた物件のキーを永続化(30日TTL)
 // 形式: { "<building>|<room>": { ts: <timestamp>, url: <検出時の物件URL>, source: <検出元サイト名> }, ... }
@@ -3898,18 +3875,26 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             await setStorageData({ debugLog: `[WARN-DIAG] REINS ${customer.name}: ERROR ${eW.message}` });
           }
           // リアルタイムでGAS送信＋Discord通知
+          let __reinsSubmitAdded = 0;
           try {
             const submitResult = await submitProperties(customer.name, [detail]);
             if (submitResult?.success) {
-              currentStats.totalSubmitted += submitResult.added || 1;
+              __reinsSubmitAdded = submitResult.added || 0;
+              currentStats.totalSubmitted += __reinsSubmitAdded;
             }
           } catch (err) {
             logError(`${customer.name}: ${detail.building_name} ${detail.room_number || ''} GAS送信失敗: ${err.message}`);
           }
-          try {
-            await deliverProperty(customer.name, detail, customer, 'reins');
-          } catch (err) {
-            logError(`${customer.name}: ${detail.building_name} ${detail.room_number || ''} Discord通知失敗: ${err.message}`);
+          // GAS側で既存sent行を更新しただけ(added=0)の場合は通知をスキップ
+          // (履歴リセット後にseenIds/notifiedDedupMapの隙間を通過した重複を防止)
+          if (__reinsSubmitAdded > 0) {
+            try {
+              await deliverProperty(customer.name, detail, customer, 'reins');
+            } catch (err) {
+              logError(`${customer.name}: ${detail.building_name} ${detail.room_number || ''} Discord通知失敗: ${err.message}`);
+            }
+          } else {
+            await setStorageData({ debugLog: `${customer.name}: ⚡ GAS既存物件のため通知スキップ: ${detail.building_name} ${detail.room_number || ''}` });
           }
           await setStorageData({ stats: currentStats });
           } // end strictSkip else
