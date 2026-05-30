@@ -798,13 +798,18 @@ async function _sendDiscordNotificationsFromExtension(items) {
 // 1分毎の alarm で呼ばれる。priority_only=1 で優先依頼のみ取得。
 // ──────────────────────────────────────────────────────────────────
 async function runPriorityAvailabilityPoll() {
-  // 全件モード実行中ならスキップ (衝突防止)
-  const running = await new Promise(r =>
-    chrome.storage.local.get(['__availabilityCheckRunning'], d => r(!!d.__availabilityCheckRunning))
+  // 全件モード or 定期チェック実行中ならスキップ (衝突防止)
+  // ※ 定期チェック中は _handlePriorityDuringPeriodic が代わりに処理する
+  const flags = await new Promise(r =>
+    chrome.storage.local.get(['__availabilityCheckRunning', '__periodicCheckRunning'], d => r(d))
   );
-  if (running) {
+  if (flags.__availabilityCheckRunning) {
     console.log('[priority-poll] 通常モード実行中のためスキップ');
-    return { skipped: 'running' };
+    return { skipped: 'batch_running' };
+  }
+  if (flags.__periodicCheckRunning) {
+    console.log('[priority-poll] 定期チェック実行中のためスキップ (割り込みで処理される)');
+    return { skipped: 'periodic_running' };
   }
 
   let queue;
@@ -882,13 +887,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // お客さんに LINE 通知。
 // ──────────────────────────────────────────────────────────────────
 async function runCancellationWatchPoll() {
-  // 全件モード実行中ならスキップ
-  const running = await new Promise(r =>
-    chrome.storage.local.get(['__availabilityCheckRunning'], d => r(!!d.__availabilityCheckRunning))
+  // 全件モード or 定期チェック実行中ならスキップ
+  const flags = await new Promise(r =>
+    chrome.storage.local.get(['__availabilityCheckRunning', '__periodicCheckRunning'], d => r(d))
   );
-  if (running) {
+  if (flags.__availabilityCheckRunning) {
     console.log('[キャンセル監視] 通常モード実行中のためスキップ');
-    return { skipped: 'running' };
+    return { skipped: 'batch_running' };
+  }
+  if (flags.__periodicCheckRunning) {
+    console.log('[キャンセル監視] 定期チェック実行中のためスキップ');
+    return { skipped: 'periodic_running' };
   }
 
   let queue;
@@ -941,8 +950,206 @@ async function runCancellationWatchPoll() {
   return { processed: results.length };
 }
 
+// ──────────────────────────────────────────────────────────────────
+// 定期空室確認 (1時間毎の alarm で起動)
+// 通知済み全物件を巡回してスプレッドシートの空室情報を最新に保つ。
+// お客さんが物件情報を開いた時に直近の空室ステータスが表示される。
+// 5件ごとに優先リクエストを割り込み処理し、お客さんを待たせない。
+// ──────────────────────────────────────────────────────────────────
+
+/**
+ * 定期チェック中に優先リクエストがあれば割り込み処理する。
+ * @return {Promise<number>} 処理した優先件数
+ */
+async function _handlePriorityDuringPeriodic() {
+  try {
+    const queue = await gasGet('get_availability_queue', {
+      limit: 5,
+      priority_only: 1,
+      max_priority_age_minutes: 60
+    });
+    const items = (queue && Array.isArray(queue.items)) ? queue.items : [];
+    if (items.length === 0) return 0;
+
+    await setStorageData({ debugLog: `[定期→優先割込] ${items.length}件の優先依頼を処理` });
+
+    const results = [];
+    for (const it of items) {
+      try {
+        const res = await checkOneAvailability(it);
+        const status = (res && res.status) || 'unknown';
+        results.push({
+          customer: it.customer,
+          room_id: it.roomId,
+          status: status,
+          badge_count: (res && typeof res.badgeCount === 'number') ? res.badgeCount : null,
+          can_apply: (res && typeof res.canApply === 'boolean') ? res.canApply : null,
+          listing_status: (res && res.listingStatus) || '',
+          application_status: (res && res.applicationStatus) || ''
+        });
+        await setStorageData({
+          debugLog: `[定期→優先割込] ${it.customer} ${it.source} → ${status}`
+        });
+      } catch (e) {
+        results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
+      }
+    }
+
+    if (results.length > 0) {
+      const postRes = await gasPost({ action: 'update_availability', items: results });
+      if (postRes && Array.isArray(postRes.discord_notify_items)) {
+        await _sendDiscordNotificationsFromExtension(postRes.discord_notify_items);
+      }
+    }
+    return results.length;
+  } catch (e) {
+    console.warn('[定期→優先割込] 失敗:', e.message);
+    return 0;
+  }
+}
+
+async function runPeriodicAvailabilityCheck() {
+  // 手動バッチ or 前回の定期チェックが実行中ならスキップ
+  const flags = await new Promise(r =>
+    chrome.storage.local.get(['__availabilityCheckRunning', '__periodicCheckRunning'], d => r(d))
+  );
+  if (flags.__availabilityCheckRunning) {
+    console.log('[定期空室確認] 手動バッチ実行中のためスキップ');
+    return { skipped: 'batch_running' };
+  }
+  if (flags.__periodicCheckRunning) {
+    console.log('[定期空室確認] 前回の定期チェックが実行中のためスキップ');
+    return { skipped: 'already_running' };
+  }
+
+  await new Promise(r => chrome.storage.local.set({ __periodicCheckRunning: true }, r));
+
+  const batchSize = 30;
+  let totalProcessed = 0;
+  let totalErrors = 0;
+  let totalPriority = 0;
+  let cycle = 0;
+  const maxCycles = 20; // 30 × 20 = 最大600件
+  const seenKeys = new Set();
+
+  try {
+    await setStorageData({ debugLog: '[定期空室確認] 開始' });
+
+    while (cycle < maxCycles) {
+      cycle++;
+
+      // キュー取得: 直近1時間以内にチェック済みの物件はスキップ
+      let queue;
+      try {
+        queue = await gasGet('get_availability_queue', {
+          limit: batchSize,
+          max_age_days: 30,
+          max_interval_hours: 1
+        });
+      } catch (e) {
+        await setStorageData({ debugLog: `[定期空室確認] キュー取得失敗: ${e.message}` });
+        break;
+      }
+      const items = (queue && Array.isArray(queue.items)) ? queue.items : [];
+
+      if (items.length === 0) {
+        if (cycle === 1) {
+          let reason = '確認対象なし';
+          const diag = queue && queue.diag;
+          if (diag) {
+            reason += ` (総行数:${diag.total}`;
+            if (diag.recentlyChecked) reason += ` / 1h以内チェック済:${diag.recentlyChecked}`;
+            if (diag.isClosed) reason += ` / closed:${diag.isClosed}`;
+            if (diag.noUrl) reason += ` / URL無し:${diag.noUrl}`;
+            reason += ')';
+          }
+          await setStorageData({ debugLog: `[定期空室確認] ${reason}` });
+        } else {
+          await setStorageData({
+            debugLog: `[定期空室確認] 完了 (${totalProcessed}件 / ${cycle - 1}サイクル / エラー${totalErrors}${totalPriority ? ' / 優先割込' + totalPriority + '件' : ''})`
+          });
+        }
+        break;
+      }
+
+      // 無限ループ防止
+      const allSeen = items.every(it => seenKeys.has(it.customer + '|' + it.roomId));
+      if (allSeen) {
+        await setStorageData({
+          debugLog: `[定期空室確認] 同一アイテム再受信 → 中断 (累計${totalProcessed}件)`
+        });
+        break;
+      }
+      items.forEach(it => seenKeys.add(it.customer + '|' + it.roomId));
+
+      await setStorageData({
+        debugLog: `[定期空室確認] サイクル${cycle}: ${items.length}件を確認 (累計${totalProcessed})`
+      });
+
+      // 各物件チェック
+      const results = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+
+        // 5件ごとに優先リクエスト割り込み処理
+        if (i > 0 && i % 5 === 0) {
+          const pCount = await _handlePriorityDuringPeriodic();
+          totalPriority += pCount;
+        }
+
+        try {
+          const res = await checkOneAvailability(it);
+          const status = (res && res.status) || 'unknown';
+          results.push({
+            customer: it.customer,
+            room_id: it.roomId,
+            status: status,
+            badge_count: (res && typeof res.badgeCount === 'number') ? res.badgeCount : null,
+            can_apply: (res && typeof res.canApply === 'boolean') ? res.canApply : null,
+            listing_status: (res && res.listingStatus) || '',
+            application_status: (res && res.applicationStatus) || ''
+          });
+          await setStorageData({
+            debugLog: `[定期空室確認] ${totalProcessed + i + 1}: ${it.customer} ${it.source} → ${status}`
+          });
+        } catch (e) {
+          totalErrors++;
+          results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
+          await setStorageData({
+            debugLog: `[定期空室確認] ${totalProcessed + i + 1}: ${it.customer} エラー ${e.message}`
+          });
+        }
+      }
+
+      // 結果POST
+      if (results.length > 0) {
+        try {
+          const postRes = await gasPost({ action: 'update_availability', items: results });
+          if (postRes && Array.isArray(postRes.discord_notify_items)) {
+            await _sendDiscordNotificationsFromExtension(postRes.discord_notify_items);
+          }
+        } catch (e) {
+          await setStorageData({ debugLog: `[定期空室確認] POST失敗: ${e.message}` });
+          break;
+        }
+      }
+      totalProcessed += results.length;
+    }
+
+    if (cycle >= maxCycles) {
+      await setStorageData({
+        debugLog: `[定期空室確認] 上限${maxCycles}サイクル到達 (累計${totalProcessed}件)`
+      });
+    }
+    return { processed: totalProcessed, cycles: cycle, errors: totalErrors, priority: totalPriority };
+  } finally {
+    await new Promise(r => chrome.storage.local.set({ __periodicCheckRunning: false }, r));
+  }
+}
+
 globalThis.runAvailabilityCheckBatch = runAvailabilityCheckBatch;
 globalThis.checkOneAvailability = checkOneAvailability;
 globalThis.stopAvailabilityCheck = stopAvailabilityCheck;
 globalThis.runPriorityAvailabilityPoll = runPriorityAvailabilityPoll;
 globalThis.runCancellationWatchPoll = runCancellationWatchPoll;
+globalThis.runPeriodicAvailabilityCheck = runPeriodicAvailabilityCheck;
