@@ -740,6 +740,22 @@ function doGet(e) {
     }
   }
 
+  // お客さんからのキャンセル待ち通知希望 (property.html のボタン押下時に呼ぶ)
+  if (action === 'request_cancellation_watch') {
+    try {
+      var custW = e.parameter.customer || '';
+      var roomW = e.parameter.room_id || '';
+      var rW = (typeof setCancellationWatch === 'function')
+        ? setCancellationWatch(custW, roomW)
+        : { ok: false, message: 'function not defined' };
+      return ContentService.createTextOutput(JSON.stringify(rW))
+        .setMimeType(ContentService.MimeType.JSON);
+    } catch (eW) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, message: eW.message }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // Discord webhook 設定確認 + テスト送信
   if (action === 'check_discord') {
     try {
