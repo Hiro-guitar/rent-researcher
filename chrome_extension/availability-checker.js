@@ -444,16 +444,25 @@ async function _checkEssquareAvailability(url) {
 // (空室確定はできないので available は返さない)
 // ──────────────────────────────────────────────────────────────────
 async function _checkReinsAvailability(reinsPropNo) {
-  if (!reinsPropNo) return 'unknown';
+  if (!reinsPropNo) {
+    console.warn('[availability/reins] 物件番号が空');
+    return { status: 'unknown', _reason: 'no_prop_no' };
+  }
   const tab = await (typeof findOrCreateDedicatedReinsTab === 'function'
     ? findOrCreateDedicatedReinsTab()
     : (typeof findReinsTab === 'function' ? findReinsTab() : null));
-  if (!tab) return 'unknown';
+  if (!tab) {
+    console.warn('[availability/reins] REINSタブが見つからない');
+    return { status: 'unknown', _reason: 'no_tab' };
+  }
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   try {
     // ログイン未完了ならスキップ
     const tab0 = await chrome.tabs.get(tab.id);
-    if (/login|GKG001/i.test(tab0.url || '')) return 'unknown';
+    if (/login|GKG001/i.test(tab0.url || '')) {
+      console.warn('[availability/reins] ログイン未完了: ' + tab0.url);
+      return { status: 'unknown', _reason: 'not_logged_in' };
+    }
 
     // 1) 物件番号検索ページへ遷移 (Vueルーター経由)
     await chrome.scripting.executeScript({
@@ -487,7 +496,10 @@ async function _checkReinsAvailability(reinsPropNo) {
       });
       if (ready?.[0]?.result) { reachedSearch = true; break; }
     }
-    if (!reachedSearch) return 'unknown';
+    if (!reachedSearch) {
+      console.warn('[availability/reins] 検索ページ(GBK004100)に到達できず');
+      return { status: 'unknown', _reason: 'search_page_timeout' };
+    }
 
     // 3) 物件番号入力 → 検索ボタンクリック
     const setRes = await chrome.scripting.executeScript({
@@ -513,7 +525,10 @@ async function _checkReinsAvailability(reinsPropNo) {
       },
       args: [reinsPropNo]
     });
-    if (setRes?.[0]?.result !== 'ok') return 'unknown';
+    if (setRes?.[0]?.result !== 'ok') {
+      console.warn('[availability/reins] 物件番号入力失敗: ' + (setRes?.[0]?.result || 'no result'));
+      return { status: 'unknown', _reason: 'input_failed_' + (setRes?.[0]?.result || '') };
+    }
 
     // 4) 検索結果ページ到達 (GBK004200) を待ち、結果行の有無を判定
     let resultPage = false;
@@ -522,7 +537,10 @@ async function _checkReinsAvailability(reinsPropNo) {
       const t = await chrome.tabs.get(tab.id);
       if (t.url?.includes('GBK004200')) { resultPage = true; break; }
     }
-    if (!resultPage) return 'unknown';
+    if (!resultPage) {
+      console.warn('[availability/reins] 検索結果ページ(GBK004200)に到達できず');
+      return { status: 'unknown', _reason: 'result_page_timeout' };
+    }
 
     // 結果行の有無を判定 (詳細ボタン or テーブル行 or 「該当なし」テキスト)
     await sleep(1500); // テーブル描画待ち
@@ -531,21 +549,24 @@ async function _checkReinsAvailability(reinsPropNo) {
       func: (propNo) => {
         const bodyText = document.body.innerText || '';
         // 「該当なし」「0件」「検索結果なし」 → closed
-        if (/該当(?:するデータが)?(?:あり|有り)?ません|検索結果が0件|0\s*件/.test(bodyText)) return 'closed';
+        if (/該当(?:するデータが)?(?:あり|有り)?ません|検索結果が0件|0\s*件/.test(bodyText)) return { status: 'closed', listingStatus: 'REINS掲載なし' };
         // 詳細ボタンがあれば結果行あり
         const hasDetail = [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '詳細');
-        if (hasDetail) return 'reins_listed';
+        if (hasDetail) return { status: 'reins_listed', listingStatus: 'REINS掲載中' };
         // 物件番号がページ上に表示されていれば存在
-        if (bodyText.indexOf(propNo) >= 0) return 'reins_listed';
+        if (bodyText.indexOf(propNo) >= 0) return { status: 'reins_listed', listingStatus: 'REINS掲載中' };
         // それ以外: 不明 (テーブル未描画など)
-        return 'unknown';
+        return { status: 'unknown', _reason: 'no_result_detected', bodySnippet: bodyText.substring(0, 200) };
       },
       args: [reinsPropNo]
     });
-    return result || 'unknown';
+    if (result && result._reason) {
+      console.warn('[availability/reins] 結果判定失敗: ' + result._reason + ' body=' + (result.bodySnippet || ''));
+    }
+    return result || { status: 'unknown', _reason: 'no_script_result' };
   } catch (e) {
-    console.warn('[availability/reins] ' + e.message);
-    return 'unknown';
+    console.warn('[availability/reins] 例外: ' + e.message);
+    return { status: 'unknown', _reason: 'exception: ' + e.message };
   }
 }
 
