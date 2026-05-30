@@ -46,6 +46,7 @@ const STEPS = {
   CRITERIA_SELECT:      'STEP_CRITERIA_SELECT',
   RESIDENT:             'STEP_RESIDENT',
   RESIDENT_CUSTOM:      'STEP_RESIDENT_CUSTOM',
+  AGE:                  'STEP_AGE',
   NOTES:                'STEP_NOTES',
   CONFIRM:              'STEP_CONFIRM',
   DONE:                 'DONE',

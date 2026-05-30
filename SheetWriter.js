@@ -22,7 +22,11 @@
  *   P: その他ご希望
  *   Q: ペット種類
  *   R: 居住者
- *   S: 町名丁目（JSON形式: {"新宿区":["西新宿一丁目","西新宿二丁目"],"渋谷区":["恵比寿一丁目"]}）
+ *   (S〜X: 配信管理用)
+ *   Y(25列目): 町名丁目（JSON形式）
+ *   (Z: 未使用)
+ *   AA(27列目): 入居時期厳守フラグ
+ *   AB(28列目): 年齢
  */
 
 /**
@@ -122,13 +126,16 @@ function writeToSheet(userId, state) {
     sheet.getRange(existingRowIndex, 25).setValue(townsJson);
     // AA列（27列目）に入居時期厳守フラグを書き込み
     sheet.getRange(existingRowIndex, 27).setValue(d.move_in_strict ? 'true' : '');
+    // AB列（28列目）に年齢を書き込み
+    sheet.getRange(existingRowIndex, 28).setValue(d.age || '');
   } else {
     // 新規顧客は末尾に追加
     sheet.appendRow(row);
-    // appendRowの後にY列・AA列を書き込み
+    // appendRowの後にY列・AA列・AB列を書き込み
     var newRowIndex = sheet.getLastRow();
     sheet.getRange(newRowIndex, 25).setValue(townsJson);
     sheet.getRange(newRowIndex, 27).setValue(d.move_in_strict ? 'true' : '');
+    sheet.getRange(newRowIndex, 28).setValue(d.age || '');
   }
 
   // LINE Users シートにも記録
@@ -240,6 +247,7 @@ function readLatestCriteria(userId) {
     var resident = latestRow[17] ? String(latestRow[17]) : '';
     var townsJson = latestRow[24] ? String(latestRow[24]) : '';  // Y列（25列目、index 24）
     var moveInStrict = String(latestRow[26] || '').trim().toLowerCase() === 'true';  // AA列（27列目、index 26）
+    var age = latestRow[27] ? String(latestRow[27]) : '';  // AB列（28列目、index 27）
     var selectedTownsObj = {};
     if (townsJson) {
       try { selectedTownsObj = JSON.parse(townsJson); } catch(e) {}
@@ -305,6 +313,7 @@ function readLatestCriteria(userId) {
       equipment: equipment,
       petType: petType,
       notes: notes,
+      age: age,
       areaMethod: cities.length > 0 ? 'city' : 'route',
       selectedRoutes: routes,
       selectedCities: cities,

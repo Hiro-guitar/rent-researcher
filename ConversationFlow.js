@@ -6,7 +6,7 @@
  *
  * フロー:
  *   NAME → REASON → [REASON_CUSTOM] → RESIDENT → [RESIDENT_CUSTOM]
- *   → MOVE_IN_DATE → CRITERIA_SELECT(LIFFページ) → CONFIRM → DONE
+ *   → AGE → MOVE_IN_DATE → CRITERIA_SELECT(LIFFページ) → CONFIRM → DONE
  *
  * CRITERIA_SELECT (LIFFページ) で処理する項目:
  *   - エリア選択（路線・駅 or 市区町村）
@@ -29,6 +29,8 @@ const REASONS = [
 
 const RESIDENTS = ['一人暮らし', '二人暮らし（カップル・夫婦）', 'ファミリー（お子様あり）', '子供のために探している', '親のために探している', 'その他'];
 
+const AGE_RANGES = ['10代', '20代', '30代', '40代', '50代', '60代以上'];
+
 const GUIDE_TEXT_BUTTON = '下のボタンから選択してください 👇';
 
 // ── 前ステップマッピング ──────────────────────────────────
@@ -38,7 +40,8 @@ const PREV_STEP = {};
 PREV_STEP[STEPS.REASON_CUSTOM] = STEPS.REASON;
 PREV_STEP[STEPS.RESIDENT] = STEPS.REASON;
 PREV_STEP[STEPS.RESIDENT_CUSTOM] = STEPS.RESIDENT;
-PREV_STEP[STEPS.MOVE_IN_DATE] = STEPS.RESIDENT;
+PREV_STEP[STEPS.AGE] = STEPS.RESIDENT;
+PREV_STEP[STEPS.MOVE_IN_DATE] = STEPS.AGE;
 PREV_STEP[STEPS.MOVE_IN_PERIOD] = STEPS.MOVE_IN_DATE;
 PREV_STEP[STEPS.MOVE_IN_STRICT] = STEPS.MOVE_IN_DATE;
 PREV_STEP[STEPS.CRITERIA_SELECT] = STEPS.MOVE_IN_DATE;
@@ -169,6 +172,7 @@ function handleSearchFlowText(replyToken, userId, message, state) {
       return true;
     case STEPS.NOTES:
       return handleNotesInput(replyToken, userId, message, state);
+    case STEPS.AGE:
     case STEPS.MOVE_IN_DATE:
     case STEPS.MOVE_IN_PERIOD:
     case STEPS.MOVE_IN_STRICT:
@@ -245,9 +249,9 @@ function handleReasonCustomInput(replyToken, userId, message, state) {
 
 function handleResidentCustomInput(replyToken, userId, message, state) {
   state = updateStateData(state, 'resident', 'その他: ' + message);
-  state.step = STEPS.MOVE_IN_DATE;
+  state.step = STEPS.AGE;
   saveState(userId, state);
-  showMoveInMonthSelect(replyToken);
+  showAgeSelect(replyToken);
   return true;
 }
 
@@ -323,11 +327,21 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
         )
       ]);
     } else {
-      // 通常選択 → 引越し時期へ
-      state.step = STEPS.MOVE_IN_DATE;
+      // 通常選択 → 年齢へ
+      state.step = STEPS.AGE;
       saveState(userId, state);
-      showMoveInMonthSelect(replyToken);
+      showAgeSelect(replyToken);
     }
+    return true;
+  }
+
+  // ── 年齢選択 → 引越し時期へ ──
+  if (data.startsWith('age|')) {
+    const age = data.substring(4);
+    state = updateStateData(state, 'age', age);
+    state.step = STEPS.MOVE_IN_DATE;
+    saveState(userId, state);
+    showMoveInMonthSelect(replyToken);
     return true;
   }
 
@@ -532,6 +546,9 @@ function showStepQuestion(replyToken, userId, state, guideText) {
         )
       ]));
       break;
+    case STEPS.AGE:
+      showAgeSelect(replyToken, prefix);
+      break;
     case STEPS.MOVE_IN_DATE:
       showMoveInMonthSelect(replyToken, prefix);
       break;
@@ -575,6 +592,20 @@ function showResidentSelect(replyToken, prefixMessages) {
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
   replyMessage(replyToken, (prefixMessages || []).concat([
     textMsgWithQuickReply('どなたが住む予定ですか？', items)
+  ]));
+}
+
+// ══════════════════════════════════════════════════════════
+//  表示ヘルパー — 年齢選択
+// ══════════════════════════════════════════════════════════
+
+function showAgeSelect(replyToken, prefixMessages) {
+  var items = AGE_RANGES.map(function(a) {
+    return qrPostback(a, 'age|' + a, a);
+  });
+  items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
+  replyMessage(replyToken, (prefixMessages || []).concat([
+    textMsgWithQuickReply('ご年齢を教えてください。', items)
   ]));
 }
 
@@ -779,6 +810,9 @@ function _buildConditionSummaryRows_(state) {
 
   // ペット
   if (d.petType) rows.push(row('ペット', d.petType));
+
+  // 年齢
+  if (d.age) rows.push(row('年齢', d.age));
 
   // その他（備考・コメント）
   if (d.notes) rows.push(row('その他', d.notes));
@@ -1037,6 +1071,7 @@ function formatConditionSummary(state) {
   if (d.building_structures && d.building_structures.length > 0) lines.push('建物構造: ' + d.building_structures.join(', '));
   if (d.equipment && d.equipment.length > 0) lines.push('こだわり: ' + d.equipment.join(', '));
   if (d.petType) lines.push('ペット: ' + d.petType);
+  if (d.age) lines.push('年齢: ' + d.age);
 
   return lines.length > 0 ? lines.join('\n') : '（条件なし）';
 }
