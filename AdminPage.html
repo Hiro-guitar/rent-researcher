@@ -381,10 +381,10 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
     <div id="suggestionBody" class="admin-section-body open">
       <p class="admin-desc">
-        14日以上 物件を紹介できていない顧客に、条件緩和のボタン付きメッセージを送信します。
+        10日以上 物件を紹介できていない顧客に、条件緩和のボタン付きメッセージを送信します。
       </p>
       <div class="admin-sub">
-        <div class="admin-sub-title">テスト送信 (候補条件・14日制限を無視)</div>
+        <div class="admin-sub-title">テスト送信 (候補条件・10日制限を無視)</div>
         <div class="admin-action-row" style="padding:4px 0 0;">
           <select id="suggestionTestCustomer">
             <option value="">— 顧客を選択 —</option>
@@ -2350,7 +2350,7 @@ function refreshSuggestionList() {
       badgeEl.textContent = items.length + '件';
       if (items.length === 0) {
         // 候補ゼロ → リスト/送信ボタンは非表示。テスト送信フォームは残す
-        listEl.innerHTML = '<div style="color:#666;font-size:12px;padding:6px 4px;">該当する顧客はいません（最終通知から14日未満 / LINE未連携 / paused 等）</div>';
+        listEl.innerHTML = '<div style="color:#666;font-size:12px;padding:6px 4px;">該当する顧客はいません（最終通知から10日未満 / LINE未連携 / paused 等）</div>';
         footerEl.style.display = 'none';
         return;
       }

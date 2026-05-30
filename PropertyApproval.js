@@ -3063,7 +3063,7 @@ function clearCancellationWatch(customerName, roomId) {
 /**
  * 管理者が手動で空室ステータスを更新する。
  * REINS物件など自動判定できない場合に、管理画面から直接更新する。
- * LINE通知やDiscord通知は送らず、スプレッドシートのみ更新。
+ * キャンセル監視中の物件で available に変更された場合はキャンセル通知を送信。
  *
  * @param {string} customerName
  * @param {string} roomId
@@ -3082,14 +3082,19 @@ function manualUpdateAvailabilityStatus(customerName, roomId, status, canApply, 
     if (!sheet) return { ok: false, message: 'シートが見つかりません' };
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return { ok: false, message: 'シートが空です' };
-    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    // A〜J列を読む (C列=建物名, J列=キャンセル監視)
+    var data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
     var nameTrim = String(customerName).trim();
     var ridTrim = String(roomId).trim();
     var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
     var updated = 0;
+    var cancellationNotified = false;
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
         var rowNum = i + 2;
+        var buildingName = String(data[i][2] || '');
+        var wasWatching = !!data[i][9]; // J列: キャンセル監視中か
+
         sheet.getRange(rowNum, 6).setValue(status);         // F列: status
         sheet.getRange(rowNum, 7).setValue(now);             // G列: checked_at
         if (typeof canApply === 'boolean') {
@@ -3102,6 +3107,23 @@ function manualUpdateAvailabilityStatus(customerName, roomId, status, canApply, 
         }
         // M列: 手動更新の場合はクリア
         sheet.getRange(rowNum, 13).setValue('');
+
+        // キャンセル通知: 監視中の物件で available に変更 or applied+canApply に変更
+        if (wasWatching && !cancellationNotified) {
+          var isCancellation = (status === 'available') ||
+            (status === 'applied' && canApply === true);
+          if (isCancellation) {
+            try {
+              var extras = { canApply: canApply, badgeCount: badgeCount };
+              _notifyCancellationOccurredToCustomer_(nameTrim, ridTrim, buildingName, status, extras);
+              sheet.getRange(rowNum, 10).setValue(''); // J列クリア
+              cancellationNotified = true;
+              console.log('[手動更新] キャンセル通知送信: ' + nameTrim);
+            } catch (eC) {
+              console.warn('[手動更新] キャンセル通知失敗: ' + eC.message);
+            }
+          }
+        }
         updated++;
       }
     }
