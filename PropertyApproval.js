@@ -2117,7 +2117,19 @@ function setPropertyAvailability(customerName, roomId, status, extras) {
 
         // REINS で closed → REINS から物件が消えている = 確実に募集終了。
         // 通知済みシートから削除して空室確認の対象外にする (キューが軽くなる)。
+        // ※ 削除前に優先依頼があればLINE通知を送る。
         if (source === 'reins' && status === 'closed') {
+          var priorityRawReins = data[i][8];
+          var priorityAtReins = _parseDateFlexible_(priorityRawReins);
+          var hasRecentPriorityReins = (priorityAtReins > 0 && priorityAtReins > Date.now() - 60 * 60 * 1000);
+          if (hasRecentPriorityReins) {
+            try {
+              _notifyAvailabilityResultToCustomer_(nameTrim, ridTrim, buildingName, status, extras);
+              console.log('[setPropertyAvailability] REINS closed → LINE通知送信: ' + nameTrim);
+            } catch (eRL) {
+              console.warn('[setPropertyAvailability] REINS closed LINE通知失敗: ' + eRL.message);
+            }
+          }
           rowsToDelete.push(rowNum);
           deleted++;
           continue;
