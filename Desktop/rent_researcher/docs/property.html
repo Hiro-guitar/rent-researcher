@@ -110,6 +110,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .action-btn.secondary{background:#fff;color:#3d6909;border:2px solid #6ea814}
 .action-btn.secondary.active{background:#f0faf4;color:#3d6909;border-color:#6ea814}
 .action-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+.action-btn.primary.cancel-watch{background:#e67e22;box-shadow:0 4px 14px rgba(230,126,34,0.32)}
+.action-btn.primary.cancel-watch.active{background:#fef5ed;color:#b35c10;border:2px solid #e67e22;box-shadow:none}
+.avail-note{display:none;text-align:center;font-size:13px;color:#e67e22;margin-top:8px;font-weight:500;line-height:1.5;padding:0 8px}
 /* モーダル */
 .modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9000;align-items:center;justify-content:center;padding:16px}
 .modal-content{background:#fff;max-width:400px;width:100%;border-radius:16px;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.2)}
@@ -359,6 +362,7 @@ function fetchProperty(customer, roomId) {
         return;
       }
       renderProperty(data);
+      applyAvailabilityStatus(data);
     })
     .catch(function(err) {
       var msg = err && err.message ? err.message : '物件情報の取得に失敗しました。';
@@ -535,6 +539,102 @@ function requestAvailabilityRecheck() {
     btn.disabled = false;
     btn.classList.remove('requested');
     btn.innerHTML = '空室確認';
+  });
+}
+
+// ===== 空室ステータスに応じたボタン表示制御 =====
+// API レスポンスの空室情報を元に、申込ボタンの表示を変更する。
+// - applied + canApply: N番手表示
+// - applied + !canApply: キャンセル待ち通知ボタンに変更
+// - needs_confirmation + 申込あり: 同上
+function applyAvailabilityStatus(data) {
+  if (!data || !customer || !roomId) return;
+  // 既に申し込み済みならスキップ (申し込みボタンが「受付済み」になっている)
+  if (actionState === 'hold' || actionState === 'viewing') return;
+
+  var status = data.availabilityStatus || '';
+  var canApply = data.availCanApply;
+  var badgeCount = data.availBadgeCount;
+  var appStatus = data.availApplicationStatus || '';
+  var isWatching = data.isWatchingCancellation;
+
+  // 申込が入っているか判定
+  var hasApplications = (status === 'applied') ||
+    (status === 'needs_confirmation' && !!appStatus);
+  if (!hasApplications) return;
+
+  var holdBtns = document.querySelectorAll('.hold-btn');
+  var notes = document.querySelectorAll('.avail-note');
+  if (!holdBtns || holdBtns.length === 0) return;
+
+  if (canApply === false) {
+    // 申込不可 → キャンセル待ち通知ボタンに変更
+    for (var i = 0; i < holdBtns.length; i++) {
+      holdBtns[i].classList.add('cancel-watch');
+      if (isWatching) {
+        holdBtns[i].textContent = '✓ キャンセル待ち通知 申請済み';
+        holdBtns[i].disabled = true;
+        holdBtns[i].classList.add('active');
+        holdBtns[i].removeAttribute('onclick');
+      } else {
+        holdBtns[i].textContent = 'キャンセル待ち通知を申請する';
+        holdBtns[i].setAttribute('onclick', 'requestCancellationWatch()');
+      }
+    }
+    for (var j = 0; j < notes.length; j++) {
+      notes[j].textContent = 'この物件には申し込みが入っています。キャンセル発生時にLINEでお知らせします。';
+      notes[j].style.display = 'block';
+    }
+  } else {
+    // 申込可能 → N番手 or キャンセル待ちでの申し込み表示
+    var noteText = '';
+    if (typeof badgeCount === 'number' && badgeCount >= 1) {
+      noteText = (badgeCount + 1) + '番手でお申し込みが可能です';
+    } else {
+      noteText = 'キャンセル待ちでの申し込みが可能です';
+    }
+    for (var j = 0; j < notes.length; j++) {
+      notes[j].textContent = noteText;
+      notes[j].style.display = 'block';
+    }
+  }
+}
+
+// ===== キャンセル待ち通知の申請 =====
+function requestCancellationWatch() {
+  if (!customer || !roomId) return;
+  var holdBtns = document.querySelectorAll('.hold-btn');
+  // 楽観的UI: 即座に「申請済み」表示
+  for (var i = 0; i < holdBtns.length; i++) {
+    holdBtns[i].textContent = '✓ キャンセル待ち通知 申請済み';
+    holdBtns[i].disabled = true;
+    holdBtns[i].classList.add('active');
+    holdBtns[i].removeAttribute('onclick');
+  }
+  showToast('✓', 'キャンセル待ち通知を申請しました', 'キャンセル発生時にLINEでお知らせします', 4000);
+
+  var reqUrl = GAS_API_URL + '?action=request_cancellation_watch&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
+  fetch(reqUrl).then(function(r) { return r.text(); }).then(function(t) {
+    var d; try { d = JSON.parse(t); } catch(_) { d = null; }
+    if (!d || !d.ok) {
+      var em = (d && d.message) || '申請に失敗しました。';
+      showToast('⚠️', em, '', 3000);
+      // UIを元に戻す
+      for (var i = 0; i < holdBtns.length; i++) {
+        holdBtns[i].textContent = 'キャンセル待ち通知を申請する';
+        holdBtns[i].disabled = false;
+        holdBtns[i].classList.remove('active');
+        holdBtns[i].setAttribute('onclick', 'requestCancellationWatch()');
+      }
+    }
+  }).catch(function(err) {
+    showToast('⚠️', '通信エラー', (err && err.message) || '', 3000);
+    for (var i = 0; i < holdBtns.length; i++) {
+      holdBtns[i].textContent = 'キャンセル待ち通知を申請する';
+      holdBtns[i].disabled = false;
+      holdBtns[i].classList.remove('active');
+      holdBtns[i].setAttribute('onclick', 'requestCancellationWatch()');
+    }
   });
 }
 
@@ -745,6 +845,7 @@ function renderProperty(p) {
   if (customer && roomId) {
     html += '<div class="action-bar">'
       + '<button class="action-btn primary hold-btn" id="holdBtn" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
+      + '<div class="avail-note" id="availNote"></div>'
       + '</div>';
     // お申し込みモーダル
     html += '<div class="modal-overlay" id="holdModal" onclick="if(event.target===this)closeHoldModal()">'
@@ -965,6 +1066,7 @@ function renderProperty(p) {
   if (customer && roomId) {
     html += '<div class="action-bar">'
       + '<button class="action-btn primary hold-btn" id="holdBtnBottom" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
+      + '<div class="avail-note" id="availNoteBottom"></div>'
       + '</div>';
   }
   html += '<div class="line-link">\uD83D\uDCAC <a href="https://line.me/R/" target="_blank">ご質問はLINEでお気軽にどうぞ</a></div>';
