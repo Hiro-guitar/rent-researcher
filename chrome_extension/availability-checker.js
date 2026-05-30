@@ -444,6 +444,13 @@ async function _checkEssquareAvailability(url) {
 // (空室確定はできないので available は返さない)
 // ──────────────────────────────────────────────────────────────────
 async function _checkReinsAvailability(reinsPropNo) {
+  // REINSシステム稼働時間: 7:00〜23:00 (JST)
+  const nowJST = new Date(Date.now() + 9 * 60 * 60 * 1000); // UTC → JST
+  const hourJST = nowJST.getUTCHours();
+  if (hourJST < 7 || hourJST >= 23) {
+    console.log(`[availability/reins] システム稼働時間外 (現在JST ${hourJST}時)`);
+    return { status: 'unknown', _reason: 'outside_operating_hours' };
+  }
   if (!reinsPropNo) {
     console.warn('[availability/reins] 物件番号が空');
     return { status: 'unknown', _reason: 'no_prop_no' };
