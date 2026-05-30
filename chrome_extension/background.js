@@ -1056,6 +1056,8 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
   // キャンセル通知希望物件の定期巡回: 30分毎にチェック
   chrome.alarms.create('cancellation-watch-poll', { periodInMinutes: 30 });
+  // 定期空室確認: 60分毎に全通知済み物件の空室状況を更新
+  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 60 });
 });
 
 // Chrome起動時: 前回起動中に承認された取りこぼしを1回だけ処理
@@ -1070,6 +1072,8 @@ chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
   // 優先空室確認ポーリングも再セット
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
+  // 定期空室確認も再セット
+  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 60 });
 });
 
 // 入稿専用タブのクローズ検知 → suumoFillTabIdをクリア
@@ -1285,6 +1289,17 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     if (typeof runCancellationWatchPoll === 'function') {
       runCancellationWatchPoll().catch(err => {
         console.log(`[キャンセル監視] poll失敗: ${err.message}`);
+      });
+    }
+  }
+
+  // ── 定期空室確認 (全通知済み物件の巡回) ──
+  // 60分毎に全通知済み物件の空室状況をチェック・更新。
+  // お客さんが物件情報を開いた時に直近の空室情報が表示される。
+  if (alarm.name === 'periodic-availability-check') {
+    if (typeof runPeriodicAvailabilityCheck === 'function') {
+      runPeriodicAvailabilityCheck().catch(err => {
+        console.log(`[定期空室確認] 失敗: ${err.message}`);
       });
     }
   }
