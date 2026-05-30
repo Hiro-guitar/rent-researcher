@@ -16,7 +16,8 @@
     chrome.storage.local.get([
       'isSearching', 'loginDetected', 'lastSearchTime',
       'searchIntervalMinutes', 'stats', 'gasWebappUrl',
-      'suumoPatrolLastRunTime', 'suumoPatrolEnabled'
+      'suumoPatrolLastRunTime', 'suumoPatrolEnabled',
+      'reinsUsageMonthly'
     ], (data) => {
       const dot = document.getElementById('loginStatus');
       const statusText = document.getElementById('statusText');
@@ -68,6 +69,35 @@
       document.getElementById('totalFound').textContent = stats.totalFound || 0;
       document.getElementById('totalSubmitted').textContent = stats.totalSubmitted || 0;
       document.getElementById('totalErrors').textContent = (stats.errors || []).length;
+
+      // REINS利用カウンター（日次＋月次）
+      const mu = data.reinsUsageMonthly || { month: '', days: {} };
+      const today = new Date().toLocaleDateString('sv-SE');
+      const curMonth = today.slice(0, 7);
+      const isThisMonth = mu.month === curMonth;
+      const dayData = (isThisMonth && mu.days[today]) || { s: 0, d: 0 };
+      let monthS = 0, monthD = 0;
+      if (isThisMonth) {
+        for (const k in mu.days) { monthS += mu.days[k].s || 0; monthD += mu.days[k].d || 0; }
+      }
+      const scEl = document.getElementById('reinsSearchCount');
+      const dcEl = document.getElementById('reinsDetailCount');
+      const mscEl = document.getElementById('reinsMonthSearchCount');
+      const mdcEl = document.getElementById('reinsMonthDetailCount');
+      if (scEl) {
+        scEl.textContent = dayData.s;
+      }
+      if (dcEl) {
+        dcEl.textContent = dayData.d;
+      }
+      if (mscEl) {
+        mscEl.textContent = monthS;
+        mscEl.style.color = monthS > 6000 ? '#f44747' : monthS > 5000 ? '#dcdcaa' : '#d4d4d4';
+      }
+      if (mdcEl) {
+        mdcEl.textContent = monthD;
+        mdcEl.style.color = monthD > 6000 ? '#f44747' : monthD > 5000 ? '#dcdcaa' : '#d4d4d4';
+      }
 
       // ボタン状態
       const searchBtn = document.getElementById('searchNowBtn');
