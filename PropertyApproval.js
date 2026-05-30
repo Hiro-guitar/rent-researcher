@@ -597,7 +597,7 @@ function handlePropertyViewApi(e) {
   }
 
   if (!prop) {
-    // 90日経過で削除済み or 元々登録されていない物件
+    // 30日経過で削除済み or 元々登録されていない物件
     return ContentService.createTextOutput(JSON.stringify({
       error: 'この物件の募集は終了しました。',
       notFound: true
@@ -3335,17 +3335,17 @@ function getAvailabilityStatus(customerName, roomId) {
 }
 
 /**
- * 通知済み物件・承認待ち物件のうち、一定期間 (デフォルト 90 日) より古い行を削除する。
+ * 通知済み物件・承認待ち物件のうち、一定期間 (デフォルト 30 日) より古い行を削除する。
  *   - 通知済み物件 (SEEN_SHEET): D列 (sent_at) を基準
  *   - 承認待ち物件 (PENDING_SHEET): L列 (created_at, index 11) を基準
  *
  * 空室確認キューにも自動的に乗らなくなるので、対象が無限に貯まるのを防ぐ。
  *
- * @param {number} [maxAgeDays=90]
+ * @param {number} [maxAgeDays=30]
  * @return {{seen:number, pending:number, cutoff:string}}
  */
 function cleanupOldPropertyRecords(maxAgeDays) {
-  maxAgeDays = (typeof maxAgeDays === 'number' && maxAgeDays > 0) ? maxAgeDays : 90;
+  maxAgeDays = (typeof maxAgeDays === 'number' && maxAgeDays > 0) ? maxAgeDays : 30;
   var nowMs = Date.now();
   var cutoffMs = nowMs - maxAgeDays * 24 * 60 * 60 * 1000;
   var cutoffStr = Utilities.formatDate(new Date(cutoffMs), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
@@ -3585,10 +3585,10 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
 
 /**
  * 日次クリーンアップトリガーから呼ばれるラッパ。
- * cleanupOldPropertyRecords (90日) + cleanupInactiveCustomerProperties (7日) を順番に実行。
+ * cleanupOldPropertyRecords (30日) + cleanupInactiveCustomerProperties (7日) を順番に実行。
  */
 function runDailyCleanup() {
-  var r1 = cleanupOldPropertyRecords(90);
+  var r1 = cleanupOldPropertyRecords(30);
   var r2 = cleanupInactiveCustomerProperties(7);
   console.log('[daily-cleanup] old=' + JSON.stringify(r1) + ' inactive=' + JSON.stringify(r2));
   return { old: r1, inactive: r2 };

@@ -1067,7 +1067,7 @@ function doGet(e) {
         ScriptApp.newTrigger('pingWebAppKeepAlive_').timeBased().everyMinutes(5).create();
         console.log('[keepalive] bootstrap: 5分トリガーを自動登録');
       }
-      // cleanup トリガーも一緒に bootstrap (毎朝3時に 90日経過行を削除)
+      // cleanup トリガーも一緒に bootstrap (毎朝3時に 30日経過行を削除)
       var _hasCleanup = false;
       for (var _ic = 0; _ic < _triggers.length; _ic++) {
         if (_triggers[_ic].getHandlerFunction() === 'cleanupOldPropertyRecords') { _hasCleanup = true; break; }
@@ -1084,15 +1084,15 @@ function doGet(e) {
       .setMimeType(ContentService.MimeType.TEXT);
   }
 
-  // 手動クリーンアップ: doGet?action=cleanup_now&max_age_days=90
-  //   90日経過の物件削除 + 1週間経過の paused/blocked/orphan 顧客削除 を一括実行
+  // 手動クリーンアップ: doGet?action=cleanup_now&max_age_days=30
+  //   30日経過の物件削除 + 1週間経過の paused/blocked/orphan 顧客削除 を一括実行
   if (action === 'cleanup_now') {
     try {
       if (!_validateReinsApiKey(e.parameter.api_key)) {
         return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
           .setMimeType(ContentService.MimeType.JSON);
       }
-      var days = parseInt(e.parameter.max_age_days || '90', 10);
+      var days = parseInt(e.parameter.max_age_days || '30', 10);
       var r = cleanupOldPropertyRecords(days);
       return ContentService.createTextOutput(JSON.stringify({ ok: true, result: r }))
         .setMimeType(ContentService.MimeType.JSON);
