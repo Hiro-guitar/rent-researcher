@@ -9,9 +9,9 @@
  * 候補抽出ロジック:
  *   - 配信ステータスが active (paused/blocked/snoozed は除外)
  *   - LINE userId が紐付いている (LINE Users シート登録あり)
- *   - 最終物件通知 (PENDING_SHEET status=sent の最新) から 14 日以上経過
- *     → 通知がない場合は登録日 (A列) から 14 日以上経過したかで判定
- *   - 前回の条件変更提案送信 (検索条件シートZ列) から 14 日以上経過
+ *   - 最終物件通知 (PENDING_SHEET status=sent の最新) から 10 日以上経過
+ *     → 通知がない場合は登録日 (A列) から 10 日以上経過したかで判定
+ *   - 前回の条件変更提案送信 (検索条件シートZ列) から 10 日以上経過
  *
  * メッセージ:
  *   Flex Message で 5 ボタン:
@@ -31,7 +31,7 @@
  */
 
 // 条件変更提案の閾値 (日数)
-var CONDITION_SUGGESTION_THRESHOLD_DAYS = 14;
+var CONDITION_SUGGESTION_THRESHOLD_DAYS = 10;
 // 検索条件シートで「条件変更提案 最終送信日時」を記録する列 (1-based)
 var CONDITION_SUGGESTION_SENT_COL = 26;
 
