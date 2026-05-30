@@ -3061,6 +3061,96 @@ function clearCancellationWatch(customerName, roomId) {
 }
 
 /**
+ * 管理者が手動で空室ステータスを更新する。
+ * REINS物件など自動判定できない場合に、管理画面から直接更新する。
+ * LINE通知やDiscord通知は送らず、スプレッドシートのみ更新。
+ *
+ * @param {string} customerName
+ * @param {string} roomId
+ * @param {string} status - available / applied / closed / needs_confirmation / reins_listed
+ * @param {boolean|null} canApply
+ * @param {number|null} badgeCount
+ * @return {{ok: boolean, message: string}}
+ */
+function manualUpdateAvailabilityStatus(customerName, roomId, status, canApply, badgeCount) {
+  if (!customerName || !roomId) return { ok: false, message: 'customer/roomId が未指定' };
+  var validStatuses = ['available', 'applied', 'closed', 'reins_listed', 'needs_confirmation'];
+  if (validStatuses.indexOf(status) < 0) return { ok: false, message: '不正なstatus: ' + status };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return { ok: false, message: 'シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: false, message: 'シートが空です' };
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    var updated = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
+        var rowNum = i + 2;
+        sheet.getRange(rowNum, 6).setValue(status);         // F列: status
+        sheet.getRange(rowNum, 7).setValue(now);             // G列: checked_at
+        if (typeof canApply === 'boolean') {
+          sheet.getRange(rowNum, 11).setValue(canApply ? 'TRUE' : 'FALSE');  // K列
+        }
+        if (typeof badgeCount === 'number' && badgeCount >= 0) {
+          sheet.getRange(rowNum, 12).setValue(badgeCount);   // L列
+        } else {
+          sheet.getRange(rowNum, 12).setValue('');
+        }
+        // M列: 手動更新の場合はクリア
+        sheet.getRange(rowNum, 13).setValue('');
+        updated++;
+      }
+    }
+    if (status === 'closed' && updated > 0) {
+      // closed の場合は行を削除（通常の自動処理と同じ動き）
+      for (var j = data.length - 1; j >= 0; j--) {
+        if (String(data[j][0]).trim() === nameTrim && String(data[j][1]).trim() === ridTrim) {
+          sheet.deleteRow(j + 2);
+        }
+      }
+      return { ok: true, message: '募集終了として削除しました' };
+    }
+    return { ok: updated > 0, message: updated > 0 ? 'ステータスを更新しました' : '該当物件が見つかりません' };
+  } catch (e) {
+    return { ok: false, message: 'エラー: ' + e.message };
+  }
+}
+
+/**
+ * 管理画面用: 通知済み物件の一覧を返す（手動更新のドロップダウン用）
+ * @return {Array<{customer: string, roomId: string, building: string, source: string, status: string}>}
+ */
+function listSeenProperties() {
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return [];
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return [];
+    var data = sheet.getRange(2, 1, lastRow - 1, 7).getValues();
+    var result = [];
+    for (var i = 0; i < data.length; i++) {
+      result.push({
+        customer: String(data[i][0] || ''),
+        roomId: String(data[i][1] || ''),
+        building: String(data[i][2] || ''),
+        source: String(data[i][4] || ''),
+        status: String(data[i][5] || ''),
+        checkedAt: data[i][6] ? String(data[i][6]) : ''
+      });
+    }
+    return result;
+  } catch (e) {
+    console.warn('[listSeenProperties] ' + e.message);
+    return [];
+  }
+}
+
+/**
  * 空室確認結果をお客さんに LINE プッシュ通知する。
  * 自動で確定できるステータス (available / applied / closed) のみが対象。
  *   - reins_listed / needs_confirmation はスタッフが手動で連絡するため対象外

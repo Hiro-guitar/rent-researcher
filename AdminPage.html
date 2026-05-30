@@ -448,6 +448,52 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
   </div>
 
+  <!-- ═══ 空室ステータス手動更新 ═══ -->
+  <div class="admin-section">
+    <div class="admin-section-header" onclick="toggleAdminSection('manualAvail')">
+      <div class="admin-section-title">✏️ 空室ステータス手動更新</div>
+      <span id="manualAvailArrow" class="admin-section-arrow">▶</span>
+    </div>
+    <div id="manualAvailBody" class="admin-section-body">
+      <p class="admin-desc">
+        REINS物件など自動判定できない場合に、手動でステータスを更新します。
+      </p>
+      <div class="admin-field" style="padding:0 16px;">
+        <label>物件</label>
+        <select id="manualAvailPropertySelect" onchange="onManualAvailPropertyChange()">
+          <option value="">— 物件を選択 —</option>
+        </select>
+        <button class="btn-admin btn-outline" onclick="loadManualAvailProperties()" style="margin-top:4px;font-size:11px;">一覧を更新</button>
+      </div>
+      <div class="admin-field" style="padding:0 16px;">
+        <label>ステータス</label>
+        <select id="manualAvailStatus">
+          <option value="available">募集中</option>
+          <option value="applied">申込あり</option>
+          <option value="needs_confirmation">要物確</option>
+          <option value="reins_listed">REINS掲載中</option>
+          <option value="closed">募集終了（削除）</option>
+        </select>
+      </div>
+      <div class="admin-field" style="padding:0 16px;">
+        <label>Web申込</label>
+        <select id="manualAvailCanApply">
+          <option value="">不明</option>
+          <option value="true">可能</option>
+          <option value="false">不可</option>
+        </select>
+      </div>
+      <div class="admin-field" style="padding:0 16px;">
+        <label>申込件数（N番手 = 件数+1）</label>
+        <input type="number" id="manualAvailBadgeCount" min="0" max="99" placeholder="不明なら空欄" style="width:120px;">
+      </div>
+      <div class="admin-action-row" style="padding:8px 16px;">
+        <button class="btn-admin btn-blue" onclick="runManualAvailUpdate()">更新</button>
+      </div>
+      <div id="manualAvailResult" class="admin-result"></div>
+    </div>
+  </div>
+
   <!-- ═══ 通知済み履歴リセット ═══ -->
   <div class="admin-section">
     <div class="admin-section-header" onclick="toggleAdminSection('reset')">
@@ -2046,6 +2092,92 @@ function openSuumoPatrolConfig() {
       window.open(url, '_top');
     })
     .getSuumoPatrolConfigUrl();
+}
+
+// ──────────────────────────────────────────────────────────
+// 空室ステータス手動更新
+// ──────────────────────────────────────────────────────────
+function loadManualAvailProperties() {
+  var sel = document.getElementById('manualAvailPropertySelect');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">読み込み中...</option>';
+  google.script.run
+    .withSuccessHandler(function(list) {
+      sel.innerHTML = '<option value="">— 物件を選択 —</option>';
+      if (!Array.isArray(list)) return;
+      for (var i = 0; i < list.length; i++) {
+        var p = list[i];
+        var label = p.customer + ' | ' + p.building + ' [' + p.source + '] ' + (p.status || '未確認');
+        var opt = document.createElement('option');
+        opt.value = p.customer + '|||' + p.roomId;
+        opt.textContent = label;
+        opt.dataset.status = p.status || '';
+        sel.appendChild(opt);
+      }
+    })
+    .withFailureHandler(function(err) {
+      sel.innerHTML = '<option value="">読み込み失敗</option>';
+    })
+    .listSeenProperties();
+}
+
+function onManualAvailPropertyChange() {
+  var sel = document.getElementById('manualAvailPropertySelect');
+  if (!sel || !sel.value) return;
+  var opt = sel.options[sel.selectedIndex];
+  var currentStatus = opt.dataset.status || '';
+  if (currentStatus) {
+    var statusSel = document.getElementById('manualAvailStatus');
+    if (statusSel) {
+      for (var i = 0; i < statusSel.options.length; i++) {
+        if (statusSel.options[i].value === currentStatus) {
+          statusSel.selectedIndex = i;
+          break;
+        }
+      }
+    }
+  }
+}
+
+function runManualAvailUpdate() {
+  var propSel = document.getElementById('manualAvailPropertySelect');
+  var statusSel = document.getElementById('manualAvailStatus');
+  var canApplySel = document.getElementById('manualAvailCanApply');
+  var badgeInput = document.getElementById('manualAvailBadgeCount');
+  var resultEl = document.getElementById('manualAvailResult');
+
+  if (!propSel || !propSel.value) {
+    if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">物件を選択してください</span>';
+    return;
+  }
+  var parts = propSel.value.split('|||');
+  var customer = parts[0];
+  var roomId = parts[1];
+  var status = statusSel ? statusSel.value : '';
+  var canApply = canApplySel ? canApplySel.value : '';
+  var badgeCount = badgeInput ? badgeInput.value : '';
+
+  var canApplyVal = canApply === 'true' ? true : (canApply === 'false' ? false : null);
+  var badgeVal = (badgeCount !== '' && !isNaN(Number(badgeCount))) ? Number(badgeCount) : null;
+
+  var statusLabels = { available: '募集中', applied: '申込あり', needs_confirmation: '要物確', reins_listed: 'REINS掲載中', closed: '募集終了（削除）' };
+  var label = statusLabels[status] || status;
+  if (!confirm('「' + customer + '」の物件を「' + label + '」に更新します。\n\nよろしいですか？')) return;
+
+  if (resultEl) resultEl.textContent = '更新中...';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.ok) {
+        if (resultEl) resultEl.innerHTML = '<span style="color:#1e8449;">✅ ' + esc(r.message || '更新しました') + '</span>';
+        showToast(r.message || '更新しました');
+      } else {
+        if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">❌ ' + esc((r && r.message) || '失敗') + '</span>';
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">エラー: ' + esc(err.message || String(err)) + '</span>';
+    })
+    .manualUpdateAvailabilityStatus(customer, roomId, status, canApplyVal, badgeVal);
 }
 
 // ──────────────────────────────────────────────────────────
