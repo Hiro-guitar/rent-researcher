@@ -407,6 +407,15 @@ input[type="range"]::-webkit-slider-thumb {
         </div>
         <div id="suggestionResult" class="admin-result"></div>
       </div>
+      <div class="admin-sub" style="border-top:1px solid #e9ecef;margin-top:8px;">
+        <div class="admin-sub-title">自動送信トリガー管理</div>
+        <div class="admin-action-row" style="padding:4px 0 0;">
+          <span id="triggerStatus" style="font-size:13px;color:#666;">確認中...</span>
+          <button class="btn-admin btn-outline" onclick="checkTriggerStatus()">確認</button>
+          <button id="triggerSetupBtn" class="btn-admin btn-blue" onclick="setupTrigger()" style="display:none;">セットアップ</button>
+        </div>
+        <div id="triggerResult" class="admin-result" style="padding:0;"></div>
+      </div>
     </div>
   </div>
 
@@ -805,6 +814,9 @@ window.onload = function() {
     onCustomerSelect();
     loadCustomerCriteria();
   }
+
+  // 条件変更提案トリガーの状態を確認
+  checkTriggerStatus();
 };
 
 // ══════════════════════════════════════════════════════════
@@ -2447,6 +2459,48 @@ function sendSuggestionTest() {
       if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">エラー: ' + esc(err.message || String(err)) + '</span>';
     })
     .sendConditionSuggestionTest(name, pattern);
+}
+
+function checkTriggerStatus() {
+  var statusEl = document.getElementById('triggerStatus');
+  var setupBtn = document.getElementById('triggerSetupBtn');
+  var resultEl = document.getElementById('triggerResult');
+  statusEl.textContent = '確認中...';
+  setupBtn.style.display = 'none';
+  resultEl.textContent = '';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      statusEl.textContent = res.message;
+      statusEl.style.color = res.exists ? '#1e8449' : '#c00';
+      setupBtn.style.display = res.exists ? 'none' : 'inline-block';
+    })
+    .withFailureHandler(function(err) {
+      statusEl.textContent = 'エラー: ' + (err.message || String(err));
+      statusEl.style.color = '#c00';
+    })
+    .checkConditionSuggestionTrigger();
+}
+
+function setupTrigger() {
+  if (!confirm('条件変更提案の自動送信トリガー（毎日10:00 JST）を登録しますか？')) return;
+  var statusEl = document.getElementById('triggerStatus');
+  var setupBtn = document.getElementById('triggerSetupBtn');
+  var resultEl = document.getElementById('triggerResult');
+  statusEl.textContent = '登録中...';
+  setupBtn.disabled = true;
+  google.script.run
+    .withSuccessHandler(function(msg) {
+      statusEl.textContent = msg;
+      statusEl.style.color = '#1e8449';
+      setupBtn.style.display = 'none';
+      resultEl.innerHTML = '<span style="color:#1e8449;">✅ セットアップ完了</span>';
+    })
+    .withFailureHandler(function(err) {
+      statusEl.textContent = 'エラー: ' + (err.message || String(err));
+      statusEl.style.color = '#c00';
+      setupBtn.disabled = false;
+    })
+    .setupConditionSuggestionAutoTrigger();
 }
 
 function sendSuggestionMessages() {
