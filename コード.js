@@ -2665,31 +2665,32 @@ function getExistingCustomers_() {
   var criteriaSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
   var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
 
-  // 検索条件シートから顧客名を取得
+  // 検索条件シートから顧客名を取得 + S列(index 18)の配信ステータスで除外
   var criteriaData = criteriaSheet.getDataRange().getValues();
   var customers = [];
   var nameSet = {};
+  var excludeNames = {};
   for (var i = 1; i < criteriaData.length; i++) {
     var name = String(criteriaData[i][1] || '').trim();
-    if (name && !nameSet[name]) {
+    if (!name) continue;
+    // S列 (index 18): 配信ステータス — blocked/paused は除外
+    var deliveryStatus = String(criteriaData[i][18] || '').trim().toLowerCase();
+    if (deliveryStatus === 'blocked' || deliveryStatus === 'paused') {
+      excludeNames[name] = true;
+      continue;
+    }
+    if (!nameSet[name]) {
       nameSet[name] = true;
       customers.push({ name: name, lineUserId: '' });
     }
   }
 
-  // LINE Usersシートから userId を紐付け + 配信ステータスで除外
-  var excludeNames = {};
+  // LINE Usersシートから userId を紐付け
   if (luSheet) {
     var luData = luSheet.getDataRange().getValues();
     for (var i = 1; i < luData.length; i++) {
       var luName = String(luData[i][1] || '').trim();
       var luId = String(luData[i][0] || '').trim();
-      // S列 (index 18): 配信ステータス — blocked/paused は除外
-      var deliveryStatus = String(luData[i][18] || '').trim().toLowerCase();
-      if (deliveryStatus === 'blocked' || deliveryStatus === 'paused') {
-        excludeNames[luName] = true;
-        continue;
-      }
       for (var j = 0; j < customers.length; j++) {
         if (customers[j].name === luName && luId) {
           customers[j].lineUserId = luId;
@@ -2698,9 +2699,6 @@ function getExistingCustomers_() {
       }
     }
   }
-
-  // ブロック・配信停止の顧客を除外
-  customers = customers.filter(function(c) { return !excludeNames[c.name]; });
 
   return customers;
 }
