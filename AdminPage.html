@@ -57,6 +57,18 @@ body {
 .load-btn:hover { background: #2980b9; }
 .load-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
 
+/* ── 検索ページを開くボタン ── */
+.search-open-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.search-open-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 7px 14px; font-size: 12px; font-weight: 600;
+  border: 1px solid #bbb; border-radius: 6px; background: #fff; color: #555;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; transition: all 0.2s;
+}
+.search-open-btn:hover { background: #f0f0f0; border-color: #888; }
+.search-open-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.search-open-btn .ico { font-size: 14px; }
+
 /* ── タブ ── */
 .tabs {
   display: flex; margin: 0 16px 8px;
@@ -569,6 +581,20 @@ input[type="range"]::-webkit-slider-thumb {
     <div class="admin-field" style="padding-top:0;">
       <button class="load-btn" id="loadBtn" onclick="loadCustomerCriteria()" disabled>既存条件を読み込む</button>
     </div>
+    <div class="admin-field" id="searchOpenBtns" style="padding-top:0;display:none;">
+      <label style="font-size:12px;color:#888;margin-bottom:4px;">検索ページを開く（Chrome拡張経由）</label>
+      <div class="search-open-btns">
+        <button class="search-open-btn" onclick="openSearchPage('ielove')" id="searchBtnIelove" disabled>
+          <span class="ico">🏠</span>いえらぶ
+        </button>
+        <button class="search-open-btn" onclick="openSearchPage('essquare')" id="searchBtnEssquare" disabled>
+          <span class="ico">🏢</span>いい生活
+        </button>
+        <button class="search-open-btn" onclick="openSearchPage('reins')" id="searchBtnReins" disabled>
+          <span class="ico">📋</span>REINS
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ 入居時期 ═══ -->
@@ -744,6 +770,7 @@ var ADMIN_CUSTOMERS = <?!= adminCustomers ?>;
 
 // 初期状態（空 or URLパラメータで指定された顧客）
 var INIT_CUSTOMER = <?!= initCustomer ?>;
+var _lastLoadedCriteria = null;
 
 // ══════════════════════════════════════════════════════════
 //  データ定義
@@ -895,6 +922,13 @@ function loadCustomerCriteria() {
       loadBtn.textContent = '既存条件を読み込む';
       if (data) {
         populateForm(data);
+        data.name = name;
+        _lastLoadedCriteria = data;
+        // 検索ページボタンを表示・有効化
+        document.getElementById('searchOpenBtns').style.display = '';
+        document.getElementById('searchBtnIelove').disabled = false;
+        document.getElementById('searchBtnEssquare').disabled = false;
+        document.getElementById('searchBtnReins').disabled = false;
         showToast(name + ' の条件を読み込みました');
       } else {
         showToast('条件が見つかりませんでした');
@@ -906,6 +940,61 @@ function loadCustomerCriteria() {
       showToast('エラー: ' + (err.message || err));
     })
     .loadCustomerCriteriaByName(name);
+}
+
+// ══════════════════════════════════════════════════════════
+//  検索ページを開く（Chrome拡張経由）
+// ══════════════════════════════════════════════════════════
+function buildCustomerForExtension() {
+  if (!_lastLoadedCriteria) return null;
+  var d = _lastLoadedCriteria;
+  // routes_with_stations: selectedRoutes + selectedStations → [{route, stations}]
+  var rws = [];
+  var allStations = [];
+  var routes = d.selectedRoutes || [];
+  var stationsMap = d.selectedStations || {};
+  for (var i = 0; i < routes.length; i++) {
+    var stas = stationsMap[routes[i]] || [];
+    rws.push({ route: routes[i], stations: stas });
+    for (var j = 0; j < stas.length; j++) allStations.push(stas[j]);
+  }
+  // サフィックス除去
+  var rentMax = (d.rent_max || '').replace(/万円$/, '');
+  var walk = (d.walk || '');
+  walk = (walk === '指定しない') ? '' : walk.replace(/分以内$/, '');
+  var areaMin = (d.area_min || '');
+  areaMin = (areaMin === '指定しない') ? '' : areaMin.replace(/m[²2]$/, '');
+  // equipment: 配列→CSV文字列
+  var equipArr = d.equipment || [];
+  var equipStr = Array.isArray(equipArr) ? equipArr.join(',') : String(equipArr);
+  return {
+    name: d.name || document.getElementById('customerName').value.trim(),
+    routes_with_stations: rws,
+    routes: routes,
+    stations: allStations,
+    cities: d.selectedCities || [],
+    selectedTowns: d.selectedTowns || {},
+    rent_max: rentMax,
+    layouts: d.layouts || [],
+    walk: walk,
+    area_min: areaMin,
+    building_age: d.building_age || '',
+    structures: d.building_structures || [],
+    equipment: equipStr,
+    prefecture: '東京都'
+  };
+}
+
+function openSearchPage(service) {
+  var customer = buildCustomerForExtension();
+  if (!customer) { showToast('先に顧客の条件を読み込んでください'); return; }
+  window.parent.postMessage({
+    type: 'OPEN_SEARCH_PAGE',
+    service: service,
+    customer: customer
+  }, '*');
+  var names = { ielove: 'いえらぶ', essquare: 'いい生活', reins: 'REINS' };
+  showToast((names[service] || service) + ' の検索ページを開いています...');
 }
 
 // ══════════════════════════════════════════════════════════

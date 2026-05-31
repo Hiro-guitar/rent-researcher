@@ -173,6 +173,24 @@
         } catch (_) {}
       }
     }
+
+    // 検索ページを開くリクエスト（AdminPage → background）
+    if (data.type === 'OPEN_SEARCH_PAGE') {
+      console.log('[承認トリガー] OPEN_SEARCH_PAGE受信:', data.service);
+      try {
+        chrome.runtime.sendMessage({
+          type: 'OPEN_SEARCH_PAGE',
+          service: data.service,
+          customer: data.customer
+        }, function (result) {
+          if (chrome.runtime.lastError) {
+            console.warn('[承認トリガー] OPEN_SEARCH_PAGE応答エラー:', chrome.runtime.lastError.message);
+          }
+        });
+      } catch (e) {
+        console.warn('[承認トリガー] OPEN_SEARCH_PAGE sendMessage失敗:', e);
+      }
+    }
   });
 
   // ── フォールバック: data-suumo-approved-key 属性の変化を監視 ──
