@@ -374,8 +374,9 @@ input[type="range"]::-webkit-slider-thumb {
 <div id="app">
   <div class="header">
     <h1>検索条件管理<span class="admin-badge">管理者</span></h1>
-    <div style="text-align:center;margin-top:6px;">
+    <div style="text-align:center;margin-top:6px;display:flex;justify-content:center;gap:16px;">
       <a href="javascript:void(0)" onclick="openSuumoPatrolConfig()" style="color:#3498db;font-size:12px;text-decoration:underline;">SUUMO巡回条件を管理</a>
+      <a href="javascript:void(0)" onclick="openResendPage()" style="color:#2ecc71;font-size:12px;text-decoration:underline;">物件再送付</a>
     </div>
   </div>
 
@@ -2197,6 +2198,14 @@ function openSuumoPatrolConfig() {
       window.open(url, '_top');
     })
     .getSuumoPatrolConfigUrl();
+}
+
+function openResendPage() {
+  google.script.run
+    .withSuccessHandler(function(url) {
+      window.open(url, '_top');
+    })
+    .getResendPageUrl();
 }
 
 // ──────────────────────────────────────────────────────────
