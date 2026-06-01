@@ -2123,8 +2123,8 @@ function setPropertyAvailability(customerName, roomId, status, extras) {
     if (!sheet) return { ok: false, message: 'シートが見つかりません' };
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return { ok: false, message: 'シートが空です' };
-    // A〜I列を読む (E列=source, C列=building_name, H列=source_ref, I列=priority_requested_at)
-    var data = sheet.getRange(2, 1, lastRow - 1, 9).getValues();
+    // A〜J列を読む (E列=source, C列=building_name, H列=source_ref, I列=priority_requested_at, J列=watch_for_cancellation_at)
+    var data = sheet.getRange(2, 1, lastRow - 1, 10).getValues();
     var nameTrim = String(customerName).trim();
     var ridTrim = String(roomId).trim();
     var updated = 0;
