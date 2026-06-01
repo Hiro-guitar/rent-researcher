@@ -2309,6 +2309,28 @@ function getAvailabilityCheckQueue(options) {
     var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
     if (!seenSheet) return [];
 
+    // 0. 検索条件シートから paused/blocked 顧客を取得 → 空室確認をスキップ
+    var inactiveCustomers = {};
+    try {
+      var critSs = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+      var critSheet = critSs.getSheetByName(CRITERIA_SHEET_NAME);
+      if (critSheet) {
+        var critLast = critSheet.getLastRow();
+        if (critLast >= 2) {
+          var critData = critSheet.getRange(2, 2, critLast - 1, 18).getValues(); // B列〜S列 (B=index0, S=index17)
+          for (var ci = 0; ci < critData.length; ci++) {
+            var cname = String(critData[ci][0] || '').trim(); // B列
+            var cstatus = String(critData[ci][17] || '').trim(); // S列
+            if (cname && (cstatus === 'paused' || cstatus === 'blocked')) {
+              inactiveCustomers[cname] = cstatus;
+            }
+          }
+        }
+      }
+    } catch (eCrit) {
+      console.warn('[availability queue] 検索条件シート読み込み失敗: ' + eCrit.message);
+    }
+
     // 1. 承認待ち から (customer|roomId) → {url, source} のマップを作る
     var urlMap = {};
     if (pendingSheet) {
@@ -2345,11 +2367,14 @@ function getAvailabilityCheckQueue(options) {
     var rawCandidates = [];  // 先に候補を集めて、優先度順にソートしてから limit 適用
     var diag = { total: sData.length, noCustOrRoom: 0, noSentAt: 0, tooOld: 0,
                   isClosed: 0, recentlyChecked: 0, noUrl: 0, urlMapSize: Object.keys(urlMap).length,
-                  urlFromSeen: 0, urlFromPending: 0, priorityCount: 0 };
+                  urlFromSeen: 0, urlFromPending: 0, priorityCount: 0,
+                  inactiveCustomers: Object.keys(inactiveCustomers).length, skippedInactive: 0 };
     for (var j = 0; j < sData.length; j++) {
       var customer = String(sData[j][0] || '').trim();
       var roomId = String(sData[j][1] || '').trim();
       if (!customer || !roomId) { diag.noCustOrRoom++; continue; }
+      // 配信停止・ブロック顧客はスキップ (1週間後に物件自体が削除される)
+      if (inactiveCustomers[customer]) { diag.skippedInactive++; continue; }
       // D列の通知日時を Date に変換
       var sentRaw = sData[j][3];
       var sentAt = _parseDateFlexible_(sentRaw);
