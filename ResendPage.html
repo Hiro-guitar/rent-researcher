@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>物件再送付</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+    .header { background: #2e7d32; color: #fff; padding: 16px 24px; position: sticky; top: 0; z-index: 10; }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header p { font-size: 12px; opacity: 0.8; margin-top: 4px; }
+    .container { max-width: 900px; margin: 0 auto; padding: 16px; }
+    .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 16px; margin-bottom: 16px; }
+    .card h2 { font-size: 14px; color: #666; margin-bottom: 12px; }
+    select, button { font-family: inherit; font-size: 14px; }
+    select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
+    .btn { padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .btn-primary { background: #2e7d32; color: #fff; }
+    .btn-primary:hover { background: #1b5e20; }
+    .btn-primary:disabled { background: #aaa; cursor: not-allowed; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .toolbar .spacer { flex: 1; }
+    .count { font-size: 13px; color: #888; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 8px; border-bottom: 2px solid #eee; color: #888; font-weight: 500; font-size: 12px; }
+    td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
+    tr:hover td { background: #f9f9f9; }
+    tr.selected td { background: #e8f5e9; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .badge-available { background: #e8f5e9; color: #2e7d32; }
+    .badge-needs { background: #fff3e0; color: #e65100; }
+    .badge-reins { background: #e3f2fd; color: #1565c0; }
+    .badge-unknown { background: #f5f5f5; color: #888; }
+    .source-tag { font-size: 11px; color: #888; }
+    .no-data { color: #ccc; font-size: 11px; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 12px 24px; border-radius: 8px; font-size: 14px; display: none; z-index: 100; }
+    .toast.error { background: #c62828; }
+    .toast.show { display: block; animation: fadeInUp 0.3s ease; }
+    @keyframes fadeInUp { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+    .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #2e7d32; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty-msg { text-align: center; padding: 40px; color: #aaa; }
+    .confirm-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: none; z-index: 50; align-items: center; justify-content: center; }
+    .confirm-overlay.show { display: flex; }
+    .confirm-box { background: #fff; border-radius: 12px; padding: 24px; max-width: 400px; width: 90%; text-align: center; }
+    .confirm-box h3 { margin-bottom: 8px; }
+    .confirm-box p { color: #666; margin-bottom: 16px; font-size: 14px; }
+    .confirm-box .btns { display: flex; gap: 12px; justify-content: center; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>物件再送付</h1>
+    <p>通知済み物件を選択してLINEで再送付</p>
+  </div>
+
+  <div class="container">
+    <!-- 顧客選択 -->
+    <div class="card">
+      <h2>顧客を選択</h2>
+      <select id="customerSelect">
+        <option value="">-- 顧客を選択 --</option>
+      </select>
+    </div>
+
+    <!-- 物件一覧 -->
+    <div class="card" id="propertyCard" style="display:none;">
+      <h2>通知済み物件 (募集中 / 要確認)</h2>
+      <div class="toolbar">
+        <label style="font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="selectAll"> 全選択
+        </label>
+        <button class="btn btn-sm" onclick="filterStatus('')">全て</button>
+        <button class="btn btn-sm" onclick="filterStatus('available')">募集中</button>
+        <button class="btn btn-sm" onclick="filterStatus('needs_confirmation')">要確認</button>
+        <span class="spacer"></span>
+        <span class="count" id="selCount">0件選択中</span>
+      </div>
+      <div id="propertyList"></div>
+      <div style="margin-top:12px;text-align:right;">
+        <button class="btn btn-primary" id="resendBtn" disabled onclick="confirmResend()">選択した物件を再送付</button>
+      </div>
+    </div>
+
+    <!-- ロード中 -->
+    <div id="loading" style="display:none;text-align:center;padding:40px;">
+      <span class="spinner"></span> 読み込み中...
+    </div>
+  </div>
+
+  <!-- 確認ダイアログ -->
+  <div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-box">
+      <h3>再送付の確認</h3>
+      <p id="confirmMsg"></p>
+      <div class="btns">
+        <button class="btn" style="background:#eee;" onclick="closeConfirm()">キャンセル</button>
+        <button class="btn btn-primary" id="confirmSendBtn" onclick="executeResend()">送信する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- トースト -->
+  <div class="toast" id="toast"></div>
+
+<script>
+var CUSTOMERS = <?!= adminCustomers ?>;
+var currentCustomer = '';
+var properties = [];
+var currentFilter = '';
+
+// 顧客セレクト初期化
+(function() {
+  var sel = document.getElementById('customerSelect');
+  CUSTOMERS.forEach(function(c) {
+    var opt = document.createElement('option');
+    opt.value = c.name;
+    opt.textContent = c.name;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener('change', function() {
+    loadProperties(this.value);
+  });
+})();
+
+function loadProperties(customerName) {
+  currentCustomer = customerName;
+  if (!customerName) {
+    document.getElementById('propertyCard').style.display = 'none';
+    return;
+  }
+  document.getElementById('propertyCard').style.display = 'none';
+  document.getElementById('loading').style.display = 'block';
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      properties = data || [];
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('propertyCard').style.display = 'block';
+      renderTable();
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('loading').style.display = 'none';
+      showToast('読み込み失敗: ' + err.message, true);
+    })
+    .getSeenPropertiesForResend(customerName);
+}
+
+function filterStatus(s) {
+  currentFilter = s;
+  renderTable();
+}
+
+function renderTable() {
+  var list = properties.filter(function(p) {
+    if (!currentFilter) return true;
+    return p.currentStatus === currentFilter;
+  });
+
+  if (list.length === 0) {
+    document.getElementById('propertyList').innerHTML = '<div class="empty-msg">対象物件がありません</div>';
+    updateSelCount();
+    return;
+  }
+
+  var html = '<table><thead><tr><th style="width:32px;"></th><th>物件名</th><th>ソース</th><th>ステータス</th><th>通知日</th><th>最終確認</th></tr></thead><tbody>';
+  list.forEach(function(p) {
+    var badgeClass = 'badge-unknown';
+    var statusText = p.currentStatus || '未確認';
+    if (p.currentStatus === 'available') { badgeClass = 'badge-available'; statusText = '募集中'; }
+    else if (p.currentStatus === 'needs_confirmation') { badgeClass = 'badge-needs'; statusText = '要確認'; }
+    else if (p.currentStatus === 'reins_listed') { badgeClass = 'badge-reins'; statusText = 'REINS掲載'; }
+    else if (p.currentStatus === 'unknown') { statusText = '不明'; }
+    else if (!p.currentStatus) { statusText = '未確認'; }
+
+    var srcMap = { reins: 'REINS', itandi: 'itandi', ielove: 'いえらぶ', essquare: 'いい生活' };
+    var srcText = srcMap[p.source] || p.source;
+    var fullDataIcon = p.hasFullData ? '' : ' <span title="詳細データなし（テキスト送信）" style="color:#f57c00;">&#9888;</span>';
+
+    html += '<tr data-rid="' + p.roomId + '">'
+      + '<td><input type="checkbox" class="prop-cb" value="' + p.roomId + '" onchange="updateSelCount()"></td>'
+      + '<td>' + _esc(p.buildingName) + fullDataIcon + '</td>'
+      + '<td><span class="source-tag">' + _esc(srcText) + '</span></td>'
+      + '<td><span class="badge ' + badgeClass + '">' + statusText + '</span></td>'
+      + '<td>' + _esc(p.sentAt || '-') + '</td>'
+      + '<td>' + _esc(p.statusCheckedAt || '-') + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('propertyList').innerHTML = html;
+  document.getElementById('selectAll').checked = false;
+  updateSelCount();
+}
+
+document.getElementById('selectAll').addEventListener('change', function() {
+  var cbs = document.querySelectorAll('.prop-cb');
+  for (var i = 0; i < cbs.length; i++) cbs[i].checked = this.checked;
+  updateSelCount();
+});
+
+function getSelectedIds() {
+  var ids = [];
+  var cbs = document.querySelectorAll('.prop-cb:checked');
+  for (var i = 0; i < cbs.length; i++) ids.push(cbs[i].value);
+  return ids;
+}
+
+function updateSelCount() {
+  var ids = getSelectedIds();
+  document.getElementById('selCount').textContent = ids.length + '件選択中';
+  document.getElementById('resendBtn').disabled = ids.length === 0;
+  // 行ハイライト
+  var rows = document.querySelectorAll('tr[data-rid]');
+  for (var i = 0; i < rows.length; i++) {
+    var cb = rows[i].querySelector('.prop-cb');
+    rows[i].classList.toggle('selected', cb && cb.checked);
+  }
+}
+
+function confirmResend() {
+  var ids = getSelectedIds();
+  if (ids.length === 0) return;
+  document.getElementById('confirmMsg').textContent =
+    currentCustomer + ' さんに ' + ids.length + ' 件の物件をLINEで再送付します。';
+  document.getElementById('confirmOverlay').classList.add('show');
+}
+
+function closeConfirm() {
+  document.getElementById('confirmOverlay').classList.remove('show');
+}
+
+function executeResend() {
+  var ids = getSelectedIds();
+  closeConfirm();
+  document.getElementById('resendBtn').disabled = true;
+  document.getElementById('resendBtn').textContent = '送信中...';
+
+  google.script.run
+    .withSuccessHandler(function(result) {
+      document.getElementById('resendBtn').textContent = '選択した物件を再送付';
+      document.getElementById('resendBtn').disabled = false;
+      if (result && result.ok) {
+        showToast(result.message);
+      } else {
+        showToast(result ? result.message : '送信に失敗しました', true);
+      }
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('resendBtn').textContent = '選択した物件を再送付';
+      document.getElementById('resendBtn').disabled = false;
+      showToast('エラー: ' + err.message, true);
+    })
+    .resendPropertyNotifications(currentCustomer, ids);
+}
+
+function showToast(msg, isError) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(function() { t.className = 'toast'; }, 4000);
+}
+
+function _esc(s) {
+  var d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

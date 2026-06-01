@@ -1354,6 +1354,11 @@ function doGet(e) {
     return _evaluated;
   }
 
+  // ── 物件再送付ページ ──
+  if (action === 'resend') {
+    return handleResendPage(e);
+  }
+
   // ── 管理者用 検索条件管理ページ ──
   if (action === 'admin') {
     return handleAdminPage(e);
@@ -2629,6 +2634,24 @@ function _parseRoutesWithStations(val) {
 // ══════════════════════════════════════════════════════════
 //  管理者用 検索条件管理ページ
 // ══════════════════════════════════════════════════════════
+
+/**
+ * 物件再送付ページを表示する。
+ */
+function handleResendPage(e) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
+    return HtmlService.createHtmlOutput(
+      '<html><body style="text-align:center;padding:40px;font-family:sans-serif;">' +
+      '<h3>認証エラー</h3><p>api_key が正しくありません。</p></body></html>'
+    ).setTitle('認証エラー');
+  }
+  var customers = getExistingCustomers_();
+  var template = HtmlService.createTemplateFromFile('ResendPage');
+  template.adminCustomers = JSON.stringify(customers);
+  return template.evaluate()
+    .setTitle('物件再送付')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
 
 /**
  * 管理者ページを表示する。api_keyで認証。
