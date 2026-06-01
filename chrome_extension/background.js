@@ -1943,7 +1943,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 equipment: batchCustomer.equipment || '', stations: batchCustomer.stations || [],
                 routes_with_stations: batchCustomer.routes_with_stations || [],
                 walk: batchCustomer.walk || '', cities: batchCustomer.cities || [],
-                prefecture: batchCustomer.prefecture || '東京都'
+                prefecture: batchCustomer.prefecture || '東京都',
+                selectedTowns: batchCustomer.selectedTowns || {}
               }, lineNameMap, reinsCodeMap, btModeFresh];
 
               await waitForDomReady(reinsTab.id, '.p-textbox-input', { timeout: 15000 });
@@ -2631,7 +2632,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   // SW再起動直後でもbtModeを確実に拾うためストレージから直読み
   const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'alert')));
   __btMode = __btModeFresh;
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null) }, lineNameMap, reinsCodeMap, __btModeFresh];
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {} }, lineNameMap, reinsCodeMap, __btModeFresh];
   // __reinsCriteriaFunc は reins-criteria-func.js で定義（グローバル）
   // ↓ 以前は以下にローカル関数定義があったが、reins-criteria-func.js に移動済み
   setResult = await chrome.scripting.executeScript({

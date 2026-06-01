@@ -28,9 +28,10 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       vr[`ekCdFrom${n}`] = ''; vr[`ekCdTo${n}`] = '';
       vr[`ekmiFrom${n}`] = ''; vr[`ekmiTo${n}`] = '';
       vr[`thNyurykc${n}`] = ''; vr[`thMHnKbn${n}`] = '';
-      // 所在地スロット (都道府県名・市区町村名)
+      // 所在地スロット (都道府県名・市区町村名・町名)
       vr[`tdufknmi${n}`] = '';
       vr[`shzicmi1${n}`] = '';
+      vr[`shzicmi2${n}`] = '';
     }
     vr.kkkuCnryuFrom = ''; vr.kkkuCnryuTo = '';
     vr.bkknShbt1 = ''; vr.bkknShbt2 = '';
@@ -213,11 +214,43 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       }
     }
 
-    // 所在地（市区町村）セット — 最大3スロット
-    // 駅検索とは独立したスロット番号体系 (tdufknmi1〜3 / shzicmi11〜13)
+    // 所在地セット — 最大3スロット
+    // 駅検索とは独立したスロット番号体系 (tdufknmi1〜3 / shzicmi11〜13 / shzicmi21〜23)
+    //
+    // selectedTowns がある場合 (例: {"豊島区":["北大塚二丁目"]}):
+    //   市区町村×町名 の全組み合わせが3件以内 → 各スロットに町名まで入力 (shzicmi2=前方一致)
+    //   3件超 → 従来通り市区町村レベルのみ
     const reinsCitiesSet = [];
-    if (customerData.cities && customerData.cities.length > 0) {
-      const prefName = customerData.prefecture || '東京都';
+    const prefName = customerData.prefecture || '東京都';
+
+    // selectedTowns → (市区町村, 町名) ペアに展開
+    let townPairs = [];
+    const selectedTowns = customerData.selectedTowns || {};
+    const stKeys = Object.keys(selectedTowns);
+    if (stKeys.length > 0) {
+      for (const city of stKeys) {
+        const towns = selectedTowns[city];
+        if (Array.isArray(towns) && towns.length > 0) {
+          for (const town of towns) {
+            if (town && typeof town === 'string') {
+              townPairs.push({ city: city, town: town.trim() });
+            }
+          }
+        }
+      }
+    }
+
+    if (townPairs.length > 0 && townPairs.length <= 3) {
+      // 町名レベルまで入力 (3件以内)
+      for (let ti = 0; ti < townPairs.length; ti++) {
+        const slot = ti + 1;
+        vr[`tdufknmi${slot}`] = prefName;
+        vr[`shzicmi1${slot}`] = townPairs[ti].city;
+        vr[`shzicmi2${slot}`] = townPairs[ti].town;
+        reinsCitiesSet.push(`${slot}:${prefName}/${townPairs[ti].city}/${townPairs[ti].town}`);
+      }
+    } else if (customerData.cities && customerData.cities.length > 0) {
+      // 町名4件以上 or selectedTowns未指定 → 市区町村レベルのみ (従来通り)
       const citiesList = customerData.cities
         .map(c => (c || '').trim())
         .filter(c => c);
