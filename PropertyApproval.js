@@ -2365,6 +2365,7 @@ function getAvailabilityCheckQueue(options) {
     var intervalCutoff = now - maxIntervalHours * 60 * 60 * 1000;
     var priorityCutoff = now - maxPriorityAgeMinutes * 60 * 1000;
     var rawCandidates = [];  // 先に候補を集めて、優先度順にソートしてから limit 適用
+    var staleClosedRows = []; // closed なのに残っている行を削除する
     var diag = { total: sData.length, noCustOrRoom: 0, noSentAt: 0, tooOld: 0,
                   isClosed: 0, recentlyChecked: 0, noUrl: 0, urlMapSize: Object.keys(urlMap).length,
                   urlFromSeen: 0, urlFromPending: 0, priorityCount: 0,
@@ -2409,7 +2410,11 @@ function getAvailabilityCheckQueue(options) {
 
       // 通常モード: closed / 直近チェック済みはスキップ。ただし優先依頼/watch中があれば例外。
       if (!isPriority && !isWatching) {
-        if (status === 'closed') { diag.isClosed++; continue; }
+        if (status === 'closed') {
+          diag.isClosed++;
+          staleClosedRows.push(j + 2); // 行番号 (1-indexed, ヘッダー=1行目)
+          continue;
+        }
         if (checkedAt && checkedAt > intervalCutoff) { diag.recentlyChecked++; continue; }
       }
 
@@ -2460,6 +2465,16 @@ function getAvailabilityCheckQueue(options) {
       }
       return c;
     });
+
+    // closed なのにシートに残っている行を掃除 (下から削除して行番号ずれを防ぐ)
+    if (staleClosedRows.length > 0) {
+      staleClosedRows.sort(function(a, b) { return b - a; });
+      for (var dr = 0; dr < staleClosedRows.length; dr++) {
+        try { seenSheet.deleteRow(staleClosedRows[dr]); } catch (_) {}
+      }
+      console.log('[availability queue] closed残留行を ' + staleClosedRows.length + ' 件削除');
+      diag.deletedClosedRows = staleClosedRows.length;
+    }
 
     console.log('[availability queue] diag: ' + JSON.stringify(diag) + ' returned: ' + out.length);
     out._diag = diag;
