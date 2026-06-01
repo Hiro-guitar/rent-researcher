@@ -240,14 +240,48 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       }
     }
 
+    // 町名をREINS形式に変換: "北大塚二丁目" → "北大塚2"
+    // 漢数字→アラビア数字、「丁目」除去
+    const _townToReins = (town) => {
+      const kanjiMap = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10};
+      let t = town;
+      // 「X丁目」を除去して漢数字をアラビア数字に変換
+      t = t.replace(/([一二三四五六七八九十]+)丁目$/, (_, k) => {
+        // 十の位の処理: 十二→12, 二十→20, 十→10
+        let num = 0;
+        for (let i = 0; i < k.length; i++) {
+          if (k[i] === '十') {
+            num = num === 0 ? 10 : num * 10;
+          } else {
+            num += (kanjiMap[k[i]] || 0);
+          }
+        }
+        return String(num);
+      });
+      // 丁目なしの漢数字末尾も変換 (念のため)
+      t = t.replace(/([一二三四五六七八九十]+)$/, (_, k) => {
+        let num = 0;
+        for (let i = 0; i < k.length; i++) {
+          if (k[i] === '十') {
+            num = num === 0 ? 10 : num * 10;
+          } else {
+            num += (kanjiMap[k[i]] || 0);
+          }
+        }
+        return String(num);
+      });
+      return t;
+    };
+
     if (townPairs.length > 0 && townPairs.length <= 3) {
       // 町名レベルまで入力 (3件以内)
       for (let ti = 0; ti < townPairs.length; ti++) {
         const slot = ti + 1;
+        const reinsTown = _townToReins(townPairs[ti].town);
         vr[`tdufknmi${slot}`] = prefName;
         vr[`shzicmi1${slot}`] = townPairs[ti].city;
-        vr[`shzicmi2${slot}`] = townPairs[ti].town;
-        reinsCitiesSet.push(`${slot}:${prefName}/${townPairs[ti].city}/${townPairs[ti].town}`);
+        vr[`shzicmi2${slot}`] = reinsTown;
+        reinsCitiesSet.push(`${slot}:${prefName}/${townPairs[ti].city}/${reinsTown}`);
       }
     } else if (customerData.cities && customerData.cities.length > 0) {
       // 町名4件以上 or selectedTowns未指定 → 市区町村レベルのみ (従来通り)
