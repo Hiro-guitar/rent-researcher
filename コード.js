@@ -2636,6 +2636,15 @@ function _parseRoutesWithStations(val) {
 // ══════════════════════════════════════════════════════════
 
 /**
+ * 物件再送付ページのURLを返す（AdminPageから遷移用）
+ */
+function getResendPageUrl() {
+  var baseUrl = ScriptApp.getService().getUrl();
+  var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
+  return baseUrl + '?action=resend&api_key=' + encodeURIComponent(apiKey);
+}
+
+/**
  * 物件再送付ページを表示する。
  */
 function handleResendPage(e) {
