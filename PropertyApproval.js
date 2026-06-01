@@ -3040,6 +3040,139 @@ function _getPendingPropForFlex_(customerName, roomId) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────
+// 物件再送付機能
+// ──────────────────────────────────────────────────────────────────
+
+/**
+ * 通知済み物件シートから、指定顧客の再送付候補を取得する。
+ * status が available / needs_confirmation / reins_listed / 空 の物件を返す。
+ */
+function getSeenPropertiesForResend(customerName) {
+  if (!customerName) return [];
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return [];
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return [];
+    var data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+    var nameTrim = String(customerName).trim();
+    var results = [];
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() !== nameTrim) continue;
+      var status = String(data[i][5] || '');
+      // closed / applied は除外
+      if (status === 'closed' || status === 'applied') continue;
+      var roomId = String(data[i][1] || '').trim();
+      var hasPending = !!_getPendingPropForFlex_(nameTrim, roomId);
+      results.push({
+        roomId: roomId,
+        buildingName: String(data[i][2] || ''),
+        sentAt: (data[i][3] instanceof Date) ? Utilities.formatDate(data[i][3], 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : String(data[i][3] || ''),
+        source: String(data[i][4] || ''),
+        currentStatus: status,
+        statusCheckedAt: (data[i][6] instanceof Date) ? Utilities.formatDate(data[i][6], 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : String(data[i][6] || ''),
+        sourceRef: String(data[i][7] || ''),
+        hasFullData: hasPending
+      });
+    }
+    results.sort(function(a, b) { return (b.sentAt || '').localeCompare(a.sentAt || ''); });
+    return results;
+  } catch (e) {
+    console.warn('getSeenPropertiesForResend error: ' + e.message);
+    return [];
+  }
+}
+
+/**
+ * 選択された物件をLINEで再送付する。
+ * @param {string} customerName
+ * @param {string[]} roomIds
+ * @return {{ok:boolean, sent:number, failed:number, message:string}}
+ */
+function resendPropertyNotifications(customerName, roomIds) {
+  if (!customerName || !Array.isArray(roomIds) || roomIds.length === 0) {
+    return { ok: false, sent: 0, failed: 0, message: 'パラメータ不足' };
+  }
+  var lineUserId = findLineUserId(customerName);
+  if (!lineUserId) {
+    return { ok: false, sent: 0, failed: 0, message: customerName + ' のLINEユーザーが見つかりません' };
+  }
+
+  var messages = [];
+  var failCount = 0;
+  var customerStations = [];
+  try { customerStations = _getCustomerSelectedStations_(customerName); } catch (_) {}
+
+  for (var i = 0; i < roomIds.length; i++) {
+    var roomId = String(roomIds[i]).trim();
+    var prop = _getPendingPropForFlex_(customerName, roomId);
+    if (prop) {
+      try {
+        var plainUrl = WEBAPP_URL + '?action=property&customer=' + encodeURIComponent(customerName)
+          + '&room_id=' + encodeURIComponent(roomId);
+        var minimalUrl = buildMinimalViewUrl(customerName, roomId, prop);
+        var viewUrl = (minimalUrl && minimalUrl.length <= 1000) ? minimalUrl : plainUrl;
+        // 画像キャッシュ更新
+        if (prop.imageUrls && prop.imageUrls.length > 0) {
+          cachePropertyImages(customerName, roomId, prop.imageUrls, []);
+        }
+        var flex = buildPropertyFlex(prop, {
+          includeImage: !!(prop.imageUrl),
+          heroImageUrls: prop.imageUrls || [],
+          viewUrl: viewUrl,
+          customerStations: customerStations,
+          headerTitle: '再送: 物件のご案内'
+        });
+        messages.push(flex);
+      } catch (eF) {
+        console.warn('[resend] flex build failed for ' + roomId + ': ' + eF.message);
+        failCount++;
+      }
+    } else {
+      // pendingにデータがない → 建物名だけのテキストメッセージ
+      try {
+        var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+        var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+        var bName = roomId;
+        if (seenSheet) {
+          var sData = seenSheet.getRange(2, 1, seenSheet.getLastRow() - 1, 3).getValues();
+          for (var si = 0; si < sData.length; si++) {
+            if (String(sData[si][0]).trim() === customerName && String(sData[si][1]).trim() === roomId) {
+              bName = String(sData[si][2] || roomId);
+              break;
+            }
+          }
+        }
+        messages.push({ type: 'text', text: '【再送】' + bName + '\nこちらの物件は引き続き募集中です。詳細はスタッフまでお問い合わせください。' });
+      } catch (_) {
+        failCount++;
+      }
+    }
+  }
+
+  // LINE送信（5件ずつバッチ）
+  var sentCount = 0;
+  for (var b = 0; b < messages.length; b += 5) {
+    var batch = messages.slice(b, b + 5);
+    try {
+      pushMessage(lineUserId, batch);
+      sentCount += batch.length;
+    } catch (eP) {
+      console.warn('[resend] pushMessage failed: ' + eP.message);
+      failCount += batch.length;
+    }
+  }
+
+  return {
+    ok: sentCount > 0,
+    sent: sentCount,
+    failed: failCount,
+    message: sentCount + '件送信' + (failCount > 0 ? '、' + failCount + '件失敗' : '')
+  };
+}
+
 /**
  * 通知済み物件シートの J列 (10) にキャンセル通知希望時刻を記録する。
  * Chrome拡張がこのフラグを参照して、定期的にステータス変化をチェックする。
