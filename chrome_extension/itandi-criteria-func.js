@@ -382,23 +382,23 @@ const __itandiOpenStationModal = () => {
 };
 
 /**
- * 駅選択モーダル内で1駅を検索してチェックする関数。
- * 検索テキストボックスに駅名を入力 → 結果からチェックする。
+ * 駅選択モーダル内で1駅を検索してチェックする関数（検索＋チェックを1回のexecuteScriptで実行）。
+ * 検索テキストボックスに駅名を入力 → 描画待ち → チェックボックスをクリック。
+ * Promiseを返すため、executeScript側でawaitされる。
  * @param {string} stationName - 駅名（例: "渋谷"、"新宿"）
- * @returns {{ ok: boolean, checked: boolean, error?: string }}
+ * @returns {Promise<{ ok: boolean, checked: boolean, error?: string }>}
  */
 // eslint-disable-next-line no-unused-vars
-const __itandiSelectStation = (stationName) => {
+const __itandiSelectAndCheckStation = (stationName) => {
   'use strict';
 
-  // 「駅」を除去
   var cleanName = stationName.replace(/駅$/, '').trim();
-  if (!cleanName) return { ok: false, checked: false, error: '駅名が空です' };
+  if (!cleanName) return Promise.resolve({ ok: false, checked: false, error: '駅名が空です' });
 
   var modal = document.querySelector('[role="dialog"]');
-  if (!modal) return { ok: false, checked: false, error: 'モーダルが見つかりません' };
+  if (!modal) return Promise.resolve({ ok: false, checked: false, error: 'モーダルが見つかりません' });
 
-  // 駅検索テキストボックス（placeholder に「路線を選ばなくても」を含む）
+  // 駅検索テキストボックスを探す
   var inputs = modal.querySelectorAll('input[type="text"]');
   var searchInput = null;
   for (var i = 0; i < inputs.length; i++) {
@@ -408,72 +408,66 @@ const __itandiSelectStation = (stationName) => {
       break;
     }
   }
-  if (!searchInput) return { ok: false, checked: false, error: '駅検索テキストボックスが見つかりません' };
+  if (!searchInput) return Promise.resolve({ ok: false, checked: false, error: '駅検索テキストボックスが見つかりません' });
 
-  // React互換の値設定
-  var nativeSetter = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype, 'value'
-  ).set;
-  nativeSetter.call(searchInput, cleanName);
-  var tracker = searchInput._valueTracker;
-  if (tracker) tracker.setValue('');
-  searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-  searchInput.dispatchEvent(new Event('change', { bubbles: true }));
-
+  // ── Step A: React onChange で検索テキストを入力 ──
+  var rpk = Object.keys(searchInput).find(function(k) { return k.startsWith('__reactProps'); });
+  if (rpk && searchInput[rpk].onChange) {
+    searchInput[rpk].onChange({ target: { value: cleanName } });
+  } else {
+    return Promise.resolve({ ok: false, checked: false, error: 'React onChangeが見つかりません' });
+  }
   console.log('[itandi駅選択] 検索入力: ' + cleanName);
-  return { ok: true, checked: false, searchedName: cleanName };
-};
 
-/**
- * 駅検索結果から駅をチェックする関数。
- * __itandiSelectStation の後、少し待ってから呼び出す。
- * @param {string} stationName - チェック対象の駅名
- * @returns {{ ok: boolean, checked: boolean, error?: string }}
- */
-// eslint-disable-next-line no-unused-vars
-const __itandiCheckStation = (stationName) => {
-  'use strict';
-
-  var cleanName = stationName.replace(/駅$/, '').trim();
-  var modal = document.querySelector('[role="dialog"]');
-  if (!modal) return { ok: false, checked: false, error: 'モーダルが見つかりません' };
-
-  // StationFrame内の駅チェックボックスを検索
-  var stationFrame = modal.querySelector('[class*="StationFrame"]');
-  if (!stationFrame) return { ok: false, checked: false, error: '駅エリアが見つかりません' };
-
-  var labels = stationFrame.querySelectorAll('label');
-  for (var i = 0; i < labels.length; i++) {
-    var labelText = labels[i].textContent.trim();
-    if (labelText === cleanName) {
-      // 既にチェック済みか確認
-      var cb = labels[i].querySelector('input[type="checkbox"]');
-      if (cb && cb.checked) {
-        console.log('[itandi駅選択] 既にチェック済み: ' + cleanName);
-        return { ok: true, checked: true, alreadyChecked: true };
+  // ── Step B: 描画を待ってからチェック ──
+  return new Promise(function(resolve) {
+    setTimeout(function() {
+      var stationFrame = modal.querySelector('[class*="StationFrame"]');
+      if (!stationFrame) {
+        resolve({ ok: true, checked: false, error: '駅エリアが見つかりません: ' + cleanName });
+        return;
       }
-      labels[i].click();
-      console.log('[itandi駅選択] チェック: ' + cleanName);
-      return { ok: true, checked: true };
-    }
-  }
 
-  // 見つからない場合 — 部分一致で探す
-  for (var j = 0; j < labels.length; j++) {
-    var txt = labels[j].textContent.trim();
-    if (txt.includes(cleanName) || cleanName.includes(txt)) {
-      var cb2 = labels[j].querySelector('input[type="checkbox"]');
-      if (cb2 && cb2.checked) {
-        return { ok: true, checked: true, alreadyChecked: true, matched: txt };
+      var labels = stationFrame.querySelectorAll('label');
+      var checkedCount = 0;
+
+      // 完全一致（同名駅を全路線分チェック）
+      for (var i = 0; i < labels.length; i++) {
+        var labelText = labels[i].textContent.trim();
+        if (labelText === cleanName) {
+          var cb = labels[i].querySelector('input[type="checkbox"]');
+          if (cb && cb.checked) { checkedCount++; continue; }
+          labels[i].click();
+          checkedCount++;
+          console.log('[itandi駅選択] チェック: ' + cleanName + ' (#' + checkedCount + ')');
+        }
       }
-      labels[j].click();
-      console.log('[itandi駅選択] 部分一致でチェック: ' + txt + ' (検索: ' + cleanName + ')');
-      return { ok: true, checked: true, matched: txt };
-    }
-  }
 
-  console.warn('[itandi駅選択] 駅が見つかりません: ' + cleanName);
-  return { ok: true, checked: false, error: '駅が見つかりません: ' + cleanName };
+      if (checkedCount > 0) {
+        resolve({ ok: true, checked: true, checkedCount: checkedCount });
+        return;
+      }
+
+      // 部分一致フォールバック
+      for (var j = 0; j < labels.length; j++) {
+        var txt = labels[j].textContent.trim();
+        if (txt.includes(cleanName) || cleanName.includes(txt)) {
+          var cb2 = labels[j].querySelector('input[type="checkbox"]');
+          if (cb2 && cb2.checked) { checkedCount++; continue; }
+          labels[j].click();
+          checkedCount++;
+          console.log('[itandi駅選択] 部分一致チェック: ' + txt);
+        }
+      }
+
+      if (checkedCount > 0) {
+        resolve({ ok: true, checked: true, checkedCount: checkedCount });
+      } else {
+        console.warn('[itandi駅選択] 駅が見つかりません: ' + cleanName);
+        resolve({ ok: true, checked: false, error: '駅が見つかりません: ' + cleanName });
+      }
+    }, 800);  // React描画待ち
+  });
 };
 
 /**

@@ -1025,24 +1025,35 @@ async function runPeriodicAvailabilityCheck() {
     return { skipped: 'batch_running' };
   }
   if (flags.__periodicCheckRunning) {
-    console.log('[定期空室確認] 前回の定期チェックが実行中のためスキップ');
-    return { skipped: 'already_running' };
+    // フラグが立ったまま90分以上経っていたら、前回が異常終了したとみなしてリセット
+    const staleCheck = await new Promise(r =>
+      chrome.storage.local.get(['__periodicCheckStartedAt'], d => r(d))
+    );
+    const startedAt = staleCheck.__periodicCheckStartedAt || 0;
+    const elapsedMin = (Date.now() - startedAt) / 60000;
+    if (elapsedMin > 90) {
+      console.log(`[定期空室確認] フラグが${Math.round(elapsedMin)}分前から残存 → 強制リセットして続行`);
+      await new Promise(r => chrome.storage.local.set({ __periodicCheckRunning: false }, r));
+    } else {
+      console.log('[定期空室確認] 前回の定期チェックが実行中のためスキップ');
+      return { skipped: 'already_running' };
+    }
   }
 
-  await new Promise(r => chrome.storage.local.set({ __periodicCheckRunning: true }, r));
+  await new Promise(r => chrome.storage.local.set({ __periodicCheckRunning: true, __periodicCheckStartedAt: Date.now() }, r));
 
   const batchSize = 30;
   let totalProcessed = 0;
   let totalErrors = 0;
   let totalPriority = 0;
   let cycle = 0;
-  const maxCycles = 20; // 30 × 20 = 最大600件
   const seenKeys = new Set();
 
   try {
     await setStorageData({ debugLog: '[定期空室確認] 開始' });
 
-    while (cycle < maxCycles) {
+    // 上限なし: seenKeys による無限ループ検出 + キュー空で自然終了
+    while (true) {
       cycle++;
 
       // キュー取得: 直近1時間以内にチェック済みの物件はスキップ
@@ -1143,11 +1154,6 @@ async function runPeriodicAvailabilityCheck() {
       totalProcessed += results.length;
     }
 
-    if (cycle >= maxCycles) {
-      await setStorageData({
-        debugLog: `[定期空室確認] 上限${maxCycles}サイクル到達 (累計${totalProcessed}件)`
-      });
-    }
     return { processed: totalProcessed, cycles: cycle, errors: totalErrors, priority: totalPriority };
   } finally {
     await new Promise(r => chrome.storage.local.set({ __periodicCheckRunning: false }, r));

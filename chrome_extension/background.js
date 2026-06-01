@@ -387,6 +387,8 @@ importScripts('reins-criteria-func.js');
 importScripts('ielove-config.js', 'ielove-oaza-config.js', 'ielove-background.js');
 // itandi BB関連ファイルを読み込み
 importScripts('itandi-config.js', 'itandi-background.js');
+// itandi BB条件セット関数（React互換フォーム入力 + 駅選択モーダル）
+importScripts('itandi-criteria-func.js');
 // ES-Square関連ファイルを読み込み
 importScripts('essquare-config.js', 'essquare-background.js');
 // SUUMO巡回・入稿関連ファイルを読み込み
@@ -1967,6 +1969,143 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             await setStorageData({ debugLog: `[検索ページ] ${customer.name}: REINS 全${totalBatches}バッチ完了` });
             sendResponse({ ok: true, batches: totalBatches });
           }
+        } else if (service === 'itandi') {
+          // itandi BB: 検索フォームを開いて条件を入力（REINSと同様のフォーム入力方式）
+          const itandiTab = await chrome.tabs.create({
+            url: 'https://itandibb.com/rent_rooms/list',
+            active: true
+          });
+          await waitForTabLoad(itandiTab.id);
+
+          // フォームの読み込みを待つ（React SPAなので少し待つ）
+          const formReady = await waitForDomReady(itandiTab.id, 'input[name="rent:lteq"]', { timeout: 30000 });
+          if (!formReady.found) {
+            const errMsg = 'itandi検索フォームが見つかりません（ログインしていますか？）';
+            await setStorageData({ debugLog: `[検索ページ] ${customer.name}: ${errMsg}` });
+            sendResponse({ ok: false, error: errMsg });
+            return;
+          }
+
+          // 少し待ってからフォーム入力（Reactコンポーネントの完全マウントを待つ）
+          await sleep(1000);
+
+          // ── Step 1: 基本条件を入力 ──
+          const setResult = await chrome.scripting.executeScript({
+            target: { tabId: itandiTab.id }, world: 'MAIN',
+            func: __itandiCriteriaFunc,
+            args: [{
+              rent_max: customer.rent_max || '',
+              layouts: customer.layouts || [],
+              walk: customer.walk || '',
+              area_min: customer.area_min || '',
+              building_age: customer.building_age || '',
+              structures: customer.structures || [],
+              equipment: 'バストイレ別',  // itandiはBT別のみハードフィルタ（他の設備はソフトフィルタ）
+            }]
+          });
+
+          const setStatus = setResult?.[0]?.result;
+          if (setStatus?.success) {
+            await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi 基本条件入力完了 (${setStatus.filled.join(', ')})` });
+          } else {
+            const errMsg = 'itandi条件セット失敗: ' + JSON.stringify(setStatus);
+            await setStorageData({ debugLog: `[検索ページ] ${customer.name}: ${errMsg}` });
+            sendResponse({ ok: false, error: errMsg });
+            return;
+          }
+
+          // ── Step 2: 駅選択（モーダル経由） ──
+          const allStations = (customer.routes_with_stations || []).flatMap(r => r.stations || []);
+          const uniqueStations = [...new Set(allStations.map(s => s.replace(/駅$/, '').trim()))].filter(s => s);
+
+          if (uniqueStations.length > 0) {
+            // モーダルを開く
+            const openResult = await chrome.scripting.executeScript({
+              target: { tabId: itandiTab.id }, world: 'MAIN',
+              func: __itandiOpenStationModal, args: []
+            });
+            const openStatus = openResult?.[0]?.result;
+            if (!openStatus?.ok) {
+              await setStorageData({ debugLog: `[検索ページ] ${customer.name}: 駅モーダルを開けませんでした` });
+              sendResponse({ ok: true, batches: 1, filled: setStatus.filled, stationError: 'モーダルが開けない' });
+              return;
+            }
+
+            // モーダルの描画を待つ
+            await waitForDomReady(itandiTab.id, '[role="dialog"]', { timeout: 5000 });
+            await sleep(500);
+
+            // 1駅ずつ検索→チェック（1回のexecuteScriptで検索+描画待ち+クリックを実行）
+            let stationsChecked = 0;
+            const stationErrors = [];
+            for (const stName of uniqueStations) {
+              const checkResult = await chrome.scripting.executeScript({
+                target: { tabId: itandiTab.id }, world: 'MAIN',
+                func: __itandiSelectAndCheckStation, args: [stName]
+              });
+              const checkStatus = checkResult?.[0]?.result;
+              console.log(`[OPEN_SEARCH_PAGE] itandi駅: ${stName} →`, JSON.stringify(checkStatus));
+              if (checkStatus?.checked) {
+                stationsChecked++;
+              } else {
+                stationErrors.push(stName);
+              }
+            }
+
+            // 確定ボタンをクリック
+            await chrome.scripting.executeScript({
+              target: { tabId: itandiTab.id }, world: 'MAIN',
+              func: __itandiConfirmStations, args: []
+            });
+            await sleep(500);
+
+            const stationMsg = `駅: ${stationsChecked}/${uniqueStations.length}件選択`;
+            const filledAll = [...(setStatus.filled || []), stationMsg];
+            if (stationErrors.length > 0) {
+              await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi完了 (未検出駅: ${stationErrors.join(', ')})` });
+            } else {
+              await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi フォーム入力完了 (${filledAll.join(', ')})` });
+            }
+
+            // 検索ボタンをクリック
+            await sleep(300);
+            await chrome.scripting.executeScript({
+              target: { tabId: itandiTab.id }, world: 'MAIN',
+              func: () => {
+                var btns = document.querySelectorAll('button');
+                for (var i = 0; i < btns.length; i++) {
+                  if (btns[i].textContent.trim() === '検索' && btns[i].classList.contains('MuiButton-containedPrimary')) {
+                    btns[i].click();
+                    console.log('[itandi] 検索ボタンクリック');
+                    break;
+                  }
+                }
+              }
+            });
+
+            sendResponse({ ok: true, batches: 1, filled: filledAll, stationErrors });
+          } else {
+            await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi フォーム入力完了 (${setStatus.filled.join(', ')})` });
+
+            // 検索ボタンをクリック（駅なしの場合も）
+            await sleep(300);
+            await chrome.scripting.executeScript({
+              target: { tabId: itandiTab.id }, world: 'MAIN',
+              func: () => {
+                var btns = document.querySelectorAll('button');
+                for (var i = 0; i < btns.length; i++) {
+                  if (btns[i].textContent.trim() === '検索' && btns[i].classList.contains('MuiButton-containedPrimary')) {
+                    btns[i].click();
+                    console.log('[itandi] 検索ボタンクリック');
+                    break;
+                  }
+                }
+              }
+            });
+
+            sendResponse({ ok: true, batches: 1, filled: setStatus.filled });
+          }
+
         } else {
           sendResponse({ ok: false, error: '未対応サービス: ' + service });
         }
