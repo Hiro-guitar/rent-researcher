@@ -593,6 +593,9 @@ input[type="range"]::-webkit-slider-thumb {
         <button class="search-open-btn" onclick="openSearchPage('reins')" id="searchBtnReins" disabled>
           <span class="ico">📋</span>REINS
         </button>
+        <button class="search-open-btn" onclick="openSearchPage('itandi')" id="searchBtnItandi" disabled>
+          <span class="ico">🔍</span>itandi
+        </button>
       </div>
     </div>
   </div>
@@ -929,6 +932,7 @@ function loadCustomerCriteria() {
         document.getElementById('searchBtnIelove').disabled = false;
         document.getElementById('searchBtnEssquare').disabled = false;
         document.getElementById('searchBtnReins').disabled = false;
+        document.getElementById('searchBtnItandi').disabled = false;
         showToast(name + ' の条件を読み込みました');
       } else {
         showToast('条件が見つかりませんでした');
@@ -993,7 +997,7 @@ function openSearchPage(service) {
     service: service,
     customer: customer
   }, '*');
-  var names = { ielove: 'いえらぶ', essquare: 'いい生活', reins: 'REINS' };
+  var names = { ielove: 'いえらぶ', essquare: 'いい生活', reins: 'REINS', itandi: 'itandi' };
   showToast((names[service] || service) + ' の検索ページを開いています...');
 }
 

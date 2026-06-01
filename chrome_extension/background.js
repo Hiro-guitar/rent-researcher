@@ -1838,74 +1838,134 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await setStorageData({ debugLog: `[検索ページ] ${customer.name}: ${service} を開きます` });
 
         if (service === 'ielove') {
-          const url = buildIeloveSearchUrl(customer);
-          await chrome.tabs.create({ url, active: true });
-          sendResponse({ ok: true });
+          // いえらぶ: 駅コードJSON読み込み + 町名コード50件超でチャンク分割
+          await loadIeloveStationCodes();
+          const oazaCodes = resolveIeloveOazaCodes(customer);
+          const OAZA_CHUNK = 50;
+          const oazaChunks = oazaCodes.length > 0
+            ? Array.from({ length: Math.ceil(oazaCodes.length / OAZA_CHUNK) }, (_, i) => oazaCodes.slice(i * OAZA_CHUNK, i * OAZA_CHUNK + OAZA_CHUNK))
+            : [[]];
+          for (let ci = 0; ci < oazaChunks.length; ci++) {
+            const url = buildIeloveSearchUrl(customer, 1, oazaChunks[ci]);
+            await chrome.tabs.create({ url, active: ci === oazaChunks.length - 1 });
+          }
+          await setStorageData({ debugLog: `[検索ページ] ${customer.name}: いえらぶ ${oazaChunks.length}タブ` });
+          sendResponse({ ok: true, batches: oazaChunks.length });
 
         } else if (service === 'essquare') {
-          const url = buildEssquareSearchUrl(customer, 1);
-          await chrome.tabs.create({ url, active: true });
-          sendResponse({ ok: true });
+          // いい生活: 駅49件超 + 住所50件超でチャンク分割
+          const allStationCodes = _resolveEssquareStationCodes(customer);
+          const allJusho = _resolveEssquareJushoList(customer);
+          const STA_CHUNK = 49, JUSHO_CHUNK = 50;
+          const stationChunks = allStationCodes.length > STA_CHUNK
+            ? Array.from({ length: Math.ceil(allStationCodes.length / STA_CHUNK) }, (_, i) => allStationCodes.slice(i * STA_CHUNK, i * STA_CHUNK + STA_CHUNK))
+            : [allStationCodes.length > 0 ? allStationCodes : null];
+          const jushoChunks = allJusho.length > 0
+            ? Array.from({ length: Math.ceil(allJusho.length / JUSHO_CHUNK) }, (_, i) => allJusho.slice(i * JUSHO_CHUNK, i * JUSHO_CHUNK + JUSHO_CHUNK))
+            : [null];
+          let tabCount = 0;
+          const totalChunks = stationChunks.length * jushoChunks.length;
+          for (const staChunk of stationChunks) {
+            for (const jushoChunk of jushoChunks) {
+              tabCount++;
+              const url = buildEssquareSearchUrl(customer, 1, jushoChunk, staChunk);
+              await chrome.tabs.create({ url, active: tabCount === totalChunks });
+            }
+          }
+          await setStorageData({ debugLog: `[検索ページ] ${customer.name}: いい生活 ${tabCount}タブ` });
+          sendResponse({ ok: true, batches: tabCount });
 
         } else if (service === 'reins') {
-          // REINS: 既存タブまたは新タブで検索フォームを開き、条件を注入
-          let reinsTab = null;
-          const existingTabs = await chrome.tabs.query({ url: 'https://system.reins.jp/*' });
-          if (existingTabs.length > 0) {
-            reinsTab = existingTabs[0];
-            await chrome.tabs.update(reinsTab.id, { active: true });
-          } else {
-            reinsTab = await chrome.tabs.create({ url: 'https://system.reins.jp/main/BK/GBK001310', active: true });
-          }
-          await waitForTabLoad(reinsTab.id);
-
-          // 検索フォームへ遷移
-          await chrome.scripting.executeScript({
-            target: { tabId: reinsTab.id }, world: 'MAIN',
-            func: () => {
-              const nuxt = window.$nuxt;
-              if (!nuxt) return;
-              if (nuxt.$route?.path !== '/main/BK/GBK001310') {
-                nuxt.$router.push('/main/BK/GBK001310');
-              }
-              nuxt.refresh();
+          // REINS: バッチ分割対応（沿線3本・市区町村3つまで/1タブ）
+          const CIRCULAR_LINE_KEYWORDS = ['山手線', '大江戸線'];
+          const rwsRaw = customer.routes_with_stations || [];
+          const rws = [];
+          for (const r of rwsRaw) {
+            const isCircular = CIRCULAR_LINE_KEYWORDS.some(kw => (r.route || '').includes(kw));
+            if (isCircular && r.stations && r.stations.length > 1) {
+              for (const st of r.stations) rws.push({ route: r.route, stations: [st] });
+            } else {
+              rws.push(r);
             }
-          });
-
-          const formReady = await waitForDomReady(reinsTab.id, '.p-textbox-input', { timeout: 30000 });
-          if (!formReady.found) {
-            sendResponse({ ok: false, error: 'REINS検索フォームが見つかりません（ログインしていますか？）' });
-            return;
           }
+          const cities = customer.cities || [];
+          const rwsChunks = rws.length > 0
+            ? Array.from({ length: Math.ceil(rws.length / 3) }, (_, i) => rws.slice(i * 3, i * 3 + 3))
+            : [[]];
+          const cityChunks = cities.length > 0
+            ? Array.from({ length: Math.ceil(cities.length / 3) }, (_, i) => cities.slice(i * 3, i * 3 + 3))
+            : [[]];
+          const totalBatches = rwsChunks.length * cityChunks.length;
 
-          // 条件注入
           const lineNameMap = await loadLineNameMap();
           const reinsCodeMap = await loadReinsCodeMap();
-          const stationStr = buildStationString(customer);
           const btModeFresh = await new Promise(r => chrome.storage.local.get(['btMode'], d => r(d.btMode || 'alert')));
-          const criteriaArgs = [stationStr, {
-            rent_max: customer.rent_max, layouts: customer.layouts || [],
-            area_min: customer.area_min || '', building_age: customer.building_age || '',
-            equipment: customer.equipment || '', stations: customer.stations || [],
-            routes_with_stations: customer.routes_with_stations || [],
-            walk: customer.walk || '', cities: customer.cities || [],
-            prefecture: customer.prefecture || '東京都'
-          }, lineNameMap, reinsCodeMap, btModeFresh];
+          let batchIdx = 0;
+          let lastError = null;
 
-          await waitForDomReady(reinsTab.id, '.p-textbox-input', { timeout: 15000 });
-          const setResult = await chrome.scripting.executeScript({
-            target: { tabId: reinsTab.id }, world: 'MAIN',
-            func: __reinsCriteriaFunc, args: criteriaArgs
-          });
+          for (const rwsChunk of rwsChunks) {
+            for (const cityChunk of cityChunks) {
+              batchIdx++;
+              const batchCustomer = {
+                ...customer,
+                routes_with_stations: rwsChunk,
+                stations: rwsChunk.flatMap(r => r.stations || []),
+                cities: cityChunk,
+              };
+              const batchLabel = totalBatches > 1 ? ` (${batchIdx}/${totalBatches})` : '';
 
-          const setStatus = setResult?.[0]?.result;
-          if (setStatus?.success) {
-            await chrome.windows.update(reinsTab.windowId, { focused: true });
-            await setStorageData({ debugLog: `[検索ページ] ${customer.name}: REINS フォーム入力完了` });
-            sendResponse({ ok: true });
+              const reinsTab = await chrome.tabs.create({ url: 'https://system.reins.jp/main/BK/GBK001310', active: true });
+              await waitForTabLoad(reinsTab.id);
+
+              await chrome.scripting.executeScript({
+                target: { tabId: reinsTab.id }, world: 'MAIN',
+                func: () => {
+                  const nuxt = window.$nuxt;
+                  if (!nuxt) return;
+                  if (nuxt.$route?.path !== '/main/BK/GBK001310') nuxt.$router.push('/main/BK/GBK001310');
+                  nuxt.refresh();
+                }
+              });
+
+              const formReady = await waitForDomReady(reinsTab.id, '.p-textbox-input', { timeout: 30000 });
+              if (!formReady.found) {
+                lastError = 'REINS検索フォームが見つかりません（ログインしていますか？）';
+                await setStorageData({ debugLog: `[検索ページ] ${customer.name}: ${lastError}` });
+                break;
+              }
+
+              const stationStr = buildStationString(batchCustomer);
+              const criteriaArgs = [stationStr, {
+                rent_max: batchCustomer.rent_max, layouts: batchCustomer.layouts || [],
+                area_min: batchCustomer.area_min || '', building_age: batchCustomer.building_age || '',
+                equipment: batchCustomer.equipment || '', stations: batchCustomer.stations || [],
+                routes_with_stations: batchCustomer.routes_with_stations || [],
+                walk: batchCustomer.walk || '', cities: batchCustomer.cities || [],
+                prefecture: batchCustomer.prefecture || '東京都'
+              }, lineNameMap, reinsCodeMap, btModeFresh];
+
+              await waitForDomReady(reinsTab.id, '.p-textbox-input', { timeout: 15000 });
+              const setResult = await chrome.scripting.executeScript({
+                target: { tabId: reinsTab.id }, world: 'MAIN',
+                func: __reinsCriteriaFunc, args: criteriaArgs
+              });
+
+              const setStatus = setResult?.[0]?.result;
+              if (setStatus?.success) {
+                await setStorageData({ debugLog: `[検索ページ] ${customer.name}: REINS フォーム入力完了${batchLabel}` });
+              } else {
+                lastError = 'REINS条件セット失敗: ' + JSON.stringify(setStatus);
+                await setStorageData({ debugLog: `[検索ページ] ${customer.name}: ${lastError}` });
+              }
+            }
+            if (lastError) break;
+          }
+
+          if (lastError) {
+            sendResponse({ ok: false, error: lastError });
           } else {
-            await setStorageData({ debugLog: `[検索ページ] ${customer.name}: REINS 条件セットエラー: ${JSON.stringify(setStatus)}` });
-            sendResponse({ ok: false, error: 'REINS条件セット失敗: ' + JSON.stringify(setStatus) });
+            await setStorageData({ debugLog: `[検索ページ] ${customer.name}: REINS 全${totalBatches}バッチ完了` });
+            sendResponse({ ok: true, batches: totalBatches });
           }
         } else {
           sendResponse({ ok: false, error: '未対応サービス: ' + service });
