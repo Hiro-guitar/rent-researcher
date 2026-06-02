@@ -3089,6 +3089,7 @@ function getSeenPropertiesForResend(customerName) {
         entry.deposit = pendingProp.deposit || '';
         entry.keyMoney = pendingProp.keyMoney || '';
         entry.imageUrl = pendingProp.imageUrl || '';
+        entry.imageUrls = pendingProp.imageUrls || [];
       }
       results.push(entry);
     }

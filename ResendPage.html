@@ -53,6 +53,23 @@
     .prop-specs { display: flex; gap: 6px; flex-wrap: wrap; }
     .spec-chip { display: inline-block; padding: 2px 8px; background: #f0faf4; border-radius: 4px; font-size: 12px; color: #3d6909; font-weight: 600; white-space: nowrap; }
 
+    /* 画像ギャラリー */
+    .prop-images { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 8px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+    .prop-images::-webkit-scrollbar { height: 4px; }
+    .prop-images::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
+    .prop-images img { width: 100px; height: 70px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: #f0f0f0; cursor: pointer; }
+    .prop-images img:first-child { width: 140px; height: 100px; }
+
+    /* ライトボックス */
+    .lightbox { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: none; z-index: 200; align-items: center; justify-content: center; flex-direction: column; }
+    .lightbox.show { display: flex; }
+    .lightbox img { max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 8px; }
+    .lightbox-close { position: absolute; top: 16px; right: 20px; color: #fff; font-size: 32px; cursor: pointer; line-height: 1; }
+    .lightbox-nav { display: flex; gap: 16px; margin-top: 12px; }
+    .lightbox-nav button { background: rgba(255,255,255,0.2); border: none; color: #fff; font-size: 18px; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+    .lightbox-nav button:hover { background: rgba(255,255,255,0.35); }
+    .lightbox-counter { color: rgba(255,255,255,0.6); font-size: 13px; margin-top: 8px; }
+
     /* カード下段: 駅・住所・メタ */
     .prop-location { font-size: 12px; color: #666; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .prop-meta { display: flex; gap: 12px; font-size: 11px; color: #aaa; flex-wrap: wrap; }
@@ -136,6 +153,17 @@
   </div>
 
   <div class="toast" id="toast"></div>
+
+  <!-- ライトボックス -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
+    <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
+    <img id="lightboxImg" src="" alt="">
+    <div class="lightbox-nav">
+      <button onclick="event.stopPropagation(); lbNav(-1)">&larr; 前</button>
+      <button onclick="event.stopPropagation(); lbNav(1)">次 &rarr;</button>
+    </div>
+    <div class="lightbox-counter" id="lightboxCounter"></div>
+  </div>
 
 <script>
 var CUSTOMERS = <?!= adminCustomers ?>;
@@ -241,6 +269,15 @@ function renderCards() {
     html += '</div>';
     html += '<span class="badge ' + badgeClass + '">' + statusText + '</span>';
     html += '</div>';
+
+    // 画像ギャラリー
+    if (p.imageUrls && p.imageUrls.length > 0) {
+      html += '<div class="prop-images" onclick="event.stopPropagation()">';
+      for (var imgI = 0; imgI < p.imageUrls.length; imgI++) {
+        html += '<img src="' + _esc(p.imageUrls[imgI]) + '" alt="物件画像" loading="lazy" onclick="openLightbox(\'' + _esc(p.roomId) + '\',' + imgI + ')">';
+      }
+      html += '</div>';
+    }
 
     if (p.hasFullData) {
       // 中段: 賃料 + スペック
@@ -366,6 +403,43 @@ function showToast(msg, isError) {
   t.className = 'toast show' + (isError ? ' error' : '');
   setTimeout(function() { t.className = 'toast'; }, isError ? 10000 : 4000);
 }
+
+// ライトボックス
+var lbImages = [];
+var lbIndex = 0;
+
+function openLightbox(roomId, idx) {
+  var prop = properties.find(function(p) { return p.roomId === roomId; });
+  if (!prop || !prop.imageUrls) return;
+  lbImages = prop.imageUrls;
+  lbIndex = idx || 0;
+  showLbImage();
+  document.getElementById('lightbox').classList.add('show');
+}
+
+function closeLightbox(e) {
+  if (e && e.target !== e.currentTarget && !e.target.classList.contains('lightbox-close')) return;
+  document.getElementById('lightbox').classList.remove('show');
+}
+
+function lbNav(dir) {
+  lbIndex = (lbIndex + dir + lbImages.length) % lbImages.length;
+  showLbImage();
+}
+
+function showLbImage() {
+  document.getElementById('lightboxImg').src = lbImages[lbIndex];
+  document.getElementById('lightboxCounter').textContent = (lbIndex + 1) + ' / ' + lbImages.length;
+}
+
+// キーボードナビ
+document.addEventListener('keydown', function(e) {
+  var lb = document.getElementById('lightbox');
+  if (!lb.classList.contains('show')) return;
+  if (e.key === 'Escape') closeLightbox();
+  else if (e.key === 'ArrowLeft') lbNav(-1);
+  else if (e.key === 'ArrowRight') lbNav(1);
+});
 
 function _esc(s) {
   var d = document.createElement('div');
