@@ -3062,20 +3062,10 @@ function getSeenPropertiesForResend(customerName) {
     var data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
     var nameTrim = String(customerName).trim();
 
-    // 閲覧ログから閲覧回数を集計
-    var viewCounts = {};  // roomId -> count
-    var viewLogSheet = ss.getSheetByName(VIEW_LOG_SHEET_NAME);
-    if (viewLogSheet && viewLogSheet.getLastRow() >= 2) {
-      var vlData = viewLogSheet.getDataRange().getValues();
-      for (var vi = 1; vi < vlData.length; vi++) {
-        if (String(vlData[vi][0]).trim() !== nameTrim) continue;
-        var vRid = String(vlData[vi][1]).trim();
-        viewCounts[vRid] = (viewCounts[vRid] || 0) + 1;
-      }
-    }
-
-    // アクションログから最新のフィードバック（favorite/not_interested/clear）を取得
-    var latestActions = {};  // roomId -> { action, time }
+    // アクションログから閲覧回数・最新アクションを一括集計
+    // アクションログ: [顧客名, room_id, アクション, ...] でviewも含む
+    var viewCounts = {};   // roomId -> count
+    var latestActions = {}; // roomId -> 最新のfeedbackアクション
     var actionSheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
     if (actionSheet && actionSheet.getLastRow() >= 2) {
       var alData = actionSheet.getDataRange().getValues();
@@ -3083,10 +3073,22 @@ function getSeenPropertiesForResend(customerName) {
         if (String(alData[ai][0]).trim() !== nameTrim) continue;
         var aRid = String(alData[ai][1]).trim();
         var aType = String(alData[ai][2]).trim();
-        // view以外のアクションを記録（最後のもの＝最新）
-        if (aType && aType !== 'view') {
+        if (aType === 'view') {
+          viewCounts[aRid] = (viewCounts[aRid] || 0) + 1;
+        } else if (aType && aType !== '') {
           latestActions[aRid] = aType;
         }
+      }
+    }
+
+    // 閲覧ログからも加算（旧形式対応）
+    var viewLogSheet = ss.getSheetByName(VIEW_LOG_SHEET_NAME);
+    if (viewLogSheet && viewLogSheet.getLastRow() >= 2) {
+      var vlData = viewLogSheet.getDataRange().getValues();
+      for (var vi = 1; vi < vlData.length; vi++) {
+        if (String(vlData[vi][0]).trim() !== nameTrim) continue;
+        var vRid = String(vlData[vi][1]).trim();
+        viewCounts[vRid] = (viewCounts[vRid] || 0) + 1;
       }
     }
 
