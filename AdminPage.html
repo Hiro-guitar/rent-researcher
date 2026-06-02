@@ -758,7 +758,10 @@ input[type="range"]::-webkit-slider-thumb {
   <div class="icon">&#x2705;</div>
   <h2>保存しました</h2>
   <p id="successMessage">検索条件を保存しました。</p>
-  <button id="sendLineBtn" class="load-btn" style="margin-top:16px;background:#06C755;color:#fff;font-weight:600;" onclick="sendConditionToLine()">LINEで条件を送信</button>
+  <div style="display:flex;gap:8px;margin-top:16px;justify-content:center;flex-wrap:wrap;">
+    <button id="sendLineBtn" class="load-btn" style="background:#06C755;color:#fff;font-weight:600;" onclick="sendConditionToLine('new')">LINEで条件を送信</button>
+    <button id="sendLineChangedBtn" class="load-btn" style="background:#e67e22;color:#fff;font-weight:600;" onclick="sendConditionToLine('changed')">条件変更として送信</button>
+  </div>
   <p id="sendLineResult" style="margin-top:8px;font-size:13px;display:none;"></p>
   <button class="load-btn" style="margin-top:12px;background:#2c3e50;" onclick="resetForm()">続けて編集する</button>
 </div>
@@ -2115,10 +2118,12 @@ function submitAdminCriteria() {
     .processAdminCriteria(customerName, lineUserId, criteria);
 }
 
-function sendConditionToLine() {
+function sendConditionToLine(messageType) {
   var name = window._savedCustomerName;
   if (!name) { showAlert('顧客名が不明です。'); return; }
-  var btn = document.getElementById('sendLineBtn');
+  var isChanged = (messageType === 'changed');
+  var btn = document.getElementById(isChanged ? 'sendLineChangedBtn' : 'sendLineBtn');
+  var origText = btn.textContent;
   var result = document.getElementById('sendLineResult');
   btn.disabled = true;
   btn.textContent = '送信中...';
@@ -2127,7 +2132,7 @@ function sendConditionToLine() {
   google.script.run
     .withSuccessHandler(function(res) {
       btn.disabled = false;
-      btn.textContent = 'LINEで条件を送信';
+      btn.textContent = origText;
       result.style.display = 'block';
       if (res && res.success) {
         result.style.color = '#27ae60';
@@ -2139,12 +2144,12 @@ function sendConditionToLine() {
     })
     .withFailureHandler(function(err) {
       btn.disabled = false;
-      btn.textContent = 'LINEで条件を送信';
+      btn.textContent = origText;
       result.style.display = 'block';
       result.style.color = '#e74c3c';
       result.textContent = 'エラー: ' + (err.message || err);
     })
-    .sendConditionSummaryToLine(name);
+    .sendConditionSummaryToLine(name, messageType);
 }
 
 function resetForm() {

@@ -2945,8 +2945,10 @@ function processAdminCriteria(customerName, lineUserId, criteria) {
 /**
  * 管理者ページから顧客にLINEで検索条件サマリーを送信する。
  * google.script.run 経由で呼ばれる。
+ * @param {string} customerName
+ * @param {string} [messageType='new'] - 'new': 通常の条件送信, 'changed': 条件変更通知
  */
-function sendConditionSummaryToLine(customerName) {
+function sendConditionSummaryToLine(customerName, messageType) {
   try {
     if (!customerName) return { success: false, message: '顧客名が指定されていません。' };
 
@@ -2980,6 +2982,10 @@ function sendConditionSummaryToLine(customerName) {
 
     var summaryRows = _buildConditionSummaryRows_(state);
 
+    var isChanged = (messageType === 'changed');
+    var headerText = isChanged ? 'お探しの条件を変更しました' : 'お部屋探しの条件';
+    var headerColor = isChanged ? '#e67e22' : '#6ea814';
+
     // Flex Message を構築
     var bubble = {
       type: 'bubble',
@@ -2987,12 +2993,12 @@ function sendConditionSummaryToLine(customerName) {
       header: {
         type: 'box',
         layout: 'vertical',
-        backgroundColor: '#6ea814',
+        backgroundColor: headerColor,
         paddingAll: 'xl',
         paddingTop: 'lg',
         paddingBottom: 'lg',
         contents: [
-          { type: 'text', text: 'お部屋探しの条件', weight: 'bold', size: 'lg', color: '#ffffff', wrap: true, align: 'center' }
+          { type: 'text', text: headerText, weight: 'bold', size: 'lg', color: '#ffffff', wrap: true, align: 'center' }
         ]
       },
       body: {
@@ -3018,18 +3024,23 @@ function sendConditionSummaryToLine(customerName) {
 
     var flexMessage = {
       type: 'flex',
-      altText: customerName + ' 様のお部屋探し条件',
+      altText: isChanged ? '検索条件を変更しました' : customerName + ' 様のお部屋探し条件',
       contents: bubble
     };
 
+    var followUpText = isChanged
+      ? 'この条件で改めて物件をお探しします。\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。'
+      : 'この条件で物件をお探しします。\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。';
+
     var followUpMessage = {
       type: 'text',
-      text: 'この条件で物件をお探しします。\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。'
+      text: followUpText
     };
 
     pushMessage(lineUserId, [flexMessage, followUpMessage]);
 
-    return { success: true, message: customerName + ' にLINEで条件を送信しました。' };
+    var label = isChanged ? '条件変更通知' : '条件';
+    return { success: true, message: customerName + ' にLINEで' + label + 'を送信しました。' };
   } catch (err) {
     console.error('sendConditionSummaryToLine Error: ' + err.message);
     return { success: false, message: 'エラーが発生しました: ' + err.message };
