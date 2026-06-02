@@ -54,11 +54,10 @@
     .spec-chip { display: inline-block; padding: 2px 8px; background: #f0faf4; border-radius: 4px; font-size: 12px; color: #3d6909; font-weight: 600; white-space: nowrap; }
 
     /* 画像ギャラリー */
-    .prop-images { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 8px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+    .prop-images { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; padding-bottom: 4px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
     .prop-images::-webkit-scrollbar { height: 4px; }
     .prop-images::-webkit-scrollbar-thumb { background: #ddd; border-radius: 2px; }
-    .prop-images img { width: 100px; height: 70px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: #f0f0f0; cursor: pointer; }
-    .prop-images img:first-child { width: 140px; height: 100px; }
+    .prop-images img { height: 180px; width: auto; object-fit: contain; border-radius: 6px; flex-shrink: 0; background: #f5f5f5; }
 
     /* ライトボックス */
     .lightbox { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: none; z-index: 200; align-items: center; justify-content: center; flex-direction: column; }
