@@ -9,44 +9,75 @@
     .header { background: #2e7d32; color: #fff; padding: 16px 24px; position: sticky; top: 0; z-index: 10; }
     .header h1 { font-size: 18px; font-weight: 600; }
     .header p { font-size: 12px; opacity: 0.8; margin-top: 4px; }
-    .container { max-width: 900px; margin: 0 auto; padding: 16px; }
-    .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 16px; margin-bottom: 16px; }
-    .card h2 { font-size: 14px; color: #666; margin-bottom: 12px; }
+    .container { max-width: 960px; margin: 0 auto; padding: 16px; }
+    .section-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 16px; margin-bottom: 16px; }
+    .section-card h2 { font-size: 14px; color: #666; margin-bottom: 12px; }
     select, button { font-family: inherit; font-size: 14px; }
     select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; background: #fff; }
     .btn { padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
     .btn-primary { background: #2e7d32; color: #fff; }
     .btn-primary:hover { background: #1b5e20; }
     .btn-primary:disabled { background: #aaa; cursor: not-allowed; }
-    .btn-sm { padding: 4px 10px; font-size: 12px; }
-    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; border: 1px solid #ddd; border-radius: 4px; background: #fff; cursor: pointer; }
+    .btn-sm:hover { background: #f0f0f0; }
+    .btn-sm.active { background: #2e7d32; color: #fff; border-color: #2e7d32; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
     .toolbar .spacer { flex: 1; }
     .count { font-size: 13px; color: #888; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; padding: 8px; border-bottom: 2px solid #eee; color: #888; font-weight: 500; font-size: 12px; }
-    td { padding: 8px; border-bottom: 1px solid #f0f0f0; }
-    tr:hover td { background: #f9f9f9; }
-    tr.selected td { background: #e8f5e9; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+
+    /* 物件カード */
+    .prop-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    .prop-card { background: #fff; border: 2px solid #e8e8e8; border-radius: 10px; padding: 0; overflow: hidden; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+    .prop-card:hover { border-color: #bbb; }
+    .prop-card.selected { border-color: #2e7d32; box-shadow: 0 0 0 1px #2e7d32; }
+    .prop-card-inner { display: flex; gap: 0; }
+    .prop-check { display: flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; background: #fafafa; border-right: 1px solid #eee; }
+    .prop-check input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: #2e7d32; }
+    .prop-body { flex: 1; padding: 12px 16px; min-width: 0; }
+
+    /* カード上段: 名前 + ステータス */
+    .prop-top { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+    .prop-name { font-size: 15px; font-weight: 600; color: #1a1a1a; flex: 1; line-height: 1.3; }
+    .prop-room { font-weight: 400; color: #666; font-size: 13px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
     .badge-available { background: #e8f5e9; color: #2e7d32; }
     .badge-needs { background: #fff3e0; color: #e65100; }
     .badge-reins { background: #e3f2fd; color: #1565c0; }
     .badge-unknown { background: #f5f5f5; color: #888; }
-    .source-tag { font-size: 11px; color: #888; }
-    .no-data { color: #ccc; font-size: 11px; }
+
+    /* カード中段: 賃料 + 物件スペック */
+    .prop-main { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+    .prop-rent { font-size: 20px; font-weight: 700; color: #E05252; white-space: nowrap; }
+    .prop-rent small { font-size: 12px; font-weight: 400; color: #999; }
+    .prop-mgmt { font-size: 12px; color: #888; white-space: nowrap; }
+    .prop-specs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .spec-chip { display: inline-block; padding: 2px 8px; background: #f0faf4; border-radius: 4px; font-size: 12px; color: #3d6909; font-weight: 600; white-space: nowrap; }
+
+    /* カード下段: 駅・住所・メタ */
+    .prop-location { font-size: 12px; color: #666; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .prop-meta { display: flex; gap: 12px; font-size: 11px; color: #aaa; flex-wrap: wrap; }
+    .prop-meta span { white-space: nowrap; }
+
+    /* データなしカード */
+    .prop-nodata { padding: 12px 16px; }
+    .prop-nodata .prop-name { margin-bottom: 4px; }
+    .prop-nodata-msg { font-size: 11px; color: #ccc; }
+
+    .empty-msg { text-align: center; padding: 40px; color: #aaa; }
     .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 12px 24px; border-radius: 8px; font-size: 14px; display: none; z-index: 100; max-width: 90%; white-space: pre-line; text-align: left; }
     .toast.error { background: #c62828; }
     .toast.show { display: block; animation: fadeInUp 0.3s ease; }
     @keyframes fadeInUp { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
     .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #2e7d32; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .empty-msg { text-align: center; padding: 40px; color: #aaa; }
     .confirm-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: none; z-index: 50; align-items: center; justify-content: center; }
     .confirm-overlay.show { display: flex; }
     .confirm-box { background: #fff; border-radius: 12px; padding: 24px; max-width: 400px; width: 90%; text-align: center; }
     .confirm-box h3 { margin-bottom: 8px; }
     .confirm-box p { color: #666; margin-bottom: 16px; font-size: 14px; }
     .confirm-box .btns { display: flex; gap: 12px; justify-content: center; }
+    .bottom-bar { position: sticky; bottom: 0; background: #fff; border-top: 1px solid #eee; padding: 12px 16px; display: none; z-index: 10; }
+    .bottom-bar-inner { max-width: 960px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
   </style>
 </head>
 <body>
@@ -56,40 +87,43 @@
   </div>
 
   <div class="container">
-    <!-- 顧客選択 -->
-    <div class="card">
+    <div class="section-card">
       <h2>顧客を選択</h2>
       <select id="customerSelect">
         <option value="">-- 顧客を選択 --</option>
       </select>
     </div>
 
-    <!-- 物件一覧 -->
-    <div class="card" id="propertyCard" style="display:none;">
-      <h2>通知済み物件 (募集中 / 要確認)</h2>
-      <div class="toolbar">
-        <label style="font-size:13px;cursor:pointer;">
-          <input type="checkbox" id="selectAll"> 全選択
-        </label>
-        <button class="btn btn-sm" onclick="filterStatus('')">全て</button>
-        <button class="btn btn-sm" onclick="filterStatus('available')">募集中</button>
-        <button class="btn btn-sm" onclick="filterStatus('needs_confirmation')">要確認</button>
-        <span class="spacer"></span>
-        <span class="count" id="selCount">0件選択中</span>
-      </div>
-      <div id="propertyList"></div>
-      <div style="margin-top:12px;text-align:right;">
-        <button class="btn btn-primary" id="resendBtn" disabled onclick="confirmResend()">選択した物件を再送付</button>
+    <div id="propertyCard" style="display:none;">
+      <div class="section-card">
+        <div class="toolbar">
+          <label style="font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="selectAll"> 全選択
+          </label>
+          <button class="btn-sm active" onclick="filterStatus('', this)">全て</button>
+          <button class="btn-sm" onclick="filterStatus('available', this)">募集中</button>
+          <button class="btn-sm" onclick="filterStatus('needs_confirmation', this)">要確認</button>
+          <span class="spacer"></span>
+          <span class="count" id="selCount">0件選択中</span>
+          <span class="count" id="totalCount"></span>
+        </div>
+        <div id="propertyList" class="prop-grid"></div>
       </div>
     </div>
 
-    <!-- ロード中 -->
     <div id="loading" style="display:none;text-align:center;padding:40px;">
       <span class="spinner"></span> 読み込み中...
     </div>
   </div>
 
-  <!-- 確認ダイアログ -->
+  <!-- 下部固定バー -->
+  <div class="bottom-bar" id="bottomBar">
+    <div class="bottom-bar-inner">
+      <span class="count" id="selCount2">0件選択中</span>
+      <button class="btn btn-primary" id="resendBtn" disabled onclick="confirmResend()">選択した物件を再送付</button>
+    </div>
+  </div>
+
   <div class="confirm-overlay" id="confirmOverlay">
     <div class="confirm-box">
       <h3>再送付の確認</h3>
@@ -101,7 +135,6 @@
     </div>
   </div>
 
-  <!-- トースト -->
   <div class="toast" id="toast"></div>
 
 <script>
@@ -110,7 +143,6 @@ var currentCustomer = '';
 var properties = [];
 var currentFilter = '';
 
-// 顧客セレクト初期化
 (function() {
   var sel = document.getElementById('customerSelect');
   CUSTOMERS.forEach(function(c) {
@@ -128,9 +160,11 @@ function loadProperties(customerName) {
   currentCustomer = customerName;
   if (!customerName) {
     document.getElementById('propertyCard').style.display = 'none';
+    document.getElementById('bottomBar').style.display = 'none';
     return;
   }
   document.getElementById('propertyCard').style.display = 'none';
+  document.getElementById('bottomBar').style.display = 'none';
   document.getElementById('loading').style.display = 'block';
 
   google.script.run
@@ -138,7 +172,8 @@ function loadProperties(customerName) {
       properties = data || [];
       document.getElementById('loading').style.display = 'none';
       document.getElementById('propertyCard').style.display = 'block';
-      renderTable();
+      document.getElementById('bottomBar').style.display = 'block';
+      renderCards();
     })
     .withFailureHandler(function(err) {
       document.getElementById('loading').style.display = 'none';
@@ -147,16 +182,33 @@ function loadProperties(customerName) {
     .getSeenPropertiesForResend(customerName);
 }
 
-function filterStatus(s) {
+function filterStatus(s, btn) {
   currentFilter = s;
-  renderTable();
+  var btns = document.querySelectorAll('.toolbar .btn-sm');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+  if (btn) btn.classList.add('active');
+  renderCards();
 }
 
-function renderTable() {
+function _fmtRent(val) {
+  if (!val || val === 0) return null;
+  var n = Number(val);
+  if (isNaN(n)) return null;
+  if (n >= 10000) {
+    var man = n / 10000;
+    // 整数ならそのまま、小数なら小数点以下も表示
+    return (man === Math.floor(man) ? man.toFixed(0) : man.toFixed(1)) + '万円';
+  }
+  return n.toLocaleString() + '円';
+}
+
+function renderCards() {
   var list = properties.filter(function(p) {
     if (!currentFilter) return true;
     return p.currentStatus === currentFilter;
   });
+
+  document.getElementById('totalCount').textContent = '/ ' + list.length + '件';
 
   if (list.length === 0) {
     document.getElementById('propertyList').innerHTML = '<div class="empty-msg">対象物件がありません</div>';
@@ -164,7 +216,7 @@ function renderTable() {
     return;
   }
 
-  var html = '<table><thead><tr><th style="width:32px;"></th><th>物件名</th><th>ソース</th><th>ステータス</th><th>通知日</th><th>最終確認</th></tr></thead><tbody>';
+  var html = '';
   list.forEach(function(p) {
     var badgeClass = 'badge-unknown';
     var statusText = p.currentStatus || '未確認';
@@ -176,21 +228,69 @@ function renderTable() {
 
     var srcMap = { reins: 'REINS', itandi: 'itandi', ielove: 'いえらぶ', essquare: 'いい生活' };
     var srcText = srcMap[p.source] || p.source;
-    var fullDataIcon = p.hasFullData ? '' : ' <span title="詳細データなし（テキスト送信）" style="color:#f57c00;">&#9888;</span>';
 
-    html += '<tr data-rid="' + p.roomId + '">'
-      + '<td><input type="checkbox" class="prop-cb" value="' + p.roomId + '" onchange="updateSelCount()"></td>'
-      + '<td>' + _esc(p.buildingName) + fullDataIcon + '</td>'
-      + '<td><span class="source-tag">' + _esc(srcText) + '</span></td>'
-      + '<td><span class="badge ' + badgeClass + '">' + statusText + '</span></td>'
-      + '<td>' + _esc(p.sentAt || '-') + '</td>'
-      + '<td>' + _esc(p.statusCheckedAt || '-') + '</td>'
-      + '</tr>';
+    html += '<div class="prop-card" data-rid="' + _esc(p.roomId) + '" onclick="toggleCard(this)">';
+    html += '<div class="prop-card-inner">';
+    html += '<div class="prop-check"><input type="checkbox" class="prop-cb" value="' + _esc(p.roomId) + '" onclick="event.stopPropagation()" onchange="updateSelCount()"></div>';
+    html += '<div class="prop-body">';
+
+    // 上段: 物件名 + ステータス
+    html += '<div class="prop-top">';
+    html += '<div class="prop-name">' + _esc(p.buildingName);
+    if (p.roomNumber) html += ' <span class="prop-room">' + _esc(p.roomNumber) + '</span>';
+    html += '</div>';
+    html += '<span class="badge ' + badgeClass + '">' + statusText + '</span>';
+    html += '</div>';
+
+    if (p.hasFullData) {
+      // 中段: 賃料 + スペック
+      var rentStr = _fmtRent(p.rent);
+      var mgmtStr = _fmtRent(p.managementFee);
+      html += '<div class="prop-main">';
+      if (rentStr) {
+        html += '<span class="prop-rent">' + rentStr + '<small> /月</small></span>';
+        if (mgmtStr) html += '<span class="prop-mgmt">管理費 ' + mgmtStr + '</span>';
+      }
+      html += '<div class="prop-specs">';
+      if (p.layout) html += '<span class="spec-chip">' + _esc(p.layout) + '</span>';
+      if (p.area) html += '<span class="spec-chip">' + p.area + 'm&sup2;</span>';
+      if (p.buildingAge) html += '<span class="spec-chip">' + _esc(p.buildingAge) + '</span>';
+      if (p.floor) html += '<span class="spec-chip">' + p.floor + '階</span>';
+      html += '</div>';
+      html += '</div>';
+
+      // 下段: 駅・住所
+      if (p.stationInfo) html += '<div class="prop-location">' + _esc(p.stationInfo) + '</div>';
+      else if (p.address) html += '<div class="prop-location">' + _esc(p.address) + '</div>';
+    }
+
+    // メタ情報
+    html += '<div class="prop-meta">';
+    html += '<span>' + _esc(srcText) + '</span>';
+    if (p.sentAt) html += '<span>通知: ' + _esc(p.sentAt) + '</span>';
+    if (p.statusCheckedAt) html += '<span>確認: ' + _esc(p.statusCheckedAt) + '</span>';
+    if (p.deposit || p.keyMoney) {
+      var dk = [];
+      if (p.deposit) dk.push('敷 ' + _esc(p.deposit));
+      if (p.keyMoney) dk.push('礼 ' + _esc(p.keyMoney));
+      html += '<span>' + dk.join(' / ') + '</span>';
+    }
+    html += '</div>';
+
+    html += '</div></div></div>';
   });
-  html += '</tbody></table>';
+
   document.getElementById('propertyList').innerHTML = html;
   document.getElementById('selectAll').checked = false;
   updateSelCount();
+}
+
+function toggleCard(card) {
+  var cb = card.querySelector('.prop-cb');
+  if (cb) {
+    cb.checked = !cb.checked;
+    updateSelCount();
+  }
 }
 
 document.getElementById('selectAll').addEventListener('change', function() {
@@ -208,13 +308,15 @@ function getSelectedIds() {
 
 function updateSelCount() {
   var ids = getSelectedIds();
-  document.getElementById('selCount').textContent = ids.length + '件選択中';
+  var txt = ids.length + '件選択中';
+  document.getElementById('selCount').textContent = txt;
+  document.getElementById('selCount2').textContent = txt;
   document.getElementById('resendBtn').disabled = ids.length === 0;
-  // 行ハイライト
-  var rows = document.querySelectorAll('tr[data-rid]');
-  for (var i = 0; i < rows.length; i++) {
-    var cb = rows[i].querySelector('.prop-cb');
-    rows[i].classList.toggle('selected', cb && cb.checked);
+  // カードハイライト
+  var cards = document.querySelectorAll('.prop-card');
+  for (var i = 0; i < cards.length; i++) {
+    var cb = cards[i].querySelector('.prop-cb');
+    cards[i].classList.toggle('selected', cb && cb.checked);
   }
 }
 

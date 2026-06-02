@@ -3065,8 +3065,8 @@ function getSeenPropertiesForResend(customerName) {
       // closed / applied は除外
       if (status === 'closed' || status === 'applied') continue;
       var roomId = String(data[i][1] || '').trim();
-      var hasPending = !!_getPendingPropForFlex_(nameTrim, roomId);
-      results.push({
+      var pendingProp = _getPendingPropForFlex_(nameTrim, roomId);
+      var entry = {
         roomId: roomId,
         buildingName: String(data[i][2] || ''),
         sentAt: (data[i][3] instanceof Date) ? Utilities.formatDate(data[i][3], 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : String(data[i][3] || ''),
@@ -3074,8 +3074,23 @@ function getSeenPropertiesForResend(customerName) {
         currentStatus: status,
         statusCheckedAt: (data[i][6] instanceof Date) ? Utilities.formatDate(data[i][6], 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : String(data[i][6] || ''),
         sourceRef: String(data[i][7] || ''),
-        hasFullData: hasPending
-      });
+        hasFullData: !!pendingProp
+      };
+      if (pendingProp) {
+        entry.rent = pendingProp.rent || 0;
+        entry.managementFee = pendingProp.managementFee || 0;
+        entry.layout = pendingProp.layout || '';
+        entry.area = pendingProp.area || 0;
+        entry.stationInfo = pendingProp.stationInfo || '';
+        entry.address = pendingProp.address || '';
+        entry.buildingAge = pendingProp.buildingAge || '';
+        entry.floor = pendingProp.floor || 0;
+        entry.roomNumber = pendingProp.roomNumber || '';
+        entry.deposit = pendingProp.deposit || '';
+        entry.keyMoney = pendingProp.keyMoney || '';
+        entry.imageUrl = pendingProp.imageUrl || '';
+      }
+      results.push(entry);
     }
     results.sort(function(a, b) { return (b.sentAt || '').localeCompare(a.sentAt || ''); });
     return results;
