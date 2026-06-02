@@ -2085,10 +2085,63 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             });
 
             sendResponse({ ok: true, batches: 1, filled: filledAll, stationErrors });
-          } else {
-            await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi フォーム入力完了 (${setStatus.filled.join(', ')})` });
+          }
 
-            // 検索ボタンをクリック（駅なしの場合も）
+          // ── Step 3: 所在地選択（駅がない場合、市区町村・町名で検索） ──
+          const cities = customer.cities || [];
+          const selectedTowns = customer.selectedTowns || {};
+          if (uniqueStations.length === 0 && cities.length > 0) {
+            // モーダルを開く
+            const addrOpenResult = await chrome.scripting.executeScript({
+              target: { tabId: itandiTab.id }, world: 'MAIN',
+              func: __itandiOpenAddressModal, args: []
+            });
+            const addrOpenStatus = addrOpenResult?.[0]?.result;
+            if (!addrOpenStatus?.ok) {
+              await setStorageData({ debugLog: `[検索ページ] ${customer.name}: 所在地モーダルを開けませんでした` });
+            } else {
+              await sleep(1000); // モーダル描画待ち
+
+              // 市区町村ごとに選択
+              let citiesSelected = 0;
+              let townsChecked = 0;
+              const cityErrors = [];
+              for (const city of cities) {
+                const towns = selectedTowns[city] || [];
+                const selectResult = await chrome.scripting.executeScript({
+                  target: { tabId: itandiTab.id }, world: 'MAIN',
+                  func: __itandiSelectCityAndTowns,
+                  args: [city, towns, customer.prefecture || '東京都']
+                });
+                const selectStatus = selectResult?.[0]?.result;
+                console.log(`[OPEN_SEARCH_PAGE] itandi所在地: ${city} →`, JSON.stringify(selectStatus));
+                if (selectStatus?.citySelected) {
+                  citiesSelected++;
+                  townsChecked += selectStatus.townsChecked || 0;
+                } else {
+                  cityErrors.push(city);
+                }
+                await sleep(300); // 市区町村切替の描画待ち
+              }
+
+              // 確定ボタンをクリック
+              await chrome.scripting.executeScript({
+                target: { tabId: itandiTab.id }, world: 'MAIN',
+                func: __itandiConfirmAddress, args: []
+              });
+              await sleep(500);
+
+              const addrMsg = `所在地: ${citiesSelected}/${cities.length}区` + (townsChecked > 0 ? ` (町域${townsChecked}件)` : '');
+              setStatus.filled.push(addrMsg);
+              if (cityErrors.length > 0) {
+                await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi所在地 (未検出: ${cityErrors.join(', ')})` });
+              }
+            }
+          }
+
+          // 検索ボタンをクリック
+          if (uniqueStations.length === 0) {
+            await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi フォーム入力完了 (${setStatus.filled.join(', ')})` });
             await sleep(300);
             await chrome.scripting.executeScript({
               target: { tabId: itandiTab.id }, world: 'MAIN',
@@ -2103,7 +2156,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 }
               }
             });
-
             sendResponse({ ok: true, batches: 1, filled: setStatus.filled });
           }
 
