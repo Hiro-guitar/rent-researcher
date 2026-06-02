@@ -3112,7 +3112,7 @@ function resendPropertyNotifications(customerName, roomIds) {
     console.log('[resend] roomId=' + roomId + ' prop=' + (prop ? 'found' : 'null'));
     if (prop) {
       try {
-        var plainUrl = WEBAPP_URL + '?action=property&customer=' + encodeURIComponent(customerName)
+        var plainUrl = ScriptApp.getService().getUrl() + '?action=property&customer=' + encodeURIComponent(customerName)
           + '&room_id=' + encodeURIComponent(roomId);
         var minimalUrl = buildMinimalViewUrl(customerName, roomId, prop);
         var viewUrl = (minimalUrl && minimalUrl.length <= 1000) ? minimalUrl : plainUrl;
