@@ -638,69 +638,83 @@ const __itandiSelectCityAndTowns = (cityName, towns, prefectureName) => {
         }
       }
       // 町域側の全域チェック（2番目）がチェック済みなら外す
+      var didUncheckAll = false;
       if (areaAllChecks.length >= 2 && areaAllChecks[1].checked) {
         areaAllChecks[1].closest('label').click();
+        didUncheckAll = true;
         console.log('[itandi所在地] 全域チェック解除');
       }
 
-      // 全域チェック解除後のReact再レンダリングを待つ
-      return new Promise(function(resolve) {
-        setTimeout(function() {
-          var townChecked = 0;
-          var townErrors = [];
-
-          for (var t = 0; t < towns.length; t++) {
-            var townName = towns[t];
-            var normalizedTown = _normalizeForMatch(townName);
-            var townFound = false;
-
-            // DOMを再取得（React再レンダリング後）
-            var townCheckboxes = modal.querySelectorAll('input[type="checkbox"]');
-            for (var c = 0; c < townCheckboxes.length; c++) {
-              var townLabel = townCheckboxes[c].closest('label');
-              if (!townLabel) continue;
-              var labelText = townLabel.textContent.trim();
-
-              if (labelText === normalizedTown || labelText === townName) {
-                if (!townCheckboxes[c].checked) {
-                  townLabel.click();
-                }
-                townFound = true;
-                townChecked++;
-                console.log('[itandi所在地] 町域チェック: ' + labelText);
-                break;
+      // 全域チェック解除後、チェックボックスが未チェック状態で再表示されるまでポーリング
+      // （React再レンダリングでDOM要素が差し替わる可能性があるため）
+      var waitAfterUncheck = didUncheckAll
+        ? _poll(function() {
+            var cbs = modal.querySelectorAll('input[type="checkbox"]');
+            for (var w = 0; w < cbs.length; w++) {
+              var wl = cbs[w].closest('label');
+              if (wl && wl.textContent.trim() !== '全域' && wl.textContent.trim().length > 0) {
+                return true; // 町域チェックボックスがDOM上に存在する
               }
             }
+            return false;
+          }, 5000)
+        : Promise.resolve(true);
 
-            if (!townFound) {
-              // 丁目なし町名（例: "北大塚"）→ 前方一致で全丁目チェック
-              var baseName = normalizedTown.replace(/[０-９0-9]+丁目$/, '');
-              if (baseName !== normalizedTown) {
-                townErrors.push(townName);
-                continue;
+      return waitAfterUncheck.then(function() {
+        var townChecked = 0;
+        var townErrors = [];
+
+        for (var t = 0; t < towns.length; t++) {
+          var townName = towns[t];
+          var normalizedTown = _normalizeForMatch(townName);
+          var townFound = false;
+
+          // DOMを再取得（React再レンダリング後の新しい要素を取得）
+          var townCheckboxes = modal.querySelectorAll('input[type="checkbox"]');
+          for (var c = 0; c < townCheckboxes.length; c++) {
+            var townLabel = townCheckboxes[c].closest('label');
+            if (!townLabel) continue;
+            var labelText = townLabel.textContent.trim();
+
+            if (labelText === normalizedTown || labelText === townName) {
+              if (!townCheckboxes[c].checked) {
+                townLabel.click();
               }
-              for (var d = 0; d < townCheckboxes.length; d++) {
-                var tLabel = townCheckboxes[d].closest('label');
-                if (!tLabel) continue;
-                var tText = tLabel.textContent.trim();
-                if (tText.indexOf(baseName) === 0 && tText !== '全域') {
-                  if (!townCheckboxes[d].checked) {
-                    tLabel.click();
-                  }
-                  townChecked++;
-                  console.log('[itandi所在地] 町域チェック(前方一致): ' + tText);
-                }
-              }
+              townFound = true;
+              townChecked++;
+              console.log('[itandi所在地] 町域チェック: ' + labelText);
+              break;
             }
           }
 
-          resolve({
-            ok: true,
-            citySelected: true,
-            townsChecked: townChecked,
-            townErrors: townErrors.length > 0 ? townErrors : undefined
-          });
-        }, 500); // 全域チェック解除後のReact再レンダリング待ち
+          if (!townFound) {
+            // 丁目なし町名（例: "北大塚"）→ 前方一致で全丁目チェック
+            var baseName = normalizedTown.replace(/[０-９0-9]+丁目$/, '');
+            if (baseName !== normalizedTown) {
+              townErrors.push(townName);
+              continue;
+            }
+            for (var d = 0; d < townCheckboxes.length; d++) {
+              var tLabel = townCheckboxes[d].closest('label');
+              if (!tLabel) continue;
+              var tText = tLabel.textContent.trim();
+              if (tText.indexOf(baseName) === 0 && tText !== '全域') {
+                if (!townCheckboxes[d].checked) {
+                  tLabel.click();
+                }
+                townChecked++;
+                console.log('[itandi所在地] 町域チェック(前方一致): ' + tText);
+              }
+            }
+          }
+        }
+
+        return {
+          ok: true,
+          citySelected: true,
+          townsChecked: townChecked,
+          townErrors: townErrors.length > 0 ? townErrors : undefined
+        };
       });
     });
   });
