@@ -1601,7 +1601,7 @@ function processCriteriaSelection(userId, criteria) {
       clearState(userId);
       pushMessage(userId, [
         buildConditionSummaryFlex(state, '条件を更新しました'),
-        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
+        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
       ]);
       return { success: true, message: '条件を更新しました。' };
     }
@@ -2943,6 +2943,114 @@ function processAdminCriteria(customerName, lineUserId, criteria) {
 }
 
 /**
+ * リッチな条件サマリーFlex Bubbleを構築する。
+ * 新規条件送信・条件変更通知の両方で使用。
+ * @param {Array} summaryRows - _buildConditionSummaryRows_ の戻り値
+ * @param {boolean} isChanged - 条件変更かどうか
+ * @param {string} customerName - 顧客名
+ * @returns {Object} LINE Flex Bubble オブジェクト
+ */
+function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
+  // カラーテーマ
+  var primary = isChanged ? '#e67e22' : '#1a7f37';
+  var primaryLight = isChanged ? '#fef5ec' : '#eaf7ed';
+  var primaryBorder = isChanged ? '#f5d5b0' : '#b8e0c0';
+  var accent = isChanged ? '#d35400' : '#15803d';
+
+  // ヘッダー: グラデーション風の2段構成
+  var headerTitle = isChanged ? '条件を更新しました' : 'お部屋探しの条件';
+  var headerSub = isChanged
+    ? '新しい条件でぴったりの物件をお探しします'
+    : (customerName ? customerName + ' 様の希望条件をまとめました' : 'ご希望の条件をまとめました');
+
+  var bubble = {
+    type: 'bubble',
+    size: 'mega',
+    header: {
+      type: 'box',
+      layout: 'vertical',
+      backgroundColor: primary,
+      paddingAll: 'xl',
+      paddingTop: 'xxl',
+      paddingBottom: 'xl',
+      spacing: 'sm',
+      contents: [
+        {
+          type: 'text',
+          text: headerTitle,
+          weight: 'bold',
+          size: 'xl',
+          color: '#ffffff',
+          align: 'center'
+        },
+        {
+          type: 'text',
+          text: headerSub,
+          size: 'xs',
+          color: isChanged ? '#fde8d0' : '#c6f0cd',
+          align: 'center',
+          wrap: true,
+          margin: 'sm'
+        }
+      ]
+    },
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'lg',
+      paddingAll: 'xl',
+      paddingTop: 'lg',
+      contents: [
+        // 条件カード
+        {
+          type: 'box',
+          layout: 'vertical',
+          backgroundColor: primaryLight,
+          cornerRadius: 'lg',
+          paddingAll: 'lg',
+          spacing: 'md',
+          borderColor: primaryBorder,
+          borderWidth: '1px',
+          contents: summaryRows
+        },
+        // 区切り線
+        { type: 'separator', color: '#e8e8e8', margin: 'sm' },
+        // フッターメッセージ
+        {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'xs',
+          paddingStart: 'sm',
+          paddingEnd: 'sm',
+          contents: [
+            {
+              type: 'text',
+              text: isChanged
+                ? 'この条件で改めて物件をお探しします。'
+                : 'この条件でぴったりの物件をお探しします。',
+              size: 'sm',
+              color: accent,
+              weight: 'bold',
+              wrap: true
+            },
+            {
+              type: 'text',
+              text: '条件の変更はメニューの「お部屋探しの条件を変える」からいつでもできます。',
+              size: 'xxs',
+              color: '#999999',
+              wrap: true,
+              margin: 'sm'
+            }
+          ]
+        }
+      ]
+    }
+  };
+
+  return bubble;
+}
+
+/**
  * 管理者ページから顧客にLINEで検索条件サマリーを送信する。
  * google.script.run 経由で呼ばれる。
  * @param {string} customerName
@@ -2983,44 +3091,9 @@ function sendConditionSummaryToLine(customerName, messageType) {
     var summaryRows = _buildConditionSummaryRows_(state);
 
     var isChanged = (messageType === 'changed');
-    var headerText = isChanged ? 'お探しの条件を変更しました' : 'お部屋探しの条件';
-    var headerColor = isChanged ? '#e67e22' : '#6ea814';
 
-    // Flex Message を構築
-    var bubble = {
-      type: 'bubble',
-      size: 'mega',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        backgroundColor: headerColor,
-        paddingAll: 'xl',
-        paddingTop: 'lg',
-        paddingBottom: 'lg',
-        contents: [
-          { type: 'text', text: headerText, weight: 'bold', size: 'lg', color: '#ffffff', wrap: true, align: 'center' }
-        ]
-      },
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'lg',
-        paddingAll: 'xl',
-        contents: [
-          {
-            type: 'box',
-            layout: 'vertical',
-            backgroundColor: '#f5f9ee',
-            cornerRadius: 'md',
-            paddingAll: 'lg',
-            spacing: 'lg',
-            contents: [
-              { type: 'separator', margin: 'sm', color: '#d4e7a8' }
-            ].concat(summaryRows)
-          }
-        ]
-      }
-    };
+    // リッチなFlexバブルを構築
+    var bubble = _buildRichConditionBubble_(summaryRows, isChanged, customerName);
 
     var flexMessage = {
       type: 'flex',
@@ -3028,16 +3101,7 @@ function sendConditionSummaryToLine(customerName, messageType) {
       contents: bubble
     };
 
-    var followUpText = isChanged
-      ? 'この条件で改めて物件をお探しします。\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。'
-      : 'この条件で物件をお探しします。\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。';
-
-    var followUpMessage = {
-      type: 'text',
-      text: followUpText
-    };
-
-    pushMessage(lineUserId, [flexMessage, followUpMessage]);
+    pushMessage(lineUserId, [flexMessage]);
 
     var label = isChanged ? '条件変更通知' : '条件';
     return { success: true, message: customerName + ' にLINEで' + label + 'を送信しました。' };

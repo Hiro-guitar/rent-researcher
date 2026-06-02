@@ -355,7 +355,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     clearState(userId);
     replyMessage(replyToken, [
       buildConditionSummaryFlex(state, '条件を更新しました'),
-      textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
+      textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
     ]);
     return true;
   }
@@ -380,7 +380,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       clearState(userId);
       replyMessage(replyToken, [
         buildConditionSummaryFlex(state, '条件を更新しました'),
-        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
+        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
       ]);
       return true;
     }
@@ -440,7 +440,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       clearState(userId);
       replyMessage(replyToken, [
         buildConditionSummaryFlex(state, '条件を更新しました'),
-        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
+        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
       ]);
       return true;
     }
@@ -464,7 +464,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     clearState(userId);
     replyMessage(replyToken, [
       buildConditionSummaryFlex(state, 'ご登録ありがとうございます'),
-      textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
+      textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
     ]);
     return true;
   }
@@ -727,11 +727,27 @@ function _buildConditionSummaryRows_(state) {
   function row(label, value) {
     return {
       type: 'box',
-      layout: 'vertical',
-      spacing: 'xs',
+      layout: 'horizontal',
+      spacing: 'md',
       contents: [
-        { type: 'text', text: label, size: 'xs', color: '#888888' },
-        { type: 'text', text: String(value || ''), size: 'sm', color: '#222222', wrap: true }
+        {
+          type: 'text',
+          text: label,
+          size: 'xs',
+          color: '#888888',
+          flex: 0,
+          gravity: 'top',
+          wrap: false
+        },
+        {
+          type: 'text',
+          text: String(value || ''),
+          size: 'sm',
+          color: '#222222',
+          weight: 'bold',
+          wrap: true,
+          flex: 5
+        }
       ]
     };
   }
@@ -956,46 +972,24 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
 
 /**
  * 条件サマリーの Flex Message を構築する（登録完了・条件更新時に顧客に送信）。
+ * _buildRichConditionBubble_ を使ってリッチなデザインで生成する。
  * @param {Object} state - 条件 state オブジェクト
  * @param {string} headerText - ヘッダーに表示するテキスト
  * @returns {Object} LINE Flex Message オブジェクト
  */
 function buildConditionSummaryFlex(state, headerText) {
   var summaryRows = _buildConditionSummaryRows_(state);
-  var bubble = {
-    type: 'bubble',
-    size: 'mega',
-    header: {
-      type: 'box',
-      layout: 'vertical',
-      backgroundColor: '#6ea814',
-      paddingAll: 'xl',
-      paddingTop: 'lg',
-      paddingBottom: 'lg',
-      contents: [
-        { type: 'text', text: headerText, weight: 'bold', size: 'lg', color: '#ffffff', wrap: true, align: 'center' }
-      ]
-    },
-    body: {
-      type: 'box',
-      layout: 'vertical',
-      spacing: 'lg',
-      paddingAll: 'xl',
-      contents: [
-        {
-          type: 'box',
-          layout: 'vertical',
-          backgroundColor: '#f5f9ee',
-          cornerRadius: 'md',
-          paddingAll: 'lg',
-          spacing: 'lg',
-          contents: [
-            { type: 'separator', margin: 'sm', color: '#d4e7a8' }
-          ].concat(summaryRows)
-        }
-      ]
+  // headerText に「更新」が含まれていれば条件変更扱い
+  var isChanged = /更新|変更/.test(headerText);
+  var bubble = _buildRichConditionBubble_(summaryRows, isChanged, '');
+  // ヘッダーのタイトル・サブテキストを呼び出し元に合わせて上書き
+  if (bubble.header && bubble.header.contents && bubble.header.contents.length > 0) {
+    bubble.header.contents[0].text = headerText;
+    // 新規登録の場合はサブテキストも専用の文言にする
+    if (/登録/.test(headerText) && bubble.header.contents.length > 1) {
+      bubble.header.contents[1].text = 'ぴったりの物件をお探しします';
     }
-  };
+  }
   return {
     type: 'flex',
     altText: headerText,
