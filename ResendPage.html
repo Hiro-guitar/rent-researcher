@@ -85,6 +85,13 @@
     .prop-nodata .prop-name { margin-bottom: 4px; }
     .prop-nodata-msg { font-size: 11px; color: #ccc; }
 
+    .source-link { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 4px; text-decoration: none; font-weight: 600; margin-right: 4px; }
+    .source-link:hover { opacity: 0.8; }
+    .source-link-itandi { background: #e3f2fd; color: #1565c0; }
+    .source-link-ielove { background: #fce4ec; color: #c62828; }
+    .source-link-essquare { background: #e8f5e9; color: #2e7d32; }
+    .source-link-reins { background: #f3e5f5; color: #6a1b9a; }
+
     .empty-msg { text-align: center; padding: 40px; color: #aaa; }
     .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 12px 24px; border-radius: 8px; font-size: 14px; display: none; z-index: 100; max-width: 90%; white-space: pre-line; text-align: left; }
     .toast.error { background: #c62828; }
@@ -316,6 +323,12 @@ function renderCards() {
       else if (p.address) html += '<div class="prop-location">' + _esc(p.address) + '</div>';
     }
 
+    // ソース管理ページリンク
+    var sourceLink = _buildSourceLink(p);
+    if (sourceLink) {
+      html += '<div style="margin-bottom:4px;" onclick="event.stopPropagation()">' + sourceLink + '</div>';
+    }
+
     // メタ情報
     html += '<div class="prop-meta">';
     html += '<span>' + _esc(srcText) + '</span>';
@@ -455,6 +468,23 @@ document.addEventListener('keydown', function(e) {
   else if (e.key === 'ArrowLeft') lbNav(-1);
   else if (e.key === 'ArrowRight') lbNav(1);
 });
+
+function _buildSourceLink(p) {
+  var links = [];
+  // 物件ソースの管理ページリンク
+  if (p.sourceUrl) {
+    var cls = 'source-link-' + (p.source || '');
+    var label = { itandi: 'itandi BB で開く', ielove: 'いえらぶで開く', essquare: 'いい生活で開く' }[p.source] || '管理ページを開く';
+    links.push('<a href="' + _esc(p.sourceUrl) + '" target="_blank" class="source-link ' + cls + '">' + label + '</a>');
+  }
+  if (p.reinsPropertyNumber) {
+    var cleanNum = String(p.reinsPropertyNumber).replace(/\D/g, '');
+    if (cleanNum) {
+      links.push('<a href="https://system.reins.jp/main/BK/GBK004100#bukken=' + cleanNum + '" target="_blank" class="source-link source-link-reins">REINS で開く</a>');
+    }
+  }
+  return links.join(' ');
+}
 
 function _esc(s) {
   var d = document.createElement('div');
