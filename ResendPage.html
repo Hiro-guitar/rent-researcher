@@ -44,6 +44,12 @@
     .badge-needs { background: #fff3e0; color: #e65100; }
     .badge-reins { background: #e3f2fd; color: #1565c0; }
     .badge-unknown { background: #f5f5f5; color: #888; }
+    .badge-favorite { background: #fff8e1; color: #f57f17; }
+    .badge-hold { background: #fce4ec; color: #c62828; }
+    .badge-viewing { background: #e8eaf6; color: #283593; }
+    .badge-viewed { background: #e0f2f1; color: #00695c; }
+    .badge-not-viewed { background: #fafafa; color: #bbb; border: 1px solid #eee; }
+    .action-badges { display: flex; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
 
     /* カード中段: 賃料 + 物件スペック */
     .prop-main { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
@@ -266,7 +272,17 @@ function renderCards() {
     html += '<div class="prop-name">' + _esc(p.buildingName);
     if (p.roomNumber) html += ' <span class="prop-room">' + _esc(p.roomNumber) + '</span>';
     html += '</div>';
+    html += '<div class="action-badges">';
+    if (p.favorite) html += '<span class="badge badge-favorite">お気に入り</span>';
+    if (p.hold) html += '<span class="badge badge-hold">押さえたい</span>';
+    if (p.viewing) html += '<span class="badge badge-viewing">内見希望</span>';
+    if (p.viewed) {
+      html += '<span class="badge badge-viewed">閲覧済(' + p.viewCount + '回)</span>';
+    } else {
+      html += '<span class="badge badge-not-viewed">未閲覧</span>';
+    }
     html += '<span class="badge ' + badgeClass + '">' + statusText + '</span>';
+    html += '</div>';
     html += '</div>';
 
     // 画像ギャラリー
