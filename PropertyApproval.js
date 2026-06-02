@@ -3014,6 +3014,9 @@ function _getPendingPropForFlex_(customerName, roomId) {
       try {
         var d = JSON.parse(String(data[i][9] || ''));
         // buildPropertyFlex が期待する camelCase 形式に変換
+        // 送付時に選択された画像を優先、なければ全画像にフォールバック
+        var imgs = (d.selected_image_urls && d.selected_image_urls.length > 0)
+          ? d.selected_image_urls : (d.image_urls || []);
         return {
           buildingName: d.building_name || '',
           roomNumber: d.room_number || '',
@@ -3029,8 +3032,8 @@ function _getPendingPropForFlex_(customerName, roomId) {
           address: d.address || '',
           deposit: d.deposit || '',
           keyMoney: d.key_money || '',
-          imageUrls: d.image_urls || [],
-          imageUrl: (d.image_urls && d.image_urls[0]) || ''
+          imageUrls: imgs,
+          imageUrl: imgs[0] || ''
         };
       } catch (_) { return null; }
     }
