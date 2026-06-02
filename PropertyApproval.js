@@ -3127,7 +3127,7 @@ function resendPropertyNotifications(customerName, roomIds) {
           heroImageUrls: prop.imageUrls || [],
           viewUrl: viewUrl,
           customerStations: customerStations,
-          headerTitle: '再送: 物件のご案内'
+          headerTitle: '見逃していませんか？'
         });
         // flex = { type:'flex', altText:..., contents: {type:'bubble',...} }
         flexBubbles.push(flex.contents);
@@ -3170,11 +3170,11 @@ function resendPropertyNotifications(customerName, roomIds) {
     var chunk = flexBubbles.slice(c, c + 12);
     if (chunk.length === 1) {
       // 1件だけならカルーセルにせずそのまま
-      allMessages.push({ type: 'flex', altText: '再送: 物件のご案内', contents: chunk[0] });
+      allMessages.push({ type: 'flex', altText: '見逃していませんか？', contents: chunk[0] });
     } else {
       allMessages.push({
         type: 'flex',
-        altText: '再送: 物件のご案内（' + chunk.length + '件）',
+        altText: '見逃していませんか？（' + chunk.length + '件）',
         contents: { type: 'carousel', contents: chunk }
       });
     }
