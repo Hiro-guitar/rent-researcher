@@ -3100,8 +3100,10 @@ function resendPropertyNotifications(customerName, roomIds) {
     return { ok: false, sent: 0, failed: 0, message: customerName + ' のLINEユーザーが見つかりません' };
   }
 
-  var messages = [];
+  var flexBubbles = [];   // buildPropertyFlex の bubble (contents) を集める
+  var textMessages = [];  // テキストフォールバック
   var failCount = 0;
+  var totalCount = roomIds.length;
   var errors = [];
   var customerStations = [];
   try { customerStations = _getCustomerSelectedStations_(customerName); } catch (_) {}
@@ -3127,7 +3129,8 @@ function resendPropertyNotifications(customerName, roomIds) {
           customerStations: customerStations,
           headerTitle: '再送: 物件のご案内'
         });
-        messages.push(flex);
+        // flex = { type:'flex', altText:..., contents: {type:'bubble',...} }
+        flexBubbles.push(flex.contents);
       } catch (eF) {
         console.warn('[resend] flex build failed for ' + roomId + ': ' + eF.message);
         errors.push(roomId + ': flex生成失敗 - ' + eF.message);
@@ -3149,7 +3152,7 @@ function resendPropertyNotifications(customerName, roomIds) {
             }
           }
         }
-        messages.push({ type: 'text', text: '【再送】' + bName + '\nこちらの物件は引き続き募集中です。詳細はスタッフまでお問い合わせください。' });
+        textMessages.push({ type: 'text', text: '【再送】' + bName + '\nこちらの物件は引き続き募集中です。詳細はスタッフまでお問い合わせください。' });
       } catch (eTxt) {
         errors.push(roomId + ': テキスト生成失敗 - ' + eTxt.message);
         failCount++;
@@ -3157,17 +3160,50 @@ function resendPropertyNotifications(customerName, roomIds) {
     }
   }
 
-  // LINE送信（5件ずつバッチ）
+  // LINE送信: flexバブルはカルーセルにまとめる（横スワイプ可能）
+  // カルーセルは最大12バブル。それ以上は複数カルーセルに分割。
   var sentCount = 0;
-  for (var b = 0; b < messages.length; b += 5) {
-    var batch = messages.slice(b, b + 5);
+  var allMessages = [];
+
+  // Flexバブル → カルーセル化（12件ずつ）
+  for (var c = 0; c < flexBubbles.length; c += 12) {
+    var chunk = flexBubbles.slice(c, c + 12);
+    if (chunk.length === 1) {
+      // 1件だけならカルーセルにせずそのまま
+      allMessages.push({ type: 'flex', altText: '再送: 物件のご案内', contents: chunk[0] });
+    } else {
+      allMessages.push({
+        type: 'flex',
+        altText: '再送: 物件のご案内（' + chunk.length + '件）',
+        contents: { type: 'carousel', contents: chunk }
+      });
+    }
+  }
+
+  // テキストフォールバックも追加
+  for (var t = 0; t < textMessages.length; t++) {
+    allMessages.push(textMessages[t]);
+  }
+
+  // pushMessage は1回5メッセージまで
+  for (var b = 0; b < allMessages.length; b += 5) {
+    var batch = allMessages.slice(b, b + 5);
+    // このバッチ内のFlex物件数を数える
+    var batchPropCount = 0;
+    for (var bi = 0; bi < batch.length; bi++) {
+      if (batch[bi].type === 'flex' && batch[bi].contents.type === 'carousel') {
+        batchPropCount += batch[bi].contents.contents.length;
+      } else {
+        batchPropCount += 1;
+      }
+    }
     try {
       pushMessage(lineUserId, batch);
-      sentCount += batch.length;
+      sentCount += batchPropCount;
     } catch (eP) {
       console.warn('[resend] pushMessage failed: ' + eP.message + (eP.stack ? '\n' + eP.stack : ''));
-      errors.push('LINE送信失敗 (batch ' + b + '-' + (b + batch.length - 1) + '): ' + eP.message);
-      failCount += batch.length;
+      errors.push('LINE送信失敗: ' + eP.message);
+      failCount += batchPropCount;
     }
   }
 
