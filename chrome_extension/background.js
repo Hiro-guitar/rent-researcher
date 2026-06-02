@@ -2100,9 +2100,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (!addrOpenStatus?.ok) {
               await setStorageData({ debugLog: `[検索ページ] ${customer.name}: 所在地モーダルを開けませんでした` });
             } else {
-              await sleep(1000); // モーダル描画待ち
+              // モーダルの描画を待つ
+              await waitForDomReady(itandiTab.id, '.itandi-bb-ui__ModalBody', { timeout: 5000 });
+              await sleep(500);
 
-              // 市区町村ごとに選択
+              // 市区町村ごとに選択（__itandiSelectCityAndTowns内部でポーリング待ちするので追加sleep不要）
               let citiesSelected = 0;
               let townsChecked = 0;
               const cityErrors = [];
@@ -2119,9 +2121,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                   citiesSelected++;
                   townsChecked += selectStatus.townsChecked || 0;
                 } else {
-                  cityErrors.push(city);
+                  cityErrors.push(city + ': ' + (selectStatus?.error || '不明'));
                 }
-                await sleep(300); // 市区町村切替の描画待ち
               }
 
               // 確定ボタンをクリック

@@ -556,85 +556,105 @@ const __itandiSelectCityAndTowns = (cityName, towns, prefectureName) => {
     return Promise.resolve({ ok: false, citySelected: false, townsChecked: 0, error: '都道府県が見つかりません: ' + prefectureName });
   }
 
-  // ── Step 2: 市区町村を選択 ──
-  return new Promise(function(resolve) {
-    // 都道府県選択後の描画待ち
-    setTimeout(function() {
-      var allRadios = modal.querySelectorAll('input[type="radio"]:not([name="prefectureId"])');
-      var cityFound = false;
+  // ── ポーリングヘルパー（条件を満たすまで待つ、最大 maxMs） ──
+  var _poll = function(checkFn, maxMs) {
+    return new Promise(function(resolve) {
+      var interval = 200;
+      var elapsed = 0;
+      var timer = setInterval(function() {
+        elapsed += interval;
+        var result = checkFn();
+        if (result || elapsed >= maxMs) {
+          clearInterval(timer);
+          resolve(result);
+        }
+      }, interval);
+    });
+  };
 
-      for (var i = 0; i < allRadios.length; i++) {
-        var cityLabel = allRadios[i].closest('label');
-        if (cityLabel && cityLabel.textContent.trim() === cityName) {
-          cityLabel.click();
-          console.log('[itandi所在地] 市区町村選択: ' + cityName);
-          cityFound = true;
-          break;
+  // ── 町名の正規化: 漢数字→全角数字丁目 ──
+  var _normalizeForMatch = function(text) {
+    var kanjiMap = { '一': '１', '二': '２', '三': '３', '四': '４', '五': '５',
+                    '六': '６', '七': '７', '八': '８', '九': '９', '十': '１０' };
+    return text.replace(/([一二三四五六七八九十]+)丁目/, function(_, k) {
+      var num = 0;
+      for (var n = 0; n < k.length; n++) {
+        if (k[n] === '十') { num = num === 0 ? 10 : num * 10; }
+        else { num += parseInt(kanjiMap[k[n]]) || 0; }
+      }
+      var fullwidth = String(num).replace(/[0-9]/g, function(c) {
+        return String.fromCharCode(c.charCodeAt(0) + 0xFEE0);
+      });
+      return fullwidth + '丁目';
+    });
+  };
+
+  // ── Step 2: 市区町村ラジオが表示されるまで待つ → 選択 ──
+  return _poll(function() {
+    var radios = modal.querySelectorAll('input[type="radio"]:not([name="prefectureId"])');
+    return radios.length > 0;
+  }, 5000).then(function(found) {
+    if (!found) return { ok: false, citySelected: false, townsChecked: 0, error: '市区町村リストが表示されませんでした' };
+
+    var allRadios = modal.querySelectorAll('input[type="radio"]:not([name="prefectureId"])');
+    var cityFound = false;
+    for (var i = 0; i < allRadios.length; i++) {
+      var cityLabel = allRadios[i].closest('label');
+      if (cityLabel && cityLabel.textContent.trim() === cityName) {
+        cityLabel.click();
+        console.log('[itandi所在地] 市区町村選択: ' + cityName);
+        cityFound = true;
+        break;
+      }
+    }
+    if (!cityFound) return { ok: true, citySelected: false, townsChecked: 0, error: '市区町村が見つかりません: ' + cityName };
+
+    // 町域選択がない場合（全域）→ そのまま完了
+    if (!towns || towns.length === 0) {
+      return { ok: true, citySelected: true, townsChecked: 0, allArea: true };
+    }
+
+    // ── Step 3: 町域チェックボックスが表示されるまでポーリング（API読み込み待ち） ──
+    return _poll(function() {
+      var checks = modal.querySelectorAll('input[type="checkbox"]');
+      var townCount = 0;
+      for (var j = 0; j < checks.length; j++) {
+        var lbl = checks[j].closest('label');
+        if (lbl && lbl.textContent.trim() !== '全域') townCount++;
+      }
+      return townCount > 0;
+    }, 10000).then(function(townsLoaded) {
+      if (!townsLoaded) return { ok: true, citySelected: true, townsChecked: 0, error: '町域データのロードがタイムアウトしました' };
+
+      console.log('[itandi所在地] 町域データ表示完了');
+
+      // 「全域」チェックを外す（個別選択のため）
+      var allChecks = modal.querySelectorAll('input[type="checkbox"]');
+      var areaAllChecks = [];
+      for (var a = 0; a < allChecks.length; a++) {
+        var aLabel = allChecks[a].closest('label');
+        if (aLabel && aLabel.textContent.trim() === '全域') {
+          areaAllChecks.push(allChecks[a]);
         }
       }
-
-      if (!cityFound) {
-        resolve({ ok: true, citySelected: false, townsChecked: 0, error: '市区町村が見つかりません: ' + cityName });
-        return;
+      // 町域側の全域チェック（2番目）がチェック済みなら外す
+      if (areaAllChecks.length >= 2 && areaAllChecks[1].checked) {
+        areaAllChecks[1].closest('label').click();
+        console.log('[itandi所在地] 全域チェック解除');
       }
 
-      // 町域選択がない場合（全域）→ そのまま完了
-      if (!towns || towns.length === 0) {
-        resolve({ ok: true, citySelected: true, townsChecked: 0, allArea: true });
-        return;
-      }
-
-      // ── Step 3: 町域・丁目を選択（描画待ち後） ──
-      setTimeout(function() {
-        // 「全域」チェックを外す（個別選択のため）
-        var allChecks = modal.querySelectorAll('input[type="checkbox"]');
-        // 町域側の「全域」チェックボックス（2番目の「全域」= 町域カラム側）
-        var areaAllChecks = [];
-        for (var a = 0; a < allChecks.length; a++) {
-          var aLabel = allChecks[a].closest('label');
-          if (aLabel && aLabel.textContent.trim() === '全域') {
-            areaAllChecks.push(allChecks[a]);
-          }
-        }
-        // 町域側の全域チェック（2番目）がチェック済みなら外す
-        if (areaAllChecks.length >= 2 && areaAllChecks[1].checked) {
-          areaAllChecks[1].closest('label').click();
-          console.log('[itandi所在地] 全域チェック解除');
-        }
-
-        // 町域をチェック
+      // 全域チェック解除後のReact再レンダリングを待つ
+      return new Promise(function(resolve) {
         setTimeout(function() {
           var townChecked = 0;
           var townErrors = [];
 
-          // 町名の正規化: 漢数字→アラビア数字、丁目をN丁目に統一
-          var normalizeForMatch = function(text) {
-            var kanjiMap = { '一': '１', '二': '２', '三': '３', '四': '４', '五': '５',
-                            '六': '６', '七': '７', '八': '８', '九': '９', '十': '１０' };
-            var result = text;
-            // 漢数字丁目を全角数字丁目に変換
-            result = result.replace(/([一二三四五六七八九十]+)丁目/, function(_, k) {
-              var num = 0;
-              for (var n = 0; n < k.length; n++) {
-                if (k[n] === '十') { num = num === 0 ? 10 : num * 10; }
-                else { num += parseInt(kanjiMap[k[n]]) || 0; }
-              }
-              // 全角数字に変換
-              var fullwidth = String(num).replace(/[0-9]/g, function(c) {
-                return String.fromCharCode(c.charCodeAt(0) + 0xFEE0);
-              });
-              return fullwidth + '丁目';
-            });
-            return result;
-          };
-
           for (var t = 0; t < towns.length; t++) {
             var townName = towns[t];
-            var normalizedTown = normalizeForMatch(townName);
+            var normalizedTown = _normalizeForMatch(townName);
             var townFound = false;
 
-            // 丁目指定がある場合（例: "北大塚二丁目" → "北大塚２丁目"）
-            // → 完全一致でチェック
+            // DOMを再取得（React再レンダリング後）
             var townCheckboxes = modal.querySelectorAll('input[type="checkbox"]');
             for (var c = 0; c < townCheckboxes.length; c++) {
               var townLabel = townCheckboxes[c].closest('label');
@@ -656,11 +676,9 @@ const __itandiSelectCityAndTowns = (cityName, towns, prefectureName) => {
               // 丁目なし町名（例: "北大塚"）→ 前方一致で全丁目チェック
               var baseName = normalizedTown.replace(/[０-９0-9]+丁目$/, '');
               if (baseName !== normalizedTown) {
-                // 丁目付きだが見つからなかった
                 townErrors.push(townName);
                 continue;
               }
-              // 町名のみ指定 → その町名で始まるすべての丁目をチェック
               for (var d = 0; d < townCheckboxes.length; d++) {
                 var tLabel = townCheckboxes[d].closest('label');
                 if (!tLabel) continue;
@@ -682,9 +700,9 @@ const __itandiSelectCityAndTowns = (cityName, towns, prefectureName) => {
             townsChecked: townChecked,
             townErrors: townErrors.length > 0 ? townErrors : undefined
           });
-        }, 300); // 全域チェック解除後の描画待ち
-      }, 500); // 市区町村選択後の描画待ち
-    }, 500); // 都道府県選択後の描画待ち
+        }, 500); // 全域チェック解除後のReact再レンダリング待ち
+      });
+    });
   });
 };
 
