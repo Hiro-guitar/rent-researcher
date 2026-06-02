@@ -34,7 +34,7 @@
     .badge-unknown { background: #f5f5f5; color: #888; }
     .source-tag { font-size: 11px; color: #888; }
     .no-data { color: #ccc; font-size: 11px; }
-    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 12px 24px; border-radius: 8px; font-size: 14px; display: none; z-index: 100; }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 12px 24px; border-radius: 8px; font-size: 14px; display: none; z-index: 100; max-width: 90%; white-space: pre-line; text-align: left; }
     .toast.error { background: #c62828; }
     .toast.show { display: block; animation: fadeInUp 0.3s ease; }
     @keyframes fadeInUp { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
@@ -243,7 +243,11 @@ function executeResend() {
       if (result && result.ok) {
         showToast(result.message);
       } else {
-        showToast(result ? result.message : '送信に失敗しました', true);
+        var msg = result ? result.message : '送信に失敗しました';
+        if (result && result.errors && result.errors.length > 0) {
+          msg += '\n' + result.errors.join('\n');
+        }
+        showToast(msg, true);
       }
     })
     .withFailureHandler(function(err) {
@@ -258,7 +262,7 @@ function showToast(msg, isError) {
   var t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show' + (isError ? ' error' : '');
-  setTimeout(function() { t.className = 'toast'; }, 4000);
+  setTimeout(function() { t.className = 'toast'; }, isError ? 10000 : 4000);
 }
 
 function _esc(s) {

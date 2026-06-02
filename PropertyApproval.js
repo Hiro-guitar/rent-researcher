@@ -3102,12 +3102,14 @@ function resendPropertyNotifications(customerName, roomIds) {
 
   var messages = [];
   var failCount = 0;
+  var errors = [];
   var customerStations = [];
   try { customerStations = _getCustomerSelectedStations_(customerName); } catch (_) {}
 
   for (var i = 0; i < roomIds.length; i++) {
     var roomId = String(roomIds[i]).trim();
     var prop = _getPendingPropForFlex_(customerName, roomId);
+    console.log('[resend] roomId=' + roomId + ' prop=' + (prop ? 'found' : 'null'));
     if (prop) {
       try {
         var plainUrl = WEBAPP_URL + '?action=property&customer=' + encodeURIComponent(customerName)
@@ -3128,10 +3130,12 @@ function resendPropertyNotifications(customerName, roomIds) {
         messages.push(flex);
       } catch (eF) {
         console.warn('[resend] flex build failed for ' + roomId + ': ' + eF.message);
+        errors.push(roomId + ': flex生成失敗 - ' + eF.message);
         failCount++;
       }
     } else {
       // pendingにデータがない → 建物名だけのテキストメッセージ
+      errors.push(roomId + ': PENDINGデータなし（テキスト送信にフォールバック）');
       try {
         var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
         var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
@@ -3146,7 +3150,8 @@ function resendPropertyNotifications(customerName, roomIds) {
           }
         }
         messages.push({ type: 'text', text: '【再送】' + bName + '\nこちらの物件は引き続き募集中です。詳細はスタッフまでお問い合わせください。' });
-      } catch (_) {
+      } catch (eTxt) {
+        errors.push(roomId + ': テキスト生成失敗 - ' + eTxt.message);
         failCount++;
       }
     }
@@ -3160,7 +3165,8 @@ function resendPropertyNotifications(customerName, roomIds) {
       pushMessage(lineUserId, batch);
       sentCount += batch.length;
     } catch (eP) {
-      console.warn('[resend] pushMessage failed: ' + eP.message);
+      console.warn('[resend] pushMessage failed: ' + eP.message + (eP.stack ? '\n' + eP.stack : ''));
+      errors.push('LINE送信失敗 (batch ' + b + '-' + (b + batch.length - 1) + '): ' + eP.message);
       failCount += batch.length;
     }
   }
@@ -3169,7 +3175,8 @@ function resendPropertyNotifications(customerName, roomIds) {
     ok: sentCount > 0,
     sent: sentCount,
     failed: failCount,
-    message: sentCount + '件送信' + (failCount > 0 ? '、' + failCount + '件失敗' : '')
+    message: sentCount + '件送信' + (failCount > 0 ? '、' + failCount + '件失敗' : ''),
+    errors: errors.length > 0 ? errors : undefined
   };
 }
 
