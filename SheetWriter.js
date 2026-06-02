@@ -128,6 +128,8 @@ function writeToSheet(userId, state) {
     sheet.getRange(existingRowIndex, 27).setValue(d.move_in_strict ? 'true' : '');
     // AB列（28列目）に年齢を書き込み
     sheet.getRange(existingRowIndex, 28).setValue(d.age || '');
+    // AC列（29列目）: 条件変更時は最終REINS検索日をクリア（次回検索で全期間から検索し直す）
+    sheet.getRange(existingRowIndex, 29).setValue('');
   } else {
     // 新規顧客は末尾に追加
     sheet.appendRow(row);

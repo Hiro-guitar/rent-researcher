@@ -54,6 +54,11 @@ function doPost(e) {
       return handleAddReinsProperty(json);
     }
 
+    // --- REINS検索完了: 最終検索日を更新 ---
+    if (json.action === 'update_reins_search_date') {
+      return _handleUpdateReinsSearchDate(json);
+    }
+
     // --- 空室状況の更新 (Chrome拡張から定期/手動で呼ばれる) ---
     if (json.action === 'update_availability') {
       try {
@@ -2134,6 +2139,15 @@ function handleGetCriteria(e) {
       try { selectedTowns = JSON.parse(townsJson); } catch (e) {}
     }
 
+    // AC列(29): 最終REINS検索日 — REINS検索時の登録年月日フィルタ起点
+    var lastReinsSearch = row[28] || '';
+    var lastReinsSearchStr = '';
+    if (lastReinsSearch instanceof Date) {
+      lastReinsSearchStr = Utilities.formatDate(lastReinsSearch, 'Asia/Tokyo', 'yyyy-MM-dd');
+    } else if (lastReinsSearch) {
+      lastReinsSearchStr = String(lastReinsSearch).trim();
+    }
+
     criteria.push({
       name: name,
       cities: _splitCSV(row[3]),
@@ -2150,12 +2164,45 @@ function handleGetCriteria(e) {
       move_in_date: String(row[14] || ''),
       move_in_strict: String(row[26] || '').trim().toLowerCase() === 'true',  // AA列(27): 入居時期厳守
       notes: String(row[15] || ''),
-      selectedTowns: selectedTowns
+      selectedTowns: selectedTowns,
+      lastReinsSearch: lastReinsSearchStr
     });
   }
 
   return ContentService
     .createTextOutput(JSON.stringify({ criteria: criteria }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * POST: REINS検索完了後に顧客ごとの最終検索日をAC列(29)に記録する。
+ * Chrome拡張から各顧客のREINS検索が完了するたびに呼ばれる。
+ * @param {Object} json - { api_key, customer_name, search_date }
+ */
+function _handleUpdateReinsSearchDate(json) {
+  if (!_validateReinsApiKey(json.api_key)) {
+    return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var customerName = String(json.customer_name || '').trim();
+  if (!customerName) {
+    return ContentService.createTextOutput(JSON.stringify({ error: 'customer_name is required' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var searchDate = json.search_date || Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  var data = sheet.getDataRange().getValues();
+  var updated = false;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][1] || '').trim() === customerName) {
+      sheet.getRange(i + 1, 29).setValue(searchDate); // AC列(29)
+      updated = true;
+      break;
+    }
+  }
+  return ContentService.createTextOutput(JSON.stringify({ ok: updated, customer: customerName, date: searchDate }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
