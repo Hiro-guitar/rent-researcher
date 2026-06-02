@@ -3033,7 +3033,9 @@ function _getPendingPropForFlex_(customerName, roomId) {
           deposit: d.deposit || '',
           keyMoney: d.key_money || '',
           imageUrls: imgs,
-          imageUrl: imgs[0] || ''
+          imageUrl: imgs[0] || '',
+          url: d.url || '',
+          reinsPropertyNumber: d.reins_property_number || ''
         };
       } catch (_) { return null; }
     }
@@ -3124,6 +3126,16 @@ function getSeenPropertiesForResend(customerName) {
         entry.keyMoney = pendingProp.keyMoney || '';
         entry.imageUrl = pendingProp.imageUrl || '';
         entry.imageUrls = pendingProp.imageUrls || [];
+        entry.sourceUrl = pendingProp.url || '';
+        entry.reinsPropertyNumber = pendingProp.reinsPropertyNumber || '';
+      }
+      // sourceRefからURLをフォールバック取得（PENDINGにデータがない場合）
+      if (!entry.sourceUrl && entry.sourceRef) {
+        if (entry.sourceRef.indexOf('http') === 0) {
+          entry.sourceUrl = entry.sourceRef;
+        } else if (entry.source === 'reins' && !entry.reinsPropertyNumber) {
+          entry.reinsPropertyNumber = entry.sourceRef;
+        }
       }
       // 閲覧・アクション情報
       entry.viewCount = viewCounts[roomId] || 0;
