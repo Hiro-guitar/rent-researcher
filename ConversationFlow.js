@@ -735,7 +735,7 @@ function _buildConditionSummaryRows_(state) {
           text: label,
           size: 'xs',
           color: '#888888',
-          flex: 0,
+          flex: 3,
           gravity: 'top',
           wrap: false
         },
@@ -746,7 +746,7 @@ function _buildConditionSummaryRows_(state) {
           color: '#222222',
           weight: 'bold',
           wrap: true,
-          flex: 5
+          flex: 7
         }
       ]
     };
