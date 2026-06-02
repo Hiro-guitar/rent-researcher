@@ -3058,6 +3058,35 @@ function getSeenPropertiesForResend(customerName) {
     if (lastRow < 2) return [];
     var data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
     var nameTrim = String(customerName).trim();
+
+    // 閲覧ログから閲覧回数を集計
+    var viewCounts = {};  // roomId -> count
+    var viewLogSheet = ss.getSheetByName(VIEW_LOG_SHEET_NAME);
+    if (viewLogSheet && viewLogSheet.getLastRow() >= 2) {
+      var vlData = viewLogSheet.getDataRange().getValues();
+      for (var vi = 1; vi < vlData.length; vi++) {
+        if (String(vlData[vi][0]).trim() !== nameTrim) continue;
+        var vRid = String(vlData[vi][1]).trim();
+        viewCounts[vRid] = (viewCounts[vRid] || 0) + 1;
+      }
+    }
+
+    // アクションログから最新のフィードバック（favorite/not_interested/clear）を取得
+    var latestActions = {};  // roomId -> { action, time }
+    var actionSheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
+    if (actionSheet && actionSheet.getLastRow() >= 2) {
+      var alData = actionSheet.getDataRange().getValues();
+      for (var ai = 1; ai < alData.length; ai++) {
+        if (String(alData[ai][0]).trim() !== nameTrim) continue;
+        var aRid = String(alData[ai][1]).trim();
+        var aType = String(alData[ai][2]).trim();
+        // view以外のアクションを記録（最後のもの＝最新）
+        if (aType && aType !== 'view') {
+          latestActions[aRid] = aType;
+        }
+      }
+    }
+
     var results = [];
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][0]).trim() !== nameTrim) continue;
@@ -3091,6 +3120,15 @@ function getSeenPropertiesForResend(customerName) {
         entry.imageUrl = pendingProp.imageUrl || '';
         entry.imageUrls = pendingProp.imageUrls || [];
       }
+      // 閲覧・アクション情報
+      entry.viewCount = viewCounts[roomId] || 0;
+      entry.viewed = entry.viewCount > 0;
+      var la = latestActions[roomId] || '';
+      entry.favorite = (la === 'favorite');
+      entry.hold = (la === 'hold');
+      entry.viewing = (la === 'viewing');
+      entry.notInterested = (la === 'not_interested');
+      entry.latestAction = la;
       results.push(entry);
     }
     results.sort(function(a, b) { return (b.sentAt || '').localeCompare(a.sentAt || ''); });
