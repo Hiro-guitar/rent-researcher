@@ -758,6 +758,25 @@ input[type="range"]::-webkit-slider-thumb {
   <div class="icon">&#x2705;</div>
   <h2>保存しました</h2>
   <p id="successMessage">検索条件を保存しました。</p>
+
+  <!-- 条件プレビュー -->
+  <div id="conditionPreview" style="
+    text-align:left;
+    background:#f8f9fa;
+    border:1px solid #dee2e6;
+    border-radius:10px;
+    padding:16px 18px;
+    margin:16px auto 0;
+    max-width:480px;
+    width:100%;
+    font-size:13px;
+    line-height:1.7;
+    color:#333;
+  ">
+    <div style="font-weight:700;font-size:14px;margin-bottom:10px;color:#2c3e50;border-bottom:1px solid #dee2e6;padding-bottom:8px;">保存した条件</div>
+    <div id="conditionPreviewBody"></div>
+  </div>
+
   <div style="display:flex;gap:8px;margin-top:16px;justify-content:center;flex-wrap:wrap;">
     <button id="sendLineBtn" class="load-btn" style="background:#06C755;color:#fff;font-weight:600;" onclick="sendConditionToLine('new')">LINEで条件を送信</button>
     <button id="sendLineChangedBtn" class="load-btn" style="background:#e67e22;color:#fff;font-weight:600;" onclick="sendConditionToLine('changed')">条件変更として送信</button>
@@ -1963,6 +1982,57 @@ function updateEquipCount(catIdx) {
 }
 
 // ══════════════════════════════════════════════════════════
+//  条件プレビューHTML生成
+// ══════════════════════════════════════════════════════════
+function buildConditionPreviewHTML(c) {
+  var rows = [];
+  function row(label, value) {
+    if (!value) return;
+    rows.push('<div style="display:flex;gap:6px;margin-bottom:4px;"><span style="color:#888;white-space:nowrap;min-width:80px;">' + label + '</span><span style="font-weight:500;">' + value + '</span></div>');
+  }
+
+  // エリア
+  if (c.areaMethod === 'route') {
+    var lines = [];
+    for (var i = 0; i < (c.selectedRoutes || []).length; i++) {
+      var rn = c.selectedRoutes[i];
+      var stas = (c.selectedStations && c.selectedStations[rn]) || [];
+      lines.push(rn + '（' + stas.join('・') + '）');
+    }
+    row('沿線・駅', lines.join('<br>'));
+  } else {
+    var cityLines = [];
+    for (var i = 0; i < (c.selectedCities || []).length; i++) {
+      var cn = c.selectedCities[i];
+      var towns = (c.selectedTowns && c.selectedTowns[cn]) || [];
+      if (towns.length > 0) {
+        cityLines.push(cn + '（' + towns.join('・') + '）');
+      } else {
+        cityLines.push(cn);
+      }
+    }
+    row('エリア', cityLines.join('<br>'));
+  }
+
+  row('家賃上限', c.rentMax);
+  if (c.layouts && c.layouts.length > 0) row('間取り', c.layouts.join('、'));
+  row('徒歩', c.walkMax);
+  row('面積', c.areaMin);
+  row('築年数', c.buildingAge);
+  if (c.buildingStructures && c.buildingStructures.length > 0) row('構造', c.buildingStructures.join('、'));
+  if (c.equipment && c.equipment.length > 0) row('こだわり', c.equipment.join('、'));
+  if (c.petType) row('ペット種類', c.petType);
+  if (c.otherConditions) row('その他', c.otherConditions);
+  if (c.moveInDate) {
+    var moveInText = c.moveInDate;
+    if (c.moveInStrict) moveInText += '（厳守）';
+    row('入居時期', moveInText);
+  }
+
+  return rows.join('');
+}
+
+// ══════════════════════════════════════════════════════════
 //  管理者用送信
 // ══════════════════════════════════════════════════════════
 function submitAdminCriteria() {
@@ -2101,6 +2171,8 @@ function submitAdminCriteria() {
       document.getElementById('loading').style.display = 'none';
       if (result && result.success) {
         document.getElementById('successMessage').textContent = customerName + ' の検索条件を保存しました。';
+        // 条件プレビューを表示
+        document.getElementById('conditionPreviewBody').innerHTML = buildConditionPreviewHTML(criteria);
         document.getElementById('success').style.display = 'flex';
         // LINE送信ボタン用に顧客名を保持
         window._savedCustomerName = customerName;
