@@ -3322,12 +3322,24 @@ function sendManualPropertiesToLine(customerName, properties) {
     try {
       // 画像URLは配列に正規化（単一 imageUrl も許容）
       var heroUrls = [];
-      if (Array.isArray(prop.imageUrls)) heroUrls = prop.imageUrls;
+      if (Array.isArray(prop.imageUrls)) heroUrls = prop.imageUrls.filter(Boolean);
       else if (prop.imageUrl) heroUrls = [prop.imageUrl];
+
+      // 顧客向け詳細ページURL（通常送信と同じ form.ehomaki.com のページ）。
+      // 業者向けサイトURL（prop.url）ではなく、prop の内容をエンコードした顧客用ページ。
+      // 通常フロー（doApprove）と同じく hashUrl→minimalUrl→plainUrl の順でフォールバック。
+      var roomId = 'manual_' + (prop.source || 'x') + '_' + Date.now() + '_' + i;
+      var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
+      var hashUrl = buildViewUrl(customerName, roomId, prop, heroUrls);
+      var minimalUrl = buildMinimalViewUrl(customerName, roomId, prop);
+      var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl);
+      // 画像を property.html の非同期取得用にキャッシュ（詳細ページで全枚数表示）
+      if (heroUrls.length > 0) { try { cachePropertyImages(customerName, roomId, heroUrls, []); } catch (_e) {} }
+
       var flex = buildPropertyFlex(prop, {
         includeImage: heroUrls.length > 0,
         heroImageUrls: heroUrls,
-        viewUrl: '',  // 業者向けサイトのURLは顧客に出さない（詳細ボタンなし）
+        viewUrl: viewUrl,
         customerStations: customerStations,
         headerTitle: 'お探しの物件が見つかりました'
       });
