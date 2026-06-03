@@ -919,7 +919,7 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
     });
 
   } else {
-    bodyContents.push({ type: 'text', text: 'お部屋の条件選択', weight: 'bold', size: 'xl' });
+    bodyContents.push({ type: 'text', text: 'お部屋の条件選択', weight: 'bold', size: 'xl', wrap: true });
     bodyContents.push({
       type: 'text',
       text: '下のボタンをタップして、条件選択ページを開いてください。\n\nエリア・家賃・間取り・こだわり条件などをまとめて選択できます。',

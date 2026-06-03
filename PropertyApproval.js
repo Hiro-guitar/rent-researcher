@@ -1177,7 +1177,7 @@ function handlePropertyAction(e) {
               layout: 'vertical',
               spacing: 'md',
               contents: [
-                { type: 'text', text: '✅ お申し込み希望受付', weight: 'bold', size: 'lg', color: '#2E7D32' },
+                { type: 'text', text: '✅ お申し込み希望受付', weight: 'bold', size: 'lg', color: '#2E7D32', wrap: true },
                 { type: 'separator' },
                 { type: 'text', text: propLabel, weight: 'bold', size: 'md', wrap: true },
                 { type: 'box', layout: 'vertical', spacing: 'sm', margin: 'md', contents: [
@@ -1838,7 +1838,7 @@ function handleHelpCommand(replyToken, userId) {
         body: {
           type: 'box', layout: 'vertical', spacing: 'md',
           contents: [
-            { type: 'text', text: f.title, weight: 'bold', size: 'lg', color: '#8ec41d' },
+            { type: 'text', text: f.title, weight: 'bold', size: 'lg', color: '#8ec41d', wrap: true },
             { type: 'separator' },
             { type: 'text', text: f.desc, wrap: true, size: 'sm', color: '#555555' }
           ]
@@ -5726,7 +5726,7 @@ function buildPropertyFlex(prop, options) {
       backgroundColor: options.headerColor || '#6ea814',
       contents: [{
         type: 'text', text: options.headerTitle,
-        size: 'sm', weight: 'bold', color: '#ffffff', align: 'center'
+        size: 'sm', weight: 'bold', color: '#ffffff', align: 'center', wrap: true
       }]
     };
   }
