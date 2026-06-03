@@ -3288,6 +3288,124 @@ function resendPropertyNotifications(customerName, roomIds) {
 }
 
 /**
+ * 手動検索（Chrome拡張）で選んだ物件を、指定顧客のLINEへ直接送信する。
+ * PENDINGシートを介さず、拡張から受け取った物件データをその場でFlex化する。
+ * カルーセル化・分割送信ロジックは resendPropertyNotifications と同じ。
+ *
+ * @param {string} customerName 顧客名
+ * @param {Array<Object>} properties 正規化済み物件
+ *        （buildingName, roomNumber, rent, managementFee, deposit, keyMoney,
+ *          layout, area, buildingAge, floor, stationInfo, address,
+ *          imageUrls[], imageUrl, url, source）
+ * @return {{ok:boolean, sent:number, failed:number, message:string, errors?:string[]}}
+ */
+function sendManualPropertiesToLine(customerName, properties) {
+  if (!customerName || !Array.isArray(properties) || properties.length === 0) {
+    return { ok: false, sent: 0, failed: 0, message: 'パラメータ不足（顧客名または物件が空）' };
+  }
+  var lineUserId = findLineUserId(customerName);
+  if (!lineUserId) {
+    return { ok: false, sent: 0, failed: 0, message: customerName + ' のLINEユーザーが見つかりません' };
+  }
+
+  // お客さん希望駅（メイン路線の昇格判定に使用）
+  var customerStations = [];
+  try { customerStations = _getCustomerSelectedStations_(customerName); } catch (_) {}
+
+  var flexBubbles = [];
+  var failCount = 0;
+  var errors = [];
+
+  for (var i = 0; i < properties.length; i++) {
+    var prop = properties[i] || {};
+    if (!prop.buildingName) { errors.push((i + 1) + '件目: 物件名なしでスキップ'); failCount++; continue; }
+    try {
+      // 画像URLは配列に正規化（単一 imageUrl も許容）
+      var heroUrls = [];
+      if (Array.isArray(prop.imageUrls)) heroUrls = prop.imageUrls;
+      else if (prop.imageUrl) heroUrls = [prop.imageUrl];
+      var flex = buildPropertyFlex(prop, {
+        includeImage: heroUrls.length > 0,
+        heroImageUrls: heroUrls,
+        viewUrl: '',  // 業者向けサイトのURLは顧客に出さない（詳細ボタンなし）
+        customerStations: customerStations,
+        headerTitle: 'お探しの物件が見つかりました'
+      });
+      flexBubbles.push(flex.contents);
+    } catch (eF) {
+      errors.push((prop.buildingName || (i + 1) + '件目') + ': flex生成失敗 - ' + eF.message);
+      failCount++;
+    }
+  }
+
+  // Flexバブル → カルーセル化（最大12件/カルーセル、横スワイプ可能）
+  var allMessages = [];
+  for (var c = 0; c < flexBubbles.length; c += 12) {
+    var chunk = flexBubbles.slice(c, c + 12);
+    if (chunk.length === 1) {
+      allMessages.push({ type: 'flex', altText: 'お探しの物件が見つかりました', contents: chunk[0] });
+    } else {
+      allMessages.push({
+        type: 'flex',
+        altText: 'お探しの物件が見つかりました（' + chunk.length + '件）',
+        contents: { type: 'carousel', contents: chunk }
+      });
+    }
+  }
+
+  // pushMessage は1回5メッセージまで
+  var sentCount = 0;
+  for (var b = 0; b < allMessages.length; b += 5) {
+    var batch = allMessages.slice(b, b + 5);
+    var batchPropCount = 0;
+    for (var bi = 0; bi < batch.length; bi++) {
+      if (batch[bi].type === 'flex' && batch[bi].contents.type === 'carousel') {
+        batchPropCount += batch[bi].contents.contents.length;
+      } else {
+        batchPropCount += 1;
+      }
+    }
+    try {
+      pushMessage(lineUserId, batch);
+      sentCount += batchPropCount;
+    } catch (eP) {
+      console.warn('[manual-send] pushMessage failed: ' + eP.message);
+      errors.push('LINE送信失敗: ' + eP.message);
+      failCount += batchPropCount;
+    }
+  }
+
+  return {
+    ok: sentCount > 0,
+    sent: sentCount,
+    failed: failCount,
+    message: sentCount + '件送信' + (failCount > 0 ? '、' + failCount + '件失敗' : ''),
+    errors: errors.length > 0 ? errors : undefined
+  };
+}
+
+/**
+ * doPost: action=send_manual_properties のハンドラ。
+ * Chrome拡張の手動検索パネル（REINS・いえらぶ等）から呼ばれる。
+ *
+ * @param {Object} json { api_key, customer_name, properties[] }
+ */
+function handleSendManualProperties(json) {
+  try {
+    if (!_validateReinsApiKey(json.api_key)) {
+      return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'invalid api_key' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    var result = sendManualPropertiesToLine(json.customer_name, json.properties);
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (e) {
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: e.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+/**
  * 通知済み物件シートの J列 (10) にキャンセル通知希望時刻を記録する。
  * Chrome拡張がこのフラグを参照して、定期的にステータス変化をチェックする。
  *

@@ -59,6 +59,11 @@ function doPost(e) {
       return _handleUpdateReinsSearchDate(json);
     }
 
+    // --- 手動検索で選んだ物件を顧客LINEへ送信 (Chrome拡張パネルから) ---
+    if (json.action === 'send_manual_properties') {
+      return handleSendManualProperties(json);
+    }
+
     // --- 空室状況の更新 (Chrome拡張から定期/手動で呼ばれる) ---
     if (json.action === 'update_availability') {
       try {
