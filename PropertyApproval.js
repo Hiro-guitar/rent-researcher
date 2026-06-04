@@ -3299,6 +3299,83 @@ function resendPropertyNotifications(customerName, roomIds) {
  *          imageUrls[], imageUrl, url, source）
  * @return {{ok:boolean, sent:number, failed:number, message:string, errors?:string[]}}
  */
+/**
+ * 手動送信した物件を 承認待ち物件シート(PENDING_SHEET) と 通知済み物件シート(SEEN_SHEET) に
+ * 通常通知と同じ列構成で記録する。これにより view_api が room_id で物件を引けるようになり、
+ * 顧客向け詳細ページ(property.html)が「募集終了」にならず正しく表示される。
+ * 列構成は addTestAvailabilityProperty() と同一。
+ *
+ * @param {string} customerName
+ * @param {string} roomId   送信時に発行した一意ID（manual_<source>_<ts>_<i>）
+ * @param {Object} prop      buildPropertyFlex 互換の正規化済み物件
+ * @param {string[]} heroUrls 画像URL配列（正規化済み）
+ */
+function _recordManualPropertyRow_(customerName, roomId, prop, heroUrls) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var pendingSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!pendingSheet) throw new Error('承認待ち物件シートが見つかりません');
+  var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  var source = prop.source || '';
+  var imgs = Array.isArray(heroUrls) ? heroUrls.filter(Boolean) : [];
+  var reinsNo = prop.reins_property_number || prop.reinsPropertyNumber || '';
+
+  // J列: property_data_json（rowToProperty が snake_case で読む）
+  var dataJson = JSON.stringify({
+    url: prop.url || '',
+    source: source,
+    reins_property_number: reinsNo,
+    building_name: prop.buildingName || '',
+    room_number: prop.roomNumber || '',
+    rent: prop.rent || 0,
+    management_fee: prop.managementFee || 0,
+    layout: prop.layout || '',
+    area: prop.area || '',
+    building_age: prop.buildingAge || '',
+    floor: prop.floor || '',
+    station_info: prop.stationInfo || '',
+    address: prop.address || '',
+    deposit: prop.deposit || '',
+    key_money: prop.keyMoney || '',
+    image_urls: imgs,
+    image_url: imgs.length > 0 ? imgs[0] : (prop.imageUrl || '')
+  });
+
+  // PENDING_SHEET (14列) — status='sent' なので承認待ちキューには出ない
+  pendingSheet.appendRow([
+    customerName,                        // A 顧客名
+    'manual_building_' + roomId,         // B building_id
+    roomId,                              // C room_id
+    prop.buildingName || '',             // D 建物名
+    String(prop.rent || ''),             // E 賃料
+    String(prop.managementFee || ''),    // F 管理費
+    prop.layout || '',                   // G 間取り
+    String(prop.area || ''),             // H 面積
+    prop.stationInfo || '',              // I 駅情報
+    dataJson,                            // J property_data_json
+    'sent',                              // K status（view_api 取得可）
+    now,                                 // L created_at
+    now,                                 // M updated_at
+    ''                                   // N view_url
+  ]);
+
+  // SEEN_SHEET (8列) — 空室確認の対象にもなる
+  if (seenSheet) {
+    var sourceRef = (source === 'reins') ? reinsNo : (prop.url || '');
+    seenSheet.appendRow([
+      customerName,            // A 顧客名
+      roomId,                  // B room_id
+      prop.buildingName || '', // C 建物名
+      now,                     // D sent_at
+      source,                  // E ソース
+      '',                      // F current_status
+      '',                      // G status_checked_at
+      sourceRef                // H source_ref
+    ]);
+  }
+}
+
 function sendManualPropertiesToLine(customerName, properties) {
   if (!customerName || !Array.isArray(properties) || properties.length === 0) {
     return { ok: false, sent: 0, failed: 0, message: 'パラメータ不足（顧客名または物件が空）' };
@@ -3335,6 +3412,12 @@ function sendManualPropertiesToLine(customerName, properties) {
       var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl);
       // 画像を property.html の非同期取得用にキャッシュ（詳細ページで全枚数表示）
       if (heroUrls.length > 0) { try { cachePropertyImages(customerName, roomId, heroUrls, []); } catch (_e) {} }
+
+      // 通知済み物件/承認待ち物件シートに記録する。
+      // これがないと view_api が room_id を見つけられず、
+      // 詳細ページ(property.html)が「募集終了」になってしまう（通常通知と同じ扱いにする）。
+      try { _recordManualPropertyRow_(customerName, roomId, prop, heroUrls); }
+      catch (eRec) { errors.push((prop.buildingName || (i + 1) + '件目') + ': シート記録失敗 - ' + eRec.message); }
 
       var flex = buildPropertyFlex(prop, {
         includeImage: heroUrls.length > 0,
