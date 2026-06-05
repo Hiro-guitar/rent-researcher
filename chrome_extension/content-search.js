@@ -322,4 +322,69 @@
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
+
+  // ─────────────────────────────────────────────
+  // 手動送信パネル用アダプタ（REINS 検索結果一覧）
+  // 各物件行を buildPropertyFlex 互換の正規化オブジェクトに変換する。
+  // ─────────────────────────────────────────────
+  function buildReinsManualProp(row) {
+    const items = row.querySelectorAll(':scope > .p-table-body-item');
+    if (items.length < 20) return null;
+    const propertyNumber = getText(items[3]);
+    if (!propertyNumber) return null;
+    const buildingName = getText(items[11]);
+    if (!buildingName) return null;
+
+    // 面積・所在階は単位を除いた値だけ渡す（Flex側で「m²」「階」を付与するため）
+    const areaNum = (getText(items[5]).match(/[\d.]+/) || [''])[0];
+    const floorStr = getText(items[12]).replace(/階.*$/, '').trim();
+    const line = getText(items[18]);
+    const walk = getText(items[19]);
+    const stationInfo = [line, walk].filter(Boolean).join(' ');
+
+    return {
+      buildingName: buildingName,
+      roomNumber: '',
+      rent: parseRent(getText(items[8])),
+      managementFee: parseRent(getText(items[15])),
+      deposit: '',
+      keyMoney: '',
+      layout: normalizeLayout(getText(items[13])),
+      area: areaNum,
+      buildingAge: getText(items[26]),
+      floor: floorStr,
+      stationInfo: stationInfo,
+      address: getText(items[6]),
+      imageUrls: [],
+      imageUrl: '',
+      url: '',
+      // 空室確認の source_ref に使う（GAS側 SEEN_SHEET H列）
+      reins_property_number: propertyNumber,
+      source: 'reins'
+    };
+  }
+
+  const reinsManualAdapter = {
+    source: 'reins',
+    collect: function () {
+      const out = [];
+      document.querySelectorAll('.p-table-body-row').forEach(function (row) {
+        const prop = buildReinsManualProp(row);
+        if (prop) out.push({ rowEl: row, prop: prop });
+      });
+      return out;
+    }
+  };
+
+  // 検索結果が描画されたらパネルを初期化（REINSはVue SPAで遅延描画されるためポーリング）。
+  (function waitForReinsResults() {
+    if (window.__reinsManualInit) return;
+    if (!window.ManualSendPanel) { setTimeout(waitForReinsResults, 600); return; }
+    if (document.querySelector('.p-table-body-row')) {
+      window.__reinsManualInit = true;
+      window.ManualSendPanel.init(reinsManualAdapter);
+      return;
+    }
+    setTimeout(waitForReinsResults, 1000);
+  })();
 })();

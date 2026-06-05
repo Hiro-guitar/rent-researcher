@@ -439,17 +439,16 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       }
     }
 
-    // SUUMO巡回時の「登録年月日 N日以内」フィルタ。
-    // REINS は Vue $data 直書きで動作 (turkKkn='4' = 「日付を指定」)。
-    //   turkKkn       : '0'(指定なし) | '1'(3日以内) | '2'(1週間以内) |
-    //                   '3'(1ヶ月以内) | '4'(日付を指定) | '5'(前日) | '6'(当日)
+    // 登録年月日フィルタ（turkKkn='4' = 「日付を指定」）
     //   turkNngppFrom : 'YYYY-MM-DD' (ISO date)
     //   turkNngppTo   : 'YYYY-MM-DD'
-    //   turkNngppDisabled : Boolean (= turkKkn !== '4' 時 true)
-    // プリセット (1/2/3) と日付指定で結果同等のはずなので、任意日数対応のため
-    // 一律 turkKkn='4' (日付指定) を使用。
+    //   turkNngppDisabled : Boolean (turkKkn !== '4' 時 true)
+    //
+    // 優先度: SUUMO巡回(daysWithin) > 通常REINS検索(lastReinsSearch)
+
     if (customerData && customerData._isSuumoPatrol &&
         typeof customerData.daysWithin === 'number' && customerData.daysWithin >= 0) {
+      // SUUMO巡回: N日以内
       const __pad = (n) => String(n).padStart(2, '0');
       const __today = new Date();
       __today.setHours(0, 0, 0, 0);
@@ -459,6 +458,17 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       const __fromStr = __from.getFullYear() + '-' + __pad(__from.getMonth() + 1) + '-' + __pad(__from.getDate());
       vr.turkKkn = '4';
       vr.turkNngppFrom = __fromStr;
+      vr.turkNngppTo = __todayStr;
+      vr.turkNngppDisabled = false;
+    } else if (customerData && customerData.lastReinsSearch && /^\d{4}-\d{2}-\d{2}$/.test(customerData.lastReinsSearch)) {
+      // 通常REINS検索: 前回検索日以降の新着のみ取得（検索結果表示回数を節約）
+      // 条件変更時はGAS側でlastReinsSearchがクリアされるため、このフィルタは適用されない
+      const __pad = (n) => String(n).padStart(2, '0');
+      const __today = new Date();
+      __today.setHours(0, 0, 0, 0);
+      const __todayStr = __today.getFullYear() + '-' + __pad(__today.getMonth() + 1) + '-' + __pad(__today.getDate());
+      vr.turkKkn = '4';
+      vr.turkNngppFrom = customerData.lastReinsSearch;
       vr.turkNngppTo = __todayStr;
       vr.turkNngppDisabled = false;
     }

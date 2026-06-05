@@ -597,6 +597,27 @@ async function submitProperties(customerName, properties) {
 }
 // === END GAS API クライアント ===
 
+// === 手動検索の顧客コンテキスト（タブID → 顧客名）===
+// 手動検索機能で開いたタブの顧客名を覚えておき、手動送信パネルの顧客セレクトを
+// 自動選択するために使う。storage.session に保存し、service worker 再起動後も
+// 保持する（ブラウザを閉じると消える）。
+async function recordManualSearchCustomer(tabId, customerName) {
+  if (!tabId || !customerName) return;
+  try {
+    const { manualSearchCustomerByTab = {} } = await chrome.storage.session.get('manualSearchCustomerByTab');
+    manualSearchCustomerByTab[String(tabId)] = customerName;
+    await chrome.storage.session.set({ manualSearchCustomerByTab });
+  } catch (e) { /* session storage 不可でも致命的ではない */ }
+}
+async function getManualSearchCustomer(tabId) {
+  if (!tabId) return '';
+  try {
+    const { manualSearchCustomerByTab = {} } = await chrome.storage.session.get('manualSearchCustomerByTab');
+    return manualSearchCustomerByTab[String(tabId)] || '';
+  } catch (e) { return ''; }
+}
+// === END 手動検索の顧客コンテキスト ===
+
 // === room_id ハッシュ化（ソース・ID形式の匿名化） ===
 // 顧客向けURLにはハッシュ化したroom_idを使用し、
 // どのサイトから取得したか・IDの形式から推測されないようにする。
@@ -1066,8 +1087,8 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
   // キャンセル通知希望物件の定期巡回: 30分毎にチェック
   chrome.alarms.create('cancellation-watch-poll', { periodInMinutes: 30 });
-  // 定期空室確認: 60分毎に全通知済み物件の空室状況を更新
-  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 60 });
+  // 定期空室確認: 180分毎(3時間毎)に全通知済み物件の空室状況を更新
+  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 180 });
 });
 
 // Chrome起動時: 前回起動中に承認された取りこぼしを1回だけ処理
@@ -1082,8 +1103,8 @@ chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
   // 優先空室確認ポーリングも再セット
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
-  // 定期空室確認も再セット
-  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 60 });
+  // 定期空室確認も再セット: 180分毎(3時間毎)
+  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 180 });
 });
 
 // 入稿専用タブのクローズ検知 → suumoFillTabIdをクリア
@@ -1304,14 +1325,25 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 
   // ── 定期空室確認 (全通知済み物件の巡回) ──
-  // 60分毎に全通知済み物件の空室状況をチェック・更新。
+  // 180分(3時間)毎に全通知済み物件の空室状況をチェック・更新。
   // お客さんが物件情報を開いた時に直近の空室情報が表示される。
+  // 営業時間外 (既定 10-20時) はスキップ (顧客検索・SUUMO巡回と同じ設定を使用)。
   if (alarm.name === 'periodic-availability-check') {
-    if (typeof runPeriodicAvailabilityCheck === 'function') {
-      runPeriodicAvailabilityCheck().catch(err => {
-        console.log(`[定期空室確認] 失敗: ${err.message}`);
-      });
-    }
+    chrome.storage.local.get(['businessStartHour', 'businessEndHour'], (data) => {
+      const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
+      const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
+      const hour = new Date().getHours();
+      if (hour < startH || hour >= endH) {
+        console.log(`[定期空室確認] 営業時間外 (${hour}時) のためスキップ`);
+        setStorageData({ debugLog: `[定期空室確認] 営業時間外 (${hour}時) のためスキップ` });
+        return;
+      }
+      if (typeof runPeriodicAvailabilityCheck === 'function') {
+        runPeriodicAvailabilityCheck().catch(err => {
+          console.log(`[定期空室確認] 失敗: ${err.message}`);
+        });
+      }
+    });
   }
 });
 
@@ -1832,6 +1864,50 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // ── 検索ページを開く（AdminPage → content script → ここ） ──
+  // ── 手動送信パネル: 顧客一覧＋このタブで検索中の顧客を返す ──
+  if (msg.type === 'GET_MANUAL_SEND_CONTEXT') {
+    (async () => {
+      let customers = [];
+      let contextCustomer = '';
+      try {
+        // まずキャッシュ（customerCriteria）、なければ GAS から取得
+        const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+        let crit = cached;
+        if (!Array.isArray(crit) || crit.length === 0) {
+          const res = await fetchCriteria();
+          crit = (res && res.criteria) || [];
+        }
+        customers = Array.from(new Set(crit.map(c => c && c.name).filter(Boolean)));
+      } catch (e) {
+        await setStorageData({ debugLog: '手動送信: 顧客一覧取得失敗 ' + e.message });
+      }
+      try {
+        contextCustomer = await getManualSearchCustomer(sender.tab && sender.tab.id);
+      } catch (e) {}
+      sendResponse({ ok: true, customers, contextCustomer });
+    })();
+    return true;
+  }
+
+  // ── 手動送信パネル: 選択した物件を顧客LINEへ送信 ──
+  if (msg.type === 'SEND_MANUAL_PROPERTIES') {
+    (async () => {
+      try {
+        const resp = await gasPost({
+          action: 'send_manual_properties',
+          customer_name: msg.customerName,
+          properties: msg.properties || []
+        });
+        await setStorageData({ debugLog: `手動送信: ${msg.customerName} へ ${(resp && resp.sent) || 0}件 (${(resp && resp.message) || ''})` });
+        sendResponse(resp);
+      } catch (e) {
+        await setStorageData({ debugLog: '手動送信失敗: ' + e.message });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'OPEN_SEARCH_PAGE') {
     (async () => {
       try {
@@ -1849,13 +1925,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             : [[]];
           for (let ci = 0; ci < oazaChunks.length; ci++) {
             const url = buildIeloveSearchUrl(customer, 1, oazaChunks[ci]);
-            await chrome.tabs.create({ url, active: ci === oazaChunks.length - 1 });
+            const ieloveTab = await chrome.tabs.create({ url, active: ci === oazaChunks.length - 1 });
+            await recordManualSearchCustomer(ieloveTab.id, customer.name);
           }
           await setStorageData({ debugLog: `[検索ページ] ${customer.name}: いえらぶ ${oazaChunks.length}タブ` });
           sendResponse({ ok: true, batches: oazaChunks.length });
 
         } else if (service === 'essquare') {
-          // いい生活: 駅49件超 + 住所50件超でチャンク分割
+          // 2026-06-03: いい生活Square 恒久停止(規約違反でアカウントBAN)。
+          // 検索ページも開かない。再開はBAN逃れになるため不可。
+          await setStorageData({ debugLog: `[検索ページ] いい生活Squareは停止中のため開きません` });
+          sendResponse({ ok: false, disabled: true, error: 'ES-Square は停止中です' });
+          return;
+          // eslint-disable-next-line no-unreachable
+          // ↓ 旧ロジック（無効化済み・参考保持）
           const allStationCodes = _resolveEssquareStationCodes(customer);
           const allJusho = _resolveEssquareJushoList(customer);
           const STA_CHUNK = 49, JUSHO_CHUNK = 50;
@@ -1871,7 +1954,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             for (const jushoChunk of jushoChunks) {
               tabCount++;
               const url = buildEssquareSearchUrl(customer, 1, jushoChunk, staChunk);
-              await chrome.tabs.create({ url, active: tabCount === totalChunks });
+              const essTab = await chrome.tabs.create({ url, active: tabCount === totalChunks });
+              await recordManualSearchCustomer(essTab.id, customer.name);
             }
           }
           await setStorageData({ debugLog: `[検索ページ] ${customer.name}: いい生活 ${tabCount}タブ` });
@@ -1917,6 +2001,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               const batchLabel = totalBatches > 1 ? ` (${batchIdx}/${totalBatches})` : '';
 
               const reinsTab = await chrome.tabs.create({ url: 'https://system.reins.jp/main/BK/GBK001310', active: true });
+              await recordManualSearchCustomer(reinsTab.id, customer.name);
               await waitForTabLoad(reinsTab.id);
 
               await chrome.scripting.executeScript({
@@ -2037,20 +2122,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             await sleep(500);
 
             // 1駅ずつ検索→チェック（1回のexecuteScriptで検索+描画待ち+クリックを実行）
+            // 各駅はチェック状態を検証してから次へ進む。未チェックの駅は背景側でも数回リトライ。
             let stationsChecked = 0;
             const stationErrors = [];
             for (const stName of uniqueStations) {
-              const checkResult = await chrome.scripting.executeScript({
-                target: { tabId: itandiTab.id }, world: 'MAIN',
-                func: __itandiSelectAndCheckStation, args: [stName]
-              });
-              const checkStatus = checkResult?.[0]?.result;
-              console.log(`[OPEN_SEARCH_PAGE] itandi駅: ${stName} →`, JSON.stringify(checkStatus));
-              if (checkStatus?.checked) {
-                stationsChecked++;
-              } else {
-                stationErrors.push(stName);
+              let checked = false;
+              for (let attempt = 0; attempt < 2 && !checked; attempt++) {
+                const checkResult = await chrome.scripting.executeScript({
+                  target: { tabId: itandiTab.id }, world: 'MAIN',
+                  func: __itandiSelectAndCheckStation, args: [stName]
+                });
+                const checkStatus = checkResult?.[0]?.result;
+                console.log(`[OPEN_SEARCH_PAGE] itandi駅: ${stName} (試行${attempt + 1}) →`, JSON.stringify(checkStatus));
+                if (checkStatus?.checked) {
+                  checked = true;
+                } else if (attempt === 0) {
+                  await sleep(600); // 再試行前に少し待つ
+                }
               }
+              if (checked) stationsChecked++;
+              else stationErrors.push(stName);
+            }
+
+            // ★ 駅が1件もチェックできなかった場合は確定・検索しない。
+            //   駅フィルタなしで検索すると全件ヒットして無関係な物件が大量に出るため中止。
+            if (stationsChecked === 0) {
+              await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi 駅を1件も選択できず検索中止 (対象: ${uniqueStations.join(', ')})` });
+              sendResponse({ ok: false, error: '駅を選択できませんでした: ' + uniqueStations.join(', '), stationErrors });
+              return;
             }
 
             // 確定ボタンをクリック
@@ -2059,6 +2158,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               func: __itandiConfirmStations, args: []
             });
             await sleep(500);
+
+            // ★ 確定後にモーダルが閉じたことを確認（閉じていなければ確定が効いていない）
+            const modalClosed = await chrome.scripting.executeScript({
+              target: { tabId: itandiTab.id }, world: 'MAIN',
+              func: () => !document.querySelector('[role="dialog"]')
+            });
+            if (!modalClosed?.[0]?.result) {
+              // 再度確定を試みる
+              await chrome.scripting.executeScript({
+                target: { tabId: itandiTab.id }, world: 'MAIN',
+                func: __itandiConfirmStations, args: []
+              });
+              await sleep(500);
+            }
 
             const stationMsg = `駅: ${stationsChecked}/${uniqueStations.length}件選択`;
             const filledAll = [...(setStatus.filled || []), stationMsg];
@@ -2104,38 +2217,68 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               await waitForDomReady(itandiTab.id, '.itandi-bb-ui__ModalBody', { timeout: 5000 });
               await sleep(500);
 
-              // 市区町村ごとに選択（__itandiSelectCityAndTowns内部でポーリング待ちするので追加sleep不要）
-              let citiesSelected = 0;
-              let townsChecked = 0;
-              const cityErrors = [];
-              for (const city of cities) {
-                const towns = selectedTowns[city] || [];
-                const selectResult = await chrome.scripting.executeScript({
-                  target: { tabId: itandiTab.id }, world: 'MAIN',
-                  func: __itandiSelectCityAndTowns,
-                  args: [city, towns, customer.prefecture || '東京都']
-                });
-                const selectStatus = selectResult?.[0]?.result;
-                console.log(`[OPEN_SEARCH_PAGE] itandi所在地: ${city} →`, JSON.stringify(selectStatus));
-                if (selectStatus?.citySelected) {
-                  citiesSelected++;
-                  townsChecked += selectStatus.townsChecked || 0;
-                } else {
-                  cityErrors.push(city + ': ' + (selectStatus?.error || '不明'));
-                }
-              }
-
-              // 確定ボタンをクリック
-              await chrome.scripting.executeScript({
+              // Step 3a: 都道府県選択（同期関数）
+              const prefResult = await chrome.scripting.executeScript({
                 target: { tabId: itandiTab.id }, world: 'MAIN',
-                func: __itandiConfirmAddress, args: []
+                func: __itandiSelectPrefecture,
+                args: [customer.prefecture || '東京都']
               });
-              await sleep(500);
+              const prefStatus = prefResult?.[0]?.result;
+              console.log(`[OPEN_SEARCH_PAGE] itandi都道府県:`, JSON.stringify(prefStatus));
 
-              const addrMsg = `所在地: ${citiesSelected}/${cities.length}区` + (townsChecked > 0 ? ` (町域${townsChecked}件)` : '');
-              setStatus.filled.push(addrMsg);
-              if (cityErrors.length > 0) {
-                await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi所在地 (未検出: ${cityErrors.join(', ')})` });
+              if (prefStatus?.ok) {
+                await sleep(500);
+
+                // Step 3b: 市区町村ごとに選択
+                let citiesSelected = 0;
+                let townsChecked = 0;
+                const cityErrors = [];
+                for (const city of cities) {
+                  // 市区町村を選択（単一Promise）
+                  const cityResult = await chrome.scripting.executeScript({
+                    target: { tabId: itandiTab.id }, world: 'MAIN',
+                    func: __itandiSelectCity,
+                    args: [city]
+                  });
+                  const cityStatus = cityResult?.[0]?.result;
+                  console.log(`[OPEN_SEARCH_PAGE] itandi市区町村: ${city} →`, JSON.stringify(cityStatus));
+
+                  if (cityStatus?.citySelected) {
+                    citiesSelected++;
+
+                    // Step 3c: 町域チェック（単一Promise + ステートマシン）
+                    const townList = selectedTowns[city] || [];
+                    if (townList.length > 0) {
+                      await sleep(500); // 市区町村クリック後のAPI読み込み開始を待つ
+                      const townResult = await chrome.scripting.executeScript({
+                        target: { tabId: itandiTab.id }, world: 'MAIN',
+                        func: __itandiSelectTowns,
+                        args: [townList]
+                      });
+                      const townStatus = townResult?.[0]?.result;
+                      console.log(`[OPEN_SEARCH_PAGE] itandi町域: ${city} →`, JSON.stringify(townStatus));
+                      townsChecked += townStatus?.townsChecked || 0;
+                    }
+                  } else {
+                    cityErrors.push(city + ': ' + (cityStatus?.error || '不明'));
+                  }
+                  await sleep(300); // 次の市区町村選択前に少し待つ
+                }
+
+                // 確定ボタンをクリック
+                await chrome.scripting.executeScript({
+                  target: { tabId: itandiTab.id }, world: 'MAIN',
+                  func: __itandiConfirmAddress, args: []
+                });
+                await sleep(500);
+
+                const addrMsg = `所在地: ${citiesSelected}/${cities.length}区` + (townsChecked > 0 ? ` (町域${townsChecked}件)` : '');
+                setStatus.filled.push(addrMsg);
+                if (cityErrors.length > 0) {
+                  await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi所在地 (未検出: ${cityErrors.join(', ')})` });
+                }
+              } else {
+                await setStorageData({ debugLog: `[検索ページ] ${customer.name}: 都道府県選択失敗: ${prefStatus?.error || '不明'}` });
               }
             }
           }
@@ -2258,6 +2401,10 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   try { await setStorageData({ customerSearchPending: false }); } catch (_) {}
 
   const services = enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
+  // 2026-06-03: いい生活Square は規約違反(機械的取得=スクレイピング)でアカウントBAN。
+  // 自動化を恒久停止する。再開はBAN逃れ(さらなる違反)になるため不可。
+  // どんな設定でも essquare は走らせない（ラベル表示・早期return判定にも波及）。
+  services.essquare = false;
 
   if (!services.reins && !services.ielove && !services.itandi && !services.essquare) {
     console.log('有効なサービスがありません');
@@ -2433,7 +2580,7 @@ globalThis.runSearchCycle = async function runSearchCycle() {
         catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[itandi] 検索エラー: ' + err.message); }
       }
 
-      // --- ES-Square ---
+      // --- ES-Square (恒久停止: 2026-06-03 規約違反BANのため。services.essquare は上流で常にfalse) ---
       if (services.essquare) {
         if (isSearchCancelled(searchId)) return;
         try { await runEssquareSearch([customer], seenIds, searchId); }
@@ -2495,6 +2642,16 @@ globalThis.runSearchCycle = async function runSearchCycle() {
                 if (_batchIdx < _totalBatches) await sleep(3000);
               }
             }
+          }
+          // REINS検索成功 → 本日の日付をGASに記録（次回検索の登録年月日フィルタ起点になる）
+          try {
+            const _today = new Date();
+            const _pad = n => String(n).padStart(2, '0');
+            const _todayStr = _today.getFullYear() + '-' + _pad(_today.getMonth() + 1) + '-' + _pad(_today.getDate());
+            await gasPost({ action: 'update_reins_search_date', customer_name: customer.name, search_date: _todayStr });
+            await setStorageData({ debugLog: `[REINS] ${customer.name}: 最終検索日を更新 → ${_todayStr}` });
+          } catch (_e) {
+            logError(`[REINS] ${customer.name}: 最終検索日更新失敗: ${_e.message}`);
           }
         } catch (err) {
           if (err.message === 'SEARCH_CANCELLED') return;
@@ -2685,7 +2842,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   // SW再起動直後でもbtModeを確実に拾うためストレージから直読み
   const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'alert')));
   __btMode = __btModeFresh;
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {} }, lineNameMap, reinsCodeMap, __btModeFresh];
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '' }, lineNameMap, reinsCodeMap, __btModeFresh];
   // __reinsCriteriaFunc は reins-criteria-func.js で定義（グローバル）
   // ↓ 以前は以下にローカル関数定義があったが、reins-criteria-func.js に移動済み
   setResult = await chrome.scripting.executeScript({
@@ -5571,6 +5728,9 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     const ansiText = warnings.join('\n');
     lines.push(`\`\`\`ansi\n\u001b[0;33m${ansiText}\u001b[0m\n\`\`\``);
   }
+
+  // 管理会社（元付会社）
+  if (prop.owner_company) lines.push(`管理会社: ${prop.owner_company}`);
 
   // 広告料・現況・客付会社メッセージ
   lines.push(`広告料: ${prop.ad_fee || '-'}`);

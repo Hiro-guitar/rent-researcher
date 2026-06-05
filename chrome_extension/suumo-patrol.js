@@ -210,6 +210,9 @@ async function runSuumoPatrolCycle() {
     // 3. 有効なサービスを確認
     const { enabledServices } = await getStorageData(['enabledServices']);
     const services = enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
+    // 2026-06-03: いい生活Square は規約違反(機械的取得)でアカウントBAN。SUUMO巡回でも走らせない。
+    // 再開はBAN逃れになるため不可。
+    services.essquare = false;
 
     // 4. 各巡回条件を処理
     for (let ci = 0; ci < criteria.length; ci++) {
@@ -519,7 +522,7 @@ async function runSuumoPatrolForService(service, customer, searchId, collector) 
         await runItandiSearch([customer], seenIds, searchId);
         break;
       case 'essquare':
-        await runEssquareSearch([customer], seenIds, searchId);
+        // 2026-06-03: いい生活Square 恒久停止(規約違反BAN)。巡回でも呼ばない。
         break;
       case 'ielove':
         await runIeloveSearch([customer], seenIds, searchId);

@@ -129,7 +129,7 @@
       document.getElementById('enableReins').checked = services.reins;
       document.getElementById('enableIelove').checked = services.ielove;
       document.getElementById('enableItandi').checked = services.itandi !== false;
-      document.getElementById('enableEssquare').checked = services.essquare !== false;
+      // いい生活Square は恒久停止(2026-06-03 規約違反BAN)。UIから削除済み。
       document.getElementById('autoSearchEnabled').checked = data.autoSearchEnabled !== false;
     });
   }
@@ -139,7 +139,7 @@
       reins: document.getElementById('enableReins').checked,
       ielove: document.getElementById('enableIelove').checked,
       itandi: document.getElementById('enableItandi').checked,
-      essquare: document.getElementById('enableEssquare').checked,
+      essquare: false, // 恒久停止(2026-06-03 規約違反BAN)。常にfalseで保存。
     };
     const autoSearchEnabled = document.getElementById('autoSearchEnabled').checked;
     chrome.storage.local.set({ enabledServices, autoSearchEnabled }, callback);
@@ -231,7 +231,6 @@
   document.getElementById('enableReins').addEventListener('change', () => saveServiceSettings());
   document.getElementById('enableIelove').addEventListener('change', () => saveServiceSettings());
   document.getElementById('enableItandi').addEventListener('change', () => saveServiceSettings());
-  document.getElementById('enableEssquare').addEventListener('change', () => saveServiceSettings());
   document.getElementById('autoSearchEnabled').addEventListener('change', () => saveServiceSettings());
 
   // ── SUUMO巡回トグル ──

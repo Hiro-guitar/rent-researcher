@@ -29,7 +29,7 @@ async function checkOneAvailability(item) {
     let res;
     if (source === 'itandi')   res = await _checkItandiAvailability(url);
     else if (source === 'ielove')   res = await _checkIeloveAvailability(url);
-    else if (source === 'essquare') res = await _checkEssquareAvailability(url);
+    else if (source === 'essquare') return { status: 'unknown' }; // いい生活Square 恒久停止(2026-06-03 規約違反BAN)。空室確認でも es-square にアクセスしない。
     else if (source === 'reins')    res = await _checkReinsAvailability(item.reinsPropNo || '');
     else return { status: 'unknown' };
     // 後方互換: 文字列が返ってきた場合は status のみとして包む
@@ -578,6 +578,26 @@ async function _checkReinsAvailability(reinsPropNo) {
 }
 
 // ──────────────────────────────────────────────────────────────────
+// 空室確認完了後に専用タブを全て閉じる
+// 各ソースの closeDedicatedXxxWindow() を呼ぶ。
+// タブは次回使用時に findOrCreateDedicatedXxxTab() で自動再作成される。
+// ──────────────────────────────────────────────────────────────────
+async function _closeAllAvailabilityTabs() {
+  const closers = [
+    typeof closeDedicatedItandiWindow === 'function' ? closeDedicatedItandiWindow : null,
+    typeof closeDedicatedIeloveWindow === 'function' ? closeDedicatedIeloveWindow : null,
+    typeof closeDedicatedEssquareWindow === 'function' ? closeDedicatedEssquareWindow : null,
+    typeof closeDedicatedWindow === 'function' ? closeDedicatedWindow : null,  // REINS
+  ];
+  for (const fn of closers) {
+    if (fn) {
+      try { await fn(); } catch (e) { /* 既に閉じられている場合など */ }
+    }
+  }
+  console.log('[availability] 専用タブを全て閉じました');
+}
+
+// ──────────────────────────────────────────────────────────────────
 // タブのロード完了を待つヘルパ
 // ──────────────────────────────────────────────────────────────────
 function _waitForTabLoad(tabId, timeoutMs) {
@@ -757,6 +777,8 @@ async function runAvailabilityCheckBatch(options) {
     return { processed: totalProcessed, cycles: cycle, errors: totalErrors };
   } finally {
     await new Promise(r => chrome.storage.local.set({ __availabilityCheckRunning: false }, r));
+    // 空室確認用の専用タブを全て閉じる
+    await _closeAllAvailabilityTabs();
   }
 }
 
@@ -868,8 +890,10 @@ async function runPriorityAvailabilityPoll() {
     }
   } catch (e) {
     await setStorageData({ debugLog: `[優先空室確認] 結果POST失敗: ${e.message}` });
+    await _closeAllAvailabilityTabs();
     return { processed: results.length, error: e.message };
   }
+  await _closeAllAvailabilityTabs();
   return { processed: results.length };
 }
 
@@ -952,8 +976,10 @@ async function runCancellationWatchPoll() {
     }
   } catch (e) {
     await setStorageData({ debugLog: `[キャンセル監視] 結果POST失敗: ${e.message}` });
+    await _closeAllAvailabilityTabs();
     return { processed: results.length, error: e.message };
   }
+  await _closeAllAvailabilityTabs();
   return { processed: results.length };
 }
 
@@ -1157,6 +1183,7 @@ async function runPeriodicAvailabilityCheck() {
     return { processed: totalProcessed, cycles: cycle, errors: totalErrors, priority: totalPriority };
   } finally {
     await new Promise(r => chrome.storage.local.set({ __periodicCheckRunning: false }, r));
+    await _closeAllAvailabilityTabs();
   }
 }
 
