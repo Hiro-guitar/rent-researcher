@@ -76,15 +76,24 @@ function runConditionSuggestionAutoSend() {
       return;
     }
 
+    // ── 確認メッセージ送信済み (カウント >= 閾値) で24時間経過 → 自動停止 ──
+    var autoPaused = _autoPauseExpiredConfirmations_();
+    if (autoPaused > 0) {
+      console.log('[条件変更提案/自動] 確認メッセージ無視で自動停止: ' + autoPaused + '人');
+    }
+
     var candidates = getConditionSuggestionCandidates_();
     if (!candidates || candidates.length === 0) {
-      // 候補なしの日は Discord 通知不要 (毎日0件の通知でノイズになるため)
       console.log('[条件変更提案/自動] 候補なし (' + ts + ')');
+      if (autoPaused === 0) return; // 自動停止もなければDiscord通知不要
+      // 自動停止があった場合はDiscord通知する
+      _notifyAutoSendToDiscord_(0, { sent: 0, skipped: [], failed: [], autoPaused: autoPaused }, ts);
       return;
     }
 
     var names = candidates.map(function (c) { return c.name; });
     var result = sendConditionSuggestionMessages(names);
+    result.autoPaused = autoPaused;
     console.log('[条件変更提案/自動] 送信完了: 候補' + candidates.length + ' 送信' + result.sent
       + ' スキップ' + (result.skipped || []).length + ' 失敗' + (result.failed || []).length);
     _notifyAutoSendToDiscord_(candidates.length, result, ts);
@@ -119,6 +128,9 @@ function _notifyAutoSendToDiscord_(total, result, ts) {
       }
     } else {
       lines.push('(該当する顧客なし)');
+    }
+    if (result.autoPaused > 0) {
+      lines.push('・🔇 確認メッセージ無視で自動停止: ' + result.autoPaused + '人');
     }
     UrlFetchApp.fetch(webhookUrl, {
       method: 'post',
@@ -398,31 +410,39 @@ function sendConditionSuggestionMessages(customerNames) {
       continue;
     }
     try {
-      var flex = buildConditionSuggestionFlex_(c);
-      pushMessage(c.lineUserId, [flex]);
-      // 「条件を変更する」LIFFボタンタップ時の応答を高速化するため
-      // フォームHTMLをプリレンダしてCacheServiceに保存する。
-      try {
-        if (typeof prerenderAndCacheCriteriaHtml_ === 'function') {
-          prerenderAndCacheCriteriaHtml_(c.lineUserId);
-        }
-      } catch (_ePR) {
-        console.warn('条件変更提案プリレンダ失敗: ' + (_ePR && _ePR.message));
+      // 現在のカウントを取得
+      var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+      var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+      var currentCount = parseInt(sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_COUNT_COL).getValue()) || 0;
+
+      // カウントが閾値以上 → 24時間チェックで処理するのでここではスキップ
+      if (currentCount >= AUTO_PAUSE_THRESHOLD) {
+        result.skipped.push(name + ' (確認メッセージ応答待ち)');
+        continue;
       }
-      // 送信日時を Z列 に記録 & 連続送信カウントを AD列 に記録
-      try {
-        var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
-        var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
-        sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_SENT_COL).setValue(new Date());
-        // 連続送信カウントをインクリメント
-        var currentCount = parseInt(sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_COUNT_COL).getValue()) || 0;
-        var newCount = currentCount + 1;
-        sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_COUNT_COL).setValue(newCount);
-        // 閾値に達したら自動停止
-        if (newCount >= AUTO_PAUSE_THRESHOLD) {
-          sheet.getRange(c.rowIndex, 19).setValue('auto_paused'); // S列
-          console.log('[条件変更提案] ' + name + ' を自動停止 (連続 ' + newCount + ' 回未反応)');
+
+      // カウントに応じてメッセージを切替
+      var flex;
+      if (currentCount === AUTO_PAUSE_THRESHOLD - 1) {
+        // 最終確認メッセージ（3回目）
+        flex = _buildDeliveryContinueConfirmFlex_();
+      } else {
+        // 通常の条件変更提案（1回目・2回目）
+        flex = buildConditionSuggestionFlex_(c);
+        try {
+          if (typeof prerenderAndCacheCriteriaHtml_ === 'function') {
+            prerenderAndCacheCriteriaHtml_(c.lineUserId);
+          }
+        } catch (_ePR) {
+          console.warn('条件変更提案プリレンダ失敗: ' + (_ePR && _ePR.message));
         }
+      }
+      pushMessage(c.lineUserId, [flex]);
+
+      // 送信日時を Z列 に記録 & 連続送信カウントをインクリメント
+      try {
+        sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_SENT_COL).setValue(new Date());
+        sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_COUNT_COL).setValue(currentCount + 1);
       } catch (writeErr) {
         console.warn('条件変更提案 Z列/AD列 書き込み失敗 (' + name + '): ' + writeErr.message);
       }
@@ -432,6 +452,97 @@ function sendConditionSuggestionMessages(customerNames) {
     }
   }
   return result;
+}
+
+/**
+ * 確認メッセージ送信済み（カウント >= 閾値）で24時間経過した顧客を自動停止する。
+ * runConditionSuggestionAutoSend から毎日呼ばれる。
+ * @return {number} 自動停止した人数
+ */
+function _autoPauseExpiredConfirmations_() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) return 0;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 0;
+  var lastCol = Math.max(sheet.getLastColumn(), CONDITION_SUGGESTION_COUNT_COL);
+  var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  var now = Date.now();
+  var oneDayMs = 24 * 60 * 60 * 1000;
+  var paused = 0;
+  for (var i = 1; i < data.length; i++) {
+    var status = String(data[i][18] || '').trim().toLowerCase();
+    if (status && status !== 'active') continue;
+    var count = parseInt(data[i][CONDITION_SUGGESTION_COUNT_COL - 1]) || 0;
+    if (count < AUTO_PAUSE_THRESHOLD) continue;
+    // Z列: 最終提案送信日
+    var lastSuggest = data[i][CONDITION_SUGGESTION_SENT_COL - 1];
+    if (!(lastSuggest instanceof Date)) continue;
+    // 24時間経過チェック
+    if (now - lastSuggest.getTime() >= oneDayMs) {
+      sheet.getRange(i + 1, 19).setValue('auto_paused'); // S列
+      var name = String(data[i][1] || '').trim();
+      console.log('[条件変更提案] ' + name + ' を自動停止 (確認メッセージ無視, 24時間経過)');
+      paused++;
+    }
+  }
+  return paused;
+}
+
+/**
+ * 3回目の確認メッセージ Flex を生成する。
+ * 「引き続き配信を希望しますか？」
+ */
+function _buildDeliveryContinueConfirmFlex_() {
+  return {
+    type: 'flex',
+    altText: '物件配信の継続確認',
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#e67e22',
+        paddingAll: 'xl',
+        paddingTop: 'lg',
+        paddingBottom: 'lg',
+        contents: [
+          { type: 'text', text: '物件配信の継続確認',
+            weight: 'bold', size: 'lg', color: '#ffffff',
+            align: 'center', adjustMode: 'shrink-to-fit' }
+        ]
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        paddingAll: 'xl',
+        contents: [
+          { type: 'text',
+            text: 'しばらくご利用がないようですが、引き続き物件情報の配信をご希望されますか？',
+            size: 'sm', color: '#555555', wrap: true, lineSpacing: '6px' },
+          { type: 'text',
+            text: 'ご返信がない場合、配信を一時停止させていただきます。再開をご希望の際は、いつでもメッセージをお送りください。',
+            size: 'xs', color: '#999999', wrap: true, lineSpacing: '4px', margin: 'md' }
+        ]
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        paddingAll: 'lg',
+        contents: [
+          { type: 'button', style: 'primary', color: '#e67e22', height: 'sm',
+            action: { type: 'postback', label: '配信を続ける',
+              data: 'condsug:continue', displayText: '配信を続ける' } },
+          { type: 'button', style: 'link', height: 'sm', color: '#aaaaaa',
+            action: { type: 'postback', label: '配信を停止する',
+              data: 'condsug:pause', displayText: '配信を停止する' } }
+        ]
+      }
+    }
+  };
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -861,6 +972,14 @@ function handleConditionSuggestionPostback(replyToken, userId, data) {
       }
     } catch (_eReset) {
       console.warn('条件変更提案カウントリセット失敗: ' + (_eReset && _eReset.message));
+    }
+    // 確認メッセージの「配信を続ける」ボタン
+    if (action === 'continue') {
+      replyMessage(replyToken, [{
+        type: 'text',
+        text: '承知いたしました。引き続き、お客様にぴったりの物件をお探ししてお届けします。'
+      }]);
+      return;
     }
     // 新仕様の 2 アクション (3ボタン Flex から飛んでくる) を先に処理
     if (action === 'keep') {
