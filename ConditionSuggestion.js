@@ -503,19 +503,19 @@ function _autoPauseExpiredConfirmations_() {
 function _buildDeliveryContinueConfirmFlex_() {
   return {
     type: 'flex',
-    altText: '物件配信の継続確認',
+    altText: 'お部屋探しの状況はいかがですか？',
     contents: {
       type: 'bubble',
       size: 'mega',
       header: {
         type: 'box',
         layout: 'vertical',
-        backgroundColor: '#e67e22',
+        backgroundColor: '#6ea814',
         paddingAll: 'xl',
         paddingTop: 'lg',
         paddingBottom: 'lg',
         contents: [
-          { type: 'text', text: '物件配信の継続確認',
+          { type: 'text', text: 'お部屋探しの状況はいかがですか？',
             weight: 'bold', size: 'lg', color: '#ffffff',
             align: 'center', adjustMode: 'shrink-to-fit' }
         ]
@@ -527,11 +527,11 @@ function _buildDeliveryContinueConfirmFlex_() {
         paddingAll: 'xl',
         contents: [
           { type: 'text',
-            text: 'しばらくご利用がないようですが、引き続き物件情報の配信をご希望されますか？',
+            text: 'なかなかピンとくるお部屋が見つからない場合は、条件を少し変えてみると新しい物件が見つかるかもしれません。',
             size: 'sm', color: '#555555', wrap: true, lineSpacing: '6px' },
           { type: 'text',
-            text: 'ご返信がない場合、配信を一時停止させていただきます。再開をご希望の際は、いつでもメッセージをお送りください。',
-            size: 'xs', color: '#999999', wrap: true, lineSpacing: '4px', margin: 'md' }
+            text: '引き続き物件情報をお届けしてもよろしいですか？',
+            size: 'sm', color: '#555555', wrap: true, lineSpacing: '6px', margin: 'md' }
         ]
       },
       footer: {
@@ -540,9 +540,12 @@ function _buildDeliveryContinueConfirmFlex_() {
         spacing: 'sm',
         paddingAll: 'lg',
         contents: [
-          { type: 'button', style: 'primary', color: '#e67e22', height: 'sm',
-            action: { type: 'postback', label: '配信を続ける',
-              data: 'condsug:continue', displayText: '配信を続ける' } },
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'postback', label: '条件を変更する',
+              data: 'condsug:change', displayText: '条件を変更する' } },
+          { type: 'button', style: 'link', height: 'sm', color: '#6ea814',
+            action: { type: 'postback', label: 'このまま配信を続ける',
+              data: 'condsug:continue', displayText: 'このまま配信を続ける' } },
           { type: 'button', style: 'link', height: 'sm', color: '#aaaaaa',
             action: { type: 'postback', label: '配信を停止する',
               data: 'condsug:pause', displayText: '配信を停止する' } }
@@ -979,6 +982,15 @@ function handleConditionSuggestionPostback(replyToken, userId, data) {
       }
     } catch (_eReset) {
       console.warn('条件変更提案カウントリセット失敗: ' + (_eReset && _eReset.message));
+    }
+    // 確認メッセージの「条件を変更する」ボタン
+    if (action === 'change') {
+      if (typeof startChangeFlow === 'function') {
+        startChangeFlow(replyToken, userId);
+      } else {
+        replyMessage(replyToken, [{ type: 'text', text: '条件変更の処理を呼び出せませんでした。「条件変更」と直接お送りください。' }]);
+      }
+      return;
     }
     // 確認メッセージの「配信を続ける」ボタン
     if (action === 'continue') {
