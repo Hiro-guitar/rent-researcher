@@ -190,7 +190,7 @@ function checkSuggestionIgnoreStatus() {
       + ' | 登録: ' + r.registeredAt
       + ' | 最終閲覧: ' + r.lastViewAt
       + ' | 最終提案: ' + r.lastSuggestAt
-      + ' | ' + r.countStartReason + r.daysSinceStart + '日経過'
+      + ' | ' + r.countStartReason + '→最終提案: ' + r.spanDays + '日間'
       + ' | 推定送信回数: ' + r.estimatedCount + '回'
       + (r.estimatedCount >= AUTO_PAUSE_THRESHOLD ? ' ← 自動停止対象' : ''));
   }
@@ -261,19 +261,19 @@ function _getSuggestionIgnoreList_() {
     }
     // 登録日
     var regDate = row[0] instanceof Date ? row[0] : null;
-    // 推定送信回数の起点: 閲覧があればそこでリセットされるので、最終閲覧日を起点にする
-    // 閲覧なしなら登録日から通算
+    // 推定送信回数: (最終活動日 〜 最終提案日) の間に何回10日サイクルが入ったか
+    // 最終活動日 = 閲覧があればそこでリセット、なければ登録日
     var countStart = lastView || regDate || lastSuggestAt;
-    var daysSinceStart = Math.floor((now - countStart.getTime()) / dayMs);
-    var estimatedCount = Math.max(1, Math.floor(daysSinceStart / CONDITION_SUGGESTION_THRESHOLD_DAYS));
+    var spanDays = Math.floor((lastSuggestAt.getTime() - countStart.getTime()) / dayMs);
+    var estimatedCount = Math.max(1, Math.floor(spanDays / CONDITION_SUGGESTION_THRESHOLD_DAYS));
     results.push({
       name: name,
       rowIndex: i + 1,
       registeredAt: regDate ? Utilities.formatDate(regDate, 'Asia/Tokyo', 'yyyy-MM-dd') : '不明',
       lastSuggestAt: Utilities.formatDate(lastSuggestAt, 'Asia/Tokyo', 'yyyy-MM-dd'),
       lastViewAt: lastView ? Utilities.formatDate(lastView, 'Asia/Tokyo', 'yyyy-MM-dd') : 'なし',
-      daysSinceStart: daysSinceStart,
-      countStartReason: lastView ? '最終閲覧から' : '登録日から',
+      spanDays: spanDays,
+      countStartReason: lastView ? '最終閲覧' : '登録日',
       estimatedCount: estimatedCount
     });
   }
