@@ -1382,6 +1382,11 @@ function doGet(e) {
     return handleResendPage(e);
   }
 
+  // ── 顧客管理ページ ──
+  if (action === 'customer') {
+    return handleCustomerPage(e);
+  }
+
   // ── 管理者用 検索条件管理ページ ──
   if (action === 'admin') {
     return handleAdminPage(e);
@@ -3758,6 +3763,366 @@ function _findPendingDetail(pendingSheet, roomId, customerName) {
     }
   }
   return null;
+}
+
+// ══════════════════════════════════════════════════════════
+//  顧客管理ページ
+// ══════════════════════════════════════════════════════════
+var CONTACT_LOG_SHEET_NAME = '対応ログ';
+
+function getCustomerPageUrl() {
+  var baseUrl = ScriptApp.getService().getUrl();
+  var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
+  return baseUrl + '?action=customer&api_key=' + encodeURIComponent(apiKey);
+}
+
+function getAdminPageUrl() {
+  var baseUrl = ScriptApp.getService().getUrl();
+  var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
+  return baseUrl + '?action=admin&api_key=' + encodeURIComponent(apiKey);
+}
+
+function handleCustomerPage(e) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
+    return HtmlService.createHtmlOutput(
+      '<html><body style="text-align:center;padding:40px;font-family:sans-serif;">' +
+      '<h3>認証エラー</h3><p>api_key が正しくありません。</p></body></html>'
+    ).setTitle('認証エラー');
+  }
+
+  var customerList = _getCustomerListForCRM_();
+  var initCustomer = e.parameter.customer || '';
+
+  var template = HtmlService.createTemplateFromFile('CustomerPage');
+  template.customersJson = JSON.stringify(customerList);
+  template.initCustomer = JSON.stringify(initCustomer);
+
+  return template.evaluate()
+    .setTitle('顧客管理')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * CRM用の顧客一覧を取得する。全顧客を含む（blocked含む）。
+ */
+function _getCustomerListForCRM_() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) return [];
+
+  var data = sheet.getDataRange().getValues();
+  var customers = [];
+  var nameMap = {};
+
+  for (var i = 1; i < data.length; i++) {
+    var name = String(data[i][1] || '').trim();
+    if (!name) continue;
+    var status = String(data[i][18] || '').trim().toLowerCase() || 'active';
+    var regDate = data[i][0];
+    var regStr = '';
+    if (regDate instanceof Date) {
+      regStr = Utilities.formatDate(regDate, 'Asia/Tokyo', 'yyyy/MM/dd');
+    }
+
+    if (!nameMap[name]) {
+      nameMap[name] = { name: name, status: status, registeredAt: regStr, lastAction: '' };
+      customers.push(nameMap[name]);
+    }
+  }
+
+  // 最終アクション日を アクションログ から取得
+  try {
+    var actionSheet = ss.getSheetByName('アクションログ');
+    if (actionSheet) {
+      var aData = actionSheet.getDataRange().getValues();
+      for (var i = aData.length - 1; i >= 1; i--) {
+        var aName = String(aData[i][0] || '').trim();
+        if (aName && nameMap[aName] && !nameMap[aName].lastAction) {
+          var aDate = aData[i][8]; // I列 = 日時
+          if (aDate instanceof Date) {
+            nameMap[aName].lastAction = Utilities.formatDate(aDate, 'Asia/Tokyo', 'yyyy/MM/dd');
+          } else if (aDate) {
+            nameMap[aName].lastAction = String(aDate).substring(0, 10);
+          }
+        }
+      }
+    }
+  } catch(e) { console.warn('lastAction取得エラー: ' + e.message); }
+
+  return customers;
+}
+
+/**
+ * 顧客詳細データを取得する（google.script.run から呼ばれる）。
+ */
+function getCustomerDetail(customerName) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) return { error: '検索条件シートが見つかりません' };
+
+  var data = sheet.getDataRange().getValues();
+  var info = null;
+
+  // 最新行を採用（同名複数行の場合）
+  for (var i = 1; i < data.length; i++) {
+    var name = String(data[i][1] || '').trim();
+    if (name !== customerName) continue;
+
+    var status = String(data[i][18] || '').trim().toLowerCase() || 'active';
+    var regDate = data[i][0];
+    var regStr = '';
+    if (regDate instanceof Date) {
+      regStr = Utilities.formatDate(regDate, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+    }
+
+    info = {
+      name: name,
+      status: status,
+      registeredAt: regStr,
+      reason: String(data[i][13] || ''),        // N列
+      moveInDate: String(data[i][14] || ''),     // O列
+      rentMax: '',
+      layouts: '',
+      area: '',
+      areaMin: '',
+      buildingAge: '',
+      walk: '',
+      structures: '',
+      equipment: '',
+      notes: ''
+    };
+
+    // 賃料上限 (F列 index 5)
+    if (data[i][5]) info.rentMax = String(data[i][5]);
+    // 間取り (G列 index 6)
+    if (data[i][6]) info.layouts = String(data[i][6]);
+    // エリア: 路線+駅 or 市区町村
+    var routeStation = String(data[i][4] || ''); // E列
+    var city = String(data[i][3] || '');         // D列
+    info.area = routeStation || city || '';
+    // 広さ (H列 index 7)
+    if (data[i][7]) info.areaMin = String(data[i][7]);
+    // 築年数 (I列 index 8)
+    if (data[i][8]) info.buildingAge = String(data[i][8]);
+    // 駅徒歩 (J列 index 9)
+    if (data[i][9]) info.walk = String(data[i][9]);
+    // 構造 (K列 index 10)
+    if (data[i][10]) info.structures = String(data[i][10]);
+    // 設備 (L列 index 11)
+    if (data[i][11]) info.equipment = String(data[i][11]);
+    // 備考 (M列 index 12)
+    if (data[i][12]) info.notes = String(data[i][12]);
+  }
+
+  if (!info) return { error: '顧客が見つかりません: ' + customerName };
+
+  // 対応ログ
+  info.contactLogs = _getContactLogs_(ss, customerName);
+
+  // タイムライン
+  info.timeline = _buildCustomerTimeline_(ss, customerName, data);
+
+  return info;
+}
+
+/**
+ * 対応ログを取得する。
+ */
+function _getContactLogs_(ss, customerName) {
+  var sheet = ss.getSheetByName(CONTACT_LOG_SHEET_NAME);
+  if (!sheet) return [];
+
+  var data = sheet.getDataRange().getValues();
+  var logs = [];
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0] || '').trim() !== customerName) continue;
+    var d = data[i][1];
+    var dateStr = '';
+    if (d instanceof Date) {
+      dateStr = Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+    } else if (d) {
+      dateStr = String(d);
+    }
+    logs.push({
+      date: dateStr,
+      type: String(data[i][2] || ''),
+      memo: String(data[i][3] || ''),
+      author: String(data[i][4] || '')
+    });
+  }
+  // 新しい順
+  logs.sort(function(a,b) { return (b.date || '').localeCompare(a.date || ''); });
+  return logs;
+}
+
+/**
+ * 対応ログを追加する（google.script.run から呼ばれる）。
+ */
+function addContactLog(customerName, type, dateStr, memo) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CONTACT_LOG_SHEET_NAME);
+    if (!sheet) {
+      sheet = ss.insertSheet(CONTACT_LOG_SHEET_NAME);
+      sheet.appendRow(['顧客名', '対応日時', '対応種別', 'メモ', '記録者']);
+      try {
+        sheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#e0e0e0');
+      } catch(e) {}
+    }
+    var date = new Date(dateStr);
+    sheet.appendRow([customerName, date, type, memo, '管理者']);
+    return { success: true };
+  } catch(e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * 全アクションを時系列で統合したタイムラインを構築する。
+ */
+function _buildCustomerTimeline_(ss, customerName, criteriaData) {
+  var timeline = [];
+  var tz = 'Asia/Tokyo';
+
+  // 1. 登録日 (検索条件シート A列)
+  for (var i = 1; i < criteriaData.length; i++) {
+    if (String(criteriaData[i][1] || '').trim() !== customerName) continue;
+    var reg = criteriaData[i][0];
+    if (reg instanceof Date) {
+      timeline.push({
+        date: Utilities.formatDate(reg, tz, 'yyyy/MM/dd HH:mm'),
+        ts: reg.getTime(),
+        type: 'registration',
+        summary: '条件登録'
+      });
+    }
+    // 条件変更提案送信 (Z列 index 25)
+    var sugDate = criteriaData[i][25];
+    if (sugDate instanceof Date) {
+      var sugCount = Number(criteriaData[i][29]) || 0; // AD列
+      timeline.push({
+        date: Utilities.formatDate(sugDate, tz, 'yyyy/MM/dd HH:mm'),
+        ts: sugDate.getTime(),
+        type: 'condition_suggestion',
+        summary: '条件変更提案を送信',
+        details: sugCount > 0 ? '連続 ' + sugCount + ' 回目' : ''
+      });
+    }
+    // ステータス変更 (T列=停止理由, U列=停止日時)
+    var stopDate = criteriaData[i][20]; // U列 index 20
+    var stopReason = String(criteriaData[i][19] || ''); // T列 index 19
+    if (stopDate instanceof Date) {
+      timeline.push({
+        date: Utilities.formatDate(stopDate, tz, 'yyyy/MM/dd HH:mm'),
+        ts: stopDate.getTime(),
+        type: 'status_change',
+        summary: '配信停止',
+        details: stopReason || ''
+      });
+    }
+    break; // 最新行のみ
+  }
+
+  // 2. 通知済み物件 (物件送信)
+  try {
+    var seenSheet = ss.getSheetByName('通知済み物件');
+    if (seenSheet) {
+      var seenData = seenSheet.getDataRange().getValues();
+      for (var i = 1; i < seenData.length; i++) {
+        if (String(seenData[i][0] || '').trim() !== customerName) continue;
+        var sentDate = seenData[i][3]; // D列 = sentAt
+        if (!(sentDate instanceof Date)) continue;
+        timeline.push({
+          date: Utilities.formatDate(sentDate, tz, 'yyyy/MM/dd HH:mm'),
+          ts: sentDate.getTime(),
+          type: 'property_sent',
+          summary: String(seenData[i][2] || '物件') + ' を送信', // C列 = buildingName
+          details: String(seenData[i][1] || '') // B列 = roomId
+        });
+      }
+    }
+  } catch(e) { console.warn('通知済み物件取得エラー: ' + e.message); }
+
+  // 3. 閲覧ログ
+  try {
+    var viewSheet = ss.getSheetByName('閲覧ログ');
+    if (viewSheet) {
+      var viewData = viewSheet.getDataRange().getValues();
+      for (var i = 1; i < viewData.length; i++) {
+        if (String(viewData[i][0] || '').trim() !== customerName) continue;
+        var vDate = viewData[i][2]; // C列 = 閲覧日時
+        if (!(vDate instanceof Date)) continue;
+        timeline.push({
+          date: Utilities.formatDate(vDate, tz, 'yyyy/MM/dd HH:mm'),
+          ts: vDate.getTime(),
+          type: 'view',
+          summary: String(viewData[i][1] || '物件') + ' を閲覧'
+        });
+      }
+    }
+  } catch(e) { console.warn('閲覧ログ取得エラー: ' + e.message); }
+
+  // 4. アクションログ (お気に入り、保留、内見、興味なし等)
+  try {
+    var actionSheet = ss.getSheetByName('アクションログ');
+    if (actionSheet) {
+      var aData = actionSheet.getDataRange().getValues();
+      for (var i = 1; i < aData.length; i++) {
+        if (String(aData[i][0] || '').trim() !== customerName) continue;
+        var aDate = aData[i][8]; // I列 = 日時
+        if (!(aDate instanceof Date)) continue;
+        var actionType = String(aData[i][2] || ''); // C列 = アクション
+        var bldgName = String(aData[i][3] || '');   // D列 = 物件名
+        var actionLabels = {
+          'favorite': 'お気に入り',
+          'hold': '保留',
+          'not_interested': '興味なし',
+          'viewing': '内見希望',
+          'view': '閲覧'
+        };
+        var label = actionLabels[actionType] || actionType;
+        // view は閲覧ログと重複するのでスキップ
+        if (actionType === 'view') continue;
+        timeline.push({
+          date: Utilities.formatDate(aDate, tz, 'yyyy/MM/dd HH:mm'),
+          ts: aDate.getTime(),
+          type: 'action',
+          summary: bldgName + ' → ' + label,
+          details: String(aData[i][1] || '') // room_id
+        });
+      }
+    }
+  } catch(e) { console.warn('アクションログ取得エラー: ' + e.message); }
+
+  // 5. 対応ログ
+  try {
+    var contactSheet = ss.getSheetByName(CONTACT_LOG_SHEET_NAME);
+    if (contactSheet) {
+      var cData = contactSheet.getDataRange().getValues();
+      for (var i = 1; i < cData.length; i++) {
+        if (String(cData[i][0] || '').trim() !== customerName) continue;
+        var cDate = cData[i][1];
+        if (!(cDate instanceof Date)) continue;
+        timeline.push({
+          date: Utilities.formatDate(cDate, tz, 'yyyy/MM/dd HH:mm'),
+          ts: cDate.getTime(),
+          type: 'contact',
+          summary: String(cData[i][2] || '') + ': ' + String(cData[i][3] || ''),
+          details: ''
+        });
+      }
+    }
+  } catch(e) { console.warn('対応ログ取得エラー: ' + e.message); }
+
+  // 新しい順にソート
+  timeline.sort(function(a,b) { return (b.ts || 0) - (a.ts || 0); });
+
+  // ts は返さない（JSONサイズ削減）
+  for (var i = 0; i < timeline.length; i++) {
+    delete timeline[i].ts;
+  }
+
+  return timeline;
 }
 
 function _buildSimpleHtml(title, message, color) {

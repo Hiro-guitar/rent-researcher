@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>顧客管理</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+  -webkit-text-size-adjust: 100%;
+  background: #f5f5f5;
+  color: #333;
+  padding-bottom: 80px;
+}
+
+/* ── ヘッダー ── */
+.header {
+  position: sticky; top: 0; z-index: 10;
+  background: #2c3e50; padding: 14px 16px;
+  border-bottom: 1px solid #1a252f;
+}
+.header h1 { font-size: 16px; font-weight: 700; text-align: center; color: #ecf0f1; }
+.header .badge { font-size: 10px; background: #3498db; color: #fff; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle; }
+.header-nav { text-align: center; margin-top: 6px; display: flex; justify-content: center; gap: 16px; }
+.header-nav a { color: #3498db; font-size: 12px; text-decoration: underline; cursor: pointer; }
+
+/* ── カード ── */
+.card {
+  background: #fff; margin: 8px; border-radius: 12px;
+  overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.card-title {
+  font-size: 14px; font-weight: 700; color: #2c3e50;
+  padding: 12px 16px 8px; background: #eaf2f8;
+  border-bottom: 1px solid #d6eaf8;
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+/* ── 顧客一覧 ── */
+.customer-list { padding: 0; }
+.customer-item {
+  display: flex; align-items: center; padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background 0.15s;
+}
+.customer-item:hover { background: #f8f9fa; }
+.customer-item:last-child { border-bottom: none; }
+.customer-name { font-size: 14px; font-weight: 600; flex: 1; }
+.customer-meta { font-size: 11px; color: #888; text-align: right; }
+.customer-meta div { margin-bottom: 2px; }
+
+/* ── ステータスバッジ ── */
+.status-badge {
+  display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600;
+}
+.status-active { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+.status-paused { background: #fff3e0; color: #e65100; border: 1px solid #ffe0b2; }
+.status-auto_paused { background: #fce4ec; color: #c62828; border: 1px solid #f8bbd0; }
+.status-snoozed { background: #e3f2fd; color: #1565c0; border: 1px solid #bbdefb; }
+.status-blocked { background: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
+
+/* ── 詳細ページ ── */
+.detail-header {
+  background: #fff; margin: 8px; border-radius: 12px; overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.detail-name-bar {
+  background: #2c3e50; color: #fff; padding: 16px; display: flex; align-items: center; gap: 12px;
+}
+.detail-name { font-size: 18px; font-weight: 700; flex: 1; }
+.detail-info { padding: 12px 16px; }
+.detail-info-row {
+  display: flex; padding: 6px 0; border-bottom: 1px solid #f5f5f5; font-size: 13px;
+}
+.detail-info-row:last-child { border-bottom: none; }
+.detail-info-label { width: 100px; color: #888; font-weight: 600; flex-shrink: 0; }
+.detail-info-value { flex: 1; color: #333; }
+
+/* ── 対応ログフォーム ── */
+.log-form { padding: 12px 16px; }
+.log-form-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.log-form select, .log-form input {
+  padding: 8px 10px; font-size: 13px; border: 1px solid #ccc; border-radius: 8px;
+  font-family: inherit; background: #fff;
+}
+.log-form textarea {
+  width: 100%; padding: 8px 10px; font-size: 13px; border: 1px solid #ccc; border-radius: 8px;
+  font-family: inherit; resize: vertical; min-height: 60px;
+}
+.btn { padding: 8px 16px; font-size: 13px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
+.btn-blue { background: #3498db; color: #fff; }
+.btn-blue:hover { background: #2980b9; }
+.btn-outline { background: #fff; color: #555; border: 1px solid #ccc; }
+.btn-outline:hover { background: #f5f5f5; }
+.btn-sm { padding: 4px 10px; font-size: 11px; }
+
+/* ── タイムライン ── */
+.timeline { padding: 12px 16px; }
+.timeline-item {
+  position: relative; padding: 0 0 16px 24px; border-left: 2px solid #e0e0e0;
+}
+.timeline-item:last-child { border-left-color: transparent; padding-bottom: 0; }
+.timeline-dot {
+  position: absolute; left: -6px; top: 2px; width: 10px; height: 10px;
+  border-radius: 50%; border: 2px solid #fff;
+}
+.dot-registration { background: #2ecc71; }
+.dot-property_sent { background: #3498db; }
+.dot-view { background: #9b59b6; }
+.dot-contact { background: #e67e22; }
+.dot-condition_change { background: #1abc9c; }
+.dot-condition_suggestion { background: #f39c12; }
+.dot-status_change { background: #e74c3c; }
+.dot-action { background: #34495e; }
+.dot-default { background: #95a5a6; }
+.timeline-date { font-size: 11px; color: #999; margin-bottom: 2px; }
+.timeline-content { font-size: 13px; color: #333; line-height: 1.5; }
+.timeline-type {
+  display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 8px;
+  font-weight: 600; margin-right: 4px;
+}
+.type-registration { background: #e8f5e9; color: #2e7d32; }
+.type-property_sent { background: #e3f2fd; color: #1565c0; }
+.type-view { background: #f3e5f5; color: #7b1fa2; }
+.type-contact { background: #fff3e0; color: #e65100; }
+.type-condition_change { background: #e0f2f1; color: #00695c; }
+.type-condition_suggestion { background: #fff8e1; color: #f57f17; }
+.type-status_change { background: #fce4ec; color: #c62828; }
+.type-action { background: #eceff1; color: #37474f; }
+
+/* ── 対応ログ履歴 ── */
+.log-entry {
+  padding: 10px 16px; border-bottom: 1px solid #f0f0f0;
+}
+.log-entry:last-child { border-bottom: none; }
+.log-entry-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.log-entry-date { font-size: 11px; color: #999; }
+.log-entry-type { font-size: 11px; font-weight: 600; color: #e67e22; }
+.log-entry-memo { font-size: 13px; color: #333; white-space: pre-wrap; line-height: 1.5; }
+
+/* ── 検索 ── */
+.search-bar { padding: 8px 16px; }
+.search-bar input {
+  width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #ccc;
+  border-radius: 8px; font-family: inherit;
+}
+
+/* ── ローディング ── */
+.loading { text-align: center; padding: 40px; color: #999; font-size: 13px; }
+.empty-state { text-align: center; padding: 40px; color: #999; font-size: 13px; }
+
+/* ── タイムライン もっと見る ── */
+.timeline-more {
+  text-align: center; padding: 12px;
+}
+
+/* ── トースト ── */
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: #333; color: #fff; padding: 10px 24px; border-radius: 8px;
+  font-size: 13px; z-index: 100; opacity: 0; transition: opacity 0.3s;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<!-- ===== 顧客一覧ビュー ===== -->
+<div id="listView">
+  <div class="header">
+    <h1>顧客管理<span class="badge">CRM</span></h1>
+    <div class="header-nav">
+      <a onclick="openAdminPage()">管理画面に戻る</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="search-bar">
+      <input type="text" id="searchInput" placeholder="顧客名で検索..." oninput="filterCustomers()">
+    </div>
+    <div id="customerList" class="customer-list">
+      <div class="loading">読み込み中...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 顧客詳細ビュー ===== -->
+<div id="detailView" style="display:none;">
+  <div class="header">
+    <h1 id="detailTitle">顧客詳細</h1>
+    <div class="header-nav">
+      <a onclick="showList()">← 顧客一覧に戻る</a>
+      <a onclick="openAdminPage()">管理画面</a>
+    </div>
+  </div>
+
+  <!-- 基本情報 -->
+  <div class="detail-header">
+    <div class="detail-name-bar">
+      <span class="detail-name" id="detailName"></span>
+      <span id="detailStatus"></span>
+    </div>
+    <div class="detail-info" id="detailInfo">
+      <div class="loading">読み込み中...</div>
+    </div>
+  </div>
+
+  <!-- 対応ログ -->
+  <div class="card">
+    <div class="card-title">
+      <span>📞 対応ログ</span>
+      <button class="btn btn-blue btn-sm" onclick="toggleLogForm()">＋ 記録する</button>
+    </div>
+    <div id="logFormArea" style="display:none;">
+      <div class="log-form">
+        <div class="log-form-row">
+          <select id="logType">
+            <option value="電話">📞 電話</option>
+            <option value="メール">📧 メール</option>
+            <option value="LINE">💬 LINE</option>
+            <option value="来店">🏠 来店</option>
+            <option value="その他">📝 その他</option>
+          </select>
+          <input type="datetime-local" id="logDate" style="flex:1;">
+        </div>
+        <textarea id="logMemo" placeholder="対応内容を記録..."></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+          <button class="btn btn-outline btn-sm" onclick="toggleLogForm()">キャンセル</button>
+          <button class="btn btn-blue btn-sm" onclick="saveLog()">保存</button>
+        </div>
+      </div>
+    </div>
+    <div id="logHistory">
+      <div class="loading">読み込み中...</div>
+    </div>
+  </div>
+
+  <!-- タイムライン -->
+  <div class="card">
+    <div class="card-title">
+      <span>📋 タイムライン</span>
+      <span id="timelineCount" style="font-size:11px;color:#888;font-weight:400;"></span>
+    </div>
+    <div id="timeline">
+      <div class="loading">読み込み中...</div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+var customers = JSON.parse('<?!= customersJson ?>');
+var currentCustomer = null;
+var allTimeline = [];
+var TIMELINE_PAGE_SIZE = 30;
+var timelineShown = 0;
+
+// ── 初期化 ──
+(function() {
+  var initCustomer = JSON.parse('<?!= initCustomer ?>');
+  renderCustomerList(customers);
+  if (initCustomer) {
+    openDetail(initCustomer);
+  }
+})();
+
+// ══════════════════════════════════════════
+//  顧客一覧
+// ══════════════════════════════════════════
+function renderCustomerList(list) {
+  var el = document.getElementById('customerList');
+  if (!list || list.length === 0) {
+    el.innerHTML = '<div class="empty-state">顧客がいません</div>';
+    return;
+  }
+  // ステータス順: active > snoozed > auto_paused > paused > blocked
+  var order = {active:0, snoozed:1, auto_paused:2, paused:3, blocked:4};
+  list.sort(function(a,b) {
+    var sa = order[a.status] !== undefined ? order[a.status] : 0;
+    var sb = order[b.status] !== undefined ? order[b.status] : 0;
+    if (sa !== sb) return sa - sb;
+    return (b.registeredAt || '').localeCompare(a.registeredAt || '');
+  });
+  var html = '';
+  for (var i = 0; i < list.length; i++) {
+    var c = list[i];
+    html += '<div class="customer-item" onclick="openDetail(\'' + esc(c.name) + '\')">';
+    html += '<div class="customer-name">' + esc(c.name) + ' ' + statusBadge(c.status) + '</div>';
+    html += '<div class="customer-meta">';
+    if (c.registeredAt) html += '<div>登録: ' + esc(c.registeredAt) + '</div>';
+    if (c.lastAction) html += '<div>最終: ' + esc(c.lastAction) + '</div>';
+    html += '</div></div>';
+  }
+  el.innerHTML = html;
+}
+
+function filterCustomers() {
+  var q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+  if (!q) { renderCustomerList(customers); return; }
+  var filtered = customers.filter(function(c) { return c.name.toLowerCase().indexOf(q) >= 0; });
+  renderCustomerList(filtered);
+}
+
+function statusBadge(s) {
+  var labels = {active:'配信中', paused:'停止', auto_paused:'自動停止', snoozed:'スヌーズ', blocked:'ブロック'};
+  var cls = 'status-' + (s || 'active');
+  return '<span class="status-badge ' + cls + '">' + (labels[s] || '配信中') + '</span>';
+}
+
+// ══════════════════════════════════════════
+//  顧客詳細
+// ══════════════════════════════════════════
+function openDetail(name) {
+  currentCustomer = name;
+  document.getElementById('listView').style.display = 'none';
+  document.getElementById('detailView').style.display = '';
+  document.getElementById('detailTitle').textContent = name;
+  document.getElementById('detailName').textContent = name;
+  document.getElementById('detailStatus').innerHTML = '';
+  document.getElementById('detailInfo').innerHTML = '<div class="loading">読み込み中...</div>';
+  document.getElementById('logHistory').innerHTML = '<div class="loading">読み込み中...</div>';
+  document.getElementById('timeline').innerHTML = '<div class="loading">読み込み中...</div>';
+  document.getElementById('logFormArea').style.display = 'none';
+
+  // 日時デフォルト
+  var now = new Date();
+  now.setHours(now.getHours() + 9); // JST
+  document.getElementById('logDate').value = now.toISOString().slice(0,16);
+
+  google.script.run
+    .withSuccessHandler(function(data) { renderDetail(data); })
+    .withFailureHandler(function(err) {
+      document.getElementById('detailInfo').innerHTML = '<div class="empty-state">エラー: ' + esc(err.message) + '</div>';
+    })
+    .getCustomerDetail(name);
+}
+
+function renderDetail(data) {
+  // ステータスバッジ
+  document.getElementById('detailStatus').innerHTML = statusBadge(data.status);
+
+  // 基本情報
+  var info = '';
+  var rows = [
+    ['登録日', data.registeredAt],
+    ['探し理由', data.reason],
+    ['入居時期', data.moveInDate],
+    ['賃料上限', data.rentMax ? data.rentMax + '万円' : ''],
+    ['間取り', data.layouts],
+    ['エリア', data.area],
+    ['広さ', data.areaMin ? data.areaMin + '㎡以上' : ''],
+    ['築年数', data.buildingAge ? data.buildingAge + '年以内' : ''],
+    ['駅徒歩', data.walk ? data.walk + '分以内' : ''],
+    ['構造', data.structures],
+    ['設備', data.equipment],
+    ['備考', data.notes]
+  ];
+  for (var i = 0; i < rows.length; i++) {
+    if (!rows[i][1]) continue;
+    info += '<div class="detail-info-row">';
+    info += '<div class="detail-info-label">' + esc(rows[i][0]) + '</div>';
+    info += '<div class="detail-info-value">' + esc(String(rows[i][1])) + '</div>';
+    info += '</div>';
+  }
+  document.getElementById('detailInfo').innerHTML = info || '<div class="empty-state">条件未登録</div>';
+
+  // 対応ログ
+  renderLogHistory(data.contactLogs || []);
+
+  // タイムライン
+  allTimeline = data.timeline || [];
+  timelineShown = 0;
+  document.getElementById('timelineCount').textContent = allTimeline.length + '件';
+  showMoreTimeline();
+}
+
+// ── 対応ログ ──
+function renderLogHistory(logs) {
+  var el = document.getElementById('logHistory');
+  if (!logs || logs.length === 0) {
+    el.innerHTML = '<div class="empty-state">対応ログはまだありません</div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < logs.length; i++) {
+    var l = logs[i];
+    html += '<div class="log-entry">';
+    html += '<div class="log-entry-header">';
+    html += '<span class="log-entry-type">' + esc(l.type) + '</span>';
+    html += '<span class="log-entry-date">' + esc(l.date) + '</span>';
+    if (l.author) html += '<span class="log-entry-date"> by ' + esc(l.author) + '</span>';
+    html += '</div>';
+    html += '<div class="log-entry-memo">' + esc(l.memo) + '</div>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function toggleLogForm() {
+  var el = document.getElementById('logFormArea');
+  el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function saveLog() {
+  var type = document.getElementById('logType').value;
+  var date = document.getElementById('logDate').value;
+  var memo = document.getElementById('logMemo').value.trim();
+  if (!memo) { showToast('メモを入力してください'); return; }
+  if (!date) { showToast('日時を選択してください'); return; }
+
+  var btn = document.querySelector('#logFormArea .btn-blue');
+  btn.textContent = '保存中...';
+  btn.disabled = true;
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.textContent = '保存';
+      btn.disabled = false;
+      if (res && res.success) {
+        showToast('保存しました');
+        document.getElementById('logMemo').value = '';
+        document.getElementById('logFormArea').style.display = 'none';
+        // 再読み込み
+        openDetail(currentCustomer);
+      } else {
+        showToast('保存失敗: ' + (res && res.message || ''));
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.textContent = '保存';
+      btn.disabled = false;
+      showToast('エラー: ' + err.message);
+    })
+    .addContactLog(currentCustomer, type, date, memo);
+}
+
+// ── タイムライン ──
+function showMoreTimeline() {
+  var el = document.getElementById('timeline');
+  var end = Math.min(timelineShown + TIMELINE_PAGE_SIZE, allTimeline.length);
+  var html = timelineShown === 0 ? '' : el.innerHTML.replace(/<div class="timeline-more">.*<\/div>/, '');
+
+  if (allTimeline.length === 0) {
+    el.innerHTML = '<div class="empty-state">アクティビティはまだありません</div>';
+    return;
+  }
+
+  if (timelineShown === 0) html = '<div class="timeline">';
+  else html = html.replace(/<\/div>$/, ''); // close .timeline tag temporarily
+
+  for (var i = timelineShown; i < end; i++) {
+    var t = allTimeline[i];
+    var dotClass = 'dot-' + (t.type || 'default');
+    var typeClass = 'type-' + (t.type || 'default');
+    var typeLabels = {
+      registration: '登録',
+      property_sent: '物件送信',
+      view: '閲覧',
+      contact: '対応',
+      condition_change: '条件変更',
+      condition_suggestion: '条件提案',
+      status_change: 'ステータス',
+      action: 'アクション'
+    };
+    html += '<div class="timeline-item">';
+    html += '<div class="timeline-dot ' + dotClass + '"></div>';
+    html += '<div class="timeline-date">' + esc(t.date || '') + '</div>';
+    html += '<div class="timeline-content">';
+    html += '<span class="timeline-type ' + typeClass + '">' + (typeLabels[t.type] || t.type || '') + '</span>';
+    html += esc(t.summary || '');
+    if (t.details) html += '<div style="font-size:11px;color:#888;margin-top:2px;">' + esc(t.details) + '</div>';
+    html += '</div></div>';
+  }
+
+  html += '</div>'; // close .timeline
+
+  timelineShown = end;
+  if (timelineShown < allTimeline.length) {
+    html += '<div class="timeline-more"><button class="btn btn-outline btn-sm" onclick="showMoreTimeline()">もっと見る（残り' + (allTimeline.length - timelineShown) + '件）</button></div>';
+  }
+
+  el.innerHTML = html;
+}
+
+// ── ナビゲーション ──
+function showList() {
+  document.getElementById('detailView').style.display = 'none';
+  document.getElementById('listView').style.display = '';
+  currentCustomer = null;
+}
+
+function openAdminPage() {
+  google.script.run
+    .withSuccessHandler(function(url) { window.open(url, '_top'); })
+    .getAdminPageUrl();
+}
+
+// ── ユーティリティ ──
+function esc(s) {
+  if (s == null) return '';
+  var d = document.createElement('div');
+  d.appendChild(document.createTextNode(String(s)));
+  return d.innerHTML;
+}
+
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 2500);
+}
+</script>
+</body>
+</html>
