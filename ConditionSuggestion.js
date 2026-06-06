@@ -34,6 +34,10 @@
 var CONDITION_SUGGESTION_THRESHOLD_DAYS = 10;
 // 検索条件シートで「条件変更提案 最終送信日時」を記録する列 (1-based)
 var CONDITION_SUGGESTION_SENT_COL = 26;
+// 検索条件シートで「条件変更提案 連続送信回数」を記録する列 (1-based, AD列)
+var CONDITION_SUGGESTION_COUNT_COL = 30;
+// 連続送信回数がこの値に達したら配信を自動停止する
+var AUTO_PAUSE_THRESHOLD = 3;
 
 /**
  * 候補顧客の一覧を返す。AdminPage の「条件変更提案」セクションから呼ばれる。
@@ -288,13 +292,22 @@ function sendConditionSuggestionMessages(customerNames) {
       } catch (_ePR) {
         console.warn('条件変更提案プリレンダ失敗: ' + (_ePR && _ePR.message));
       }
-      // 送信日時を Z列 に記録
+      // 送信日時を Z列 に記録 & 連続送信カウントを AD列 に記録
       try {
         var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
         var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
         sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_SENT_COL).setValue(new Date());
+        // 連続送信カウントをインクリメント
+        var currentCount = parseInt(sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_COUNT_COL).getValue()) || 0;
+        var newCount = currentCount + 1;
+        sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_COUNT_COL).setValue(newCount);
+        // 閾値に達したら自動停止
+        if (newCount >= AUTO_PAUSE_THRESHOLD) {
+          sheet.getRange(c.rowIndex, 19).setValue('auto_paused'); // S列
+          console.log('[条件変更提案] ' + name + ' を自動停止 (連続 ' + newCount + ' 回未反応)');
+        }
       } catch (writeErr) {
-        console.warn('条件変更提案 Z列 書き込み失敗 (' + name + '): ' + writeErr.message);
+        console.warn('条件変更提案 Z列/AD列 書き込み失敗 (' + name + '): ' + writeErr.message);
       }
       result.sent++;
     } catch (err) {
@@ -315,7 +328,7 @@ function getConditionSuggestionCandidates_() {
   // 一括取得
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  var lastCol = Math.max(sheet.getLastColumn(), CONDITION_SUGGESTION_SENT_COL);
+  var lastCol = Math.max(sheet.getLastColumn(), CONDITION_SUGGESTION_COUNT_COL);
   var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
 
   // LINE userId マップ
@@ -404,6 +417,7 @@ function getConditionSuggestionCandidates_() {
       lastSuggestAt: lastSuggestAt instanceof Date
         ? Utilities.formatDate(lastSuggestAt, 'Asia/Tokyo', 'yyyy-MM-dd')
         : '',
+      suggestionCount: parseInt(row[CONDITION_SUGGESTION_COUNT_COL - 1]) || 0,
       // 現条件 (Flex メッセージ + 一覧表示用)
       rentMax: String(row[7] || ''),
       layouts: String(row[8] || ''),
@@ -720,6 +734,17 @@ function handleConditionSuggestionPostback(replyToken, userId, data) {
       return;
     }
     var action = parts[1];
+    // 提案に反応があった → 連続送信カウントをリセット
+    try {
+      if (typeof _findCustomerRow === 'function') {
+        var _loc = _findCustomerRow(userId);
+        if (_loc) {
+          _loc.sheet.getRange(_loc.row, CONDITION_SUGGESTION_COUNT_COL).setValue(0);
+        }
+      }
+    } catch (_eReset) {
+      console.warn('条件変更提案カウントリセット失敗: ' + (_eReset && _eReset.message));
+    }
     // 新仕様の 2 アクション (3ボタン Flex から飛んでくる) を先に処理
     if (action === 'keep') {
       replyMessage(replyToken, [{

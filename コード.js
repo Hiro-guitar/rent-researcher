@@ -155,6 +155,19 @@ function doPost(e) {
 
     // ── 返信処理を IIFE で包み、完了後にアクティビティ記録（体感速度向上のため後回し） ──
     (function dispatch() {
+    // ── auto_paused 自動復帰: メッセージ受信で配信自動再開 ──
+    try {
+      if (event.type === 'message' || event.type === 'postback') {
+        var _autoPauseStatus = (typeof getDeliveryStatus === 'function')
+          ? getDeliveryStatus(userId) : null;
+        if (_autoPauseStatus === 'auto_paused') {
+          setDeliveryStatus(userId, 'active');
+          console.log('[auto_paused 自動復帰] userId=' + userId);
+        }
+      }
+    } catch (_eAutoResume) {
+      console.warn('[auto_paused 自動復帰] error: ' + (_eAutoResume && _eAutoResume.message));
+    }
     // ── Follow イベント（友だち追加時）──
     // 挨拶メッセージは LINE Manager 側で設定。追加でメアド入力を促す。
     if (event.type === 'follow') {
@@ -293,7 +306,7 @@ function doPost(e) {
         try {
           var currentDeliveryStatus = (typeof getDeliveryStatus === 'function')
             ? getDeliveryStatus(userId) : 'active';
-          if (currentDeliveryStatus === 'paused') {
+          if (currentDeliveryStatus === 'paused' || currentDeliveryStatus === 'auto_paused') {
             handleDeliveryResumeCommand(replyToken, userId);
           } else {
             handleDeliveryStopCommand(replyToken, userId);
@@ -2021,7 +2034,7 @@ function handleGetCriteria(e) {
     var pname = String(data[pi][1] || '').trim();
     if (!pname) continue;
     var pstatus = String(data[pi][18] || '').trim().toLowerCase();
-    if (pstatus === 'paused') continue; // paused は除外、 ブロック判定不要
+    if (pstatus === 'paused' || pstatus === 'auto_paused') continue; // paused/auto_paused は除外、 ブロック判定不要
     var puid = lineUserIdMap[pname];
     if (puid) {
       nameToUserId[pname] = puid;
@@ -2076,7 +2089,7 @@ function handleGetCriteria(e) {
         continue; // まだスヌーズ中
       }
     }
-    if (deliveryStatus === 'paused') continue;
+    if (deliveryStatus === 'paused' || deliveryStatus === 'auto_paused') continue;
 
     // ── LINE ブロック状態反映 (事前一括判定の結果を参照) ──
     // ブロック検知 → 配信ステータスを 'blocked' に変更 + Discord 通知 + 検索除外
@@ -2757,9 +2770,9 @@ function getExistingCustomers_() {
   for (var i = 1; i < criteriaData.length; i++) {
     var name = String(criteriaData[i][1] || '').trim();
     if (!name) continue;
-    // S列 (index 18): 配信ステータス — blocked/paused は除外
+    // S列 (index 18): 配信ステータス — blocked/paused/auto_paused は除外
     var deliveryStatus = String(criteriaData[i][18] || '').trim().toLowerCase();
-    if (deliveryStatus === 'blocked' || deliveryStatus === 'paused') {
+    if (deliveryStatus === 'blocked' || deliveryStatus === 'paused' || deliveryStatus === 'auto_paused') {
       excludeNames[name] = true;
       continue;
     }

@@ -1351,7 +1351,7 @@ function getDeliveryStatus(userId) {
     for (var j = 1; j < data.length; j++) {
       if (data[j][1] === customerName) {
         var s = String(data[j][18] || '').trim().toLowerCase();
-        latestStatus = (s === 'paused') ? 'paused' : 'active';
+        latestStatus = (s === 'paused' || s === 'auto_paused') ? s : 'active';
       }
     }
     return latestStatus;
@@ -1383,6 +1383,7 @@ function setDeliveryStatus(userId, status) {
   sheet.getRange(targetRow, 19).setValue(status); // S列 = 19
   if (status === 'active') {
     sheet.getRange(targetRow, 22).setValue(''); // V列: スヌーズ解除
+    sheet.getRange(targetRow, 30).setValue(0);  // AD列: 条件変更提案カウントリセット
   }
   return { ok: true, customerName: customerName };
 }
@@ -2321,7 +2322,7 @@ function getAvailabilityCheckQueue(options) {
           for (var ci = 0; ci < critData.length; ci++) {
             var cname = String(critData[ci][0] || '').trim(); // B列
             var cstatus = String(critData[ci][17] || '').trim(); // S列
-            if (cname && (cstatus === 'paused' || cstatus === 'blocked')) {
+            if (cname && (cstatus === 'paused' || cstatus === 'auto_paused' || cstatus === 'blocked')) {
               inactiveCustomers[cname] = cstatus;
             }
           }
@@ -4097,7 +4098,7 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
       if (!cname) continue;
       existingCustomers[cname] = true;
       var cstatus = String(critData[ci][18] || '').trim();  // S列 (19) = index 18
-      if (cstatus !== 'paused' && cstatus !== 'blocked') continue;
+      if (cstatus !== 'paused' && cstatus !== 'auto_paused' && cstatus !== 'blocked') continue;
       var ctsRaw = critData[ci][20];  // U列 (21) = index 20
       var cts = _parseDateFlexible_(ctsRaw);
       if (!cts) {
