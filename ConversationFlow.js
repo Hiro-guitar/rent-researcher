@@ -985,9 +985,9 @@ function buildConditionSummaryFlex(state, headerText) {
   // ヘッダーのタイトル・サブテキストを呼び出し元に合わせて上書き
   if (bubble.header && bubble.header.contents && bubble.header.contents.length > 0) {
     bubble.header.contents[0].text = headerText;
-    // 新規登録の場合はサブテキストも専用の文言にする
+    // 新規登録の場合はサブテキストを非表示にする
     if (/登録/.test(headerText) && bubble.header.contents.length > 1) {
-      bubble.header.contents[1].text = 'ぴったりの物件をお探しします';
+      bubble.header.contents.splice(1, 1);
     }
   }
   return {
