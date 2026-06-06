@@ -170,41 +170,68 @@ function setupConditionSuggestionAutoTrigger() {
 }
 
 /**
- * [一時ユーティリティ] 30日以上反応がない顧客（＝3回以上提案を無視した可能性がある）を
- * 一覧表示し、AD列のカウントをバックフィルする。
- * GAS エディタから手動実行して、ログ（Ctrl+Enter）で結果を確認する。
+ * [一時ユーティリティ] 提案を送信済みで無視されている顧客のAD列にカウントをバックフィルする。
+ * GAS エディタから手動実行して、ログで結果を確認する。
+ *
+ * ステップ1: まず実行して対象者を確認（書き込みはしない）
+ * ステップ2: backfillSuggestionCounts() を実行して実際に書き込む
  */
-function checkAndBackfillAutoPauseCandidates() {
+function checkSuggestionIgnoreStatus() {
   var candidates = getConditionSuggestionCandidates_();
-  var longIgnored = candidates.filter(function(c) {
-    return c.daysSinceReference >= 30 && c.lastSuggestAt;
-  });
+  // Z列に提案送信日がある = 最低1回は送っている
+  var ignored = candidates.filter(function(c) { return !!c.lastSuggestAt; });
 
-  if (longIgnored.length === 0) {
-    console.log('=== 30日以上無反応かつ提案送信済みの顧客はいません ===');
-    return { count: 0, customers: [] };
+  if (ignored.length === 0) {
+    console.log('=== 提案を送信済みで無視されている顧客はいません ===');
+    return;
   }
 
-  console.log('=== 30日以上無反応 & 提案送信済み: ' + longIgnored.length + '人 ===');
-  var results = [];
-  for (var i = 0; i < longIgnored.length; i++) {
-    var c = longIgnored[i];
-    // 推定送信回数: (経過日数 / 10日) を切り捨て（最低1回はZ列に記録がある）
+  console.log('=== 提案を無視中の顧客: ' + ignored.length + '人 ===');
+  for (var i = 0; i < ignored.length; i++) {
+    var c = ignored[i];
     var estimatedCount = Math.max(1, Math.floor(c.daysSinceReference / CONDITION_SUGGESTION_THRESHOLD_DAYS));
     console.log((i + 1) + '. ' + c.name
       + ' | 経過' + c.daysSinceReference + '日'
       + ' | 最終提案: ' + c.lastSuggestAt
       + ' | 理由: ' + c.reasonText
-      + ' | 推定送信回数: ' + estimatedCount + '回');
-    results.push({
-      name: c.name,
-      days: c.daysSinceReference,
-      lastSuggest: c.lastSuggestAt,
-      reason: c.reasonText,
-      estimatedCount: estimatedCount
-    });
+      + ' | 推定送信回数: ' + estimatedCount + '回'
+      + (estimatedCount >= AUTO_PAUSE_THRESHOLD ? ' ← 自動停止対象' : ''));
   }
-  return { count: longIgnored.length, customers: results };
+  console.log('\n→ backfillSuggestionCounts() を実行するとAD列にカウントを書き込みます');
+}
+
+/**
+ * [一時ユーティリティ] 実際にAD列にカウントを書き込む。
+ * 3回以上の人は auto_paused にもする。
+ */
+function backfillSuggestionCounts() {
+  var candidates = getConditionSuggestionCandidates_();
+  var ignored = candidates.filter(function(c) { return !!c.lastSuggestAt; });
+
+  if (ignored.length === 0) {
+    console.log('対象なし');
+    return;
+  }
+
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  var filled = 0;
+  var paused = 0;
+
+  for (var i = 0; i < ignored.length; i++) {
+    var c = ignored[i];
+    var estimatedCount = Math.max(1, Math.floor(c.daysSinceReference / CONDITION_SUGGESTION_THRESHOLD_DAYS));
+    sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_COUNT_COL).setValue(estimatedCount);
+    filled++;
+    if (estimatedCount >= AUTO_PAUSE_THRESHOLD) {
+      sheet.getRange(c.rowIndex, 19).setValue('auto_paused');
+      paused++;
+      console.log('auto_paused: ' + c.name + ' (推定' + estimatedCount + '回)');
+    } else {
+      console.log('カウント設定: ' + c.name + ' → ' + estimatedCount + '回');
+    }
+  }
+  console.log('\n=== 完了: ' + filled + '人にカウント設定、うち' + paused + '人を自動停止 ===');
 }
 
 /**
