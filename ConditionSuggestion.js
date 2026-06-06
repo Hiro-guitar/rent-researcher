@@ -170,32 +170,28 @@ function setupConditionSuggestionAutoTrigger() {
 }
 
 /**
- * [一時ユーティリティ] 提案を送信済みで無視されている顧客のAD列にカウントをバックフィルする。
- * GAS エディタから手動実行して、ログで結果を確認する。
+ * [一時ユーティリティ] Z列に提案送信日がある全active顧客を表示する。
+ * getConditionSuggestionCandidates_ は10日以内に送った人を除外してしまうため、
+ * スプレッドシートを直接読む。
  *
- * ステップ1: まず実行して対象者を確認（書き込みはしない）
- * ステップ2: backfillSuggestionCounts() を実行して実際に書き込む
+ * ステップ1: checkSuggestionIgnoreStatus() で対象者を確認
+ * ステップ2: backfillSuggestionCounts() で実際にAD列に書き込む
  */
 function checkSuggestionIgnoreStatus() {
-  var candidates = getConditionSuggestionCandidates_();
-  // Z列に提案送信日がある = 最低1回は送っている
-  var ignored = candidates.filter(function(c) { return !!c.lastSuggestAt; });
-
-  if (ignored.length === 0) {
-    console.log('=== 提案を送信済みで無視されている顧客はいません ===');
+  var results = _getSuggestionIgnoreList_();
+  if (results.length === 0) {
+    console.log('=== Z列に提案送信日があるactive顧客はいません ===');
     return;
   }
-
-  console.log('=== 提案を無視中の顧客: ' + ignored.length + '人 ===');
-  for (var i = 0; i < ignored.length; i++) {
-    var c = ignored[i];
-    var estimatedCount = Math.max(1, Math.floor(c.daysSinceReference / CONDITION_SUGGESTION_THRESHOLD_DAYS));
-    console.log((i + 1) + '. ' + c.name
-      + ' | 経過' + c.daysSinceReference + '日'
-      + ' | 最終提案: ' + c.lastSuggestAt
-      + ' | 理由: ' + c.reasonText
-      + ' | 推定送信回数: ' + estimatedCount + '回'
-      + (estimatedCount >= AUTO_PAUSE_THRESHOLD ? ' ← 自動停止対象' : ''));
+  console.log('=== 提案送信済み & active の顧客: ' + results.length + '人 ===');
+  for (var i = 0; i < results.length; i++) {
+    var r = results[i];
+    console.log((i + 1) + '. ' + r.name
+      + ' | 登録: ' + r.registeredAt
+      + ' | 最終提案: ' + r.lastSuggestAt
+      + ' | 経過' + r.daysSinceRegister + '日'
+      + ' | 推定送信回数: ' + r.estimatedCount + '回'
+      + (r.estimatedCount >= AUTO_PAUSE_THRESHOLD ? ' ← 自動停止対象' : ''));
   }
   console.log('\n→ backfillSuggestionCounts() を実行するとAD列にカウントを書き込みます');
 }
@@ -205,33 +201,68 @@ function checkSuggestionIgnoreStatus() {
  * 3回以上の人は auto_paused にもする。
  */
 function backfillSuggestionCounts() {
-  var candidates = getConditionSuggestionCandidates_();
-  var ignored = candidates.filter(function(c) { return !!c.lastSuggestAt; });
-
-  if (ignored.length === 0) {
+  var results = _getSuggestionIgnoreList_();
+  if (results.length === 0) {
     console.log('対象なし');
     return;
   }
-
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
   var filled = 0;
   var paused = 0;
-
-  for (var i = 0; i < ignored.length; i++) {
-    var c = ignored[i];
-    var estimatedCount = Math.max(1, Math.floor(c.daysSinceReference / CONDITION_SUGGESTION_THRESHOLD_DAYS));
-    sheet.getRange(c.rowIndex, CONDITION_SUGGESTION_COUNT_COL).setValue(estimatedCount);
+  for (var i = 0; i < results.length; i++) {
+    var r = results[i];
+    sheet.getRange(r.rowIndex, CONDITION_SUGGESTION_COUNT_COL).setValue(r.estimatedCount);
     filled++;
-    if (estimatedCount >= AUTO_PAUSE_THRESHOLD) {
-      sheet.getRange(c.rowIndex, 19).setValue('auto_paused');
+    if (r.estimatedCount >= AUTO_PAUSE_THRESHOLD) {
+      sheet.getRange(r.rowIndex, 19).setValue('auto_paused');
       paused++;
-      console.log('auto_paused: ' + c.name + ' (推定' + estimatedCount + '回)');
+      console.log('auto_paused: ' + r.name + ' (推定' + r.estimatedCount + '回)');
     } else {
-      console.log('カウント設定: ' + c.name + ' → ' + estimatedCount + '回');
+      console.log('カウント設定: ' + r.name + ' → ' + r.estimatedCount + '回');
     }
   }
   console.log('\n=== 完了: ' + filled + '人にカウント設定、うち' + paused + '人を自動停止 ===');
+}
+
+/** Z列に日付があり、S列がactive（or空）の顧客を直接取得する内部関数 */
+function _getSuggestionIgnoreList_() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) return [];
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var lastCol = Math.max(sheet.getLastColumn(), CONDITION_SUGGESTION_COUNT_COL);
+  var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  var now = Date.now();
+  var dayMs = 24 * 60 * 60 * 1000;
+  var results = [];
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    var name = String(row[1] || '').trim();
+    if (!name) continue;
+    // S列: activeのみ（空もactive扱い）
+    var status = String(row[18] || '').trim().toLowerCase();
+    if (status && status !== 'active') continue;
+    // Z列: 提案送信日がある
+    var lastSuggestAt = row[CONDITION_SUGGESTION_SENT_COL - 1];
+    if (!(lastSuggestAt instanceof Date)) continue;
+    // 登録日
+    var regDate = row[0] instanceof Date ? row[0] : null;
+    var daysSinceRegister = regDate ? Math.floor((now - regDate.getTime()) / dayMs) : 0;
+    // 推定送信回数: 最終提案日から登録日までの期間を10日で割る
+    var suggestStart = regDate || lastSuggestAt;
+    var estimatedCount = Math.max(1, Math.floor((now - suggestStart.getTime()) / (CONDITION_SUGGESTION_THRESHOLD_DAYS * dayMs)));
+    results.push({
+      name: name,
+      rowIndex: i + 1,
+      registeredAt: regDate ? Utilities.formatDate(regDate, 'Asia/Tokyo', 'yyyy-MM-dd') : '不明',
+      lastSuggestAt: Utilities.formatDate(lastSuggestAt, 'Asia/Tokyo', 'yyyy-MM-dd'),
+      daysSinceRegister: daysSinceRegister,
+      estimatedCount: estimatedCount
+    });
+  }
+  return results;
 }
 
 /**
