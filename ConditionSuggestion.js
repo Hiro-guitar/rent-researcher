@@ -234,23 +234,34 @@ function _getSuggestionIgnoreList_() {
   if (lastRow < 2) return [];
   var lastCol = Math.max(sheet.getLastColumn(), CONDITION_SUGGESTION_COUNT_COL);
   var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  // 閲覧ログから最終閲覧日を取得
+  var lastViewMap = _buildLastViewMap_();
   var now = Date.now();
   var dayMs = 24 * 60 * 60 * 1000;
   var results = [];
+  var skipped = [];
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
     var name = String(row[1] || '').trim();
     if (!name) continue;
+    // テストアカウント除外
+    if (name === 'Hiroki') continue;
     // S列: activeのみ（空もactive扱い）
     var status = String(row[18] || '').trim().toLowerCase();
     if (status && status !== 'active') continue;
     // Z列: 提案送信日がある
     var lastSuggestAt = row[CONDITION_SUGGESTION_SENT_COL - 1];
     if (!(lastSuggestAt instanceof Date)) continue;
+    // 最終提案日より後に物件を閲覧している → まだアクティブなので除外
+    var lastView = lastViewMap[name] || null;
+    if (lastView && lastView.getTime() > lastSuggestAt.getTime()) {
+      skipped.push(name + ' (最終閲覧: ' + Utilities.formatDate(lastView, 'Asia/Tokyo', 'yyyy-MM-dd') + ')');
+      continue;
+    }
     // 登録日
     var regDate = row[0] instanceof Date ? row[0] : null;
     var daysSinceRegister = regDate ? Math.floor((now - regDate.getTime()) / dayMs) : 0;
-    // 推定送信回数: 最終提案日から登録日までの期間を10日で割る
+    // 推定送信回数: 登録日からの期間を10日で割る
     var suggestStart = regDate || lastSuggestAt;
     var estimatedCount = Math.max(1, Math.floor((now - suggestStart.getTime()) / (CONDITION_SUGGESTION_THRESHOLD_DAYS * dayMs)));
     results.push({
@@ -258,9 +269,16 @@ function _getSuggestionIgnoreList_() {
       rowIndex: i + 1,
       registeredAt: regDate ? Utilities.formatDate(regDate, 'Asia/Tokyo', 'yyyy-MM-dd') : '不明',
       lastSuggestAt: Utilities.formatDate(lastSuggestAt, 'Asia/Tokyo', 'yyyy-MM-dd'),
+      lastViewAt: lastView ? Utilities.formatDate(lastView, 'Asia/Tokyo', 'yyyy-MM-dd') : 'なし',
       daysSinceRegister: daysSinceRegister,
       estimatedCount: estimatedCount
     });
+  }
+  if (skipped.length > 0) {
+    console.log('--- 提案後に物件閲覧ありのため除外: ' + skipped.length + '人 ---');
+    for (var s = 0; s < skipped.length; s++) {
+      console.log('  除外: ' + skipped[s]);
+    }
   }
   return results;
 }
