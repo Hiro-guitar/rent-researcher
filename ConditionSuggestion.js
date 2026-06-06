@@ -170,6 +170,44 @@ function setupConditionSuggestionAutoTrigger() {
 }
 
 /**
+ * [一時ユーティリティ] 30日以上反応がない顧客（＝3回以上提案を無視した可能性がある）を
+ * 一覧表示し、AD列のカウントをバックフィルする。
+ * GAS エディタから手動実行して、ログ（Ctrl+Enter）で結果を確認する。
+ */
+function checkAndBackfillAutoPauseCandidates() {
+  var candidates = getConditionSuggestionCandidates_();
+  var longIgnored = candidates.filter(function(c) {
+    return c.daysSinceReference >= 30 && c.lastSuggestAt;
+  });
+
+  if (longIgnored.length === 0) {
+    console.log('=== 30日以上無反応かつ提案送信済みの顧客はいません ===');
+    return { count: 0, customers: [] };
+  }
+
+  console.log('=== 30日以上無反応 & 提案送信済み: ' + longIgnored.length + '人 ===');
+  var results = [];
+  for (var i = 0; i < longIgnored.length; i++) {
+    var c = longIgnored[i];
+    // 推定送信回数: (経過日数 / 10日) を切り捨て（最低1回はZ列に記録がある）
+    var estimatedCount = Math.max(1, Math.floor(c.daysSinceReference / CONDITION_SUGGESTION_THRESHOLD_DAYS));
+    console.log((i + 1) + '. ' + c.name
+      + ' | 経過' + c.daysSinceReference + '日'
+      + ' | 最終提案: ' + c.lastSuggestAt
+      + ' | 理由: ' + c.reasonText
+      + ' | 推定送信回数: ' + estimatedCount + '回');
+    results.push({
+      name: c.name,
+      days: c.daysSinceReference,
+      lastSuggest: c.lastSuggestAt,
+      reason: c.reasonText,
+      estimatedCount: estimatedCount
+    });
+  }
+  return { count: longIgnored.length, customers: results };
+}
+
+/**
  * 条件変更提案の自動送信トリガーが登録されているか確認する。
  * AdminPage から google.script.run で呼ばれる。
  * @return {{exists: boolean, message: string}}
