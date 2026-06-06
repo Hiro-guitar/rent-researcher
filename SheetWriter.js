@@ -130,6 +130,8 @@ function writeToSheet(userId, state) {
     sheet.getRange(existingRowIndex, 28).setValue(d.age || '');
     // AC列（29列目）: 条件変更時は最終REINS検索日をクリア（次回検索で全期間から検索し直す）
     sheet.getRange(existingRowIndex, 29).setValue('');
+    // AD列（30列目）: 条件変更完了 → 条件変更提案の連続送信カウントをリセット
+    sheet.getRange(existingRowIndex, 30).setValue(0);
   } else {
     // 新規顧客は末尾に追加
     sheet.appendRow(row);

@@ -778,6 +778,26 @@ function handleTrackView(e) {
 
   logSheet.appendRow([customerName, roomId, buildingName, now]);
 
+  // 物件閲覧 → 条件変更提案の連続送信カウントをリセット（AD列=30列目）
+  try {
+    var critSs = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var critSheet = critSs.getSheetByName(CRITERIA_SHEET_NAME);
+    if (critSheet) {
+      var critData = critSheet.getDataRange().getValues();
+      for (var ci = 1; ci < critData.length; ci++) {
+        if (String(critData[ci][1] || '').trim() === String(customerName).trim()) {
+          var currentCount = parseInt(critSheet.getRange(ci + 1, 30).getValue()) || 0;
+          if (currentCount > 0) {
+            critSheet.getRange(ci + 1, 30).setValue(0);
+          }
+          break;
+        }
+      }
+    }
+  } catch (_eViewReset) {
+    console.warn('閲覧時カウントリセット失敗: ' + (_eViewReset && _eViewReset.message));
+  }
+
   // 初回閲覧時のみ Discord 通知
   if (isFirstView) {
     try {
