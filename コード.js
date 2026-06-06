@@ -3034,7 +3034,7 @@ function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
           size: 'xl',
           color: '#ffffff',
           align: 'center',
-          wrap: true
+          adjustMode: 'shrink-to-fit'
         },
         {
           type: 'text',
