@@ -368,7 +368,14 @@ function sendConditionSuggestionTest(customerName, reasonCode) {
       stations: String(row[5] || ''),
       routesWithStations: routesWithStations
     };
-    var flex = buildConditionSuggestionFlex_(candidate);
+    // reasonCode が 'confirm' なら確認メッセージをテスト送信
+    var flex;
+    if (reasonCode === 'confirm') {
+      flex = _buildDeliveryContinueConfirmFlex_();
+      pushMessage(userId, [flex]);
+      return { success: true, message: '「' + customerName + '」に確認メッセージを送信しました (テスト送信)' };
+    }
+    flex = buildConditionSuggestionFlex_(candidate);
     pushMessage(userId, [flex]);
     // 「条件を変更する」LIFFボタンタップ時の応答を高速化するため
     // フォームHTMLをプリレンダしてCacheServiceに保存する。
