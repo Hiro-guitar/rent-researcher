@@ -2171,6 +2171,10 @@ function handleGetCriteria(e) {
       lastReinsSearchStr = String(lastReinsSearch).trim();
     }
 
+    // AE列(30, index 30): バストイレ別の処理モード ('alert' or 'skip')
+    var btMode = String(row[30] || '').trim().toLowerCase();
+    if (btMode !== 'skip') btMode = 'alert'; // デフォルト alert
+
     criteria.push({
       name: name,
       cities: _splitCSV(row[3]),
@@ -2188,7 +2192,8 @@ function handleGetCriteria(e) {
       move_in_strict: String(row[26] || '').trim().toLowerCase() === 'true',  // AA列(27): 入居時期厳守
       notes: String(row[15] || ''),
       selectedTowns: selectedTowns,
-      lastReinsSearch: lastReinsSearchStr
+      lastReinsSearch: lastReinsSearchStr,
+      btMode: btMode
     });
   }
 
@@ -3875,6 +3880,9 @@ function getCustomerDetail(customerName) {
       regStr = Utilities.formatDate(regDate, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
     }
 
+    var btMode = String(data[i][30] || '').trim().toLowerCase();
+    if (btMode !== 'skip') btMode = 'alert';
+
     info = {
       name: name,
       status: status,
@@ -3889,7 +3897,8 @@ function getCustomerDetail(customerName) {
       walk: '',
       structures: '',
       equipment: '',
-      notes: ''
+      notes: '',
+      btMode: btMode
     };
 
     // 賃料上限 (F列 index 5)
@@ -4060,6 +4069,30 @@ function savePropertyComment(customerName, roomId, comment) {
     // 新規行を追加
     sheet.appendRow([customerName, roomId, comment, new Date()]);
     return { success: true };
+  } catch(e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * 顧客のバストイレ別モードを更新する（google.script.run から呼ばれる）。
+ * @param {string} customerName
+ * @param {string} mode - 'alert' or 'skip'
+ */
+function updateBtMode(customerName, mode) {
+  try {
+    if (mode !== 'alert' && mode !== 'skip') mode = 'alert';
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { success: false, message: 'シートが見つかりません' };
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1] || '').trim() === customerName) {
+        sheet.getRange(i + 1, 31).setValue(mode); // AE列(31)
+        return { success: true };
+      }
+    }
+    return { success: false, message: '顧客が見つかりません' };
   } catch(e) {
     return { success: false, message: e.message };
   }
