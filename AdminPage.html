@@ -9,44 +9,44 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
   -webkit-text-size-adjust: 100%;
-  background: #f5f5f5;
-  color: #333;
+  background: #1a1a2e;
+  color: #e0e0e0;
   padding-bottom: 80px;
 }
 
 /* ── ヘッダー ── */
 .header {
   position: sticky; top: 0; z-index: 10;
-  background: #2c3e50; padding: 14px 16px;
-  border-bottom: 1px solid #1a252f;
+  background: #16213e; padding: 14px 16px;
+  border-bottom: 1px solid #0f3460;
 }
-.header h1 { font-size: 16px; font-weight: 700; text-align: center; color: #ecf0f1; }
+.header h1 { font-size: 16px; font-weight: 700; text-align: center; color: #e0e0e0; }
 .header .admin-badge { font-size: 10px; background: #e74c3c; color: #fff; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle; }
 
 /* ── セクション ── */
 .section {
-  background: #fff; margin: 8px; border-radius: 12px;
-  overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  background: #16213e; margin: 8px; border-radius: 12px;
+  overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 .section-title {
-  font-size: 14px; font-weight: 700; color: #2c3e50;
-  padding: 12px 16px 8px; background: #eaf2f8;
-  border-bottom: 1px solid #d6eaf8;
+  font-size: 14px; font-weight: 700; color: #e0e0e0;
+  padding: 12px 16px 8px; background: #1a2744;
+  border-bottom: 1px solid #0f3460;
 }
-.section-title.green { color: #8ec41d; background: #f0faf4; border-bottom-color: #e8f5e9; }
+.section-title.green { color: #8ec41d; background: #1a2e1a; border-bottom-color: #2d4a2d; }
 .section-subtitle {
-  font-size: 12px; color: #888; font-weight: 400; margin-left: 8px;
+  font-size: 12px; color: #999; font-weight: 400; margin-left: 8px;
 }
 
 /* ── 管理者セクション ── */
 .admin-field { padding: 12px 16px; }
-.admin-field label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 6px; }
+.admin-field label { display: block; font-size: 13px; font-weight: 600; color: #bbb; margin-bottom: 6px; }
 .admin-field input, .admin-field select {
-  width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 8px;
-  font-family: inherit; background: #fff;
+  width: 100%; padding: 10px 12px; font-size: 14px; border: 1px solid #3a4a6b; border-radius: 8px;
+  font-family: inherit; background: #1a2744; color: #e0e0e0;
 }
 .admin-field select { appearance: auto; }
-.admin-field .hint { font-size: 11px; color: #999; margin-top: 4px; }
+.admin-field .hint { font-size: 11px; color: #777; margin-top: 4px; }
 .admin-field-row { display: flex; gap: 12px; }
 .admin-field-row .admin-field { flex: 1; }
 .load-btn {
@@ -55,17 +55,17 @@ body {
   margin-top: 8px;
 }
 .load-btn:hover { background: #2980b9; }
-.load-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+.load-btn:disabled { background: #4a5568; cursor: not-allowed; color: #888; }
 
 /* ── 検索ページを開くボタン ── */
 .search-open-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .search-open-btn {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 7px 14px; font-size: 12px; font-weight: 600;
-  border: 1px solid #bbb; border-radius: 6px; background: #fff; color: #555;
+  border: 1px solid #3a4a6b; border-radius: 6px; background: #1a2744; color: #bbb;
   cursor: pointer; -webkit-tap-highlight-color: transparent; transition: all 0.2s;
 }
-.search-open-btn:hover { background: #f0f0f0; border-color: #888; }
+.search-open-btn:hover { background: #243456; border-color: #5a7abf; }
 .search-open-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .search-open-btn .ico { font-size: 14px; }
 
@@ -77,7 +77,7 @@ body {
 }
 .tab {
   flex: 1; padding: 10px; text-align: center; font-size: 14px; font-weight: 600;
-  cursor: pointer; background: #fff; color: #8ec41d;
+  cursor: pointer; background: #1a2744; color: #8ec41d;
   border: none; -webkit-tap-highlight-color: transparent;
   transition: all 0.2s;
 }
@@ -87,20 +87,20 @@ body {
 .tab-content.active { display: block; }
 
 /* ── 会社グループ（路線用） ── */
-.company-group { margin: 4px 8px; border-radius: 8px; overflow: hidden; border: 1px solid #eee; }
+.company-group { margin: 4px 8px; border-radius: 8px; overflow: hidden; border: 1px solid #2a3a5c; }
 .company-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 12px; background: #fafafa; border-bottom: 1px solid #eee;
+  padding: 10px 12px; background: #1a2744; border-bottom: 1px solid #2a3a5c;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.company-header:active { background: #f0f0f0; }
-.company-name { font-size: 14px; font-weight: 700; color: #555; }
+.company-header:active { background: #243456; }
+.company-name { font-size: 14px; font-weight: 700; color: #ccc; }
 .company-header-right { display: flex; align-items: center; gap: 8px; }
 .company-arrow { font-size: 11px; color: #bbb; transition: transform 0.3s; }
 .company-arrow.open { transform: rotate(90deg); }
 .company-toggle {
   font-size: 11px; padding: 3px 10px; border-radius: 14px;
-  border: 1px solid #aaa; background: #fff; color: #666;
+  border: 1px solid #3a4a6b; background: #1a2744; color: #bbb;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 .company-routes { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
@@ -108,100 +108,100 @@ body {
 /* ── 路線・駅アイテム ── */
 .route-item {
   display: flex; align-items: center; padding: 0 12px;
-  min-height: 44px; border-bottom: 1px solid #f0f0f0;
+  min-height: 44px; border-bottom: 1px solid #2a3a5c;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.route-item:active { background: #f5f5f5; }
+.route-item:active { background: #243456; }
 .route-item input[type="checkbox"] {
   width: 20px; height: 20px; margin-right: 10px;
   accent-color: #8ec41d; flex-shrink: 0;
 }
-.route-item label { font-size: 14px; flex: 1; cursor: pointer; padding: 10px 0; }
-.route-station-badge { font-size: 11px; color: #999; white-space: nowrap; margin-left: 4px; }
-.route-arrow { font-size: 11px; color: #bbb; margin-left: 4px; transition: transform 0.3s; }
+.route-item label { font-size: 14px; flex: 1; cursor: pointer; padding: 10px 0; color: #ddd; }
+.route-station-badge { font-size: 11px; color: #777; white-space: nowrap; margin-left: 4px; }
+.route-arrow { font-size: 11px; color: #666; margin-left: 4px; transition: transform 0.3s; }
 .route-arrow.open { transform: rotate(90deg); }
 
-.station-panel { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #f9f9f9; border-top: 1px solid #eee; }
+.station-panel { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #141e33; border-top: 1px solid #2a3a5c; }
 .station-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px 2px 44px; font-size: 11px; color: #888; }
-.station-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #ccc; background: #fff; color: #666; cursor: pointer; }
+.station-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #3a4a6b; background: #1a2744; color: #bbb; cursor: pointer; }
 .station-list { padding: 2px 12px 8px 44px; }
 .station-item { display: flex; align-items: center; padding: 4px 0; }
 .station-item input[type="checkbox"] { width: 16px; height: 16px; margin-right: 8px; accent-color: #8ec41d; }
-.station-item label { font-size: 12px; cursor: pointer; }
+.station-item label { font-size: 12px; cursor: pointer; color: #ccc; }
 .station-list.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
 
 /* ── 市区町村グループ ── */
-.city-group { margin: 4px 8px; border-radius: 8px; overflow: hidden; border: 1px solid #eee; }
+.city-group { margin: 4px 8px; border-radius: 8px; overflow: hidden; border: 1px solid #2a3a5c; }
 .city-group-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 12px; background: #fafafa; cursor: pointer;
+  padding: 10px 12px; background: #1a2744; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.city-group-name { font-size: 14px; font-weight: 700; color: #555; }
-.city-group-arrow { font-size: 11px; color: #bbb; transition: transform 0.3s; }
+.city-group-name { font-size: 14px; font-weight: 700; color: #ccc; }
+.city-group-arrow { font-size: 11px; color: #666; transition: transform 0.3s; }
 .city-group-arrow.open { transform: rotate(90deg); }
 .city-group-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
 .city-item {
   display: flex; align-items: center; padding: 0 12px;
-  min-height: 44px; border-bottom: 1px solid #f0f0f0;
+  min-height: 44px; border-bottom: 1px solid #2a3a5c;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.city-item:active { background: #f5f5f5; }
+.city-item:active { background: #243456; }
 .city-item input[type="checkbox"] {
   width: 20px; height: 20px; margin-right: 10px;
   accent-color: #8ec41d; flex-shrink: 0;
 }
-.city-item label { font-size: 14px; flex: 1; cursor: pointer; padding: 10px 0; }
+.city-item label { font-size: 14px; flex: 1; cursor: pointer; padding: 10px 0; color: #ddd; }
 
 /* ── 町名パネル ── */
-.town-panel { display: none; background: #f9f9f9; border-top: 1px solid #eee; }
+.town-panel { display: none; background: #141e33; border-top: 1px solid #2a3a5c; }
 .town-panel.open { display: block; }
 .town-header { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px 2px 44px; font-size: 11px; color: #888; }
-.town-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #ccc; background: #fff; color: #666; cursor: pointer; }
-.town-loading { padding: 10px 12px 10px 44px; font-size: 12px; color: #999; }
-.city-town-badge { font-size: 11px; color: #999; white-space: nowrap; margin-left: 4px; }
-.city-arrow { font-size: 11px; color: #bbb; margin-left: 4px; transition: transform 0.3s; }
+.town-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #3a4a6b; background: #1a2744; color: #bbb; cursor: pointer; }
+.town-loading { padding: 10px 12px 10px 44px; font-size: 12px; color: #777; }
+.city-town-badge { font-size: 11px; color: #777; white-space: nowrap; margin-left: 4px; }
+.city-arrow { font-size: 11px; color: #666; margin-left: 4px; transition: transform 0.3s; }
 .city-arrow.open { transform: rotate(90deg); }
 
 .town-item {
   display: flex; align-items: center; padding: 0 12px 0 44px;
-  min-height: 40px; border-bottom: 1px solid #f0f0f0;
+  min-height: 40px; border-bottom: 1px solid #2a3a5c;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.town-item:active { background: #f0f0f0; }
+.town-item:active { background: #243456; }
 .town-item input[type="checkbox"] { width: 18px; height: 18px; margin-right: 8px; accent-color: #8ec41d; flex-shrink: 0; }
-.town-item label { font-size: 13px; flex: 1; cursor: pointer; padding: 8px 0; }
-.town-chome-badge { font-size: 11px; color: #999; white-space: nowrap; margin-left: 4px; }
-.town-arrow { font-size: 10px; color: #bbb; margin-left: 4px; transition: transform 0.3s; }
+.town-item label { font-size: 13px; flex: 1; cursor: pointer; padding: 8px 0; color: #ccc; }
+.town-chome-badge { font-size: 11px; color: #777; white-space: nowrap; margin-left: 4px; }
+.town-arrow { font-size: 10px; color: #666; margin-left: 4px; transition: transform 0.3s; }
 .town-arrow.open { transform: rotate(90deg); }
 
-.chome-panel { display: none; background: #f3f3f3; border-top: 1px solid #eee; }
+.chome-panel { display: none; background: #111a2e; border-top: 1px solid #2a3a5c; }
 .chome-panel.open { display: block; }
 .chome-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 2px 68px; font-size: 10px; color: #888; }
-.chome-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #ccc; background: #fff; color: #666; cursor: pointer; }
+.chome-toggle-btn { font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #3a4a6b; background: #1a2744; color: #bbb; cursor: pointer; }
 .chome-list { padding: 2px 12px 6px 68px; display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
 .chome-item { display: flex; align-items: center; padding: 3px 0; }
 .chome-item input[type="checkbox"] { width: 15px; height: 15px; margin-right: 6px; accent-color: #8ec41d; }
-.chome-item label { font-size: 12px; cursor: pointer; }
+.chome-item label { font-size: 12px; cursor: pointer; color: #ccc; }
 
 /* ── スライダー ── */
 .slider-container { padding: 8px 16px 16px; }
 .slider-value { font-size: 22px; font-weight: 700; color: #8ec41d; text-align: center; margin: 4px 0 8px; }
 .slider-row { display: flex; align-items: center; gap: 8px; }
-.slider-label { font-size: 11px; color: #999; white-space: nowrap; }
+.slider-label { font-size: 11px; color: #888; white-space: nowrap; }
 input[type="range"] {
   -webkit-appearance: none; appearance: none;
   width: 100%; height: 6px; border-radius: 3px;
-  background: #e0e0e0; outline: none;
+  background: #2a3a5c; outline: none;
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
   width: 24px; height: 24px; border-radius: 50%;
-  background: #8ec41d; cursor: pointer; border: 2px solid #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  background: #8ec41d; cursor: pointer; border: 2px solid #1a2744;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
 .unspecified-row { padding: 8px 16px 4px; }
-.unspecified-row label { font-size: 13px; color: #666; display: flex; align-items: center; gap: 8px; }
+.unspecified-row label { font-size: 13px; color: #bbb; display: flex; align-items: center; gap: 8px; }
 .unspecified-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: #8ec41d; }
 
 /* ── チェックボックスグリッド ── */
@@ -209,48 +209,49 @@ input[type="range"]::-webkit-slider-thumb {
 .checkbox-grid.cols-2 { grid-template-columns: 1fr 1fr; }
 .cb-item { display: flex; align-items: center; padding: 6px 4px; }
 .cb-item input[type="checkbox"] { width: 18px; height: 18px; margin-right: 6px; accent-color: #8ec41d; flex-shrink: 0; }
-.cb-item label { font-size: 13px; cursor: pointer; }
+.cb-item label { font-size: 13px; cursor: pointer; color: #ddd; }
 
 /* ── こだわり条件アコーディオン ── */
-.equip-category { border-bottom: 1px solid #f0f0f0; }
+.equip-category { border-bottom: 1px solid #2a3a5c; }
 .equip-category:last-child { border-bottom: none; }
 .equip-cat-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 10px 16px; cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
-.equip-cat-header:active { background: #f8f8f8; }
-.equip-cat-name { font-size: 14px; font-weight: 600; color: #444; }
+.equip-cat-header:active { background: #243456; }
+.equip-cat-name { font-size: 14px; font-weight: 600; color: #ccc; }
 .equip-cat-count { font-size: 11px; color: #8ec41d; font-weight: 600; }
-.equip-cat-arrow { font-size: 11px; color: #bbb; transition: transform 0.3s; }
+.equip-cat-arrow { font-size: 11px; color: #666; transition: transform 0.3s; }
 .equip-cat-arrow.open { transform: rotate(90deg); }
 .equip-cat-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
 .equip-cat-items { padding: 0 12px 8px; }
 .equip-item { display: flex; align-items: center; padding: 6px 4px; }
 .equip-item input[type="checkbox"] { width: 18px; height: 18px; margin-right: 8px; accent-color: #8ec41d; flex-shrink: 0; }
-.equip-item label { font-size: 13px; cursor: pointer; }
+.equip-item label { font-size: 13px; cursor: pointer; color: #ddd; }
 
 .pet-input-row { display: none; padding: 4px 16px 8px 40px; }
 .pet-input-row.show { display: block; }
 .pet-input-row input[type="text"] {
-  width: 100%; padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px;
+  width: 100%; padding: 8px 12px; font-size: 14px; border: 1px solid #3a4a6b; border-radius: 6px;
+  background: #1a2744; color: #e0e0e0;
 }
-.pet-input-row .hint { font-size: 11px; color: #999; margin-top: 4px; }
+.pet-input-row .hint { font-size: 11px; color: #777; margin-top: 4px; }
 
 /* ── フッター ── */
 .footer {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
-  background: #fff; padding: 12px 16px;
-  border-top: 1px solid #e0e0e0;
+  background: #16213e; padding: 12px 16px;
+  border-top: 1px solid #0f3460;
   padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
 .submit-btn {
   width: 100%; padding: 14px; font-size: 16px; font-weight: 700;
   border: none; border-radius: 8px;
-  background: #2c3e50; color: #fff;
+  background: #8ec41d; color: #fff;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
   transition: opacity 0.2s;
 }
-.submit-btn:disabled { background: #bdc3c7; cursor: default; }
+.submit-btn:disabled { background: #4a5568; cursor: default; color: #888; }
 .submit-btn:active:not(:disabled) { opacity: 0.8; }
 
 /* ── ローディング & 完了 ── */
@@ -258,17 +259,17 @@ input[type="range"]::-webkit-slider-thumb {
   display: none; flex-direction: column; align-items: center;
   justify-content: center; min-height: 60vh; text-align: center; padding: 24px;
 }
-.spinner { width: 40px; height: 40px; border: 4px solid #e0e0e0; border-top-color: #2c3e50; border-radius: 50%; animation: spin 0.8s linear infinite; }
+.spinner { width: 40px; height: 40px; border: 4px solid #2a3a5c; border-top-color: #8ec41d; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.loading p { margin-top: 16px; font-size: 15px; color: #666; }
+.loading p { margin-top: 16px; font-size: 15px; color: #999; }
 .success .icon { font-size: 48px; margin-bottom: 16px; }
 .success h2 { font-size: 18px; margin-bottom: 8px; }
-.success p { font-size: 14px; color: #666; line-height: 1.6; }
+.success p { font-size: 14px; color: #999; line-height: 1.6; }
 
 /* ── トースト ── */
 .toast {
   position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
-  background: #2c3e50; color: #fff; padding: 10px 20px; border-radius: 8px;
+  background: #0f3460; color: #e0e0e0; padding: 10px 20px; border-radius: 8px;
   font-size: 13px; z-index: 100; opacity: 0; transition: opacity 0.3s;
   pointer-events: none;
 }
@@ -278,22 +279,22 @@ input[type="range"]::-webkit-slider-thumb {
 .admin-tools-divider {
   margin: 12px 8px 4px;
   border: none; border-top: 2px dashed #d5a440;
-  opacity: 0.5;
+  opacity: 0.3;
 }
 .admin-section {
-  background: #fff; margin: 8px; border-radius: 12px;
-  overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-  border: 1px solid #e0e0e0;
+  background: #16213e; margin: 8px; border-radius: 12px;
+  overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  border: 1px solid #2a3a5c;
 }
 .admin-section-header {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 16px; background: #f8f9fa;
-  border-bottom: 1px solid #e9ecef; cursor: pointer;
+  padding: 12px 16px; background: #1a2744;
+  border-bottom: 1px solid #2a3a5c; cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.admin-section-header:active { background: #eef1f5; }
+.admin-section-header:active { background: #243456; }
 .admin-section-title {
-  font-size: 14px; font-weight: 700; color: #2c3e50;
+  font-size: 14px; font-weight: 700; color: #e0e0e0;
   display: flex; align-items: center; gap: 8px;
 }
 .admin-section-title .badge {
@@ -305,7 +306,7 @@ input[type="range"]::-webkit-slider-thumb {
 .admin-section-title .badge-off { background: #95a5a6; }
 .admin-section-right { display: flex; align-items: center; gap: 8px; }
 .admin-section-arrow {
-  font-size: 11px; color: #bbb; transition: transform 0.3s;
+  font-size: 11px; color: #666; transition: transform 0.3s;
 }
 .admin-section-arrow.open { transform: rotate(90deg); }
 .admin-section-body {
@@ -313,7 +314,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .admin-section-body.open { max-height: 2000px; }
 .admin-desc {
-  font-size: 12px; color: #666; line-height: 1.7;
+  font-size: 12px; color: #999; line-height: 1.7;
   padding: 12px 16px 8px; margin: 0;
 }
 .admin-action-row {
@@ -321,21 +322,21 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 8px 16px 12px;
 }
 .admin-action-row select {
-  font-size: 13px; padding: 6px 8px; border: 1px solid #ccc;
-  border-radius: 6px; flex: 1; min-width: 140px; background: #fff;
+  font-size: 13px; padding: 6px 8px; border: 1px solid #3a4a6b;
+  border-radius: 6px; flex: 1; min-width: 140px; background: #1a2744; color: #e0e0e0;
 }
 .admin-sub {
   margin: 8px 12px 12px; padding: 10px 12px;
-  background: #fafbfc; border: 1px solid #e9ecef; border-radius: 8px;
+  background: #141e33; border: 1px solid #2a3a5c; border-radius: 8px;
 }
 .admin-sub-title {
-  font-size: 12px; color: #555; margin-bottom: 6px; font-weight: 600;
+  font-size: 12px; color: #bbb; margin-bottom: 6px; font-weight: 600;
 }
 .admin-sub-desc {
   font-size: 11px; color: #888; line-height: 1.6; margin-bottom: 8px;
 }
 .admin-result {
-  font-size: 12px; color: #444; margin-top: 6px; padding: 0 16px 8px;
+  font-size: 12px; color: #ccc; margin-top: 6px; padding: 0 16px 8px;
 }
 /* ── 管理ツールボタン ── */
 .btn-admin {
@@ -349,7 +350,7 @@ input[type="range"]::-webkit-slider-thumb {
 .btn-red { background: #e74c3c; color: #fff; }
 .btn-green { background: #27ae60; color: #fff; }
 .btn-outline {
-  background: #fff; color: #666; border: 1px solid #bbb;
+  background: #1a2744; color: #bbb; border: 1px solid #3a4a6b;
   padding: 4px 10px; font-size: 11px;
 }
 .btn-link {
@@ -361,7 +362,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* ── ラジオ行 ── */
 .radio-row {
   display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-  font-size: 12px; color: #555; padding: 4px 16px 8px;
+  font-size: 12px; color: #bbb; padding: 4px 16px 8px;
 }
 .radio-row label { cursor: pointer; display: flex; align-items: center; gap: 3px; }
 </style>
@@ -604,6 +605,12 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
     <div class="admin-field" style="padding-top:0;">
       <button class="load-btn" id="loadBtn" onclick="loadCustomerCriteria()" disabled>既存条件を読み込む</button>
+    </div>
+    <div id="viewStatsRow" class="admin-field" style="padding-top:0;display:none;">
+      <div style="display:flex;gap:16px;align-items:center;padding:8px 12px;background:#0f3460;border-radius:8px;">
+        <div style="font-size:12px;color:#888;">👁 閲覧回数: <span id="viewCountLabel" style="color:#8ec41d;font-weight:600;">0</span></div>
+        <div style="font-size:12px;color:#888;">最終閲覧: <span id="lastViewLabel" style="color:#ccc;">—</span></div>
+      </div>
     </div>
     <div class="admin-field" id="searchOpenBtns" style="padding-top:0;display:none;">
       <label style="font-size:12px;color:#888;margin-bottom:4px;">検索ページを開く（Chrome拡張経由）</label>
@@ -994,9 +1001,19 @@ function loadCustomerCriteria() {
         document.getElementById('searchBtnEssquare').disabled = false;
         document.getElementById('searchBtnReins').disabled = false;
         document.getElementById('searchBtnItandi').disabled = false;
+        // 閲覧統計を表示
+        var vsRow = document.getElementById('viewStatsRow');
+        if (typeof data.viewCount !== 'undefined') {
+          vsRow.style.display = '';
+          document.getElementById('viewCountLabel').textContent = data.viewCount || 0;
+          document.getElementById('lastViewLabel').textContent = data.lastViewAt || '—';
+        } else {
+          vsRow.style.display = 'none';
+        }
         showToast(name + ' の条件を読み込みました');
       } else {
         showToast('条件が見つかりませんでした');
+        document.getElementById('viewStatsRow').style.display = 'none';
       }
     })
     .withFailureHandler(function(err) {

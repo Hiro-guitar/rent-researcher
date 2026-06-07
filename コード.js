@@ -2909,6 +2909,43 @@ function loadCustomerCriteriaByName(customerName) {
     var btMode = String(latestRow[30] || '').trim().toLowerCase();
     if (btMode && btMode !== 'skip') btMode = 'alert';
 
+    // 閲覧統計を集計
+    var viewCount = 0;
+    var lastViewAt = '';
+    try {
+      var propSs = SpreadsheetApp.openById(SPREADSHEET_ID);
+      // アクションログから view を集計
+      var actionSheet = propSs.getSheetByName('アクションログ');
+      if (actionSheet) {
+        var aData = actionSheet.getDataRange().getValues();
+        for (var ai = 1; ai < aData.length; ai++) {
+          if (String(aData[ai][0] || '').trim() !== customerName) continue;
+          if (String(aData[ai][2] || '') === 'view') {
+            viewCount++;
+            var aTs = aData[ai][8];
+            if (aTs instanceof Date) {
+              var aStr = Utilities.formatDate(aTs, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+              if (aStr > lastViewAt) lastViewAt = aStr;
+            }
+          }
+        }
+      }
+      // 閲覧ログからも加算
+      var viewLogSheet = propSs.getSheetByName('閲覧ログ');
+      if (viewLogSheet) {
+        var vData = viewLogSheet.getDataRange().getValues();
+        for (var vi = 1; vi < vData.length; vi++) {
+          if (String(vData[vi][0] || '').trim() !== customerName) continue;
+          viewCount++;
+          var vTs = vData[vi][3]; // D列 = 閲覧日時
+          if (vTs instanceof Date) {
+            var vStr = Utilities.formatDate(vTs, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+            if (vStr > lastViewAt) lastViewAt = vStr;
+          }
+        }
+      }
+    } catch(ve) { console.warn('閲覧統計取得エラー: ' + ve.message); }
+
     return {
       name: customerName,
       reason: reason,
@@ -2929,7 +2966,9 @@ function loadCustomerCriteriaByName(customerName) {
       selectedCities: cities,
       selectedStations: selectedStations,
       selectedTowns: selectedTownsObj,
-      btMode: btMode
+      btMode: btMode,
+      viewCount: viewCount,
+      lastViewAt: lastViewAt
     };
   } catch (e) {
     console.error('loadCustomerCriteriaByName error: ' + e.message);
