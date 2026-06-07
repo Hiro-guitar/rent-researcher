@@ -953,11 +953,14 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
-  // バス・トイレ別スキップモード（options画面で btMode='skip' 指定時のみ、equipにバス・トイレ別があって設備欄に無ければ除外）
-  if (__btMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
-    const fac = prop.facilities || '';
-    if (!fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
-      return `バス・トイレ別の記載なし`;
+  // バス・トイレ別スキップモード（顧客ごとの btMode、またはグローバル設定で 'skip' の場合、設備欄に無ければ除外）
+  {
+    const _customerBtMode = (customer.btMode || __btMode || 'alert').toLowerCase();
+    if (_customerBtMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
+      const fac = prop.facilities || '';
+      if (!fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
+        return `バス・トイレ別の記載なし`;
+      }
     }
   }
 
@@ -5495,8 +5498,11 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
   }
   // バス・トイレ別（REINS: バス・トイレ別, itandi: バス・トイレ別, いえらぶ: バストイレ別）
   // btMode='skip' の場合はフィルタ側で除外済みなのでアラート不要
-  if (__btMode !== 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
-    warnings.push('⚠️ バス・トイレ別かどうか確認してください');
+  {
+    const _cBtMode = (customer?.btMode || __btMode || 'alert').toLowerCase();
+    if (_cBtMode !== 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
+      warnings.push('⚠️ バス・トイレ別かどうか確認してください');
+    }
   }
   // 温水洗浄便座
   if ((equip.includes('温水洗浄便座') || equip.includes('ウォシュレット')) && !fac.includes('温水洗浄便座')) {

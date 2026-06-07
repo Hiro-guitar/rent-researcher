@@ -286,7 +286,7 @@ async function resolveItandiStationIds(tabId, customer) {
  * 顧客の設備テキスト（M列）から itandi API の equipment_ids を解決する。
  * Python itandi_search/sheets.py の設備パース処理に相当。
  */
-function resolveItandiEquipmentIds(equipmentText) {
+function resolveItandiEquipmentIds(equipmentText, customer) {
   if (!equipmentText) return { hard: [], soft: [] };
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const text = toHankaku(equipmentText);
@@ -304,7 +304,8 @@ function resolveItandiEquipmentIds(equipmentText) {
     if (id && !seenIds.has(id)) {
       seenIds.add(id);
       // バス・トイレ別(11010): btMode='skip'時はhardに昇格してAPI検索条件に入れる
-      const forceHard = id === 11010 && typeof __btMode !== 'undefined' && __btMode === 'skip';
+      const _cBtMode = (customer?.btMode || (typeof __btMode !== 'undefined' ? __btMode : 'alert')).toLowerCase();
+      const forceHard = id === 11010 && _cBtMode === 'skip';
       if (ITANDI_SOFT_EQUIPMENT_IDS.has(id) && !forceHard) {
         softIds.push(id);
       } else {
@@ -471,7 +472,7 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
   }
 
   // 設備（テキストからID解決、ハードフィルタのみAPIに送信）
-  const resolved = resolveItandiEquipmentIds(customer.equipment);
+  const resolved = resolveItandiEquipmentIds(customer.equipment, customer);
   if (resolved.hard.length > 0) {
     filterObj['option_id:all_in'] = resolved.hard;
   }
