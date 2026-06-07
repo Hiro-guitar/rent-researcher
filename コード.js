@@ -2905,6 +2905,9 @@ function loadCustomerCriteriaByName(customerName) {
       }
     }
 
+    var btMode = String(latestRow[30] || '').trim().toLowerCase();
+    if (btMode !== 'skip') btMode = 'alert';
+
     return {
       name: customerName,
       reason: reason,
@@ -2924,7 +2927,8 @@ function loadCustomerCriteriaByName(customerName) {
       selectedRoutes: routes,
       selectedCities: cities,
       selectedStations: selectedStations,
-      selectedTowns: selectedTownsObj
+      selectedTowns: selectedTownsObj,
+      btMode: btMode
     };
   } catch (e) {
     console.error('loadCustomerCriteriaByName error: ' + e.message);
@@ -3004,6 +3008,25 @@ function processAdminCriteria(customerName, lineUserId, criteria) {
 
     // スプレッドシートに書き込み
     writeToSheet(userId, state);
+
+    // バストイレ別モードを AE列(31) に保存
+    if (criteria.btMode) {
+      try {
+        var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+        var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+        if (sheet) {
+          var data = sheet.getDataRange().getValues();
+          for (var bi = data.length - 1; bi >= 1; bi--) {
+            if (String(data[bi][1] || '').trim() === customerName) {
+              sheet.getRange(bi + 1, 31).setValue(criteria.btMode);
+              break;
+            }
+          }
+        }
+      } catch (btErr) {
+        console.warn('btMode保存エラー: ' + btErr.message);
+      }
+    }
 
     // LINE User IDが指定されていれば LINE Users シートにも保存
     if (lineUserId) {
