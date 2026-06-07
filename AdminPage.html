@@ -2358,6 +2358,7 @@ function loadSearchRuns() {
         container.innerHTML = '<p style="color:#999;font-size:12px;padding:8px 0;">直近の検索実行はありません</p>';
         return;
       }
+      window._searchRuns = runs;
       var html = '';
       runs.forEach(function(run, idx) {
         html += '<div style="border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
@@ -2368,31 +2369,39 @@ function loadSearchRuns() {
           + run.timeRange + ' ｜ ' + run.customerCount + '顧客 ｜ ' + run.propertyCount + '件'
           + '</div>'
           + '</div>'
-          + '<button onclick="resetSearchRun(' + idx + ')" style="padding:6px 12px;font-size:12px;font-weight:600;border:1px solid #e74c3c;border-radius:6px;background:#fff;color:#e74c3c;cursor:pointer;">リセット</button>'
+          + '<div style="text-align:right;">'
+          + '<button onclick="resetSearchRun(' + idx + ', this)" style="padding:6px 12px;font-size:12px;font-weight:600;border:1px solid #e74c3c;border-radius:6px;background:#fff;color:#e74c3c;cursor:pointer;">リセット</button>'
+          + '<div class="reset-result" style="font-size:11px;color:#27ae60;margin-top:4px;"></div>'
+          + '</div>'
           + '</div></div>';
       });
       container.innerHTML = html;
-      container._runs = runs;
     })
     .withFailureHandler(function(e) {
-      container.innerHTML = '<p style="color:#e74c3c;font-size:12px;padding:8px 0;">エラー: ' + e.message + '</p>';
+      container.innerHTML = '<p style="color:#e74c3c;font-size:12px;padding:8px 0;">エラー: ' + (e.message || JSON.stringify(e)) + '</p>';
     })
     .getRecentSearchRuns();
 }
 
-function resetSearchRun(idx) {
-  var container = document.getElementById('searchRunsList');
-  var runs = container._runs;
+function resetSearchRun(idx, btnEl) {
+  var runs = window._searchRuns;
   if (!runs || !runs[idx]) return;
   var run = runs[idx];
-  if (!confirm(run.dateLabel + ' ' + run.timeRange + ' の検索結果(' + run.propertyCount + '件)をリセットしますか？\n\n承認待ち・通知済み・重複スキップから削除されます。')) return;
+  if (!confirm(run.dateLabel + ' ' + run.timeRange + ' の検索結果(' + run.propertyCount + '件)をリセットしますか？')) return;
+  btnEl.disabled = true;
+  btnEl.textContent = '処理中...';
   google.script.run
     .withSuccessHandler(function(result) {
-      alert('リセット完了\n承認待ち: ' + result.deletedPending + '件削除\n通知済み: ' + result.deletedSeen + '件削除\n重複リセット: ' + result.dedupResets + '件');
-      loadSearchRuns();
+      btnEl.textContent = '✅ 完了';
+      btnEl.style.border = '1px solid #27ae60';
+      btnEl.style.color = '#27ae60';
+      var info = btnEl.parentElement.querySelector('.reset-result');
+      if (info) info.textContent = '承認待ち' + result.deletedPending + '件 / 通知済み' + result.deletedSeen + '件 / 重複' + result.dedupResets + '件 削除';
     })
     .withFailureHandler(function(e) {
-      alert('エラー: ' + e.message);
+      btnEl.textContent = '❌ エラー';
+      btnEl.style.color = '#e74c3c';
+      btnEl.disabled = false;
     })
     .resetSearchRun(run.startTime, run.endTime);
 }
