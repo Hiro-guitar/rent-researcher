@@ -4009,7 +4009,7 @@ function _getCustomerProperties_(ss, customerName) {
         var vRoomId = String(viewData[i][1] || '');
         if (propMap[vRoomId]) {
           propMap[vRoomId].viewed = true;
-          var vDate = viewData[i][2];
+          var vDate = viewData[i][3]; // D列 = 閲覧日時（C列は物件名）
           if (vDate instanceof Date) {
             propMap[vRoomId].viewedAt = Utilities.formatDate(vDate, tz, 'yyyy/MM/dd HH:mm');
           }
@@ -4018,7 +4018,7 @@ function _getCustomerProperties_(ss, customerName) {
     }
   } catch(e) { console.warn('閲覧ログ取得エラー: ' + e.message); }
 
-  // 3. アクションログからアクションを反映
+  // 3. アクションログからアクションを反映（viewも閲覧として処理）
   try {
     var actionSheet = ss.getSheetByName('アクションログ');
     if (actionSheet) {
@@ -4027,13 +4027,19 @@ function _getCustomerProperties_(ss, customerName) {
         if (String(aData[i][0] || '').trim() !== customerName) continue;
         var aRoomId = String(aData[i][1] || '');
         var actionType = String(aData[i][2] || '');
-        if (actionType === 'view') continue; // 閲覧は別で処理済み
-        if (propMap[aRoomId]) {
-          var aDate = aData[i][8];
-          var aDateStr = '';
-          if (aDate instanceof Date) {
-            aDateStr = Utilities.formatDate(aDate, tz, 'yyyy/MM/dd HH:mm');
+        if (!propMap[aRoomId]) continue;
+        var aDate = aData[i][8];
+        var aDateStr = '';
+        if (aDate instanceof Date) {
+          aDateStr = Utilities.formatDate(aDate, tz, 'yyyy/MM/dd HH:mm');
+        }
+        if (actionType === 'view') {
+          // viewもviewed扱いにする（閲覧ログに無い場合のカバー）
+          propMap[aRoomId].viewed = true;
+          if (aDateStr && (!propMap[aRoomId].viewedAt || aDateStr > propMap[aRoomId].viewedAt)) {
+            propMap[aRoomId].viewedAt = aDateStr;
           }
+        } else {
           propMap[aRoomId].actions.push({
             type: actionType,
             date: aDateStr
