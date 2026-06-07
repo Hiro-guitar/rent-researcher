@@ -93,6 +93,51 @@ body {
 .btn-outline { background: #fff; color: #555; border: 1px solid #ccc; }
 .btn-outline:hover { background: #f5f5f5; }
 .btn-sm { padding: 4px 10px; font-size: 11px; }
+.btn-green { background: #27ae60; color: #fff; }
+.btn-green:hover { background: #219a52; }
+
+/* ── 物件一覧 ── */
+.prop-list { padding: 0; }
+.prop-item {
+  padding: 12px 16px; border-bottom: 1px solid #f0f0f0;
+}
+.prop-item:last-child { border-bottom: none; }
+.prop-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.prop-name { font-size: 13px; font-weight: 600; flex: 1; line-height: 1.4; }
+.prop-sent { font-size: 11px; color: #999; white-space: nowrap; }
+.prop-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.prop-badge {
+  display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 8px; font-weight: 600;
+}
+.prop-badge-viewed { background: #f3e5f5; color: #7b1fa2; }
+.prop-badge-not-viewed { background: #f5f5f5; color: #999; }
+.prop-badge-favorite { background: #fff3e0; color: #e65100; }
+.prop-badge-hold { background: #e3f2fd; color: #1565c0; }
+.prop-badge-viewing { background: #e8f5e9; color: #2e7d32; }
+.prop-badge-not_interested { background: #fce4ec; color: #c62828; }
+.prop-badge-closed { background: #f5f5f5; color: #999; border: 1px solid #e0e0e0; }
+.prop-badge-source { background: #eceff1; color: #546e7a; }
+.prop-comment-area { margin-top: 6px; }
+.prop-comment-display {
+  font-size: 12px; color: #555; background: #fafafa; padding: 6px 10px;
+  border-radius: 6px; border: 1px solid #eee; cursor: pointer; white-space: pre-wrap; line-height: 1.4;
+}
+.prop-comment-display:hover { background: #f5f5f5; }
+.prop-comment-edit { display: none; }
+.prop-comment-edit textarea {
+  width: 100%; padding: 6px 10px; font-size: 12px; border: 1px solid #ccc;
+  border-radius: 6px; font-family: inherit; resize: vertical; min-height: 40px;
+}
+.prop-add-comment {
+  font-size: 11px; color: #3498db; cursor: pointer; margin-top: 4px;
+}
+.prop-add-comment:hover { text-decoration: underline; }
+.prop-filter-bar { padding: 8px 16px; display: flex; gap: 6px; flex-wrap: wrap; }
+.prop-filter-btn {
+  font-size: 11px; padding: 4px 10px; border-radius: 12px; border: 1px solid #ddd;
+  background: #fff; cursor: pointer; font-weight: 500;
+}
+.prop-filter-btn.active { background: #3498db; color: #fff; border-color: #3498db; }
 
 /* ── タイムライン ── */
 .timeline { padding: 12px 16px; }
@@ -205,6 +250,19 @@ body {
     </div>
   </div>
 
+  <!-- 送付済み物件 -->
+  <div class="card">
+    <div class="card-title">
+      <span>🏠 送付済み物件</span>
+      <span id="propCount" style="font-size:11px;color:#888;font-weight:400;"></span>
+    </div>
+    <div class="prop-filter-bar" id="propFilterBar"></div>
+    <div id="propList" class="prop-list">
+      <div class="loading">読み込み中...</div>
+    </div>
+    <div id="propMore" class="timeline-more" style="display:none;"></div>
+  </div>
+
   <!-- 対応ログ -->
   <div class="card">
     <div class="card-title">
@@ -253,8 +311,12 @@ body {
 var customers = JSON.parse('<?!= customersJson ?>');
 var currentCustomer = null;
 var allTimeline = [];
+var allProperties = [];
+var propFilter = 'all';
 var TIMELINE_PAGE_SIZE = 30;
+var PROP_PAGE_SIZE = 20;
 var timelineShown = 0;
+var propShown = 0;
 
 // ── 初期化 ──
 (function() {
@@ -365,6 +427,13 @@ function renderDetail(data) {
   }
   document.getElementById('detailInfo').innerHTML = info || '<div class="empty-state">条件未登録</div>';
 
+  // 送付済み物件
+  allProperties = data.properties || [];
+  propFilter = 'all';
+  renderPropFilters();
+  propShown = 0;
+  renderProperties();
+
   // 対応ログ
   renderLogHistory(data.contactLogs || []);
 
@@ -433,6 +502,175 @@ function saveLog() {
       showToast('エラー: ' + err.message);
     })
     .addContactLog(currentCustomer, type, date, memo);
+}
+
+// ══════════════════════════════════════════
+//  送付済み物件
+// ══════════════════════════════════════════
+function renderPropFilters() {
+  var counts = { all: allProperties.length, viewed: 0, not_viewed: 0, action: 0 };
+  for (var i = 0; i < allProperties.length; i++) {
+    if (allProperties[i].viewed) counts.viewed++;
+    else counts.not_viewed++;
+    if (allProperties[i].actions && allProperties[i].actions.length > 0) counts.action++;
+  }
+  var filters = [
+    { key: 'all', label: '全て (' + counts.all + ')' },
+    { key: 'viewed', label: '閲覧済 (' + counts.viewed + ')' },
+    { key: 'not_viewed', label: '未閲覧 (' + counts.not_viewed + ')' },
+    { key: 'action', label: 'アクション有 (' + counts.action + ')' }
+  ];
+  var html = '';
+  for (var i = 0; i < filters.length; i++) {
+    var f = filters[i];
+    html += '<button class="prop-filter-btn' + (propFilter === f.key ? ' active' : '') + '" onclick="setPropFilter(\'' + f.key + '\')">' + f.label + '</button>';
+  }
+  document.getElementById('propFilterBar').innerHTML = html;
+}
+
+function setPropFilter(f) {
+  propFilter = f;
+  propShown = 0;
+  renderPropFilters();
+  renderProperties();
+}
+
+function getFilteredProps() {
+  if (propFilter === 'all') return allProperties;
+  return allProperties.filter(function(p) {
+    if (propFilter === 'viewed') return p.viewed;
+    if (propFilter === 'not_viewed') return !p.viewed;
+    if (propFilter === 'action') return p.actions && p.actions.length > 0;
+    return true;
+  });
+}
+
+function renderProperties() {
+  var filtered = getFilteredProps();
+  var el = document.getElementById('propList');
+  var moreEl = document.getElementById('propMore');
+  document.getElementById('propCount').textContent = filtered.length + '件';
+
+  if (filtered.length === 0) {
+    el.innerHTML = '<div class="empty-state">物件がありません</div>';
+    moreEl.style.display = 'none';
+    return;
+  }
+
+  var end = Math.min(propShown + PROP_PAGE_SIZE, filtered.length);
+  var html = propShown === 0 ? '' : el.innerHTML;
+
+  for (var i = propShown; i < end; i++) {
+    var p = filtered[i];
+    html += renderPropItem(p, i);
+  }
+  propShown = end;
+  el.innerHTML = html;
+
+  if (propShown < filtered.length) {
+    moreEl.style.display = '';
+    moreEl.innerHTML = '<button class="btn btn-outline btn-sm" onclick="renderProperties()">もっと見る（残り' + (filtered.length - propShown) + '件）</button>';
+  } else {
+    moreEl.style.display = 'none';
+  }
+}
+
+function renderPropItem(p, idx) {
+  var actionLabels = { favorite: '⭐ お気に入り', hold: '⏸ 保留', not_interested: '✕ 興味なし', viewing: '👀 内見希望' };
+  var sourceLabels = { reins: 'REINS', suumo: 'SUUMO', ielove: 'いえらぶ', itandi: 'itandi', essquare: 'ES-Square' };
+
+  var html = '<div class="prop-item" id="prop-' + idx + '">';
+  html += '<div class="prop-header">';
+  html += '<div class="prop-name">' + esc(p.buildingName || p.roomId) + '</div>';
+  html += '<div class="prop-sent">' + esc(p.sentAt) + '</div>';
+  html += '</div>';
+
+  // バッジ
+  html += '<div class="prop-badges">';
+  if (p.source) {
+    html += '<span class="prop-badge prop-badge-source">' + esc(sourceLabels[p.source] || p.source) + '</span>';
+  }
+  if (p.viewed) {
+    html += '<span class="prop-badge prop-badge-viewed">👁 閲覧済' + (p.viewedAt ? ' ' + p.viewedAt : '') + '</span>';
+  } else {
+    html += '<span class="prop-badge prop-badge-not-viewed">未閲覧</span>';
+  }
+  if (p.availStatus === 'closed') {
+    html += '<span class="prop-badge prop-badge-closed">募集終了</span>';
+  }
+  for (var a = 0; a < (p.actions || []).length; a++) {
+    var act = p.actions[a];
+    var cls = 'prop-badge-' + (act.type || '');
+    var label = actionLabels[act.type] || act.type;
+    html += '<span class="prop-badge ' + cls + '">' + esc(label) + '</span>';
+  }
+  html += '</div>';
+
+  // コメント
+  html += '<div class="prop-comment-area">';
+  if (p.comment) {
+    html += '<div class="prop-comment-display" onclick="editComment(\'' + esc(p.roomId) + '\', ' + idx + ')" title="クリックして編集">' + esc(p.comment) + '</div>';
+  } else {
+    html += '<div class="prop-add-comment" onclick="editComment(\'' + esc(p.roomId) + '\', ' + idx + ')">＋ コメントを追加</div>';
+  }
+  html += '<div class="prop-comment-edit" id="comment-edit-' + idx + '">';
+  html += '<textarea id="comment-text-' + idx + '" placeholder="物件についてのメモ...">' + esc(p.comment || '') + '</textarea>';
+  html += '<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:4px;">';
+  html += '<button class="btn btn-outline btn-sm" onclick="cancelComment(' + idx + ')">キャンセル</button>';
+  html += '<button class="btn btn-green btn-sm" onclick="saveComment(\'' + esc(p.roomId) + '\', ' + idx + ')">保存</button>';
+  html += '</div></div>';
+  html += '</div>';
+
+  html += '</div>';
+  return html;
+}
+
+function editComment(roomId, idx) {
+  var editEl = document.getElementById('comment-edit-' + idx);
+  if (editEl) editEl.style.display = '';
+  var textarea = document.getElementById('comment-text-' + idx);
+  if (textarea) textarea.focus();
+}
+
+function cancelComment(idx) {
+  var editEl = document.getElementById('comment-edit-' + idx);
+  if (editEl) editEl.style.display = 'none';
+  // テキストを元に戻す
+  var filtered = getFilteredProps();
+  if (filtered[idx]) {
+    var textarea = document.getElementById('comment-text-' + idx);
+    if (textarea) textarea.value = filtered[idx].comment || '';
+  }
+}
+
+function saveComment(roomId, idx) {
+  var textarea = document.getElementById('comment-text-' + idx);
+  var comment = textarea ? textarea.value.trim() : '';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        showToast('コメントを保存しました');
+        // ローカルデータも更新
+        var filtered = getFilteredProps();
+        if (filtered[idx]) filtered[idx].comment = comment;
+        // allProperties側も更新
+        for (var i = 0; i < allProperties.length; i++) {
+          if (allProperties[i].roomId === roomId) {
+            allProperties[i].comment = comment;
+            break;
+          }
+        }
+        propShown = 0;
+        renderProperties();
+      } else {
+        showToast('保存失敗: ' + (res && res.message || ''));
+      }
+    })
+    .withFailureHandler(function(err) {
+      showToast('エラー: ' + err.message);
+    })
+    .savePropertyComment(currentCustomer, roomId, comment);
 }
 
 // ── タイムライン ──
