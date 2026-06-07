@@ -4337,3 +4337,80 @@ function _buildSimpleHtml(title, message, color) {
     + '<p>' + message + '</p>'
     + '</div></body></html>';
 }
+
+/**
+ * 【一時関数】2026-06-07 19:09〜19:52 の検索結果をリセット
+ * - 承認待ち物件: L列(created_at)が該当時間帯の行を削除
+ * - 通知済み物件: D列(sent_at)が該当時間帯の行を削除
+ * - pending_dedup_resets にdedupキーを登録（Chrome拡張の30日マップからも消える）
+ * GASエディタから手動実行する。実行後にこの関数は削除してよい。
+ */
+function TEMP_resetSearchResults_20260607() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var startTime = new Date('2026-06-07T19:09:00+09:00').getTime();
+  var endTime = new Date('2026-06-07T19:52:00+09:00').getTime();
+  var deletedPending = 0;
+  var deletedSeen = 0;
+  var dedupKeysToReset = [];
+
+  // 1. 承認待ち物件 — L列(12列目, index 11) = created_at
+  var pendingSheet = ss.getSheetByName('承認待ち物件');
+  if (pendingSheet) {
+    var pData = pendingSheet.getDataRange().getValues();
+    var rowsToDelete = [];
+    for (var i = 1; i < pData.length; i++) {
+      var createdAt = pData[i][11]; // L列
+      var ts = createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime();
+      if (ts >= startTime && ts <= endTime) {
+        rowsToDelete.push(i + 1); // 1-based row number
+        // dedupキー収集
+        try {
+          var json = JSON.parse(String(pData[i][9] || ''));
+          var dk = _buildDedupKeyForGas_({ address: json.address, room_number: json.room_number, area: json.area, layout: json.layout });
+          var customer = String(pData[i][0] || '');
+          if (dk && customer) dedupKeysToReset.push({ customer: customer, key: dk });
+        } catch(_) {}
+      }
+    }
+    // 下から削除（行番号がずれないように）
+    for (var j = rowsToDelete.length - 1; j >= 0; j--) {
+      pendingSheet.deleteRow(rowsToDelete[j]);
+      deletedPending++;
+    }
+  }
+
+  // 2. 通知済み物件 — D列(4列目, index 3) = sent_at
+  var seenSheet = ss.getSheetByName('通知済み物件');
+  if (seenSheet) {
+    var sData = seenSheet.getDataRange().getValues();
+    var rowsToDelete2 = [];
+    for (var i = 1; i < sData.length; i++) {
+      var sentAt = sData[i][3]; // D列
+      var ts2 = sentAt instanceof Date ? sentAt.getTime() : new Date(sentAt).getTime();
+      if (ts2 >= startTime && ts2 <= endTime) {
+        rowsToDelete2.push(i + 1);
+        // dedupキー — 通知済み物件にはJSON無いのでroom_idベースでリセット
+        var customer2 = String(sData[i][0] || '');
+        var roomId2 = String(sData[i][1] || '');
+        if (customer2 && roomId2) dedupKeysToReset.push({ customer: customer2, roomId: roomId2 });
+      }
+    }
+    for (var j = rowsToDelete2.length - 1; j >= 0; j--) {
+      seenSheet.deleteRow(rowsToDelete2[j]);
+      deletedSeen++;
+    }
+  }
+
+  // 3. pending_dedup_resets に追加（Chrome拡張が次回同期で30日マップから消す）
+  var props = PropertiesService.getScriptProperties();
+  var existing = [];
+  try { existing = JSON.parse(props.getProperty('pending_dedup_resets') || '[]'); } catch(_) {}
+  var nowMs = Date.now();
+  for (var k = 0; k < dedupKeysToReset.length; k++) {
+    existing.push({ customer: dedupKeysToReset[k].customer, key: dedupKeysToReset[k].key || '', roomId: dedupKeysToReset[k].roomId || '', ts: nowMs });
+  }
+  props.setProperty('pending_dedup_resets', JSON.stringify(existing));
+
+  Logger.log('リセット完了: 承認待ち ' + deletedPending + '件削除, 通知済み ' + deletedSeen + '件削除, dedupリセット ' + dedupKeysToReset.length + '件登録');
+  return { deletedPending: deletedPending, deletedSeen: deletedSeen, dedupResets: dedupKeysToReset.length };
+}
