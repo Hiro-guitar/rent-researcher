@@ -417,21 +417,9 @@ function renderDetail(data) {
     ['構造', data.structures],
     ['設備', data.equipment],
     ['備考', data.notes],
-    ['BT別モード', '__BT_MODE__'] // 特殊処理
+    ['BT別', data.btMode === 'skip' ? '選別（除外）' : 'アラートのみ']
   ];
   for (var i = 0; i < rows.length; i++) {
-    if (rows[i][1] === '__BT_MODE__') {
-      info += '<div class="detail-info-row">';
-      info += '<div class="detail-info-label">BT別</div>';
-      info += '<div class="detail-info-value">';
-      info += '<select id="btModeSelect" onchange="updateBtMode()" style="padding:4px 8px;font-size:13px;border:1px solid #ccc;border-radius:6px;">';
-      info += '<option value="alert"' + (data.btMode === 'alert' ? ' selected' : '') + '>アラートのみ</option>';
-      info += '<option value="skip"' + (data.btMode === 'skip' ? ' selected' : '') + '>選別（除外）</option>';
-      info += '</select>';
-      info += '<span id="btModeResult" style="font-size:11px;color:#888;margin-left:8px;"></span>';
-      info += '</div></div>';
-      continue;
-    }
     if (!rows[i][1]) continue;
     info += '<div class="detail-info-row">';
     info += '<div class="detail-info-label">' + esc(rows[i][0]) + '</div>';
@@ -732,28 +720,6 @@ function showMoreTimeline() {
   }
 
   el.innerHTML = html;
-}
-
-// ── BT別モード ──
-function updateBtMode() {
-  var sel = document.getElementById('btModeSelect');
-  var mode = sel ? sel.value : 'alert';
-  var resultEl = document.getElementById('btModeResult');
-  if (resultEl) resultEl.textContent = '保存中...';
-
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res && res.success) {
-        if (resultEl) resultEl.textContent = '✅ 保存済み';
-        setTimeout(function() { if (resultEl) resultEl.textContent = ''; }, 2000);
-      } else {
-        if (resultEl) resultEl.textContent = '❌ ' + (res && res.message || '失敗');
-      }
-    })
-    .withFailureHandler(function(err) {
-      if (resultEl) resultEl.textContent = '❌ ' + err.message;
-    })
-    .updateBtMode(currentCustomer, mode);
 }
 
 // ── ナビゲーション ──
