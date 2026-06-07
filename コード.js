@@ -3916,6 +3916,9 @@ function getCustomerDetail(customerName) {
 
   if (!info) return { error: '顧客が見つかりません: ' + customerName };
 
+  // 送付済み物件
+  info.properties = _getCustomerProperties_(ss, customerName);
+
   // 対応ログ
   info.contactLogs = _getContactLogs_(ss, customerName);
 
@@ -3923,6 +3926,143 @@ function getCustomerDetail(customerName) {
   info.timeline = _buildCustomerTimeline_(ss, customerName, data);
 
   return info;
+}
+
+/**
+ * 送付済み物件の一覧を取得する（アクション状況付き）。
+ */
+function _getCustomerProperties_(ss, customerName) {
+  var tz = 'Asia/Tokyo';
+  var properties = [];
+  var propMap = {}; // roomId → property object
+
+  // 1. 通知済み物件から取得
+  try {
+    var seenSheet = ss.getSheetByName('通知済み物件');
+    if (seenSheet) {
+      var seenData = seenSheet.getDataRange().getValues();
+      for (var i = 1; i < seenData.length; i++) {
+        if (String(seenData[i][0] || '').trim() !== customerName) continue;
+        var roomId = String(seenData[i][1] || '');
+        var sentDate = seenData[i][3];
+        var sentStr = '';
+        if (sentDate instanceof Date) {
+          sentStr = Utilities.formatDate(sentDate, tz, 'yyyy/MM/dd HH:mm');
+        }
+        var prop = {
+          roomId: roomId,
+          buildingName: String(seenData[i][2] || ''),
+          sentAt: sentStr,
+          source: String(seenData[i][4] || ''),
+          availStatus: String(seenData[i][5] || ''),  // F列: 空室ステータス
+          viewed: false,
+          viewedAt: '',
+          actions: [], // お気に入り、内見希望など
+          comment: ''
+        };
+        propMap[roomId] = prop;
+        properties.push(prop);
+      }
+    }
+  } catch(e) { console.warn('通知済み物件取得エラー: ' + e.message); }
+
+  // 2. 閲覧ログから閲覧状況を反映
+  try {
+    var viewSheet = ss.getSheetByName('閲覧ログ');
+    if (viewSheet) {
+      var viewData = viewSheet.getDataRange().getValues();
+      for (var i = 1; i < viewData.length; i++) {
+        if (String(viewData[i][0] || '').trim() !== customerName) continue;
+        var vRoomId = String(viewData[i][1] || '');
+        if (propMap[vRoomId]) {
+          propMap[vRoomId].viewed = true;
+          var vDate = viewData[i][2];
+          if (vDate instanceof Date) {
+            propMap[vRoomId].viewedAt = Utilities.formatDate(vDate, tz, 'yyyy/MM/dd HH:mm');
+          }
+        }
+      }
+    }
+  } catch(e) { console.warn('閲覧ログ取得エラー: ' + e.message); }
+
+  // 3. アクションログからアクションを反映
+  try {
+    var actionSheet = ss.getSheetByName('アクションログ');
+    if (actionSheet) {
+      var aData = actionSheet.getDataRange().getValues();
+      for (var i = 1; i < aData.length; i++) {
+        if (String(aData[i][0] || '').trim() !== customerName) continue;
+        var aRoomId = String(aData[i][1] || '');
+        var actionType = String(aData[i][2] || '');
+        if (actionType === 'view') continue; // 閲覧は別で処理済み
+        if (propMap[aRoomId]) {
+          var aDate = aData[i][8];
+          var aDateStr = '';
+          if (aDate instanceof Date) {
+            aDateStr = Utilities.formatDate(aDate, tz, 'yyyy/MM/dd HH:mm');
+          }
+          propMap[aRoomId].actions.push({
+            type: actionType,
+            date: aDateStr
+          });
+        }
+      }
+    }
+  } catch(e) { console.warn('アクションログ取得エラー: ' + e.message); }
+
+  // 4. 物件コメントを取得
+  try {
+    var commentSheet = ss.getSheetByName('物件コメント');
+    if (commentSheet) {
+      var cData = commentSheet.getDataRange().getValues();
+      for (var i = 1; i < cData.length; i++) {
+        if (String(cData[i][0] || '').trim() !== customerName) continue;
+        var cRoomId = String(cData[i][1] || '');
+        if (propMap[cRoomId]) {
+          propMap[cRoomId].comment = String(cData[i][2] || '');
+        }
+      }
+    }
+  } catch(e) { /* シートがなければ空 */ }
+
+  // 新しい順にソート
+  properties.sort(function(a,b) { return (b.sentAt || '').localeCompare(a.sentAt || ''); });
+
+  return properties;
+}
+
+/**
+ * 物件コメントを保存する（google.script.run から呼ばれる）。
+ */
+function savePropertyComment(customerName, roomId, comment) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName('物件コメント');
+    if (!sheet) {
+      sheet = ss.insertSheet('物件コメント');
+      sheet.appendRow(['顧客名', 'room_id', 'コメント', '更新日時']);
+      try {
+        sheet.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#e0e0e0');
+      } catch(e) {}
+    }
+
+    // 既存行を検索
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0] || '').trim() === customerName &&
+          String(data[i][1] || '').trim() === roomId) {
+        // 既存行を更新
+        sheet.getRange(i + 1, 3).setValue(comment);
+        sheet.getRange(i + 1, 4).setValue(new Date());
+        return { success: true };
+      }
+    }
+    // 新規行を追加
+    sheet.appendRow([customerName, roomId, comment, new Date()]);
+    return { success: true };
+  } catch(e) {
+    return { success: false, message: e.message };
+  }
 }
 
 /**
