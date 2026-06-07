@@ -381,6 +381,27 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
   </div>
 
+  <!-- ═══ 検索リセット ═══ -->
+  <div id="searchResetSection" class="admin-section">
+    <div class="admin-section-header" onclick="toggleAdminSection('searchReset')">
+      <div class="admin-section-title">
+        🔄 検索リセット
+      </div>
+      <div class="admin-section-right">
+        <button class="btn-admin btn-outline" onclick="event.stopPropagation();loadSearchRuns()">更新</button>
+        <span id="searchResetArrow" class="admin-section-arrow">▶</span>
+      </div>
+    </div>
+    <div id="searchResetBody" class="admin-section-body">
+      <p class="admin-desc">
+        直近の検索実行を選択して、結果をリセット（承認待ち・通知済み・重複スキップから削除）できます。
+      </p>
+      <div id="searchRunsList" style="padding:0 12px 8px;">
+        <p style="color:#999;font-size:12px;padding:8px 0;">「更新」を押すと直近の検索実行を読み込みます</p>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ 条件変更提案 ═══ -->
   <div id="suggestionSection" class="admin-section">
     <div class="admin-section-header" onclick="toggleAdminSection('suggestion')">
@@ -2323,6 +2344,57 @@ function openCustomerPage() {
       window.open(url, '_top');
     })
     .getCustomerPageUrl();
+}
+
+// ──────────────────────────────────────────────────────────
+// 検索リセット
+// ──────────────────────────────────────────────────────────
+function loadSearchRuns() {
+  var container = document.getElementById('searchRunsList');
+  container.innerHTML = '<p style="color:#999;font-size:12px;padding:8px 0;">読み込み中...</p>';
+  google.script.run
+    .withSuccessHandler(function(runs) {
+      if (!runs || runs.length === 0) {
+        container.innerHTML = '<p style="color:#999;font-size:12px;padding:8px 0;">直近の検索実行はありません</p>';
+        return;
+      }
+      var html = '';
+      runs.forEach(function(run, idx) {
+        html += '<div style="border:1px solid #e0e0e0;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;">'
+          + '<div>'
+          + '<div style="font-size:13px;font-weight:600;">' + run.dateLabel + '</div>'
+          + '<div style="font-size:11px;color:#888;margin-top:2px;">'
+          + run.timeRange + ' ｜ ' + run.customerCount + '顧客 ｜ ' + run.propertyCount + '件'
+          + '</div>'
+          + '</div>'
+          + '<button onclick="resetSearchRun(' + idx + ')" style="padding:6px 12px;font-size:12px;font-weight:600;border:1px solid #e74c3c;border-radius:6px;background:#fff;color:#e74c3c;cursor:pointer;">リセット</button>'
+          + '</div></div>';
+      });
+      container.innerHTML = html;
+      container._runs = runs;
+    })
+    .withFailureHandler(function(e) {
+      container.innerHTML = '<p style="color:#e74c3c;font-size:12px;padding:8px 0;">エラー: ' + e.message + '</p>';
+    })
+    .getRecentSearchRuns();
+}
+
+function resetSearchRun(idx) {
+  var container = document.getElementById('searchRunsList');
+  var runs = container._runs;
+  if (!runs || !runs[idx]) return;
+  var run = runs[idx];
+  if (!confirm(run.dateLabel + ' ' + run.timeRange + ' の検索結果(' + run.propertyCount + '件)をリセットしますか？\n\n承認待ち・通知済み・重複スキップから削除されます。')) return;
+  google.script.run
+    .withSuccessHandler(function(result) {
+      alert('リセット完了\n承認待ち: ' + result.deletedPending + '件削除\n通知済み: ' + result.deletedSeen + '件削除\n重複リセット: ' + result.dedupResets + '件');
+      loadSearchRuns();
+    })
+    .withFailureHandler(function(e) {
+      alert('エラー: ' + e.message);
+    })
+    .resetSearchRun(run.startTime, run.endTime);
 }
 
 // ──────────────────────────────────────────────────────────

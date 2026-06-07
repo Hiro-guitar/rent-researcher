@@ -4339,16 +4339,98 @@ function _buildSimpleHtml(title, message, color) {
 }
 
 /**
- * 【一時関数】2026-06-07 19:09〜19:52 の検索結果をリセット
- * - 承認待ち物件: L列(created_at)が該当時間帯の行を削除
- * - 通知済み物件: D列(sent_at)が該当時間帯の行を削除
- * - pending_dedup_resets にdedupキーを登録（Chrome拡張の30日マップからも消える）
- * GASエディタから手動実行する。実行後にこの関数は削除してよい。
+ * 直近の検索実行一覧を取得（AdminPage「検索リセット」用）
+ * 承認待ち物件と通知済み物件のタイムスタンプから検索実行をグループ化して返す。
+ * 10分以上の空白がある場合は別の実行とみなす。
  */
-function TEMP_resetSearchResults_20260607() {
+function getRecentSearchRuns() {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  var startTime = new Date('2026-06-07T19:09:00+09:00').getTime();
-  var endTime = new Date('2026-06-07T19:52:00+09:00').getTime();
+  var GAP_MS = 10 * 60 * 1000; // 10分の空白で別実行とみなす
+  var DAYS_BACK = 7; // 直近7日分
+  var cutoff = Date.now() - DAYS_BACK * 24 * 60 * 60 * 1000;
+
+  // タイムスタンプとメタ情報を収集
+  var entries = []; // { ts, customer, source }
+
+  // 承認待ち物件 — L列(index 11) = created_at, A列 = 顧客名
+  var pendingSheet = ss.getSheetByName('承認待ち物件');
+  if (pendingSheet && pendingSheet.getLastRow() > 1) {
+    var pData = pendingSheet.getDataRange().getValues();
+    for (var i = 1; i < pData.length; i++) {
+      var createdAt = pData[i][11];
+      var ts = createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime();
+      if (ts >= cutoff && !isNaN(ts)) {
+        entries.push({ ts: ts, customer: String(pData[i][0] || ''), source: 'pending' });
+      }
+    }
+  }
+
+  // 通知済み物件 — D列(index 3) = sent_at, A列 = 顧客名
+  var seenSheet = ss.getSheetByName('通知済み物件');
+  if (seenSheet && seenSheet.getLastRow() > 1) {
+    var sData = seenSheet.getDataRange().getValues();
+    for (var i = 1; i < sData.length; i++) {
+      var sentAt = sData[i][3];
+      var ts2 = sentAt instanceof Date ? sentAt.getTime() : new Date(sentAt).getTime();
+      if (ts2 >= cutoff && !isNaN(ts2)) {
+        entries.push({ ts: ts2, customer: String(sData[i][0] || ''), source: 'seen' });
+      }
+    }
+  }
+
+  if (entries.length === 0) return [];
+
+  // タイムスタンプ順にソート
+  entries.sort(function(a, b) { return a.ts - b.ts; });
+
+  // 10分ギャップでグルーピング
+  var runs = [];
+  var currentRun = { start: entries[0].ts, end: entries[0].ts, customers: {}, count: 0 };
+  currentRun.customers[entries[0].customer] = true;
+  currentRun.count = 1;
+
+  for (var i = 1; i < entries.length; i++) {
+    if (entries[i].ts - currentRun.end > GAP_MS) {
+      runs.push(currentRun);
+      currentRun = { start: entries[i].ts, end: entries[i].ts, customers: {}, count: 0 };
+    }
+    currentRun.end = entries[i].ts;
+    currentRun.customers[entries[i].customer] = true;
+    currentRun.count++;
+  }
+  runs.push(currentRun);
+
+  // 新しい順にソート & フォーマット
+  runs.sort(function(a, b) { return b.start - a.start; });
+
+  var fmt = function(ms) {
+    var d = new Date(ms);
+    return Utilities.formatDate(d, 'Asia/Tokyo', 'HH:mm');
+  };
+  var fmtDate = function(ms) {
+    var d = new Date(ms);
+    return Utilities.formatDate(d, 'Asia/Tokyo', 'MM/dd (EEE)');
+  };
+
+  return runs.slice(0, 10).map(function(r) {
+    return {
+      dateLabel: fmtDate(r.start),
+      timeRange: fmt(r.start) + ' 〜 ' + fmt(r.end),
+      customerCount: Object.keys(r.customers).length,
+      propertyCount: r.count,
+      startTime: r.start,
+      endTime: r.end
+    };
+  });
+}
+
+/**
+ * 指定時間帯の検索結果をリセット（AdminPage「検索リセット」用）
+ * @param {number} startTime - 開始タイムスタンプ(ms)
+ * @param {number} endTime - 終了タイムスタンプ(ms)
+ */
+function resetSearchRun(startTime, endTime) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var deletedPending = 0;
   var deletedSeen = 0;
   var dedupKeysToReset = [];
@@ -4359,11 +4441,10 @@ function TEMP_resetSearchResults_20260607() {
     var pData = pendingSheet.getDataRange().getValues();
     var rowsToDelete = [];
     for (var i = 1; i < pData.length; i++) {
-      var createdAt = pData[i][11]; // L列
+      var createdAt = pData[i][11];
       var ts = createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime();
       if (ts >= startTime && ts <= endTime) {
-        rowsToDelete.push(i + 1); // 1-based row number
-        // dedupキー収集
+        rowsToDelete.push(i + 1);
         try {
           var json = JSON.parse(String(pData[i][9] || ''));
           var dk = _buildDedupKeyForGas_({ address: json.address, room_number: json.room_number, area: json.area, layout: json.layout });
@@ -4372,7 +4453,6 @@ function TEMP_resetSearchResults_20260607() {
         } catch(_) {}
       }
     }
-    // 下から削除（行番号がずれないように）
     for (var j = rowsToDelete.length - 1; j >= 0; j--) {
       pendingSheet.deleteRow(rowsToDelete[j]);
       deletedPending++;
@@ -4385,11 +4465,10 @@ function TEMP_resetSearchResults_20260607() {
     var sData = seenSheet.getDataRange().getValues();
     var rowsToDelete2 = [];
     for (var i = 1; i < sData.length; i++) {
-      var sentAt = sData[i][3]; // D列
+      var sentAt = sData[i][3];
       var ts2 = sentAt instanceof Date ? sentAt.getTime() : new Date(sentAt).getTime();
       if (ts2 >= startTime && ts2 <= endTime) {
         rowsToDelete2.push(i + 1);
-        // dedupキー — 通知済み物件にはJSON無いのでroom_idベースでリセット
         var customer2 = String(sData[i][0] || '');
         var roomId2 = String(sData[i][1] || '');
         if (customer2 && roomId2) dedupKeysToReset.push({ customer: customer2, roomId: roomId2 });
@@ -4411,6 +4490,5 @@ function TEMP_resetSearchResults_20260607() {
   }
   props.setProperty('pending_dedup_resets', JSON.stringify(existing));
 
-  Logger.log('リセット完了: 承認待ち ' + deletedPending + '件削除, 通知済み ' + deletedSeen + '件削除, dedupリセット ' + dedupKeysToReset.length + '件登録');
   return { deletedPending: deletedPending, deletedSeen: deletedSeen, dedupResets: dedupKeysToReset.length };
 }
