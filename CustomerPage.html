@@ -95,6 +95,9 @@ body {
 .btn-sm { padding: 4px 10px; font-size: 11px; }
 .btn-green { background: #1b5e20; color: #fff; }
 .btn-green:hover { background: #2e7d32; }
+.btn-resend { background: #4a3000; color: #e6a243; border: 1px solid #6b4400; font-size: 11px; padding: 3px 8px; }
+.btn-resend:hover { background: #5a3a00; }
+.btn-resend:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── 物件一覧 ── */
 .prop-list { padding: 0; }
@@ -262,6 +265,21 @@ body {
       <div class="loading">読み込み中...</div>
     </div>
     <div id="propMore" class="timeline-more" style="display:none;"></div>
+  </div>
+
+  <!-- 検索リセット -->
+  <div class="card">
+    <div class="card-title" style="cursor:pointer;" onclick="toggleSearchReset()">
+      <span>🔄 検索リセット</span>
+      <span id="searchResetArrow" style="font-size:11px;color:#888;">▶</span>
+    </div>
+    <div id="searchResetBody" style="display:none;">
+      <p style="font-size:12px;color:#888;padding:8px 12px 4px;">直近の検索実行を選択して、結果をリセットできます。</p>
+      <div style="padding:4px 12px 8px;">
+        <button class="btn btn-outline btn-sm" onclick="loadSearchRuns()">検索履歴を読み込む</button>
+      </div>
+      <div id="searchRunsList" style="padding:0 12px 8px;"></div>
+    </div>
   </div>
 
   <!-- 対応ログ -->
@@ -610,6 +628,11 @@ function renderPropItem(p, idx) {
   }
   html += '</div>';
 
+  // アクションボタン
+  html += '<div style="display:flex;gap:6px;margin:4px 0 2px;">';
+  html += '<button class="btn btn-resend btn-sm" id="resend-btn-' + idx + '" onclick="resendProperty(\'' + esc(p.roomId) + '\', ' + idx + ')">📩 再送付</button>';
+  html += '</div>';
+
   // コメント
   html += '<div class="prop-comment-area">';
   if (p.comment) {
@@ -627,6 +650,94 @@ function renderPropItem(p, idx) {
 
   html += '</div>';
   return html;
+}
+
+function resendProperty(roomId, idx) {
+  if (!confirm(currentCustomer + ' さんに「' + roomId + '」をLINEで再送付しますか？')) return;
+  var btn = document.getElementById('resend-btn-' + idx);
+  if (btn) { btn.disabled = true; btn.textContent = '送信中...'; }
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (btn) { btn.textContent = '📩 再送付'; btn.disabled = false; }
+      if (result && result.ok) {
+        alert('再送付しました（' + result.sent + '件）');
+      } else {
+        alert('再送付に失敗しました: ' + (result ? result.message : '不明なエラー'));
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.textContent = '📩 再送付'; btn.disabled = false; }
+      alert('エラー: ' + err.message);
+    })
+    .resendPropertyNotifications(currentCustomer, [roomId]);
+}
+
+// ── 検索リセット ──
+function toggleSearchReset() {
+  var body = document.getElementById('searchResetBody');
+  var arrow = document.getElementById('searchResetArrow');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    arrow.textContent = '▼';
+  } else {
+    body.style.display = 'none';
+    arrow.textContent = '▶';
+  }
+}
+
+function loadSearchRuns() {
+  var container = document.getElementById('searchRunsList');
+  container.innerHTML = '<p style="color:#888;font-size:12px;padding:4px 0;">読み込み中...</p>';
+  google.script.run
+    .withSuccessHandler(function(runs) {
+      if (!runs || runs.length === 0) {
+        container.innerHTML = '<p style="color:#888;font-size:12px;padding:4px 0;">直近の検索実行はありません</p>';
+        return;
+      }
+      window._searchRuns = runs;
+      var html = '';
+      runs.forEach(function(run, idx) {
+        html += '<div style="border:1px solid #404040;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#2d2d2d;">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;">'
+          + '<div>'
+          + '<div style="font-size:13px;font-weight:600;color:#e0e0e0;">' + run.dateLabel + '</div>'
+          + '<div style="font-size:11px;color:#888;margin-top:2px;">'
+          + run.timeRange + ' ｜ ' + run.customerCount + '顧客 ｜ ' + run.propertyCount + '件'
+          + '</div></div>'
+          + '<div style="text-align:right;">'
+          + '<button onclick="resetSearchRun(' + idx + ', this)" class="btn btn-sm" style="border:1px solid #e74c3c;background:transparent;color:#e74c3c;cursor:pointer;">リセット</button>'
+          + '<div class="reset-result" style="font-size:11px;color:#4ec9b0;margin-top:4px;"></div>'
+          + '</div></div></div>';
+      });
+      container.innerHTML = html;
+    })
+    .withFailureHandler(function(e) {
+      container.innerHTML = '<p style="color:#f44747;font-size:12px;padding:4px 0;">エラー: ' + (e.message || JSON.stringify(e)) + '</p>';
+    })
+    .getRecentSearchRuns();
+}
+
+function resetSearchRun(idx, btnEl) {
+  var runs = window._searchRuns;
+  if (!runs || !runs[idx]) return;
+  var run = runs[idx];
+  if (!confirm(run.dateLabel + ' ' + run.timeRange + ' の検索結果(' + run.propertyCount + '件)をリセットしますか？')) return;
+  btnEl.disabled = true;
+  btnEl.textContent = '処理中...';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      btnEl.textContent = '✅ 完了';
+      btnEl.style.border = '1px solid #4ec9b0';
+      btnEl.style.color = '#4ec9b0';
+      var info = btnEl.parentElement.querySelector('.reset-result');
+      if (info) info.textContent = '承認待ち' + result.deletedPending + '件 / 通知済み' + result.deletedSeen + '件 / 重複' + result.dedupResets + '件 削除';
+    })
+    .withFailureHandler(function(e) {
+      btnEl.textContent = '❌ エラー';
+      btnEl.style.color = '#f44747';
+      btnEl.disabled = false;
+    })
+    .resetSearchRun(run.startTime, run.endTime);
 }
 
 function editComment(roomId, idx) {
