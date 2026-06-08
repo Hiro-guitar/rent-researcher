@@ -233,6 +233,10 @@
       ad_reprint_raw: getValueByLabel('広告転載区分') || '',
       // 現況
       current_status: getValueByLabel('現況') || '',
+      // 単価・更新区分（自動検索と一致）
+      sqm_price: getValueByLabel('㎡単価') || '',
+      tsubo_price: getValueByLabel('坪単価') || '',
+      renewal_type: getValueByLabel('更新区分') || '',
       // 仲介料・報酬
       commission_type: getValueByLabel('報酬形態') || '',
       commission: getValueByLabel('報酬') || '',
