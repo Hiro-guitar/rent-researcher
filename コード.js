@@ -3850,10 +3850,12 @@ function getCustomerPageUrl() {
   return baseUrl + '?action=customer&api_key=' + encodeURIComponent(apiKey);
 }
 
-function getAdminPageUrl() {
+function getAdminPageUrl(optCustomerName) {
   var baseUrl = ScriptApp.getService().getUrl();
   var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
-  return baseUrl + '?action=admin&api_key=' + encodeURIComponent(apiKey);
+  var url = baseUrl + '?action=admin&api_key=' + encodeURIComponent(apiKey);
+  if (optCustomerName) url += '&customer=' + encodeURIComponent(optCustomerName);
+  return url;
 }
 
 function handleCustomerPage(e) {
