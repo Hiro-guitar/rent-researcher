@@ -814,26 +814,15 @@ async function fetchReinsDetailForManual(tabId, target, opts = {}) {
       }
     }
 
-    // ── 5. snake_case → camelCase（一覧アダプタ buildReinsManualProp と同じキー構成）──
-    const detail = {
-      buildingName: d.building_name || '',
-      roomNumber: d.room_number || '',
-      rent: d.rent || 0,
-      managementFee: d.management_fee || 0,
-      deposit: d.deposit || '',
-      keyMoney: d.key_money || '',
-      layout: d.layout || '',
-      area: (d.area !== undefined && d.area !== null && d.area !== 0) ? String(d.area) : '',
-      buildingAge: d.building_age || '',
-      floor: d.floor ? String(d.floor) : '',
-      stationInfo: d.station_info || '',
-      address: d.address || '',
-      imageUrls: imageUrls,
-      imageUrl: imageUrls[0] || '',
-      url: '',
-      reins_property_number: d.reins_property_number || propertyNumber,
-      source: 'reins'
-    };
+    // ── 5. content-detail.js の snake_case フル詳細をそのまま使う（自動検索と同じ情報量）──
+    //     承認パイプライン(add_reins_property)は snake_case をそのまま受けるため、
+    //     camelCaseに削らず d を温存し、画像だけ公開URL化したものに差し替える。
+    //     room_id(d.room_id) も温存（承認ページURL構築に使う）。
+    const detail = Object.assign({}, d);
+    detail.image_urls = imageUrls;
+    detail.image_url = imageUrls[0] || '';
+    detail.reins_property_number = d.reins_property_number || propertyNumber;
+    detail.source = 'reins';
 
     // ── 6. 検索結果一覧(GBK002200)へ戻る（B案=alreadyOnDetail はスキップ）──
     if (!alreadyOnDetail) {
@@ -2183,7 +2172,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const source = msg.source || (props[0] && props[0].source) || '';
         const senderTabId = sender && sender.tab && sender.tab.id;
 
-        // REINS かつ詳細取得モード: 各物件の詳細ページを開いて画像・詳細を取得してから送信
+        // REINS かつ詳細取得モード: 各物件の詳細ページを開いて全情報を取得し、
+        // 自動検索と同じ承認パイプライン(add_reins_property)に登録→承認ページを開く
         if (fetchDetails && source === 'reins' && senderTabId) {
           // 自動巡回タブとの衝突防止（同じタブを両者が操作すると壊れる）
           const autoTabId = await __getAutomationTabId();
@@ -2191,6 +2181,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             sendResponse({ ok: false, error: '自動巡回中のタブでは手動取得できません。別のタブでREINSを開いてください。' });
             return;
           }
+          // 承認ページURL構築に必要な GAS webapp URL を先に確認
+          const { gasWebappUrl } = await getConfig();
+          if (!gasWebappUrl) {
+            sendResponse({ ok: false, error: 'GAS URLが設定されていません' });
+            return;
+          }
+          // 警告(warnings_text)計算用の顧客オブジェクトを取得（無くても続行可）
+          let customerObj = null;
+          try {
+            const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+            if (Array.isArray(cached)) customerObj = cached.find(c => c && c.name === msg.customerName) || null;
+          } catch (e) {}
+
           const fromDetailPage = !!msg.fromDetailPage;
           const total = props.length;
           const enriched = [];
@@ -2210,7 +2213,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             } catch (e) {
               res = { ok: false, error: e.message };
             }
-            if (res && res.ok && res.detail && res.detail.buildingName) {
+            if (res && res.ok && res.detail && res.detail.building_name) {
+              // 警告計算（承認ページで表示、自動検索と同一ロジック）
+              try {
+                if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
+                  res.detail.warnings_text = (globalThis.__computePropertyWarnings(res.detail, customerObj) || []).join('\n');
+                }
+              } catch (e) {}
               enriched.push(res.detail);
             } else {
               skipped++;
@@ -2223,18 +2232,38 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           } catch (e) {}
 
           if (enriched.length === 0) {
-            sendResponse({ ok: false, skipped, error: `全${total}件の詳細取得に失敗しました` });
+            sendResponse({ ok: false, registered: 0, skipped, error: `全${total}件の詳細取得に失敗しました` });
             return;
           }
-          const resp = await gasPost({
-            action: 'send_manual_properties',
-            customer_name: msg.customerName,
-            properties: enriched
-          });
-          const sent = (resp && typeof resp.sent === 'number') ? resp.sent : enriched.length;
-          const message = skipped > 0 ? `${sent}件送信 / ${skipped}件は詳細取得に失敗しスキップ` : `${sent}件送信`;
-          await setStorageData({ debugLog: `手動送信(詳細取得): ${msg.customerName} へ ${sent}件 (失敗スキップ${skipped})` });
-          sendResponse({ ok: !(resp && resp.ok === false), sent, skipped, message });
+
+          // 承認待ちキューに登録（自動検索と同じ add_reins_property、status='pending'）。
+          // Discord通知は出さない（deliverProperty を呼ばない）。
+          try {
+            await submitProperties(msg.customerName, enriched);
+          } catch (e) {
+            await setStorageData({ debugLog: '[手動送信] 承認待ち登録失敗: ' + e.message });
+            sendResponse({ ok: false, registered: 0, skipped, error: '承認待ち登録に失敗: ' + e.message });
+            return;
+          }
+
+          // 承認ページを物件ごとに新規タブで開く（room_id は content-detail.js 生成の hash）
+          let opened = 0;
+          for (const det of enriched) {
+            if (!det.room_id) continue;
+            try {
+              const approveUrl = gasWebappUrl
+                + '?action=approve&customer=' + encodeURIComponent(msg.customerName)
+                + '&room_id=' + encodeURIComponent(det.room_id);
+              await chrome.tabs.create({ url: approveUrl, active: true });
+              opened++;
+            } catch (e) {}
+          }
+
+          const message = skipped > 0
+            ? `${enriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
+            : `${enriched.length}件を承認待ちに登録し承認ページを開きました`;
+          await setStorageData({ debugLog: `手動送信(承認待ち): ${msg.customerName} へ ${enriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+          sendResponse({ ok: true, registered: enriched.length, skipped, opened, message });
           return;
         }
 

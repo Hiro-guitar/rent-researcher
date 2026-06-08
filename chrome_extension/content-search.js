@@ -502,9 +502,9 @@
       if (!selectEl) return;
       var customerName = selectEl.value;
       if (!customerName) { setStatus('お客さんを選んでください', '#c0392b'); return; }
-      if (!window.confirm(customerName + ' さんにこの物件をLINEで送信します。よろしいですか？')) return;
+      if (!window.confirm(customerName + ' さん宛にこの物件を承認待ちに登録し、承認ページ（画像選択・追加）を開きます。よろしいですか？')) return;
       sendBtn.disabled = true;
-      setStatus('詳細を取得して送信中…', '#666');
+      setStatus('詳細を取得して登録中…', '#666');
       bgSend({
         type: 'SEND_MANUAL_PROPERTIES',
         customerName: customerName,
@@ -514,12 +514,12 @@
         properties: [{ source: 'reins' }]
       }).then(function (resp) {
         if (resp && resp.ok) {
-          setStatus('送信しました: ' + (resp.message || '1件'), '#1a7f37');
+          setStatus(resp.message || '承認待ちに登録し承認ページを開きました', '#1a7f37');
         } else {
-          setStatus('送信失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
+          setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
         }
       }).catch(function (e) {
-        setStatus('送信エラー: ' + e.message, '#c0392b');
+        setStatus('エラー: ' + e.message, '#c0392b');
       }).finally(function () {
         if (sendBtn) sendBtn.disabled = false;
       });

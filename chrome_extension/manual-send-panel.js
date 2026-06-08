@@ -248,15 +248,15 @@
     var props = getCheckedProps();
     if (props.length === 0) { setStatus('送る物件を選んでください', '#c0392b'); return; }
 
-    // REINS は詳細ページを開いて画像・詳細を取得してから送る
+    // REINS は詳細ページを開いて全情報を取得し、承認待ちに登録→承認ページを開く
     var isReins = adapter && adapter.source === 'reins';
     var confirmMsg = isReins
-      ? customerName + ' さんに ' + props.length + '件を送信します。\n各物件の詳細ページを開いて画像を取得してから送るため、少し時間がかかります。よろしいですか？'
+      ? customerName + ' さん宛に ' + props.length + '件を承認待ちに登録し、承認ページ（画像選択・追加）を開きます。\n各物件の詳細ページを開いて情報を取得するため少し時間がかかり、物件ごとにタブが開きます。よろしいですか？'
       : customerName + ' さんに ' + props.length + '件の物件をLINEで送信します。よろしいですか？';
     if (!window.confirm(confirmMsg)) return;
 
     sendBtn.disabled = true;
-    setStatus(isReins ? '詳細を取得して送信中…（' + props.length + '件）' : '送信中…（' + props.length + '件）', '#666');
+    setStatus(isReins ? '詳細を取得して登録中…（' + props.length + '件）' : '送信中…（' + props.length + '件）', '#666');
     sendToBackground({
       type: 'SEND_MANUAL_PROPERTIES',
       customerName: customerName,
@@ -265,15 +265,18 @@
       properties: props
     }).then(function (resp) {
       if (resp && resp.ok) {
-        var msg = resp.message || (resp.sent + '件');
         var color = (resp.skipped && resp.skipped > 0) ? '#b8860b' : '#1a7f37';
-        setStatus('送信しました: ' + msg, color);
+        if (isReins) {
+          setStatus(resp.message || ((resp.registered || 0) + '件を承認待ちに登録しました'), color);
+        } else {
+          setStatus('送信しました: ' + (resp.message || (resp.sent + '件')), color);
+        }
         setAllChecked(false);
       } else {
-        setStatus('送信失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
+        setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
       }
     }).catch(function (e) {
-      setStatus('送信エラー: ' + e.message, '#c0392b');
+      setStatus('エラー: ' + e.message, '#c0392b');
     }).finally(function () {
       updateCount();
     });

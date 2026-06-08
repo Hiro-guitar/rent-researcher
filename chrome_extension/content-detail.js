@@ -100,8 +100,27 @@
     if (floorBelowRaw && extractNum(floorBelowRaw) !== '0') storyText += `地下${extractNum(floorBelowRaw)}階`;
     if (storyText) storyText += '建';
 
-    // 構造
-    const structure = getValueByLabel('建物構造');
+    // 構造（コード/日本語表記を標準名に正規化。自動検索と同じロジック）
+    const structureRaw = getValueByLabel('建物構造');
+    const structure = (() => {
+      if (!structureRaw) return '';
+      const hankaku = structureRaw.replace(/[Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).trim();
+      const codeMap = {
+        'RC': '鉄筋コンクリート', 'SRC': '鉄骨鉄筋コンクリート',
+        'S': '鉄骨造', 'W': '木造', 'LS': '軽量鉄骨造',
+        'ALC': 'ALC造', 'PC': 'プレキャストコンクリート',
+        'HPC': '鉄骨プレキャストコンクリート', 'CB': 'コンクリートブロック'
+      };
+      const alphaKey = hankaku.replace(/[造\s]/g, '').toUpperCase();
+      if (codeMap[alphaKey]) return codeMap[alphaKey];
+      const jpMap = {
+        '鉄骨造': '鉄骨造', '鉄骨': '鉄骨造',
+        '木造': '木造', '木': '木造',
+        '軽量鉄骨造': '軽量鉄骨造', '軽量鉄骨': '軽量鉄骨造',
+        'ブロック': 'コンクリートブロック', 'その他': 'その他'
+      };
+      return jpMap[hankaku] || jpMap[hankaku.replace(/造/g, '')] || structureRaw;
+    })();
 
     // 交通情報
     const accessList = getAccessInfo();
@@ -198,6 +217,94 @@
       reins_property_type: propertyType,
       reins_shougo: getValueByLabel('商号'),
       reins_tel: getValueByLabel('代表電話番号'),
+      // ── 以下、自動検索インライン抽出と同等にするための追加フィールド ──
+      // 元付会社（owner_* エイリアス）
+      owner_company: getValueByLabel('商号') || '',
+      owner_phone: getValueByLabel('代表電話番号') || getValueByLabel('電話番号') || '',
+      // 広告転載区分
+      ad_keisai: (() => {
+        const a = getValueByLabel('広告転載区分') || '';
+        if (!a) return '';
+        if (a === '広告可') return '可';
+        if (a === '不可') return '不可';
+        if (a.indexOf('要連絡') !== -1) return '要連絡';
+        return a;
+      })(),
+      ad_reprint_raw: getValueByLabel('広告転載区分') || '',
+      // 現況
+      current_status: getValueByLabel('現況') || '',
+      // 仲介料・報酬
+      commission_type: getValueByLabel('報酬形態') || '',
+      commission: getValueByLabel('報酬') || '',
+      ad_fee: (() => {
+        const v = getValueByLabel('報酬');
+        if (v) return v;
+        const labels = [...document.querySelectorAll('.p-label-title')];
+        const target = labels.find(e => {
+          const t = e.textContent.trim();
+          return /^報酬/.test(t) && !/形態|割合/.test(t);
+        });
+        if (!target) return '';
+        const container = target.closest('.p-label')?.parentElement;
+        if (!container) return '';
+        const col = container.querySelector(':scope > .row .col, .row .col');
+        return col?.textContent.trim() || '';
+      })(),
+      commission_landlord: getValueByLabel('負担割合貸主') || '',
+      commission_tenant: getValueByLabel('負担割合借主') || '',
+      commission_motozuke: getValueByLabel('配分割合元付') || '',
+      commission_kyakuzuke: getValueByLabel('配分割合客付') || '',
+      // 部屋属性（角部屋等）
+      room_attr: (() => {
+        const el = [...document.querySelectorAll('.p-label-title')].find(e => e.textContent.trim() === '部屋番号');
+        const cols = el?.closest('.p-label')?.parentElement?.querySelectorAll('.col-sm-4');
+        return cols && cols.length > 1 ? cols[1].textContent.trim() : '';
+      })(),
+      // 駐車場
+      parking_available: getValueByLabel('駐車場在否') || '',
+      parking_fee: getValueByLabel('駐車場月額') || '',
+      parking_fee_min: getValueByLabel('駐車場月額(最低値)') || '',
+      parking_fee_max: getValueByLabel('駐車場月額(最高値)') || '',
+      // 保険
+      insurance_required: getValueByLabel('保険加入義務') || '',
+      insurance_name: getValueByLabel('保険名称') || '',
+      insurance_fee: getValueByLabel('保険料') || '',
+      insurance_period: getValueByLabel('保険期間') || '',
+      // 賃貸借契約詳細
+      lease_period: getValueByLabel('建物賃貸借期間') || '',
+      lease_renewal: getValueByLabel('建物賃貸借更新') || '',
+      // 保証金・権利金・償却
+      guarantee_money: getValueByLabel('保証金') || '',
+      key_premium: getValueByLabel('権利金') || '',
+      shoukyaku_code: getValueByLabel('償却コード') || '',
+      shoukyaku_months: getValueByLabel('償却月数') || '',
+      shoukyaku_rate: getValueByLabel('償却率') || '',
+      // 鍵交換区分
+      key_exchange_type: getValueByLabel('鍵交換区分') || '',
+      // 新築フラグ
+      shinchiku_flag: getValueByLabel('新築フラグ') || '',
+      // バルコニー面積
+      balcony_area: getValueByLabel('バルコニー(テラス)面積') || '',
+      // 室1〜5詳細
+      rooms_detail: (() => {
+        const rooms = [];
+        for (let i = 1; i <= 5; i++) {
+          const fl = getValueByLabel(`室${i}:所在階`);
+          const tp = getValueByLabel(`室${i}:室タイプ`);
+          const sz = getValueByLabel(`室${i}:室広さ`);
+          if (fl || tp || sz) rooms.push([fl, tp, sz].filter(Boolean).join(' '));
+        }
+        return rooms.join(' / ');
+      })(),
+      // 備考1〜4
+      remarks: (() => {
+        const parts = [];
+        for (let i = 1; i <= 4; i++) {
+          const v = getValueByLabel('備考' + i);
+          if (v) parts.push(v);
+        }
+        return parts.join('\n');
+      })(),
     };
   }
 
