@@ -1355,6 +1355,11 @@ function getActionKey() {
 }
 
 function updateActionUI(actionType) {
+  // hold_intent はモーダルを開いただけなので、送信ブロック状態にしない
+  if (actionType === 'hold_intent') {
+    actionState = null;
+    return;
+  }
   actionState = actionType;
   // 上部・末尾の両方の「お申し込み」ボタンを同期更新
   var holdBtns = document.querySelectorAll('.hold-btn');
@@ -1568,9 +1573,18 @@ function checkActionStatus() {
     if (cached) {
       try {
         var parsed = JSON.parse(cached);
-        if (parsed.action_type) updateActionUI(parsed.action_type);
+        if (parsed.action_type === 'hold_intent') {
+          // hold_intent はブロック状態にしない — 古いキャッシュをクリア
+          localStorage.removeItem(getActionKey());
+        } else if (parsed.action_type) {
+          updateActionUI(parsed.action_type);
+        }
       } catch(e) {
-        updateActionUI(cached);
+        if (cached === 'hold_intent') {
+          localStorage.removeItem(getActionKey());
+        } else {
+          updateActionUI(cached);
+        }
       }
     }
   } catch(e) {}
@@ -1589,7 +1603,9 @@ function checkActionStatus() {
         }
         if (data.action_type) {
           updateActionUI(data.action_type);
-          try { localStorage.setItem(getActionKey(), JSON.stringify({ action_type: data.action_type })); } catch(e) {}
+          if (data.action_type !== 'hold_intent') {
+            try { localStorage.setItem(getActionKey(), JSON.stringify({ action_type: data.action_type })); } catch(e) {}
+          }
         }
       } catch(e) {}
     })
