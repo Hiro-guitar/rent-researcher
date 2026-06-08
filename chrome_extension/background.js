@@ -2033,7 +2033,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 walk: batchCustomer.walk || '', cities: batchCustomer.cities || [],
                 prefecture: batchCustomer.prefecture || '東京都',
                 selectedTowns: batchCustomer.selectedTowns || {}
-              }, lineNameMap, reinsCodeMap, btModeFresh];
+              }, lineNameMap, reinsCodeMap, (batchCustomer.btMode || btModeFresh)];
 
               await waitForDomReady(reinsTab.id, '.p-textbox-input', { timeout: 15000 });
               const setResult = await chrome.scripting.executeScript({
@@ -2549,6 +2549,29 @@ globalThis.runSearchCycle = async function runSearchCycle() {
           await setStorageData({ debugLog: `[リセット連携] notifiedDedupMap から ${totalCleared} エントリを削除 (GASからの ${resets.length} リセット要求を処理)` });
         }
       }
+
+      // GASのシートに存在しないdedupキーをnotifiedDedupMapから除去
+      // (リセット後にpending_dedup_resetsのTTL切れ等でリセットが漏れた場合の安全策)
+      const gasKeys = (seenResult && seenResult.seen_dedup_keys) || {};
+      let orphanCleared = 0;
+      for (const cust of Object.keys(globalThis.__notifiedDedupMap)) {
+        const gasKeysForCust = new Set(gasKeys[cust] || []);
+        if (gasKeysForCust.size === 0) continue; // GAS側にキーがない顧客はスキップ（全件消しすぎ防止）
+        const inner = globalThis.__notifiedDedupMap[cust];
+        for (const k of Object.keys(inner)) {
+          // gas_syncソースのキーだけでなく、全ソースのキーを対象にGAS側と突合
+          if (!gasKeysForCust.has(k)) {
+            delete inner[k];
+            orphanCleared++;
+          }
+        }
+        if (Object.keys(inner).length === 0) delete globalThis.__notifiedDedupMap[cust];
+      }
+      if (orphanCleared > 0) {
+        await chrome.storage.local.set({ notifiedDedupMap: globalThis.__notifiedDedupMap });
+        await setStorageData({ debugLog: `[dedup整合] GASに存在しない ${orphanCleared} キーをnotifiedDedupMapから除去` });
+      }
+
       await setStorageData({ debugLog: `既知物件ID取得完了` });
     } catch (err) {
       await setStorageData({ debugLog: `既知物件ID取得失敗（続行）: ${err.message}` });
@@ -2845,7 +2868,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   // SW再起動直後でもbtModeを確実に拾うためストレージから直読み
   const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'alert')));
   __btMode = __btModeFresh;
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '' }, lineNameMap, reinsCodeMap, __btModeFresh];
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '' }, lineNameMap, reinsCodeMap, (customer.btMode || __btModeFresh)];
   // __reinsCriteriaFunc は reins-criteria-func.js で定義（グローバル）
   // ↓ 以前は以下にローカル関数定義があったが、reins-criteria-func.js に移動済み
   setResult = await chrome.scripting.executeScript({
