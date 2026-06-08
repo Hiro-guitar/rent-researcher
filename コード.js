@@ -4338,10 +4338,13 @@ function _buildCustomerTimeline_(ss, customerName, criteriaData) {
         var actionLabels = {
           'favorite': 'お気に入り',
           'hold': '保留',
+          'hold_intent': '保留',
           'not_interested': '興味なし',
           'viewing': '内見希望',
           'view': '閲覧'
         };
+        // hold_intent は hold と同義
+        if (actionType === 'hold_intent') continue;
         var label = actionLabels[actionType] || actionType;
         // view は閲覧ログと重複するのでスキップ
         if (actionType === 'view') continue;

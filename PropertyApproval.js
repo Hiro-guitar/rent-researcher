@@ -3098,6 +3098,9 @@ function getSeenPropertiesForResend(customerName) {
         var aType = String(alData[ai][2]).trim();
         if (aType === 'view') {
           viewCounts[aRid] = (viewCounts[aRid] || 0) + 1;
+        } else if (aType === 'hold_intent') {
+          // hold_intent は hold と同義、hold が未設定の場合のみ採用
+          if (!latestActions[aRid]) latestActions[aRid] = 'hold';
         } else if (aType && aType !== '') {
           latestActions[aRid] = aType;
         }
