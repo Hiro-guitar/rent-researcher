@@ -326,7 +326,7 @@ body {
       <span id="searchResetArrow" style="font-size:11px;color:#888;">▶</span>
     </div>
     <div id="searchResetBody" style="display:none;">
-      <p style="font-size:12px;color:#888;padding:8px 12px 4px;">直近の検索実行を選択して、結果をリセットできます。</p>
+      <p style="font-size:12px;color:#888;padding:8px 12px 4px;">この顧客の直近の検索結果をリセットできます（承認待ち・通知済み・重複スキップから削除）。</p>
       <div style="padding:4px 12px 8px;">
         <button class="btn btn-outline btn-sm" onclick="loadSearchRuns()">検索履歴を読み込む</button>
       </div>
@@ -950,7 +950,7 @@ function loadSearchRuns() {
     .withFailureHandler(function(e) {
       container.innerHTML = '<p style="color:#f44747;font-size:12px;padding:4px 0;">エラー: ' + (e.message || JSON.stringify(e)) + '</p>';
     })
-    .getRecentSearchRuns();
+    .getRecentSearchRuns(currentCustomer);
 }
 
 function resetSearchRun(idx, btnEl) {
@@ -973,7 +973,7 @@ function resetSearchRun(idx, btnEl) {
       btnEl.style.color = '#f44747';
       btnEl.disabled = false;
     })
-    .resetSearchRun(run.startTime, run.endTime);
+    .resetSearchRun(run.startTime, run.endTime, currentCustomer);
 }
 
 // ── 検索ページを開く ──
