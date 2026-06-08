@@ -273,6 +273,13 @@ body {
       <span>🏠 送付済み物件</span>
       <span id="propCount" style="font-size:11px;color:#888;font-weight:400;"></span>
     </div>
+    <div id="bulkResendBar" style="display:none;padding:8px 12px;background:#2d2d2d;border-bottom:1px solid #404040;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <label style="font-size:12px;color:#bbb;cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <input type="checkbox" id="selectAllProps" onchange="toggleSelectAll(this.checked)"> 全選択
+      </label>
+      <span id="selectedCount" style="font-size:11px;color:#888;">0件選択中</span>
+      <button class="btn btn-resend btn-sm" id="bulkResendBtn" onclick="bulkResend()" disabled>📩 選択した物件を再送付</button>
+    </div>
     <div class="prop-filter-bar" id="propFilterBar"></div>
     <div id="propList" class="prop-list">
       <div class="loading">読み込み中...</div>
@@ -603,6 +610,10 @@ function renderProperties() {
   var el = document.getElementById('propList');
   var moreEl = document.getElementById('propMore');
   document.getElementById('propCount').textContent = filtered.length + '件';
+  // 一括再送付バー表示
+  document.getElementById('bulkResendBar').style.display = filtered.length > 0 ? 'flex' : 'none';
+  document.getElementById('selectAllProps').checked = false;
+  updateSelectedCount();
 
   if (filtered.length === 0) {
     el.innerHTML = '<div class="empty-state">物件がありません</div>';
@@ -634,6 +645,7 @@ function renderPropItem(p, idx) {
 
   var html = '<div class="prop-item" id="prop-' + idx + '">';
   html += '<div class="prop-header">';
+  html += '<input type="checkbox" class="prop-check" data-room-id="' + esc(p.roomId) + '" onchange="updateSelectedCount()" style="margin-right:6px;cursor:pointer;">';
   html += '<div class="prop-name">' + esc(p.buildingName || p.roomId) + '</div>';
   html += '<div class="prop-sent">' + esc(p.sentAt) + '</div>';
   html += '</div>';
@@ -702,6 +714,57 @@ function resendProperty(roomId, idx) {
       alert('エラー: ' + err.message);
     })
     .resendPropertyNotifications(currentCustomer, [roomId]);
+}
+
+// ── 一括再送付 ──
+function toggleSelectAll(checked) {
+  var boxes = document.querySelectorAll('.prop-check');
+  for (var i = 0; i < boxes.length; i++) boxes[i].checked = checked;
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  var boxes = document.querySelectorAll('.prop-check:checked');
+  var count = boxes.length;
+  var el = document.getElementById('selectedCount');
+  if (el) el.textContent = count + '件選択中';
+  var btn = document.getElementById('bulkResendBtn');
+  if (btn) btn.disabled = count === 0;
+}
+
+function getSelectedRoomIds() {
+  var boxes = document.querySelectorAll('.prop-check:checked');
+  var ids = [];
+  for (var i = 0; i < boxes.length; i++) ids.push(boxes[i].getAttribute('data-room-id'));
+  return ids;
+}
+
+function bulkResend() {
+  var ids = getSelectedRoomIds();
+  if (ids.length === 0) return;
+  if (!confirm(currentCustomer + ' さんに ' + ids.length + ' 件の物件をLINEで再送付しますか？')) return;
+  var btn = document.getElementById('bulkResendBtn');
+  btn.disabled = true;
+  btn.textContent = '送信中...';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      btn.textContent = '📩 選択した物件を再送付';
+      btn.disabled = false;
+      if (result && result.ok) {
+        alert('再送付完了: 成功 ' + result.sent + '件' + (result.failed > 0 ? ' / 失敗 ' + result.failed + '件' : ''));
+        // チェック解除
+        toggleSelectAll(false);
+        document.getElementById('selectAllProps').checked = false;
+      } else {
+        alert('再送付に失敗しました: ' + (result ? result.message : '不明なエラー'));
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.textContent = '📩 選択した物件を再送付';
+      btn.disabled = false;
+      alert('エラー: ' + err.message);
+    })
+    .resendPropertyNotifications(currentCustomer, ids);
 }
 
 // ── 検索リセット ──
