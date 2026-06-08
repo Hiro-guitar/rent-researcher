@@ -3970,26 +3970,26 @@ function getCustomerDetail(customerName) {
       btMode: btMode
     };
 
-    // 賃料上限 (F列 index 5)
-    if (data[i][5]) info.rentMax = String(data[i][5]);
-    // 間取り (G列 index 6)
-    if (data[i][6]) info.layouts = String(data[i][6]);
-    // エリア: 路線+駅 or 市区町村
+    // エリア: 路線+駅(E列) or 市区町村(D列)
     var routeStation = String(data[i][4] || ''); // E列
     var city = String(data[i][3] || '');         // D列
     info.area = routeStation || city || '';
-    // 広さ (H列 index 7)
-    if (data[i][7]) info.areaMin = String(data[i][7]);
-    // 築年数 (I列 index 8)
-    if (data[i][8]) info.buildingAge = String(data[i][8]);
-    // 駅徒歩 (J列 index 9)
-    if (data[i][9]) info.walk = String(data[i][9]);
-    // 構造 (K列 index 10)
-    if (data[i][10]) info.structures = String(data[i][10]);
-    // 設備 (L列 index 11)
-    if (data[i][11]) info.equipment = String(data[i][11]);
-    // 備考 (M列 index 12)
-    if (data[i][12]) info.notes = String(data[i][12]);
+    // 駅徒歩 (G列 index 6)
+    if (data[i][6]) info.walk = String(data[i][6]);
+    // 賃料上限 (H列 index 7)
+    if (data[i][7]) info.rentMax = String(data[i][7]);
+    // 間取り (I列 index 8)
+    if (data[i][8]) info.layouts = String(data[i][8]);
+    // 広さ (J列 index 9)
+    if (data[i][9]) info.areaMin = String(data[i][9]);
+    // 築年数 (K列 index 10)
+    if (data[i][10]) info.buildingAge = String(data[i][10]);
+    // 構造 (L列 index 11)
+    if (data[i][11]) info.structures = String(data[i][11]);
+    // 設備 (M列 index 12)
+    if (data[i][12]) info.equipment = String(data[i][12]);
+    // 備考 (P列 index 15)
+    if (data[i][15]) info.notes = String(data[i][15]);
   }
 
   if (!info) return { error: '顧客が見つかりません: ' + customerName };
