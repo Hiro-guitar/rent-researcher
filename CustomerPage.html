@@ -427,6 +427,13 @@ function renderDetail(data) {
     info += '<div class="detail-info-value">' + esc(String(rows[i][1])) + '</div>';
     info += '</div>';
   }
+  // 閲覧統計
+  if (data.viewCount > 0) {
+    info += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #404040;">';
+    info += '<div class="detail-info-row"><div class="detail-info-label" style="color:#c586c0;">👁 閲覧回数</div><div class="detail-info-value" style="color:#8ec41d;font-weight:600;">' + data.viewCount + '回</div></div>';
+    info += '<div class="detail-info-row"><div class="detail-info-label" style="color:#c586c0;">最終閲覧</div><div class="detail-info-value">' + esc(data.lastViewAt || '—') + '</div></div>';
+    info += '</div>';
+  }
   document.getElementById('detailInfo').innerHTML = info || '<div class="empty-state">条件未登録</div>';
 
   // 送付済み物件
