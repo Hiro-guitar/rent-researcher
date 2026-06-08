@@ -3994,6 +3994,50 @@ function getCustomerDetail(customerName) {
 
   if (!info) return { error: '顧客が見つかりません: ' + customerName };
 
+  // 閲覧統計を集計
+  var viewCount = 0;
+  var lastViewAt = '';
+  try {
+    // アクションログから view を集計
+    var actionSheet = ss.getSheetByName('アクションログ');
+    if (actionSheet) {
+      var aData = actionSheet.getDataRange().getValues();
+      for (var ai = 1; ai < aData.length; ai++) {
+        if (String(aData[ai][0] || '').trim() !== customerName) continue;
+        if (String(aData[ai][2] || '') === 'view') {
+          viewCount++;
+          var aTs = aData[ai][8];
+          var aStr = '';
+          if (aTs instanceof Date) {
+            aStr = Utilities.formatDate(aTs, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+          } else if (aTs) {
+            aStr = String(aTs).substring(0, 16);
+          }
+          if (aStr && aStr > lastViewAt) lastViewAt = aStr;
+        }
+      }
+    }
+    // 閲覧ログからも加算
+    var viewLogSheet = ss.getSheetByName('閲覧ログ');
+    if (viewLogSheet) {
+      var vData = viewLogSheet.getDataRange().getValues();
+      for (var vi = 1; vi < vData.length; vi++) {
+        if (String(vData[vi][0] || '').trim() !== customerName) continue;
+        viewCount++;
+        var vTs = vData[vi][3];
+        var vStr = '';
+        if (vTs instanceof Date) {
+          vStr = Utilities.formatDate(vTs, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+        } else if (vTs) {
+          vStr = String(vTs).substring(0, 16);
+        }
+        if (vStr && vStr > lastViewAt) lastViewAt = vStr;
+      }
+    }
+  } catch(ve) { /* ignore */ }
+  info.viewCount = viewCount;
+  info.lastViewAt = lastViewAt;
+
   // 送付済み物件
   info.properties = _getCustomerProperties_(ss, customerName);
 
