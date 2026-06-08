@@ -4337,14 +4337,12 @@ function _buildCustomerTimeline_(ss, customerName, criteriaData) {
         var bldgName = String(aData[i][3] || '');   // D列 = 物件名
         var actionLabels = {
           'favorite': 'お気に入り',
-          'hold': '保留',
-          'hold_intent': '保留',
+          'hold': '申し込み希望',
+          'hold_intent': '申し込み画面を開いた',
           'not_interested': '興味なし',
           'viewing': '内見希望',
           'view': '閲覧'
         };
-        // hold_intent は hold と同義
-        if (actionType === 'hold_intent') continue;
         var label = actionLabels[actionType] || actionType;
         // view は閲覧ログと重複するのでスキップ
         if (actionType === 'view') continue;
