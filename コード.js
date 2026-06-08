@@ -4406,11 +4406,12 @@ function _buildSimpleHtml(title, message, color) {
  * 承認待ち物件と通知済み物件のタイムスタンプから検索実行をグループ化して返す。
  * 10分以上の空白がある場合は別の実行とみなす。
  */
-function getRecentSearchRuns() {
+function getRecentSearchRuns(optCustomerName) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var GAP_MS = 10 * 60 * 1000; // 10分の空白で別実行とみなす
   var DAYS_BACK = 7; // 直近7日分
   var cutoff = Date.now() - DAYS_BACK * 24 * 60 * 60 * 1000;
+  var filterCustomer = optCustomerName ? String(optCustomerName).trim() : '';
 
   // タイムスタンプとメタ情報を収集
   var entries = []; // { ts, customer, source }
@@ -4420,10 +4421,12 @@ function getRecentSearchRuns() {
   if (pendingSheet && pendingSheet.getLastRow() > 1) {
     var pData = pendingSheet.getDataRange().getValues();
     for (var i = 1; i < pData.length; i++) {
+      var custName = String(pData[i][0] || '').trim();
+      if (filterCustomer && custName !== filterCustomer) continue;
       var createdAt = pData[i][11];
       var ts = createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime();
       if (ts >= cutoff && !isNaN(ts)) {
-        entries.push({ ts: ts, customer: String(pData[i][0] || ''), source: 'pending' });
+        entries.push({ ts: ts, customer: custName, source: 'pending' });
       }
     }
   }
@@ -4433,10 +4436,12 @@ function getRecentSearchRuns() {
   if (seenSheet && seenSheet.getLastRow() > 1) {
     var sData = seenSheet.getDataRange().getValues();
     for (var i = 1; i < sData.length; i++) {
+      var custName2 = String(sData[i][0] || '').trim();
+      if (filterCustomer && custName2 !== filterCustomer) continue;
       var sentAt = sData[i][3];
       var ts2 = sentAt instanceof Date ? sentAt.getTime() : new Date(sentAt).getTime();
       if (ts2 >= cutoff && !isNaN(ts2)) {
-        entries.push({ ts: ts2, customer: String(sData[i][0] || ''), source: 'seen' });
+        entries.push({ ts: ts2, customer: custName2, source: 'seen' });
       }
     }
   }
@@ -4492,11 +4497,12 @@ function getRecentSearchRuns() {
  * @param {number} startTime - 開始タイムスタンプ(ms)
  * @param {number} endTime - 終了タイムスタンプ(ms)
  */
-function resetSearchRun(startTime, endTime) {
+function resetSearchRun(startTime, endTime, optCustomerName) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var deletedPending = 0;
   var deletedSeen = 0;
   var dedupKeysToReset = [];
+  var filterCustomer = optCustomerName ? String(optCustomerName).trim() : '';
 
   // 1. 承認待ち物件 — L列(12列目, index 11) = created_at
   var pendingSheet = ss.getSheetByName('承認待ち物件');
@@ -4504,6 +4510,8 @@ function resetSearchRun(startTime, endTime) {
     var pData = pendingSheet.getDataRange().getValues();
     var rowsToDelete = [];
     for (var i = 1; i < pData.length; i++) {
+      var customer = String(pData[i][0] || '').trim();
+      if (filterCustomer && customer !== filterCustomer) continue;
       var createdAt = pData[i][11];
       var ts = createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime();
       if (ts >= startTime && ts <= endTime) {
@@ -4511,7 +4519,6 @@ function resetSearchRun(startTime, endTime) {
         try {
           var json = JSON.parse(String(pData[i][9] || ''));
           var dk = _buildDedupKeyForGas_({ address: json.address, room_number: json.room_number, area: json.area, layout: json.layout });
-          var customer = String(pData[i][0] || '');
           if (dk && customer) dedupKeysToReset.push({ customer: customer, key: dk });
         } catch(_) {}
       }
@@ -4528,11 +4535,12 @@ function resetSearchRun(startTime, endTime) {
     var sData = seenSheet.getDataRange().getValues();
     var rowsToDelete2 = [];
     for (var i = 1; i < sData.length; i++) {
+      var customer2 = String(sData[i][0] || '').trim();
+      if (filterCustomer && customer2 !== filterCustomer) continue;
       var sentAt = sData[i][3];
       var ts2 = sentAt instanceof Date ? sentAt.getTime() : new Date(sentAt).getTime();
       if (ts2 >= startTime && ts2 <= endTime) {
         rowsToDelete2.push(i + 1);
-        var customer2 = String(sData[i][0] || '');
         var roomId2 = String(sData[i][1] || '');
         if (customer2 && roomId2) dedupKeysToReset.push({ customer: customer2, roomId: roomId2 });
       }
