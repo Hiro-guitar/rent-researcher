@@ -2316,7 +2316,7 @@ function handleGetSeenIds(e) {
     var allList = JSON.parse(raw);
     if (Array.isArray(allList)) {
       var nowMs = Date.now();
-      var cutoffMs = nowMs - 24 * 60 * 60 * 1000;
+      var cutoffMs = nowMs - 7 * 24 * 60 * 60 * 1000; // 7日間保持（拡張が同期を逃した場合に備えて）
       pendingDedupResets = allList.filter(function(e) {
         return e && e.ts && e.ts > cutoffMs;
       });
