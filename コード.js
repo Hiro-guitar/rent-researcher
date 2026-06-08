@@ -4553,5 +4553,35 @@ function resetSearchRun(startTime, endTime) {
   }
   props.setProperty('pending_dedup_resets', JSON.stringify(existing));
 
-  return { deletedPending: deletedPending, deletedSeen: deletedSeen, dedupResets: dedupKeysToReset.length };
+  // 4. 対象顧客のlastReinsSearch(AC列)をリセット開始日の前日に巻き戻す
+  //    → 次回REINS検索で登録年月日フィルタがリセット期間をカバーする
+  var affectedCustomers = {};
+  for (var dk = 0; dk < dedupKeysToReset.length; dk++) {
+    var cn = dedupKeysToReset[dk].customer;
+    if (cn) affectedCustomers[cn] = true;
+  }
+  var customerNames = Object.keys(affectedCustomers);
+  if (customerNames.length > 0) {
+    try {
+      var rollbackStr = Utilities.formatDate(new Date(startTime), 'Asia/Tokyo', 'yyyy-MM-dd');
+
+      var critSs = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+      var critSheet = critSs.getSheetByName(CRITERIA_SHEET_NAME);
+      if (critSheet) {
+        var critData = critSheet.getDataRange().getValues();
+        for (var ci = 1; ci < critData.length; ci++) {
+          var cName = String(critData[ci][1] || '').trim();
+          if (affectedCustomers[cName]) {
+            var currentVal = critData[ci][28] ? String(critData[ci][28]) : '';
+            // 現在の値がrollback先より新しい場合のみ巻き戻す
+            if (!currentVal || currentVal > rollbackStr) {
+              critSheet.getRange(ci + 1, 29).setValue(rollbackStr); // AC列
+            }
+          }
+        }
+      }
+    } catch(reinsErr) { console.warn('lastReinsSearch巻き戻しエラー: ' + reinsErr.message); }
+  }
+
+  return { deletedPending: deletedPending, deletedSeen: deletedSeen, dedupResets: dedupKeysToReset.length, reinsDateRolledBack: customerNames.length };
 }
