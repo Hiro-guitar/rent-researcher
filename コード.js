@@ -2923,10 +2923,13 @@ function loadCustomerCriteriaByName(customerName) {
           if (String(aData[ai][2] || '') === 'view') {
             viewCount++;
             var aTs = aData[ai][8];
+            var aStr = '';
             if (aTs instanceof Date) {
-              var aStr = Utilities.formatDate(aTs, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
-              if (aStr > lastViewAt) lastViewAt = aStr;
+              aStr = Utilities.formatDate(aTs, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+            } else if (aTs) {
+              aStr = String(aTs).substring(0, 16); // 'yyyy/MM/dd HH:mm'
             }
+            if (aStr && aStr > lastViewAt) lastViewAt = aStr;
           }
         }
       }
@@ -2938,10 +2941,13 @@ function loadCustomerCriteriaByName(customerName) {
           if (String(vData[vi][0] || '').trim() !== customerName) continue;
           viewCount++;
           var vTs = vData[vi][3]; // D列 = 閲覧日時
+          var vStr = '';
           if (vTs instanceof Date) {
-            var vStr = Utilities.formatDate(vTs, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
-            if (vStr > lastViewAt) lastViewAt = vStr;
+            vStr = Utilities.formatDate(vTs, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+          } else if (vTs) {
+            vStr = String(vTs).substring(0, 16);
           }
+          if (vStr && vStr > lastViewAt) lastViewAt = vStr;
         }
       }
     } catch(ve) { console.warn('閲覧統計取得エラー: ' + ve.message); }
