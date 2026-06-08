@@ -38,6 +38,10 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
     vr.mdrTyp = []; vr.mdrHysuFrom = ''; vr.mdrHysuTo = '';
     vr.snyuMnskFrom = ''; vr.snyuMnskTo = '';
     vr.hnkuNngppFrom = ''; vr.hnkuNngppTo = '';
+    // こだわり条件(バス・トイレ別等)もリセット
+    vr.selectedOptIds = []; vr.optKnsk = '';
+    // 所在階もリセット
+    vr.shzikiFrom = ''; vr.shzikiTo = '';
     // 登録年月日もリセット (turk = touroku)
     vr.turkKkn = '0';
     vr.turkNngppFrom = ''; vr.turkNngppTo = '';
