@@ -100,26 +100,49 @@ body {
 .btn-resend:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── 物件一覧 ── */
-.prop-list { padding: 0; }
+.prop-list { padding: 8px; display: grid; grid-template-columns: 1fr; gap: 10px; }
 .prop-item {
-  padding: 12px 16px; border-bottom: 1px solid #333;
+  background: #2d2d2d; border: 1px solid #404040; border-radius: 10px; overflow: hidden; transition: border-color 0.15s;
 }
-.prop-item:last-child { border-bottom: none; }
+.prop-item:hover { border-color: #555; }
+.prop-card-inner { display: flex; gap: 0; }
+.prop-check-col { display: flex; align-items: center; justify-content: center; width: 40px; min-width: 40px; background: #252526; border-right: 1px solid #404040; }
+.prop-check-col input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #4ec9b0; }
+.prop-body { flex: 1; padding: 12px 14px; min-width: 0; }
 .prop-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
-.prop-name { font-size: 13px; font-weight: 600; flex: 1; line-height: 1.4; color: #e0e0e0; }
-.prop-sent { font-size: 11px; color: #888; white-space: nowrap; }
-.prop-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.prop-name { font-size: 14px; font-weight: 600; flex: 1; line-height: 1.3; color: #e0e0e0; }
+.prop-room { font-weight: 400; color: #888; font-size: 12px; }
+.prop-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; flex-shrink: 0; }
 .prop-badge {
   display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 8px; font-weight: 600;
 }
-.prop-badge-viewed { background: #2d1f3d; color: #c586c0; }
-.prop-badge-not-viewed { background: #2d2d2d; color: #888; }
+.prop-badge-viewed { background: #1b3a2a; color: #4ec9b0; }
+.prop-badge-not-viewed { background: #333; color: #666; border: 1px solid #444; }
 .prop-badge-favorite { background: #3a2a1b; color: #e6a243; }
 .prop-badge-hold { background: #1b2a3a; color: #569cd6; }
 .prop-badge-viewing { background: #1b3a1b; color: #4ec9b0; }
 .prop-badge-not_interested { background: #3a1b1b; color: #f44747; }
 .prop-badge-closed { background: #2d2d2d; color: #888; border: 1px solid #404040; }
 .prop-badge-source { background: #2d2d2d; color: #888; }
+.prop-badge-available { background: #1b3a1b; color: #4ec9b0; }
+.prop-badge-needs { background: #3a2a00; color: #e6a243; }
+.prop-badge-reins { background: #1b2a3a; color: #569cd6; }
+/* 賃料・スペック */
+.prop-main { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+.prop-rent { font-size: 18px; font-weight: 700; color: #e05252; white-space: nowrap; }
+.prop-rent small { font-size: 11px; font-weight: 400; color: #888; }
+.prop-mgmt { font-size: 11px; color: #888; white-space: nowrap; }
+.prop-specs { display: flex; gap: 5px; flex-wrap: wrap; }
+.spec-chip { display: inline-block; padding: 2px 7px; background: #1b3a2a; border-radius: 4px; font-size: 11px; color: #8ec41d; font-weight: 600; white-space: nowrap; }
+/* 画像 */
+.prop-images { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px; padding-bottom: 4px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.prop-images::-webkit-scrollbar { height: 4px; }
+.prop-images::-webkit-scrollbar-thumb { background: #555; border-radius: 2px; }
+.prop-images img { height: 140px; width: auto; object-fit: contain; border-radius: 6px; flex-shrink: 0; background: #1e1e1e; }
+/* 下段 */
+.prop-location { font-size: 12px; color: #999; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prop-meta { display: flex; gap: 10px; font-size: 11px; color: #666; flex-wrap: wrap; }
+.prop-meta span { white-space: nowrap; }
 .prop-comment-area { margin-top: 6px; }
 .prop-comment-display {
   font-size: 12px; color: #bbb; background: #2d2d2d; padding: 6px 10px;
@@ -135,6 +158,15 @@ body {
 .prop-add-comment {
   font-size: 11px; color: #569cd6; cursor: pointer; margin-top: 4px;
 }
+/* ライトボックス */
+.lightbox { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); display: none; z-index: 200; align-items: center; justify-content: center; flex-direction: column; }
+.lightbox.show { display: flex; }
+.lightbox img { max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 8px; }
+.lightbox-close { position: absolute; top: 16px; right: 20px; color: #fff; font-size: 32px; cursor: pointer; line-height: 1; }
+.lightbox-nav { display: flex; gap: 16px; margin-top: 12px; }
+.lightbox-nav button { background: rgba(255,255,255,0.2); border: none; color: #fff; font-size: 18px; padding: 8px 16px; border-radius: 6px; cursor: pointer; }
+.lightbox-nav button:hover { background: rgba(255,255,255,0.35); }
+.lightbox-counter { color: rgba(255,255,255,0.6); font-size: 13px; margin-top: 8px; }
 .prop-add-comment:hover { text-decoration: underline; }
 .prop-filter-bar { padding: 8px 16px; display: flex; gap: 6px; flex-wrap: wrap; }
 .prop-filter-btn {
@@ -346,6 +378,17 @@ body {
 
 <div id="toast" class="toast"></div>
 
+<!-- ライトボックス -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
+  <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
+  <img id="lightboxImg" src="" alt="">
+  <div class="lightbox-nav">
+    <button onclick="event.stopPropagation(); lbNav(-1)">&larr; 前</button>
+    <button onclick="event.stopPropagation(); lbNav(1)">次 &rarr;</button>
+  </div>
+  <div class="lightbox-counter" id="lightboxCounter"></div>
+</div>
+
 <script>
 var customers = JSON.parse('<?!= customersJson ?>');
 var currentCustomer = null;
@@ -443,6 +486,22 @@ function openDetail(name) {
     })
     .getCustomerDetail(name);
 
+  // リッチな物件データを取得（賃料・間取り・画像等）
+  document.getElementById('propList').innerHTML = '<div class="loading">物件データ読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(props) {
+      allProperties = props || [];
+      propFilter = 'all';
+      propShown = 0;
+      renderPropFilters();
+      renderProperties();
+      document.getElementById('propCount').textContent = allProperties.length + '件';
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('propList').innerHTML = '<div class="empty-state">物件取得エラー: ' + esc(err.message) + '</div>';
+    })
+    .getSeenPropertiesForResend(name);
+
   // 検索条件を別途読み込み（検索ページボタン用）
   google.script.run
     .withSuccessHandler(function(criteria) {
@@ -486,13 +545,7 @@ function renderDetail(data) {
   }
   document.getElementById('detailInfo').innerHTML = info || '<div class="empty-state">条件未登録</div>';
 
-  // 送付済み物件
-  allProperties = data.properties || [];
-  propFilter = 'all';
-  renderPropFilters();
-
-  propShown = 0;
-  renderProperties();
+  // 送付済み物件は getSeenPropertiesForResend で別途取得済み
 
   // 対応ログ
   renderLogHistory(data.contactLogs || []);
@@ -600,7 +653,7 @@ function getFilteredProps() {
   return allProperties.filter(function(p) {
     if (propFilter === 'viewed') return p.viewed;
     if (propFilter === 'not_viewed') return !p.viewed;
-    if (propFilter === 'action') return p.actions && p.actions.length > 0;
+    if (propFilter === 'action') return p.favorite || p.hold || p.viewing || p.notInterested;
     return true;
   });
 }
@@ -639,50 +692,102 @@ function renderProperties() {
   }
 }
 
+function fmtRent(v) {
+  if (!v) return '';
+  var n = Number(v);
+  if (isNaN(n) || n <= 0) return '';
+  if (n >= 10000) return (n / 10000).toFixed(n % 10000 === 0 ? 0 : 1) + '万';
+  return n.toLocaleString();
+}
+
 function renderPropItem(p, idx) {
-  var actionLabels = { favorite: '⭐ お気に入り', hold: '⏸ 保留', not_interested: '✕ 興味なし', viewing: '👀 内見希望' };
   var sourceLabels = { reins: 'REINS', suumo: 'SUUMO', ielove: 'いえらぶ', itandi: 'itandi', essquare: 'ES-Square' };
 
-  var html = '<div class="prop-item" id="prop-' + idx + '">';
-  html += '<div class="prop-header">';
-  html += '<input type="checkbox" class="prop-check" data-room-id="' + esc(p.roomId) + '" onchange="updateSelectedCount()" style="margin-right:6px;cursor:pointer;">';
-  html += '<div class="prop-name">' + esc(p.buildingName || p.roomId) + '</div>';
-  html += '<div class="prop-sent">' + esc(p.sentAt) + '</div>';
-  html += '</div>';
+  var html = '<div class="prop-item" id="prop-' + idx + '" onclick="togglePropCheck(this)" style="cursor:pointer;">';
+  html += '<div class="prop-card-inner">';
 
-  // バッジ
+  // チェックボックス列
+  html += '<div class="prop-check-col"><input type="checkbox" class="prop-check" data-room-id="' + esc(p.roomId) + '" onclick="event.stopPropagation()" onchange="updateSelectedCount()"></div>';
+  html += '<div class="prop-body">';
+
+  // 上段: 物件名 + バッジ
+  html += '<div class="prop-header">';
+  html += '<div class="prop-name">' + esc(p.buildingName || p.roomId);
+  if (p.roomNumber) html += ' <span class="prop-room">' + esc(p.roomNumber) + '</span>';
+  html += '</div>';
   html += '<div class="prop-badges">';
-  if (p.source) {
-    html += '<span class="prop-badge prop-badge-source">' + esc(sourceLabels[p.source] || p.source) + '</span>';
-  }
+  if (p.favorite) html += '<span class="prop-badge prop-badge-favorite">⭐ お気に入り</span>';
+  if (p.hold) html += '<span class="prop-badge prop-badge-hold">⏸ 保留</span>';
+  if (p.viewing) html += '<span class="prop-badge prop-badge-viewing">👀 内見希望</span>';
+  if (p.notInterested) html += '<span class="prop-badge prop-badge-not_interested">✕ 興味なし</span>';
   if (p.viewed) {
-    var vcLabel = p.viewCount > 1 ? ' (' + p.viewCount + '回)' : '';
-    html += '<span class="prop-badge prop-badge-viewed">👁 閲覧済' + vcLabel + (p.viewedAt ? ' ' + p.viewedAt : '') + '</span>';
+    html += '<span class="prop-badge prop-badge-viewed">閲覧済(' + (p.viewCount || 1) + '回)</span>';
   } else {
     html += '<span class="prop-badge prop-badge-not-viewed">未閲覧</span>';
   }
-  if (p.availStatus === 'closed') {
-    html += '<span class="prop-badge prop-badge-closed">募集終了</span>';
+  // 空室ステータス
+  var cs = p.currentStatus || '';
+  if (cs === 'available') html += '<span class="prop-badge prop-badge-available">募集中</span>';
+  else if (cs === 'needs_confirmation') html += '<span class="prop-badge prop-badge-needs">要確認</span>';
+  else if (cs === 'reins_listed') html += '<span class="prop-badge prop-badge-reins">REINS掲載</span>';
+  else if (cs === 'closed') html += '<span class="prop-badge prop-badge-closed">募集終了</span>';
+  html += '</div>';
+  html += '</div>';
+
+  // 画像ギャラリー
+  if (p.imageUrls && p.imageUrls.length > 0) {
+    html += '<div class="prop-images" onclick="event.stopPropagation()">';
+    for (var imgI = 0; imgI < p.imageUrls.length; imgI++) {
+      html += '<img src="' + esc(p.imageUrls[imgI]) + '" alt="物件画像" loading="lazy" onclick="openLightbox(\'' + esc(p.roomId) + '\',' + imgI + ')">';
+    }
+    html += '</div>';
   }
-  for (var a = 0; a < (p.actions || []).length; a++) {
-    var act = p.actions[a];
-    var cls = 'prop-badge-' + (act.type || '');
-    var label = actionLabels[act.type] || act.type;
-    html += '<span class="prop-badge ' + cls + '">' + esc(label) + '</span>';
+
+  // 中段: 賃料 + スペック
+  if (p.hasFullData) {
+    var rentStr = fmtRent(p.rent);
+    var mgmtStr = fmtRent(p.managementFee);
+    html += '<div class="prop-main">';
+    if (rentStr) {
+      html += '<span class="prop-rent">' + rentStr + '<small> /月</small></span>';
+      if (mgmtStr) html += '<span class="prop-mgmt">管理費 ' + mgmtStr + '</span>';
+    }
+    html += '<div class="prop-specs">';
+    if (p.layout) html += '<span class="spec-chip">' + esc(p.layout) + '</span>';
+    if (p.area) html += '<span class="spec-chip">' + p.area + 'm&sup2;</span>';
+    if (p.buildingAge) html += '<span class="spec-chip">' + esc(p.buildingAge) + '</span>';
+    if (p.floor) html += '<span class="spec-chip">' + p.floor + '階</span>';
+    html += '</div>';
+    html += '</div>';
+
+    // 下段: 駅・住所
+    if (p.stationInfo) html += '<div class="prop-location">🚃 ' + esc(p.stationInfo) + '</div>';
+    else if (p.address) html += '<div class="prop-location">📍 ' + esc(p.address) + '</div>';
+  }
+
+  // メタ情報
+  html += '<div class="prop-meta">';
+  if (p.source) html += '<span>' + esc(sourceLabels[p.source] || p.source) + '</span>';
+  if (p.sentAt) html += '<span>通知: ' + esc(p.sentAt) + '</span>';
+  if (p.deposit || p.keyMoney) {
+    var dk = [];
+    if (p.deposit) dk.push('敷 ' + esc(p.deposit));
+    if (p.keyMoney) dk.push('礼 ' + esc(p.keyMoney));
+    html += '<span>' + dk.join(' / ') + '</span>';
   }
   html += '</div>';
 
   // アクションボタン
-  html += '<div style="display:flex;gap:6px;margin:4px 0 2px;">';
-  html += '<button class="btn btn-resend btn-sm" id="resend-btn-' + idx + '" onclick="resendProperty(\'' + esc(p.roomId) + '\', ' + idx + ')">📩 再送付</button>';
+  html += '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;">';
+  html += '<button class="btn btn-resend btn-sm" id="resend-btn-' + idx + '" onclick="event.stopPropagation();resendProperty(\'' + esc(p.roomId) + '\', ' + idx + ')">📩 再送付</button>';
   html += '</div>';
 
   // コメント
   html += '<div class="prop-comment-area">';
   if (p.comment) {
-    html += '<div class="prop-comment-display" onclick="editComment(\'' + esc(p.roomId) + '\', ' + idx + ')" title="クリックして編集">' + esc(p.comment) + '</div>';
+    html += '<div class="prop-comment-display" onclick="event.stopPropagation();editComment(\'' + esc(p.roomId) + '\', ' + idx + ')" title="クリックして編集">' + esc(p.comment) + '</div>';
   } else {
-    html += '<div class="prop-add-comment" onclick="editComment(\'' + esc(p.roomId) + '\', ' + idx + ')">＋ コメントを追加</div>';
+    html += '<div class="prop-add-comment" onclick="event.stopPropagation();editComment(\'' + esc(p.roomId) + '\', ' + idx + ')">＋ コメントを追加</div>';
   }
   html += '<div class="prop-comment-edit" id="comment-edit-' + idx + '">';
   html += '<textarea id="comment-text-' + idx + '" placeholder="物件についてのメモ...">' + esc(p.comment || '') + '</textarea>';
@@ -692,9 +797,40 @@ function renderPropItem(p, idx) {
   html += '</div></div>';
   html += '</div>';
 
-  html += '</div>';
+  html += '</div></div></div>';
   return html;
 }
+
+// ── ライトボックス ──
+var lbImages = [];
+var lbIndex = 0;
+function openLightbox(roomId, idx) {
+  var prop = allProperties.find(function(p) { return p.roomId === roomId; });
+  if (!prop || !prop.imageUrls) return;
+  lbImages = prop.imageUrls;
+  lbIndex = idx || 0;
+  showLbImage();
+  document.getElementById('lightbox').classList.add('show');
+}
+function closeLightbox(e) {
+  if (e && e.target !== e.currentTarget && !e.target.classList.contains('lightbox-close')) return;
+  document.getElementById('lightbox').classList.remove('show');
+}
+function lbNav(dir) {
+  lbIndex = (lbIndex + dir + lbImages.length) % lbImages.length;
+  showLbImage();
+}
+function showLbImage() {
+  document.getElementById('lightboxImg').src = lbImages[lbIndex];
+  document.getElementById('lightboxCounter').textContent = (lbIndex + 1) + ' / ' + lbImages.length;
+}
+document.addEventListener('keydown', function(e) {
+  var lb = document.getElementById('lightbox');
+  if (!lb.classList.contains('show')) return;
+  if (e.key === 'Escape') closeLightbox();
+  else if (e.key === 'ArrowLeft') lbNav(-1);
+  else if (e.key === 'ArrowRight') lbNav(1);
+});
 
 function resendProperty(roomId, idx) {
   if (!confirm(currentCustomer + ' さんに「' + roomId + '」をLINEで再送付しますか？')) return;
@@ -730,6 +866,11 @@ function updateSelectedCount() {
   if (el) el.textContent = count + '件選択中';
   var btn = document.getElementById('bulkResendBtn');
   if (btn) btn.disabled = count === 0;
+}
+
+function togglePropCheck(card) {
+  var cb = card.querySelector('.prop-check');
+  if (cb) { cb.checked = !cb.checked; updateSelectedCount(); }
 }
 
 function getSelectedRoomIds() {
