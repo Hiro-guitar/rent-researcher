@@ -618,6 +618,288 @@ async function getManualSearchCustomer(tabId) {
 }
 // === END 手動検索の顧客コンテキスト ===
 
+// ─────────────────────────────────────────────
+// 手動送信(REINS)用: 詳細ページを開いて画像・詳細情報を取得する自己完結関数
+//
+// 自動巡回 searchForCustomer のインライン実装（詳細クリック→抽出→画像base64→
+// catboxアップロード→一覧へ戻る）から、手動送信に必要な部分だけを複製した。
+// searchForCustomer 本体には一切手を入れず、フィルタ/seen記録/統計などの副作用は持たない。
+//
+// @param {number} tabId      REINS検索結果(or詳細)が表示されているタブ
+// @param {{propertyNumber:string, index:number}} target 物件番号と一覧での行index
+// @param {{alreadyOnDetail?:boolean}} opts alreadyOnDetail=true なら既に詳細ページを開いている前提でクリック/戻るを省略（B案）
+// @return {Promise<{ok:boolean, detail?:object, imageUrls?:string[], imageFailed?:number, error?:string}>}
+//   detail は buildPropertyFlex 互換の camelCase（一覧アダプタと同じキー構成）
+// ─────────────────────────────────────────────
+async function fetchReinsDetailForManual(tabId, target, opts = {}) {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const alreadyOnDetail = !!opts.alreadyOnDetail;
+  const propertyNumber = String((target && target.propertyNumber) || '');
+  const rowIndex = (target && typeof target.index === 'number') ? target.index : -1;
+
+  try {
+    // ── 1. 詳細ボタンをクリックして詳細ページへ（B案=alreadyOnDetail はスキップ）──
+    if (!alreadyOnDetail) {
+      let clickStatus = 'not_found';
+      for (let waitTry = 0; waitTry < 20; waitTry++) {
+        const cr = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (propNum, rIdx) => {
+            // 連続閲覧警告等のダイアログが出ていれば閉じる
+            const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
+            for (const dialog of dialogs) {
+              const okBtn = [...dialog.querySelectorAll('button')].find(b => /OK|閉じる|はい/.test(b.textContent.trim()));
+              if (okBtn) { okBtn.click(); return 'dialog_closed'; }
+            }
+            const rows = document.querySelectorAll('.p-table-body-row');
+            if (rows.length === 0) return 'no_rows';
+            // index で直接特定（同建物連続物件でも確実）
+            if (rIdx >= 0 && rows[rIdx] && rows[rIdx].textContent.includes(propNum)) {
+              const btn = [...rows[rIdx].querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
+              if (btn) { btn.click(); return 'clicked'; }
+            }
+            // index がズレた場合は物件番号で末尾完全一致フォールバック
+            for (const r of rows) {
+              const items = r.querySelectorAll(':scope > .p-table-body-item');
+              const cellText = (items[3] && items[3].textContent || '').trim();
+              const m = cellText.match(/\b(100\d{8,})\b/);
+              if (m && m[1] === propNum) {
+                const btn = [...r.querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
+                if (btn) { btn.click(); return 'clicked_fallback'; }
+              }
+            }
+            return 'not_found_in_' + rows.length + '_rows';
+          },
+          args: [propertyNumber, rowIndex]
+        });
+        clickStatus = (cr && cr[0] && cr[0].result) || 'error';
+        if (clickStatus === 'clicked' || clickStatus === 'clicked_fallback') break;
+        await sleep(500);
+      }
+      if (clickStatus !== 'clicked' && clickStatus !== 'clicked_fallback') {
+        return { ok: false, error: `詳細ボタンが見つからない(${clickStatus})` };
+      }
+      // SPA遷移: 詳細ページのラベル要素出現で描画完了を検知（遅延セクション含めて minCount を増やす）
+      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 5 });
+      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 20 });
+    } else {
+      // 既に詳細ページ前提でも、念のため描画完了を待つ
+      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 5 });
+    }
+
+    // ── 2. 詳細値を抽出（content-detail.js を注入してメッセージで取得）──
+    // content-detail.js は GBK003200 にマッチするが SPA遷移(pushState)では再注入されないため、
+    // ここで明示注入する。再注入ガードがあるので二重登録は起きない。
+    try {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['content-detail.js'] });
+    } catch (e) {
+      return { ok: false, error: 'content-detail.js注入失敗: ' + e.message };
+    }
+    await sleep(150);
+    let detailResp;
+    try {
+      detailResp = await chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_PROPERTY_DETAIL' });
+    } catch (e) {
+      return { ok: false, error: '詳細抽出メッセージ失敗: ' + e.message };
+    }
+    if (!detailResp || !detailResp.success || !detailResp.data) {
+      return { ok: false, error: '詳細抽出失敗: ' + ((detailResp && detailResp.error) || 'no data') };
+    }
+    const d = detailResp.data; // snake_case
+
+    // ── 3. 画像を base64 で取得（$nuxt→bkknGzuList、ページ内fetchでcookie付き）──
+    let imageBase64s = [];
+    try {
+      const imageResults = await Promise.race([
+        chrome.scripting.executeScript({
+          target: { tabId },
+          world: 'MAIN',
+          func: async () => {
+            async function fetchAsBase64(url) {
+              try {
+                const r = await fetch(url, { credentials: 'include' });
+                if (!r.ok) return null;
+                const blob = await r.blob();
+                if (!blob || blob.size < 1000) return null;
+                return await new Promise((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result);
+                  reader.onerror = reject;
+                  reader.readAsDataURL(blob);
+                });
+              } catch (e) { return null; }
+            }
+            const sleep2 = (ms) => new Promise(r => setTimeout(r, ms));
+            const images = [];
+            const findList = () => {
+              const walk = (c, depth = 0) => {
+                if (depth > 10 || !c) return null;
+                if (c.$data && Array.isArray(c.$data.bkknGzuList) && c.$data.bkknGzuList.length > 0) {
+                  return c.$data.bkknGzuList;
+                }
+                const children = c.$children || [];
+                for (const ch of children) {
+                  const r = walk(ch, depth + 1);
+                  if (r) return r;
+                }
+                return null;
+              };
+              return walk(window.$nuxt);
+            };
+            let list = null;
+            for (let i = 0; i < 25; i++) {
+              list = findList();
+              if (list && list.length > 0) break;
+              await sleep2(200);
+            }
+            if (!list || list.length === 0) return images;
+            const sorted = [...list].sort((a, b) => {
+              const an = parseInt(a.gzuBngu, 10) || 0;
+              const bn = parseInt(b.gzuBngu, 10) || 0;
+              return an - bn;
+            });
+            for (const item of sorted) {
+              let url = item.bkknGzuSrc;
+              if (!url) continue;
+              if (url.startsWith('/')) url = location.origin + url;
+              try {
+                const base64 = await fetchAsBase64(url);
+                if (base64) images.push(base64);
+              } catch (e) {}
+            }
+            return images;
+          }
+        }),
+        new Promise((resolve) => setTimeout(() => resolve(null), 120000))
+      ]);
+      const imgResult = (imageResults && imageResults[0] && imageResults[0].result) || [];
+      imageBase64s = Array.isArray(imgResult) ? imgResult : (imgResult.images || []);
+    } catch (e) {
+      imageBase64s = [];
+    }
+
+    // ── 4. base64 を catbox 等へアップロードして公開URL化（並列6・3回リトライ）──
+    let imageUrls = [];
+    let imageFailed = 0;
+    if (imageBase64s.length > 0) {
+      async function uploadOne(b64) {
+        const MAX_ATTEMPTS = 3;
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+          try {
+            const publicUrl = await Promise.race([
+              uploadBase64ToCatbox(b64),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('upload_overall_timeout_60s')), 60000))
+            ]);
+            if (publicUrl) return publicUrl;
+            if (attempt < MAX_ATTEMPTS - 1) await sleep(1000);
+          } catch (e) {
+            if (attempt >= MAX_ATTEMPTS - 1) return null;
+            if (e && e.rateLimited) {
+              await sleep(2000 * Math.pow(2, attempt) + Math.floor(Math.random() * 500));
+            } else {
+              await sleep(1000);
+            }
+          }
+        }
+        return null;
+      }
+      const BATCH = 6;
+      for (let i = 0; i < imageBase64s.length; i += BATCH) {
+        const chunk = imageBase64s.slice(i, i + BATCH);
+        const results = await Promise.all(chunk.map(uploadOne));
+        for (const r of results) {
+          if (r) imageUrls.push(r);
+          else imageFailed++;
+        }
+      }
+    }
+
+    // ── 5. snake_case → camelCase（一覧アダプタ buildReinsManualProp と同じキー構成）──
+    const detail = {
+      buildingName: d.building_name || '',
+      roomNumber: d.room_number || '',
+      rent: d.rent || 0,
+      managementFee: d.management_fee || 0,
+      deposit: d.deposit || '',
+      keyMoney: d.key_money || '',
+      layout: d.layout || '',
+      area: (d.area !== undefined && d.area !== null && d.area !== 0) ? String(d.area) : '',
+      buildingAge: d.building_age || '',
+      floor: d.floor ? String(d.floor) : '',
+      stationInfo: d.station_info || '',
+      address: d.address || '',
+      imageUrls: imageUrls,
+      imageUrl: imageUrls[0] || '',
+      url: '',
+      reins_property_number: d.reins_property_number || propertyNumber,
+      source: 'reins'
+    };
+
+    // ── 6. 検索結果一覧(GBK002200)へ戻る（B案=alreadyOnDetail はスキップ）──
+    if (!alreadyOnDetail) {
+      try {
+        // 残留モーダルを閉じる
+        await chrome.scripting.executeScript({
+          target: { tabId }, world: 'MAIN',
+          func: () => {
+            for (let i = 0; i < 3; i++) {
+              const m = document.querySelector('.modal.show, .image-view');
+              if (!m) break;
+              const cb = document.querySelector('.modal.show .btn.btn-outline, .modal.show .close, .modal .btn.btn-outline');
+              if (cb) cb.click();
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+            }
+          }
+        });
+        await sleep(500);
+        // 戻る操作（UI戻るボタン→Vue Router→history）
+        await chrome.scripting.executeScript({
+          target: { tabId }, world: 'MAIN',
+          func: () => {
+            const backBtn = document.querySelector('.p-btn-back')
+              || [...document.querySelectorAll('button')].find(el => /^(←|戻る|検索結果に戻る)/.test(el.textContent.trim()));
+            if (backBtn) { backBtn.click(); return; }
+            const nuxt = window.$nuxt;
+            if (nuxt && nuxt.$router) { nuxt.$router.back(); return; }
+            history.back();
+          }
+        });
+        // 一覧に戻り、行が再描画されるまで待つ（次の物件処理のため）
+        for (let bw = 0; bw < 20; bw++) {
+          await sleep(500);
+          const bt = await chrome.tabs.get(tabId);
+          if (bw >= 6 && bt.url && bt.url.includes('GBK003200')) {
+            await chrome.scripting.executeScript({
+              target: { tabId }, world: 'MAIN',
+              func: () => {
+                const backBtn = document.querySelector('.p-btn-back')
+                  || [...document.querySelectorAll('button')].find(el => /^(←|戻る|検索結果に戻る)/.test(el.textContent.trim()));
+                if (backBtn) { backBtn.click(); return; }
+                const nuxt = window.$nuxt;
+                if (nuxt && nuxt.$router) nuxt.$router.back();
+              }
+            });
+          }
+          if (bt.url && bt.url.includes('GBK002200')) {
+            const rowsCheck = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => document.querySelectorAll('.p-table-body-row').length
+            });
+            if ((rowsCheck && rowsCheck[0] && rowsCheck[0].result) > 0) break;
+          }
+        }
+      } catch (e) {
+        // 戻り失敗は致命的ではない（detail は取得済み）。ログのみ。
+        await setStorageData({ debugLog: `[手動送信] 一覧へ戻り失敗: ${e.message}` });
+      }
+    }
+
+    return { ok: true, detail, imageUrls, imageFailed };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+}
+
 // === room_id ハッシュ化（ソース・ID形式の匿名化） ===
 // 顧客向けURLにはハッシュ化したroom_idを使用し、
 // どのサイトから取得したか・IDの形式から推測されないようにする。
@@ -1896,10 +2178,71 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'SEND_MANUAL_PROPERTIES') {
     (async () => {
       try {
+        const props = msg.properties || [];
+        const fetchDetails = !!msg.fetchDetails;
+        const source = msg.source || (props[0] && props[0].source) || '';
+        const senderTabId = sender && sender.tab && sender.tab.id;
+
+        // REINS かつ詳細取得モード: 各物件の詳細ページを開いて画像・詳細を取得してから送信
+        if (fetchDetails && source === 'reins' && senderTabId) {
+          // 自動巡回タブとの衝突防止（同じタブを両者が操作すると壊れる）
+          const autoTabId = await __getAutomationTabId();
+          if (autoTabId && autoTabId === senderTabId) {
+            sendResponse({ ok: false, error: '自動巡回中のタブでは手動取得できません。別のタブでREINSを開いてください。' });
+            return;
+          }
+          const fromDetailPage = !!msg.fromDetailPage;
+          const total = props.length;
+          const enriched = [];
+          let skipped = 0;
+          for (let i = 0; i < props.length; i++) {
+            const p = props[i] || {};
+            // 進捗通知（パネル/詳細ボタン側で表示）
+            try {
+              await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: i, total, skipped });
+            } catch (e) {}
+            let res;
+            try {
+              res = await fetchReinsDetailForManual(senderTabId, {
+                propertyNumber: p.reins_property_number || p.propertyNumber || '',
+                index: (typeof p.reins_row_index === 'number') ? p.reins_row_index : -1
+              }, { alreadyOnDetail: fromDetailPage });
+            } catch (e) {
+              res = { ok: false, error: e.message };
+            }
+            if (res && res.ok && res.detail && res.detail.buildingName) {
+              enriched.push(res.detail);
+            } else {
+              skipped++;
+              await setStorageData({ debugLog: `[手動送信] 詳細取得失敗→スキップ: ${(p.reins_property_number || p.propertyNumber || '')} ${(res && res.error) || ''}` });
+            }
+          }
+          // 完了進捗
+          try {
+            await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: total, total, skipped });
+          } catch (e) {}
+
+          if (enriched.length === 0) {
+            sendResponse({ ok: false, skipped, error: `全${total}件の詳細取得に失敗しました` });
+            return;
+          }
+          const resp = await gasPost({
+            action: 'send_manual_properties',
+            customer_name: msg.customerName,
+            properties: enriched
+          });
+          const sent = (resp && typeof resp.sent === 'number') ? resp.sent : enriched.length;
+          const message = skipped > 0 ? `${sent}件送信 / ${skipped}件は詳細取得に失敗しスキップ` : `${sent}件送信`;
+          await setStorageData({ debugLog: `手動送信(詳細取得): ${msg.customerName} へ ${sent}件 (失敗スキップ${skipped})` });
+          sendResponse({ ok: !(resp && resp.ok === false), sent, skipped, message });
+          return;
+        }
+
+        // 従来動作（いえらぶ等・詳細取得なし）: そのまま転送（後方互換）
         const resp = await gasPost({
           action: 'send_manual_properties',
           customer_name: msg.customerName,
-          properties: msg.properties || []
+          properties: props
         });
         await setStorageData({ debugLog: `手動送信: ${msg.customerName} へ ${(resp && resp.sent) || 0}件 (${(resp && resp.message) || ''})` });
         sendResponse(resp);

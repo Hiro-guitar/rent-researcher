@@ -248,19 +248,26 @@
     var props = getCheckedProps();
     if (props.length === 0) { setStatus('送る物件を選んでください', '#c0392b'); return; }
 
-    if (!window.confirm(customerName + ' さんに ' + props.length + '件の物件をLINEで送信します。よろしいですか？')) {
-      return;
-    }
+    // REINS は詳細ページを開いて画像・詳細を取得してから送る
+    var isReins = adapter && adapter.source === 'reins';
+    var confirmMsg = isReins
+      ? customerName + ' さんに ' + props.length + '件を送信します。\n各物件の詳細ページを開いて画像を取得してから送るため、少し時間がかかります。よろしいですか？'
+      : customerName + ' さんに ' + props.length + '件の物件をLINEで送信します。よろしいですか？';
+    if (!window.confirm(confirmMsg)) return;
 
     sendBtn.disabled = true;
-    setStatus('送信中…（' + props.length + '件）', '#666');
+    setStatus(isReins ? '詳細を取得して送信中…（' + props.length + '件）' : '送信中…（' + props.length + '件）', '#666');
     sendToBackground({
       type: 'SEND_MANUAL_PROPERTIES',
       customerName: customerName,
+      source: adapter && adapter.source,
+      fetchDetails: isReins,
       properties: props
     }).then(function (resp) {
       if (resp && resp.ok) {
-        setStatus('送信しました: ' + (resp.message || (resp.sent + '件')), '#1a7f37');
+        var msg = resp.message || (resp.sent + '件');
+        var color = (resp.skipped && resp.skipped > 0) ? '#b8860b' : '#1a7f37';
+        setStatus('送信しました: ' + msg, color);
         setAllChecked(false);
       } else {
         setStatus('送信失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
@@ -270,6 +277,17 @@
     }).finally(function () {
       updateCount();
     });
+  }
+
+  // ─────────────────────────────────────────────
+  // background からの進捗通知を受信（REINS詳細取得の進捗）
+  // ─────────────────────────────────────────────
+  function onRuntimeMessage(msg) {
+    if (!msg || msg.type !== 'MANUAL_SEND_PROGRESS') return;
+    var done = msg.done || 0, total = msg.total || 0, skipped = msg.skipped || 0;
+    var txt = '取得中… ' + done + '/' + total + '件';
+    if (skipped > 0) txt += '（失敗' + skipped + '件）';
+    setStatus(txt, '#666');
   }
 
   // ─────────────────────────────────────────────
@@ -295,6 +313,7 @@
         loadContext();
         injectCheckboxes();
         observeMutations();
+        try { chrome.runtime.onMessage.addListener(onRuntimeMessage); } catch (e) {}
         log('初期化完了 source=' + (adapter && adapter.source));
       };
       if (document.body) start();

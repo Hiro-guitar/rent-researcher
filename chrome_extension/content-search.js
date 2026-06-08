@@ -327,7 +327,7 @@
   // 手動送信パネル用アダプタ（REINS 検索結果一覧）
   // 各物件行を buildPropertyFlex 互換の正規化オブジェクトに変換する。
   // ─────────────────────────────────────────────
-  function buildReinsManualProp(row) {
+  function buildReinsManualProp(row, rowIndex) {
     const items = row.querySelectorAll(':scope > .p-table-body-item');
     if (items.length < 20) return null;
     const propertyNumber = getText(items[3]);
@@ -360,6 +360,8 @@
       url: '',
       // 空室確認の source_ref に使う（GAS側 SEEN_SHEET H列）
       reins_property_number: propertyNumber,
+      // 手動送信の詳細取得で詳細ボタンの行を特定するための一覧内index
+      reins_row_index: (typeof rowIndex === 'number') ? rowIndex : -1,
       source: 'reins'
     };
   }
@@ -368,8 +370,8 @@
     source: 'reins',
     collect: function () {
       const out = [];
-      document.querySelectorAll('.p-table-body-row').forEach(function (row) {
-        const prop = buildReinsManualProp(row);
+      document.querySelectorAll('.p-table-body-row').forEach(function (row, index) {
+        const prop = buildReinsManualProp(row, index);
         if (prop) out.push({ rowEl: row, prop: prop });
       });
       return out;
@@ -386,5 +388,150 @@
       return;
     }
     setTimeout(waitForReinsResults, 1000);
+  })();
+
+  // ─────────────────────────────────────────────
+  // B案: REINS物件詳細ページ(GBK003200)に「この物件を送る」ボタンを注入。
+  // REINSは単一SPAなので本scriptは詳細ページでも生存する。URL監視＋ポーリングで
+  // 詳細ページ表示を検知し、フローティングの顧客セレクト＋送信ボタンを出す。
+  // 押下時は background の SEND_MANUAL_PROPERTIES を fromDetailPage:true で呼び、
+  // 「今開いている詳細ページ」から直接 画像・詳細を取得して送る（A案とコア共通）。
+  // 物件番号は background 側(content-detail.js)が詳細ページから抽出するので渡さなくてよい。
+  // ─────────────────────────────────────────────
+  (function setupReinsDetailSendButton() {
+    if (window.__reinsDetailSendInit) return;
+    window.__reinsDetailSendInit = true;
+
+    var WRAP_ID = '__reins-detail-send-wrap';
+    var selectEl = null, statusEl = null, sendBtn = null;
+
+    function bgSend(message) {
+      return new Promise(function (resolve, reject) {
+        try {
+          chrome.runtime.sendMessage(message, function (resp) {
+            var err = chrome.runtime.lastError;
+            if (err) { reject(new Error(err.message)); return; }
+            resolve(resp);
+          });
+        } catch (e) { reject(e); }
+      });
+    }
+
+    function isDetailPage() {
+      return location.href.indexOf('GBK003200') !== -1;
+    }
+
+    function setStatus(text, color) {
+      if (statusEl) { statusEl.textContent = text || ''; statusEl.style.color = color || '#666'; }
+    }
+
+    function buildPanel() {
+      if (document.getElementById(WRAP_ID)) return;
+      var wrap = document.createElement('div');
+      wrap.id = WRAP_ID;
+      wrap.style.cssText = [
+        'position:fixed', 'left:16px', 'bottom:16px', 'z-index:2147483646',
+        'width:260px', 'background:#fff', 'border-radius:12px',
+        'box-shadow:0 4px 20px rgba(0,0,0,.25)', 'font-family:sans-serif',
+        'font-size:13px', 'color:#222', 'overflow:hidden'
+      ].join(';');
+
+      var header = document.createElement('div');
+      header.style.cssText = 'background:#1a7f37;color:#fff;padding:10px 12px;font-weight:bold;';
+      header.textContent = 'この物件をLINEで送る';
+
+      var body = document.createElement('div');
+      body.style.cssText = 'padding:12px;display:flex;flex-direction:column;gap:8px;';
+
+      var selLabel = document.createElement('label');
+      selLabel.textContent = '送信先のお客さん';
+      selLabel.style.cssText = 'font-size:12px;color:#666;';
+      selectEl = document.createElement('select');
+      selectEl.style.cssText = 'width:100%;padding:6px;border:1px solid #ccc;border-radius:6px;font-size:13px;box-sizing:border-box;';
+      var optLoading = document.createElement('option');
+      optLoading.value = ''; optLoading.textContent = '読み込み中…';
+      selectEl.appendChild(optLoading);
+
+      sendBtn = document.createElement('button');
+      sendBtn.textContent = 'この物件を送る';
+      sendBtn.style.cssText = 'width:100%;padding:10px;background:#1a7f37;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;';
+      sendBtn.addEventListener('click', onSend);
+
+      statusEl = document.createElement('div');
+      statusEl.style.cssText = 'font-size:12px;color:#666;min-height:16px;white-space:pre-wrap;';
+
+      body.appendChild(selLabel);
+      body.appendChild(selectEl);
+      body.appendChild(sendBtn);
+      body.appendChild(statusEl);
+      wrap.appendChild(header);
+      wrap.appendChild(body);
+      document.body.appendChild(wrap);
+
+      loadContext();
+    }
+
+    function removePanel() {
+      var el = document.getElementById(WRAP_ID);
+      if (el) el.remove();
+      selectEl = statusEl = sendBtn = null;
+    }
+
+    function loadContext() {
+      bgSend({ type: 'GET_MANUAL_SEND_CONTEXT' }).then(function (resp) {
+        if (!selectEl) return;
+        var customers = (resp && resp.customers) || [];
+        var contextCustomer = (resp && resp.contextCustomer) || '';
+        selectEl.innerHTML = '';
+        var ph = document.createElement('option');
+        ph.value = '';
+        ph.textContent = customers.length ? '（お客さんを選択）' : '（顧客が取得できません）';
+        selectEl.appendChild(ph);
+        customers.forEach(function (name) {
+          var o = document.createElement('option');
+          o.value = name; o.textContent = name;
+          if (name === contextCustomer) o.selected = true;
+          selectEl.appendChild(o);
+        });
+      }).catch(function (e) {
+        setStatus('顧客取得に失敗: ' + e.message, '#c0392b');
+      });
+    }
+
+    function onSend() {
+      if (!selectEl) return;
+      var customerName = selectEl.value;
+      if (!customerName) { setStatus('お客さんを選んでください', '#c0392b'); return; }
+      if (!window.confirm(customerName + ' さんにこの物件をLINEで送信します。よろしいですか？')) return;
+      sendBtn.disabled = true;
+      setStatus('詳細を取得して送信中…', '#666');
+      bgSend({
+        type: 'SEND_MANUAL_PROPERTIES',
+        customerName: customerName,
+        source: 'reins',
+        fetchDetails: true,
+        fromDetailPage: true,
+        properties: [{ source: 'reins' }]
+      }).then(function (resp) {
+        if (resp && resp.ok) {
+          setStatus('送信しました: ' + (resp.message || '1件'), '#1a7f37');
+        } else {
+          setStatus('送信失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
+        }
+      }).catch(function (e) {
+        setStatus('送信エラー: ' + e.message, '#c0392b');
+      }).finally(function () {
+        if (sendBtn) sendBtn.disabled = false;
+      });
+    }
+
+    // 詳細ページ表示の検知（SPA遷移に追従）
+    setInterval(function () {
+      if (isDetailPage() && document.querySelectorAll('.p-label-title').length > 5) {
+        buildPanel();
+      } else if (!isDetailPage()) {
+        removePanel();
+      }
+    }, 1000);
   })();
 })();

@@ -7,6 +7,12 @@
 (function () {
   'use strict';
 
+  // 再注入ガード（手動送信の fetchReinsDetailForManual が files 注入で複数回呼ぶため、
+  // onMessage リスナの二重登録を防ぐ。同一タブ・同一拡張の content script は
+  // ISOLATED world を共有するので window フラグで判定できる）
+  if (window.__reinsContentDetailLoaded) return;
+  window.__reinsContentDetailLoaded = true;
+
   // room_id ハッシュ化（background.js と同じ実装）
   const ROOM_ID_SALT = 'rr_v1_k7x9q2mA8pL5nC3bZ';
   async function hashRoomId(source, rawId) {
