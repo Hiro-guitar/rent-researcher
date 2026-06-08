@@ -257,10 +257,6 @@ body {
       <span>🏠 送付済み物件</span>
       <span id="propCount" style="font-size:11px;color:#888;font-weight:400;"></span>
     </div>
-    <div id="viewStatsBar" style="display:none;padding:8px 16px;background:#2a2d2a;border-bottom:1px solid #404040;display:flex;gap:16px;align-items:center;font-size:12px;">
-      <span style="color:#888;">👁 閲覧回数: <span id="viewCountVal" style="color:#8ec41d;font-weight:600;">0</span>回</span>
-      <span style="color:#888;">最終閲覧: <span id="lastViewVal" style="color:#ccc;">—</span></span>
-    </div>
     <div class="prop-filter-bar" id="propFilterBar"></div>
     <div id="propList" class="prop-list">
       <div class="loading">読み込み中...</div>
@@ -438,15 +434,6 @@ function renderDetail(data) {
   propFilter = 'all';
   renderPropFilters();
 
-  // 閲覧統計（送付済み物件セクションに表示）
-  var vsBar = document.getElementById('viewStatsBar');
-  if (data.viewCount > 0) {
-    vsBar.style.display = '';
-    document.getElementById('viewCountVal').textContent = data.viewCount;
-    document.getElementById('lastViewVal').textContent = data.lastViewAt || '—';
-  } else {
-    vsBar.style.display = 'none';
-  }
   propShown = 0;
   renderProperties();
 
@@ -607,7 +594,8 @@ function renderPropItem(p, idx) {
     html += '<span class="prop-badge prop-badge-source">' + esc(sourceLabels[p.source] || p.source) + '</span>';
   }
   if (p.viewed) {
-    html += '<span class="prop-badge prop-badge-viewed">👁 閲覧済' + (p.viewedAt ? ' ' + p.viewedAt : '') + '</span>';
+    var vcLabel = p.viewCount > 1 ? ' (' + p.viewCount + '回)' : '';
+    html += '<span class="prop-badge prop-badge-viewed">👁 閲覧済' + vcLabel + (p.viewedAt ? ' ' + p.viewedAt : '') + '</span>';
   } else {
     html += '<span class="prop-badge prop-badge-not-viewed">未閲覧</span>';
   }

@@ -3994,50 +3994,6 @@ function getCustomerDetail(customerName) {
 
   if (!info) return { error: '顧客が見つかりません: ' + customerName };
 
-  // 閲覧統計を集計
-  var viewCount = 0;
-  var lastViewAt = '';
-  try {
-    // アクションログから view を集計
-    var actionSheet = ss.getSheetByName('アクションログ');
-    if (actionSheet) {
-      var aData = actionSheet.getDataRange().getValues();
-      for (var ai = 1; ai < aData.length; ai++) {
-        if (String(aData[ai][0] || '').trim() !== customerName) continue;
-        if (String(aData[ai][2] || '') === 'view') {
-          viewCount++;
-          var aTs = aData[ai][8];
-          var aStr = '';
-          if (aTs instanceof Date) {
-            aStr = Utilities.formatDate(aTs, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
-          } else if (aTs) {
-            aStr = String(aTs).substring(0, 16);
-          }
-          if (aStr && aStr > lastViewAt) lastViewAt = aStr;
-        }
-      }
-    }
-    // 閲覧ログからも加算
-    var viewLogSheet = ss.getSheetByName('閲覧ログ');
-    if (viewLogSheet) {
-      var vData = viewLogSheet.getDataRange().getValues();
-      for (var vi = 1; vi < vData.length; vi++) {
-        if (String(vData[vi][0] || '').trim() !== customerName) continue;
-        viewCount++;
-        var vTs = vData[vi][3];
-        var vStr = '';
-        if (vTs instanceof Date) {
-          vStr = Utilities.formatDate(vTs, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
-        } else if (vTs) {
-          vStr = String(vTs).substring(0, 16);
-        }
-        if (vStr && vStr > lastViewAt) lastViewAt = vStr;
-      }
-    }
-  } catch(ve) { /* ignore */ }
-  info.viewCount = viewCount;
-  info.lastViewAt = lastViewAt;
-
   // 送付済み物件
   info.properties = _getCustomerProperties_(ss, customerName);
 
@@ -4079,6 +4035,7 @@ function _getCustomerProperties_(ss, customerName) {
           availStatus: String(seenData[i][5] || ''),  // F列: 空室ステータス
           viewed: false,
           viewedAt: '',
+          viewCount: 0,
           actions: [], // お気に入り、内見希望など
           comment: ''
         };
@@ -4098,9 +4055,16 @@ function _getCustomerProperties_(ss, customerName) {
         var vRoomId = String(viewData[i][1] || '');
         if (propMap[vRoomId]) {
           propMap[vRoomId].viewed = true;
+          propMap[vRoomId].viewCount++;
           var vDate = viewData[i][3]; // D列 = 閲覧日時（C列は物件名）
+          var vDateStr = '';
           if (vDate instanceof Date) {
-            propMap[vRoomId].viewedAt = Utilities.formatDate(vDate, tz, 'yyyy/MM/dd HH:mm');
+            vDateStr = Utilities.formatDate(vDate, tz, 'yyyy/MM/dd HH:mm');
+          } else if (vDate) {
+            vDateStr = String(vDate).substring(0, 16);
+          }
+          if (vDateStr && vDateStr > propMap[vRoomId].viewedAt) {
+            propMap[vRoomId].viewedAt = vDateStr;
           }
         }
       }
@@ -4125,6 +4089,10 @@ function _getCustomerProperties_(ss, customerName) {
         if (actionType === 'view') {
           // viewもviewed扱いにする（閲覧ログに無い場合のカバー）
           propMap[aRoomId].viewed = true;
+          propMap[aRoomId].viewCount++;
+          if (!aDateStr && aData[i][8]) {
+            aDateStr = String(aData[i][8]).substring(0, 16);
+          }
           if (aDateStr && (!propMap[aRoomId].viewedAt || aDateStr > propMap[aRoomId].viewedAt)) {
             propMap[aRoomId].viewedAt = aDateStr;
           }
