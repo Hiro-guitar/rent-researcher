@@ -289,12 +289,12 @@ body {
   <!-- 検索ページを開く -->
   <div class="card">
     <div class="card-title">
-      <span>🔍 検索ページを開く</span>
+      <span>検索ページを開く</span>
     </div>
     <div style="display:flex;gap:8px;padding:4px 12px 12px;flex-wrap:wrap;">
-      <button class="btn btn-sm" id="searchBtnReins" onclick="openSearchPage('reins')" style="background:#264f78;color:#fff;border:none;" disabled>📋 REINS</button>
-      <button class="btn btn-sm" id="searchBtnIelove" onclick="openSearchPage('ielove')" style="background:#264f78;color:#fff;border:none;" disabled>🏠 いえらぶ</button>
-      <button class="btn btn-sm" id="searchBtnItandi" onclick="openSearchPage('itandi')" style="background:#264f78;color:#fff;border:none;" disabled>🔍 itandi</button>
+      <button class="btn btn-sm" id="searchBtnReins" onclick="openSearchPage('reins')" style="background:#264f78;color:#fff;border:none;" disabled>REINS</button>
+      <button class="btn btn-sm" id="searchBtnIelove" onclick="openSearchPage('ielove')" style="background:#264f78;color:#fff;border:none;" disabled>いえらぶ</button>
+      <button class="btn btn-sm" id="searchBtnItandi" onclick="openSearchPage('itandi')" style="background:#264f78;color:#fff;border:none;" disabled>itandi</button>
     </div>
     <div id="searchPageStatus" style="padding:0 12px 8px;font-size:11px;color:#888;display:none;"></div>
   </div>
@@ -302,7 +302,7 @@ body {
   <!-- 送付済み物件 -->
   <div class="card">
     <div class="card-title">
-      <span>🏠 送付済み物件</span>
+      <span>送付済み物件</span>
       <span id="propCount" style="font-size:11px;color:#888;font-weight:400;"></span>
     </div>
     <div id="bulkResendBar" style="display:none;padding:8px 12px;background:#2d2d2d;border-bottom:1px solid #404040;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -310,7 +310,7 @@ body {
         <input type="checkbox" id="selectAllProps" onchange="toggleSelectAll(this.checked)"> 全選択
       </label>
       <span id="selectedCount" style="font-size:11px;color:#888;">0件選択中</span>
-      <button class="btn btn-resend btn-sm" id="bulkResendBtn" onclick="bulkResend()" disabled>📩 選択した物件を再送付</button>
+      <button class="btn btn-resend btn-sm" id="bulkResendBtn" onclick="bulkResend()" disabled>選択した物件を再送付</button>
     </div>
     <div class="prop-filter-bar" id="propFilterBar"></div>
     <div id="propList" class="prop-list">
@@ -322,7 +322,7 @@ body {
   <!-- 検索リセット -->
   <div class="card">
     <div class="card-title" style="cursor:pointer;" onclick="toggleSearchReset()">
-      <span>🔄 検索リセット</span>
+      <span>検索リセット</span>
       <span id="searchResetArrow" style="font-size:11px;color:#888;">▶</span>
     </div>
     <div id="searchResetBody" style="display:none;">
@@ -337,18 +337,18 @@ body {
   <!-- 対応ログ -->
   <div class="card">
     <div class="card-title">
-      <span>📞 対応ログ</span>
+      <span>対応ログ</span>
       <button class="btn btn-blue btn-sm" onclick="toggleLogForm()">＋ 記録する</button>
     </div>
     <div id="logFormArea" style="display:none;">
       <div class="log-form">
         <div class="log-form-row">
           <select id="logType">
-            <option value="電話">📞 電話</option>
-            <option value="メール">📧 メール</option>
-            <option value="LINE">💬 LINE</option>
-            <option value="来店">🏠 来店</option>
-            <option value="その他">📝 その他</option>
+            <option value="電話">電話</option>
+            <option value="メール">メール</option>
+            <option value="LINE">LINE</option>
+            <option value="来店">来店</option>
+            <option value="その他">その他</option>
           </select>
           <input type="datetime-local" id="logDate" style="flex:1;">
         </div>
@@ -367,7 +367,7 @@ body {
   <!-- タイムライン -->
   <div class="card">
     <div class="card-title">
-      <span>📋 タイムライン</span>
+      <span>タイムライン</span>
       <span id="timelineCount" style="font-size:11px;color:#888;font-weight:400;"></span>
     </div>
     <div id="timeline">
@@ -716,10 +716,10 @@ function renderPropItem(p, idx) {
   if (p.roomNumber) html += ' <span class="prop-room">' + esc(p.roomNumber) + '</span>';
   html += '</div>';
   html += '<div class="prop-badges">';
-  if (p.favorite) html += '<span class="prop-badge prop-badge-favorite">⭐ お気に入り</span>';
-  if (p.hold) html += '<span class="prop-badge prop-badge-hold">⏸ 保留</span>';
-  if (p.viewing) html += '<span class="prop-badge prop-badge-viewing">👀 内見希望</span>';
-  if (p.notInterested) html += '<span class="prop-badge prop-badge-not_interested">✕ 興味なし</span>';
+  if (p.favorite) html += '<span class="prop-badge prop-badge-favorite">お気に入り</span>';
+  if (p.hold) html += '<span class="prop-badge prop-badge-hold">保留</span>';
+  if (p.viewing) html += '<span class="prop-badge prop-badge-viewing">内見希望</span>';
+  if (p.notInterested) html += '<span class="prop-badge prop-badge-not_interested">興味なし</span>';
   if (p.viewed) {
     html += '<span class="prop-badge prop-badge-viewed">閲覧済(' + (p.viewCount || 1) + '回)</span>';
   } else {
@@ -761,8 +761,8 @@ function renderPropItem(p, idx) {
     html += '</div>';
 
     // 下段: 駅・住所
-    if (p.stationInfo) html += '<div class="prop-location">🚃 ' + esc(p.stationInfo) + '</div>';
-    else if (p.address) html += '<div class="prop-location">📍 ' + esc(p.address) + '</div>';
+    if (p.stationInfo) html += '<div class="prop-location">' + esc(p.stationInfo) + '</div>';
+    else if (p.address) html += '<div class="prop-location">' + esc(p.address) + '</div>';
   }
 
   // メタ情報
@@ -779,7 +779,7 @@ function renderPropItem(p, idx) {
 
   // アクションボタン
   html += '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;">';
-  html += '<button class="btn btn-resend btn-sm" id="resend-btn-' + idx + '" onclick="event.stopPropagation();resendProperty(\'' + esc(p.roomId) + '\', ' + idx + ')">📩 再送付</button>';
+  html += '<button class="btn btn-resend btn-sm" id="resend-btn-' + idx + '" onclick="event.stopPropagation();resendProperty(\'' + esc(p.roomId) + '\', ' + idx + ')">再送付</button>';
   html += '</div>';
 
   // コメント
@@ -838,7 +838,7 @@ function resendProperty(roomId, idx) {
   if (btn) { btn.disabled = true; btn.textContent = '送信中...'; }
   google.script.run
     .withSuccessHandler(function(result) {
-      if (btn) { btn.textContent = '📩 再送付'; btn.disabled = false; }
+      if (btn) { btn.textContent = '再送付'; btn.disabled = false; }
       if (result && result.ok) {
         alert('再送付しました（' + result.sent + '件）');
       } else {
@@ -846,7 +846,7 @@ function resendProperty(roomId, idx) {
       }
     })
     .withFailureHandler(function(err) {
-      if (btn) { btn.textContent = '📩 再送付'; btn.disabled = false; }
+      if (btn) { btn.textContent = '再送付'; btn.disabled = false; }
       alert('エラー: ' + err.message);
     })
     .resendPropertyNotifications(currentCustomer, [roomId]);
@@ -889,7 +889,7 @@ function bulkResend() {
   btn.textContent = '送信中...';
   google.script.run
     .withSuccessHandler(function(result) {
-      btn.textContent = '📩 選択した物件を再送付';
+      btn.textContent = '選択した物件を再送付';
       btn.disabled = false;
       if (result && result.ok) {
         alert('再送付完了: 成功 ' + result.sent + '件' + (result.failed > 0 ? ' / 失敗 ' + result.failed + '件' : ''));
@@ -901,7 +901,7 @@ function bulkResend() {
       }
     })
     .withFailureHandler(function(err) {
-      btn.textContent = '📩 選択した物件を再送付';
+      btn.textContent = '選択した物件を再送付';
       btn.disabled = false;
       alert('エラー: ' + err.message);
     })
@@ -962,14 +962,14 @@ function resetSearchRun(idx, btnEl) {
   btnEl.textContent = '処理中...';
   google.script.run
     .withSuccessHandler(function(result) {
-      btnEl.textContent = '✅ 完了';
+      btnEl.textContent = '完了';
       btnEl.style.border = '1px solid #4ec9b0';
       btnEl.style.color = '#4ec9b0';
       var info = btnEl.parentElement.querySelector('.reset-result');
       if (info) info.textContent = '承認待ち' + result.deletedPending + '件 / 通知済み' + result.deletedSeen + '件 / 重複' + result.dedupResets + '件 削除';
     })
     .withFailureHandler(function(e) {
-      btnEl.textContent = '❌ エラー';
+      btnEl.textContent = 'エラー';
       btnEl.style.color = '#f44747';
       btnEl.disabled = false;
     })
