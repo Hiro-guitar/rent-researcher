@@ -271,7 +271,8 @@ body {
     <h1 id="detailTitle">顧客詳細</h1>
     <div class="header-nav">
       <a onclick="showList()">← 顧客一覧に戻る</a>
-      <a onclick="openAdminPage()">管理画面</a>
+      <a onclick="openAdminPage(true)">条件変更</a>
+      <a onclick="openAdminPage(false)">管理画面</a>
     </div>
   </div>
 
@@ -1134,10 +1135,10 @@ function showList() {
   currentCustomer = null;
 }
 
-function openAdminPage() {
+function openAdminPage(withCustomer) {
   google.script.run
     .withSuccessHandler(function(url) { window.open(url, '_top'); })
-    .getAdminPageUrl();
+    .getAdminPageUrl(withCustomer ? currentCustomer : '');
 }
 
 // ── ユーティリティ ──
