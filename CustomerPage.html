@@ -257,6 +257,10 @@ body {
       <span>🏠 送付済み物件</span>
       <span id="propCount" style="font-size:11px;color:#888;font-weight:400;"></span>
     </div>
+    <div id="viewStatsBar" style="display:none;padding:8px 16px;background:#2a2d2a;border-bottom:1px solid #404040;display:flex;gap:16px;align-items:center;font-size:12px;">
+      <span style="color:#888;">👁 閲覧回数: <span id="viewCountVal" style="color:#8ec41d;font-weight:600;">0</span>回</span>
+      <span style="color:#888;">最終閲覧: <span id="lastViewVal" style="color:#ccc;">—</span></span>
+    </div>
     <div class="prop-filter-bar" id="propFilterBar"></div>
     <div id="propList" class="prop-list">
       <div class="loading">読み込み中...</div>
@@ -427,19 +431,22 @@ function renderDetail(data) {
     info += '<div class="detail-info-value">' + esc(String(rows[i][1])) + '</div>';
     info += '</div>';
   }
-  // 閲覧統計
-  if (data.viewCount > 0) {
-    info += '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #404040;">';
-    info += '<div class="detail-info-row"><div class="detail-info-label" style="color:#c586c0;">👁 閲覧回数</div><div class="detail-info-value" style="color:#8ec41d;font-weight:600;">' + data.viewCount + '回</div></div>';
-    info += '<div class="detail-info-row"><div class="detail-info-label" style="color:#c586c0;">最終閲覧</div><div class="detail-info-value">' + esc(data.lastViewAt || '—') + '</div></div>';
-    info += '</div>';
-  }
   document.getElementById('detailInfo').innerHTML = info || '<div class="empty-state">条件未登録</div>';
 
   // 送付済み物件
   allProperties = data.properties || [];
   propFilter = 'all';
   renderPropFilters();
+
+  // 閲覧統計（送付済み物件セクションに表示）
+  var vsBar = document.getElementById('viewStatsBar');
+  if (data.viewCount > 0) {
+    vsBar.style.display = '';
+    document.getElementById('viewCountVal').textContent = data.viewCount;
+    document.getElementById('lastViewVal').textContent = data.lastViewAt || '—';
+  } else {
+    vsBar.style.display = 'none';
+  }
   propShown = 0;
   renderProperties();
 
