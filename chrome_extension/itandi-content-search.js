@@ -96,9 +96,10 @@
     return out;
   }
 
-  // ── 建物カードから 物件名・住所・駅・築年 を抽出 ──
+  // ── 建物カードから 物件名・住所・駅・築年・階建て を抽出 ──
+  // 自動検索(API)の parseItandiSearchResponse と同じ項目を一覧 DOM から揃える。
   function parseBuilding(card) {
-    const res = { buildingName: '', address: '', stationInfo: '', buildingAge: '' };
+    const res = { buildingName: '', address: '', stationInfo: '', otherStations: [], buildingAge: '', storyText: '' };
     if (!card) return res;
     const leaves = leafTexts(card);
     let addrIdx = -1;
@@ -117,12 +118,25 @@
       break;
     }
 
-    // 駅: 住所より後で最初に「徒歩◯分」を含む末端テキスト
+    // 駅: 住所より後で「徒歩◯分」を含む末端テキストを順に収集。
+    //     1つ目を station_info、2つ目以降を other_stations（自動検索と同じ構成）。
+    const stations = [];
+    const seenStation = {};
     for (let k = addrIdx + 1; k < leaves.length; k++) {
       if (/徒歩\s*\d+\s*分/.test(leaves[k])) {
-        res.stationInfo = leaves[k].replace(/\s+/g, ' ').trim();
-        break;
+        const st = leaves[k].replace(/\s+/g, ' ').trim();
+        if (st && !seenStation[st]) { seenStation[st] = true; stations.push(st); }
       }
+    }
+    if (stations.length) {
+      res.stationInfo = stations[0];
+      res.otherStations = stations.slice(1);
+    }
+
+    // 階建て: 「◯階建」（建物の総階数、自動検索の story_text 相当）
+    for (let s = addrIdx + 1; s < leaves.length; s++) {
+      const sm = leaves[s].match(/(\d+階建)/);
+      if (sm) { res.storyText = sm[1]; break; }
     }
 
     // 築年: 「YYYY年M月」と「(築N年)/新築」を組み合わせる（自動検索の building_age 形式）
@@ -229,6 +243,8 @@
           area: room.area || 0,
           building_age: bld.buildingAge || '',
           station_info: bld.stationInfo || '',
+          other_stations: bld.otherStations || [],
+          story_text: bld.storyText || '',
           address: bld.address || '',
           image_url: '',
           image_urls: [],
