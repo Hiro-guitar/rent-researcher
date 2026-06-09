@@ -402,26 +402,41 @@
       badge.title = m.error;
       return;
     }
+    var esc = function (s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    };
     var scoreTxt = (m.score === null || m.score === undefined) ? '—' : String(m.score);
     var compTotal = m.competitor ? m.competitor.total : null;
-    var lines = [];
+    var htmlLines = [];
     // 1行目: 反響点数（相場が取れなかった場合は * を付け、駅徒歩・築年のみと示す）
     var scoreLine = '点 ' + scoreTxt + (m.scoreLabel ? ' ' + m.scoreLabel : '');
     var marketless = (!m.hasMarket && m.score !== null && m.score !== undefined);
     if (marketless) scoreLine += '*';
-    lines.push(scoreLine);
-    // 2行目: 競合数（withName/withoutName はHL込みの総数。total = 名 + 無）
+    htmlLines.push('<div>' + esc(scoreLine) + '</div>');
+    // 2行目: 競合数（withName/withoutName はHL込みの総数。total = 名 + 無）。
+    //        URLがあればSUUMO競合一覧を新タブで開けるリンクにする。
     if (compTotal === null || compTotal === undefined) {
-      lines.push('競合 —');
+      htmlLines.push('<div>競合 —</div>');
     } else {
       var wn = m.competitor.withName || 0;
       var wo = m.competitor.withoutName || 0;
-      lines.push('競合 ' + compTotal + '（名' + wn + '/無' + wo + '）');
+      var compText = '競合 ' + compTotal + '（名' + wn + '/無' + wo + '）';
+      if (m.competitor.url) {
+        htmlLines.push('<div><a href="' + esc(m.competitor.url) + '" target="_blank" rel="noopener" ' +
+          'style="color:inherit;text-decoration:underline;pointer-events:auto;cursor:pointer;">' +
+          esc(compText) + ' ↗</a></div>');
+      } else {
+        htmlLines.push('<div>' + esc(compText) + '</div>');
+      }
     }
-    badge.innerHTML = lines.map(function (t) {
-      return '<div>' + t.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>';
-    }).join('');
-    badge.title = marketless ? '＊相場データが取れず、駅徒歩・築年のみで算出（平米単価60%は未反映）' : '';
+    badge.innerHTML = htmlLines.join('');
+    // リンククリックが物件カードのクリックに伝播しないように
+    var compLink = badge.querySelector('a');
+    if (compLink) compLink.addEventListener('click', function (ev) { ev.stopPropagation(); });
+    badge.title = marketless
+      ? '＊相場データが取れず、駅徒歩・築年のみで算出（平米単価60%は未反映）／競合数をクリックでSUUMO競合一覧を開く'
+      : '競合数をクリックでSUUMO競合一覧を開く';
     // スコア帯で色分け
     var sc = Number(m.score);
     if (isFinite(sc) && sc >= 80) badge.style.color = '#c0392b';
