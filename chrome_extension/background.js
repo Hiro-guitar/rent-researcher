@@ -1030,6 +1030,56 @@ async function fetchItandiDetailForManual(baseProp) {
   }
 }
 
+// ─────────────────────────────────────────────
+// 手動「競合数・反響点数」用: collect prop を snake_case に正規化。
+// REINS/いえらぶは camelCase(managementFee,buildingAge,stationInfo,area文字列)、
+// itandi は snake_case。countSuumoCompetitors / getSuumoMarketMedian /
+// buildInquiryScoreInput はいずれも snake_case 系を読むため揃える。
+// ─────────────────────────────────────────────
+function normalizePropForMetrics(prop) {
+  prop = prop || {};
+  const num = (v) => {
+    if (typeof v === 'number') return v;
+    const n = parseFloat(String(v == null ? '' : v).replace(/[^\d.]/g, ''));
+    return isFinite(n) ? n : 0;
+  };
+  return {
+    rent: Number(prop.rent) || 0,
+    management_fee: Number(prop.management_fee || prop.managementFee) || 0,
+    area: num(prop.area || prop.usageArea),
+    address: prop.address || '',
+    layout: prop.layout || '',
+    building_age: prop.building_age || prop.buildingAge || '',
+    station_info: prop.station_info || prop.stationInfo || '',
+    structure: prop.structure || '',
+    story_text: prop.story_text || prop.storyText || '',
+    facilities: prop.facilities || '',
+  };
+}
+
+// SUUMO候補キー生成（GAS normalizeSuumoPropertyKey_ と同一式・決定的）。
+// 建物名(空白除去・小文字) + '|' + 部屋番号(数字のみ)。
+function suumoPropertyKey(building, room) {
+  const b = String(building || '').replace(/[\s　]/g, '').toLowerCase();
+  const r = String(room || '').replace(/[^\d]/g, '');
+  return b + '|' + r;
+}
+
+// 手動: source 別に詳細取得関数を振り分け（顧客送信・SUUMO掲載で共用）。
+async function enrichOneForManual(source, p, senderTabId, fromDetailPage) {
+  if (source === 'reins') {
+    return await fetchReinsDetailForManual(senderTabId, {
+      propertyNumber: p.reins_property_number || p.propertyNumber || '',
+      index: (typeof p.reins_row_index === 'number') ? p.reins_row_index : -1
+    }, { alreadyOnDetail: !!fromDetailPage });
+  } else if (source === 'ielove') {
+    return await fetchIeloveDetailForManual(p.url || '');
+  } else if (source === 'itandi') {
+    return await fetchItandiDetailForManual(p);
+  }
+  return { ok: false, error: '未対応ソース: ' + source };
+}
+
 // === room_id ハッシュ化（ソース・ID形式の匿名化） ===
 // 顧客向けURLにはハッシュ化したroom_idを使用し、
 // どのサイトから取得したか・IDの形式から推測されないようにする。
@@ -2580,6 +2630,151 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse(resp);
       } catch (e) {
         await setStorageData({ debugLog: '手動送信失敗: ' + e.message });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // 手動: 選択物件の競合数・反響予測点数を調べて1件ずつパネルへ返す（送信はしない）
+  if (msg.type === 'CHECK_SUUMO_METRICS') {
+    (async () => {
+      try {
+        const props = msg.properties || [];
+        const senderTabId = sender && sender.tab && sender.tab.id;
+        const total = props.length;
+        for (let i = 0; i < props.length; i++) {
+          const np = normalizePropForMetrics(props[i]);
+          let competitor = null, score = null, scoreLabel = '', error = '';
+          try {
+            // 競合数
+            if (typeof countSuumoCompetitors === 'function') {
+              competitor = await countSuumoCompetitors(np);
+            }
+            // 相場中央値 → 反響予測点数
+            if (typeof getSuumoMarketMedian === 'function' && np.address && np.layout && np.area) {
+              const propertyType = (np.structure && /木造/.test(np.structure)) ? 'アパート' : 'マンション';
+              const median = await getSuumoMarketMedian({
+                address: np.address,
+                layout: np.layout,
+                area: np.area,
+                buildingAge: (typeof extractBuildingAge === 'function') ? extractBuildingAge(np) : null,
+                walkMinutes: (typeof extractWalkMinutes === 'function') ? extractWalkMinutes(np) : null,
+                propertyType: propertyType,
+              });
+              if (median && median.ok && typeof calculateInquiryScore === 'function') {
+                const sc = calculateInquiryScore(buildInquiryScoreInput(np, median.median));
+                if (sc && typeof sc.score === 'number') { score = sc.score; scoreLabel = sc.label || ''; }
+              }
+            }
+          } catch (e) {
+            error = (e && e.message) || String(e);
+          }
+          if (senderTabId) {
+            try {
+              await chrome.tabs.sendMessage(senderTabId, {
+                type: 'MANUAL_METRICS_PROGRESS',
+                index: i, total, competitor, score, scoreLabel, error
+              });
+            } catch (e) {}
+          }
+        }
+        sendResponse({ ok: true, done: total });
+      } catch (e) {
+        await setStorageData({ debugLog: '競合数・点数調査失敗: ' + e.message });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // 手動: 選択物件の詳細を取得→SUUMO候補に登録→SUUMO承認ページを開く（全サイト対応）
+  if (msg.type === 'PUBLISH_TO_SUUMO') {
+    (async () => {
+      try {
+        const props = msg.properties || [];
+        const source = msg.source || (props[0] && props[0].source) || '';
+        const senderTabId = sender && sender.tab && sender.tab.id;
+        const fromDetailPage = !!msg.fromDetailPage;
+
+        const { gasWebappUrl } = await getConfig();
+        if (!gasWebappUrl) { sendResponse({ ok: false, error: 'GAS URLが設定されていません' }); return; }
+
+        // REINS: 自動巡回タブとの衝突を防止（同一タブを両者が操作すると壊れる）
+        if (source === 'reins' && senderTabId) {
+          const autoTabId = await __getAutomationTabId();
+          if (autoTabId && autoTabId === senderTabId) {
+            sendResponse({ ok: false, error: '自動巡回中のタブでは手動取得できません。別のタブでREINSを開いてください。' });
+            return;
+          }
+        }
+
+        const total = props.length;
+        const enriched = [];
+        let skipped = 0;
+        for (let i = 0; i < props.length; i++) {
+          const p = props[i] || {};
+          try {
+            await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: i, total, skipped });
+          } catch (e) {}
+          let res;
+          try {
+            res = await enrichOneForManual(source, p, senderTabId, fromDetailPage);
+          } catch (e) {
+            res = { ok: false, error: e.message };
+          }
+          if (res && res.ok && res.detail && res.detail.building_name) {
+            enriched.push(res.detail);
+          } else {
+            skipped++;
+            await setStorageData({ debugLog: `[SUUMO掲載] 詳細取得失敗→スキップ: ${p.building_name || p.buildingName || ''} ${(res && res.error) || ''}` });
+          }
+        }
+        try {
+          await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: total, total, skipped });
+        } catch (e) {}
+
+        if (enriched.length === 0) {
+          sendResponse({ ok: false, registered: 0, skipped, error: `全${total}件の詳細取得に失敗しました` });
+          return;
+        }
+
+        // SUUMO候補シートに登録（add_suumo_candidate）。
+        // 注: sendSuumoCandidatesToGas は Discord 通知の副作用があるため使わず POST をインライン化。
+        try {
+          const resp = await fetch(gasWebappUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'add_suumo_candidate', properties: enriched, patrolCriteriaId: null })
+          });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        } catch (e) {
+          await setStorageData({ debugLog: '[SUUMO掲載] 候補登録失敗: ' + e.message });
+          sendResponse({ ok: false, registered: 0, skipped, error: 'SUUMO候補登録に失敗: ' + e.message });
+          return;
+        }
+
+        // 承認ページを物件ごとに開く（key は GAS と同一式で自前生成＝新規/既存問わず効く）
+        let opened = 0;
+        const seenKey = {};
+        for (const det of enriched) {
+          const key = suumoPropertyKey(det.building_name, det.room_number);
+          if (!key || key === '|' || seenKey[key]) continue;
+          seenKey[key] = true;
+          try {
+            const approveUrl = gasWebappUrl + '?action=suumo_approve&key=' + encodeURIComponent(key);
+            await chrome.tabs.create({ url: approveUrl, active: true });
+            opened++;
+          } catch (e) {}
+        }
+
+        const message = skipped > 0
+          ? `${enriched.length}件をSUUMO候補に登録し承認ページを開きました / ${skipped}件は取得失敗`
+          : `${enriched.length}件をSUUMO候補に登録し承認ページを開きました`;
+        await setStorageData({ debugLog: `[SUUMO掲載] ${source}: ${enriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+        sendResponse({ ok: true, registered: enriched.length, skipped, opened, message });
+      } catch (e) {
+        await setStorageData({ debugLog: 'SUUMO掲載失敗: ' + e.message });
         sendResponse({ ok: false, error: e.message });
       }
     })();

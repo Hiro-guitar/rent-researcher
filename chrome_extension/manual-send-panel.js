@@ -32,6 +32,9 @@
   var statusEl = null;
   var countEl = null;
   var sendBtn = null;
+  var metricsBtn = null;
+  var publishBtn = null;
+  var lastMetricItems = []; // 競合数・点数の計算対象（index→rowEl対応の保持）
 
   function log() {
     try { console.log.apply(console, ['[手動送信パネル]'].concat([].slice.call(arguments))); } catch (e) {}
@@ -83,6 +86,7 @@
       // 行に相対位置を付与してチェックボックスを重ねる
       var pos = window.getComputedStyle(rowEl).position;
       if (pos === 'static' || !pos) rowEl.style.position = 'relative';
+      cb.__rowEl = rowEl; // 競合数・点数バッジ表示で行要素を辿るため保持
       rowEl.appendChild(cb);
       rowEl[ASSIGN_KEY] = cb;
       selectedMap.set(cb, prop);
@@ -96,6 +100,17 @@
       if (cb.checked && document.body.contains(cb)) props.push(prop);
     });
     return props;
+  }
+
+  // 競合数・点数バッジ表示用に行要素も一緒に返す（getCheckedProps と同じ並び）
+  function getCheckedItems() {
+    var items = [];
+    selectedMap.forEach(function (prop, cb) {
+      if (cb.checked && document.body.contains(cb)) {
+        items.push({ rowEl: cb.__rowEl || null, prop: prop });
+      }
+    });
+    return items;
   }
 
   function setAllChecked(checked) {
@@ -171,6 +186,11 @@
     sendBtn.disabled = true;
     sendBtn.addEventListener('click', onSendClick);
 
+    // 競合数・反響予測点数を調べるボタン
+    metricsBtn = mkActionBtn('競合数・反響点数を調べる', '#0b66c3', onCheckMetricsClick);
+    // SUUMOに掲載ボタン
+    publishBtn = mkActionBtn('SUUMOに掲載', '#e67e22', onPublishSuumoClick);
+
     // ステータス
     statusEl = document.createElement('div');
     statusEl.style.cssText = 'font-size:12px;color:#666;min-height:16px;white-space:pre-wrap;';
@@ -180,6 +200,8 @@
     body.appendChild(selRow);
     body.appendChild(countEl);
     body.appendChild(sendBtn);
+    body.appendChild(metricsBtn);
+    body.appendChild(publishBtn);
     body.appendChild(statusEl);
 
     panelEl.appendChild(header);
@@ -198,6 +220,15 @@
     var b = document.createElement('button');
     b.textContent = label;
     b.style.cssText = 'flex:1;padding:5px 0;background:#f0f0f0;border:1px solid #ddd;border-radius:6px;font-size:12px;cursor:pointer;';
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  // フルワイドのアクションボタン（送信ボタンと同サイズ）
+  function mkActionBtn(label, color, onClick) {
+    var b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = 'width:100%;padding:9px;background:' + color + ';color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;';
     b.addEventListener('click', onClick);
     return b;
   }
@@ -284,10 +315,129 @@
   }
 
   // ─────────────────────────────────────────────
-  // background からの進捗通知を受信（REINS詳細取得の進捗）
+  // 競合数・反響予測点数を調べる
+  // ─────────────────────────────────────────────
+  function onCheckMetricsClick() {
+    var items = getCheckedItems();
+    if (items.length === 0) { setStatus('調べる物件を選んでください', '#c0392b'); return; }
+    lastMetricItems = items; // MANUAL_METRICS_PROGRESS の index→rowEl 対応に使う
+    metricsBtn.disabled = true;
+    setStatus('競合数・反響点数を計算中…（' + items.length + '件）', '#666');
+    // 計算中はバッジを「計算中」に
+    items.forEach(function (it) { if (it.rowEl) renderMetricBadge(it.rowEl, { pending: true }); });
+    sendToBackground({
+      type: 'CHECK_SUUMO_METRICS',
+      source: adapter && adapter.source,
+      properties: items.map(function (x) { return x.prop; })
+    }).then(function (resp) {
+      if (resp && resp.ok) {
+        setStatus((resp.done || items.length) + '件の競合数・点数を表示しました', '#1a7f37');
+      } else {
+        setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
+      }
+    }).catch(function (e) {
+      setStatus('エラー: ' + e.message, '#c0392b');
+    }).finally(function () {
+      if (metricsBtn) metricsBtn.disabled = false;
+    });
+  }
+
+  // ─────────────────────────────────────────────
+  // SUUMOに掲載（詳細取得→SUUMO候補登録→SUUMO承認ページを開く）
+  // ─────────────────────────────────────────────
+  function onPublishSuumoClick() {
+    var props = getCheckedProps();
+    if (props.length === 0) { setStatus('掲載する物件を選んでください', '#c0392b'); return; }
+    if (!window.confirm(props.length + '件の詳細を取得してSUUMO候補に登録し、SUUMO承認ページを開きます。\n各物件の詳細ページを開くため少し時間がかかります。よろしいですか？')) return;
+    publishBtn.disabled = true;
+    setStatus('詳細を取得してSUUMO候補に登録中…（' + props.length + '件）', '#666');
+    sendToBackground({
+      type: 'PUBLISH_TO_SUUMO',
+      source: adapter && adapter.source,
+      properties: props
+    }).then(function (resp) {
+      if (resp && resp.ok) {
+        var color = (resp.skipped && resp.skipped > 0) ? '#b8860b' : '#1a7f37';
+        setStatus(resp.message || ((resp.opened || 0) + '件のSUUMO承認ページを開きました'), color);
+        setAllChecked(false);
+      } else {
+        setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
+      }
+    }).catch(function (e) {
+      setStatus('エラー: ' + e.message, '#c0392b');
+    }).finally(function () {
+      if (publishBtn) publishBtn.disabled = false;
+      updateCount();
+    });
+  }
+
+  // ─────────────────────────────────────────────
+  // 競合数・点数バッジを行要素に表示（冪等）
+  // ─────────────────────────────────────────────
+  function renderMetricBadge(rowEl, m) {
+    if (!rowEl) return;
+    var pos = window.getComputedStyle(rowEl).position;
+    if (pos === 'static' || !pos) rowEl.style.position = 'relative';
+    var badge = rowEl.querySelector('.__metric-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = '__metric-badge';
+      badge.style.cssText = [
+        'position:absolute', 'top:6px', 'right:6px', 'z-index:99998',
+        'background:#fff', 'border-radius:6px', 'padding:3px 7px',
+        'font-size:11px', 'font-weight:bold', 'line-height:1.4',
+        'box-shadow:0 1px 5px rgba(0,0,0,.35)', 'white-space:nowrap',
+        'pointer-events:none', 'text-align:right'
+      ].join(';');
+      rowEl.appendChild(badge);
+    }
+    if (m.pending) {
+      badge.style.color = '#888';
+      badge.textContent = '計算中…';
+      return;
+    }
+    if (m.error) {
+      badge.style.color = '#c0392b';
+      badge.textContent = '取得失敗';
+      badge.title = m.error;
+      return;
+    }
+    var scoreTxt = (m.score === null || m.score === undefined) ? '—' : String(m.score);
+    var compTotal = m.competitor ? m.competitor.total : null;
+    var lines = [];
+    // 1行目: 反響点数
+    lines.push('点 ' + scoreTxt + (m.scoreLabel ? ' ' + m.scoreLabel : ''));
+    // 2行目: 競合数
+    if (compTotal === null || compTotal === undefined) {
+      lines.push('競合 —');
+    } else {
+      var wn = (m.competitor.withName || 0) + (m.competitor.withNameHighlighted || 0);
+      var wo = (m.competitor.withoutName || 0) + (m.competitor.withoutNameHighlighted || 0);
+      lines.push('競合 ' + compTotal + '（名' + wn + '/無' + wo + '）');
+    }
+    badge.innerHTML = lines.map(function (t) {
+      return '<div>' + t.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>';
+    }).join('');
+    // スコア帯で色分け
+    var sc = Number(m.score);
+    if (isFinite(sc) && sc >= 80) badge.style.color = '#c0392b';
+    else if (isFinite(sc) && sc >= 60) badge.style.color = '#1a7f37';
+    else badge.style.color = '#555';
+  }
+
+  // ─────────────────────────────────────────────
+  // background からの進捗通知を受信（REINS詳細取得の進捗 / 競合数・点数）
   // ─────────────────────────────────────────────
   function onRuntimeMessage(msg) {
-    if (!msg || msg.type !== 'MANUAL_SEND_PROGRESS') return;
+    if (!msg) return;
+    if (msg.type === 'MANUAL_METRICS_PROGRESS') {
+      var it = lastMetricItems[msg.index];
+      if (it && it.rowEl) renderMetricBadge(it.rowEl, msg);
+      var doneN = (msg.index || 0) + 1, totalN = msg.total || lastMetricItems.length;
+      setStatus('競合数・点数を計算中… ' + doneN + '/' + totalN + '件', '#666');
+      return;
+    }
+    if (msg.type !== 'MANUAL_SEND_PROGRESS') return;
     var done = msg.done || 0, total = msg.total || 0, skipped = msg.skipped || 0;
     var txt = '取得中… ' + done + '/' + total + '件';
     if (skipped > 0) txt += '（失敗' + skipped + '件）';
