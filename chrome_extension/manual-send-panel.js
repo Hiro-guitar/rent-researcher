@@ -405,19 +405,23 @@
     var scoreTxt = (m.score === null || m.score === undefined) ? '—' : String(m.score);
     var compTotal = m.competitor ? m.competitor.total : null;
     var lines = [];
-    // 1行目: 反響点数
-    lines.push('点 ' + scoreTxt + (m.scoreLabel ? ' ' + m.scoreLabel : ''));
-    // 2行目: 競合数
+    // 1行目: 反響点数（相場が取れなかった場合は * を付け、駅徒歩・築年のみと示す）
+    var scoreLine = '点 ' + scoreTxt + (m.scoreLabel ? ' ' + m.scoreLabel : '');
+    var marketless = (!m.hasMarket && m.score !== null && m.score !== undefined);
+    if (marketless) scoreLine += '*';
+    lines.push(scoreLine);
+    // 2行目: 競合数（withName/withoutName はHL込みの総数。total = 名 + 無）
     if (compTotal === null || compTotal === undefined) {
       lines.push('競合 —');
     } else {
-      var wn = (m.competitor.withName || 0) + (m.competitor.withNameHighlighted || 0);
-      var wo = (m.competitor.withoutName || 0) + (m.competitor.withoutNameHighlighted || 0);
+      var wn = m.competitor.withName || 0;
+      var wo = m.competitor.withoutName || 0;
       lines.push('競合 ' + compTotal + '（名' + wn + '/無' + wo + '）');
     }
     badge.innerHTML = lines.map(function (t) {
       return '<div>' + t.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>';
     }).join('');
+    badge.title = marketless ? '＊相場データが取れず、駅徒歩・築年のみで算出（平米単価60%は未反映）' : '';
     // スコア帯で色分け
     var sc = Number(m.score);
     if (isFinite(sc) && sc >= 80) badge.style.color = '#c0392b';

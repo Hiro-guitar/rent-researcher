@@ -2645,13 +2645,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const total = props.length;
         for (let i = 0; i < props.length; i++) {
           const np = normalizePropForMetrics(props[i]);
-          let competitor = null, score = null, scoreLabel = '', error = '';
+          let competitor = null, score = null, scoreLabel = '', hasMarket = false, error = '';
           try {
             // 競合数
             if (typeof countSuumoCompetitors === 'function') {
               competitor = await countSuumoCompetitors(np);
             }
-            // 相場中央値 → 反響予測点数
+            // 相場中央値（取れれば反響点数の平米単価要素＝60%に使う。取れなくても点数は出す）
+            let marketMedian = 0;
             if (typeof getSuumoMarketMedian === 'function' && np.address && np.layout && np.area) {
               const propertyType = (np.structure && /木造/.test(np.structure)) ? 'アパート' : 'マンション';
               const median = await getSuumoMarketMedian({
@@ -2662,10 +2663,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 walkMinutes: (typeof extractWalkMinutes === 'function') ? extractWalkMinutes(np) : null,
                 propertyType: propertyType,
               });
-              if (median && median.ok && typeof calculateInquiryScore === 'function') {
-                const sc = calculateInquiryScore(buildInquiryScoreInput(np, median.median));
-                if (sc && typeof sc.score === 'number') { score = sc.score; scoreLabel = sc.label || ''; }
-              }
+              if (median && median.ok) { marketMedian = median.median; hasMarket = true; }
+            }
+            // 反響予測点数: 相場が取れなくても駅徒歩・築年で部分点数を出す（_finalizeScoreが再正規化）
+            if (typeof calculateInquiryScore === 'function') {
+              const sc = calculateInquiryScore(buildInquiryScoreInput(np, marketMedian));
+              if (sc && typeof sc.score === 'number') { score = sc.score; scoreLabel = sc.label || ''; }
             }
           } catch (e) {
             error = (e && e.message) || String(e);
@@ -2674,7 +2677,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             try {
               await chrome.tabs.sendMessage(senderTabId, {
                 type: 'MANUAL_METRICS_PROGRESS',
-                index: i, total, competitor, score, scoreLabel, error
+                index: i, total, competitor, score, scoreLabel, hasMarket, error
               });
             } catch (e) {}
           }
