@@ -486,9 +486,19 @@ function createPropertyBubble(p) {
     var _jstHour = (typeof getJstHour === 'function') ? getJstHour(_now) : _now.getUTCHours() + 9;
     var _isOpen = (_jstHour >= 10 && _jstHour < 20);
     var _statusLine = _isOpen ? 'スタッフが確認中です' : 'お問い合わせを受け付けました';
-    var _etaMsg = _isOpen
-      ? '数分以内にスタッフよりご返信いたします'
-      : '営業時間外のため、翌営業日の朝にスタッフよりご返信いたします';
+    // 「要確認」(REINS等)は元付業者へ手動確認が必要で時間がかかるため、
+    // 「数分以内」と約束せず、分かり次第連絡する旨に留める。
+    var _isNeedsCheck = (String(p.status).trim() === '要確認');
+    var _etaMsg;
+    if (_isNeedsCheck) {
+      _etaMsg = _isOpen
+        ? '担当者が確認のうえ、分かり次第ご連絡いたします'
+        : '営業時間外のため、翌営業日に担当者よりご連絡いたします';
+    } else {
+      _etaMsg = _isOpen
+        ? '数分以内にスタッフよりご返信いたします'
+        : '営業時間外のため、翌営業日の朝にスタッフよりご返信いたします';
+    }
     bodyContents.push({
       type: 'box',
       layout: 'vertical',
