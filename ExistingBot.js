@@ -324,6 +324,7 @@ function handleVacancyQuery(replyToken, userId, raw) {
     // ヒット → Flex Carousel 返信
     var bubbles = [];
     var unavailable = [];
+    var requiresStaffCheck = [];  // ステータス「要確認」物件 → スタッフ向けDiscordに通知
     for (var i = 0; i < matched.length; i++) {
       var row = matched[i];
       var rawUrl = row[9] ? String(row[9]).trim() : '';
@@ -334,6 +335,15 @@ function handleVacancyQuery(replyToken, userId, raw) {
       }));
       if (row[8] !== '募集中') {
         unavailable.push({ name: String(row[0]), room: String(row[1]) });
+      }
+      // 「要確認」= 自動で空室確認できない物件(REINS等)。スタッフに手動確認を依頼する。
+      if (String(row[8]).trim() === '要確認') {
+        requiresStaffCheck.push({
+          name: String(row[0]), room: String(row[1]),
+          address: String(row[2]), station: String(row[3]),
+          rent: String(row[4]), layout: String(row[6]), area: String(row[7]),
+          vacancyUrl: row[12] ? String(row[12]).trim() : ''  // M列: 空室確認URL(REINS物件番号検索リンク等)
+        });
       }
     }
     replyMessage(replyToken, [{
@@ -346,11 +356,91 @@ function handleVacancyQuery(replyToken, userId, raw) {
       enqueueDelayedReply(userId, unavailable[q2].name, unavailable[q2].room);
     }
 
+    // 「要確認」物件は自動確認できないため、スタッフ向けDiscordに空室確認依頼を通知
+    if (requiresStaffCheck.length > 0) {
+      try {
+        _notifyVacancyCheckRequestToDiscord_(_getLineUserName_(userId), requiresStaffCheck);
+      } catch (eDiscord) {
+        console.error('要確認Discord通知エラー: ' + eDiscord.message);
+      }
+    }
+
     // 検索完了 → state解除
     clearState(userId);
   } catch (e) {
     console.error('handleVacancyQuery Error: ' + e.message + '\n' + e.stack);
     replyMessage(replyToken, [textMsg('検索中にエラーが発生しました。もう一度お試しください。')]);
+  }
+}
+
+/**
+ * LINE userId から表示名を取得する（LINE Usersシートの顧客名 → LINEプロフィール名）。
+ * @param {string} userId
+ * @return {string} 表示名（取得できなければ空文字）
+ */
+function _getLineUserName_(userId) {
+  var userName = '';
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (luSheet) {
+      var luData = luSheet.getDataRange().getValues();
+      for (var j = 1; j < luData.length; j++) {
+        if (luData[j][0] === userId && luData[j][1]) {
+          userName = luData[j][1];
+          break;
+        }
+      }
+    }
+    if (!userName) {
+      var profile = getLineProfile(userId);
+      userName = profile ? profile.displayName : '';
+    }
+  } catch (e) {
+    console.error('_getLineUserName_ エラー: ' + e.message);
+  }
+  return userName;
+}
+
+/**
+ * ステータス「要確認」物件の空室確認依頼をスタッフ向けDiscordに通知する。
+ * 自動で空室確認できない物件(REINS等)に、お客さんから公式LINEで空室確認依頼が
+ * 来たときに呼ぶ。M列の空室確認URL(REINS物件番号検索リンク)を含めるので、
+ * スタッフはクリックして物件番号検索→詳細表示できる。
+ * @param {string} userName - 依頼したお客さんの表示名
+ * @param {Array<{name,room,address,station,rent,layout,area,vacancyUrl}>} props
+ */
+function _notifyVacancyCheckRequestToDiscord_(userName, props) {
+  if (!props || props.length === 0) return;
+  var sp = PropertiesService.getScriptProperties();
+  var webhookUrl = sp.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL')
+                || sp.getProperty('DISCORD_WEBHOOK_URL');
+  if (!webhookUrl) {
+    console.warn('[要確認通知] Discord webhook 未設定のためスキップ');
+    return;
+  }
+  var lines = [];
+  lines.push('🔔 **空室確認依頼（要確認物件）**');
+  lines.push('お客様: ' + (userName || '(不明)') + ' 様 が空室確認を希望しています。');
+  lines.push('━━━━━━━━━━━━━━━━');
+  for (var i = 0; i < props.length; i++) {
+    var p = props[i];
+    lines.push('**' + p.name + ' ' + (p.room || '') + '号室**');
+    if (p.address) lines.push('所在地: ' + p.address + (p.station ? '（' + p.station + '駅）' : ''));
+    var spec = [];
+    if (p.rent) spec.push('賃料 ' + p.rent + '万円');
+    if (p.layout) spec.push(p.layout);
+    if (p.area) spec.push(p.area + 'm²');
+    if (spec.length) lines.push(spec.join(' / '));
+    if (p.vacancyUrl) lines.push('📋 物件番号検索: <' + p.vacancyUrl + '>');
+    lines.push('');
+  }
+  lines.push('→ 元付業者に確認のうえ、お客様にLINEでご返信ください。');
+  var payload = { content: lines.join('\n') };
+  try {
+    _sendDiscordWithRetry_(webhookUrl, payload, 3);
+  } catch (e) {
+    console.error('[要確認通知] Discord送信失敗: ' + e.message);
   }
 }
 
@@ -533,26 +623,7 @@ function enqueueDelayedReply(userId, propertyName, roomNumber) {
   }
 
   // ユーザー名を取得（LINE Users の顧客名 → LINE プロフィール名）
-  var userName = '';
-  try {
-    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
-    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
-    if (luSheet) {
-      var luData = luSheet.getDataRange().getValues();
-      for (var j = 1; j < luData.length; j++) {
-        if (luData[j][0] === userId && luData[j][1]) {
-          userName = luData[j][1];
-          break;
-        }
-      }
-    }
-    if (!userName) {
-      var profile = getLineProfile(userId);
-      userName = profile ? profile.displayName : '';
-    }
-  } catch (e) {
-    console.error('enqueueDelayedReply: ユーザー名取得エラー: ' + e.message);
-  }
+  var userName = _getLineUserName_(userId);
 
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sheet = ss.getSheetByName('返信キュー');
