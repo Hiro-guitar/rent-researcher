@@ -597,6 +597,489 @@ async function submitProperties(customerName, properties) {
 }
 // === END GAS API クライアント ===
 
+// === 手動検索の顧客コンテキスト（タブID → 顧客名）===
+// 手動検索機能で開いたタブの顧客名を覚えておき、手動送信パネルの顧客セレクトを
+// 自動選択するために使う。storage.session に保存し、service worker 再起動後も
+// 保持する（ブラウザを閉じると消える）。
+async function recordManualSearchCustomer(tabId, customerName) {
+  if (!tabId || !customerName) return;
+  try {
+    const { manualSearchCustomerByTab = {} } = await chrome.storage.session.get('manualSearchCustomerByTab');
+    manualSearchCustomerByTab[String(tabId)] = customerName;
+    await chrome.storage.session.set({ manualSearchCustomerByTab });
+  } catch (e) { /* session storage 不可でも致命的ではない */ }
+}
+async function getManualSearchCustomer(tabId) {
+  if (!tabId) return '';
+  try {
+    const { manualSearchCustomerByTab = {} } = await chrome.storage.session.get('manualSearchCustomerByTab');
+    return manualSearchCustomerByTab[String(tabId)] || '';
+  } catch (e) { return ''; }
+}
+// === END 手動検索の顧客コンテキスト ===
+
+// ─────────────────────────────────────────────
+// 手動送信(REINS)用: 詳細ページを開いて画像・詳細情報を取得する自己完結関数
+//
+// 自動巡回 searchForCustomer のインライン実装（詳細クリック→抽出→画像base64→
+// catboxアップロード→一覧へ戻る）から、手動送信に必要な部分だけを複製した。
+// searchForCustomer 本体には一切手を入れず、フィルタ/seen記録/統計などの副作用は持たない。
+//
+// @param {number} tabId      REINS検索結果(or詳細)が表示されているタブ
+// @param {{propertyNumber:string, index:number}} target 物件番号と一覧での行index
+// @param {{alreadyOnDetail?:boolean}} opts alreadyOnDetail=true なら既に詳細ページを開いている前提でクリック/戻るを省略（B案）
+// @return {Promise<{ok:boolean, detail?:object, imageUrls?:string[], imageFailed?:number, error?:string}>}
+//   detail は buildPropertyFlex 互換の camelCase（一覧アダプタと同じキー構成）
+// ─────────────────────────────────────────────
+async function fetchReinsDetailForManual(tabId, target, opts = {}) {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const alreadyOnDetail = !!opts.alreadyOnDetail;
+  const propertyNumber = String((target && target.propertyNumber) || '');
+  const rowIndex = (target && typeof target.index === 'number') ? target.index : -1;
+
+  try {
+    // ── 1. 詳細ボタンをクリックして詳細ページへ（B案=alreadyOnDetail はスキップ）──
+    if (!alreadyOnDetail) {
+      let clickStatus = 'not_found';
+      for (let waitTry = 0; waitTry < 20; waitTry++) {
+        const cr = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (propNum, rIdx) => {
+            // 連続閲覧警告等のダイアログが出ていれば閉じる
+            const dialogs = document.querySelectorAll('[role="dialog"], .modal.show');
+            for (const dialog of dialogs) {
+              const okBtn = [...dialog.querySelectorAll('button')].find(b => /OK|閉じる|はい/.test(b.textContent.trim()));
+              if (okBtn) { okBtn.click(); return 'dialog_closed'; }
+            }
+            const rows = document.querySelectorAll('.p-table-body-row');
+            if (rows.length === 0) return 'no_rows';
+            // index で直接特定（同建物連続物件でも確実）
+            if (rIdx >= 0 && rows[rIdx] && rows[rIdx].textContent.includes(propNum)) {
+              const btn = [...rows[rIdx].querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
+              if (btn) { btn.click(); return 'clicked'; }
+            }
+            // index がズレた場合は物件番号で末尾完全一致フォールバック
+            for (const r of rows) {
+              const items = r.querySelectorAll(':scope > .p-table-body-item');
+              const cellText = (items[3] && items[3].textContent || '').trim();
+              const m = cellText.match(/\b(100\d{8,})\b/);
+              if (m && m[1] === propNum) {
+                const btn = [...r.querySelectorAll('button')].find(b => b.textContent.trim() === '詳細');
+                if (btn) { btn.click(); return 'clicked_fallback'; }
+              }
+            }
+            return 'not_found_in_' + rows.length + '_rows';
+          },
+          args: [propertyNumber, rowIndex]
+        });
+        clickStatus = (cr && cr[0] && cr[0].result) || 'error';
+        if (clickStatus === 'clicked' || clickStatus === 'clicked_fallback') break;
+        await sleep(500);
+      }
+      if (clickStatus !== 'clicked' && clickStatus !== 'clicked_fallback') {
+        return { ok: false, error: `詳細ボタンが見つからない(${clickStatus})` };
+      }
+      // SPA遷移: 詳細ページのラベル要素出現で描画完了を検知（遅延セクション含めて minCount を増やす）
+      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 5 });
+      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 20 });
+    } else {
+      // 既に詳細ページ前提でも、念のため描画完了を待つ
+      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 5 });
+    }
+
+    // ── 2. 詳細値を抽出（content-detail.js を注入してメッセージで取得）──
+    // content-detail.js は GBK003200 にマッチするが SPA遷移(pushState)では再注入されないため、
+    // ここで明示注入する。再注入ガードがあるので二重登録は起きない。
+    try {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['content-detail.js'] });
+    } catch (e) {
+      return { ok: false, error: 'content-detail.js注入失敗: ' + e.message };
+    }
+    await sleep(150);
+    let detailResp;
+    try {
+      detailResp = await chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_PROPERTY_DETAIL' });
+    } catch (e) {
+      return { ok: false, error: '詳細抽出メッセージ失敗: ' + e.message };
+    }
+    if (!detailResp || !detailResp.success || !detailResp.data) {
+      return { ok: false, error: '詳細抽出失敗: ' + ((detailResp && detailResp.error) || 'no data') };
+    }
+    const d = detailResp.data; // snake_case
+
+    // ── 3. 画像を base64 で取得（$nuxt→bkknGzuList、ページ内fetchでcookie付き）──
+    let imageBase64s = [];
+    try {
+      const imageResults = await Promise.race([
+        chrome.scripting.executeScript({
+          target: { tabId },
+          world: 'MAIN',
+          func: async () => {
+            async function fetchAsBase64(url) {
+              try {
+                const r = await fetch(url, { credentials: 'include' });
+                if (!r.ok) return null;
+                const blob = await r.blob();
+                if (!blob || blob.size < 1000) return null;
+                return await new Promise((resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => resolve(reader.result);
+                  reader.onerror = reject;
+                  reader.readAsDataURL(blob);
+                });
+              } catch (e) { return null; }
+            }
+            const sleep2 = (ms) => new Promise(r => setTimeout(r, ms));
+            const images = [];
+            const findList = () => {
+              const walk = (c, depth = 0) => {
+                if (depth > 10 || !c) return null;
+                if (c.$data && Array.isArray(c.$data.bkknGzuList) && c.$data.bkknGzuList.length > 0) {
+                  return c.$data.bkknGzuList;
+                }
+                const children = c.$children || [];
+                for (const ch of children) {
+                  const r = walk(ch, depth + 1);
+                  if (r) return r;
+                }
+                return null;
+              };
+              return walk(window.$nuxt);
+            };
+            let list = null;
+            for (let i = 0; i < 25; i++) {
+              list = findList();
+              if (list && list.length > 0) break;
+              await sleep2(200);
+            }
+            if (!list || list.length === 0) return images;
+            const sorted = [...list].sort((a, b) => {
+              const an = parseInt(a.gzuBngu, 10) || 0;
+              const bn = parseInt(b.gzuBngu, 10) || 0;
+              return an - bn;
+            });
+            for (const item of sorted) {
+              let url = item.bkknGzuSrc;
+              if (!url) continue;
+              if (url.startsWith('/')) url = location.origin + url;
+              try {
+                const base64 = await fetchAsBase64(url);
+                if (base64) images.push(base64);
+              } catch (e) {}
+            }
+            return images;
+          }
+        }),
+        new Promise((resolve) => setTimeout(() => resolve(null), 120000))
+      ]);
+      const imgResult = (imageResults && imageResults[0] && imageResults[0].result) || [];
+      imageBase64s = Array.isArray(imgResult) ? imgResult : (imgResult.images || []);
+    } catch (e) {
+      imageBase64s = [];
+    }
+
+    // ── 4. base64 を catbox 等へアップロードして公開URL化（並列6・3回リトライ）──
+    let imageUrls = [];
+    let imageFailed = 0;
+    if (imageBase64s.length > 0) {
+      async function uploadOne(b64) {
+        const MAX_ATTEMPTS = 3;
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+          try {
+            const publicUrl = await Promise.race([
+              uploadBase64ToCatbox(b64),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('upload_overall_timeout_60s')), 60000))
+            ]);
+            if (publicUrl) return publicUrl;
+            if (attempt < MAX_ATTEMPTS - 1) await sleep(1000);
+          } catch (e) {
+            if (attempt >= MAX_ATTEMPTS - 1) return null;
+            if (e && e.rateLimited) {
+              await sleep(2000 * Math.pow(2, attempt) + Math.floor(Math.random() * 500));
+            } else {
+              await sleep(1000);
+            }
+          }
+        }
+        return null;
+      }
+      const BATCH = 6;
+      for (let i = 0; i < imageBase64s.length; i += BATCH) {
+        const chunk = imageBase64s.slice(i, i + BATCH);
+        const results = await Promise.all(chunk.map(uploadOne));
+        for (const r of results) {
+          if (r) imageUrls.push(r);
+          else imageFailed++;
+        }
+      }
+    }
+
+    // ── 5. content-detail.js の snake_case フル詳細をそのまま使う（自動検索と同じ情報量）──
+    //     承認パイプライン(add_reins_property)は snake_case をそのまま受けるため、
+    //     camelCaseに削らず d を温存し、画像だけ公開URL化したものに差し替える。
+    //     room_id(d.room_id) も温存（承認ページURL構築に使う）。
+    const detail = Object.assign({}, d);
+    detail.image_urls = imageUrls;
+    detail.image_url = imageUrls[0] || '';
+    detail.reins_property_number = d.reins_property_number || propertyNumber;
+    detail.source = 'reins';
+
+    // ── 6. 検索結果一覧(GBK002200)へ戻る（B案=alreadyOnDetail はスキップ）──
+    if (!alreadyOnDetail) {
+      try {
+        // 残留モーダルを閉じる
+        await chrome.scripting.executeScript({
+          target: { tabId }, world: 'MAIN',
+          func: () => {
+            for (let i = 0; i < 3; i++) {
+              const m = document.querySelector('.modal.show, .image-view');
+              if (!m) break;
+              const cb = document.querySelector('.modal.show .btn.btn-outline, .modal.show .close, .modal .btn.btn-outline');
+              if (cb) cb.click();
+              document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+            }
+          }
+        });
+        await sleep(500);
+        // 戻る操作（UI戻るボタン→Vue Router→history）
+        await chrome.scripting.executeScript({
+          target: { tabId }, world: 'MAIN',
+          func: () => {
+            const backBtn = document.querySelector('.p-btn-back')
+              || [...document.querySelectorAll('button')].find(el => /^(←|戻る|検索結果に戻る)/.test(el.textContent.trim()));
+            if (backBtn) { backBtn.click(); return; }
+            const nuxt = window.$nuxt;
+            if (nuxt && nuxt.$router) { nuxt.$router.back(); return; }
+            history.back();
+          }
+        });
+        // 一覧に戻り、行が再描画されるまで待つ（次の物件処理のため）
+        for (let bw = 0; bw < 20; bw++) {
+          await sleep(500);
+          const bt = await chrome.tabs.get(tabId);
+          if (bw >= 6 && bt.url && bt.url.includes('GBK003200')) {
+            await chrome.scripting.executeScript({
+              target: { tabId }, world: 'MAIN',
+              func: () => {
+                const backBtn = document.querySelector('.p-btn-back')
+                  || [...document.querySelectorAll('button')].find(el => /^(←|戻る|検索結果に戻る)/.test(el.textContent.trim()));
+                if (backBtn) { backBtn.click(); return; }
+                const nuxt = window.$nuxt;
+                if (nuxt && nuxt.$router) nuxt.$router.back();
+              }
+            });
+          }
+          if (bt.url && bt.url.includes('GBK002200')) {
+            const rowsCheck = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => document.querySelectorAll('.p-table-body-row').length
+            });
+            if ((rowsCheck && rowsCheck[0] && rowsCheck[0].result) > 0) break;
+          }
+        }
+      } catch (e) {
+        // 戻り失敗は致命的ではない（detail は取得済み）。ログのみ。
+        await setStorageData({ debugLog: `[手動送信] 一覧へ戻り失敗: ${e.message}` });
+      }
+    }
+
+    return { ok: true, detail, imageUrls, imageFailed };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+}
+
+/**
+ * いえらぶ手動送信: 詳細ページを新タブで開いて情報を取得し閉じる。
+ * REINS版(fetchReinsDetailForManual)と同じパイプラインに乗せるための前処理。
+ */
+async function fetchIeloveDetailForManual(detailUrl) {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  let tabId = null;
+  try {
+    const tab = await chrome.tabs.create({ url: detailUrl, active: false });
+    tabId = tab.id;
+    await waitForTabLoad(tabId);
+    await sleep(1500);
+
+    // ログインチェック
+    const tabInfo = await chrome.tabs.get(tabId);
+    if (tabInfo.url && tabInfo.url.includes('/login')) {
+      return { ok: false, error: 'いえらぶ未ログイン' };
+    }
+
+    // 詳細情報を抽出
+    let detailResult;
+    try {
+      detailResult = await sendContentMessage(tabId, { type: 'IELOVE_EXTRACT_DETAIL' }, 15000);
+    } catch (err) {
+      return { ok: false, error: '詳細抽出失敗: ' + err.message };
+    }
+    if (!detailResult || !detailResult.ok || !detailResult.detail) {
+      return { ok: false, error: '詳細データなし: ' + ((detailResult && detailResult.error) || '') };
+    }
+
+    const detail = detailResult.detail;
+    detail.source = 'ielove';
+    detail.url = detailUrl;
+
+    // room_id が無ければ URL から生成
+    if (!detail.room_id) {
+      const m = detailUrl.match(/\/detail\/id\/(\d+)/);
+      if (m) detail.room_id = 'ielove_' + m[1];
+    }
+
+    // 構造名の正規化（自動検索と同じ）
+    if (detail.structure && typeof IELOVE_STRUCTURE_NORMALIZE !== 'undefined') {
+      detail.structure = IELOVE_STRUCTURE_NORMALIZE[detail.structure] || detail.structure;
+    }
+
+    return { ok: true, detail };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  } finally {
+    if (tabId) {
+      try { await chrome.tabs.remove(tabId); } catch (_) {}
+    }
+  }
+}
+
+/**
+ * itandi手動送信: 一覧アダプタが渡した基本物件(baseProp)に対し、詳細ページを
+ * 新タブで開いて ITANDI_EXTRACT_DETAIL の結果をマージする。
+ * 自動検索 searchItandiForCustomer の詳細マージと同じフィールド処理を踏襲。
+ * @param {object} baseProp 一覧から取得した snake_case の基本物件（url, building_name 等）
+ */
+async function fetchItandiDetailForManual(baseProp) {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  let tabId = null;
+  try {
+    const detailUrl = (baseProp && baseProp.url) || '';
+    if (!detailUrl) return { ok: false, error: 'URLなし' };
+
+    const tab = await chrome.tabs.create({ url: detailUrl, active: false });
+    tabId = tab.id;
+    await waitForTabLoad(tabId);
+    await sleep(2500); // React SPA の描画待ち
+
+    // ログインチェック
+    const tabInfo = await chrome.tabs.get(tabId);
+    if (tabInfo.url && (tabInfo.url.includes('itandi-accounts.com') || tabInfo.url.includes('/login'))) {
+      return { ok: false, error: 'itandi未ログイン' };
+    }
+
+    const prop = Object.assign({}, baseProp);
+    prop.source = 'itandi';
+
+    let detailResult;
+    try {
+      detailResult = await sendItandiContentMessage(tabId, { type: 'ITANDI_EXTRACT_DETAIL' }, 15000);
+    } catch (err) {
+      return { ok: false, error: '詳細抽出失敗: ' + err.message };
+    }
+
+    if (detailResult && detailResult.ok && detailResult.detail) {
+      const d = detailResult.detail;
+      // 詳細情報をマージ（searchItandiForCustomer と同一ロジック）
+      if (d.image_urls && d.image_urls.length) {
+        prop.image_urls = d.image_urls;
+        if (!prop.image_url && d.image_urls[0]) prop.image_url = d.image_urls[0];
+      }
+      if (d.listing_status) prop.listing_status = d.listing_status;
+      if (d.web_badge_count !== undefined) prop.web_badge_count = d.web_badge_count;
+      if (d.needs_confirmation) prop.needs_confirmation = d.needs_confirmation;
+      if (d.facilities) prop.facilities = d.facilities;
+      if (d.guarantee_info) prop.guarantee_info = d.guarantee_info;
+
+      const detailFields = [
+        'floor_text', 'structure', 'total_units', 'lease_type', 'contract_period',
+        'cancellation_notice', 'renewal_info', 'sunlight', 'shikibiki', 'pet_deposit',
+        'free_rent', 'renewal_fee', 'renewal_admin_fee', 'fire_insurance',
+        'key_exchange_fee', 'support_fee_24h', 'additional_deposit', 'guarantee_deposit',
+        'water_billing', 'parking_fee', 'bicycle_parking_fee', 'motorcycle_parking_fee',
+        'other_monthly_fee', 'other_onetime_fee', 'move_in_conditions', 'move_out_date',
+        'move_in_date', 'free_rent_detail', 'layout_detail', 'preview_start_date',
+        'ad_fee', 'cleaning_fee', 'rights_fee', 'current_status',
+        'owner_company', 'owner_phone', 'ad_keisai',
+      ];
+      for (const key of detailFields) {
+        if (d[key] && !prop[key]) prop[key] = d[key];
+      }
+      // 詳細ページの値で上書き（築年月を含む方を優先）
+      if (d.building_age) prop.building_age = d.building_age;
+
+      // 構造名を正規化
+      if (prop.structure && typeof ITANDI_STRUCTURE_NORMALIZE !== 'undefined') {
+        prop.structure = ITANDI_STRUCTURE_NORMALIZE[prop.structure] || prop.structure;
+      }
+      // 所在階をパースして floor に設定
+      if (prop.floor_text) {
+        const fm = prop.floor_text.match(/(\d+)/);
+        if (fm) prop.floor = parseInt(fm[1], 10);
+      }
+    }
+
+    if (!prop.building_name) return { ok: false, error: '物件名なし' };
+    return { ok: true, detail: prop };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  } finally {
+    if (tabId) {
+      try { await chrome.tabs.remove(tabId); } catch (_) {}
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// 手動「競合数・反響点数」用: collect prop を snake_case に正規化。
+// REINS/いえらぶは camelCase(managementFee,buildingAge,stationInfo,area文字列)、
+// itandi は snake_case。countSuumoCompetitors / getSuumoMarketMedian /
+// buildInquiryScoreInput はいずれも snake_case 系を読むため揃える。
+// ─────────────────────────────────────────────
+function normalizePropForMetrics(prop) {
+  prop = prop || {};
+  const num = (v) => {
+    if (typeof v === 'number') return v;
+    const n = parseFloat(String(v == null ? '' : v).replace(/[^\d.]/g, ''));
+    return isFinite(n) ? n : 0;
+  };
+  return {
+    rent: Number(prop.rent) || 0,
+    management_fee: Number(prop.management_fee || prop.managementFee) || 0,
+    area: num(prop.area || prop.usageArea),
+    address: prop.address || '',
+    layout: prop.layout || '',
+    building_age: prop.building_age || prop.buildingAge || '',
+    station_info: prop.station_info || prop.stationInfo || '',
+    structure: prop.structure || '',
+    story_text: prop.story_text || prop.storyText || '',
+    facilities: prop.facilities || '',
+  };
+}
+
+// SUUMO候補キー生成（GAS normalizeSuumoPropertyKey_ と同一式・決定的）。
+// 建物名(空白除去・小文字) + '|' + 部屋番号(数字のみ)。
+function suumoPropertyKey(building, room) {
+  const b = String(building || '').replace(/[\s　]/g, '').toLowerCase();
+  const r = String(room || '').replace(/[^\d]/g, '');
+  return b + '|' + r;
+}
+
+// 手動: source 別に詳細取得関数を振り分け（顧客送信・SUUMO掲載で共用）。
+async function enrichOneForManual(source, p, senderTabId, fromDetailPage) {
+  if (source === 'reins') {
+    return await fetchReinsDetailForManual(senderTabId, {
+      propertyNumber: p.reins_property_number || p.propertyNumber || '',
+      index: (typeof p.reins_row_index === 'number') ? p.reins_row_index : -1
+    }, { alreadyOnDetail: !!fromDetailPage });
+  } else if (source === 'ielove') {
+    return await fetchIeloveDetailForManual(p.url || '');
+  } else if (source === 'itandi') {
+    return await fetchItandiDetailForManual(p);
+  }
+  return { ok: false, error: '未対応ソース: ' + source };
+}
+
 // === room_id ハッシュ化（ソース・ID形式の匿名化） ===
 // 顧客向けURLにはハッシュ化したroom_idを使用し、
 // どのサイトから取得したか・IDの形式から推測されないようにする。
@@ -932,11 +1415,14 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
-  // バス・トイレ別スキップモード（options画面で btMode='skip' 指定時のみ、equipにバス・トイレ別があって設備欄に無ければ除外）
-  if (__btMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
-    const fac = prop.facilities || '';
-    if (!fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
-      return `バス・トイレ別の記載なし`;
+  // バス・トイレ別スキップモード（顧客ごとの btMode、またはグローバル設定で 'skip' の場合、設備欄に無ければ除外）
+  {
+    const _customerBtMode = (customer.btMode || __btMode || 'alert').toLowerCase();
+    if (_customerBtMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
+      const fac = prop.facilities || '';
+      if (!fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
+        return `バス・トイレ別の記載なし`;
+      }
     }
   }
 
@@ -1066,8 +1552,8 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
   // キャンセル通知希望物件の定期巡回: 30分毎にチェック
   chrome.alarms.create('cancellation-watch-poll', { periodInMinutes: 30 });
-  // 定期空室確認: 60分毎に全通知済み物件の空室状況を更新
-  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 60 });
+  // 定期空室確認: 180分毎(3時間毎)に全通知済み物件の空室状況を更新
+  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 180 });
 });
 
 // Chrome起動時: 前回起動中に承認された取りこぼしを1回だけ処理
@@ -1082,8 +1568,8 @@ chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
   // 優先空室確認ポーリングも再セット
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
-  // 定期空室確認も再セット
-  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 60 });
+  // 定期空室確認も再セット: 180分毎(3時間毎)
+  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 180 });
 });
 
 // 入稿専用タブのクローズ検知 → suumoFillTabIdをクリア
@@ -1304,14 +1790,25 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 
   // ── 定期空室確認 (全通知済み物件の巡回) ──
-  // 60分毎に全通知済み物件の空室状況をチェック・更新。
+  // 180分(3時間)毎に全通知済み物件の空室状況をチェック・更新。
   // お客さんが物件情報を開いた時に直近の空室情報が表示される。
+  // 営業時間外 (既定 10-20時) はスキップ (顧客検索・SUUMO巡回と同じ設定を使用)。
   if (alarm.name === 'periodic-availability-check') {
-    if (typeof runPeriodicAvailabilityCheck === 'function') {
-      runPeriodicAvailabilityCheck().catch(err => {
-        console.log(`[定期空室確認] 失敗: ${err.message}`);
-      });
-    }
+    chrome.storage.local.get(['businessStartHour', 'businessEndHour'], (data) => {
+      const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
+      const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
+      const hour = new Date().getHours();
+      if (hour < startH || hour >= endH) {
+        console.log(`[定期空室確認] 営業時間外 (${hour}時) のためスキップ`);
+        setStorageData({ debugLog: `[定期空室確認] 営業時間外 (${hour}時) のためスキップ` });
+        return;
+      }
+      if (typeof runPeriodicAvailabilityCheck === 'function') {
+        runPeriodicAvailabilityCheck().catch(err => {
+          console.log(`[定期空室確認] 失敗: ${err.message}`);
+        });
+      }
+    });
   }
 });
 
@@ -1832,6 +2329,461 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // ── 検索ページを開く（AdminPage → content script → ここ） ──
+  // ── 手動送信パネル: 顧客一覧＋このタブで検索中の顧客を返す ──
+  if (msg.type === 'GET_MANUAL_SEND_CONTEXT') {
+    (async () => {
+      let customers = [];
+      let contextCustomer = '';
+      try {
+        // まずキャッシュ（customerCriteria）、なければ GAS から取得
+        const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+        let crit = cached;
+        if (!Array.isArray(crit) || crit.length === 0) {
+          const res = await fetchCriteria();
+          crit = (res && res.criteria) || [];
+        }
+        customers = Array.from(new Set(crit.map(c => c && c.name).filter(Boolean)));
+      } catch (e) {
+        await setStorageData({ debugLog: '手動送信: 顧客一覧取得失敗 ' + e.message });
+      }
+      try {
+        contextCustomer = await getManualSearchCustomer(sender.tab && sender.tab.id);
+      } catch (e) {}
+      sendResponse({ ok: true, customers, contextCustomer });
+    })();
+    return true;
+  }
+
+  // ── 手動送信パネル: 選択した物件を顧客LINEへ送信 ──
+  if (msg.type === 'SEND_MANUAL_PROPERTIES') {
+    (async () => {
+      try {
+        const props = msg.properties || [];
+        const fetchDetails = !!msg.fetchDetails;
+        const source = msg.source || (props[0] && props[0].source) || '';
+        const senderTabId = sender && sender.tab && sender.tab.id;
+
+        // REINS かつ詳細取得モード: 各物件の詳細ページを開いて全情報を取得し、
+        // 自動検索と同じ承認パイプライン(add_reins_property)に登録→承認ページを開く
+        if (fetchDetails && source === 'reins' && senderTabId) {
+          // 自動巡回タブとの衝突防止（同じタブを両者が操作すると壊れる）
+          const autoTabId = await __getAutomationTabId();
+          if (autoTabId && autoTabId === senderTabId) {
+            sendResponse({ ok: false, error: '自動巡回中のタブでは手動取得できません。別のタブでREINSを開いてください。' });
+            return;
+          }
+          // 承認ページURL構築に必要な GAS webapp URL を先に確認
+          const { gasWebappUrl } = await getConfig();
+          if (!gasWebappUrl) {
+            sendResponse({ ok: false, error: 'GAS URLが設定されていません' });
+            return;
+          }
+          // 警告(warnings_text)計算用の顧客オブジェクトを取得（無くても続行可）
+          let customerObj = null;
+          try {
+            const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+            if (Array.isArray(cached)) customerObj = cached.find(c => c && c.name === msg.customerName) || null;
+          } catch (e) {}
+
+          const fromDetailPage = !!msg.fromDetailPage;
+          const total = props.length;
+          const enriched = [];
+          let skipped = 0;
+          for (let i = 0; i < props.length; i++) {
+            const p = props[i] || {};
+            // 進捗通知（パネル/詳細ボタン側で表示）
+            try {
+              await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: i, total, skipped });
+            } catch (e) {}
+            let res;
+            try {
+              res = await fetchReinsDetailForManual(senderTabId, {
+                propertyNumber: p.reins_property_number || p.propertyNumber || '',
+                index: (typeof p.reins_row_index === 'number') ? p.reins_row_index : -1
+              }, { alreadyOnDetail: fromDetailPage });
+            } catch (e) {
+              res = { ok: false, error: e.message };
+            }
+            if (res && res.ok && res.detail && res.detail.building_name) {
+              // 警告計算（承認ページで表示、自動検索と同一ロジック）
+              try {
+                if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
+                  res.detail.warnings_text = (globalThis.__computePropertyWarnings(res.detail, customerObj) || []).join('\n');
+                }
+              } catch (e) {}
+              enriched.push(res.detail);
+            } else {
+              skipped++;
+              await setStorageData({ debugLog: `[手動送信] 詳細取得失敗→スキップ: ${(p.reins_property_number || p.propertyNumber || '')} ${(res && res.error) || ''}` });
+            }
+          }
+          // 完了進捗
+          try {
+            await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: total, total, skipped });
+          } catch (e) {}
+
+          if (enriched.length === 0) {
+            sendResponse({ ok: false, registered: 0, skipped, error: `全${total}件の詳細取得に失敗しました` });
+            return;
+          }
+
+          // 承認待ちキューに登録（自動検索と同じ add_reins_property、status='pending'）。
+          // Discord通知は出さない（deliverProperty を呼ばない）。
+          try {
+            await submitProperties(msg.customerName, enriched);
+          } catch (e) {
+            await setStorageData({ debugLog: '[手動送信] 承認待ち登録失敗: ' + e.message });
+            sendResponse({ ok: false, registered: 0, skipped, error: '承認待ち登録に失敗: ' + e.message });
+            return;
+          }
+
+          // 承認ページを物件ごとに新規タブで開く（room_id は content-detail.js 生成の hash）
+          let opened = 0;
+          for (const det of enriched) {
+            if (!det.room_id) continue;
+            try {
+              const approveUrl = gasWebappUrl
+                + '?action=approve&customer=' + encodeURIComponent(msg.customerName)
+                + '&room_id=' + encodeURIComponent(det.room_id);
+              await chrome.tabs.create({ url: approveUrl, active: true });
+              opened++;
+            } catch (e) {}
+          }
+
+          const message = skipped > 0
+            ? `${enriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
+            : `${enriched.length}件を承認待ちに登録し承認ページを開きました`;
+          await setStorageData({ debugLog: `手動送信(承認待ち): ${msg.customerName} へ ${enriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+          sendResponse({ ok: true, registered: enriched.length, skipped, opened, message });
+          return;
+        }
+
+        // いえらぶ 詳細取得モード: 新タブで詳細ページを開いて全情報を取得→承認パイプライン
+        if (fetchDetails && source === 'ielove' && senderTabId) {
+          const { gasWebappUrl } = await getConfig();
+          if (!gasWebappUrl) {
+            sendResponse({ ok: false, error: 'GAS URLが設定されていません' });
+            return;
+          }
+          let customerObj = null;
+          try {
+            const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+            if (Array.isArray(cached)) customerObj = cached.find(c => c && c.name === msg.customerName) || null;
+          } catch (e) {}
+
+          const total = props.length;
+          const enriched = [];
+          let skipped = 0;
+          for (let i = 0; i < props.length; i++) {
+            const p = props[i] || {};
+            try {
+              await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: i, total, skipped });
+            } catch (e) {}
+            const detailUrl = p.url || '';
+            if (!detailUrl) { skipped++; continue; }
+            let res;
+            try {
+              res = await fetchIeloveDetailForManual(detailUrl);
+            } catch (e) {
+              res = { ok: false, error: e.message };
+            }
+            if (res && res.ok && res.detail && res.detail.building_name) {
+              try {
+                if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
+                  res.detail.warnings_text = (globalThis.__computePropertyWarnings(res.detail, customerObj) || []).join('\n');
+                }
+              } catch (e) {}
+              // property_data_json を構築（承認ページ用）
+              if (typeof buildPropertyDataJson === 'function') {
+                res.detail.property_data_json = JSON.stringify(buildPropertyDataJson(res.detail));
+              }
+              enriched.push(res.detail);
+            } else {
+              skipped++;
+              await setStorageData({ debugLog: `[手動送信] いえらぶ詳細取得失敗→スキップ: ${p.buildingName || ''} ${(res && res.error) || ''}` });
+            }
+          }
+          try {
+            await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: total, total, skipped });
+          } catch (e) {}
+
+          if (enriched.length === 0) {
+            sendResponse({ ok: false, registered: 0, skipped, error: `全${total}件の詳細取得に失敗しました` });
+            return;
+          }
+
+          try {
+            await submitProperties(msg.customerName, enriched);
+          } catch (e) {
+            await setStorageData({ debugLog: '[手動送信] いえらぶ承認待ち登録失敗: ' + e.message });
+            sendResponse({ ok: false, registered: 0, skipped, error: '承認待ち登録に失敗: ' + e.message });
+            return;
+          }
+
+          let opened = 0;
+          for (const det of enriched) {
+            if (!det.room_id) continue;
+            try {
+              const approveUrl = gasWebappUrl
+                + '?action=approve&customer=' + encodeURIComponent(msg.customerName)
+                + '&room_id=' + encodeURIComponent(det.room_id);
+              await chrome.tabs.create({ url: approveUrl, active: true });
+              opened++;
+            } catch (e) {}
+          }
+
+          const message = skipped > 0
+            ? `${enriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
+            : `${enriched.length}件を承認待ちに登録し承認ページを開きました`;
+          await setStorageData({ debugLog: `手動送信(いえらぶ→承認): ${msg.customerName} へ ${enriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+          sendResponse({ ok: true, registered: enriched.length, skipped, opened, message });
+          return;
+        }
+
+        // itandi 詳細取得モード: 一覧物件ごとに詳細ページを新タブで開いて全情報を取得→承認パイプライン
+        if (fetchDetails && source === 'itandi' && senderTabId) {
+          const { gasWebappUrl } = await getConfig();
+          if (!gasWebappUrl) {
+            sendResponse({ ok: false, error: 'GAS URLが設定されていません' });
+            return;
+          }
+          let customerObj = null;
+          try {
+            const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+            if (Array.isArray(cached)) customerObj = cached.find(c => c && c.name === msg.customerName) || null;
+          } catch (e) {}
+
+          const total = props.length;
+          const enriched = [];
+          let skipped = 0;
+          for (let i = 0; i < props.length; i++) {
+            const p = props[i] || {};
+            try {
+              await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: i, total, skipped });
+            } catch (e) {}
+            let res;
+            try {
+              res = await fetchItandiDetailForManual(p);
+            } catch (e) {
+              res = { ok: false, error: e.message };
+            }
+            if (res && res.ok && res.detail && res.detail.building_name) {
+              try {
+                if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
+                  res.detail.warnings_text = (globalThis.__computePropertyWarnings(res.detail, customerObj) || []).join('\n');
+                }
+              } catch (e) {}
+              // property_data_json を構築（承認ページ用、自動検索と同一）
+              if (typeof buildItandiPropertyDataJson === 'function') {
+                res.detail.property_data_json = JSON.stringify(buildItandiPropertyDataJson(res.detail));
+              }
+              enriched.push(res.detail);
+            } else {
+              skipped++;
+              await setStorageData({ debugLog: `[手動送信] itandi詳細取得失敗→スキップ: ${p.building_name || ''} ${(res && res.error) || ''}` });
+            }
+          }
+          try {
+            await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: total, total, skipped });
+          } catch (e) {}
+
+          if (enriched.length === 0) {
+            sendResponse({ ok: false, registered: 0, skipped, error: `全${total}件の詳細取得に失敗しました` });
+            return;
+          }
+
+          try {
+            await submitProperties(msg.customerName, enriched);
+          } catch (e) {
+            await setStorageData({ debugLog: '[手動送信] itandi承認待ち登録失敗: ' + e.message });
+            sendResponse({ ok: false, registered: 0, skipped, error: '承認待ち登録に失敗: ' + e.message });
+            return;
+          }
+
+          let opened = 0;
+          for (const det of enriched) {
+            if (!det.room_id) continue;
+            try {
+              const approveUrl = gasWebappUrl
+                + '?action=approve&customer=' + encodeURIComponent(msg.customerName)
+                + '&room_id=' + encodeURIComponent(det.room_id);
+              await chrome.tabs.create({ url: approveUrl, active: true });
+              opened++;
+            } catch (e) {}
+          }
+
+          const message = skipped > 0
+            ? `${enriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
+            : `${enriched.length}件を承認待ちに登録し承認ページを開きました`;
+          await setStorageData({ debugLog: `手動送信(itandi→承認): ${msg.customerName} へ ${enriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+          sendResponse({ ok: true, registered: enriched.length, skipped, opened, message });
+          return;
+        }
+
+        // 従来動作（詳細取得なし）: そのまま転送（後方互換）
+        const resp = await gasPost({
+          action: 'send_manual_properties',
+          customer_name: msg.customerName,
+          properties: props
+        });
+        await setStorageData({ debugLog: `手動送信: ${msg.customerName} へ ${(resp && resp.sent) || 0}件 (${(resp && resp.message) || ''})` });
+        sendResponse(resp);
+      } catch (e) {
+        await setStorageData({ debugLog: '手動送信失敗: ' + e.message });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // 手動: 選択物件の競合数・反響予測点数を調べて1件ずつパネルへ返す（送信はしない）
+  if (msg.type === 'CHECK_SUUMO_METRICS') {
+    (async () => {
+      try {
+        const props = msg.properties || [];
+        const senderTabId = sender && sender.tab && sender.tab.id;
+        const total = props.length;
+        for (let i = 0; i < props.length; i++) {
+          const np = normalizePropForMetrics(props[i]);
+          let competitor = null, score = null, scoreLabel = '', hasMarket = false, error = '';
+          try {
+            // 競合数
+            if (typeof countSuumoCompetitors === 'function') {
+              competitor = await countSuumoCompetitors(np);
+            }
+            // 相場中央値（取れれば反響点数の平米単価要素＝60%に使う。取れなくても点数は出す）
+            let marketMedian = 0;
+            if (typeof getSuumoMarketMedian === 'function' && np.address && np.layout && np.area) {
+              const propertyType = (np.structure && /木造/.test(np.structure)) ? 'アパート' : 'マンション';
+              const median = await getSuumoMarketMedian({
+                address: np.address,
+                layout: np.layout,
+                area: np.area,
+                buildingAge: (typeof extractBuildingAge === 'function') ? extractBuildingAge(np) : null,
+                walkMinutes: (typeof extractWalkMinutes === 'function') ? extractWalkMinutes(np) : null,
+                propertyType: propertyType,
+              });
+              if (median && median.ok) { marketMedian = median.median; hasMarket = true; }
+            }
+            // 反響予測点数: 相場が取れなくても駅徒歩・築年で部分点数を出す（_finalizeScoreが再正規化）
+            if (typeof calculateInquiryScore === 'function') {
+              const sc = calculateInquiryScore(buildInquiryScoreInput(np, marketMedian));
+              if (sc && typeof sc.score === 'number') { score = sc.score; scoreLabel = sc.label || ''; }
+            }
+          } catch (e) {
+            error = (e && e.message) || String(e);
+          }
+          if (senderTabId) {
+            try {
+              await chrome.tabs.sendMessage(senderTabId, {
+                type: 'MANUAL_METRICS_PROGRESS',
+                index: i, total, competitor, score, scoreLabel, hasMarket, error
+              });
+            } catch (e) {}
+          }
+        }
+        sendResponse({ ok: true, done: total });
+      } catch (e) {
+        await setStorageData({ debugLog: '競合数・点数調査失敗: ' + e.message });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // 手動: 選択物件の詳細を取得→SUUMO候補に登録→SUUMO承認ページを開く（全サイト対応）
+  if (msg.type === 'PUBLISH_TO_SUUMO') {
+    (async () => {
+      try {
+        const props = msg.properties || [];
+        const source = msg.source || (props[0] && props[0].source) || '';
+        const senderTabId = sender && sender.tab && sender.tab.id;
+        const fromDetailPage = !!msg.fromDetailPage;
+
+        const { gasWebappUrl } = await getConfig();
+        if (!gasWebappUrl) { sendResponse({ ok: false, error: 'GAS URLが設定されていません' }); return; }
+
+        // REINS: 自動巡回タブとの衝突を防止（同一タブを両者が操作すると壊れる）
+        if (source === 'reins' && senderTabId) {
+          const autoTabId = await __getAutomationTabId();
+          if (autoTabId && autoTabId === senderTabId) {
+            sendResponse({ ok: false, error: '自動巡回中のタブでは手動取得できません。別のタブでREINSを開いてください。' });
+            return;
+          }
+        }
+
+        const total = props.length;
+        const enriched = [];
+        let skipped = 0;
+        for (let i = 0; i < props.length; i++) {
+          const p = props[i] || {};
+          try {
+            await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: i, total, skipped });
+          } catch (e) {}
+          let res;
+          try {
+            res = await enrichOneForManual(source, p, senderTabId, fromDetailPage);
+          } catch (e) {
+            res = { ok: false, error: e.message };
+          }
+          if (res && res.ok && res.detail && res.detail.building_name) {
+            enriched.push(res.detail);
+          } else {
+            skipped++;
+            await setStorageData({ debugLog: `[SUUMO掲載] 詳細取得失敗→スキップ: ${p.building_name || p.buildingName || ''} ${(res && res.error) || ''}` });
+          }
+        }
+        try {
+          await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: total, total, skipped });
+        } catch (e) {}
+
+        if (enriched.length === 0) {
+          sendResponse({ ok: false, registered: 0, skipped, error: `全${total}件の詳細取得に失敗しました` });
+          return;
+        }
+
+        // SUUMO候補シートに登録（add_suumo_candidate）。
+        // 注: sendSuumoCandidatesToGas は Discord 通知の副作用があるため使わず POST をインライン化。
+        try {
+          const resp = await fetch(gasWebappUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'add_suumo_candidate', properties: enriched, patrolCriteriaId: null })
+          });
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        } catch (e) {
+          await setStorageData({ debugLog: '[SUUMO掲載] 候補登録失敗: ' + e.message });
+          sendResponse({ ok: false, registered: 0, skipped, error: 'SUUMO候補登録に失敗: ' + e.message });
+          return;
+        }
+
+        // 承認ページを物件ごとに開く（key は GAS と同一式で自前生成＝新規/既存問わず効く）
+        let opened = 0;
+        const seenKey = {};
+        for (const det of enriched) {
+          const key = suumoPropertyKey(det.building_name, det.room_number);
+          if (!key || key === '|' || seenKey[key]) continue;
+          seenKey[key] = true;
+          try {
+            const approveUrl = gasWebappUrl + '?action=suumo_approve&key=' + encodeURIComponent(key);
+            await chrome.tabs.create({ url: approveUrl, active: true });
+            opened++;
+          } catch (e) {}
+        }
+
+        const message = skipped > 0
+          ? `${enriched.length}件をSUUMO候補に登録し承認ページを開きました / ${skipped}件は取得失敗`
+          : `${enriched.length}件をSUUMO候補に登録し承認ページを開きました`;
+        await setStorageData({ debugLog: `[SUUMO掲載] ${source}: ${enriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+        sendResponse({ ok: true, registered: enriched.length, skipped, opened, message });
+      } catch (e) {
+        await setStorageData({ debugLog: 'SUUMO掲載失敗: ' + e.message });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'OPEN_SEARCH_PAGE') {
     (async () => {
       try {
@@ -1849,13 +2801,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             : [[]];
           for (let ci = 0; ci < oazaChunks.length; ci++) {
             const url = buildIeloveSearchUrl(customer, 1, oazaChunks[ci]);
-            await chrome.tabs.create({ url, active: ci === oazaChunks.length - 1 });
+            const ieloveTab = await chrome.tabs.create({ url, active: ci === oazaChunks.length - 1 });
+            await recordManualSearchCustomer(ieloveTab.id, customer.name);
           }
           await setStorageData({ debugLog: `[検索ページ] ${customer.name}: いえらぶ ${oazaChunks.length}タブ` });
           sendResponse({ ok: true, batches: oazaChunks.length });
 
         } else if (service === 'essquare') {
-          // いい生活: 駅49件超 + 住所50件超でチャンク分割
+          // 2026-06-03: いい生活Square 恒久停止(規約違反でアカウントBAN)。
+          // 検索ページも開かない。再開はBAN逃れになるため不可。
+          await setStorageData({ debugLog: `[検索ページ] いい生活Squareは停止中のため開きません` });
+          sendResponse({ ok: false, disabled: true, error: 'ES-Square は停止中です' });
+          return;
+          // eslint-disable-next-line no-unreachable
+          // ↓ 旧ロジック（無効化済み・参考保持）
           const allStationCodes = _resolveEssquareStationCodes(customer);
           const allJusho = _resolveEssquareJushoList(customer);
           const STA_CHUNK = 49, JUSHO_CHUNK = 50;
@@ -1871,7 +2830,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             for (const jushoChunk of jushoChunks) {
               tabCount++;
               const url = buildEssquareSearchUrl(customer, 1, jushoChunk, staChunk);
-              await chrome.tabs.create({ url, active: tabCount === totalChunks });
+              const essTab = await chrome.tabs.create({ url, active: tabCount === totalChunks });
+              await recordManualSearchCustomer(essTab.id, customer.name);
             }
           }
           await setStorageData({ debugLog: `[検索ページ] ${customer.name}: いい生活 ${tabCount}タブ` });
@@ -1917,6 +2877,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               const batchLabel = totalBatches > 1 ? ` (${batchIdx}/${totalBatches})` : '';
 
               const reinsTab = await chrome.tabs.create({ url: 'https://system.reins.jp/main/BK/GBK001310', active: true });
+              await recordManualSearchCustomer(reinsTab.id, customer.name);
               await waitForTabLoad(reinsTab.id);
 
               await chrome.scripting.executeScript({
@@ -1945,7 +2906,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 walk: batchCustomer.walk || '', cities: batchCustomer.cities || [],
                 prefecture: batchCustomer.prefecture || '東京都',
                 selectedTowns: batchCustomer.selectedTowns || {}
-              }, lineNameMap, reinsCodeMap, btModeFresh];
+              }, lineNameMap, reinsCodeMap, (batchCustomer.btMode || btModeFresh)];
 
               await waitForDomReady(reinsTab.id, '.p-textbox-input', { timeout: 15000 });
               const setResult = await chrome.scripting.executeScript({
@@ -2037,20 +2998,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             await sleep(500);
 
             // 1駅ずつ検索→チェック（1回のexecuteScriptで検索+描画待ち+クリックを実行）
+            // 各駅はチェック状態を検証してから次へ進む。未チェックの駅は背景側でも数回リトライ。
             let stationsChecked = 0;
             const stationErrors = [];
             for (const stName of uniqueStations) {
-              const checkResult = await chrome.scripting.executeScript({
-                target: { tabId: itandiTab.id }, world: 'MAIN',
-                func: __itandiSelectAndCheckStation, args: [stName]
-              });
-              const checkStatus = checkResult?.[0]?.result;
-              console.log(`[OPEN_SEARCH_PAGE] itandi駅: ${stName} →`, JSON.stringify(checkStatus));
-              if (checkStatus?.checked) {
-                stationsChecked++;
-              } else {
-                stationErrors.push(stName);
+              let checked = false;
+              for (let attempt = 0; attempt < 2 && !checked; attempt++) {
+                const checkResult = await chrome.scripting.executeScript({
+                  target: { tabId: itandiTab.id }, world: 'MAIN',
+                  func: __itandiSelectAndCheckStation, args: [stName]
+                });
+                const checkStatus = checkResult?.[0]?.result;
+                console.log(`[OPEN_SEARCH_PAGE] itandi駅: ${stName} (試行${attempt + 1}) →`, JSON.stringify(checkStatus));
+                if (checkStatus?.checked) {
+                  checked = true;
+                } else if (attempt === 0) {
+                  await sleep(600); // 再試行前に少し待つ
+                }
               }
+              if (checked) stationsChecked++;
+              else stationErrors.push(stName);
+            }
+
+            // ★ 駅が1件もチェックできなかった場合は確定・検索しない。
+            //   駅フィルタなしで検索すると全件ヒットして無関係な物件が大量に出るため中止。
+            if (stationsChecked === 0) {
+              await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi 駅を1件も選択できず検索中止 (対象: ${uniqueStations.join(', ')})` });
+              sendResponse({ ok: false, error: '駅を選択できませんでした: ' + uniqueStations.join(', '), stationErrors });
+              return;
             }
 
             // 確定ボタンをクリック
@@ -2059,6 +3034,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               func: __itandiConfirmStations, args: []
             });
             await sleep(500);
+
+            // ★ 確定後にモーダルが閉じたことを確認（閉じていなければ確定が効いていない）
+            const modalClosed = await chrome.scripting.executeScript({
+              target: { tabId: itandiTab.id }, world: 'MAIN',
+              func: () => !document.querySelector('[role="dialog"]')
+            });
+            if (!modalClosed?.[0]?.result) {
+              // 再度確定を試みる
+              await chrome.scripting.executeScript({
+                target: { tabId: itandiTab.id }, world: 'MAIN',
+                func: __itandiConfirmStations, args: []
+              });
+              await sleep(500);
+            }
 
             const stationMsg = `駅: ${stationsChecked}/${uniqueStations.length}件選択`;
             const filledAll = [...(setStatus.filled || []), stationMsg];
@@ -2104,38 +3093,68 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               await waitForDomReady(itandiTab.id, '.itandi-bb-ui__ModalBody', { timeout: 5000 });
               await sleep(500);
 
-              // 市区町村ごとに選択（__itandiSelectCityAndTowns内部でポーリング待ちするので追加sleep不要）
-              let citiesSelected = 0;
-              let townsChecked = 0;
-              const cityErrors = [];
-              for (const city of cities) {
-                const towns = selectedTowns[city] || [];
-                const selectResult = await chrome.scripting.executeScript({
-                  target: { tabId: itandiTab.id }, world: 'MAIN',
-                  func: __itandiSelectCityAndTowns,
-                  args: [city, towns, customer.prefecture || '東京都']
-                });
-                const selectStatus = selectResult?.[0]?.result;
-                console.log(`[OPEN_SEARCH_PAGE] itandi所在地: ${city} →`, JSON.stringify(selectStatus));
-                if (selectStatus?.citySelected) {
-                  citiesSelected++;
-                  townsChecked += selectStatus.townsChecked || 0;
-                } else {
-                  cityErrors.push(city + ': ' + (selectStatus?.error || '不明'));
-                }
-              }
-
-              // 確定ボタンをクリック
-              await chrome.scripting.executeScript({
+              // Step 3a: 都道府県選択（同期関数）
+              const prefResult = await chrome.scripting.executeScript({
                 target: { tabId: itandiTab.id }, world: 'MAIN',
-                func: __itandiConfirmAddress, args: []
+                func: __itandiSelectPrefecture,
+                args: [customer.prefecture || '東京都']
               });
-              await sleep(500);
+              const prefStatus = prefResult?.[0]?.result;
+              console.log(`[OPEN_SEARCH_PAGE] itandi都道府県:`, JSON.stringify(prefStatus));
 
-              const addrMsg = `所在地: ${citiesSelected}/${cities.length}区` + (townsChecked > 0 ? ` (町域${townsChecked}件)` : '');
-              setStatus.filled.push(addrMsg);
-              if (cityErrors.length > 0) {
-                await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi所在地 (未検出: ${cityErrors.join(', ')})` });
+              if (prefStatus?.ok) {
+                await sleep(500);
+
+                // Step 3b: 市区町村ごとに選択
+                let citiesSelected = 0;
+                let townsChecked = 0;
+                const cityErrors = [];
+                for (const city of cities) {
+                  // 市区町村を選択（単一Promise）
+                  const cityResult = await chrome.scripting.executeScript({
+                    target: { tabId: itandiTab.id }, world: 'MAIN',
+                    func: __itandiSelectCity,
+                    args: [city]
+                  });
+                  const cityStatus = cityResult?.[0]?.result;
+                  console.log(`[OPEN_SEARCH_PAGE] itandi市区町村: ${city} →`, JSON.stringify(cityStatus));
+
+                  if (cityStatus?.citySelected) {
+                    citiesSelected++;
+
+                    // Step 3c: 町域チェック（単一Promise + ステートマシン）
+                    const townList = selectedTowns[city] || [];
+                    if (townList.length > 0) {
+                      await sleep(500); // 市区町村クリック後のAPI読み込み開始を待つ
+                      const townResult = await chrome.scripting.executeScript({
+                        target: { tabId: itandiTab.id }, world: 'MAIN',
+                        func: __itandiSelectTowns,
+                        args: [townList]
+                      });
+                      const townStatus = townResult?.[0]?.result;
+                      console.log(`[OPEN_SEARCH_PAGE] itandi町域: ${city} →`, JSON.stringify(townStatus));
+                      townsChecked += townStatus?.townsChecked || 0;
+                    }
+                  } else {
+                    cityErrors.push(city + ': ' + (cityStatus?.error || '不明'));
+                  }
+                  await sleep(300); // 次の市区町村選択前に少し待つ
+                }
+
+                // 確定ボタンをクリック
+                await chrome.scripting.executeScript({
+                  target: { tabId: itandiTab.id }, world: 'MAIN',
+                  func: __itandiConfirmAddress, args: []
+                });
+                await sleep(500);
+
+                const addrMsg = `所在地: ${citiesSelected}/${cities.length}区` + (townsChecked > 0 ? ` (町域${townsChecked}件)` : '');
+                setStatus.filled.push(addrMsg);
+                if (cityErrors.length > 0) {
+                  await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi所在地 (未検出: ${cityErrors.join(', ')})` });
+                }
+              } else {
+                await setStorageData({ debugLog: `[検索ページ] ${customer.name}: 都道府県選択失敗: ${prefStatus?.error || '不明'}` });
               }
             }
           }
@@ -2258,6 +3277,10 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   try { await setStorageData({ customerSearchPending: false }); } catch (_) {}
 
   const services = enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
+  // 2026-06-03: いい生活Square は規約違反(機械的取得=スクレイピング)でアカウントBAN。
+  // 自動化を恒久停止する。再開はBAN逃れ(さらなる違反)になるため不可。
+  // どんな設定でも essquare は走らせない（ラベル表示・早期return判定にも波及）。
+  services.essquare = false;
 
   if (!services.reins && !services.ielove && !services.itandi && !services.essquare) {
     console.log('有効なサービスがありません');
@@ -2399,6 +3422,29 @@ globalThis.runSearchCycle = async function runSearchCycle() {
           await setStorageData({ debugLog: `[リセット連携] notifiedDedupMap から ${totalCleared} エントリを削除 (GASからの ${resets.length} リセット要求を処理)` });
         }
       }
+
+      // GASのシートに存在しないdedupキーをnotifiedDedupMapから除去
+      // (リセット後にpending_dedup_resetsのTTL切れ等でリセットが漏れた場合の安全策)
+      const gasKeys = (seenResult && seenResult.seen_dedup_keys) || {};
+      let orphanCleared = 0;
+      for (const cust of Object.keys(globalThis.__notifiedDedupMap)) {
+        const gasKeysForCust = new Set(gasKeys[cust] || []);
+        if (gasKeysForCust.size === 0) continue; // GAS側にキーがない顧客はスキップ（全件消しすぎ防止）
+        const inner = globalThis.__notifiedDedupMap[cust];
+        for (const k of Object.keys(inner)) {
+          // gas_syncソースのキーだけでなく、全ソースのキーを対象にGAS側と突合
+          if (!gasKeysForCust.has(k)) {
+            delete inner[k];
+            orphanCleared++;
+          }
+        }
+        if (Object.keys(inner).length === 0) delete globalThis.__notifiedDedupMap[cust];
+      }
+      if (orphanCleared > 0) {
+        await chrome.storage.local.set({ notifiedDedupMap: globalThis.__notifiedDedupMap });
+        await setStorageData({ debugLog: `[dedup整合] GASに存在しない ${orphanCleared} キーをnotifiedDedupMapから除去` });
+      }
+
       await setStorageData({ debugLog: `既知物件ID取得完了` });
     } catch (err) {
       await setStorageData({ debugLog: `既知物件ID取得失敗（続行）: ${err.message}` });
@@ -2433,7 +3479,7 @@ globalThis.runSearchCycle = async function runSearchCycle() {
         catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[itandi] 検索エラー: ' + err.message); }
       }
 
-      // --- ES-Square ---
+      // --- ES-Square (恒久停止: 2026-06-03 規約違反BANのため。services.essquare は上流で常にfalse) ---
       if (services.essquare) {
         if (isSearchCancelled(searchId)) return;
         try { await runEssquareSearch([customer], seenIds, searchId); }
@@ -2495,6 +3541,16 @@ globalThis.runSearchCycle = async function runSearchCycle() {
                 if (_batchIdx < _totalBatches) await sleep(3000);
               }
             }
+          }
+          // REINS検索成功 → 本日の日付をGASに記録（次回検索の登録年月日フィルタ起点になる）
+          try {
+            const _today = new Date();
+            const _pad = n => String(n).padStart(2, '0');
+            const _todayStr = _today.getFullYear() + '-' + _pad(_today.getMonth() + 1) + '-' + _pad(_today.getDate());
+            await gasPost({ action: 'update_reins_search_date', customer_name: customer.name, search_date: _todayStr });
+            await setStorageData({ debugLog: `[REINS] ${customer.name}: 最終検索日を更新 → ${_todayStr}` });
+          } catch (_e) {
+            logError(`[REINS] ${customer.name}: 最終検索日更新失敗: ${_e.message}`);
           }
         } catch (err) {
           if (err.message === 'SEARCH_CANCELLED') return;
@@ -2685,7 +3741,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   // SW再起動直後でもbtModeを確実に拾うためストレージから直読み
   const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'alert')));
   __btMode = __btModeFresh;
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {} }, lineNameMap, reinsCodeMap, __btModeFresh];
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '' }, lineNameMap, reinsCodeMap, (customer.btMode || __btModeFresh)];
   // __reinsCriteriaFunc は reins-criteria-func.js で定義（グローバル）
   // ↓ 以前は以下にローカル関数定義があったが、reins-criteria-func.js に移動済み
   setResult = await chrome.scripting.executeScript({
@@ -2904,7 +3960,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   const newProperties = [];
 
   // --- Step 6〜7: ページネーションしながら検索結果を詳細取得（最大200件） ---
-  const maxDetails = 200;
+  const maxDetails = 70;
   let totalDetailCount = 0;
   let currentPage = 1;
   let consecutiveRecoveryFails = 0;
@@ -5338,8 +6394,11 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
   }
   // バス・トイレ別（REINS: バス・トイレ別, itandi: バス・トイレ別, いえらぶ: バストイレ別）
   // btMode='skip' の場合はフィルタ側で除外済みなのでアラート不要
-  if (__btMode !== 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
-    warnings.push('⚠️ バス・トイレ別かどうか確認してください');
+  {
+    const _cBtMode = (customer?.btMode || __btMode || 'alert').toLowerCase();
+    if (_cBtMode !== 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
+      warnings.push('⚠️ バス・トイレ別かどうか確認してください');
+    }
   }
   // 温水洗浄便座
   if ((equip.includes('温水洗浄便座') || equip.includes('ウォシュレット')) && !fac.includes('温水洗浄便座')) {
@@ -5571,6 +6630,9 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
     const ansiText = warnings.join('\n');
     lines.push(`\`\`\`ansi\n\u001b[0;33m${ansiText}\u001b[0m\n\`\`\``);
   }
+
+  // 管理会社（元付会社）
+  if (prop.owner_company) lines.push(`管理会社: ${prop.owner_company}`);
 
   // 広告料・現況・客付会社メッセージ
   lines.push(`広告料: ${prop.ad_fee || '-'}`);

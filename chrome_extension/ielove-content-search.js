@@ -357,4 +357,54 @@
     return /logo|icon|favicon|badge|noimage|dummy|loading/i.test(url);
   }
 
+  // ─────────────────────────────────────────────
+  // 手動送信パネル用アダプタ（いえらぶ 検索結果一覧）
+  // parseEstateCard の snake_case を buildPropertyFlex 互換の camelCase に正規化。
+  // ─────────────────────────────────────────────
+  function normalizeIeloveProp(p) {
+    if (!p) return null;
+    return {
+      buildingName: p.building_name || '',
+      roomNumber: p.room_number || '',
+      rent: p.rent || 0,
+      managementFee: p.management_fee || 0,
+      deposit: p.deposit || '',
+      keyMoney: p.key_money || '',
+      layout: p.layout || '',
+      area: p.area || '',
+      buildingAge: p.building_age || '',
+      floor: '',
+      stationInfo: p.station_info || '',
+      address: p.address || '',
+      imageUrls: p.image_url ? [p.image_url] : [],
+      imageUrl: p.image_url || '',
+      url: p.url || '',
+      source: 'ielove'
+    };
+  }
+
+  const ieloveManualAdapter = {
+    source: 'ielove',
+    collect: function () {
+      const out = [];
+      document.querySelectorAll('table.estate_list').forEach(function (card) {
+        const prop = normalizeIeloveProp(parseEstateCard(card));
+        if (prop && prop.buildingName) out.push({ rowEl: card, prop: prop });
+      });
+      return out;
+    }
+  };
+
+  // 一覧が表示されたらパネルを初期化（サーバーレンダリングだが念のためポーリング）。
+  (function waitForIeloveResults() {
+    if (window.__ieloveManualInit) return;
+    if (!window.ManualSendPanel) { setTimeout(waitForIeloveResults, 600); return; }
+    if (document.querySelector('table.estate_list')) {
+      window.__ieloveManualInit = true;
+      window.ManualSendPanel.init(ieloveManualAdapter);
+      return;
+    }
+    setTimeout(waitForIeloveResults, 1000);
+  })();
+
 })();

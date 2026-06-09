@@ -69,7 +69,7 @@
       "matches": [
         "https://system.reins.jp/*"
       ],
-      "js": ["content-search.js"]
+      "js": ["manual-send-panel.js", "content-search.js"]
     },
     {
       "matches": [
@@ -81,7 +81,7 @@
       "matches": [
         "https://bb.ielove.jp/ielovebb/rent/index/*"
       ],
-      "js": ["ielove-content-search.js"]
+      "js": ["manual-send-panel.js", "ielove-content-search.js"]
     },
     {
       "matches": [
@@ -91,22 +91,15 @@
     },
     {
       "matches": [
+        "https://itandibb.com/rent_rooms/list*"
+      ],
+      "js": ["manual-send-panel.js", "itandi-content-search.js"]
+    },
+    {
+      "matches": [
         "https://itandibb.com/rent_rooms/*"
       ],
       "js": ["itandi-content-detail.js"]
-    },
-    {
-      "matches": [
-        "https://rent.es-square.net/bukken/chintai/*"
-      ],
-      "js": ["essquare-keepalive.js"],
-      "run_at": "document_start"
-    },
-    {
-      "matches": [
-        "https://rent.es-square.net/bukken/chintai/search/detail/*"
-      ],
-      "js": ["essquare-content-detail.js"]
     },
     {
       "matches": [
@@ -121,6 +114,13 @@
       ],
       "js": ["popupHandler.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://script.google.com/macros/*"
+      ],
+      "js": ["gas-banner-hider.js"],
+      "run_at": "document_end"
     },
     {
       "matches": [

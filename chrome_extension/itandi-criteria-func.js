@@ -14,10 +14,15 @@
  *   __itandiSelectStation     — モーダル内の駅検索ボックスで1駅を検索→チェック
  *   __itandiConfirmStations   — 「確定」ボタンをクリックしてモーダルを閉じる
  *
- * 所在地選択は3つの別関数で段階的に実行:
- *   __itandiOpenAddressModal    — 「所在地で絞り込み」ボタンをクリックしてモーダルを開く
- *   __itandiSelectCityAndTowns  — 都道府県→市区町村→町域・丁目を選択（1区ずつ呼ぶ）
- *   __itandiConfirmAddress      — 「確定」ボタンをクリックしてモーダルを閉じる
+ * 所在地選択は5つの別関数で段階的に実行:
+ *   __itandiOpenAddressModal  — 「所在地で絞り込み」ボタンをクリックしてモーダルを開く
+ *   __itandiSelectPrefecture  — 都道府県ラジオを選択（同期）
+ *   __itandiSelectCity        — 市区町村ラジオをポーリング→選択（単一Promise）
+ *   __itandiSelectTowns       — 町域チェックボックスをステートマシンで選択（単一Promise）
+ *   __itandiConfirmAddress    — 「確定」ボタンをクリックしてモーダルを閉じる
+ *
+ * 重要: chrome.scripting.executeScript({ world: 'MAIN' }) は .then() チェーンの
+ *       Promise を正しくawaitできないため、各関数は単一の new Promise で実装する。
  */
 
 // eslint-disable-next-line no-unused-vars
@@ -424,54 +429,109 @@ const __itandiSelectAndCheckStation = (stationName) => {
   }
   console.log('[itandi駅選択] 検索入力: ' + cleanName);
 
-  // ── Step B: 描画を待ってからチェック ──
+  // ── Step B: 検索結果の描画をポーリングで待つ → クリック → 下の駅リストへの追加を検証 ──
+  // 固定の setTimeout だと描画が遅れたときに駅を取りこぼし、未選択のまま次へ進んでしまう。
+  // 一致する駅ラベルが描画されるまでポーリングし、クリック後にモーダル下部の
+  // 「選択中の駅リスト」(Chip) に実際に追加されたかを必ず検証する（追加されなければリトライ）。
+  // itandi は同名駅(複数路線)を1つの Chip に集約するため、Chip テキストが駅名と
+  // 一致すれば「下のリストに追加された」と判断できる。
   return new Promise(function(resolve) {
-    setTimeout(function() {
+    var POLL_INTERVAL = 150;   // ms: 描画ポーリング間隔
+    var RENDER_TIMEOUT = 6000; // ms: 描画待ち上限
+    var startTime = Date.now();
+
+    // モーダル下部の「選択中の駅リスト」(Chip) に対象駅が追加されているか判定する。
+    // Chip のテキスト要素 (itandi-bb-ui__Chip__Text 等) を走査し、駅名一致を探す。
+    function isInSelectedList() {
+      var chips = modal.querySelectorAll('[class*="Chip__Text"]');
+      for (var i = 0; i < chips.length; i++) {
+        var txt = (chips[i].textContent || '').trim();
+        if (!txt) continue;
+        if (txt === cleanName || txt.indexOf(cleanName) >= 0 || cleanName.indexOf(txt) >= 0) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // 検索語に一致するラベルを集める。
+    // 戻り値: null=未描画 / []=描画済みだが一致なし / [labels...]=一致あり
+    function collectMatchingLabels() {
       var stationFrame = modal.querySelector('[class*="StationFrame"]');
-      if (!stationFrame) {
-        resolve({ ok: true, checked: false, error: '駅エリアが見つかりません: ' + cleanName });
-        return;
-      }
-
+      if (!stationFrame) return null;
       var labels = stationFrame.querySelectorAll('label');
-      var checkedCount = 0;
-
-      // 完全一致（同名駅を全路線分チェック）
+      if (labels.length === 0) return null;
+      var exact = [], partial = [];
       for (var i = 0; i < labels.length; i++) {
-        var labelText = labels[i].textContent.trim();
-        if (labelText === cleanName) {
-          var cb = labels[i].querySelector('input[type="checkbox"]');
-          if (cb && cb.checked) { checkedCount++; continue; }
-          labels[i].click();
-          checkedCount++;
-          console.log('[itandi駅選択] チェック: ' + cleanName + ' (#' + checkedCount + ')');
-        }
+        var txt = labels[i].textContent.trim();
+        if (!txt) continue;
+        if (txt === cleanName) exact.push(labels[i]);
+        else if (txt.includes(cleanName) || cleanName.includes(txt)) partial.push(labels[i]);
       }
+      if (exact.length > 0) return exact;     // 完全一致を優先（同名駅を全路線分）
+      if (partial.length > 0) return partial; // フォールバック: 部分一致
+      return [];
+    }
 
-      if (checkedCount > 0) {
-        resolve({ ok: true, checked: true, checkedCount: checkedCount });
+    function pollForRender() {
+      var matched = collectMatchingLabels();
+      var elapsed = Date.now() - startTime;
+      if (matched === null) {
+        // まだ描画されていない
+        if (elapsed > RENDER_TIMEOUT) {
+          resolve({ ok: true, checked: false, error: '駅エリアの描画タイムアウト: ' + cleanName });
+          return;
+        }
+        setTimeout(pollForRender, POLL_INTERVAL);
         return;
       }
+      if (matched.length === 0) {
+        // 描画済みだが一致駅なし → 遅延描画の可能性があるので上限まで待つ
+        if (elapsed > RENDER_TIMEOUT) {
+          console.warn('[itandi駅選択] 駅が見つかりません: ' + cleanName);
+          resolve({ ok: true, checked: false, error: '駅が見つかりません: ' + cleanName });
+          return;
+        }
+        setTimeout(pollForRender, POLL_INTERVAL);
+        return;
+      }
+      // 一致ラベルあり → クリックして実際にチェックが入るか検証
+      clickAndVerify(matched, 0);
+    }
 
-      // 部分一致フォールバック
-      for (var j = 0; j < labels.length; j++) {
-        var txt = labels[j].textContent.trim();
-        if (txt.includes(cleanName) || cleanName.includes(txt)) {
-          var cb2 = labels[j].querySelector('input[type="checkbox"]');
-          if (cb2 && cb2.checked) { checkedCount++; continue; }
-          labels[j].click();
-          checkedCount++;
-          console.log('[itandi駅選択] 部分一致チェック: ' + txt);
+    // ラベルをクリックし、下の駅リスト(Chip)に追加されたか検証（最大3回リトライ）。
+    // 「ちゃんと選択できて下の駅リストに追加されたら次に進む」という要件のため、
+    // checkbox.checked ではなく Chip への追加を最終判定に使う。
+    function clickAndVerify(labels, attempt) {
+      // 既にリストに入っていれば追加クリック不要（重複クリックで解除されるのを防ぐ）
+      if (!isInSelectedList()) {
+        for (var i = 0; i < labels.length; i++) {
+          var cb = labels[i].querySelector('input[type="checkbox"]');
+          if (cb && cb.checked) continue; // 既にチェック済みはスキップ
+          labels[i].click();
         }
       }
+      // クリック反映（Chip 描画）を待ってから下の駅リストを確認
+      setTimeout(function() {
+        if (isInSelectedList()) {
+          console.log('[itandi駅選択] 下の駅リストに追加確認: ' + cleanName);
+          resolve({ ok: true, checked: true });
+        } else if (attempt < 3) {
+          console.warn('[itandi駅選択] 駅リスト未追加、リトライ ' + (attempt + 1) + ': ' + cleanName);
+          clickAndVerify(labels, attempt + 1);
+        } else {
+          // リトライ上限まで追加を確認できず。次へ進めないよう checked:false で返す。
+          console.warn('[itandi駅選択] 下の駅リストへの追加を確認できません: ' + cleanName);
+          resolve({
+            ok: true,
+            checked: false,
+            error: '下の駅リストへの追加を確認できません: ' + cleanName
+          });
+        }
+      }, 300);
+    }
 
-      if (checkedCount > 0) {
-        resolve({ ok: true, checked: true, checkedCount: checkedCount });
-      } else {
-        console.warn('[itandi駅選択] 駅が見つかりません: ' + cleanName);
-        resolve({ ok: true, checked: false, error: '駅が見つかりません: ' + cleanName });
-      }
-    }, 800);  // React描画待ち
+    pollForRender();
   });
 };
 
@@ -520,67 +580,112 @@ const __itandiOpenAddressModal = () => {
 };
 
 /**
- * 所在地選択モーダル内で1市区町村を選択し、町域があればチェックする。
- * 市区町村はラジオボタンだが、クリックするたびに追加される仕様。
- * 都道府県はprefectureId=13（東京都）がデフォルト。
- *
- * @param {string} cityName - 市区町村名（例: "豊島区"）
- * @param {string[]} towns - 町名リスト（例: ["北大塚二丁目", "南大塚一丁目"]）。空なら全域。
- * @param {string} prefectureName - 都道府県名（例: "東京都"）。省略時は "東京都"
- * @returns {Promise<{ ok: boolean, citySelected: boolean, townsChecked: number, error?: string }>}
+ * 所在地モーダルで都道府県を選択する関数（同期）。
+ * @param {string} prefectureName - 都道府県名（例: "東京都"）
+ * @returns {{ ok: boolean, error?: string }}
  */
 // eslint-disable-next-line no-unused-vars
-const __itandiSelectCityAndTowns = (cityName, towns, prefectureName) => {
+const __itandiSelectPrefecture = (prefectureName) => {
   'use strict';
-
   prefectureName = prefectureName || '東京都';
 
   var modal = document.querySelector('.itandi-bb-ui__ModalBody');
-  if (!modal) return Promise.resolve({ ok: false, citySelected: false, townsChecked: 0, error: 'モーダルが見つかりません' });
+  if (!modal) return { ok: false, error: 'モーダルが見つかりません' };
 
-  // ── Step 1: 都道府県を選択（未選択の場合） ──
   var prefRadios = modal.querySelectorAll('input[type="radio"][name="prefectureId"]');
-  var prefSelected = false;
   for (var p = 0; p < prefRadios.length; p++) {
     var prefLabel = prefRadios[p].closest('label');
     if (prefLabel && prefLabel.textContent.trim() === prefectureName) {
       if (!prefRadios[p].checked) {
         prefLabel.click();
         console.log('[itandi所在地] 都道府県選択: ' + prefectureName);
+      } else {
+        console.log('[itandi所在地] 都道府県は既に選択済み: ' + prefectureName);
       }
-      prefSelected = true;
-      break;
+      return { ok: true };
     }
   }
-  if (!prefSelected) {
-    return Promise.resolve({ ok: false, citySelected: false, townsChecked: 0, error: '都道府県が見つかりません: ' + prefectureName });
+  return { ok: false, error: '都道府県が見つかりません: ' + prefectureName };
+};
+
+/**
+ * 所在地モーダルで市区町村を選択する関数。
+ * 市区町村ラジオが表示されるまでポーリングし、見つかったらクリック。
+ * 単一の new Promise で実装（.then() チェーンなし）。
+ * @param {string} cityName - 市区町村名（例: "豊島区"）
+ * @returns {Promise<{ ok: boolean, citySelected: boolean, error?: string }>}
+ */
+// eslint-disable-next-line no-unused-vars
+const __itandiSelectCity = (cityName) => {
+  'use strict';
+
+  var modal = document.querySelector('.itandi-bb-ui__ModalBody');
+  if (!modal) return Promise.resolve({ ok: false, citySelected: false, error: 'モーダルが見つかりません' });
+
+  return new Promise(function(resolve) {
+    var interval = 200;
+    var elapsed = 0;
+    var maxMs = 5000;
+
+    var timer = setInterval(function() {
+      elapsed += interval;
+
+      // 市区町村ラジオが表示されるまで待つ
+      var radios = modal.querySelectorAll('input[type="radio"]:not([name="prefectureId"])');
+      if (radios.length === 0) {
+        if (elapsed >= maxMs) {
+          clearInterval(timer);
+          resolve({ ok: false, citySelected: false, error: '市区町村リストが表示されませんでした' });
+        }
+        return;
+      }
+
+      // ラジオが見つかった → 市区町村を検索してクリック
+      clearInterval(timer);
+      for (var i = 0; i < radios.length; i++) {
+        var cityLabel = radios[i].closest('label');
+        if (cityLabel && cityLabel.textContent.trim() === cityName) {
+          cityLabel.click();
+          console.log('[itandi所在地] 市区町村選択: ' + cityName);
+          resolve({ ok: true, citySelected: true });
+          return;
+        }
+      }
+      resolve({ ok: true, citySelected: false, error: '市区町村が見つかりません: ' + cityName });
+    }, interval);
+  });
+};
+
+/**
+ * 所在地モーダルで町域チェックボックスを選択する関数。
+ * 町域データのロード待ち→全域チェック解除→React再レンダリング待ち→個別町域チェック
+ * をステートマシン方式で実行。単一の new Promise（.then() チェーンなし）。
+ *
+ * @param {string[]} towns - 町名リスト（例: ["北大塚二丁目", "南大塚一丁目"]）
+ * @returns {Promise<{ ok: boolean, townsChecked: number, townErrors?: string[], error?: string }>}
+ */
+// eslint-disable-next-line no-unused-vars
+const __itandiSelectTowns = (towns) => {
+  'use strict';
+
+  if (!towns || towns.length === 0) {
+    return Promise.resolve({ ok: true, townsChecked: 0, allArea: true });
   }
 
-  // ── ポーリングヘルパー（条件を満たすまで待つ、最大 maxMs） ──
-  var _poll = function(checkFn, maxMs) {
-    return new Promise(function(resolve) {
-      var interval = 200;
-      var elapsed = 0;
-      var timer = setInterval(function() {
-        elapsed += interval;
-        var result = checkFn();
-        if (result || elapsed >= maxMs) {
-          clearInterval(timer);
-          resolve(result);
-        }
-      }, interval);
-    });
-  };
+  // 初期チェック（この時点でモーダルがなければ即エラー）
+  if (!document.querySelector('.itandi-bb-ui__ModalBody')) {
+    return Promise.resolve({ ok: false, townsChecked: 0, error: 'モーダルが見つかりません' });
+  }
 
   // ── 町名の正規化: 漢数字→全角数字丁目 ──
   var _normalizeForMatch = function(text) {
-    var kanjiMap = { '一': '１', '二': '２', '三': '３', '四': '４', '五': '５',
-                    '六': '６', '七': '７', '八': '８', '九': '９', '十': '１０' };
+    var kanjiMap = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5,
+                    '六': 6, '七': 7, '八': 8, '九': 9 };
     return text.replace(/([一二三四五六七八九十]+)丁目/, function(_, k) {
       var num = 0;
       for (var n = 0; n < k.length; n++) {
         if (k[n] === '十') { num = num === 0 ? 10 : num * 10; }
-        else { num += parseInt(kanjiMap[k[n]]) || 0; }
+        else { num += kanjiMap[k[n]] || 0; }
       }
       var fullwidth = String(num).replace(/[0-9]/g, function(c) {
         return String.fromCharCode(c.charCodeAt(0) + 0xFEE0);
@@ -589,78 +694,111 @@ const __itandiSelectCityAndTowns = (cityName, towns, prefectureName) => {
     });
   };
 
-  // ── Step 2: 市区町村ラジオが表示されるまで待つ → 選択 ──
-  return _poll(function() {
-    var radios = modal.querySelectorAll('input[type="radio"]:not([name="prefectureId"])');
-    return radios.length > 0;
-  }, 5000).then(function(found) {
-    if (!found) return { ok: false, citySelected: false, townsChecked: 0, error: '市区町村リストが表示されませんでした' };
+  // ── モーダルを毎回再取得するヘルパー（Reactの再レンダリングで参照が無効になるため） ──
+  var _getModal = function() {
+    return document.querySelector('.itandi-bb-ui__ModalBody');
+  };
 
-    var allRadios = modal.querySelectorAll('input[type="radio"]:not([name="prefectureId"])');
-    var cityFound = false;
-    for (var i = 0; i < allRadios.length; i++) {
-      var cityLabel = allRadios[i].closest('label');
-      if (cityLabel && cityLabel.textContent.trim() === cityName) {
-        cityLabel.click();
-        console.log('[itandi所在地] 市区町村選択: ' + cityName);
-        cityFound = true;
-        break;
+  return new Promise(function(resolve) {
+    var stage = 'waitTowns';
+    var interval = 200;
+    var elapsed = 0;
+    var stageElapsed = 0; // 各ステージ内の経過時間
+    var maxMs = 20000;
+
+    var timer = setInterval(function() {
+      elapsed += interval;
+      stageElapsed += interval;
+
+      if (elapsed >= maxMs) {
+        clearInterval(timer);
+        console.warn('[itandi所在地] タイムアウト (stage: ' + stage + ', elapsed: ' + elapsed + 'ms)');
+        resolve({ ok: false, townsChecked: 0, error: 'タイムアウト (stage: ' + stage + ')' });
+        return;
       }
-    }
-    if (!cityFound) return { ok: true, citySelected: false, townsChecked: 0, error: '市区町村が見つかりません: ' + cityName };
 
-    // 町域選択がない場合（全域）→ そのまま完了
-    if (!towns || towns.length === 0) {
-      return { ok: true, citySelected: true, townsChecked: 0, allArea: true };
-    }
-
-    // ── Step 3: 町域チェックボックスが表示されるまでポーリング（API読み込み待ち） ──
-    return _poll(function() {
-      var checks = modal.querySelectorAll('input[type="checkbox"]');
-      var townCount = 0;
-      for (var j = 0; j < checks.length; j++) {
-        var lbl = checks[j].closest('label');
-        if (lbl && lbl.textContent.trim() !== '全域') townCount++;
+      // 毎回モーダルを再取得（React再レンダリングでDOM要素が差し替わるため）
+      var modal = _getModal();
+      if (!modal) {
+        console.log('[itandi所在地] モーダルが一時的に見つからない (stage: ' + stage + ')');
+        return; // 再レンダリング中かもしれないので次のtickで再チェック
       }
-      return townCount > 0;
-    }, 10000).then(function(townsLoaded) {
-      if (!townsLoaded) return { ok: true, citySelected: true, townsChecked: 0, error: '町域データのロードがタイムアウトしました' };
 
-      console.log('[itandi所在地] 町域データ表示完了');
-
-      // 「全域」チェックを外す（個別選択のため）
-      var allChecks = modal.querySelectorAll('input[type="checkbox"]');
-      var areaAllChecks = [];
-      for (var a = 0; a < allChecks.length; a++) {
-        var aLabel = allChecks[a].closest('label');
-        if (aLabel && aLabel.textContent.trim() === '全域') {
-          areaAllChecks.push(allChecks[a]);
+      // ── Stage 1: 町域チェックボックスが表示されるまで待つ ──
+      if (stage === 'waitTowns') {
+        var checks = modal.querySelectorAll('input[type="checkbox"]');
+        var townCount = 0;
+        for (var j = 0; j < checks.length; j++) {
+          var lbl = checks[j].closest('label');
+          if (lbl && lbl.textContent.trim() !== '全域') townCount++;
         }
-      }
-      // 町域側の全域チェック（2番目）がチェック済みなら外す
-      var didUncheckAll = false;
-      if (areaAllChecks.length >= 2 && areaAllChecks[1].checked) {
-        areaAllChecks[1].closest('label').click();
-        didUncheckAll = true;
-        console.log('[itandi所在地] 全域チェック解除');
+        if (townCount > 0) {
+          console.log('[itandi所在地] 町域データ表示完了 (' + townCount + '件)');
+          stage = 'uncheckAll';
+          stageElapsed = 0;
+        }
+        return;
       }
 
-      // 全域チェック解除後、チェックボックスが未チェック状態で再表示されるまでポーリング
-      // （React再レンダリングでDOM要素が差し替わる可能性があるため）
-      var waitAfterUncheck = didUncheckAll
-        ? _poll(function() {
-            var cbs = modal.querySelectorAll('input[type="checkbox"]');
-            for (var w = 0; w < cbs.length; w++) {
-              var wl = cbs[w].closest('label');
-              if (wl && wl.textContent.trim() !== '全域' && wl.textContent.trim().length > 0) {
-                return true; // 町域チェックボックスがDOM上に存在する
-              }
-            }
-            return false;
-          }, 5000)
-        : Promise.resolve(true);
+      // ── Stage 2: 「全域」チェックを外す ──
+      if (stage === 'uncheckAll') {
+        var allChecks = modal.querySelectorAll('input[type="checkbox"]');
+        var areaAllChecks = [];
+        for (var a = 0; a < allChecks.length; a++) {
+          var aLabel = allChecks[a].closest('label');
+          if (aLabel && aLabel.textContent.trim() === '全域') {
+            areaAllChecks.push(allChecks[a]);
+          }
+        }
+        // 町域側の全域チェック（2番目）がチェック済みなら外す
+        if (areaAllChecks.length >= 2 && areaAllChecks[1].checked) {
+          areaAllChecks[1].closest('label').click();
+          console.log('[itandi所在地] 全域チェック解除');
+          stage = 'waitRerender';
+          stageElapsed = 0;
+        } else {
+          console.log('[itandi所在地] 全域チェックは不要（既に解除済みまたは存在しない）');
+          stage = 'selectTowns';
+          stageElapsed = 0;
+        }
+        return;
+      }
 
-      return waitAfterUncheck.then(function() {
+      // ── Stage 3: React再レンダリング完了を待つ ──
+      //   全域チェック解除後、最低1000ms待ってから未チェックの町域チェックボックスを探す
+      if (stage === 'waitRerender') {
+        if (stageElapsed < 1000) return; // React再レンダリング+API通信を待つ
+
+        var cbs = modal.querySelectorAll('input[type="checkbox"]');
+        var uncheckedTownCount = 0;
+        for (var w = 0; w < cbs.length; w++) {
+          var wl = cbs[w].closest('label');
+          if (wl && wl.textContent.trim() !== '全域' && wl.textContent.trim().length > 0) {
+            if (!cbs[w].checked) uncheckedTownCount++;
+          }
+        }
+        if (uncheckedTownCount > 0) {
+          console.log('[itandi所在地] 再レンダリング完了 (未チェック町域: ' + uncheckedTownCount + '件)');
+          stage = 'selectTowns';
+          stageElapsed = 0;
+        }
+        return;
+      }
+
+      // ── Stage 4: 個別町域をチェック ──
+      if (stage === 'selectTowns') {
+        clearInterval(timer);
+
+        // デバッグ: 利用可能なチェックボックスラベルを全て出力
+        var debugCbs = modal.querySelectorAll('input[type="checkbox"]');
+        var availableLabels = [];
+        for (var x = 0; x < debugCbs.length; x++) {
+          var xl = debugCbs[x].closest('label');
+          if (xl) availableLabels.push(xl.textContent.trim() + (debugCbs[x].checked ? '✓' : ''));
+        }
+        console.log('[itandi所在地] 利用可能ラベル: ' + availableLabels.join(' | '));
+        console.log('[itandi所在地] 選択対象: ' + towns.join(', '));
+
         var townChecked = 0;
         var townErrors = [];
 
@@ -669,8 +807,11 @@ const __itandiSelectCityAndTowns = (cityName, towns, prefectureName) => {
           var normalizedTown = _normalizeForMatch(townName);
           var townFound = false;
 
-          // DOMを再取得（React再レンダリング後の新しい要素を取得）
-          var townCheckboxes = modal.querySelectorAll('input[type="checkbox"]');
+          console.log('[itandi所在地] 検索中: "' + townName + '" → 正規化: "' + normalizedTown + '"');
+
+          // DOMを再取得（毎回最新のmodalから）
+          var freshModal = _getModal();
+          var townCheckboxes = freshModal ? freshModal.querySelectorAll('input[type="checkbox"]') : [];
           for (var c = 0; c < townCheckboxes.length; c++) {
             var townLabel = townCheckboxes[c].closest('label');
             if (!townLabel) continue;
@@ -679,10 +820,12 @@ const __itandiSelectCityAndTowns = (cityName, towns, prefectureName) => {
             if (labelText === normalizedTown || labelText === townName) {
               if (!townCheckboxes[c].checked) {
                 townLabel.click();
+                console.log('[itandi所在地] 町域チェック: ' + labelText);
+              } else {
+                console.log('[itandi所在地] 町域は既にチェック済み: ' + labelText);
               }
               townFound = true;
               townChecked++;
-              console.log('[itandi所在地] 町域チェック: ' + labelText);
               break;
             }
           }
@@ -691,9 +834,11 @@ const __itandiSelectCityAndTowns = (cityName, towns, prefectureName) => {
             // 丁目なし町名（例: "北大塚"）→ 前方一致で全丁目チェック
             var baseName = normalizedTown.replace(/[０-９0-9]+丁目$/, '');
             if (baseName !== normalizedTown) {
+              console.warn('[itandi所在地] 町域が見つかりません: ' + townName);
               townErrors.push(townName);
               continue;
             }
+            var prefixMatched = 0;
             for (var d = 0; d < townCheckboxes.length; d++) {
               var tLabel = townCheckboxes[d].closest('label');
               if (!tLabel) continue;
@@ -702,21 +847,27 @@ const __itandiSelectCityAndTowns = (cityName, towns, prefectureName) => {
                 if (!townCheckboxes[d].checked) {
                   tLabel.click();
                 }
+                prefixMatched++;
                 townChecked++;
                 console.log('[itandi所在地] 町域チェック(前方一致): ' + tText);
               }
             }
+            if (prefixMatched === 0) {
+              console.warn('[itandi所在地] 前方一致でも見つかりません: ' + baseName);
+              townErrors.push(townName);
+            }
           }
         }
 
-        return {
+        console.log('[itandi所在地] 町域選択完了: ' + townChecked + '/' + towns.length + '件');
+        resolve({
           ok: true,
-          citySelected: true,
           townsChecked: townChecked,
           townErrors: townErrors.length > 0 ? townErrors : undefined
-        };
-      });
-    });
+        });
+        return;
+      }
+    }, interval);
   });
 };
 
