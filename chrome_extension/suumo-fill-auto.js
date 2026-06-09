@@ -929,7 +929,8 @@
     const freeMemo = document.getElementById('freeMemo');
     if (freeMemo) {
       if (data.sourceType === 'reins') {
-        freeMemo.value = sanitizeSuumoText('REINS 物件番号: ' + (data.propertyNumber || ''));
+        // 手動掲載の物件データは reins_property_number にしか番号を持たないためフォールバック
+        freeMemo.value = sanitizeSuumoText('REINS 物件番号: ' + (data.propertyNumber || data.reins_property_number || ''));
       } else if (data.sourceUrl) {
         freeMemo.value = sanitizeSuumoText(data.sourceUrl);
       }
