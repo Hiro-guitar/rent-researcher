@@ -944,6 +944,92 @@ async function fetchIeloveDetailForManual(detailUrl) {
   }
 }
 
+/**
+ * itandi手動送信: 一覧アダプタが渡した基本物件(baseProp)に対し、詳細ページを
+ * 新タブで開いて ITANDI_EXTRACT_DETAIL の結果をマージする。
+ * 自動検索 searchItandiForCustomer の詳細マージと同じフィールド処理を踏襲。
+ * @param {object} baseProp 一覧から取得した snake_case の基本物件（url, building_name 等）
+ */
+async function fetchItandiDetailForManual(baseProp) {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  let tabId = null;
+  try {
+    const detailUrl = (baseProp && baseProp.url) || '';
+    if (!detailUrl) return { ok: false, error: 'URLなし' };
+
+    const tab = await chrome.tabs.create({ url: detailUrl, active: false });
+    tabId = tab.id;
+    await waitForTabLoad(tabId);
+    await sleep(2500); // React SPA の描画待ち
+
+    // ログインチェック
+    const tabInfo = await chrome.tabs.get(tabId);
+    if (tabInfo.url && (tabInfo.url.includes('itandi-accounts.com') || tabInfo.url.includes('/login'))) {
+      return { ok: false, error: 'itandi未ログイン' };
+    }
+
+    const prop = Object.assign({}, baseProp);
+    prop.source = 'itandi';
+
+    let detailResult;
+    try {
+      detailResult = await sendItandiContentMessage(tabId, { type: 'ITANDI_EXTRACT_DETAIL' }, 15000);
+    } catch (err) {
+      return { ok: false, error: '詳細抽出失敗: ' + err.message };
+    }
+
+    if (detailResult && detailResult.ok && detailResult.detail) {
+      const d = detailResult.detail;
+      // 詳細情報をマージ（searchItandiForCustomer と同一ロジック）
+      if (d.image_urls && d.image_urls.length) {
+        prop.image_urls = d.image_urls;
+        if (!prop.image_url && d.image_urls[0]) prop.image_url = d.image_urls[0];
+      }
+      if (d.listing_status) prop.listing_status = d.listing_status;
+      if (d.web_badge_count !== undefined) prop.web_badge_count = d.web_badge_count;
+      if (d.needs_confirmation) prop.needs_confirmation = d.needs_confirmation;
+      if (d.facilities) prop.facilities = d.facilities;
+      if (d.guarantee_info) prop.guarantee_info = d.guarantee_info;
+
+      const detailFields = [
+        'floor_text', 'structure', 'total_units', 'lease_type', 'contract_period',
+        'cancellation_notice', 'renewal_info', 'sunlight', 'shikibiki', 'pet_deposit',
+        'free_rent', 'renewal_fee', 'renewal_admin_fee', 'fire_insurance',
+        'key_exchange_fee', 'support_fee_24h', 'additional_deposit', 'guarantee_deposit',
+        'water_billing', 'parking_fee', 'bicycle_parking_fee', 'motorcycle_parking_fee',
+        'other_monthly_fee', 'other_onetime_fee', 'move_in_conditions', 'move_out_date',
+        'move_in_date', 'free_rent_detail', 'layout_detail', 'preview_start_date',
+        'ad_fee', 'cleaning_fee', 'rights_fee', 'current_status',
+        'owner_company', 'owner_phone', 'ad_keisai',
+      ];
+      for (const key of detailFields) {
+        if (d[key] && !prop[key]) prop[key] = d[key];
+      }
+      // 詳細ページの値で上書き（築年月を含む方を優先）
+      if (d.building_age) prop.building_age = d.building_age;
+
+      // 構造名を正規化
+      if (prop.structure && typeof ITANDI_STRUCTURE_NORMALIZE !== 'undefined') {
+        prop.structure = ITANDI_STRUCTURE_NORMALIZE[prop.structure] || prop.structure;
+      }
+      // 所在階をパースして floor に設定
+      if (prop.floor_text) {
+        const fm = prop.floor_text.match(/(\d+)/);
+        if (fm) prop.floor = parseInt(fm[1], 10);
+      }
+    }
+
+    if (!prop.building_name) return { ok: false, error: '物件名なし' };
+    return { ok: true, detail: prop };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  } finally {
+    if (tabId) {
+      try { await chrome.tabs.remove(tabId); } catch (_) {}
+    }
+  }
+}
+
 // === room_id ハッシュ化（ソース・ID形式の匿名化） ===
 // 顧客向けURLにはハッシュ化したroom_idを使用し、
 // どのサイトから取得したか・IDの形式から推測されないようにする。
@@ -2400,6 +2486,86 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             ? `${enriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
             : `${enriched.length}件を承認待ちに登録し承認ページを開きました`;
           await setStorageData({ debugLog: `手動送信(いえらぶ→承認): ${msg.customerName} へ ${enriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+          sendResponse({ ok: true, registered: enriched.length, skipped, opened, message });
+          return;
+        }
+
+        // itandi 詳細取得モード: 一覧物件ごとに詳細ページを新タブで開いて全情報を取得→承認パイプライン
+        if (fetchDetails && source === 'itandi' && senderTabId) {
+          const { gasWebappUrl } = await getConfig();
+          if (!gasWebappUrl) {
+            sendResponse({ ok: false, error: 'GAS URLが設定されていません' });
+            return;
+          }
+          let customerObj = null;
+          try {
+            const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+            if (Array.isArray(cached)) customerObj = cached.find(c => c && c.name === msg.customerName) || null;
+          } catch (e) {}
+
+          const total = props.length;
+          const enriched = [];
+          let skipped = 0;
+          for (let i = 0; i < props.length; i++) {
+            const p = props[i] || {};
+            try {
+              await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: i, total, skipped });
+            } catch (e) {}
+            let res;
+            try {
+              res = await fetchItandiDetailForManual(p);
+            } catch (e) {
+              res = { ok: false, error: e.message };
+            }
+            if (res && res.ok && res.detail && res.detail.building_name) {
+              try {
+                if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
+                  res.detail.warnings_text = (globalThis.__computePropertyWarnings(res.detail, customerObj) || []).join('\n');
+                }
+              } catch (e) {}
+              // property_data_json を構築（承認ページ用、自動検索と同一）
+              if (typeof buildItandiPropertyDataJson === 'function') {
+                res.detail.property_data_json = JSON.stringify(buildItandiPropertyDataJson(res.detail));
+              }
+              enriched.push(res.detail);
+            } else {
+              skipped++;
+              await setStorageData({ debugLog: `[手動送信] itandi詳細取得失敗→スキップ: ${p.building_name || ''} ${(res && res.error) || ''}` });
+            }
+          }
+          try {
+            await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: total, total, skipped });
+          } catch (e) {}
+
+          if (enriched.length === 0) {
+            sendResponse({ ok: false, registered: 0, skipped, error: `全${total}件の詳細取得に失敗しました` });
+            return;
+          }
+
+          try {
+            await submitProperties(msg.customerName, enriched);
+          } catch (e) {
+            await setStorageData({ debugLog: '[手動送信] itandi承認待ち登録失敗: ' + e.message });
+            sendResponse({ ok: false, registered: 0, skipped, error: '承認待ち登録に失敗: ' + e.message });
+            return;
+          }
+
+          let opened = 0;
+          for (const det of enriched) {
+            if (!det.room_id) continue;
+            try {
+              const approveUrl = gasWebappUrl
+                + '?action=approve&customer=' + encodeURIComponent(msg.customerName)
+                + '&room_id=' + encodeURIComponent(det.room_id);
+              await chrome.tabs.create({ url: approveUrl, active: true });
+              opened++;
+            } catch (e) {}
+          }
+
+          const message = skipped > 0
+            ? `${enriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
+            : `${enriched.length}件を承認待ちに登録し承認ページを開きました`;
+          await setStorageData({ debugLog: `手動送信(itandi→承認): ${msg.customerName} へ ${enriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
           sendResponse({ ok: true, registered: enriched.length, skipped, opened, message });
           return;
         }

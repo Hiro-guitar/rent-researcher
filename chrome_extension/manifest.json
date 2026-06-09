@@ -91,6 +91,12 @@
     },
     {
       "matches": [
+        "https://itandibb.com/rent_rooms/list*"
+      ],
+      "js": ["manual-send-panel.js", "itandi-content-search.js"]
+    },
+    {
+      "matches": [
         "https://itandibb.com/rent_rooms/*"
       ],
       "js": ["itandi-content-detail.js"]

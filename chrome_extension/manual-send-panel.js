@@ -250,7 +250,7 @@
 
     // REINS・いえらぶは詳細ページを開いて全情報を取得し、承認待ちに登録→承認ページを開く
     var src = adapter && adapter.source;
-    var useApproval = src === 'reins' || src === 'ielove';
+    var useApproval = src === 'reins' || src === 'ielove' || src === 'itandi';
     var confirmMsg = useApproval
       ? customerName + ' さん宛に ' + props.length + '件を承認待ちに登録し、承認ページ（画像選択・追加）を開きます。\n各物件の詳細ページを開いて情報を取得するため少し時間がかかります。よろしいですか？'
       : customerName + ' さんに ' + props.length + '件の物件をLINEで送信します。よろしいですか？';
