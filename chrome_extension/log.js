@@ -173,13 +173,8 @@
         alert('GAS API Keyが設定されていません。設定画面から設定してください。');
         return;
       }
-      const gasUrl = data.gasWebappUrl + '?action=admin&api_key=' + encodeURIComponent(data.gasApiKey);
-      // GASを直接開くとGoogleの「このアプリケーションは…」バナーが出るため、
-      // 拡張内の iframe ラッパー(gas-frame.html)経由で開く（iframe内ではバナーが出ない）。
-      const wrapped = chrome.runtime.getURL('gas-frame.html')
-        + '?t=' + encodeURIComponent('検索条件管理')
-        + '&u=' + encodeURIComponent(gasUrl);
-      window.open(wrapped, '_blank');
+      const url = data.gasWebappUrl + '?action=admin&api_key=' + encodeURIComponent(data.gasApiKey);
+      window.open(url, '_blank');
     });
   });
 

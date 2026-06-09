@@ -111,6 +111,13 @@
     },
     {
       "matches": [
+        "https://script.google.com/macros/*"
+      ],
+      "js": ["gas-banner-hider.js"],
+      "run_at": "document_end"
+    },
+    {
+      "matches": [
         "https://script.google.com/macros/*",
         "https://script.googleusercontent.com/*",
         "https://*.googleusercontent.com/*"
