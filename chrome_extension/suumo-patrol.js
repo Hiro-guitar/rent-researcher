@@ -207,9 +207,9 @@ async function runSuumoPatrolCycle() {
     const { suumoSeenKeys } = await getStorageData(['suumoSeenKeys']);
     const seenKeys = suumoSeenKeys || {};
 
-    // 3. 有効なサービスを確認
-    const { enabledServices } = await getStorageData(['enabledServices']);
-    const services = enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
+    // 3. 有効なサービスを確認（SUUMO巡回専用の設定を使用、未設定時は顧客検索の設定にフォールバック）
+    const { patrolEnabledServices, enabledServices } = await getStorageData(['patrolEnabledServices', 'enabledServices']);
+    const services = patrolEnabledServices || enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
     // 2026-06-03: いい生活Square は規約違反(機械的取得)でアカウントBAN。SUUMO巡回でも走らせない。
     // 再開はBAN逃れになるため不可。
     services.essquare = false;

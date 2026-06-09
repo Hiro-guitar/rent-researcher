@@ -889,6 +889,61 @@ async function fetchReinsDetailForManual(tabId, target, opts = {}) {
   }
 }
 
+/**
+ * いえらぶ手動送信: 詳細ページを新タブで開いて情報を取得し閉じる。
+ * REINS版(fetchReinsDetailForManual)と同じパイプラインに乗せるための前処理。
+ */
+async function fetchIeloveDetailForManual(detailUrl) {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  let tabId = null;
+  try {
+    const tab = await chrome.tabs.create({ url: detailUrl, active: false });
+    tabId = tab.id;
+    await waitForTabLoad(tabId);
+    await sleep(1500);
+
+    // ログインチェック
+    const tabInfo = await chrome.tabs.get(tabId);
+    if (tabInfo.url && tabInfo.url.includes('/login')) {
+      return { ok: false, error: 'いえらぶ未ログイン' };
+    }
+
+    // 詳細情報を抽出
+    let detailResult;
+    try {
+      detailResult = await sendContentMessage(tabId, { type: 'IELOVE_EXTRACT_DETAIL' }, 15000);
+    } catch (err) {
+      return { ok: false, error: '詳細抽出失敗: ' + err.message };
+    }
+    if (!detailResult || !detailResult.ok || !detailResult.detail) {
+      return { ok: false, error: '詳細データなし: ' + ((detailResult && detailResult.error) || '') };
+    }
+
+    const detail = detailResult.detail;
+    detail.source = 'ielove';
+    detail.url = detailUrl;
+
+    // room_id が無ければ URL から生成
+    if (!detail.room_id) {
+      const m = detailUrl.match(/\/detail\/id\/(\d+)/);
+      if (m) detail.room_id = 'ielove_' + m[1];
+    }
+
+    // 構造名の正規化（自動検索と同じ）
+    if (detail.structure && typeof IELOVE_STRUCTURE_NORMALIZE !== 'undefined') {
+      detail.structure = IELOVE_STRUCTURE_NORMALIZE[detail.structure] || detail.structure;
+    }
+
+    return { ok: true, detail };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  } finally {
+    if (tabId) {
+      try { await chrome.tabs.remove(tabId); } catch (_) {}
+    }
+  }
+}
+
 // === room_id ハッシュ化（ソース・ID形式の匿名化） ===
 // 顧客向けURLにはハッシュ化したroom_idを使用し、
 // どのサイトから取得したか・IDの形式から推測されないようにする。
@@ -2267,7 +2322,89 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
 
-        // 従来動作（いえらぶ等・詳細取得なし）: そのまま転送（後方互換）
+        // いえらぶ 詳細取得モード: 新タブで詳細ページを開いて全情報を取得→承認パイプライン
+        if (fetchDetails && source === 'ielove' && senderTabId) {
+          const { gasWebappUrl } = await getConfig();
+          if (!gasWebappUrl) {
+            sendResponse({ ok: false, error: 'GAS URLが設定されていません' });
+            return;
+          }
+          let customerObj = null;
+          try {
+            const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+            if (Array.isArray(cached)) customerObj = cached.find(c => c && c.name === msg.customerName) || null;
+          } catch (e) {}
+
+          const total = props.length;
+          const enriched = [];
+          let skipped = 0;
+          for (let i = 0; i < props.length; i++) {
+            const p = props[i] || {};
+            try {
+              await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: i, total, skipped });
+            } catch (e) {}
+            const detailUrl = p.url || '';
+            if (!detailUrl) { skipped++; continue; }
+            let res;
+            try {
+              res = await fetchIeloveDetailForManual(detailUrl);
+            } catch (e) {
+              res = { ok: false, error: e.message };
+            }
+            if (res && res.ok && res.detail && res.detail.building_name) {
+              try {
+                if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
+                  res.detail.warnings_text = (globalThis.__computePropertyWarnings(res.detail, customerObj) || []).join('\n');
+                }
+              } catch (e) {}
+              // property_data_json を構築（承認ページ用）
+              if (typeof buildPropertyDataJson === 'function') {
+                res.detail.property_data_json = JSON.stringify(buildPropertyDataJson(res.detail));
+              }
+              enriched.push(res.detail);
+            } else {
+              skipped++;
+              await setStorageData({ debugLog: `[手動送信] いえらぶ詳細取得失敗→スキップ: ${p.buildingName || ''} ${(res && res.error) || ''}` });
+            }
+          }
+          try {
+            await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: total, total, skipped });
+          } catch (e) {}
+
+          if (enriched.length === 0) {
+            sendResponse({ ok: false, registered: 0, skipped, error: `全${total}件の詳細取得に失敗しました` });
+            return;
+          }
+
+          try {
+            await submitProperties(msg.customerName, enriched);
+          } catch (e) {
+            await setStorageData({ debugLog: '[手動送信] いえらぶ承認待ち登録失敗: ' + e.message });
+            sendResponse({ ok: false, registered: 0, skipped, error: '承認待ち登録に失敗: ' + e.message });
+            return;
+          }
+
+          let opened = 0;
+          for (const det of enriched) {
+            if (!det.room_id) continue;
+            try {
+              const approveUrl = gasWebappUrl
+                + '?action=approve&customer=' + encodeURIComponent(msg.customerName)
+                + '&room_id=' + encodeURIComponent(det.room_id);
+              await chrome.tabs.create({ url: approveUrl, active: true });
+              opened++;
+            } catch (e) {}
+          }
+
+          const message = skipped > 0
+            ? `${enriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
+            : `${enriched.length}件を承認待ちに登録し承認ページを開きました`;
+          await setStorageData({ debugLog: `手動送信(いえらぶ→承認): ${msg.customerName} へ ${enriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+          sendResponse({ ok: true, registered: enriched.length, skipped, opened, message });
+          return;
+        }
+
+        // 従来動作（詳細取得なし）: そのまま転送（後方互換）
         const resp = await gasPost({
           action: 'send_manual_properties',
           customer_name: msg.customerName,

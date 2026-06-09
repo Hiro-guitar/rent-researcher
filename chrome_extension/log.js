@@ -139,10 +139,29 @@
       reins: document.getElementById('enableReins').checked,
       ielove: document.getElementById('enableIelove').checked,
       itandi: document.getElementById('enableItandi').checked,
-      essquare: false, // 恒久停止(2026-06-03 規約違反BAN)。常にfalseで保存。
+      essquare: false,
     };
     const autoSearchEnabled = document.getElementById('autoSearchEnabled').checked;
     chrome.storage.local.set({ enabledServices, autoSearchEnabled }, callback);
+  }
+
+  function loadPatrolServiceSettings() {
+    chrome.storage.local.get(['patrolEnabledServices'], (data) => {
+      const services = data.patrolEnabledServices || { reins: true, ielove: true, itandi: true };
+      document.getElementById('patrolEnableReins').checked = services.reins !== false;
+      document.getElementById('patrolEnableIelove').checked = services.ielove !== false;
+      document.getElementById('patrolEnableItandi').checked = services.itandi !== false;
+    });
+  }
+
+  function savePatrolServiceSettings(callback) {
+    const patrolEnabledServices = {
+      reins: document.getElementById('patrolEnableReins').checked,
+      ielove: document.getElementById('patrolEnableIelove').checked,
+      itandi: document.getElementById('patrolEnableItandi').checked,
+      essquare: false,
+    };
+    chrome.storage.local.set({ patrolEnabledServices }, callback);
   }
 
   // Dashboard events
@@ -257,11 +276,16 @@
   suumoCheckbox.addEventListener('change', (e) => {
     chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_TOGGLE', enabled: e.target.checked });
   });
-  // 巡回実行: 単発のみ (チェックには触らない)
+  // 巡回サイト選択チェックボックスの変更を即保存
+  ['patrolEnableReins', 'patrolEnableIelove', 'patrolEnableItandi'].forEach((id) => {
+    document.getElementById(id).addEventListener('change', () => savePatrolServiceSettings());
+  });
+  // 巡回実行: サイト設定を保存してから起動
   suumoStartBtn.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_NOW' });
-    // 実行中フラグは background 側で立てるが、UX 上ここで先行表示
-    updateSuumoButtons(true);
+    savePatrolServiceSettings(() => {
+      chrome.runtime.sendMessage({ type: 'SUUMO_PATROL_NOW' });
+      updateSuumoButtons(true);
+    });
   });
   // 巡回停止: 実行中サイクルの中断のみ (チェック/アラームには触らない)
   suumoStopBtn.addEventListener('click', () => {
@@ -423,6 +447,7 @@
   // Init dashboard
   loadDashboardStatus();
   loadServiceSettings();
+  loadPatrolServiceSettings();
   loadCustomerCheckboxes();
 
   // ============================================================

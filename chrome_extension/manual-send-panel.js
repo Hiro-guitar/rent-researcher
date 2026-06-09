@@ -248,25 +248,26 @@
     var props = getCheckedProps();
     if (props.length === 0) { setStatus('送る物件を選んでください', '#c0392b'); return; }
 
-    // REINS は詳細ページを開いて全情報を取得し、承認待ちに登録→承認ページを開く
-    var isReins = adapter && adapter.source === 'reins';
-    var confirmMsg = isReins
-      ? customerName + ' さん宛に ' + props.length + '件を承認待ちに登録し、承認ページ（画像選択・追加）を開きます。\n各物件の詳細ページを開いて情報を取得するため少し時間がかかり、物件ごとにタブが開きます。よろしいですか？'
+    // REINS・いえらぶは詳細ページを開いて全情報を取得し、承認待ちに登録→承認ページを開く
+    var src = adapter && adapter.source;
+    var useApproval = src === 'reins' || src === 'ielove';
+    var confirmMsg = useApproval
+      ? customerName + ' さん宛に ' + props.length + '件を承認待ちに登録し、承認ページ（画像選択・追加）を開きます。\n各物件の詳細ページを開いて情報を取得するため少し時間がかかります。よろしいですか？'
       : customerName + ' さんに ' + props.length + '件の物件をLINEで送信します。よろしいですか？';
     if (!window.confirm(confirmMsg)) return;
 
     sendBtn.disabled = true;
-    setStatus(isReins ? '詳細を取得して登録中…（' + props.length + '件）' : '送信中…（' + props.length + '件）', '#666');
+    setStatus(useApproval ? '詳細を取得して登録中…（' + props.length + '件）' : '送信中…（' + props.length + '件）', '#666');
     sendToBackground({
       type: 'SEND_MANUAL_PROPERTIES',
       customerName: customerName,
-      source: adapter && adapter.source,
-      fetchDetails: isReins,
+      source: src,
+      fetchDetails: useApproval,
       properties: props
     }).then(function (resp) {
       if (resp && resp.ok) {
         var color = (resp.skipped && resp.skipped > 0) ? '#b8860b' : '#1a7f37';
-        if (isReins) {
+        if (useApproval) {
           setStatus(resp.message || ((resp.registered || 0) + '件を承認待ちに登録しました'), color);
         } else {
           setStatus('送信しました: ' + (resp.message || (resp.sent + '件')), color);
