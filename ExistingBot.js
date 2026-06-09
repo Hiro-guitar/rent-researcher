@@ -359,7 +359,7 @@ function handleVacancyQuery(replyToken, userId, raw) {
     // 「要確認」物件は自動確認できないため、スタッフ向けDiscordに空室確認依頼を通知
     if (requiresStaffCheck.length > 0) {
       try {
-        _notifyVacancyCheckRequestToDiscord_(_getLineUserName_(userId), requiresStaffCheck);
+        _notifyVacancyCheckRequestToDiscord_(_getLineUserName_(userId), userId, requiresStaffCheck);
       } catch (eDiscord) {
         console.error('要確認Discord通知エラー: ' + eDiscord.message);
       }
@@ -410,7 +410,7 @@ function _getLineUserName_(userId) {
  * @param {string} userName - 依頼したお客さんの表示名
  * @param {Array<{name,room,address,station,rent,layout,area,vacancyUrl}>} props
  */
-function _notifyVacancyCheckRequestToDiscord_(userName, props) {
+function _notifyVacancyCheckRequestToDiscord_(userName, userId, props) {
   if (!props || props.length === 0) return;
   var sp = PropertiesService.getScriptProperties();
   var webhookUrl = sp.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL')
@@ -419,6 +419,9 @@ function _notifyVacancyCheckRequestToDiscord_(userName, props) {
     console.warn('[要確認通知] Discord webhook 未設定のためスキップ');
     return;
   }
+  var webAppUrl = '';
+  try { webAppUrl = ScriptApp.getService().getUrl(); } catch (_) {}
+  var apiKey = sp.getProperty('REINS_API_KEY') || '';
   var lines = [];
   lines.push('🔔 **空室確認依頼（要確認物件）**');
   lines.push('お客様: ' + (userName || '(不明)') + ' 様 が空室確認を希望しています。');
@@ -433,15 +436,75 @@ function _notifyVacancyCheckRequestToDiscord_(userName, props) {
     if (p.area) spec.push(p.area + 'm²');
     if (spec.length) lines.push(spec.join(' / '));
     if (p.vacancyUrl) lines.push('📋 物件番号検索: <' + p.vacancyUrl + '>');
+    // スタッフ返信ボタン: クリックするとお客様にLINEで結果を自動返信する
+    if (webAppUrl) {
+      var baseUrl = webAppUrl + '?action=staff_reply_vacancy'
+        + '&user_id=' + encodeURIComponent(userId || '')
+        + '&building=' + encodeURIComponent(p.name || '')
+        + '&room=' + encodeURIComponent(p.room || '')
+        + '&api_key=' + encodeURIComponent(apiKey);
+      lines.push('🟢 [このお客様に「募集中」と返信](<' + baseUrl + '&status=available>)');
+      lines.push('🔴 [このお客様に「ご案内不可」と返信](<' + baseUrl + '&status=closed>)');
+    }
     lines.push('');
   }
-  lines.push('→ 元付業者に確認のうえ、お客様にLINEでご返信ください。');
+  lines.push('→ 元付業者に確認のうえ、上のボタンでお客様にLINE返信してください。');
   var payload = { content: lines.join('\n') };
   try {
     _sendDiscordWithRetry_(webhookUrl, payload, 3);
   } catch (e) {
     console.error('[要確認通知] Discord送信失敗: ' + e.message);
   }
+}
+
+/**
+ * スタッフがDiscordで選んだ空室確認結果を、お客さんにLINEで返信する。
+ * staff_reply_vacancy ハンドラ(コード.js)から呼ばれる。
+ * 物件は「物件空室管理」シートを物件名+部屋番号で再検索して取得する。
+ * @param {string} userId - お客さんのLINE userId
+ * @param {string} building - 物件名
+ * @param {string} room - 部屋番号
+ * @param {string} status - 'available'(募集中) | 'closed'(ご案内不可)
+ * @return {{ok:boolean, message?:string, displayName?:string}}
+ */
+function _replyVacancyResultToCustomer_(userId, building, room, status) {
+  if (!userId) return { ok: false, message: 'user_id が空です' };
+  var ss = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+  var sheet = ss.getSheetByName(PROPERTY_SHEET_NAME);
+  if (!sheet) return { ok: false, message: '物件空室管理シートが見つかりません' };
+  var data = sheet.getDataRange().getValues();
+  var bN = normalizeForMatch(building);
+  var rN = normalizeForMatch(room);
+  var found = null;
+  for (var i = 1; i < data.length; i++) {
+    if (normalizeForMatch(String(data[i][0])) === bN
+        && normalizeForMatch(String(data[i][1] || '')) === rN) {
+      found = data[i];
+      break;
+    }
+  }
+  if (!found) return { ok: false, message: '物件が見つかりません: ' + building + ' ' + room };
+
+  var displayName = String(found[0]) + (found[1] ? ' ' + found[1] + '号室' : '');
+
+  if (status === 'available') {
+    // 募集中 → 申込ボタン付きFlex（createPropertyBubble 流用）
+    var rawUrl = found[9] ? String(found[9]).trim() : '';
+    var url = (rawUrl && rawUrl.indexOf('http') === 0) ? rawUrl : '';
+    var bubble = createPropertyBubble({
+      name: found[0], room: found[1], address: found[2], station: found[3],
+      rent: found[4], fee: found[5], layout: found[6], area: found[7],
+      status: '募集中', url: url
+    });
+    pushMessage(userId, [
+      { type: 'text', text: 'お待たせいたしました。\n「' + displayName + '」は現在【募集中】です！\nぜひご検討ください。' },
+      { type: 'flex', altText: '「' + displayName + '」は募集中です', contents: bubble }
+    ]);
+  } else {
+    // ご案内不可 → 「ご案内が難しい」+ 条件登録誘導（遅延返信と共通の文面）
+    pushMessage(userId, _buildVacancyUnavailableMessages_(userId, displayName));
+  }
+  return { ok: true, displayName: displayName };
 }
 
 /**
@@ -663,6 +726,66 @@ function enqueueDelayedReply(userId, propertyName, roomNumber) {
 }
 
 /**
+ * 「ご案内が難しい物件」のお客さん向け返信メッセージ配列を生成する。
+ * 条件登録済みならテキストのみ、未登録なら条件登録誘導Flexを返す。
+ * processReplyQueue（遅延返信）と staff_reply_vacancy（スタッフ即時返信）で共用。
+ * @param {string} userId
+ * @param {string} displayName - 「物件名 202号室」形式
+ * @return {Array} LINE messages 配列
+ */
+function _buildVacancyUnavailableMessages_(userId, displayName) {
+  var _hasRegistered = false;
+  try {
+    var _existing = (typeof readLatestCriteria === 'function') ? readLatestCriteria(userId) : null;
+    _hasRegistered = !!_existing;
+  } catch (_) {}
+
+  if (_hasRegistered) {
+    // 既に条件登録済み: 条件登録への誘導は不要、テキスト通知のみ
+    return [{
+      type: 'text',
+      text: 'お待たせいたしました。\n「' + displayName + '」について確認いたしましたが、現在ご案内が難しい状況でした。\n\n引き続き、ご希望の条件に合うお部屋が見つかり次第すぐにご案内いたします。'
+    }];
+  }
+  // 未登録: 確認結果 + 類似物件の条件登録誘導Flex
+  return [{
+    type: 'flex',
+    altText: '「' + displayName + '」の確認結果をお知らせします',
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        paddingAll: 'xl',
+        contents: [
+          { type: 'text', text: 'お待たせいたしました。', size: 'sm', color: '#666666' },
+          { type: 'text', text: displayName, size: 'md', color: '#1a2538', weight: 'bold', wrap: true, margin: 'sm' },
+          { type: 'text', text: '確認いたしましたが、現在ご案内が難しい状況でした。', size: 'sm', color: '#666666', wrap: true, margin: 'sm' },
+          { type: 'separator', margin: 'xl', color: '#eeeeee' },
+          {
+            type: 'box', layout: 'vertical', backgroundColor: '#f5f9ee', cornerRadius: 'md',
+            paddingAll: 'lg', margin: 'lg', spacing: 'sm',
+            contents: [
+              { type: 'text', text: '似た条件で\nお部屋を探しませんか？', size: 'lg', color: '#3d6909', weight: 'bold', wrap: true, align: 'center' },
+              { type: 'text', text: 'ご希望に合う物件が見つかり次第\nすぐにお知らせします', size: 'xs', color: '#5a7a3f', wrap: true, align: 'center', margin: 'sm' }
+            ]
+          }
+        ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
+        contents: [
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm', action: { type: 'message', label: 'はい、お部屋を探す', text: '条件登録' } },
+          { type: 'button', style: 'link', color: '#999999', height: 'sm', action: { type: 'message', label: '今回はキャンセル', text: '類似物件不要' } }
+        ]
+      }
+    }
+  }];
+}
+
+/**
  * 返信キューを処理し、送信予定時刻を過ぎたメッセージを push 送信する。
  * 5分間隔の定期トリガーから呼ばれる。
  */
@@ -689,128 +812,8 @@ function processReplyQueue() {
     var roomNumber = data[i][2];
     var displayName = propertyName + (roomNumber ? ' ' + roomNumber + '号室' : '');
 
-    // 既に条件登録済みかチェック (登録済みなら「条件登録ボタン」は出さず通知のみ)
-    var _hasRegistered = false;
-    try {
-      var _existing = (typeof readLatestCriteria === 'function') ? readLatestCriteria(userId) : null;
-      _hasRegistered = !!_existing;
-    } catch (_) {}
-
-    if (_hasRegistered) {
-      // 既に条件が登録されている顧客: シンプルなテキスト通知 (条件登録への誘導は不要)
-      pushMessage(userId, [{
-        type: 'text',
-        text: 'お待たせいたしました。\n「' + displayName + '」について確認いたしましたが、現在ご案内が難しい状況でした。\n\n引き続き、ご希望の条件に合うお部屋が見つかり次第すぐにご案内いたします。'
-      }]);
-      // ステータス更新
-      sheet.getRange(i + 1, 6).setValue('sent');
-      continue;
-    }
-
-    // Push メッセージ送信（Flex - 確認結果 + 類似物件の提案）
-    pushMessage(userId, [
-      {
-        type: 'flex',
-        altText: '「' + displayName + '」の確認結果をお知らせします',
-        contents: {
-          type: 'bubble',
-          size: 'mega',
-          body: {
-            type: 'box',
-            layout: 'vertical',
-            spacing: 'md',
-            paddingAll: 'xl',
-            contents: [
-              // 残念な結果 (控えめに伝える)
-              {
-                type: 'text',
-                text: 'お待たせいたしました。',
-                size: 'sm',
-                color: '#666666'
-              },
-              {
-                type: 'text',
-                text: displayName,
-                size: 'md',
-                color: '#1a2538',
-                weight: 'bold',
-                wrap: true,
-                margin: 'sm'
-              },
-              {
-                type: 'text',
-                text: '確認いたしましたが、現在ご案内が難しい状況でした。',
-                size: 'sm',
-                color: '#666666',
-                wrap: true,
-                margin: 'sm'
-              },
-              { type: 'separator', margin: 'xl', color: '#eeeeee' },
-              // 提案 (こっちが本命、目立つように)
-              {
-                type: 'box',
-                layout: 'vertical',
-                backgroundColor: '#f5f9ee',
-                cornerRadius: 'md',
-                paddingAll: 'lg',
-                margin: 'lg',
-                spacing: 'sm',
-                contents: [
-                  {
-                    type: 'text',
-                    text: '似た条件で\nお部屋を探しませんか？',
-                    size: 'lg',
-                    color: '#3d6909',
-                    weight: 'bold',
-                    wrap: true,
-                    align: 'center'
-                  },
-                  {
-                    type: 'text',
-                    text: 'ご希望に合う物件が見つかり次第\nすぐにお知らせします',
-                    size: 'xs',
-                    color: '#5a7a3f',
-                    wrap: true,
-                    align: 'center',
-                    margin: 'sm'
-                  }
-                ]
-              }
-            ]
-          },
-          footer: {
-            type: 'box',
-            layout: 'vertical',
-            spacing: 'sm',
-            paddingAll: 'lg',
-            contents: [
-              {
-                type: 'button',
-                style: 'primary',
-                color: '#6ea814',
-                height: 'sm',
-                action: {
-                  type: 'message',
-                  label: 'はい、お部屋を探す',
-                  text: '条件登録'
-                }
-              },
-              {
-                type: 'button',
-                style: 'link',
-                color: '#999999',
-                height: 'sm',
-                action: {
-                  type: 'message',
-                  label: '今回はキャンセル',
-                  text: '類似物件不要'
-                }
-              }
-            ]
-          }
-        }
-      }
-    ]);
+    // 「ご案内が難しい」返信を生成（条件登録済み判定込み）して送信
+    pushMessage(userId, _buildVacancyUnavailableMessages_(userId, displayName));
 
     // ステータスを sent に更新
     sheet.getRange(i + 1, 6).setValue('sent');

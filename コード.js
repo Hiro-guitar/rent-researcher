@@ -1069,6 +1069,49 @@ function doGet(e) {
     }
   }
 
+  // スタッフが Discord で「公式LINEの空室確認(要確認物件)」の結果を返答するエンドポイント
+  //   Discord ボタンのリンククリックで呼ばれ、お客さんに LINE で結果を返信する
+  if (action === 'staff_reply_vacancy') {
+    try {
+      if (!_validateReinsApiKey(e.parameter.api_key)) {
+        return HtmlService.createHtmlOutput('<h2>❌ 認証エラー</h2><p>api_keyが不正です。</p>');
+      }
+      var uidSV = e.parameter.user_id || '';
+      var bldgSV = e.parameter.building || '';
+      var roomSV = e.parameter.room || '';
+      var statusSV = e.parameter.status || '';
+      if (['available', 'closed'].indexOf(statusSV) < 0) {
+        return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><p>不正なstatus: ' + statusSV + '</p>');
+      }
+      if (!uidSV) {
+        return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><p>user_id が空です。</p>');
+      }
+      var resSV = _replyVacancyResultToCustomer_(uidSV, bldgSV, roomSV, statusSV);
+      var statusLabelSV = (statusSV === 'available') ? '🟢 募集中' : '🔴 ご案内不可';
+      var html = '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8">'
+        + '<title>空室確認の返信</title>'
+        + '<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f5f7fa;padding:30px 20px;color:#1a2538}'
+        + '.card{background:#fff;border-radius:12px;padding:30px;max-width:500px;margin:0 auto;box-shadow:0 4px 16px rgba(0,0,0,0.08)}'
+        + 'h2{color:#3d6909;margin-bottom:16px}'
+        + 'table{width:100%;margin:16px 0}td{padding:8px 0;font-size:14px}td:first-child{color:#6b7280;width:120px}'
+        + '.note{margin-top:20px;padding:12px;background:#f0faf4;border-radius:8px;font-size:13px;color:#3d6909}'
+        + '</style></head><body>'
+        + '<div class="card">'
+        + '<h2>' + (resSV.ok ? '✅ お客様にLINEで通知しました' : '⚠️ 返信失敗') + '</h2>'
+        + '<table>'
+        + '<tr><td>物件</td><td>' + (resSV.displayName || (bldgSV + ' ' + roomSV)) + '</td></tr>'
+        + '<tr><td>返信内容</td><td>' + statusLabelSV + '</td></tr>'
+        + '</table>'
+        + (resSV.ok
+          ? '<div class="note">✓ お客様にLINEで結果を送信しました。<br>このタブは閉じてOKです。</div>'
+          : '<div class="note" style="color:#9b1c1c">' + (resSV.message || '不明なエラー') + '</div>')
+        + '</div></body></html>';
+      return HtmlService.createHtmlOutput(html);
+    } catch (eSV) {
+      return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><pre>' + eSV.message + '</pre>');
+    }
+  }
+
   // 物件1件の現在の空室ステータス取得 (property.html がポーリング)
   if (action === 'get_availability_status') {
     try {
