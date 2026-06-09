@@ -3459,7 +3459,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   const newProperties = [];
 
   // --- Step 6〜7: ページネーションしながら検索結果を詳細取得（最大200件） ---
-  const maxDetails = 200;
+  const maxDetails = 70;
   let totalDetailCount = 0;
   let currentPage = 1;
   let consecutiveRecoveryFails = 0;
