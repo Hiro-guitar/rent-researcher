@@ -4243,16 +4243,20 @@ function _getContactLogs_(ss, customerName) {
     if (String(data[i][0] || '').trim() !== customerName) continue;
     var d = data[i][1];
     var dateStr = '';
+    var dateLocal = '';
     if (d instanceof Date) {
       dateStr = Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+      dateLocal = Utilities.formatDate(d, 'Asia/Tokyo', "yyyy-MM-dd'T'HH:mm");
     } else if (d) {
       dateStr = String(d);
     }
     logs.push({
       date: dateStr,
+      dateLocal: dateLocal,
       type: String(data[i][2] || ''),
       memo: String(data[i][3] || ''),
-      author: String(data[i][4] || '')
+      author: String(data[i][4] || ''),
+      rowIndex: i + 1  // シート上の行番号（編集・削除のキー）
     });
   }
   // 新しい順
@@ -4276,6 +4280,57 @@ function addContactLog(customerName, type, dateStr, memo) {
     }
     var date = new Date(dateStr);
     sheet.appendRow([customerName, date, type, memo, '管理者']);
+    return { success: true };
+  } catch(e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * 対応ログを編集する（google.script.run から呼ばれる）。
+ * rowNum で行を特定し、誤操作防止のため A列(顧客名)が customerName と一致するか検証してから更新する。
+ */
+function updateContactLog(rowNum, customerName, type, dateStr, memo) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CONTACT_LOG_SHEET_NAME);
+    if (!sheet) return { success: false, message: '対応ログシートが見つかりません' };
+    rowNum = parseInt(rowNum, 10);
+    if (!rowNum || rowNum < 2 || rowNum > sheet.getLastRow()) {
+      return { success: false, message: '対象の行が見つかりません（再読み込みしてください）' };
+    }
+    var rowCustomer = String(sheet.getRange(rowNum, 1).getValue() || '').trim();
+    if (rowCustomer !== String(customerName).trim()) {
+      return { success: false, message: 'ログがずれている可能性があります。ページを再読み込みしてください' };
+    }
+    var date = new Date(dateStr);
+    sheet.getRange(rowNum, 2).setValue(date);  // B: 対応日時
+    sheet.getRange(rowNum, 3).setValue(type);  // C: 対応種別
+    sheet.getRange(rowNum, 4).setValue(memo);  // D: メモ
+    return { success: true };
+  } catch(e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * 対応ログを削除する（google.script.run から呼ばれる）。
+ * rowNum で行を特定し、誤操作防止のため A列(顧客名)が customerName と一致するか検証してから削除する。
+ */
+function deleteContactLog(rowNum, customerName) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CONTACT_LOG_SHEET_NAME);
+    if (!sheet) return { success: false, message: '対応ログシートが見つかりません' };
+    rowNum = parseInt(rowNum, 10);
+    if (!rowNum || rowNum < 2 || rowNum > sheet.getLastRow()) {
+      return { success: false, message: '対象の行が見つかりません（再読み込みしてください）' };
+    }
+    var rowCustomer = String(sheet.getRange(rowNum, 1).getValue() || '').trim();
+    if (rowCustomer !== String(customerName).trim()) {
+      return { success: false, message: 'ログがずれている可能性があります。ページを再読み込みしてください' };
+    }
+    sheet.deleteRow(rowNum);
     return { success: true };
   } catch(e) {
     return { success: false, message: e.message };
