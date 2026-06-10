@@ -2725,14 +2725,14 @@ function refreshSuggestionList() {
         if (c.stations) areaParts.push(esc(c.stations));
         var areaLine = areaParts.join('　/　');
 
-        html += '<div style="background:#fff;border:1px solid #cfe1f3;border-radius:6px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:flex-start;gap:8px;">' +
+        html += '<div style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:flex-start;gap:8px;">' +
           '<input type="checkbox" class="suggestion-cb" data-name="' + name + '" checked style="margin-top:2px;flex-shrink:0;width:18px;height:18px;accent-color:#3498db;">' +
           '<div style="flex:1;min-width:0;">' +
-            '<div style="font-size:13px;font-weight:600;color:#1f5e8b;">' + esc(c.name) + reasonBadge + '</div>' +
-            (c.reasonText ? '<div style="font-size:11px;color:#856404;margin-top:3px;">' + esc(c.reasonText) + '</div>' : '') +
-            '<div style="font-size:11px;color:#666;margin-top:4px;">📅 ' + dateLine + '</div>' +
-            (condLine ? '<div style="font-size:11px;color:#444;margin-top:3px;">🏠 ' + condLine + '</div>' : '') +
-            (areaLine ? '<div style="font-size:11px;color:#444;margin-top:3px;">📍 ' + areaLine + '</div>' : '') +
+            '<div style="font-size:13px;font-weight:600;color:#5da9e9;">' + esc(c.name) + reasonBadge + '</div>' +
+            (c.reasonText ? '<div style="font-size:11px;color:#d4b35a;margin-top:3px;">' + esc(c.reasonText) + '</div>' : '') +
+            '<div style="font-size:11px;color:#999;margin-top:4px;">📅 ' + dateLine + '</div>' +
+            (condLine ? '<div style="font-size:11px;color:#ccc;margin-top:3px;">🏠 ' + condLine + '</div>' : '') +
+            (areaLine ? '<div style="font-size:11px;color:#ccc;margin-top:3px;">📍 ' + areaLine + '</div>' : '') +
           '</div>' +
         '</div>';
       });
