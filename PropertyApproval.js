@@ -3260,20 +3260,9 @@ function resendPropertyNotifications(customerName, roomIds) {
   var sentCount = 0;
   var allMessages = [];
 
-  // Flexバブル → カルーセル化（12件ずつ）
-  for (var c = 0; c < flexBubbles.length; c += 12) {
-    var chunk = flexBubbles.slice(c, c + 12);
-    if (chunk.length === 1) {
-      // 1件だけならカルーセルにせずそのまま
-      allMessages.push({ type: 'flex', altText: '見逃していませんか？', contents: chunk[0] });
-    } else {
-      allMessages.push({
-        type: 'flex',
-        altText: '見逃していませんか？（' + chunk.length + '件）',
-        contents: { type: 'carousel', contents: chunk }
-      });
-    }
-  }
+  // Flexバブル → カルーセル化（サイズ・件数上限で分割。12件だとJSONが50KB超でLINEに弾かれるため）
+  var _carMsgs = _splitBubblesIntoCarousels_(flexBubbles, '見逃していませんか？');
+  for (var c = 0; c < _carMsgs.length; c++) allMessages.push(_carMsgs[c]);
 
   // テキストフォールバックも追加
   for (var t = 0; t < textMessages.length; t++) {
@@ -3457,20 +3446,8 @@ function sendManualPropertiesToLine(customerName, properties) {
     }
   }
 
-  // Flexバブル → カルーセル化（最大12件/カルーセル、横スワイプ可能）
-  var allMessages = [];
-  for (var c = 0; c < flexBubbles.length; c += 12) {
-    var chunk = flexBubbles.slice(c, c + 12);
-    if (chunk.length === 1) {
-      allMessages.push({ type: 'flex', altText: 'お探しの物件が見つかりました', contents: chunk[0] });
-    } else {
-      allMessages.push({
-        type: 'flex',
-        altText: 'お探しの物件が見つかりました（' + chunk.length + '件）',
-        contents: { type: 'carousel', contents: chunk }
-      });
-    }
-  }
+  // Flexバブル → カルーセル化（サイズ・件数上限で分割。12件だとJSONが50KB超でLINEに弾かれるため）
+  var allMessages = _splitBubblesIntoCarousels_(flexBubbles, 'お探しの物件が見つかりました');
 
   // pushMessage は1回5メッセージまで
   var sentCount = 0;
@@ -5703,6 +5680,42 @@ function _getCustomerEquipmentList_(customerName) {
     console.warn('_getCustomerEquipmentList_ error: ' + (e && e.message));
   }
   return [];
+}
+
+/**
+ * Flexバブル配列を、LINEのFlexサイズ上限を超えないようカルーセル(複数メッセージ)に分割する。
+ * carouselは最大12バブル、かつ JSON合計が約50KBを超えるとLINEに弾かれる(Too large flex message)ため、
+ * 件数とサイズの両方で区切る。
+ * @param {Array} flexBubbles - bubble オブジェクトの配列
+ * @param {string} altText - メッセージの altText
+ * @return {Array} LINEメッセージ(flex)の配列
+ */
+function _splitBubblesIntoCarousels_(flexBubbles, altText) {
+  var SIZE_LIMIT = 45000;  // 50KB上限に対する安全マージン
+  var MAX_BUBBLES = 12;
+  var messages = [];
+  var current = [];
+  var currentSize = 80;    // carousel枠のオーバーヘッド概算
+  for (var i = 0; i < flexBubbles.length; i++) {
+    var bubbleSize = 4000;
+    try { bubbleSize = JSON.stringify(flexBubbles[i]).length; } catch (e) {}
+    if (current.length > 0 && (current.length >= MAX_BUBBLES || currentSize + bubbleSize > SIZE_LIMIT)) {
+      messages.push(_carouselMessage_(current, altText));
+      current = [];
+      currentSize = 80;
+    }
+    current.push(flexBubbles[i]);
+    currentSize += bubbleSize;
+  }
+  if (current.length > 0) messages.push(_carouselMessage_(current, altText));
+  return messages;
+}
+
+function _carouselMessage_(chunk, altText) {
+  if (chunk.length === 1) {
+    return { type: 'flex', altText: altText, contents: chunk[0] };
+  }
+  return { type: 'flex', altText: altText + '（' + chunk.length + '件）', contents: { type: 'carousel', contents: chunk } };
 }
 
 function buildPropertyFlex(prop, options) {
