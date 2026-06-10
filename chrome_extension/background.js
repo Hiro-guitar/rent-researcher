@@ -2423,10 +2423,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             } catch (e) {
               res = { ok: false, error: e.message };
             }
-            if (res && res.ok && res.detail && res.detail.building_name) {
-              // 詳細ページで賃料等が取れなかった場合、一覧(p)の値でフォールバック。
-              // REINS詳細はタイミング等で賃料が取れず0になることがあるため、一覧の賃料を引き継ぐ。
+            // 詳細で取れなかったフィールドを一覧(p)でフォールバック（物件名・賃料含む）。
+            // building_name 判定より前に行う（物件名が取れない物件がスキップされないように）。
+            // REINS詳細はタイミング等で物件名/賃料が取れないことがあるため一覧の値を引き継ぐ。
+            if (res && res.ok && res.detail) {
               const _d = res.detail;
+              if (!_d.building_name && p.buildingName) _d.building_name = p.buildingName;
+              if (!_d.room_number && p.roomNumber) _d.room_number = p.roomNumber;
               if (!_d.rent && p.rent) _d.rent = Number(p.rent) || 0;
               if (!_d.management_fee && p.managementFee) _d.management_fee = Number(p.managementFee) || 0;
               if (!_d.deposit && p.deposit) _d.deposit = p.deposit;
@@ -2436,6 +2439,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               if (!_d.building_age && p.buildingAge) _d.building_age = p.buildingAge;
               if (!_d.station_info && p.stationInfo) _d.station_info = p.stationInfo;
               if (!_d.address && p.address) _d.address = p.address;
+            }
+            if (res && res.ok && res.detail && res.detail.building_name) {
               // 警告計算（承認ページで表示、自動検索と同一ロジック）
               try {
                 if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
