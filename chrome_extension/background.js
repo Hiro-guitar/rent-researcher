@@ -893,10 +893,14 @@ async function fetchReinsDetailForManual(tabId, target, opts = {}) {
  * いえらぶ手動送信: 詳細ページを新タブで開いて情報を取得し閉じる。
  * REINS版(fetchReinsDetailForManual)と同じパイプラインに乗せるための前処理。
  */
-async function fetchIeloveDetailForManual(detailUrl) {
+async function fetchIeloveDetailForManual(baseProp) {
+  // baseProp: いえらぶ一覧collectのcamelCase prop（url,rent,buildingName等）。後方互換で文字列URLも可。
+  const bp = (typeof baseProp === 'string') ? { url: baseProp } : (baseProp || {});
+  const detailUrl = bp.url || '';
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   let tabId = null;
   try {
+    if (!detailUrl) return { ok: false, error: 'URLなし' };
     const tab = await chrome.tabs.create({ url: detailUrl, active: false });
     tabId = tab.id;
     await waitForTabLoad(tabId);
@@ -933,6 +937,21 @@ async function fetchIeloveDetailForManual(detailUrl) {
     if (detail.structure && typeof IELOVE_STRUCTURE_NORMALIZE !== 'undefined') {
       detail.structure = IELOVE_STRUCTURE_NORMALIZE[detail.structure] || detail.structure;
     }
+
+    // 詳細ページで取れなかったフィールドを一覧(baseProp)からフォールバック。
+    // いえらぶ詳細は span.rent_cost が無いページで賃料0になることがあるため、一覧の賃料を引き継ぐ。
+    if (!detail.rent && bp.rent) detail.rent = Number(bp.rent) || 0;
+    if (!detail.management_fee && bp.managementFee) detail.management_fee = Number(bp.managementFee) || 0;
+    if (!detail.building_name && bp.buildingName) detail.building_name = bp.buildingName;
+    if (!detail.room_number && bp.roomNumber) detail.room_number = bp.roomNumber;
+    if (!detail.layout && bp.layout) detail.layout = bp.layout;
+    if (!detail.area && bp.area) detail.area = bp.area;
+    if (!detail.deposit && bp.deposit) detail.deposit = bp.deposit;
+    if (!detail.key_money && bp.keyMoney) detail.key_money = bp.keyMoney;
+    if (!detail.building_age && bp.buildingAge) detail.building_age = bp.buildingAge;
+    if (!detail.station_info && bp.stationInfo) detail.station_info = bp.stationInfo;
+    if (!detail.address && bp.address) detail.address = bp.address;
+    if ((!detail.image_urls || !detail.image_urls.length) && bp.imageUrls && bp.imageUrls.length) detail.image_urls = bp.imageUrls;
 
     return { ok: true, detail };
   } catch (e) {
@@ -2483,7 +2502,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             if (!detailUrl) { skipped++; continue; }
             let res;
             try {
-              res = await fetchIeloveDetailForManual(detailUrl);
+              res = await fetchIeloveDetailForManual(p);  // 一覧の賃料等をフォールバックに使うため prop全体を渡す
             } catch (e) {
               res = { ok: false, error: e.message };
             }
