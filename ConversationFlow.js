@@ -166,9 +166,8 @@ function handleSearchFlowText(replyToken, userId, message, state) {
     case STEPS.RESIDENT_CUSTOM:
       return handleResidentCustomInput(replyToken, userId, message, state);
     case STEPS.CRITERIA_SELECT:
-      replyMessage(replyToken, [textMsg(
-        '条件選択ページで条件を選んでください。\nチャットに送られたリンクをタップして開いてください。\n\nやり直す場合は「キャンセル」と送ってください。'
-      )]);
+      // 条件選択待ち中に普通のメッセージが来ても、促しメッセージは送らない（何も返さず待ち状態は保持）。
+      // お客さんが条件選択ページのリンクから選べば完了する。中断したい場合は「キャンセル」(上で処理)で可能。
       return true;
     case STEPS.NOTES:
       return handleNotesInput(replyToken, userId, message, state);
