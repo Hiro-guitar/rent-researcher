@@ -2631,8 +2631,13 @@ function handleAddReinsProperty(json) {
             if (!foundInSeen) {
               var source = p.source || 'reins';
               var sourceRef = (source === 'reins') ? (p.reins_property_number || '') : (p.url || '');
-              seenSh.appendRow([customerName, roomId, p.building_name || '', now, source, '', '', sourceRef]);
-              console.log('[SEEN補完] ' + customerName + ' / ' + roomId + ' をSEEN_SHEETに追加');
+              // 送付日時は再クロール時刻(now)ではなく、元の送付日時を保持する。
+              // existingData は2498行で書き込み前に取得済み。M列(updated_at, idx12)=元の送信時刻、無ければL列(created_at, idx11)。
+              // これがないと、巡回が既送信物件を再クロールするたびに送付日時が「今」に化け、
+              // お客さんには何も送られていないのに顧客管理ページの送付日時だけ更新されてしまう。
+              var origSentAt = existingData[rowNum - 1][12] || existingData[rowNum - 1][11] || now;
+              seenSh.appendRow([customerName, roomId, p.building_name || '', origSentAt, source, '', '', sourceRef]);
+              console.log('[SEEN補完] ' + customerName + ' / ' + roomId + ' をSEEN_SHEETに追加 (sent_at=' + origSentAt + ')');
             }
           }
         }
