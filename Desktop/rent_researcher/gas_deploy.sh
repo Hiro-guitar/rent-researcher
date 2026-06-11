@@ -236,6 +236,13 @@ VERSION_RESPONSE=$(api_call POST "${BASE_URL}/versions" \
 VERSION_ERROR=$(echo "$VERSION_RESPONSE" | jq -r '.error.message // empty')
 if [[ -n "$VERSION_ERROR" ]]; then
     echo "ERROR creating version: $VERSION_ERROR"
+    if echo "$VERSION_ERROR" | grep -qi "limit of 200 versions"; then
+        echo ""
+        echo "  ⚠️  バージョンが上限(200)に達しています。"
+        echo "  Apps Scriptエディタ →「プロジェクトの履歴」から古いバージョンを削除してください。"
+        echo "  （注: このスクリプトは1回の実行でバージョンを1つだけ作成します。"
+        echo "        リトライ時はスクリプトを再実行せず、内部のデプロイ更新リトライに任せてください）"
+    fi
     echo "Full response:"
     echo "$VERSION_RESPONSE" | jq .
     exit 1
@@ -280,25 +287,42 @@ echo ""
 
 UPDATE_SUCCESS=0
 UPDATE_FAIL=0
+UPDATE_BODY=$(jq -n \
+    --arg ver "$VERSION_NUMBER" \
+    '{deploymentConfig: {versionNumber: ($ver | tonumber), description: "Updated by gas_deploy.sh"}}')
 
-while IFS= read -r DEPLOY_ID; do
-    echo "Updating deployment: $DEPLOY_ID -> version $VERSION_NUMBER ..."
+# Google側のデプロイAPIは Internal error を出すことがあるため、失敗したデプロイメントだけ
+# スクリプト内部でリトライする（※新バージョンは作り直さない＝バージョン増殖を防ぐ）。
+MAX_ROUNDS="${DEPLOY_MAX_ROUNDS:-10}"
+RETRY_SLEEP="${DEPLOY_RETRY_SLEEP:-20}"
+PENDING_IDS="$DEPLOYMENT_IDS"
+ROUND=0
 
-    UPDATE_BODY=$(jq -n \
-        --arg ver "$VERSION_NUMBER" \
-        '{deploymentConfig: {versionNumber: ($ver | tonumber), description: "Updated by gas_deploy.sh"}}')
-
-    UPDATE_RESPONSE=$(api_call PUT "${BASE_URL}/deployments/${DEPLOY_ID}" "$UPDATE_BODY")
-
-    UPDATE_ERROR=$(echo "$UPDATE_RESPONSE" | jq -r '.error.message // empty')
-    if [[ -n "$UPDATE_ERROR" ]]; then
-        echo "  ERROR: $UPDATE_ERROR"
-        ((UPDATE_FAIL++)) || true
-    else
-        echo "  OK"
-        ((UPDATE_SUCCESS++)) || true
+while [[ -n "$PENDING_IDS" && "$ROUND" -lt "$MAX_ROUNDS" ]]; do
+    ROUND=$((ROUND + 1))
+    REMAIN=$(echo "$PENDING_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
+    echo "--- 更新ラウンド $ROUND（対象 $REMAIN 件、version $VERSION_NUMBER）---"
+    NEXT_PENDING=""
+    while IFS= read -r DEPLOY_ID; do
+        [[ -z "$DEPLOY_ID" ]] && continue
+        UPDATE_RESPONSE=$(api_call PUT "${BASE_URL}/deployments/${DEPLOY_ID}" "$UPDATE_BODY")
+        UPDATE_ERROR=$(echo "$UPDATE_RESPONSE" | jq -r '.error.message // empty')
+        if [[ -n "$UPDATE_ERROR" ]]; then
+            echo "  RETRY待ち $DEPLOY_ID: $UPDATE_ERROR"
+            NEXT_PENDING+="$DEPLOY_ID"$'\n'
+        else
+            echo "  OK $DEPLOY_ID"
+            UPDATE_SUCCESS=$((UPDATE_SUCCESS + 1))
+        fi
+    done <<< "$PENDING_IDS"
+    PENDING_IDS=$(echo "$NEXT_PENDING" | sed '/^$/d')
+    if [[ -n "$PENDING_IDS" && "$ROUND" -lt "$MAX_ROUNDS" ]]; then
+        echo "  残り $(echo "$PENDING_IDS" | wc -l | tr -d ' ') 件。${RETRY_SLEEP}秒後に再試行..."
+        sleep "$RETRY_SLEEP"
     fi
-done <<< "$DEPLOYMENT_IDS"
+done
+
+UPDATE_FAIL=$(echo "$PENDING_IDS" | sed '/^$/d' | grep -c . || true)
 
 echo ""
 echo "=== Deploy Summary ==="
@@ -306,3 +330,7 @@ echo "Files pushed  : $FILE_COUNT"
 echo "Version       : $VERSION_NUMBER"
 echo "Deployments   : $UPDATE_SUCCESS updated, $UPDATE_FAIL failed"
 echo "======================"
+if [[ "$UPDATE_FAIL" -gt 0 ]]; then
+    echo "⚠️  ${UPDATE_FAIL}件が${MAX_ROUNDS}ラウンド以内に更新できませんでした（Google側の一時障害の可能性）。"
+    echo "   時間をおいて『同じバージョンへ』もう一度 gas_deploy.sh を実行してください。"
+fi
