@@ -65,6 +65,8 @@ function handleApprove(e) {
   }
 
   var row = findPendingRow(customerName, roomId);
+  // pending で見つからない場合は status を問わず room_id で取得（過去に送信済みのREINS等の再送信に対応）
+  if (!row) row = _findRowsByRoomIdsAnyStatus_(customerName, [roomId])[0] || null;
   if (!row) {
     return makeHtml('注意', '該当の承認待ち物件が見つかりません。\n既に処理済みの可能性があります。');
   }
@@ -90,7 +92,7 @@ function handleApprove(e) {
     }
   }
 
-  return makePreviewHtml(prop, customerName, roomId, otherCustomers);
+  return makePreviewHtml(prop, customerName, roomId, otherCustomers, e.parameter.collect === '1');
 }
 
 // ===== 承認プレビュー（一括） =====
@@ -120,7 +122,11 @@ function handleApproveAll(e) {
     props.push(p);
   }
 
-  return makePreviewAllHtml(props, customerName, filterRoomIds.join(','));
+  // カート（room_ids 指定）は、普通の承認ページを各物件 iframe で埋め込むフル機能コンテナを返す
+  if (filterRoomIds.length > 0) {
+    return makeApprovalCartHtml(props, customerName, filterRoomIds.join(','));
+  }
+  return makePreviewAllHtml(props, customerName, '');
 }
 
 // ===== google.script.run 用ラッパー（単一承認） =====
@@ -156,6 +162,8 @@ function handleConfirmApprove(e) {
   }
 
   var row = findPendingRow(customerName, roomId);
+  // pending で見つからない場合は status を問わず room_id で取得（過去に送信済みのREINS等の再送信に対応）
+  if (!row) row = _findRowsByRoomIdsAnyStatus_(customerName, [roomId])[0] || null;
   if (!row) {
     return makeHtml('注意', '該当の承認待ち物件が見つかりません。\n既に処理済みの可能性があります。');
   }
@@ -229,6 +237,12 @@ function handleConfirmApprove(e) {
   // 編集値をシートに反映
   if (e.parameter.buildingName !== undefined) {
     updateSheetWithEdits(row.rowIndex, prop);
+  }
+
+  // defer モード（カート一括承認）: 編集・選択画像をシートへ保存だけして送信しない。
+  // 送信は親ページが全物件保存後に sendCartCarousel() で1カルーセルにまとめて行う。
+  if (e.parameter.defer === '1') {
+    return makeHtml('保存', (prop.buildingName || '物件') + ' を保存しました（送信は一括で行います）。');
   }
 
   // ビューURL（hashUrl 最速 → minimalUrl フォールバック → plainUrl 最終手段）
@@ -6051,8 +6065,9 @@ function makeHtml(title, message) {
 }
 
 // ===== HTML: 承認プレビュー（単一・編集可能） =====
-function makePreviewHtml(prop, customerName, roomId, otherCustomers) {
+function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode) {
   otherCustomers = otherCustomers || [];
+  collectMode = !!collectMode;
   var baseUrl = getGasBaseUrl();
   var rentMan = prop.rent ? _fmtMan(prop.rent) : '0';
   var mgmtMan = prop.managementFee ? _fmtMan(prop.managementFee) : '0';
@@ -6327,6 +6342,8 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers) {
     + 'var gasBaseUrl=' + JSON.stringify(baseUrl) + ';'
     + 'var customerName=' + JSON.stringify(customerName) + ';'
     + 'var roomId=' + JSON.stringify(String(roomId)) + ';'
+    + 'var __collect=' + (collectMode ? 'true' : 'false') + ';' // カート一括承認の埋め込み(iframe)モード
+
     + 'var origImages=' + JSON.stringify(images) + ';'
     + 'var origCategories=' + JSON.stringify(imageCategories) + ';'
     // ── 統合画像管理 ──
@@ -6737,6 +6754,7 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers) {
     + 'fd.action="confirm_approve";'
     + 'fd.customer=customerName;'
     + 'fd.room_id=roomId;'
+    + 'if(__collect)fd.defer="1";' // カート埋め込み時は保存のみ（送信は親が一括カルーセル）
     + 'var selUrls=[];var selCats=[];'
     + 'for(var i=0;i<allImages.length;i++){if(allImages[i].checked){selUrls.push(allImages[i].url);selCats.push(allImages[i].cat||"")}}'
     + 'fd.ordered_image_urls=JSON.stringify(selUrls);'
@@ -6754,18 +6772,40 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers) {
     + 'fd.multi_send_customers=JSON.stringify(multiNames);'
     + 'google.script.run'
     + '.withSuccessHandler(function(r){'
+    + 'if(__collect){'
+    +   'if(r&&r.success){cartSaved(true,"");}else{cartSaved(false,(r&&r.message)||"保存失敗");}'
+    +   'return;'
+    + '}'
     + 'if(r.success){'
     + 'document.body.innerHTML="<div style=\\"text-align:center;padding:80px 20px;font-family:sans-serif\\"><h2 style=\\"color:#4CAF50;margin-bottom:12px\\">\\u2705 "+r.message+"</h2><p style=\\"color:#888;font-size:13px;margin-top:24px\\">\\u3053\\u306E\\u30BF\\u30D6\\u306F\\u9589\\u3058\\u3066\\u3082OK\\u3067\\u3059</p></div>";'
     + '}else{'
     + 'document.body.innerHTML="<div style=\\"text-align:center;padding:60px;font-family:sans-serif\\"><h2 style=\\"color:#e74c3c\\">\\u26A0 \\u30A8\\u30E9\\u30FC</h2><p>"+r.message+"</p><p><a href=\\"javascript:history.back()\\">\\u2190 \\u623B\\u308B</a></p></div>"'
     + '}})'
     + '.withFailureHandler(function(err){'
+    + 'if(__collect){cartSaved(false,(err&&err.message)||"通信エラー");return;}'
     + 'document.body.innerHTML="<div style=\\"text-align:center;padding:60px;font-family:sans-serif\\"><h2 style=\\"color:#e74c3c\\">\\u26A0 \\u30A8\\u30E9\\u30FC</h2><p>"+err.message+"</p><p><a href=\\"javascript:history.back()\\">\\u2190 \\u623B\\u308B</a></p></div>"'
     + '})'
     + '.confirmApproveFromClient(fd);'
     + '}'
+    // カート埋め込み(iframe)モード: 親とのやり取り
+    + 'function cartPost(o){try{o.roomId=roomId;parent.postMessage(o,"*");}catch(e){}}'
+    + 'function cartHeight(){cartPost({type:"cart-height",height:Math.max(document.body.scrollHeight,document.documentElement.scrollHeight)});}'
+    + 'function cartSaved(ok,msg){'
+    +   'var b=document.getElementById("approveBtn");'
+    +   'if(ok){if(b){b.textContent="\\u2705 \\u78BA\\u5B9A\\u6E08\\u307F";b.style.background="#9e9e9e";}}'
+    +   'else{if(b){b.textContent="\\u26A0 \\u4FDD\\u5B58\\u5931\\u6557";b.style.opacity="1";b.style.pointerEvents="auto";b.style.background="#e74c3c";}}'
+    +   'cartPost({type:"cart-saved",ok:!!ok,message:msg||""});'
+    +   'setTimeout(cartHeight,200);'
+    + '}'
+    + 'if(__collect){'
+    +   'window.addEventListener("message",function(ev){var d=ev.data||{};if(d.type==="cart-submit"){submitApprove();}});'
+    +   'window.addEventListener("load",function(){setTimeout(cartHeight,300);setTimeout(cartHeight,1200);});'
+    +   'try{var _ms=document.getElementById("multiSendSection")||document.getElementById("multiSendMaster");if(_ms){var box=_ms.closest?_ms.closest(".section,div"):null;if(box)box.style.display="none";}}catch(e){}'
+    +   'cartPost({type:"cart-ready"});'
+    + '}'
     // 初期化
     + 'renderGrid();document.getElementById("insertPos").value="0";'
+    + (collectMode ? 'setTimeout(cartHeight,500);' : '')
     + '</script>';
 
   html += '</div></body></html>';
@@ -6922,6 +6962,135 @@ function makePreviewAllHtml(props, customerName, roomIdsCsv) {
   return HtmlService.createHtmlOutput(html)
     .setTitle('\u4E00\u62EC\u627F\u8A8D\u30D7\u30EC\u30D3\u30E5\u30FC')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ===== HTML: カート一括承認コンテナ（普通の承認ページを物件ごとに iframe 埋め込み） =====
+function makeApprovalCartHtml(props, customerName, roomIdsCsv) {
+  var baseUrl = getGasBaseUrl();
+  var roomIds = [];
+  for (var i = 0; i < props.length; i++) roomIds.push(String(props[i]._roomId));
+
+  var html = '<html><head><meta charset="utf-8">'
+    + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<style>'
+    + 'body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:0;background:#eceff1}'
+    + '.bar{position:sticky;top:0;z-index:10;background:#1b5e20;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 2px 6px rgba(0,0,0,.2)}'
+    + '.bar .ttl{font-size:15px;font-weight:bold}'
+    + '.bar .sub{font-size:12px;opacity:.9}'
+    + '.sendbtn{background:#4CAF50;color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:14px;font-weight:bold;cursor:pointer;white-space:nowrap}'
+    + '.sendbtn:disabled{opacity:.5;cursor:not-allowed}'
+    + '.wrap{max-width:680px;margin:0 auto;padding:12px}'
+    + '.pcard{background:#fff;border-radius:10px;margin-bottom:14px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.08)}'
+    + '.pcard .head{font-size:13px;font-weight:bold;color:#555;padding:8px 12px;background:#f5f5f5;border-bottom:1px solid #eee}'
+    + '.pcard iframe{width:100%;border:none;display:block;height:1200px;background:#fff}'
+    + '.status{font-size:12px;color:#fff;opacity:.95}'
+    + '</style></head><body>'
+    + '<div class="bar"><div><div class="ttl">🛒 一括承認（' + props.length + '件）</div>'
+    + '<div class="sub">' + _esc(customerName || '') + ' 様 / 各物件を編集・画像調整して送信できます</div></div>'
+    + '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">'
+    + '<button id="sendBtn" class="sendbtn" onclick="sendAll()" disabled>✅ 全て承認して1つのカルーセルで送信</button>'
+    + '<span id="status" class="status"></span></div></div>'
+    + '<div class="wrap">';
+
+  for (var j = 0; j < props.length; j++) {
+    var p = props[j];
+    var rid = String(p._roomId);
+    var src = baseUrl + '?action=approve&customer=' + encodeURIComponent(customerName)
+      + '&room_id=' + encodeURIComponent(rid) + '&collect=1';
+    html += '<div class="pcard">'
+      + '<div class="head">' + (j+1) + '. ' + _esc(p.buildingName || '') + (p.roomNumber ? ' ' + _esc(p.roomNumber) : '') + '</div>'
+      + '<iframe id="if_' + _esc(rid) + '" data-room="' + _esc(rid) + '" src="' + _esc(src) + '"></iframe>'
+      + '</div>';
+  }
+
+  html += '</div>'
+    + '<script>'
+    + 'var ROOMIDS=' + JSON.stringify(roomIds) + ';'
+    + 'var CUSTOMER=' + JSON.stringify(customerName) + ';'
+    + 'var expected=ROOMIDS.length;var ready={};var acks={};var sending=false;'
+    + 'function setStatus(t){document.getElementById("status").textContent=t||"";}'
+    + 'function ifByRoom(rid){return document.getElementById("if_"+rid);}'
+    + 'window.addEventListener("message",function(ev){'
+    +   'var d=ev.data||{};if(!d||!d.type)return;'
+    +   'if(d.type==="cart-height"&&d.roomId){var f=ifByRoom(d.roomId);if(f&&d.height)f.style.height=(d.height+24)+"px";}'
+    +   'else if(d.type==="cart-ready"&&d.roomId){ready[d.roomId]=true;if(Object.keys(ready).length>=expected){var b=document.getElementById("sendBtn");b.disabled=false;}}'
+    +   'else if(d.type==="cart-saved"&&d.roomId){acks[d.roomId]={ok:!!d.ok,message:d.message||""};setStatus("保存 "+Object.keys(acks).length+"/"+expected);if(Object.keys(acks).length>=expected)finalize();}'
+    + '});'
+    + 'function sendAll(){'
+    +   'if(sending)return;sending=true;acks={};'
+    +   'var b=document.getElementById("sendBtn");b.disabled=true;b.textContent="\\u2B50 \\u4FDD\\u5B58\\u4E2D...";'
+    +   'setStatus("各物件を保存中...");'
+    +   'for(var i=0;i<ROOMIDS.length;i++){var f=ifByRoom(ROOMIDS[i]);if(f&&f.contentWindow){try{f.contentWindow.postMessage({type:"cart-submit"},"*");}catch(e){}}}'
+    +   'setTimeout(function(){if(sending&&Object.keys(acks).length<expected){for(var k=0;k<ROOMIDS.length;k++){if(!acks[ROOMIDS[k]])acks[ROOMIDS[k]]={ok:false,message:"応答なし"};}finalize();}},60000);'
+    + '}'
+    + 'function finalize(){'
+    +   'var okIds=[];for(var i=0;i<ROOMIDS.length;i++){if(acks[ROOMIDS[i]]&&acks[ROOMIDS[i]].ok)okIds.push(ROOMIDS[i]);}'
+    +   'if(okIds.length===0){setStatus("保存に失敗しました");var b=document.getElementById("sendBtn");b.disabled=false;b.textContent="\\u2705 \\u518D\\u9001\\u4FE1";sending=false;return;}'
+    +   'setStatus("LINEに送信中...("+okIds.length+"件)");'
+    +   'google.script.run.withSuccessHandler(function(r){'
+    +     'if(r&&r.success){document.body.innerHTML="<div style=\\"text-align:center;padding:80px 20px;font-family:sans-serif\\"><h2 style=\\"color:#4CAF50\\">\\u2705 "+(r.count||okIds.length)+"\\u4EF6\\u3092\\u304A\\u5BA2\\u3055\\u3093\\u306B\\u9001\\u4FE1\\u3057\\u307E\\u3057\\u305F</h2><p style=\\"color:#888;font-size:13px;margin-top:20px\\">1\\u3064\\u306E\\u30AB\\u30EB\\u30FC\\u30BB\\u30EB\\u3067\\u5C4A\\u304D\\u307E\\u3059\\u3002\\u3053\\u306E\\u30BF\\u30D6\\u306F\\u9589\\u3058\\u3066OK\\u3067\\u3059\\u3002</p></div>";}'
+    +     'else{setStatus("送信失敗: "+((r&&r.message)||""));var b=document.getElementById("sendBtn");b.disabled=false;b.textContent="\\u2705 \\u518D\\u9001\\u4FE1";sending=false;}'
+    +   '}).withFailureHandler(function(err){setStatus("送信エラー: "+(err&&err.message));var b=document.getElementById("sendBtn");b.disabled=false;b.textContent="\\u2705 \\u518D\\u9001\\u4FE1";sending=false;})'
+    +   '.sendCartCarousel(CUSTOMER, okIds.join(","));'
+    + '}'
+    // フォールバック: iframe が cart-ready を出さなくても一定時間後に送信可能化
+    + 'setTimeout(function(){document.getElementById("sendBtn").disabled=false;},8000);'
+    + '</script>'
+    + '</body></html>';
+
+  return HtmlService.createHtmlOutput(html)
+    .setTitle('一括承認（' + props.length + '件）')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ===== カート一括承認: 保存済みの全物件を1つのFlexカルーセルでお客さんに送信 =====
+function sendCartCarousel(customerName, roomIdsCsv) {
+  try {
+    if (!customerName) return { success: false, message: '顧客名がありません' };
+    var roomIds = String(roomIdsCsv || '').split(',').filter(function(s) { return s; });
+    if (roomIds.length === 0) return { success: false, message: '対象物件がありません' };
+    var lineUserId = findLineUserId(customerName);
+    if (!lineUserId) return { success: false, message: customerName + ' さんのLINEユーザーが見つかりません' };
+    var rows = _findRowsByRoomIdsAnyStatus_(customerName, roomIds);
+    if (!rows.length) return { success: false, message: '対象の物件が見つかりません' };
+
+    var batchCustStations = _getCustomerSelectedStations_(customerName);
+    var bubbles = [];
+    var sentTargets = [];
+    for (var i = 0; i < rows.length; i++) {
+      var prop = rowToProperty(rows[i].values);
+      var rid = String(rows[i].values[2]);
+      // 承認ページで保存した選択画像を優先（無ければ全画像）
+      var sel = (prop.selectedImageUrls && prop.selectedImageUrls.length > 0) ? prop.selectedImageUrls
+        : (prop.imageUrls && prop.imageUrls.length > 0 ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []));
+      var selCats = prop.selectedImageCategories || [];
+      var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
+      var hashUrl = buildViewUrl(customerName, rid, prop, []);
+      var minimalUrl = buildMinimalViewUrl(customerName, rid, prop);
+      var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl);
+      cachePropertyImages(customerName, rid, sel, selCats);
+      var flex = buildPropertyFlex(prop, {
+        includeImage: sel.length > 0,
+        heroImageUrls: sel,
+        viewUrl: viewUrl,
+        customerStations: batchCustStations
+      });
+      if (flex && flex.contents) bubbles.push(flex.contents);
+      sentTargets.push({ rowIndex: rows[i].rowIndex, prop: prop, viewUrl: viewUrl });
+    }
+
+    var messages = _splitBubblesIntoCarousels_(bubbles, 'お探しの物件が見つかりました');
+    for (var m = 0; m < messages.length; m += 5) {
+      pushMessage(lineUserId, messages.slice(m, m + 5));
+    }
+    for (var s = 0; s < sentTargets.length; s++) {
+      updatePendingStatus(sentTargets[s].rowIndex, 'sent', sentTargets[s].viewUrl);
+      addToSeenSheet(customerName, sentTargets[s].prop);
+    }
+    return { success: true, count: sentTargets.length };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
 }
 
 // ===== HTML: お客さん向け物件資料ページ =====
