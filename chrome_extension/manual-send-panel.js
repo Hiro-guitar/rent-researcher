@@ -37,45 +37,91 @@
   var lastMetricItems = []; // 競合数・点数の計算対象（index→rowEl対応の保持）
 
   // ─────────────────────────────────────────────
-  // ページをまたいだ選択の保持
-  //  sessionStorage に「選択した物件」を永続化する。これにより
-  //  ・ページ送り（フルリロード/SPA）をしても選択が消えない
-  //  ・別ページで選んだ物件もまとめて送れる
-  //  キーはサイト（host）ごとに分離。送信成功時にクリアする。
+  // 送信カート（全サイト横断・ページ跨ぎ）
+  //  chrome.storage.local に選択を保持。REINS/いえらぶ/itandi をまたいで貯められる。
+  //  各item = { source, enriched(REINSのみ詳細), prop }
+  //  REINSは「選択した瞬間」に詳細取得して enriched を保存（表示中しか取得できないため）。
+  //  送信成功時にクリアする。
   // ─────────────────────────────────────────────
-  var STORE_KEY = '__manualSendSelection_' + (location.host || 'site');
-  var selection = {}; // propKey -> prop（全ページ分の選択。これが送信対象の真実）
+  var CART_KEY = '__manualSendCart';
+  var selection = {};            // propKey -> { source, enriched, prop }
+  var suppressStorageSync = false;
 
-  function loadSelection() {
-    try { selection = JSON.parse(sessionStorage.getItem(STORE_KEY) || '{}') || {}; }
-    catch (e) { selection = {}; }
+  function curSource() { return (adapter && adapter.source) || ''; }
+
+  function loadSelection(cb) {
+    try {
+      chrome.storage.local.get([CART_KEY], function (d) {
+        selection = (d && d[CART_KEY]) || {};
+        if (cb) cb();
+      });
+    } catch (e) { selection = {}; if (cb) cb(); }
   }
   function saveSelection() {
-    try { sessionStorage.setItem(STORE_KEY, JSON.stringify(selection)); } catch (e) {}
+    try {
+      suppressStorageSync = true;
+      var payload = {}; payload[CART_KEY] = selection;
+      chrome.storage.local.set(payload, function () {
+        setTimeout(function () { suppressStorageSync = false; }, 0);
+      });
+    } catch (e) { suppressStorageSync = false; }
   }
-  // 物件を一意に識別するキー（camelCase/snake_case 両対応）
-  function propKey(p) {
+  // 物件を一意に識別するキー（source + url or building）
+  function propKey(p, src) {
     if (!p) return '';
-    if (p.url) return 'u:' + p.url;
+    var s = src || p.source || curSource() || '';
+    if (p.url) return s + '|u:' + p.url;
     var b = p.buildingName || p.building_name || '';
     var r = p.roomNumber || p.room_number || '';
     var rent = p.rent || '';
     var st = p.stationInfo || p.station_info || '';
-    return 'k:' + b + '|' + r + '|' + rent + '|' + st;
+    return s + '|k:' + b + '|' + r + '|' + rent + '|' + st;
   }
-  // チェックボックスの変更を選択ストアへ反映
+
+  // チェックボックスの変更をカートへ反映（REINSは詳細を即取得）
   function onCbChange(ev) {
     var cb = ev && ev.currentTarget;
     if (!cb) return;
     var key = cb.__propKey;
     var prop = selectedMap.get(cb);
-    if (!key) return;
-    if (cb.checked) { if (prop) selection[key] = prop; }
-    else { delete selection[key]; }
-    saveSelection();
-    updateCount();
+    if (!key || !prop) return;
+    var src = curSource();
+    if (!cb.checked) {
+      delete selection[key];
+      saveSelection();
+      updateCount();
+      return;
+    }
+    if (src === 'reins') {
+      // REINSは表示中に詳細取得（取得後に結果一覧へ自動で戻る）
+      cb.disabled = true;
+      setStatus('REINS詳細を取得中…（取得後に結果一覧へ戻ります）', '#666');
+      sendToBackground({ type: 'CAPTURE_REINS_DETAIL', property: prop }).then(function (resp) {
+        if (resp && resp.ok && resp.detail) {
+          selection[key] = { source: 'reins', enriched: resp.detail, prop: prop };
+          saveSelection();
+          setStatus('カートに追加しました（REINS）', '#1a7f37');
+        } else {
+          cb.checked = false;
+          setStatus('REINS詳細の取得に失敗しました: ' + ((resp && resp.error) || ''), '#c0392b');
+        }
+      }).catch(function (e) {
+        cb.checked = false;
+        setStatus('REINS取得エラー: ' + e.message, '#c0392b');
+      }).finally(function () {
+        cb.disabled = false;
+        updateCount();
+      });
+    } else {
+      // いえらぶ/itandi等は一覧情報のみカートへ（詳細は送信時に取得）
+      if (prop && !prop.source) prop.source = src;
+      selection[key] = { source: src, enriched: null, prop: prop };
+      saveSelection();
+      updateCount();
+    }
   }
-  // 全ページの選択をクリア
+
+  // 全サイトの選択をクリア
   function clearAllSelection() {
     selection = {};
     saveSelection();
@@ -83,6 +129,15 @@
       if (document.body.contains(cb)) cb.checked = false;
     });
     updateCount();
+  }
+
+  // 現在ページのチェック状態をカートに合わせて復元（他タブ更新時など）
+  function syncCurrentPageChecks() {
+    selectedMap.forEach(function (prop, cb) {
+      if (!document.body.contains(cb)) return;
+      var key = cb.__propKey || propKey(prop);
+      cb.checked = !!selection[key];
+    });
   }
 
   function log() {
@@ -149,40 +204,95 @@
     updateCount();
   }
 
-  // 送信対象は「全ページ分の選択ストア」。現在ページに無い物件も含む。
-  function getCheckedProps() {
-    var props = [];
-    Object.keys(selection).forEach(function (k) { if (selection[k]) props.push(selection[k]); });
-    return props;
+  // 送信対象は「カート全体（全サイト横断）」。各要素 = { source, enriched, prop }
+  function getCartItems() {
+    var items = [];
+    Object.keys(selection).forEach(function (k) { if (selection[k]) items.push(selection[k]); });
+    return items;
   }
 
-  // 競合数・点数バッジ表示用に行要素も一緒に返す（getCheckedProps と同じ並び）
-  function getCheckedItems() {
+  // 競合数・点数バッジ／SUUMO掲載は現在ページの選択のみ対象（off-pageや別サイトは不可）
+  function getCurrentPageCheckedItems() {
     var items = [];
     selectedMap.forEach(function (prop, cb) {
-      if (cb.checked && document.body.contains(cb)) {
-        items.push({ rowEl: cb.__rowEl || null, prop: prop });
-      }
+      if (!document.body.contains(cb)) return;
+      var key = cb.__propKey;
+      if (key && selection[key]) items.push({ rowEl: cb.__rowEl || null, prop: prop });
     });
     return items;
   }
 
-  // 現在ページに表示中の物件をまとめて選択/解除（ストアにも反映）
+  // 件数のソース別内訳ラベル
+  function countBySourceLabel(items) {
+    var by = { reins: 0, ielove: 0, itandi: 0, other: 0 };
+    items.forEach(function (it) { if (by[it.source] === undefined) by.other++; else by[it.source]++; });
+    var parts = [];
+    if (by.reins) parts.push('REINS' + by.reins);
+    if (by.ielove) parts.push('いえらぶ' + by.ielove);
+    if (by.itandi) parts.push('itandi' + by.itandi);
+    if (by.other) parts.push('他' + by.other);
+    return parts.join('/');
+  }
+
+  // 現在ページの物件をまとめて選択/解除（REINSは1件ずつ詳細取得して追加）
   function setAllChecked(checked) {
+    if (!checked) {
+      selectedMap.forEach(function (prop, cb) {
+        if (!document.body.contains(cb)) return;
+        var k = cb.__propKey || propKey(prop);
+        if (selection[k]) { delete selection[k]; cb.checked = false; }
+      });
+      saveSelection();
+      updateCount();
+      return;
+    }
+    var targets = [];
     selectedMap.forEach(function (prop, cb) {
       if (!document.body.contains(cb)) return;
-      cb.checked = checked;
       var k = cb.__propKey || propKey(prop);
-      if (checked) { if (prop) selection[k] = prop; }
-      else { delete selection[k]; }
+      if (!selection[k]) targets.push({ cb: cb, prop: prop, key: k });
     });
-    saveSelection();
-    updateCount();
+    var src = curSource();
+    if (src !== 'reins') {
+      targets.forEach(function (t) {
+        if (t.prop && !t.prop.source) t.prop.source = src;
+        selection[t.key] = { source: src, enriched: null, prop: t.prop };
+        t.cb.checked = true;
+      });
+      saveSelection();
+      updateCount();
+      return;
+    }
+    // REINS: 順次キャプチャ（並列で詳細ページを開くとREINSが壊れるため1件ずつ）
+    var i = 0;
+    function next() {
+      if (i >= targets.length) { setStatus('全選択の取得が完了しました', '#1a7f37'); updateCount(); return; }
+      var t = targets[i];
+      t.cb.disabled = true;
+      setStatus('REINS詳細を取得中…（' + (i + 1) + '/' + targets.length + '）', '#666');
+      sendToBackground({ type: 'CAPTURE_REINS_DETAIL', property: t.prop }).then(function (resp) {
+        if (resp && resp.ok && resp.detail) {
+          selection[t.key] = { source: 'reins', enriched: resp.detail, prop: t.prop };
+          t.cb.checked = true;
+          saveSelection();
+        } else {
+          t.cb.checked = false;
+        }
+      }).catch(function () { t.cb.checked = false; })
+        .finally(function () { t.cb.disabled = false; updateCount(); i++; next(); });
+    }
+    if (targets.length === 0) { updateCount(); return; }
+    setStatus('REINS詳細を順番に取得します…（' + targets.length + '件）', '#666');
+    next();
   }
 
   function updateCount() {
-    var n = Object.keys(selection).length;
-    if (countEl) countEl.textContent = n + '件選択中（全ページ）';
+    var items = getCartItems();
+    var n = items.length;
+    if (countEl) {
+      var label = countBySourceLabel(items);
+      countEl.textContent = n + '件選択中（全サイト' + (label ? ': ' + label : '') + '）';
+    }
     if (sendBtn) sendBtn.disabled = (n === 0);
   }
 
@@ -342,34 +452,27 @@
   function onSendClick() {
     var customerName = selectEl.value;
     if (!customerName) { setStatus('送信先のお客さんを選んでください', '#c0392b'); return; }
-    var props = getCheckedProps();
-    if (props.length === 0) { setStatus('送る物件を選んでください', '#c0392b'); return; }
+    var items = getCartItems(); // 全サイト横断のカート
+    if (items.length === 0) { setStatus('送る物件を選んでください', '#c0392b'); return; }
 
-    // REINS・いえらぶは詳細ページを開いて全情報を取得し、承認待ちに登録→承認ページを開く
-    var src = adapter && adapter.source;
-    var useApproval = src === 'reins' || src === 'ielove' || src === 'itandi';
-    var confirmMsg = useApproval
-      ? customerName + ' さん宛に ' + props.length + '件を承認待ちに登録し、承認ページ（画像選択・追加）を開きます。\n各物件の詳細ページを開いて情報を取得するため少し時間がかかります。よろしいですか？'
-      : customerName + ' さんに ' + props.length + '件の物件をLINEで送信します。よろしいですか？';
+    var label = countBySourceLabel(items);
+    var confirmMsg = customerName + ' さん宛に ' + items.length + '件'
+      + (label ? '（' + label + '）' : '')
+      + 'を承認待ちに登録し、承認ページ（画像選択・追加）を開きます。\n'
+      + 'いえらぶ/itandiは詳細取得のため少し時間がかかります。よろしいですか？';
     if (!window.confirm(confirmMsg)) return;
 
     sendBtn.disabled = true;
-    setStatus(useApproval ? '詳細を取得して登録中…（' + props.length + '件）' : '送信中…（' + props.length + '件）', '#666');
+    setStatus('詳細取得・登録中…（' + items.length + '件）', '#666');
     sendToBackground({
-      type: 'SEND_MANUAL_PROPERTIES',
+      type: 'SEND_MANUAL_CART',
       customerName: customerName,
-      source: src,
-      fetchDetails: useApproval,
-      properties: props
+      items: items
     }).then(function (resp) {
       if (resp && resp.ok) {
         var color = (resp.skipped && resp.skipped > 0) ? '#b8860b' : '#1a7f37';
-        if (useApproval) {
-          setStatus(resp.message || ((resp.registered || 0) + '件を承認待ちに登録しました'), color);
-        } else {
-          setStatus('送信しました: ' + (resp.message || (resp.sent + '件')), color);
-        }
-        clearAllSelection(); // 送信成功 → 全ページの選択をクリア
+        setStatus(resp.message || ((resp.registered || 0) + '件を承認待ちに登録しました'), color);
+        clearAllSelection(); // 送信成功 → カートをクリア
       } else {
         setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
       }
@@ -384,7 +487,7 @@
   // 競合数・反響予測点数を調べる
   // ─────────────────────────────────────────────
   function onCheckMetricsClick() {
-    var items = getCheckedItems();
+    var items = getCurrentPageCheckedItems(); // バッジ表示は現在ページの選択のみ
     if (items.length === 0) { setStatus('調べる物件を選んでください', '#c0392b'); return; }
     lastMetricItems = items; // MANUAL_METRICS_PROGRESS の index→rowEl 対応に使う
     metricsBtn.disabled = true;
@@ -412,8 +515,9 @@
   // SUUMOに掲載（詳細取得→SUUMO候補登録→SUUMO承認ページを開く）
   // ─────────────────────────────────────────────
   function onPublishSuumoClick() {
-    var props = getCheckedProps();
-    if (props.length === 0) { setStatus('掲載する物件を選んでください', '#c0392b'); return; }
+    // SUUMO掲載は現在ページ（このサイト）の選択のみ対象
+    var props = getCurrentPageCheckedItems().map(function (x) { return x.prop; });
+    if (props.length === 0) { setStatus('掲載する物件を選んでください（このページの選択が対象）', '#c0392b'); return; }
     if (!window.confirm(props.length + '件の詳細を取得してSUUMO候補に登録し、SUUMO承認ページを開きます。\n各物件の詳細ページを開くため少し時間がかかります。よろしいですか？')) return;
     publishBtn.disabled = true;
     setStatus('詳細を取得してSUUMO候補に登録中…（' + props.length + '件）', '#666');
@@ -425,7 +529,7 @@
       if (resp && resp.ok) {
         var color = (resp.skipped && resp.skipped > 0) ? '#b8860b' : '#1a7f37';
         setStatus(resp.message || ((resp.opened || 0) + '件のSUUMO承認ページを開きました'), color);
-        clearAllSelection(); // 掲載完了 → 全ページの選択をクリア
+        setAllChecked(false); // 掲載した現在ページ分のみ選択解除（他サイトのカートは保持）
       } else {
         setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
       }
@@ -548,13 +652,25 @@
     init: function (a) {
       adapter = a;
       var start = function () {
-        loadSelection(); // 別ページで保存した選択を復元（ページ跨ぎ送付）
-        buildPanel();
-        loadContext();
-        injectCheckboxes();
-        observeMutations();
-        try { chrome.runtime.onMessage.addListener(onRuntimeMessage); } catch (e) {}
-        log('初期化完了 source=' + (adapter && adapter.source));
+        // カート（全サイト横断）を読み込んでからUI構築
+        loadSelection(function () {
+          buildPanel();
+          loadContext();
+          injectCheckboxes();
+          observeMutations();
+          try { chrome.runtime.onMessage.addListener(onRuntimeMessage); } catch (e) {}
+          // 他タブ/他サイトでカートが更新されたら同期（自分の保存はスキップ）
+          try {
+            chrome.storage.onChanged.addListener(function (changes, area) {
+              if (area !== 'local' || !changes[CART_KEY]) return;
+              if (suppressStorageSync) return;
+              selection = changes[CART_KEY].newValue || {};
+              syncCurrentPageChecks();
+              updateCount();
+            });
+          } catch (e) {}
+          log('初期化完了 source=' + (adapter && adapter.source));
+        });
       };
       if (document.body) start();
       else window.addEventListener('DOMContentLoaded', start);

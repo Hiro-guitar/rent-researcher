@@ -2672,6 +2672,170 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // 手動: REINS物件を「選択した瞬間」に詳細取得してパネルのカートに保存する。
+  // REINSは詳細取得に結果一覧の行クリックが必要なため、表示中に取得しておけば
+  // ページ送り・別検索・別サイトへ移動してもカートから一括送信できる。
+  if (msg.type === 'CAPTURE_REINS_DETAIL') {
+    (async () => {
+      try {
+        const p = msg.property || {};
+        const senderTabId = sender && sender.tab && sender.tab.id;
+        if (!senderTabId) { sendResponse({ ok: false, error: 'タブが特定できません' }); return; }
+        const autoTabId = await __getAutomationTabId();
+        if (autoTabId && autoTabId === senderTabId) {
+          sendResponse({ ok: false, error: '自動巡回中のタブでは取得できません。別タブでREINSを開いてください。' });
+          return;
+        }
+        let res;
+        try {
+          res = await fetchReinsDetailForManual(senderTabId, {
+            propertyNumber: p.reins_property_number || p.propertyNumber || '',
+            index: (typeof p.reins_row_index === 'number') ? p.reins_row_index : -1
+          }, { alreadyOnDetail: false });
+        } catch (e) {
+          res = { ok: false, error: e.message };
+        }
+        // 詳細で取れなかったフィールドを一覧値でフォールバック（物件名・賃料含む）
+        if (res && res.ok && res.detail) {
+          const _d = res.detail;
+          if (!_d.building_name && p.buildingName) _d.building_name = p.buildingName;
+          if (!_d.room_number && p.roomNumber) _d.room_number = p.roomNumber;
+          if (!_d.rent && p.rent) _d.rent = Number(p.rent) || 0;
+          if (!_d.management_fee && p.managementFee) _d.management_fee = Number(p.managementFee) || 0;
+          if (!_d.deposit && p.deposit) _d.deposit = p.deposit;
+          if (!_d.key_money && p.keyMoney) _d.key_money = p.keyMoney;
+          if (!_d.layout && p.layout) _d.layout = p.layout;
+          if (!_d.area && p.area) _d.area = p.area;
+          if (!_d.building_age && p.buildingAge) _d.building_age = p.buildingAge;
+          if (!_d.station_info && p.stationInfo) _d.station_info = p.stationInfo;
+          if (!_d.address && p.address) _d.address = p.address;
+        }
+        if (res && res.ok && res.detail && res.detail.building_name) {
+          sendResponse({ ok: true, detail: res.detail });
+        } else {
+          sendResponse({ ok: false, error: (res && res.error) || '詳細取得に失敗しました' });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // 手動: 送信カート（全サイト横断）を一括送信。各itemは {source, enriched, prop}。
+  //  ・REINS: enriched（選択時に取得済みの詳細）をそのまま使う
+  //  ・いえらぶ/itandi: 送信時に詳細ページを新タブで取得
+  //  まとめて承認待ちに登録→承認ページを開く（既存の単一ソース送信と同じ後段）。
+  if (msg.type === 'SEND_MANUAL_CART') {
+    (async () => {
+      try {
+        const customerName = msg.customerName;
+        const items = msg.items || [];
+        const senderTabId = sender && sender.tab && sender.tab.id;
+        if (!customerName) { sendResponse({ ok: false, error: '送信先のお客さんを選んでください' }); return; }
+        if (!items.length) { sendResponse({ ok: false, error: '物件が選択されていません' }); return; }
+        const { gasWebappUrl } = await getConfig();
+        if (!gasWebappUrl) { sendResponse({ ok: false, error: 'GAS URLが設定されていません' }); return; }
+
+        let customerObj = null;
+        try {
+          const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+          if (Array.isArray(cached)) customerObj = cached.find(c => c && c.name === customerName) || null;
+        } catch (e) {}
+
+        const total = items.length;
+        let done = 0, skipped = 0;
+        const allEnriched = [];
+        const progress = async () => {
+          try { await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done, total, skipped }); } catch (e) {}
+        };
+
+        for (const it of items) {
+          const src = it && it.source;
+          const p = (it && it.prop) || {};
+          await progress();
+          if (src === 'reins') {
+            // 選択時に取得済みの詳細をそのまま使う
+            if (it.enriched && it.enriched.building_name) {
+              try {
+                if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
+                  it.enriched.warnings_text = (globalThis.__computePropertyWarnings(it.enriched, customerObj) || []).join('\n');
+                }
+              } catch (e) {}
+              allEnriched.push(it.enriched);
+            } else { skipped++; }
+            done++;
+            continue;
+          }
+          // いえらぶ / itandi は送信時に詳細取得
+          let res;
+          try {
+            if (src === 'ielove') res = await fetchIeloveDetailForManual(p);
+            else if (src === 'itandi') res = await fetchItandiDetailForManual(p);
+            else res = { ok: false, error: '未対応ソース: ' + src };
+          } catch (e) {
+            res = { ok: false, error: e.message };
+          }
+          if (res && res.ok && res.detail && res.detail.building_name) {
+            try {
+              if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
+                res.detail.warnings_text = (globalThis.__computePropertyWarnings(res.detail, customerObj) || []).join('\n');
+              }
+            } catch (e) {}
+            if (src === 'ielove' && typeof buildPropertyDataJson === 'function') {
+              res.detail.property_data_json = JSON.stringify(buildPropertyDataJson(res.detail));
+            }
+            if (src === 'itandi' && typeof buildItandiPropertyDataJson === 'function') {
+              res.detail.property_data_json = JSON.stringify(buildItandiPropertyDataJson(res.detail));
+            }
+            allEnriched.push(res.detail);
+          } else {
+            skipped++;
+            await setStorageData({ debugLog: `[カート送信] 詳細取得失敗→スキップ: ${src} ${(p.buildingName || p.building_name || '')} ${(res && res.error) || ''}` });
+          }
+          done++;
+        }
+        done = total;
+        await progress();
+
+        if (allEnriched.length === 0) {
+          sendResponse({ ok: false, registered: 0, skipped, error: `全${total}件の詳細取得に失敗しました` });
+          return;
+        }
+
+        try {
+          await submitProperties(customerName, allEnriched);
+        } catch (e) {
+          await setStorageData({ debugLog: '[カート送信] 承認待ち登録失敗: ' + e.message });
+          sendResponse({ ok: false, registered: 0, skipped, error: '承認待ち登録に失敗: ' + e.message });
+          return;
+        }
+
+        let opened = 0;
+        for (const det of allEnriched) {
+          if (!det.room_id) continue;
+          try {
+            const approveUrl = gasWebappUrl
+              + '?action=approve&customer=' + encodeURIComponent(customerName)
+              + '&room_id=' + encodeURIComponent(det.room_id);
+            await chrome.tabs.create({ url: approveUrl, active: true });
+            opened++;
+          } catch (e) {}
+        }
+
+        const message = skipped > 0
+          ? `${allEnriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
+          : `${allEnriched.length}件を承認待ちに登録し承認ページを開きました`;
+        await setStorageData({ debugLog: `手動カート送信: ${customerName} へ ${allEnriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+        sendResponse({ ok: true, registered: allEnriched.length, skipped, opened, message });
+      } catch (e) {
+        await setStorageData({ debugLog: '手動カート送信失敗: ' + e.message });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   // 手動: 選択物件の競合数・反響予測点数を調べて1件ずつパネルへ返す（送信はしない）
   if (msg.type === 'CHECK_SUUMO_METRICS') {
     (async () => {
