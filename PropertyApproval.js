@@ -104,10 +104,10 @@ function handleApproveAll(e) {
   // 対象を限定する room_ids（カート送信から指定）。未指定なら承認待ち全件。
   var filterRoomIds = (e.parameter.room_ids || '').split(',').filter(function(s) { return s; });
 
-  var rows = findAllPendingRows(customerName);
-  if (filterRoomIds.length > 0) {
-    rows = rows.filter(function(r) { return filterRoomIds.indexOf(String(r.values[2])) !== -1; });
-  }
+  // room_ids 指定時は status を問わず取得（過去に送信済みのREINS等も必ず出す）
+  var rows = filterRoomIds.length > 0
+    ? _findRowsByRoomIdsAnyStatus_(customerName, filterRoomIds)
+    : findAllPendingRows(customerName);
   if (!rows || rows.length === 0) {
     return makeHtml('注意', customerName + ' さんの承認待ち物件がありません。');
   }
@@ -343,7 +343,10 @@ function confirmApproveAllFromClient(formData) {
 // ===== 確認後LINE送信（一括） =====
 function handleConfirmApproveAll(e) {
   var customerName = e.parameter.customer;
-  var imageRoomIds = (e.parameter.images || '').split(',').filter(function(s) { return s; });
+  var imageRoomIds = (e.parameter.images || '').split(',').filter(function(s) { return s; }); // 旧: 画像ありルーム
+  // 新: 画像の個別選択マップ { room_id: "0,2,3" }
+  var imageMap = {};
+  try { imageMap = JSON.parse(e.parameter.image_map || '{}') || {}; } catch (eMap) { imageMap = {}; }
   // 対象を限定する room_ids（カート送信から指定）。未指定なら承認待ち全件。
   var filterRoomIds = (e.parameter.room_ids || '').split(',').filter(function(s) { return s; });
 
@@ -351,10 +354,10 @@ function handleConfirmApproveAll(e) {
     return makeHtml('エラー', '顧客名が指定されていません。');
   }
 
-  var rows = findAllPendingRows(customerName);
-  if (filterRoomIds.length > 0) {
-    rows = rows.filter(function(r) { return filterRoomIds.indexOf(String(r.values[2])) !== -1; });
-  }
+  // room_ids 指定時は status を問わず取得（過去に送信済みのREINS等も必ず送る）
+  var rows = filterRoomIds.length > 0
+    ? _findRowsByRoomIdsAnyStatus_(customerName, filterRoomIds)
+    : findAllPendingRows(customerName);
   if (!rows || rows.length === 0) {
     return makeHtml('注意', customerName + ' さんの承認待ち物件がありません。');
   }
@@ -373,17 +376,28 @@ function handleConfirmApproveAll(e) {
   for (var i = 0; i < rows.length; i++) {
     var prop = rowToProperty(rows[i].values);
     var rid = String(rows[i].values[2]);
-    var includeImage = imageRoomIds.indexOf(rid) !== -1;
 
-    // 画像を含める場合、全画像を選択済みとして保存
+    // 画像選択: image_map（個別インデックス）優先、無ければ旧 images（ルーム全画像）
+    var allImgs = (prop.imageUrls && prop.imageUrls.length > 0) ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
+    var allCats = prop.imageCategories || [];
     var selectedUrls = [];
     var selectedCats = [];
-    if (includeImage) {
-      selectedUrls = prop.imageUrls && prop.imageUrls.length > 0 ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []);
-      selectedCats = prop.imageCategories || [];
-      if (selectedUrls.length > 0) {
-        saveSelectedImages(rows[i].rowIndex, selectedUrls, selectedCats);
+    if (imageMap.hasOwnProperty(rid)) {
+      var idxs = String(imageMap[rid] || '').split(',').filter(function(s) { return s !== ''; });
+      for (var ix = 0; ix < idxs.length; ix++) {
+        var ii = parseInt(idxs[ix], 10);
+        if (!isNaN(ii) && allImgs[ii]) {
+          selectedUrls.push(allImgs[ii]);
+          if (allCats[ii]) selectedCats.push(allCats[ii]);
+        }
       }
+    } else if (imageRoomIds.indexOf(rid) !== -1) {
+      selectedUrls = allImgs.slice();
+      selectedCats = allCats.slice();
+    }
+    var includeImage = selectedUrls.length > 0;
+    if (includeImage) {
+      saveSelectedImages(rows[i].rowIndex, selectedUrls, selectedCats);
     }
 
     var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
@@ -2084,6 +2098,23 @@ function findAllPendingRows(customerName) {
         String(data[i][10]) === 'pending') {
       results.push({ rowIndex: i + 1, values: data[i] });
     }
+  }
+  return results;
+}
+
+// room_id 群で行を取得（status は問わない）。
+// カート一括承認では「明示的に選んだ物件」を必ず出すため、過去に送信済み(status='sent')でも対象にする。
+function _findRowsByRoomIdsAnyStatus_(customerName, roomIds) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!sheet) return [];
+  var data = sheet.getDataRange().getValues();
+  var set = {};
+  for (var k = 0; k < roomIds.length; k++) set[String(roomIds[k])] = true;
+  var results = [];
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) !== String(customerName)) continue;
+    if (set[String(data[i][2])]) results.push({ rowIndex: i + 1, values: data[i] });
   }
   return results;
 }
@@ -6749,24 +6780,43 @@ function makePreviewAllHtml(props, customerName, roomIdsCsv) {
   var baseUrl = getGasBaseUrl();
   roomIdsCsv = roomIdsCsv || '';
 
+  var drow = function(label, val) {
+    if (val === undefined || val === null || val === '') return '';
+    return '<div class="drow"><div class="dlabel">' + label + '</div><div class="dval">' + _esc(String(val)) + '</div></div>';
+  };
+
   var html = '<html><head><meta charset="utf-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1">'
     + '<style>'
     + 'body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:16px;background:#f0f2f5}'
-    + '.container{max-width:600px;margin:0 auto}'
+    + '.container{max-width:680px;margin:0 auto}'
     + 'h2{color:#333;font-size:18px;margin-bottom:16px}'
-    + '.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 1px 6px rgba(0,0,0,0.08)}'
-    + '.prop-name{font-size:16px;font-weight:bold;color:#222}'
-    + '.price{font-size:18px;font-weight:bold;color:#E05252;margin:4px 0}'
-    + '.info{font-size:13px;color:#666;margin:2px 0}'
-    + '.img-section{margin:8px 0;text-align:center}'
-    + '.img-section img{max-width:100%;border-radius:8px;max-height:250px}'
-    + '.img-check{margin:6px 0;font-size:13px;color:#555}'
-    + '.img-check input{margin-right:4px}'
+    + '.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 1px 6px rgba(0,0,0,0.08)}'
+    + '.prop-name{font-size:17px;font-weight:bold;color:#222}'
+    + '.price{font-size:20px;font-weight:bold;color:#E05252;margin:6px 0}'
+    + '.price .sub{font-size:13px;color:#888;font-weight:normal;margin-left:8px}'
+    + '.detail{margin:10px 0 4px}'
+    + '.drow{display:flex;padding:4px 0;border-bottom:1px solid #f3f3f3;font-size:13px}'
+    + '.dlabel{color:#888;width:96px;flex-shrink:0}'
+    + '.dval{color:#333;flex:1;white-space:pre-wrap;word-break:break-word}'
+    + '.img-tools{font-size:12px;color:#666;margin:10px 0 4px;display:flex;align-items:center;gap:14px}'
+    + '.img-tools b{color:#333}'
+    + '.img-tools span{color:#4CAF50;cursor:pointer;text-decoration:underline}'
+    + '.img-strip{display:flex;gap:8px;overflow-x:auto;padding:6px 0 10px;-webkit-overflow-scrolling:touch}'
+    + '.img-thumb{position:relative;flex:0 0 auto;width:150px}'
+    + '.img-thumb img{width:150px;height:150px;object-fit:contain;background:#222;border-radius:8px;display:block;cursor:pointer;border:3px solid #4CAF50}'
+    + '.img-thumb.off img{border-color:#ddd;opacity:0.45}'
+    + '.img-thumb input{position:absolute;top:6px;left:6px;width:22px;height:22px;z-index:2;cursor:pointer}'
+    + '.img-thumb .idx{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;padding:1px 6px;border-radius:4px}'
+    + '.noimg{font-size:12px;color:#999;margin-top:6px}'
     + '.actions{text-align:center;margin:20px 0}'
     + '.btn{display:inline-block;padding:14px 40px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:bold;cursor:pointer;border:none}'
     + '.btn-approve{background:#4CAF50;color:#fff}'
     + '.customer-banner{background:#e8f5e9;border-left:4px solid #4CAF50;padding:10px 14px;border-radius:6px;margin-bottom:16px;font-size:15px;color:#1b5e20;font-weight:bold}'
+    + '.lb{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.9);z-index:200;justify-content:center;align-items:center}'
+    + '.lb.active{display:flex}'
+    + '.lb img{max-width:92%;max-height:88vh;object-fit:contain}'
+    + '.lb .close{position:fixed;top:14px;right:18px;color:#fff;font-size:34px;cursor:pointer;z-index:201}'
     + '</style></head><body><div class="container">'
     + '<h2>\uD83D\uDD0D \u4E00\u62EC\u627F\u8A8D\u30D7\u30EC\u30D3\u30E5\u30FC (' + props.length + '\u4EF6)</h2>'
     + '<div class="customer-banner">\uD83D\uDC64 ' + _esc(customerName || '') + ' \u69D8 \u3054\u5E0C\u671B\u306E\u7269\u4EF6</div>';
@@ -6774,20 +6824,64 @@ function makePreviewAllHtml(props, customerName, roomIdsCsv) {
   for (var i = 0; i < props.length; i++) {
     var p = props[i];
     var rentMan = p.rent ? _fmtMan(p.rent) : '0';
+    var mgmt = p.managementFee ? (_fmtMan(p.managementFee) + '\u4E07\u5186') : '';
     var rid = String(p._roomId);
+    var floorDisp = p.floorText || (p.floor ? (p.floor + '\u968E') : '');
+
     html += '<div class="card">'
       + '<div class="prop-name">' + (i+1) + '. ' + _esc(p.buildingName) + (p.roomNumber ? ' ' + _esc(p.roomNumber) : '') + '</div>'
-      + '<div class="price">' + rentMan + '\u4E07\u5186</div>'
-      + '<div class="info">' + _esc(p.layout || '') + ' | ' + (p.area || '') + 'm\u00B2 | ' + _esc(p.stationInfo || '') + '</div>';
+      + '<div class="price">' + rentMan + '\u4E07\u5186' + (mgmt ? '<span class="sub">\u7BA1\u7406\u8CBB ' + mgmt + '</span>' : '') + '</div>';
 
+    // \u8A73\u7D30\u30C6\u30FC\u30D6\u30EB\uFF08\u666E\u901A\u306E\u627F\u8A8D\u30DA\u30FC\u30B8\u3068\u540C\u7B49\u306E\u60C5\u5831\u91CF\uFF09
+    html += '<div class="detail">'
+      + drow('\u6577\u91D1', p.deposit)
+      + drow('\u793C\u91D1', p.keyMoney)
+      + drow('\u6577\u5F15', p.shikibiki)
+      + drow('\u9593\u53D6\u308A', p.layout)
+      + drow('\u5C02\u6709\u9762\u7A4D', p.area ? (p.area + 'm\u00B2') : '')
+      + drow('\u7BC9\u5E74\u6570', p.buildingAge)
+      + drow('\u968E', floorDisp)
+      + drow('\u69CB\u9020', p.structure)
+      + drow('\u7DCF\u6238\u6570', p.totalUnits)
+      + drow('\u65B9\u89D2', p.sunlight)
+      + drow('\u6700\u5BC4\u99C5', p.stationInfo)
+      + drow('\u305D\u306E\u4ED6\u99C5', (p.otherStations && p.otherStations.length) ? p.otherStations.join(' / ') : '')
+      + drow('\u6240\u5728\u5730', p.address)
+      + drow('\u5165\u5C45\u53EF\u80FD\u65E5', p.moveInDate)
+      + drow('\u5951\u7D04\u5F62\u614B', p.leaseType)
+      + drow('\u5951\u7D04\u671F\u9593', p.contractPeriod)
+      + drow('\u66F4\u65B0', p.renewalInfo)
+      + drow('\u66F4\u65B0\u6599', p.renewalFee)
+      + drow('\u89E3\u7D04\u4E88\u544A', p.cancellationNotice)
+      + drow('\u706B\u707D\u4FDD\u967A', p.fireInsurance)
+      + drow('\u4FDD\u8A3C', p.guaranteeInfo)
+      + drow('\u9375\u4EA4\u63DB', p.keyExchangeFee)
+      + drow('\u30AF\u30EA\u30FC\u30CB\u30F3\u30B0', p.cleaningFee)
+      + drow('24h\u30B5\u30DD\u30FC\u30C8', p.supportFee24h)
+      + drow('\u99D0\u8ECA\u5834', p.parkingFee)
+      + drow('\u30D5\u30EA\u30FC\u30EC\u30F3\u30C8', p.freeRent)
+      + drow('\u8A2D\u5099', p.facilities)
+      + '</div>';
+
+    // \u753B\u50CF\uFF08\u5168\u679A\u6570\u3092\u6A2A\u30B9\u30AF\u30ED\u30FC\u30EB\u8868\u793A\u30FB1\u679A\u305A\u3064\u9078\u629E\u53EF\u30FB\u30BF\u30C3\u30D7\u3067\u62E1\u5927\uFF09
     var imgs = p.imageUrls && p.imageUrls.length > 0 ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []);
     if (imgs.length > 0) {
-      html += '<div class="img-section">'
-        + '<img src="' + _esc(imgs[0]) + '" style="max-height:180px">'
-        + (imgs.length > 1 ? '<div style="font-size:12px;color:#888;margin-top:4px">+' + (imgs.length-1) + '\u679A\u306E\u753B\u50CF</div>' : '')
-        + '<div class="img-check"><label><input type="checkbox" class="img-cb" data-room="' + rid + '" checked> \u753B\u50CF\u3092\u898B\u305B\u308B</label></div>'
-        + '</div>';
+      html += '<div class="img-tools"><b>\u753B\u50CF ' + imgs.length + '\u679A</b>\uFF08\u9001\u308B\u753B\u50CF\u3092\u9078\u629E\uFF09'
+        + '<span onclick="selRoom(\'' + rid + '\',true)">\u5168\u9078\u629E</span>'
+        + '<span onclick="selRoom(\'' + rid + '\',false)">\u5168\u89E3\u9664</span></div>';
+      html += '<div class="img-strip">';
+      for (var k = 0; k < imgs.length; k++) {
+        html += '<div class="img-thumb">'
+          + '<input type="checkbox" class="img-cb" data-room="' + rid + '" data-idx="' + k + '" checked onchange="tog(this)">'
+          + '<span class="idx">' + (k+1) + '</span>'
+          + '<img src="' + _esc(imgs[k]) + '" onclick="lb(this.src)">'
+          + '</div>';
+      }
+      html += '</div>';
+    } else {
+      html += '<div class="noimg">\u753B\u50CF\u306A\u3057</div>';
     }
+
     html += '</div>';
   }
 
@@ -6795,14 +6889,20 @@ function makePreviewAllHtml(props, customerName, roomIdsCsv) {
     + '<a id="approveAllBtn" class="btn btn-approve" href="#" onclick="submitAll();return false;">\u2705 \u5168\u3066\u627F\u8A8D\u3057\u3066LINE\u9001\u4FE1</a>'
     + '</div>';
 
+  html += '<div class="lb" id="lb" onclick="lbClose()"><span class="close">\u00D7</span><img id="lbimg" src=""></div>';
+
   html += '<script>'
+    + 'function tog(cb){cb.parentNode.classList.toggle("off",!cb.checked);}'
+    + 'function selRoom(rid,on){var cbs=document.querySelectorAll(\'.img-cb[data-room="\'+rid+\'"]\');for(var i=0;i<cbs.length;i++){cbs[i].checked=on;tog(cbs[i]);}}'
+    + 'function lb(src){document.getElementById("lbimg").src=src;document.getElementById("lb").classList.add("active");}'
+    + 'function lbClose(){document.getElementById("lb").classList.remove("active");}'
     + 'function submitAll(){'
     + 'var btn=document.getElementById("approveAllBtn");'
     + 'btn.textContent="\\u2B50 \\u9001\\u4FE1\\u4E2D...";btn.style.opacity="0.6";btn.style.pointerEvents="none";'
-    + 'var cbs=document.querySelectorAll(".img-cb");'
-    + 'var ids=[];'
-    + 'for(var i=0;i<cbs.length;i++){if(cbs[i].checked)ids.push(cbs[i].getAttribute("data-room"))}'
-    + 'var fd={action:"confirm_approve_all",customer:' + JSON.stringify(customerName) + ',images:ids.join(","),room_ids:' + JSON.stringify(roomIdsCsv) + '};'
+    + 'var cbs=document.querySelectorAll(".img-cb");var map={};'
+    + 'for(var i=0;i<cbs.length;i++){var rid=cbs[i].getAttribute("data-room");if(!map[rid])map[rid]=[];if(cbs[i].checked)map[rid].push(cbs[i].getAttribute("data-idx"));}'
+    + 'var image_map={};for(var k in map){image_map[k]=map[k].join(",");}'
+    + 'var fd={action:"confirm_approve_all",customer:' + JSON.stringify(customerName) + ',image_map:JSON.stringify(image_map),room_ids:' + JSON.stringify(roomIdsCsv) + '};'
     + 'google.script.run'
     + '.withSuccessHandler(function(r){'
     + 'if(r.success){'
