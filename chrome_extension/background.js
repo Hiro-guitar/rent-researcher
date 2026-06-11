@@ -2811,22 +2811,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
 
+        // 一括承認ページを「1つだけ」開く（room_ids で今回のカート分だけに限定）。
+        // 承認後はお客さんに1つの横スワイプFlexカルーセルでまとめて届く。
+        const roomIds = allEnriched.map(d => d.room_id).filter(Boolean);
         let opened = 0;
-        for (const det of allEnriched) {
-          if (!det.room_id) continue;
+        if (roomIds.length > 0) {
           try {
             const approveUrl = gasWebappUrl
-              + '?action=approve&customer=' + encodeURIComponent(customerName)
-              + '&room_id=' + encodeURIComponent(det.room_id);
+              + '?action=approve_all&customer=' + encodeURIComponent(customerName)
+              + '&room_ids=' + encodeURIComponent(roomIds.join(','));
             await chrome.tabs.create({ url: approveUrl, active: true });
-            opened++;
+            opened = 1;
           } catch (e) {}
         }
 
         const message = skipped > 0
-          ? `${allEnriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
-          : `${allEnriched.length}件を承認待ちに登録し承認ページを開きました`;
-        await setStorageData({ debugLog: `手動カート送信: ${customerName} へ ${allEnriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+          ? `${allEnriched.length}件を承認待ちに登録し一括承認ページを開きました / ${skipped}件は取得失敗`
+          : `${allEnriched.length}件を承認待ちに登録し一括承認ページを開きました`;
+        await setStorageData({ debugLog: `手動カート送信: ${customerName} へ ${allEnriched.length}件登録 (失敗${skipped}) 一括承認タブ${opened}` });
         sendResponse({ ok: true, registered: allEnriched.length, skipped, opened, message });
       } catch (e) {
         await setStorageData({ debugLog: '手動カート送信失敗: ' + e.message });
