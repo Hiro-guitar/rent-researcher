@@ -36,6 +36,55 @@
   var publishBtn = null;
   var lastMetricItems = []; // 競合数・点数の計算対象（index→rowEl対応の保持）
 
+  // ─────────────────────────────────────────────
+  // ページをまたいだ選択の保持
+  //  sessionStorage に「選択した物件」を永続化する。これにより
+  //  ・ページ送り（フルリロード/SPA）をしても選択が消えない
+  //  ・別ページで選んだ物件もまとめて送れる
+  //  キーはサイト（host）ごとに分離。送信成功時にクリアする。
+  // ─────────────────────────────────────────────
+  var STORE_KEY = '__manualSendSelection_' + (location.host || 'site');
+  var selection = {}; // propKey -> prop（全ページ分の選択。これが送信対象の真実）
+
+  function loadSelection() {
+    try { selection = JSON.parse(sessionStorage.getItem(STORE_KEY) || '{}') || {}; }
+    catch (e) { selection = {}; }
+  }
+  function saveSelection() {
+    try { sessionStorage.setItem(STORE_KEY, JSON.stringify(selection)); } catch (e) {}
+  }
+  // 物件を一意に識別するキー（camelCase/snake_case 両対応）
+  function propKey(p) {
+    if (!p) return '';
+    if (p.url) return 'u:' + p.url;
+    var b = p.buildingName || p.building_name || '';
+    var r = p.roomNumber || p.room_number || '';
+    var rent = p.rent || '';
+    var st = p.stationInfo || p.station_info || '';
+    return 'k:' + b + '|' + r + '|' + rent + '|' + st;
+  }
+  // チェックボックスの変更を選択ストアへ反映
+  function onCbChange(ev) {
+    var cb = ev && ev.currentTarget;
+    if (!cb) return;
+    var key = cb.__propKey;
+    var prop = selectedMap.get(cb);
+    if (!key) return;
+    if (cb.checked) { if (prop) selection[key] = prop; }
+    else { delete selection[key]; }
+    saveSelection();
+    updateCount();
+  }
+  // 全ページの選択をクリア
+  function clearAllSelection() {
+    selection = {};
+    saveSelection();
+    selectedMap.forEach(function (prop, cb) {
+      if (document.body.contains(cb)) cb.checked = false;
+    });
+    updateCount();
+  }
+
   function log() {
     try { console.log.apply(console, ['[手動送信パネル]'].concat([].slice.call(arguments))); } catch (e) {}
   }
@@ -66,9 +115,13 @@
       var rowEl = item && item.rowEl;
       var prop = item && item.prop;
       if (!rowEl || !prop) return;
+      var key = propKey(prop);
       if (rowEl[ASSIGN_KEY]) {
-        // ページ再描画対策: 既存チェックボックスの prop を最新化
-        selectedMap.set(rowEl[ASSIGN_KEY], prop);
+        // ページ再描画対策: 既存チェックボックスの prop/キーを最新化し、選択状態をストアから復元
+        var existCb = rowEl[ASSIGN_KEY];
+        selectedMap.set(existCb, prop);
+        existCb.__propKey = key;
+        existCb.checked = !!selection[key];
         return;
       }
       var cb = document.createElement('input');
@@ -81,7 +134,9 @@
         'box-shadow:0 0 0 2px #fff,0 1px 5px rgba(0,0,0,.35)', 'margin:0'
       ].join(';');
       cb.title = 'LINEで送る物件として選択';
-      cb.addEventListener('change', updateCount);
+      cb.__propKey = key;
+      cb.checked = !!selection[key]; // 別ページで既に選択済みなら復元
+      cb.addEventListener('change', onCbChange);
       cb.addEventListener('click', function (ev) { ev.stopPropagation(); });
       // 行に相対位置を付与してチェックボックスを重ねる
       var pos = window.getComputedStyle(rowEl).position;
@@ -94,11 +149,10 @@
     updateCount();
   }
 
+  // 送信対象は「全ページ分の選択ストア」。現在ページに無い物件も含む。
   function getCheckedProps() {
     var props = [];
-    selectedMap.forEach(function (prop, cb) {
-      if (cb.checked && document.body.contains(cb)) props.push(prop);
-    });
+    Object.keys(selection).forEach(function (k) { if (selection[k]) props.push(selection[k]); });
     return props;
   }
 
@@ -113,16 +167,23 @@
     return items;
   }
 
+  // 現在ページに表示中の物件をまとめて選択/解除（ストアにも反映）
   function setAllChecked(checked) {
     selectedMap.forEach(function (prop, cb) {
-      if (document.body.contains(cb)) cb.checked = checked;
+      if (!document.body.contains(cb)) return;
+      cb.checked = checked;
+      var k = cb.__propKey || propKey(prop);
+      if (checked) { if (prop) selection[k] = prop; }
+      else { delete selection[k]; }
     });
+    saveSelection();
     updateCount();
   }
 
   function updateCount() {
-    if (countEl) countEl.textContent = getCheckedProps().length + '件選択中';
-    if (sendBtn) sendBtn.disabled = (getCheckedProps().length === 0);
+    var n = Object.keys(selection).length;
+    if (countEl) countEl.textContent = n + '件選択中（全ページ）';
+    if (sendBtn) sendBtn.disabled = (n === 0);
   }
 
   // ─────────────────────────────────────────────
@@ -169,15 +230,20 @@
     selRow.style.cssText = 'display:flex;gap:6px;';
     var btnAll = mkSmallBtn('全選択', function () { setAllChecked(true); });
     var btnNone = mkSmallBtn('全解除', function () { setAllChecked(false); });
+    var btnClear = mkSmallBtn('クリア', function () { clearAllSelection(); });
     var btnRescan = mkSmallBtn('再スキャン', function () { injectCheckboxes(); });
+    btnAll.title = '現在ページの物件を全選択';
+    btnNone.title = '現在ページの選択を解除';
+    btnClear.title = '全ページの選択をクリア';
     selRow.appendChild(btnAll);
     selRow.appendChild(btnNone);
+    selRow.appendChild(btnClear);
     selRow.appendChild(btnRescan);
 
     // 件数表示
     countEl = document.createElement('div');
     countEl.style.cssText = 'font-size:12px;color:#666;';
-    countEl.textContent = '0件選択中';
+    countEl.textContent = '0件選択中（全ページ）';
 
     // 送信ボタン
     sendBtn = document.createElement('button');
@@ -303,7 +369,7 @@
         } else {
           setStatus('送信しました: ' + (resp.message || (resp.sent + '件')), color);
         }
-        setAllChecked(false);
+        clearAllSelection(); // 送信成功 → 全ページの選択をクリア
       } else {
         setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
       }
@@ -359,7 +425,7 @@
       if (resp && resp.ok) {
         var color = (resp.skipped && resp.skipped > 0) ? '#b8860b' : '#1a7f37';
         setStatus(resp.message || ((resp.opened || 0) + '件のSUUMO承認ページを開きました'), color);
-        setAllChecked(false);
+        clearAllSelection(); // 掲載完了 → 全ページの選択をクリア
       } else {
         setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
       }
@@ -482,6 +548,7 @@
     init: function (a) {
       adapter = a;
       var start = function () {
+        loadSelection(); // 別ページで保存した選択を復元（ページ跨ぎ送付）
         buildPanel();
         loadContext();
         injectCheckboxes();
