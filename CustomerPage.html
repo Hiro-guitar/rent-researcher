@@ -251,6 +251,7 @@ body {
   <div class="header">
     <h1>顧客管理<span class="badge">CRM</span></h1>
     <div class="header-nav">
+      <a onclick="showInquiries()">📨 問い合わせ</a>
       <a onclick="openAdminPage()">管理画面に戻る</a>
     </div>
   </div>
@@ -260,6 +261,32 @@ body {
       <input type="text" id="searchInput" placeholder="顧客名で検索..." oninput="filterCustomers()">
     </div>
     <div id="customerList" class="customer-list">
+      <div class="loading">読み込み中...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 問い合わせ一覧ビュー ===== -->
+<div id="inquiryView" style="display:none;">
+  <div class="header">
+    <h1>問い合わせ<span class="badge">SUUMO</span></h1>
+    <div class="header-nav">
+      <a onclick="showList()">← 顧客一覧に戻る</a>
+      <a onclick="runInquiryImport()" id="inquiryImportLink">🔄 今すぐ取り込む</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="search-bar" style="display:flex;gap:8px;align-items:center;">
+      <input type="text" id="inquirySearchInput" placeholder="名前・物件名で検索..." oninput="filterInquiries()" style="flex:1;">
+      <select id="inquiryStatusFilter" onchange="filterInquiries()" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px;font-size:12px;">
+        <option value="">すべて</option>
+        <option value="未対応">未対応</option>
+        <option value="対応中">対応中</option>
+        <option value="対応済み">対応済み</option>
+      </select>
+    </div>
+    <div id="inquiryList" class="customer-list">
       <div class="loading">読み込み中...</div>
     </div>
   </div>
@@ -1188,8 +1215,138 @@ function showMoreTimeline() {
 // ── ナビゲーション ──
 function showList() {
   document.getElementById('detailView').style.display = 'none';
+  document.getElementById('inquiryView').style.display = 'none';
   document.getElementById('listView').style.display = '';
   currentCustomer = null;
+}
+
+// ══════════════════════════════════════════
+//  問い合わせ一覧（SUUMO反響メール）
+// ══════════════════════════════════════════
+var allInquiries = [];
+
+function showInquiries() {
+  document.getElementById('listView').style.display = 'none';
+  document.getElementById('detailView').style.display = 'none';
+  document.getElementById('inquiryView').style.display = '';
+  loadInquiries();
+}
+
+function loadInquiries() {
+  document.getElementById('inquiryList').innerHTML = '<div class="loading">読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(list) {
+      allInquiries = list || [];
+      renderInquiryList(allInquiries);
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('inquiryList').innerHTML = '<div class="empty-state">取得エラー: ' + esc(err.message) + '</div>';
+    })
+    .getInquiries();
+}
+
+function runInquiryImport() {
+  var link = document.getElementById('inquiryImportLink');
+  if (link) link.textContent = '取り込み中...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (link) link.textContent = '🔄 今すぐ取り込む';
+      var r = res || {};
+      showToast('取り込み: 新規' + (r.imported || 0) + '件 / 既存' + (r.skipped || 0) + '件');
+      loadInquiries();
+    })
+    .withFailureHandler(function(err) {
+      if (link) link.textContent = '🔄 今すぐ取り込む';
+      showToast('取り込みエラー: ' + (err && err.message ? err.message : ''));
+    })
+    .importSuumoInquiries();
+}
+
+function filterInquiries() {
+  var q = (document.getElementById('inquirySearchInput').value || '').trim().toLowerCase();
+  var st = document.getElementById('inquiryStatusFilter').value || '';
+  var filtered = allInquiries.filter(function(x) {
+    if (st && x.status !== st) return false;
+    if (!q) return true;
+    return (x.name || '').toLowerCase().indexOf(q) >= 0 ||
+           (x.propertyName || '').toLowerCase().indexOf(q) >= 0;
+  });
+  renderInquiryList(filtered);
+}
+
+function inquiryStatusBadge(s) {
+  var map = { '未対応': '#c0392b', '対応中': '#d68910', '対応済み': '#27795b' };
+  var color = map[s] || '#555';
+  return '<span style="font-size:11px;font-weight:700;color:#fff;background:' + color +
+         ';padding:2px 8px;border-radius:10px;">' + esc(s || '未対応') + '</span>';
+}
+
+function renderInquiryList(list) {
+  var el = document.getElementById('inquiryList');
+  if (!list || list.length === 0) {
+    el.innerHTML = '<div class="empty-state">問い合わせがありません</div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < list.length; i++) {
+    var q = list[i];
+    var meta = [];
+    if (q.rent) meta.push(esc(q.rent));
+    if (q.layout) meta.push(esc(q.layout));
+    if (q.area) meta.push(esc(q.area));
+    var contact = [];
+    if (q.tel) contact.push('TEL: ' + esc(q.tel));
+    if (q.email) contact.push('✉ ' + esc(q.email));
+
+    html += '<div class="customer-item" style="cursor:default;">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">';
+    html += '<span style="font-size:11px;color:#888;">' + esc(q.receivedAt) + '　' + esc(q.channel || '') + '</span>';
+    html += inquiryStatusBadge(q.status);
+    html += '</div>';
+    html += '<div class="customer-name" style="margin-top:2px;">' + esc(q.name || '(名前なし)') +
+            (q.kana ? ' <span style="font-size:11px;color:#888;">' + esc(q.kana) + '</span>' : '') + '</div>';
+    // 物件
+    var propText = esc(q.propertyName || '物件名なし') + (meta.length ? '　' + meta.join(' / ') : '');
+    if (q.detailUrl) {
+      html += '<div style="font-size:13px;margin-top:4px;"><a href="' + esc(q.detailUrl) + '" target="_blank" style="color:#8ec41d;">' + propText + '</a></div>';
+    } else {
+      html += '<div style="font-size:13px;margin-top:4px;color:#ccc;">' + propText + '</div>';
+    }
+    if (q.station) html += '<div style="font-size:11px;color:#999;">' + esc(q.station) + '</div>';
+    // 連絡先
+    if (contact.length) html += '<div style="font-size:12px;color:#bbb;margin-top:4px;">' + contact.join('　') + '</div>';
+    // 問い合わせ内容
+    if (q.message) html += '<div style="font-size:12px;color:#ddd;margin-top:4px;background:#2d2d2d;padding:6px 8px;border-radius:6px;">' + esc(q.message) + '</div>';
+    // 対応状況の変更
+    html += '<div style="margin-top:6px;display:flex;align-items:center;gap:8px;">';
+    html += '<span style="font-size:11px;color:#888;">対応:</span>';
+    html += '<select onchange="changeInquiryStatus(' + q.rowIndex + ', \'' + esc(q.renban) + '\', this.value)" ' +
+            'style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:4px 8px;font-size:12px;">';
+    var opts = ['未対応', '対応中', '対応済み'];
+    for (var k = 0; k < opts.length; k++) {
+      html += '<option value="' + opts[k] + '"' + (q.status === opts[k] ? ' selected' : '') + '>' + opts[k] + '</option>';
+    }
+    html += '</select>';
+    html += '</div>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function changeInquiryStatus(rowIndex, renban, status) {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        for (var i = 0; i < allInquiries.length; i++) {
+          if (allInquiries[i].rowIndex === rowIndex) { allInquiries[i].status = status; break; }
+        }
+        showToast('対応状況を更新しました');
+      } else {
+        showToast((res && res.message) ? res.message : '更新に失敗しました');
+      }
+    })
+    .withFailureHandler(function(err) { showToast('更新エラー: ' + (err && err.message ? err.message : '')); })
+    .updateInquiryStatus(rowIndex, renban, status, null);
 }
 
 function openAdminPage(withCustomer) {
