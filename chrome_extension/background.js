@@ -2811,11 +2811,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
 
-        // 一括承認ページを「1つだけ」開く（room_ids で今回のカート分だけに限定）。
-        // 承認後はお客さんに1つの横スワイプFlexカルーセルでまとめて届く。
+        // 承認ページを開く。
+        //  ・1件 → 普通の承認ページ(action=approve)＝フル機能・1バブル送信
+        //  ・複数件 → 一括承認コンテナ(action=approve_all&room_ids)＝各物件フル機能を埋め込み、1カルーセル送信
         const roomIds = allEnriched.map(d => d.room_id).filter(Boolean);
         let opened = 0;
-        if (roomIds.length > 0) {
+        if (roomIds.length === 1) {
+          try {
+            const approveUrl = gasWebappUrl
+              + '?action=approve&customer=' + encodeURIComponent(customerName)
+              + '&room_id=' + encodeURIComponent(roomIds[0]);
+            await chrome.tabs.create({ url: approveUrl, active: true });
+            opened = 1;
+          } catch (e) {}
+        } else if (roomIds.length > 1) {
           try {
             const approveUrl = gasWebappUrl
               + '?action=approve_all&customer=' + encodeURIComponent(customerName)
