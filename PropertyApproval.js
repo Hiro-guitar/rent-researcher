@@ -4658,7 +4658,26 @@ function _normalizeMoveInDate(val) {
  * "ふるーる東中野 202" → { name: "ふるーる東中野", room: "202" }
  */
 function _splitRoomNumber(buildingName, roomNumber) {
-  if (roomNumber) return { name: buildingName, room: roomNumber };
+  if (roomNumber) {
+    // 物件名の末尾に同じ部屋番号が含まれていれば除去する。
+    // （いえらぶ等は物件名に部屋番号が入っており、部屋番号フィールドと重複して「○○ 1001 1001」になるため）
+    var name = String(buildingName || '');
+    var rn = String(roomNumber).trim();
+    if (rn) {
+      // 末尾の「(空白)+部屋番号」を除去。部屋番号の数字部分でも照合（"1001号室" 等の差異に対応）
+      var rnNum = (rn.match(/\d{1,5}[A-Za-z]?/) || [''])[0];
+      var esc = function(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); };
+      var stripped = name;
+      var reFull = new RegExp('[\\s　]*' + esc(rn) + '$');
+      stripped = stripped.replace(reFull, '');
+      if (stripped === name && rnNum) {
+        stripped = name.replace(new RegExp('[\\s　]*' + esc(rnNum) + '$'), '');
+      }
+      stripped = stripped.replace(/[\s　]+$/, '');
+      if (stripped) name = stripped;
+    }
+    return { name: name, room: roomNumber };
+  }
   if (!buildingName) return { name: '', room: '' };
   var m = buildingName.match(/^(.+?)\s+(\d{2,5}[A-Za-z]?)$/);
   if (m) return { name: m[1], room: m[2] };
