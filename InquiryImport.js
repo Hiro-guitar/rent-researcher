@@ -49,14 +49,16 @@ function _getInquirySheet_() {
   return sheet;
 }
 
-/** 本文からラベルに対応する値を抽出（全角/半角コロン・空白区切りの両対応、行頭アンカー） */
+/** 本文からラベルに対応する値を抽出（全角/半角コロン・空白区切りの両対応、行頭アンカー）
+ *  転送メール対策: 行頭の引用記号(>｜|)や空白も許容する。 */
 function _exVal_(body, label) {
   var esc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var lead = '(?:^|[\\r\\n])[ \\t　>｜|]*'; // 行頭 + 任意の引用記号/空白
   // ラベル：値 （コロン区切り）
-  var m = body.match(new RegExp('(?:^|[\\r\\n])' + esc + '[ \\t　]*[:：][ \\t　]*([^\\r\\n]*)'));
+  var m = body.match(new RegExp(lead + esc + '[ \\t　]*[:：][ \\t　]*([^\\r\\n]*)'));
   if (m) return (m[1] || '').trim();
   // ラベル　値 （空白区切り。反響到着日時 など）
-  m = body.match(new RegExp('(?:^|[\\r\\n])' + esc + '[ \\t　]+([^\\r\\n]*)'));
+  m = body.match(new RegExp(lead + esc + '[ \\t　]+([^\\r\\n]*)'));
   return m ? (m[1] || '').trim() : '';
 }
 
