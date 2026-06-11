@@ -257,3 +257,46 @@ function removeInquiryImportTrigger() {
   }
   return { ok: true, removed: removed };
 }
+
+/**
+ * 診断用: 取り込みが動くか確認する。Apps Scriptエディタで実行してログを見る。
+ *  - threadCount=0 なら、Gmailに反響メールが届いていない（転送/フィルタ/件名を確認）
+ *  - messages>0 だが sample.parseFailed=true なら、解析に失敗（本文の形式が違う→bodyHeadを共有してください）
+ *  - sample に renban/name/物件名 が入っていれば取り込みOK
+ * @return {Object}
+ */
+function testInquiryImport() {
+  var out = { query: 'subject:反響お知らせメール newer_than:90d', threadCount: 0, messages: 0, sample: null };
+  try {
+    var threads = GmailApp.search(out.query);
+    out.threadCount = threads.length;
+    for (var t = 0; t < threads.length && !out.sample; t++) {
+      var msgs = threads[t].getMessages();
+      for (var m = 0; m < msgs.length; m++) {
+        var msg = msgs[m];
+        if ((msg.getSubject() || '').indexOf('反響お知らせメール') === -1) continue;
+        out.messages++;
+        if (!out.sample) {
+          var body = msg.getPlainBody() || '';
+          var info = _parseSuumoInquiryEmail_(msg.getSubject(), body, msg.getDate());
+          if (info && info.renban) {
+            out.sample = {
+              renban: info.renban, name: info.name, kana: info.kana,
+              propertyName: info.propertyName, propertyCode: info.propertyCode,
+              rent: info.rent, layout: info.layout, area: info.area,
+              tel: info.tel, email: info.email, contactMethod: info.contactMethod,
+              message: info.message, detailUrl: info.detailUrl,
+              channel: info.channel, receivedAt: String(info.receivedAt)
+            };
+          } else {
+            out.sample = { parseFailed: true, subject: msg.getSubject(), bodyHead: body.substring(0, 500) };
+          }
+        }
+      }
+    }
+  } catch (e) {
+    out.error = e.message;
+  }
+  Logger.log(JSON.stringify(out, null, 2));
+  return out;
+}
