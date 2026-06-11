@@ -101,7 +101,13 @@ function handleApproveAll(e) {
     return makeHtml('エラー', '顧客名が指定されていません。');
   }
 
+  // 対象を限定する room_ids（カート送信から指定）。未指定なら承認待ち全件。
+  var filterRoomIds = (e.parameter.room_ids || '').split(',').filter(function(s) { return s; });
+
   var rows = findAllPendingRows(customerName);
+  if (filterRoomIds.length > 0) {
+    rows = rows.filter(function(r) { return filterRoomIds.indexOf(String(r.values[2])) !== -1; });
+  }
   if (!rows || rows.length === 0) {
     return makeHtml('注意', customerName + ' さんの承認待ち物件がありません。');
   }
@@ -114,7 +120,7 @@ function handleApproveAll(e) {
     props.push(p);
   }
 
-  return makePreviewAllHtml(props, customerName);
+  return makePreviewAllHtml(props, customerName, filterRoomIds.join(','));
 }
 
 // ===== google.script.run 用ラッパー（単一承認） =====
@@ -338,12 +344,17 @@ function confirmApproveAllFromClient(formData) {
 function handleConfirmApproveAll(e) {
   var customerName = e.parameter.customer;
   var imageRoomIds = (e.parameter.images || '').split(',').filter(function(s) { return s; });
+  // 対象を限定する room_ids（カート送信から指定）。未指定なら承認待ち全件。
+  var filterRoomIds = (e.parameter.room_ids || '').split(',').filter(function(s) { return s; });
 
   if (!customerName) {
     return makeHtml('エラー', '顧客名が指定されていません。');
   }
 
   var rows = findAllPendingRows(customerName);
+  if (filterRoomIds.length > 0) {
+    rows = rows.filter(function(r) { return filterRoomIds.indexOf(String(r.values[2])) !== -1; });
+  }
   if (!rows || rows.length === 0) {
     return makeHtml('注意', customerName + ' さんの承認待ち物件がありません。');
   }
@@ -353,10 +364,12 @@ function handleConfirmApproveAll(e) {
     return makeHtml('エラー', customerName + ' さんの LINE ユーザーが見つかりません。');
   }
 
-  var sentCount = 0;
   // バッチ送信時はお客さん希望駅をループ前に1回だけ取得 (シート読込を減らす)
   var batchCustStations = _getCustomerSelectedStations_(customerName);
 
+  // 全物件のFlexバブルを集め、「1つの横スワイプカルーセル」でまとめて送る
+  var bubbles = [];
+  var sentTargets = []; // { rowIndex, prop, viewUrl }
   for (var i = 0; i < rows.length; i++) {
     var prop = rowToProperty(rows[i].values);
     var rid = String(rows[i].values[2]);
@@ -387,18 +400,24 @@ function handleConfirmApproveAll(e) {
       viewUrl: viewUrl,
       customerStations: batchCustStations
     });
-
-    pushMessage(lineUserId, [flex]);
-    updatePendingStatus(rows[i].rowIndex, 'sent', viewUrl);
-    addToSeenSheet(customerName, prop);
-    sentCount++;
-
-    if (i < rows.length - 1) {
-      Utilities.sleep(500);
-    }
+    if (flex && flex.contents) bubbles.push(flex.contents);
+    sentTargets.push({ rowIndex: rows[i].rowIndex, prop: prop, viewUrl: viewUrl });
   }
 
-  return makeHtml('完了', customerName + ' さんに ' + sentCount + ' 件の物件を LINE 送信しました。');
+  // バブル配列をカルーセル(横スワイプ)に分割。最大12件/45KBで自動分割。
+  var messages = _splitBubblesIntoCarousels_(bubbles, 'お探しの物件が見つかりました');
+  // pushMessage は1回5メッセージまで（カルーセルが複数になる場合に備えて分割送信）
+  for (var m = 0; m < messages.length; m += 5) {
+    pushMessage(lineUserId, messages.slice(m, m + 5));
+  }
+
+  // 送信成功 → 各物件を sent にし通知済みへ記録
+  for (var s = 0; s < sentTargets.length; s++) {
+    updatePendingStatus(sentTargets[s].rowIndex, 'sent', sentTargets[s].viewUrl);
+    addToSeenSheet(customerName, sentTargets[s].prop);
+  }
+
+  return makeHtml('完了', customerName + ' さんに ' + sentTargets.length + ' 件の物件を1つのカルーセルで LINE 送信しました。');
 }
 
 // ===== 単一物件スキップ =====
@@ -6726,8 +6745,9 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers) {
 }
 
 // ===== HTML: 承認プレビュー（一括） =====
-function makePreviewAllHtml(props, customerName) {
+function makePreviewAllHtml(props, customerName, roomIdsCsv) {
   var baseUrl = getGasBaseUrl();
+  roomIdsCsv = roomIdsCsv || '';
 
   var html = '<html><head><meta charset="utf-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -6782,7 +6802,7 @@ function makePreviewAllHtml(props, customerName) {
     + 'var cbs=document.querySelectorAll(".img-cb");'
     + 'var ids=[];'
     + 'for(var i=0;i<cbs.length;i++){if(cbs[i].checked)ids.push(cbs[i].getAttribute("data-room"))}'
-    + 'var fd={action:"confirm_approve_all",customer:' + JSON.stringify(customerName) + ',images:ids.join(",")};'
+    + 'var fd={action:"confirm_approve_all",customer:' + JSON.stringify(customerName) + ',images:ids.join(","),room_ids:' + JSON.stringify(roomIdsCsv) + '};'
     + 'google.script.run'
     + '.withSuccessHandler(function(r){'
     + 'if(r.success){'
