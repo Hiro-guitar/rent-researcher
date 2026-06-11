@@ -2811,33 +2811,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
 
-        // 承認ページを開く。
-        //  ・1件 → 普通の承認ページ(action=approve)＝フル機能・1バブル送信
-        //  ・複数件 → 一括承認コンテナ(action=approve_all&room_ids)＝各物件フル機能を埋め込み、1カルーセル送信
+        // 承認ページを「物件ごとに1つずつ」開く（元の動作）。各ページで承認すると個別にお客さんへ送信される。
         const roomIds = allEnriched.map(d => d.room_id).filter(Boolean);
         let opened = 0;
-        if (roomIds.length === 1) {
+        for (const det of allEnriched) {
+          if (!det.room_id) continue;
           try {
             const approveUrl = gasWebappUrl
               + '?action=approve&customer=' + encodeURIComponent(customerName)
-              + '&room_id=' + encodeURIComponent(roomIds[0]);
+              + '&room_id=' + encodeURIComponent(det.room_id);
             await chrome.tabs.create({ url: approveUrl, active: true });
-            opened = 1;
-          } catch (e) {}
-        } else if (roomIds.length > 1) {
-          try {
-            const approveUrl = gasWebappUrl
-              + '?action=approve_all&customer=' + encodeURIComponent(customerName)
-              + '&room_ids=' + encodeURIComponent(roomIds.join(','));
-            await chrome.tabs.create({ url: approveUrl, active: true });
-            opened = 1;
+            opened++;
           } catch (e) {}
         }
 
         const message = skipped > 0
-          ? `${allEnriched.length}件を承認待ちに登録し一括承認ページを開きました / ${skipped}件は取得失敗`
-          : `${allEnriched.length}件を承認待ちに登録し一括承認ページを開きました`;
-        await setStorageData({ debugLog: `手動カート送信: ${customerName} へ ${allEnriched.length}件登録 (失敗${skipped}) 一括承認タブ${opened}` });
+          ? `${allEnriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
+          : `${allEnriched.length}件を承認待ちに登録し承認ページを開きました`;
+        await setStorageData({ debugLog: `手動カート送信: ${customerName} へ ${allEnriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
         sendResponse({ ok: true, registered: allEnriched.length, skipped, opened, message });
       } catch (e) {
         await setStorageData({ debugLog: '手動カート送信失敗: ' + e.message });
