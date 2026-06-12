@@ -6002,12 +6002,13 @@ function buildPropertyFlex(prop, options) {
       bubble.hero = {
         type: 'box', layout: 'horizontal', spacing: 'xs',
         contents: [
-          { type: 'image', url: heroImages[0], size: 'full', aspectRatio: '1:1', aspectMode: 'cover',
+          // fit: 画像全体を表示（見切れ防止）。枠と比率が違う場合は余白が出る。
+          { type: 'image', url: heroImages[0], size: 'full', aspectRatio: '1:1', aspectMode: 'fit',
             backgroundColor: '#F5F5F5', action: _imgAction, flex: 2 },
           {
             type: 'box', layout: 'vertical', spacing: 'xs', flex: 1,
             contents: thumbs.map(function(u) {
-              return { type: 'image', url: u, size: 'full', aspectRatio: thumbRatio, aspectMode: 'cover',
+              return { type: 'image', url: u, size: 'full', aspectRatio: thumbRatio, aspectMode: 'fit',
                 backgroundColor: '#F5F5F5', action: _imgAction };
             })
           }
