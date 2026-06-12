@@ -63,6 +63,21 @@ body {
 .inq-msg { font-size: 13px; color: #eee; margin-top: 8px; background: #2d2d2d; padding: 8px 10px; border-radius: 8px; border-left: 3px solid #555; }
 .inq-foot { margin-top: 10px; display: flex; align-items: center; gap: 8px; }
 .inq-foot select { background: #2d2d2d; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: 5px 10px; font-size: 12px; }
+/* ── 問い合わせ対応履歴（架電・メール記録） ── */
+.inq-hist { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #444; }
+.inq-hist-sum { font-size: 12px; color: #ccc; margin-bottom: 6px; }
+.inq-untouched { color: #e07a5f; font-weight: 700; }
+.inq-hist-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.inq-hist-btns button { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid #555; background: #2d2d2d; color: #ddd; cursor: pointer; }
+.inq-hist-btns button:hover { background: #383838; }
+.inq-logform { margin-top: 8px; background: #1f1f1f; border: 1px solid #444; border-radius: 8px; padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.inq-logform select, .inq-logform input { background: #2d2d2d; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+.inq-logform input { flex: 1; min-width: 140px; }
+.inq-logform .rec { background: #1a7f37; color: #fff; border: none; cursor: pointer; padding: 5px 12px; border-radius: 6px; }
+.inq-logform .cancel { background: none; color: #999; border: none; cursor: pointer; font-size: 12px; }
+.inq-histlist { margin-top: 8px; }
+.inq-hist-row { font-size: 12px; color: #bbb; padding: 5px 0; border-bottom: 1px solid #333; display: flex; justify-content: space-between; gap: 8px; }
+.inq-hist-row .del { color: #c0392b; cursor: pointer; font-size: 11px; white-space: nowrap; }
 .customer-meta div { margin-bottom: 2px; }
 
 /* ── ステータスバッジ ── */
@@ -300,6 +315,10 @@ body {
         <option value="未対応">未対応</option>
         <option value="対応中">対応中</option>
         <option value="対応済み">対応済み</option>
+      </select>
+      <select id="inquirySortSel" onchange="filterInquiries()" title="並び替え" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px;font-size:12px;">
+        <option value="recv">受信が新しい順</option>
+        <option value="priority">電話すべき順（未接触・古い順）</option>
       </select>
     </div>
     <div id="inquiryList" class="customer-list">
@@ -1281,12 +1300,27 @@ function runInquiryImport() {
 function filterInquiries() {
   var q = (document.getElementById('inquirySearchInput').value || '').trim().toLowerCase();
   var st = document.getElementById('inquiryStatusFilter').value || '';
+  var sortSel = document.getElementById('inquirySortSel');
+  var sort = sortSel ? sortSel.value : 'recv';
   var filtered = allInquiries.filter(function(x) {
     if (st && x.status !== st) return false;
     if (!q) return true;
     return (x.name || '').toLowerCase().indexOf(q) >= 0 ||
            (x.propertyName || '').toLowerCase().indexOf(q) >= 0;
   });
+  if (sort === 'priority') {
+    // 電話すべき順: 対応済みは下、未接触を上、その後は最終接触が古い順、同条件は受信が古い順
+    filtered.sort(function(a, b) {
+      var ad = a.status === '対応済み' ? 1 : 0, bd = b.status === '対応済み' ? 1 : 0;
+      if (ad !== bd) return ad - bd;
+      var au = a.lastContactTs ? 1 : 0, bu = b.lastContactTs ? 1 : 0;
+      if (au !== bu) return au - bu; // 未接触(0)を先に
+      if (au === 0) return (a.ts || 0) - (b.ts || 0); // 未接触同士は受信が古い順
+      return (a.lastContactTs || 0) - (b.lastContactTs || 0); // 最終接触が古い順
+    });
+  } else {
+    filtered.sort(function(a, b) { return (b.ts || 0) - (a.ts || 0); });
+  }
   renderInquiryList(filtered);
 }
 
@@ -1348,9 +1382,105 @@ function renderInquiryList(list) {
       html += '<option value="' + opts[k] + '"' + (q.status === opts[k] ? ' selected' : '') + '>' + opts[k] + '</option>';
     }
     html += '</select></div>';
+
+    // ── 対応履歴（架電・メール送付の記録）──
+    var ri = q.rowIndex;
+    var rb = esc(q.renban);
+    html += '<div class="inq-hist">';
+    // サマリー: 最終接触 or 未接触 + 回数
+    html += '<div class="inq-hist-sum">';
+    if (q.lastContactTs && q.lastContactStr) {
+      html += '最終接触: ' + esc(q.lastContactStr) + '（' + esc(q.lastContactType || '') +
+              (q.lastContactResult ? '・' + esc(q.lastContactResult) : '') + '）';
+    } else {
+      html += '<span class="inq-untouched">⚠ 未接触</span>';
+    }
+    html += '　<span style="color:#888;">📞架電' + (q.callCount || 0) + ' / ✉メール' + (q.mailCount || 0) + '</span>';
+    html += '</div>';
+    // 記録ボタン
+    html += '<div class="inq-hist-btns">';
+    html += '<button onclick="openInqLog(' + ri + ',\'' + rb + '\',\'架電\')">📞 架電を記録</button>';
+    html += '<button onclick="openInqLog(' + ri + ',\'' + rb + '\',\'メール\')">✉ メール送付を記録</button>';
+    html += '<button onclick="toggleInqHist(' + ri + ',\'' + rb + '\')">📜 履歴' + (q.logCount ? '(' + q.logCount + ')' : '') + '</button>';
+    html += '</div>';
+    html += '<div id="inqform_' + ri + '" class="inq-logform" style="display:none;"></div>';
+    html += '<div id="inqhist_' + ri + '" class="inq-histlist" style="display:none;"></div>';
+    html += '</div>';
+
     html += '</div>';
   }
   el.innerHTML = html;
+}
+
+// 記録フォームを開く（架電/メール）
+function openInqLog(rowIndex, renban, type) {
+  var el = document.getElementById('inqform_' + rowIndex);
+  if (!el) return;
+  if (el.style.display === 'block' && el.getAttribute('data-type') === type) { el.style.display = 'none'; return; }
+  el.setAttribute('data-type', type);
+  var h = '<span style="font-size:11px;color:#888;">' + esc(type) + 'を記録</span>';
+  if (type === '架電') {
+    h += '<select id="inqres_' + rowIndex + '">' +
+         '<option value="つながった">つながった</option>' +
+         '<option value="不在">不在</option>' +
+         '<option value="留守電">留守電</option>' +
+         '<option value="折り返し待ち">折り返し待ち</option>' +
+         '<option value="その他">その他</option></select>';
+  }
+  h += '<input id="inqmemo_' + rowIndex + '" placeholder="メモ（任意）">';
+  h += '<button class="rec" onclick="submitInqLog(' + rowIndex + ',\'' + esc(renban) + '\',\'' + esc(type) + '\')">記録</button>';
+  h += '<button class="cancel" onclick="document.getElementById(\'inqform_' + rowIndex + '\').style.display=\'none\'">キャンセル</button>';
+  el.innerHTML = h;
+  el.style.display = 'block';
+  var mi = document.getElementById('inqmemo_' + rowIndex);
+  if (mi) mi.focus();
+}
+
+function submitInqLog(rowIndex, renban, type) {
+  var resEl = document.getElementById('inqres_' + rowIndex);
+  var memoEl = document.getElementById('inqmemo_' + rowIndex);
+  var result = resEl ? resEl.value : (type === 'メール' ? '送信' : '');
+  var memo = memoEl ? memoEl.value : '';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) { showToast(type + 'を記録しました'); loadInquiries(); }
+      else { showToast((r && r.message) || '記録に失敗しました'); }
+    })
+    .withFailureHandler(function(e) { showToast('記録エラー: ' + (e && e.message ? e.message : '')); })
+    .addInquiryLog(renban, type, result, memo);
+}
+
+function toggleInqHist(rowIndex, renban) {
+  var el = document.getElementById('inqhist_' + rowIndex);
+  if (!el) return;
+  if (el.style.display === 'block') { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = '<div style="color:#888;font-size:11px;">読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(logs) {
+      if (!logs || !logs.length) { el.innerHTML = '<div style="color:#888;font-size:11px;">まだ記録はありません</div>'; return; }
+      var h = '';
+      for (var i = 0; i < logs.length; i++) {
+        var L = logs[i];
+        h += '<div class="inq-hist-row"><span>' + esc(L.dateStr) + '　' + esc(L.type) +
+             (L.result ? '・' + esc(L.result) : '') + (L.memo ? '　' + esc(L.memo) : '') + '</span>' +
+             '<span class="del" onclick="deleteInqLog(' + L.rowIndex + ',\'' + esc(renban) + '\')">削除</span></div>';
+      }
+      el.innerHTML = h;
+    })
+    .withFailureHandler(function(e) { el.innerHTML = '<div style="color:#c0392b;font-size:11px;">取得エラー</div>'; })
+    .getInquiryLogs(renban);
+}
+
+function deleteInqLog(rowNum, renban) {
+  if (!confirm('この記録を削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) { showToast('削除しました'); loadInquiries(); }
+      else { showToast((r && r.message) || '削除に失敗しました'); }
+    })
+    .withFailureHandler(function(e) { showToast('削除エラー: ' + (e && e.message ? e.message : '')); })
+    .deleteInquiryLog(rowNum, renban);
 }
 
 function changeInquiryStatus(rowIndex, renban, status) {
