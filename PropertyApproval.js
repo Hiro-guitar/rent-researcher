@@ -244,6 +244,11 @@ function handleConfirmApprove(e) {
   // 確定マーカーをスクリプトキャッシュに記録（コンテナがポーリングで検知する。iframe間postMessageに依存しない）。
   if (e.parameter.defer === '1') {
     try { CacheService.getScriptCache().put('cartsave_' + customerName + '_' + roomId, '1', 21600); } catch (eC) {}
+    // 担当者コメントもキャッシュに保存（sendCartCarousel が読んでカードに載せる）
+    try {
+      var _sc = (e.parameter.staff_comment || '').trim();
+      if (_sc) CacheService.getScriptCache().put('cartcomment_' + customerName + '_' + roomId, _sc, 21600);
+    } catch (eC2) {}
     return makeHtml('保存', (prop.buildingName || '物件') + ' を保存しました（送信は一括で行います）。');
   }
 
@@ -260,7 +265,8 @@ function handleConfirmApprove(e) {
     includeImage: selectedImageUrls.length > 0,
     heroImageUrls: selectedImageUrls,
     viewUrl: viewUrl,
-    customerStations: _getCustomerSelectedStations_(customerName)
+    customerStations: _getCustomerSelectedStations_(customerName),
+    staffComment: (e.parameter.staff_comment || '')
   });
 
   pushMessage(lineUserId, [flex]);
@@ -323,7 +329,8 @@ function handleConfirmApprove(e) {
         includeImage: selectedImageUrls.length > 0,
         heroImageUrls: selectedImageUrls,
         viewUrl: msViewUrl,
-        customerStations: _getCustomerSelectedStations_(msName)
+        customerStations: _getCustomerSelectedStations_(msName),
+        staffComment: (e.parameter.staff_comment || '')
       });
       pushMessage(msLineId, [msFlex]);
       updatePendingStatus(msRow.rowIndex, 'sent', msViewUrl);
@@ -5922,6 +5929,18 @@ function buildPropertyFlex(prop, options) {
     bodyContents.push({ type: 'box', layout: 'vertical', spacing: 'xs', margin: 'md', contents: locationLines });
   }
 
+  // ── 担当者コメント (任意) ──
+  if (options.staffComment && String(options.staffComment).trim()) {
+    bodyContents.push({
+      type: 'box', layout: 'vertical', margin: 'lg', spacing: 'xs',
+      backgroundColor: '#fff8e1', cornerRadius: 'md', paddingAll: 'md',
+      contents: [
+        { type: 'text', text: '💬 担当者より', size: 'xs', color: '#b8860b', weight: 'bold' },
+        { type: 'text', text: String(options.staffComment).trim(), size: 'sm', color: '#444444', wrap: true }
+      ]
+    });
+  }
+
   var bubble = { type: 'bubble', size: 'mega' };
 
   // ── ヘッダー (オプション): 「空室確認の結果」 等の用途明示 ──
@@ -5976,16 +5995,23 @@ function buildPropertyFlex(prop, options) {
         ]
       };
     } else {
-      // 3-4枚: メイン1枚 + サムネ最大3枚のコンポジット (全て fit で見切れ防止)
+      // 3-4枚: 左に大1枚 + 右に小(縦)のコラージュ。縦幅を抑えてカードをコンパクトに。
+      // 右列の合計高さを左の大(1:1)に揃えるため、サムネのアスペクト比を枚数から算出（n:2）。
       var thumbs = heroImages.slice(1, 4);
-      var heroChildren = [_imgEl(heroImages[0], '4:3', 'fit')];
-      heroChildren.push({
-        type: 'box', layout: 'horizontal', spacing: 'xs',
-        contents: thumbs.map(function(u) { return _imgEl(u, '1:1', 'fit'); })
-      });
+      var thumbRatio = thumbs.length + ':2';
       bubble.hero = {
-        type: 'box', layout: 'vertical', spacing: 'xs',
-        contents: heroChildren
+        type: 'box', layout: 'horizontal', spacing: 'xs',
+        contents: [
+          { type: 'image', url: heroImages[0], size: 'full', aspectRatio: '1:1', aspectMode: 'cover',
+            backgroundColor: '#F5F5F5', action: _imgAction, flex: 2 },
+          {
+            type: 'box', layout: 'vertical', spacing: 'xs', flex: 1,
+            contents: thumbs.map(function(u) {
+              return { type: 'image', url: u, size: 'full', aspectRatio: thumbRatio, aspectMode: 'cover',
+                backgroundColor: '#F5F5F5', action: _imgAction };
+            })
+          }
+        ]
       };
     }
   }
@@ -6344,6 +6370,13 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
     }
     html += '</div></div>';
   }
+
+  // \u62C5\u5F53\u8005\u30B3\u30E1\u30F3\u30C8\uFF08\u4EFB\u610F\uFF09: \u30AB\u30FC\u30C9\u3068\u306F\u5225\u306E\u5439\u304D\u51FA\u3057(\u30C6\u30AD\u30B9\u30C8)\u3067\u304A\u5BA2\u3055\u3093\u306B\u9001\u308B
+  html += '<div style="margin:16px 0 4px;">'
+    + '<div style="font-size:13px;color:#888;font-weight:bold;margin-bottom:6px;">\uD83D\uDCAC \u62C5\u5F53\u8005\u30B3\u30E1\u30F3\u30C8\uFF08\u4EFB\u610F\u30FB\u7269\u4EF6\u30AB\u30FC\u30C9\u306E\u4E2D\u306B\u8868\u793A\u3055\u308C\u307E\u3059\uFF09</div>'
+    + '<textarea id="staffComment" placeholder="\u4F8B\uFF1A\u99C5\u8FD1\u3067\u65E5\u5F53\u305F\u308A\u826F\u597D\u3067\u3059\u3002\u3054\u5E0C\u671B\u306B\u5408\u3046\u3068\u601D\u3044\u307E\u3059\uFF01" '
+    + 'style="width:100%;box-sizing:border-box;min-height:64px;border:1px solid #ccc;border-radius:8px;padding:8px;font-size:14px;font-family:inherit;resize:vertical;"></textarea>'
+    + '</div>';
 
   html += '<div class="actions">'
     + '<a id="approveBtn" class="btn btn-approve" href="#" onclick="submitApprove();return false;">\u2705 \u627F\u8A8D\u3057\u3066LINE\u9001\u4FE1</a><br>'
@@ -6776,6 +6809,7 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
     + 'fd.customer=customerName;'
     + 'fd.room_id=roomId;'
     + 'if(__collect)fd.defer="1";' // カート埋め込み時は保存のみ（送信は親が一括カルーセル）
+    + 'var _sc=document.getElementById("staffComment");fd.staff_comment=_sc?_sc.value:"";' // 担当者コメント（別吹き出し）
     + 'var selUrls=[];var selCats=[];'
     + 'for(var i=0;i<allImages.length;i++){if(allImages[i].checked){selUrls.push(allImages[i].url);selCats.push(allImages[i].cat||"")}}'
     + 'fd.ordered_image_urls=JSON.stringify(selUrls);'
@@ -7112,11 +7146,15 @@ function sendCartCarousel(customerName, roomIdsCsv) {
       var minimalUrl = buildMinimalViewUrl(customerName, rid, prop);
       var viewUrl = hashUrl.length <= 1000 ? hashUrl : (minimalUrl.length <= 1000 ? minimalUrl : plainUrl);
       cachePropertyImages(customerName, rid, sel, selCats);
+      // 承認ページで入力された担当者コメント（defer保存時にキャッシュ）
+      var staffComment = '';
+      try { staffComment = CacheService.getScriptCache().get('cartcomment_' + customerName + '_' + rid) || ''; } catch (eGc) {}
       var flex = buildPropertyFlex(prop, {
         includeImage: sel.length > 0,
         heroImageUrls: sel,
         viewUrl: viewUrl,
-        customerStations: batchCustStations
+        customerStations: batchCustStations,
+        staffComment: staffComment
       });
       if (flex && flex.contents) bubbles.push(flex.contents);
       sentTargets.push({ rowIndex: rows[i].rowIndex, prop: prop, viewUrl: viewUrl });
@@ -7133,7 +7171,10 @@ function sendCartCarousel(customerName, roomIdsCsv) {
     // 確定マーカーをクリア（コンテナのポーリングをリセット）
     try {
       var clearKeys = [];
-      for (var ck = 0; ck < roomIds.length; ck++) clearKeys.push('cartsave_' + customerName + '_' + roomIds[ck]);
+      for (var ck = 0; ck < roomIds.length; ck++) {
+        clearKeys.push('cartsave_' + customerName + '_' + roomIds[ck]);
+        clearKeys.push('cartcomment_' + customerName + '_' + roomIds[ck]);
+      }
       CacheService.getScriptCache().removeAll(clearKeys);
     } catch (eClr) {}
     return { success: true, count: sentTargets.length };
