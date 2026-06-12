@@ -90,6 +90,7 @@ body {
 .status-auto_paused { background: #3a1b1b; color: #f44747; border: 1px solid #5a2020; }
 .status-snoozed { background: #1b2a3a; color: #569cd6; border: 1px solid #1b3a5a; }
 .status-blocked { background: #2d2d2d; color: #888; border: 1px solid #404040; }
+.status-lead { background: #2a2440; color: #b39ddb; border: 1px solid #4a3a6a; }
 
 /* ── 詳細ページ ── */
 .detail-header {
@@ -510,7 +511,7 @@ function filterCustomers() {
 }
 
 function statusBadge(s) {
-  var labels = {active:'配信中', paused:'停止', auto_paused:'自動停止', snoozed:'スヌーズ', blocked:'ブロック'};
+  var labels = {active:'配信中', paused:'停止', auto_paused:'自動停止', snoozed:'スヌーズ', blocked:'ブロック', lead:'リード'};
   var cls = 'status-' + (s || 'active');
   return '<span class="status-badge ' + cls + '">' + (labels[s] || '配信中') + '</span>';
 }
@@ -1409,6 +1410,11 @@ function renderInquiryList(list) {
     html += '<div class="inq-hist-btns">';
     html += '<button onclick="openInqLog(' + ri + ',\'' + rb + '\',\'架電\')">📞 架電を記録</button>';
     html += '<button onclick="openInqLog(' + ri + ',\'' + rb + '\',\'メール\')">✉ メール送付を記録</button>';
+    if ((q.memo || '').indexOf('顧客登録済み') >= 0) {
+      html += '<span style="color:#b39ddb;font-size:12px;align-self:center;">👤 顧客登録済み</span>';
+    } else {
+      html += '<button onclick="promoteInquiry(' + ri + ',\'' + rb + '\')" style="border-color:#7e57c2;color:#b39ddb;">👤 顧客として登録</button>';
+    }
     html += '</div>';
     html += '<div id="inqform_' + ri + '" class="inq-logform" style="display:none;"></div>';
     // 履歴を常時インライン表示（手動ログ＋自動返信メールを時系列で）
@@ -1506,6 +1512,21 @@ function toggleInqHist(rowIndex, renban) {
     })
     .withFailureHandler(function(e) { el.innerHTML = '<div style="color:#c0392b;font-size:11px;">取得エラー</div>'; })
     .getInquiryTimeline(renban, email);
+}
+
+function promoteInquiry(rowIndex, renban) {
+  var name = '';
+  for (var i = 0; i < allInquiries.length; i++) {
+    if (allInquiries[i].rowIndex === rowIndex) { name = allInquiries[i].name || ''; break; }
+  }
+  if (!confirm((name || 'この問い合わせ者') + ' を顧客（リード）として登録しますか？\n顧客一覧に追加され、対応履歴も顧客側に引き継がれます。\n（条件未登録なので自動検索の対象にはなりません）')) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) { showToast(r.message || '顧客登録しました'); loadInquiries(); }
+      else { showToast((r && r.message) || '登録に失敗しました'); }
+    })
+    .withFailureHandler(function(e) { showToast('登録エラー: ' + (e && e.message ? e.message : '')); })
+    .promoteInquiryToCustomer(renban);
 }
 
 function deleteInqLog(rowNum, renban) {

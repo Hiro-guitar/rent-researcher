@@ -2829,9 +2829,10 @@ function getExistingCustomers_() {
   for (var i = 1; i < criteriaData.length; i++) {
     var name = String(criteriaData[i][1] || '').trim();
     if (!name) continue;
-    // S列 (index 18): 配信ステータス — blocked/paused/auto_paused は除外
+    // S列 (index 18): 配信ステータス — blocked/paused/auto_paused/lead は自動検索から除外
+    // （lead = 問い合わせから登録した見込み客。条件未登録なので自動検索しない）
     var deliveryStatus = String(criteriaData[i][18] || '').trim().toLowerCase();
-    if (deliveryStatus === 'blocked' || deliveryStatus === 'paused' || deliveryStatus === 'auto_paused') {
+    if (deliveryStatus === 'blocked' || deliveryStatus === 'paused' || deliveryStatus === 'auto_paused' || deliveryStatus === 'lead') {
       excludeNames[name] = true;
       continue;
     }
