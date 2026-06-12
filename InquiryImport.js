@@ -106,16 +106,27 @@ function _parseSuumoInquiryEmail_(subject, body, fallbackDate) {
  * 時間トリガー & 手動ボタンの両方から呼ばれる。
  * @return {Object} { imported, skipped, scanned }
  */
+/** 連番を重複判定用に正規化（空白除去＋先頭ゼロ除去）。
+ *  シートに書くと先頭ゼロが消えて数値化されることがあるため、両側を揃えて照合する。 */
+function _normRenban_(r) {
+  var s = String(r == null ? '' : r).replace(/[\s　]/g, '');
+  s = s.replace(/^0+/, '');
+  return s;
+}
+
 function importSuumoInquiries() {
   var sheet = _getInquirySheet_();
 
-  // 既存の連番セット（重複防止）
+  // 連番列(B)をテキスト形式にして先頭ゼロを保持（数値化による重複判定ズレを防ぐ）
+  try { sheet.getRange('B:B').setNumberFormat('@'); } catch (eFmt) {}
+
+  // 既存の連番セット（重複防止）。正規化キーで照合（先頭ゼロ/全角空白の差を吸収）
   var existing = {};
   var lastRow = sheet.getLastRow();
   if (lastRow > 1) {
     var renbanCol = sheet.getRange(2, 2, lastRow - 1, 1).getValues(); // B列
     for (var i = 0; i < renbanCol.length; i++) {
-      var rb = String(renbanCol[i][0] || '').trim();
+      var rb = _normRenban_(renbanCol[i][0]);
       if (rb) existing[rb] = true;
     }
   }
@@ -134,8 +145,9 @@ function importSuumoInquiries() {
       scanned++;
       var info = _parseSuumoInquiryEmail_(subject, msg.getPlainBody(), msg.getDate());
       if (!info || !info.renban) { continue; }
-      if (existing[info.renban]) { skipped++; continue; }
-      existing[info.renban] = true; // 同一バッチ内の重複も防ぐ
+      var rbKey = _normRenban_(info.renban);
+      if (existing[rbKey]) { skipped++; continue; }
+      existing[rbKey] = true; // 同一バッチ内の重複も防ぐ
 
       newRows.push([
         info.receivedAt,
@@ -299,4 +311,28 @@ function testInquiryImport() {
   }
   Logger.log(JSON.stringify(out, null, 2));
   return out;
+}
+
+/**
+ * 既存の重複行を削除する（連番が同じ行は最初の1件だけ残す）。
+ * 先頭ゼロの数値化で重複取り込みされてしまった分の掃除用。エディタで一度実行。
+ * @return {Object} { removed }
+ */
+function dedupeInquiries() {
+  var sheet = _getInquirySheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { removed: 0 };
+  var data = sheet.getRange(2, 2, lastRow - 1, 1).getValues(); // B列 連番
+  var seen = {};
+  var toDelete = [];
+  for (var i = 0; i < data.length; i++) {
+    var key = _normRenban_(data[i][0]);
+    if (!key) continue;
+    if (seen[key]) toDelete.push(i + 2); // シート行番号
+    else seen[key] = true;
+  }
+  // 下から消す（行番号がずれないように）
+  for (var d = toDelete.length - 1; d >= 0; d--) sheet.deleteRow(toDelete[d]);
+  console.log('[問い合わせ重複削除] removed=' + toDelete.length);
+  return { removed: toDelete.length };
 }
