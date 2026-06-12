@@ -70,9 +70,10 @@ body {
 .inq-hist-btns { display: flex; flex-wrap: wrap; gap: 6px; }
 .inq-hist-btns button { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid #555; background: #2d2d2d; color: #ddd; cursor: pointer; }
 .inq-hist-btns button:hover { background: #383838; }
-.inq-logform { margin-top: 8px; background: #1f1f1f; border: 1px solid #444; border-radius: 8px; padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.inq-logform select, .inq-logform input { background: #2d2d2d; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: 5px 8px; font-size: 12px; }
-.inq-logform input { flex: 1; min-width: 140px; }
+.inq-logform { margin-top: 8px; background: #1f1f1f; border: 1px solid #444; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.inq-logform select, .inq-logform input, .inq-logform textarea { background: #2d2d2d; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: 6px 8px; font-size: 13px; box-sizing: border-box; }
+.inq-logform textarea { width: 100%; min-height: 96px; resize: vertical; font-family: inherit; line-height: 1.5; }
+.inq-logform .row { display: flex; gap: 8px; align-items: center; }
 .inq-logform .rec { background: #1a7f37; color: #fff; border: none; cursor: pointer; padding: 5px 12px; border-radius: 6px; }
 .inq-logform .cancel { background: none; color: #999; border: none; cursor: pointer; font-size: 12px; }
 .inq-histlist { margin-top: 8px; }
@@ -1443,7 +1444,7 @@ function openInqLog(rowIndex, renban, type) {
   if (!el) return;
   if (el.style.display === 'block' && el.getAttribute('data-type') === type) { el.style.display = 'none'; return; }
   el.setAttribute('data-type', type);
-  var h = '<span style="font-size:11px;color:#888;">' + esc(type) + 'を記録</span>';
+  var h = '<div style="font-size:12px;color:#888;font-weight:bold;">' + esc(type) + 'を記録</div>';
   if (type === '架電') {
     h += '<select id="inqres_' + rowIndex + '">' +
          '<option value="つながった">つながった</option>' +
@@ -1452,9 +1453,11 @@ function openInqLog(rowIndex, renban, type) {
          '<option value="折り返し待ち">折り返し待ち</option>' +
          '<option value="その他">その他</option></select>';
   }
-  h += '<input id="inqmemo_' + rowIndex + '" placeholder="メモ（任意）">';
+  h += '<textarea id="inqmemo_' + rowIndex + '" rows="4" placeholder="メモ（任意・通話内容など自由に記入できます）"></textarea>';
+  h += '<div class="row">';
   h += '<button class="rec" onclick="submitInqLog(' + rowIndex + ',\'' + esc(renban) + '\',\'' + esc(type) + '\')">記録</button>';
   h += '<button class="cancel" onclick="document.getElementById(\'inqform_' + rowIndex + '\').style.display=\'none\'">キャンセル</button>';
+  h += '</div>';
   el.innerHTML = h;
   el.style.display = 'block';
   var mi = document.getElementById('inqmemo_' + rowIndex);
