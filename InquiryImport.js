@@ -214,8 +214,9 @@ function getInquiries() {
   var data = sheet.getRange(2, 1, lastRow - 1, INQUIRY_HEADERS.length).getValues();
   var tz = 'Asia/Tokyo';
 
-  // 対応ログを連番ごとに集計（最終接触・架電/メール回数）
+  // 対応ログを連番ごとに集計（最終接触・架電/メール回数）＋全件リスト(timeline用)
   var logSummary = {};
+  var logsByRenban = {};
   try {
     var logSheet = _getInquiryLogSheet_();
     var lLast = logSheet.getLastRow();
@@ -234,12 +235,18 @@ function getInquiries() {
           s.lastTs = lts; s.lastType = ltype; s.lastResult = String(ldata[li][3] || '');
           s.lastStr = (ldt instanceof Date) ? Utilities.formatDate(ldt, tz, 'MM/dd HH:mm') : String(ldt || '');
         }
+        (logsByRenban[lk] || (logsByRenban[lk] = [])).push({
+          source: 'manual', ts: lts,
+          dateStr: (ldt instanceof Date) ? Utilities.formatDate(ldt, tz, 'yyyy/MM/dd HH:mm') : String(ldt || ''),
+          type: ltype, detail: String(ldata[li][3] || ''), memo: String(ldata[li][4] || ''), rowIndex: li + 2
+        });
       }
     }
   } catch (eLog) {}
 
-  // 自動返信メール（reply.py が記録する「メール送信履歴」）をメールアドレスごとに集計
+  // 自動返信メール（reply.py が記録する「メール送信履歴」）をメールアドレスごとに集計＋全件リスト
   var autoMail = {};
+  var autoByEmail = {};
   try {
     var ss2 = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
     var mSheet = ss2.getSheetByName('メール送信履歴');
@@ -255,6 +262,14 @@ function getInquiries() {
           a.lastTs = mts; a.lastType = String(mdata[mi][4] || '');
           a.lastStr = (mdt instanceof Date) ? Utilities.formatDate(mdt, tz, 'MM/dd HH:mm') : String(mdt || '');
         }
+        var mdays = mdata[mi][5];
+        (autoByEmail[em] || (autoByEmail[em] = [])).push({
+          source: 'auto', ts: mts,
+          dateStr: (mdt instanceof Date) ? Utilities.formatDate(mdt, tz, 'yyyy/MM/dd HH:mm') : String(mdt || ''),
+          type: '自動返信メール',
+          detail: String(mdata[mi][4] || '') + ((mdays !== '' && mdays != null && String(mdays) !== '0') ? '（' + mdays + '日目）' : ''),
+          memo: ''
+        });
       }
     }
   } catch (eAM) {}
@@ -268,7 +283,11 @@ function getInquiries() {
     var recvTs = (recv instanceof Date) ? recv.getTime() : (new Date(String(recv)).getTime() || 0);
     var sm = logSummary[_normRenban_(r[1])] || null;
     var am = autoMail[String(r[4] || '').trim().toLowerCase()] || null;
+    // 統合タイムライン（手動ログ＋自動返信メール）を新しい順で
+    var tl = (logsByRenban[_normRenban_(r[1])] || []).concat(autoByEmail[String(r[4] || '').trim().toLowerCase()] || []);
+    tl.sort(function(x, y) { return y.ts - x.ts; });
     list.push({
+      timeline: tl,
       rowIndex: i + 2,
       receivedAt: recvStr,
       ts: recvTs,

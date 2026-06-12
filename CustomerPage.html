@@ -1408,15 +1408,33 @@ function renderInquiryList(list) {
     html += '<div class="inq-hist-btns">';
     html += '<button onclick="openInqLog(' + ri + ',\'' + rb + '\',\'架電\')">📞 架電を記録</button>';
     html += '<button onclick="openInqLog(' + ri + ',\'' + rb + '\',\'メール\')">✉ メール送付を記録</button>';
-    html += '<button onclick="toggleInqHist(' + ri + ',\'' + rb + '\')">📜 履歴' + (q.logCount ? '(' + q.logCount + ')' : '') + '</button>';
     html += '</div>';
     html += '<div id="inqform_' + ri + '" class="inq-logform" style="display:none;"></div>';
-    html += '<div id="inqhist_' + ri + '" class="inq-histlist" style="display:none;"></div>';
+    // 履歴を常時インライン表示（手動ログ＋自動返信メールを時系列で）
+    html += '<div class="inq-histlist">' + renderInqTimeline(q.timeline, q.renban) + '</div>';
     html += '</div>';
 
     html += '</div>';
   }
   el.innerHTML = html;
+}
+
+// 統合タイムライン(手動ログ＋自動返信メール)をHTML化。手動分は削除可。
+function renderInqTimeline(timeline, renban) {
+  if (!timeline || !timeline.length) {
+    return '<div style="color:#888;font-size:11px;">記録はまだありません</div>';
+  }
+  var h = '';
+  for (var j = 0; j < timeline.length; j++) {
+    var L = timeline[j];
+    var icon = (L.source === 'auto') ? '🤖' : ((L.type && L.type.indexOf('架電') >= 0) ? '📞' : '✉');
+    var right = (L.source === 'manual')
+      ? '<span class="del" onclick="deleteInqLog(' + L.rowIndex + ',\'' + esc(renban) + '\')">削除</span>'
+      : '<span style="color:#7fb3d5;font-size:10px;white-space:nowrap;">自動</span>';
+    h += '<div class="inq-hist-row"><span>' + icon + ' ' + esc(L.dateStr) + '　' + esc(L.type) +
+         (L.detail ? '・' + esc(L.detail) : '') + (L.memo ? '　' + esc(L.memo) : '') + '</span>' + right + '</div>';
+  }
+  return h;
 }
 
 // 記録フォームを開く（架電/メール）
