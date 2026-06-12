@@ -238,6 +238,27 @@ function getInquiries() {
     }
   } catch (eLog) {}
 
+  // 自動返信メール（reply.py が記録する「メール送信履歴」）をメールアドレスごとに集計
+  var autoMail = {};
+  try {
+    var ss2 = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var mSheet = ss2.getSheetByName('メール送信履歴');
+    if (mSheet && mSheet.getLastRow() > 1) {
+      var mdata = mSheet.getRange(2, 1, mSheet.getLastRow() - 1, 7).getValues();
+      for (var mi = 0; mi < mdata.length; mi++) {
+        var em = String(mdata[mi][1] || '').trim().toLowerCase(); if (!em) continue;
+        var mdt = mdata[mi][0];
+        var mts = (mdt instanceof Date) ? mdt.getTime() : (new Date(String(mdt)).getTime() || 0);
+        var a = autoMail[em] || (autoMail[em] = { count: 0, lastTs: 0, lastStr: '', lastType: '' });
+        a.count++;
+        if (mts >= a.lastTs) {
+          a.lastTs = mts; a.lastType = String(mdata[mi][4] || '');
+          a.lastStr = (mdt instanceof Date) ? Utilities.formatDate(mdt, tz, 'MM/dd HH:mm') : String(mdt || '');
+        }
+      }
+    }
+  } catch (eAM) {}
+
   var list = [];
   for (var i = 0; i < data.length; i++) {
     var r = data[i];
@@ -246,6 +267,7 @@ function getInquiries() {
     var recvStr = (recv instanceof Date) ? Utilities.formatDate(recv, tz, 'yyyy/MM/dd HH:mm') : String(recv || '');
     var recvTs = (recv instanceof Date) ? recv.getTime() : (new Date(String(recv)).getTime() || 0);
     var sm = logSummary[_normRenban_(r[1])] || null;
+    var am = autoMail[String(r[4] || '').trim().toLowerCase()] || null;
     list.push({
       rowIndex: i + 2,
       receivedAt: recvStr,
@@ -275,7 +297,12 @@ function getInquiries() {
       lastContactStr: sm ? sm.lastStr : '',
       lastContactTs: sm ? sm.lastTs : 0,
       lastContactType: sm ? sm.lastType : '',
-      lastContactResult: sm ? sm.lastResult : ''
+      lastContactResult: sm ? sm.lastResult : '',
+      // 自動返信メール（reply.py 由来）
+      autoMailCount: am ? am.count : 0,
+      autoMailLastStr: am ? am.lastStr : '',
+      autoMailLastTs: am ? am.lastTs : 0,
+      autoMailLastType: am ? am.lastType : ''
     });
   }
   list.sort(function(a, b) { return b.ts - a.ts; });
@@ -321,6 +348,49 @@ function getInquiryLogs(renban) {
   } catch (e) {
     return [];
   }
+}
+
+/** 手動の対応ログ ＋ 自動返信メール(メール送信履歴) を統合して新しい順で返す。 */
+function getInquiryTimeline(renban, email) {
+  var out = [];
+  // 手動ログ（架電・メール送付）
+  try {
+    var logs = getInquiryLogs(renban);
+    for (var i = 0; i < logs.length; i++) {
+      out.push({
+        ts: logs[i].ts, dateStr: logs[i].dateStr, source: 'manual',
+        type: logs[i].type, detail: logs[i].result, memo: logs[i].memo, rowIndex: logs[i].rowIndex
+      });
+    }
+  } catch (e1) {}
+  // 自動返信メール（reply.py が記録）
+  try {
+    var em = String(email || '').trim().toLowerCase();
+    if (em) {
+      var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+      var mSheet = ss.getSheetByName('メール送信履歴');
+      if (mSheet && mSheet.getLastRow() > 1) {
+        var tz = 'Asia/Tokyo';
+        var md = mSheet.getRange(2, 1, mSheet.getLastRow() - 1, 7).getValues();
+        for (var j = 0; j < md.length; j++) {
+          if (String(md[j][1] || '').trim().toLowerCase() !== em) continue;
+          var dt = md[j][0];
+          var ts = (dt instanceof Date) ? dt.getTime() : (new Date(String(dt)).getTime() || 0);
+          var days = md[j][5];
+          out.push({
+            ts: ts,
+            dateStr: (dt instanceof Date) ? Utilities.formatDate(dt, tz, 'yyyy/MM/dd HH:mm') : String(dt || ''),
+            source: 'auto',
+            type: '自動返信メール',
+            detail: String(md[j][4] || '') + ((days !== '' && days != null && String(days) !== '0') ? '（' + days + '日目）' : ''),
+            memo: ''
+          });
+        }
+      }
+    }
+  } catch (e2) {}
+  out.sort(function(a, b) { return b.ts - a.ts; });
+  return out;
 }
 
 /** 対応ログを1件削除する（行番号＋連番で照合）。 */
