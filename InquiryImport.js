@@ -535,3 +535,100 @@ function dedupeInquiries() {
   console.log('[問い合わせ重複削除] removed=' + toDelete.length);
   return { removed: toDelete.length };
 }
+
+/** 問い合わせを連番で1件取得（内部用）。 */
+function _getInquiryByRenban_(renban) {
+  var sheet = _getInquirySheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return null;
+  var key = _normRenban_(renban);
+  var data = sheet.getRange(2, 1, lastRow - 1, INQUIRY_HEADERS.length).getValues();
+  var tz = 'Asia/Tokyo';
+  for (var i = 0; i < data.length; i++) {
+    if (_normRenban_(data[i][1]) !== key) continue;
+    var recv = data[i][0];
+    return {
+      rowIndex: i + 2,
+      receivedAt: (recv instanceof Date) ? Utilities.formatDate(recv, tz, 'yyyy/MM/dd HH:mm') : String(recv || ''),
+      renban: String(data[i][1] || ''),
+      name: String(data[i][2] || ''),
+      email: String(data[i][4] || ''),
+      tel: String(data[i][5] || ''),
+      message: String(data[i][7] || ''),
+      propertyName: String(data[i][8] || ''),
+      rent: String(data[i][10] || '')
+    };
+  }
+  return null;
+}
+
+/**
+ * 問い合わせを「リード」として顧客登録し、対応履歴も顧客の対応ログへ引き継ぐ。
+ * リードは status='lead'（自動検索対象外）。同名の既存顧客があれば紐付けのみ。
+ * @return {Object} { success, customerName, alreadyExisted, message }
+ */
+function promoteInquiryToCustomer(renban) {
+  try {
+    var inq = _getInquiryByRenban_(renban);
+    if (!inq) return { success: false, message: '問い合わせが見つかりません' };
+    var name = (inq.name || '').trim();
+    if (!name) return { success: false, message: '問い合わせに名前がありません' };
+
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var critSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!critSheet) return { success: false, message: '検索条件シートが見つかりません' };
+
+    // 同名の既存顧客チェック
+    var cdata = critSheet.getDataRange().getValues();
+    var exists = false;
+    for (var i = 1; i < cdata.length; i++) {
+      if (String(cdata[i][1] || '').trim() === name) { exists = true; break; }
+    }
+
+    // 無ければ「リード」として作成（status='lead' → getExistingCustomers_ で自動検索除外）
+    if (!exists) {
+      var row = [];
+      for (var c = 0; c < 19; c++) row.push('');
+      row[0] = new Date(); // A 登録日時
+      row[1] = name;       // B 名前
+      row[18] = 'lead';    // S 配信ステータス（自動検索除外）
+      critSheet.appendRow(row);
+    }
+
+    // 問い合わせ情報を対応ログにメモとして残す
+    var infoParts = [];
+    if (inq.propertyName) infoParts.push('物件: ' + inq.propertyName + (inq.rent ? ' ' + inq.rent : ''));
+    if (inq.email) infoParts.push('メール: ' + inq.email);
+    if (inq.tel) infoParts.push('TEL: ' + inq.tel);
+    if (inq.message) infoParts.push('内容: ' + inq.message);
+    try { addContactLog(name, 'SUUMO反響', inq.receivedAt, infoParts.join(' / ')); } catch (e1) {}
+
+    // 対応履歴（架電/手動メール/自動返信メール）を顧客の対応ログへコピー
+    try {
+      var tl = getInquiryTimeline(renban, inq.email);
+      for (var t = 0; t < tl.length; t++) {
+        var L = tl[t];
+        var ctype = (L.source === 'auto') ? 'メール' : ((L.type && L.type.indexOf('架電') >= 0) ? '電話' : 'メール');
+        var memo = (L.source === 'auto')
+          ? ('自動返信メール: ' + (L.detail || ''))
+          : ((L.detail ? L.detail + ' ' : '') + (L.memo || ''));
+        addContactLog(name, ctype, L.dateStr, memo);
+      }
+    } catch (e2) {}
+
+    // 問い合わせを対応済みにし、登録済みを記録
+    try {
+      var iSheet = _getInquirySheet_();
+      iSheet.getRange(inq.rowIndex, 18).setValue('対応済み'); // R 対応状況
+      var cur = String(iSheet.getRange(inq.rowIndex, 19).getValue() || ''); // S 対応メモ
+      iSheet.getRange(inq.rowIndex, 19).setValue((cur ? cur + ' / ' : '') + '顧客登録済み(' + name + ')');
+    } catch (e3) {}
+
+    return {
+      success: true, customerName: name, alreadyExisted: exists,
+      message: name + ' を' + (exists ? '既存顧客に紐付け' : 'リードとして顧客登録') + 'しました（対応履歴も引き継ぎ）'
+    };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
