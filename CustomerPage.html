@@ -47,6 +47,22 @@ body {
 .customer-item:last-child { border-bottom: none; }
 .customer-name { font-size: 14px; font-weight: 600; flex: 1; color: #e0e0e0; }
 .customer-meta { font-size: 11px; color: #888; text-align: right; }
+
+/* ── 問い合わせカード ── */
+.inquiry-card { display: block; padding: 14px 16px; border-bottom: 1px solid #333; }
+.inquiry-card:last-child { border-bottom: none; }
+.inq-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.inq-date { font-size: 11px; color: #888; }
+.inq-name { font-size: 16px; font-weight: 700; color: #fff; margin-top: 6px; }
+.inq-kana { font-size: 11px; color: #888; font-weight: 400; margin-left: 6px; }
+.inq-prop { font-size: 14px; margin-top: 6px; }
+.inq-prop a { color: #8ec41d; text-decoration: none; }
+.inq-prop a:hover { text-decoration: underline; }
+.inq-meta { font-size: 12px; color: #aaa; margin-top: 2px; }
+.inq-contact { font-size: 12px; color: #cfcfcf; margin-top: 6px; display: flex; flex-wrap: wrap; gap: 14px; }
+.inq-msg { font-size: 13px; color: #eee; margin-top: 8px; background: #2d2d2d; padding: 8px 10px; border-radius: 8px; border-left: 3px solid #555; }
+.inq-foot { margin-top: 10px; display: flex; align-items: center; gap: 8px; }
+.inq-foot select { background: #2d2d2d; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: 5px 10px; font-size: 12px; }
 .customer-meta div { margin-bottom: 2px; }
 
 /* ── ステータスバッジ ── */
@@ -1294,40 +1310,44 @@ function renderInquiryList(list) {
     if (q.rent) meta.push(esc(q.rent));
     if (q.layout) meta.push(esc(q.layout));
     if (q.area) meta.push(esc(q.area));
-    var contact = [];
-    if (q.tel) contact.push('TEL: ' + esc(q.tel));
-    if (q.email) contact.push('✉ ' + esc(q.email));
 
-    html += '<div class="customer-item" style="cursor:default;">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">';
-    html += '<span style="font-size:11px;color:#888;">' + esc(q.receivedAt) + '　' + esc(q.channel || '') + '</span>';
+    html += '<div class="inquiry-card">';
+    // 上段: 受信日時・媒体 / 対応バッジ
+    html += '<div class="inq-top">';
+    html += '<span class="inq-date">' + esc(q.receivedAt) + (q.channel ? '　' + esc(q.channel) : '') + '</span>';
     html += inquiryStatusBadge(q.status);
     html += '</div>';
-    html += '<div class="customer-name" style="margin-top:2px;">' + esc(q.name || '(名前なし)') +
-            (q.kana ? ' <span style="font-size:11px;color:#888;">' + esc(q.kana) + '</span>' : '') + '</div>';
-    // 物件
-    var propText = esc(q.propertyName || '物件名なし') + (meta.length ? '　' + meta.join(' / ') : '');
+    // 名前
+    html += '<div class="inq-name">' + esc(q.name || '(名前なし)') +
+            (q.kana ? '<span class="inq-kana">' + esc(q.kana) + '</span>' : '') + '</div>';
+    // 物件名（リンク）
+    html += '<div class="inq-prop">';
     if (q.detailUrl) {
-      html += '<div style="font-size:13px;margin-top:4px;"><a href="' + esc(q.detailUrl) + '" target="_blank" style="color:#8ec41d;">' + propText + '</a></div>';
+      html += '<a href="' + esc(q.detailUrl) + '" target="_blank">🏠 ' + esc(q.propertyName || '物件名なし') + '</a>';
     } else {
-      html += '<div style="font-size:13px;margin-top:4px;color:#ccc;">' + propText + '</div>';
+      html += '🏠 ' + esc(q.propertyName || '物件名なし');
     }
-    if (q.station) html += '<div style="font-size:11px;color:#999;">' + esc(q.station) + '</div>';
+    html += '</div>';
+    // 賃料・間取り・面積
+    if (meta.length) html += '<div class="inq-meta">' + meta.join('　/　') + '</div>';
+    // 最寄駅
+    if (q.station) html += '<div class="inq-meta">🚉 ' + esc(q.station) + '</div>';
     // 連絡先
-    if (contact.length) html += '<div style="font-size:12px;color:#bbb;margin-top:4px;">' + contact.join('　') + '</div>';
+    var contact = '';
+    if (q.tel) contact += '<span>📞 ' + esc(q.tel) + '</span>';
+    if (q.email) contact += '<span>✉ ' + esc(q.email) + '</span>';
+    if (q.contactMethod) contact += '<span style="color:#888;">希望: ' + esc(q.contactMethod) + '</span>';
+    if (contact) html += '<div class="inq-contact">' + contact + '</div>';
     // 問い合わせ内容
-    if (q.message) html += '<div style="font-size:12px;color:#ddd;margin-top:4px;background:#2d2d2d;padding:6px 8px;border-radius:6px;">' + esc(q.message) + '</div>';
-    // 対応状況の変更
-    html += '<div style="margin-top:6px;display:flex;align-items:center;gap:8px;">';
-    html += '<span style="font-size:11px;color:#888;">対応:</span>';
-    html += '<select onchange="changeInquiryStatus(' + q.rowIndex + ', \'' + esc(q.renban) + '\', this.value)" ' +
-            'style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:4px 8px;font-size:12px;">';
+    if (q.message) html += '<div class="inq-msg">💬 ' + esc(q.message) + '</div>';
+    // 対応状況
+    html += '<div class="inq-foot"><span style="font-size:11px;color:#888;">対応状況</span>';
+    html += '<select onchange="changeInquiryStatus(' + q.rowIndex + ', \'' + esc(q.renban) + '\', this.value)">';
     var opts = ['未対応', '対応中', '対応済み'];
     for (var k = 0; k < opts.length; k++) {
       html += '<option value="' + opts[k] + '"' + (q.status === opts[k] ? ' selected' : '') + '>' + opts[k] + '</option>';
     }
-    html += '</select>';
-    html += '</div>';
+    html += '</select></div>';
     html += '</div>';
   }
   el.innerHTML = html;
