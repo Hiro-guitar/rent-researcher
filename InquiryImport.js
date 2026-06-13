@@ -145,15 +145,15 @@ function _autoCreateLeadFromInquiry_(info) {
     var name = String(info.name || '').trim();
     var email = String(info.email || '').trim();
     var emailKey = email.toLowerCase();
-    if (!name && !email) return;
+    if (!name && !email) return false;
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
     var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
-    if (!sheet) return;
+    if (!sheet) return false;
     var data = sheet.getDataRange().getValues();
     for (var i = 1; i < data.length; i++) {
       var rowEmail = String(data[i][31] || '').trim().toLowerCase(); // AF列(32)=メール
-      if (emailKey && rowEmail && rowEmail === emailKey) return;      // メール一致 → 既存に紐付け（作らない）
-      if (!emailKey && name && String(data[i][1] || '').trim() === name) return; // メール無しは名前で判定
+      if (emailKey && rowEmail && rowEmail === emailKey) return false;      // メール一致 → 既存に紐付け（作らない）
+      if (!emailKey && name && String(data[i][1] || '').trim() === name) return false; // メール無しは名前で判定
     }
     // 新規リード作成
     var row = [];
@@ -172,9 +172,40 @@ function _autoCreateLeadFromInquiry_(info) {
     if (info.tel) parts.push('TEL: ' + info.tel);
     if (info.message) parts.push('内容: ' + info.message);
     try { addContactLog(row[1], 'SUUMO反響', Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'), parts.join(' / ')); } catch (eL) {}
+    return true;
   } catch (e) {
     console.warn('[自動リード化] error: ' + e.message);
+    return false;
   }
+}
+
+/**
+ * 過去に取り込み済みの問い合わせを一括でリード化する（カンバン「問い合わせ」へ）。
+ * 自動リード化機能の導入前に取り込んだ問い合わせを救済する用途。
+ * メール（無ければ名前）で重複判定し、既存顧客は作らない。
+ * @return {Object} { total, created, skipped }
+ */
+function backfillInquiryLeads() {
+  var sheet = _getInquirySheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { total: 0, created: 0, skipped: 0 };
+  var data = sheet.getRange(2, 1, lastRow - 1, INQUIRY_HEADERS.length).getValues();
+  var created = 0;
+  for (var i = 0; i < data.length; i++) {
+    var info = {
+      name: String(data[i][2] || '').trim(),         // C 問い合わせ者名
+      email: String(data[i][4] || '').trim(),        // E メール
+      tel: String(data[i][5] || '').trim(),          // F TEL
+      message: String(data[i][7] || '').trim(),      // H お問合せ内容
+      propertyName: String(data[i][8] || '').trim(), // I 物件名
+      rent: String(data[i][10] || '').trim()         // K 賃料
+    };
+    if (!info.name && !info.email) continue;
+    if (_autoCreateLeadFromInquiry_(info)) created++;
+  }
+  var result = { total: data.length, created: created, skipped: data.length - created };
+  console.log('[問い合わせ一括リード化] ' + JSON.stringify(result));
+  return result;
 }
 
 /**
@@ -199,6 +230,22 @@ function fixLeadStageColumns() {
   }
   console.log('[stage列移行] fixed=' + fixed);
   return { fixed: fixed };
+}
+
+/**
+ * 顧客管理ページの「問い合わせ取込」ボタン用。
+ * 新規メールを取り込み、さらに過去分も含めて未リード化の問い合わせをリード化する。
+ * @return {Object} { imported, skipped, scanned, leadsCreated }
+ */
+function importInquiriesWithBackfill() {
+  var imp = importSuumoInquiries();
+  var bf = backfillInquiryLeads();
+  return {
+    imported: imp.imported,
+    skipped: imp.skipped,
+    scanned: imp.scanned,
+    leadsCreated: bf.created
+  };
 }
 
 function importSuumoInquiries() {
