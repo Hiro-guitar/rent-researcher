@@ -303,6 +303,7 @@ body {
     <h1>顧客管理<span class="badge">CRM</span></h1>
     <div class="header-nav">
       <a onclick="importInquiriesNow()" id="importInqLink">🔄 問い合わせ取込</a>
+      <a onclick="reviewDuplicateLeads()" id="dupLeadLink">🧹 重複リード確認</a>
       <a onclick="openAdminPage()">管理画面に戻る</a>
     </div>
   </div>
@@ -1495,6 +1496,42 @@ function refreshCustomers(cb) {
       if (typeof cb === 'function') cb();
     })
     .getCustomerListForCRM();
+}
+
+// 重複リード（条件が空で、条件入りの同名/同メール行が別にある lead）を確認して削除
+function reviewDuplicateLeads() {
+  var link = document.getElementById('dupLeadLink');
+  if (link) link.textContent = '確認中...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (link) link.textContent = '🧹 重複リード確認';
+      var cands = (res && res.candidates) || [];
+      if (!cands.length) { alert('削除対象の重複リードはありません。'); return; }
+      var lines = cands.map(function(x) {
+        return '・' + (x.name || '(名前なし)') + '  ' + (x.email || 'メール無') + '  [' + x.matchedBy + '一致 / 本物=行' + x.realRow + ']';
+      }).join('\n');
+      var msg = '以下の' + cands.length + '件は「検索条件が空」で、条件入りの同名/同メール行が別に存在する重複リードです。\n'
+        + '本物の顧客行（条件入り）は削除されません。\n\n' + lines
+        + '\n\nこれらを削除しますか？（同姓同名の別人が混ざっていないか確認してください）';
+      if (!confirm(msg)) return;
+      if (link) link.textContent = '削除中...';
+      google.script.run
+        .withSuccessHandler(function(r) {
+          if (link) link.textContent = '🧹 重複リード確認';
+          showToast('重複リードを削除しました: ' + (r.removed || 0) + '件');
+          refreshCustomers();
+        })
+        .withFailureHandler(function(err) {
+          if (link) link.textContent = '🧹 重複リード確認';
+          showToast('削除エラー: ' + (err && err.message ? err.message : ''));
+        })
+        .deleteDuplicateLeads();
+    })
+    .withFailureHandler(function(err) {
+      if (link) link.textContent = '🧹 重複リード確認';
+      showToast('確認エラー: ' + (err && err.message ? err.message : ''));
+    })
+    .previewDuplicateLeads();
 }
 
 // 問い合わせ取込（SUUMO反響メール → カンバンの「問い合わせ」に自動追加）
