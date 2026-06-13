@@ -4012,6 +4012,8 @@ function getCustomerDetail(customerName) {
     info = {
       name: name,
       status: status,
+      email: String(data[i][31] || ''),          // AF列(32): メール（問い合わせ由来）
+      stage: String(data[i][32] || ''),          // AG列(33): 営業ステージ
       registeredAt: regStr,
       reason: String(data[i][13] || ''),        // N列
       moveInDate: String(data[i][14] || ''),     // O列
@@ -4050,6 +4052,29 @@ function getCustomerDetail(customerName) {
   }
 
   if (!info) return { error: '顧客が見つかりません: ' + customerName };
+
+  // 自動返信メール履歴（reply.py が記録する「メール送信履歴」を、この顧客のメールで集約）
+  info.mailHistory = [];
+  try {
+    var emailKey = String(info.email || '').trim().toLowerCase();
+    if (emailKey) {
+      var mSheet = ss.getSheetByName('メール送信履歴');
+      if (mSheet && mSheet.getLastRow() > 1) {
+        var mdata = mSheet.getRange(2, 1, mSheet.getLastRow() - 1, 7).getValues();
+        for (var mi = 0; mi < mdata.length; mi++) {
+          if (String(mdata[mi][1] || '').trim().toLowerCase() !== emailKey) continue;
+          var mdt = mdata[mi][0];
+          var days = mdata[mi][5];
+          info.mailHistory.push({
+            dateStr: (mdt instanceof Date) ? Utilities.formatDate(mdt, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm') : String(mdt || ''),
+            ts: (mdt instanceof Date) ? mdt.getTime() : (new Date(String(mdt)).getTime() || 0),
+            type: String(mdata[mi][4] || '') + ((days !== '' && days != null && String(days) !== '0') ? '（' + days + '日目）' : '')
+          });
+        }
+        info.mailHistory.sort(function(a, b) { return b.ts - a.ts; });
+      }
+    }
+  } catch (eMH) {}
 
   // 送付済み物件
   info.properties = _getCustomerProperties_(ss, customerName);
