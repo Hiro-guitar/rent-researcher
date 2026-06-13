@@ -591,8 +591,9 @@ function promoteInquiryToCustomer(renban) {
       for (var c = 0; c < 19; c++) row.push('');
       row[0] = new Date(); // A 登録日時
       row[1] = name;       // B 名前
-      row[18] = 'lead';    // S 配信ステータス（自動検索除外）
+      row[18] = 'lead';    // S 配信ステータス
       critSheet.appendRow(row);
+      try { critSheet.getRange(critSheet.getLastRow(), 31).setValue('問い合わせ'); } catch (eStg) {} // AE: 営業ステージ
     }
 
     // 問い合わせ情報を対応ログにメモとして残す

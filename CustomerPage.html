@@ -48,6 +48,24 @@ body {
 .customer-name { font-size: 14px; font-weight: 600; flex: 1; color: #e0e0e0; }
 .customer-meta { font-size: 11px; color: #888; text-align: right; }
 
+/* ── 表示切替トグル ── */
+.view-toggle { display: flex; gap: 4px; flex-shrink: 0; }
+.vt { font-size: 12px; padding: 6px 10px; border: 1px solid #555; background: #2d2d2d; color: #bbb; border-radius: 6px; cursor: pointer; }
+.vt.active { background: #8ec41d; color: #fff; border-color: #8ec41d; }
+
+/* ── カンバン（営業パイプライン） ── */
+.kanban { display: flex; gap: 10px; overflow-x: auto; padding: 8px 4px 16px; -webkit-overflow-scrolling: touch; }
+.kanban-col { flex: 0 0 230px; background: #1f1f1f; border: 1px solid #383838; border-radius: 10px; display: flex; flex-direction: column; max-height: 72vh; }
+.kanban-col.dragover { border-color: #8ec41d; background: #23291a; }
+.kanban-col-head { padding: 10px 12px; font-size: 13px; font-weight: 700; color: #ddd; border-bottom: 1px solid #383838; display: flex; justify-content: space-between; align-items: center; border-radius: 10px 10px 0 0; }
+.kanban-col-head .cnt { color: #888; font-weight: 400; font-size: 12px; }
+.kanban-col-body { padding: 8px; overflow-y: auto; flex: 1; min-height: 50px; }
+.kanban-card { background: #2d2d2d; border: 1px solid #404040; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; cursor: grab; }
+.kanban-card:active { cursor: grabbing; }
+.kanban-card.dragging { opacity: 0.4; }
+.kanban-card .kc-name { font-size: 13px; font-weight: 600; color: #eee; }
+.kanban-card .kc-meta { font-size: 11px; color: #888; margin-top: 4px; }
+
 /* ── 問い合わせカード ── */
 .inquiry-card { display: block; padding: 14px 16px; border-bottom: 1px solid #333; }
 .inquiry-card:last-child { border-bottom: none; }
@@ -290,12 +308,17 @@ body {
   </div>
 
   <div class="card">
-    <div class="search-bar">
-      <input type="text" id="searchInput" placeholder="顧客名で検索..." oninput="filterCustomers()">
+    <div class="search-bar" style="display:flex;gap:8px;align-items:center;">
+      <input type="text" id="searchInput" placeholder="顧客名で検索..." oninput="filterCustomers()" style="flex:1;">
+      <div class="view-toggle">
+        <button id="viewListBtn" class="vt active" onclick="setCustomerView('list')">📋 一覧</button>
+        <button id="viewBoardBtn" class="vt" onclick="setCustomerView('board')">📊 ボード</button>
+      </div>
     </div>
     <div id="customerList" class="customer-list">
       <div class="loading">読み込み中...</div>
     </div>
+    <div id="kanbanBoard" style="display:none;"></div>
   </div>
 </div>
 
@@ -506,9 +529,79 @@ function renderCustomerList(list) {
 
 function filterCustomers() {
   var q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
-  if (!q) { renderCustomerList(customers); return; }
-  var filtered = customers.filter(function(c) { return c.name.toLowerCase().indexOf(q) >= 0; });
-  renderCustomerList(filtered);
+  var filtered = q ? customers.filter(function(c) { return c.name.toLowerCase().indexOf(q) >= 0; }) : customers;
+  if (customerView === 'board') renderKanban(filtered);
+  else renderCustomerList(filtered);
+}
+
+// ══════════════════════════════════════════
+//  カンバン（営業パイプライン）
+// ══════════════════════════════════════════
+var customerView = 'list';
+var KANBAN_STAGES = ['問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
+function setCustomerView(v) {
+  customerView = v;
+  document.getElementById('viewListBtn').classList.toggle('active', v === 'list');
+  document.getElementById('viewBoardBtn').classList.toggle('active', v === 'board');
+  document.getElementById('customerList').style.display = (v === 'list') ? '' : 'none';
+  document.getElementById('kanbanBoard').style.display = (v === 'board') ? '' : 'none';
+  filterCustomers();
+}
+function renderKanban(list) {
+  var board = document.getElementById('kanbanBoard');
+  var byStage = {};
+  for (var s = 0; s < KANBAN_STAGES.length; s++) byStage[KANBAN_STAGES[s]] = [];
+  for (var i = 0; i < list.length; i++) {
+    var st = list[i].stage || '追客中';
+    if (!byStage[st]) st = '追客中';
+    byStage[st].push(list[i]);
+  }
+  var html = '<div class="kanban">';
+  for (var c = 0; c < KANBAN_STAGES.length; c++) {
+    var stg = KANBAN_STAGES[c];
+    var items = byStage[stg];
+    html += '<div class="kanban-col" data-stage="' + esc(stg) + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
+    html += '<div class="kanban-col-head">' + esc(stg) + '<span class="cnt">' + items.length + '</span></div>';
+    html += '<div class="kanban-col-body">';
+    for (var k = 0; k < items.length; k++) {
+      var it = items[k];
+      html += '<div class="kanban-card" draggable="true" data-name="' + esc(it.name) + '" ' +
+              'ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" onclick="openDetail(\'' + esc(it.name) + '\')">';
+      html += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + '</div>';
+      html += '<div class="kc-meta">' + (it.lastAction ? '最終: ' + esc(it.lastAction) : '登録: ' + esc(it.registeredAt || '')) + '</div>';
+      html += '</div>';
+    }
+    html += '</div></div>';
+  }
+  html += '</div>';
+  board.innerHTML = html;
+}
+var _kanbanDragName = null;
+function kanbanDragStart(e) {
+  _kanbanDragName = e.target.getAttribute('data-name');
+  e.target.classList.add('dragging');
+  try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', _kanbanDragName); } catch (x) {}
+}
+function kanbanDragEnd(e) { e.target.classList.remove('dragging'); }
+function kanbanDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); }
+function kanbanDragLeave(e) { e.currentTarget.classList.remove('dragover'); }
+function kanbanDrop(e) {
+  e.preventDefault();
+  var col = e.currentTarget;
+  col.classList.remove('dragover');
+  var stage = col.getAttribute('data-stage');
+  var name = _kanbanDragName; _kanbanDragName = null;
+  if (!name || !stage) return;
+  // 楽観的更新 → 即再描画
+  for (var i = 0; i < customers.length; i++) { if (customers[i].name === name) { customers[i].stage = stage; break; } }
+  filterCustomers();
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.ok) showToast(name + ' →「' + stage + '」');
+      else showToast((r && r.message) || 'ステージ変更に失敗しました');
+    })
+    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .setCustomerStage(name, stage);
 }
 
 function statusBadge(s) {

@@ -1492,6 +1492,30 @@ function setCustomerStatusByName(customerName, status) {
   }
 }
 
+// 顧客の営業ステージ(カンバン列)を変更する。検索条件シート AE列(31列目)に保存。
+// google.script.run（顧客管理ページのカンバン・ドラッグ）から呼ばれる。
+function setCustomerStage(customerName, stage) {
+  try {
+    if (!customerName || !stage) return { ok: false, message: '引数不足' };
+    var ALLOWED = ['問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
+    if (ALLOWED.indexOf(stage) < 0) return { ok: false, message: '不正なステージ: ' + stage };
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { ok: false, message: '検索条件シートが見つかりません' };
+    var data = sheet.getDataRange().getValues();
+    var targetRow = -1;
+    var nameTrim = String(customerName).trim();
+    for (var j = 1; j < data.length; j++) {
+      if (String(data[j][1] || '').trim() === nameTrim) targetRow = j + 1; // 最新行
+    }
+    if (targetRow < 0) return { ok: false, message: '顧客が見つかりません' };
+    sheet.getRange(targetRow, 31).setValue(stage); // AE列(31): 営業ステージ
+    return { ok: true, customerName: customerName, stage: stage };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
 // 配信停止コマンド: まずは理由を聞く（ステータスは確定時に変更）
 function handleDeliveryStopCommand(replyToken, userId) {
   try {
