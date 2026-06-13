@@ -153,8 +153,8 @@ function _autoCreateLeadFromInquiry_(info) {
     for (var i = 1; i < data.length; i++) {
       var rowEmail = String(data[i][31] || '').trim().toLowerCase(); // AF列(32)=メール
       if (emailKey && rowEmail && rowEmail === emailKey) return false;      // メール一致 → 既存に紐付け（作らない）
-      // 名前一致でも作らない（既存顧客はAF列にメール未登録のことが多く、メールだけだと重複行を作ってしまうため）
-      if (name && String(data[i][1] || '').trim() === name) return false;
+      // メールが無い問い合わせのみ名前で判定（メールがあれば同姓同名の別人を取りこぼさないよう名前では判定しない）
+      if (!emailKey && name && String(data[i][1] || '').trim() === name) return false;
     }
     // 新規リード作成
     var row = [];

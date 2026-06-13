@@ -1504,18 +1504,18 @@ function importInquiriesNow() {
   google.script.run
     .withSuccessHandler(function(res) {
       var r = res || {};
-      showToast('取込: 新規' + (r.imported || 0) + '件 / 既存' + (r.skipped || 0) + '件 / リード化' + (r.leadsCreated || 0) + '件。カンバンに反映中...');
+      showToast('取込: 新規' + (r.imported || 0) + '件 / 既存' + (r.skipped || 0) + '件。カンバンに反映中...');
       // 新規リードをカンバンに反映（ページ再読込はせずデータだけ取り直す）
       refreshCustomers(function() {
         if (link) link.textContent = '🔄 問い合わせ取込';
-        showToast('カンバンを更新しました（リード化' + (r.leadsCreated || 0) + '件）');
+        showToast('カンバンを更新しました');
       });
     })
     .withFailureHandler(function(err) {
       if (link) link.textContent = '🔄 問い合わせ取込';
       showToast('取り込みエラー: ' + (err && err.message ? err.message : ''));
     })
-    .importInquiriesWithBackfill();
+    .importSuumoInquiries();
 }
 
 // ══════════════════════════════════════════
