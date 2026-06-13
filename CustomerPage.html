@@ -1482,6 +1482,21 @@ function showList() {
   currentCustomer = null;
 }
 
+// サーバーから顧客一覧を取り直して再描画（GASは入れ子iframeのため location.reload() は不可）
+function refreshCustomers(cb) {
+  google.script.run
+    .withSuccessHandler(function(list) {
+      customers = list || [];
+      filterCustomers();
+      if (typeof cb === 'function') cb();
+    })
+    .withFailureHandler(function(err) {
+      showToast('一覧更新エラー: ' + (err && err.message ? err.message : ''));
+      if (typeof cb === 'function') cb();
+    })
+    .getCustomerListForCRM();
+}
+
 // 問い合わせ取込（SUUMO反響メール → カンバンの「問い合わせ」に自動追加）
 function importInquiriesNow() {
   var link = document.getElementById('importInqLink');
@@ -1489,9 +1504,12 @@ function importInquiriesNow() {
   google.script.run
     .withSuccessHandler(function(res) {
       var r = res || {};
-      showToast('取り込み: 新規' + (r.imported || 0) + '件 / 既存' + (r.skipped || 0) + '件。カンバンに反映します...');
-      // 新規リードをカンバンに反映するためページを再読込
-      setTimeout(function() { location.reload(); }, 1200);
+      showToast('取り込み: 新規' + (r.imported || 0) + '件 / 既存' + (r.skipped || 0) + '件。カンバンに反映中...');
+      // 新規リードをカンバンに反映（ページ再読込はせずデータだけ取り直す）
+      refreshCustomers(function() {
+        if (link) link.textContent = '🔄 問い合わせ取込';
+        showToast('カンバンを更新しました');
+      });
     })
     .withFailureHandler(function(err) {
       if (link) link.textContent = '🔄 問い合わせ取込';
