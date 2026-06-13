@@ -302,7 +302,7 @@ body {
   <div class="header">
     <h1>顧客管理<span class="badge">CRM</span></h1>
     <div class="header-nav">
-      <a onclick="showInquiries()">📨 問い合わせ</a>
+      <a onclick="importInquiriesNow()" id="importInqLink">🔄 問い合わせ取込</a>
       <a onclick="openAdminPage()">管理画面に戻る</a>
     </div>
   </div>
@@ -716,6 +716,7 @@ function renderDetail(data) {
   // 基本情報
   var info = '';
   var rows = [
+    ['メール', data.email],
     ['登録日', data.registeredAt],
     ['探し理由', data.reason],
     ['入居時期', data.moveInDate],
@@ -736,6 +737,16 @@ function renderDetail(data) {
     info += '<div class="detail-info-label">' + esc(rows[i][0]) + '</div>';
     info += '<div class="detail-info-value">' + esc(String(rows[i][1])) + '</div>';
     info += '</div>';
+  }
+  // 自動返信メール履歴（reply.py のメール送信履歴をメールで集約）
+  if (data.mailHistory && data.mailHistory.length) {
+    info += '<div class="detail-info-row" style="display:block;">';
+    info += '<div class="detail-info-label" style="margin-bottom:4px;">📧 自動返信メール（' + data.mailHistory.length + '通）</div>';
+    info += '<div style="font-size:12px;color:#bbb;">';
+    for (var m = 0; m < data.mailHistory.length; m++) {
+      info += '<div style="padding:3px 0;border-bottom:1px solid #333;">' + esc(data.mailHistory[m].dateStr) + '　' + esc(data.mailHistory[m].type) + '</div>';
+    }
+    info += '</div></div>';
   }
   document.getElementById('detailInfo').innerHTML = info || '<div class="empty-state">条件未登録</div>';
 
@@ -1465,9 +1476,28 @@ function showMoreTimeline() {
 // ── ナビゲーション ──
 function showList() {
   document.getElementById('detailView').style.display = 'none';
-  document.getElementById('inquiryView').style.display = 'none';
+  var iv = document.getElementById('inquiryView');
+  if (iv) iv.style.display = 'none';
   document.getElementById('listView').style.display = '';
   currentCustomer = null;
+}
+
+// 問い合わせ取込（SUUMO反響メール → カンバンの「問い合わせ」に自動追加）
+function importInquiriesNow() {
+  var link = document.getElementById('importInqLink');
+  if (link) link.textContent = '取り込み中...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      var r = res || {};
+      showToast('取り込み: 新規' + (r.imported || 0) + '件 / 既存' + (r.skipped || 0) + '件。カンバンに反映します...');
+      // 新規リードをカンバンに反映するためページを再読込
+      setTimeout(function() { location.reload(); }, 1200);
+    })
+    .withFailureHandler(function(err) {
+      if (link) link.textContent = '🔄 問い合わせ取込';
+      showToast('取り込みエラー: ' + (err && err.message ? err.message : ''));
+    })
+    .importSuumoInquiries();
 }
 
 // ══════════════════════════════════════════
