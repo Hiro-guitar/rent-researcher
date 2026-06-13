@@ -3945,8 +3945,9 @@ function _getCustomerListForCRM_() {
     var name = String(data[i][1] || '').trim();
     if (!name) continue;
     var status = String(data[i][18] || '').trim().toLowerCase() || 'active';
-    // AE列(31列目, index30): 営業ステージ。未設定なら status から推定。
-    var stage = String(data[i][30] || '').trim();
+    // AG列(33列目, index32): 営業ステージ。未設定なら status から推定。
+    // （AE列=31=btMode は既存利用のため、stage は AG=33 を使う）
+    var stage = String(data[i][32] || '').trim();
     if (!stage) stage = (status === 'lead') ? '問い合わせ' : '追客中';
     var regDate = data[i][0];
     var regStr = '';
