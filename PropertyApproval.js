@@ -4010,6 +4010,41 @@ function requestPriorityAvailabilityCheck(customerName, roomId) {
 }
 
 /**
+ * 再送付前の空室確認: 指定 room_id 群の I列 priority_requested_at に現在時刻を記録し、
+ * Chrome拡張の優先キュー(1分毎ポーリング)で「その顧客の物件だけ」オンデマンド確認させる。
+ * roomIds が空なら、その顧客の通知済み物件すべてを対象にする。
+ * @param {string} customerName
+ * @param {string[]} roomIds
+ * @return {{ok:boolean, queued:number, message:string}}
+ */
+function requestVacancyCheckForResend(customerName, roomIds) {
+  if (!customerName) return { ok: false, queued: 0, message: '顧客名が未指定' };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return { ok: false, queued: 0, message: 'シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: false, queued: 0, message: 'シートが空です' };
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues(); // A:顧客名, B:room_id
+    var nameTrim = String(customerName).trim();
+    var idSet = {};
+    var hasFilter = Array.isArray(roomIds) && roomIds.length > 0;
+    if (hasFilter) { for (var k = 0; k < roomIds.length; k++) idSet[String(roomIds[k]).trim()] = true; }
+    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    var queued = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() !== nameTrim) continue;
+      if (hasFilter && !idSet[String(data[i][1]).trim()]) continue;
+      sheet.getRange(i + 2, 9).setValue(now); // I列(9): priority_requested_at
+      queued++;
+    }
+    return { ok: queued > 0, queued: queued, message: queued + '件を空室確認キューに入れました' };
+  } catch (e) {
+    return { ok: false, queued: 0, message: 'エラー: ' + e.message };
+  }
+}
+
+/**
  * 物件1件の現在の空室ステータスを取得する。
  * お客さんが property.html でポーリングするための API。
  *

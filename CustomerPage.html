@@ -375,7 +375,8 @@ body {
         <input type="checkbox" id="selectAllProps" onchange="toggleSelectAll(this.checked)"> 全選択
       </label>
       <span id="selectedCount" style="font-size:11px;color:#888;">0件選択中</span>
-      <button class="btn btn-resend btn-sm" id="bulkResendBtn" onclick="bulkResend()" disabled>選択した物件を再送付</button>
+      <button class="btn btn-sm" id="checkSendBtn" onclick="checkVacancyThenResend()" disabled style="background:#0b66c3;color:#fff;border:none;">🔄 空室確認してから送る</button>
+      <button class="btn btn-resend btn-sm" id="bulkResendBtn" onclick="bulkResend()" disabled>そのまま再送付</button>
     </div>
     <div class="prop-filter-bar" id="propFilterBar"></div>
     <div id="propList" class="prop-list">
@@ -987,6 +988,8 @@ function updateSelectedCount() {
   if (el) el.textContent = count + '件選択中';
   var btn = document.getElementById('bulkResendBtn');
   if (btn) btn.disabled = count === 0;
+  var cbtn = document.getElementById('checkSendBtn');
+  if (cbtn) cbtn.disabled = count === 0;
 }
 
 function togglePropCheck(card) {
@@ -1026,6 +1029,87 @@ function bulkResend() {
       btn.disabled = false;
       alert('エラー: ' + err.message);
     })
+    .resendPropertyNotifications(currentCustomer, ids);
+}
+
+// ── 空室確認してから送る（オンデマンド：その顧客の選択物件だけ） ──
+var VACANCY_MAX_POLLS = 12; // 15秒 × 12 = 最大3分
+function resetCheckSendBtn() {
+  var cbtn = document.getElementById('checkSendBtn');
+  if (cbtn) { cbtn.textContent = '🔄 空室確認してから送る'; }
+  updateSelectedCount();
+}
+function checkVacancyThenResend() {
+  var ids = getSelectedRoomIds();
+  if (ids.length === 0) { alert('物件を選んでください'); return; }
+  if (!confirm(currentCustomer + ' さんの選択 ' + ids.length + '件を空室確認してから送ります。\n拡張が確認します（最大3分・拡張が起動している必要あり）。よろしいですか？')) return;
+  // ベースライン（各room_idの現在の確認時刻）
+  var baseline = {};
+  for (var i = 0; i < ids.length; i++) {
+    var p = allProperties.find(function(x) { return x.roomId === ids[i]; });
+    baseline[ids[i]] = p ? (p.statusCheckedAt || '') : '';
+  }
+  var cbtn = document.getElementById('checkSendBtn');
+  var rbtn = document.getElementById('bulkResendBtn');
+  if (cbtn) { cbtn.disabled = true; cbtn.textContent = '空室確認中…'; }
+  if (rbtn) rbtn.disabled = true;
+  google.script.run
+    .withSuccessHandler(function() { setTimeout(function() { pollVacancy(ids, baseline, 0); }, 8000); })
+    .withFailureHandler(function(e) { alert('確認依頼に失敗: ' + (e && e.message ? e.message : '')); resetCheckSendBtn(); })
+    .requestVacancyCheckForResend(currentCustomer, ids);
+}
+function pollVacancy(ids, baseline, attempt) {
+  google.script.run
+    .withSuccessHandler(function(props) {
+      allProperties = props || [];
+      renderPropFilters(); renderProperties();
+      var checked = 0, presentIds = [];
+      for (var i = 0; i < ids.length; i++) {
+        var p = allProperties.find(function(x) { return x.roomId === ids[i]; });
+        if (!p) { checked++; continue; } // 一覧から消えた = 募集終了として確認済み扱い
+        if ((p.statusCheckedAt || '') !== baseline[ids[i]]) checked++;
+        presentIds.push(ids[i]); // まだ残ってる = 募集中
+      }
+      var cbtn = document.getElementById('checkSendBtn');
+      if (cbtn) cbtn.textContent = '空室確認中… ' + checked + '/' + ids.length;
+      if (checked >= ids.length || attempt >= VACANCY_MAX_POLLS) {
+        finishVacancyCheck(ids, presentIds, checked, attempt >= VACANCY_MAX_POLLS);
+      } else {
+        setTimeout(function() { pollVacancy(ids, baseline, attempt + 1); }, 15000);
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (attempt >= VACANCY_MAX_POLLS) { finishVacancyCheck(ids, ids, 0, true); }
+      else setTimeout(function() { pollVacancy(ids, baseline, attempt + 1); }, 15000);
+    })
+    .getSeenPropertiesForResend(currentCustomer);
+}
+function finishVacancyCheck(ids, presentIds, checkedCount, timedOut) {
+  var closed = ids.length - presentIds.length;
+  if (timedOut && checkedCount === 0) {
+    if (!confirm('空室確認が完了しませんでした（拡張が起動していない可能性）。\nこのまま選択 ' + ids.length + '件を送りますか？')) { resetCheckSendBtn(); return; }
+    doVacancyResend(ids, '（未確認のまま送信）');
+    return;
+  }
+  if (presentIds.length === 0) {
+    alert('選択した物件は全て募集終了でした。送信しません。');
+    resetCheckSendBtn();
+    return;
+  }
+  var note = '募集中 ' + presentIds.length + '件を送信' + (closed > 0 ? ' / ' + closed + '件は募集終了のため除外' : '') + (timedOut ? '（一部未確認）' : '');
+  doVacancyResend(presentIds, note);
+}
+function doVacancyResend(ids, note) {
+  google.script.run
+    .withSuccessHandler(function(result) {
+      resetCheckSendBtn();
+      if (result && result.ok) {
+        alert('空室確認 → 再送付 完了\n' + note + '\n成功 ' + result.sent + '件' + (result.failed > 0 ? ' / 失敗 ' + result.failed + '件' : ''));
+        toggleSelectAll(false);
+        var sa = document.getElementById('selectAllProps'); if (sa) sa.checked = false;
+      } else { alert('再送付に失敗: ' + (result ? result.message : '不明')); }
+    })
+    .withFailureHandler(function(e) { resetCheckSendBtn(); alert('エラー: ' + e.message); })
     .resendPropertyNotifications(currentCustomer, ids);
 }
 
