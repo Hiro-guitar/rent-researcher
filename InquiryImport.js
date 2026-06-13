@@ -224,44 +224,63 @@ function _rowHasCriteria_(row) {
 }
 
 /**
- * 復旧用: バックフィルが作ってしまった「重複リード行」を削除する。
- * - 既存の本物顧客（status が lead 以外）と名前 or メールが一致する、
- *   条件が空の lead 行のみ削除する。
- * - 本物の新規問い合わせ（名前が他に無い）リードは残す（カンバンに必要）。
- * @return {Object} { removed, removedNames, keptLeads }
+ * 確認用（読み取り専用・削除しない）: 削除候補の重複リード行を一覧で返す。
+ * 実削除の前に、同姓同名の別人を誤って消さないか目視確認するためのもの。
+ * @return {Object} { count, candidates:[{row,name,email,matchedBy,realRow,realStatus,realHasCriteria}] }
  */
-function cleanupBackfillDamage() {
+function previewDuplicateLeads() {
+  return cleanupBackfillDamage(true);
+}
+
+/**
+ * 復旧用: バックフィルが作ってしまった「重複リード行」を削除する。
+ * - 既存の「条件が入っている別行」と同名の、条件が空の lead 行のみ対象。
+ * - 本物の新規問い合わせ（名前が他に無い）リードは残す（カンバンに必要）。
+ * @param {boolean} dryRun true なら削除せず候補一覧だけ返す（確認用）。
+ * @return {Object} dryRun時: { count, candidates }, 実行時: { removed, removedNames, keptLeads }
+ */
+function cleanupBackfillDamage(dryRun) {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
-  if (!sheet) return { removed: 0, removedNames: [], keptLeads: 0 };
+  if (!sheet) return dryRun ? { count: 0, candidates: [] } : { removed: 0, removedNames: [], keptLeads: 0 };
   var data = sheet.getDataRange().getValues();
 
-  // 本物顧客（lead 以外）の名前・メール集合
-  var realNames = {}, realEmails = {};
+  // 「条件が入っている行」を名前・メールで索引（本物の顧客とみなす。status不問）
+  var configuredByName = {}, configuredByEmail = {};
   for (var i = 1; i < data.length; i++) {
-    var st = String(data[i][18] || '').trim().toLowerCase();
+    if (!_rowHasCriteria_(data[i])) continue;
     var nm = String(data[i][1] || '').trim();
     var em = String(data[i][31] || '').trim().toLowerCase();
-    if (st !== 'lead') {
-      if (nm) realNames[nm] = true;
-      if (em) realEmails[em] = true;
-    }
+    if (nm) configuredByName[nm] = { row: i + 1, status: String(data[i][18] || '').trim().toLowerCase() };
+    if (em) configuredByEmail[em] = { row: i + 1, status: String(data[i][18] || '').trim().toLowerCase() };
   }
 
-  var toDelete = [], removedNames = [], keptLeads = 0;
+  var toDelete = [], removedNames = [], candidates = [], keptLeads = 0;
   for (var j = 1; j < data.length; j++) {
     var status = String(data[j][18] || '').trim().toLowerCase();
     if (status !== 'lead') continue;
+    if (_rowHasCriteria_(data[j])) { keptLeads++; continue; } // 条件入りリードは触らない
     var name = String(data[j][1] || '').trim();
     var email = String(data[j][31] || '').trim().toLowerCase();
-    var hasCriteria = _rowHasCriteria_(data[j]);
-    var isDupOfReal = (name && realNames[name]) || (email && realEmails[email]);
-    if (!hasCriteria && isDupOfReal) {
-      toDelete.push(j + 1); // 1-based 行番号
+    var byEmail = email && configuredByEmail[email];
+    var byName = name && configuredByName[name];
+    var match = byEmail || byName;
+    if (match) {
+      toDelete.push(j + 1);
       removedNames.push(name || email);
+      candidates.push({
+        row: j + 1, name: name, email: email,
+        matchedBy: byEmail ? 'email' : 'name',
+        realRow: match.row, realStatus: match.status
+      });
     } else {
       keptLeads++;
     }
+  }
+
+  if (dryRun) {
+    console.log('[削除候補プレビュー] count=' + candidates.length);
+    return { count: candidates.length, candidates: candidates };
   }
 
   // 下から削除（行ズレ防止）
