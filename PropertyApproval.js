@@ -1464,6 +1464,34 @@ function setDeliveryStatus(userId, status) {
   return { ok: true, customerName: customerName };
 }
 
+// 顧客名で配信ステータスを変更する（userId 不要 = リードでも使える）。
+// google.script.run（顧客管理ページのステータス変更UI）から呼ばれる。
+function setCustomerStatusByName(customerName, status) {
+  try {
+    if (!customerName || !status) return { ok: false, message: '引数不足' };
+    var ALLOWED = ['active', 'lead', 'paused', 'snoozed', 'blocked', 'auto_paused'];
+    if (ALLOWED.indexOf(status) < 0) return { ok: false, message: '不正なステータス: ' + status };
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { ok: false, message: '検索条件シートが見つかりません' };
+    var data = sheet.getDataRange().getValues();
+    var targetRow = -1;
+    var nameTrim = String(customerName).trim();
+    for (var j = 1; j < data.length; j++) {
+      if (String(data[j][1] || '').trim() === nameTrim) targetRow = j + 1; // 最新行（末尾）
+    }
+    if (targetRow < 0) return { ok: false, message: '顧客が見つかりません' };
+    sheet.getRange(targetRow, 19).setValue(status); // S列
+    if (status === 'active') {
+      sheet.getRange(targetRow, 22).setValue(''); // V列: スヌーズ解除
+      sheet.getRange(targetRow, 30).setValue(0);  // AD列: 条件変更提案カウントリセット
+    }
+    return { ok: true, customerName: customerName, status: status };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
 // 配信停止コマンド: まずは理由を聞く（ステータスは確定時に変更）
 function handleDeliveryStopCommand(replyToken, userId) {
   try {
