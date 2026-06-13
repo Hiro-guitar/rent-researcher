@@ -134,6 +134,48 @@ function _normRenban_(r) {
   return s;
 }
 
+/**
+ * 問い合わせから自動でリード顧客を作る（メールで重複判定）。
+ * 検索条件シートに status='lead', AE列(31)=stage'問い合わせ', AF列(32)=メール を持つ行を追加。
+ * 同じメールの顧客が既にいれば作らない（同名別人対策でメール優先）。メール無しは名前で判定。
+ */
+function _autoCreateLeadFromInquiry_(info) {
+  try {
+    var name = String(info.name || '').trim();
+    var email = String(info.email || '').trim();
+    var emailKey = email.toLowerCase();
+    if (!name && !email) return;
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return;
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var rowEmail = String(data[i][31] || '').trim().toLowerCase(); // AF列(32)=メール
+      if (emailKey && rowEmail && rowEmail === emailKey) return;      // メール一致 → 既存に紐付け（作らない）
+      if (!emailKey && name && String(data[i][1] || '').trim() === name) return; // メール無しは名前で判定
+    }
+    // 新規リード作成
+    var row = [];
+    for (var c = 0; c < 19; c++) row.push('');
+    row[0] = new Date();                 // A 登録日時
+    row[1] = name || email || '名前なし'; // B 名前
+    row[18] = 'lead';                    // S ステータス
+    sheet.appendRow(row);
+    var newRow = sheet.getLastRow();
+    sheet.getRange(newRow, 31).setValue('問い合わせ'); // AE: 営業ステージ
+    sheet.getRange(newRow, 32).setValue(email);        // AF: メール
+    // 問い合わせ情報を対応ログに残す
+    var parts = [];
+    if (info.propertyName) parts.push('物件: ' + info.propertyName + (info.rent ? ' ' + info.rent : ''));
+    if (email) parts.push('メール: ' + email);
+    if (info.tel) parts.push('TEL: ' + info.tel);
+    if (info.message) parts.push('内容: ' + info.message);
+    try { addContactLog(row[1], 'SUUMO反響', Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'), parts.join(' / ')); } catch (eL) {}
+  } catch (e) {
+    console.warn('[自動リード化] error: ' + e.message);
+  }
+}
+
 function importSuumoInquiries() {
   var sheet = _getInquirySheet_();
 
@@ -155,6 +197,7 @@ function importSuumoInquiries() {
   var threads = GmailApp.search('subject:反響お知らせメール newer_than:90d');
   var imported = 0, skipped = 0, scanned = 0;
   var newRows = [];
+  var newInfos = []; // 自動リード化用
 
   for (var t = 0; t < threads.length; t++) {
     var msgs = threads[t].getMessages();
@@ -191,12 +234,18 @@ function importSuumoInquiries() {
         '',
         msg.getId()
       ]);
+      newInfos.push(info);
       imported++;
     }
   }
 
   if (newRows.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, INQUIRY_HEADERS.length).setValues(newRows);
+  }
+
+  // 新規問い合わせを自動でリード顧客化（メール重複判定）→ カンバン「問い合わせ」列に出る
+  for (var ni = 0; ni < newInfos.length; ni++) {
+    _autoCreateLeadFromInquiry_(newInfos[ni]);
   }
 
   console.log('[問い合わせ取込] scanned=' + scanned + ' imported=' + imported + ' skipped=' + skipped);
