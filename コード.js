@@ -2829,10 +2829,12 @@ function getExistingCustomers_() {
   for (var i = 1; i < criteriaData.length; i++) {
     var name = String(criteriaData[i][1] || '').trim();
     if (!name) continue;
-    // S列 (index 18): 配信ステータス — blocked/paused/auto_paused/lead は自動検索から除外
-    // （lead = 問い合わせから登録した見込み客。条件未登録なので自動検索しない）
+    // S列 (index 18): 配信ステータス — blocked/paused/auto_paused は除外
+    // （lead は除外しない。getExistingCustomers_ は管理ページ・再送付ページの顧客一覧にも
+    //   使われるため、ここで lead を除くと管理ページに出ず条件変更ができなくなる。
+    //   リードを自動検索から外したい場合は、検索側で「条件未登録ならスキップ」で扱う。）
     var deliveryStatus = String(criteriaData[i][18] || '').trim().toLowerCase();
-    if (deliveryStatus === 'blocked' || deliveryStatus === 'paused' || deliveryStatus === 'auto_paused' || deliveryStatus === 'lead') {
+    if (deliveryStatus === 'blocked' || deliveryStatus === 'paused' || deliveryStatus === 'auto_paused') {
       excludeNames[name] = true;
       continue;
     }
