@@ -3930,6 +3930,13 @@ function handleCustomerPage(e) {
 }
 
 /**
+ * google.script.run 用: CRM顧客一覧を返す（ページ再描画に使用）。
+ */
+function getCustomerListForCRM() {
+  return _getCustomerListForCRM_();
+}
+
+/**
  * CRM用の顧客一覧を取得する。全顧客を含む（blocked含む）。
  */
 function _getCustomerListForCRM_() {
