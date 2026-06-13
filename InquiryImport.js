@@ -232,6 +232,11 @@ function previewDuplicateLeads() {
   return cleanupBackfillDamage(true);
 }
 
+/** 実削除（google.script.run 用）。確認は呼び出し側UIで行う。 */
+function deleteDuplicateLeads() {
+  return cleanupBackfillDamage(false);
+}
+
 /**
  * 復旧用: バックフィルが作ってしまった「重複リード行」を削除する。
  * - 既存の「条件が入っている別行」と同名の、条件が空の lead 行のみ対象。
