@@ -136,8 +136,9 @@ function _normRenban_(r) {
 
 /**
  * 問い合わせから自動でリード顧客を作る（メールで重複判定）。
- * 検索条件シートに status='lead', AE列(31)=stage'問い合わせ', AF列(32)=メール を持つ行を追加。
+ * 検索条件シートに status='lead', AF列(32)=メール, AG列(33)=stage'問い合わせ' を持つ行を追加。
  * 同じメールの顧客が既にいれば作らない（同名別人対策でメール優先）。メール無しは名前で判定。
+ * （AE列=31=btMode は既存利用のため、stage は AG=33 を使う）
  */
 function _autoCreateLeadFromInquiry_(info) {
   try {
@@ -162,8 +163,8 @@ function _autoCreateLeadFromInquiry_(info) {
     row[18] = 'lead';                    // S ステータス
     sheet.appendRow(row);
     var newRow = sheet.getLastRow();
-    sheet.getRange(newRow, 31).setValue('問い合わせ'); // AE: 営業ステージ
-    sheet.getRange(newRow, 32).setValue(email);        // AF: メール
+    sheet.getRange(newRow, 32).setValue(email);        // AF(32): メール
+    sheet.getRange(newRow, 33).setValue('問い合わせ'); // AG(33): 営業ステージ
     // 問い合わせ情報を対応ログに残す
     var parts = [];
     if (info.propertyName) parts.push('物件: ' + info.propertyName + (info.rent ? ' ' + info.rent : ''));
@@ -174,6 +175,30 @@ function _autoCreateLeadFromInquiry_(info) {
   } catch (e) {
     console.warn('[自動リード化] error: ' + e.message);
   }
+}
+
+/**
+ * 移行用（一度だけ実行）: 旧コードが btMode 列(AE=31) に書いてしまった営業ステージを
+ * 正しい AG列(33) へ移し、AE列をクリアする。
+ * @return {Object} { fixed }
+ */
+function fixLeadStageColumns() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) return { fixed: 0 };
+  var data = sheet.getDataRange().getValues();
+  var STAGES = ['問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
+  var fixed = 0;
+  for (var i = 1; i < data.length; i++) {
+    var col31 = String(data[i][30] || '').trim(); // AE(31)=btMode
+    if (STAGES.indexOf(col31) >= 0) {
+      if (!String(data[i][32] || '').trim()) sheet.getRange(i + 1, 33).setValue(col31); // AG(33)=stage
+      sheet.getRange(i + 1, 31).setValue(''); // AE(31) btMode をクリア
+      fixed++;
+    }
+  }
+  console.log('[stage列移行] fixed=' + fixed);
+  return { fixed: fixed };
 }
 
 function importSuumoInquiries() {
@@ -642,7 +667,7 @@ function promoteInquiryToCustomer(renban) {
       row[1] = name;       // B 名前
       row[18] = 'lead';    // S 配信ステータス
       critSheet.appendRow(row);
-      try { critSheet.getRange(critSheet.getLastRow(), 31).setValue('問い合わせ'); } catch (eStg) {} // AE: 営業ステージ
+      try { critSheet.getRange(critSheet.getLastRow(), 33).setValue('問い合わせ'); } catch (eStg) {} // AG(33): 営業ステージ
     }
 
     // 問い合わせ情報を対応ログにメモとして残す

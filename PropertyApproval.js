@@ -1492,7 +1492,8 @@ function setCustomerStatusByName(customerName, status) {
   }
 }
 
-// 顧客の営業ステージ(カンバン列)を変更する。検索条件シート AE列(31列目)に保存。
+// 顧客の営業ステージ(カンバン列)を変更する。検索条件シート AG列(33列目)に保存。
+// （AE列=31=btMode は既存利用のため衝突回避で AG=33 を使う）
 // google.script.run（顧客管理ページのカンバン・ドラッグ）から呼ばれる。
 function setCustomerStage(customerName, stage) {
   try {
@@ -1509,7 +1510,7 @@ function setCustomerStage(customerName, stage) {
       if (String(data[j][1] || '').trim() === nameTrim) targetRow = j + 1; // 最新行
     }
     if (targetRow < 0) return { ok: false, message: '顧客が見つかりません' };
-    sheet.getRange(targetRow, 31).setValue(stage); // AE列(31): 営業ステージ
+    sheet.getRange(targetRow, 33).setValue(stage); // AG列(33): 営業ステージ
     return { ok: true, customerName: customerName, stage: stage };
   } catch (e) {
     return { ok: false, message: e.message };
