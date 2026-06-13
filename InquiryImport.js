@@ -153,7 +153,8 @@ function _autoCreateLeadFromInquiry_(info) {
     for (var i = 1; i < data.length; i++) {
       var rowEmail = String(data[i][31] || '').trim().toLowerCase(); // AF列(32)=メール
       if (emailKey && rowEmail && rowEmail === emailKey) return false;      // メール一致 → 既存に紐付け（作らない）
-      if (!emailKey && name && String(data[i][1] || '').trim() === name) return false; // メール無しは名前で判定
+      // 名前一致でも作らない（既存顧客はAF列にメール未登録のことが多く、メールだけだと重複行を作ってしまうため）
+      if (name && String(data[i][1] || '').trim() === name) return false;
     }
     // 新規リード作成
     var row = [];
@@ -205,6 +206,70 @@ function backfillInquiryLeads() {
   }
   var result = { total: data.length, created: created, skipped: data.length - created };
   console.log('[問い合わせ一括リード化] ' + JSON.stringify(result));
+  return result;
+}
+
+/**
+ * 行に検索条件が入っているか判定（C市区町村/E路線/F駅/H賃料/I間取り/J面積/K築年/Y町名）。
+ */
+function _rowHasCriteria_(row) {
+  return (String(row[3] || '').trim() !== '')
+    || (String(row[4] || '').trim() !== '')
+    || (String(row[5] || '').trim() !== '')
+    || (String(row[7] || '').trim() !== '')
+    || (String(row[8] || '').trim() !== '')
+    || (String(row[9] || '').trim() !== '')
+    || (String(row[10] || '').trim() !== '')
+    || (String(row[24] || '').trim() !== '');
+}
+
+/**
+ * 復旧用: バックフィルが作ってしまった「重複リード行」を削除する。
+ * - 既存の本物顧客（status が lead 以外）と名前 or メールが一致する、
+ *   条件が空の lead 行のみ削除する。
+ * - 本物の新規問い合わせ（名前が他に無い）リードは残す（カンバンに必要）。
+ * @return {Object} { removed, removedNames, keptLeads }
+ */
+function cleanupBackfillDamage() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!sheet) return { removed: 0, removedNames: [], keptLeads: 0 };
+  var data = sheet.getDataRange().getValues();
+
+  // 本物顧客（lead 以外）の名前・メール集合
+  var realNames = {}, realEmails = {};
+  for (var i = 1; i < data.length; i++) {
+    var st = String(data[i][18] || '').trim().toLowerCase();
+    var nm = String(data[i][1] || '').trim();
+    var em = String(data[i][31] || '').trim().toLowerCase();
+    if (st !== 'lead') {
+      if (nm) realNames[nm] = true;
+      if (em) realEmails[em] = true;
+    }
+  }
+
+  var toDelete = [], removedNames = [], keptLeads = 0;
+  for (var j = 1; j < data.length; j++) {
+    var status = String(data[j][18] || '').trim().toLowerCase();
+    if (status !== 'lead') continue;
+    var name = String(data[j][1] || '').trim();
+    var email = String(data[j][31] || '').trim().toLowerCase();
+    var hasCriteria = _rowHasCriteria_(data[j]);
+    var isDupOfReal = (name && realNames[name]) || (email && realEmails[email]);
+    if (!hasCriteria && isDupOfReal) {
+      toDelete.push(j + 1); // 1-based 行番号
+      removedNames.push(name || email);
+    } else {
+      keptLeads++;
+    }
+  }
+
+  // 下から削除（行ズレ防止）
+  toDelete.sort(function(a, b) { return b - a; });
+  for (var d = 0; d < toDelete.length; d++) sheet.deleteRow(toDelete[d]);
+
+  var result = { removed: toDelete.length, removedNames: removedNames, keptLeads: keptLeads };
+  console.log('[バックフィル復旧] ' + JSON.stringify(result));
   return result;
 }
 

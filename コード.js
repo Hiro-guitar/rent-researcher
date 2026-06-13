@@ -2214,6 +2214,21 @@ function handleGetCriteria(e) {
       lastReinsSearchStr = String(lastReinsSearch).trim();
     }
 
+    // ── 検索条件が未入力の行はスキップ（リード等。空条件で検索すると全件ヒットしてしまう）──
+    // 位置/賃料/間取り/面積/築年/路線/駅/町名 のいずれも空なら「条件未入力」とみなし検索しない。
+    var _hasCriteria = (_splitCSV(row[3]).length > 0)        // C 市区町村
+      || allRoutes.length > 0                                  // E 路線
+      || allStations.length > 0                                // F 駅
+      || String(row[7] || '').trim() !== ''                    // H 賃料上限
+      || _splitCSV(row[8]).length > 0                          // I 間取り
+      || String(row[9] || '').trim() !== ''                    // J 面積
+      || String(row[10] || '').trim() !== ''                   // K 築年数
+      || (selectedTowns && Object.keys(selectedTowns).length > 0); // Y 町名丁目
+    if (!_hasCriteria) {
+      console.log('[条件未入力スキップ] ' + name + ' (status=' + deliveryStatus + ') 検索対象外');
+      continue;
+    }
+
     // AE列(30, index 30): バストイレ別の処理モード ('alert' or 'skip', 空=未設定→グローバル設定にフォールバック)
     var btMode = String(row[30] || '').trim().toLowerCase();
     if (btMode && btMode !== 'skip') btMode = 'alert';
