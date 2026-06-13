@@ -512,9 +512,45 @@ function filterCustomers() {
 }
 
 function statusBadge(s) {
-  var labels = {active:'配信中', paused:'停止', auto_paused:'自動停止', snoozed:'スヌーズ', blocked:'ブロック', lead:'リード'};
   var cls = 'status-' + (s || 'active');
-  return '<span class="status-badge ' + cls + '">' + (labels[s] || '配信中') + '</span>';
+  return '<span class="status-badge ' + cls + '">' + statusLabel(s) + '</span>';
+}
+function statusLabel(s) {
+  var labels = {active:'配信中', paused:'停止', auto_paused:'自動停止', snoozed:'スヌーズ', blocked:'ブロック', lead:'リード'};
+  return labels[s] || '配信中';
+}
+// 顧客詳細のステータス変更ドロップダウン
+function buildStatusChanger(cur) {
+  var opts = [['active','配信中'], ['lead','リード'], ['paused','停止']];
+  var has = false;
+  for (var k = 0; k < opts.length; k++) if (opts[k][0] === cur) has = true;
+  var h = ' <select id="detailStatusSel" onchange="changeCustomerStatus(this.value)" title="ステータスを変更" ' +
+          'style="margin-left:6px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;">';
+  if (!has && cur) h += '<option value="' + esc(cur) + '" selected>' + esc(statusLabel(cur)) + '</option>';
+  for (var i = 0; i < opts.length; i++) {
+    h += '<option value="' + opts[i][0] + '"' + (cur === opts[i][0] ? ' selected' : '') + '>' + opts[i][1] + '</option>';
+  }
+  h += '</select>';
+  return h;
+}
+function changeCustomerStatus(status) {
+  if (!currentCustomer) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.ok) {
+        showToast('ステータスを「' + statusLabel(status) + '」に変更しました');
+        var ds = document.getElementById('detailStatus');
+        if (ds) ds.innerHTML = statusBadge(status) + buildStatusChanger(status);
+        // 一覧キャッシュも更新
+        for (var i = 0; i < customers.length; i++) {
+          if (customers[i].name === currentCustomer) { customers[i].status = status; break; }
+        }
+      } else {
+        showToast((r && r.message) || 'ステータス変更に失敗しました');
+      }
+    })
+    .withFailureHandler(function(e) { showToast('エラー: ' + (e && e.message ? e.message : '')); })
+    .setCustomerStatusByName(currentCustomer, status);
 }
 
 // ══════════════════════════════════════════
@@ -581,8 +617,8 @@ function openDetail(name) {
 }
 
 function renderDetail(data) {
-  // ステータスバッジ
-  document.getElementById('detailStatus').innerHTML = statusBadge(data.status);
+  // ステータスバッジ + 変更ドロップダウン
+  document.getElementById('detailStatus').innerHTML = statusBadge(data.status) + buildStatusChanger(data.status);
 
   // 基本情報
   var info = '';
