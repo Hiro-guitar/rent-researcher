@@ -1571,8 +1571,10 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
   // キャンセル通知希望物件の定期巡回: 30分毎にチェック
   chrome.alarms.create('cancellation-watch-poll', { periodInMinutes: 30 });
-  // 定期空室確認: 180分毎(3時間毎)に全通知済み物件の空室状況を更新
-  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 180 });
+  // 定期空室確認(3時間毎の全物件巡回)は廃止。
+  // 規約違反(機械的アクセス)による各サイトのBANリスクを避けるため停止。
+  // 空室確認は「再送付時にその顧客の物件だけ」「LINEの個別依頼(優先キュー)」のオンデマンドのみ。
+  chrome.alarms.clear('periodic-availability-check');
 });
 
 // Chrome起動時: 前回起動中に承認された取りこぼしを1回だけ処理
@@ -1587,8 +1589,8 @@ chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
   // 優先空室確認ポーリングも再セット
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
-  // 定期空室確認も再セット: 180分毎(3時間毎)
-  chrome.alarms.create('periodic-availability-check', { delayInMinutes: 5, periodInMinutes: 180 });
+  // 定期空室確認(3時間毎の全物件巡回)は廃止 — BANリスク回避のため停止（オンデマンドのみ）
+  chrome.alarms.clear('periodic-availability-check');
 });
 
 // 入稿専用タブのクローズ検知 → suumoFillTabIdをクリア
@@ -1808,11 +1810,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
   }
 
-  // ── 定期空室確認 (全通知済み物件の巡回) ──
-  // 180分(3時間)毎に全通知済み物件の空室状況をチェック・更新。
-  // お客さんが物件情報を開いた時に直近の空室情報が表示される。
-  // 営業時間外 (既定 10-20時) はスキップ (顧客検索・SUUMO巡回と同じ設定を使用)。
+  // ── 定期空室確認 (全通知済み物件の巡回) ── 【廃止】
+  // 規約違反(機械的アクセス)による各サイトのBANリスク回避のため、3時間毎の全物件巡回は停止。
+  // 空室確認は「再送付時にその顧客の物件だけ」「LINEの個別依頼(優先キュー)」のオンデマンドのみ。
+  // 万一古いアラームが残って発火しても巡回しないよう、ここで早期returnして無効化する。
   if (alarm.name === 'periodic-availability-check') {
+    chrome.alarms.clear('periodic-availability-check');
+    return;
+  }
+  if (false && alarm.name === 'periodic-availability-check') {
     chrome.storage.local.get(['businessStartHour', 'businessEndHour'], (data) => {
       const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
       const endH = data.businessEndHour !== undefined ? data.businessEndHour : 20;
