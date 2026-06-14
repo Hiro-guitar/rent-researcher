@@ -2300,6 +2300,20 @@ function _handleUpdateReinsSearchDate(json) {
   }
   var searchDate = json.search_date || Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 
+  // おすすめ条件（裏検索）の場合は、おすすめ条件シート側のAC列に記録する（本人条件と独立）。
+  var recommendId = String(json.recommend_id || '').trim();
+  if (recommendId) {
+    var rRes = { ok: false };
+    try {
+      if (typeof setRecommendLastReinsSearch === 'function') {
+        rRes = setRecommendLastReinsSearch(recommendId, searchDate);
+      }
+    } catch (eR) { rRes = { ok: false, message: eR.message }; }
+    return ContentService.createTextOutput(JSON.stringify({
+      ok: !!rRes.ok, recommend_id: recommendId, date: searchDate
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
   var data = sheet.getDataRange().getValues();
