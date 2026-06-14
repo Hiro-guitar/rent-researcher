@@ -1665,18 +1665,45 @@ function editRecommend(id) {
 }
 
 function _openRecommendEditor(name, id, label) {
+  // クリック直後に空タブを確保（ユーザー操作のうちに開く＝ポップアップブロック回避）
+  var w = null;
+  try { w = window.open('about:blank', '_blank'); } catch (e) { w = null; }
   showToast('条件フォームを準備中...');
   google.script.run
     .withSuccessHandler(function(res) {
       if (res && res.ok && res.url) {
-        window.open(res.url, '_blank');
-        showToast('別タブで条件フォームを開きました。保存後はこちらの「🔄 更新」を押してください。');
+        var opened = false;
+        if (w && !w.closed) {
+          try { w.location.href = res.url; opened = true; } catch (e) { opened = false; }
+        }
+        if (opened) {
+          showToast('別タブで条件フォームを開きました。保存後は「🔄 更新」を押してください。');
+        } else {
+          // ブロックされた場合はクリック用リンクを表示
+          if (w) { try { w.close(); } catch (e) {} }
+          _showRecommendLink(res.url, label || (id ? '編集' : 'おすすめ条件'));
+        }
       } else {
+        if (w) { try { w.close(); } catch (e) {} }
         showToast('開けませんでした: ' + ((res && res.message) || ''));
       }
     })
-    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .withFailureHandler(function(err) {
+      if (w) { try { w.close(); } catch (e) {} }
+      showToast('エラー: ' + (err && err.message ? err.message : ''));
+    })
     .startRecommendEditor(name, id, label);
+}
+
+// ポップアップがブロックされた時に、確実に開けるリンクを一覧上部に出す
+function _showRecommendLink(url, label) {
+  var el = document.getElementById('recommendList');
+  if (!el) { window.prompt('このURLをコピーして開いてください', url); return; }
+  var box = document.createElement('div');
+  box.style.cssText = 'border:1px dashed #6a6;border-radius:6px;padding:10px;margin-bottom:8px;background:#243024;';
+  box.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener" style="color:#9cdc9c;font-weight:700;font-size:14px;text-decoration:underline;">▶ 条件フォームを開く（' + esc(label || 'おすすめ条件') + '）</a>'
+    + '<div style="font-size:11px;color:#999;margin-top:4px;">ポップアップがブロックされました。上のリンクをクリックして開いてください。保存後はタブを閉じて「🔄 更新」を押してください。</div>';
+  el.insertBefore(box, el.firstChild);
 }
 
 function toggleRecommend(id, enabled) {
