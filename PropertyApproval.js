@@ -1517,6 +1517,44 @@ function setCustomerStage(customerName, stage) {
   }
 }
 
+/**
+ * カンバンの並び順を保存する。指定ステージの順序付き顧客名リストを受け取り、
+ * 各顧客に AG列(33)=stage と AH列(34)=順序インデックス を書き込む。
+ * @param {string} stage 対象ステージ
+ * @param {string[]} orderedNames 上から順の顧客名配列
+ * @return {Object} { ok }
+ */
+function setKanbanOrder(stage, orderedNames) {
+  try {
+    var ALLOWED = ['問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
+    if (ALLOWED.indexOf(stage) < 0) return { ok: false, message: '不正なステージ: ' + stage };
+    if (!Array.isArray(orderedNames)) return { ok: false, message: '順序リストがありません' };
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { ok: false, message: '検索条件シートが見つかりません' };
+    var data = sheet.getDataRange().getValues();
+
+    // 顧客名 → 最新行（1-based）
+    var nameToRow = {};
+    for (var j = 1; j < data.length; j++) {
+      var nm = String(data[j][1] || '').trim();
+      if (nm) nameToRow[nm] = j + 1;
+    }
+    var updated = 0;
+    for (var i = 0; i < orderedNames.length; i++) {
+      var name = String(orderedNames[i] || '').trim();
+      var rowNum = nameToRow[name];
+      if (!rowNum) continue;
+      sheet.getRange(rowNum, 33).setValue(stage); // AG: ステージ
+      sheet.getRange(rowNum, 34).setValue(i);     // AH: 並び順
+      updated++;
+    }
+    return { ok: true, updated: updated };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
 // 配信停止コマンド: まずは理由を聞く（ステータスは確定時に変更）
 function handleDeliveryStopCommand(replyToken, userId) {
   try {
