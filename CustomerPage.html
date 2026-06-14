@@ -1705,13 +1705,30 @@ function renderRecommendList(list) {
     html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'ielove\')" style="background:#264f78;color:#fff;border:none;">いえらぶ</button>';
     html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'itandi\')" style="background:#264f78;color:#fff;border:none;">itandi</button>';
     html += '</div>';
-    // 入居時期（お客さんから引き継ぎ）と厳守トグル
-    var miTxt = r.moveInDate ? ('入居時期: ' + esc(r.moveInDate) + (r.moveInStrict ? '（厳守）' : '（参考）')) : '入居時期: 未設定';
-    html += '<div style="font-size:11px;color:#9ab;margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
-    html += '<span>📅 ' + miTxt + '</span>';
-    html += '<a onclick="editRecommendMoveIn(\'' + esc(r.id) + '\',\'' + esc(r.moveInDate || '') + '\',' + (r.moveInStrict ? 'true' : 'false') + ')" style="color:#6cf;cursor:pointer;text-decoration:underline;">変更</a>';
-    if (r.moveInDate) html += '<a onclick="toggleRecommendStrict(\'' + esc(r.id) + '\',\'' + esc(r.moveInDate) + '\',' + (r.moveInStrict ? 'false' : 'true') + ')" style="color:#6cf;cursor:pointer;text-decoration:underline;">' + (r.moveInStrict ? '厳守をやめる' : '厳守にする') + '</a>';
-    html += '</div>';
+    // 入居時期（AdminPageと同じドロップダウン式）
+    var miTxt = r.moveInDate ? (esc(r.moveInDate) + (r.moveInStrict ? '（間に合う物件だけ）' : '（参考）')) : '指定なし';
+    html += '<div style="font-size:11px;color:#9ab;margin-bottom:4px;">';
+    html += '<span id="miview-' + esc(r.id) + '">📅 入居時期: ' + miTxt + ' <a onclick="showMiEditor(\'' + esc(r.id) + '\')" style="color:#6cf;cursor:pointer;text-decoration:underline;">設定</a></span>';
+    // インライン編集（初期非表示）
+    var sel = r.moveInDate ? (r.moveInDate === 'いい物件見つかり次第' ? 'asap' : 'date') : 'none';
+    var dateVal = (sel === 'date') ? r.moveInDate : '';
+    html += '<div id="mied-' + esc(r.id) + '" style="display:none;margin-top:4px;background:#1f2a1f;border:1px solid #3a5f3a;border-radius:6px;padding:8px;">';
+    html += '<div style="margin-bottom:4px;">入居時期：'
+      + '<select id="misel-' + esc(r.id) + '" onchange="onMiSelChange(\'' + esc(r.id) + '\')">'
+      + '<option value="none"' + (sel === 'none' ? ' selected' : '') + '>指定しない</option>'
+      + '<option value="asap"' + (sel === 'asap' ? ' selected' : '') + '>いい物件見つかり次第</option>'
+      + '<option value="date"' + (sel === 'date' ? ' selected' : '') + '>日付を指定</option>'
+      + '</select></div>';
+    html += '<div id="midatewrap-' + esc(r.id) + '" style="display:' + (sel === 'date' ? '' : 'none') + ';margin-bottom:4px;">日付：'
+      + '<input type="date" id="midate-' + esc(r.id) + '" value="' + esc(dateVal) + '"></div>';
+    html += '<div id="mistrictwrap-' + esc(r.id) + '" style="display:' + (sel === 'date' ? '' : 'none') + ';margin-bottom:6px;">扱い：'
+      + '<select id="mistrict-' + esc(r.id) + '">'
+      + '<option value="false"' + (!r.moveInStrict ? ' selected' : '') + '>遅い物件も紹介する</option>'
+      + '<option value="true"' + (r.moveInStrict ? ' selected' : '') + '>間に合う物件だけ</option>'
+      + '</select></div>';
+    html += '<button class="btn btn-sm btn-blue" onclick="applyMi(\'' + esc(r.id) + '\')">適用</button> '
+      + '<button class="btn btn-sm btn-outline" onclick="hideMiEditor(\'' + esc(r.id) + '\')">キャンセル</button>';
+    html += '</div></div>';
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
     html += '<button class="btn btn-sm btn-outline" onclick="editRecommend(\'' + esc(r.id) + '\')">編集</button>';
     html += '<button class="btn btn-sm btn-outline" onclick="toggleRecommend(\'' + esc(r.id) + '\',' + (r.enabled ? 'false' : 'true') + ')">' + (r.enabled ? '無効化' : '有効化') + '</button>';
@@ -1790,21 +1807,32 @@ function openRecommendSearch(id, service) {
     .getRecommendForExtension(id);
 }
 
-// 入居時期の厳守だけ切替
-function toggleRecommendStrict(id, moveInDate, strict) {
-  google.script.run
-    .withSuccessHandler(function() { loadRecommendList(currentCustomer); })
-    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
-    .setRecommendMoveIn(id, moveInDate, strict);
+// 入居時期インラインエディタ（AdminPageと同じドロップダウン式）
+function showMiEditor(id) {
+  var ed = document.getElementById('mied-' + id);
+  if (ed) ed.style.display = '';
 }
-
-// 入居時期そのものを変更
-function editRecommendMoveIn(id, curDate, curStrict) {
-  var d = prompt('入居時期を入力してください（例：2026年7月、即入居 など。空欄で未設定）', curDate || '');
-  if (d === null) return;
-  var strict = false;
-  if (d.trim()) {
-    strict = confirm('この入居時期を「厳守」にしますか？\n（OK=厳守：時期に合う物件のみ / キャンセル=参考：時期は条件に含めない）');
+function hideMiEditor(id) {
+  var ed = document.getElementById('mied-' + id);
+  if (ed) ed.style.display = 'none';
+}
+function onMiSelChange(id) {
+  var sel = document.getElementById('misel-' + id).value;
+  var show = (sel === 'date') ? '' : 'none';
+  var dw = document.getElementById('midatewrap-' + id);
+  var sw = document.getElementById('mistrictwrap-' + id);
+  if (dw) dw.style.display = show;
+  if (sw) sw.style.display = show;
+}
+function applyMi(id) {
+  var sel = document.getElementById('misel-' + id).value;
+  var moveInDate = '', strict = false;
+  if (sel === 'asap') {
+    moveInDate = 'いい物件見つかり次第';
+  } else if (sel === 'date') {
+    moveInDate = document.getElementById('midate-' + id).value || '';
+    if (!moveInDate) { showToast('日付を選択してください'); return; }
+    strict = document.getElementById('mistrict-' + id).value === 'true';
   }
   google.script.run
     .withSuccessHandler(function() {
@@ -1812,7 +1840,7 @@ function editRecommendMoveIn(id, curDate, curStrict) {
       loadRecommendList(currentCustomer);
     })
     .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
-    .setRecommendMoveIn(id, d.trim(), strict);
+    .setRecommendMoveIn(id, moveInDate, strict);
 }
 
 function toggleRecommend(id, enabled) {
