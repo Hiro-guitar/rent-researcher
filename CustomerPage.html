@@ -542,6 +542,9 @@ function renderCustomerList(list) {
     html += '<div class="customer-item" onclick="openDetail(\'' + esc(c.name) + '\')">';
     html += '<div class="customer-name">' + esc(c.name) + ' ' + statusBadge(c.status) + '</div>';
     html += '<div class="customer-meta">';
+    html += c.hasPhone
+      ? '<div style="color:#6cd06c;">📞 ' + esc(c.phone) + '</div>'
+      : '<div style="color:#e0707a;">📵 電話なし</div>';
     if (c.registeredAt) html += '<div>登録: ' + esc(c.registeredAt) + '</div>';
     if (c.lastAction) html += '<div>最終: ' + esc(c.lastAction) + '</div>';
     html += '</div></div>';
@@ -599,6 +602,11 @@ function renderKanban(list) {
       html += '<div class="kanban-card" draggable="true" data-name="' + esc(it.name) + '" ' +
               'ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" onclick="openDetail(\'' + esc(it.name) + '\')">';
       html += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + '</div>';
+      html += '<div class="kc-meta" style="margin-top:2px;">'
+        + (it.hasPhone
+            ? '<span style="color:#6cd06c;">📞 ' + esc(it.phone) + '</span>'
+            : '<span style="color:#e0707a;">📵 電話なし</span>')
+        + '</div>';
       html += '<div class="kc-meta">' + (it.lastAction ? '最終: ' + esc(it.lastAction) : '登録: ' + esc(it.registeredAt || '')) + '</div>';
       html += '</div>';
     }
