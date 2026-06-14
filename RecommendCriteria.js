@@ -275,3 +275,158 @@ function saveRecommendCriteria(payload) {
   sheet.appendRow(rowVals);
   return { ok: true, id: newId };
 }
+
+/**
+ * 編集用: おすすめ条件1件を、条件フォームのシード形式で返す。
+ * @return {Object|null} {label, areaMethod, selectedRoutes, selectedCities, selectedStations, selectedTowns, data}
+ */
+function getRecommendForEdit(id) {
+  id = String(id || '').trim();
+  if (!id) return null;
+  var sheet = _getRecommendSheet_();
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][34] || '').trim() !== id) continue;
+    var row = data[i];
+    var rws = _parseRoutesWithStations(row[4]);
+    var routes = rws.map(function(r) { return r.route; });
+    var selStations = {};
+    rws.forEach(function(r) { if (r.stations && r.stations.length) selStations[r.route] = r.stations; });
+    var cities = _splitCSV(row[3]);
+    var towns = {};
+    try { towns = JSON.parse(String(row[24] || '') || '{}'); } catch (e) {}
+    return {
+      label: String(row[33] || ''),
+      areaMethod: cities.length > 0 ? 'city' : 'route',
+      selectedRoutes: routes,
+      selectedCities: cities,
+      selectedStations: selStations,
+      selectedTowns: towns,
+      data: {
+        name: String(row[1] || ''),
+        rent_max: String(row[7] || ''),
+        layouts: _splitCSV(row[8]),
+        walk: String(row[6] || '') || '指定しない',
+        area_min: String(row[9] || '') || '指定しない',
+        building_age: String(row[10] || '') || '指定しない',
+        building_structures: _splitCSV(row[11]),
+        equipment: _splitCSV(row[12]),
+        notes: String(row[15] || ''),
+        move_in_date: String(row[14] || ''),
+        move_in_strict: String(row[26] || '').trim().toLowerCase() === 'true',
+        reason: '', resident: ''
+      }
+    };
+  }
+  return null;
+}
+
+/**
+ * google.script.run 用: おすすめ条件エディタ（既存の条件フォーム）を開くためのURLを返す。
+ * 既存の条件フォームを rec:: トークンの一時セッションで開く。顧客フローには影響しない。
+ * @param {string} customerName
+ * @param {string} recommendId 既存編集時のID（新規は空）
+ * @param {string} label おすすめ条件のラベル
+ * @return {Object} { ok, url }
+ */
+function startRecommendEditor(customerName, recommendId, label) {
+  customerName = String(customerName || '').trim();
+  if (!customerName) return { ok: false, message: '顧客名がありません' };
+  recommendId = String(recommendId || '').trim();
+  var seedLabel = String(label || '').trim();
+
+  var seed = null;
+  if (recommendId) {
+    seed = getRecommendForEdit(recommendId);
+    if (seed && !seedLabel) seedLabel = seed.label || '';
+  }
+  if (!seed) {
+    // 新規は「お客さんの現条件」を初期値にする（こちらで緩めて保存する想定）
+    var c = loadCustomerCriteriaByName(customerName);
+    if (c) {
+      seed = {
+        areaMethod: c.areaMethod, selectedRoutes: c.selectedRoutes, selectedCities: c.selectedCities,
+        selectedStations: c.selectedStations, selectedTowns: c.selectedTowns,
+        data: {
+          name: customerName, rent_max: c.rent_max, layouts: c.layouts, walk: c.walk,
+          area_min: c.area_min, building_age: c.building_age, building_structures: c.building_structures,
+          equipment: c.equipment, petType: c.petType, notes: c.notes, move_in_date: c.move_in_date,
+          move_in_strict: c.move_in_strict, reason: '', resident: ''
+        }
+      };
+    }
+  }
+  if (!seed) {
+    seed = {
+      areaMethod: 'route', selectedRoutes: [], selectedCities: [], selectedStations: {}, selectedTowns: {},
+      data: {
+        name: customerName, rent_max: '', layouts: [], walk: '指定しない', area_min: '指定しない',
+        building_age: '指定しない', building_structures: [], equipment: [], notes: '', move_in_date: '',
+        move_in_strict: false, reason: '', resident: ''
+      }
+    };
+  }
+  if (!seedLabel) seedLabel = 'おすすめ条件';
+
+  var token = Utilities.getUuid().replace(/-/g, '').substring(0, 16);
+  var userId = 'rec::' + token;
+  var state = createInitialState();
+  state.step = STEPS.CRITERIA_SELECT;
+  state.isChangeFlow = true;
+  state.areaMethod = seed.areaMethod || 'route';
+  state.selectedRoutes = seed.selectedRoutes || [];
+  state.selectedCities = seed.selectedCities || [];
+  state.selectedStations = seed.selectedStations || {};
+  state.selectedTowns = seed.selectedTowns || {};
+  state.data = seed.data || {};
+  saveState(userId, state);
+
+  CacheService.getScriptCache().put('recedit_' + token,
+    JSON.stringify({ customerName: customerName, recommendId: recommendId, label: seedLabel }), 1800);
+
+  var baseUrl = ScriptApp.getService().getUrl();
+  var url = baseUrl + '?action=selectCriteria&userId=' + encodeURIComponent(userId);
+  return { ok: true, url: url };
+}
+
+/**
+ * 条件フォーム送信(processCriteriaSelection)から rec:: の場合に呼ばれる。
+ * フォーム形式の criteria を おすすめ条件として保存する。顧客の登録は触らない。
+ */
+function _saveRecommendFromForm_(userId, criteria) {
+  try {
+    var token = String(userId).substring('rec::'.length);
+    var cache = CacheService.getScriptCache();
+    var raw = cache.get('recedit_' + token);
+    if (!raw) return { success: false, message: 'セッションが切れました。お手数ですがもう一度開いてください。' };
+    var meta = JSON.parse(raw);
+    criteria = criteria || {};
+    var fields = {
+      cities: criteria.selectedCities || [],
+      routes: criteria.selectedRoutes || [],
+      selectedStations: criteria.selectedStations || {},
+      stations: [],
+      walk: (criteria.walkMax && criteria.walkMax !== '指定しない') ? criteria.walkMax : '',
+      rent_max: criteria.rentMax || '',
+      layouts: criteria.layouts || [],
+      area_min: (criteria.areaMin && criteria.areaMin !== '指定しない') ? criteria.areaMin : '',
+      building_age: (criteria.buildingAge && criteria.buildingAge !== '指定しない') ? criteria.buildingAge : '',
+      structures: criteria.buildingStructures || [],
+      equipment: criteria.equipment || [],
+      notes: criteria.otherConditions || '',
+      move_in_date: criteria.move_in_date || '',
+      move_in_strict: !!criteria.move_in_strict,
+      towns: criteria.selectedTowns || {}
+    };
+    var res = saveRecommendCriteria({
+      customerName: meta.customerName, id: meta.recommendId || '',
+      label: meta.label || 'おすすめ条件', fields: fields
+    });
+    try { clearState(userId); } catch (e) {}
+    cache.remove('recedit_' + token);
+    if (!res.ok) return { success: false, message: res.message || '保存に失敗しました' };
+    return { success: true, message: 'おすすめ条件を保存しました。この画面は閉じてください。' };
+  } catch (err) {
+    return { success: false, message: '保存エラー: ' + err.message };
+  }
+}

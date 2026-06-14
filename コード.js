@@ -1606,6 +1606,12 @@ function _buildCriteriaPageBlockedHtml(step) {
  */
 function processCriteriaSelection(userId, criteria) {
   try {
+    // おすすめ条件エディタ（rec::トークン）からの送信は、顧客フローに一切触れず
+    // おすすめ検索条件シートに保存して終了する。
+    if (String(userId || '').indexOf('rec::') === 0) {
+      return _saveRecommendFromForm_(userId, criteria);
+    }
+
     var state = getState(userId);
     console.log('processCriteriaSelection: userId=' + userId + ', step=' + state.step);
 
