@@ -166,8 +166,13 @@ function _autoCreateLeadFromInquiry_(info) {
     var newRow = sheet.getLastRow();
     sheet.getRange(newRow, 32).setValue(email);        // AF(32): メール
     sheet.getRange(newRow, 33).setValue('問い合わせ'); // AG(33): 営業ステージ
-    // 注: ここでは対応ログ(SUUMO反響)を作らない。問い合わせは「カンバンに追加するだけ」。
-    //     問い合わせ内容は 問い合わせシート に残っており、対応ログは手動で記録する運用。
+    // 問い合わせ情報を対応ログに残す（SUUMO反響）
+    var parts = [];
+    if (info.propertyName) parts.push('物件: ' + info.propertyName + (info.rent ? ' ' + info.rent : ''));
+    if (email) parts.push('メール: ' + email);
+    if (info.tel) parts.push('TEL: ' + info.tel);
+    if (info.message) parts.push('内容: ' + info.message);
+    try { addContactLog(row[1], 'SUUMO反響', Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'), parts.join(' / ')); } catch (eL) {}
     return true;
   } catch (e) {
     console.warn('[自動リード化] error: ' + e.message);
