@@ -3767,8 +3767,10 @@ globalThis.runSearchCycle = async function runSearchCycle() {
             const _today = new Date();
             const _pad = n => String(n).padStart(2, '0');
             const _todayStr = _today.getFullYear() + '-' + _pad(_today.getMonth() + 1) + '-' + _pad(_today.getDate());
-            await gasPost({ action: 'update_reins_search_date', customer_name: customer.name, search_date: _todayStr });
-            await setStorageData({ debugLog: `[REINS] ${customer.name}: 最終検索日を更新 → ${_todayStr}` });
+            // おすすめ条件(裏検索)の場合は recommend_id を付けて、本人条件と独立して日付記録する
+            await gasPost({ action: 'update_reins_search_date', customer_name: customer.name, search_date: _todayStr, recommend_id: customer.recommendId || '' });
+            const _recLabel = customer.recommend ? `（おすすめ:${customer.recommendLabel || ''}）` : '';
+            await setStorageData({ debugLog: `[REINS] ${customer.name}${_recLabel}: 最終検索日を更新 → ${_todayStr}` });
           } catch (_e) {
             logError(`[REINS] ${customer.name}: 最終検索日更新失敗: ${_e.message}`);
           }
