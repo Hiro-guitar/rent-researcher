@@ -209,6 +209,24 @@ function setRecommendMoveIn(id, moveInDate, strict) {
   return { ok: false, message: '該当なし' };
 }
 
+/**
+ * おすすめ条件の前回REINS検索日（AC列=29）を記録する。本人条件とは独立。
+ * REINSの登録年月日フィルタの起点になり、次回はこの日付以降を検索する。
+ */
+function setRecommendLastReinsSearch(id, searchDate) {
+  id = String(id || '').trim();
+  if (!id) return { ok: false, message: 'IDがありません' };
+  var sheet = _getRecommendSheet_();
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][34] || '').trim() === id) {
+      sheet.getRange(i + 1, 29).setValue(searchDate); // AC列(29): 前回REINS検索日
+      return { ok: true };
+    }
+  }
+  return { ok: false, message: '該当なし' };
+}
+
 /** google.script.run 用: おすすめ条件の有効/無効を切替。 */
 function setRecommendEnabled(id, enabled) {
   id = String(id || '').trim();
