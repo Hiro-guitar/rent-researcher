@@ -6465,6 +6465,17 @@ function _parseMoveInDate(text, asDeadline = false, earliest = false) {
   const skipKeywords = ['いい物件見つかり次第', '即入居可', '即入居', '即時', '即日', '未定'];
   if (skipKeywords.some(kw => text.includes(kw))) return null;
 
+  // ハイフン形式(ISO: type=date の値)を日本語形式に変換（"2026-07-15" → "2026年7月15日", "2026-07" → "2026年7月"）
+  const hyphenFull = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (hyphenFull) {
+    text = text.replace(hyphenFull[0], `${hyphenFull[1]}年${parseInt(hyphenFull[2], 10)}月${parseInt(hyphenFull[3], 10)}日`);
+  } else {
+    const hyphenYM = text.match(/(\d{4})-(\d{1,2})(?!\d)/);
+    if (hyphenYM) {
+      text = text.replace(hyphenYM[0], `${hyphenYM[1]}年${parseInt(hyphenYM[2], 10)}月`);
+    }
+  }
+
   // スラッシュ形式を日本語形式に変換（ES-Square API: "2026/7/15" → "2026年7月15日", "2026/07 中旬予定" → "2026年7月 中旬予定"）
   const slashFull = text.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
   if (slashFull) {
