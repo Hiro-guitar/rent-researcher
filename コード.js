@@ -4008,7 +4008,8 @@ function _getCustomerListForCRM_() {
         name: name, status: status, stage: stage, order: order,
         registeredAt: regStr, lastAction: '',
         email: String(data[i][31] || '').trim(),  // AF列(32): メール
-        phone: '', hasPhone: false
+        phone: String(data[i][34] || '').trim(),  // AI列(35): 手動登録の電話番号
+        hasPhone: !!String(data[i][34] || '').trim()
       };
       customers.push(nameMap[name]);
     }
@@ -4030,6 +4031,7 @@ function _getCustomerListForCRM_() {
       }
       for (var ci = 0; ci < customers.length; ci++) {
         var cc = customers[ci];
+        if (cc.hasPhone) continue; // 手動登録済みは優先
         var em = String(cc.email || '').toLowerCase();
         var tel = (em && telByEmail[em]) || telByName[cc.name] || '';
         if (tel) { cc.phone = tel; cc.hasPhone = true; }
@@ -4090,6 +4092,7 @@ function getCustomerDetail(customerName) {
       status: status,
       email: String(data[i][31] || ''),          // AF列(32): メール（問い合わせ由来）
       stage: String(data[i][32] || ''),          // AG列(33): 営業ステージ
+      phone: String(data[i][34] || ''),          // AI列(35): 電話番号（手動登録）
       registeredAt: regStr,
       reason: String(data[i][13] || ''),        // N列
       moveInDate: String(data[i][14] || ''),     // O列
@@ -4151,6 +4154,24 @@ function getCustomerDetail(customerName) {
       }
     }
   } catch (eMH) {}
+
+  // 電話番号が未登録なら、問い合わせシートのTELで補完表示（保存はしない）
+  if (!String(info.phone || '').trim()) {
+    try {
+      var inqSheetP = ss.getSheetByName(INQUIRY_SHEET_NAME);
+      if (inqSheetP && inqSheetP.getLastRow() > 1) {
+        var inqP = inqSheetP.getRange(2, 1, inqSheetP.getLastRow() - 1, INQUIRY_HEADERS.length).getValues();
+        var emK = String(info.email || '').trim().toLowerCase();
+        for (var pi = 0; pi < inqP.length; pi++) {
+          var t = String(inqP[pi][5] || '').trim();
+          if (!t) continue;
+          var e2 = String(inqP[pi][4] || '').trim().toLowerCase();
+          var n2 = String(inqP[pi][2] || '').trim();
+          if ((emK && e2 === emK) || n2 === customerName) { info.phone = t; break; }
+        }
+      }
+    } catch (ePh) {}
+  }
 
   // 送付済み物件
   info.properties = _getCustomerProperties_(ss, customerName);

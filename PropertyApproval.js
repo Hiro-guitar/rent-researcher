@@ -1555,6 +1555,32 @@ function setKanbanOrder(stage, orderedNames) {
   }
 }
 
+/**
+ * 顧客の電話番号を手動登録/更新する（検索条件シート AI列=35）。
+ * @param {string} customerName
+ * @param {string} phone 空文字でクリア
+ * @return {Object} { ok }
+ */
+function setCustomerPhone(customerName, phone) {
+  try {
+    if (!customerName) return { ok: false, message: '顧客名がありません' };
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { ok: false, message: '検索条件シートが見つかりません' };
+    var data = sheet.getDataRange().getValues();
+    var targetRow = -1;
+    var nameTrim = String(customerName).trim();
+    for (var j = 1; j < data.length; j++) {
+      if (String(data[j][1] || '').trim() === nameTrim) targetRow = j + 1; // 最新行
+    }
+    if (targetRow < 0) return { ok: false, message: '顧客が見つかりません' };
+    sheet.getRange(targetRow, 35).setNumberFormat('@').setValue(String(phone || '').trim()); // AI列(35)
+    return { ok: true, phone: String(phone || '').trim() };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
 // 配信停止コマンド: まずは理由を聞く（ステータスは確定時に変更）
 function handleDeliveryStopCommand(replyToken, userId) {
   try {
