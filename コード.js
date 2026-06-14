@@ -2112,6 +2112,7 @@ function handleGetCriteria(e) {
   console.log('[LINEブロック判定] DISCORD_WEBHOOK_URL 設定=' + (_wh ? 'あり' : 'なし'));
 
   var criteria = [];
+  var deliverableNames = {}; // 配信ゲートを通過した顧客名（おすすめ条件の検索可否判定に使う）
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
     var name = String(row[1] || '').trim();
@@ -2214,6 +2215,10 @@ function handleGetCriteria(e) {
       lastReinsSearchStr = String(lastReinsSearch).trim();
     }
 
+    // この顧客は配信ゲート（停止/ブロック/スヌーズ/頻度）を通過した＝配信対象。
+    // 本人の検索条件が空でも、おすすめ条件は検索したいのでここで記録しておく。
+    deliverableNames[name] = true;
+
     // ── 検索条件が未入力の行はスキップ（リード等。空条件で検索すると全件ヒットしてしまう）──
     // 位置/賃料/間取り/面積/築年/路線/駅/町名 のいずれも空なら「条件未入力」とみなし検索しない。
     var _hasCriteria = (_splitCSV(row[3]).length > 0)        // C 市区町村
@@ -2254,6 +2259,17 @@ function handleGetCriteria(e) {
       lastReinsSearch: lastReinsSearchStr,
       btMode: btMode
     });
+  }
+
+  // ── おすすめ検索条件（裏条件）を追加 ──
+  // お客さんの登録条件とは別に、こちらが設定した条件でも検索する。
+  // 配信対象（deliverableNames）の顧客に紐づくものだけを対象にする。
+  try {
+    if (typeof _appendRecommendCriteria_ === 'function') {
+      _appendRecommendCriteria_(criteria, deliverableNames);
+    }
+  } catch (eRec) {
+    console.warn('[おすすめ条件] 追加に失敗: ' + (eRec && eRec.message));
   }
 
   return ContentService
