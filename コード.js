@@ -3993,6 +3993,10 @@ function _getCustomerListForCRM_() {
     // （AE列=31=btMode は既存利用のため、stage は AG=33 を使う）
     var stage = String(data[i][32] || '').trim();
     if (!stage) stage = (status === 'lead') ? '問い合わせ' : '追客中';
+    // AH列(34列目, index33): カンバン並び順（数値・小さいほど上）。未設定は大きい値扱い。
+    var orderRaw = data[i][33];
+    var order = (orderRaw === '' || orderRaw === null || orderRaw === undefined) ? 999999 : Number(orderRaw);
+    if (isNaN(order)) order = 999999;
     var regDate = data[i][0];
     var regStr = '';
     if (regDate instanceof Date) {
@@ -4000,7 +4004,7 @@ function _getCustomerListForCRM_() {
     }
 
     if (!nameMap[name]) {
-      nameMap[name] = { name: name, status: status, stage: stage, registeredAt: regStr, lastAction: '' };
+      nameMap[name] = { name: name, status: status, stage: stage, order: order, registeredAt: regStr, lastAction: '' };
       customers.push(nameMap[name]);
     }
   }

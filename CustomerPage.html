@@ -573,6 +573,15 @@ function renderKanban(list) {
     if (!byStage[st]) st = '追客中';
     byStage[st].push(list[i]);
   }
+  // 各列を並び順(order)でソート（未設定は後ろ、同値は登録日順）
+  for (var ss2 = 0; ss2 < KANBAN_STAGES.length; ss2++) {
+    byStage[KANBAN_STAGES[ss2]].sort(function(a, b) {
+      var oa = (a.order == null ? 999999 : a.order);
+      var ob = (b.order == null ? 999999 : b.order);
+      if (oa !== ob) return oa - ob;
+      return (a.registeredAt || '').localeCompare(b.registeredAt || '');
+    });
+  }
   var html = '<div class="kanban">';
   for (var c = 0; c < KANBAN_STAGES.length; c++) {
     var stg = KANBAN_STAGES[c];
@@ -602,6 +611,18 @@ function kanbanDragStart(e) {
 function kanbanDragEnd(e) { e.target.classList.remove('dragging'); }
 function kanbanDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); }
 function kanbanDragLeave(e) { e.currentTarget.classList.remove('dragover'); }
+// ドロップ位置（列内インデックス）を、マウスY座標とカード位置から求める
+function _kanbanDropIndex_(col, y, dragName) {
+  var cards = col.querySelectorAll('.kanban-card');
+  var idx = 0;
+  for (var i = 0; i < cards.length; i++) {
+    if (cards[i].getAttribute('data-name') === dragName) continue;
+    var r = cards[i].getBoundingClientRect();
+    if (y < r.top + r.height / 2) return idx;
+    idx++;
+  }
+  return idx;
+}
 function kanbanDrop(e) {
   e.preventDefault();
   var col = e.currentTarget;
@@ -609,16 +630,34 @@ function kanbanDrop(e) {
   var stage = col.getAttribute('data-stage');
   var name = _kanbanDragName; _kanbanDragName = null;
   if (!name || !stage) return;
-  // 楽観的更新 → 即再描画
-  for (var i = 0; i < customers.length; i++) { if (customers[i].name === name) { customers[i].stage = stage; break; } }
+
+  // 落とした位置を計算
+  var dropIndex = _kanbanDropIndex_(col, e.clientY, name);
+  // この列に見えているカード名（ドラッグ中の自分は除外）を取得
+  var cards = col.querySelectorAll('.kanban-card');
+  var names = [];
+  for (var i = 0; i < cards.length; i++) {
+    var n = cards[i].getAttribute('data-name');
+    if (n === name) continue;
+    names.push(n);
+  }
+  if (dropIndex > names.length) dropIndex = names.length;
+  names.splice(dropIndex, 0, name); // 落とした位置に挿入
+
+  // 楽観的更新（ステージ＋並び順）→ 即再描画
+  for (var k = 0; k < names.length; k++) {
+    for (var c = 0; c < customers.length; c++) {
+      if (customers[c].name === names[k]) { customers[c].stage = stage; customers[c].order = k; break; }
+    }
+  }
   filterCustomers();
+
   google.script.run
     .withSuccessHandler(function(r) {
-      if (r && r.ok) showToast(name + ' →「' + stage + '」');
-      else showToast((r && r.message) || 'ステージ変更に失敗しました');
+      if (!(r && r.ok)) showToast((r && r.message) || '並び順の保存に失敗しました');
     })
     .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
-    .setCustomerStage(name, stage);
+    .setKanbanOrder(stage, names);
 }
 
 function statusBadge(s) {
