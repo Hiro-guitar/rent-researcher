@@ -423,24 +423,30 @@
       });
       container.appendChild(noneBtn);
 
-      // 同じ顧客名で重複排除（おすすめ条件＝裏検索条件があると同名が複数返るため）。
-      // 検索は名前で除外判定するので、1つのチェックで本人＋おすすめ両方を制御できる。
-      const _seenNames = new Set();
+      // 本人の条件と「おすすめ条件（裏検索条件）」を、それぞれ独立して選べるようにする。
+      // 除外判定はエントリ固有キー（criteriaKey）で行う。
       for (const c of criteria) {
-        if (_seenNames.has(c.name)) continue;
-        _seenNames.add(c.name);
         const lbl = document.createElement('label');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.className = 'customer-filter';
-        cb.value = c.name;
-        cb.checked = !excluded.includes(c.name); // 除外リストに無い → ON
+        cb.value = criteriaKey(c);
+        cb.checked = !excluded.includes(cb.value); // 除外リストに無い → ON
         cb.addEventListener('change', saveExcludedCustomers);
         lbl.appendChild(cb);
-        lbl.appendChild(document.createTextNode(' ' + c.name));
+        const labelText = c.recommend
+          ? (' ' + c.name + '（おすすめ' + (c.recommendLabel ? ': ' + c.recommendLabel : '') + '）')
+          : (' ' + c.name);
+        lbl.appendChild(document.createTextNode(labelText));
+        if (c.recommend) lbl.style.color = '#9cdc9c';
         container.appendChild(lbl);
       }
     });
+  }
+
+  // 条件エントリの一意キー（本人=名前 / おすすめ=rec::ID）。除外判定に使用。
+  function criteriaKey(c) {
+    return c && c.recommend ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : '');
   }
 
   function saveExcludedCustomers() {

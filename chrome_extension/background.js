@@ -3563,8 +3563,11 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     }
     // 除外リストに入っている顧客をスキップ（新規顧客は自動で検索対象）
     const excluded = excludedCustomers || [];
+    // エントリ固有キーで除外判定（本人=名前 / おすすめ条件=rec::ID）。
+    // これで本人の条件とおすすめ条件を独立してON/OFFできる。
+    const _critKey = (c) => (c && c.recommend ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : ''));
     const criteria = excluded.length > 0
-      ? allCriteria.filter(c => !excluded.includes(c.name))
+      ? allCriteria.filter(c => !excluded.includes(_critKey(c)))
       : allCriteria;
     if (criteria.length === 0) {
       await setStorageData({ debugLog: '選択された顧客がありません' });
