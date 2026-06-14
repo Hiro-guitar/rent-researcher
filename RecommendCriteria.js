@@ -322,6 +322,45 @@ function getRecommendForEdit(id) {
 }
 
 /**
+ * google.script.run 用: おすすめ条件1件を、Chrome拡張の検索ページ用オブジェクトで返す。
+ * （顧客ページの「検索ページを開く」で使う buildCustomerForExtension と同じ形）
+ * @return {Object|null}
+ */
+function getRecommendForExtension(id) {
+  id = String(id || '').trim();
+  if (!id) return null;
+  var sheet = _getRecommendSheet_();
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][34] || '').trim() !== id) continue;
+    var row = data[i];
+    var rws = _parseRoutesWithStations(row[4]); // [{route, stations[]}]
+    var routes = rws.map(function(r) { return r.route; });
+    var allStations = [];
+    rws.forEach(function(r) { (r.stations || []).forEach(function(s) { allStations.push(s); }); });
+    var towns = {};
+    try { towns = JSON.parse(String(row[24] || '') || '{}'); } catch (e) {}
+    return {
+      name: String(row[1] || ''),
+      routes_with_stations: rws,
+      routes: routes,
+      stations: allStations,
+      cities: _splitCSV(row[3]),
+      selectedTowns: towns,
+      rent_max: String(row[7] || ''),   // 既に万円等のサフィックスは除去済み
+      layouts: _splitCSV(row[8]),
+      walk: String(row[6] || ''),
+      area_min: String(row[9] || ''),
+      building_age: String(row[10] || ''),
+      structures: _splitCSV(row[11]),
+      equipment: _splitCSV(row[12]).join(','),
+      prefecture: '東京都'
+    };
+  }
+  return null;
+}
+
+/**
  * google.script.run 用: おすすめ条件エディタ（既存の条件フォーム）を開くためのURLを返す。
  * 既存の条件フォームを rec:: トークンの一時セッションで開く。顧客フローには影響しない。
  * @param {string} customerName
