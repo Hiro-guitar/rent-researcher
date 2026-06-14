@@ -40,6 +40,12 @@ function _getRecommendSheet_() {
   return sheet;
 }
 
+/** 入居時期セルの値を文字列化（Sheetsが日付に自動変換した場合は yyyy-MM-dd に整形）。 */
+function _recMoveInStr_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
+  return String(v == null ? '' : v).trim();
+}
+
 function _recStripSuffix_(val) {
   if (!val) return '';
   return String(val).replace(/万円|円|分以内|分|m²|m2|年以内|年|階以上|階/g, '').trim();
@@ -113,7 +119,7 @@ function _appendRecommendCriteria_(criteriaArr, deliverableNames) {
       building_age: String(row[10] || ''),
       structures: _splitCSV(row[11]),
       equipment: String(row[12] || ''),
-      move_in_date: String(row[14] || ''),
+      move_in_date: _recMoveInStr_(row[14]),
       move_in_strict: String(row[26] || '').trim().toLowerCase() === 'true',
       notes: String(row[15] || ''),
       selectedTowns: selectedTowns,
@@ -143,9 +149,10 @@ function _recSummary_(row) {
   if (String(row[9] || '').trim()) parts.push('面積: ' + row[9] + 'm²');
   if (String(row[10] || '').trim()) parts.push('築: ' + row[10]);
   if (String(row[6] || '').trim()) parts.push('徒歩: ' + row[6] + '分');
-  if (String(row[14] || '').trim()) {
+  var miStr = _recMoveInStr_(row[14]);
+  if (miStr) {
     var strict = String(row[26] || '').trim().toLowerCase() === 'true';
-    parts.push('入居: ' + row[14] + (strict ? '（厳守）' : ''));
+    parts.push('入居: ' + miStr + (strict ? '（厳守）' : ''));
   }
   return parts.join(' / ');
 }
@@ -166,7 +173,7 @@ function listRecommendCriteria(customerName) {
       id: String(data[i][34] || ''),
       label: String(data[i][33] || ''),
       enabled: !(enabled === '0' || enabled === 'false'),
-      moveInDate: String(data[i][14] || ''),
+      moveInDate: _recMoveInStr_(data[i][14]),
       moveInStrict: String(data[i][26] || '').trim().toLowerCase() === 'true',
       summary: _recSummary_(data[i])
     });
@@ -201,7 +208,7 @@ function setRecommendMoveIn(id, moveInDate, strict) {
   var data = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][34] || '').trim() === id) {
-      sheet.getRange(i + 1, 15).setValue(String(moveInDate || '')); // O列(15): 入居時期
+      sheet.getRange(i + 1, 15).setNumberFormat('@').setValue(String(moveInDate || '')); // O列(15): 入居時期（テキスト固定）
       sheet.getRange(i + 1, 27).setValue(strict ? 'true' : '');      // AA列(27): 厳守
       return { ok: true };
     }
@@ -305,6 +312,7 @@ function saveRecommendCriteria(payload) {
       if (String(data[i][34] || '').trim() === id) {
         rowVals[34] = id;
         rowVals[35] = (String(data[i][35] || '').trim().toLowerCase() === '0') ? '0' : '1';
+        sheet.getRange(i + 1, 15).setNumberFormat('@'); // O列(入居時期)を日付自動変換させない
         sheet.getRange(i + 1, 1, 1, 36).setValues([rowVals]);
         return { ok: true, id: id };
       }
@@ -317,6 +325,7 @@ function saveRecommendCriteria(payload) {
   rowVals[34] = newId;
   rowVals[35] = '1';
   sheet.appendRow(rowVals);
+  try { sheet.getRange(sheet.getLastRow(), 15).setNumberFormat('@').setValue(String(rowVals[14] || '')); } catch (e) {} // O列を日付自動変換させない
   return { ok: true, id: newId };
 }
 
@@ -356,7 +365,7 @@ function getRecommendForEdit(id) {
         building_structures: _splitCSV(row[11]),
         equipment: _splitCSV(row[12]),
         notes: String(row[15] || ''),
-        move_in_date: String(row[14] || ''),
+        move_in_date: _recMoveInStr_(row[14]),
         move_in_strict: String(row[26] || '').trim().toLowerCase() === 'true',
         reason: '', resident: ''
       }
