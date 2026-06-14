@@ -787,6 +787,13 @@ function renderDetail(data) {
 
   // 基本情報
   var info = '';
+  // 電話番号（編集可能・架電用）
+  info += '<div class="detail-info-row">';
+  info += '<div class="detail-info-label">電話</div>';
+  info += '<div class="detail-info-value">'
+    + (data.phone ? '<a href="tel:' + esc(data.phone) + '" style="color:#6cd06c;">📞 ' + esc(data.phone) + '</a>' : '<span style="color:#e0707a;">未登録</span>')
+    + ' <a onclick="editCustomerPhone(\'' + esc(data.phone || '') + '\')" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:6px;">' + (data.phone ? '編集' : '追加') + '</a>'
+    + '</div></div>';
   var rows = [
     ['メール', data.email],
     ['登録日', data.registeredAt],
@@ -1664,6 +1671,27 @@ function reviewPendingCleanup() {
       showToast('確認エラー: ' + (err && err.message ? err.message : ''));
     })
     .previewPendingCleanup();
+}
+
+// 顧客の電話番号を追加/編集
+function editCustomerPhone(cur) {
+  if (!currentCustomer) return;
+  var p = prompt('電話番号を入力してください（空欄で削除）', cur || '');
+  if (p === null) return;
+  p = p.trim();
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.ok) {
+        showToast(p ? '電話番号を保存しました' : '電話番号を削除しました');
+        // 詳細を再読込（電話表示更新）＋ボードのカードも更新
+        openDetail(currentCustomer);
+        refreshCustomers();
+      } else {
+        showToast((r && r.message) || '保存に失敗しました');
+      }
+    })
+    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .setCustomerPhone(currentCustomer, p);
 }
 
 // ══════════════════════════════════════════
