@@ -508,11 +508,15 @@ var propShown = 0;
 // ── 初期化 ──
 (function() {
   var initCustomer = JSON.parse('<?!= initCustomer ?>');
-  // デフォルトはカンバン（ボード）表示
-  setCustomerView('board');
-  if (initCustomer) {
-    openDetail(initCustomer);
-  }
+  // KANBAN_STAGES など後方で定義される変数・関数の初期化を待ってから実行する
+  // （このスクリプトの全トップレベル文の実行後に走らせる）
+  setTimeout(function() {
+    // デフォルトはカンバン（ボード）表示
+    setCustomerView('board');
+    if (initCustomer) {
+      openDetail(initCustomer);
+    }
+  }, 0);
 })();
 
 // ══════════════════════════════════════════
