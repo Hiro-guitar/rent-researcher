@@ -143,6 +143,10 @@ function _recSummary_(row) {
   if (String(row[9] || '').trim()) parts.push('面積: ' + row[9] + 'm²');
   if (String(row[10] || '').trim()) parts.push('築: ' + row[10]);
   if (String(row[6] || '').trim()) parts.push('徒歩: ' + row[6] + '分');
+  if (String(row[14] || '').trim()) {
+    var strict = String(row[26] || '').trim().toLowerCase() === 'true';
+    parts.push('入居: ' + row[14] + (strict ? '（厳守）' : ''));
+  }
   return parts.join(' / ');
 }
 
@@ -162,6 +166,8 @@ function listRecommendCriteria(customerName) {
       id: String(data[i][34] || ''),
       label: String(data[i][33] || ''),
       enabled: !(enabled === '0' || enabled === 'false'),
+      moveInDate: String(data[i][14] || ''),
+      moveInStrict: String(data[i][26] || '').trim().toLowerCase() === 'true',
       summary: _recSummary_(data[i])
     });
   }
@@ -177,6 +183,26 @@ function deleteRecommendCriteria(id) {
   for (var i = data.length - 1; i >= 1; i--) {
     if (String(data[i][34] || '').trim() === id) {
       sheet.deleteRow(i + 1);
+      return { ok: true };
+    }
+  }
+  return { ok: false, message: '該当なし' };
+}
+
+/**
+ * google.script.run 用: おすすめ条件の入居時期・厳守を設定する。
+ * @param {string} id
+ * @param {string} moveInDate 入居時期（空文字で未指定）
+ * @param {boolean} strict 厳守するか
+ */
+function setRecommendMoveIn(id, moveInDate, strict) {
+  id = String(id || '').trim();
+  var sheet = _getRecommendSheet_();
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][34] || '').trim() === id) {
+      sheet.getRange(i + 1, 15).setValue(String(moveInDate || '')); // O列(15): 入居時期
+      sheet.getRange(i + 1, 27).setValue(strict ? 'true' : '');      // AA列(27): 厳守
       return { ok: true };
     }
   }
@@ -440,6 +466,12 @@ function _saveRecommendFromForm_(userId, criteria) {
     if (!raw) return { success: false, message: 'セッションが切れました。お手数ですがもう一度開いてください。' };
     var meta = JSON.parse(raw);
     criteria = criteria || {};
+    // 条件フォームには入居時期の入力が無いため、シードした state（お客さんの入居時期 or
+    // 編集元のおすすめ条件）から引き継ぐ。これで自動検索でも入居時期が考慮される。
+    var seedData = {};
+    try { var st = getState(userId); if (st && st.data) seedData = st.data; } catch (e) {}
+    var miDate = criteria.move_in_date || seedData.move_in_date || '';
+    var miStrict = criteria.move_in_date ? !!criteria.move_in_strict : !!seedData.move_in_strict;
     var fields = {
       cities: criteria.selectedCities || [],
       routes: criteria.selectedRoutes || [],
@@ -453,8 +485,8 @@ function _saveRecommendFromForm_(userId, criteria) {
       structures: criteria.buildingStructures || [],
       equipment: criteria.equipment || [],
       notes: criteria.otherConditions || '',
-      move_in_date: criteria.move_in_date || '',
-      move_in_strict: !!criteria.move_in_strict,
+      move_in_date: miDate,
+      move_in_strict: miStrict,
       towns: criteria.selectedTowns || {}
     };
     var res = saveRecommendCriteria({

@@ -1693,6 +1693,13 @@ function renderRecommendList(list) {
     html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'ielove\')" style="background:#264f78;color:#fff;border:none;">いえらぶ</button>';
     html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'itandi\')" style="background:#264f78;color:#fff;border:none;">itandi</button>';
     html += '</div>';
+    // 入居時期（お客さんから引き継ぎ）と厳守トグル
+    var miTxt = r.moveInDate ? ('入居時期: ' + esc(r.moveInDate) + (r.moveInStrict ? '（厳守）' : '（参考）')) : '入居時期: 未設定';
+    html += '<div style="font-size:11px;color:#9ab;margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+    html += '<span>📅 ' + miTxt + '</span>';
+    html += '<a onclick="editRecommendMoveIn(\'' + esc(r.id) + '\',\'' + esc(r.moveInDate || '') + '\',' + (r.moveInStrict ? 'true' : 'false') + ')" style="color:#6cf;cursor:pointer;text-decoration:underline;">変更</a>';
+    if (r.moveInDate) html += '<a onclick="toggleRecommendStrict(\'' + esc(r.id) + '\',\'' + esc(r.moveInDate) + '\',' + (r.moveInStrict ? 'false' : 'true') + ')" style="color:#6cf;cursor:pointer;text-decoration:underline;">' + (r.moveInStrict ? '厳守をやめる' : '厳守にする') + '</a>';
+    html += '</div>';
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
     html += '<button class="btn btn-sm btn-outline" onclick="editRecommend(\'' + esc(r.id) + '\')">編集</button>';
     html += '<button class="btn btn-sm btn-outline" onclick="toggleRecommend(\'' + esc(r.id) + '\',' + (r.enabled ? 'false' : 'true') + ')">' + (r.enabled ? '無効化' : '有効化') + '</button>';
@@ -1769,6 +1776,31 @@ function openRecommendSearch(id, service) {
     })
     .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
     .getRecommendForExtension(id);
+}
+
+// 入居時期の厳守だけ切替
+function toggleRecommendStrict(id, moveInDate, strict) {
+  google.script.run
+    .withSuccessHandler(function() { loadRecommendList(currentCustomer); })
+    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .setRecommendMoveIn(id, moveInDate, strict);
+}
+
+// 入居時期そのものを変更
+function editRecommendMoveIn(id, curDate, curStrict) {
+  var d = prompt('入居時期を入力してください（例：2026年7月、即入居 など。空欄で未設定）', curDate || '');
+  if (d === null) return;
+  var strict = false;
+  if (d.trim()) {
+    strict = confirm('この入居時期を「厳守」にしますか？\n（OK=厳守：時期に合う物件のみ / キャンセル=参考：時期は条件に含めない）');
+  }
+  google.script.run
+    .withSuccessHandler(function() {
+      showToast('入居時期を更新しました');
+      loadRecommendList(currentCustomer);
+    })
+    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .setRecommendMoveIn(id, d.trim(), strict);
 }
 
 function toggleRecommend(id, enabled) {
