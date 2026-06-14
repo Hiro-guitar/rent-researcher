@@ -43,7 +43,13 @@ function _getRecommendSheet_() {
 /** 入居時期セルの値を文字列化（Sheetsが日付に自動変換した場合は yyyy-MM-dd に整形）。 */
 function _recMoveInStr_(v) {
   if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
-  return String(v == null ? '' : v).trim();
+  var s = String(v == null ? '' : v).trim();
+  // 過去にJSのDate文字列で保存された値（例: "Fri Jun 26 2026 00:00:00 GMT+0900 (日本標準時)"）を整形
+  if (s.indexOf('GMT') >= 0) {
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) return Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd');
+  }
+  return s;
 }
 
 function _recStripSuffix_(val) {
