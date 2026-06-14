@@ -4429,7 +4429,9 @@ function _buildCustomerTimeline_(ss, customerName, criteriaData) {
   for (var i = 1; i < criteriaData.length; i++) {
     if (String(criteriaData[i][1] || '').trim() !== customerName) continue;
     var reg = criteriaData[i][0];
-    if (reg instanceof Date) {
+    // 条件が空のリード（カンバンに追加しただけ）では「条件登録」を出さない。
+    var _hasCrit = (typeof _rowHasCriteria_ === 'function') ? _rowHasCriteria_(criteriaData[i]) : true;
+    if (reg instanceof Date && _hasCrit) {
       timeline.push({
         date: Utilities.formatDate(reg, tz, 'yyyy/MM/dd HH:mm'),
         ts: reg.getTime(),
