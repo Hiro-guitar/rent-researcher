@@ -304,6 +304,7 @@ body {
     <div class="header-nav">
       <a onclick="importInquiriesNow()" id="importInqLink">🔄 問い合わせ取込</a>
       <a onclick="reviewDuplicateLeads()" id="dupLeadLink">🧹 重複リード確認</a>
+      <a onclick="reviewPendingCleanup()" id="pendingCleanupLink">🧹 承認待ち整理</a>
       <a onclick="openAdminPage()">管理画面に戻る</a>
     </div>
   </div>
@@ -1532,6 +1533,64 @@ function reviewDuplicateLeads() {
       showToast('確認エラー: ' + (err && err.message ? err.message : ''));
     })
     .previewDuplicateLeads();
+}
+
+// 承認待ちの事故物件を確認して削除（条件なし顧客=全削除、条件あり大量=選択削除）
+function reviewPendingCleanup() {
+  var link = document.getElementById('pendingCleanupLink');
+  if (link) link.textContent = '確認中...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (link) link.textContent = '🧹 承認待ち整理';
+      res = res || {};
+      var accident = res.accident || [];
+      var suspicious = res.suspicious || [];
+      var normal = res.normal || [];
+      if (!accident.length && !suspicious.length) {
+        alert('削除対象の承認待ち（事故分）はありません。\n（承認待ち合計: ' + (res.total || 0) + '件）');
+        return;
+      }
+      var msg = '承認待ちの事故分を削除します。\n\n';
+      if (accident.length) {
+        msg += '【条件なしの顧客＝事故・全削除】\n';
+        msg += accident.map(function(c) { return '・' + c.name + ': ' + c.count + '件'; }).join('\n');
+        msg += '\n\n';
+      }
+      if (normal.length) {
+        msg += '【条件あり・少件数＝残す】\n';
+        msg += normal.map(function(c) { return '・' + c.name + ': ' + c.count + '件'; }).join('\n') + '\n\n';
+      }
+      msg += 'まず上記「条件なしの顧客」の承認待ちを削除します。よろしいですか？';
+      if (accident.length && !confirm(msg)) return;
+
+      // 条件ありだが大量(>=50件)の顧客は別途確認
+      var extraNames = [];
+      if (suspicious.length) {
+        var msg2 = '次の顧客は「検索条件あり」ですが承認待ちが大量です（事故で混ざった可能性）。\n\n'
+          + suspicious.map(function(c) { return '・' + c.name + ': ' + c.count + '件'; }).join('\n')
+          + '\n\nこれらの承認待ちも削除しますか？\n'
+          + '（OK=削除する / キャンセル=残す。残した場合は手動承認時に無視できます）';
+        if (confirm(msg2)) extraNames = suspicious.map(function(c) { return c.name; });
+      }
+
+      if (link) link.textContent = '削除中...';
+      google.script.run
+        .withSuccessHandler(function(r) {
+          if (link) link.textContent = '🧹 承認待ち整理';
+          r = r || {};
+          showToast('承認待ちの事故分を削除しました: ' + (r.removed || 0) + '件');
+        })
+        .withFailureHandler(function(err) {
+          if (link) link.textContent = '🧹 承認待ち整理';
+          showToast('削除エラー: ' + (err && err.message ? err.message : ''));
+        })
+        .deletePendingForCleanup(extraNames);
+    })
+    .withFailureHandler(function(err) {
+      if (link) link.textContent = '🧹 承認待ち整理';
+      showToast('確認エラー: ' + (err && err.message ? err.message : ''));
+    })
+    .previewPendingCleanup();
 }
 
 // 問い合わせ取込（SUUMO反響メール → カンバンの「問い合わせ」に自動追加）

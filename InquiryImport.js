@@ -297,6 +297,95 @@ function cleanupBackfillDamage(dryRun) {
   return result;
 }
 
+/** 検索条件が入っている顧客名の集合を返す。 */
+function _namesWithCriteria_() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  var set = {};
+  if (!sheet) return set;
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (_rowHasCriteria_(data[i])) {
+      var nm = String(data[i][1] || '').trim();
+      if (nm) set[nm] = true;
+    }
+  }
+  return set;
+}
+
+var _PENDING_SUSPICIOUS_THRESHOLD_ = 50; // 条件ありでもこの件数以上は事故疑い
+
+/**
+ * 確認用（読み取り専用）: 承認待ち物件を顧客ごとに集計して返す。
+ * - accident: 検索条件が無い顧客（＝事故。全削除対象）
+ * - suspicious: 条件はあるが大量(>=閾値)の顧客（添田など。削除可否を選ぶ）
+ * - normal: 条件あり＆少件数（本物の正常結果。残す）
+ * @return {Object} { total, accident, suspicious, normal }
+ */
+function previewPendingCleanup() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!sheet) return { total: 0, accident: [], suspicious: [], normal: [] };
+  var data = sheet.getDataRange().getValues();
+  var withCriteria = _namesWithCriteria_();
+  var byCust = {};
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][10] || '') !== 'pending') continue; // K列(10)=status
+    var name = String(data[i][0] || '').trim();             // A列=顧客名
+    var created = String(data[i][11] || '');                // L列(11)=created_at
+    var c = byCust[name] || (byCust[name] = { name: name, count: 0, hasCriteria: !!withCriteria[name], first: '', last: '' });
+    c.count++;
+    if (!c.first || created < c.first) c.first = created;
+    if (!c.last || created > c.last) c.last = created;
+  }
+  var accident = [], suspicious = [], normal = [], total = 0;
+  Object.keys(byCust).forEach(function(k) {
+    var c = byCust[k]; total += c.count;
+    if (!c.hasCriteria) accident.push(c);
+    else if (c.count >= _PENDING_SUSPICIOUS_THRESHOLD_) suspicious.push(c);
+    else normal.push(c);
+  });
+  var byCount = function(a, b) { return b.count - a.count; };
+  accident.sort(byCount); suspicious.sort(byCount); normal.sort(byCount);
+  return { total: total, accident: accident, suspicious: suspicious, normal: normal };
+}
+
+/**
+ * 承認待ちの事故物件を削除する。
+ * - 検索条件が無い顧客の pending 行は全削除。
+ * - extraNames に渡された顧客の pending 行も削除（条件ありだが大量だった顧客向け）。
+ * 削除すれば handleGetSeenIds はライブ集計なので重複判定からも自動的に消える。
+ * @param {string[]} extraNames 追加で削除する顧客名
+ * @return {Object} { removed, byCustomer }
+ */
+function deletePendingForCleanup(extraNames) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!sheet) return { removed: 0, byCustomer: {} };
+  var data = sheet.getDataRange().getValues();
+  var withCriteria = _namesWithCriteria_();
+  var extra = {};
+  (extraNames || []).forEach(function(n) { var k = String(n || '').trim(); if (k) extra[k] = true; });
+
+  var toDelete = [], byCustomer = {};
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][10] || '') !== 'pending') continue;
+    var name = String(data[i][0] || '').trim();
+    var del = (!withCriteria[name]) || extra[name];
+    if (del) {
+      toDelete.push(i + 1); // 1-based
+      byCustomer[name] = (byCustomer[name] || 0) + 1;
+    }
+  }
+  // 下から削除（行ズレ防止）。pending以外/残す行の書式は保持される。
+  toDelete.sort(function(a, b) { return b - a; });
+  for (var d = 0; d < toDelete.length; d++) sheet.deleteRow(toDelete[d]);
+
+  var result = { removed: toDelete.length, byCustomer: byCustomer };
+  console.log('[承認待ち事故掃除] ' + JSON.stringify(result));
+  return result;
+}
+
 /**
  * 移行用（一度だけ実行）: 旧コードが btMode 列(AE=31) に書いてしまった営業ステージを
  * 正しい AG列(33) へ移し、AE列をクリアする。
