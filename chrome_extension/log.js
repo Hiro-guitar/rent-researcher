@@ -423,7 +423,12 @@
       });
       container.appendChild(noneBtn);
 
+      // 同じ顧客名で重複排除（おすすめ条件＝裏検索条件があると同名が複数返るため）。
+      // 検索は名前で除外判定するので、1つのチェックで本人＋おすすめ両方を制御できる。
+      const _seenNames = new Set();
       for (const c of criteria) {
+        if (_seenNames.has(c.name)) continue;
+        _seenNames.add(c.name);
         const lbl = document.createElement('label');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
