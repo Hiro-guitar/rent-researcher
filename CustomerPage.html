@@ -508,7 +508,8 @@ var propShown = 0;
 // ── 初期化 ──
 (function() {
   var initCustomer = JSON.parse('<?!= initCustomer ?>');
-  renderCustomerList(customers);
+  // デフォルトはカンバン（ボード）表示
+  setCustomerView('board');
   if (initCustomer) {
     openDetail(initCustomer);
   }
@@ -554,7 +555,7 @@ function filterCustomers() {
 // ══════════════════════════════════════════
 //  カンバン（営業パイプライン）
 // ══════════════════════════════════════════
-var customerView = 'list';
+var customerView = 'board';
 var KANBAN_STAGES = ['問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
 function setCustomerView(v) {
   customerView = v;
