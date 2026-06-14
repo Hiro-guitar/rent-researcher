@@ -4004,10 +4004,38 @@ function _getCustomerListForCRM_() {
     }
 
     if (!nameMap[name]) {
-      nameMap[name] = { name: name, status: status, stage: stage, order: order, registeredAt: regStr, lastAction: '' };
+      nameMap[name] = {
+        name: name, status: status, stage: stage, order: order,
+        registeredAt: regStr, lastAction: '',
+        email: String(data[i][31] || '').trim(),  // AF列(32): メール
+        phone: '', hasPhone: false
+      };
       customers.push(nameMap[name]);
     }
   }
+
+  // 電話番号を 問い合わせシート(TEL) から付与（メール一致 or 名前一致）。架電可否を看板で示す用。
+  try {
+    var inqSheet = ss.getSheetByName(INQUIRY_SHEET_NAME);
+    if (inqSheet && inqSheet.getLastRow() > 1) {
+      var inq = inqSheet.getRange(2, 1, inqSheet.getLastRow() - 1, INQUIRY_HEADERS.length).getValues();
+      var telByEmail = {}, telByName = {};
+      for (var q = 0; q < inq.length; q++) {
+        var qTel = String(inq[q][5] || '').trim();   // F列: TEL
+        if (!qTel) continue;
+        var qEmail = String(inq[q][4] || '').trim().toLowerCase(); // E列: メール
+        var qName = String(inq[q][2] || '').trim();   // C列: 名前
+        if (qEmail && !telByEmail[qEmail]) telByEmail[qEmail] = qTel;
+        if (qName && !telByName[qName]) telByName[qName] = qTel;
+      }
+      for (var ci = 0; ci < customers.length; ci++) {
+        var cc = customers[ci];
+        var em = String(cc.email || '').toLowerCase();
+        var tel = (em && telByEmail[em]) || telByName[cc.name] || '';
+        if (tel) { cc.phone = tel; cc.hasPhone = true; }
+      }
+    }
+  } catch (ePhone) { console.warn('電話番号付与エラー: ' + ePhone.message); }
 
   // 最終アクション日を アクションログ から取得
   try {
