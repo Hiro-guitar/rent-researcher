@@ -852,7 +852,10 @@ function toggleLogForm() {
     // 新規追加モードで開く（編集状態をクリア）
     editingRow = null;
     document.getElementById('logType').value = '電話';
-    document.getElementById('logDate').value = '';
+    // 日時は「今」をデフォルトにする（JST）
+    var nowL = new Date();
+    nowL.setHours(nowL.getHours() + 9);
+    document.getElementById('logDate').value = nowL.toISOString().slice(0, 16);
     document.getElementById('logMemo').value = '';
   } else {
     editingRow = null;
