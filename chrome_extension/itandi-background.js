@@ -1412,6 +1412,9 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
 
     // 入居時期厳守チェック（送信対象ログの前に判定）
     const strictSkipReason = shouldMoveInStrictSkip(prop, customer);
+    if (customer && customer.move_in_strict) {
+      await setStorageData({ debugLog: `[入居DIAG][itandi] ${customer.name}${customer.recommend?'(おすすめ:'+(customer.recommendLabel||'')+')':''} 希望=${customer.move_in_date||'(空)'} 物件=${prop.move_in_date||'(空)'} → ${strictSkipReason?'スキップ':'通過'}` });
+    }
     if (strictSkipReason) {
       await setStorageData({ debugLog: `[itandi] ${customer.name}: [入居時期厳守] スキップ: ${prop.building_name || ''} ${prop.room_number || ''} - ${strictSkipReason}` });
       continue;
