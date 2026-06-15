@@ -273,9 +273,11 @@ function handleConfirmApprove(e) {
   updatePendingStatus(row.rowIndex, 'sent', viewUrl);
   addToSeenSheet(customerName, prop);
 
-  // ── 一括送信: 他のお客様にも同じ内容で送信 ──
+  // ── 一括送信: 他のお客様にも送信（コメントは個別設定可） ──
   var multiSendList = [];
   try { multiSendList = JSON.parse(e.parameter.multi_send_customers || '[]'); } catch (_) {}
+  var multiCommentMap = {};
+  try { multiCommentMap = JSON.parse(e.parameter.multi_send_comments || '{}') || {}; } catch (_) {}
   var multiSentCount = 0;
   var multiFailedInfo = [];
   // 編集フィールドリスト (上の if ブロック内と同じ。スコープ外で参照するため再宣言)
@@ -325,12 +327,16 @@ function handleConfirmApprove(e) {
       // 画像キャッシュ
       cachePropertyImages(msName, roomId, selectedImageUrls, selectedImageCategories);
       // Flex
+      // お客様ごとの個別コメント（無ければ共通コメントにフォールバック）
+      var msComment = (multiCommentMap[msName] && String(multiCommentMap[msName]).trim())
+        ? String(multiCommentMap[msName]).trim()
+        : (e.parameter.staff_comment || '');
       var msFlex = buildPropertyFlex(msProp, {
         includeImage: selectedImageUrls.length > 0,
         heroImageUrls: selectedImageUrls,
         viewUrl: msViewUrl,
         customerStations: _getCustomerSelectedStations_(msName),
-        staffComment: (e.parameter.staff_comment || '')
+        staffComment: msComment
       });
       pushMessage(msLineId, [msFlex]);
       updatePendingStatus(msRow.rowIndex, 'sent', msViewUrl);
@@ -6504,7 +6510,7 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
       + '<div style="font-size:14px;font-weight:700;color:#3d6909;margin-bottom:10px;">\uD83D\uDCCB \u4ED6\u306E\u304A\u5BA2\u69D8\u306B\u3082\u540C\u3058\u7269\u4EF6\u304C\u627F\u8A8D\u5F85\u3061\u3067\u3059 (' + otherCustomers.length + '\u540D)</div>'
       + '<label style="display:flex;align-items:center;font-size:13px;color:#3d6909;cursor:pointer;margin-bottom:8px;">'
       +   '<input type="checkbox" id="multiSendMaster" checked onchange="toggleAllMultiSend()" style="margin-right:8px;width:18px;height:18px;accent-color:#6ea814;">'
-      +   '<b>\u9078\u629E\u3057\u305F\u304A\u5BA2\u69D8\u306B\u3082\u540C\u3058\u5185\u5BB9\u3067\u9001\u4FE1\u3059\u308B</b>'
+      +   '<b>\u9078\u629E\u3057\u305F\u304A\u5BA2\u69D8\u306B\u3082\u9001\u4FE1\u3059\u308B\uFF08\u30B3\u30E1\u30F3\u30C8\u306F\u500B\u5225\u8A2D\u5B9A\u53EF\uFF09</b>'
       + '</label>'
       + '<div style="padding-left:24px;display:flex;flex-direction:column;gap:6px;">';
     for (var oc = 0; oc < otherCustomers.length; oc++) {
@@ -6515,11 +6521,15 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
       var ocWarnLabel = ocWarnLines.length > 0
         ? '<span style="color:#856404;font-size:11px;margin-left:8px;">\u26A0\uFE0F ' + ocWarnLines.length + '\u4EF6: ' + _esc(ocWarn).substring(0, 120) + '</span>'
         : '<span style="color:#3d6909;font-size:11px;margin-left:8px;">\u2713 \u8B66\u544A\u306A\u3057</span>';
-      html += '<label style="display:flex;align-items:center;font-size:13px;color:#333;cursor:pointer;">'
+      html += '<div style="display:flex;flex-direction:column;gap:4px;">'
+        + '<label style="display:flex;align-items:center;font-size:13px;color:#333;cursor:pointer;">'
         +   '<input type="checkbox" class="multi-send-cb" data-customer="' + ocName + '" checked style="margin-right:8px;width:16px;height:16px;accent-color:#6ea814;">'
         +   '<span style="font-weight:600;">' + ocName + ' \u3055\u3093</span>'
         +   ocWarnLabel
-        + '</label>';
+        + '</label>'
+        + '<textarea class="multi-send-comment" data-customer="' + ocName + '" placeholder="' + ocName + '\u3055\u3093\u3078\u306e\u30b3\u30e1\u30f3\u30c8\uff08\u7a7a\u6b04\u306a\u3089\u4e0b\u306e\u5171\u901a\u30b3\u30e1\u30f3\u30c8\uff09" '
+        +   'style="width:100%;box-sizing:border-box;min-height:38px;margin-left:24px;max-width:calc(100% - 24px);border:1px solid #cdd9be;border-radius:6px;padding:6px;font-size:13px;font-family:inherit;resize:vertical;"></textarea>'
+        + '</div>';
     }
     html += '</div></div>';
   }
@@ -6978,6 +6988,11 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
     +   'for(var mi=0;mi<mcbs.length;mi++){if(mcbs[mi].checked)multiNames.push(mcbs[mi].getAttribute("data-customer"))}'
     + '}'
     + 'fd.multi_send_customers=JSON.stringify(multiNames);'
+    // 一括送信: お客様ごとの個別コメントを収集（空欄なら共通コメントにフォールバック）
+    + 'var multiComments={};'
+    + 'var mcom=document.querySelectorAll(".multi-send-comment");'
+    + 'for(var mc=0;mc<mcom.length;mc++){var cn=mcom[mc].getAttribute("data-customer");var cv=(mcom[mc].value||"").trim();if(cn&&cv)multiComments[cn]=cv;}'
+    + 'fd.multi_send_comments=JSON.stringify(multiComments);'
     + 'google.script.run'
     + '.withSuccessHandler(function(r){'
     + 'if(__collect){'
