@@ -5063,9 +5063,6 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
         if (!rejectReason) {
           // 入居時期厳守チェック（送信対象ログの前に判定）
           const strictSkipReason = shouldMoveInStrictSkip(detail, customer);
-          if (customer && customer.move_in_strict) {
-            await setStorageData({ debugLog: `[入居DIAG][REINS] ${customer.name}${customer.recommend?'(おすすめ:'+(customer.recommendLabel||'')+')':''} 希望=${customer.move_in_date||'(空)'} 物件=${detail.move_in_date||'(空)'} → ${strictSkipReason?'スキップ':'通過'}` });
-          }
           if (strictSkipReason) {
             await setStorageData({ debugLog: `${customer.name}: [入居時期厳守] スキップ: ${detail.building_name || ''} ${detail.room_number || ''} - ${strictSkipReason}` });
           } else {
