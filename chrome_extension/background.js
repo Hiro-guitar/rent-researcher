@@ -5071,7 +5071,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           } else {
           newProperties.push(detail);
           currentStats.totalFound++;
-          await setStorageData({ debugLog: `${customer.name}: ✓ 送信対象（${detail.building_name} ${detail.room_number || ''} ${detail.floor_text} ${detail.rent ? (detail.rent/10000)+'万' : ''}）` });
+          await setStorageData({ debugLog: `${customer.name}: ✓ 送信対象（${detail.building_name} ${detail.room_number || ''} ${detail.floor_text} ${detail.rent ? (detail.rent/10000)+'万' : ''}）${globalThis.__formatPropSkipUrl(detail)}` });
           // 警告アラート計算 (承認プレビューでも表示するため、GAS送信前に計算)
           // [DIAG] 診断ログ: 警告計算の入力と出力を debugLog に出す
           try {

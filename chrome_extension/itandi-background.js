@@ -1421,7 +1421,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     }
 
     submittedCount++;
-    await setStorageData({ debugLog: `[itandi] ${customer.name}: ✓ 送信対象（${prop.building_name} ${prop.room_number || ''} ${prop.rent ? (prop.rent/10000)+'万' : ''}）` });
+    await setStorageData({ debugLog: `[itandi] ${customer.name}: ✓ 送信対象（${prop.building_name} ${prop.room_number || ''} ${prop.rent ? (prop.rent/10000)+'万' : ''}）${globalThis.__formatPropSkipUrl(prop)}` });
 
     // GAS送信（1物件ずつ）
     try {

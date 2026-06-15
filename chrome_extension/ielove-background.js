@@ -1138,7 +1138,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       const _catInfo = `imgCat:${_cats.length}/${_cats.filter(c=>c).length} pdj:${(prop.property_data_json||'').length}`;
 
       submittedCount++;
-      await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✓ 送信対象（${prop.building_name} ${prop.room_number || ''} ${prop.rent ? (prop.rent/10000)+'万' : ''} ${_catInfo}）` });
+      await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✓ 送信対象（${prop.building_name} ${prop.room_number || ''} ${prop.rent ? (prop.rent/10000)+'万' : ''} ${_catInfo}）${globalThis.__formatPropSkipUrl(prop)}` });
 
       // リアルタイムでGAS送信（1物件ずつ）
       try {
