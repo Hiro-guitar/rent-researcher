@@ -4187,6 +4187,30 @@ function getCustomerDetail(customerName) {
     } catch (ePh) {}
   }
 
+  // 問い合わせ物件（SUUMO反響）— 物件詳細URL付きで一覧表示する
+  info.inquiries = [];
+  try {
+    var inqSheetI = ss.getSheetByName(INQUIRY_SHEET_NAME);
+    if (inqSheetI && inqSheetI.getLastRow() > 1) {
+      var inqI = inqSheetI.getRange(2, 1, inqSheetI.getLastRow() - 1, INQUIRY_HEADERS.length).getValues();
+      var emKI = String(info.email || '').trim().toLowerCase();
+      for (var ii = 0; ii < inqI.length; ii++) {
+        var iEmail = String(inqI[ii][4] || '').trim().toLowerCase();
+        var iName = String(inqI[ii][2] || '').trim();
+        if (!((emKI && iEmail === emKI) || iName === customerName)) continue;
+        var iDt = inqI[ii][0];
+        info.inquiries.push({
+          dateStr: (iDt instanceof Date) ? Utilities.formatDate(iDt, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm') : String(iDt || ''),
+          ts: (iDt instanceof Date) ? iDt.getTime() : (new Date(String(iDt)).getTime() || 0),
+          propertyName: String(inqI[ii][8] || ''),  // I列: 物件名
+          rent: String(inqI[ii][10] || ''),         // K列: 賃料
+          url: String(inqI[ii][15] || '')           // P列: 物件詳細URL
+        });
+      }
+      info.inquiries.sort(function(a, b) { return b.ts - a.ts; });
+    }
+  } catch (eInq) {}
+
   // 送付済み物件
   info.properties = _getCustomerProperties_(ss, customerName);
 
