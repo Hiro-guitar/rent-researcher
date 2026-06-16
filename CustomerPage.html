@@ -817,6 +817,24 @@ function renderDetail(data) {
     info += '<div class="detail-info-value">' + esc(String(rows[i][1])) + '</div>';
     info += '</div>';
   }
+  // 問い合わせ物件（SUUMO反響）— 物件ページへのリンク付き
+  if (data.inquiries && data.inquiries.length) {
+    info += '<div class="detail-info-row" style="display:block;">';
+    info += '<div class="detail-info-label" style="margin-bottom:4px;">📩 問い合わせ物件（' + data.inquiries.length + '件）</div>';
+    info += '<div style="font-size:12px;color:#bbb;">';
+    for (var q = 0; q < data.inquiries.length; q++) {
+      var iq = data.inquiries[q];
+      var iqLabel = esc(iq.propertyName || '(物件名なし)') + (iq.rent ? ' ' + esc(iq.rent) : '');
+      info += '<div style="padding:4px 0;border-bottom:1px solid #333;">';
+      info += '<span style="color:#888;">' + esc(iq.dateStr) + '</span>　';
+      info += iq.url
+        ? '<a href="' + esc(iq.url) + '" target="_blank" rel="noopener" style="color:#6cf;text-decoration:underline;">' + iqLabel + ' 🔗</a>'
+        : iqLabel;
+      info += '</div>';
+    }
+    info += '</div></div>';
+  }
+
   // 自動返信メール履歴（reply.py のメール送信履歴をメールで集約）
   if (data.mailHistory && data.mailHistory.length) {
     info += '<div class="detail-info-row" style="display:block;">';
