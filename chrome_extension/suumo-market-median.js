@@ -508,30 +508,25 @@
   }
 
   // SUUMO検索結果HTMLから「総件数」を抽出する（1ページ目の件数ではなく全件）
-  //   SUUMOは「465件 …不動産会社が掲載している物件総数です。」の形で総数を表示する。
+  //   総件数は <div class="paginate_set-hit">465<span>件</span>...（上部）／
+  //   <div class="pagination_set-hit">...（下部）に、数字が直下テキストノードで入る。
+  //   ※「30件」(表示建物数プルダウン) 等を誤って拾わないよう、必ずこのクラスを起点にする。
   function _parseSuumoHitCount(html) {
     if (!html) return null;
     if (/該当する物件は(?:ございません|ありません|見つかりません)/.test(html)) return 0;
-    const text = html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ');
     const toNum = (s) => {
       const n = parseInt(String(s).replace(/[，,]/g, '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)), 10);
       return isFinite(n) ? n : null;
     };
-    // ① 「物件総数」アンカーの近く（数字→件→…→物件総数、または 物件総数→…→数字→件）
-    let m = text.match(/([0-9０-９,，]+)\s*件[\s\S]{0,40}?物件総数/);
-    if (!m) m = text.match(/物件総数[\s\S]{0,40}?([0-9０-９,，]+)\s*件/);
-    // ② 旧来の表現
-    if (!m) m = text.match(/([0-9０-９,，]+)\s*件中/);
-    if (!m) m = text.match(/該当(?:する)?物件(?:数)?\s*([0-9０-９,，]+)\s*件/);
+    // ① クラス paginate_set-hit / pagination_set-hit の直後の数値（最も確実）
+    let m = html.match(/class="[^"]*paginat(?:e|ion)_set-hit[^"]*"[^>]*>\s*([0-9０-９,，]+)/);
     if (m) return toNum(m[1]);
-    // ③ フォールバック: ページ内の "X件" の最大値（総数が最大のはず）
-    const all = text.match(/([0-9０-９,，]{1,7})\s*件/g) || [];
-    let max = null;
-    for (const s of all) {
-      const v = toNum(s.replace(/件/, ''));
-      if (v != null && v < 1000000 && (max == null || v > max)) max = v;
-    }
-    return max;
+    // ② フォールバック: タグ除去して「物件総数」アンカー
+    const text = html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ');
+    m = text.match(/([0-9０-９,，]+)\s*件[\s\S]{0,40}?物件総数/);
+    if (!m) m = text.match(/物件総数[\s\S]{0,40}?([0-9０-９,，]+)\s*件/);
+    if (m) return toNum(m[1]);
+    return null;
   }
 
   // ============================================================
