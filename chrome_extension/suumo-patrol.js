@@ -951,6 +951,42 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
       await setStorageData({ debugLog: '[反響スコア] ' + _bldName + ' ' + _roomNo + ' → 例外: ' + (e && e.message) });
     }
 
+    // 物件ポテンシャル = 同階級SUUMO検索での「平米単価の安い順 順位」(新モデル)
+    try {
+      if (typeof getSuumoSegmentRank === 'function') {
+        const eqFlags = (typeof extractEquipmentFlags === 'function') ? extractEquipmentFlags(p) : {};
+        const fac = String(p.facilities || '');
+        const rankRes = await getSuumoSegmentRank({
+          address: p.address,
+          layout: p.layout || '',
+          area: Number(p.area) || 0,
+          rent: Number(p.rent) || 0,
+          managementFee: Number(p.management_fee || p.managementFee) || 0,
+          buildingAge: extractBuildingAge(p),
+          walkMinutes: extractWalkMinutes(p),
+          structure: p.structure || '',
+          btSeparate: /バス[・･\s]?トイレ別|ＢＴ別|BT別/.test(fac),
+          washbasin: !!eqFlags.washbasin
+        });
+        if (rankRes && rankRes.ok) {
+          p.segment_rank = rankRes.rank;
+          p.segment_info = rankRes;
+          await setStorageData({ debugLog:
+            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件'
+            + ' (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-') + ')'
+          });
+        } else {
+          await setStorageData({ debugLog:
+            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → 失敗: '
+            + ((rankRes && rankRes.errors && rankRes.errors.join(',')) || 'unknown')
+          });
+        }
+      }
+    } catch (e2) {
+      console.warn('[SUUMO巡回] 順位計算失敗:', e2 && e2.message);
+      await setStorageData({ debugLog: '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → 例外: ' + (e2 && e2.message) });
+    }
+
     const content = buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, item.key);
 
     const payload = { content };
