@@ -453,6 +453,15 @@
     return '';
   }
 
+  // 賃料(円) → SUUMO ct（賃料上限・万円）。SUUMOは0.5万刻みのバケットのみ受付（中途半端な値はエラー）。
+  //   お客さんが選ぶ予算バケットに合わせ、物件が含まれる一番タイトな0.5万バケットに切り上げる。
+  function _suumoRentCt(totalYen) {
+    if (!totalYen || totalYen <= 0) return '9999999';
+    const man = totalYen / 10000;
+    const bucket = Math.ceil(man * 2) / 2;          // 0.5万刻みに切り上げ
+    return Math.max(3.0, bucket).toFixed(1);        // SUUMOの下限バケットは3.0万
+  }
+
   // 徒歩分 → SUUMO et（徒歩分数上限）。物件が含まれる一番タイトなバケットに切り上げ。
   const SUUMO_WALK_BUCKETS = [1, 5, 7, 10, 15, 20];
   function _suumoWalkEt(walkMinutes) {
@@ -622,12 +631,14 @@
         + (result.searchMode === 'area' ? '&srch_navi=1' : '');
     };
 
-    // 賃料(管理費込み)上限＝自分の総額。co=1 を付けているので ct は「賃料+管理費」の上限として効く。
-    const subjectTotalMan = Math.round(((subjRent + subjMgmt) / 10000) * 10) / 10; // 0.1万単位
-    result.subjectTotalRent = subjRent + subjMgmt;
+    // 賃料(管理費込み)上限＝自分の総額を0.5万バケットに切り上げ。co=1 で ct は「賃料+管理費」の上限。
+    const subjectTotal = subjRent + subjMgmt;
+    const rankCt = _suumoRentCt(subjectTotal);
+    result.subjectTotalRent = subjectTotal;
+    result.rankCt = rankCt;
 
-    const baseUrl = _segUrl('9999999');               // 母数（同じ土俵の全件）
-    const rankUrl = _segUrl(String(subjectTotalMan)); // 賃料込み≤自分 の件数 = 順位
+    const baseUrl = _segUrl('9999999');   // 母数（同じ土俵の全件）
+    const rankUrl = _segUrl(rankCt);      // 賃料込み≤自分(の予算バケット) の件数 = 順位
     result.searchUrl = baseUrl;
 
     const baseHtml = await _fetchText(baseUrl);
