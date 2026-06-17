@@ -434,6 +434,25 @@
   const SUUMO_TC_BT_SEPARATE = '0400301'; // バス・トイレ別
   const SUUMO_TC_WASHBASIN   = '0400502'; // 洗面所独立（独立洗面台）
 
+  // 間取り → SUUMO md コード（標準コード。01=ワンルーム…）
+  function _suumoMadoriCode(layout) {
+    if (!layout) return '';
+    const raw = String(layout);
+    const s = raw.toUpperCase()
+      .replace(/[０-９Ａ-Ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+      .replace(/\s/g, '');
+    if (/ワンルーム/.test(raw) || s === '1R') return '01';
+    const map = {
+      '1K': '02', '1DK': '03', '1LDK': '04',
+      '2K': '05', '2DK': '06', '2LDK': '07',
+      '3K': '08', '3DK': '09', '3LDK': '10',
+      '4K': '11', '4DK': '12', '4LDK': '13'
+    };
+    if (map[s]) return map[s];
+    if (/^[5-9]/.test(s)) return '14'; // 5K以上
+    return '';
+  }
+
   // 路線名の正規化（findStationMatch と同等）
   function _normalizeLineName(name) {
     return String(name || '')
@@ -523,21 +542,25 @@
     result.segment = { kz: kzCode || null, tc: tcCodes.slice() };
 
     // 検索URL構築：まず「駅基準」(rn/ek)、駅が解決できなければ「市区町村+町名」にフォールバック
+    // 間取りは正式パラメータ md で絞る（md化できない時のみ fw2 フリーワードにフォールバック）
     const normalizedLayout = _normalizeLayoutForSuumo(input.layout);
-    const fw2Layout = normalizedLayout ? encodeURIComponent(normalizedLayout) : '';
+    const mdCode = _suumoMadoriCode(input.layout);
+    const mdParam = mdCode ? '&md=' + mdCode : '';
+    result.segment.md = mdCode || null;
     let url, isNewUrl = true;
     const station = _resolveStationCode(input.lineName, input.stationName);
     if (station && station.stationCode && station.lineCode) {
       // 駅基準（お客さんが駅で探す土俵）
       result.searchMode = 'station';
       result.station = { line: station.lineName, name: station.stationName, ek: station.stationCode, rn: station.lineCode };
+      const fw2 = mdCode ? '' : (normalizedLayout ? encodeURIComponent(normalizedLayout) : '');
       url = SUUMO_BASE_NEW
         + '?ar=030&bs=040&ra=013'
         + '&cb=0.0&ct=9999999&et=9999999&cn=9999999'
         + '&mb=0&mt=9999999'
-        + segParams
+        + segParams + mdParam
         + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
-        + '&fw2=' + fw2Layout
+        + '&fw2=' + fw2
         + '&rn=' + station.lineCode + '&ek=' + station.stationCode;
     } else {
       // フォールバック: 市区町村(sc) + 町名(fw2)
@@ -547,12 +570,12 @@
         const fw2Terms = [];
         const banchi = _extractBanchiKeyword(input.address);
         if (banchi) fw2Terms.push(banchi);
-        if (normalizedLayout) fw2Terms.push(normalizedLayout);
+        if (!mdCode && normalizedLayout) fw2Terms.push(normalizedLayout); // md化できない時だけ間取りをfwに
         url = SUUMO_BASE_NEW
           + '?ar=030&bs=040&ta=13&sc=' + sc
           + '&cb=0.0&ct=9999999&et=9999999&cn=9999999'
           + '&mb=0&mt=9999999'
-          + segParams
+          + segParams + mdParam
           + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
           + '&fw2=' + encodeURIComponent(fw2Terms.filter(Boolean).join('+'))
           + '&srch_navi=1';
