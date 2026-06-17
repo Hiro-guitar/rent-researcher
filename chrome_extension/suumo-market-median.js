@@ -311,7 +311,11 @@
         const areaSqm = areaMatch ? parseFloat(areaMatch[1]) : 0;
         if (!areaSqm) continue;
 
-        cards.push({ rentYen, mgmtYen, areaSqm, ageYears, walkMinutes, layout });
+        // 階（部屋行の "1階"。"○階建" は建物ヘッダ側なので部屋行には来ない）
+        const floorMatch = rowHtml.match(/(B?\d+)\s*階(?!建)/);
+        const floor = floorMatch ? floorMatch[1] : '';
+
+        cards.push({ rentYen, mgmtYen, areaSqm, ageYears, walkMinutes, layout, floor });
       }
     }
     return cards;
@@ -670,11 +674,12 @@
     result.pagesFetched = wantPages;
     result.truncated = (Math.ceil(total / PER_PAGE) > MAX_PAGES);
 
-    // 重複除去：物件名あり/なしで同一物件が2回出るため、賃料/管理費/面積/間取り/築年で同一判定
+    // 重複除去：同一物件が複数回出る（物件名あり/なし、同じ部屋の重複掲載）ため、
+    //   賃料/管理費/面積/間取り/築年/階 で同一判定。階を入れることで「別フロアの同スペック部屋」は別物として残す。
     const seen = new Set(), uniq = [];
     for (const c of cards) {
       if (!c.areaSqm || !c.rentYen) continue;
-      const key = c.rentYen + '|' + c.mgmtYen + '|' + c.areaSqm + '|' + c.layout + '|' + c.ageYears;
+      const key = c.rentYen + '|' + c.mgmtYen + '|' + c.areaSqm + '|' + c.layout + '|' + c.ageYears + '|' + (c.floor || '');
       if (seen.has(key)) continue;
       seen.add(key);
       uniq.push(c);
