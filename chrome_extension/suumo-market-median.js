@@ -434,5 +434,111 @@
     }
   }
 
+  // ============================================================
+  // 物件ポテンシャル = 同階級SUUMO検索での「安い順の順位」
+  //   - 階級(構造/独立洗面/BT別)はフリーワード(fw2)で絞る ※v1は近似
+  //   - 順位 = 自分より平米単価が安い物件の数 + 1 (小さいほど強い)
+  //   - 広さは検索に入れず、平米単価で正規化（同間取り内で比較）
+  //   - 徒歩/築年は範囲軸として ±でフィルタ
+  // ============================================================
+  /**
+   * @param {Object} input getSuumoMarketMedian と同じ + 下記
+   *   rent, managementFee, walkMinutes, buildingAge,
+   *   segmentTerms: string[]  // 階級フリーワード 例: ['鉄筋','独立洗面台','バス・トイレ別']
+   * @returns {Promise<{ok, rank, cheaperCount, sampleSize, subjectPerSqm, median, filterUsed, searchUrl, segmentTerms, errors}>}
+   */
+  async function getSuumoSegmentRank(input) {
+    const result = {
+      ok: false, rank: null, cheaperCount: null, sampleSize: 0,
+      subjectPerSqm: null, median: null, filterUsed: 'none',
+      searchUrl: null, segmentTerms: [], errors: []
+    };
+    if (!input || !input.address || !input.layout || !input.area) {
+      result.errors.push('address / layout / area が必須'); return result;
+    }
+    const subjRent = Number(input.rent) || 0;
+    const subjMgmt = Number(input.managementFee) || 0;
+    const subjArea = Number(input.area) || 0;
+    if (!(subjRent > 0 && subjArea > 0)) { result.errors.push('rent / area が必須'); return result; }
+    const subjectPerSqm = (subjRent + subjMgmt) / subjArea;
+    result.subjectPerSqm = Math.round(subjectPerSqm);
+
+    const segTerms = Array.isArray(input.segmentTerms) ? input.segmentTerms.filter(Boolean) : [];
+    result.segmentTerms = segTerms.slice();
+
+    // 検索URL構築（getSuumoMarketMedian と同じ枠組み + 階級フリーワード）
+    const sc = _findTokyoScCode(input.address);
+    let url, isNewUrl = false;
+    if (sc) {
+      const fw2Terms = [];
+      const banchi = _extractBanchiKeyword(input.address);
+      if (banchi) fw2Terms.push(banchi);
+      const normalizedLayout = _normalizeLayoutForSuumo(input.layout);
+      if (normalizedLayout) fw2Terms.push(normalizedLayout);
+      for (const t of segTerms) fw2Terms.push(t); // 階級（構造/独立洗面/BT別）
+      const fw2 = fw2Terms.filter(Boolean).join('+');
+      url = SUUMO_BASE_NEW
+        + '?ar=030&bs=040&ta=13&sc=' + sc
+        + '&cb=0.0&ct=9999999&et=9999999&cn=9999999'
+        + '&mb=0&mt=9999999'
+        + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
+        + '&fw2=' + encodeURIComponent(fw2)
+        + '&srch_navi=1';
+      isNewUrl = true;
+    } else {
+      const fwTerms = [_normalizeAddress(input.address), _normalizeLayoutForSuumo(input.layout)].concat(segTerms);
+      url = SUUMO_BASE_OLD + encodeURIComponent(fwTerms.filter(Boolean).join('+')) + '&pc=100';
+    }
+    result.searchUrl = url;
+
+    const html = await _fetchText(url);
+    if (!html) { result.errors.push('SUUMO fetch失敗'); return result; }
+    const allCards = isNewUrl ? _parseSuumoCardsNew(html) : _parseSuumoCards(html);
+    if (allCards.length === 0) {
+      // 階級フリーワードが厳しすぎて0件の可能性 → 検索条件が空振りなのか本当に競合ゼロなのか
+      // 判別できないので、ここでは順位1(=競合なし=最強)とせず errors を返して呼び出し側で扱う。
+      result.errors.push('物件カード抽出0件（階級フリーワードが厳しすぎる可能性）');
+      return result;
+    }
+
+    // 範囲軸フィルタ: 徒歩±5, 築年±5（広さは入れない＝平米単価で正規化）
+    // 件数が少ない＝強いシグナルなので、サンプル確保のための area 緩和はしない。
+    const rankFilterStages = [
+      { name: 'walk+age', useWalk: true, useAge: true },
+      { name: 'walk',     useWalk: true, useAge: false },
+      { name: 'none',     useWalk: false, useAge: false }
+    ];
+    let chosen = null;
+    for (const stage of rankFilterStages) {
+      const filtered = allCards.filter(c => {
+        if (stage.useAge && input.buildingAge != null && c.ageYears !== null && Math.abs(c.ageYears - Number(input.buildingAge)) > 5) return false;
+        if (stage.useWalk && input.walkMinutes != null && c.walkMinutes !== null && Math.abs(c.walkMinutes - Number(input.walkMinutes)) > 5) return false;
+        return true;
+      });
+      if (filtered.length >= 1) { chosen = { stage, cards: filtered }; break; }
+    }
+    if (!chosen) chosen = { stage: { name: 'none' }, cards: allCards };
+
+    const perSqmList = chosen.cards
+      .map(c => (c.rentYen + c.mgmtYen) / c.areaSqm)
+      .filter(v => isFinite(v) && v > 0);
+
+    // 順位 = 自分より安い物件の数 + 1
+    const cheaperCount = perSqmList.filter(v => v < subjectPerSqm).length;
+    result.cheaperCount = cheaperCount;
+    result.rank = cheaperCount + 1;
+    result.sampleSize = perSqmList.length;
+    result.filterUsed = chosen.stage.name;
+
+    if (perSqmList.length > 0) {
+      const sorted = perSqmList.slice().sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      result.median = Math.floor(sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]);
+    }
+    result.ok = true;
+    return result;
+  }
+
   globalThis.getSuumoMarketMedian = getSuumoMarketMedian;
+  globalThis.getSuumoSegmentRank = getSuumoSegmentRank;
 })();
