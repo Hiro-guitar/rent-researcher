@@ -956,13 +956,21 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
       if (typeof getSuumoSegmentRank === 'function') {
         const eqFlags = (typeof extractEquipmentFlags === 'function') ? extractEquipmentFlags(p) : {};
         const fac = String(p.facilities || '');
-        // 最寄り駅（路線・駅名）を取り出す：p.access[0] 優先、無ければ station_info から
-        let _lineName = '', _stationName = '';
-        if (p.access && p.access[0]) { _lineName = p.access[0].line || ''; _stationName = p.access[0].station || ''; }
-        if (!_stationName && p.station_info) {
-          const sm = String(p.station_info).match(/([^\s]+?線)?\s*([^\s]+?)駅/);
-          if (sm) { _lineName = _lineName || (sm[1] || ''); _stationName = sm[2] || ''; }
+        // 最寄り駅＝「最短徒歩の駅」。駅名とその徒歩分をセットで使う（駅と徒歩のズレを防ぐ）。
+        let _lineName = '', _stationName = '', _walkMin = null;
+        if (Array.isArray(p.access)) {
+          for (const a of p.access) {
+            const w = Number(a && a.walk);
+            if (isFinite(w) && w > 0 && (_walkMin === null || w < _walkMin)) {
+              _walkMin = w; _lineName = a.line || ''; _stationName = a.station || '';
+            }
+          }
         }
+        if (!_stationName && p.station_info) {
+          const sm = String(p.station_info).match(/([^\s]+?線)?\s*([^\s]+?)駅\s*(?:徒歩|歩)?\s*(\d+)?/);
+          if (sm) { _lineName = _lineName || (sm[1] || ''); _stationName = sm[2] || ''; if (_walkMin === null && sm[3]) _walkMin = Number(sm[3]); }
+        }
+        if (_walkMin === null) _walkMin = extractWalkMinutes(p); // 最終フォールバック
         const rankRes = await getSuumoSegmentRank({
           address: p.address,
           layout: p.layout || '',
@@ -970,7 +978,7 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
           rent: Number(p.rent) || 0,
           managementFee: Number(p.management_fee || p.managementFee) || 0,
           buildingAge: extractBuildingAge(p),
-          walkMinutes: extractWalkMinutes(p),
+          walkMinutes: _walkMin,
           structure: p.structure || '',
           btSeparate: /バス[・･\s]?トイレ別|ＢＴ別|BT別/.test(fac),
           washbasin: !!eqFlags.washbasin,
