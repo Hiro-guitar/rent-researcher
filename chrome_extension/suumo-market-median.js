@@ -475,6 +475,18 @@
     return '9999999'; // 100万超 → 上限なし扱い
   }
 
+  // 賃料(円) → SUUMO ct（賃料上限）を「自分より下のバケット」に切り下げ。
+  //   ct=自分の上のバケットだと、間（自分〜上バケット）の“自分より割高”な物件まで数えてしまう。
+  //   切り下げれば「ct以下＝全部自分より安い」になり、割高を1件も数えない（順位＝この件数+1）。
+  //   返り値 null = 自分より安いバケットが無い（最安候補。cheaper=0扱い）。
+  function _suumoRentCtFloor(totalYen) {
+    if (!totalYen || totalYen <= 0) return null;
+    const man = totalYen / 10000;
+    let floor = null;
+    for (const b of SUUMO_RENT_BUCKETS) { if (b < man) floor = b; else break; }
+    return floor == null ? null : floor.toFixed(1);
+  }
+
   // 専有面積 → SUUMO mb（専有面積下限・㎡）。お客さんは「○㎡以上」で探すので、
   //   自分の広さ以下で一番大きいバケットに丸める（＝自分を含む一番タイトな「○㎡以上」）。
   const SUUMO_AREA_BUCKETS = [20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 80, 90, 100];
@@ -484,6 +496,16 @@
     let mb = 0;
     for (const b of SUUMO_AREA_BUCKETS) { if (b <= a) mb = b; else break; }
     return String(mb); // 20㎡未満なら 0（下限なし）
+  }
+
+  // 築年数 → SUUMO cn（築年数上限）。お客さんは「築○年以内」で探すので、
+  //   自分の築年を含む一番タイトなバケットに切り上げ（築6→7年以内）。30年超は絞らない。
+  const SUUMO_AGE_BUCKETS = [0, 1, 3, 5, 7, 10, 15, 20, 25, 30];
+  function _suumoAgeCn(ageYears) {
+    const a = Number(ageYears);
+    if (!isFinite(a) || a < 0) return '9999999'; // 築年不明 → 絞らない
+    for (const b of SUUMO_AGE_BUCKETS) { if (a <= b) return String(b); }
+    return '9999999'; // 30年超 → 絞らない
   }
 
   // 徒歩分 → SUUMO et（徒歩分数上限）。物件が含まれる一番タイトなバケットに切り上げ。
@@ -646,33 +668,39 @@
     const mbVal = _suumoAreaMb(subjArea);
     result.segment.mb = mbVal;
 
-    // ct(賃料上限)だけ可変。co=1(管理費込み)+et(徒歩)+mb(面積下限) は共通。件数を2回取る。
+    // ── 築年数「築○年以内」を追加（お客さんは築年でも絞る。母数が減り同条件になる）──
+    const cnVal = _suumoAgeCn(input.buildingAge);
+    result.segment.cn = cnVal;
+
+    // ct(賃料上限)だけ可変。co=1(管理費込み)+et(徒歩)+mb(面積下限)+cn(築年上限) は共通。
+    //   po1=12 = 賃料+管理費が安い順（検証用URLを安い順表示にする。件数自体は並び順に不依存）。
     const _segUrl = (ctVal) => {
       if (!isNewUrl) {
         const fwTerms = [_normalizeAddress(input.address), normalizedLayout];
         return SUUMO_BASE_OLD + encodeURIComponent(fwTerms.filter(Boolean).join('+'))
-          + segParams + '&co=1&et=' + etVal + '&mb=' + mbVal + '&mt=9999999&cb=0.0&ct=' + ctVal;
+          + segParams + '&co=1&et=' + etVal + '&mb=' + mbVal + '&mt=9999999&cn=' + cnVal
+          + '&cb=0.0&ct=' + ctVal + '&po1=12';
       }
       return SUUMO_BASE_NEW
         + '?ar=030&bs=040' + locParams
-        + '&cb=0.0&ct=' + ctVal + '&co=1&et=' + etVal + '&cn=9999999'
+        + '&cb=0.0&ct=' + ctVal + '&co=1&et=' + etVal + '&cn=' + cnVal
         + '&mb=' + mbVal + '&mt=9999999'
         + segParams + mdParam
         + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
+        + '&po1=12'
         + '&fw2=' + fw2
         + (result.searchMode === 'area' ? '&srch_navi=1' : '');
     };
 
-    // 賃料(管理費込み)上限＝自分の総額を0.5万バケット等に切り上げ（co=1 で「賃料+管理費」上限）
+    // 順位 = 「自分より安い物件の件数」+1。
+    //   ct を自分より下のバケットに切り下げる → ct以下は全部自分より安い（割高を数えない）。
     const subjectTotal = subjRent + subjMgmt;
-    const rankCt = _suumoRentCt(subjectTotal);
+    const ctFloor = _suumoRentCtFloor(subjectTotal); // null = 自分より安いバケット無し（最安）
     result.subjectTotalRent = subjectTotal;
-    result.rankCt = rankCt;
+    result.rankCt = ctFloor;
 
-    const baseUrl = _segUrl('9999999');   // 母数（同じ土俵＝駅+徒歩+構造+設備+間取り+面積以上+管理費込み）
-    const rankUrl = _segUrl(rankCt);      // 賃料込み≤自分 の件数 = 順位
+    const baseUrl = _segUrl('9999999');   // 母数（同じ土俵＝駅+徒歩+構造+設備+間取り+面積以上+築年以内+管理費込み）
     result.searchUrl = baseUrl;
-    result.rankUrl = rankUrl;
 
     const baseHtml = await _fetchText(baseUrl);
     if (!baseHtml) { result.errors.push('SUUMO fetch失敗(母数)'); return result; }
@@ -680,12 +708,22 @@
     if (total == null) { result.errors.push('件数抽出失敗(母数)'); return result; }
     result.sampleSize = total;
 
-    const rankHtml = await _fetchText(rankUrl);
-    const atOrBelow = rankHtml ? _parseSuumoHitCount(rankHtml) : null;
-    if (atOrBelow == null) { result.errors.push('件数抽出失敗(順位)'); return result; }
+    // 自分より安い件数（cheaper）。ctFloor が null（最安バケット）なら 0。
+    let cheaper = 0;
+    if (ctFloor != null) {
+      const cheapUrl = _segUrl(ctFloor);
+      result.rankUrl = cheapUrl;
+      const cheapHtml = await _fetchText(cheapUrl);
+      const c = cheapHtml ? _parseSuumoHitCount(cheapHtml) : null;
+      if (c == null) { result.errors.push('件数抽出失敗(順位)'); return result; }
+      cheaper = c;
+    } else {
+      result.rankUrl = baseUrl;
+    }
 
-    result.rank = atOrBelow;                       // 賃料(込み)が自分以下の件数 = 順位（小さいほど強い）
-    result.cheaperCount = Math.max(0, atOrBelow - 1);
+    result.cheaperCount = cheaper;
+    result.rank = cheaper + 1;                 // 安い順で自分が何番目か（小さいほど強い）
+    result.inPage1 = (result.rank <= 50);      // 1ページ目(top50)に入る = 掲載価値あり
     result.ok = true;
     return result;
   }
