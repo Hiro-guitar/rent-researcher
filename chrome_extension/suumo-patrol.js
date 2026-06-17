@@ -992,14 +992,11 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
             ? ('駅:' + (rankRes.station && rankRes.station.name || '?'))
             : (rankRes.searchMode === 'area' ? 'エリア' : 'FW');
           await setStorageData({ debugLog:
-            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件(重複除去後)'
-            + ' [' + _modeLabel + '] 平米単価' + (rankRes.subjectPerSqm || '-') + '円'
-            + ' [診断: 母数SUUMO=' + (rankRes.totalRaw != null ? rankRes.totalRaw : '?')
-            + ' 取得ページ=' + (rankRes.pagesFetched || '?') + ' 生カード=' + (rankRes.rawCardCount != null ? rankRes.rawCardCount : '?') + ']'
-            + ' (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-')
-            + ' md=' + (rankRes.segment.md || '-') + ' et=' + (rankRes.segment.et || '-')
-            + ' 管理費込' + (rankRes.truncated ? ' ※' + rankRes.pagesFetched + 'ページ打切' : '') + ') '
-            + (rankRes.searchUrl || '')
+            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件'
+            + ' [' + _modeLabel + '] (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-')
+            + ' md=' + (rankRes.segment.md || '-') + ' et=' + (rankRes.segment.et || '-') + '分'
+            + ' mb=' + (rankRes.segment.mb || '0') + '㎡以上 賃料込≤' + (rankRes.rankCt || '-') + '万) '
+            + '母数:' + (rankRes.searchUrl || '') + ' 順位:' + (rankRes.rankUrl || '')
           });
         } else {
           await setStorageData({ debugLog:
