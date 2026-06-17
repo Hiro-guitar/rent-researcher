@@ -994,8 +994,9 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
           await setStorageData({ debugLog:
             '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件'
             + ' [' + _modeLabel + '] (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-')
-            + ' md=' + (rankRes.segment.md || '-') + ' et=' + (rankRes.segment.et || '-') + ' 管理費込) '
-            + (rankRes.searchUrl || '')
+            + ' md=' + (rankRes.segment.md || '-') + ' et=' + (rankRes.segment.et || '-')
+            + ' 賃料込≤' + (rankRes.rankCt || '-') + '万) 母数:' + (rankRes.searchUrl || '')
+            + ' 順位:' + (rankRes.rankUrl || '')
           });
         } else {
           await setStorageData({ debugLog:
