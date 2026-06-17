@@ -625,46 +625,66 @@
       }
     }
 
-    // ct(賃料上限)だけ可変にして件数を2回取る。co=1(管理費込み)+et(徒歩)は共通。
-    const _segUrl = (ctVal) => {
+    // 賃料は絞らず(ct=9999999)、結果の各物件の平米単価から順位を出す。
+    //   pc=50=50件表示 / pn=ページ番号 / po1=25・sngz= はSUUMO実URL準拠。
+    const _pageUrl = (pn) => {
+      const pnParam = (pn > 1) ? ('&pn=' + pn) : '';
       if (!isNewUrl) {
         const fwTerms = [_normalizeAddress(input.address), normalizedLayout];
         return SUUMO_BASE_OLD + encodeURIComponent(fwTerms.filter(Boolean).join('+'))
-          + segParams + '&co=1&et=' + etVal + '&cb=0.0&ct=' + ctVal + '&pc=30';
+          + segParams + '&co=1&et=' + etVal + '&cb=0.0&ct=9999999&pc=50' + pnParam;
       }
       return SUUMO_BASE_NEW
         + '?ar=030&bs=040' + locParams
-        + '&cb=0.0&ct=' + ctVal + '&co=1&et=' + etVal + '&cn=9999999'
+        + '&cb=0.0&ct=9999999&co=1&et=' + etVal + '&cn=9999999'
         + '&mb=0&mt=9999999'
         + segParams + mdParam
         + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
+        + '&sngz=&po1=25&pc=50'
         + '&fw2=' + fw2
+        + pnParam
         + (result.searchMode === 'area' ? '&srch_navi=1' : '');
     };
+    result.searchUrl = _pageUrl(1);
 
-    // 賃料(管理費込み)上限＝自分の総額を0.5万バケットに切り上げ。co=1 で ct は「賃料+管理費」の上限。
-    const subjectTotal = subjRent + subjMgmt;
-    const rankCt = _suumoRentCt(subjectTotal);
-    result.subjectTotalRent = subjectTotal;
-    result.rankCt = rankCt;
+    const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const PER_PAGE = 50, MAX_PAGES = 10;
 
-    const baseUrl = _segUrl('9999999');   // 母数（同じ土俵の全件）
-    const rankUrl = _segUrl(rankCt);      // 賃料込み≤自分(の予算バケット) の件数 = 順位
-    result.searchUrl = baseUrl;
+    // 1ページ目: 母数N + カード
+    const page1 = await _fetchText(_pageUrl(1));
+    if (!page1) { result.errors.push('SUUMO fetch失敗(1p)'); return result; }
+    const total = _parseSuumoHitCount(page1);
+    if (total == null) { result.errors.push('件数抽出失敗'); return result; }
+    result.totalRaw = total;
 
-    const baseHtml = await _fetchText(baseUrl);
-    if (!baseHtml) { result.errors.push('SUUMO fetch失敗(母数)'); return result; }
-    const total = _parseSuumoHitCount(baseHtml);
-    if (total == null) { result.errors.push('件数抽出失敗(母数)'); return result; }
-    result.sampleSize = total;
+    let cards = isNewUrl ? _parseSuumoCardsNew(page1) : _parseSuumoCards(page1);
+    const wantPages = Math.min(MAX_PAGES, Math.max(1, Math.ceil(total / PER_PAGE)));
+    for (let pn = 2; pn <= wantPages; pn++) {
+      await _sleep(700); // BAN対策（取得間隔）
+      const h = await _fetchText(_pageUrl(pn));
+      if (!h) break;
+      const more = isNewUrl ? _parseSuumoCardsNew(h) : _parseSuumoCards(h);
+      if (!more.length) break;
+      cards = cards.concat(more);
+    }
+    result.pagesFetched = wantPages;
+    result.truncated = (Math.ceil(total / PER_PAGE) > MAX_PAGES);
 
-    const rankHtml = await _fetchText(rankUrl);
-    const atOrBelow = rankHtml ? _parseSuumoHitCount(rankHtml) : null;
-    if (atOrBelow == null) { result.errors.push('件数抽出失敗(順位)'); return result; }
+    // 重複除去：物件名あり/なしで同一物件が2回出るため、賃料/管理費/面積/間取り/築年で同一判定
+    const seen = new Set(), uniq = [];
+    for (const c of cards) {
+      if (!c.areaSqm || !c.rentYen) continue;
+      const key = c.rentYen + '|' + c.mgmtYen + '|' + c.areaSqm + '|' + c.layout + '|' + c.ageYears;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      uniq.push(c);
+    }
 
-    result.rank = atOrBelow;                       // 賃料(込み)が自分以下の件数 = 順位（小さいほど強い）
-    result.cheaperCount = Math.max(0, atOrBelow - 1);
-    result.rankUrl = rankUrl;
+    // 平米単価で順位（自分より平米単価が安い物件の数 + 1。小さいほど強い）
+    const cheaper = uniq.filter((c) => ((c.rentYen + c.mgmtYen) / c.areaSqm) < subjectPerSqm).length;
+    result.cheaperCount = cheaper;
+    result.rank = cheaper + 1;
+    result.sampleSize = uniq.length;   // 重複除去後の母数
     result.ok = true;
     return result;
   }

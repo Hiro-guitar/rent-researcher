@@ -992,11 +992,12 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
             ? ('駅:' + (rankRes.station && rankRes.station.name || '?'))
             : (rankRes.searchMode === 'area' ? 'エリア' : 'FW');
           await setStorageData({ debugLog:
-            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件'
-            + ' [' + _modeLabel + '] (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-')
+            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件(重複除去後)'
+            + ' [' + _modeLabel + '] 平米単価' + (rankRes.subjectPerSqm || '-') + '円'
+            + ' (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-')
             + ' md=' + (rankRes.segment.md || '-') + ' et=' + (rankRes.segment.et || '-')
-            + ' 賃料込≤' + (rankRes.rankCt || '-') + '万) 母数:' + (rankRes.searchUrl || '')
-            + ' 順位:' + (rankRes.rankUrl || '')
+            + ' 管理費込' + (rankRes.truncated ? ' ※' + rankRes.pagesFetched + 'ページ打切' : '') + ') '
+            + (rankRes.searchUrl || '')
           });
         } else {
           await setStorageData({ debugLog:
