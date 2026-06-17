@@ -994,6 +994,8 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
           await setStorageData({ debugLog:
             '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件(重複除去後)'
             + ' [' + _modeLabel + '] 平米単価' + (rankRes.subjectPerSqm || '-') + '円'
+            + ' [診断: 母数SUUMO=' + (rankRes.totalRaw != null ? rankRes.totalRaw : '?')
+            + ' 取得ページ=' + (rankRes.pagesFetched || '?') + ' 生カード=' + (rankRes.rawCardCount != null ? rankRes.rawCardCount : '?') + ']'
             + ' (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-')
             + ' md=' + (rankRes.segment.md || '-') + ' et=' + (rankRes.segment.et || '-')
             + ' 管理費込' + (rankRes.truncated ? ' ※' + rankRes.pagesFetched + 'ページ打切' : '') + ') '

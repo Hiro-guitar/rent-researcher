@@ -672,6 +672,7 @@
       cards = cards.concat(more);
     }
     result.pagesFetched = wantPages;
+    result.rawCardCount = cards.length;
     result.truncated = (Math.ceil(total / PER_PAGE) > MAX_PAGES);
 
     // 重複除去：同一物件が複数回出る（物件名あり/なし、同じ部屋の重複掲載）ため、
