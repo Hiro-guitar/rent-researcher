@@ -411,6 +411,8 @@ importScripts('suumo-bulk-update.js');
 importScripts('homes-search.js');
 // 反響予測スコア計算 (4サイト共通の物件評価)
 importScripts('inquiry-score.js');
+// 駅コード表 (駅名→SUUMO路線/駅コード。順位計算の駅基準検索で使用)
+importScripts('station-data.js');
 // SUUMO検索から相場中央値を取得 (反響予測スコアの相場ソース)
 importScripts('suumo-market-median.js');
 

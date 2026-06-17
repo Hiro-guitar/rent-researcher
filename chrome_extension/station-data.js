@@ -1,4 +1,4 @@
-window.stationData = [
+self.stationData = [
   { lineCode: '0005', stationCode: '000525620', stationName: '東京', lineName: '山手線' },
   { lineCode: '0005', stationCode: '000540650', stationName: '有楽町', lineName: '山手線' },
   { lineCode: '0005', stationCode: '000520110', stationName: '新橋', lineName: '山手線' },

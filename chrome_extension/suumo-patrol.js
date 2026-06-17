@@ -956,6 +956,13 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
       if (typeof getSuumoSegmentRank === 'function') {
         const eqFlags = (typeof extractEquipmentFlags === 'function') ? extractEquipmentFlags(p) : {};
         const fac = String(p.facilities || '');
+        // 最寄り駅（路線・駅名）を取り出す：p.access[0] 優先、無ければ station_info から
+        let _lineName = '', _stationName = '';
+        if (p.access && p.access[0]) { _lineName = p.access[0].line || ''; _stationName = p.access[0].station || ''; }
+        if (!_stationName && p.station_info) {
+          const sm = String(p.station_info).match(/([^\s]+?線)?\s*([^\s]+?)駅/);
+          if (sm) { _lineName = _lineName || (sm[1] || ''); _stationName = sm[2] || ''; }
+        }
         const rankRes = await getSuumoSegmentRank({
           address: p.address,
           layout: p.layout || '',
@@ -966,14 +973,19 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
           walkMinutes: extractWalkMinutes(p),
           structure: p.structure || '',
           btSeparate: /バス[・･\s]?トイレ別|ＢＴ別|BT別/.test(fac),
-          washbasin: !!eqFlags.washbasin
+          washbasin: !!eqFlags.washbasin,
+          lineName: _lineName,
+          stationName: _stationName
         });
         if (rankRes && rankRes.ok) {
           p.segment_rank = rankRes.rank;
           p.segment_info = rankRes;
+          const _modeLabel = rankRes.searchMode === 'station'
+            ? ('駅:' + (rankRes.station && rankRes.station.name || '?'))
+            : (rankRes.searchMode === 'area' ? 'エリア' : 'FW');
           await setStorageData({ debugLog:
             '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件'
-            + ' (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-') + ') '
+            + ' [' + _modeLabel + '] (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-') + ') '
             + (rankRes.searchUrl || '')
           });
         } else {

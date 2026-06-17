@@ -434,6 +434,35 @@
   const SUUMO_TC_BT_SEPARATE = '0400301'; // バス・トイレ別
   const SUUMO_TC_WASHBASIN   = '0400502'; // 洗面所独立（独立洗面台）
 
+  // 路線名の正規化（findStationMatch と同等）
+  function _normalizeLineName(name) {
+    return String(name || '')
+      .replace(/[！-～]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+      .replace(/　/g, ' ')
+      .replace(/^JR|^ＪＲ/, '')
+      .replace(/線$/, '')
+      .trim();
+  }
+
+  // 駅名+路線名 → SUUMO 路線コード(lineCode)/駅コード(stationCode)（station-data.js を使用）
+  function _resolveStationCode(lineName, stationName) {
+    const data = (typeof self !== 'undefined' && self.stationData) ? self.stationData
+               : (typeof globalThis !== 'undefined' && globalThis.stationData) ? globalThis.stationData : null;
+    if (!data || !stationName) return null;
+    const normStation = String(stationName).replace(/駅$/, '').trim();
+    const candidates = data.filter(s => s.stationName === normStation);
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+    const normLine = _normalizeLineName(lineName);
+    if (normLine) {
+      const lineMatch = candidates.find(s =>
+        _normalizeLineName(s.lineName) === normLine ||
+        s.lineName.includes(normLine) || normLine.includes(s.lineName));
+      if (lineMatch) return lineMatch;
+    }
+    return candidates[0];
+  }
+
   async function _fetchText(url) {
     try {
       const ctrl = new AbortController();
@@ -470,7 +499,8 @@
     const result = {
       ok: false, rank: null, cheaperCount: null, sampleSize: 0,
       subjectPerSqm: null, median: null, filterUsed: 'none',
-      searchUrl: null, segment: { kz: null, tc: [] }, errors: []
+      searchUrl: null, searchMode: null, station: null,
+      segment: { kz: null, tc: [] }, errors: []
     };
     if (!input || !input.address || !input.layout || !input.area) {
       result.errors.push('address / layout / area が必須'); return result;
@@ -492,28 +522,46 @@
     const segParams = (kzCode ? '&kz=' + kzCode : '') + tcCodes.map(c => '&tc=' + c).join('');
     result.segment = { kz: kzCode || null, tc: tcCodes.slice() };
 
-    // 検索URL構築（getSuumoMarketMedian と同じ枠組み + 階級パラメータ kz/tc）
-    const sc = _findTokyoScCode(input.address);
-    let url, isNewUrl = false;
-    if (sc) {
-      const fw2Terms = [];
-      const banchi = _extractBanchiKeyword(input.address);
-      if (banchi) fw2Terms.push(banchi);
-      const normalizedLayout = _normalizeLayoutForSuumo(input.layout);
-      if (normalizedLayout) fw2Terms.push(normalizedLayout);
-      const fw2 = fw2Terms.filter(Boolean).join('+');
+    // 検索URL構築：まず「駅基準」(rn/ek)、駅が解決できなければ「市区町村+町名」にフォールバック
+    const normalizedLayout = _normalizeLayoutForSuumo(input.layout);
+    const fw2Layout = normalizedLayout ? encodeURIComponent(normalizedLayout) : '';
+    let url, isNewUrl = true;
+    const station = _resolveStationCode(input.lineName, input.stationName);
+    if (station && station.stationCode && station.lineCode) {
+      // 駅基準（お客さんが駅で探す土俵）
+      result.searchMode = 'station';
+      result.station = { line: station.lineName, name: station.stationName, ek: station.stationCode, rn: station.lineCode };
       url = SUUMO_BASE_NEW
-        + '?ar=030&bs=040&ta=13&sc=' + sc
+        + '?ar=030&bs=040&ra=013'
         + '&cb=0.0&ct=9999999&et=9999999&cn=9999999'
         + '&mb=0&mt=9999999'
         + segParams
         + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
-        + '&fw2=' + encodeURIComponent(fw2)
-        + '&srch_navi=1';
-      isNewUrl = true;
+        + '&fw2=' + fw2Layout
+        + '&rn=' + station.lineCode + '&ek=' + station.stationCode;
     } else {
-      const fwTerms = [_normalizeAddress(input.address), _normalizeLayoutForSuumo(input.layout)];
-      url = SUUMO_BASE_OLD + encodeURIComponent(fwTerms.filter(Boolean).join('+')) + segParams + '&pc=100';
+      // フォールバック: 市区町村(sc) + 町名(fw2)
+      const sc = _findTokyoScCode(input.address);
+      if (sc) {
+        result.searchMode = 'area';
+        const fw2Terms = [];
+        const banchi = _extractBanchiKeyword(input.address);
+        if (banchi) fw2Terms.push(banchi);
+        if (normalizedLayout) fw2Terms.push(normalizedLayout);
+        url = SUUMO_BASE_NEW
+          + '?ar=030&bs=040&ta=13&sc=' + sc
+          + '&cb=0.0&ct=9999999&et=9999999&cn=9999999'
+          + '&mb=0&mt=9999999'
+          + segParams
+          + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
+          + '&fw2=' + encodeURIComponent(fw2Terms.filter(Boolean).join('+'))
+          + '&srch_navi=1';
+      } else {
+        result.searchMode = 'fw';
+        isNewUrl = false;
+        const fwTerms = [_normalizeAddress(input.address), normalizedLayout];
+        url = SUUMO_BASE_OLD + encodeURIComponent(fwTerms.filter(Boolean).join('+')) + segParams + '&pc=100';
+      }
     }
     result.searchUrl = url;
 
