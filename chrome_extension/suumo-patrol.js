@@ -973,7 +973,8 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
           p.segment_info = rankRes;
           await setStorageData({ debugLog:
             '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件'
-            + ' (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-') + ')'
+            + ' (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-') + ') '
+            + (rankRes.searchUrl || '')
           });
         } else {
           await setStorageData({ debugLog:
