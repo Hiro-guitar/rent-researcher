@@ -418,6 +418,22 @@
     });
   }
 
+  // 物件の構造文字列 → SUUMO kz コード（鉄筋系=1 / 鉄骨系=2 / 木造=3 / ブロック他=4）
+  // ※鉄筋系を先に判定（SRC=鉄骨鉄筋 も鉄筋系に入れる）
+  function _suumoKzFromStructure(structure) {
+    const s = String(structure || '');
+    if (!s) return '';
+    if (/鉄筋|鉄骨鉄筋|ＲＣ|RC|ＳＲＣ|SRC|ＲＣ造/.test(s)) return '1'; // 鉄筋系(RC/SRC)
+    if (/鉄骨|軽量鉄骨|Ｓ造|S造/.test(s)) return '2';                  // 鉄骨系
+    if (/木造|木質|Ｗ造|W造/.test(s)) return '3';                       // 木造
+    if (/ブロック|ＰＣ|PC|その他/.test(s)) return '4';                  // ブロック・その他
+    return ''; // 不明 → 構造で絞らない
+  }
+
+  // SUUMO こだわり条件 tc コード
+  const SUUMO_TC_BT_SEPARATE = '0400301'; // バス・トイレ別
+  const SUUMO_TC_WASHBASIN   = '0400502'; // 洗面所独立（独立洗面台）
+
   async function _fetchText(url) {
     try {
       const ctrl = new AbortController();
@@ -444,14 +460,17 @@
   /**
    * @param {Object} input getSuumoMarketMedian と同じ + 下記
    *   rent, managementFee, walkMinutes, buildingAge,
-   *   segmentTerms: string[]  // 階級フリーワード 例: ['鉄筋','独立洗面台','バス・トイレ別']
-   * @returns {Promise<{ok, rank, cheaperCount, sampleSize, subjectPerSqm, median, filterUsed, searchUrl, segmentTerms, errors}>}
+   *   structure: string,    // 構造文字列（例 "鉄筋コンクリート", "軽量鉄骨" 等）→ kz に変換
+   *   btSeparate: boolean,  // バス・トイレ別を持つか → tc=0400301 で絞る
+   *   washbasin: boolean    // 独立洗面台(洗面所独立)を持つか → tc=0400502 で絞る
+   *   ※「持っている設備」だけ絞る（SUUMOは「なし」では絞れない仕様）
+   * @returns {Promise<{ok, rank, cheaperCount, sampleSize, subjectPerSqm, median, filterUsed, searchUrl, segment, errors}>}
    */
   async function getSuumoSegmentRank(input) {
     const result = {
       ok: false, rank: null, cheaperCount: null, sampleSize: 0,
       subjectPerSqm: null, median: null, filterUsed: 'none',
-      searchUrl: null, segmentTerms: [], errors: []
+      searchUrl: null, segment: { kz: null, tc: [] }, errors: []
     };
     if (!input || !input.address || !input.layout || !input.area) {
       result.errors.push('address / layout / area が必須'); return result;
@@ -463,10 +482,17 @@
     const subjectPerSqm = (subjRent + subjMgmt) / subjArea;
     result.subjectPerSqm = Math.round(subjectPerSqm);
 
-    const segTerms = Array.isArray(input.segmentTerms) ? input.segmentTerms.filter(Boolean) : [];
-    result.segmentTerms = segTerms.slice();
+    // ── 階級（SUUMO正式パラメータ）を構築 ──
+    //   構造: 物件の kz グループに固定（鉄筋系 vs 鉄骨系で土俵が変わる）
+    //   設備: 物件が「持っている」設備だけ tc で絞る（SUUMOは「なし」では絞れない仕様）
+    const kzCode = _suumoKzFromStructure(input.structure);
+    const tcCodes = [];
+    if (input.btSeparate) tcCodes.push(SUUMO_TC_BT_SEPARATE);
+    if (input.washbasin) tcCodes.push(SUUMO_TC_WASHBASIN);
+    const segParams = (kzCode ? '&kz=' + kzCode : '') + tcCodes.map(c => '&tc=' + c).join('');
+    result.segment = { kz: kzCode || null, tc: tcCodes.slice() };
 
-    // 検索URL構築（getSuumoMarketMedian と同じ枠組み + 階級フリーワード）
+    // 検索URL構築（getSuumoMarketMedian と同じ枠組み + 階級パラメータ kz/tc）
     const sc = _findTokyoScCode(input.address);
     let url, isNewUrl = false;
     if (sc) {
@@ -475,19 +501,19 @@
       if (banchi) fw2Terms.push(banchi);
       const normalizedLayout = _normalizeLayoutForSuumo(input.layout);
       if (normalizedLayout) fw2Terms.push(normalizedLayout);
-      for (const t of segTerms) fw2Terms.push(t); // 階級（構造/独立洗面/BT別）
       const fw2 = fw2Terms.filter(Boolean).join('+');
       url = SUUMO_BASE_NEW
         + '?ar=030&bs=040&ta=13&sc=' + sc
         + '&cb=0.0&ct=9999999&et=9999999&cn=9999999'
         + '&mb=0&mt=9999999'
+        + segParams
         + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
         + '&fw2=' + encodeURIComponent(fw2)
         + '&srch_navi=1';
       isNewUrl = true;
     } else {
-      const fwTerms = [_normalizeAddress(input.address), _normalizeLayoutForSuumo(input.layout)].concat(segTerms);
-      url = SUUMO_BASE_OLD + encodeURIComponent(fwTerms.filter(Boolean).join('+')) + '&pc=100';
+      const fwTerms = [_normalizeAddress(input.address), _normalizeLayoutForSuumo(input.layout)];
+      url = SUUMO_BASE_OLD + encodeURIComponent(fwTerms.filter(Boolean).join('+')) + segParams + '&pc=100';
     }
     result.searchUrl = url;
 
