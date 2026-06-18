@@ -996,13 +996,13 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
             ? ('駅:' + (rankRes.station && rankRes.station.name || '?'))
             : (rankRes.searchMode === 'area' ? 'エリア' : 'FW');
           await setStorageData({ debugLog:
-            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件'
-            + (rankRes.inPage1 ? ' ✅掲載価値あり(top50)' : ' ⚠️埋もれ(50位圏外)')
+            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件(1ページ目・重複排除後)'
+            + (rankRes.inPage1 ? ' ✅掲載価値あり' : ' ⚠️埋もれ(1ページ目圏外)')
             + ' [' + _modeLabel + '] (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-')
             + ' md=' + (rankRes.segment.md || '-') + ' et=' + (rankRes.segment.et || '-') + '分'
             + ' mb=' + (rankRes.segment.mb || '0') + '㎡以上 cn=' + (rankRes.segment.cn || '-') + '年以内'
-            + ' 賃料込≤' + (rankRes.rankCt || '-') + '万) '
-            + '母数:' + (rankRes.searchUrl || '') + ' 順位:' + (rankRes.rankUrl || '')
+            + ' 広告数(重複込)' + (rankRes.adCount != null ? rankRes.adCount : '?') + ') '
+            + '安い順:' + (rankRes.searchUrl || '')
           });
         } else {
           await setStorageData({ debugLog:

@@ -661,51 +661,70 @@
     const cnVal = _suumoAgeCn(input.buildingAge);
     result.segment.cn = cnVal;
 
-    // ct(賃料上限)だけ可変。co=1(管理費込み)+et(徒歩)+mb(面積下限)+cn(築年上限) は共通。
-    //   po1=12 = 賃料+管理費が安い順（検証用URLを安い順表示にする。件数自体は並び順に不依存）。
-    const _segUrl = (ctVal) => {
+    // ── 順位 = お客さんの「安い順」一覧で、自分より安い部屋が何件あるか ──
+    //   SUUMOの件数表示(paginate_set-hit)は同一部屋の重複広告まで数える(水増し)ので順位に使えない。
+    //   一覧は重複排除済みなので、安い順1ページ目をパースし、賃料(管理費込み)が自分未満の部屋を数える。
+    //   価格は実数比較なのでバケット誤差なし。po1=12=賃料+管理費が安い順 / pc=50 / co=1。
+    const subjectTotal = subjRent + subjMgmt;
+    result.subjectTotalRent = subjectTotal;
+
+    const _segUrl = () => {
       if (!isNewUrl) {
         const fwTerms = [_normalizeAddress(input.address), normalizedLayout];
         return SUUMO_BASE_OLD + encodeURIComponent(fwTerms.filter(Boolean).join('+'))
           + segParams + '&co=1&et=' + etVal + '&mb=' + mbVal + '&mt=9999999&cn=' + cnVal
-          + '&cb=0.0&ct=' + ctVal + '&po1=12';
+          + '&cb=0.0&ct=9999999&po1=12&pc=50';
       }
       return SUUMO_BASE_NEW
         + '?ar=030&bs=040' + locParams
-        + '&cb=0.0&ct=' + ctVal + '&co=1&et=' + etVal + '&cn=' + cnVal
+        + '&cb=0.0&ct=9999999&co=1&et=' + etVal + '&cn=' + cnVal
         + '&mb=' + mbVal + '&mt=9999999'
         + segParams + mdParam
         + '&shkr1=03&shkr2=03&shkr3=03&shkr4=03'
-        + '&po1=12'
+        + '&po1=12&pc=50'
         + '&fw2=' + fw2
         + (result.searchMode === 'area' ? '&srch_navi=1' : '');
     };
 
-    // 順位 = 自分の賃料を上のバケットに切り上げ（24万以下で検索した人が見る土俵）、
-    //   その「ct(管理費込み)以下」の件数。お客さんが実際に検索する予算枠での件数。
-    const subjectTotal = subjRent + subjMgmt;
-    const rankCt = _suumoRentCt(subjectTotal); // 24.0 = 自分を含む一番タイトな予算枠（切り上げ）
-    result.subjectTotalRent = subjectTotal;
-    result.rankCt = rankCt;
+    const listUrl = _segUrl();   // 同条件・安い順・1ページ目（最安から50棟）
+    result.searchUrl = listUrl;
+    result.rankUrl = listUrl;
 
-    const baseUrl = _segUrl('9999999');   // 母数（同じ土俵＝駅+徒歩+構造+設備+間取り+面積以上+築年以内+管理費込み）
-    result.searchUrl = baseUrl;
+    const html = await _fetchText(listUrl);
+    if (!html) { result.errors.push('SUUMO fetch失敗'); return result; }
+    const adCount = _parseSuumoHitCount(html);   // 広告数(重複込み・参考値)。順位には使わない
+    result.adCount = adCount;
 
-    const baseHtml = await _fetchText(baseUrl);
-    if (!baseHtml) { result.errors.push('SUUMO fetch失敗(母数)'); return result; }
-    const total = _parseSuumoHitCount(baseHtml);
-    if (total == null) { result.errors.push('件数抽出失敗(母数)'); return result; }
-    result.sampleSize = total;
+    // 一覧の部屋をパース → 同一部屋(同スペック)の重複を排除（賃料|管理費|面積|間取り|築年|階）
+    const rawRooms = isNewUrl ? _parseSuumoCardsNew(html) : _parseSuumoCards(html);
+    const seen = new Set(), uniq = [];
+    for (const c of rawRooms) {
+      if (!c.rentYen || !c.areaSqm) continue;
+      const key = c.rentYen + '|' + c.mgmtYen + '|' + c.areaSqm + '|' + c.layout + '|' + c.ageYears + '|' + (c.floor || '');
+      if (seen.has(key)) continue;
+      seen.add(key); uniq.push(c);
+    }
 
-    const rankUrl = _segUrl(rankCt);      // 24万以下（管理費込み）の件数 = 自分が見られる予算枠での順位
-    result.rankUrl = rankUrl;
-    const rankHtml = await _fetchText(rankUrl);
-    const atOrBelow = rankHtml ? _parseSuumoHitCount(rankHtml) : null;
-    if (atOrBelow == null) { result.errors.push('件数抽出失敗(順位)'); return result; }
+    if (!uniq.length) {
+      // 0件（競合なし＝自分が唯一/最安）なら 1位。パース失敗（広告はあるのに0件）はエラー。
+      if (adCount === 0) { result.sampleSize = 0; result.cheaperCount = 0; result.rank = 1; result.inPage1 = true; result.ok = true; return result; }
+      result.errors.push('一覧パース0件(広告数=' + (adCount == null ? '?' : adCount) + ')');
+      return result;
+    }
 
-    result.rank = atOrBelow;                   // 予算枠(24万以下)の件数（小さいほど強い）
-    result.cheaperCount = Math.max(0, atOrBelow - 1);
-    result.inPage1 = (result.rank <= 50);      // 1ページ目(top50)に入る = 掲載価値あり
+    const totals = uniq.map(c => c.rentYen + c.mgmtYen).sort((a, b) => a - b);
+    result.sampleSize = totals.length;   // 1ページ目の重複排除後の部屋数
+
+    const cheaper = totals.filter(t => t < subjectTotal).length;
+    result.cheaperCount = cheaper;
+    result.rank = cheaper + 1;            // 安い順で自分が何番目か（実価格比較＝バケット誤差なし）
+
+    // 1ページ目に自分が入るか: 50棟表示(=次ページあり)で、自分が1ページ目の最高額より高ければ圏外
+    const cassetteCount = (html.match(/class="cassetteitem"/g) || []).length;
+    const pageFull = cassetteCount >= 50;
+    const shownMax = totals[totals.length - 1];
+    result.pageFull = pageFull;
+    result.inPage1 = (!pageFull) || (subjectTotal <= shownMax);
     result.ok = true;
     return result;
   }
