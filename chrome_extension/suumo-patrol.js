@@ -976,7 +976,7 @@ async function maybeRefreshListedPropertyRanks() {
       try {
         const rr = await getSuumoSegmentRank(_buildSegmentRankInput(p));
         if (rr && rr.ok) {
-          updates.push({ key: lp.key, rank: rr.rank, inPage1: !!rr.inPage1, sampleSize: rr.sampleSize });
+          updates.push({ key: lp.key, rank: rr.rank, inPage1: !!rr.inPage1, sampleSize: rr.sampleSize, searchUrl: rr.searchUrl || '' });
           await setStorageData({ debugLog: `[掲載順位更新] ${i + 1}/${listed.length} ${p.building_name || ''} → ${rr.rank}位${rr.inPage1 ? '✅' : '⚠️圏外'}` });
         }
       } catch (e) { /* 1件失敗はスキップ */ }
