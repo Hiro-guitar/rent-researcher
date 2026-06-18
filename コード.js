@@ -137,6 +137,12 @@ function doPost(e) {
     if (json.action === 'update_suumo_listing_stats') {
       return handleUpdateSuumoListingStats(json);
     }
+    if (json.action === 'get_listed_for_rank') {
+      return handleGetListedForRank(json);
+    }
+    if (json.action === 'update_listing_rank') {
+      return handleUpdateListingRank(json);
+    }
     if (json.action === 'sync_forrent_listing_status') {
       return handleSyncForrentListingStatus(json);
     }

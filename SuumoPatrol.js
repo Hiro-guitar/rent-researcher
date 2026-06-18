@@ -64,7 +64,14 @@ var SUUMO_LISTING_HEADERS = [
   // 23列目: 危険度スコアの内訳 JSON (findStopCandidates 実行時に更新)。
   // {"comp":N,"inq":N,"score":N,"moshi":N,"resi":N,"long":N,"e45":N,"hi":N,"total":N}
   // 各物件がなぜそのスコアになったかを後から検証できるようにする。
-  'スコア内訳'
+  'スコア内訳',
+  // ── 物件ポテンシャル順位 (反響予測スコアに代わる主要指標。1日1回 巡回時に更新) ──
+  // 24列目: お客さんの「同条件・安い順」検索で自分が何番目か (重複広告は排除した実物件ベース)
+  '現在の順位',
+  // 25列目: 1ページ目(安い順top)に入るか。○=掲載価値あり / ×=埋もれ(圏外)
+  '1ページ目内',
+  // 26列目: 順位を最後に更新した日 (yyyy-MM-dd, JST)
+  '順位更新日'
 ];
 
 // 停止候補ログシート (毎回の findStopCandidates 実行履歴を蓄積)
@@ -317,6 +324,96 @@ function _buildVacancyEndedMap_() {
 
 function getListingSheet_() {
   return getSuumoSheet_(SUUMO_LISTING_SHEET, SUUMO_LISTING_HEADERS);
+}
+
+// ═══════════════════════════════════════════════════════════
+// 物件ポテンシャル順位 (1日1回 巡回時に掲載中物件の順位を更新)
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * POST: get_listed_for_rank
+ * 掲載中(active)の物件を、順位再計算に必要なスペック付きで返す。
+ * スペックは候補物件シートの property_data_json(13列目) から物件キーで引く。
+ * @returns {success, properties:[{key, property}]}
+ */
+function handleGetListedForRank(json) {
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return ContentService.createTextOutput(JSON.stringify({ success: true, properties: [] }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
+
+  // 候補シート: 物件キー → property_data_json
+  var candSheet = getCandidateSheet_();
+  var candMap = {};
+  var cLast = candSheet.getLastRow();
+  if (cLast > 1) {
+    var cData = candSheet.getRange(2, 1, cLast - 1, SUUMO_CANDIDATE_HEADERS.length).getValues();
+    for (var c = 0; c < cData.length; c++) {
+      var ckey = cData[c][0];
+      var pjson = cData[c][12]; // property_data_json
+      if (ckey && pjson) candMap[ckey] = pjson;
+    }
+  }
+
+  var props = [];
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][8] !== 'active') continue; // 9列目: ステータス
+    var key = data[i][0];
+    var pjson = candMap[key];
+    if (!pjson) continue; // specsが無い物件はスキップ
+    var property;
+    try { property = JSON.parse(pjson); } catch (e) { continue; }
+    props.push({ key: key, property: property });
+  }
+  return ContentService.createTextOutput(JSON.stringify({ success: true, properties: props }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * POST: update_listing_rank
+ * 掲載管理シートの該当行に現在の順位・1ページ目内・順位更新日を書き込む(上書き)。
+ * @param json.updates [{key, rank, inPage1, sampleSize}]
+ * @returns {success, updated}
+ */
+function handleUpdateListingRank(json) {
+  var updates = (json && json.updates) || [];
+  if (!updates.length) {
+    return ContentService.createTextOutput(JSON.stringify({ success: true, updated: 0 }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return ContentService.createTextOutput(JSON.stringify({ success: true, updated: 0 }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var rankCol = SUUMO_LISTING_HEADERS.indexOf('現在の順位') + 1;
+  var pageCol = SUUMO_LISTING_HEADERS.indexOf('1ページ目内') + 1;
+  var dateCol = SUUMO_LISTING_HEADERS.indexOf('順位更新日') + 1;
+
+  // 物件キー → 行番号
+  var keyVals = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  var keyRow = {};
+  for (var i = 0; i < keyVals.length; i++) {
+    if (keyVals[i][0]) keyRow[keyVals[i][0]] = i + 2;
+  }
+
+  var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  var updated = 0;
+  for (var u = 0; u < updates.length; u++) {
+    var up = updates[u] || {};
+    var row = keyRow[up.key];
+    if (!row) continue;
+    sheet.getRange(row, rankCol).setValue(up.rank);
+    sheet.getRange(row, pageCol).setValue(up.inPage1 ? '○' : '×');
+    sheet.getRange(row, dateCol).setValue(today);
+    updated++;
+  }
+  return ContentService.createTextOutput(JSON.stringify({ success: true, updated: updated }))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 // ═══════════════════════════════════════════════════════════
