@@ -958,8 +958,12 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
         const fac = String(p.facilities || '');
         // 最寄り駅＝「最短徒歩の駅」。駅名とその徒歩分をセットで使う（駅と徒歩のズレを防ぐ）。
         let _lineName = '', _stationName = '', _walkMin = null;
+        // バス経由（「バスN分 徒歩M分」）はM分がバス停からの徒歩。これを駅徒歩として
+        //   et に使うと誤って徒歩◯分以内に絞ってしまうため、徒歩分の採用から除外する。
+        const _siBus = /バス\s*\d+\s*分/.test(String(p.station_info || ''));
         if (Array.isArray(p.access)) {
           for (const a of p.access) {
+            if (a && a.bus) continue; // バス路線は徒歩順位に使わない
             const w = Number(a && a.walk);
             if (isFinite(w) && w > 0 && (_walkMin === null || w < _walkMin)) {
               _walkMin = w; _lineName = a.line || ''; _stationName = a.station || '';
@@ -968,9 +972,9 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
         }
         if (!_stationName && p.station_info) {
           const sm = String(p.station_info).match(/([^\s]+?線)?\s*([^\s]+?)駅\s*(?:徒歩|歩)?\s*(\d+)?/);
-          if (sm) { _lineName = _lineName || (sm[1] || ''); _stationName = sm[2] || ''; if (_walkMin === null && sm[3]) _walkMin = Number(sm[3]); }
+          if (sm) { _lineName = _lineName || (sm[1] || ''); _stationName = sm[2] || ''; if (_walkMin === null && sm[3] && !_siBus) _walkMin = Number(sm[3]); }
         }
-        if (_walkMin === null) _walkMin = extractWalkMinutes(p); // 最終フォールバック
+        if (_walkMin === null && !_siBus) _walkMin = extractWalkMinutes(p); // 最終フォールバック（バス物件は徒歩フィルタを掛けない=et loose）
         const rankRes = await getSuumoSegmentRank({
           address: p.address,
           layout: p.layout || '',

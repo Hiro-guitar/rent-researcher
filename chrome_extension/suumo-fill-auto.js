@@ -702,6 +702,11 @@
     const walkMatch = s.match(/徒歩(\d+)分/);
     const walk = walkMatch ? walkMatch[1] : '';
 
+    // バス検出: "駅 バスN分 徒歩M分" は M分が「バス停からの徒歩」で、駅からの徒歩ではない。
+    //   これを駅徒歩として扱うと誤掲載になるため bus を立て、呼び出し側で除外/別扱いする。
+    const busMatch = s.match(/バス(\d+)分/);
+    const bus = busMatch ? busMatch[1] : '';
+
     // パターン1: いえらぶ形式 "路線名「駅名」駅 徒歩N分"
     //   駅名を「」で囲んでいるため、空白で split しても駅名が分離できない
     const bracketMatch = s.match(/^\s*(.+?)「([^」]+)」/);
@@ -709,12 +714,13 @@
       return {
         line: bracketMatch[1].trim(),
         station: bracketMatch[2].replace(/駅$/, '').trim(),
-        walk: walk
+        walk: walk,
+        bus: bus
       };
     }
 
     // パターン2: 既存 "路線名 駅名 徒歩N分" (空白/スラッシュ区切り)
-    const parts = s.replace(/徒歩\d+分/, '').replace(/駅$/, '').trim().split(/[\s　/／]+/);
+    const parts = s.replace(/バス\d+分/, '').replace(/徒歩\d+分/, '').replace(/駅$/, '').trim().split(/[\s　/／]+/);
     let line = '', station = '';
 
     if (parts.length >= 2) {
@@ -725,7 +731,7 @@
     }
 
     if (!station) return null;
-    return { line, station, walk };
+    return { line, station, walk, bus };
   }
 
   // ══════════════════════════════════════════════════════════
@@ -1101,6 +1107,8 @@
     const seenStations = new Set();
     for (const t of data.access) {
       if (!t) continue;
+      // バス経由のアクセスは除外（「バスN分 徒歩M分」を「駅徒歩M分」と偽って掲載しない）
+      if (t.bus) { console.log('[SUUMO入力] バス路線を除外:', t.station, 'バス' + t.bus + '分'); continue; }
       const stationKey = (t.station || '').replace(/\s+/g, '').trim();
       if (!stationKey) continue;
       if (seenStations.has(stationKey)) continue;
