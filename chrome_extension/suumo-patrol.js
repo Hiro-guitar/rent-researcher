@@ -455,6 +455,15 @@ async function runSuumoPatrolCycle() {
 
     await setStorageData({ debugLog: '━━━ SUUMO巡回 完了 ━━━' });
 
+    // 巡回完了後フック: 1日1回、掲載中物件のポテンシャル順位を更新（新着検出を遅らせないよう末尾で実施）
+    try {
+      if (typeof maybeRefreshListedPropertyRanks === 'function') {
+        await maybeRefreshListedPropertyRanks();
+      }
+    } catch (e) {
+      await setStorageData({ debugLog: `[掲載順位更新] フック例外: ${e.message}` });
+    }
+
   } catch (err) {
     await setStorageData({ debugLog: `[SUUMO巡回] 致命的エラー: ${err.message}` });
     console.error('[SUUMO巡回] エラー:', err);
@@ -885,6 +894,104 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
 }
 
 /**
+ * 物件オブジェクト → getSuumoSegmentRank の入力を組み立てる。
+ * 最寄り駅は「最短徒歩の駅」。バス経由(バスN分)はバス停徒歩なので徒歩分に使わない。
+ * 巡回時(新着)と掲載中物件の日次更新の両方で使う共通ロジック。
+ */
+function _buildSegmentRankInput(p) {
+  const eqFlags = (typeof extractEquipmentFlags === 'function') ? extractEquipmentFlags(p) : {};
+  const fac = String(p.facilities || '');
+  let _lineName = '', _stationName = '', _walkMin = null;
+  const _siBus = /バス\s*\d+\s*分/.test(String(p.station_info || ''));
+  if (Array.isArray(p.access)) {
+    for (const a of p.access) {
+      if (a && a.bus) continue; // バス路線は徒歩順位に使わない
+      const w = Number(a && a.walk);
+      if (isFinite(w) && w > 0 && (_walkMin === null || w < _walkMin)) {
+        _walkMin = w; _lineName = a.line || ''; _stationName = a.station || '';
+      }
+    }
+  }
+  if (!_stationName && p.station_info) {
+    const sm = String(p.station_info).match(/([^\s]+?線)?\s*([^\s]+?)駅\s*(?:徒歩|歩)?\s*(\d+)?/);
+    if (sm) { _lineName = _lineName || (sm[1] || ''); _stationName = sm[2] || ''; if (_walkMin === null && sm[3] && !_siBus) _walkMin = Number(sm[3]); }
+  }
+  if (_walkMin === null && !_siBus && typeof extractWalkMinutes === 'function') _walkMin = extractWalkMinutes(p);
+  return {
+    address: p.address,
+    layout: p.layout || '',
+    area: Number(p.area) || 0,
+    rent: Number(p.rent) || 0,
+    managementFee: Number(p.management_fee || p.managementFee) || 0,
+    buildingAge: (typeof extractBuildingAge === 'function') ? extractBuildingAge(p) : undefined,
+    walkMinutes: _walkMin,
+    structure: p.structure || '',
+    btSeparate: /バス[・･\s]?トイレ別|ＢＴ別|BT別/.test(fac),
+    washbasin: !!eqFlags.washbasin,
+    lineName: _lineName,
+    stationName: _stationName
+  };
+}
+
+// 掲載中物件のポテンシャル順位を1日1回更新（その日の初回SUUMO巡回時に走る）。
+//   GASから掲載中(active)物件+specsを取得 → 各物件の順位を再計算 → GASの掲載管理シートに上書き。
+let _listedRankRefreshRunning = false;
+async function maybeRefreshListedPropertyRanks() {
+  if (_listedRankRefreshRunning) return;
+  // 日次ガード(JST)
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const todayJst = jst.getUTCFullYear() + '-' + String(jst.getUTCMonth() + 1).padStart(2, '0') + '-' + String(jst.getUTCDate()).padStart(2, '0');
+  const { lastListedRankRefreshDate, gasWebappUrl } = await getStorageData(['lastListedRankRefreshDate', 'gasWebappUrl']);
+  if (lastListedRankRefreshDate === todayJst) return; // 本日実施済み
+  if (!gasWebappUrl || typeof getSuumoSegmentRank !== 'function') return;
+
+  _listedRankRefreshRunning = true;
+  try {
+    await setStorageData({ debugLog: `[掲載順位更新] 開始 (${todayJst})` });
+    // 掲載中物件 + specs を取得
+    const res = await _fetchWithTimeout_(gasWebappUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_listed_for_rank' })
+    }, 30000);
+    const data = await res.json();
+    const listed = (data && data.properties) || [];
+    if (!listed.length) {
+      await setStorageData({ lastListedRankRefreshDate: todayJst, debugLog: '[掲載順位更新] 掲載中物件なし' });
+      return;
+    }
+    const updates = [];
+    for (let i = 0; i < listed.length; i++) {
+      const lp = listed[i];
+      const p = lp && lp.property;
+      if (!p || !lp.key) continue;
+      try {
+        const rr = await getSuumoSegmentRank(_buildSegmentRankInput(p));
+        if (rr && rr.ok) {
+          updates.push({ key: lp.key, rank: rr.rank, inPage1: !!rr.inPage1, sampleSize: rr.sampleSize });
+          await setStorageData({ debugLog: `[掲載順位更新] ${i + 1}/${listed.length} ${p.building_name || ''} → ${rr.rank}位${rr.inPage1 ? '✅' : '⚠️圏外'}` });
+        }
+      } catch (e) { /* 1件失敗はスキップ */ }
+      await sleep(1500); // SUUMOレート制限緩和
+    }
+    // 順位をGASに保存(掲載管理シートに上書き)
+    if (updates.length) {
+      await _fetchWithTimeout_(gasWebappUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_listing_rank', updates })
+      }, 30000);
+    }
+    await setStorageData({ lastListedRankRefreshDate: todayJst, debugLog: `[掲載順位更新] 完了 ${updates.length}/${listed.length}件` });
+  } catch (err) {
+    // 失敗時は lastListedRankRefreshDate を更新しない → 次回巡回でリトライ
+    await setStorageData({ debugLog: `[掲載順位更新] 例外: ${err && err.message}（次回巡回でリトライ）` });
+  } finally {
+    _listedRankRefreshRunning = false;
+  }
+}
+
+/**
  * SUUMO巡回 Discord 通知をユーザーIPから送信
  * @param {Array} notifyProps - GAS が返した newProperties の整形版 [{key, property, sheetRowIndex}]
  * @param {string} criteriaName
@@ -916,41 +1023,7 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     //   ※旧・反響予測スコア(相場中央値ベース)は廃止。SUUMO余分なfetchも削減。
     try {
       if (typeof getSuumoSegmentRank === 'function') {
-        const eqFlags = (typeof extractEquipmentFlags === 'function') ? extractEquipmentFlags(p) : {};
-        const fac = String(p.facilities || '');
-        // 最寄り駅＝「最短徒歩の駅」。駅名とその徒歩分をセットで使う（駅と徒歩のズレを防ぐ）。
-        let _lineName = '', _stationName = '', _walkMin = null;
-        // バス経由（「バスN分 徒歩M分」）はM分がバス停からの徒歩。これを駅徒歩として
-        //   et に使うと誤って徒歩◯分以内に絞ってしまうため、徒歩分の採用から除外する。
-        const _siBus = /バス\s*\d+\s*分/.test(String(p.station_info || ''));
-        if (Array.isArray(p.access)) {
-          for (const a of p.access) {
-            if (a && a.bus) continue; // バス路線は徒歩順位に使わない
-            const w = Number(a && a.walk);
-            if (isFinite(w) && w > 0 && (_walkMin === null || w < _walkMin)) {
-              _walkMin = w; _lineName = a.line || ''; _stationName = a.station || '';
-            }
-          }
-        }
-        if (!_stationName && p.station_info) {
-          const sm = String(p.station_info).match(/([^\s]+?線)?\s*([^\s]+?)駅\s*(?:徒歩|歩)?\s*(\d+)?/);
-          if (sm) { _lineName = _lineName || (sm[1] || ''); _stationName = sm[2] || ''; if (_walkMin === null && sm[3] && !_siBus) _walkMin = Number(sm[3]); }
-        }
-        if (_walkMin === null && !_siBus) _walkMin = extractWalkMinutes(p); // 最終フォールバック（バス物件は徒歩フィルタを掛けない=et loose）
-        const rankRes = await getSuumoSegmentRank({
-          address: p.address,
-          layout: p.layout || '',
-          area: Number(p.area) || 0,
-          rent: Number(p.rent) || 0,
-          managementFee: Number(p.management_fee || p.managementFee) || 0,
-          buildingAge: extractBuildingAge(p),
-          walkMinutes: _walkMin,
-          structure: p.structure || '',
-          btSeparate: /バス[・･\s]?トイレ別|ＢＴ別|BT別/.test(fac),
-          washbasin: !!eqFlags.washbasin,
-          lineName: _lineName,
-          stationName: _stationName
-        });
+        const rankRes = await getSuumoSegmentRank(_buildSegmentRankInput(p));
         if (rankRes && rankRes.ok) {
           p.segment_rank = rankRes.rank;
           p.segment_info = rankRes;
