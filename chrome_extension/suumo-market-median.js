@@ -475,18 +475,6 @@
     return '9999999'; // 100万超 → 上限なし扱い
   }
 
-  // 賃料(円) → SUUMO ct（賃料上限）を「自分より下のバケット」に切り下げ。
-  //   ct=自分の上のバケットだと、間（自分〜上バケット）の“自分より割高”な物件まで数えてしまう。
-  //   切り下げれば「ct以下＝全部自分より安い」になり、割高を1件も数えない（順位＝この件数+1）。
-  //   返り値 null = 自分より安いバケットが無い（最安候補。cheaper=0扱い）。
-  function _suumoRentCtFloor(totalYen) {
-    if (!totalYen || totalYen <= 0) return null;
-    const man = totalYen / 10000;
-    let floor = null;
-    for (const b of SUUMO_RENT_BUCKETS) { if (b < man) floor = b; else break; }
-    return floor == null ? null : floor.toFixed(1);
-  }
-
   // 専有面積 → SUUMO mb（専有面積下限・㎡）。お客さんは「○㎡以上」で探すので、
   //   自分の広さ以下で一番大きいバケットに丸める（＝自分を含む一番タイトな「○㎡以上」）。
   const SUUMO_AREA_BUCKETS = [20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 80, 90, 100];
@@ -692,12 +680,12 @@
         + (result.searchMode === 'area' ? '&srch_navi=1' : '');
     };
 
-    // 順位 = 「自分より安い物件の件数」+1。
-    //   ct を自分より下のバケットに切り下げる → ct以下は全部自分より安い（割高を数えない）。
+    // 順位 = 自分の賃料を上のバケットに切り上げ（24万以下で検索した人が見る土俵）、
+    //   その「ct(管理費込み)以下」の件数。お客さんが実際に検索する予算枠での件数。
     const subjectTotal = subjRent + subjMgmt;
-    const ctFloor = _suumoRentCtFloor(subjectTotal); // null = 自分より安いバケット無し（最安）
+    const rankCt = _suumoRentCt(subjectTotal); // 24.0 = 自分を含む一番タイトな予算枠（切り上げ）
     result.subjectTotalRent = subjectTotal;
-    result.rankCt = ctFloor;
+    result.rankCt = rankCt;
 
     const baseUrl = _segUrl('9999999');   // 母数（同じ土俵＝駅+徒歩+構造+設備+間取り+面積以上+築年以内+管理費込み）
     result.searchUrl = baseUrl;
@@ -708,21 +696,14 @@
     if (total == null) { result.errors.push('件数抽出失敗(母数)'); return result; }
     result.sampleSize = total;
 
-    // 自分より安い件数（cheaper）。ctFloor が null（最安バケット）なら 0。
-    let cheaper = 0;
-    if (ctFloor != null) {
-      const cheapUrl = _segUrl(ctFloor);
-      result.rankUrl = cheapUrl;
-      const cheapHtml = await _fetchText(cheapUrl);
-      const c = cheapHtml ? _parseSuumoHitCount(cheapHtml) : null;
-      if (c == null) { result.errors.push('件数抽出失敗(順位)'); return result; }
-      cheaper = c;
-    } else {
-      result.rankUrl = baseUrl;
-    }
+    const rankUrl = _segUrl(rankCt);      // 24万以下（管理費込み）の件数 = 自分が見られる予算枠での順位
+    result.rankUrl = rankUrl;
+    const rankHtml = await _fetchText(rankUrl);
+    const atOrBelow = rankHtml ? _parseSuumoHitCount(rankHtml) : null;
+    if (atOrBelow == null) { result.errors.push('件数抽出失敗(順位)'); return result; }
 
-    result.cheaperCount = cheaper;
-    result.rank = cheaper + 1;                 // 安い順で自分が何番目か（小さいほど強い）
+    result.rank = atOrBelow;                   // 予算枠(24万以下)の件数（小さいほど強い）
+    result.cheaperCount = Math.max(0, atOrBelow - 1);
     result.inPage1 = (result.rank <= 50);      // 1ページ目(top50)に入る = 掲載価値あり
     result.ok = true;
     return result;
