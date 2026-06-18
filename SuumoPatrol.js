@@ -71,7 +71,9 @@ var SUUMO_LISTING_HEADERS = [
   // 25列目: 1ページ目(安い順top)に入るか。○=掲載価値あり / ×=埋もれ(圏外)
   '1ページ目内',
   // 26列目: 順位を最後に更新した日 (yyyy-MM-dd, JST)
-  '順位更新日'
+  '順位更新日',
+  // 27列目: 順位の根拠URL (同条件・賃料+管理費が安い順のSUUMO検索。クリックで目視確認)
+  '順位URL'
 ];
 
 // 停止候補ログシート (毎回の findStopCandidates 実行履歴を蓄積)
@@ -393,6 +395,7 @@ function handleUpdateListingRank(json) {
   var rankCol = SUUMO_LISTING_HEADERS.indexOf('現在の順位') + 1;
   var pageCol = SUUMO_LISTING_HEADERS.indexOf('1ページ目内') + 1;
   var dateCol = SUUMO_LISTING_HEADERS.indexOf('順位更新日') + 1;
+  var urlCol = SUUMO_LISTING_HEADERS.indexOf('順位URL') + 1;
 
   // 物件キー → 行番号
   var keyVals = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
@@ -410,6 +413,7 @@ function handleUpdateListingRank(json) {
     sheet.getRange(row, rankCol).setValue(up.rank);
     sheet.getRange(row, pageCol).setValue(up.inPage1 ? '○' : '×');
     sheet.getRange(row, dateCol).setValue(today);
+    if (up.searchUrl) sheet.getRange(row, urlCol).setValue(up.searchUrl);
     updated++;
   }
   return ContentService.createTextOutput(JSON.stringify({ success: true, updated: updated }))
