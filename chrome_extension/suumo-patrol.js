@@ -954,7 +954,15 @@ async function maybeRefreshListedPropertyRanks() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'get_listed_for_rank' })
     }, 30000);
-    const data = await res.json();
+    const raw = await res.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (pe) {
+      // GASがJSONでなくHTML(エラーページ/ログイン)を返した = アクション未デプロイ等。次回リトライ。
+      await setStorageData({ debugLog: '[掲載順位更新] GAS応答がJSONでない(get_listed_for_rank未デプロイ?): ' + String(raw).slice(0, 140) });
+      return;
+    }
     const listed = (data && data.properties) || [];
     if (!listed.length) {
       await setStorageData({ lastListedRankRefreshDate: todayJst, debugLog: '[掲載順位更新] 掲載中物件なし' });
