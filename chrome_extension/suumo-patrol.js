@@ -837,24 +837,25 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
     if (sc.url) msgLines.push('[🔍 SUUMO検索結果](' + sc.url + ')');
   }
 
-  // 反響予測スコア (事前計算済みの場合のみ表示)
-  if (p.inquiry_score && typeof p.inquiry_score.score === 'number') {
-    const s = p.inquiry_score;
-    msgLines.push('📊 反響予測: **' + s.score + '点** ' + s.label);
-    if (p.inquiry_market && p.inquiry_market.median) {
-      const im = p.inquiry_market;
-      let mLine = '  └ 相場 ¥' + im.median + '/㎡ (' + im.sampleSize + '件・filter:' + im.filterUsed + ')';
-      if (im.searchUrl) mLine += ' [🔍相場検索](' + im.searchUrl + ')';
-      msgLines.push(mLine);
+  // 物件ポテンシャル順位 (反響予測スコアに代わる主要指標。事前計算済みの場合のみ表示)
+  //   お客さんの「同条件・安い順」検索で自分が何番目か(重複広告は排除)。1ページ目に入れば掲載価値あり。
+  if (p.segment_info && typeof p.segment_info.rank === 'number') {
+    const sr = p.segment_info;
+    const badge = sr.inPage1 ? '✅ 掲載価値あり' : '⚠️ 埋もれ(1ページ目圏外)';
+    const stName = (sr.station && sr.station.name) ? sr.station.name + '駅' : (sr.searchMode === 'area' ? 'エリア' : '');
+    msgLines.push('🏆 ポテンシャル順位: **' + sr.rank + '位/' + sr.sampleSize + '件** ' + badge
+      + (stName ? '（' + stName + '・同条件 安い順）' : ''));
+    const segParts = [];
+    if (sr.segment) {
+      if (sr.segment.md) segParts.push(p.layout || '');
+      if (sr.segment.mb && sr.segment.mb !== '0') segParts.push(sr.segment.mb + '㎡↑');
+      if (sr.segment.cn && sr.segment.cn !== '9999999') segParts.push('築' + sr.segment.cn + '年内');
+      if (sr.segment.et && sr.segment.et !== 9999999) segParts.push('徒歩' + sr.segment.et + '分内');
     }
-    if (s.breakdown) {
-      const b = s.breakdown;
-      const parts = [];
-      if (b.score1 !== null) parts.push('単価:' + b.score1);
-      if (b.score2 !== null) parts.push('徒歩:' + b.score2);
-      if (b.score3 !== null) parts.push('築年:' + b.score3);
-      if (parts.length > 0) msgLines.push('  └ 内訳: ' + parts.join(' / ') + ' (設備' + b.equipmentCount + '個)');
-    }
+    let detail = '  └ 条件: ' + segParts.filter(Boolean).join(' / ');
+    if (sr.adCount != null) detail += '（広告数 重複込' + sr.adCount + '件）';
+    msgLines.push(detail);
+    if (sr.searchUrl) msgLines.push('  └ [🔍 安い順で見る](' + sr.searchUrl + ')');
   }
 
   // 画像枚数カウント(11枚以下なら警告)
@@ -907,51 +908,12 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     const item = notifyProps[i];
     const p = item.property || {};
 
-    // 反響予測スコアを事前計算 (失敗してもメッセージ送信は継続)
+    // _bldName / _roomNo はポテンシャル順位の計算・ログで使う
     const _bldName = p.building_name || p.buildingName || p.building || '';
     const _roomNo = p.room_number || p.roomNumber || p.room || '';
-    try {
-      const fnsOk = (typeof getSuumoMarketMedian === 'function'
-        && typeof calculateInquiryScore === 'function'
-        && typeof buildInquiryScoreInput === 'function'
-        && typeof extractWalkMinutes === 'function'
-        && typeof extractBuildingAge === 'function');
-      console.log('[SUUMO反響] 計算開始', _bldName, _roomNo, 'fnsOk=', fnsOk,
-        'address=', p.address, 'layout=', p.layout, 'area=', p.area);
-      if (!fnsOk) {
-        await setStorageData({ debugLog: '[反響スコア] 関数未ロード ' + _bldName + ' ' + _roomNo });
-      } else {
-        const propertyType = (p.structure && /木造/.test(p.structure)) ? 'アパート' : 'マンション';
-        const median = await getSuumoMarketMedian({
-          address: p.address,
-          layout: p.layout || '',
-          area: Number(p.area) || 0,
-          buildingAge: extractBuildingAge(p),
-          walkMinutes: extractWalkMinutes(p),
-          propertyType: propertyType
-        });
-        console.log('[SUUMO反響] median結果', _bldName, 'ok=', median && median.ok,
-          'sampleSize=', median && median.sampleSize, 'errors=', median && median.errors);
-        if (median && median.ok) {
-          const input = buildInquiryScoreInput(p, median.median);
-          const scoreResult = calculateInquiryScore(input);
-          p.inquiry_score = scoreResult;
-          p.inquiry_market = median;
-          await setStorageData({ debugLog:
-            '[反響スコア] ' + _bldName + ' ' + _roomNo + ' → ' + scoreResult.score + '点 (' + scoreResult.label + ')'
-          });
-        } else {
-          await setStorageData({ debugLog:
-            '[反響スコア] ' + _bldName + ' ' + _roomNo + ' → 計算失敗: ' + ((median && median.errors && median.errors.join(',')) || 'unknown')
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('[SUUMO巡回] 反響スコア計算失敗:', e && e.message);
-      await setStorageData({ debugLog: '[反響スコア] ' + _bldName + ' ' + _roomNo + ' → 例外: ' + (e && e.message) });
-    }
 
-    // 物件ポテンシャル = 同階級SUUMO検索での「平米単価の安い順 順位」(新モデル)
+    // 物件ポテンシャル = お客さんの安い順検索での「順位」(反響予測スコアに代わる主要指標)
+    //   ※旧・反響予測スコア(相場中央値ベース)は廃止。SUUMO余分なfetchも削減。
     try {
       if (typeof getSuumoSegmentRank === 'function') {
         const eqFlags = (typeof extractEquipmentFlags === 'function') ? extractEquipmentFlags(p) : {};
@@ -1077,32 +1039,38 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     if (i < notifyProps.length - 1) await sleep(1000);
   }
 
-  // 計算済みの反響予測スコアをまとめて GAS の候補物件シートに保存。
-  // SUUMO 停止候補ロジックで「本来人気だが競合に埋もれている物件」を保護するのに使う。
+  // 計算済みのポテンシャル順位をまとめて GAS の候補物件シートに保存。
+  //   SUUMO 停止候補ロジックで「1ページ目に入る=掲載価値ある物件を保護／圏外を優先的に落とす」のに使う。
+  //   ※GAS側ハンドラ(update_candidate_potential)と落とし判定への組み込みは stage③で追加予定。
   try {
-    const scoreUpdates = [];
+    const rankUpdates = [];
     for (const it of notifyProps) {
       const ip = (it && it.property) || {};
-      if (ip.inquiry_score && typeof ip.inquiry_score.score === 'number' && it.key) {
-        scoreUpdates.push({ key: it.key, score: ip.inquiry_score.score });
+      if (ip.segment_info && typeof ip.segment_info.rank === 'number' && it.key) {
+        rankUpdates.push({
+          key: it.key,
+          rank: ip.segment_info.rank,
+          inPage1: !!ip.segment_info.inPage1,
+          sampleSize: ip.segment_info.sampleSize
+        });
       }
     }
-    if (scoreUpdates.length > 0) {
+    if (rankUpdates.length > 0) {
       const { gasWebappUrl: gasUrl2 } = await getStorageData(['gasWebappUrl']);
       if (gasUrl2) {
         await _fetchWithTimeout_(gasUrl2, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            action: 'update_candidate_inquiry_scores',
-            updates: scoreUpdates
+            action: 'update_candidate_potential',
+            updates: rankUpdates
           })
         }, 30000);
-        await setStorageData({ debugLog: `[SUUMO反響] スコア保存 ${scoreUpdates.length}件をGAS送信` });
+        await setStorageData({ debugLog: `[ポテンシャル順位] ${rankUpdates.length}件をGAS送信` });
       }
     }
   } catch (e) {
-    console.warn('[SUUMO反響] スコア保存失敗:', e && e.message);
+    console.warn('[ポテンシャル順位] GAS保存失敗:', e && e.message);
   }
 
   return { sent, errors, sheetRowIndexes: successIndexes };
