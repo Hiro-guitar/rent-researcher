@@ -558,7 +558,8 @@
     if (!html) return null;
     // SUUMOのエラーページ（不正な ct 値など）→ 件数として0や誤値を拾わないよう null を返す
     if (/必要な情報が不足|画面を表示することができません|エラーが発生しました/.test(html)) return null;
-    if (/該当する物件は(?:ございません|ありません|見つかりません)/.test(html)) return 0;
+    // 0件ページ（SUUMOは結果数により文言が異なる）。これらを取りこぼすと「抽出失敗」になる。
+    if (/条件にあう物件がありません|条件に(?:あう|合う|一致する)物件が(?:ありません|ございません|見つかりません)|該当する物件は(?:ございません|ありません|見つかりません)|物件が見つかりませんでした|該当(?:する)?物件が?0件/.test(html)) return 0;
     const toNum = (s) => {
       const n = parseInt(String(s).replace(/[，,]/g, '').replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)), 10);
       return isFinite(n) ? n : null;
