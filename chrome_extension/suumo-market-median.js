@@ -492,7 +492,11 @@
   function _suumoAgeCn(ageYears) {
     const a = Number(ageYears);
     if (!isFinite(a) || a < 0) return '9999999'; // 築年不明 → 絞らない
-    for (const b of SUUMO_AGE_BUCKETS) { if (a <= b) return String(b); }
+    // 築年数の推定は「完成年からの年差(月を無視)」で出すことがあり、SUUMOの数え方より
+    //   1年低めに出ることがある。cn=自分の築年バケットだと自分自身が cn で除外され
+    //   母数0になる(例: 築6年なのに cn=5 で検索されて0件)。+1年の安全マージンで防ぐ。
+    const aSafe = a + 1;
+    for (const b of SUUMO_AGE_BUCKETS) { if (aSafe <= b) return String(b); }
     return '9999999'; // 30年超 → 絞らない
   }
 
