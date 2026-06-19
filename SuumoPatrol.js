@@ -1215,98 +1215,48 @@ function findStopCandidates(topN, options) {
 
     var forceCandidate = isLongStay || forceFromInquiries;
 
-    // ── スコア計算 (全 active 物件で計算、保護判定の前に) ─────
-    // 評価機能のため、保護された物件もスコアを計算してシートに記録する。
-    // 候補リストに入れるかは別途、保護判定で決める。
-
-    // ① 競合の脅威
+    // ── 弱さの判定 (順位ベース。反響予測スコア式は廃止) ─────────────
+    // 加重競合数 = 第1基準値×1.0 + 第2基準値×1.6 + 第3基準値×2.1
+    //   (第2基準値の会社は1.6倍/第3は2.1倍 掲載されやすい=強い競合とみなす)
     var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
-    var compBonus = weightedComp * 10;
+    var lowComp = (weightedComp <= 5);              // 低競合(他社少)= 25件キープのため守る
 
-    // ② 問合せの好材料
-    var inquiriesBonus = -inquiries * 100;
+    // ポテンシャル順位 (24列目=現在の順位 / 25列目=1ページ目内 ○×)
+    var potRank = Number(data[i][23]) || 0;
+    var outOfPage1 = (String(data[i][24] || '') === '×'); // 圏外(類似物件50件以上の中で埋もれ)
+    var hasInquiry = (inquiries > 0);
 
-    // ③ 反響予測スコアの好材料
-    var inquiryScoreBonus = -inquiryScore * 30;
-
-    // ④ 申込スピード補正 (二乗減衰)
-    // 例: 0日(即日)=-1500, 7日=-867, 14日=-427, 21日=-135, 30日以上=0
-    var moshikomiBonus = 0;
-    var daysToMoshikomi = null;
-    if (hasMoshikomi && startDate) {
-      var diffMs = initialMoshikomiDate.getTime() - startDate.getTime();
-      daysToMoshikomi = Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
-      if (daysToMoshikomi < 30) {
-        moshikomiBonus = -Math.round(1500 * Math.pow(1 - daysToMoshikomi / 30, 2));
-      }
+    // 弱さスコア(高いほど先に落とす)
+    var weak;
+    if (forceCandidate) {
+      weak = 1000000 + sheetDays;                   // 60日超/反響30+申込 は最優先(同点はシート日数長い順)
+    } else {
+      weak = potRank;                               // 順位が悪い(大きい)ほど弱い
+      if (outOfPage1) weak += 100000;               // 圏外が最弱
+      if (!lowComp) weak += 50000;                  // 高競合は低競合より先に落とす
     }
 
-    // ⑤ 競合 resistance 補正 (競合多いのに PV ある物件=埋もれずに見られている)
-    // 一日詳細PV / weightedComp が高いほど人気。
-    // weightedComp >= 5 の物件のみ評価対象 (競合少ない物件は普通に見られている)。
-    // 上限 -1500。
-    var dailyDetailPv = totalDetailPv / Math.max(1, effectiveDays);
-    var competitiveResistance = (weightedComp >= 5)
-      ? (dailyDetailPv / weightedComp)
-      : 0;
-    var resistanceBonus = -Math.min(1500, Math.round(competitiveResistance * 200));
-
-    // ⑥ 長期掲載ボーナス
-    var longStayBonus = (sheetDays >= 60) ? 9999 : 0;
-    var effective45Bonus = (effectiveDays >= 45) ? 500 : 0;
-
-    // ⑦ 反響30+申込検知ボーナス
-    var highInquiryBonus = forceFromInquiries ? 9999 : 0;
-
-    var riskScore = compBonus + inquiriesBonus + inquiryScoreBonus
-                  + moshikomiBonus + resistanceBonus
-                  + longStayBonus + effective45Bonus + highInquiryBonus;
-
-    // スコア内訳 JSON (23列目に保存して後から検証可能に)
+    var forceReason = isLongStay ? '60日超' : (forceFromInquiries ? '反響30+申込' : '');
     var breakdown = {
-      comp: compBonus,           // 競合の脅威 (プラス)
-      inq: inquiriesBonus,       // 問合せ好材料 (マイナス)
-      iScore: inquiryScoreBonus, // 反響予測好材料 (マイナス)
-      moshi: moshikomiBonus,     // 申込スピード補正 (マイナス)
-      resi: resistanceBonus,     // 競合resistance補正 (マイナス)
-      long: longStayBonus,       // 60日超 (+9999)
-      e45: effective45Bonus,     // 45日超 (+500)
-      hi: highInquiryBonus,      // 反響30+申込検知 (+9999)
-      total: riskScore,
-      // 参考情報
-      dailyPv: Math.round(dailyDetailPv * 100) / 100,
-      compResist: Math.round(competitiveResistance * 100) / 100,
-      d2moshi: daysToMoshikomi
+      weightedComp: Math.round(weightedComp * 10) / 10,
+      lowComp: lowComp, rank: potRank, outOfPage1: outOfPage1,
+      inquiries: inquiries, hasMoshikomi: hasMoshikomi,
+      force: forceReason || null, weak: weak
     };
     var breakdownJson = JSON.stringify(breakdown);
 
-    // 23列目にスコア内訳を書き込み
-    if (breakdownColIdx > 0) {
-      try {
-        sheet.getRange(i + 2, breakdownColIdx).setValue(breakdownJson);
-      } catch (e) {
-        Logger.log('スコア内訳の書き込み失敗 row=' + (i + 2) + ': ' + e.message);
-      }
-    }
-
-    // ── 保護判定 ──────────────────────────────
+    // ── 保護判定 (eligibility)。relaxLevel で段階的に緩める(全員保護で詰むのを回避) ──
+    //   force は常に対象。0: 低競合と問い合わせ来てるを守る / 1: 問い合わせのみ守る / 2+: 保護なし
     var protectedReason = '';
     if (!forceCandidate) {
-      if (relaxLevel === 0) {
-        if (effectiveDays < 7) protectedReason = 'new7';
-        else if (inquiries >= 1 && effectiveDays < 45) protectedReason = 'inq45';
-        else if (inquiryScore >= 70) protectedReason = 'iScore70';
+      if (relaxLevel <= 0) {
+        if (lowComp) protectedReason = 'lowComp';
+        else if (hasInquiry) protectedReason = 'inquiry';
       } else if (relaxLevel === 1) {
-        if (effectiveDays < 3) protectedReason = 'new3';
-        else if (inquiries >= 1 && effectiveDays < 30) protectedReason = 'inq30';
-        else if (inquiryScore >= 80) protectedReason = 'iScore80';
-      } else if (relaxLevel === 2) {
-        if (effectiveDays < 1) protectedReason = 'new1';
-        else if (inquiryScore >= 90) protectedReason = 'iScore90';
+        if (hasInquiry) protectedReason = 'inquiry';
       }
-      // relaxLevel === 3 は保護なし
+      // relaxLevel >= 2 は保護なし
     }
-    // forceCandidate の物件は保護スキップ、Step2 の +9999 で確実落とし。
 
     // ログ用エントリ (全 active 物件を記録)
     logRows.push([
@@ -1315,10 +1265,10 @@ function findStopCandidates(topN, options) {
       data[i][0],                       // 物件キー
       data[i][1] || '',                 // 建物名
       data[i][2] || '',                 // 部屋番号
-      riskScore,
+      weak,
       breakdownJson,
       protectedReason ? ('保護:' + protectedReason) : '候補',
-      inquiryScore,
+      '',                               // (旧:反響予測スコア 廃止)
       inquiries,
       initialMoshikomiDate || '',
       sheetDays,
@@ -1335,8 +1285,13 @@ function findStopCandidates(topN, options) {
       rent: data[i][4],
       pv: totalDetailPv || Number(data[i][5]) || 0, // 合計詳細PV優先
       inquiries: inquiries,
-      score: riskScore,
+      score: weak,
       breakdown: breakdown,
+      weightedComp: weightedComp,
+      lowComp: lowComp,
+      rank: potRank,
+      outOfPage1: outOfPage1,
+      force: forceReason || '',
       suumoPropertyCode: String(data[i][10] || ''),
       suumoListedDays: suumoListedDays,
       sheetDays: sheetDays,
