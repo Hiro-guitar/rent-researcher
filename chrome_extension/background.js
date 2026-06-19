@@ -7238,7 +7238,7 @@ async function runSuumoApprovalPreHook_() {
   // GAS が段階的保護緩和をどのレベルで採用したかを取得 (0=標準/1=緩い/2=最小/3=保護無視)
   // GAS が古い (relaxLevel 未対応) なら undefined → 0 扱い
   const relaxLevel = typeof peek.stopCandidateRelaxLevel === 'number' ? peek.stopCandidateRelaxLevel : 0;
-  const relaxLabel = ['標準', '緩和1(3日/問合30日)', '緩和2(1日のみ)', '保護無視(最終手段)'][relaxLevel] || '不明';
+  const relaxLabel = ['標準(低競合+問合せ保護)', '緩和1(問合せのみ保護)', '保護なし', '保護なし(最終手段)'][relaxLevel] || '不明';
 
   if (candidates.length === 0) {
     // GAS レスポンスの中身をすべてログに出して原因特定
