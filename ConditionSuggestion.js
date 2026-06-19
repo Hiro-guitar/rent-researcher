@@ -517,7 +517,7 @@ function _buildDeliveryContinueConfirmFlex_() {
         contents: [
           { type: 'text', text: 'お部屋探しの状況はいかがですか？',
             weight: 'bold', size: 'lg', color: '#ffffff',
-            align: 'center', adjustMode: 'shrink-to-fit' }
+            align: 'center', wrap: true }
         ]
       },
       body: {
