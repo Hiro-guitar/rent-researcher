@@ -942,7 +942,11 @@ async function maybeRefreshListedPropertyRanks() {
   const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
   const todayJst = jst.getUTCFullYear() + '-' + String(jst.getUTCMonth() + 1).padStart(2, '0') + '-' + String(jst.getUTCDate()).padStart(2, '0');
   const { lastListedRankRefreshDate, gasWebappUrl } = await getStorageData(['lastListedRankRefreshDate', 'gasWebappUrl']);
-  if (lastListedRankRefreshDate === todayJst) return; // 本日実施済み
+  if (lastListedRankRefreshDate === todayJst) {
+    // 1日1回。本日は実施済みのためスキップ（無言だと「動かない」と見えるのでログを出す）。
+    await setStorageData({ debugLog: `[掲載順位更新] 本日(${todayJst})は実施済みのためスキップ` });
+    return;
+  }
   if (!gasWebappUrl || typeof getSuumoSegmentRank !== 'function') return;
 
   _listedRankRefreshRunning = true;
