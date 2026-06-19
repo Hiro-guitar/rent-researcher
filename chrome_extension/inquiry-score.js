@@ -247,16 +247,18 @@ function extractBuildingAge(prop) {
   if (!prop) return null;
   const ba = String(prop.building_age || prop.buildingAge || '');
   if (/新築/.test(ba)) return 0;
-  // "築X年" を最優先
-  const m = ba.match(/築\s*(\d+)\s*年/);
-  if (m) return parseInt(m[1], 10);
-  // 年月表記から計算 (例: "2021年5月")
+  // 完成年があれば「現在年 - 完成年」(=SUUMOの築年数の数え方。月は見ない年差)を最優先。
+  //   仕入元(itandi等)の "(築5年)" は完成からの満年数(月単位)で、SUUMOと1年ずれることがある
+  //   (例: "2020年9月(築5年)" → itandi築5年 / SUUMO築6年)。順位検索はSUUMO基準に合わせる必要がある。
   const ym = ba.match(/(\d{4})\s*年/);
   if (ym) {
     const y = parseInt(ym[1], 10);
     const now = new Date();
     return Math.max(0, now.getFullYear() - y);
   }
+  // 完成年が無い場合のみ "築X年" 表記を使う
+  const m = ba.match(/築\s*(\d+)\s*年/);
+  if (m) return parseInt(m[1], 10);
   return null;
 }
 
