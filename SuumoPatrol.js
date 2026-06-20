@@ -1237,7 +1237,17 @@ function findStopCandidates(topN, options) {
     }
 
     var forceReason = isLongStay ? '60日超' : (forceFromInquiries ? '反響30+申込' : '');
+    // 落とす理由(人が読める文字)
+    var dropReason;
+    if (forceCandidate) {
+      dropReason = (isLongStay ? '掲載60日超' : '')
+                 + (forceFromInquiries ? ((isLongStay ? ' / ' : '') + '反響30件超&申込あり') : '');
+    } else {
+      dropReason = (outOfPage1 ? '圏外(埋もれ)' : ('順位' + potRank + '位'))
+                 + ' / ' + (lowComp ? '低競合' : ('高競合(加重' + (Math.round(weightedComp * 10) / 10) + ')'));
+    }
     var breakdown = {
+      reason: dropReason,
       weightedComp: Math.round(weightedComp * 10) / 10,
       lowComp: lowComp, rank: potRank, outOfPage1: outOfPage1,
       inquiries: inquiries, hasMoshikomi: hasMoshikomi,
@@ -1286,6 +1296,7 @@ function findStopCandidates(topN, options) {
       pv: totalDetailPv || Number(data[i][5]) || 0, // 合計詳細PV優先
       inquiries: inquiries,
       score: weak,
+      reason: dropReason,
       breakdown: breakdown,
       weightedComp: weightedComp,
       lowComp: lowComp,
