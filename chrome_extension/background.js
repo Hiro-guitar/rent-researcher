@@ -7277,7 +7277,7 @@ async function runSuumoApprovalPreHook_() {
   }
   await setStorageData({
     debugLog: `[承認前処理] 停止実行: ${target.building} ${target.room} (${suumoCode}) 理由=「${target.reason || '不明'}」`
-      + ` (加重≤5が${target.lowCompCount != null ? target.lowCompCount : '?'}件/加重>5が${target.highCompCount != null ? target.highCompCount : '?'}件・落とせる候補${target.eligibleCount != null ? target.eligibleCount : '?'}件の最弱) 保護=${relaxLabel}`
+      + ` (加重≤5が${target.lowCompCount != null ? target.lowCompCount : '?'}件[取得済]/加重>5が${target.highCompCount != null ? target.highCompCount : '?'}件/未取得${target.unmeasuredCount != null ? target.unmeasuredCount : '?'}件・落とせる候補${target.eligibleCount != null ? target.eligibleCount : '?'}件の最弱) 保護=${relaxLabel}`
   });
 
   const stopResult = await stopForrentListing({ suumoPropertyCode: suumoCode });
