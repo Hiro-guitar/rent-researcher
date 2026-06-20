@@ -7276,7 +7276,7 @@ async function runSuumoApprovalPreHook_() {
     });
   }
   await setStorageData({
-    debugLog: `[承認前処理] 停止実行: ${target.building} ${target.room} (${suumoCode}) score=${target.score} 保護=${relaxLabel}`
+    debugLog: `[承認前処理] 停止実行: ${target.building} ${target.room} (${suumoCode}) 理由=「${target.reason || '不明'}」 保護=${relaxLabel}`
   });
 
   const stopResult = await stopForrentListing({ suumoPropertyCode: suumoCode });
