@@ -1240,8 +1240,8 @@ function findStopCandidates(topN, options) {
 
     var forceReason = isLongStay ? '60日超' : (forceFromInquiries ? '反響30+申込' : '');
     // 落とす理由(人が読める文字)。競合は「加重(=重み付け後)＋内訳(各基準値の店舗数)」で表示
-    var compStr = (lowComp ? '低競合' : '高競合')
-                + '(加重' + (Math.round(weightedComp * 10) / 10)
+    var compStr = (lowComp ? '加重≤5' : '加重>5')
+                + '(' + (Math.round(weightedComp * 10) / 10)
                 + ' [第1:' + compLv1 + ' 第2:' + compLv2 + ' 第3:' + compLv3 + '])';
     var dropReason;
     if (forceCandidate) {
