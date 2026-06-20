@@ -1052,7 +1052,7 @@ async function fetchItandiDetailForManual(baseProp) {
 }
 
 // ─────────────────────────────────────────────
-// 手動「競合数・反響点数」用: collect prop を snake_case に正規化。
+// 手動「競合数・順位」用: collect prop を snake_case に正規化。
 // REINS/いえらぶは camelCase(managementFee,buildingAge,stationInfo,area文字列)、
 // itandi は snake_case。countSuumoCompetitors / getSuumoMarketMedian /
 // buildInquiryScoreInput はいずれも snake_case 系を読むため揃える。
@@ -2855,7 +2855,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // 手動: 選択物件の競合数・反響予測点数を調べて1件ずつパネルへ返す（送信はしない）
+  // 手動: 選択物件の競合数・ポテンシャル順位を調べて1件ずつパネルへ返す（送信はしない）
   if (msg.type === 'CHECK_SUUMO_METRICS') {
     (async () => {
       try {
@@ -2864,30 +2864,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const total = props.length;
         for (let i = 0; i < props.length; i++) {
           const np = normalizePropForMetrics(props[i]);
-          let competitor = null, score = null, scoreLabel = '', hasMarket = false, error = '';
+          let competitor = null, rank = null, sampleSize = null, inPage1 = null, rankUrl = '', error = '';
           try {
             // 競合数
             if (typeof countSuumoCompetitors === 'function') {
               competitor = await countSuumoCompetitors(np);
             }
-            // 相場中央値（取れれば反響点数の平米単価要素＝60%に使う。取れなくても点数は出す）
-            let marketMedian = 0;
-            if (typeof getSuumoMarketMedian === 'function' && np.address && np.layout && np.area) {
-              const propertyType = (np.structure && /木造/.test(np.structure)) ? 'アパート' : 'マンション';
-              const median = await getSuumoMarketMedian({
-                address: np.address,
-                layout: np.layout,
-                area: np.area,
-                buildingAge: (typeof extractBuildingAge === 'function') ? extractBuildingAge(np) : null,
-                walkMinutes: (typeof extractWalkMinutes === 'function') ? extractWalkMinutes(np) : null,
-                propertyType: propertyType,
-              });
-              if (median && median.ok) { marketMedian = median.median; hasMarket = true; }
-            }
-            // 反響予測点数: 相場が取れなくても駅徒歩・築年で部分点数を出す（_finalizeScoreが再正規化）
-            if (typeof calculateInquiryScore === 'function') {
-              const sc = calculateInquiryScore(buildInquiryScoreInput(np, marketMedian));
-              if (sc && typeof sc.score === 'number') { score = sc.score; scoreLabel = sc.label || ''; }
+            // ポテンシャル順位(反響予測スコアに代わる主要指標。同条件・安い順での順位)
+            if (typeof getSuumoSegmentRank === 'function' && typeof _buildSegmentRankInput === 'function'
+                && np.address && np.layout && np.area) {
+              const rr = await getSuumoSegmentRank(_buildSegmentRankInput(np));
+              if (rr && rr.ok) {
+                rank = rr.rank; sampleSize = rr.sampleSize; inPage1 = !!rr.inPage1; rankUrl = rr.searchUrl || '';
+              }
             }
           } catch (e) {
             error = (e && e.message) || String(e);
@@ -2896,14 +2885,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             try {
               await chrome.tabs.sendMessage(senderTabId, {
                 type: 'MANUAL_METRICS_PROGRESS',
-                index: i, total, competitor, score, scoreLabel, hasMarket, error
+                index: i, total, competitor, rank, sampleSize, inPage1, rankUrl, error
               });
             } catch (e) {}
           }
         }
         sendResponse({ ok: true, done: total });
       } catch (e) {
-        await setStorageData({ debugLog: '競合数・点数調査失敗: ' + e.message });
+        await setStorageData({ debugLog: '競合数・順位調査失敗: ' + e.message });
         sendResponse({ ok: false, error: e.message });
       }
     })();

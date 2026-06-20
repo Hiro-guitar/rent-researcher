@@ -34,7 +34,7 @@
   var sendBtn = null;
   var metricsBtn = null;
   var publishBtn = null;
-  var lastMetricItems = []; // 競合数・点数の計算対象（index→rowEl対応の保持）
+  var lastMetricItems = []; // 競合数・順位の計算対象（index→rowEl対応の保持）
 
   // ─────────────────────────────────────────────
   // 送信カート（全サイト横断・ページ跨ぎ）
@@ -196,7 +196,7 @@
       // 行に相対位置を付与してチェックボックスを重ねる
       var pos = window.getComputedStyle(rowEl).position;
       if (pos === 'static' || !pos) rowEl.style.position = 'relative';
-      cb.__rowEl = rowEl; // 競合数・点数バッジ表示で行要素を辿るため保持
+      cb.__rowEl = rowEl; // 競合数・順位バッジ表示で行要素を辿るため保持
       rowEl.appendChild(cb);
       rowEl[ASSIGN_KEY] = cb;
       selectedMap.set(cb, prop);
@@ -211,7 +211,7 @@
     return items;
   }
 
-  // 競合数・点数バッジ／SUUMO掲載は現在ページの選択のみ対象（off-pageや別サイトは不可）
+  // 競合数・順位バッジ／SUUMO掲載は現在ページの選択のみ対象（off-pageや別サイトは不可）
   function getCurrentPageCheckedItems() {
     var items = [];
     selectedMap.forEach(function (prop, cb) {
@@ -362,8 +362,8 @@
     sendBtn.disabled = true;
     sendBtn.addEventListener('click', onSendClick);
 
-    // 競合数・反響予測点数を調べるボタン
-    metricsBtn = mkActionBtn('競合数・反響点数を調べる', '#0b66c3', onCheckMetricsClick);
+    // 競合数・順位を調べるボタン
+    metricsBtn = mkActionBtn('競合数・順位を調べる', '#0b66c3', onCheckMetricsClick);
     // SUUMOに掲載ボタン
     publishBtn = mkActionBtn('SUUMOに掲載', '#e67e22', onPublishSuumoClick);
 
@@ -484,14 +484,14 @@
   }
 
   // ─────────────────────────────────────────────
-  // 競合数・反響予測点数を調べる
+  // 競合数・順位を調べる
   // ─────────────────────────────────────────────
   function onCheckMetricsClick() {
     var items = getCurrentPageCheckedItems(); // バッジ表示は現在ページの選択のみ
     if (items.length === 0) { setStatus('調べる物件を選んでください', '#c0392b'); return; }
     lastMetricItems = items; // MANUAL_METRICS_PROGRESS の index→rowEl 対応に使う
     metricsBtn.disabled = true;
-    setStatus('競合数・反響点数を計算中…（' + items.length + '件）', '#666');
+    setStatus('競合数・順位を計算中…（' + items.length + '件）', '#666');
     // 計算中はバッジを「計算中」に
     items.forEach(function (it) { if (it.rowEl) renderMetricBadge(it.rowEl, { pending: true }); });
     sendToBackground({
@@ -500,7 +500,7 @@
       properties: items.map(function (x) { return x.prop; })
     }).then(function (resp) {
       if (resp && resp.ok) {
-        setStatus((resp.done || items.length) + '件の競合数・点数を表示しました', '#1a7f37');
+        setStatus((resp.done || items.length) + '件の競合数・順位を表示しました', '#1a7f37');
       } else {
         setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
       }
@@ -542,7 +542,7 @@
   }
 
   // ─────────────────────────────────────────────
-  // 競合数・点数バッジを行要素に表示（冪等）
+  // 競合数・順位バッジを行要素に表示（冪等）
   // ─────────────────────────────────────────────
   function renderMetricBadge(rowEl, m) {
     if (!rowEl) return;
@@ -576,14 +576,22 @@
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     };
-    var scoreTxt = (m.score === null || m.score === undefined) ? '—' : String(m.score);
     var compTotal = m.competitor ? m.competitor.total : null;
     var htmlLines = [];
-    // 1行目: 反響点数（相場が取れなかった場合は * を付け、駅徒歩・築年のみと示す）
-    var scoreLine = '点 ' + scoreTxt + (m.scoreLabel ? ' ' + m.scoreLabel : '');
-    var marketless = (!m.hasMarket && m.score !== null && m.score !== undefined);
-    if (marketless) scoreLine += '*';
-    htmlLines.push('<div>' + esc(scoreLine) + '</div>');
+    // 1行目: ポテンシャル順位（同条件・安い順での順位/母数。✅=1ページ目内 ⚠️=圏外）。
+    //        URLがあればクリックで安い順検索を開ける。
+    var rankTxt = (m.rank === null || m.rank === undefined)
+      ? '—'
+      : (m.rank + '位/' + (m.sampleSize != null ? m.sampleSize : '?') + '件');
+    var badgeMark = (m.inPage1 === true) ? ' ✅' : (m.inPage1 === false ? ' ⚠️圏外' : '');
+    var rankLineText = '順位 ' + rankTxt + badgeMark;
+    if (m.rankUrl && m.rank !== null && m.rank !== undefined) {
+      htmlLines.push('<div><a href="' + esc(m.rankUrl) + '" target="_blank" rel="noopener" ' +
+        'style="color:inherit;text-decoration:underline;pointer-events:auto;cursor:pointer;">' +
+        esc(rankLineText) + ' ↗</a></div>');
+    } else {
+      htmlLines.push('<div>' + esc(rankLineText) + '</div>');
+    }
     // 2行目: 競合数（withName/withoutName はHL込みの総数。total = 名 + 無）。
     //        URLがあればSUUMO競合一覧を新タブで開けるリンクにする。
     if (compTotal === null || compTotal === undefined) {
@@ -602,20 +610,19 @@
     }
     badge.innerHTML = htmlLines.join('');
     // リンククリックが物件カードのクリックに伝播しないように
-    var compLink = badge.querySelector('a');
-    if (compLink) compLink.addEventListener('click', function (ev) { ev.stopPropagation(); });
-    badge.title = marketless
-      ? '＊相場データが取れず、駅徒歩・築年のみで算出（平米単価60%は未反映）／競合数をクリックでSUUMO競合一覧を開く'
-      : '競合数をクリックでSUUMO競合一覧を開く';
-    // スコア帯で色分け
-    var sc = Number(m.score);
-    if (isFinite(sc) && sc >= 80) badge.style.color = '#c0392b';
-    else if (isFinite(sc) && sc >= 60) badge.style.color = '#1a7f37';
+    var links = badge.querySelectorAll('a');
+    for (var li = 0; li < links.length; li++) {
+      links[li].addEventListener('click', function (ev) { ev.stopPropagation(); });
+    }
+    badge.title = '順位=同条件・安い順での順位/母数（✅1ページ目内 ⚠️圏外）。順位/競合をクリックでSUUMO検索を開く';
+    // 1ページ目内=緑 / 圏外=赤 / 不明=グレー
+    if (m.inPage1 === true) badge.style.color = '#1a7f37';
+    else if (m.inPage1 === false) badge.style.color = '#c0392b';
     else badge.style.color = '#555';
   }
 
   // ─────────────────────────────────────────────
-  // background からの進捗通知を受信（REINS詳細取得の進捗 / 競合数・点数）
+  // background からの進捗通知を受信（REINS詳細取得の進捗 / 競合数・順位）
   // ─────────────────────────────────────────────
   function onRuntimeMessage(msg) {
     if (!msg) return;
@@ -623,7 +630,7 @@
       var it = lastMetricItems[msg.index];
       if (it && it.rowEl) renderMetricBadge(it.rowEl, msg);
       var doneN = (msg.index || 0) + 1, totalN = msg.total || lastMetricItems.length;
-      setStatus('競合数・点数を計算中… ' + doneN + '/' + totalN + '件', '#666');
+      setStatus('競合数・順位を計算中… ' + doneN + '/' + totalN + '件', '#666');
       return;
     }
     if (msg.type !== 'MANUAL_SEND_PROGRESS') return;
