@@ -2873,7 +2873,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             // ポテンシャル順位(反響予測スコアに代わる主要指標。同条件・安い順での順位)
             if (typeof getSuumoSegmentRank === 'function' && typeof _buildSegmentRankInput === 'function'
                 && np.address && np.layout && np.area) {
-              const rr = await getSuumoSegmentRank(_buildSegmentRankInput(np));
+              const rankInput = _buildSegmentRankInput(np);
+              // 手動指定の設備条件を反映(一覧に設備情報が無いため。facilities由来があればOR)
+              if (msg.equip) {
+                if (msg.equip.btSeparate) rankInput.btSeparate = true;
+                if (msg.equip.washbasin) rankInput.washbasin = true;
+              }
+              const rr = await getSuumoSegmentRank(rankInput);
               if (rr && rr.ok) {
                 rank = rr.rank; sampleSize = rr.sampleSize; inPage1 = !!rr.inPage1; rankUrl = rr.searchUrl || '';
               }

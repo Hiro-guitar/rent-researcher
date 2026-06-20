@@ -34,6 +34,7 @@
   var sendBtn = null;
   var metricsBtn = null;
   var publishBtn = null;
+  var equipBtCb = null, equipWashCb = null; // 手動: 順位検索の設備条件(バストイレ別/独立洗面)
   var lastMetricItems = []; // 競合数・順位の計算対象（index→rowEl対応の保持）
 
   // ─────────────────────────────────────────────
@@ -376,6 +377,26 @@
     body.appendChild(selRow);
     body.appendChild(countEl);
     body.appendChild(sendBtn);
+
+    // 手動: 順位検索の設備条件（一覧に設備情報が無いため手動指定）。順位検索の tc に反映。
+    var equipRow = document.createElement('div');
+    equipRow.style.cssText = 'display:flex;gap:10px;font-size:11px;color:#444;align-items:center;flex-wrap:wrap;margin:2px 0 0;';
+    var equipHint = document.createElement('span');
+    equipHint.textContent = '順位の設備条件:';
+    equipHint.style.color = '#888';
+    equipRow.appendChild(equipHint);
+    function _mkEquipCb(t) {
+      var lbl = document.createElement('label');
+      lbl.style.cssText = 'display:flex;align-items:center;gap:3px;cursor:pointer;';
+      var cb = document.createElement('input'); cb.type = 'checkbox'; cb.style.cursor = 'pointer';
+      lbl.appendChild(cb); lbl.appendChild(document.createTextNode(t));
+      equipRow.appendChild(lbl);
+      return cb;
+    }
+    equipBtCb = _mkEquipCb('バス・トイレ別');
+    equipWashCb = _mkEquipCb('独立洗面台');
+
+    body.appendChild(equipRow);
     body.appendChild(metricsBtn);
     body.appendChild(publishBtn);
     body.appendChild(statusEl);
@@ -497,6 +518,10 @@
     sendToBackground({
       type: 'CHECK_SUUMO_METRICS',
       source: adapter && adapter.source,
+      equip: {
+        btSeparate: !!(equipBtCb && equipBtCb.checked),
+        washbasin: !!(equipWashCb && equipWashCb.checked)
+      },
       properties: items.map(function (x) { return x.prop; })
     }).then(function (resp) {
       if (resp && resp.ok) {
