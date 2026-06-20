@@ -1165,7 +1165,7 @@ function findStopCandidates(topN, options) {
   var logRows = [];
 
   var candidates = [];
-  var lowCompCount = 0, highCompCount = 0; // active全体の低競合/高競合の件数(25件キープの確認用)
+  var lowCompCount = 0, highCompCount = 0, unmeasuredCount = 0; // 低競合(取得済)/高競合/未取得 の件数(25件キープの確認用)
   for (var i = 0; i < data.length; i++) {
     if (data[i][8] !== 'active') continue;
 
@@ -1177,8 +1177,13 @@ function findStopCandidates(topN, options) {
     if (!inquiries) inquiries = Number(data[i][6]) || 0; // フォールバック: 旧7列目
     // 21列目: 反響予測スコア (入稿時に候補から引き継ぎ、0-100)
     var inquiryScore = Number(data[i][20]) || 0;
-    // 13列目: 合計詳細PV (一日PV算出に使う)
+    // 13列目: 合計詳細PV / 12列目: 合計一覧PV
     var totalDetailPv = Number(data[i][12]) || 0;
+    var totalListPv = Number(data[i][11]) || 0;
+    // SUUMOビジネス取得済み(=競合データが信頼できる)か。未取得の新規は活動データが全て0。
+    //   新規入稿は競合空欄、ForRent同期は競合0で挿入され、どちらも未取得。
+    //   PV/問合せ/SUUMO掲載日数のどれかが>0なら取得済みとみなす。
+    var compMeasured = (totalListPv > 0 || totalDetailPv > 0 || Number(data[i][13]) > 0 || suumoListedDays > 0);
 
     // シート上での掲載開始日からの経過日数(これが保護・スコア両方の基準)
     var sheetDays = 0;
@@ -1250,7 +1255,10 @@ function findStopCandidates(topN, options) {
     var potRank = Number(data[i][23]) || 0;
     var outOfPage1 = (String(data[i][24] || '') === '×'); // 圏外(類似物件50件以上の中で埋もれ)
     var hasInquiry = (inquiries > 0);
-    if (lowComp) lowCompCount++; else highCompCount++;
+    // 25件キープの「低競合」は取得済みのみ数える。未取得(新規)は別カウントで除外。
+    if (!compMeasured) unmeasuredCount++;
+    else if (lowComp) lowCompCount++;
+    else highCompCount++;
 
     // 弱さスコア(高いほど先に落とす)
     var weak;
@@ -1361,6 +1369,7 @@ function findStopCandidates(topN, options) {
   for (var ci = 0; ci < candidates.length; ci++) {
     candidates[ci].lowCompCount = lowCompCount;
     candidates[ci].highCompCount = highCompCount;
+    candidates[ci].unmeasuredCount = unmeasuredCount;
     candidates[ci].eligibleCount = eligibleCount;
   }
 
