@@ -331,6 +331,30 @@ function getListingSheet_() {
   return getSuumoSheet_(SUUMO_LISTING_SHEET, SUUMO_LISTING_HEADERS);
 }
 
+/**
+ * 【一回だけ手動実行】旧・不要列を「非表示＋ヘッダーに【廃止】」にする。
+ *   対象: 6最終PV数 / 7最終問合数 / 8パフォーマンススコア / 19危険度スコア /
+ *         21反響予測スコア / 23スコア内訳
+ *   列は物理削除せず位置を一切動かさないので、他機能の位置参照は無傷(ずれ事故ゼロ)。
+ *   ※書き込み自体は残るが、隠れた列に入るだけで無害(順位ベースの落とし判定では未使用)。
+ *   Apps Script エディタでこの関数を選んで実行する。
+ */
+function hideOldListingColumns() {
+  var sheet = getListingSheet_();
+  var cols = [6, 7, 8, 19, 21, 23];
+  var done = [];
+  for (var i = 0; i < cols.length; i++) {
+    var c = cols[i];
+    var hcell = sheet.getRange(1, c);
+    var h = String(hcell.getValue() || '');
+    if (h.indexOf('【廃止】') !== 0) hcell.setValue('【廃止】' + h);
+    sheet.hideColumns(c);
+    done.push(c + ':' + h);
+  }
+  Logger.log('非表示+廃止マーク完了 → ' + done.join(' / '));
+  return '非表示+廃止マーク完了: ' + done.join(' / ');
+}
+
 // ═══════════════════════════════════════════════════════════
 // 物件ポテンシャル順位 (1日1回 巡回時に掲載中物件の順位を更新)
 // ═══════════════════════════════════════════════════════════
