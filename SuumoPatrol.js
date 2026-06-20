@@ -1141,6 +1141,7 @@ function findStopCandidates(topN, options) {
   var logRows = [];
 
   var candidates = [];
+  var lowCompCount = 0, highCompCount = 0; // active全体の低競合/高競合の件数(25件キープの確認用)
   for (var i = 0; i < data.length; i++) {
     if (data[i][8] !== 'active') continue;
 
@@ -1225,6 +1226,7 @@ function findStopCandidates(topN, options) {
     var potRank = Number(data[i][23]) || 0;
     var outOfPage1 = (String(data[i][24] || '') === '×'); // 圏外(類似物件50件以上の中で埋もれ)
     var hasInquiry = (inquiries > 0);
+    if (lowComp) lowCompCount++; else highCompCount++;
 
     // 弱さスコア(高いほど先に落とす)
     var weak;
@@ -1328,6 +1330,14 @@ function findStopCandidates(topN, options) {
     } catch (e) {
       Logger.log('停止候補ログ書き込み失敗: ' + e.message);
     }
+  }
+
+  // ポートフォリオ状況を各候補に添付(低競合の件数=25件キープの確認 / 落とせる候補数)
+  var eligibleCount = candidates.length;
+  for (var ci = 0; ci < candidates.length; ci++) {
+    candidates[ci].lowCompCount = lowCompCount;
+    candidates[ci].highCompCount = highCompCount;
+    candidates[ci].eligibleCount = eligibleCount;
   }
 
   // 降順ソートして上位N件を返す
