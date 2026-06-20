@@ -7238,7 +7238,7 @@ async function runSuumoApprovalPreHook_() {
   // GAS が段階的保護緩和をどのレベルで採用したかを取得 (0=標準/1=緩い/2=最小/3=保護無視)
   // GAS が古い (relaxLevel 未対応) なら undefined → 0 扱い
   const relaxLevel = typeof peek.stopCandidateRelaxLevel === 'number' ? peek.stopCandidateRelaxLevel : 0;
-  const relaxLabel = ['標準(低競合+問合せ保護)', '緩和1(問合せのみ保護)', '保護なし', '保護なし(最終手段)'][relaxLevel] || '不明';
+  const relaxLabel = ['標準(加重≤5+問合せ保護)', '緩和1(問合せのみ保護)', '保護なし', '保護なし(最終手段)'][relaxLevel] || '不明';
 
   if (candidates.length === 0) {
     // GAS レスポンスの中身をすべてログに出して原因特定
@@ -7277,7 +7277,7 @@ async function runSuumoApprovalPreHook_() {
   }
   await setStorageData({
     debugLog: `[承認前処理] 停止実行: ${target.building} ${target.room} (${suumoCode}) 理由=「${target.reason || '不明'}」`
-      + ` (低競合${target.lowCompCount != null ? target.lowCompCount : '?'}件/高競合${target.highCompCount != null ? target.highCompCount : '?'}件・落とせる候補${target.eligibleCount != null ? target.eligibleCount : '?'}件の最弱) 保護=${relaxLabel}`
+      + ` (加重≤5が${target.lowCompCount != null ? target.lowCompCount : '?'}件/加重>5が${target.highCompCount != null ? target.highCompCount : '?'}件・落とせる候補${target.eligibleCount != null ? target.eligibleCount : '?'}件の最弱) 保護=${relaxLabel}`
   });
 
   const stopResult = await stopForrentListing({ suumoPropertyCode: suumoCode });
