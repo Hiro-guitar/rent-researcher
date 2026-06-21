@@ -76,7 +76,10 @@ var SUUMO_LISTING_HEADERS = [
   '順位URL',
   // 28列目: 母数 = 同条件・1ページ目の重複排除後の部屋数。
   // 「1位/1件(競合ゼロ=独占)」か「1位/30件(激戦区で最安=最強)」かの文脈が分かる。
-  '母数(件数)'
+  '母数(件数)',
+  // 29列目: 代表物件の遷移率(%) = 代表詳細PV ÷ 代表一覧PV。SUUMOビジネスDaily Search d[24]。
+  // 「一覧に出てるのに詳細を見られてない(=画像が弱い)」を捉える。目標>10%。
+  '遷移率(代表%)'
 ];
 
 // 停止候補ログシート (毎回の findStopCandidates 実行履歴を蓄積)
@@ -2619,6 +2622,8 @@ function updateSuumoListingStats_(json) {
     var totalListPv = Number(row.total_list_pv) || 0;
     var totalDetailPv = Number(row.total_detail_pv) || 0;
     var inquiries = Number(row.inquiries) || 0;
+    // 代表物件の遷移率(%): "11.0%" → 11.0 (SUUMOビジネス d[24])
+    var transRate = parseFloat(String(row.transition_rate || '').replace(/[%％,\s]/g, '')) || 0;
 
     // 競合基準値別件数は暫定で整数パースのみ(正しい列が未確定の場合は0になる)
     var compLv1 = parseInt(String(row.comp_lv1_raw || '').replace(/[^0-9]/g, ''), 10) || 0;
@@ -2670,6 +2675,9 @@ function updateSuumoListingStats_(json) {
       sheet.getRange(targetRow, 6, 1, 3).setValues([[totalDetailPv, inquiries, derivedScore]]);
       // 11-20列目を更新 (21列目=反響予測スコアは入稿時にセットされたまま保持)
       sheet.getRange(targetRow, 11, 1, extended.length).setValues([extended]);
+      // 遷移率(代表%)を名前参照で書き込み(末尾列のため extended と別)
+      var transCol = SUUMO_LISTING_HEADERS.indexOf('遷移率(代表%)') + 1;
+      if (transCol > 0) sheet.getRange(targetRow, transCol).setValue(transRate);
       updated++;
       matchedSheetRows[targetRow] = true;
 
