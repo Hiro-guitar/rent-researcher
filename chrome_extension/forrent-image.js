@@ -230,7 +230,7 @@ async function runRepImageChangeBatch(opts) {
   opts = opts || {};
   if (_imageBatchRunning) return { ok: false, error: '既に画像変更バッチ実行中' };
   const threshold = Number(opts.threshold) || 10;
-  const limit = Number(opts.limit) || 3;
+  const limit = (opts.limit != null) ? Number(opts.limit) : 0; // 0/未指定 = 全件(上限なし)
 
   // dryRun を一度だけ解決し、バッチ全体で統一(各物件で揺れないように)
   let dryRun;
@@ -245,7 +245,7 @@ async function runRepImageChangeBatch(opts) {
 
   _imageBatchRunning = true;
   try {
-    await setStorageData({ debugLog: `[画像バッチ] 開始 閾値<${threshold}% 上限${limit}件 dryRun=${dryRun}` });
+    await setStorageData({ debugLog: `[画像バッチ] 開始 閾値<${threshold}% 上限${limit > 0 ? limit + '件' : '無し'} dryRun=${dryRun}` });
 
     // 1. 候補取得
     const res = await _fetchWithTimeout_(gasWebappUrl, {
@@ -312,9 +312,8 @@ globalThis.runRepImageChangeBatch = runRepImageChangeBatch;
  * 【画像改善 自動実行】巡回完了フックから1日1回呼ぶ。本番保存(dryRun=false)で
  * 低遷移率物件の代表画像を内観に変更する。1日の処理上限あり。
  *   一時停止: storage suumoImageAutoChangePaused = true
- *   1日上限:  storage suumoImageDailyLimit (既定 IMAGE_DAILY_LIMIT)
+ *   1日上限:  storage suumoImageDailyLimit (既定 0 = 上限なし。変更済はマーク除外されるので暴走しない)
  */
-const IMAGE_DAILY_LIMIT = 5;
 async function maybeRunImageChangeBatch() {
   if (_imageBatchRunning) return;
   // 日次ガード(JST)
@@ -332,7 +331,7 @@ async function maybeRunImageChangeBatch() {
     return;
   }
 
-  const limit = Number(suumoImageDailyLimit) || IMAGE_DAILY_LIMIT;
+  const limit = Number(suumoImageDailyLimit) || 0; // 0 = 上限なし(在庫を全件。マーク済は除外)
   try {
     const r = await runRepImageChangeBatch({ dryRun: false, limit });
     if (r && r.ok) {
