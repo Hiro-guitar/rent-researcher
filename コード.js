@@ -143,6 +143,12 @@ function doPost(e) {
     if (json.action === 'update_listing_rank') {
       return handleUpdateListingRank(json);
     }
+    if (json.action === 'get_image_change_candidates') {
+      return handleGetImageChangeCandidates(json);
+    }
+    if (json.action === 'mark_image_changed') {
+      return handleMarkImageChanged(json);
+    }
     if (json.action === 'sync_forrent_listing_status') {
       return handleSyncForrentListingStatus(json);
     }

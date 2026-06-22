@@ -444,6 +444,55 @@ function markImageChangedToNaikan(keys) {
   return { success: true, marked: marked };
 }
 
+/**
+ * POST: get_image_change_candidates
+ * 代表画像を内観に変更する候補(遷移率<閾値・active・未マーク・物件コードあり)を
+ * 物件コード付きで返す。拡張のバッチ(runRepImageChangeBatch)が使う。
+ * @param json.threshold [=10] 遷移率(%)閾値
+ * @param json.limit [=5] 返す最大件数(1日の処理上限)
+ * @returns {success, candidates:[{key, building, room, suumoCode, 遷移率, 代表一覧PV}]}
+ */
+function handleGetImageChangeCandidates(json) {
+  var threshold = (json && Number(json.threshold)) || 10;
+  var limit = (json && Number(json.limit)) || 5;
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  var out = [];
+  if (lastRow > 1) {
+    var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
+    var codeIdx = SUUMO_LISTING_HEADERS.indexOf('suumo_property_code');
+    var transIdx = SUUMO_LISTING_HEADERS.indexOf('遷移率(代表%)');
+    var repListIdx = SUUMO_LISTING_HEADERS.indexOf('代表物件一覧PV');
+    var statusIdx = SUUMO_LISTING_HEADERS.indexOf('画像変更状態');
+    for (var i = 0; i < data.length; i++) {
+      if (data[i][8] !== 'active') continue;             // active のみ
+      if (String(data[i][statusIdx] || '')) continue;    // 既にマーク済は除外
+      var code = String(data[i][codeIdx] || '').replace(/[^0-9]/g, '');
+      if (code.length !== 12) continue;                  // 物件コードが無い/不正は除外
+      var tr = Number(data[i][transIdx]) || 0;
+      if (tr > 0 && tr < threshold) {
+        out.push({ key: data[i][0], building: data[i][1], room: data[i][2],
+                   suumoCode: code, 遷移率: tr, 代表一覧PV: Number(data[i][repListIdx]) || 0 });
+      }
+    }
+    out.sort(function (a, b) { return a.遷移率 - b.遷移率; }); // 遷移率の低い順(改善余地大)
+  }
+  var candidates = out.slice(0, limit);
+  return ContentService.createTextOutput(JSON.stringify({ success: true, candidates: candidates, total: out.length }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * POST: mark_image_changed
+ * 内観変更が成功した物件を「起点待ち」にマークする(markImageChangedToNaikanのHTTP版)。
+ * @param json.keys 物件キー配列
+ */
+function handleMarkImageChanged(json) {
+  var res = markImageChangedToNaikan((json && json.keys) || []);
+  return ContentService.createTextOutput(JSON.stringify(res))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 // ═══════════════════════════════════════════════════════════
 // 物件ポテンシャル順位 (1日1回 巡回時に掲載中物件の順位を更新)
 // ═══════════════════════════════════════════════════════════
