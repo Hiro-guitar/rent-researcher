@@ -795,6 +795,7 @@ function renderCriteriaList() {
           '<span class="toggle-slider"></span>' +
         '</label>' +
         '<button class="btn btn-primary" style="font-size:12px;padding:6px 10px;" onclick="showEditForm(\'' + esc(c.id) + '\')">編集</button>' +
+        '<button class="btn btn-primary" style="font-size:12px;padding:6px 10px;background:#16a085;" onclick="copyCondition(\'' + esc(c.id) + '\')">コピー</button>' +
         '<button class="btn btn-danger" onclick="deleteCondition(\'' + esc(c.id) + '\')">削除</button>' +
       '</div>' +
     '</div>';
@@ -806,6 +807,17 @@ function renderCriteriaList() {
 // ══════════════════════════════════════════════════════════
 //  編集フォーム
 // ══════════════════════════════════════════════════════════
+
+// 既存条件をコピーして「新規追加」として編集フォームを開く。
+//   編集と同じ流し込みロジックを再利用し、IDだけ空にして保存時に新規作成させる。
+function copyCondition(criteriaId) {
+  showEditForm(criteriaId);                          // 全項目を流し込む(編集と同じ)
+  document.getElementById('editId').value = '';      // IDを空に = 保存時は新規作成
+  var nm = document.getElementById('editName');
+  nm.value = (nm.value || '') + ' のコピー';
+  document.getElementById('editFormTitle').textContent = 'コピーして新規追加';
+}
+
 function showEditForm(criteriaId) {
   document.getElementById('criteriaListView').style.display = 'none';
   document.getElementById('editFormView').style.display = 'block';
