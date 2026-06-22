@@ -464,6 +464,15 @@ async function runSuumoPatrolCycle() {
       await setStorageData({ debugLog: `[掲載順位更新] フック例外: ${e.message}` });
     }
 
+    // 巡回完了後フック: 1日1回(初回巡回時)、低遷移率物件の代表画像を内観に自動変更（本番保存）
+    try {
+      if (typeof maybeRunImageChangeBatch === 'function') {
+        await maybeRunImageChangeBatch();
+      }
+    } catch (e) {
+      await setStorageData({ debugLog: `[画像バッチ] フック例外: ${e.message}` });
+    }
+
   } catch (err) {
     await setStorageData({ debugLog: `[SUUMO巡回] 致命的エラー: ${err.message}` });
     console.error('[SUUMO巡回] エラー:', err);

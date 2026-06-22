@@ -307,3 +307,41 @@ async function runRepImageChangeBatch(opts) {
 }
 
 globalThis.runRepImageChangeBatch = runRepImageChangeBatch;
+
+/**
+ * 【画像改善 自動実行】巡回完了フックから1日1回呼ぶ。本番保存(dryRun=false)で
+ * 低遷移率物件の代表画像を内観に変更する。1日の処理上限あり。
+ *   一時停止: storage suumoImageAutoChangePaused = true
+ *   1日上限:  storage suumoImageDailyLimit (既定 IMAGE_DAILY_LIMIT)
+ */
+const IMAGE_DAILY_LIMIT = 5;
+async function maybeRunImageChangeBatch() {
+  if (_imageBatchRunning) return;
+  // 日次ガード(JST)
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const todayJst = jst.getUTCFullYear() + '-' + String(jst.getUTCMonth() + 1).padStart(2, '0') + '-' + String(jst.getUTCDate()).padStart(2, '0');
+  const { lastImageChangeBatchDate, suumoImageAutoChangePaused, suumoImageDailyLimit } =
+    await getStorageData(['lastImageChangeBatchDate', 'suumoImageAutoChangePaused', 'suumoImageDailyLimit']);
+
+  if (suumoImageAutoChangePaused) {
+    await setStorageData({ debugLog: '[画像バッチ] 一時停止中(suumoImageAutoChangePaused)のためスキップ' });
+    return;
+  }
+  if (lastImageChangeBatchDate === todayJst) {
+    await setStorageData({ debugLog: `[画像バッチ] 本日(${todayJst})は実施済みのためスキップ` });
+    return;
+  }
+
+  const limit = Number(suumoImageDailyLimit) || IMAGE_DAILY_LIMIT;
+  try {
+    const r = await runRepImageChangeBatch({ dryRun: false, limit });
+    if (r && r.ok) {
+      // 成功(候補0含む)のみ当日済みにする。失敗時は更新せず次回巡回でリトライ。
+      await setStorageData({ lastImageChangeBatchDate: todayJst });
+    }
+  } catch (e) {
+    await setStorageData({ debugLog: `[画像バッチ] 自動実行 例外: ${e && e.message}（次回巡回でリトライ）` });
+  }
+}
+
+globalThis.maybeRunImageChangeBatch = maybeRunImageChangeBatch;
