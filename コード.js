@@ -1772,11 +1772,17 @@ function findLineUserId(customerName) {
     if (!sheet) return null;
 
     const data = sheet.getDataRange().getValues();
+    // 同名で複数行あるケース(IDを変更すると saveLineUser が旧行を残して追記するため)に対応。
+    //   admin_ プレースホルダー(LINE未連携)は無視し、有効なIDのうち最後(=最新)を返す。
+    var found = null;
     for (let i = 1; i < data.length; i++) {
       if (data[i][1] === customerName) {
-        return data[i][0];
+        var uid = String(data[i][0] || '').trim();
+        if (!uid || uid.indexOf('admin_') === 0) continue; // 未連携プレースホルダーは採用しない
+        found = uid;
       }
     }
+    return found;
   } catch (e) {
     Logger.log('findLineUserId error: ' + e);
   }

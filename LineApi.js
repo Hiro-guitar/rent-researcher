@@ -47,12 +47,18 @@ function replyMessage(replyToken, messages) {
  * @param {Object[]} messages - メッセージオブジェクトの配列（最大5件）
  */
 function pushMessage(userId, messages, options) {
+  // 送信先IDの検証(空・admin_プレースホルダー＝LINE未連携 を弾いて、分かりやすいエラーにする)
+  //   これをしないと LINE API が cryptic な 400「'to' is invalid」を返す。
+  var to = String(userId || '').trim();
+  if (!to || to.indexOf('admin_') === 0) {
+    throw new Error('LINE未連携のため送信できません(送信先ID: "' + userId + '")。LINE Usersシートで正しいユーザーID(U…)を登録してください。');
+  }
   if (isDryRun_()) {
-    Logger.log('[DRY_RUN] pushMessage to ' + userId + ': ' + JSON.stringify(messages));
+    Logger.log('[DRY_RUN] pushMessage to ' + to + ': ' + JSON.stringify(messages));
     return;
   }
   var body = {
-    to: userId,
+    to: to,
     messages: messages
   };
   // options.silent = true で通知音・バイブレーションを無効化
