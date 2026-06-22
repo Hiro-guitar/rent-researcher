@@ -149,6 +149,9 @@ function doPost(e) {
     if (json.action === 'mark_image_changed') {
       return handleMarkImageChanged(json);
     }
+    if (json.action === 'get_suumo_settings') {
+      return handleGetSuumoSettings(json);
+    }
     if (json.action === 'sync_forrent_listing_status') {
       return handleSyncForrentListingStatus(json);
     }

@@ -301,6 +301,22 @@ input[type="range"]::-webkit-slider-thumb {
 
 <!-- ===== 条件一覧 ===== -->
 <div id="criteriaListView">
+  <!-- 全体設定（順位上限） -->
+  <div class="card">
+    <div class="card-title">全体設定</div>
+    <div class="card-body">
+      <label style="display:block;margin-bottom:6px;font-weight:600;">新着の順位上限（Discord通知）</label>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input id="rankCapInput" type="number" min="0" step="1" style="width:90px;padding:6px;border:1px solid #ccc;border-radius:6px;" placeholder="0">
+        <span>位まで通知（0＝無制限）</span>
+        <button class="btn btn-success" onclick="saveGlobalSettings()">保存</button>
+        <span id="rankCapStatus" style="font-size:13px;"></span>
+      </div>
+      <div style="color:#888;font-size:12px;margin-top:6px;">
+        新着物件の「同条件・安い順」の順位がこの値より下の物件はDiscordに通知しません（承認対象から外す）。順位が出せなかった物件は通知します。
+      </div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-title">登録済み巡回条件</div>
     <div class="card-body">
@@ -450,7 +466,36 @@ window.addEventListener('DOMContentLoaded', function() {
   renderStructureCheckboxes();
   renderEquipmentCheckboxes();
   loadCriteriaList();
+  loadGlobalSettings();
 });
+
+// ── 全体設定（順位上限）の読み込み・保存 ──
+function loadGlobalSettings() {
+  google.script.run
+    .withSuccessHandler(function(s) {
+      if (s && typeof s.rankCap !== 'undefined') {
+        document.getElementById('rankCapInput').value = s.rankCap || 0;
+      }
+    })
+    .withFailureHandler(function(err) { console.error('loadGlobalSettings failure:', err); })
+    .getSuumoGlobalSettings();
+}
+function saveGlobalSettings() {
+  var cap = parseInt(document.getElementById('rankCapInput').value, 10);
+  if (isNaN(cap) || cap < 0) cap = 0;
+  var status = document.getElementById('rankCapStatus');
+  status.textContent = '保存中...'; status.style.color = '#888';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      document.getElementById('rankCapInput').value = (r && r.rankCap) || 0;
+      status.textContent = '保存しました'; status.style.color = '#27ae60';
+      setTimeout(function() { status.textContent = ''; }, 2500);
+    })
+    .withFailureHandler(function(err) {
+      status.textContent = '保存失敗: ' + (err.message || err); status.style.color = '#e74c3c';
+    })
+    .saveSuumoGlobalSettings({ rankCap: cap });
+}
 
 // ── タブ切替 ──
 function switchTab(tab) {

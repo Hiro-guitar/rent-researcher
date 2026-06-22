@@ -494,6 +494,32 @@ function handleMarkImageChanged(json) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// SUUMO全体設定 (順位上限など)。ScriptPropertiesに保存。
+//   設定UI(SuumoPatrolConfig.html)が google.script.run で読み書き、
+//   拡張は巡回時に get_suumo_settings(doPost) で読む。
+// ═══════════════════════════════════════════════════════════
+
+/** 設定UI用: 現在の全体設定を返す(google.script.run.getSuumoGlobalSettings) */
+function getSuumoGlobalSettings() {
+  var v = PropertiesService.getScriptProperties().getProperty('SUUMO_RANK_CAP');
+  return { rankCap: v ? Number(v) : 0 }; // 0 = 無制限(順位ゲート無効)
+}
+
+/** 設定UI用: 全体設定を保存(google.script.run.saveSuumoGlobalSettings) */
+function saveSuumoGlobalSettings(data) {
+  var cap = (data && Number(data.rankCap)) || 0;
+  if (!(cap > 0)) cap = 0;
+  PropertiesService.getScriptProperties().setProperty('SUUMO_RANK_CAP', String(cap));
+  return { success: true, rankCap: cap };
+}
+
+/** POST: get_suumo_settings — 拡張が順位上限を読む */
+function handleGetSuumoSettings(json) {
+  return ContentService.createTextOutput(JSON.stringify(getSuumoGlobalSettings()))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ═══════════════════════════════════════════════════════════
 // 物件ポテンシャル順位 (1日1回 巡回時に掲載中物件の順位を更新)
 // ═══════════════════════════════════════════════════════════
 
