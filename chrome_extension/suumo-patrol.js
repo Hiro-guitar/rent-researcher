@@ -648,7 +648,8 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
         result.discordWebhookUrl
       );
       const errSnippet = sendResult.errors.length > 0 ? ` 失敗${sendResult.errors.length}件: ${sendResult.errors.slice(0,1).join('|').substring(0,120)}` : '';
-      await setStorageData({ debugLog: `[SUUMO巡回] Discord送信結果(拡張側): ${sendResult.sent}/${result.notifyProps.length}件${errSnippet}` });
+      const skipSnippet = sendResult.skippedByRank > 0 ? ` 順位上限スキップ${sendResult.skippedByRank}件` : '';
+      await setStorageData({ debugLog: `[SUUMO巡回] Discord送信結果(拡張側): ${sendResult.sent}/${result.notifyProps.length}件${skipSnippet}${errSnippet}` });
       // 送信成功した行を GAS にマーク依頼
       if (sendResult.sheetRowIndexes.length > 0) {
         await markSuumoDiscordSentInGas_(sendResult.sheetRowIndexes);
@@ -1029,7 +1030,13 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
   // 巡回ごとに新規スレッド作成
   const threadId = await createSuumoPatrolThread_(webhookUrl);
 
+  // 順位上限ゲート(グローバル設定)。新着の順位がこの値を超えたらDiscordに送らない=承認対象にしない。
+  //   0/未設定 = 無効(従来通り全部送る)。chrome.storage.local の suumoRankCap で設定。
+  const { suumoRankCap } = await getStorageData(['suumoRankCap']);
+  const rankCap = Number(suumoRankCap) || 0;
+
   let sent = 0;
+  let skippedByRank = 0;
   const errors = [];
   const successIndexes = [];
   for (let i = 0; i < notifyProps.length; i++) {
@@ -1070,6 +1077,16 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     } catch (e2) {
       console.warn('[SUUMO巡回] 順位計算失敗:', e2 && e2.message);
       await setStorageData({ debugLog: '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → 例外: ' + (e2 && e2.message) });
+    }
+
+    // 順位上限ゲート: 順位が確定(ok)していて上限を超えていたらDiscord送信をスキップ(承認対象から外す)。
+    //   順位計算が失敗した物件はフェイルオープン(送る)。順位はこの後まとめてGASに保存されるのでスキップしても記録は残る。
+    if (rankCap > 0 && typeof p.segment_rank === 'number' && p.segment_rank > rankCap) {
+      skippedByRank++;
+      await setStorageData({ debugLog:
+        '[順位ゲート] ' + _bldName + ' ' + _roomNo + ' → ' + p.segment_rank + '位 > 上限' + rankCap + '位 のためDiscord送信スキップ' });
+      if (i < notifyProps.length - 1) await sleep(300);
+      continue;
     }
 
     const content = buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, item.key);
@@ -1167,7 +1184,7 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     console.warn('[ポテンシャル順位] GAS保存失敗:', e && e.message);
   }
 
-  return { sent, errors, sheetRowIndexes: successIndexes };
+  return { sent, errors, sheetRowIndexes: successIndexes, skippedByRank };
 }
 
 /**
