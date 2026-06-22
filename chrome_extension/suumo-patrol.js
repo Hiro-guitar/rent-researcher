@@ -1031,9 +1031,24 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
   const threadId = await createSuumoPatrolThread_(webhookUrl);
 
   // 順位上限ゲート(グローバル設定)。新着の順位がこの値を超えたらDiscordに送らない=承認対象にしない。
-  //   0/未設定 = 無効(従来通り全部送る)。chrome.storage.local の suumoRankCap で設定。
-  const { suumoRankCap } = await getStorageData(['suumoRankCap']);
-  const rankCap = Number(suumoRankCap) || 0;
+  //   設定UI(SuumoPatrolConfig.html)→GAS ScriptProperties に保存された値を巡回ごとに読む。
+  //   0/未設定 = 無効(従来通り全部送る)。取得失敗もフェイルオープン(0=全部送る)。
+  let rankCap = 0;
+  try {
+    const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
+    if (gasWebappUrl) {
+      const sres = await _fetchWithTimeout_(gasWebappUrl, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_suumo_settings' })
+      }, 15000);
+      const sjson = await sres.json();
+      rankCap = Number(sjson && sjson.rankCap) || 0;
+    }
+  } catch (e) {
+    rankCap = 0;
+    await setStorageData({ debugLog: '[順位ゲート] 設定取得失敗のため無効化(全件送信): ' + (e && e.message) });
+  }
+  if (rankCap > 0) await setStorageData({ debugLog: `[順位ゲート] 上限${rankCap}位（これより下の新着はDiscord通知しない）` });
 
   let sent = 0;
   let skippedByRank = 0;
