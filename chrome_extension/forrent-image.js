@@ -211,3 +211,99 @@ async function changeForrentRepImageToNaikan(opts) {
 }
 
 globalThis.changeForrentRepImageToNaikan = changeForrentRepImageToNaikan;
+
+/**
+ * 【画像改善バッチ】低遷移率(<閾値)・掲載中・未マークの物件を、GASから物件コード付きで取得し、
+ * 1日数件ずつ代表画像を内観に変更 → 成功した物件をGASに「起点待ち」マーク。
+ *
+ *   dryRun(既定: storage suumoImageChangeDryRun、無ければtrue)では確認画面まで到達するだけで
+ *   保存しない＝マークもしない（実際には変えていないため）。
+ *
+ * @param {Object} [opts]
+ * @param {number} [opts.threshold=10] 遷移率(%)閾値
+ * @param {number} [opts.limit=3]      1回の処理上限(1日数件)
+ * @param {boolean} [opts.dryRun]      明示指定で上書き(省略時はstorage→true)
+ * @returns {Promise<{ok, processed, saved, marked, results}>}
+ */
+let _imageBatchRunning = false;
+async function runRepImageChangeBatch(opts) {
+  opts = opts || {};
+  if (_imageBatchRunning) return { ok: false, error: '既に画像変更バッチ実行中' };
+  const threshold = Number(opts.threshold) || 10;
+  const limit = Number(opts.limit) || 3;
+
+  // dryRun を一度だけ解決し、バッチ全体で統一(各物件で揺れないように)
+  let dryRun;
+  if (typeof opts.dryRun === 'boolean') dryRun = opts.dryRun;
+  else {
+    const { suumoImageChangeDryRun } = await getStorageData(['suumoImageChangeDryRun']);
+    dryRun = (suumoImageChangeDryRun === undefined || suumoImageChangeDryRun === null) ? true : !!suumoImageChangeDryRun;
+  }
+
+  const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
+  if (!gasWebappUrl) return { ok: false, error: 'gasWebappUrl未設定' };
+
+  _imageBatchRunning = true;
+  try {
+    await setStorageData({ debugLog: `[画像バッチ] 開始 閾値<${threshold}% 上限${limit}件 dryRun=${dryRun}` });
+
+    // 1. 候補取得
+    const res = await _fetchWithTimeout_(gasWebappUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_image_change_candidates', threshold, limit })
+    }, 30000);
+    const raw = await res.text();
+    let data;
+    try { data = JSON.parse(raw); }
+    catch (pe) {
+      await setStorageData({ debugLog: '[画像バッチ] GAS応答がJSONでない(未デプロイ?): ' + String(raw).slice(0, 140) });
+      return { ok: false, error: 'GAS応答不正(未デプロイ?)' };
+    }
+    const candidates = (data && data.candidates) || [];
+    if (!candidates.length) {
+      await setStorageData({ debugLog: `[画像バッチ] 候補なし(遷移率<${threshold}%・未マーク・コードあり = 0件)` });
+      return { ok: true, processed: 0, saved: 0, marked: 0, results: [] };
+    }
+
+    // 2. 各候補を内観に変更(逐次)
+    const results = [];
+    const savedKeys = [];
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      await setStorageData({ debugLog: `[画像バッチ] ${i + 1}/${candidates.length} ${c.building || ''}${c.room || ''} (遷移率${c.遷移率}%) 処理中` });
+      let r;
+      try { r = await changeForrentRepImageToNaikan({ suumoPropertyCode: c.suumoCode, dryRun }); }
+      catch (e) { r = { ok: false, error: e && e.message }; }
+      results.push({ key: c.key, building: c.building, room: c.room, suumoCode: c.suumoCode, result: r });
+      if (r && r.ok && r.saved) savedKeys.push(c.key); // 本番保存できた物件のみマーク対象
+      await sleep(2000); // ForRent負荷・レート緩和
+    }
+
+    // 3. 実際に保存できた物件をGASにマーク(起点待ち)。dryRunのみのバッチではsavedKeys=空。
+    let marked = 0;
+    if (savedKeys.length) {
+      try {
+        const mres = await _fetchWithTimeout_(gasWebappUrl, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'mark_image_changed', keys: savedKeys })
+        }, 30000);
+        const mjson = JSON.parse(await mres.text());
+        marked = (mjson && mjson.marked) || 0;
+      } catch (e) {
+        await setStorageData({ debugLog: `[画像バッチ] マーク送信失敗: ${e && e.message}（変更は済・次回手動マーク要）` });
+      }
+    }
+
+    const savedCount = results.filter(x => x.result && x.result.ok && x.result.saved).length;
+    await setStorageData({ debugLog: `[画像バッチ] 完了 処理${results.length}件 / 保存${savedCount}件 / マーク${marked}件 (dryRun=${dryRun})` });
+    return { ok: true, processed: results.length, saved: savedCount, marked, dryRun, results };
+
+  } catch (err) {
+    await setStorageData({ debugLog: `[画像バッチ] 例外: ${err && err.message}` });
+    return { ok: false, error: err && err.message };
+  } finally {
+    _imageBatchRunning = false;
+  }
+}
+
+globalThis.runRepImageChangeBatch = runRepImageChangeBatch;
