@@ -454,7 +454,7 @@ function markImageChangedToNaikan(keys) {
  */
 function handleGetImageChangeCandidates(json) {
   var threshold = (json && Number(json.threshold)) || 10;
-  var limit = (json && Number(json.limit)) || 5;
+  var limit = (json && Number(json.limit)) || 0; // 0/未指定 = 全件(上限なし)
   var sheet = getListingSheet_();
   var lastRow = sheet.getLastRow();
   var out = [];
@@ -477,7 +477,7 @@ function handleGetImageChangeCandidates(json) {
     }
     out.sort(function (a, b) { return a.遷移率 - b.遷移率; }); // 遷移率の低い順(改善余地大)
   }
-  var candidates = out.slice(0, limit);
+  var candidates = (limit > 0) ? out.slice(0, limit) : out; // limit<=0 は全件
   return ContentService.createTextOutput(JSON.stringify({ success: true, candidates: candidates, total: out.length }))
     .setMimeType(ContentService.MimeType.JSON);
 }
