@@ -207,6 +207,7 @@ async function runSuumoPatrolCycle() {
     const { suumoSeenKeys } = await getStorageData(['suumoSeenKeys']);
     const seenKeys = suumoSeenKeys || {};
     globalThis._suumoPatrolSeenKeys = seenKeys;
+    globalThis._suumoPatrolCompSkippedKeys = new Set();
 
     // 3. 有効なサービスを確認（SUUMO巡回専用の設定を使用、未設定時は顧客検索の設定にフォールバック）
     const { patrolEnabledServices, enabledServices } = await getStorageData(['patrolEnabledServices', 'enabledServices']);
@@ -401,6 +402,7 @@ async function runSuumoPatrolCycle() {
           }
           // 競合数上限超過 → GAS送信もDiscordも完全スキップ
           if (skipByCompetition) {
+            try { globalThis._suumoPatrolCompSkippedKeys && globalThis._suumoPatrolCompSkippedKeys.add(key); } catch(_) {}
             await setStorageData({ debugLog:
               `[SUUMO巡回] ✗ スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} - ${skipReason}`
             });
@@ -467,6 +469,7 @@ async function runSuumoPatrolCycle() {
     }
     await setStorageData({ suumoSeenKeys: seenKeys });
     globalThis._suumoPatrolSeenKeys = null;
+    globalThis._suumoPatrolCompSkippedKeys = null;
 
     await setStorageData({ debugLog: '━━━ SUUMO巡回 完了 ━━━' });
 

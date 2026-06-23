@@ -985,14 +985,19 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
-      // ── SUUMO巡回: 既知物件の早期スキップ（詳細ページ遷移前） ──
+      // ── SUUMO巡回: 既知物件・競合スキップ済みの早期スキップ（詳細ページ遷移前） ──
       if (globalThis._suumoPatrolMode && !isForced) {
         const _normKey = globalThis._normSuumoKey;
         const _seenKeys = globalThis._suumoPatrolSeenKeys;
-        if (_normKey && _seenKeys) {
+        const _compSkipped = globalThis._suumoPatrolCompSkippedKeys;
+        if (_normKey) {
           const earlyKey = _normKey(prop.building_name || '', prop.room_number || '');
-          if (earlyKey && _seenKeys[earlyKey]) {
+          if (earlyKey && _seenKeys && _seenKeys[earlyKey]) {
             await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 既知スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
+            continue;
+          }
+          if (earlyKey && _compSkipped && _compSkipped.has(earlyKey)) {
+            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 競合スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
             continue;
           }
         }
