@@ -337,9 +337,6 @@ async function runSuumoPatrolCycle() {
             if (prop.suumo_competitor && typeof prop.suumo_competitor === 'object') {
               // 詳細スクレイプ側で取得済み → 閾値判定のみ再評価(念のため)
               const competitor = prop.suumo_competitor;
-              await setStorageData({ debugLog:
-                `[SUUMO巡回] 競合数(詳細側で取得済): あり${competitor.withName}(HL${competitor.withNameHighlighted})/なし${competitor.withoutName}(HL${competitor.withoutNameHighlighted})`
-              });
               try {
                 const { suumoCompSkipThresholds } = await getStorageData(['suumoCompSkipThresholds']);
                 const t = suumoCompSkipThresholds || {};
@@ -409,8 +406,24 @@ async function runSuumoPatrolCycle() {
             return this._items.length;
           }
           try {
-            await sendSuumoCandidatesToGas([prop], crit.id);
-            await setStorageData({ debugLog: `[SUUMO巡回] → ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} 送信完了` });
+            const gasRes = await sendSuumoCandidatesToGas([prop], crit.id);
+            // 集約「送信完了」行(1エントリ複数行)。競合数=物件名なし×HLあり / 順位 / 各URL。
+            const bld = prop.building_name || prop.buildingName || '';
+            const room = prop.room_number || prop.roomNumber || '';
+            const hasComp = prop.suumo_competitor && typeof prop.suumo_competitor === 'object';
+            const comp = hasComp ? prop.suumo_competitor : {};
+            const compN = hasComp ? (comp.withoutNameHighlighted || 0) : '-';
+            const ri = gasRes && gasRes._rankInfo;
+            let rankPart = '順位：-';
+            if (ri && typeof ri.rank === 'number') {
+              rankPart = `順位：${ri.rank}位/${ri.sampleSize}件`;
+              if (ri.skipped) rankPart += ` → 上限${ri.cap || ''}位超でDiscord見送り`;
+            }
+            let line = `${bld} ${room}【競合数：${compN}件, ${rankPart}】送信完了`;
+            if (prop.url) line += `\n物件詳細URL：${prop.url}`;
+            if (ri && ri.searchUrl) line += `\nSUUMO順位URL：${ri.searchUrl}`;
+            if (comp.url) line += `\nSUUMO競合数URL：${comp.url}`;
+            await setStorageData({ debugLog: line });
           } catch (err) {
             await setStorageData({ debugLog: `[SUUMO巡回] GAS送信失敗: ${err.message}` });
           }
@@ -647,9 +660,12 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
         result.gasUrl || gasWebappUrl,
         result.discordWebhookUrl
       );
-      const errSnippet = sendResult.errors.length > 0 ? ` 失敗${sendResult.errors.length}件: ${sendResult.errors.slice(0,1).join('|').substring(0,120)}` : '';
-      const skipSnippet = sendResult.skippedByRank > 0 ? ` 順位上限スキップ${sendResult.skippedByRank}件` : '';
-      await setStorageData({ debugLog: `[SUUMO巡回] Discord送信結果(拡張側): ${sendResult.sent}/${result.notifyProps.length}件${skipSnippet}${errSnippet}` });
+      // 順位情報を集約「送信完了」行用に result へ添付(呼び出し元の collector が使う)
+      result._rankInfo = (sendResult.ranks && sendResult.ranks[0]) || null;
+      // Discord送信でエラーが出た時だけログ(クリーンな送信は集約行に任せる)
+      if (sendResult.errors.length > 0) {
+        await setStorageData({ debugLog: `[SUUMO巡回] Discord送信エラー${sendResult.errors.length}件: ${sendResult.errors.slice(0,1).join('|').substring(0,140)}` });
+      }
       // 送信成功した行を GAS にマーク依頼
       if (sendResult.sheetRowIndexes.length > 0) {
         await markSuumoDiscordSentInGas_(sendResult.sheetRowIndexes);
@@ -1048,12 +1064,12 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     rankCap = 0;
     await setStorageData({ debugLog: '[順位ゲート] 設定取得失敗のため無効化(全件送信): ' + (e && e.message) });
   }
-  if (rankCap > 0) await setStorageData({ debugLog: `[順位ゲート] 上限${rankCap}位（これより下の新着はDiscord通知しない）` });
 
   let sent = 0;
   let skippedByRank = 0;
   const errors = [];
   const successIndexes = [];
+  const ranks = []; // notifyProps順の順位情報(集約「送信完了」行用に呼び出し元へ返す)
   for (let i = 0; i < notifyProps.length; i++) {
     const item = notifyProps[i];
     const p = item.property || {};
@@ -1063,46 +1079,38 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     const _roomNo = p.room_number || p.roomNumber || p.room || '';
 
     // 物件ポテンシャル = お客さんの安い順検索での「順位」(反響予測スコアに代わる主要指標)
-    //   ※旧・反響予測スコア(相場中央値ベース)は廃止。SUUMO余分なfetchも削減。
+    //   ログは出さず、算出結果を集約「送信完了」行用に _rankObj へ。失敗/例外のみログを残す。
+    let _rankObj = null;
     try {
       if (typeof getSuumoSegmentRank === 'function') {
         const rankRes = await getSuumoSegmentRank(_buildSegmentRankInput(p));
         if (rankRes && rankRes.ok) {
           p.segment_rank = rankRes.rank;
           p.segment_info = rankRes;
-          const _modeLabel = rankRes.searchMode === 'station'
-            ? ('駅:' + (rankRes.station && rankRes.station.name || '?'))
-            : (rankRes.searchMode === 'area' ? 'エリア' : 'FW');
-          await setStorageData({ debugLog:
-            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → ' + rankRes.rank + '位/' + rankRes.sampleSize + '件(1ページ目・重複排除後)'
-            + (rankRes.inPage1 ? ' ✅掲載価値あり' : ' ⚠️埋もれ(1ページ目圏外)')
-            + ' [' + _modeLabel + '] (kz=' + (rankRes.segment.kz || '-') + ' tc=' + (rankRes.segment.tc.join(',') || '-')
-            + ' md=' + (rankRes.segment.md || '-') + ' et=' + (rankRes.segment.et || '-') + '分'
-            + ' mb=' + (rankRes.segment.mb || '0') + '㎡以上 cn=' + (rankRes.segment.cn || '-') + '年以内'
-            + ' 広告数(重複込)' + (rankRes.adCount != null ? rankRes.adCount : '?') + ') '
-            + '安い順:' + (rankRes.searchUrl || '')
-          });
+          _rankObj = { rank: rankRes.rank, sampleSize: rankRes.sampleSize,
+                       searchUrl: rankRes.searchUrl || '', inPage1: !!rankRes.inPage1, skipped: false };
         } else {
           await setStorageData({ debugLog:
-            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → 失敗: '
+            '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → 順位算出失敗: '
             + ((rankRes && rankRes.errors && rankRes.errors.join(',')) || 'unknown')
           });
         }
       }
     } catch (e2) {
       console.warn('[SUUMO巡回] 順位計算失敗:', e2 && e2.message);
-      await setStorageData({ debugLog: '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → 例外: ' + (e2 && e2.message) });
+      await setStorageData({ debugLog: '[ポテンシャル順位] ' + _bldName + ' ' + _roomNo + ' → 順位算出例外: ' + (e2 && e2.message) });
     }
 
     // 順位上限ゲート: 順位が確定(ok)していて上限を超えていたらDiscord送信をスキップ(承認対象から外す)。
-    //   順位計算が失敗した物件はフェイルオープン(送る)。順位はこの後まとめてGASに保存されるのでスキップしても記録は残る。
+    //   順位計算が失敗した物件はフェイルオープン(送る)。見送り表記は呼び出し元の集約行に出す。
     if (rankCap > 0 && typeof p.segment_rank === 'number' && p.segment_rank > rankCap) {
       skippedByRank++;
-      await setStorageData({ debugLog:
-        '[順位ゲート] ' + _bldName + ' ' + _roomNo + ' → ' + p.segment_rank + '位 > 上限' + rankCap + '位 のためDiscord送信スキップ' });
+      if (_rankObj) { _rankObj.skipped = true; _rankObj.cap = rankCap; }
+      ranks.push(_rankObj || { rank: p.segment_rank, sampleSize: 0, searchUrl: '', inPage1: false, skipped: true, cap: rankCap });
       if (i < notifyProps.length - 1) await sleep(300);
       continue;
     }
+    ranks.push(_rankObj);
 
     const content = buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, item.key);
 
@@ -1192,14 +1200,13 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
             updates: rankUpdates
           })
         }, 30000);
-        await setStorageData({ debugLog: `[ポテンシャル順位] ${rankUpdates.length}件をGAS送信` });
       }
     }
   } catch (e) {
     console.warn('[ポテンシャル順位] GAS保存失敗:', e && e.message);
   }
 
-  return { sent, errors, sheetRowIndexes: successIndexes, skippedByRank };
+  return { sent, errors, sheetRowIndexes: successIndexes, skippedByRank, ranks };
 }
 
 /**
