@@ -1410,6 +1410,11 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
           prop.suumo_competitor = preResult.competitor;
         }
         if (preResult.skip) {
+          try {
+            const _nk = globalThis._normSuumoKey;
+            const _cs = globalThis._suumoPatrolCompSkippedKeys;
+            if (_nk && _cs) _cs.add(_nk(prop.building_name || '', prop.room_number || ''));
+          } catch(_) {}
           await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像処理前に判定)${globalThis.__formatPropSkipUrl(prop)}` });
           continue;
         }
