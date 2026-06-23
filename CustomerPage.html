@@ -817,6 +817,13 @@ function renderDetail(data) {
     info += '<div class="detail-info-value">' + esc(String(rows[i][1])) + '</div>';
     info += '</div>';
   }
+  // 条件変更提案 送る/送らない トグル(オプトアウト)
+  info += '<div class="detail-info-row">';
+  info += '<div class="detail-info-label">条件変更提案</div>';
+  info += '<div class="detail-info-value">'
+    + '<span id="condSugState" style="color:#888;">読み込み中…</span>'
+    + ' <a id="condSugToggle" onclick="toggleCondSuggestionOptOut()" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:8px;display:none;"></a>'
+    + '</div></div>';
   // 問い合わせ物件（SUUMO反響）— 物件ページへのリンク付き
   if (data.inquiries && data.inquiries.length) {
     info += '<div class="detail-info-row" style="display:block;">';
@@ -846,6 +853,7 @@ function renderDetail(data) {
     info += '</div></div>';
   }
   document.getElementById('detailInfo').innerHTML = info || '<div class="empty-state">条件未登録</div>';
+  loadCondSuggestionOptOut();
 
   // 送付済み物件は getSeenPropertiesForResend で別途取得済み
 
@@ -1419,6 +1427,51 @@ function resetSearchRun(idx, btnEl) {
       btnEl.disabled = false;
     })
     .resetSearchRun(run.startTime, run.endTime, currentCustomer);
+}
+
+// ── 条件変更提案 送る/送らない(オプトアウト) ──
+function loadCondSuggestionOptOut() {
+  var stateEl = document.getElementById('condSugState');
+  var tEl = document.getElementById('condSugToggle');
+  if (!stateEl || !tEl || !currentCustomer) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      var optOut = res && res.optOut;
+      stateEl.textContent = optOut ? '送らない' : '送る';
+      stateEl.style.color = optOut ? '#e0707a' : '#6cd06c';
+      tEl.style.display = '';
+      tEl.textContent = optOut ? '「送る」に戻す' : '送らないにする';
+      tEl.dataset.optout = optOut ? '1' : '0';
+    })
+    .withFailureHandler(function() {
+      stateEl.textContent = '取得失敗';
+    })
+    .getConditionSuggestionOptOut(currentCustomer);
+}
+
+function toggleCondSuggestionOptOut() {
+  var tEl = document.getElementById('condSugToggle');
+  var stateEl = document.getElementById('condSugState');
+  if (!tEl || !currentCustomer) return;
+  var newOptOut = !(tEl.dataset.optout === '1');
+  tEl.style.pointerEvents = 'none';
+  if (stateEl) stateEl.textContent = '更新中…';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      tEl.style.pointerEvents = '';
+      if (res && res.success) {
+        showToast(newOptOut ? '条件変更提案を「送らない」にしました' : '条件変更提案を「送る」に戻しました');
+      } else {
+        showToast('更新失敗: ' + (res && res.message || ''));
+      }
+      loadCondSuggestionOptOut();
+    })
+    .withFailureHandler(function(err) {
+      tEl.style.pointerEvents = '';
+      showToast('エラー: ' + (err && err.message || err));
+      loadCondSuggestionOptOut();
+    })
+    .setConditionSuggestionOptOut(currentCustomer, newOptOut);
 }
 
 // ── 検索ページを開く ──

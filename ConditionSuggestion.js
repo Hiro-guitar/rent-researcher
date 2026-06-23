@@ -52,6 +52,42 @@ function listConditionSuggestionCandidates() {
   }
 }
 
+// ── 条件変更提案を送らない顧客(オプトアウト) ──────────────────────
+//   ScriptProperties CONDITION_SUGGESTION_OPTOUT = 顧客名のJSON配列。
+//   候補抽出(getConditionSuggestionCandidates_)で除外する=自動送信もAdmin候補一覧にも出ない。
+
+/** オプトアウト顧客名のSet({name:true})を返す */
+function _getConditionSuggestionOptOutSet_() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty('CONDITION_SUGGESTION_OPTOUT');
+    var arr = raw ? JSON.parse(raw) : [];
+    var set = {};
+    for (var i = 0; i < arr.length; i++) set[String(arr[i]).trim()] = true;
+    return set;
+  } catch (e) { return {}; }
+}
+
+/** UI用: 顧客が条件変更提案オプトアウト中か返す (google.script.run) */
+function getConditionSuggestionOptOut(customerName) {
+  var set = _getConditionSuggestionOptOutSet_();
+  return { optOut: !!set[String(customerName || '').trim()] };
+}
+
+/** UI用: 顧客の条件変更提案オプトアウトを設定/解除する (google.script.run) */
+function setConditionSuggestionOptOut(customerName, optOut) {
+  var name = String(customerName || '').trim();
+  if (!name) return { success: false, message: '顧客名が空です' };
+  var props = PropertiesService.getScriptProperties();
+  var raw = props.getProperty('CONDITION_SUGGESTION_OPTOUT');
+  var arr = [];
+  try { arr = raw ? JSON.parse(raw) : []; } catch (e) { arr = []; }
+  var idx = arr.indexOf(name);
+  if (optOut) { if (idx < 0) arr.push(name); }
+  else { if (idx >= 0) arr.splice(idx, 1); }
+  props.setProperty('CONDITION_SUGGESTION_OPTOUT', JSON.stringify(arr));
+  return { success: true, optOut: !!optOut };
+}
+
 /**
  * 自動送信: GAS の時間トリガーから呼ばれる想定。
  *   1. 候補抽出
@@ -582,11 +618,17 @@ function getConditionSuggestionCandidates_() {
   var thresholdMs = CONDITION_SUGGESTION_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
   var dayMs = 24 * 60 * 60 * 1000;
 
+  // 条件変更提案を送らない顧客(オプトアウト)
+  var optOutSet = _getConditionSuggestionOptOutSet_();
+
   var candidates = [];
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
     var name = String(row[1] || '').trim();
     if (!name) continue;
+
+    // オプトアウト顧客は除外 (自動送信もAdmin候補一覧にも出さない)
+    if (optOutSet[name]) continue;
 
     // 配信ステータス: active のみ対象 (paused/snoozed/blocked は除外)
     var status = String(row[18] || '').trim().toLowerCase();
