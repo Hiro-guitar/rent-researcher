@@ -1270,6 +1270,19 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
       continue;
     }
 
+    // ── SUUMO巡回: 既知物件の早期スキップ（詳細ページ遷移前） ──
+    if (isSuumoPatrolEarly && !isForced) {
+      const _normKey = globalThis._normSuumoKey;
+      const _seenKeys = globalThis._suumoPatrolSeenKeys;
+      if (_normKey && _seenKeys) {
+        const earlyKey = _normKey(prop.building_name || '', prop.room_number || '');
+        if (earlyKey && _seenKeys[earlyKey]) {
+          await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ 既知スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
+          continue;
+        }
+      }
+    }
+
     // 詳細ページからスクレイピング
     try {
       await chrome.tabs.update(tabId, { url: prop.url });

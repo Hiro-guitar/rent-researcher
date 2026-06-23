@@ -206,6 +206,7 @@ async function runSuumoPatrolCycle() {
     // 2. 既知物件キーセットを読み込み（ローカル）
     const { suumoSeenKeys } = await getStorageData(['suumoSeenKeys']);
     const seenKeys = suumoSeenKeys || {};
+    globalThis._suumoPatrolSeenKeys = seenKeys;
 
     // 3. 有効なサービスを確認（SUUMO巡回専用の設定を使用、未設定時は顧客検索の設定にフォールバック）
     const { patrolEnabledServices, enabledServices } = await getStorageData(['patrolEnabledServices', 'enabledServices']);
@@ -465,6 +466,7 @@ async function runSuumoPatrolCycle() {
       if (seenKeys[key] < cutoff) delete seenKeys[key];
     }
     await setStorageData({ suumoSeenKeys: seenKeys });
+    globalThis._suumoPatrolSeenKeys = null;
 
     await setStorageData({ debugLog: '━━━ SUUMO巡回 完了 ━━━' });
 
@@ -583,6 +585,7 @@ function normSuumoKey(building, room) {
   const r = (room || '').replace(/[^\d]/g, '');
   return b + '|' + r;
 }
+globalThis._normSuumoKey = normSuumoKey;
 
 /**
  * \u30bf\u30a4\u30e0\u30a2\u30a6\u30c8\u4ed8\u304d fetch \u30d8\u30eb\u30d1\u30fc\u3002

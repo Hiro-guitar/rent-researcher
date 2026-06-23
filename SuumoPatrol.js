@@ -552,7 +552,7 @@ function handleGetListedForRank(json) {
     for (var c = 0; c < cData.length; c++) {
       var ckey = cData[c][0];
       var pjson = cData[c][12]; // property_data_json
-      if (ckey && pjson) candMap[ckey] = pjson;
+      if (ckey && pjson && !candMap[ckey]) candMap[ckey] = pjson;
     }
   }
 
