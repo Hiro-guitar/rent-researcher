@@ -3177,7 +3177,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               area_min: customer.area_min || '',
               building_age: customer.building_age || '',
               structures: customer.structures || [],
-              equipment: 'バストイレ別',  // itandiはBT別のみハードフィルタ（他の設備はソフトフィルタ）
+              // itandiはBT別のみハードフィルタ。顧客が「選別する(btMode=skip)」の時だけ入れる。
+              //   「アラートのみ」や未設定、設備にバストイレ別が無い顧客には入れない(勝手に絞らない)。
+              equipment: (String(customer.btMode || '').toLowerCase() === 'skip') ? 'バストイレ別' : '',
             }]
           });
 
