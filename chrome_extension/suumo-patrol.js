@@ -414,12 +414,12 @@ async function runSuumoPatrolCycle() {
             const comp = hasComp ? prop.suumo_competitor : {};
             const compN = hasComp ? (comp.withoutNameHighlighted || 0) : '-';
             const ri = gasRes && gasRes._rankInfo;
-            let rankPart = '順位：-';
-            if (ri && typeof ri.rank === 'number') {
-              rankPart = `順位：${ri.rank}位/${ri.sampleSize}件`;
-              if (ri.skipped) rankPart += ` → 上限${ri.cap || ''}位超でDiscord見送り`;
-            }
-            let line = `${bld} ${room}【競合数：${compN}件, ${rankPart}】送信完了`;
+            const rankStr = (ri && typeof ri.rank === 'number') ? `${ri.rank}位/${ri.sampleSize}件` : '-';
+            const head = `${bld} ${room}【競合数：${compN}件, 順位：${rankStr}】`;
+            // 順位上限で見送った物件はDiscord未送信なので「送信完了」を付けない
+            let line = (ri && ri.skipped)
+              ? head + `→ ⚠️順位上限(${ri.cap || ''}位)超のためDiscord見送り`
+              : head + `送信完了`;
             if (prop.url) line += `\n物件詳細URL：${prop.url}`;
             if (ri && ri.searchUrl) line += `\nSUUMO順位URL：${ri.searchUrl}`;
             if (comp.url) line += `\nSUUMO競合数URL：${comp.url}`;
