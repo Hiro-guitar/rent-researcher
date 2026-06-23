@@ -99,8 +99,10 @@ var SUUMO_LISTING_HEADERS = [
   // 37列目: 変更後遷移率(内観%) = (今詳細-起点詳細)÷(今一覧-起点一覧)。外観の尾を除いた純粋値。
   '変更後遷移率(内観%)',
   // 38列目: 加重競合数 = 第1基準値×1.0 + 第2基準値×1.6 + 第3基準値×2.1
-  // 落とし判定の「競合あたり露出効率」(日次平均一覧PV ÷ 加重競合数)に使う。
-  '加重競合数'
+  '加重競合数',
+  // 39列目: 競合あたり露出効率 = (代表物件一覧PV ÷ 掲載日数) ÷ 加重競合数
+  // 高いほど「競合の割に見られている=才能がある」。加重競合数0(独占)は空欄。
+  '露出効率'
 ];
 
 // 停止候補ログシート (毎回の findStopCandidates 実行履歴を蓄積)
@@ -2850,6 +2852,12 @@ function updateSuumoListingStats_(json) {
       if (repDetailCol > 0) sheet.getRange(targetRow, repDetailCol).setValue(repDetailPv);
       var wCompCol = SUUMO_LISTING_HEADERS.indexOf('加重競合数') + 1;
       if (wCompCol > 0) sheet.getRange(targetRow, wCompCol).setValue(Math.round(weightedComp * 10) / 10);
+      var effCol = SUUMO_LISTING_HEADERS.indexOf('露出効率') + 1;
+      if (effCol > 0 && weightedComp > 0 && listedDays > 0) {
+        var dailyListPv = repListPv / listedDays;
+        var efficiency = Math.round((dailyListPv / weightedComp) * 100) / 100;
+        sheet.getRange(targetRow, effCol).setValue(efficiency);
+      }
 
       // ── 画像改善の効果測定 ──────────────────────────
       // 起点待ち: 変更日+2経過したら今のPVを「起点」に記録(データ的に変更日までの累計)→測定中へ
@@ -2940,6 +2948,12 @@ function updateSuumoListingStats_(json) {
       var newSheetRow = sheet.getLastRow();
       var wCompColNew = SUUMO_LISTING_HEADERS.indexOf('加重競合数') + 1;
       if (wCompColNew > 0) sheet.getRange(newSheetRow, wCompColNew).setValue(Math.round(weightedComp * 10) / 10);
+      var effColNew = SUUMO_LISTING_HEADERS.indexOf('露出効率') + 1;
+      if (effColNew > 0 && weightedComp > 0 && listedDays > 0) {
+        var dailyListPvNew = repListPv / listedDays;
+        var efficiencyNew = Math.round((dailyListPvNew / weightedComp) * 100) / 100;
+        sheet.getRange(newSheetRow, effColNew).setValue(efficiencyNew);
+      }
       if (suumoCode) codeToRow[suumoCode] = newSheetRow;
       if (propertyKey) keyToRow[propertyKey] = newSheetRow;
       matchedSheetRows[newSheetRow] = true;
