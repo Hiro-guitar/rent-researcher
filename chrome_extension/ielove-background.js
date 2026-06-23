@@ -985,20 +985,27 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
-      // ── SUUMO巡回: 既知物件・競合スキップ済みの早期スキップ（詳細ページ遷移前） ──
+      // ── SUUMO巡回: 既知物件・競合/順位スキップ済みの早期スキップ（詳細ページ遷移前） ──
       if (globalThis._suumoPatrolMode && !isForced) {
         const _normKey = globalThis._normSuumoKey;
-        const _seenKeys = globalThis._suumoPatrolSeenKeys;
-        const _compSkipped = globalThis._suumoPatrolCompSkippedKeys;
         if (_normKey) {
           const earlyKey = _normKey(prop.building_name || '', prop.room_number || '');
-          if (earlyKey && _seenKeys && _seenKeys[earlyKey]) {
-            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 既知スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
-            continue;
-          }
-          if (earlyKey && _compSkipped && _compSkipped.has(earlyKey)) {
-            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 競合スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
-            continue;
+          if (earlyKey) {
+            const _seenKeys = globalThis._suumoPatrolSeenKeys;
+            if (_seenKeys && _seenKeys[earlyKey]) {
+              await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 既知スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
+              continue;
+            }
+            const _compSkipped = globalThis._suumoPatrolCompSkippedKeys;
+            if (_compSkipped && _compSkipped.has(earlyKey)) {
+              await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 競合スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
+              continue;
+            }
+            const _rankSkipped = globalThis._suumoPatrolRankSkippedKeys;
+            if (_rankSkipped && _rankSkipped.has(earlyKey)) {
+              await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 順位スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
+              continue;
+            }
           }
         }
       }

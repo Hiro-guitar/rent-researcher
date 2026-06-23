@@ -208,6 +208,7 @@ async function runSuumoPatrolCycle() {
     const seenKeys = suumoSeenKeys || {};
     globalThis._suumoPatrolSeenKeys = seenKeys;
     globalThis._suumoPatrolCompSkippedKeys = new Set();
+    globalThis._suumoPatrolRankSkippedKeys = new Set();
 
     // 3. 有効なサービスを確認（SUUMO巡回専用の設定を使用、未設定時は顧客検索の設定にフォールバック）
     const { patrolEnabledServices, enabledServices } = await getStorageData(['patrolEnabledServices', 'enabledServices']);
@@ -470,6 +471,7 @@ async function runSuumoPatrolCycle() {
     await setStorageData({ suumoSeenKeys: seenKeys });
     globalThis._suumoPatrolSeenKeys = null;
     globalThis._suumoPatrolCompSkippedKeys = null;
+    globalThis._suumoPatrolRankSkippedKeys = null;
 
     await setStorageData({ debugLog: '━━━ SUUMO巡回 完了 ━━━' });
 
@@ -1111,6 +1113,11 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
     //   順位計算が失敗した物件はフェイルオープン(送る)。見送り表記は呼び出し元の集約行に出す。
     if (rankCap > 0 && typeof p.segment_rank === 'number' && p.segment_rank > rankCap) {
       skippedByRank++;
+      try {
+        const _nk = globalThis._normSuumoKey;
+        const _rs = globalThis._suumoPatrolRankSkippedKeys;
+        if (_nk && _rs) _rs.add(_nk(p.building_name || p.buildingName || '', p.room_number || p.roomNumber || ''));
+      } catch(_) {}
       if (_rankObj) { _rankObj.skipped = true; _rankObj.cap = rankCap; }
       ranks.push(_rankObj || { rank: p.segment_rank, sampleSize: 0, searchUrl: '', inPage1: false, skipped: true, cap: rankCap });
       if (i < notifyProps.length - 1) await sleep(300);
