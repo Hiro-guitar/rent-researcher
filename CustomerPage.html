@@ -616,13 +616,28 @@ function renderKanban(list) {
   board.innerHTML = html;
 }
 var _kanbanDragName = null;
+var _kanbanAutoScrollTimer = null;
+function _kanbanAutoScroll(e) {
+  var col = e.currentTarget;
+  var body = col.querySelector('.kanban-col-body');
+  if (!body) return;
+  var rect = body.getBoundingClientRect();
+  var edge = 40;
+  var speed = 6;
+  var y = e.clientY;
+  if (y < rect.top + edge && body.scrollTop > 0) {
+    body.scrollTop -= speed;
+  } else if (y > rect.bottom - edge && body.scrollTop < body.scrollHeight - body.clientHeight) {
+    body.scrollTop += speed;
+  }
+}
 function kanbanDragStart(e) {
   _kanbanDragName = e.target.getAttribute('data-name');
   e.target.classList.add('dragging');
   try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', _kanbanDragName); } catch (x) {}
 }
 function kanbanDragEnd(e) { e.target.classList.remove('dragging'); }
-function kanbanDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); }
+function kanbanDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); _kanbanAutoScroll(e); }
 function kanbanDragLeave(e) { e.currentTarget.classList.remove('dragover'); }
 // ドロップ位置（列内インデックス）を、マウスY座標とカード位置から求める
 function _kanbanDropIndex_(col, y, dragName) {
