@@ -1269,9 +1269,11 @@ function handleFileSelect(files) {
 // ── ブラウザ直接アップロード(ユーザーIP使用) ──
 // GAS経由だと共有IPでレート制限にかかるため、ブラウザから直接送信する。
 // 優先順位:
-//   1. catbox.moe (APIキー不要、Chrome拡張でも使用実績)
-//   2. imgbb 個人キー (GASスクリプトプロパティから取得)
-//   3. GAS経由のサーバーサイドアップロード(最終fallback)
+//   0. Chrome拡張ブリッジ経由 (最優先、host_permissionsで外部POSTが可能)
+//   1. tmpfiles.org (APIキー不要、CORS対応)
+//   2. catbox.moe (APIキー不要)
+//   3. imgbb 個人キー (GASスクリプトプロパティから取得)
+//   4. GAS経由のサーバーサイドアップロード(最終fallback)
 async function uploadFromBrowser_(base64, filename, mimeType) {
   var errors = [];
 
@@ -1293,13 +1295,14 @@ async function uploadFromBrowser_(base64, filename, mimeType) {
         resolve(d.result || { ok: false, error: 'empty result' });
       };
       window.addEventListener('message', onResp);
-      // 拡張からの応答が来なければ 8秒で諦めてブラウザ直接ルートへ
+      // 拡張からの応答が来なければ 45秒で諦めてブラウザ直接ルートへ
+      // (拡張チェーンは catbox→tmpfiles→imgbb で最大60秒かかりうる)
       setTimeout(function() {
         if (settled) return;
         settled = true;
         window.removeEventListener('message', onResp);
-        resolve({ ok: false, error: 'extension_timeout(8s)' });
-      }, 8000);
+        resolve({ ok: false, error: 'extension_timeout(45s)' });
+      }, 45000);
       // GAS HTMLは sandbox iframe で動く想定。parent.postMessage で content script に届ける
       try {
         window.parent.postMessage({
@@ -1346,21 +1349,9 @@ async function uploadFromBrowser_(base64, filename, mimeType) {
     return fetch(url, o).finally(function() { clearTimeout(t); });
   };
 
-  // 1) 0x0.st (APIキー不要、永続保存、CORS対応) — 最優先
-  try {
-    var fd0 = new FormData();
-    fd0.append('file', blob, filename || 'upload.jpg');
-    var res0 = await fetchWithTimeout('https://0x0.st', { method: 'POST', body: fd0 }, 20000);
-    var text0 = await res0.text();
-    if (res0.ok && text0 && text0.indexOf('https://') === 0) {
-      return { success: true, url: text0.trim() };
-    }
-    errors.push('0x0.st HTTP ' + res0.status + ': ' + (text0 || '').substring(0, 200));
-  } catch (e0) {
-    errors.push('0x0.st: ' + (e0.name === 'AbortError' ? 'timeout(20s)' : (e0.message || String(e0))));
-  }
+  // 2026-06: 0x0.st(AIスパムで停止), pixeldrain(認証必須化) を除去
 
-  // 2) tmpfiles.org (APIキー不要、60日保存、CORS対応)
+  // 1) tmpfiles.org (APIキー不要、60日保存、CORS対応)
   try {
     var fdTmp = new FormData();
     fdTmp.append('file', blob, filename || 'upload.jpg');
@@ -1368,9 +1359,6 @@ async function uploadFromBrowser_(base64, filename, mimeType) {
     var jsonTmp = null;
     try { jsonTmp = await resTmp.json(); } catch (_) { jsonTmp = null; }
     if (resTmp.ok && jsonTmp && jsonTmp.data && jsonTmp.data.url) {
-      // tmpfiles のAPIはhttp://を返すが、Chrome拡張のhost_permissionsはhttps://のみ
-      // 許可されているためhttpsに強制変換。
-      // viewerパス(/数字/ファイル)を直接ダウンロードパス(/dl/数字/ファイル)にも変換。
       var directUrl = jsonTmp.data.url
         .replace(/^http:\/\//, 'https://')
         .replace('tmpfiles.org/', 'tmpfiles.org/dl/');
@@ -1381,22 +1369,7 @@ async function uploadFromBrowser_(base64, filename, mimeType) {
     errors.push('tmpfiles: ' + (eTmp.name === 'AbortError' ? 'timeout(20s)' : (eTmp.message || String(eTmp))));
   }
 
-  // 3) pixeldrain.com (APIキー不要、CORS対応)
-  try {
-    var fdPd = new FormData();
-    fdPd.append('file', blob, filename || 'upload.jpg');
-    var resPd = await fetchWithTimeout('https://pixeldrain.com/api/file', { method: 'POST', body: fdPd }, 20000);
-    var jsonPd = null;
-    try { jsonPd = await resPd.json(); } catch (_) { jsonPd = null; }
-    if (resPd.ok && jsonPd && jsonPd.id) {
-      return { success: true, url: 'https://pixeldrain.com/api/file/' + jsonPd.id };
-    }
-    errors.push('pixeldrain HTTP ' + resPd.status + ': ' + JSON.stringify(jsonPd || {}).substring(0, 200));
-  } catch (ePd) {
-    errors.push('pixeldrain: ' + (ePd.name === 'AbortError' ? 'timeout(20s)' : (ePd.message || String(ePd))));
-  }
-
-  // 4) catbox.moe (APIキー不要だがCORS制限ありの可能性、一応残す)
+  // 2) catbox.moe (APIキー不要だがCORS制限ありの可能性、一応残す)
   try {
     var fd1 = new FormData();
     fd1.append('reqtype', 'fileupload');

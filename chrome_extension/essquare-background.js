@@ -1484,7 +1484,8 @@ async function _verifyImageUrl(url, expectedB64Length) {
 }
 
 async function uploadBase64ToCatbox(dataUrl) {
-  // 関数名は過去互換。実体は catbox→0x0→telegraph→imgbb→freeimage→tmpfiles→pixeldrain→imgur のフォールバック
+  // 関数名は過去互換。実体は catbox→tmpfiles→imgbb のフォールバック
+  // 2026-06: 0x0(AIスパムで停止), telegraph(壊れた), freeimage(IPバン), pixeldrain(認証必須化), imgur(ID未設定) を除去
   const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!match) return null;
   const mime = match[1];
@@ -1492,16 +1493,9 @@ async function uploadBase64ToCatbox(dataUrl) {
 
   const now = Date.now();
   const allHosts = [
-    // 安定度の高い順: catbox / 0x0.st (APIキー不要、長期運用) → telegraph (安定) → imgbb (たまに429)
-    // → freeimage (たまにレート制限) → tmpfiles (一時保存) → pixeldrain → imgur (キー無しだとスキップ)
     { name: 'catbox', fn: () => _uploadCatbox(base64, mime) },
-    { name: '0x0', fn: () => _upload0x0(base64, mime) },
-    { name: 'telegraph', fn: () => _uploadTelegraph(base64, mime) },
-    { name: 'imgbb', fn: () => _uploadImgbb(base64) },
-    { name: 'freeimage', fn: () => _uploadFreeimage(base64) },
     { name: 'tmpfiles', fn: () => _uploadTmpfiles(base64, mime) },
-    { name: 'pixeldrain', fn: () => _uploadPixeldrain(base64, mime) },
-    { name: 'imgur', fn: () => _uploadImgur(base64) },
+    { name: 'imgbb', fn: () => _uploadImgbb(base64) },
   ];
   let hosts = allHosts.filter(h => now - __hostCooldown[h.name] > COOLDOWN_MS);
   if (hosts.length === 0) hosts = allHosts;
