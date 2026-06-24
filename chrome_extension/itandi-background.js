@@ -1420,7 +1420,11 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
           try {
             const _nk = globalThis._normSuumoKey;
             const _cs = globalThis._suumoPatrolCompSkippedKeys;
-            if (_nk && _cs) _cs.add(_nk(prop.building_name || '', prop.room_number || ''));
+            if (_nk && _cs) {
+              const regKey = _nk(prop.building_name || '', prop.room_number || '');
+              _cs.add(regKey);
+              await setStorageData({ debugLog: `[itandi] compSkippedKeys登録: "${regKey}" (Set size=${_cs.size})` });
+            }
           } catch(_) {}
           await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${preResult.reason}(画像処理前に判定)${globalThis.__formatPropSkipUrl(prop)}` });
           continue;

@@ -403,7 +403,10 @@ async function runSuumoPatrolCycle() {
           }
           // 競合数上限超過 → GAS送信もDiscordも完全スキップ
           if (skipByCompetition) {
-            try { globalThis._suumoPatrolCompSkippedKeys && globalThis._suumoPatrolCompSkippedKeys.add(key); } catch(_) {}
+            try {
+              const _cs = globalThis._suumoPatrolCompSkippedKeys;
+              if (_cs) { _cs.add(key); await setStorageData({ debugLog: `[SUUMO巡回] compSkippedKeys登録: "${key}" (Set size=${_cs.size})` }); }
+            } catch(_) {}
             await setStorageData({ debugLog:
               `[SUUMO巡回] ✗ スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} - ${skipReason}`
             });
