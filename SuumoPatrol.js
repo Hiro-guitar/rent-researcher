@@ -3340,7 +3340,32 @@ function uploadPropertyImageForSuumo(base64Data, filename, mimeType) {
 
   // 2026-06: telegraph(壊れた), freeimage(IPバン) を除去
 
-  // 1) imgbb（個人APIキー優先、無ければ共有キー）
+  // 1) tmpfiles.org (APIキー不要、GASサーバーIPからも動作)
+  try {
+    var resp1 = UrlFetchApp.fetch('https://tmpfiles.org/api/v1/upload', {
+      method: 'POST',
+      payload: { file: blob },
+      muteHttpExceptions: true
+    });
+    var code1 = resp1.getResponseCode();
+    var body1 = resp1.getContentText();
+    if (code1 === 200) {
+      var json1 = JSON.parse(body1);
+      if (json1 && json1.data && json1.data.url) {
+        var directUrl = json1.data.url
+          .replace(/^http:\/\//, 'https://')
+          .replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+        return { success: true, url: directUrl };
+      }
+      errors.push('tmpfiles parse: ' + body1.substring(0, 200));
+    } else {
+      errors.push('tmpfiles HTTP ' + code1 + ': ' + body1.substring(0, 200));
+    }
+  } catch (e1) {
+    errors.push('tmpfiles: ' + e1.message);
+  }
+
+  // 2) imgbb（個人APIキー優先、無ければ共有キー）
   // スクリプトプロパティ IMGBB_API_KEY に個人キー(https://api.imgbb.com/ 発行)を
   // 設定すると個別レート枠で使える。未設定なら旧共有キーにフォールバック。
   var imgbbKey = '48cdc51fdcc4a2828c3379b59663db7f'; // 旧共有キー(レート制限常時ヒット中)

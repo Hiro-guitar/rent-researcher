@@ -5277,9 +5277,11 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
     errors.push('catbox: ' + e0.message);
   }
 
-  // 1) Telegra.ph（APIキー不要）
+  // 2026-06: telegraph(壊れた), freeimage(IPバン) を除去
+
+  // 1) tmpfiles.org (APIキー不要、GASサーバーIPからも動作)
   try {
-    var resp1 = UrlFetchApp.fetch('https://telegra.ph/upload', {
+    var resp1 = UrlFetchApp.fetch('https://tmpfiles.org/api/v1/upload', {
       method: 'POST',
       payload: { file: blob },
       muteHttpExceptions: true
@@ -5288,44 +5290,21 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
     var body1 = resp1.getContentText();
     if (code1 === 200) {
       var json1 = JSON.parse(body1);
-      if (Array.isArray(json1) && json1[0] && json1[0].src) {
-        return { success: true, url: 'https://telegra.ph' + json1[0].src };
+      if (json1 && json1.data && json1.data.url) {
+        var directUrl = json1.data.url
+          .replace(/^http:\/\//, 'https://')
+          .replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+        return { success: true, url: directUrl };
       }
-      errors.push('telegraph parse: ' + body1.substring(0, 200));
+      errors.push('tmpfiles parse: ' + body1.substring(0, 200));
     } else {
-      errors.push('telegraph HTTP ' + code1 + ': ' + body1.substring(0, 200));
+      errors.push('tmpfiles HTTP ' + code1 + ': ' + body1.substring(0, 200));
     }
   } catch (e1) {
-    errors.push('telegraph: ' + e1.message);
+    errors.push('tmpfiles: ' + e1.message);
   }
 
-  // 2) freeimage.host
-  try {
-    var resp2 = UrlFetchApp.fetch('https://freeimage.host/api/1/upload', {
-      method: 'POST',
-      payload: {
-        key: '6d207e02198a847aa98d0a2a901485a5',
-        source: base64Data,
-        format: 'json'
-      },
-      muteHttpExceptions: true
-    });
-    var code2 = resp2.getResponseCode();
-    var body2 = resp2.getContentText();
-    if (code2 === 200) {
-      var json2 = JSON.parse(body2);
-      if (json2 && json2.image && json2.image.url) {
-        return { success: true, url: json2.image.url };
-      }
-      errors.push('freeimage parse: ' + body2.substring(0, 200));
-    } else {
-      errors.push('freeimage HTTP ' + code2 + ': ' + body2.substring(0, 200));
-    }
-  } catch (e2) {
-    errors.push('freeimage: ' + e2.message);
-  }
-
-  // 3) imgbb（個人APIキー優先、無ければ共有キー）
+  // 2) imgbb（個人APIキー優先、無ければ共有キー）
   // スクリプトプロパティ IMGBB_API_KEY に個人キーを設定すると個別レート枠で使える
   var imgbbKey = '48cdc51fdcc4a2828c3379b59663db7f'; // 旧共有キー(レート制限中)
   try {
