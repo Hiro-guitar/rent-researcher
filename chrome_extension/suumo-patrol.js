@@ -484,6 +484,30 @@ async function runSuumoPatrolCycle() {
       await setStorageData({ debugLog: `[掲載順位更新] フック例外: ${e.message}` });
     }
 
+    // 巡回完了後フック: 1日1回、SUUMOビジネスデータ取得（遷移率・PV等）
+    try {
+      if (typeof runSuumoBusinessFetch === 'function') {
+        const { suumoBusinessLastFetchAt } = await getStorageData(['suumoBusinessLastFetchAt']);
+        const toJstDate = (ms) => {
+          const d = new Date(Number(ms) + 9 * 60 * 60 * 1000);
+          return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+        };
+        const todayJst = toJstDate(Date.now());
+        const lastJst = suumoBusinessLastFetchAt ? toJstDate(suumoBusinessLastFetchAt) : null;
+        if (lastJst && lastJst === todayJst) {
+          await setStorageData({ debugLog: `[SUUMOビジネス] 本日(${todayJst})取得済み → スキップ` });
+        } else {
+          await setStorageData({ debugLog: '[SUUMOビジネス] データ取得開始(巡回後フック)' });
+          const bizResult = await runSuumoBusinessFetch();
+          if (!bizResult || !bizResult.ok) {
+            await setStorageData({ debugLog: `[SUUMOビジネス] 取得失敗: ${bizResult && bizResult.error}` });
+          }
+        }
+      }
+    } catch (e) {
+      await setStorageData({ debugLog: `[SUUMOビジネス] フック例外: ${e.message}` });
+    }
+
     // 巡回完了後フック: 1日1回(初回巡回時)、低遷移率物件の代表画像を内観に自動変更（本番保存）
     try {
       if (typeof maybeRunImageChangeBatch === 'function') {
