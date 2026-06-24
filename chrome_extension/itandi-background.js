@@ -1128,7 +1128,8 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
   if (customer && customer._isSuumoPatrol) {
     if (typeof customer.daysWithin === 'number' && customer.daysWithin >= 0) {
       itandiUpdatedWithinDays = customer.daysWithin;
-    } else {
+    } else if (customer.daysWithin === undefined) {
+      // daysWithin未定義の場合のみstorage fallback（nullは「制限なし」の明示指定）
       try {
         const store = await getStorageData(['itandiUpdatedWithinDays']);
         if (typeof store.itandiUpdatedWithinDays === 'number' && store.itandiUpdatedWithinDays >= 0) {
