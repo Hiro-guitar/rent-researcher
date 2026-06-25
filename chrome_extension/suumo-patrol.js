@@ -332,6 +332,9 @@ async function runSuumoPatrolCycle() {
             });
           }
           seenKeys[key] = Date.now();
+          if (prop.reins_property_number) {
+            seenKeys['reins_' + prop.reins_property_number] = Date.now();
+          }
           totalNew++;
           // 画像枚数による事前スキップ(SUUMO巡回のみ)
           // 競合検索より先にチェックすることで SUUMO検索呼び出しを減らす
@@ -431,6 +434,11 @@ async function runSuumoPatrolCycle() {
               const _cs = globalThis._suumoPatrolCompSkippedKeys;
               if (_cs) { _cs.add(key); await setStorageData({ debugLog: `[SUUMO巡回] compSkippedKeys登録: "${key}" (Set size=${_cs.size})` }); }
             } catch(_) {}
+            // REINS物件: skippedMapにも登録して次回詳細取得前にスキップ
+            if (prop.reins_property_number && globalThis._currentReinsSkippedMap) {
+              globalThis._currentReinsSkippedMap[prop.reins_property_number] = { reason: skipReason, ts: Date.now() };
+              globalThis._currentReinsSkippedMapDirty = true;
+            }
             await setStorageData({ debugLog:
               `[SUUMO巡回] ✗ スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} - ${skipReason}`
             });
@@ -643,7 +651,48 @@ async function runSuumoPatrolForService(service, customer, searchId, collector) 
         if (reinsTab) {
           const { pageDelaySeconds } = await getStorageData(['pageDelaySeconds']);
           const reinsDelay = (pageDelaySeconds || 2) * 1000;
-          await searchForCustomer(reinsTab.id, customer, seenIds, reinsDelay, searchId);
+          // 連続駅はFrom-Toでまとめ、飛び飛びは個別分割
+          const stationOrder2 = await loadStationOrder();
+          const rwsRaw = customer.routes_with_stations || [];
+          const rws = [];
+          for (const r of rwsRaw) {
+            const splits = splitRouteByConsecutiveStations(r, stationOrder2);
+            for (const s of splits) rws.push(s);
+          }
+          const cities = customer.cities || [];
+          const rwsChunks = rws.length > 0
+            ? Array.from({length: Math.ceil(rws.length/3)}, (_,i) => rws.slice(i*3, i*3+3))
+            : [[]];
+          const cityChunks = cities.length > 0
+            ? Array.from({length: Math.ceil(cities.length/3)}, (_,i) => cities.slice(i*3, i*3+3))
+            : [[]];
+          const totalBatches = rwsChunks.length * cityChunks.length;
+          if (totalBatches === 1) {
+            const batchCustomer = {
+              ...customer,
+              routes: rws.map(r => r.route),
+              routes_with_stations: rws,
+              _originalCustomer: customer,
+            };
+            await searchForCustomer(reinsTab.id, batchCustomer, seenIds, reinsDelay, searchId);
+          } else {
+            let batchIdx = 0;
+            for (const rwsChunk of rwsChunks) {
+              for (const cityChunk of cityChunks) {
+                batchIdx++;
+                const batchCustomer = {
+                  ...customer,
+                  routes: rwsChunk.map(r => r.route),
+                  routes_with_stations: rwsChunk,
+                  cities: cityChunk,
+                  _originalCustomer: customer,
+                };
+                await setStorageData({ debugLog: `[SUUMO巡回REINS] バッチ ${batchIdx}/${totalBatches}` });
+                await searchForCustomer(reinsTab.id, batchCustomer, seenIds, reinsDelay, searchId);
+                if (batchIdx < totalBatches) await sleep(3000);
+              }
+            }
+          }
         }
         break;
     }
@@ -1020,7 +1069,7 @@ function _buildSegmentRankInput(p) {
     }
   }
   if (!_stationName && p.station_info) {
-    const sm = String(p.station_info).match(/([^\s]+?線)?\s*([^\s]+?)駅\s*(?:徒歩|歩)?\s*(\d+)?/);
+    const sm = String(p.station_info).match(/(?:([^\s]+線)\s+)?(\S+?)(?:駅)?\s+(?:徒歩|歩)\s*(\d+)/);
     if (sm) { _lineName = _lineName || (sm[1] || ''); _stationName = sm[2] || ''; if (_walkMin === null && sm[3] && !_siBus) _walkMin = Number(sm[3]); }
   }
   if (_walkMin === null && !_siBus && typeof extractWalkMinutes === 'function') _walkMin = extractWalkMinutes(p);
@@ -1191,6 +1240,12 @@ async function sendSuumoDiscordFromExtension_(notifyProps, criteriaName, gasUrl,
         const _rs = globalThis._suumoPatrolRankSkippedKeys;
         if (_nk && _rs) _rs.add(_nk(p.building_name || p.buildingName || '', p.room_number || p.roomNumber || ''));
       } catch(_) {}
+      // REINS物件: skippedMapにも登録して次回詳細取得前にスキップ
+      const _rpn = p.reins_property_number || p.propertyNumber;
+      if (_rpn && globalThis._currentReinsSkippedMap) {
+        globalThis._currentReinsSkippedMap[_rpn] = { reason: `順位上限超(${p.segment_rank}位>${rankCap}位)`, ts: Date.now() };
+        globalThis._currentReinsSkippedMapDirty = true;
+      }
       if (_rankObj) { _rankObj.skipped = true; _rankObj.cap = rankCap; }
       ranks.push(_rankObj || { rank: p.segment_rank, sampleSize: 0, searchUrl: '', inPage1: false, skipped: true, cap: rankCap });
       if (i < notifyProps.length - 1) await sleep(300);

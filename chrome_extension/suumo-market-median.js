@@ -638,19 +638,8 @@
       locParams = '&ra=013&rn=' + station.lineCode + '&ek=' + station.stationCode;
       fw2 = mdCode ? '' : (normalizedLayout ? encodeURIComponent(normalizedLayout) : '');
     } else {
-      const sc = _findTokyoScCode(input.address);
-      if (sc) {
-        result.searchMode = 'area';
-        locParams = '&ta=13&sc=' + sc;
-        const fw2Terms = [];
-        const banchi = _extractBanchiKeyword(input.address);
-        if (banchi) fw2Terms.push(banchi);
-        if (!mdCode && normalizedLayout) fw2Terms.push(normalizedLayout);
-        fw2 = encodeURIComponent(fw2Terms.filter(Boolean).join('+'));
-      } else {
-        result.searchMode = 'fw';
-        isNewUrl = false;
-      }
+      result.errors.push('駅コード解決失敗: line=' + (input.lineName || '(空)') + ' station=' + (input.stationName || '(空)'));
+      return result;
     }
 
     // ── 専有面積「○㎡以上」を追加（お客さんは下限だけで探す）──

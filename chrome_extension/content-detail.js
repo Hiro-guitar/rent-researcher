@@ -126,6 +126,11 @@
     const accessList = getAccessInfo();
     let stationInfo = '';
     const otherStations = [];
+    const access = accessList.map(a => ({
+      line: a.line || '',
+      station: a.station || '',
+      walk: parseInt(a.walk, 10) || 0,
+    }));
     if (accessList.length > 0) {
       const first = accessList[0];
       stationInfo = `${first.line} ${first.station} 徒歩${first.walk}`;
@@ -191,6 +196,7 @@
       floor,
       building_age: buildingAge,
       station_info: stationInfo,
+      access,
       room_number: roomNumber,
       url: '',  // REINSはセッション依存のためURL保存不可
       image_url: imageUrls[0] || '',

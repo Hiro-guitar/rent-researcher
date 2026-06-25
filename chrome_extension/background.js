@@ -3102,13 +3102,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         } else if (service === 'reins') {
           // REINS: バッチ分割対応（沿線3本・市区町村3つまで/1タブ）
-          // 連続駅はFrom-Toでまとめ、飛び飛びは個別分割
+          const CIRCULAR_LINE_KEYWORDS = ['山手線', '大江戸線'];
           const rwsRaw = customer.routes_with_stations || [];
-          const stationOrder = await loadStationOrder();
           const rws = [];
           for (const r of rwsRaw) {
-            const splits = splitRouteByConsecutiveStations(r, stationOrder);
-            for (const s of splits) rws.push(s);
+            const isCircular = CIRCULAR_LINE_KEYWORDS.some(kw => (r.route || '').includes(kw));
+            if (isCircular && r.stations && r.stations.length > 1) {
+              for (const st of r.stations) rws.push({ route: r.route, stations: [st] });
+            } else {
+              rws.push(r);
+            }
           }
           const cities = customer.cities || [];
           const rwsChunks = rws.length > 0
@@ -3780,8 +3783,14 @@ globalThis.runSearchCycle = async function runSearchCycle() {
             : [[]];
           const _totalBatches = _rwsChunks.length * _cityChunks.length;
           if (_totalBatches === 1 && rws.length <= 3 && cities.length <= 3) {
-            // 単一バッチで完結
-            await searchForCustomer(reinsTab.id, customer, seenIds, reinsDelay, searchId);
+            // 単一バッチで完結（分割後のrwsを反映）
+            const singleBatchCustomer = {
+              ...customer,
+              routes: rws.map(r => r.route),
+              routes_with_stations: rws,
+              _originalCustomer: customer,
+            };
+            await searchForCustomer(reinsTab.id, singleBatchCustomer, seenIds, reinsDelay, searchId);
           } else {
             let _batchIdx = 0;
             for (const rwsChunk of _rwsChunks) {
@@ -3963,6 +3972,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   }
   await setStorageData({ [skipHashKey]: currentHashes });
   let skippedMapDirty = false;
+
+  // suumo-patrol.jsの競合/順位スキップからskippedMapに書き込めるようglobalThisに公開
+  globalThis._currentReinsSkippedMap = skippedMap;
+  globalThis._currentReinsSkippedMapDirty = false;
 
   // --- Step 1: 検索フォームの準備 ---
   // まずVueハイドレーション確保 + 検索フォームへルーティング
@@ -4378,6 +4391,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           await setStorageData({ debugLog: `${customer.name}: ✗ 一覧スキップ: ${result.buildingName} ${result.floor} - 賃料+管理+共益超過 ${totalYen_}円(${result.rentText}+${result.managementFeeText||'0'}+${result.commonFeeText||'0'}) > ${rentMaxYen_}円` });
           continue;
         }
+      }
+    }
+
+    // SUUMO巡回: REINS物件番号で既知チェック（詳細取得・画像アップロード前にスキップ）
+    if (globalThis._suumoPatrolMode && globalThis._suumoPatrolSeenKeys) {
+      const earlyKey = 'reins_' + result.propertyNumber;
+      if (globalThis._suumoPatrolSeenKeys[earlyKey]) {
+        continue;
       }
     }
 
@@ -5503,9 +5524,11 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   } // end pageLoop
 
   // スキップ済み物件マップを保存（変更があった場合のみ）
-  if (skippedMapDirty) {
+  if (skippedMapDirty || globalThis._currentReinsSkippedMapDirty) {
     await setStorageData({ [skipStorageKey]: skippedMap });
   }
+  globalThis._currentReinsSkippedMap = null;
+  globalThis._currentReinsSkippedMapDirty = false;
 
   if (newProperties.length === 0) {
     await setStorageData({ debugLog: `${customer.name}: 新規物件なし` });
