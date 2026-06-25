@@ -214,9 +214,10 @@ async function runSuumoPatrolCycle() {
       return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
     };
     const _todayJst = _toJstDate(Date.now());
-    const { suumoCompSkippedToday, suumoRankSkippedToday } = await getStorageData(['suumoCompSkippedToday', 'suumoRankSkippedToday']);
+    const { suumoCompSkippedToday, suumoRankSkippedToday, suumoAdNgSkippedToday } = await getStorageData(['suumoCompSkippedToday', 'suumoRankSkippedToday', 'suumoAdNgSkippedToday']);
     const compSet = new Set();
     const rankSet = new Set();
+    const adNgSet = new Set();
     if (suumoCompSkippedToday && suumoCompSkippedToday.date === _todayJst && Array.isArray(suumoCompSkippedToday.keys)) {
       suumoCompSkippedToday.keys.forEach(k => compSet.add(k));
       await setStorageData({ debugLog: `[SUUMO巡回] 当日の競合スキップ済み ${compSet.size}件を復元` });
@@ -225,8 +226,13 @@ async function runSuumoPatrolCycle() {
       suumoRankSkippedToday.keys.forEach(k => rankSet.add(k));
       await setStorageData({ debugLog: `[SUUMO巡回] 当日の順位スキップ済み ${rankSet.size}件を復元` });
     }
+    if (suumoAdNgSkippedToday && suumoAdNgSkippedToday.date === _todayJst && Array.isArray(suumoAdNgSkippedToday.keys)) {
+      suumoAdNgSkippedToday.keys.forEach(k => adNgSet.add(k));
+      await setStorageData({ debugLog: `[SUUMO巡回] 当日の広告不可スキップ済み ${adNgSet.size}件を復元` });
+    }
     globalThis._suumoPatrolCompSkippedKeys = compSet;
     globalThis._suumoPatrolRankSkippedKeys = rankSet;
+    globalThis._suumoPatrolAdNgSkippedKeys = adNgSet;
 
     // 3. 有効なサービスを確認（SUUMO巡回専用の設定を使用、未設定時は顧客検索の設定にフォールバック）
     const { patrolEnabledServices, enabledServices } = await getStorageData(['patrolEnabledServices', 'enabledServices']);
@@ -496,6 +502,7 @@ async function runSuumoPatrolCycle() {
       const _saveJst = _toJstDate(Date.now());
       const _compKeys = globalThis._suumoPatrolCompSkippedKeys;
       const _rankKeys = globalThis._suumoPatrolRankSkippedKeys;
+      const _adNgKeys = globalThis._suumoPatrolAdNgSkippedKeys;
       if (_compKeys && _compKeys.size > 0) {
         await setStorageData({ suumoCompSkippedToday: { date: _saveJst, keys: [..._compKeys] } });
         await setStorageData({ debugLog: `[SUUMO巡回] 競合スキップ済み ${_compKeys.size}件を保存(${_saveJst})` });
@@ -504,11 +511,16 @@ async function runSuumoPatrolCycle() {
         await setStorageData({ suumoRankSkippedToday: { date: _saveJst, keys: [..._rankKeys] } });
         await setStorageData({ debugLog: `[SUUMO巡回] 順位スキップ済み ${_rankKeys.size}件を保存(${_saveJst})` });
       }
+      if (_adNgKeys && _adNgKeys.size > 0) {
+        await setStorageData({ suumoAdNgSkippedToday: { date: _saveJst, keys: [..._adNgKeys] } });
+        await setStorageData({ debugLog: `[SUUMO巡回] 広告不可スキップ済み ${_adNgKeys.size}件を保存(${_saveJst})` });
+      }
     } catch (_) {}
 
     globalThis._suumoPatrolSeenKeys = null;
     globalThis._suumoPatrolCompSkippedKeys = null;
     globalThis._suumoPatrolRankSkippedKeys = null;
+    globalThis._suumoPatrolAdNgSkippedKeys = null;
 
     await setStorageData({ debugLog: '━━━ SUUMO巡回 完了 ━━━' });
 

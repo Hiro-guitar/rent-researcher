@@ -1153,6 +1153,50 @@ async function loadReinsCodeMap() {
   return cachedReinsCodeMap;
 }
 
+let cachedStationOrder = null;
+async function loadStationOrder() {
+  if (cachedStationOrder) return cachedStationOrder;
+  const response = await fetch(chrome.runtime.getURL("stationOrder.json"));
+  cachedStationOrder = await response.json();
+  return cachedStationOrder;
+}
+
+function splitRouteByConsecutiveStations(route, stationOrder) {
+  const stations = route.stations || [];
+  if (stations.length <= 1) return [route];
+  const lineOrder = stationOrder[route.route];
+  if (!lineOrder) {
+    return stations.map(s => ({ route: route.route, stations: [s] }));
+  }
+  const idxMap = {};
+  for (let i = 0; i < lineOrder.length; i++) idxMap[lineOrder[i]] = i;
+  const sorted = stations
+    .map(s => ({ name: s, idx: idxMap[s] ?? -1 }))
+    .filter(s => s.idx >= 0)
+    .sort((a, b) => a.idx - b.idx);
+  const unknown = stations.filter(s => (idxMap[s] ?? -1) < 0);
+  if (sorted.length === 0) {
+    return stations.map(s => ({ route: route.route, stations: [s] }));
+  }
+  const groups = [[sorted[0]]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = groups[groups.length - 1];
+    if (sorted[i].idx === prev[prev.length - 1].idx + 1) {
+      prev.push(sorted[i]);
+    } else {
+      groups.push([sorted[i]]);
+    }
+  }
+  const result = groups.map(g => ({
+    route: route.route,
+    stations: g.map(s => s.name),
+  }));
+  for (const s of unknown) {
+    result.push({ route: route.route, stations: [s] });
+  }
+  return result;
+}
+
 // 顧客条件からstation文字列を組み立て
 function buildStationString(customer) {
   const rws = customer.routes_with_stations || [];
@@ -3054,12 +3098,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         } else if (service === 'reins') {
           // REINS: バッチ分割対応（沿線3本・市区町村3つまで/1タブ）
-          const CIRCULAR_LINE_KEYWORDS = ['山手線', '大江戸線'];
+          // 1駅ずつ分割: From/To範囲指定で飛び飛び駅の間の全駅が含まれるのを防止
           const rwsRaw = customer.routes_with_stations || [];
           const rws = [];
           for (const r of rwsRaw) {
-            const isCircular = CIRCULAR_LINE_KEYWORDS.some(kw => (r.route || '').includes(kw));
-            if (isCircular && r.stations && r.stations.length > 1) {
+            if (r.stations && r.stations.length > 1) {
               for (const st of r.stations) rws.push({ route: r.route, stations: [st] });
             } else {
               rws.push(r);
@@ -3719,12 +3762,10 @@ globalThis.runSearchCycle = async function runSearchCycle() {
         await setStorageData({ debugLog: `[REINS] ${customer.name} 条件: ${cond}` });
         try {
           const rwsRaw = customer.routes_with_stations || [];
-          // 環状線（山手線・大江戸線）は1駅ずつ分割（From/To指定で逆回り駅が含まれるのを防止）
-          const CIRCULAR_LINE_KEYWORDS = ['山手線', '大江戸線'];
+          // 1駅ずつ分割: From/To範囲指定で飛び飛び駅の間の全駅が含まれるのを防止
           const rws = [];
           for (const r of rwsRaw) {
-            const isCircular = CIRCULAR_LINE_KEYWORDS.some(kw => (r.route || '').includes(kw));
-            if (isCircular && r.stations && r.stations.length > 1) {
+            if (r.stations && r.stations.length > 1) {
               for (const st of r.stations) {
                 rws.push({ route: r.route, stations: [st] });
               }
@@ -5113,6 +5154,17 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           } // end strictSkip else
         } else {
           await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name} ${detail.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrlWithReason(detail, rejectReason)}` });
+          // 広告転載不可は当日スキップキーに登録（次回巡回で早期スキップ）
+          if (rejectReason === '広告転載区分: 不可' && globalThis._suumoPatrolMode) {
+            try {
+              const _normKey = globalThis._normSuumoKey;
+              const _adNg = globalThis._suumoPatrolAdNgSkippedKeys;
+              if (_normKey && _adNg) {
+                const k = _normKey(detail.building_name || '', detail.room_number || '');
+                if (k) _adNg.add(k);
+              }
+            } catch(_) {}
+          }
           // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
           if (detail.reins_property_number) {
             skippedMap[detail.reins_property_number] = { reason: rejectReason, ts: Date.now() };

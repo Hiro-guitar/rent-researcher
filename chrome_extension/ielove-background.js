@@ -1006,6 +1006,11 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
               await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 順位スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
               continue;
             }
+            const _adNgSkipped = globalThis._suumoPatrolAdNgSkippedKeys;
+            if (_adNgSkipped && _adNgSkipped.has(earlyKey)) {
+              await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 広告不可スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
+              continue;
+            }
           }
         }
       }

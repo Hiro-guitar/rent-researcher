@@ -909,7 +909,15 @@ function getItandiFilterRejectReason(prop, customer) {
   if (equip.includes('1階') && !equip.includes('1階以上') && !equip.includes('2階以上') && floorNum > 0 && floorNum !== 1) return `1階限定条件: ${floorNum}階`;
 
   // 共通フィルタ（構造・最上階・南向き・間取り等）
+  // itandi APIはstructure_type:inでフィルタ済みのため、
+  // 詳細ページ取得失敗時にprop.structureが空でも「構造不明」で誤スキップしないよう
+  // 構造チェックを一時的にバイパスする
+  const savedStructures = customer.structures;
+  if (!prop.structure && savedStructures?.length > 0) {
+    customer.structures = null;
+  }
   const commonReason = getFilterRejectReason(prop, customer);
+  customer.structures = savedStructures;
   if (commonReason) return commonReason;
 
   return null;
@@ -1292,6 +1300,11 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
             await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ 順位スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
             continue;
           }
+          const _adNgSkipped = globalThis._suumoPatrolAdNgSkippedKeys;
+          if (_adNgSkipped && _adNgSkipped.has(earlyKey)) {
+            await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ 広告不可スキップ(早期): ${prop.building_name || ''} ${prop.room_number || ''} (詳細遷移省略)` });
+            continue;
+          }
         }
       }
     }
@@ -1371,11 +1384,23 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
         throw err;
       }
       console.warn(`[itandi] 詳細処理エラー (${prop.building_name}):`, err.message);
+      await setStorageData({ debugLog: `[itandi] ${customer.name}: ⚠ 詳細処理エラー: ${prop.building_name} ${prop.room_number || ''} - ${err.message}` });
     }
 
     // フィルタリング
     const rejectReason = getItandiFilterRejectReason(prop, customer);
     if (rejectReason) {
+      // 広告掲載不可は当日スキップキーに登録（次回巡回で早期スキップ）
+      if (rejectReason === '広告掲載不可' && globalThis._suumoPatrolMode) {
+        try {
+          const _normKey = globalThis._normSuumoKey;
+          const _adNg = globalThis._suumoPatrolAdNgSkippedKeys;
+          if (_normKey && _adNg) {
+            const k = _normKey(prop.building_name || '', prop.room_number || '');
+            if (k) _adNg.add(k);
+          }
+        } catch(_) {}
+      }
       await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
       continue;
     }
