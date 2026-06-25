@@ -528,9 +528,10 @@
     if (candidates.length === 1) return candidates[0];
     const normLine = _normalizeLineName(lineName);
     if (normLine) {
-      const lineMatch = candidates.find(s =>
-        _normalizeLineName(s.lineName) === normLine ||
-        s.lineName.includes(normLine) || normLine.includes(s.lineName));
+      const lineMatch = candidates.find(s => {
+        const normS = _normalizeLineName(s.lineName);
+        return normS === normLine || normS.includes(normLine) || normLine.includes(normS);
+      });
       if (lineMatch) return lineMatch;
     }
     return candidates[0];

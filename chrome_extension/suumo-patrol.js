@@ -804,6 +804,24 @@ async function sendSuumoCandidatesToGas(properties, patrolCriteriaId) {
       await setStorageData({ debugLog: `[SUUMO巡回] Discord送信例外: ${e.message}` });
     }
   }
+  // notifyPropsが空(GAS重複)等で順位未算出の場合、順位だけ別途計算
+  if (!result._rankInfo && properties.length > 0 && typeof getSuumoSegmentRank === 'function') {
+    try {
+      const p = properties[0];
+      const rankRes = await getSuumoSegmentRank(_buildSegmentRankInput(p));
+      if (rankRes && rankRes.ok) {
+        result._rankInfo = { rank: rankRes.rank, sampleSize: rankRes.sampleSize,
+                             searchUrl: rankRes.searchUrl || '', inPage1: !!rankRes.inPage1, skipped: false };
+      } else {
+        const bld = p.building_name || p.buildingName || '';
+        const room = p.room_number || p.roomNumber || '';
+        await setStorageData({ debugLog:
+          '[ポテンシャル順位] ' + bld + ' ' + room + ' → 順位算出失敗: '
+          + ((rankRes && rankRes.errors && rankRes.errors.join(',')) || 'unknown')
+        });
+      }
+    } catch (_) {}
+  }
   return result;
 }
 
