@@ -1164,7 +1164,11 @@ async function loadStationOrder() {
 function splitRouteByConsecutiveStations(route, stationOrder) {
   const stations = route.stations || [];
   if (stations.length <= 1) return [route];
-  const lineOrder = stationOrder[route.route];
+  let lineOrder = stationOrder[route.route];
+  if (!lineOrder) {
+    const stripped = route.route.replace(/^(ＪＲ|東京メトロ|都営|東急|京王|小田急|西武|東武|京急|京成|相鉄|新京成|北総|埼玉高速|東葉高速)/, '');
+    lineOrder = stationOrder[stripped];
+  }
   if (!lineOrder) {
     return stations.map(s => ({ route: route.route, stations: [s] }));
   }
