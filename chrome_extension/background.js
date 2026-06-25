@@ -3098,15 +3098,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         } else if (service === 'reins') {
           // REINS: バッチ分割対応（沿線3本・市区町村3つまで/1タブ）
-          // 1駅ずつ分割: From/To範囲指定で飛び飛び駅の間の全駅が含まれるのを防止
+          // 連続駅はFrom-Toでまとめ、飛び飛びは個別分割
           const rwsRaw = customer.routes_with_stations || [];
+          const stationOrder = await loadStationOrder();
           const rws = [];
           for (const r of rwsRaw) {
-            if (r.stations && r.stations.length > 1) {
-              for (const st of r.stations) rws.push({ route: r.route, stations: [st] });
-            } else {
-              rws.push(r);
-            }
+            const splits = splitRouteByConsecutiveStations(r, stationOrder);
+            for (const s of splits) rws.push(s);
           }
           const cities = customer.cities || [];
           const rwsChunks = rws.length > 0
@@ -3762,16 +3760,12 @@ globalThis.runSearchCycle = async function runSearchCycle() {
         await setStorageData({ debugLog: `[REINS] ${customer.name} 条件: ${cond}` });
         try {
           const rwsRaw = customer.routes_with_stations || [];
-          // 1駅ずつ分割: From/To範囲指定で飛び飛び駅の間の全駅が含まれるのを防止
+          // 連続駅はFrom-Toでまとめ、飛び飛びは個別分割
+          const stationOrder2 = await loadStationOrder();
           const rws = [];
           for (const r of rwsRaw) {
-            if (r.stations && r.stations.length > 1) {
-              for (const st of r.stations) {
-                rws.push({ route: r.route, stations: [st] });
-              }
-            } else {
-              rws.push(r);
-            }
+            const splits = splitRouteByConsecutiveStations(r, stationOrder2);
+            for (const s of splits) rws.push(s);
           }
           const cities = customer.cities || [];
           const _rwsChunks = rws.length > 0
