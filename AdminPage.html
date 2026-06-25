@@ -382,6 +382,43 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
   </div>
 
+  <!-- ═══ 顧客統合 ═══ -->
+  <div id="mergeSection" class="admin-section">
+    <div class="admin-section-header" onclick="toggleAdminSection('merge')">
+      <div class="admin-section-title">
+        🔗 顧客統合
+      </div>
+      <div class="admin-section-right">
+        <span id="mergeArrow" class="admin-section-arrow">▶</span>
+      </div>
+    </div>
+    <div id="mergeBody" class="admin-section-body">
+      <p class="admin-desc">
+        重複した2つの顧客レコードを1つに統合します。名前は問い合わせ側を優先、履歴は両方保持します。
+      </p>
+      <div style="padding:8px 12px;">
+        <div class="admin-field-row" style="margin-bottom:8px;">
+          <div style="flex:1;">
+            <label style="font-size:12px;color:#bbb;margin-bottom:4px;display:block;">顧客A</label>
+            <select id="mergeCustomerA" style="width:100%;padding:8px;font-size:13px;border:1px solid #555;border-radius:6px;background:#2d2d2d;color:#e0e0e0;">
+              <option value="">— 選択 —</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:12px;color:#bbb;margin-bottom:4px;display:block;">顧客B</label>
+            <select id="mergeCustomerB" style="width:100%;padding:8px;font-size:13px;border:1px solid #555;border-radius:6px;background:#2d2d2d;color:#e0e0e0;">
+              <option value="">— 選択 —</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn-admin btn-blue" onclick="loadMergePreview()" id="mergePreviewBtn">比較プレビュー</button>
+      </div>
+      <div id="mergePreviewArea" style="display:none;padding:0 12px 12px;">
+        <div id="mergePreviewContent"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ═══ 検索リセット ═══ -->
   <div id="searchResetSection" class="admin-section">
     <div class="admin-section-header" onclick="toggleAdminSection('searchReset')">
@@ -951,6 +988,21 @@ function renderCustomerDropdown() {
       opt4.value = c.name;
       opt4.textContent = c.name;
       backfillSel.appendChild(opt4);
+    }
+    // 顧客統合用ドロップダウン
+    var mergeA = document.getElementById('mergeCustomerA');
+    var mergeB = document.getElementById('mergeCustomerB');
+    if (mergeA) {
+      var optA = document.createElement('option');
+      optA.value = c.name;
+      optA.textContent = c.name + (c.lineUserId ? ' (LINE)' : '');
+      mergeA.appendChild(optA);
+    }
+    if (mergeB) {
+      var optB = document.createElement('option');
+      optB.value = c.name;
+      optB.textContent = c.name + (c.lineUserId ? ' (LINE)' : '');
+      mergeB.appendChild(optB);
     }
   }
 }
@@ -2854,6 +2906,199 @@ function sendSuggestionMessages() {
       resultEl.innerHTML = '<span style="color:#c00;">エラー: ' + esc(err.message || String(err)) + '</span>';
     })
     .sendConditionSuggestionMessages(names);
+}
+
+// ══════════════════════════════════════════════════════════
+//  顧客統合
+// ══════════════════════════════════════════════════════════
+function loadMergePreview() {
+  var nameA = document.getElementById('mergeCustomerA').value;
+  var nameB = document.getElementById('mergeCustomerB').value;
+  if (!nameA || !nameB) { showToast('2つの顧客を選択してください'); return; }
+  if (nameA === nameB) { showToast('異なる顧客を選択してください'); return; }
+
+  var btn = document.getElementById('mergePreviewBtn');
+  btn.disabled = true; btn.textContent = '読み込み中...';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false; btn.textContent = '比較プレビュー';
+      if (res.error) { showToast(res.error); return; }
+      renderMergePreview(res);
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false; btn.textContent = '比較プレビュー';
+      showToast('エラー: ' + (err.message || err));
+    })
+    .getCustomerMergePreview(nameA, nameB);
+}
+
+function renderMergePreview(data) {
+  var area = document.getElementById('mergePreviewArea');
+  var content = document.getElementById('mergePreviewContent');
+  area.style.display = 'block';
+
+  var html = '<div style="background:#2d2d2d;border-radius:8px;padding:12px;margin-bottom:8px;">';
+  html += '<div style="font-size:13px;font-weight:600;margin-bottom:8px;color:#8ec41d;">📋 比較結果</div>';
+
+  // 基本情報
+  html += '<table style="width:100%;font-size:12px;border-collapse:collapse;">';
+  html += '<tr style="border-bottom:1px solid #444;"><th style="text-align:left;padding:6px 4px;color:#999;width:25%;">項目</th>'
+    + '<th style="text-align:left;padding:6px 4px;color:#7cb3f0;width:37%;">' + esc(data.nameA) + '</th>'
+    + '<th style="text-align:left;padding:6px 4px;color:#e6a23c;width:37%;">' + esc(data.nameB) + '</th></tr>';
+
+  html += '<tr style="border-bottom:1px solid #333;"><td style="padding:4px;color:#999;">LINE</td>'
+    + '<td style="padding:4px;">' + (data.lineA ? '✅ ' + esc(data.lineA.substring(0, 8)) + '…' : '—') + '</td>'
+    + '<td style="padding:4px;">' + (data.lineB ? '✅ ' + esc(data.lineB.substring(0, 8)) + '…' : '—') + '</td></tr>';
+  html += '<tr style="border-bottom:1px solid #333;"><td style="padding:4px;color:#999;">ステータス</td>'
+    + '<td style="padding:4px;">' + esc(data.statusA || '(なし)') + '</td>'
+    + '<td style="padding:4px;">' + esc(data.statusB || '(なし)') + '</td></tr>';
+
+  // 履歴件数
+  html += '<tr style="border-bottom:1px solid #333;"><td style="padding:4px;color:#999;">通知済み</td>'
+    + '<td style="padding:4px;">' + data.countA.seen + '件</td>'
+    + '<td style="padding:4px;">' + data.countB.seen + '件</td></tr>';
+  html += '<tr style="border-bottom:1px solid #333;"><td style="padding:4px;color:#999;">アクション</td>'
+    + '<td style="padding:4px;">' + data.countA.action + '件</td>'
+    + '<td style="padding:4px;">' + data.countB.action + '件</td></tr>';
+  html += '<tr style="border-bottom:1px solid #444;"><td style="padding:4px;color:#999;">閲覧ログ</td>'
+    + '<td style="padding:4px;">' + data.countA.view + '件</td>'
+    + '<td style="padding:4px;">' + data.countB.view + '件</td></tr>';
+  html += '</table>';
+
+  // 条件フィールド比較
+  html += '<div style="font-size:12px;font-weight:600;margin:10px 0 6px;color:#ccc;">検索条件</div>';
+  html += '<table style="width:100%;font-size:11px;border-collapse:collapse;">';
+
+  var conflictCount = 0;
+  window._mergeData = data;
+  window._mergeOverrides = {};
+
+  for (var i = 0; i < data.fields.length; i++) {
+    var f = data.fields[i];
+    if (f.status === 'same' && !f.valA) continue; // both empty
+    var bgColor = f.status === 'conflict' ? 'rgba(231,76,60,0.1)' : 'transparent';
+    html += '<tr style="border-bottom:1px solid #333;background:' + bgColor + ';">';
+    html += '<td style="padding:3px 4px;color:#999;width:22%;vertical-align:top;">' + esc(f.label) + '</td>';
+
+    if (f.status === 'same') {
+      html += '<td colspan="2" style="padding:3px 4px;color:#aaa;">' + esc(f.valA || '—') + '</td>';
+    } else if (f.status === 'onlyA') {
+      html += '<td style="padding:3px 4px;color:#7cb3f0;">' + esc(f.valA) + '</td>';
+      html += '<td style="padding:3px 4px;color:#666;">—</td>';
+    } else if (f.status === 'onlyB') {
+      html += '<td style="padding:3px 4px;color:#666;">—</td>';
+      html += '<td style="padding:3px 4px;color:#e6a23c;">' + esc(f.valB) + '</td>';
+    } else {
+      conflictCount++;
+      html += '<td style="padding:3px 4px;">'
+        + '<label style="display:block;cursor:pointer;"><input type="radio" name="merge_' + f.col + '" value="A" checked onchange="setMergeOverride(' + f.col + ',\'A\')" style="margin-right:4px;">'
+        + '<span style="color:#7cb3f0;">' + esc(f.valA) + '</span></label></td>';
+      html += '<td style="padding:3px 4px;">'
+        + '<label style="display:block;cursor:pointer;"><input type="radio" name="merge_' + f.col + '" value="B" onchange="setMergeOverride(' + f.col + ',\'B\')" style="margin-right:4px;">'
+        + '<span style="color:#e6a23c;">' + esc(f.valB) + '</span></label></td>';
+    }
+    html += '</tr>';
+  }
+  html += '</table>';
+
+  if (conflictCount > 0) {
+    html += '<div style="font-size:11px;color:#e67e22;margin-top:6px;">⚠ ' + conflictCount + '件の競合あり — どちらを残すか選択してください</div>';
+  }
+
+  // 統合先の名前選択
+  html += '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #444;">';
+  html += '<div style="font-size:12px;font-weight:600;color:#ccc;margin-bottom:6px;">統合先の名前（残す方）</div>';
+  html += '<div class="radio-row" style="gap:12px;">';
+  html += '<label style="cursor:pointer;"><input type="radio" name="mergeKeep" value="A" checked style="margin-right:4px;"> <span style="color:#7cb3f0;">' + esc(data.nameA) + '</span></label>';
+  html += '<label style="cursor:pointer;"><input type="radio" name="mergeKeep" value="B" style="margin-right:4px;"> <span style="color:#e6a23c;">' + esc(data.nameB) + '</span></label>';
+  html += '</div></div>';
+
+  html += '<div style="margin-top:12px;text-align:center;">';
+  html += '<button class="btn-admin btn-orange" id="mergeExecBtn" onclick="executeMerge()" style="width:100%;">🔗 統合を実行</button>';
+  html += '</div>';
+  html += '<div id="mergeResult" style="margin-top:8px;font-size:12px;"></div>';
+
+  html += '</div>';
+  content.innerHTML = html;
+}
+
+function setMergeOverride(col, side) {
+  var data = window._mergeData;
+  if (side === 'B') {
+    for (var i = 0; i < data.fields.length; i++) {
+      if (data.fields[i].col === col) {
+        window._mergeOverrides[String(col)] = data.fields[i].valB;
+        break;
+      }
+    }
+  } else {
+    delete window._mergeOverrides[String(col)];
+  }
+}
+
+function executeMerge() {
+  var data = window._mergeData;
+  if (!data) return;
+
+  var keepSide = document.querySelector('input[name="mergeKeep"]:checked').value;
+  var keepName = keepSide === 'A' ? data.nameA : data.nameB;
+  var mergeName = keepSide === 'A' ? data.nameB : data.nameA;
+
+  // overridesを統合先基準に変換
+  var overrides = {};
+  for (var col in window._mergeOverrides) {
+    overrides[col] = window._mergeOverrides[col];
+  }
+  // keepSide=Bの場合、ラジオボタンAが選ばれてるconflictフィールドは元のA側の値をoverrideとして渡す
+  if (keepSide === 'B') {
+    var newOverrides = {};
+    for (var i = 0; i < data.fields.length; i++) {
+      var f = data.fields[i];
+      if (f.status !== 'conflict') continue;
+      var radio = document.querySelector('input[name="merge_' + f.col + '"]:checked');
+      if (radio && radio.value === 'A') {
+        newOverrides[String(f.col)] = f.valA;
+      } else if (radio && radio.value === 'B') {
+        // B側はkeepNameのデータなのでoverrideしない（keepのまま）
+      }
+    }
+    overrides = newOverrides;
+  } else {
+    // keepSide=A: B側を選んだフィールドのみoverride
+    var filteredOverrides = {};
+    for (var i = 0; i < data.fields.length; i++) {
+      var f = data.fields[i];
+      if (f.status !== 'conflict') continue;
+      var radio = document.querySelector('input[name="merge_' + f.col + '"]:checked');
+      if (radio && radio.value === 'B') {
+        filteredOverrides[String(f.col)] = f.valB;
+      }
+    }
+    overrides = filteredOverrides;
+  }
+
+  if (!confirm(mergeName + ' を ' + keepName + ' に統合します。この操作は元に戻せません。\n\n実行しますか？')) return;
+
+  var btn = document.getElementById('mergeExecBtn');
+  btn.disabled = true; btn.textContent = '統合中...';
+  var resultEl = document.getElementById('mergeResult');
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false; btn.textContent = '🔗 統合を実行';
+      if (res.success) {
+        resultEl.innerHTML = '<span style="color:#8ec41d;">✅ ' + esc(res.message).replace(/\n/g, '<br>') + '</span>';
+        showToast('統合完了');
+      } else {
+        resultEl.innerHTML = '<span style="color:#e74c3c;">❌ ' + esc(res.message) + '</span>';
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false; btn.textContent = '🔗 統合を実行';
+      resultEl.innerHTML = '<span style="color:#e74c3c;">エラー: ' + esc(err.message || String(err)) + '</span>';
+    })
+    .executeCustomerMerge(keepName, mergeName, overrides);
 }
 </script>
 </body>

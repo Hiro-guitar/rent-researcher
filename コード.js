@@ -4868,3 +4868,244 @@ function resetSearchRun(startTime, endTime, optCustomerName) {
 
   return { deletedPending: deletedPending, deletedSeen: deletedSeen, dedupResets: dedupKeysToReset.length, reinsDateRolledBack: customerNames.length };
 }
+
+// ══════════════════════════════════════════════════════════
+//  顧客統合（マージ）
+// ══════════════════════════════════════════════════════════
+
+function getCustomerMergePreview(nameA, nameB) {
+  if (!nameA || !nameB || nameA === nameB) {
+    return { error: '異なる2つの顧客名を指定してください。' };
+  }
+
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var critSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+
+  var critData = critSheet.getDataRange().getValues();
+  var rowA = null, rowB = null;
+  for (var i = 1; i < critData.length; i++) {
+    var n = String(critData[i][1] || '').trim();
+    if (n === nameA) rowA = critData[i];
+    if (n === nameB) rowB = critData[i];
+  }
+  if (!rowA && !rowB) return { error: '両方の顧客が見つかりません。' };
+  if (!rowA) return { error: nameA + ' が見つかりません。' };
+  if (!rowB) return { error: nameB + ' が見つかりません。' };
+
+  var FIELD_LABELS = [
+    { col: 3, label: '市区町村' },
+    { col: 4, label: '路線(駅名)' },
+    { col: 5, label: '駅名' },
+    { col: 6, label: '駅徒歩' },
+    { col: 7, label: '賃料上限' },
+    { col: 8, label: '間取り' },
+    { col: 9, label: '専有面積' },
+    { col: 10, label: '築年数' },
+    { col: 11, label: '構造' },
+    { col: 12, label: '設備' },
+    { col: 13, label: '理由' },
+    { col: 14, label: '入居時期' },
+    { col: 15, label: 'その他希望' },
+    { col: 16, label: 'ペット種別' },
+    { col: 17, label: '入居者' },
+    { col: 24, label: '町名丁目' },
+    { col: 26, label: '入居時期厳守' },
+    { col: 27, label: '年齢' },
+    { col: 30, label: 'btMode' },
+    { col: 31, label: 'メール' },
+    { col: 32, label: '営業ステージ' },
+  ];
+
+  var fields = [];
+  for (var fi = 0; fi < FIELD_LABELS.length; fi++) {
+    var f = FIELD_LABELS[fi];
+    var valA = String(rowA[f.col] || '').trim();
+    var valB = String(rowB[f.col] || '').trim();
+    var status = 'same';
+    if (!valA && valB) status = 'onlyB';
+    else if (valA && !valB) status = 'onlyA';
+    else if (valA !== valB) status = 'conflict';
+    fields.push({ col: f.col, label: f.label, valA: valA, valB: valB, status: status });
+  }
+
+  // LINE userId
+  var lineA = '', lineB = '';
+  if (luSheet) {
+    var luData = luSheet.getDataRange().getValues();
+    for (var li = 1; li < luData.length; li++) {
+      var ln = String(luData[li][1] || '').trim();
+      if (ln === nameA && luData[li][0]) lineA = String(luData[li][0]);
+      if (ln === nameB && luData[li][0]) lineB = String(luData[li][0]);
+    }
+  }
+
+  // 履歴件数
+  var propSs = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+  var countA = { seen: 0, action: 0, view: 0 };
+  var countB = { seen: 0, action: 0, view: 0 };
+  try {
+    var seenSh = propSs.getSheetByName('通知済み物件');
+    if (seenSh) {
+      var sd = seenSh.getDataRange().getValues();
+      for (var si = 1; si < sd.length; si++) {
+        var sn = String(sd[si][0] || '').trim();
+        if (sn === nameA) countA.seen++;
+        if (sn === nameB) countB.seen++;
+      }
+    }
+  } catch(e) {}
+  try {
+    var actSh = propSs.getSheetByName('アクションログ');
+    if (actSh) {
+      var ad = actSh.getDataRange().getValues();
+      for (var ai = 1; ai < ad.length; ai++) {
+        var an = String(ad[ai][0] || '').trim();
+        if (an === nameA) countA.action++;
+        if (an === nameB) countB.action++;
+      }
+    }
+  } catch(e) {}
+  try {
+    var vlSh = propSs.getSheetByName('閲覧ログ');
+    if (vlSh) {
+      var vd = vlSh.getDataRange().getValues();
+      for (var vi = 1; vi < vd.length; vi++) {
+        var vn = String(vd[vi][0] || '').trim();
+        if (vn === nameA) countA.view++;
+        if (vn === nameB) countB.view++;
+      }
+    }
+  } catch(e) {}
+
+  // 配信ステータス
+  var statusA = String(rowA[18] || '').trim();
+  var statusB = String(rowB[18] || '').trim();
+
+  return {
+    nameA: nameA,
+    nameB: nameB,
+    lineA: lineA,
+    lineB: lineB,
+    statusA: statusA,
+    statusB: statusB,
+    fields: fields,
+    countA: countA,
+    countB: countB,
+  };
+}
+
+function executeCustomerMerge(keepName, mergeName, fieldOverrides) {
+  if (!keepName || !mergeName || keepName === mergeName) {
+    return { success: false, message: '統合元と統合先が不正です。' };
+  }
+
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var critSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+  var propSs = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+
+  // 1. 検索条件シート — mergeNameの条件をkeepName行に反映して、mergeName行を削除
+  var critData = critSheet.getDataRange().getValues();
+  var keepRow = -1, mergeRow = -1;
+  for (var i = 1; i < critData.length; i++) {
+    var n = String(critData[i][1] || '').trim();
+    if (n === keepName && keepRow < 0) keepRow = i + 1;
+    if (n === mergeName && mergeRow < 0) mergeRow = i + 1;
+  }
+  if (keepRow < 0) return { success: false, message: keepName + ' が見つかりません。' };
+  if (mergeRow < 0) return { success: false, message: mergeName + ' が見つかりません。' };
+
+  // fieldOverrides: { col: value } — conflictフィールドでmerge側を選んだ場合
+  if (fieldOverrides) {
+    for (var colStr in fieldOverrides) {
+      var col = parseInt(colStr, 10);
+      critSheet.getRange(keepRow, col + 1).setValue(fieldOverrides[colStr]);
+    }
+  }
+
+  // onlyB フィールド(keepに無くmergeにある) → keep行に反映
+  var keepData = critSheet.getRange(keepRow, 1, 1, critSheet.getLastColumn()).getValues()[0];
+  var mergeData = critSheet.getRange(mergeRow, 1, 1, critSheet.getLastColumn()).getValues()[0];
+  var CRITERIA_COLS = [3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,24,26,27,30,31,32];
+  for (var ci = 0; ci < CRITERIA_COLS.length; ci++) {
+    var c = CRITERIA_COLS[ci];
+    if (fieldOverrides && fieldOverrides.hasOwnProperty(String(c))) continue;
+    var kv = String(keepData[c] || '').trim();
+    var mv = String(mergeData[c] || '').trim();
+    if (!kv && mv) {
+      critSheet.getRange(keepRow, c + 1).setValue(mergeData[c]);
+    }
+  }
+
+  // merge行を削除
+  critSheet.deleteRow(mergeRow);
+
+  // 2. LINE Users — mergeNameのuserIdをkeepNameに紐付け直す
+  var mergeLineUserId = '';
+  if (luSheet) {
+    var luData = luSheet.getDataRange().getValues();
+    var keepHasLine = false;
+    for (var li = 1; li < luData.length; li++) {
+      var ln = String(luData[li][1] || '').trim();
+      if (ln === keepName && luData[li][0]) keepHasLine = true;
+    }
+    for (var li = luData.length - 1; li >= 1; li--) {
+      var ln = String(luData[li][1] || '').trim();
+      if (ln === mergeName) {
+        mergeLineUserId = String(luData[li][0] || '');
+        if (!keepHasLine && mergeLineUserId) {
+          luSheet.getRange(li + 1, 2).setValue(keepName);
+          keepHasLine = true;
+        } else {
+          luSheet.deleteRow(li + 1);
+        }
+      }
+    }
+  }
+
+  // 3. 物件スプレッドシートの顧客名を一括変更
+  var renamedSheets = [];
+  var logSheets = ['通知済み物件', 'アクションログ', '閲覧ログ', '物件コメント'];
+  for (var si = 0; si < logSheets.length; si++) {
+    var shName = logSheets[si];
+    try {
+      var sh = propSs.getSheetByName(shName);
+      if (!sh) continue;
+      var data = sh.getDataRange().getValues();
+      var changed = 0;
+      for (var ri = 1; ri < data.length; ri++) {
+        if (String(data[ri][0] || '').trim() === mergeName) {
+          sh.getRange(ri + 1, 1).setValue(keepName);
+          changed++;
+        }
+      }
+      if (changed > 0) renamedSheets.push(shName + '(' + changed + '件)');
+    } catch(e) {
+      console.warn(shName + ' 顧客名変更エラー: ' + e.message);
+    }
+  }
+
+  // 承認待ちシートも変更
+  try {
+    var pendSh = propSs.getSheetByName('シート1');
+    if (pendSh) {
+      var pData = pendSh.getDataRange().getValues();
+      var pc = 0;
+      for (var pi = 1; pi < pData.length; pi++) {
+        if (String(pData[pi][0] || '').trim() === mergeName) {
+          pendSh.getRange(pi + 1, 1).setValue(keepName);
+          pc++;
+        }
+      }
+      if (pc > 0) renamedSheets.push('承認待ち(' + pc + '件)');
+    }
+  } catch(e) {}
+
+  return {
+    success: true,
+    message: mergeName + ' → ' + keepName + ' に統合しました。\n' +
+      '履歴更新: ' + (renamedSheets.length > 0 ? renamedSheets.join(', ') : 'なし') +
+      (mergeLineUserId ? '\nLINE userId: ' + mergeLineUserId + ' を ' + keepName + ' に紐付け' : ''),
+  };
+}
