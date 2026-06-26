@@ -261,6 +261,7 @@ function scrapeSuumoBusinessTable() {
         vacant_mark: d[18] || '',
         listed_days: toInt(d[19]),
         rep_list_pv: toInt(d[20]),
+        rep_daily_list_pv: parseFloat(String(d[21] || '0').replace(/,/g, '')) || 0,
         rep_detail_pv: toInt(d[22]),
         transition_rate: d[24] || '',
         room_list_pv: toInt(d[27]),
