@@ -557,14 +557,30 @@ function handleGetListedForRank(json) {
   }
 
   var props = [];
+  var keyFixes = [];
   for (var i = 0; i < data.length; i++) {
     if (data[i][8] !== 'active') continue; // 9列目: ステータス
-    var key = data[i][0];
-    var pjson = candMap[key];
-    if (!pjson) continue; // specsが無い物件はスキップ
+    // A列(物件キー)が並び替えでずれている場合があるため、
+    // B列(建物名)+C列(部屋番号)から正しいキーを再生成して候補を引く
+    var building = String(data[i][1] || '');
+    var room = String(data[i][2] || '');
+    var correctKey = normalizeSuumoPropertyKey_(building, room);
+    var storedKey = data[i][0];
+
+    var pjson = candMap[correctKey] || candMap[storedKey];
+    if (!pjson) continue;
     var property;
     try { property = JSON.parse(pjson); } catch (e) { continue; }
-    props.push({ key: key, property: property });
+    props.push({ key: correctKey, property: property });
+
+    // A列がずれていたら修復
+    if (storedKey !== correctKey) {
+      keyFixes.push({ row: i + 2, correctKey: correctKey });
+    }
+  }
+  // ずれていたA列を一括修復
+  for (var f = 0; f < keyFixes.length; f++) {
+    sheet.getRange(keyFixes[f].row, 1).setValue(keyFixes[f].correctKey);
   }
   return ContentService.createTextOutput(JSON.stringify({ success: true, properties: props }))
     .setMimeType(ContentService.MimeType.JSON);
@@ -594,11 +610,14 @@ function handleUpdateListingRank(json) {
   var urlCol = SUUMO_LISTING_HEADERS.indexOf('順位URL') + 1;
   var sampleCol = SUUMO_LISTING_HEADERS.indexOf('母数(件数)') + 1;
 
-  // 物件キー → 行番号
-  var keyVals = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  // 物件キー → 行番号（B列+C列から再生成。ソートでA列がずれている場合に対応）
+  var allData = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
   var keyRow = {};
-  for (var i = 0; i < keyVals.length; i++) {
-    if (keyVals[i][0]) keyRow[keyVals[i][0]] = i + 2;
+  for (var i = 0; i < allData.length; i++) {
+    var genKey = normalizeSuumoPropertyKey_(String(allData[i][1] || ''), String(allData[i][2] || ''));
+    if (genKey) keyRow[genKey] = i + 2;
+    // A列のキーでも引けるようにフォールバック
+    if (allData[i][0] && !keyRow[allData[i][0]]) keyRow[allData[i][0]] = i + 2;
   }
 
   var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
