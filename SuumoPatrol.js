@@ -84,19 +84,12 @@ var SUUMO_LISTING_HEADERS = [
   '代表物件一覧PV',
   // 31列目: 代表物件詳細PV (d[22])。遷移率の分子。
   '代表物件詳細PV',
-  // ── 画像改善(代表画像を外観→内観に変更)の効果測定。SUUMOビジネスは2日遅れなので、
-  //    変更日+2日後のPVを「起点」にし、そこからの差分で純粋な変更後遷移率を測る。──
-  // 32列目: 画像変更状態 (空=未 / 起点待ち / 測定中)
+  // 32-37列目: (画像改善の効果測定用に予約。シートのデータは残すが、コードは削除済み)
   '画像変更状態',
-  // 33列目: 画像変更日 (内観に変えた日 yyyy-MM-dd)
   '画像変更日',
-  // 34列目: 変更前遷移率(外観%) = 変更時点の遷移率(ベースライン)
   '変更前遷移率(外観%)',
-  // 35列目: 起点 代表一覧PV (変更日+2のスナップショット)
   '起点代表一覧PV',
-  // 36列目: 起点 代表詳細PV (変更日+2のスナップショット)
   '起点代表詳細PV',
-  // 37列目: 変更後遷移率(内観%) = (今詳細-起点詳細)÷(今一覧-起点一覧)。外観の尾を除いた純粋値。
   '変更後遷移率(内観%)',
   // 38列目: 加重競合数 = 第1基準値×1.0 + 第2基準値×1.6 + 第3基準値×2.1
   '加重競合数',
@@ -383,122 +376,6 @@ function hideOldListingColumns() {
   return '非表示+廃止マーク完了: ' + done.join(' / ');
 }
 
-// ═══════════════════════════════════════════════════════════
-// 画像改善(代表画像を内観に)の効果測定ヘルパー
-// ═══════════════════════════════════════════════════════════
-
-/**
- * 【画像改善実験】遷移率 < 閾値 の掲載中物件をリストアップ(代表画像の変更候補)。
- *   既に変更マーク済(画像変更状態あり)は除外。遷移率の低い順。Apps Scriptエディタで実行。
- * @param {number} [threshold=10] 遷移率(%)の閾値
- */
-function listLowTransitionListings(threshold) {
-  threshold = threshold || 10;
-  var sheet = getListingSheet_();
-  var lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return [];
-  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
-  var transIdx = SUUMO_LISTING_HEADERS.indexOf('遷移率(代表%)');
-  var repListIdx = SUUMO_LISTING_HEADERS.indexOf('代表物件一覧PV');
-  var statusIdx = SUUMO_LISTING_HEADERS.indexOf('画像変更状態');
-  var out = [];
-  for (var i = 0; i < data.length; i++) {
-    if (data[i][8] !== 'active') continue;          // active のみ
-    if (String(data[i][statusIdx] || '')) continue;  // 既にマーク済は除外
-    var tr = Number(data[i][transIdx]) || 0;
-    if (tr > 0 && tr < threshold) {
-      out.push({ key: data[i][0], building: data[i][1], room: data[i][2],
-                 遷移率: tr, 代表一覧PV: Number(data[i][repListIdx]) || 0 });
-    }
-  }
-  out.sort(function (a, b) { return a.遷移率 - b.遷移率; });
-  Logger.log('遷移率<' + threshold + '% の候補 ' + out.length + '件:\n' + JSON.stringify(out, null, 2));
-  return out;
-}
-
-/**
- * 【画像改善実験】指定物件を「代表画像を内観に変更した」とマークする。
- *   変更日=今日 / 変更前遷移率=現在の遷移率 / 状態=起点待ち をセット。
- *   起点スナップショットは変更日+2のSUUMOビジネス取得時に自動記録される(2日遅れ対策)。
- * @param {string[]} keys 物件キーの配列
- */
-function markImageChangedToNaikan(keys) {
-  if (!keys || !keys.length) return { success: false, message: 'keysが空' };
-  var sheet = getListingSheet_();
-  var lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return { success: false, message: '掲載物件なし' };
-  var keyVals = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  var transCol = SUUMO_LISTING_HEADERS.indexOf('遷移率(代表%)') + 1;
-  var statusCol = SUUMO_LISTING_HEADERS.indexOf('画像変更状態') + 1;
-  var dateCol = SUUMO_LISTING_HEADERS.indexOf('画像変更日') + 1;
-  var beforeCol = SUUMO_LISTING_HEADERS.indexOf('変更前遷移率(外観%)') + 1;
-  var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
-  var marked = 0;
-  for (var k = 0; k < keys.length; k++) {
-    for (var i = 0; i < keyVals.length; i++) {
-      if (keyVals[i][0] === keys[k]) {
-        var row = i + 2;
-        var curTrans = sheet.getRange(row, transCol).getValue();
-        sheet.getRange(row, statusCol).setValue('起点待ち');
-        sheet.getRange(row, dateCol).setValue(today);
-        sheet.getRange(row, beforeCol).setValue(curTrans);
-        marked++;
-        break;
-      }
-    }
-  }
-  Logger.log('画像変更マーク: ' + marked + '件 (状態=起点待ち, 変更日=' + today + ')');
-  return { success: true, marked: marked };
-}
-
-/**
- * POST: get_image_change_candidates
- * 代表画像を内観に変更する候補(遷移率<閾値・active・未マーク・物件コードあり)を
- * 物件コード付きで返す。拡張のバッチ(runRepImageChangeBatch)が使う。
- * @param json.threshold [=10] 遷移率(%)閾値
- * @param json.limit [=5] 返す最大件数(1日の処理上限)
- * @returns {success, candidates:[{key, building, room, suumoCode, 遷移率, 代表一覧PV}]}
- */
-function handleGetImageChangeCandidates(json) {
-  var threshold = (json && Number(json.threshold)) || 10;
-  var limit = (json && Number(json.limit)) || 0; // 0/未指定 = 全件(上限なし)
-  var sheet = getListingSheet_();
-  var lastRow = sheet.getLastRow();
-  var out = [];
-  if (lastRow > 1) {
-    var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
-    var codeIdx = SUUMO_LISTING_HEADERS.indexOf('suumo_property_code');
-    var transIdx = SUUMO_LISTING_HEADERS.indexOf('遷移率(代表%)');
-    var repListIdx = SUUMO_LISTING_HEADERS.indexOf('代表物件一覧PV');
-    var statusIdx = SUUMO_LISTING_HEADERS.indexOf('画像変更状態');
-    for (var i = 0; i < data.length; i++) {
-      if (data[i][8] !== 'active') continue;             // active のみ
-      if (String(data[i][statusIdx] || '')) continue;    // 既にマーク済は除外
-      var code = String(data[i][codeIdx] || '').replace(/[^0-9]/g, '');
-      if (code.length !== 12) continue;                  // 物件コードが無い/不正は除外
-      var tr = Number(data[i][transIdx]) || 0;
-      if (tr > 0 && tr < threshold) {
-        out.push({ key: data[i][0], building: data[i][1], room: data[i][2],
-                   suumoCode: code, 遷移率: tr, 代表一覧PV: Number(data[i][repListIdx]) || 0 });
-      }
-    }
-    out.sort(function (a, b) { return a.遷移率 - b.遷移率; }); // 遷移率の低い順(改善余地大)
-  }
-  var candidates = (limit > 0) ? out.slice(0, limit) : out; // limit<=0 は全件
-  return ContentService.createTextOutput(JSON.stringify({ success: true, candidates: candidates, total: out.length }))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-/**
- * POST: mark_image_changed
- * 内観変更が成功した物件を「起点待ち」にマークする(markImageChangedToNaikanのHTTP版)。
- * @param json.keys 物件キー配列
- */
-function handleMarkImageChanged(json) {
-  var res = markImageChangedToNaikan((json && json.keys) || []);
-  return ContentService.createTextOutput(JSON.stringify(res))
-    .setMimeType(ContentService.MimeType.JSON);
-}
 
 // ═══════════════════════════════════════════════════════════
 // SUUMO全体設定 (順位上限など)。ScriptPropertiesに保存。
@@ -2886,29 +2763,6 @@ function updateSuumoListingStats_(json) {
       }
       var dailyPvCol = SUUMO_LISTING_HEADERS.indexOf('日次一覧PV') + 1;
       if (dailyPvCol > 0) sheet.getRange(targetRow, dailyPvCol).setValue(repDailyListPv);
-
-      // ── 画像改善の効果測定 ──────────────────────────
-      // 起点待ち: 変更日+2経過したら今のPVを「起点」に記録(データ的に変更日までの累計)→測定中へ
-      // 測定中: (今-起点)の差分で「変更後遷移率(内観)」を計算。外観の尾を含まない純粋値。
-      var imgExRow = existing[targetRow - 2] || [];
-      var imgStatusIdx = SUUMO_LISTING_HEADERS.indexOf('画像変更状態');
-      var imgStatus = String(imgExRow[imgStatusIdx] || '');
-      if (imgStatus === '起点待ち') {
-        var chgRaw = imgExRow[SUUMO_LISTING_HEADERS.indexOf('画像変更日')];
-        var chgDate = chgRaw ? ((chgRaw instanceof Date) ? chgRaw : new Date(String(chgRaw))) : null;
-        if (chgDate && !isNaN(chgDate.getTime())
-            && (Date.now() - chgDate.getTime()) >= 2 * 24 * 60 * 60 * 1000) {
-          sheet.getRange(targetRow, SUUMO_LISTING_HEADERS.indexOf('起点代表一覧PV') + 1).setValue(repListPv);
-          sheet.getRange(targetRow, SUUMO_LISTING_HEADERS.indexOf('起点代表詳細PV') + 1).setValue(repDetailPv);
-          sheet.getRange(targetRow, imgStatusIdx + 1).setValue('測定中');
-        }
-      } else if (imgStatus === '測定中') {
-        var kList = Number(imgExRow[SUUMO_LISTING_HEADERS.indexOf('起点代表一覧PV')]) || 0;
-        var kDetail = Number(imgExRow[SUUMO_LISTING_HEADERS.indexOf('起点代表詳細PV')]) || 0;
-        var dList = repListPv - kList, dDetail = repDetailPv - kDetail;
-        var afterRate = (dList > 0) ? (Math.round((dDetail / dList) * 1000) / 10) : 0;
-        sheet.getRange(targetRow, SUUMO_LISTING_HEADERS.indexOf('変更後遷移率(内観%)') + 1).setValue(afterRate);
-      }
 
       updated++;
       matchedSheetRows[targetRow] = true;
