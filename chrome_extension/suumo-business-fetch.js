@@ -239,6 +239,11 @@ function scrapeSuumoBusinessTable() {
       const room = cellText(s[2]);
       if (!name && !room) continue; // 空行スキップ
 
+      // デバッグ: 最初の行だけd配列の19-25を記録
+      if (i === 0) {
+        console.log('[SUUMOビジネスデバッグ] d.length=' + d.length + ' d[19-25]=' + JSON.stringify(d.slice(19, 26)));
+      }
+
       result.push({
         no: cellText(s[0]),
         name: name,

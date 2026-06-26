@@ -400,7 +400,6 @@ importScripts('suumo-business-fetch.js');
 importScripts('availability-checker.js');
 // ForRent掲載停止(保留化)自動操作(Phase 3)
 importScripts('forrent-stop.js');
-importScripts('forrent-image.js');
 // ForRent確認画面の登録ボタン自動クリック(Phase 5)
 importScripts('forrent-final-submit.js');
 // ForRent PUB1R2801 の成約状態をシートに直読み同期
