@@ -932,3 +932,86 @@ function promoteInquiryToCustomer(renban) {
     return { success: false, message: e.message };
   }
 }
+
+/**
+ * 「問い合わせ」ステージで14日経過 ＋ 電話番号なしの顧客を自動で「終了」に移す。
+ * 日次トリガーで呼ぶ想定。
+ * @return {Object} { checked, closed, closedNames }
+ */
+function autoCloseStaleInquiries() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var critSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!critSheet) return { checked: 0, closed: 0, closedNames: [] };
+  var critData = critSheet.getDataRange().getValues();
+
+  // 問い合わせシートからメール/名前 → TEL のマップを構築
+  var inqSheet = ss.getSheetByName(INQUIRY_SHEET_NAME);
+  var telByEmail = {};
+  var telByName = {};
+  if (inqSheet && inqSheet.getLastRow() > 1) {
+    var inqData = inqSheet.getRange(2, 1, inqSheet.getLastRow() - 1, 6).getValues();
+    for (var q = 0; q < inqData.length; q++) {
+      var inqName = String(inqData[q][2] || '').trim();
+      var inqEmail = String(inqData[q][4] || '').trim().toLowerCase();
+      var inqTel = String(inqData[q][5] || '').trim();
+      if (inqEmail && inqTel) telByEmail[inqEmail] = inqTel;
+      if (inqName && inqTel) telByName[inqName] = inqTel;
+    }
+  }
+
+  var now = new Date();
+  var checked = 0;
+  var closed = 0;
+  var closedNames = [];
+
+  for (var i = 1; i < critData.length; i++) {
+    var stage = String(critData[i][32] || '').trim();
+    if (stage !== '問い合わせ') continue;
+    checked++;
+
+    // 登録日時 (A列) から経過日数を計算
+    var regDate = critData[i][0];
+    if (!(regDate instanceof Date)) continue;
+    var days = Math.floor((now - regDate) / (24 * 60 * 60 * 1000));
+    if (days < 14) continue;
+
+    // 電話番号チェック（問い合わせシートのメール→TEL、名前→TEL）
+    var name = String(critData[i][1] || '').trim();
+    var email = String(critData[i][31] || '').trim().toLowerCase();
+    var tel = '';
+    if (email && telByEmail[email]) tel = telByEmail[email];
+    if (!tel && name && telByName[name]) tel = telByName[name];
+    if (tel) continue; // 電話番号あり → スキップ
+
+    // 14日経過 ＋ 電話番号なし → 終了に移す
+    critSheet.getRange(i + 1, 33).setValue('終了');
+    closed++;
+    closedNames.push(name || '(名前なし)');
+  }
+
+  if (closed > 0) {
+    console.log('[自動終了] ' + closed + '件を「問い合わせ」→「終了」に変更: ' + closedNames.join(', '));
+  }
+  return { checked: checked, closed: closed, closedNames: closedNames };
+}
+
+/**
+ * autoCloseStaleInquiries の日次トリガーを登録する。
+ * GASエディタから1回だけ手動実行すればOK。
+ */
+function setupAutoCloseInquiriesTrigger() {
+  var existing = ScriptApp.getProjectTriggers();
+  var deleted = 0;
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'autoCloseStaleInquiries') {
+      ScriptApp.deleteTrigger(existing[i]);
+      deleted++;
+    }
+  }
+  ScriptApp.newTrigger('autoCloseStaleInquiries')
+    .timeBased()
+    .everyDays(1)
+    .atHour(9)
+    .create();
+  return '既存トリガー' + deleted + '個削除 → 毎日9:00(JST)のトリガーを登録しました';
+}
