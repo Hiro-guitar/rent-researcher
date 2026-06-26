@@ -2411,12 +2411,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       let customers = [];
       let contextCustomer = '';
       try {
-        // まずキャッシュ（customerCriteria）、なければ GAS から取得
-        const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
-        let crit = cached;
-        if (!Array.isArray(crit) || crit.length === 0) {
-          const res = await fetchCriteria();
-          crit = (res && res.criteria) || [];
+        // 常にGASから最新の顧客一覧を取得（新規登録がすぐ反映されるように）
+        const res = await fetchCriteria();
+        let crit = (res && res.criteria) || [];
+        if (crit.length > 0) {
+          chrome.storage.local.set({ customerCriteria: crit, lastCriteriaFetch: Date.now() });
+        } else {
+          // GAS取得失敗時はキャッシュにフォールバック
+          const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+          if (Array.isArray(cached) && cached.length > 0) crit = cached;
         }
         customers = Array.from(new Set(crit.map(c => c && c.name).filter(Boolean)));
       } catch (e) {
