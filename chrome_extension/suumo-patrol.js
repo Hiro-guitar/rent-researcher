@@ -1156,8 +1156,12 @@ async function maybeRefreshListedPropertyRanks() {
         if (rr && rr.ok) {
           updates.push({ key: lp.key, rank: rr.rank, inPage1: !!rr.inPage1, sampleSize: rr.sampleSize, searchUrl: rr.searchUrl || '' });
           await setStorageData({ debugLog: `[掲載順位更新] ${i + 1}/${listed.length} ${p.building_name || ''} → ${rr.rank}位${rr.inPage1 ? '✅' : '⚠️圏外'}` });
+        } else if (rr) {
+          await setStorageData({ debugLog: `[掲載順位更新] ${i + 1}/${listed.length} ${p.building_name || ''} → 失敗: ${(rr.errors || []).join(', ')}` });
         }
-      } catch (e) { /* 1件失敗はスキップ */ }
+      } catch (e) {
+        await setStorageData({ debugLog: `[掲載順位更新] ${i + 1}/${listed.length} ${(p && p.building_name) || '?'} → 例外: ${e && e.message}` }).catch(() => {});
+      }
       await sleep(1500); // SUUMOレート制限緩和
     }
     // 順位をGASに保存(掲載管理シートに上書き)
