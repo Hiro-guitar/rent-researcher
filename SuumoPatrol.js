@@ -97,7 +97,11 @@ var SUUMO_LISTING_HEADERS = [
   // 高いほど「競合の割に見られている=才能がある」。加重競合数0(独占)は空欄。
   '露出効率',
   // 40列目: 1日あたり代表一覧PV (d[21])。掲載日数で割らなくてもSUUMOビジネスが直接提供する日次値。
-  '日次一覧PV'
+  '日次一覧PV',
+  // 41列目: 管理会社名 (候補物件のproperty_data_jsonから入稿時に取得)
+  '管理会社',
+  // 42列目: 取得元サイト名 (候補物件シートの「ソース」列から入稿時に取得)
+  '取得元サイト'
 ];
 
 // 停止候補ログシート (毎回の findStopCandidates 実行履歴を蓄積)
@@ -1066,29 +1070,36 @@ function recordSuumoPosting(data) {
     }
   }
 
-  // 候補物件シートから反響予測スコアを取得して掲載管理シートにコピー
-  // (停止候補判定で「本来人気だが競合多い物件」を保護するのに使う)
+  // 候補物件シートから反響予測スコア・管理会社名・ソースを取得
   var inquiryScore = 0;
+  var ownerCompany = '';
+  var sourceSite = '';
   try {
     var candSheet = getCandidateSheet_();
     var candLastRow = candSheet.getLastRow();
     var scoreColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('反響予測スコア') + 1;
-    if (candLastRow > 1 && scoreColIdx > 0) {
+    var sourceColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('ソース') + 1;
+    var pjsonColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('property_data_json') + 1;
+    if (candLastRow > 1) {
       var candKeys = candSheet.getRange(2, 1, candLastRow - 1, 1).getValues();
       for (var ci = 0; ci < candKeys.length; ci++) {
         if (candKeys[ci][0] === key) {
-          inquiryScore = Number(candSheet.getRange(ci + 2, scoreColIdx).getValue()) || 0;
+          if (scoreColIdx > 0) inquiryScore = Number(candSheet.getRange(ci + 2, scoreColIdx).getValue()) || 0;
+          if (sourceColIdx > 0) sourceSite = String(candSheet.getRange(ci + 2, sourceColIdx).getValue() || '');
+          if (pjsonColIdx > 0) {
+            try {
+              var pdata = JSON.parse(candSheet.getRange(ci + 2, pjsonColIdx).getValue());
+              ownerCompany = pdata.owner_company || pdata.reins_shougo || '';
+            } catch (_) {}
+          }
           break;
         }
       }
     }
   } catch (e) {
-    Logger.log('recordSuumoPosting: 反響予測スコア取得失敗 ' + e.message);
+    Logger.log('recordSuumoPosting: 候補データ取得失敗 ' + e.message);
   }
 
-  // 掲載管理シートに追加 (23列、SUUMO_LISTING_HEADERS に合わせる)
-  // suumoPropertyCode: 登録完了画面に表示される 12 桁のSUUMO物件コード。
-  // Phase5 (forrent-final-submit.js) と Phase6 (suumo-fill-auto.js) どちらでも取得して送る。
   sheet.appendRow([
     key,
     data.building || '',
@@ -1104,10 +1115,18 @@ function recordSuumoPosting(data) {
     '', '', '', '',                        // 12-15: SUUMOビジネス連携で後から更新される
     '', '', '', '',                        // 16-19: 競合数・危険度(SUUMOビジネス連携で更新)
     '',                                    // 20: 最終取得日時
-    inquiryScore,                          // 21: 反響予測スコア (入稿時に候補から引き継ぎ)
-    '',                                    // 22: 初回申込検知日 (findStopCandidatesで動的に書き込み)
-    ''                                     // 23: スコア内訳 (findStopCandidatesで動的に書き込み)
+    inquiryScore,                          // 21: 反響予測スコア
+    '',                                    // 22: 初回申込検知日
+    ''                                     // 23: スコア内訳
+    // 24-40: 順位・遷移率・競合詳細等はSUUMOビジネス/巡回で後から更新
+    // 41-42: 管理会社・取得元サイトは appendRow 後に書き込み
   ]);
+
+  var newListingRow = sheet.getLastRow();
+  var ownerCol = SUUMO_LISTING_HEADERS.indexOf('管理会社') + 1;
+  if (ownerCol > 0 && ownerCompany) sheet.getRange(newListingRow, ownerCol).setValue(ownerCompany);
+  var sourceCol = SUUMO_LISTING_HEADERS.indexOf('取得元サイト') + 1;
+  if (sourceCol > 0 && sourceSite) sheet.getRange(newListingRow, sourceCol).setValue(sourceSite);
 
   // 候補物件シートのステータスをpostedに更新 + submittingTsクリア
   updateCandidateStatus_(key, 'posted');
