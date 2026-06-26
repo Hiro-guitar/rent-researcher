@@ -102,7 +102,9 @@ var SUUMO_LISTING_HEADERS = [
   '加重競合数',
   // 39列目: 競合あたり露出効率 = (代表物件一覧PV ÷ 掲載日数) ÷ 加重競合数
   // 高いほど「競合の割に見られている=才能がある」。加重競合数0(独占)は空欄。
-  '露出効率'
+  '露出効率',
+  // 40列目: 1日あたり代表一覧PV (d[21])。掲載日数で割らなくてもSUUMOビジネスが直接提供する日次値。
+  '日次一覧PV'
 ];
 
 // 停止候補ログシート (毎回の findStopCandidates 実行履歴を蓄積)
@@ -1302,22 +1304,18 @@ function updateSuumoPerformance(updates) {
 }
 
 /**
- * 掲載停止すべき物件を特定(Phase 2 新ロジック)
+ * 掲載停止すべき物件を特定
  *
- * 保護ルール(停止対象外):
- *   - シート掲載日数 < 7 (新着)
- *   - 問い合わせ数 >= 1 かつ シート掲載日数 < 45
+ * 落とす優先度 (tier 高→先に落とす):
+ *   5: 反響30超 + 申込あり (役目を果たした)
+ *   4: 70日超 (長期掲載)
+ *   3: 加重競合20超 (多い順)
+ *   2: 日次PV<5 & 遷移率<5% (両方ダメ)
+ *   1: 日次PV<5 or 遷移率<5% (片方ダメ)
  *
- * 保護ルール外の物件について以下の危険度スコアを計算し、
- * スコア降順の上位を停止候補として返す。
- *
- *   score = (第3競合×2.1 + 第2競合×1.6 + 第1競合×1.0) × 10
- *         + (シート掲載日数 >= 60 ? 9999 : 0)   ← 60日超は確実に落とす
- *         + (シート掲載日数 >= 45 ? 500 : 0)    ← 45日超は強い停止圧力
- *
- * 注: 問い合わせ数による減点はスコア側に入れない(保護ルールで扱うため)。
- *     SUUMOビジネスの「掲載日数(最大45)」ではなく、シートの「掲載開始日」から
- *     算出した経過日数を基準日数として使う(ユーザー指示: シート日数のほうが正確)。
+ * 保護 (tier 1-3 に適用。tier 4-5 は保護無視):
+ *   - 加重競合 ≤ 5 (低競合)
+ *   - 問い合わせ実績あり
  *
  * @param {number} topN - 返す候補数の上限(デフォルト10)
  * @returns {Array<Object>} スコア降順の候補リスト(0件なら空配列)
@@ -1348,6 +1346,8 @@ function findStopCandidates(topN, options) {
   // 列インデックス (1-indexed)
   var moshikomiColIdx = SUUMO_LISTING_HEADERS.indexOf('初回申込検知日') + 1;
   var breakdownColIdx = SUUMO_LISTING_HEADERS.indexOf('スコア内訳') + 1;
+  var dailyPvColIdx = SUUMO_LISTING_HEADERS.indexOf('日次一覧PV');
+  var transRateColIdx = SUUMO_LISTING_HEADERS.indexOf('遷移率(代表%)');
 
   // 停止候補選出ログ用 (実行ごとに全 active 物件を記録、Phase B の評価データ蓄積)
   var logRows = [];
@@ -1422,79 +1422,87 @@ function findStopCandidates(topN, options) {
       }
     }
 
-    // 60日超は無条件で停止候補対象 (相手の反響予測が高くても、シート日数60日を
-    // 超えた物件は強制的に落とす)
-    var isLongStay = (sheetDays >= 60);
-
     // 反響30超+申込検知ありは「役目を果たした」として強制落とし対象に。
-    // 申込検知なし(または不明) なら、たとえ反響30超でも保護を維持する。
     var hasMoshikomi = (initialMoshikomiDate instanceof Date);
     var forceFromInquiries = (inquiries >= 30 && hasMoshikomi);
 
-    var forceCandidate = isLongStay || forceFromInquiries;
+    // 70日超は無条件で停止候補対象
+    var isLongStay = (sheetDays >= 70);
 
-    // ── 弱さの判定 (順位ベース。反響予測スコア式は廃止) ─────────────
+    var forceCandidate = forceFromInquiries || isLongStay;
+
     // 加重競合数 = 第1基準値×1.0 + 第2基準値×1.6 + 第3基準値×2.1
-    //   (第2基準値の会社は1.6倍/第3は2.1倍 掲載されやすい=強い競合とみなす)
     var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
-    var lowComp = (weightedComp <= 5);              // 低競合(他社少)= 25件キープのため守る
-
-    // ポテンシャル順位 (24列目=現在の順位 / 25列目=1ページ目内 ○×)
-    var potRank = Number(data[i][23]) || 0;
-    var outOfPage1 = (String(data[i][24] || '') === '×'); // 圏外(類似物件50件以上の中で埋もれ)
+    var lowComp = (weightedComp <= 5);
     var hasInquiry = (inquiries > 0);
+
+    // 日次一覧PV・遷移率(代表%)
+    var dailyPv = (dailyPvColIdx >= 0) ? (parseFloat(data[i][dailyPvColIdx]) || 0) : 0;
+    var transRate = (transRateColIdx >= 0) ? (parseFloat(String(data[i][transRateColIdx] || '').replace(/[%％,\s]/g, '')) || 0) : 0;
+
     // 25件キープの「低競合」は取得済みのみ数える。未取得(新規)は別カウントで除外。
     if (!compMeasured) unmeasuredCount++;
     else if (lowComp) lowCompCount++;
     else highCompCount++;
 
-    // 弱さスコア(高いほど先に落とす)
-    var weak;
-    if (forceCandidate) {
-      weak = 1000000 + sheetDays;                   // 60日超/反響30+申込 は最優先(同点はシート日数長い順)
-    } else {
-      weak = potRank;                               // 順位が悪い(大きい)ほど弱い
-      if (outOfPage1) weak += 100000;               // 圏外が最弱
-      if (!lowComp) weak += 50000;                  // 高競合は低競合より先に落とす
+    // ── 落とす優先度 (高い tier ほど先に落とす) ────────────────
+    //   Tier 5: 反響30+申込あり
+    //   Tier 4: 70日超
+    //   Tier 3: 加重競合20超(多い順)
+    //   Tier 2: 日次PV<5 & 遷移率<5% (両方ダメ)
+    //   Tier 1: 日次PV<5 or 遷移率<5% (片方ダメ)
+    //   Tier 0: 該当なし(候補にならない)
+    var tier = 0;
+    var weak = 0;
+    var forceReason = '';
+    if (forceFromInquiries) {
+      tier = 5; weak = 5000000 + sheetDays; forceReason = '反響30+申込';
+    } else if (isLongStay) {
+      tier = 4; weak = 4000000 + sheetDays; forceReason = '70日超';
+    } else if (weightedComp > 20) {
+      tier = 3; weak = 3000000 + Math.round(weightedComp * 10);
+    } else if (dailyPv < 5 && transRate < 5) {
+      tier = 2; weak = 2000000 + Math.round((5 - dailyPv) * 100) + Math.round((5 - transRate) * 10);
+    } else if (dailyPv < 5 || transRate < 5) {
+      tier = 1; weak = 1000000 + Math.round(Math.max(5 - dailyPv, 5 - transRate) * 100);
     }
 
-    var forceReason = isLongStay ? '60日超' : (forceFromInquiries ? '反響30+申込' : '');
-    // 落とす理由(人が読める文字)。競合は「加重(=重み付け後)＋内訳(各基準値の店舗数)」で表示
-    var compStr = (lowComp ? '加重≤5' : '加重>5')
-                + '(' + (Math.round(weightedComp * 10) / 10)
-                + ' [第1:' + compLv1 + ' 第2:' + compLv2 + ' 第3:' + compLv3 + '])';
+    var compStr = '加重' + (Math.round(weightedComp * 10) / 10)
+                + ' [第1:' + compLv1 + ' 第2:' + compLv2 + ' 第3:' + compLv3 + ']';
     var dropReason;
-    if (forceCandidate) {
-      dropReason = ((isLongStay ? '掲載60日超' : '')
-                   + (forceFromInquiries ? ((isLongStay ? ' / ' : '') + '反響30件超&申込あり') : ''))
-                 + ' / ' + compStr;
-    } else {
-      dropReason = (outOfPage1 ? '圏外(埋もれ)' : ('順位' + potRank + '位')) + ' / ' + compStr;
-    }
+    if (tier === 5) dropReason = '反響' + inquiries + '件&申込あり / ' + compStr;
+    else if (tier === 4) dropReason = '掲載' + sheetDays + '日超(70日超) / ' + compStr;
+    else if (tier === 3) dropReason = '加重競合20超(' + (Math.round(weightedComp * 10) / 10) + ') / ' + compStr;
+    else if (tier === 2) dropReason = '日次PV' + dailyPv + '&遷移率' + transRate + '%(両方<5) / ' + compStr;
+    else if (tier === 1) dropReason = '日次PV' + dailyPv + '/遷移率' + transRate + '%(片方<5) / ' + compStr;
+    else dropReason = '該当なし / ' + compStr;
+
     var breakdown = {
       reason: dropReason,
+      tier: tier,
       weightedComp: Math.round(weightedComp * 10) / 10,
       comp1: compLv1, comp2: compLv2, comp3: compLv3,
-      lowComp: lowComp, rank: potRank, outOfPage1: outOfPage1,
+      lowComp: lowComp,
+      dailyPv: dailyPv, transRate: transRate,
       inquiries: inquiries, hasMoshikomi: hasMoshikomi,
       force: forceReason || null, weak: weak
     };
     var breakdownJson = JSON.stringify(breakdown);
 
-    // ── 保護判定 (eligibility)。relaxLevel で段階的に緩める(全員保護で詰むのを回避) ──
-    //   force は常に対象。0: 低競合と問い合わせ来てるを守る / 1: 問い合わせのみ守る / 2+: 保護なし
+    // ── 保護判定。force(Tier 4-5)は保護無視。relaxLevel で段階的に緩める ──
+    //   0: 低競合(加重≤5)と問い合わせ実績ありを守る / 1: 問い合わせのみ守る / 2+: 保護なし
     var protectedReason = '';
-    if (!forceCandidate) {
+    if (!forceCandidate && tier > 0) {
       if (relaxLevel <= 0) {
         if (lowComp) protectedReason = 'lowComp';
         else if (hasInquiry) protectedReason = 'inquiry';
       } else if (relaxLevel === 1) {
         if (hasInquiry) protectedReason = 'inquiry';
       }
-      // relaxLevel >= 2 は保護なし
     }
 
     // ログ用エントリ (全 active 物件を記録)
+    var logStatus = (tier === 0) ? '対象外' : (protectedReason ? ('保護:' + protectedReason) : '候補');
     logRows.push([
       now,
       relaxLevel,
@@ -1503,7 +1511,7 @@ function findStopCandidates(topN, options) {
       data[i][2] || '',                 // 部屋番号
       weak,
       breakdownJson,
-      protectedReason ? ('保護:' + protectedReason) : '候補',
+      logStatus,
       '',                               // (旧:反響予測スコア 廃止)
       inquiries,
       initialMoshikomiDate || '',
@@ -1511,7 +1519,7 @@ function findStopCandidates(topN, options) {
       suumoListedDays
     ]);
 
-    if (protectedReason) continue;
+    if (tier === 0 || protectedReason) continue;
 
     candidates.push({
       key: data[i][0],
@@ -1519,15 +1527,16 @@ function findStopCandidates(topN, options) {
       room: data[i][2],
       startDate: startRaw,
       rent: data[i][4],
-      pv: totalDetailPv || Number(data[i][5]) || 0, // 合計詳細PV優先
+      pv: totalDetailPv || Number(data[i][5]) || 0,
       inquiries: inquiries,
       score: weak,
       reason: dropReason,
       breakdown: breakdown,
       weightedComp: weightedComp,
       lowComp: lowComp,
-      rank: potRank,
-      outOfPage1: outOfPage1,
+      dailyPv: dailyPv,
+      transRate: transRate,
+      tier: tier,
       force: forceReason || '',
       suumoPropertyCode: String(data[i][10] || ''),
       suumoListedDays: suumoListedDays,
@@ -1536,7 +1545,7 @@ function findStopCandidates(topN, options) {
       compLv2: compLv2,
       compLv3: compLv3,
       rowIndex: i + 2,
-      protectRelaxLevel: relaxLevel  // どの保護段階で拾われたかを記録
+      protectRelaxLevel: relaxLevel
     });
   }
 
@@ -2810,6 +2819,7 @@ function updateSuumoListingStats_(json) {
     // 代表物件の遷移率(%): "11.0%" → 11.0 (SUUMOビジネス d[24])
     var transRate = parseFloat(String(row.transition_rate || '').replace(/[%％,\s]/g, '')) || 0;
     var repListPv = Number(row.rep_list_pv) || 0;   // d[20] 代表物件一覧PV(遷移率の母数)
+    var repDailyListPv = parseFloat(row.rep_daily_list_pv) || 0; // d[21] 1日あたり代表一覧PV
     var repDetailPv = Number(row.rep_detail_pv) || 0; // d[22] 代表物件詳細PV
 
     // 競合基準値別件数は暫定で整数パースのみ(正しい列が未確定の場合は0になる)
@@ -2817,10 +2827,7 @@ function updateSuumoListingStats_(json) {
     var compLv2 = parseInt(String(row.comp_lv2_raw || '').replace(/[^0-9]/g, ''), 10) || 0;
     var compLv3 = parseInt(String(row.comp_lv3_raw || '').replace(/[^0-9]/g, ''), 10) || 0;
 
-    // 危険度スコア(Phase 2 findStopCandidates と同一式で計算)
-    // シート掲載日数は既存行があれば計算できるが、新規insert時はまだ無いので
-    // SUUMO掲載日数 listedDays(最大45) で代用。60日ボーナスは既存行更新時に
-    // findStopCandidates 側がシート日数で正確に判定するので、ここでは控えめに。
+    // 危険度スコア(参考値)。findStopCandidates の本判定は tier ベースに移行済み。
     var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
     var riskScore = weightedComp * 10
                   - inquiries * 100
@@ -2877,6 +2884,8 @@ function updateSuumoListingStats_(json) {
         var efficiency = Math.round((dailyListPv / weightedComp) * 100) / 100;
         sheet.getRange(targetRow, effCol).setValue(efficiency);
       }
+      var dailyPvCol = SUUMO_LISTING_HEADERS.indexOf('日次一覧PV') + 1;
+      if (dailyPvCol > 0) sheet.getRange(targetRow, dailyPvCol).setValue(repDailyListPv);
 
       // ── 画像改善の効果測定 ──────────────────────────
       // 起点待ち: 変更日+2経過したら今のPVを「起点」に記録(データ的に変更日までの累計)→測定中へ
@@ -2973,6 +2982,14 @@ function updateSuumoListingStats_(json) {
         var efficiencyNew = Math.round((dailyListPvNew / weightedComp) * 100) / 100;
         sheet.getRange(newSheetRow, effColNew).setValue(efficiencyNew);
       }
+      var transColNew = SUUMO_LISTING_HEADERS.indexOf('遷移率(代表%)') + 1;
+      if (transColNew > 0) sheet.getRange(newSheetRow, transColNew).setValue(transRate);
+      var repListColNew = SUUMO_LISTING_HEADERS.indexOf('代表物件一覧PV') + 1;
+      if (repListColNew > 0) sheet.getRange(newSheetRow, repListColNew).setValue(repListPv);
+      var repDetailColNew = SUUMO_LISTING_HEADERS.indexOf('代表物件詳細PV') + 1;
+      if (repDetailColNew > 0) sheet.getRange(newSheetRow, repDetailColNew).setValue(repDetailPv);
+      var dailyPvColNew = SUUMO_LISTING_HEADERS.indexOf('日次一覧PV') + 1;
+      if (dailyPvColNew > 0) sheet.getRange(newSheetRow, dailyPvColNew).setValue(repDailyListPv);
       if (suumoCode) codeToRow[suumoCode] = newSheetRow;
       if (propertyKey) keyToRow[propertyKey] = newSheetRow;
       matchedSheetRows[newSheetRow] = true;
