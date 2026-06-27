@@ -96,8 +96,7 @@ function patrolCriteriaToCustomer(criteria) {
     structures: structures,
     equipment: equipment,
     petType: equipmentArr.includes('ペット相談可') ? 'ok' : '',
-    daysWithin: (criteria.daysWithin !== undefined && criteria.daysWithin !== '')
-      ? parseInt(String(criteria.daysWithin), 10) : null
+    daysWithin: null
   };
 }
 
@@ -178,7 +177,7 @@ async function runSuumoPatrolCycle() {
     }
 
     await setStorageData({
-      debugLog: `[SUUMO巡回] ${criteria.length}件の条件で巡回開始`
+      debugLog: `[SUUMO巡回] ${criteria.length}件の条件で巡回開始 (N日以内: ${_daysWithinValue !== null ? _daysWithinValue + '日' : '制限なし'})`
     });
 
     // Discord通知は Chrome拡張側(ユーザーIP)で行う方式に変更したため、
@@ -216,8 +215,9 @@ async function runSuumoPatrolCycle() {
     globalThis._suumoPatrolRankSkippedKeys = rankSet;
     globalThis._suumoPatrolAdNgSkippedKeys = adNgSet;
 
-    // 2.5. 順位上限(rankCap)をGAS設定から取得してキャッシュ
+    // 2.5. 全体設定(rankCap, daysWithin)をGASから取得してキャッシュ
     let _patrolRankCap = 0;
+    let _daysWithinValue = null;
     try {
       const { gasWebappUrl: _rcGasUrl } = await getStorageData(['gasWebappUrl']);
       if (_rcGasUrl) {
@@ -227,6 +227,10 @@ async function runSuumoPatrolCycle() {
         }, 15000);
         const _rcJson = await _rcRes.json();
         _patrolRankCap = Number(_rcJson && _rcJson.rankCap) || 0;
+        if (_rcJson && _rcJson.daysWithin !== undefined && _rcJson.daysWithin !== '') {
+          const n = Number(_rcJson.daysWithin);
+          if (!isNaN(n) && n >= 0) _daysWithinValue = n;
+        }
       }
     } catch (_) {}
     globalThis._suumoPatrolRankCap = _patrolRankCap;
@@ -247,6 +251,7 @@ async function runSuumoPatrolCycle() {
 
       const crit = criteria[ci];
       const customer = patrolCriteriaToCustomer(crit);
+      customer.daysWithin = _daysWithinValue;
       console.log('[SUUMO巡回] GAS条件:', JSON.stringify(crit));
       console.log('[SUUMO巡回] 変換後customer:', JSON.stringify(customer));
 
