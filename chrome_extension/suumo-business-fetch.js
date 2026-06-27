@@ -563,3 +563,123 @@ function waitForTabLoad(tabId, timeoutMs) {
     });
   });
 }
+
+/**
+ * PV履歴を過去N日分まとめてバックフィルする（1回限りの初期データ投入用）。
+ * 1日ずつSUUMOビジネスから取得してGASに送信する。
+ * @param {number} days 何日分取得するか（デフォルト30、2日前から遡る）
+ */
+async function backfillPvHistory(days) {
+  days = days || 30;
+  const { suumoBusinessKissCode } = await getStorageData(['suumoBusinessKissCode']);
+  const kissCode = (suumoBusinessKissCode || '').toString().replace(/[^0-9]/g, '');
+  if (!kissCode) {
+    console.error('[PVバックフィル] kiss_code未設定');
+    return { ok: false, error: 'kiss_code未設定' };
+  }
+  const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
+  if (!gasWebappUrl) {
+    console.error('[PVバックフィル] GAS URL未設定');
+    return { ok: false, error: 'GAS URL未設定' };
+  }
+
+  const fmt = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}/${m}/${day}`;
+  };
+  const fmtIso = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  // 2日前から遡ってdays日分の日付リストを作成
+  const dates = [];
+  for (let i = 2; i < 2 + days; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    dates.push(d);
+  }
+
+  // 最初のURLでタブを開く（ログイン処理含む）
+  const firstDate = dates[0];
+  const filtersI = `kiss_code=${kissCode}__passive_flag=1__empty_flag=1__conflict_flag=0`;
+  const firstFiltersD = `pv_date_from=${fmt(firstDate)}__pv_date_to=${fmt(firstDate)}`;
+  const firstUrl = 'https://business1.suumo.jp/concierge/reportDailySearch'
+    + `?filters_i=${encodeURIComponent(filtersI)}`
+    + `&filters_d=${encodeURIComponent(firstFiltersD)}`;
+
+  const tab = await chrome.tabs.create({ url: firstUrl, active: false });
+  const tabId = tab.id;
+  await waitForTabLoad(tabId, 60000);
+  await sleep(2000);
+
+  // ログインチェック
+  const loginCheck = await checkLoginPage_(tabId);
+  if (loginCheck.hasLoginForm || isSuumoLoginUrl(loginCheck.url)) {
+    const loginResult = await attemptSuumoBusinessLogin_(tabId);
+    if (!loginResult.ok) {
+      try { await chrome.tabs.remove(tabId); } catch (_) {}
+      console.error('[PVバックフィル] ログイン失敗:', loginResult.error);
+      return { ok: false, error: 'login failed: ' + loginResult.error };
+    }
+    await chrome.tabs.update(tabId, { url: firstUrl });
+    await waitForTabLoad(tabId, 60000);
+    await sleep(2000);
+  }
+
+  let totalRecorded = 0;
+  let errors = 0;
+
+  for (let di = 0; di < dates.length; di++) {
+    const targetDate = dates[di];
+    const pvDate = fmtIso(targetDate);
+    const filtersD = `pv_date_from=${fmt(targetDate)}__pv_date_to=${fmt(targetDate)}`;
+    const url = 'https://business1.suumo.jp/concierge/reportDailySearch'
+      + `?filters_i=${encodeURIComponent(filtersI)}`
+      + `&filters_d=${encodeURIComponent(filtersD)}`;
+
+    try {
+      if (di > 0) {
+        await chrome.tabs.update(tabId, { url });
+        await waitForTabLoad(tabId, 60000);
+        await sleep(1500);
+      }
+
+      const scrapeResult = await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        func: scrapeSuumoBusinessTable,
+      });
+      const rows = (scrapeResult && scrapeResult[0] && scrapeResult[0].result) || [];
+
+      if (rows.length > 0) {
+        const payload = rows.map(r => ({
+          suumo_code: r.suumo_code,
+          name: r.name,
+          room: r.room,
+          total_list_pv: r.total_list_pv,
+          total_detail_pv: r.total_detail_pv,
+        }));
+        await fetch(gasWebappUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'record_daily_pv', pvDate, rows: payload }),
+        });
+        totalRecorded += rows.length;
+      }
+      console.log(`[PVバックフィル] ${pvDate}: ${rows.length}件 (${di + 1}/${dates.length})`);
+    } catch (err) {
+      console.warn(`[PVバックフィル] ${pvDate} エラー:`, err.message);
+      errors++;
+    }
+  }
+
+  try { await chrome.tabs.remove(tabId); } catch (_) {}
+  const summary = `[PVバックフィル] 完了: ${dates.length}日分、合計${totalRecorded}件記録、エラー${errors}件`;
+  console.log(summary);
+  await setStorageData({ debugLog: summary });
+  return { ok: true, days: dates.length, totalRecorded, errors };
+}
