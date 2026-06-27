@@ -329,6 +329,17 @@ input[type="range"]::-webkit-slider-thumb {
       <div style="color:#888;font-size:12px;margin-top:6px;">
         新着物件の「同条件・安い順」の順位がこの値より下の物件はDiscordに通知しません（承認対象から外す）。順位が出せなかった物件は通知します。
       </div>
+
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:16px 0;">
+
+      <label style="display:block;margin-bottom:6px;font-weight:600;">登録日数フィルタ</label>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <input id="daysWithinInput" type="number" min="0" step="1" style="width:90px;padding:6px;border:1px solid #ccc;border-radius:6px;" placeholder="空欄">
+        <span>日以内（空欄＝制限なし）</span>
+      </div>
+      <div style="color:#888;font-size:12px;margin-top:6px;">
+        巡回・手動検索で登録日がこの日数以内の物件のみ検索します。空欄の場合は全期間を対象にします。
+      </div>
     </div>
   </div>
   <div class="card">
@@ -421,19 +432,6 @@ input[type="range"]::-webkit-slider-thumb {
         </div>
       </div>
 
-      <!-- 登録日数（新着フィルタ） -->
-      <div class="section-title">登録日数フィルタ</div>
-      <div class="field">
-        <div class="unspecified-row">
-          <label><input type="checkbox" id="daysWithinUnspecified" checked onchange="toggleDaysWithinInput()"> 指定しない（全期間）</label>
-        </div>
-        <div id="daysWithinContainer" style="display:none;">
-          <input type="number" id="editDaysWithin" placeholder="例: 7" min="1" max="90" step="1" style="width:120px;display:inline-block;">
-          <span style="font-size:13px;">日以内</span>
-        </div>
-        <div class="hint">各サービスで検索する際の新着フィルタ（登録日から○日以内の物件のみ表示）</div>
-      </div>
-
       <!-- 建物構造 -->
       <div class="section-title">建物構造</div>
       <div class="field">
@@ -464,6 +462,7 @@ var STATION_DATA = <?!= stationData ?>;
 var allCriteria = [];
 var activeTab = 'route';
 var renderedRoutes = {};
+var _globalDaysWithin = null;
 
 var LAYOUT_OPTIONS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'];
 
@@ -501,6 +500,13 @@ function loadGlobalSettings() {
       if (s && typeof s.rankCap !== 'undefined') {
         document.getElementById('rankCapInput').value = s.rankCap || 0;
       }
+      if (s && s.daysWithin !== undefined && s.daysWithin !== '') {
+        document.getElementById('daysWithinInput').value = s.daysWithin;
+        _globalDaysWithin = Number(s.daysWithin);
+      } else {
+        document.getElementById('daysWithinInput').value = '';
+        _globalDaysWithin = null;
+      }
     })
     .withFailureHandler(function(err) { console.error('loadGlobalSettings failure:', err); })
     .getSuumoGlobalSettings();
@@ -508,18 +514,22 @@ function loadGlobalSettings() {
 function saveGlobalSettings() {
   var cap = parseInt(document.getElementById('rankCapInput').value, 10);
   if (isNaN(cap) || cap < 0) cap = 0;
+  var dwRaw = document.getElementById('daysWithinInput').value.trim();
+  var dw = dwRaw === '' ? '' : parseInt(dwRaw, 10);
+  if (dw !== '' && (isNaN(dw) || dw < 0)) dw = '';
   var status = document.getElementById('rankCapStatus');
   status.textContent = '保存中...'; status.style.color = '#888';
   google.script.run
     .withSuccessHandler(function(r) {
       document.getElementById('rankCapInput').value = (r && r.rankCap) || 0;
+      document.getElementById('daysWithinInput').value = (r && r.daysWithin !== undefined && r.daysWithin !== '') ? r.daysWithin : '';
       status.textContent = '保存しました'; status.style.color = '#27ae60';
       setTimeout(function() { status.textContent = ''; }, 2500);
     })
     .withFailureHandler(function(err) {
       status.textContent = '保存失敗: ' + (err.message || err); status.style.color = '#e74c3c';
     })
-    .saveSuumoGlobalSettings({ rankCap: cap });
+    .saveSuumoGlobalSettings({ rankCap: cap, daysWithin: dw });
 }
 
 // ── タブ切替 ──
@@ -706,12 +716,6 @@ function toggleAgeInput() {
   if (unspec) document.getElementById('editBuildingAge').value = '';
 }
 
-function toggleDaysWithinInput() {
-  var unspec = document.getElementById('daysWithinUnspecified').checked;
-  document.getElementById('daysWithinContainer').style.display = unspec ? 'none' : 'block';
-  if (unspec) document.getElementById('editDaysWithin').value = '';
-}
-
 // ══════════════════════════════════════════════════════════
 //  条件一覧の読み込み
 // ══════════════════════════════════════════════════════════
@@ -796,7 +800,6 @@ function renderCriteriaList() {
     if (c.walk) primary.push('徒歩' + c.walk + '分');
     if (c.areaMin) primary.push(c.areaMin + 'm²以上');
     if (c.buildingAge) primary.push('築' + c.buildingAge + '年以内');
-    if (c.daysWithin) primary.push(c.daysWithin + '日以内');
 
     var lastPatrol = c.lastPatrolAt ? '最終巡回: ' + c.lastPatrolAt : '未巡回';
 
@@ -866,12 +869,9 @@ function showEditForm(criteriaId) {
   document.getElementById('walkUnspecified').checked = true;
   document.getElementById('areaUnspecified').checked = true;
   document.getElementById('ageUnspecified').checked = true;
-  document.getElementById('daysWithinUnspecified').checked = true;
-  document.getElementById('editDaysWithin').value = '';
   toggleWalkSlider();
   toggleAreaInput();
   toggleAgeInput();
-  toggleDaysWithinInput();
   updateWalkDisplay();
   uncheckAll('cityCheckboxes');
   uncheckAll('layoutCheckboxes');
@@ -909,13 +909,6 @@ function showEditForm(criteriaId) {
         document.getElementById('ageUnspecified').checked = false;
         document.getElementById('editBuildingAge').value = c.buildingAge;
         toggleAgeInput();
-      }
-
-      // 登録日数フィルタ
-      if (c.daysWithin !== undefined && c.daysWithin !== '') {
-        document.getElementById('daysWithinUnspecified').checked = false;
-        document.getElementById('editDaysWithin').value = c.daysWithin;
-        toggleDaysWithinInput();
       }
 
       // エリア
@@ -1038,8 +1031,7 @@ function saveCondition() {
     areaMin: document.getElementById('editAreaMin').value || '',
     buildingAge: document.getElementById('editBuildingAge').value || '',
     structures: getCheckedValues('structureCheckboxes'),
-    equipment: getCheckedEquipment(),
-    daysWithin: document.getElementById('daysWithinUnspecified').checked ? '' : (document.getElementById('editDaysWithin').value || '')
+    equipment: getCheckedEquipment()
   };
 
   document.getElementById('saveBtn').disabled = true;
@@ -1285,7 +1277,7 @@ function doOpenSearchPage(criteriaId, service) {
     structures: structures,
     equipment: equipment,
     btMode: (Array.isArray(equipmentArr) && equipmentArr.indexOf('バス・トイレ別') >= 0) ? 'skip' : '',
-    daysWithin: (c.daysWithin !== undefined && c.daysWithin !== '') ? parseInt(c.daysWithin, 10) : null,
+    daysWithin: _globalDaysWithin,
     selectedTowns: areaObj.selectedTowns || {}
   };
 
