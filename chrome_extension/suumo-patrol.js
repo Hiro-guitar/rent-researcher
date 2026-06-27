@@ -96,10 +96,8 @@ function patrolCriteriaToCustomer(criteria) {
     structures: structures,
     equipment: equipment,
     petType: equipmentArr.includes('ペット相談可') ? 'ok' : '',
-    // 登録日数フィルタはダッシュボード側で一元管理 (chrome.storage.local.suumoPatrolDaysWithin)。
-    // 旧条件シートに残っている daysWithin 値は無視する。ここでは null を入れ、
-    // runSuumoPatrolCycle 内でダッシュボード値に置き換える。
-    daysWithin: null
+    daysWithin: (criteria.daysWithin !== undefined && criteria.daysWithin !== '')
+      ? parseInt(String(criteria.daysWithin), 10) : null
   };
 }
 
@@ -179,24 +177,8 @@ async function runSuumoPatrolCycle() {
       return;
     }
 
-    // ダッシュボードで指定された「N日以内」フィルタを全条件に適用する。
-    // 空欄/不正値 → null (制限なし、各サイトの新着絞り込み無し)
-    // 数値 → その日数で絞り込み
-    let _daysWithinValue = null;
-    let _daysWithinLabel = '制限なし';
-    try {
-      const { suumoPatrolDaysWithin } = await getStorageData(['suumoPatrolDaysWithin']);
-      if (suumoPatrolDaysWithin !== '' && suumoPatrolDaysWithin !== undefined && suumoPatrolDaysWithin !== null) {
-        const n = parseInt(String(suumoPatrolDaysWithin), 10);
-        if (!isNaN(n) && n >= 0) {
-          _daysWithinValue = n;
-          _daysWithinLabel = n + '日以内';
-        }
-      }
-    } catch (e) {}
-
     await setStorageData({
-      debugLog: `[SUUMO巡回] ${criteria.length}件の条件で巡回開始 (N日以内: ${_daysWithinLabel})`
+      debugLog: `[SUUMO巡回] ${criteria.length}件の条件で巡回開始`
     });
 
     // Discord通知は Chrome拡張側(ユーザーIP)で行う方式に変更したため、
@@ -265,8 +247,6 @@ async function runSuumoPatrolCycle() {
 
       const crit = criteria[ci];
       const customer = patrolCriteriaToCustomer(crit);
-      // ダッシュボードで指定された N日以内 を全条件に適用
-      customer.daysWithin = _daysWithinValue;
       console.log('[SUUMO巡回] GAS条件:', JSON.stringify(crit));
       console.log('[SUUMO巡回] 変換後customer:', JSON.stringify(customer));
 
