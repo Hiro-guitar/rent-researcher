@@ -1353,7 +1353,7 @@ function findStopCandidates(topN, options) {
       tier = 4; weak = 4000000 + sheetDays; forceReason = '70日超';
     } else if (hasPvHistory) {
       tier = 3;
-      weak = 3999999 - Math.round(avgListPv + avgDetailPv * 10);
+      weak = 3000000 + Math.round((999 - avgDetailPv) * 1000 + (999 - avgListPv));
     }
 
     var compStr = '加重' + (Math.round(weightedComp * 10) / 10)
