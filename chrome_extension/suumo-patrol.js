@@ -234,6 +234,21 @@ async function runSuumoPatrolCycle() {
     globalThis._suumoPatrolRankSkippedKeys = rankSet;
     globalThis._suumoPatrolAdNgSkippedKeys = adNgSet;
 
+    // 2.5. 順位上限(rankCap)をGAS設定から取得してキャッシュ
+    let _patrolRankCap = 0;
+    try {
+      const { gasWebappUrl: _rcGasUrl } = await getStorageData(['gasWebappUrl']);
+      if (_rcGasUrl) {
+        const _rcRes = await _fetchWithTimeout_(_rcGasUrl, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'get_suumo_settings' })
+        }, 15000);
+        const _rcJson = await _rcRes.json();
+        _patrolRankCap = Number(_rcJson && _rcJson.rankCap) || 0;
+      }
+    } catch (_) {}
+    globalThis._suumoPatrolRankCap = _patrolRankCap;
+
     // 3. 有効なサービスを確認（SUUMO巡回専用の設定を使用、未設定時は顧客検索の設定にフォールバック）
     const { patrolEnabledServices, enabledServices } = await getStorageData(['patrolEnabledServices', 'enabledServices']);
     const services = patrolEnabledServices || enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
@@ -356,6 +371,29 @@ async function runSuumoPatrolCycle() {
               }
             }
           } catch (_) {}
+          // 順位上限チェック（競合チェックより先に実施して無駄なSUUMO検索を減らす）
+          try {
+            const rankCapVal = globalThis._suumoPatrolRankCap || 0;
+            if (rankCapVal > 0 && typeof getSuumoSegmentRank === 'function' && typeof _buildSegmentRankInput === 'function') {
+              const rankInput = _buildSegmentRankInput(prop);
+              if (rankInput.address && rankInput.layout && rankInput.area) {
+                const rr = await getSuumoSegmentRank(rankInput);
+                if (rr && rr.ok && typeof rr.rank === 'number' && rr.rank > rankCapVal) {
+                  const _rsk = globalThis._suumoPatrolRankSkippedKeys;
+                  if (_rsk) _rsk.add(key);
+                  await setStorageData({ debugLog:
+                    `[SUUMO巡回] ✗ スキップ: ${prop.building_name || prop.buildingName || ''} ${prop.room_number || ''} - 順位${rr.rank}位(上限${rankCapVal}位超)`
+                  });
+                  return this._items.length;
+                }
+                if (rr && rr.ok) {
+                  prop._preRankResult = rr;
+                }
+              }
+            }
+          } catch (rankErr) {
+            console.warn('[SUUMO巡回] 順位プレチェック例外:', rankErr && rankErr.message);
+          }
           // SUUMO競合数:
           //   各サイトの詳細スクレイプ内で「画像取得直前」に
           //   checkSuumoCompetitorPreSkip 済みの物件は prop.suumo_competitor が
