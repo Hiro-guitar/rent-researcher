@@ -1287,7 +1287,11 @@ function doOpenSearchPage(criteriaId, service) {
     selectedTowns: areaObj.selectedTowns || {}
   };
 
-  alert('daysWithin = ' + JSON.stringify(_globalDaysWithin) + ' (type: ' + typeof _globalDaysWithin + ')');
+  var dwInput = document.getElementById('daysWithinInput').value.trim();
+  if (dwInput !== '') {
+    var dwNum = parseInt(dwInput, 10);
+    if (!isNaN(dwNum) && dwNum >= 0) customer.daysWithin = dwNum;
+  }
 
   window.parent.postMessage({
     type: 'OPEN_SEARCH_PAGE',
