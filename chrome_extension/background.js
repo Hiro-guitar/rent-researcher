@@ -3182,6 +3182,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 routes_with_stations: batchCustomer.routes_with_stations || [],
                 walk: batchCustomer.walk || '', cities: batchCustomer.cities || [],
                 prefecture: batchCustomer.prefecture || '東京都',
+                daysWithin: typeof customer.daysWithin === 'number' ? customer.daysWithin : null,
                 selectedTowns: batchCustomer.selectedTowns || {}
               }, lineNameMap, reinsCodeMap, (batchCustomer.btMode || btModeFresh)];
 

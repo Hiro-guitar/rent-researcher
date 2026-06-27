@@ -242,12 +242,9 @@ function buildIeloveSearchUrl(customer, page = 1, oazaCodes = []) {
     parts.push('papc/03');
   }
 
-  // SUUMO巡回時の「登録日 N日以内」フィルタ。
+  // 「登録日 N日以内」フィルタ（巡回・手動検索の両方で適用）。
   // いえらぶ BB の URL はパスセグメント形式 (crdf=登録日 from, crdz=登録日 to)。
-  // 「登録日」 = 物件がいえらぶBBに初登録された日 = 新着発見の意図に合致。
-  // 別途 mddf/mddz (更新日) もあるが、今回は登録日のみ使用。
-  // 日付フォーマットはシンプルな YYYY-MM-DD (タイムゾーン不要)。
-  if (customer && customer._isSuumoPatrol && typeof customer.daysWithin === 'number' && customer.daysWithin >= 0) {
+  if (customer && typeof customer.daysWithin === 'number' && customer.daysWithin >= 0) {
     const pad = (n) => String(n).padStart(2, '0');
     const today = new Date();
     today.setHours(0, 0, 0, 0);
