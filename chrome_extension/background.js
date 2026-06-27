@@ -2410,17 +2410,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       let customers = [];
       let contextCustomer = '';
       try {
-        // 常にGASから最新の顧客一覧を取得（新規登録がすぐ反映されるように）
-        const res = await fetchCriteria();
-        let crit = (res && res.criteria) || [];
+        // キャッシュがあればまず即座に返す（GAS get_criteriaはLINEブロック判定等で重い）
+        const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria', 'lastCriteriaFetch'], d => r(d)));
+        let crit = Array.isArray(cached.customerCriteria) ? cached.customerCriteria : [];
+        const cacheAge = Date.now() - (cached.lastCriteriaFetch || 0);
         if (crit.length > 0) {
-          chrome.storage.local.set({ customerCriteria: crit, lastCriteriaFetch: Date.now() });
-        } else {
-          // GAS取得失敗時はキャッシュにフォールバック
-          const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
-          if (Array.isArray(cached) && cached.length > 0) crit = cached;
+          customers = Array.from(new Set(crit.map(c => c && c.name).filter(Boolean)));
         }
-        customers = Array.from(new Set(crit.map(c => c && c.name).filter(Boolean)));
+        // キャッシュが5分以上古い or 空なら同期取得
+        if (crit.length === 0 || cacheAge > 5 * 60 * 1000) {
+          try {
+            const res = await fetchCriteria();
+            let fresh = (res && res.criteria) || [];
+            if (fresh.length > 0) {
+              chrome.storage.local.set({ customerCriteria: fresh, lastCriteriaFetch: Date.now() });
+              customers = Array.from(new Set(fresh.map(c => c && c.name).filter(Boolean)));
+            }
+          } catch (e2) {
+            if (customers.length === 0) await setStorageData({ debugLog: '手動送信: 顧客一覧取得失敗 ' + e2.message });
+          }
+        }
       } catch (e) {
         await setStorageData({ debugLog: '手動送信: 顧客一覧取得失敗 ' + e.message });
       }
