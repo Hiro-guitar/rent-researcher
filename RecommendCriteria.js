@@ -242,6 +242,22 @@ function setRecommendLastReinsSearch(id, searchDate) {
   return { ok: false, message: '該当なし' };
 }
 
+/** google.script.run 用: おすすめ条件の名前を変更。 */
+function renameRecommendCriteria(id, newLabel) {
+  id = String(id || '').trim();
+  newLabel = String(newLabel || '').trim();
+  if (!newLabel) return { ok: false, message: '名前が空です' };
+  var sheet = _getRecommendSheet_();
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][34] || '').trim() === id) {
+      sheet.getRange(i + 1, RECOMMEND_COL_LABEL).setValue(newLabel);
+      return { ok: true };
+    }
+  }
+  return { ok: false, message: '該当なし' };
+}
+
 /** google.script.run 用: おすすめ条件の有効/無効を切替。 */
 function setRecommendEnabled(id, enabled) {
   id = String(id || '').trim();

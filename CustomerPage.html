@@ -1846,6 +1846,7 @@ function renderRecommendList(list) {
     html += '</div></div>';
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
     html += '<button class="btn btn-sm btn-outline" onclick="editRecommend(\'' + esc(r.id) + '\')">編集</button>';
+    html += '<button class="btn btn-sm btn-outline" onclick="renameRecommend(\'' + esc(r.id) + '\',\'' + esc(r.label || '') + '\')">名前変更</button>';
     html += '<button class="btn btn-sm btn-outline" onclick="toggleRecommend(\'' + esc(r.id) + '\',' + (r.enabled ? 'false' : 'true') + ')">' + (r.enabled ? '無効化' : '有効化') + '</button>';
     html += '<button class="btn btn-sm btn-outline" onclick="deleteRecommend(\'' + esc(r.id) + '\',\'' + esc(r.label || '') + '\')" style="color:#e88;">削除</button>';
     html += '</div></div>';
@@ -1963,6 +1964,22 @@ function toggleRecommend(id, enabled) {
     .withSuccessHandler(function() { loadRecommendList(currentCustomer); })
     .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
     .setRecommendEnabled(id, enabled);
+}
+
+function renameRecommend(id, currentLabel) {
+  var newLabel = prompt('新しい条件名を入力してください', currentLabel || 'おすすめ条件');
+  if (newLabel === null || newLabel.trim() === '') return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.ok) {
+        showToast('名前を変更しました');
+        loadRecommendList(currentCustomer);
+      } else {
+        showToast('エラー: ' + ((res && res.message) || ''));
+      }
+    })
+    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .renameRecommendCriteria(id, newLabel.trim());
 }
 
 function deleteRecommend(id, label) {
