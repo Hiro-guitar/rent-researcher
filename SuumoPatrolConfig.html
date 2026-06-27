@@ -1287,13 +1287,15 @@ function doOpenSearchPage(criteriaId, service) {
     selectedTowns: areaObj.selectedTowns || {}
   };
 
+  console.log('[doOpenSearchPage] daysWithin:', _globalDaysWithin, 'customer.daysWithin:', customer.daysWithin, typeof customer.daysWithin);
+
   window.parent.postMessage({
     type: 'OPEN_SEARCH_PAGE',
     service: service,
     customer: customer
   }, '*');
 
-  showToast(service + ' の検索ページを開いています...');
+  showToast(service + ' の検索ページを開いています...' + (customer.daysWithin != null ? ' (' + customer.daysWithin + '日以内)' : ''));
 }
 
 function esc(str) {
