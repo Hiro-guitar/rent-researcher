@@ -1260,7 +1260,7 @@ function doOpenSearchPage(criteriaId, service) {
     selectedTowns: areaObj.selectedTowns || {}
   };
 
-  window.postMessage({
+  window.parent.postMessage({
     type: 'OPEN_SEARCH_PAGE',
     service: service,
     customer: customer
