@@ -336,6 +336,8 @@ input[type="range"]::-webkit-slider-thumb {
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <input id="daysWithinInput" type="number" min="0" step="1" style="width:90px;padding:6px;border:1px solid #ccc;border-radius:6px;" placeholder="空欄">
         <span>日以内（空欄＝制限なし）</span>
+        <button class="btn btn-success" onclick="saveGlobalSettings()">保存</button>
+        <span id="daysWithinStatus" style="font-size:13px;"></span>
       </div>
       <div style="color:#888;font-size:12px;margin-top:6px;">
         巡回・手動検索で登録日がこの日数以内の物件のみ検索します。空欄の場合は全期間を対象にします。
@@ -518,7 +520,9 @@ function saveGlobalSettings() {
   var dw = dwRaw === '' ? '' : parseInt(dwRaw, 10);
   if (dw !== '' && (isNaN(dw) || dw < 0)) dw = '';
   var status = document.getElementById('rankCapStatus');
+  var dwStatus = document.getElementById('daysWithinStatus');
   status.textContent = '保存中...'; status.style.color = '#888';
+  if (dwStatus) { dwStatus.textContent = '保存中...'; dwStatus.style.color = '#888'; }
   google.script.run
     .withSuccessHandler(function(r) {
       document.getElementById('rankCapInput').value = (r && r.rankCap) || 0;
@@ -530,10 +534,13 @@ function saveGlobalSettings() {
         _globalDaysWithin = null;
       }
       status.textContent = '保存しました'; status.style.color = '#27ae60';
-      setTimeout(function() { status.textContent = ''; }, 2500);
+      if (dwStatus) { dwStatus.textContent = '保存しました'; dwStatus.style.color = '#27ae60'; }
+      setTimeout(function() { status.textContent = ''; if (dwStatus) dwStatus.textContent = ''; }, 2500);
     })
     .withFailureHandler(function(err) {
-      status.textContent = '保存失敗: ' + (err.message || err); status.style.color = '#e74c3c';
+      var errMsg = '保存失敗: ' + (err.message || err);
+      status.textContent = errMsg; status.style.color = '#e74c3c';
+      if (dwStatus) { dwStatus.textContent = errMsg; dwStatus.style.color = '#e74c3c'; }
     })
     .saveSuumoGlobalSettings({ rankCap: cap, daysWithin: dw });
 }
