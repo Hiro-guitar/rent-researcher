@@ -522,7 +522,13 @@ function saveGlobalSettings() {
   google.script.run
     .withSuccessHandler(function(r) {
       document.getElementById('rankCapInput').value = (r && r.rankCap) || 0;
-      document.getElementById('daysWithinInput').value = (r && r.daysWithin !== undefined && r.daysWithin !== '') ? r.daysWithin : '';
+      if (r && r.daysWithin !== undefined && r.daysWithin !== '') {
+        document.getElementById('daysWithinInput').value = r.daysWithin;
+        _globalDaysWithin = Number(r.daysWithin);
+      } else {
+        document.getElementById('daysWithinInput').value = '';
+        _globalDaysWithin = null;
+      }
       status.textContent = '保存しました'; status.style.color = '#27ae60';
       setTimeout(function() { status.textContent = ''; }, 2500);
     })
