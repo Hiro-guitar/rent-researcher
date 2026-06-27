@@ -522,6 +522,12 @@
     const data = (typeof self !== 'undefined' && self.stationData) ? self.stationData
                : (typeof globalThis !== 'undefined' && globalThis.stationData) ? globalThis.stationData : null;
     if (!data || !stationName) return null;
+    // 「路線名「駅名」」形式をパース（例: 西武新宿線「上石神井」）
+    const combined = String(stationName).match(/^(.+?)[「\(（](.+?)[」\)）]$/);
+    if (combined) {
+      if (!lineName) lineName = combined[1];
+      stationName = combined[2];
+    }
     const normStation = String(stationName).replace(/駅$/, '').trim();
     const candidates = data.filter(s => s.stationName === normStation);
     if (candidates.length === 0) return null;
