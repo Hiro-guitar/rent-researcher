@@ -3116,16 +3116,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         } else if (service === 'reins') {
           // REINS: バッチ分割対応（沿線3本・市区町村3つまで/1タブ）
-          const CIRCULAR_LINE_KEYWORDS = ['山手線', '大江戸線'];
+          // 自動巡回と同じく、飛び飛び駅を連続グループに分割してFrom-Toで検索
+          const stationOrder = await loadStationOrder();
           const rwsRaw = customer.routes_with_stations || [];
           const rws = [];
           for (const r of rwsRaw) {
-            const isCircular = CIRCULAR_LINE_KEYWORDS.some(kw => (r.route || '').includes(kw));
-            if (isCircular && r.stations && r.stations.length > 1) {
-              for (const st of r.stations) rws.push({ route: r.route, stations: [st] });
-            } else {
-              rws.push(r);
-            }
+            const splits = splitRouteByConsecutiveStations(r, stationOrder);
+            for (const s of splits) rws.push(s);
           }
           const cities = customer.cities || [];
           const rwsChunks = rws.length > 0
