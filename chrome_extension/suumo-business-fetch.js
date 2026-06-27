@@ -96,28 +96,52 @@ async function runSuumoBusinessFetch() {
 
     await sleep(1500); // テーブル描画完了の余裕
 
-    // 3. テーブル行をスクレイピング
+    // 3. テーブル行をスクレイピング（45日分）
     const scrapeResult = await chrome.scripting.executeScript({
       target: { tabId, frameIds: [0] },
       func: scrapeSuumoBusinessTable,
     });
     const rows = scrapeResult && scrapeResult[0] && scrapeResult[0].result;
 
-    // 4. 完了したらタブを閉じる
-    try { await chrome.tabs.remove(tabId); } catch (_) {}
-
-    if (!Array.isArray(rows)) {
-      await setStorageData({ debugLog: '[SUUMOビジネス] スクレイピング失敗: 戻り値が配列でない' });
-      return { ok: false, error: 'scrape failed' };
-    }
-    if (rows.length === 0) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      try { await chrome.tabs.remove(tabId); } catch (_) {}
+      if (!Array.isArray(rows)) {
+        await setStorageData({ debugLog: '[SUUMOビジネス] スクレイピング失敗: 戻り値が配列でない' });
+        return { ok: false, error: 'scrape failed' };
+      }
       await setStorageData({ debugLog: '[SUUMOビジネス] 取得0件(ログイン切れの可能性)' });
       return { ok: false, error: 'no rows (possibly logged out)' };
     }
 
-    await setStorageData({ debugLog: `[SUUMOビジネス] ${rows.length}件取得、GASへ送信` });
+    // 3b. 同じタブで2日前1日分のPVデータも取得（PV履歴用）
+    let dailyRows = [];
+    let dailyPvDate = '';
+    try {
+      const singleDayUrl = await buildSuumoBusinessSingleDayUrl();
+      if (singleDayUrl) {
+        dailyPvDate = singleDayUrl.pvDate;
+        await chrome.tabs.update(tabId, { url: singleDayUrl.url });
+        await waitForTabLoad(tabId, 60000);
+        await sleep(2000);
+        const dailyScrape = await chrome.scripting.executeScript({
+          target: { tabId, frameIds: [0] },
+          func: scrapeSuumoBusinessTable,
+        });
+        dailyRows = (dailyScrape && dailyScrape[0] && dailyScrape[0].result) || [];
+        if (dailyRows.length > 0) {
+          console.log(`[SUUMOビジネス] PV履歴: ${dailyPvDate}の${dailyRows.length}件取得`);
+        }
+      }
+    } catch (dailyErr) {
+      console.warn('[SUUMOビジネス] PV履歴取得エラー(続行):', dailyErr.message);
+    }
 
-    // 5. GAS送信
+    // 4. タブを閉じる
+    try { await chrome.tabs.remove(tabId); } catch (_) {}
+
+    await setStorageData({ debugLog: `[SUUMOビジネス] ${rows.length}件取得(PV履歴${dailyRows.length}件)、GASへ送信` });
+
+    // 5. GAS送信（45日分）
     const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
     if (!gasWebappUrl) {
       await setStorageData({ debugLog: '[SUUMOビジネス] GAS URL未設定' });
@@ -142,14 +166,38 @@ async function runSuumoBusinessFetch() {
       return { ok: false, error: `HTTP ${response.status}` };
     }
 
+    // 5b. PV履歴をGASに送信
+    if (dailyRows.length > 0) {
+      try {
+        const dailyPayload = dailyRows.map(r => ({
+          suumo_code: r.suumo_code,
+          name: r.name,
+          room: r.room,
+          total_list_pv: r.total_list_pv,
+          total_detail_pv: r.total_detail_pv,
+        }));
+        await fetch(gasWebappUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'record_daily_pv',
+            pvDate: dailyPvDate,
+            rows: dailyPayload,
+          }),
+        });
+      } catch (dailySendErr) {
+        console.warn('[SUUMOビジネス] PV履歴GAS送信エラー:', dailySendErr.message);
+      }
+    }
+
     const fmtNum = (v) => (v === undefined || v === null) ? '?' : v;
     await setStorageData({
-      debugLog: `[SUUMOビジネス] 完了: 送信${rows.length}件、GAS側更新${fmtNum(result.updated)}件、新規${fmtNum(result.inserted)}件`,
+      debugLog: `[SUUMOビジネス] 完了: 送信${rows.length}件、GAS側更新${fmtNum(result.updated)}件、新規${fmtNum(result.inserted)}件、PV履歴${dailyRows.length}件`,
       suumoBusinessLastFetchAt: Date.now(),
       suumoBusinessLastCount: rows.length,
     });
 
-    return { ok: true, count: rows.length, result };
+    return { ok: true, count: rows.length, result, dailyPvCount: dailyRows.length };
   } catch (err) {
     console.error('[SUUMOビジネス] エラー:', err);
     await setStorageData({ debugLog: `[SUUMOビジネス] エラー: ${err.message}` });
@@ -209,6 +257,41 @@ async function buildSuumoBusinessDailyUrl() {
 }
 
 /**
+ * 2日前の1日分だけのDaily Search URLを構築（PV履歴記録用）
+ * @returns {Promise<{url:string, pvDate:string}|null>}
+ */
+async function buildSuumoBusinessSingleDayUrl() {
+  const { suumoBusinessKissCode } = await getStorageData(['suumoBusinessKissCode']);
+  const kissCode = (suumoBusinessKissCode || '').toString().replace(/[^0-9]/g, '');
+  if (!kissCode) return null;
+
+  const fmt = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}/${m}/${day}`;
+  };
+  const fmtIso = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const targetDate = new Date();
+  targetDate.setDate(targetDate.getDate() - 2);
+
+  const filtersI = `kiss_code=${kissCode}__passive_flag=1__empty_flag=1__conflict_flag=0`;
+  const filtersD = `pv_date_from=${fmt(targetDate)}__pv_date_to=${fmt(targetDate)}`;
+
+  return {
+    url: 'https://business1.suumo.jp/concierge/reportDailySearch'
+      + `?filters_i=${encodeURIComponent(filtersI)}`
+      + `&filters_d=${encodeURIComponent(filtersD)}`,
+    pvDate: fmtIso(targetDate),
+  };
+}
+
+/**
  * Daily Search ページでテーブルをスクレイピング(コンテンツ側で実行)
  *
  * 戻り値: 物件ごとのオブジェクト配列。
@@ -238,11 +321,6 @@ function scrapeSuumoBusinessTable() {
       const name = cellText(s[1]);
       const room = cellText(s[2]);
       if (!name && !room) continue; // 空行スキップ
-
-      // デバッグ: 最初の行だけd配列の19-25を記録
-      if (i === 0) {
-        console.log('[SUUMOビジネスデバッグ] d.length=' + d.length + ' d[19-25]=' + JSON.stringify(d.slice(19, 26)));
-      }
 
       result.push({
         no: cellText(s[0]),
