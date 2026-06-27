@@ -149,9 +149,6 @@ var PV_HISTORY_SHEET = 'PV履歴';
 var PV_HISTORY_FIXED_COLS = ['物件名', '部屋番号', 'SUUMOコード', '種別'];
 var PV_HISTORY_RETENTION_DAYS = 30;
 
-// PV目標値: 直近7日平均がこの値を下回る物件は掲載停止候補になる
-var PV_TARGET_DAILY_LIST = 30;    // 合計一覧PV/日の目標
-var PV_TARGET_DAILY_DETAIL = 3;   // 合計詳細PV/日の目標
 var PV_HISTORY_MIN_DAYS = 3;      // 最低何日分のデータがあれば判定対象にするか
 
 function normalizeDateHeader_(val) {
@@ -1345,8 +1342,8 @@ function findStopCandidates(topN, options) {
     // ── 落とす優先度 (高い tier ほど先に落とす) ────────────────
     //   Tier 5: 反響30+申込あり
     //   Tier 4: 70日超
-    //   Tier 3: PV履歴あり & 目標値を下回っている（乖離が大きいほどスコア高）
-    //   Tier 0: 目標値以上 / PV履歴データ不足
+    //   Tier 3: PV履歴あり（成績悪い順にランキング）
+    //   Tier 0: PV履歴データ不足
     var tier = 0;
     var weak = 0;
     var forceReason = '';
@@ -1355,20 +1352,16 @@ function findStopCandidates(topN, options) {
     } else if (isLongStay) {
       tier = 4; weak = 4000000 + sheetDays; forceReason = '70日超';
     } else if (hasPvHistory) {
-      var deficitList = Math.max(0, PV_TARGET_DAILY_LIST - avgListPv) / PV_TARGET_DAILY_LIST;
-      var deficitDetail = Math.max(0, PV_TARGET_DAILY_DETAIL - avgDetailPv) / PV_TARGET_DAILY_DETAIL;
-      if (deficitList > 0 || deficitDetail > 0) {
-        tier = 3;
-        weak = 3000000 + Math.round((deficitList + deficitDetail) * 500000);
-      }
+      tier = 3;
+      weak = 3999999 - Math.round(avgListPv + avgDetailPv * 10);
     }
 
     var compStr = '加重' + (Math.round(weightedComp * 10) / 10)
                 + ' [第1:' + compLv1 + ' 第2:' + compLv2 + ' 第3:' + compLv3 + ']';
     var pvStr = hasPvHistory
       ? '7日平均: 一覧PV=' + (Math.round(avgListPv * 10) / 10)
-        + '(目標' + PV_TARGET_DAILY_LIST + ') 詳細PV=' + (Math.round(avgDetailPv * 10) / 10)
-        + '(目標' + PV_TARGET_DAILY_DETAIL + ') [' + pvDataPoints + '日分]'
+        + ' 詳細PV=' + (Math.round(avgDetailPv * 10) / 10)
+        + ' [' + pvDataPoints + '日分]'
       : 'PV履歴不足(' + pvDataPoints + '日分)';
     var dropReason;
     if (tier === 5) dropReason = '反響' + inquiries + '件&申込あり / ' + compStr;
