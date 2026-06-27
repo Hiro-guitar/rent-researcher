@@ -143,6 +143,16 @@ var SUUMO_COMPETITION_LOG_HEADERS = [
 ];
 var SUUMO_COMPETITION_LOG_RETENTION_DAYS = 90;
 
+// PV履歴シート（1日1行×物件で日次PVを蓄積。直近7日平均で掲載停止判定に使用）
+var PV_HISTORY_SHEET = 'PV履歴';
+var PV_HISTORY_HEADERS = ['日付', 'SUUMOコード', '物件名', '部屋番号', '合計一覧PV', '合計詳細PV'];
+var PV_HISTORY_RETENTION_DAYS = 30;
+
+// PV目標値: 直近7日平均がこの値を下回る物件は掲載停止候補になる
+var PV_TARGET_DAILY_LIST = 30;    // 合計一覧PV/日の目標
+var PV_TARGET_DAILY_DETAIL = 3;   // 合計詳細PV/日の目標
+var PV_HISTORY_MIN_DAYS = 3;      // 最低何日分のデータがあれば判定対象にするか
+
 // ── シートアクセスヘルパー ──────────────────────────────────
 
 /**
@@ -1242,34 +1252,28 @@ function findStopCandidates(topN, options) {
   // 列インデックス (1-indexed)
   var moshikomiColIdx = SUUMO_LISTING_HEADERS.indexOf('初回申込検知日') + 1;
   var breakdownColIdx = SUUMO_LISTING_HEADERS.indexOf('スコア内訳') + 1;
-  var dailyPvColIdx = SUUMO_LISTING_HEADERS.indexOf('日次一覧PV');
-  var transRateColIdx = SUUMO_LISTING_HEADERS.indexOf('遷移率(代表%)');
+
+  // PV履歴から直近7日平均を取得
+  var pvAverages = getPvHistoryAverages_(7);
 
   // 停止候補選出ログ用 (実行ごとに全 active 物件を記録、Phase B の評価データ蓄積)
   var logRows = [];
 
   var candidates = [];
-  var lowCompCount = 0, highCompCount = 0, unmeasuredCount = 0; // 低競合(取得済)/高競合/未取得 の件数(25件キープの確認用)
+  var lowCompCount = 0, highCompCount = 0, unmeasuredCount = 0;
   for (var i = 0; i < data.length; i++) {
     if (data[i][8] !== 'active') continue;
 
-    var suumoListedDays = Number(data[i][14]) || 0; // 15列目: 掲載日数(SUUMO最大45)。参考情報
-    var compLv1 = Number(data[i][15]) || 0;  // 16列目: 第1基準値競合数
-    var compLv2 = Number(data[i][16]) || 0;  // 17列目: 第2基準値競合数
-    var compLv3 = Number(data[i][17]) || 0;  // 18列目: 第3基準値競合数
-    var inquiries = Number(data[i][13]) || 0; // 14列目: 問い合わせ数(SUUMOビジネス集計値)
-    if (!inquiries) inquiries = Number(data[i][6]) || 0; // フォールバック: 旧7列目
-    // 21列目: 反響予測スコア (入稿時に候補から引き継ぎ、0-100)
-    var inquiryScore = Number(data[i][20]) || 0;
-    // 13列目: 合計詳細PV / 12列目: 合計一覧PV
+    var suumoListedDays = Number(data[i][14]) || 0;
+    var compLv1 = Number(data[i][15]) || 0;
+    var compLv2 = Number(data[i][16]) || 0;
+    var compLv3 = Number(data[i][17]) || 0;
+    var inquiries = Number(data[i][13]) || 0;
+    if (!inquiries) inquiries = Number(data[i][6]) || 0;
     var totalDetailPv = Number(data[i][12]) || 0;
     var totalListPv = Number(data[i][11]) || 0;
-    // SUUMOビジネス取得済み(=競合データが信頼できる)か。未取得の新規は活動データが全て0。
-    //   新規入稿は競合空欄、ForRent同期は競合0で挿入され、どちらも未取得。
-    //   PV/問合せ/SUUMO掲載日数のどれかが>0なら取得済みとみなす。
     var compMeasured = (totalListPv > 0 || totalDetailPv > 0 || Number(data[i][13]) > 0 || suumoListedDays > 0);
 
-    // シート上での掲載開始日からの経過日数(これが保護・スコア両方の基準)
     var sheetDays = 0;
     var startRaw = data[i][3];
     var startDate = null;
@@ -1282,16 +1286,7 @@ function findStopCandidates(topN, options) {
       }
     }
 
-    // 実効掲載日数 = max(シート日数, SUUMO集計日数)
-    // SUUMOビジネス側の「掲載日数」は最大45でcap される。45達成 = 少なくとも
-    // 45日以上SUUMO掲載中と判断できる。初期投入でシート日数が浅い物件でも
-    // SUUMO側の実績で保護判定/45日ボーナス判定できる。
-    var effectiveDays = Math.max(sheetDays, suumoListedDays);
-
     // ── 初回申込検知日 (22列目) を取得 ──────────────────
-    // 1. シートの値が入っていればそれを使う
-    // 2. 入っていなければ、物件空室管理シートから建物名+部屋番号で検索
-    //    マッチして終了日があれば、ここで初回検知として書き込み (永続化)
     var initialMoshikomiDate = null;
     if (moshikomiColIdx > 0) {
       var existing = data[i][moshikomiColIdx - 1];
@@ -1308,7 +1303,6 @@ function findStopCandidates(topN, options) {
         var foundEnded = vacancyEndedMap[vkey];
         if (foundEnded instanceof Date) {
           initialMoshikomiDate = foundEnded;
-          // シートに永続化 (キャンセル等で空室管理側がクリアされても保持)
           try {
             sheet.getRange(i + 2, moshikomiColIdx).setValue(foundEnded);
           } catch (e) {
@@ -1318,36 +1312,32 @@ function findStopCandidates(topN, options) {
       }
     }
 
-    // 反響30超+申込検知ありは「役目を果たした」として強制落とし対象に。
     var hasMoshikomi = (initialMoshikomiDate instanceof Date);
     var forceFromInquiries = (inquiries >= 30 && hasMoshikomi);
-
-    // 70日超は無条件で停止候補対象
     var isLongStay = (sheetDays >= 70);
-
     var forceCandidate = forceFromInquiries || isLongStay;
 
-    // 加重競合数 = 第1基準値×1.0 + 第2基準値×1.6 + 第3基準値×2.1
     var weightedComp = (compLv3 * 2.1) + (compLv2 * 1.6) + (compLv1 * 1.0);
     var lowComp = (weightedComp <= 5);
     var hasInquiry = (inquiries > 0);
 
-    // 日次一覧PV・遷移率(代表%)
-    var dailyPv = (dailyPvColIdx >= 0) ? (parseFloat(data[i][dailyPvColIdx]) || 0) : 0;
-    var transRate = (transRateColIdx >= 0) ? (parseFloat(String(data[i][transRateColIdx] || '').replace(/[%％,\s]/g, '')) || 0) : 0;
-
-    // 25件キープの「低競合」は取得済みのみ数える。未取得(新規)は別カウントで除外。
     if (!compMeasured) unmeasuredCount++;
     else if (lowComp) lowCompCount++;
     else highCompCount++;
 
+    // ── PV履歴から直近7日平均を取得 ──────────────────
+    var suumoCode = String(data[i][10] || '').replace(/[^0-9]/g, '');
+    var pvData = suumoCode ? (pvAverages[suumoCode] || null) : null;
+    var avgListPv = pvData ? pvData.avgListPv : -1;
+    var avgDetailPv = pvData ? pvData.avgDetailPv : -1;
+    var pvDataPoints = pvData ? pvData.dataPoints : 0;
+    var hasPvHistory = (pvDataPoints >= PV_HISTORY_MIN_DAYS);
+
     // ── 落とす優先度 (高い tier ほど先に落とす) ────────────────
     //   Tier 5: 反響30+申込あり
     //   Tier 4: 70日超
-    //   Tier 3: 加重競合20超(多い順)
-    //   Tier 2: 日次PV<5 & 遷移率<5% (両方ダメ)
-    //   Tier 1: 日次PV<5 or 遷移率<5% (片方ダメ)
-    //   Tier 0: 該当なし(候補にならない)
+    //   Tier 3: PV履歴あり & 目標値を下回っている（乖離が大きいほどスコア高）
+    //   Tier 0: 目標値以上 / PV履歴データ不足
     var tier = 0;
     var weak = 0;
     var forceReason = '';
@@ -1355,23 +1345,27 @@ function findStopCandidates(topN, options) {
       tier = 5; weak = 5000000 + sheetDays; forceReason = '反響30+申込';
     } else if (isLongStay) {
       tier = 4; weak = 4000000 + sheetDays; forceReason = '70日超';
-    } else if (weightedComp > 20) {
-      tier = 3; weak = 3000000 + Math.round(weightedComp * 10);
-    } else if (dailyPv < 5 && transRate < 5) {
-      tier = 2; weak = 2000000 + Math.round((5 - dailyPv) * 100) + Math.round((5 - transRate) * 10);
-    } else if (dailyPv < 5 || transRate < 5) {
-      tier = 1; weak = 1000000 + Math.round(Math.max(5 - dailyPv, 5 - transRate) * 100);
+    } else if (hasPvHistory) {
+      var deficitList = Math.max(0, PV_TARGET_DAILY_LIST - avgListPv) / PV_TARGET_DAILY_LIST;
+      var deficitDetail = Math.max(0, PV_TARGET_DAILY_DETAIL - avgDetailPv) / PV_TARGET_DAILY_DETAIL;
+      if (deficitList > 0 || deficitDetail > 0) {
+        tier = 3;
+        weak = 3000000 + Math.round((deficitList + deficitDetail) * 500000);
+      }
     }
 
     var compStr = '加重' + (Math.round(weightedComp * 10) / 10)
                 + ' [第1:' + compLv1 + ' 第2:' + compLv2 + ' 第3:' + compLv3 + ']';
+    var pvStr = hasPvHistory
+      ? '7日平均: 一覧PV=' + (Math.round(avgListPv * 10) / 10)
+        + '(目標' + PV_TARGET_DAILY_LIST + ') 詳細PV=' + (Math.round(avgDetailPv * 10) / 10)
+        + '(目標' + PV_TARGET_DAILY_DETAIL + ') [' + pvDataPoints + '日分]'
+      : 'PV履歴不足(' + pvDataPoints + '日分)';
     var dropReason;
     if (tier === 5) dropReason = '反響' + inquiries + '件&申込あり / ' + compStr;
     else if (tier === 4) dropReason = '掲載' + sheetDays + '日超(70日超) / ' + compStr;
-    else if (tier === 3) dropReason = '加重競合20超(' + (Math.round(weightedComp * 10) / 10) + ') / ' + compStr;
-    else if (tier === 2) dropReason = '日次PV' + dailyPv + '&遷移率' + transRate + '%(両方<5) / ' + compStr;
-    else if (tier === 1) dropReason = '日次PV' + dailyPv + '/遷移率' + transRate + '%(片方<5) / ' + compStr;
-    else dropReason = '該当なし / ' + compStr;
+    else if (tier === 3) dropReason = pvStr + ' / ' + compStr;
+    else dropReason = '該当なし / ' + pvStr + ' / ' + compStr;
 
     var breakdown = {
       reason: dropReason,
@@ -1379,14 +1373,15 @@ function findStopCandidates(topN, options) {
       weightedComp: Math.round(weightedComp * 10) / 10,
       comp1: compLv1, comp2: compLv2, comp3: compLv3,
       lowComp: lowComp,
-      dailyPv: dailyPv, transRate: transRate,
+      avgListPv: hasPvHistory ? Math.round(avgListPv * 10) / 10 : null,
+      avgDetailPv: hasPvHistory ? Math.round(avgDetailPv * 10) / 10 : null,
+      pvDataPoints: pvDataPoints,
       inquiries: inquiries, hasMoshikomi: hasMoshikomi,
       force: forceReason || null, weak: weak
     };
     var breakdownJson = JSON.stringify(breakdown);
 
     // ── 保護判定。force(Tier 4-5)は保護無視。relaxLevel で段階的に緩める ──
-    //   0: 低競合(加重≤5)と問い合わせ実績ありを守る / 1: 問い合わせのみ守る / 2+: 保護なし
     var protectedReason = '';
     if (!forceCandidate && tier > 0) {
       if (relaxLevel <= 0) {
@@ -1397,18 +1392,17 @@ function findStopCandidates(topN, options) {
       }
     }
 
-    // ログ用エントリ (全 active 物件を記録)
     var logStatus = (tier === 0) ? '対象外' : (protectedReason ? ('保護:' + protectedReason) : '候補');
     logRows.push([
       now,
       relaxLevel,
-      data[i][0],                       // 物件キー
-      data[i][1] || '',                 // 建物名
-      data[i][2] || '',                 // 部屋番号
+      data[i][0],
+      data[i][1] || '',
+      data[i][2] || '',
       weak,
       breakdownJson,
       logStatus,
-      '',                               // (旧:反響予測スコア 廃止)
+      '',
       inquiries,
       initialMoshikomiDate || '',
       sheetDays,
@@ -1430,11 +1424,11 @@ function findStopCandidates(topN, options) {
       breakdown: breakdown,
       weightedComp: weightedComp,
       lowComp: lowComp,
-      dailyPv: dailyPv,
-      transRate: transRate,
+      avgListPv: hasPvHistory ? avgListPv : null,
+      avgDetailPv: hasPvHistory ? avgDetailPv : null,
       tier: tier,
       force: forceReason || '',
-      suumoPropertyCode: String(data[i][10] || ''),
+      suumoPropertyCode: suumoCode,
       suumoListedDays: suumoListedDays,
       sheetDays: sheetDays,
       compLv1: compLv1,
@@ -2639,6 +2633,137 @@ function handleUpdateSuumoListingStats(json) {
   var result = updateSuumoListingStats_(json);
   return ContentService.createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── PV履歴 記録・読み出し・クリーンアップ ──────────────────────
+
+/**
+ * Chrome拡張から送られた1日分のPVデータをPV履歴シートに記録する。
+ * 同日・同SUUMOコードの行が既にあれば上書き、なければ追記。
+ */
+function recordDailyPv_(json) {
+  var pvDate = String((json && json.pvDate) || '');
+  var rows = (json && json.rows) || [];
+  if (!pvDate || !Array.isArray(rows) || rows.length === 0) {
+    return { ok: true, recorded: 0 };
+  }
+
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PV_HISTORY_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(PV_HISTORY_SHEET);
+    sheet.appendRow(PV_HISTORY_HEADERS);
+    sheet.setFrozenRows(1);
+  }
+
+  var lastRow = sheet.getLastRow();
+  var existingKeys = {};
+  if (lastRow >= 2) {
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var key = String(data[i][0]) + '|' + String(data[i][1]);
+      existingKeys[key] = i + 2;
+    }
+  }
+
+  var toAppend = [];
+  var updated = 0;
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    var code = String(row.suumo_code || '').replace(/[^0-9]/g, '');
+    if (!code) continue;
+    var listPv = Number(row.total_list_pv) || 0;
+    var detailPv = Number(row.total_detail_pv) || 0;
+    var name = String(row.name || '');
+    var room = String(row.room || '');
+    var rowKey = pvDate + '|' + code;
+
+    if (existingKeys[rowKey]) {
+      var existRow = existingKeys[rowKey];
+      sheet.getRange(existRow, 5, 1, 2).setValues([[listPv, detailPv]]);
+      updated++;
+    } else {
+      toAppend.push([pvDate, code, name, room, listPv, detailPv]);
+    }
+  }
+
+  if (toAppend.length > 0) {
+    sheet.getRange(lastRow + 1, 1, toAppend.length, PV_HISTORY_HEADERS.length).setValues(toAppend);
+  }
+
+  cleanupPvHistory_(sheet);
+
+  return { ok: true, recorded: toAppend.length + updated, appended: toAppend.length, updated: updated };
+}
+
+/**
+ * PV履歴シートからPV_HISTORY_RETENTION_DAYS日より古い行を削除する。
+ */
+function cleanupPvHistory_(sheet) {
+  if (!sheet) {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    sheet = ss.getSheetByName(PV_HISTORY_SHEET);
+  }
+  if (!sheet) return;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - PV_HISTORY_RETENTION_DAYS);
+  var cutoffStr = Utilities.formatDate(cutoff, 'Asia/Tokyo', 'yyyy-MM-dd');
+
+  var dates = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  var rowsToDelete = [];
+  for (var i = 0; i < dates.length; i++) {
+    if (String(dates[i][0]) < cutoffStr) rowsToDelete.push(i + 2);
+  }
+  for (var j = rowsToDelete.length - 1; j >= 0; j--) {
+    sheet.deleteRow(rowsToDelete[j]);
+  }
+}
+
+/**
+ * PV履歴シートから直近N日分のデータを取得し、SUUMOコード別に集計して返す。
+ * @param {number} days 何日分を対象にするか（デフォルト7）
+ * @returns {Object} { [suumoCode]: { avgListPv, avgDetailPv, dataPoints, totalListPv, totalDetailPv } }
+ */
+function getPvHistoryAverages_(days) {
+  days = days || 7;
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PV_HISTORY_SHEET);
+  if (!sheet) return {};
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return {};
+
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days - 1);
+  var cutoffStr = Utilities.formatDate(cutoff, 'Asia/Tokyo', 'yyyy-MM-dd');
+
+  var data = sheet.getRange(2, 1, lastRow - 1, PV_HISTORY_HEADERS.length).getValues();
+  var byCode = {};
+  for (var i = 0; i < data.length; i++) {
+    var dateStr = String(data[i][0]);
+    if (dateStr <= cutoffStr) continue;
+    var code = String(data[i][1]);
+    if (!code) continue;
+    if (!byCode[code]) byCode[code] = { sumList: 0, sumDetail: 0, count: 0 };
+    byCode[code].sumList += (Number(data[i][4]) || 0);
+    byCode[code].sumDetail += (Number(data[i][5]) || 0);
+    byCode[code].count++;
+  }
+
+  var result = {};
+  for (var c in byCode) {
+    var d = byCode[c];
+    result[c] = {
+      avgListPv: d.count > 0 ? d.sumList / d.count : 0,
+      avgDetailPv: d.count > 0 ? d.sumDetail / d.count : 0,
+      dataPoints: d.count,
+      totalListPv: d.sumList,
+      totalDetailPv: d.sumDetail
+    };
+  }
+  return result;
 }
 
 /**

@@ -137,6 +137,10 @@ function doPost(e) {
     if (json.action === 'update_suumo_listing_stats') {
       return handleUpdateSuumoListingStats(json);
     }
+    if (json.action === 'record_daily_pv') {
+      return ContentService.createTextOutput(JSON.stringify(recordDailyPv_(json)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     if (json.action === 'get_listed_for_rank') {
       return handleGetListedForRank(json);
     }
