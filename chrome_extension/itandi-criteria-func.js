@@ -360,20 +360,19 @@ const __itandiCriteriaFunc = (customerData) => {
     }
 
     // ══════════════════════════════════════
-    //  8. 登録日数フィルタ (offer_conditions_updated_at:gteq)
+    //  8. 募集条件更新フィルタ (offer_conditions_updated_at:gteq)
+    //     SELECT要素で日数(0〜14)を選ぶ形式
     // ══════════════════════════════════════
     if (typeof customerData.daysWithin === 'number' && customerData.daysWithin >= 0) {
-      var d = new Date();
-      d.setHours(0, 0, 0, 0);
-      d.setDate(d.getDate() - customerData.daysWithin);
-      var pad = function(n) { return String(n).padStart(2, '0'); };
-      var dateStr = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-      var updatedInput = findInput('offer_conditions_updated_at:gteq');
-      if (updatedInput) {
-        setReactInputValue(updatedInput, dateStr);
-        result.filled.push('更新日: ' + dateStr + '以降(' + customerData.daysWithin + '日以内)');
+      var daysSelect = document.querySelector('select[name="offer_conditions_updated_at:gteq"]');
+      if (daysSelect) {
+        var daysVal = Math.min(customerData.daysWithin, 14);
+        var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+        nativeSetter.call(daysSelect, String(daysVal));
+        daysSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        result.filled.push('募集条件更新: ' + daysVal + '日以内');
       } else {
-        result.skipped.push('更新日: input[name="offer_conditions_updated_at:gteq"]が見つからない');
+        result.skipped.push('募集条件更新: select[name="offer_conditions_updated_at:gteq"]が見つからない');
       }
     }
 

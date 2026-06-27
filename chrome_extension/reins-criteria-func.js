@@ -450,7 +450,7 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
     //
     // 優先度: SUUMO巡回(daysWithin) > 通常REINS検索(lastReinsSearch)
 
-    if (customerData && customerData._isSuumoPatrol &&
+    if (customerData &&
         typeof customerData.daysWithin === 'number' && customerData.daysWithin >= 0) {
       // SUUMO巡回: N日以内
       const __pad = (n) => String(n).padStart(2, '0');
