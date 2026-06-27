@@ -580,8 +580,7 @@ function getPatrolCriteria() {
       walk: String(data[i][11] || ''),
       structuresJson: String(data[i][12] || '[]'),
       equipmentJson: String(data[i][13] || '[]'),
-      // daysWithin はダッシュボード側で一元管理するため返さない。
-      // 旧シート列(14)に値が残っていても Chrome 拡張は無視する。
+      daysWithin: data[i][14] !== undefined && data[i][14] !== '' ? String(data[i][14]) : '',
       rowIndex: i + 2
     });
   }
@@ -631,13 +630,13 @@ function savePatrolCriteria(data) {
         var newEquipmentJson = data.equipment !== undefined
           ? (typeof data.equipment === 'string' ? data.equipment : JSON.stringify(data.equipment || []))
           : existing.equipmentJson;
-        // 旧 daysWithin 列(15列目)は触らない (ダッシュボード側で一元管理)
+        var newDaysWithin = data.daysWithin !== undefined ? data.daysWithin : existing.daysWithin;
 
         sheet.getRange(row, 2, 1, 7).setValues([[
           newName, newAreaJson, newRentMin, newRentMax, newLayoutsJson, newAreaMin, newBuildingAge
         ]]);
-        sheet.getRange(row, 12, 1, 3).setValues([[
-          newWalk, newStructuresJson, newEquipmentJson
+        sheet.getRange(row, 12, 1, 4).setValues([[
+          newWalk, newStructuresJson, newEquipmentJson, newDaysWithin
         ]]);
         if (data.enabled !== undefined) {
           sheet.getRange(row, 9).setValue(data.enabled);
@@ -668,7 +667,7 @@ function savePatrolCriteria(data) {
       data.walk || '',
       structuresJson,
       equipmentJson,
-      ''  // 旧 daysWithin 列 (廃止: ダッシュボード側で一元管理)
+      data.daysWithin !== undefined ? data.daysWithin : ''
     ]);
     return { success: true, id: newId, action: 'created' };
   }
