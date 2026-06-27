@@ -155,6 +155,8 @@ function _recSummary_(row) {
   if (String(row[9] || '').trim()) parts.push('面積: ' + row[9] + 'm²');
   if (String(row[10] || '').trim()) parts.push('築: ' + row[10]);
   if (String(row[6] || '').trim()) parts.push('徒歩: ' + row[6] + '分');
+  var eqArr = _splitCSV(row[12]);
+  if (eqArr.length) parts.push('設備: ' + eqArr.join('・'));
   var miStr = _recMoveInStr_(row[14]);
   if (miStr) {
     var strict = String(row[26] || '').trim().toLowerCase() === 'true';
@@ -354,6 +356,9 @@ function getRecommendForEdit(id) {
     var cities = _splitCSV(row[3]);
     var towns = {};
     try { towns = JSON.parse(String(row[24] || '') || '{}'); } catch (e) {}
+    var rawRent = String(row[7] || '').trim();
+    var rawWalk = String(row[6] || '').trim();
+    var rawArea = String(row[9] || '').trim();
     return {
       label: String(row[33] || ''),
       areaMethod: cities.length > 0 ? 'city' : 'route',
@@ -363,10 +368,10 @@ function getRecommendForEdit(id) {
       selectedTowns: towns,
       data: {
         name: String(row[1] || ''),
-        rent_max: String(row[7] || ''),
+        rent_max: rawRent ? rawRent + '万円' : '',
         layouts: _splitCSV(row[8]),
-        walk: String(row[6] || '') || '指定しない',
-        area_min: String(row[9] || '') || '指定しない',
+        walk: rawWalk ? rawWalk + '分以内' : '指定しない',
+        area_min: rawArea ? rawArea + 'm²' : '指定しない',
         building_age: String(row[10] || '') || '指定しない',
         building_structures: _splitCSV(row[11]),
         equipment: _splitCSV(row[12]),
