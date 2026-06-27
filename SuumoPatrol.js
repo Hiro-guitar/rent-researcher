@@ -154,6 +154,14 @@ var PV_TARGET_DAILY_LIST = 30;    // 合計一覧PV/日の目標
 var PV_TARGET_DAILY_DETAIL = 3;   // 合計詳細PV/日の目標
 var PV_HISTORY_MIN_DAYS = 3;      // 最低何日分のデータがあれば判定対象にするか
 
+function normalizeDateHeader_(val) {
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, 'Asia/Tokyo', 'yyyy-MM-dd');
+  }
+  var s = String(val);
+  return s.replace(/\//g, '-');
+}
+
 // ── シートアクセスヘルパー ──────────────────────────────────
 
 /**
@@ -2671,10 +2679,15 @@ function recordDailyPv_(json) {
 
   var headers = allData[0];
 
+  // ヘッダーの日付列を正規化（スプレッドシートがDate型に変換するため）
+  for (var ni = fixedLen; ni < headers.length; ni++) {
+    headers[ni] = normalizeDateHeader_(headers[ni]);
+  }
+
   // 日付列を探す（なければ末尾に追加）
   var dateCol = -1;
   for (var h = fixedLen; h < headers.length; h++) {
-    if (String(headers[h]) === pvDate) { dateCol = h; break; }
+    if (headers[h] === pvDate) { dateCol = h; break; }
   }
   if (dateCol < 0) {
     dateCol = headers.length;
@@ -2791,7 +2804,7 @@ function cleanupPvHistory_(sheet) {
 
   var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
   for (var c = lastCol; c > fixedLen; c--) {
-    if (String(headers[c - 1]) < cutoffStr) {
+    if (normalizeDateHeader_(headers[c - 1]) < cutoffStr) {
       sheet.deleteColumn(c);
     }
   }
@@ -2815,6 +2828,11 @@ function getPvHistoryAverages_(days) {
   var allData = sheet.getRange(1, 1, lastRow, lastCol).getValues();
   var headers = allData[0];
 
+  // ヘッダーの日付列を正規化
+  for (var ni = fixedLen; ni < headers.length; ni++) {
+    headers[ni] = normalizeDateHeader_(headers[ni]);
+  }
+
   var cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days - 1);
   var cutoffStr = Utilities.formatDate(cutoff, 'Asia/Tokyo', 'yyyy-MM-dd');
@@ -2822,7 +2840,7 @@ function getPvHistoryAverages_(days) {
   // 対象日付列を特定
   var targetCols = [];
   for (var h = fixedLen; h < headers.length; h++) {
-    if (String(headers[h]) > cutoffStr) targetCols.push(h);
+    if (headers[h] > cutoffStr) targetCols.push(h);
   }
   if (targetCols.length === 0) return {};
 
