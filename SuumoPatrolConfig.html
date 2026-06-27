@@ -1257,6 +1257,7 @@ function doOpenSearchPage(criteriaId, service) {
     building_age: c.buildingAge || '',
     structures: structures,
     equipment: equipment,
+    btMode: (Array.isArray(equipmentArr) && equipmentArr.indexOf('バストイレ別') >= 0) ? 'skip' : '',
     selectedTowns: areaObj.selectedTowns || {}
   };
 
