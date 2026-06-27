@@ -528,8 +528,8 @@
       if (!lineName) lineName = combined[1];
       stationName = combined[2];
     }
-    const normStation = String(stationName).replace(/駅$/, '').trim();
-    const candidates = data.filter(s => s.stationName === normStation);
+    var normStation = String(stationName).replace(/駅$/, '').replace(/^新線/, '').trim();
+    var candidates = data.filter(s => s.stationName === normStation);
     if (candidates.length === 0) return null;
     if (candidates.length === 1) return candidates[0];
     const normLine = _normalizeLineName(lineName);
