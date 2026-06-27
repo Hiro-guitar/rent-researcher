@@ -4213,78 +4213,21 @@ function getAvailabilityStatus(customerName, roomId) {
 }
 
 /**
- * 通知済み物件・承認待ち物件のうち、一定期間 (デフォルト 30 日) より古い行を削除する。
- *   - 通知済み物件 (SEEN_SHEET): D列 (sent_at) を基準
- *   - 承認待ち物件 (PENDING_SHEET): L列 (created_at, index 11) を基準
- *
- * 空室確認キューにも自動的に乗らなくなるので、対象が無限に貯まるのを防ぐ。
- *
- * @param {number} [maxAgeDays=30]
- * @return {{seen:number, pending:number, cutoff:string}}
+ * 日次クリーンアップ (毎朝03:00トリガー)。
+ * 配信停止/ブロック/手動削除された顧客の物件を7日後に一括削除する。
+ * 通知済み・承認待ち物件の期限削除は行わない（同じ物件を再通知しないため永続保持）。
  */
-function cleanupOldPropertyRecords(maxAgeDays) {
-  maxAgeDays = (typeof maxAgeDays === 'number' && maxAgeDays > 0) ? maxAgeDays : 30;
-  var nowMs = Date.now();
-  var cutoffMs = nowMs - maxAgeDays * 24 * 60 * 60 * 1000;
-  var cutoffStr = Utilities.formatDate(new Date(cutoffMs), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
-  var result = { seen: 0, pending: 0, cutoff: cutoffStr, maxAgeDays: maxAgeDays };
-
+function cleanupOldPropertyRecords() {
+  var result = {};
   try {
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-
-    // ── SEEN_SHEET (通知済み物件): D列 (index 3) = sent_at ──
-    var seen = ss.getSheetByName(SEEN_SHEET_NAME);
-    if (seen) {
-      var sLast = seen.getLastRow();
-      if (sLast >= 2) {
-        var sentValues = seen.getRange(2, 4, sLast - 1, 1).getValues();
-        var sRows = [];
-        for (var i = 0; i < sentValues.length; i++) {
-          var t = _parseDateFlexible_(sentValues[i][0]);
-          if (t > 0 && t < cutoffMs) sRows.push(i + 2);
-        }
-        // 下から削除しないと行番号がずれる
-        for (var j = sRows.length - 1; j >= 0; j--) {
-          seen.deleteRow(sRows[j]);
-        }
-        result.seen = sRows.length;
-      }
-    }
-
-    // ── PENDING_SHEET (承認待ち物件): L列 (index 11) = created_at ──
-    var pend = ss.getSheetByName(PENDING_SHEET_NAME);
-    if (pend) {
-      var pLast = pend.getLastRow();
-      if (pLast >= 2) {
-        var pCreated = pend.getRange(2, 12, pLast - 1, 1).getValues();
-        var pRows = [];
-        for (var k = 0; k < pCreated.length; k++) {
-          var pt = _parseDateFlexible_(pCreated[k][0]);
-          if (pt > 0 && pt < cutoffMs) pRows.push(k + 2);
-        }
-        for (var m = pRows.length - 1; m >= 0; m--) {
-          pend.deleteRow(pRows[m]);
-        }
-        result.pending = pRows.length;
-      }
-    }
-
-    console.log('[cleanup-old] ' + JSON.stringify(result));
-
-    // 続けて配信停止/ブロック/手動削除 顧客の物件も一括削除 (1週間経過)
-    try {
-      var inactiveResult = cleanupInactiveCustomerProperties(7);
-      result.inactive = inactiveResult;
-    } catch (eIn) {
-      console.warn('cleanupInactiveCustomerProperties chained error: ' + eIn.message);
-    }
-
-    return result;
+    var inactiveResult = cleanupInactiveCustomerProperties(7);
+    result.inactive = inactiveResult;
+    console.log('[daily-cleanup] ' + JSON.stringify(result));
   } catch (e) {
     console.warn('cleanupOldPropertyRecords error: ' + e.message);
     result.error = e.message;
-    return result;
   }
+  return result;
 }
 
 /**
@@ -4463,13 +4406,10 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
 
 /**
  * 日次クリーンアップトリガーから呼ばれるラッパ。
- * cleanupOldPropertyRecords (30日) + cleanupInactiveCustomerProperties (7日) を順番に実行。
+ * cleanupOldPropertyRecords を呼ぶ (配信停止顧客の7日削除のみ)。
  */
 function runDailyCleanup() {
-  var r1 = cleanupOldPropertyRecords(30);
-  var r2 = cleanupInactiveCustomerProperties(7);
-  console.log('[daily-cleanup] old=' + JSON.stringify(r1) + ' inactive=' + JSON.stringify(r2));
-  return { old: r1, inactive: r2 };
+  return cleanupOldPropertyRecords();
 }
 
 /**
