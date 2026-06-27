@@ -3242,6 +3242,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               // itandiはBT別のみハードフィルタ。顧客が「選別する(btMode=skip)」の時だけ入れる。
               //   「アラートのみ」や未設定、設備にバストイレ別が無い顧客には入れない(勝手に絞らない)。
               equipment: (String(customer.btMode || '').toLowerCase() === 'skip') ? 'バストイレ別' : '',
+              daysWithin: typeof customer.daysWithin === 'number' ? customer.daysWithin : undefined,
             }]
           });
 

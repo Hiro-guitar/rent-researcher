@@ -359,6 +359,24 @@ const __itandiCriteriaFunc = (customerData) => {
       }
     }
 
+    // ══════════════════════════════════════
+    //  8. 登録日数フィルタ (offer_conditions_updated_at:gteq)
+    // ══════════════════════════════════════
+    if (typeof customerData.daysWithin === 'number' && customerData.daysWithin >= 0) {
+      var d = new Date();
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - customerData.daysWithin);
+      var pad = function(n) { return String(n).padStart(2, '0'); };
+      var dateStr = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+      var updatedInput = findInput('offer_conditions_updated_at:gteq');
+      if (updatedInput) {
+        setReactInputValue(updatedInput, dateStr);
+        result.filled.push('更新日: ' + dateStr + '以降(' + customerData.daysWithin + '日以内)');
+      } else {
+        result.skipped.push('更新日: input[name="offer_conditions_updated_at:gteq"]が見つからない');
+      }
+    }
+
     result.success = true;
     log('完了: ' + result.filled.join(' / '));
     if (result.skipped.length > 0) log('スキップ: ' + result.skipped.join(' / '));
