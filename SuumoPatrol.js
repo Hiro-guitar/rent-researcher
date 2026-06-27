@@ -143,9 +143,10 @@ var SUUMO_COMPETITION_LOG_HEADERS = [
 ];
 var SUUMO_COMPETITION_LOG_RETENTION_DAYS = 90;
 
-// PV履歴シート（1日1行×物件で日次PVを蓄積。直近7日平均で掲載停止判定に使用）
+// PV履歴シート（マトリクス形式: 縦=物件×種別、横=日付）
+// 行: 物件名 | 部屋番号 | SUUMOコード | 種別(一覧PV/詳細PV) | 日付1 | 日付2 | ...
 var PV_HISTORY_SHEET = 'PV履歴';
-var PV_HISTORY_HEADERS = ['日付', 'SUUMOコード', '物件名', '部屋番号', '合計一覧PV', '合計詳細PV'];
+var PV_HISTORY_FIXED_COLS = ['物件名', '部屋番号', 'SUUMOコード', '種別'];
 var PV_HISTORY_RETENTION_DAYS = 30;
 
 // PV目標値: 直近7日平均がこの値を下回る物件は掲載停止候補になる
@@ -2639,7 +2640,8 @@ function handleUpdateSuumoListingStats(json) {
 
 /**
  * Chrome拡張から送られた1日分のPVデータをPV履歴シートに記録する。
- * 同日・同SUUMOコードの行が既にあれば上書き、なければ追記。
+ * マトリクス形式で記録。縦=物件×種別(一覧PV/詳細PV)、横=日付。
+ * 全データをメモリ上で組み立てて一括書き込みする。
  */
 function recordDailyPv_(json) {
   var pvDate = String((json && json.pvDate) || '');
@@ -2650,24 +2652,46 @@ function recordDailyPv_(json) {
 
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PV_HISTORY_SHEET);
+  var fixedLen = PV_HISTORY_FIXED_COLS.length;
+
+  // シート読み込み（なければ作成）
+  var allData;
   if (!sheet) {
     sheet = ss.insertSheet(PV_HISTORY_SHEET);
-    sheet.appendRow(PV_HISTORY_HEADERS);
-    sheet.setFrozenRows(1);
-  }
-
-  var lastRow = sheet.getLastRow();
-  var existingKeys = {};
-  if (lastRow >= 2) {
-    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
-    for (var i = 0; i < data.length; i++) {
-      var key = String(data[i][0]) + '|' + String(data[i][1]);
-      existingKeys[key] = i + 2;
+    allData = [PV_HISTORY_FIXED_COLS.slice()];
+  } else {
+    var lastRow = sheet.getLastRow();
+    var lastCol = sheet.getLastColumn();
+    if (lastRow >= 1 && lastCol >= 1) {
+      allData = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+    } else {
+      allData = [PV_HISTORY_FIXED_COLS.slice()];
     }
   }
 
-  var toAppend = [];
-  var updated = 0;
+  var headers = allData[0];
+
+  // 日付列を探す（なければ末尾に追加）
+  var dateCol = -1;
+  for (var h = fixedLen; h < headers.length; h++) {
+    if (String(headers[h]) === pvDate) { dateCol = h; break; }
+  }
+  if (dateCol < 0) {
+    dateCol = headers.length;
+    headers.push(pvDate);
+    for (var ei = 1; ei < allData.length; ei++) {
+      allData[ei].push('');
+    }
+  }
+
+  // 行ルックアップ: SUUMOコード + 種別 → data配列のインデックス
+  var rowMap = {};
+  for (var ri = 1; ri < allData.length; ri++) {
+    var rk = String(allData[ri][2]) + '|' + String(allData[ri][3]);
+    rowMap[rk] = ri;
+  }
+
+  var recorded = 0;
   for (var r = 0; r < rows.length; r++) {
     var row = rows[r];
     var code = String(row.suumo_code || '').replace(/[^0-9]/g, '');
@@ -2676,28 +2700,80 @@ function recordDailyPv_(json) {
     var detailPv = Number(row.total_detail_pv) || 0;
     var name = String(row.name || '');
     var room = String(row.room || '');
-    var rowKey = pvDate + '|' + code;
 
-    if (existingKeys[rowKey]) {
-      var existRow = existingKeys[rowKey];
-      sheet.getRange(existRow, 5, 1, 2).setValues([[listPv, detailPv]]);
-      updated++;
-    } else {
-      toAppend.push([pvDate, code, name, room, listPv, detailPv]);
+    // 一覧PV行
+    var listKey = code + '|一覧PV';
+    if (!rowMap[listKey]) {
+      var newList = new Array(headers.length);
+      for (var nl = 0; nl < newList.length; nl++) newList[nl] = '';
+      newList[0] = name; newList[1] = room; newList[2] = code; newList[3] = '一覧PV';
+      allData.push(newList);
+      rowMap[listKey] = allData.length - 1;
     }
+    allData[rowMap[listKey]][dateCol] = listPv;
+
+    // 詳細PV行
+    var detailKey = code + '|詳細PV';
+    if (!rowMap[detailKey]) {
+      var newDetail = new Array(headers.length);
+      for (var nd = 0; nd < newDetail.length; nd++) newDetail[nd] = '';
+      newDetail[0] = name; newDetail[1] = room; newDetail[2] = code; newDetail[3] = '詳細PV';
+      allData.push(newDetail);
+      rowMap[detailKey] = allData.length - 1;
+    }
+    allData[rowMap[detailKey]][dateCol] = detailPv;
+
+    recorded++;
   }
 
-  if (toAppend.length > 0) {
-    sheet.getRange(lastRow + 1, 1, toAppend.length, PV_HISTORY_HEADERS.length).setValues(toAppend);
+  // 古い日付列を除去 & 日付列をソート
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - PV_HISTORY_RETENTION_DAYS);
+  var cutoffStr = Utilities.formatDate(cutoff, 'Asia/Tokyo', 'yyyy-MM-dd');
+
+  var keepFixed = [];
+  for (var fi = 0; fi < fixedLen; fi++) keepFixed.push(fi);
+  var dateCols = [];
+  for (var di = fixedLen; di < headers.length; di++) {
+    if (String(headers[di]) >= cutoffStr) dateCols.push({ idx: di, date: String(headers[di]) });
+  }
+  dateCols.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+
+  var colOrder = keepFixed.slice();
+  for (var si = 0; si < dateCols.length; si++) colOrder.push(dateCols[si].idx);
+
+  var finalData = [];
+  for (var wi = 0; wi < allData.length; wi++) {
+    var newRow = [];
+    for (var ci = 0; ci < colOrder.length; ci++) {
+      newRow.push(allData[wi][colOrder[ci]] !== undefined ? allData[wi][colOrder[ci]] : '');
+    }
+    finalData.push(newRow);
   }
 
-  cleanupPvHistory_(sheet);
+  // 物件行を名前+部屋番号でソート（一覧PV→詳細PVの順序を維持）
+  if (finalData.length > 1) {
+    var bodyRows = finalData.slice(1);
+    bodyRows.sort(function(a, b) {
+      var ka = String(a[0]) + '|' + String(a[1]) + '|' + (a[3] === '一覧PV' ? '0' : '1');
+      var kb = String(b[0]) + '|' + String(b[1]) + '|' + (b[3] === '一覧PV' ? '0' : '1');
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+    finalData = [finalData[0]].concat(bodyRows);
+  }
 
-  return { ok: true, recorded: toAppend.length + updated, appended: toAppend.length, updated: updated };
+  // 一括書き込み
+  sheet.clear();
+  var totalCols = finalData[0].length;
+  sheet.getRange(1, 1, finalData.length, totalCols).setValues(finalData);
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(fixedLen);
+
+  return { ok: true, recorded: recorded, totalRows: finalData.length - 1, dateCols: dateCols.length };
 }
 
 /**
- * PV履歴シートからPV_HISTORY_RETENTION_DAYS日より古い行を削除する。
+ * PV履歴シートから古い日付列を削除する（単独実行用）。
  */
 function cleanupPvHistory_(sheet) {
   if (!sheet) {
@@ -2705,25 +2781,24 @@ function cleanupPvHistory_(sheet) {
     sheet = ss.getSheetByName(PV_HISTORY_SHEET);
   }
   if (!sheet) return;
-  var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return;
+  var lastCol = sheet.getLastColumn();
+  var fixedLen = PV_HISTORY_FIXED_COLS.length;
+  if (lastCol <= fixedLen) return;
 
   var cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - PV_HISTORY_RETENTION_DAYS);
   var cutoffStr = Utilities.formatDate(cutoff, 'Asia/Tokyo', 'yyyy-MM-dd');
 
-  var dates = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-  var rowsToDelete = [];
-  for (var i = 0; i < dates.length; i++) {
-    if (String(dates[i][0]) < cutoffStr) rowsToDelete.push(i + 2);
-  }
-  for (var j = rowsToDelete.length - 1; j >= 0; j--) {
-    sheet.deleteRow(rowsToDelete[j]);
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  for (var c = lastCol; c > fixedLen; c--) {
+    if (String(headers[c - 1]) < cutoffStr) {
+      sheet.deleteColumn(c);
+    }
   }
 }
 
 /**
- * PV履歴シートから直近N日分のデータを取得し、SUUMOコード別に集計して返す。
+ * PV履歴シート（マトリクス形式）から直近N日分のデータを集計して返す。
  * @param {number} days 何日分を対象にするか（デフォルト7）
  * @returns {Object} { [suumoCode]: { avgListPv, avgDetailPv, dataPoints, totalListPv, totalDetailPv } }
  */
@@ -2733,32 +2808,56 @@ function getPvHistoryAverages_(days) {
   var sheet = ss.getSheetByName(PV_HISTORY_SHEET);
   if (!sheet) return {};
   var lastRow = sheet.getLastRow();
-  if (lastRow < 2) return {};
+  var lastCol = sheet.getLastColumn();
+  var fixedLen = PV_HISTORY_FIXED_COLS.length;
+  if (lastRow < 2 || lastCol <= fixedLen) return {};
+
+  var allData = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  var headers = allData[0];
 
   var cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days - 1);
   var cutoffStr = Utilities.formatDate(cutoff, 'Asia/Tokyo', 'yyyy-MM-dd');
 
-  var data = sheet.getRange(2, 1, lastRow - 1, PV_HISTORY_HEADERS.length).getValues();
+  // 対象日付列を特定
+  var targetCols = [];
+  for (var h = fixedLen; h < headers.length; h++) {
+    if (String(headers[h]) > cutoffStr) targetCols.push(h);
+  }
+  if (targetCols.length === 0) return {};
+
+  // SUUMOコード別に集計
   var byCode = {};
-  for (var i = 0; i < data.length; i++) {
-    var dateStr = String(data[i][0]);
-    if (dateStr <= cutoffStr) continue;
-    var code = String(data[i][1]);
+  for (var ri = 1; ri < allData.length; ri++) {
+    var code = String(allData[ri][2]);
+    var type = String(allData[ri][3]);
     if (!code) continue;
-    if (!byCode[code]) byCode[code] = { sumList: 0, sumDetail: 0, count: 0 };
-    byCode[code].sumList += (Number(data[i][4]) || 0);
-    byCode[code].sumDetail += (Number(data[i][5]) || 0);
-    byCode[code].count++;
+
+    if (!byCode[code]) byCode[code] = { sumList: 0, sumDetail: 0, countList: 0, countDetail: 0 };
+
+    for (var ti = 0; ti < targetCols.length; ti++) {
+      var val = allData[ri][targetCols[ti]];
+      if (val === '' || val === null || val === undefined) continue;
+      var num = Number(val);
+      if (isNaN(num)) continue;
+      if (type === '一覧PV') {
+        byCode[code].sumList += num;
+        byCode[code].countList++;
+      } else if (type === '詳細PV') {
+        byCode[code].sumDetail += num;
+        byCode[code].countDetail++;
+      }
+    }
   }
 
   var result = {};
   for (var c in byCode) {
     var d = byCode[c];
+    var count = Math.max(d.countList, d.countDetail);
     result[c] = {
-      avgListPv: d.count > 0 ? d.sumList / d.count : 0,
-      avgDetailPv: d.count > 0 ? d.sumDetail / d.count : 0,
-      dataPoints: d.count,
+      avgListPv: d.countList > 0 ? d.sumList / d.countList : 0,
+      avgDetailPv: d.countDetail > 0 ? d.sumDetail / d.countDetail : 0,
+      dataPoints: count,
       totalListPv: d.sumList,
       totalDetailPv: d.sumDetail
     };
