@@ -405,16 +405,24 @@ function hideOldListingColumns() {
 
 /** 設定UI用: 現在の全体設定を返す(google.script.run.getSuumoGlobalSettings) */
 function getSuumoGlobalSettings() {
-  var v = PropertiesService.getScriptProperties().getProperty('SUUMO_RANK_CAP');
-  return { rankCap: v ? Number(v) : 0 }; // 0 = 無制限(順位ゲート無効)
+  var props = PropertiesService.getScriptProperties();
+  var cap = props.getProperty('SUUMO_RANK_CAP');
+  var dw = props.getProperty('SUUMO_DAYS_WITHIN');
+  return {
+    rankCap: cap ? Number(cap) : 0,
+    daysWithin: dw !== null && dw !== '' ? Number(dw) : ''
+  };
 }
 
 /** 設定UI用: 全体設定を保存(google.script.run.saveSuumoGlobalSettings) */
 function saveSuumoGlobalSettings(data) {
+  var props = PropertiesService.getScriptProperties();
   var cap = (data && Number(data.rankCap)) || 0;
   if (!(cap > 0)) cap = 0;
-  PropertiesService.getScriptProperties().setProperty('SUUMO_RANK_CAP', String(cap));
-  return { success: true, rankCap: cap };
+  props.setProperty('SUUMO_RANK_CAP', String(cap));
+  var dw = (data && data.daysWithin !== undefined && data.daysWithin !== '') ? Number(data.daysWithin) : '';
+  props.setProperty('SUUMO_DAYS_WITHIN', String(dw));
+  return { success: true, rankCap: cap, daysWithin: dw };
 }
 
 /** POST: get_suumo_settings — 拡張が順位上限を読む */
@@ -580,7 +588,6 @@ function getPatrolCriteria() {
       walk: String(data[i][11] || ''),
       structuresJson: String(data[i][12] || '[]'),
       equipmentJson: String(data[i][13] || '[]'),
-      daysWithin: data[i][14] !== undefined && data[i][14] !== '' ? String(data[i][14]) : '',
       rowIndex: i + 2
     });
   }
@@ -630,13 +637,11 @@ function savePatrolCriteria(data) {
         var newEquipmentJson = data.equipment !== undefined
           ? (typeof data.equipment === 'string' ? data.equipment : JSON.stringify(data.equipment || []))
           : existing.equipmentJson;
-        var newDaysWithin = data.daysWithin !== undefined ? data.daysWithin : existing.daysWithin;
-
         sheet.getRange(row, 2, 1, 7).setValues([[
           newName, newAreaJson, newRentMin, newRentMax, newLayoutsJson, newAreaMin, newBuildingAge
         ]]);
-        sheet.getRange(row, 12, 1, 4).setValues([[
-          newWalk, newStructuresJson, newEquipmentJson, newDaysWithin
+        sheet.getRange(row, 12, 1, 3).setValues([[
+          newWalk, newStructuresJson, newEquipmentJson
         ]]);
         if (data.enabled !== undefined) {
           sheet.getRange(row, 9).setValue(data.enabled);
@@ -667,7 +672,7 @@ function savePatrolCriteria(data) {
       data.walk || '',
       structuresJson,
       equipmentJson,
-      data.daysWithin !== undefined ? data.daysWithin : ''
+      ''
     ]);
     return { success: true, id: newId, action: 'created' };
   }
