@@ -421,7 +421,18 @@ input[type="range"]::-webkit-slider-thumb {
         </div>
       </div>
 
-      <!-- 登録日数フィルタは Chrome 拡張のダッシュボード側で一元管理するため、ここから削除 -->
+      <!-- 登録日数（新着フィルタ） -->
+      <div class="section-title">登録日数フィルタ</div>
+      <div class="field">
+        <div class="unspecified-row">
+          <label><input type="checkbox" id="daysWithinUnspecified" checked onchange="toggleDaysWithinInput()"> 指定しない（全期間）</label>
+        </div>
+        <div id="daysWithinContainer" style="display:none;">
+          <input type="number" id="editDaysWithin" placeholder="例: 7" min="1" max="90" step="1" style="width:120px;display:inline-block;">
+          <span style="font-size:13px;">日以内</span>
+        </div>
+        <div class="hint">各サービスで検索する際の新着フィルタ（登録日から○日以内の物件のみ表示）</div>
+      </div>
 
       <!-- 建物構造 -->
       <div class="section-title">建物構造</div>
@@ -695,6 +706,12 @@ function toggleAgeInput() {
   if (unspec) document.getElementById('editBuildingAge').value = '';
 }
 
+function toggleDaysWithinInput() {
+  var unspec = document.getElementById('daysWithinUnspecified').checked;
+  document.getElementById('daysWithinContainer').style.display = unspec ? 'none' : 'block';
+  if (unspec) document.getElementById('editDaysWithin').value = '';
+}
+
 // ══════════════════════════════════════════════════════════
 //  条件一覧の読み込み
 // ══════════════════════════════════════════════════════════
@@ -779,6 +796,7 @@ function renderCriteriaList() {
     if (c.walk) primary.push('徒歩' + c.walk + '分');
     if (c.areaMin) primary.push(c.areaMin + 'm²以上');
     if (c.buildingAge) primary.push('築' + c.buildingAge + '年以内');
+    if (c.daysWithin) primary.push(c.daysWithin + '日以内');
 
     var lastPatrol = c.lastPatrolAt ? '最終巡回: ' + c.lastPatrolAt : '未巡回';
 
@@ -848,9 +866,12 @@ function showEditForm(criteriaId) {
   document.getElementById('walkUnspecified').checked = true;
   document.getElementById('areaUnspecified').checked = true;
   document.getElementById('ageUnspecified').checked = true;
+  document.getElementById('daysWithinUnspecified').checked = true;
+  document.getElementById('editDaysWithin').value = '';
   toggleWalkSlider();
   toggleAreaInput();
   toggleAgeInput();
+  toggleDaysWithinInput();
   updateWalkDisplay();
   uncheckAll('cityCheckboxes');
   uncheckAll('layoutCheckboxes');
@@ -890,7 +911,12 @@ function showEditForm(criteriaId) {
         toggleAgeInput();
       }
 
-      // 登録日数フィルタは Chrome 拡張のダッシュボード側で一元管理 (旧フィールドは廃止)
+      // 登録日数フィルタ
+      if (c.daysWithin !== undefined && c.daysWithin !== '') {
+        document.getElementById('daysWithinUnspecified').checked = false;
+        document.getElementById('editDaysWithin').value = c.daysWithin;
+        toggleDaysWithinInput();
+      }
 
       // エリア
       try {
@@ -1012,7 +1038,8 @@ function saveCondition() {
     areaMin: document.getElementById('editAreaMin').value || '',
     buildingAge: document.getElementById('editBuildingAge').value || '',
     structures: getCheckedValues('structureCheckboxes'),
-    equipment: getCheckedEquipment()
+    equipment: getCheckedEquipment(),
+    daysWithin: document.getElementById('daysWithinUnspecified').checked ? '' : (document.getElementById('editDaysWithin').value || '')
   };
 
   document.getElementById('saveBtn').disabled = true;
@@ -1258,6 +1285,7 @@ function doOpenSearchPage(criteriaId, service) {
     structures: structures,
     equipment: equipment,
     btMode: (Array.isArray(equipmentArr) && equipmentArr.indexOf('バス・トイレ別') >= 0) ? 'skip' : '',
+    daysWithin: (c.daysWithin !== undefined && c.daysWithin !== '') ? parseInt(c.daysWithin, 10) : null,
     selectedTowns: areaObj.selectedTowns || {}
   };
 
