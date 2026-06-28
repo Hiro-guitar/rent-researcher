@@ -28,6 +28,13 @@
   const isNaviFrame = (window.name === 'navi');
   const isMainFrame = (window.name === 'main');
 
+  function withTimeout(promise, ms, label) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`${label}: ${ms}msタイムアウト`)), ms))
+    ]);
+  }
+
   // ── ネット掲載数 自動キャプチャ ──
   // ForRent管理画面 main_r.action のトップページ (TOP1R0000.action) には
   // 「ネット掲載 N 指示 / 50 枠 残り... 枠」がリアルタイム表示されている。
@@ -848,7 +855,7 @@
     if (data.images && data.images.length > 0 && imageGenres && Object.keys(imageGenres).length > 0) {
       try {
         console.log('[SUUMO自動入稿] 画像アップロード開始:', data.images.length, '枚, ジャンル:', Object.keys(imageGenres).length, '件');
-        await uploadImages(data.images, imageGenres);
+        await withTimeout(uploadImages(data.images, imageGenres), 60000, '画像アップロード');
         document.body.setAttribute('data-suumo-img-result', 'success');
         console.log('[SUUMO自動入稿] 画像アップロード完了');
       } catch (imgErr) {
@@ -1177,7 +1184,7 @@
     const filledCount = Math.min(dedupedAccess.length, maxTraffic);
     if (filledCount > 0 && filledCount < maxTraffic) {
       try {
-        await autoFillEmptyStationSlots(filledCount);
+        await withTimeout(autoFillEmptyStationSlots(filledCount), 15000, '駅補完');
       } catch (err) {
         console.warn('[SUUMO自動入稿] 駅補完エラー:', err && err.message);
       }
@@ -1639,7 +1646,7 @@
     // 画像URLは各ソースサイトのドメインにあるため、ForRentページから直接fetchすると
     // CORS/認証エラーになる。background service worker経由でfetchしてbase64で受け取る。
     try {
-      const dataUrl = await new Promise((resolve, reject) => {
+      const bgPromise = new Promise((resolve, reject) => {
         chrome.runtime.sendMessage(
           { type: 'FETCH_IMAGE_AS_BASE64', url },
           (response) => {
@@ -1653,11 +1660,12 @@
           }
         );
       });
+      const dataUrl = await withTimeout(bgPromise, 15000, '画像fetch');
       return base64ToFile(dataUrl, filename);
     } catch (bgErr) {
       console.warn('[SUUMO自動入稿] background経由画像取得失敗、直接fetchを試行:', bgErr.message);
       // フォールバック: 直接fetch（公開URLの場合は成功する可能性あり）
-      const response = await fetch(url);
+      const response = await withTimeout(fetch(url), 10000, '画像直接fetch');
       const blob = await response.blob();
       return new File([blob], filename, { type: blob.type });
     }
