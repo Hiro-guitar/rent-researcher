@@ -982,7 +982,7 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
   const address = p.address || ((p.pref || '') + (p.addr1 || '') + (p.addr2 || ''));
   let stationInfo = p.station_info || '';
   if (!stationInfo && p.access && p.access.length > 0) {
-    stationInfo = (p.access[0].line || '') + ' ' + (p.access[0].station || '') + '駅 徒歩' + (p.access[0].walk || '') + '分';
+    stationInfo = (p.access[0].line || '') + ' ' + (p.access[0].station || '') + '駅' + (p.access[0].walk ? ' 徒歩' + p.access[0].walk + '分' : '');
   }
   const otherStations = (p.other_stations && p.other_stations.length > 0) ? p.other_stations : [];
   const approveUrl = (gasUrl || '') + '?action=suumo_approve&key=' + encodeURIComponent(propertyKey || '');

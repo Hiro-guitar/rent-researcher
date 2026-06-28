@@ -1152,7 +1152,7 @@
         setInputByIdWithEvents('pkgEkiCd' + num, code);
       }
 
-      const walkValue = (t.walk || '').replace(/[^\d]/g, '');
+      const walkValue = String(t.walk || '').replace(/[^\d]/g, '');
       setInputById('tohofun' + num, walkValue);
 
       const tohoRadio = document.getElementById('toho' + num) || document.getElementById('toho');
