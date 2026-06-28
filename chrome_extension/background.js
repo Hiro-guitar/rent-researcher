@@ -375,10 +375,10 @@ globalThis.__addNotifiedDedupKey = (customerName, prop, source) => {
 };
 
 // バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
-let __btMode = 'alert';
+let __btMode = 'none';
 chrome.storage.local.get(['btMode'], (d) => { if (d.btMode) __btMode = d.btMode; });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.btMode) __btMode = changes.btMode.newValue || 'alert';
+  if (area === 'local' && changes.btMode) __btMode = changes.btMode.newValue || 'none';
 });
 
 // REINS条件セット関数（Vue $data注入）
@@ -1486,7 +1486,7 @@ function getFilterRejectReason(prop, customer) {
 
   // バス・トイレ別スキップモード（顧客ごとの btMode、またはグローバル設定で 'skip' の場合、設備欄に無ければ除外）
   {
-    const _customerBtMode = (customer.btMode || __btMode || 'alert').toLowerCase();
+    const _customerBtMode = (customer.btMode || __btMode || 'none').toLowerCase();
     if (_customerBtMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
       const fac = prop.facilities || '';
       if (!fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
@@ -3152,7 +3152,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           const lineNameMap = await loadLineNameMap();
           const reinsCodeMap = await loadReinsCodeMap();
-          const btModeFresh = await new Promise(r => chrome.storage.local.get(['btMode'], d => r(d.btMode || 'alert')));
+          const btModeFresh = await new Promise(r => chrome.storage.local.get(['btMode'], d => r(d.btMode || 'none')));
           let batchIdx = 0;
           let lastError = null;
 
@@ -4043,7 +4043,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   await waitForDomReady(tabId, '.p-textbox-input', { timeout: 15000 });
 
   // SW再起動直後でもbtModeを確実に拾うためストレージから直読み
-  const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'alert')));
+  const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'none')));
   __btMode = __btModeFresh;
   const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '' }, lineNameMap, reinsCodeMap, (customer.btMode || __btModeFresh)];
   // __reinsCriteriaFunc は reins-criteria-func.js で定義（グローバル）
@@ -6734,8 +6734,8 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
   // バス・トイレ別（REINS: バス・トイレ別, itandi: バス・トイレ別, いえらぶ: バストイレ別）
   // btMode='skip' の場合はフィルタ側で除外済みなのでアラート不要
   {
-    const _cBtMode = (customer?.btMode || __btMode || 'alert').toLowerCase();
-    if (_cBtMode !== 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
+    const _cBtMode = (customer?.btMode || __btMode || 'none').toLowerCase();
+    if (_cBtMode === 'alert' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
       warnings.push('⚠️ バス・トイレ別かどうか確認してください');
     }
   }
