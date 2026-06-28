@@ -169,7 +169,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ── 検索メニュー ── */
 .search-menu {
-  position: absolute; z-index: 20;
+  position: fixed; z-index: 20;
   background: #fff; border: 1px solid #ccc; border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 4px 0;
   min-width: 120px;
@@ -1216,17 +1216,16 @@ function openSearchMenu(btn, criteriaId) {
     menu.appendChild(b);
   }
 
-  btn.parentNode.style.position = 'relative';
-  menu.style.right = '0';
-  btn.parentNode.appendChild(menu);
+  document.body.appendChild(menu);
 
   var btnRect = btn.getBoundingClientRect();
   var menuH = menu.offsetHeight;
   if (btnRect.bottom + menuH + 8 > window.innerHeight) {
-    menu.style.bottom = btn.parentNode.offsetHeight - btn.offsetTop + 2 + 'px';
+    menu.style.bottom = (window.innerHeight - btnRect.top + 2) + 'px';
   } else {
-    menu.style.top = btn.offsetTop + btn.offsetHeight + 2 + 'px';
+    menu.style.top = (btnRect.bottom + 2) + 'px';
   }
+  menu.style.right = (window.innerWidth - btnRect.right) + 'px';
   _activeSearchMenu = menu;
 
   setTimeout(function() {
