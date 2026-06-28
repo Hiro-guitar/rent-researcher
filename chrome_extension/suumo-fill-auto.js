@@ -919,7 +919,8 @@
     }
     setInputByName('${bukkenInputForm.mototsukeTantoNm}', '元付担当者');
     if (ownerPhone) {
-      setInputByName('${bukkenInputForm.mototsukeTelNo}', ownerPhone);
+      const phoneClean = String(ownerPhone).replace(/[-‐-―−－ー]/g, '');
+      setInputByName('${bukkenInputForm.mototsukeTelNo}', phoneClean);
     }
     const dateInput = document.querySelector('input[name="${bukkenInputForm.mototsukeKakuninDate}"]');
     if (dateInput) {
