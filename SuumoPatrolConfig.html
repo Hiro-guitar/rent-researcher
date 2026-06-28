@@ -1217,9 +1217,16 @@ function openSearchMenu(btn, criteriaId) {
   }
 
   btn.parentNode.style.position = 'relative';
-  menu.style.top = btn.offsetTop + btn.offsetHeight + 2 + 'px';
   menu.style.right = '0';
   btn.parentNode.appendChild(menu);
+
+  var btnRect = btn.getBoundingClientRect();
+  var menuH = menu.offsetHeight;
+  if (btnRect.bottom + menuH + 8 > window.innerHeight) {
+    menu.style.bottom = btn.parentNode.offsetHeight - btn.offsetTop + 2 + 'px';
+  } else {
+    menu.style.top = btn.offsetTop + btn.offsetHeight + 2 + 'px';
+  }
   _activeSearchMenu = menu;
 
   setTimeout(function() {
