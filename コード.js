@@ -2261,7 +2261,7 @@ function handleGetCriteria(e) {
 
     // AE列(30, index 30): バストイレ別の処理モード ('alert' or 'skip', 空=未設定→グローバル設定にフォールバック)
     var btMode = String(row[30] || '').trim().toLowerCase();
-    if (btMode && btMode !== 'skip') btMode = 'alert';
+    if (btMode && btMode !== 'skip' && btMode !== 'none') btMode = 'alert';
     // 空文字のまま返す → Chrome拡張側でグローバル設定にフォールバック
 
     criteria.push({
@@ -3028,7 +3028,7 @@ function loadCustomerCriteriaByName(customerName) {
     }
 
     var btMode = String(latestRow[30] || '').trim().toLowerCase();
-    if (btMode && btMode !== 'skip') btMode = 'alert';
+    if (btMode && btMode !== 'skip' && btMode !== 'none') btMode = 'alert';
 
     // 閲覧統計を集計
     var viewCount = 0;
@@ -4118,7 +4118,7 @@ function getCustomerDetail(customerName) {
     }
 
     var btMode = String(data[i][30] || '').trim().toLowerCase();
-    if (btMode && btMode !== 'skip') btMode = 'alert';
+    if (btMode && btMode !== 'skip' && btMode !== 'none') btMode = 'alert';
 
     info = {
       name: name,
