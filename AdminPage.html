@@ -810,11 +810,12 @@ input[type="range"]::-webkit-slider-thumb {
       <div style="display:flex;align-items:center;gap:10px;">
         <label style="font-size:13px;font-weight:600;color:#555;white-space:nowrap;">バストイレ別:</label>
         <select id="btModeSelect" style="padding:8px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;flex:1;">
+          <option value="none">通知無し（そのまま送る）</option>
           <option value="alert">アラートのみ（物件は送る）</option>
           <option value="skip">選別する（BT別なしは除外）</option>
         </select>
       </div>
-      <div style="font-size:11px;color:#999;margin-top:6px;">「アラートのみ」：バストイレ別がなくても物件を送り、⚠️警告を表示します。「選別する」：バストイレ別がない物件はそもそも送りません。</div>
+      <div style="font-size:11px;color:#999;margin-top:6px;">「通知無し」：バストイレ別の有無に関わらずそのまま送ります。「アラートのみ」：バストイレ別がなくても物件を送り、⚠️警告を表示します。「選別する」：バストイレ別がない物件はそもそも送りません。</div>
     </div>
   </div>
 
@@ -1317,7 +1318,7 @@ function populateForm(data) {
 
   // バストイレ別モード
   var btSel = document.getElementById('btModeSelect');
-  if (btSel) btSel.value = (data.btMode === 'skip') ? 'skip' : 'alert';
+  if (btSel) btSel.value = (data.btMode === 'skip') ? 'skip' : (data.btMode === 'alert') ? 'alert' : 'none';
   updateBtModeVisibility();
 }
 
@@ -2278,7 +2279,7 @@ function submitAdminCriteria() {
   criteria.otherConditions = document.getElementById('otherConditionsInput').value.trim();
 
   // バストイレ別モード
-  criteria.btMode = document.getElementById('btModeSelect').value || 'alert';
+  criteria.btMode = document.getElementById('btModeSelect').value || 'none';
 
   // 入居時期
   criteria.moveInDate = getMoveInValue();

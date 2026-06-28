@@ -823,7 +823,7 @@ function renderDetail(data) {
     ['構造', data.structures],
     ['設備', data.equipment],
     ['備考', data.notes],
-    ['BT別', data.btMode === 'skip' ? '選別（除外）' : 'アラートのみ']
+    ['BT別', data.btMode === 'skip' ? '選別（除外）' : data.btMode === 'alert' ? 'アラートのみ' : '通知無し']
   ];
   for (var i = 0; i < rows.length; i++) {
     if (!rows[i][1]) continue;
