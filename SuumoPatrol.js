@@ -754,7 +754,7 @@ function addSuumoCandidates(json) {
     var nearestStation = '';
     if (p.access && p.access.length > 0) {
       var a = p.access[0];
-      nearestStation = (a.line || '') + ' ' + (a.station || '') + ' 徒歩' + (a.walk || '') + '分';
+      nearestStation = (a.line || '') + ' ' + (a.station || '') + (a.walk ? ' 徒歩' + a.walk + '分' : '');
     }
 
     var row = [
@@ -1946,7 +1946,7 @@ function sendSuumoDiscordNotification(newProperties, criteriaName, threadId) {
     // 交通: itandi/essquare等はp.station_info文字列、SUUMOはp.access配列
     var stationInfo = p.station_info || '';
     if (!stationInfo && p.access && p.access.length > 0) {
-      stationInfo = (p.access[0].line || '') + ' ' + (p.access[0].station || '') + '駅 徒歩' + (p.access[0].walk || '') + '分';
+      stationInfo = (p.access[0].line || '') + ' ' + (p.access[0].station || '') + '駅' + (p.access[0].walk ? ' 徒歩' + p.access[0].walk + '分' : '');
     }
     var otherStations = (p.other_stations && p.other_stations.length > 0) ? p.other_stations : [];
 
