@@ -423,6 +423,24 @@
       });
       container.appendChild(noneBtn);
 
+      const refreshBtn = document.createElement('button');
+      refreshBtn.className = 'dp-btn';
+      refreshBtn.textContent = '更新';
+      refreshBtn.style.cssText = 'padding:2px 6px;font-size:10px;';
+      refreshBtn.addEventListener('click', () => {
+        refreshBtn.textContent = '取得中...';
+        refreshBtn.disabled = true;
+        chrome.runtime.sendMessage({ type: 'REFRESH_CUSTOMER_CRITERIA' }, (res) => {
+          if (res && res.ok) {
+            loadCustomerCheckboxes();
+          } else {
+            refreshBtn.textContent = '失敗';
+            setTimeout(() => { refreshBtn.textContent = '更新'; refreshBtn.disabled = false; }, 2000);
+          }
+        });
+      });
+      container.appendChild(refreshBtn);
+
       // 本人の条件と「おすすめ条件（裏検索条件）」を、それぞれ独立して選べるようにする。
       // 除外判定はエントリ固有キー（criteriaKey）で行う。
       for (const c of criteria) {

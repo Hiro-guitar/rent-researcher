@@ -2403,6 +2403,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // ── 顧客フィルタ更新: GASから最新の条件一覧を再取得 ──
+  if (msg.type === 'REFRESH_CUSTOMER_CRITERIA') {
+    (async () => {
+      try {
+        const res = await fetchCriteria();
+        const fresh = (res && res.criteria) || [];
+        if (fresh.length > 0) {
+          chrome.storage.local.set({ customerCriteria: fresh, lastCriteriaFetch: Date.now() });
+        }
+        sendResponse({ ok: true, count: fresh.length });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   // ── 検索ページを開く（AdminPage → content script → ここ） ──
   // ── 手動送信パネル: 顧客一覧＋このタブで検索中の顧客を返す ──
   if (msg.type === 'GET_MANUAL_SEND_CONTEXT') {
