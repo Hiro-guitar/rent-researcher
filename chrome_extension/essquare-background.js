@@ -1856,6 +1856,18 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         }
       }
 
+      // ── 一覧段階フィルタ: 30日以内に同物件を通知済みなら詳細遷移せずスキップ ──
+      if (!isForced && !isTestUser && !globalThis._suumoPatrolMode &&
+          typeof globalThis.__hasNotifiedDedupKey === 'function' &&
+          globalThis.__hasNotifiedDedupKey(customer.name, prop)) {
+        const info = (typeof globalThis.__getNotifiedDedupInfo === 'function')
+          ? (globalThis.__getNotifiedDedupInfo(customer.name, prop) || {})
+          : {};
+        const sourceTag = info.source ? ` (元: ${info.source})` : '';
+        await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ 一覧段階スキップ: ${prop.building_name} ${prop.room_number || ''} - 30日以内に同物件通知済${sourceTag}${globalThis.__formatPropSkipUrl(prop)}` });
+        continue;
+      }
+
       // 詳細取得: 検索結果ページ上の物件リンクをクリック
       try {
         // 検索結果ページで該当物件のリンクをクリック
@@ -2021,20 +2033,6 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
           if (earlyRejectReason) {
             await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${earlyRejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
             // ブラウザバックで検索結果ページに戻る
-            await _goBackToEssquareSearchResults(tabId);
-            continue;
-          }
-
-          // 通知済み重複(30日)の先行チェック - 顧客向け検索のみ
-          // ES-Squareの画像取得は canvas base64 + catbox アップロードで超重いため効果大
-          if (!globalThis._suumoPatrolMode &&
-              typeof globalThis.__hasNotifiedDedupKey === 'function' &&
-              globalThis.__hasNotifiedDedupKey(customer.name, prop)) {
-            const info = (typeof globalThis.__getNotifiedDedupInfo === 'function')
-              ? (globalThis.__getNotifiedDedupInfo(customer.name, prop) || {})
-              : {};
-            const sourceTag = info.source ? ` (元: ${info.source})` : '';
-            await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - 30日以内に同物件通知済${sourceTag}(画像取得前に判定)${globalThis.__formatPropSkipUrl(prop)}` });
             await _goBackToEssquareSearchResults(tabId);
             continue;
           }

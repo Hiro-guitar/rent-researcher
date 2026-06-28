@@ -982,6 +982,18 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
+      // ── 一覧段階フィルタ: 30日以内に同物件を通知済みなら詳細遷移せずスキップ ──
+      if (!isForced && !isTestUser && !globalThis._suumoPatrolMode &&
+          typeof globalThis.__hasNotifiedDedupKey === 'function' &&
+          globalThis.__hasNotifiedDedupKey(customer.name, prop)) {
+        const info = (typeof globalThis.__getNotifiedDedupInfo === 'function')
+          ? (globalThis.__getNotifiedDedupInfo(customer.name, prop) || {})
+          : {};
+        const sourceTag = info.source ? ` (元: ${info.source})` : '';
+        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ 一覧段階スキップ: ${prop.building_name} ${prop.room_number || ''} - 30日以内に同物件通知済${sourceTag}${globalThis.__formatPropSkipUrl(prop)}` });
+        continue;
+      }
+
       // ── SUUMO巡回: 既知物件・競合/順位スキップ済みの早期スキップ（詳細ページ遷移前） ──
       if (globalThis._suumoPatrolMode && !isForced) {
         const _normKey = globalThis._normSuumoKey;
@@ -1091,20 +1103,6 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
         skippedMap[prop.room_id] = { reason: rejectReason, ts: Date.now() };
         skippedMapDirty = true;
-        continue;
-      }
-
-      // 通知済み重複(30日)の先行チェック - 顧客向け検索のみ
-      // notifiedDedupMap で過去30日以内に通知済みの物件は GAS送信・Discord通知を省略。
-      // 注: スキップ済みマップには記録しない (次回検索時に再評価したいケースがあるため)
-      if (!globalThis._suumoPatrolMode &&
-          typeof globalThis.__hasNotifiedDedupKey === 'function' &&
-          globalThis.__hasNotifiedDedupKey(customer.name, prop)) {
-        const info = (typeof globalThis.__getNotifiedDedupInfo === 'function')
-          ? (globalThis.__getNotifiedDedupInfo(customer.name, prop) || {})
-          : {};
-        const sourceTag = info.source ? ` (元: ${info.source})` : '';
-        await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - 30日以内に同物件通知済${sourceTag}(画像取得前に判定)${globalThis.__formatPropSkipUrl(prop)}` });
         continue;
       }
 
