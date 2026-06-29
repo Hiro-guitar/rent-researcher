@@ -747,26 +747,45 @@ function _buildVacancyUnavailableMessages_(userId, displayName) {
       text: 'お待たせいたしました。\n「' + displayName + '」について確認いたしましたが、現在ご案内が難しい状況でした。\n\n引き続き、ご希望の条件に合うお部屋が見つかり次第すぐにご案内いたします。'
     }];
   }
-  // 未登録: 確認結果 + 類似物件の条件登録誘導Flex
+  // 未登録: 確認結果 + 類似物件の条件登録誘導Flex（リッチスタイル）
   return [{
     type: 'flex',
     altText: '「' + displayName + '」の確認結果をお知らせします',
     contents: {
       type: 'bubble',
       size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#8b5e3c',
+        paddingAll: 'xl',
+        paddingTop: 'xxl',
+        paddingBottom: 'xl',
+        spacing: 'sm',
+        contents: [
+          { type: 'text', text: '確認結果のお知らせ', weight: 'bold', size: 'xl', color: '#ffffff', align: 'center', wrap: true },
+          { type: 'text', text: 'お待たせいたしました', size: 'xs', color: '#e8d5c4', align: 'center', margin: 'sm' }
+        ]
+      },
       body: {
         type: 'box',
         layout: 'vertical',
-        spacing: 'md',
+        spacing: 'lg',
         paddingAll: 'xl',
+        paddingTop: 'lg',
         contents: [
-          { type: 'text', text: 'お待たせいたしました。', size: 'sm', color: '#666666' },
-          { type: 'text', text: displayName, size: 'md', color: '#1a2538', weight: 'bold', wrap: true, margin: 'sm' },
-          { type: 'text', text: '確認いたしましたが、現在ご案内が難しい状況でした。', size: 'sm', color: '#666666', wrap: true, margin: 'sm' },
-          { type: 'separator', margin: 'xl', color: '#eeeeee' },
           {
-            type: 'box', layout: 'vertical', backgroundColor: '#f5f9ee', cornerRadius: 'md',
-            paddingAll: 'lg', margin: 'lg', spacing: 'sm',
+            type: 'box', layout: 'vertical', backgroundColor: '#fdf6f0', cornerRadius: 'lg',
+            paddingAll: 'lg', spacing: 'sm', borderColor: '#e8d5c4', borderWidth: '1px',
+            contents: [
+              { type: 'text', text: displayName, size: 'md', color: '#1a2538', weight: 'bold', wrap: true },
+              { type: 'text', text: '確認いたしましたが、現在ご案内が難しい状況でした。', size: 'sm', color: '#666666', wrap: true, margin: 'md' }
+            ]
+          },
+          { type: 'separator', color: '#e8e8e8', margin: 'sm' },
+          {
+            type: 'box', layout: 'vertical', backgroundColor: '#f5f9ee', cornerRadius: 'lg',
+            paddingAll: 'lg', spacing: 'sm',
             contents: [
               { type: 'text', text: '似た条件で\nお部屋を探しませんか？', size: 'lg', color: '#3d6909', weight: 'bold', wrap: true, align: 'center' },
               { type: 'text', text: 'ご希望に合う物件が見つかり次第\nすぐにお知らせします', size: 'xs', color: '#5a7a3f', wrap: true, align: 'center', margin: 'sm' }
