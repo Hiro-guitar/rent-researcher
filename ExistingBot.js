@@ -527,25 +527,32 @@ function createPropertyBubble(p) {
   var _jstHour = (typeof getJstHour === 'function') ? getJstHour(_now) : _now.getUTCHours() + 9;
   var _isOpen = (_jstHour >= 10 && _jstHour < 20);
 
-  // ヘッダーの色とテキスト
-  var _headerBg, _headerTitle, _headerSub;
-  if (p.status === '募集中') {
-    _headerBg = '#1a7f37';
-    _headerTitle = '募集中の物件です';
-    _headerSub = 'お問い合わせありがとうございます';
-  } else {
-    _headerBg = '#2563a8';
-    _headerTitle = _isOpen ? 'スタッフが確認中です' : 'お問い合わせを受け付けました';
+  // ヘッダー: 共通で「お問い合わせありがとうございます」
+  var _headerBg = p.status === '募集中' ? '#1a7f37' : '#2563a8';
+
+  // ステータスメッセージ（物件情報の下に表示）
+  var _statusBox = null;
+  if (p.status !== '募集中') {
+    var _statusLine = _isOpen ? 'スタッフが確認中です' : 'お問い合わせを受け付けました';
     var _isNeedsCheck = (String(p.status).trim() === '要確認');
+    var _etaMsg;
     if (_isNeedsCheck) {
-      _headerSub = _isOpen
+      _etaMsg = _isOpen
         ? '担当者が確認のうえ、分かり次第ご連絡いたします'
         : '営業時間外のため、翌営業日に担当者よりご連絡いたします';
     } else {
-      _headerSub = _isOpen
+      _etaMsg = _isOpen
         ? '数分以内にスタッフよりご返信いたします'
         : '営業時間外のため、翌営業日の朝にスタッフよりご返信いたします';
     }
+    _statusBox = {
+      type: 'box', layout: 'vertical', backgroundColor: '#eef4fb', cornerRadius: 'lg',
+      paddingAll: 'lg', spacing: 'xs',
+      contents: [
+        { type: 'text', text: _statusLine, size: 'sm', weight: 'bold', color: '#2563a8', wrap: true },
+        { type: 'text', text: _etaMsg, size: 'xs', color: '#5a7fa8', wrap: true }
+      ]
+    };
   }
 
   const bodyContents = [
@@ -583,6 +590,7 @@ function createPropertyBubble(p) {
       ]
     }
   ];
+  if (_statusBox) bodyContents.push(_statusBox);
 
   const footerButtons = [];
   if (p.url) {
@@ -616,8 +624,7 @@ function createPropertyBubble(p) {
       paddingBottom: 'xl',
       spacing: 'sm',
       contents: [
-        { type: 'text', text: _headerTitle, weight: 'bold', size: 'xl', color: '#ffffff', align: 'center', wrap: true },
-        { type: 'text', text: _headerSub, size: 'xs', color: '#ffffffcc', align: 'center', wrap: true, margin: 'sm' }
+        { type: 'text', text: 'お問い合わせありがとうございます', weight: 'bold', size: 'lg', color: '#ffffff', align: 'center', wrap: true }
       ]
     },
     body: { type: 'box', layout: 'vertical', spacing: 'lg', paddingAll: 'xl', paddingTop: 'lg', contents: bodyContents }
