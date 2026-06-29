@@ -2,7 +2,7 @@
  * bulk-competitor-panel.js
  * REINS / itandi / いえらぶ の検索結果ページに「SUUMO競合チェック」ボタンを表示。
  * ボタン押下で、ページ上の全物件の SUUMO 競合数を一括取得し、
- * 各物件の行に直接バッジを注入する。
+ * 各物件の行に直接バッジを注入する。広告不可の物件はスキップ。
  */
 (() => {
   'use strict';
@@ -19,96 +19,104 @@
   // ── フローティングボタン ──
   const btn = document.createElement('button');
   btn.id = 'bulk-comp-btn';
-  btn.textContent = 'SUUMO競合チェック';
+  btn.textContent = '競合チェック';
   Object.assign(btn.style, {
     position: 'fixed', bottom: '80px', right: '20px', zIndex: '99999',
-    padding: '10px 18px', fontSize: '13px', fontWeight: 'bold',
-    color: '#fff', backgroundColor: '#e67e22', border: 'none', borderRadius: '8px',
-    cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+    padding: '8px 16px', fontSize: '12px', fontWeight: 'bold',
+    color: '#fff', backgroundColor: '#e67e22', border: 'none', borderRadius: '6px',
+    cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
   });
   document.body.appendChild(btn);
 
-  // ── バッジ注入 ──
-  function createBadge(text, bgColor) {
-    const s = document.createElement('span');
-    s.textContent = text;
-    s.style.cssText = 'display:inline-block;padding:1px 5px;border-radius:3px;font-weight:bold;color:#fff;font-size:10px;margin-right:2px;background:' + bgColor + ';';
-    return s;
-  }
+  // ── コンパクトバッジ ──
+  const BC = 'bc-badge';
 
-  function badgeColor(n) {
-    return n === 0 ? '#27ae60' : n <= 2 ? '#f39c12' : '#e74c3c';
-  }
-
-  function injectBadge(el, comp) {
-    // 既存バッジ削除
-    const old = el.querySelector('.bc-badge-box');
+  function clearBadge(el) {
+    const old = el.querySelector('.' + BC);
     if (old) old.remove();
+  }
 
-    const box = document.createElement('div');
-    box.className = 'bc-badge-box';
-    box.style.cssText = 'display:inline-flex;align-items:center;gap:3px;margin:4px 0;padding:3px 6px;background:#f8f8f8;border-radius:5px;border:1px solid #ddd;font-size:11px;';
+  function mkBox() {
+    const d = document.createElement('span');
+    d.className = BC;
+    d.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:4px;font-size:11px;font-family:sans-serif;vertical-align:middle;margin-left:6px;';
+    return d;
+  }
+
+  function mkNum(n, label) {
+    const s = document.createElement('span');
+    const color = n === 0 ? '#27ae60' : n <= 2 ? '#e67e22' : '#e74c3c';
+    s.textContent = n;
+    s.style.cssText = 'font-weight:bold;color:' + color + ';font-size:12px;';
+    const l = document.createElement('span');
+    l.textContent = label;
+    l.style.cssText = 'font-size:9px;color:#888;margin-right:6px;';
+    const w = document.createElement('span');
+    w.style.cssText = 'display:inline-flex;align-items:baseline;gap:1px;';
+    w.appendChild(s);
+    w.appendChild(l);
+    return w;
+  }
+
+  function injectResult(el, comp, insertTarget) {
+    clearBadge(insertTarget || el);
+    const box = mkBox();
+    box.style.background = '#f5f5f5';
+    box.style.border = '1px solid #e0e0e0';
 
     if (!comp) {
-      box.textContent = 'SUUMO: 取得不可';
-      box.style.color = '#999';
+      box.textContent = '—';
+      box.style.color = '#bbb';
     } else {
       const hlName = comp.withNameHighlighted || 0;
       const hlNoName = comp.withoutNameHighlighted || 0;
-      const label = document.createElement('span');
-      label.textContent = 'SUUMO HL:';
-      label.style.cssText = 'font-size:10px;color:#666;font-weight:bold;';
-      box.appendChild(label);
-      box.appendChild(createBadge(hlName + '名有', badgeColor(hlName)));
-      box.appendChild(createBadge(hlNoName + '名無', badgeColor(hlNoName)));
-
-      const allSpan = document.createElement('span');
-      allSpan.textContent = '(全' + (comp.total || 0) + ')';
-      allSpan.style.cssText = 'font-size:9px;color:#aaa;';
-      box.appendChild(allSpan);
-
+      box.appendChild(mkNum(hlName, '名有'));
+      box.appendChild(mkNum(hlNoName, '名無'));
       if (comp.url) {
-        const link = document.createElement('a');
-        link.href = comp.url;
-        link.target = '_blank';
-        link.textContent = '🔍';
-        link.title = 'SUUMOで確認';
-        link.style.cssText = 'text-decoration:none;font-size:11px;margin-left:2px;';
-        box.appendChild(link);
+        const a = document.createElement('a');
+        a.href = comp.url;
+        a.target = '_blank';
+        a.textContent = '↗';
+        a.style.cssText = 'text-decoration:none;color:#2980b9;font-size:11px;font-weight:bold;';
+        a.title = 'SUUMOで確認';
+        box.appendChild(a);
       }
     }
-
-    // 挿入位置: 要素の先頭 or 末尾
-    if (el.firstChild) {
-      el.insertBefore(box, el.firstChild);
-    } else {
-      el.appendChild(box);
-    }
+    (insertTarget || el).appendChild(box);
   }
 
-  function injectLoading(el) {
-    const old = el.querySelector('.bc-badge-box');
-    if (old) old.remove();
-    const box = document.createElement('div');
-    box.className = 'bc-badge-box';
-    box.style.cssText = 'display:inline-flex;align-items:center;gap:4px;margin:4px 0;padding:3px 6px;background:#f8f8f8;border-radius:5px;border:1px solid #ddd;font-size:11px;color:#999;';
-    box.textContent = 'SUUMO: ⏳ 取得中...';
-    if (el.firstChild) el.insertBefore(box, el.firstChild);
-    else el.appendChild(box);
+  function injectAdBlock(el, insertTarget) {
+    clearBadge(insertTarget || el);
+    const box = mkBox();
+    box.style.background = '#f5eef5';
+    box.style.border = '1px solid #d5c5d5';
+    box.textContent = '広告不可';
+    box.style.color = '#999';
+    box.style.fontSize = '10px';
+    (insertTarget || el).appendChild(box);
   }
 
-  function injectError(el) {
-    const old = el.querySelector('.bc-badge-box');
-    if (old) old.remove();
-    const box = document.createElement('div');
-    box.className = 'bc-badge-box';
-    box.style.cssText = 'display:inline-flex;align-items:center;margin:4px 0;padding:3px 6px;background:#fdf0f0;border-radius:5px;border:1px solid #e0c0c0;font-size:11px;color:#c0392b;';
-    box.textContent = 'SUUMO: エラー';
-    if (el.firstChild) el.insertBefore(box, el.firstChild);
-    else el.appendChild(box);
+  function injectLoading(el, insertTarget) {
+    clearBadge(insertTarget || el);
+    const box = mkBox();
+    box.style.background = '#f8f8f8';
+    box.style.border = '1px solid #e8e8e8';
+    box.style.color = '#bbb';
+    box.textContent = '⏳';
+    (insertTarget || el).appendChild(box);
   }
 
-  // ── REINS 物件抽出（DOM要素参照付き） ──
+  function injectError(el, insertTarget) {
+    clearBadge(insertTarget || el);
+    const box = mkBox();
+    box.style.background = '#fef0f0';
+    box.style.border = '1px solid #e8c8c8';
+    box.style.color = '#c0392b';
+    box.textContent = '✗';
+    (insertTarget || el).appendChild(box);
+  }
+
+  // ── REINS 物件抽出 ──
   function extractReins() {
     const rows = document.querySelectorAll('.p-table-body-row');
     const entries = [];
@@ -129,8 +137,10 @@
       const mgmtYen = parseRentText(mgmtFee);
 
       if (!address || !rentYen) return;
+      // バッジ挿入先: 建物名セル
       entries.push({
         el: row,
+        insertTarget: items[11] || row,
         prop: {
           building_name: buildingName, room_number: roomNumber,
           address, rent: rentYen, management_fee: mgmtYen,
@@ -208,18 +218,34 @@
       const am = madoriText.match(/([\d.]+)\s*[㎡m]/);
       const area = am ? parseFloat(am[1]) : 0;
 
+      // 広告掲載の取得: roomBoxのテキストから「広告掲載」ラベルの後の値を読む
+      const adKeisai = extractBetween(text, '広告掲載', ['内見方法', '内見開始', '鍵', '備考', '更新', '物件メモ']).trim();
+
       const key = bld.buildingName + '|' + roomNumber;
       if (seen.has(key)) return;
       seen.add(key);
 
       if (!bld.address || !rent) return;
+
+      // 部屋番号を表示している要素を探す（バッジ挿入先）
+      let roomLabel = null;
+      const spans = roomBox.querySelectorAll('span, div, td');
+      for (const sp of spans) {
+        if (sp.children.length === 0 && sp.textContent.trim() === roomNumber) {
+          roomLabel = sp; break;
+        }
+      }
+
       entries.push({
         el: roomBox,
+        insertTarget: roomLabel || roomBox,
+        adBlocked: adKeisai && adKeisai !== '可' && adKeisai !== '',
         prop: {
           building_name: bld.buildingName, room_number: roomNumber,
           address: bld.address, rent, management_fee: mgmt,
           layout: normalizeLayout(layout), area,
           story_text: bld.storyText, source: 'itandi',
+          ad_keisai: adKeisai,
         }
       });
     });
@@ -234,7 +260,7 @@
       const nameEl = card.querySelector('.estate_name a, .estate_name');
       const buildingName = nameEl ? nameEl.textContent.trim() : '';
       const rows = card.querySelectorAll('tr');
-      let address = '', rent = 0, mgmt = 0, layout = '', area = 0, roomNumber = '';
+      let address = '', rent = 0, mgmt = 0, layout = '', area = 0, roomNumber = '', adKeisai = '';
       rows.forEach((tr) => {
         const th = (tr.querySelector('th') || {}).textContent || '';
         const td = (tr.querySelector('td') || {}).textContent || '';
@@ -244,14 +270,17 @@
         if (th.includes('間取')) layout = normalizeLayout(td.trim());
         if (th.includes('面積') || th.includes('専有')) area = parseFloat(td.replace(/[^\d.]/g, '')) || 0;
         if (th.includes('号室') || th.includes('部屋')) roomNumber = td.replace(/[^\d]/g, '');
+        if (th.includes('広告')) adKeisai = td.trim();
       });
       if (!address || !rent) return;
       entries.push({
         el: card,
+        insertTarget: nameEl || card,
+        adBlocked: adKeisai && adKeisai !== '可' && adKeisai !== '',
         prop: {
           building_name: buildingName, room_number: roomNumber,
           address, rent, management_fee: mgmt,
-          layout, area, source: 'ielove',
+          layout, area, source: 'ielove', ad_keisai: adKeisai,
         }
       });
     });
@@ -308,30 +337,34 @@
     return out;
   }
 
-  // ── 進捗リスナー ──
-  let entries = [];
+  // ── 進捗管理 ──
+  // checkableEntries: 広告不可を除いた、実際にSUUMOチェックする物件
+  let allEntries = [];
+  let checkableEntries = [];
+  let doneCount = 0;
+
   chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === 'BULK_COMPETITOR_PROGRESS' && entries[msg.index]) {
-      const e = entries[msg.index];
+    if (msg.type === 'BULK_COMPETITOR_PROGRESS') {
+      const e = checkableEntries[msg.index];
+      if (!e) return;
       if (msg.error) {
-        injectError(e.el);
+        injectError(e.el, e.insertTarget);
       } else {
-        injectBadge(e.el, msg.competitor);
+        injectResult(e.el, msg.competitor, e.insertTarget);
       }
       doneCount++;
       updateProgress();
     }
   });
 
-  let doneCount = 0;
-  let totalCount = 0;
   function updateProgress() {
-    btn.textContent = '取得中... ' + doneCount + '/' + totalCount;
-    if (doneCount >= totalCount) {
-      btn.textContent = 'SUUMO競合チェック ✓';
+    const checkTotal = checkableEntries.length;
+    btn.textContent = '取得中 ' + doneCount + '/' + checkTotal;
+    if (doneCount >= checkTotal) {
+      btn.textContent = '競合チェック ✓';
       btn.style.backgroundColor = '#27ae60';
       setTimeout(() => {
-        btn.textContent = 'SUUMO競合チェック';
+        btn.textContent = '競合チェック';
         btn.style.backgroundColor = '#e67e22';
         running = false;
       }, 3000);
@@ -345,33 +378,50 @@
     running = true;
     doneCount = 0;
 
-    entries = [];
-    if (site === 'reins') entries = extractReins();
-    else if (site === 'itandi') entries = extractItandi();
-    else if (site === 'ielove') entries = extractIelove();
+    allEntries = [];
+    if (site === 'reins') allEntries = extractReins();
+    else if (site === 'itandi') allEntries = extractItandi();
+    else if (site === 'ielove') allEntries = extractIelove();
 
-    totalCount = entries.length;
-
-    if (entries.length === 0) {
-      btn.textContent = '物件が見つかりません';
+    if (allEntries.length === 0) {
+      btn.textContent = '物件なし';
       btn.style.backgroundColor = '#e74c3c';
       setTimeout(() => {
-        btn.textContent = 'SUUMO競合チェック';
+        btn.textContent = '競合チェック';
         btn.style.backgroundColor = '#e67e22';
         running = false;
       }, 2000);
       return;
     }
 
-    // 各行にローディング表示
-    entries.forEach((e) => injectLoading(e.el));
-    btn.textContent = '取得中... 0/' + totalCount;
+    // 広告不可を先にバッジ表示、チェック対象から除外
+    checkableEntries = [];
+    allEntries.forEach((e) => {
+      if (e.adBlocked) {
+        injectAdBlock(e.el, e.insertTarget);
+      } else {
+        injectLoading(e.el, e.insertTarget);
+        checkableEntries.push(e);
+      }
+    });
+
+    if (checkableEntries.length === 0) {
+      btn.textContent = '競合チェック ✓';
+      btn.style.backgroundColor = '#27ae60';
+      setTimeout(() => {
+        btn.textContent = '競合チェック';
+        btn.style.backgroundColor = '#e67e22';
+        running = false;
+      }, 2000);
+      return;
+    }
+
+    btn.textContent = '取得中 0/' + checkableEntries.length;
     btn.style.backgroundColor = '#95a5a6';
 
-    // background にリクエスト
     chrome.runtime.sendMessage({
       type: 'BULK_COMPETITOR_CHECK',
-      properties: entries.map((e) => e.prop),
+      properties: checkableEntries.map((e) => e.prop),
     });
   });
 })();
