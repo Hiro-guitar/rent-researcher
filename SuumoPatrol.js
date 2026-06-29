@@ -768,7 +768,7 @@ function addSuumoCandidates(json) {
       p.usageArea || '',
       nearestStation,
       now,
-      p.sourceType || '',
+      p.sourceType || p.source || '',
       'pending',
       JSON.stringify(p),
       '',
@@ -1110,6 +1110,7 @@ function recordSuumoPosting(data) {
             try {
               var pdata = JSON.parse(candSheet.getRange(ci + 2, pjsonColIdx).getValue());
               ownerCompany = pdata.owner_company || pdata.reins_shougo || '';
+              if (!sourceSite) sourceSite = pdata.sourceType || pdata.source || '';
             } catch (_) {}
           }
           break;
@@ -1153,6 +1154,55 @@ function recordSuumoPosting(data) {
   clearSubmittingTimestamp_(key);
 
   return { success: true, key: key };
+}
+
+/**
+ * 掲載管理シートで「取得元サイト」が空の物件を、候補物件シートから埋める。
+ * GASエディタから1回手動実行する想定。
+ */
+function backfillSourceSite() {
+  var listSheet = getListingSheet_();
+  var candSheet = getCandidateSheet_();
+  var listLast = listSheet.getLastRow();
+  var candLast = candSheet.getLastRow();
+  if (listLast <= 1 || candLast <= 1) return;
+
+  var sourceCol = SUUMO_LISTING_HEADERS.indexOf('取得元サイト') + 1;
+  if (sourceCol <= 0) return;
+
+  var listKeys = listSheet.getRange(2, 1, listLast - 1, 1).getValues();
+  var listSources = listSheet.getRange(2, sourceCol, listLast - 1, 1).getValues();
+
+  var candSourceColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('ソース') + 1;
+  var candPjsonColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('property_data_json') + 1;
+  var candKeys = candSheet.getRange(2, 1, candLast - 1, 1).getValues();
+  var candSources = candSourceColIdx > 0 ? candSheet.getRange(2, candSourceColIdx, candLast - 1, 1).getValues() : [];
+  var candPjsons = candPjsonColIdx > 0 ? candSheet.getRange(2, candPjsonColIdx, candLast - 1, 1).getValues() : [];
+
+  var candMap = {};
+  for (var ci = 0; ci < candKeys.length; ci++) {
+    var ck = candKeys[ci][0];
+    if (!ck) continue;
+    var src = candSources.length > ci ? String(candSources[ci][0] || '') : '';
+    if (!src && candPjsons.length > ci) {
+      try {
+        var pd = JSON.parse(candPjsons[ci][0]);
+        src = pd.sourceType || pd.source || '';
+      } catch (_) {}
+    }
+    if (src) candMap[ck] = src;
+  }
+
+  var updated = 0;
+  for (var i = 0; i < listKeys.length; i++) {
+    if (listSources[i][0]) continue;
+    var lk = listKeys[i][0];
+    if (candMap[lk]) {
+      listSheet.getRange(i + 2, sourceCol).setValue(candMap[lk]);
+      updated++;
+    }
+  }
+  Logger.log('backfillSourceSite: ' + updated + '件更新');
 }
 
 /**
