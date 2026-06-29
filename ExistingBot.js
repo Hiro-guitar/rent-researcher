@@ -771,16 +771,22 @@ function _buildVacancyUnavailableMessages_(userId, displayName) {
     // 既に条件登録済み: 条件登録への誘導は不要、テキスト通知のみ
     return [{
       type: 'text',
-      text: '「' + displayName + '」は募集が終了していました。\n\n引き続き、条件に合うお部屋が見つかり次第すぐにお知らせします。'
+      text: 'お待たせいたしました。\n「' + displayName + '」について確認いたしましたが、現在ご案内が難しい状況でした。\n\n引き続き、ご希望の条件に合うお部屋が見つかり次第すぐにご案内いたします。'
     }];
   }
   // 未登録: 募集終了通知 + 類似物件の条件登録誘導Flex
   return [{
     type: 'flex',
-    altText: '「' + displayName + '」は募集が終了していました',
+    altText: '「' + displayName + '」の確認結果をお知らせします',
     contents: {
       type: 'bubble',
       size: 'mega',
+      header: {
+        type: 'box', layout: 'vertical', backgroundColor: '#8b5e3c', paddingAll: 'lg',
+        contents: [
+          { type: 'text', text: '確認結果のお知らせ', weight: 'bold', size: 'lg', color: '#ffffff', align: 'center' }
+        ]
+      },
       body: {
         type: 'box',
         layout: 'vertical',
@@ -788,16 +794,10 @@ function _buildVacancyUnavailableMessages_(userId, displayName) {
         paddingAll: 'xl',
         contents: [
           { type: 'text', text: displayName, size: 'md', color: '#1a2538', weight: 'bold', wrap: true },
-          {
-            type: 'box', layout: 'horizontal', spacing: 'sm', alignItems: 'center', margin: 'md',
-            contents: [
-              { type: 'text', text: '❌', size: 'sm', flex: 0 },
-              { type: 'text', text: '募集が終了していました', size: 'md', color: '#c0392b', weight: 'bold', wrap: true }
-            ]
-          },
+          { type: 'text', text: '確認いたしましたが、現在ご案内が難しい状況でした。', size: 'sm', color: '#666666', wrap: true, margin: 'md' },
           { type: 'separator', color: '#eeeeee', margin: 'lg' },
           { type: 'text', text: '似たお部屋を自動で探しませんか？', size: 'sm', color: '#555555', wrap: true, margin: 'lg' },
-          { type: 'text', text: '条件に合う物件が出たらすぐお知らせします', size: 'xs', color: '#999999', wrap: true, margin: 'sm' }
+          { type: 'text', text: 'ご希望に合う物件が見つかり次第\nすぐにお知らせします', size: 'xs', color: '#999999', wrap: true, margin: 'sm' }
         ]
       },
       footer: {
