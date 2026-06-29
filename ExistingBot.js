@@ -528,7 +528,7 @@ function createPropertyBubble(p) {
   var _isOpen = (_jstHour >= 10 && _jstHour < 20);
 
   // ヘッダー: 共通で「お問い合わせありがとうございます」
-  var _headerBg = p.status === '募集中' ? '#1a7f37' : '#2563a8';
+  var _headerBg = '#1a7f37';
 
   // ステータスメッセージ（物件情報の下に表示）
   var _statusBox = null;
@@ -546,11 +546,11 @@ function createPropertyBubble(p) {
         : '営業時間外のため、翌営業日の朝にスタッフよりご返信いたします';
     }
     _statusBox = {
-      type: 'box', layout: 'vertical', backgroundColor: '#eef4fb', cornerRadius: 'lg',
+      type: 'box', layout: 'vertical', backgroundColor: '#eef6e9', cornerRadius: 'lg',
       paddingAll: 'lg', spacing: 'xs',
       contents: [
-        { type: 'text', text: _statusLine, size: 'sm', weight: 'bold', color: '#2563a8', wrap: true },
-        { type: 'text', text: _etaMsg, size: 'xs', color: '#5a7fa8', wrap: true }
+        { type: 'text', text: _statusLine, size: 'sm', weight: 'bold', color: '#1a7f37', wrap: true },
+        { type: 'text', text: _etaMsg, size: 'xs', color: '#4a8a5a', wrap: true }
       ]
     };
   }
