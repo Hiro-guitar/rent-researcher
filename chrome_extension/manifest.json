@@ -69,7 +69,7 @@
       "matches": [
         "https://system.reins.jp/*"
       ],
-      "js": ["manual-send-panel.js", "content-search.js"]
+      "js": ["manual-send-panel.js", "content-search.js", "bulk-competitor-panel.js"]
     },
     {
       "matches": [
@@ -81,7 +81,7 @@
       "matches": [
         "https://bb.ielove.jp/ielovebb/rent/index/*"
       ],
-      "js": ["manual-send-panel.js", "ielove-content-search.js"]
+      "js": ["manual-send-panel.js", "ielove-content-search.js", "bulk-competitor-panel.js"]
     },
     {
       "matches": [
@@ -93,7 +93,7 @@
       "matches": [
         "https://itandibb.com/rent_rooms/list*"
       ],
-      "js": ["manual-send-panel.js", "itandi-content-search.js"]
+      "js": ["manual-send-panel.js", "itandi-content-search.js", "bulk-competitor-panel.js"]
     },
     {
       "matches": [

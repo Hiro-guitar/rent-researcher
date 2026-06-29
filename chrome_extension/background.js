@@ -2985,6 +2985,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // 一括SUUMO競合チェック: ページ上の全物件の競合数を取得して進捗を返す
+  if (msg.type === 'BULK_COMPETITOR_CHECK') {
+    (async () => {
+      try {
+        const props = msg.properties || [];
+        const senderTabId = sender && sender.tab && sender.tab.id;
+        const DELAY_MS = 1500;
+        for (let i = 0; i < props.length; i++) {
+          const np = normalizePropForMetrics(props[i]);
+          let competitor = null, error = '';
+          try {
+            if (typeof countSuumoCompetitors === 'function') {
+              competitor = await countSuumoCompetitors(np);
+            }
+          } catch (e) {
+            error = (e && e.message) || String(e);
+          }
+          if (senderTabId) {
+            try {
+              await chrome.tabs.sendMessage(senderTabId, {
+                type: 'BULK_COMPETITOR_PROGRESS',
+                index: i, total: props.length, competitor, error
+              });
+            } catch (e) {}
+          }
+          if (i < props.length - 1) {
+            await new Promise(r => setTimeout(r, DELAY_MS));
+          }
+        }
+        sendResponse({ ok: true, done: props.length });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   // 手動: 選択物件の詳細を取得→SUUMO候補に登録→SUUMO承認ページを開く（全サイト対応）
   if (msg.type === 'PUBLISH_TO_SUUMO') {
     (async () => {
