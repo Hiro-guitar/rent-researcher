@@ -84,20 +84,67 @@
     return props;
   }
 
-  // ── itandi 物件抽出（DOM ベース） ──
+  // ── itandi 物件抽出（itandi-content-search.js と同じ DOM 走査ロジック） ──
   function extractItandi() {
     const ADDR_RE = /(東京都|北海道|(?:京都|大阪)府|.{2,3}県)[^\n]{1,40}?[区市町村]/;
-    const detailLinks = document.querySelectorAll('a[href*="/rent_rooms/"][class*="Detail"], a.CommonButton.isDetail');
+    // itandi は .CommonButton.isDetail の中に a[href*="/rent_rooms/"] がある構造
+    const links = document.querySelectorAll('.CommonButton.isDetail a[href*="/rent_rooms/"]');
     const props = [];
     const seen = new Set();
+    const cardCache = new Map();
 
-    detailLinks.forEach((link) => {
-      const roomBox = findAncestor(link, (el) => (el.textContent || '').indexOf('部屋番号') !== -1, 6);
+    links.forEach((link) => {
+      // roomBox: 「部屋番号」テキストと .CommonButton.isDetail の両方を含む最小の祖先
+      const btn = link.closest('.CommonButton');
+      if (!btn) return;
+      let roomBox = null;
+      let el = btn;
+      for (let i = 0; i < 6 && el; i++) {
+        el = el.parentElement;
+        if (!el) break;
+        if ((el.textContent || '').indexOf('部屋番号') !== -1 && el.querySelector('.CommonButton.isDetail')) {
+          roomBox = el; break;
+        }
+      }
       if (!roomBox) return;
-      const buildingCard = findAncestor(roomBox, (el) => ADDR_RE.test(el.textContent || ''), 15);
 
+      // buildingCard: 住所を含む最小の祖先
+      let buildingCard = null;
+      el = roomBox;
+      for (let i = 0; i < 15 && el; i++) {
+        el = el.parentElement;
+        if (!el || el === document.body) break;
+        if (ADDR_RE.test(el.textContent || '')) { buildingCard = el; break; }
+      }
+
+      // 建物情報（キャッシュ）
+      let bld = cardCache.get(buildingCard);
+      if (!bld) {
+        bld = { buildingName: '', address: '', storyText: '' };
+        if (buildingCard) {
+          const leaves = leafTexts(buildingCard);
+          let addrIdx = -1;
+          for (let i = 0; i < leaves.length; i++) {
+            if (ADDR_RE.test(leaves[i])) { addrIdx = i; break; }
+          }
+          if (addrIdx >= 0) {
+            bld.address = leaves[addrIdx].replace(/\s+/g, ' ').trim();
+            for (let j = addrIdx - 1; j >= 0; j--) {
+              if (/^\d+枚$/.test(leaves[j])) continue;
+              if (leaves[j]) { bld.buildingName = leaves[j]; break; }
+            }
+            for (let s = addrIdx + 1; s < leaves.length; s++) {
+              const sm = leaves[s].match(/(\d+階建)/);
+              if (sm) { bld.storyText = sm[1]; break; }
+            }
+          }
+        }
+        cardCache.set(buildingCard, bld);
+      }
+
+      // 部屋情報
       const text = (roomBox.textContent || '').replace(/ /g, ' ');
-      const roomNumber = extractBetween(text, '部屋番号', ['賃管共', '賃料', '賃']).replace(/\s+/g, '').trim();
+      let roomNumber = extractBetween(text, '部屋番号', ['賃管共', '賃料', '賃']).replace(/\s+/g, '').trim();
       const chinkan = extractBetween(text, '賃管共', ['敷礼保', '敷', '間取り', '内見']);
       const parts = chinkan.split('/');
       const rent = parseMoney(parts[0] || '');
@@ -108,31 +155,16 @@
       const am = madoriText.match(/([\d.]+)\s*[㎡m]/);
       const area = am ? parseFloat(am[1]) : 0;
 
-      let buildingName = '', address = '';
-      if (buildingCard) {
-        const leaves = leafTexts(buildingCard);
-        let addrIdx = -1;
-        for (let i = 0; i < leaves.length; i++) {
-          if (ADDR_RE.test(leaves[i])) { addrIdx = i; break; }
-        }
-        if (addrIdx >= 0) {
-          address = leaves[addrIdx].replace(/\s+/g, ' ').trim();
-          for (let j = addrIdx - 1; j >= 0; j--) {
-            if (/^\d+枚$/.test(leaves[j])) continue;
-            if (leaves[j]) { buildingName = leaves[j]; break; }
-          }
-        }
-      }
-
-      const key = buildingName + '|' + roomNumber;
+      const key = bld.buildingName + '|' + roomNumber;
       if (seen.has(key)) return;
       seen.add(key);
 
-      if (!address || !rent) return;
+      if (!bld.address || !rent) return;
       props.push({
-        building_name: buildingName, room_number: roomNumber,
-        address, rent, management_fee: mgmt,
+        building_name: bld.buildingName, room_number: roomNumber,
+        address: bld.address, rent, management_fee: mgmt,
         layout: normalizeLayout(layout), area,
+        story_text: bld.storyText,
         source: 'itandi',
       });
     });
