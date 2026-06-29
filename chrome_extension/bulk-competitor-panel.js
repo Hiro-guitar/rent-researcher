@@ -1,19 +1,14 @@
 /**
  * bulk-competitor-panel.js
  * REINS / itandi / いえらぶ の検索結果ページに「SUUMO競合チェック」ボタンを表示。
- * ボタン押下で、ページ上の全物件の SUUMO 競合数を一括取得して結果をオーバーレイ表示する。
- *
- * 対象URL:
- *   - https://system.reins.jp/*
- *   - https://itandibb.com/rent_rooms/list*
- *   - https://bb.ielove.jp/ielovebb/rent/index/*
+ * ボタン押下で、ページ上の全物件の SUUMO 競合数を一括取得し、
+ * 各物件の行に直接バッジを注入する。
  */
 (() => {
   'use strict';
 
   if (document.getElementById('bulk-comp-btn')) return;
 
-  // ── サイト判定 ──
   const href = location.href;
   let site = '';
   if (href.includes('system.reins.jp')) site = 'reins';
@@ -30,33 +25,93 @@
     padding: '10px 18px', fontSize: '13px', fontWeight: 'bold',
     color: '#fff', backgroundColor: '#e67e22', border: 'none', borderRadius: '8px',
     cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-    transition: 'opacity 0.2s',
   });
-  btn.addEventListener('mouseenter', () => { btn.style.opacity = '0.85'; });
-  btn.addEventListener('mouseleave', () => { btn.style.opacity = '1'; });
   document.body.appendChild(btn);
 
-  // ── 結果パネル ──
-  let panel = null;
-  function ensurePanel() {
-    if (panel) return panel;
-    panel = document.createElement('div');
-    panel.id = 'bulk-comp-panel';
-    Object.assign(panel.style, {
-      position: 'fixed', bottom: '130px', right: '20px', zIndex: '99998',
-      width: '400px', maxHeight: '60vh', overflowY: 'auto',
-      backgroundColor: '#fff', border: '1px solid #ccc', borderRadius: '10px',
-      boxShadow: '0 4px 16px rgba(0,0,0,0.2)', padding: '12px', fontSize: '12px',
-      fontFamily: 'sans-serif', display: 'none',
-    });
-    document.body.appendChild(panel);
-    return panel;
+  // ── バッジ注入 ──
+  function createBadge(text, bgColor) {
+    const s = document.createElement('span');
+    s.textContent = text;
+    s.style.cssText = 'display:inline-block;padding:1px 5px;border-radius:3px;font-weight:bold;color:#fff;font-size:10px;margin-right:2px;background:' + bgColor + ';';
+    return s;
   }
 
-  // ── REINS 物件抽出 ──
+  function badgeColor(n) {
+    return n === 0 ? '#27ae60' : n <= 2 ? '#f39c12' : '#e74c3c';
+  }
+
+  function injectBadge(el, comp) {
+    // 既存バッジ削除
+    const old = el.querySelector('.bc-badge-box');
+    if (old) old.remove();
+
+    const box = document.createElement('div');
+    box.className = 'bc-badge-box';
+    box.style.cssText = 'display:inline-flex;align-items:center;gap:3px;margin:4px 0;padding:3px 6px;background:#f8f8f8;border-radius:5px;border:1px solid #ddd;font-size:11px;';
+
+    if (!comp) {
+      box.textContent = 'SUUMO: 取得不可';
+      box.style.color = '#999';
+    } else {
+      const hlName = comp.withNameHighlighted || 0;
+      const hlNoName = comp.withoutNameHighlighted || 0;
+      const label = document.createElement('span');
+      label.textContent = 'SUUMO HL:';
+      label.style.cssText = 'font-size:10px;color:#666;font-weight:bold;';
+      box.appendChild(label);
+      box.appendChild(createBadge(hlName + '名有', badgeColor(hlName)));
+      box.appendChild(createBadge(hlNoName + '名無', badgeColor(hlNoName)));
+
+      const allSpan = document.createElement('span');
+      allSpan.textContent = '(全' + (comp.total || 0) + ')';
+      allSpan.style.cssText = 'font-size:9px;color:#aaa;';
+      box.appendChild(allSpan);
+
+      if (comp.url) {
+        const link = document.createElement('a');
+        link.href = comp.url;
+        link.target = '_blank';
+        link.textContent = '🔍';
+        link.title = 'SUUMOで確認';
+        link.style.cssText = 'text-decoration:none;font-size:11px;margin-left:2px;';
+        box.appendChild(link);
+      }
+    }
+
+    // 挿入位置: 要素の先頭 or 末尾
+    if (el.firstChild) {
+      el.insertBefore(box, el.firstChild);
+    } else {
+      el.appendChild(box);
+    }
+  }
+
+  function injectLoading(el) {
+    const old = el.querySelector('.bc-badge-box');
+    if (old) old.remove();
+    const box = document.createElement('div');
+    box.className = 'bc-badge-box';
+    box.style.cssText = 'display:inline-flex;align-items:center;gap:4px;margin:4px 0;padding:3px 6px;background:#f8f8f8;border-radius:5px;border:1px solid #ddd;font-size:11px;color:#999;';
+    box.textContent = 'SUUMO: ⏳ 取得中...';
+    if (el.firstChild) el.insertBefore(box, el.firstChild);
+    else el.appendChild(box);
+  }
+
+  function injectError(el) {
+    const old = el.querySelector('.bc-badge-box');
+    if (old) old.remove();
+    const box = document.createElement('div');
+    box.className = 'bc-badge-box';
+    box.style.cssText = 'display:inline-flex;align-items:center;margin:4px 0;padding:3px 6px;background:#fdf0f0;border-radius:5px;border:1px solid #e0c0c0;font-size:11px;color:#c0392b;';
+    box.textContent = 'SUUMO: エラー';
+    if (el.firstChild) el.insertBefore(box, el.firstChild);
+    else el.appendChild(box);
+  }
+
+  // ── REINS 物件抽出（DOM要素参照付き） ──
   function extractReins() {
     const rows = document.querySelectorAll('.p-table-body-row');
-    const props = [];
+    const entries = [];
     rows.forEach((row) => {
       const items = row.querySelectorAll(':scope > .p-table-body-item');
       if (items.length < 20) return;
@@ -74,31 +129,32 @@
       const mgmtYen = parseRentText(mgmtFee);
 
       if (!address || !rentYen) return;
-      props.push({
-        building_name: buildingName, room_number: roomNumber,
-        address, rent: rentYen, management_fee: mgmtYen,
-        layout: normalizeLayout(layout), area: areaNum,
-        source: 'reins',
+      entries.push({
+        el: row,
+        prop: {
+          building_name: buildingName, room_number: roomNumber,
+          address, rent: rentYen, management_fee: mgmtYen,
+          layout: normalizeLayout(layout), area: areaNum,
+          source: 'reins',
+        }
       });
     });
-    return props;
+    return entries;
   }
 
-  // ── itandi 物件抽出（itandi-content-search.js と同じ DOM 走査ロジック） ──
+  // ── itandi 物件抽出 ──
   function extractItandi() {
     const ADDR_RE = /(東京都|北海道|(?:京都|大阪)府|.{2,3}県)[^\n]{1,40}?[区市町村]/;
-    // itandi は .CommonButton.isDetail の中に a[href*="/rent_rooms/"] がある構造
     const links = document.querySelectorAll('.CommonButton.isDetail a[href*="/rent_rooms/"]');
-    const props = [];
+    const entries = [];
     const seen = new Set();
     const cardCache = new Map();
 
     links.forEach((link) => {
-      // roomBox: 「部屋番号」テキストと .CommonButton.isDetail の両方を含む最小の祖先
-      const btn = link.closest('.CommonButton');
-      if (!btn) return;
+      const btn2 = link.closest('.CommonButton');
+      if (!btn2) return;
       let roomBox = null;
-      let el = btn;
+      let el = btn2;
       for (let i = 0; i < 6 && el; i++) {
         el = el.parentElement;
         if (!el) break;
@@ -108,7 +164,6 @@
       }
       if (!roomBox) return;
 
-      // buildingCard: 住所を含む最小の祖先
       let buildingCard = null;
       el = roomBox;
       for (let i = 0; i < 15 && el; i++) {
@@ -117,7 +172,6 @@
         if (ADDR_RE.test(el.textContent || '')) { buildingCard = el; break; }
       }
 
-      // 建物情報（キャッシュ）
       let bld = cardCache.get(buildingCard);
       if (!bld) {
         bld = { buildingName: '', address: '', storyText: '' };
@@ -142,9 +196,8 @@
         cardCache.set(buildingCard, bld);
       }
 
-      // 部屋情報
       const text = (roomBox.textContent || '').replace(/ /g, ' ');
-      let roomNumber = extractBetween(text, '部屋番号', ['賃管共', '賃料', '賃']).replace(/\s+/g, '').trim();
+      const roomNumber = extractBetween(text, '部屋番号', ['賃管共', '賃料', '賃']).replace(/\s+/g, '').trim();
       const chinkan = extractBetween(text, '賃管共', ['敷礼保', '敷', '間取り', '内見']);
       const parts = chinkan.split('/');
       const rent = parseMoney(parts[0] || '');
@@ -160,20 +213,22 @@
       seen.add(key);
 
       if (!bld.address || !rent) return;
-      props.push({
-        building_name: bld.buildingName, room_number: roomNumber,
-        address: bld.address, rent, management_fee: mgmt,
-        layout: normalizeLayout(layout), area,
-        story_text: bld.storyText,
-        source: 'itandi',
+      entries.push({
+        el: roomBox,
+        prop: {
+          building_name: bld.buildingName, room_number: roomNumber,
+          address: bld.address, rent, management_fee: mgmt,
+          layout: normalizeLayout(layout), area,
+          story_text: bld.storyText, source: 'itandi',
+        }
       });
     });
-    return props;
+    return entries;
   }
 
   // ── いえらぶ物件抽出 ──
   function extractIelove() {
-    const props = [];
+    const entries = [];
     const cards = document.querySelectorAll('table.estate_list');
     cards.forEach((card) => {
       const nameEl = card.querySelector('.estate_name a, .estate_name');
@@ -191,26 +246,26 @@
         if (th.includes('号室') || th.includes('部屋')) roomNumber = td.replace(/[^\d]/g, '');
       });
       if (!address || !rent) return;
-      props.push({
-        building_name: buildingName, room_number: roomNumber,
-        address, rent, management_fee: mgmt,
-        layout, area, source: 'ielove',
+      entries.push({
+        el: card,
+        prop: {
+          building_name: buildingName, room_number: roomNumber,
+          address, rent, management_fee: mgmt,
+          layout, area, source: 'ielove',
+        }
       });
     });
-    return props;
+    return entries;
   }
 
-  // ── 共通ユーティリティ ──
+  // ── ユーティリティ ──
   function parseRentText(s) {
     if (!s) return 0;
     s = String(s).replace(/[,\s]/g, '');
     const man = s.match(/([\d.]+)\s*万/);
     if (man) return Math.round(parseFloat(man[1]) * 10000);
     const yen = s.match(/([\d]+)/);
-    if (yen) {
-      const v = parseInt(yen[1], 10);
-      return v > 1000 ? v : 0;
-    }
+    if (yen) { const v = parseInt(yen[1], 10); return v > 1000 ? v : 0; }
     return 0;
   }
   function parseMoney(s) {
@@ -229,14 +284,6 @@
     if (m) return m[1].toUpperCase();
     if (/ワンルーム/.test(s)) return '1R';
     return s;
-  }
-  function findAncestor(el, test, maxDepth) {
-    for (let i = 0; i < maxDepth && el; i++) {
-      el = el.parentElement;
-      if (!el || el === document.body) break;
-      if (test(el)) return el;
-    }
-    return null;
   }
   function extractBetween(text, label, nextLabels) {
     const i = text.indexOf(label);
@@ -262,60 +309,50 @@
   }
 
   // ── 進捗リスナー ──
+  let entries = [];
   chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === 'BULK_COMPETITOR_PROGRESS') {
-      updateResult(msg.index, msg);
+    if (msg.type === 'BULK_COMPETITOR_PROGRESS' && entries[msg.index]) {
+      const e = entries[msg.index];
+      if (msg.error) {
+        injectError(e.el);
+      } else {
+        injectBadge(e.el, msg.competitor);
+      }
+      doneCount++;
+      updateProgress();
     }
   });
 
-  let resultRows = [];
-
-  function updateResult(idx, data) {
-    if (!resultRows[idx]) return;
-    const row = resultRows[idx];
-    const statusEl = row.querySelector('.bc-status');
-    if (data.error) {
-      statusEl.textContent = 'エラー';
-      statusEl.style.color = '#e74c3c';
-      return;
-    }
-    const comp = data.competitor;
-    if (!comp) {
-      statusEl.textContent = '取得不可';
-      statusEl.style.color = '#999';
-      return;
-    }
-    const total = comp.total || 0;
-    statusEl.innerHTML = '';
-    const badge = document.createElement('span');
-    badge.textContent = total + '件';
-    badge.style.cssText = 'display:inline-block;padding:2px 8px;border-radius:4px;font-weight:bold;color:#fff;'
-      + (total === 0 ? 'background:#27ae60;' : total <= 3 ? 'background:#2ecc71;' : total <= 10 ? 'background:#f39c12;' : 'background:#e74c3c;');
-    statusEl.appendChild(badge);
-    if (comp.url) {
-      const link = document.createElement('a');
-      link.href = comp.url;
-      link.target = '_blank';
-      link.textContent = ' 🔍';
-      link.style.cssText = 'text-decoration:none;font-size:11px;';
-      statusEl.appendChild(link);
+  let doneCount = 0;
+  let totalCount = 0;
+  function updateProgress() {
+    btn.textContent = '取得中... ' + doneCount + '/' + totalCount;
+    if (doneCount >= totalCount) {
+      btn.textContent = 'SUUMO競合チェック ✓';
+      btn.style.backgroundColor = '#27ae60';
+      setTimeout(() => {
+        btn.textContent = 'SUUMO競合チェック';
+        btn.style.backgroundColor = '#e67e22';
+        running = false;
+      }, 3000);
     }
   }
 
   // ── ボタンクリック ──
   let running = false;
-  btn.addEventListener('click', async () => {
+  btn.addEventListener('click', () => {
     if (running) return;
     running = true;
-    btn.textContent = '取得中...';
-    btn.style.backgroundColor = '#95a5a6';
+    doneCount = 0;
 
-    let props = [];
-    if (site === 'reins') props = extractReins();
-    else if (site === 'itandi') props = extractItandi();
-    else if (site === 'ielove') props = extractIelove();
+    entries = [];
+    if (site === 'reins') entries = extractReins();
+    else if (site === 'itandi') entries = extractItandi();
+    else if (site === 'ielove') entries = extractIelove();
 
-    if (props.length === 0) {
+    totalCount = entries.length;
+
+    if (entries.length === 0) {
       btn.textContent = '物件が見つかりません';
       btn.style.backgroundColor = '#e74c3c';
       setTimeout(() => {
@@ -326,70 +363,15 @@
       return;
     }
 
-    // パネル表示
-    const p = ensurePanel();
-    p.style.display = 'block';
-    p.innerHTML = '<div style="font-weight:bold;margin-bottom:8px;font-size:13px;">SUUMO競合チェック (' + props.length + '件)</div>';
-    const table = document.createElement('table');
-    table.style.cssText = 'width:100%;border-collapse:collapse;font-size:11px;';
-    table.innerHTML = '<tr style="background:#f5f5f5;"><th style="padding:4px;text-align:left;">物件</th><th style="padding:4px;text-align:left;">賃料</th><th style="padding:4px;text-align:center;">競合数</th></tr>';
-    resultRows = [];
-    props.forEach((prop, i) => {
-      const tr = document.createElement('tr');
-      tr.style.borderBottom = '1px solid #eee';
-      const name = (prop.building_name || '?') + (prop.room_number ? ' ' + prop.room_number : '');
-      const rentMan = prop.rent >= 10000 ? (prop.rent / 10000).toFixed(1) + '万' : prop.rent + '円';
-      tr.innerHTML = '<td style="padding:4px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escHtml(name) + '">' + escHtml(name) + '</td>'
-        + '<td style="padding:4px;">' + rentMan + '</td>'
-        + '<td style="padding:4px;text-align:center;" class="bc-status"><span style="color:#999;">⏳</span></td>';
-      table.appendChild(tr);
-      resultRows.push(tr);
+    // 各行にローディング表示
+    entries.forEach((e) => injectLoading(e.el));
+    btn.textContent = '取得中... 0/' + totalCount;
+    btn.style.backgroundColor = '#95a5a6';
+
+    // background にリクエスト
+    chrome.runtime.sendMessage({
+      type: 'BULK_COMPETITOR_CHECK',
+      properties: entries.map((e) => e.prop),
     });
-    p.appendChild(table);
-
-    // progress bar
-    const progBar = document.createElement('div');
-    progBar.style.cssText = 'margin-top:8px;height:4px;background:#eee;border-radius:2px;overflow:hidden;';
-    const progFill = document.createElement('div');
-    progFill.style.cssText = 'height:100%;width:0%;background:#e67e22;transition:width 0.3s;';
-    progBar.appendChild(progFill);
-    p.appendChild(progBar);
-
-    const progText = document.createElement('div');
-    progText.style.cssText = 'text-align:center;font-size:11px;color:#999;margin-top:4px;';
-    progText.textContent = '0 / ' + props.length;
-    p.appendChild(progText);
-
-    // background にリクエスト送信
-    try {
-      chrome.runtime.sendMessage({
-        type: 'BULK_COMPETITOR_CHECK',
-        properties: props,
-      }, (resp) => {
-        btn.textContent = 'SUUMO競合チェック';
-        btn.style.backgroundColor = '#e67e22';
-        running = false;
-        progFill.style.width = '100%';
-        progText.textContent = props.length + ' / ' + props.length + ' 完了';
-      });
-    } catch (e) {
-      btn.textContent = 'エラー';
-      btn.style.backgroundColor = '#e74c3c';
-      running = false;
-    }
-
-    // 進捗更新のリスナーで progBar も更新
-    const origUpdate = updateResult;
-    let doneCount = 0;
-    updateResult = function(idx, data) {
-      origUpdate(idx, data);
-      doneCount++;
-      progFill.style.width = (doneCount / props.length * 100) + '%';
-      progText.textContent = doneCount + ' / ' + props.length;
-    };
   });
-
-  function escHtml(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
 })();
