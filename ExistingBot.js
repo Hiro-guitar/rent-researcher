@@ -522,60 +522,67 @@ function createPropertyBubble(p) {
   var ly = (p.layout != null ? String(p.layout) : '---');
   var ar = (p.area != null ? String(p.area) : '---');
 
-  const bodyContents = [
-    { type: 'text', text: nm + ' ' + rm + '号室', weight: 'bold', size: 'lg', wrap: true },
-    { type: 'text', text: ad + ' (' + st + '駅)', size: 'sm', color: '#555555', wrap: true },
-    {
-      type: 'box', layout: 'baseline', margin: 'md', contents: [
-        { type: 'text', text: '賃料：' + rn + '万円', size: 'sm', color: '#111111' },
-        { type: 'text', text: '管理費：' + fe + '円', size: 'sm', color: '#aaaaaa', margin: 'md' }
-      ]
-    },
-    { type: 'text', text: '間取り：' + ly + '　専有面積：' + ar + 'm²', size: 'sm', margin: 'md', color: '#111111', wrap: true }
-  ];
+  // 営業時間判定
+  var _now = new Date();
+  var _jstHour = (typeof getJstHour === 'function') ? getJstHour(_now) : _now.getUTCHours() + 9;
+  var _isOpen = (_jstHour >= 10 && _jstHour < 20);
 
-  // 募集状況テキスト
+  // ヘッダーの色とテキスト
+  var _headerBg, _headerTitle, _headerSub;
   if (p.status === '募集中') {
-    // 募集中 → ステータスのみ（スタッフメッセージ不要）
-    bodyContents.push({
-      type: 'text',
-      text: '募集状況：募集中',
-      size: 'md', margin: 'md', color: '#8ec41d', wrap: true
-    });
+    _headerBg = '#1a7f37';
+    _headerTitle = '募集中の物件です';
+    _headerSub = 'お問い合わせありがとうございます';
   } else {
-    // I列が空欄 or その他 → スタッフ確認中のステータスボックスを表示
-    // 営業時間内: 数分以内 / 営業時間外: 翌営業日 と返信目安を案内
-    var _now = new Date();
-    var _jstHour = (typeof getJstHour === 'function') ? getJstHour(_now) : _now.getUTCHours() + 9;
-    var _isOpen = (_jstHour >= 10 && _jstHour < 20);
-    var _statusLine = _isOpen ? 'スタッフが確認中です' : 'お問い合わせを受け付けました';
-    // 「要確認」(REINS等)は元付業者へ手動確認が必要で時間がかかるため、
-    // 「数分以内」と約束せず、分かり次第連絡する旨に留める。
+    _headerBg = '#2563a8';
+    _headerTitle = _isOpen ? 'スタッフが確認中です' : 'お問い合わせを受け付けました';
     var _isNeedsCheck = (String(p.status).trim() === '要確認');
-    var _etaMsg;
     if (_isNeedsCheck) {
-      _etaMsg = _isOpen
+      _headerSub = _isOpen
         ? '担当者が確認のうえ、分かり次第ご連絡いたします'
         : '営業時間外のため、翌営業日に担当者よりご連絡いたします';
     } else {
-      _etaMsg = _isOpen
+      _headerSub = _isOpen
         ? '数分以内にスタッフよりご返信いたします'
         : '営業時間外のため、翌営業日の朝にスタッフよりご返信いたします';
     }
-    bodyContents.push({
-      type: 'box',
-      layout: 'vertical',
-      backgroundColor: '#fff8e1',
-      cornerRadius: 'md',
-      paddingAll: 'md',
-      margin: 'md',
-      spacing: 'xs',
-      contents: [
-        { type: 'text', text: _statusLine, size: 'sm', weight: 'bold', color: '#c8650b' },
-        { type: 'text', text: _etaMsg, size: 'xs', color: '#8c5410', wrap: true }
-      ]
-    });
   }
+
+  const bodyContents = [
+    {
+      type: 'box', layout: 'vertical', backgroundColor: '#f8f9fa', cornerRadius: 'lg',
+      paddingAll: 'lg', spacing: 'sm', borderColor: '#e0e0e0', borderWidth: '1px',
+      contents: [
+        { type: 'text', text: nm + ' ' + rm + '号室', weight: 'bold', size: 'md', wrap: true, color: '#1a2538' },
+        { type: 'text', text: ad + ' (' + st + '駅)', size: 'xs', color: '#666666', wrap: true },
+        { type: 'separator', color: '#eeeeee', margin: 'md' },
+        {
+          type: 'box', layout: 'horizontal', margin: 'md', contents: [
+            { type: 'text', text: '賃料', size: 'xs', color: '#999999', flex: 0 },
+            { type: 'text', text: rn + '万円', size: 'sm', color: '#111111', weight: 'bold', align: 'end' }
+          ]
+        },
+        {
+          type: 'box', layout: 'horizontal', contents: [
+            { type: 'text', text: '管理費', size: 'xs', color: '#999999', flex: 0 },
+            { type: 'text', text: fe + '円', size: 'sm', color: '#111111', align: 'end' }
+          ]
+        },
+        {
+          type: 'box', layout: 'horizontal', contents: [
+            { type: 'text', text: '間取り', size: 'xs', color: '#999999', flex: 0 },
+            { type: 'text', text: ly, size: 'sm', color: '#111111', align: 'end' }
+          ]
+        },
+        {
+          type: 'box', layout: 'horizontal', contents: [
+            { type: 'text', text: '専有面積', size: 'xs', color: '#999999', flex: 0 },
+            { type: 'text', text: ar + 'm²', size: 'sm', color: '#111111', align: 'end' }
+          ]
+        }
+      ]
+    }
+  ];
 
   const footerButtons = [];
   if (p.url) {
@@ -600,10 +607,23 @@ function createPropertyBubble(p) {
   const bubble = {
     type: 'bubble',
     size: 'mega',
-    body: { type: 'box', layout: 'vertical', contents: bodyContents }
+    header: {
+      type: 'box',
+      layout: 'vertical',
+      backgroundColor: _headerBg,
+      paddingAll: 'xl',
+      paddingTop: 'xxl',
+      paddingBottom: 'xl',
+      spacing: 'sm',
+      contents: [
+        { type: 'text', text: _headerTitle, weight: 'bold', size: 'xl', color: '#ffffff', align: 'center', wrap: true },
+        { type: 'text', text: _headerSub, size: 'xs', color: '#ffffffcc', align: 'center', wrap: true, margin: 'sm' }
+      ]
+    },
+    body: { type: 'box', layout: 'vertical', spacing: 'lg', paddingAll: 'xl', paddingTop: 'lg', contents: bodyContents }
   };
   if (footerButtons.length > 0) {
-    bubble.footer = { type: 'box', layout: 'vertical', spacing: 'sm', contents: footerButtons };
+    bubble.footer = { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', contents: footerButtons };
   }
   return bubble;
 }
