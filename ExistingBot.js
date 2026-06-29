@@ -771,60 +771,40 @@ function _buildVacancyUnavailableMessages_(userId, displayName) {
     // 既に条件登録済み: 条件登録への誘導は不要、テキスト通知のみ
     return [{
       type: 'text',
-      text: 'お待たせいたしました。\n「' + displayName + '」について確認いたしましたが、現在ご案内が難しい状況でした。\n\n引き続き、ご希望の条件に合うお部屋が見つかり次第すぐにご案内いたします。'
+      text: '「' + displayName + '」は募集が終了していました。\n\n引き続き、条件に合うお部屋が見つかり次第すぐにお知らせします。'
     }];
   }
-  // 未登録: 確認結果 + 類似物件の条件登録誘導Flex（リッチスタイル）
+  // 未登録: 募集終了通知 + 類似物件の条件登録誘導Flex
   return [{
     type: 'flex',
-    altText: '「' + displayName + '」の確認結果をお知らせします',
+    altText: '「' + displayName + '」は募集が終了していました',
     contents: {
       type: 'bubble',
       size: 'mega',
-      header: {
-        type: 'box',
-        layout: 'vertical',
-        backgroundColor: '#8b5e3c',
-        paddingAll: 'xl',
-        paddingTop: 'xxl',
-        paddingBottom: 'xl',
-        spacing: 'sm',
-        contents: [
-          { type: 'text', text: '確認結果のお知らせ', weight: 'bold', size: 'xl', color: '#ffffff', align: 'center', wrap: true },
-          { type: 'text', text: 'お待たせいたしました', size: 'xs', color: '#e8d5c4', align: 'center', margin: 'sm' }
-        ]
-      },
       body: {
         type: 'box',
         layout: 'vertical',
         spacing: 'lg',
         paddingAll: 'xl',
-        paddingTop: 'lg',
         contents: [
+          { type: 'text', text: displayName, size: 'md', color: '#1a2538', weight: 'bold', wrap: true },
           {
-            type: 'box', layout: 'vertical', backgroundColor: '#fdf6f0', cornerRadius: 'lg',
-            paddingAll: 'lg', spacing: 'sm', borderColor: '#e8d5c4', borderWidth: '1px',
+            type: 'box', layout: 'horizontal', spacing: 'sm', alignItems: 'center', margin: 'md',
             contents: [
-              { type: 'text', text: displayName, size: 'md', color: '#1a2538', weight: 'bold', wrap: true },
-              { type: 'text', text: '確認いたしましたが、現在ご案内が難しい状況でした。', size: 'sm', color: '#666666', wrap: true, margin: 'md' }
+              { type: 'text', text: '❌', size: 'sm', flex: 0 },
+              { type: 'text', text: '募集が終了していました', size: 'md', color: '#c0392b', weight: 'bold', wrap: true }
             ]
           },
-          { type: 'separator', color: '#e8e8e8', margin: 'sm' },
-          {
-            type: 'box', layout: 'vertical', backgroundColor: '#f5f9ee', cornerRadius: 'lg',
-            paddingAll: 'lg', spacing: 'sm',
-            contents: [
-              { type: 'text', text: '似た条件で\nお部屋を探しませんか？', size: 'lg', color: '#3d6909', weight: 'bold', wrap: true, align: 'center' },
-              { type: 'text', text: 'ご希望に合う物件が見つかり次第\nすぐにお知らせします', size: 'xs', color: '#5a7a3f', wrap: true, align: 'center', margin: 'sm' }
-            ]
-          }
+          { type: 'separator', color: '#eeeeee', margin: 'lg' },
+          { type: 'text', text: '似たお部屋を自動で探しませんか？', size: 'sm', color: '#555555', wrap: true, margin: 'lg' },
+          { type: 'text', text: '条件に合う物件が出たらすぐお知らせします', size: 'xs', color: '#999999', wrap: true, margin: 'sm' }
         ]
       },
       footer: {
-        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingTop: 'none',
         contents: [
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm', action: { type: 'message', label: 'はい、お部屋を探す', text: '条件登録' } },
-          { type: 'button', style: 'link', color: '#999999', height: 'sm', action: { type: 'message', label: '今回はキャンセル', text: '類似物件不要' } }
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm', action: { type: 'message', label: 'お部屋を探してもらう', text: '条件登録' } },
+          { type: 'button', style: 'link', color: '#aaaaaa', height: 'sm', action: { type: 'message', label: '今回は大丈夫です', text: '類似物件不要' } }
         ]
       }
     }
