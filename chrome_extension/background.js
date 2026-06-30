@@ -4058,13 +4058,15 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     layouts: simpleHash(JSON.stringify(origCustomer.layouts || [])),
     equipment: simpleHash(JSON.stringify(origCustomer.equipment || '')),
     building_age: simpleHash(JSON.stringify(origCustomer.building_age || '')),
+    move_in: simpleHash(JSON.stringify({ d: origCustomer.move_in_date || '', s: !!origCustomer.move_in_strict })),
   };
   const conditionToReasonPattern = {
     structures: /構造不一致|構造不明/,
     stations: /駅不一致|駅\/徒歩不一致|交通情報なし/,
     layouts: /間取り不一致/,
-    equipment: /敷金|礼金|定期借家|ロフト/,
+    equipment: /敷金|礼金|定期借家|ロフト|プロパンガス|都市ガス|バス・トイレ|ペット|事務所|フリーレント|南向き|最上階|階/,
     building_age: /新築でない/,
+    move_in: /入居/,
   };
   for (const [category, hash] of Object.entries(currentHashes)) {
     if (prevHashes[category] && prevHashes[category] !== hash) {
@@ -5234,6 +5236,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
           if (strictSkipReason) {
             await setStorageData({ debugLog: `${customer.name}: [入居時期厳守] スキップ: ${detail.building_name || ''} ${detail.room_number || ''} - ${strictSkipReason}` });
+            if (detail.reins_property_number) {
+              skippedMap[detail.reins_property_number] = { reason: strictSkipReason, ts: Date.now() };
+              skippedMapDirty = true;
+            }
           } else {
           newProperties.push(detail);
           currentStats.totalFound++;

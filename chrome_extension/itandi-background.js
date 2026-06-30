@@ -1076,7 +1076,44 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
   const customerSeenIds = seenIds[customer.name] || [];
   let submittedCount = 0;
   // 個別ログを出さずに件数だけ集計する silent スキップ用カウンタ
-  const silentSkipStats = { seen: 0 };
+  const silentSkipStats = { seen: 0, cached: 0 };
+
+  // スキップ済み物件キャッシュをロード（詳細ページ遷移を省略して高速化）
+  const skipStorageKey = `itandiSkipped_${customer.name}`;
+  const skipHashKey = `itandiSkipHash_${customer.name}`;
+  const skipData = await getStorageData([skipStorageKey, skipHashKey]);
+  const skippedMap = skipData[skipStorageKey] || {};
+  let skippedMapDirty = false;
+
+  // 条件別ハッシュで、変わった条件に関連するスキップのみリセット
+  const simpleHash = (s) => s.split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0).toString(36);
+  const prevHashes = skipData[skipHashKey] || {};
+  const origCustomer = customer._originalCustomer || customer;
+  const currentHashes = {
+    structures: simpleHash(JSON.stringify(origCustomer.structures || [])),
+    stations: simpleHash(JSON.stringify({ s: origCustomer.stations, r: origCustomer.routes_with_stations, w: origCustomer.walk })),
+    layouts: simpleHash(JSON.stringify(origCustomer.layouts || [])),
+    equipment: simpleHash(JSON.stringify(origCustomer.equipment || '')),
+    building_age: simpleHash(JSON.stringify(origCustomer.building_age || '')),
+  };
+  const conditionToReasonPattern = {
+    structures: /構造不一致|構造不明/,
+    stations: /駅不一致|駅\/徒歩不一致|交通情報なし/,
+    layouts: /間取り不一致/,
+    equipment: /敷金|礼金|定期借家|ロフト|プロパンガス|都市ガス|バス・トイレ|ペット|事務所|フリーレント|南向き|最上階|階/,
+    building_age: /新築でない|築年/,
+  };
+  for (const [category, hash] of Object.entries(currentHashes)) {
+    if (prevHashes[category] && prevHashes[category] !== hash) {
+      const pattern = conditionToReasonPattern[category];
+      if (pattern) {
+        for (const key of Object.keys(skippedMap)) {
+          if (pattern.test(skippedMap[key].reason)) delete skippedMap[key];
+        }
+      }
+    }
+  }
+  await setStorageData({ [skipHashKey]: currentHashes });
 
   // 駅名→station_id解決
   let stationIds = null;
@@ -1267,6 +1304,12 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
       await setStorageData({ debugLog: `[強制再取得] [itandi] ${customer.name}: ${prop._raw_room_id || prop.room_id} を強制再取得対象として処理` });
     }
 
+    // スキップ済み物件チェック（前回フィルタで除外された物件は詳細ページに行かない）
+    if (!isForced && !isTestUser && skippedMap[prop._raw_room_id]) {
+      silentSkipStats.cached++;
+      continue;
+    }
+
     // ── 一覧段階フィルタ (申込あり物件は詳細ページ遷移せず即スキップ) ──
     // 検索 API レスポンスの status_type === 'offered' で「申込あり」 と判定済み。
     // テストユーザー・SUUMO 巡回モード・強制再取得は対象外 (既存仕様と整合)。
@@ -1414,6 +1457,10 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
         } catch(_) {}
       }
       await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
+      if (prop._raw_room_id) {
+        skippedMap[prop._raw_room_id] = { reason: rejectReason, ts: Date.now() };
+        skippedMapDirty = true;
+      }
       continue;
     }
 
@@ -1476,6 +1523,10 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     }
     if (strictSkipReason) {
       await setStorageData({ debugLog: `[itandi] ${customer.name}: [入居時期厳守] スキップ: ${prop.building_name || ''} ${prop.room_number || ''} - ${strictSkipReason}` });
+      if (prop._raw_room_id) {
+        skippedMap[prop._raw_room_id] = { reason: strictSkipReason, ts: Date.now() };
+        skippedMapDirty = true;
+      }
       continue;
     }
 
@@ -1512,9 +1563,15 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     await csleep(delayMs);
   }
 
+  // スキップ済みキャッシュを保存
+  if (skippedMapDirty) {
+    await setStorageData({ [skipStorageKey]: skippedMap });
+  }
+
   // 個別ログを出さなかった silent スキップを集約ログで出す
   const silentParts = [];
   if (silentSkipStats.seen > 0) silentParts.push(`通知済み ${silentSkipStats.seen}件`);
+  if (silentSkipStats.cached > 0) silentParts.push(`前回スキップ済み ${silentSkipStats.cached}件`);
   if (silentParts.length > 0) {
     await setStorageData({ debugLog: `[itandi] ${customer.name}: スキップ内訳 → ${silentParts.join(' / ')}` });
   }
