@@ -263,35 +263,73 @@
     return entries;
   }
 
-  // ── いえらぶ物件抽出 ──
+  // ── いえらぶ物件抽出（ielove-content-search.js の parseEstateCard 準拠） ──
   function extractIelove() {
     const entries = [];
     const cards = document.querySelectorAll('table.estate_list');
     cards.forEach((card) => {
-      const nameEl = card.querySelector('.estate_name a, .estate_name');
-      const buildingName = nameEl ? nameEl.textContent.trim() : '';
-      const rows = card.querySelectorAll('tr');
-      let address = '', rent = 0, mgmt = 0, layout = '', area = 0, roomNumber = '', adKeisai = '';
-      rows.forEach((tr) => {
-        const th = (tr.querySelector('th') || {}).textContent || '';
-        const td = (tr.querySelector('td') || {}).textContent || '';
-        if (th.includes('所在地')) address = td.trim();
-        if (th.includes('賃料')) rent = parseMoney(td);
-        if (th.includes('管理費') || th.includes('共益費')) mgmt = parseMoney(td);
-        if (th.includes('間取')) layout = normalizeLayout(td.trim());
-        if (th.includes('面積') || th.includes('専有')) area = parseFloat(td.replace(/[^\d.]/g, '')) || 0;
-        if (th.includes('号室') || th.includes('部屋')) roomNumber = td.replace(/[^\d]/g, '');
-        if (th.includes('広告')) adKeisai = td.trim();
-      });
+      // 物件名・部屋番号: table.estate-name > span.large-font
+      let buildingName = '', roomNumber = '';
+      const nameTable = card.querySelector('table.estate-name');
+      const nameSpan = nameTable && nameTable.querySelector('span.large-font');
+      if (nameSpan) {
+        const textParts = [];
+        for (const child of nameSpan.childNodes) {
+          if (child.nodeType === 3) { const t = child.textContent.trim(); if (t) textParts.push(t); }
+          else break;
+        }
+        const raw = textParts.join(' ').trim();
+        const parts = raw.split(/\s{2,}/);
+        if (parts.length >= 2) {
+          buildingName = parts.slice(0, -1).join(' ');
+          roomNumber = parts[parts.length - 1];
+        } else if (parts.length > 0) {
+          buildingName = parts[0];
+        }
+      }
+
+      // 賃料・管理費・住所: 「管理費」と「円」を含むtd
+      let rent = 0, mgmt = 0, address = '';
+      for (const td of card.querySelectorAll('td')) {
+        const text = td.textContent.trim();
+        if (text.includes('管理費') && text.includes('円')) {
+          const rentM = text.match(/([\d,]+)\s*円/);
+          if (rentM) rent = parseInt(rentM[1].replace(/,/g, ''), 10);
+          const mgmtM = text.match(/管理費[^\d]*([\d,]+)\s*円/);
+          if (mgmtM) mgmt = parseInt(mgmtM[1].replace(/,/g, ''), 10);
+          const addrM = text.match(/((?:東京都|北海道|(?:京都|大阪)府|.{2,3}県)[^\n]+?)(?:\s|$)/);
+          if (addrM) address = addrM[1].trim();
+          break;
+        }
+      }
+
+      // 間取り・面積: table.detail-info のヘッダーなしtd行
+      let layout = '', area = 0;
+      const detailInfo = card.querySelector('table.detail-info');
+      if (detailInfo) {
+        for (const row of detailInfo.querySelectorAll('tr')) {
+          const tds = row.querySelectorAll('td');
+          const ths = row.querySelectorAll('th');
+          if (tds.length >= 2 && ths.length === 0) {
+            const v1 = tds[1].textContent.trim();
+            const lm = v1.match(/(\d+[SLDKR]+)/i);
+            layout = lm ? lm[1].toUpperCase() : (/ワンルーム/.test(v1) ? '1R' : '');
+            const am = v1.match(/([\d.]+)\s*[㎡m]/);
+            area = am ? parseFloat(am[1]) : 0;
+            break;
+          }
+        }
+      }
+
       if (!address || !rent) return;
       entries.push({
         el: card,
-        insertTarget: nameEl || card,
-        adBlocked: adKeisai && adKeisai !== '可' && adKeisai !== '',
+        insertTarget: nameSpan || card,
+        adBlocked: false,
         prop: {
           building_name: buildingName, room_number: roomNumber,
           address, rent, management_fee: mgmt,
-          layout, area, source: 'ielove', ad_keisai: adKeisai,
+          layout, area, source: 'ielove',
         }
       });
     });
