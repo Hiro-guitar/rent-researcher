@@ -32,8 +32,11 @@
   const BC = 'bc-badge';
 
   function clearBadge(el) {
+    // 自身の子要素と、直後の兄弟要素の両方を探す（後方互換）
     const old = el.querySelector('.' + BC);
-    if (old) old.remove();
+    if (old) { old.remove(); return; }
+    const sib = el.nextElementSibling;
+    if (sib && sib.classList.contains(BC)) sib.remove();
   }
 
   function mkBox() {
@@ -82,7 +85,7 @@
         box.appendChild(a);
       }
     }
-    (insertTarget || el).appendChild(box);
+    (insertTarget || el).after(box);
   }
 
   function injectAdBlock(el, insertTarget) {
@@ -93,7 +96,7 @@
     box.textContent = '広告不可';
     box.style.color = '#999';
     box.style.fontSize = '10px';
-    (insertTarget || el).appendChild(box);
+    (insertTarget || el).after(box);
   }
 
   function injectLoading(el, insertTarget) {
@@ -103,7 +106,7 @@
     box.style.border = '1px solid #e8e8e8';
     box.style.color = '#bbb';
     box.textContent = '⏳';
-    (insertTarget || el).appendChild(box);
+    (insertTarget || el).after(box);
   }
 
   function injectError(el, insertTarget) {
@@ -113,7 +116,7 @@
     box.style.border = '1px solid #e8c8c8';
     box.style.color = '#c0392b';
     box.textContent = '✗';
-    (insertTarget || el).appendChild(box);
+    (insertTarget || el).after(box);
   }
 
   // ── REINS 物件抽出 ──
