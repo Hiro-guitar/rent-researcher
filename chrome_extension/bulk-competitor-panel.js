@@ -209,7 +209,10 @@
         cardCache.set(buildingCard, bld);
       }
 
-      const text = (roomBox.textContent || '').replace(/ /g, ' ');
+      // バッジ要素を除外してテキスト取得（re-extractionでの汚染防止）
+      const _clone = roomBox.cloneNode(true);
+      _clone.querySelectorAll('.' + BC).forEach(function(b) { b.remove(); });
+      const text = (_clone.textContent || '').replace(/ /g, ' ');
       const roomNumber = extractBetween(text, '部屋番号', ['賃管共', '賃料', '賃']).replace(/\s+/g, '').trim();
       const chinkan = extractBetween(text, '賃管共', ['敷礼保', '敷', '間取り', '内見']);
       const parts = chinkan.split('/');
@@ -224,7 +227,7 @@
       // 広告掲載の取得: roomBox内のリーフテキストから「不可」を探す
       // 「不可」は広告掲載カラム固有のリーフテキスト
       let adKeisai = '';
-      const roomLeaves = leafTexts(roomBox);
+      const roomLeaves = leafTexts(_clone);
       for (let li = 0; li < roomLeaves.length; li++) {
         if (roomLeaves[li] === '不可') { adKeisai = '不可'; break; }
       }

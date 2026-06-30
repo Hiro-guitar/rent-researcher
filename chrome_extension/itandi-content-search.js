@@ -160,9 +160,15 @@
   }
 
   // ── roomBox から 部屋番号・賃料・管理費・敷金・礼金・間取り・面積 を抽出 ──
+  function getCleanText(el) {
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('.bc-badge').forEach(function(b) { b.remove(); });
+    return (clone.textContent || '').replace(/ /g, ' ');
+  }
+
   function parseRoom(roomBox) {
     const res = { roomNumber: '', rent: 0, managementFee: 0, deposit: '', keyMoney: '', layout: '', area: 0 };
-    const text = (roomBox.textContent || '').replace(/ /g, ' ');
+    const text = getCleanText(roomBox);
 
     // 部屋番号
     let roomNumber = segmentBetween(text, '部屋番号', ['賃管共', '賃料', '賃']);
