@@ -371,10 +371,32 @@
     }
   }
 
+  // ── いえらぶURL広告フィルタ ──
+  function ensureIeloveAdFilter() {
+    const url = location.href;
+    if (url.includes('papt/1') && url.includes('papc/03')) return true;
+    let newUrl = url.replace(/\/$/, '');
+    if (!url.includes('papt/')) newUrl += '/papt/1';
+    if (!url.includes('papc/')) newUrl += '/papc/03';
+    sessionStorage.setItem('bc-auto-start', '1');
+    location.href = newUrl;
+    return false;
+  }
+
+  // ── 自動開始（いえらぶフィルタ付与後リロード） ──
+  if (site === 'ielove' && sessionStorage.getItem('bc-auto-start')) {
+    sessionStorage.removeItem('bc-auto-start');
+    setTimeout(() => btn.click(), 1500);
+  }
+
   // ── ボタンクリック ──
   let running = false;
   btn.addEventListener('click', () => {
     if (running) return;
+
+    // いえらぶ: 広告可フィルタがなければURLに追加してリロード
+    if (site === 'ielove' && !ensureIeloveAdFilter()) return;
+
     running = true;
     doneCount = 0;
 
