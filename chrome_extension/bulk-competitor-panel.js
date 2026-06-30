@@ -221,15 +221,12 @@
       const am = madoriText.match(/([\d.]+)\s*[㎡m]/);
       const area = am ? parseFloat(am[1]) : 0;
 
-      // 広告掲載の取得: roomBox内のリーフテキストから取引態様の直後の「可」「不可」を探す
-      // 取引態様: 一般媒介/専任媒介/専属専任媒介/代理/貸主
+      // 広告掲載の取得: roomBox内のリーフテキストから「不可」を探す
+      // 「不可」は広告掲載カラム固有のリーフテキスト
       let adKeisai = '';
       const roomLeaves = leafTexts(roomBox);
       for (let li = 0; li < roomLeaves.length; li++) {
-        if (/媒介|代理|貸主/.test(roomLeaves[li])) {
-          const next = (roomLeaves[li + 1] || '').trim();
-          if (next === '不可' || next === '可') { adKeisai = next; break; }
-        }
+        if (roomLeaves[li] === '不可') { adKeisai = '不可'; break; }
       }
 
       const key = bld.buildingName + '|' + roomNumber;
