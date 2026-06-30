@@ -3953,6 +3953,23 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     try { await setStorageData({ oneShotForceRefetch: [] }); } catch (_) {}
     await setStorageData({ isSearching: false });
 
+    // ── 顧客検索完了後フック: SUUMO広告一括更新 & 掲載順位リフレッシュ ──
+    // どちらも日次ガード(本日実施済みならスキップ)があるため毎回安全に呼べる
+    try {
+      if (typeof globalThis.maybeRunSuumoBulkAdUpdate === 'function') {
+        await globalThis.maybeRunSuumoBulkAdUpdate();
+      }
+    } catch (e) {
+      console.warn('[顧客検索後] 広告一括更新フック例外:', e.message);
+    }
+    try {
+      if (typeof maybeRefreshListedPropertyRanks === 'function') {
+        await maybeRefreshListedPropertyRanks();
+      }
+    } catch (e) {
+      console.warn('[顧客検索後] 掲載順位更新フック例外:', e.message);
+    }
+
     // ── チェイン起動: 検索中に SUUMO巡回アラームが pending を立てていた場合、
     //    顧客検索完了直後にここで自動起動する ──
     try {
