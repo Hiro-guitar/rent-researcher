@@ -601,7 +601,6 @@
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
         .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     };
-    var compTotal = m.competitor ? m.competitor.total : null;
     var htmlLines = [];
     // 1行目: ポテンシャル順位（同条件・安い順での順位/母数。✅=1ページ目内 ⚠️=圏外）。
     //        URLがあればクリックで安い順検索を開ける。
@@ -617,14 +616,15 @@
     } else {
       htmlLines.push('<div>' + esc(rankLineText) + '</div>');
     }
-    // 2行目: 競合数（withName/withoutName はHL込みの総数。total = 名 + 無）。
+    // 2行目: 競合数（ハイライト=有料上位掲載のみカウント）。
     //        URLがあればSUUMO競合一覧を新タブで開けるリンクにする。
-    if (compTotal === null || compTotal === undefined) {
+    var hlTotal = m.competitor ? ((m.competitor.withNameHighlighted || 0) + (m.competitor.withoutNameHighlighted || 0)) : null;
+    if (hlTotal === null || hlTotal === undefined) {
       htmlLines.push('<div>競合 —</div>');
     } else {
-      var wn = m.competitor.withName || 0;
-      var wo = m.competitor.withoutName || 0;
-      var compText = '競合 ' + compTotal + '（名' + wn + '/無' + wo + '）';
+      var wn = m.competitor.withNameHighlighted || 0;
+      var wo = m.competitor.withoutNameHighlighted || 0;
+      var compText = '競合 ' + hlTotal + '（名' + wn + '/無' + wo + '）';
       if (m.competitor.url) {
         htmlLines.push('<div><a href="' + esc(m.competitor.url) + '" target="_blank" rel="noopener" ' +
           'style="color:inherit;text-decoration:underline;pointer-events:auto;cursor:pointer;">' +
