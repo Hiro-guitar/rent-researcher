@@ -3630,6 +3630,23 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ', services.itandi && 'itandi', services.essquare && 'ES-Square'].filter(Boolean).join('・');
   await setStorageData({ isSearching: true, debugLog: `━━━ 検索開始 (${serviceNames}) ━━━` });
 
+  // ── 検索開始前フック: SUUMO広告一括更新 & 掲載順位リフレッシュ ──
+  // どちらも日次ガード(本日実施済みならスキップ)があるため毎回安全に呼べる
+  try {
+    if (typeof globalThis.maybeRunSuumoBulkAdUpdate === 'function') {
+      await globalThis.maybeRunSuumoBulkAdUpdate();
+    }
+  } catch (e) {
+    console.warn('[顧客検索前] 広告一括更新フック例外:', e.message);
+  }
+  try {
+    if (typeof maybeRefreshListedPropertyRanks === 'function') {
+      await maybeRefreshListedPropertyRanks();
+    }
+  } catch (e) {
+    console.warn('[顧客検索前] 掲載順位更新フック例外:', e.message);
+  }
+
   // ワンショット強制再取得リストを読み込み(検索終了時にクリア)
   // 各サイトの seen/skipped チェックがこのSetを参照してバイパスする
   // プレフィックス対応: "reins_100138898060" のような形式も自動的に剥がして登録
@@ -3952,23 +3969,6 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     globalThis._oneShotForceRefetchSet = new Set();
     try { await setStorageData({ oneShotForceRefetch: [] }); } catch (_) {}
     await setStorageData({ isSearching: false });
-
-    // ── 顧客検索完了後フック: SUUMO広告一括更新 & 掲載順位リフレッシュ ──
-    // どちらも日次ガード(本日実施済みならスキップ)があるため毎回安全に呼べる
-    try {
-      if (typeof globalThis.maybeRunSuumoBulkAdUpdate === 'function') {
-        await globalThis.maybeRunSuumoBulkAdUpdate();
-      }
-    } catch (e) {
-      console.warn('[顧客検索後] 広告一括更新フック例外:', e.message);
-    }
-    try {
-      if (typeof maybeRefreshListedPropertyRanks === 'function') {
-        await maybeRefreshListedPropertyRanks();
-      }
-    } catch (e) {
-      console.warn('[顧客検索後] 掲載順位更新フック例外:', e.message);
-    }
 
     // ── チェイン起動: 検索中に SUUMO巡回アラームが pending を立てていた場合、
     //    顧客検索完了直後にここで自動起動する ──
