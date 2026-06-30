@@ -3630,8 +3630,8 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ', services.itandi && 'itandi', services.essquare && 'ES-Square'].filter(Boolean).join('・');
   await setStorageData({ isSearching: true, debugLog: `━━━ 検索開始 (${serviceNames}) ━━━` });
 
-  // ── 検索開始前フック: SUUMO広告一括更新 & 掲載順位リフレッシュ ──
-  // どちらも日次ガード(本日実施済みならスキップ)があるため毎回安全に呼べる
+  // ── 検索開始前フック: SUUMO関連の日次タスク ──
+  // すべて日次ガード(本日実施済みならスキップ)があるため毎回安全に呼べる
   try {
     if (typeof globalThis.maybeRunSuumoBulkAdUpdate === 'function') {
       await globalThis.maybeRunSuumoBulkAdUpdate();
@@ -3645,6 +3645,28 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     }
   } catch (e) {
     console.warn('[顧客検索前] 掲載順位更新フック例外:', e.message);
+  }
+  try {
+    if (typeof runSuumoBusinessFetch === 'function') {
+      const { suumoBusinessLastFetchAt } = await getStorageData(['suumoBusinessLastFetchAt']);
+      const toJstDate = (ms) => {
+        const d = new Date(Number(ms) + 9 * 60 * 60 * 1000);
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+      };
+      const todayJst = toJstDate(Date.now());
+      const lastJst = suumoBusinessLastFetchAt ? toJstDate(suumoBusinessLastFetchAt) : null;
+      if (lastJst && lastJst === todayJst) {
+        await setStorageData({ debugLog: `[SUUMOビジネス] 本日(${todayJst})取得済み → スキップ` });
+      } else {
+        await setStorageData({ debugLog: '[SUUMOビジネス] データ取得開始(顧客検索前フック)' });
+        const bizResult = await runSuumoBusinessFetch();
+        if (!bizResult || !bizResult.ok) {
+          await setStorageData({ debugLog: `[SUUMOビジネス] 取得失敗: ${bizResult && bizResult.error}` });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[顧客検索前] SUUMOビジネス取得フック例外:', e.message);
   }
 
   // ワンショット強制再取得リストを読み込み(検索終了時にクリア)
