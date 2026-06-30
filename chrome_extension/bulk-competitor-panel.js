@@ -218,8 +218,16 @@
       const am = madoriText.match(/([\d.]+)\s*[㎡m]/);
       const area = am ? parseFloat(am[1]) : 0;
 
-      // 広告掲載の取得: roomBoxのテキストから「広告掲載」ラベルの後の値を読む
-      const adKeisai = extractBetween(text, '広告掲載', ['内見方法', '内見開始', '鍵', '備考', '更新', '物件メモ']).trim();
+      // 広告掲載の取得: roomBox内のリーフテキストから「媒介」の直後の「可」「不可」を探す
+      // ヘッダーとデータ行が分離しているためextractBetweenでは取れない
+      let adKeisai = '';
+      const roomLeaves = leafTexts(roomBox);
+      for (let li = 0; li < roomLeaves.length; li++) {
+        if (/媒介/.test(roomLeaves[li])) {
+          const next = (roomLeaves[li + 1] || '').trim();
+          if (next === '不可' || next === '可') { adKeisai = next; break; }
+        }
+      }
 
       const key = bld.buildingName + '|' + roomNumber;
       if (seen.has(key)) return;
