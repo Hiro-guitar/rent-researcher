@@ -2920,6 +2920,125 @@ function recordDailyPv_(json) {
 }
 
 /**
+ * 旧append形式のSUUMO競合履歴を新マトリクス形式に移行（GASエディタから手動実行）。
+ */
+function migrateCompetitionLogToMatrix() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var oldSheet = ss.getSheetByName(SUUMO_COMPETITION_LOG_SHEET);
+  if (!oldSheet) { Logger.log('SUUMO競合履歴シートが見つかりません'); return; }
+
+  var lastRow = oldSheet.getLastRow();
+  var lastCol = oldSheet.getLastColumn();
+  if (lastRow <= 1) { Logger.log('データなし'); return; }
+
+  var oldData = oldSheet.getRange(2, 1, lastRow - 1, Math.min(lastCol, 7)).getValues();
+
+  // 掲載管理シートから物件キー→SUUMOコードのマップを作成
+  var listingSheet = getListingSheet_();
+  var lLastRow = listingSheet.getLastRow();
+  var keyToCode = {};
+  if (lLastRow > 1) {
+    var lData = listingSheet.getRange(2, 1, lLastRow - 1, 11).getValues();
+    for (var li = 0; li < lData.length; li++) {
+      var k = String(lData[li][0] || '');
+      var c = String(lData[li][10] || '').replace(/[^0-9]/g, '');
+      if (k && c) keyToCode[k] = c;
+    }
+  }
+
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - COMP_HISTORY_RETENTION_DAYS);
+
+  var fixedLen = COMP_HISTORY_FIXED_COLS.length;
+  var allData = [COMP_HISTORY_FIXED_COLS.slice()];
+  var headers = allData[0];
+  var rowMap = {};
+
+  var kinds = ['競合_第1', '競合_第2', '競合_第3'];
+  var processed = 0;
+  var skipped = 0;
+
+  for (var i = 0; i < oldData.length; i++) {
+    var ts = oldData[i][0];
+    var d = (ts instanceof Date) ? ts : new Date(ts);
+    if (isNaN(d.getTime()) || d < cutoff) { skipped++; continue; }
+
+    var dateStr = Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd');
+    var propKey = String(oldData[i][1] || '');
+    var name = String(oldData[i][2] || '');
+    var room = String(oldData[i][3] || '');
+    var code = keyToCode[propKey] || '';
+    if (!code) { skipped++; continue; }
+
+    var vals = [oldData[i][4], oldData[i][5], oldData[i][6]];
+
+    var dateCol = -1;
+    for (var h = fixedLen; h < headers.length; h++) {
+      if (headers[h] === dateStr) { dateCol = h; break; }
+    }
+    if (dateCol < 0) {
+      dateCol = headers.length;
+      headers.push(dateStr);
+      for (var ei = 1; ei < allData.length; ei++) {
+        allData[ei].push('');
+      }
+    }
+
+    for (var ki = 0; ki < kinds.length; ki++) {
+      var rk = code + '|' + kinds[ki];
+      if (!rowMap[rk]) {
+        var nr = new Array(headers.length);
+        for (var x = 0; x < nr.length; x++) nr[x] = '';
+        nr[0] = name; nr[1] = room; nr[2] = code; nr[3] = kinds[ki];
+        allData.push(nr);
+        rowMap[rk] = allData.length - 1;
+      }
+      while (allData[rowMap[rk]].length < headers.length) allData[rowMap[rk]].push('');
+      var v = vals[ki];
+      allData[rowMap[rk]][dateCol] = (v === '' || v === null || v === undefined) ? '' : Number(v);
+    }
+    processed++;
+  }
+
+  // 日付列ソート
+  var dateCols = [];
+  for (var di = fixedLen; di < headers.length; di++) {
+    dateCols.push({ idx: di, date: String(headers[di]) });
+  }
+  dateCols.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  var colOrder = [];
+  for (var fi = 0; fi < fixedLen; fi++) colOrder.push(fi);
+  for (var si = 0; si < dateCols.length; si++) colOrder.push(dateCols[si].idx);
+
+  var finalData = [];
+  for (var wi = 0; wi < allData.length; wi++) {
+    var newRow = [];
+    for (var ci = 0; ci < colOrder.length; ci++) {
+      newRow.push(allData[wi][colOrder[ci]] !== undefined ? allData[wi][colOrder[ci]] : '');
+    }
+    finalData.push(newRow);
+  }
+
+  if (finalData.length > 1) {
+    var bodyRows = finalData.slice(1);
+    bodyRows.sort(function(a, b) {
+      var ka = String(a[0]) + '|' + String(a[1]) + '|' + String(a[3]);
+      var kb = String(b[0]) + '|' + String(b[1]) + '|' + String(b[3]);
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+    finalData = [finalData[0]].concat(bodyRows);
+  }
+
+  oldSheet.clear();
+  var totalCols = finalData[0].length;
+  oldSheet.getRange(1, 1, finalData.length, totalCols).setValues(finalData);
+  oldSheet.setFrozenRows(1);
+  oldSheet.setFrozenColumns(fixedLen);
+
+  Logger.log('移行完了: 処理=' + processed + '件, スキップ=' + skipped + '件, ' + (finalData.length - 1) + '行 × ' + dateCols.length + '日付列');
+}
+
+/**
  * PV履歴シートから古い日付列を削除する（単独実行用）。
  */
 function cleanupPvHistory_(sheet) {
