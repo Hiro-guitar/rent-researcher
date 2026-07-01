@@ -2919,6 +2919,125 @@ function recordDailyPv_(json) {
   return { ok: true, recorded: recorded, totalRows: finalData.length - 1, dateCols: dateCols.length };
 }
 
+function migrateCompetitionLogToMatrix() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(SUUMO_COMPETITION_LOG_SHEET);
+  if (!sheet) { Logger.log('シートなし'); return; }
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow <= 1) { Logger.log('データなし'); return; }
+  var raw = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  Logger.log('行数=' + lastRow + ' 列数=' + lastCol);
+  Logger.log('ヘッダ: ' + JSON.stringify(raw[0].slice(0, 8)));
+  if (lastRow >= 2) Logger.log('行2: ' + JSON.stringify(raw[1].slice(0, 8)));
+  if (lastRow >= 3) Logger.log('行3: ' + JSON.stringify(raw[2].slice(0, 8)));
+
+  // 既にマトリクス形式か判定（col3が種別なら変換済み）
+  var alreadyMatrix = false;
+  if (lastRow >= 2) {
+    var c3 = String(raw[1][3] || '');
+    if (c3.indexOf('競合_第') === 0) alreadyMatrix = true;
+  }
+  if (alreadyMatrix) {
+    Logger.log('既にマトリクス形式です。旧append形式のデータはありません。');
+    return;
+  }
+
+  // 掲載管理シートから物件キー→{code,name,room}マップ
+  var listingSheet = getListingSheet_();
+  var lLastRow = listingSheet.getLastRow();
+  var keyToInfo = {};
+  if (lLastRow > 1) {
+    var lData = listingSheet.getRange(2, 1, lLastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
+    for (var li = 0; li < lData.length; li++) {
+      var k = String(lData[li][0] || '');
+      var c = String(lData[li][10] || '').replace(/[^0-9]/g, '');
+      if (k && c) keyToInfo[k] = { code: c, name: String(lData[li][1] || ''), room: String(lData[li][2] || '') };
+    }
+  }
+  Logger.log('マッピング件数: ' + Object.keys(keyToInfo).length);
+
+  var skipDate = 0, skipKey = 0, skipNoCode = 0;
+  var entriesByDate = {};
+
+  for (var i = 1; i < raw.length; i++) {
+    var ts = raw[i][0];
+    var d = (ts instanceof Date) ? ts : new Date(ts);
+    if (isNaN(d.getTime())) { skipDate++; continue; }
+    var dateStr = Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd');
+    var propKey = String(raw[i][1] || '');
+    if (!propKey) { skipKey++; continue; }
+    var info = keyToInfo[propKey];
+    if (!info) { skipNoCode++; if (skipNoCode <= 3) Logger.log('マッピング失敗: key=' + propKey); continue; }
+
+    if (!entriesByDate[dateStr]) entriesByDate[dateStr] = [];
+    entriesByDate[dateStr].push({
+      suumoCode: info.code,
+      name: info.name || String(raw[i][2] || ''),
+      room: info.room || String(raw[i][3] || ''),
+      compLv1: raw[i][4],
+      compLv2: raw[i][5],
+      compLv3: raw[i][6]
+    });
+  }
+
+  var dates = Object.keys(entriesByDate).sort();
+  Logger.log('skipDate=' + skipDate + ' skipKey=' + skipKey + ' skipNoCode=' + skipNoCode);
+  Logger.log('変換可能日数: ' + dates.length + ' (' + (dates[0] || '?') + ' ~ ' + (dates[dates.length-1] || '?') + ')');
+
+  if (dates.length === 0) { Logger.log('変換可能データなし'); return; }
+
+  // シートをクリアしてマトリクス形式で書き直す
+  var fixedLen = COMP_HISTORY_FIXED_COLS.length;
+  var allData = [COMP_HISTORY_FIXED_COLS.slice()];
+  var headers = allData[0];
+  var rowMap = {};
+  var kinds = ['競合_第1', '競合_第2', '競合_第3'];
+
+  for (var di = 0; di < dates.length; di++) {
+    var dateStr2 = dates[di];
+    var dateCol = headers.length;
+    headers.push(dateStr2);
+    for (var ei = 1; ei < allData.length; ei++) allData[ei].push('');
+
+    var dayEntries = entriesByDate[dateStr2];
+    for (var j = 0; j < dayEntries.length; j++) {
+      var e = dayEntries[j];
+      var vals = [e.compLv1, e.compLv2, e.compLv3];
+      for (var ki = 0; ki < kinds.length; ki++) {
+        var rk = e.suumoCode + '|' + kinds[ki];
+        if (!rowMap[rk]) {
+          var nr = new Array(headers.length);
+          for (var x = 0; x < nr.length; x++) nr[x] = '';
+          nr[0] = e.name; nr[1] = e.room; nr[2] = e.suumoCode; nr[3] = kinds[ki];
+          allData.push(nr);
+          rowMap[rk] = allData.length - 1;
+        }
+        while (allData[rowMap[rk]].length < headers.length) allData[rowMap[rk]].push('');
+        var v = vals[ki];
+        allData[rowMap[rk]][dateCol] = (v === '' || v === null || v === undefined) ? '' : Number(v);
+      }
+    }
+  }
+
+  // ソート
+  if (allData.length > 1) {
+    var body = allData.slice(1);
+    body.sort(function(a, b) {
+      var ka = String(a[0]) + '|' + String(a[1]) + '|' + String(a[3]);
+      var kb = String(b[0]) + '|' + String(b[1]) + '|' + String(b[3]);
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+    allData = [allData[0]].concat(body);
+  }
+
+  sheet.clear();
+  sheet.getRange(1, 1, allData.length, headers.length).setValues(allData);
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(fixedLen);
+  Logger.log('完了: ' + (allData.length - 1) + '行 × ' + dates.length + '日付列');
+}
+
 /**
  * PV履歴シートから古い日付列を削除する（単独実行用）。
  */
