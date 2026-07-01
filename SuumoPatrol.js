@@ -107,7 +107,7 @@ var SUUMO_LISTING_HEADERS = [
 // 競合履歴シート（マトリクス形式: 縦=物件×種別、横=日付）PV履歴と同じ構造
 var SUUMO_COMPETITION_LOG_SHEET = 'SUUMO競合履歴';
 var COMP_HISTORY_FIXED_COLS = ['物件名', '部屋番号', 'SUUMOコード', '種別'];
-var COMP_HISTORY_RETENTION_DAYS = 90;
+var COMP_HISTORY_RETENTION_DAYS = 30;
 
 // PV履歴シート（マトリクス形式: 縦=物件×種別、横=日付）
 // 行: 物件名 | 部屋番号 | SUUMOコード | 種別(一覧PV/詳細PV) | 日付1 | 日付2 | ...
