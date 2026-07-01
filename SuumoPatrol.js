@@ -2751,6 +2751,31 @@ function deletePvHistoryRows_(codes) {
 }
 
 /**
+ * 掲載管理シートでstopped状態の物件のPV履歴行を一括削除する。
+ * GASエディタから手動実行する用途。
+ */
+function cleanupStoppedPvHistory() {
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { deleted: 0, message: 'シートが空' };
+
+  var statuses = sheet.getRange(2, 9, lastRow - 1, 1).getValues();
+  var codes = sheet.getRange(2, 11, lastRow - 1, 1).getValues();
+  var stoppedCodes = [];
+  for (var i = 0; i < statuses.length; i++) {
+    if (statuses[i][0] === 'stopped') {
+      var c = String(codes[i][0] || '').replace(/[^0-9]/g, '');
+      if (c) stoppedCodes.push(c);
+    }
+  }
+  if (stoppedCodes.length === 0) return { deleted: 0, message: 'stopped物件なし' };
+
+  var deleted = deletePvHistoryRows_(stoppedCodes);
+  Logger.log('PV履歴クリーンアップ: stopped ' + stoppedCodes.length + '件のコードから ' + deleted + '行削除');
+  return { stoppedProperties: stoppedCodes.length, pvRowsDeleted: deleted };
+}
+
+/**
  * Chrome拡張から送られた1日分のPVデータをPV履歴シートに記録する。
  * マトリクス形式で記録。縦=物件×種別(一覧PV/詳細PV)、横=日付。
  * 全データをメモリ上で組み立てて一括書き込みする。
