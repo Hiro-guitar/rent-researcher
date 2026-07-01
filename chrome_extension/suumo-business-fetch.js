@@ -683,3 +683,116 @@ async function backfillPvHistory(days) {
   await setStorageData({ debugLog: summary });
   return { ok: true, days: dates.length, totalRecorded, errors };
 }
+
+async function backfillCompetitionHistory(days) {
+  days = days || 30;
+  const { suumoBusinessKissCode } = await getStorageData(['suumoBusinessKissCode']);
+  const kissCode = (suumoBusinessKissCode || '').toString().replace(/[^0-9]/g, '');
+  if (!kissCode) {
+    console.error('[競合バックフィル] kiss_code未設定');
+    return { ok: false, error: 'kiss_code未設定' };
+  }
+  const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
+  if (!gasWebappUrl) {
+    console.error('[競合バックフィル] GAS URL未設定');
+    return { ok: false, error: 'GAS URL未設定' };
+  }
+
+  const fmt = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}/${m}/${day}`;
+  };
+  const fmtIso = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const dates = [];
+  for (let i = 2; i < 2 + days; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    dates.push(d);
+  }
+
+  const firstDate = dates[0];
+  const filtersI = `kiss_code=${kissCode}__passive_flag=1__empty_flag=1__conflict_flag=0`;
+  const firstFiltersD = `pv_date_from=${fmt(firstDate)}__pv_date_to=${fmt(firstDate)}`;
+  const firstUrl = 'https://business1.suumo.jp/concierge/reportDailySearch'
+    + `?filters_i=${encodeURIComponent(filtersI)}`
+    + `&filters_d=${encodeURIComponent(firstFiltersD)}`;
+
+  const tab = await chrome.tabs.create({ url: firstUrl, active: false });
+  const tabId = tab.id;
+  await waitForTabLoad(tabId, 60000);
+  await sleep(2000);
+
+  const loginCheck = await checkLoginPage_(tabId);
+  if (loginCheck.hasLoginForm || isSuumoLoginUrl(loginCheck.url)) {
+    const loginResult = await attemptSuumoBusinessLogin_(tabId);
+    if (!loginResult.ok) {
+      try { await chrome.tabs.remove(tabId); } catch (_) {}
+      console.error('[競合バックフィル] ログイン失敗:', loginResult.error);
+      return { ok: false, error: 'login failed: ' + loginResult.error };
+    }
+    await chrome.tabs.update(tabId, { url: firstUrl });
+    await waitForTabLoad(tabId, 60000);
+    await sleep(2000);
+  }
+
+  let totalRecorded = 0;
+  let errors = 0;
+
+  for (let di = 0; di < dates.length; di++) {
+    const targetDate = dates[di];
+    const compDate = fmtIso(targetDate);
+    const filtersD = `pv_date_from=${fmt(targetDate)}__pv_date_to=${fmt(targetDate)}`;
+    const url = 'https://business1.suumo.jp/concierge/reportDailySearch'
+      + `?filters_i=${encodeURIComponent(filtersI)}`
+      + `&filters_d=${encodeURIComponent(filtersD)}`;
+
+    try {
+      if (di > 0) {
+        await chrome.tabs.update(tabId, { url });
+        await waitForTabLoad(tabId, 60000);
+        await sleep(1500);
+      }
+
+      const scrapeResult = await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        func: scrapeSuumoBusinessTable,
+      });
+      const rows = (scrapeResult && scrapeResult[0] && scrapeResult[0].result) || [];
+
+      if (rows.length > 0) {
+        const entries = rows.map(r => ({
+          suumoCode: (r.suumo_code || '').replace(/[^0-9]/g, ''),
+          name: r.name,
+          room: r.room,
+          compLv1: parseInt(String(r.comp_lv1_raw || '0').replace(/[^0-9]/g, ''), 10) || 0,
+          compLv2: parseInt(String(r.comp_lv2_raw || '0').replace(/[^0-9]/g, ''), 10) || 0,
+          compLv3: parseInt(String(r.comp_lv3_raw || '0').replace(/[^0-9]/g, ''), 10) || 0,
+        })).filter(e => e.suumoCode);
+        await fetch(gasWebappUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'record_daily_competition', compDate, entries }),
+        });
+        totalRecorded += entries.length;
+      }
+      console.log(`[競合バックフィル] ${compDate}: ${rows.length}件 (${di + 1}/${dates.length})`);
+    } catch (err) {
+      console.warn(`[競合バックフィル] ${compDate} エラー:`, err.message);
+      errors++;
+    }
+  }
+
+  try { await chrome.tabs.remove(tabId); } catch (_) {}
+  const summary = `[競合バックフィル] 完了: ${dates.length}日分、合計${totalRecorded}件記録、エラー${errors}件`;
+  console.log(summary);
+  await setStorageData({ debugLog: summary });
+  return { ok: true, days: dates.length, totalRecorded, errors };
+}
