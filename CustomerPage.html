@@ -2142,20 +2142,10 @@ function renderInquiryList(list) {
     }
     html += '</select></div>';
 
-    // ── 対応履歴（架電・メール送付の記録）──
+    // ── 対応履歴 ──
     var ri = q.rowIndex;
     var rb = esc(q.renban);
     html += '<div class="inq-hist">';
-    // サマリー: 最終接触 or 未接触 + 回数
-    html += '<div class="inq-hist-sum">';
-    if (q.lastContactTs && q.lastContactStr) {
-      html += '最終接触: ' + esc(q.lastContactStr) + '（' + esc(q.lastContactType || '') +
-              (q.lastContactResult ? '・' + esc(q.lastContactResult) : '') + '）';
-    } else {
-      html += '<span class="inq-untouched">⚠ 未接触</span>';
-    }
-    html += '　<span style="color:#888;">📞架電' + (q.callCount || 0) + ' / ✉手動メール' + (q.mailCount || 0) + '</span>';
-    html += '</div>';
     // 自動返信メール（reply.py 由来）の状況
     if (q.autoMailCount) {
       html += '<div class="inq-hist-sum" style="color:#7fb3d5;">🤖 自動返信メール ' + q.autoMailCount + '通（最終 ' +
@@ -2163,18 +2153,14 @@ function renderInquiryList(list) {
     } else {
       html += '<div class="inq-hist-sum" style="color:#888;">🤖 自動返信メール なし</div>';
     }
-    // 記録ボタン
     html += '<div class="inq-hist-btns">';
-    html += '<button onclick="openInqLog(' + ri + ',\'' + rb + '\',\'架電\')">📞 架電を記録</button>';
-    html += '<button onclick="openInqLog(' + ri + ',\'' + rb + '\',\'メール\')">✉ メール送付を記録</button>';
     if ((q.memo || '').indexOf('顧客登録済み') >= 0) {
       html += '<span style="color:#b39ddb;font-size:12px;align-self:center;">👤 顧客登録済み</span>';
     } else {
       html += '<button onclick="promoteInquiry(' + ri + ',\'' + rb + '\')" style="border-color:#7e57c2;color:#b39ddb;">👤 顧客として登録</button>';
     }
     html += '</div>';
-    html += '<div id="inqform_' + ri + '" class="inq-logform" style="display:none;"></div>';
-    // 履歴を常時インライン表示（手動ログ＋自動返信メールを時系列で）
+    // 履歴を常時インライン表示（自動返信メールを時系列で）
     html += '<div class="inq-histlist">' + renderInqTimeline(q.timeline, q.renban) + '</div>';
     html += '</div>';
 
@@ -2183,7 +2169,6 @@ function renderInquiryList(list) {
   el.innerHTML = html;
 }
 
-// 統合タイムライン(手動ログ＋自動返信メール)をHTML化。手動分は削除可。
 function renderInqTimeline(timeline, renban) {
   if (!timeline || !timeline.length) {
     return '<div style="color:#888;font-size:11px;">記録はまだありません</div>';
@@ -2191,85 +2176,13 @@ function renderInqTimeline(timeline, renban) {
   var h = '';
   for (var j = 0; j < timeline.length; j++) {
     var L = timeline[j];
-    var icon = (L.source === 'auto') ? '🤖' : ((L.type && L.type.indexOf('架電') >= 0) ? '📞' : '✉');
-    var right = (L.source === 'manual')
-      ? '<span class="del" onclick="deleteInqLog(' + L.rowIndex + ',\'' + esc(renban) + '\')">削除</span>'
-      : '<span style="color:#7fb3d5;font-size:10px;white-space:nowrap;">自動</span>';
-    h += '<div class="inq-hist-row"><span>' + icon + ' ' + esc(L.dateStr) + '　' + esc(L.type) +
-         (L.detail ? '・' + esc(L.detail) : '') + (L.memo ? '　' + esc(L.memo) : '') + '</span>' + right + '</div>';
+    h += '<div class="inq-hist-row"><span>🤖 ' + esc(L.dateStr) + '　' + esc(L.type) +
+         (L.detail ? '・' + esc(L.detail) : '') + '</span>' +
+         '<span style="color:#7fb3d5;font-size:10px;white-space:nowrap;">自動</span></div>';
   }
   return h;
 }
 
-// 記録フォームを開く（架電/メール）
-function openInqLog(rowIndex, renban, type) {
-  var el = document.getElementById('inqform_' + rowIndex);
-  if (!el) return;
-  if (el.style.display === 'block' && el.getAttribute('data-type') === type) { el.style.display = 'none'; return; }
-  el.setAttribute('data-type', type);
-  var h = '<div style="font-size:12px;color:#888;font-weight:bold;">' + esc(type) + 'を記録</div>';
-  if (type === '架電') {
-    h += '<select id="inqres_' + rowIndex + '">' +
-         '<option value="つながった">つながった</option>' +
-         '<option value="不在">不在</option>' +
-         '<option value="留守電">留守電</option>' +
-         '<option value="折り返し待ち">折り返し待ち</option>' +
-         '<option value="その他">その他</option></select>';
-  }
-  h += '<textarea id="inqmemo_' + rowIndex + '" rows="4" placeholder="メモ（任意・通話内容など自由に記入できます）"></textarea>';
-  h += '<div class="row">';
-  h += '<button class="rec" onclick="submitInqLog(' + rowIndex + ',\'' + esc(renban) + '\',\'' + esc(type) + '\')">記録</button>';
-  h += '<button class="cancel" onclick="document.getElementById(\'inqform_' + rowIndex + '\').style.display=\'none\'">キャンセル</button>';
-  h += '</div>';
-  el.innerHTML = h;
-  el.style.display = 'block';
-  var mi = document.getElementById('inqmemo_' + rowIndex);
-  if (mi) mi.focus();
-}
-
-function submitInqLog(rowIndex, renban, type) {
-  var resEl = document.getElementById('inqres_' + rowIndex);
-  var memoEl = document.getElementById('inqmemo_' + rowIndex);
-  var result = resEl ? resEl.value : (type === 'メール' ? '送信' : '');
-  var memo = memoEl ? memoEl.value : '';
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r && r.success) { showToast(type + 'を記録しました'); loadInquiries(); }
-      else { showToast((r && r.message) || '記録に失敗しました'); }
-    })
-    .withFailureHandler(function(e) { showToast('記録エラー: ' + (e && e.message ? e.message : '')); })
-    .addInquiryLog(renban, type, result, memo);
-}
-
-function toggleInqHist(rowIndex, renban) {
-  var el = document.getElementById('inqhist_' + rowIndex);
-  if (!el) return;
-  if (el.style.display === 'block') { el.style.display = 'none'; return; }
-  el.style.display = 'block';
-  el.innerHTML = '<div style="color:#888;font-size:11px;">読み込み中...</div>';
-  // メールアドレスを取得（自動返信メール履歴の紐付け用）
-  var email = '';
-  for (var i = 0; i < allInquiries.length; i++) {
-    if (allInquiries[i].rowIndex === rowIndex) { email = allInquiries[i].email || ''; break; }
-  }
-  google.script.run
-    .withSuccessHandler(function(logs) {
-      if (!logs || !logs.length) { el.innerHTML = '<div style="color:#888;font-size:11px;">まだ記録はありません</div>'; return; }
-      var h = '';
-      for (var j = 0; j < logs.length; j++) {
-        var L = logs[j];
-        var icon = (L.source === 'auto') ? '🤖' : ((L.type && L.type.indexOf('架電') >= 0) ? '📞' : '✉');
-        var del = (L.source === 'manual')
-          ? '<span class="del" onclick="deleteInqLog(' + L.rowIndex + ',\'' + esc(renban) + '\')">削除</span>'
-          : '<span style="color:#7fb3d5;font-size:10px;white-space:nowrap;">自動</span>';
-        h += '<div class="inq-hist-row"><span>' + icon + ' ' + esc(L.dateStr) + '　' + esc(L.type) +
-             (L.detail ? '・' + esc(L.detail) : '') + (L.memo ? '　' + esc(L.memo) : '') + '</span>' + del + '</div>';
-      }
-      el.innerHTML = h;
-    })
-    .withFailureHandler(function(e) { el.innerHTML = '<div style="color:#c0392b;font-size:11px;">取得エラー</div>'; })
-    .getInquiryTimeline(renban, email);
-}
 
 function promoteInquiry(rowIndex, renban) {
   var name = '';
@@ -2286,16 +2199,6 @@ function promoteInquiry(rowIndex, renban) {
     .promoteInquiryToCustomer(renban);
 }
 
-function deleteInqLog(rowNum, renban) {
-  if (!confirm('この記録を削除しますか？')) return;
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r && r.success) { showToast('削除しました'); loadInquiries(); }
-      else { showToast((r && r.message) || '削除に失敗しました'); }
-    })
-    .withFailureHandler(function(e) { showToast('削除エラー: ' + (e && e.message ? e.message : '')); })
-    .deleteInquiryLog(rowNum, renban);
-}
 
 function changeInquiryStatus(rowIndex, renban, status) {
   google.script.run
