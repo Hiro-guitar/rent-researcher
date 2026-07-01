@@ -221,10 +221,13 @@ async function _findHomesRentalCandidates(input) {
     }
 
     // Step 1: 初期HTMLから物件URLを抽出
+    // 「新着物件（全国の賃貸物件）」セクション以降は検索結果ではないので除外
+    const newArrivalIdx = html.indexOf('新着物件');
+    const searchHtml = newArrivalIdx > 0 ? html.substring(0, newArrivalIdx) : html;
     const re = /\/chintai\/(b-\d{13}|room\/[a-f0-9]{32,64})\//g;
     const before = candidates.size;
     let m;
-    while ((m = re.exec(html)) !== null) {
+    while ((m = re.exec(searchHtml)) !== null) {
       candidates.add(`${_HOMES_BASE}/chintai/${m[1]}/`);
       if (candidates.size >= 50) break;
     }
