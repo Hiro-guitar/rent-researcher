@@ -104,25 +104,6 @@ var SUUMO_LISTING_HEADERS = [
   '取得元サイト'
 ];
 
-// 停止候補ログシート (毎回の findStopCandidates 実行履歴を蓄積)
-// Phase B (1〜2週後) でこれを分析して誤検知率を計測する。
-var SUUMO_STOP_LOG_SHEET = 'SUUMO停止候補ログ';
-var SUUMO_STOP_LOG_HEADERS = [
-  '実行日時',
-  'relaxLevel',
-  '物件キー',
-  '建物名',
-  '部屋番号',
-  '危険度スコア',
-  'スコア内訳',
-  '選出',
-  '反響予測スコア',
-  '問い合わせ数',
-  '初回申込検知日',
-  'シート掲載日数',
-  '掲載日数(SUUMO)'
-];
-
 // 競合履歴シート (SUUMOビジネス取得毎に各物件のスナップショットを蓄積)
 // updateSuumoListingStats から毎日 append。
 // 30日以上溜まったら「直近7日平均 vs 14〜21日前7日平均」等のトレンド検知に使う (Phase B以降)。
@@ -188,10 +169,6 @@ function getPatrolCriteriaSheet_() {
 
 function getCandidateSheet_() {
   return getSuumoSheet_(SUUMO_CANDIDATE_SHEET, SUUMO_CANDIDATE_HEADERS);
-}
-
-function getStopLogSheet_() {
-  return getSuumoSheet_(SUUMO_STOP_LOG_SHEET, SUUMO_STOP_LOG_HEADERS);
 }
 
 function getCompetitionLogSheet_() {
@@ -1313,9 +1290,6 @@ function findStopCandidates(topN, options) {
   // PV履歴から直近7日平均を取得
   var pvAverages = getPvHistoryAverages_(7);
 
-  // 停止候補選出ログ用 (実行ごとに全 active 物件を記録、Phase B の評価データ蓄積)
-  var logRows = [];
-
   var candidates = [];
   var lowCompCount = 0, highCompCount = 0, unmeasuredCount = 0;
   for (var i = 0; i < data.length; i++) {
@@ -1442,23 +1416,6 @@ function findStopCandidates(topN, options) {
       }
     }
 
-    var logStatus = (tier === 0) ? '対象外' : (protectedReason ? ('保護:' + protectedReason) : '候補');
-    logRows.push([
-      now,
-      relaxLevel,
-      data[i][0],
-      data[i][1] || '',
-      data[i][2] || '',
-      weak,
-      breakdownJson,
-      logStatus,
-      '',
-      inquiries,
-      initialMoshikomiDate || '',
-      sheetDays,
-      suumoListedDays
-    ]);
-
     if (tier === 0 || protectedReason) continue;
 
     candidates.push({
@@ -1487,18 +1444,6 @@ function findStopCandidates(topN, options) {
       rowIndex: i + 2,
       protectRelaxLevel: relaxLevel
     });
-  }
-
-  // 停止候補ログシートに一括追記 (Phase B の評価データ蓄積)
-  if (logRows.length > 0) {
-    try {
-      var logSheet = getStopLogSheet_();
-      var logStart = logSheet.getLastRow() + 1;
-      logSheet.getRange(logStart, 1, logRows.length, SUUMO_STOP_LOG_HEADERS.length)
-        .setValues(logRows);
-    } catch (e) {
-      Logger.log('停止候補ログ書き込み失敗: ' + e.message);
-    }
   }
 
   // ポートフォリオ状況を各候補に添付(低競合の件数=25件キープの確認 / 落とせる候補数)

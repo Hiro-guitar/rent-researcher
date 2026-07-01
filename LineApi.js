@@ -32,11 +32,6 @@ function replyMessage(replyToken, messages) {
   var code = resp.getResponseCode();
   if (code !== 200) {
     var body = resp.getContentText();
-    try {
-      var debugSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName('debug_log');
-      if (!debugSheet) debugSheet = SpreadsheetApp.openById(SPREADSHEET_ID).insertSheet('debug_log');
-      debugSheet.appendRow([new Date(), 'replyMessage ERROR', code, body, JSON.stringify(messages).substring(0, 1000)]);
-    } catch(e2) {}
     throw new Error('LINE reply failed: ' + code + ' ' + body);
   }
 }
