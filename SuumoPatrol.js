@@ -1280,7 +1280,6 @@ function updateSuumoPerformance(updates) {
  *   1: 日次PV<5 or 遷移率<5% (片方ダメ)
  *
  * 保護 (tier 1-3 に適用。tier 4-5 は保護無視):
- *   - 加重競合 ≤ 5 (低競合)
  *   - 問い合わせ実績あり
  *
  * @param {number} topN - 返す候補数の上限(デフォルト10)
@@ -1289,11 +1288,9 @@ function updateSuumoPerformance(updates) {
 function findStopCandidates(topN, options) {
   var limit = topN || 10;
   options = options || {};
-  // protectRelaxLevel: 0=標準 / 1=緩い / 2=最小 / 3=保護無視
-  // 0: 新着7日保護 + 問合あり&45日未満保護 (デフォルト)
-  // 1: 新着3日保護 + 問合あり&30日未満保護
-  // 2: 新着1日保護のみ (新規入稿直後だけ守る)
-  // 3: 保護なし (最終手段、 50件埋まり全員保護該当の詰み回避)
+  // protectRelaxLevel: 0=標準(問合せ保護) / 1+=保護なし
+  // 0: 問合あり物件を保護 (デフォルト)
+  // 1+: 保護なし (50件埋まり全員保護該当の詰み回避)
   var relaxLevel = options.protectRelaxLevel || 0;
 
   var sheet = getListingSheet_();
@@ -1441,9 +1438,6 @@ function findStopCandidates(topN, options) {
     var protectedReason = '';
     if (!forceCandidate && tier > 0) {
       if (relaxLevel <= 0) {
-        if (lowComp) protectedReason = 'lowComp';
-        else if (hasInquiry) protectedReason = 'inquiry';
-      } else if (relaxLevel === 1) {
         if (hasInquiry) protectedReason = 'inquiry';
       }
     }
