@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#1e1e1e;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif;font-size:14px;line-height:1.5}
+a{color:#3498db;text-decoration:none}
+.header{position:sticky;top:0;z-index:10;background:#252526;padding:12px 16px;border-bottom:1px solid #404040;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:18px;font-weight:600}
+.header-right{display:flex;gap:8px;align-items:center}
+.btn{padding:6px 14px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500}
+.btn-primary{background:#3498db;color:#fff}
+.btn-primary:hover{background:#2980b9}
+.btn-ghost{background:transparent;color:#aaa;border:1px solid #555}
+.btn-ghost:hover{background:#333}
+.container{padding:12px 16px;max-width:1400px;margin:0 auto}
+
+/* Alerts */
+.alerts{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.alert{padding:8px 12px;border-radius:8px;font-size:12px;font-weight:500;display:flex;align-items:center;gap:6px}
+.alert-danger{background:rgba(231,76,60,.15);color:#e74c3c;border:1px solid rgba(231,76,60,.3)}
+.alert-warning{background:rgba(243,156,18,.15);color:#f39c12;border:1px solid rgba(243,156,18,.3)}
+.alert-info{background:rgba(52,152,219,.15);color:#3498db;border:1px solid rgba(52,152,219,.3)}
+.alert .count{background:rgba(255,255,255,.15);padding:1px 6px;border-radius:10px;font-size:11px}
+
+/* Summary */
+.summary{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.stat-card{background:#252526;border:1px solid #404040;border-radius:10px;padding:12px 16px;min-width:120px;flex:1}
+.stat-card .label{font-size:11px;color:#888;margin-bottom:2px}
+.stat-card .value{font-size:22px;font-weight:700}
+.stat-card .sub{font-size:11px;color:#888;margin-top:2px}
+
+/* Table */
+.table-wrap{overflow-x:auto;background:#252526;border-radius:10px;border:1px solid #404040}
+table{width:100%;border-collapse:collapse;white-space:nowrap}
+thead th{position:sticky;top:0;background:#2d2d2d;padding:8px 10px;text-align:left;font-size:12px;color:#aaa;font-weight:600;cursor:pointer;user-select:none;border-bottom:1px solid #404040}
+thead th:hover{color:#e0e0e0}
+thead th.sorted-asc::after{content:' ▲';font-size:9px}
+thead th.sorted-desc::after{content:' ▼';font-size:9px}
+tbody tr{border-bottom:1px solid #333;cursor:pointer;transition:background .1s}
+tbody tr:hover{background:#2a2d35}
+tbody td{padding:7px 10px;font-size:13px}
+.text-right{text-align:right}
+.text-center{text-align:center}
+.text-muted{color:#888}
+.text-danger{color:#e74c3c}
+.text-success{color:#2ecc71}
+.text-warning{color:#f39c12}
+
+/* Sparkline */
+.spark{display:inline-block;vertical-align:middle}
+
+/* Transition rate bar */
+.tr-bar{display:inline-block;width:50px;height:6px;background:#333;border-radius:3px;overflow:hidden;vertical-align:middle;margin-right:4px}
+.tr-bar-fill{height:100%;border-radius:3px}
+
+/* Badge */
+.badge{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600}
+.badge-danger{background:rgba(231,76,60,.2);color:#e74c3c}
+.badge-warning{background:rgba(243,156,18,.2);color:#f39c12}
+.badge-success{background:rgba(46,204,113,.2);color:#2ecc71}
+.badge-info{background:rgba(52,152,219,.2);color:#3498db}
+
+/* Detail panel */
+#detailView{display:none}
+.detail-header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.detail-header h2{font-size:16px;font-weight:600}
+.detail-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:16px}
+.detail-stat{background:#2d2d2d;padding:10px 12px;border-radius:8px}
+.detail-stat .label{font-size:11px;color:#888}
+.detail-stat .value{font-size:18px;font-weight:700}
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.chart-card{background:#2d2d2d;border-radius:10px;padding:14px}
+.chart-card h3{font-size:13px;color:#aaa;margin-bottom:8px}
+canvas{width:100%!important;height:200px!important}
+
+/* Sort select on mobile */
+.sort-mobile{display:none}
+@media(max-width:768px){
+  .charts-row{grid-template-columns:1fr}
+  .summary{flex-direction:column}
+  .sort-mobile{display:block}
+}
+
+/* Loading */
+.loading{text-align:center;padding:60px;color:#888}
+.loading::after{content:'';display:block;width:32px;height:32px;margin:16px auto;border:3px solid #555;border-top-color:#3498db;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;right:20px;background:#333;color:#e0e0e0;padding:10px 16px;border-radius:8px;font-size:13px;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1 id="pageTitle">掲載物件ダッシュボード</h1>
+  <div class="header-right">
+    <button class="btn btn-ghost" id="backBtn" style="display:none" onclick="showList()">← 一覧に戻る</button>
+    <button class="btn btn-primary" onclick="refreshData()">更新</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- List view -->
+  <div id="listView">
+    <div class="loading" id="loadingMsg">データを読み込み中...</div>
+    <div id="mainContent" style="display:none">
+      <div class="alerts" id="alerts"></div>
+      <div class="summary" id="summary"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr id="tableHead"></tr></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detail view -->
+  <div id="detailView">
+    <div class="detail-header">
+      <h2 id="detailTitle"></h2>
+    </div>
+    <div class="detail-stats" id="detailStats"></div>
+    <div class="charts-row">
+      <div class="chart-card"><h3>PV推移（30日）</h3><canvas id="pvChart"></canvas></div>
+      <div class="chart-card"><h3>競合推移（30日）</h3><canvas id="compChart"></canvas></div>
+    </div>
+    <div class="charts-row">
+      <div class="chart-card"><h3>遷移率推移（詳細PV÷一覧PV）</h3><canvas id="trChart"></canvas></div>
+      <div class="chart-card"><h3>日次詳細PV vs 競合(加重)</h3><canvas id="scatterChart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+var G = {}; // global state
+var sortCol = 'dangerScore';
+var sortDir = -1;
+
+var COLUMNS = [
+  {key:'name',label:'物件名',align:'left',fmt:function(l){return l.name+(l.room?' '+l.room:'')}},
+  {key:'rent',label:'賃料',align:'right',fmt:function(l){return num(l.rent)}},
+  {key:'listedDays',label:'掲載日数',align:'right'},
+  {key:'dailyListPv',label:'日次一覧PV',align:'right',fmt:function(l){
+    var sp = sparkHtml(l._pvListSpark);
+    return sp+(l.dailyListPv!=null?l.dailyListPv.toFixed(1):'-');
+  }},
+  {key:'detailPv',label:'合計詳細PV',align:'right'},
+  {key:'transitionRate',label:'遷移率',align:'right',fmt:function(l){
+    if(l.transitionRate==null) return '<span class="text-muted">-</span>';
+    var pct = (l.transitionRate*100).toFixed(1);
+    var cls = l.transitionRate>=0.5?'#2ecc71':l.transitionRate>=0.3?'#f39c12':'#e74c3c';
+    return '<span class="tr-bar"><span class="tr-bar-fill" style="width:'+Math.min(pct,100)+'%;background:'+cls+'"></span></span>'+pct+'%';
+  }},
+  {key:'weightedComp',label:'競合(加重)',align:'right',fmt:function(l){
+    if(l.weightedComp==null) return '<span class="text-muted">-</span>';
+    var trend = l._compTrend;
+    var arrow = trend>0?'<span class="text-danger"> +'+trend+'</span>':trend<0?'<span class="text-success"> '+trend+'</span>':'';
+    return l.weightedComp.toFixed(1)+arrow;
+  }},
+  {key:'rank',label:'順位',align:'right',fmt:function(l){
+    if(l.rank==null) return '<span class="text-muted">-</span>';
+    var total = l.rankTotal?'/'+l.rankTotal:'';
+    var cls = l.rankPage1==='○'?'badge-success':'';
+    return cls?'<span class="badge '+cls+'">'+l.rank+total+'</span>':l.rank+total;
+  }},
+  {key:'dangerScore',label:'危険度',align:'right',fmt:function(l){
+    var s = l.dangerScore;
+    if(!s) return '<span class="text-muted">-</span>';
+    var cls = s>=70?'badge-danger':s>=40?'badge-warning':'badge-info';
+    return '<span class="badge '+cls+'">'+s+'</span>';
+  }}
+];
+
+function num(n){return n?n.toLocaleString():'-'}
+
+function sparkHtml(vals){
+  if(!vals||vals.length<2) return '';
+  var mn=Infinity,mx=-Infinity;
+  for(var i=0;i<vals.length;i++){if(vals[i]!=null){if(vals[i]<mn)mn=vals[i];if(vals[i]>mx)mx=vals[i]}}
+  if(mn===mx){mn-=1;mx+=1}
+  var w=48,h=16,points=[];
+  for(var j=0;j<vals.length;j++){
+    var v=vals[j]!=null?vals[j]:mn;
+    var x=(j/(vals.length-1))*w;
+    var y=h-((v-mn)/(mx-mn))*h;
+    points.push(x.toFixed(1)+','+y.toFixed(1));
+  }
+  return '<svg class="spark" width="'+w+'" height="'+h+'" style="margin-right:4px"><polyline points="'+points.join(' ')+'" fill="none" stroke="#3498db" stroke-width="1.5"/></svg>';
+}
+
+function showToast(msg){
+  var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  setTimeout(function(){t.classList.remove('show')},3000);
+}
+
+function refreshData(){
+  document.getElementById('loadingMsg').style.display='';
+  document.getElementById('mainContent').style.display='none';
+  google.script.run
+    .withSuccessHandler(function(d){G=d;enrichData();renderList();})
+    .withFailureHandler(function(e){showToast('エラー: '+e.message);document.getElementById('loadingMsg').textContent='読み込みに失敗しました';})
+    .getListingDashboardData();
+}
+
+function enrichData(){
+  var pv=G.pvHistory||{dates:[],properties:{}};
+  var comp=G.compHistory||{dates:[],properties:{}};
+  var pvDates=pv.dates||[];
+  var compDates=comp.dates||[];
+
+  for(var i=0;i<G.listings.length;i++){
+    var l=G.listings[i];
+    var code=l.suumoCode;
+
+    // PV sparkline (last 7 days of detail PV)
+    var detPv=(pv.properties[code]||{})['詳細PV']||[];
+    var listPvH=(pv.properties[code]||{})['一覧PV']||[];
+    l._pvDetailSpark=detPv.slice(-7);
+    l._pvListSpark=listPvH.slice(-7);
+
+    // PV drop alert: last 3 days avg vs previous 7 days avg
+    l._pvDrop=false;
+    if(detPv.length>=10){
+      var recent=avg(detPv.slice(-3));
+      var prev=avg(detPv.slice(-10,-3));
+      if(prev>0&&recent/prev<0.5) l._pvDrop=true;
+    }
+
+    // Competition trend: latest vs 7 days ago
+    var c1=(comp.properties[code]||{})['競合_第1']||[];
+    l._compTrend=0;
+    if(c1.length>=7){
+      var latest=lastNonNull(c1);
+      var prev7=lastNonNull(c1.slice(0,-7));
+      if(latest!=null&&prev7!=null) l._compTrend=latest-prev7;
+    }
+    l._compSurge=l._compTrend>=5;
+
+    // Transition rate drop
+    l._trLow=l.transitionRate!=null&&l.transitionRate<0.3&&l.listPv>=20;
+  }
+}
+
+function avg(arr){var s=0,c=0;for(var i=0;i<arr.length;i++){if(arr[i]!=null){s+=arr[i];c++}}return c?s/c:0}
+function lastNonNull(arr){for(var i=arr.length-1;i>=0;i--){if(arr[i]!=null)return arr[i]}return null}
+
+function renderList(){
+  document.getElementById('loadingMsg').style.display='none';
+  document.getElementById('mainContent').style.display='';
+
+  // Alerts
+  var pvDrops=G.listings.filter(function(l){return l._pvDrop});
+  var compSurges=G.listings.filter(function(l){return l._compSurge});
+  var trLows=G.listings.filter(function(l){return l._trLow});
+  var alertsHtml='';
+  if(pvDrops.length) alertsHtml+='<div class="alert alert-danger">⚠ PV急落 <span class="count">'+pvDrops.length+'件</span></div>';
+  if(compSurges.length) alertsHtml+='<div class="alert alert-warning">⚠ 競合急増 <span class="count">'+compSurges.length+'件</span></div>';
+  if(trLows.length) alertsHtml+='<div class="alert alert-info">⚠ 遷移率低下 <span class="count">'+trLows.length+'件</span></div>';
+  document.getElementById('alerts').innerHTML=alertsHtml;
+
+  // Summary
+  var ls=G.listings;
+  var avgDetail=avg(ls.map(function(l){return l.detailPv}));
+  var avgComp=avg(ls.filter(function(l){return l.weightedComp!=null}).map(function(l){return l.weightedComp}));
+  var danger50=ls.filter(function(l){return l.dangerScore>=50}).length;
+  document.getElementById('summary').innerHTML=
+    '<div class="stat-card"><div class="label">掲載中</div><div class="value">'+ls.length+'<span style="font-size:13px;color:#888"> 件</span></div></div>'+
+    '<div class="stat-card"><div class="label">平均詳細PV</div><div class="value">'+avgDetail.toFixed(1)+'</div></div>'+
+    '<div class="stat-card"><div class="label">平均競合(加重)</div><div class="value">'+avgComp.toFixed(1)+'</div></div>'+
+    '<div class="stat-card"><div class="label">危険度50以上</div><div class="value '+(danger50?'text-danger':'')+'">'+danger50+'<span style="font-size:13px;color:#888"> 件</span></div></div>';
+
+  // Table head
+  var th='';
+  for(var c=0;c<COLUMNS.length;c++){
+    var col=COLUMNS[c];
+    var cls=sortCol===col.key?(sortDir>0?'sorted-asc':'sorted-desc'):'';
+    th+='<th class="'+cls+'" data-key="'+col.key+'">'+col.label+'</th>';
+  }
+  document.getElementById('tableHead').innerHTML=th;
+
+  // Sort
+  var sorted=ls.slice().sort(function(a,b){
+    var va=a[sortCol],vb=b[sortCol];
+    if(va==null)va=sortDir>0?Infinity:-Infinity;
+    if(vb==null)vb=sortDir>0?Infinity:-Infinity;
+    if(typeof va==='string')return sortDir*(va<vb?-1:va>vb?1:0);
+    return sortDir*(va-vb);
+  });
+
+  // Table body
+  var tb='';
+  for(var r=0;r<sorted.length;r++){
+    var l=sorted[r];
+    var rowCls=l._pvDrop?' style="border-left:3px solid #e74c3c"':l._compSurge?' style="border-left:3px solid #f39c12"':'';
+    tb+='<tr data-code="'+l.suumoCode+'"'+rowCls+'>';
+    for(var c2=0;c2<COLUMNS.length;c2++){
+      var col2=COLUMNS[c2];
+      var val=col2.fmt?col2.fmt(l):(l[col2.key]!=null?l[col2.key]:'-');
+      tb+='<td class="'+(col2.align==='right'?'text-right':'')+'">'+val+'</td>';
+    }
+    tb+='</tr>';
+  }
+  document.getElementById('tableBody').innerHTML=tb;
+
+  // Click handlers
+  document.querySelectorAll('#tableHead th').forEach(function(el){
+    el.onclick=function(){
+      var k=el.getAttribute('data-key');
+      if(sortCol===k){sortDir*=-1}else{sortCol=k;sortDir=-1}
+      renderList();
+    };
+  });
+  document.querySelectorAll('#tableBody tr').forEach(function(el){
+    el.onclick=function(){showDetail(el.getAttribute('data-code'))};
+  });
+}
+
+function showDetail(code){
+  var l=null;
+  for(var i=0;i<G.listings.length;i++){if(G.listings[i].suumoCode===code){l=G.listings[i];break}}
+  if(!l) return;
+
+  document.getElementById('listView').style.display='none';
+  document.getElementById('detailView').style.display='';
+  document.getElementById('backBtn').style.display='';
+  document.getElementById('pageTitle').textContent=l.name+(l.room?' '+l.room:'');
+
+  document.getElementById('detailTitle').textContent='';
+
+  var ds='';
+  ds+='<div class="detail-stat"><div class="label">賃料</div><div class="value">'+num(l.rent)+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">掲載日数</div><div class="value">'+l.listedDays+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">合計一覧PV</div><div class="value">'+l.listPv+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">合計詳細PV</div><div class="value">'+l.detailPv+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">遷移率</div><div class="value">'+(l.transitionRate!=null?(l.transitionRate*100).toFixed(1)+'%':'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">問い合わせ</div><div class="value">'+l.inquiries+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">競合(加重)</div><div class="value">'+(l.weightedComp!=null?l.weightedComp.toFixed(1):'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">順位</div><div class="value">'+(l.rank!=null?l.rank+(l.rankTotal?'/'+l.rankTotal:''):'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">危険度</div><div class="value">'+l.dangerScore+'</div></div>';
+  document.getElementById('detailStats').innerHTML=ds;
+
+  var pv=G.pvHistory||{dates:[],properties:{}};
+  var comp=G.compHistory||{dates:[],properties:{}};
+  var pvDates=pv.dates||[];
+  var compDates=comp.dates||[];
+  var pp=pv.properties[code]||{};
+  var cp=comp.properties[code]||{};
+
+  drawLineChart('pvChart',pvDates,[
+    {data:pp['一覧PV']||[],color:'#3498db',label:'一覧PV'},
+    {data:pp['詳細PV']||[],color:'#2ecc71',label:'詳細PV'}
+  ]);
+
+  drawLineChart('compChart',compDates,[
+    {data:cp['競合_第1']||[],color:'#e74c3c',label:'第1基準'},
+    {data:cp['競合_第2']||[],color:'#f39c12',label:'第2基準'},
+    {data:cp['競合_第3']||[],color:'#9b59b6',label:'第3基準'}
+  ]);
+
+  // Transition rate chart
+  var listArr=pp['一覧PV']||[];
+  var detArr=pp['詳細PV']||[];
+  var trArr=[];
+  for(var ti=0;ti<Math.max(listArr.length,detArr.length);ti++){
+    var lv=listArr[ti],dv=detArr[ti];
+    trArr.push(lv!=null&&dv!=null&&lv>0?((dv/lv)*100):null);
+  }
+  drawLineChart('trChart',pvDates,[{data:trArr,color:'#e67e22',label:'遷移率(%)'}]);
+
+  // Scatter: detail PV vs competition (per day)
+  drawScatter('scatterChart',detArr,cp['競合_第1']||[],pvDates);
+}
+
+function showList(){
+  document.getElementById('listView').style.display='';
+  document.getElementById('detailView').style.display='none';
+  document.getElementById('backBtn').style.display='none';
+  document.getElementById('pageTitle').textContent='掲載物件ダッシュボード';
+}
+
+function drawLineChart(canvasId,dates,series){
+  var canvas=document.getElementById(canvasId);
+  var ctx=canvas.getContext('2d');
+  var dpr=window.devicePixelRatio||1;
+  var rect=canvas.parentElement.getBoundingClientRect();
+  var W=rect.width-28;
+  var H=200;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+
+  if(!dates||dates.length===0){ctx.fillStyle='#888';ctx.fillText('データなし',W/2-30,H/2);return}
+
+  var pad={t:20,r:10,b:30,l:40};
+  var cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+
+  // Find global min/max
+  var mn=Infinity,mx=-Infinity;
+  for(var s=0;s<series.length;s++){
+    var d=series[s].data;
+    for(var i=0;i<d.length;i++){if(d[i]!=null){if(d[i]<mn)mn=d[i];if(d[i]>mx)mx=d[i]}}
+  }
+  if(mn===Infinity){mn=0;mx=1}
+  if(mn===mx){mn-=1;mx+=1}
+  var range=mx-mn;
+
+  // Grid
+  ctx.strokeStyle='#333';ctx.lineWidth=0.5;
+  for(var g=0;g<=4;g++){
+    var gy=pad.t+ch-(g/4)*ch;
+    ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(pad.l+cw,gy);ctx.stroke();
+    ctx.fillStyle='#888';ctx.font='10px sans-serif';ctx.textAlign='right';
+    ctx.fillText((mn+range*(g/4)).toFixed(0),pad.l-4,gy+3);
+  }
+
+  // X axis labels
+  ctx.fillStyle='#888';ctx.font='10px sans-serif';ctx.textAlign='center';
+  var step=Math.max(1,Math.floor(dates.length/6));
+  for(var xi=0;xi<dates.length;xi+=step){
+    var xx=pad.l+(xi/(dates.length-1||1))*cw;
+    ctx.fillText(dates[xi].slice(5),xx,H-4);
+  }
+
+  // Lines
+  for(var si=0;si<series.length;si++){
+    var ser=series[si];
+    ctx.strokeStyle=ser.color;ctx.lineWidth=2;ctx.beginPath();
+    var started=false;
+    for(var di=0;di<ser.data.length;di++){
+      if(ser.data[di]==null) continue;
+      var x=pad.l+(di/(dates.length-1||1))*cw;
+      var y=pad.t+ch-((ser.data[di]-mn)/range)*ch;
+      if(!started){ctx.moveTo(x,y);started=true}else{ctx.lineTo(x,y)}
+    }
+    ctx.stroke();
+  }
+
+  // Legend
+  ctx.font='11px sans-serif';
+  var lx=pad.l+4;
+  for(var li=0;li<series.length;li++){
+    ctx.fillStyle=series[li].color;
+    ctx.fillRect(lx,4,12,3);
+    ctx.fillStyle='#ccc';
+    ctx.textAlign='left';
+    ctx.fillText(series[li].label,lx+16,10);
+    lx+=ctx.measureText(series[li].label).width+30;
+  }
+}
+
+function drawScatter(canvasId,detailPvArr,comp1Arr,dates){
+  var canvas=document.getElementById(canvasId);
+  var ctx=canvas.getContext('2d');
+  var dpr=window.devicePixelRatio||1;
+  var rect=canvas.parentElement.getBoundingClientRect();
+  var W=rect.width-28,H=200;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
+  ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
+
+  var pad={t:20,r:10,b:30,l:40};
+  var cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
+
+  var points=[];
+  for(var i=0;i<Math.min(detailPvArr.length,comp1Arr.length);i++){
+    if(detailPvArr[i]!=null&&comp1Arr[i]!=null) points.push({x:comp1Arr[i],y:detailPvArr[i],date:dates[i]||''});
+  }
+  if(!points.length){ctx.fillStyle='#888';ctx.fillText('データなし',W/2-30,H/2);return}
+
+  var mnX=Math.min.apply(null,points.map(function(p){return p.x}));
+  var mxX=Math.max.apply(null,points.map(function(p){return p.x}));
+  var mnY=Math.min.apply(null,points.map(function(p){return p.y}));
+  var mxY=Math.max.apply(null,points.map(function(p){return p.y}));
+  if(mnX===mxX){mnX-=1;mxX+=1}if(mnY===mxY){mnY-=1;mxY+=1}
+
+  // Grid
+  ctx.strokeStyle='#333';ctx.lineWidth=0.5;
+  for(var g=0;g<=4;g++){
+    var gy=pad.t+ch-(g/4)*ch;
+    ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(pad.l+cw,gy);ctx.stroke();
+    ctx.fillStyle='#888';ctx.font='10px sans-serif';ctx.textAlign='right';
+    ctx.fillText((mnY+(mxY-mnY)*(g/4)).toFixed(0),pad.l-4,gy+3);
+  }
+  ctx.fillStyle='#888';ctx.font='10px sans-serif';ctx.textAlign='center';
+  ctx.fillText('競合(第1基準)',pad.l+cw/2,H-2);
+
+  // Points
+  for(var pi=0;pi<points.length;pi++){
+    var p=points[pi];
+    var x=pad.l+((p.x-mnX)/(mxX-mnX))*cw;
+    var y=pad.t+ch-((p.y-mnY)/(mxY-mnY))*ch;
+    var alpha=0.3+0.7*(pi/points.length);
+    ctx.fillStyle='rgba(52,152,219,'+alpha+')';
+    ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();
+  }
+}
+
+// Init
+refreshData();
+</script>
+</body>
+</html>

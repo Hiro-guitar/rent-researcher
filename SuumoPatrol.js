@@ -2919,6 +2919,78 @@ function recordDailyPv_(json) {
   return { ok: true, recorded: recorded, totalRows: finalData.length - 1, dateCols: dateCols.length };
 }
 
+function getListingDashboardData() {
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { listings: [], pvHistory: { dates: [], properties: {} }, compHistory: { dates: [], properties: {} } };
+
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
+  var listings = [];
+  for (var i = 0; i < data.length; i++) {
+    var r = data[i];
+    if (String(r[8]) !== 'active') continue;
+    var listPv = Number(r[11]) || 0;
+    var detailPv = Number(r[12]) || 0;
+    listings.push({
+      key: String(r[0]), name: String(r[1]), room: String(r[2]),
+      startDate: r[3] instanceof Date ? Utilities.formatDate(r[3], 'Asia/Tokyo', 'yyyy-MM-dd') : String(r[3]),
+      rent: Number(r[4]) || 0, suumoCode: String(r[10] || '').replace(/[^0-9]/g, ''),
+      listPv: listPv, detailPv: detailPv, inquiries: Number(r[13]) || 0,
+      listedDays: Number(r[14]) || 0,
+      comp1: r[15] === '' ? null : Number(r[15]), comp2: r[16] === '' ? null : Number(r[16]), comp3: r[17] === '' ? null : Number(r[17]),
+      dangerScore: Number(r[18]) || 0,
+      rank: r[23] === '' ? null : Number(r[23]), rankPage1: r[24] === '' ? null : String(r[24]),
+      rankTotal: r[27] === '' ? null : Number(r[27]),
+      transitionRate: detailPv > 0 && listPv > 0 ? detailPv / listPv : null,
+      weightedComp: r[37] === '' ? null : Number(r[37]),
+      dailyListPv: r[39] === '' ? null : Number(r[39]),
+      mgmtCompany: String(r[40] || ''), source: String(r[41] || ''),
+      scoreDetails: r[22] ? String(r[22]) : ''
+    });
+  }
+
+  var pvHistory = readHistorySheet_(SPREADSHEET_ID, PV_HISTORY_SHEET, PV_HISTORY_FIXED_COLS.length);
+  var compHistory = readHistorySheet_(CRITERIA_SHEET_ID, SUUMO_COMPETITION_LOG_SHEET, COMP_HISTORY_FIXED_COLS.length);
+
+  return { listings: listings, pvHistory: pvHistory, compHistory: compHistory };
+}
+
+function readHistorySheet_(ssId, sheetName, fixedLen) {
+  var result = { dates: [], properties: {} };
+  try {
+    var ss = SpreadsheetApp.openById(ssId);
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return result;
+    var lastRow = sheet.getLastRow();
+    var lastCol = sheet.getLastColumn();
+    if (lastRow <= 1 || lastCol <= fixedLen) return result;
+
+    var all = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+    var headers = all[0];
+    var dates = [];
+    for (var c = fixedLen; c < headers.length; c++) {
+      dates.push(normalizeDateHeader_(headers[c]));
+    }
+    result.dates = dates;
+
+    for (var r = 1; r < all.length; r++) {
+      var code = String(all[r][2] || '').replace(/[^0-9]/g, '');
+      var kind = String(all[r][3] || '');
+      if (!code) continue;
+      if (!result.properties[code]) result.properties[code] = {};
+      var vals = [];
+      for (var d = fixedLen; d < all[r].length; d++) {
+        var v = all[r][d];
+        vals.push(v === '' || v === null || v === undefined ? null : Number(v));
+      }
+      result.properties[code][kind] = vals;
+    }
+  } catch (e) {
+    Logger.log('readHistorySheet_ error: ' + e.message);
+  }
+  return result;
+}
+
 /**
  * PV履歴シートから古い日付列を削除する（単独実行用）。
  */

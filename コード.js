@@ -1442,6 +1442,11 @@ function doGet(e) {
     return handleResendPage(e);
   }
 
+  // ── 掲載物件ダッシュボード ──
+  if (action === 'listing_dashboard') {
+    return handleListingDashboard(e);
+  }
+
   // ── 顧客管理ページ ──
   if (action === 'customer') {
     return handleCustomerPage(e);
@@ -3981,6 +3986,18 @@ function getAdminPageUrl(optCustomerName) {
   var url = baseUrl + '?action=admin&api_key=' + encodeURIComponent(apiKey);
   if (optCustomerName) url += '&customer=' + encodeURIComponent(optCustomerName);
   return url;
+}
+
+function handleListingDashboard(e) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
+    return HtmlService.createHtmlOutput(
+      '<html><body style="text-align:center;padding:40px;font-family:sans-serif;">' +
+      '<h3>認証エラー</h3><p>api_key が正しくありません。</p></body></html>'
+    ).setTitle('認証エラー');
+  }
+  return HtmlService.createHtmlOutputFromFile('ListingDashboard')
+    .setTitle('掲載物件ダッシュボード')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 function handleCustomerPage(e) {
