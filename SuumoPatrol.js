@@ -104,25 +104,10 @@ var SUUMO_LISTING_HEADERS = [
   '取得元サイト'
 ];
 
-// 競合履歴シート (SUUMOビジネス取得毎に各物件のスナップショットを蓄積)
-// updateSuumoListingStats から毎日 append。
-// 30日以上溜まったら「直近7日平均 vs 14〜21日前7日平均」等のトレンド検知に使う (Phase B以降)。
-// 90日で自動削除。
+// 競合履歴シート（マトリクス形式: 縦=物件×種別、横=日付）PV履歴と同じ構造
 var SUUMO_COMPETITION_LOG_SHEET = 'SUUMO競合履歴';
-var SUUMO_COMPETITION_LOG_HEADERS = [
-  '取得日時',
-  '物件キー',
-  '建物名',
-  '部屋番号',
-  '競合_第1基準値',
-  '競合_第2基準値',
-  '競合_第3基準値',
-  '合計一覧PV',
-  '合計詳細PV',
-  '問い合わせ数',
-  '掲載日数(SUUMO)'
-];
-var SUUMO_COMPETITION_LOG_RETENTION_DAYS = 90;
+var COMP_HISTORY_FIXED_COLS = ['物件名', '部屋番号', 'SUUMOコード', '種別'];
+var COMP_HISTORY_RETENTION_DAYS = 90;
 
 // PV履歴シート（マトリクス形式: 縦=物件×種別、横=日付）
 // 行: 物件名 | 部屋番号 | SUUMOコード | 種別(一覧PV/詳細PV) | 日付1 | 日付2 | ...
@@ -172,7 +157,7 @@ function getCandidateSheet_() {
 }
 
 function getCompetitionLogSheet_() {
-  return getSuumoSheet_(SUUMO_COMPETITION_LOG_SHEET, SUUMO_COMPETITION_LOG_HEADERS);
+  return getSuumoSheet_(SUUMO_COMPETITION_LOG_SHEET, COMP_HISTORY_FIXED_COLS);
 }
 
 /**
@@ -180,39 +165,119 @@ function getCompetitionLogSheet_() {
  * 毎回 updateSuumoListingStats から呼ばれるが、内部でフラグを使って
  * 1日 1回だけ実行する。
  */
-function _purgeOldCompetitionLogs_() {
-  try {
-    // 1日に1回だけ実行 (Script Properties でフラグ管理)
-    var props = PropertiesService.getScriptProperties();
-    var lastPurge = props.getProperty('SUUMO_COMP_LOG_LAST_PURGE');
-    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
-    if (lastPurge === today) return;
+/**
+ * 競合履歴をマトリクス形式で記録する（PV履歴と同じ構造）。
+ * 縦=物件×種別(競合_第1/第2/第3)、横=日付。
+ * @param {Array} entries [{suumoCode, name, room, compLv1, compLv2, compLv3}]
+ */
+function recordDailyCompetition_(entries) {
+  if (!entries || entries.length === 0) return { ok: true, recorded: 0 };
 
-    var sheet = getCompetitionLogSheet_();
+  var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(SUUMO_COMPETITION_LOG_SHEET);
+  var fixedLen = COMP_HISTORY_FIXED_COLS.length;
+
+  var allData;
+  if (!sheet) {
+    sheet = ss.insertSheet(SUUMO_COMPETITION_LOG_SHEET);
+    allData = [COMP_HISTORY_FIXED_COLS.slice()];
+  } else {
     var lastRow = sheet.getLastRow();
-    if (lastRow <= 1) {
-      props.setProperty('SUUMO_COMP_LOG_LAST_PURGE', today);
-      return;
+    var lastCol = sheet.getLastColumn();
+    if (lastRow >= 1 && lastCol >= 1) {
+      allData = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+    } else {
+      allData = [COMP_HISTORY_FIXED_COLS.slice()];
     }
-    var cutoff = new Date(Date.now() - SUUMO_COMPETITION_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-    var data = sheet.getRange(2, 1, lastRow - 1, 1).getValues(); // 1列目: 取得日時
-    var deletedCount = 0;
-    // 後ろから削除 (削除中に行番号がズレないように)
-    for (var i = data.length - 1; i >= 0; i--) {
-      var ts = data[i][0];
-      var d = (ts instanceof Date) ? ts : new Date(ts);
-      if (!isNaN(d.getTime()) && d.getTime() < cutoff.getTime()) {
-        sheet.deleteRow(i + 2);
-        deletedCount++;
-      }
-    }
-    props.setProperty('SUUMO_COMP_LOG_LAST_PURGE', today);
-    if (deletedCount > 0) {
-      Logger.log('競合履歴 90日超ログ削除: ' + deletedCount + '行');
-    }
-  } catch (e) {
-    Logger.log('競合履歴 purge 失敗: ' + e.message);
   }
+
+  var headers = allData[0];
+  for (var ni = fixedLen; ni < headers.length; ni++) {
+    headers[ni] = normalizeDateHeader_(headers[ni]);
+  }
+
+  var dateCol = -1;
+  for (var h = fixedLen; h < headers.length; h++) {
+    if (headers[h] === today) { dateCol = h; break; }
+  }
+  if (dateCol < 0) {
+    dateCol = headers.length;
+    headers.push(today);
+    for (var ei = 1; ei < allData.length; ei++) {
+      allData[ei].push('');
+    }
+  }
+
+  var rowMap = {};
+  for (var ri = 1; ri < allData.length; ri++) {
+    var rk = String(allData[ri][2]) + '|' + String(allData[ri][3]);
+    rowMap[rk] = ri;
+  }
+
+  var recorded = 0;
+  var kinds = ['競合_第1', '競合_第2', '競合_第3'];
+  for (var e = 0; e < entries.length; e++) {
+    var ent = entries[e];
+    var code = String(ent.suumoCode || '');
+    if (!code) continue;
+    var vals = [ent.compLv1, ent.compLv2, ent.compLv3];
+    for (var k = 0; k < kinds.length; k++) {
+      var key = code + '|' + kinds[k];
+      if (!rowMap[key]) {
+        var nr = new Array(headers.length);
+        for (var x = 0; x < nr.length; x++) nr[x] = '';
+        nr[0] = ent.name; nr[1] = ent.room; nr[2] = code; nr[3] = kinds[k];
+        allData.push(nr);
+        rowMap[key] = allData.length - 1;
+      }
+      allData[rowMap[key]][dateCol] = vals[k];
+    }
+    recorded++;
+  }
+
+  // 古い日付列を除去 & ソート
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - COMP_HISTORY_RETENTION_DAYS);
+  var cutoffStr = Utilities.formatDate(cutoff, 'Asia/Tokyo', 'yyyy-MM-dd');
+
+  var keepFixed = [];
+  for (var fi = 0; fi < fixedLen; fi++) keepFixed.push(fi);
+  var dateCols = [];
+  for (var di = fixedLen; di < headers.length; di++) {
+    if (String(headers[di]) >= cutoffStr) dateCols.push({ idx: di, date: String(headers[di]) });
+  }
+  dateCols.sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+
+  var colOrder = keepFixed.slice();
+  for (var si = 0; si < dateCols.length; si++) colOrder.push(dateCols[si].idx);
+
+  var finalData = [];
+  for (var wi = 0; wi < allData.length; wi++) {
+    var newRow = [];
+    for (var ci = 0; ci < colOrder.length; ci++) {
+      newRow.push(allData[wi][colOrder[ci]] !== undefined ? allData[wi][colOrder[ci]] : '');
+    }
+    finalData.push(newRow);
+  }
+
+  if (finalData.length > 1) {
+    var bodyRows = finalData.slice(1);
+    bodyRows.sort(function(a, b) {
+      var ka = String(a[0]) + '|' + String(a[1]) + '|' + String(a[3]);
+      var kb = String(b[0]) + '|' + String(b[1]) + '|' + String(b[3]);
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+    finalData = [finalData[0]].concat(bodyRows);
+  }
+
+  sheet.clear();
+  var totalCols = finalData[0].length;
+  sheet.getRange(1, 1, finalData.length, totalCols).setValues(finalData);
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(fixedLen);
+
+  return { ok: true, recorded: recorded, totalRows: finalData.length - 1, dateCols: dateCols.length };
 }
 
 /**
@@ -3010,9 +3075,7 @@ function updateSuumoListingStats_(json) {
     now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   }
 
-  // 競合履歴 (Phase A+) 用に各物件のスナップショットを集める。
-  // ループ終了後にまとめて履歴シートへ append (個別 appendRow より高速)。
-  var competitionLogRows = [];
+  var competitionEntries = [];
 
   for (var r = 0; r < rows.length; r++) {
     var row = rows[r] || {};
@@ -3097,20 +3160,12 @@ function updateSuumoListingStats_(json) {
       updated++;
       matchedSheetRows[targetRow] = true;
 
-      // 競合履歴に append 用エントリ追加 (Phase A+ 時系列トレンド分析用)
-      competitionLogRows.push([
-        now,
-        propertyKey,
-        name,
-        roomNo,
-        compLv1,
-        compLv2,
-        compLv3,
-        totalListPv,
-        totalDetailPv,
-        inquiries,
-        listedDays
-      ]);
+      if (suumoCode) {
+        competitionEntries.push({
+          suumoCode: suumoCode, name: name, room: roomNo,
+          compLv1: compLv1, compLv2: compLv2, compLv3: compLv3
+        });
+      }
 
       // 初マッチ時にsuumo_property_codeを記録済みに更新(キー一致だったケース)
       if (matchBy === 'key' && suumoCode) {
@@ -3186,23 +3241,15 @@ function updateSuumoListingStats_(json) {
   // Daily Searchは2日前までの集計なので、直近停止物件の状態判定には使えない。
   // active/stopped の同期は ForRent状態同期(PUB1R2801直読み) で別途行う。
 
-  // 競合履歴シートに一括append (Phase A+ 時系列トレンド分析用、Phase B以降で活用)
   var competitionLogged = 0;
-  if (competitionLogRows.length > 0) {
+  if (competitionEntries.length > 0) {
     try {
-      var compLogSheet = getCompetitionLogSheet_();
-      var compLogStart = compLogSheet.getLastRow() + 1;
-      compLogSheet.getRange(compLogStart, 1,
-                             competitionLogRows.length,
-                             SUUMO_COMPETITION_LOG_HEADERS.length)
-        .setValues(competitionLogRows);
-      competitionLogged = competitionLogRows.length;
+      var compResult = recordDailyCompetition_(competitionEntries);
+      competitionLogged = compResult.recorded || 0;
     } catch (e) {
-      Logger.log('競合履歴 append 失敗: ' + e.message);
+      Logger.log('競合履歴記録失敗: ' + e.message);
     }
   }
-  // 90日超の古いログを1日1回だけ削除 (Script Properties で実行日記録)
-  _purgeOldCompetitionLogs_();
 
   return {
     success: true,
