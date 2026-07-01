@@ -34,10 +34,6 @@ var INQUIRY_HEADERS = [
   'GmailID'        // T (トレース用)
 ];
 
-// 問い合わせ対応ログ（架電・メール送付などの記録）
-var INQUIRY_LOG_SHEET_NAME = '問い合わせ対応ログ';
-var INQUIRY_LOG_HEADERS = ['連番', '日時', '種別', '結果', 'メモ', '記録者'];
-
 /** 「問い合わせ」シートを取得（無ければ作成） */
 function _getInquirySheet_() {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
@@ -53,21 +49,6 @@ function _getInquirySheet_() {
   return sheet;
 }
 
-/** 「問い合わせ対応ログ」シートを取得（無ければ作成） */
-function _getInquiryLogSheet_() {
-  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
-  var sheet = ss.getSheetByName(INQUIRY_LOG_SHEET_NAME);
-  if (!sheet) {
-    sheet = ss.insertSheet(INQUIRY_LOG_SHEET_NAME);
-    sheet.appendRow(INQUIRY_LOG_HEADERS);
-    try {
-      sheet.getRange(1, 1, 1, INQUIRY_LOG_HEADERS.length).setFontWeight('bold').setBackground('#e0e0e0');
-      sheet.setFrozenRows(1);
-      sheet.getRange('A:A').setNumberFormat('@'); // 連番をテキストで保持
-    } catch (e) {}
-  }
-  return sheet;
-}
 
 /** 本文からラベルに対応する値を抽出（全角/半角コロン・空白区切りの両対応、行頭アンカー）
  *  転送メール対策: 行頭の引用記号(>｜|)や空白も許容する。 */
@@ -513,35 +494,8 @@ function getInquiries() {
   var data = sheet.getRange(2, 1, lastRow - 1, INQUIRY_HEADERS.length).getValues();
   var tz = 'Asia/Tokyo';
 
-  // 対応ログを連番ごとに集計（最終接触・架電/メール回数）＋全件リスト(timeline用)
   var logSummary = {};
   var logsByRenban = {};
-  try {
-    var logSheet = _getInquiryLogSheet_();
-    var lLast = logSheet.getLastRow();
-    if (lLast > 1) {
-      var ldata = logSheet.getRange(2, 1, lLast - 1, INQUIRY_LOG_HEADERS.length).getValues();
-      for (var li = 0; li < ldata.length; li++) {
-        var lk = _normRenban_(ldata[li][0]); if (!lk) continue;
-        var ldt = ldata[li][1];
-        var lts = (ldt instanceof Date) ? ldt.getTime() : (new Date(String(ldt)).getTime() || 0);
-        var ltype = String(ldata[li][2] || '');
-        var s = logSummary[lk] || (logSummary[lk] = { count: 0, callCount: 0, mailCount: 0, lastTs: 0, lastType: '', lastResult: '', lastStr: '' });
-        s.count++;
-        if (ltype.indexOf('架電') >= 0 || ltype.indexOf('電話') >= 0) s.callCount++;
-        else if (ltype.indexOf('メール') >= 0) s.mailCount++;
-        if (lts >= s.lastTs) {
-          s.lastTs = lts; s.lastType = ltype; s.lastResult = String(ldata[li][3] || '');
-          s.lastStr = (ldt instanceof Date) ? Utilities.formatDate(ldt, tz, 'MM/dd HH:mm') : String(ldt || '');
-        }
-        (logsByRenban[lk] || (logsByRenban[lk] = [])).push({
-          source: 'manual', ts: lts,
-          dateStr: (ldt instanceof Date) ? Utilities.formatDate(ldt, tz, 'yyyy/MM/dd HH:mm') : String(ldt || ''),
-          type: ltype, detail: String(ldata[li][3] || ''), memo: String(ldata[li][4] || ''), rowIndex: li + 2
-        });
-      }
-    }
-  } catch (eLog) {}
 
   // 自動返信メール（reply.py が記録する「メール送信履歴」）をメールアドレスごとに集計＋全件リスト
   var autoMail = {};
@@ -627,61 +581,9 @@ function getInquiries() {
   return list;
 }
 
-/** 対応ログを1件記録する（架電・メール送付など）。 */
-function addInquiryLog(renban, type, result, memo) {
-  try {
-    if (!renban) return { success: false, message: '連番がありません' };
-    var sheet = _getInquiryLogSheet_();
-    sheet.appendRow([String(renban), new Date(), String(type || ''), String(result || ''), String(memo || ''), '']);
-    return { success: true };
-  } catch (e) {
-    return { success: false, message: e.message };
-  }
-}
-
-/** 指定連番の対応ログを新しい順で返す。 */
-function getInquiryLogs(renban) {
-  try {
-    var sheet = _getInquiryLogSheet_();
-    var lastRow = sheet.getLastRow();
-    if (lastRow <= 1) return [];
-    var key = _normRenban_(renban);
-    var data = sheet.getRange(2, 1, lastRow - 1, INQUIRY_LOG_HEADERS.length).getValues();
-    var tz = 'Asia/Tokyo';
-    var out = [];
-    for (var i = 0; i < data.length; i++) {
-      if (_normRenban_(data[i][0]) !== key) continue;
-      var dt = data[i][1];
-      out.push({
-        rowIndex: i + 2,
-        dateStr: (dt instanceof Date) ? Utilities.formatDate(dt, tz, 'yyyy/MM/dd HH:mm') : String(dt || ''),
-        ts: (dt instanceof Date) ? dt.getTime() : (new Date(String(dt)).getTime() || 0),
-        type: String(data[i][2] || ''),
-        result: String(data[i][3] || ''),
-        memo: String(data[i][4] || '')
-      });
-    }
-    out.sort(function(a, b) { return b.ts - a.ts; });
-    return out;
-  } catch (e) {
-    return [];
-  }
-}
-
-/** 手動の対応ログ ＋ 自動返信メール(メール送信履歴) を統合して新しい順で返す。 */
+/** 自動返信メール(メール送信履歴) を新しい順で返す。 */
 function getInquiryTimeline(renban, email) {
   var out = [];
-  // 手動ログ（架電・メール送付）
-  try {
-    var logs = getInquiryLogs(renban);
-    for (var i = 0; i < logs.length; i++) {
-      out.push({
-        ts: logs[i].ts, dateStr: logs[i].dateStr, source: 'manual',
-        type: logs[i].type, detail: logs[i].result, memo: logs[i].memo, rowIndex: logs[i].rowIndex
-      });
-    }
-  } catch (e1) {}
-  // 自動返信メール（reply.py が記録）
   try {
     var em = String(email || '').trim().toLowerCase();
     if (em) {
@@ -709,21 +611,6 @@ function getInquiryTimeline(renban, email) {
   } catch (e2) {}
   out.sort(function(a, b) { return b.ts - a.ts; });
   return out;
-}
-
-/** 対応ログを1件削除する（行番号＋連番で照合）。 */
-function deleteInquiryLog(rowNum, renban) {
-  try {
-    var sheet = _getInquiryLogSheet_();
-    var rowRenban = _normRenban_(sheet.getRange(rowNum, 1).getValue());
-    if (rowRenban !== _normRenban_(renban)) {
-      return { success: false, message: '行が一致しません（再読み込みしてください）' };
-    }
-    sheet.deleteRow(rowNum);
-    return { success: true };
-  } catch (e) {
-    return { success: false, message: e.message };
-  }
 }
 
 /**
