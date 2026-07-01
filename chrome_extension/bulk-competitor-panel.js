@@ -386,21 +386,44 @@
     return out;
   }
 
+  // ── 結果キャッシュ（ページ遷移後の復元用） ──
+  const CACHE_KEY = 'bc-result-cache';
+
+  function propKey(p) {
+    return (p.building_name || '') + '|' + (p.room_number || '') + '|' + (p.address || '').substring(0, 20);
+  }
+
+  function saveCache(cache) {
+    try { sessionStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch (_) {}
+  }
+
+  function loadCache() {
+    try {
+      var d = sessionStorage.getItem(CACHE_KEY);
+      return d ? JSON.parse(d) : null;
+    } catch (_) { return null; }
+  }
+
   // ── 進捗管理 ──
   // checkableEntries: 広告不可を除いた、実際にSUUMOチェックする物件
   let allEntries = [];
   let checkableEntries = [];
   let doneCount = 0;
+  let resultCache = {};
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'BULK_COMPETITOR_PROGRESS') {
       const e = checkableEntries[msg.index];
       if (!e) return;
+      var k = propKey(e.prop);
       if (msg.error) {
         injectError(e.el, e.insertTarget);
+        resultCache[k] = { error: true };
       } else {
         injectResult(e.el, msg.competitor, e.insertTarget);
+        resultCache[k] = { competitor: msg.competitor };
       }
+      saveCache(resultCache);
       doneCount++;
       updateProgress();
     }
@@ -419,6 +442,42 @@
       }, 3000);
     }
   }
+
+  // ── キャッシュから復元 ──
+  function restoreFromCache() {
+    var cache = loadCache();
+    if (!cache || Object.keys(cache).length === 0) return;
+
+    var entries = [];
+    if (site === 'reins') entries = extractReins();
+    else if (site === 'itandi') entries = extractItandi();
+    else if (site === 'ielove') entries = extractIelove();
+
+    var restored = 0;
+    entries.forEach(function(e) {
+      var k = propKey(e.prop);
+      var cached = cache[k];
+      if (!cached) return;
+      if (cached.adBlocked) {
+        injectAdBlock(e.el, e.insertTarget);
+      } else if (cached.error) {
+        injectError(e.el, e.insertTarget);
+      } else {
+        injectResult(e.el, cached.competitor, e.insertTarget);
+      }
+      restored++;
+    });
+    if (restored > 0) {
+      btn.textContent = '競合チェック ✓';
+      btn.style.backgroundColor = '#27ae60';
+      setTimeout(function() {
+        btn.textContent = '競合チェック';
+        btn.style.backgroundColor = '#e67e22';
+      }, 2000);
+    }
+  }
+
+  restoreFromCache();
 
   // ── いえらぶURL広告フィルタ ──
   function ensureIeloveAdFilter() {
@@ -448,6 +507,7 @@
 
     running = true;
     doneCount = 0;
+    resultCache = {};
 
     allEntries = [];
     if (site === 'reins') allEntries = extractReins();
@@ -470,11 +530,13 @@
     allEntries.forEach((e) => {
       if (e.adBlocked) {
         injectAdBlock(e.el, e.insertTarget);
+        resultCache[propKey(e.prop)] = { adBlocked: true };
       } else {
         injectLoading(e.el, e.insertTarget);
         checkableEntries.push(e);
       }
     });
+    saveCache(resultCache);
 
     if (checkableEntries.length === 0) {
       btn.textContent = '競合チェック ✓';
