@@ -2223,10 +2223,11 @@ function handleGetSuumoQueue(e) {
 
   var shouldLock = e.parameter.lock === 'true' || e.parameter.lock === '1';
   var queue = shouldLock ? getAndLockSuumoApprovalQueue() : getSuumoApprovalQueue();
-  var listingCount = getActiveListingCount();
+  var sheetListingCount = getActiveListingCount();
+  var liveCount = Number(e.parameter.liveCount) || 0;
+  var listingCount = Math.max(sheetListingCount, liveCount);
   // 50件超過時のみ候補を計算(計算コスト節約)
-  // 標準保護ルールで 0 件なら段階的に緩めて必ず 1 件以上返すようにする
-  // (50件埋まり + 全員保護対象 で詰む状態の自動回避)
+  // ForRent直読みの実数(liveCount)とシート件数の大きい方で判定
   var relaxResult = listingCount >= 50
     ? findStopCandidatesWithGracefulRelax(10)
     : { candidates: [], finalLevel: 0 };
