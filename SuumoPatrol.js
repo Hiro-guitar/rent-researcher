@@ -1567,7 +1567,9 @@ function stopSuumoListing(key) {
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   var keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
   var statuses = sheet.getRange(2, 9, lastRow - 1, 1).getValues();
+  var suumoCodes = sheet.getRange(2, 11, lastRow - 1, 1).getValues();
   var stoppedCount = 0;
+  var stoppedSuumoCodes = [];
   // 同じ key の行が複数あるケース (再承認で重複登録された等) に対応するため、
   // 最初の1行だけでなく該当する全行を stopped 化する。
   // 旧実装は早期 return していたため、 1物件目だけ stopped、 残りは active のまま
@@ -1579,12 +1581,24 @@ function stopSuumoListing(key) {
       sheet.getRange(row, 9).setValue('stopped');
       sheet.getRange(row, 10).setValue(now);
       stoppedCount++;
+      var code = String(suumoCodes[i][0] || '').replace(/[^0-9]/g, '');
+      if (code) stoppedSuumoCodes.push(code);
     }
   }
   if (stoppedCount === 0) {
     return { success: false, message: '該当の active 行が見つかりません (key=' + key + ')' };
   }
-  return { success: true, stoppedCount: stoppedCount };
+
+  var pvDeleted = 0;
+  if (stoppedSuumoCodes.length > 0) {
+    try {
+      pvDeleted = deletePvHistoryRows_(stoppedSuumoCodes);
+    } catch (e) {
+      Logger.log('PV履歴削除エラー(続行): ' + e.message);
+    }
+  }
+
+  return { success: true, stoppedCount: stoppedCount, pvHistoryDeleted: pvDeleted };
 }
 
 /**
@@ -2551,11 +2565,19 @@ function handleSyncForrentListingStatus(json) {
     if (activeRows.length > 0 && stopCandidates.length > activeRows.length / 2) {
       autoStopSkipReason = '消去候補(' + stopCandidates.length + ')がactive総数(' + activeRows.length + ')の半分超';
     } else {
+      var autoStoppedCodes = [];
       for (var m = 0; m < stopCandidates.length; m++) {
         var jj = stopCandidates[m];
         sheet.getRange(jj + 2, 9).setValue('stopped');
         sheet.getRange(jj + 2, 10).setValue(now + ' (ForRent直読み)');
         stopped++;
+        var sc = String(data[jj][10] || '').replace(/[^0-9]/g, '');
+        if (sc) autoStoppedCodes.push(sc);
+      }
+      if (autoStoppedCodes.length > 0) {
+        try { deletePvHistoryRows_(autoStoppedCodes); } catch (e) {
+          Logger.log('PV履歴削除エラー(ForRent同期, 続行): ' + e.message);
+        }
       }
     }
   }
@@ -2692,6 +2714,41 @@ function handleUpdateSuumoListingStats(json) {
 }
 
 // ── PV履歴 記録・読み出し・クリーンアップ ──────────────────────
+
+/**
+ * 指定SUUMOコードの行をPV履歴シートから削除する。
+ * 掲載停止時にリアルタイムで呼ばれる。
+ * @param {string[]} codes - 削除対象のSUUMOコード配列
+ * @returns {number} 削除した行数
+ */
+function deletePvHistoryRows_(codes) {
+  if (!codes || codes.length === 0) return 0;
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(PV_HISTORY_SHEET);
+  if (!sheet) return 0;
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return 0;
+
+  var codeSet = {};
+  for (var c = 0; c < codes.length; c++) {
+    codeSet[String(codes[c])] = true;
+  }
+
+  var suumoColIdx = PV_HISTORY_FIXED_COLS.indexOf('SUUMOコード');
+  var colValues = sheet.getRange(2, suumoColIdx + 1, lastRow - 1, 1).getValues();
+  var rowsToDelete = [];
+  for (var i = 0; i < colValues.length; i++) {
+    var val = String(colValues[i][0] || '').replace(/[^0-9]/g, '');
+    if (val && codeSet[val]) {
+      rowsToDelete.push(i + 2);
+    }
+  }
+
+  for (var d = rowsToDelete.length - 1; d >= 0; d--) {
+    sheet.deleteRow(rowsToDelete[d]);
+  }
+  return rowsToDelete.length;
+}
 
 /**
  * Chrome拡張から送られた1日分のPVデータをPV履歴シートに記録する。
