@@ -141,6 +141,10 @@ function doPost(e) {
       return ContentService.createTextOutput(JSON.stringify(recordDailyPv_(json)))
         .setMimeType(ContentService.MimeType.JSON);
     }
+    if (json.action === 'record_daily_competition') {
+      return ContentService.createTextOutput(JSON.stringify(recordDailyCompetition_(json.entries || [], json.compDate)))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     if (json.action === 'get_listed_for_rank') {
       return handleGetListedForRank(json);
     }
