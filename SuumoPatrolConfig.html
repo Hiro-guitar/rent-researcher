@@ -1197,6 +1197,7 @@ function openSearchMenu(btn, criteriaId) {
   var menu = document.createElement('div');
   menu.className = 'search-menu';
   var services = [
+    { key: 'all', label: '全て' },
     { key: 'itandi', label: 'itandi BB' },
     { key: 'ielove', label: 'いえらぶBB' },
     { key: 'reins', label: 'REINS' }
@@ -1205,13 +1206,20 @@ function openSearchMenu(btn, criteriaId) {
     var svc = services[i];
     var b = document.createElement('button');
     b.textContent = svc.label;
+    if (svc.key === 'all') b.style.borderBottom = '1px solid #ddd';
     b.setAttribute('data-service', svc.key);
     b.setAttribute('data-criteria-id', criteriaId);
     b.onclick = function() {
       var service = this.getAttribute('data-service');
       var cid = this.getAttribute('data-criteria-id');
       closeSearchMenu();
-      doOpenSearchPage(cid, service);
+      if (service === 'all') {
+        doOpenSearchPage(cid, 'itandi');
+        doOpenSearchPage(cid, 'ielove');
+        doOpenSearchPage(cid, 'reins');
+      } else {
+        doOpenSearchPage(cid, service);
+      }
     };
     menu.appendChild(b);
   }
