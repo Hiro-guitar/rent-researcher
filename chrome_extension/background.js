@@ -7391,7 +7391,7 @@ async function runSuumoApprovalPreHook_() {
   // ── 2. 現在の掲載数と停止候補を peek ──
   let peek;
   try {
-    peek = await pollSuumoApprovalQueue({ lock: false });
+    peek = await pollSuumoApprovalQueue({ lock: false, liveCount: liveActiveCountFromForrent });
   } catch (err) {
     return { ok: false, error: `停止候補取得失敗: ${err.message}` };
   }

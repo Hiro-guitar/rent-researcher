@@ -1419,7 +1419,8 @@ async function pollSuumoApprovalQueue(opts) {
   if (!gasWebappUrl) return null;
 
   const lockParam = opts && opts.lock ? '&lock=true' : '';
-  const url = `${gasWebappUrl}?action=get_suumo_queue&api_key=${encodeURIComponent(gasApiKey || '')}${lockParam}`;
+  const liveCountParam = opts && typeof opts.liveCount === 'number' ? `&liveCount=${opts.liveCount}` : '';
+  const url = `${gasWebappUrl}?action=get_suumo_queue&api_key=${encodeURIComponent(gasApiKey || '')}${lockParam}${liveCountParam}`;
   try {
     const res = await _fetchWithTimeout_(url, undefined, 30000);
     if (!res.ok) return null;
