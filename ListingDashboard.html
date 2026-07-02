@@ -140,8 +140,8 @@ canvas{width:100%!important;height:200px!important}
 
 <script>
 var G = {}; // global state
-var sortCol = 'dangerScore';
-var sortDir = -1;
+var sortCol = 'transitionRate';
+var sortDir = 1;
 
 var COLUMNS = [
   {key:'name',label:'物件名',align:'left',fmt:function(l){return l.name+(l.room?' '+l.room:'')}},
@@ -170,12 +170,6 @@ var COLUMNS = [
     var cls = l.rankPage1==='○'?'badge-success':'';
     return cls?'<span class="badge '+cls+'">'+l.rank+total+'</span>':l.rank+total;
   }},
-  {key:'dangerScore',label:'危険度',align:'right',fmt:function(l){
-    var s = l.dangerScore;
-    if(!s) return '<span class="text-muted">-</span>';
-    var cls = s>=70?'badge-danger':s>=40?'badge-warning':'badge-info';
-    return '<span class="badge '+cls+'">'+s+'</span>';
-  }}
 ];
 
 function num(n){return n?n.toLocaleString():'-'}
@@ -269,12 +263,12 @@ function renderList(){
   var ls=G.listings;
   var avgDetail=avg(ls.map(function(l){return l.detailPv}));
   var avgComp=avg(ls.filter(function(l){return l.weightedComp!=null}).map(function(l){return l.weightedComp}));
-  var danger50=ls.filter(function(l){return l.dangerScore>=50}).length;
+  var avgTr=avg(ls.filter(function(l){return l.transitionRate!=null}).map(function(l){return l.transitionRate*100}));
   document.getElementById('summary').innerHTML=
     '<div class="stat-card"><div class="label">掲載中</div><div class="value">'+ls.length+'<span style="font-size:13px;color:#888"> 件</span></div></div>'+
     '<div class="stat-card"><div class="label">平均詳細PV</div><div class="value">'+avgDetail.toFixed(1)+'</div></div>'+
     '<div class="stat-card"><div class="label">平均競合(加重)</div><div class="value">'+avgComp.toFixed(1)+'</div></div>'+
-    '<div class="stat-card"><div class="label">危険度50以上</div><div class="value '+(danger50?'text-danger':'')+'">'+danger50+'<span style="font-size:13px;color:#888"> 件</span></div></div>';
+    '<div class="stat-card"><div class="label">平均遷移率</div><div class="value">'+avgTr.toFixed(1)+'<span style="font-size:13px;color:#888">%</span></div></div>';
 
   // Table head
   var th='';
@@ -343,7 +337,6 @@ function showDetail(code){
   ds+='<div class="detail-stat"><div class="label">問い合わせ</div><div class="value">'+l.inquiries+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">競合(加重)</div><div class="value">'+(l.weightedComp!=null?l.weightedComp.toFixed(1):'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">順位</div><div class="value">'+(l.rank!=null?l.rank+(l.rankTotal?'/'+l.rankTotal:''):'-')+'</div></div>';
-  ds+='<div class="detail-stat"><div class="label">危険度</div><div class="value">'+l.dangerScore+'</div></div>';
   document.getElementById('detailStats').innerHTML=ds;
 
   var pv=G.pvHistory||{dates:[],properties:{}};
