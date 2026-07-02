@@ -51,7 +51,7 @@ var SUUMO_LISTING_HEADERS = [
   '物件キー', '建物名', '部屋番号', '掲載開始日', '賃料', '最終PV数',
   '最終問合数', 'パフォーマンススコア', 'ステータス', '停止日',
   // ── 以下はSUUMOビジネス Daily Search連携(Phase 1)で追加 ──
-  'suumo_property_code', '代表物件以外も含む合計一覧PV', '代表物件以外も含む合計詳細PV', '問い合わせ',
+  'suumo_property_code', '代表物件以外も含む合計一覧PV', '代表物件以外も含む合計詳細PV', '問い合わせ数',
   '掲載日数', '競合_第1基準値', '競合_第2基準値', '競合_第3基準値',
   '危険度スコア', '最終取得日時',
   // 入稿時に候補物件シートから引き継いだ反響予測スコア (0-100)
@@ -143,12 +143,8 @@ function getSuumoSheet_(sheetName, headers) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
   } else {
-    // ヘッダー列数が不足している場合は自動拡張
-    var currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    if (currentHeaders.length < headers.length) {
-      var missing = headers.slice(currentHeaders.length);
-      sheet.getRange(1, currentHeaders.length + 1, 1, missing.length).setValues([missing]);
-    }
+    // ヘッダー行を常に最新の定義に同期（名前変更・列追加に対応）
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
   return sheet;
 }
