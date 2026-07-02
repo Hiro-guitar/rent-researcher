@@ -117,8 +117,8 @@ var SUUMO_LISTING_HEADERS = [
   '徒歩',
   // 50列目: 専有面積 (d[6])
   '専有面積',
-  // 51列目: 築年月 (d[11])
-  '築年月'
+  // 51列目: 築年数 (候補物件シートの property_data_json.building_age から入稿時に取得)
+  '築年数'
 ];
 
 // 競合履歴シート（マトリクス形式: 縦=物件×種別、横=日付）PV履歴と同じ構造
@@ -1145,27 +1145,63 @@ function recordSuumoPosting(data) {
     }
   }
 
-  // 候補物件シートから反響予測スコア・管理会社名・ソースを取得
+  // 候補物件シートから反響予測スコア・管理会社名・ソース・物件情報を取得
   var inquiryScore = 0;
   var ownerCompany = '';
   var sourceSite = '';
+  var candTotalFee = '';
+  var candLineName = '';
+  var candStationName = '';
+  var candWalk = '';
+  var candArea = '';
+  var candBuildingAge = '';
   try {
     var candSheet = getCandidateSheet_();
     var candLastRow = candSheet.getLastRow();
     var scoreColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('反響予測スコア') + 1;
     var sourceColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('ソース') + 1;
     var pjsonColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('property_data_json') + 1;
+    var rentColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('賃料') + 1;
+    var mgmtColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('管理費') + 1;
+    var areaColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('面積') + 1;
     if (candLastRow > 1) {
       var candKeys = candSheet.getRange(2, 1, candLastRow - 1, 1).getValues();
       for (var ci = 0; ci < candKeys.length; ci++) {
         if (candKeys[ci][0] === key) {
           if (scoreColIdx > 0) inquiryScore = Number(candSheet.getRange(ci + 2, scoreColIdx).getValue()) || 0;
           if (sourceColIdx > 0) sourceSite = String(candSheet.getRange(ci + 2, sourceColIdx).getValue() || '');
+          if (rentColIdx > 0 && mgmtColIdx > 0) {
+            var candRent = Number(candSheet.getRange(ci + 2, rentColIdx).getValue()) || 0;
+            var candMgmt = Number(candSheet.getRange(ci + 2, mgmtColIdx).getValue()) || 0;
+            if (candRent > 0) candTotalFee = String(candRent + candMgmt);
+          }
+          if (areaColIdx > 0) {
+            var areaVal = candSheet.getRange(ci + 2, areaColIdx).getValue();
+            if (areaVal) candArea = String(areaVal);
+          }
           if (pjsonColIdx > 0) {
             try {
               var pdata = JSON.parse(candSheet.getRange(ci + 2, pjsonColIdx).getValue());
               ownerCompany = pdata.owner_company || pdata.reins_shougo || '';
               if (!sourceSite) sourceSite = pdata.sourceType || pdata.source || '';
+              if (pdata.building_age) candBuildingAge = String(pdata.building_age);
+              if (!candArea && pdata.area) candArea = String(pdata.area);
+              if (pdata.station_info) {
+                var si = String(pdata.station_info);
+                var walkMatch = si.match(/徒歩\s*(\d+)/);
+                if (walkMatch) candWalk = walkMatch[1];
+                var stMatch = si.match(/(.+?線)\s+(.+?駅)/);
+                if (stMatch) {
+                  candLineName = stMatch[1];
+                  candStationName = stMatch[2].replace(/駅$/, '');
+                } else {
+                  var parts = si.split(/[\s\/]+/);
+                  for (var pi = 0; pi < parts.length; pi++) {
+                    if (/線$/.test(parts[pi])) candLineName = parts[pi];
+                    else if (/駅/.test(parts[pi])) candStationName = parts[pi].replace(/駅$/, '');
+                  }
+                }
+              }
             } catch (_) {}
           }
           break;
@@ -1203,6 +1239,10 @@ function recordSuumoPosting(data) {
   if (ownerCol > 0 && ownerCompany) sheet.getRange(newListingRow, ownerCol).setValue(ownerCompany);
   var sourceCol = SUUMO_LISTING_HEADERS.indexOf('取得元サイト') + 1;
   if (sourceCol > 0 && sourceSite) sheet.getRange(newListingRow, sourceCol).setValue(sourceSite);
+  var propInfoCol = SUUMO_LISTING_HEADERS.indexOf('賃料管理費込') + 1;
+  if (propInfoCol > 0) {
+    sheet.getRange(newListingRow, propInfoCol, 1, 6).setValues([[candTotalFee, candLineName, candStationName, candWalk, candArea, candBuildingAge]]);
+  }
 
   // 候補物件シートのステータスをpostedに更新 + submittingTsクリア
   updateCandidateStatus_(key, 'posted');
@@ -2963,7 +3003,7 @@ function getListingDashboardData() {
       totalDailyDetailPv: r[44] === '' ? null : Number(r[44]),
       totalFee: String(r[45] || ''), lineName: String(r[46] || ''),
       stationName: String(r[47] || ''), walk: String(r[48] || ''),
-      area: String(r[49] || ''), builtYm: String(r[50] || ''),
+      area: String(r[49] || ''), buildingAge: String(r[50] || ''),
       mgmtCompany: String(r[40] || ''), source: String(r[41] || ''),
       scoreDetails: r[22] ? String(r[22]) : ''
     });
@@ -3264,7 +3304,12 @@ function updateSuumoListingStats_(json) {
       var totalDailyDetailCol = SUUMO_LISTING_HEADERS.indexOf('代表物件以外も含む合計詳細PV（平均）') + 1;
       if (totalDailyDetailCol > 0) sheet.getRange(targetRow, totalDailyDetailCol).setValue(totalDailyDetailPv);
       var propInfoCol = SUUMO_LISTING_HEADERS.indexOf('賃料管理費込') + 1;
-      if (propInfoCol > 0) sheet.getRange(targetRow, propInfoCol, 1, 6).setValues([[totalFee, lineName, stationName, walkMin, areaStr, builtYm]]);
+      if (propInfoCol > 0) {
+        var curPropInfo = sheet.getRange(targetRow, propInfoCol, 1, 6).getValues()[0];
+        if (!String(curPropInfo[0] || '').trim()) {
+          sheet.getRange(targetRow, propInfoCol, 1, 6).setValues([[totalFee, lineName, stationName, walkMin, areaStr, builtYm]]);
+        }
+      }
 
       updated++;
       matchedSheetRows[targetRow] = true;
