@@ -1198,6 +1198,7 @@ function recordSuumoPosting(data) {
                 candBuildingAge = ageMatch ? ageMatch[0] : ageStr === '新築' ? '新築' : ageStr;
               }
               if (!candArea && pdata.area) candArea = String(pdata.area);
+              if (!candLayout && pdata.layout) candLayout = String(pdata.layout);
               if (pdata.station_info) {
                 var si = String(pdata.station_info);
                 var walkMatch = si.match(/徒歩\s*(\d+)/);
@@ -1361,7 +1362,6 @@ function backfillLayout() {
   var candPjsons = pjsonColIdx > 0 ? candSheet.getRange(2, pjsonColIdx, candLast - 1, 1).getValues() : [];
 
   var candMap = {};
-  var sampleLogged = 0;
   for (var ci = 0; ci < candKeys.length; ci++) {
     var ck = String(candKeys[ci][0] || '');
     if (!ck) continue;
@@ -1369,17 +1369,11 @@ function backfillLayout() {
     if (!layout && candPjsons.length > ci) {
       try {
         var pd = JSON.parse(candPjsons[ci][0]);
-        if (sampleLogged < 3) {
-          Logger.log('backfillLayout: サンプルJSON keys=' + Object.keys(pd).join(','));
-          sampleLogged++;
-        }
-        layout = (pd.madoriRoomCount || '') + (pd.madoriType || '');
-        if (!layout) layout = pd.layout || pd.madori || '';
+        layout = pd.layout || ((pd.madoriRoomCount || '') + (pd.madoriType || ''));
       } catch (_) {}
     }
     if (layout) candMap[ck] = layout;
   }
-  Logger.log('backfillLayout: 候補物件マップ=' + Object.keys(candMap).length + '件');
 
   var updated = 0;
   for (var i = 0; i < listKeys.length; i++) {
