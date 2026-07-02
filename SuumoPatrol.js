@@ -3022,7 +3022,14 @@ function getListingDashboardData() {
       startDate: r[3] instanceof Date ? Utilities.formatDate(r[3], 'Asia/Tokyo', 'yyyy-MM-dd') : String(r[3]),
       rent: Number(r[4]) || 0, suumoCode: String(r[10] || '').replace(/[^0-9]/g, ''),
       listPv: listPv, detailPv: detailPv, inquiries: Number(r[13]) || 0,
-      listedDays: Number(r[14]) || 0,
+      listedDays: (function() {
+        var sd = r[3];
+        if (!sd) return Number(r[14]) || 0;
+        var start = sd instanceof Date ? sd : new Date(String(sd));
+        if (isNaN(start.getTime())) return Number(r[14]) || 0;
+        var today = new Date();
+        return Math.floor((today.getTime() - start.getTime()) / 86400000);
+      })(),
       repListPv: Number(r[29]) || 0, repDetailPv: Number(r[30]) || 0,
       comp1: r[15] === '' ? null : Number(r[15]), comp2: r[16] === '' ? null : Number(r[16]), comp3: r[17] === '' ? null : Number(r[17]),
       dangerScore: Number(r[18]) || 0,
