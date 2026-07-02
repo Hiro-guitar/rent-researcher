@@ -3037,33 +3037,56 @@ function getListingDashboardData() {
     if (!days) days = Number(r[14]) || 0;
 
     var code = String(r[10] || '').replace(/[^0-9]/g, '');
-    var pvProps = pvHistory.properties[code] || {};
-    var allTimeListPv = sumPvHistory_(pvProps['一覧PV']);
-    var allTimeDetailPv = sumPvHistory_(pvProps['詳細PV']);
-    var allTimeRepListPv = sumPvHistory_(pvProps['代表一覧PV']);
-    var allTimeRepDetailPv = sumPvHistory_(pvProps['代表詳細PV']);
-    if (!allTimeListPv) allTimeListPv = listPv;
-    if (!allTimeDetailPv) allTimeDetailPv = detailPv;
-    if (!allTimeRepListPv) allTimeRepListPv = repListPv;
-    if (!allTimeRepDetailPv) allTimeRepDetailPv = repDetailPv;
+
+    var displayDays = Number(r[14]) || days;
+    var finalListPv = listPv, finalDetailPv = detailPv;
+    var finalRepListPv = repListPv, finalRepDetailPv = repDetailPv;
+    var finalDailyListPv = Number(r[39]) || null;
+    var finalDailyDetailPv = Number(r[42]) || null;
+    var finalTotalDailyListPv = Number(r[43]) || null;
+    var finalTotalDailyDetailPv = Number(r[44]) || null;
+    var finalTransitionRate = repListPv > 0 ? repDetailPv / repListPv : null;
+
+    if (days > 45) {
+      var pvProps = pvHistory.properties[code] || {};
+      var histListPv = sumPvHistory_(pvProps['一覧PV']);
+      var histDetailPv = sumPvHistory_(pvProps['詳細PV']);
+      var histRepListPv = sumPvHistory_(pvProps['代表一覧PV']);
+      var histRepDetailPv = sumPvHistory_(pvProps['代表詳細PV']);
+      var histVals = pvProps['一覧PV'] || pvProps['代表一覧PV'] || [];
+      var historyDays = 0;
+      for (var hi = 0; hi < histVals.length; hi++) { if (histVals[hi] != null) historyDays++; }
+      if (historyDays > 0) {
+        displayDays = historyDays;
+        if (histListPv) finalListPv = histListPv;
+        if (histDetailPv) finalDetailPv = histDetailPv;
+        if (histRepListPv) finalRepListPv = histRepListPv;
+        if (histRepDetailPv) finalRepDetailPv = histRepDetailPv;
+        finalDailyListPv = finalRepListPv / historyDays;
+        finalDailyDetailPv = finalRepDetailPv / historyDays;
+        finalTotalDailyListPv = finalListPv / historyDays;
+        finalTotalDailyDetailPv = finalDetailPv / historyDays;
+        finalTransitionRate = finalRepListPv > 0 ? finalRepDetailPv / finalRepListPv : null;
+      }
+    }
 
     listings.push({
       key: String(r[0]), name: String(r[1]), room: String(r[2]),
       startDate: r[3] instanceof Date ? Utilities.formatDate(r[3], 'Asia/Tokyo', 'yyyy-MM-dd') : String(r[3]),
       rent: Number(r[4]) || 0, suumoCode: code,
-      listPv: allTimeListPv, detailPv: allTimeDetailPv, inquiries: Number(r[13]) || 0,
-      listedDays: days,
-      repListPv: allTimeRepListPv, repDetailPv: allTimeRepDetailPv,
+      listPv: finalListPv, detailPv: finalDetailPv, inquiries: Number(r[13]) || 0,
+      listedDays: displayDays,
+      repListPv: finalRepListPv, repDetailPv: finalRepDetailPv,
       comp1: r[15] === '' ? null : Number(r[15]), comp2: r[16] === '' ? null : Number(r[16]), comp3: r[17] === '' ? null : Number(r[17]),
       dangerScore: Number(r[18]) || 0,
       rank: r[23] === '' ? null : Number(r[23]), rankPage1: r[24] === '' ? null : String(r[24]),
       rankTotal: r[27] === '' ? null : Number(r[27]),
-      transitionRate: allTimeRepListPv > 0 ? allTimeRepDetailPv / allTimeRepListPv : null,
+      transitionRate: finalTransitionRate,
       weightedComp: r[37] === '' ? null : Number(r[37]),
-      dailyListPv: days > 0 ? allTimeRepListPv / days : null,
-      dailyDetailPv: days > 0 ? allTimeRepDetailPv / days : null,
-      totalDailyListPv: days > 0 ? allTimeListPv / days : null,
-      totalDailyDetailPv: days > 0 ? allTimeDetailPv / days : null,
+      dailyListPv: finalDailyListPv,
+      dailyDetailPv: finalDailyDetailPv,
+      totalDailyListPv: finalTotalDailyListPv,
+      totalDailyDetailPv: finalTotalDailyDetailPv,
       totalFee: String(r[45] || ''), lineName: String(r[46] || ''),
       stationName: String(r[47] || ''), walk: String(r[48] || ''),
       area: String(r[49] || ''), buildingAge: String(r[50] || ''),

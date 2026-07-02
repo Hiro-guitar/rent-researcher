@@ -172,7 +172,7 @@ var COLUMNS = [
   {key:'walk',label:'徒歩',align:'right'},
   {key:'area',label:'面積',align:'right'},
   {key:'buildingAge',label:'築年数',align:'right'},
-  {key:'listedDays',label:'掲載日数',align:'right'},
+  {key:'listedDays',label:'掲載日数(データ取得時)',align:'right'},
   {key:'repListPv',label:'代表物件合計一覧PV',align:'right',fmt:function(l){return num(l.repListPv)}},
   {key:'dailyListPv',label:'代表物件一覧PV（平均）',align:'right',fmt:function(l){
     return l.dailyListPv!=null?l.dailyListPv.toFixed(2):'-';
@@ -367,7 +367,7 @@ function showDetail(code){
   ds+='<div class="detail-stat"><div class="label">徒歩</div><div class="value">'+(l.walk||'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">面積</div><div class="value">'+(l.area||'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">築年数</div><div class="value">'+(l.buildingAge||'-')+'</div></div>';
-  ds+='<div class="detail-stat"><div class="label">掲載日数</div><div class="value">'+l.listedDays+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">掲載日数(データ取得時)</div><div class="value">'+l.listedDays+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">代表物件合計一覧PV</div><div class="value">'+num(l.repListPv)+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">代表物件一覧PV（平均）</div><div class="value">'+(l.dailyListPv!=null?l.dailyListPv.toFixed(2):'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">代表物件合計詳細PV</div><div class="value">'+num(l.repDetailPv)+'</div></div>';
