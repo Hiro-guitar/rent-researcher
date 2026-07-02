@@ -1342,51 +1342,96 @@ function backfillSourceSite() {
   Logger.log('backfillSourceSite: ' + updated + '件更新');
 }
 
-function backfillLayout() {
+function backfillLayoutAndAge() {
   var listSheet = getListingSheet_();
   var candSheet = getCandidateSheet_();
   var listLast = listSheet.getLastRow();
   var candLast = candSheet.getLastRow();
-  if (listLast <= 1 || candLast <= 1) return { updated: 0 };
+  if (listLast <= 1 || candLast <= 1) return { layoutUpdated: 0, ageUpdated: 0 };
 
   var layoutCol = SUUMO_LISTING_HEADERS.indexOf('間取り') + 1;
-  if (layoutCol <= 0) return { error: '間取り列が見つかりません' };
+  var ageCol = SUUMO_LISTING_HEADERS.indexOf('築年数') + 1;
 
-  var listKeys = listSheet.getRange(2, 1, listLast - 1, 1).getValues();
-  var listLayouts = listSheet.getRange(2, layoutCol, listLast - 1, 1).getValues();
+  var listData = listSheet.getRange(2, 1, listLast - 1, Math.max(layoutCol, ageCol)).getValues();
 
   var pjsonColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('property_data_json') + 1;
   var candLayoutColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('間取り') + 1;
-  var candKeys = candSheet.getRange(2, 1, candLast - 1, 1).getValues();
-  var candLayoutVals = candLayoutColIdx > 0 ? candSheet.getRange(2, candLayoutColIdx, candLast - 1, 1).getValues() : [];
-  var candPjsons = pjsonColIdx > 0 ? candSheet.getRange(2, pjsonColIdx, candLast - 1, 1).getValues() : [];
+  var candNameColIdx = 2; // 建物名
+  var candRoomColIdx = 3; // 部屋番号
+  var candData = candSheet.getRange(2, 1, candLast - 1, Math.max(pjsonColIdx, candLayoutColIdx, candRoomColIdx)).getValues();
 
-  var candMap = {};
-  for (var ci = 0; ci < candKeys.length; ci++) {
-    var ck = String(candKeys[ci][0] || '');
-    if (!ck) continue;
-    var layout = candLayoutVals.length > ci ? String(candLayoutVals[ci][0] || '') : '';
-    if (!layout && candPjsons.length > ci) {
+  var now = new Date();
+  var currentYear = now.getFullYear();
+  var currentMonth = now.getMonth() + 1;
+
+  var candByKey = {};
+  var candByNameRoom = {};
+  for (var ci = 0; ci < candData.length; ci++) {
+    var ck = String(candData[ci][0] || '');
+    var pjsonStr = pjsonColIdx > 0 ? String(candData[ci][pjsonColIdx - 1] || '') : '';
+    var candLayoutVal = candLayoutColIdx > 0 ? String(candData[ci][candLayoutColIdx - 1] || '') : '';
+    var candName = String(candData[ci][candNameColIdx - 1] || '');
+    var candRoom = String(candData[ci][candRoomColIdx - 1] || '');
+
+    var layout = candLayoutVal;
+    var age = '';
+    if (pjsonStr) {
       try {
-        var pd = JSON.parse(candPjsons[ci][0]);
-        layout = pd.layout || ((pd.madoriRoomCount || '') + (pd.madoriType || ''));
+        var pd = JSON.parse(pjsonStr);
+        if (!layout) layout = pd.layout || ((pd.madoriRoomCount || '') + (pd.madoriType || ''));
+        if (pd.building_age) {
+          var ageStr = String(pd.building_age);
+          if (/^築\d+年$/.test(ageStr) || ageStr === '新築') {
+            age = ageStr;
+          } else {
+            var m = ageStr.match(/(\d{4})年?(\d{1,2})月?/);
+            if (m) {
+              var diff = currentYear - parseInt(m[1], 10);
+              if (currentMonth < parseInt(m[2], 10)) diff--;
+              age = diff <= 0 ? '新築' : '築' + diff + '年';
+            }
+          }
+        }
       } catch (_) {}
     }
-    if (layout) candMap[ck] = layout;
-  }
 
-  var updated = 0;
-  for (var i = 0; i < listKeys.length; i++) {
-    if (listLayouts[i][0]) continue;
-    var lk = String(listKeys[i][0] || '');
-    if (candMap[lk]) {
-      listLayouts[i][0] = candMap[lk];
-      updated++;
+    var info = { layout: layout, age: age };
+    if (ck) candByKey[ck] = info;
+    if (candName && candRoom) {
+      var nrKey = candName + '|' + candRoom;
+      if (!candByNameRoom[nrKey]) candByNameRoom[nrKey] = info;
     }
   }
-  if (updated > 0) listSheet.getRange(2, layoutCol, listLast - 1, 1).setValues(listLayouts);
-  Logger.log('backfillLayout: ' + updated + '件更新');
-  return { updated: updated };
+  Logger.log('backfillLayoutAndAge: keyマップ=' + Object.keys(candByKey).length + ' 名前マップ=' + Object.keys(candByNameRoom).length);
+
+  var layoutUpdated = 0;
+  var ageUpdated = 0;
+  var listLayouts = listSheet.getRange(2, layoutCol, listLast - 1, 1).getValues();
+  var listAges = listSheet.getRange(2, ageCol, listLast - 1, 1).getValues();
+
+  for (var i = 0; i < listData.length; i++) {
+    var lk = String(listData[i][0] || '');
+    var lName = String(listData[i][1] || '');
+    var lRoom = String(listData[i][2] || '');
+    var nrKey = lName + '|' + lRoom;
+
+    var info = candByKey[lk] || candByNameRoom[nrKey];
+    if (!info) continue;
+
+    if (!listLayouts[i][0] && info.layout) {
+      listLayouts[i][0] = info.layout;
+      layoutUpdated++;
+    }
+    if (!listAges[i][0] && info.age) {
+      listAges[i][0] = info.age;
+      ageUpdated++;
+    }
+  }
+
+  if (layoutUpdated > 0) listSheet.getRange(2, layoutCol, listLast - 1, 1).setValues(listLayouts);
+  if (ageUpdated > 0) listSheet.getRange(2, ageCol, listLast - 1, 1).setValues(listAges);
+  Logger.log('backfillLayoutAndAge: 間取り=' + layoutUpdated + '件 築年数=' + ageUpdated + '件更新');
+  return { layoutUpdated: layoutUpdated, ageUpdated: ageUpdated };
 }
 
 /**
