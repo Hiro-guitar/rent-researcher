@@ -171,13 +171,14 @@ var COLUMNS = [
   {key:'stationName',label:'駅',align:'left'},
   {key:'walk',label:'徒歩',align:'right'},
   {key:'area',label:'面積',align:'right'},
+  {key:'layout',label:'間取り',align:'left'},
   {key:'buildingAge',label:'築年数',align:'right'},
   {key:'listedDays',label:'掲載日数(データ取得時)',align:'right'},
-  {key:'repListPv',label:'代表物件合計一覧PV',align:'right',fmt:function(l){return num(l.repListPv)}},
+  {key:'repListPv',label:'代表物件合計一覧PV',align:'right',fmt:function(l){return sparkHtml(l._pvRepListSpark)+num(l.repListPv)}},
   {key:'dailyListPv',label:'代表物件一覧PV（平均）',align:'right',fmt:function(l){
     return l.dailyListPv!=null?l.dailyListPv.toFixed(2):'-';
   }},
-  {key:'repDetailPv',label:'代表物件合計詳細PV',align:'right',fmt:function(l){return sparkHtml(l._pvDetailSpark)+num(l.repDetailPv)}},
+  {key:'repDetailPv',label:'代表物件合計詳細PV',align:'right',fmt:function(l){return sparkHtml(l._pvRepDetailSpark)+num(l.repDetailPv)}},
   {key:'dailyDetailPv',label:'代表物件詳細PV（平均）',align:'right',fmt:function(l){
     return l.dailyDetailPv!=null?l.dailyDetailPv.toFixed(2):'-';
   }},
@@ -187,11 +188,11 @@ var COLUMNS = [
     var cls = l.transitionRate>=0.5?'#2ecc71':l.transitionRate>=0.3?'#f39c12':'#e74c3c';
     return '<span class="tr-bar"><span class="tr-bar-fill" style="width:'+Math.min(pct,100)+'%;background:'+cls+'"></span></span>'+pct+'%';
   }},
-  {key:'listPv',label:'合計一覧PV',align:'right',fmt:function(l){return num(l.listPv)}},
+  {key:'listPv',label:'合計一覧PV',align:'right',fmt:function(l){return sparkHtml(l._pvListSpark)+num(l.listPv)}},
   {key:'totalDailyListPv',label:'合計一覧PV（平均）',align:'right',fmt:function(l){
     return l.totalDailyListPv!=null?l.totalDailyListPv.toFixed(2):'-';
   }},
-  {key:'detailPv',label:'合計詳細PV',align:'right',fmt:function(l){return num(l.detailPv)}},
+  {key:'detailPv',label:'合計詳細PV',align:'right',fmt:function(l){return sparkHtml(l._pvDetailSpark)+num(l.detailPv)}},
   {key:'totalDailyDetailPv',label:'合計詳細PV（平均）',align:'right',fmt:function(l){
     return l.totalDailyDetailPv!=null?l.totalDailyDetailPv.toFixed(2):'-';
   }},
@@ -245,11 +246,16 @@ function enrichData(){
     var l=G.listings[i];
     var code=l.suumoCode;
 
-    // PV sparkline (last 7 days of detail PV)
-    var detPv=(pv.properties[code]||{})['詳細PV']||[];
-    var listPvH=(pv.properties[code]||{})['一覧PV']||[];
+    // PV sparkline (last 7 days)
+    var pp=pv.properties[code]||{};
+    var detPv=pp['詳細PV']||[];
+    var listPvH=pp['一覧PV']||[];
+    var repListPvH=pp['代表一覧PV']||[];
+    var repDetPvH=pp['代表詳細PV']||[];
     l._pvDetailSpark=detPv.slice(-7);
     l._pvListSpark=listPvH.slice(-7);
+    l._pvRepListSpark=repListPvH.slice(-7);
+    l._pvRepDetailSpark=repDetPvH.slice(-7);
 
     // PV drop alert: last 3 days avg vs previous 7 days avg
     l._pvDrop=false;
@@ -366,6 +372,7 @@ function showDetail(code){
   ds+='<div class="detail-stat"><div class="label">駅</div><div class="value">'+(l.stationName||'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">徒歩</div><div class="value">'+(l.walk||'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">面積</div><div class="value">'+(l.area||'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">間取り</div><div class="value">'+(l.layout||'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">築年数</div><div class="value">'+(l.buildingAge||'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">掲載日数(データ取得時)</div><div class="value">'+l.listedDays+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">代表物件合計一覧PV</div><div class="value">'+num(l.repListPv)+'</div></div>';
