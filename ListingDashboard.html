@@ -71,9 +71,10 @@ tbody td{padding:6px 8px;font-size:13px;white-space:nowrap}
 .detail-stat .label{font-size:11px;color:#888}
 .detail-stat .value{font-size:18px;font-weight:700}
 .charts-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
-.chart-card{background:#2d2d2d;border-radius:10px;padding:14px}
+.chart-card{background:#2d2d2d;border-radius:10px;padding:14px;position:relative}
 .chart-card h3{font-size:13px;color:#aaa;margin-bottom:8px}
-canvas{width:100%!important;height:200px!important}
+.chart-tooltip{position:absolute;display:none;background:rgba(30,30,30,.95);border:1px solid #555;border-radius:6px;padding:8px 10px;font-size:11px;line-height:1.7;z-index:5;pointer-events:none;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+canvas{width:100%!important}
 
 /* Sort select on mobile */
 .sort-mobile{display:none}
@@ -146,13 +147,12 @@ canvas{width:100%!important;height:200px!important}
       <h2 id="detailTitle"></h2>
     </div>
     <div class="detail-stats" id="detailStats"></div>
-    <div class="charts-row">
-      <div class="chart-card"><h3>PV推移（30日）</h3><canvas id="pvChart"></canvas></div>
-      <div class="chart-card"><h3>競合推移（30日）</h3><canvas id="compChart"></canvas></div>
+    <div class="charts-row" style="grid-template-columns:1fr">
+      <div class="chart-card"><h3>PV推移</h3><canvas id="pvChart"></canvas></div>
     </div>
     <div class="charts-row">
-      <div class="chart-card"><h3>遷移率推移（詳細PV÷一覧PV）</h3><canvas id="trChart"></canvas></div>
-      <div class="chart-card"><h3>日次詳細PV vs 競合(加重)</h3><canvas id="scatterChart"></canvas></div>
+      <div class="chart-card"><h3>競合推移</h3><canvas id="compChart"></canvas></div>
+      <div class="chart-card"><h3>遷移率推移（代表詳細PV÷代表一覧PV）</h3><canvas id="trChart"></canvas></div>
     </div>
   </div>
 </div>
@@ -360,7 +360,7 @@ function showDetail(code){
   if(!l) return;
 
   document.getElementById('listView').style.display='none';
-  document.getElementById('detailView').style.display='';
+  document.getElementById('detailView').style.display='block';
   document.getElementById('backBtn').style.display='';
   document.getElementById('pageTitle').textContent=l.name+(l.room?' '+l.room:'');
 
@@ -396,9 +396,11 @@ function showDetail(code){
   var cp=comp.properties[code]||{};
 
   drawLineChart('pvChart',pvDates,[
-    {data:pp['一覧PV']||[],color:'#3498db',label:'一覧PV'},
-    {data:pp['詳細PV']||[],color:'#2ecc71',label:'詳細PV'}
-  ]);
+    {data:pp['代表一覧PV']||[],color:'#3498db',label:'代表一覧PV'},
+    {data:pp['代表詳細PV']||[],color:'#2ecc71',label:'代表詳細PV'},
+    {data:pp['一覧PV']||[],color:'#85c1e9',label:'合計一覧PV',dashed:true},
+    {data:pp['詳細PV']||[],color:'#82e0aa',label:'合計詳細PV',dashed:true}
+  ],{height:280});
 
   drawLineChart('compChart',compDates,[
     {data:cp['競合_第1']||[],color:'#e74c3c',label:'第1基準'},
@@ -406,18 +408,14 @@ function showDetail(code){
     {data:cp['競合_第3']||[],color:'#9b59b6',label:'第3基準'}
   ]);
 
-  // Transition rate chart
-  var listArr=pp['一覧PV']||[];
-  var detArr=pp['詳細PV']||[];
+  var repListArr=pp['代表一覧PV']||[];
+  var repDetArr=pp['代表詳細PV']||[];
   var trArr=[];
-  for(var ti=0;ti<Math.max(listArr.length,detArr.length);ti++){
-    var lv=listArr[ti],dv=detArr[ti];
+  for(var ti=0;ti<Math.max(repListArr.length,repDetArr.length);ti++){
+    var lv=repListArr[ti],dv=repDetArr[ti];
     trArr.push(lv!=null&&dv!=null&&lv>0?((dv/lv)*100):null);
   }
-  drawLineChart('trChart',pvDates,[{data:trArr,color:'#e67e22',label:'遷移率(%)'}]);
-
-  // Scatter: detail PV vs competition (per day)
-  drawScatter('scatterChart',detArr,cp['競合_第1']||[],pvDates);
+  drawLineChart('trChart',pvDates,[{data:trArr,color:'#e67e22',label:'遷移率(%)'}],{decimals:1});
 }
 
 function showList(){
@@ -427,121 +425,162 @@ function showList(){
   document.getElementById('pageTitle').textContent='掲載物件ダッシュボード';
 }
 
-function drawLineChart(canvasId,dates,series){
+function drawLineChart(canvasId,dates,series,opts){
+  opts=opts||{};
   var canvas=document.getElementById(canvasId);
+  canvas._chartArgs={dates:dates,series:series,opts:opts};
+  renderChart_(canvas,-1);
+  if(!canvas._hoverBound){
+    canvas._hoverBound=true;
+    var tip=document.createElement('div');
+    tip.className='chart-tooltip';
+    canvas.parentElement.appendChild(tip);
+    canvas.addEventListener('mousemove',function(e){
+      var m=canvas._chartMeta;if(!m)return;
+      var rect=canvas.getBoundingClientRect();
+      var mx=e.clientX-rect.left;
+      if(mx<m.pad.l||mx>m.pad.l+m.cw){tip.style.display='none';return}
+      var ratio=(mx-m.pad.l)/m.cw;
+      var idx=Math.round(ratio*(m.dates.length-1));
+      idx=Math.max(0,Math.min(m.dates.length-1,idx));
+      if(canvas._lastHl===idx)return;
+      canvas._lastHl=idx;
+      renderChart_(canvas,idx);
+      var a=canvas._chartArgs;
+      var html='<div style="font-weight:600;margin-bottom:2px;color:#eee">'+m.dates[idx]+'</div>';
+      for(var s=0;s<a.series.length;s++){
+        var v=a.series[s].data[idx];
+        var vs=v!=null?(a.opts.decimals?v.toFixed(a.opts.decimals):String(v)):'-';
+        html+='<div><span style="color:'+a.series[s].color+'">●</span> '+a.series[s].label+': <b>'+vs+'</b></div>';
+      }
+      tip.innerHTML=html;tip.style.display='block';
+      var tipW=tip.offsetWidth;var tipLeft=mx+16;
+      if(tipLeft+tipW>m.W-10)tipLeft=mx-tipW-16;
+      tip.style.left=tipLeft+'px';
+      tip.style.top=Math.max(0,(e.clientY-rect.top)-20)+'px';
+    });
+    canvas.addEventListener('mouseleave',function(){
+      tip.style.display='none';canvas._lastHl=-1;
+      renderChart_(canvas,-1);
+    });
+  }
+}
+
+function renderChart_(canvas,hlIdx){
+  var a=canvas._chartArgs;if(!a)return;
+  var dates=a.dates,series=a.series,opts=a.opts;
   var ctx=canvas.getContext('2d');
   var dpr=window.devicePixelRatio||1;
   var rect=canvas.parentElement.getBoundingClientRect();
   var W=rect.width-28;
-  var H=200;
+  var H=opts.height||260;
   canvas.width=W*dpr;canvas.height=H*dpr;
   canvas.style.width=W+'px';canvas.style.height=H+'px';
-  ctx.scale(dpr,dpr);
-  ctx.clearRect(0,0,W,H);
+  ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
 
-  if(!dates||dates.length===0){ctx.fillStyle='#888';ctx.fillText('データなし',W/2-30,H/2);return}
+  if(!dates||dates.length===0){
+    ctx.fillStyle='#888';ctx.font='13px -apple-system,sans-serif';ctx.textAlign='center';
+    ctx.fillText('データなし',W/2,H/2);return;
+  }
 
-  var pad={t:20,r:10,b:30,l:40};
+  var pad={t:28,r:55,b:32,l:44};
   var cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
 
-  // Find global min/max
   var mn=Infinity,mx=-Infinity;
   for(var s=0;s<series.length;s++){
     var d=series[s].data;
     for(var i=0;i<d.length;i++){if(d[i]!=null){if(d[i]<mn)mn=d[i];if(d[i]>mx)mx=d[i]}}
   }
   if(mn===Infinity){mn=0;mx=1}
-  if(mn===mx){mn-=1;mx+=1}
+  if(mn===mx){mn=Math.max(0,mn-1);mx=mx+1}
+  var margin=(mx-mn)*0.08;
+  mn=Math.max(0,mn-margin);mx=mx+margin;
   var range=mx-mn;
+
+  canvas._chartMeta={pad:pad,cw:cw,ch:ch,mn:mn,range:range,dates:dates,W:W,H:H};
 
   // Grid
   ctx.strokeStyle='#333';ctx.lineWidth=0.5;
-  for(var g=0;g<=4;g++){
-    var gy=pad.t+ch-(g/4)*ch;
+  var gridN=5;
+  for(var g=0;g<=gridN;g++){
+    var gy=pad.t+ch-(g/gridN)*ch;
     ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(pad.l+cw,gy);ctx.stroke();
-    ctx.fillStyle='#888';ctx.font='10px sans-serif';ctx.textAlign='right';
-    ctx.fillText((mn+range*(g/4)).toFixed(0),pad.l-4,gy+3);
+    ctx.fillStyle='#666';ctx.font='10px -apple-system,sans-serif';ctx.textAlign='right';
+    var gv=mn+range*(g/gridN);
+    ctx.fillText(opts.decimals?gv.toFixed(opts.decimals):Math.round(gv),pad.l-6,gy+3);
   }
 
-  // X axis labels
-  ctx.fillStyle='#888';ctx.font='10px sans-serif';ctx.textAlign='center';
-  var step=Math.max(1,Math.floor(dates.length/6));
-  for(var xi=0;xi<dates.length;xi+=step){
+  // X axis
+  ctx.fillStyle='#666';ctx.font='10px -apple-system,sans-serif';ctx.textAlign='center';
+  var dateStep=Math.max(1,Math.floor(dates.length/7));
+  for(var xi=0;xi<dates.length;xi+=dateStep){
     var xx=pad.l+(xi/(dates.length-1||1))*cw;
     ctx.fillText(dates[xi].slice(5),xx,H-4);
   }
 
-  // Lines
+  // Crosshair
+  if(hlIdx>=0&&hlIdx<dates.length){
+    var hx=pad.l+(hlIdx/(dates.length-1||1))*cw;
+    ctx.strokeStyle='rgba(255,255,255,0.15)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(hx,pad.t);ctx.lineTo(hx,pad.t+ch);ctx.stroke();
+  }
+
+  // Series
   for(var si=0;si<series.length;si++){
     var ser=series[si];
-    ctx.strokeStyle=ser.color;ctx.lineWidth=2;ctx.beginPath();
-    var started=false;
+    var pts=[];
     for(var di=0;di<ser.data.length;di++){
-      if(ser.data[di]==null) continue;
-      var x=pad.l+(di/(dates.length-1||1))*cw;
-      var y=pad.t+ch-((ser.data[di]-mn)/range)*ch;
-      if(!started){ctx.moveTo(x,y);started=true}else{ctx.lineTo(x,y)}
+      if(ser.data[di]==null)continue;
+      pts.push({x:pad.l+(di/(dates.length-1||1))*cw,y:pad.t+ch-((ser.data[di]-mn)/range)*ch,v:ser.data[di],idx:di});
     }
-    ctx.stroke();
+    if(pts.length===0)continue;
+
+    // Gradient fill
+    if(!ser.dashed&&pts.length>=2){
+      var grad=ctx.createLinearGradient(0,pad.t,0,pad.t+ch);
+      grad.addColorStop(0,ser.color+'30');grad.addColorStop(1,ser.color+'05');
+      ctx.fillStyle=grad;ctx.beginPath();
+      ctx.moveTo(pts[0].x,pad.t+ch);
+      for(var fi=0;fi<pts.length;fi++)ctx.lineTo(pts[fi].x,pts[fi].y);
+      ctx.lineTo(pts[pts.length-1].x,pad.t+ch);ctx.closePath();ctx.fill();
+    }
+
+    // Line
+    ctx.strokeStyle=ser.color;ctx.lineWidth=ser.dashed?1.5:2;
+    if(ser.dashed)ctx.setLineDash([5,3]);else ctx.setLineDash([]);
+    ctx.beginPath();
+    for(var li=0;li<pts.length;li++){
+      if(li===0)ctx.moveTo(pts[li].x,pts[li].y);else ctx.lineTo(pts[li].x,pts[li].y);
+    }
+    ctx.stroke();ctx.setLineDash([]);
+
+    // Last point dot + value label
+    var lp=pts[pts.length-1];
+    ctx.fillStyle=ser.color;ctx.beginPath();ctx.arc(lp.x,lp.y,3.5,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#2d2d2d';ctx.lineWidth=1.5;ctx.stroke();
+    ctx.fillStyle=ser.color;ctx.font='bold 10px -apple-system,sans-serif';ctx.textAlign='left';
+    ctx.fillText(opts.decimals?lp.v.toFixed(opts.decimals):String(lp.v),pad.l+cw+6,lp.y+3);
+
+    // Highlight dot
+    if(hlIdx>=0&&ser.data[hlIdx]!=null){
+      var hy=pad.t+ch-((ser.data[hlIdx]-mn)/range)*ch;
+      var hdx=pad.l+(hlIdx/(dates.length-1||1))*cw;
+      ctx.fillStyle=ser.color;ctx.beginPath();ctx.arc(hdx,hy,5,0,Math.PI*2);ctx.fill();
+      ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+    }
   }
 
   // Legend
-  ctx.font='11px sans-serif';
-  var lx=pad.l+4;
-  for(var li=0;li<series.length;li++){
-    ctx.fillStyle=series[li].color;
-    ctx.fillRect(lx,4,12,3);
-    ctx.fillStyle='#ccc';
-    ctx.textAlign='left';
-    ctx.fillText(series[li].label,lx+16,10);
-    lx+=ctx.measureText(series[li].label).width+30;
-  }
-}
-
-function drawScatter(canvasId,detailPvArr,comp1Arr,dates){
-  var canvas=document.getElementById(canvasId);
-  var ctx=canvas.getContext('2d');
-  var dpr=window.devicePixelRatio||1;
-  var rect=canvas.parentElement.getBoundingClientRect();
-  var W=rect.width-28,H=200;
-  canvas.width=W*dpr;canvas.height=H*dpr;
-  canvas.style.width=W+'px';canvas.style.height=H+'px';
-  ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);
-
-  var pad={t:20,r:10,b:30,l:40};
-  var cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
-
-  var points=[];
-  for(var i=0;i<Math.min(detailPvArr.length,comp1Arr.length);i++){
-    if(detailPvArr[i]!=null&&comp1Arr[i]!=null) points.push({x:comp1Arr[i],y:detailPvArr[i],date:dates[i]||''});
-  }
-  if(!points.length){ctx.fillStyle='#888';ctx.fillText('データなし',W/2-30,H/2);return}
-
-  var mnX=Math.min.apply(null,points.map(function(p){return p.x}));
-  var mxX=Math.max.apply(null,points.map(function(p){return p.x}));
-  var mnY=Math.min.apply(null,points.map(function(p){return p.y}));
-  var mxY=Math.max.apply(null,points.map(function(p){return p.y}));
-  if(mnX===mxX){mnX-=1;mxX+=1}if(mnY===mxY){mnY-=1;mxY+=1}
-
-  // Grid
-  ctx.strokeStyle='#333';ctx.lineWidth=0.5;
-  for(var g=0;g<=4;g++){
-    var gy=pad.t+ch-(g/4)*ch;
-    ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(pad.l+cw,gy);ctx.stroke();
-    ctx.fillStyle='#888';ctx.font='10px sans-serif';ctx.textAlign='right';
-    ctx.fillText((mnY+(mxY-mnY)*(g/4)).toFixed(0),pad.l-4,gy+3);
-  }
-  ctx.fillStyle='#888';ctx.font='10px sans-serif';ctx.textAlign='center';
-  ctx.fillText('競合(第1基準)',pad.l+cw/2,H-2);
-
-  // Points
-  for(var pi=0;pi<points.length;pi++){
-    var p=points[pi];
-    var x=pad.l+((p.x-mnX)/(mxX-mnX))*cw;
-    var y=pad.t+ch-((p.y-mnY)/(mxY-mnY))*ch;
-    var alpha=0.3+0.7*(pi/points.length);
-    ctx.fillStyle='rgba(52,152,219,'+alpha+')';
-    ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();
+  ctx.font='11px -apple-system,sans-serif';
+  var lx=pad.l;
+  for(var lei=0;lei<series.length;lei++){
+    ctx.strokeStyle=series[lei].color;ctx.lineWidth=2;
+    if(series[lei].dashed)ctx.setLineDash([4,2]);else ctx.setLineDash([]);
+    ctx.beginPath();ctx.moveTo(lx,12);ctx.lineTo(lx+14,12);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=series[lei].color;ctx.beginPath();ctx.arc(lx+7,12,2.5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#bbb';ctx.textAlign='left';
+    ctx.fillText(series[lei].label,lx+18,15);
+    lx+=ctx.measureText(series[lei].label).width+32;
   }
 }
 
