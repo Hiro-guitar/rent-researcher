@@ -130,7 +130,7 @@ var COMP_HISTORY_RETENTION_DAYS = 30;
 // 行: 物件名 | 部屋番号 | SUUMOコード | 種別(一覧PV/詳細PV) | 日付1 | 日付2 | ...
 var PV_HISTORY_SHEET = 'PV履歴';
 var PV_HISTORY_FIXED_COLS = ['物件名', '部屋番号', 'SUUMOコード', '種別'];
-var PV_HISTORY_RETENTION_DAYS = 30;
+var PV_HISTORY_RETENTION_DAYS = 9999;
 
 var PV_HISTORY_MIN_DAYS = 3;      // 最低何日分のデータがあれば判定対象にするか
 
@@ -2931,30 +2931,30 @@ function recordDailyPv_(json) {
     if (!code) continue;
     var listPv = Number(row.total_list_pv) || 0;
     var detailPv = Number(row.total_detail_pv) || 0;
+    var repListPv = Number(row.rep_list_pv) || 0;
+    var repDetailPv = Number(row.rep_detail_pv) || 0;
     var name = String(row.name || '');
     var room = String(row.room || '');
 
-    // 一覧PV行
-    var listKey = code + '|一覧PV';
-    if (!rowMap[listKey]) {
-      var newList = new Array(headers.length);
-      for (var nl = 0; nl < newList.length; nl++) newList[nl] = '';
-      newList[0] = name; newList[1] = room; newList[2] = code; newList[3] = '一覧PV';
-      allData.push(newList);
-      rowMap[listKey] = allData.length - 1;
+    var kinds = [
+      ['一覧PV', listPv],
+      ['詳細PV', detailPv],
+      ['代表一覧PV', repListPv],
+      ['代表詳細PV', repDetailPv]
+    ];
+    for (var ki = 0; ki < kinds.length; ki++) {
+      var kindName = kinds[ki][0];
+      var kindVal = kinds[ki][1];
+      var key = code + '|' + kindName;
+      if (!rowMap[key]) {
+        var newRow = new Array(headers.length);
+        for (var nri = 0; nri < newRow.length; nri++) newRow[nri] = '';
+        newRow[0] = name; newRow[1] = room; newRow[2] = code; newRow[3] = kindName;
+        allData.push(newRow);
+        rowMap[key] = allData.length - 1;
+      }
+      allData[rowMap[key]][dateCol] = kindVal;
     }
-    allData[rowMap[listKey]][dateCol] = listPv;
-
-    // 詳細PV行
-    var detailKey = code + '|詳細PV';
-    if (!rowMap[detailKey]) {
-      var newDetail = new Array(headers.length);
-      for (var nd = 0; nd < newDetail.length; nd++) newDetail[nd] = '';
-      newDetail[0] = name; newDetail[1] = room; newDetail[2] = code; newDetail[3] = '詳細PV';
-      allData.push(newDetail);
-      rowMap[detailKey] = allData.length - 1;
-    }
-    allData[rowMap[detailKey]][dateCol] = detailPv;
 
     recorded++;
   }
@@ -2988,8 +2988,9 @@ function recordDailyPv_(json) {
   if (finalData.length > 1) {
     var bodyRows = finalData.slice(1);
     bodyRows.sort(function(a, b) {
-      var ka = String(a[0]) + '|' + String(a[1]) + '|' + (a[3] === '一覧PV' ? '0' : '1');
-      var kb = String(b[0]) + '|' + String(b[1]) + '|' + (b[3] === '一覧PV' ? '0' : '1');
+      var sortOrder = {'一覧PV':'0','詳細PV':'1','代表一覧PV':'2','代表詳細PV':'3'};
+      var ka = String(a[0]) + '|' + String(a[1]) + '|' + (sortOrder[a[3]] || '9');
+      var kb = String(b[0]) + '|' + String(b[1]) + '|' + (sortOrder[b[3]] || '9');
       return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
     finalData = [finalData[0]].concat(bodyRows);
@@ -3011,6 +3012,10 @@ function getListingDashboardData() {
   if (lastRow <= 1) return { listings: [], pvHistory: { dates: [], properties: {} }, compHistory: { dates: [], properties: {} } };
 
   var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
+
+  var pvHistory = readHistorySheet_(SPREADSHEET_ID, PV_HISTORY_SHEET, PV_HISTORY_FIXED_COLS.length);
+  var compHistory = readHistorySheet_(CRITERIA_SHEET_ID, SUUMO_COMPETITION_LOG_SHEET, COMP_HISTORY_FIXED_COLS.length);
+
   var listings = [];
   for (var i = 0; i < data.length; i++) {
     var r = data[i];
@@ -3030,23 +3035,35 @@ function getListingDashboardData() {
       }
     }
     if (!days) days = Number(r[14]) || 0;
+
+    var code = String(r[10] || '').replace(/[^0-9]/g, '');
+    var pvProps = pvHistory.properties[code] || {};
+    var allTimeListPv = sumPvHistory_(pvProps['一覧PV']);
+    var allTimeDetailPv = sumPvHistory_(pvProps['詳細PV']);
+    var allTimeRepListPv = sumPvHistory_(pvProps['代表一覧PV']);
+    var allTimeRepDetailPv = sumPvHistory_(pvProps['代表詳細PV']);
+    if (!allTimeListPv) allTimeListPv = listPv;
+    if (!allTimeDetailPv) allTimeDetailPv = detailPv;
+    if (!allTimeRepListPv) allTimeRepListPv = repListPv;
+    if (!allTimeRepDetailPv) allTimeRepDetailPv = repDetailPv;
+
     listings.push({
       key: String(r[0]), name: String(r[1]), room: String(r[2]),
       startDate: r[3] instanceof Date ? Utilities.formatDate(r[3], 'Asia/Tokyo', 'yyyy-MM-dd') : String(r[3]),
-      rent: Number(r[4]) || 0, suumoCode: String(r[10] || '').replace(/[^0-9]/g, ''),
-      listPv: listPv, detailPv: detailPv, inquiries: Number(r[13]) || 0,
+      rent: Number(r[4]) || 0, suumoCode: code,
+      listPv: allTimeListPv, detailPv: allTimeDetailPv, inquiries: Number(r[13]) || 0,
       listedDays: days,
-      repListPv: repListPv, repDetailPv: repDetailPv,
+      repListPv: allTimeRepListPv, repDetailPv: allTimeRepDetailPv,
       comp1: r[15] === '' ? null : Number(r[15]), comp2: r[16] === '' ? null : Number(r[16]), comp3: r[17] === '' ? null : Number(r[17]),
       dangerScore: Number(r[18]) || 0,
       rank: r[23] === '' ? null : Number(r[23]), rankPage1: r[24] === '' ? null : String(r[24]),
       rankTotal: r[27] === '' ? null : Number(r[27]),
-      transitionRate: repListPv > 0 ? repDetailPv / repListPv : null,
+      transitionRate: allTimeRepListPv > 0 ? allTimeRepDetailPv / allTimeRepListPv : null,
       weightedComp: r[37] === '' ? null : Number(r[37]),
-      dailyListPv: days > 0 ? repListPv / days : null,
-      dailyDetailPv: days > 0 ? repDetailPv / days : null,
-      totalDailyListPv: days > 0 ? listPv / days : null,
-      totalDailyDetailPv: days > 0 ? detailPv / days : null,
+      dailyListPv: days > 0 ? allTimeRepListPv / days : null,
+      dailyDetailPv: days > 0 ? allTimeRepDetailPv / days : null,
+      totalDailyListPv: days > 0 ? allTimeListPv / days : null,
+      totalDailyDetailPv: days > 0 ? allTimeDetailPv / days : null,
       totalFee: String(r[45] || ''), lineName: String(r[46] || ''),
       stationName: String(r[47] || ''), walk: String(r[48] || ''),
       area: String(r[49] || ''), buildingAge: String(r[50] || ''),
@@ -3055,10 +3072,16 @@ function getListingDashboardData() {
     });
   }
 
-  var pvHistory = readHistorySheet_(SPREADSHEET_ID, PV_HISTORY_SHEET, PV_HISTORY_FIXED_COLS.length);
-  var compHistory = readHistorySheet_(CRITERIA_SHEET_ID, SUUMO_COMPETITION_LOG_SHEET, COMP_HISTORY_FIXED_COLS.length);
-
   return { listings: listings, pvHistory: pvHistory, compHistory: compHistory };
+}
+
+function sumPvHistory_(vals) {
+  if (!vals || vals.length === 0) return 0;
+  var total = 0;
+  for (var i = 0; i < vals.length; i++) {
+    if (vals[i] != null) total += Number(vals[i]) || 0;
+  }
+  return total;
 }
 
 function readHistorySheet_(ssId, sheetName, fixedLen) {
