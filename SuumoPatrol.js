@@ -3316,7 +3316,10 @@ function updateSuumoListingStats_(json) {
   var competitionLogged = 0;
   if (competitionEntries.length > 0) {
     try {
-      var compResult = recordDailyCompetition_(competitionEntries);
+      var twoDaysAgo = new Date();
+      twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+      var compDate = Utilities.formatDate(twoDaysAgo, 'Asia/Tokyo', 'yyyy-MM-dd');
+      var compResult = recordDailyCompetition_(competitionEntries, compDate);
       competitionLogged = compResult.recorded || 0;
     } catch (e) {
       Logger.log('競合履歴記録失敗: ' + e.message);
