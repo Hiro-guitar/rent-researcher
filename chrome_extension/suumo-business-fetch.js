@@ -175,6 +175,8 @@ async function runSuumoBusinessFetch() {
           room: r.room,
           total_list_pv: r.total_list_pv,
           total_detail_pv: r.total_detail_pv,
+          rep_list_pv: r.rep_list_pv,
+          rep_detail_pv: r.rep_detail_pv,
         }));
         await fetch(gasWebappUrl, {
           method: 'POST',
@@ -665,6 +667,8 @@ async function backfillPvHistory(days) {
           room: r.room,
           total_list_pv: r.total_list_pv,
           total_detail_pv: r.total_detail_pv,
+          rep_list_pv: r.rep_list_pv,
+          rep_detail_pv: r.rep_detail_pv,
         }));
         await fetch(gasWebappUrl, {
           method: 'POST',
