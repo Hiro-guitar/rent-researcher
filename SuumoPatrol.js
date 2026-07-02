@@ -96,12 +96,18 @@ var SUUMO_LISTING_HEADERS = [
   // 39列目: 競合あたり露出効率 = (代表物件一覧PV ÷ 掲載日数) ÷ 加重競合数
   // 高いほど「競合の割に見られている=才能がある」。加重競合数0(独占)は空欄。
   '露出効率',
-  // 40列目: 1日あたり代表一覧PV (d[21])。掲載日数で割らなくてもSUUMOビジネスが直接提供する日次値。
+  // 40列目: 1日あたり代表一覧PV (d[21])
   '日次一覧PV',
   // 41列目: 管理会社名 (候補物件のproperty_data_jsonから入稿時に取得)
   '管理会社',
   // 42列目: 取得元サイト名 (候補物件シートの「ソース」列から入稿時に取得)
-  '取得元サイト'
+  '取得元サイト',
+  // 43列目: 1日あたり代表詳細PV (d[23])
+  '日次詳細PV',
+  // 44列目: 1日あたり合計一覧PV (d[32])
+  '日次合計一覧PV',
+  // 45列目: 1日あたり合計詳細PV (d[34])
+  '日次合計詳細PV'
 ];
 
 // 競合履歴シート（マトリクス形式: 縦=物件×種別、横=日付）PV履歴と同じ構造
@@ -2937,13 +2943,17 @@ function getListingDashboardData() {
       rent: Number(r[4]) || 0, suumoCode: String(r[10] || '').replace(/[^0-9]/g, ''),
       listPv: listPv, detailPv: detailPv, inquiries: Number(r[13]) || 0,
       listedDays: Number(r[14]) || 0,
+      repListPv: Number(r[29]) || 0, repDetailPv: Number(r[30]) || 0,
       comp1: r[15] === '' ? null : Number(r[15]), comp2: r[16] === '' ? null : Number(r[16]), comp3: r[17] === '' ? null : Number(r[17]),
       dangerScore: Number(r[18]) || 0,
       rank: r[23] === '' ? null : Number(r[23]), rankPage1: r[24] === '' ? null : String(r[24]),
       rankTotal: r[27] === '' ? null : Number(r[27]),
-      transitionRate: detailPv > 0 && listPv > 0 ? detailPv / listPv : null,
+      transitionRate: r[28] !== '' ? Number(r[28]) / 100 : null,
       weightedComp: r[37] === '' ? null : Number(r[37]),
       dailyListPv: r[39] === '' ? null : Number(r[39]),
+      dailyDetailPv: r[42] === '' ? null : Number(r[42]),
+      totalDailyListPv: r[43] === '' ? null : Number(r[43]),
+      totalDailyDetailPv: r[44] === '' ? null : Number(r[44]),
       mgmtCompany: String(r[40] || ''), source: String(r[41] || ''),
       scoreDetails: r[22] ? String(r[22]) : ''
     });
@@ -3163,6 +3173,9 @@ function updateSuumoListingStats_(json) {
     var repListPv = Number(row.rep_list_pv) || 0;   // d[20] 代表物件一覧PV(遷移率の母数)
     var repDailyListPv = parseFloat(row.rep_daily_list_pv) || 0; // d[21] 1日あたり代表一覧PV
     var repDetailPv = Number(row.rep_detail_pv) || 0; // d[22] 代表物件詳細PV
+    var repDailyDetailPv = parseFloat(row.rep_daily_detail_pv) || 0; // d[23] 1日あたり代表詳細PV
+    var totalDailyListPv = parseFloat(row.total_daily_list_pv) || 0; // d[32] 1日あたり合計一覧PV
+    var totalDailyDetailPv = parseFloat(row.total_daily_detail_pv) || 0; // d[34] 1日あたり合計詳細PV
 
     // 競合基準値別件数は暫定で整数パースのみ(正しい列が未確定の場合は0になる)
     var compLv1 = parseInt(String(row.comp_lv1_raw || '').replace(/[^0-9]/g, ''), 10) || 0;
@@ -3228,6 +3241,12 @@ function updateSuumoListingStats_(json) {
       }
       var dailyPvCol = SUUMO_LISTING_HEADERS.indexOf('日次一覧PV') + 1;
       if (dailyPvCol > 0) sheet.getRange(targetRow, dailyPvCol).setValue(repDailyListPv);
+      var dailyDetailCol = SUUMO_LISTING_HEADERS.indexOf('日次詳細PV') + 1;
+      if (dailyDetailCol > 0) sheet.getRange(targetRow, dailyDetailCol).setValue(repDailyDetailPv);
+      var totalDailyListCol = SUUMO_LISTING_HEADERS.indexOf('日次合計一覧PV') + 1;
+      if (totalDailyListCol > 0) sheet.getRange(targetRow, totalDailyListCol).setValue(totalDailyListPv);
+      var totalDailyDetailCol = SUUMO_LISTING_HEADERS.indexOf('日次合計詳細PV') + 1;
+      if (totalDailyDetailCol > 0) sheet.getRange(targetRow, totalDailyDetailCol).setValue(totalDailyDetailPv);
 
       updated++;
       matchedSheetRows[targetRow] = true;
@@ -3301,6 +3320,12 @@ function updateSuumoListingStats_(json) {
       if (repDetailColNew > 0) sheet.getRange(newSheetRow, repDetailColNew).setValue(repDetailPv);
       var dailyPvColNew = SUUMO_LISTING_HEADERS.indexOf('日次一覧PV') + 1;
       if (dailyPvColNew > 0) sheet.getRange(newSheetRow, dailyPvColNew).setValue(repDailyListPv);
+      var dailyDetailColNew = SUUMO_LISTING_HEADERS.indexOf('日次詳細PV') + 1;
+      if (dailyDetailColNew > 0) sheet.getRange(newSheetRow, dailyDetailColNew).setValue(repDailyDetailPv);
+      var totalDailyListColNew = SUUMO_LISTING_HEADERS.indexOf('日次合計一覧PV') + 1;
+      if (totalDailyListColNew > 0) sheet.getRange(newSheetRow, totalDailyListColNew).setValue(totalDailyListPv);
+      var totalDailyDetailColNew = SUUMO_LISTING_HEADERS.indexOf('日次合計詳細PV') + 1;
+      if (totalDailyDetailColNew > 0) sheet.getRange(newSheetRow, totalDailyDetailColNew).setValue(totalDailyDetailPv);
       if (suumoCode) codeToRow[suumoCode] = newSheetRow;
       if (propertyKey) keyToRow[propertyKey] = newSheetRow;
       matchedSheetRows[newSheetRow] = true;
