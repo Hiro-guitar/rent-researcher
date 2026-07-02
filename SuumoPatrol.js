@@ -118,7 +118,9 @@ var SUUMO_LISTING_HEADERS = [
   // 50列目: 専有面積 (d[6])
   '専有面積',
   // 51列目: 築年数 (候補物件シートの property_data_json.building_age から入稿時に取得)
-  '築年数'
+  '築年数',
+  // 52列目: 間取り (候補物件シートの「間取り」列から入稿時に取得)
+  '間取り'
 ];
 
 // 競合履歴シート（マトリクス形式: 縦=物件×種別、横=日付）PV履歴と同じ構造
@@ -1155,6 +1157,7 @@ function recordSuumoPosting(data) {
   var candWalk = '';
   var candArea = '';
   var candBuildingAge = '';
+  var candLayout = '';
   try {
     var candSheet = getCandidateSheet_();
     var candLastRow = candSheet.getLastRow();
@@ -1164,6 +1167,7 @@ function recordSuumoPosting(data) {
     var rentColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('賃料') + 1;
     var mgmtColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('管理費') + 1;
     var areaColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('面積') + 1;
+    var layoutColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('間取り') + 1;
     if (candLastRow > 1) {
       var candKeys = candSheet.getRange(2, 1, candLastRow - 1, 1).getValues();
       for (var ci = 0; ci < candKeys.length; ci++) {
@@ -1178,6 +1182,10 @@ function recordSuumoPosting(data) {
           if (areaColIdx > 0) {
             var areaVal = candSheet.getRange(ci + 2, areaColIdx).getValue();
             if (areaVal) candArea = String(areaVal);
+          }
+          if (layoutColIdx > 0) {
+            var layoutVal = candSheet.getRange(ci + 2, layoutColIdx).getValue();
+            if (layoutVal) candLayout = String(layoutVal);
           }
           if (pjsonColIdx > 0) {
             try {
@@ -1245,7 +1253,7 @@ function recordSuumoPosting(data) {
   if (sourceCol > 0 && sourceSite) sheet.getRange(newListingRow, sourceCol).setValue(sourceSite);
   var propInfoCol = SUUMO_LISTING_HEADERS.indexOf('賃料管理費込') + 1;
   if (propInfoCol > 0) {
-    sheet.getRange(newListingRow, propInfoCol, 1, 6).setValues([[candTotalFee, candLineName, candStationName, candWalk, candArea, candBuildingAge]]);
+    sheet.getRange(newListingRow, propInfoCol, 1, 7).setValues([[candTotalFee, candLineName, candStationName, candWalk, candArea, candBuildingAge, candLayout]]);
   }
 
   // 候補物件シートのステータスをpostedに更新 + submittingTsクリア
@@ -3089,7 +3097,7 @@ function getListingDashboardData() {
       totalDailyDetailPv: finalTotalDailyDetailPv,
       totalFee: String(r[45] || ''), lineName: String(r[46] || ''),
       stationName: String(r[47] || ''), walk: String(r[48] || ''),
-      area: String(r[49] || ''), buildingAge: String(r[50] || ''),
+      area: String(r[49] || ''), buildingAge: String(r[50] || ''), layout: String(r[51] || ''),
       mgmtCompany: String(r[40] || ''), source: String(r[41] || ''),
       scoreDetails: r[22] ? String(r[22]) : ''
     });
