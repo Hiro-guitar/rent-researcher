@@ -1255,6 +1255,35 @@ function recordSuumoPosting(data) {
   return { success: true, key: key };
 }
 
+function backfillBuildingAge() {
+  var sheet = getListingSheet_();
+  var col = SUUMO_LISTING_HEADERS.indexOf('築年数') + 1;
+  if (col <= 0) return { error: '築年数列が見つかりません' };
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { updated: 0 };
+  var vals = sheet.getRange(2, col, lastRow - 1, 1).getValues();
+  var now = new Date();
+  var currentYear = now.getFullYear();
+  var currentMonth = now.getMonth() + 1;
+  var updated = 0;
+  for (var i = 0; i < vals.length; i++) {
+    var v = String(vals[i][0] || '').trim();
+    if (!v) continue;
+    if (/^築\d+年$/.test(v) || v === '新築') continue;
+    var m = v.match(/^(\d{4})(\d{2})$/);
+    if (m) {
+      var builtYear = parseInt(m[1], 10);
+      var builtMonth = parseInt(m[2], 10);
+      var age = currentYear - builtYear;
+      if (currentMonth < builtMonth) age--;
+      vals[i][0] = age <= 0 ? '新築' : '築' + age + '年';
+      updated++;
+    }
+  }
+  if (updated > 0) sheet.getRange(2, col, lastRow - 1, 1).setValues(vals);
+  return { updated: updated };
+}
+
 /**
  * 掲載管理シートで「取得元サイト」が空の物件を、候補物件シートから埋める。
  * GASエディタから1回手動実行する想定。
