@@ -346,11 +346,14 @@ function scrapeSuumoBusinessTable() {
         rep_list_pv: toInt(d[20]),
         rep_daily_list_pv: parseFloat(String(d[21] || '0').replace(/,/g, '')) || 0,
         rep_detail_pv: toInt(d[22]),
+        rep_daily_detail_pv: parseFloat(String(d[23] || '0').replace(/,/g, '')) || 0,
         transition_rate: d[24] || '',
         room_list_pv: toInt(d[27]),
         room_detail_pv: toInt(d[29]),
         total_list_pv: toInt(d[31]),
+        total_daily_list_pv: parseFloat(String(d[32] || '0').replace(/,/g, '')) || 0,
         total_detail_pv: toInt(d[33]),
+        total_daily_detail_pv: parseFloat(String(d[34] || '0').replace(/,/g, '')) || 0,
         inquiries: toInt(d[35]),
         // 競合基準値別件数の列インデックス(実測で確定):
         //   i=40 → 第3基準値競合物件数
