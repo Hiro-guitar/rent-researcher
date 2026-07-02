@@ -197,6 +197,22 @@
     });
   });
 
+  // 掲載物件ダッシュボード
+  document.getElementById('listingDashboardBtn').addEventListener('click', () => {
+    chrome.storage.local.get(['gasWebappUrl', 'gasApiKey'], (data) => {
+      if (!data.gasWebappUrl) {
+        alert('GAS Web App URLが設定されていません。設定画面から設定してください。');
+        return;
+      }
+      if (!data.gasApiKey) {
+        alert('GAS API Keyが設定されていません。設定画面から設定してください。');
+        return;
+      }
+      const url = data.gasWebappUrl + '?action=listing_dashboard&api_key=' + encodeURIComponent(data.gasApiKey);
+      window.open(url, '_blank');
+    });
+  });
+
   // キャンセル監視中物件一覧
   const cancellationWatchListBtn = document.getElementById('cancellationWatchListBtn');
   if (cancellationWatchListBtn) {
