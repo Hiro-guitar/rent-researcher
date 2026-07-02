@@ -1341,6 +1341,45 @@ function backfillSourceSite() {
   Logger.log('backfillSourceSite: ' + updated + '件更新');
 }
 
+function backfillLayout() {
+  var listSheet = getListingSheet_();
+  var candSheet = getCandidateSheet_();
+  var listLast = listSheet.getLastRow();
+  var candLast = candSheet.getLastRow();
+  if (listLast <= 1 || candLast <= 1) return { updated: 0 };
+
+  var layoutCol = SUUMO_LISTING_HEADERS.indexOf('間取り') + 1;
+  if (layoutCol <= 0) return { error: '間取り列が見つかりません' };
+
+  var listKeys = listSheet.getRange(2, 1, listLast - 1, 1).getValues();
+  var listLayouts = listSheet.getRange(2, layoutCol, listLast - 1, 1).getValues();
+
+  var candLayoutColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('間取り') + 1;
+  if (candLayoutColIdx <= 0) return { error: '候補物件シートに間取り列がありません' };
+  var candKeys = candSheet.getRange(2, 1, candLast - 1, 1).getValues();
+  var candLayouts = candSheet.getRange(2, candLayoutColIdx, candLast - 1, 1).getValues();
+
+  var candMap = {};
+  for (var ci = 0; ci < candKeys.length; ci++) {
+    var ck = String(candKeys[ci][0] || '');
+    var cv = String(candLayouts[ci][0] || '');
+    if (ck && cv) candMap[ck] = cv;
+  }
+
+  var updated = 0;
+  for (var i = 0; i < listKeys.length; i++) {
+    if (listLayouts[i][0]) continue;
+    var lk = String(listKeys[i][0] || '');
+    if (candMap[lk]) {
+      listLayouts[i][0] = candMap[lk];
+      updated++;
+    }
+  }
+  if (updated > 0) listSheet.getRange(2, layoutCol, listLast - 1, 1).setValues(listLayouts);
+  Logger.log('backfillLayout: ' + updated + '件更新');
+  return { updated: updated };
+}
+
 /**
  * submittingTs列（17列目）をクリア
  */
