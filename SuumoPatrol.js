@@ -1346,35 +1346,55 @@ function backfillLayout() {
   var candSheet = getCandidateSheet_();
   var listLast = listSheet.getLastRow();
   var candLast = candSheet.getLastRow();
+  Logger.log('backfillLayout: listLast=' + listLast + ' candLast=' + candLast);
   if (listLast <= 1 || candLast <= 1) return { updated: 0 };
 
   var layoutCol = SUUMO_LISTING_HEADERS.indexOf('間取り') + 1;
+  Logger.log('backfillLayout: layoutCol=' + layoutCol);
   if (layoutCol <= 0) return { error: '間取り列が見つかりません' };
 
   var listKeys = listSheet.getRange(2, 1, listLast - 1, 1).getValues();
   var listLayouts = listSheet.getRange(2, layoutCol, listLast - 1, 1).getValues();
 
   var candLayoutColIdx = SUUMO_CANDIDATE_HEADERS.indexOf('間取り') + 1;
+  Logger.log('backfillLayout: candLayoutColIdx=' + candLayoutColIdx);
   if (candLayoutColIdx <= 0) return { error: '候補物件シートに間取り列がありません' };
+
+  var candHeaders = candSheet.getRange(1, 1, 1, candSheet.getLastColumn()).getValues()[0];
+  Logger.log('backfillLayout: 候補物件シートのヘッダー=' + JSON.stringify(candHeaders));
+  var actualLayoutCol = -1;
+  for (var hi = 0; hi < candHeaders.length; hi++) {
+    if (String(candHeaders[hi]).trim() === '間取り') { actualLayoutCol = hi + 1; break; }
+  }
+  Logger.log('backfillLayout: 実際の間取り列=' + actualLayoutCol);
+  if (actualLayoutCol <= 0) return { error: '候補物件シートに間取りヘッダーが見つかりません' };
+
   var candKeys = candSheet.getRange(2, 1, candLast - 1, 1).getValues();
-  var candLayouts = candSheet.getRange(2, candLayoutColIdx, candLast - 1, 1).getValues();
+  var candLayouts = candSheet.getRange(2, actualLayoutCol, candLast - 1, 1).getValues();
 
   var candMap = {};
+  var candWithLayout = 0;
   for (var ci = 0; ci < candKeys.length; ci++) {
     var ck = String(candKeys[ci][0] || '');
     var cv = String(candLayouts[ci][0] || '');
-    if (ck && cv) candMap[ck] = cv;
+    if (ck && cv) { candMap[ck] = cv; candWithLayout++; }
   }
+  Logger.log('backfillLayout: 候補物件数=' + candKeys.length + ' 間取りあり=' + candWithLayout);
 
+  var listEmpty = 0;
+  var listMatched = 0;
   var updated = 0;
   for (var i = 0; i < listKeys.length; i++) {
     if (listLayouts[i][0]) continue;
+    listEmpty++;
     var lk = String(listKeys[i][0] || '');
     if (candMap[lk]) {
       listLayouts[i][0] = candMap[lk];
       updated++;
+      listMatched++;
     }
   }
+  Logger.log('backfillLayout: 掲載物件数=' + listKeys.length + ' 間取り空=' + listEmpty + ' マッチ=' + listMatched);
   if (updated > 0) listSheet.getRange(2, layoutCol, listLast - 1, 1).setValues(listLayouts);
   Logger.log('backfillLayout: ' + updated + '件更新');
   return { updated: updated };
