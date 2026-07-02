@@ -3017,31 +3017,36 @@ function getListingDashboardData() {
     if (String(r[8]) !== 'active') continue;
     var listPv = Number(r[11]) || 0;
     var detailPv = Number(r[12]) || 0;
+    var repListPv = Number(r[29]) || 0;
+    var repDetailPv = Number(r[30]) || 0;
+    var sd = r[3];
+    var days = 0;
+    if (sd) {
+      var start = sd instanceof Date ? sd : new Date(String(sd));
+      if (!isNaN(start.getTime())) {
+        var s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        var t = new Date(); t = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+        days = Math.round((t.getTime() - s.getTime()) / 86400000);
+      }
+    }
+    if (!days) days = Number(r[14]) || 0;
     listings.push({
       key: String(r[0]), name: String(r[1]), room: String(r[2]),
       startDate: r[3] instanceof Date ? Utilities.formatDate(r[3], 'Asia/Tokyo', 'yyyy-MM-dd') : String(r[3]),
       rent: Number(r[4]) || 0, suumoCode: String(r[10] || '').replace(/[^0-9]/g, ''),
       listPv: listPv, detailPv: detailPv, inquiries: Number(r[13]) || 0,
-      listedDays: (function() {
-        var sd = r[3];
-        if (!sd) return Number(r[14]) || 0;
-        var start = sd instanceof Date ? sd : new Date(String(sd));
-        if (isNaN(start.getTime())) return Number(r[14]) || 0;
-        var s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-        var t = new Date(); t = new Date(t.getFullYear(), t.getMonth(), t.getDate());
-        return Math.round((t.getTime() - s.getTime()) / 86400000);
-      })(),
-      repListPv: Number(r[29]) || 0, repDetailPv: Number(r[30]) || 0,
+      listedDays: days,
+      repListPv: repListPv, repDetailPv: repDetailPv,
       comp1: r[15] === '' ? null : Number(r[15]), comp2: r[16] === '' ? null : Number(r[16]), comp3: r[17] === '' ? null : Number(r[17]),
       dangerScore: Number(r[18]) || 0,
       rank: r[23] === '' ? null : Number(r[23]), rankPage1: r[24] === '' ? null : String(r[24]),
       rankTotal: r[27] === '' ? null : Number(r[27]),
-      transitionRate: r[28] !== '' ? Number(r[28]) / 100 : null,
+      transitionRate: repListPv > 0 ? repDetailPv / repListPv : null,
       weightedComp: r[37] === '' ? null : Number(r[37]),
-      dailyListPv: r[39] === '' ? null : Number(r[39]),
-      dailyDetailPv: r[42] === '' ? null : Number(r[42]),
-      totalDailyListPv: r[43] === '' ? null : Number(r[43]),
-      totalDailyDetailPv: r[44] === '' ? null : Number(r[44]),
+      dailyListPv: days > 0 ? repListPv / days : null,
+      dailyDetailPv: days > 0 ? repDetailPv / days : null,
+      totalDailyListPv: days > 0 ? listPv / days : null,
+      totalDailyDetailPv: days > 0 ? detailPv / days : null,
       totalFee: String(r[45] || ''), lineName: String(r[46] || ''),
       stationName: String(r[47] || ''), walk: String(r[48] || ''),
       area: String(r[49] || ''), buildingAge: String(r[50] || ''),
