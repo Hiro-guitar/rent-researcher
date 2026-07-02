@@ -3027,8 +3027,9 @@ function getListingDashboardData() {
         if (!sd) return Number(r[14]) || 0;
         var start = sd instanceof Date ? sd : new Date(String(sd));
         if (isNaN(start.getTime())) return Number(r[14]) || 0;
-        var today = new Date();
-        return Math.floor((today.getTime() - start.getTime()) / 86400000);
+        var s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+        var t = new Date(); t = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+        return Math.round((t.getTime() - s.getTime()) / 86400000);
       })(),
       repListPv: Number(r[29]) || 0, repDetailPv: Number(r[30]) || 0,
       comp1: r[15] === '' ? null : Number(r[15]), comp2: r[16] === '' ? null : Number(r[16]), comp3: r[17] === '' ? null : Number(r[17]),
