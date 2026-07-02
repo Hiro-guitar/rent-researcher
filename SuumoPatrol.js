@@ -1184,7 +1184,11 @@ function recordSuumoPosting(data) {
               var pdata = JSON.parse(candSheet.getRange(ci + 2, pjsonColIdx).getValue());
               ownerCompany = pdata.owner_company || pdata.reins_shougo || '';
               if (!sourceSite) sourceSite = pdata.sourceType || pdata.source || '';
-              if (pdata.building_age) candBuildingAge = String(pdata.building_age);
+              if (pdata.building_age) {
+                var ageStr = String(pdata.building_age);
+                var ageMatch = ageStr.match(/築\d+年/);
+                candBuildingAge = ageMatch ? ageMatch[0] : ageStr === '新築' ? '新築' : ageStr;
+              }
               if (!candArea && pdata.area) candArea = String(pdata.area);
               if (pdata.station_info) {
                 var si = String(pdata.station_info);
