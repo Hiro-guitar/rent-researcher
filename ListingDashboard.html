@@ -113,8 +113,8 @@ canvas{width:100%!important;height:200px!important}
       <div class="table-wrap">
         <table>
           <colgroup>
-            <col style="width:16%">
-            <col span="12" style="width:7%">
+            <col style="width:12%">
+            <col span="18" style="width:4.9%">
           </colgroup>
           <thead><tr id="tableHead"></tr></thead>
           <tbody id="tableBody"></tbody>
@@ -149,7 +149,12 @@ var sortDir = 1;
 
 var COLUMNS = [
   {key:'name',label:'物件名',align:'left',fmt:function(l){return l.name+(l.room?' '+l.room:'')}},
-  {key:'rent',label:'賃料',align:'right',fmt:function(l){return num(l.rent)}},
+  {key:'totalFee',label:'賃料+管理費',align:'right'},
+  {key:'lineName',label:'路線',align:'left'},
+  {key:'stationName',label:'駅',align:'left'},
+  {key:'walk',label:'徒歩',align:'right'},
+  {key:'area',label:'面積',align:'right'},
+  {key:'builtYm',label:'築年月',align:'right'},
   {key:'listedDays',label:'掲載日数',align:'right'},
   {key:'repListPv',label:'代表物件合計一覧PV',align:'right',fmt:function(l){return num(l.repListPv)}},
   {key:'dailyListPv',label:'代表物件一覧PV（平均）',align:'right',fmt:function(l){
@@ -339,7 +344,12 @@ function showDetail(code){
   document.getElementById('detailTitle').textContent='';
 
   var ds='';
-  ds+='<div class="detail-stat"><div class="label">賃料</div><div class="value">'+num(l.rent)+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">賃料+管理費</div><div class="value">'+(l.totalFee||'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">路線</div><div class="value">'+(l.lineName||'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">駅</div><div class="value">'+(l.stationName||'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">徒歩</div><div class="value">'+(l.walk||'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">面積</div><div class="value">'+(l.area||'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">築年月</div><div class="value">'+(l.builtYm||'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">掲載日数</div><div class="value">'+l.listedDays+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">代表物件合計一覧PV</div><div class="value">'+num(l.repListPv)+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">代表物件一覧PV（平均）</div><div class="value">'+(l.dailyListPv!=null?l.dailyListPv.toFixed(2):'-')+'</div></div>';

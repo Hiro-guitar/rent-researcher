@@ -106,7 +106,19 @@ var SUUMO_LISTING_HEADERS = [
   // 44列目: 代表物件以外も含む合計一覧PV（平均） (d[32])
   '代表物件以外も含む合計一覧PV（平均）',
   // 45列目: 代表物件以外も含む合計詳細PV（平均） (d[34])
-  '代表物件以外も含む合計詳細PV（平均）'
+  '代表物件以外も含む合計詳細PV（平均）',
+  // 46列目: 賃料+管理費 (d[9] total_fee)
+  '賃料管理費込',
+  // 47列目: 路線名 (d[2])
+  '路線名',
+  // 48列目: 最寄り駅 (d[3])
+  '最寄り駅',
+  // 49列目: 徒歩分数 (d[4])
+  '徒歩',
+  // 50列目: 専有面積 (d[6])
+  '専有面積',
+  // 51列目: 築年月 (d[11])
+  '築年月'
 ];
 
 // 競合履歴シート（マトリクス形式: 縦=物件×種別、横=日付）PV履歴と同じ構造
@@ -2949,6 +2961,9 @@ function getListingDashboardData() {
       dailyDetailPv: r[42] === '' ? null : Number(r[42]),
       totalDailyListPv: r[43] === '' ? null : Number(r[43]),
       totalDailyDetailPv: r[44] === '' ? null : Number(r[44]),
+      totalFee: String(r[45] || ''), lineName: String(r[46] || ''),
+      stationName: String(r[47] || ''), walk: String(r[48] || ''),
+      area: String(r[49] || ''), builtYm: String(r[50] || ''),
       mgmtCompany: String(r[40] || ''), source: String(r[41] || ''),
       scoreDetails: r[22] ? String(r[22]) : ''
     });
@@ -3171,6 +3186,12 @@ function updateSuumoListingStats_(json) {
     var repDailyDetailPv = parseFloat(row.rep_daily_detail_pv) || 0; // d[23] 1日あたり代表詳細PV
     var totalDailyListPv = parseFloat(row.total_daily_list_pv) || 0; // d[32] 1日あたり合計一覧PV
     var totalDailyDetailPv = parseFloat(row.total_daily_detail_pv) || 0; // d[34] 1日あたり合計詳細PV
+    var totalFee = String(row.total_fee || '');
+    var lineName = String(row.line || '');
+    var stationName = String(row.station || '');
+    var walkMin = String(row.walk || '');
+    var areaStr = String(row.area || '');
+    var builtYm = String(row.built_ym || '');
 
     // 競合基準値別件数は暫定で整数パースのみ(正しい列が未確定の場合は0になる)
     var compLv1 = parseInt(String(row.comp_lv1_raw || '').replace(/[^0-9]/g, ''), 10) || 0;
@@ -3242,6 +3263,8 @@ function updateSuumoListingStats_(json) {
       if (totalDailyListCol > 0) sheet.getRange(targetRow, totalDailyListCol).setValue(totalDailyListPv);
       var totalDailyDetailCol = SUUMO_LISTING_HEADERS.indexOf('代表物件以外も含む合計詳細PV（平均）') + 1;
       if (totalDailyDetailCol > 0) sheet.getRange(targetRow, totalDailyDetailCol).setValue(totalDailyDetailPv);
+      var propInfoCol = SUUMO_LISTING_HEADERS.indexOf('賃料管理費込') + 1;
+      if (propInfoCol > 0) sheet.getRange(targetRow, propInfoCol, 1, 6).setValues([[totalFee, lineName, stationName, walkMin, areaStr, builtYm]]);
 
       updated++;
       matchedSheetRows[targetRow] = true;
@@ -3321,6 +3344,8 @@ function updateSuumoListingStats_(json) {
       if (totalDailyListColNew > 0) sheet.getRange(newSheetRow, totalDailyListColNew).setValue(totalDailyListPv);
       var totalDailyDetailColNew = SUUMO_LISTING_HEADERS.indexOf('代表物件以外も含む合計詳細PV（平均）') + 1;
       if (totalDailyDetailColNew > 0) sheet.getRange(newSheetRow, totalDailyDetailColNew).setValue(totalDailyDetailPv);
+      var propInfoColNew = SUUMO_LISTING_HEADERS.indexOf('賃料管理費込') + 1;
+      if (propInfoColNew > 0) sheet.getRange(newSheetRow, propInfoColNew, 1, 6).setValues([[totalFee, lineName, stationName, walkMin, areaStr, builtYm]]);
       if (suumoCode) codeToRow[suumoCode] = newSheetRow;
       if (propertyKey) keyToRow[propertyKey] = newSheetRow;
       matchedSheetRows[newSheetRow] = true;
