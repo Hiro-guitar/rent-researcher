@@ -115,17 +115,17 @@ canvas{width:100%!important;height:200px!important}
           <colgroup>
             <col style="width:13%">
             <col style="width:4.5%">
-            <col style="width:7%">
-            <col style="width:5%">
-            <col style="width:3%">
-            <col style="width:3%">
-            <col style="width:4.5%">
-            <col style="width:3%">
-            <col style="width:4%">
-            <col style="width:4.5%">
-            <col style="width:4%">
-            <col style="width:4.5%">
             <col style="width:6.5%">
+            <col style="width:4.5%">
+            <col style="width:3%">
+            <col style="width:3%">
+            <col style="width:4%">
+            <col style="width:3%">
+            <col style="width:4%">
+            <col style="width:4.5%">
+            <col style="width:6%">
+            <col style="width:4.5%">
+            <col style="width:6%">
             <col style="width:4%">
             <col style="width:4.5%">
             <col style="width:4%">
@@ -177,7 +177,7 @@ var COLUMNS = [
   {key:'dailyListPv',label:'代表物件一覧PV（平均）',align:'right',fmt:function(l){
     return l.dailyListPv!=null?l.dailyListPv.toFixed(2):'-';
   }},
-  {key:'repDetailPv',label:'代表物件合計詳細PV',align:'right',fmt:function(l){return num(l.repDetailPv)}},
+  {key:'repDetailPv',label:'代表物件合計詳細PV',align:'right',fmt:function(l){return sparkHtml(l._pvDetailSpark)+num(l.repDetailPv)}},
   {key:'dailyDetailPv',label:'代表物件詳細PV（平均）',align:'right',fmt:function(l){
     return l.dailyDetailPv!=null?l.dailyDetailPv.toFixed(2):'-';
   }},
@@ -211,7 +211,7 @@ function sparkHtml(vals){
   var mn=Infinity,mx=-Infinity;
   for(var i=0;i<vals.length;i++){if(vals[i]!=null){if(vals[i]<mn)mn=vals[i];if(vals[i]>mx)mx=vals[i]}}
   if(mn===mx){mn-=1;mx+=1}
-  var w=48,h=16,points=[];
+  var w=32,h=14,points=[];
   for(var j=0;j<vals.length;j++){
     var v=vals[j]!=null?vals[j]:mn;
     var x=(j/(vals.length-1))*w;
