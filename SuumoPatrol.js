@@ -2839,6 +2839,33 @@ function purgeSuumoCandidates() {
   return { deleted: rowsToDelete.length };
 }
 
+function installPurgeSuumoCandidatesTrigger() {
+  var existing = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'purgeSuumoCandidates') {
+      return { ok: true, message: '既にトリガーが設置されています' };
+    }
+  }
+  ScriptApp.newTrigger('purgeSuumoCandidates')
+    .timeBased()
+    .everyDays(1)
+    .atHour(4)
+    .create();
+  return { ok: true, message: 'トリガーを設置しました（毎日4時）' };
+}
+
+function removePurgeSuumoCandidatesTrigger() {
+  var existing = ScriptApp.getProjectTriggers();
+  var removed = 0;
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'purgeSuumoCandidates') {
+      ScriptApp.deleteTrigger(existing[i]);
+      removed++;
+    }
+  }
+  return { removed: removed };
+}
+
 /**
  * SUUMO掲載管理シートの不完全行を掃除する管理ユーティリティ
  *
