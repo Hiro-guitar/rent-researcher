@@ -374,7 +374,7 @@ function renderList(){
     document.getElementById('overviewCharts').style.display='';
     drawLineChart('totalPvChart',pvDates,[
       {data:totalRepList,color:'#3498db',label:'一覧PV合計'},
-      {data:totalRepDetail,color:'#2ecc71',label:'詳細PV合計'}
+      {data:totalRepDetail,color:'#2ecc71',label:'詳細PV合計',rightAxis:true}
     ],{height:240});
   }else{
     document.getElementById('overviewCharts').style.display='none';
@@ -474,7 +474,9 @@ function drawLineChart(canvasId,dates,series,opts){
       canvas._lastHl=idx;
       renderChart_(canvas,idx);
       var a=canvas._chartArgs;
-      var html='<div style="font-weight:600;margin-bottom:2px;color:#eee">'+m.dates[idx]+'</div>';
+      var dp2=m.dates[idx].split('-');
+      var dow2=['日','月','火','水','木','金','土'][new Date(+dp2[0],+dp2[1]-1,+dp2[2]).getDay()];
+      var html='<div style="font-weight:600;margin-bottom:2px;color:#eee">'+m.dates[idx]+'('+dow2+')</div>';
       for(var s=0;s<a.series.length;s++){
         var v=a.series[s].data[idx];
         var vs=v!=null?(a.opts.decimals?v.toFixed(a.opts.decimals):String(v)):'-';
@@ -513,18 +515,35 @@ function renderChart_(canvas,hlIdx){
   var pad={t:28,r:55,b:32,l:44};
   var cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
 
-  var mn=Infinity,mx=-Infinity;
+  var hasRight=false;
+  for(var s=0;s<series.length;s++){if(series[s].rightAxis)hasRight=true}
+
+  var lmn=Infinity,lmx=-Infinity,rmn=Infinity,rmx=-Infinity;
   for(var s=0;s<series.length;s++){
     var d=series[s].data;
-    for(var i=0;i<d.length;i++){if(d[i]!=null){if(d[i]<mn)mn=d[i];if(d[i]>mx)mx=d[i]}}
+    for(var i=0;i<d.length;i++){
+      if(d[i]!=null){
+        if(series[s].rightAxis){if(d[i]<rmn)rmn=d[i];if(d[i]>rmx)rmx=d[i]}
+        else{if(d[i]<lmn)lmn=d[i];if(d[i]>lmx)lmx=d[i]}
+      }
+    }
   }
-  if(mn===Infinity){mn=0;mx=1}
-  if(mn===mx){mn=Math.max(0,mn-1);mx=mx+1}
-  var margin=(mx-mn)*0.08;
-  mn=Math.max(0,mn-margin);mx=mx+margin;
-  var range=mx-mn;
+  if(lmn===Infinity){lmn=0;lmx=1}
+  if(lmn===lmx){lmn=Math.max(0,lmn-1);lmx=lmx+1}
+  var lMargin=(lmx-lmn)*0.08;
+  lmn=Math.max(0,lmn-lMargin);lmx=lmx+lMargin;
+  var lRange=lmx-lmn;
+  var rRange=1;
+  if(hasRight){
+    if(rmn===Infinity){rmn=0;rmx=1}
+    if(rmn===rmx){rmn=Math.max(0,rmn-1);rmx=rmx+1}
+    var rMargin=(rmx-rmn)*0.08;
+    rmn=Math.max(0,rmn-rMargin);rmx=rmx+rMargin;
+    rRange=rmx-rmn;
+  }
+  var mn=lmn,range=lRange;
 
-  canvas._chartMeta={pad:pad,cw:cw,ch:ch,mn:mn,range:range,dates:dates,W:W,H:H};
+  canvas._chartMeta={pad:pad,cw:cw,ch:ch,mn:lmn,range:lRange,rmn:rmn,rRange:rRange,hasRight:hasRight,dates:dates,W:W,H:H};
 
   // Grid
   ctx.strokeStyle='#333';ctx.lineWidth=0.5;
@@ -532,17 +551,32 @@ function renderChart_(canvas,hlIdx){
   for(var g=0;g<=gridN;g++){
     var gy=pad.t+ch-(g/gridN)*ch;
     ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(pad.l+cw,gy);ctx.stroke();
-    ctx.fillStyle='#666';ctx.font='10px -apple-system,sans-serif';ctx.textAlign='right';
-    var gv=mn+range*(g/gridN);
+    ctx.font='10px -apple-system,sans-serif';ctx.textAlign='right';
+    var gv=lmn+lRange*(g/gridN);
+    ctx.fillStyle=hasRight?(series.filter(function(s){return !s.rightAxis})[0]||{}).color||'#666':'#666';
     ctx.fillText(opts.decimals?gv.toFixed(opts.decimals):Math.round(gv),pad.l-6,gy+3);
+  }
+  if(hasRight){
+    var rColor=(series.filter(function(s){return s.rightAxis})[0]||{}).color||'#666';
+    ctx.fillStyle=rColor;ctx.font='10px -apple-system,sans-serif';ctx.textAlign='left';
+    for(var gr=0;gr<=gridN;gr++){
+      var gyr=pad.t+ch-(gr/gridN)*ch;
+      var gvr=rmn+rRange*(gr/gridN);
+      ctx.fillText(opts.decimals?gvr.toFixed(opts.decimals):Math.round(gvr),pad.l+cw+6,gyr+3);
+    }
   }
 
   // X axis
-  ctx.fillStyle='#666';ctx.font='10px -apple-system,sans-serif';ctx.textAlign='center';
+  var DOW=['日','月','火','水','木','金','土'];
+  ctx.font='10px -apple-system,sans-serif';ctx.textAlign='center';
   var dateStep=Math.max(1,Math.floor(dates.length/7));
   for(var xi=0;xi<dates.length;xi+=dateStep){
     var xx=pad.l+(xi/(dates.length-1||1))*cw;
-    ctx.fillText(dates[xi].slice(5),xx,H-4);
+    var dp=dates[xi].split('-');
+    var dow=new Date(+dp[0],+dp[1]-1,+dp[2]).getDay();
+    var dowLabel=DOW[dow];
+    ctx.fillStyle=(dow===0)?'#e74c3c':(dow===6)?'#3498db':'#666';
+    ctx.fillText(dp[1]+'/'+dp[2]+'('+dowLabel+')',xx,H-4);
   }
 
   // Crosshair
@@ -555,10 +589,11 @@ function renderChart_(canvas,hlIdx){
   // Series
   for(var si=0;si<series.length;si++){
     var ser=series[si];
+    var sMn=ser.rightAxis?rmn:lmn,sRange=ser.rightAxis?rRange:lRange;
     var pts=[];
     for(var di=0;di<ser.data.length;di++){
       if(ser.data[di]==null)continue;
-      pts.push({x:pad.l+(di/(dates.length-1||1))*cw,y:pad.t+ch-((ser.data[di]-mn)/range)*ch,v:ser.data[di],idx:di});
+      pts.push({x:pad.l+(di/(dates.length-1||1))*cw,y:pad.t+ch-((ser.data[di]-sMn)/sRange)*ch,v:ser.data[di],idx:di});
     }
     if(pts.length===0)continue;
 
@@ -585,12 +620,14 @@ function renderChart_(canvas,hlIdx){
     var lp=pts[pts.length-1];
     ctx.fillStyle=ser.color;ctx.beginPath();ctx.arc(lp.x,lp.y,3.5,0,Math.PI*2);ctx.fill();
     ctx.strokeStyle='#2d2d2d';ctx.lineWidth=1.5;ctx.stroke();
-    ctx.fillStyle=ser.color;ctx.font='bold 10px -apple-system,sans-serif';ctx.textAlign='left';
-    ctx.fillText(opts.decimals?lp.v.toFixed(opts.decimals):String(lp.v),pad.l+cw+6,lp.y+3);
+    if(!hasRight){
+      ctx.fillStyle=ser.color;ctx.font='bold 10px -apple-system,sans-serif';ctx.textAlign='left';
+      ctx.fillText(opts.decimals?lp.v.toFixed(opts.decimals):String(lp.v),pad.l+cw+6,lp.y+3);
+    }
 
     // Highlight dot
     if(hlIdx>=0&&ser.data[hlIdx]!=null){
-      var hy=pad.t+ch-((ser.data[hlIdx]-mn)/range)*ch;
+      var hy=pad.t+ch-((ser.data[hlIdx]-sMn)/sRange)*ch;
       var hdx=pad.l+(hlIdx/(dates.length-1||1))*cw;
       ctx.fillStyle=ser.color;ctx.beginPath();ctx.arc(hdx,hy,5,0,Math.PI*2);ctx.fill();
       ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
