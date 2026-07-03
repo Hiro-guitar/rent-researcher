@@ -3211,7 +3211,7 @@ function getInquiryData_() {
   return result;
 }
 
-function seedMissingInquiries_() {
+function seedMissingInquiries() {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sh = ss.getSheetByName('問い合わせ');
   if (!sh) return;
