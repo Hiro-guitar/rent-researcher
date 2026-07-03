@@ -567,14 +567,22 @@ function renderChart_(canvas,hlIdx){
       if(d[i]!=null){if(d[i]<axes[ag].mn)axes[ag].mn=d[i];if(d[i]>axes[ag].mx)axes[ag].mx=d[i]}
     }
   }
+  function niceStep_(v){
+    if(v<=0)return 1;
+    var e=Math.floor(Math.log10(v)),p=Math.pow(10,e),f=v/p;
+    if(f<=1)return p;if(f<=2)return 2*p;if(f<=5)return 5*p;return 10*p;
+  }
   var agKeys=Object.keys(axes).map(Number).sort();
   for(var ai=0;ai<agKeys.length;ai++){
     var ax=axes[agKeys[ai]];
     if(ax.mn===Infinity){ax.mn=0;ax.mx=1}
     if(ax.mn===ax.mx){ax.mn=Math.max(0,ax.mn-1);ax.mx=ax.mx+1}
-    var m2=(ax.mx-ax.mn)*0.08;
-    ax.mn=Math.max(0,ax.mn-m2);ax.mx=ax.mx+m2;
-    ax.range=ax.mx-ax.mn;
+    var step=niceStep_((ax.mx-ax.mn)/5);
+    ax.mn=Math.floor(ax.mn/step)*step;
+    if(ax.mn<0)ax.mn=0;
+    ax.mx=Math.ceil(ax.mx/step)*step;
+    if(ax.mx<=ax.mn)ax.mx=ax.mn+step;
+    ax.range=ax.mx-ax.mn;ax.step=step;ax.ticks=Math.round(ax.range/step);
   }
   var rightCount=agKeys.filter(function(k){return k>0}).length;
 
@@ -583,9 +591,9 @@ function renderChart_(canvas,hlIdx){
 
   canvas._chartMeta={pad:pad,cw:cw,ch:ch,axes:axes,dates:dates,W:W,H:H};
 
-  // Grid lines
+  // Grid lines (based on left axis ticks)
   ctx.strokeStyle='#333';ctx.lineWidth=0.5;
-  var gridN=5;
+  var gridN=axes[0]?axes[0].ticks:5;
   for(var g=0;g<=gridN;g++){
     var gy=pad.t+ch-(g/gridN)*ch;
     ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(pad.l+cw,gy);ctx.stroke();
@@ -594,9 +602,10 @@ function renderChart_(canvas,hlIdx){
   if(axes[0]){
     ctx.fillStyle=rightCount>0?axes[0].color:'#666';
     ctx.font='10px -apple-system,sans-serif';ctx.textAlign='right';
-    for(var g=0;g<=gridN;g++){
-      var gy=pad.t+ch-(g/gridN)*ch;
-      var gv=axes[0].mn+axes[0].range*(g/gridN);
+    var lt=axes[0].ticks;
+    for(var g=0;g<=lt;g++){
+      var gy=pad.t+ch-(g/lt)*ch;
+      var gv=axes[0].mn+g*axes[0].step;
       ctx.fillText(opts.decimals?gv.toFixed(opts.decimals):Math.round(gv),pad.l-6,gy+3);
     }
   }
@@ -606,9 +615,10 @@ function renderChart_(canvas,hlIdx){
     if(agKeys[ai]===0)continue;
     var ax=axes[agKeys[ai]];
     ctx.fillStyle=ax.color;ctx.font='10px -apple-system,sans-serif';ctx.textAlign='left';
-    for(var g=0;g<=gridN;g++){
-      var gy=pad.t+ch-(g/gridN)*ch;
-      var gv=ax.mn+ax.range*(g/gridN);
+    var rt=ax.ticks;
+    for(var g=0;g<=rt;g++){
+      var gy=pad.t+ch-(g/rt)*ch;
+      var gv=ax.mn+g*ax.step;
       ctx.fillText(opts.decimals?gv.toFixed(opts.decimals):Math.round(gv),pad.l+cw+6+ri*44,gy+3);
     }
     ri++;
