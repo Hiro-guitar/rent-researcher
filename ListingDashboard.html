@@ -401,7 +401,7 @@ function renderList(){
     drawLineChart('totalPvChart',pvDates,[
       {data:totalRepList,color:'#3498db',label:'一覧PV合計'},
       {data:totalRepDetail,color:'#2ecc71',label:'詳細PV合計',rightAxis:true},
-      {data:inqVals,color:'#e67e22',label:'問い合わせ数',rightAxis:true,dashed:true}
+      {data:inqVals,color:'#e67e22',label:'問い合わせ数',rightAxis:2,dashed:true}
     ],{height:240});
   }else{
     document.getElementById('overviewCharts').style.display='none';
@@ -554,58 +554,64 @@ function renderChart_(canvas,hlIdx){
     ctx.fillText('データなし',W/2,H/2);return;
   }
 
-  var pad={t:28,r:55,b:32,l:44};
-  var cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
-
-  var hasRight=false;
-  for(var s=0;s<series.length;s++){if(series[s].rightAxis)hasRight=true}
-
-  var lmn=Infinity,lmx=-Infinity,rmn=Infinity,rmx=-Infinity;
+  // Axis groups: 0=left, 1=right, 2=right2, ...
+  var axes={};
   for(var s=0;s<series.length;s++){
+    var ag=0;
+    if(series[s].rightAxis===true||series[s].rightAxis===1)ag=1;
+    else if(series[s].rightAxis)ag=Number(series[s].rightAxis)||0;
+    series[s]._ag=ag;
+    if(!axes[ag])axes[ag]={mn:Infinity,mx:-Infinity,color:series[s].color};
     var d=series[s].data;
     for(var i=0;i<d.length;i++){
-      if(d[i]!=null){
-        if(series[s].rightAxis){if(d[i]<rmn)rmn=d[i];if(d[i]>rmx)rmx=d[i]}
-        else{if(d[i]<lmn)lmn=d[i];if(d[i]>lmx)lmx=d[i]}
-      }
+      if(d[i]!=null){if(d[i]<axes[ag].mn)axes[ag].mn=d[i];if(d[i]>axes[ag].mx)axes[ag].mx=d[i]}
     }
   }
-  if(lmn===Infinity){lmn=0;lmx=1}
-  if(lmn===lmx){lmn=Math.max(0,lmn-1);lmx=lmx+1}
-  var lMargin=(lmx-lmn)*0.08;
-  lmn=Math.max(0,lmn-lMargin);lmx=lmx+lMargin;
-  var lRange=lmx-lmn;
-  var rRange=1;
-  if(hasRight){
-    if(rmn===Infinity){rmn=0;rmx=1}
-    if(rmn===rmx){rmn=Math.max(0,rmn-1);rmx=rmx+1}
-    var rMargin=(rmx-rmn)*0.08;
-    rmn=Math.max(0,rmn-rMargin);rmx=rmx+rMargin;
-    rRange=rmx-rmn;
+  var agKeys=Object.keys(axes).map(Number).sort();
+  for(var ai=0;ai<agKeys.length;ai++){
+    var ax=axes[agKeys[ai]];
+    if(ax.mn===Infinity){ax.mn=0;ax.mx=1}
+    if(ax.mn===ax.mx){ax.mn=Math.max(0,ax.mn-1);ax.mx=ax.mx+1}
+    var m2=(ax.mx-ax.mn)*0.08;
+    ax.mn=Math.max(0,ax.mn-m2);ax.mx=ax.mx+m2;
+    ax.range=ax.mx-ax.mn;
   }
-  var mn=lmn,range=lRange;
+  var rightCount=agKeys.filter(function(k){return k>0}).length;
 
-  canvas._chartMeta={pad:pad,cw:cw,ch:ch,mn:lmn,range:lRange,rmn:rmn,rRange:rRange,hasRight:hasRight,dates:dates,W:W,H:H};
+  var pad={t:28,r:55+Math.max(0,rightCount-1)*44,b:32,l:44};
+  var cw=W-pad.l-pad.r,ch=H-pad.t-pad.b;
 
-  // Grid
+  canvas._chartMeta={pad:pad,cw:cw,ch:ch,axes:axes,dates:dates,W:W,H:H};
+
+  // Grid lines
   ctx.strokeStyle='#333';ctx.lineWidth=0.5;
   var gridN=5;
   for(var g=0;g<=gridN;g++){
     var gy=pad.t+ch-(g/gridN)*ch;
     ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(pad.l+cw,gy);ctx.stroke();
-    ctx.font='10px -apple-system,sans-serif';ctx.textAlign='right';
-    var gv=lmn+lRange*(g/gridN);
-    ctx.fillStyle=hasRight?(series.filter(function(s){return !s.rightAxis})[0]||{}).color||'#666':'#666';
-    ctx.fillText(opts.decimals?gv.toFixed(opts.decimals):Math.round(gv),pad.l-6,gy+3);
   }
-  if(hasRight){
-    var rColor=(series.filter(function(s){return s.rightAxis})[0]||{}).color||'#666';
-    ctx.fillStyle=rColor;ctx.font='10px -apple-system,sans-serif';ctx.textAlign='left';
-    for(var gr=0;gr<=gridN;gr++){
-      var gyr=pad.t+ch-(gr/gridN)*ch;
-      var gvr=rmn+rRange*(gr/gridN);
-      ctx.fillText(opts.decimals?gvr.toFixed(opts.decimals):Math.round(gvr),pad.l+cw+6,gyr+3);
+  // Left axis labels (group 0)
+  if(axes[0]){
+    ctx.fillStyle=rightCount>0?axes[0].color:'#666';
+    ctx.font='10px -apple-system,sans-serif';ctx.textAlign='right';
+    for(var g=0;g<=gridN;g++){
+      var gy=pad.t+ch-(g/gridN)*ch;
+      var gv=axes[0].mn+axes[0].range*(g/gridN);
+      ctx.fillText(opts.decimals?gv.toFixed(opts.decimals):Math.round(gv),pad.l-6,gy+3);
     }
+  }
+  // Right axis labels
+  var ri=0;
+  for(var ai=0;ai<agKeys.length;ai++){
+    if(agKeys[ai]===0)continue;
+    var ax=axes[agKeys[ai]];
+    ctx.fillStyle=ax.color;ctx.font='10px -apple-system,sans-serif';ctx.textAlign='left';
+    for(var g=0;g<=gridN;g++){
+      var gy=pad.t+ch-(g/gridN)*ch;
+      var gv=ax.mn+ax.range*(g/gridN);
+      ctx.fillText(opts.decimals?gv.toFixed(opts.decimals):Math.round(gv),pad.l+cw+6+ri*44,gy+3);
+    }
+    ri++;
   }
 
   // X axis
@@ -631,7 +637,7 @@ function renderChart_(canvas,hlIdx){
   // Series
   for(var si=0;si<series.length;si++){
     var ser=series[si];
-    var sMn=ser.rightAxis?rmn:lmn,sRange=ser.rightAxis?rRange:lRange;
+    var sAx=axes[ser._ag]||axes[0];var sMn=sAx.mn,sRange=sAx.range;
     var pts=[];
     for(var di=0;di<ser.data.length;di++){
       if(ser.data[di]==null)continue;
@@ -662,7 +668,7 @@ function renderChart_(canvas,hlIdx){
     var lp=pts[pts.length-1];
     ctx.fillStyle=ser.color;ctx.beginPath();ctx.arc(lp.x,lp.y,3.5,0,Math.PI*2);ctx.fill();
     ctx.strokeStyle='#2d2d2d';ctx.lineWidth=1.5;ctx.stroke();
-    if(!hasRight){
+    if(rightCount===0){
       ctx.fillStyle=ser.color;ctx.font='bold 10px -apple-system,sans-serif';ctx.textAlign='left';
       ctx.fillText(opts.decimals?lp.v.toFixed(opts.decimals):String(lp.v),pad.l+cw+6,lp.y+3);
     }
