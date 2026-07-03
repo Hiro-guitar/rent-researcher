@@ -111,8 +111,9 @@ canvas{width:100%!important}
     <div id="mainContent" style="display:none">
       <div class="alerts" id="alerts"></div>
       <div class="summary" id="summary"></div>
-      <div class="charts-row" id="overviewCharts" style="grid-template-columns:1fr;margin-bottom:14px">
+      <div class="charts-row" id="overviewCharts" style="margin-bottom:14px">
         <div class="chart-card"><h3>全物件 日次PV推移</h3><canvas id="totalPvChart"></canvas></div>
+        <div class="chart-card"><h3>日次問い合わせ数</h3><canvas id="inquiryChart"></canvas></div>
       </div>
       <div class="table-wrap">
         <table>
@@ -157,6 +158,7 @@ canvas{width:100%!important}
       <div class="chart-card"><h3>競合推移</h3><canvas id="compChart"></canvas></div>
       <div class="chart-card"><h3>遷移率推移（代表詳細PV÷代表一覧PV）</h3><canvas id="trChart"></canvas></div>
     </div>
+    <div class="chart-card" id="inquiryDetail" style="margin-top:14px"><h3>問い合わせ一覧</h3><div id="inquiryList"></div></div>
   </div>
 </div>
 
@@ -199,7 +201,9 @@ var COLUMNS = [
   {key:'totalDailyDetailPv',label:'合計詳細PV（平均）',align:'right',fmt:function(l){
     return l.totalDailyDetailPv!=null?l.totalDailyDetailPv.toFixed(2):'-';
   }},
-  {key:'inquiries',label:'問い合わせ',align:'right'},
+  {key:'_inquiryCount',label:'問い合わせ',align:'right',fmt:function(l){
+    var c=l._inquiryCount||0;return c>0?'<span style="color:#e67e22;font-weight:600">'+c+'</span>':'0';
+  }},
   {key:'weightedComp',label:'競合(加重)',align:'right',fmt:function(l){
     if(l.weightedComp==null) return '<span class="text-muted">-</span>';
     var trend = l._compTrend;
@@ -280,6 +284,17 @@ function enrichData(){
 
     // Transition rate drop
     l._trLow=l.transitionRate!=null&&l.transitionRate<0.3&&l.listPv>=20;
+
+    // Inquiry data per property (match by name+room)
+    var fullName=l.name+(l.room?' '+l.room:'');
+    var inqs=G.inquiries||[];
+    l._inquiryList=[];
+    for(var qi=0;qi<inqs.length;qi++){
+      if(inqs[qi].property===fullName){
+        l._inquiryList.push(inqs[qi]);
+      }
+    }
+    l._inquiryCount=l._inquiryList.length;
   }
 }
 
@@ -379,6 +394,27 @@ function renderList(){
   }else{
     document.getElementById('overviewCharts').style.display='none';
   }
+
+  // Daily inquiry chart
+  var inqs=G.inquiries||[];
+  if(inqs.length>0){
+    var dailyInq={};
+    for(var iq=0;iq<inqs.length;iq++){
+      var d=inqs[iq].date.slice(0,10);
+      dailyInq[d]=(dailyInq[d]||0)+1;
+    }
+    var inqDates=Object.keys(dailyInq).sort();
+    if(inqDates.length>=2){
+      var first=new Date(inqDates[0]),last=new Date(inqDates[inqDates.length-1]);
+      var allDates=[],vals=[];
+      for(var dt=new Date(first);dt<=last;dt.setDate(dt.getDate()+1)){
+        var ds=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+        allDates.push(ds);
+        vals.push(dailyInq[ds]||0);
+      }
+      drawLineChart('inquiryChart',allDates,[{data:vals,color:'#e67e22',label:'問い合わせ数'}],{height:240});
+    }
+  }
 }
 
 function showDetail(code){
@@ -411,9 +447,24 @@ function showDetail(code){
   ds+='<div class="detail-stat"><div class="label">合計一覧PV（平均）</div><div class="value">'+(l.totalDailyListPv!=null?l.totalDailyListPv.toFixed(2):'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">合計詳細PV</div><div class="value">'+num(l.detailPv)+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">合計詳細PV（平均）</div><div class="value">'+(l.totalDailyDetailPv!=null?l.totalDailyDetailPv.toFixed(2):'-')+'</div></div>';
-  ds+='<div class="detail-stat"><div class="label">問い合わせ</div><div class="value">'+l.inquiries+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">問い合わせ</div><div class="value" style="color:#e67e22">'+(l._inquiryCount||0)+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">競合(加重)</div><div class="value">'+(l.weightedComp!=null?l.weightedComp.toFixed(1):'-')+'</div></div>';
   document.getElementById('detailStats').innerHTML=ds;
+
+  // Inquiry list for this property
+  var inqHtml='';
+  if(l._inquiryList&&l._inquiryList.length>0){
+    inqHtml='<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px"><thead><tr style="border-bottom:1px solid #444"><th style="text-align:left;padding:4px 8px">日時</th><th style="text-align:left;padding:4px 8px">氏名</th></tr></thead><tbody>';
+    for(var iq=0;iq<l._inquiryList.length;iq++){
+      var inq=l._inquiryList[iq];
+      inqHtml+='<tr style="border-bottom:1px solid #333"><td style="padding:4px 8px;white-space:nowrap">'+inq.date+'</td><td style="padding:4px 8px">'+inq.name+'</td></tr>';
+    }
+    inqHtml+='</tbody></table>';
+    document.getElementById('inquiryDetail').style.display='';
+  }else{
+    document.getElementById('inquiryDetail').style.display='none';
+  }
+  document.getElementById('inquiryList').innerHTML=inqHtml;
 
   var pv=G.pvHistory||{dates:[],properties:{}};
   var comp=G.compHistory||{dates:[],properties:{}};
