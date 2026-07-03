@@ -3183,7 +3183,32 @@ function getListingDashboardData() {
     });
   }
 
-  return { listings: listings, pvHistory: pvHistory, compHistory: compHistory };
+  var inquiryData = getInquiryData_();
+
+  return { listings: listings, pvHistory: pvHistory, compHistory: compHistory, inquiries: inquiryData };
+}
+
+function getInquiryData_() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sh = ss.getSheetByName('問い合わせ');
+  if (!sh || sh.getLastRow() <= 1) return [];
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues();
+  var result = [];
+  for (var i = 0; i < rows.length; i++) {
+    var dt = rows[i][0];
+    var dateStr = '';
+    if (dt instanceof Date && !isNaN(dt.getTime())) {
+      dateStr = Utilities.formatDate(dt, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+    } else {
+      dateStr = String(dt);
+    }
+    result.push({
+      date: dateStr,
+      name: String(rows[i][2]),
+      property: String(rows[i][8])
+    });
+  }
+  return result;
 }
 
 function sumPvHistory_(vals) {
