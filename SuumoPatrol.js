@@ -2803,6 +2803,43 @@ function cleanupStaleCandidateStatuses() {
 }
 
 /**
+ * SUUMO候補物件シートの不要行を削除する。
+ * - posted / rejected / expired → 即削除
+ * - pending → 7日以上経過で削除
+ * - approved / submitting → 残す（アクティブ）
+ */
+function purgeSuumoCandidates() {
+  var sheet = getCandidateSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { deleted: 0 };
+
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_CANDIDATE_HEADERS.length).getValues();
+  var now = new Date();
+  var PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  var rowsToDelete = [];
+
+  for (var i = 0; i < data.length; i++) {
+    var status = data[i][11];
+    if (status === 'posted' || status === 'rejected' || status === 'expired') {
+      rowsToDelete.push(i + 2);
+    } else if (status === 'pending') {
+      var detected = data[i][9];
+      if (detected) {
+        var dt = new Date(detected);
+        if (now.getTime() - dt.getTime() > PENDING_TTL_MS) {
+          rowsToDelete.push(i + 2);
+        }
+      }
+    }
+  }
+
+  for (var j = rowsToDelete.length - 1; j >= 0; j--) {
+    sheet.deleteRow(rowsToDelete[j]);
+  }
+  return { deleted: rowsToDelete.length };
+}
+
+/**
  * SUUMO掲載管理シートの不完全行を掃除する管理ユーティリティ
  *
  * ForRent状態同期で新規追加された直後の行は 建物名/部屋番号/賃料 が空欄
