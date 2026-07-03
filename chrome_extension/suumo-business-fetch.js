@@ -803,3 +803,87 @@ async function backfillCompetitionHistory(days) {
   await setStorageData({ debugLog: summary });
   return { ok: true, days: dates.length, totalRecorded, errors };
 }
+
+/**
+ * SUUMOビジネスから過去N日分のPVデータを取得し、PV履歴シートにバックフィルする。
+ * 停止済み物件も passive_flag=1 で含まれるため、削除済みPV履歴を復元できる。
+ *
+ * サービスワーカーコンソールから実行:
+ *   backfillPvHistory(45)
+ */
+async function backfillPvHistory(daysBack) {
+  daysBack = daysBack || 45;
+  const { suumoBusinessKissCode, gasWebappUrl } = await getStorageData(['suumoBusinessKissCode', 'gasWebappUrl']);
+  const kissCode = (suumoBusinessKissCode || '').toString().replace(/[^0-9]/g, '');
+  if (!kissCode) { console.error('[PVバックフィル] kissCode未設定'); return { ok: false, error: 'kissCode未設定' }; }
+  if (!gasWebappUrl) { console.error('[PVバックフィル] GAS URL未設定'); return { ok: false, error: 'GAS URL未設定' }; }
+
+  const fmt = (d) => `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+  const fmtIso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+  const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
+  const tabId = tab.id;
+  let totalRecorded = 0;
+  let errors = 0;
+  const totalDays = daysBack - 1;
+
+  console.log(`[PVバックフィル] 開始: ${daysBack}日前〜2日前 (${totalDays}日分)`);
+  await setStorageData({ debugLog: `[PVバックフィル] 開始: ${totalDays}日分` });
+
+  for (let i = daysBack; i >= 2; i--) {
+    const targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() - i);
+    const pvDate = fmtIso(targetDate);
+
+    try {
+      const filtersI = `kiss_code=${kissCode}__passive_flag=1__empty_flag=1__conflict_flag=0`;
+      const filtersD = `pv_date_from=${fmt(targetDate)}__pv_date_to=${fmt(targetDate)}`;
+      const url = 'https://business1.suumo.jp/concierge/reportDailySearch'
+        + `?filters_i=${encodeURIComponent(filtersI)}`
+        + `&filters_d=${encodeURIComponent(filtersD)}`;
+
+      await chrome.tabs.update(tabId, { url });
+      await waitForTabLoad(tabId, 60000);
+      await sleep(2000);
+
+      const scrapeResult = await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        func: scrapeSuumoBusinessTable,
+      });
+      const rows = (scrapeResult && scrapeResult[0] && scrapeResult[0].result) || [];
+
+      if (rows.length > 0) {
+        const payload = rows.map(r => ({
+          suumo_code: r.suumo_code,
+          name: r.name,
+          room: r.room,
+          total_list_pv: r.total_list_pv,
+          total_detail_pv: r.total_detail_pv,
+          rep_list_pv: r.rep_list_pv,
+          rep_detail_pv: r.rep_detail_pv,
+        }));
+
+        const resp = await fetch(gasWebappUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'record_daily_pv', pvDate, rows: payload }),
+        });
+        if (!resp.ok) throw new Error(`GAS HTTP ${resp.status}`);
+        totalRecorded += rows.length;
+      }
+
+      const progress = daysBack - i + 1;
+      console.log(`[PVバックフィル] ${pvDate}: ${rows.length}件 (${progress}/${totalDays})`);
+      await sleep(1000);
+    } catch (err) {
+      console.error(`[PVバックフィル] ${pvDate}: エラー - ${err.message}`);
+      errors++;
+    }
+  }
+
+  try { await chrome.tabs.remove(tabId); } catch (_) {}
+  const summary = `[PVバックフィル] 完了: ${totalDays}日分、合計${totalRecorded}件記録、エラー${errors}件`;
+  console.log(summary);
+  await setStorageData({ debugLog: summary });
+  return { ok: true, days: totalDays, totalRecorded, errors };
+}
