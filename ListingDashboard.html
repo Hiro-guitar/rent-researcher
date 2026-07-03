@@ -476,7 +476,7 @@ function showDetail(code){
   for(var wi=0;wi<Math.max(c1.length,c2.length,c3.length);wi++){
     var v1=c1[wi],v2=c2[wi],v3=c3[wi];
     if(v1==null&&v2==null&&v3==null){wc.push(null)}
-    else{wc.push((Number(v1)||0)*1.0+(Number(v2)||0)*1.6+(Number(v3)||0)*2.1)}
+    else{wc.push(Math.round(((Number(v1)||0)*1.0+(Number(v2)||0)*1.6+(Number(v3)||0)*2.1)*10)/10)}
   }
   drawLineChart('compChart',compDates,[
     {data:c1,color:'#e74c3c',label:'第1基準'},
