@@ -809,10 +809,10 @@ async function backfillCompetitionHistory(days) {
  * 停止済み物件も passive_flag=1 で含まれるため、削除済みPV履歴を復元できる。
  *
  * サービスワーカーコンソールから実行:
- *   backfillPvHistory(45)
+ *   backfillPvHistory()
  */
 async function backfillPvHistory(daysBack) {
-  daysBack = daysBack || 45;
+  daysBack = daysBack || 46;
   const { suumoBusinessKissCode, gasWebappUrl } = await getStorageData(['suumoBusinessKissCode', 'gasWebappUrl']);
   const kissCode = (suumoBusinessKissCode || '').toString().replace(/[^0-9]/g, '');
   if (!kissCode) { console.error('[PVバックフィル] kissCode未設定'); return { ok: false, error: 'kissCode未設定' }; }
