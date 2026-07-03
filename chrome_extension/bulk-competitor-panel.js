@@ -477,23 +477,17 @@
     }
   }
 
-  function restoreWithRetry(retries) {
-    var entries = [];
-    if (site === 'reins') entries = extractReins();
-    else if (site === 'itandi') entries = extractItandi();
-    else if (site === 'ielove') entries = extractIelove();
-    if (entries.length === 0 && retries > 0) {
-      setTimeout(function() { restoreWithRetry(retries - 1); }, 300);
-      return;
-    }
-    restoreFromCache();
-  }
+  restoreFromCache();
 
-  restoreWithRetry(10);
-
-  window.addEventListener('pageshow', function(ev) {
-    if (ev.persisted) restoreWithRetry(10);
-  });
+  var restoreTimer = null;
+  new MutationObserver(function() {
+    if (running) return;
+    var cache = loadCache();
+    if (!cache || Object.keys(cache).length === 0) return;
+    if (document.querySelector('.' + BC)) return;
+    if (restoreTimer) clearTimeout(restoreTimer);
+    restoreTimer = setTimeout(restoreFromCache, 300);
+  }).observe(document.body, { childList: true, subtree: true });
 
   // ── いえらぶURL広告フィルタ ──
   function ensureIeloveAdFilter() {
