@@ -517,7 +517,7 @@
 
     running = true;
     doneCount = 0;
-    resultCache = {};
+    resultCache = loadCache() || {};
 
     allEntries = [];
     if (site === 'reins') allEntries = extractReins();
