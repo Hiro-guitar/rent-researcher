@@ -111,9 +111,8 @@ canvas{width:100%!important}
     <div id="mainContent" style="display:none">
       <div class="alerts" id="alerts"></div>
       <div class="summary" id="summary"></div>
-      <div class="charts-row" id="overviewCharts" style="margin-bottom:14px">
-        <div class="chart-card"><h3>全物件 日次PV推移</h3><canvas id="totalPvChart"></canvas></div>
-        <div class="chart-card"><h3>日次問い合わせ数</h3><canvas id="inquiryChart"></canvas></div>
+      <div class="charts-row" id="overviewCharts" style="grid-template-columns:1fr;margin-bottom:14px">
+        <div class="chart-card"><h3>全物件 日次PV推移 + 問い合わせ</h3><canvas id="totalPvChart"></canvas></div>
       </div>
       <div class="table-wrap">
         <table>
@@ -386,34 +385,26 @@ function renderList(){
         if(rd[di2]!=null)totalRepDetail[di2]+=rd[di2];
       }
     }
-    document.getElementById('overviewCharts').style.display='';
-    drawLineChart('totalPvChart',pvDates,[
-      {data:totalRepList,color:'#3498db',label:'一覧PV合計'},
-      {data:totalRepDetail,color:'#2ecc71',label:'詳細PV合計',rightAxis:true}
-    ],{height:240});
-  }else{
-    document.getElementById('overviewCharts').style.display='none';
-  }
-
-  // Daily inquiry chart
-  var inqs=G.inquiries||[];
-  if(inqs.length>0){
+    // Daily inquiry counts aligned to pvDates
+    var inqs=G.inquiries||[];
     var dailyInq={};
     for(var iq=0;iq<inqs.length;iq++){
       var d=inqs[iq].date.slice(0,10);
       dailyInq[d]=(dailyInq[d]||0)+1;
     }
-    var inqDates=Object.keys(dailyInq).sort();
-    if(inqDates.length>=2){
-      var first=new Date(inqDates[0]),last=new Date(inqDates[inqDates.length-1]);
-      var allDates=[],vals=[];
-      for(var dt=new Date(first);dt<=last;dt.setDate(dt.getDate()+1)){
-        var ds=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
-        allDates.push(ds);
-        vals.push(dailyInq[ds]||0);
-      }
-      drawLineChart('inquiryChart',allDates,[{data:vals,color:'#e67e22',label:'問い合わせ数'}],{height:240});
+    var inqVals=[];
+    for(var di3=0;di3<pvDates.length;di3++){
+      inqVals.push(dailyInq[pvDates[di3]]||0);
     }
+
+    document.getElementById('overviewCharts').style.display='';
+    drawLineChart('totalPvChart',pvDates,[
+      {data:totalRepList,color:'#3498db',label:'一覧PV合計'},
+      {data:totalRepDetail,color:'#2ecc71',label:'詳細PV合計',rightAxis:true},
+      {data:inqVals,color:'#e67e22',label:'問い合わせ数',rightAxis:true,dashed:true}
+    ],{height:240});
+  }else{
+    document.getElementById('overviewCharts').style.display='none';
   }
 }
 
