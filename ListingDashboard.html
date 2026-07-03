@@ -356,16 +356,13 @@ function renderList(){
     el.onclick=function(){showDetail(el.getAttribute('data-code'))};
   });
 
-  // Aggregate daily PV chart
+  // Aggregate daily PV chart (active + stopped all properties)
   var pvDates=(G.pvHistory||{}).dates||[];
   if(pvDates.length>0){
-    var activeCodes={};
-    for(var ac=0;ac<G.listings.length;ac++)activeCodes[G.listings[ac].suumoCode]=true;
     var totalRepList=[];var totalRepDetail=[];
     for(var di=0;di<pvDates.length;di++){totalRepList.push(0);totalRepDetail.push(0)}
     var props=(G.pvHistory||{}).properties||{};
     for(var code in props){
-      if(!activeCodes[code])continue;
       var pp=props[code];
       var rl=pp['代表一覧PV']||[];
       var rd=pp['代表詳細PV']||[];
