@@ -1780,16 +1780,7 @@ function stopSuumoListing(key) {
     return { success: false, message: '該当の active 行が見つかりません (key=' + key + ')' };
   }
 
-  var pvDeleted = 0;
-  if (stoppedSuumoCodes.length > 0) {
-    try {
-      pvDeleted = deletePvHistoryRows_(stoppedSuumoCodes);
-    } catch (e) {
-      Logger.log('PV履歴削除エラー(続行): ' + e.message);
-    }
-  }
-
-  return { success: true, stoppedCount: stoppedCount, pvHistoryDeleted: pvDeleted };
+  return { success: true, stoppedCount: stoppedCount };
 }
 
 /**
@@ -2766,11 +2757,7 @@ function handleSyncForrentListingStatus(json) {
         var sc = String(data[jj][10] || '').replace(/[^0-9]/g, '');
         if (sc) autoStoppedCodes.push(sc);
       }
-      if (autoStoppedCodes.length > 0) {
-        try { deletePvHistoryRows_(autoStoppedCodes); } catch (e) {
-          Logger.log('PV履歴削除エラー(ForRent同期, 続行): ' + e.message);
-        }
-      }
+      // PV履歴は停止後も保持（ダッシュボード集計用）
     }
   }
 
