@@ -836,7 +836,7 @@ async function backfillPvHistory(daysBack) {
     const pvDate = fmtIso(targetDate);
 
     try {
-      const filtersI = `kiss_code=${kissCode}__passive_flag=1__empty_flag=1__conflict_flag=0`;
+      const filtersI = `kiss_code=${kissCode}`;
       const filtersD = `pv_date_from=${fmt(targetDate)}__pv_date_to=${fmt(targetDate)}`;
       const url = 'https://business1.suumo.jp/concierge/reportDailySearch'
         + `?filters_i=${encodeURIComponent(filtersI)}`
