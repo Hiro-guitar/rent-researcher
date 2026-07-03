@@ -111,6 +111,9 @@ canvas{width:100%!important}
     <div id="mainContent" style="display:none">
       <div class="alerts" id="alerts"></div>
       <div class="summary" id="summary"></div>
+      <div class="charts-row" id="overviewCharts" style="grid-template-columns:1fr;margin-bottom:14px">
+        <div class="chart-card"><h3>全物件 日次PV推移</h3><canvas id="totalPvChart"></canvas></div>
+      </div>
       <div class="table-wrap">
         <table>
           <colgroup>
@@ -352,6 +355,33 @@ function renderList(){
   document.querySelectorAll('#tableBody tr').forEach(function(el){
     el.onclick=function(){showDetail(el.getAttribute('data-code'))};
   });
+
+  // Aggregate daily PV chart
+  var pvDates=(G.pvHistory||{}).dates||[];
+  if(pvDates.length>0){
+    var activeCodes={};
+    for(var ac=0;ac<G.listings.length;ac++)activeCodes[G.listings[ac].suumoCode]=true;
+    var totalRepList=[];var totalRepDetail=[];
+    for(var di=0;di<pvDates.length;di++){totalRepList.push(0);totalRepDetail.push(0)}
+    var props=(G.pvHistory||{}).properties||{};
+    for(var code in props){
+      if(!activeCodes[code])continue;
+      var pp=props[code];
+      var rl=pp['代表一覧PV']||[];
+      var rd=pp['代表詳細PV']||[];
+      for(var di2=0;di2<pvDates.length;di2++){
+        if(rl[di2]!=null)totalRepList[di2]+=rl[di2];
+        if(rd[di2]!=null)totalRepDetail[di2]+=rd[di2];
+      }
+    }
+    document.getElementById('overviewCharts').style.display='';
+    drawLineChart('totalPvChart',pvDates,[
+      {data:totalRepList,color:'#3498db',label:'一覧PV合計'},
+      {data:totalRepDetail,color:'#2ecc71',label:'詳細PV合計'}
+    ],{height:240});
+  }else{
+    document.getElementById('overviewCharts').style.display='none';
+  }
 }
 
 function showDetail(code){
