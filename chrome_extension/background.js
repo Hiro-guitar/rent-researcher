@@ -6821,6 +6821,10 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
       warnings.push('⚠️ バス・トイレ別かどうか確認してください');
     }
   }
+  // トイレ個室（業者間サイトに条件なし→常にアラート）
+  if (equip.includes('トイレ個室')) {
+    warnings.push('⚠️ トイレ個室かどうか確認してください');
+  }
   // 温水洗浄便座
   if ((equip.includes('温水洗浄便座') || equip.includes('ウォシュレット')) && !fac.includes('温水洗浄便座')) {
     warnings.push('⚠️ 温水洗浄便座かどうか確認してください');
