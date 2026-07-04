@@ -375,10 +375,10 @@ globalThis.__addNotifiedDedupKey = (customerName, prop, source) => {
 };
 
 // バス・トイレ別の処理モード（'alert' or 'skip'）— options画面で設定
-let __btMode = 'none';
+let __btMode = 'skip';
 chrome.storage.local.get(['btMode'], (d) => { if (d.btMode) __btMode = d.btMode; });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.btMode) __btMode = changes.btMode.newValue || 'none';
+  if (area === 'local' && changes.btMode) __btMode = changes.btMode.newValue || 'skip';
 });
 
 // REINS条件セット関数（Vue $data注入）
@@ -1486,7 +1486,10 @@ function getFilterRejectReason(prop, customer) {
 
   // バス・トイレ別スキップモード（顧客ごとの btMode、またはグローバル設定で 'skip' の場合、設備欄に無ければ除外）
   {
-    const _customerBtMode = (customer.btMode || __btMode || 'none').toLowerCase();
+    let _customerBtMode = (customer.btMode || __btMode || 'skip').toLowerCase();
+    if (_customerBtMode === 'none' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
+      _customerBtMode = 'skip';
+    }
     if (_customerBtMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
       const fac = prop.facilities || '';
       if (!fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
@@ -6816,7 +6819,10 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
   // バス・トイレ別（REINS: バス・トイレ別, itandi: バス・トイレ別, いえらぶ: バストイレ別）
   // btMode='skip' の場合はフィルタ側で除外済みなのでアラート不要
   {
-    const _cBtMode = (customer?.btMode || __btMode || 'none').toLowerCase();
+    let _cBtMode = (customer?.btMode || __btMode || 'skip').toLowerCase();
+    if (_cBtMode === 'none' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {
+      _cBtMode = 'skip';
+    }
     if (_cBtMode === 'alert' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
       warnings.push('⚠️ バス・トイレ別かどうか確認してください');
     }

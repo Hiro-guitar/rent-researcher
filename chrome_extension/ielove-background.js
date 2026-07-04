@@ -201,7 +201,10 @@ function buildIeloveSearchUrl(customer, page = 1, oazaCodes = []) {
   // バス・トイレ別: btMode='skip' + equipにバス・トイレ別指定時のみURL絞り込み
   {
     const eqRaw_ = (customer.equipment || '').toLowerCase();
-    const _cBtMode = (customer.btMode || (typeof __btMode !== 'undefined' ? __btMode : 'alert')).toLowerCase();
+    let _cBtMode = (customer.btMode || (typeof __btMode !== 'undefined' ? __btMode : 'skip')).toLowerCase();
+    if (_cBtMode === 'none' && (eqRaw_.includes('バストイレ別') || eqRaw_.includes('バス・トイレ別') || eqRaw_.includes('bt別'))) {
+      _cBtMode = 'skip';
+    }
     if (_cBtMode === 'skip' && (eqRaw_.includes('バストイレ別') || eqRaw_.includes('バス・トイレ別') || eqRaw_.includes('bt別'))) {
       parts.push('opts11/1101');
     }
