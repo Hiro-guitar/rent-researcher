@@ -229,6 +229,11 @@ function handleConfirmApprove(e) {
     includeImage = true;
   }
 
+  // 画像を永続ストレージにコピー（itandi等のCDN URL失効対策）
+  if (selectedImageUrls.length > 0) {
+    selectedImageUrls = persistImageUrls_(selectedImageUrls);
+  }
+
   // 選択画像をシートに保存（viewページで使用）
   if (selectedImageUrls.length > 0) {
     saveSelectedImages(row.rowIndex, selectedImageUrls, selectedImageCategories);
@@ -3610,6 +3615,8 @@ function sendManualPropertiesToLine(customerName, properties) {
       var heroUrls = [];
       if (Array.isArray(prop.imageUrls)) heroUrls = prop.imageUrls.filter(Boolean);
       else if (prop.imageUrl) heroUrls = [prop.imageUrl];
+      // 画像を永続ストレージにコピー（itandi等のCDN URL失効対策）
+      if (heroUrls.length > 0) heroUrls = persistImageUrls_(heroUrls);
 
       // 顧客向け詳細ページURL（通常送信と同じ form.ehomaki.com のページ）。
       // 業者向けサイトURL（prop.url）ではなく、prop の内容をエンコードした顧客用ページ。
@@ -5277,6 +5284,38 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
   }
 
   return { success: false, message: 'Upload failed: ' + errors.join(' | ') };
+}
+
+/**
+ * 画像URLリストを永続ストレージにコピーし、永続URLの配列を返す。
+ * itandi等のCDNはURLが変わるため、送信時にコピーして固定する。
+ * アップロード失敗時は元URLをそのまま返す（表示できないよりマシ）。
+ */
+function persistImageUrls_(imageUrls) {
+  if (!imageUrls || imageUrls.length === 0) return imageUrls;
+  var results = [];
+  for (var i = 0; i < imageUrls.length; i++) {
+    var url = imageUrls[i];
+    if (!url || url.indexOf('http') !== 0) { results.push(url); continue; }
+    // 既に永続ストレージにあるURLはスキップ
+    if (url.indexOf('imgbb.com') >= 0 || url.indexOf('catbox.moe') >= 0 ||
+        url.indexOf('tmpfiles.org') >= 0 || url.indexOf('drive.google.com') >= 0) {
+      results.push(url);
+      continue;
+    }
+    try {
+      var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+      if (resp.getResponseCode() !== 200) { results.push(url); continue; }
+      var blob = resp.getBlob();
+      var mime = blob.getContentType() || 'image/jpeg';
+      var b64 = Utilities.base64Encode(blob.getBytes());
+      var uploaded = uploadPropertyImage(b64, 'prop_' + i + '.jpg', mime);
+      results.push(uploaded.success ? uploaded.url : url);
+    } catch (e) {
+      results.push(url);
+    }
+  }
+  return results;
 }
 
 // ===== 編集値をシートに反映 =====
