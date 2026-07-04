@@ -486,11 +486,11 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
     filterObj['floor:lteq'] = 1;
   }
 
-  // 敷金なし・礼金なし
-  if (equip.includes('敷金なし')) {
+  // 敷金なし・礼金なし（「どちらかなし」選択時はAPI絞り込みしない→取得後フィルタ）
+  if (equip.includes('敷金なし') && !equip.includes('どちらかなし')) {
     filterObj['shikikin:eq'] = 0;
   }
-  if (equip.includes('礼金なし')) {
+  if (equip.includes('礼金なし') && !equip.includes('どちらかなし')) {
     filterObj['reikin:eq'] = 0;
   }
 
@@ -822,16 +822,23 @@ function getItandiFilterRejectReason(prop, customer) {
   const isNoneValue = (s) => !s || s === '-' || s === 'なし' || s === '0' || s === '0円' || s === '無' || s.trim() === '';
 
   // 敷金なし
-  if (equip.includes('敷金なし')) {
+  if (equip.includes('敷金なし') && !equip.includes('どちらかなし')) {
     if (!isNoneValue(prop.deposit)) {
       return `敷金あり: ${prop.deposit}`;
     }
   }
 
   // 礼金なし
-  if (equip.includes('礼金なし')) {
+  if (equip.includes('礼金なし') && !equip.includes('どちらかなし')) {
     if (!isNoneValue(prop.key_money)) {
       return `礼金あり: ${prop.key_money}`;
+    }
+  }
+
+  // 敷金・礼金 どちらかなし
+  if (equip.includes('どちらかなし')) {
+    if (!isNoneValue(prop.deposit) && !isNoneValue(prop.key_money)) {
+      return `敷金・礼金 両方あり: 敷${prop.deposit} 礼${prop.key_money}`;
     }
   }
 

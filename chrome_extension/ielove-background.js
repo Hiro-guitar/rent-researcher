@@ -223,11 +223,12 @@ function buildIeloveSearchUrl(customer, page = 1, oazaCodes = []) {
   }
 
   // 敷金なし・礼金なし（URLレベルで絞り込み）
-  if (equipText.includes('敷金なし')) {
+  // 「どちらかなし」はAND条件しかないためURL絞り込み不可→取得後フィルタ
+  if (equipText.includes('敷金なし') && !equipText.includes('どちらかなし')) {
     parts.push('skknt/0');
     parts.push('skuc/1');
   }
-  if (equipText.includes('礼金なし')) {
+  if (equipText.includes('礼金なし') && !equipText.includes('どちらかなし')) {
     parts.push('reknt/0');
     parts.push('reuc/1');
   }
@@ -645,15 +646,22 @@ function getIeloveFilterRejectReason(prop, customer) {
 
   const isNoneValue = (s) => !s || s === '-' || s === 'なし' || s === '0' || s === '0円' || s === '無' || s.trim() === '';
 
-  if (equip.includes('敷金なし')) {
+  if (equip.includes('敷金なし') && !equip.includes('どちらかなし')) {
     if (!isNoneValue(prop.deposit)) {
       return `敷金あり: ${prop.deposit}`;
     }
   }
 
-  if (equip.includes('礼金なし')) {
+  if (equip.includes('礼金なし') && !equip.includes('どちらかなし')) {
     if (!isNoneValue(prop.key_money)) {
       return `礼金あり: ${prop.key_money}`;
+    }
+  }
+
+  // 敷金・礼金 どちらかなし
+  if (equip.includes('どちらかなし')) {
+    if (!isNoneValue(prop.deposit) && !isNoneValue(prop.key_money)) {
+      return `敷金・礼金 両方あり: 敷${prop.deposit} 礼${prop.key_money}`;
     }
   }
 
