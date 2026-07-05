@@ -68,30 +68,53 @@
     return null;
   }
   function parseSuumo() {
-    const rentEl = document.querySelector('.property_view_note .property_view_note-emphasis');
-    const pvTable = document.querySelector('table.property_view_table');
-    if (!rentEl || !pvTable) return null; // 詳細ページでなければ抜ける
+    // SUUMO詳細は2テンプレある:
+    //   jnc_: 賃料=.property_view_note-emphasis / 主要スペック=table.property_view_table
+    //   bc_ : 賃料=.property_view_main-emphasis / 主要スペック=.property_view_detail--*
+    const rentEl = document.querySelector('.property_view_note-emphasis, .property_view_main-emphasis');
+    if (!rentEl) return null;
+    const rent = parseRent(txt(rentEl));
+    if (rent == null) return null;
 
+    const pvTable = document.querySelector('table.property_view_table'); // jncのみ
     const gaiyou = document.querySelector('table.data_table.table_gaiyou') ||
                    document.querySelector('table.table_gaiyou');
-
     const name = txt(document.querySelector('h1.section_h1-header-title'));
-    const address = txt(suumoCell(pvTable, '所在地'));
-    const layout = normalizeLayout(txt(suumoCell(pvTable, '間取り')));
-    const area = parseArea(txt(suumoCell(pvTable, '専有面積')));
-    const rent = parseRent(txt(rentEl));
 
-    // 交通: td 内の div.property_view_table-read が駅ごと
-    const transit = [];
-    const transitCell = suumoCell(pvTable, '駅徒歩');
-    if (transitCell) {
-      const reads = transitCell.querySelectorAll('.property_view_table-read');
-      const lines = reads.length ? [...reads].map(txt) : [txt(transitCell)];
-      for (const line of lines) {
-        // "東京メトロ半蔵門線/神保町駅 歩4分"
-        const m = toHalfWidth(line).match(/^(.+?)[/／]\s*(\S+?駅)\s*歩\s*(\d+)\s*分/);
-        if (m) transit.push({ route: m[1].trim(), station: m[2].replace(/駅$/, ''), walk: parseInt(m[3], 10) });
+    // 所在地: bc=.property_view_detail--location(先頭に「所在地」ラベルが付く) / jnc=テーブルの所在地セル
+    let address = txt(document.querySelector('.property_view_detail--location'));
+    if (!address && pvTable) address = txt(suumoCell(pvTable, '所在地'));
+    if (address) address = address.replace(/^所在地\s*/, '').trim();
+
+    // 間取り・専有面積: jnc=テーブルセル / bc=.property_view_detail--floor_type のテキスト
+    let layoutStr = pvTable ? txt(suumoCell(pvTable, '間取り')) : '';
+    let areaStr = pvTable ? txt(suumoCell(pvTable, '専有面積')) : '';
+    if (!layoutStr || !areaStr) {
+      const ft = txt(document.querySelector('.property_view_detail--floor_type'));
+      if (ft) {
+        if (!layoutStr) { const m = ft.match(/間取り\s*([^\s　]+)/); if (m) layoutStr = m[1]; }
+        if (!areaStr) { const m = ft.match(/専有面積\s*([\d.]+\s*(?:m2|m²|㎡))/); if (m) areaStr = m[1]; }
       }
+    }
+    const layout = normalizeLayout(layoutStr);
+    const area = parseArea(areaStr);
+
+    // 交通: jnc=.property_view_table-read / bc=.property_view_detail--train 内の .property_view_detail-text
+    const transit = [];
+    let readEls = [];
+    const transitCell = pvTable ? suumoCell(pvTable, '駅徒歩') : null;
+    if (transitCell) readEls = [...transitCell.querySelectorAll('.property_view_table-read')];
+    if (readEls.length === 0) {
+      const trainBlock = document.querySelector('.property_view_detail--train');
+      if (trainBlock) readEls = [...trainBlock.querySelectorAll('.property_view_detail-text')];
+    }
+    if (readEls.length === 0) {
+      readEls = [...document.querySelectorAll('.property_view_table-read, .property_view_detail-text')];
+    }
+    for (const el of readEls) {
+      // "東京メトロ半蔵門線/神保町駅 歩4分"
+      const m = toHalfWidth(txt(el)).match(/^(.+?)[/／]\s*(\S+?駅)\s*歩\s*(\d+)\s*分/);
+      if (m) transit.push({ route: m[1].trim(), station: m[2].replace(/駅$/, ''), walk: parseInt(m[3], 10) });
     }
 
     const structure = txt(suumoCell(gaiyou, '構造'));
