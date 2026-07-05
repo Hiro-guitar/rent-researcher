@@ -2606,6 +2606,10 @@ function handleAddReinsProperty(json) {
         image_urls: p.image_urls || [],
         image_categories: p.image_categories || [],
         room_number: p.room_number || '',
+        // rent / management_fee は再送付(_getPendingPropForFlex_)が property_data_json から
+        // 読むため必須。欠落するとREINS等の再送で賃料・管理費が0円になる。
+        rent: p.rent || 0,
+        management_fee: p.management_fee || 0,
         area: p.area || 0,
         layout: p.layout || '',
         building_age: p.building_age || '',
