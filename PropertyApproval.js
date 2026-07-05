@@ -4686,6 +4686,21 @@ function resetSeenForCustomerSource(customerName, source, pendingOnly) {
     // Chrome拡張側の30日重複マップもクリアするシグナルを残す
     _appendDedupResetSignal_(nameTrim, source || '*');
 
+    // lastReinsSearch(AC列=29列目)をクリア → 次回REINS検索で登録年月日フィルタなしになる
+    try {
+      var critSs = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+      var critSheet = critSs.getSheetByName(CRITERIA_SHEET_NAME);
+      if (critSheet) {
+        var critData = critSheet.getDataRange().getValues();
+        for (var ci = 1; ci < critData.length; ci++) {
+          if (String(critData[ci][1] || '').trim() === nameTrim) {
+            critSheet.getRange(ci + 1, 29).setValue('');
+            break;
+          }
+        }
+      }
+    } catch (reinsErr) { console.warn('lastReinsSearchクリアエラー: ' + reinsErr.message); }
+
     var total = seenDeleted + pendingDeleted;
     var msg = pendingOnly
       ? '「' + customerName + '」の' + label + ' 承認待ちをリセットしました'
