@@ -3192,7 +3192,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           const lineNameMap = await loadLineNameMap();
           const reinsCodeMap = await loadReinsCodeMap();
-          const btModeFresh = await new Promise(r => chrome.storage.local.get(['btMode'], d => r(d.btMode || 'none')));
+          const btModeFresh = await new Promise(r => chrome.storage.local.get(['btMode'], d => r(d.btMode || 'skip')));
           let batchIdx = 0;
           let lastError = null;
 
@@ -3238,7 +3238,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 prefecture: batchCustomer.prefecture || '東京都',
                 daysWithin: typeof customer.daysWithin === 'number' ? customer.daysWithin : null,
                 selectedTowns: batchCustomer.selectedTowns || {}
-              }, lineNameMap, reinsCodeMap, (batchCustomer.btMode || btModeFresh)];
+              }, lineNameMap, reinsCodeMap, (() => {
+                const _eq = (batchCustomer.equipment || '').toLowerCase();
+                let _bm = batchCustomer.btMode || btModeFresh;
+                if (_bm === 'none' && (_eq.includes('バストイレ別') || _eq.includes('バス・トイレ別') || _eq.includes('bt別'))) _bm = 'skip';
+                return _bm;
+              })()];
 
               await waitForDomReady(reinsTab.id, '.p-textbox-input', { timeout: 15000 });
               const setResult = await chrome.scripting.executeScript({
@@ -4124,9 +4129,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   await waitForDomReady(tabId, '.p-textbox-input', { timeout: 15000 });
 
   // SW再起動直後でもbtModeを確実に拾うためストレージから直読み
-  const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'none')));
+  const __btModeFresh = await new Promise(res => chrome.storage.local.get(['btMode'], d => res(d.btMode || 'skip')));
   __btMode = __btModeFresh;
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '' }, lineNameMap, reinsCodeMap, (customer.btMode || __btModeFresh)];
+  const __equip = (customer.equipment || '').toLowerCase();
+  let __resolvedBtMode = (customer.btMode || __btModeFresh);
+  if (__resolvedBtMode === 'none' && (__equip.includes('バストイレ別') || __equip.includes('バス・トイレ別') || __equip.includes('bt別'))) {
+    __resolvedBtMode = 'skip';
+  }
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '' }, lineNameMap, reinsCodeMap, __resolvedBtMode];
   // __reinsCriteriaFunc は reins-criteria-func.js で定義（グローバル）
   // ↓ 以前は以下にローカル関数定義があったが、reins-criteria-func.js に移動済み
   setResult = await chrome.scripting.executeScript({
