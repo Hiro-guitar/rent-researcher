@@ -2605,9 +2605,11 @@ function handleAddReinsProperty(json) {
         image_url: p.image_url || '',
         image_urls: p.image_urls || [],
         image_categories: p.image_categories || [],
+        // building_name / rent / management_fee は再送付(_getPendingPropForFlex_)が
+        // property_data_json から読むため必須。欠落するとREINS等の再送で
+        // 物件名が空・賃料/管理費が0円になる。
+        building_name: p.building_name || '',
         room_number: p.room_number || '',
-        // rent / management_fee は再送付(_getPendingPropForFlex_)が property_data_json から
-        // 読むため必須。欠落するとREINS等の再送で賃料・管理費が0円になる。
         rent: p.rent || 0,
         management_fee: p.management_fee || 0,
         area: p.area || 0,
@@ -2621,6 +2623,7 @@ function handleAddReinsProperty(json) {
         total_units: p.total_units || '',
         sunlight: p.sunlight || '',
         facilities: p.facilities || '',
+        station_info: p.station_info || '',
         other_stations: p.other_stations || [],
         deposit: p.deposit || '',
         key_money: p.key_money || '',
