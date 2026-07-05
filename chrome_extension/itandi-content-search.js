@@ -135,8 +135,9 @@
 
     // 階建て: 「◯階建」（建物の総階数、自動検索の story_text 相当）
     for (let s = addrIdx + 1; s < leaves.length; s++) {
-      const sm = leaves[s].match(/(\d+階建)/);
-      if (sm) { res.storyText = sm[1]; break; }
+      // 「地上N階」を優先（"地上10階, 地下1階建" で地下の1階建を拾わないため）
+      const sm = leaves[s].match(/地上\s*(\d+)\s*階/) || leaves[s].match(/(\d+)\s*階建/);
+      if (sm) { res.storyText = sm[1] + '階建'; break; }
     }
 
     // 築年: 「YYYY年M月」と「(築N年)/新築」を組み合わせる（自動検索の building_age 形式）

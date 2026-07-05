@@ -212,8 +212,9 @@
               if (leaves[j]) { bld.buildingName = leaves[j]; break; }
             }
             for (let s = addrIdx + 1; s < leaves.length; s++) {
-              const sm = leaves[s].match(/(\d+階建)/);
-              if (sm) { bld.storyText = sm[1]; break; }
+              // 「地上N階」を優先（"地上10階, 地下1階建" で地下の1階建を拾わないため）
+              const sm = leaves[s].match(/地上\s*(\d+)\s*階/) || leaves[s].match(/(\d+)\s*階建/);
+              if (sm) { bld.storyText = sm[1] + '階建'; break; }
             }
           }
         }
