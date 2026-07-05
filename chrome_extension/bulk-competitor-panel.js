@@ -73,14 +73,25 @@
     } else {
       const hlName = comp.withNameHighlighted || 0;
       const hlNoName = comp.withoutNameHighlighted || 0;
+      if (hlName === 0 && hlNoName === 0) {
+        box.style.background = '#1abc9c';
+        box.style.border = '2px solid #16a085';
+        box.style.boxShadow = '0 0 8px rgba(26,188,156,0.5)';
+        box.style.color = '#fff';
+      }
       box.appendChild(mkNum(hlName, '名有'));
       box.appendChild(mkNum(hlNoName, '名無'));
+      if (hlName === 0 && hlNoName === 0) {
+        box.querySelectorAll('span').forEach(function(s) {
+          if (s.style.color) s.style.color = '#fff';
+        });
+      }
       if (comp.url) {
         const a = document.createElement('a');
         a.href = comp.url;
         a.target = '_blank';
         a.textContent = '↗';
-        a.style.cssText = 'text-decoration:none;color:#2980b9;font-size:11px;font-weight:bold;';
+        a.style.cssText = 'text-decoration:none;color:' + (hlName === 0 && hlNoName === 0 ? '#fff' : '#2980b9') + ';font-size:11px;font-weight:bold;';
         a.title = 'SUUMOで確認';
         box.appendChild(a);
       }
@@ -479,6 +490,16 @@
 
   restoreFromCache();
 
+  var restoreTimer = null;
+  new MutationObserver(function() {
+    if (running) return;
+    var cache = loadCache();
+    if (!cache || Object.keys(cache).length === 0) return;
+    if (document.querySelector('.' + BC)) return;
+    if (restoreTimer) clearTimeout(restoreTimer);
+    restoreTimer = setTimeout(restoreFromCache, 300);
+  }).observe(document.body, { childList: true, subtree: true });
+
   // ── いえらぶURL広告フィルタ ──
   function ensureIeloveAdFilter() {
     const url = location.href;
@@ -507,7 +528,7 @@
 
     running = true;
     doneCount = 0;
-    resultCache = {};
+    resultCache = loadCache() || {};
 
     allEntries = [];
     if (site === 'reins') allEntries = extractReins();
