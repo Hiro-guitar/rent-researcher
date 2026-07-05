@@ -601,6 +601,12 @@ input[type="range"]::-webkit-slider-thumb {
         </select>
         <button class="btn-admin btn-red" onclick="runResetSeen()">履歴リセット</button>
       </div>
+      <div style="margin:6px 0 0;display:flex;align-items:center;gap:6px;">
+        <label style="font-size:12px;color:#555;cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="resetPendingOnly" checked>
+          承認待ちのみリセット（送信済み物件は再通知しない）
+        </label>
+      </div>
       <div id="resetSeenResult" class="admin-result"></div>
       <div class="admin-sub">
         <div class="admin-sub-title">ソース列バックフィル</div>
@@ -2596,8 +2602,10 @@ function runResetSeen() {
     if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">顧客を選択してください</span>';
     return;
   }
+  var pendingOnly = document.getElementById('resetPendingOnly') && document.getElementById('resetPendingOnly').checked;
   var srcLabel = src === '*' ? '全サイト一括' : src;
-  if (!confirm('「' + name + '」 の ' + srcLabel + ' の通知済み履歴を削除します。\n\nこれにより、過去に通知済みでスキップされていた物件が次回検索で再ヒットして承認待ちに復活します。\n\nよろしいですか？')) return;
+  var modeLabel = pendingOnly ? '承認待ちのみ' : '全履歴（通知済み含む）';
+  if (!confirm('「' + name + '」 の ' + srcLabel + ' をリセットします。\nモード: ' + modeLabel + '\n\nこれにより、対象の物件が次回検索で再ヒットして承認待ちに復活します。\n\nよろしいですか？')) return;
   if (resultEl) resultEl.textContent = '処理中...';
   google.script.run
     .withSuccessHandler(function(r) {
@@ -2615,7 +2623,7 @@ function runResetSeen() {
     .withFailureHandler(function(err) {
       if (resultEl) resultEl.innerHTML = '<span style="color:#c00;">エラー: ' + esc(err.message || String(err)) + '</span>';
     })
-    .resetSeenForCustomerSource(name, src);
+    .resetSeenForCustomerSource(name, src, pendingOnly);
 }
 
 function refreshSubmittingList() {

@@ -4612,7 +4612,7 @@ function _appendDedupResetSignal_(customerName, source) {
  * @param {string} source - 'itandi' | 'ielove' | 'essquare' | 'reins' | '*' (全件)
  * @return {{deleted: number, message: string}}
  */
-function resetSeenForCustomerSource(customerName, source) {
+function resetSeenForCustomerSource(customerName, source, pendingOnly) {
   if (!customerName) return { deleted: 0, message: '顧客名が未指定です' };
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -4621,24 +4621,27 @@ function resetSeenForCustomerSource(customerName, source) {
     var nameTrim = String(customerName).trim();
 
     // 1. 通知済み物件シート (5列: 顧客名/room_id/建物名/通知日時/ソース) から削除
+    //    pendingOnly=true の場合はスキップ（送信済み物件を再通知させない）
     var seenDeleted = 0;
-    var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
-    if (seenSheet) {
-      var seenLast = seenSheet.getLastRow();
-      if (seenLast >= 2) {
-        var seenData = seenSheet.getRange(2, 1, seenLast - 1, 5).getValues();
-        var seenIdxs = [];
-        for (var i = 0; i < seenData.length; i++) {
-          var rCust = String(seenData[i][0] || '').trim();
-          var rSrc = String(seenData[i][4] || '').trim();
-          if (rCust !== nameTrim) continue;
-          if (!allSources && rSrc !== String(source).trim()) continue;
-          seenIdxs.push(i + 2);
+    if (!pendingOnly) {
+      var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+      if (seenSheet) {
+        var seenLast = seenSheet.getLastRow();
+        if (seenLast >= 2) {
+          var seenData = seenSheet.getRange(2, 1, seenLast - 1, 5).getValues();
+          var seenIdxs = [];
+          for (var i = 0; i < seenData.length; i++) {
+            var rCust = String(seenData[i][0] || '').trim();
+            var rSrc = String(seenData[i][4] || '').trim();
+            if (rCust !== nameTrim) continue;
+            if (!allSources && rSrc !== String(source).trim()) continue;
+            seenIdxs.push(i + 2);
+          }
+          for (var k = seenIdxs.length - 1; k >= 0; k--) {
+            seenSheet.deleteRow(seenIdxs[k]);
+          }
+          seenDeleted = seenIdxs.length;
         }
-        for (var k = seenIdxs.length - 1; k >= 0; k--) {
-          seenSheet.deleteRow(seenIdxs[k]);
-        }
-        seenDeleted = seenIdxs.length;
       }
     }
 
@@ -4684,13 +4687,16 @@ function resetSeenForCustomerSource(customerName, source) {
     _appendDedupResetSignal_(nameTrim, source || '*');
 
     var total = seenDeleted + pendingDeleted;
-    return {
-      deleted: total,
-      message: '「' + customerName + '」の' + label + '履歴を削除しました '
+    var msg = pendingOnly
+      ? '「' + customerName + '」の' + label + ' 承認待ちをリセットしました'
+        + ' (承認待ち: ' + pendingDeleted + '件削除)'
+        + '。Chrome拡張側の30日重複も次回検索時に自動クリアされます。'
+        + ' ※ 送信済み物件は通知済みシートに残るため再通知されません'
+      : '「' + customerName + '」の' + label + '履歴を削除しました '
         + '(通知済み: ' + seenDeleted + '件 / 承認待ち非sent: ' + pendingDeleted + '件)'
         + '。Chrome拡張側の30日重複も次回検索時に自動クリアされます。'
-        + ' ※ status=sent はお客さんのリンク維持のため削除されません'
-    };
+        + ' ※ status=sent はお客さんのリンク維持のため削除されません';
+    return { deleted: total, message: msg };
   } catch (e) {
     return { deleted: 0, message: 'エラー: ' + e.message };
   }
