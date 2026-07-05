@@ -131,6 +131,14 @@
       "js": ["suumo-approval-trigger.js"],
       "all_frames": true,
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://suumo.jp/chintai/*",
+        "https://www.homes.co.jp/chintai/*"
+      ],
+      "js": ["pinpoint-search.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {
