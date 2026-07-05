@@ -134,7 +134,12 @@ var PV_HISTORY_SHEET = 'PV履歴';
 var PV_HISTORY_FIXED_COLS = ['物件名', '部屋番号', 'SUUMOコード', '種別'];
 var PV_HISTORY_RETENTION_DAYS = 9999;
 
-var PV_HISTORY_MIN_DAYS = 3;      // 最低何日分のデータがあれば判定対象にするか
+var PV_HISTORY_MIN_DAYS = 5;      // 最低何日分のデータがあれば判定対象にするか（掲載初期の物件を守るため5日）
+// 問い合わせ実績ありのソフト保護(後回し)ペナルティ。
+// Tier3の weak は [3000000,3999999]。この値を引くと問合せ物件は [2000000,2999999] の
+// 別バンドに落ち、問合せなし候補を全て落とし切るまで落ちない（=後回し）。
+// それでも落とす必要がある時は、その中でPV最弱の問合せ物件から落ちる。
+var INQUIRY_SOFT_DEFER_PENALTY = 1000000;
 
 function normalizeDateHeader_(val) {
   if (val instanceof Date) {
@@ -1633,18 +1638,27 @@ function findStopCandidates(topN, options) {
       weak = 3000000 + Math.round((999 - avgDetailPv) * 1000 + (999 - avgListPv));
     }
 
+    // ── 問い合わせ実績ありはソフト保護(後回し) ──
+    //   落とし候補から除外せず weak を下げ、問合せなし候補を全部落とし切るまで
+    //   落ちない順位にする。なお落とす必要がある時のみ PV最弱の問合せ物件が落ちる。
+    var softDeferred = false;
+    if (!forceCandidate && tier > 0 && hasInquiry && relaxLevel <= 0) {
+      softDeferred = true;
+      weak -= INQUIRY_SOFT_DEFER_PENALTY;
+    }
+
     var compStr = '加重' + (Math.round(weightedComp * 10) / 10)
                 + ' [第1:' + compLv1 + ' 第2:' + compLv2 + ' 第3:' + compLv3 + ']';
     var pvStr = hasPvHistory
-      ? '7日平均: 一覧PV=' + (Math.round(avgListPv * 10) / 10)
+      ? '直近' + pvDataPoints + '日平均(最大7日窓): 一覧PV=' + (Math.round(avgListPv * 10) / 10)
         + ' 詳細PV=' + (Math.round(avgDetailPv * 10) / 10)
-        + ' [' + pvDataPoints + '日分]'
       : 'PV履歴不足(' + pvDataPoints + '日分)';
     var dropReason;
     if (tier === 5) dropReason = '反響' + inquiries + '件&申込あり / ' + compStr;
     else if (tier === 4) dropReason = '掲載' + sheetDays + '日超(70日超) / ' + compStr;
     else if (tier === 3) dropReason = pvStr + ' / ' + compStr;
     else dropReason = '該当なし / ' + pvStr + ' / ' + compStr;
+    if (softDeferred) dropReason = '[問合せ後回し] ' + dropReason;
 
     var breakdown = {
       reason: dropReason,
@@ -1656,19 +1670,14 @@ function findStopCandidates(topN, options) {
       avgDetailPv: hasPvHistory ? Math.round(avgDetailPv * 10) / 10 : null,
       pvDataPoints: pvDataPoints,
       inquiries: inquiries, hasMoshikomi: hasMoshikomi,
+      softDeferred: softDeferred,
       force: forceReason || null, weak: weak
     };
     var breakdownJson = JSON.stringify(breakdown);
 
-    // ── 保護判定。force(Tier 4-5)は保護無視。relaxLevel で段階的に緩める ──
-    var protectedReason = '';
-    if (!forceCandidate && tier > 0) {
-      if (relaxLevel <= 0) {
-        if (hasInquiry) protectedReason = 'inquiry';
-      }
-    }
-
-    if (tier === 0 || protectedReason) continue;
+    // 落とし候補になるのは PV/日数で判定された tier>0 のみ。
+    // 問い合わせ保護は上のソフト保護(後回し)で weak を下げる方式に変更済み（ハード除外はしない）。
+    if (tier === 0) continue;
 
     candidates.push({
       key: data[i][0],

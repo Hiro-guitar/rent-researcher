@@ -7441,7 +7441,7 @@ async function runSuumoApprovalPreHook_() {
   // GAS が段階的保護緩和をどのレベルで採用したかを取得 (0=標準(問合せ保護)/1+=保護なし)
   // GAS が古い (relaxLevel 未対応) なら undefined → 0 扱い
   const relaxLevel = typeof peek.stopCandidateRelaxLevel === 'number' ? peek.stopCandidateRelaxLevel : 0;
-  const relaxLabel = ['標準(問合せ保護)', '保護なし'][Math.min(relaxLevel, 1)] || '不明';
+  const relaxLabel = ['標準(問合せ後回し)', '保護なし'][Math.min(relaxLevel, 1)] || '不明';
 
   if (candidates.length === 0) {
     // GAS レスポンスの中身をすべてログに出して原因特定
