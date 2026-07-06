@@ -32,9 +32,14 @@ a{color:#3498db;text-decoration:none}
 .stat-card .sub{font-size:11px;color:#888;margin-top:2px}
 
 /* Table */
-.table-wrap{overflow-x:auto;background:#252526;border-radius:10px;border:1px solid #404040}
+.table-wrap{overflow:auto;max-height:78vh;background:#252526;border-radius:10px;border:1px solid #404040}
 table{border-collapse:collapse;table-layout:auto;min-width:max-content}
-thead th{position:sticky;top:0;background:#2d2d2d;padding:6px 8px;text-align:left;font-size:12px;color:#aaa;font-weight:600;cursor:pointer;user-select:none;border-bottom:1px solid #404040;white-space:nowrap;line-height:1.3;vertical-align:bottom}
+thead th{position:sticky;top:0;z-index:2;background:#2d2d2d;padding:6px 8px;text-align:left;font-size:12px;color:#aaa;font-weight:600;cursor:pointer;user-select:none;border-bottom:1px solid #404040;white-space:nowrap;line-height:1.3;vertical-align:bottom}
+/* 物件名(1列目)を左固定・ヘッダーを上固定。角(1行目1列目)は両方固定で最前面 */
+thead th:first-child{left:0;z-index:3}
+tbody td:first-child{position:sticky;left:0;z-index:1;background:#252526}
+tbody tr:hover td:first-child{background:#2a2d35}
+thead th:first-child,tbody td:first-child{border-right:1px solid #404040}
 thead th:hover{color:#e0e0e0}
 thead th.sorted-asc::after{content:' ▲';font-size:9px}
 thead th.sorted-desc::after{content:' ▼';font-size:9px}
@@ -347,12 +352,14 @@ function renderList(){
   var tb='';
   for(var r=0;r<sorted.length;r++){
     var l=sorted[r];
-    var rowCls=l._pvDrop?' style="border-left:3px solid #e74c3c"':l._compSurge?' style="border-left:3px solid #f39c12"':'';
-    tb+='<tr data-code="'+l.suumoCode+'"'+rowCls+'>';
+    // PV下落/競合急増インジケータは固定される1列目セルに付ける（右スクロールでも常に見える）
+    var indicator=l._pvDrop?'border-left:3px solid #e74c3c':l._compSurge?'border-left:3px solid #f39c12':'';
+    tb+='<tr data-code="'+l.suumoCode+'">';
     for(var c2=0;c2<COLUMNS.length;c2++){
       var col2=COLUMNS[c2];
       var val=col2.fmt?col2.fmt(l):(l[col2.key]!=null?l[col2.key]:'-');
-      tb+='<td class="'+(col2.align==='right'?'text-right':'')+'">'+val+'</td>';
+      var tdStyle=(c2===0&&indicator)?' style="'+indicator+'"':'';
+      tb+='<td class="'+(col2.align==='right'?'text-right':'')+'"'+tdStyle+'>'+val+'</td>';
     }
     tb+='</tr>';
   }
