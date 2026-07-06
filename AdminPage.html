@@ -1261,8 +1261,8 @@ function populateForm(data) {
     if (cb) cb.checked = true;
   }
 
-  // 徒歩
-  if (data.walk === '指定しない') {
+  // 徒歩（空欄＝未入力も「指定しない」チェック扱い）
+  if (!data.walk || data.walk === '指定しない') {
     document.getElementById('walkUnspecified').checked = true;
     onWalkUnspecifiedChange();
   } else if (data.walk) {
@@ -1274,8 +1274,8 @@ function populateForm(data) {
     onWalkUnspecifiedChange();
   }
 
-  // 面積
-  if (data.area_min === '指定しない') {
+  // 面積（空欄＝未入力も「指定しない」チェック扱い）
+  if (!data.area_min || data.area_min === '指定しない') {
     document.getElementById('areaUnspecified').checked = true;
     onAreaUnspecifiedChange();
   } else if (data.area_min) {
@@ -1293,8 +1293,8 @@ function populateForm(data) {
     onAreaUnspecifiedChange();
   }
 
-  // 築年数
-  if (data.building_age === '指定しない') {
+  // 築年数（空欄＝未入力も「指定しない」チェック扱い）
+  if (!data.building_age || data.building_age === '指定しない') {
     document.getElementById('ageUnspecified').checked = true;
     onAgeUnspecifiedChange();
   } else if (data.building_age) {
@@ -2282,25 +2282,25 @@ function submitAdminCriteria() {
   criteria.layouts = [];
   for (var i = 0; i < layoutCbs.length; i++) criteria.layouts.push(layoutCbs[i].value);
 
-  // 徒歩
-  criteria.walkMax = document.getElementById('walkUnspecified').checked ? '指定しない' : WALK_VALUES[document.getElementById('walkSlider').value];
+  // 徒歩（「指定しない」＝未入力は空欄で保存。お客さんに聞いていない状態を空欄で表す）
+  criteria.walkMax = document.getElementById('walkUnspecified').checked ? '' : WALK_VALUES[document.getElementById('walkSlider').value];
 
   // 面積
   if (document.getElementById('areaUnspecified').checked) {
-    criteria.areaMin = '指定しない';
+    criteria.areaMin = '';
   } else if (document.getElementById('areaCustomToggle').checked) {
     var areaCustomVal = document.getElementById('areaCustomInput').value;
-    criteria.areaMin = areaCustomVal ? areaCustomVal + 'm²' : '指定しない';
+    criteria.areaMin = areaCustomVal ? areaCustomVal + 'm²' : '';
   } else {
     criteria.areaMin = AREA_VALUES[document.getElementById('areaSlider').value];
   }
 
   // 築年数
   if (document.getElementById('ageUnspecified').checked) {
-    criteria.buildingAge = '指定しない';
+    criteria.buildingAge = '';
   } else if (document.getElementById('ageCustomToggle').checked) {
     var ageCustomVal = document.getElementById('ageCustomInput').value;
-    criteria.buildingAge = ageCustomVal ? ageCustomVal + '年以内' : '指定しない';
+    criteria.buildingAge = ageCustomVal ? ageCustomVal + '年以内' : '';
   } else {
     criteria.buildingAge = AGE_VALUES[document.getElementById('ageSlider').value];
   }
