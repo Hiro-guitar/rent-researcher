@@ -645,6 +645,11 @@ input[type="range"]::-webkit-slider-thumb {
         <input type="text" id="lineUserId" placeholder="U で始まるID（任意）">
         <div class="hint">LINE Usersシートにも登録されます</div>
       </div>
+      <div class="admin-field">
+        <label>電話番号</label>
+        <input type="text" id="customerPhone" placeholder="例: 090-1234-5678（任意）">
+        <div class="hint">電話問い合わせ客用。CRMに表示されます</div>
+      </div>
     </div>
     <div class="admin-field" style="padding-top:0;">
       <button class="load-btn" id="loadBtn" onclick="loadCustomerCriteria()" disabled>既存条件を読み込む</button>
@@ -1035,6 +1040,9 @@ function onCustomerSelect() {
     lineInput.value = '';
     loadBtn.disabled = true;
   }
+  // 顧客切替時は電話番号欄をクリア（既存客は「既存条件を読み込む」で復元される）
+  var phoneInput = document.getElementById('customerPhone');
+  if (phoneInput) phoneInput.value = '';
 }
 
 function loadCustomerCriteria() {
@@ -1051,6 +1059,7 @@ function loadCustomerCriteria() {
       loadBtn.textContent = '既存条件を読み込む';
       if (data) {
         populateForm(data);
+        document.getElementById('customerPhone').value = data.phone || '';
         data.name = name;
         _lastLoadedCriteria = data;
         // 検索ページボタンを表示・有効化
@@ -2165,6 +2174,7 @@ function submitAdminCriteria() {
   if (!customerName) { showAlert('顧客名を入力してください。'); return; }
 
   var lineUserId = document.getElementById('lineUserId').value.trim();
+  var customerPhone = document.getElementById('customerPhone').value.trim();
 
   var criteria = {};
 
@@ -2315,7 +2325,7 @@ function submitAdminCriteria() {
       showAlert('エラーが発生しました: ' + (err.message || err));
       document.getElementById('app').style.display = 'block';
     })
-    .processAdminCriteria(customerName, lineUserId, criteria);
+    .processAdminCriteria(customerName, lineUserId, criteria, customerPhone);
 }
 
 function sendConditionToLine(messageType) {

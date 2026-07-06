@@ -3091,6 +3091,7 @@ function loadCustomerCriteriaByName(customerName) {
 
     return {
       name: customerName,
+      phone: String(latestRow[34] || ''),  // AI列(35): 手動登録の電話番号
       reason: reason,
       resident: resident,
       move_in_date: moveInDate,
@@ -3128,7 +3129,7 @@ function loadCustomerCriteriaByName(customerName) {
  * @param {Object} criteria
  * @return {{success: boolean, message: string}}
  */
-function processAdminCriteria(customerName, lineUserId, criteria) {
+function processAdminCriteria(customerName, lineUserId, criteria, phone) {
   try {
     if (!customerName) {
       return { success: false, message: '顧客名を入力してください。' };
@@ -3214,6 +3215,25 @@ function processAdminCriteria(customerName, lineUserId, criteria) {
     // LINE User IDが指定されていれば LINE Users シートにも保存
     if (lineUserId) {
       saveLineUser(lineUserId, customerName);
+    }
+
+    // 電話番号を AI列(35) に保存（手動登録。CRM表示・架電可否判定に使う）
+    if (typeof phone !== 'undefined' && phone !== null) {
+      try {
+        var ssP = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+        var sheetP = ssP.getSheetByName(CRITERIA_SHEET_NAME);
+        if (sheetP) {
+          var dataP = sheetP.getDataRange().getValues();
+          for (var pi = dataP.length - 1; pi >= 1; pi--) {
+            if (String(dataP[pi][1] || '').trim() === customerName) {
+              sheetP.getRange(pi + 1, 35).setValue(String(phone).trim());
+              break;
+            }
+          }
+        }
+      } catch (pErr) {
+        console.warn('電話番号保存エラー: ' + pErr.message);
+      }
     }
 
     return { success: true, message: customerName + ' の検索条件を保存しました。' };
