@@ -1532,6 +1532,30 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // 敷金・礼金フィルタ（敷金なし / 礼金なし / 敷金・礼金どちらかなし）
+  // ※REINS等はURL/API側で敷礼を絞れないため、ここが唯一の敷礼フィルタ。
+  //   itandi/ielove-background の post-fetch フィルタと同じ判定をここにも置く。
+  {
+    const isNoneFee = (s) => {
+      const v = String(s || '').trim().replace(/\s/g, '');
+      if (!v) return true;
+      return /^(なし|無|[-‐―ー]|0円?|0万円?|0ヶ?月|0ヵ月|0カ月)$/.test(v);
+    };
+    if (equip.includes('どちらかなし')) {
+      // 敷金・礼金 どちらかなし: 両方あり(非ゼロ)なら除外
+      if (!isNoneFee(prop.deposit) && !isNoneFee(prop.key_money)) {
+        return `敷金・礼金 両方あり: 敷${prop.deposit} 礼${prop.key_money}`;
+      }
+    } else {
+      if (equip.includes('敷金なし') && !isNoneFee(prop.deposit)) {
+        return `敷金あり: ${prop.deposit}`;
+      }
+      if (equip.includes('礼金なし') && !isNoneFee(prop.key_money)) {
+        return `礼金あり: ${prop.key_money}`;
+      }
+    }
+  }
+
   return null; // 合格
 }
 
