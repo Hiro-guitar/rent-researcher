@@ -724,7 +724,10 @@ input[type="range"]::-webkit-slider-thumb {
   <!-- ═══ 家賃上限 ═══ -->
   <div class="section">
     <div class="section-title green">家賃上限<span class="section-subtitle">（管理費・共益費を含む）</span></div>
-    <div class="slider-container">
+    <div class="unspecified-row">
+      <label><input type="checkbox" id="rentUnspecified" onchange="onRentUnspecifiedChange()"> 指定しない</label>
+    </div>
+    <div class="slider-container" id="rentSliderContainer">
       <div class="slider-value" id="rentDisplay">8万円</div>
       <div class="slider-row">
         <span class="slider-label">6万</span>
@@ -954,6 +957,10 @@ window.onload = function() {
   initAgeSlider();
   initMoveInSelect();
 
+  // 新規顧客は賃料/徒歩/面積/築年を「指定しない」で開始（初期値の勝手な保存を防ぐ）。
+  // 既存顧客をロードした場合は populateForm が実値で上書きする。
+  defaultConditionsUnspecified();
+
   // URLパラメータで顧客指定されている場合
   if (INIT_CUSTOMER) {
     document.getElementById('customerSelect').value = INIT_CUSTOMER;
@@ -1039,6 +1046,8 @@ function onCustomerSelect() {
     nameInput.value = '';
     lineInput.value = '';
     loadBtn.disabled = true;
+    // 新規顧客に切替時は賃料/徒歩/面積/築年を「指定しない」に戻す
+    defaultConditionsUnspecified();
   }
   // 顧客切替時は電話番号欄をクリア（既存客は「既存条件を読み込む」で復元される）
   var phoneInput = document.getElementById('customerPhone');
@@ -1231,6 +1240,7 @@ function populateForm(data) {
 
   // 家賃
   if (data.rent_max) {
+    document.getElementById('rentUnspecified').checked = false;
     for (var i = 0; i < RENT_VALUES.length; i++) {
       if (RENT_VALUES[i] === data.rent_max) {
         document.getElementById('rentSlider').value = i;
@@ -1238,6 +1248,10 @@ function populateForm(data) {
         break;
       }
     }
+    onRentUnspecifiedChange();
+  } else {
+    document.getElementById('rentUnspecified').checked = true;
+    onRentUnspecifiedChange();
   }
 
   // 間取り
@@ -1914,6 +1928,20 @@ function onRentChange() {
   var val = RENT_VALUES[document.getElementById('rentSlider').value];
   document.getElementById('rentDisplay').textContent = val;
 }
+function onRentUnspecifiedChange() {
+  var checked = document.getElementById('rentUnspecified').checked;
+  document.getElementById('rentSliderContainer').style.opacity = checked ? '0.3' : '1';
+  document.getElementById('rentSlider').disabled = checked;
+}
+// 新規顧客登録時に賃料/徒歩/面積/築年を「指定しない」で開始（初期値の勝手な保存を防ぐ）
+function defaultConditionsUnspecified() {
+  var ids = ['rentUnspecified', 'walkUnspecified', 'areaUnspecified', 'ageUnspecified'];
+  var fns = [onRentUnspecifiedChange, onWalkUnspecifiedChange, onAreaUnspecifiedChange, onAgeUnspecifiedChange];
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    if (el) { el.checked = true; try { fns[i](); } catch (e) {} }
+  }
+}
 
 // ══════════════════════════════════════════════════════════
 //  間取りチェックボックス
@@ -2247,7 +2275,7 @@ function submitAdminCriteria() {
   }
 
   // 家賃
-  criteria.rentMax = RENT_VALUES[document.getElementById('rentSlider').value];
+  criteria.rentMax = document.getElementById('rentUnspecified').checked ? '' : RENT_VALUES[document.getElementById('rentSlider').value];
 
   // 間取り
   var layoutCbs = document.querySelectorAll('input[name="layout"]:checked');
