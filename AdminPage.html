@@ -2233,13 +2233,17 @@ function submitAdminCriteria() {
     criteria.selectedStations = {};
   }
 
-  // バリデーション
+  // バリデーション（駅/市区町村なしでも「条件未入力の顧客」として登録可能）
+  var _noArea;
   if (activeTab === 'route') {
     var totalSta = 0;
     for (var r in criteria.selectedStations) totalSta += criteria.selectedStations[r].length;
-    if (totalSta === 0) { showAlert('少なくとも1つの駅を選択してください。'); return; }
+    _noArea = (totalSta === 0);
   } else {
-    if (criteria.selectedCities.length === 0) { showAlert('少なくとも1つの市区町村を選択してください。'); return; }
+    _noArea = (criteria.selectedCities.length === 0);
+  }
+  if (_noArea) {
+    if (!confirm('駅・市区町村が未選択です。条件未入力の顧客として登録しますか？\n（電話問い合わせ等で先に顧客だけ登録する用途。自動検索の対象外になり、後で条件を追加できます）')) return;
   }
 
   // 家賃

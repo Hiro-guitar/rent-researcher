@@ -2253,18 +2253,15 @@ function handleGetCriteria(e) {
     // 本人の検索条件が空でも、おすすめ条件は検索したいのでここで記録しておく。
     deliverableNames[name] = true;
 
-    // ── 検索条件が未入力の行はスキップ（リード等。空条件で検索すると全件ヒットしてしまう）──
-    // 位置/賃料/間取り/面積/築年/路線/駅/町名 のいずれも空なら「条件未入力」とみなし検索しない。
-    var _hasCriteria = (_splitCSV(row[3]).length > 0)        // C 市区町村
+    // ── 検索エリア(市区町村/路線/駅/町名)が無い行はスキップ ──
+    // 賃料や間取りだけ設定されていてもエリアが無いと「全件ヒット」になるため、
+    // エリア未設定＝条件未入力の顧客(電話リード等)とみなし自動検索しない。
+    var _hasArea = (_splitCSV(row[3]).length > 0)            // C 市区町村
       || allRoutes.length > 0                                  // E 路線
       || allStations.length > 0                                // F 駅
-      || String(row[7] || '').trim() !== ''                    // H 賃料上限
-      || _splitCSV(row[8]).length > 0                          // I 間取り
-      || String(row[9] || '').trim() !== ''                    // J 面積
-      || String(row[10] || '').trim() !== ''                   // K 築年数
       || (selectedTowns && Object.keys(selectedTowns).length > 0); // Y 町名丁目
-    if (!_hasCriteria) {
-      console.log('[条件未入力スキップ] ' + name + ' (status=' + deliveryStatus + ') 検索対象外');
+    if (!_hasArea) {
+      console.log('[エリア未設定スキップ] ' + name + ' (status=' + deliveryStatus + ') 検索対象外');
       continue;
     }
 
@@ -3135,20 +3132,8 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
       return { success: false, message: '顧客名を入力してください。' };
     }
 
-    // バリデーション
-    if (criteria.areaMethod === 'route') {
-      var totalStations = 0;
-      for (var route in criteria.selectedStations) {
-        if (criteria.selectedStations[route]) totalStations += criteria.selectedStations[route].length;
-      }
-      if (totalStations === 0) {
-        return { success: false, message: '少なくとも1つの駅を選択してください。' };
-      }
-    } else if (criteria.areaMethod === 'city') {
-      if (!criteria.selectedCities || criteria.selectedCities.length === 0) {
-        return { success: false, message: '少なくとも1つの市区町村を選択してください。' };
-      }
-    }
+    // 駅/市区町村は必須にしない（条件を聞けていない顧客を先に登録できるようにする）。
+    // エリア未設定の顧客は get_criteria 側でエリア無しとして自動検索から除外される。
 
     // writeToSheet に渡すための state オブジェクトを構築
     var state = {
