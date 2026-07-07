@@ -134,7 +134,7 @@ var PV_HISTORY_SHEET = 'PV履歴';
 var PV_HISTORY_FIXED_COLS = ['物件名', '部屋番号', 'SUUMOコード', '種別'];
 var PV_HISTORY_RETENTION_DAYS = 9999;
 
-var PV_HISTORY_MIN_DAYS = 5;      // 最低何日分のデータがあれば判定対象にするか（掲載初期の物件を守るため5日）
+var PV_HISTORY_MIN_DAYS = 3;      // 最低何日分のデータがあれば判定対象にするか（3日: しょぼい物件を早めに落とす）
 
 function normalizeDateHeader_(val) {
   if (val instanceof Date) {
