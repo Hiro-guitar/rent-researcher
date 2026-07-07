@@ -870,10 +870,14 @@ function onCriteriaDragStart(e, id) {
   e.preventDefault();
   _dragState = { el: item };
   item.classList.add('dragging');
-  try { item.setPointerCapture(e.pointerId); } catch (_) {}
-  item.addEventListener('pointermove', onCriteriaDragMove);
-  item.addEventListener('pointerup', onCriteriaDragEnd);
-  item.addEventListener('pointercancel', onCriteriaDragEnd);
+  // ドラッグ中はページのスクロール/選択を止める（タッチで途切れないように）
+  document.body.style.userSelect = 'none';
+  document.body.style.overflow = 'hidden';
+  document.documentElement.style.touchAction = 'none';
+  // document レベルで拾うことで、要素のDOM移動やタッチでも連続追従する
+  document.addEventListener('pointermove', onCriteriaDragMove, { passive: false });
+  document.addEventListener('pointerup', onCriteriaDragEnd);
+  document.addEventListener('pointercancel', onCriteriaDragEnd);
 }
 
 function onCriteriaDragMove(e) {
@@ -899,9 +903,12 @@ function onCriteriaDragEnd(e) {
   if (!_dragState) return;
   var item = _dragState.el;
   item.classList.remove('dragging');
-  item.removeEventListener('pointermove', onCriteriaDragMove);
-  item.removeEventListener('pointerup', onCriteriaDragEnd);
-  item.removeEventListener('pointercancel', onCriteriaDragEnd);
+  document.removeEventListener('pointermove', onCriteriaDragMove);
+  document.removeEventListener('pointerup', onCriteriaDragEnd);
+  document.removeEventListener('pointercancel', onCriteriaDragEnd);
+  document.body.style.userSelect = '';
+  document.body.style.overflow = '';
+  document.documentElement.style.touchAction = '';
   _dragState = null;
 
   // DOMの並びから新順序を取得し、allCriteria を同期
