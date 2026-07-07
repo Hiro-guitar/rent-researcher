@@ -5332,6 +5332,45 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
 }
 
 /**
+ * imgbb 個人APIキー(スクリプトプロパティ IMGBB_API_KEY)を設定する。
+ * スクリプトプロパティが50個超だと設定画面が読み取り専用になるため、
+ * この関数に自分のキーを貼って1回だけ実行して設定する。
+ * 実行後はキーがプロパティに保存されるので、下のKEYは元の 'ここに...' に戻してOK。
+ */
+function setImgbbApiKey() {
+  var KEY = 'ここにimgbbのAPIキーを貼る';
+  if (!KEY || KEY.indexOf('ここに') === 0) {
+    throw new Error('KEY を imgbb のAPIキーに置き換えてから実行してください（https://api.imgbb.com/ で取得）');
+  }
+  PropertiesService.getScriptProperties().setProperty('IMGBB_API_KEY', KEY.trim());
+  Logger.log('IMGBB_API_KEY を設定しました（先頭: ' + KEY.trim().substring(0, 6) + '…）');
+  return 'OK: IMGBB_API_KEY 設定完了';
+}
+
+/**
+ * imgbb に「画像URLを直接渡して」アップロードする（imgbbがサーバー側で取得）。
+ * GAS側で画像をダウンロードしないので UrlFetch が1回で済む。
+ * IMGBB_API_KEY 未設定 or 失敗時は null を返す（呼び出し側でフォールバック）。
+ */
+function _uploadImgbbByUrl_(imageUrl) {
+  var key = null;
+  try { key = PropertiesService.getScriptProperties().getProperty('IMGBB_API_KEY'); } catch (_) {}
+  if (!key || !imageUrl) return null;
+  try {
+    var resp = UrlFetchApp.fetch('https://api.imgbb.com/1/upload', {
+      method: 'POST',
+      payload: { key: key, image: imageUrl },
+      muteHttpExceptions: true
+    });
+    if (resp.getResponseCode() === 200) {
+      var j = JSON.parse(resp.getContentText());
+      if (j && j.success && j.data && j.data.url) return j.data.url;
+    }
+  } catch (_e) {}
+  return null;
+}
+
+/**
  * 画像URLリストを永続ストレージにコピーし、永続URLの配列を返す。
  * itandi等のCDNはURLが変わるため、送信時にコピーして固定する。
  * アップロード失敗時は元URLをそのまま返す（表示できないよりマシ）。
@@ -5348,6 +5387,11 @@ function persistImageUrls_(imageUrls) {
       results.push(url);
       continue;
     }
+    // imgbb個人キーがあれば「URL直渡し」でアップロード（imgbbがサーバー側で取得）。
+    // GAS側のダウンロードが不要になり UrlFetch が1画像あたり1回で済む＋永続URLになる。
+    var directUrl = _uploadImgbbByUrl_(url);
+    if (directUrl) { results.push(directUrl); continue; }
+    // フォールバック: GASでダウンロード→base64→各ホストへアップロード
     try {
       var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
       if (resp.getResponseCode() !== 200) { results.push(url); continue; }
