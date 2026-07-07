@@ -3896,6 +3896,18 @@ function listSeenProperties() {
  */
 function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName, status, extras) {
   extras = extras || {};
+  // 「空室確認してから送る」(スタッフ操作)による空室チェックは、顧客に空室結果を通知しない。
+  // 顧客には募集中物件の再送カードだけを届ける。requestVacancyCheckForResend が
+  // 対象物件にサイレント印(CacheService)を付けているので、それがあればここで通知を打ち切る。
+  try {
+    var _silentCache = CacheService.getScriptCache();
+    var _silentKey = 'silentAvail_' + String(customerName).trim() + '_' + String(roomId).trim();
+    if (_silentCache.get(_silentKey)) {
+      _silentCache.remove(_silentKey);
+      console.log('[空室通知] サイレント確認のため顧客通知スキップ: ' + customerName + '/' + roomId);
+      return;
+    }
+  } catch (_e) {}
   try {
     // 顧客 → LINE userId を解決
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
@@ -4168,10 +4180,14 @@ function requestVacancyCheckForResend(customerName, roomIds) {
     if (hasFilter) { for (var k = 0; k < roomIds.length; k++) idSet[String(roomIds[k]).trim()] = true; }
     var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
     var queued = 0;
+    var silentCache = CacheService.getScriptCache();
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][0]).trim() !== nameTrim) continue;
       if (hasFilter && !idSet[String(data[i][1]).trim()]) continue;
       sheet.getRange(i + 2, 9).setValue(now); // I列(9): priority_requested_at
+      // 「空室確認してから送る」の確認結果は顧客に通知しない印を付ける（30分有効）。
+      // _notifyAvailabilityResultToCustomer_ がこの印を見て顧客通知をスキップする。
+      try { silentCache.put('silentAvail_' + nameTrim + '_' + String(data[i][1]).trim(), '1', 1800); } catch (_c) {}
       queued++;
     }
     return { ok: queued > 0, queued: queued, message: queued + '件を空室確認キューに入れました' };
