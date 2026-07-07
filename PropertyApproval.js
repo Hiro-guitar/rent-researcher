@@ -5247,29 +5247,11 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
     }
   }
 
-  // 0) catbox.moe (APIキー不要、GASサーバーIPから412の可能性あり)
-  try {
-    var resp0 = UrlFetchApp.fetch('https://catbox.moe/user/api.php', {
-      method: 'POST',
-      payload: {
-        reqtype: 'fileupload',
-        fileToUpload: blob
-      },
-      muteHttpExceptions: true
-    });
-    var code0 = resp0.getResponseCode();
-    var body0 = resp0.getContentText();
-    if (code0 === 200 && body0 && body0.indexOf('https://') === 0) {
-      return { success: true, url: body0.trim() };
-    }
-    errors.push('catbox HTTP ' + code0 + ': ' + body0.substring(0, 200));
-  } catch (e0) {
-    errors.push('catbox: ' + e0.message);
-  }
-
   // 2026-06: telegraph(壊れた), freeimage(IPバン) を除去
+  // 2026-07: UrlFetchクォータ節約のため catbox(GAS IPから412で毎回失敗)より先に
+  //          tmpfiles(GAS IPから成功)を試す。成功すれば1回のUrlFetchで済む。
 
-  // 1) tmpfiles.org (APIキー不要、GASサーバーIPからも動作)
+  // 0) tmpfiles.org (APIキー不要、GASサーバーIPからも動作)
   try {
     var resp1 = UrlFetchApp.fetch('https://tmpfiles.org/api/v1/upload', {
       method: 'POST',
@@ -5292,6 +5274,26 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
     }
   } catch (e1) {
     errors.push('tmpfiles: ' + e1.message);
+  }
+
+  // 1) catbox.moe (APIキー不要、GASサーバーIPから412の可能性あり。tmpfiles失敗時のみ)
+  try {
+    var resp0 = UrlFetchApp.fetch('https://catbox.moe/user/api.php', {
+      method: 'POST',
+      payload: {
+        reqtype: 'fileupload',
+        fileToUpload: blob
+      },
+      muteHttpExceptions: true
+    });
+    var code0 = resp0.getResponseCode();
+    var body0 = resp0.getContentText();
+    if (code0 === 200 && body0 && body0.indexOf('https://') === 0) {
+      return { success: true, url: body0.trim() };
+    }
+    errors.push('catbox HTTP ' + code0 + ': ' + body0.substring(0, 200));
+  } catch (e0) {
+    errors.push('catbox: ' + e0.message);
   }
 
   // 2) imgbb（個人APIキー優先、無ければ共有キー）
