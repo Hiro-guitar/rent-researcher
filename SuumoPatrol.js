@@ -659,6 +659,47 @@ function getActivePatrolCriteria() {
 }
 
 /**
+ * 巡回条件の表示順を並び替える（SuumoPatrolConfig の↑↓から呼ばれる）。
+ * getPatrolCriteria は行順で返すため、シートの行を orderedIds の順に物理的に並べ替える。
+ * @param {string[]} orderedIds - 新しい表示順の条件IDリスト
+ */
+function reorderPatrolCriteria(orderedIds) {
+  try {
+    if (!Array.isArray(orderedIds)) return { success: false, message: 'orderedIds不正' };
+    var sheet = getPatrolCriteriaSheet_();
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: true };
+    var numCols = SUUMO_PATROL_HEADERS.length;
+    var data = sheet.getRange(2, 1, lastRow - 1, numCols).getValues();
+
+    var byId = {};
+    for (var i = 0; i < data.length; i++) byId[String(data[i][0] || '')] = data[i];
+
+    var newRows = [];
+    var used = {};
+    // まず指定順で並べる
+    for (var k = 0; k < orderedIds.length; k++) {
+      var id = String(orderedIds[k]);
+      if (byId[id] && !used[id]) { newRows.push(byId[id]); used[id] = true; }
+    }
+    // 指定に無かった行は元の順で末尾に残す（取りこぼし防止）
+    for (var j = 0; j < data.length; j++) {
+      var rid = String(data[j][0] || '');
+      if (!used[rid]) { newRows.push(data[j]); used[rid] = true; }
+    }
+
+    if (newRows.length !== data.length) {
+      return { success: false, message: '行数不一致（' + newRows.length + '/' + data.length + '）' };
+    }
+    sheet.getRange(2, 1, newRows.length, numCols).setValues(newRows);
+    return { success: true };
+  } catch (err) {
+    console.error('reorderPatrolCriteria error: ' + err.message);
+    return { success: false, message: err.message };
+  }
+}
+
+/**
  * 巡回条件を保存（新規 or 更新）
  * @param {Object} data - { id?, name, area, rentMin, rentMax, layouts, areaMin, buildingAge }
  */

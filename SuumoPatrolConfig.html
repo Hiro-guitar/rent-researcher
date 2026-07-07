@@ -838,6 +838,10 @@ function renderCriteriaList() {
         '<div class="detail" style="color:#aaa;font-size:11px;">' + esc(lastPatrol) + '</div>' +
       '</div>' +
       '<div class="actions">' +
+        '<div style="display:flex;flex-direction:column;gap:2px;margin-right:2px;">' +
+          '<button class="btn btn-secondary" style="font-size:11px;padding:2px 8px;line-height:1.2;" ' + (i === 0 ? 'disabled' : '') + ' onclick="moveCriteria(\'' + esc(c.id) + '\',-1)">↑</button>' +
+          '<button class="btn btn-secondary" style="font-size:11px;padding:2px 8px;line-height:1.2;" ' + (i === allCriteria.length - 1 ? 'disabled' : '') + ' onclick="moveCriteria(\'' + esc(c.id) + '\',1)">↓</button>' +
+        '</div>' +
         '<label class="toggle-switch">' +
           '<input type="checkbox" ' + (c.enabled ? 'checked' : '') + ' onchange="toggleEnabled(\'' + esc(c.id) + '\', this.checked)">' +
           '<span class="toggle-slider"></span>' +
@@ -851,6 +855,30 @@ function renderCriteriaList() {
   }
 
   container.innerHTML = html;
+}
+
+// 条件の表示順を↑↓で並び替え、シートにも永続化する
+function moveCriteria(id, dir) {
+  var idx = -1;
+  for (var i = 0; i < allCriteria.length; i++) {
+    if (String(allCriteria[i].id) === String(id)) { idx = i; break; }
+  }
+  if (idx < 0) return;
+  var j = idx + dir;
+  if (j < 0 || j >= allCriteria.length) return;
+  var tmp = allCriteria[idx]; allCriteria[idx] = allCriteria[j]; allCriteria[j] = tmp;
+  renderCriteriaList();
+  var orderedIds = allCriteria.map(function(c) { return c.id; });
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { showToast('並び順を保存しました'); }
+      else { showToast('並び順の保存に失敗: ' + ((res && res.message) || '不明')); loadCriteriaList(); }
+    })
+    .withFailureHandler(function(err) {
+      showToast('並び順の保存に失敗: ' + (err.message || err));
+      loadCriteriaList();
+    })
+    .reorderPatrolCriteria(orderedIds);
 }
 
 // ══════════════════════════════════════════════════════════
