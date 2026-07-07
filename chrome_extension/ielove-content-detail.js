@@ -160,18 +160,28 @@
   }
 
   // === 物件名・部屋番号抽出 ===
+  // 物件名末尾の部屋番号を分割する。いえらぶは通常ダブルスペース区切り
+  // （「クレール２１鷹番  101」）だが、シングル/全角スペース区切りの物件もあるため、
+  // その場合も末尾が部屋番号らしければ分割する（建物名末尾の数字の誤分割は避けるため
+  // 3-4桁の番号 or 「号室/号」付きに限定。「クレール21」等は分割しない）。
+  function _splitIeloveNameRoom(raw) {
+    raw = (raw || '').trim();
+    const dparts = raw.split(/\s{2,}/);
+    if (dparts.length >= 2) {
+      return { name: dparts.slice(0, -1).join(' ').trim(), room: dparts[dparts.length - 1].trim() };
+    }
+    const m = raw.match(/^(.+\S)[\s　]+((?:\d{1,4}号(?:室)?)|(?:[A-Za-z]?\d{3,4}[A-Za-z]?))$/);
+    if (m) return { name: m[1].trim(), room: m[2].trim() };
+    return { name: raw, room: '' };
+  }
+
   function extractBuildingNameAndRoom(result) {
     // パターン1: p.bkn_name（「クレール２１鷹番  101」形式）
     const bknName = document.querySelector('p.bkn_name');
     if (bknName) {
-      const raw = bknName.textContent.trim();
-      const parts = raw.split(/\s{2,}/);
-      if (parts.length >= 2) {
-        result.building_name = parts.slice(0, -1).join(' ');
-        result.room_number = parts[parts.length - 1];
-      } else if (parts.length === 1 && raw) {
-        result.building_name = raw;
-      }
+      const sp = _splitIeloveNameRoom(bknName.textContent);
+      if (sp.name) result.building_name = sp.name;
+      if (sp.room) result.room_number = sp.room;
       return;
     }
 
@@ -190,13 +200,9 @@
           }
         }
         const raw = textParts.join(' ');
-        const parts = raw.trim().split(/\s{2,}/);
-        if (parts.length >= 2) {
-          result.building_name = parts.slice(0, -1).join(' ');
-          result.room_number = parts[parts.length - 1];
-        } else if (parts.length > 0) {
-          result.building_name = parts[0];
-        }
+        const sp = _splitIeloveNameRoom(raw);
+        if (sp.name) result.building_name = sp.name;
+        if (sp.room) result.room_number = sp.room;
       }
     }
   }
