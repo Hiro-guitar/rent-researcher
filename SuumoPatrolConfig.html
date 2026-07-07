@@ -142,6 +142,13 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 12px 14px; margin: 0 0 8px;
   display: flex; justify-content: space-between; align-items: center;
 }
+.criteria-item.dragging { opacity: 0.55; background: #333; }
+.criteria-item .drag-handle {
+  flex-shrink: 0; cursor: grab; touch-action: none; user-select: none;
+  color: #888; font-size: 20px; line-height: 1; padding: 0 8px 0 2px;
+  align-self: stretch; display: flex; align-items: center;
+}
+.criteria-item .drag-handle:active { cursor: grabbing; }
 .criteria-item .info { flex: 1; min-width: 0; }
 .criteria-item .name { font-size: 14px; font-weight: 600; color: #e0e0e0; }
 .criteria-item .detail { font-size: 12px; color: #888; margin-top: 4px; line-height: 1.5; word-break: break-word; }
@@ -831,17 +838,14 @@ function renderCriteriaList() {
       detailRows += '<div class="detail-row"><span class="detail-label">こだわり条件:</span> ' + esc(equipment) + '</div>';
     }
 
-    html += '<div class="criteria-item">' +
+    html += '<div class="criteria-item" data-id="' + esc(c.id) + '">' +
+      '<div class="drag-handle" onpointerdown="onCriteriaDragStart(event,\'' + esc(c.id) + '\')" title="ドラッグで並び替え">⠿</div>' +
       '<div class="info">' +
         '<div class="name">' + esc(c.name) + '</div>' +
         '<div class="detail">' + detailRows + '</div>' +
         '<div class="detail" style="color:#aaa;font-size:11px;">' + esc(lastPatrol) + '</div>' +
       '</div>' +
       '<div class="actions">' +
-        '<div style="display:flex;flex-direction:column;gap:2px;margin-right:2px;">' +
-          '<button class="btn btn-secondary" style="font-size:11px;padding:2px 8px;line-height:1.2;" ' + (i === 0 ? 'disabled' : '') + ' onclick="moveCriteria(\'' + esc(c.id) + '\',-1)">↑</button>' +
-          '<button class="btn btn-secondary" style="font-size:11px;padding:2px 8px;line-height:1.2;" ' + (i === allCriteria.length - 1 ? 'disabled' : '') + ' onclick="moveCriteria(\'' + esc(c.id) + '\',1)">↓</button>' +
-        '</div>' +
         '<label class="toggle-switch">' +
           '<input type="checkbox" ' + (c.enabled ? 'checked' : '') + ' onchange="toggleEnabled(\'' + esc(c.id) + '\', this.checked)">' +
           '<span class="toggle-slider"></span>' +
@@ -857,18 +861,61 @@ function renderCriteriaList() {
   container.innerHTML = html;
 }
 
-// 条件の表示順を↑↓で並び替え、シートにも永続化する
-function moveCriteria(id, dir) {
-  var idx = -1;
-  for (var i = 0; i < allCriteria.length; i++) {
-    if (String(allCriteria[i].id) === String(id)) { idx = i; break; }
+// ── ドラッグ＆ドロップで並び替え（Pointer Events: マウス・タッチ両対応） ──
+var _dragState = null;
+
+function onCriteriaDragStart(e, id) {
+  var item = e.target.closest('.criteria-item');
+  if (!item) return;
+  e.preventDefault();
+  _dragState = { el: item };
+  item.classList.add('dragging');
+  try { item.setPointerCapture(e.pointerId); } catch (_) {}
+  item.addEventListener('pointermove', onCriteriaDragMove);
+  item.addEventListener('pointerup', onCriteriaDragEnd);
+  item.addEventListener('pointercancel', onCriteriaDragEnd);
+}
+
+function onCriteriaDragMove(e) {
+  if (!_dragState) return;
+  e.preventDefault();
+  var container = document.getElementById('criteriaList');
+  var dragEl = _dragState.el;
+  var items = Array.prototype.slice.call(container.querySelectorAll('.criteria-item'));
+  var y = e.clientY;
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    if (it === dragEl) continue;
+    var rect = it.getBoundingClientRect();
+    if (y < rect.top + rect.height / 2) {
+      if (it.previousElementSibling !== dragEl) container.insertBefore(dragEl, it);
+      return;
+    }
   }
-  if (idx < 0) return;
-  var j = idx + dir;
-  if (j < 0 || j >= allCriteria.length) return;
-  var tmp = allCriteria[idx]; allCriteria[idx] = allCriteria[j]; allCriteria[j] = tmp;
-  renderCriteriaList();
-  var orderedIds = allCriteria.map(function(c) { return c.id; });
+  container.appendChild(dragEl); // 全要素より下 → 末尾
+}
+
+function onCriteriaDragEnd(e) {
+  if (!_dragState) return;
+  var item = _dragState.el;
+  item.classList.remove('dragging');
+  item.removeEventListener('pointermove', onCriteriaDragMove);
+  item.removeEventListener('pointerup', onCriteriaDragEnd);
+  item.removeEventListener('pointercancel', onCriteriaDragEnd);
+  _dragState = null;
+
+  // DOMの並びから新順序を取得し、allCriteria を同期
+  var container = document.getElementById('criteriaList');
+  var ids = Array.prototype.slice.call(container.querySelectorAll('.criteria-item'))
+    .map(function(el) { return el.getAttribute('data-id'); });
+  var byId = {};
+  for (var k = 0; k < allCriteria.length; k++) byId[String(allCriteria[k].id)] = allCriteria[k];
+  var newArr = [];
+  for (var m = 0; m < ids.length; m++) { if (byId[ids[m]]) newArr.push(byId[ids[m]]); }
+  if (newArr.length !== allCriteria.length) { loadCriteriaList(); return; }
+  allCriteria = newArr;
+
+  // シートに永続化
   google.script.run
     .withSuccessHandler(function(res) {
       if (res && res.success) { showToast('並び順を保存しました'); }
@@ -878,7 +925,7 @@ function moveCriteria(id, dir) {
       showToast('並び順の保存に失敗: ' + (err.message || err));
       loadCriteriaList();
     })
-    .reorderPatrolCriteria(orderedIds);
+    .reorderPatrolCriteria(allCriteria.map(function(c) { return c.id; }));
 }
 
 // ══════════════════════════════════════════════════════════
