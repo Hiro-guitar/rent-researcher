@@ -3239,17 +3239,23 @@ function _getPendingPropForFlex_(customerName, roomId) {
         // 送付時に選択された画像を優先、なければ全画像にフォールバック
         var imgs = (d.selected_image_urls && d.selected_image_urls.length > 0)
           ? d.selected_image_urls : (d.image_urls || []);
+        // 名前/賃料/管理費/間取り/面積/駅は property_data_json に無いことがある
+        // （古いREINS等、rent/management_fee/building_name/station_info未格納）。
+        // その場合は PENDINGシートの専用列(D/E/F/G/H/I)をフォールバックに使う。
+        var _bn = d.building_name || String(data[i][3] || '');
+        var _rn = d.room_number || '';
+        var _split = _splitRoomNumber(_bn, _rn); // 物件名末尾の部屋番号重複を除去/抽出
         return {
-          buildingName: d.building_name || '',
-          roomNumber: d.room_number || '',
-          rent: d.rent || 0,
-          managementFee: d.management_fee || 0,
-          layout: d.layout || '',
-          area: d.area || 0,
+          buildingName: _split.name,
+          roomNumber: _split.room,
+          rent: d.rent || Number(data[i][4]) || 0,
+          managementFee: d.management_fee || Number(data[i][5]) || 0,
+          layout: d.layout || String(data[i][6] || ''),
+          area: d.area || Number(data[i][7]) || 0,
           buildingAge: d.building_age || '',
           floor: d.floor || 0,
           floorText: d.floor_text || '',
-          stationInfo: d.station_info || '',
+          stationInfo: d.station_info || String(data[i][8] || ''),
           otherStations: d.other_stations || [],
           address: d.address || '',
           deposit: d.deposit || '',
