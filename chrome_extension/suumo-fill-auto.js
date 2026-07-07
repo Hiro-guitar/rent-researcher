@@ -548,14 +548,17 @@
           if (yearOnly) {
             d.builtYear = yearOnly[1];
           } else {
-            // "築16年" → 築年数から逆算
+            // "築16年" → 築年数から逆算（いえらぶ等は築年月が無い）。
+            // 月は不明なので1月を仮置き（逆算年の1月で「築N年」が再現される）。
             const ageOnly = ageStr.match(/(\d+)/);
             if (ageOnly) {
               const age = parseInt(ageOnly[1]);
               if (age < 100) {
                 d.builtYear = String(new Date().getFullYear() - age);
+                if (!d.builtMonth) d.builtMonth = '1';
               } else if (age > 1900) {
                 d.builtYear = String(age);
+                if (!d.builtMonth) d.builtMonth = '1';
               }
             }
           }
