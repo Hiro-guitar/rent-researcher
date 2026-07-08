@@ -276,6 +276,8 @@ function handleConfirmApprove(e) {
 
   pushMessage(lineUserId, [flex]);
   updatePendingStatus(row.rowIndex, 'sent', viewUrl);
+  // 担当者コメントを property_data_json に永続保存（再送時にも同じコメントを載せるため）
+  _setPendingStaffComment_(customerName, roomId, e.parameter.staff_comment);
   addToSeenSheet(customerName, prop);
 
   // ── 一括送信: 他のお客様にも送信（コメントは個別設定可） ──
@@ -345,6 +347,7 @@ function handleConfirmApprove(e) {
       });
       pushMessage(msLineId, [msFlex]);
       updatePendingStatus(msRow.rowIndex, 'sent', msViewUrl);
+      _setPendingStaffComment_(msName, roomId, msComment);
       addToSeenSheet(msName, msProp);
       multiSentCount++;
     } catch (msErr) {
@@ -3211,6 +3214,32 @@ function addTestAvailabilityProperty() {
 }
 
 /**
+ * 担当者コメントを PENDING_SHEET の O列(15) に永続保存する。
+ * property_data_json(J列)は巡回の再クロールで上書きされるため、消えない専用列に置く。
+ * 送信時に呼び、再送時に _getPendingPropForFlex_ が読み出して同じコメントを載せる。
+ */
+function _setPendingStaffComment_(customerName, roomId, comment) {
+  try {
+    var c = String(comment || '').trim();
+    if (!c) return;
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    if (!sheet) return;
+    var data = sheet.getDataRange().getValues();
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() === nameTrim && String(data[i][2]).trim() === ridTrim) {
+        sheet.getRange(i + 2, 15).setValue(c); // O列: 担当者コメント(再クロールで消えない)
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('_setPendingStaffComment_ error: ' + e.message);
+  }
+}
+
+/**
  * PENDING_SHEET から物件詳細を取得し、buildPropertyFlex 用の prop オブジェクトを返す。
  * 空室確認結果通知 (LINE Flex) で物件詳細をリッチに表示するために使う。
  *
@@ -3259,7 +3288,8 @@ function _getPendingPropForFlex_(customerName, roomId) {
           imageUrls: imgs,
           imageUrl: imgs[0] || '',
           url: d.url || '',
-          reinsPropertyNumber: d.reins_property_number || ''
+          reinsPropertyNumber: d.reins_property_number || '',
+          staffComment: String(data[i][14] || '')  // O列(15): 担当者コメント
         };
       } catch (_) { return null; }
     }
@@ -3425,6 +3455,7 @@ function resendPropertyNotifications(customerName, roomIds) {
           heroImageUrls: prop.imageUrls || [],
           viewUrl: viewUrl,
           customerStations: customerStations,
+          staffComment: prop.staffComment || '',
           headerTitle: '見逃していませんか？'
         });
         // flex = { type:'flex', altText:..., contents: {type:'bubble',...} }
@@ -7360,6 +7391,8 @@ function sendCartCarousel(customerName, roomIdsCsv) {
       // 承認ページで入力された担当者コメント（defer保存時にキャッシュ）
       var staffComment = '';
       try { staffComment = CacheService.getScriptCache().get('cartcomment_' + customerName + '_' + rid) || ''; } catch (eGc) {}
+      // 担当者コメントを永続保存（再送時にも同じコメントを載せるため）
+      _setPendingStaffComment_(customerName, rid, staffComment);
       var flex = buildPropertyFlex(prop, {
         includeImage: sel.length > 0,
         heroImageUrls: sel,
