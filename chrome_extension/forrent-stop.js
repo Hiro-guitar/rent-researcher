@@ -59,7 +59,23 @@ async function stopForrentListing(opts) {
     //      セッション状態不整合が起きることがあるため、フロー的には
     //      必ず main_r.action → 掲載指示メニュー経由で PUB1R2801 に到達させる
     const entryUrl = 'https://www.fn.forrent.jp/fn/main_r.action';
-    const tab = await chrome.tabs.create({ url: entryUrl, active: false });
+    // タブのドラッグ中等は chrome.tabs.create が「Tabs cannot be edited right now」で
+    // 失敗するため、一時的な状態とみなして数回リトライする。
+    let tab = null;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        tab = await chrome.tabs.create({ url: entryUrl, active: false });
+        break;
+      } catch (eTab) {
+        if (/cannot be edited|dragging/i.test(eTab && eTab.message || '') && attempt < 5) {
+          await setStorageData({ debugLog: `[ForRent停止] タブ操作ブロック中(ドラッグ中?) 待機して再試行 ${attempt + 1}/6` });
+          await sleep(2500);
+          continue;
+        }
+        throw eTab;
+      }
+    }
+    if (!tab) throw new Error('タブ作成に失敗（タブ操作がブロックされ続けています）');
     tabId = tab.id;
 
     await waitForTabLoad(tabId, 60000);
