@@ -2419,15 +2419,11 @@ function setPropertyAvailability(customerName, roomId, status, extras) {
         if (hasRecentPriority) {
           if ((source === 'reins' && status === 'reins_listed') ||
               status === 'needs_confirmation') {
-            // スタッフ確認必要 → Discord通知用 payload を生成して返却
-            //   GAS側からは直接送らず、Chrome拡張側でユーザーIPから送信 (Cloudflare 1015対策)
-            //   priority_requested_at はクリアしない (スタッフが確認するまで「依頼中」のまま)
-            try {
-              var dPayload = _buildAvailabilityDiscordPayload_(nameTrim, ridTrim, buildingName, sourceRef, source, status, extras.application_status);
-              if (dPayload) discordPayloads.push(dPayload);
-            } catch (eN) {
-              console.warn('[setPropertyAvailability] Discord payload生成失敗: ' + eN.message);
-            }
+            // 要確認/要物確・REINS掲載中 = 物件はまだ掲載されている(=残っている)。
+            // スタッフ確認Discordは廃止。掲載が残っていれば present のまま再送対象に含める
+            //   (掲載終了なら closed になりこの分岐に来ず、再送から除外される)。
+            // 確認は完了扱いとして priority_requested_at をクリアする(Discord・顧客通知なし)。
+            try { sheet.getRange(rowNum, 9).setValue(''); } catch (eN) {}
           } else if (status === 'available' || status === 'applied' || status === 'closed') {
             // 自動で確定 → お客さんにLINEプッシュ通知
             try {
