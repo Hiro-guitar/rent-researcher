@@ -1365,7 +1365,19 @@ function finishVacancyCheck(ids, presentIds, checkedCount, timedOut) {
     resetCheckSendBtn();
     return;
   }
-  var note = '掲載継続を確認できた ' + presentIds.length + '件を送信' + (closed > 0 ? ' / ' + closed + '件は募集終了・申込あり・判定不可のため除外' : '') + (timedOut ? '（一部未確認）' : '');
+  // 自動送信せず、確認結果をスタッフに提示して承諾を得てから送信する。
+  var nameOf = function(rid) {
+    var p = allProperties.find(function(x) { return x.roomId === rid; });
+    if (!p) return rid;
+    return (p.buildingName || rid) + (p.roomNumber ? ' ' + p.roomNumber : '');
+  };
+  var sendList = presentIds.map(nameOf);
+  var msg = '空室確認の結果、掲載継続を確認できた ' + presentIds.length + '件を送信します:\n\n・' + sendList.join('\n・');
+  if (closed > 0) msg += '\n\n（除外 ' + closed + '件: 募集終了 / 申込あり / 判定不可）';
+  if (timedOut) msg += '\n\n※一部未確認のままです';
+  msg += '\n\nこの内容でお客さんに送信しますか？';
+  if (!confirm(msg)) { resetCheckSendBtn(); return; }
+  var note = '掲載継続 ' + presentIds.length + '件を送信' + (closed > 0 ? ' / ' + closed + '件除外' : '') + (timedOut ? '（一部未確認）' : '');
   doVacancyResend(presentIds, note);
 }
 function doVacancyResend(ids, note) {
