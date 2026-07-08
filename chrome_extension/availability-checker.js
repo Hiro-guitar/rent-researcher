@@ -259,9 +259,9 @@ async function _checkIeloveAvailability(url) {
           };
         }
 
-        // 3. 「物確不要」 → closed (確実に募集終了)
+        // 3. 「物確不要」 → available (物確不要=物件確認不要でそのまま申込可＝募集中)
         if (/物確不要/.test(noConfirmText)) {
-          return { status: 'closed', listingStatus: '物確不要' };
+          return { status: 'available', listingStatus: '物確不要', canApply };
         }
 
         // 4. 申込状況テキスト → applied

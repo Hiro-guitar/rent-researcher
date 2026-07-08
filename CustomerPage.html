@@ -1329,9 +1329,15 @@ function pollVacancy(ids, baseline, attempt) {
       var checked = 0, presentIds = [];
       for (var i = 0; i < ids.length; i++) {
         var p = allProperties.find(function(x) { return x.roomId === ids[i]; });
-        if (!p) { checked++; continue; } // 一覧から消えた = 募集終了として確認済み扱い
-        if ((p.statusCheckedAt || '') !== baseline[ids[i]]) checked++;
-        presentIds.push(ids[i]); // まだ残ってる = 募集中
+        if (!p) { checked++; continue; } // 一覧から消えた = 募集終了/申込あり として確認済み扱い(除外)
+        var freshlyChecked = ((p.statusCheckedAt || '') !== baseline[ids[i]]);
+        if (freshlyChecked) checked++;
+        // 送るのは「今回の確認で掲載継続と確認できた」物件のみ。
+        //   available/needs_confirmation(要物確でも掲載中)/reins_listed(REINSに載っている) → 送る
+        //   判定できなかった(unknown)・未更新 → 送らない。closed/appliedは上の !p で既に除外。
+        if (freshlyChecked && ['available', 'needs_confirmation', 'reins_listed'].indexOf(p.currentStatus) >= 0) {
+          presentIds.push(ids[i]);
+        }
       }
       var cbtn = document.getElementById('checkSendBtn');
       if (cbtn) cbtn.textContent = '空室確認中… ' + checked + '/' + ids.length;
@@ -1355,11 +1361,11 @@ function finishVacancyCheck(ids, presentIds, checkedCount, timedOut) {
     return;
   }
   if (presentIds.length === 0) {
-    alert('選択した物件は全て募集終了でした。送信しません。');
+    alert('送信できる物件がありませんでした（募集終了 / 申込あり / 判定できず）。送信しません。');
     resetCheckSendBtn();
     return;
   }
-  var note = '募集中 ' + presentIds.length + '件を送信' + (closed > 0 ? ' / ' + closed + '件は募集終了のため除外' : '') + (timedOut ? '（一部未確認）' : '');
+  var note = '掲載継続を確認できた ' + presentIds.length + '件を送信' + (closed > 0 ? ' / ' + closed + '件は募集終了・申込あり・判定不可のため除外' : '') + (timedOut ? '（一部未確認）' : '');
   doVacancyResend(presentIds, note);
 }
 function doVacancyResend(ids, note) {
