@@ -3201,6 +3201,11 @@ function getListingDashboardData() {
   var pvHistory = readHistorySheet_(SPREADSHEET_ID, PV_HISTORY_SHEET, PV_HISTORY_FIXED_COLS.length);
   var compHistory = readHistorySheet_(CRITERIA_SHEET_ID, SUUMO_COMPETITION_LOG_SHEET, COMP_HISTORY_FIXED_COLS.length);
 
+  // 保護判定用（findStopCandidates と同じ基準）: PV履歴が足りない新規掲載は
+  // 自動落とし候補にならない＝「保護」。それを各物件に付与する。
+  var pvAveragesForProtect = getPvHistoryAverages_(7);
+  var moshikomiIdxForProtect = SUUMO_LISTING_HEADERS.indexOf('初回申込検知日');
+
   var listings = [];
   for (var i = 0; i < data.length; i++) {
     var r = data[i];
@@ -3255,7 +3260,20 @@ function getListingDashboardData() {
       }
     }
 
+    // ── 保護判定（findStopCandidates と同じ tier ロジック）──
+    //   tier0（PV履歴が PV_HISTORY_MIN_DAYS 未満・70日未満・卒業なし）= 落とし候補外 = 保護
+    var pvPtsP = (pvAveragesForProtect[code] && pvAveragesForProtect[code].dataPoints) || 0;
+    var hasPvHistP = pvPtsP >= PV_HISTORY_MIN_DAYS;
+    var inqForDrop = Number(r[13]) || 0;
+    if (!inqForDrop) inqForDrop = Number(r[6]) || 0;
+    var hasMoshiP = moshikomiIdxForProtect >= 0 && !!r[moshikomiIdxForProtect];
+    var isLongStayP = days >= 70;
+    var dropTier = (inqForDrop >= 30 && hasMoshiP) ? 5 : (isLongStayP ? 4 : (hasPvHistP ? 3 : 0));
+    var isProtected = (dropTier === 0);
+    var protectReason = isProtected ? ('PVデータ収集中（' + pvPtsP + '/' + PV_HISTORY_MIN_DAYS + '日）') : '';
+
     listings.push({
+      protected: isProtected, protectReason: protectReason, dropTier: dropTier,
       key: String(r[0]), name: String(r[1]), room: String(r[2]),
       startDate: r[3] instanceof Date ? Utilities.formatDate(r[3], 'Asia/Tokyo', 'yyyy-MM-dd') : String(r[3]),
       rent: Number(r[4]) || 0, suumoCode: code,

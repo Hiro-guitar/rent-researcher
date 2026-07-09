@@ -23,6 +23,9 @@ a{color:#3498db;text-decoration:none}
 .alert-warning{background:rgba(243,156,18,.15);color:#f39c12;border:1px solid rgba(243,156,18,.3)}
 .alert-info{background:rgba(52,152,219,.15);color:#3498db;border:1px solid rgba(52,152,219,.3)}
 .alert .count{background:rgba(255,255,255,.15);padding:1px 6px;border-radius:10px;font-size:11px}
+.alert-protect{background:rgba(46,204,113,.15);color:#2ecc71;border:1px solid rgba(46,204,113,.3);cursor:pointer;user-select:none}
+.alert-protect.active{background:rgba(46,204,113,.3)}
+.badge-protect{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;background:rgba(46,204,113,.2);color:#2ecc71;white-space:nowrap}
 
 /* Summary */
 .summary{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
@@ -172,9 +175,10 @@ canvas{width:100%!important}
 var G = {}; // global state
 var sortCol = 'transitionRate';
 var sortDir = 1;
+var filterProtected = false; // 保護中のみ表示
 
 var COLUMNS = [
-  {key:'name',label:'物件名',align:'left',fmt:function(l){return l.name+(l.room?' '+l.room:'')}},
+  {key:'name',label:'物件名',align:'left',fmt:function(l){return (l.protected?'<span class="badge-protect" title="自動落とし対象外: '+(l.protectReason||'')+'">🛡保護</span> ':'')+l.name+(l.room?' '+l.room:'')}},
   {key:'totalFee',label:'賃料+管理費',align:'right'},
   {key:'lineName',label:'路線',align:'left'},
   {key:'stationName',label:'駅',align:'left'},
@@ -313,11 +317,15 @@ function renderList(){
   var pvDrops=G.listings.filter(function(l){return l._pvDrop});
   var compSurges=G.listings.filter(function(l){return l._compSurge});
   var trLows=G.listings.filter(function(l){return l._trLow});
+  var protectedList=G.listings.filter(function(l){return l.protected});
   var alertsHtml='';
   if(pvDrops.length) alertsHtml+='<div class="alert alert-danger">⚠ PV急落 <span class="count">'+pvDrops.length+'件</span></div>';
   if(compSurges.length) alertsHtml+='<div class="alert alert-warning">⚠ 競合急増 <span class="count">'+compSurges.length+'件</span></div>';
   if(trLows.length) alertsHtml+='<div class="alert alert-info">⚠ 遷移率低下 <span class="count">'+trLows.length+'件</span></div>';
+  alertsHtml+='<div class="alert alert-protect'+(filterProtected?' active':'')+'" id="protectChip" title="PVデータ収集中で自動落とし対象外の物件。クリックで絞り込み">🛡 保護中（自動落とし対象外）<span class="count">'+protectedList.length+'件</span></div>';
   document.getElementById('alerts').innerHTML=alertsHtml;
+  var _pc=document.getElementById('protectChip');
+  if(_pc)_pc.onclick=function(){filterProtected=!filterProtected;renderList();};
 
   // Summary
   var ls=G.listings;
@@ -339,8 +347,9 @@ function renderList(){
   }
   document.getElementById('tableHead').innerHTML=th;
 
-  // Sort
-  var sorted=ls.slice().sort(function(a,b){
+  // Sort（保護フィルタ適用）
+  var visible=filterProtected?ls.filter(function(l){return l.protected}):ls;
+  var sorted=visible.slice().sort(function(a,b){
     var va=a[sortCol],vb=b[sortCol];
     if(va==null)va=sortDir>0?Infinity:-Infinity;
     if(vb==null)vb=sortDir>0?Infinity:-Infinity;
