@@ -16,17 +16,55 @@
   else if (href.includes('bb.ielove.jp/ielovebb/rent/index')) site = 'ielove';
   if (!site) return;
 
-  // ── フローティングボタン ──
+  // ── ボタン（送信パネルに統合。無ければ画面右下に浮かせる） ──
   const btn = document.createElement('button');
   btn.id = 'bulk-comp-btn';
-  btn.textContent = '競合チェック';
+  btn.textContent = '競合チェック（全物件）';
+  btn.title = 'ページ上の全物件のSUUMO競合数を一括チェック';
   Object.assign(btn.style, {
-    position: 'fixed', bottom: '80px', right: '20px', zIndex: '99999',
-    padding: '8px 16px', fontSize: '12px', fontWeight: 'bold',
-    color: '#fff', backgroundColor: '#e67e22', border: 'none', borderRadius: '6px',
-    cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+    color: '#fff', backgroundColor: '#e67e22', border: 'none',
+    fontWeight: 'bold', cursor: 'pointer',
   });
-  document.body.appendChild(btn);
+
+  // パネル内ボタンのスタイル（送信パネルの他ボタンと揃える）
+  function styleDocked() {
+    Object.assign(btn.style, {
+      position: 'static', bottom: '', right: '', zIndex: '',
+      width: '100%', padding: '9px', fontSize: '13px',
+      borderRadius: '8px', boxShadow: 'none',
+    });
+  }
+  // フローティングボタンのスタイル（フォールバック）
+  function styleFloating() {
+    Object.assign(btn.style, {
+      position: 'fixed', bottom: '80px', right: '20px', zIndex: '99999',
+      width: '', padding: '8px 16px', fontSize: '12px',
+      borderRadius: '6px', boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+    });
+  }
+
+  // 送信パネルのスロットに差し込む。無ければ false。
+  function mountIntoPanel() {
+    const slot = document.getElementById('__msp-comp-slot');
+    if (!slot) return false;
+    if (btn.parentElement !== slot) {
+      styleDocked();
+      slot.appendChild(btn);
+    }
+    return true;
+  }
+
+  if (!mountIntoPanel()) {
+    // パネルがまだ無い → いったん浮かせ、パネルが出たら差し込む
+    styleFloating();
+    document.body.appendChild(btn);
+    const _obs = new MutationObserver(() => {
+      if (mountIntoPanel()) _obs.disconnect();
+    });
+    _obs.observe(document.body, { childList: true, subtree: true });
+    // 一定時間で監視解除（浮いたまま使えるようにする）
+    setTimeout(() => _obs.disconnect(), 30000);
+  }
 
   // ── コンパクトバッジ ──
   const BC = 'bc-badge';
@@ -445,10 +483,10 @@
     const checkTotal = checkableEntries.length;
     btn.textContent = '取得中 ' + doneCount + '/' + checkTotal;
     if (doneCount >= checkTotal) {
-      btn.textContent = '競合チェック ✓';
+      btn.textContent = '競合チェック（全物件）✓';
       btn.style.backgroundColor = '#27ae60';
       setTimeout(() => {
-        btn.textContent = '競合チェック';
+        btn.textContent = '競合チェック（全物件）';
         btn.style.backgroundColor = '#e67e22';
         running = false;
       }, 3000);
@@ -480,10 +518,10 @@
       restored++;
     });
     if (restored > 0) {
-      btn.textContent = '競合チェック ✓';
+      btn.textContent = '競合チェック（全物件）✓';
       btn.style.backgroundColor = '#27ae60';
       setTimeout(function() {
-        btn.textContent = '競合チェック';
+        btn.textContent = '競合チェック（全物件）';
         btn.style.backgroundColor = '#e67e22';
       }, 2000);
     }
@@ -540,7 +578,7 @@
       btn.textContent = '物件なし';
       btn.style.backgroundColor = '#e74c3c';
       setTimeout(() => {
-        btn.textContent = '競合チェック';
+        btn.textContent = '競合チェック（全物件）';
         btn.style.backgroundColor = '#e67e22';
         running = false;
       }, 2000);
@@ -561,10 +599,10 @@
     saveCache(resultCache);
 
     if (checkableEntries.length === 0) {
-      btn.textContent = '競合チェック ✓';
+      btn.textContent = '競合チェック（全物件）✓';
       btn.style.backgroundColor = '#27ae60';
       setTimeout(() => {
-        btn.textContent = '競合チェック';
+        btn.textContent = '競合チェック（全物件）';
         btn.style.backgroundColor = '#e67e22';
         running = false;
       }, 2000);

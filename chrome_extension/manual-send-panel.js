@@ -378,6 +378,13 @@
     body.appendChild(countEl);
     body.appendChild(sendBtn);
 
+    // 外部スクリプト（bulk-competitor-panel.js の「競合チェック」）がボタンを差し込むスロット。
+    // 従来は画面右下に浮いていてパネルに隠れていたため、パネル内に統合する。
+    var compSlot = document.createElement('div');
+    compSlot.id = '__msp-comp-slot';
+    compSlot.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+    body.appendChild(compSlot);
+
     // 手動: 順位検索の設備条件（一覧に設備情報が無いため手動指定）。順位検索の tc に反映。
     var equipRow = document.createElement('div');
     equipRow.style.cssText = 'display:flex;gap:10px;font-size:11px;color:#444;align-items:center;flex-wrap:wrap;margin:2px 0 0;';
