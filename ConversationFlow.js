@@ -825,32 +825,32 @@ function _buildConditionSummaryRows_(state, before) {
     var removed = (beforeArr || []).filter(function (x) { return !aset[x]; });
     return { added: added, removed: removed };
   }
-  // 路線/市区町村単位の賢い差分: 路線ごと追加/削除は路線名(駅…)、既存路線内は駅名のみ。
+  // 路線/市区町村単位の賢い差分: 既存/新規に関わらず、常に「路線名（駅…）」の形で表示する。
   function areaDiff(beforeS, afterS) {
     var ba = areaOf(beforeS), aa = areaOf(afterS);
     if (aa.method === 'route' && ba.method === 'route') {
       return _groupedDiff_(ba.routes, ba.stations, aa.routes, aa.stations);
     }
     if (aa.method === 'city' && ba.method === 'city') {
-      return _groupedDiff_(ba.cities, ba.towns, aa.cities, aa.towns, '・');
+      return _groupedDiff_(ba.cities, ba.towns, aa.cities, aa.towns);
     }
     // 方式が違う場合はフラット差分にフォールバック
     return listChanged(areaItems(beforeS), areaItems(afterS));
   }
-  // グループ(路線/市区町村)ごとに、まるごと追加/削除は「親（子…）」、共通グループ内は子のみ。
-  function _groupedDiff_(bGroups, bChild, aGroups, aChild, childSep) {
+  // グループ(路線/市区町村)ごとに差分。追加/削除した子は常に「親（子…）」の形にする。
+  function _groupedDiff_(bGroups, bChild, aGroups, aChild) {
     var added = [], removed = [];
-    var bSet = {}; (bGroups || []).forEach(function (g) { bSet[g] = 1; });
-    var aSet = {}; (aGroups || []).forEach(function (g) { aSet[g] = 1; });
+    var bMap = {}; (bGroups || []).forEach(function (g) { bMap[g] = bChild[g] || []; });
+    var aMap = {}; (aGroups || []).forEach(function (g) { aMap[g] = aChild[g] || []; });
     (aGroups || []).forEach(function (g) {
-      var aC = aChild[g] || [];
-      if (!bSet[g]) { added.push(aC.length ? g + '（' + aC.join('、') + '）' : g); }
-      else { var bC = bChild[g] || []; aC.filter(function (x) { return bC.indexOf(x) < 0; }).forEach(function (x) { added.push(childSep ? g + childSep + x : x); }); }
+      var aC = aMap[g], bC = bMap[g];
+      if (bC === undefined) { added.push(aC.length ? g + '（' + aC.join('、') + '）' : g); }  // 新規グループごと
+      else { var addC = aC.filter(function (x) { return bC.indexOf(x) < 0; }); if (addC.length) added.push(g + '（' + addC.join('、') + '）'); }
     });
     (bGroups || []).forEach(function (g) {
-      var bC = bChild[g] || [];
-      if (!aSet[g]) { removed.push(bC.length ? g + '（' + bC.join('、') + '）' : g); }
-      else { var aC = aChild[g] || []; bC.filter(function (x) { return aC.indexOf(x) < 0; }).forEach(function (x) { removed.push(childSep ? g + childSep + x : x); }); }
+      var bC = bMap[g], aC = aMap[g];
+      if (aC === undefined) { removed.push(bC.length ? g + '（' + bC.join('、') + '）' : g); }  // グループごと削除
+      else { var remC = bC.filter(function (x) { return aC.indexOf(x) < 0; }); if (remC.length) removed.push(g + '（' + remC.join('、') + '）'); }
     });
     return { added: added, removed: removed };
   }
