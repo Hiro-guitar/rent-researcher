@@ -459,7 +459,21 @@
 
       // 本人の条件と「おすすめ条件（裏検索条件）」を、それぞれ独立して選べるようにする。
       // 除外判定はエントリ固有キー（criteriaKey）で行う。
+      // 同じお客さんの条件（本人＋おすすめ）が隣り合うように並べ替える。
+      // 本人の初出順は維持し、各本人の直後にそのお客さんのおすすめ条件を並べる。
+      const nameOrder = [];
+      const byName = new Map();
       for (const c of criteria) {
+        if (!byName.has(c.name)) { byName.set(c.name, { base: [], rec: [] }); nameOrder.push(c.name); }
+        (c.recommend ? byName.get(c.name).rec : byName.get(c.name).base).push(c);
+      }
+      const sortedCriteria = [];
+      for (const nm of nameOrder) {
+        const g = byName.get(nm);
+        for (const c of g.base) sortedCriteria.push(c);
+        for (const c of g.rec) sortedCriteria.push(c);
+      }
+      for (const c of sortedCriteria) {
         const lbl = document.createElement('label');
         const cb = document.createElement('input');
         cb.type = 'checkbox';
