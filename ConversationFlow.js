@@ -802,6 +802,41 @@ function _buildConditionSummaryRows_(state, before) {
     };
   }
 
+  // ── 複数選択の項目（路線・駅／間取り／建物構造／こだわり）用の値セル ──
+  // 全体を before→after で並べるより「＋追加 / −削除」の方が分かりやすいため。
+  function arrOf(v) { return (v && v.length) ? v.slice() : []; }
+  function layoutsOf(s) { return arrOf(dataOf(s).layouts); }
+  function structsOf(s) { return arrOf(dataOf(s).building_structures); }
+  function equipsOf(s) { return arrOf(dataOf(s).equipment); }
+  function areaItems(s) {
+    var a = areaOf(s), items = [];
+    if (a.method === 'city' && a.cities.length > 0) {
+      a.cities.forEach(function (c) { var ct = a.towns[c] || []; if (ct.length) ct.forEach(function (t) { items.push(c + '・' + t); }); else items.push(c); });
+    } else if (a.method === 'route' && a.routes.length > 0) {
+      a.routes.forEach(function (r) { var st = a.stations[r] || []; if (st.length) st.forEach(function (x) { items.push(x); }); else items.push(r); });
+    }
+    return items;
+  }
+  function listChanged(beforeArr, afterArr) {
+    var bset = {}, aset = {};
+    (beforeArr || []).forEach(function (x) { bset[x] = 1; });
+    (afterArr || []).forEach(function (x) { aset[x] = 1; });
+    var added = (afterArr || []).filter(function (x) { return !bset[x]; });
+    var removed = (beforeArr || []).filter(function (x) { return !aset[x]; });
+    return { added: added, removed: removed };
+  }
+  // beforeArr/afterArr: 差分用の要素配列。currentDisplay: 変更後の通常表示文字列。
+  function valueCellList(beforeArr, afterArr, currentDisplay) {
+    var plain = { type: 'text', text: String(currentDisplay || ''), size: 'sm', color: '#222222', weight: 'bold', wrap: true, flex: 7 };
+    if (!before) return plain;
+    var diff = listChanged(beforeArr, afterArr);
+    if (diff.added.length === 0 && diff.removed.length === 0) return plain;
+    var contents = [{ type: 'text', text: String(currentDisplay || '指定なし'), size: 'sm', color: '#222222', weight: 'bold', wrap: true }];
+    if (diff.added.length) contents.push({ type: 'text', text: '＋ ' + diff.added.join('、'), size: 'xs', color: '#1a7f37', wrap: true, margin: 'xs' });
+    if (diff.removed.length) contents.push({ type: 'text', text: '− ' + diff.removed.join('、'), size: 'xs', color: '#c0392b', wrap: true, margin: 'xs' });
+    return { type: 'box', layout: 'vertical', spacing: 'xs', flex: 7, contents: contents };
+  }
+
   var rows = [];
   var hasBefore = !!before;
 
@@ -809,14 +844,14 @@ function _buildConditionSummaryRows_(state, before) {
   var moveInA = dispMoveIn(state), moveInB = hasBefore ? dispMoveIn(before) : null;
   if (moveInA || (hasBefore && moveInB && moveInB !== moveInA)) rows.push(row('入居時期', valueCell(moveInB, moveInA)));
 
-  // エリア（沿線・駅 / 市区町村）
-  rows.push(row(areaLabel(state), valueCell(hasBefore ? dispArea(before) : null, dispArea(state))));
+  // エリア（沿線・駅 / 市区町村）: 追加・削除の駅/エリアを表示
+  rows.push(row(areaLabel(state), valueCellList(hasBefore ? areaItems(before) : null, areaItems(state), dispArea(state))));
 
   // 家賃上限
   rows.push(row('家賃の上限', valueCell(hasBefore ? dispRent(before) : null, dispRent(state))));
 
-  // 間取り
-  rows.push(row('間取り', valueCell(hasBefore ? dispLayout(before) : null, dispLayout(state))));
+  // 間取り: 追加・削除を表示
+  rows.push(row('間取り', valueCellList(hasBefore ? layoutsOf(before) : null, layoutsOf(state), dispLayout(state))));
 
   // 専有面積
   rows.push(row('専有面積', valueCell(hasBefore ? dispAreaMin(before) : null, dispAreaMin(state))));
@@ -827,12 +862,14 @@ function _buildConditionSummaryRows_(state, before) {
   // 駅徒歩
   rows.push(row('駅徒歩', valueCell(hasBefore ? dispWalk(before) : null, dispWalk(state))));
 
-  // 建物構造（値があるか、変更されていれば表示）
-  var structA = dispStruct(state), structB = hasBefore ? dispStruct(before) : null;
-  if (structA || (hasBefore && structB && structB !== structA)) rows.push(row('建物構造', valueCell(structB, structA)));
+  // 建物構造（値があるか、変更されていれば表示）: 追加・削除を表示
+  var structDiff = hasBefore ? listChanged(structsOf(before), structsOf(state)) : { added: [], removed: [] };
+  if (structsOf(state).length > 0 || structDiff.added.length || structDiff.removed.length) {
+    rows.push(row('建物構造', valueCellList(hasBefore ? structsOf(before) : null, structsOf(state), dispStruct(state) || '指定なし')));
+  }
 
-  // こだわり
-  rows.push(row('こだわり', valueCell(hasBefore ? dispEquip(before) : null, dispEquip(state))));
+  // こだわり: 追加・削除を表示
+  rows.push(row('こだわり', valueCellList(hasBefore ? equipsOf(before) : null, equipsOf(state), dispEquip(state))));
 
   // ペット
   var petA = dispPet(state), petB = hasBefore ? dispPet(before) : null;
