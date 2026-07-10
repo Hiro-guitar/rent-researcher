@@ -350,12 +350,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       replyMessage(replyToken, [textMsg('このボタンは無効です。\n「条件変更」と送ってやり直してください。')]);
       return true;
     }
-    writeToSheet(userId, state);
-    clearState(userId);
-    replyMessage(replyToken, [
-      buildConditionSummaryFlex(state, '条件を更新しました'),
-      textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
-    ]);
+    _confirmConditionChange_(replyToken, userId, state);
     return true;
   }
 
@@ -375,12 +370,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
   if (data === 'movein|asap') {
     state = updateStateData(state, 'move_in_date', 'いい物件見つかり次第');
     if (state.isChangeFlow) {
-      writeToSheet(userId, state);
-      clearState(userId);
-      replyMessage(replyToken, [
-        buildConditionSummaryFlex(state, '条件を更新しました'),
-        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
-      ]);
+      _confirmConditionChange_(replyToken, userId, state);
       return true;
     }
     state.step = STEPS.CRITERIA_SELECT;
@@ -435,12 +425,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     var isStrict = data.substring(14) === 'true';
     state = updateStateData(state, 'move_in_strict', isStrict);
     if (state.isChangeFlow) {
-      writeToSheet(userId, state);
-      clearState(userId);
-      replyMessage(replyToken, [
-        buildConditionSummaryFlex(state, '条件を更新しました'),
-        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
-      ]);
+      _confirmConditionChange_(replyToken, userId, state);
       return true;
     }
     state.step = STEPS.CRITERIA_SELECT;
@@ -1067,6 +1052,102 @@ function formatConditionSummary(state) {
   if (d.age) lines.push('年齢: ' + d.age);
 
   return lines.length > 0 ? lines.join('\n') : '（条件なし）';
+}
+
+// ══════════════════════════════════════════════════════════
+//  条件変更の差分（変更前→変更後）ユーティリティ
+//  state / readLatestCriteria / loadCustomerCriteriaByName のいずれの形状でも扱える。
+//  （state は scalar が .data 配下、フラット形状はトップレベル。area系はどちらもトップレベル）
+// ══════════════════════════════════════════════════════════
+function _condData_(src) { return (src && src.data) ? src.data : (src || {}); }
+function _cvNum_(v) { var m = String(v == null ? '' : v).match(/[0-9]+(\.[0-9]+)?/); return m ? m[0] : ''; }
+function _cvRent_(v) { var n = _cvNum_(v); return n ? (parseFloat(n) + '万円') : ''; }
+function _cvWalk_(v) { if (!v || v === '指定しない') return ''; var n = _cvNum_(v); return n ? (n + '分以内') : String(v); }
+function _cvArea_(v) { if (!v || v === '指定しない') return ''; var n = _cvNum_(v); return n ? (n + '㎡以上') : String(v); }
+function _cvAge_(v)  { if (!v || v === '指定しない') return ''; var n = _cvNum_(v); return n ? ('築' + n + '年以内') : String(v); }
+function _cvArr_(a)  { return (a && a.length) ? a.slice().sort().join('、') : ''; }
+
+function _cvAreaStr_(src) {
+  var cities = src.selectedCities || [];
+  var towns = src.selectedTowns || {};
+  var routes = src.selectedRoutes || [];
+  var stations = src.selectedStations || {};
+  var isCity = (src.areaMethod === 'city') || (cities.length > 0 && routes.length === 0);
+  if (isCity) {
+    return cities.map(function (c) { var t = towns[c]; return (t && t.length) ? c + '(' + t.join('・') + ')' : c; }).join('、');
+  }
+  return routes.map(function (r) { var s = stations[r] || []; return (s.length) ? r + '(' + s.join('・') + ')' : r; }).join('、');
+}
+
+/**
+ * 条件を「ラベル→表示文字列」の順序付き配列に正規化する（差分比較用）。
+ * before/after を同じ関数に通すことで書式差による誤検知を防ぐ。
+ */
+function _conditionSnapshot_(src) {
+  var d = _condData_(src);
+  var moveIn = d.move_in_date ? (String(d.move_in_date) + (d.move_in_strict ? '（必須）' : '')) : '';
+  return [
+    { label: '駅・エリア', val: _cvAreaStr_(src) },
+    { label: '入居時期',   val: moveIn },
+    { label: '賃料上限',   val: _cvRent_(d.rent_max) },
+    { label: '間取り',     val: _cvArr_(d.layouts) },
+    { label: '駅徒歩',     val: _cvWalk_(d.walk) },
+    { label: '面積',       val: _cvArea_(d.area_min) },
+    { label: '築年数',     val: _cvAge_(d.building_age) },
+    { label: '建物構造',   val: _cvArr_(d.building_structures) },
+    { label: 'こだわり',   val: _cvArr_(d.equipment) },
+    { label: 'ペット',     val: d.petType ? String(d.petType) : '' }
+  ];
+}
+
+/**
+ * 変更前後のスナップショットを突き合わせ、変わった項目の行配列を返す。
+ * 例: "・賃料上限：8万円 → 10万円"
+ */
+function _conditionDiffLines_(before, after) {
+  var b = _conditionSnapshot_(before);
+  var a = _conditionSnapshot_(after);
+  var lines = [];
+  for (var i = 0; i < a.length; i++) {
+    var bv = (b[i] && b[i].val) || '';
+    var av = a[i].val || '';
+    if (bv === av) continue;
+    lines.push('・' + a[i].label + '：' + (bv === '' ? '指定なし' : bv) + ' → ' + (av === '' ? '指定なし' : av));
+  }
+  return lines;
+}
+
+/**
+ * 条件更新時に顧客へ送るメッセージ配列を組み立てる。
+ * before があれば「変更した項目」の差分を挟む（顧客・スタッフ両経路で共通利用）。
+ * @param {Object} state - 更新後の state
+ * @param {Object} [before] - 更新前の条件（readLatestCriteria/loadCustomerCriteriaByName 形状）
+ */
+function buildConditionUpdateMessages_(state, before) {
+  var msgs = [buildConditionSummaryFlex(state, '条件を更新しました')];
+  try {
+    if (before) {
+      var diff = _conditionDiffLines_(before, state);
+      if (diff.length) {
+        msgs.push(textMsg('📝 変更した項目\n' + diff.join('\n')));
+      }
+    }
+  } catch (e) {
+    console.error('_conditionDiffLines_ error: ' + e.message);
+  }
+  msgs.push(textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。'));
+  return msgs;
+}
+
+/**
+ * 条件変更フローの確定処理（変更前を取得→保存→差分つきで返信）。
+ */
+function _confirmConditionChange_(replyToken, userId, state) {
+  var before = null;
+  try { before = readLatestCriteria(userId); } catch (_) {}
+  writeToSheet(userId, state);
+  clearState(userId);
+  replyMessage(replyToken, buildConditionUpdateMessages_(state, before));
 }
 
 function showConfirmation(replyToken, state, prefixMessages) {

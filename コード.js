@@ -1696,12 +1696,11 @@ function processCriteriaSelection(userId, criteria) {
 
     // 条件変更フローの場合は直接保存して完了
     if (state.isChangeFlow) {
+      var beforeChange = null;
+      try { beforeChange = readLatestCriteria(userId); } catch (_) {}
       writeToSheet(userId, state);
       clearState(userId);
-      pushMessage(userId, [
-        buildConditionSummaryFlex(state, '条件を更新しました'),
-        textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
-      ]);
+      pushMessage(userId, buildConditionUpdateMessages_(state, beforeChange));
       return { success: true, message: '条件を更新しました。' };
     }
 
@@ -3175,6 +3174,13 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
     // userId: LINE User IDがあればそれを、なければダミー
     var userId = lineUserId || 'admin_' + Date.now();
 
+    // 「条件変更として送信」(任意)時に差分を表示するため、保存前の条件をキャッシュ
+    try {
+      if (existing) {
+        CacheService.getScriptCache().put('condBefore_' + customerName, JSON.stringify(existing), 3600);
+      }
+    } catch (eCacheBefore) {}
+
     // スプレッドシートに書き込み
     writeToSheet(userId, state);
 
@@ -3388,7 +3394,24 @@ function sendConditionSummaryToLine(customerName, messageType) {
       contents: bubble
     };
 
-    pushMessage(lineUserId, [flexMessage]);
+    var messages = [flexMessage];
+    // 「条件変更として送信」時は、保存前キャッシュと突き合わせて変更点を表示
+    if (isChanged) {
+      try {
+        var cachedBefore = CacheService.getScriptCache().get('condBefore_' + customerName);
+        if (cachedBefore) {
+          var beforeObj = JSON.parse(cachedBefore);
+          var diffLines = _conditionDiffLines_(beforeObj, state);
+          if (diffLines.length) {
+            messages.push({ type: 'text', text: '📝 変更した項目\n' + diffLines.join('\n') });
+          }
+        }
+      } catch (eDiff) {
+        console.error('sendConditionSummaryToLine diff error: ' + eDiff.message);
+      }
+    }
+
+    pushMessage(lineUserId, messages);
 
     var label = isChanged ? '条件変更通知' : '条件';
     return { success: true, message: customerName + ' にLINEで' + label + 'を送信しました。' };
