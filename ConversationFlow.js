@@ -776,11 +776,12 @@ function _buildConditionSummaryRows_(state, before) {
         ]
       };
     }
-    // 短い項目: 変更前 → 変更後 の横並び
+    // 短い項目: 変更前 → 変更後 の横並び（矢印はオレンジで強調）
     return {
       type: 'box', layout: 'horizontal', spacing: 'sm', flex: 7,
       contents: [
-        { type: 'text', text: b + '  →', size: 'sm', color: '#aaaaaa', wrap: true, flex: 0 },
+        { type: 'text', text: b, size: 'sm', color: '#aaaaaa', wrap: true, flex: 0 },
+        { type: 'text', text: '→', size: 'sm', color: '#d35400', weight: 'bold', flex: 0 },
         { type: 'text', text: a, size: 'sm', color: '#222222', weight: 'bold', wrap: true }
       ]
     };
