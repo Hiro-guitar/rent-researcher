@@ -3242,7 +3242,7 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
  * @param {string} customerName - 顧客名
  * @returns {Object} LINE Flex Bubble オブジェクト
  */
-function _buildRichConditionBubble_(summaryRows, isChanged, customerName, diffLines) {
+function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
   // カラーテーマ
   var primary = isChanged ? '#e67e22' : '#1a7f37';
   var primaryLight = isChanged ? '#fef5ec' : '#eaf7ed';
@@ -3340,27 +3340,6 @@ function _buildRichConditionBubble_(summaryRows, isChanged, customerName, diffLi
     }
   };
 
-  // 変更点（変更前→変更後）があれば、条件カードの上に「変更した項目」ボックスを差し込む
-  if (diffLines && diffLines.length) {
-    var diffContents = [{
-      type: 'text', text: '📝 変更した項目', weight: 'bold', size: 'sm', color: accent
-    }];
-    for (var di = 0; di < diffLines.length; di++) {
-      diffContents.push({ type: 'text', text: diffLines[di], size: 'sm', color: '#555555', wrap: true, margin: 'sm' });
-    }
-    bubble.body.contents.unshift({
-      type: 'box',
-      layout: 'vertical',
-      backgroundColor: '#fffbe6',
-      cornerRadius: 'lg',
-      paddingAll: 'lg',
-      spacing: 'xs',
-      borderColor: '#f0d98a',
-      borderWidth: '1px',
-      contents: diffContents
-    });
-  }
-
   return bubble;
 }
 
@@ -3402,25 +3381,23 @@ function sendConditionSummaryToLine(customerName, messageType) {
       selectedTowns: criteria.selectedTowns || {}
     };
 
-    var summaryRows = _buildConditionSummaryRows_(state);
-
     var isChanged = (messageType === 'changed');
 
-    // 「条件変更として送信」時は、保存前キャッシュと突き合わせて変更点を算出（カード内に埋め込む）
-    var diffLines = [];
+    // 「条件変更として送信」時は、保存前キャッシュを取得して各行に「変更前→変更後」を表示
+    var beforeCriteria = null;
     if (isChanged) {
       try {
         var cachedBefore = CacheService.getScriptCache().get('condBefore_' + customerName);
-        if (cachedBefore) {
-          diffLines = _conditionDiffLines_(JSON.parse(cachedBefore), state);
-        }
+        if (cachedBefore) beforeCriteria = JSON.parse(cachedBefore);
       } catch (eDiff) {
         console.error('sendConditionSummaryToLine diff error: ' + eDiff.message);
       }
     }
 
-    // リッチなFlexバブルを構築（変更点はカード内に表示）
-    var bubble = _buildRichConditionBubble_(summaryRows, isChanged, customerName, diffLines);
+    var summaryRows = _buildConditionSummaryRows_(state, beforeCriteria);
+
+    // リッチなFlexバブルを構築（変更点は各行に表示）
+    var bubble = _buildRichConditionBubble_(summaryRows, isChanged, customerName);
 
     var flexMessage = {
       type: 'flex',

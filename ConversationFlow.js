@@ -701,121 +701,149 @@ function showMoveInStrictSelect(replyToken, prefixMessages) {
  * 各行は vertical layout で「ラベル(小・グレー) + 値(通常・黒)」のフォーム風。
  * 駅・市区町村は路線/市ごとに改行して詰まらないようにする。
  */
-function _buildConditionSummaryRows_(state) {
-  var d = (state && state.data) || {};
-  var routes = (state && state.selectedRoutes) || [];
-  var cities = (state && state.selectedCities) || [];
-  var stations = (state && state.selectedStations) || {};
-  var towns = (state && state.selectedTowns) || {};
-
-  function row(label, value) {
-    return {
-      type: 'box',
-      layout: 'horizontal',
-      spacing: 'md',
-      contents: [
-        {
-          type: 'text',
-          text: label,
-          size: 'xs',
-          color: '#888888',
-          flex: 3,
-          gravity: 'top',
-          wrap: false
-        },
-        {
-          type: 'text',
-          text: String(value || ''),
-          size: 'sm',
-          color: '#222222',
-          weight: 'bold',
-          wrap: true,
-          flex: 7
-        }
-      ]
-    };
-  }
+function _buildConditionSummaryRows_(state, before) {
   function fmtUnit(v, suffixRe, suffix) {
     if (!v || v === '指定しない') return '指定なし';
     var s = String(v);
     return suffixRe.test(s) ? s : s + suffix;
   }
 
+  // state / フラット条件(readLatestCriteria等) 両対応で data / area を取り出す
+  function dataOf(s) { return (s && s.data) ? s.data : (s || {}); }
+  function areaOf(s) {
+    return {
+      method: s && s.areaMethod,
+      routes: (s && s.selectedRoutes) || [],
+      cities: (s && s.selectedCities) || [],
+      stations: (s && s.selectedStations) || {},
+      towns: (s && s.selectedTowns) || {}
+    };
+  }
+
+  // ── 各フィールドの表示文字列（変更前・変更後で同じロジックを使う） ──
+  function dispMoveIn(s) { var d = dataOf(s); return d.move_in_date ? String(d.move_in_date) : ''; }
+  function areaLabel(s) { var a = areaOf(s); return (a.method === 'city' && a.cities.length > 0) ? '市区町村' : (a.method === 'route' && a.routes.length > 0) ? '沿線・駅' : 'エリア'; }
+  function dispArea(s) {
+    var a = areaOf(s);
+    if (a.method === 'city' && a.cities.length > 0) {
+      return a.cities.map(function (c) { var ct = a.towns[c] || []; return ct.length > 0 ? c + '（' + ct.join('、') + '）' : c; }).join('\n');
+    } else if (a.method === 'route' && a.routes.length > 0) {
+      return a.routes.map(function (r) { var st = a.stations[r] || []; return st.length > 0 ? r + '（' + st.join('、') + '）' : r; }).join('\n');
+    }
+    return '指定なし';
+  }
+  function dispRent(s) {
+    var d = dataOf(s);
+    if (!d.rent_max) return '指定なし';
+    var r = String(d.rent_max);
+    if (!/万円/.test(r)) r = (!isNaN(d.rent_max) ? parseFloat(d.rent_max) : d.rent_max) + '万円';
+    return r;
+  }
+  function dispLayout(s) { var d = dataOf(s); return (d.layouts && d.layouts.length > 0) ? d.layouts.join('、') : '指定なし'; }
+  function dispAreaMin(s) { var d = dataOf(s); return fmtUnit(d.area_min, /(m²|m2|㎡).*以上$|(m²|m2|㎡)$/, '㎡以上'); }
+  function dispAge(s) {
+    var d = dataOf(s);
+    if (!d.building_age || d.building_age === '指定しない') return '指定なし';
+    var a = String(d.building_age);
+    if (a === '新築') return '新築';
+    if (/年/.test(a)) return /以内$/.test(a) ? a : a + '以内';
+    return a + '年以内';
+  }
+  function dispWalk(s) { var d = dataOf(s); return fmtUnit(d.walk, /分以内$|分$/, '分以内'); }
+  function dispStruct(s) { var d = dataOf(s); return (d.building_structures && d.building_structures.length > 0) ? d.building_structures.join('、') : ''; }
+  function dispEquip(s) { var d = dataOf(s); return (d.equipment && d.equipment.length > 0) ? d.equipment.join('、') : '指定なし'; }
+  function dispPet(s) { var d = dataOf(s); return d.petType ? String(d.petType) : ''; }
+  function dispAgeYears(s) { var d = dataOf(s); return d.age ? String(d.age) : ''; }
+  function dispNotes(s) { var d = dataOf(s); return d.notes ? String(d.notes) : ''; }
+
+  // 変更後の値セル。beforeがあり値が変わっていれば「変更前 → 変更後」を表示する。
+  function valueCell(beforeVal, afterVal) {
+    var changed = (before && beforeVal != null && String(beforeVal) !== String(afterVal));
+    if (!changed) {
+      return { type: 'text', text: String(afterVal || ''), size: 'sm', color: '#222222', weight: 'bold', wrap: true, flex: 7 };
+    }
+    var b = (beforeVal === '' || beforeVal == null) ? '指定なし' : String(beforeVal);
+    var a = (afterVal === '' || afterVal == null) ? '指定なし' : String(afterVal);
+    var isLong = b.indexOf('\n') >= 0 || a.indexOf('\n') >= 0 || b.length > 16 || a.length > 16;
+    if (isLong) {
+      // 長い項目（沿線・駅など）: 変更前 ↓ 変更後 の縦積み
+      return {
+        type: 'box', layout: 'vertical', spacing: 'xs', flex: 7,
+        contents: [
+          { type: 'text', text: b, size: 'sm', color: '#aaaaaa', wrap: true },
+          { type: 'text', text: '↓', size: 'sm', color: '#d35400', weight: 'bold' },
+          { type: 'text', text: a, size: 'sm', color: '#222222', weight: 'bold', wrap: true }
+        ]
+      };
+    }
+    // 短い項目: 変更前 → 変更後 の横並び
+    return {
+      type: 'box', layout: 'horizontal', spacing: 'sm', flex: 7,
+      contents: [
+        { type: 'text', text: b + '  →', size: 'sm', color: '#aaaaaa', wrap: true, flex: 0 },
+        { type: 'text', text: a, size: 'sm', color: '#222222', weight: 'bold', wrap: true }
+      ]
+    };
+  }
+
+  function row(label, valueContent) {
+    var valBox = (typeof valueContent === 'string')
+      ? { type: 'text', text: String(valueContent || ''), size: 'sm', color: '#222222', weight: 'bold', wrap: true, flex: 7 }
+      : valueContent;
+    return {
+      type: 'box',
+      layout: 'horizontal',
+      spacing: 'md',
+      contents: [
+        { type: 'text', text: label, size: 'xs', color: '#888888', flex: 3, gravity: 'top', wrap: false },
+        valBox
+      ]
+    };
+  }
+
   var rows = [];
+  var hasBefore = !!before;
 
-  // 入居時期
-  if (d.move_in_date) {
-    var moveInText = d.move_in_date;
-        rows.push(row('入居時期', moveInText));
-  }
+  // 入居時期（値があるか、変更されていれば表示）
+  var moveInA = dispMoveIn(state), moveInB = hasBefore ? dispMoveIn(before) : null;
+  if (moveInA || (hasBefore && moveInB && moveInB !== moveInA)) rows.push(row('入居時期', valueCell(moveInB, moveInA)));
 
-  // エリア
-  if (state && state.areaMethod === 'city' && cities.length > 0) {
-    var cityLines = cities.map(function(c) {
-      var ct = towns[c] || [];
-      return ct.length > 0 ? c + '（' + ct.join('、') + '）' : c;
-    });
-    rows.push(row('市区町村', cityLines.join('\n')));
-  } else if (state && state.areaMethod === 'route' && routes.length > 0) {
-    var routeLines = routes.map(function(r) {
-      var stas = stations[r] || [];
-      return stas.length > 0 ? r + '（' + stas.join('、') + '）' : r;
-    });
-    rows.push(row('沿線・駅', routeLines.join('\n')));
-  } else {
-    rows.push(row('エリア', '指定なし'));
-  }
+  // エリア（沿線・駅 / 市区町村）
+  rows.push(row(areaLabel(state), valueCell(hasBefore ? dispArea(before) : null, dispArea(state))));
 
   // 家賃上限
-  if (d.rent_max) {
-    var rentDisplay = String(d.rent_max);
-    if (!/万円/.test(rentDisplay)) {
-      rentDisplay = (!isNaN(d.rent_max) ? parseFloat(d.rent_max) : d.rent_max) + '万円';
-    }
-    rows.push(row('家賃の上限', rentDisplay));
-  } else {
-    rows.push(row('家賃の上限', '指定なし'));
-  }
+  rows.push(row('家賃の上限', valueCell(hasBefore ? dispRent(before) : null, dispRent(state))));
 
   // 間取り
-  rows.push(row('間取り', (d.layouts && d.layouts.length > 0) ? d.layouts.join('、') : '指定なし'));
+  rows.push(row('間取り', valueCell(hasBefore ? dispLayout(before) : null, dispLayout(state))));
 
   // 専有面積
-  rows.push(row('専有面積', fmtUnit(d.area_min, /(m²|m2|㎡).*以上$|(m²|m2|㎡)$/, '㎡以上')));
+  rows.push(row('専有面積', valueCell(hasBefore ? dispAreaMin(before) : null, dispAreaMin(state))));
 
   // 築年数
-  if (d.building_age && d.building_age !== '指定しない') {
-    var ageStr = String(d.building_age);
-    if (ageStr === '新築') {
-      rows.push(row('築年数', '新築'));
-    } else if (/年/.test(ageStr)) {
-      rows.push(row('築年数', /以内$/.test(ageStr) ? ageStr : ageStr + '以内'));
-    } else {
-      rows.push(row('築年数', ageStr + '年以内'));
-    }
-  } else {
-    rows.push(row('築年数', '指定なし'));
-  }
+  rows.push(row('築年数', valueCell(hasBefore ? dispAge(before) : null, dispAge(state))));
 
   // 駅徒歩
-  rows.push(row('駅徒歩', fmtUnit(d.walk, /分以内$|分$/, '分以内')));
+  rows.push(row('駅徒歩', valueCell(hasBefore ? dispWalk(before) : null, dispWalk(state))));
 
-  // 建物構造
-  if (d.building_structures && d.building_structures.length > 0) {
-    rows.push(row('建物構造', d.building_structures.join('、')));
-  }
+  // 建物構造（値があるか、変更されていれば表示）
+  var structA = dispStruct(state), structB = hasBefore ? dispStruct(before) : null;
+  if (structA || (hasBefore && structB && structB !== structA)) rows.push(row('建物構造', valueCell(structB, structA)));
 
   // こだわり
-  rows.push(row('こだわり', (d.equipment && d.equipment.length > 0) ? d.equipment.join('、') : '指定なし'));
+  rows.push(row('こだわり', valueCell(hasBefore ? dispEquip(before) : null, dispEquip(state))));
 
   // ペット
-  if (d.petType) rows.push(row('ペット', d.petType));
+  var petA = dispPet(state), petB = hasBefore ? dispPet(before) : null;
+  if (petA || (hasBefore && petB && petB !== petA)) rows.push(row('ペット', valueCell(petB, petA)));
 
   // 年齢
-  if (d.age) rows.push(row('年齢', d.age));
+  var ageA = dispAgeYears(state), ageB = hasBefore ? dispAgeYears(before) : null;
+  if (ageA || (hasBefore && ageB && ageB !== ageA)) rows.push(row('年齢', valueCell(ageB, ageA)));
 
   // その他（備考・コメント）
-  if (d.notes) rows.push(row('その他', d.notes));
+  var notesA = dispNotes(state), notesB = hasBefore ? dispNotes(before) : null;
+  if (notesA || (hasBefore && notesB && notesB !== notesA)) rows.push(row('その他', valueCell(notesB, notesA)));
 
   return rows;
 }
@@ -961,11 +989,11 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
  * @param {string} headerText - ヘッダーに表示するテキスト
  * @returns {Object} LINE Flex Message オブジェクト
  */
-function buildConditionSummaryFlex(state, headerText, diffLines) {
-  var summaryRows = _buildConditionSummaryRows_(state);
+function buildConditionSummaryFlex(state, headerText, before) {
+  var summaryRows = _buildConditionSummaryRows_(state, before);
   // headerText に「更新」が含まれていれば条件変更扱い
   var isChanged = /更新|変更/.test(headerText);
-  var bubble = _buildRichConditionBubble_(summaryRows, isChanged, '', diffLines);
+  var bubble = _buildRichConditionBubble_(summaryRows, isChanged, '');
   // ヘッダーのタイトル・サブテキストを呼び出し元に合わせて上書き
   if (bubble.header && bubble.header.contents && bubble.header.contents.length > 0) {
     bubble.header.contents[0].text = headerText;
@@ -1124,15 +1152,9 @@ function _conditionDiffLines_(before, after) {
  * @param {Object} [before] - 更新前の条件（readLatestCriteria/loadCustomerCriteriaByName 形状）
  */
 function buildConditionUpdateMessages_(state, before) {
-  var diff = [];
-  try {
-    if (before) diff = _conditionDiffLines_(before, state);
-  } catch (e) {
-    console.error('_conditionDiffLines_ error: ' + e.message);
-  }
-  // 変更点はカード内に埋め込む（追加メッセージは送らない）
+  // 変更点は各条件行の中に「変更前 → 変更後」で表示する（追加メッセージは送らない）
   return [
-    buildConditionSummaryFlex(state, '条件を更新しました', diff),
+    buildConditionSummaryFlex(state, '条件を更新しました', before),
     textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
   ];
 }
