@@ -854,15 +854,16 @@ function _buildConditionSummaryRows_(state, before) {
     });
     return { added: added, removed: removed };
   }
-  // diff: {added,removed}。変更が無ければ現在値(currentDisplay)をそのまま表示。
+  // diff: {added,removed}。現在の条件(currentDisplay)を表示し、変更があれば下に追加/削除を付ける。
   function valueCellList(diff, currentDisplay) {
+    var current = { type: 'text', text: String(currentDisplay || ''), size: 'sm', color: '#222222', weight: 'bold', wrap: true, flex: 7 };
     if (!before || (diff.added.length === 0 && diff.removed.length === 0)) {
-      return { type: 'text', text: String(currentDisplay || ''), size: 'sm', color: '#222222', weight: 'bold', wrap: true, flex: 7 };
+      return current;
     }
-    var contents = [];
-    if (diff.added.length) contents.push({ type: 'text', text: '追加：' + diff.added.join('、'), size: 'sm', color: '#1a7f37', weight: 'bold', wrap: true });
-    if (diff.removed.length) contents.push({ type: 'text', text: '削除：' + diff.removed.join('、'), size: 'sm', color: '#c0392b', weight: 'bold', wrap: true });
-    return { type: 'box', layout: 'vertical', spacing: 'sm', flex: 7, contents: contents };
+    var contents = [{ type: 'text', text: String(currentDisplay || '指定なし'), size: 'sm', color: '#222222', weight: 'bold', wrap: true }];
+    if (diff.added.length) contents.push({ type: 'text', text: '追加：' + diff.added.join('、'), size: 'sm', color: '#1a7f37', weight: 'bold', wrap: true, margin: 'sm' });
+    if (diff.removed.length) contents.push({ type: 'text', text: '削除：' + diff.removed.join('、'), size: 'sm', color: '#c0392b', weight: 'bold', wrap: true, margin: diff.added.length ? 'xs' : 'sm' });
+    return { type: 'box', layout: 'vertical', spacing: 'none', flex: 7, contents: contents };
   }
 
   var rows = [];
