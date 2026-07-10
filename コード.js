@@ -4191,10 +4191,10 @@ function getCustomerDetail(customerName) {
       btMode: btMode
     };
 
-    // エリア: 路線+駅(E列) or 市区町村(D列)
+    // エリア: 路線+駅(E列) or 市区町村+町名(D列 + Y列/町名JSON)
     var routeStation = String(data[i][4] || ''); // E列
-    var city = String(data[i][3] || '');         // D列
-    info.area = routeStation || city || '';
+    var cityWithTowns = _formatCityWithTowns_(data[i][3], data[i][24]); // D列 + Y列(index24)
+    info.area = routeStation || cityWithTowns || '';
     // 駅徒歩 (G列 index 6)
     if (data[i][6]) info.walk = String(data[i][6]);
     // 賃料上限 (H列 index 7)

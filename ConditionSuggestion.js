@@ -400,7 +400,7 @@ function sendConditionSuggestionTest(customerName, reasonCode) {
       ageMax: String(row[10] || ''),
       structures: String(row[11] || ''),
       equipment: String(row[12] || ''),
-      city: String(row[3] || ''),
+      city: _formatCityWithTowns_(row[3], row[24]),
       stations: String(row[5] || ''),
       routesWithStations: routesWithStations
     };
@@ -706,7 +706,7 @@ function getConditionSuggestionCandidates_() {
       ageMax: String(row[10] || ''),
       structures: String(row[11] || ''),
       equipment: String(row[12] || ''),
-      city: String(row[3] || ''),
+      city: _formatCityWithTowns_(row[3], row[24]),
       stations: String(row[5] || ''),
       routesWithStations: routesWithStations  // [{ route: '路線名', stations: ['駅A', '駅B'] }, ...]
     });
@@ -802,6 +802,18 @@ function _buildLastDeliveryMap_() {
 // 路線・駅の表示文字列を生成。
 //   [{route:'西武新宿線', stations:['上石神井','武蔵関']}, ...]
 //   → "西武新宿線（上石神井、武蔵関）／JR山手線（新宿）"
+// 市区町村(D列) + 町名JSON(Y列/index24) を「豊島区（北大塚2丁目）」形式に整形する。
+function _formatCityWithTowns_(citiesRaw, townsJsonRaw) {
+  var cities = String(citiesRaw || '').split(/[,、]\s*/).filter(function (s) { return s; });
+  if (cities.length === 0) return '';
+  var townsObj = {};
+  if (townsJsonRaw) { try { townsObj = JSON.parse(townsJsonRaw); } catch (e) {} }
+  return cities.map(function (c) {
+    var t = townsObj[c];
+    return (t && t.length) ? c + '（' + t.join('、') + '）' : c;
+  }).join('、');
+}
+
 function _formatRoutesForDisplay_(routesWithStations) {
   if (!Array.isArray(routesWithStations) || routesWithStations.length === 0) return '';
   var parts = [];
