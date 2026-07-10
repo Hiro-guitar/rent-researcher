@@ -961,11 +961,11 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
  * @param {string} headerText - ヘッダーに表示するテキスト
  * @returns {Object} LINE Flex Message オブジェクト
  */
-function buildConditionSummaryFlex(state, headerText) {
+function buildConditionSummaryFlex(state, headerText, diffLines) {
   var summaryRows = _buildConditionSummaryRows_(state);
   // headerText に「更新」が含まれていれば条件変更扱い
   var isChanged = /更新|変更/.test(headerText);
-  var bubble = _buildRichConditionBubble_(summaryRows, isChanged, '');
+  var bubble = _buildRichConditionBubble_(summaryRows, isChanged, '', diffLines);
   // ヘッダーのタイトル・サブテキストを呼び出し元に合わせて上書き
   if (bubble.header && bubble.header.contents && bubble.header.contents.length > 0) {
     bubble.header.contents[0].text = headerText;
@@ -1124,19 +1124,17 @@ function _conditionDiffLines_(before, after) {
  * @param {Object} [before] - 更新前の条件（readLatestCriteria/loadCustomerCriteriaByName 形状）
  */
 function buildConditionUpdateMessages_(state, before) {
-  var msgs = [buildConditionSummaryFlex(state, '条件を更新しました')];
+  var diff = [];
   try {
-    if (before) {
-      var diff = _conditionDiffLines_(before, state);
-      if (diff.length) {
-        msgs.push(textMsg('📝 変更した項目\n' + diff.join('\n')));
-      }
-    }
+    if (before) diff = _conditionDiffLines_(before, state);
   } catch (e) {
     console.error('_conditionDiffLines_ error: ' + e.message);
   }
-  msgs.push(textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。'));
-  return msgs;
+  // 変更点はカード内に埋め込む（追加メッセージは送らない）
+  return [
+    buildConditionSummaryFlex(state, '条件を更新しました', diff),
+    textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
+  ];
 }
 
 /**

@@ -3242,7 +3242,7 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
  * @param {string} customerName - 顧客名
  * @returns {Object} LINE Flex Bubble オブジェクト
  */
-function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
+function _buildRichConditionBubble_(summaryRows, isChanged, customerName, diffLines) {
   // カラーテーマ
   var primary = isChanged ? '#e67e22' : '#1a7f37';
   var primaryLight = isChanged ? '#fef5ec' : '#eaf7ed';
@@ -3340,6 +3340,27 @@ function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
     }
   };
 
+  // 変更点（変更前→変更後）があれば、条件カードの上に「変更した項目」ボックスを差し込む
+  if (diffLines && diffLines.length) {
+    var diffContents = [{
+      type: 'text', text: '📝 変更した項目', weight: 'bold', size: 'sm', color: accent
+    }];
+    for (var di = 0; di < diffLines.length; di++) {
+      diffContents.push({ type: 'text', text: diffLines[di], size: 'sm', color: '#555555', wrap: true, margin: 'sm' });
+    }
+    bubble.body.contents.unshift({
+      type: 'box',
+      layout: 'vertical',
+      backgroundColor: '#fffbe6',
+      cornerRadius: 'lg',
+      paddingAll: 'lg',
+      spacing: 'xs',
+      borderColor: '#f0d98a',
+      borderWidth: '1px',
+      contents: diffContents
+    });
+  }
+
   return bubble;
 }
 
@@ -3385,8 +3406,21 @@ function sendConditionSummaryToLine(customerName, messageType) {
 
     var isChanged = (messageType === 'changed');
 
-    // リッチなFlexバブルを構築
-    var bubble = _buildRichConditionBubble_(summaryRows, isChanged, customerName);
+    // 「条件変更として送信」時は、保存前キャッシュと突き合わせて変更点を算出（カード内に埋め込む）
+    var diffLines = [];
+    if (isChanged) {
+      try {
+        var cachedBefore = CacheService.getScriptCache().get('condBefore_' + customerName);
+        if (cachedBefore) {
+          diffLines = _conditionDiffLines_(JSON.parse(cachedBefore), state);
+        }
+      } catch (eDiff) {
+        console.error('sendConditionSummaryToLine diff error: ' + eDiff.message);
+      }
+    }
+
+    // リッチなFlexバブルを構築（変更点はカード内に表示）
+    var bubble = _buildRichConditionBubble_(summaryRows, isChanged, customerName, diffLines);
 
     var flexMessage = {
       type: 'flex',
@@ -3394,24 +3428,7 @@ function sendConditionSummaryToLine(customerName, messageType) {
       contents: bubble
     };
 
-    var messages = [flexMessage];
-    // 「条件変更として送信」時は、保存前キャッシュと突き合わせて変更点を表示
-    if (isChanged) {
-      try {
-        var cachedBefore = CacheService.getScriptCache().get('condBefore_' + customerName);
-        if (cachedBefore) {
-          var beforeObj = JSON.parse(cachedBefore);
-          var diffLines = _conditionDiffLines_(beforeObj, state);
-          if (diffLines.length) {
-            messages.push({ type: 'text', text: '📝 変更した項目\n' + diffLines.join('\n') });
-          }
-        }
-      } catch (eDiff) {
-        console.error('sendConditionSummaryToLine diff error: ' + eDiff.message);
-      }
-    }
-
-    pushMessage(lineUserId, messages);
+    pushMessage(lineUserId, [flexMessage]);
 
     var label = isChanged ? '条件変更通知' : '条件';
     return { success: true, message: customerName + ' にLINEで' + label + 'を送信しました。' };
