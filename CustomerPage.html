@@ -839,6 +839,18 @@ function renderDetail(data) {
     + '<span id="condSugState" style="color:#888;">読み込み中…</span>'
     + ' <a id="condSugToggle" onclick="toggleCondSuggestionOptOut()" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:8px;display:none;"></a>'
     + '</div></div>';
+  // メール配信 停止/再開（reply.py の自動フォローアップメールのオプトアウト）
+  info += '<div class="detail-info-row">';
+  info += '<div class="detail-info-label">メール配信</div>';
+  info += '<div class="detail-info-value">';
+  if (data.email) {
+    info += '<span id="mailUnsubState">' + (data.mailUnsubscribed ? '<span style="color:#e6a243;">停止中</span>' : '<span style="color:#4ec9b0;">配信中</span>') + '</span>'
+      + ' <a id="mailUnsubToggle" onclick="toggleMailUnsubscribe(' + (data.mailUnsubscribed ? 'false' : 'true') + ')" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:8px;">'
+      + (data.mailUnsubscribed ? 'メール配信を再開' : 'メール配信を停止') + '</a>';
+  } else {
+    info += '<span style="color:#888;">メール未登録</span>';
+  }
+  info += '</div></div>';
   // 問い合わせ物件（SUUMO反響）— 物件ページへのリンク付き
   if (data.inquiries && data.inquiries.length) {
     info += '<div class="detail-info-row" style="display:block;">';
@@ -1480,6 +1492,38 @@ function loadCondSuggestionOptOut() {
       stateEl.textContent = '取得失敗';
     })
     .getConditionSuggestionOptOut(currentCustomer);
+}
+
+// メール配信（自動フォローアップメール）の停止/再開
+function toggleMailUnsubscribe(unsub) {
+  if (!currentCustomer) return;
+  if (!confirm(unsub
+    ? 'この顧客への自動メール配信（フォローアップ）を停止しますか？'
+    : 'この顧客へのメール配信を再開しますか？')) return;
+  var toggle = document.getElementById('mailUnsubToggle');
+  var stateEl = document.getElementById('mailUnsubState');
+  if (toggle) { toggle.textContent = '処理中…'; toggle.onclick = null; }
+  google.script.run
+    .withSuccessHandler(function (r) {
+      if (r && r.success) {
+        showToast(r.message);
+        if (stateEl) stateEl.innerHTML = r.unsubscribed
+          ? '<span style="color:#e6a243;">停止中</span>'
+          : '<span style="color:#4ec9b0;">配信中</span>';
+        if (toggle) {
+          toggle.textContent = r.unsubscribed ? 'メール配信を再開' : 'メール配信を停止';
+          toggle.onclick = function () { toggleMailUnsubscribe(!r.unsubscribed); };
+        }
+      } else {
+        showToast((r && r.message) || '失敗しました');
+        if (toggle) { toggle.textContent = unsub ? 'メール配信を停止' : 'メール配信を再開'; toggle.onclick = function () { toggleMailUnsubscribe(unsub); }; }
+      }
+    })
+    .withFailureHandler(function (e) {
+      showToast('エラー: ' + e.message);
+      if (toggle) { toggle.textContent = unsub ? 'メール配信を停止' : 'メール配信を再開'; toggle.onclick = function () { toggleMailUnsubscribe(unsub); }; }
+    })
+    .setCustomerEmailUnsubscribe(currentCustomer, unsub);
 }
 
 function toggleCondSuggestionOptOut() {

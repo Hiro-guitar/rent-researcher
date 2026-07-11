@@ -3661,6 +3661,65 @@ function handleUnsubscribe(e) {
   }
 }
 
+/** メールが配信停止(UNSUBSCRIBEシート)に入っているか。 */
+function _isEmailUnsubscribed_(email) {
+  email = String(email || '').trim();
+  if (!email) return false;
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sh = ss.getSheetByName(UNSUBSCRIBE_SHEET_NAME);
+    if (!sh) return false;
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0] || '').trim().toLowerCase() === email.toLowerCase()) return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+/**
+ * CRMから顧客のメール配信(自動フォローアップ)を停止/再開する。
+ * 顧客のメール(AF列32)をUNSUBSCRIBEシートに追加/削除する。reply.py が送信時に参照。
+ * @param {string} customerName
+ * @param {boolean} unsubscribe true=停止 / false=再開
+ */
+function setCustomerEmailUnsubscribe(customerName, unsubscribe) {
+  try {
+    customerName = String(customerName || '').trim();
+    if (!customerName) return { success: false, message: '顧客名がありません' };
+
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { success: false, message: '検索条件シートが見つかりません' };
+    var data = sheet.getDataRange().getValues();
+    var email = '';
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1] || '').trim() === customerName) {
+        var em = String(data[i][31] || '').trim(); // AF列(32)=メール（最新の非空を採用）
+        if (em) email = em;
+      }
+    }
+    if (!email) return { success: false, message: 'この顧客にはメールアドレスが登録されていません' };
+
+    var unsub = ss.getSheetByName(UNSUBSCRIBE_SHEET_NAME);
+    if (!unsub) { unsub = ss.insertSheet(UNSUBSCRIBE_SHEET_NAME); unsub.appendRow(['メールアドレス', '停止日時']); }
+    var uData = unsub.getDataRange().getValues();
+    var foundRow = -1;
+    for (var j = 1; j < uData.length; j++) {
+      if (String(uData[j][0] || '').trim().toLowerCase() === email.toLowerCase()) { foundRow = j + 1; break; }
+    }
+    if (unsubscribe) {
+      if (foundRow < 0) unsub.appendRow([email, new Date().toISOString()]);
+      return { success: true, unsubscribed: true, email: email, message: 'メール配信を停止しました（' + email + '）' };
+    } else {
+      if (foundRow > 0) unsub.deleteRow(foundRow);
+      return { success: true, unsubscribed: false, email: email, message: 'メール配信を再開しました（' + email + '）' };
+    }
+  } catch (e) {
+    return { success: false, message: 'エラー: ' + e.message };
+  }
+}
+
 function handleCheckFollowupStatus(e) {
   var emailAddr = e.parameter.email || '';
   if (!emailAddr) {
@@ -4214,6 +4273,9 @@ function getCustomerDetail(customerName) {
   }
 
   if (!info) return { error: '顧客が見つかりません: ' + customerName };
+
+  // メール配信停止(UNSUBSCRIBE)状態
+  info.mailUnsubscribed = _isEmailUnsubscribed_(info.email);
 
   // 自動返信メール履歴（reply.py が記録する「メール送信履歴」を、この顧客のメールで集約）
   info.mailHistory = [];
