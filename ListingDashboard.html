@@ -266,7 +266,7 @@ function addPhoneInquiry(){
   google.script.run
     .withSuccessHandler(function(r){
       if(r&&r.success){
-        showToast('問い合わせを追加しました');
+        showToast(r.message||'問い合わせを追加しました');
         // データ再取得して詳細を開き直す（件数・一覧を反映）
         google.script.run
           .withSuccessHandler(function(d){G=d;enrichData();renderList();showDetail(code);})

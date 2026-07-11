@@ -77,7 +77,28 @@ function addManualInquiry(propertyName, callerName, phone, memo) {
     row[16] = '電話（手動）';                        // Q 媒体
     row[17] = '未対応';                             // R 対応状況
     sheet.appendRow(row);
-    return { success: true, message: '問い合わせを追加しました' };
+
+    // CRM（顧客管理）にもリードとして追加（メール問い合わせと同じ経路）。
+    // 電話はメールが無いので氏名で重複判定。氏名なし/既存同名は作成しない。
+    var leadCreated = false;
+    try {
+      leadCreated = _autoCreateLeadFromInquiry_({
+        name: String(callerName || '').trim(),
+        email: '',
+        tel: String(phone || '').trim(),
+        propertyName: propertyName,
+        message: String(memo || '').trim()
+      });
+    } catch (eLead) {
+      console.warn('[電話問い合わせ] リード化失敗: ' + eLead.message);
+    }
+
+    return {
+      success: true,
+      message: leadCreated
+        ? '問い合わせを追加し、顧客管理にも登録しました'
+        : '問い合わせを追加しました（氏名なし/既存顧客のためCRM顧客は未作成）'
+    };
   } catch (e) {
     return { success: false, message: 'エラー: ' + e.message };
   }
