@@ -6629,9 +6629,10 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
     + '<span id="modalCounter" class="modal-counter"></span>'
     + '</div>';
 
-  // 画像アップロードをブラウザから直接imgbbへ送るための個人キー（GASのUrlFetchクォータを使わない）
-  var __imgbbClientKey = '';
-  try { __imgbbClientKey = PropertiesService.getScriptProperties().getProperty('IMGBB_API_KEY') || ''; } catch (_eKey) {}
+  // 画像アップロードをブラウザから直接imgbbへ送るためのキー（GASのUrlFetchクォータを使わない）。
+  // 個人キー優先、無ければ共有キー（クライアント側送信ならGASクォータは消費しない）。
+  var __imgbbClientKey = '48cdc51fdcc4a2828c3379b59663db7f';
+  try { __imgbbClientKey = PropertiesService.getScriptProperties().getProperty('IMGBB_API_KEY') || __imgbbClientKey; } catch (_eKey) {}
 
   html += '<script>'
     + 'var __IMGBB_KEY__=' + JSON.stringify(__imgbbClientKey) + ';'
