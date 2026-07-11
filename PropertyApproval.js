@@ -6629,7 +6629,12 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
     + '<span id="modalCounter" class="modal-counter"></span>'
     + '</div>';
 
+  // 画像アップロードをブラウザから直接imgbbへ送るための個人キー（GASのUrlFetchクォータを使わない）
+  var __imgbbClientKey = '';
+  try { __imgbbClientKey = PropertiesService.getScriptProperties().getProperty('IMGBB_API_KEY') || ''; } catch (_eKey) {}
+
   html += '<script>'
+    + 'var __IMGBB_KEY__=' + JSON.stringify(__imgbbClientKey) + ';'
     + 'var gasBaseUrl=' + JSON.stringify(baseUrl) + ';'
     + 'var customerName=' + JSON.stringify(customerName) + ';'
     + 'var roomId=' + JSON.stringify(String(roomId)) + ';'
@@ -6830,7 +6835,8 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
     + 'var dataUrl=canvas.toDataURL("image/jpeg",0.8);'
     + 'var b64=dataUrl.split(",")[1];'
     + 'var pel=document.getElementById(pid);if(pel)pel.querySelector(".bar-fill").style.width="50%";'
-    + 'google.script.run'
+    // サーバー経由アップロード（GASのUrlFetchを使う。ブラウザ直imgbbが失敗した時のフォールバック）
+    + 'function _srvUpload(){google.script.run'
     + '.withSuccessHandler(function(r){'
     + 'var el=document.getElementById(pid);'
     + 'if(r.success){if(el)el.remove();addUploadedImage(r.url)}'
@@ -6839,7 +6845,15 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
     + '.withFailureHandler(function(err){'
     + 'var el=document.getElementById(pid);if(el)el.innerHTML=file.name+" \\u30A8\\u30E9\\u30FC: "+err.message'
     + '})'
-    + '.uploadPropertyImage(b64,file.name,"image/jpeg");'
+    + '.uploadPropertyImage(b64,file.name,"image/jpeg")}'
+    // まずブラウザから直接imgbbへ（GASクォータを消費しない・恒久ホスト）。失敗時はサーバー経由。
+    + 'if(__IMGBB_KEY__){'
+    + 'var _fd=new FormData();_fd.append("image",b64);'
+    + 'fetch("https://api.imgbb.com/1/upload?key="+encodeURIComponent(__IMGBB_KEY__),{method:"POST",body:_fd})'
+    + '.then(function(r){return r.json()})'
+    + '.then(function(j){if(j&&j.success&&j.data&&j.data.url){var el=document.getElementById(pid);if(el)el.remove();addUploadedImage(j.data.url)}else{_srvUpload()}})'
+    + '.catch(function(){_srvUpload()});'
+    + '}else{_srvUpload()}'
     + '};'
     + 'img.src=ev.target.result;'
     + '};'
