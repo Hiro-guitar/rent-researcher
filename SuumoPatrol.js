@@ -3320,7 +3320,8 @@ function getInquiryData_() {
     result.push({
       date: dateStr,
       name: String(rows[i][2]),
-      property: String(rows[i][8])
+      property: String(rows[i][8]),
+      method: String(rows[i][6] || '')   // G列: 連絡方法（電話/メール等）
     });
   }
   return result;

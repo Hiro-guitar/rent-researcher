@@ -50,6 +50,39 @@ function _getInquirySheet_() {
 }
 
 
+/**
+ * 電話問い合わせを手動で1行追加する（掲載物件ダッシュボードの詳細フォームから呼ばれる）。
+ * @param {string} propertyName 物件名（掲載側の「建物名 部屋番号」）
+ * @param {string} callerName   問い合わせ者名（任意）
+ * @param {string} phone        電話番号（任意）
+ * @param {string} memo         メモ/お問合せ内容（任意）
+ * @return {{success:boolean, message:string}}
+ */
+function addManualInquiry(propertyName, callerName, phone, memo) {
+  try {
+    propertyName = String(propertyName || '').trim();
+    if (!propertyName) return { success: false, message: '物件名が指定されていません' };
+
+    var sheet = _getInquirySheet_();
+    var now = new Date();
+    var row = [];
+    for (var k = 0; k < INQUIRY_HEADERS.length; k++) row.push('');
+    row[0] = now;                                   // A 受信日時
+    row[1] = 'manual_' + now.getTime();             // B 連番（一意キー）
+    row[2] = String(callerName || '').trim();       // C 問い合わせ者名
+    row[5] = String(phone || '').trim();            // F TEL
+    row[6] = '電話';                                 // G 連絡方法
+    row[7] = String(memo || '').trim();             // H お問合せ内容
+    row[8] = propertyName;                          // I 物件名
+    row[16] = '電話（手動）';                        // Q 媒体
+    row[17] = '未対応';                             // R 対応状況
+    sheet.appendRow(row);
+    return { success: true, message: '問い合わせを追加しました' };
+  } catch (e) {
+    return { success: false, message: 'エラー: ' + e.message };
+  }
+}
+
 /** 本文からラベルに対応する値を抽出（全角/半角コロン・空白区切りの両対応、行頭アンカー）
  *  転送メール対策: 行頭の引用記号(>｜|)や空白も許容する。 */
 function _exVal_(body, label) {
