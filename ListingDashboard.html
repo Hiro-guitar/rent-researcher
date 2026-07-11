@@ -251,6 +251,16 @@ function refreshData(){
     .getListingDashboardData();
 }
 
+// 物件名の正規化（全角英数→半角、空白・号室・号の除去、小文字化）。
+// 問い合わせシートの物件名は自由記述なので、掲載側の建物名と突き合わせるために使う。
+function normProp(s){
+  return String(s||'')
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(ch){return String.fromCharCode(ch.charCodeAt(0)-0xFEE0);})
+    .replace(/[\s　]/g,'')
+    .replace(/号室|号/g,'')
+    .toLowerCase();
+}
+
 function enrichData(){
   var pv=G.pvHistory||{dates:[],properties:{}};
   var comp=G.compHistory||{dates:[],properties:{}};
@@ -293,14 +303,23 @@ function enrichData(){
     // Transition rate drop
     l._trLow=l.transitionRate!=null&&l.transitionRate<0.3&&l.listPv>=20;
 
-    // Inquiry data per property (match by name+room)
-    var fullName=l.name+(l.room?' '+l.room:'');
+    // Inquiry data per property: 問い合わせシートの物件名は自由記述（建物名のみ/全角/号室付き等）
+    // なので正規化して建物名（＋部屋番号）ベースで突き合わせる。
+    var nName=normProp(l.name), nRoom=normProp(l.room), nFull=nName+nRoom;
     var inqs=G.inquiries||[];
     l._inquiryList=[];
     for(var qi=0;qi<inqs.length;qi++){
-      if(inqs[qi].property===fullName){
-        l._inquiryList.push(inqs[qi]);
+      var np=normProp(inqs[qi].property);
+      if(!np||!nName) continue;
+      var m=false;
+      if(np===nFull) m=true;                 // 建物+部屋 完全一致
+      else if(np===nName) m=true;            // 建物のみ一致（問い合わせに部屋番号なし）
+      else if(np.indexOf(nName)===0){        // 問い合わせ名が建物名で始まる
+        var rest=np.slice(nName.length);
+        // 部屋番号があれば残りに含まれることを要求（別部屋・別建物への誤マッチ防止）
+        if(!nRoom || rest.indexOf(nRoom)>=0) m=true;
       }
+      if(m) l._inquiryList.push(inqs[qi]);
     }
     l._inquiryCount=l._inquiryList.length;
   }
