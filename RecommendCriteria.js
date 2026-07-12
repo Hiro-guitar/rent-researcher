@@ -18,6 +18,7 @@ var RECOMMEND_SHEET_NAME = 'おすすめ検索条件';
 var RECOMMEND_COL_LABEL = 34;   // AH (1-based)
 var RECOMMEND_COL_ID = 35;      // AI
 var RECOMMEND_COL_ENABLED = 36; // AJ
+var RECOMMEND_COL_BTMODE = 31;  // AE相当 (1-based, index30): BT別モード skip/alert
 
 /** おすすめ条件シートを取得（無ければ作成してヘッダーを入れる）。 */
 function _getRecommendSheet_() {
@@ -33,6 +34,7 @@ function _getRecommendSheet_() {
     header[9] = '面積'; header[10] = '築年数'; header[11] = '構造';
     header[12] = '設備'; header[14] = '引越し時期'; header[15] = 'その他';
     header[24] = '町名丁目JSON'; header[26] = '入居時期厳守';
+    header[30] = 'BT別';
     header[33] = 'ラベル'; header[34] = 'ID'; header[35] = '有効';
     sheet.getRange(1, 1, 1, header.length).setValues([header]);
     sheet.setFrozenRows(1);
@@ -130,7 +132,11 @@ function _appendRecommendCriteria_(criteriaArr, deliverableNames) {
       notes: String(row[15] || ''),
       selectedTowns: selectedTowns,
       lastReinsSearch: lastReinsSearchStr,
-      btMode: '',
+      // BT別モードは「こだわりにバス・トイレ別がある時だけ」有効化（無ければ空＝勝手に絞らない）。
+      // 既定は skip(選別)。alert なら絞らずアラートのみ。
+      btMode: (/バス[・･]?トイレ別|bt別/i.test(String(row[12] || ''))
+        ? (String(row[30] || '').trim().toLowerCase() || 'skip')
+        : ''),
       // おすすめ条件であることを示すフラグ（ラベル付け Phase で利用）
       recommend: true,
       recommendId: String(row[34] || ''),
@@ -183,6 +189,7 @@ function listRecommendCriteria(customerName) {
       enabled: !(enabled === '0' || enabled === 'false'),
       moveInDate: _recMoveInStr_(data[i][14]),
       moveInStrict: String(data[i][26] || '').trim().toLowerCase() === 'true',
+      btMode: (String(data[i][30] || '').trim().toLowerCase() || 'skip'), // BT別: 既定=skip
       summary: _recSummary_(data[i])
     });
   }
@@ -238,6 +245,25 @@ function setRecommendLastReinsSearch(id, searchDate) {
     if (String(data[i][34] || '').trim() === id) {
       sheet.getRange(i + 1, 29).setValue(searchDate); // AC列(29): 前回REINS検索日
       return { ok: true };
+    }
+  }
+  return { ok: false, message: '該当なし' };
+}
+
+/**
+ * google.script.run 用: おすすめ条件のBT別モード（skip=選別 / alert=アラートのみ）を設定。
+ */
+function setRecommendBtMode(id, mode) {
+  id = String(id || '').trim();
+  mode = String(mode || '').trim().toLowerCase();
+  if (mode !== 'skip' && mode !== 'alert') mode = 'skip';
+  if (!id) return { ok: false, message: 'IDがありません' };
+  var sheet = _getRecommendSheet_();
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][34] || '').trim() === id) {
+      sheet.getRange(i + 1, RECOMMEND_COL_BTMODE).setValue(mode); // 31列目(index30)
+      return { ok: true, mode: mode };
     }
   }
   return { ok: false, message: '該当なし' };
@@ -337,6 +363,7 @@ function saveRecommendCriteria(payload) {
       if (String(data[i][34] || '').trim() === id) {
         rowVals[34] = id;
         rowVals[35] = (String(data[i][35] || '').trim().toLowerCase() === '0') ? '0' : '1';
+        rowVals[30] = String(data[i][30] || '').trim() || 'skip'; // BT別モードは保持（フォームに項目が無いため）
         rowVals[28] = ''; // AC列(29): 前回REINS検索日を必ずクリア→条件変更後は全件再検索
         sheet.getRange(i + 1, 15).setNumberFormat('@'); // O列(入居時期)を日付自動変換させない
         sheet.getRange(i + 1, 1, 1, 36).setValues([rowVals]);
@@ -351,6 +378,7 @@ function saveRecommendCriteria(payload) {
   var newId = Utilities.getUuid();
   rowVals[34] = newId;
   rowVals[35] = '1';
+  rowVals[30] = 'skip'; // BT別モードの既定は skip（選別/除外）
   sheet.appendRow(rowVals);
   try { sheet.getRange(sheet.getLastRow(), 15).setNumberFormat('@').setValue(String(rowVals[14] || '')); } catch (e) {} // O列を日付自動変換させない
   return { ok: true, id: newId };

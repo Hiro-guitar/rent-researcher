@@ -1906,7 +1906,12 @@ function renderRecommendList(list) {
     html += '<button class="btn btn-sm btn-blue" onclick="applyMi(\'' + esc(r.id) + '\')">適用</button> '
       + '<button class="btn btn-sm btn-outline" onclick="hideMiEditor(\'' + esc(r.id) + '\')">キャンセル</button>';
     html += '</div></div>';
-    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">';
+    html += '<span style="font-size:12px;color:#aaa;display:inline-flex;align-items:center;gap:4px;">BT別：'
+      + '<select onchange="setRecommendBt(\'' + esc(r.id) + '\',this.value)" style="font-size:12px;">'
+      + '<option value="skip"' + (r.btMode !== 'alert' ? ' selected' : '') + '>選別（除外）</option>'
+      + '<option value="alert"' + (r.btMode === 'alert' ? ' selected' : '') + '>アラートのみ</option>'
+      + '</select></span>';
     html += '<button class="btn btn-sm btn-outline" onclick="editRecommend(\'' + esc(r.id) + '\')">編集</button>';
     html += '<button class="btn btn-sm btn-outline" onclick="renameRecommend(\'' + esc(r.id) + '\',\'' + esc(r.label || '') + '\')">名前変更</button>';
     html += '<button class="btn btn-sm btn-outline" onclick="toggleRecommend(\'' + esc(r.id) + '\',' + (r.enabled ? 'false' : 'true') + ')">' + (r.enabled ? '無効化' : '有効化') + '</button>';
@@ -2026,6 +2031,16 @@ function toggleRecommend(id, enabled) {
     .withSuccessHandler(function() { loadRecommendList(currentCustomer); })
     .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
     .setRecommendEnabled(id, enabled);
+}
+
+// 裏条件のBT別モード（skip=選別 / alert=アラートのみ）を設定
+function setRecommendBt(id, mode) {
+  google.script.run
+    .withSuccessHandler(function(r) {
+      showToast(r && r.mode === 'alert' ? 'BT別: アラートのみ に設定しました' : 'BT別: 選別（除外）に設定しました');
+    })
+    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .setRecommendBtMode(id, mode);
 }
 
 function renameRecommend(id, currentLabel) {
