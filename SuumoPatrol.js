@@ -1580,8 +1580,10 @@ function findStopCandidates(topN, options) {
   var moshikomiColIdx = SUUMO_LISTING_HEADERS.indexOf('初回申込検知日') + 1;
   var breakdownColIdx = SUUMO_LISTING_HEADERS.indexOf('スコア内訳') + 1;
 
-  // PV履歴から直近7日平均を取得
-  var pvAverages = getPvHistoryAverages_(7);
+  // PV履歴の平均を取得。窓は最大14日で、その中でデータがある日数だけで平均する
+  // （SUUMOのPV計上ラグで直近1-2日が空になるため、7日窓だと実質6日になってしまう。
+  //   14日窓にすることで週齢物件は約7日ぶん、長期物件は最大14日ぶんで平均できる）
+  var pvAverages = getPvHistoryAverages_(14);
 
   var candidates = [];
   var lowCompCount = 0, highCompCount = 0, unmeasuredCount = 0;
@@ -1675,7 +1677,7 @@ function findStopCandidates(topN, options) {
     var compStr = '加重' + (Math.round(weightedComp * 10) / 10)
                 + ' [第1:' + compLv1 + ' 第2:' + compLv2 + ' 第3:' + compLv3 + ']';
     var pvStr = hasPvHistory
-      ? '直近' + pvDataPoints + '日平均(最大7日窓): 一覧PV=' + (Math.round(avgListPv * 10) / 10)
+      ? '直近' + pvDataPoints + '日平均(最大14日窓): 一覧PV=' + (Math.round(avgListPv * 10) / 10)
         + ' 詳細PV=' + (Math.round(avgDetailPv * 10) / 10)
       : 'PV履歴不足(' + pvDataPoints + '日分)';
     var dropReason;
@@ -3203,7 +3205,7 @@ function getListingDashboardData() {
 
   // 保護判定用（findStopCandidates と同じ基準）: PV履歴が足りない新規掲載は
   // 自動落とし候補にならない＝「保護」。それを各物件に付与する。
-  var pvAveragesForProtect = getPvHistoryAverages_(7);
+  var pvAveragesForProtect = getPvHistoryAverages_(14);
   var moshikomiIdxForProtect = SUUMO_LISTING_HEADERS.indexOf('初回申込検知日');
 
   var listings = [];

@@ -337,8 +337,10 @@ function saveRecommendCriteria(payload) {
       if (String(data[i][34] || '').trim() === id) {
         rowVals[34] = id;
         rowVals[35] = (String(data[i][35] || '').trim().toLowerCase() === '0') ? '0' : '1';
+        rowVals[28] = ''; // AC列(29): 前回REINS検索日を必ずクリア→条件変更後は全件再検索
         sheet.getRange(i + 1, 15).setNumberFormat('@'); // O列(入居時期)を日付自動変換させない
         sheet.getRange(i + 1, 1, 1, 36).setValues([rowVals]);
+        sheet.getRange(i + 1, 29).setValue('');         // 念のため明示的にもクリア（日付書式セル対策）
         return { ok: true, id: id };
       }
     }
