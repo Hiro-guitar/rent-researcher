@@ -702,6 +702,15 @@ input[type="range"]::-webkit-slider-thumb {
           <option value="true">間に合う物件だけ</option>
         </select>
       </div>
+      <div class="admin-field" id="moveInEarlyField" style="display:none;">
+        <label>早すぎる物件</label>
+        <select id="moveInEarlySelect">
+          <option value="">スキップしない</option>
+          <option value="1">1ヶ月以上前はスキップ</option>
+          <option value="2">2ヶ月以上前はスキップ</option>
+          <option value="0">希望月より前は全部スキップ</option>
+        </select>
+      </div>
     </div>
   </div>
 
@@ -1237,6 +1246,9 @@ function populateForm(data) {
   if (data.move_in_strict) {
     document.getElementById('moveInStrictSelect').value = 'true';
   }
+  if (data.move_in_early_months !== undefined && data.move_in_early_months !== null) {
+    document.getElementById('moveInEarlySelect').value = String(data.move_in_early_months);
+  }
 
   // 家賃
   if (data.rent_max) {
@@ -1393,6 +1405,7 @@ function clearFormSelections() {
   document.getElementById('moveInSelect').value = '';
   document.getElementById('moveInCustomDate').value = '';
   document.getElementById('moveInStrictSelect').value = 'false';
+  document.getElementById('moveInEarlySelect').value = '';
   onMoveInChange();
   // スライダーリセット
   document.getElementById('walkUnspecified').checked = false;
@@ -2049,7 +2062,9 @@ function onMoveInChange() {
   var hasDate = val && val !== '' && val !== 'いい物件見つかり次第';
   document.getElementById('moveInCustomField').style.display = isCustom ? '' : 'none';
   document.getElementById('moveInStrictField').style.display = hasDate ? '' : 'none';
+  document.getElementById('moveInEarlyField').style.display = hasDate ? '' : 'none';
   if (!hasDate) document.getElementById('moveInStrictSelect').value = 'false';
+  if (!hasDate) document.getElementById('moveInEarlySelect').value = '';
 }
 
 function getMoveInValue() {
@@ -2331,6 +2346,7 @@ function submitAdminCriteria() {
   // 入居時期
   criteria.moveInDate = getMoveInValue();
   criteria.moveInStrict = document.getElementById('moveInStrictSelect').value === 'true';
+  criteria.earlyMonths = document.getElementById('moveInEarlySelect').value; // '' / '0' / '1' / '2'
 
   // UI切替
   document.getElementById('app').style.display = 'none';

@@ -6169,6 +6169,15 @@ function buildDedupKey(prop) {
  * @returns {string|null} スキップ理由メッセージ、スキップしない場合はnull
  */
 function shouldMoveInStrictSkip(prop, customer) {
+  // 1) 遅すぎ（入居可能日が希望より後＝間に合わない）: 入居時期厳守ON時のみ
+  const late = _moveInLateSkip_(prop, customer);
+  if (late) return late;
+  // 2) 早すぎ（入居可能日が希望よりかなり前）: 顧客ごとの設定 move_in_early_months で制御
+  return _moveInTooEarlySkip_(prop, customer);
+}
+
+// 遅すぎスキップ（従来ロジック。入居時期厳守ONの顧客のみ）
+function _moveInLateSkip_(prop, customer) {
   if (!customer?.move_in_strict || !customer?.move_in_date) return null;
   const warning = _checkMoveInWarning(prop, customer.move_in_date);
   if (!warning || !warning.includes('入居可能') || !warning.includes('のため要確認')) return null;
@@ -6177,6 +6186,48 @@ function shouldMoveInStrictSkip(prop, customer) {
   const propEarliest = _parseMoveInDate(propMoveIn, false, true);
   if (propEarliest && customerDeadline && propEarliest > customerDeadline) {
     return warning;
+  }
+  return null;
+}
+
+/**
+ * 早すぎスキップ: 入居可能日が顧客の希望入居より「move_in_early_months ヶ月以上」前ならスキップ。
+ * 顧客ごとの設定 (検索条件シート AJ列/index35 → get_criteria → customer.move_in_early_months)。
+ *   ''（空）= OFF（従来通りスキップしない）
+ *   '0'     = 希望入居より前ならスキップ（厳しめ）
+ *   '1'     = 1ヶ月以上前ならスキップ（推奨。例: 9月希望に8月物件→スキップ）
+ *   '2'     = 2ヶ月以上前ならスキップ（緩め）
+ * @returns {string|null} スキップ理由 or null
+ */
+function _moveInTooEarlySkip_(prop, customer) {
+  if (!customer || !customer.move_in_date) return null;
+  const raw = customer.move_in_early_months;
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null; // OFF
+  const margin = parseInt(String(raw).trim(), 10);
+  if (isNaN(margin) || margin < 0) return null;
+  if (customer.move_in_date === 'いい物件見つかり次第') return null;
+
+  const customerEarliest = _parseMoveInDate(customer.move_in_date, false, true);
+  if (!customerEarliest) return null;
+
+  const propMoveIn = (prop.move_in_date || '').trim();
+  if (!propMoveIn) return null;                                  // 記載なしは判定しない
+  if (propMoveIn.includes('相談') || propMoveIn.includes('未定')) return null;
+
+  let propAvailable;
+  if (['即入居可', '即入居', '即時', '即日'].some(kw => propMoveIn.includes(kw))) {
+    propAvailable = new Date(); propAvailable.setHours(0, 0, 0, 0); // 即入居可＝今日から
+  } else {
+    propAvailable = _parseMoveInDate(propMoveIn, false, true);     // 物件の最早入居可能日
+  }
+  if (!propAvailable) return null;
+
+  // 閾値 = 入居可能日 + marginヶ月。顧客の最早入居がそれ以降なら「早すぎ」。
+  const threshold = new Date(propAvailable);
+  threshold.setMonth(threshold.getMonth() + margin);
+  const tooEarly = margin > 0 ? (customerEarliest >= threshold) : (customerEarliest > propAvailable);
+  if (tooEarly) {
+    return `⚠️ ${customer.move_in_date}入居希望: 入居可能「${propMoveIn}」が早すぎ（${margin}ヶ月以上前）`;
   }
   return null;
 }

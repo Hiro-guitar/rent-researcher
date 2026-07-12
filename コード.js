@@ -2284,6 +2284,7 @@ function handleGetCriteria(e) {
       equipment: String(row[12] || ''),
       move_in_date: String(row[14] || ''),
       move_in_strict: String(row[26] || '').trim().toLowerCase() === 'true',  // AA列(27): 入居時期厳守
+      move_in_early_months: String(row[35] || ''),  // AJ列(36): 入居可能の早すぎ許容(月数, 空=OFF)
       notes: String(row[15] || ''),
       selectedTowns: selectedTowns,
       lastReinsSearch: lastReinsSearchStr,
@@ -3092,6 +3093,7 @@ function loadCustomerCriteriaByName(customerName) {
       resident: resident,
       move_in_date: moveInDate,
       move_in_strict: moveInStrict,
+      move_in_early_months: String(latestRow[35] || ''),  // AJ列(36): 入居可能の早すぎ許容
       rent_max: rentMax,
       layouts: layouts,
       walk: walk || '指定しない',
@@ -3224,6 +3226,25 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
         }
       } catch (pErr) {
         console.warn('電話番号保存エラー: ' + pErr.message);
+      }
+    }
+
+    // 入居可能の早すぎ許容(月数) を AJ列(36) に保存（''=OFF / '0' / '1' / '2'）
+    if (typeof criteria.earlyMonths !== 'undefined') {
+      try {
+        var ssE = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+        var sheetE = ssE.getSheetByName(CRITERIA_SHEET_NAME);
+        if (sheetE) {
+          var dataE = sheetE.getDataRange().getValues();
+          for (var ei = dataE.length - 1; ei >= 1; ei--) {
+            if (String(dataE[ei][1] || '').trim() === customerName) {
+              sheetE.getRange(ei + 1, 36).setValue(String(criteria.earlyMonths || ''));
+              break;
+            }
+          }
+        }
+      } catch (eErr) {
+        console.warn('早すぎ許容保存エラー: ' + eErr.message);
       }
     }
 
