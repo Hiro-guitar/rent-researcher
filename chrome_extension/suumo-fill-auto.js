@@ -543,10 +543,12 @@
           d.builtYear = dateMatch[1];
           d.builtMonth = dateMatch[2];
         } else {
-          // "2010年" のみ（月なし）
+          // "2010年" のみ（月なし）、いえらぶ「2007年(築19年)」等
           const yearOnly = ageStr.match(/(\d{4})\s*年/);
           if (yearOnly) {
             d.builtYear = yearOnly[1];
+            // 月情報が無い（いえらぶは築年月が無く西暦(築N年)形式）→ 1月を仮置きしないとSUUMOの築年月が埋まらない
+            if (!d.builtMonth) d.builtMonth = '1';
           } else {
             // "築16年" → 築年数から逆算（いえらぶ等は築年月が無い）。
             // 月は不明なので1月を仮置き（逆算年の1月で「築N年」が再現される）。
