@@ -218,6 +218,7 @@ function setRecommendMoveIn(id, moveInDate, strict) {
     if (String(data[i][34] || '').trim() === id) {
       sheet.getRange(i + 1, 15).setNumberFormat('@').setValue(String(moveInDate || '')); // O列(15): 入居時期（テキスト固定）
       sheet.getRange(i + 1, 27).setValue(strict ? 'true' : '');      // AA列(27): 厳守
+      sheet.getRange(i + 1, 29).setValue('');                        // AC列(29): 前回REINS検索日をリセット→次回全件再検索
       return { ok: true };
     }
   }
