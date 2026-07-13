@@ -708,7 +708,8 @@ window.addEventListener('DOMContentLoaded', function() {
   setText('pvContractPeriod', p.contract_period);
   // 賃貸借種類が定期借家なら「契約期間」ラベルに条件付き必須マークを表示
   updateContractPeriodConditionalMark();
-  setText('pvMoveInDate', p.move_in_date);
+  // 入居可能時期が取得できなかった場合は「相談」を入れる（空欄だと必須エラーになるため）
+  setText('pvMoveInDate', p.move_in_date || '相談');
   setText('pvPreviewStart', p.preview_start_date);
   setText('pvMoveInConditions', p.move_in_conditions);
   setText('pvCancellation', p.cancellation_notice);

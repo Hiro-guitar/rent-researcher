@@ -4330,8 +4330,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           const check = () => {
             // 検索結果行が存在する → データあり
             if (document.querySelectorAll('.p-table-body-row').length > 0) return { type: 'rows' };
-            // 結果ページだが行もチェックボックスもない → 0件
             const bodyText = document.body?.textContent || '';
+            // 明示的な「該当なし/0件」メッセージ → 即0件判定（30秒待たない）
+            if (/該当(?:する)?(?:データ|物件)?が?ありません|該当なし|検索結果が0件/.test(bodyText)) return { type: 'zero' };
+            // 結果ページだが行もチェックボックスもない → 0件
             if (bodyText.includes('検索結果') && bodyText.length > 200
                 && document.querySelectorAll('input[type="checkbox"]').length === 0
                 && document.querySelectorAll('.p-table-body-row').length === 0) {
