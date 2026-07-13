@@ -16,7 +16,7 @@
 (() => {
   'use strict';
 
-  const SUUMO_COMP_BASE = 'https://suumo.jp/jj/chintai/ichiran/FR301FC011/?ar=030&bs=040&fw=';
+  const SUUMO_COMP_BASE = 'https://suumo.jp/jj/chintai/ichiran/FR301FC011/?ar=030&bs=040&kskbn=01&fw=';
   const SUUMO_COMP_FETCH_TIMEOUT_MS = 8000;
   const SUUMO_COMP_MAX_PAGES = 3; // 1ページ100件×最大3ページ=300件まで集計
   // タイトルが「1K」「2LDK」「ワンルーム」のような間取り文字列だけのケース → 物件名なし扱い
@@ -111,10 +111,12 @@
 
     const townOnly = pref + city + town;
 
-    // 「N丁目」明示 → 数字付きのみ採用（町名のみフォールバックは念のため付ける）
+    // 「N丁目」明示 → 丁目付きのみで検索する（＝丁目単位の正確な競合数）。
+    // 町名のみフォールバックは付けない。付けると、丁目に該当が無い時に町名検索
+    // （他の丁目も含む）が採用され、丁目を無視して過剰カウントになるため。
     const chomeKanjiMatch = rest.match(/^(\d+)丁目/);
     if (chomeKanjiMatch) {
-      return [pref + city + town + chomeKanjiMatch[1], townOnly];
+      return [pref + city + town + chomeKanjiMatch[1]];
     }
 
     // 「N-N」「N-N-N」「N」など番地形式 → 「町名+先頭数字」と「町名のみ」の両方試す
