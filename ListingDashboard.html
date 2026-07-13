@@ -542,10 +542,10 @@ function showDetail(code){
 
   // 一覧PV(左軸)と詳細PV(右軸)はスケールが大きく違うので軸を分ける
   drawLineChart('pvChart',pvDates,[
-    {data:pp['代表一覧PV']||[],color:'#3498db',label:'代表一覧PV（左軸）',dashed:true},
-    {data:pp['代表詳細PV']||[],color:'#2ecc71',label:'代表詳細PV（右軸）',dashed:true,rightAxis:true},
-    {data:pp['一覧PV']||[],color:'#85c1e9',label:'合計一覧PV（左軸）'},
-    {data:pp['詳細PV']||[],color:'#82e0aa',label:'合計詳細PV（右軸）',rightAxis:true}
+    {data:pp['代表一覧PV']||[],color:'#2980b9',label:'代表一覧PV（左軸）',dashed:true},
+    {data:pp['代表詳細PV']||[],color:'#27ae60',label:'代表詳細PV（右軸）',dashed:true,rightAxis:true},
+    {data:pp['一覧PV']||[],color:'#e67e22',label:'合計一覧PV（左軸）'},
+    {data:pp['詳細PV']||[],color:'#c0392b',label:'合計詳細PV（右軸）',rightAxis:true}
   ],{height:280});
 
   var c1=cp['競合_第1']||[],c2=cp['競合_第2']||[],c3=cp['競合_第3']||[];
