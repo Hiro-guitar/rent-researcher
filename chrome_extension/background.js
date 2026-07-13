@@ -3640,11 +3640,9 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   // 自分が走り始めたら pending はクリア (二重起動防止)
   try { await setStorageData({ customerSearchPending: false }); } catch (_) {}
 
-  const services = enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
-  // 2026-06-03: いい生活Square は規約違反(機械的取得=スクレイピング)でアカウントBAN。
-  // 自動化を恒久停止する。再開はBAN逃れ(さらなる違反)になるため不可。
-  // どんな設定でも essquare は走らせない（ラベル表示・早期return判定にも波及）。
-  services.essquare = false;
+  const services = enabledServices || { reins: true, ielove: true, itandi: true, essquare: false };
+  // ES-Square は 2026-06-03 に規約違反BANで恒久停止していたが、新規アカウントで再開。
+  // 既定OFF。log.htmlのチェックで有効化した時だけ走る（手動運用・営業時間内前提）。
 
   if (!services.reins && !services.ielove && !services.itandi && !services.essquare) {
     console.log('有効なサービスがありません');

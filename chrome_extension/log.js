@@ -129,7 +129,8 @@
       document.getElementById('enableReins').checked = services.reins;
       document.getElementById('enableIelove').checked = services.ielove;
       document.getElementById('enableItandi').checked = services.itandi !== false;
-      // いい生活Square は恒久停止(2026-06-03 規約違反BAN)。UIから削除済み。
+      // ES-Square は既定OFF（手動でチェックした時だけ検索する）。新規アカウントで再開。
+      document.getElementById('enableEssquare').checked = services.essquare === true;
       document.getElementById('autoSearchEnabled').checked = data.autoSearchEnabled !== false;
     });
   }
@@ -139,7 +140,7 @@
       reins: document.getElementById('enableReins').checked,
       ielove: document.getElementById('enableIelove').checked,
       itandi: document.getElementById('enableItandi').checked,
-      essquare: false,
+      essquare: document.getElementById('enableEssquare').checked,
     };
     const autoSearchEnabled = document.getElementById('autoSearchEnabled').checked;
     chrome.storage.local.set({ enabledServices, autoSearchEnabled }, callback);
