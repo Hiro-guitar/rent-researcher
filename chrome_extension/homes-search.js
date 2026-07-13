@@ -462,6 +462,53 @@ function _extractSameBuildingRoomUrls(html) {
 // archive 側
 // ============================================================
 
+// archive建物ページ等の住所テキストから「都道府県」を除いた部分を正規化する。
+function _stripPrefRaw(a) {
+  return String(a || '').replace(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/, '');
+}
+
+// archive建物ページのHTMLから所在地(住所)を抽出する。
+function _extractArchiveAddress(html) {
+  if (!html) return '';
+  const meta = _extractMetaFromHtml(html);
+  if (meta && meta.address) return meta.address;
+  // 本文中の「(都道府県)(市区)…丁目/番地」パターン
+  const m = html.match(/(?:東京都|北海道|(?:京都|大阪)府|.{2,3}県)[^<>"'、。,\s]{2,30}?(?:[0-9０-９]+丁目|[0-9０-９]+番地?|[0-9０-９]+[-－][0-9０-９])/);
+  return m ? m[0] : '';
+}
+
+// archive建物がターゲット物件と同じ場所かを住所で照合する。
+// 名前の部分一致で全国の同名建物を拾ってしまうため、市区町村＋町名で除外する。
+// 戻り値: true=一致(採用) / false=不一致(除外)
+function _verifyArchiveBuilding(html, input) {
+  const targetAddr = input && input.address;
+  if (!targetAddr) return true; // ターゲット住所が無い→従来通り除外しない
+
+  const archiveAddr = _extractArchiveAddress(html);
+  if (archiveAddr) {
+    const a = _normalizeAddress(_stripPrefRaw(archiveAddr));
+    const b = _normalizeAddress(_stripPrefRaw(targetAddr));
+    if (a && b) {
+      if (a === b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0) return true; // 住所一致/内包
+      const cityOf = s => (s.match(/^.{2,4}?[市区町村]/) || [''])[0];
+      const ca = cityOf(a), cb = cityOf(b);
+      if (ca && cb && ca !== cb) return false;                 // 市区が違う→別物件
+      return _addressMatchPartial(_stripPrefRaw(archiveAddr), _stripPrefRaw(targetAddr)); // 同市区→町名一致で判定
+    }
+  }
+
+  // 住所が取れない場合はタイトルの「(市区)」で最低限の照合
+  const tm = html.match(/<title>[^<]*?[（(]([^）)]+?)[）)]の/);
+  if (tm) {
+    const archiveCity = tm[1];
+    const targetCity = (_stripPrefRaw(targetAddr).match(/^.{2,6}?[市区町村]/) || [''])[0];
+    if (archiveCity && targetCity) {
+      return archiveCity.indexOf(targetCity) >= 0 || targetCity.indexOf(archiveCity) >= 0;
+    }
+  }
+  return false; // 位置情報が取れない→誤混入を防ぐため除外
+}
+
 async function _findHomesArchiveBuildingIds(input) {
   // /archive/list/search/?keyword=<クエリ> に対するキーワード検索。
   // 「物件名・住所などを入力してください」と書かれた archive 専用の検索口。
@@ -473,19 +520,17 @@ async function _findHomesArchiveBuildingIds(input) {
   if (fullAddr) queries.push(fullAddr);
   if (queries.length === 0) return { ids: [], searchUrls: [] };
 
-  const ids = [];
+  const candidateIds = [];
   const searchUrls = [];
   const seen = new Set();
   for (let i = 0; i < queries.length; i++) {
     const q = queries[i];
     if (i > 0) {
       // 前のクエリで取れていたら追加検索しない
-      if (ids.length > 0) break;
+      if (candidateIds.length > 0) break;
       await _sleep(_HOMES_FETCH_DELAY_MS);
     }
     const url = `${_HOMES_BASE}/archive/list/search/?keyword=${encodeURIComponent(q)}`;
-    // searchUrls は内部追跡のみ。お客様承認ページには archive 建物URLを表示する方針
-    // (検索URLは複数候補リストになるため、建物確定済の場合は不要)。
     searchUrls.push({ query: q, url, label: 'archive検索' });
     console.log('[homes-search] archive search:', q);
     const html = await _fetchText(url);
@@ -500,10 +545,26 @@ async function _findHomesArchiveBuildingIds(input) {
       const id = m[1];
       if (seen.has(id)) continue;
       seen.add(id);
-      ids.push(id);
-      if (ids.length >= 5) break;
+      candidateIds.push(id);
+      if (candidateIds.length >= 6) break;
     }
-    console.log('[homes-search] archive search:', q, 'found:', ids.length);
+    console.log('[homes-search] archive search:', q, 'candidates:', candidateIds.length);
+  }
+
+  // ★住所照合: キーワード検索は名前の部分一致で全国の同名建物を拾うため、
+  //   各候補建物ページの住所がターゲットと一致するものだけ採用する。
+  const ids = [];
+  for (const id of candidateIds) {
+    if (ids.length >= 3) break;
+    await _sleep(_HOMES_FETCH_DELAY_MS);
+    const bhtml = await _fetchText(`${_HOMES_BASE}/archive/b-${id}/`);
+    if (!bhtml) continue;
+    if (_verifyArchiveBuilding(bhtml, input)) {
+      ids.push(id);
+      console.log('[homes-search] archive採用(住所一致):', id);
+    } else {
+      console.log('[homes-search] archive除外(住所不一致):', id);
+    }
   }
   return { ids, searchUrls };
 }
