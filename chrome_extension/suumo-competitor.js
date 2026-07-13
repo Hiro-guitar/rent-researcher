@@ -80,6 +80,18 @@
     return m[1] + '階建';
   }
 
+  // 物件の所在階（例: "3階"）を SUUMO fw 用に整形する。母数を同じ階に絞るのに使う。
+  function _toSuumoUnitFloor(prop) {
+    if (!prop) return null;
+    const raw = prop.unit_floor || prop.floor_text || prop.floor || '';
+    if (!raw) return null;
+    const s = String(raw).replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+    // 「N階」を拾う。ただし「N階建」(建物階数)は所在階ではないので除外。
+    const m = s.match(/(\d+)\s*階(?!建)/);
+    if (!m) return null;
+    return m[1] + '階';
+  }
+
   /**
    * 住所から SUUMO 検索用の住所候補を優先順に返す。
    * 「町名+先頭数字」が SUUMO 上の丁目に一致する物件が多いが、
@@ -150,12 +162,19 @@
     if (!rent || !area || !addrCandidates.length) return null;
     const btype = _inferPropertyType(prop);
     const buildingFloor = _toSuumoBuildingFloor(prop); // "12階建" or null
+    const unitFloor = _toSuumoUnitFloor(prop);         // "3階" or null（所在階）
     const townOnly = addrCandidates[addrCandidates.length - 1];
 
     // 検索URLは全て「建物名なし」版。マンション名非公開物件も拾える。
     // 階建て(story_text)が取れる物件は fw に含めて絞り込みを強化
     // （実測: 住所+マンション+面積+賃料 = 105件 → +階建 = 55件）。
     const urls = [];
+    // 最優先: 住所 + 種別 + 面積 + 賃料 + 所在階（同じ階の競合に絞り母数を最小化）
+    if (unitFloor) {
+      for (const addr of addrCandidates) {
+        urls.push(SUUMO_COMP_BASE + _buildFw([addr, btype, area, rent, unitFloor]) + '&pc=100');
+      }
+    }
     if (buildingFloor) {
       // 第1優先: 住所 + 建物種別 + 階建 + 面積 + 賃料
       for (const addr of addrCandidates) {
@@ -470,6 +489,6 @@
   globalThis.checkSuumoOwnerKeywordSkip = checkSuumoOwnerKeywordSkip;
   // テスト/デバッグ用に内部ヘルパーも露出
   globalThis._suumoCompetitorInternals = {
-    _toSuumoRent, _toSuumoArea, _inferPropertyType, _extractSearchAddrCandidates, _buildFw, _toSuumoBuildingFloor,
+    _toSuumoRent, _toSuumoArea, _inferPropertyType, _extractSearchAddrCandidates, _buildFw, _toSuumoBuildingFloor, _toSuumoUnitFloor,
   };
 })();

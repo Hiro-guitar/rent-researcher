@@ -197,6 +197,7 @@
         prop: {
           building_name: buildingName, room_number: roomNumber,
           building_type: propertyType,
+          unit_floor: floor, // 所在階(例: "3階") — 競合検索で同じ階に絞るのに使う
           address, rent: rentYen, management_fee: mgmtYen,
           layout: normalizeLayout(layout), area: areaNum,
           source: 'reins',
