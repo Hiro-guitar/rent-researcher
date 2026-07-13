@@ -55,6 +55,12 @@
   }
 
   function _inferPropertyType(prop) {
+    // REINS等の建物種別(アパート/マンション)を最優先で使う。
+    // 構造だけだと鉄骨造のアパートを「マンション」と誤判定し、競合が少なく見える。
+    const t = String((prop && (prop.building_type || prop.propertyType || prop.reins_property_type)) || '');
+    if (/アパート/.test(t)) return 'アパート';
+    if (/マンション/.test(t)) return 'マンション';
+    // フォールバック: 構造から推定（木造=アパート、それ以外=マンション）
     const s = prop && prop.structure ? String(prop.structure) : '';
     if (!s) return 'マンション';
     return /木造/.test(s) ? 'アパート' : 'マンション';

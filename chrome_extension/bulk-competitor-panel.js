@@ -176,6 +176,7 @@
       const items = row.querySelectorAll(':scope > .p-table-body-item');
       if (items.length < 20) return;
       const buildingName = (items[11] && items[11].textContent || '').trim();
+      const propertyType = (items[4] && items[4].textContent || '').trim(); // 物件種別(賃貸アパート/賃貸マンション等)
       const address = (items[6] && items[6].textContent || '').trim();
       const rentText = (items[8] && items[8].textContent || '').trim();
       const layout = (items[13] && items[13].textContent || '').trim();
@@ -195,6 +196,7 @@
         insertTarget: items[11] || row,
         prop: {
           building_name: buildingName, room_number: roomNumber,
+          building_type: propertyType,
           address, rent: rentYen, management_fee: mgmtYen,
           layout: normalizeLayout(layout), area: areaNum,
           source: 'reins',
