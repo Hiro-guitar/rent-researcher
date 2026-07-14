@@ -481,14 +481,10 @@
         if (!byName.has(c.name)) { byName.set(c.name, { base: [], rec: [] }); nameOrder.push(c.name); }
         (c.recommend ? byName.get(c.name).rec : byName.get(c.name).base).push(c);
       }
-      const sortedCriteria = [];
-      for (const nm of nameOrder) {
-        const g = byName.get(nm);
-        for (const c of g.base) sortedCriteria.push(c);
-        for (const c of g.rec) sortedCriteria.push(c);
-      }
-      for (const c of sortedCriteria) {
+      // お客さんごとに枠(cust-group)でまとめる。本人=太字、おすすめ=インデント緑。
+      function mkCustLabel(c, cls, text) {
         const lbl = document.createElement('label');
+        lbl.className = cls;
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.className = 'customer-filter';
@@ -496,13 +492,26 @@
         cb.checked = !excluded.includes(cb.value); // 除外リストに無い → ON
         cb.addEventListener('change', saveExcludedCustomers);
         lbl.appendChild(cb);
-        const labelText = c.recommend
-          ? (' ' + c.name + '（おすすめ' + (c.recommendLabel ? ': ' + c.recommendLabel : '') + '）')
-          : (' ' + c.name);
-        lbl.appendChild(document.createTextNode(labelText));
-        if (c.recommend) lbl.style.color = '#9cdc9c';
-        container.appendChild(lbl);
+        lbl.appendChild(document.createTextNode(' ' + text));
+        return lbl;
       }
+      const groupsFrag = document.createDocumentFragment();
+      for (const nm of nameOrder) {
+        const g = byName.get(nm);
+        const group = document.createElement('div');
+        group.className = 'cust-group';
+        // 本人条件が無い（おすすめのみ）お客さんは名前ヘッダーを出す
+        if (g.base.length === 0) {
+          const h = document.createElement('div');
+          h.className = 'cust-name-header';
+          h.textContent = nm;
+          group.appendChild(h);
+        }
+        for (const c of g.base) group.appendChild(mkCustLabel(c, 'cust-base', c.name));
+        for (const c of g.rec) group.appendChild(mkCustLabel(c, 'cust-rec', '↳ おすすめ: ' + (c.recommendLabel || '')));
+        groupsFrag.appendChild(group);
+      }
+      container.appendChild(groupsFrag);
     });
   }
 
