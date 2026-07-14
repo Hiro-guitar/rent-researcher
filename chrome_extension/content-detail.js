@@ -176,8 +176,9 @@
     const otherMonthlyParts = [];
     if (otherMonthlyName && otherMonthlyAmount) otherMonthlyParts.push(`${otherMonthlyName}: ${formatFee(otherMonthlyAmount)}`);
 
-    // 定期借家判定
-    const leaseType = renewalType || '';
+    // 契約区分(普通借家/定期借家): 「建物賃貸借区分」から取得。
+    // ※以前は「更新区分」(renewalType, 値は"新賃料"等)を誤って使っていた。
+    const leaseType = getValueByLabel('建物賃貸借区分') || '';
 
     // Property スキーマに合わせた返却データ
     return {
