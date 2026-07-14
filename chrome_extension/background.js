@@ -1641,9 +1641,9 @@ chrome.runtime.onInstalled.addListener(() => {
       });
     }
   });
-  // SUUMO入稿: backup poll（スマホ承認など拡張トリガーを受け取れなかった分の取りこぼし対策）
-  // 基本は承認ページからの即時トリガー(SUUMO_APPROVED_NOW)で起動するので、60分に1回で十分
-  chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
+  // SUUMO入稿の定期(バックアップ)pollは廃止。承認時の即時トリガー(SUUMO_APPROVED_NOW)
+  // と手動「入稿開始」のみで動かす。残存アラームがあれば消す。
+  chrome.alarms.clear('suumo-queue-poll');
   // 優先空室確認ポーリング: 1分毎にGASから優先キューを取得
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
   // キャンセル通知希望物件の定期巡回: 30分毎にチェック
@@ -1654,17 +1654,11 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.clear('periodic-availability-check');
 });
 
-// Chrome起動時: 前回起動中に承認された取りこぼしを1回だけ処理
+// Chrome起動時: 定期入稿は廃止したので backup poll は実行しない。
 chrome.runtime.onStartup.addListener(() => {
-  console.log('[SUUMO入稿] Chrome起動 → backup poll実行');
-  setTimeout(() => {
-    pollAndStartFillIfNeeded({ source: 'startup' }).catch(err => {
-      console.log(`[SUUMO入稿] onStartup poll失敗: ${err.message}`);
-    });
-  }, 5000); // ネットワーク初期化待ち
-  // backup pollアラーム再セット
-  chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
-  // 優先空室確認ポーリングも再セット
+  // SUUMO入稿の定期pollは廃止（承認時の即時＋手動のみ）。残存アラームを消す。
+  chrome.alarms.clear('suumo-queue-poll');
+  // 優先空室確認ポーリングは再セット
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
   // 定期空室確認(3時間毎の全物件巡回)は廃止 — BANリスク回避のため停止（オンデマンドのみ）
   chrome.alarms.clear('periodic-availability-check');
@@ -1842,19 +1836,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   // 通常は承認ページからの即時トリガー(SUUMO_APPROVED_NOW)で起動する
   // スマホ承認時などPCに即時通知が届かなかった分をここで拾う
   if (alarm.name === 'suumo-queue-poll') {
-    // 顧客検索中は並列実行で詰まることがあるためスキップ。10分後に再試行する。
-    chrome.storage.local.get(['isSearching'], (data) => {
-      if (data.isSearching) {
-        console.log('[SUUMO入稿] backup poll: 顧客検索中のためスキップ → 10分後にリトライ');
-        setStorageData({ debugLog: '[SUUMO入稿] backup poll: 顧客検索中のためスキップ → 10分後にリトライ' });
-        chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 10 });
-        return;
-      }
-      pollAndStartFillIfNeeded({ source: 'backup' }).catch(err => {
-        console.log(`[SUUMO入稿] backup poll失敗: ${err.message}`);
-      });
-      chrome.alarms.create('suumo-queue-poll', { delayInMinutes: 60 });
-    });
+    // 定期(バックアップ)入稿は廃止。残存アラームが発火しても何もせず消すだけ。
+    chrome.alarms.clear('suumo-queue-poll');
   }
 
   // ── ForRent時間外に承認された物件の遅延入稿 ──
