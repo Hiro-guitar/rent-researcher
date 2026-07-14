@@ -1484,7 +1484,9 @@ async function _verifyImageUrl(url, expectedB64Length) {
 }
 
 async function uploadBase64ToCatbox(dataUrl) {
-  // 関数名は過去互換。実体は catbox→tmpfiles→imgbb のフォールバック
+  // 関数名は過去互換。実体は imgbb→catbox→tmpfiles のフォールバック。
+  // 2026-07: imgbb を最優先に変更。catbox(ブロック/障害で後から見れなくなる)・
+  //   tmpfiles(一時ホストで期限切れ) より、imgbb(安定・恒久)を先に使う。
   // 2026-06: 0x0(AIスパムで停止), telegraph(壊れた), freeimage(IPバン), pixeldrain(認証必須化), imgur(ID未設定) を除去
   const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
   if (!match) return null;
@@ -1493,9 +1495,9 @@ async function uploadBase64ToCatbox(dataUrl) {
 
   const now = Date.now();
   const allHosts = [
+    { name: 'imgbb', fn: () => _uploadImgbb(base64) },
     { name: 'catbox', fn: () => _uploadCatbox(base64, mime) },
     { name: 'tmpfiles', fn: () => _uploadTmpfiles(base64, mime) },
-    { name: 'imgbb', fn: () => _uploadImgbb(base64) },
   ];
   let hosts = allHosts.filter(h => now - __hostCooldown[h.name] > COOLDOWN_MS);
   if (hosts.length === 0) hosts = allHosts;
