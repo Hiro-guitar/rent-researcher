@@ -3323,9 +3323,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               area_min: customer.area_min || '',
               building_age: customer.building_age || '',
               structures: customer.structures || [],
-              // itandiはBT別のみハードフィルタ。顧客が「選別する(btMode=skip)」の時だけ入れる。
-              //   「アラートのみ」や未設定、設備にバストイレ別が無い顧客には入れない(勝手に絞らない)。
-              equipment: (String(customer.btMode || '').toLowerCase() === 'skip') ? 'バストイレ別' : '',
+              // itandiのハードフィルタ: BT別(選別時のみ) + 敷金なし/礼金なし。
+              //   BT別は顧客が「選別する(btMode=skip)」の時だけ。敷金/礼金なしは明示条件なので常に反映。
+              //   （「どちらかなし」はOR条件でURL絞り込み不可のため除外）
+              equipment: (() => {
+                const toks = [];
+                if (String(customer.btMode || '').toLowerCase() === 'skip') toks.push('バストイレ別');
+                const ce = String(customer.equipment || '');
+                if (ce.includes('敷金なし') && !ce.includes('どちらかなし')) toks.push('敷金なし');
+                if (ce.includes('礼金なし') && !ce.includes('どちらかなし')) toks.push('礼金なし');
+                return toks.join(', ');
+              })(),
               daysWithin: typeof customer.daysWithin === 'number' ? customer.daysWithin : undefined,
             }]
           });
