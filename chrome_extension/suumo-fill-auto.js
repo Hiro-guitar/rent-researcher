@@ -983,6 +983,12 @@
         const imageGenresCount = (typeof imageGenres === 'object' && imageGenres) ? Object.keys(imageGenres).length : 0;
         // 物件識別情報も保存 → Phase5 登録完了後に GAS の suumo_post_complete 報告で使用
         const itemInfo = window.__suumoFillCurrentItem || {};
+        // 実際にSUUMOフォームに入っている建物名(#bukkenNm)を使う。
+        // 承認ページやフォームで名前を編集した場合でも、掲載管理シートに
+        // 「実際にSUUMOへ登録した名前」を残すため（取得時の名前ではなく）。
+        var __formBuilding = '';
+        try { __formBuilding = (document.getElementById('bukkenNm') && document.getElementById('bukkenNm').value || '').trim(); } catch (e) {}
+        const actualBuilding = __formBuilding || itemInfo.building || itemInfo.buildingName || '';
         await new Promise(resolve => {
           chrome.storage.local.set({
             suumoPendingConfirmCheck: {
@@ -990,7 +996,7 @@
               imageGenresCount,
               imageUploadStats: imgStats,
               propertyKey: itemInfo.propertyKey || itemInfo.key || '',
-              building: itemInfo.building || itemInfo.buildingName || '',
+              building: actualBuilding,
               room: itemInfo.room || itemInfo.roomNumber || '',
               rent: itemInfo.rent || ''
             },
@@ -1002,7 +1008,7 @@
             suumoAwaitingPostComplete: {
               at: Date.now(),
               propertyKey: itemInfo.propertyKey || itemInfo.key || '',
-              building: itemInfo.building || itemInfo.buildingName || '',
+              building: actualBuilding,
               room: itemInfo.room || itemInfo.roomNumber || '',
               rent: itemInfo.rent || ''
             }
