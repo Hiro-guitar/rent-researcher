@@ -91,6 +91,17 @@
     .dp-btn.danger { background: #6b2020; border-color: #d44; color: #faa; }
     .dp-btn.danger:hover:not(:disabled) { background: #8b2a2a; }
 
+    /* 上部ナビゲーション（管理ページを開くボタンを集約） */
+    #dp-nav {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      padding: 8px 12px; background: #252526; border-bottom: 1px solid #333;
+    }
+    #dp-nav .dp-nav-label { font-size: 10px; color: #777; margin-right: 2px; }
+    .dp-btn.nav { background: #0e639c; border-color: #1177bb; color: #fff; padding: 4px 12px; }
+    .dp-btn.nav:hover { background: #1177bb; }
+    .dp-btn.nav.crm { background: #2d7d46; border-color: #3a9d5a; }
+    .dp-btn.nav.crm:hover { background: #3a9d5a; }
+
     /* 統計値 */
     .dp-stat { font-size: 11px; color: #888; }
     .dp-stat-val { color: #d4d4d4; font-weight: 600; margin: 0 2px; }
@@ -227,6 +238,17 @@
 </head>
 <body>
 
+  <!-- ═══ 上部ナビ: 管理ページ ═══ -->
+  <div id="dp-nav">
+    <span class="dp-nav-label">管理ページ ▸</span>
+    <button id="crmPageBtn" class="dp-btn nav crm" title="顧客管理(CRM)を開く">👤 顧客管理</button>
+    <button id="adminPageBtn" class="dp-btn nav" title="お客さんの検索条件を管理する">📋 検索条件管理</button>
+    <button id="suumoConfigBtn" class="dp-btn nav" title="SUUMO巡回の条件を管理する">🔁 巡回条件管理</button>
+    <button id="listingDashboardBtn" class="dp-btn nav" title="掲載物件のPV・競合分析ダッシュボード">📊 掲載分析</button>
+    <button id="cancellationWatchListBtn" class="dp-btn nav" title="キャンセル通知希望の物件一覧">🔔 キャンセル監視</button>
+    <a class="dp-link" id="openOptions" style="margin-left:auto;font-size:11px;">⚙ 設定</a>
+  </div>
+
   <!-- ═══ Dashboard ═══ -->
   <div id="control-panel">
 
@@ -248,7 +270,6 @@
       <div class="dp-row">
         <button id="searchNowBtn" class="dp-btn primary">今すぐ検索</button>
         <button id="stopSearchBtn" class="dp-btn danger" style="display:none">検索中止</button>
-        <button id="adminPageBtn" class="dp-btn" title="検索条件管理ページを開く">条件管理</button>
       </div>
       <div class="dp-row dp-time">
         最終: <span id="lastSearch" class="dp-time-val">-</span>
@@ -270,14 +291,11 @@
         <button id="suumoPatrolStopBtn" class="dp-btn danger" style="display:none;">巡回停止</button>
         <span class="dp-stat">N日以内:</span>
         <input type="number" id="suumoPatrolDaysWithin" min="0" max="365" step="1" placeholder="--" style="font-size:11px;padding:2px 4px;background:#2a2a2a;color:#ddd;border:1px solid #555;width:50px;" title="新着絞り込み日数。空欄なら制限なし">
-        <button id="suumoConfigBtn" class="dp-btn" title="SUUMO巡回条件管理ページを開く">条件管理</button>
-        <button id="listingDashboardBtn" class="dp-btn" title="掲載物件のPV・競合分析ダッシュボード">掲載分析</button>
       </div>
       <div class="dp-row">
         <button id="suumoFillNowBtn" class="dp-btn primary">入稿開始</button>
         <button id="availabilityCheckBtn" class="dp-btn" title="送付済み物件の空室状況を全件確認">空室チェック</button>
         <button id="availabilityStopBtn" class="dp-btn danger" style="display:none;" title="空室確認を中断">中断</button>
-        <button id="cancellationWatchListBtn" class="dp-btn" title="キャンセル通知希望の物件一覧">キャンセル監視</button>
         <span id="availabilityCheckStatus" class="dp-stat"></span>
       </div>
       <div class="dp-row dp-time">
@@ -320,7 +338,6 @@
         <span style="display:none;"></span>
       </div>
       <div class="dp-row" style="margin-top:6px;">
-        <a class="dp-link" id="openOptions">設定</a>
         <a class="dp-link warn" id="resetBtn">リセット</a>
       </div>
     </div>

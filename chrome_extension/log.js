@@ -183,6 +183,19 @@
   });
 
   // 条件管理ページを開く
+  // 顧客管理（CRM）を開く
+  document.getElementById('crmPageBtn').addEventListener('click', () => {
+    chrome.storage.local.get(['gasWebappUrl', 'gasApiKey'], (data) => {
+      if (!data.gasWebappUrl) {
+        alert('GAS Web App URLが設定されていません。設定画面から設定してください。');
+        return;
+      }
+      const url = data.gasWebappUrl + '?action=customer'
+        + (data.gasApiKey ? '&api_key=' + encodeURIComponent(data.gasApiKey) : '');
+      window.open(url, '_blank');
+    });
+  });
+
   document.getElementById('adminPageBtn').addEventListener('click', () => {
     chrome.storage.local.get(['gasWebappUrl', 'gasApiKey'], (data) => {
       if (!data.gasWebappUrl) {
