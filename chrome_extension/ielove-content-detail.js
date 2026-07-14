@@ -30,6 +30,8 @@
     'その他月額費用': 'other_monthly_fee',
     '保証会社': 'guarantee_info',
     '構造': 'structure',
+    '築年数': 'building_age',
+    '築年月': 'building_age',
     '階建': 'story_text',
     '向き': 'sunlight',
     '総戸数': 'total_units',
