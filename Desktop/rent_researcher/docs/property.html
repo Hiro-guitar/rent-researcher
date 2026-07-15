@@ -351,7 +351,10 @@ function showSimpleLoading() {
 }
 
 function fetchProperty(customer, roomId) {
-  var url = GAS_API_URL + '?action=view_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId) + '&nocache=1';
+  // nocache は付けない: view_api の nocache は prop2_/imgs_ キャッシュを消して毎回フル
+  // シート読み込み(5〜6秒)になるため。キャッシュを使えば2回目以降は即返し、送信時に
+  // 保存した画像キャッシュ(imgs_)も生きるので画像も速く出る。（空室のリアルタイム性は未使用）
+  var url = GAS_API_URL + '?action=view_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
 
   fetch(url, { redirect: 'follow' })
     .then(function(res) { return res.text(); })
