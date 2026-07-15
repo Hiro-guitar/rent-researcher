@@ -6964,6 +6964,10 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
   if (equip.includes('駐輪場') && !fac.includes('駐輪場')) {
     warnings.push('⚠️ 駐輪場ありかどうか確認してください');
   }
+  // バイク置き場（バイク置場/バイク置き場 両表記対応）
+  if (equip.includes('バイク置') && !fac.includes('バイク置')) {
+    warnings.push('⚠️ バイク置き場ありかどうか確認してください');
+  }
   // 宅配ボックス（itandi: 宅配BOXも含む）
   if ((equip.includes('宅配ボックス') || equip.includes('宅配box')) && !fac.includes('宅配ボックス') && !fac.includes('宅配BOX')) {
     warnings.push('⚠️ 宅配ボックスかどうか確認してください');

@@ -5810,6 +5810,10 @@ function _computePropertyWarningsGAS_(prop, equipmentStr, notesStr) {
   if (equip.indexOf('駐輪場') >= 0 && fac.indexOf('駐輪場') < 0) {
     warnings.push('⚠️ 駐輪場ありかどうか確認してください');
   }
+  // バイク置き場（バイク置場/バイク置き場 両表記対応）
+  if (equip.indexOf('バイク置') >= 0 && fac.indexOf('バイク置') < 0) {
+    warnings.push('⚠️ バイク置き場ありかどうか確認してください');
+  }
   // 宅配ボックス
   if ((equip.indexOf('宅配ボックス') >= 0 || equip.indexOf('宅配box') >= 0) && fac.indexOf('宅配ボックス') < 0 && fac.indexOf('宅配BOX') < 0) {
     warnings.push('⚠️ 宅配ボックスかどうか確認してください');
