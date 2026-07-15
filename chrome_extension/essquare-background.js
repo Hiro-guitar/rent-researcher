@@ -1199,7 +1199,7 @@ const IMGUR_CLIENT_ID = '';
 // デプロイ後、workers.dev もしくは独自ドメインの実URLに差し替える。
 // __SUBDOMAIN__ を含むプレースホルダーのままなら _uploadEhomaki は null を返し、
 // allHosts にも積まれないので、従来の imgbb/catbox/tmpfiles だけで動く。
-const EHOMAKI_IMG_UPLOAD_URL = 'https://ehomaki-img.__SUBDOMAIN__.workers.dev/upload';
+const EHOMAKI_IMG_UPLOAD_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/upload';
 const EHOMAKI_IMG_TOKEN = '9d4418ca3ecde8449153e6b44408ad8d315d398ea0903376';
 function _ehomakiConfigured() {
   return !!EHOMAKI_IMG_UPLOAD_URL && !EHOMAKI_IMG_UPLOAD_URL.includes('__SUBDOMAIN__');
