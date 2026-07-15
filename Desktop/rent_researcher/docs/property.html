@@ -327,7 +327,10 @@ if (inlineProp) {
   if (customer && roomId) fetchProperty(customer, roomId); // 裏で最新反映(closedなら切替)
 } else if (minimalProp && customer && roomId) {
   renderNowSafe(minimalProp);                      // 即フル描画（mのデータ+ヒーロー画像）
-  fetchProperty(customer, roomId);                // 裏で残り画像・空室・募集終了を反映
+  // 画像は送信時キャッシュ(imgs_)から即取得（images_apiはUrlFetch不使用で高速・枠切れでも動く）。
+  // 埋め込み画像が0枚のとき renderProperty が作る #image-placeholder に流し込まれる。
+  fetchImages(customer, roomId);
+  fetchProperty(customer, roomId);                // 裏で残り項目(設備等)・空室・募集終了を反映
 } else if (customer && roomId) {
   // 3. パラメータ無し → view_api 経由（最遅、フォールバック）
   //    埋め込みデータがない = 古いリンク / 削除済み の可能性が高いので
