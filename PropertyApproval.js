@@ -50,6 +50,36 @@ var PENDING_SHEET_NAME = '承認待ち物件';
 var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
 
+// ehomaki 画像ホスト(Cloudflare R2)。配信停止顧客の物件を消すとき画像も一緒に消す用。
+var EHOMAKI_IMG_DELETE_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/delete';
+var EHOMAKI_IMG_TOKEN = '9d4418ca3ecde8449153e6b44408ad8d315d398ea0903376';
+
+/**
+ * ehomaki(R2) にホストしている画像URLを削除する。ehomaki以外のURL(旧catbox等)は
+ * Worker側で無視されるのでそのまま渡してよい。失敗しても致命的でないので握りつぶす。
+ * @param {string[]} urls
+ * @return {number} 削除依頼した件数
+ */
+function _deleteEhomakiImages_(urls) {
+  try {
+    var list = (urls || []).filter(function (u) {
+      return typeof u === 'string' && u.indexOf('ehomaki-img') >= 0 && u.indexOf('/i/') >= 0;
+    });
+    if (list.length === 0) return 0;
+    UrlFetchApp.fetch(EHOMAKI_IMG_DELETE_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + EHOMAKI_IMG_TOKEN },
+      payload: JSON.stringify({ urls: list }),
+      muteHttpExceptions: true
+    });
+    return list.length;
+  } catch (e) {
+    console.warn('_deleteEhomakiImages_ error: ' + e.message);
+    return 0;
+  }
+}
+
 // ===== GAS Base URL =====
 function getGasBaseUrl() {
   return ScriptApp.getService().getUrl();
@@ -4307,6 +4337,7 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
   var result = {
     deletedSeenRows: 0,
     deletedPendingRows: 0,
+    deletedImages: 0,
     customers: [],
     orphansPending: [],
     maxAgeDays: maxAgeDays
@@ -4431,23 +4462,35 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
       }
     }
 
-    // 2-2. PENDING_SHEET (承認待ち物件): A列 = 顧客名
+    // 2-2. PENDING_SHEET (承認待ち物件): A列 = 顧客名, J列(index 9) = 物件データJSON(画像URL入り)
     if (pend) {
       var pLast = pend.getLastRow();
       if (pLast >= 2) {
-        var pNames = pend.getRange(2, 1, pLast - 1, 1).getValues();
+        // A〜J列を読む（画像URLは J列 index9 のJSON内 image_urls / selected_image_urls）
+        var pWidth = Math.max(10, pend.getLastColumn());
+        var pAll = pend.getRange(2, 1, pLast - 1, pWidth).getValues();
         var pRows = [];
-        for (var k = 0; k < pNames.length; k++) {
-          var pn = String(pNames[k][0] || '').trim();
-          if (shouldDeleteCustomer(pn)) {
-            pRows.push(k + 2);
-            if (result.customers.indexOf(pn) < 0) result.customers.push(pn);
-          }
+        var imagesToDelete = [];
+        for (var k = 0; k < pAll.length; k++) {
+          var pn = String(pAll[k][0] || '').trim();
+          if (!shouldDeleteCustomer(pn)) continue;
+          pRows.push(k + 2);
+          if (result.customers.indexOf(pn) < 0) result.customers.push(pn);
+          // 画像URLを収集（ehomakiのみ後で削除される）
+          try {
+            var pd = JSON.parse(String(pAll[k][9] || '') || '{}');
+            var imgs = [].concat(pd.image_urls || [], pd.selected_image_urls || []);
+            for (var ii = 0; ii < imgs.length; ii++) {
+              if (imgs[ii] && imagesToDelete.indexOf(imgs[ii]) < 0) imagesToDelete.push(imgs[ii]);
+            }
+          } catch (_pe) {}
         }
         for (var m = pRows.length - 1; m >= 0; m--) {
           pend.deleteRow(pRows[m]);
         }
         result.deletedPendingRows = pRows.length;
+        // 承認待ち行を消したので、その画像も R2 から削除
+        result.deletedImages = _deleteEhomakiImages_(imagesToDelete);
       }
     }
 
