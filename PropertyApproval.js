@@ -5451,8 +5451,13 @@ function persistImageUrls_(imageUrls) {
   for (var i = 0; i < imageUrls.length; i++) {
     var url = imageUrls[i];
     if (!url || url.indexOf('http') !== 0) { results.push(url); continue; }
-    // 既に永続ストレージにあるURLはスキップ
-    if (url.indexOf('imgbb.com') >= 0 || url.indexOf('catbox.moe') >= 0 ||
+    // 既に永続ストレージにあるURLはスキップ（再ホスト不要）。
+    // ehomaki(自前R2)は最も安定・恒久なので必ずスキップする。これを忘れると拡張が
+    // ehomakiに上げた画像をGASが再取得→imgbbへ再アップロードし、UrlFetch枠を大量消費
+    // ＆せっかくのR2 URLをimgbbに戻してしまう。
+    if (url.indexOf('ehomaki-img') >= 0 || url.indexOf('ehomaki.com') >= 0 ||
+        url.indexOf('imgbb.com') >= 0 || url.indexOf('i.ibb.co') >= 0 ||
+        url.indexOf('catbox.moe') >= 0 ||
         url.indexOf('tmpfiles.org') >= 0 || url.indexOf('drive.google.com') >= 0) {
       results.push(url);
       continue;
