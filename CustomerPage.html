@@ -162,6 +162,8 @@ body {
 .prop-body { flex: 1; padding: 12px 14px; min-width: 0; }
 .prop-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
 .prop-name { font-size: 14px; font-weight: 600; flex: 1; line-height: 1.3; color: #e0e0e0; }
+.prop-name-link { color: inherit; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.28); text-underline-offset: 2px; }
+.prop-name-link:hover { color: #7fb2e5; text-decoration-color: #7fb2e5; }
 .prop-room { font-weight: 400; color: #888; font-size: 12px; }
 .prop-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; flex-shrink: 0; }
 .prop-badge {
@@ -1098,6 +1100,16 @@ function fmtRent(v) {
   return n.toLocaleString();
 }
 
+// 物件ソースの詳細ページURL（itandi/いえらぶ/ES-Squareは物件URL、REINSは物件番号から生成）
+function propSourceUrl(p) {
+  if (p.sourceUrl) return p.sourceUrl;
+  if (p.reinsPropertyNumber) {
+    var num = String(p.reinsPropertyNumber).replace(/\D/g, '');
+    if (num) return 'https://system.reins.jp/main/BK/GBK004100#bukken=' + num;
+  }
+  return '';
+}
+
 function renderPropItem(p, idx) {
   var sourceLabels = { reins: 'REINS', suumo: 'SUUMO', ielove: 'いえらぶ', itandi: 'itandi', essquare: 'ES-Square' };
 
@@ -1110,7 +1122,14 @@ function renderPropItem(p, idx) {
 
   // 上段: 物件名 + バッジ
   html += '<div class="prop-header">';
-  html += '<div class="prop-name">' + esc(p.buildingName || p.roomId);
+  html += '<div class="prop-name">';
+  var _pname = esc(p.buildingName || p.roomId);
+  var _purl = propSourceUrl(p);
+  if (_purl) {
+    html += '<a href="' + esc(_purl) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="prop-name-link" title="詳細ページを開く">' + _pname + '</a>';
+  } else {
+    html += _pname;
+  }
   if (p.roomNumber) html += ' <span class="prop-room">' + esc(p.roomNumber) + '</span>';
   html += '</div>';
   html += '<div class="prop-badges">';
