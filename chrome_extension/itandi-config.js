@@ -22,6 +22,31 @@ const ITANDI_PREFECTURE_IDS = {
   '鹿児島県': 46, '沖縄県': 47,
 };
 
+// 地方（ブロック）ごとの都道府県ID。手動検索の駅選択で「同名の遠方駅」（例: 東京の
+// 八丁堀に対する広島の八丁堀）を除外するために使う。顧客の都道府県が属する地方の
+// 都道府県はすべて許可する（東京の顧客なら神奈川・埼玉・千葉なども残す）。
+const ITANDI_REGION_GROUPS = [
+  [1],                            // 北海道
+  [2, 3, 4, 5, 6, 7],             // 東北
+  [8, 9, 10, 11, 12, 13, 14],     // 関東（茨城・栃木・群馬・埼玉・千葉・東京・神奈川）
+  [15, 16, 17, 18, 19, 20],       // 甲信越・北陸
+  [21, 22, 23, 24],               // 東海
+  [25, 26, 27, 28, 29, 30],       // 関西
+  [31, 32, 33, 34, 35],           // 中国
+  [36, 37, 38, 39],               // 四国
+  [40, 41, 42, 43, 44, 45, 46, 47], // 九州・沖縄
+];
+
+// 顧客の都道府県名から、許可する都道府県IDの配列（同じ地方ブロック）を返す。
+// eslint-disable-next-line no-unused-vars
+function itandiAllowedPrefIds(prefName) {
+  var pid = ITANDI_PREFECTURE_IDS[prefName] || ITANDI_PREFECTURE_IDS['東京都'];
+  for (var i = 0; i < ITANDI_REGION_GROUPS.length; i++) {
+    if (ITANDI_REGION_GROUPS[i].indexOf(pid) >= 0) return ITANDI_REGION_GROUPS[i];
+  }
+  return [pid];
+}
+
 // 間取り: 日本語特殊表記 → itandi API値
 const ITANDI_LAYOUT_SPECIAL = {
   'ワンルーム': ['1R'],

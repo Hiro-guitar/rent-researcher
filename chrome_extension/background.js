@@ -3356,12 +3356,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             // 各駅はチェック状態を検証してから次へ進む。未チェックの駅は背景側でも数回リトライ。
             let stationsChecked = 0;
             const stationErrors = [];
+            // 同名の遠方駅(例: 東京の八丁堀に対する広島の八丁堀)を除外するための許可都道府県ID。
+            // 顧客の都道府県が属する地方ブロック（東京なら関東=神奈川/埼玉/千葉も含む）を許可する。
+            const itandiAllowedPrefs = (typeof itandiAllowedPrefIds === 'function')
+              ? itandiAllowedPrefIds(customer.prefecture || '東京都')
+              : null;
             for (const stName of uniqueStations) {
               let checked = false;
               for (let attempt = 0; attempt < 2 && !checked; attempt++) {
                 const checkResult = await chrome.scripting.executeScript({
                   target: { tabId: itandiTab.id }, world: 'MAIN',
-                  func: __itandiSelectAndCheckStation, args: [stName]
+                  func: __itandiSelectAndCheckStation, args: [stName, itandiAllowedPrefs]
                 });
                 const checkStatus = checkResult?.[0]?.result;
                 console.log(`[OPEN_SEARCH_PAGE] itandi駅: ${stName} (試行${attempt + 1}) →`, JSON.stringify(checkStatus));

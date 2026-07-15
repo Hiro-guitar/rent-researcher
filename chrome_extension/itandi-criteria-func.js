@@ -416,7 +416,7 @@ const __itandiOpenStationModal = () => {
  * @returns {Promise<{ ok: boolean, checked: boolean, error?: string }>}
  */
 // eslint-disable-next-line no-unused-vars
-const __itandiSelectAndCheckStation = (stationName) => {
+const __itandiSelectAndCheckStation = (stationName, allowedPrefIds) => {
   'use strict';
 
   var cleanName = stationName.replace(/駅$/, '').trim();
@@ -446,12 +446,41 @@ const __itandiSelectAndCheckStation = (stationName) => {
   }
   console.log('[itandi駅選択] 検索入力: ' + cleanName);
 
+  // ── Step A.5: 同名の遠方駅を除外するための「有効な路線名」を取得 ──
+  // itandi の駅検索は全国の同名駅(例: 東京の八丁堀 / 広島の八丁堀)を出す。
+  // stations API を顧客の地方ブロック(allowedPrefIds)で絞り、その路線名に一致する
+  // 駅ラベルだけをチェック対象にする。allowedPrefIds が無い/該当なしの場合は
+  // 従来通り全同名駅を対象にする（誤って1件も選択しないのを防ぐ）。
+  // 駅ラベルの所属路線名は <details><summary>路線名</summary>…</details> から取得する。
+  function _labelLineName(label) {
+    var d = label.closest ? label.closest('details') : null;
+    var s = d ? d.querySelector('summary') : null;
+    return s ? s.textContent.trim() : '';
+  }
+  function _fetchValidLineNames() {
+    if (!allowedPrefIds || !allowedPrefIds.length) return Promise.resolve(null);
+    var apiUrl = 'https://api.itandibb.com/api/internal/stations?name=' + encodeURIComponent(cleanName);
+    return fetch(apiUrl, { credentials: 'include' })
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        var list = (j && j.stations) || [];
+        var set = {}, n = 0;
+        for (var i = 0; i < list.length; i++) {
+          var st = list[i];
+          if (st && st.line_name && allowedPrefIds.indexOf(st.prefecture_id) >= 0) { set[st.line_name] = true; n++; }
+        }
+        return n ? set : null; // 該当路線なし → 絞り込まない
+      })
+      .catch(function() { return null; });
+  }
+
   // ── Step B: 検索結果の描画をポーリングで待つ → クリック → 下の駅リストへの追加を検証 ──
   // 固定の setTimeout だと描画が遅れたときに駅を取りこぼし、未選択のまま次へ進んでしまう。
   // 一致する駅ラベルが描画されるまでポーリングし、クリック後にモーダル下部の
   // 「選択中の駅リスト」(Chip) に実際に追加されたかを必ず検証する（追加されなければリトライ）。
   // itandi は同名駅(複数路線)を1つの Chip に集約するため、Chip テキストが駅名と
   // 一致すれば「下のリストに追加された」と判断できる。
+  return _fetchValidLineNames().then(function(validLines) {
   return new Promise(function(resolve) {
     var POLL_INTERVAL = 150;   // ms: 描画ポーリング間隔
     var RENDER_TIMEOUT = 6000; // ms: 描画待ち上限
@@ -482,6 +511,8 @@ const __itandiSelectAndCheckStation = (stationName) => {
       for (var i = 0; i < labels.length; i++) {
         var txt = labels[i].textContent.trim();
         if (!txt) continue;
+        // 顧客の地方ブロック外(同名の遠方駅)の路線は除外する
+        if (validLines && !validLines[_labelLineName(labels[i])]) continue;
         if (txt === cleanName) exact.push(labels[i]);
         else if (txt.includes(cleanName) || cleanName.includes(txt)) partial.push(labels[i]);
       }
@@ -549,6 +580,7 @@ const __itandiSelectAndCheckStation = (stationName) => {
     }
 
     pollForRender();
+  });
   });
 };
 
