@@ -5312,7 +5312,9 @@ function renameCustomer(oldName, newName) {
     renameCol(critSs.getSheetByName('アクションログ'), 1, 'アクション');
     renameCol(critSs.getSheetByName('閲覧ログ'), 1, '閲覧');
     renameCol(critSs.getSheetByName('物件コメント'), 1, 'コメント');
-    renameCol(critSs.getSheetByName('シート1'), 1, '承認待ち');
+    // 承認待ち物件シート（送付済み物件の詳細・画像の引き元。旧コードは 'シート1' で取り違えていた）
+    try { renameCol(critSs.getSheetByName(PENDING_SHEET_NAME), 1, '承認待ち'); } catch (e) {}
+    renameCol(critSs.getSheetByName('シート1'), 1, 'シート1');
     try { renameCol(critSs.getSheetByName(RECOMMEND_SHEET_NAME), 2, 'おすすめ条件'); } catch (e) {} // 顧客名=2列目
 
     // 2. 物件スプレッドシート(PROPERTY_SHEET_ID)にも同名シートがあれば更新（保険）
