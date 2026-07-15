@@ -5660,9 +5660,15 @@ function _bestViewUrl_(customerName, roomId, prop) {
     var url = build(withN(n));
     if (url.length <= LIMIT) return url;
   }
-  // 2. 画像0でも超える → 長く重要度の低い項目を順に削る（設備・費用は極力残す）
+  // 2. 画像0でも超える → 長く低優先の項目を順に削って必ず m= URL に収める。
+  //    設備(fac)・主要費用は極力残す（dropOrder の後方に置く）。
+  //    plain URL には絶対にしない（埋め込みが無いと詳細ページが view_api 待ちで固まるため）。
   var d0 = _propToViewData_(prop);
-  var dropOrder = ['ld', 'frd', 'mic', 'gi', 'ri', 'cn', 'os', 'ad', 'md', 'sl', 'tu', 'st'];
+  var dropOrder = [
+    'ld', 'frd', 'mic', 'gi', 'ri', 'cn', 'os', 'ad', 'md', 'sl', 'tu', 'st', 'lt', 'cp',
+    'sf24', 'rig', 'adp', 'gd', 'wb', 'af', 'cs', 'pk', 'bp', 'mp', 'omf', 'oof',
+    'ke', 'ra', 'fi', 'rf', 'pd', 'sb', 'str', 'fac', 'si', 'ba', 'd', 'k', 'mf'
+  ];
   for (var i = 0; i < dropOrder.length; i++) {
     if (d0[dropOrder[i]] !== undefined) {
       delete d0[dropOrder[i]];
@@ -5670,8 +5676,8 @@ function _bestViewUrl_(customerName, roomId, prop) {
       if (u.length <= LIMIT) return u;
     }
   }
-  // 3. 最終手段: パラメータ無しの plain URL
-  return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId;
+  // 全部削っても core(bn/rn/r/l/a/ft 等)だけで必ず1000字未満に収まる
+  return build(d0);
 }
 
 // ===== 最小ビューURL生成（hashUrlが1000字を超えた時のフォールバック） =====
