@@ -1577,6 +1577,56 @@ async function uploadBase64ToCatbox(dataUrl) {
   throw aggregated;
 }
 
+// === サイト画像URL → ehomaki(R2) 載せ替え ===
+// itandi/いえらぶはサイト自身のCDN画像URLをそのまま使っているため、掲載終了や
+// URL変更で顧客の履歴/詳細ページ画像が壊れる＆表示が遅い。ehomakiに載せ替えて
+// 恒久化＆高速化する。取得/アップロードに失敗した分は元URLを残す（表示を消さない）。
+// SW には FileReader が無いので arrayBuffer→base64 は手動変換する。
+async function _fetchUrlToDataUrl(url) {
+  try {
+    const r = await fetch(url, { credentials: 'include' });
+    if (!r.ok) return null;
+    const buf = await r.arrayBuffer();
+    if (!buf || buf.byteLength < 1000) return null;
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    }
+    let mime = (r.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+    if (!/^image\//.test(mime)) mime = 'image/jpeg';
+    return 'data:' + mime + ';base64,' + btoa(bin);
+  } catch (e) {
+    return null;
+  }
+}
+
+async function _rehostImageUrlsToEhomaki_(urls, opts) {
+  if (!_ehomakiConfigured() || !Array.isArray(urls) || urls.length === 0) return urls || [];
+  const max = (opts && opts.max) || 15;
+  const src = urls.slice(0, max);
+  const BATCH = 6;
+  const out = [];
+  for (let i = 0; i < src.length; i += BATCH) {
+    const chunk = src.slice(i, i + BATCH);
+    const results = await Promise.all(chunk.map(async (u) => {
+      if (typeof u !== 'string' || !u) return null;
+      if (u.indexOf('ehomaki-img') >= 0) return u; // 既に ehomaki
+      const dataUrl = await _fetchUrlToDataUrl(u);
+      if (!dataUrl) return u; // 取得失敗 → 元URLを残す
+      try {
+        const eUrl = await uploadBase64ToCatbox(dataUrl);
+        return eUrl || u;
+      } catch (e) {
+        return u; // アップ失敗 → 元URLを残す
+      }
+    }));
+    for (const r of results) if (r) out.push(r);
+  }
+  return out;
+}
+
 // === property_data_json構築 ===
 
 function buildEssquarePropertyDataJson(prop) {

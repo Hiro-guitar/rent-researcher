@@ -1521,6 +1521,13 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
       prop.warnings_text = (_w || []).join('\n');
     } catch (_) { prop.warnings_text = ''; }
 
+    // 画像を ehomaki(R2) に載せ替え（サイトCDN依存を解消 → 詳細ページ高速化＋恒久化）。
+    // property_data_json 構築前に行い、JSON内の image_urls も ehomaki URL にする。
+    if (Array.isArray(prop.image_urls) && prop.image_urls.length) {
+      prop.image_urls = await _rehostImageUrlsToEhomaki_(prop.image_urls);
+      if (prop.image_urls[0]) prop.image_url = prop.image_urls[0];
+    }
+
     // property_data_json構築
     prop.property_data_json = JSON.stringify(buildItandiPropertyDataJson(prop));
 
