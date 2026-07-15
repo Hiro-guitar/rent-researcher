@@ -1195,12 +1195,49 @@ const FREEIMAGE_API_KEY = '6d207e02198a847aa98d0a2a901485a5';
 // imgur Client-ID（未設定時は自動でスキップ）
 const IMGUR_CLIENT_ID = '';
 
+// ─── ehomaki 画像ホスト (Cloudflare Worker + R2。最優先・恒久保持) ───
+// デプロイ後、workers.dev もしくは独自ドメインの実URLに差し替える。
+// __SUBDOMAIN__ を含むプレースホルダーのままなら _uploadEhomaki は null を返し、
+// allHosts にも積まれないので、従来の imgbb/catbox/tmpfiles だけで動く。
+const EHOMAKI_IMG_UPLOAD_URL = 'https://ehomaki-img.__SUBDOMAIN__.workers.dev/upload';
+const EHOMAKI_IMG_TOKEN = '9d4418ca3ecde8449153e6b44408ad8d315d398ea0903376';
+function _ehomakiConfigured() {
+  return !!EHOMAKI_IMG_UPLOAD_URL && !EHOMAKI_IMG_UPLOAD_URL.includes('__SUBDOMAIN__');
+}
+
 // ─── 共通ヘルパー: base64 → Blob ───
 function _base64ToBlob(base64, mime) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: mime || 'image/jpeg' });
+}
+
+// ─── ehomaki 自前ホスト (安定・恒久。最優先) ───
+async function _uploadEhomaki(base64, mime) {
+  if (!_ehomakiConfigured()) return null; // 未設定なら使わず他ホストへ
+  const blob = _base64ToBlob(base64, mime);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const resp = await fetch(EHOMAKI_IMG_UPLOAD_URL, {
+      method: 'POST',
+      headers: { 'content-type': mime || 'image/jpeg', 'authorization': 'Bearer ' + EHOMAKI_IMG_TOKEN },
+      body: blob,
+      signal: controller.signal,
+    });
+    if (!resp.ok) {
+      let body = ''; try { body = (await resp.text()).slice(0, 160); } catch (e) {}
+      const err = new Error(`ehomaki_${resp.status}:${body.replace(/\s+/g, ' ')}`);
+      if (resp.status === 429 || resp.status === 503) err.rateLimited = true;
+      throw err;
+    }
+    const json = await resp.json();
+    if (!json || !json.url) throw new Error('ehomaki_unexpected_response');
+    return json.url;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // ─── catbox.moe (APIキー不要、最も安定) ───
@@ -1437,6 +1474,7 @@ async function _uploadTelegraph(base64, mime) {
 // MV3 では Service Worker が ~5分 idle で終了してメモリが揮発するため、
 // chrome.storage.local にも永続化して再起動後も状態を維持する。
 const __hostCooldown = {
+  ehomaki: 0,
   catbox: 0, '0x0': 0, telegraph: 0, imgbb: 0,
   freeimage: 0, tmpfiles: 0, pixeldrain: 0, imgur: 0
 };
@@ -1494,11 +1532,16 @@ async function uploadBase64ToCatbox(dataUrl) {
   const base64 = match[2];
 
   const now = Date.now();
-  const allHosts = [
+  const allHosts = [];
+  // ehomaki(自前R2)が設定済みなら最優先。未設定なら従来通り imgbb 先頭。
+  if (_ehomakiConfigured()) {
+    allHosts.push({ name: 'ehomaki', fn: () => _uploadEhomaki(base64, mime) });
+  }
+  allHosts.push(
     { name: 'imgbb', fn: () => _uploadImgbb(base64) },
     { name: 'catbox', fn: () => _uploadCatbox(base64, mime) },
     { name: 'tmpfiles', fn: () => _uploadTmpfiles(base64, mime) },
-  ];
+  );
   let hosts = allHosts.filter(h => now - __hostCooldown[h.name] > COOLDOWN_MS);
   if (hosts.length === 0) hosts = allHosts;
 
