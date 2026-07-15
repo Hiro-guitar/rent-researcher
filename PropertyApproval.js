@@ -307,6 +307,13 @@ function handleConfirmApprove(e) {
   _setPendingStaffComment_(customerName, roomId, e.parameter.staff_comment);
   addToSeenSheet(customerName, prop);
 
+  // 詳細ページの初回表示を即時にするため、view_api レスポンスと画像を事前にキャッシュしておく。
+  // （URLに収まらなかった設備等も、初回から view_api キャッシュから即返しできる。UrlFetch不使用）
+  try {
+    handlePropertyViewApi({ parameter: { customer: customerName, room_id: roomId, nocache: '1' } }); // prop2_ 再構築
+    cachePropertyImages(customerName, roomId, selectedImageUrls, selectedImageCategories);            // imgs_ 再投入
+  } catch (ePrecache) {}
+
   // ── 一括送信: 他のお客様にも送信（コメントは個別設定可） ──
   var multiSendList = [];
   try { multiSendList = JSON.parse(e.parameter.multi_send_customers || '[]'); } catch (_) {}
