@@ -369,6 +369,7 @@ body {
   <div class="detail-header">
     <div class="detail-name-bar">
       <span class="detail-name" id="detailName"></span>
+      <a onclick="renameCustomerPrompt()" title="顧客名を変更" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:8px;">✏️ 名前変更</a>
       <span id="detailStatus"></span>
     </div>
     <div class="detail-info" id="detailInfo">
@@ -1841,6 +1842,30 @@ function editCustomerPhone(cur) {
     })
     .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
     .setCustomerPhone(currentCustomer, p);
+}
+
+// 顧客名の変更（関連シートの名前も一括で書き換える）
+function renameCustomerPrompt() {
+  if (!currentCustomer) return;
+  var newName = prompt('新しい顧客名を入力してください', currentCustomer);
+  if (newName === null) return;
+  newName = newName.trim();
+  if (!newName || newName === currentCustomer) return;
+  if (!confirm('「' + currentCustomer + '」を「' + newName + '」に変更します。\n検索条件・LINE・送付済み物件・裏条件などの名前も一括で変わります。よろしいですか？')) return;
+  showToast('名前を変更中…');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) {
+        showToast(r.message || '名前を変更しました');
+        currentCustomer = r.newName || newName;
+        openDetail(currentCustomer);
+        refreshCustomers();
+      } else {
+        showToast((r && r.message) || '変更に失敗しました');
+      }
+    })
+    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .renameCustomer(currentCustomer, newName);
 }
 
 // ══════════════════════════════════════════

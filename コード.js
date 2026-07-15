@@ -5261,3 +5261,79 @@ function executeCustomerMerge(keepName, mergeName, fieldOverrides) {
       (mergeLineUserId ? '\nLINE userId: ' + mergeLineUserId + ' を ' + keepName + ' に紐付け' : ''),
   };
 }
+
+/**
+ * 顧客名を変更する（oldName → newName）。関連シートの顧客名を一括で書き換える。
+ * newName が既に別顧客として存在する場合は拒否（統合は executeCustomerMerge を使う）。
+ */
+function renameCustomer(oldName, newName) {
+  oldName = String(oldName || '').trim();
+  newName = String(newName || '').trim();
+  if (!oldName || !newName) return { success: false, message: '名前を入力してください' };
+  if (oldName === newName) return { success: true, message: '同じ名前です', newName: newName };
+
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var critSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    var propSs = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+
+    // 存在チェック（oldは必須・newは別顧客として既存なら拒否）
+    var critData = critSheet.getDataRange().getValues();
+    var oldExists = false, newExists = false;
+    for (var i = 1; i < critData.length; i++) {
+      var n = String(critData[i][1] || '').trim();
+      if (n === oldName) oldExists = true;
+      if (n === newName) newExists = true;
+    }
+    if (!oldExists) return { success: false, message: oldName + ' が見つかりません' };
+    if (newExists) return { success: false, message: '「' + newName + '」は既に別の顧客として存在します。統合したい場合は統合機能を使ってください。' };
+
+    var updated = [];
+
+    // 1. 検索条件シート（B列=名前）
+    var cc = 0;
+    for (var i = 1; i < critData.length; i++) {
+      if (String(critData[i][1] || '').trim() === oldName) { critSheet.getRange(i + 1, 2).setValue(newName); cc++; }
+    }
+    if (cc) updated.push('検索条件(' + cc + ')');
+
+    // 2. LINE Users（B列=名前）
+    if (luSheet) {
+      var lu = luSheet.getDataRange().getValues(); var lc = 0;
+      for (var li = 1; li < lu.length; li++) {
+        if (String(lu[li][1] || '').trim() === oldName) { luSheet.getRange(li + 1, 2).setValue(newName); lc++; }
+      }
+      if (lc) updated.push('LINE(' + lc + ')');
+    }
+
+    // 3. 物件系シート（A列=顧客名）
+    var logSheets = ['通知済み物件', 'アクションログ', '閲覧ログ', '物件コメント', 'シート1'];
+    for (var si = 0; si < logSheets.length; si++) {
+      try {
+        var sh = propSs.getSheetByName(logSheets[si]); if (!sh) continue;
+        var data = sh.getDataRange().getValues(); var ch = 0;
+        for (var ri = 1; ri < data.length; ri++) {
+          if (String(data[ri][0] || '').trim() === oldName) { sh.getRange(ri + 1, 1).setValue(newName); ch++; }
+        }
+        if (ch) updated.push((logSheets[si] === 'シート1' ? '承認待ち' : logSheets[si]) + '(' + ch + ')');
+      } catch (e) {}
+    }
+
+    // 4. おすすめ条件シート（顧客名=2列目）
+    try {
+      var recSh = ss.getSheetByName(RECOMMEND_SHEET_NAME);
+      if (recSh && recSh.getLastRow() > 1) {
+        var rd = recSh.getDataRange().getValues(); var rc = 0;
+        for (var ri = 1; ri < rd.length; ri++) {
+          if (String(rd[ri][1] || '').trim() === oldName) { recSh.getRange(ri + 1, 2).setValue(newName); rc++; }
+        }
+        if (rc) updated.push('おすすめ条件(' + rc + ')');
+      }
+    } catch (e) {}
+
+    return { success: true, newName: newName, message: '「' + oldName + '」→「' + newName + '」に変更しました（' + (updated.join(', ') || '対象なし') + '）' };
+  } catch (err) {
+    return { success: false, message: 'エラー: ' + err.message };
+  }
+}
