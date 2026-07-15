@@ -5642,6 +5642,31 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
 // 画像はキー化して短縮。全項目を優先し、収まらなければ画像を末尾から減らす。
 // それでも超える稀なケースのみ、長く重要度の低い項目を削る（設備fac・費用は極力残す）。
 function _bestViewUrl_(customerName, roomId, prop) {
+  // 送信経路によっては prop に設備・住所等が乗っていない（記録の property_data_json 側だけに
+  // ある）。その場合 view_api では表示されるのに URL には埋め込まれず「最初は出ない」状態になる。
+  // 記録済み行から欠けている表示項目を補完し、埋め込みが view_api と一致するようにする。
+  try {
+    if (!prop.facilities || !prop.address || !prop.structure) {
+      var _r = (typeof findPendingRow === 'function') ? findPendingRow(customerName, roomId) : null;
+      if ((!_r || !_r.values) && typeof _findRowsByRoomIdsAnyStatus_ === 'function') {
+        _r = (_findRowsByRoomIdsAnyStatus_(customerName, [roomId]) || [])[0] || null;
+      }
+      if (_r && _r.values && typeof rowToProperty === 'function') {
+        var _rec = rowToProperty(_r.values);
+        if (_rec) {
+          var _fill = ['facilities', 'address', 'structure', 'totalUnits', 'sunlight', 'moveInDate',
+            'leaseType', 'contractPeriod', 'cancellationNotice', 'renewalInfo', 'freeRent',
+            'renewalFee', 'fireInsurance', 'keyExchangeFee', 'guaranteeInfo', 'supportFee24h',
+            'renewalAdminFee', 'shikibiki', 'petDeposit', 'buildingAge', 'stationInfo', 'layout'];
+          for (var _fi = 0; _fi < _fill.length; _fi++) {
+            var _k = _fill[_fi];
+            if (!prop[_k] && _rec[_k]) prop[_k] = _rec[_k];
+          }
+        }
+      }
+    }
+  } catch (_enrichErr) {}
+
   var LIMIT = 1000;
   var baseUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '&m=';
   var imgs = (prop.selectedImageUrls && prop.selectedImageUrls.length) ? prop.selectedImageUrls
