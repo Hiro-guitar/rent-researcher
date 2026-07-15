@@ -5646,21 +5646,25 @@ function _bestViewUrl_(customerName, roomId, prop) {
   var build = function(d) {
     return baseUrl + Utilities.base64EncodeWebSafe(Utilities.newBlob(JSON.stringify(d)).getBytes());
   };
-  var withN = function(n) {
-    var d = _propToViewData_(prop);
-    if (n > 0) {
-      if (packed.ib) d.ib = packed.ib;
-      d.imgs = packed.imgs.slice(0, n);
-      if (hasCats) d.imgc = cats.slice(0, n);
-    }
-    return d;
+  // 画像ギャラリーは送信時キャッシュ(imgs_)から images_api で高速取得するので URL には
+  // 入れない。ヒーロー1枚だけ入れば入れ、残り容量は全項目(設備・費用)の埋め込みに回す。
+  var withHero = function(dd) {
+    if (!packed.imgs || packed.imgs.length === 0) return dd;
+    var c = {};
+    for (var kk in dd) { if (Object.prototype.hasOwnProperty.call(dd, kk)) c[kk] = dd[kk]; }
+    if (packed.ib) c.ib = packed.ib;
+    c.imgs = packed.imgs.slice(0, 1);
+    if (hasCats) c.imgc = cats.slice(0, 1);
+    return c;
   };
-  // 1. 全項目 + できるだけ多くの画像（末尾から減らし、最初に収まる枚数を採用）
-  for (var n = packed.imgs.length; n >= 0; n--) {
-    var url = build(withN(n));
-    if (url.length <= LIMIT) return url;
-  }
-  // 2. 画像0でも超える → 長く低優先の項目を順に削って必ず m= URL に収める。
+  var full = _propToViewData_(prop);
+  // 1. 全項目 + ヒーロー画像（入れば1枚だけ即表示。残りギャラリーは images_api）
+  var u1 = build(withHero(full));
+  if (u1.length <= LIMIT) return u1;
+  // 2. 全項目のみ（ヒーローも落とす。画像は全部 images_api から高速取得）
+  var u2 = build(full);
+  if (u2.length <= LIMIT) return u2;
+  // 3. まだ超える → 長く低優先の項目を順に削って必ず m= URL に収める。
   //    設備(fac)・主要費用は極力残す（dropOrder の後方に置く）。
   //    plain URL には絶対にしない（埋め込みが無いと詳細ページが view_api 待ちで固まるため）。
   var d0 = _propToViewData_(prop);
