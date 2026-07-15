@@ -5273,10 +5273,8 @@ function renameCustomer(oldName, newName) {
   if (oldName === newName) return { success: true, message: '同じ名前です', newName: newName };
 
   try {
-    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
-    var critSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
-    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
-    var propSs = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+    var critSs = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var critSheet = critSs.getSheetByName(CRITERIA_SHEET_NAME);
 
     // 存在チェック（oldは必須・newは別顧客として既存なら拒否）
     var critData = critSheet.getDataRange().getValues();
@@ -5290,45 +5288,39 @@ function renameCustomer(oldName, newName) {
     if (newExists) return { success: false, message: '「' + newName + '」は既に別の顧客として存在します。統合したい場合は統合機能を使ってください。' };
 
     var updated = [];
-
-    // 1. 検索条件シート（B列=名前）
-    var cc = 0;
-    for (var i = 1; i < critData.length; i++) {
-      if (String(critData[i][1] || '').trim() === oldName) { critSheet.getRange(i + 1, 2).setValue(newName); cc++; }
-    }
-    if (cc) updated.push('検索条件(' + cc + ')');
-
-    // 2. LINE Users（B列=名前）
-    if (luSheet) {
-      var lu = luSheet.getDataRange().getValues(); var lc = 0;
-      for (var li = 1; li < lu.length; li++) {
-        if (String(lu[li][1] || '').trim() === oldName) { luSheet.getRange(li + 1, 2).setValue(newName); lc++; }
-      }
-      if (lc) updated.push('LINE(' + lc + ')');
-    }
-
-    // 3. 物件系シート（A列=顧客名）
-    var logSheets = ['通知済み物件', 'アクションログ', '閲覧ログ', '物件コメント', 'シート1'];
-    for (var si = 0; si < logSheets.length; si++) {
+    // 指定シートの col列(1-based)の顧客名を旧→新に書き換える
+    function renameCol(sheet, col, label) {
+      if (!sheet) return;
       try {
-        var sh = propSs.getSheetByName(logSheets[si]); if (!sh) continue;
-        var data = sh.getDataRange().getValues(); var ch = 0;
-        for (var ri = 1; ri < data.length; ri++) {
-          if (String(data[ri][0] || '').trim() === oldName) { sh.getRange(ri + 1, 1).setValue(newName); ch++; }
+        var last = sheet.getLastRow();
+        if (last < 2) return;
+        var vals = sheet.getRange(2, col, last - 1, 1).getValues();
+        var cnt = 0;
+        for (var r = 0; r < vals.length; r++) {
+          if (String(vals[r][0] || '').trim() === oldName) { sheet.getRange(r + 2, col).setValue(newName); cnt++; }
         }
-        if (ch) updated.push((logSheets[si] === 'シート1' ? '承認待ち' : logSheets[si]) + '(' + ch + ')');
+        if (cnt) updated.push(label + '(' + cnt + ')');
       } catch (e) {}
     }
 
-    // 4. おすすめ条件シート（顧客名=2列目）
+    // 1. 顧客条件スプレッドシート(CRITERIA_SHEET_ID = SPREADSHEET_ID)。
+    //    CRMが送付済み物件・対応ログ等を読むのはこのスプレッドシート。
+    renameCol(critSheet, 2, '検索条件');                                   // B列=名前
+    renameCol(critSs.getSheetByName(LINE_USERS_SHEET_NAME), 2, 'LINE');    // B列=名前
+    renameCol(critSs.getSheetByName(CONTACT_LOG_SHEET_NAME), 1, '対応ログ'); // A列
+    renameCol(critSs.getSheetByName('通知済み物件'), 1, '送付済み');         // A列
+    renameCol(critSs.getSheetByName('アクションログ'), 1, 'アクション');
+    renameCol(critSs.getSheetByName('閲覧ログ'), 1, '閲覧');
+    renameCol(critSs.getSheetByName('物件コメント'), 1, 'コメント');
+    renameCol(critSs.getSheetByName('シート1'), 1, '承認待ち');
+    try { renameCol(critSs.getSheetByName(RECOMMEND_SHEET_NAME), 2, 'おすすめ条件'); } catch (e) {} // 顧客名=2列目
+
+    // 2. 物件スプレッドシート(PROPERTY_SHEET_ID)にも同名シートがあれば更新（保険）
     try {
-      var recSh = ss.getSheetByName(RECOMMEND_SHEET_NAME);
-      if (recSh && recSh.getLastRow() > 1) {
-        var rd = recSh.getDataRange().getValues(); var rc = 0;
-        for (var ri = 1; ri < rd.length; ri++) {
-          if (String(rd[ri][1] || '').trim() === oldName) { recSh.getRange(ri + 1, 2).setValue(newName); rc++; }
-        }
-        if (rc) updated.push('おすすめ条件(' + rc + ')');
+      if (typeof PROPERTY_SHEET_ID !== 'undefined' && PROPERTY_SHEET_ID && PROPERTY_SHEET_ID !== CRITERIA_SHEET_ID) {
+        var propSs = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+        var ps = ['通知済み物件', 'アクションログ', '閲覧ログ', '物件コメント', 'シート1'];
+        for (var pi = 0; pi < ps.length; pi++) renameCol(propSs.getSheetByName(ps[pi]), 1, 'P:' + ps[pi]);
       }
     } catch (e) {}
 
