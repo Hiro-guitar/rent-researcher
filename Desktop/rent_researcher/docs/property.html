@@ -233,7 +233,11 @@ function decodePropertyData(encoded) {
       currentStatus: d.cs || '',
       facilities: d.fac || '',
       otherStations: d.os || [],
-      images: d.imgs || [],
+      // 画像はキー化短縮に対応: d.ib(共通base)がある場合、フルURLでない要素は base を前置して復元。
+      // 例) d.ib="https://.../i/", d.imgs=["abc.jpg", ...] → "https://.../i/abc.jpg"
+      images: (d.imgs || []).map(function(x) {
+        return (typeof x === 'string' && /^https?:\/\//.test(x)) ? x : ((d.ib || '') + x);
+      }),
       imageCategories: d.imgc || []
     };
   } catch(e) {
@@ -312,11 +316,17 @@ function injectMinimalToSkeleton(p) {
 //    描画していたため「開くのに時間がかかる」状態だった。埋め込みデータ(m/d)には
 //    物件情報とヒーロー画像が入っているので、まず全体を描画してページを即使える状態にし、
 //    残り画像・空室状況・募集終了チェックは裏の view_api で後追い反映する。
+// 埋め込みデータでの即描画は、フィールド欠けで renderProperty が落ちても
+// ページが真っ白にならないよう try/catch でスケルトン描画にフォールバックする。
+function renderNowSafe(p) {
+  try { renderProperty(p); }
+  catch (e) { try { injectMinimalToSkeleton(p); } catch (e2) {} }
+}
 if (inlineProp) {
-  renderProperty(inlineProp);                     // 即フル描画
+  renderNowSafe(inlineProp);                       // 即フル描画
   if (customer && roomId) fetchProperty(customer, roomId); // 裏で最新反映(closedなら切替)
 } else if (minimalProp && customer && roomId) {
-  renderProperty(minimalProp);                    // 即フル描画（mのデータ+ヒーロー画像）
+  renderNowSafe(minimalProp);                      // 即フル描画（mのデータ+ヒーロー画像）
   fetchProperty(customer, roomId);                // 裏で残り画像・空室・募集終了を反映
 } else if (customer && roomId) {
   // 3. パラメータ無し → view_api 経由（最遅、フォールバック）
@@ -660,6 +670,7 @@ function closeOrBack() {
 var ES_HEADERS = ['駐車場','ライフライン','キッチン','バス・トイレ・洗面','位置・フロア','回線','給湯','室内仕様','収納','共有施設','構造・工法・仕様','特徴・設備','管理・防犯','屋外設備','区画設備','建物設備','セキュリティ','詳細','周辺環境','共用部'];
 
 function buildFacilityTags(facStr) {
+  if (typeof facStr !== 'string' || !facStr) return '';
   // Itandi形式（【カテゴリ】）
   if (facStr.indexOf('\u3010') >= 0) return buildFacilityTagsFromItandi(facStr);
   // ES-Square形式検出: 半角カンマで分割してヘッダーが含まれるか
