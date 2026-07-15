@@ -2933,8 +2933,11 @@ function getExistingCustomers_() {
     for (var i = 1; i < luData.length; i++) {
       var luName = String(luData[i][1] || '').trim();
       var luId = String(luData[i][0] || '').trim();
+      // admin_ プレースホルダー(LINE未連携)は無視し、本物のIDのみ採用する。
+      // （同名で admin_ 行と U… 行が混在する場合に admin_ で上書きしないよう findLineUserId と挙動を揃える）
+      if (!luId || luId.indexOf('admin_') === 0) continue;
       for (var j = 0; j < customers.length; j++) {
-        if (customers[j].name === luName && luId) {
+        if (customers[j].name === luName) {
           customers[j].lineUserId = luId;
           break;
         }
@@ -3173,8 +3176,9 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
       if (!state.data.resident && existing.resident) state.data.resident = existing.resident;
     }
 
-    // userId: LINE User IDがあればそれを、なければダミー
-    var userId = lineUserId || 'admin_' + Date.now();
+    // userId: 画面から渡されたIDを優先。空でも、この顧客名で本物のIDが既に
+    // 登録済みなら admin_ で上書きせず再利用する。どちらも無ければダミー。
+    var userId = lineUserId || findLineUserId(customerName) || 'admin_' + Date.now();
 
     // 「条件変更として送信」(任意)時に差分を表示するため、保存前の条件をキャッシュ
     try {
