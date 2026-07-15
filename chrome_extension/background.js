@@ -4373,6 +4373,13 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   const { stats } = await getStorageData(['stats']);
   const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };
   const newProperties = [];
+  // 直前物件の GAS送信＋Discord通知タスク（完了を待たずに次物件へ進み、詳細取得・画像・
+  // 一覧戻りと並列化する）。次物件の送信直前と関数末尾で必ず await して順序・取りこぼしを防ぐ。
+  // 前回の巡回が異常終了して残っていた場合は、ここで完了させてから開始する。
+  if (globalThis.__reinsPendingDeliver) {
+    try { await globalThis.__reinsPendingDeliver; } catch (_) {}
+  }
+  globalThis.__reinsPendingDeliver = null;
 
   // --- Step 6〜7: ページネーションしながら検索結果を詳細取得（最大200件） ---
   const maxDetails = 70;
@@ -5292,29 +5299,41 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
             detail.warnings_text = '';
             await setStorageData({ debugLog: `[WARN-DIAG] REINS ${customer.name}: ERROR ${eW.message}` });
           }
-          // リアルタイムでGAS送信＋Discord通知
-          let __reinsSubmitAdded = 0;
-          try {
-            const submitResult = await submitProperties(customer.name, [detail]);
-            if (submitResult?.success) {
-              __reinsSubmitAdded = submitResult.added || 0;
-              currentStats.totalSubmitted += __reinsSubmitAdded;
-            }
-          } catch (err) {
-            logError(`${customer.name}: ${detail.building_name} ${detail.room_number || ''} GAS送信失敗: ${err.message}`);
+          // GAS送信＋Discord通知は「待たずに」裏で実行し、次物件の詳細取得・画像・一覧戻りと
+          // 並列化する（ここが1物件あたりの最大待ち時間だった）。
+          // 前物件の送信/通知が未完了なら、今回の送信を始める前に必ず完了させる。
+          // これで add_reins_property(GASの重複判定)の呼び出し順序が保証され、重複送信を防ぐ。
+          if (globalThis.__reinsPendingDeliver) {
+            try { await globalThis.__reinsPendingDeliver; } catch (_) {}
+            globalThis.__reinsPendingDeliver = null;
           }
-          // GAS側で既存sent行を更新しただけ(added=0)の場合は通知をスキップ
-          // (履歴リセット後にseenIds/notifiedDedupMapの隙間を通過した重複を防止)
-          if (__reinsSubmitAdded > 0) {
+          // クロージャで detail を取り違えないようスナップショットしてから裏タスク化
+          const _submitDetail = detail;
+          const _submitCustomer = customer;
+          globalThis.__reinsPendingDeliver = (async () => {
+            let __reinsSubmitAdded = 0;
             try {
-              await deliverProperty(customer.name, detail, customer, 'reins');
+              const submitResult = await submitProperties(_submitCustomer.name, [_submitDetail]);
+              if (submitResult?.success) {
+                __reinsSubmitAdded = submitResult.added || 0;
+                currentStats.totalSubmitted += __reinsSubmitAdded;
+              }
             } catch (err) {
-              logError(`${customer.name}: ${detail.building_name} ${detail.room_number || ''} Discord通知失敗: ${err.message}`);
+              logError(`${_submitCustomer.name}: ${_submitDetail.building_name} ${_submitDetail.room_number || ''} GAS送信失敗: ${err.message}`);
             }
-          } else {
-            await setStorageData({ debugLog: `${customer.name}: ⚡ GAS既存物件のため通知スキップ: ${detail.building_name} ${detail.room_number || ''}` });
-          }
-          await setStorageData({ stats: currentStats });
+            // GAS側で既存sent行を更新しただけ(added=0)の場合は通知をスキップ
+            // (履歴リセット後にseenIds/notifiedDedupMapの隙間を通過した重複を防止)
+            if (__reinsSubmitAdded > 0) {
+              try {
+                await deliverProperty(_submitCustomer.name, _submitDetail, _submitCustomer, 'reins');
+              } catch (err) {
+                logError(`${_submitCustomer.name}: ${_submitDetail.building_name} ${_submitDetail.room_number || ''} Discord通知失敗: ${err.message}`);
+              }
+            } else {
+              await setStorageData({ debugLog: `${_submitCustomer.name}: ⚡ GAS既存物件のため通知スキップ: ${_submitDetail.building_name} ${_submitDetail.room_number || ''}` });
+            }
+            await setStorageData({ stats: currentStats });
+          })();
           } // end strictSkip else
         } else {
           await setStorageData({ debugLog: `${customer.name}: ✗ スキップ: ${detail.building_name} ${detail.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrlWithReason(detail, rejectReason)}` });
@@ -5667,6 +5686,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       break; // 最終ページ処理完了
     }
   } // end pageLoop
+
+  // 最後の物件の GAS送信＋Discord通知（裏タスク）を最後まで待つ（取りこぼし防止）
+  if (globalThis.__reinsPendingDeliver) {
+    try { await globalThis.__reinsPendingDeliver; } catch (_) {}
+    globalThis.__reinsPendingDeliver = null;
+  }
 
   // スキップ済み物件マップを保存（変更があった場合のみ）
   if (skippedMapDirty || globalThis._currentReinsSkippedMapDirty) {
