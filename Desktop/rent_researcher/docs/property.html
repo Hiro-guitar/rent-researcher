@@ -307,19 +307,17 @@ function injectMinimalToSkeleton(p) {
   }
 }
 
-// 1. フルデータがあれば即時描画（最速 < 0.3秒）
+// 1. 埋め込みデータがあれば「待たずに」即フル描画する。
+//    従来はスケルトンだけ出して view_api(5〜6秒/nocache) の応答を待ってから本体を
+//    描画していたため「開くのに時間がかかる」状態だった。埋め込みデータ(m/d)には
+//    物件情報とヒーロー画像が入っているので、まず全体を描画してページを即使える状態にし、
+//    残り画像・空室状況・募集終了チェックは裏の view_api で後追い反映する。
 if (inlineProp) {
-  if (customer && roomId) {
-    // スケルトンに即注入 → API確認でclosedなら募集終了画面に切替
-    injectMinimalToSkeleton(inlineProp);
-    fetchProperty(customer, roomId);
-  } else {
-    renderProperty(inlineProp);
-  }
+  renderProperty(inlineProp);                     // 即フル描画
+  if (customer && roomId) fetchProperty(customer, roomId); // 裏で最新反映(closedなら切替)
 } else if (minimalProp && customer && roomId) {
-  // 2. 最小データ → スケルトンに即注入してから view_api で残りを取得
-  injectMinimalToSkeleton(minimalProp);
-  fetchProperty(customer, roomId);
+  renderProperty(minimalProp);                    // 即フル描画（mのデータ+ヒーロー画像）
+  fetchProperty(customer, roomId);                // 裏で残り画像・空室・募集終了を反映
 } else if (customer && roomId) {
   // 3. パラメータ無し → view_api 経由（最遅、フォールバック）
   //    埋め込みデータがない = 古いリンク / 削除済み の可能性が高いので
