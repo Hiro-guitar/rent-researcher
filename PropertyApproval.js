@@ -5716,17 +5716,22 @@ function _bestViewUrl_(customerName, roomId, prop) {
     return c;
   };
   var full = _propToViewData_(prop);
-  try { full._dbg = globalThis.__enrichDbg; } catch (_e) {} // TODO一時診断（原因特定後に削除）
+  try {
+    globalThis.__enrichDbg.faclen = prop.facilities ? String(prop.facilities).length : 0; // 設備の文字数
+    full._dbg = globalThis.__enrichDbg;
+  } catch (_e) {}
   // 1. 全項目 + ヒーロー画像（入れば1枚だけ即表示。残りギャラリーは images_api）
   var u1 = build(withHero(full));
-  if (u1.length <= LIMIT) return u1;
+  if (u1.length <= LIMIT) { try { full._dbg.step = 1; } catch (_e) {} return u1; }
   // 2. 全項目のみ（ヒーローも落とす。画像は全部 images_api から高速取得）
   var u2 = build(full);
-  if (u2.length <= LIMIT) return u2;
+  try { globalThis.__enrichDbg.u2len = u2.length; } catch (_e) {} // 全項目URLの長さ（1000超なら設備が削られる）
+  if (u2.length <= LIMIT) { try { full._dbg.step = 2; } catch (_e) {} return u2; }
   // 3. まだ超える → 長く低優先の項目を順に削って必ず m= URL に収める。
   //    設備(fac)・主要費用は極力残す（dropOrder の後方に置く）。
   //    plain URL には絶対にしない（埋め込みが無いと詳細ページが view_api 待ちで固まるため）。
   var d0 = _propToViewData_(prop);
+  try { d0._dbg = globalThis.__enrichDbg; d0._dbg.step = 3; } catch (_e) {} // TODO一時診断
   var dropOrder = [
     'ld', 'frd', 'mic', 'gi', 'ri', 'cn', 'os', 'ad', 'md', 'sl', 'tu', 'st', 'lt', 'cp',
     'sf24', 'rig', 'adp', 'gd', 'wb', 'af', 'cs', 'pk', 'bp', 'mp', 'omf', 'oof',
