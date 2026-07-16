@@ -5646,6 +5646,7 @@ function _bestViewUrl_(customerName, roomId, prop) {
   // 送信経路によっては prop に設備・住所・画像が乗っておらず（記録の property_data_json 側だけに
   // ある）、view_api では出るのに URL には入らず「最初は出ない」状態になる。
   // → 記録行(property_data_json)を直接読んで、欠けている項目を prop に補完する。
+  globalThis.__enrichDbg = { fb: prop.facilities ? 1 : 0, rows: 0, recfac: 0, fa: 0, keys: '' }; // TODO一時診断
   try {
     // (customer, roomId) に一致する記録行を全部集める（pending/sent 問わず）
     var _rows = [];
@@ -5675,6 +5676,8 @@ function _bestViewUrl_(customerName, roomId, prop) {
       var _pdj = {};
       try { _pdj = JSON.parse(_rows[_ri][9] || '{}'); } catch (_pe) {}
       if (!_pdj || typeof _pdj !== 'object') continue;
+      if (_pdj.facilities) globalThis.__enrichDbg.recfac = 1;               // TODO一時診断
+      if (_ri === 0) globalThis.__enrichDbg.keys = Object.keys(_pdj).slice(0, 18).join(','); // TODO一時診断
       for (var _sk in _map) {
         var _ck = _map[_sk];
         if (!prop[_ck] && _pdj[_sk]) prop[_ck] = _pdj[_sk];
@@ -5686,7 +5689,9 @@ function _bestViewUrl_(customerName, roomId, prop) {
         if (_im && _im.length) { prop.imageUrls = _im; prop.imageUrl = _im[0]; }
       }
     }
-  } catch (_enrichErr) {}
+    globalThis.__enrichDbg.rows = _rows.length;                             // TODO一時診断
+    globalThis.__enrichDbg.fa = prop.facilities ? 1 : 0;                    // TODO一時診断
+  } catch (_enrichErr) { try { globalThis.__enrichDbg.err = String(_enrichErr).slice(0, 60); } catch (_e2) {} }
 
   var LIMIT = 1000;
   var baseUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '&m=';
@@ -5711,6 +5716,7 @@ function _bestViewUrl_(customerName, roomId, prop) {
     return c;
   };
   var full = _propToViewData_(prop);
+  try { full._dbg = globalThis.__enrichDbg; } catch (_e) {} // TODO一時診断（原因特定後に削除）
   // 1. 全項目 + ヒーロー画像（入れば1枚だけ即表示。残りギャラリーは images_api）
   var u1 = build(withHero(full));
   if (u1.length <= LIMIT) return u1;
