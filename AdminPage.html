@@ -743,6 +743,13 @@ input[type="range"]::-webkit-slider-thumb {
         <input type="range" id="rentSlider" min="0" max="0" value="0" oninput="onRentChange()">
         <span class="slider-label">50万</span>
       </div>
+      <div class="rent-manual-row" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;font-size:14px;color:#aab;">
+        <span>直接入力</span>
+        <input type="number" id="rentManualInput" step="0.1" min="6" max="50" inputmode="decimal" placeholder="例: 18.2"
+               oninput="onRentManualInput()"
+               style="width:90px;padding:6px 8px;border:1px solid #3a4a6b;border-radius:6px;font-size:15px;text-align:right;background:#0f1830;color:#e0e0e0;">
+        <span>万円</span>
+      </div>
     </div>
   </div>
 
@@ -1253,14 +1260,23 @@ function populateForm(data) {
   // 家賃
   if (data.rent_max) {
     document.getElementById('rentUnspecified').checked = false;
+    onRentUnspecifiedChange();
+    var _rentFound = false;
     for (var i = 0; i < RENT_VALUES.length; i++) {
       if (RENT_VALUES[i] === data.rent_max) {
         document.getElementById('rentSlider').value = i;
         onRentChange();
+        _rentFound = true;
         break;
       }
     }
-    onRentUnspecifiedChange();
+    if (!_rentFound) {
+      // 刻みに無い任意値（例: 18.2万円）→ 直接入力欄へ
+      var _rn = parseFloat(data.rent_max);
+      var _rmi = document.getElementById('rentManualInput');
+      if (!isNaN(_rn) && _rmi) { _rmi.value = (Math.round(_rn * 10) / 10); onRentManualInput(); }
+      else { document.getElementById('rentDisplay').textContent = data.rent_max; }
+    }
   } else {
     document.getElementById('rentUnspecified').checked = true;
     onRentUnspecifiedChange();
@@ -1940,11 +1956,52 @@ function initRentSlider() {
 function onRentChange() {
   var val = RENT_VALUES[document.getElementById('rentSlider').value];
   document.getElementById('rentDisplay').textContent = val;
+  var mi = document.getElementById('rentManualInput');
+  if (mi) mi.value = ''; // スライダー操作で直接入力クリア
+}
+
+// 直接入力（18.2 など任意値）。入力があればこちらが優先。
+function onRentManualInput() {
+  var mi = document.getElementById('rentManualInput');
+  var raw = (mi.value || '').trim();
+  if (raw === '') { onRentChange(); return; }
+  var num = parseFloat(raw);
+  if (isNaN(num)) return;
+  if (num < 6) num = 6;
+  if (num > 50) num = 50;
+  document.getElementById('rentDisplay').textContent = num + '万円';
+  var idx = _nearestRentIndex(num);
+  if (idx >= 0) document.getElementById('rentSlider').value = idx;
+}
+function _nearestRentIndex(num) {
+  var best = -1, bestDiff = Infinity;
+  for (var i = 0; i < RENT_VALUES.length; i++) {
+    var v = parseFloat(RENT_VALUES[i]);
+    var diff = Math.abs(v - num);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  }
+  return best;
+}
+// 現在の家賃上限を "X万円" で返す（指定しない→空、直接入力優先、無ければスライダー）。
+function getRentMaxValue() {
+  if (document.getElementById('rentUnspecified').checked) return '';
+  var mi = document.getElementById('rentManualInput');
+  if (mi && (mi.value || '').trim() !== '') {
+    var num = parseFloat(mi.value.trim());
+    if (!isNaN(num)) {
+      if (num < 6) num = 6;
+      if (num > 50) num = 50;
+      return (Math.round(num * 10) / 10) + '万円';
+    }
+  }
+  return RENT_VALUES[document.getElementById('rentSlider').value];
 }
 function onRentUnspecifiedChange() {
   var checked = document.getElementById('rentUnspecified').checked;
   document.getElementById('rentSliderContainer').style.opacity = checked ? '0.3' : '1';
   document.getElementById('rentSlider').disabled = checked;
+  var mi = document.getElementById('rentManualInput');
+  if (mi) { mi.disabled = checked; if (checked) mi.value = ''; }
 }
 // 新規顧客登録時に賃料/徒歩/面積/築年を「指定しない」で開始（初期値の勝手な保存を防ぐ）
 function defaultConditionsUnspecified() {
@@ -2290,7 +2347,7 @@ function submitAdminCriteria() {
   }
 
   // 家賃
-  criteria.rentMax = document.getElementById('rentUnspecified').checked ? '' : RENT_VALUES[document.getElementById('rentSlider').value];
+  criteria.rentMax = getRentMaxValue();
 
   // 間取り
   var layoutCbs = document.querySelectorAll('input[name="layout"]:checked');

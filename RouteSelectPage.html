@@ -332,6 +332,13 @@ input[type="range"]::-webkit-slider-thumb {
         <input type="range" id="rentSlider" min="0" max="0" value="0" oninput="onRentChange()">
         <span class="slider-label">50万</span>
       </div>
+      <div class="rent-manual-row" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:10px;font-size:14px;color:#555;">
+        <span>直接入力</span>
+        <input type="number" id="rentManualInput" step="0.1" min="6" max="50" inputmode="decimal" placeholder="例: 18.2"
+               oninput="onRentManualInput()"
+               style="width:90px;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:15px;text-align:right;">
+        <span>万円</span>
+      </div>
     </div>
   </div>
 
@@ -529,7 +536,7 @@ function _collectDraft() {
   }
   d.sc = cities; d.st = towns;
   // 家賃
-  d.rm = rentUserSelected ? RENT_VALUES[document.getElementById('rentSlider').value] : '';
+  d.rm = getRentMaxValue();
   // 間取り
   var lc = document.querySelectorAll('input[name="layout"]:checked'); d.la = []; for (var i = 0; i < lc.length; i++) d.la.push(lc[i].value);
   // 駅徒歩
@@ -1287,11 +1294,25 @@ function initRentSlider() {
   // - INIT_RENT_MAX あり (条件変更時) → そのまま採用、 ユーザー操作済み扱い
   // - なし (新規登録) → 「未選択」 状態。 ユーザーが触るまで rentUserSelected=false
   if (INIT_RENT_MAX) {
-    var idx = 0;
+    var idx = -1;
     for (var i = 0; i < RENT_VALUES.length; i++) { if (RENT_VALUES[i] === INIT_RENT_MAX) { idx = i; break; } }
-    slider.value = idx;
-    rentUserSelected = true;
-    onRentChange();
+    if (idx >= 0) {
+      // 刻みに一致する値 → スライダーで表示
+      slider.value = idx;
+      rentUserSelected = true;
+      onRentChange();
+    } else {
+      // 刻みに無い任意値（例: 18.2万円）→ 直接入力欄に反映
+      var _n = parseFloat(INIT_RENT_MAX);
+      rentUserSelected = true;
+      if (!isNaN(_n)) {
+        var _mi = document.getElementById('rentManualInput');
+        if (_mi) _mi.value = (Math.round(_n * 10) / 10);
+        onRentManualInput();
+      } else {
+        document.getElementById('rentDisplay').textContent = INIT_RENT_MAX;
+      }
+    }
   } else {
     slider.value = 0;
     rentUserSelected = false;
@@ -1306,6 +1327,56 @@ function onRentChange() {
   rentUserSelected = true;
   var val = RENT_VALUES[document.getElementById('rentSlider').value];
   document.getElementById('rentDisplay').textContent = val;
+  // スライダーを操作したら直接入力はクリア（スライダーが真の値になる）
+  var mi = document.getElementById('rentManualInput');
+  if (mi) mi.value = '';
+}
+
+// 直接入力（18.2 など任意の値）。入力があればこちらが優先。
+function onRentManualInput() {
+  var mi = document.getElementById('rentManualInput');
+  var raw = (mi.value || '').trim();
+  if (raw === '') {
+    // 空にしたらスライダーの値に戻す（スライダー未操作なら未選択）
+    if (document.getElementById('rentSlider').value > 0) { onRentChange(); }
+    else { rentUserSelected = false; document.getElementById('rentDisplay').textContent = '未選択'; }
+    return;
+  }
+  var num = parseFloat(raw);
+  if (isNaN(num)) return;
+  if (num < 6) num = 6;
+  if (num > 50) num = 50;
+  rentUserSelected = true;
+  document.getElementById('rentDisplay').textContent = num + '万円';
+  // スライダーのつまみも近い位置へ寄せる（見た目の同期のみ。値の真実は直接入力）
+  var idx = _nearestRentIndex(num);
+  if (idx >= 0) document.getElementById('rentSlider').value = idx;
+}
+
+function _nearestRentIndex(num) {
+  var best = -1, bestDiff = Infinity;
+  for (var i = 0; i < RENT_VALUES.length; i++) {
+    var v = parseFloat(RENT_VALUES[i]);
+    var diff = Math.abs(v - num);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  }
+  return best;
+}
+
+// 現在の家賃上限を "X万円" で返す（直接入力があればそれ、無ければスライダー）。
+function getRentMaxValue() {
+  if (!rentUserSelected) return '';
+  var mi = document.getElementById('rentManualInput');
+  if (mi && (mi.value || '').trim() !== '') {
+    var num = parseFloat(mi.value.trim());
+    if (!isNaN(num)) {
+      if (num < 6) num = 6;
+      if (num > 50) num = 50;
+      // 整数なら "18万円"、小数なら "18.2万円"
+      return (Math.round(num * 10) / 10) + '万円';
+    }
+  }
+  return RENT_VALUES[document.getElementById('rentSlider').value];
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1727,7 +1798,7 @@ function submitCriteria() {
   }
 
   // 家賃
-  criteria.rentMax = RENT_VALUES[document.getElementById('rentSlider').value];
+  criteria.rentMax = getRentMaxValue();
 
   // 間取り
   var layoutCbs = document.querySelectorAll('input[name="layout"]:checked');
