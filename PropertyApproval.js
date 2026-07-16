@@ -5642,27 +5642,48 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
 // 画像はキー化して短縮。全項目を優先し、収まらなければ画像を末尾から減らす。
 // それでも超える稀なケースのみ、長く重要度の低い項目を削る（設備fac・費用は極力残す）。
 function _bestViewUrl_(customerName, roomId, prop) {
-  // 送信経路によっては prop に設備・住所等が乗っていない（記録の property_data_json 側だけに
-  // ある）。その場合 view_api では表示されるのに URL には埋め込まれず「最初は出ない」状態になる。
-  // 記録済み行から欠けている表示項目を補完し、埋め込みが view_api と一致するようにする。
+  // 物件名・間取りと同じ考え方で、設備・画像なども埋め込みデータ(m)に載せる。
+  // 送信経路によっては prop に設備・住所・画像が乗っておらず（記録の property_data_json 側だけに
+  // ある）、view_api では出るのに URL には入らず「最初は出ない」状態になる。
+  // → 記録行(property_data_json)を直接読んで、欠けている項目を prop に補完する。
   try {
-    if (!prop.facilities || !prop.address || !prop.structure) {
-      var _r = (typeof findPendingRow === 'function') ? findPendingRow(customerName, roomId) : null;
-      if ((!_r || !_r.values) && typeof _findRowsByRoomIdsAnyStatus_ === 'function') {
-        _r = (_findRowsByRoomIdsAnyStatus_(customerName, [roomId]) || [])[0] || null;
+    // (customer, roomId) に一致する記録行を全部集める（pending/sent 問わず）
+    var _rows = [];
+    if (typeof findPendingRow === 'function') {
+      var _pr = findPendingRow(customerName, roomId);
+      if (_pr && _pr.values) _rows.push(_pr.values);
+    }
+    if (typeof _findRowsByRoomIdsAnyStatus_ === 'function') {
+      var _any = _findRowsByRoomIdsAnyStatus_(customerName, [roomId]) || [];
+      for (var _ai = 0; _ai < _any.length; _ai++) {
+        if (_any[_ai] && _any[_ai].values) _rows.push(_any[_ai].values);
       }
-      if (_r && _r.values && typeof rowToProperty === 'function') {
-        var _rec = rowToProperty(_r.values);
-        if (_rec) {
-          var _fill = ['facilities', 'address', 'structure', 'totalUnits', 'sunlight', 'moveInDate',
-            'leaseType', 'contractPeriod', 'cancellationNotice', 'renewalInfo', 'freeRent',
-            'renewalFee', 'fireInsurance', 'keyExchangeFee', 'guaranteeInfo', 'supportFee24h',
-            'renewalAdminFee', 'shikibiki', 'petDeposit', 'buildingAge', 'stationInfo', 'layout'];
-          for (var _fi = 0; _fi < _fill.length; _fi++) {
-            var _k = _fill[_fi];
-            if (!prop[_k] && _rec[_k]) prop[_k] = _rec[_k];
-          }
-        }
+    }
+    // property_data_json(J列=index9) の snake_case キー → prop の camelCase キー
+    var _map = {
+      facilities: 'facilities', address: 'address', structure: 'structure',
+      total_units: 'totalUnits', sunlight: 'sunlight', move_in_date: 'moveInDate',
+      lease_type: 'leaseType', contract_period: 'contractPeriod',
+      cancellation_notice: 'cancellationNotice', renewal_info: 'renewalInfo',
+      free_rent: 'freeRent', renewal_fee: 'renewalFee', fire_insurance: 'fireInsurance',
+      key_exchange_fee: 'keyExchangeFee', guarantee_info: 'guaranteeInfo',
+      support_fee_24h: 'supportFee24h', renewal_admin_fee: 'renewalAdminFee',
+      shikibiki: 'shikibiki', pet_deposit: 'petDeposit', building_age: 'buildingAge',
+      station_info: 'stationInfo', layout: 'layout'
+    };
+    for (var _ri = 0; _ri < _rows.length; _ri++) {
+      var _pdj = {};
+      try { _pdj = JSON.parse(_rows[_ri][9] || '{}'); } catch (_pe) {}
+      if (!_pdj || typeof _pdj !== 'object') continue;
+      for (var _sk in _map) {
+        var _ck = _map[_sk];
+        if (!prop[_ck] && _pdj[_sk]) prop[_ck] = _pdj[_sk];
+      }
+      // ヒーロー画像も記録から補完（prop に画像が無い場合）
+      if ((!prop.imageUrls || !prop.imageUrls.length) && !prop.imageUrl) {
+        var _im = (_pdj.selected_image_urls && _pdj.selected_image_urls.length)
+          ? _pdj.selected_image_urls : (_pdj.image_urls || []);
+        if (_im && _im.length) { prop.imageUrls = _im; prop.imageUrl = _im[0]; }
       }
     }
   } catch (_enrichErr) {}
