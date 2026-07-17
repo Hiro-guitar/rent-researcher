@@ -322,6 +322,14 @@ function handleConfirmApprove(e) {
     saveSelectedImages(row.rowIndex, selectedImageUrls, selectedImageCategories);
   }
 
+  // 手動で追加/削除した画像を ehomaki 物件データにも反映する。
+  // prop は送信前に rowToProperty で作られており「古い画像リスト」を持つため、
+  // _bestViewUrl_ がそちらを見て編集が反映されない。編集後リストで上書きしておく。
+  if (selectedImageUrls.length > 0) {
+    prop.selectedImageUrls = selectedImageUrls;
+    prop.selectedImageCategories = selectedImageCategories;
+  }
+
   // 編集値をシートに反映
   if (e.parameter.buildingName !== undefined) {
     updateSheetWithEdits(row.rowIndex, prop);
@@ -412,6 +420,11 @@ function handleConfirmApprove(e) {
       // 編集値保存
       if (e.parameter.buildingName !== undefined) {
         updateSheetWithEdits(msRow.rowIndex, msProp);
+      }
+      // 手動で追加/削除した画像を msProp にも反映（メイン顧客と同じ選択画像を配信）
+      if (selectedImageUrls.length > 0) {
+        msProp.selectedImageUrls = selectedImageUrls;
+        msProp.selectedImageCategories = selectedImageCategories;
       }
       // ビューURL生成 (各顧客固有)
       var msPlainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(msName) + '&room_id=' + roomId;
