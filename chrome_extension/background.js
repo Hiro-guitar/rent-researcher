@@ -1349,6 +1349,10 @@ function getFilterRejectReason(prop, customer) {
 
     const normStn = (s) => String(s || '').replace(/駅$/, '').trim();
     const hasMatch = transports.some(transport => {
+      // バス利用の交通は「駅近」ではないので除外する。
+      // 例:「昭島駅 … バス24分 徒歩3分」の徒歩分数はバス停からの徒歩のみを表すため、
+      // 徒歩フィルタでもすり抜ける。顧客が駅で絞っている以上、バス物件は通知しない。
+      if (/バス/.test(transport)) return false;
       const tNorm = normStn(transport);
       const stationMatch = allStations.some(s => {
         const sn = normStn(s);
