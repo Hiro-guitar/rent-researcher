@@ -1630,7 +1630,9 @@ function openSearchPage(service) {
 
 function editComment(roomId, idx) {
   var editEl = document.getElementById('comment-edit-' + idx);
-  if (editEl) editEl.style.display = '';
+  // CSS(.prop-comment-edit{display:none})を上書きするため 'block' を明示指定する
+  // （'' だとクラスの display:none が残り、編集ボックスが出ずに何も起きなくなる）
+  if (editEl) editEl.style.display = 'block';
   var textarea = document.getElementById('comment-text-' + idx);
   if (textarea) textarea.focus();
 }
