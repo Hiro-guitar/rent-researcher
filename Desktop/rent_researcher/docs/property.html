@@ -242,6 +242,7 @@ function mapDataToProperty(d) {
       adFee: d.af || '',
       currentStatus: d.cs || '',
       facilities: d.fac || '',
+      source: d.src || '',
       otherStations: d.os || [],
       // 画像はキー化短縮に対応: d.ib(共通base)がある場合、フルURLでない要素は base を前置して復元。
       // 例) d.ib="https://.../i/", d.imgs=["abc.jpg", ...] → "https://.../i/abc.jpg"
@@ -704,18 +705,32 @@ function closeOrBack() {
 // ===== 設備カテゴリタグ =====
 var ES_HEADERS = ['駐車場','ライフライン','キッチン','バス・トイレ・洗面','位置・フロア','回線','給湯','室内仕様','収納','共有施設','構造・工法・仕様','特徴・設備','管理・防犯','屋外設備','区画設備','建物設備','セキュリティ','詳細','周辺環境','共用部'];
 
-function buildFacilityTags(facStr) {
+function buildFacilityTags(facStr, source) {
   if (typeof facStr !== 'string' || !facStr) return '';
+  // 取得元がREINSなら設備はフラットな半角カンマ区切り(カテゴリ見出しを持たない)。
+  // 「給湯」「駐車場」等がES見出し語と偶然一致するので、REINSはカテゴリ分けせず
+  // 見出しなしのフラットタグ表示にする（下のフォールバックへ直行）。
+  if (source === 'reins') return buildFacilityTagsFlat(facStr);
   // Itandi形式（【カテゴリ】）
   if (facStr.indexOf('\u3010') >= 0) return buildFacilityTagsFromItandi(facStr);
-  // ES-Square形式検出: 半角カンマで分割してヘッダーが含まれるか
+  // ES-Square形式検出: 半角カンマで分割してカテゴリ見出しが含まれるか。
+  // REINSはフラットな半角カンマ区切り(例「都市ガス,…,給湯,追焚機能,…」)で、たまたま
+  // 「給湯」等が見出し語と一致してしまう。ES-Square形式は見出しが必ず複数あるので、
+  // 「見出し一致が2種類以上」の時だけES形式とみなす（REINSはフラットタグ表示に回す）。
   var testSegs = facStr.split(/\s*,\s*/);
-  var hasEs = false;
+  var esHeaderHits = {};
   for (var t = 0; t < testSegs.length; t++) {
-    if (ES_HEADERS.indexOf(testSegs[t].trim()) >= 0) { hasEs = true; break; }
+    var seg = testSegs[t].trim();
+    if (ES_HEADERS.indexOf(seg) >= 0) esHeaderHits[seg] = true;
   }
-  if (hasEs) return buildFacilityTagsFromES(facStr);
-  // フォールバック: カンマ区切りプレーンテキスト（タグ表示のみ）
+  if (Object.keys(esHeaderHits).length >= 2) return buildFacilityTagsFromES(facStr);
+  // フォールバック（未分類）: 見出しなしのフラットタグ表示
+  return buildFacilityTagsFlat(facStr);
+}
+
+// カンマ/読点/スラッシュ区切りのフラットなタグ表示（REINS・未分類用、カテゴリ見出しなし）
+function buildFacilityTagsFlat(facStr) {
+  if (typeof facStr !== 'string' || !facStr) return '';
   var items = facStr.split(/[,、，\/\n]+/).map(function(s) { return s.trim(); }).filter(function(s) {
     if (!s) return false;
     if (/[:：]\s*[-－ー無なし]+\s*$/.test(s)) return false;
@@ -1102,7 +1117,7 @@ function renderProperty(p) {
   var facStr = typeof p.facilities === 'string' ? p.facilities : '';
   if (hv(facStr)) {
     html += '<div class="section"><div class="section-title">設備・詳細</div>';
-    html += buildFacilityTags(facStr);
+    html += buildFacilityTags(facStr, p.source);
     html += '</div>';
   }
 
