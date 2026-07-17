@@ -52,7 +52,34 @@ var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
 
 // ehomaki 画像ホスト(Cloudflare R2)。配信停止顧客の物件を消すとき画像も一緒に消す用。
 var EHOMAKI_IMG_DELETE_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/delete';
+var EHOMAKI_DATA_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/d'; // 物件データ保存
 var EHOMAKI_IMG_TOKEN = '9d4418ca3ecde8449153e6b44408ad8d315d398ea0903376';
+
+/**
+ * 物件データ(view用オブジェクト)を ehomaki(R2) に保存し、短いIDを返す。
+ * LINE の URL 上限(1000字)に収まらない全データ(設備・全画像・全費用)を、
+ * property.html が id 経由で Cloudflare エッジから即取得できるようにする。
+ * @return {string|null} データID（失敗時 null）
+ */
+function _storePropertyDataToEhomaki_(dataObj, customerName) {
+  try {
+    var resp = UrlFetchApp.fetch(EHOMAKI_DATA_URL, {
+      method: 'post',
+      contentType: 'application/json; charset=utf-8',
+      headers: { Authorization: 'Bearer ' + EHOMAKI_IMG_TOKEN, 'x-customer': encodeURIComponent(customerName || '') },
+      payload: JSON.stringify(dataObj),
+      muteHttpExceptions: true
+    });
+    if (resp.getResponseCode() === 200) {
+      var j = JSON.parse(resp.getContentText());
+      return j.id || null;
+    }
+    console.warn('_storePropertyDataToEhomaki_ HTTP ' + resp.getResponseCode() + ': ' + resp.getContentText().slice(0, 100));
+  } catch (e) {
+    console.warn('_storePropertyDataToEhomaki_ error: ' + e.message);
+  }
+  return null;
+}
 
 /**
  * ehomaki(R2) にホストしている画像URLを削除する。ehomaki以外のURL(旧catbox等)は
@@ -5646,7 +5673,6 @@ function _bestViewUrl_(customerName, roomId, prop) {
   // 送信経路によっては prop に設備・住所・画像が乗っておらず（記録の property_data_json 側だけに
   // ある）、view_api では出るのに URL には入らず「最初は出ない」状態になる。
   // → 記録行(property_data_json)を直接読んで、欠けている項目を prop に補完する。
-  globalThis.__enrichDbg = { fb: prop.facilities ? 1 : 0, rows: 0, recfac: 0, fa: 0, keys: '' }; // TODO一時診断
   try {
     // (customer, roomId) に一致する記録行を全部集める（pending/sent 問わず）
     var _rows = [];
@@ -5676,8 +5702,6 @@ function _bestViewUrl_(customerName, roomId, prop) {
       var _pdj = {};
       try { _pdj = JSON.parse(_rows[_ri][9] || '{}'); } catch (_pe) {}
       if (!_pdj || typeof _pdj !== 'object') continue;
-      if (_pdj.facilities) globalThis.__enrichDbg.recfac = 1;               // TODO一時診断
-      if (_ri === 0) globalThis.__enrichDbg.keys = Object.keys(_pdj).slice(0, 18).join(','); // TODO一時診断
       for (var _sk in _map) {
         var _ck = _map[_sk];
         if (!prop[_ck] && _pdj[_sk]) prop[_ck] = _pdj[_sk];
@@ -5689,10 +5713,29 @@ function _bestViewUrl_(customerName, roomId, prop) {
         if (_im && _im.length) { prop.imageUrls = _im; prop.imageUrl = _im[0]; }
       }
     }
-    globalThis.__enrichDbg.rows = _rows.length;                             // TODO一時診断
-    globalThis.__enrichDbg.fa = prop.facilities ? 1 : 0;                    // TODO一時診断
-  } catch (_enrichErr) { try { globalThis.__enrichDbg.err = String(_enrichErr).slice(0, 60); } catch (_e2) {} }
+  } catch (_enrichErr) {}
 
+  // ── 最優先: 全データ(設備・全画像・全費用)を ehomaki に保存し、短いID付きURLを返す。
+  //    LINE の URL 上限(1000字)にも view_api の遅延にも縛られず、property.html が
+  //    Cloudflare エッジからデータを即取得して「最初から全部表示」できる。 ──
+  try {
+    var _allImgs = (prop.selectedImageUrls && prop.selectedImageUrls.length) ? prop.selectedImageUrls
+                 : ((prop.imageUrls && prop.imageUrls.length) ? prop.imageUrls
+                 : (prop.imageUrl ? [prop.imageUrl] : []));
+    var _fd = _propToViewData_(prop);
+    var _packedAll = _packViewImages_(_allImgs);
+    if (_packedAll.ib) _fd.ib = _packedAll.ib;
+    if (_packedAll.imgs && _packedAll.imgs.length) _fd.imgs = _packedAll.imgs;
+    var _catsAll = prop.selectedImageCategories || prop.imageCategories || [];
+    if (_catsAll.length && _catsAll.some(function(c) { return c; })) _fd.imgc = _catsAll;
+    var _dataId = _storePropertyDataToEhomaki_(_fd, customerName);
+    if (_dataId) {
+      return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName)
+        + '&room_id=' + roomId + '&id=' + _dataId;
+    }
+  } catch (_ehStoreErr) { console.warn('_bestViewUrl_ ehomaki store failed: ' + _ehStoreErr.message); }
+
+  // ── フォールバック: ehomaki 保存失敗時のみ、従来どおり全項目を URL に埋め込む(m=)。 ──
   var LIMIT = 1000;
   var baseUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + roomId + '&m=';
   var imgs = (prop.selectedImageUrls && prop.selectedImageUrls.length) ? prop.selectedImageUrls
@@ -5716,22 +5759,16 @@ function _bestViewUrl_(customerName, roomId, prop) {
     return c;
   };
   var full = _propToViewData_(prop);
-  try {
-    globalThis.__enrichDbg.faclen = prop.facilities ? String(prop.facilities).length : 0; // 設備の文字数
-    full._dbg = globalThis.__enrichDbg;
-  } catch (_e) {}
   // 1. 全項目 + ヒーロー画像（入れば1枚だけ即表示。残りギャラリーは images_api）
   var u1 = build(withHero(full));
-  if (u1.length <= LIMIT) { try { full._dbg.step = 1; } catch (_e) {} return u1; }
+  if (u1.length <= LIMIT) return u1;
   // 2. 全項目のみ（ヒーローも落とす。画像は全部 images_api から高速取得）
   var u2 = build(full);
-  try { globalThis.__enrichDbg.u2len = u2.length; } catch (_e) {} // 全項目URLの長さ（1000超なら設備が削られる）
-  if (u2.length <= LIMIT) { try { full._dbg.step = 2; } catch (_e) {} return u2; }
+  if (u2.length <= LIMIT) return u2;
   // 3. まだ超える → 長く低優先の項目を順に削って必ず m= URL に収める。
   //    設備(fac)・主要費用は極力残す（dropOrder の後方に置く）。
   //    plain URL には絶対にしない（埋め込みが無いと詳細ページが view_api 待ちで固まるため）。
   var d0 = _propToViewData_(prop);
-  try { d0._dbg = globalThis.__enrichDbg; d0._dbg.step = 3; } catch (_e) {} // TODO一時診断
   var dropOrder = [
     'ld', 'frd', 'mic', 'gi', 'ri', 'cn', 'os', 'ad', 'md', 'sl', 'tu', 'st', 'lt', 'cp',
     'sf24', 'rig', 'adp', 'gd', 'wb', 'af', 'cs', 'pk', 'bp', 'mp', 'omf', 'oof',
