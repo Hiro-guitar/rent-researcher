@@ -2167,7 +2167,7 @@ function renderEquipment() {
       var eid = 'equip_' + c + '_' + i;
       html += '<div class="equip-item"><input type="checkbox" id="' + eid + '" name="equipment" value="' + esc(item) + '" onchange="onEquipChange(' + c + ',this)"><label for="' + eid + '">' + esc(item) + '</label></div>';
       if (item === 'ペット相談可') {
-        html += '<div class="pet-input-row" id="petInputRow"><input type="text" id="petTypeInput" placeholder="ペットの種類を入力"><div class="hint">例: 小型犬、猫</div></div>';
+        html += '<div class="pet-input-row" id="petInputRow"><input type="text" id="petTypeInput" placeholder="ペットの種類を入力（必須）"><div class="hint">必須・例: 小型犬、猫</div></div>';
       }
     }
     html += '</div></div></div>';
@@ -2392,6 +2392,15 @@ function submitAdminCriteria() {
   if (criteria.equipment.indexOf('ペット相談可') >= 0) {
     var petInput = document.getElementById('petTypeInput');
     if (petInput) criteria.petType = petInput.value.trim();
+    // 「ペット相談可」を選んだらペットの種類は必須
+    if (!criteria.petType) {
+      showAlert('「ペット相談可」を選んだ場合は、ペットの種類を入力してください。（例: 小型犬、猫）');
+      if (petInput) {
+        petInput.focus();
+        try { petInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+      }
+      return;
+    }
   }
 
   // その他
