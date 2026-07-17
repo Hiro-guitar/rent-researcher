@@ -236,6 +236,8 @@ input[type="range"]::-webkit-slider-thumb {
   background: #2d2d2d; color: #e0e0e0;
 }
 .pet-input-row .hint { font-size: 11px; color: #777; margin-top: 4px; }
+.pet-input-row input.req-empty { border-color: #e53935; box-shadow: 0 0 0 2px rgba(229,57,53,.35); }
+.pet-input-row .req-badge { display: inline-block; background: #e53935; color: #fff; font-weight: 700; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-right: 6px; }
 
 /* ── フッター ── */
 .footer {
@@ -1366,6 +1368,8 @@ function populateForm(data) {
     var petInput = document.getElementById('petTypeInput');
     if (petInput) petInput.value = data.petType;
   }
+  // 編集読み込み時: ペット相談可ONなら未入力赤枠を反映
+  if (equips.indexOf('ペット相談可') >= 0) __petReq(document.getElementById('petTypeInput'));
 
   // その他
   if (data.notes) {
@@ -2167,7 +2171,7 @@ function renderEquipment() {
       var eid = 'equip_' + c + '_' + i;
       html += '<div class="equip-item"><input type="checkbox" id="' + eid + '" name="equipment" value="' + esc(item) + '" onchange="onEquipChange(' + c + ',this)"><label for="' + eid + '">' + esc(item) + '</label></div>';
       if (item === 'ペット相談可') {
-        html += '<div class="pet-input-row" id="petInputRow"><input type="text" id="petTypeInput" placeholder="ペットの種類を入力（必須）"><div class="hint">必須・例: 小型犬、猫</div></div>';
+        html += '<div class="pet-input-row" id="petInputRow"><input type="text" id="petTypeInput" oninput="__petReq(this)" placeholder="ペットの種類を入力（必須）"><div class="hint"><span class="req-badge">必須</span>例: 小型犬、猫</div></div>';
       }
     }
     html += '</div></div></div>';
@@ -2187,11 +2191,17 @@ function toggleEquipCategory(c) {
   }
 }
 
+// ペット種類の入力欄: 未入力なら赤枠（必須の視覚表示）
+function __petReq(el) {
+  if (el) el.classList.toggle('req-empty', !String(el.value || '').trim());
+}
+
 function onEquipChange(catIdx, cb) {
   if (cb.value === 'ペット相談可') {
     var petRow = document.getElementById('petInputRow');
     if (petRow) {
       petRow.className = 'pet-input-row' + (cb.checked ? ' show' : '');
+      if (cb.checked) __petReq(document.getElementById('petTypeInput'));
       var content = document.getElementById('equipContent_' + catIdx);
       if (content.style.maxHeight && content.style.maxHeight !== '0px') {
         setTimeout(function() { content.style.maxHeight = content.scrollHeight + 'px'; }, 10);
