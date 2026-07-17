@@ -183,6 +183,16 @@ function decodePropertyData(encoded) {
     for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     var jsonStr = new TextDecoder('utf-8').decode(bytes);
     var d = JSON.parse(jsonStr);
+    return mapDataToProperty(d);
+  } catch(e) {
+    return null;
+  }
+}
+
+// 短縮キーオブジェクト(d) → フルプロパティ名にマッピング（埋め込み/ehomaki取得 共用）
+function mapDataToProperty(d) {
+  if (!d) return null;
+  {
     // 短縮キー → フルプロパティ名にマッピング
     return {
       buildingName: d.bn || '',
@@ -240,8 +250,6 @@ function decodePropertyData(encoded) {
       }),
       imageCategories: d.imgc || []
     };
-  } catch(e) {
-    return null;
   }
 }
 
@@ -322,7 +330,28 @@ function renderNowSafe(p) {
   try { renderProperty(p); }
   catch (e) { try { injectMinimalToSkeleton(p); } catch (e2) {} }
 }
-if (inlineProp) {
+
+// ?id= があれば、ehomaki(Cloudflareエッジ)から全データを取得して即フル描画する。
+// URL上限に縛られず全項目・全画像を持てるので、view_api 待ち無しで最初から全部出る。
+var idParam = params.get('id');
+if (idParam) {
+  fetch('https://ehomaki-img.delicate-bush-f5a9.workers.dev/d/' + encodeURIComponent(idParam))
+    .then(function(r) { if (!r.ok) throw new Error('data ' + r.status); return r.json(); })
+    .then(function(o) {
+      var p = mapDataToProperty(o);
+      if (!p) throw new Error('map failed');
+      renderNowSafe(p);
+      // ehomaki のデータが完全なので view_api は呼ばない（再描画で上書き＝遅延復活を防ぐ）。
+      // 空室状況は「空室確認」ボタンから、募集終了は掲載側の運用で対応。
+    })
+    .catch(function() {
+      // 取得失敗 → 従来経路（埋め込み or view_api）にフォールバック
+      if (inlineProp) { renderNowSafe(inlineProp); if (customer && roomId) fetchProperty(customer, roomId); }
+      else if (minimalProp && customer && roomId) { renderNowSafe(minimalProp); fetchImages(customer, roomId); fetchProperty(customer, roomId); }
+      else if (customer && roomId) { showSimpleLoading(); fetchProperty(customer, roomId); }
+      else { showError('パラメータが不足しています。'); }
+    });
+} else if (inlineProp) {
   renderNowSafe(inlineProp);                       // 即フル描画
   if (customer && roomId) fetchProperty(customer, roomId); // 裏で最新反映(closedなら切替)
 } else if (minimalProp && customer && roomId) {
