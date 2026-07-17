@@ -5823,6 +5823,17 @@ function _propToViewData_(prop) {
   // 設備: objectでもstringでもそのまま
   if (prop.facilities) d.fac = prop.facilities;
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
+  // 取得元(reins/itandi/ielove/essquare): property.html の設備カテゴリ表示切替に使う
+  // (REINSはフラットな設備リストなのでカテゴリ見出しを作らない)
+  var _src = prop.source ? String(prop.source) : '';
+  if (!_src && prop.url) {
+    var _u = String(prop.url).toLowerCase();
+    if (_u.indexOf('itandibb.com') >= 0 || _u.indexOf('rent.itandi') >= 0) _src = 'itandi';
+    else if (_u.indexOf('ielove') >= 0 || _u.indexOf('homes.co.jp') >= 0) _src = 'ielove';
+    else if (_u.indexOf('es-square') >= 0 || _u.indexOf('iisesq') >= 0) _src = 'essquare';
+    else if (_u.indexOf('reins') >= 0) _src = 'reins';
+  }
+  if (_src) d.src = _src;
   return d;
 }
 
