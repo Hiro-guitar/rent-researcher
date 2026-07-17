@@ -4381,17 +4381,44 @@ function cleanupOldPropertyRecords() {
 }
 
 /**
- * Cloudflare R2 のストレージ使用量を取得し、閾値(既定8GB)超過なら Discord に警告する。
- * 無料枠は10GB/月。課金が発生する前に気づくための日次チェック。
+ * Cloudflare GraphQL Analytics API を1回叩いて結果JSONを返す（失敗時は throw）。
+ * @return {Object} json.data ...
+ */
+function _cfGraphQL_(token, query, variables) {
+  var resp = UrlFetchApp.fetch('https://api.cloudflare.com/client/v4/graphql', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify({ query: query, variables: variables }),
+    muteHttpExceptions: true
+  });
+  var code = resp.getResponseCode();
+  var text = resp.getContentText();
+  if (code < 200 || code >= 300) throw new Error('HTTP ' + code + ': ' + text.slice(0, 200));
+  var json;
+  try { json = JSON.parse(text); } catch (e) { throw new Error('JSON parse失敗'); }
+  if (json.errors && json.errors.length) throw new Error('GraphQL error: ' + JSON.stringify(json.errors).slice(0, 200));
+  return json;
+}
+
+/**
+ * Cloudflare R2 の使用量（ストレージ + 操作数）を取得し、いずれかが無料枠の手前の
+ * 閾値を超えたら Discord に警告する。無料枠は ストレージ10GB / Class A 100万 /
+ * Class B 1,000万（いずれも月次）。課金が発生する「前」に気づくための日次チェック。
+ *
+ * 操作数は「月間の総操作数」1本で見る。総数が Class A 上限(100万)の手前(既定90万)未満なら、
+ * その内訳である Class A も Class B(≪1,000万) も確実に無料枠内 → 1指標で両クラスをカバー。
+ * 月境界の面倒を避けるため直近31日を集計（実際の暦月より多めに数える保守側）。
  *
  * ScriptProperties:
  *   CLOUDFLARE_API_TOKEN     … Account Analytics(Read) 権限のAPIトークン（必須）
  *   CLOUDFLARE_ACCOUNT_ID    … アカウントID（未設定なら既定値を使用）
- *   R2_ALERT_THRESHOLD_GB    … 警告する閾値GB（未設定なら 8）
+ *   R2_ALERT_THRESHOLD_GB    … ストレージ警告閾値GB（未設定なら 8 / 無料枠10）
+ *   R2_OPS_ALERT_THRESHOLD   … 月間操作数の警告閾値（未設定なら 900000 / 無料枠100万）
  *   DISCORD_WEBHOOK_URL      … 通知先（既存の共通webhookを流用）
  *
- * UrlFetch は 1日1回のみ（GraphQL 1回）でクォータへの影響は無視できる。
- * @return {{ok:boolean, usedGB?:number, thresholdGB?:number, alerted?:boolean, reason?:string}}
+ * UrlFetch は 1日 最大2回（GraphQL）でクォータへの影響は無視できる。
+ * @return {{ok:boolean, usedGB?:number, ops?:number, warnings?:string[], alerted?:boolean, reason?:string}}
  */
 function checkR2StorageUsage_() {
   var sp = PropertiesService.getScriptProperties();
@@ -4399,64 +4426,83 @@ function checkR2StorageUsage_() {
   if (!token) return { ok: false, reason: 'CLOUDFLARE_API_TOKEN 未設定' };
   var accountId = sp.getProperty('CLOUDFLARE_ACCOUNT_ID') || 'ca970c3cd4feb893dd10fc3b56948632';
   var thresholdGB = parseFloat(sp.getProperty('R2_ALERT_THRESHOLD_GB') || '8') || 8;
+  var opsThreshold = parseFloat(sp.getProperty('R2_OPS_ALERT_THRESHOLD') || '900000') || 900000;
 
-  // 直近2日ぶんのストレージ実測（日次集計）から最新値を取る
   var now = new Date();
-  var from = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
   var fmt = function (d) { return Utilities.formatDate(d, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'"); };
-  var query =
-    'query($acct:String!,$from:String!,$to:String!){' +
-    'viewer{accounts(filter:{accountTag:$acct}){' +
-    'r2StorageAdaptiveGroups(limit:1,filter:{datetime_geq:$from,datetime_leq:$to},orderBy:[datetime_DESC]){' +
-    'max{payloadSize metadataSize objectCount} dimensions{datetime}' +
-    '}}}}';
-  var payload = { query: query, variables: { acct: accountId, from: fmt(from), to: fmt(now) } };
+  var warnings = [];
+  var out = { ok: true };
 
-  var resp = UrlFetchApp.fetch('https://api.cloudflare.com/client/v4/graphql', {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { Authorization: 'Bearer ' + token },
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  });
-  var code = resp.getResponseCode();
-  var text = resp.getContentText();
-  if (code < 200 || code >= 300) return { ok: false, reason: 'HTTP ' + code + ': ' + text.slice(0, 200) };
-
-  var json;
-  try { json = JSON.parse(text); } catch (e) { return { ok: false, reason: 'JSON parse失敗' }; }
-  if (json.errors && json.errors.length) {
-    return { ok: false, reason: 'GraphQL error: ' + JSON.stringify(json.errors).slice(0, 200) };
-  }
-  var groups = ((((json.data || {}).viewer || {}).accounts || [])[0] || {}).r2StorageAdaptiveGroups || [];
-  if (!groups.length) return { ok: false, reason: 'ストレージデータなし（まだ集計されていない可能性）' };
-
-  var mx = groups[0].max || {};
-  var bytes = (Number(mx.payloadSize) || 0) + (Number(mx.metadataSize) || 0);
-  var usedGB = bytes / (1024 * 1024 * 1024);
-  var usedGBr = Math.round(usedGB * 1000) / 1000;
-  console.log('[r2-usage] used=' + usedGBr + 'GB threshold=' + thresholdGB + 'GB objects=' + (mx.objectCount || 0));
-
-  if (usedGB < thresholdGB) {
-    return { ok: true, usedGB: usedGBr, thresholdGB: thresholdGB, alerted: false };
+  // ── ① ストレージ実測（直近2日の日次集計の最新値） ──
+  try {
+    var sFrom = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+    var sQuery =
+      'query($acct:String!,$from:String!,$to:String!){' +
+      'viewer{accounts(filter:{accountTag:$acct}){' +
+      'r2StorageAdaptiveGroups(limit:1,filter:{datetime_geq:$from,datetime_leq:$to},orderBy:[datetime_DESC]){' +
+      'max{payloadSize metadataSize objectCount} dimensions{datetime}' +
+      '}}}}';
+    var sj = _cfGraphQL_(token, sQuery, { acct: accountId, from: fmt(sFrom), to: fmt(now) });
+    var sGroups = ((((sj.data || {}).viewer || {}).accounts || [])[0] || {}).r2StorageAdaptiveGroups || [];
+    if (sGroups.length) {
+      var mx = sGroups[0].max || {};
+      var usedGB = ((Number(mx.payloadSize) || 0) + (Number(mx.metadataSize) || 0)) / (1024 * 1024 * 1024);
+      out.usedGB = Math.round(usedGB * 1000) / 1000;
+      out.objects = Number(mx.objectCount) || 0;
+      if (usedGB >= thresholdGB) {
+        warnings.push('📦 ストレージ **' + out.usedGB + 'GB**（閾値 ' + thresholdGB + 'GB / 無料枠 10GB）'
+          + '｜超過分は $0.015/GB・月。オブジェクト数 ' + out.objects);
+      }
+    }
+  } catch (e) {
+    console.warn('[r2-usage] storage取得失敗: ' + e.message);
+    out.storageError = e.message;
   }
 
-  // 閾値超過 → Discord警告
+  // ── ② 操作数（直近31日の総操作数 = Class A/B 両方を保守側でカバー） ──
+  try {
+    var oFrom = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000);
+    var oQuery =
+      'query($acct:String!,$from:String!,$to:String!){' +
+      'viewer{accounts(filter:{accountTag:$acct}){' +
+      'r2OperationsAdaptiveGroups(limit:1,filter:{datetime_geq:$from,datetime_leq:$to}){' +
+      'sum{requests}' +
+      '}}}}';
+    var oj = _cfGraphQL_(token, oQuery, { acct: accountId, from: fmt(oFrom), to: fmt(now) });
+    var oGroups = ((((oj.data || {}).viewer || {}).accounts || [])[0] || {}).r2OperationsAdaptiveGroups || [];
+    if (oGroups.length) {
+      var ops = Number((oGroups[0].sum || {}).requests) || 0;
+      out.ops = ops;
+      if (ops >= opsThreshold) {
+        warnings.push('🔁 操作数(直近31日) **' + ops.toLocaleString() + '回**（閾値 '
+          + opsThreshold.toLocaleString() + ' / Class A無料枠 100万・Class B 1,000万）');
+      }
+    }
+  } catch (e) {
+    console.warn('[r2-usage] operations取得失敗: ' + e.message);
+    out.opsError = e.message;
+  }
+
+  console.log('[r2-usage] used=' + (out.usedGB != null ? out.usedGB + 'GB' : 'n/a')
+    + ' ops=' + (out.ops != null ? out.ops : 'n/a') + ' warnings=' + warnings.length);
+
+  out.warnings = warnings;
+  if (!warnings.length) { out.alerted = false; return out; }
+
+  // ── 閾値超過あり → Discord警告 ──
   var webhookUrl = sp.getProperty('DISCORD_WEBHOOK_URL') || '';
-  if (!webhookUrl) {
-    return { ok: true, usedGB: usedGBr, thresholdGB: thresholdGB, alerted: false, reason: 'DISCORD_WEBHOOK_URL 未設定で通知できず' };
-  }
-  var lines = [];
-  lines.push('⚠️ **R2ストレージ 警告** ⚠️');
-  lines.push('使用量が **' + usedGBr + 'GB** に達しました（警告閾値 ' + thresholdGB + 'GB / 無料枠 10GB）。');
-  lines.push('オブジェクト数: ' + (mx.objectCount || 0));
-  lines.push('10GBを超えると課金($0.015/GB・月)が始まります。古い画像/物件データの削除をご検討ください。');
+  if (!webhookUrl) { out.alerted = false; out.reason = 'DISCORD_WEBHOOK_URL 未設定で通知できず'; return out; }
+  var lines = ['⚠️ **R2 使用量 警告** ⚠️'];
+  for (var i = 0; i < warnings.length; i++) lines.push(warnings[i]);
+  lines.push('無料枠を超えると課金が始まります。古い画像/物件データの削除をご検討ください。');
   try {
     _sendDiscordWithRetry_(webhookUrl, { content: lines.join('\n') }, 3);
+    out.alerted = true;
   } catch (e) {
     console.error('[r2-usage] Discord送信失敗: ' + e.message);
+    out.alerted = false;
   }
-  return { ok: true, usedGB: usedGBr, thresholdGB: thresholdGB, alerted: true };
+  return out;
 }
 
 /**
