@@ -107,6 +107,32 @@ function _deleteEhomakiImages_(urls) {
   }
 }
 
+/**
+ * ehomaki(R2) に保存した物件データ(/d/<id>.json)を削除する。
+ * property.html?...&id=<id> 形式の viewUrl を渡すと、Worker が id を抜き出して消す。
+ * @param {string[]} viewUrls 送信時に保存した viewUrl 群（PENDINGシート列N）
+ * @return {number} 削除依頼した件数
+ */
+function _deleteEhomakiData_(viewUrls) {
+  try {
+    var list = (viewUrls || []).filter(function (u) {
+      return typeof u === 'string' && u.indexOf('property.html') >= 0 && /[?&]id=[0-9a-fA-F]/.test(u);
+    });
+    if (list.length === 0) return 0;
+    UrlFetchApp.fetch(EHOMAKI_IMG_DELETE_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + EHOMAKI_IMG_TOKEN },
+      payload: JSON.stringify({ dataUrls: list }),
+      muteHttpExceptions: true
+    });
+    return list.length;
+  } catch (e) {
+    console.warn('_deleteEhomakiData_ error: ' + e.message);
+    return 0;
+  }
+}
+
 // ===== GAS Base URL =====
 function getGasBaseUrl() {
   return ScriptApp.getService().getUrl();
@@ -4497,11 +4523,12 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
     if (pend) {
       var pLast = pend.getLastRow();
       if (pLast >= 2) {
-        // A〜J列を読む（画像URLは J列 index9 のJSON内 image_urls / selected_image_urls）
-        var pWidth = Math.max(10, pend.getLastColumn());
+        // A〜N列を読む（画像URLは J列 index9 のJSON、viewUrl(?id=付き)は N列 index13）
+        var pWidth = Math.max(14, pend.getLastColumn());
         var pAll = pend.getRange(2, 1, pLast - 1, pWidth).getValues();
         var pRows = [];
         var imagesToDelete = [];
+        var dataUrlsToDelete = [];
         for (var k = 0; k < pAll.length; k++) {
           var pn = String(pAll[k][0] || '').trim();
           if (!shouldDeleteCustomer(pn)) continue;
@@ -4515,13 +4542,17 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
               if (imgs[ii] && imagesToDelete.indexOf(imgs[ii]) < 0) imagesToDelete.push(imgs[ii]);
             }
           } catch (_pe) {}
+          // 物件データURL(?id=付き viewUrl)を収集（ehomaki の /d/<id>.json も消す）
+          var vu = String(pAll[k][13] || '').trim();
+          if (vu && dataUrlsToDelete.indexOf(vu) < 0) dataUrlsToDelete.push(vu);
         }
         for (var m = pRows.length - 1; m >= 0; m--) {
           pend.deleteRow(pRows[m]);
         }
         result.deletedPendingRows = pRows.length;
-        // 承認待ち行を消したので、その画像も R2 から削除
+        // 承認待ち行を消したので、その画像・物件データも R2 から削除
         result.deletedImages = _deleteEhomakiImages_(imagesToDelete);
+        result.deletedData = _deleteEhomakiData_(dataUrlsToDelete);
       }
     }
 
