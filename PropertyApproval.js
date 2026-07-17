@@ -4370,7 +4370,93 @@ function cleanupOldPropertyRecords() {
     console.warn('cleanupOldPropertyRecords error: ' + e.message);
     result.error = e.message;
   }
+  // R2ストレージ使用量を監視。無料枠(10GB)の手前(既定8GB)を超えたらDiscord警告。
+  // 課金される「前」に気づくための見張り番。失敗してもクリーンアップ本体は止めない。
+  try {
+    result.r2 = checkR2StorageUsage_();
+  } catch (e2) {
+    console.warn('checkR2StorageUsage_ error: ' + e2.message);
+  }
   return result;
+}
+
+/**
+ * Cloudflare R2 のストレージ使用量を取得し、閾値(既定8GB)超過なら Discord に警告する。
+ * 無料枠は10GB/月。課金が発生する前に気づくための日次チェック。
+ *
+ * ScriptProperties:
+ *   CLOUDFLARE_API_TOKEN     … Account Analytics(Read) 権限のAPIトークン（必須）
+ *   CLOUDFLARE_ACCOUNT_ID    … アカウントID（未設定なら既定値を使用）
+ *   R2_ALERT_THRESHOLD_GB    … 警告する閾値GB（未設定なら 8）
+ *   DISCORD_WEBHOOK_URL      … 通知先（既存の共通webhookを流用）
+ *
+ * UrlFetch は 1日1回のみ（GraphQL 1回）でクォータへの影響は無視できる。
+ * @return {{ok:boolean, usedGB?:number, thresholdGB?:number, alerted?:boolean, reason?:string}}
+ */
+function checkR2StorageUsage_() {
+  var sp = PropertiesService.getScriptProperties();
+  var token = sp.getProperty('CLOUDFLARE_API_TOKEN') || '';
+  if (!token) return { ok: false, reason: 'CLOUDFLARE_API_TOKEN 未設定' };
+  var accountId = sp.getProperty('CLOUDFLARE_ACCOUNT_ID') || 'ca970c3cd4feb893dd10fc3b56948632';
+  var thresholdGB = parseFloat(sp.getProperty('R2_ALERT_THRESHOLD_GB') || '8') || 8;
+
+  // 直近2日ぶんのストレージ実測（日次集計）から最新値を取る
+  var now = new Date();
+  var from = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+  var fmt = function (d) { return Utilities.formatDate(d, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'"); };
+  var query =
+    'query($acct:String!,$from:String!,$to:String!){' +
+    'viewer{accounts(filter:{accountTag:$acct}){' +
+    'r2StorageAdaptiveGroups(limit:1,filter:{datetime_geq:$from,datetime_leq:$to},orderBy:[datetime_DESC]){' +
+    'max{payloadSize metadataSize objectCount} dimensions{datetime}' +
+    '}}}}';
+  var payload = { query: query, variables: { acct: accountId, from: fmt(from), to: fmt(now) } };
+
+  var resp = UrlFetchApp.fetch('https://api.cloudflare.com/client/v4/graphql', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  var code = resp.getResponseCode();
+  var text = resp.getContentText();
+  if (code < 200 || code >= 300) return { ok: false, reason: 'HTTP ' + code + ': ' + text.slice(0, 200) };
+
+  var json;
+  try { json = JSON.parse(text); } catch (e) { return { ok: false, reason: 'JSON parse失敗' }; }
+  if (json.errors && json.errors.length) {
+    return { ok: false, reason: 'GraphQL error: ' + JSON.stringify(json.errors).slice(0, 200) };
+  }
+  var groups = ((((json.data || {}).viewer || {}).accounts || [])[0] || {}).r2StorageAdaptiveGroups || [];
+  if (!groups.length) return { ok: false, reason: 'ストレージデータなし（まだ集計されていない可能性）' };
+
+  var mx = groups[0].max || {};
+  var bytes = (Number(mx.payloadSize) || 0) + (Number(mx.metadataSize) || 0);
+  var usedGB = bytes / (1024 * 1024 * 1024);
+  var usedGBr = Math.round(usedGB * 1000) / 1000;
+  console.log('[r2-usage] used=' + usedGBr + 'GB threshold=' + thresholdGB + 'GB objects=' + (mx.objectCount || 0));
+
+  if (usedGB < thresholdGB) {
+    return { ok: true, usedGB: usedGBr, thresholdGB: thresholdGB, alerted: false };
+  }
+
+  // 閾値超過 → Discord警告
+  var webhookUrl = sp.getProperty('DISCORD_WEBHOOK_URL') || '';
+  if (!webhookUrl) {
+    return { ok: true, usedGB: usedGBr, thresholdGB: thresholdGB, alerted: false, reason: 'DISCORD_WEBHOOK_URL 未設定で通知できず' };
+  }
+  var lines = [];
+  lines.push('⚠️ **R2ストレージ 警告** ⚠️');
+  lines.push('使用量が **' + usedGBr + 'GB** に達しました（警告閾値 ' + thresholdGB + 'GB / 無料枠 10GB）。');
+  lines.push('オブジェクト数: ' + (mx.objectCount || 0));
+  lines.push('10GBを超えると課金($0.015/GB・月)が始まります。古い画像/物件データの削除をご検討ください。');
+  try {
+    _sendDiscordWithRetry_(webhookUrl, { content: lines.join('\n') }, 3);
+  } catch (e) {
+    console.error('[r2-usage] Discord送信失敗: ' + e.message);
+  }
+  return { ok: true, usedGB: usedGBr, thresholdGB: thresholdGB, alerted: true };
 }
 
 /**
