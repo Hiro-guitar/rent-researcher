@@ -1971,6 +1971,16 @@ function showSuumoRequiredErrorBanner(missing) {
   }
 }
 
+// 住所が番地まで入っているか判定。丁目/町/字 等で終わっていたら番地が抜けている。
+// SUUMO入稿は番地まで無いと失敗するので承認時に警告する。
+function isAddressIncomplete(addr) {
+  var a = String(addr || '').replace(/[\s　]/g, '');
+  if (!a) return false; // 空は必須チェックが担当
+  if (/[0-9０-９]$/.test(a)) return false;      // 末尾が数字＝番地あり
+  if (/(号|番地|番)$/.test(a)) return false;     // 末尾が 号/番地/番＝番地あり
+  return true;                                  // 丁目/町/字 等で終わり＝番地なし
+}
+
 // ── 承認 ──
 function doApprove() {
   // SUUMO入稿必須項目チェック
@@ -1978,6 +1988,19 @@ function doApprove() {
   if (missing.length > 0) {
     showSuumoRequiredErrorBanner(missing);
     return;
+  }
+
+  // 住所が番地まで入っているか（丁目止まり等の未完チェック）
+  var addrEl = document.getElementById('pvAddress');
+  var addrVal = addrEl ? (addrEl.value || '').trim() : '';
+  if (addrVal && isAddressIncomplete(addrVal)) {
+    if (!confirm('住所が番地まで入っていないようです:\n「' + addrVal + '」\n\nSUUMO入稿では番地まで必要です。このまま承認して入稿しますか？')) {
+      if (addrEl) {
+        addrEl.classList.add('field-error');
+        try { addrEl.focus(); addrEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+      }
+      return;
+    }
   }
 
   var btn = document.getElementById('approveBtn');
