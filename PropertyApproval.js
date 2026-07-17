@@ -259,6 +259,9 @@ function handleConfirmApprove(e) {
   var prop = rowToProperty(row.values);
 
   // ── 編集値の適用（POSTフォームから） ──
+  // 編集フォームで送信された項目を記録。空欄で送られた項目も「ユーザーが意図的に空にした」
+  // とみなし、_bestViewUrl_ の補完(過去データで空欄を埋める)から除外する。
+  var authoritativeFields = {};
   if (e.parameter.buildingName !== undefined) {
     var editFields = ['buildingName','roomNumber','layout','buildingAge','floorText','storyText',
       'structure','totalUnits','sunlight','moveInDate','stationInfo','address',
@@ -274,6 +277,7 @@ function handleConfirmApprove(e) {
       var f = editFields[j];
       if (e.parameter[f] !== undefined) {
         prop[f] = e.parameter[f];
+        authoritativeFields[f] = true;
       }
     }
     if (e.parameter.rent !== undefined) prop.rent = Number(e.parameter.rent) || 0;
@@ -349,7 +353,7 @@ function handleConfirmApprove(e) {
   }
 
   // ビューURL: 全項目（設備・費用含む）＋入るだけの画像を1000字以内(LINE URI上限)に詰める
-  var viewUrl = _bestViewUrl_(customerName, roomId, prop);
+  var viewUrl = _bestViewUrl_(customerName, roomId, prop, { authoritative: authoritativeFields });
 
   // 画像URLをキャッシュ（property.html からの非同期取得用）
   cachePropertyImages(customerName, roomId, selectedImageUrls, selectedImageCategories);
@@ -430,7 +434,7 @@ function handleConfirmApprove(e) {
       var msPlainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(msName) + '&room_id=' + roomId;
       var msHashUrl = buildViewUrl(msName, roomId, msProp, []);
       var msMinimalUrl = buildMinimalViewUrl(msName, roomId, msProp);
-      var msViewUrl = _bestViewUrl_(msName, roomId, msProp);
+      var msViewUrl = _bestViewUrl_(msName, roomId, msProp, { authoritative: authoritativeFields });
       // 画像キャッシュ
       cachePropertyImages(msName, roomId, selectedImageUrls, selectedImageCategories);
       // Flex
@@ -5844,7 +5848,9 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
 // LINEボタン用の最良ビューURL。全項目＋「入るだけの画像」を1000字(LINE URI上限)以内に詰める。
 // 画像はキー化して短縮。全項目を優先し、収まらなければ画像を末尾から減らす。
 // それでも超える稀なケースのみ、長く重要度の低い項目を削る（設備fac・費用は極力残す）。
-function _bestViewUrl_(customerName, roomId, prop) {
+function _bestViewUrl_(customerName, roomId, prop, opts) {
+  // 編集フォームで送信された項目（空欄含む）は補完で埋め戻さない
+  var _auth = (opts && opts.authoritative) || {};
   // 物件名・間取りと同じ考え方で、設備・画像なども埋め込みデータ(m)に載せる。
   // 送信経路によっては prop に設備・住所・画像が乗っておらず（記録の property_data_json 側だけに
   // ある）、view_api では出るのに URL には入らず「最初は出ない」状態になる。
@@ -5880,7 +5886,8 @@ function _bestViewUrl_(customerName, roomId, prop) {
       if (!_pdj || typeof _pdj !== 'object') continue;
       for (var _sk in _map) {
         var _ck = _map[_sk];
-        if (!prop[_ck] && _pdj[_sk]) prop[_ck] = _pdj[_sk];
+        // 編集フォームで明示送信された項目は、空欄でもユーザー意図なので埋め戻さない
+        if (!prop[_ck] && _pdj[_sk] && !_auth[_ck]) prop[_ck] = _pdj[_sk];
       }
       // ヒーロー画像も記録から補完（prop に画像が無い場合）
       if ((!prop.imageUrls || !prop.imageUrls.length) && !prop.imageUrl) {
