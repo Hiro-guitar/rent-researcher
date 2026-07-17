@@ -6754,7 +6754,7 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
     + '.detail-label{color:#888;width:110px;flex-shrink:0;font-size:13px}'
     + '.detail-input{flex:1;border:1px solid #e0e0e0;border-radius:6px;padding:5px 8px;font-size:14px;color:#333;background:#fafafa}'
     + '.detail-input:focus{border-color:#4CAF50;outline:none;background:#fff}'
-    + '.detail-textarea{flex:1;border:1px solid #e0e0e0;border-radius:6px;padding:5px 8px;font-size:14px;color:#333;background:#fafafa;resize:vertical;min-height:50px;font-family:inherit}'
+    + '.detail-textarea{flex:1;border:1px solid #e0e0e0;border-radius:6px;padding:5px 8px;font-size:14px;color:#333;background:#fafafa;resize:vertical;min-height:38px;font-family:inherit;box-sizing:border-box;field-sizing:content;overflow:hidden}'
     + '.detail-textarea:focus{border-color:#4CAF50;outline:none;background:#fff}'
     + '.images-title{font-size:15px;font-weight:bold;color:#333;margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between}'
     + '.select-btns{font-size:12px;color:#4CAF50;cursor:pointer;margin-left:8px}'
@@ -7020,6 +7020,13 @@ function makePreviewHtml(prop, customerName, roomId, otherCustomers, collectMode
   try { __imgbbClientKey = PropertiesService.getScriptProperties().getProperty('IMGBB_API_KEY') || __imgbbClientKey; } catch (_eKey) {}
 
   html += '<script>'
+    // テキストエリアを中身の高さに自動フィット（畳まれず一発で全体が見えるように）。
+    // field-sizing:content 非対応ブラウザ向けのフォールバック。
+    + 'function __autoSizeTA(t){try{t.style.height="auto";t.style.height=(t.scrollHeight+2)+"px";}catch(e){}}'
+    + 'function __autoSizeAll(){var ts=document.querySelectorAll(".detail-textarea,.multi-send-comment,#staffComment");for(var i=0;i<ts.length;i++){__autoSizeTA(ts[i]);}}'
+    + 'document.addEventListener("input",function(e){var t=e.target;if(t&&t.tagName==="TEXTAREA")__autoSizeTA(t);});'
+    + 'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",__autoSizeAll);}else{__autoSizeAll();}'
+    + 'window.addEventListener("load",__autoSizeAll);'
     + 'var __IMGBB_KEY__=' + JSON.stringify(__imgbbClientKey) + ';'
     + 'var gasBaseUrl=' + JSON.stringify(baseUrl) + ';'
     + 'var customerName=' + JSON.stringify(customerName) + ';'
