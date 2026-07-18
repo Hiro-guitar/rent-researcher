@@ -30,47 +30,56 @@
   // Web Audio API (AudioContext + OscillatorNode) で無音を生成
   // dataURL <audio> はESQuareのCSP `media-src` 制限でブロックされるため、
   // src 不要の AudioContext を使用。
+  // 起動状態を一度だけダッシュボードに通知するためのフラグ
+  var __essqDiagOnce = false;
+  function __essqDiag(msg) {
+    if (__essqDiagOnce) return;
+    __essqDiagOnce = true;
+    diagToBg(msg);
+  }
+
+  // 無音オシレータを起動/維持する。document_start の早いタイミングや裏タブ・ナビ直後で
+  // suspended になったり Chrome に止められることがあるため、ウォッチドッグから繰り返し
+  // 呼んで「running な AudioContext + オシレータ」を維持し続ける（＝タブを audible に保つ）。
   function startSilentAudio() {
-    if (window.__essquareAudioCtx) return;
-    const urlPath = (location.pathname || '').slice(0, 40);
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) {
-        diagToBg('AudioContext API なし');
-        return;
+      if (!Ctx) { __essqDiag('AudioContext API なし'); return; }
+      let ctx = window.__essquareAudioCtx;
+      // コンテキストが無い or 閉じられていたら作り直す
+      if (!ctx || ctx.state === 'closed') {
+        ctx = new Ctx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        // 人間の可聴域(440Hz)で gain 極小 → 聴感上ほぼ無音だが Chrome の audible 判定は通る
+        osc.frequency.value = 440;
+        gain.gain.value = 0.001;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        window.__essquareAudioCtx = ctx;
       }
-      const ctx = new Ctx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      // Chrome の audible 判定を確実に通すため、人間の可聴域内 (440Hz=A音) で
-      // gain を極小に設定。1Hz超低周波 + gain 0.001 だと audible 判定が
-      // 通らないケースがあった。
-      osc.frequency.value = 440; // A音
-      gain.gain.value = 0.001; // 極小ボリューム (聴感上はほぼ無音)
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      window.__essquareAudioCtx = ctx;
-      // 起動成功はコンソールログのみ (ダッシュボード汚染を避ける)
-      console.log('[ES-Square keepalive] AudioContext started state=' + ctx.state);
-
       if (ctx.state === 'suspended') {
-        ctx.resume().catch((err) => {
-          // resume 失敗はダッシュボードに通知 (要対応の可能性)
-          diagToBg('AudioContext resume失敗(' + (err && err.message || '?') + ') — 音声許可設定を確認してください');
-          // user gesture フォールバック
-          const tryResume = () => {
-            ctx.resume().catch(() => {});
-            ['click','keydown','touchstart','pointerdown'].forEach(ev =>
-              document.removeEventListener(ev, tryResume, true));
-          };
-          ['click','keydown','touchstart','pointerdown'].forEach(ev =>
-            document.addEventListener(ev, tryResume, { capture: true, passive: true }));
+        ctx.resume().then(() => {
+          __essqDiag('AudioContext起動 state=' + ctx.state);
+        }).catch(() => {
+          // user gesture フォールバック（許可済みなら通常不要）
+          const tryResume = () => { try { ctx.resume(); } catch (e) {} };
+          ['click', 'keydown', 'touchstart', 'pointerdown'].forEach((ev) =>
+            document.addEventListener(ev, tryResume, { capture: true, passive: true, once: true }));
         });
+      } else if (ctx.state === 'running') {
+        __essqDiag('AudioContext起動 state=running');
       }
     } catch (e) {
-      diagToBg('AudioContext init失敗: ' + (e && e.message || '?'));
+      __essqDiag('AudioContext init失敗: ' + (e && e.message || '?'));
     }
   }
+
   startSilentAudio();
+  // ウォッチドッグ: 止められても復活させる。running な間はタブが audible でタイマーは
+  // 間引かれないので実質毎3秒。万一 suspended に落ちても次tickで resume する。
+  setInterval(startSilentAudio, 3000);
+  // タブ表示状態が変わった時も即再確認（裏→表 等）
+  document.addEventListener('visibilitychange', startSilentAudio, true);
 })();
