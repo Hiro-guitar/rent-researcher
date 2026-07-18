@@ -339,6 +339,16 @@ if (idParam) {
   fetch('https://ehomaki-img.delicate-bush-f5a9.workers.dev/d/' + encodeURIComponent(idParam))
     .then(function(r) { if (!r.ok) throw new Error('data ' + r.status); return r.json(); })
     .then(function(o) {
+      // 顧客名・room_id はURLに出さず ehomaki データ(cust/rid)に持たせている
+      // （お客さんにURLで内部の呼び名が見えないようにするため）。ここで取り出して
+      // バッジ表示・申込/空室確認の識別に使う。URLに customer= があれば従来どおり優先。
+      if (!customer && o && o.cust) {
+        customer = o.cust;
+        var scEl = document.getElementById('skelCustomer');
+        if (scEl) scEl.textContent = customer + ' 様専用ページ';
+        document.title = customer + ' 様の物件情報';
+      }
+      if (!roomId && o && (o.rid || o.room_id)) roomId = o.rid || o.room_id;
       var p = mapDataToProperty(o);
       if (!p) throw new Error('map failed');
       renderNowSafe(p);
