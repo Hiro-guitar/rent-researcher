@@ -1086,9 +1086,103 @@ function suumoPropertyKey(building, room) {
   return b + '|' + r;
 }
 
+// いい生活(ES-Square): 手動送信の詳細取得。詳細URL(/search/detail/<uuid>)に別タブで遷移し、
+// 巡回と同じく essquare-content-detail.js で設備・契約条件を、_extractEssquareGalleryImages で
+// 画像(base64/URL)を取得して ehomaki(uploadBase64ToCatbox) にアップロードしてマージする。
+async function fetchEssquareDetailForManual(baseProp) {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  let tabId = null;
+  try {
+    const detailUrl = (baseProp && baseProp.url) || '';
+    if (!detailUrl) return { ok: false, error: 'URLなし' };
+
+    const tab = await chrome.tabs.create({ url: detailUrl, active: false });
+    tabId = tab.id;
+    await waitForTabLoad(tabId);
+    await sleep(3000); // React SPA の詳細描画待ち
+
+    const tabInfo = await chrome.tabs.get(tabId);
+    if (tabInfo.url && (tabInfo.url.includes('es-account.com') || tabInfo.url.includes('/login'))) {
+      return { ok: false, error: 'いい生活 未ログイン' };
+    }
+
+    const prop = Object.assign({}, baseProp);
+    prop.source = 'essquare';
+
+    // ── 設備・契約条件（essquare-content-detail.js） ──
+    try {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['essquare-content-detail.js'] });
+      await sleep(500);
+      let dr = await sendEssquareContentMessage(tabId, { type: 'ESSQUARE_EXTRACT_DETAIL' }, 60000).catch(() => null);
+      if (dr && dr.ok && dr.detail) {
+        const d = dr.detail;
+        if (d.facilities) prop.facilities = d.facilities;
+        if (d.other_stations?.length) prop.other_stations = d.other_stations;
+        if (d.address && !prop.address) prop.address = d.address;
+        if (d.building_name && !prop.building_name) prop.building_name = d.building_name;
+        if (d._area_text && (!prop.area || prop.area === 0)) {
+          const am = String(d._area_text).match(/([\d.]+)/);
+          if (am && parseFloat(am[1]) > 0) prop.area = parseFloat(am[1]);
+        }
+        if (d._mgmt_text && !prop.management_fee) {
+          const mm = d._mgmt_text.match(/([\d,]+)\s*円/);
+          if (mm) prop.management_fee = parseInt(mm[1].replace(/,/g, ''));
+        }
+        const detailFields = [
+          'floor_text', 'story_text', 'structure', 'total_units', 'lease_type', 'contract_period',
+          'cancellation_notice', 'renewal_info', 'sunlight', 'free_rent', 'free_rent_detail',
+          'fire_insurance', 'key_exchange_fee', 'guarantee_info', 'guarantee_deposit',
+          'parking_fee', 'bicycle_parking_fee', 'motorcycle_parking_fee',
+          'other_monthly_fee', 'other_onetime_fee', 'move_in_date', 'move_out_date',
+          'layout_detail', 'shikibiki', 'floor', 'move_in_conditions', 'pet_deposit',
+          'renewal_admin_fee', 'support_fee_24h', 'additional_deposit', 'water_billing',
+          'cleaning_fee', 'sanitization_fee', 'rights_fee', 'ad_fee', 'current_status',
+          'owner_company', 'owner_phone',
+        ];
+        for (const key of detailFields) { if (d[key] && !prop[key]) prop[key] = d[key]; }
+      }
+    } catch (e) {
+      console.warn('[ES-Square手動] 詳細抽出失敗:', e.message);
+    }
+
+    // ── 画像（ギャラリー base64/URL → ehomaki アップロード） ──
+    try {
+      const gallery = await _extractEssquareGalleryImages(tabId);
+      const base64s = (gallery && gallery.base64s) || [];
+      const fetchUrls = (gallery && gallery.urls) || [];
+      const uploaded = [];
+      for (const b64 of base64s) {
+        try { const u = await uploadBase64ToCatbox(b64); if (u) uploaded.push(u); } catch (e) {}
+      }
+      if (uploaded.length === 0 && fetchUrls.length) {
+        for (const imgUrl of fetchUrls) {
+          try {
+            const resp = await fetch(imgUrl, { credentials: 'include' });
+            if (!resp.ok) continue;
+            const blob = await resp.blob();
+            const b64 = await new Promise((resolve) => { const fr = new FileReader(); fr.onloadend = () => resolve(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
+            const u = await uploadBase64ToCatbox(b64); if (u) uploaded.push(u);
+          } catch (e) {}
+        }
+      }
+      if (uploaded.length) { prop.image_urls = uploaded; prop.image_url = uploaded[0]; }
+    } catch (e) {
+      console.warn('[ES-Square手動] 画像取得失敗:', e.message);
+    }
+
+    return { ok: true, detail: prop };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  } finally {
+    if (tabId != null) { try { await chrome.tabs.remove(tabId); } catch (e) {} }
+  }
+}
+
 // 手動: source 別に詳細取得関数を振り分け（顧客送信・SUUMO掲載で共用）。
 async function enrichOneForManual(source, p, senderTabId, fromDetailPage) {
-  if (source === 'reins') {
+  if (source === 'essquare') {
+    return await fetchEssquareDetailForManual(p);
+  } else if (source === 'reins') {
     return await fetchReinsDetailForManual(senderTabId, {
       propertyNumber: p.reins_property_number || p.propertyNumber || '',
       index: (typeof p.reins_row_index === 'number') ? p.reins_row_index : -1
@@ -2597,6 +2691,73 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         // いえらぶ 詳細取得モード: 新タブで詳細ページを開いて全情報を取得→承認パイプライン
+        // いい生活(ES-Square) 詳細取得モード: 一覧物件ごとに詳細ページを新タブで開いて
+        // 画像・設備を取得→承認パイプライン（ielove と同構造）。essquare は常に詳細取得が必要。
+        if (source === 'essquare' && senderTabId) {
+          const { gasWebappUrl } = await getConfig();
+          if (!gasWebappUrl) {
+            sendResponse({ ok: false, error: 'GAS URLが設定されていません' });
+            return;
+          }
+          let customerObj = null;
+          try {
+            const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d.customerCriteria)));
+            if (Array.isArray(cached)) customerObj = cached.find(c => c && c.name === msg.customerName) || null;
+          } catch (e) {}
+
+          const total = props.length;
+          const enriched = [];
+          let skipped = 0;
+          for (let i = 0; i < props.length; i++) {
+            const p = props[i] || {};
+            try { await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: i, total, skipped }); } catch (e) {}
+            if (!p.url) { skipped++; continue; }
+            let res;
+            try { res = await fetchEssquareDetailForManual(p); } catch (e) { res = { ok: false, error: e.message }; }
+            if (res && res.ok && res.detail && res.detail.building_name) {
+              try {
+                if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
+                  res.detail.warnings_text = (globalThis.__computePropertyWarnings(res.detail, customerObj) || []).join('\n');
+                }
+              } catch (e) {}
+              if (typeof buildPropertyDataJson === 'function') {
+                res.detail.property_data_json = JSON.stringify(buildPropertyDataJson(res.detail));
+              }
+              enriched.push(res.detail);
+            } else {
+              skipped++;
+              await setStorageData({ debugLog: `[手動送信] いい生活 詳細取得失敗→スキップ: ${p.building_name || ''} ${(res && res.error) || ''}` });
+            }
+          }
+          try { await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: total, total, skipped }); } catch (e) {}
+
+          if (enriched.length === 0) {
+            sendResponse({ ok: false, registered: 0, skipped, error: `全${total}件の詳細取得に失敗しました` });
+            return;
+          }
+          try {
+            await submitProperties(msg.customerName, enriched);
+          } catch (e) {
+            sendResponse({ ok: false, registered: 0, skipped, error: '承認待ち登録に失敗: ' + e.message });
+            return;
+          }
+          let opened = 0;
+          for (const det of enriched) {
+            if (!det.room_id) continue;
+            try {
+              const approveUrl = gasWebappUrl + '?action=approve&customer=' + encodeURIComponent(msg.customerName) + '&room_id=' + encodeURIComponent(det.room_id);
+              await chrome.tabs.create({ url: approveUrl, active: true });
+              opened++;
+            } catch (e) {}
+          }
+          const message = skipped > 0
+            ? `${enriched.length}件を承認待ちに登録し承認ページを開きました / ${skipped}件は取得失敗`
+            : `${enriched.length}件を承認待ちに登録し承認ページを開きました`;
+          await setStorageData({ debugLog: `手動送信(いい生活→承認): ${msg.customerName} へ ${enriched.length}件登録 (失敗${skipped}) 承認タブ${opened}` });
+          sendResponse({ ok: true, registered: enriched.length, skipped, opened, message });
+          return;
+        }
+
         if (fetchDetails && source === 'ielove' && senderTabId) {
           const { gasWebappUrl } = await getConfig();
           if (!gasWebappUrl) {
