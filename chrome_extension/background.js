@@ -3153,13 +3153,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: true, batches: oazaChunks.length });
 
         } else if (service === 'essquare') {
-          // 2026-06-03: いい生活Square 恒久停止(規約違反でアカウントBAN)。
-          // 検索ページも開かない。再開はBAN逃れになるため不可。
-          await setStorageData({ debugLog: `[検索ページ] いい生活Squareは停止中のため開きません` });
-          sendResponse({ ok: false, disabled: true, error: 'ES-Square は停止中です' });
-          return;
-          // eslint-disable-next-line no-unreachable
-          // ↓ 旧ロジック（無効化済み・参考保持）
+          // いい生活Square: 顧客の駅コード/住所から検索ページを開く。
+          // (2026-06-03に一時無効化されていたが、自動巡回の再開に合わせて再有効化)
           const allStationCodes = _resolveEssquareStationCodes(customer);
           const allJusho = _resolveEssquareJushoList(customer);
           const STA_CHUNK = 49, JUSHO_CHUNK = 50;
