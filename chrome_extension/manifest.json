@@ -106,7 +106,6 @@
         "https://rent.es-square.net/bukken/chintai/*"
       ],
       "js": ["essquare-keepalive.js"],
-      "world": "MAIN",
       "run_at": "document_start"
     },
     {
