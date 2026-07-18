@@ -5922,10 +5922,14 @@ function _bestViewUrl_(customerName, roomId, prop, opts) {
     if (_packedAll.imgs && _packedAll.imgs.length) _fd.imgs = _packedAll.imgs;
     var _catsAll = prop.selectedImageCategories || prop.imageCategories || [];
     if (_catsAll.length && _catsAll.some(function(c) { return c; })) _fd.imgc = _catsAll;
+    // 顧客名・room_id はURLに出さず ehomaki データ側に持たせる（お客さんにURLで内部の
+    // 呼び名が見えないようにするため）。property.html は id 取得後にここから読む。
+    _fd.cust = customerName;
+    _fd.rid = String(roomId);
     var _dataId = _storePropertyDataToEhomaki_(_fd, customerName);
     if (_dataId) {
-      return 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName)
-        + '&room_id=' + roomId + '&id=' + _dataId;
+      // customer= を付けない（room_id は不透明値なので残す。property.html 側で cust は id から取得）
+      return 'https://form.ehomaki.com/property.html?room_id=' + roomId + '&id=' + _dataId;
     }
   } catch (_ehStoreErr) { console.warn('_bestViewUrl_ ehomaki store failed: ' + _ehStoreErr.message); }
 
