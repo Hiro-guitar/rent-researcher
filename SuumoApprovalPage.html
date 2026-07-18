@@ -655,7 +655,8 @@ window.addEventListener('DOMContentLoaded', function() {
   setText('pvListingStatus', p.listing_status);
   setText('pvCurrentStatus', p.current_status);
   setText('pvOwnerCompany', p.owner_company || p.reins_shougo);
-  setText('pvOwnerPhone', p.owner_phone || p.reins_tel);
+  // 元付電話番号が無い場合はダミー「000-0000-0000」を自動入力（SUUMO掲載の必須を満たすため）
+  setText('pvOwnerPhone', p.owner_phone || p.reins_tel || '000-0000-0000');
   setText('pvAdReprint', p.ad_reprint_raw || p.ad_keisai);
 
   // ステータス
