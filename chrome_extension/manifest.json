@@ -110,6 +110,20 @@
     },
     {
       "matches": [
+        "https://rent.es-square.net/bukken/chintai/search*"
+      ],
+      "js": ["essquare-fiber-reader.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://rent.es-square.net/bukken/chintai/search*"
+      ],
+      "js": ["manual-send-panel.js", "essquare-content-search.js", "bulk-competitor-panel.js"]
+    },
+    {
+      "matches": [
         "https://www.fn.forrent.jp/fn/*"
       ],
       "js": ["station-data.js", "suumo-fill-auto.js"],
