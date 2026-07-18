@@ -6999,12 +6999,12 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
   if (equip.includes('カウンターキッチン') && !fac.includes('カウンターキッチン') && !fac.includes('対面キッチン') && !fac.includes('オープンキッチン') && !fac.includes('アイランドキッチン')) {
     warnings.push('⚠️ カウンターキッチンかどうか確認してください');
   }
-  // 駐輪場
-  if (equip.includes('駐輪場') && !fac.includes('駐輪場')) {
+  // 駐輪場（ES-Square形式「駐輪場：無」は文字列を含むが"無し"なので除外）
+  if (equip.includes('駐輪場') && (!fac.includes('駐輪場') || /駐輪場\s*[：:]\s*空?無/.test(fac))) {
     warnings.push('⚠️ 駐輪場ありかどうか確認してください');
   }
-  // バイク置き場（バイク置場/バイク置き場 両表記対応）
-  if (equip.includes('バイク置') && !fac.includes('バイク置')) {
+  // バイク置き場（バイク置場/バイク置き場 両表記対応。「バイク置き場：無」は"無し"扱い）
+  if (equip.includes('バイク置') && (!fac.includes('バイク置') || /バイク置(?:き)?場?\s*[：:]\s*空?無/.test(fac))) {
     warnings.push('⚠️ バイク置き場ありかどうか確認してください');
   }
   // 宅配ボックス（itandi: 宅配BOXも含む）
