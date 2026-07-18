@@ -6187,12 +6187,12 @@ function _computePropertyWarningsGAS_(prop, equipmentStr, notesStr) {
   if (equip.indexOf('カウンターキッチン') >= 0 && fac.indexOf('カウンターキッチン') < 0 && fac.indexOf('対面キッチン') < 0 && fac.indexOf('オープンキッチン') < 0 && fac.indexOf('アイランドキッチン') < 0) {
     warnings.push('⚠️ カウンターキッチンかどうか確認してください');
   }
-  // 駐輪場
-  if (equip.indexOf('駐輪場') >= 0 && fac.indexOf('駐輪場') < 0) {
+  // 駐輪場（ES-Square形式「駐輪場：無」は文字列を含むが"無し"なので除外）
+  if (equip.indexOf('駐輪場') >= 0 && (fac.indexOf('駐輪場') < 0 || /駐輪場\s*[：:]\s*空?無/.test(fac))) {
     warnings.push('⚠️ 駐輪場ありかどうか確認してください');
   }
-  // バイク置き場（バイク置場/バイク置き場 両表記対応）
-  if (equip.indexOf('バイク置') >= 0 && fac.indexOf('バイク置') < 0) {
+  // バイク置き場（バイク置場/バイク置き場 両表記対応。「バイク置き場：無」は"無し"扱い）
+  if (equip.indexOf('バイク置') >= 0 && (fac.indexOf('バイク置') < 0 || /バイク置(?:き)?場?\s*[：:]\s*空?無/.test(fac))) {
     warnings.push('⚠️ バイク置き場ありかどうか確認してください');
   }
   // 宅配ボックス
