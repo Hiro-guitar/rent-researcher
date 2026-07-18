@@ -916,35 +916,9 @@ function renderProperty(p) {
       + '<button class="action-btn primary hold-btn" id="holdBtn" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
       + '<div class="avail-note" id="availNote"></div>'
       + '</div>';
-    // お申し込みモーダル
-    html += '<div class="modal-overlay" id="holdModal" onclick="if(event.target===this)closeHoldModal()">'
-      + '<div class="modal-content">'
-      + '<div class="modal-title">お申し込み希望</div>'
-      + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.5;">送信後、担当者がお電話にてお申し込み方法のご案内をいたします。以下の項目を必ずご入力ください。</div>'
-      + '<div class="modal-radio-group">'
-      + '<label class="modal-radio-label active" id="radioPersonal" onclick="selectRadio(\'個人\')">'
-      + '<input type="radio" name="appType" value="個人" checked> 個人申込</label>'
-      + '<label class="modal-radio-label" id="radioCorporate" onclick="selectRadio(\'法人\')">'
-      + '<input type="radio" name="appType" value="法人"> 法人申込</label>'
-      + '</div>'
-      + '<div style="display:flex;gap:8px;">'
-      + '<div style="flex:1;"><input type="text" class="modal-input" id="lastNameInput" placeholder="姓（必須）"><div class="modal-error" id="lastNameError"></div></div>'
-      + '<div style="flex:1;"><input type="text" class="modal-input" id="firstNameInput" placeholder="名（必須）"><div class="modal-error" id="firstNameError"></div></div>'
-      + '</div>'
-      + '<div style="display:flex;gap:8px;">'
-      + '<div style="flex:1;"><input type="text" class="modal-input" id="lastNameKanaInput" placeholder="セイ（必須）"><div class="modal-error" id="lastNameKanaError"></div></div>'
-      + '<div style="flex:1;"><input type="text" class="modal-input" id="firstNameKanaInput" placeholder="メイ（必須）"><div class="modal-error" id="firstNameKanaError"></div></div>'
-      + '</div>'
-      + '<input type="email" class="modal-input" id="emailInput" placeholder="メールアドレス（必須）">'
-      + '<div class="modal-error" id="emailError"></div>'
-      + '<input type="tel" class="modal-input" id="phoneInput" placeholder="電話番号（必須）">'
-      + '<div class="modal-error" id="phoneError"></div>'
-      + '<div class="modal-actions">'
-      + '<button class="action-btn primary" onclick="submitHold()">お申し込み希望を送信</button>'
-      + '<button class="action-btn secondary" onclick="closeHoldModal()">キャンセル</button>'
-      + '</div>'
-      + '</div>'
-      + '</div>';
+    // お申し込みモーダルは初期HTMLには含めず、openHoldModal() で押した瞬間に
+    // buildHoldModalHtml() から生成・注入する（初期ページに入力欄を出さないことで
+    // Google Safe Browsing 等のフィッシング誤検知を避ける）。
   }
 
   // フィードバックボタン + 空室確認ボタン（customer と roomId がある場合のみ）
@@ -1448,8 +1422,53 @@ function updateActionUI(actionType) {
 }
 
 // ===== 仮押さえモーダル =====
+// 申込モーダルのHTMLを組み立てる（押した瞬間に生成して初めてDOMに入る）。
+// 電話/メールは type="text"+inputmode にして「連絡先を集めるフォーム」という
+// 機械可読の信号を弱める（モバイルのキーボードは inputmode で維持）。
+function buildHoldModalHtml() {
+  return '<div class="modal-overlay" id="holdModal" onclick="if(event.target===this)closeHoldModal()">'
+    + '<div class="modal-content">'
+    + '<div class="modal-title">お申し込み希望</div>'
+    + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.5;">送信後、担当者がお電話にてお申し込み方法のご案内をいたします。以下の項目を必ずご入力ください。</div>'
+    + '<div class="modal-radio-group">'
+    + '<label class="modal-radio-label active" id="radioPersonal" onclick="selectRadio(\'個人\')">'
+    + '<input type="radio" name="appType" value="個人" checked> 個人申込</label>'
+    + '<label class="modal-radio-label" id="radioCorporate" onclick="selectRadio(\'法人\')">'
+    + '<input type="radio" name="appType" value="法人"> 法人申込</label>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<div style="flex:1;"><input type="text" autocomplete="off" class="modal-input" id="lastNameInput" placeholder="姓（必須）"><div class="modal-error" id="lastNameError"></div></div>'
+    + '<div style="flex:1;"><input type="text" autocomplete="off" class="modal-input" id="firstNameInput" placeholder="名（必須）"><div class="modal-error" id="firstNameError"></div></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<div style="flex:1;"><input type="text" autocomplete="off" class="modal-input" id="lastNameKanaInput" placeholder="セイ（必須）"><div class="modal-error" id="lastNameKanaError"></div></div>'
+    + '<div style="flex:1;"><input type="text" autocomplete="off" class="modal-input" id="firstNameKanaInput" placeholder="メイ（必須）"><div class="modal-error" id="firstNameKanaError"></div></div>'
+    + '</div>'
+    + '<input type="text" inputmode="email" autocomplete="off" class="modal-input" id="emailInput" placeholder="メールアドレス（必須）">'
+    + '<div class="modal-error" id="emailError"></div>'
+    + '<input type="text" inputmode="tel" autocomplete="off" class="modal-input" id="phoneInput" placeholder="電話番号（必須）">'
+    + '<div class="modal-error" id="phoneError"></div>'
+    + '<div class="modal-actions">'
+    + '<button class="action-btn primary" onclick="submitHold()">お申し込み希望を送信</button>'
+    + '<button class="action-btn secondary" onclick="closeHoldModal()">キャンセル</button>'
+    + '</div>'
+    + '</div>'
+    + '</div>';
+}
+
+function ensureHoldModal() {
+  var modal = document.getElementById('holdModal');
+  if (modal) return modal;
+  var wrap = document.createElement('div');
+  wrap.innerHTML = buildHoldModalHtml();
+  modal = wrap.firstChild;
+  document.body.appendChild(modal);
+  return modal;
+}
+
 function openHoldModal() {
   if (actionState) return;
+  ensureHoldModal();
   // モーダルオープンのたびに通知を送る（離脱追跡用）
   {
     try {
