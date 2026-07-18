@@ -1282,7 +1282,8 @@ function openSearchMenu(btn, criteriaId) {
     { key: 'all', label: '全て' },
     { key: 'itandi', label: 'itandi BB' },
     { key: 'ielove', label: 'いえらぶBB' },
-    { key: 'reins', label: 'REINS' }
+    { key: 'reins', label: 'REINS' },
+    { key: 'essquare', label: 'いい生活' }
   ];
   for (var i = 0; i < services.length; i++) {
     var svc = services[i];
@@ -1299,6 +1300,7 @@ function openSearchMenu(btn, criteriaId) {
         doOpenSearchPage(cid, 'itandi');
         doOpenSearchPage(cid, 'ielove');
         doOpenSearchPage(cid, 'reins');
+        doOpenSearchPage(cid, 'essquare');
       } else {
         doOpenSearchPage(cid, service);
       }
