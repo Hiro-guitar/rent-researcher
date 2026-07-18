@@ -388,6 +388,7 @@ body {
       <button class="btn btn-sm" id="searchBtnReins" onclick="openSearchPage('reins')" style="background:#264f78;color:#fff;border:none;" disabled>REINS</button>
       <button class="btn btn-sm" id="searchBtnIelove" onclick="openSearchPage('ielove')" style="background:#264f78;color:#fff;border:none;" disabled>いえらぶ</button>
       <button class="btn btn-sm" id="searchBtnItandi" onclick="openSearchPage('itandi')" style="background:#264f78;color:#fff;border:none;" disabled>itandi</button>
+      <button class="btn btn-sm" id="searchBtnEssquare" onclick="openSearchPage('essquare')" style="background:#264f78;color:#fff;border:none;" disabled>いい生活</button>
     </div>
     <div id="searchPageStatus" style="padding:0 12px 8px;font-size:11px;color:#888;display:none;"></div>
   </div>
@@ -757,6 +758,7 @@ function openDetail(name) {
   document.getElementById('searchBtnReins').disabled = true;
   document.getElementById('searchBtnIelove').disabled = true;
   document.getElementById('searchBtnItandi').disabled = true;
+  document.getElementById('searchBtnEssquare').disabled = true;
   document.getElementById('searchPageStatus').style.display = 'none';
   window._customerCriteria = null;
 
@@ -794,6 +796,7 @@ function openDetail(name) {
         document.getElementById('searchBtnReins').disabled = false;
         document.getElementById('searchBtnIelove').disabled = false;
         document.getElementById('searchBtnItandi').disabled = false;
+        document.getElementById('searchBtnEssquare').disabled = false;
       }
     })
     .loadCustomerCriteriaByName(name);
@@ -1621,7 +1624,7 @@ function openSearchPage(service) {
     service: service,
     customer: customer
   }, '*');
-  var names = { ielove: 'いえらぶ', reins: 'REINS', itandi: 'itandi' };
+  var names = { ielove: 'いえらぶ', reins: 'REINS', itandi: 'itandi', essquare: 'いい生活' };
   var statusEl = document.getElementById('searchPageStatus');
   statusEl.style.display = 'block';
   statusEl.textContent = (names[service] || service) + ' の検索ページを開いています...';
@@ -2029,7 +2032,7 @@ function openRecommendSearch(id, service) {
       if (!customer) { showToast('条件を取得できませんでした'); return; }
       customer.name = currentCustomer; // 結果はこのお客さんに紐づける
       window.parent.postMessage({ type: 'OPEN_SEARCH_PAGE', service: service, customer: customer }, '*');
-      var names = { ielove: 'いえらぶ', reins: 'REINS', itandi: 'itandi' };
+      var names = { ielove: 'いえらぶ', reins: 'REINS', itandi: 'itandi', essquare: 'いい生活' };
       showToast((names[service] || service) + ' の検索ページを開いています...');
     })
     .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
