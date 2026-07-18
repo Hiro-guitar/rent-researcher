@@ -6518,11 +6518,16 @@ async function sendDiscordNoResultSummary() {
   }
 
   // === 新着あり顧客の物件数サマリーを収集 ===
+  // 各顧客名は、その顧客のDiscordスレッドへのリンク(<#スレッドID>)にする。
+  // （Discord通常メッセージは [名前](URL) が使えないため <#ID> チャンネルメンションを使用。
+  //   表示はスレッド名「🏠 顧客名」のクリックリンクになる。スレッドID未登録なら素の名前。）
   const foundLines = [];
   let totalFound = 0;
   for (const [name, count] of Object.entries(discordPropertyCounters)) {
     if (count > 0) {
-      foundLines.push(`・${name}: ${count}件`);
+      const tid = discordThreadIds[name];
+      const label = tid ? `<#${tid}>` : name;
+      foundLines.push(`・${label}: ${count}件`);
       totalFound += count;
     }
   }
