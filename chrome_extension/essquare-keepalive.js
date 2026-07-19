@@ -119,4 +119,27 @@
   setInterval(startSilentAudio, 3000);
   // タブ表示状態が変わった時も即再確認（裏→表 等）
   document.addEventListener('visibilitychange', startSilentAudio, true);
+
+  // 【診断・一時】throttling検出プローブ。
+  // 1秒 interval の実経過を測り、間引かれている(drift大)なら記録する。
+  // Chrome を --disable-background-timer-throttling 等のフラグで起動していれば、
+  // 裏タブでも drift≈0 のまま。フラグ無し(現状)だと裏タブで drift が
+  // どんどん増える(最終的に ~59000ms = 1分に1回)。
+  // これで「フラグで throttling が止まったか」を直接確認する。原因確定後に撤去。
+  (function throttleProbe() {
+    let last = performance.now();
+    let hidden0 = null;
+    setInterval(function () {
+      const now = performance.now();
+      const drift = Math.round(now - last - 1000);
+      last = now;
+      const vis = document.visibilityState;
+      if (vis === 'hidden' && hidden0 === null) hidden0 = now;
+      // 裏タブ(hidden)で 400ms 以上ずれたら throttling 発生とみなし記録
+      if (vis === 'hidden' && Math.abs(drift) > 400) {
+        const hiddenSec = hidden0 !== null ? Math.round((now - hidden0) / 1000) : '?';
+        diagToBg('throttle検出 drift=' + drift + 'ms (hidden ' + hiddenSec + 's経過)');
+      }
+    }, 1000);
+  })();
 })();
