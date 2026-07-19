@@ -329,40 +329,6 @@ async function navigateEssquareSpa_(tabId, url) {
   }
 }
 
-// === keepalive audible テレメトリ ===
-// keepalive (無音audio) がタブを audible に保てているかを background 側で実測する。
-// keepalive content script は自タブの audible フラグを読めない（chrome.tabs は
-// background 専用）ため、ここで tab.audible の遷移を debugLog に記録し、検索遷移
-// との時間相関から「いつ・なぜ落ちるか」を確定する。同一状態の連投は抑制。
-let __essqLastAudible = null;
-async function __logEssqAudible(tabId, ctx) {
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    const a = !!tab.audible;
-    if (a !== __essqLastAudible) {
-      __essqLastAudible = a;
-      const where = ctx ? ` (${ctx})` : '';
-      await setStorageData({ debugLog: `[keepalive] tab.audible=${a}${where}` });
-    }
-  } catch (e) { /* タブ消滅等は無視 */ }
-}
-
-// 検索中ずっと audible をポーリングする自己再帰タイマー。searchId が無効化されたら停止。
-// タブ作成直後(検索条件遷移の前)から回すことで、audible の true→false 切り替わりが
-// どのタイミングで起きるか(＝SPA遷移と同時か)を確定する。
-let __essqAudiblePollActive = false;
-function __startEssqAudiblePoll(tabId, searchId) {
-  if (__essqAudiblePollActive) return;
-  __essqAudiblePollActive = true;
-  __essqLastAudible = null; // 新規検索なので遷移基準をリセット
-  const tick = async () => {
-    if (isSearchCancelled(searchId)) { __essqAudiblePollActive = false; return; }
-    await __logEssqAudible(tabId, 'poll');
-    setTimeout(tick, 3000);
-  };
-  tick();
-}
-
 // === SPAレンダリング待ち ===
 
 async function _waitForEssquareRender(tabId, timeoutMs) {
@@ -371,7 +337,6 @@ async function _waitForEssquareRender(tabId, timeoutMs) {
   let staleStart = null;
 
   while (Date.now() - startTime < timeoutMs) {
-    await __logEssqAudible(tabId, 'render待ち');
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId },
@@ -954,22 +919,6 @@ async function findOrCreateDedicatedEssquareTab() {
   });
   dedicatedEssquareTabId = newTab.id;
   dedicatedEssquareWindowId = newTab.windowId;
-
-  // 【診断・一時】タブ作成直後(初期ロード中)から1.5秒間隔でaudible+urlを全記録し、
-  // audibleがtrue→falseに落ちる正確な瞬間(初期ロード完了か/検索遷移か)を捉える。
-  // 原因確定後に撤去する。
-  (function quickAudibleProbe(id) {
-    let n = 0;
-    const t = setInterval(async () => {
-      n++;
-      try {
-        const tb = await chrome.tabs.get(id);
-        const u = (tb.url || '').replace('https://rent.es-square.net', '');
-        await setStorageData({ debugLog: `[probe#${n}] audible=${!!tb.audible} url=${u.slice(0, 70)}` });
-      } catch (e) { clearInterval(t); return; }
-      if (n >= 14) clearInterval(t);
-    }, 1500);
-  })(dedicatedEssquareTabId);
 
   // タブの自動破棄を防ぐ (Chrome のメモリ圧迫時の自動 discard を抑制)
   // 補助的対策。bg throttling 回避は content script 側の無音 audio で行う。
@@ -1757,10 +1706,6 @@ async function runEssquareSearch(criteria, seenIds, searchId) {
 
   const essquareTab = await findOrCreateDedicatedEssquareTab();
   if (!essquareTab) return;
-
-  // keepalive audible テレメトリ: 検索中ずっと tab.audible を 3秒間隔で実測し
-  // 遷移を debugLog に記録する（render待ち以外の詳細取得フェーズもカバー）。
-  __startEssqAudiblePoll(dedicatedEssquareTabId, searchId);
 
   // タブクリーンアップは上位の検索ループ終了時に一括で行う (background.js
   // の closeDedicatedEssquareWindow 呼び出し)。
