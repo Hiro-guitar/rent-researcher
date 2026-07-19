@@ -1089,17 +1089,25 @@ function suumoPropertyKey(building, room) {
 // いい生活(ES-Square): 手動送信の詳細取得。詳細URL(/search/detail/<uuid>)に別タブで遷移し、
 // 巡回と同じく essquare-content-detail.js で設備・契約条件を、_extractEssquareGalleryImages で
 // 画像(base64/URL)を取得して ehomaki(uploadBase64ToCatbox) にアップロードしてマージする。
-async function fetchEssquareDetailForManual(baseProp) {
+// 詳細取得を「現在のいい生活タブ上でスライドモーダル(detailルート)を開いて」行う。
+// 旧: 新規タブでdetailURLを開く方式 → 認証/SPAリダイレクトで詳細もblob画像も描画されず
+//     画像取得に失敗していた。認証済みの現在ページで開けば確実に描画され、blob画像も
+//     ページ内fetchで取得できる(blob URLは生成元ドキュメント内でのみ解決可能なため)。
+async function fetchEssquareDetailForManual(baseProp, senderTabId) {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  let tabId = null;
+  if (!senderTabId) return { ok: false, error: 'いい生活タブID無し' };
+  const tabId = senderTabId;
   try {
     const detailUrl = (baseProp && baseProp.url) || '';
     if (!detailUrl) return { ok: false, error: 'URLなし' };
 
-    const tab = await chrome.tabs.create({ url: detailUrl, active: false });
-    tabId = tab.id;
-    await waitForTabLoad(tabId);
-    await sleep(3000); // React SPA の詳細描画待ち
+    // 現在タブでスライドモーダル(=detailルート)をSPA遷移で開く（新規タブは開かない）
+    const opened = await navigateEssquareSpa_(tabId, detailUrl);
+    if (!opened) {
+      await chrome.tabs.update(tabId, { url: detailUrl });
+      await waitForTabLoad(tabId);
+    }
+    await sleep(2500); // 詳細/ギャラリー描画待ち
 
     const tabInfo = await chrome.tabs.get(tabId);
     if (tabInfo.url && (tabInfo.url.includes('es-account.com') || tabInfo.url.includes('/login'))) {
@@ -1174,14 +1182,15 @@ async function fetchEssquareDetailForManual(baseProp) {
   } catch (e) {
     return { ok: false, error: e.message };
   } finally {
-    if (tabId != null) { try { await chrome.tabs.remove(tabId); } catch (e) {} }
+    // モーダルを閉じて一覧に戻す（新規タブ方式ではないのでタブは閉じない）
+    try { await _goBackToEssquareSearchResults(tabId); } catch (e) {}
   }
 }
 
 // 手動: source 別に詳細取得関数を振り分け（顧客送信・SUUMO掲載で共用）。
 async function enrichOneForManual(source, p, senderTabId, fromDetailPage) {
   if (source === 'essquare') {
-    return await fetchEssquareDetailForManual(p);
+    return await fetchEssquareDetailForManual(p, senderTabId);
   } else if (source === 'reins') {
     return await fetchReinsDetailForManual(senderTabId, {
       propertyNumber: p.reins_property_number || p.propertyNumber || '',
@@ -2711,7 +2720,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             try { await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done: i, total, skipped }); } catch (e) {}
             if (!p.url) { skipped++; continue; }
             let res;
-            try { res = await fetchEssquareDetailForManual(p); } catch (e) { res = { ok: false, error: e.message }; }
+            try { res = await fetchEssquareDetailForManual(p, senderTabId); } catch (e) { res = { ok: false, error: e.message }; }
             if (res && res.ok && res.detail && res.detail.building_name) {
               try {
                 if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
@@ -3033,7 +3042,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try {
             if (src === 'ielove') res = await fetchIeloveDetailForManual(p);
             else if (src === 'itandi') res = await fetchItandiDetailForManual(p);
-            else if (src === 'essquare') res = await fetchEssquareDetailForManual(p);
+            else if (src === 'essquare') res = await fetchEssquareDetailForManual(p, senderTabId);
             else res = { ok: false, error: '未対応ソース: ' + src };
           } catch (e) {
             res = { ok: false, error: e.message };
