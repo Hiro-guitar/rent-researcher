@@ -692,10 +692,20 @@
   function bcRefreshNavBar() {
     var hits = bcGetZeroHits();
     var bar = bcEnsureNavBar();
-    if (hits.length === 0) { bar.style.display = 'none'; return; }
     bar.style.display = 'flex';
-    if (__bcNavIndex >= hits.length) __bcNavIndex = hits.length - 1;
     var countEl = document.getElementById('bc-zero-nav-count');
+    var btns = bar.querySelectorAll('button');
+    if (hits.length === 0) {
+      // 競合00が0件でもバーは出す（チェック済みで緑ゼロ、を明示）。グレー+矢印無効。
+      __bcNavIndex = -1;
+      bar.style.background = '#95a5a6';
+      if (countEl) countEl.textContent = '0件';
+      btns.forEach(function (b) { b.style.opacity = '0.4'; b.style.cursor = 'default'; b.disabled = true; });
+      return;
+    }
+    bar.style.background = '#16a085';
+    btns.forEach(function (b) { b.style.opacity = '1'; b.style.cursor = 'pointer'; b.disabled = false; });
+    if (__bcNavIndex >= hits.length) __bcNavIndex = hits.length - 1;
     if (countEl) countEl.textContent = (__bcNavIndex < 0 ? '-' : (__bcNavIndex + 1)) + '/' + hits.length;
   }
 
