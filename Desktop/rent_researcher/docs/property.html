@@ -58,6 +58,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .carousel-dots{text-align:center;padding:8px;background:#000}
 .carousel-dots .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.4);margin:0 3px;cursor:pointer}
 .carousel-dots .dot.active{background:#fff}
+.carousel-thumbs{display:flex;gap:6px;overflow-x:auto;padding:8px;background:#000;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.carousel-thumbs .thumb{flex:0 0 auto;width:60px;height:45px;object-fit:cover;border-radius:4px;cursor:pointer;opacity:0.5;border:2px solid transparent;transition:opacity 0.15s,border-color 0.15s}
+.carousel-thumbs .thumb.active{opacity:1;border-color:#fff}
 .carousel-counter{position:absolute;bottom:12px;right:12px;background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:4px 10px;border-radius:12px;z-index:2}
 .carousel-cat{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.6);color:#fff;font-size:12px;padding:4px 14px;border-radius:12px;z-index:2;pointer-events:none;white-space:nowrap}
 /* ヒーロー画像（1枚のみ） */
@@ -482,9 +485,9 @@ function insertImages(images, categories) {
       + '<button class="carousel-btn next" onclick="slide(1)">&gt;</button>'
       + '<div class="carousel-counter"><span id="slideNum">1</span> / ' + images.length + '</div>'
       + '</div>'
-      + '<div class="carousel-dots" id="dots">';
+      + '<div class="carousel-thumbs" id="thumbs">';
     for (var i = 0; i < images.length; i++) {
-      html += '<span class="dot' + (i === 0 ? ' active' : '') + '" onclick="goTo(' + i + ')"></span>';
+      html += '<img class="thumb' + (i === 0 ? ' active' : '') + '" src="' + escHtml(images[i]) + '" alt="サムネ ' + (i+1) + '" loading="lazy" onclick="goTo(' + i + ')" onerror="this.style.display=\'none\'">';
     }
     html += '</div>';
   } else if (images.length === 1) {
@@ -870,9 +873,9 @@ function renderProperty(p) {
       + '<button class="carousel-btn next" onclick="slide(1)">&gt;</button>'
       + '<div class="carousel-counter"><span id="slideNum">1</span> / ' + images.length + '</div>'
       + '</div>'
-      + '<div class="carousel-dots" id="dots">';
+      + '<div class="carousel-thumbs" id="thumbs">';
     for (var i = 0; i < images.length; i++) {
-      html += '<span class="dot' + (i === 0 ? ' active' : '') + '" onclick="goTo(' + i + ')"></span>';
+      html += '<img class="thumb' + (i === 0 ? ' active' : '') + '" src="' + escHtml(images[i]) + '" alt="サムネ ' + (i+1) + '" loading="lazy" onclick="goTo(' + i + ')" onerror="this.style.display=\'none\'">';
     }
     html += '</div>';
   } else if (images.length === 1) {
@@ -1221,8 +1224,15 @@ function updateCarousel() {
   if (!inner) return;
   inner.style.transform = 'translateX(-' + cur * 100 + '%)';
   document.getElementById('slideNum').textContent = cur + 1;
-  var dots = document.querySelectorAll('.dot');
-  for (var i = 0; i < dots.length; i++) { dots[i].className = i === cur ? 'dot active' : 'dot'; }
+  var thumbs = document.querySelectorAll('.thumb');
+  for (var i = 0; i < thumbs.length; i++) { thumbs[i].className = i === cur ? 'thumb active' : 'thumb'; }
+  // アクティブサムネをサムネ列の見える範囲へ（横スクロールのみ・ページは動かさない）
+  var active = thumbs[cur];
+  if (active && active.parentNode) {
+    var strip = active.parentNode;
+    var target = active.offsetLeft - (strip.clientWidth / 2) + (active.clientWidth / 2);
+    strip.scrollTo({ left: target, behavior: 'smooth' });
+  }
 }
 
 // カルーセル初期化（renderProperty から呼ばれる）
