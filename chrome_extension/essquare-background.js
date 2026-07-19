@@ -25,7 +25,15 @@ let dedicatedEssquareWindowId = null;
 // 起動フラグ不要。専用タブにだけ「デバッグ中」の黄色バーが出る(裏タブなので普段見えない)。
 let __essqDebuggerTabId = null; // アタッチ中のtabId (未アタッチはnull)
 
+// 【診断・一時 2026-07-19】音方式テスト中は debugger をOFFにして音だけの効果を測る。
+// テスト後に false へ戻す（or この行ごと削除）。
+const __ESSQ_SKIP_DEBUGGER_FOR_AUDIO_TEST = true;
+
 async function __attachEssqDebugger(tabId) {
+  if (__ESSQ_SKIP_DEBUGGER_FOR_AUDIO_TEST) {
+    await setStorageData({ debugLog: '[ES-Square] (音方式テスト) debugger OFF' });
+    return;
+  }
   if (!tabId) return;
   if (__essqDebuggerTabId === tabId) return; // 既にアタッチ済み
   try {
@@ -56,6 +64,29 @@ if (chrome.debugger && chrome.debugger.onDetach) {
       __essqDebuggerTabId = null;
     }
   });
+}
+
+// 【診断・一時 2026-07-19】音方式テスト用: 検索中ずっと tab.audible を測り遷移を記録。
+// 「遷移ごとに音を作り直す」で audible=true が続くか確認するための計測器。
+let __essqLastAudible = null;
+let __essqAudiblePollActive = false;
+function __startEssqAudiblePoll(tabId, searchId) {
+  if (__essqAudiblePollActive) return;
+  __essqAudiblePollActive = true;
+  __essqLastAudible = null;
+  const tick = async () => {
+    if (isSearchCancelled(searchId)) { __essqAudiblePollActive = false; return; }
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      const a = !!tab.audible;
+      if (a !== __essqLastAudible) {
+        __essqLastAudible = a;
+        await setStorageData({ debugLog: `[audibleテスト] tab.audible=${a}` });
+      }
+    } catch (e) { __essqAudiblePollActive = false; return; }
+    setTimeout(tick, 1500);
+  };
+  tick();
 }
 
 // === 価格テキストパーサー ===
@@ -1752,6 +1783,9 @@ async function runEssquareSearch(criteria, seenIds, searchId) {
   // 裏タブ throttling 回避: 専用タブに debugger をアタッチしフォーカスを装う。
   // (新規/再利用どちらのタブでも冪等。detach は closeDedicatedEssquareWindow で)
   await __attachEssqDebugger(dedicatedEssquareTabId);
+
+  // 【診断・一時】音方式テスト: audible の遷移を記録
+  __startEssqAudiblePoll(dedicatedEssquareTabId, searchId);
 
   // タブクリーンアップは上位の検索ループ終了時に一括で行う (background.js
   // の closeDedicatedEssquareWindow 呼び出し)。

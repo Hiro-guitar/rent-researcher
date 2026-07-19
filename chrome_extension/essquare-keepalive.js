@@ -5,10 +5,12 @@
  * 目的: バックグラウンドタブの throttling 回避のため、無音 audio を再生して
  *       タブを audible 状態に維持する。
  *
- * 経緯 (2026-05-05):
- *   essquare-content-detail.js は物件詳細ページにしか注入されないため、
- *   検索結果ページの広告可チェック (100件 tooltip ホバー) で throttling 直撃。
- *   keepalive はすべての ES-Square ページに注入されて audio を起動する。
+ * 【診断・一時 2026-07-19】音方式の生死を確定するテスト版:
+ *   実測で「fresh なページ読込直後は audible=true、SPA遷移した瞬間 false」と判明。
+ *   これまでは同じ AudioContext を鳴らし続けていた。今回は【遷移のたびに
+ *   AudioContext を作り直し】、fresh 状態の audible=true を再現できるか試す。
+ *   同時に throttling が実際に止まっているかも 100ms 発火カウントで測る。
+ *   （debugger は background 側で一時OFFにして、音だけの効果を純粋に測る）
  */
 (() => {
   'use strict';
@@ -27,33 +29,17 @@
     } catch (e) {}
   }
 
-  // Web Audio API (AudioContext + OscillatorNode) で無音を生成
-  // dataURL <audio> はESQuareのCSP `media-src` 制限でブロックされるため、
-  // src 不要の AudioContext を使用。
-  // 起動状態を一度だけダッシュボードに通知するためのフラグ
-  var __essqDiagOnce = false;
-  function __essqDiag(msg) {
-    if (__essqDiagOnce) return;
-    __essqDiagOnce = true;
-    diagToBg(msg);
-  }
-
-  // 無音オシレータを起動/維持する。document_start の早いタイミングや裏タブ・ナビ直後で
-  // suspended になったり Chrome に止められることがあるため、ウォッチドッグから繰り返し
-  // 呼んで「running な AudioContext + オシレータ」を維持し続ける（＝タブを audible に保つ）。
+  // 無音オシレータを起動/維持する。
   function startSilentAudio() {
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) { __essqDiag('AudioContext API なし'); return; }
+      if (!Ctx) { diagToBg('AudioContext API なし'); return; }
       let ctx = window.__essquareAudioCtx;
       // コンテキストが無い or 閉じられていたら作り直す
       if (!ctx || ctx.state === 'closed') {
         ctx = new Ctx();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        // 人間の可聴域(440Hz)で gain 極小 → 聴感上ほぼ無音だが Chrome の audible 判定は通る。
-        // Chrome 150 で 0.001 だと「実質無音」と判定され audible が外れる(スピーカーが一瞬で消える)
-        // 事象があったため 0.003 に引き上げ(それでも -50dB 相当でごく小さい)。
         osc.frequency.value = 440;
         gain.gain.value = 0.003;
         osc.connect(gain);
@@ -62,26 +48,59 @@
         window.__essquareAudioCtx = ctx;
       }
       if (ctx.state === 'suspended') {
-        ctx.resume().then(() => {
-          __essqDiag('AudioContext起動 state=' + ctx.state);
-        }).catch(() => {
-          // user gesture フォールバック（許可済みなら通常不要）
+        ctx.resume().catch(() => {
           const tryResume = () => { try { ctx.resume(); } catch (e) {} };
           ['click', 'keydown', 'touchstart', 'pointerdown'].forEach((ev) =>
             document.addEventListener(ev, tryResume, { capture: true, passive: true, once: true }));
         });
-      } else if (ctx.state === 'running') {
-        __essqDiag('AudioContext起動 state=running');
       }
     } catch (e) {
-      __essqDiag('AudioContext init失敗: ' + (e && e.message || '?'));
+      diagToBg('AudioContext init失敗: ' + (e && e.message || '?'));
     }
   }
 
+  // 【テスト核心】既存 context を閉じて新規に作り直す（fresh 状態を再現）
+  function recreateSilentAudio(why) {
+    try {
+      const old = window.__essquareAudioCtx;
+      window.__essquareAudioCtx = null;
+      if (old && old.state !== 'closed') { old.close().catch(() => {}); }
+    } catch (e) {}
+    startSilentAudio();
+    diagToBg('audio再作成 (' + why + ')');
+  }
+
   startSilentAudio();
-  // ウォッチドッグ: 止められても復活させる。running な間はタブが audible でタイマーは
-  // 間引かれないので実質毎3秒。万一 suspended に落ちても次tickで resume する。
-  setInterval(startSilentAudio, 3000);
-  // タブ表示状態が変わった時も即再確認（裏→表 等）
+
+  // navigation 検出 → 音を作り直す。
+  // ES-Square の検索遷移は history.pushState + popstate(MAIN world発火)。
+  // popstate は同一DOMなので分離ワールドのここでも受け取れる。取りこぼし対策で
+  // href 変化ポーリングも併用。
+  let __lastHref = location.href;
+  window.addEventListener('popstate', () => {
+    recreateSilentAudio('popstate');
+    __lastHref = location.href;
+  }, true);
+
+  // ウォッチドッグ(1秒): href が変わっていたら作り直し、それ以外は維持。
+  setInterval(function () {
+    if (location.href !== __lastHref) {
+      __lastHref = location.href;
+      recreateSilentAudio('href変化');
+    } else {
+      startSilentAudio(); // suspended落ち等の保険
+    }
+  }, 1000);
   document.addEventListener('visibilitychange', startSilentAudio, true);
+
+  // 【診断】throttling が止まっているか: 100ms interval が3秒に何回発火したか。
+  // 裏タブで ~3回=throttled / ~30回=throttlingされていない。
+  (function throttleProbe() {
+    let ticks = 0;
+    setInterval(function () { ticks++; }, 100);
+    setInterval(function () {
+      diagToBg('throttle計測: 3秒で ' + ticks + '回 vis=' + document.visibilityState + ' (~3=throttled/~30=OK)');
+      ticks = 0;
+    }, 3000);
+  })();
 })();
