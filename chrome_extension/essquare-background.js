@@ -955,6 +955,22 @@ async function findOrCreateDedicatedEssquareTab() {
   dedicatedEssquareTabId = newTab.id;
   dedicatedEssquareWindowId = newTab.windowId;
 
+  // 【診断・一時】タブ作成直後(初期ロード中)から1.5秒間隔でaudible+urlを全記録し、
+  // audibleがtrue→falseに落ちる正確な瞬間(初期ロード完了か/検索遷移か)を捉える。
+  // 原因確定後に撤去する。
+  (function quickAudibleProbe(id) {
+    let n = 0;
+    const t = setInterval(async () => {
+      n++;
+      try {
+        const tb = await chrome.tabs.get(id);
+        const u = (tb.url || '').replace('https://rent.es-square.net', '');
+        await setStorageData({ debugLog: `[probe#${n}] audible=${!!tb.audible} url=${u.slice(0, 70)}` });
+      } catch (e) { clearInterval(t); return; }
+      if (n >= 14) clearInterval(t);
+    }, 1500);
+  })(dedicatedEssquareTabId);
+
   // タブの自動破棄を防ぐ (Chrome のメモリ圧迫時の自動 discard を抑制)
   // 補助的対策。bg throttling 回避は content script 側の無音 audio で行う。
   try {
