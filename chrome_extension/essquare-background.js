@@ -347,6 +347,22 @@ async function __logEssqAudible(tabId, ctx) {
   } catch (e) { /* タブ消滅等は無視 */ }
 }
 
+// 検索中ずっと audible をポーリングする自己再帰タイマー。searchId が無効化されたら停止。
+// タブ作成直後(検索条件遷移の前)から回すことで、audible の true→false 切り替わりが
+// どのタイミングで起きるか(＝SPA遷移と同時か)を確定する。
+let __essqAudiblePollActive = false;
+function __startEssqAudiblePoll(tabId, searchId) {
+  if (__essqAudiblePollActive) return;
+  __essqAudiblePollActive = true;
+  __essqLastAudible = null; // 新規検索なので遷移基準をリセット
+  const tick = async () => {
+    if (isSearchCancelled(searchId)) { __essqAudiblePollActive = false; return; }
+    await __logEssqAudible(tabId, 'poll');
+    setTimeout(tick, 3000);
+  };
+  tick();
+}
+
 // === SPAレンダリング待ち ===
 
 async function _waitForEssquareRender(tabId, timeoutMs) {
@@ -1725,6 +1741,10 @@ async function runEssquareSearch(criteria, seenIds, searchId) {
 
   const essquareTab = await findOrCreateDedicatedEssquareTab();
   if (!essquareTab) return;
+
+  // keepalive audible テレメトリ: 検索中ずっと tab.audible を 3秒間隔で実測し
+  // 遷移を debugLog に記録する（render待ち以外の詳細取得フェーズもカバー）。
+  __startEssqAudiblePoll(dedicatedEssquareTabId, searchId);
 
   // タブクリーンアップは上位の検索ループ終了時に一括で行う (background.js
   // の closeDedicatedEssquareWindow 呼び出し)。
