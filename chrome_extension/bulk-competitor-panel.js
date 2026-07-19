@@ -644,7 +644,8 @@
     bar = document.createElement('div');
     bar.id = 'bc-zero-nav';
     bar.style.cssText = [
-      'position:fixed', 'right:16px', 'bottom:16px', 'z-index:2147483647',
+      // 「物件をLINEで送る」パネル(右下・幅280px)の左隣に置いて重ならないようにする
+      'position:fixed', 'right:312px', 'bottom:16px', 'z-index:2147483647',
       'display:none', 'align-items:center', 'gap:8px',
       'background:#16a085', 'color:#fff', 'padding:8px 12px', 'border-radius:24px',
       'font-family:sans-serif', 'font-size:13px', 'font-weight:bold',
