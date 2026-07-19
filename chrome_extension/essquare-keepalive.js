@@ -124,14 +124,14 @@
   // 100ms interval が3秒間に何回発火したかを数える。裏タブ(hidden)のとき:
   //   フラグ無し → Chrome が 100ms を 1000ms にクランプ → 約3回/3秒
   //   --disable-background-timer-throttling 有効 → クランプ解除 → 約30回/3秒
-  // 数秒で「フラグで throttling が止まったか」を直接確認できる。原因確定後に撤去。
+  // 前回 hidden ガードで1件も出なかったので、無条件ログ＋起動時1回＋visibility併記。
+  // 原因確定後に撤去。
+  diagToBg('throttleProbe起動 vis=' + document.visibilityState);
   (function throttleProbe() {
     let ticks = 0;
     setInterval(function () { ticks++; }, 100); // 理論上3秒で30回
     setInterval(function () {
-      if (document.visibilityState === 'hidden') {
-        diagToBg('throttle計測: 直近3秒で ' + ticks + '回 (フラグ有効なら~30 / throttledなら~3)');
-      }
+      diagToBg('throttle計測: 直近3秒で ' + ticks + '回 vis=' + document.visibilityState + ' (hidden&~3=throttled / ~30=解除)');
       ticks = 0;
     }, 3000);
   })();
