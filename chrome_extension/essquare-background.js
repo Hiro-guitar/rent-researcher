@@ -319,7 +319,10 @@ function buildEssquareSearchUrl(customer, page, jushoList, stationChunk) {
   // 最終更新日とパラメータ命名規則が違う点に注意:
   //   - 最終更新日: koshin_radio_state=customRange + saishu_koshin_time:gteq=YYYY-MM-DD
   //   - 情報公開日: kokai_radio_state=select + kokai_date.from=YYYY-MM-DDT00:00:00+09:00 (ISO+JST)
-  if (customer && customer._isSuumoPatrol && typeof customer.daysWithin === 'number' && customer.daysWithin >= 0) {
+  // daysWithin が数値なら適用（ielove等と同じ。_isSuumoPatrol は要求しない ─ GASの
+  // 「検索→いい生活」手動検索は customer に daysWithin は入るが _isSuumoPatrol は入らない
+  // ため、以前は essquare だけ登録日数フィルタが効かなかった。2026-07-19 修正）
+  if (customer && typeof customer.daysWithin === 'number' && customer.daysWithin >= 0) {
     const pad = (n) => String(n).padStart(2, '0');
     const today = new Date();
     today.setHours(0, 0, 0, 0);
