@@ -116,6 +116,7 @@
         box.style.border = '2px solid #16a085';
         box.style.boxShadow = '0 0 8px rgba(26,188,156,0.5)';
         box.style.color = '#fff';
+        box.dataset.compZero = '1'; // 競合00ジャンプ用の目印
       }
       box.appendChild(mkNum(hlName, '名有'));
       box.appendChild(mkNum(hlNoName, '名無'));
@@ -135,6 +136,7 @@
       }
     }
     (insertTarget || el).after(box);
+    scheduleNavUpdate();
   }
 
   function injectAdBlock(el, insertTarget) {
@@ -620,4 +622,102 @@
       properties: checkableEntries.map((e) => e.prop),
     });
   });
+
+  // === 競合00 ジャンプ・ナビゲーター (Ctrl+F風の▲▼バー) ===
+  // 一括チェックで緑になった「競合00」物件だけを、画面右下の小さなバーの
+  // ▲▼で上下に飛べるようにする。ページスクロールとは競合しない。
+  var __bcNavIndex = -1;          // 現在フォーカス中の競合00のindex
+  var __bcNavUpdateTimer = null;  // 連続注入をまとめる debounce
+
+  function bcGetZeroHits() {
+    // 現在DOMにある競合00ボックスを、画面上の位置(上→下)順で返す
+    var list = Array.prototype.slice.call(document.querySelectorAll('.' + BC + '[data-comp-zero="1"]'));
+    list.sort(function (a, b) {
+      return a.getBoundingClientRect().top + window.scrollY - (b.getBoundingClientRect().top + window.scrollY);
+    });
+    return list;
+  }
+
+  function bcEnsureNavBar() {
+    var bar = document.getElementById('bc-zero-nav');
+    if (bar) return bar;
+    bar = document.createElement('div');
+    bar.id = 'bc-zero-nav';
+    bar.style.cssText = [
+      'position:fixed', 'right:16px', 'bottom:16px', 'z-index:2147483647',
+      'display:none', 'align-items:center', 'gap:8px',
+      'background:#16a085', 'color:#fff', 'padding:8px 12px', 'border-radius:24px',
+      'font-family:sans-serif', 'font-size:13px', 'font-weight:bold',
+      'box-shadow:0 3px 12px rgba(0,0,0,0.3)', 'user-select:none'
+    ].join(';');
+
+    var label = document.createElement('span');
+    label.textContent = '競合0';
+    label.style.cssText = 'font-size:11px;opacity:0.9;';
+
+    var up = document.createElement('button');
+    up.textContent = '▲';
+    var btnCss = 'background:#fff;color:#16a085;border:none;border-radius:50%;width:26px;height:26px;font-size:12px;font-weight:bold;cursor:pointer;line-height:1;';
+    up.style.cssText = btnCss;
+    up.title = '前の競合0へ';
+    up.onclick = function () { bcJump(-1); };
+
+    var count = document.createElement('span');
+    count.id = 'bc-zero-nav-count';
+    count.textContent = '0/0';
+    count.style.cssText = 'min-width:44px;text-align:center;';
+
+    var down = document.createElement('button');
+    down.textContent = '▼';
+    down.style.cssText = btnCss;
+    down.title = '次の競合0へ';
+    down.onclick = function () { bcJump(1); };
+
+    bar.appendChild(label);
+    bar.appendChild(up);
+    bar.appendChild(count);
+    bar.appendChild(down);
+    document.body.appendChild(bar);
+    return bar;
+  }
+
+  function scheduleNavUpdate() {
+    if (__bcNavUpdateTimer) return;
+    __bcNavUpdateTimer = setTimeout(function () {
+      __bcNavUpdateTimer = null;
+      bcRefreshNavBar();
+    }, 200);
+  }
+
+  function bcRefreshNavBar() {
+    var hits = bcGetZeroHits();
+    var bar = bcEnsureNavBar();
+    if (hits.length === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    if (__bcNavIndex >= hits.length) __bcNavIndex = hits.length - 1;
+    var countEl = document.getElementById('bc-zero-nav-count');
+    if (countEl) countEl.textContent = (__bcNavIndex < 0 ? '-' : (__bcNavIndex + 1)) + '/' + hits.length;
+  }
+
+  function bcJump(dir) {
+    var hits = bcGetZeroHits();
+    if (hits.length === 0) return;
+    __bcNavIndex += dir;
+    if (__bcNavIndex < 0) __bcNavIndex = hits.length - 1;      // 端で反対側へループ
+    if (__bcNavIndex >= hits.length) __bcNavIndex = 0;
+    var target = hits[__bcNavIndex];
+    // 物件行(ボックスの少し上)を中央に持ってくる
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    bcFlash(target);
+    var countEl = document.getElementById('bc-zero-nav-count');
+    if (countEl) countEl.textContent = (__bcNavIndex + 1) + '/' + hits.length;
+  }
+
+  function bcFlash(box) {
+    // 飛んだ先を一瞬強く光らせる
+    var prev = box.style.boxShadow;
+    box.style.transition = 'box-shadow 0.15s';
+    box.style.boxShadow = '0 0 0 3px #fff, 0 0 14px 4px rgba(241,196,15,0.95)';
+    setTimeout(function () { box.style.boxShadow = prev || '0 0 8px rgba(26,188,156,0.5)'; }, 900);
+  }
 })();
