@@ -1101,11 +1101,41 @@ async function fetchEssquareDetailForManual(baseProp, senderTabId) {
     const detailUrl = (baseProp && baseProp.url) || '';
     if (!detailUrl) return { ok: false, error: 'URLなし' };
 
-    // 現在タブでスライドモーダル(=detailルート)をSPA遷移で開く（新規タブは開かない）
-    const opened = await navigateEssquareSpa_(tabId, detailUrl);
-    if (!opened) {
-      await chrome.tabs.update(tabId, { url: detailUrl });
-      await waitForTabLoad(tabId);
+    // 人間と同じ操作: 一覧上の該当物件を「クリック」してスライドモーダルを開く。
+    // こうすると一覧(検索条件・結果)は裏で保持されたまま、戻る(history.back)で復元できる。
+    // pushStateで直接detailURLへ遷移すると一覧の検索状態が消えるため使わない。
+    const uuidMatch = detailUrl.match(/\/detail\/([0-9a-fA-F-]+)/);
+    const uuid = uuidMatch ? uuidMatch[1] : '';
+    let clicked = false;
+    if (uuid) {
+      try {
+        const cr = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (uid) => {
+            // 該当物件の詳細リンクを一覧から探してクリック
+            let link = document.querySelector('a[href*="/detail/' + uid + '"]');
+            if (!link) {
+              const rows = document.querySelectorAll('[data-testclass="bukkenListItem"]');
+              for (const row of rows) {
+                const a = row.querySelector('a[href*="/detail/"]');
+                if (a && a.href.indexOf(uid) !== -1) { link = a; break; }
+              }
+            }
+            if (link) { link.scrollIntoView({ block: 'center' }); link.click(); return true; }
+            return false;
+          },
+          args: [uuid],
+        });
+        clicked = !!(cr && cr[0] && cr[0].result === true);
+      } catch (e) {}
+    }
+    if (!clicked) {
+      // フォールバック: 該当物件が現在の一覧ページに無い場合のみSPA遷移(一覧状態は消えるが取得はできる)
+      const opened = await navigateEssquareSpa_(tabId, detailUrl);
+      if (!opened) {
+        await chrome.tabs.update(tabId, { url: detailUrl });
+        await waitForTabLoad(tabId);
+      }
     }
     await sleep(2500); // 詳細/ギャラリー描画待ち
 
