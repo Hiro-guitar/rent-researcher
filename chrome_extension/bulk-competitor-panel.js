@@ -14,6 +14,7 @@
   if (href.includes('system.reins.jp')) site = 'reins';
   else if (href.includes('itandibb.com/rent_rooms/list')) site = 'itandi';
   else if (href.includes('bb.ielove.jp/ielovebb/rent/index')) site = 'ielove';
+  else if (href.includes('rent.es-square.net/bukken/chintai/search')) site = 'essquare';
   if (!site) return;
 
   // ── ボタン（送信パネルに統合。無ければ画面右下に浮かせる） ──
@@ -459,6 +460,49 @@
     } catch (_) { return null; }
   }
 
+  // ── ES-Square(いい生活) 物件抽出 ──
+  // 各行 [data-testclass="bukkenListItem"] の dataset.essqManualProp
+  // (essquare-fiber-reader.js が React Fiber から書き込むJSON) を読むだけ。
+  // rent/area/address に加え floor_text(所在階)/total_floors(階建)/structure まで
+  // 揃っているので、競合検索の精度は他サイトと同等以上。
+  function extractEssquare() {
+    const rows = document.querySelectorAll('[data-testclass="bukkenListItem"]');
+    const entries = [];
+    const seen = new Set();
+    rows.forEach((row) => {
+      const raw = row.dataset ? row.dataset.essqManualProp : '';
+      if (!raw) return;
+      let d;
+      try { d = JSON.parse(raw); } catch (e) { return; }
+      if (!d || !d.address || !d.rent || !d.area) return;
+      const key = d.uuid || (d.building_name + '|' + d.room_number);
+      if (seen.has(key)) return;
+      seen.add(key);
+      // バッジ挿入先: 物件名(詳細リンク)の直後
+      const insertTarget = row.querySelector('a[href*="/detail/"]') || row.querySelector('a') || row;
+      entries.push({
+        el: row,
+        insertTarget: insertTarget,
+        // 一覧から広告可否を確実に取れないため v1 は全件チェック
+        adBlocked: false,
+        prop: {
+          building_name: d.building_name || '',
+          room_number: d.room_number || '',
+          address: d.address || '',
+          rent: d.rent || 0,
+          management_fee: d.management_fee || 0,
+          layout: normalizeLayout(d.layout || ''),
+          area: d.area || 0,
+          unit_floor: d.floor_text || '',                                   // 所在階(例:"3階")
+          story_text: d.total_floors ? (d.total_floors + '階建') : '',        // 建物階数
+          structure: d.structure || '',                                     // 種別推定用
+          source: 'essquare',
+        }
+      });
+    });
+    return entries;
+  }
+
   // ── 進捗管理 ──
   // checkableEntries: 広告不可を除いた、実際にSUUMOチェックする物件
   let allEntries = [];
@@ -507,6 +551,7 @@
     if (site === 'reins') entries = extractReins();
     else if (site === 'itandi') entries = extractItandi();
     else if (site === 'ielove') entries = extractIelove();
+    else if (site === 'essquare') entries = extractEssquare();
 
     var restored = 0;
     entries.forEach(function(e) {
@@ -578,6 +623,7 @@
     if (site === 'reins') allEntries = extractReins();
     else if (site === 'itandi') allEntries = extractItandi();
     else if (site === 'ielove') allEntries = extractIelove();
+    else if (site === 'essquare') allEntries = extractEssquare();
 
     if (allEntries.length === 0) {
       btn.textContent = '物件なし';
