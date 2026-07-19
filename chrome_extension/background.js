@@ -3033,6 +3033,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           try {
             if (src === 'ielove') res = await fetchIeloveDetailForManual(p);
             else if (src === 'itandi') res = await fetchItandiDetailForManual(p);
+            else if (src === 'essquare') res = await fetchEssquareDetailForManual(p);
             else res = { ok: false, error: '未対応ソース: ' + src };
           } catch (e) {
             res = { ok: false, error: e.message };
@@ -3048,6 +3049,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
             if (src === 'itandi' && typeof buildItandiPropertyDataJson === 'function') {
               res.detail.property_data_json = JSON.stringify(buildItandiPropertyDataJson(res.detail));
+            }
+            if (src === 'essquare' && typeof buildPropertyDataJson === 'function') {
+              res.detail.property_data_json = JSON.stringify(buildPropertyDataJson(res.detail));
             }
             allEnriched.push(res.detail);
           } else {

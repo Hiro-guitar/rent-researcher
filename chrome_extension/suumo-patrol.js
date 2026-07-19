@@ -238,9 +238,11 @@ async function runSuumoPatrolCycle() {
     // 3. 有効なサービスを確認（SUUMO巡回専用の設定を使用、未設定時は顧客検索の設定にフォールバック）
     const { patrolEnabledServices, enabledServices } = await getStorageData(['patrolEnabledServices', 'enabledServices']);
     const services = patrolEnabledServices || enabledServices || { reins: true, ielove: true, itandi: true, essquare: true };
-    // 2026-06-03: いい生活Square は規約違反(機械的取得)でアカウントBAN。SUUMO巡回でも走らせない。
-    // 再開はBAN逃れになるため不可。
-    services.essquare = false;
+    // 2026-07-19: ユーザー判断で essquare を SUUMO巡回に再有効化(BANリスク承知の上)。
+    // (2026-06-03 に BAN対応で services.essquare=false としていたが、実運用で essquare を
+    //  再開済みのため巡回でも有効化。登録日数フィルタ(kokai_date.from)もこれで効く)
+    // 保存済み設定に essquare:false が焼き付いている可能性があるため明示的に有効化する。
+    services.essquare = true;
 
     // 4. 各巡回条件を処理
     for (let ci = 0; ci < criteria.length; ci++) {
