@@ -1101,9 +1101,10 @@ async function fetchEssquareDetailForManual(baseProp, senderTabId) {
     const detailUrl = (baseProp && baseProp.url) || '';
     if (!detailUrl) return { ok: false, error: 'URLなし' };
 
-    // 人間と同じ操作: 一覧上の該当物件を「クリック」してスライドモーダルを開く。
-    // こうすると一覧(検索条件・結果)は裏で保持されたまま、戻る(history.back)で復元できる。
-    // pushStateで直接detailURLへ遷移すると一覧の検索状態が消えるため使わない。
+    // 人間と同じ操作: 一覧上の物件カード本体をクリックして詳細を開く。
+    // カードのクリックハンドラは現在の検索クエリを保持したまま遷移するため、一覧(検索
+    // 条件・結果)は裏で保持されたままモーダルが乗る。物件名の<a>(素のhref=クエリ無し)を
+    // クリックするとクエリが消えて一覧が空になるので、<a>ではなくカード本体を狙う。
     const uuidMatch = detailUrl.match(/\/detail\/([0-9a-fA-F-]+)/);
     const uuid = uuidMatch ? uuidMatch[1] : '';
     let clicked = false;
@@ -1112,17 +1113,24 @@ async function fetchEssquareDetailForManual(baseProp, senderTabId) {
         const cr = await chrome.scripting.executeScript({
           target: { tabId },
           func: (uid) => {
-            // 該当物件の詳細リンクを一覧から探してクリック
-            let link = document.querySelector('a[href*="/detail/' + uid + '"]');
-            if (!link) {
-              const rows = document.querySelectorAll('[data-testclass="bukkenListItem"]');
-              for (const row of rows) {
-                const a = row.querySelector('a[href*="/detail/"]');
-                if (a && a.href.indexOf(uid) !== -1) { link = a; break; }
-              }
+            const rows = document.querySelectorAll('[data-testclass="bukkenListItem"]');
+            let row = null;
+            for (const r of rows) {
+              const a = r.querySelector('a[href*="/detail/"]');
+              if (a && a.href.indexOf(uid) !== -1) { row = r; break; }
             }
-            if (link) { link.scrollIntoView({ block: 'center' }); link.click(); return true; }
-            return false;
+            if (!row) return false;
+            row.scrollIntoView({ block: 'center' });
+            // カード本体(画像/本文)をクリック。<a>とボタン類は避ける。
+            const img = row.querySelector('img');
+            const target = img || row;
+            const rect = target.getBoundingClientRect();
+            const opts = { bubbles: true, cancelable: true, view: window,
+              clientX: rect.left + Math.min(20, rect.width / 2),
+              clientY: rect.top + Math.min(20, rect.height / 2) };
+            ['pointerdown', 'mousedown', 'mouseup', 'click'].forEach(t =>
+              target.dispatchEvent(new MouseEvent(t, opts)));
+            return true;
           },
           args: [uuid],
         });
@@ -1130,12 +1138,17 @@ async function fetchEssquareDetailForManual(baseProp, senderTabId) {
       } catch (e) {}
     }
     if (!clicked) {
-      // フォールバック: 該当物件が現在の一覧ページに無い場合のみSPA遷移(一覧状態は消えるが取得はできる)
-      const opened = await navigateEssquareSpa_(tabId, detailUrl);
-      if (!opened) {
-        await chrome.tabs.update(tabId, { url: detailUrl });
-        await waitForTabLoad(tabId);
-      }
+      // フォールバック: 現在ページに該当物件が無い場合のみ、クエリ保持の詳細URLをSPA遷移で開く
+      let openUrl = detailUrl;
+      try {
+        const curUrl = (await chrome.tabs.get(tabId)).url || '';
+        if (uuid && curUrl.includes('/bukken/chintai/search') && !curUrl.includes('/detail/')) {
+          const qIdx = curUrl.indexOf('?');
+          openUrl = `${ESSQUARE_BASE_URL}/bukken/chintai/search/detail/${uuid}${qIdx >= 0 ? curUrl.substring(qIdx) : ''}`;
+        }
+      } catch (e) {}
+      const opened = await navigateEssquareSpa_(tabId, openUrl);
+      if (!opened) { await chrome.tabs.update(tabId, { url: openUrl }); await waitForTabLoad(tabId); }
     }
     await sleep(2500); // 詳細/ギャラリー描画待ち
 
