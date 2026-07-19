@@ -329,6 +329,24 @@ async function navigateEssquareSpa_(tabId, url) {
   }
 }
 
+// === keepalive audible テレメトリ ===
+// keepalive (無音audio) がタブを audible に保てているかを background 側で実測する。
+// keepalive content script は自タブの audible フラグを読めない（chrome.tabs は
+// background 専用）ため、ここで tab.audible の遷移を debugLog に記録し、検索遷移
+// との時間相関から「いつ・なぜ落ちるか」を確定する。同一状態の連投は抑制。
+let __essqLastAudible = null;
+async function __logEssqAudible(tabId, ctx) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const a = !!tab.audible;
+    if (a !== __essqLastAudible) {
+      __essqLastAudible = a;
+      const where = ctx ? ` (${ctx})` : '';
+      await setStorageData({ debugLog: `[keepalive] tab.audible=${a}${where}` });
+    }
+  } catch (e) { /* タブ消滅等は無視 */ }
+}
+
 // === SPAレンダリング待ち ===
 
 async function _waitForEssquareRender(tabId, timeoutMs) {
@@ -337,6 +355,7 @@ async function _waitForEssquareRender(tabId, timeoutMs) {
   let staleStart = null;
 
   while (Date.now() - startTime < timeoutMs) {
+    await __logEssqAudible(tabId, 'render待ち');
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId },
