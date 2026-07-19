@@ -1337,6 +1337,58 @@ function _addressMatchesTown(address, town) {
   return _normalizeTownText(address).includes(_normalizeTownText(town));
 }
 
+// REINS間取りが顧客の希望に合致するか判定する。
+// 戻り値: true=合致 / false=不一致 / null=判定不能(間取りが読めない等→通す)
+// 一覧段階(高速スキップ)と詳細段階(保険)の両方で使う共通ロジック。
+function reinsLayoutAllowed(propLayoutRaw, customerLayouts) {
+  if (!customerLayouts || customerLayouts.length === 0 || !propLayoutRaw) return null;
+  // LK→LDK, SK→K, SDK→DK, SLK/SLDK→LDK
+  const normalizeType = (t) => {
+    const u = t.replace(/\s/g, '').toUpperCase()
+      .replace(/Ｋ/g, 'K').replace(/Ｄ/g, 'D').replace(/Ｌ/g, 'L').replace(/Ｓ/g, 'S');
+    if (u === 'LK') return 'LDK';
+    if (u === 'SK') return 'K';
+    if (u === 'SDK') return 'DK';
+    if (u === 'SLK' || u === 'SLDK') return 'LDK';
+    return u;
+  };
+  const propLayout = propLayoutRaw.replace(/\s/g, '');
+  const propMatch = propLayout.match(/^(\d+)\s*(.+)$/);
+  let propRooms = 0;
+  let propType = '';
+  if (propMatch) {
+    propRooms = parseInt(propMatch[1]);
+    propType = normalizeType(propMatch[2]);
+  } else if (propLayout.includes('ワンルーム') || propLayout.toUpperCase() === 'R') {
+    propRooms = 1;
+    propType = 'R';
+  }
+  if (!(propRooms > 0 && propType)) return null; // 判定不能→詳細で確認
+  return customerLayouts.some(layout => {
+    if (layout.includes('以上')) {
+      const aboveMatch = layout.replace(/以上/g, '').trim().match(/^(\d+)\s*(.+)$/);
+      if (aboveMatch) {
+        const minRooms = parseInt(aboveMatch[1]);
+        const baseType = normalizeType(aboveMatch[2]);
+        if (propRooms >= minRooms) {
+          if (baseType === 'K') return ['K', 'DK', 'LDK'].includes(propType);
+          if (baseType === 'DK') return ['DK', 'LDK'].includes(propType);
+          return propType === baseType;
+        }
+      }
+      return false;
+    }
+    const custMatch = layout.match(/^(\d+)\s*(.+)$/);
+    if (custMatch) {
+      const custRooms = parseInt(custMatch[1]);
+      const custType = normalizeType(custMatch[2]);
+      return propRooms === custRooms && propType === custType;
+    }
+    if (layout.includes('ワンルーム')) return propType === 'R';
+    return false;
+  });
+}
+
 // フィルタ不合格の理由を返す（合格ならnull）
 function getFilterRejectReason(prop, customer) {
   // 町名丁目フィルタ（selectedTownsが指定されている場合、住所テキストで照合）
@@ -1471,64 +1523,10 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
-  // 間取りフィルタ（REINS検索はタイプ×部屋数のクロス積のため、詳細取得後に正確にフィルタ）
+  // 間取りフィルタ（一覧段階でも同じ判定を先行実行して高速化。ここは保険）
   if (customer.layouts && customer.layouts.length > 0 && prop.layout) {
-    // REINS間取りタイプをお客さんのカテゴリに正規化
-    // LK→LDK, SK→K, SDK→DK, SLK→LDK, SLDK→LDK
-    const normalizeType = (t) => {
-      const u = t.replace(/\s/g, '').toUpperCase()
-        .replace(/Ｋ/g, 'K').replace(/Ｄ/g, 'D').replace(/Ｌ/g, 'L').replace(/Ｓ/g, 'S');
-      if (u === 'LK') return 'LDK';
-      if (u === 'SK') return 'K';
-      if (u === 'SDK') return 'DK';
-      if (u === 'SLK' || u === 'SLDK') return 'LDK';
-      return u;
-    };
-    // 物件の間取りをパース（例: "2LDK" → rooms=2, type="LDK"）
-    const propLayout = prop.layout.replace(/\s/g, '');
-    const propMatch = propLayout.match(/^(\d+)\s*(.+)$/);
-    let propRooms = 0;
-    let propType = '';
-    if (propMatch) {
-      propRooms = parseInt(propMatch[1]);
-      propType = normalizeType(propMatch[2]);
-    } else if (propLayout.includes('ワンルーム') || propLayout.toUpperCase() === 'R') {
-      propRooms = 1;
-      propType = 'R';
-    }
-
-    if (propRooms > 0 && propType) {
-      const propNormalized = propType === 'R' ? 'ワンルーム' : propRooms + propType;
-      // 顧客の指定間取りリストと照合
-      const allowed = customer.layouts.some(layout => {
-        if (layout.includes('以上')) {
-          // "4K以上" → 4部屋以上かつK/DK/LDK
-          const aboveMatch = layout.replace(/以上/g, '').trim().match(/^(\d+)\s*(.+)$/);
-          if (aboveMatch) {
-            const minRooms = parseInt(aboveMatch[1]);
-            const baseType = normalizeType(aboveMatch[2]);
-            // 「4K以上」= 4部屋以上で、K/DK/LDKいずれか
-            if (propRooms >= minRooms) {
-              if (baseType === 'K') return ['K', 'DK', 'LDK'].includes(propType);
-              if (baseType === 'DK') return ['DK', 'LDK'].includes(propType);
-              return propType === baseType;
-            }
-          }
-          return false;
-        }
-        // 通常の間取り（完全一致）
-        const custMatch = layout.match(/^(\d+)\s*(.+)$/);
-        if (custMatch) {
-          const custRooms = parseInt(custMatch[1]);
-          const custType = normalizeType(custMatch[2]);
-          return propRooms === custRooms && propType === custType;
-        }
-        if (layout.includes('ワンルーム')) return propType === 'R';
-        return false;
-      });
-      if (!allowed) {
-        return `間取り不一致: ${prop.layout}（要求: ${customer.layouts.join(', ')}）`;
-      }
+    if (reinsLayoutAllowed(prop.layout, customer.layouts) === false) {
+      return `間取り不一致: ${prop.layout}（要求: ${customer.layouts.join(', ')}）`;
     }
   }
 
@@ -4597,6 +4595,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
               propertyNumber,
               buildingName: items[11]?.textContent.trim() || '',      // 物件名
               floor: items[12]?.textContent.trim() || '',             // 階数
+              layout: items[13]?.textContent.trim() || '',            // 間取り（一覧フィルタ用）
               rentText: items[8]?.textContent.trim() || '',           // 賃料（row2 col5）
               managementFeeText: items[15]?.textContent.trim() || '', // 管理費（row3 col5）
               commonFeeText: items[21]?.textContent.trim() || '',     // 共益費（row4 col5）
@@ -4699,6 +4698,15 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           await setStorageData({ debugLog: `${customer.name}: ✗ 一覧スキップ: ${result.buildingName} ${result.floor} - 賃料+管理+共益超過 ${totalYen_}円(${result.rentText}+${result.managementFeeText||'0'}+${result.commonFeeText||'0'}) > ${rentMaxYen_}円` });
           continue;
         }
+      }
+    }
+
+    // 一覧ページで間取りフィルタ（一覧に間取りが出ているので詳細を開く前にスキップ→高速化）
+    // 判定不能(null)や合致(true)は詳細に進み、詳細段階の getFilterRejectReason が保険で再判定。
+    if (customer.layouts && customer.layouts.length > 0 && result.layout) {
+      if (reinsLayoutAllowed(result.layout, customer.layouts) === false) {
+        await setStorageData({ debugLog: `${customer.name}: ✗ 一覧スキップ: ${result.buildingName} ${result.floor} - 間取り不一致: ${result.layout}（要求: ${customer.layouts.join(', ')}）` });
+        continue;
       }
     }
 
