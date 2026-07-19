@@ -18,6 +18,46 @@
 let dedicatedEssquareTabId = null;
 let dedicatedEssquareWindowId = null;
 
+// === background throttling 回避 (chrome.debugger + focus emulation) ===
+// 経緯(2026-07-19): Chrome150 で「無音audioでaudible化→throttling除外」が塞がれた。
+// 代わりに専用タブへ chrome.debugger をアタッチし Emulation.setFocusEmulationEnabled で
+// 「フォーカスされた可視ページ」を装う。これで裏タブでも timer が間引かれない。
+// 起動フラグ不要。専用タブにだけ「デバッグ中」の黄色バーが出る(裏タブなので普段見えない)。
+let __essqDebuggerTabId = null; // アタッチ中のtabId (未アタッチはnull)
+
+async function __attachEssqDebugger(tabId) {
+  if (!tabId) return;
+  if (__essqDebuggerTabId === tabId) return; // 既にアタッチ済み
+  try {
+    await chrome.debugger.attach({ tabId }, '1.3');
+    __essqDebuggerTabId = tabId;
+    // フォーカス/可視状態をエミュレート → 裏タブでも throttling されない
+    await chrome.debugger.sendCommand({ tabId }, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+    await setStorageData({ debugLog: '[ES-Square] throttling回避: debugger attach + focus emulation 有効' });
+  } catch (e) {
+    __essqDebuggerTabId = null;
+    await setStorageData({ debugLog: '[ES-Square] debugger attach 失敗: ' + (e && e.message || e) });
+  }
+}
+
+async function __detachEssqDebugger(tabId) {
+  const target = tabId || __essqDebuggerTabId;
+  if (!target) return;
+  __essqDebuggerTabId = null;
+  try {
+    await chrome.debugger.detach({ tabId: target });
+  } catch (e) { /* 既にデタッチ済み(タブ消滅/外部DevTools)は無視 */ }
+}
+
+// タブが閉じられた/外部DevToolsが繋がった等で勝手にデタッチされたらフラグを戻す
+if (chrome.debugger && chrome.debugger.onDetach) {
+  chrome.debugger.onDetach.addListener((source) => {
+    if (source && source.tabId === __essqDebuggerTabId) {
+      __essqDebuggerTabId = null;
+    }
+  });
+}
+
 // === 価格テキストパーサー ===
 
 function _parseEssquarePriceText(text) {
@@ -1028,6 +1068,8 @@ async function attemptEssquareAutoLogin_(tabId) {
 
 async function closeDedicatedEssquareWindow() {
   if (dedicatedEssquareTabId) {
+    // タブを閉じる前に debugger をデタッチ (黄色バーも消える)
+    await __detachEssqDebugger(dedicatedEssquareTabId);
     try {
       await chrome.tabs.remove(dedicatedEssquareTabId);
     } catch (e) {
@@ -1706,6 +1748,10 @@ async function runEssquareSearch(criteria, seenIds, searchId) {
 
   const essquareTab = await findOrCreateDedicatedEssquareTab();
   if (!essquareTab) return;
+
+  // 裏タブ throttling 回避: 専用タブに debugger をアタッチしフォーカスを装う。
+  // (新規/再利用どちらのタブでも冪等。detach は closeDedicatedEssquareWindow で)
+  await __attachEssqDebugger(dedicatedEssquareTabId);
 
   // タブクリーンアップは上位の検索ループ終了時に一括で行う (background.js
   // の closeDedicatedEssquareWindow 呼び出し)。
