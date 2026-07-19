@@ -89,6 +89,33 @@ function __startEssqAudiblePoll(tabId, searchId) {
   tick();
 }
 
+// === いい生活SPA対応: 検索ルートへのSPA遷移でcontent scriptをプログラム注入 ===
+// いい生活は /entry にフルロードで入り /bukken/chintai/search へ pushState 遷移する
+// ため、manifest の content_scripts が検索ルートで注入されないことがある(手動送信
+// パネル・競合チェックが出ない原因。2026-07-19 に判明)。webNavigation で検索ルートへの
+// 遷移を検知してプログラム注入する。各scriptは重複ガード付きなので二重注入も安全。
+async function __injectEssquareManualUI(tabId) {
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', files: ['essquare-fiber-reader.js'] });
+  } catch (e) {}
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['manual-send-panel.js', 'essquare-content-search.js', 'bulk-competitor-panel.js'] });
+  } catch (e) {}
+}
+function __onEssquareNavToSearch(details) {
+  if (details.frameId !== 0) return;
+  const url = details.url || '';
+  if (!url.includes('rent.es-square.net/bukken/chintai/search')) return;
+  if (url.includes('/bukken/chintai/search/detail/')) return; // 詳細ページは一覧UIを出さない
+  if (details.tabId === dedicatedEssquareTabId) return;        // 自動検索の専用タブには入れない
+  __injectEssquareManualUI(details.tabId);
+}
+if (chrome.webNavigation) {
+  const __essqNavFilter = { url: [{ hostEquals: 'rent.es-square.net', pathPrefix: '/bukken/chintai/search' }] };
+  chrome.webNavigation.onHistoryStateUpdated.addListener(__onEssquareNavToSearch, __essqNavFilter); // SPA遷移
+  chrome.webNavigation.onCompleted.addListener(__onEssquareNavToSearch, __essqNavFilter);           // フルロード(保険)
+}
+
 // === 価格テキストパーサー ===
 
 function _parseEssquarePriceText(text) {
