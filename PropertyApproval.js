@@ -2784,6 +2784,9 @@ function getAvailabilityCheckQueue(options) {
       // watchOnly モードなら watch 中のみ抽出
       if (watchOnly && !isWatching) continue;
 
+      // customer 指定があればその顧客のみ（顧客検索時にその顧客の監視物件だけ取る用）
+      if (options.customer && String(customer).trim() !== String(options.customer).trim()) continue;
+
       // priorityOnly モードなら優先依頼のみ抽出
       if (priorityOnly && !isPriority) continue;
 

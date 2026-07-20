@@ -774,7 +774,8 @@ function doGet(e) {
         maxIntervalHours: parseInt(e.parameter.max_interval_hours || '24', 10),
         priorityOnly: e.parameter.priority_only === '1',
         maxPriorityAgeMinutes: parseInt(e.parameter.max_priority_age_minutes || '60', 10),
-        watchOnly: e.parameter.watch_only === '1'
+        watchOnly: e.parameter.watch_only === '1',
+        customer: e.parameter.customer || ''
       };
       var queue = (typeof getAvailabilityCheckQueue === 'function') ? getAvailabilityCheckQueue(queueOpts) : [];
       var diagInfo = (queue && queue._diag) ? queue._diag : null;

@@ -4112,6 +4112,13 @@ globalThis.runSearchCycle = async function runSearchCycle() {
         catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[いえらぶ] 検索エラー: ' + err.message); }
       }
 
+      // --- キャンセル待ち物件の募集状況チェック（この顧客の監視物件・担当にだけ通知） ---
+      if (typeof checkCustomerCancellationWatches === 'function') {
+        if (isSearchCancelled(searchId)) return;
+        try { await checkCustomerCancellationWatches(customer.name, searchId); }
+        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[キャンセル待ち確認] ' + err.message); }
+      }
+
       // --- REINS（他サイトで申込あり検出後に判定するため最後に実行） ---
       if (services.reins && reinsTab && !reinsFatalExit) {
         const cond = formatCustomerCriteria(customer);

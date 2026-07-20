@@ -29,7 +29,8 @@ async function checkOneAvailability(item) {
     let res;
     if (source === 'itandi')   res = await _checkItandiAvailability(url);
     else if (source === 'ielove')   res = await _checkIeloveAvailability(url);
-    else if (source === 'essquare') return { status: 'unknown' }; // いい生活Square 恒久停止(2026-06-03 規約違反BAN)。空室確認でも es-square にアクセスしない。
+    else if (source === 'essquare') res = await _checkEssquareAvailability(url); // 2026-07-20: キャンセル待ち確認のためユーザー判断で再有効化(BANリスク承知)
+    else if (source === 'essquare-off') return { status: 'unknown' }; // (旧: BANで停止していた)
     else if (source === 'reins')    res = await _checkReinsAvailability(item.reinsPropNo || '');
     else return { status: 'unknown' };
     // 後方互換: 文字列が返ってきた場合は status のみとして包む
@@ -785,6 +786,56 @@ async function runAvailabilityCheckBatch(options) {
 // 外部から中断要求を受け取る
 async function stopAvailabilityCheck() {
   await new Promise(r => chrome.storage.local.set({ __availabilityCheckStop: true }, r));
+}
+
+// ──────────────────────────────────────────────────────────────────
+// キャンセル待ち確認: その顧客の監視物件(J列)の募集状況をチェックし、空きが出ていたら
+// 担当にだけ Discord 通知する（顧客には自動送信しない）。runSearchCycle から顧客ごとに呼ぶ。
+// ──────────────────────────────────────────────────────────────────
+async function checkCustomerCancellationWatches(customerName, searchId) {
+  try {
+    const resp = await gasGet('get_availability_queue', { watch_only: '1', customer: customerName, limit: '50' });
+    const items = (resp && resp.items) || [];
+    if (items.length === 0) return;
+    await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: 監視 ${items.length}件の募集状況をチェック` });
+    const hits = [];
+    for (const item of items) {
+      if (typeof isSearchCancelled === 'function' && isSearchCancelled(searchId)) return;
+      let res;
+      try { res = await checkOneAvailability(item); } catch (e) { res = { status: 'unknown' }; }
+      const st = (res && res.status) || 'unknown';
+      const canApply = res && res.canApply;
+      const label = item.building_name || item.buildingName || item.roomId || '';
+      await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: ${label} (${item.source}) → ${st}${canApply === true ? ' /2番手申込可' : ''}` });
+      // 空きが出た(available) or 申込ありでも2番手申込可 → キャンセルのチャンス
+      if (st === 'available' || (st === 'applied' && canApply === true)) {
+        hits.push({ item: item, st: st, canApply: canApply, label: label });
+      }
+    }
+    if (hits.length > 0) await _notifyWatchAvailableToAgent(customerName, hits);
+  } catch (e) {
+    await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: エラー ${e.message}` });
+  }
+}
+
+// キャンセル待ち物件に空き/2番手可が出たことを「担当だけ」に Discord 通知する。
+async function _notifyWatchAvailableToAgent(customerName, hits) {
+  const lines = hits.map(function (h) {
+    const mark = h.st === 'available' ? '🟢 空きが出ました' : '🟡 2番手申込可';
+    return '・' + (h.label || '') + '（' + h.item.source + '） ' + mark + (h.item.url ? '\n  ' + h.item.url : '');
+  });
+  const content = '🔔 **キャンセル待ち** ' + customerName + ' 様の監視物件に動きあり\n' + lines.join('\n');
+  await setStorageData({ debugLog: `[キャンセル待ち] 🔔 ${customerName}: ${hits.length}件に空き/2番手可 → 担当通知` });
+  try {
+    const { discordWebhookUrl } = await getStorageData(['discordWebhookUrl']);
+    if (discordWebhookUrl) {
+      await fetch(discordWebhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: content })
+      });
+    }
+  } catch (e) {}
 }
 
 // ──────────────────────────────────────────────────────────────────
