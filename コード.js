@@ -207,8 +207,9 @@ function doPost(e) {
       const state = getState(userId);
 
       // 条件登録ボタン（遅延返信Flexのpostback）
+      // 登録済みなら条件変更フローへ振り替える
       if (data === '条件登録') {
-        startSearchFlow(replyToken, userId);
+        startSearchOrChangeFlow(replyToken, userId);
         return;
       }
 
@@ -289,10 +290,11 @@ function doPost(e) {
       }
 
       // コマンド: 条件登録
+      // 登録済みのユーザーが「条件登録」を送った場合は条件変更フローへ振り替える
       if (message === '条件登録' || message === 'じょうけんとうろく') {
         // [PERF-doPost] 計測用
-        console.log('[PERF-doPost] +' + (Date.now() - _doPostT) + 'ms startSearchFlow直前');
-        startSearchFlow(replyToken, userId);
+        console.log('[PERF-doPost] +' + (Date.now() - _doPostT) + 'ms startSearchOrChangeFlow直前');
+        startSearchOrChangeFlow(replyToken, userId);
         return;
       }
 

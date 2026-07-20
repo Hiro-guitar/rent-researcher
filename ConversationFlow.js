@@ -139,6 +139,21 @@ function startChangeFlow(replyToken, userId) {
   showCriteriaSelectLink(replyToken, userId, null, true, state);
 }
 
+// 「条件登録」コマンド用のルーター。
+// すでに条件を登録済みのユーザーが「条件登録」を送った場合は、
+// 新規登録ではなく「条件変更」フロー(既存条件を読み込んで変更)として扱う。
+function startSearchOrChangeFlow(replyToken, userId) {
+  try {
+    if (readLatestCriteria(userId)) {
+      startChangeFlow(replyToken, userId);
+      return;
+    }
+  } catch (e) {
+    console.error('startSearchOrChangeFlow: readLatestCriteria error: ' + e.message);
+  }
+  startSearchFlow(replyToken, userId);
+}
+
 // ══════════════════════════════════════════════════════════
 //  テキストメッセージハンドラー
 // ══════════════════════════════════════════════════════════
