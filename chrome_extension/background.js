@@ -4088,6 +4088,10 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     }
     let reinsFatalExit = false;
 
+    // キャンセル待ちチェックは顧客名に紐づくため、1サイクル中は顧客ごとに1回だけ実行する
+    // (同じ顧客のメイン条件+おすすめ条件で監視リストを何度もチェックする無駄を防ぐ)
+    const watchCheckedCustomers = new Set();
+
     for (let ci = 0; ci < criteria.length; ci++) {
       if (isSearchCancelled(searchId)) return;
       const customer = criteria[ci];
@@ -4115,8 +4119,10 @@ globalThis.runSearchCycle = async function runSearchCycle() {
       }
 
       // --- キャンセル待ち物件の募集状況チェック（この顧客の監視物件・担当にだけ通知） ---
-      if (typeof checkCustomerCancellationWatches === 'function') {
+      // 1サイクル中は顧客ごとに1回だけ（メイン条件+おすすめ条件で重複実行しない）
+      if (typeof checkCustomerCancellationWatches === 'function' && !watchCheckedCustomers.has(customer.name)) {
         if (isSearchCancelled(searchId)) return;
+        watchCheckedCustomers.add(customer.name);
         try { await checkCustomerCancellationWatches(customer.name, searchId); }
         catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[キャンセル待ち確認] ' + err.message); }
       }
