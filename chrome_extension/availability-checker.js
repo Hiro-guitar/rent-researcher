@@ -814,18 +814,22 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
       const label = item.building_name || item.buildingName || item.roomId || '';
       await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: ${label} (${item.source}) → ${st}${canApply === true ? ' /2番手申込可' : ''}` });
 
-      // 状態を3バケットに集約
-      //  open   = 空きが出た(available)/2番手申込可(applied+canApply) → キャンセルのチャンス
-      //  closed = 掲載終了/成約 (REINSは掲載消滅=成約をこれで検知。空き復活は検知不可)
-      //  other  = reins_listed(掲載中・要電話確認)/申込あり(申込不可)/要物確/unknown → 通知しない
+      // 状態を4バケットに分類
+      //  available と applied_open を分けることで「2番手可 → 空きが出た(1番手)」の変化も検知できる
+      //  available    = 空きが出た(募集中・1番手で申込可)
+      //  applied_open = 申込ありだが 2番手で申込可
+      //  closed       = 掲載終了/成約 (REINSの掲載消滅=成約。空き復活は検知不可)
+      //  other        = reins_listed(掲載中・要電話確認)/申込あり(申込不可)/要物確/unknown → 通知しない
       let bucket = 'other';
-      if (st === 'available' || (st === 'applied' && canApply === true)) bucket = 'open';
+      if (st === 'available') bucket = 'available';
+      else if (st === 'applied' && canApply === true) bucket = 'applied_open';
       else if (st === 'closed') bucket = 'closed';
 
       const key = customerName + '|' + (item.roomId || label);
       const prev = stateStore[key];
       if (bucket !== prev) {
-        if (bucket === 'open') { openHits.push({ item: item, st: st, canApply: canApply, label: label }); pendingState[key] = bucket; }
+        // available ⇔ applied_open の変化も「状態変化」として通知する
+        if (bucket === 'available' || bucket === 'applied_open') { openHits.push({ item: item, st: st, canApply: canApply, label: label }); pendingState[key] = bucket; }
         else if (bucket === 'closed') { closedHits.push({ item: item, st: st, label: label }); pendingState[key] = bucket; }
         else { stateStore[key] = bucket; }  // other は通知不要なので即確定
       }
