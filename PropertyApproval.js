@@ -53,7 +53,54 @@ var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
 // ehomaki 画像ホスト(Cloudflare R2)。配信停止顧客の物件を消すとき画像も一緒に消す用。
 var EHOMAKI_IMG_DELETE_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/delete';
 var EHOMAKI_DATA_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/d'; // 物件データ保存
+var EHOMAKI_CLOSE_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/close'; // 手動募集終了マーカー
 var EHOMAKI_IMG_TOKEN = '9d4418ca3ecde8449153e6b44408ad8d315d398ea0903376';
+
+/**
+ * (customer, roomId) の ehomaki 物件データID群を、通知済みシートのviewUrl(PENDING列N)から集める。
+ * property.html の id= 経路は /c/<id> で募集終了を判定するため、そのidを Worker に通知する用。
+ */
+function _getEhomakiDataIdsForClose_(customerName, roomId) {
+  var ids = [];
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
+    if (!sheet) return ids;
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return ids;
+    var data = sheet.getRange(2, 1, lastRow - 1, 14).getValues();
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    for (var i = 0; i < data.length; i++) {
+      // PENDING: A=customer(0), C=room_id(2), N=viewUrl(13)
+      if (String(data[i][0]).trim() === nameTrim && String(data[i][2]).trim() === ridTrim) {
+        var vurl = String(data[i][13] || '');
+        var m = vurl.match(/[?&]id=([^&]+)/) || vurl.match(/\/d\/([^/?&]+)/);
+        if (m && m[1]) ids.push(m[1]);
+      }
+    }
+  } catch (e) {}
+  return ids;
+}
+
+/** ehomaki に手動募集終了マーカーを設定/解除する。 */
+function _setEhomakiClosed_(customerName, roomId, closed) {
+  try {
+    var ids = _getEhomakiDataIdsForClose_(customerName, roomId);
+    if (ids.length === 0) return 0;
+    UrlFetchApp.fetch(EHOMAKI_CLOSE_URL, {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + EHOMAKI_IMG_TOKEN },
+      payload: JSON.stringify({ ids: ids, closed: !!closed }),
+      muteHttpExceptions: true
+    });
+    return ids.length;
+  } catch (e) {
+    console.warn('_setEhomakiClosed_ error: ' + e.message);
+    return 0;
+  }
+}
 
 /**
  * 物件データ(view用オブジェクト)を ehomaki(R2) に保存し、短いIDを返す。
@@ -3438,6 +3485,10 @@ function setManualClosed(customerName, roomId, closed) {
       }
     }
     if (updated === 0) return { ok: false, message: '対象物件が見つかりません' };
+    // ① ehomaki(id=経路)に募集終了マーカーを反映 → 最初から募集終了表示(チラ見えなし)
+    _setEhomakiClosed_(nameTrim, ridTrim, closed);
+    // ② view_api キャッシュ(prop2_)を無効化 → d=/m= 経路(view_api)でも即反映
+    try { CacheService.getScriptCache().remove('prop2_' + nameTrim + '_' + ridTrim); } catch (e) {}
     return { ok: true, message: closed ? '募集終了にしました' : '募集中に戻しました', closed: !!closed, updated: updated };
   } catch (e) {
     return { ok: false, message: e.message };
