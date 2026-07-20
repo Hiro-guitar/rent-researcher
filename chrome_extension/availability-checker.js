@@ -861,15 +861,46 @@ async function _notifyWatchChangeToAgent(customerName, openHits, closedHits) {
   const content = parts.join('\n\n');
   await setStorageData({ debugLog: `[キャンセル待ち] 🔔 ${customerName}: open=${openHits.length} closed=${closedHits.length} → 担当通知` });
   try {
-    const { discordWebhookUrl } = await getStorageData(['discordWebhookUrl']);
-    if (discordWebhookUrl) {
-      await fetch(discordWebhookUrl, {
+    // Discordチャンネルはフォーラム型。thread_name無しの投稿は失敗するため、
+    // 顧客の既存スレッド(discordThreadIds)に投稿し、無ければ thread_name 付きで作成する。
+    const store = await getStorageData(['discordWebhookUrl', 'discordThreadIds']);
+    const webhook = store.discordWebhookUrl;
+    if (!webhook) {
+      await setStorageData({ debugLog: `[キャンセル待ち] ✗ 送信不可: discordWebhookUrl 未設定` });
+      return;
+    }
+    const threadIds = store.discordThreadIds || {};
+    let threadId = threadIds[customerName];
+    let resp = null;
+    if (threadId) {
+      resp = await fetch(`${webhook}?thread_id=${threadId}&wait=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: content })
+        body: JSON.stringify({ content: content, flags: 4096, allowed_mentions: { parse: [] } })
       });
+      if (resp.status === 404) { threadId = null; }  // スレッドが消えていたら作り直す
     }
-  } catch (e) {}
+    if (!threadId) {
+      resp = await fetch(`${webhook}?wait=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: `**${customerName}** 様\n${content}`, thread_name: `🏠 ${customerName}`, flags: 4096, allowed_mentions: { parse: [] } })
+      });
+      if (resp.ok) {
+        try {
+          const rd = await resp.json();
+          if (rd && rd.channel_id) {
+            threadIds[customerName] = rd.channel_id;
+            await setStorageData({ discordThreadIds: threadIds });
+          }
+        } catch (_) {}
+      }
+    }
+    const okTxt = (resp && resp.ok) ? '✓ 送信成功' : `✗ 送信失敗 HTTP ${resp ? resp.status : '?'}`;
+    await setStorageData({ debugLog: `[キャンセル待ち] Discord ${customerName}: ${okTxt}` });
+  } catch (e) {
+    await setStorageData({ debugLog: `[キャンセル待ち] ✗ Discord送信例外: ${e.message}` });
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────
