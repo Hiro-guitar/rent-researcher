@@ -90,7 +90,7 @@ function startSearchFlow(replyToken, userId) {
  * @param {string} replyToken
  * @param {string} userId
  */
-function startChangeFlow(replyToken, userId) {
+function startChangeFlow(replyToken, userId, prefixMessages) {
   var existing = readLatestCriteria(userId);
   if (!existing) {
     replyMessage(replyToken, [
@@ -136,16 +136,22 @@ function startChangeFlow(replyToken, userId) {
   }
 
   // state を渡すと _buildConditionSummaryRows_ で構造化レンダリング (summary 文字列は無視)
-  showCriteriaSelectLink(replyToken, userId, null, true, state);
+  // prefixMessages があれば返信の先頭に差し込む (「すでに登録されています」案内など)
+  showCriteriaSelectLink(replyToken, userId, (prefixMessages && prefixMessages.length) ? prefixMessages : null, true, state);
 }
 
 // 「条件登録」コマンド用のルーター。
 // すでに条件を登録済みのユーザーが「条件登録」を送った場合は、
 // 新規登録ではなく「条件変更」フロー(既存条件を読み込んで変更)として扱う。
+// その際、通常の「条件変更」とは違い「すでに条件が登録されています」の案内を先頭に出す。
 function startSearchOrChangeFlow(replyToken, userId) {
   try {
     if (readLatestCriteria(userId)) {
-      startChangeFlow(replyToken, userId);
+      var notice = textMsg(
+        'すでに条件が登録されています。\n\n' +
+        '現在ご登録の条件を表示します。変更する場合は下のボタンからお進みください。'
+      );
+      startChangeFlow(replyToken, userId, [notice]);
       return;
     }
   } catch (e) {
