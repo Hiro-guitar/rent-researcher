@@ -1799,8 +1799,10 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.clear('suumo-queue-poll');
   // 優先空室確認ポーリング: 1分毎にGASから優先キューを取得
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
-  // キャンセル通知希望物件の定期巡回: 30分毎にチェック
-  chrome.alarms.create('cancellation-watch-poll', { periodInMinutes: 30 });
+  // キャンセル通知希望物件の定期巡回は【廃止】(2026-07-20)。
+  // 顧客へ勝手にキャンセル発生LINEを自動送信していたため停止。
+  // キャンセル待ちのチェックは「その顧客の物件検索時に担当へDiscord通知(顧客には送らない)」のみ。
+  chrome.alarms.clear('cancellation-watch-poll');
   // 定期空室確認(3時間毎の全物件巡回)は廃止。
   // 規約違反(機械的アクセス)による各サイトのBANリスクを避けるため停止。
   // 空室確認は「再送付時にその顧客の物件だけ」「LINEの個別依頼(優先キュー)」のオンデマンドのみ。
@@ -1813,6 +1815,8 @@ chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.clear('suumo-queue-poll');
   // 優先空室確認ポーリングは再セット
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
+  // キャンセル待ち定期巡回は廃止(顧客への自動LINE防止) — 残存アラームを消す
+  chrome.alarms.clear('cancellation-watch-poll');
   // 定期空室確認(3時間毎の全物件巡回)は廃止 — BANリスク回避のため停止（オンデマンドのみ）
   chrome.alarms.clear('periodic-availability-check');
 });
@@ -2012,15 +2016,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
   }
 
-  // ── キャンセル通知希望物件の定期巡回 ──
-  // 30分毎にGASから watch中物件を取得、ステータスをチェック
-  // キャンセル発生 (申込可能化) を検知 → GAS が自動で LINE 通知
+  // ── キャンセル通知希望物件の定期巡回 ── 【廃止 2026-07-20】
+  // 以前は30分毎に watch中物件をチェックし、キャンセル発生時に GAS が顧客へ自動LINE
+  // していたが、勝手な自動送信になるため停止。残存アラームが発火しても巡回しない。
+  // キャンセル待ちチェックは「その顧客の物件検索時に担当へDiscord通知」のみ。
   if (alarm.name === 'cancellation-watch-poll') {
-    if (typeof runCancellationWatchPoll === 'function') {
-      runCancellationWatchPoll().catch(err => {
-        console.log(`[キャンセル監視] poll失敗: ${err.message}`);
-      });
-    }
+    chrome.alarms.clear('cancellation-watch-poll');
+    return;
   }
 
   // ── 定期空室確認 (全通知済み物件の巡回) ── 【廃止】

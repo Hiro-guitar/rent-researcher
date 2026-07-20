@@ -636,7 +636,7 @@ function doGet(e) {
         + '.cancelled{opacity:0.4;text-decoration:line-through}'
         + '</style></head><body>'
         + '<h1>🔔 キャンセル通知希望物件</h1>'
-        + '<div class="summary">該当 ' + lcRows.length + ' 件 (30分毎に自動チェック / キャンセル発生で顧客にLINE通知)</div>'
+        + '<div class="summary">該当 ' + lcRows.length + ' 件 (対象顧客の物件検索時にチェック / キャンセル発生時は担当のDiscordに通知。顧客への自動LINEはしません)</div>'
         + (lcRows.length === 0
           ? '<div class="empty">現在、キャンセル通知希望の物件はありません</div>'
           : '<table><thead><tr>'

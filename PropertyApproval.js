@@ -3234,49 +3234,44 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
  * @param {object} extras - { badgeCount, canApply, listingStatus }
  */
 function _notifyCancellationOccurredToCustomer_(customerName, roomId, buildingName, status, extras) {
+  // 【方針変更 2026-07-20】キャンセル発生を「顧客へ自動LINE」→「担当へDiscord通知」に変更。
+  // 顧客への連絡は担当が内容を確認したうえで手動で行う(勝手な自動送信を防止)。
+  // 関数名は呼び出し箇所を変えないため据え置き(実際の通知先は担当のDiscord)。
   extras = extras || {};
   try {
-    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
-    var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
-    if (!luSheet) return;
-    var luData = luSheet.getDataRange().getValues();
-    var userId = null;
-    var nameTrim = String(customerName).trim();
-    for (var i = 1; i < luData.length; i++) {
-      if (String(luData[i][1]).trim() === nameTrim) {
-        userId = String(luData[i][0]).trim();
-        break;
-      }
-    }
-    if (!userId) return;
-
-    var building = buildingName || 'お部屋';
-    var badgeCount = (typeof extras.badgeCount === 'number') ? extras.badgeCount : null;
-    var orderText = (badgeCount !== null && badgeCount >= 0)
-      ? (badgeCount + 1) + '番手'
-      : '';
-    var text;
-    if (status === 'available') {
-      text = '【キャンセル発生のお知らせ】\n\n' +
-             '以前ご希望いただいていた\n' +
-             '「' + building + '」にキャンセルが発生し、再び募集中となりました!\n\n' +
-             (orderText ? ('現在 ' + orderText + ' でお申し込みいただけます。\n\n') : '') +
-             'お申し込みをご希望の場合は、物件詳細ページの「お申し込み希望」ボタンよりお知らせください。';
-    } else if (status === 'applied') {
-      text = '【キャンセル発生のお知らせ】\n\n' +
-             '以前ご希望いただいていた\n' +
-             '「' + building + '」にキャンセルが発生し、お申し込みが可能になりました!\n\n' +
-             (orderText ? ('現在 ' + orderText + ' でお申し込みいただけます。\n\n') : '') +
-             'お申し込みをご希望の場合はお気軽にお声がけください。';
-    } else {
+    var props = PropertiesService.getScriptProperties();
+    var webhook = props.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL')
+      || props.getProperty('DISCORD_WEBHOOK_URL');
+    if (!webhook) {
+      console.log('[キャンセル発生通知] Discord webhook 未設定でスキップ: ' + customerName);
       return;
     }
-    if (typeof pushMessage === 'function') {
-      pushMessage(userId, [{ type: 'text', text: text }]);
-      console.log('[キャンセル発生LINE] 送信: ' + customerName + ' (' + status + ')');
-    }
+    var nameTrim = String(customerName).trim();
+    var building = buildingName || 'お部屋';
+    var badgeCount = (typeof extras.badgeCount === 'number') ? extras.badgeCount : null;
+    var orderText = (badgeCount !== null && badgeCount >= 0) ? ((badgeCount + 1) + '番手') : '';
+    var statusText = (status === 'available')
+      ? '募集中(申込可)'
+      : (status === 'applied') ? '申込あり(申込可)' : String(status);
+
+    var content = '🔔 **キャンセル発生 (担当確認用)**\n' +
+      nameTrim + ' 様のキャンセル待ち物件に動きがありました。\n' +
+      '物件: ' + building + '\n' +
+      '状態: ' + statusText + (orderText ? (' / ' + orderText) : '') + '\n' +
+      '→ 内容を確認のうえ、必要ならお客様へご連絡ください(顧客には自動送信していません)。';
+    var payload = JSON.stringify({
+      content: content,
+      thread_name: '🔔 キャンセル発生: ' + nameTrim
+    });
+    var res = UrlFetchApp.fetch(webhook, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: payload,
+      muteHttpExceptions: true
+    });
+    console.log('[キャンセル発生通知] Discord送信: ' + customerName + ' (' + status + ') → HTTP ' + res.getResponseCode());
   } catch (e) {
-    console.warn('[キャンセル発生LINE] エラー: ' + e.message);
+    console.warn('[キャンセル発生通知] エラー: ' + e.message);
   }
 }
 
