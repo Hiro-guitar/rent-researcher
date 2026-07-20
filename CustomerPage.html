@@ -1290,11 +1290,19 @@ function toggleManualClosed(roomId, idx, currentlyClosed) {
   google.script.run
     .withSuccessHandler(function(result) {
       if (result && result.ok) {
-        // ローカル状態を更新して再描画
+        // ローカル状態を更新
         for (var k = 0; k < allProperties.length; k++) {
           if (String(allProperties[k].roomId) === String(roomId)) { allProperties[k].manualClosed = willClose; break; }
         }
-        renderProperties();
+        // ボタンをインライン更新（renderPropertiesは増分描画で既存行を再描画しないため使わない）
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = willClose ? '募集中に戻す' : '募集終了にする';
+          btn.style.cssText = willClose
+            ? 'background:#4a3000;color:#e6a243;border:1px solid #6b4400;'
+            : 'background:#3a1414;color:#e08585;border:1px solid #5a2222;';
+          btn.setAttribute('onclick', "event.stopPropagation();toggleManualClosed('" + roomId + "', " + idx + ", " + (willClose ? 'true' : 'false') + ")");
+        }
       } else {
         if (btn) { btn.disabled = false; btn.textContent = currentlyClosed ? '募集中に戻す' : '募集終了にする'; }
         alert('失敗: ' + (result ? result.message : '不明なエラー'));
