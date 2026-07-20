@@ -532,7 +532,7 @@ function showNotFound() {
     + '<div class="notfound-actions">'
     + '<button class="notfound-btn notfound-btn-primary" onclick="closeOrBack()">LINEに戻る</button>'
     + '</div>'
-    + '<div class="notfound-note">他に気になる条件がございましたら、LINEでお気軽にご相談ください。</div>'
+    + '<div class="notfound-note">他に気になるお部屋がございましたら、LINEでお気軽にご相談ください。</div>'
     + '</div>';
 }
 
@@ -703,23 +703,16 @@ function requestCancellationWatch() {
 }
 
 function closeOrBack() {
-  // 1. LIFF経由なら liff.closeWindow
+  // 1. LIFF(LINE内ブラウザ)経由なら liff.closeWindow で LINE に戻る
   try {
     if (typeof liff !== 'undefined' && liff && liff.closeWindow) {
       liff.closeWindow();
       return;
     }
   } catch(_) {}
-  // 2. window.close (JSで開いたタブのみ動作)
-  try {
-    window.close();
-    setTimeout(function() {
-      try { if (!window.closed) history.back(); } catch(_) {}
-    }, 300);
-    return;
-  } catch(_) {}
-  // 3. フォールバック
-  try { history.back(); } catch(_) {}
+  // 2. 外部ブラウザ(Chrome等)は window.close/history.back では LINE に戻れず
+  //    ページが消えるだけなので、LINE アプリを開く。
+  location.href = 'https://line.me/R/';
 }
 
 // ===== 設備カテゴリタグ =====
