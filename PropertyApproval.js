@@ -3500,6 +3500,39 @@ function setManualClosed(customerName, roomId, closed) {
   }
 }
 
+/**
+ * キャンセル待ちフラグ(J列=10 watch_for_cancellation_at)をトグルする。
+ * watching=true でその物件をキャンセル待ちにマーク、false で解除。顧客ごと。
+ * (既存の「キャンセル通知希望(LINE)」と同じ列を流用。定期チェックは使っていないので
+ *  担当者が手動でリンクから募集状況を確認する運用)
+ * @return {{ok:boolean, message:string, watching:boolean, updated:number}}
+ */
+function setCancellationWatch(customerName, roomId, watching) {
+  if (!customerName || !roomId) return { ok: false, message: 'customer/roomId が未指定' };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return { ok: false, message: 'シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: false, message: 'シートが空です' };
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues(); // A:customer, B:roomId
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    var updated = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
+        sheet.getRange(i + 2, 10).setValue(watching ? now : ''); // J列
+        updated++;
+      }
+    }
+    if (updated === 0) return { ok: false, message: '対象物件が見つかりません' };
+    return { ok: true, message: watching ? 'キャンセル待ちに追加しました' : 'キャンセル待ちを解除しました', watching: !!watching, updated: updated };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
 function getSeenPropertiesForResend(customerName) {
   if (!customerName) return [];
   try {
@@ -3548,8 +3581,9 @@ function getSeenPropertiesForResend(customerName) {
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][0]).trim() !== nameTrim) continue;
       var status = String(data[i][5] || '');
-      // closed / applied は除外
-      if (status === 'closed' || status === 'applied') continue;
+      var watching = !!data[i][9]; // J列: キャンセル待ち(watch_for_cancellation_at)
+      // closed / applied は除外。ただしキャンセル待ちは申込ありでも表示する。
+      if ((status === 'closed' || status === 'applied') && !watching) continue;
       var roomId = String(data[i][1] || '').trim();
       var pendingProp = _getPendingPropForFlex_(nameTrim, roomId);
       var entry = {
@@ -3561,6 +3595,7 @@ function getSeenPropertiesForResend(customerName) {
         statusCheckedAt: (data[i][6] instanceof Date) ? Utilities.formatDate(data[i][6], 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : String(data[i][6] || ''),
         sourceRef: String(data[i][7] || ''),
         manualClosed: String(data[i][13] || '') === 'closed', // N列: 手動募集終了
+        watching: watching, // J列: キャンセル待ち
         hasFullData: !!pendingProp
       };
       if (pendingProp) {

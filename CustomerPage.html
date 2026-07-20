@@ -1024,17 +1024,19 @@ function saveLog() {
 //  送付済み物件
 // ══════════════════════════════════════════
 function renderPropFilters() {
-  var counts = { all: allProperties.length, viewed: 0, not_viewed: 0, action: 0 };
+  var counts = { all: allProperties.length, viewed: 0, not_viewed: 0, action: 0, watching: 0 };
   for (var i = 0; i < allProperties.length; i++) {
     if (allProperties[i].viewed) counts.viewed++;
     else counts.not_viewed++;
     if (allProperties[i].actions && allProperties[i].actions.length > 0) counts.action++;
+    if (allProperties[i].watching) counts.watching++;
   }
   var filters = [
     { key: 'all', label: '全て (' + counts.all + ')' },
     { key: 'viewed', label: '閲覧済 (' + counts.viewed + ')' },
     { key: 'not_viewed', label: '未閲覧 (' + counts.not_viewed + ')' },
-    { key: 'action', label: 'アクション有 (' + counts.action + ')' }
+    { key: 'action', label: 'アクション有 (' + counts.action + ')' },
+    { key: 'watching', label: '⏳ キャンセル待ち (' + counts.watching + ')' }
   ];
   var html = '';
   for (var i = 0; i < filters.length; i++) {
@@ -1057,6 +1059,7 @@ function getFilteredProps() {
     if (propFilter === 'viewed') return p.viewed;
     if (propFilter === 'not_viewed') return !p.viewed;
     if (propFilter === 'action') return p.favorite || p.hold || p.viewing || p.notInterested;
+    if (propFilter === 'watching') return p.watching;
     return true;
   });
 }
@@ -1206,6 +1209,16 @@ function renderPropItem(p, idx) {
     ? 'background:#4a3000;color:#e6a243;border:1px solid #6b4400;'
     : 'background:#3a1414;color:#e08585;border:1px solid #5a2222;';
   html += '<button class="btn btn-sm" id="close-btn-' + idx + '" style="' + mcStyle + '" onclick="event.stopPropagation();toggleManualClosed(\'' + esc(p.roomId) + '\', ' + idx + ', ' + (mc ? 'true' : 'false') + ')">' + (mc ? '募集中に戻す' : '募集終了にする') + '</button>';
+  // キャンセル待ちトグル（J列フラグ）。ONのときは募集状況確認用にソースページへのリンクを出す。
+  var wt = !!p.watching;
+  var wtStyle = wt
+    ? 'background:#3a2a00;color:#f0c040;border:1px solid #6b5000;'
+    : 'background:#2a2a2a;color:#bbb;border:1px solid #444;';
+  html += '<button class="btn btn-sm" id="watch-btn-' + idx + '" style="' + wtStyle + '" onclick="event.stopPropagation();toggleWatch(\'' + esc(p.roomId) + '\', ' + idx + ', ' + (wt ? 'true' : 'false') + ')">' + (wt ? '⏳ キャンセル待ち中' : 'キャンセル待ちにする') + '</button>';
+  var _surl = propSourceUrl(p);
+  if (wt && _surl) {
+    html += '<a href="' + esc(_surl) + '" target="_blank" onclick="event.stopPropagation();" style="font-size:11px;color:#6cf;text-decoration:underline;">🔗 募集状況を確認</a>';
+  }
   html += '</div>';
 
   // コメント
@@ -1313,6 +1326,33 @@ function toggleManualClosed(roomId, idx, currentlyClosed) {
       alert('エラー: ' + err.message);
     })
     .setManualClosed(currentCustomer, roomId, willClose);
+}
+
+// ── キャンセル待ちトグル（J列フラグ。ON中は募集状況確認リンクを表示） ──
+function toggleWatch(roomId, idx, currentlyWatching) {
+  var willWatch = !currentlyWatching;
+  var btn = document.getElementById('watch-btn-' + idx);
+  if (btn) { btn.disabled = true; btn.textContent = '更新中...'; }
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.ok) {
+        for (var k = 0; k < allProperties.length; k++) {
+          if (String(allProperties[k].roomId) === String(roomId)) { allProperties[k].watching = willWatch; break; }
+        }
+        // リンクの出し入れ・フィルタ件数を反映するため再描画（先頭ページから）
+        propShown = 0;
+        renderPropFilters();
+        renderProperties();
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = currentlyWatching ? '⏳ キャンセル待ち中' : 'キャンセル待ちにする'; }
+        alert('失敗: ' + (result ? result.message : '不明なエラー'));
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = currentlyWatching ? '⏳ キャンセル待ち中' : 'キャンセル待ちにする'; }
+      alert('エラー: ' + err.message);
+    })
+    .setCancellationWatch(currentCustomer, roomId, willWatch);
 }
 
 // ── 一括再送付 ──
