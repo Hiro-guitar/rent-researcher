@@ -804,6 +804,7 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
 
     const openHits = [];
     const closedHits = [];
+    const pendingState = {};  // open/closed の状態は「送信成功後」に確定する
     for (const item of items) {
       if (typeof isSearchCancelled === 'function' && isSearchCancelled(searchId)) return;
       let res;
@@ -824,17 +825,20 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
       const key = customerName + '|' + (item.roomId || label);
       const prev = stateStore[key];
       if (bucket !== prev) {
-        // 状態が変化したときだけ通知 (open/closed のみ。other は通知せず記録だけ)
-        if (bucket === 'open') openHits.push({ item: item, st: st, canApply: canApply, label: label });
-        else if (bucket === 'closed') closedHits.push({ item: item, st: st, label: label });
-        stateStore[key] = bucket;
+        if (bucket === 'open') { openHits.push({ item: item, st: st, canApply: canApply, label: label }); pendingState[key] = bucket; }
+        else if (bucket === 'closed') { closedHits.push({ item: item, st: st, label: label }); pendingState[key] = bucket; }
+        else { stateStore[key] = bucket; }  // other は通知不要なので即確定
+      }
+    }
+
+    // 通知が必要なら送信し、「送信成功時だけ」状態を確定する(失敗したら次サイクルで再送)
+    if (openHits.length > 0 || closedHits.length > 0) {
+      const ok = await _notifyWatchChangeToAgent(customerName, openHits, closedHits);
+      if (ok) {
+        Object.keys(pendingState).forEach(k => { stateStore[k] = pendingState[k]; });
       }
     }
     await setStorageData({ __watchNotifyState: stateStore });
-
-    if (openHits.length > 0 || closedHits.length > 0) {
-      await _notifyWatchChangeToAgent(customerName, openHits, closedHits);
-    }
   } catch (e) {
     await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: エラー ${e.message}` });
   }
@@ -867,7 +871,7 @@ async function _notifyWatchChangeToAgent(customerName, openHits, closedHits) {
     const webhook = store.discordWebhookUrl;
     if (!webhook) {
       await setStorageData({ debugLog: `[キャンセル待ち] ✗ 送信不可: discordWebhookUrl 未設定` });
-      return;
+      return false;
     }
     const threadIds = store.discordThreadIds || {};
     let threadId = threadIds[customerName];
@@ -898,8 +902,10 @@ async function _notifyWatchChangeToAgent(customerName, openHits, closedHits) {
     }
     const okTxt = (resp && resp.ok) ? '✓ 送信成功' : `✗ 送信失敗 HTTP ${resp ? resp.status : '?'}`;
     await setStorageData({ debugLog: `[キャンセル待ち] Discord ${customerName}: ${okTxt}` });
+    return !!(resp && resp.ok);
   } catch (e) {
     await setStorageData({ debugLog: `[キャンセル待ち] ✗ Discord送信例外: ${e.message}` });
+    return false;
   }
 }
 
