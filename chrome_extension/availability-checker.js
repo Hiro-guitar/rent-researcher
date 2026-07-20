@@ -185,7 +185,7 @@ async function _checkItandiAvailability(url) {
 //     2. span.confirm-required「要物確」             → needs_confirmation
 //        (スタッフが元付業者に物件確認が必要、Discord通知)
 //        ※ 募集中でも要物確の場合があるため最優先で判定
-//     3. span.no-confirm「物確不要」                 → closed (確実に募集終了)
+//     3. span.no-confirm「物確不要」                 → available (物件確認不要でそのまま申込可＝募集中)
 //     4. span.exists_application_for_confirm
 //        「申込N件」/「申込あり」                     → applied
 //        (2番手申込可能 or キャンセル時通知)
