@@ -350,7 +350,15 @@ if (idParam) {
   Promise.all([dataP, closedP])
     .then(function(arr) {
       var o = arr[0];
-      if (arr[1] && arr[1].closed) { showNotFound(); return; } // 募集終了 → 最初から募集終了表示
+      if (arr[1] && arr[1].closed) {
+        // 募集終了 → 最初から募集終了表示。ただし閲覧通知(Discord)を届けるため customer/roomId と
+        // 建物名(currentProperty)だけ用意してから showNotFound を呼ぶ（物件は描画しない）。
+        if (!customer && o && o.cust) customer = o.cust;
+        if (!roomId && o && (o.rid || o.room_id)) roomId = o.rid || o.room_id;
+        try { currentProperty = mapDataToProperty(o); } catch (e) {}
+        showNotFound();
+        return;
+      }
       // 顧客名・room_id はURLに出さず ehomaki データ(cust/rid)に持たせている
       // （お客さんにURLで内部の呼び名が見えないようにするため）。ここで取り出して
       // バッジ表示・申込/空室確認の識別に使う。URLに customer= があれば従来どおり優先。
@@ -534,6 +542,8 @@ function showNotFound() {
     + '</div>'
     + '<div class="notfound-note">他に気になるお部屋がございましたら、LINEでお気軽にご相談ください。</div>'
     + '</div>';
+  // 募集終了物件でも「顧客が見に来た」ことは記録する（Discord通知を届ける・closed=1付き）
+  trackView(true);
 }
 
 // ===== 空室確認の依頼 (お気に入り横のボタン) =====
@@ -1151,51 +1161,59 @@ function renderProperty(p) {
   var isAdmin = false;
   try { isAdmin = localStorage.getItem('admin_mode') === '1'; } catch(e) {}
 
-  // 閲覧トラッキング（アクションログに統合、fire-and-forget）
-  // IP+地理情報を取得してから送信（管理者モードではスキップ）
-  if (customer && roomId && !isAdmin) {
-    var propData = currentProperty || {};
-    var ua = navigator.userAgent || '';
-    var isLine = /Line\//.test(ua) ? '1' : '0';
+  // 閲覧トラッキング（募集終了でも記録するため関数化）
+  trackView(false);
+}
 
-    var baseParams = 'action=property_action'
-      + '&customer=' + encodeURIComponent(customer)
-      + '&room_id=' + encodeURIComponent(roomId)
-      + '&action_type=view'
-      + '&building_name=' + encodeURIComponent(propData.buildingName || '')
-      + '&room_number=' + encodeURIComponent(propData.roomNumber || '')
-      + '&rent=' + encodeURIComponent(propData.rent || '')
-      + '&layout=' + encodeURIComponent(propData.layout || '')
-      + '&station_info=' + encodeURIComponent(propData.stationInfo || '')
-      + '&ua=' + encodeURIComponent(ua)
-      + '&line=' + isLine;
-
-    // 3秒以内にIP取得できなければgeo情報なしで送る
-    var sent = false;
-    var sendTracking = function(geoParams) {
-      if (sent) return;
-      sent = true;
-      try {
-        fetch(GAS_API_URL + '?' + baseParams + geoParams, { redirect: 'follow' }).catch(function() {});
-      } catch(e) {}
-    };
-    setTimeout(function() { sendTracking(''); }, 3000);
-
+// 閲覧トラッキング（アクションログ統合・Discord通知の元）。fire-and-forget。
+// renderProperty(通常)と showNotFound(募集終了)の両方から呼ぶ。closed=1 で募集終了物件の閲覧と分かる。
+// 二重送信防止のため一度だけ実行する。
+var _viewTracked = false;
+function trackView(isClosed) {
+  if (_viewTracked) return;
+  if (!customer || !roomId) return;
+  var isAdmin = false;
+  try { isAdmin = localStorage.getItem('admin_mode') === '1'; } catch(e) {}
+  if (isAdmin) return;
+  _viewTracked = true;
+  var propData = currentProperty || {};
+  var ua = navigator.userAgent || '';
+  var isLine = /Line\//.test(ua) ? '1' : '0';
+  var baseParams = 'action=property_action'
+    + '&customer=' + encodeURIComponent(customer)
+    + '&room_id=' + encodeURIComponent(roomId)
+    + '&action_type=view'
+    + '&building_name=' + encodeURIComponent(propData.buildingName || '')
+    + '&room_number=' + encodeURIComponent(propData.roomNumber || '')
+    + '&rent=' + encodeURIComponent(propData.rent || '')
+    + '&layout=' + encodeURIComponent(propData.layout || '')
+    + '&station_info=' + encodeURIComponent(propData.stationInfo || '')
+    + '&ua=' + encodeURIComponent(ua)
+    + '&line=' + isLine
+    + (isClosed ? '&closed=1' : '');
+  var sent = false;
+  var sendTracking = function(geoParams) {
+    if (sent) return;
+    sent = true;
     try {
-      fetch('https://ipapi.co/json/')
-        .then(function(r) { return r.json(); })
-        .then(function(geo) {
-          var geoParams = ''
-            + '&ip=' + encodeURIComponent(geo.ip || '')
-            + '&country=' + encodeURIComponent(geo.country_name || '')
-            + '&region=' + encodeURIComponent(geo.region || '')
-            + '&city=' + encodeURIComponent(geo.city || '')
-            + '&isp=' + encodeURIComponent(geo.org || '');
-          sendTracking(geoParams);
-        })
-        .catch(function() { sendTracking(''); });
-    } catch(e) { sendTracking(''); }
-  }
+      fetch(GAS_API_URL + '?' + baseParams + geoParams, { redirect: 'follow' }).catch(function() {});
+    } catch(e) {}
+  };
+  setTimeout(function() { sendTracking(''); }, 3000);
+  try {
+    fetch('https://ipapi.co/json/')
+      .then(function(r) { return r.json(); })
+      .then(function(geo) {
+        var geoParams = ''
+          + '&ip=' + encodeURIComponent(geo.ip || '')
+          + '&country=' + encodeURIComponent(geo.country_name || '')
+          + '&region=' + encodeURIComponent(geo.region || '')
+          + '&city=' + encodeURIComponent(geo.city || '')
+          + '&isp=' + encodeURIComponent(geo.org || '');
+        sendTracking(geoParams);
+      })
+      .catch(function() { sendTracking(''); });
+  } catch(e) { sendTracking(''); }
 }
 
 function escHtml(str) {
