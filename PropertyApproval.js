@@ -1225,6 +1225,11 @@ function handlePropertyAction(e) {
           viewPrefix = '\u26A0\uFE0F';
           viewSuffix += ' **（転送疑い）**';
         }
+        // 募集終了(手動close)物件を閲覧 → 「まだ見に来てる」を把握できるようラベル表示
+        if (actionType === 'view' && e.parameter.closed === '1') {
+          viewPrefix = '🔴'; // 🔴
+          viewSuffix += ' **（募集終了物件）**';
+        }
 
         var msgMap = {
           'hold': '\uD83C\uDFE0 **' + customerName + '** 様が「' + propLabelLinked + '」に **お申し込み希望** をされました！',
