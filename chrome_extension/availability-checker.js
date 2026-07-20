@@ -798,7 +798,12 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
     const items = (resp && resp.items) || [];
     if (items.length === 0) return;
     await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: 監視 ${items.length}件の募集状況をチェック` });
-    const hits = [];
+
+    // 前回通知した状態 (dedup用)。同じ状態が続く限り再通知しない。
+    const stateStore = (await getStorageData(['__watchNotifyState'])).__watchNotifyState || {};
+
+    const openHits = [];
+    const closedHits = [];
     for (const item of items) {
       if (typeof isSearchCancelled === 'function' && isSearchCancelled(searchId)) return;
       let res;
@@ -807,25 +812,54 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
       const canApply = res && res.canApply;
       const label = item.building_name || item.buildingName || item.roomId || '';
       await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: ${label} (${item.source}) → ${st}${canApply === true ? ' /2番手申込可' : ''}` });
-      // 空きが出た(available) or 申込ありでも2番手申込可 → キャンセルのチャンス
-      if (st === 'available' || (st === 'applied' && canApply === true)) {
-        hits.push({ item: item, st: st, canApply: canApply, label: label });
+
+      // 状態を3バケットに集約
+      //  open   = 空きが出た(available)/2番手申込可(applied+canApply) → キャンセルのチャンス
+      //  closed = 掲載終了/成約 (REINSは掲載消滅=成約をこれで検知。空き復活は検知不可)
+      //  other  = reins_listed(掲載中・要電話確認)/申込あり(申込不可)/要物確/unknown → 通知しない
+      let bucket = 'other';
+      if (st === 'available' || (st === 'applied' && canApply === true)) bucket = 'open';
+      else if (st === 'closed') bucket = 'closed';
+
+      const key = customerName + '|' + (item.roomId || label);
+      const prev = stateStore[key];
+      if (bucket !== prev) {
+        // 状態が変化したときだけ通知 (open/closed のみ。other は通知せず記録だけ)
+        if (bucket === 'open') openHits.push({ item: item, st: st, canApply: canApply, label: label });
+        else if (bucket === 'closed') closedHits.push({ item: item, st: st, label: label });
+        stateStore[key] = bucket;
       }
     }
-    if (hits.length > 0) await _notifyWatchAvailableToAgent(customerName, hits);
+    await setStorageData({ __watchNotifyState: stateStore });
+
+    if (openHits.length > 0 || closedHits.length > 0) {
+      await _notifyWatchChangeToAgent(customerName, openHits, closedHits);
+    }
   } catch (e) {
     await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: エラー ${e.message}` });
   }
 }
 
-// キャンセル待ち物件に空き/2番手可が出たことを「担当だけ」に Discord 通知する。
-async function _notifyWatchAvailableToAgent(customerName, hits) {
-  const lines = hits.map(function (h) {
-    const mark = h.st === 'available' ? '🟢 空きが出ました' : '🟡 2番手申込可';
-    return '・' + (h.label || '') + '（' + h.item.source + '） ' + mark + (h.item.url ? '\n  ' + h.item.url : '');
-  });
-  const content = '🔔 **キャンセル待ち** ' + customerName + ' 様の監視物件に動きあり\n' + lines.join('\n');
-  await setStorageData({ debugLog: `[キャンセル待ち] 🔔 ${customerName}: ${hits.length}件に空き/2番手可 → 担当通知` });
+// キャンセル待ち物件の状態変化を「担当だけ」に Discord 通知する。
+//  - openHits:   空き/2番手可 (キャンセル発生のチャンス)
+//  - closedHits: 掲載終了/成約 (REINS等。キャンセル待ちを解除するか担当が判断)
+async function _notifyWatchChangeToAgent(customerName, openHits, closedHits) {
+  const parts = [];
+  if (openHits && openHits.length > 0) {
+    const lines = openHits.map(function (h) {
+      const mark = h.st === 'available' ? '🟢 空きが出ました' : '🟡 2番手申込可';
+      return '・' + (h.label || '') + '（' + h.item.source + '） ' + mark + (h.item.url ? '\n  ' + h.item.url : '');
+    });
+    parts.push('🔔 **キャンセル待ち** ' + customerName + ' 様の監視物件に動きあり\n' + lines.join('\n'));
+  }
+  if (closedHits && closedHits.length > 0) {
+    const lines = closedHits.map(function (h) {
+      return '・' + (h.label || '') + '（' + h.item.source + '） ⚫ 掲載終了/成約' + (h.item.url ? '\n  ' + h.item.url : '');
+    });
+    parts.push('⚫ **キャンセル待ち(成約の可能性)** ' + customerName + ' 様の監視物件が掲載終了しました。\n成約した可能性が高いです。キャンセル待ちを解除するかご確認ください。\n' + lines.join('\n'));
+  }
+  const content = parts.join('\n\n');
+  await setStorageData({ debugLog: `[キャンセル待ち] 🔔 ${customerName}: open=${openHits.length} closed=${closedHits.length} → 担当通知` });
   try {
     const { discordWebhookUrl } = await getStorageData(['discordWebhookUrl']);
     if (discordWebhookUrl) {
