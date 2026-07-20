@@ -355,8 +355,9 @@ if (idParam) {
       var p = mapDataToProperty(o);
       if (!p) throw new Error('map failed');
       renderNowSafe(p);
-      // ehomaki のデータが完全なので view_api は呼ばない（再描画で上書き＝遅延復活を防ぐ）。
-      // 空室状況は「空室確認」ボタンから、募集終了は掲載側の運用で対応。
+      // ehomaki のデータで描画は完結。ただし「募集終了(isClosed)/削除(notFound)」だけは
+      // 裏で軽量チェックし、該当すればページを隠す（描画は上書きしないのでちらつき/遅延復活なし）。
+      if (customer && roomId) checkClosedStatus(customer, roomId);
     })
     .catch(function() {
       // 取得失敗 → 従来経路（埋め込み or view_api）にフォールバック
@@ -394,6 +395,22 @@ function showSimpleLoading() {
     + '<div class="simple-loading-text">物件情報を確認しています</div>'
     + '<div class="simple-loading-sub">少々お待ちください…</div>'
     + '</div>';
+}
+
+// 募集終了(isClosed)/削除(notFound)だけを軽量チェックし、該当すればページを隠す。
+// ehomaki(id=)経路で描画を上書きせずに募集終了を反映するための最小版。
+function checkClosedStatus(customer, roomId) {
+  var url = GAS_API_URL + '?action=view_api&customer=' + encodeURIComponent(customer) + '&room_id=' + encodeURIComponent(roomId);
+  fetch(url, { redirect: 'follow' })
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      var data;
+      try { data = JSON.parse(text); } catch (e) { return; }
+      if ((data.error && data.notFound) || data.isClosed) {
+        showNotFound();
+      }
+    })
+    .catch(function() {});
 }
 
 function fetchProperty(customer, roomId) {
