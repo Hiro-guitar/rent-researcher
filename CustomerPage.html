@@ -1200,6 +1200,12 @@ function renderPropItem(p, idx) {
   // アクションボタン
   html += '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;">';
   html += '<button class="btn btn-resend btn-sm" id="resend-btn-' + idx + '" onclick="event.stopPropagation();resendProperty(\'' + esc(p.roomId) + '\', ' + idx + ')">再送付</button>';
+  // 手動募集終了トグル（この顧客の物件ページを募集終了表示に／戻す・いつでも切替可）
+  var mc = !!p.manualClosed;
+  var mcStyle = mc
+    ? 'background:#4a3000;color:#e6a243;border:1px solid #6b4400;'
+    : 'background:#3a1414;color:#e08585;border:1px solid #5a2222;';
+  html += '<button class="btn btn-sm" id="close-btn-' + idx + '" style="' + mcStyle + '" onclick="event.stopPropagation();toggleManualClosed(\'' + esc(p.roomId) + '\', ' + idx + ', ' + (mc ? 'true' : 'false') + ')">' + (mc ? '募集中に戻す' : '募集終了にする') + '</button>';
   html += '</div>';
 
   // コメント
@@ -1270,6 +1276,35 @@ function resendProperty(roomId, idx) {
       alert('エラー: ' + err.message);
     })
     .resendPropertyNotifications(currentCustomer, [roomId]);
+}
+
+// ── 手動募集終了トグル（この顧客の物件ページを募集終了表示に／戻す） ──
+function toggleManualClosed(roomId, idx, currentlyClosed) {
+  var willClose = !currentlyClosed;
+  var msg = willClose
+    ? currentCustomer + ' さんの「' + roomId + '」を募集終了にしますか？\n\nこのお客さんの物件ページが「募集終了」表示になり、物件情報が見られなくなります。\nいつでも「募集中に戻す」で戻せます。'
+    : currentCustomer + ' さんの「' + roomId + '」を募集中に戻しますか？';
+  if (!confirm(msg)) return;
+  var btn = document.getElementById('close-btn-' + idx);
+  if (btn) { btn.disabled = true; btn.textContent = '更新中...'; }
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result && result.ok) {
+        // ローカル状態を更新して再描画
+        for (var k = 0; k < allProperties.length; k++) {
+          if (String(allProperties[k].roomId) === String(roomId)) { allProperties[k].manualClosed = willClose; break; }
+        }
+        renderProperties();
+      } else {
+        if (btn) { btn.disabled = false; btn.textContent = currentlyClosed ? '募集中に戻す' : '募集終了にする'; }
+        alert('失敗: ' + (result ? result.message : '不明なエラー'));
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = currentlyClosed ? '募集中に戻す' : '募集終了にする'; }
+      alert('エラー: ' + err.message);
+    })
+    .setManualClosed(currentCustomer, roomId, willClose);
 }
 
 // ── 一括再送付 ──

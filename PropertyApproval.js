@@ -804,7 +804,9 @@ function handlePropertyViewApi(e) {
             String(seenData[si][1]) === String(roomId)) {
           var seenStatus = String(seenData[si][5] || '');  // F列: current_status
           availabilityStatus = seenStatus;
-          if (seenStatus === 'closed') {
+          // N列(14): 手動募集終了フラグ(戻せる・自動空室確認では書き換わらない)
+          var manualClosed = String(seenData[si][13] || '') === 'closed';
+          if (seenStatus === 'closed' || manualClosed) {
             isClosed = true;
           }
           statusCheckedAt = seenData[si][6] ? String(seenData[si][6]) : '';
@@ -3411,6 +3413,37 @@ function _getPendingPropForFlex_(customerName, roomId) {
  * 通知済み物件シートから、指定顧客の再送付候補を取得する。
  * status が available / needs_confirmation / reins_listed / 空 の物件を返す。
  */
+/**
+ * 手動募集終了フラグ(N列=14)をトグルする。戻せる・自動空室確認では書き換わらない。
+ * closed=true で「その顧客の物件ページを募集終了表示」、false で募集中に戻す。
+ * 顧客ごと・サイレント(LINE通知なし)・行は削除しない。
+ * @return {{ok:boolean, message:string, closed:boolean, updated:number}}
+ */
+function setManualClosed(customerName, roomId, closed) {
+  if (!customerName || !roomId) return { ok: false, message: 'customer/roomId が未指定' };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return { ok: false, message: 'シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: false, message: 'シートが空です' };
+    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues(); // A:customer, B:roomId
+    var nameTrim = String(customerName).trim();
+    var ridTrim = String(roomId).trim();
+    var updated = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
+        sheet.getRange(i + 2, 14).setValue(closed ? 'closed' : ''); // N列
+        updated++;
+      }
+    }
+    if (updated === 0) return { ok: false, message: '対象物件が見つかりません' };
+    return { ok: true, message: closed ? '募集終了にしました' : '募集中に戻しました', closed: !!closed, updated: updated };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
 function getSeenPropertiesForResend(customerName) {
   if (!customerName) return [];
   try {
@@ -3419,7 +3452,7 @@ function getSeenPropertiesForResend(customerName) {
     if (!sheet) return [];
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return [];
-    var data = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+    var data = sheet.getRange(2, 1, lastRow - 1, 14).getValues(); // A〜N(手動募集終了フラグ)まで
     var nameTrim = String(customerName).trim();
 
     // アクションログから閲覧回数・最新アクションを一括集計
@@ -3471,6 +3504,7 @@ function getSeenPropertiesForResend(customerName) {
         currentStatus: status,
         statusCheckedAt: (data[i][6] instanceof Date) ? Utilities.formatDate(data[i][6], 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : String(data[i][6] || ''),
         sourceRef: String(data[i][7] || ''),
+        manualClosed: String(data[i][13] || '') === 'closed', // N列: 手動募集終了
         hasFullData: !!pendingProp
       };
       if (pendingProp) {
