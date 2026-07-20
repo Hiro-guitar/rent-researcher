@@ -1075,6 +1075,11 @@ function normalizePropForMetrics(prop) {
     structure: prop.structure || '',
     story_text: prop.story_text || prop.storyText || '',
     facilities: prop.facilities || '',
+    // 物件種目(アパート/マンション): _inferPropertyType が最優先で使う。落とすと鉄骨造
+    // アパートを構造フォールバックで「マンション」と誤判定するため必ず保持する。
+    building_type: prop.building_type || prop.propertyType || prop.reins_property_type || '',
+    // 所在階: 同じ階の競合に絞る精度用
+    unit_floor: prop.unit_floor || prop.floor_text || '',
   };
 }
 
