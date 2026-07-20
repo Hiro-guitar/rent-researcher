@@ -6013,8 +6013,10 @@ function _bestViewUrl_(customerName, roomId, prop, opts) {
     _fd.rid = String(roomId);
     var _dataId = _storePropertyDataToEhomaki_(_fd, customerName);
     if (_dataId) {
-      // customer= を付けない（room_id は不透明値なので残す。property.html 側で cust は id から取得）
-      return 'https://form.ehomaki.com/property.html?room_id=' + roomId + '&id=' + _dataId;
+      // customer= も room_id も URL に付けない。room_id は essquare_ 等の源泉名を含むため、
+      // お客さんに見えないよう ehomaki データ(rid)側だけに持たせる。property.html は id 取得後に
+      // cust/rid を読む。
+      return 'https://form.ehomaki.com/property.html?id=' + _dataId;
     }
   } catch (_ehStoreErr) { console.warn('_bestViewUrl_ ehomaki store failed: ' + _ehStoreErr.message); }
 
