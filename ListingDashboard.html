@@ -43,6 +43,8 @@ thead th:first-child{left:0;z-index:3}
 tbody td:first-child{position:sticky;left:0;z-index:1;background:#252526}
 tbody tr:hover td:first-child{background:#2a2d35}
 thead th:first-child,tbody td:first-child{border-right:1px solid #404040}
+/* 物件名列(1列目)は上限幅を付けて折り返す。長い物件名で列全体が広がるのを防ぐ */
+thead th:first-child,tbody td:first-child{width:240px;max-width:240px;white-space:normal;word-break:break-word}
 thead th:hover{color:#e0e0e0}
 thead th.sorted-asc::after{content:' ▲';font-size:9px}
 thead th.sorted-desc::after{content:' ▼';font-size:9px}
