@@ -2441,8 +2441,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                   // ⚠️ すぐ close すると popup 内の Zenrin SDK が住所→座標
                   //    変換 + サーバーセッション登録を完了する前にウィンドウが
                   //    閉じてしまい、 セッション未確立になる。
-                  //    3 秒待ってから close する (実測 1〜2 秒で完了)。
-                  setTimeout(() => { try { w.close(); } catch(_){} }, 3000);
+                  //    通常は 1〜2 秒で完了するが、住所によっては 3 秒超かかり
+                  //    登録完了前に閉じると 0 件になる(手動なら出るのに、の主因)。
+                  //    余裕をもって 8 秒開けておく(content 側は候補が取れ次第ポーリングで抜ける)。
+                  setTimeout(() => { try { w.close(); } catch(_){} }, 8000);
                 }
                 return w;
               };

@@ -1196,7 +1196,7 @@
     const filledCount = Math.min(dedupedAccess.length, maxTraffic);
     if (filledCount > 0 && filledCount < maxTraffic) {
       try {
-        await withTimeout(autoFillEmptyStationSlots(filledCount), 15000, '駅補完');
+        await withTimeout(autoFillEmptyStationSlots(filledCount), 22000, '駅補完');
       } catch (err) {
         console.warn('[SUUMO自動入稿] 駅補完エラー:', err && err.message);
       }
@@ -1283,45 +1283,57 @@
         // popup 内の Zenrin SDK が住所→座標変換 + サーバーセッション登録するのを待つ。
         // popup 自身は MAIN world の setTimeout(close, 3000) で 3 秒後に close される。
         // 同じ 3 秒間に Zenrin の通信が完了するため、 こちらも 3.5 秒待ってから fetch。
-        dlog('Zenrin 処理完了待機 (3.5秒)');
-        await new Promise(r2 => setTimeout(r2, 3500));
+        dlog('Zenrin 座標登録待機 → 候補ポーリング開始');
       } else {
         dlog('⚠️ #rakurakuKotsu ボタンが見つからない');
       }
 
-      // ── ステップ 2: fetch で COM1R02167.action を取得 ──
-      const res = await fetch('https://www.fn.forrent.jp/fn/COM1R02167.action', {
-        credentials: 'include'
-      });
-      if (!res.ok) {
-        dlog('⚠️ COM1R02167 fetch失敗 HTTP ' + res.status);
-        return;
-      }
-      // Shift-JIS デコード (UTF-8 解釈すると駅名が文字化けして既存駅と
-      // マッチせず、 結果として既存駅も含めて全件追加候補と判定されてしまう)
-      const buf = await res.arrayBuffer();
-      const html = new TextDecoder('shift-jis').decode(buf);
-      const doc = new DOMParser().parseFromString(html, 'text/html');
+      // ── ステップ 2: COM1R02167.action をポーリングして候補を取得 ──
+      // 物件によって Zenrin の住所→座標変換に時間がかかる(3秒超)ことがあり、
+      // 固定待機だと登録完了前に取りに行って0件になる(手動で押すと出るのに、の主因)。
+      // 一定間隔で取りに行き、候補が入り次第抜ける(速い物件は即、遅い物件は待つ)。
+      const fetchCandidates = async () => {
+        let res;
+        try {
+          res = await fetch('https://www.fn.forrent.jp/fn/COM1R02167.action', { credentials: 'include' });
+        } catch (eF) { dlog('⚠️ COM1R02167 fetch例外: ' + eF.message); return null; }
+        if (!res.ok) { dlog('⚠️ COM1R02167 fetch失敗 HTTP ' + res.status); return null; }
+        // Shift-JIS デコード (UTF-8 解釈すると駅名が文字化けして既存駅とマッチせず、
+        // 既存駅も含めて全件追加候補と判定されてしまう)
+        const buf = await res.arrayBuffer();
+        const html = new TextDecoder('shift-jis').decode(buf);
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const list = [];
+        for (let i = 1; ; i++) {
+          const ekiNmEl = doc.getElementById('ekiNm' + i);
+          if (!ekiNmEl) break;
+          list.push({
+            idx: i,
+            ensenCd: doc.getElementById('ensenCd' + i)?.value || '',
+            ensenNm: doc.getElementById('ensenNm' + i)?.value || '',
+            ekiCd: doc.getElementById('ekiCd' + i)?.value || '',
+            ekiNm: ekiNmEl.value || '',
+            tohofun: parseInt(doc.getElementById('tohofun' + i)?.value || '0', 10) || 0,
+          });
+        }
+        return list;
+      };
 
-      // 候補抽出
-      const candidates = [];
-      for (let i = 1; ; i++) {
-        const ekiNmEl = doc.getElementById('ekiNm' + i);
-        if (!ekiNmEl) break;
-        candidates.push({
-          idx: i,
-          ensenCd: doc.getElementById('ensenCd' + i)?.value || '',
-          ensenNm: doc.getElementById('ensenNm' + i)?.value || '',
-          ekiCd: doc.getElementById('ekiCd' + i)?.value || '',
-          ekiNm: ekiNmEl.value || '',
-          tohofun: parseInt(doc.getElementById('tohofun' + i)?.value || '0', 10) || 0,
-        });
+      let candidates = [];
+      // 初回1.5秒→以降間隔を広げつつ最大 ~13秒 ポーリング
+      const pollDelays = [1500, 1500, 2000, 2000, 2500, 3000];
+      for (let attempt = 0; attempt < pollDelays.length; attempt++) {
+        await new Promise(r2 => setTimeout(r2, pollDelays[attempt]));
+        const list = await fetchCandidates();
+        if (list === null) continue; // fetch失敗 → 次の試行へ
+        if (list.length > 0) { candidates = list; dlog('候補取得 (試行' + (attempt + 1) + '/' + pollDelays.length + ')'); break; }
+        dlog('まだ0件 (試行' + (attempt + 1) + '/' + pollDelays.length + ') → 再取得');
       }
 
       dlog('候補' + candidates.length + '件: ' + candidates.slice(0, 8).map(c => c.ekiNm + '(' + c.tohofun + '分)').join(', '));
 
       if (candidates.length === 0) {
-        dlog('⚠️ 駅候補0件 (セッション未確立 or 駅が圏内に無い)');
+        dlog('⚠️ 駅候補0件 (ポーリングしても取得できず: Zenrin座標登録が間に合わない or 圏外)');
         return;
       }
 
