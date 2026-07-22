@@ -542,7 +542,8 @@ function importSuumoInquiries() {
 /**
  * 電話番号ありの反響を担当のDiscordに通知する。
  * ・電話番号が無い反響は通知しない（ユーザー要望）。
- * ・DISCORD_WEBHOOK_URL はフォーラムchのため thread_name 必須。
+ * ・通知先は反響専用の DISCORD_WEBHOOK_INQUIRY_URL（未設定なら共通 DISCORD_WEBHOOK_URL にフォールバック）。
+ * ・フォーラムchのため thread_name 必須。
  * ・共通webhookはGAS共有IPで Cloudflare 1015 になりやすいが、反響は低頻度のため許容。
  *   送信は _sendDiscordWithRetry_（429/1015対応）を流用。
  */
@@ -550,8 +551,13 @@ function _notifyPhoneInquiryToDiscord_(info) {
   try {
     var tel = String((info && info.tel) || '').trim();
     if (!tel) return; // 電話番号なしは通知しない
-    var webhook = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
-    if (!webhook) { console.log('[反響Discord] DISCORD_WEBHOOK_URL 未設定でスキップ'); return; }
+    var props = PropertiesService.getScriptProperties();
+    var webhook = props.getProperty('DISCORD_WEBHOOK_INQUIRY_URL');
+    if (!webhook) {
+      webhook = props.getProperty('DISCORD_WEBHOOK_URL');
+      if (webhook) console.log('[反響Discord] DISCORD_WEBHOOK_INQUIRY_URL 未設定 → 共通chにフォールバック');
+    }
+    if (!webhook) { console.log('[反響Discord] webhook 未設定でスキップ'); return; }
     var name = String(info.name || '').trim() || '(氏名なし)';
     var kana = String(info.kana || '').trim();
     var lines = [];
