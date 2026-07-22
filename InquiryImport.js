@@ -565,28 +565,20 @@ function setupInquiryDiscordWebhook() {
   }
   PropertiesService.getScriptProperties().setProperty('DISCORD_WEBHOOK_INQUIRY_URL', url);
 
-  // 直接fetchして実際のHTTPコード/本文をログに出す（失敗理由を切り分けるため）
-  var payload = {
-    content: '✅ 反響通知チャンネルの設定テストです。\nこれ以降、電話番号ありの反響がこのチャンネルに届きます。',
-    thread_name: '📞 反響(TEL) 設定テスト'
-  };
-  var postUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'wait=true';
-  var res = UrlFetchApp.fetch(postUrl, {
-    method: 'post', contentType: 'application/json',
-    payload: JSON.stringify(payload), muteHttpExceptions: true
-  });
-  var code = res.getResponseCode();
-  var body = (res.getContentText() || '').substring(0, 300);
+  // テキストch/フォーラムch両対応で送信（テキストchはthread_name不可、フォーラムchは必須）
+  var r = _postDiscordAdaptive_(url,
+    '✅ 反響通知チャンネルの設定テストです。\nこれ以降、電話番号ありの反響がこのチャンネルに届きます。',
+    '📞 反響(TEL) 設定テスト');
   var msg;
-  if (code >= 200 && code < 300) {
-    msg = '✅ 設定完了 + テスト送信成功 (HTTP ' + code + ')。チャンネルを確認してください。';
+  if (r.ok) {
+    msg = '✅ 設定完了 + テスト送信成功 (HTTP ' + r.code + ')。チャンネルを確認してください。';
   } else {
-    // フォーラムchでない/権限/URL誤り等。1015はGAS共有IPのCloudflare制限。
-    var hint = (code === 429 && body.indexOf('1015') >= 0) ? ' ← Cloudflare 1015 (GAS IP制限。時間を置くか要相談)'
-             : (code === 401 || code === 404) ? ' ← Webhook URLが違う/削除済みの可能性'
-             : (code === 400) ? ' ← ペイロード拒否 (フォーラムchのthread_name等)'
+    var b = String(r.body || '');
+    var hint = (r.code === 429 && b.indexOf('1015') >= 0) ? ' ← Cloudflare 1015 (GAS IP制限。時間を置くか要相談)'
+             : (r.code === 401 || r.code === 404) ? ' ← Webhook URLが違う/削除済みの可能性'
+             : (r.code === 400) ? ' ← ペイロード拒否'
              : '';
-    msg = '⚠️ プロパティは設定したが、テスト送信は失敗 HTTP ' + code + hint + ' / body=' + body;
+    msg = '⚠️ プロパティは設定したが、テスト送信は失敗 HTTP ' + r.code + hint + ' / body=' + b;
   }
   Logger.log(msg);
   return msg;
@@ -625,18 +617,40 @@ function _notifyPhoneInquiryToDiscord_(info) {
     if (info.email) lines.push('メール: ' + String(info.email).trim());
     if (info.message) lines.push('内容: ' + String(info.message).trim());
     lines.push('（' + (info.channel || 'SUUMO') + ' / 顧客管理ページに追加済み）');
-    var payload = { content: lines.join('\n'), thread_name: '📞 反響(TEL) ' + name };
-    if (typeof _sendDiscordWithRetry_ === 'function') {
-      var r = _sendDiscordWithRetry_(webhook, payload, 3);
-      console.log('[反響Discord] 送信: ' + name + ' TEL=' + tel + ' → ok=' + (r && r.ok) + ' code=' + (r && r.code));
-    } else {
-      UrlFetchApp.fetch(webhook + (webhook.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
-        method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
-      });
-    }
+    var r = _postDiscordAdaptive_(webhook, lines.join('\n'), '📞 反響(TEL) ' + name);
+    console.log('[反響Discord] 送信: ' + name + ' TEL=' + tel + ' → ok=' + r.ok + ' code=' + r.code + (r.ok ? '' : ' body=' + r.body));
   } catch (e) {
     console.warn('[反響Discord] エラー: ' + e.message);
   }
+}
+
+/**
+ * テキストch/フォーラムch 両対応でDiscordに送信する。
+ * ・テキストchは thread_name を付けると 400(220003 "Webhooks can only create threads
+ *   in forum channels") で拒否される。
+ * ・フォーラムchは thread_name 必須(220001)。
+ * → まず thread_name 無しで送り、フォーラムchで必須と言われた場合だけ付けて再送する。
+ * @return {{ok:boolean, code:number, body:string}}
+ */
+function _postDiscordAdaptive_(webhook, content, threadName) {
+  var postUrl = webhook + (webhook.indexOf('?') >= 0 ? '&' : '?') + 'wait=true';
+  function post(payload) {
+    return UrlFetchApp.fetch(postUrl, {
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify(payload), muteHttpExceptions: true
+    });
+  }
+  var res = post({ content: content });               // 1) thread_name 無し(テキストch)
+  var code = res.getResponseCode();
+  var body = res.getContentText() || '';
+  if (code >= 200 && code < 300) return { ok: true, code: code, body: '' };
+  // 2) フォーラムchで thread_name 必須(220001) → 付けて再送
+  if (code === 400 && body.indexOf('220001') >= 0 && threadName) {
+    var res2 = post({ content: content, thread_name: threadName });
+    var code2 = res2.getResponseCode();
+    return { ok: code2 >= 200 && code2 < 300, code: code2, body: (res2.getContentText() || '').substring(0, 200) };
+  }
+  return { ok: false, code: code, body: body.substring(0, 200) };
 }
 
 /**
