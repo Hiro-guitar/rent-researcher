@@ -559,21 +559,37 @@ function importSuumoInquiries() {
  */
 function setupInquiryDiscordWebhook() {
   var url = 'ここにWebhook URLを貼る';  // ← ここを書き換えてから実行
+  url = String(url).trim();  // コピペの前後空白/改行を除去
   if (!url || url.indexOf('discord.com/api/webhooks/') < 0) {
     throw new Error('有効なDiscord Webhook URLを url に設定してください（例: https://discord.com/api/webhooks/...）');
   }
   PropertiesService.getScriptProperties().setProperty('DISCORD_WEBHOOK_INQUIRY_URL', url);
+
+  // 直接fetchして実際のHTTPコード/本文をログに出す（失敗理由を切り分けるため）
   var payload = {
     content: '✅ 反響通知チャンネルの設定テストです。\nこれ以降、電話番号ありの反響がこのチャンネルに届きます。',
     thread_name: '📞 反響(TEL) 設定テスト'
   };
-  var codeMsg = '';
-  if (typeof _sendDiscordWithRetry_ === 'function') {
-    var r = _sendDiscordWithRetry_(url, payload, 3);
-    codeMsg = ' テスト送信 ok=' + (r && r.ok) + ' code=' + (r && r.code);
+  var postUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'wait=true';
+  var res = UrlFetchApp.fetch(postUrl, {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify(payload), muteHttpExceptions: true
+  });
+  var code = res.getResponseCode();
+  var body = (res.getContentText() || '').substring(0, 300);
+  var msg;
+  if (code >= 200 && code < 300) {
+    msg = '✅ 設定完了 + テスト送信成功 (HTTP ' + code + ')。チャンネルを確認してください。';
+  } else {
+    // フォーラムchでない/権限/URL誤り等。1015はGAS共有IPのCloudflare制限。
+    var hint = (code === 429 && body.indexOf('1015') >= 0) ? ' ← Cloudflare 1015 (GAS IP制限。時間を置くか要相談)'
+             : (code === 401 || code === 404) ? ' ← Webhook URLが違う/削除済みの可能性'
+             : (code === 400) ? ' ← ペイロード拒否 (フォーラムchのthread_name等)'
+             : '';
+    msg = '⚠️ プロパティは設定したが、テスト送信は失敗 HTTP ' + code + hint + ' / body=' + body;
   }
-  Logger.log('DISCORD_WEBHOOK_INQUIRY_URL を設定しました。' + codeMsg);
-  return 'OK: 設定完了' + codeMsg;
+  Logger.log(msg);
+  return msg;
 }
 
 /**
