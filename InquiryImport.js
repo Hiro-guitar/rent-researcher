@@ -531,10 +531,49 @@ function importSuumoInquiries() {
   // 新規問い合わせを自動でリード顧客化（メール重複判定）→ カンバン「問い合わせ」列に出る
   for (var ni = 0; ni < newInfos.length; ni++) {
     _autoCreateLeadFromInquiry_(newInfos[ni]);
+    // 電話番号ありの反響は担当のDiscordにも通知（関数内で電話番号有無を判定）
+    _notifyPhoneInquiryToDiscord_(newInfos[ni]);
   }
 
   console.log('[問い合わせ取込] scanned=' + scanned + ' imported=' + imported + ' skipped=' + skipped);
   return { imported: imported, skipped: skipped, scanned: scanned };
+}
+
+/**
+ * 電話番号ありの反響を担当のDiscordに通知する。
+ * ・電話番号が無い反響は通知しない（ユーザー要望）。
+ * ・DISCORD_WEBHOOK_URL はフォーラムchのため thread_name 必須。
+ * ・共通webhookはGAS共有IPで Cloudflare 1015 になりやすいが、反響は低頻度のため許容。
+ *   送信は _sendDiscordWithRetry_（429/1015対応）を流用。
+ */
+function _notifyPhoneInquiryToDiscord_(info) {
+  try {
+    var tel = String((info && info.tel) || '').trim();
+    if (!tel) return; // 電話番号なしは通知しない
+    var webhook = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+    if (!webhook) { console.log('[反響Discord] DISCORD_WEBHOOK_URL 未設定でスキップ'); return; }
+    var name = String(info.name || '').trim() || '(氏名なし)';
+    var kana = String(info.kana || '').trim();
+    var lines = [];
+    lines.push('📞 **電話番号ありの反響**');
+    lines.push('お名前: ' + name + (kana ? '（' + kana + '）' : ''));
+    lines.push('TEL: ' + tel);
+    if (info.propertyName) lines.push('物件: ' + info.propertyName + (info.rent ? ' ' + info.rent : ''));
+    if (info.email) lines.push('メール: ' + String(info.email).trim());
+    if (info.message) lines.push('内容: ' + String(info.message).trim());
+    lines.push('（' + (info.channel || 'SUUMO') + ' / 顧客管理ページに追加済み）');
+    var payload = { content: lines.join('\n'), thread_name: '📞 反響(TEL) ' + name };
+    if (typeof _sendDiscordWithRetry_ === 'function') {
+      var r = _sendDiscordWithRetry_(webhook, payload, 3);
+      console.log('[反響Discord] 送信: ' + name + ' TEL=' + tel + ' → ok=' + (r && r.ok) + ' code=' + (r && r.code));
+    } else {
+      UrlFetchApp.fetch(webhook + (webhook.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
+        method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+    }
+  } catch (e) {
+    console.warn('[反響Discord] エラー: ' + e.message);
+  }
 }
 
 /**
