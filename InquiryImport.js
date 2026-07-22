@@ -567,8 +567,8 @@ function setupInquiryDiscordWebhook() {
 
   // テキストch/フォーラムch両対応で送信（テキストchはthread_name不可、フォーラムchは必須）
   var r = _postDiscordAdaptive_(url,
-    '✅ 反響通知チャンネルの設定テストです。\nこれ以降、電話番号ありの反響がこのチャンネルに届きます。',
-    '📞 反響(TEL) 設定テスト');
+    '<@1459814543600390341>\n✅ 反響通知チャンネルの設定テストです。\nこれ以降、電話番号ありの反響がこのチャンネルに届きます。',
+    '📞 反響(TEL) 設定テスト', '1459814543600390341');
   var msg;
   if (r.ok) {
     msg = '✅ 設定完了 + テスト送信成功 (HTTP ' + r.code + ')。チャンネルを確認してください。';
@@ -595,8 +595,8 @@ function testInquiryDiscordWebhook() {
     Logger.log(m); return m;
   }
   var r = _postDiscordAdaptive_(url,
-    '✅ 反響通知チャンネルのテスト送信です。これが届けば設定OK（電話番号ありの反響がここに届きます）。',
-    '📞 反響(TEL) テスト');
+    '<@1459814543600390341>\n✅ 反響通知チャンネルのテスト送信です。これが届けば設定OK（電話番号ありの反響がここに届きます）。',
+    '📞 反響(TEL) テスト', '1459814543600390341');
   var msg = r.ok
     ? '✅ テスト送信成功 (HTTP ' + r.code + ')。チャンネルを確認してください。'
     : '⚠️ テスト送信失敗 HTTP ' + r.code + ' / body=' + r.body;
@@ -630,6 +630,7 @@ function _notifyPhoneInquiryToDiscord_(info) {
     var name = String(info.name || '').trim() || '(氏名なし)';
     var kana = String(info.kana || '').trim();
     var lines = [];
+    lines.push('<@1459814543600390341>');  // 音付き通知を鳴らすためのメンション
     lines.push('📞 **電話番号ありの反響**');
     lines.push('お名前: ' + name + (kana ? '（' + kana + '）' : ''));
     lines.push('TEL: ' + tel);
@@ -637,7 +638,7 @@ function _notifyPhoneInquiryToDiscord_(info) {
     if (info.email) lines.push('メール: ' + String(info.email).trim());
     if (info.message) lines.push('内容: ' + String(info.message).trim());
     lines.push('（' + (info.channel || 'SUUMO') + ' / 顧客管理ページに追加済み）');
-    var r = _postDiscordAdaptive_(webhook, lines.join('\n'), '📞 反響(TEL) ' + name);
+    var r = _postDiscordAdaptive_(webhook, lines.join('\n'), '📞 反響(TEL) ' + name, '1459814543600390341');
     console.log('[反響Discord] 送信: ' + name + ' TEL=' + tel + ' → ok=' + r.ok + ' code=' + r.code + (r.ok ? '' : ' body=' + r.body));
   } catch (e) {
     console.warn('[反響Discord] エラー: ' + e.message);
@@ -652,21 +653,25 @@ function _notifyPhoneInquiryToDiscord_(info) {
  * → まず thread_name 無しで送り、フォーラムchで必須と言われた場合だけ付けて再送する。
  * @return {{ok:boolean, code:number, body:string}}
  */
-function _postDiscordAdaptive_(webhook, content, threadName) {
+function _postDiscordAdaptive_(webhook, content, threadName, mentionUserId) {
   var postUrl = webhook + (webhook.indexOf('?') >= 0 ? '&' : '?') + 'wait=true';
-  function post(payload) {
+  function post(withThread) {
+    var payload = { content: content };
+    // メンションを有効化(音付き通知を鳴らすため)。content 側に <@id> が必要。
+    if (mentionUserId) payload.allowed_mentions = { users: [String(mentionUserId)] };
+    if (withThread && threadName) payload.thread_name = threadName;
     return UrlFetchApp.fetch(postUrl, {
       method: 'post', contentType: 'application/json',
       payload: JSON.stringify(payload), muteHttpExceptions: true
     });
   }
-  var res = post({ content: content });               // 1) thread_name 無し(テキストch)
+  var res = post(false);                               // 1) thread_name 無し(テキストch)
   var code = res.getResponseCode();
   var body = res.getContentText() || '';
   if (code >= 200 && code < 300) return { ok: true, code: code, body: '' };
   // 2) フォーラムchで thread_name 必須(220001) → 付けて再送
   if (code === 400 && body.indexOf('220001') >= 0 && threadName) {
-    var res2 = post({ content: content, thread_name: threadName });
+    var res2 = post(true);
     var code2 = res2.getResponseCode();
     return { ok: code2 >= 200 && code2 < 300, code: code2, body: (res2.getContentText() || '').substring(0, 200) };
   }
