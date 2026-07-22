@@ -585,6 +585,26 @@ function setupInquiryDiscordWebhook() {
 }
 
 /**
+ * 【テスト用】保存済みの DISCORD_WEBHOOK_INQUIRY_URL にテスト送信する。
+ * URLを貼り直す必要なし（デプロイで消えるコードに依存しない）。設定後はこれで動作確認する。
+ */
+function testInquiryDiscordWebhook() {
+  var url = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_INQUIRY_URL');
+  if (!url) {
+    var m = '未設定です。先に setupInquiryDiscordWebhook でURLを設定してください。';
+    Logger.log(m); return m;
+  }
+  var r = _postDiscordAdaptive_(url,
+    '✅ 反響通知チャンネルのテスト送信です。これが届けば設定OK（電話番号ありの反響がここに届きます）。',
+    '📞 反響(TEL) テスト');
+  var msg = r.ok
+    ? '✅ テスト送信成功 (HTTP ' + r.code + ')。チャンネルを確認してください。'
+    : '⚠️ テスト送信失敗 HTTP ' + r.code + ' / body=' + r.body;
+  Logger.log(msg);
+  return msg;
+}
+
+/**
  * 【確認用】現在の反響通知チャンネル設定を確認する（Webフックの値は伏せる）。
  */
 function checkInquiryDiscordWebhook() {
