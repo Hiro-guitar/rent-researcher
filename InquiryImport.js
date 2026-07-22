@@ -547,6 +547,47 @@ function importSuumoInquiries() {
  * ・共通webhookはGAS共有IPで Cloudflare 1015 になりやすいが、反響は低頻度のため許容。
  *   送信は _sendDiscordWithRetry_（429/1015対応）を流用。
  */
+/**
+ * 【一回だけ手動実行】反響通知の専用Discordチャンネルを設定する。
+ * Script Propertiesが50個超でエディタUIから追加できないため、ここから設定する。
+ *
+ * 手順:
+ *   1) 下の url = '...' を、自分のDiscordチャンネルのWebhook URLに書き換える
+ *   2) Apps Scriptエディタの関数選択で setupInquiryDiscordWebhook を選び「実行」
+ *   3) 指定チャンネルにテストメッセージが届けば成功（プロパティも保存済み）
+ * ※このファイルのプレースホルダはデプロイで元に戻るが、プロパティは永続するので一度実行すればOK。
+ */
+function setupInquiryDiscordWebhook() {
+  var url = 'ここにWebhook URLを貼る';  // ← ここを書き換えてから実行
+  if (!url || url.indexOf('discord.com/api/webhooks/') < 0) {
+    throw new Error('有効なDiscord Webhook URLを url に設定してください（例: https://discord.com/api/webhooks/...）');
+  }
+  PropertiesService.getScriptProperties().setProperty('DISCORD_WEBHOOK_INQUIRY_URL', url);
+  var payload = {
+    content: '✅ 反響通知チャンネルの設定テストです。\nこれ以降、電話番号ありの反響がこのチャンネルに届きます。',
+    thread_name: '📞 反響(TEL) 設定テスト'
+  };
+  var codeMsg = '';
+  if (typeof _sendDiscordWithRetry_ === 'function') {
+    var r = _sendDiscordWithRetry_(url, payload, 3);
+    codeMsg = ' テスト送信 ok=' + (r && r.ok) + ' code=' + (r && r.code);
+  }
+  Logger.log('DISCORD_WEBHOOK_INQUIRY_URL を設定しました。' + codeMsg);
+  return 'OK: 設定完了' + codeMsg;
+}
+
+/**
+ * 【確認用】現在の反響通知チャンネル設定を確認する（Webフックの値は伏せる）。
+ */
+function checkInquiryDiscordWebhook() {
+  var v = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_INQUIRY_URL');
+  var msg = v
+    ? 'DISCORD_WEBHOOK_INQUIRY_URL: 設定済み (…' + v.slice(-12) + ')'
+    : 'DISCORD_WEBHOOK_INQUIRY_URL: 未設定（共通chにフォールバック中）';
+  Logger.log(msg);
+  return msg;
+}
+
 function _notifyPhoneInquiryToDiscord_(info) {
   try {
     var tel = String((info && info.tel) || '').trim();
