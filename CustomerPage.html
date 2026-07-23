@@ -925,6 +925,21 @@ function renderDetail(data) {
   showMoreTimeline();
 }
 
+// テキスト中のURLだけを安全にリンク化する（URL以外はエスケープ）
+function linkify(text) {
+  text = String(text == null ? '' : text);
+  var re = /(https?:\/\/[^\s]+)/g;
+  var out = '', last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    out += esc(text.slice(last, m.index));
+    var safe = esc(m[1]);
+    out += '<a href="' + safe + '" target="_blank" rel="noopener" style="color:#6cf;text-decoration:underline;word-break:break-all;">' + safe + '</a>';
+    last = m.index + m[1].length;
+  }
+  out += esc(text.slice(last));
+  return out;
+}
+
 // ── 顧客タスク（todo） ──
 var _currentTasks = [];
 var _editingTaskRow = null;  // インライン編集中のタスク行番号（null=非編集）
@@ -972,7 +987,7 @@ function taskRowHtml(t) {
     : '';
   return '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #333;">'
     + '<input type="checkbox" ' + (t.done ? 'checked' : '') + ' onclick="toggleTaskNow(' + t.rowNum + ', this.checked)" style="cursor:pointer;flex:0 0 auto;">'
-    + '<span style="flex:1;font-size:13px;color:' + (t.done ? '#888' : '#ddd') + ';' + (t.done ? 'text-decoration:line-through;' : '') + '">' + esc(t.content) + due + '</span>'
+    + '<span style="flex:1;font-size:13px;color:' + (t.done ? '#888' : '#ddd') + ';' + (t.done ? 'text-decoration:line-through;' : '') + '">' + linkify(t.content) + due + '</span>'
     + '<a onclick="editTaskInline(' + t.rowNum + ')" style="color:#6cf;cursor:pointer;font-size:12px;flex:0 0 auto;">編集</a>'
     + '<a onclick="deleteTaskNow(' + t.rowNum + ')" style="color:#e0707a;cursor:pointer;font-size:12px;flex:0 0 auto;">削除</a>'
     + '</div>';
