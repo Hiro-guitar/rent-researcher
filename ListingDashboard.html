@@ -163,6 +163,21 @@ var sortCol = 'transitionRate';
 var sortDir = 1;
 var filterProtected = false; // 保護中のみ表示
 
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// 取得元サイトの内部キーを読みやすい名前に変換
+function sourceLabel(s){
+  var raw=String(s||'').trim();
+  if(!raw) return '<span class="text-muted">-</span>';
+  var k=raw.toLowerCase();
+  if(k.indexOf('reins')>=0) return 'REINS';
+  if(k.indexOf('itandi')>=0) return 'itandi';
+  if(k.indexOf('ielove')>=0||raw.indexOf('いえらぶ')>=0) return 'いえらぶ';
+  if(k.indexOf('essquare')>=0||k.indexOf('es-square')>=0||raw.indexOf('いい生活')>=0) return 'いい生活';
+  if(k.indexOf('suumo')>=0) return 'SUUMO';
+  if(k.indexOf('forrent')>=0) return 'ForRent';
+  return esc(raw);
+}
+
 var COLUMNS = [
   {key:'name',label:'物件名',align:'left',fmt:function(l){return '<div class="name-cell">'+(l.protected?'<span class="badge-protect" title="自動落とし対象外: '+(l.protectReason||'')+'">🛡保護</span> ':'')+l.name+(l.room?' '+l.room:'')+'</div>'}},
   {key:'totalFee',label:'賃料+管理費',align:'right'},
@@ -172,6 +187,8 @@ var COLUMNS = [
   {key:'area',label:'面積',align:'right'},
   {key:'layout',label:'間取り',align:'left'},
   {key:'buildingAge',label:'築年数',align:'right'},
+  {key:'mgmtCompany',label:'管理会社',align:'left',fmt:function(l){return l.mgmtCompany?esc(l.mgmtCompany):'<span class="text-muted">-</span>'}},
+  {key:'source',label:'掲載元サイト',align:'left',fmt:function(l){return sourceLabel(l.source)}},
   {key:'listedDays',label:'掲載日数(データ取得時)',align:'right'},
   {key:'repListPv',label:'代表物件合計一覧PV',align:'right',fmt:function(l){return sparkHtml(l._pvRepListSpark)+num(l.repListPv)}},
   {key:'dailyListPv',label:'代表物件一覧PV（平均）',align:'right',fmt:function(l){
@@ -480,6 +497,8 @@ function showDetail(code){
   ds+='<div class="detail-stat"><div class="label">面積</div><div class="value">'+(l.area||'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">間取り</div><div class="value">'+(l.layout||'-')+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">築年数</div><div class="value">'+(l.buildingAge||'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">管理会社</div><div class="value">'+(l.mgmtCompany?esc(l.mgmtCompany):'-')+'</div></div>';
+  ds+='<div class="detail-stat"><div class="label">掲載元サイト</div><div class="value">'+sourceLabel(l.source)+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">掲載日数(データ取得時)</div><div class="value">'+l.listedDays+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">代表物件合計一覧PV</div><div class="value">'+num(l.repListPv)+'</div></div>';
   ds+='<div class="detail-stat"><div class="label">代表物件一覧PV（平均）</div><div class="value">'+(l.dailyListPv!=null?l.dailyListPv.toFixed(2):'-')+'</div></div>';
