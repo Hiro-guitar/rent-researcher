@@ -956,7 +956,7 @@ function renderTasks(name, tasks) {
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">';
   h += '<input id="taskInput" type="text" placeholder="やること（例: 内見日程の連絡）" style="flex:1;min-width:150px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
   h += '<input id="taskDue" type="date" title="期限（任意）" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
-  h += '<button onclick="addTaskNow()" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">追加</button>';
+  h += '<button id="taskAddBtn" onclick="addTaskNow()" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">追加</button>';
   h += '</div>';
   // 未完了
   if (open.length) {
@@ -1018,12 +1018,22 @@ function saveTaskEdit(rowNum) {
 function addTaskNow() {
   var input = document.getElementById('taskInput');
   var dueEl = document.getElementById('taskDue');
+  var btn = document.getElementById('taskAddBtn');
   var content = (input && input.value || '').trim();
   if (!content) { showToast('内容を入力してください'); return; }
+  if (btn && btn.disabled) return;  // 二重送信防止
+  if (btn) { btn.disabled = true; btn.textContent = '追加中…'; btn.style.opacity = '0.6'; btn.style.cursor = 'default'; }
   google.script.run
-    .withSuccessHandler(function(r){ if (r && r.success) { reloadTasks(); } else { showToast((r && r.message) || '追加に失敗しました'); } })
-    .withFailureHandler(function(e){ showToast('エラー: ' + (e && e.message || '')); })
+    .withSuccessHandler(function(r){
+      if (r && r.success) { showToast('タスクを追加しました'); reloadTasks(); }  // reloadTasksでフォームが空に再描画される
+      else { showToast((r && r.message) || '追加に失敗しました'); _resetTaskAddBtn(); }
+    })
+    .withFailureHandler(function(e){ showToast('エラー: ' + (e && e.message || '')); _resetTaskAddBtn(); })
     .addCustomerTask(currentCustomer, content, (dueEl && dueEl.value) || '');
+}
+function _resetTaskAddBtn() {
+  var btn = document.getElementById('taskAddBtn');
+  if (btn) { btn.disabled = false; btn.textContent = '追加'; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
 }
 function toggleTaskNow(rowNum, checked) {
   google.script.run
