@@ -978,7 +978,7 @@ function taskRowHtml(t) {
     return '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 0;border-bottom:1px solid #333;">'
       + '<input id="taskEditInput_' + t.rowNum + '" type="text" value="' + esc(t.content) + '" style="flex:1;min-width:150px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
       + '<input id="taskEditDue_' + t.rowNum + '" type="date" value="' + esc(t.due || '') + '" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
-      + '<button onclick="saveTaskEdit(' + t.rowNum + ')" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;">保存</button>'
+      + '<button id="taskSaveBtn_' + t.rowNum + '" onclick="saveTaskEdit(' + t.rowNum + ')" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;">保存</button>'
       + '<a onclick="cancelTaskEdit()" style="color:#888;cursor:pointer;font-size:12px;">キャンセル</a>'
       + '</div>';
   }
@@ -1005,14 +1005,23 @@ function cancelTaskEdit() {
 function saveTaskEdit(rowNum) {
   var inp = document.getElementById('taskEditInput_' + rowNum);
   var dueEl = document.getElementById('taskEditDue_' + rowNum);
+  var btn = document.getElementById('taskSaveBtn_' + rowNum);
   var content = (inp && inp.value || '').trim();
   if (!content) { showToast('内容を入力してください'); return; }
+  if (btn && btn.disabled) return;  // 二重送信防止
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; btn.style.opacity = '0.6'; btn.style.cursor = 'default'; }
   google.script.run
     .withSuccessHandler(function(r){
-      if (r && r.success) { _editingTaskRow = null; reloadTasks(); }
-      else { showToast((r && r.message) || '更新に失敗しました'); }
+      if (r && r.success) { showToast('タスクを更新しました'); _editingTaskRow = null; reloadTasks(); }  // reloadTasksで再描画
+      else {
+        showToast((r && r.message) || '更新に失敗しました');
+        if (btn) { btn.disabled = false; btn.textContent = '保存'; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
+      }
     })
-    .withFailureHandler(function(e){ showToast('エラー: ' + (e && e.message || '')); })
+    .withFailureHandler(function(e){
+      showToast('エラー: ' + (e && e.message || ''));
+      if (btn) { btn.disabled = false; btn.textContent = '保存'; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
+    })
     .updateCustomerTask(rowNum, currentCustomer, content, (dueEl && dueEl.value) || '');
 }
 function addTaskNow() {
@@ -2001,6 +2010,9 @@ function showList() {
   if (iv) iv.style.display = 'none';
   document.getElementById('listView').style.display = '';
   currentCustomer = null;
+  // 詳細で変更した内容(タスク等)を反映するため、まずキャッシュで即再描画 → サーバーからも取り直す
+  try { filterCustomers(); } catch (e) {}
+  if (typeof refreshCustomers === 'function') refreshCustomers();
 }
 
 // サーバーから顧客一覧を取り直して再描画（GASは入れ子iframeのため location.reload() は不可）
