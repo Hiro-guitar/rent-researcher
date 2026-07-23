@@ -926,17 +926,20 @@ function renderDetail(data) {
 }
 
 // ── 顧客タスク（todo） ──
+var _currentTasks = [];
+var _editingTaskRow = null;  // インライン編集中のタスク行番号（null=非編集）
 function renderTasks(name, tasks) {
   var el = document.getElementById('taskSection');
   if (!el) return;
   tasks = tasks || [];
+  _currentTasks = tasks;
   var open = tasks.filter(function(t){ return !t.done; });
   var done = tasks.filter(function(t){ return t.done; });
   var h = '';
   h += '<div style="font-weight:600;color:#ddd;margin-bottom:6px;">📋 タスク' + (open.length ? '（未完了' + open.length + '）' : '') + '</div>';
   // 追加フォーム
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">';
-  h += '<input id="taskInput" type="text" placeholder="やること（例: 内見日程の連絡）" onkeydown="if(event.key===\'Enter\')addTaskNow()" style="flex:1;min-width:150px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
+  h += '<input id="taskInput" type="text" placeholder="やること（例: 内見日程の連絡）" style="flex:1;min-width:150px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
   h += '<input id="taskDue" type="date" title="期限（任意）" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
   h += '<button onclick="addTaskNow()" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">追加</button>';
   h += '</div>';
@@ -955,14 +958,47 @@ function renderTasks(name, tasks) {
   el.innerHTML = h;
 }
 function taskRowHtml(t) {
+  // 編集モード：内容＋期限を編集できるフォームに差し替え
+  if (t.rowNum === _editingTaskRow) {
+    return '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 0;border-bottom:1px solid #333;">'
+      + '<input id="taskEditInput_' + t.rowNum + '" type="text" value="' + esc(t.content) + '" style="flex:1;min-width:150px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
+      + '<input id="taskEditDue_' + t.rowNum + '" type="date" value="' + esc(t.due || '') + '" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
+      + '<button onclick="saveTaskEdit(' + t.rowNum + ')" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;">保存</button>'
+      + '<a onclick="cancelTaskEdit()" style="color:#888;cursor:pointer;font-size:12px;">キャンセル</a>'
+      + '</div>';
+  }
   var due = t.due
     ? '<span style="color:' + (t.overdue ? '#e0707a' : '#aaa') + ';font-size:12px;margin-left:6px;white-space:nowrap;">📅 ' + esc(t.due) + (t.overdue ? '（期限切れ）' : '') + '</span>'
     : '';
   return '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #333;">'
     + '<input type="checkbox" ' + (t.done ? 'checked' : '') + ' onclick="toggleTaskNow(' + t.rowNum + ', this.checked)" style="cursor:pointer;flex:0 0 auto;">'
     + '<span style="flex:1;font-size:13px;color:' + (t.done ? '#888' : '#ddd') + ';' + (t.done ? 'text-decoration:line-through;' : '') + '">' + esc(t.content) + due + '</span>'
+    + '<a onclick="editTaskInline(' + t.rowNum + ')" style="color:#6cf;cursor:pointer;font-size:12px;flex:0 0 auto;">編集</a>'
     + '<a onclick="deleteTaskNow(' + t.rowNum + ')" style="color:#e0707a;cursor:pointer;font-size:12px;flex:0 0 auto;">削除</a>'
     + '</div>';
+}
+function editTaskInline(rowNum) {
+  _editingTaskRow = rowNum;
+  renderTasks(currentCustomer, _currentTasks);
+  var inp = document.getElementById('taskEditInput_' + rowNum);
+  if (inp) { inp.focus(); }
+}
+function cancelTaskEdit() {
+  _editingTaskRow = null;
+  renderTasks(currentCustomer, _currentTasks);
+}
+function saveTaskEdit(rowNum) {
+  var inp = document.getElementById('taskEditInput_' + rowNum);
+  var dueEl = document.getElementById('taskEditDue_' + rowNum);
+  var content = (inp && inp.value || '').trim();
+  if (!content) { showToast('内容を入力してください'); return; }
+  google.script.run
+    .withSuccessHandler(function(r){
+      if (r && r.success) { _editingTaskRow = null; reloadTasks(); }
+      else { showToast((r && r.message) || '更新に失敗しました'); }
+    })
+    .withFailureHandler(function(e){ showToast('エラー: ' + (e && e.message || '')); })
+    .updateCustomerTask(rowNum, currentCustomer, content, (dueEl && dueEl.value) || '');
 }
 function addTaskNow() {
   var input = document.getElementById('taskInput');
