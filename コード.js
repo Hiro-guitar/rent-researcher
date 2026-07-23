@@ -192,7 +192,7 @@ function doPost(e) {
         var props = PropertiesService.getUserProperties();
         props.setProperty('email_pending_' + userId, 'true');
         pushMessage(userId, [textMsg(
-          'SUUMOからお問い合わせいただいた方は、お問い合わせ時のメールアドレスをこちらに送信してください。\n\n' +
+          'お部屋のお問い合わせをいただいた方は、お問い合わせ時のメールアドレスをこちらに送信してください。\n\n' +
           'メールの配信が自動で停止されます。'
         )]);
       } catch (eFollow) {
