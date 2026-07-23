@@ -544,8 +544,13 @@ function renderCustomerList(list) {
   for (var i = 0; i < list.length; i++) {
     var c = list[i];
     html += '<div class="customer-item" onclick="openDetail(\'' + esc(c.name) + '\')">';
-    html += '<div class="customer-name">' + esc(c.name) + ' ' + statusBadge(c.status) + '</div>';
+    html += '<div class="customer-name">' + esc(c.name) + ' ' + statusBadge(c.status) + (c.openTasks ? ' ' + taskMark(c) : '') + '</div>';
     html += '<div class="customer-meta">';
+    if (c.openTasks) {
+      var _cod = c.overdueTasks > 0;
+      html += '<div style="color:' + (_cod ? '#e0707a' : '#e0b64a') + ';font-weight:600;">📋 タスク' + c.openTasks + '件'
+        + (_cod ? '（期限切れ' + c.overdueTasks + '）' : (c.nextDue ? '（期限 ' + esc(c.nextDue) + '）' : '')) + '</div>';
+    }
     html += c.hasPhone
       ? '<div style="color:#6cd06c;">📞 ' + esc(c.phone) + '</div>'
       : '<div style="color:#e0707a;">📵 電話なし</div>';
@@ -605,7 +610,14 @@ function renderKanban(list) {
       var it = items[k];
       html += '<div class="kanban-card" draggable="true" data-name="' + esc(it.name) + '" ' +
               'ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" onclick="openDetail(\'' + esc(it.name) + '\')">';
-      html += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + '</div>';
+      html += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + (it.openTasks ? ' ' + taskMark(it) : '') + '</div>';
+      if (it.openTasks) {
+        var _od = it.overdueTasks > 0;
+        html += '<div class="kc-meta" style="margin-top:2px;color:' + (_od ? '#e0707a' : '#e0b64a') + ';font-weight:600;">'
+          + '📋 タスク' + it.openTasks + '件'
+          + (_od ? '（期限切れ' + it.overdueTasks + '）' : (it.nextDue ? '（期限 ' + esc(it.nextDue) + '）' : ''))
+          + '</div>';
+      }
       html += '<div class="kc-meta" style="margin-top:2px;">'
         + (it.hasPhone
             ? '<span style="color:#6cd06c;">📞 ' + esc(it.phone) + '</span>'
@@ -695,6 +707,16 @@ function kanbanDrop(e) {
 function statusBadge(s) {
   var cls = 'status-' + (s || 'active');
   return '<span class="status-badge ' + cls + '">' + statusLabel(s) + '</span>';
+}
+// 未完了タスクのマーク（期限切れは赤）。it.openTasks / it.overdueTasks を使う。
+function taskMark(it) {
+  if (!it || !it.openTasks) return '';
+  var od = it.overdueTasks > 0;
+  var bg = od ? '#7a2b30' : '#6b5a1e';
+  var fg = od ? '#ffb3b8' : '#ffe08a';
+  var title = od ? '期限切れタスク' + it.overdueTasks + '件' : '未完了タスク' + it.openTasks + '件';
+  return '<span title="' + title + '" style="display:inline-block;background:' + bg + ';color:' + fg +
+    ';border-radius:8px;padding:0 6px;font-size:11px;font-weight:600;vertical-align:middle;">📋 ' + it.openTasks + '</span>';
 }
 function statusLabel(s) {
   var labels = {active:'配信中', paused:'停止', auto_paused:'自動停止', snoozed:'スヌーズ', blocked:'ブロック', lead:'リード'};
@@ -815,6 +837,8 @@ function renderDetail(data) {
     + (data.phone ? '<a href="tel:' + esc(data.phone) + '" style="color:#6cd06c;">📞 ' + esc(data.phone) + '</a>' : '<span style="color:#e0707a;">未登録</span>')
     + ' <a onclick="editCustomerPhone(\'' + esc(data.phone || '') + '\')" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:6px;">' + (data.phone ? '編集' : '追加') + '</a>'
     + '</div></div>';
+  // タスク（todo）欄
+  info += '<div id="taskSection" style="margin:10px 0;padding:10px;background:#232323;border:1px solid #3a3a3a;border-radius:8px;"></div>';
   var rows = [
     ['メール', data.email],
     ['登録日', data.registeredAt],
@@ -887,6 +911,7 @@ function renderDetail(data) {
   }
   document.getElementById('detailInfo').innerHTML = info || '<div class="empty-state">条件未登録</div>';
   loadCondSuggestionOptOut();
+  renderTasks(currentCustomer, data.tasks || []);
 
   // 送付済み物件は getSeenPropertiesForResend で別途取得済み
 
@@ -898,6 +923,102 @@ function renderDetail(data) {
   timelineShown = 0;
   document.getElementById('timelineCount').textContent = allTimeline.length + '件';
   showMoreTimeline();
+}
+
+// ── 顧客タスク（todo） ──
+function renderTasks(name, tasks) {
+  var el = document.getElementById('taskSection');
+  if (!el) return;
+  tasks = tasks || [];
+  var open = tasks.filter(function(t){ return !t.done; });
+  var done = tasks.filter(function(t){ return t.done; });
+  var h = '';
+  h += '<div style="font-weight:600;color:#ddd;margin-bottom:6px;">📋 タスク' + (open.length ? '（未完了' + open.length + '）' : '') + '</div>';
+  // 追加フォーム
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">';
+  h += '<input id="taskInput" type="text" placeholder="やること（例: 内見日程の連絡）" onkeydown="if(event.key===\'Enter\')addTaskNow()" style="flex:1;min-width:150px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
+  h += '<input id="taskDue" type="date" title="期限（任意）" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
+  h += '<button onclick="addTaskNow()" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">追加</button>';
+  h += '</div>';
+  // 未完了
+  if (open.length) {
+    for (var i = 0; i < open.length; i++) h += taskRowHtml(open[i]);
+  } else {
+    h += '<div style="color:#888;font-size:12px;">未完了のタスクはありません</div>';
+  }
+  // 完了（折りたたみ）
+  if (done.length) {
+    h += '<details style="margin-top:8px;"><summary style="cursor:pointer;color:#888;font-size:12px;">完了済み（' + done.length + '）</summary>';
+    for (var j = 0; j < done.length; j++) h += taskRowHtml(done[j]);
+    h += '</details>';
+  }
+  el.innerHTML = h;
+}
+function taskRowHtml(t) {
+  var due = t.due
+    ? '<span style="color:' + (t.overdue ? '#e0707a' : '#aaa') + ';font-size:12px;margin-left:6px;white-space:nowrap;">📅 ' + esc(t.due) + (t.overdue ? '（期限切れ）' : '') + '</span>'
+    : '';
+  return '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #333;">'
+    + '<input type="checkbox" ' + (t.done ? 'checked' : '') + ' onclick="toggleTaskNow(' + t.rowNum + ', this.checked)" style="cursor:pointer;flex:0 0 auto;">'
+    + '<span style="flex:1;font-size:13px;color:' + (t.done ? '#888' : '#ddd') + ';' + (t.done ? 'text-decoration:line-through;' : '') + '">' + esc(t.content) + due + '</span>'
+    + '<a onclick="deleteTaskNow(' + t.rowNum + ')" style="color:#e0707a;cursor:pointer;font-size:12px;flex:0 0 auto;">削除</a>'
+    + '</div>';
+}
+function addTaskNow() {
+  var input = document.getElementById('taskInput');
+  var dueEl = document.getElementById('taskDue');
+  var content = (input && input.value || '').trim();
+  if (!content) { showToast('内容を入力してください'); return; }
+  google.script.run
+    .withSuccessHandler(function(r){ if (r && r.success) { reloadTasks(); } else { showToast((r && r.message) || '追加に失敗しました'); } })
+    .withFailureHandler(function(e){ showToast('エラー: ' + (e && e.message || '')); })
+    .addCustomerTask(currentCustomer, content, (dueEl && dueEl.value) || '');
+}
+function toggleTaskNow(rowNum, checked) {
+  google.script.run
+    .withSuccessHandler(function(r){ if (!(r && r.success)) showToast((r && r.message) || '更新に失敗しました'); reloadTasks(); })
+    .withFailureHandler(function(e){ showToast('エラー: ' + (e && e.message || '')); reloadTasks(); })
+    .toggleCustomerTask(rowNum, currentCustomer, !!checked);
+}
+function deleteTaskNow(rowNum) {
+  if (!confirm('このタスクを削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(r){ if (r && r.success) { reloadTasks(); } else { showToast((r && r.message) || '削除に失敗しました'); } })
+    .withFailureHandler(function(e){ showToast('エラー: ' + (e && e.message || '')); })
+    .deleteCustomerTask(rowNum, currentCustomer);
+}
+function reloadTasks() {
+  google.script.run
+    .withSuccessHandler(function(tasks){
+      renderTasks(currentCustomer, tasks || []);
+      // 一覧キャッシュのマークも更新（未完了/期限切れ件数）
+      _refreshTaskMarkCache(tasks || []);
+    })
+    .withFailureHandler(function(){})
+    .getCustomerTasks(currentCustomer);
+}
+// 一覧キャッシュ(customers)のタスク集計を更新して、戻ったときにマークが最新になるようにする
+function _refreshTaskMarkCache(tasks) {
+  try {
+    var todayStr = new Date().toISOString().slice(0,10);
+    var open = 0, overdue = 0, nextDue = '';
+    for (var i = 0; i < tasks.length; i++) {
+      if (tasks[i].done) continue;
+      open++;
+      if (tasks[i].due) {
+        if (tasks[i].due < todayStr) overdue++;
+        if (!nextDue || tasks[i].due < nextDue) nextDue = tasks[i].due;
+      }
+    }
+    for (var c = 0; c < customers.length; c++) {
+      if (customers[c].name === currentCustomer) {
+        customers[c].openTasks = open;
+        customers[c].overdueTasks = overdue;
+        customers[c].nextDue = nextDue;
+        break;
+      }
+    }
+  } catch (e) {}
 }
 
 // ── 対応ログ ──

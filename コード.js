@@ -4228,6 +4228,17 @@ function _getCustomerListForCRM_() {
     }
   } catch(e) { console.warn('lastAction取得エラー: ' + e.message); }
 
+  // 未完了タスクの集計（カンバン/リストのマーク用）
+  try {
+    var taskSum = _getTaskSummaryByCustomer_(ss);
+    for (var ti = 0; ti < customers.length; ti++) {
+      var ts = taskSum[customers[ti].name];
+      customers[ti].openTasks = ts ? ts.open : 0;
+      customers[ti].overdueTasks = ts ? ts.overdue : 0;
+      customers[ti].nextDue = ts ? ts.nextDue : '';
+    }
+  } catch(e) { console.warn('タスク集計エラー: ' + e.message); }
+
   return customers;
 }
 
@@ -4378,6 +4389,9 @@ function getCustomerDetail(customerName) {
 
   // タイムライン
   info.timeline = _buildCustomerTimeline_(ss, customerName, data);
+
+  // タスク（todo）
+  info.tasks = getCustomerTasks(customerName);
 
   return info;
 }
@@ -4666,6 +4680,146 @@ function deleteContactLog(rowNum, customerName) {
   } catch(e) {
     return { success: false, message: e.message };
   }
+}
+
+// ══════════════════════════════════════════════════════════
+//  顧客ごとのタスク（todo）
+//  シート「タスク」: A顧客名 / B内容 / C期限(Date) / D完了(TRUE/'') / E作成日時
+//  行番号(rowNum)をIDとして扱う（対応ログと同じ方式）。
+// ══════════════════════════════════════════════════════════
+var TASK_SHEET_NAME = 'タスク';
+
+function _getTaskSheet_() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(TASK_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(TASK_SHEET_NAME);
+    sheet.appendRow(['顧客名', '内容', '期限', '完了', '作成日時']);
+    try {
+      sheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#e0e0e0');
+      sheet.setFrozenRows(1);
+    } catch (e) {}
+  }
+  return sheet;
+}
+
+/** 顧客のタスク一覧を返す（未完了→期限昇順、完了は末尾）。google.script.run から呼ばれる。 */
+function getCustomerTasks(customerName) {
+  try {
+    var sheet = _getTaskSheet_();
+    var last = sheet.getLastRow();
+    if (last < 2) return [];
+    var data = sheet.getRange(2, 1, last - 1, 5).getValues();
+    var nameTrim = String(customerName).trim();
+    var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    var out = [];
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]).trim() !== nameTrim) continue;
+      var due = data[i][2];
+      var dueStr = (due instanceof Date) ? Utilities.formatDate(due, 'Asia/Tokyo', 'yyyy-MM-dd') : (due ? String(due).substring(0, 10) : '');
+      var done = String(data[i][3] || '') === 'TRUE' || data[i][3] === true;
+      out.push({
+        rowNum: i + 2,
+        content: String(data[i][1] || ''),
+        due: dueStr,
+        done: done,
+        overdue: (!done && dueStr && dueStr < todayStr)
+      });
+    }
+    out.sort(function (a, b) {
+      if (a.done !== b.done) return a.done ? 1 : -1;   // 未完了が上
+      if (!a.due && !b.due) return 0;
+      if (!a.due) return 1;                            // 期限なしは後ろ
+      if (!b.due) return -1;
+      return a.due < b.due ? -1 : (a.due > b.due ? 1 : 0);
+    });
+    return out;
+  } catch (e) {
+    return [];
+  }
+}
+
+/** タスク追加。google.script.run から呼ばれる。 */
+function addCustomerTask(customerName, content, dueStr) {
+  try {
+    content = String(content || '').trim();
+    if (!content) return { success: false, message: '内容を入力してください' };
+    var sheet = _getTaskSheet_();
+    var due = '';
+    if (dueStr) { var d = new Date(String(dueStr).replace(/-/g, '/')); if (!isNaN(d.getTime())) due = d; }
+    sheet.appendRow([String(customerName).trim(), content, due, '', new Date()]);
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/** タスクの完了/未完了を切り替える。 */
+function toggleCustomerTask(rowNum, customerName, done) {
+  var chk = _checkTaskRow_(rowNum, customerName);
+  if (!chk.ok) return { success: false, message: chk.message };
+  chk.sheet.getRange(chk.rowNum, 4).setValue(done ? 'TRUE' : '');
+  return { success: true };
+}
+
+/** タスクの内容/期限を編集する。 */
+function updateCustomerTask(rowNum, customerName, content, dueStr) {
+  var chk = _checkTaskRow_(rowNum, customerName);
+  if (!chk.ok) return { success: false, message: chk.message };
+  content = String(content || '').trim();
+  if (!content) return { success: false, message: '内容を入力してください' };
+  var due = '';
+  if (dueStr) { var d = new Date(String(dueStr).replace(/-/g, '/')); if (!isNaN(d.getTime())) due = d; }
+  chk.sheet.getRange(chk.rowNum, 2).setValue(content);
+  chk.sheet.getRange(chk.rowNum, 3).setValue(due);
+  return { success: true };
+}
+
+/** タスクを削除する。 */
+function deleteCustomerTask(rowNum, customerName) {
+  var chk = _checkTaskRow_(rowNum, customerName);
+  if (!chk.ok) return { success: false, message: chk.message };
+  chk.sheet.deleteRow(chk.rowNum);
+  return { success: true };
+}
+
+/** 行の存在＋顧客名一致を検証（誤操作防止）。 */
+function _checkTaskRow_(rowNum, customerName) {
+  var sheet = _getTaskSheet_();
+  rowNum = parseInt(rowNum, 10);
+  if (!rowNum || rowNum < 2 || rowNum > sheet.getLastRow()) {
+    return { ok: false, message: '対象のタスクが見つかりません（ページを再読み込みしてください）' };
+  }
+  if (String(sheet.getRange(rowNum, 1).getValue() || '').trim() !== String(customerName).trim()) {
+    return { ok: false, message: 'タスクがずれている可能性があります。ページを再読み込みしてください' };
+  }
+  return { ok: true, sheet: sheet, rowNum: rowNum };
+}
+
+/** 顧客ごとの未完了タスク集計（カンバンのマーク用）。 name -> {open, overdue, nextDue} */
+function _getTaskSummaryByCustomer_(ss) {
+  var summary = {};
+  try {
+    var sheet = ss.getSheetByName(TASK_SHEET_NAME);
+    if (!sheet || sheet.getLastRow() < 2) return summary;
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
+    var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    for (var i = 0; i < data.length; i++) {
+      var nm = String(data[i][0] || '').trim();
+      if (!nm) continue;
+      var done = String(data[i][3] || '') === 'TRUE' || data[i][3] === true;
+      if (done) continue;
+      if (!summary[nm]) summary[nm] = { open: 0, overdue: 0, nextDue: '' };
+      summary[nm].open++;
+      var due = data[i][2];
+      var dueStr = (due instanceof Date) ? Utilities.formatDate(due, 'Asia/Tokyo', 'yyyy-MM-dd') : '';
+      if (dueStr) {
+        if (dueStr < todayStr) summary[nm].overdue++;
+        if (!summary[nm].nextDue || dueStr < summary[nm].nextDue) summary[nm].nextDue = dueStr;
+      }
+    }
+  } catch (e) {}
+  return summary;
 }
 
 /**
