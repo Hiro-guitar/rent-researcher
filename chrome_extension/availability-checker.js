@@ -805,6 +805,7 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
     const openHits = [];
     const closedHits = [];
     const pendingState = {};  // open/closed の状態は「送信成功後」に確定する
+    let openNow = 0, closedNow = 0;  // 巡回サマリー用: 今サイクルの現在状態(dedup非依存)
     for (const item of items) {
       if (typeof isSearchCancelled === 'function' && isSearchCancelled(searchId)) return;
       let res;
@@ -825,6 +826,10 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
       else if (st === 'applied' && canApply === true) bucket = 'applied_open';
       else if (st === 'closed') bucket = 'closed';
 
+      // サマリー用の現在状態カウント(dedup非依存)
+      if (bucket === 'available' || bucket === 'applied_open') openNow++;
+      else if (bucket === 'closed') closedNow++;
+
       const key = customerName + '|' + (item.roomId || label);
       const prev = stateStore[key];
       if (bucket !== prev) {
@@ -843,6 +848,16 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
       }
     }
     await setStorageData({ __watchNotifyState: stateStore });
+
+    // 巡回サマリー用に結果を記録(監視物件がある顧客のみ。動きあり=空き/成約が現在ある)
+    globalThis._cancellationWatchResults = globalThis._cancellationWatchResults || [];
+    globalThis._cancellationWatchResults.push({
+      name: customerName,
+      watchCount: items.length,
+      openNow: openNow,
+      closedNow: closedNow,
+      hadMovement: (openNow > 0 || closedNow > 0)
+    });
   } catch (e) {
     await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: エラー ${e.message}` });
   }

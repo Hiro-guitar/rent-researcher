@@ -3874,6 +3874,8 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   // DiscordスレッドIDは永続化のためクリアしない（同じスレッドを再利用）
   // 物件通し番号はサイクルごとにリセット
   Object.keys(discordPropertyCounters).forEach(k => delete discordPropertyCounters[k]);
+  // キャンセル待ちの巡回サマリー用結果をリセット
+  globalThis._cancellationWatchResults = [];
   // 一括通知バッファをクリア
   Object.keys(_batchBuffer).forEach(k => delete _batchBuffer[k]);
   const serviceNames = [services.reins && 'REINS', services.ielove && 'いえらぶ', services.itandi && 'itandi', services.essquare && 'ES-Square'].filter(Boolean).join('・');
@@ -6774,8 +6776,14 @@ async function sendDiscordNoResultSummary() {
     }
   }
 
+  // === キャンセル待ちの結果を収集（動きあり/なしで分割） ===
+  const watchResults = (globalThis._cancellationWatchResults || []).slice();
+  globalThis._cancellationWatchResults = [];
+  const watchMoved = watchResults.filter(w => w.hadMovement);
+  const watchStill = watchResults.filter(w => !w.hadMovement);
+
   // 通知する要素が何もなければスキップ
-  if (list.length === 0 && foundLines.length === 0 && !nextRunLine) return;
+  if (list.length === 0 && foundLines.length === 0 && watchResults.length === 0 && !nextRunLine) return;
 
   const lines = [];
 
@@ -6813,6 +6821,33 @@ async function sendDiscordNoResultSummary() {
       lines.push('');
       lines.push(unresolvedLines.join('\n'));
     }
+  }
+
+  // === キャンセル待ちのサマリー（動きあり=空き/成約が現在ある。スレッドに飛べるようリンク化） ===
+  // 監視のみ顧客のスレッドは availability-checker が storage に保存するため、storage版もマージ。
+  let watchThreadIds = discordThreadIds;
+  if (watchMoved.length > 0) {
+    try {
+      const _st = await new Promise(r => chrome.storage.local.get(['discordThreadIds'], r));
+      if (_st && _st.discordThreadIds) watchThreadIds = Object.assign({}, discordThreadIds, _st.discordThreadIds);
+    } catch (e) {}
+  }
+  if (watchMoved.length > 0) {
+    if (lines.length > 0) lines.push('');
+    lines.push(`🔔 **キャンセル待ち 動きあり: ${watchMoved.length}名**`);
+    lines.push(watchMoved.map(w => {
+      const tid = watchThreadIds[w.name];
+      const label = tid ? `<#${tid}>` : w.name;
+      const parts = [];
+      if (w.openNow > 0) parts.push(`空き${w.openNow}`);
+      if (w.closedNow > 0) parts.push(`成約${w.closedNow}`);
+      return `・${label}${parts.length ? ': ' + parts.join(' / ') : ''}`;
+    }).join('\n'));
+  }
+  if (watchStill.length > 0) {
+    if (lines.length > 0) lines.push('');
+    lines.push(`🕊 **キャンセル待ち 動きなし: ${watchStill.length}名**`);
+    lines.push(watchStill.map(w => `・${w.name}`).join('\n'));
   }
 
   if (nextRunLine) {
