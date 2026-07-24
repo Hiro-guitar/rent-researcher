@@ -4892,6 +4892,8 @@ function _buildCustomerTimeline_(ss, customerName, criteriaData) {
 
   // 3. 閲覧ログ  (列: 顧客名A / room_id B / 物件名C / 閲覧日時D)
   // ※ 閲覧日時は文字列で保存されることがあるため Date/文字列の両対応にする
+  //   閲覧はアクションログ(view)にも入るため、room_id|分 で重複排除する
+  var viewKeys = {};
   try {
     var viewSheet = ss.getSheetByName('閲覧ログ');
     if (viewSheet) {
@@ -4901,8 +4903,12 @@ function _buildCustomerTimeline_(ss, customerName, criteriaData) {
         var vRaw = viewData[i][3]; // D列 = 閲覧日時
         var vDateObj = (vRaw instanceof Date) ? vRaw : (vRaw ? new Date(String(vRaw).replace(/-/g, '/')) : null);
         if (!vDateObj || isNaN(vDateObj.getTime())) continue;
+        var vDateStr3 = Utilities.formatDate(vDateObj, tz, 'yyyy/MM/dd HH:mm');
+        var vKey3 = String(viewData[i][1] || '') + '|' + vDateStr3;
+        if (viewKeys[vKey3]) continue;
+        viewKeys[vKey3] = true;
         timeline.push({
-          date: Utilities.formatDate(vDateObj, tz, 'yyyy/MM/dd HH:mm'),
+          date: vDateStr3,
           ts: vDateObj.getTime(),
           type: 'view',
           summary: String(viewData[i][2] || '物件') + ' を閲覧'  // C列 = 物件名
@@ -4932,10 +4938,23 @@ function _buildCustomerTimeline_(ss, customerName, criteriaData) {
           'view': '閲覧'
         };
         var label = actionLabels[actionType] || actionType;
-        // view は閲覧ログと重複するのでスキップ
-        if (actionType === 'view') continue;
+        var aDateStr = Utilities.formatDate(aDate, tz, 'yyyy/MM/dd HH:mm');
+        // view は「閲覧」として表示（閲覧ログと重複する場合は room_id|分 で排除）
+        if (actionType === 'view') {
+          var vKey4 = String(aData[i][1] || '') + '|' + aDateStr;
+          if (viewKeys[vKey4]) continue;
+          viewKeys[vKey4] = true;
+          timeline.push({
+            date: aDateStr,
+            ts: aDate.getTime(),
+            type: 'view',
+            summary: (bldgName || '物件') + ' を閲覧',
+            details: String(aData[i][1] || '') // room_id
+          });
+          continue;
+        }
         timeline.push({
-          date: Utilities.formatDate(aDate, tz, 'yyyy/MM/dd HH:mm'),
+          date: aDateStr,
           ts: aDate.getTime(),
           type: 'action',
           summary: bldgName + ' → ' + label,
