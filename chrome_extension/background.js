@@ -6839,8 +6839,8 @@ async function sendDiscordNoResultSummary() {
       const tid = watchThreadIds[w.name];
       const label = tid ? `<#${tid}>` : w.name;
       const parts = [];
-      if (w.openNow > 0) parts.push(`空き${w.openNow}`);
-      if (w.closedNow > 0) parts.push(`成約${w.closedNow}`);
+      if (w.openChanged > 0) parts.push(`空き${w.openChanged}`);
+      if (w.closedChanged > 0) parts.push(`成約${w.closedChanged}`);
       return `・${label}${parts.length ? ': ' + parts.join(' / ') : ''}`;
     }).join('\n'));
   }
