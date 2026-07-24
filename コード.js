@@ -4890,20 +4890,22 @@ function _buildCustomerTimeline_(ss, customerName, criteriaData) {
     }
   } catch(e) { console.warn('通知済み物件取得エラー: ' + e.message); }
 
-  // 3. 閲覧ログ
+  // 3. 閲覧ログ  (列: 顧客名A / room_id B / 物件名C / 閲覧日時D)
+  // ※ 閲覧日時は文字列で保存されることがあるため Date/文字列の両対応にする
   try {
     var viewSheet = ss.getSheetByName('閲覧ログ');
     if (viewSheet) {
       var viewData = viewSheet.getDataRange().getValues();
       for (var i = 1; i < viewData.length; i++) {
         if (String(viewData[i][0] || '').trim() !== customerName) continue;
-        var vDate = viewData[i][2]; // C列 = 閲覧日時
-        if (!(vDate instanceof Date)) continue;
+        var vRaw = viewData[i][3]; // D列 = 閲覧日時
+        var vDateObj = (vRaw instanceof Date) ? vRaw : (vRaw ? new Date(String(vRaw).replace(/-/g, '/')) : null);
+        if (!vDateObj || isNaN(vDateObj.getTime())) continue;
         timeline.push({
-          date: Utilities.formatDate(vDate, tz, 'yyyy/MM/dd HH:mm'),
-          ts: vDate.getTime(),
+          date: Utilities.formatDate(vDateObj, tz, 'yyyy/MM/dd HH:mm'),
+          ts: vDateObj.getTime(),
           type: 'view',
-          summary: String(viewData[i][1] || '物件') + ' を閲覧'
+          summary: String(viewData[i][2] || '物件') + ' を閲覧'  // C列 = 物件名
         });
       }
     }
@@ -4916,8 +4918,9 @@ function _buildCustomerTimeline_(ss, customerName, criteriaData) {
       var aData = actionSheet.getDataRange().getValues();
       for (var i = 1; i < aData.length; i++) {
         if (String(aData[i][0] || '').trim() !== customerName) continue;
-        var aDate = aData[i][8]; // I列 = 日時
-        if (!(aDate instanceof Date)) continue;
+        var aRaw = aData[i][8]; // I列 = 日時 (Date/文字列 両対応)
+        var aDate = (aRaw instanceof Date) ? aRaw : (aRaw ? new Date(String(aRaw).replace(/-/g, '/')) : null);
+        if (!aDate || isNaN(aDate.getTime())) continue;
         var actionType = String(aData[i][2] || ''); // C列 = アクション
         var bldgName = String(aData[i][3] || '');   // D列 = 物件名
         var actionLabels = {
