@@ -389,6 +389,7 @@ body {
       <button class="btn btn-sm" id="searchBtnIelove" onclick="openSearchPage('ielove')" style="background:#264f78;color:#fff;border:none;" disabled>いえらぶ</button>
       <button class="btn btn-sm" id="searchBtnItandi" onclick="openSearchPage('itandi')" style="background:#264f78;color:#fff;border:none;" disabled>itandi</button>
       <button class="btn btn-sm" id="searchBtnEssquare" onclick="openSearchPage('essquare')" style="background:#264f78;color:#fff;border:none;" disabled>いい生活</button>
+      <button class="btn btn-sm" id="searchBtnAll" onclick="openSearchPageAll()" style="background:#2e7d4f;color:#fff;border:none;font-weight:600;" disabled>まとめて開く</button>
     </div>
     <div id="searchPageStatus" style="padding:0 12px 8px;font-size:11px;color:#888;display:none;"></div>
   </div>
@@ -781,6 +782,7 @@ function openDetail(name) {
   document.getElementById('searchBtnIelove').disabled = true;
   document.getElementById('searchBtnItandi').disabled = true;
   document.getElementById('searchBtnEssquare').disabled = true;
+  document.getElementById('searchBtnAll').disabled = true;
   document.getElementById('searchPageStatus').style.display = 'none';
   window._customerCriteria = null;
 
@@ -819,6 +821,7 @@ function openDetail(name) {
         document.getElementById('searchBtnIelove').disabled = false;
         document.getElementById('searchBtnItandi').disabled = false;
         document.getElementById('searchBtnEssquare').disabled = false;
+        document.getElementById('searchBtnAll').disabled = false;
       }
     })
     .loadCustomerCriteriaByName(name);
@@ -1905,6 +1908,27 @@ function openSearchPage(service) {
   setTimeout(function() { statusEl.style.display = 'none'; }, 5000);
 }
 
+// 4サイト分の検索ページをまとめて開く（同時だと取りこぼすので少しずつ間隔を空ける）
+function openSearchPageAll() {
+  var customer = buildCustomerForExtension();
+  if (!customer) {
+    alert('条件データが読み込まれていません');
+    return;
+  }
+  var services = ['reins', 'ielove', 'itandi', 'essquare'];
+  var names = { ielove: 'いえらぶ', reins: 'REINS', itandi: 'itandi', essquare: 'いい生活' };
+  var statusEl = document.getElementById('searchPageStatus');
+  statusEl.style.display = 'block';
+  statusEl.textContent = '4サイトの検索ページを順番に開いています...';
+  services.forEach(function(service, i) {
+    setTimeout(function() {
+      window.parent.postMessage({ type: 'OPEN_SEARCH_PAGE', service: service, customer: customer }, '*');
+      statusEl.textContent = (names[service] || service) + ' の検索ページを開いています... (' + (i + 1) + '/' + services.length + ')';
+    }, i * 1500);
+  });
+  setTimeout(function() { statusEl.style.display = 'none'; }, services.length * 1500 + 4000);
+}
+
 function editComment(roomId, idx) {
   var editEl = document.getElementById('comment-edit-' + idx);
   // CSS(.prop-comment-edit{display:none})を上書きするため 'block' を明示指定する
@@ -2208,6 +2232,7 @@ function renderRecommendList(list) {
     html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'ielove\')" style="background:#264f78;color:#fff;border:none;">いえらぶ</button>';
     html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'itandi\')" style="background:#264f78;color:#fff;border:none;">itandi</button>';
     html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'essquare\')" style="background:#264f78;color:#fff;border:none;">いい生活</button>';
+    html += '<button class="btn btn-sm" onclick="openRecommendSearchAll(\'' + esc(r.id) + '\')" style="background:#2e7d4f;color:#fff;border:none;font-weight:600;">まとめて開く</button>';
     html += '</div>';
     // 入居時期（AdminPageと同じドロップダウン式）
     var miTxt = r.moveInDate ? (esc(r.moveInDate) + (r.moveInStrict ? '（間に合う物件だけ）' : '（参考）')) : '指定なし';
@@ -2312,6 +2337,26 @@ function openRecommendSearch(id, service) {
       window.parent.postMessage({ type: 'OPEN_SEARCH_PAGE', service: service, customer: customer }, '*');
       var names = { ielove: 'いえらぶ', reins: 'REINS', itandi: 'itandi', essquare: 'いい生活' };
       showToast((names[service] || service) + ' の検索ページを開いています...');
+    })
+    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .getRecommendForExtension(id);
+}
+
+// おすすめ条件で4サイト分をまとめて開く（同時だと取りこぼすので間隔を空ける）
+function openRecommendSearchAll(id) {
+  showToast('条件を読み込み中...');
+  google.script.run
+    .withSuccessHandler(function(customer) {
+      if (!customer) { showToast('条件を取得できませんでした'); return; }
+      customer.name = currentCustomer; // 結果はこのお客さんに紐づける
+      var services = ['reins', 'ielove', 'itandi', 'essquare'];
+      var names = { ielove: 'いえらぶ', reins: 'REINS', itandi: 'itandi', essquare: 'いい生活' };
+      services.forEach(function(service, i) {
+        setTimeout(function() {
+          window.parent.postMessage({ type: 'OPEN_SEARCH_PAGE', service: service, customer: customer }, '*');
+          showToast((names[service] || service) + ' を開いています... (' + (i + 1) + '/' + services.length + ')');
+        }, i * 1500);
+      });
     })
     .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
     .getRecommendForExtension(id);
