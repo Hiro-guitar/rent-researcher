@@ -1073,7 +1073,9 @@ function reloadTasks() {
 // 一覧キャッシュ(customers)のタスク集計を更新して、戻ったときにマークが最新になるようにする
 function _refreshTaskMarkCache(tasks) {
   try {
-    var todayStr = new Date().toISOString().slice(0,10);
+    // ローカル日付(YYYY-MM-DD)。toISOString()はUTCで日付がずれるため使わない。
+    var _n = new Date();
+    var todayStr = _n.getFullYear() + '-' + String(_n.getMonth()+1).padStart(2,'0') + '-' + String(_n.getDate()).padStart(2,'0');
     var open = 0, overdue = 0, nextDue = '';
     for (var i = 0; i < tasks.length; i++) {
       if (tasks[i].done) continue;
@@ -2053,6 +2055,24 @@ function refreshCustomers(cb) {
     })
     .getCustomerListForCRM();
 }
+
+// タブに戻ってきた/再表示された時に一覧を自動再取得する。
+// ページを開きっぱなしで日付をまたいでも、タスクの期限切れ等が最新に反映されるようにする。
+// （詳細/問い合わせ画面を見ている時は再取得しない。連打防止に30秒デバウンス）
+var _lastAutoRefresh = 0;
+function _maybeAutoRefreshList() {
+  try {
+    if (document.hidden) return;
+    var lv = document.getElementById('listView');
+    if (!lv || lv.style.display === 'none') return; // 一覧を見ている時だけ
+    var now = Date.now();
+    if (now - _lastAutoRefresh < 30000) return;
+    _lastAutoRefresh = now;
+    if (typeof refreshCustomers === 'function') refreshCustomers();
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', _maybeAutoRefreshList);
+window.addEventListener('focus', _maybeAutoRefreshList);
 
 // 重複リード（条件が空で、条件入りの同名/同メール行が別にある lead）を確認して削除
 function reviewDuplicateLeads() {
