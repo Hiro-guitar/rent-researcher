@@ -774,52 +774,25 @@ function _buildVacancyUnavailableMessages_(userId, displayName) {
       text: 'お待たせいたしました。\n「' + displayName + '」について確認いたしましたが、現在ご案内が難しい状況でした。\n\n引き続き、ご希望の条件に合うお部屋が見つかり次第すぐにご案内いたします。'
     }];
   }
-  // 未登録: 結果は控えめに、代わりのお部屋探し(条件登録)への誘導を主役にしたFlex。
-  // CVR改善: ポジティブ配色/前向きな見出し/メリット明示/CTA強調/キャンセルは小さく。
-  var _benefitRow = function (t) {
-    return { type: 'box', layout: 'baseline', spacing: 'sm', contents: [
-      { type: 'text', text: '✓', size: 'sm', color: '#6ea814', flex: 0 },
-      { type: 'text', text: t, size: 'sm', color: '#4a4a4a', wrap: true }
-    ]};
-  };
+  // 未登録: シンプルに。確認結果 + 似た条件で探すか の2択。
   return [{
     type: 'flex',
-    altText: '「' + displayName + '」の確認結果と、似たお部屋のご提案',
+    altText: '「' + displayName + '」の確認結果',
     contents: {
       type: 'bubble',
-      size: 'mega',
-      header: {
-        type: 'box', layout: 'vertical',
-        backgroundColor: '#5a8a2a',
-        paddingAll: 'xl', paddingTop: 'xxl', paddingBottom: 'xl', spacing: 'sm',
-        contents: [
-          { type: 'text', text: '次のお部屋、お任せください', weight: 'bold', size: 'xl', color: '#ffffff', align: 'center', wrap: true },
-          { type: 'text', text: 'ご希望に合うお部屋を代わりにお探しします', size: 'xs', color: '#e6f0d8', align: 'center', wrap: true, margin: 'sm' }
-        ]
-      },
       body: {
-        type: 'box', layout: 'vertical', spacing: 'lg', paddingAll: 'xl', paddingTop: 'lg',
+        type: 'box', layout: 'vertical', spacing: 'md', paddingAll: 'xl',
         contents: [
-          // 結果は控えめに1行
-          { type: 'text', text: '「' + displayName + '」は、今回はご案内が難しい状況でした。', size: 'sm', color: '#8a8a8a', wrap: true },
-          { type: 'separator', color: '#eeeeee' },
-          // メリット（主役）
-          {
-            type: 'box', layout: 'vertical', backgroundColor: '#f5f9ee', cornerRadius: 'lg', paddingAll: 'lg', spacing: 'md',
-            contents: [
-              { type: 'text', text: 'でも、次のお部屋探しはお任せください', size: 'md', weight: 'bold', color: '#3d6909', wrap: true },
-              _benefitRow('ご希望に合うお部屋が出たら「最優先」でLINEにお知らせ'),
-              _benefitRow('探すのはプロ。あなたは待つだけ'),
-              _benefitRow('ご相談・ご利用はすべて無料')
-            ]
-          }
+          { type: 'text', text: '確認結果のお知らせ', weight: 'bold', size: 'md', color: '#333333' },
+          { type: 'text', text: '「' + displayName + '」は、今回はご案内が難しい状況でした。', size: 'sm', color: '#555555', wrap: true, margin: 'md' },
+          { type: 'text', text: 'よろしければ、ご希望に近いお部屋をこちらでお探ししてお知らせします。', size: 'sm', color: '#555555', wrap: true, margin: 'md' }
         ]
       },
       footer: {
-        type: 'box', layout: 'vertical', spacing: 'md', paddingAll: 'lg',
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingTop: 'none',
         contents: [
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'md', action: { type: 'message', label: '無料でお部屋を探してもらう', text: '条件登録' } },
-          { type: 'button', style: 'link', color: '#aaaaaa', height: 'sm', action: { type: 'message', label: 'あとでにする', text: '類似物件不要' } }
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm', action: { type: 'message', label: 'お部屋を探す', text: '条件登録' } },
+          { type: 'button', style: 'link', color: '#999999', height: 'sm', action: { type: 'message', label: 'あとで', text: '類似物件不要' } }
         ]
       }
     }
