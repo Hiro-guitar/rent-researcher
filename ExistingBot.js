@@ -624,7 +624,7 @@ function createPropertyBubble(p) {
       paddingBottom: 'xl',
       spacing: 'sm',
       contents: [
-        { type: 'text', text: 'お問い合わせありがとうございます', weight: 'bold', size: 'lg', color: '#ffffff', align: 'center', wrap: true }
+        { type: 'text', text: 'お問い合わせありがとうございます', weight: 'bold', size: 'md', color: '#ffffff', align: 'center', wrap: true }
       ]
     },
     body: { type: 'box', layout: 'vertical', spacing: 'lg', paddingAll: 'xl', paddingTop: 'lg', contents: bodyContents }
