@@ -1197,25 +1197,39 @@ function recordSuumoPosting(data) {
   // suumo_property_code (11列目) が空ならその情報だけ補完する。
   // Phase5 と Phase6 がほぼ同時に suumo_post_complete を投げると二重登録される
   // ことがあるため、ここで防御する。
+  // 二重登録防止(強化): 物件キーの完全一致だけだと、掲載エラー→再掲載で
+  // 再取得により物件キーが微妙に変わった場合に検出できず重複する。
+  // そこで「物件キー / SUUMOコード / 建物名+部屋番号」のいずれかが一致する active 行があれば
+  // 新規行を作らず既存行を更新する(同じ部屋の重複を作らない)。
   var listingLastRow = sheet.getLastRow();
   if (listingLastRow > 1) {
     try {
-      var keysCol = sheet.getRange(2, 1, listingLastRow - 1, 1).getValues();
-      var statusCol = sheet.getRange(2, 9, listingLastRow - 1, 1).getValues();
-      var existingCodeCol = sheet.getRange(2, 11, listingLastRow - 1, 1).getValues();
+      var nrows = listingLastRow - 1;
+      var keysCol = sheet.getRange(2, 1, nrows, 1).getValues();
+      var bldgCol = sheet.getRange(2, 2, nrows, 1).getValues();   // 2=建物名
+      var roomCol = sheet.getRange(2, 3, nrows, 1).getValues();   // 3=部屋番号
+      var statusCol = sheet.getRange(2, 9, nrows, 1).getValues(); // 9=ステータス
+      var existingCodeCol = sheet.getRange(2, 11, nrows, 1).getValues(); // 11=SUUMOコード
+      var inBldg = String(data.building || '').trim();
+      var inRoom = String(data.room || '').trim();
+      var inCode = String(data.suumoPropertyCode || '').replace(/[^0-9]/g, '');
       for (var ei = 0; ei < keysCol.length; ei++) {
-        if (keysCol[ei][0] === key && statusCol[ei][0] === 'active') {
-          // 既に active 行あり → suumo_property_code を補完するだけで終了
+        if (String(statusCol[ei][0]) !== 'active') continue;
+        var rowCode = String(existingCodeCol[ei][0] || '').replace(/[^0-9]/g, '');
+        var sameKey = (keysCol[ei][0] === key);
+        var sameCode = (inCode && rowCode && inCode === rowCode);
+        var sameBldgRoom = (inBldg && String(bldgCol[ei][0] || '').trim() === inBldg
+                            && String(roomCol[ei][0] || '').trim() === inRoom);
+        if (sameKey || sameCode || sameBldgRoom) {
+          // 既存 active 行あり → 新規行を作らず SUUMOコードを最新に更新して終了
           var newCode = String(data.suumoPropertyCode || '');
           var existingCode = String(existingCodeCol[ei][0] || '');
-          if (newCode && !existingCode) {
+          if (newCode && newCode !== existingCode) {
             sheet.getRange(ei + 2, 11).setValue(newCode);
-            Logger.log('recordSuumoPosting: 既存active行に suumo_code を補完 row=' +
-                       (ei + 2) + ' key=' + key + ' code=' + newCode);
+            Logger.log('recordSuumoPosting: 既存active行のsuumo_codeを更新 row=' + (ei + 2) + ' key=' + key + ' code=' + newCode);
           } else {
-            Logger.log('recordSuumoPosting: 二重登録回避 row=' + (ei + 2) + ' key=' + key);
+            Logger.log('recordSuumoPosting: 二重登録回避 row=' + (ei + 2) + ' (key/code/建物室 一致) key=' + key);
           }
-          // candidate シート側の状態はそのまま posted へ
           updateCandidateStatus_(key, 'posted');
           clearSubmittingTimestamp_(key);
           return { success: true, key: key, deduped: true, existingRow: ei + 2 };
