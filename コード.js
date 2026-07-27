@@ -5338,7 +5338,8 @@ function executeCustomerMerge(keepName, mergeName, fieldOverrides) {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var critSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
   var luSheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
-  var propSs = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+  // 通知済み物件・承認待ち等は ss(=SPREADSHEET_ID=CRITERIA_SHEET_ID) にあり、
+  // 検索の送付済み判定(handleGetSeenIds)もここを読む。別スプレッドシートは使わない。
 
   // 1. 検索条件シート — mergeNameの条件をkeepName行に反映して、mergeName行を削除
   var critData = critSheet.getDataRange().getValues();
@@ -5399,13 +5400,16 @@ function executeCustomerMerge(keepName, mergeName, fieldOverrides) {
     }
   }
 
-  // 3. 物件スプレッドシートの顧客名を一括変更
+  // 3. 関連シートの顧客名を mergeName → keepName に一括変更
+  //    ※ 以前は別スプレッドシート(PROPERTY_SHEET_ID)を書き換えていたため、実データの
+  //      通知済み物件が付け替わらず、統合後の検索で送付済み物件が再送されていた。
+  //    ※ 対応ログ・タスクも漏れていたので追加。
   var renamedSheets = [];
-  var logSheets = ['通知済み物件', 'アクションログ', '閲覧ログ', '物件コメント'];
+  var logSheets = ['通知済み物件', 'アクションログ', '閲覧ログ', '物件コメント', '対応ログ', 'タスク'];
   for (var si = 0; si < logSheets.length; si++) {
     var shName = logSheets[si];
     try {
-      var sh = propSs.getSheetByName(shName);
+      var sh = ss.getSheetByName(shName);
       if (!sh) continue;
       var data = sh.getDataRange().getValues();
       var changed = 0;
@@ -5421,9 +5425,9 @@ function executeCustomerMerge(keepName, mergeName, fieldOverrides) {
     }
   }
 
-  // 承認待ちシートも変更
+  // 承認待ちシートも変更（正しいシート名・同じスプレッドシート）
   try {
-    var pendSh = propSs.getSheetByName('シート1');
+    var pendSh = ss.getSheetByName(PENDING_SHEET_NAME);
     if (pendSh) {
       var pData = pendSh.getDataRange().getValues();
       var pc = 0;
