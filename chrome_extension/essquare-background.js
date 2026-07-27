@@ -1707,7 +1707,8 @@ async function _fetchUrlToDataUrl(url) {
 
 async function _rehostImageUrlsToEhomaki_(urls, opts) {
   if (!_ehomakiConfigured() || !Array.isArray(urls) || urls.length === 0) return urls || [];
-  const max = (opts && opts.max) || 15;
+  // 上限を 15→40 に引き上げ(物件によっては20枚超あり、承認ページで欠けていたため)
+  const max = (opts && opts.max) || 40;
   const src = urls.slice(0, max);
   const BATCH = 6;
   const out = [];
