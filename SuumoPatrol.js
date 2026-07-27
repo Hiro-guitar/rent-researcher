@@ -430,6 +430,44 @@ function getListingSheet_() {
 }
 
 /**
+ * 【点検用・手動実行】掲載中(active)の件数と重複を洗い出す。
+ * ダッシュボードの「掲載中」は掲載管理シートの active 行数。想定より多い(例:50→51)場合、
+ * 同じ物件の重複行 or 掲載終了なのに active のまま、が原因。
+ * 実行ログに active件数・重複(建物名+部屋 / SUUMOコード)を出す。重複行を削除すれば直る。
+ */
+function auditActiveListings() {
+  var sheet = getListingSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) { Logger.log('掲載管理シートにデータがありません'); return 'データなし'; }
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
+  var activeCount = 0;
+  var byKey = {}, byCode = {};
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][8]) !== 'active') continue; // 8=ステータス
+    activeCount++;
+    var rowNum = i + 2;
+    var name = String(data[i][1] || '').trim();   // 1=建物名
+    var room = String(data[i][2] || '').trim();   // 2=部屋番号
+    var code = String(data[i][10] || '').replace(/[^0-9]/g, ''); // 10=SUUMOコード
+    var key = name + ' ' + room;
+    (byKey[key] = byKey[key] || []).push(rowNum);
+    if (code) (byCode[code] = byCode[code] || []).push(rowNum);
+  }
+  var lines = ['掲載中(active): ' + activeCount + '件'];
+  var dupFound = false;
+  Object.keys(byKey).forEach(function(k){
+    if (byKey[k].length > 1) { dupFound = true; lines.push('⚠️ 重複[建物名+部屋]: 「' + k + '」→ 行 ' + byKey[k].join(', ')); }
+  });
+  Object.keys(byCode).forEach(function(c){
+    if (byCode[c].length > 1) { dupFound = true; lines.push('⚠️ 重複[SUUMOコード]: ' + c + ' → 行 ' + byCode[c].join(', ')); }
+  });
+  if (!dupFound) lines.push('重複は検出されませんでした（名前/コードが微妙に違う重複 or 掲載終了なのにactiveのまま、の可能性）');
+  var msg = lines.join('\n');
+  Logger.log(msg);
+  return msg;
+}
+
+/**
  * 【一回だけ手動実行】旧・不要列を「非表示＋ヘッダーに【廃止】」にする。
  *   対象: 6最終PV数 / 7最終問合数 / 8パフォーマンススコア / 19危険度スコア /
  *         21反響予測スコア / 23スコア内訳
