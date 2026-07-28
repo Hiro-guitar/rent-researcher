@@ -333,7 +333,9 @@ function handleVacancyQuery(replyToken, userId, raw) {
         rent: row[4], fee: row[5], layout: row[6], area: row[7], status: row[8],
         url: (rawUrl && rawUrl.indexOf('http') === 0) ? rawUrl : ''
       }));
-      if (row[8] !== '募集中') {
+      // 「要確認」はスタッフの手動確認待ち。自動「ご案内不可」を送るとスタッフ未対応でも
+      // 顧客に募集終了が飛んでしまうため、遅延返信(ご案内不可)キューには入れない。
+      if (row[8] !== '募集中' && String(row[8]).trim() !== '要確認') {
         unavailable.push({ name: String(row[0]), room: String(row[1]) });
       }
       // 「要確認」= 自動で空室確認できない物件(REINS等)。スタッフに手動確認を依頼する。
