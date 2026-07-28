@@ -132,6 +132,8 @@ function writeToSheet(userId, state) {
     sheet.getRange(existingRowIndex, 29).setValue('');
     // AD列（30列目）: 条件変更完了 → 条件変更提案の連続送信カウントをリセット
     sheet.getRange(existingRowIndex, 30).setValue(0);
+    // AN列（40列目）: 車種（駐車場ありのとき）
+    sheet.getRange(existingRowIndex, 40).setValue(d.carModel || '');
   } else {
     // 新規顧客は末尾に追加
     sheet.appendRow(row);
@@ -140,6 +142,8 @@ function writeToSheet(userId, state) {
     sheet.getRange(newRowIndex, 25).setValue(townsJson);
     sheet.getRange(newRowIndex, 27).setValue(d.move_in_strict ? 'true' : '');
     sheet.getRange(newRowIndex, 28).setValue(d.age || '');
+    // AN列（40列目）: 車種
+    sheet.getRange(newRowIndex, 40).setValue(d.carModel || '');
   }
 
   // LINE Users シートにも記録
@@ -248,6 +252,7 @@ function readLatestCriteria(userId) {
     }
     var notes = latestRow[15] ? String(latestRow[15]) : '';
     var petType = latestRow[16] ? String(latestRow[16]) : '';
+    var carModel = latestRow[39] ? String(latestRow[39]) : '';  // AN列（40列目、index 39）: 車種
     var resident = latestRow[17] ? String(latestRow[17]) : '';
     var townsJson = latestRow[24] ? String(latestRow[24]) : '';  // Y列（25列目、index 24）
     var moveInStrict = String(latestRow[26] || '').trim().toLowerCase() === 'true';  // AA列（27列目、index 26）
@@ -316,6 +321,7 @@ function readLatestCriteria(userId) {
       building_structures: buildingStructures,
       equipment: equipment,
       petType: petType,
+      carModel: carModel,
       notes: notes,
       age: age,
       areaMethod: cities.length > 0 ? 'city' : 'route',

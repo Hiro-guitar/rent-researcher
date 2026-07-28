@@ -513,6 +513,7 @@ function doGet(e) {
         buildingStructures: _dC.building_structures || [],
         equipment: _dC.equipment || [],
         petType: _dC.petType || '',
+        carModel: _dC.carModel || '',
         otherConditions: _dC.otherConditions || '',
         moveInDate: _dC.move_in_date || '',
         moveInStrict: !!_dC.move_in_strict
@@ -1393,6 +1394,7 @@ function doGet(e) {
             building_structures: existing.building_structures,
             equipment: existing.equipment,
             petType: existing.petType,
+            carModel: existing.carModel,
             notes: existing.notes
           };
           saveState(userId, state);
@@ -1428,6 +1430,7 @@ function doGet(e) {
     template.selectedBuildingStructures = JSON.stringify(d.building_structures || []);
     template.selectedEquipment = JSON.stringify(d.equipment || []);
     template.petType = d.petType || '';
+    template.carModel = d.carModel || '';
     template.otherConditions = d.otherConditions || '';
     // 条件変更提案のLINEメッセージから飛んできた時、該当セクションへフォーカス
     template.initFocus = String(e.parameter.focus || '').toLowerCase();
@@ -1686,6 +1689,7 @@ function processCriteriaSelection(userId, criteria) {
     state.data.building_structures = criteria.buildingStructures || [];
     state.data.equipment = criteria.equipment || [];
     state.data.petType = criteria.petType || '';
+    state.data.carModel = criteria.carModel || '';
     state.data.otherConditions = criteria.otherConditions || '';
     // フォームの「その他」をnotesとして保存（確認画面で表示）
     if (criteria.otherConditions) {
@@ -1776,6 +1780,7 @@ function buildRegistrationSummary(state) {
   if (d.building_structures && d.building_structures.length > 0) summary += '・建物構造: ' + d.building_structures.join(', ') + '\n';
   if (d.equipment && d.equipment.length > 0) summary += '・こだわり: ' + d.equipment.join(', ') + '\n';
   if (d.petType) summary += '・ペット: ' + d.petType + '\n';
+  if (d.carModel) summary += '・駐車場(車種): ' + d.carModel + '\n';
 
   return summary;
 }
@@ -3483,6 +3488,7 @@ function _restoreStateForCriteriaPage_(userId, state) {
     building_structures: existing.building_structures,
     equipment: existing.equipment,
     petType: existing.petType,
+    carModel: existing.carModel,
     notes: existing.notes
   };
   saveState(userId, state);
@@ -3529,6 +3535,7 @@ function prerenderAndCacheCriteriaHtml_(userId) {
     template.selectedBuildingStructures = JSON.stringify(d.building_structures || []);
     template.selectedEquipment = JSON.stringify(d.equipment || []);
     template.petType = d.petType || '';
+    template.carModel = d.carModel || '';
     template.otherConditions = d.otherConditions || '';
     template.initFocus = ''; // プリレンダはfocus無し版 (focusありは個別レンダ)
 

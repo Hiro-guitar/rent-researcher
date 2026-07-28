@@ -122,6 +122,7 @@ function startChangeFlow(replyToken, userId, prefixMessages) {
     building_structures: existing.building_structures,
     equipment: existing.equipment,
     petType: existing.petType,
+    carModel: existing.carModel,
     notes: existing.notes
   };
   saveState(userId, state);
@@ -1168,6 +1169,7 @@ function formatConditionSummary(state) {
   if (d.building_structures && d.building_structures.length > 0) lines.push('建物構造: ' + d.building_structures.join(', '));
   if (d.equipment && d.equipment.length > 0) lines.push('こだわり: ' + d.equipment.join(', '));
   if (d.petType) lines.push('ペット: ' + d.petType);
+  if (d.carModel) lines.push('駐車場(車種): ' + d.carModel);
   if (d.age) lines.push('年齢: ' + d.age);
 
   return lines.length > 0 ? lines.join('\n') : '（条件なし）';
@@ -1312,6 +1314,7 @@ function showConfirmation(replyToken, state, prefixMessages) {
     details += d.equipment.join(' / ') + '\n';
   }
   if (d.petType) details += '・ペット: ' + d.petType + '\n';
+  if (d.carModel) details += '・駐車場(車種): ' + d.carModel + '\n';
   if (d.notes) {
     details += sep;
     details += '── その他 ──\n';
