@@ -897,10 +897,10 @@ function getItandiFilterRejectReason(prop, customer) {
     // オートロック → アラート（buildDiscordMessageで処理）
     // TVモニタ付きインターホン → アラート（buildDiscordMessageで処理）
     // 防犯カメラ → アラート（buildDiscordMessageで処理）
-    // ペット可
+    // ペット可（「ペット対応」表記の物件もあるため許可語に含める）
     if (equip.includes('ペット')) {
       if (fac.includes('ペット不可')) return 'ペット不可';
-      if (!fac.includes('ペット相談') && !fac.includes('ペット可') && !fac.includes('小型犬') && !fac.includes('大型犬') && !fac.includes('猫可')) return 'ペット可の記載なし';
+      if (!fac.includes('ペット相談') && !fac.includes('ペット可') && !fac.includes('ペット対応') && !fac.includes('小型犬') && !fac.includes('大型犬') && !fac.includes('猫可')) return 'ペット可の記載なし';
     }
     // 楽器
     if (equip.includes('楽器') && fac.includes('楽器不可')) return '楽器不可';

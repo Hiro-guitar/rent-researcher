@@ -1669,7 +1669,7 @@ function getFilterRejectReason(prop, customer) {
   // ペット可フィルタ（REINS表記: ペット可/ペット相談。記載なし・設備なしは除外）
   if (equip.includes('ペット')) {
     const fac = prop.facilities || '';
-    if (!fac.includes('ペット可') && !fac.includes('ペット相談')) {
+    if (!fac.includes('ペット可') && !fac.includes('ペット相談') && !fac.includes('ペット対応')) {
       return `ペット可の記載なし`;
     }
   }
