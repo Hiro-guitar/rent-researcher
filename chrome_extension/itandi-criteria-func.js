@@ -319,6 +319,13 @@ const __itandiCriteriaFunc = (customerData) => {
         }
       }
 
+      // 駐車場あり: 設備ID(option_id)ではなく独立チェックボックス(name="parking_exists:eq", value="on")
+      if (equipList.some(function (e) { return e.trim() === '駐車場あり'; })) {
+        if (clickCheckboxByValue('parking_exists:eq', 'on')) {
+          equipChecked.push('駐車場あり');
+        }
+      }
+
       // 2階以上 フィルタ
       var equipNorm = toHankaku(equipment).toLowerCase();
       if (equipNorm.includes('2階以上')) {

@@ -3553,6 +3553,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 const ce = String(customer.equipment || '');
                 // 独立洗面台: こだわりにあり、senmenMode='skip'(選別)の時だけ検索条件に入れる
                 if (ce.includes('独立洗面台') && String(customer.senmenMode || '').toLowerCase() === 'skip') toks.push('独立洗面台');
+                // 駐車場あり: 常に検索条件に入れる(itandiはparking_exists:eqで絞り込み可)
+                if (ce.includes('駐車場あり')) toks.push('駐車場あり');
                 if (ce.includes('敷金なし') && !ce.includes('どちらかなし')) toks.push('敷金なし');
                 if (ce.includes('礼金なし') && !ce.includes('どちらかなし')) toks.push('礼金なし');
                 return toks.join(', ');

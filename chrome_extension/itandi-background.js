@@ -491,6 +491,11 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
     filterObj['floor:lteq'] = 1;
   }
 
+  // 駐車場あり: APIで絞り込み（parking_exists:eq。実API検証 2026-07-29: 東京都1K6万以下 1499→172件）
+  if (equip.includes('駐車場あり')) {
+    filterObj['parking_exists:eq'] = true;
+  }
+
   // 敷金なし・礼金なし（「どちらかなし」選択時はAPI絞り込みしない→取得後フィルタ）
   if (equip.includes('敷金なし') && !equip.includes('どちらかなし')) {
     filterObj['shikikin:eq'] = 0;
@@ -1223,6 +1228,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     if (f['floor:lteq'] === 1) filterParts.push('1階');
     if (f['shikikin:eq'] === 0) filterParts.push('敷金なし');
     if (f['reikin:eq'] === 0) filterParts.push('礼金なし');
+    if (f['parking_exists:eq']) filterParts.push('駐車場あり');
     // 募集条件更新フィルタ (SUUMO巡回時のみ): "2026-05-03T00:00:00.000" 形式
     if (f['offer_conditions_updated_at:gteq']) {
       const fromStr = String(f['offer_conditions_updated_at:gteq']).substring(0, 10);
