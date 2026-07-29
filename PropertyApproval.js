@@ -6264,11 +6264,7 @@ function _computePropertyWarningsGAS_(prop, equipmentStr, notesStr) {
   if ((equip.indexOf('バストイレ別') >= 0 || equip.indexOf('バス・トイレ別') >= 0 || equip.indexOf('bt別') >= 0) && fac.indexOf('バス・トイレ別') < 0 && fac.indexOf('バストイレ別') < 0) {
     warnings.push('⚠️ バス・トイレ別かどうか確認してください');
   }
-  // 独立洗面台（表記ゆれ: 独立洗面/洗面所独立/洗面独立/洗面台独立/シャンプードレッサー。備考も見る）
-  var facAndRemarks = fac + ' ' + String(prop.remarks || '');
-  if (equip.indexOf('独立洗面台') >= 0 && !/独立洗面|洗面所独立|洗面独立|洗面台独立|シャンプードレッサー/.test(facAndRemarks)) {
-    warnings.push('⚠️ 独立洗面台があるか確認してください');
-  }
+  // 独立洗面台の警告は下の既存3段階ロジック（確実あり/洗面台のみ=ユニットバス可能性/記載なし）に一本化。
   // 温水洗浄便座
   if ((equip.indexOf('温水洗浄便座') >= 0 || equip.indexOf('ウォシュレット') >= 0) && fac.indexOf('温水洗浄便座') < 0) {
     warnings.push('⚠️ 温水洗浄便座かどうか確認してください');
