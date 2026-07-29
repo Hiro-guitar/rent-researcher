@@ -1651,6 +1651,18 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // 独立洗面台スキップモード（顧客ごとの senmenMode='skip' の時のみ、設備欄に無ければ除外）
+  // 未設定(空)は従来どおり除外しない（既存顧客の急な絞り込みを避ける）。
+  {
+    const _senmenMode = String(customer.senmenMode || '').toLowerCase();
+    if (_senmenMode === 'skip' && equip.includes('独立洗面台')) {
+      const fac = prop.facilities || '';
+      if (!fac.includes('独立洗面台')) {
+        return `独立洗面台の記載なし`;
+      }
+    }
+  }
+
   // ペット可フィルタ（REINS表記: ペット可/ペット相談。記載なし・設備なしは除外）
   if (equip.includes('ペット')) {
     const fac = prop.facilities || '';

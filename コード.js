@@ -2275,6 +2275,8 @@ function handleGetCriteria(e) {
     // AE列(30, index 30): バストイレ別の処理モード ('alert' or 'skip', 空=未設定→グローバル設定にフォールバック)
     var btMode = String(row[30] || '').trim().toLowerCase();
     if (btMode && btMode !== 'skip' && btMode !== 'none') btMode = 'alert';
+    var senmenMode = String(row[40] || '').trim().toLowerCase();
+    if (senmenMode && senmenMode !== 'skip' && senmenMode !== 'none') senmenMode = 'alert';
     // 空文字のまま返す → Chrome拡張側でグローバル設定にフォールバック
 
     criteria.push({
@@ -2296,7 +2298,8 @@ function handleGetCriteria(e) {
       notes: String(row[15] || ''),
       selectedTowns: selectedTowns,
       lastReinsSearch: lastReinsSearchStr,
-      btMode: btMode
+      btMode: btMode,
+      senmenMode: senmenMode
     });
   }
 
@@ -3053,6 +3056,8 @@ function loadCustomerCriteriaByName(customerName) {
 
     var btMode = String(latestRow[30] || '').trim().toLowerCase();
     if (btMode && btMode !== 'skip' && btMode !== 'none') btMode = 'alert';
+    var senmenMode = String(latestRow[40] || '').trim().toLowerCase();
+    if (senmenMode && senmenMode !== 'skip' && senmenMode !== 'none') senmenMode = 'alert';
 
     // 閲覧統計を集計
     var viewCount = 0;
@@ -3121,6 +3126,7 @@ function loadCustomerCriteriaByName(customerName) {
       selectedStations: selectedStations,
       selectedTowns: selectedTownsObj,
       btMode: btMode,
+      senmenMode: senmenMode,
       viewCount: viewCount,
       lastViewAt: lastViewAt
     };
@@ -3216,6 +3222,24 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
         }
       } catch (btErr) {
         console.warn('btMode保存エラー: ' + btErr.message);
+      }
+    }
+    // 独立洗面台モード（AO列=41）
+    if (criteria.senmenMode) {
+      try {
+        var ssS = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+        var sheetS = ssS.getSheetByName(CRITERIA_SHEET_NAME);
+        if (sheetS) {
+          var dataS = sheetS.getDataRange().getValues();
+          for (var si = dataS.length - 1; si >= 1; si--) {
+            if (String(dataS[si][1] || '').trim() === customerName) {
+              sheetS.getRange(si + 1, 41).setValue(criteria.senmenMode);
+              break;
+            }
+          }
+        }
+      } catch (snErr) {
+        console.warn('senmenMode保存エラー: ' + snErr.message);
       }
     }
 
@@ -4277,6 +4301,8 @@ function getCustomerDetail(customerName) {
 
     var btMode = String(data[i][30] || '').trim().toLowerCase();
     if (btMode && btMode !== 'skip' && btMode !== 'none') btMode = 'alert';
+    var senmenMode = String(data[i][40] || '').trim().toLowerCase();
+    if (senmenMode && senmenMode !== 'skip' && senmenMode !== 'none') senmenMode = 'alert';
 
     info = {
       name: name,
@@ -4296,7 +4322,8 @@ function getCustomerDetail(customerName) {
       structures: '',
       equipment: '',
       notes: '',
-      btMode: btMode
+      btMode: btMode,
+      senmenMode: senmenMode
     };
 
     // エリア: 路線+駅(E列) or 市区町村+町名(D列 + Y列/町名JSON)

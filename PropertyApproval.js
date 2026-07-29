@@ -6264,6 +6264,10 @@ function _computePropertyWarningsGAS_(prop, equipmentStr, notesStr) {
   if ((equip.indexOf('バストイレ別') >= 0 || equip.indexOf('バス・トイレ別') >= 0 || equip.indexOf('bt別') >= 0) && fac.indexOf('バス・トイレ別') < 0 && fac.indexOf('バストイレ別') < 0) {
     warnings.push('⚠️ バス・トイレ別かどうか確認してください');
   }
+  // 独立洗面台
+  if (equip.indexOf('独立洗面台') >= 0 && fac.indexOf('独立洗面台') < 0) {
+    warnings.push('⚠️ 独立洗面台があるか確認してください');
+  }
   // 温水洗浄便座
   if ((equip.indexOf('温水洗浄便座') >= 0 || equip.indexOf('ウォシュレット') >= 0) && fac.indexOf('温水洗浄便座') < 0) {
     warnings.push('⚠️ 温水洗浄便座かどうか確認してください');

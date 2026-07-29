@@ -839,14 +839,26 @@ input[type="range"]::-webkit-slider-thumb {
   <div class="section" id="btModeSection" style="display:none;">
     <div class="section-title green">物件選別設定</div>
     <div style="padding:12px 16px;">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <label style="font-size:13px;font-weight:600;color:#555;white-space:nowrap;">バストイレ別:</label>
-        <select id="btModeSelect" style="padding:8px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;flex:1;">
-          <option value="skip">選別する（BT別なしは除外）</option>
-          <option value="alert">アラートのみ（物件は送る）</option>
-        </select>
+      <div id="btModeRow">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label style="font-size:13px;font-weight:600;color:#555;white-space:nowrap;">バストイレ別:</label>
+          <select id="btModeSelect" style="padding:8px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;flex:1;">
+            <option value="skip">選別する（BT別なしは除外）</option>
+            <option value="alert">アラートのみ（物件は送る）</option>
+          </select>
+        </div>
+        <div style="font-size:11px;color:#999;margin-top:6px;">「選別する」：バストイレ別がない物件はそもそも送りません。「アラートのみ」：バストイレ別がなくても物件を送り、⚠️警告を表示します（管理会社が設備欄を入力していない場合に有効）。</div>
       </div>
-      <div style="font-size:11px;color:#999;margin-top:6px;">「選別する」：バストイレ別がない物件はそもそも送りません。「アラートのみ」：バストイレ別がなくても物件を送り、⚠️警告を表示します（管理会社が設備欄を入力していない場合に有効）。</div>
+      <div id="senmenModeRow" style="margin-top:14px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label style="font-size:13px;font-weight:600;color:#555;white-space:nowrap;">独立洗面台:</label>
+          <select id="senmenModeSelect" style="padding:8px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;flex:1;">
+            <option value="skip">選別する（独立洗面台なしは除外）</option>
+            <option value="alert">アラートのみ（物件は送る）</option>
+          </select>
+        </div>
+        <div style="font-size:11px;color:#999;margin-top:6px;">「選別する」：独立洗面台がない物件はそもそも送りません。「アラートのみ」：なくても物件を送り、⚠️警告を表示します（設備欄が未入力の場合に有効）。</div>
+      </div>
     </div>
   </div>
 
@@ -1390,6 +1402,9 @@ function populateForm(data) {
   // バストイレ別モード
   var btSel = document.getElementById('btModeSelect');
   if (btSel) btSel.value = (data.btMode === 'alert') ? 'alert' : 'skip';
+  // 独立洗面台モード
+  var senmenSel = document.getElementById('senmenModeSelect');
+  if (senmenSel) senmenSel.value = (data.senmenMode === 'alert') ? 'alert' : 'skip';
   updateBtModeVisibility();
 }
 
@@ -2243,8 +2258,14 @@ function onEquipChange(catIdx, cb) {
 
 function updateBtModeVisibility() {
   var btChecked = document.querySelector('input[name="equipment"][value="バス・トイレ別"]:checked');
+  var senmenChecked = document.querySelector('input[name="equipment"][value="独立洗面台"]:checked');
   var section = document.getElementById('btModeSection');
-  if (section) section.style.display = btChecked ? '' : 'none';
+  var btRow = document.getElementById('btModeRow');
+  var senmenRow = document.getElementById('senmenModeRow');
+  if (btRow) btRow.style.display = btChecked ? '' : 'none';
+  if (senmenRow) senmenRow.style.display = senmenChecked ? '' : 'none';
+  // どちらかが選ばれていればセクション表示
+  if (section) section.style.display = (btChecked || senmenChecked) ? '' : 'none';
 }
 
 function updateEquipCount(catIdx) {
@@ -2463,6 +2484,7 @@ function submitAdminCriteria() {
 
   // バストイレ別モード
   criteria.btMode = document.getElementById('btModeSelect').value || 'skip';
+  criteria.senmenMode = document.getElementById('senmenModeSelect').value || 'skip';
 
   // 入居時期
   criteria.moveInDate = getMoveInValue();
