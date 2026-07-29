@@ -307,7 +307,11 @@ function resolveItandiEquipmentIds(equipmentText, customer) {
       let _cBtMode = (customer?.btMode || (typeof __btMode !== 'undefined' ? __btMode : 'skip')).toLowerCase();
       if (_cBtMode === 'none' && id === 11010) _cBtMode = 'skip';
       const forceHard = id === 11010 && _cBtMode === 'skip';
-      if (ITANDI_SOFT_EQUIPMENT_IDS.has(id) && !forceHard) {
+      // 独立洗面台(11060): senmenMode='skip'時はhardに昇格してAPI検索条件に入れる
+      //   (既定=alertはsoftのまま=絞らずアラートのみ)
+      const _cSenmenMode = String(customer?.senmenMode || 'alert').toLowerCase();
+      const forceHardSenmen = id === 11060 && _cSenmenMode === 'skip';
+      if (ITANDI_SOFT_EQUIPMENT_IDS.has(id) && !forceHard && !forceHardSenmen) {
         softIds.push(id);
       } else {
         hardIds.push(id);
