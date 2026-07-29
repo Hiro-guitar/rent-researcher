@@ -19,6 +19,7 @@ var RECOMMEND_COL_LABEL = 34;   // AH (1-based)
 var RECOMMEND_COL_ID = 35;      // AI
 var RECOMMEND_COL_ENABLED = 36; // AJ
 var RECOMMEND_COL_BTMODE = 31;  // AE相当 (1-based, index30): BT別モード skip/alert
+var RECOMMEND_COL_SENMENMODE = 37;  // AK (1-based, index36): 独立洗面台モード skip/alert
 
 /** おすすめ条件シートを取得（無ければ作成してヘッダーを入れる）。 */
 function _getRecommendSheet_() {
@@ -137,6 +138,10 @@ function _appendRecommendCriteria_(criteriaArr, deliverableNames) {
       btMode: (/バス[・･]?トイレ別|bt別/i.test(String(row[12] || ''))
         ? (String(row[30] || '').trim().toLowerCase() || 'skip')
         : ''),
+      // 独立洗面台モードも「こだわりに独立洗面台がある時だけ」有効化。既定 skip。
+      senmenMode: (/独立洗面台/.test(String(row[12] || ''))
+        ? (String(row[36] || '').trim().toLowerCase() || 'skip')
+        : ''),
       // おすすめ条件であることを示すフラグ（ラベル付け Phase で利用）
       recommend: true,
       recommendId: String(row[34] || ''),
@@ -190,6 +195,7 @@ function listRecommendCriteria(customerName) {
       moveInDate: _recMoveInStr_(data[i][14]),
       moveInStrict: String(data[i][26] || '').trim().toLowerCase() === 'true',
       btMode: (String(data[i][30] || '').trim().toLowerCase() || 'skip'), // BT別: 既定=skip
+      senmenMode: (String(data[i][36] || '').trim().toLowerCase() || 'skip'), // 独立洗面台: 既定=skip
       summary: _recSummary_(data[i])
     });
   }
@@ -263,6 +269,23 @@ function setRecommendBtMode(id, mode) {
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][34] || '').trim() === id) {
       sheet.getRange(i + 1, RECOMMEND_COL_BTMODE).setValue(mode); // 31列目(index30)
+      return { ok: true, mode: mode };
+    }
+  }
+  return { ok: false, message: '該当なし' };
+}
+
+/** google.script.run 用: おすすめ条件の独立洗面台モード(skip/alert)を設定。 */
+function setRecommendSenmenMode(id, mode) {
+  id = String(id || '').trim();
+  mode = String(mode || '').trim().toLowerCase();
+  if (mode !== 'skip' && mode !== 'alert') mode = 'skip';
+  if (!id) return { ok: false, message: 'IDがありません' };
+  var sheet = _getRecommendSheet_();
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][34] || '').trim() === id) {
+      sheet.getRange(i + 1, RECOMMEND_COL_SENMENMODE).setValue(mode); // 37列目(index36)
       return { ok: true, mode: mode };
     }
   }

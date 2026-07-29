@@ -2198,6 +2198,11 @@ function handleGetCriteria(e) {
           if (!existingTs) {
             sheet.getRange(i + 1, 21).setValue(new Date());
           }
+          // 新規ブロック検知時: カンバンの営業ステージ(AG列=33)を「終了」に移す
+          // (一度だけ。以降 wasBlocked=true でスキップ → スタッフが手動で戻しても上書きしない)
+          if (!wasBlocked) {
+            sheet.getRange(i + 1, 33).setValue('終了');
+          }
         } catch (e) {}
         // 新規検知時のみ Discord 通知 (既に blocked だった場合は通知しない)
         if (!wasBlocked) {
