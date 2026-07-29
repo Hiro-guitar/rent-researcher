@@ -3113,6 +3113,7 @@ function loadCustomerCriteriaByName(customerName) {
       building_structures: buildingStructures,
       equipment: equipment,
       petType: petType,
+      carModel: String(latestRow[39] || ''),  // AN列(40): 車種
       notes: notes,
       areaMethod: cities.length > 0 ? 'city' : 'route',
       selectedRoutes: routes,
@@ -3159,6 +3160,7 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
         building_structures: criteria.buildingStructures || [],
         equipment: criteria.equipment || [],
         petType: criteria.petType || '',
+        carModel: criteria.carModel || '',
         notes: criteria.otherConditions || '',
         reason: '',
         move_in_date: criteria.moveInDate || '',
@@ -3405,6 +3407,7 @@ function sendConditionSummaryToLine(customerName, messageType) {
         building_structures: criteria.building_structures || [],
         equipment: criteria.equipment || [],
         petType: criteria.petType || '',
+        carModel: criteria.carModel || '',
         notes: criteria.notes || ''
       },
       areaMethod: criteria.areaMethod || 'route',

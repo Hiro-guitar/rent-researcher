@@ -933,7 +933,7 @@ var EQUIPMENT_CATEGORIES = [
   { name: '室内設備', items: ['室内洗濯機置場','ロフト','ロフトNG','家具家電付き','エアコン付き','床暖房'] },
   { name: 'バス・トイレ', items: ['バス・トイレ別','トイレ個室','独立洗面台','温水洗浄便座','浴室乾燥機','追い焚き風呂'] },
   { name: 'キッチン', items: ['ガスコンロ対応','IHコンロ','コンロ2口以上','システムキッチン','カウンターキッチン'] },
-  { name: '建物設備', items: ['駐輪場あり','バイク置き場','エレベーター','宅配ボックス','敷地内ゴミ置場','バルコニー付','ルーフバルコニー付','専用庭','都市ガス','プロパンガス'] },
+  { name: '建物設備', items: ['駐車場あり','駐輪場あり','バイク置き場','エレベーター','宅配ボックス','敷地内ゴミ置場','バルコニー付','ルーフバルコニー付','専用庭','都市ガス','プロパンガス'] },
   { name: 'セキュリティ', items: ['オートロック','TVモニタ付きインタホン','防犯カメラ'] },
   { name: '初期費用', items: ['敷金なし','礼金なし','敷金・礼金 どちらかなし','フリーレント'] },
   { name: '入居条件', items: ['ペット相談可','楽器相談可','事務所利用可','ルームシェア可','高齢者歓迎','定期借家を含まない'] },
@@ -1359,6 +1359,10 @@ function populateForm(data) {
         var petRow = document.getElementById('petInputRow');
         if (petRow) petRow.className = 'pet-input-row show';
       }
+      if (cb.value === '駐車場あり') {
+        var carRow = document.getElementById('carInputRow');
+        if (carRow) carRow.className = 'pet-input-row show';
+      }
     }
   }
   for (var c = 0; c < EQUIPMENT_CATEGORIES.length; c++) updateEquipCount(c);
@@ -1370,6 +1374,13 @@ function populateForm(data) {
   }
   // 編集読み込み時: ペット相談可ONなら未入力赤枠を反映
   if (equips.indexOf('ペット相談可') >= 0) __petReq(document.getElementById('petTypeInput'));
+
+  // 車種
+  if (data.carModel) {
+    var carInput = document.getElementById('carModelInput');
+    if (carInput) carInput.value = data.carModel;
+  }
+  if (equips.indexOf('駐車場あり') >= 0) __petReq(document.getElementById('carModelInput'));
 
   // その他
   if (data.notes) {
@@ -1419,6 +1430,10 @@ function clearFormSelections() {
   if (petRow) petRow.className = 'pet-input-row';
   var petInput = document.getElementById('petTypeInput');
   if (petInput) petInput.value = '';
+  var carRow = document.getElementById('carInputRow');
+  if (carRow) carRow.className = 'pet-input-row';
+  var carInput = document.getElementById('carModelInput');
+  if (carInput) carInput.value = '';
   // その他
   document.getElementById('otherConditionsInput').value = '';
   // 入居時期リセット
@@ -2173,6 +2188,9 @@ function renderEquipment() {
       if (item === 'ペット相談可') {
         html += '<div class="pet-input-row" id="petInputRow"><input type="text" id="petTypeInput" oninput="__petReq(this)" placeholder="ペットの種類を入力（必須）"><div class="hint"><span class="req-badge">必須</span>例: 小型犬、猫</div></div>';
       }
+      if (item === '駐車場あり') {
+        html += '<div class="pet-input-row" id="carInputRow"><input type="text" id="carModelInput" oninput="__petReq(this)" placeholder="車種を入力（必須）"><div class="hint"><span class="req-badge">必須</span>例: 軽自動車、プリウス、ハイエース</div></div>';
+      }
     }
     html += '</div></div></div>';
   }
@@ -2205,6 +2223,17 @@ function onEquipChange(catIdx, cb) {
       var content = document.getElementById('equipContent_' + catIdx);
       if (content.style.maxHeight && content.style.maxHeight !== '0px') {
         setTimeout(function() { content.style.maxHeight = content.scrollHeight + 'px'; }, 10);
+      }
+    }
+  }
+  if (cb.value === '駐車場あり') {
+    var carRow = document.getElementById('carInputRow');
+    if (carRow) {
+      carRow.className = 'pet-input-row' + (cb.checked ? ' show' : '');
+      if (cb.checked) __petReq(document.getElementById('carModelInput'));
+      var content2 = document.getElementById('equipContent_' + catIdx);
+      if (content2.style.maxHeight && content2.style.maxHeight !== '0px') {
+        setTimeout(function() { content2.style.maxHeight = content2.scrollHeight + 'px'; }, 10);
       }
     }
   }
@@ -2266,6 +2295,7 @@ function buildConditionPreviewHTML(c) {
   if (c.buildingStructures && c.buildingStructures.length > 0) row('構造', c.buildingStructures.join('、'));
   if (c.equipment && c.equipment.length > 0) row('こだわり', c.equipment.join('、'));
   if (c.petType) row('ペット種類', c.petType);
+  if (c.carModel) row('車種', c.carModel);
   if (c.otherConditions) row('その他', c.otherConditions);
   if (c.moveInDate) {
     var moveInText = c.moveInDate;
@@ -2408,6 +2438,21 @@ function submitAdminCriteria() {
       if (petInput) {
         petInput.focus();
         try { petInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+      }
+      return;
+    }
+  }
+
+  // 車種（駐車場ありのときは必須）
+  criteria.carModel = '';
+  if (criteria.equipment.indexOf('駐車場あり') >= 0) {
+    var carInput = document.getElementById('carModelInput');
+    if (carInput) criteria.carModel = carInput.value.trim();
+    if (!criteria.carModel) {
+      showAlert('「駐車場あり」を選んだ場合は、車種を入力してください。（例: 軽自動車、プリウス）');
+      if (carInput) {
+        carInput.focus();
+        try { carInput.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
       }
       return;
     }
