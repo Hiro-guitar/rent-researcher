@@ -1652,13 +1652,15 @@ function getFilterRejectReason(prop, customer) {
   }
 
   // 独立洗面台スキップモード（既定=alert=アラートのみ。skip設定時のみ除外）
-  //   設備欄に「独立洗面台」があり、モードが 'skip' の時に、物件の設備欄に無ければ除外。
+  //   モードが 'skip' の時、設備欄+備考に独立洗面台系の記載が無ければ除外。
   //   'alert'(既定) は除外せず送る（設備欄未入力対策。⚠️警告のみ）。
+  //   表記ゆれ対応: 独立洗面台/洗面所独立/独立洗面/洗面台独立/シャンプードレッサー
+  //   REINSは設備欄(facilities)に加え備考1〜4(remarks)にも書かれることがあるので両方見る。
   {
     const _senmenMode = String(customer.senmenMode || 'alert').toLowerCase();
     if (_senmenMode === 'skip' && equip.includes('独立洗面台')) {
-      const fac = prop.facilities || '';
-      if (!fac.includes('独立洗面台')) {
+      const facText = [prop.facilities, prop.remarks].filter(Boolean).join(' ');
+      if (!/独立洗面|洗面所独立|洗面独立|洗面台独立|シャンプードレッサー/.test(facText)) {
         return `独立洗面台の記載なし`;
       }
     }

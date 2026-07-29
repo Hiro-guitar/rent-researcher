@@ -6264,8 +6264,9 @@ function _computePropertyWarningsGAS_(prop, equipmentStr, notesStr) {
   if ((equip.indexOf('バストイレ別') >= 0 || equip.indexOf('バス・トイレ別') >= 0 || equip.indexOf('bt別') >= 0) && fac.indexOf('バス・トイレ別') < 0 && fac.indexOf('バストイレ別') < 0) {
     warnings.push('⚠️ バス・トイレ別かどうか確認してください');
   }
-  // 独立洗面台
-  if (equip.indexOf('独立洗面台') >= 0 && fac.indexOf('独立洗面台') < 0) {
+  // 独立洗面台（表記ゆれ: 独立洗面/洗面所独立/洗面独立/洗面台独立/シャンプードレッサー。備考も見る）
+  var facAndRemarks = fac + ' ' + String(prop.remarks || '');
+  if (equip.indexOf('独立洗面台') >= 0 && !/独立洗面|洗面所独立|洗面独立|洗面台独立|シャンプードレッサー/.test(facAndRemarks)) {
     warnings.push('⚠️ 独立洗面台があるか確認してください');
   }
   // 温水洗浄便座
