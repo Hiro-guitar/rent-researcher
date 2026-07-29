@@ -6265,6 +6265,11 @@ function _computePropertyWarningsGAS_(prop, equipmentStr, notesStr) {
     warnings.push('⚠️ バス・トイレ別かどうか確認してください');
   }
   // 独立洗面台の警告は下の既存3段階ロジック（確実あり/洗面台のみ=ユニットバス可能性/記載なし）に一本化。
+  // 駐車場: REINSの駐車場在否が「近隣確保」= 敷地内ではないためアラート（有／空有はアラート不要）
+  var parkingAvail = String(prop.parking_available || prop.parkingAvailable || '');
+  if (equip.indexOf('駐車場') >= 0 && parkingAvail.indexOf('近隣') >= 0) {
+    warnings.push('⚠️ 駐車場は近隣確保です（敷地内ではありません）');
+  }
   // 温水洗浄便座
   if ((equip.indexOf('温水洗浄便座') >= 0 || equip.indexOf('ウォシュレット') >= 0) && fac.indexOf('温水洗浄便座') < 0) {
     warnings.push('⚠️ 温水洗浄便座かどうか確認してください');

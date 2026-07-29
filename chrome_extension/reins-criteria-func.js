@@ -443,6 +443,38 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       }
     }
 
+    // ── 駐車場の有無（customerData.reinsParking: ''=未指定 / '1'=有／空有 / '3'=近隣確保）──
+    // 駐車場希望の顧客は '1' と '3' の2パスで検索する（呼び出し側がパスごとに値を渡す）。
+    // セレクトはBootstrapVue製でid不安定のため、ラベル「駐車場の有無」からの相対取得で特定
+    // （Claude in Chrome実地調査 2026-07-29: native change で iValue も自動同期することを確認済み）。
+    // フォームは顧客間で使い回されるため、未指定('')でも毎回明示的にリセットする。
+    let __parkingSetResult = '';
+    try {
+      const __pv = String(customerData.reinsParking || '');
+      const __pLab = Array.from(document.querySelectorAll('span.p-label-title')).find(s => s.textContent.trim() === '駐車場の有無');
+      const __pSel = __pLab && __pLab.closest('.col-sm-6') ? __pLab.closest('.col-sm-6').querySelector('select') : null;
+      if (__pSel) {
+        __pSel.value = __pv;
+        __pSel.dispatchEvent(new Event('change', { bubbles: true }));
+        // Vue(iValue)への同期を検証。native changeで同期しなかった場合のみ直接書き込む
+        let __pEl = __pSel;
+        while (__pEl) {
+          if (__pEl.__vue__ && __pEl.__vue__.$data && 'iValue' in __pEl.__vue__.$data) {
+            if (String(__pEl.__vue__.$data.iValue || '') !== __pv) {
+              __pEl.__vue__.$data.iValue = __pv;
+              __pEl.__vue__.$emit('input', __pv);
+              __pEl.__vue__.$emit('change', __pv);
+            }
+            break;
+          }
+          __pEl = __pEl.parentElement;
+        }
+        __parkingSetResult = __pv || '(未指定)';
+      } else {
+        __parkingSetResult = __pv ? 'select_not_found' : '';
+      }
+    } catch (e) { __parkingSetResult = 'error:' + (e && e.message); }
+
     // 登録年月日フィルタ（turkKkn='4' = 「日付を指定」）
     //   turkNngppFrom : 'YYYY-MM-DD' (ISO date)
     //   turkNngppTo   : 'YYYY-MM-DD'
@@ -500,5 +532,6 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       reinsSearchStations: reinsSearchStations,
       reinsUnresolved: reinsUnresolved,
       reinsCitiesSet: reinsCitiesSet,
+      reinsParkingSet: __parkingSetResult,
     };
 };

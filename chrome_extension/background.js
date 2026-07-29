@@ -4169,33 +4169,47 @@ globalThis.runSearchCycle = async function runSearchCycle() {
             ? Array.from({length: Math.ceil(cities.length/3)}, (_,i) => cities.slice(i*3, i*3+3))
             : [[]];
           const _totalBatches = _rwsChunks.length * _cityChunks.length;
-          if (_totalBatches === 1 && rws.length <= 3 && cities.length <= 3) {
-            // 単一バッチで完結（分割後のrwsを反映）
-            const singleBatchCustomer = {
-              ...customer,
-              routes: rws.map(r => r.route),
-              routes_with_stations: rws,
-              _originalCustomer: customer,
-            };
-            await searchForCustomer(reinsTab.id, singleBatchCustomer, seenIds, reinsDelay, searchId);
-          } else {
-            let _batchIdx = 0;
-            for (const rwsChunk of _rwsChunks) {
-              for (const cityChunk of _cityChunks) {
-                if (isSearchCancelled(searchId)) return;
-                _batchIdx++;
-                const batchCustomer = {
-                  ...customer,
-                  routes: rwsChunk.map(r => r.route),
-                  routes_with_stations: rwsChunk,
-                  cities: cityChunk,
-                  _originalCustomer: customer,
-                };
-                await setStorageData({ debugLog: `[REINS] ${customer.name}: バッチ ${_batchIdx}/${_totalBatches} (路線${rwsChunk.length}件/市区町村${cityChunk.length}件)` });
-                await searchForCustomer(reinsTab.id, batchCustomer, seenIds, reinsDelay, searchId);
-                if (_batchIdx < _totalBatches) await sleep(3000);
+          // 駐車場あり顧客はREINSの「駐車場の有無」で2パス検索:
+          //   '1'=有／空有(敷地内・アラート不要) → '3'=近隣確保(⚠️アラート対象)
+          // それ以外の顧客は従来通り1パス(''=未指定。フォーム使い回しのためリセットも兼ねて毎回セット)
+          const _parkingPasses = String(customer.equipment || '').includes('駐車場あり') ? ['1', '3'] : [''];
+          for (let _ppIdx = 0; _ppIdx < _parkingPasses.length; _ppIdx++) {
+            const _pp = _parkingPasses[_ppIdx];
+            if (isSearchCancelled(searchId)) return;
+            if (_pp) {
+              await setStorageData({ debugLog: `[REINS] ${customer.name}: 駐車場パス ${_ppIdx + 1}/${_parkingPasses.length}（${_pp === '1' ? '有／空有' : '近隣確保'}）` });
+            }
+            if (_totalBatches === 1 && rws.length <= 3 && cities.length <= 3) {
+              // 単一バッチで完結（分割後のrwsを反映）
+              const singleBatchCustomer = {
+                ...customer,
+                routes: rws.map(r => r.route),
+                routes_with_stations: rws,
+                _originalCustomer: customer,
+                _reinsParking: _pp,
+              };
+              await searchForCustomer(reinsTab.id, singleBatchCustomer, seenIds, reinsDelay, searchId);
+            } else {
+              let _batchIdx = 0;
+              for (const rwsChunk of _rwsChunks) {
+                for (const cityChunk of _cityChunks) {
+                  if (isSearchCancelled(searchId)) return;
+                  _batchIdx++;
+                  const batchCustomer = {
+                    ...customer,
+                    routes: rwsChunk.map(r => r.route),
+                    routes_with_stations: rwsChunk,
+                    cities: cityChunk,
+                    _originalCustomer: customer,
+                    _reinsParking: _pp,
+                  };
+                  await setStorageData({ debugLog: `[REINS] ${customer.name}: バッチ ${_batchIdx}/${_totalBatches} (路線${rwsChunk.length}件/市区町村${cityChunk.length}件)` });
+                  await searchForCustomer(reinsTab.id, batchCustomer, seenIds, reinsDelay, searchId);
+                  if (_batchIdx < _totalBatches) await sleep(3000);
+                }
               }
             }
+            if (_ppIdx < _parkingPasses.length - 1) await sleep(3000);
           }
           // REINS検索成功 → 本日の日付をGASに記録（次回検索の登録年月日フィルタ起点になる）
           try {
@@ -4409,7 +4423,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   if (__resolvedBtMode === 'none' && (__equip.includes('バストイレ別') || __equip.includes('バス・トイレ別') || __equip.includes('bt別'))) {
     __resolvedBtMode = 'skip';
   }
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '' }, lineNameMap, reinsCodeMap, __resolvedBtMode];
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '', reinsParking: customer._reinsParking || '' }, lineNameMap, reinsCodeMap, __resolvedBtMode];
   // __reinsCriteriaFunc は reins-criteria-func.js で定義（グローバル）
   // ↓ 以前は以下にローカル関数定義があったが、reins-criteria-func.js に移動済み
   setResult = await chrome.scripting.executeScript({
@@ -4430,7 +4444,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       addUnresolvedStation(customer.name, 'REINS', name);
     }
   }
-  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 ensn=[${setStatus.ensnDebug || '-'}] cities=[${(setStatus.reinsCitiesSet||[]).join(' ') || '-'}] rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}` });
+  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 ensn=[${setStatus.ensnDebug || '-'}] cities=[${(setStatus.reinsCitiesSet||[]).join(' ') || '-'}] rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}${setStatus.reinsParkingSet ? ' 駐車場=' + setStatus.reinsParkingSet : ''}` });
 
   // Vueリアクティブ更新を待つ
   await csleep(500);
@@ -7235,6 +7249,10 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
     if (_cBtMode === 'alert' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別')) && !fac.includes('バス・トイレ別') && !fac.includes('バストイレ別')) {
       warnings.push('⚠️ バス・トイレ別かどうか確認してください');
     }
+  }
+  // 駐車場: REINSの駐車場在否が「近隣確保」= 敷地内ではないためアラート（有／空有はアラート不要）
+  if (equip.includes('駐車場') && String(prop.parking_available || '').includes('近隣')) {
+    warnings.push('⚠️ 駐車場は近隣確保です（敷地内ではありません）');
   }
   // トイレ個室（業者間サイトに条件なし→常にアラート）
   if (equip.includes('トイレ個室')) {
