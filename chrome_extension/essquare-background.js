@@ -280,10 +280,17 @@ function buildEssquareSearchUrl(customer, page, jushoList, stationChunk) {
   const equipItems = equip.split(/[,、，\/／]/).map(s => s.trim()).filter(Boolean);
   const btSkip_ = typeof __btMode !== 'undefined' && __btMode === 'skip';
   const btAliases_ = new Set(['バス・トイレ別', 'バストイレ別', 'BT別']);
+  // 独立洗面台: senmenMode='skip'(選別)の時だけkodawari=separatedLavatoryでAPI絞り込み(既定alertは絞らない)
+  const senmenSkip_ = String(customer.senmenMode || 'alert').toLowerCase() === 'skip';
+  const senmenAliases_ = new Set(['独立洗面台', '洗面所独立', '独立洗面']);
   for (const item of equipItems) {
     // バス・トイレ別: btMode='skip'の時だけkodawariに追加してAPIで絞り込む
     if (btSkip_ && btAliases_.has(item)) {
       params.append('kodawari', 'separatedBathAndToilet');
+      continue;
+    }
+    if (senmenSkip_ && senmenAliases_.has(item)) {
+      params.append('kodawari', 'separatedLavatory');
       continue;
     }
     if (ESSQUARE_HARD_KODAWARI_NAMES.has(item) && ESSQUARE_KODAWARI_MAP[item]) {
