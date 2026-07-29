@@ -853,8 +853,8 @@ input[type="range"]::-webkit-slider-thumb {
         <div style="display:flex;align-items:center;gap:10px;">
           <label style="font-size:13px;font-weight:600;color:#555;white-space:nowrap;">独立洗面台:</label>
           <select id="senmenModeSelect" style="padding:8px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;flex:1;">
-            <option value="skip">選別する（独立洗面台なしは除外）</option>
             <option value="alert">アラートのみ（物件は送る）</option>
+            <option value="skip">選別する（独立洗面台なしは除外）</option>
           </select>
         </div>
         <div style="font-size:11px;color:#999;margin-top:6px;">「選別する」：独立洗面台がない物件はそもそも送りません。「アラートのみ」：なくても物件を送り、⚠️警告を表示します（設備欄が未入力の場合に有効）。</div>
@@ -1404,7 +1404,7 @@ function populateForm(data) {
   if (btSel) btSel.value = (data.btMode === 'alert') ? 'alert' : 'skip';
   // 独立洗面台モード
   var senmenSel = document.getElementById('senmenModeSelect');
-  if (senmenSel) senmenSel.value = (data.senmenMode === 'alert') ? 'alert' : 'skip';
+  if (senmenSel) senmenSel.value = (data.senmenMode === 'skip') ? 'skip' : 'alert';  // 既定=alert
   updateBtModeVisibility();
 }
 
@@ -2484,7 +2484,7 @@ function submitAdminCriteria() {
 
   // バストイレ別モード
   criteria.btMode = document.getElementById('btModeSelect').value || 'skip';
-  criteria.senmenMode = document.getElementById('senmenModeSelect').value || 'skip';
+  criteria.senmenMode = document.getElementById('senmenModeSelect').value || 'alert';
 
   // 入居時期
   criteria.moveInDate = getMoveInValue();

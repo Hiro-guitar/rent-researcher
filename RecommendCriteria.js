@@ -138,9 +138,9 @@ function _appendRecommendCriteria_(criteriaArr, deliverableNames) {
       btMode: (/バス[・･]?トイレ別|bt別/i.test(String(row[12] || ''))
         ? (String(row[30] || '').trim().toLowerCase() || 'skip')
         : ''),
-      // 独立洗面台モードも「こだわりに独立洗面台がある時だけ」有効化。既定 skip。
+      // 独立洗面台モードも「こだわりに独立洗面台がある時だけ」有効化。既定 alert(アラートのみ)。
       senmenMode: (/独立洗面台/.test(String(row[12] || ''))
-        ? (String(row[36] || '').trim().toLowerCase() || 'skip')
+        ? (String(row[36] || '').trim().toLowerCase() || 'alert')
         : ''),
       // おすすめ条件であることを示すフラグ（ラベル付け Phase で利用）
       recommend: true,
@@ -195,7 +195,7 @@ function listRecommendCriteria(customerName) {
       moveInDate: _recMoveInStr_(data[i][14]),
       moveInStrict: String(data[i][26] || '').trim().toLowerCase() === 'true',
       btMode: (String(data[i][30] || '').trim().toLowerCase() || 'skip'), // BT別: 既定=skip
-      senmenMode: (String(data[i][36] || '').trim().toLowerCase() || 'skip'), // 独立洗面台: 既定=skip
+      senmenMode: (String(data[i][36] || '').trim().toLowerCase() || 'alert'), // 独立洗面台: 既定=alert
       summary: _recSummary_(data[i])
     });
   }
