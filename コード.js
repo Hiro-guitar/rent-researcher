@@ -1432,6 +1432,7 @@ function doGet(e) {
     template.petType = d.petType || '';
     template.carModel = d.carModel || '';
     template.otherConditions = d.otherConditions || '';
+    template.carModel = d.carModel || '';
     template.allowedFloors = d.allowedFloors || '';
     template.roomDigitSums = d.roomDigitSums || '';
     // 条件変更提案のLINEメッセージから飛んできた時、該当セクションへフォーカス
@@ -3602,6 +3603,7 @@ function prerenderAndCacheCriteriaHtml_(userId) {
     template.petType = d.petType || '';
     template.carModel = d.carModel || '';
     template.otherConditions = d.otherConditions || '';
+    template.carModel = d.carModel || '';
     template.allowedFloors = d.allowedFloors || '';
     template.roomDigitSums = d.roomDigitSums || '';
     template.initFocus = ''; // プリレンダはfocus無し版 (focusありは個別レンダ)
