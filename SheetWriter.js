@@ -134,6 +134,9 @@ function writeToSheet(userId, state) {
     sheet.getRange(existingRowIndex, 30).setValue(0);
     // AN列（40列目）: 車種（駐車場ありのとき）
     sheet.getRange(existingRowIndex, 40).setValue(d.carModel || '');
+    // AP列(42)=希望階数 / AQ列(43)=部屋番号の数字合計（フォームから来た時だけ更新）
+    if (d.allowedFloors !== undefined) sheet.getRange(existingRowIndex, 42).setValue(String(d.allowedFloors || ''));
+    if (d.roomDigitSums !== undefined) sheet.getRange(existingRowIndex, 43).setValue(String(d.roomDigitSums || ''));
   } else {
     // 新規顧客は末尾に追加
     sheet.appendRow(row);
@@ -144,6 +147,8 @@ function writeToSheet(userId, state) {
     sheet.getRange(newRowIndex, 28).setValue(d.age || '');
     // AN列（40列目）: 車種
     sheet.getRange(newRowIndex, 40).setValue(d.carModel || '');
+    if (d.allowedFloors) sheet.getRange(newRowIndex, 42).setValue(String(d.allowedFloors));
+    if (d.roomDigitSums) sheet.getRange(newRowIndex, 43).setValue(String(d.roomDigitSums));
   }
 
   // LINE Users シートにも記録

@@ -430,6 +430,19 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
   </div>
 
+  <!-- ═══ 特殊フィルタ（任意） ═══ -->
+  <div class="section">
+    <div class="section-title">特殊フィルタ（任意・空欄でOK）</div>
+    <div style="padding:8px 16px 16px;">
+      <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:4px;">希望階数</div>
+      <input type="text" id="allowedFloorsInput" placeholder="例: 3,5,6,7,8,11（カンマ区切り）" style="width:100%;padding:10px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;box-sizing:border-box;">
+      <div style="font-size:11px;color:#999;margin-top:4px;">指定した階の物件だけを送ります。空欄なら絞り込みなし。</div>
+      <div style="font-size:13px;font-weight:600;color:#555;margin:14px 0 4px;">部屋番号の合計</div>
+      <input type="text" id="roomDigitSumInput" placeholder="例: 5,6,7,8,11,13,15,16,18（カンマ区切り）" style="width:100%;padding:10px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;box-sizing:border-box;">
+      <div style="font-size:11px;color:#999;margin-top:4px;">部屋番号の各数字を足した数が指定のいずれかに一致する物件だけを送ります（例: 305号室 → 3+0+5=8）。空欄なら絞り込みなし。</div>
+    </div>
+  </div>
+
   <!-- ═══ 決定ボタン ═══ -->
   <div class="footer">
     <button class="submit-btn" id="submitBtn" onclick="submitCriteria()">決定する</button>
@@ -468,6 +481,8 @@ var INIT_BUILDING_STRUCTURES = <?!= selectedBuildingStructures ?>;
 var INIT_EQUIPMENT = <?!= selectedEquipment ?>;
 var INIT_PET_TYPE = '<?= petType ?>';
 var INIT_OTHER_CONDITIONS = '<?= otherConditions ?>';
+var INIT_ALLOWED_FLOORS = '<?= allowedFloors ?>';
+var INIT_ROOM_DIGIT_SUMS = '<?= roomDigitSums ?>';
 // 条件変更提案 LINEメッセージのボタンからの focus パラメータ。
 // テンプレート経由で渡される (LIFF 経由だと location.search に出ない場合があるため)。
 var INIT_FOCUS = '<?= initFocus ?>';
@@ -563,6 +578,8 @@ function _collectDraft() {
   // ペット・その他
   var pi = document.getElementById('petTypeInput'); d.pt = pi ? pi.value.trim() : '';
   var oi = document.getElementById('otherConditionsInput'); d.oc = oi ? oi.value.trim() : '';
+  var afi = document.getElementById('allowedFloorsInput'); d.af = afi ? afi.value.trim() : '';
+  var rdi = document.getElementById('roomDigitSumInput'); d.rds = rdi ? rdi.value.trim() : '';
   return d;
 }
 
@@ -592,6 +609,8 @@ function _loadDraft() {
     INIT_EQUIPMENT = d.eq || [];
     INIT_PET_TYPE = d.pt || '';
     INIT_OTHER_CONDITIONS = d.oc || '';
+    INIT_ALLOWED_FLOORS = d.af || '';
+    INIT_ROOM_DIGIT_SUMS = d.rds || '';
     return true;
   } catch(e) { return false; }
 }
@@ -1690,6 +1709,13 @@ function restoreSelections() {
     var otherInput = document.getElementById('otherConditionsInput');
     if (otherInput) otherInput.value = INIT_OTHER_CONDITIONS;
   }
+  // 特殊フィルタ（希望階数 / 部屋番号の合計）
+  {
+    var afEl = document.getElementById('allowedFloorsInput');
+    if (afEl && INIT_ALLOWED_FLOORS) afEl.value = INIT_ALLOWED_FLOORS;
+    var rdsEl = document.getElementById('roomDigitSumInput');
+    if (rdsEl && INIT_ROOM_DIGIT_SUMS) rdsEl.value = INIT_ROOM_DIGIT_SUMS;
+  }
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1847,6 +1873,16 @@ function submitCriteria() {
 
   // その他
   criteria.otherConditions = document.getElementById('otherConditionsInput').value.trim();
+  // 特殊フィルタ: 数字とカンマだけに正規化（空欄ならクリア）
+  var _normNumList = function (s) {
+    return String(s || '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .split(/[,、，\s\/／]+/).map(function (v) { return v.replace(/[^\d]/g, ''); })
+      .filter(function (v) { return v !== ''; }).join(',');
+  };
+  var _afIn = document.getElementById('allowedFloorsInput');
+  var _rdsIn = document.getElementById('roomDigitSumInput');
+  criteria.allowedFloors = _normNumList(_afIn ? _afIn.value : '');
+  criteria.roomDigitSums = _normNumList(_rdsIn ? _rdsIn.value : '');
 
   // UI切替
   document.getElementById('app').style.display = 'none';

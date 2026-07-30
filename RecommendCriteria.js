@@ -20,6 +20,8 @@ var RECOMMEND_COL_ID = 35;      // AI
 var RECOMMEND_COL_ENABLED = 36; // AJ
 var RECOMMEND_COL_BTMODE = 31;  // AE相当 (1-based, index30): BT別モード skip/alert
 var RECOMMEND_COL_SENMENMODE = 37;  // AK (1-based, index36): 独立洗面台モード skip/alert
+var RECOMMEND_COL_ALLOWED_FLOORS = 38;   // AL (index37): 希望階数（例 "3,5,6,7,8,11"）
+var RECOMMEND_COL_ROOM_DIGIT_SUMS = 39;  // AM (index38): 部屋番号の数字合計（例 "5,6,7,8"）
 
 /** おすすめ条件シートを取得（無ければ作成してヘッダーを入れる）。 */
 function _getRecommendSheet_() {
@@ -142,6 +144,9 @@ function _appendRecommendCriteria_(criteriaArr, deliverableNames) {
       senmenMode: (/独立洗面台/.test(String(row[12] || ''))
         ? (String(row[36] || '').trim().toLowerCase() || 'alert')
         : ''),
+      // 特殊フィルタ（希望階数 / 部屋番号の数字合計）— 空なら未使用
+      allowedFloors: String(row[37] || '').trim(),
+      roomDigitSums: String(row[38] || '').trim(),
       // おすすめ条件であることを示すフラグ（ラベル付け Phase で利用）
       recommend: true,
       recommendId: String(row[34] || ''),
@@ -196,6 +201,8 @@ function listRecommendCriteria(customerName) {
       moveInStrict: String(data[i][26] || '').trim().toLowerCase() === 'true',
       btMode: (String(data[i][30] || '').trim().toLowerCase() || 'skip'), // BT別: 既定=skip
       senmenMode: (String(data[i][36] || '').trim().toLowerCase() || 'alert'), // 独立洗面台: 既定=alert
+      allowedFloors: String(data[i][37] || '').trim(),
+      roomDigitSums: String(data[i][38] || '').trim(),
       summary: _recSummary_(data[i])
     });
   }
@@ -391,6 +398,10 @@ function saveRecommendCriteria(payload) {
         sheet.getRange(i + 1, 15).setNumberFormat('@'); // O列(入居時期)を日付自動変換させない
         sheet.getRange(i + 1, 1, 1, 36).setValues([rowVals]);
         sheet.getRange(i + 1, 29).setValue('');         // 念のため明示的にもクリア（日付書式セル対策）
+        // 特殊フィルタ（38/39列）は上のsetValues(1〜36列)の範囲外なので個別に書き込む。
+        // フォームから値が来た時だけ更新（未指定なら既存値を保持）。空文字を渡せばクリアできる。
+        if (f.allowedFloors !== undefined) sheet.getRange(i + 1, RECOMMEND_COL_ALLOWED_FLOORS).setValue(String(f.allowedFloors || ''));
+        if (f.roomDigitSums !== undefined) sheet.getRange(i + 1, RECOMMEND_COL_ROOM_DIGIT_SUMS).setValue(String(f.roomDigitSums || ''));
         return { ok: true, id: id };
       }
     }
@@ -404,6 +415,12 @@ function saveRecommendCriteria(payload) {
   rowVals[30] = 'skip'; // BT別モードの既定は skip（選別/除外）
   sheet.appendRow(rowVals);
   try { sheet.getRange(sheet.getLastRow(), 15).setNumberFormat('@').setValue(String(rowVals[14] || '')); } catch (e) {} // O列を日付自動変換させない
+  // 特殊フィルタ（38/39列）: appendRowは36列までなので個別に書き込む
+  try {
+    var _newRow = sheet.getLastRow();
+    if (f.allowedFloors) sheet.getRange(_newRow, RECOMMEND_COL_ALLOWED_FLOORS).setValue(String(f.allowedFloors));
+    if (f.roomDigitSums) sheet.getRange(_newRow, RECOMMEND_COL_ROOM_DIGIT_SUMS).setValue(String(f.roomDigitSums));
+  } catch (e) {}
   return { ok: true, id: newId };
 }
 
@@ -448,6 +465,8 @@ function getRecommendForEdit(id) {
         notes: String(row[15] || ''),
         move_in_date: _recMoveInStr_(row[14]),
         move_in_strict: String(row[26] || '').trim().toLowerCase() === 'true',
+        allowedFloors: String(row[37] || '').trim(),
+        roomDigitSums: String(row[38] || '').trim(),
         reason: '', resident: ''
       }
     };
@@ -595,7 +614,10 @@ function _saveRecommendFromForm_(userId, criteria) {
       notes: criteria.otherConditions || '',
       move_in_date: miDate,
       move_in_strict: miStrict,
-      towns: criteria.selectedTowns || {}
+      towns: criteria.selectedTowns || {},
+      // 特殊フィルタ（希望階数 / 部屋番号の数字合計）。空文字を渡せばクリアされる。
+      allowedFloors: (criteria.allowedFloors !== undefined ? String(criteria.allowedFloors || '') : undefined),
+      roomDigitSums: (criteria.roomDigitSums !== undefined ? String(criteria.roomDigitSums || '') : undefined)
     };
     var res = saveRecommendCriteria({
       customerName: meta.customerName, id: meta.recommendId || '',

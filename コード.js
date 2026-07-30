@@ -1432,6 +1432,8 @@ function doGet(e) {
     template.petType = d.petType || '';
     template.carModel = d.carModel || '';
     template.otherConditions = d.otherConditions || '';
+    template.allowedFloors = d.allowedFloors || '';
+    template.roomDigitSums = d.roomDigitSums || '';
     // 条件変更提案のLINEメッセージから飛んできた時、該当セクションへフォーカス
     template.initFocus = String(e.parameter.focus || '').toLowerCase();
     console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms template.evaluate直前');
@@ -1690,6 +1692,8 @@ function processCriteriaSelection(userId, criteria) {
     state.data.equipment = criteria.equipment || [];
     state.data.petType = criteria.petType || '';
     state.data.carModel = criteria.carModel || '';
+    if (criteria.allowedFloors !== undefined) state.data.allowedFloors = criteria.allowedFloors || '';
+    if (criteria.roomDigitSums !== undefined) state.data.roomDigitSums = criteria.roomDigitSums || '';
     state.data.otherConditions = criteria.otherConditions || '';
     // フォームの「その他」をnotesとして保存（確認画面で表示）
     if (criteria.otherConditions) {
@@ -3598,6 +3602,8 @@ function prerenderAndCacheCriteriaHtml_(userId) {
     template.petType = d.petType || '';
     template.carModel = d.carModel || '';
     template.otherConditions = d.otherConditions || '';
+    template.allowedFloors = d.allowedFloors || '';
+    template.roomDigitSums = d.roomDigitSums || '';
     template.initFocus = ''; // プリレンダはfocus無し版 (focusありは個別レンダ)
 
     var html = template.evaluate().getContent();
