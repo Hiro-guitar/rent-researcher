@@ -632,6 +632,14 @@ function toggleCustomerArchive(name, archived) {
 // ══════════════════════════════════════════
 var customerView = 'board';
 var KANBAN_STAGES = ['問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
+// 列ごとの並び替え設定（ブラウザに保存。既定は手動＝ドラッグ順）
+var kanbanSort = {};
+try { kanbanSort = JSON.parse(localStorage.getItem('kanbanSort') || '{}') || {}; } catch (e) { kanbanSort = {}; }
+function setKanbanSort(stage, mode) {
+  kanbanSort[stage] = mode;
+  try { localStorage.setItem('kanbanSort', JSON.stringify(kanbanSort)); } catch (e) {}
+  filterCustomers();
+}
 function setCustomerView(v) {
   customerView = v;
   document.getElementById('viewListBtn').classList.toggle('active', v === 'list');
@@ -649,9 +657,27 @@ function renderKanban(list) {
     if (!byStage[st]) st = '追客中';
     byStage[st].push(list[i]);
   }
-  // 各列を並び順(order)でソート（未設定は後ろ、同値は登録日順）
+  // 各列をソート。既定は手動並び順(order)、列ごとに並び替えを変更できる（kanbanSort）
   for (var ss2 = 0; ss2 < KANBAN_STAGES.length; ss2++) {
-    byStage[KANBAN_STAGES[ss2]].sort(function(a, b) {
+    var _stgName = KANBAN_STAGES[ss2];
+    var _mode = kanbanSort[_stgName] || 'manual';
+    byStage[_stgName].sort(function(a, b) {
+      if (_mode === 'lastAction' || _mode === 'lastActionOld') {
+        // 最終アクション（無い人は一番後ろ）
+        var la = a.lastAction || '', lb = b.lastAction || '';
+        if (!la && !lb) return (a.name || '').localeCompare(b.name || '');
+        if (!la) return 1;
+        if (!lb) return -1;
+        return _mode === 'lastAction' ? lb.localeCompare(la) : la.localeCompare(lb);
+      }
+      if (_mode === 'registeredNew' || _mode === 'registeredOld') {
+        var ra = a.registeredAt || '', rb = b.registeredAt || '';
+        if (!ra && !rb) return 0;
+        if (!ra) return 1;
+        if (!rb) return -1;
+        return _mode === 'registeredNew' ? rb.localeCompare(ra) : ra.localeCompare(rb);
+      }
+      // manual: 手動並び順(order)。未設定は後ろ、同値は登録日順
       var oa = (a.order == null ? 999999 : a.order);
       var ob = (b.order == null ? 999999 : b.order);
       if (oa !== ob) return oa - ob;
@@ -663,7 +689,17 @@ function renderKanban(list) {
     var stg = KANBAN_STAGES[c];
     var items = byStage[stg];
     html += '<div class="kanban-col" data-stage="' + esc(stg) + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
+    var _sm = kanbanSort[stg] || 'manual';
     html += '<div class="kanban-col-head">' + esc(stg) + '<span class="cnt">' + items.length + '</span></div>';
+    html += '<div style="padding:0 8px 6px;">'
+      + '<select onchange="setKanbanSort(\'' + esc(stg) + '\',this.value)" onclick="event.stopPropagation()" '
+      + 'style="width:100%;font-size:11px;background:#2d2d2d;color:#aaa;border:1px solid #444;border-radius:4px;padding:2px 4px;">'
+      + '<option value="manual"' + (_sm === 'manual' ? ' selected' : '') + '>並び: 手動（ドラッグ順）</option>'
+      + '<option value="lastAction"' + (_sm === 'lastAction' ? ' selected' : '') + '>並び: 最終アクションが新しい順</option>'
+      + '<option value="lastActionOld"' + (_sm === 'lastActionOld' ? ' selected' : '') + '>並び: 最終アクションが古い順</option>'
+      + '<option value="registeredNew"' + (_sm === 'registeredNew' ? ' selected' : '') + '>並び: 登録が新しい順</option>'
+      + '<option value="registeredOld"' + (_sm === 'registeredOld' ? ' selected' : '') + '>並び: 登録が古い順</option>'
+      + '</select></div>';
     html += '<div class="kanban-col-body">';
     for (var k = 0; k < items.length; k++) {
       var it = items[k];

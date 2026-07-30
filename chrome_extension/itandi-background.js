@@ -94,7 +94,7 @@ async function itandiApiGet(tabId, url) {
  * 専用タブのページコンテキスト内でPOST APIを実行する。
  * CSRFトークンをCookieから取得して自動付与。
  */
-async function itandiApiPost(tabId, url, payload) {
+async function itandiApiPost(tabId, url, payload, _retryCount) {
   const results = await chrome.scripting.executeScript({
     target: { tabId },
     world: 'MAIN',
@@ -131,7 +131,25 @@ async function itandiApiPost(tabId, url, payload) {
 
   const result = results?.[0]?.result;
   if (!result || result.status === 0) {
-    throw new Error(result?.error || 'API通信エラー');
+    // ネットワーク層の一時的失敗（Failed to fetch 等）。タブ遷移中や瞬断で起きるため自動リトライ。
+    // リトライが無いと1回の瞬断で検索が打ち切られ「0件」になってしまう。
+    const _netErr = result?.error || 'API通信エラー';
+    const _rc = _retryCount || 0;
+    if (_rc < 3) {
+      const _waitMs = 3000 * (_rc + 1);
+      await setStorageData({ debugLog: `[itandi] 通信エラー(${_netErr}) → ${_waitMs / 1000}秒後にリトライ (${_rc + 1}/3)` });
+      await csleep(_waitMs);
+      try {
+        const _t = await chrome.tabs.get(tabId);
+        if (!_t.url?.includes('itandibb.com')) {
+          await chrome.tabs.update(tabId, { url: `${ITANDI_BASE_URL}/rent_rooms/list` });
+          await waitForTabLoad(tabId);
+          await csleep(2000);
+        }
+      } catch (e) {}
+      return await itandiApiPost(tabId, url, payload, _rc + 1);
+    }
+    throw new Error(_netErr);
   }
   if (result.status === 401) throw new Error('ITANDI_LOGIN_REQUIRED');
   if (result.status === 422) throw new Error(`itandi検索パラメータ不正 (422): ${result.body?.substring(0, 200) || ''}`);
