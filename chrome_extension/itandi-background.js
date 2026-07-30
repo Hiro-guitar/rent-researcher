@@ -495,6 +495,12 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
     filterObj['parking_exists:eq'] = true;
   }
 
+  // 最低階数（◯階以上）: APIの下限で絞る
+  if (customer.minFloor) {
+    const mf = parseInt(customer.minFloor, 10);
+    if (!isNaN(mf) && mf > 0) filterObj['floor:gteq'] = mf;
+  }
+
   // 希望階数の任意指定: 下限(min)だけAPIで絞る。最終判定は取得後フィルタ。
   // ※ itandi APIは floor:lteq を受け付けない(400 invalid params。実API検証 2026-07-29)ため上限は送らない
   if (customer.allowedFloors) {

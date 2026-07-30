@@ -429,6 +429,11 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       vr.shzikiFrom = '1';
       vr.shzikiTo = '1';
     }
+    // 最低階数（◯階以上）の指定があれば所在階Fromに反映
+    if (customerData.minFloor) {
+      const __mf = parseInt(customerData.minFloor, 10);
+      if (!isNaN(__mf) && __mf > 0) vr.shzikiFrom = String(__mf);
+    }
     // 希望階数の任意指定がある場合は所在階レンジを min〜max に絞る（無駄な詳細取得を減らす。
     // 飛び飛びの階（例 3,5,6,7,8,11）はレンジでは表現できないため、最終判定は取得後フィルタで行う）
     if (customerData.allowedFloors) {

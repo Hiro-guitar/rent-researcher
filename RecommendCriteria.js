@@ -21,6 +21,7 @@ var RECOMMEND_COL_ENABLED = 36; // AJ
 var RECOMMEND_COL_BTMODE = 31;  // AE相当 (1-based, index30): BT別モード skip/alert
 var RECOMMEND_COL_SENMENMODE = 37;  // AK (1-based, index36): 独立洗面台モード skip/alert
 var RECOMMEND_COL_CARMODEL = 40;         // AN (index39): 車種（駐車場ありのとき）
+var RECOMMEND_COL_MINFLOOR = 41;         // AO (index40): 最低階数（◯階以上）
 var RECOMMEND_COL_ALLOWED_FLOORS = 38;   // AL (index37): 希望階数（例 "3,5,6,7,8,11"）
 var RECOMMEND_COL_ROOM_DIGIT_SUMS = 39;  // AM (index38): 部屋番号の数字合計（例 "5,6,7,8"）
 
@@ -149,6 +150,7 @@ function _appendRecommendCriteria_(criteriaArr, deliverableNames) {
       allowedFloors: String(row[37] || '').trim(),
       roomDigitSums: String(row[38] || '').trim(),
       carModel: String(row[39] || '').trim(),
+      minFloor: String(row[40] || '').trim(),
       // おすすめ条件であることを示すフラグ（ラベル付け Phase で利用）
       recommend: true,
       recommendId: String(row[34] || ''),
@@ -405,6 +407,7 @@ function saveRecommendCriteria(payload) {
         if (f.allowedFloors !== undefined) sheet.getRange(i + 1, RECOMMEND_COL_ALLOWED_FLOORS).setValue(String(f.allowedFloors || ''));
         if (f.roomDigitSums !== undefined) sheet.getRange(i + 1, RECOMMEND_COL_ROOM_DIGIT_SUMS).setValue(String(f.roomDigitSums || ''));
         if (f.carModel !== undefined) sheet.getRange(i + 1, RECOMMEND_COL_CARMODEL).setValue(String(f.carModel || ''));
+        if (f.minFloor !== undefined) sheet.getRange(i + 1, RECOMMEND_COL_MINFLOOR).setValue(String(f.minFloor || ''));
         return { ok: true, id: id };
       }
     }
@@ -424,6 +427,7 @@ function saveRecommendCriteria(payload) {
     if (f.allowedFloors) sheet.getRange(_newRow, RECOMMEND_COL_ALLOWED_FLOORS).setValue(String(f.allowedFloors));
     if (f.roomDigitSums) sheet.getRange(_newRow, RECOMMEND_COL_ROOM_DIGIT_SUMS).setValue(String(f.roomDigitSums));
     if (f.carModel) sheet.getRange(_newRow, RECOMMEND_COL_CARMODEL).setValue(String(f.carModel));
+    if (f.minFloor) sheet.getRange(_newRow, RECOMMEND_COL_MINFLOOR).setValue(String(f.minFloor));
   } catch (e) {}
   return { ok: true, id: newId };
 }
@@ -472,6 +476,7 @@ function getRecommendForEdit(id) {
         allowedFloors: String(row[37] || '').trim(),
         roomDigitSums: String(row[38] || '').trim(),
         carModel: String(row[39] || '').trim(),
+        minFloor: String(row[40] || '').trim(),
         reason: '', resident: ''
       }
     };
@@ -551,6 +556,7 @@ function startRecommendEditor(customerName, recommendId, label) {
           move_in_strict: c.move_in_strict,
           // 本人条件の内容をひと通り引き継ぐ（車種・特殊フィルタも初期値に入れる）
           carModel: c.carModel || '',
+          minFloor: c.minFloor || '',
           allowedFloors: c.allowedFloors || '',
           roomDigitSums: c.roomDigitSums || '',
           reason: '', resident: ''
@@ -628,7 +634,8 @@ function _saveRecommendFromForm_(userId, criteria) {
       // 特殊フィルタ（希望階数 / 部屋番号の数字合計）。空文字を渡せばクリアされる。
       allowedFloors: (criteria.allowedFloors !== undefined ? String(criteria.allowedFloors || '') : undefined),
       roomDigitSums: (criteria.roomDigitSums !== undefined ? String(criteria.roomDigitSums || '') : undefined),
-      carModel: (criteria.carModel !== undefined ? String(criteria.carModel || '') : undefined)
+      carModel: (criteria.carModel !== undefined ? String(criteria.carModel || '') : undefined),
+      minFloor: (criteria.minFloor !== undefined ? String(criteria.minFloor || '') : undefined)
     };
     var res = saveRecommendCriteria({
       customerName: meta.customerName, id: meta.recommendId || '',

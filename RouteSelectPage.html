@@ -434,9 +434,12 @@ input[type="range"]::-webkit-slider-thumb {
   <div class="section">
     <div class="section-title">特殊フィルタ（任意・空欄でOK）</div>
     <div style="padding:8px 16px 16px;">
-      <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:4px;">希望階数</div>
+      <div style="font-size:13px;font-weight:600;color:#555;margin-bottom:4px;">◯階以上</div>
+      <input type="number" id="minFloorInput" min="1" placeholder="例: 3（3階以上）" style="width:100%;padding:10px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;box-sizing:border-box;">
+      <div style="font-size:11px;color:#999;margin-top:4px;">この階以上の物件だけを送ります（例: 3 → 3階以上）。空欄なら絞り込みなし。</div>
+      <div style="font-size:13px;font-weight:600;color:#555;margin:14px 0 4px;">希望階数</div>
       <input type="text" id="allowedFloorsInput" placeholder="例: 3,5,6,7,8,11（カンマ区切り）" style="width:100%;padding:10px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;box-sizing:border-box;">
-      <div style="font-size:11px;color:#999;margin-top:4px;">指定した階の物件だけを送ります。空欄なら絞り込みなし。</div>
+      <div style="font-size:11px;color:#999;margin-top:4px;">「この階のいずれか」を指定する欄です（飛び飛びの階を指定したい場合のみ）。</div>
       <div style="font-size:13px;font-weight:600;color:#555;margin:14px 0 4px;">部屋番号の合計</div>
       <input type="text" id="roomDigitSumInput" placeholder="例: 5,6,7,8,11,13,15,16,18（カンマ区切り）" style="width:100%;padding:10px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;box-sizing:border-box;">
       <div style="font-size:11px;color:#999;margin-top:4px;">部屋番号の各数字を足した数が指定のいずれかに一致する物件だけを送ります（例: 305号室 → 3+0+5=8）。空欄なら絞り込みなし。</div>
@@ -483,6 +486,7 @@ var INIT_EQUIPMENT = <?!= selectedEquipment ?>;
 var INIT_PET_TYPE = <?!= petTypeJson ?>;
 var INIT_CAR_MODEL = <?!= carModelJson ?>;
 var INIT_OTHER_CONDITIONS = <?!= otherConditionsJson ?>;
+var INIT_MIN_FLOOR = <?!= minFloorJson ?>;
 var INIT_ALLOWED_FLOORS = <?!= allowedFloorsJson ?>;
 var INIT_ROOM_DIGIT_SUMS = <?!= roomDigitSumsJson ?>;
 // 条件変更提案 LINEメッセージのボタンからの focus パラメータ。
@@ -581,6 +585,7 @@ function _collectDraft() {
   var pi = document.getElementById('petTypeInput'); d.pt = pi ? pi.value.trim() : '';
   var oi = document.getElementById('otherConditionsInput'); d.oc = oi ? oi.value.trim() : '';
   var ci = document.getElementById('carModelInput'); d.cm = ci ? ci.value.trim() : '';
+  var mfi = document.getElementById('minFloorInput'); d.mf = mfi ? mfi.value.trim() : '';
   var afi = document.getElementById('allowedFloorsInput'); d.af = afi ? afi.value.trim() : '';
   var rdi = document.getElementById('roomDigitSumInput'); d.rds = rdi ? rdi.value.trim() : '';
   return d;
@@ -613,6 +618,7 @@ function _loadDraft() {
     INIT_PET_TYPE = d.pt || '';
     INIT_OTHER_CONDITIONS = d.oc || '';
     INIT_CAR_MODEL = d.cm || '';
+    INIT_MIN_FLOOR = d.mf || '';
     INIT_ALLOWED_FLOORS = d.af || '';
     INIT_ROOM_DIGIT_SUMS = d.rds || '';
     return true;
@@ -1737,6 +1743,8 @@ function restoreSelections() {
   }
   // 特殊フィルタ（希望階数 / 部屋番号の合計）
   {
+    var mfEl = document.getElementById('minFloorInput');
+    if (mfEl && INIT_MIN_FLOOR) mfEl.value = INIT_MIN_FLOOR;
     var afEl = document.getElementById('allowedFloorsInput');
     if (afEl && INIT_ALLOWED_FLOORS) afEl.value = INIT_ALLOWED_FLOORS;
     var rdsEl = document.getElementById('roomDigitSumInput');
@@ -1919,8 +1927,10 @@ function submitCriteria() {
   };
   var _afIn = document.getElementById('allowedFloorsInput');
   var _rdsIn = document.getElementById('roomDigitSumInput');
+  var _mfIn = document.getElementById('minFloorInput');
   criteria.allowedFloors = _normNumList(_afIn ? _afIn.value : '');
   criteria.roomDigitSums = _normNumList(_rdsIn ? _rdsIn.value : '');
+  criteria.minFloor = _mfIn ? String(_mfIn.value || '').replace(/[^\d]/g, '') : '';
 
   // UI切替
   document.getElementById('app').style.display = 'none';

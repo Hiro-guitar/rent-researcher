@@ -1616,6 +1616,17 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // 最低階数（◯階以上）の任意指定。階数不明の物件は判定不能なので通す
+  if (customer?.minFloor) {
+    const minF = parseInt(customer.minFloor, 10);
+    if (!isNaN(minF) && minF > 0) {
+      const fNum2 = parseInt(toHankaku(prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
+      if (fNum2 > 0 && fNum2 < minF) {
+        return `${minF}階以上条件: ${fNum2}階`;
+      }
+    }
+  }
+
   // 特殊フィルタ①: 希望階数の任意指定（管理画面で "3,5,6,7,8,11" のように設定。空なら未使用）
   //   階数が取れない物件は判定不能なので通す（他の階数フィルタと同じ方針）
   if (customer?.allowedFloors) {
@@ -4461,7 +4472,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   if (__resolvedBtMode === 'none' && (__equip.includes('バストイレ別') || __equip.includes('バス・トイレ別') || __equip.includes('bt別'))) {
     __resolvedBtMode = 'skip';
   }
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '', reinsParking: customer._reinsParking || '', allowedFloors: customer.allowedFloors || '' }, lineNameMap, reinsCodeMap, __resolvedBtMode];
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '', reinsParking: customer._reinsParking || '', allowedFloors: customer.allowedFloors || '', minFloor: customer.minFloor || '' }, lineNameMap, reinsCodeMap, __resolvedBtMode];
   // __reinsCriteriaFunc は reins-criteria-func.js で定義（グローバル）
   // ↓ 以前は以下にローカル関数定義があったが、reins-criteria-func.js に移動済み
   setResult = await chrome.scripting.executeScript({

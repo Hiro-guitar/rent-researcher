@@ -218,7 +218,16 @@ function buildIeloveSearchUrl(customer, page = 1, oazaCodes = []) {
   // 所在階フィルタ（1階 or 2階以上）
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equipText = toHankaku(customer.equipment || '').toLowerCase();
-  if (equipText.includes('2階以上')) {
+  // 最低階数（◯階以上）の指定があればそれを優先（flnuf=所在階From）
+  var _mfIe = customer.minFloor ? parseInt(customer.minFloor, 10) : 0;
+  if (!_mfIe && customer.allowedFloors) {
+    // 飛び飛び指定は最小階でFromだけ粗く絞る（最終判定は取得後フィルタ）
+    var _afIe = String(customer.allowedFloors).split(',').map(function (v) { return parseInt(v, 10); }).filter(function (v) { return !isNaN(v); });
+    if (_afIe.length > 0) _mfIe = Math.min.apply(null, _afIe);
+  }
+  if (_mfIe > 0) {
+    parts.push('flnuf/' + _mfIe);
+  } else if (equipText.includes('2階以上')) {
     parts.push('flnuf/2');
   } else if (equipText.includes('1階') && !equipText.includes('1階以上')) {
     parts.push('flnuf/1');

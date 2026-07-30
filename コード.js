@@ -1436,6 +1436,7 @@ function doGet(e) {
     template.otherConditionsJson = JSON.stringify(d.otherConditions || d.notes || '');
     template.allowedFloorsJson = JSON.stringify(d.allowedFloors || '');
     template.roomDigitSumsJson = JSON.stringify(d.roomDigitSums || '');
+    template.minFloorJson = JSON.stringify(d.minFloor || '');
     // 条件変更提案のLINEメッセージから飛んできた時、該当セクションへフォーカス
     template.initFocus = String(e.parameter.focus || '').toLowerCase();
     console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms template.evaluate直前');
@@ -1696,6 +1697,7 @@ function processCriteriaSelection(userId, criteria) {
     state.data.carModel = criteria.carModel || '';
     if (criteria.allowedFloors !== undefined) state.data.allowedFloors = criteria.allowedFloors || '';
     if (criteria.roomDigitSums !== undefined) state.data.roomDigitSums = criteria.roomDigitSums || '';
+    if (criteria.minFloor !== undefined) state.data.minFloor = criteria.minFloor || '';
     state.data.otherConditions = criteria.otherConditions || '';
     // フォームの「その他」をnotesとして保存（確認画面で表示）
     if (criteria.otherConditions) {
@@ -2290,6 +2292,7 @@ function handleGetCriteria(e) {
     // 特殊フィルタ: AP列(42)=希望階数, AQ列(43)=部屋番号の数字合計
     var allowedFloors = String(row[41] || '').trim();
     var roomDigitSums = String(row[42] || '').trim();
+    var minFloor = String(row[43] || '').trim();
     if (senmenMode && senmenMode !== 'skip' && senmenMode !== 'none') senmenMode = 'alert';
     // 空文字のまま返す → Chrome拡張側でグローバル設定にフォールバック
 
@@ -2315,7 +2318,8 @@ function handleGetCriteria(e) {
       btMode: btMode,
       senmenMode: senmenMode,
       allowedFloors: allowedFloors,
-      roomDigitSums: roomDigitSums
+      roomDigitSums: roomDigitSums,
+      minFloor: minFloor
     });
   }
 
@@ -3075,6 +3079,7 @@ function loadCustomerCriteriaByName(customerName) {
     var senmenMode = String(latestRow[40] || '').trim().toLowerCase();
     var allowedFloors = String(latestRow[41] || '').trim();  // AP列(42)
     var roomDigitSums = String(latestRow[42] || '').trim();  // AQ列(43)
+    var minFloor = String(latestRow[43] || '').trim();       // AR列(44)
     if (senmenMode && senmenMode !== 'skip' && senmenMode !== 'none') senmenMode = 'alert';
 
     // 閲覧統計を集計
@@ -3147,6 +3152,7 @@ function loadCustomerCriteriaByName(customerName) {
       senmenMode: senmenMode,
       allowedFloors: allowedFloors,
       roomDigitSums: roomDigitSums,
+      minFloor: minFloor,
       viewCount: viewCount,
       lastViewAt: lastViewAt
     };
@@ -3264,7 +3270,7 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
     }
     // 特殊フィルタ: 希望階数(AP列=42) / 部屋番号の数字合計(AQ列=43)
     // 空文字も明示的に書き込む（条件を外した時にクリアされるように）
-    if (criteria.allowedFloors !== undefined || criteria.roomDigitSums !== undefined) {
+    if (criteria.allowedFloors !== undefined || criteria.roomDigitSums !== undefined || criteria.minFloor !== undefined) {
       try {
         var ssF = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
         var sheetF = ssF.getSheetByName(CRITERIA_SHEET_NAME);
@@ -3274,6 +3280,7 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
             if (String(dataF[fi][1] || '').trim() === customerName) {
               sheetF.getRange(fi + 1, 42).setValue(String(criteria.allowedFloors || ''));
               sheetF.getRange(fi + 1, 43).setValue(String(criteria.roomDigitSums || ''));
+              sheetF.getRange(fi + 1, 44).setValue(String(criteria.minFloor || ''));
               break;
             }
           }
@@ -3608,6 +3615,7 @@ function prerenderAndCacheCriteriaHtml_(userId) {
     template.otherConditionsJson = JSON.stringify(d.otherConditions || d.notes || '');
     template.allowedFloorsJson = JSON.stringify(d.allowedFloors || '');
     template.roomDigitSumsJson = JSON.stringify(d.roomDigitSums || '');
+    template.minFloorJson = JSON.stringify(d.minFloor || '');
     template.initFocus = ''; // プリレンダはfocus無し版 (focusありは個別レンダ)
 
     var html = template.evaluate().getContent();

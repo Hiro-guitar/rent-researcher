@@ -293,12 +293,26 @@ function buildEssquareSearchUrl(customer, page, jushoList, stationChunk) {
       params.append('kodawari', 'separatedLavatory');
       continue;
     }
+
     if (ESSQUARE_HARD_KODAWARI_NAMES.has(item) && ESSQUARE_KODAWARI_MAP[item]) {
       params.append('kodawari', ESSQUARE_KODAWARI_MAP[item]);
       // 家具家電付き → 家具付き(kagu_flag) + 家電付き(kaden_flag) の両方を送る
       if (item === '家具家電付き') {
         params.append('kodawari', 'kaden_flag');
       }
+    }
+  }
+
+  // 最低階数/希望階数の指定がある場合、いい生活には「2階以上(floorSecondOrAbove)」しか
+  // 階数条件が無いため、下限が2階以上なら粗く絞る（最終判定は取得後フィルタ）
+  {
+    let _minF = customer.minFloor ? parseInt(customer.minFloor, 10) : 0;
+    if (!_minF && customer.allowedFloors) {
+      const _af = String(customer.allowedFloors).split(',').map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+      if (_af.length > 0) _minF = Math.min(..._af);
+    }
+    if (_minF >= 2 && !equipItems.includes('2階以上')) {
+      params.append('kodawari', 'floorSecondOrAbove');
     }
   }
 

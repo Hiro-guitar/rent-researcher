@@ -137,6 +137,7 @@ function writeToSheet(userId, state) {
     // AP列(42)=希望階数 / AQ列(43)=部屋番号の数字合計（フォームから来た時だけ更新）
     if (d.allowedFloors !== undefined) sheet.getRange(existingRowIndex, 42).setValue(String(d.allowedFloors || ''));
     if (d.roomDigitSums !== undefined) sheet.getRange(existingRowIndex, 43).setValue(String(d.roomDigitSums || ''));
+    if (d.minFloor !== undefined) sheet.getRange(existingRowIndex, 44).setValue(String(d.minFloor || ''));
   } else {
     // 新規顧客は末尾に追加
     sheet.appendRow(row);
@@ -149,6 +150,7 @@ function writeToSheet(userId, state) {
     sheet.getRange(newRowIndex, 40).setValue(d.carModel || '');
     if (d.allowedFloors) sheet.getRange(newRowIndex, 42).setValue(String(d.allowedFloors));
     if (d.roomDigitSums) sheet.getRange(newRowIndex, 43).setValue(String(d.roomDigitSums));
+    if (d.minFloor) sheet.getRange(newRowIndex, 44).setValue(String(d.minFloor));
   }
 
   // LINE Users シートにも記録
@@ -258,6 +260,7 @@ function readLatestCriteria(userId) {
     var notes = latestRow[15] ? String(latestRow[15]) : '';
     var petType = latestRow[16] ? String(latestRow[16]) : '';
     var carModel = latestRow[39] ? String(latestRow[39]) : '';  // AN列（40列目、index 39）: 車種
+    var minFloor = latestRow[43] ? String(latestRow[43]) : '';  // AR列（44列目、index 43）: 最低階数
     var resident = latestRow[17] ? String(latestRow[17]) : '';
     var townsJson = latestRow[24] ? String(latestRow[24]) : '';  // Y列（25列目、index 24）
     var moveInStrict = String(latestRow[26] || '').trim().toLowerCase() === 'true';  // AA列（27列目、index 26）
@@ -327,6 +330,7 @@ function readLatestCriteria(userId) {
       equipment: equipment,
       petType: petType,
       carModel: carModel,
+      minFloor: minFloor,
       notes: notes,
       age: age,
       areaMethod: cities.length > 0 ? 'city' : 'route',
