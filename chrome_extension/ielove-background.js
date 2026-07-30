@@ -210,6 +210,11 @@ function buildIeloveSearchUrl(customer, page = 1, oazaCodes = []) {
     }
   }
 
+  // 駐車場 (pkcd: 1=空有, 3=近隣) — 駐車場あり顧客は空有/近隣の2パス検索(呼び出し側がパスごとに値を渡す)
+  if (customer._ieloveParking) {
+    parts.push(`pkcd/${customer._ieloveParking}`);
+  }
+
   // 所在階フィルタ（1階 or 2階以上）
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equipText = toHankaku(customer.equipment || '').toLowerCase();
@@ -985,6 +990,11 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
     const pageProperties = searchResult.properties;
     await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: page ${page} → ${pageProperties.length}件` });
 
+    // 駐車場・近隣パス(pkcd=3)で取れた物件は駐車場が近隣確保 → アラート用に注入
+    if (customer._ieloveParking === '3') {
+      for (const p of pageProperties) p.parking_available = '近隣確保';
+    }
+
     // room_idをハッシュ化（顧客向けURLでソース非表示）
     for (const p of pageProperties) {
       p._raw_room_id = p.room_id;
@@ -1353,6 +1363,7 @@ function buildPropertyDataJson(prop) {
     renewal_fee: prop.renewal_fee || '',
     contract_period: prop.contract_period || '',
     parking_fee: prop.parking_fee || '',
+    parking_available: prop.parking_available || '',
     free_rent: prop.free_rent || '',
     sunlight: prop.sunlight || '',
     total_units: prop.total_units || '',

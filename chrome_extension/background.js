@@ -4136,9 +4136,18 @@ globalThis.runSearchCycle = async function runSearchCycle() {
 
       // --- いえらぶ ---
       if (services.ielove) {
-        if (isSearchCancelled(searchId)) return;
-        try { await runIeloveSearch([customer], seenIds, searchId); }
-        catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[いえらぶ] 検索エラー: ' + err.message); }
+        // 駐車場あり顧客は pkcd=1(空有) と pkcd=3(近隣) の2パス検索（REINSと同方式）。
+        // 近隣パスの物件には parking_available='近隣確保' が注入され⚠️アラートが付く。
+        const _iePkPasses = String(customer.equipment || '').includes('駐車場あり') ? ['1', '3'] : [''];
+        for (const _iePk of _iePkPasses) {
+          if (isSearchCancelled(searchId)) return;
+          if (_iePk) {
+            await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: 駐車場パス（${_iePk === '1' ? '空有' : '近隣'}）` });
+          }
+          const _ieCustomer = _iePk ? { ...customer, _ieloveParking: _iePk } : customer;
+          try { await runIeloveSearch([_ieCustomer], seenIds, searchId); }
+          catch (err) { if (err.message === 'SEARCH_CANCELLED') return; logError('[いえらぶ] 検索エラー: ' + err.message); }
+        }
       }
 
       // --- キャンセル待ち物件の募集状況チェック（この顧客の監視物件・担当にだけ通知） ---
