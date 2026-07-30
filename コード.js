@@ -1429,12 +1429,13 @@ function doGet(e) {
     template.buildingAge = d.building_age || '';
     template.selectedBuildingStructures = JSON.stringify(d.building_structures || []);
     template.selectedEquipment = JSON.stringify(d.equipment || []);
-    template.petType = d.petType || '';
-    template.carModel = d.carModel || '';
-    template.otherConditions = d.otherConditions || '';
-    template.carModel = d.carModel || '';
-    template.allowedFloors = d.allowedFloors || '';
-    template.roomDigitSums = d.roomDigitSums || '';
+    // テンプレートへはJSON文字列で渡す（改行/引用符でJSが壊れるのを防ぐ）
+    // その他要望: 条件フォームは otherConditions、シート/シードは notes に入るため両対応
+    template.petTypeJson = JSON.stringify(d.petType || '');
+    template.carModelJson = JSON.stringify(d.carModel || '');
+    template.otherConditionsJson = JSON.stringify(d.otherConditions || d.notes || '');
+    template.allowedFloorsJson = JSON.stringify(d.allowedFloors || '');
+    template.roomDigitSumsJson = JSON.stringify(d.roomDigitSums || '');
     // 条件変更提案のLINEメッセージから飛んできた時、該当セクションへフォーカス
     template.initFocus = String(e.parameter.focus || '').toLowerCase();
     console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms template.evaluate直前');
@@ -3600,12 +3601,13 @@ function prerenderAndCacheCriteriaHtml_(userId) {
     template.buildingAge = d.building_age || '';
     template.selectedBuildingStructures = JSON.stringify(d.building_structures || []);
     template.selectedEquipment = JSON.stringify(d.equipment || []);
-    template.petType = d.petType || '';
-    template.carModel = d.carModel || '';
-    template.otherConditions = d.otherConditions || '';
-    template.carModel = d.carModel || '';
-    template.allowedFloors = d.allowedFloors || '';
-    template.roomDigitSums = d.roomDigitSums || '';
+    // テンプレートへはJSON文字列で渡す（改行/引用符でJSが壊れるのを防ぐ）
+    // その他要望: 条件フォームは otherConditions、シート/シードは notes に入るため両対応
+    template.petTypeJson = JSON.stringify(d.petType || '');
+    template.carModelJson = JSON.stringify(d.carModel || '');
+    template.otherConditionsJson = JSON.stringify(d.otherConditions || d.notes || '');
+    template.allowedFloorsJson = JSON.stringify(d.allowedFloors || '');
+    template.roomDigitSumsJson = JSON.stringify(d.roomDigitSums || '');
     template.initFocus = ''; // プリレンダはfocus無し版 (focusありは個別レンダ)
 
     var html = template.evaluate().getContent();

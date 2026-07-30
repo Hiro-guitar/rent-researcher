@@ -548,7 +548,12 @@ function startRecommendEditor(customerName, recommendId, label) {
           name: customerName, rent_max: c.rent_max, layouts: c.layouts, walk: c.walk,
           area_min: c.area_min, building_age: c.building_age, building_structures: c.building_structures,
           equipment: c.equipment, petType: c.petType, notes: c.notes, move_in_date: c.move_in_date,
-          move_in_strict: c.move_in_strict, reason: '', resident: ''
+          move_in_strict: c.move_in_strict,
+          // 本人条件の内容をひと通り引き継ぐ（車種・特殊フィルタも初期値に入れる）
+          carModel: c.carModel || '',
+          allowedFloors: c.allowedFloors || '',
+          roomDigitSums: c.roomDigitSums || '',
+          reason: '', resident: ''
         }
       };
     }

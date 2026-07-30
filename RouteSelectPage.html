@@ -479,11 +479,12 @@ var INIT_AREA_MIN = '<?= areaMin ?>';
 var INIT_BUILDING_AGE = '<?= buildingAge ?>';
 var INIT_BUILDING_STRUCTURES = <?!= selectedBuildingStructures ?>;
 var INIT_EQUIPMENT = <?!= selectedEquipment ?>;
-var INIT_PET_TYPE = '<?= petType ?>';
-var INIT_CAR_MODEL = '<?= carModel ?>';
-var INIT_OTHER_CONDITIONS = '<?= otherConditions ?>';
-var INIT_ALLOWED_FLOORS = '<?= allowedFloors ?>';
-var INIT_ROOM_DIGIT_SUMS = '<?= roomDigitSums ?>';
+// 改行や引用符を含んでもJSが壊れないようJSON埋め込みにする（その他要望は自由文のため必須）
+var INIT_PET_TYPE = <?!= petTypeJson ?>;
+var INIT_CAR_MODEL = <?!= carModelJson ?>;
+var INIT_OTHER_CONDITIONS = <?!= otherConditionsJson ?>;
+var INIT_ALLOWED_FLOORS = <?!= allowedFloorsJson ?>;
+var INIT_ROOM_DIGIT_SUMS = <?!= roomDigitSumsJson ?>;
 // 条件変更提案 LINEメッセージのボタンからの focus パラメータ。
 // テンプレート経由で渡される (LIFF 経由だと location.search に出ない場合があるため)。
 var INIT_FOCUS = '<?= initFocus ?>';
