@@ -96,6 +96,8 @@ const ESSQUARE_KODAWARI_MAP = {
   '温水洗浄便座': 'washingToiletSeat',
   '追い焚き機能': 'bathReheat', '追い焚き': 'bathReheat', '追い焚き風呂': 'bathReheat',
   '室内洗濯機置き場': 'inroomWashingMachinePlace', '室内洗濯機置場': 'inroomWashingMachinePlace',
+  // 駐車場（空有/近隣の区別なし。実URL確認: kodawari=chushajoExist）
+  '駐車場あり': 'chushajoExist', '駐車場': 'chushajoExist',
   // キッチン
   'ガスコンロ対応': 'gasBurnerCanBePlaced', 'ガスコンロ設置可': 'gasBurnerCanBePlaced',
   'ガスコンロ設置済み': 'gasBurnerIsPlaced',
@@ -152,6 +154,7 @@ const ESSQUARE_HARD_KODAWARI_NAMES = new Set([
   '事務所可', '事務所利用可',
   'ペット相談', 'ペット可', 'ペット相談可',
   '1階', '1階の物件', '2階以上', '最上階',
+  '駐車場あり',
 ]);
 
 // ソフト設備の検索キーワード（詳細ページのテキストで確認）
