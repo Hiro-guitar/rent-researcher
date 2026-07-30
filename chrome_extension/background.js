@@ -1616,6 +1616,33 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
+  // 特殊フィルタ①: 希望階数の任意指定（管理画面で "3,5,6,7,8,11" のように設定。空なら未使用）
+  //   階数が取れない物件は判定不能なので通す（他の階数フィルタと同じ方針）
+  if (customer?.allowedFloors) {
+    const allowed = String(customer.allowedFloors).split(',').map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+    if (allowed.length > 0) {
+      const fNum = parseInt(toHankaku(prop.floor_text || '').match(/(\d+)/)?.[1] || '0');
+      if (fNum > 0 && !allowed.includes(fNum)) {
+        return `希望階数外: ${fNum}階 (希望: ${allowed.join('/')}階)`;
+      }
+    }
+  }
+
+  // 特殊フィルタ②: 部屋番号の各数字を足した数（管理画面で "5,6,7,8,11,..." のように設定。空なら未使用）
+  //   例: 305号室 → 3+0+5=8 / 1103 → 1+1+0+3=5。部屋番号が無い物件は判定不能なので通す
+  if (customer?.roomDigitSums) {
+    const sums = String(customer.roomDigitSums).split(',').map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+    if (sums.length > 0) {
+      const digits = toHankaku(String(prop.room_number || prop.roomNumber || '')).match(/\d/g);
+      if (digits && digits.length > 0) {
+        const total = digits.reduce((a, d) => a + parseInt(d, 10), 0);
+        if (!sums.includes(total)) {
+          return `部屋番号の合計が対象外: ${prop.room_number}→${total} (希望: ${sums.join('/')})`;
+        }
+      }
+    }
+  }
+
   // 角部屋 → アラート（buildDiscordMessageで処理）
 
   // ロフトNGフィルタ（ロフトがある場合は除外。情報なしは通過→アラートで対応）
@@ -4434,7 +4461,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   if (__resolvedBtMode === 'none' && (__equip.includes('バストイレ別') || __equip.includes('バス・トイレ別') || __equip.includes('bt別'))) {
     __resolvedBtMode = 'skip';
   }
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '', reinsParking: customer._reinsParking || '' }, lineNameMap, reinsCodeMap, __resolvedBtMode];
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '', reinsParking: customer._reinsParking || '', allowedFloors: customer.allowedFloors || '' }, lineNameMap, reinsCodeMap, __resolvedBtMode];
   // __reinsCriteriaFunc は reins-criteria-func.js で定義（グローバル）
   // ↓ 以前は以下にローカル関数定義があったが、reins-criteria-func.js に移動済み
   setResult = await chrome.scripting.executeScript({

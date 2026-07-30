@@ -862,6 +862,25 @@ input[type="range"]::-webkit-slider-thumb {
     </div>
   </div>
 
+  <!-- 特殊フィルタ（階数・部屋番号）— 管理者のみ。空欄なら未使用 -->
+  <div class="section">
+    <div class="section-title green">特殊フィルタ（任意・空欄でOK）</div>
+    <div style="padding:12px 16px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <label style="font-size:13px;font-weight:600;color:#555;white-space:nowrap;">希望階数:</label>
+        <input type="text" id="allowedFloorsInput" placeholder="例: 3,5,6,7,8,11（カンマ区切り）"
+               style="padding:8px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;flex:1;">
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:6px;">指定した階の物件だけを送ります。空欄なら階数の絞り込みなし（こだわりの「2階以上」等は従来通り有効）。</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:14px;">
+        <label style="font-size:13px;font-weight:600;color:#555;white-space:nowrap;">部屋番号の合計:</label>
+        <input type="text" id="roomDigitSumInput" placeholder="例: 5,6,7,8,11,13,15,16,18（カンマ区切り）"
+               style="padding:8px 12px;font-size:14px;border:1px solid #ccc;border-radius:8px;font-family:inherit;flex:1;">
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:6px;">部屋番号の各数字を足した数が指定のいずれかに一致する物件だけを送ります（例: 305号室 → 3+0+5=8）。空欄なら絞り込みなし。</div>
+    </div>
+  </div>
+
   <!-- ═══ その他 ═══ -->
   <div class="section">
     <div class="section-title green">その他</div>
@@ -1405,6 +1424,11 @@ function populateForm(data) {
   // 独立洗面台モード
   var senmenSel = document.getElementById('senmenModeSelect');
   if (senmenSel) senmenSel.value = (data.senmenMode === 'skip') ? 'skip' : 'alert';  // 既定=alert
+  // 特殊フィルタ（希望階数・部屋番号の合計）
+  var afEl = document.getElementById('allowedFloorsInput');
+  if (afEl) afEl.value = data.allowedFloors || '';
+  var rdsEl = document.getElementById('roomDigitSumInput');
+  if (rdsEl) rdsEl.value = data.roomDigitSums || '';
   updateBtModeVisibility();
 }
 
@@ -1449,6 +1473,10 @@ function clearFormSelections() {
   if (carRow) carRow.className = 'pet-input-row';
   var carInput = document.getElementById('carModelInput');
   if (carInput) carInput.value = '';
+  var afReset = document.getElementById('allowedFloorsInput');
+  if (afReset) afReset.value = '';
+  var rdsReset = document.getElementById('roomDigitSumInput');
+  if (rdsReset) rdsReset.value = '';
   // その他
   document.getElementById('otherConditionsInput').value = '';
   // 入居時期リセット
@@ -2485,6 +2513,16 @@ function submitAdminCriteria() {
   // バストイレ別モード
   criteria.btMode = document.getElementById('btModeSelect').value || 'skip';
   criteria.senmenMode = document.getElementById('senmenModeSelect').value || 'alert';
+  // 特殊フィルタ: 数字とカンマだけに正規化して保存（空欄なら未使用）
+  var _normNumList = function (s) {
+    return String(s || '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .split(/[,、，\s\/／]+/).map(function (v) { return v.replace(/[^\d]/g, ''); })
+      .filter(function (v) { return v !== ''; }).join(',');
+  };
+  var _afIn = document.getElementById('allowedFloorsInput');
+  var _rdsIn = document.getElementById('roomDigitSumInput');
+  criteria.allowedFloors = _normNumList(_afIn ? _afIn.value : '');
+  criteria.roomDigitSums = _normNumList(_rdsIn ? _rdsIn.value : '');
 
   // 入居時期
   criteria.moveInDate = getMoveInValue();

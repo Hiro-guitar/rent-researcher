@@ -2281,6 +2281,9 @@ function handleGetCriteria(e) {
     var btMode = String(row[30] || '').trim().toLowerCase();
     if (btMode && btMode !== 'skip' && btMode !== 'none') btMode = 'alert';
     var senmenMode = String(row[40] || '').trim().toLowerCase();
+    // 特殊フィルタ: AP列(42)=希望階数, AQ列(43)=部屋番号の数字合計
+    var allowedFloors = String(row[41] || '').trim();
+    var roomDigitSums = String(row[42] || '').trim();
     if (senmenMode && senmenMode !== 'skip' && senmenMode !== 'none') senmenMode = 'alert';
     // 空文字のまま返す → Chrome拡張側でグローバル設定にフォールバック
 
@@ -2304,7 +2307,9 @@ function handleGetCriteria(e) {
       selectedTowns: selectedTowns,
       lastReinsSearch: lastReinsSearchStr,
       btMode: btMode,
-      senmenMode: senmenMode
+      senmenMode: senmenMode,
+      allowedFloors: allowedFloors,
+      roomDigitSums: roomDigitSums
     });
   }
 
@@ -3062,6 +3067,8 @@ function loadCustomerCriteriaByName(customerName) {
     var btMode = String(latestRow[30] || '').trim().toLowerCase();
     if (btMode && btMode !== 'skip' && btMode !== 'none') btMode = 'alert';
     var senmenMode = String(latestRow[40] || '').trim().toLowerCase();
+    var allowedFloors = String(latestRow[41] || '').trim();  // AP列(42)
+    var roomDigitSums = String(latestRow[42] || '').trim();  // AQ列(43)
     if (senmenMode && senmenMode !== 'skip' && senmenMode !== 'none') senmenMode = 'alert';
 
     // 閲覧統計を集計
@@ -3132,6 +3139,8 @@ function loadCustomerCriteriaByName(customerName) {
       selectedTowns: selectedTownsObj,
       btMode: btMode,
       senmenMode: senmenMode,
+      allowedFloors: allowedFloors,
+      roomDigitSums: roomDigitSums,
       viewCount: viewCount,
       lastViewAt: lastViewAt
     };
@@ -3245,6 +3254,26 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
         }
       } catch (snErr) {
         console.warn('senmenMode保存エラー: ' + snErr.message);
+      }
+    }
+    // 特殊フィルタ: 希望階数(AP列=42) / 部屋番号の数字合計(AQ列=43)
+    // 空文字も明示的に書き込む（条件を外した時にクリアされるように）
+    if (criteria.allowedFloors !== undefined || criteria.roomDigitSums !== undefined) {
+      try {
+        var ssF = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+        var sheetF = ssF.getSheetByName(CRITERIA_SHEET_NAME);
+        if (sheetF) {
+          var dataF = sheetF.getDataRange().getValues();
+          for (var fi = dataF.length - 1; fi >= 1; fi--) {
+            if (String(dataF[fi][1] || '').trim() === customerName) {
+              sheetF.getRange(fi + 1, 42).setValue(String(criteria.allowedFloors || ''));
+              sheetF.getRange(fi + 1, 43).setValue(String(criteria.roomDigitSums || ''));
+              break;
+            }
+          }
+        }
+      } catch (fErr) {
+        console.warn('特殊フィルタ保存エラー: ' + fErr.message);
       }
     }
 

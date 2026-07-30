@@ -429,6 +429,15 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       vr.shzikiFrom = '1';
       vr.shzikiTo = '1';
     }
+    // 希望階数の任意指定がある場合は所在階レンジを min〜max に絞る（無駄な詳細取得を減らす。
+    // 飛び飛びの階（例 3,5,6,7,8,11）はレンジでは表現できないため、最終判定は取得後フィルタで行う）
+    if (customerData.allowedFloors) {
+      const __afList = String(customerData.allowedFloors).split(',').map(function (v) { return parseInt(v, 10); }).filter(function (v) { return !isNaN(v); });
+      if (__afList.length > 0) {
+        vr.shzikiFrom = String(Math.min.apply(null, __afList));
+        vr.shzikiTo = String(Math.max.apply(null, __afList));
+      }
+    }
 
     // バス・トイレ別スキップモード: 設備・条件・住宅性能等(optKnsk)欄に「バス・トイレ別」を追加してREINS側で絞り込む
     if (btMode === 'skip' && (equip.includes('バストイレ別') || equip.includes('バス・トイレ別') || equip.includes('bt別'))) {

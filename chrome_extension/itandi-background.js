@@ -496,6 +496,15 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
     filterObj['parking_exists:eq'] = true;
   }
 
+  // 希望階数の任意指定: APIは範囲しか指定できないので min〜max で粗く絞る（最終判定は取得後フィルタ）
+  if (customer.allowedFloors) {
+    const afList = String(customer.allowedFloors).split(',').map(v => parseInt(v, 10)).filter(v => !isNaN(v));
+    if (afList.length > 0) {
+      filterObj['floor:gteq'] = Math.min(...afList);
+      filterObj['floor:lteq'] = Math.max(...afList);
+    }
+  }
+
   // 敷金なし・礼金なし（「どちらかなし」選択時はAPI絞り込みしない→取得後フィルタ）
   if (equip.includes('敷金なし') && !equip.includes('どちらかなし')) {
     filterObj['shikikin:eq'] = 0;
