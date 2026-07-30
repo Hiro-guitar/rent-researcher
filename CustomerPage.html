@@ -307,6 +307,7 @@ body {
       <a onclick="importInquiriesNow()" id="importInqLink">🔄 問い合わせ取込</a>
       <a onclick="reviewDuplicateLeads()" id="dupLeadLink">🧹 重複リード確認</a>
       <a onclick="reviewPendingCleanup()" id="pendingCleanupLink">🧹 承認待ち整理</a>
+      <a onclick="bulkArchiveFinished()" id="bulkArchiveLink">🗄 終了を一括アーカイブ</a>
       <a onclick="openAdminPage()">管理画面に戻る</a>
     </div>
   </div>
@@ -317,6 +318,7 @@ body {
       <div class="view-toggle">
         <button id="viewListBtn" class="vt active" onclick="setCustomerView('list')">📋 一覧</button>
         <button id="viewBoardBtn" class="vt" onclick="setCustomerView('board')">📊 ボード</button>
+        <button id="archiveToggleBtn" class="vt" onclick="toggleArchivedView()">🗄 アーカイブ</button>
       </div>
     </div>
     <div id="customerList" class="customer-list">
@@ -372,6 +374,7 @@ body {
     <div class="detail-name-bar">
       <span class="detail-name" id="detailName"></span>
       <a onclick="renameCustomerPrompt()" title="顧客名を変更" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:8px;">✏️ 名前変更</a>
+      <a id="detailArchiveBtn" title="看板から隠す（データは消えません）" style="color:#c9a227;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:8px;">🗄 アーカイブ</a>
       <span id="detailStatus"></span>
     </div>
     <div class="detail-info" id="detailInfo">
@@ -562,11 +565,66 @@ function renderCustomerList(list) {
   el.innerHTML = html;
 }
 
+var showArchived = false;  // true でアーカイブ済みのみ表示
 function filterCustomers() {
   var q = (document.getElementById('searchInput').value || '').trim().toLowerCase();
   var filtered = q ? customers.filter(function(c) { return c.name.toLowerCase().indexOf(q) >= 0; }) : customers;
+  // 通常はアーカイブ済みを隠す。「アーカイブ」表示中はアーカイブ済みだけを出す。
+  filtered = filtered.filter(function(c) { return showArchived ? !!c.archived : !c.archived; });
+  var cnt = customers.filter(function(c) { return c.archived; }).length;
+  var btn = document.getElementById('archiveToggleBtn');
+  if (btn) btn.textContent = showArchived ? '← 通常表示に戻す' : '🗄 アーカイブ (' + cnt + ')';
   if (customerView === 'board') renderKanban(filtered);
   else renderCustomerList(filtered);
+}
+
+// アーカイブ表示の切替
+function toggleArchivedView() {
+  showArchived = !showArchived;
+  filterCustomers();
+}
+
+// 「終了」の顧客をまとめてアーカイブ（既定: 最終アクションから30日以上経過）
+function bulkArchiveFinished() {
+  var ans = prompt('「終了」の顧客をまとめてアーカイブします。\n最終アクションから何日以上経過したものを対象にしますか？\n（0 と入力すると経過日数を問わず全ての「終了」が対象）', '30');
+  if (ans === null) return;
+  var days = parseInt(String(ans).replace(/[^\d]/g, ''), 10);
+  if (isNaN(days)) { showToast('数字を入力してください'); return; }
+  var link = document.getElementById('bulkArchiveLink');
+  if (link) link.textContent = 'アーカイブ中...';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (link) link.textContent = '🗄 終了を一括アーカイブ';
+      showToast((r && r.message) || '完了しました');
+      refreshCustomers();
+    })
+    .withFailureHandler(function(e) {
+      if (link) link.textContent = '🗄 終了を一括アーカイブ';
+      showToast('エラー: ' + (e && e.message ? e.message : ''));
+    })
+    .bulkArchiveFinishedCustomers(days);
+}
+
+// 1顧客のアーカイブ切替（顧客詳細から）
+function toggleCustomerArchive(name, archived) {
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) {
+        showToast(archived ? 'アーカイブしました' : 'アーカイブを解除しました');
+        for (var i = 0; i < customers.length; i++) {
+          if (customers[i].name === name) { customers[i].archived = !!archived; break; }
+        }
+        var btn = document.getElementById('detailArchiveBtn');
+        if (btn) {
+          btn.textContent = archived ? 'アーカイブ解除' : '🗄 アーカイブ';
+          btn.setAttribute('onclick', 'toggleCustomerArchive(\'' + esc(name) + '\',' + (archived ? 'false' : 'true') + ')');
+        }
+      } else {
+        showToast((r && r.message) || '失敗しました');
+      }
+    })
+    .withFailureHandler(function(e) { showToast('エラー: ' + (e && e.message ? e.message : '')); })
+    .setCustomerArchived(name, archived);
 }
 
 // ══════════════════════════════════════════
@@ -830,6 +888,18 @@ function openDetail(name) {
 function renderDetail(data) {
   // ステータスバッジ + 変更ドロップダウン
   document.getElementById('detailStatus').innerHTML = statusBadge(data.status) + buildStatusChanger(data.status);
+  // アーカイブボタン（一覧キャッシュの状態を参照）
+  {
+    var _isArch = false;
+    for (var _ai = 0; _ai < customers.length; _ai++) {
+      if (customers[_ai].name === currentCustomer) { _isArch = !!customers[_ai].archived; break; }
+    }
+    var _abtn = document.getElementById('detailArchiveBtn');
+    if (_abtn) {
+      _abtn.textContent = _isArch ? 'アーカイブ解除' : '🗄 アーカイブ';
+      _abtn.setAttribute('onclick', 'toggleCustomerArchive(\'' + esc(currentCustomer) + '\',' + (_isArch ? 'false' : 'true') + ')');
+    }
+  }
 
   // 基本情報
   var info = '';

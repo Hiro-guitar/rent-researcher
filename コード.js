@@ -4225,6 +4225,89 @@ function handleCustomerPage(e) {
 /**
  * google.script.run 用: CRM顧客一覧を返す（ページ再描画に使用）。
  */
+function setCustomerArchived(customerName, archived) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { success: false, message: '検索条件シートが見つかりません' };
+    var nameTrim = String(customerName || '').trim();
+    if (!nameTrim) return { success: false, message: '顧客名がありません' };
+    var data = sheet.getDataRange().getValues();
+    var hit = 0;
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1] || '').trim() !== nameTrim) continue;
+      sheet.getRange(i + 1, 45).setValue(archived ? new Date() : '');  // AS列(45)
+      hit++;
+    }
+    if (!hit) return { success: false, message: nameTrim + ' が見つかりません' };
+    return { success: true, archived: !!archived };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * 「終了」ステージの顧客をまとめてアーカイブする（データは消さず看板から隠すだけ）。
+ * 最終アクション（無ければ登録日）から days 日以上経過したものだけを対象にする。
+ * @param {number} days 経過日数のしきい値（既定30日。0なら経過日数を問わない）
+ */
+function bulkArchiveFinishedCustomers(days) {
+  try {
+    var th = (days === 0 || days) ? Number(days) : 30;
+    if (isNaN(th) || th < 0) th = 30;
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { success: false, message: '検索条件シートが見つかりません' };
+    var data = sheet.getDataRange().getValues();
+
+    // 最終アクション日を アクションログ から集計（顧客名 → 最新日時ms）
+    var lastActionMs = {};
+    try {
+      var aSheet = ss.getSheetByName('アクションログ');
+      if (aSheet && aSheet.getLastRow() > 1) {
+        var aData = aSheet.getDataRange().getValues();
+        for (var a = 1; a < aData.length; a++) {
+          var an = String(aData[a][0] || '').trim();
+          if (!an) continue;
+          var raw = aData[a][8];
+          var d = (raw instanceof Date) ? raw : (raw ? new Date(String(raw).replace(/-/g, '/')) : null);
+          if (!d || isNaN(d.getTime())) continue;
+          if (!lastActionMs[an] || d.getTime() > lastActionMs[an]) lastActionMs[an] = d.getTime();
+        }
+      }
+    } catch (eA) {}
+
+    var nowMs = Date.now();
+    var cutoff = th * 24 * 60 * 60 * 1000;
+    var archivedNames = [];
+    for (var i = 1; i < data.length; i++) {
+      var name = String(data[i][1] || '').trim();
+      if (!name) continue;
+      if (String(data[i][32] || '').trim() !== '終了') continue;  // AG列(33): 営業ステージ
+      if (String(data[i][44] || '').trim()) continue;            // 既にアーカイブ済み
+      // 経過日数の判定（最終アクション → 無ければ登録日）
+      var baseMs = lastActionMs[name] || 0;
+      if (!baseMs) {
+        var reg = data[i][0];
+        if (reg instanceof Date) baseMs = reg.getTime();
+      }
+      if (th > 0 && baseMs && (nowMs - baseMs) < cutoff) continue;
+      sheet.getRange(i + 1, 45).setValue(new Date());
+      archivedNames.push(name);
+    }
+    return {
+      success: true,
+      count: archivedNames.length,
+      names: archivedNames,
+      message: archivedNames.length > 0
+        ? archivedNames.length + '名をアーカイブしました'
+        : 'アーカイブ対象はありませんでした'
+    };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
 function getCustomerListForCRM() {
   return _getCustomerListForCRM_();
 }
@@ -4264,6 +4347,12 @@ function _getCustomerListForCRM_() {
         name: name, status: status, stage: stage, order: order,
         registeredAt: regStr, lastAction: '',
         email: String(data[i][31] || '').trim(),  // AF列(32): メール
+        // AS列(45): アーカイブ日時（入っていれば看板から隠す）
+        archived: !!String(data[i][44] || '').trim(),
+        archivedAt: (function(v){
+          if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy/MM/dd');
+          return String(v || '').trim().substring(0, 10);
+        })(data[i][44]),
         phone: String(data[i][34] || '').trim(),  // AI列(35): 手動登録の電話番号
         hasPhone: !!String(data[i][34] || '').trim()
       };
