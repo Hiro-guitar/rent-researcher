@@ -487,21 +487,20 @@ function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithin
   const equip = toHankaku(customer.equipment || '').toLowerCase();
   if (equip.includes('2階以上')) {
     filterObj['floor:gteq'] = 2;
-  } else if (equip.includes('1階') && !equip.includes('1階以上')) {
-    filterObj['floor:lteq'] = 1;
   }
+  // ※「1階のみ」は floor:lteq が itandi API 非対応(400)のためAPIでは絞らず、取得後フィルタで判定する
 
   // 駐車場あり: APIで絞り込み（parking_exists:eq。実API検証 2026-07-29: 東京都1K6万以下 1499→172件）
   if (equip.includes('駐車場あり')) {
     filterObj['parking_exists:eq'] = true;
   }
 
-  // 希望階数の任意指定: APIは範囲しか指定できないので min〜max で粗く絞る（最終判定は取得後フィルタ）
+  // 希望階数の任意指定: 下限(min)だけAPIで絞る。最終判定は取得後フィルタ。
+  // ※ itandi APIは floor:lteq を受け付けない(400 invalid params。実API検証 2026-07-29)ため上限は送らない
   if (customer.allowedFloors) {
     const afList = String(customer.allowedFloors).split(',').map(v => parseInt(v, 10)).filter(v => !isNaN(v));
     if (afList.length > 0) {
       filterObj['floor:gteq'] = Math.min(...afList);
-      filterObj['floor:lteq'] = Math.max(...afList);
     }
   }
 
@@ -1233,8 +1232,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     if (f['station_walk_minutes:lteq']) filterParts.push(`徒歩${f['station_walk_minutes:lteq']}分`);
     if (f['structure_type:in']) filterParts.push(`構造: ${f['structure_type:in'].join('/')}`);
     if (f['option_id:all_in']) filterParts.push(`設備ID: ${f['option_id:all_in'].join(',')}`);
-    if (f['floor:gteq']) filterParts.push('2階以上');
-    if (f['floor:lteq'] === 1) filterParts.push('1階');
+    if (f['floor:gteq']) filterParts.push(`${f['floor:gteq']}階以上`);
     if (f['shikikin:eq'] === 0) filterParts.push('敷金なし');
     if (f['reikin:eq'] === 0) filterParts.push('礼金なし');
     if (f['parking_exists:eq']) filterParts.push('駐車場あり');

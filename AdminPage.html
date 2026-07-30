@@ -2592,10 +2592,11 @@ function sendConditionToLine(messageType) {
 }
 
 function resetForm() {
+  // GASは入れ子iframeのため location.reload() すると白画面になる。
+  // リロードせず、その場で入力画面に戻す（入力値は保持＝そのまま続けて編集できる）。
   document.getElementById('success').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  // 顧客リストを更新するためリロード
-  window.location.reload();
+  try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { window.scrollTo(0, 0); }
 }
 
 // ══════════════════════════════════════════════════════════
