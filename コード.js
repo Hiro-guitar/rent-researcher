@@ -345,7 +345,10 @@ function doPost(e) {
 
       // コマンド: 空室確認 → state を WAITING_VACANCY にして案内文返信
       if (message === '空室確認' || message === 'くうしつかくにん') {
-        saveState(userId, { step: STEPS.WAITING_VACANCY, data: {} });
+        saveState(userId, {
+          step: STEPS.WAITING_VACANCY,
+          data: { vacancyExpireAt: Date.now() + VACANCY_MODE_TTL_MS }
+        });
         replyMessage(replyToken, [textMsg(
           '空室確認を承ります。\n\n' +
           '以下のいずれかをお送りください：\n\n' +
@@ -411,8 +414,17 @@ function doPost(e) {
           replyMessage(replyToken, [textMsg('空室確認を終了しました。')]);
           return;
         }
-        handleVacancyQuery(replyToken, userId, message);
-        return;
+        // 有効期限切れ → モードを抜けて通常のメッセージとして扱う。
+        // （放置された空室確認モードが、後日の無関係なメッセージを
+        //   検索クエリとして拾ってしまうのを防ぐ）
+        var _vacExp = state.data && state.data.vacancyExpireAt;
+        if (_vacExp && Date.now() > _vacExp) {
+          console.log('[空室確認] モード期限切れのため解除: ' + userId);
+          clearState(userId);
+        } else {
+          handleVacancyQuery(replyToken, userId, message);
+          return;
+        }
       }
 
       // 類似物件不要（遅延返信Flexの「いいえ」ボタン）

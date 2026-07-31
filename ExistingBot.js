@@ -225,6 +225,12 @@ function isVacancyFillerText(raw) {
   return false;
 }
 
+/** 返信文にお客様の入力をそのまま載せるとURL等で長くなるので短く丸める */
+function _shortenForReply_(raw) {
+  var s = String(raw == null ? '' : raw).replace(/[\r\n]+/g, ' ').trim();
+  return s.length > 30 ? s.substring(0, 30) + '…' : s;
+}
+
 /** 入力から面積を抽出（「24」「24.32」「24m²」「24㎡」「24平米」等に対応） */
 function extractAreaNumber(message) {
   if (message == null) return null;
@@ -327,50 +333,36 @@ function handleVacancyQuery(replyToken, userId, raw) {
       }
     }
 
-    // 0件 → 数回まで再入力受付。既定回数を超えたら自動終了 (永遠ループ防止)
-    var MAX_VACANCY_MISS = 3;
+    // 0件 → 1回で空室確認モードを終了し、やり直しボタンを提示する。
+    //
+    // 2026-07-31 変更: 以前は「3回外したら自動終了」だったが
+    //   - お客様には同じ案内が繰り返されるだけでループ感がある
+    //   - 回数を稼ぐ間ずっと空室確認モードが生きるため、その後に届いた
+    //     無関係なメッセージまで検索クエリとして拾い、
+    //     「該当する物件が見つかりませんでした」を返してしまう
+    // ため1回で終了に変更。やり直しはボタン（＝明示的な再開）で行う。
     if (matched.length === 0) {
-      var prevState = getState(userId);
-      var missCount = (prevState.data && prevState.data.vacancyMissCount) || 0;
-      missCount++;
-      if (missCount >= MAX_VACANCY_MISS) {
-        // 自動終了 (Quick Replyで再開ボタン提示)
-        clearState(userId);
-        replyMessage(replyToken, [textMsgWithQuickReply(
-          '何度かお調べしましたが、該当する物件が見つかりませんでした。\n\n' +
-          '空室確認を一度終了します。\n' +
-          'もう一度お調べしたい場合は下のボタンをタップしてください。',
-          [qrMessage('🏠 空室確認', '空室確認')]
-        )]);
-        return;
-      }
-      // 継続して再入力待ち (missCount を保存)
-      prevState.data = prevState.data || {};
-      prevState.data.vacancyMissCount = missCount;
-      saveState(userId, prevState);
-      replyMessage(replyToken, [textMsg(
-        '該当する物件が見つかりませんでした。\n\n' +
-        '以下のいずれかでお調べできます：\n\n' +
-        '　・物件名（例: ○○マンション101）\n' +
-        '　・所在地（例: 渋谷区神宮前）\n' +
-        '　・最寄駅（例: 新宿駅）\n' +
-        '　・専有面積（例: 25.5）\n' +
-        '　・募集ページのURL\n\n' +
-        '中止する場合は「キャンセル」とお送りください。'
+      clearState(userId);
+      replyMessage(replyToken, [textMsgWithQuickReply(
+        '「' + _shortenForReply_(raw) + '」では該当する物件が見つかりませんでした。\n\n' +
+        'もう一度お調べする場合は、下のボタンをタップしてください。',
+        [qrMessage('🏠 もう一度空室確認', '空室確認')]
       )]);
       return;
     }
 
-    // 件数超過 → 件数のみ返して絞込誘導（state継続、ただしミスカウントはリセット）
+    // 件数超過 → 件数のみ返して絞込誘導（絞り込み中なのでモードは継続。期限は延長する）
     if (matched.length > 12) {
-      var prevState2 = getState(userId);
-      if (prevState2.data && prevState2.data.vacancyMissCount) {
-        prevState2.data.vacancyMissCount = 0;
-        saveState(userId, prevState2);
-      }
-      replyMessage(replyToken, [textMsg(
-        '「' + raw + '」で' + matched.length + '件見つかりました。\n\n' +
-        '物件名や専有面積でも絞り込めますので、別の条件でもお試しください。'
+      var prevState2 = getState(userId) || {};
+      prevState2.step = STEPS.WAITING_VACANCY;
+      prevState2.data = prevState2.data || {};
+      delete prevState2.data.vacancyMissCount;  // 旧カウンタの残骸を掃除
+      prevState2.data.vacancyExpireAt = Date.now() + VACANCY_MODE_TTL_MS;
+      saveState(userId, prevState2);
+      replyMessage(replyToken, [textMsgWithQuickReply(
+        '「' + _shortenForReply_(raw) + '」で' + matched.length + '件見つかりました。\n\n' +
+        '物件名や専有面積でも絞り込めますので、別の条件でもお試しください。',
+        [qrMessage('✖️ 中止する', 'キャンセル')]
       )]);
       return;
     }
