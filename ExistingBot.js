@@ -177,6 +177,54 @@ function extractStructuredValues(raw) {
   return values;
 }
 
+/**
+ * 空室確認の入力として無視すべき相槌・お礼・挨拶のみのメッセージか判定する。
+ *
+ * 2026-07-31 の事故:
+ *   お客様が SUUMO URL を送って物件がヒットした直後に「おねがいします」と送信。
+ *   これが物件名として検索され 0 件 →「該当する物件が見つかりませんでした」が
+ *   ヒット通知の直後に届き、矛盾したメッセージになった。
+ *
+ * 該当した場合は検索も返信もせず、state もそのまま維持する（スタッフが手動返信する）。
+ */
+var VACANCY_FILLER_TEXTS = [
+  // 依頼・お願い
+  'おねがい', 'おねがいします', 'おねがいいたします', 'おねがいします',
+  'お願い', 'お願いします', 'お願いいたします', 'お願い致します',
+  'よろしく', 'よろしくです', 'よろしくおねがいします', 'よろしくおねがいいたします',
+  'よろしくお願いします', 'よろしくお願いいたします', 'よろしくお願い致します',
+  '宜しくお願いします', '宜しくお願いいたします', '宜しくお願い致します',
+  // お礼
+  'ありがとう', 'ありがとうございます', 'ありがとうございました', 'ありがとうです',
+  'たすかります', '助かります',
+  // 相槌・了承
+  'はい', 'うん', 'ok', 'おk', 'おけ',
+  '了解', '了解です', 'りょうかい', 'りょうかいです',
+  'わかりました', '分かりました', '承知しました', '承知です', 'かしこまりました',
+  '大丈夫です', 'だいじょうぶです',
+  // 謝罪・挨拶
+  'すみません', 'すいません', 'ごめんなさい',
+  'こんにちは', 'こんばんは', 'おはよう', 'おはようございます', 'はじめまして',
+  'お世話になります', 'お世話になっております'
+];
+
+function isVacancyFillerText(raw) {
+  if (raw == null) return false;
+  // NFKC正規化 → 空白・句読点・記号・絵文字まわりを除去して素の語だけにする
+  var n = String(raw).normalize('NFKC')
+    .replace(/[\s　]/g, '')
+    .replace(/[!！?？。、．，,.~〜ー…\-‐−ｰ()（）「」『』]/g, '')
+    .toLowerCase();
+  if (!n) return true;           // 空・記号のみ → 検索しない
+  if (n.length > 20) return false; // 長文は本文が入っている可能性が高いので検索へ回す
+  for (var i = 0; i < VACANCY_FILLER_TEXTS.length; i++) {
+    var f = String(VACANCY_FILLER_TEXTS[i]).normalize('NFKC')
+      .replace(/[\s　]/g, '').toLowerCase();
+    if (n === f) return true;
+  }
+  return false;
+}
+
 /** 入力から面積を抽出（「24」「24.32」「24m²」「24㎡」「24平米」等に対応） */
 function extractAreaNumber(message) {
   if (message == null) return null;
@@ -199,6 +247,12 @@ function extractBcNumber(message) {
  */
 function handleVacancyQuery(replyToken, userId, raw) {
   try {
+    // 相槌・お礼だけのメッセージ（「おねがいします」等）は物件名ではないので検索しない。
+    // 返信もせず state も維持する（ミスカウントも増やさない）。
+    if (isVacancyFillerText(raw)) {
+      console.log('[空室確認] 相槌のため検索スキップ: ' + raw);
+      return;
+    }
     var ss = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
     var sheet = ss.getSheetByName(PROPERTY_SHEET_NAME);
     if (!sheet) {
@@ -321,6 +375,13 @@ function handleVacancyQuery(replyToken, userId, raw) {
       return;
     }
 
+    // ヒット確定 → この時点で空室確認モードを抜ける。
+    // ⚠️ 返信・キュー追加・Discord通知(最大3回リトライ)の後に解除していたため、
+    //    その数十秒の間に届いた次のメッセージがまだ空室確認モード扱いで検索に回り、
+    //    「該当する物件が見つかりませんでした」が誤送信された (2026-07-31 事故)。
+    //    以降で例外が出ても state が残らないという副次的な利点もある。
+    clearState(userId);
+
     // ヒット → Flex Carousel 返信
     var bubbles = [];
     var unavailable = [];
@@ -366,9 +427,7 @@ function handleVacancyQuery(replyToken, userId, raw) {
         console.error('要確認Discord通知エラー: ' + eDiscord.message);
       }
     }
-
-    // 検索完了 → state解除
-    clearState(userId);
+    // ※ state解除は検索ヒット直後に実施済み（上記コメント参照）
   } catch (e) {
     console.error('handleVacancyQuery Error: ' + e.message + '\n' + e.stack);
     replyMessage(replyToken, [textMsg('検索中にエラーが発生しました。もう一度お試しください。')]);
