@@ -3840,9 +3840,32 @@ async function refreshCriteria() {
       await setStorageData({ debugLog: `GAS criteria error: ${result.error}` });
     }
     if (result && result.criteria) {
-      // デバッグ: 全顧客のequipment値を出力
-      const equipDebug = result.criteria.map(c => `${c.name}:[${c.equipment||''}]`).join(' | ');
-      await setStorageData({ debugLog: `DEBUG equips: ${equipDebug}` });
+      // 新しく現れた条件は既定OFF（チェックしたときに初めて検索対象になる） (2026-08-01)。
+      // 以前は「除外リストに無い＝対象」だったため、シートに顧客を追加すると
+      // 次のサイクルから勝手に検索が走っていた。
+      // ※ 初回インストール直後(prev空)は全件を新規扱いすると何も検索されなくなるので、
+      //   そのときだけ従来どおり全件ONのままにする。
+      try {
+        const prevStore = await getStorageData(['customerCriteria', 'excludedCustomers']);
+        const prev = prevStore.customerCriteria || [];
+        if (prev.length > 0) {
+          const critKey = (c) => (c && c.recommend ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : ''));
+          const prevKeys = new Set(prev.map(critKey));
+          const freshKeys = result.criteria.map(critKey).filter(k => k && !prevKeys.has(k));
+          if (freshKeys.length > 0) {
+            const merged = Array.from(new Set([...(prevStore.excludedCustomers || []), ...freshKeys]));
+            await setStorageData({ excludedCustomers: merged });
+            const labels = result.criteria
+              .filter(c => freshKeys.includes(critKey(c)))
+              .map(c => c.recommend ? `${c.name}(おすすめ: ${c.recommendLabel || ''})` : c.name);
+            await setStorageData({
+              debugLog: `新しい条件 ${freshKeys.length}件を検出 → 既定OFF（顧客フィルタでチェックすると検索されます）: ${labels.join('、')}`
+            });
+          }
+        }
+      } catch (eNew) {
+        console.warn('[新規条件の既定OFF] 失敗（続行）:', eNew.message);
+      }
       chrome.storage.local.set({
         customerCriteria: result.criteria,
         lastCriteriaFetch: Date.now()
@@ -4046,7 +4069,7 @@ globalThis.runSearchCycle = async function runSearchCycle() {
       await setStorageData({ debugLog: '検索条件がありません（GASに条件が登録されていない可能性）' });
       return;
     }
-    // 除外リストに入っている顧客をスキップ（新規顧客は自動で検索対象）
+    // 除外リストに入っている顧客をスキップ（新規条件は refreshCriteria で既定OFF）
     const excluded = excludedCustomers || [];
     // エントリ固有キーで除外判定（本人=名前 / おすすめ条件=rec::ID）。
     // これで本人の条件とおすすめ条件を独立してON/OFFできる。
@@ -4064,8 +4087,15 @@ globalThis.runSearchCycle = async function runSearchCycle() {
       return;
     }
     const skipped = allCriteria.length - criteria.length;
-    const skippedMsg = skipped > 0 ? `（${skipped}件スキップ）` : '';
-    await setStorageData({ debugLog: `検索条件 ${criteria.length}件取得完了${skippedMsg}` });
+    const skippedMsg = skipped > 0 ? `（チェック外 ${skipped}件は対象外）` : '';
+    await setStorageData({ debugLog: `検索条件 ${criteria.length}件${skippedMsg}` });
+    // 設備条件のダンプ。以前は取得した全件(除外分も含む)を出していてログが埋まっていたため、
+    // 実際に検索する条件だけに絞る。おすすめ条件は本人と区別が付くようラベルを添える。
+    const equipDebug = criteria.map(c => {
+      const label = c.recommend ? `${c.name}(おすすめ: ${c.recommendLabel || ''})` : c.name;
+      return `${label}:[${c.equipment || ''}]`;
+    }).join(' | ');
+    await setStorageData({ debugLog: `設備条件: ${equipDebug}` });
 
     let seenIds = {};
     await setStorageData({ debugLog: '既知物件IDを取得中...' });
