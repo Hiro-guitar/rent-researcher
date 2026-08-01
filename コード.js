@@ -4874,23 +4874,72 @@ function deleteContactLog(rowNum, customerName) {
 
 // ══════════════════════════════════════════════════════════
 //  顧客ごとのタスク（todo）
-//  シート「タスク」: A顧客名 / B内容 / C期限(Date) / D完了(TRUE/'') / E作成日時
+//  シート「タスク」:
+//    A顧客名 / B内容 / C期限(Date) / D完了(TRUE/'') / E作成日時
+//    F ボール（誰が動く番か: 自分 / お客さん / 管理会社） / G ボール更新日時
 //  行番号(rowNum)をIDとして扱う（対応ログと同じ方式）。
 // ══════════════════════════════════════════════════════════
 var TASK_SHEET_NAME = 'タスク';
+var TASK_COLS = 7;
+var TASK_HEADERS = ['顧客名', '内容', '期限', '完了', '作成日時', 'ボール', 'ボール更新日時'];
+
+// ボール（誰が動く番か）。'自分' 以外は「相手待ち」として扱う。
+var TASK_OWNERS = ['自分', 'お客さん', '管理会社'];
+var TASK_OWNER_DEFAULT = '自分';
+
+/** 入力値を正規の担当名に丸める（不明な値・空は既定の「自分」）。 */
+function _normalizeTaskOwner_(v) {
+  var s = String(v == null ? '' : v).trim();
+  for (var i = 0; i < TASK_OWNERS.length; i++) {
+    if (s === TASK_OWNERS[i]) return s;
+  }
+  return TASK_OWNER_DEFAULT;
+}
 
 function _getTaskSheet_() {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sheet = ss.getSheetByName(TASK_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(TASK_SHEET_NAME);
-    sheet.appendRow(['顧客名', '内容', '期限', '完了', '作成日時']);
+    sheet.appendRow(TASK_HEADERS);
     try {
-      sheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#e0e0e0');
+      sheet.getRange(1, 1, 1, TASK_COLS).setFontWeight('bold').setBackground('#e0e0e0');
       sheet.setFrozenRows(1);
     } catch (e) {}
+    return sheet;
+  }
+  // 既存シートに ボール列(F,G) が無ければ足す（既存データは触らない）。
+  // 値が空の行は読み出し時に既定の「自分」として扱うので、行の埋め直しは不要。
+  try {
+    if (sheet.getMaxColumns() < TASK_COLS) {
+      sheet.insertColumnsAfter(sheet.getMaxColumns(), TASK_COLS - sheet.getMaxColumns());
+    }
+    var head = sheet.getRange(1, 1, 1, TASK_COLS).getValues()[0];
+    var needsHeader = false;
+    for (var h = 0; h < TASK_COLS; h++) {
+      if (String(head[h] || '').trim() !== TASK_HEADERS[h]) { needsHeader = true; break; }
+    }
+    if (needsHeader) {
+      sheet.getRange(1, 1, 1, TASK_COLS).setValues([TASK_HEADERS]);
+      sheet.getRange(1, 1, 1, TASK_COLS).setFontWeight('bold').setBackground('#e0e0e0');
+    }
+  } catch (eMig) {
+    console.warn('[タスク] ボール列の追加に失敗（続行）: ' + eMig.message);
   }
   return sheet;
+}
+
+/**
+ * 相手ボールになってから何日経ったかを返す（自分ボール・完了済みは null）。
+ * ボール更新日時(G)が無い既存行は作成日時(E)で代用する。
+ */
+function _taskWaitDays_(ownerSince, createdAt, owner, done) {
+  if (done || owner === TASK_OWNER_DEFAULT) return null;
+  var base = (ownerSince instanceof Date) ? ownerSince
+           : ((createdAt instanceof Date) ? createdAt : null);
+  if (!base) return null;
+  var days = Math.floor((Date.now() - base.getTime()) / 86400000);
+  return days < 0 ? 0 : days;
 }
 
 /** 顧客のタスク一覧を返す（未完了→期限昇順、完了は末尾）。google.script.run から呼ばれる。 */
@@ -4899,7 +4948,7 @@ function getCustomerTasks(customerName) {
     var sheet = _getTaskSheet_();
     var last = sheet.getLastRow();
     if (last < 2) return [];
-    var data = sheet.getRange(2, 1, last - 1, 5).getValues();
+    var data = sheet.getRange(2, 1, last - 1, TASK_COLS).getValues();
     var nameTrim = String(customerName).trim();
     var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
     var out = [];
@@ -4908,12 +4957,16 @@ function getCustomerTasks(customerName) {
       var due = data[i][2];
       var dueStr = (due instanceof Date) ? Utilities.formatDate(due, 'Asia/Tokyo', 'yyyy-MM-dd') : (due ? String(due).substring(0, 10) : '');
       var done = String(data[i][3] || '') === 'TRUE' || data[i][3] === true;
+      var owner = _normalizeTaskOwner_(data[i][5]);
       out.push({
         rowNum: i + 2,
         content: String(data[i][1] || ''),
         due: dueStr,
         done: done,
-        overdue: (!done && dueStr && dueStr < todayStr)
+        overdue: (!done && dueStr && dueStr < todayStr),
+        owner: owner,
+        waiting: (owner !== TASK_OWNER_DEFAULT),
+        waitDays: _taskWaitDays_(data[i][6], data[i][4], owner, done)
       });
     }
     out.sort(function (a, b) {
@@ -4930,18 +4983,37 @@ function getCustomerTasks(customerName) {
 }
 
 /** タスク追加。google.script.run から呼ばれる。 */
-function addCustomerTask(customerName, content, dueStr) {
+function addCustomerTask(customerName, content, dueStr, owner) {
   try {
     content = String(content || '').trim();
     if (!content) return { success: false, message: '内容を入力してください' };
     var sheet = _getTaskSheet_();
     var due = '';
     if (dueStr) { var d = new Date(String(dueStr).replace(/-/g, '/')); if (!isNaN(d.getTime())) due = d; }
-    sheet.appendRow([String(customerName).trim(), content, due, '', new Date()]);
+    var now = new Date();
+    sheet.appendRow([
+      String(customerName).trim(), content, due, '', now,
+      _normalizeTaskOwner_(owner), now
+    ]);
     return { success: true };
   } catch (e) {
     return { success: false, message: e.message };
   }
+}
+
+/**
+ * ボール（誰が動く番か）だけを切り替える。やること列からワンタップで変える用。
+ * 切り替えた時刻を記録して「相手待ち◯日」を数えられるようにする。
+ */
+function setTaskOwner(rowNum, customerName, owner) {
+  var chk = _checkTaskRow_(rowNum, customerName);
+  if (!chk.ok) return { success: false, message: chk.message };
+  var normalized = _normalizeTaskOwner_(owner);
+  var prev = _normalizeTaskOwner_(chk.sheet.getRange(chk.rowNum, 6).getValue());
+  chk.sheet.getRange(chk.rowNum, 6).setValue(normalized);
+  // 同じ担当への付け替えでは待ち日数をリセットしない
+  if (prev !== normalized) chk.sheet.getRange(chk.rowNum, 7).setValue(new Date());
+  return { success: true, owner: normalized };
 }
 
 /** タスクの完了/未完了を切り替える。 */
@@ -4952,8 +5024,8 @@ function toggleCustomerTask(rowNum, customerName, done) {
   return { success: true };
 }
 
-/** タスクの内容/期限を編集する。 */
-function updateCustomerTask(rowNum, customerName, content, dueStr) {
+/** タスクの内容/期限/ボールを編集する。 */
+function updateCustomerTask(rowNum, customerName, content, dueStr, owner) {
   var chk = _checkTaskRow_(rowNum, customerName);
   if (!chk.ok) return { success: false, message: chk.message };
   content = String(content || '').trim();
@@ -4962,6 +5034,13 @@ function updateCustomerTask(rowNum, customerName, content, dueStr) {
   if (dueStr) { var d = new Date(String(dueStr).replace(/-/g, '/')); if (!isNaN(d.getTime())) due = d; }
   chk.sheet.getRange(chk.rowNum, 2).setValue(content);
   chk.sheet.getRange(chk.rowNum, 3).setValue(due);
+  // owner 未指定（旧UIからの呼び出し）ではボールを触らない
+  if (owner !== undefined && owner !== null && owner !== '') {
+    var normalized = _normalizeTaskOwner_(owner);
+    var prev = _normalizeTaskOwner_(chk.sheet.getRange(chk.rowNum, 6).getValue());
+    chk.sheet.getRange(chk.rowNum, 6).setValue(normalized);
+    if (prev !== normalized) chk.sheet.getRange(chk.rowNum, 7).setValue(new Date());
+  }
   return { success: true };
 }
 
@@ -5001,7 +5080,7 @@ function getAllTasks(includeDone) {
     var sheet = _getTaskSheet_();
     var last = sheet.getLastRow();
     if (last < 2) return { tasks: [], counts: { open: 0, overdue: 0, today: 0 } };
-    var data = sheet.getRange(2, 1, last - 1, 5).getValues();
+    var data = sheet.getRange(2, 1, last - 1, TASK_COLS).getValues();
     var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 
     // アーカイブ済み顧客（AS列=45に日時が入っている）を拾っておく
@@ -5020,7 +5099,8 @@ function getAllTasks(includeDone) {
       console.warn('[getAllTasks] アーカイブ判定に失敗（続行）: ' + eArch.message);
     }
 
-    var out = [], openCount = 0, overdueCount = 0, todayCount = 0;
+    var out = [];
+    var openCount = 0, overdueCount = 0, todayCount = 0, mineCount = 0, waitingCount = 0;
     for (var i = 0; i < data.length; i++) {
       var nm = String(data[i][0] || '').trim();
       if (!nm) continue;
@@ -5033,10 +5113,13 @@ function getAllTasks(includeDone) {
         : (due ? String(due).substring(0, 10) : '');
       var isOverdue = (!done && !!dueStr && dueStr < todayStr);
       var isToday = (!done && dueStr === todayStr);
+      var owner = _normalizeTaskOwner_(data[i][5]);
+      var waiting = (owner !== TASK_OWNER_DEFAULT);
       if (!done) {
         openCount++;
         if (isOverdue) overdueCount++;
         if (isToday) todayCount++;
+        if (waiting) waitingCount++; else mineCount++;
       }
       if (done && !includeDone) continue;
       out.push({
@@ -5047,14 +5130,25 @@ function getAllTasks(includeDone) {
         done: done,
         overdue: isOverdue,
         today: isToday,
+        owner: owner,
+        waiting: waiting,
+        waitDays: _taskWaitDays_(data[i][6], data[i][4], owner, done),
         archived: !!archivedMap[nm]
       });
     }
 
     out.sort(function (a, b) {
-      if (a.done !== b.done) return a.done ? 1 : -1;   // 未完了が上
+      if (a.done !== b.done) return a.done ? 1 : -1;    // 未完了が上
+      // 自分ボールを先に（相手待ちは眺めるだけなので下に置く）
+      if (a.waiting !== b.waiting) return a.waiting ? 1 : -1;
+      if (a.waiting) {
+        // 相手待ちは「待たせている期間が長い順」＝催促すべき順
+        var wa = (a.waitDays == null ? -1 : a.waitDays);
+        var wb = (b.waitDays == null ? -1 : b.waitDays);
+        if (wa !== wb) return wb - wa;
+      }
       if (!a.due && !b.due) return a.customer < b.customer ? -1 : 1;
-      if (!a.due) return 1;                            // 期限なしは後ろ
+      if (!a.due) return 1;                             // 期限なしは後ろ
       if (!b.due) return -1;
       if (a.due !== b.due) return a.due < b.due ? -1 : 1;
       return a.customer < b.customer ? -1 : 1;
@@ -5062,11 +5156,20 @@ function getAllTasks(includeDone) {
 
     return {
       tasks: out,
-      counts: { open: openCount, overdue: overdueCount, today: todayCount }
+      counts: {
+        open: openCount, overdue: overdueCount, today: todayCount,
+        mine: mineCount, waiting: waitingCount
+      },
+      owners: TASK_OWNERS
     };
   } catch (e) {
     console.error('getAllTasks エラー: ' + e.message);
-    return { tasks: [], counts: { open: 0, overdue: 0, today: 0 }, error: e.message };
+    return {
+      tasks: [],
+      counts: { open: 0, overdue: 0, today: 0, mine: 0, waiting: 0 },
+      owners: TASK_OWNERS,
+      error: e.message
+    };
   }
 }
 

@@ -737,9 +737,10 @@ function renderKanban(list) {
 //  カンバン右の空きスペースに常設する。
 // ══════════════════════════════════════════
 var _allTasks = [];
-var _taskCounts = { open: 0, overdue: 0, today: 0 };
+var _taskCounts = { open: 0, overdue: 0, today: 0, mine: 0, waiting: 0 };
 var _taskShowDone = false;
 var _taskLoaded = false;
+var _taskFilter = 'all';   // 'all' | 'mine'（自分がボール） | 'waiting'（相手待ち）
 
 function taskColumnHtml() {
   return '<div class="kanban-col" id="taskColumn" style="flex:0 0 280px;">'
@@ -759,7 +760,7 @@ function loadTaskOverview() {
     .withSuccessHandler(function(res) {
       res = res || {};
       _allTasks = res.tasks || [];
-      _taskCounts = res.counts || { open: 0, overdue: 0, today: 0 };
+      _taskCounts = res.counts || { open: 0, overdue: 0, today: 0, mine: 0, waiting: 0 };
       _taskLoaded = true;
       renderTaskColumn();
     })
@@ -780,20 +781,59 @@ function renderTaskColumn() {
   if (chk) chk.checked = _taskShowDone;
 
   var h = '';
+  // ボールでの絞り込み（既定は「すべて」＝何も隠さない。並びは自分ボールが先）
+  h += '<div style="display:flex;gap:4px;margin-bottom:6px;">'
+    + taskFilterBtnHtml('all', 'すべて', _taskCounts.open)
+    + taskFilterBtnHtml('mine', '🟢 自分', _taskCounts.mine)
+    + taskFilterBtnHtml('waiting', '⏳ 待ち', _taskCounts.waiting)
+    + '</div>';
   if (_taskCounts.overdue || _taskCounts.today) {
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:11px;font-weight:600;">';
     if (_taskCounts.overdue) h += '<span style="color:#e0707a;">⚠️ 期限切れ ' + _taskCounts.overdue + '</span>';
     if (_taskCounts.today) h += '<span style="color:#e0b64a;">📅 今日 ' + _taskCounts.today + '</span>';
     h += '</div>';
   }
-  if (!_allTasks.length) {
+
+  var shown = [];
+  for (var i = 0; i < _allTasks.length; i++) {
+    var t = _allTasks[i];
+    if (_taskFilter === 'mine' && (t.waiting || t.done)) continue;
+    if (_taskFilter === 'waiting' && (!t.waiting || t.done)) continue;
+    shown.push(i);
+  }
+  if (!shown.length) {
     h += '<div style="color:#888;font-size:12px;">'
       + (_taskLoaded ? 'タスクはありません' : '読み込み中...') + '</div>';
     body.innerHTML = h;
     return;
   }
-  for (var i = 0; i < _allTasks.length; i++) h += taskCardHtml(_allTasks[i], i);
+  // 「自分がやる」と「相手待ち」の境目に見出しを入れて、山にならないようにする
+  var section = '';
+  for (var s = 0; s < shown.length; s++) {
+    var task = _allTasks[shown[s]];
+    var sec = task.done ? 'done' : (task.waiting ? 'waiting' : 'mine');
+    if (sec !== section && _taskFilter === 'all') {
+      section = sec;
+      var label = sec === 'done' ? '完了' : (sec === 'waiting' ? '相手待ち' : '自分がやる');
+      h += '<div style="margin:8px 0 4px;font-size:11px;color:#888;border-bottom:1px solid #383838;padding-bottom:2px;">'
+        + label + '</div>';
+    }
+    h += taskCardHtml(task, shown[s]);
+  }
   body.innerHTML = h;
+}
+
+function taskFilterBtnHtml(key, label, count) {
+  var on = (_taskFilter === key);
+  return '<button onclick="setTaskFilter(\'' + key + '\')" style="flex:1;cursor:pointer;font-size:10px;'
+    + 'border:1px solid ' + (on ? '#8ec41d' : '#444') + ';border-radius:4px;padding:3px 2px;'
+    + 'background:' + (on ? '#2a331a' : '#2d2d2d') + ';color:' + (on ? '#cde88a' : '#aaa') + ';">'
+    + label + ' ' + (count || 0) + '</button>';
+}
+
+function setTaskFilter(key) {
+  _taskFilter = key;
+  renderTaskColumn();
 }
 
 function taskCardHtml(t, idx) {
@@ -803,6 +843,23 @@ function taskCardHtml(t, idx) {
   else if (t.today)   { dueTxt = '今日';                dueColor = '#e0b64a'; }
   else if (t.due)     { dueTxt = t.due;                 dueColor = '#aaa'; }
   else                { dueTxt = '期限なし';            dueColor = '#777'; }
+  var ownerSel = '';
+  if (!t.done) {
+    var waiting = t.waiting;
+    ownerSel = '<select onchange="setBoardTaskOwner(' + idx + ', this.value)" onclick="event.stopPropagation()"'
+      + ' title="ボール（誰が動く番か）"'
+      + ' style="font-size:10px;border-radius:4px;padding:1px 2px;border:1px solid #444;'
+      + 'background:' + (waiting ? '#2a2a2a' : '#1f2f1f') + ';color:' + (waiting ? '#999' : '#6cd06c') + ';">';
+    for (var i = 0; i < TASK_OWNERS.length; i++) {
+      var o = TASK_OWNERS[i];
+      var lbl = (o === TASK_OWNER_DEFAULT) ? '🟢 自分' : '⏳ ' + o + '待ち';
+      ownerSel += '<option value="' + esc(o) + '"' + (o === t.owner ? ' selected' : '') + '>' + esc(lbl) + '</option>';
+    }
+    ownerSel += '</select>';
+    if (waiting && t.waitDays != null) {
+      ownerSel += '<span style="color:' + (t.waitDays >= 3 ? '#e0b64a' : '#888') + ';">' + t.waitDays + '日</span>';
+    }
+  }
   return '<div class="kanban-card" style="cursor:default;">'
     + '<div style="display:flex;align-items:flex-start;gap:6px;">'
     +   '<input type="checkbox" ' + (t.done ? 'checked' : '')
@@ -818,9 +875,25 @@ function taskCardHtml(t, idx) {
     +       (t.archived ? '<span title="アーカイブ済みの顧客" style="color:#888;">🗄</span>' : '')
     +       '<span style="color:' + dueColor + ';">' + esc(dueTxt) + '</span>'
     +     '</div>'
+    +     (ownerSel ? '<div style="margin-top:4px;font-size:11px;display:flex;gap:4px;align-items:center;">' + ownerSel + '</div>' : '')
     +   '</div>'
     + '</div>'
     + '</div>';
+}
+
+function setBoardTaskOwner(idx, owner) {
+  var t = _allTasks[idx];
+  if (!t) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) showToast((res && res.message) || 'ボールの変更に失敗しました');
+      loadTaskOverview();
+    })
+    .withFailureHandler(function(err) {
+      showToast('ボール変更エラー: ' + (err && err.message ? err.message : ''));
+      loadTaskOverview();
+    })
+    .setTaskOwner(t.rowNum, t.customer, owner);
 }
 
 function openTaskCustomer(idx) {
@@ -1190,6 +1263,7 @@ function renderTasks(name, tasks) {
   h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">';
   h += '<input id="taskInput" type="text" placeholder="やること（例: 内見日程の連絡）" style="flex:1;min-width:150px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
   h += '<input id="taskDue" type="date" title="期限（任意）" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
+  h += ownerSelectHtml('taskOwner', TASK_OWNER_DEFAULT, 'ボール（誰が動く番か）');
   h += '<button id="taskAddBtn" onclick="addTaskNow()" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">追加</button>';
   h += '</div>';
   // 未完了
@@ -1206,12 +1280,40 @@ function renderTasks(name, tasks) {
   }
   el.innerHTML = h;
 }
+// ボール（誰が動く番か）の選択肢。GAS の TASK_OWNERS と揃えること。
+var TASK_OWNERS = ['自分', 'お客さん', '管理会社'];
+var TASK_OWNER_DEFAULT = '自分';
+
+function ownerSelectHtml(id, selected, title) {
+  var h = '<select id="' + id + '" title="' + esc(title || 'ボール') + '"'
+    + ' style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
+  for (var i = 0; i < TASK_OWNERS.length; i++) {
+    var o = TASK_OWNERS[i];
+    h += '<option value="' + esc(o) + '"' + (o === selected ? ' selected' : '') + '>'
+      + (o === TASK_OWNER_DEFAULT ? '🟢 自分がやる' : '⏳ ' + esc(o) + '待ち') + '</option>';
+  }
+  return h + '</select>';
+}
+
+// ボールのバッジ。自分＝緑（動くべき）／相手＝グレー（待ち・何日経ったか）
+function ownerBadgeHtml(t) {
+  var waiting = t.owner && t.owner !== TASK_OWNER_DEFAULT;
+  var txt = waiting
+    ? '⏳ ' + t.owner + '待ち' + (t.waitDays != null ? ' ' + t.waitDays + '日' : '')
+    : '🟢 自分';
+  var color = waiting ? '#888' : '#6cd06c';
+  var bg = waiting ? '#2a2a2a' : '#1f2f1f';
+  return '<span style="flex:0 0 auto;color:' + color + ';background:' + bg
+    + ';border-radius:8px;padding:1px 6px;font-size:11px;white-space:nowrap;">' + esc(txt) + '</span>';
+}
+
 function taskRowHtml(t) {
-  // 編集モード：内容＋期限を編集できるフォームに差し替え
+  // 編集モード：内容＋期限＋ボールを編集できるフォームに差し替え
   if (t.rowNum === _editingTaskRow) {
     return '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 0;border-bottom:1px solid #333;">'
       + '<input id="taskEditInput_' + t.rowNum + '" type="text" value="' + esc(t.content) + '" style="flex:1;min-width:150px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
       + '<input id="taskEditDue_' + t.rowNum + '" type="date" value="' + esc(t.due || '') + '" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
+      + ownerSelectHtml('taskEditOwner_' + t.rowNum, t.owner || TASK_OWNER_DEFAULT, 'ボール（誰が動く番か）')
       + '<button id="taskSaveBtn_' + t.rowNum + '" onclick="saveTaskEdit(' + t.rowNum + ')" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;">保存</button>'
       + '<a onclick="cancelTaskEdit()" style="color:#888;cursor:pointer;font-size:12px;">キャンセル</a>'
       + '</div>';
@@ -1221,6 +1323,7 @@ function taskRowHtml(t) {
     : '';
   return '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #333;">'
     + '<input type="checkbox" ' + (t.done ? 'checked' : '') + ' onclick="toggleTaskNow(' + t.rowNum + ', this.checked)" style="cursor:pointer;flex:0 0 auto;">'
+    + (t.done ? '' : ownerBadgeHtml(t))
     + '<span style="flex:1;font-size:13px;color:' + (t.done ? '#888' : '#ddd') + ';' + (t.done ? 'text-decoration:line-through;' : '') + '">' + linkify(t.content) + due + '</span>'
     + '<a onclick="editTaskInline(' + t.rowNum + ')" style="color:#6cf;cursor:pointer;font-size:12px;flex:0 0 auto;">編集</a>'
     + '<a onclick="deleteTaskNow(' + t.rowNum + ')" style="color:#e0707a;cursor:pointer;font-size:12px;flex:0 0 auto;">削除</a>'
@@ -1256,7 +1359,8 @@ function saveTaskEdit(rowNum) {
       showToast('エラー: ' + (e && e.message || ''));
       if (btn) { btn.disabled = false; btn.textContent = '保存'; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
     })
-    .updateCustomerTask(rowNum, currentCustomer, content, (dueEl && dueEl.value) || '');
+    .updateCustomerTask(rowNum, currentCustomer, content, (dueEl && dueEl.value) || '',
+                        (document.getElementById('taskEditOwner_' + rowNum) || {}).value || '');
 }
 function addTaskNow() {
   var input = document.getElementById('taskInput');
@@ -1272,7 +1376,8 @@ function addTaskNow() {
       else { showToast((r && r.message) || '追加に失敗しました'); _resetTaskAddBtn(); }
     })
     .withFailureHandler(function(e){ showToast('エラー: ' + (e && e.message || '')); _resetTaskAddBtn(); })
-    .addCustomerTask(currentCustomer, content, (dueEl && dueEl.value) || '');
+    .addCustomerTask(currentCustomer, content, (dueEl && dueEl.value) || '',
+                     (document.getElementById('taskOwner') || {}).value || '');
 }
 function _resetTaskAddBtn() {
   var btn = document.getElementById('taskAddBtn');
