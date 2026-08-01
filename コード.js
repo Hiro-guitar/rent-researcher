@@ -4873,6 +4873,243 @@ function deleteContactLog(rowNum, customerName) {
 }
 
 // ══════════════════════════════════════════════════════════
+//  申込物件の進捗管理
+//  シート「申込管理」:
+//    A顧客名 / B room_id / C物件名 / D部屋番号 / E賃料 / F申込日
+//    G進捗 / Hメモ / I進捗更新日時
+//  行番号(rowNum)をIDとして扱う（タスク・対応ログと同じ方式）。
+//
+//  「お申し込み希望」ボタン(アクションログの hold)からは自動で取り込む。
+//  REINS等から手動で申し込んだ物件は、顧客詳細から手で追加する。
+// ══════════════════════════════════════════════════════════
+var APPLICATION_SHEET_NAME = '申込管理';
+var APPLICATION_COLS = 9;
+var APPLICATION_HEADERS = ['顧客名', 'room_id', '物件名', '部屋番号', '賃料', '申込日', '進捗', 'メモ', '進捗更新日時'];
+
+// 進行中の段階（この順に進む）
+var APPLICATION_STAGES = ['申込受付', '入居審査中', '審査承認', '契約手続き', '入居完了'];
+// 終了扱いの段階（一覧では下にまとめる）
+var APPLICATION_CLOSED_STAGES = ['否決', 'キャンセル'];
+var APPLICATION_STAGE_DEFAULT = '申込受付';
+
+function _allApplicationStages_() {
+  return APPLICATION_STAGES.concat(APPLICATION_CLOSED_STAGES);
+}
+
+function _normalizeApplicationStage_(v) {
+  var s = String(v == null ? '' : v).trim();
+  var all = _allApplicationStages_();
+  for (var i = 0; i < all.length; i++) {
+    if (s === all[i]) return s;
+  }
+  return APPLICATION_STAGE_DEFAULT;
+}
+
+function _getApplicationSheet_() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(APPLICATION_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(APPLICATION_SHEET_NAME);
+    sheet.appendRow(APPLICATION_HEADERS);
+    try {
+      sheet.getRange(1, 1, 1, APPLICATION_COLS).setFontWeight('bold').setBackground('#e0e0e0');
+      sheet.setFrozenRows(1);
+    } catch (e) {}
+    return sheet;
+  }
+  try {
+    if (sheet.getMaxColumns() < APPLICATION_COLS) {
+      sheet.insertColumnsAfter(sheet.getMaxColumns(), APPLICATION_COLS - sheet.getMaxColumns());
+    }
+  } catch (eMig) {
+    console.warn('[申込管理] 列の追加に失敗（続行）: ' + eMig.message);
+  }
+  return sheet;
+}
+
+/** 申込の重複判定キー。room_id があればそれ、無ければ 物件名|部屋番号。 */
+function _applicationKey_(roomId, name, room) {
+  var rid = String(roomId || '').trim();
+  if (rid) return 'rid:' + rid;
+  return 'nm:' + String(name || '').trim() + '|' + String(room || '').trim();
+}
+
+/**
+ * アクションログの「お申し込み希望」(hold) のうち、まだ申込管理に無いものを取り込む。
+ * ボタン経由の申込を手入力させないため。既存行の進捗は触らない。
+ * @return {number} 取り込んだ件数
+ */
+function _syncApplicationsFromActionLog_(customerName) {
+  var added = 0;
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var logSheet = ss.getSheetByName('アクションログ');
+    if (!logSheet || logSheet.getLastRow() < 2) return 0;
+    var sheet = _getApplicationSheet_();
+    var nameTrim = String(customerName || '').trim();
+
+    // 既存キーを集める
+    var known = {};
+    if (sheet.getLastRow() > 1) {
+      var cur = sheet.getRange(2, 1, sheet.getLastRow() - 1, APPLICATION_COLS).getValues();
+      for (var c = 0; c < cur.length; c++) {
+        if (String(cur[c][0] || '').trim() !== nameTrim) continue;
+        known[_applicationKey_(cur[c][1], cur[c][2], cur[c][3])] = true;
+      }
+    }
+
+    var logs = logSheet.getRange(2, 1, logSheet.getLastRow() - 1, 10).getValues();
+    var rowsToAdd = [];
+    for (var i = 0; i < logs.length; i++) {
+      if (String(logs[i][0] || '').trim() !== nameTrim) continue;
+      if (String(logs[i][2] || '').trim() !== 'hold') continue;   // 申し込み希望のみ
+      var key = _applicationKey_(logs[i][1], logs[i][3], logs[i][4]);
+      if (known[key]) continue;
+      known[key] = true;   // 同じ物件を複数回押していても1件だけ
+      var appliedAt = logs[i][8];
+      var appliedDate = (appliedAt instanceof Date) ? appliedAt
+        : (appliedAt ? new Date(String(appliedAt).replace(/\//g, '-').replace(' ', 'T') + '+09:00') : '');
+      if (appliedDate && isNaN(appliedDate.getTime())) appliedDate = '';
+      rowsToAdd.push([
+        nameTrim,
+        String(logs[i][1] || ''),
+        String(logs[i][3] || ''),
+        String(logs[i][4] || ''),
+        logs[i][5] || '',
+        appliedDate,
+        APPLICATION_STAGE_DEFAULT,
+        '',
+        new Date()
+      ]);
+    }
+    if (rowsToAdd.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAdd.length, APPLICATION_COLS).setValues(rowsToAdd);
+      added = rowsToAdd.length;
+    }
+  } catch (e) {
+    console.warn('[申込管理] アクションログからの取り込みに失敗（続行）: ' + e.message);
+  }
+  return added;
+}
+
+/**
+ * 顧客の申込物件と進捗を返す（google.script.run から呼ばれる）。
+ * 呼ぶたびにアクションログの申し込み希望を取り込むので、
+ * ボタン経由の申込は自動で並ぶ。
+ */
+function getCustomerApplications(customerName) {
+  try {
+    var nameTrim = String(customerName || '').trim();
+    if (!nameTrim) return { applications: [], stages: _allApplicationStages_() };
+    _syncApplicationsFromActionLog_(nameTrim);
+
+    var sheet = _getApplicationSheet_();
+    if (sheet.getLastRow() < 2) {
+      return { applications: [], stages: _allApplicationStages_(), activeStages: APPLICATION_STAGES };
+    }
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, APPLICATION_COLS).getValues();
+    var out = [];
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0] || '').trim() !== nameTrim) continue;
+      var stage = _normalizeApplicationStage_(data[i][6]);
+      var applied = data[i][5];
+      var updated = data[i][8];
+      var sinceBase = (updated instanceof Date) ? updated : ((applied instanceof Date) ? applied : null);
+      out.push({
+        rowNum: i + 2,
+        roomId: String(data[i][1] || ''),
+        name: String(data[i][2] || ''),
+        room: String(data[i][3] || ''),
+        rent: data[i][4] === '' || data[i][4] == null ? '' : String(data[i][4]),
+        appliedAt: (applied instanceof Date)
+          ? Utilities.formatDate(applied, 'Asia/Tokyo', 'yyyy-MM-dd') : String(applied || '').substring(0, 10),
+        stage: stage,
+        memo: String(data[i][7] || ''),
+        closed: (APPLICATION_CLOSED_STAGES.indexOf(stage) !== -1),
+        stageDays: sinceBase ? Math.max(0, Math.floor((Date.now() - sinceBase.getTime()) / 86400000)) : null
+      });
+    }
+    // 進行中を上に、同じ進行度なら止まっている期間が長い順（＝催促すべき順）
+    var order = _allApplicationStages_();
+    out.sort(function (a, b) {
+      if (a.closed !== b.closed) return a.closed ? 1 : -1;
+      var oa = order.indexOf(a.stage), ob = order.indexOf(b.stage);
+      if (oa !== ob) return oa - ob;
+      var da = (a.stageDays == null ? -1 : a.stageDays);
+      var db = (b.stageDays == null ? -1 : b.stageDays);
+      return db - da;
+    });
+    return { applications: out, stages: _allApplicationStages_(), activeStages: APPLICATION_STAGES };
+  } catch (e) {
+    console.error('getCustomerApplications エラー: ' + e.message);
+    return { applications: [], stages: _allApplicationStages_(), error: e.message };
+  }
+}
+
+/** 行の存在＋顧客名一致を検証（誤操作防止）。 */
+function _checkApplicationRow_(rowNum, customerName) {
+  var sheet = _getApplicationSheet_();
+  rowNum = parseInt(rowNum, 10);
+  if (!rowNum || rowNum < 2 || rowNum > sheet.getLastRow()) {
+    return { ok: false, message: '対象の申込が見つかりません（再読み込みしてください）' };
+  }
+  if (String(sheet.getRange(rowNum, 1).getValue() || '').trim() !== String(customerName).trim()) {
+    return { ok: false, message: '表示がずれている可能性があります。ページを再読み込みしてください' };
+  }
+  return { ok: true, sheet: sheet, rowNum: rowNum };
+}
+
+/** 進捗を変更する。変えた時刻を記録して「この段階で何日止まっているか」を数えられるようにする。 */
+function setApplicationStage(rowNum, customerName, stage) {
+  var chk = _checkApplicationRow_(rowNum, customerName);
+  if (!chk.ok) return { success: false, message: chk.message };
+  var normalized = _normalizeApplicationStage_(stage);
+  var prev = _normalizeApplicationStage_(chk.sheet.getRange(chk.rowNum, 7).getValue());
+  chk.sheet.getRange(chk.rowNum, 7).setValue(normalized);
+  if (prev !== normalized) chk.sheet.getRange(chk.rowNum, 9).setValue(new Date());
+  return { success: true, stage: normalized };
+}
+
+/** メモを更新する。 */
+function updateApplicationMemo(rowNum, customerName, memo) {
+  var chk = _checkApplicationRow_(rowNum, customerName);
+  if (!chk.ok) return { success: false, message: chk.message };
+  chk.sheet.getRange(chk.rowNum, 8).setValue(String(memo == null ? '' : memo));
+  return { success: true };
+}
+
+/** 手動で申込を追加する（REINS等、物件ページ経由でない申込用）。 */
+function addCustomerApplication(customerName, propertyName, room, rent, appliedStr) {
+  try {
+    var nameTrim = String(customerName || '').trim();
+    var propName = String(propertyName || '').trim();
+    if (!nameTrim) return { success: false, message: '顧客名がありません' };
+    if (!propName) return { success: false, message: '物件名を入力してください' };
+    var applied = new Date();
+    if (appliedStr) {
+      var d = new Date(String(appliedStr).replace(/-/g, '/'));
+      if (!isNaN(d.getTime())) applied = d;
+    }
+    var sheet = _getApplicationSheet_();
+    sheet.appendRow([
+      nameTrim, '', propName, String(room || '').trim(), rent || '',
+      applied, APPLICATION_STAGE_DEFAULT, '', new Date()
+    ]);
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/** 申込を削除する（誤登録の取り消し用）。 */
+function deleteCustomerApplication(rowNum, customerName) {
+  var chk = _checkApplicationRow_(rowNum, customerName);
+  if (!chk.ok) return { success: false, message: chk.message };
+  chk.sheet.deleteRow(chk.rowNum);
+  return { success: true };
+}
+
+// ══════════════════════════════════════════════════════════
 //  顧客ごとのタスク（todo）
 //  シート「タスク」:
 //    A顧客名 / B内容 / C期限(Date) / D完了(TRUE/'') / E作成日時

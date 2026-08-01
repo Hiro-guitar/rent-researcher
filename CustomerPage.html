@@ -1144,6 +1144,8 @@ function renderDetail(data) {
     + (data.phone ? '<a href="tel:' + esc(data.phone) + '" style="color:#6cd06c;">📞 ' + esc(data.phone) + '</a>' : '<span style="color:#e0707a;">未登録</span>')
     + ' <a onclick="editCustomerPhone(\'' + esc(data.phone || '') + '\')" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:6px;">' + (data.phone ? '編集' : '追加') + '</a>'
     + '</div></div>';
+  // 申込物件の進捗欄
+  info += '<div id="applicationSection" style="margin:10px 0;padding:10px;background:#232323;border:1px solid #3a3a3a;border-radius:8px;"></div>';
   // タスク（todo）欄
   info += '<div id="taskSection" style="margin:10px 0;padding:10px;background:#232323;border:1px solid #3a3a3a;border-radius:8px;"></div>';
   var rows = [
@@ -1219,6 +1221,11 @@ function renderDetail(data) {
   document.getElementById('detailInfo').innerHTML = info || '<div class="empty-state">条件未登録</div>';
   loadCondSuggestionOptOut();
   renderTasks(currentCustomer, data.tasks || []);
+  // 申込物件の進捗（アクションログからの取り込みがあるので詳細表示時に別途取得）
+  _applications = [];
+  _appAddOpen = false;
+  renderApplications();
+  reloadApplications();
 
   // 送付済み物件は getSeenPropertiesForResend で別途取得済み
 
@@ -1396,6 +1403,185 @@ function deleteTaskNow(rowNum) {
     .withFailureHandler(function(e){ showToast('エラー: ' + (e && e.message || '')); })
     .deleteCustomerTask(rowNum, currentCustomer);
 }
+// ══════════════════════════════════════════
+//  申込物件の進捗（顧客詳細）
+//  「お申し込み希望」ボタン経由の申込は自動で並ぶ（GAS側でアクションログから取り込む）。
+//  REINS等から手動で申し込んだ物件はここで手で追加する。
+// ══════════════════════════════════════════
+var APPLICATION_STAGES = ['申込受付', '入居審査中', '審査承認', '契約手続き', '入居完了'];
+var APPLICATION_CLOSED_STAGES = ['否決', 'キャンセル'];
+var _applications = [];
+var _appAddOpen = false;
+
+function reloadApplications() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      res = res || {};
+      _applications = res.applications || [];
+      renderApplications();
+    })
+    .withFailureHandler(function(e) {
+      _applications = [];
+      renderApplications();
+      console.warn('申込取得エラー: ' + (e && e.message ? e.message : ''));
+    })
+    .getCustomerApplications(currentCustomer);
+}
+
+function renderApplications() {
+  var el = document.getElementById('applicationSection');
+  if (!el) return;
+  var active = _applications.filter(function(a){ return !a.closed; });
+  var h = '';
+  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+    + '<span style="font-weight:600;color:#ddd;">🏠 申込物件'
+    + (active.length ? '（進行中' + active.length + '）' : '') + '</span>'
+    + '<span style="flex:1;"></span>'
+    + '<a onclick="toggleAppAddForm()" style="color:#6cf;cursor:pointer;font-size:12px;">'
+    + (_appAddOpen ? '閉じる' : '＋ 手動で追加') + '</a>'
+    + '</div>';
+
+  if (_appAddOpen) {
+    h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">'
+      + '<input id="appName" type="text" placeholder="物件名" style="flex:1;min-width:140px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
+      + '<input id="appRoom" type="text" placeholder="部屋番号" style="width:90px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
+      + '<input id="appRent" type="text" placeholder="賃料" style="width:80px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
+      + '<input id="appDate" type="date" title="申込日" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
+      + '<button id="appAddBtn" onclick="addApplicationNow()" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;">追加</button>'
+      + '</div>';
+  }
+
+  if (!_applications.length) {
+    h += '<div style="color:#888;font-size:12px;">申込中の物件はありません</div>';
+    el.innerHTML = h;
+    return;
+  }
+  var closedShown = false;
+  for (var i = 0; i < _applications.length; i++) {
+    var a = _applications[i];
+    if (a.closed && !closedShown) {
+      closedShown = true;
+      h += '<div style="margin:8px 0 4px;font-size:11px;color:#888;border-bottom:1px solid #383838;padding-bottom:2px;">終了</div>';
+    }
+    h += applicationRowHtml(a, i);
+  }
+  el.innerHTML = h;
+}
+
+function applicationRowHtml(a, idx) {
+  var title = esc(a.name) + (a.room ? ' ' + esc(a.room) : '');
+  var stageIdx = APPLICATION_STAGES.indexOf(a.stage);
+  // 進捗バー（終了段階はバーを出さない）
+  var bar = '';
+  if (!a.closed) {
+    bar = '<div style="display:flex;gap:2px;margin-top:4px;">';
+    for (var s = 0; s < APPLICATION_STAGES.length; s++) {
+      var on = (s <= stageIdx);
+      bar += '<div title="' + esc(APPLICATION_STAGES[s]) + '" style="flex:1;height:4px;border-radius:2px;background:'
+        + (on ? '#8ec41d' : '#3a3a3a') + ';"></div>';
+    }
+    bar += '</div>';
+  }
+  var sel = '<select onchange="setAppStage(' + idx + ', this.value)"'
+    + ' style="background:#2d2d2d;color:' + (a.closed ? '#999' : '#cde88a') + ';border:1px solid #555;border-radius:6px;padding:4px 6px;font-size:12px;">';
+  var all = APPLICATION_STAGES.concat(APPLICATION_CLOSED_STAGES);
+  for (var k = 0; k < all.length; k++) {
+    sel += '<option value="' + esc(all[k]) + '"' + (all[k] === a.stage ? ' selected' : '') + '>' + esc(all[k]) + '</option>';
+  }
+  sel += '</select>';
+
+  // 同じ段階で止まっている日数（3日以上は色を変えて催促を促す）
+  var stall = '';
+  if (!a.closed && a.stageDays != null) {
+    stall = '<span style="color:' + (a.stageDays >= 3 ? '#e0b64a' : '#888') + ';font-size:11px;">'
+      + a.stageDays + '日</span>';
+  }
+
+  return '<div style="padding:6px 0;border-bottom:1px solid #333;">'
+    + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+    +   '<span style="flex:1;min-width:120px;font-size:13px;color:' + (a.closed ? '#888' : '#ddd') + ';">'
+    +     title + (a.rent ? ' <span style="color:#aaa;font-size:12px;">' + esc(a.rent) + '</span>' : '') + '</span>'
+    +   sel + stall
+    +   '<a onclick="deleteApplicationNow(' + idx + ')" style="color:#e0707a;cursor:pointer;font-size:12px;">削除</a>'
+    + '</div>'
+    + bar
+    + '<div style="margin-top:4px;font-size:11px;color:#888;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+    +   (a.appliedAt ? '<span>申込 ' + esc(a.appliedAt) + '</span>' : '')
+    +   '<input type="text" value="' + esc(a.memo || '') + '" placeholder="メモ"'
+    +     ' onchange="saveAppMemo(' + idx + ', this.value)"'
+    +     ' style="flex:1;min-width:120px;background:#2d2d2d;color:#bbb;border:1px solid #444;border-radius:6px;padding:3px 6px;font-size:11px;">'
+    + '</div>'
+    + '</div>';
+}
+
+function toggleAppAddForm() {
+  _appAddOpen = !_appAddOpen;
+  renderApplications();
+}
+
+function addApplicationNow() {
+  var nameEl = document.getElementById('appName');
+  var btn = document.getElementById('appAddBtn');
+  var name = (nameEl && nameEl.value || '').trim();
+  if (!name) { showToast('物件名を入力してください'); return; }
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.textContent = '追加中…'; btn.style.opacity = '0.6'; }
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) { showToast('申込を追加しました'); _appAddOpen = false; reloadApplications(); }
+      else { showToast((r && r.message) || '追加に失敗しました'); _resetAppAddBtn(); }
+    })
+    .withFailureHandler(function(e) { showToast('エラー: ' + (e && e.message || '')); _resetAppAddBtn(); })
+    .addCustomerApplication(
+      currentCustomer, name,
+      (document.getElementById('appRoom') || {}).value || '',
+      (document.getElementById('appRent') || {}).value || '',
+      (document.getElementById('appDate') || {}).value || ''
+    );
+}
+function _resetAppAddBtn() {
+  var btn = document.getElementById('appAddBtn');
+  if (btn) { btn.disabled = false; btn.textContent = '追加'; btn.style.opacity = '1'; }
+}
+
+function setAppStage(idx, stage) {
+  var a = _applications[idx];
+  if (!a) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!(r && r.success)) showToast((r && r.message) || '進捗の更新に失敗しました');
+      reloadApplications();
+    })
+    .withFailureHandler(function(e) { showToast('エラー: ' + (e && e.message || '')); reloadApplications(); })
+    .setApplicationStage(a.rowNum, currentCustomer, stage);
+}
+
+function saveAppMemo(idx, memo) {
+  var a = _applications[idx];
+  if (!a) return;
+  a.memo = memo;   // 再描画で消えないように手元も更新
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!(r && r.success)) showToast((r && r.message) || 'メモの保存に失敗しました');
+    })
+    .withFailureHandler(function(e) { showToast('エラー: ' + (e && e.message || '')); })
+    .updateApplicationMemo(a.rowNum, currentCustomer, memo);
+}
+
+function deleteApplicationNow(idx) {
+  var a = _applications[idx];
+  if (!a) return;
+  if (!confirm('「' + a.name + (a.room ? ' ' + a.room : '') + '」の申込を削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) { showToast('申込を削除しました'); }
+      else { showToast((r && r.message) || '削除に失敗しました'); }
+      reloadApplications();
+    })
+    .withFailureHandler(function(e) { showToast('エラー: ' + (e && e.message || '')); reloadApplications(); })
+    .deleteCustomerApplication(a.rowNum, currentCustomer);
+}
+
 function reloadTasks() {
   google.script.run
     .withSuccessHandler(function(tasks){
