@@ -3921,21 +3921,40 @@ async function reportUnresolvedStations() {
 
 /**
  * 条件配列を「本人条件 → 同じお客さんのおすすめ条件」の順に並べ替える。
- * 本人の初出順は維持する（＝登録が古いお客さんほど先、という従来の並びは変わらない）。
- * 本人条件が無く おすすめ だけのお客さんも、その初出位置にそのまま残る。
- * log.js の顧客フィルタの表示順と同じロジック。
+ * お客さんの並びは登録が古い順（＝シートの行順）のまま。
+ *
+ * orderSource には「除外で絞り込む前の全条件」を渡すこと。
+ * 絞り込み後の配列だけで順番を決めると、本人条件のチェックを外して
+ * おすすめだけONにしているお客さんが、本人の位置ではなく
+ * おすすめ群の位置（＝最後のほう）に飛ばされてしまう (2026-08-01 修正)。
+ *
+ * log.js の顧客フィルタの表示順と同じ考え方。
  */
-function groupCriteriaByCustomer(list) {
+function groupCriteriaByCustomer(list, orderSource) {
   const order = [];
+  const seenName = new Set();
+  for (const c of (orderSource || list || [])) {
+    const nm = (c && c.name) ? c.name : '';
+    if (!seenName.has(nm)) { seenName.add(nm); order.push(nm); }
+  }
   const byName = new Map();
   for (const c of (list || [])) {
     const nm = (c && c.name) ? c.name : '';
-    if (!byName.has(nm)) { byName.set(nm, { base: [], rec: [] }); order.push(nm); }
+    if (!byName.has(nm)) byName.set(nm, { base: [], rec: [] });
     (c && c.recommend ? byName.get(nm).rec : byName.get(nm).base).push(c);
   }
   const out = [];
+  const emitted = new Set();
   for (const nm of order) {
     const g = byName.get(nm);
+    if (!g) continue;                 // 全部チェックが外れているお客さん
+    emitted.add(nm);
+    for (const c of g.base) out.push(c);
+    for (const c of g.rec) out.push(c);
+  }
+  // orderSource に載っていない名前があれば取りこぼさず末尾に付ける（保険）
+  for (const [nm, g] of byName) {
+    if (emitted.has(nm)) continue;
     for (const c of g.base) out.push(c);
     for (const c of g.rec) out.push(c);
   }
@@ -4081,7 +4100,8 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     // GASは「本人を全員分 → おすすめを全部」の順で返すため、そのままだと
     // 同じお客さんの本人条件とおすすめ条件が大きく離れて実行されていた。
     // log.html の顧客フィルタの表示順とも一致するようになる。
-    const criteria = groupCriteriaByCustomer(_selected);
+    // 順番は「絞り込む前の全条件」基準で決める（本人OFF＋おすすめONのお客さんが飛ばないように）
+    const criteria = groupCriteriaByCustomer(_selected, allCriteria);
     if (criteria.length === 0) {
       await setStorageData({ debugLog: '選択された顧客がありません' });
       return;
