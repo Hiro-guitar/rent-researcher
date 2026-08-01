@@ -493,6 +493,8 @@
         cb.addEventListener('change', saveExcludedCustomers);
         lbl.appendChild(cb);
         lbl.appendChild(document.createTextNode(' ' + text));
+        // 検索中ハイライトの突合用（background.js が currentSearchingKey に同じキーを書く）
+        lbl.dataset.critKey = cb.value;
         return lbl;
       }
       const groupsFrag = document.createDocumentFragment();
@@ -512,12 +514,50 @@
         groupsFrag.appendChild(group);
       }
       container.appendChild(groupsFrag);
+      // 再描画したので、いま検索中の条件のハイライトを付け直す
+      chrome.storage.local.get(['currentSearchingKey', 'currentSearchingPos'], (s) => {
+        applySearchingHighlight(s.currentSearchingKey, s.currentSearchingPos);
+      });
     });
   }
 
   // 条件エントリの一意キー（本人=名前 / おすすめ=rec::ID）。除外判定に使用。
   function criteriaKey(c) {
     return c && c.recommend ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : '');
+  }
+
+  /**
+   * 顧客フィルタのリストで「いま検索中の条件」をハイライトする。
+   * key は background.js の _critKey と同じ形式（本人=名前 / おすすめ=rec::ID）。
+   * 空文字なら全解除（検索終了時）。
+   */
+  function applySearchingHighlight(key, pos) {
+    const container = document.getElementById('customerCheckboxes');
+    if (!container) return;
+    container.querySelectorAll('label.searching').forEach(el => {
+      el.classList.remove('searching');
+      const m = el.querySelector('.searching-mark');
+      if (m) m.remove();
+    });
+    container.querySelectorAll('.cust-group.has-searching')
+      .forEach(el => el.classList.remove('has-searching'));
+    if (!key) return;
+    // キーには "rec::" や氏名の空白・全角括弧が入るため、セレクタで書かず直接比較する
+    let target = null;
+    const labels = container.querySelectorAll('label[data-crit-key]');
+    for (const el of labels) {
+      if (el.dataset.critKey === String(key)) { target = el; break; }
+    }
+    if (!target) return;
+    target.classList.add('searching');
+    const mark = document.createElement('span');
+    mark.className = 'searching-mark';
+    mark.textContent = pos ? `● 検索中 ${pos}` : '● 検索中';
+    target.appendChild(mark);
+    const group = target.closest('.cust-group');
+    if (group) group.classList.add('has-searching');
+    // 顧客が多いとリスト外に出てしまうので、見える位置まで寄せる
+    try { target.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (_) {}
   }
 
   function saveExcludedCustomers() {
@@ -664,6 +704,12 @@
     }
     if (changes.customerCriteria) {
       loadCustomerCheckboxes();
+    }
+    // いま検索中の条件のハイライトを更新
+    if (changes.currentSearchingKey || changes.currentSearchingPos) {
+      chrome.storage.local.get(['currentSearchingKey', 'currentSearchingPos'], (s) => {
+        applySearchingHighlight(s.currentSearchingKey, s.currentSearchingPos);
+      });
     }
   });
 

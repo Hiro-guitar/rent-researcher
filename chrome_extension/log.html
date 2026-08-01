@@ -87,6 +87,19 @@
     .cust-group .cust-base { font-weight: 600; color: #e0e0e0; }
     .cust-group .cust-rec { color: #9cdc9c; font-size: 11px; padding-left: 12px; }
     .cust-group .cust-name-header { font-weight: 600; color: #999; font-size: 12px; }
+    /* いま検索中の条件 */
+    .cust-group label.searching {
+      background: #3d3a12; border-radius: 4px;
+      margin: 0 -5px; padding: 1px 5px;
+      box-shadow: inset 0 0 0 1px #b8a63a;
+    }
+    .cust-group label.searching .searching-mark {
+      color: #f0d43a; font-size: 10px; margin-left: 2px;
+      animation: searching-blink 1.2s ease-in-out infinite;
+    }
+    @keyframes searching-blink { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+    /* 検索中の条件を含むお客さんの枠 */
+    .cust-group.has-searching { border-color: #b8a63a; }
 
     /* ボタン */
     .dp-btn {

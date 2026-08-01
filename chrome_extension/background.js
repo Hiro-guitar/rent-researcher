@@ -3896,6 +3896,29 @@ async function reportUnresolvedStations() {
   }
 }
 
+/**
+ * 条件配列を「本人条件 → 同じお客さんのおすすめ条件」の順に並べ替える。
+ * 本人の初出順は維持する（＝登録が古いお客さんほど先、という従来の並びは変わらない）。
+ * 本人条件が無く おすすめ だけのお客さんも、その初出位置にそのまま残る。
+ * log.js の顧客フィルタの表示順と同じロジック。
+ */
+function groupCriteriaByCustomer(list) {
+  const order = [];
+  const byName = new Map();
+  for (const c of (list || [])) {
+    const nm = (c && c.name) ? c.name : '';
+    if (!byName.has(nm)) { byName.set(nm, { base: [], rec: [] }); order.push(nm); }
+    (c && c.recommend ? byName.get(nm).rec : byName.get(nm).base).push(c);
+  }
+  const out = [];
+  for (const nm of order) {
+    const g = byName.get(nm);
+    for (const c of g.base) out.push(c);
+    for (const c of g.rec) out.push(c);
+  }
+  return out;
+}
+
 // --- メイン検索サイクル ---
 globalThis.runSearchCycle = async function runSearchCycle() {
   const { isSearching, suumoPatrolRunning, gasWebappUrl, enabledServices } =
@@ -4028,9 +4051,14 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     // エントリ固有キーで除外判定（本人=名前 / おすすめ条件=rec::ID）。
     // これで本人の条件とおすすめ条件を独立してON/OFFできる。
     const _critKey = (c) => (c && c.recommend ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : ''));
-    const criteria = excluded.length > 0
+    const _selected = excluded.length > 0
       ? allCriteria.filter(c => !excluded.includes(_critKey(c)))
       : allCriteria;
+    // おすすめ条件（裏条件）を本人条件の直後に実行する (2026-07-31)。
+    // GASは「本人を全員分 → おすすめを全部」の順で返すため、そのままだと
+    // 同じお客さんの本人条件とおすすめ条件が大きく離れて実行されていた。
+    // log.html の顧客フィルタの表示順とも一致するようになる。
+    const criteria = groupCriteriaByCustomer(_selected);
     if (criteria.length === 0) {
       await setStorageData({ debugLog: '選択された顧客がありません' });
       return;
@@ -4156,7 +4184,12 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     for (let ci = 0; ci < criteria.length; ci++) {
       if (isSearchCancelled(searchId)) return;
       const customer = criteria[ci];
-      await setStorageData({ debugLog: `━━ 顧客 ${ci+1}/${criteria.length}: ${customer.name} ━━` });
+      // 顧客フィルタのリストで「いま検索中の条件」をハイライトするためのキー
+      await setStorageData({
+        currentSearchingKey: _critKey(customer),
+        currentSearchingPos: `${ci + 1}/${criteria.length}`,
+        debugLog: `━━ 顧客 ${ci+1}/${criteria.length}: ${customer.name} ━━`
+      });
 
       // --- itandi ---
       if (services.itandi) {
@@ -4334,6 +4367,8 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     // ワンショット強制再取得リストを使い切ったのでクリア(中止でもクリア)
     globalThis._oneShotForceRefetchSet = new Set();
     try { await setStorageData({ oneShotForceRefetch: [] }); } catch (_) {}
+    // 検索中ハイライトを消す（中止・エラー終了でも必ず消す）
+    try { await setStorageData({ currentSearchingKey: '', currentSearchingPos: '' }); } catch (_) {}
     await setStorageData({ isSearching: false });
 
     // ── チェイン起動: 検索中に SUUMO巡回アラームが pending を立てていた場合、
