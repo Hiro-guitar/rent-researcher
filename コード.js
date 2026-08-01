@@ -2129,23 +2129,45 @@ function handleGetCriteria(e) {
   }
 
   // ── LINE ブロック検知 (リアルタイム・並列化) ──
-  // 全顧客の userId を集めて UrlFetchApp.fetchAll で一括並列判定。
-  // 100件超は自動チャンク分割 (bulkCheckLineBlocked 内)。
-  // 50人で 1-2秒 で完了するためキャッシュ不要。
+  // 顧客1人につき LINE API へ1リクエスト投げるので、対象は必要な人だけに絞る。
+  //
+  // 2026-08-01: 顧客が増えて get_criteria が拡張側のタイムアウト(30秒)を越え、
+  //   ブロック判定という付随機能のせいで物件検索そのものが止まる事故が起きた。
+  //   ブロック検知は「配信している相手に逃げられていないか」を見るためのものなので、
+  //   そもそも物件を送らない相手を判定する意味がない。以下を対象外にする:
+  //     - paused / auto_paused          … 配信を止めている
+  //     - snoozed                       … 一時停止中
+  //     - アーカイブ済み(AS列=45)        … 看板から外した終了顧客
+  //     - 営業ステージ「終了」(AG列=33)  … 追客していない
+  //     - 検索条件が空のリード           … まだ物件を送っていない
   var lineUserIdMap = _getLineUserIdMapByCustomerName_();
   var data = sheet.getDataRange().getValues();
 
-  // 候補となる active な顧客の userId を先に集める
+  // 候補となる「配信している」顧客の userId を先に集める
   var allUserIds = [];
   var nameToUserId = {}; // name -> userId
   var noUserIdNames = []; // userId 未紐付けの顧客名 (デバッグ用)
+  var skippedCount = 0;
+  var seenUserIds = {};  // 同じ userId を二重に問い合わせない
   for (var pi = 1; pi < data.length; pi++) {
     var pname = String(data[pi][1] || '').trim();
     if (!pname) continue;
     var pstatus = String(data[pi][18] || '').trim().toLowerCase();
-    if (pstatus === 'paused' || pstatus === 'auto_paused') continue; // paused/auto_paused は除外、 ブロック判定不要
+    if (pstatus === 'paused' || pstatus === 'auto_paused' || pstatus === 'snoozed') { skippedCount++; continue; }
+    if (String(data[pi][44] || '').trim()) { skippedCount++; continue; }            // AS列(45): アーカイブ済み
+    // ⚠️ 既に blocked の人は必ず判定する。
+    //    ブロック検知時に営業ステージを「終了」に落とす仕様なので、
+    //    「終了」を除外条件にするとブロック解除の自動復活が二度と効かなくなる。
+    if (pstatus !== 'blocked') {
+      if (String(data[pi][32] || '').trim() === '終了') { skippedCount++; continue; } // AG列(33): 営業ステージ
+      // 条件が空のリードはまだ物件を送っていないのでブロック判定の対象外
+      var pHasCrit = (typeof _rowHasCriteria_ === 'function') ? _rowHasCriteria_(data[pi]) : true;
+      if (!pHasCrit) { skippedCount++; continue; }
+    }
     var puid = lineUserIdMap[pname];
     if (puid) {
+      if (seenUserIds[puid]) continue;
+      seenUserIds[puid] = true;
       nameToUserId[pname] = puid;
       allUserIds.push(puid);
     } else {
@@ -2153,6 +2175,7 @@ function handleGetCriteria(e) {
     }
   }
   console.log('[LINEブロック判定] 対象顧客数=' + allUserIds.length
+    + ' / 対象外=' + skippedCount
     + ' / userId未紐付け=' + noUserIdNames.length
     + (noUserIdNames.length > 0 ? ' [' + noUserIdNames.slice(0, 5).join(',') + '...]' : ''));
 
