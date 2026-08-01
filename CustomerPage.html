@@ -723,9 +723,134 @@ function renderKanban(list) {
     }
     html += '</div></div>';
   }
+  // 右端に「やること」列（ステージ列ではないので drop 対象にしない）
+  html += taskColumnHtml();
   html += '</div>';
   board.innerHTML = html;
+  renderTaskColumn();
+  if (!_taskLoaded) loadTaskOverview();
 }
+
+// ══════════════════════════════════════════
+//  やること列（カンバン右端・全顧客のタスク横断）
+//  顧客詳細を開かないとタスクが見えず、そもそも存在に気づけなかったので、
+//  カンバン右の空きスペースに常設する。
+// ══════════════════════════════════════════
+var _allTasks = [];
+var _taskCounts = { open: 0, overdue: 0, today: 0 };
+var _taskShowDone = false;
+var _taskLoaded = false;
+
+function taskColumnHtml() {
+  return '<div class="kanban-col" id="taskColumn" style="flex:0 0 280px;">'
+    + '<div class="kanban-col-head">📋 やること<span class="cnt" id="taskColCnt"></span></div>'
+    + '<div style="padding:0 8px 6px;">'
+    +   '<label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#888;cursor:pointer;">'
+    +     '<input type="checkbox" id="taskShowDoneChk" onchange="setTaskShowDone(this.checked)" style="cursor:pointer;">'
+    +     '完了済みも表示'
+    +   '</label>'
+    + '</div>'
+    + '<div class="kanban-col-body" id="taskColBody"></div>'
+    + '</div>';
+}
+
+function loadTaskOverview() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      res = res || {};
+      _allTasks = res.tasks || [];
+      _taskCounts = res.counts || { open: 0, overdue: 0, today: 0 };
+      _taskLoaded = true;
+      renderTaskColumn();
+    })
+    .withFailureHandler(function(err) {
+      _taskLoaded = true;
+      renderTaskColumn();
+      console.warn('タスク取得エラー: ' + (err && err.message ? err.message : ''));
+    })
+    .getAllTasks(_taskShowDone);
+}
+
+function renderTaskColumn() {
+  var body = document.getElementById('taskColBody');
+  if (!body) return;   // 一覧ビュー表示中などは列自体が存在しない
+  var cnt = document.getElementById('taskColCnt');
+  if (cnt) cnt.textContent = _taskCounts.open || 0;
+  var chk = document.getElementById('taskShowDoneChk');
+  if (chk) chk.checked = _taskShowDone;
+
+  var h = '';
+  if (_taskCounts.overdue || _taskCounts.today) {
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:11px;font-weight:600;">';
+    if (_taskCounts.overdue) h += '<span style="color:#e0707a;">⚠️ 期限切れ ' + _taskCounts.overdue + '</span>';
+    if (_taskCounts.today) h += '<span style="color:#e0b64a;">📅 今日 ' + _taskCounts.today + '</span>';
+    h += '</div>';
+  }
+  if (!_allTasks.length) {
+    h += '<div style="color:#888;font-size:12px;">'
+      + (_taskLoaded ? 'タスクはありません' : '読み込み中...') + '</div>';
+    body.innerHTML = h;
+    return;
+  }
+  for (var i = 0; i < _allTasks.length; i++) h += taskCardHtml(_allTasks[i], i);
+  body.innerHTML = h;
+}
+
+function taskCardHtml(t, idx) {
+  var dueTxt, dueColor;
+  if (t.done)         { dueTxt = t.due || '';           dueColor = '#777'; }
+  else if (t.overdue) { dueTxt = t.due + ' 期限切れ';   dueColor = '#e0707a'; }
+  else if (t.today)   { dueTxt = '今日';                dueColor = '#e0b64a'; }
+  else if (t.due)     { dueTxt = t.due;                 dueColor = '#aaa'; }
+  else                { dueTxt = '期限なし';            dueColor = '#777'; }
+  return '<div class="kanban-card" style="cursor:default;">'
+    + '<div style="display:flex;align-items:flex-start;gap:6px;">'
+    +   '<input type="checkbox" ' + (t.done ? 'checked' : '')
+    +     ' onclick="toggleBoardTask(' + idx + ', this.checked)"'
+    +     ' style="cursor:pointer;margin-top:2px;flex:0 0 auto;">'
+    +   '<div style="flex:1;min-width:0;">'
+    +     '<div style="font-size:12px;line-height:1.4;white-space:normal;word-break:break-word;color:'
+    +       (t.done ? '#888' : '#ddd') + ';' + (t.done ? 'text-decoration:line-through;' : '') + '">'
+    +       esc(t.content) + '</div>'
+    +     '<div style="margin-top:4px;font-size:11px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
+    +       '<a onclick="openTaskCustomer(' + idx + ')" style="color:#6cf;cursor:pointer;">'
+    +         esc(t.customer) + '</a>'
+    +       (t.archived ? '<span title="アーカイブ済みの顧客" style="color:#888;">🗄</span>' : '')
+    +       '<span style="color:' + dueColor + ';">' + esc(dueTxt) + '</span>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>'
+    + '</div>';
+}
+
+function openTaskCustomer(idx) {
+  var t = _allTasks[idx];
+  if (t && t.customer) openDetail(t.customer);
+}
+
+function setTaskShowDone(v) {
+  _taskShowDone = !!v;
+  loadTaskOverview();
+}
+
+function toggleBoardTask(idx, checked) {
+  var t = _allTasks[idx];
+  if (!t) return;
+  t.done = !!checked;      // 先に見た目へ反映（サーバー応答を待たない）
+  renderTaskColumn();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) showToast((res && res.message) || 'タスクの更新に失敗しました');
+      loadTaskOverview();
+      if (typeof refreshCustomers === 'function') refreshCustomers();
+    })
+    .withFailureHandler(function(err) {
+      showToast('タスク更新エラー: ' + (err && err.message ? err.message : ''));
+      loadTaskOverview();
+    })
+    .toggleCustomerTask(t.rowNum, t.customer, !!checked);
+}
+
 var _kanbanDragName = null;
 var _kanbanAutoScrollTimer = null;
 function _kanbanAutoScroll(e) {
@@ -2146,6 +2271,8 @@ function showList() {
   // 詳細で変更した内容(タスク等)を反映するため、まずキャッシュで即再描画 → サーバーからも取り直す
   try { filterCustomers(); } catch (e) {}
   if (typeof refreshCustomers === 'function') refreshCustomers();
+  // 詳細でタスクを追加・完了しているかもしれないので「やること」列も取り直す
+  if (typeof loadTaskOverview === 'function') loadTaskOverview();
 }
 
 // サーバーから顧客一覧を取り直して再描画（GASは入れ子iframeのため location.reload() は不可）

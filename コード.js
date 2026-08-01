@@ -4986,6 +4986,90 @@ function _checkTaskRow_(rowNum, customerName) {
   return { ok: true, sheet: sheet, rowNum: rowNum };
 }
 
+/**
+ * 全顧客のタスクを横断で返す（顧客管理トップの「やることリスト」用）。
+ * 顧客ページを開かないとタスクが見えなかったので、一覧の上に常設表示するために追加。
+ *
+ * 並び: 未完了が先 → 期限が早い順（期限なしは未完了の末尾）→ 完了は最後。
+ * アーカイブ済み顧客のタスクも「見落とし防止」のため返す（archived フラグを立てる）。
+ *
+ * @param {boolean} includeDone - true なら完了済みタスクも含める
+ * @return {{tasks: Array, counts: {open:number, overdue:number, today:number}}}
+ */
+function getAllTasks(includeDone) {
+  try {
+    var sheet = _getTaskSheet_();
+    var last = sheet.getLastRow();
+    if (last < 2) return { tasks: [], counts: { open: 0, overdue: 0, today: 0 } };
+    var data = sheet.getRange(2, 1, last - 1, 5).getValues();
+    var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+
+    // アーカイブ済み顧客（AS列=45に日時が入っている）を拾っておく
+    var archivedMap = {};
+    try {
+      var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+      var cSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+      if (cSheet) {
+        var cData = cSheet.getDataRange().getValues();
+        for (var ci = 1; ci < cData.length; ci++) {
+          var cn = String(cData[ci][1] || '').trim();
+          if (cn && String(cData[ci][44] || '').trim()) archivedMap[cn] = true;
+        }
+      }
+    } catch (eArch) {
+      console.warn('[getAllTasks] アーカイブ判定に失敗（続行）: ' + eArch.message);
+    }
+
+    var out = [], openCount = 0, overdueCount = 0, todayCount = 0;
+    for (var i = 0; i < data.length; i++) {
+      var nm = String(data[i][0] || '').trim();
+      if (!nm) continue;
+      var content = String(data[i][1] || '');
+      if (!content) continue;
+      var done = String(data[i][3] || '') === 'TRUE' || data[i][3] === true;
+      var due = data[i][2];
+      var dueStr = (due instanceof Date)
+        ? Utilities.formatDate(due, 'Asia/Tokyo', 'yyyy-MM-dd')
+        : (due ? String(due).substring(0, 10) : '');
+      var isOverdue = (!done && !!dueStr && dueStr < todayStr);
+      var isToday = (!done && dueStr === todayStr);
+      if (!done) {
+        openCount++;
+        if (isOverdue) overdueCount++;
+        if (isToday) todayCount++;
+      }
+      if (done && !includeDone) continue;
+      out.push({
+        rowNum: i + 2,
+        customer: nm,
+        content: content,
+        due: dueStr,
+        done: done,
+        overdue: isOverdue,
+        today: isToday,
+        archived: !!archivedMap[nm]
+      });
+    }
+
+    out.sort(function (a, b) {
+      if (a.done !== b.done) return a.done ? 1 : -1;   // 未完了が上
+      if (!a.due && !b.due) return a.customer < b.customer ? -1 : 1;
+      if (!a.due) return 1;                            // 期限なしは後ろ
+      if (!b.due) return -1;
+      if (a.due !== b.due) return a.due < b.due ? -1 : 1;
+      return a.customer < b.customer ? -1 : 1;
+    });
+
+    return {
+      tasks: out,
+      counts: { open: openCount, overdue: overdueCount, today: todayCount }
+    };
+  } catch (e) {
+    console.error('getAllTasks エラー: ' + e.message);
+    return { tasks: [], counts: { open: 0, overdue: 0, today: 0 }, error: e.message };
+  }
+}
+
 /** 顧客ごとの未完了タスク集計（カンバンのマーク用）。 name -> {open, overdue, nextDue} */
 function _getTaskSummaryByCustomer_(ss) {
   var summary = {};
