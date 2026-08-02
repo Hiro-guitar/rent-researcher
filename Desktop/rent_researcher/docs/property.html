@@ -80,9 +80,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .fav-star .fav-star-text{font-size:10px;font-weight:700;white-space:nowrap}
 .fav-star.active{background:#F59E0B;border-color:#D97706;color:#fff;box-shadow:0 2px 8px rgba(245,158,11,0.3)}
 /* 価格BOX: 深いネイビーに上品な赤アクセント */
-.price-box{background:#1a2538;color:#fff;border-radius:14px;padding:18px 20px;margin:14px 0;box-shadow:0 4px 14px rgba(26,37,56,0.18)}
-.price-main{font-size:30px;font-weight:800;color:#FF7B72;letter-spacing:-0.5px;line-height:1.2}
-.price-sub{font-size:13px;color:rgba(255,255,255,0.78);margin-top:8px;letter-spacing:0.3px}
+/* バッジ〜物件名〜賃料〜ボタンを1枚のカードに入れる。
+   以前は賃料だけ濃紺の箱に入れていて、そこだけ浮いて見えていた。 */
+.hero-card{background:#fff;border:2px solid #1a2538;border-radius:16px;padding:16px 18px 18px;margin:4px 0 16px}
+.price-box{border-top:1px solid #e6e8ec;border-bottom:1px solid #e6e8ec;padding:14px 0;margin:12px 0}
+.price-main{font-size:30px;font-weight:800;color:#E5533D;letter-spacing:-0.5px;line-height:1.2}
+.price-sub{font-size:13px;color:#1a2538;margin-top:8px;letter-spacing:0.3px}
 /* セクションカード: 統一感のある柔らかい影 + 細い枠線 */
 .section{background:#fff;border-radius:14px;padding:18px 18px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #f0f0f0}
 /* セクション見出し: ブランド緑の縦バーアクセント + 通常文字 */
@@ -120,6 +123,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .feedback-status{text-align:center;font-size:13px;color:#888;margin:-8px 0 8px;min-height:18px}
 /* アクションボタン: ブランド緑統一 + 質感UP */
 .action-bar{display:flex;flex-direction:column;gap:10px;margin:24px 0 12px}
+.hero-card .action-bar{margin:14px 0 0}
 /* 高さを指定していないので、枠線のあるボタン(内見・secondary)だけが枠線ぶん
    4px高くなっていた（box-sizing:border-box は width/height 指定時のみ効く）。
    既定を透明な2px枠にして、塗り／枠線どちらの見た目でも高さが揃うようにする。 */
@@ -924,6 +928,9 @@ function renderProperty(p) {
   var favStarHtml = (customer && roomId)
     ? '<button class="fav-star" id="favBtn" onclick="sendFeedback(\'favorite\')" aria-label="お気に入りに追加"><span class="fav-star-icon">☆</span><span class="fav-star-text">お気に入り</span></button>'
     : '';
+  // バッジ〜物件名〜賃料〜ボタンまでを1枚のカードにまとめる。
+  // 賃料だけ濃紺の箱にしていたので、そこだけ浮いて見えていた。
+  html += '<div class="hero-card">';
   if (customer || favStarHtml) {
     html += '<div class="top-row">'
       + (customer ? '<div class="customer-badge">' + escHtml(customer) + ' 様専用ページ</div>' : '<span></span>')
@@ -957,7 +964,7 @@ function renderProperty(p) {
       + (viewingBtnEnabled() ? '<button class="action-btn viewing viewing-btn" id="viewingBtn" onclick="openViewingModal()">この物件の内見を希望する</button>' : '')
       + '<div class="avail-note" id="availNote"></div>'
       + '</div>';
-    // お申し込み／内見モーダルは初期HTMLには含めず、押した瞬間に
+    // お申し込み／内見モーダルは初期HTMLには含めず、押した瞬間に（hero-card を閉じるのは後段）
     // buildHoldModalHtml() / buildViewingModalHtml() から生成・注入する
     // （初期ページに入力欄を出さないことで Google Safe Browsing 等の
     //   フィッシング誤検知を避ける。内見モーダルも必ずこの方式を守ること）。
@@ -981,6 +988,7 @@ function renderProperty(p) {
       // + '</div>'
       + '<div class="feedback-status" id="feedbackStatus"></div>';
   }
+  html += '</div>'; // /hero-card
 
   // 物件情報
   html += '<div class="section"><div class="section-title">物件情報</div>';
