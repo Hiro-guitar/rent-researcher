@@ -1507,10 +1507,10 @@ function buildViewingModalHtml() {
     + '<div class="modal-title">内見のご希望</div>'
     + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:10px;line-height:1.5;">'
     + 'ご希望の日時を承ります。担当者が空き状況を確認のうえ、お電話にてご連絡いたします。</div>'
-    + '<div style="font-size:12px;color:#8a6d1f;background:#fffbeb;border:1px solid #f3dfa2;'
+    + '<div style="font-size:12px;color:#5b6b52;background:#f7faf3;border:1px solid #dfe8d5;'
     + 'border-radius:8px;padding:8px 10px;margin-bottom:12px;line-height:1.6;">'
-    + 'この送信だけでは内見の予約は確定しません。<br>'
-    + 'お電話でお話しさせていただいたうえで確定となります。</div>'
+    + 'ご希望をお送りいただいたあと、担当者よりお電話でご連絡いたします。<br>'
+    + 'お日にちは、その際にご相談のうえ決めさせていただきます。</div>'
     + '<input type="text" autocomplete="off" class="modal-input" id="viewNameInput" placeholder="お名前（必須）">'
     + '<div class="modal-error" id="viewNameError"></div>'
     + '<input type="text" inputmode="tel" autocomplete="off" class="modal-input" id="viewPhoneInput" placeholder="電話番号（必須）">'
@@ -1616,7 +1616,7 @@ function sendViewing(name, phone, schedule, note) {
   if (viewingDone) return;
   viewingDone = true;
   renderViewingBtns();
-  showToast('🔑', '内見のご希望を承りました', 'この時点では予約は確定していません。担当者がお電話でご連絡し、日程が確定します', 5500);
+  showToast('🔑', '内見のご希望を承りました', 'このあと担当者よりお電話でご連絡いたします。お日にちはその際にご相談のうえ決めさせていただきます', 5500);
   try { localStorage.setItem(getViewingKey(), '1'); } catch(e) {}
 
   var propData = currentProperty || {};
