@@ -929,7 +929,7 @@ function renderProperty(p) {
   if (customer && roomId) {
     html += '<div class="action-bar">'
       + '<button class="action-btn primary hold-btn" id="holdBtn" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
-      + (viewingBtnEnabled() ? '<button class="action-btn viewing viewing-btn" id="viewingBtn" onclick="openViewingModal()">🔑 内見を希望する</button>' : '')
+      + (viewingBtnEnabled() ? '<button class="action-btn viewing viewing-btn" id="viewingBtn" onclick="openViewingModal()">この物件の内見を希望する</button>' : '')
       + '<div class="avail-note" id="availNote"></div>'
       + '</div>';
     // お申し込み／内見モーダルは初期HTMLには含めず、押した瞬間に
@@ -1126,7 +1126,7 @@ function renderProperty(p) {
   if (customer && roomId) {
     html += '<div class="action-bar">'
       + '<button class="action-btn primary hold-btn" id="holdBtnBottom" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
-      + (viewingBtnEnabled() ? '<button class="action-btn viewing viewing-btn" id="viewingBtnBottom" onclick="openViewingModal()">🔑 内見を希望する</button>' : '')
+      + (viewingBtnEnabled() ? '<button class="action-btn viewing viewing-btn" id="viewingBtnBottom" onclick="openViewingModal()">この物件の内見を希望する</button>' : '')
       + '<div class="avail-note" id="availNoteBottom"></div>'
       + '</div>';
   }
@@ -1646,7 +1646,7 @@ function renderViewingBtns() {
       b.disabled = true;
     } else {
       b.classList.remove('active');
-      b.textContent = '🔑 内見を希望する';
+      b.textContent = 'この物件の内見を希望する';
       b.disabled = false;
     }
   }
