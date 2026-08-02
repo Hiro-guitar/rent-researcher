@@ -1478,8 +1478,8 @@ function handlePropertyAction(e) {
           vBody.push({ type: 'text', text: 'ご希望日時: ' + viewingSchedule, size: 'sm', color: '#666666', wrap: true, margin: 'md' });
         }
         vBody.push({ type: 'separator' });
-        vBody.push({ type: 'text', text: 'このあと担当者よりお電話でご連絡いたします', size: 'sm', color: '#3D6909', weight: 'bold', wrap: true });
-        vBody.push({ type: 'text', text: '空き状況をお確かめのうえ、お日にちをご相談させていただきます。お電話でご相談のうえ確定となりますので、少々お待ちくださいませ。', size: 'sm', color: '#888888', wrap: true });
+        vBody.push({ type: 'text', text: '担当者よりお電話にてご連絡いたします', size: 'sm', color: '#3D6909', weight: 'bold', wrap: true });
+        vBody.push({ type: 'text', text: '空き状況をお確かめのうえ、お日にちはその際にご相談させていただきます。', size: 'sm', color: '#888888', wrap: true });
         pushMessage(vLineUserId, [{
           type: 'flex',
           altText: '内見のご希望を承りました',
