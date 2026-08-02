@@ -3991,6 +3991,11 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   }
 
   const searchId = ++currentSearchId;
+  // サービス専用タブ(itandi/いえらぶ)を顧客ごとに開き直さない。
+  // 各 runXxxSearch は既定で終了時にタブを閉じるが、background.js は顧客1人ずつ
+  // 呼ぶため、顧客数だけタブ生成＋ログイン確認が走って重かった (2026-08-01)。
+  // サイクル中はこのフラグで開いたままにし、下の finally でまとめて閉じる。
+  globalThis._keepServiceTabsOpen = true;
   // 未解決駅の蓄積をリセット
   _unresolvedStations = {};
   // DiscordスレッドIDは永続化のためクリアしない（同じスレッドを再利用）
@@ -4414,6 +4419,8 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   } finally {
     clearInterval(globalKeepAlive);
     try { chrome.power && chrome.power.releaseKeepAwake && chrome.power.releaseKeepAwake(); } catch(e) {}
+    // サイクル終了。ここから先はタブを閉じてよい
+    globalThis._keepServiceTabsOpen = false;
     // 中止時はタブを閉じない（テスト確認用にタブを残す）
     if (!isSearchCancelled(searchId)) {
       await closeDedicatedWindow();

@@ -1101,8 +1101,10 @@ async function runItandiSearch(criteria, seenIds, searchId) {
       if (ci < criteria.length - 1) await sleep(3000);
     }
   } finally {
-    // 中止時はタブを閉じない（確認用に残す。background.jsのfinallyで制御）
-    if (!isSearchCancelled(searchId)) {
+    // 顧客検索サイクル中は開いたままにする（サイクル終了時にまとめて閉じる）。
+    // 毎回開き直すとタブ生成＋ログイン確認が顧客数だけ走って重い。
+    // 中止時も確認用に残す（background.jsのfinallyで制御）。
+    if (!globalThis._keepServiceTabsOpen && !isSearchCancelled(searchId)) {
       await closeDedicatedItandiWindow();
     }
   }

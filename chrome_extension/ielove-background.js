@@ -877,7 +877,11 @@ async function runIeloveSearch(criteria, seenIds, searchId) {
       if (ci < criteria.length - 1) await sleep(3000);
     }
   } finally {
-    await closeDedicatedIeloveWindow();
+    // 顧客検索サイクル中は開いたままにする（サイクル終了時にまとめて閉じる）。
+    // 毎回開き直すとタブ生成＋ログイン確認が顧客数だけ走って重い。
+    if (!globalThis._keepServiceTabsOpen) {
+      await closeDedicatedIeloveWindow();
+    }
   }
 }
 
