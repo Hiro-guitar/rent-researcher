@@ -68,6 +68,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 /* コンテンツ */
 .content{max-width:600px;margin:0 auto;padding:20px}
 .title{font-size:24px;font-weight:800;color:#1a2538;margin-bottom:6px;letter-spacing:-0.3px;line-height:1.35}
+/* 物件名の右にお気に入り（星）。申込・内見と縦に並べず横に逃がすことで、
+   同格に見せず「この物件を保存する」操作だと分かるようにする。 */
+.title-row{display:flex;align-items:flex-start;gap:10px}
+.title-row .title{flex:1;min-width:0}
+.fav-star{flex:0 0 auto;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  padding:6px 8px;margin-top:2px;border:1px solid #f0d9a8;border-radius:10px;background:#fffbeb;
+  color:#D97706;cursor:pointer;transition:all 0.2s;line-height:1}
+.fav-star:active{transform:scale(0.94)}
+.fav-star .fav-star-icon{font-size:20px}
+.fav-star .fav-star-text{font-size:10px;font-weight:700;white-space:nowrap}
+.fav-star.active{background:#F59E0B;border-color:#D97706;color:#fff;box-shadow:0 2px 8px rgba(245,158,11,0.3)}
 /* 価格BOX: 深いネイビーに上品な赤アクセント */
 .price-box{background:#1a2538;color:#fff;border-radius:14px;padding:18px 20px;margin:14px 0;box-shadow:0 4px 14px rgba(26,37,56,0.18)}
 .price-main{font-size:30px;font-weight:800;color:#FF7B72;letter-spacing:-0.5px;line-height:1.2}
@@ -109,7 +120,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .feedback-status{text-align:center;font-size:13px;color:#888;margin:-8px 0 8px;min-height:18px}
 /* アクションボタン: ブランド緑統一 + 質感UP */
 .action-bar{display:flex;flex-direction:column;gap:10px;margin:24px 0 12px}
-.action-btn{width:100%;padding:18px 0;border-radius:14px;border:none;font-size:16px;font-weight:700;cursor:pointer;transition:all 0.2s;text-align:center;letter-spacing:0.3px}
+/* 高さを指定していないので、枠線のあるボタン(内見・secondary)だけが枠線ぶん
+   4px高くなっていた（box-sizing:border-box は width/height 指定時のみ効く）。
+   既定を透明な2px枠にして、塗り／枠線どちらの見た目でも高さが揃うようにする。 */
+.action-btn{width:100%;padding:18px 0;border-radius:14px;border:2px solid transparent;font-size:16px;font-weight:700;cursor:pointer;transition:all 0.2s;text-align:center;letter-spacing:0.3px}
 .action-btn:active{transform:scale(0.97)}
 .action-btn.primary{background:#6ea814;color:#fff;box-shadow:0 4px 14px rgba(110,168,20,0.32)}
 .action-btn.primary.active{background:#f0faf4;color:#3d6909;border:2px solid #6ea814;box-shadow:none}
@@ -913,7 +927,14 @@ function renderProperty(p) {
   if (p.roomNumber && !displayName.endsWith(p.roomNumber)) {
     displayName += ' ' + p.roomNumber;
   }
-  html += '<div class="title">' + escHtml(displayName) + '</div>';
+  // 物件名の右にお気に入り（星）を置く。申込・内見と縦に並べると同格に見えてしまうが、
+  // 物件名の横なら「この物件を保存する」操作だと一目で分かり、軽さも伝わる。
+  html += '<div class="title-row">'
+    + '<div class="title">' + escHtml(displayName) + '</div>'
+    + ((customer && roomId)
+        ? '<button class="fav-star" id="favBtn" onclick="sendFeedback(\'favorite\')" aria-label="お気に入りに追加"><span class="fav-star-icon">☆</span><span class="fav-star-text">お気に入り</span></button>'
+        : '')
+    + '</div>';
 
   function fmtZeroNashi(val) {
     if (!val || val === '0' || val === '0円' || val === '-' || val === 'ー' || val === '—' || val === 'なし' || val === '入力なし' || val === '無') return 'なし';
@@ -945,8 +966,10 @@ function renderProperty(p) {
   // 空室確認はテストユーザーのみ表示 (loadInitialAvailabilityStatus で制御)
   // 「興味なし」ボタンは現状非表示。復活する場合は下記コメント行を有効化する
   if (customer && roomId) {
-    html += '<div class="feedback-bar">'
-      + '<button class="feedback-btn fav" id="favBtn" onclick="sendFeedback(\'favorite\')">⭐ お気に入りに追加</button>'
+    // お気に入りボタンは物件名の右（.title-row 内 .fav-star）へ移動した。
+    // 「興味なし」を復活させる場合はこの feedback-bar を有効化する。
+    html += ''
+      // + '<div class="feedback-bar">'
       // + '<button class="feedback-btn nope" id="nopeBtn" onclick="sendFeedback(\'not_interested\')">興味なし</button>'
       // 空室確認ボタンは非表示にした（テストユーザーにだけ出ていて、
       // 内見・申込と並ぶと何のボタンか分かりにくかったため）。
@@ -954,7 +977,7 @@ function renderProperty(p) {
       // loadInitialAvailabilityStatus() 等の呼び出し側は要素が無くても
       // null チェックで素通りするので、この行だけで出し入れできる。
       // + '<button class="feedback-btn avail" id="availabilityRecheckBtn" style="display:none;" onclick="requestAvailabilityRecheck()">空室確認</button>'
-      + '</div>'
+      // + '</div>'
       + '<div class="feedback-status" id="feedbackStatus"></div>';
   }
 
@@ -1320,19 +1343,21 @@ function updateFeedbackUI(action) {
   favBtn.classList.remove('active');
   if (nopeBtn) nopeBtn.classList.remove('active');
 
-  if (action === 'favorite') {
-    favBtn.classList.add('active');
-    favBtn.textContent = '⭐ お気に入り済み ✓';
-    if (nopeBtn) nopeBtn.textContent = '興味なし';
-  } else if (action === 'not_interested') {
-    if (nopeBtn) {
+  // 星ボタンは中に icon/text の2要素を持つので textContent で丸ごと書き換えない
+  var favIcon = favBtn.querySelector('.fav-star-icon');
+  var favText = favBtn.querySelector('.fav-star-text');
+  var isFav = (action === 'favorite');
+  if (isFav) favBtn.classList.add('active');
+  if (favIcon) favIcon.textContent = isFav ? '★' : '☆';
+  if (favText) favText.textContent = isFav ? 'お気に入り済み' : 'お気に入り';
+
+  if (nopeBtn) {
+    if (action === 'not_interested') {
       nopeBtn.classList.add('active');
       nopeBtn.textContent = '興味なし ✓';
+    } else {
+      nopeBtn.textContent = '興味なし';
     }
-    favBtn.textContent = '⭐ お気に入りに追加';
-  } else {
-    favBtn.textContent = '⭐ お気に入りに追加';
-    if (nopeBtn) nopeBtn.textContent = '興味なし';
   }
   if (status) status.textContent = '';
 }
