@@ -113,6 +113,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .action-btn.secondary{background:#fff;color:#3d6909;border:2px solid #6ea814}
 .action-btn.secondary.active{background:#f0faf4;color:#3d6909;border-color:#6ea814}
 .action-btn:disabled{opacity:0.6;cursor:not-allowed;transform:none}
+.action-btn.viewing{background:#fff;color:#1f5c99;border:2px solid #2f6fb5;margin-top:10px}
+.action-btn.viewing.active{background:#eef5fc;color:#1f5c99;border-color:#2f6fb5}
 .action-btn.primary.cancel-watch{background:#e67e22;box-shadow:0 4px 14px rgba(230,126,34,0.32)}
 .action-btn.primary.cancel-watch.active{background:#fef5ed;color:#b35c10;border:2px solid #e67e22;box-shadow:none}
 .avail-note{display:none;text-align:center;font-size:13px;color:#e67e22;margin-top:8px;font-weight:500;line-height:1.5;padding:0 8px}
@@ -927,11 +929,13 @@ function renderProperty(p) {
   if (customer && roomId) {
     html += '<div class="action-bar">'
       + '<button class="action-btn primary hold-btn" id="holdBtn" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
+      + (viewingBtnEnabled() ? '<button class="action-btn viewing viewing-btn" id="viewingBtn" onclick="openViewingModal()">🔑 内見を希望する</button>' : '')
       + '<div class="avail-note" id="availNote"></div>'
       + '</div>';
-    // お申し込みモーダルは初期HTMLには含めず、openHoldModal() で押した瞬間に
-    // buildHoldModalHtml() から生成・注入する（初期ページに入力欄を出さないことで
-    // Google Safe Browsing 等のフィッシング誤検知を避ける）。
+    // お申し込み／内見モーダルは初期HTMLには含めず、押した瞬間に
+    // buildHoldModalHtml() / buildViewingModalHtml() から生成・注入する
+    // （初期ページに入力欄を出さないことで Google Safe Browsing 等の
+    //   フィッシング誤検知を避ける。内見モーダルも必ずこの方式を守ること）。
   }
 
   // フィードバックボタン + 空室確認ボタン（customer と roomId がある場合のみ）
@@ -1122,6 +1126,7 @@ function renderProperty(p) {
   if (customer && roomId) {
     html += '<div class="action-bar">'
       + '<button class="action-btn primary hold-btn" id="holdBtnBottom" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
+      + (viewingBtnEnabled() ? '<button class="action-btn viewing viewing-btn" id="viewingBtnBottom" onclick="openViewingModal()">🔑 内見を希望する</button>' : '')
       + '<div class="avail-note" id="availNoteBottom"></div>'
       + '</div>';
   }
@@ -1431,6 +1436,13 @@ function updateActionUI(actionType) {
     actionState = null;
     return;
   }
+  // 内見希望は申込とは別物。申込ボタンを「受付済み」にしてしまうと
+  // 内見を出した人が申し込めなくなるので、内見ボタンだけ更新して抜ける。
+  if (actionType === 'viewing') {
+    viewingDone = true;
+    renderViewingBtns();
+    return;
+  }
   actionState = actionType;
   // 上部・末尾の両方の「お申し込み」ボタンを同期更新
   var holdBtns = document.querySelectorAll('.hold-btn');
@@ -1439,12 +1451,190 @@ function updateActionUI(actionType) {
     var btn = holdBtns[i];
     btn.classList.remove('active');
     btn.disabled = false;
-    if (actionType === 'hold' || actionType === 'viewing') {
+    if (actionType === 'hold') {
       btn.classList.add('active');
       btn.textContent = '✅ お申し込み希望受付済み';
       btn.disabled = true;
     } else {
       btn.textContent = 'この物件にお申し込み希望をする';
+    }
+  }
+}
+
+// ══════════════════════════════════════════
+//  内見希望
+//  ⚠️ 申込モーダルと同じく、入力欄は初期HTMLに一切置かず
+//     押した瞬間に生成する（Safe Browsing のフィッシング誤検知を避けるため）。
+// ══════════════════════════════════════════
+
+// 【テスト中】内見ボタンを出す顧客。空配列 [] にすると全員に表示される。
+// テストが終わったら [] に戻すこと。
+var VIEWING_BTN_ONLY_FOR = ['Hiroki'];
+function viewingBtnEnabled() {
+  // 描画が var 代入より先に走っても落ちないようにしておく
+  var list = (typeof VIEWING_BTN_ONLY_FOR !== 'undefined' && VIEWING_BTN_ONLY_FOR) ? VIEWING_BTN_ONLY_FOR : [];
+  return list.length === 0 || list.indexOf(customer) !== -1;
+}
+
+// 申込(actionState)とは独立に持つ。内見を出しても申込ボタンは塞がない。
+var viewingDone = false;
+function getViewingKey() { return 'viewingReq:' + customer + ':' + roomId; }
+
+var VIEWING_TIME_SLOTS = ['午前中', '13〜15時', '15〜17時', '17時以降', 'いつでも可'];
+
+function buildViewingModalHtml() {
+  var opts = '';
+  for (var i = 0; i < VIEWING_TIME_SLOTS.length; i++) {
+    opts += '<option value="' + VIEWING_TIME_SLOTS[i] + '">' + VIEWING_TIME_SLOTS[i] + '</option>';
+  }
+  return '<div class="modal-overlay" id="viewingModal" onclick="if(event.target===this)closeViewingModal()">'
+    + '<div class="modal-content">'
+    + '<div class="modal-title">内見のご希望</div>'
+    + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:12px;line-height:1.5;">'
+    + 'ご希望の日時を承ります。担当者が空き状況を確認のうえ、お電話にてご連絡いたします。</div>'
+    + '<input type="text" autocomplete="off" class="modal-input" id="viewNameInput" placeholder="お名前（必須）">'
+    + '<div class="modal-error" id="viewNameError"></div>'
+    + '<input type="text" inputmode="tel" autocomplete="off" class="modal-input" id="viewPhoneInput" placeholder="電話番号（必須）">'
+    + '<div class="modal-error" id="viewPhoneError"></div>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<div style="flex:1;"><input type="date" class="modal-input" id="viewDateInput"><div class="modal-error" id="viewDateError"></div></div>'
+    + '<div style="flex:1;"><select class="modal-input" id="viewTimeInput">' + opts + '</select></div>'
+    + '</div>'
+    + '<textarea class="modal-input" id="viewNoteInput" rows="2" placeholder="他の候補日やご要望（任意）" style="resize:vertical;"></textarea>'
+    + '<div class="modal-actions">'
+    + '<button class="action-btn primary" onclick="submitViewing()">内見希望を送信</button>'
+    + '<button class="action-btn secondary" onclick="closeViewingModal()">キャンセル</button>'
+    + '</div>'
+    + '</div>'
+    + '</div>';
+}
+
+function ensureViewingModal() {
+  var modal = document.getElementById('viewingModal');
+  if (modal) return modal;
+  var wrap = document.createElement('div');
+  wrap.innerHTML = buildViewingModalHtml();
+  modal = wrap.firstChild;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function openViewingModal() {
+  if (viewingDone) return;
+  ensureViewingModal();
+  var modal = document.getElementById('viewingModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  var ids = ['viewNameInput', 'viewPhoneInput', 'viewDateInput'];
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    if (el) el.classList.remove('error');
+  }
+  var errs = ['viewNameError', 'viewPhoneError', 'viewDateError'];
+  for (var j = 0; j < errs.length; j++) {
+    var er = document.getElementById(errs[j]);
+    if (er) er.textContent = '';
+  }
+  // 過去日を選べないようにする
+  var d = document.getElementById('viewDateInput');
+  if (d && !d.min) {
+    var t = new Date();
+    d.min = t.getFullYear() + '-'
+      + String(t.getMonth() + 1).padStart(2, '0') + '-'
+      + String(t.getDate()).padStart(2, '0');
+  }
+}
+
+function closeViewingModal() {
+  var modal = document.getElementById('viewingModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function validateViewingName(val) {
+  val = (val || '').trim();
+  if (!val) return 'お名前を入力してください';
+  return null;
+}
+function validateViewingDate(val) {
+  val = (val || '').trim();
+  if (!val) return 'ご希望日を選んでください';
+  return null;
+}
+
+function submitViewing() {
+  var nameEl = document.getElementById('viewNameInput');
+  var phoneEl = document.getElementById('viewPhoneInput');
+  var dateEl = document.getElementById('viewDateInput');
+  var timeEl = document.getElementById('viewTimeInput');
+  var noteEl = document.getElementById('viewNoteInput');
+  var name = (nameEl.value || '').trim();
+  var phone = (phoneEl.value || '').trim();
+  var date = (dateEl.value || '').trim();
+
+  var fields = [
+    { el: nameEl, errEl: document.getElementById('viewNameError'), err: validateViewingName(name) },
+    { el: phoneEl, errEl: document.getElementById('viewPhoneError'), err: validatePhone(phone) },
+    { el: dateEl, errEl: document.getElementById('viewDateError'), err: validateViewingDate(date) }
+  ];
+  var hasError = false;
+  for (var i = 0; i < fields.length; i++) {
+    var f = fields[i];
+    if (f.err) { f.el.classList.add('error'); f.errEl.textContent = f.err; hasError = true; }
+    else { f.el.classList.remove('error'); f.errEl.textContent = ''; }
+  }
+  if (hasError) return;
+
+  var schedule = date + ' ' + ((timeEl && timeEl.value) || '');
+  var note = (noteEl && noteEl.value || '').trim();
+  closeViewingModal();
+  sendViewing(name, phone, schedule, note);
+}
+
+function sendViewing(name, phone, schedule, note) {
+  if (viewingDone) return;
+  viewingDone = true;
+  renderViewingBtns();
+  showToast('🔑', '内見のご希望を承りました', '担当者が空き状況を確認のうえ、お電話でご連絡いたします', 4500);
+  try { localStorage.setItem(getViewingKey(), '1'); } catch(e) {}
+
+  var propData = currentProperty || {};
+  var params = 'action=property_action'
+    + '&customer=' + encodeURIComponent(customer)
+    + '&room_id=' + encodeURIComponent(roomId)
+    + '&action_type=viewing'
+    + '&applicant_name=' + encodeURIComponent(name || '')
+    + '&phone=' + encodeURIComponent(phone || '')
+    + '&viewing_schedule=' + encodeURIComponent(schedule || '')
+    + '&viewing_note=' + encodeURIComponent(note || '')
+    + '&building_name=' + encodeURIComponent(propData.buildingName || '')
+    + '&room_number=' + encodeURIComponent(propData.roomNumber || '')
+    + '&rent=' + encodeURIComponent(propData.rent || '')
+    + '&layout=' + encodeURIComponent(propData.layout || '')
+    + '&station_info=' + encodeURIComponent(propData.stationInfo || '');
+
+  fetch(GAS_API_URL + '?' + params, { redirect: 'follow' })
+    .then(function(res) { return res.text(); })
+    .catch(function() {
+      viewingDone = false;
+      renderViewingBtns();
+      try { localStorage.removeItem(getViewingKey()); } catch(e) {}
+      showToast('⚠️', '送信に失敗しました', 'もう一度お試しください', 3500);
+    });
+}
+
+// 内見ボタンの表示を viewingDone に合わせる（申込ボタンには触れない）
+function renderViewingBtns() {
+  var btns = document.querySelectorAll('.viewing-btn');
+  for (var i = 0; i < btns.length; i++) {
+    var b = btns[i];
+    if (viewingDone) {
+      b.classList.add('active');
+      b.textContent = '✅ 内見希望を受付済み';
+      b.disabled = true;
+    } else {
+      b.classList.remove('active');
+      b.textContent = '🔑 内見を希望する';
+      b.disabled = false;
     }
   }
 }
@@ -1682,6 +1872,14 @@ function sendAction(actionType, applicationType, email, phone, applicantName, fu
 
 function checkActionStatus() {
   if (!customer || !roomId) return;
+
+  // 内見希望の受付済み表示を即時復元（申込とは別キー）
+  try {
+    if (localStorage.getItem(getViewingKey())) {
+      viewingDone = true;
+      renderViewingBtns();
+    }
+  } catch(e) {}
 
   // localStorage から即時復元（JSON / 旧文字列の両方対応）
   try {

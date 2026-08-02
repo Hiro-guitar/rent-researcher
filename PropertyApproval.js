@@ -1082,8 +1082,16 @@ function handlePropertyAction(e) {
   var email = e.parameter.email || '';
   var phone = e.parameter.phone || '';
   var contactInfo = e.parameter.contact_info || '';
+  // 内見希望(viewing)の希望日時・補足。property.html の内見モーダルから送られる。
+  var viewingSchedule = e.parameter.viewing_schedule || '';
+  var viewingNote = e.parameter.viewing_note || '';
   if (!contactInfo && (applicantName || furigana || email || phone)) {
     contactInfo = [applicantName ? '氏名: ' + applicantName : '', furigana ? 'フリガナ: ' + furigana : '', email ? 'Email: ' + email : '', phone ? 'Tel: ' + phone : ''].filter(Boolean).join(' / ');
+  }
+  // 内見希望は希望日時まで含めて連絡先欄に残す（アクションログを見れば要件が分かる）
+  if (actionType === 'viewing') {
+    if (viewingSchedule) contactInfo += (contactInfo ? ' / ' : '') + '内見希望: ' + viewingSchedule;
+    if (viewingNote) contactInfo += (contactInfo ? ' / ' : '') + '備考: ' + viewingNote;
   }
 
   // 閲覧トラッキング用の追加情報（view アクション時に property.html から送信される）
@@ -1236,6 +1244,7 @@ function handlePropertyAction(e) {
           'hold_intent': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabelLinked + '」の **お申し込み希望画面を開きました**（未送信）',
           'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabelLinked + '」を **お気に入り** に追加しました',
           'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabelLinked + '」を **興味なし** にしました',
+          'viewing': '🔑 **' + customerName + '** 様が「' + propLabelLinked + '」の **内見をご希望** です！',
           'view': viewPrefix + ' **' + customerName + '** 様が「' + propLabelLinked + '」を閲覧しました' + viewSuffix
         };
         var msg = msgMap[actionType] || '';
@@ -1290,6 +1299,14 @@ function handlePropertyAction(e) {
           if (email) msg += '\n> Email: ' + email;
           if (phone) msg += '\n> Tel: ' + phone;
           msg += '\n> → お電話でお申し込み方法のご案内をお願いします';
+        }
+        // 内見希望の場合、希望日時・氏名・電話を表示（そのまま架電できるように）
+        if (actionType === 'viewing') {
+          if (viewingSchedule) msg += '\n> 🗓 希望日時: **' + viewingSchedule + '**';
+          if (viewingNote) msg += '\n> 備考: ' + viewingNote;
+          if (applicantName) msg += '\n> 氏名: ' + applicantName;
+          if (phone) msg += '\n> 📞 Tel: ' + phone;
+          msg += '\n> → 空き状況を確認のうえ、お電話で日程調整をお願いします';
         }
         if (rentText || layout) {
           msg += '\n> ' + [rentText, layout].filter(Boolean).join(' / ');
@@ -1442,6 +1459,34 @@ function handlePropertyAction(e) {
       }
     } catch(e) {
       console.error('LINE hold notification error: ' + e.message);
+    }
+  }
+
+  // 内見希望の場合、顧客にLINE確認メッセージを送信
+  if (actionType === 'viewing') {
+    try {
+      var vLineUserId = findLineUserId(customerName);
+      if (vLineUserId) {
+        var vLabel = buildingName || ('room_id: ' + roomId);
+        if (roomNumber) vLabel += ' ' + roomNumber;
+        var vBody = [
+          { type: 'text', text: '🔑 内見のご希望を承りました', weight: 'bold', size: 'lg', color: '#1F5C99', wrap: true },
+          { type: 'separator' },
+          { type: 'text', text: vLabel, weight: 'bold', size: 'md', wrap: true }
+        ];
+        if (viewingSchedule) {
+          vBody.push({ type: 'text', text: 'ご希望日時: ' + viewingSchedule, size: 'sm', color: '#666666', wrap: true, margin: 'md' });
+        }
+        vBody.push({ type: 'separator' });
+        vBody.push({ type: 'text', text: '空き状況を確認のうえ、担当者よりお電話にてご連絡いたします。しばらくお待ちください。', size: 'sm', color: '#888888', wrap: true });
+        pushMessage(vLineUserId, [{
+          type: 'flex',
+          altText: '内見のご希望を承りました',
+          contents: { type: 'bubble', body: { type: 'box', layout: 'vertical', spacing: 'md', contents: vBody } }
+        }]);
+      }
+    } catch(e) {
+      console.error('LINE viewing notification error: ' + e.message);
     }
   }
 
