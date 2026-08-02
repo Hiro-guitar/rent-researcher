@@ -1029,7 +1029,7 @@ function renderProperty(p) {
   html += '<div class="section"><div class="section-title">物件情報</div>';
   var details = [];
   // 上部カードにも出しているが、物件情報だけを見に来た人のためにここにも載せる
-  if (p.rent) details.push(['賃料', rentDisp + '/月']);
+  if (p.rent) details.push(['賃料', rentDisp]);
   details.push(['管理費', mgmtDisp]);
   details.push(['敷金', zeroNashi(p.deposit)]);
   details.push(['礼金', zeroNashi(p.keyMoney)]);
