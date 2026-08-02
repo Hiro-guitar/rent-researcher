@@ -1316,10 +1316,11 @@ function handlePropertyAction(e) {
 
         var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
         var payload = { content: msg, allowed_mentions: { users: ['1459814543600390341'] } };
-        // 申し込み送信(hold)以外はサイレント送信。
+        // 申し込み送信(hold)・内見希望送信(viewing)以外はサイレント送信。
         // メッセージは届くが Discord クライアントのプッシュ通知音は鳴らない。
-        // hold だけは音を鳴らして担当者の対応漏れを防ぐ。
-        if (actionType !== 'hold') {
+        // この2つだけ音を鳴らして担当者の対応漏れを防ぐ。
+        // ※ hold_intent / viewing_intent（フォームを開いただけ）は音を鳴らさない。
+        if (actionType !== 'hold' && actionType !== 'viewing') {
           payload.flags = 4096; // SUPPRESS_NOTIFICATIONS
         }
         if (!threadId) {
