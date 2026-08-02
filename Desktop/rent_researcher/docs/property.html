@@ -67,13 +67,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .hero{width:100%;max-width:600px;max-height:50vh;object-fit:contain;display:block;margin:0 auto}
 /* コンテンツ */
 .content{max-width:600px;margin:0 auto;padding:20px}
-.title{font-size:24px;font-weight:800;color:#1a2538;margin-bottom:6px;letter-spacing:-0.3px;line-height:1.35}
+.title{font-size:24px;font-weight:800;color:#1a2538;margin-bottom:6px;letter-spacing:-0.3px;line-height:1.35;text-align:center}
 /* 物件名の右にお気に入り（星）。申込・内見と縦に並べず横に逃がすことで、
    同格に見せず「この物件を保存する」操作だと分かるようにする。 */
-/* 星は右端に飛ばさず物件名のすぐ右に置く。flex:1 にすると名前と星のあいだに
-   大きな空白ができて、名前だけが取り残されたように見えるため。 */
-.title-row{display:flex;align-items:flex-start;gap:10px}
-.title-row .title{flex:0 1 auto;min-width:0}
+/* 専用ページのバッジと同じ行。左＝バッジ、右端＝お気に入りの星。 */
+.top-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .fav-star{flex:0 0 auto;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
   padding:6px 8px;margin-top:2px;border:1px solid #f0d9a8;border-radius:10px;background:#fffbeb;
   color:#D97706;cursor:pointer;transition:all 0.2s;line-height:1}
@@ -921,22 +919,23 @@ function renderProperty(p) {
 
   // コンテンツ
   html += '<div class="content">';
-  if (customer) {
-    html += '<div class="customer-badge">' + escHtml(customer) + ' 様専用ページ</div>';
+  // 専用ページのバッジと同じ行の右端にお気に入り（星）を置く。
+  // 申込・内見と縦に並べると同格に見えるため、主導線から外して右上に逃がす。
+  var favStarHtml = (customer && roomId)
+    ? '<button class="fav-star" id="favBtn" onclick="sendFeedback(\'favorite\')" aria-label="お気に入りに追加"><span class="fav-star-icon">☆</span><span class="fav-star-text">お気に入り</span></button>'
+    : '';
+  if (customer || favStarHtml) {
+    html += '<div class="top-row">'
+      + (customer ? '<div class="customer-badge">' + escHtml(customer) + ' 様専用ページ</div>' : '<span></span>')
+      + favStarHtml
+      + '</div>';
   }
   // 物件名が部屋番号で終わっている場合は重複表示しない
   var displayName = p.buildingName || '';
   if (p.roomNumber && !displayName.endsWith(p.roomNumber)) {
     displayName += ' ' + p.roomNumber;
   }
-  // 物件名の右にお気に入り（星）を置く。申込・内見と縦に並べると同格に見えてしまうが、
-  // 物件名の横なら「この物件を保存する」操作だと一目で分かり、軽さも伝わる。
-  html += '<div class="title-row">'
-    + '<div class="title">' + escHtml(displayName) + '</div>'
-    + ((customer && roomId)
-        ? '<button class="fav-star" id="favBtn" onclick="sendFeedback(\'favorite\')" aria-label="お気に入りに追加"><span class="fav-star-icon">☆</span><span class="fav-star-text">お気に入り</span></button>'
-        : '')
-    + '</div>';
+  html += '<div class="title">' + escHtml(displayName) + '</div>';
 
   function fmtZeroNashi(val) {
     if (!val || val === '0' || val === '0円' || val === '-' || val === 'ー' || val === '—' || val === 'なし' || val === '入力なし' || val === '無') return 'なし';
@@ -968,7 +967,7 @@ function renderProperty(p) {
   // 空室確認はテストユーザーのみ表示 (loadInitialAvailabilityStatus で制御)
   // 「興味なし」ボタンは現状非表示。復活する場合は下記コメント行を有効化する
   if (customer && roomId) {
-    // お気に入りボタンは物件名の右（.title-row 内 .fav-star）へ移動した。
+    // お気に入りボタンは右上（.top-row 内 .fav-star）へ移動した。
     // 「興味なし」を復活させる場合はこの feedback-bar を有効化する。
     html += ''
       // + '<div class="feedback-bar">'
