@@ -92,8 +92,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 /* 顧客バッジ: チップ風で控えめに */
 .customer-badge{display:inline-block;padding:5px 14px;background:#f5f9ee;color:#3d6909;font-size:12px;font-weight:600;border-radius:16px;border:1px solid #d4e7a8;letter-spacing:0.3px;margin-bottom:10px}
 /* フィードバックボタン */
-.feedback-bar{display:flex;gap:10px;margin:16px 0;padding:0}
-.feedback-btn{flex:1;padding:14px 0;border-radius:12px;border:2px solid #e0e0e0;background:#fff;font-size:15px;font-weight:bold;cursor:pointer;transition:all 0.2s;text-align:center;color:#555;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+/* お気に入りは申込・内見より軽い操作。中途半端な差だと事故に見えるので、
+   高さ・文字・角丸をはっきり一段下げて「軽い操作」だと分かるようにする。
+   （申込と内見は同格なので同じ寸法のまま） */
+.feedback-bar{display:flex;gap:10px;margin:12px 0 16px;padding:0}
+.feedback-btn{flex:1;padding:10px 0;border-radius:10px;border:2px solid #e0e0e0;background:#fff;font-size:13px;font-weight:bold;cursor:pointer;transition:all 0.2s;text-align:center;color:#555;display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .feedback-btn:active{transform:scale(0.97)}
 .feedback-btn.fav{border-color:#F59E0B;color:#D97706;background:#FFFBEB}
 .feedback-btn.fav.active{background:#F59E0B;border-color:#D97706;color:#fff;box-shadow:0 2px 8px rgba(245,158,11,0.3)}
@@ -1505,11 +1508,12 @@ function buildViewingModalHtml() {
   return '<div class="modal-overlay" id="viewingModal" onclick="if(event.target===this)closeViewingModal()">'
     + '<div class="modal-content">'
     + '<div class="modal-title">内見のご希望</div>'
+    // 上＝この画面で何をするか / 下＝送ったあとどうなるか。役割を分けて重複させない。
     + '<div class="modal-note" style="font-size:13px;color:#555;margin-bottom:10px;line-height:1.5;">'
-    + 'ご希望の日時を承ります。担当者が空き状況を確認のうえ、お電話にてご連絡いたします。</div>'
+    + 'ご希望の日時をお聞かせください。</div>'
     + '<div style="font-size:12px;color:#5b6b52;background:#f7faf3;border:1px solid #dfe8d5;'
     + 'border-radius:8px;padding:8px 10px;margin-bottom:12px;line-height:1.6;">'
-    + 'ご希望をお送りいただいたのち、担当者よりお電話にてご連絡いたします。<br>'
+    + '担当者が空き状況を確認のうえ、お電話にてご連絡いたします。<br>'
     + 'お日にちは、その際にご相談させていただきます。</div>'
     + '<input type="text" autocomplete="off" class="modal-input" id="viewNameInput" placeholder="お名前（必須）">'
     + '<div class="modal-error" id="viewNameError"></div>'
