@@ -71,7 +71,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 /* 駅徒歩・所在階・間取り・面積。賃料のすぐ上に判断材料をまとめる */
 /* word-break:keep-all で「10階」のような語の途中で折れるのを防ぐ。
    区切りの / の前後には実際の空白を入れてあるので、改行はそこで起きる。 */
-.title-specs{text-align:center;font-size:13px;color:#5a6472;line-height:1.6;font-weight:600;word-break:keep-all;overflow-wrap:break-word}
+.title-access,.title-specs{text-align:center;font-size:13px;color:#5a6472;line-height:1.6;font-weight:600;word-break:keep-all;overflow-wrap:break-word}
 .title-specs .sep{color:#c8cdd4;margin:0 4px;font-weight:400}
 /* 物件名の右にお気に入り（星）。申込・内見と縦に並べず横に逃がすことで、
    同格に見せず「この物件を保存する」操作だと分かるようにする。 */
@@ -966,8 +966,11 @@ function renderProperty(p) {
   html += '<div class="title">' + escHtml(displayName) + '</div>';
   // 判断材料（駅徒歩・所在階・間取り・面積）を賃料のすぐ上に集約する。
   // これまでは「物件情報」までスクロールしないと見えなかった。
+  // 路線・駅・徒歩と、階/間取り/面積は性質が違うので行を分ける
+  if (hv(p.stationInfo)) {
+    html += '<div class="title-access">' + escHtml(p.stationInfo) + '</div>';
+  }
   var specs = [];
-  if (hv(p.stationInfo)) specs.push(escHtml(p.stationInfo));
   if (hv(p.floorText)) specs.push(escHtml(p.floorText));
   else if (p.floor) specs.push(escHtml(p.floor) + '階');
   if (hv(p.layout)) specs.push(escHtml(p.layout));
