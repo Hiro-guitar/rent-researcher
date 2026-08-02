@@ -863,8 +863,9 @@ function taskCardHtml(t, idx) {
   }
   // カードのどこを押してもその顧客の詳細へ。
   // チェックボックスとボールのセレクトは操作したいだけなので、そこだけ伝播を止める。
-  return '<div class="kanban-card" onclick="openTaskCustomer(' + idx + ')"'
-    + ' title="クリックで ' + esc(t.customer) + ' の詳細へ" style="cursor:pointer;">'
+  // title は付けない（ホバーのたびに吹き出しが出て隣のカードを隠すため。
+  //  クリックできることは cursor:pointer で足りる）
+  return '<div class="kanban-card" onclick="openTaskCustomer(' + idx + ')" style="cursor:pointer;">'
     + '<div style="display:flex;align-items:flex-start;gap:6px;">'
     +   '<input type="checkbox" ' + (t.done ? 'checked' : '')
     +     ' onclick="event.stopPropagation(); toggleBoardTask(' + idx + ', this.checked)"'
