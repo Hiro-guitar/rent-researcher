@@ -69,8 +69,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .content{max-width:600px;margin:0 auto;padding:20px}
 .title{font-size:24px;font-weight:800;color:#1a2538;margin-bottom:6px;letter-spacing:-0.3px;line-height:1.35;text-align:center}
 /* 駅徒歩・所在階・間取り・面積。賃料のすぐ上に判断材料をまとめる */
-.title-specs{text-align:center;font-size:13px;color:#5a6472;line-height:1.6;font-weight:600}
-.title-specs .sep{color:#c8cdd4;margin:0 6px;font-weight:400}
+/* word-break:keep-all で「10階」のような語の途中で折れるのを防ぐ。
+   区切りの / の前後には実際の空白を入れてあるので、改行はそこで起きる。 */
+.title-specs{text-align:center;font-size:13px;color:#5a6472;line-height:1.6;font-weight:600;word-break:keep-all;overflow-wrap:break-word}
+.title-specs .sep{color:#c8cdd4;margin:0 4px;font-weight:400}
 /* 物件名の右にお気に入り（星）。申込・内見と縦に並べず横に逃がすことで、
    同格に見せず「この物件を保存する」操作だと分かるようにする。 */
 /* 専用ページのバッジと同じ行。左＝バッジ、右端＝お気に入りの星。 */
@@ -88,7 +90,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .hero-card{background:#fff;border-radius:14px;padding:16px 18px 18px;margin:4px 0 14px;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #f0f0f0}
 .price-box{border-top:1px solid #e6e8ec;border-bottom:1px solid #e6e8ec;padding:14px 0;margin:12px 0}
 .price-main{font-size:30px;font-weight:800;color:#E5533D;letter-spacing:-0.5px;line-height:1.2}
-.price-sub{font-size:13px;color:#1a2538;margin-top:8px;letter-spacing:0.3px}
+.price-sub{font-size:13px;color:#1a2538;margin-top:8px;letter-spacing:0.3px;word-break:keep-all;overflow-wrap:break-word}
+.price-sub .sep{color:#c8cdd4;margin:0 4px}
 /* セクションカード: 統一感のある柔らかい影 + 細い枠線 */
 .section{background:#fff;border-radius:14px;padding:18px 18px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #f0f0f0}
 /* セクション見出し: ブランド緑の縦バーアクセント + 通常文字 */
@@ -971,7 +974,7 @@ function renderProperty(p) {
   if (hv(p.layout)) specs.push(escHtml(p.layout));
   if (p.area) specs.push(escHtml(p.area) + 'm²');
   if (specs.length) {
-    html += '<div class="title-specs">' + specs.join('<span class="sep">/</span>') + '</div>';
+    html += '<div class="title-specs">' + specs.join(' <span class="sep">/</span> ') + '</div>';
   }
 
   // 0円・空欄は「なし」に寄せる。makeRow は値を自前でエスケープするので、
@@ -983,9 +986,12 @@ function renderProperty(p) {
   function fmtZeroNashi(val) {
     return escHtml(zeroNashi(val));
   }
-  var priceSub = '管理費 ' + mgmtDisp;
-  priceSub += ' | 敷金 ' + fmtZeroNashi(p.deposit);
-  priceSub += ' | 礼金 ' + fmtZeroNashi(p.keyMoney);
+  // 区切りは上のスペック行と同じ「/」に揃える
+  var priceSub = [
+    '管理費 ' + mgmtDisp,
+    '敷金 ' + fmtZeroNashi(p.deposit),
+    '礼金 ' + fmtZeroNashi(p.keyMoney)
+  ].join(' <span class="sep">/</span> ');
   html += '<div class="price-box">'
     + '<div class="price-main">' + rentDisp + '<span style="font-size:16px">/月</span></div>'
     + '<div class="price-sub">' + priceSub + '</div>'
