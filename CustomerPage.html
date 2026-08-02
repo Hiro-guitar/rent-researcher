@@ -846,7 +846,8 @@ function taskCardHtml(t, idx) {
   var ownerSel = '';
   if (!t.done) {
     var waiting = t.waiting;
-    ownerSel = '<select onchange="setBoardTaskOwner(' + idx + ', this.value)" onclick="event.stopPropagation()"'
+    ownerSel = '<select onchange="event.stopPropagation(); setBoardTaskOwner(' + idx + ', this.value)"'
+      + ' onclick="event.stopPropagation()"'
       + ' title="ボール（誰が動く番か）"'
       + ' style="font-size:10px;border-radius:4px;padding:1px 2px;border:1px solid #444;'
       + 'background:' + (waiting ? '#2a2a2a' : '#1f2f1f') + ';color:' + (waiting ? '#999' : '#6cd06c') + ';">';
@@ -860,18 +861,20 @@ function taskCardHtml(t, idx) {
       ownerSel += '<span style="color:' + (t.waitDays >= 3 ? '#e0b64a' : '#888') + ';">' + t.waitDays + '日</span>';
     }
   }
-  return '<div class="kanban-card" style="cursor:default;">'
+  // カードのどこを押してもその顧客の詳細へ。
+  // チェックボックスとボールのセレクトは操作したいだけなので、そこだけ伝播を止める。
+  return '<div class="kanban-card" onclick="openTaskCustomer(' + idx + ')"'
+    + ' title="クリックで ' + esc(t.customer) + ' の詳細へ" style="cursor:pointer;">'
     + '<div style="display:flex;align-items:flex-start;gap:6px;">'
     +   '<input type="checkbox" ' + (t.done ? 'checked' : '')
-    +     ' onclick="toggleBoardTask(' + idx + ', this.checked)"'
+    +     ' onclick="event.stopPropagation(); toggleBoardTask(' + idx + ', this.checked)"'
     +     ' style="cursor:pointer;margin-top:2px;flex:0 0 auto;">'
     +   '<div style="flex:1;min-width:0;">'
     +     '<div style="font-size:12px;line-height:1.4;white-space:normal;word-break:break-word;color:'
     +       (t.done ? '#888' : '#ddd') + ';' + (t.done ? 'text-decoration:line-through;' : '') + '">'
     +       esc(t.content) + '</div>'
     +     '<div style="margin-top:4px;font-size:11px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'
-    +       '<a onclick="openTaskCustomer(' + idx + ')" style="color:#6cf;cursor:pointer;">'
-    +         esc(t.customer) + '</a>'
+    +       '<span style="color:#6cf;">' + esc(t.customer) + '</span>'
     +       (t.archived ? '<span title="アーカイブ済みの顧客" style="color:#888;">🗄</span>' : '')
     +       '<span style="color:' + dueColor + ';">' + esc(dueTxt) + '</span>'
     +     '</div>'
