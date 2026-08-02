@@ -139,7 +139,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .sticky-inner{max-width:600px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
 .sticky-price{display:flex;align-items:baseline;gap:10px;line-height:1.2}
 .sticky-rent{font-size:20px;font-weight:800;color:#E5533D;letter-spacing:-0.3px}
-.sticky-rent .u{font-size:12px}
 .sticky-mgmt{font-size:12px;color:#5a6472}
 .sticky-btns{display:flex;gap:8px}
 /* バー内は横並びなので、上部の大きいボタンより一段コンパクトにする */
@@ -347,7 +346,7 @@ function injectMinimalToSkeleton(p) {
   if (p.rent) {
     var rentText = p.rent >= 10000 ? (p.rent / 10000) + '万円' : p.rent.toLocaleString() + '円';
     var el = document.getElementById('skelRent');
-    if (el) el.innerHTML = escHtml(rentText) + '<span style="font-size:16px">/月</span>';
+    if (el) el.textContent = rentText;
   }
   if (p.managementFee) {
     var mfText = p.managementFee >= 10000 ? (p.managementFee / 10000) + '万円' : p.managementFee.toLocaleString() + '円';
@@ -993,7 +992,7 @@ function renderProperty(p) {
     '礼金 ' + fmtZeroNashi(p.keyMoney)
   ].join(' <span class="sep">/</span> ');
   html += '<div class="price-box">'
-    + '<div class="price-main">' + rentDisp + '<span style="font-size:16px">/月</span></div>'
+    + '<div class="price-main">' + rentDisp + '</div>'
     + '<div class="price-sub">' + priceSub + '</div>'
     + '</div>';
 
@@ -1224,7 +1223,7 @@ function renderProperty(p) {
   if (customer && roomId) {
     html += '<div class="sticky-bar" id="stickyBar"><div class="sticky-inner">'
       + '<div class="sticky-price">'
-      +   '<span class="sticky-rent">' + rentDisp + '<span class="u">/月</span></span>'
+      +   '<span class="sticky-rent">' + rentDisp + '</span>'
       +   '<span class="sticky-mgmt">管理費 ' + mgmtDisp + '</span>'
       + '</div>'
       + '<div class="sticky-btns">'
