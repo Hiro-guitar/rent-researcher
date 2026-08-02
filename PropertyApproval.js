@@ -1478,7 +1478,8 @@ function handlePropertyAction(e) {
           vBody.push({ type: 'text', text: 'ご希望日時: ' + viewingSchedule, size: 'sm', color: '#666666', wrap: true, margin: 'md' });
         }
         vBody.push({ type: 'separator' });
-        vBody.push({ type: 'text', text: '空き状況を確認のうえ、担当者よりお電話にてご連絡いたします。しばらくお待ちください。', size: 'sm', color: '#888888', wrap: true });
+        vBody.push({ type: 'text', text: 'まだ内見のご予約は確定しておりません。', size: 'sm', color: '#C77700', weight: 'bold', wrap: true });
+        vBody.push({ type: 'text', text: '空き状況を確認のうえ、担当者よりお電話にてご連絡いたします。お電話でお話しさせていただいたうえで日程が確定となります。', size: 'sm', color: '#888888', wrap: true });
         pushMessage(vLineUserId, [{
           type: 'flex',
           altText: '内見のご希望を承りました',
