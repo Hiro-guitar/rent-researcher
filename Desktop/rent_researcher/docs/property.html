@@ -70,8 +70,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .title{font-size:24px;font-weight:800;color:#1a2538;margin-bottom:6px;letter-spacing:-0.3px;line-height:1.35}
 /* 物件名の右にお気に入り（星）。申込・内見と縦に並べず横に逃がすことで、
    同格に見せず「この物件を保存する」操作だと分かるようにする。 */
+/* 星は右端に飛ばさず物件名のすぐ右に置く。flex:1 にすると名前と星のあいだに
+   大きな空白ができて、名前だけが取り残されたように見えるため。 */
 .title-row{display:flex;align-items:flex-start;gap:10px}
-.title-row .title{flex:1;min-width:0}
+.title-row .title{flex:0 1 auto;min-width:0}
 .fav-star{flex:0 0 auto;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
   padding:6px 8px;margin-top:2px;border:1px solid #f0d9a8;border-radius:10px;background:#fffbeb;
   color:#D97706;cursor:pointer;transition:all 0.2s;line-height:1}
