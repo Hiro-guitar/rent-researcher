@@ -68,6 +68,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 /* コンテンツ */
 .content{max-width:600px;margin:0 auto;padding:20px}
 .title{font-size:24px;font-weight:800;color:#1a2538;margin-bottom:6px;letter-spacing:-0.3px;line-height:1.35;text-align:center}
+/* 駅徒歩・所在階・間取り・面積。賃料のすぐ上に判断材料をまとめる */
+.title-specs{text-align:center;font-size:13px;color:#5a6472;line-height:1.6;font-weight:600}
+.title-specs .sep{color:#c8cdd4;margin:0 6px;font-weight:400}
 /* 物件名の右にお気に入り（星）。申込・内見と縦に並べず横に逃がすことで、
    同格に見せず「この物件を保存する」操作だと分かるようにする。 */
 /* 専用ページのバッジと同じ行。左＝バッジ、右端＝お気に入りの星。 */
@@ -124,6 +127,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 /* アクションボタン: ブランド緑統一 + 質感UP */
 .action-bar{display:flex;flex-direction:column;gap:10px;margin:24px 0 12px}
 .hero-card .action-bar{margin:14px 0 0}
+/* 画面下に追従するバー。上部のボタンを通り過ぎたら表示する。 */
+.sticky-bar{position:fixed;left:0;right:0;bottom:0;z-index:60;background:rgba(255,255,255,0.97);
+  border-top:1px solid #e6e8ec;box-shadow:0 -2px 12px rgba(0,0,0,0.07);
+  padding:10px 16px calc(10px + env(safe-area-inset-bottom));
+  transform:translateY(110%);transition:transform 0.22s ease;pointer-events:none}
+.sticky-bar.visible{transform:translateY(0);pointer-events:auto}
+.sticky-inner{max-width:600px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
+.sticky-price{display:flex;align-items:baseline;gap:10px;line-height:1.2}
+.sticky-rent{font-size:20px;font-weight:800;color:#E5533D;letter-spacing:-0.3px}
+.sticky-rent .u{font-size:12px}
+.sticky-mgmt{font-size:12px;color:#5a6472}
+.sticky-btns{display:flex;gap:8px}
+/* バー内は横並びなので、上部の大きいボタンより一段コンパクトにする */
+.sticky-btns .sticky-btn{flex:1;width:auto;padding:12px 0;font-size:14px;border-radius:10px;margin-top:0}
+/* バーが最下部のコンテンツに被らないよう逃がす */
+body{padding-bottom:96px}
 /* 高さを指定していないので、枠線のあるボタン(内見・secondary)だけが枠線ぶん
    4px高くなっていた（box-sizing:border-box は width/height 指定時のみ効く）。
    既定を透明な2px枠にして、塗り／枠線どちらの見た目でも高さが揃うようにする。 */
@@ -943,6 +962,17 @@ function renderProperty(p) {
     displayName += ' ' + p.roomNumber;
   }
   html += '<div class="title">' + escHtml(displayName) + '</div>';
+  // 判断材料（駅徒歩・所在階・間取り・面積）を賃料のすぐ上に集約する。
+  // これまでは「物件情報」までスクロールしないと見えなかった。
+  var specs = [];
+  if (hv(p.stationInfo)) specs.push(escHtml(p.stationInfo));
+  if (hv(p.floorText)) specs.push(escHtml(p.floorText));
+  else if (p.floor) specs.push(escHtml(p.floor) + '階');
+  if (hv(p.layout)) specs.push(escHtml(p.layout));
+  if (p.area) specs.push(escHtml(p.area) + 'm²');
+  if (specs.length) {
+    html += '<div class="title-specs">' + specs.join('<span class="sep">/</span>') + '</div>';
+  }
 
   function fmtZeroNashi(val) {
     if (!val || val === '0' || val === '0円' || val === '-' || val === 'ー' || val === '—' || val === 'なし' || val === '入力なし' || val === '無') return 'なし';
@@ -1162,17 +1192,37 @@ function renderProperty(p) {
     html += '</div>';
   }
 
-  // 末尾にも「お申し込み希望」ボタン (スクロール後にすぐ押せるよう冗長配置)
+  // 末尾の冗長ボタンは廃止。画面下に追従するバー(.sticky-bar)がその役割を担う。
+  // avail-note は「N番手」等をここに出す既存処理があるので枠だけ残す。
   if (customer && roomId) {
-    html += '<div class="action-bar">'
-      + '<button class="action-btn primary hold-btn" id="holdBtnBottom" onclick="openHoldModal()">この物件にお申し込み希望をする</button>'
-      + (viewingBtnEnabled() ? '<button class="action-btn viewing viewing-btn" id="viewingBtnBottom" onclick="openViewingModal()">この物件の内見を希望する</button>' : '')
-      + '<div class="avail-note" id="availNoteBottom"></div>'
-      + '</div>';
+    html += '<div class="avail-note" id="availNoteBottom"></div>';
   }
   html += '<div class="line-link">\uD83D\uDCAC <a href="https://line.me/R/" target="_blank">ご質問はLINEでお気軽にどうぞ</a></div>';
   html += '<div class="footer">\u203b 詳細は担当者にお問い合わせください</div>';
   html += '</div>';
+
+  // 画面下に追従するバー。上部のボタンを通り過ぎたら出る。
+  // 賃料も一緒に出しておくと、スペックを読んでいる最中でも判断材料が視界に残る。
+  // data-label / data-label-done を持たせておくと、updateActionUI・renderViewingBtns が
+  // 上部の長い文言ではなく、こちらの短い文言でボタンを書き換えてくれる。
+  if (customer && roomId) {
+    html += '<div class="sticky-bar" id="stickyBar"><div class="sticky-inner">'
+      + '<div class="sticky-price">'
+      +   '<span class="sticky-rent">' + rentDisp + '<span class="u">/月</span></span>'
+      +   '<span class="sticky-mgmt">管理費 ' + mgmtDisp + '</span>'
+      + '</div>'
+      + '<div class="sticky-btns">'
+      +   '<button class="action-btn primary hold-btn sticky-btn" id="holdBtnSticky"'
+      +     ' data-label="お申し込み希望" data-label-done="\u2705 受付済み"'
+      +     ' onclick="openHoldModal()">お申し込み希望</button>'
+      +   (viewingBtnEnabled()
+            ? '<button class="action-btn viewing viewing-btn sticky-btn" id="viewingBtnSticky"'
+              + ' data-label="内見を希望" data-label-done="\u2705 受付済み"'
+              + ' onclick="openViewingModal()">内見を希望</button>'
+            : '')
+      + '</div>'
+      + '</div></div>';
+  }
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -1181,6 +1231,9 @@ function renderProperty(p) {
 
   // カルーセル初期化（動的HTML注入後に実行）
   initCarousel();
+
+  // 追従バーの表示制御
+  setupStickyBar();
 
   // フィードバック状態チェック
   checkFeedbackStatus();
@@ -1493,12 +1546,13 @@ function updateActionUI(actionType) {
     var btn = holdBtns[i];
     btn.classList.remove('active');
     btn.disabled = false;
+    // 追従バーのボタンは幅が狭いので、data-label で短い文言を持たせている
     if (actionType === 'hold') {
       btn.classList.add('active');
-      btn.textContent = '✅ お申し込み希望受付済み';
+      btn.textContent = btn.dataset.labelDone || '✅ お申し込み希望受付済み';
       btn.disabled = true;
     } else {
-      btn.textContent = 'この物件にお申し込み希望をする';
+      btn.textContent = btn.dataset.label || 'この物件にお申し込み希望をする';
     }
   }
 }
@@ -1682,18 +1736,47 @@ function sendViewing(name, phone, schedule, note) {
     });
 }
 
+// 追従バー: 上部のボタンを通り過ぎたら表示する。
+// 上部のボタンが見えている間は二重に出しても意味がないので隠す。
+function setupStickyBar() {
+  var bar = document.getElementById('stickyBar');
+  if (!bar) return;
+  var anchorEl = document.getElementById('holdBtn') || document.getElementById('viewingBtn');
+  var ticking = false;
+  function update() {
+    ticking = false;
+    var show;
+    if (anchorEl) {
+      // 上部ボタンの下端が画面外に出たら表示
+      show = anchorEl.getBoundingClientRect().bottom < 0;
+    } else {
+      show = window.scrollY > 320;
+    }
+    bar.classList.toggle('visible', show);
+  }
+  function onScroll() {
+    if (ticking) return;
+    ticking = true;
+    window.requestAnimationFrame(update);
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll, { passive: true });
+  update();
+}
+
 // 内見ボタンの表示を viewingDone に合わせる（申込ボタンには触れない）
 function renderViewingBtns() {
   var btns = document.querySelectorAll('.viewing-btn');
   for (var i = 0; i < btns.length; i++) {
     var b = btns[i];
+    // 追従バーのボタンは幅が狭いので、data-label で短い文言を持たせている
     if (viewingDone) {
       b.classList.add('active');
-      b.textContent = '✅ 内見希望を受付済み';
+      b.textContent = b.dataset.labelDone || '✅ 内見希望を受付済み';
       b.disabled = true;
     } else {
       b.classList.remove('active');
-      b.textContent = 'この物件の内見を希望する';
+      b.textContent = b.dataset.label || 'この物件の内見を希望する';
       b.disabled = false;
     }
   }
