@@ -1546,7 +1546,8 @@ function getActionKey() {
 
 function updateActionUI(actionType) {
   // hold_intent はモーダルを開いただけなので、送信ブロック状態にしない
-  if (actionType === 'hold_intent') {
+  // 「開いただけ」は完了扱いにしない（万一サーバーから返ってきても無視する）
+  if (actionType === 'hold_intent' || actionType === 'viewing_intent') {
     actionState = null;
     return;
   }
@@ -1655,6 +1656,22 @@ function ensureViewingModal() {
 function openViewingModal() {
   if (viewingDone) return;
   ensureViewingModal();
+  // 申込(hold_intent)と同じく、開いた時点でも通知する（未送信のまま離脱した人を拾うため）
+  {
+    try {
+      var propData = currentProperty || {};
+      var pingParams = 'action=property_action'
+        + '&customer=' + encodeURIComponent(customer)
+        + '&room_id=' + encodeURIComponent(roomId)
+        + '&action_type=viewing_intent'
+        + '&building_name=' + encodeURIComponent(propData.buildingName || '')
+        + '&room_number=' + encodeURIComponent(propData.roomNumber || '')
+        + '&rent=' + encodeURIComponent(propData.rent || '')
+        + '&layout=' + encodeURIComponent(propData.layout || '')
+        + '&station_info=' + encodeURIComponent(propData.stationInfo || '');
+      fetch(GAS_API_URL + '?' + pingParams, { redirect: 'follow' }).catch(function(){});
+    } catch(e) {}
+  }
   var modal = document.getElementById('viewingModal');
   if (!modal) return;
   modal.style.display = 'flex';

@@ -1245,6 +1245,7 @@ function handlePropertyAction(e) {
           'favorite': '\u2B50 **' + customerName + '** 様が「' + propLabelLinked + '」を **お気に入り** に追加しました',
           'not_interested': '\uD83D\uDC4E **' + customerName + '** 様が「' + propLabelLinked + '」を **興味なし** にしました',
           'viewing': '🔑 **' + customerName + '** 様が「' + propLabelLinked + '」の **内見をご希望** です！',
+          'viewing_intent': '\uD83D\uDC40 **' + customerName + '** 様が「' + propLabelLinked + '」の **内見希望画面を開きました**（未送信）',
           'view': viewPrefix + ' **' + customerName + '** 様が「' + propLabelLinked + '」を閲覧しました' + viewSuffix
         };
         var msg = msgMap[actionType] || '';
