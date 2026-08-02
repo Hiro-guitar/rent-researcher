@@ -1583,9 +1583,9 @@ function updateActionUI(actionType) {
 //     押した瞬間に生成する（Safe Browsing のフィッシング誤検知を避けるため）。
 // ══════════════════════════════════════════
 
-// 【テスト中】内見ボタンを出す顧客。空配列 [] にすると全員に表示される。
-// テストが終わったら [] に戻すこと。
-var VIEWING_BTN_ONLY_FOR = ['Hiroki'];
+// 内見ボタンを出す顧客を絞る場合はここに顧客名を入れる。
+// 空配列 [] なら全員に表示（2026-08-01 テスト完了につき全体公開）。
+var VIEWING_BTN_ONLY_FOR = [];
 function viewingBtnEnabled() {
   // 描画が var 代入より先に走っても落ちないようにしておく
   var list = (typeof VIEWING_BTN_ONLY_FOR !== 'undefined' && VIEWING_BTN_ONLY_FOR) ? VIEWING_BTN_ONLY_FOR : [];
