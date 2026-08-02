@@ -4227,6 +4227,13 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     }
     let reinsFatalExit = false;
 
+    // キャンセル待ちの監視リストは顧客ごとにGASへ問い合わせるとタイムアウトするため、
+    // サイクル開始時に全顧客分を1回で取ってキャッシュする
+    if (typeof globalThis.prefetchCancellationWatches === 'function') {
+      try { await globalThis.prefetchCancellationWatches(); }
+      catch (e) { console.warn('[キャンセル待ち確認] 一括取得で例外:', e.message); }
+    }
+
     // キャンセル待ちチェックは顧客名に紐づくため、1サイクル中は顧客ごとに1回だけ実行する
     // (同じ顧客のメイン条件+おすすめ条件で監視リストを何度もチェックする無駄を防ぐ)
     const watchCheckedCustomers = new Set();

@@ -792,10 +792,46 @@ async function stopAvailabilityCheck() {
 // キャンセル待ち確認: その顧客の監視物件(J列)の募集状況をチェックし、空きが出ていたら
 // 担当にだけ Discord 通知する（顧客には自動送信しない）。runSearchCycle から顧客ごとに呼ぶ。
 // ──────────────────────────────────────────────────────────────────
+// 1サイクル分のキャンセル待ち監視リストをまとめて取得してキャッシュする。
+// 顧客ごとに get_availability_queue を叩いていたため、顧客数だけGAS往復が発生し、
+// 監視物件が1件も無い顧客でもタイムアウト(30秒)が起きていた (2026-08-01)。
+// GAS側の customer は任意フィルタなので、省略すれば全顧客分を1回で取れる。
+globalThis.prefetchCancellationWatches = async function prefetchCancellationWatches() {
+  globalThis._watchQueueByCustomer = null;
+  try {
+    const resp = await gasGet('get_availability_queue', { watch_only: '1', limit: '500' });
+    const items = (resp && resp.items) || [];
+    const byCustomer = {};
+    for (const it of items) {
+      const c = String((it && it.customer) || '').trim();
+      if (!c) continue;
+      if (!byCustomer[c]) byCustomer[c] = [];
+      byCustomer[c].push(it);
+    }
+    globalThis._watchQueueByCustomer = byCustomer;
+    await setStorageData({
+      debugLog: `[キャンセル待ち確認] 監視リストを一括取得: ${items.length}件 / ${Object.keys(byCustomer).length}顧客`
+    });
+  } catch (e) {
+    // 失敗したら従来どおり顧客ごとに取りに行く（機能は落とさない）
+    globalThis._watchQueueByCustomer = null;
+    await setStorageData({
+      debugLog: `[キャンセル待ち確認] 一括取得に失敗（顧客ごとに取得します）: ${e.message}`
+    });
+  }
+};
+
 async function checkCustomerCancellationWatches(customerName, searchId) {
   try {
-    const resp = await gasGet('get_availability_queue', { watch_only: '1', customer: customerName, limit: '50' });
-    const items = (resp && resp.items) || [];
+    // サイクル開始時の一括取得があればそれを使う。無ければ従来どおり個別に取る。
+    let items;
+    const cached = globalThis._watchQueueByCustomer;
+    if (cached) {
+      items = cached[customerName] || [];
+    } else {
+      const resp = await gasGet('get_availability_queue', { watch_only: '1', customer: customerName, limit: '50' });
+      items = (resp && resp.items) || [];
+    }
     if (items.length === 0) return;
     await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: 監視 ${items.length}件の募集状況をチェック` });
 
