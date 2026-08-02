@@ -974,9 +974,14 @@ function renderProperty(p) {
     html += '<div class="title-specs">' + specs.join('<span class="sep">/</span>') + '</div>';
   }
 
-  function fmtZeroNashi(val) {
+  // 0円・空欄は「なし」に寄せる。makeRow は値を自前でエスケープするので、
+  // 素の値を返す zeroNashi と、HTML直挿し用の fmtZeroNashi を分けておく。
+  function zeroNashi(val) {
     if (!val || val === '0' || val === '0円' || val === '-' || val === 'ー' || val === '—' || val === 'なし' || val === '入力なし' || val === '無') return 'なし';
-    return escHtml(val);
+    return String(val);
+  }
+  function fmtZeroNashi(val) {
+    return escHtml(zeroNashi(val));
   }
   var priceSub = '管理費 ' + mgmtDisp;
   priceSub += ' | 敷金 ' + fmtZeroNashi(p.deposit);
@@ -1023,6 +1028,11 @@ function renderProperty(p) {
   // 物件情報
   html += '<div class="section"><div class="section-title">物件情報</div>';
   var details = [];
+  // 上部カードにも出しているが、物件情報だけを見に来た人のためにここにも載せる
+  if (p.rent) details.push(['賃料', rentDisp + '/月']);
+  details.push(['管理費', mgmtDisp]);
+  details.push(['敷金', zeroNashi(p.deposit)]);
+  details.push(['礼金', zeroNashi(p.keyMoney)]);
   if (hv(p.layout)) details.push(['間取り', p.layout]);
   if (hv(p.layoutDetail)) details.push(['間取り詳細', p.layoutDetail]);
   if (p.area) details.push(['面積', p.area + 'm\u00b2']);
