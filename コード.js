@@ -213,6 +213,41 @@ function doPost(e) {
         return;
       }
 
+      // 「この条件で探してもらう」（遅延返信Flexのpostback）
+      //   data="action=auto_criteria&name=...&room=..."
+      // 空室確認で見た終了物件のスペックから暫定条件を作って登録する。
+      // 検索自体は拡張側の顧客フィルタが既定OFFなので、担当者がチェックを入れるまで走らない。
+      if (typeof data === 'string' && data.indexOf('action=auto_criteria') === 0) {
+        var _acParams = {};
+        data.split('&').forEach(function (kv) {
+          var p = kv.split('=');
+          if (p.length === 2) _acParams[p[0]] = decodeURIComponent(p[1] || '');
+        });
+        var _acRes = (typeof registerAutoCriteriaFromProperty === 'function')
+          ? registerAutoCriteriaFromProperty(userId, _acParams.name || '', _acParams.room || '')
+          : { ok: false, message: 'function not defined' };
+
+        if (_acRes.ok) {
+          replyMessage(replyToken, [textMsgWithQuickReply(
+            'ありがとうございます。\n以下の条件でお探しして、見つかり次第お知らせいたします。\n\n' +
+            '　' + _acRes.summary + '\n\n' +
+            '条件はいつでも変更できます。ご希望があれば下のボタンからお知らせください。',
+            [qrMessage('条件を変更する', '条件変更')]
+          )]);
+          try { _notifyAutoCriteriaToDiscord_(userId, _acParams.name, _acParams.room, _acRes); } catch (_eD) {}
+        } else if (_acRes.message === 'already_registered') {
+          // 既に条件がある人は上書きしない（クリック連打・古いカードの再タップ対策）
+          replyMessage(replyToken, [textMsg(
+            'すでにご希望条件をお預かりしています。\n' +
+            '条件を見直したい場合は「条件変更」とお送りください。'
+          )]);
+        } else {
+          // 変換に失敗したら通常の条件登録フローへ逃がす（行き止まりにしない）
+          startSearchOrChangeFlow(replyToken, userId);
+        }
+        return;
+      }
+
       // 条件変更提案 LINE Flex のボタン postback (condsug:...)
       if (typeof data === 'string' && data.indexOf('condsug:') === 0) {
         if (typeof handleConditionSuggestionPostback === 'function') {

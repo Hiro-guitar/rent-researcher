@@ -555,7 +555,7 @@ function _replyVacancyResultToCustomer_(userId, building, room, status) {
     ]);
   } else {
     // ご案内不可 → 「ご案内が難しい」+ 条件登録誘導（遅延返信と共通の文面）
-    pushMessage(userId, _buildVacancyUnavailableMessages_(userId, displayName));
+    pushMessage(userId, _buildVacancyUnavailableMessages_(userId, displayName, String(found[0]), String(found[1] || '')));
   }
   return { ok: true, displayName: displayName };
 }
@@ -805,6 +805,122 @@ function enqueueDelayedReply(userId, propertyName, roomNumber) {
   ]);
 }
 
+// ══════════════════════════════════════════════════════════
+//  終了物件 → 検索条件への変換
+//  空室確認で「ご案内が難しい」となった物件のスペックから、
+//  似た部屋を探すための暫定条件を組み立てる。
+//
+//  物件空室管理シートには 徒歩分数・築年数 が無い（FN Forrentの一覧に
+//  出ていないため取り込めない）ので、SUUMO掲載管理シートを
+//  建物名+部屋番号 で引いて補う。突合できなければ無しで組み立てる。
+// ══════════════════════════════════════════════════════════
+
+/** SUUMO掲載管理シートから 徒歩・築年数・路線 を引く。見つからなければ null。 */
+function _findListingSpecs_(buildingName, roomNumber) {
+  try {
+    if (typeof SUUMO_LISTING_HEADERS === 'undefined') return null;
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(SUUMO_LISTING_SHEET);
+    if (!sheet || sheet.getLastRow() < 2) return null;
+    var idxName = SUUMO_LISTING_HEADERS.indexOf('建物名');
+    var idxRoom = SUUMO_LISTING_HEADERS.indexOf('部屋番号');
+    var idxWalk = SUUMO_LISTING_HEADERS.indexOf('徒歩');
+    var idxAge  = SUUMO_LISTING_HEADERS.indexOf('築年数');
+    var idxRoute = SUUMO_LISTING_HEADERS.indexOf('路線名');
+    var idxSta  = SUUMO_LISTING_HEADERS.indexOf('最寄り駅');
+    if (idxName < 0 || idxRoom < 0) return null;
+
+    var norm = function (v) { return String(v == null ? '' : v).trim().replace(/号室$/, ''); };
+    var targetName = norm(buildingName);
+    var targetRoom = norm(roomNumber);
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, SUUMO_LISTING_HEADERS.length).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (norm(data[i][idxName]) !== targetName) continue;
+      if (targetRoom && norm(data[i][idxRoom]) !== targetRoom) continue;
+      return {
+        walk: idxWalk >= 0 ? String(data[i][idxWalk] || '').trim() : '',
+        buildingAge: idxAge >= 0 ? String(data[i][idxAge] || '').trim() : '',
+        route: idxRoute >= 0 ? String(data[i][idxRoute] || '').trim() : '',
+        station: idxSta >= 0 ? String(data[i][idxSta] || '').trim() : ''
+      };
+    }
+  } catch (e) {
+    console.warn('[条件変換] 掲載管理シートの参照に失敗（続行）: ' + e.message);
+  }
+  return null;
+}
+
+/** 「3」「徒歩3分」「3分」→ 3 。取れなければ null。 */
+function _parseWalkMinutes_(v) {
+  var m = String(v == null ? '' : v).match(/(\d{1,3})/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/**
+ * 物件空室管理シートの1行から暫定の検索条件を作る。
+ * 見つからなければ null。
+ *
+ * 方針: 条件は緩めず、その物件に近いものだけが出るようにする。
+ *       緩めて件数を稼ぐと「思っていたのと違う」が届いて離脱するため。
+ */
+function _propertyToCriteria_(buildingName, roomNumber) {
+  try {
+    var ss = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+    var sheet = ss.getSheetByName(PROPERTY_SHEET_NAME);
+    if (!sheet) return null;
+    var data = sheet.getDataRange().getValues();
+    var norm = function (v) { return String(v == null ? '' : v).trim().replace(/号室$/, ''); };
+    var tName = norm(buildingName), tRoom = norm(roomNumber);
+    var row = null;
+    for (var i = 1; i < data.length; i++) {
+      if (norm(data[i][0]) !== tName) continue;
+      if (tRoom && norm(data[i][1]) !== tRoom) continue;
+      row = data[i];
+      break;
+    }
+    if (!row) return null;
+
+    var specs = _findListingSpecs_(buildingName, roomNumber) || {};
+
+    // 駅: 掲載管理の「最寄り駅」を優先（路線が分かるため）。無ければ物件シートのD列。
+    var station = specs.station || String(row[3] || '').trim();
+    var route = specs.route || '';
+    // 徒歩: 掲載管理にあれば +3分、無ければ 10分以内
+    var walkNum = _parseWalkMinutes_(specs.walk);
+    var walk = (walkNum != null) ? Math.min(walkNum + 3, 20) : 10;
+    // 賃料上限: 賃料+管理費（万円）。上振れさせない。
+    var rentYen = Number(String(row[4] || '').replace(/[^0-9.]/g, '')) || 0;
+    var feeYen = Number(String(row[5] || '').replace(/[^0-9.]/g, '')) || 0;
+    if (rentYen > 0 && rentYen < 1000) rentYen = rentYen * 10000;  // 「15.4」万円表記への保険
+    var rentMax = rentYen > 0 ? Math.ceil((rentYen + feeYen) / 1000) / 10 : '';  // 万円・小数1桁
+    var layout = String(row[6] || '').trim();
+    var areaNum = parseFloat(String(row[7] || '').replace(/[^0-9.]/g, ''));
+    var areaMin = isNaN(areaNum) ? '' : Math.floor(areaNum * 0.9);
+    // 築年数: 掲載管理にあれば +5年
+    var ageNum = _parseWalkMinutes_(specs.buildingAge);
+    var buildingAge = (ageNum != null) ? String(ageNum + 5) : '';
+
+    if (!station && !rentMax) return null;   // 材料が無さすぎる
+
+    var summaryParts = [];
+    if (station) summaryParts.push(station + '駅 徒歩' + walk + '分以内');
+    if (rentMax) summaryParts.push(rentMax + '万円以下');
+    if (layout) summaryParts.push(layout + '以上');
+    if (areaMin) summaryParts.push(areaMin + 'm²以上');
+    if (buildingAge) summaryParts.push('築' + buildingAge + '年以内');
+
+    return {
+      station: station, route: route, walk: walk, rentMax: rentMax,
+      layout: layout, areaMin: areaMin, buildingAge: buildingAge,
+      matchedListing: !!specs.station,
+      summary: summaryParts.join(' / ')
+    };
+  } catch (e) {
+    console.error('[条件変換] 失敗: ' + e.message);
+    return null;
+  }
+}
+
 /**
  * 「ご案内が難しい物件」のお客さん向け返信メッセージ配列を生成する。
  * 条件登録済みならテキストのみ、未登録なら条件登録誘導Flexを返す。
@@ -813,7 +929,7 @@ function enqueueDelayedReply(userId, propertyName, roomNumber) {
  * @param {string} displayName - 「物件名 202号室」形式
  * @return {Array} LINE messages 配列
  */
-function _buildVacancyUnavailableMessages_(userId, displayName) {
+function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, roomNumber) {
   var _hasRegistered = false;
   try {
     var _existing = (typeof readLatestCriteria === 'function') ? readLatestCriteria(userId) : null;
@@ -827,29 +943,165 @@ function _buildVacancyUnavailableMessages_(userId, displayName) {
       text: 'お待たせいたしました。\n「' + displayName + '」について確認いたしましたが、現在ご案内が難しい状況でした。\n\n引き続き、ご希望の条件に合うお部屋が見つかり次第すぐにご案内いたします。'
     }];
   }
-  // 未登録: シンプルに。確認結果 + 似た条件で探すか の2択。
+  // 未登録: 確認結果 + 「この条件で探す」/「自分で決める」の2択。
+  //
+  // 2026-08-01 変更: 以前は「お部屋を探す」/「あとで」で、「あとで」を押すと
+  // 会話がそこで終わって取りこぼしていた。両方を前に進む選択肢に置き換える。
+  // 「あとで」という出口自体は残さない（押さない人は既読スルーになるだけなので、
+  //  出口を消すのではなく、出口を全部前進させるという考え方）。
+  var conv = null;
+  try { conv = _propertyToCriteria_(propertyName || displayName, roomNumber); } catch (_e) {}
+
+  var bodyContents = [
+    { type: 'text', text: '確認結果のお知らせ', weight: 'bold', size: 'md', color: '#333333' },
+    { type: 'text', text: '「' + displayName + '」は、今回はご案内が難しい状況でした。', size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+  ];
+  var footerContents = [];
+
+  if (conv && conv.summary) {
+    // 変換できた: どんな条件で探すのかを見せてから押してもらう。
+    // 黙って自動登録すると「頼んでいないのに物件が届く」ことになるため必ず提示する。
+    bodyContents.push({ type: 'text', text: '似たお部屋でしたら、こちらでお探しできます。', size: 'sm', color: '#555555', wrap: true, margin: 'md' });
+    bodyContents.push({
+      type: 'box', layout: 'vertical', margin: 'md', paddingAll: 'md',
+      backgroundColor: '#F5F9EE', cornerRadius: 'md',
+      contents: [{ type: 'text', text: conv.summary, size: 'sm', color: '#3D6909', wrap: true, weight: 'bold' }]
+    });
+    footerContents.push({
+      type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+      action: {
+        type: 'postback', label: 'この条件で探してもらう',
+        data: 'action=auto_criteria&name=' + encodeURIComponent(propertyName || '') + '&room=' + encodeURIComponent(roomNumber || ''),
+        displayText: 'この条件で探してもらう'
+      }
+    });
+    footerContents.push({
+      type: 'button', style: 'link', color: '#3D6909', height: 'sm',
+      action: { type: 'postback', label: '条件を自分で決める', data: '条件登録', displayText: '条件を自分で決める' }
+    });
+  } else {
+    // 変換できなかった（物件が見つからない・材料不足）: 従来どおり条件登録へ誘導
+    bodyContents.push({ type: 'text', text: 'よろしければ、ご希望に近いお部屋をこちらでお探ししてお知らせします。', size: 'sm', color: '#555555', wrap: true, margin: 'md' });
+    footerContents.push({
+      type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+      action: { type: 'postback', label: 'お部屋を探す', data: '条件登録', displayText: 'お部屋を探す' }
+    });
+  }
+
   return [{
     type: 'flex',
     altText: '「' + displayName + '」の確認結果',
     contents: {
       type: 'bubble',
-      body: {
-        type: 'box', layout: 'vertical', spacing: 'md', paddingAll: 'xl',
-        contents: [
-          { type: 'text', text: '確認結果のお知らせ', weight: 'bold', size: 'md', color: '#333333' },
-          { type: 'text', text: '「' + displayName + '」は、今回はご案内が難しい状況でした。', size: 'sm', color: '#555555', wrap: true, margin: 'md' },
-          { type: 'text', text: 'よろしければ、ご希望に近いお部屋をこちらでお探ししてお知らせします。', size: 'sm', color: '#555555', wrap: true, margin: 'md' }
-        ]
-      },
-      footer: {
-        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingTop: 'none',
-        contents: [
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm', action: { type: 'message', label: 'お部屋を探す', text: '条件登録' } },
-          { type: 'button', style: 'link', color: '#999999', height: 'sm', action: { type: 'message', label: 'あとで', text: '類似物件不要' } }
-        ]
-      }
+      body: { type: 'box', layout: 'vertical', spacing: 'md', paddingAll: 'xl', contents: bodyContents },
+      footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingTop: 'none', contents: footerContents }
     }
   }];
+}
+
+/**
+ * 「この条件で探してもらう」が押されたときに、暫定条件を検索条件シートへ登録する。
+ * 既に条件が登録されている顧客には何もしない（上書き事故を防ぐ）。
+ * @return {{ok:boolean, summary?:string, message?:string}}
+ */
+function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber) {
+  try {
+    if (typeof readLatestCriteria === 'function' && readLatestCriteria(userId)) {
+      return { ok: false, message: 'already_registered' };
+    }
+    var conv = _propertyToCriteria_(propertyName, roomNumber);
+    if (!conv) return { ok: false, message: 'convert_failed' };
+
+    var name = _getLineUserName_(userId);
+    var stations = {};
+    var routes = [];
+    if (conv.route && conv.station) {
+      routes = [conv.route];
+      stations[conv.route] = [conv.station];
+    }
+
+    // writeToSheet を再利用する（列の知識を1箇所に保つ）
+    var state = {
+      data: {
+        name: name,
+        walk: String(conv.walk || ''),
+        rent_max: String(conv.rentMax || ''),
+        layouts: conv.layout ? [conv.layout] : [],
+        area_min: String(conv.areaMin || ''),
+        building_age: conv.buildingAge ? (conv.buildingAge + '年以内') : '',
+        building_structures: [],
+        equipment: [],          // 設備は絞らない（0件になりやすいため）
+        notes: '空室確認で「' + propertyName + (roomNumber ? ' ' + roomNumber : '') + '」をご覧になったため、'
+             + 'その物件に近い条件で自動登録しました（暫定）。'
+      },
+      selectedRoutes: routes,
+      selectedStations: stations,
+      selectedCities: [],
+      selectedTowns: {}
+    };
+    writeToSheet(userId, state);
+    _markCriteriaProvisional_(name);
+    return { ok: true, summary: conv.summary, matchedListing: !!conv.matchedListing };
+  } catch (e) {
+    console.error('[条件自動登録] 失敗: ' + e.message);
+    return { ok: false, message: e.message };
+  }
+}
+
+/**
+ * 暫定条件を自動登録したことを担当者向けDiscordに知らせる。
+ *
+ * ⚠️ これが無いと機能しない。拡張の顧客フィルタは「新しい条件は既定OFF」なので、
+ *    担当者がチェックを入れるまで検索が走らず、登録しただけで放置される。
+ */
+function _notifyAutoCriteriaToDiscord_(userId, propertyName, roomNumber, result) {
+  var sp = PropertiesService.getScriptProperties();
+  var webhookUrl = sp.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL')
+                || sp.getProperty('DISCORD_WEBHOOK_URL');
+  if (!webhookUrl) return;
+  var userName = _getLineUserName_(userId) || '(不明)';
+  var lines = [];
+  lines.push('\uD83D\uDCDD **暫定条件を自動登録しました**');
+  lines.push('お客様: **' + userName + '** 様');
+  lines.push('きっかけ: 「' + propertyName + (roomNumber ? ' ' + roomNumber : '') + '」がご案内不可だったため');
+  lines.push('条件: ' + (result && result.summary ? result.summary : '(不明)'));
+  if (result && !result.matchedListing) {
+    lines.push('> \u26A0\uFE0F 掲載管理シートと突合できず、徒歩・築年数は推定値です');
+  }
+  lines.push('');
+  lines.push('→ 拡張の顧客フィルタは**新規は既定OFF**です。検索を回すにはチェックを入れてください。');
+  lines.push('→ 本人に確認して条件の精度を上げてください（暫定のままだと精度が低いままです）。');
+  var payload = { content: lines.join('\n'), flags: 4096 };  // 音は鳴らさない
+  try {
+    if (typeof _sendDiscordWithRetry_ === 'function') {
+      _sendDiscordWithRetry_(webhookUrl, payload, 3);
+    }
+  } catch (e) {
+    console.error('[条件自動登録] Discord送信失敗: ' + e.message);
+  }
+}
+
+/**
+ * 検索条件シートに「暫定（自動生成）」の印を付ける。AT列(46)。
+ * 本人が条件登録フローで登録し直したときは writeToSheet がA〜R列を上書きするだけなので、
+ * この印は別途 clear する運用にする（CRM側で色分けして担当者が確認する想定）。
+ */
+function _markCriteriaProvisional_(customerName) {
+  try {
+    if (!customerName) return;
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return;
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1] || '').trim() === String(customerName).trim()) {
+        sheet.getRange(i + 1, 46).setValue(new Date());  // AT列: 暫定条件の自動登録日時
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('[条件自動登録] 暫定フラグの記録に失敗（続行）: ' + e.message);
+  }
 }
 
 /**
@@ -880,7 +1132,8 @@ function processReplyQueue() {
     var displayName = propertyName + (roomNumber ? ' ' + roomNumber + '号室' : '');
 
     // 「ご案内が難しい」返信を生成（条件登録済み判定込み）して送信
-    pushMessage(userId, _buildVacancyUnavailableMessages_(userId, displayName));
+    // 物件名・部屋番号も渡す: スペックから暫定の検索条件を組み立てて提示するため
+    pushMessage(userId, _buildVacancyUnavailableMessages_(userId, displayName, propertyName, roomNumber));
 
     // ステータスを sent に更新
     sheet.getRange(i + 1, 6).setValue('sent');
