@@ -607,8 +607,8 @@ var FLOW_GAUGE_ORDER = [
   STEPS.MOVE_IN_DATE,     // 4 入居時期（期間・厳守もここに含める）
   STEPS.CRITERIA_SELECT   // 5 条件選択ページ
 ];
-// 確認カードは結果を見せるだけで質問ではないので、問数には数えない。
-// ただし終わったことが分かるよう満タンのバーは出す。
+// 確認カードは結果を見せるだけで質問ではないので、ゲージ自体を出さない。
+// （ここに無いステップでは _flowGauge_ が空文字を返し、何も差し込まれない）
 
 /** 枝分かれのステップは代表のステップに寄せる（分母を動かさないため）。 */
 function _flowGaugeStep_(step) {
@@ -620,18 +620,12 @@ function _flowGaugeStep_(step) {
 
 /** 例) "■■■□□□□□ 3/8" 。対象外のステップでは空文字。 */
 function _flowGauge_(step) {
-  var total = FLOW_GAUGE_ORDER.length;
-  var bar, i;
-  if (step === STEPS.CONFIRM) {
-    bar = '';
-    for (i = 0; i < total; i++) bar += '■';
-    return bar + ' 完了';
-  }
   var idx = FLOW_GAUGE_ORDER.indexOf(_flowGaugeStep_(step));
   if (idx < 0) return '';
+  var total = FLOW_GAUGE_ORDER.length;
   var done = idx + 1;
-  bar = '';
-  for (i = 0; i < total; i++) bar += (i < done) ? '■' : '□';
+  var bar = '';
+  for (var i = 0; i < total; i++) bar += (i < done) ? '■' : '□';
   return bar + ' ' + done + '/' + total;
 }
 
