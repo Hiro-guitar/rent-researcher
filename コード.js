@@ -378,6 +378,32 @@ function doPost(e) {
         return;
       }
 
+      // 【テスト用】「テストカード <物件名> <部屋番号>」で暫定条件カードを自分に出す。
+      // 条件登録済みだと本来テキストしか届かず、カードの確認ができないため。
+      // 許可した顧客名のときだけ動く（TEST_CARD_ALLOWED_NAMES）。
+      if (message.indexOf('テストカード') === 0) {
+        var _tcName = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
+        if (TEST_CARD_ALLOWED_NAMES.indexOf(_tcName) === -1) {
+          // 許可外のお客様には反応しない（通常の未認識メッセージと同じ扱い）
+          return;
+        }
+        var _tcArgs = message.replace(/^テストカード\s*/, '').trim().split(/[\s\u3000]+/);
+        var _tcProp = _tcArgs[0] || '';
+        var _tcRoom = _tcArgs[1] || '';
+        if (!_tcProp) {
+          replyMessage(replyToken, [textMsg('使い方: テストカード <物件名> <部屋番号>\n例: テストカード ディナック吉祥寺 309')]);
+          return;
+        }
+        var _tcDisplay = _tcProp + (_tcRoom ? ' ' + _tcRoom + '号室' : '');
+        globalThis._forceVacancyFlexForTest = true;
+        try {
+          replyMessage(replyToken, _buildVacancyUnavailableMessages_(userId, _tcDisplay, _tcProp, _tcRoom));
+        } finally {
+          globalThis._forceVacancyFlexForTest = false;
+        }
+        return;
+      }
+
       // コマンド: 空室確認 → state を WAITING_VACANCY にして案内文返信
       if (message === '空室確認' || message === 'くうしつかくにん') {
         saveState(userId, {
