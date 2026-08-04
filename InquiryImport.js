@@ -461,7 +461,8 @@ function importInquiriesWithBackfill() {
   };
 }
 
-function importSuumoInquiries() {
+function importSuumoInquiries(opts) {
+  opts = opts || {};
   var sheet = _getInquirySheet_();
 
   // 連番列(B)をテキスト形式にして先頭ゼロを保持（数値化による重複判定ズレを防ぐ）
@@ -478,9 +479,29 @@ function importSuumoInquiries() {
     }
   }
 
-  // 件名で検索（直近90日）
-  var threads = GmailApp.search('subject:反響お知らせメール newer_than:90d');
-  var imported = 0, skipped = 0, scanned = 0, noRenban = 0;
+  // 件名で検索。
+  // ⚠️ 検索期間を広げすぎないこと。このトリガーは5分毎(1日288回)動くため、
+  //    90日分を毎回読んでいたころは Gmail の読み取り上限に達して
+  //    「1日にサービス gmail を実行した回数が多すぎます」で止まっていた (2026-08-04)。
+  //    通常は数日分で足りる。過去分を取り込み直すときだけ days を大きくする。
+  var _days = parseInt(opts.days, 10);
+  if (!_days || _days < 1) _days = 3;
+  var threads = GmailApp.search('subject:反響お知らせメール newer_than:' + _days + 'd');
+
+  // 本文を読んだメールのIDを覚えておき、次回以降は getPlainBody() を呼ばない。
+  // 本文取得が読み取り回数の大半を占めるため、これだけで大幅に減る。
+  var _props = PropertiesService.getScriptProperties();
+  var _seenIds = {};
+  try {
+    var _rawSeen = _props.getProperty('INQUIRY_SEEN_MSG_IDS');
+    if (_rawSeen) {
+      var _arr = JSON.parse(_rawSeen);
+      for (var _si = 0; _si < _arr.length; _si++) _seenIds[_arr[_si]] = true;
+    }
+  } catch (_eSeen) {}
+  var _seenOrder = [];
+
+  var imported = 0, skipped = 0, scanned = 0, noRenban = 0, cachedSkip = 0;
   var newRows = [];
   var newInfos = []; // 自動リード化用
 
@@ -491,6 +512,13 @@ function importSuumoInquiries() {
       var subject = msg.getSubject() || '';
       if (subject.indexOf('反響お知らせメール') === -1) continue;
       scanned++;
+      // 既に本文を読んだメールは飛ばす（重複判定は連番で行うので取りこぼさない）
+      var _mid = '';
+      try { _mid = msg.getId(); } catch (_eId) {}
+      if (_mid) {
+        if (_seenIds[_mid]) { cachedSkip++; continue; }
+        _seenOrder.push(_mid);
+      }
       var info = _parseSuumoInquiryEmail_(subject, msg.getPlainBody(), msg.getDate());
       if (!info || !info.renban) { noRenban++; continue; }   // 本文の解析に失敗（書式変更の可能性）
       var rbKey = _normRenban_(info.renban);
@@ -535,11 +563,24 @@ function importSuumoInquiries() {
     _notifyPhoneInquiryToDiscord_(newInfos[ni]);
   }
 
-  console.log('[問い合わせ取込] threads=' + threads.length + ' scanned=' + scanned
-    + ' imported=' + imported + ' skipped=' + skipped + ' noRenban=' + noRenban);
+  // 読んだメールIDを保存（直近400件だけ残す。9KB上限に収めるため）
+  try {
+    var _keep = _seenOrder.concat(Object.keys(_seenIds));
+    var _uniq = [], _mark = {};
+    for (var _ki = 0; _ki < _keep.length && _uniq.length < 400; _ki++) {
+      if (!_mark[_keep[_ki]]) { _mark[_keep[_ki]] = true; _uniq.push(_keep[_ki]); }
+    }
+    _props.setProperty('INQUIRY_SEEN_MSG_IDS', JSON.stringify(_uniq));
+  } catch (_eSave) {
+    console.warn('[問い合わせ取込] 既読IDの保存に失敗（続行）: ' + _eSave.message);
+  }
+
+  console.log('[問い合わせ取込] days=' + _days + ' threads=' + threads.length + ' scanned=' + scanned
+    + ' imported=' + imported + ' skipped=' + skipped + ' noRenban=' + noRenban
+    + ' cachedSkip=' + cachedSkip);
   return {
     imported: imported, skipped: skipped, scanned: scanned,
-    threads: threads.length, noRenban: noRenban
+    threads: threads.length, noRenban: noRenban, cachedSkip: cachedSkip, days: _days
   };
 }
 
@@ -1100,4 +1141,17 @@ function setupAutoCloseInquiriesTrigger() {
     .atHour(9)
     .create();
   return '既存トリガー' + deleted + '個削除 → 毎日9:00(JST)のトリガーを登録しました';
+}
+
+
+/**
+ * 【手動実行】過去分の問い合わせを取り込み直す。
+ * 通常の importSuumoInquiries は直近3日しか見ない（Gmail読み取り上限対策）ので、
+ * 取りこぼしを埋めたいときだけGASエディタから実行する。
+ * ⚠️ 読み取り回数を大量に消費するので、1日に何度も実行しないこと。
+ */
+function importSuumoInquiriesBackfill() {
+  var res = importSuumoInquiries({ days: 90 });
+  console.log('[問い合わせ取込・過去分] ' + JSON.stringify(res));
+  return res;
 }
