@@ -618,15 +618,32 @@ function _flowGaugeStep_(step) {
   return step;
 }
 
-/** 例) "■■■□□□□□ 3/8" 。対象外のステップでは空文字。 */
+// バーの目盛りは枝分かれの質問も1目盛りとして数える。
+// 入居時期のように1項目で3問続くとき、数字(4/5)だけだと進んでいるのに
+// 表示が変わらず止まって見えるため、バーだけは毎問進むようにする。
+// 選ばれなかった枝（その他の自由入力など）は飛ばされるだけで、後戻りはしない。
+var FLOW_GAUGE_TICKS = [
+  STEPS.REASON, STEPS.REASON_CUSTOM,
+  STEPS.RESIDENT, STEPS.RESIDENT_CUSTOM,
+  STEPS.AGE,
+  STEPS.MOVE_IN_DATE, STEPS.MOVE_IN_PERIOD, STEPS.MOVE_IN_STRICT,
+  STEPS.CRITERIA_SELECT
+];
+
+/** 例) "■■■■■■□□□ 4/5" 。対象外のステップでは空文字。 */
 function _flowGauge_(step) {
   var idx = FLOW_GAUGE_ORDER.indexOf(_flowGaugeStep_(step));
   if (idx < 0) return '';
   var total = FLOW_GAUGE_ORDER.length;
-  var done = idx + 1;
+
+  var ticks = FLOW_GAUGE_TICKS.length;
+  var pos = FLOW_GAUGE_TICKS.indexOf(step);
+  if (pos < 0) pos = FLOW_GAUGE_TICKS.indexOf(_flowGaugeStep_(step));
+  var filled = pos + 1;
+
   var bar = '';
-  for (var i = 0; i < total; i++) bar += (i < done) ? '■' : '□';
-  return bar + ' ' + done + '/' + total;
+  for (var i = 0; i < ticks; i++) bar += (i < filled) ? '■' : '□';
+  return bar + ' ' + (idx + 1) + '/' + total;
 }
 
 /**
