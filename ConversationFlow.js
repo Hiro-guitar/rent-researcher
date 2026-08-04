@@ -667,10 +667,13 @@ function persistAutoFollowupAnswers(userId, state) {
 }
 
 /**
- * 追加質問を開始する。条件はすでに登録済みなので、答えなくても探し始めていることを伝える。
- * @param {Array} prefixMessages 先に出す完了メッセージ
+ * 追加質問を開始する。
+ * ⚠️ 長くしないこと。読まれずに離脱するし、次のボタンも押されなくなる。
+ *    受付の一言＋ゲージ＋質問を1通にまとめる。条件の内容は直前のカードに
+ *    出ているので繰り返さない。
+ * @param {string} leadText 受付の一言（省略可）
  */
-function startAutoFollowupQuestions(replyToken, userId, prefixMessages) {
+function startAutoFollowupQuestions(replyToken, userId, leadText) {
   var state = createInitialState();
   state.step = STEPS.REASON;
   state.isAutoFollowup = true;
@@ -681,13 +684,13 @@ function startAutoFollowupQuestions(replyToken, userId, prefixMessages) {
   var items = REASONS.map(function (r) {
     return qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r);
   });
-  var msgs = (prefixMessages || []).concat([
-    textMsg('よろしければ、あと' + FLOW_GAUGE_FOLLOWUP_ORDER.length + 'つだけ教えてください。\n'
-      + 'お答えいただくほど、ご希望に近いお部屋をお送りできます。\n\n'
-      + '（すでにお探しは始めていますので、お時間のあるときで大丈夫です）'),
-    textMsgWithQuickReply(_flowGauge_(STEPS.REASON) + '\n\nお引越しの理由を教えてください。', items)
+  var head = leadText ? (leadText + '\n\n') : '';
+  replyMessage(replyToken, [
+    textMsgWithQuickReply(
+      head + _flowGauge_(STEPS.REASON) + '\n\nお引越しの理由を教えてください。',
+      items
+    )
   ]);
-  replyMessage(replyToken, msgs);
 }
 
 /** 追加質問の完了。条件選択ページへは進まず、ここで終わる。 */
@@ -695,8 +698,7 @@ function finishAutoFollowup(replyToken, userId, state) {
   persistAutoFollowupAnswers(userId, state);
   clearState(userId);
   replyMessage(replyToken, [textMsgWithQuickReply(
-    'ありがとうございます。\n教えていただいた内容も踏まえてお探しします。\n\n'
-    + '条件はいつでも変更できます。',
+    'ありがとうございます。ぴったりのお部屋をお探しします。',
     [qrMessage('条件を変更する', '条件変更')]
   )]);
 }

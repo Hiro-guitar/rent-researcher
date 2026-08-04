@@ -231,8 +231,8 @@ function doPost(e) {
           : { ok: false, message: 'function not defined' };
 
         if (_acRes.ok) {
-          var _acMsg = 'ありがとうございます。\n以下の条件でお探しして、見つかり次第お知らせいたします。\n\n'
-            + '　' + _acRes.summary;
+          // 条件の内容は直前のカードに出ているので繰り返さない（長いと読まれない）
+          var _acMsg = '承知しました。この条件でお探しします。';
           // テストで既存条件を潰した場合はその場で分かるようにする
           if (_acRes.overwrote) {
             _acMsg += '\n\n【テスト】既存の登録条件を上書きしました。';
@@ -240,7 +240,7 @@ function doPost(e) {
           // 登録は済ませたうえで、自動では作れない4項目（理由・居住者・年齢・入居時期）を聞く。
           // 質問を登録の前提にはしない（途中でやめても条件は残る）。
           if (typeof startAutoFollowupQuestions === 'function') {
-            startAutoFollowupQuestions(replyToken, userId, [textMsg(_acMsg)]);
+            startAutoFollowupQuestions(replyToken, userId, _acMsg);
           } else {
             replyMessage(replyToken, [textMsgWithQuickReply(_acMsg, [qrMessage('条件を変更する', '条件変更')])]);
           }
