@@ -935,6 +935,9 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     var _existing = (typeof readLatestCriteria === 'function') ? readLatestCriteria(userId) : null;
     _hasRegistered = !!_existing;
   } catch (_) {}
+  // テスト用: 条件登録済みでも暫定条件カードを確認できるようにする
+  // （testSendVacancyCard から一時的に立てられる。通常運用では常に false）
+  if (globalThis._forceVacancyFlexForTest) _hasRegistered = false;
 
   if (_hasRegistered) {
     // 既に条件登録済み: 条件登録への誘導は不要、テキスト通知のみ
@@ -1159,55 +1162,82 @@ function setupReplyQueueTrigger() {
     .create();
 }
 
+// ══════════════════════════════════════════════════════════
+//  テスト用（GASエディタの「関数を選択」から手動実行）
+//
+//  下の TEST_ 定数を書き換えてから実行する。
+//  自分が条件登録済みでも暫定条件カードを確認できるようにしてある。
+// ══════════════════════════════════════════════════════════
+
+var TEST_CUSTOMER_NAME = 'Hiroki';                 // LINE Users シートの顧客名
+var TEST_PROPERTY_NAME = 'パークキューブ西新宿';    // 物件空室管理シートの物件名
+var TEST_ROOM_NUMBER   = '1002';                   // 部屋番号（空文字でも可）
+
 /**
- * テスト用: 条件登録ボタン付きFlexメッセージを手動送信する。
- * GASエディタから実行し、動作確認後に削除すること。
+ * 【送信しない】終了物件 → 検索条件の変換結果をログに出すだけ。
+ * 何度実行しても顧客には何も届かず、シートも書き換えない。
+ * 変換の精度を確かめるのはこれが一番速い。
  */
-function testSendConditionButton() {
-  var userId = 'U4af55e66b9a082a6d52ed1a7b30c6496'; // テスト用ユーザーID（要変更）
-  pushMessage(userId, [
-    {
-      type: 'flex',
-      altText: 'テスト: 類似物件提案メッセージ確認',
-      contents: {
-        type: 'bubble',
-        size: 'mega',
-        body: {
-          type: 'box',
-          layout: 'vertical',
-          spacing: 'md',
-          paddingAll: 'xl',
-          contents: [
-            { type: 'text', text: 'お問い合わせありがとうございます。', size: 'sm', color: '#666666' },
-            { type: 'text', text: 'テスト物件 101号室', size: 'md', color: '#1a2538', weight: 'bold', wrap: true, margin: 'sm' },
-            { type: 'text', text: '確認したところ、現在ご案内が難しい状況でした。', size: 'sm', color: '#666666', wrap: true, margin: 'sm' },
-            { type: 'separator', margin: 'xl', color: '#eeeeee' },
-            {
-              type: 'box', layout: 'vertical',
-              backgroundColor: '#f5f9ee',
-              cornerRadius: 'md',
-              paddingAll: 'lg', margin: 'lg', spacing: 'sm',
-              contents: [
-                { type: 'text', text: '似た条件で\nお部屋を探しませんか？', size: 'lg', color: '#3d6909', weight: 'bold', wrap: true, align: 'center' },
-                { type: 'text', text: 'ご希望に合う物件が見つかり次第\nすぐにお知らせします', size: 'xs', color: '#5a7a3f', wrap: true, align: 'center', margin: 'sm' }
-              ]
-            }
-          ]
-        },
-        footer: {
-          type: 'box',
-          layout: 'vertical',
-          spacing: 'sm',
-          paddingAll: 'lg',
-          contents: [
-            { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-              action: { type: 'message', label: 'はい、お部屋を探す', text: '条件登録' } },
-            { type: 'button', style: 'link', color: '#999999', height: 'sm',
-              action: { type: 'message', label: '今回はキャンセル', text: '類似物件不要' } }
-          ]
-        }
+function testVacancyCriteriaConversion() {
+  var conv = _propertyToCriteria_(TEST_PROPERTY_NAME, TEST_ROOM_NUMBER);
+  if (!conv) {
+    console.log('❌ 変換できませんでした（物件が見つからない or 材料不足）');
+    console.log('   物件空室管理シートに「' + TEST_PROPERTY_NAME + ' / ' + TEST_ROOM_NUMBER + '」があるか確認してください');
+    return null;
+  }
+  console.log('■ 変換結果: ' + TEST_PROPERTY_NAME + ' ' + TEST_ROOM_NUMBER);
+  console.log('  掲載管理シートとの突合: ' + (conv.matchedListing ? '✅ あり（徒歩・築年数は実測）' : '❌ なし（徒歩10分・築年数なしで代用）'));
+  console.log('  お客様に見える文言: ' + conv.summary);
+  console.log('  ── シートに書かれる内容 ──');
+  console.log('    路線: ' + (conv.route || '(なし)'));
+  console.log('    駅  : ' + (conv.station || '(なし)'));
+  console.log('    徒歩: ' + conv.walk + '分以内');
+  console.log('    賃料: ' + conv.rentMax + '万円以下（管理費込み）');
+  console.log('    間取: ' + (conv.layout || '(なし)'));
+  console.log('    面積: ' + (conv.areaMin || '(なし)') + 'm²以上');
+  console.log('    築年: ' + (conv.buildingAge ? conv.buildingAge + '年以内' : '(指定なし)'));
+  return conv;
+}
+
+/**
+ * 【LINEに届く】「ご案内が難しい」メッセージを自分に送る。
+ * 条件登録済みの人でもFlex（暫定条件カード）を確認できるよう、
+ * 登録済み判定を一時的に無視する。
+ *
+ * ⚠️ カードの「この条件で探してもらう」を押しても、既に条件がある顧客には
+ *    登録されない（上書き事故を防ぐガードが効く）。表示の確認用と割り切ること。
+ */
+function testSendVacancyCard() {
+  var userId = _findUserIdByCustomerName_(TEST_CUSTOMER_NAME);
+  if (!userId) {
+    console.log('❌ LINE Users シートに「' + TEST_CUSTOMER_NAME + '」が見つかりません');
+    return;
+  }
+  var displayName = TEST_PROPERTY_NAME + (TEST_ROOM_NUMBER ? ' ' + TEST_ROOM_NUMBER + '号室' : '');
+  globalThis._forceVacancyFlexForTest = true;   // 登録済みでもFlexを出す
+  try {
+    var msgs = _buildVacancyUnavailableMessages_(userId, displayName, TEST_PROPERTY_NAME, TEST_ROOM_NUMBER);
+    pushMessage(userId, msgs);
+    console.log('✅ 送信しました → ' + TEST_CUSTOMER_NAME + ' (' + displayName + ')');
+  } finally {
+    globalThis._forceVacancyFlexForTest = false;
+  }
+}
+
+/** LINE Users シートから顧客名で userId を引く（テスト用）。 */
+function _findUserIdByCustomerName_(customerName) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (!sheet || sheet.getLastRow() < 2) return '';
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][1] || '').trim() === String(customerName).trim()) {
+        return String(data[i][0] || '').trim();
       }
     }
-  ]);
-  console.log('テストメッセージ送信完了');
+  } catch (e) {
+    console.error('_findUserIdByCustomerName_ エラー: ' + e.message);
+  }
+  return '';
 }
