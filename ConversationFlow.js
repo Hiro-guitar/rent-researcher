@@ -635,6 +635,9 @@ function _flowGauge_(step) {
 function replyWithGauge(replyToken, step, msgs) {
   var line = _flowGauge_(step);
   if (line && msgs && msgs.length) {
+    // 完了時は残り0であることが一目で分かるようにする
+    if (step === STEPS.CONFIRM) line += ' 完了';
+    var injected = false;
     for (var i = 0; i < msgs.length; i++) {
       var m = msgs[i];
       if (m && m.type === 'text' && typeof m.text === 'string') {
@@ -642,6 +645,30 @@ function replyWithGauge(replyToken, step, msgs) {
         for (var k in m) copy[k] = m[k];
         copy.text = line + '\n\n' + m.text;
         msgs[i] = copy;
+        injected = true;
+        break;
+      }
+    }
+    // Flex(カード)しか無い質問は、カード本文の先頭に差し込む。
+    // 別バブルにすると質問のたびに2通になって鬱陶しいため、あくまで1通に収める。
+    // 条件選択ページと完了カードがこれに当たる（無いとゲージが4/6で止まって見える）。
+    if (!injected) {
+      for (var j = 0; j < msgs.length; j++) {
+        var fm = msgs[j];
+        if (!fm || fm.type !== 'flex' || !fm.contents || fm.contents.type !== 'bubble') continue;
+        var body = fm.contents.body;
+        if (!body || body.type !== 'box' || !body.contents || !body.contents.length) continue;
+        // 元のオブジェクトを壊さないよう、差し替える階層だけ複製する
+        var newBody = {}; for (var k2 in body) newBody[k2] = body[k2];
+        newBody.contents = [{
+          type: 'text', text: line, size: 'xs', color: '#999999', weight: 'bold'
+        }].concat(body.contents);
+        var newBubble = {}; for (var k3 in fm.contents) newBubble[k3] = fm.contents[k3];
+        newBubble.body = newBody;
+        var newMsg = {}; for (var k4 in fm) newMsg[k4] = fm[k4];
+        newMsg.contents = newBubble;
+        msgs[j] = newMsg;
+        injected = true;
         break;
       }
     }
