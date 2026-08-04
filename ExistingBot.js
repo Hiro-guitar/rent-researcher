@@ -888,11 +888,14 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     // 徒歩: 掲載管理にあれば +3分、無ければ 10分以内
     var walkNum = _parseWalkMinutes_(specs.walk);
     var walk = (walkNum != null) ? Math.min(walkNum + 3, 20) : 10;
-    // 賃料上限: 賃料+管理費（万円）。上振れさせない。
+    // 賃料上限: 賃料+管理費を「万円単位で切り上げ」て少し上振れさせる。
+    //   例) 14.8万 → 15万 / 12.3万 → 13万
+    // キリのいい数字のほうがお客様に見せる文言として読みやすく、
+    // 端数を切り上げるぶんが候補を少し広げる役割も兼ねる。
     var rentYen = Number(String(row[4] || '').replace(/[^0-9.]/g, '')) || 0;
     var feeYen = Number(String(row[5] || '').replace(/[^0-9.]/g, '')) || 0;
     if (rentYen > 0 && rentYen < 1000) rentYen = rentYen * 10000;  // 「15.4」万円表記への保険
-    var rentMax = rentYen > 0 ? Math.ceil((rentYen + feeYen) / 1000) / 10 : '';  // 万円・小数1桁
+    var rentMax = rentYen > 0 ? Math.ceil((rentYen + feeYen) / 10000) : '';  // 万円・整数
     var layout = String(row[6] || '').trim();
     var areaNum = parseFloat(String(row[7] || '').replace(/[^0-9.]/g, ''));
     var areaMin = isNaN(areaNum) ? '' : Math.floor(areaNum * 0.9);
