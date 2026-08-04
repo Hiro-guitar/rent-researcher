@@ -693,14 +693,57 @@ function startAutoFollowupQuestions(replyToken, userId, leadText) {
   ]);
 }
 
-/** 追加質問の完了。条件選択ページへは進まず、ここで終わる。 */
+/**
+ * 追加質問の完了。条件選択ページへは進まず、まとめを見せて終わる。
+ * まとめは state ではなくシートから読み直す。追加質問の state には
+ * 物件から自動生成した条件（エリア・賃料など）が入っていないため。
+ * 直前に persistAutoFollowupAnswers で書いているので、読み直せば全部揃う。
+ */
 function finishAutoFollowup(replyToken, userId, state) {
   persistAutoFollowupAnswers(userId, state);
   clearState(userId);
-  replyMessage(replyToken, [textMsgWithQuickReply(
-    'ありがとうございます。ぴったりのお部屋をお探しします。',
-    [qrMessage('条件を変更する', '条件変更')]
-  )]);
+
+  var existing = null;
+  try {
+    existing = (typeof readLatestCriteria === 'function') ? readLatestCriteria(userId) : null;
+  } catch (e) {
+    console.error('finishAutoFollowup: readLatestCriteria error: ' + e.message);
+  }
+  if (!existing) {
+    // 読み直せなくてもフローは終わらせる（行き止まりにしない）
+    replyMessage(replyToken, [textMsgWithQuickReply(
+      'ありがとうございます。ぴったりのお部屋をお探しします。',
+      [qrMessage('条件を変更する', '条件変更')]
+    )]);
+    return;
+  }
+
+  var view = createInitialState();
+  view.areaMethod = existing.areaMethod;
+  view.selectedRoutes = existing.selectedRoutes;
+  view.selectedCities = existing.selectedCities;
+  view.selectedTowns = existing.selectedTowns || {};
+  view.selectedStations = existing.selectedStations;
+  view.data = {
+    name: existing.name,
+    reason: existing.reason,
+    resident: existing.resident,
+    move_in_date: existing.move_in_date,
+    move_in_strict: existing.move_in_strict || false,
+    rent_max: existing.rent_max,
+    layouts: existing.layouts,
+    walk: existing.walk,
+    area_min: existing.area_min,
+    building_age: existing.building_age,
+    building_structures: existing.building_structures,
+    equipment: existing.equipment,
+    petType: existing.petType,
+    carModel: existing.carModel,
+    notes: existing.notes
+  };
+  // 通常の条件登録と同じ確認カードを使う。
+  // カード自体に「ご登録ありがとうございます」が入っているので前置きは付けない。
+  showConfirmation(replyToken, view);
 }
 
 // 空室確認からの自動登録後に聞く4問（条件選択ページは自動で入っているので飛ばす）
