@@ -948,7 +948,9 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     var rentMax = rentYen > 0 ? _snapUpToStep_((rentYen + feeYen) / 10000, SUUMO_RENT_STEPS, true) : '';  // 万円・必ず1段階上
     var layout = String(row[6] || '').trim();
     var areaNum = parseFloat(String(row[7] || '').replace(/[^0-9.]/g, ''));
-    var areaMin = isNaN(areaNum) ? '' : _snapDownToStep_(areaNum, SUUMO_AREA_STEPS, true);
+    // 面積はその物件が満たす最大の選択肢を採る（ちょうどならその値）。
+    //   25.07m² → 25 / 25.0m² → 25 / 24.99m² → 20
+    var areaMin = isNaN(areaNum) ? '' : _snapDownToStep_(areaNum, SUUMO_AREA_STEPS);
     // 築年数: 掲載管理にあれば +5年
     var ageNum = _parseWalkMinutes_(specs.buildingAge);
     var _ageSnap = (ageNum != null) ? _snapUpToStep_(ageNum, SUUMO_AGE_STEPS, true) : null;
