@@ -1017,17 +1017,22 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
       backgroundColor: '#F5F9EE', cornerRadius: 'md',
       contents: [{ type: 'text', text: conv.summary, size: 'sm', color: '#3D6909', wrap: true, weight: 'bold' }]
     });
+    // 「この条件で探してもらう / 条件を自分で決める」の2択から、はい/いいえ形式に変更 (2026-08-04)。
+    // どちらの道を選ぶかを考えさせるより、YES/NOのほうが判断が軽く押されやすい。
+    // なお「合っていますか」ではなく「お探ししますか」にしている。お客さん自身は
+    // この条件を言っていないので、合否を尋ねる形だと違和感が出るため。
+    bodyContents.push({ type: 'text', text: 'この条件でお探ししますか？', size: 'sm', color: '#333333', wrap: true, weight: 'bold', margin: 'md' });
     footerContents.push({
       type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
       action: {
-        type: 'postback', label: 'この条件で探してもらう',
+        type: 'postback', label: 'はい、お願いします',
         data: 'action=auto_criteria&name=' + encodeURIComponent(propertyName || '') + '&room=' + encodeURIComponent(roomNumber || ''),
-        displayText: 'この条件で探してもらう'
+        displayText: 'はい、お願いします'
       }
     });
     footerContents.push({
       type: 'button', style: 'link', color: '#3D6909', height: 'sm',
-      action: { type: 'postback', label: '条件を自分で決める', data: '条件登録', displayText: '条件を自分で決める' }
+      action: { type: 'postback', label: 'いいえ、条件を自分で決める', data: '条件登録', displayText: 'いいえ、条件を自分で決める' }
     });
   } else {
     // 変換できなかった（物件が見つからない・材料不足）: 従来どおり条件登録へ誘導

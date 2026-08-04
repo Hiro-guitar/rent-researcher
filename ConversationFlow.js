@@ -73,9 +73,10 @@ function startSearchFlow(replyToken, userId) {
   console.log('[PERF-flow] +' + (Date.now() - _t) + 'ms saveState');
 
   var items = REASONS.map(r => qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r));
+  // 開始時に全体の問数を伝える。「あと何問あるか分からない」状態を作らない。
   replyMessage(replyToken, [
-    textMsg('お部屋探しの条件を登録します！\nいくつかの質問にお答えください。\n\n途中でやめたい場合は「キャンセル」と送ってください。'),
-    textMsgWithQuickReply('お部屋探しの理由を教えてください。', items)
+    textMsg('お部屋探しの条件を登録します！\n全' + FLOW_GAUGE_ORDER.length + '問、順番にお答えください。\n\n途中でやめたい場合は「キャンセル」と送ってください。'),
+    textMsgWithQuickReply(_flowGauge_(STEPS.REASON) + '\n\nお部屋探しの理由を教えてください。', items)
   ]);
   console.log('[PERF-flow] +' + (Date.now() - _t) + 'ms replyMessage完了');
 }
@@ -215,7 +216,7 @@ function handleNameInput(replyToken, userId, message, state) {
 
   var items = REASONS.map(r => qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r));
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
-  replyMessage(replyToken, [textMsgWithQuickReply('お部屋探しの理由を教えてください。', items)]);
+  replyWithGauge(replyToken, STEPS.REASON, [textMsgWithQuickReply('お部屋探しの理由を教えてください。', items)]);
   return true;
 }
 
@@ -524,17 +525,17 @@ function showStepQuestion(replyToken, userId, state, guideText) {
   var prefix = guideText ? [textMsg(guideText)] : [];
   switch (state.step) {
     case STEPS.NAME:
-      replyMessage(replyToken, prefix.concat([textMsg('お名前を教えてください。\n（例: 山田太郎）')]));
+      replyWithGauge(replyToken, state.step, prefix.concat([textMsg('お名前を教えてください。\n（例: 山田太郎）')]));
       break;
     case STEPS.REASON:
       var items = REASONS.map(function(r) {
         return qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r);
       });
       items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
-      replyMessage(replyToken, prefix.concat([textMsgWithQuickReply('お部屋探しの理由を教えてください。', items)]));
+      replyWithGauge(replyToken, state.step, prefix.concat([textMsgWithQuickReply('お部屋探しの理由を教えてください。', items)]));
       break;
     case STEPS.REASON_CUSTOM:
-      replyMessage(replyToken, prefix.concat([
+      replyWithGauge(replyToken, state.step, prefix.concat([
         textMsgWithQuickReply(
           'お部屋探しの理由を教えてください。\n自由に入力してください。',
           [qrPostback('◀ 戻る', 'action=back', '戻る')]
@@ -545,7 +546,7 @@ function showStepQuestion(replyToken, userId, state, guideText) {
       showResidentSelect(replyToken, prefix);
       break;
     case STEPS.RESIDENT_CUSTOM:
-      replyMessage(replyToken, prefix.concat([
+      replyWithGauge(replyToken, state.step, prefix.concat([
         textMsgWithQuickReply(
           '部屋に住む方を教えてください。\n自由に入力してください。',
           [qrPostback('◀ 戻る', 'action=back', '戻る')]
@@ -569,7 +570,7 @@ function showStepQuestion(replyToken, userId, state, guideText) {
       showCriteriaSelectLink(replyToken, userId, null, state.isChangeFlow, state.isChangeFlow ? state : undefined);
       break;
     case STEPS.NOTES:
-      replyMessage(replyToken, prefix.concat([
+      replyWithGauge(replyToken, state.step, prefix.concat([
         textMsgWithQuickReply(
           'その他ご希望があれば入力してください。\n例: 角部屋希望、南向き、駐車場付き\n\n特になければ「スキップ」をタップ。',
           [
@@ -583,7 +584,7 @@ function showStepQuestion(replyToken, userId, state, guideText) {
       showConfirmation(replyToken, state, prefix);
       break;
     default:
-      replyMessage(replyToken, [textMsg('予期しないステップです。「条件登録」と送ってやり直してください。')]);
+      replyWithGauge(replyToken, state.step, [textMsg('予期しないステップです。「条件登録」と送ってやり直してください。')]);
   }
 }
 
@@ -591,12 +592,69 @@ function showStepQuestion(replyToken, userId, state, guideText) {
 //  表示ヘルパー — 居住者選択
 // ══════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════
+//  進捗ゲージ
+//  条件登録は質問が続くので、あとどれくらいで終わるかを毎問の先頭に出す。
+//  「まだ何問あるか分からない」状態が離脱の一因になるため。
+// ══════════════════════════════════════════════════════════
+// 実際に遷移するステップだけを並べる。
+// NAME と NOTES は state.step に設定される箇所が無く（レガシー）通らないので入れない。
+// ここに無いステップでは _flowGauge_ が空文字を返し、ゲージは出ない。
+var FLOW_GAUGE_ORDER = [
+  STEPS.REASON,           // 1 お部屋探しの理由
+  STEPS.RESIDENT,         // 2 どなたが住むか
+  STEPS.AGE,              // 3 年齢
+  STEPS.MOVE_IN_DATE,     // 4 入居時期（期間・厳守もここに含める）
+  STEPS.CRITERIA_SELECT,  // 5 条件選択ページ
+  STEPS.CONFIRM           // 6 確認
+];
+
+/** 枝分かれのステップは代表のステップに寄せる（分母を動かさないため）。 */
+function _flowGaugeStep_(step) {
+  if (step === STEPS.REASON_CUSTOM) return STEPS.REASON;
+  if (step === STEPS.RESIDENT_CUSTOM) return STEPS.RESIDENT;
+  if (step === STEPS.MOVE_IN_PERIOD || step === STEPS.MOVE_IN_STRICT) return STEPS.MOVE_IN_DATE;
+  return step;
+}
+
+/** 例) "■■■□□□□□ 3/8" 。対象外のステップでは空文字。 */
+function _flowGauge_(step) {
+  var idx = FLOW_GAUGE_ORDER.indexOf(_flowGaugeStep_(step));
+  if (idx < 0) return '';
+  var total = FLOW_GAUGE_ORDER.length;
+  var done = idx + 1;
+  var bar = '';
+  for (var i = 0; i < total; i++) bar += (i < done) ? '■' : '□';
+  return bar + ' ' + done + '/' + total;
+}
+
+/**
+ * 質問メッセージの先頭にゲージを差し込んで送る。
+ * 別バブルにすると毎問2通になって鬱陶しいので、最初のテキストに混ぜる。
+ */
+function replyWithGauge(replyToken, step, msgs) {
+  var line = _flowGauge_(step);
+  if (line && msgs && msgs.length) {
+    for (var i = 0; i < msgs.length; i++) {
+      var m = msgs[i];
+      if (m && m.type === 'text' && typeof m.text === 'string') {
+        var copy = {};
+        for (var k in m) copy[k] = m[k];
+        copy.text = line + '\n\n' + m.text;
+        msgs[i] = copy;
+        break;
+      }
+    }
+  }
+  replyMessage(replyToken, msgs);
+}
+
 function showResidentSelect(replyToken, prefixMessages) {
   var items = RESIDENTS.map(function(r) {
     return qrPostback(r, 'resident|' + r, r);
   });
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
-  replyMessage(replyToken, (prefixMessages || []).concat([
+  replyWithGauge(replyToken, STEPS.RESIDENT, (prefixMessages || []).concat([
     textMsgWithQuickReply('どなたが住む予定ですか？', items)
   ]));
 }
@@ -610,7 +668,7 @@ function showAgeSelect(replyToken, prefixMessages) {
     return qrPostback(a, 'age|' + a, a);
   });
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
-  replyMessage(replyToken, (prefixMessages || []).concat([
+  replyWithGauge(replyToken, STEPS.AGE, (prefixMessages || []).concat([
     textMsgWithQuickReply('ご年齢を教えてください。', items)
   ]));
 }
@@ -642,7 +700,7 @@ function showMoveInMonthSelect(replyToken, prefixMessages) {
 
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
 
-  replyMessage(replyToken, (prefixMessages || []).concat([
+  replyWithGauge(replyToken, STEPS.MOVE_IN_DATE, (prefixMessages || []).concat([
     textMsgWithQuickReply(
       '引越し予定時期を教えてください。\n\n月を選択するか、「物件見つかり次第」をタップしてください。',
       items
@@ -675,7 +733,7 @@ function showMoveInPeriod(replyToken, month, monthKey, prefixMessages) {
     qrPostback('◀ 戻る', 'action=back', '戻る')
   ];
 
-  replyMessage(replyToken, (prefixMessages || []).concat([
+  replyWithGauge(replyToken, STEPS.MOVE_IN_DATE, (prefixMessages || []).concat([
     textMsgWithQuickReply(
       month + '月のいつ頃ですか？',
       items
@@ -698,7 +756,7 @@ function showMoveInStrictSelect(replyToken, prefixMessages) {
     qrPostback('間に合う物件だけ', 'movein_strict|true', '間に合う物件だけ'),
     qrPostback('◀ 戻る', 'action=back', '戻る')
   ];
-  replyMessage(replyToken, (prefixMessages || []).concat([
+  replyWithGauge(replyToken, STEPS.MOVE_IN_DATE, (prefixMessages || []).concat([
     textMsgWithQuickReply(
       'ご希望の時期よりご入居が遅くなる物件もご紹介してもいいですか？',
       items
@@ -1059,7 +1117,7 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
 
   var messages = prefixMessages ? prefixMessages.slice() : [];
   messages.push(flexMessage);
-  replyMessage(replyToken, messages);
+  replyWithGauge(replyToken, STEPS.CRITERIA_SELECT, messages);
 
   // LINE返信後、フォームHTMLを事前レンダリングしてCacheServiceに保存する。
   // ユーザーがLIFFボタンをタップする前にキャッシュが準備できるため、
@@ -1321,5 +1379,5 @@ function showConfirmation(replyToken, state, prefixMessages) {
     details += d.notes + '\n';
   }
 
-  replyMessage(replyToken, (prefixMessages || []).concat([buildConfirmFlex(details)]));
+  replyWithGauge(replyToken, STEPS.CONFIRM, (prefixMessages || []).concat([buildConfirmFlex(details)]));
 }
