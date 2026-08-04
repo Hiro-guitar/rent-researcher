@@ -883,13 +883,17 @@ function _snapUpToStep_(v, steps, strict) {
   return null;
 }
 
-/** 条件を緩める向き（下限系＝面積）に丸める。最小の選択肢を下回るときは丸めない。 */
-function _snapDownToStep_(v, steps) {
+/**
+ * 条件を緩める向き（下限系＝面積）に丸める。最小の選択肢を下回るときは丸めない。
+ * strict=true で「その値より必ず1段階下」。上限系の strict と考え方を揃えている
+ * （ちょうど選択肢と同じ値のときだけ1つ先へ行く）。
+ */
+function _snapDownToStep_(v, steps, strict) {
   if (v == null || isNaN(v)) return v;
   for (var i = steps.length - 1; i >= 0; i--) {
-    if (v >= steps[i]) return steps[i];
+    if (strict ? (v > steps[i]) : (v >= steps[i])) return steps[i];
   }
-  return Math.floor(v);
+  return null;
 }
 
 /** 「3」「徒歩3分」「3分」→ 3 。取れなければ null。 */
@@ -929,7 +933,11 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     var route = specs.route || '';
     // 徒歩: 掲載管理にあれば +3分、無ければ 10分以内
     var walkNum = _parseWalkMinutes_(specs.walk);
-    var walk = _snapUpToStep_((walkNum != null) ? walkNum + 3 : 10, SUUMO_WALK_STEPS);  // null=指定しない
+    // 徒歩・築年数・面積・賃料とも、加算/減算はせず「選択肢を1段階だけ緩める」で揃える。
+    // 以前は +3分 / +5年 / -10% を足してから丸めていたが、丸めと二重になって
+    // 築16年 → 築25年以内（実質+9年）のように緩くなりすぎていた。
+    // 徒歩が取れない物件はグリッド上の10分をそのまま使う（推測値なのでこれ以上緩めない）。
+    var walk = (walkNum != null) ? _snapUpToStep_(walkNum, SUUMO_WALK_STEPS, true) : 10;
     // 賃料上限: 賃料+管理費を「万円単位で切り上げ」て少し上振れさせる。
     //   例) 14.8万 → 15万 / 12.3万 → 13万
     // キリのいい数字のほうがお客様に見せる文言として読みやすく、
@@ -940,10 +948,11 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     var rentMax = rentYen > 0 ? _snapUpToStep_((rentYen + feeYen) / 10000, SUUMO_RENT_STEPS, true) : '';  // 万円・必ず1段階上
     var layout = String(row[6] || '').trim();
     var areaNum = parseFloat(String(row[7] || '').replace(/[^0-9.]/g, ''));
-    var areaMin = isNaN(areaNum) ? '' : _snapDownToStep_(areaNum * 0.9, SUUMO_AREA_STEPS);
+    var areaMin = isNaN(areaNum) ? '' : _snapDownToStep_(areaNum, SUUMO_AREA_STEPS, true);
     // 築年数: 掲載管理にあれば +5年
     var ageNum = _parseWalkMinutes_(specs.buildingAge);
-    var buildingAge = (ageNum != null) ? String(_snapUpToStep_(ageNum + 5, SUUMO_AGE_STEPS)) : '';
+    var _ageSnap = (ageNum != null) ? _snapUpToStep_(ageNum, SUUMO_AGE_STEPS, true) : null;
+    var buildingAge = (_ageSnap != null) ? String(_ageSnap) : '';
 
     if (!station && !rentMax) return null;   // 材料が無さすぎる
 
