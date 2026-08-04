@@ -765,7 +765,7 @@ function showMoveInPeriod(replyToken, month, monthKey, prefixMessages) {
     qrPostback('◀ 戻る', 'action=back', '戻る')
   ];
 
-  replyWithGauge(replyToken, STEPS.MOVE_IN_DATE, (prefixMessages || []).concat([
+  replyWithGauge(replyToken, STEPS.MOVE_IN_PERIOD, (prefixMessages || []).concat([
     textMsgWithQuickReply(
       month + '月のいつ頃ですか？',
       items
@@ -788,7 +788,7 @@ function showMoveInStrictSelect(replyToken, prefixMessages) {
     qrPostback('間に合う物件だけ', 'movein_strict|true', '間に合う物件だけ'),
     qrPostback('◀ 戻る', 'action=back', '戻る')
   ];
-  replyWithGauge(replyToken, STEPS.MOVE_IN_DATE, (prefixMessages || []).concat([
+  replyWithGauge(replyToken, STEPS.MOVE_IN_STRICT, (prefixMessages || []).concat([
     textMsgWithQuickReply(
       'ご希望の時期よりご入居が遅くなる物件もご紹介してもいいですか？',
       items
