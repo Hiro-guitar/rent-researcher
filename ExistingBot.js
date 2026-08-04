@@ -869,11 +869,16 @@ var SUUMO_AREA_STEPS = [20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 80, 90, 100]
  * 条件を緩める向き（上限系）に丸める。
  * 選択肢の最大を超える場合は null を返す＝「指定しない」。
  * 存在しない選択肢（21分以内・築33年以内など）を作らないため。
+ *
+ * strict=true にすると「その値より必ず1段階上」を返す。
+ * 賃料はこちらを使う。切り上げだけだと 15.0万ちょうどの物件が上限15万になり、
+ * 上振れがゼロになってしまうため（同額の物件しか候補に入らない）。
+ * 徒歩(+3分)・築年数(+5年)・面積(-10%)は既に余裕を持たせてあるので strict にしない。
  */
-function _snapUpToStep_(v, steps) {
+function _snapUpToStep_(v, steps, strict) {
   if (v == null || isNaN(v)) return null;
   for (var i = 0; i < steps.length; i++) {
-    if (v <= steps[i]) return steps[i];
+    if (strict ? (v < steps[i]) : (v <= steps[i])) return steps[i];
   }
   return null;
 }
@@ -932,7 +937,7 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     var rentYen = Number(String(row[4] || '').replace(/[^0-9.]/g, '')) || 0;
     var feeYen = Number(String(row[5] || '').replace(/[^0-9.]/g, '')) || 0;
     if (rentYen > 0 && rentYen < 1000) rentYen = rentYen * 10000;  // 「15.4」万円表記への保険
-    var rentMax = rentYen > 0 ? _snapUpToStep_((rentYen + feeYen) / 10000, SUUMO_RENT_STEPS) : '';  // 万円
+    var rentMax = rentYen > 0 ? _snapUpToStep_((rentYen + feeYen) / 10000, SUUMO_RENT_STEPS, true) : '';  // 万円・必ず1段階上
     var layout = String(row[6] || '').trim();
     var areaNum = parseFloat(String(row[7] || '').replace(/[^0-9.]/g, ''));
     var areaMin = isNaN(areaNum) ? '' : _snapDownToStep_(areaNum * 0.9, SUUMO_AREA_STEPS);
