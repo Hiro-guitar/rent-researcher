@@ -170,6 +170,7 @@ function startSearchOrChangeFlow(replyToken, userId) {
  * 検索条件フローのテキストメッセージを処理する。
  */
 function handleSearchFlowText(replyToken, userId, message, state) {
+  _setFlowGaugeMode_(state);
   // キャンセル処理
   if (message === 'キャンセル' || message === 'きゃんせる') {
     clearState(userId);
@@ -302,6 +303,7 @@ function handleNotesInput(replyToken, userId, message, state) {
  * @param {Object} [event] - LINE イベントオブジェクト（datetimepicker用）
  */
 function handleSearchFlowPostback(replyToken, userId, data, state, event) {
+  _setFlowGaugeMode_(state);
 
   // ── 戻るボタン ──
   if (data === 'action=back') {
@@ -328,6 +330,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       // 通常理由 → 居住者選択へ
       state.step = STEPS.RESIDENT;
       saveState(userId, state);
+      if (state.isAutoFollowup) persistAutoFollowupAnswers(userId, state);
       showResidentSelect(replyToken);
     }
     return true;
@@ -352,6 +355,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       // 通常選択 → 年齢へ
       state.step = STEPS.AGE;
       saveState(userId, state);
+      if (state.isAutoFollowup) persistAutoFollowupAnswers(userId, state);
       showAgeSelect(replyToken);
     }
     return true;
@@ -363,6 +367,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     state = updateStateData(state, 'age', age);
     state.step = STEPS.MOVE_IN_DATE;
     saveState(userId, state);
+    if (state.isAutoFollowup) persistAutoFollowupAnswers(userId, state);
     showMoveInMonthSelect(replyToken);
     return true;
   }
@@ -385,6 +390,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     }
     state.step = STEPS.MOVE_IN_DATE;
     saveState(userId, state);
+    if (state.isAutoFollowup) persistAutoFollowupAnswers(userId, state);
     showMoveInMonthSelect(replyToken);
     return true;
   }
@@ -396,6 +402,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       _confirmConditionChange_(replyToken, userId, state);
       return true;
     }
+    if (state.isAutoFollowup) { finishAutoFollowup(replyToken, userId, state); return true; }
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
     showCriteriaSelectLink(replyToken, userId);
@@ -451,6 +458,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       _confirmConditionChange_(replyToken, userId, state);
       return true;
     }
+    if (state.isAutoFollowup) { finishAutoFollowup(replyToken, userId, state); return true; }
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
     showCriteriaSelectLink(replyToken, userId);
@@ -615,6 +623,94 @@ var FLOW_GAUGE_ORDER = [
 // 理由・居住者の自由入力）は、ゲージを出さない。
 // 同じ「4/5」が何度も並ぶと、進んでいるのに止まって見えるため。
 // 数字とバーは常に一致させる（食い違うと壊れて見える）。
+// ══════════════════════════════════════════════════════════
+//  空室確認からの自動登録後の追加質問
+//
+//  自動変換で作れるのは物件から逆算できる条件（エリア・賃料・間取り・面積・築年数）
+//  だけで、引越し理由・居住者・年齢・入居時期は聞かないと分からない。
+//  ⚠️ 先に条件は登録済みなので、この4問は「答えてもらえたら精度が上がる」おまけ。
+//     質問を前提にすると途中離脱でまた取りこぼすため、順序を逆にしないこと。
+//  ⚠️ writeToSheet はA〜R列をまとめて上書きするので使わない。
+//     自動登録した物件条件を消さないよう、回答ごとに該当セルだけ書く。
+//     こうすれば3問目で離脱しても2問分は残る。
+// ══════════════════════════════════════════════════════════
+
+/** 検索条件シートの1セルだけ更新する（顧客名で行を引く）。 */
+function _updateCriteriaCell_(customerName, col, value) {
+  try {
+    if (!customerName) return false;
+    var sheet = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return false;
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1] || '').trim() === String(customerName).trim()) {
+        sheet.getRange(i + 1, col).setValue(value);
+        return true;
+      }
+    }
+  } catch (e) {
+    console.error('_updateCriteriaCell_ エラー: ' + e.message);
+  }
+  return false;
+}
+
+/** 追加質問の回答を、今わかっている分だけシートに書く（毎回呼んでよい）。 */
+function persistAutoFollowupAnswers(userId, state) {
+  var d = (state && state.data) || {};
+  var name = d.name || _getLineUserName_(userId);
+  if (!name) return;
+  if (d.reason) _updateCriteriaCell_(name, 14, d.reason);        // N列: 部屋探しの理由
+  if (d.move_in_date) _updateCriteriaCell_(name, 15, d.move_in_date); // O列: 引越し時期
+  if (d.resident) _updateCriteriaCell_(name, 18, d.resident);    // R列: 居住者
+  if (d.move_in_strict) _updateCriteriaCell_(name, 27, 'true');  // AA列: 入居時期厳守
+  if (d.age) _updateCriteriaCell_(name, 28, d.age);              // AB列: 年齢
+}
+
+/**
+ * 追加質問を開始する。条件はすでに登録済みなので、答えなくても探し始めていることを伝える。
+ * @param {Array} prefixMessages 先に出す完了メッセージ
+ */
+function startAutoFollowupQuestions(replyToken, userId, prefixMessages) {
+  var state = createInitialState();
+  state.step = STEPS.REASON;
+  state.isAutoFollowup = true;
+  state.data = { name: _getLineUserName_(userId) };
+  saveState(userId, state);
+  _setFlowGaugeMode_(state);
+
+  var items = REASONS.map(function (r) {
+    return qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r);
+  });
+  var msgs = (prefixMessages || []).concat([
+    textMsg('よろしければ、あと' + FLOW_GAUGE_FOLLOWUP_ORDER.length + 'つだけ教えてください。\n'
+      + 'お答えいただくほど、ご希望に近いお部屋をお送りできます。\n\n'
+      + '（すでにお探しは始めていますので、お時間のあるときで大丈夫です）'),
+    textMsgWithQuickReply(_flowGauge_(STEPS.REASON) + '\n\nお引越しの理由を教えてください。', items)
+  ]);
+  replyMessage(replyToken, msgs);
+}
+
+/** 追加質問の完了。条件選択ページへは進まず、ここで終わる。 */
+function finishAutoFollowup(replyToken, userId, state) {
+  persistAutoFollowupAnswers(userId, state);
+  clearState(userId);
+  replyMessage(replyToken, [textMsgWithQuickReply(
+    'ありがとうございます。\n教えていただいた内容も踏まえてお探しします。\n\n'
+    + '条件はいつでも変更できます。',
+    [qrMessage('条件を変更する', '条件変更')]
+  )]);
+}
+
+// 空室確認からの自動登録後に聞く4問（条件選択ページは自動で入っているので飛ばす）
+var FLOW_GAUGE_FOLLOWUP_ORDER = [
+  STEPS.REASON, STEPS.RESIDENT, STEPS.AGE, STEPS.MOVE_IN_DATE
+];
+
+/** 追加質問モードかどうかを1リクエスト内で共有する（show* 系は state を受け取らないため）。 */
+function _setFlowGaugeMode_(state) {
+  globalThis._flowGaugeFollowup = !!(state && state.isAutoFollowup);
+}
+
 var FLOW_GAUGE_CONTINUATION = [
   STEPS.REASON_CUSTOM,
   STEPS.RESIDENT_CUSTOM,
@@ -625,9 +721,10 @@ var FLOW_GAUGE_CONTINUATION = [
 /** 例) "■■■■□ 4/5" 。続きの質問と対象外のステップでは空文字。 */
 function _flowGauge_(step) {
   if (FLOW_GAUGE_CONTINUATION.indexOf(step) !== -1) return '';
-  var idx = FLOW_GAUGE_ORDER.indexOf(step);
+  var order = globalThis._flowGaugeFollowup ? FLOW_GAUGE_FOLLOWUP_ORDER : FLOW_GAUGE_ORDER;
+  var idx = order.indexOf(step);
   if (idx < 0) return '';
-  var total = FLOW_GAUGE_ORDER.length;
+  var total = order.length;
   var done = idx + 1;
   var bar = '';
   for (var i = 0; i < total; i++) bar += (i < done) ? '■' : '□';
