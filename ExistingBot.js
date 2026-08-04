@@ -850,6 +850,43 @@ function _findListingSpecs_(buildingName, roomNumber) {
   return null;
 }
 
+// ── SUUMOの条件入力の選択肢に合わせる ──────────────────────
+// 暫定条件はお客さんが自分で入れ直すときの基準にもなるので、
+// 中途半端な数字（12.3万・27m²）ではなく SUUMO と同じ刻みに丸める。
+// 実際の選択肢と違っていたらこの配列を直すだけでよい。
+// SUUMOの賃貸検索フォームから実際の選択肢を取得して転記（2026-08-04時点）
+var SUUMO_RENT_STEPS = (function () {          // 万円
+  var a = [];
+  for (var i = 30; i <= 200; i += 5) a.push(i / 10);   //  3.0〜20.0 を 0.5万刻み
+  for (var j = 21; j <= 30; j++) a.push(j);            // 21〜30 を 1万刻み
+  return a.concat([35, 40, 50, 100]);
+})();
+var SUUMO_WALK_STEPS = [1, 5, 7, 10, 15, 20];                  // 分以内
+var SUUMO_AGE_STEPS  = [1, 3, 5, 7, 10, 15, 20, 25, 30];       // 年以内（新築=0は別扱い）
+var SUUMO_AREA_STEPS = [20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 80, 90, 100];  // m²以上
+
+/**
+ * 条件を緩める向き（上限系）に丸める。
+ * 選択肢の最大を超える場合は null を返す＝「指定しない」。
+ * 存在しない選択肢（21分以内・築33年以内など）を作らないため。
+ */
+function _snapUpToStep_(v, steps) {
+  if (v == null || isNaN(v)) return null;
+  for (var i = 0; i < steps.length; i++) {
+    if (v <= steps[i]) return steps[i];
+  }
+  return null;
+}
+
+/** 条件を緩める向き（下限系＝面積）に丸める。最小の選択肢を下回るときは丸めない。 */
+function _snapDownToStep_(v, steps) {
+  if (v == null || isNaN(v)) return v;
+  for (var i = steps.length - 1; i >= 0; i--) {
+    if (v >= steps[i]) return steps[i];
+  }
+  return Math.floor(v);
+}
+
 /** 「3」「徒歩3分」「3分」→ 3 。取れなければ null。 */
 function _parseWalkMinutes_(v) {
   var m = String(v == null ? '' : v).match(/(\d{1,3})/);
@@ -887,7 +924,7 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     var route = specs.route || '';
     // 徒歩: 掲載管理にあれば +3分、無ければ 10分以内
     var walkNum = _parseWalkMinutes_(specs.walk);
-    var walk = (walkNum != null) ? Math.min(walkNum + 3, 20) : 10;
+    var walk = _snapUpToStep_((walkNum != null) ? walkNum + 3 : 10, SUUMO_WALK_STEPS);  // null=指定しない
     // 賃料上限: 賃料+管理費を「万円単位で切り上げ」て少し上振れさせる。
     //   例) 14.8万 → 15万 / 12.3万 → 13万
     // キリのいい数字のほうがお客様に見せる文言として読みやすく、
@@ -895,18 +932,18 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     var rentYen = Number(String(row[4] || '').replace(/[^0-9.]/g, '')) || 0;
     var feeYen = Number(String(row[5] || '').replace(/[^0-9.]/g, '')) || 0;
     if (rentYen > 0 && rentYen < 1000) rentYen = rentYen * 10000;  // 「15.4」万円表記への保険
-    var rentMax = rentYen > 0 ? Math.ceil((rentYen + feeYen) / 10000) : '';  // 万円・整数
+    var rentMax = rentYen > 0 ? _snapUpToStep_((rentYen + feeYen) / 10000, SUUMO_RENT_STEPS) : '';  // 万円
     var layout = String(row[6] || '').trim();
     var areaNum = parseFloat(String(row[7] || '').replace(/[^0-9.]/g, ''));
-    var areaMin = isNaN(areaNum) ? '' : Math.floor(areaNum * 0.9);
+    var areaMin = isNaN(areaNum) ? '' : _snapDownToStep_(areaNum * 0.9, SUUMO_AREA_STEPS);
     // 築年数: 掲載管理にあれば +5年
     var ageNum = _parseWalkMinutes_(specs.buildingAge);
-    var buildingAge = (ageNum != null) ? String(ageNum + 5) : '';
+    var buildingAge = (ageNum != null) ? String(_snapUpToStep_(ageNum + 5, SUUMO_AGE_STEPS)) : '';
 
     if (!station && !rentMax) return null;   // 材料が無さすぎる
 
     var summaryParts = [];
-    if (station) summaryParts.push(station + '駅 徒歩' + walk + '分以内');
+    if (station) summaryParts.push(station + '駅' + (walk ? ' 徒歩' + walk + '分以内' : ''));
     if (rentMax) summaryParts.push(rentMax + '万円以下');
     if (layout) summaryParts.push(layout + '以上');
     if (areaMin) summaryParts.push(areaMin + 'm²以上');

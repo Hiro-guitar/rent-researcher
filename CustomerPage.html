@@ -3013,7 +3013,15 @@ function importInquiriesNow() {
   google.script.run
     .withSuccessHandler(function(res) {
       var r = res || {};
-      showToast('取込: 新規' + (r.imported || 0) + '件 / 既存' + (r.skipped || 0) + '件。カンバンに反映中...');
+      // scanned(見たメール数) と noRenban(解析失敗) も出す。
+      // これが無いと「取り込まれない」ときに、メールが無いのか・解析に失敗したのか
+      // ・全部取込済みなのかが切り分けられない。
+      var _msg = '取込: 新規' + (r.imported || 0) + '件 / 既存' + (r.skipped || 0) + '件';
+      _msg += '（メール ' + (r.threads || 0) + 'スレッド / ' + (r.scanned || 0) + '通を確認';
+      if (r.noRenban) _msg += ' / 解析できず ' + r.noRenban + '通';
+      _msg += '）';
+      if (!r.scanned) _msg += ' ← 対象メールが見つかりません';
+      showToast(_msg);
       // 新規リードをカンバンに反映（ページ再読込はせずデータだけ取り直す）
       refreshCustomers(function() {
         if (link) link.textContent = '🔄 問い合わせ取込';

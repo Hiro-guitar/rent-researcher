@@ -480,7 +480,7 @@ function importSuumoInquiries() {
 
   // 件名で検索（直近90日）
   var threads = GmailApp.search('subject:反響お知らせメール newer_than:90d');
-  var imported = 0, skipped = 0, scanned = 0;
+  var imported = 0, skipped = 0, scanned = 0, noRenban = 0;
   var newRows = [];
   var newInfos = []; // 自動リード化用
 
@@ -492,7 +492,7 @@ function importSuumoInquiries() {
       if (subject.indexOf('反響お知らせメール') === -1) continue;
       scanned++;
       var info = _parseSuumoInquiryEmail_(subject, msg.getPlainBody(), msg.getDate());
-      if (!info || !info.renban) { continue; }
+      if (!info || !info.renban) { noRenban++; continue; }   // 本文の解析に失敗（書式変更の可能性）
       var rbKey = _normRenban_(info.renban);
       if (existing[rbKey]) { skipped++; continue; }
       existing[rbKey] = true; // 同一バッチ内の重複も防ぐ
@@ -535,8 +535,12 @@ function importSuumoInquiries() {
     _notifyPhoneInquiryToDiscord_(newInfos[ni]);
   }
 
-  console.log('[問い合わせ取込] scanned=' + scanned + ' imported=' + imported + ' skipped=' + skipped);
-  return { imported: imported, skipped: skipped, scanned: scanned };
+  console.log('[問い合わせ取込] threads=' + threads.length + ' scanned=' + scanned
+    + ' imported=' + imported + ' skipped=' + skipped + ' noRenban=' + noRenban);
+  return {
+    imported: imported, skipped: skipped, scanned: scanned,
+    threads: threads.length, noRenban: noRenban
+  };
 }
 
 /**
