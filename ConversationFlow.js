@@ -610,41 +610,30 @@ var FLOW_GAUGE_ORDER = [
 // 確認カードは結果を見せるだけで質問ではないので、ゲージ自体を出さない。
 // （ここに無いステップでは _flowGauge_ が空文字を返し、何も差し込まれない）
 
-/** 枝分かれのステップは代表のステップに寄せる（分母を動かさないため）。 */
-function _flowGaugeStep_(step) {
-  if (step === STEPS.REASON_CUSTOM) return STEPS.REASON;
-  if (step === STEPS.RESIDENT_CUSTOM) return STEPS.RESIDENT;
-  if (step === STEPS.MOVE_IN_PERIOD || step === STEPS.MOVE_IN_STRICT) return STEPS.MOVE_IN_DATE;
-  return step;
-}
 
-// バーの目盛りは枝分かれの質問も1目盛りとして数える。
-// 入居時期のように1項目で3問続くとき、数字(4/5)だけだと進んでいるのに
-// 表示が変わらず止まって見えるため、バーだけは毎問進むようにする。
-// 選ばれなかった枝（その他の自由入力など）は飛ばされるだけで、後戻りはしない。
-var FLOW_GAUGE_TICKS = [
-  STEPS.REASON, STEPS.REASON_CUSTOM,
-  STEPS.RESIDENT, STEPS.RESIDENT_CUSTOM,
-  STEPS.AGE,
-  STEPS.MOVE_IN_DATE, STEPS.MOVE_IN_PERIOD, STEPS.MOVE_IN_STRICT,
-  STEPS.CRITERIA_SELECT
+// 1項目の中で質問が続くとき（入居時期の「いつ頃」「遅くなる物件も可か」、
+// 理由・居住者の自由入力）は、ゲージを出さない。
+// 同じ「4/5」が何度も並ぶと、進んでいるのに止まって見えるため。
+// 数字とバーは常に一致させる（食い違うと壊れて見える）。
+var FLOW_GAUGE_CONTINUATION = [
+  STEPS.REASON_CUSTOM,
+  STEPS.RESIDENT_CUSTOM,
+  STEPS.MOVE_IN_PERIOD,
+  STEPS.MOVE_IN_STRICT
 ];
 
-/** 例) "■■■■■■□□□ 4/5" 。対象外のステップでは空文字。 */
+/** 例) "■■■■□ 4/5" 。続きの質問と対象外のステップでは空文字。 */
 function _flowGauge_(step) {
-  var idx = FLOW_GAUGE_ORDER.indexOf(_flowGaugeStep_(step));
+  if (FLOW_GAUGE_CONTINUATION.indexOf(step) !== -1) return '';
+  var idx = FLOW_GAUGE_ORDER.indexOf(step);
   if (idx < 0) return '';
   var total = FLOW_GAUGE_ORDER.length;
-
-  var ticks = FLOW_GAUGE_TICKS.length;
-  var pos = FLOW_GAUGE_TICKS.indexOf(step);
-  if (pos < 0) pos = FLOW_GAUGE_TICKS.indexOf(_flowGaugeStep_(step));
-  var filled = pos + 1;
-
+  var done = idx + 1;
   var bar = '';
-  for (var i = 0; i < ticks; i++) bar += (i < filled) ? '■' : '□';
-  return bar + ' ' + (idx + 1) + '/' + total;
+  for (var i = 0; i < total; i++) bar += (i < done) ? '■' : '□';
+  return bar + ' ' + done + '/' + total;
 }
+
 
 /**
  * 質問メッセージの先頭にゲージを差し込んで送る。
