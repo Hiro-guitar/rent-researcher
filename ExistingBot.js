@@ -935,9 +935,16 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     var _existing = (typeof readLatestCriteria === 'function') ? readLatestCriteria(userId) : null;
     _hasRegistered = !!_existing;
   } catch (_) {}
-  // テスト用: 条件登録済みでも暫定条件カードを確認できるようにする
-  // （testSendVacancyCard から一時的に立てられる。通常運用では常に false）
+  // テスト用: 条件登録済みでも暫定条件カードを確認できるようにする。
+  //   - _forceVacancyFlexForTest: testSendVacancyCard / テストカードコマンドが一時的に立てる
+  //   - TEST_CARD_ALLOWED_NAMES: 普通に空室確認しただけでもカードが出るようにする
+  //     （遅延返信は別実行なのでフラグが残らず、顧客名で判定する必要がある）
   if (globalThis._forceVacancyFlexForTest) _hasRegistered = false;
+  if (_hasRegistered && typeof TEST_CARD_ALLOWED_NAMES !== 'undefined') {
+    try {
+      if (TEST_CARD_ALLOWED_NAMES.indexOf(_getLineUserName_(userId)) !== -1) _hasRegistered = false;
+    } catch (_eT) {}
+  }
 
   if (_hasRegistered) {
     // 既に条件登録済み: 条件登録への誘導は不要、テキスト通知のみ
