@@ -1007,9 +1007,14 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
  * 既に条件が登録されている顧客には何もしない（上書き事故を防ぐ）。
  * @return {{ok:boolean, summary?:string, message?:string}}
  */
-function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber) {
+function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber, opts) {
   try {
-    if (typeof readLatestCriteria === 'function' && readLatestCriteria(userId)) {
+    opts = opts || {};
+    // 既に条件がある人は上書きしない（連打・古いカードの再タップでの事故を防ぐ）。
+    // ただしテストユーザーは登録まで通しで確認したいので force で抜けられるようにする。
+    // ⚠️ force を使うと writeToSheet が既存行(A〜R列)を上書きする。
+    var _wasRegistered = (typeof readLatestCriteria === 'function') && !!readLatestCriteria(userId);
+    if (_wasRegistered && !opts.force) {
       return { ok: false, message: 'already_registered' };
     }
     var conv = _propertyToCriteria_(propertyName, roomNumber);
@@ -1044,7 +1049,11 @@ function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber) {
     };
     writeToSheet(userId, state);
     _markCriteriaProvisional_(name);
-    return { ok: true, summary: conv.summary, matchedListing: !!conv.matchedListing };
+    return {
+      ok: true, summary: conv.summary,
+      matchedListing: !!conv.matchedListing,
+      overwrote: _wasRegistered            // テストで既存条件を上書きしたか
+    };
   } catch (e) {
     console.error('[条件自動登録] 失敗: ' + e.message);
     return { ok: false, message: e.message };

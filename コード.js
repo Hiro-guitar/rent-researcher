@@ -223,17 +223,22 @@ function doPost(e) {
           var p = kv.split('=');
           if (p.length === 2) _acParams[p[0]] = decodeURIComponent(p[1] || '');
         });
+        // テストユーザーは登録済みでも通しで確認できるよう、上書きを許可する
+        var _acName = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
+        var _acIsTester = (TEST_CARD_ALLOWED_NAMES.indexOf(_acName) !== -1);
         var _acRes = (typeof registerAutoCriteriaFromProperty === 'function')
-          ? registerAutoCriteriaFromProperty(userId, _acParams.name || '', _acParams.room || '')
+          ? registerAutoCriteriaFromProperty(userId, _acParams.name || '', _acParams.room || '', { force: _acIsTester })
           : { ok: false, message: 'function not defined' };
 
         if (_acRes.ok) {
-          replyMessage(replyToken, [textMsgWithQuickReply(
-            'ありがとうございます。\n以下の条件でお探しして、見つかり次第お知らせいたします。\n\n' +
-            '　' + _acRes.summary + '\n\n' +
-            '条件はいつでも変更できます。ご希望があれば下のボタンからお知らせください。',
-            [qrMessage('条件を変更する', '条件変更')]
-          )]);
+          var _acMsg = 'ありがとうございます。\n以下の条件でお探しして、見つかり次第お知らせいたします。\n\n'
+            + '　' + _acRes.summary + '\n\n'
+            + '条件はいつでも変更できます。ご希望があれば下のボタンからお知らせください。';
+          // テストで既存条件を潰した場合はその場で分かるようにする
+          if (_acRes.overwrote) {
+            _acMsg += '\n\n【テスト】既存の登録条件を上書きしました。';
+          }
+          replyMessage(replyToken, [textMsgWithQuickReply(_acMsg, [qrMessage('条件を変更する', '条件変更')])]);
           try { _notifyAutoCriteriaToDiscord_(userId, _acParams.name, _acParams.room, _acRes); } catch (_eD) {}
         } else if (_acRes.message === 'already_registered') {
           // 既に条件がある人は上書きしない（クリック連打・古いカードの再タップ対策）
