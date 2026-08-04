@@ -977,12 +977,12 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
   } catch (_) {}
   // テスト用: 条件登録済みでも暫定条件カードを確認できるようにする。
   //   - _forceVacancyFlexForTest: testSendVacancyCard / テストカードコマンドが一時的に立てる
-  //   - TEST_CARD_ALLOWED_NAMES: 普通に空室確認しただけでもカードが出るようにする
+  //   - TEST_ALLOWED_NAMES: 普通に空室確認しただけでもカードが出るようにする
   //     （遅延返信は別実行なのでフラグが残らず、顧客名で判定する必要がある）
   if (globalThis._forceVacancyFlexForTest) _hasRegistered = false;
-  if (_hasRegistered && typeof TEST_CARD_ALLOWED_NAMES !== 'undefined') {
+  if (_hasRegistered && typeof TEST_ALLOWED_NAMES !== 'undefined') {
     try {
-      if (TEST_CARD_ALLOWED_NAMES.indexOf(_getLineUserName_(userId)) !== -1) _hasRegistered = false;
+      if (TEST_ALLOWED_NAMES.indexOf(_getLineUserName_(userId)) !== -1) _hasRegistered = false;
     } catch (_eT) {}
   }
 

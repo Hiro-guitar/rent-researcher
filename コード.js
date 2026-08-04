@@ -225,7 +225,7 @@ function doPost(e) {
         });
         // テストユーザーは登録済みでも通しで確認できるよう、上書きを許可する
         var _acName = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
-        var _acIsTester = (TEST_CARD_ALLOWED_NAMES.indexOf(_acName) !== -1);
+        var _acIsTester = (TEST_ALLOWED_NAMES.indexOf(_acName) !== -1);
         var _acRes = (typeof registerAutoCriteriaFromProperty === 'function')
           ? registerAutoCriteriaFromProperty(userId, _acParams.name || '', _acParams.room || '', { force: _acIsTester })
           : { ok: false, message: 'function not defined' };
@@ -331,6 +331,17 @@ function doPost(e) {
 
       // コマンド: 条件登録
       // 登録済みのユーザーが「条件登録」を送った場合は条件変更フローへ振り替える
+      // 【テスト用】登録済みでも質問フローを最初から流す。
+      // 通常の「条件登録」は登録済みだと条件変更（＝条件選択ページ直行）に
+      // 振り替わるため、質問と進捗ゲージを確認できないので用意している。
+      // ⚠️ 最後まで進めると既存の登録条件は上書きされる。
+      if (message === 'テスト条件登録') {
+        var _trName = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
+        if (TEST_ALLOWED_NAMES.indexOf(_trName) === -1) return;
+        startSearchFlow(replyToken, userId);
+        return;
+      }
+
       if (message === '条件登録' || message === 'じょうけんとうろく') {
         // [PERF-doPost] 計測用
         console.log('[PERF-doPost] +' + (Date.now() - _doPostT) + 'ms startSearchOrChangeFlow直前');
@@ -385,10 +396,10 @@ function doPost(e) {
 
       // 【テスト用】「テストカード <物件名> <部屋番号>」で暫定条件カードを自分に出す。
       // 条件登録済みだと本来テキストしか届かず、カードの確認ができないため。
-      // 許可した顧客名のときだけ動く（TEST_CARD_ALLOWED_NAMES）。
+      // 許可した顧客名のときだけ動く（TEST_ALLOWED_NAMES）。
       if (message.indexOf('テストカード') === 0) {
         var _tcName = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
-        if (TEST_CARD_ALLOWED_NAMES.indexOf(_tcName) === -1) {
+        if (TEST_ALLOWED_NAMES.indexOf(_tcName) === -1) {
           // 許可外のお客様には反応しない（通常の未認識メッセージと同じ扱い）
           return;
         }
