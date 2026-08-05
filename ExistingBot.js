@@ -929,17 +929,14 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     // 駅: 掲載管理の「最寄り駅」を優先（路線が分かるため）。無ければ物件シートのD列。
     var station = specs.station || String(row[3] || '').trim();
     var route = specs.route || '';
-    // 徒歩: 掲載管理にあれば +3分、無ければ 10分以内
+    // 徒歩: 掲載管理から取る。物件空室管理シートには入っていない項目。
     var walkNum = _parseWalkMinutes_(specs.walk);
     // 徒歩・築年数・面積・賃料とも、加算/減算はせず「選択肢を1段階だけ緩める」で揃える。
     // 以前は +3分 / +5年 / -10% を足してから丸めていたが、丸めと二重になって
     // 築16年 → 築25年以内（実質+9年）のように緩くなりすぎていた。
     // 徒歩が取れない物件はグリッド上の10分をそのまま使う（推測値なのでこれ以上緩めない）。
     var walk = (walkNum != null) ? _snapUpToStep_(walkNum, SUUMO_WALK_STEPS) : 10;
-    // 賃料上限: 賃料+管理費を「万円単位で切り上げ」て少し上振れさせる。
-    //   例) 14.8万 → 15万 / 12.3万 → 13万
-    // キリのいい数字のほうがお客様に見せる文言として読みやすく、
-    // 端数を切り上げるぶんが候補を少し広げる役割も兼ねる。
+    // 賃料上限: 賃料+管理費を SUUMO の選択肢に丸める（14.8万 → 15万 / 12.3万 → 12.5万）。
     var rentYen = Number(String(row[4] || '').replace(/[^0-9.]/g, '')) || 0;
     var feeYen = Number(String(row[5] || '').replace(/[^0-9.]/g, '')) || 0;
     if (rentYen > 0 && rentYen < 1000) rentYen = rentYen * 10000;  // 「15.4」万円表記への保険
@@ -949,7 +946,7 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     // 面積はその物件が満たす最大の選択肢を採る（ちょうどならその値）。
     //   25.07m² → 25 / 25.0m² → 25 / 24.99m² → 20
     var areaMin = isNaN(areaNum) ? '' : _snapDownToStep_(areaNum, SUUMO_AREA_STEPS);
-    // 築年数: 掲載管理にあれば +5年
+    // 築年数: 掲載管理から取る。物件空室管理シートには入っていない項目。
     var ageNum = _parseWalkMinutes_(specs.buildingAge);
     var _ageSnap = (ageNum != null) ? _snapUpToStep_(ageNum, SUUMO_AGE_STEPS) : null;
     var buildingAge = (_ageSnap != null) ? String(_ageSnap) : '';
