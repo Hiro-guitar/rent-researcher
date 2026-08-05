@@ -741,9 +741,13 @@ function finishAutoFollowup(replyToken, userId, state) {
     carModel: existing.carModel,
     notes: existing.notes
   };
-  // 通常の条件登録と同じ確認カードを使う。
-  // カード自体に「ご登録ありがとうございます」が入っているので前置きは付けない。
-  showConfirmation(replyToken, view);
+  // 通常の条件登録を終えたときとまったく同じ表示にする。
+  // showConfirmation は「登録する」ボタン付きの“確認”カードで、ここでは既に
+  // 登録済みなので合わない。完了時に使われている組み合わせを揃える。
+  replyMessage(replyToken, [
+    buildConditionSummaryFlex(view, 'ご登録ありがとうございます'),
+    textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
+  ]);
 }
 
 // 空室確認からの自動登録後に聞く4問（条件選択ページは自動で入っているので飛ばす）
@@ -859,9 +863,6 @@ function showMoveInMonthSelect(replyToken, prefixMessages) {
   var now = new Date();
   var items = [];
 
-  // 「いい物件見つかり次第」を最初に
-  items.push(qrPostback('物件見つかり次第', 'movein|asap', 'いい物件見つかり次第'));
-
   // 今月〜5ヶ月先（計6ヶ月分）の月ボタンを生成
   for (var i = 0; i < 6; i++) {
     var d = new Date(now.getFullYear(), now.getMonth() + i, 1);
@@ -872,11 +873,15 @@ function showMoveInMonthSelect(replyToken, prefixMessages) {
     items.push(qrPostback(label, 'movein_month|' + monthKey, label));
   }
 
+  // 「物件見つかり次第」は月ボタンの後ろに置く。
+  // 先頭にあると内容を読まずに押す人が多く、実際の時期を聞けないため。
+  items.push(qrPostback('物件見つかり次第', 'movein|asap', 'いい物件見つかり次第'));
   items.push(qrPostback('◀ 戻る', 'action=back', '戻る'));
 
   replyWithGauge(replyToken, STEPS.MOVE_IN_DATE, (prefixMessages || []).concat([
     textMsgWithQuickReply(
-      '引越し予定時期を教えてください。\n\n月を選択するか、「物件見つかり次第」をタップしてください。',
+      '引越し予定時期を教えてください。\n\n月を選択してください。'
+      + '\n時期が決まっていない場合は「物件見つかり次第」をタップしてください。',
       items
     )
   ]));
