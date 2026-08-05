@@ -119,6 +119,12 @@ function writeToSheet(userId, state) {
     }
   }
 
+  // 変更前の値を控えておく（Discord通知と条件変更履歴で差分を出すため）
+  var beforeRow = null;
+  if (existingRowIndex > 0) {
+    try { beforeRow = sheet.getRange(existingRowIndex, 1, 1, row.length).getValues()[0]; } catch (_eB) {}
+  }
+
   if (existingRowIndex > 0) {
     // 既存行を上書き更新（順番を維持）— A〜R列のみ
     sheet.getRange(existingRowIndex, 1, 1, row.length).setValues([row]);
@@ -155,6 +161,95 @@ function writeToSheet(userId, state) {
 
   // LINE Users シートにも記録
   saveLineUser(userId, d.name || '');
+
+  // 条件が変わったら履歴に残し、担当者へ通知する（新規登録時は差分なしなので出ない）
+  try {
+    var changes = _diffCriteriaRow_(beforeRow, row);
+    if (changes.length > 0) {
+      var source = _criteriaChangeSource_(state);
+      _appendCriteriaHistory_(customerName, source, changes);
+      _notifyCriteriaChangeToDiscord_(customerName, source, changes);
+    }
+  } catch (eHist) {
+    // 履歴・通知の失敗で条件の保存自体を壊さない
+    console.error('[条件変更履歴] 失敗（条件の保存は完了）: ' + eHist.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  条件変更の記録と通知
+//  writeToSheet が条件書き込みの唯一の入口なので、ここに置けば
+//  LINEの条件変更・条件選択ページからの保存・空室確認からの自動登録を
+//  すべて拾える。
+// ══════════════════════════════════════════════════════════
+
+// A〜R列のうち、変更を追う対象と表示名（S列以降は配信管理なので対象外）
+var CRITERIA_DIFF_LABELS = {
+  3: '市区町村', 4: '沿線・駅', 6: '駅徒歩', 7: '賃料上限', 8: '間取り',
+  9: '専有面積', 10: '築年数', 11: '構造', 12: '設備',
+  13: '探し理由', 14: '入居時期', 15: 'その他', 16: 'ペット', 17: '居住者'
+};
+
+/** 変更前後の行を比べて [{label, before, after}] を返す。新規登録(before無し)は空配列。 */
+function _diffCriteriaRow_(beforeRow, afterRow) {
+  var out = [];
+  if (!beforeRow || !afterRow) return out;
+  for (var idx in CRITERIA_DIFF_LABELS) {
+    var i = Number(idx);
+    var b = String(beforeRow[i] == null ? '' : beforeRow[i]).trim();
+    var a = String(afterRow[i] == null ? '' : afterRow[i]).trim();
+    if (b === a) continue;
+    out.push({ label: CRITERIA_DIFF_LABELS[i], before: b || '（なし）', after: a || '（なし）' });
+  }
+  return out;
+}
+
+/** 何をきっかけに変わったかを state から判定する。 */
+function _criteriaChangeSource_(state) {
+  if (!state) return '不明';
+  if (state.isAutoFollowup) return '空室確認からの自動登録';
+  if (state.isChangeFlow) return 'お客様による条件変更';
+  if (state.changeSource) return String(state.changeSource);
+  return 'お客様による条件変更';
+}
+
+/** 条件変更履歴シートに1行残す。 */
+function _appendCriteriaHistory_(customerName, source, changes) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName('条件変更履歴');
+  if (!sheet) {
+    sheet = ss.insertSheet('条件変更履歴');
+    sheet.appendRow(['日時', '顧客名', 'きっかけ', '変更内容']);
+    try {
+      sheet.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#e0e0e0');
+      sheet.setFrozenRows(1);
+    } catch (e) {}
+  }
+  var body = changes.map(function (c) {
+    return c.label + ': ' + c.before + ' → ' + c.after;
+  }).join('\n');
+  sheet.appendRow([new Date(), customerName, source, body]);
+}
+
+/** 条件が変わったことを担当者向けDiscord（顧客専用スレッド）に通知する。 */
+function _notifyCriteriaChangeToDiscord_(customerName, source, changes) {
+  var sp = PropertiesService.getScriptProperties();
+  var webhookUrl = sp.getProperty('DISCORD_WEBHOOK_URL');
+  if (!webhookUrl) return;
+  var lines = [];
+  lines.push('\u270F\uFE0F **' + customerName + '** 様の条件が変わりました（' + source + '）');
+  for (var i = 0; i < changes.length; i++) {
+    lines.push('> ' + changes[i].label + ': ' + changes[i].before + ' → **' + changes[i].after + '**');
+  }
+  var payload = { content: lines.join('\n'), flags: 4096 };  // 音は鳴らさない
+  var threadId = sp.getProperty('DISCORD_THREAD_' + customerName);
+  var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
+  if (!threadId) payload.thread_name = '\uD83C\uDFE0 ' + customerName;
+  try {
+    if (typeof _sendDiscordWithRetry_ === 'function') _sendDiscordWithRetry_(url, payload, 3);
+  } catch (e) {
+    console.error('[条件変更通知] Discord送信失敗: ' + e.message);
+  }
 }
 
 /**

@@ -5550,6 +5550,30 @@ function _buildCustomerTimeline_(ss, customerName, criteriaData) {
   var timeline = [];
   var tz = 'Asia/Tokyo';
 
+  // 0. 条件変更履歴（SheetWriter が writeToSheet のたびに差分を残している）
+  try {
+    var histSheet = ss.getSheetByName('条件変更履歴');
+    if (histSheet && histSheet.getLastRow() > 1) {
+      var hData = histSheet.getRange(2, 1, histSheet.getLastRow() - 1, 4).getValues();
+      for (var hi = 0; hi < hData.length; hi++) {
+        if (String(hData[hi][1] || '').trim() !== customerName) continue;
+        var hd = hData[hi][0];
+        if (!(hd instanceof Date)) continue;
+        timeline.push({
+          date: Utilities.formatDate(hd, tz, 'yyyy/MM/dd HH:mm'),
+          ts: hd.getTime(),
+          // CRM側に既にある type（色・ラベル定義済み）に合わせる。
+          // 詳細のフィールド名は details（detail だと表示されない）。
+          type: 'condition_change',
+          summary: '条件変更（' + String(hData[hi][2] || '') + '）',
+          details: String(hData[hi][3] || '')
+        });
+      }
+    }
+  } catch (eHist) {
+    console.warn('[タイムライン] 条件変更履歴の読み込み失敗（続行）: ' + eHist.message);
+  }
+
   // 1. 登録日 (検索条件シート A列)
   for (var i = 1; i < criteriaData.length; i++) {
     if (String(criteriaData[i][1] || '').trim() !== customerName) continue;
