@@ -4435,7 +4435,7 @@ function backfillListingEquipmentFromSuumo() {
     return { error: e.message };
   }
 
-  var scanned = 0, filled = 0, noUrl = 0, failed = 0, remaining = 0;
+  var scanned = 0, filled = 0, noUrl = 0, failed = 0, remaining = 0, gone = 0;
   var noUrlSamples = [], failedSamples = [];
   for (var i = 0; i < data.length; i++) {
     if (String(data[i][equipCol - 1] || '').trim()) continue;          // すでに埋まっている
@@ -4456,12 +4456,18 @@ function backfillListingEquipmentFromSuumo() {
       if (failedSamples.length < 10) failedSamples.push(data[i][nameCol] + ' → ' + url);
       continue;
     }
+    if (equip === '__GONE__') {
+      // SUUMOの掲載が終了している(404)。何度試しても取れないので印を付けて飛ばす
+      sheet.getRange(i + 2, equipCol).setValue('取得不可(掲載終了)');
+      gone++;
+      continue;
+    }
     sheet.getRange(i + 2, equipCol).setValue(equip || '該当なし');
     filled++;
     Utilities.sleep(1500);   // 相手のサーバーに負荷をかけない
   }
 
-  var res = { scanned: scanned, filled: filled, noUrl: noUrl, failed: failed, remaining: remaining };
+  var res = { scanned: scanned, filled: filled, gone: gone, noUrl: noUrl, failed: failed, remaining: remaining };
   Logger.log('[設備埋め戻し] ' + JSON.stringify(res));
   if (noUrlSamples.length) Logger.log('  URLが見つからない物件: ' + noUrlSamples.join(' / '));
   if (failedSamples.length) Logger.log('  取得に失敗: ' + failedSamples.join(' / '));
@@ -4477,12 +4483,20 @@ function backfillListingEquipmentFromSuumo() {
  *    ほとんど突合できず、設備が埋まらない。全角/半角の差も吸収する。
  */
 function _eqKey_(name, room) {
-  var n = String(name == null ? '' : name).normalize('NFKC').replace(/[\s\u3000]/g, '');
   var r = String(room == null ? '' : room).normalize('NFKC')
     .replace(/[\s\u3000]/g, '')
     .replace(/^'/, '')          // スプレッドシートの先頭アポストロフィ
     .replace(/号室$/, '')
     .replace(/^0+(?=\d)/, '');  // 先頭のゼロ埋めを落とす
+  var n = String(name == null ? '' : name).normalize('NFKC')
+    .replace(/[\s\u3000]/g, '')
+    .replace(/号室$/, '');
+  // ⚠️ 掲載管理シートの建物名には部屋番号が入っていることがある
+  //    （「ハウズ吉祥寺 ２２３」＋部屋番号223）。物件空室管理シート側は入って
+  //    いないので、末尾の部屋番号を落として両者を同じ形に揃える。
+  if (r && n.length > r.length && n.slice(-r.length) === r) {
+    n = n.slice(0, -r.length);
+  }
   return n + '|' + r;
 }
 
@@ -4497,7 +4511,9 @@ function _fetchSuumoEquipment_(url) {
       followRedirects: true,
       headers: { 'User-Agent': 'Mozilla/5.0' }
     });
-    if (res.getResponseCode() !== 200) return null;
+    var code = res.getResponseCode();
+    if (code === 404) return '__GONE__';   // 掲載終了。再試行しても無駄
+    if (code !== 200) return null;
     var text = res.getContentText().replace(/<[^>]+>/g, ' ');
     var out = [];
     // SUUMOは「バストイレ別」「洗面所独立」と書く（ExistingBot.js の判定と同じ語彙）
