@@ -912,6 +912,42 @@ function _hasIndependentWashstand_(text) {
   return /独立洗面台|洗面所独立|洗面台独立|独立洗面所/.test(String(text || ''));
 }
 
+/**
+ * 「路線＋駅」が1つの文字列になっているものを分解する。
+ * 物件空室管理シートの最寄り駅は FN Forrent 由来で「ＪＲ総武線/小岩」の形。
+ * そのまま駅名として使うと拡張の駅コード解決が全滅する（実際に発生）。
+ *   「ＪＲ総武線/小岩」        → {route:'ＪＲ総武線', station:'小岩'}
+ *   「ＪＲ総武線 小岩駅 徒歩7分」 → {route:'ＪＲ総武線', station:'小岩'}
+ *   「小岩」                   → {route:'', station:'小岩'}
+ */
+function _splitRouteStation_(text) {
+  var t = String(text == null ? '' : text).trim();
+  if (!t) return { route: '', station: '' };
+
+  // 「路線/駅」「路線・駅」区切り
+  var m = t.match(/^(.+?線)\s*[\/／]\s*(.+)$/);
+  if (m) return { route: m[1].trim(), station: _cleanStationName_(m[2]) };
+
+  // 「路線 駅名駅 徒歩◯分」
+  m = t.match(/^(.+?線)\s+(.+?)駅/);
+  if (m) return { route: m[1].trim(), station: _cleanStationName_(m[2]) };
+
+  // 「路線 駅名」
+  m = t.match(/^(.+?線)\s+(.+)$/);
+  if (m) return { route: m[1].trim(), station: _cleanStationName_(m[2]) };
+
+  return { route: '', station: _cleanStationName_(t) };
+}
+
+/** 駅名から「駅」や徒歩情報を落とす。 */
+function _cleanStationName_(v) {
+  return String(v == null ? '' : v)
+    .replace(/徒歩.*$/, '')
+    .trim()
+    .replace(/駅$/, '')
+    .trim();
+}
+
 /** 「3」「徒歩3分」「3分」→ 3 。取れなければ null。 */
 function _parseWalkMinutes_(v) {
   var m = String(v == null ? '' : v).match(/(\d{1,3})/);
@@ -945,8 +981,14 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     var specs = _findListingSpecs_(buildingName, roomNumber) || {};
 
     // 駅: 掲載管理の「最寄り駅」を優先（路線が分かるため）。無ければ物件シートのD列。
-    var station = specs.station || String(row[3] || '').trim();
+    // ⚠️ 物件シートのD列は「ＪＲ総武線/小岩」形式なので、必ず分解してから使う。
+    var station = _cleanStationName_(specs.station || '');
     var route = specs.route || '';
+    if (!station) {
+      var rs = _splitRouteStation_(row[3]);
+      station = rs.station;
+      if (!route) route = rs.route;
+    }
     // 徒歩: 掲載管理から取る。物件空室管理シートには入っていない項目。
     var walkNum = _parseWalkMinutes_(specs.walk);
     // 徒歩・築年数・面積・賃料とも、加算/減算はせず「選択肢を1段階だけ緩める」で揃える。
