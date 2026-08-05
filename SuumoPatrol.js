@@ -4436,17 +4436,26 @@ function backfillListingEquipmentFromSuumo() {
   }
 
   var scanned = 0, filled = 0, noUrl = 0, failed = 0, remaining = 0;
+  var noUrlSamples = [], failedSamples = [];
   for (var i = 0; i < data.length; i++) {
     if (String(data[i][equipCol - 1] || '').trim()) continue;          // すでに埋まっている
     if (statusCol >= 0 && String(data[i][statusCol] || '') !== 'active') continue;
     if (filled + failed + noUrl >= MAX_PER_RUN) { remaining++; continue; }
 
     var url = urlMap[_eqKey_(data[i][nameCol], data[i][roomCol])];
-    if (!url) { noUrl++; continue; }
+    if (!url) {
+      noUrl++;
+      if (noUrlSamples.length < 10) noUrlSamples.push(data[i][nameCol] + ' ' + data[i][roomCol]);
+      continue;
+    }
     scanned++;
 
     var equip = _fetchSuumoEquipment_(url);
-    if (equip === null) { failed++; continue; }
+    if (equip === null) {
+      failed++;
+      if (failedSamples.length < 10) failedSamples.push(data[i][nameCol] + ' → ' + url);
+      continue;
+    }
     sheet.getRange(i + 2, equipCol).setValue(equip || '該当なし');
     filled++;
     Utilities.sleep(1500);   // 相手のサーバーに負荷をかけない
@@ -4454,13 +4463,26 @@ function backfillListingEquipmentFromSuumo() {
 
   var res = { scanned: scanned, filled: filled, noUrl: noUrl, failed: failed, remaining: remaining };
   Logger.log('[設備埋め戻し] ' + JSON.stringify(res));
+  if (noUrlSamples.length) Logger.log('  URLが見つからない物件: ' + noUrlSamples.join(' / '));
+  if (failedSamples.length) Logger.log('  取得に失敗: ' + failedSamples.join(' / '));
+  res.noUrlSamples = noUrlSamples;
+  res.failedSamples = failedSamples;
   return res;
 }
 
-/** 建物名+部屋番号の突合キー（前後空白・「号室」の有無を吸収）。 */
+/**
+ * 建物名+部屋番号の突合キー。
+ * ⚠️ 物件空室管理シート側は部屋番号を4桁ゼロ埋めで保存している（309 → 0309）。
+ *    掲載管理シート側はSUUMO巡回由来でゼロ埋めなし。先頭の0を落とさないと
+ *    ほとんど突合できず、設備が埋まらない。全角/半角の差も吸収する。
+ */
 function _eqKey_(name, room) {
-  var n = String(name == null ? '' : name).trim();
-  var r = String(room == null ? '' : room).trim().replace(/号室$/, '');
+  var n = String(name == null ? '' : name).normalize('NFKC').replace(/[\s\u3000]/g, '');
+  var r = String(room == null ? '' : room).normalize('NFKC')
+    .replace(/[\s\u3000]/g, '')
+    .replace(/^'/, '')          // スプレッドシートの先頭アポストロフィ
+    .replace(/号室$/, '')
+    .replace(/^0+(?=\d)/, '');  // 先頭のゼロ埋めを落とす
   return n + '|' + r;
 }
 
