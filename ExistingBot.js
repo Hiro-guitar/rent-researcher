@@ -1002,6 +1002,31 @@ function _propertyToCriteria_(buildingName, roomNumber) {
 }
 
 /**
+ * 変換結果を _buildConditionSummaryRows_ が読める形（state 相当）に詰め替える。
+ * 登録完了カードと同じ見た目で条件を見せるために使う。
+ */
+function _convToSummaryState_(conv) {
+  var stations = {};
+  if (conv.route && conv.station) stations[conv.route] = [conv.station];
+  return {
+    areaMethod: 'route',
+    selectedRoutes: (conv.route && conv.station) ? [conv.route] : [],
+    selectedCities: [],
+    selectedStations: stations,
+    selectedTowns: {},
+    data: {
+      rent_max: conv.rentMax ? String(conv.rentMax) : '',
+      layouts: conv.layout ? [conv.layout] : [],
+      walk: conv.walk ? String(conv.walk) : '',
+      area_min: conv.areaMin ? String(conv.areaMin) : '',
+      building_age: conv.buildingAge ? (conv.buildingAge + '年以内') : '',
+      building_structures: [],
+      equipment: conv.equipment || []
+    }
+  };
+}
+
+/**
  * 「ご案内が難しい物件」のお客さん向け返信メッセージ配列を生成する。
  * 条件登録済みならテキストのみ、未登録なら条件登録誘導Flexを返す。
  * processReplyQueue（遅延返信）と staff_reply_vacancy（スタッフ即時返信）で共用。
@@ -1052,11 +1077,28 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     // 変換できた: どんな条件で探すのかを見せてから押してもらう。
     // 黙って自動登録すると「頼んでいないのに物件が届く」ことになるため必ず提示する。
     bodyContents.push({ type: 'text', text: '似たお部屋でしたら、こちらでお探しできます。', size: 'sm', color: '#555555', wrap: true, margin: 'md' });
-    bodyContents.push({
-      type: 'box', layout: 'vertical', margin: 'md', paddingAll: 'md',
-      backgroundColor: '#F5F9EE', cornerRadius: 'md',
-      contents: [{ type: 'text', text: conv.summary, size: 'sm', color: '#3D6909', wrap: true, weight: 'bold' }]
-    });
+    // 登録完了カードと同じ「項目名＋値」の行で見せる。
+    // 「/」区切りの一行だと、何がどの条件なのか読み取りにくいため。
+    var condRows = null;
+    try {
+      if (typeof _buildConditionSummaryRows_ === 'function') {
+        condRows = _buildConditionSummaryRows_(_convToSummaryState_(conv));
+      }
+    } catch (_eRows) { condRows = null; }
+    if (condRows && condRows.length) {
+      bodyContents.push({
+        type: 'box', layout: 'vertical', margin: 'md', paddingAll: 'md', spacing: 'sm',
+        backgroundColor: '#F5F9EE', cornerRadius: 'md',
+        contents: condRows
+      });
+    } else {
+      // 行が組めなかったときは従来の一行表示に落とす（カードを出せなくしない）
+      bodyContents.push({
+        type: 'box', layout: 'vertical', margin: 'md', paddingAll: 'md',
+        backgroundColor: '#F5F9EE', cornerRadius: 'md',
+        contents: [{ type: 'text', text: conv.summary, size: 'sm', color: '#3D6909', wrap: true, weight: 'bold' }]
+      });
+    }
     // 「この条件で探してもらう / 条件を自分で決める」の2択から、はい/いいえ形式に変更 (2026-08-04)。
     // どちらの道を選ぶかを考えさせるより、YES/NOのほうが判断が軽く押されやすい。
     // なお「合っていますか」ではなく「お探ししますか」にしている。お客さん自身は
