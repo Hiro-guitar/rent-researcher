@@ -1203,8 +1203,9 @@ function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber, opts
  */
 function _notifyAutoCriteriaToDiscord_(userId, propertyName, roomNumber, result) {
   var sp = PropertiesService.getScriptProperties();
-  var webhookUrl = sp.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL')
-                || sp.getProperty('DISCORD_WEBHOOK_URL');
+  // 空室確認そのものではなく特定の顧客の話なので、物件アクション通知と同じ
+  // 顧客専用スレッドに出す（空室確認チャンネルに混ぜると流れが追いにくい）。
+  var webhookUrl = sp.getProperty('DISCORD_WEBHOOK_URL');
   if (!webhookUrl) return;
   var userName = _getLineUserName_(userId) || '(不明)';
   var lines = [];
@@ -1219,9 +1220,13 @@ function _notifyAutoCriteriaToDiscord_(userId, propertyName, roomNumber, result)
   lines.push('→ 拡張の顧客フィルタは**新規は既定OFF**です。検索を回すにはチェックを入れてください。');
   lines.push('→ 本人に確認して条件の精度を上げてください（暫定のままだと精度が低いままです）。');
   var payload = { content: lines.join('\n'), flags: 4096 };  // 音は鳴らさない
+  // 顧客専用スレッドがあればそこへ、無ければ顧客名でスレッドを作る
+  var threadId = sp.getProperty('DISCORD_THREAD_' + userName);
+  var url = webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true');
+  if (!threadId) payload.thread_name = '\uD83C\uDFE0 ' + userName;
   try {
     if (typeof _sendDiscordWithRetry_ === 'function') {
-      _sendDiscordWithRetry_(webhookUrl, payload, 3);
+      _sendDiscordWithRetry_(url, payload, 3);
     }
   } catch (e) {
     console.error('[条件自動登録] Discord送信失敗: ' + e.message);

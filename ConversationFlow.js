@@ -1307,7 +1307,13 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
 
   var messages = prefixMessages ? prefixMessages.slice() : [];
   messages.push(flexMessage);
-  replyWithGauge(replyToken, STEPS.CRITERIA_SELECT, messages);
+  // 条件変更フローは「5問中の5問目」ではないのでゲージを出さない。
+  // 登録済みの人が「条件登録」を押したときもここを通る（変更フローに振り替わる）。
+  if (isChangeFlow) {
+    replyMessage(replyToken, messages);
+  } else {
+    replyWithGauge(replyToken, STEPS.CRITERIA_SELECT, messages);
+  }
 
   // LINE返信後、フォームHTMLを事前レンダリングしてCacheServiceに保存する。
   // ユーザーがLIFFボタンをタップする前にキャッシュが準備できるため、
