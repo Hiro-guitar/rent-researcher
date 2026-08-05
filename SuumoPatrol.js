@@ -4392,3 +4392,102 @@ function uploadPropertyImageForSuumo(base64Data, filename, mimeType) {
 
   return { success: false, message: errors.join(' | ') };
 }
+
+
+/**
+ * 【手動実行】掲載管理シートの空の「設備」列を、SUUMOの物件ページから埋め戻す。
+ *
+ * 設備列は入稿時に候補物件シートから引き継ぐようにしたが、それ以前に入稿した
+ * 物件は空のまま。候補物件シートは一定期間で消えるので、SUUMOのページから拾う。
+ * 拾うのは「バス・トイレ別」「独立洗面台」の2つだけ（条件に入れる人が多い項目）。
+ *
+ * ⚠️ 1物件につき1回ページを取得するので、トリガーには絶対に載せないこと。
+ *    1回の実行で最大40件まで。残りがあれば時間をおいて再実行する
+ *    （既に埋まっている行は飛ばすので、そのまま何度でも実行してよい）。
+ *
+ * SUUMOのURLは物件空室管理シートのJ列から、建物名+部屋番号で引く。
+ */
+function backfillListingEquipmentFromSuumo() {
+  var MAX_PER_RUN = 40;
+  var sheet = getListingSheet_();
+  var equipCol = SUUMO_LISTING_HEADERS.indexOf('設備') + 1;
+  var nameCol = SUUMO_LISTING_HEADERS.indexOf('建物名');
+  var roomCol = SUUMO_LISTING_HEADERS.indexOf('部屋番号');
+  var statusCol = SUUMO_LISTING_HEADERS.indexOf('ステータス');
+  if (equipCol <= 0) { Logger.log('設備列がありません'); return { error: '設備列なし' }; }
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return { scanned: 0, filled: 0 };
+  var data = sheet.getRange(2, 1, lastRow - 1, SUUMO_LISTING_HEADERS.length).getValues();
+
+  // 物件空室管理シート: 建物名+部屋番号 → SUUMO URL(J列)
+  var urlMap = {};
+  try {
+    var pSheet = SpreadsheetApp.openById(PROPERTY_SHEET_ID).getSheetByName(PROPERTY_SHEET_NAME);
+    var pData = pSheet.getDataRange().getValues();
+    for (var p = 1; p < pData.length; p++) {
+      var u = String(pData[p][9] || '').trim();
+      if (u.indexOf('http') !== 0) continue;
+      urlMap[_eqKey_(pData[p][0], pData[p][1])] = u;
+    }
+  } catch (e) {
+    Logger.log('物件空室管理シートの読み込み失敗: ' + e.message);
+    return { error: e.message };
+  }
+
+  var scanned = 0, filled = 0, noUrl = 0, failed = 0, remaining = 0;
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][equipCol - 1] || '').trim()) continue;          // すでに埋まっている
+    if (statusCol >= 0 && String(data[i][statusCol] || '') !== 'active') continue;
+    if (filled + failed + noUrl >= MAX_PER_RUN) { remaining++; continue; }
+
+    var url = urlMap[_eqKey_(data[i][nameCol], data[i][roomCol])];
+    if (!url) { noUrl++; continue; }
+    scanned++;
+
+    var equip = _fetchSuumoEquipment_(url);
+    if (equip === null) { failed++; continue; }
+    sheet.getRange(i + 2, equipCol).setValue(equip || '該当なし');
+    filled++;
+    Utilities.sleep(1500);   // 相手のサーバーに負荷をかけない
+  }
+
+  var res = { scanned: scanned, filled: filled, noUrl: noUrl, failed: failed, remaining: remaining };
+  Logger.log('[設備埋め戻し] ' + JSON.stringify(res));
+  return res;
+}
+
+/** 建物名+部屋番号の突合キー（前後空白・「号室」の有無を吸収）。 */
+function _eqKey_(name, room) {
+  var n = String(name == null ? '' : name).trim();
+  var r = String(room == null ? '' : room).trim().replace(/号室$/, '');
+  return n + '|' + r;
+}
+
+/**
+ * SUUMOの物件ページから「バス・トイレ別」「独立洗面台」だけを拾う。
+ * @return {string|null} 'バス・トイレ別, 独立洗面台' 形式。取得失敗時は null。
+ */
+function _fetchSuumoEquipment_(url) {
+  try {
+    var res = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      followRedirects: true,
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    if (res.getResponseCode() !== 200) return null;
+    var text = res.getContentText().replace(/<[^>]+>/g, ' ');
+    var out = [];
+    // SUUMOは「バストイレ別」「洗面所独立」と書く（ExistingBot.js の判定と同じ語彙）
+    if (typeof _hasSeparateBathToilet_ === 'function' ? _hasSeparateBathToilet_(text) : /バス・?トイレ別/.test(text)) {
+      out.push('バス・トイレ別');
+    }
+    if (typeof _hasIndependentWashstand_ === 'function' ? _hasIndependentWashstand_(text) : /独立洗面台|洗面所独立/.test(text)) {
+      out.push('独立洗面台');
+    }
+    return out.join(', ');
+  } catch (e) {
+    Logger.log('_fetchSuumoEquipment_ 失敗: ' + url + ' / ' + e.message);
+    return null;
+  }
+}

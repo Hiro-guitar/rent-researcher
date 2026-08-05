@@ -896,6 +896,22 @@ function _snapDownToStep_(v, steps) {
   return null;
 }
 
+/**
+ * 設備テキストからバス・トイレ別かを判定する。
+ * SUUMO「バストイレ別」/ REINS等「バス・トイレ別」の両方に対応。
+ */
+function _hasSeparateBathToilet_(text) {
+  return /バス・?トイレ別/.test(String(text || ''));
+}
+
+/**
+ * 設備テキストから独立洗面台かを判定する。
+ * SUUMOは「洗面所独立」と書くので、それも拾う。
+ */
+function _hasIndependentWashstand_(text) {
+  return /独立洗面台|洗面所独立|洗面台独立|独立洗面所/.test(String(text || ''));
+}
+
 /** 「3」「徒歩3分」「3分」→ 3 。取れなければ null。 */
 function _parseWalkMinutes_(v) {
   var m = String(v == null ? '' : v).match(/(\d{1,3})/);
@@ -956,10 +972,12 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     // 設備は「バス・トイレ別」「独立洗面台」だけ引き継ぐ。
     // 条件に入れる人が非常に多く、無いと的外れな物件が届くため。
     // それ以外の設備は絞ると0件になりやすいので入れない。
+    // 表記ゆれに注意。SUUMOは「バストイレ別」「洗面所独立」、
+    // REINS/itandi等は「バス・トイレ別」「独立洗面台」と書く。
     var equipment = [];
     var equipSrc = String(specs.equipment || '');
-    if (/バス・?トイレ別|バストイレ別/.test(equipSrc)) equipment.push('バス・トイレ別');
-    if (/独立洗面台/.test(equipSrc)) equipment.push('独立洗面台');
+    if (_hasSeparateBathToilet_(equipSrc)) equipment.push('バス・トイレ別');
+    if (_hasIndependentWashstand_(equipSrc)) equipment.push('独立洗面台');
 
     if (!station && !rentMax) return null;   // 材料が無さすぎる
 
