@@ -730,6 +730,7 @@ function finishAutoFollowup(replyToken, userId, state) {
     resident: existing.resident,
     move_in_date: existing.move_in_date,
     move_in_strict: existing.move_in_strict || false,
+    age: existing.age,                  // まとめカードに年齢を出すため
     rent_max: existing.rent_max,
     layouts: existing.layouts,
     walk: existing.walk,
@@ -981,6 +982,8 @@ function _buildConditionSummaryRows_(state, before) {
 
   // ── 各フィールドの表示文字列（変更前・変更後で同じロジックを使う） ──
   function dispMoveIn(s) { var d = dataOf(s); return d.move_in_date ? String(d.move_in_date) : ''; }
+  function dispReason(s) { var d = dataOf(s); return d.reason ? String(d.reason) : ''; }
+  function dispResident(s) { var d = dataOf(s); return d.resident ? String(d.resident) : ''; }
   function areaLabel(s) { var a = areaOf(s); return (a.method === 'city' && a.cities.length > 0) ? '市区町村' : (a.method === 'route' && a.routes.length > 0) ? '沿線・駅' : 'エリア'; }
   function dispArea(s) {
     var a = areaOf(s);
@@ -1165,6 +1168,14 @@ function _buildConditionSummaryRows_(state, before) {
   // ペット
   var petA = dispPet(state), petB = hasBefore ? dispPet(before) : null;
   if (petA || (hasBefore && petB && petB !== petA)) rows.push(row('ペット', valueCell(petB, petA)));
+
+  // お部屋探しの理由
+  var reasonA = dispReason(state), reasonB = hasBefore ? dispReason(before) : null;
+  if (reasonA || (hasBefore && reasonB && reasonB !== reasonA)) rows.push(row('探し理由', valueCell(reasonB, reasonA)));
+
+  // 居住者
+  var residentA = dispResident(state), residentB = hasBefore ? dispResident(before) : null;
+  if (residentA || (hasBefore && residentB && residentB !== residentA)) rows.push(row('居住者', valueCell(residentB, residentA)));
 
   // 年齢
   var ageA = dispAgeYears(state), ageB = hasBefore ? dispAgeYears(before) : null;

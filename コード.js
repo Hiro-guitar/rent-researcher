@@ -4571,6 +4571,8 @@ function getCustomerDetail(customerName) {
       registeredAt: regStr,
       reason: String(data[i][13] || ''),        // N列
       moveInDate: String(data[i][14] || ''),     // O列
+      resident: String(data[i][17] || ''),       // R列: 居住者
+      age: String(data[i][27] || ''),            // AB列(28): 年齢
       rentMax: '',
       layouts: '',
       area: '',
