@@ -120,7 +120,12 @@ var SUUMO_LISTING_HEADERS = [
   // 51列目: 築年数 (候補物件シートの property_data_json.building_age から入稿時に取得)
   '築年数',
   // 52列目: 間取り (候補物件シートの「間取り」列から入稿時に取得)
-  '間取り'
+  '間取り',
+  // 53列目: 設備 (候補物件シートの property_data_json.equipment から入稿時に取得)
+  // 候補物件シートは一定期間で消えるため、入稿のタイミングで引き継いでおく。
+  // 空室確認からの条件自動生成で「バス・トイレ別」「独立洗面台」を拾うのに使う。
+  // ⚠️ 列は必ず末尾に足すこと。途中に入れると既存の列位置が全部ずれる。
+  '設備'
 ];
 
 // 競合履歴シート（マトリクス形式: 縦=物件×種別、横=日付）PV履歴と同じ構造
@@ -1251,6 +1256,7 @@ function recordSuumoPosting(data) {
   var candArea = '';
   var candBuildingAge = '';
   var candLayout = '';
+  var candEquipment = '';
   try {
     var candSheet = getCandidateSheet_();
     var candLastRow = candSheet.getLastRow();
@@ -1292,6 +1298,12 @@ function recordSuumoPosting(data) {
               }
               if (!candArea && pdata.area) candArea = String(pdata.area);
               if (!candLayout && pdata.layout) candLayout = String(pdata.layout);
+              // 設備は候補シートが消えると失われるので、ここで引き継ぐ
+              if (pdata.equipment) {
+                candEquipment = Array.isArray(pdata.equipment)
+                  ? pdata.equipment.join(', ')
+                  : String(pdata.equipment);
+              }
               if (pdata.station_info) {
                 var si = String(pdata.station_info);
                 var walkMatch = si.match(/徒歩\s*(\d+)/);
@@ -1343,6 +1355,8 @@ function recordSuumoPosting(data) {
   var newListingRow = sheet.getLastRow();
   var ownerCol = SUUMO_LISTING_HEADERS.indexOf('管理会社') + 1;
   if (ownerCol > 0 && ownerCompany) sheet.getRange(newListingRow, ownerCol).setValue(ownerCompany);
+  var equipCol = SUUMO_LISTING_HEADERS.indexOf('設備') + 1;
+  if (equipCol > 0 && candEquipment) sheet.getRange(newListingRow, equipCol).setValue(candEquipment);
   var sourceCol = SUUMO_LISTING_HEADERS.indexOf('取得元サイト') + 1;
   if (sourceCol > 0 && sourceSite) sheet.getRange(newListingRow, sourceCol).setValue(sourceSite);
   var propInfoCol = SUUMO_LISTING_HEADERS.indexOf('賃料管理費込') + 1;

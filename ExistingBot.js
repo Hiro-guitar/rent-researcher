@@ -828,6 +828,7 @@ function _findListingSpecs_(buildingName, roomNumber) {
     var idxAge  = SUUMO_LISTING_HEADERS.indexOf('築年数');
     var idxRoute = SUUMO_LISTING_HEADERS.indexOf('路線名');
     var idxSta  = SUUMO_LISTING_HEADERS.indexOf('最寄り駅');
+    var idxEquip = SUUMO_LISTING_HEADERS.indexOf('設備');
     if (idxName < 0 || idxRoom < 0) return null;
 
     var norm = function (v) { return String(v == null ? '' : v).trim().replace(/号室$/, ''); };
@@ -841,7 +842,8 @@ function _findListingSpecs_(buildingName, roomNumber) {
         walk: idxWalk >= 0 ? String(data[i][idxWalk] || '').trim() : '',
         buildingAge: idxAge >= 0 ? String(data[i][idxAge] || '').trim() : '',
         route: idxRoute >= 0 ? String(data[i][idxRoute] || '').trim() : '',
-        station: idxSta >= 0 ? String(data[i][idxSta] || '').trim() : ''
+        station: idxSta >= 0 ? String(data[i][idxSta] || '').trim() : '',
+        equipment: idxEquip >= 0 ? String(data[i][idxEquip] || '') : ''
       };
     }
   } catch (e) {
@@ -951,6 +953,14 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     var _ageSnap = (ageNum != null) ? _snapUpToStep_(ageNum, SUUMO_AGE_STEPS) : null;
     var buildingAge = (_ageSnap != null) ? String(_ageSnap) : '';
 
+    // 設備は「バス・トイレ別」「独立洗面台」だけ引き継ぐ。
+    // 条件に入れる人が非常に多く、無いと的外れな物件が届くため。
+    // それ以外の設備は絞ると0件になりやすいので入れない。
+    var equipment = [];
+    var equipSrc = String(specs.equipment || '');
+    if (/バス・?トイレ別|バストイレ別/.test(equipSrc)) equipment.push('バス・トイレ別');
+    if (/独立洗面台/.test(equipSrc)) equipment.push('独立洗面台');
+
     if (!station && !rentMax) return null;   // 材料が無さすぎる
 
     var summaryParts = [];
@@ -959,10 +969,11 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     if (layout) summaryParts.push(layout + '以上');
     if (areaMin) summaryParts.push(areaMin + 'm²以上');
     if (buildingAge) summaryParts.push('築' + buildingAge + '年以内');
+    for (var eq = 0; eq < equipment.length; eq++) summaryParts.push(equipment[eq]);
 
     return {
       station: station, route: route, walk: walk, rentMax: rentMax,
-      layout: layout, areaMin: areaMin, buildingAge: buildingAge,
+      layout: layout, areaMin: areaMin, buildingAge: buildingAge, equipment: equipment,
       matchedListing: !!specs.station,
       summary: summaryParts.join(' / ')
     };
@@ -1101,7 +1112,7 @@ function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber, opts
         area_min: String(conv.areaMin || ''),
         building_age: conv.buildingAge ? (conv.buildingAge + '年以内') : '',
         building_structures: [],
-        equipment: [],          // 設備は絞らない（0件になりやすいため）
+        equipment: conv.equipment || [],   // バス・トイレ別／独立洗面台のみ
         notes: ''               // その他ご希望はお客さんが書く欄なので、こちらでは埋めない
       },
       selectedRoutes: routes,
