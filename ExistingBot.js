@@ -1105,8 +1105,7 @@ function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber, opts
         building_age: conv.buildingAge ? (conv.buildingAge + '年以内') : '',
         building_structures: [],
         equipment: [],          // 設備は絞らない（0件になりやすいため）
-        notes: '空室確認で「' + propertyName + (roomNumber ? ' ' + roomNumber : '') + '」をご覧になったため、'
-             + 'その物件に近い条件で自動登録しました（暫定）。'
+        notes: ''               // その他ご希望はお客さんが書く欄なので、こちらでは埋めない
       },
       selectedRoutes: routes,
       selectedStations: stations,
