@@ -1076,7 +1076,9 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
   if (conv && conv.summary) {
     // 変換できた: どんな条件で探すのかを見せてから押してもらう。
     // 黙って自動登録すると「頼んでいないのに物件が届く」ことになるため必ず提示する。
-    bodyContents.push({ type: 'text', text: '似たお部屋でしたら、こちらでお探しできます。', size: 'sm', color: '#555555', wrap: true, margin: 'md' });
+    // 「ご覧の」で条件の出どころを示す。お客さん自身が言った条件ではないので、
+    // 唐突に数字が並んで見えないようにする。直後に問いかけがあるのでここは断定形。
+    bodyContents.push({ type: 'text', text: 'ご覧のお部屋に近い条件で、お探しできます。', size: 'sm', color: '#555555', wrap: true, margin: 'md' });
     // 登録完了カードと同じ「項目名＋値」の行で見せる。
     // 「/」区切りの一行だと、何がどの条件なのか読み取りにくいため。
     var condRows = null;
