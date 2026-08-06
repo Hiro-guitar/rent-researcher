@@ -426,11 +426,14 @@
       const criteria = data.customerCriteria || [];
       const excluded = data.excludedCustomers || []; // 除外リスト
       const container = document.getElementById('customerCheckboxes');
+      // 操作ボタンは見出し行に置く。スクロール領域に入れると一緒に流れて押せなくなる。
+      const actions = document.getElementById('customerFilterActions');
       const label = container.querySelector('span');
       container.innerHTML = '';
       container.appendChild(label);
+      if (actions) actions.innerHTML = '';
 
-      if (criteria.length === 0) return;
+      if (criteria.length === 0) { updateCustomerCount(); return; }
 
       // 全選択/全解除ボタン
       const allBtn = document.createElement('button');
@@ -441,7 +444,7 @@
         container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
         saveExcludedCustomers();
       });
-      container.appendChild(allBtn);
+      actions.appendChild(allBtn);
 
       const noneBtn = document.createElement('button');
       noneBtn.className = 'dp-btn';
@@ -451,7 +454,7 @@
         container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
         saveExcludedCustomers();
       });
-      container.appendChild(noneBtn);
+      actions.appendChild(noneBtn);
 
       const refreshBtn = document.createElement('button');
       refreshBtn.className = 'dp-btn';
@@ -469,7 +472,7 @@
           }
         });
       });
-      container.appendChild(refreshBtn);
+      actions.appendChild(refreshBtn);
 
       // 本人の条件と「おすすめ条件（裏検索条件）」を、それぞれ独立して選べるようにする。
       // 除外判定はエントリ固有キー（criteriaKey）で行う。
@@ -514,6 +517,7 @@
         groupsFrag.appendChild(group);
       }
       container.appendChild(groupsFrag);
+      updateCustomerCount();
       // 再描画したので、いま検索中の条件のハイライトを付け直す
       chrome.storage.local.get(['currentSearchingKey', 'currentSearchingPos'], (s) => {
         applySearchingHighlight(s.currentSearchingKey, s.currentSearchingPos);
@@ -564,7 +568,37 @@
     const checkboxes = document.querySelectorAll('.customer-filter');
     const excluded = Array.from(checkboxes).filter(cb => !cb.checked).map(cb => cb.value);
     chrome.storage.local.set({ excludedCustomers: excluded });
+    updateCustomerCount();
   }
+
+  /** 見出しの「ON件数 / 全件数」を更新する。折りたたみ中でも状況が分かるように。 */
+  function updateCustomerCount() {
+    const el = document.getElementById('custCount');
+    if (!el) return;
+    const all = document.querySelectorAll('.customer-filter');
+    const on = Array.from(all).filter(cb => cb.checked).length;
+    el.textContent = on + ' / ' + all.length;
+    el.classList.toggle('on', on > 0);
+  }
+
+  // 顧客フィルタの折りたたみ。顧客が増えるとログが見えなくなるため、
+  // 普段は畳んでおけるようにする（状態は保存する）。
+  (function initCustomerCollapse() {
+    const btn = document.getElementById('custCollapseBtn');
+    const box = document.getElementById('customerCheckboxes');
+    if (!btn || !box) return;
+    const apply = (collapsed) => {
+      box.classList.toggle('collapsed', !!collapsed);
+      btn.textContent = collapsed ? '開く' : '折りたたむ';
+      btn.title = collapsed ? '顧客フィルタを開く' : '顧客フィルタを折りたたむ';
+    };
+    chrome.storage.local.get(['custFilterCollapsed'], (d) => apply(d.custFilterCollapsed));
+    btn.addEventListener('click', () => {
+      const collapsed = !box.classList.contains('collapsed');
+      apply(collapsed);
+      chrome.storage.local.set({ custFilterCollapsed: collapsed });
+    });
+  })();
 
   // Init dashboard
   loadDashboardStatus();

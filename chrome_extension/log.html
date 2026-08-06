@@ -18,7 +18,8 @@
     /* === Dashboard header === */
     #control-panel {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      /* 上段は3カラム。2カラムだと統計の隣が丸ごと空いて縦に伸びるだけだった。 */
+      grid-template-columns: repeat(3, 1fr);
       gap: 0;
       background: #252526;
       border-bottom: 1px solid #404040;
@@ -30,7 +31,7 @@
       padding: 8px 14px;
       border-bottom: 1px solid #333;
     }
-    .dp-section:nth-child(odd) { border-right: 1px solid #333; }
+    .dp-section:not(.dp-full) { border-right: 1px solid #333; }
     .dp-section-title {
       font-size: 10px;
       font-weight: 600;
@@ -73,20 +74,71 @@
     .dp-cb input[type="checkbox"] { margin: 0; cursor: pointer; }
 
     /* 顧客フィルタ: お客さんごとに枠でまとめる */
-    #customerCheckboxes { align-items: flex-start; }
+    /* セクション見出しの行（タイトル・件数・操作ボタン・折りたたみを1行に） */
+    .dp-section-head {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 5px;
+    }
+    .dp-section-head .dp-section-title { margin-bottom: 0; }
+    .cust-count {
+      font-size: 10px; color: #7a7a7a;
+      background: #2c2c2c; border: 1px solid #3a3a3a;
+      border-radius: 10px; padding: 1px 7px; letter-spacing: .3px;
+    }
+    .cust-count.on { color: #8fd3a0; border-color: #35543c; background: #1d271f; }
+    .cust-actions { display: flex; gap: 4px; margin-left: auto; }
+    .cust-collapse {
+      border: 1px solid #3a3a3a; background: #2c2c2c; color: #999;
+      border-radius: 4px; cursor: pointer; font-size: 10px;
+      padding: 2px 7px; font-family: inherit; line-height: 1.2;
+    }
+    .cust-collapse:hover { background: #383838; color: #ddd; }
+
+    /* ⚠️ 高さの上限を必ず付けること。無いと顧客が増えるほど下のログが潰れる。 */
+    #customerCheckboxes {
+      align-items: flex-start;
+      gap: 5px;
+      max-height: 176px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-right: 4px;
+    }
+    #customerCheckboxes.collapsed { display: none; }
+    #customerCheckboxes::-webkit-scrollbar { width: 8px; }
+    #customerCheckboxes::-webkit-scrollbar-track { background: transparent; }
+    #customerCheckboxes::-webkit-scrollbar-thumb {
+      background: #3a3a3a; border-radius: 4px; border: 2px solid #252526;
+    }
+    #customerCheckboxes::-webkit-scrollbar-thumb:hover { background: #4d4d4d; }
+
     .cust-group {
-      display: flex; flex-direction: column; gap: 2px;
-      border: 1px solid #383838; border-radius: 6px;
-      padding: 4px 9px; background: #232323;
+      display: flex; flex-direction: column; gap: 1px;
+      border: 1px solid #333; border-radius: 6px;
+      padding: 3px 8px; background: #212121;
+      transition: border-color .12s, background .12s;
+    }
+    /* ONの条件を含むお客さんは枠ごと色を変える（一目でどれが動くか分かるように） */
+    .cust-group:has(input[type="checkbox"]:checked) {
+      border-color: #35543c; background: #1c231d;
     }
     .cust-group label {
-      display: flex; align-items: center; gap: 4px;
+      display: flex; align-items: center; gap: 5px;
       font-size: 12px; white-space: nowrap; cursor: pointer; margin: 0;
+      padding: 1px 3px; border-radius: 3px; color: #6e6e6e;
+      transition: color .12s;
     }
-    .cust-group label input[type="checkbox"] { margin: 0; cursor: pointer; }
-    .cust-group .cust-base { font-weight: 600; color: #e0e0e0; }
-    .cust-group .cust-rec { color: #9cdc9c; font-size: 11px; padding-left: 12px; }
-    .cust-group .cust-name-header { font-weight: 600; color: #999; font-size: 12px; }
+    .cust-group label:hover { background: #2a2a2a; }
+    .cust-group label input[type="checkbox"] {
+      margin: 0; cursor: pointer; width: 11px; height: 11px;
+      accent-color: #3f9d5a;
+    }
+    .cust-group .cust-base { font-weight: 600; }
+    .cust-group .cust-rec { font-size: 11px; padding-left: 11px; }
+    /* OFFは沈め、ONだけ浮かせる */
+    .cust-group .cust-base:has(input:checked) { color: #e8e8e8; }
+    .cust-group .cust-rec:has(input:checked) { color: #8fd3a0; }
+    .cust-group .cust-name-header {
+      font-weight: 600; color: #6a6a6a; font-size: 11px; padding-left: 3px;
+    }
     /* いま検索中の条件 */
     .cust-group label.searching {
       background: #3d3a12; border-radius: 4px;
@@ -142,7 +194,9 @@
     .dp-time-val { color: #aaa; }
 
     /* 顧客チェックボックスエリア (全幅) */
-    .dp-full { grid-column: 1 / -1; }
+    .dp-full { grid-column: 1 / -1; border-right: none !important; }
+    /* 上段の右端セクションは右境界を出さない（ウィンドウ端に線が出るため） */
+    #control-panel > .dp-section:nth-child(3) { border-right: none; }
 
     /* リンク */
     .dp-link {
@@ -304,6 +358,7 @@
         最終: <span id="lastSearch" class="dp-time-val">-</span>
         &nbsp;次回: <span id="nextSearch" class="dp-time-val">-</span>
       </div>
+
     </div>
 
     <!-- 右上: SUUMO巡回 + 入稿 + 空室 -->
@@ -360,9 +415,15 @@
       </table>
     </div>
 
-    <!-- 右下: 顧客 + 設定 -->
-    <div class="dp-section">
-      <div class="dp-section-title">顧客フィルタ</div>
+
+    <!-- 全幅: 顧客フィルタ（左カラムの余白を使い切り、行数を減らすため全幅にしている） -->
+    <div class="dp-section dp-full">
+      <div class="dp-section-head">
+        <div class="dp-section-title">顧客フィルタ</div>
+        <span class="cust-count" id="custCount">0 / 0</span>
+        <div class="cust-actions" id="customerFilterActions"></div>
+        <button class="cust-collapse" id="custCollapseBtn" title="顧客フィルタを折りたたむ">折りたたむ</button>
+      </div>
       <div class="dp-row" id="customerCheckboxes" style="flex-wrap:wrap;">
         <span style="display:none;"></span>
       </div>
