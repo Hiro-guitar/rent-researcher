@@ -290,6 +290,26 @@ function saveLineUser(userId, customerName) {
  * @param {string} userId - LINE userId
  * @return {Object|null} 条件データ（見つからない場合は null）
  */
+/**
+ * 条件変更フローで「触っていない項目」を消したと解釈しないよう、
+ * state に無い値を変更前の条件で埋め戻す。
+ *
+ * 年齢は条件変更のどのステップでも入力しないため、state に乗っていないと
+ * 保存時もサマリーカードでも「指定なし」になり、登録済みの値が失われていた。
+ * writeToSheet 側でも AB列を触らないようガードしてあるが、それだけでは
+ * カードの表示（stateから組み立てる）が「20代 → 指定なし」のままになる。
+ *
+ * @param {Object} state - 保存しようとしている state（破壊的に更新する）
+ * @param {Object} before - readLatestCriteria の戻り値
+ */
+function _carryOverUntouchedCriteria_(state, before) {
+  if (!state || !state.data || !before) return;
+  if (!state.data.age && before.age) {
+    state.data.age = before.age;
+    console.log('[条件変更] stateに無い年齢を変更前の値で補完: ' + before.age);
+  }
+}
+
 function readLatestCriteria(userId) {
   try {
     // LINE Users シートから顧客名を取得

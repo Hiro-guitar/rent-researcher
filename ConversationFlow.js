@@ -1523,6 +1523,7 @@ function buildConditionUpdateMessages_(state, before) {
 function _confirmConditionChange_(replyToken, userId, state) {
   var before = null;
   try { before = readLatestCriteria(userId); } catch (_) {}
+  try { _carryOverUntouchedCriteria_(state, before); } catch (_) {}
   writeToSheet(userId, state);
   clearState(userId);
   replyMessage(replyToken, buildConditionUpdateMessages_(state, before));

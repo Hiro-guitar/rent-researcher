@@ -1871,6 +1871,7 @@ function processCriteriaSelection(userId, criteria) {
     if (state.isChangeFlow) {
       var beforeChange = null;
       try { beforeChange = readLatestCriteria(userId); } catch (_) {}
+      try { _carryOverUntouchedCriteria_(state, beforeChange); } catch (_) {}
       writeToSheet(userId, state);
       clearState(userId);
       pushMessage(userId, buildConditionUpdateMessages_(state, beforeChange));
