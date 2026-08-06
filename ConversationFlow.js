@@ -73,9 +73,9 @@ function startSearchFlow(replyToken, userId) {
   console.log('[PERF-flow] +' + (Date.now() - _t) + 'ms saveState');
 
   var items = REASONS.map(r => qrPostback(r.length > 20 ? r.substring(0, 17) + '...' : r, 'reason|' + r, r));
-  // 開始時に全体の問数を伝える。「あと何問あるか分からない」状態を作らない。
+  // 問数の案内はゲージが同じことを示しているので入れない（2026-08-06 削除）。
   replyMessage(replyToken, [
-    textMsg('お部屋探しの条件を登録します！\n全' + FLOW_GAUGE_ORDER.length + '問、順番にお答えください。\n\n途中でやめたい場合は「キャンセル」と送ってください。'),
+    textMsg('お部屋探しの条件を登録します！\n\n途中でやめたい場合は「キャンセル」と送ってください。'),
     textMsgWithQuickReply(_flowGauge_(STEPS.REASON) + '\n\nお部屋探しの理由を教えてください。', items)
   ]);
   console.log('[PERF-flow] +' + (Date.now() - _t) + 'ms replyMessage完了');
