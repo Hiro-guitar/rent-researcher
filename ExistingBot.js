@@ -1078,18 +1078,16 @@ function _convToSummaryState_(conv) {
  */
 /**
  * 空室確認カードの選択肢ボタン。2択を同じ重さで並べるための共通化。
- * LINEのボタンは primary=ベタ塗り / link=文字だけ の二段しかないため、
- * link ボタンを枠線つきのボックスで包んで「同じ見た目の枠線ボタン」にしている。
+ * 片方だけ primary（ベタ塗り）、もう片方を link（文字だけ）にすると
+ * 「はい」へ誘導する形になるため、両方ともベタ塗りで揃える。
  */
 function _vacancyChoiceButton_(label, data) {
+  // ⚠️ 枠線だけのボタン（白背景＋borderColor）にしないこと。
+  //   中が抜けて見えて、ボタンだと分かりにくい（2026-08-06 に試して却下）。
+  //   ベタ塗りのまま、2つを同じ色・同じ高さにすることで重さを揃える。
   return {
-    type: 'box', layout: 'vertical',
-    backgroundColor: '#ffffff',
-    borderWidth: '1px', borderColor: '#6ea814', cornerRadius: 'md',
-    contents: [{
-      type: 'button', style: 'link', color: '#3D6909', height: 'sm',
-      action: { type: 'postback', label: label, data: data, displayText: label }
-    }]
+    type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+    action: { type: 'postback', label: label, data: data, displayText: label }
   };
 }
 
