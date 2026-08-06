@@ -1076,6 +1076,23 @@ function _convToSummaryState_(conv) {
  * @param {string} displayName - 「物件名 202号室」形式
  * @return {Array} LINE messages 配列
  */
+/**
+ * 空室確認カードの選択肢ボタン。2択を同じ重さで並べるための共通化。
+ * LINEのボタンは primary=ベタ塗り / link=文字だけ の二段しかないため、
+ * link ボタンを枠線つきのボックスで包んで「同じ見た目の枠線ボタン」にしている。
+ */
+function _vacancyChoiceButton_(label, data) {
+  return {
+    type: 'box', layout: 'vertical',
+    backgroundColor: '#ffffff',
+    borderWidth: '1px', borderColor: '#6ea814', cornerRadius: 'md',
+    contents: [{
+      type: 'button', style: 'link', color: '#3D6909', height: 'sm',
+      action: { type: 'postback', label: label, data: data, displayText: label }
+    }]
+  };
+}
+
 function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, roomNumber) {
   var _hasRegistered = false;
   try {
@@ -1148,18 +1165,17 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     // なお「合っていますか」ではなく「お探ししますか」にしている。お客さん自身は
     // この条件を言っていないので、合否を尋ねる形だと違和感が出るため。
     bodyContents.push({ type: 'text', text: 'この条件でお探ししますか？', size: 'sm', color: '#333333', wrap: true, weight: 'bold', margin: 'md' });
-    footerContents.push({
-      type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-      action: {
-        type: 'postback', label: 'はい、お願いします',
-        data: 'action=auto_criteria&name=' + encodeURIComponent(propertyName || '') + '&room=' + encodeURIComponent(roomNumber || ''),
-        displayText: 'はい、お願いします'
-      }
-    });
-    footerContents.push({
-      type: 'button', style: 'link', color: '#3D6909', height: 'sm',
-      action: { type: 'postback', label: 'いいえ、条件を自分で決める', data: '条件登録', displayText: 'いいえ、条件を自分で決める' }
-    });
+    // ⚠️ 2つのボタンは必ず同じ見た目にすること（2026-08-06）。
+    //   以前は「はい」だけ緑ベタ塗り・「いいえ」を文字リンクにしていたが、
+    //   ここで提示している条件はお客さん自身が一度も言っていない推測値であり、
+    //   勢いで「はい」を押されると精度の低い条件が登録される。
+    //   自分で条件を決めてもらったほうが精度は高く、どちらを選んでも前進するので、
+    //   片方に寄せる理由がない。
+    footerContents.push(_vacancyChoiceButton_(
+      'はい、お願いします',
+      'action=auto_criteria&name=' + encodeURIComponent(propertyName || '') + '&room=' + encodeURIComponent(roomNumber || '')
+    ));
+    footerContents.push(_vacancyChoiceButton_('いいえ、条件を自分で決める', '条件登録'));
   } else {
     // 変換できなかった（物件が見つからない・材料不足）: 従来どおり条件登録へ誘導
     bodyContents.push({ type: 'text', text: 'よろしければ、ご希望に近いお部屋をこちらでお探ししてお知らせします。', size: 'sm', color: '#555555', wrap: true, margin: 'md' });
