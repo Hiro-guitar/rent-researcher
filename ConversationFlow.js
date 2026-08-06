@@ -1192,7 +1192,11 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
   // LIFF endpoint = https://form.ehomaki.com/criteria.html に設定済み (静的HTML版)
   // 旧: GAS Web App (テンプレ処理で遅い)
   // 新: form.ehomaki.com の静的HTML (即表示 + fetch でstate取得)
-  const selectUrl = 'https://liff.line.me/' + LIFF_ID + '?userId=' + encodeURIComponent(userId);
+  // 条件をURLに埋め込む。これがあると criteria.html は GAS を呼ばずに即描画する
+  // （GASの状態取得は実測3.5秒かかり、待ち時間のほぼ全部がこれだった）。
+  var _sParam = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(userId) : '';
+  const selectUrl = 'https://liff.line.me/' + LIFF_ID + '?userId=' + encodeURIComponent(userId)
+    + (_sParam ? '&s=' + _sParam : '');
 
   var footerContents = [
     {

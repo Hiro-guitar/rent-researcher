@@ -559,6 +559,79 @@ function doPost(e) {
 /**
  * doGet - オペレーター用 API エンドポイント / 条件選択ページ
  */
+
+// ══════════════════════════════════════════════════════════
+//  条件フォーム(criteria.html)の初期状態
+//  doGet(action=criteria_state) と、LINEリンクへの埋め込みで共用する。
+// ══════════════════════════════════════════════════════════
+
+/** criteria.html が必要とする初期状態を組み立てる。 */
+function _buildCriteriaStatePayload_(stateC) {
+  var d = (stateC && stateC.data) || {};
+  return {
+    success: true,
+    selectedRoutes: (stateC && stateC.selectedRoutes) || [],
+    selectedStations: (stateC && stateC.selectedStations) || {},
+    selectedCities: (stateC && stateC.selectedCities) || [],
+    selectedTowns: (stateC && stateC.selectedTowns) || {},
+    areaMethod: (stateC && stateC.areaMethod) || 'route',
+    rentMax: d.rent_max || '',
+    layouts: d.layouts || [],
+    walkMax: d.walk || '',
+    areaMin: d.area_min || '',
+    buildingAge: d.building_age || '',
+    buildingStructures: d.building_structures || [],
+    equipment: d.equipment || [],
+    petType: d.petType || '',
+    carModel: d.carModel || '',
+    otherConditions: d.otherConditions || '',
+    moveInDate: d.move_in_date || '',
+    moveInStrict: !!d.move_in_strict
+  };
+}
+
+/**
+ * 条件フォームのURLに埋め込む初期状態（base64url）。
+ *
+ * criteria.html は開いた直後に GAS へ状態を取りに行っており、その1往復が
+ * 実測 3.2〜3.7秒（存在しないIDで即エラーを返させても3.2秒＝GAS Web Appの固定コスト）。
+ * ページ自体は静的で0.05〜0.25秒なので、待ち時間はほぼ全部これ。
+ * 物件ページ(property.html)が一瞬で出るのは、データをURLに埋め込んで
+ * サーバーを呼ばないため。条件フォームも同じ方式にする。
+ *
+ * 空値を落としてから base64 にし、それでも長い場合は諦めて '' を返す
+ * （criteria.html は s= が無ければ従来どおり fetch する）。
+ */
+function _criteriaStateParam_(userId) {
+  try {
+    var st = getState(userId);
+    if (!isCriteriaPageAllowed(st.step)) return '';
+    var payload = _buildCriteriaStatePayload_(st);
+    // 埋め込みが古すぎる場合に criteria.html 側で捨てられるようにする
+    payload.t = Date.now();
+    // 空の項目は落とす。criteria.html 側は各項目を個別に判定しているので問題ない。
+    Object.keys(payload).forEach(function (k) {
+      var v = payload[k];
+      if (v === '' || v === false || (Array.isArray(v) && v.length === 0) ||
+          (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0)) {
+        delete payload[k];
+      }
+    });
+    payload.success = true;
+    // '=' パディングは落とす（criteria.html 側で付け直す）。URLに混ぜたくないため。
+    var b64 = Utilities.base64EncodeWebSafe(JSON.stringify(payload), Utilities.Charset.UTF_8).replace(/=+$/, '');
+    // LINEのURI actionは1000文字上限。基底URL・userId分の余裕を見て750で打ち切る。
+    if (b64.length > 750) {
+      console.log('[criteria] URL埋め込み断念（長すぎ） size=' + b64.length);
+      return '';
+    }
+    return b64;
+  } catch (e) {
+    console.warn('[criteria] URL埋め込み失敗: ' + (e && e.message));
+    return '';
+  }
+}
+
 function doGet(e) {
   // 手動実行時（eが未定義）→ 権限承認トリガー用
   if (!e || !e.parameter) {
@@ -601,27 +674,8 @@ function doGet(e) {
           })).setMimeType(ContentService.MimeType.JSON);
         }
       }
-      var _dC = _stateC.data || {};
-      return ContentService.createTextOutput(JSON.stringify({
-        success: true,
-        selectedRoutes: _stateC.selectedRoutes || [],
-        selectedStations: _stateC.selectedStations || {},
-        selectedCities: _stateC.selectedCities || [],
-        selectedTowns: _stateC.selectedTowns || {},
-        areaMethod: _stateC.areaMethod || 'route',
-        rentMax: _dC.rent_max || '',
-        layouts: _dC.layouts || [],
-        walkMax: _dC.walk || '',
-        areaMin: _dC.area_min || '',
-        buildingAge: _dC.building_age || '',
-        buildingStructures: _dC.building_structures || [],
-        equipment: _dC.equipment || [],
-        petType: _dC.petType || '',
-        carModel: _dC.carModel || '',
-        otherConditions: _dC.otherConditions || '',
-        moveInDate: _dC.move_in_date || '',
-        moveInStrict: !!_dC.move_in_strict
-      })).setMimeType(ContentService.MimeType.JSON);
+      return ContentService.createTextOutput(JSON.stringify(_buildCriteriaStatePayload_(_stateC)))
+        .setMimeType(ContentService.MimeType.JSON);
     } catch (eCS) {
       return ContentService.createTextOutput(JSON.stringify({ success: false, message: eCS.message }))
         .setMimeType(ContentService.MimeType.JSON);

@@ -868,8 +868,10 @@ function _condLine_(label, raw, suffix, suffixRe) {
 
 function buildConditionSuggestionFlex_(c) {
   // LIFF endpoint = https://form.ehomaki.com/criteria.html に設定済み (静的HTML版)
+  var _sP = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(c.lineUserId) : '';
   var liffBase = 'https://liff.line.me/' + LIFF_ID
-    + '?userId=' + encodeURIComponent(c.lineUserId);
+    + '?userId=' + encodeURIComponent(c.lineUserId)
+    + (_sP ? '&s=' + _sP : '');
 
   // 現条件の要約 (項目名のみ、路線名も含める)。
   // 各項目は必ず表示する (空/指定しない なら「指定なし」と明示)。
@@ -1420,8 +1422,10 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
   //   multi-select カテゴリ (layouts/structures/equipment) → LIFFの該当セクションへ遷移
   if (category === 'layouts' || category === 'structures' || category === 'equipment') {
     // LIFF endpoint = https://form.ehomaki.com/criteria.html に設定済み
+    var _sP2 = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(userId) : '';
     var liffBase2 = 'https://liff.line.me/' + LIFF_ID
-      + '?userId=' + encodeURIComponent(userId);
+      + '?userId=' + encodeURIComponent(userId)
+      + (_sP2 ? '&s=' + _sP2 : '');
     footerButtons.push({
       type: 'button', style: 'secondary', height: 'sm',
       action: { type: 'uri', label: '自分で選び直す', uri: liffBase2 + '&focus=' + category }
