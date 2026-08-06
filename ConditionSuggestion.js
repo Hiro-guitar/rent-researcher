@@ -869,7 +869,7 @@ function _condLine_(label, raw, suffix, suffixRe) {
 function buildConditionSuggestionFlex_(c) {
   // LIFF endpoint = https://form.ehomaki.com/criteria.html に設定済み (静的HTML版)
   var _sP = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(c.lineUserId) : '';
-  var liffBase = CRITERIA_FORM_URL
+  var liffBase = 'https://liff.line.me/' + LIFF_ID
     + '?userId=' + encodeURIComponent(c.lineUserId)
     + (_sP ? '&s=' + _sP : '');
 
@@ -1423,7 +1423,7 @@ function _buildValueSelectionFlex_(category, currentValue, userId) {
   if (category === 'layouts' || category === 'structures' || category === 'equipment') {
     // LIFF endpoint = https://form.ehomaki.com/criteria.html に設定済み
     var _sP2 = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(userId) : '';
-    var liffBase2 = CRITERIA_FORM_URL
+    var liffBase2 = 'https://liff.line.me/' + LIFF_ID
       + '?userId=' + encodeURIComponent(userId)
       + (_sP2 ? '&s=' + _sP2 : '');
     footerButtons.push({

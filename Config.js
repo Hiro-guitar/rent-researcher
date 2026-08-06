@@ -30,8 +30,9 @@
 
      // ── LIFF（LINE Front-end Framework）────────────────────
      // LIFFのエンドポイントは CRITERIA_FORM_URL に設定してある。
-     // 現在このIDは「過去に送信済みのliff.line.meリンク」の受け皿としてのみ生きており、
-     // 新しく作るリンクは CRITERIA_FORM_URL を直接開く（リダイレクト1回分速い）。
+     // ⚠️ 条件フォームのリンクは必ず liff.line.me 経由にすること。
+     //    CRITERIA_FORM_URL を直接LINEに貼ると外部ブラウザで開いてしまい、
+     //    お客さんがLINEから離脱する（2026-08-06 に試して却下）。
      const LIFF_ID = '2009257618-mx8s5Vuk';
 
      // ── 条件登録フォーム（GitHub Pages の静的HTML）──────────

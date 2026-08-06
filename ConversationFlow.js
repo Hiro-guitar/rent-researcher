@@ -1198,10 +1198,11 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
   // 条件をURLに埋め込む。これがあると criteria.html は GAS を呼ばずに即描画する
   // （GASの状態取得は実測3.5秒かかり、待ち時間のほぼ全部がこれだった）。
   var _sParam = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(userId) : '';
-  // liff.line.me を経由せず静的ページを直接開く。LIFFは「送信後に画面を自動で閉じる」
-  // ためだけに使っており（userIdは元々URLで渡している）、その1リダイレクト分そのまま
-  // 待ち時間になっていた。閉じられない場合は完了画面が「✕で閉じてください」と案内する。
-  const selectUrl = CRITERIA_FORM_URL + '?userId=' + encodeURIComponent(userId)
+  // ⚠️ liff.line.me を外して CRITERIA_FORM_URL を直接開かないこと（2026-08-06 に試して却下）。
+  //   リダイレクト1回分は速くなるが、LINEが外部ブラウザで開いてしまい
+  //   お客さんがLINEから離脱する。送信後に画面を自動で閉じることもできなくなる。
+  //   速度は s=（条件のURL埋め込み）で稼ぐ。
+  const selectUrl = 'https://liff.line.me/' + LIFF_ID + '?userId=' + encodeURIComponent(userId)
     + (_sParam ? '&s=' + _sParam : '');
 
   var footerContents = [
