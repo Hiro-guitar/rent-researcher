@@ -206,9 +206,19 @@ function doPost(e) {
       const data = event.postback.data;
       const state = getState(userId);
 
-      // 条件登録ボタン（遅延返信Flexのpostback）
+      // 条件登録ボタン（遅延返信Flex／空室確認カードの「いいえ、条件を自分で決める」）
       // 登録済みなら条件変更フローへ振り替える
       if (data === '条件登録') {
+        // テストユーザーだけは登録済みでも初回の質問フローを流す。
+        // 実顧客がこのカードを見るのは条件未登録のときだけなので、本番では
+        // 必ず startSearchFlow に入る。テスト時だけ「すでに条件が登録されています」に
+        // 振り替わってしまい、本番の挙動を確認できなかったため。
+        var _mcName = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
+        if (TEST_ALLOWED_NAMES.indexOf(_mcName) !== -1) {
+          console.log('[テスト] 条件登録postback: 登録済みだが初回フローを流す (' + _mcName + ')');
+          startSearchFlow(replyToken, userId);
+          return;
+        }
         startSearchOrChangeFlow(replyToken, userId);
         return;
       }
