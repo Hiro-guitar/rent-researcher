@@ -573,14 +573,30 @@ async function gasPost(body) {
   const { gasWebappUrl, gasApiKey } = await getConfig();
   if (!gasWebappUrl) throw new Error('GAS URLが設定されていません');
   body.api_key = gasApiKey || '';
-  const resp = await fetch(gasWebappUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(body),
-    redirect: 'follow'
-  });
-  if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status}`);
-  return resp.json();
+  // ⚠️ 必ずタイムアウトを付けること。以前は付いておらず、GASからの応答が
+  //    返らないと検索サイクル全体がエラーも出さずに永久に止まっていた
+  //    （SUUMOビジネスのデータ送信で発生 / 2026-08-06）。
+  //    POSTは書き込みを伴い GET より時間がかかるので 60 秒にしてある。
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  try {
+    const resp = await fetch(gasWebappUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(body),
+      redirect: 'follow',
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status}`);
+    return resp.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error(`GASリクエストタイムアウト (POST ${body && body.action ? body.action : ''})`);
+    }
+    throw err;
+  }
 }
 
 async function fetchCriteria() { return gasGet('get_criteria'); }
@@ -3367,11 +3383,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // SUUMO候補シートに登録（add_suumo_candidate）。
         // 注: sendSuumoCandidatesToGas は Discord 通知の副作用があるため使わず POST をインライン化。
         try {
-          const resp = await fetch(gasWebappUrl, {
+          // タイムアウト必須。応答が返らないとここで永久に止まる
+          const resp = await _fetchWithTimeout_(gasWebappUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'add_suumo_candidate', properties: enriched, patrolCriteriaId: null })
-          });
+          }, 60000);
           if (!resp.ok) throw new Error('HTTP ' + resp.status);
         } catch (e) {
           await setStorageData({ debugLog: '[SUUMO掲載] 候補登録失敗: ' + e.message });

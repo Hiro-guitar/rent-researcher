@@ -929,7 +929,7 @@ async function _notifyWatchChangeToAgent(customerName, openHits, closedHits) {
     let threadId = threadIds[customerName];
     let resp = null;
     if (threadId) {
-      resp = await fetch(`${webhook}?thread_id=${threadId}&wait=true`, {
+      resp = await _fetchWithTimeout_(`${webhook}?thread_id=${threadId}&wait=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content, flags: 4096, allowed_mentions: { parse: [] } })
@@ -937,7 +937,7 @@ async function _notifyWatchChangeToAgent(customerName, openHits, closedHits) {
       if (resp.status === 404) { threadId = null; }  // スレッドが消えていたら作り直す
     }
     if (!threadId) {
-      resp = await fetch(`${webhook}?wait=true`, {
+      resp = await _fetchWithTimeout_(`${webhook}?wait=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: `**${customerName}** 様\n${content}`, thread_name: `🏠 ${customerName}`, flags: 4096, allowed_mentions: { parse: [] } })
@@ -972,7 +972,7 @@ async function _sendDiscordNotificationsFromExtension(items) {
   for (const item of items) {
     if (!item || !item.webhook_url || !item.content) continue;
     try {
-      const resp = await fetch(item.webhook_url + (item.webhook_url.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
+      const resp = await _fetchWithTimeout_(item.webhook_url + (item.webhook_url.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: item.content })
