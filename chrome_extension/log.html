@@ -118,26 +118,25 @@
     }
     /* ONの条件を含むお客さんは枠ごと色を変える（一目でどれが動くか分かるように） */
     .cust-group:has(input[type="checkbox"]:checked) {
-      border-color: #35543c; background: #1c231d;
+      border-color: #4a8a5c; background: #1e2a21;
     }
+    /* ⚠️ OFFの顧客をグレーアウトしないこと。
+       どの人をチェックするか探すには全員の名前が読めている必要がある。
+       ON/OFFの区別は枠（.cust-group）の色で示す。 */
     .cust-group label {
       display: flex; align-items: center; gap: 5px;
       font-size: 12px; white-space: nowrap; cursor: pointer; margin: 0;
-      padding: 1px 3px; border-radius: 3px; color: #6e6e6e;
-      transition: color .12s;
+      padding: 1px 3px; border-radius: 3px;
     }
-    .cust-group label:hover { background: #2a2a2a; }
+    .cust-group label:hover { background: #2f2f2f; }
     .cust-group label input[type="checkbox"] {
       margin: 0; cursor: pointer; width: 11px; height: 11px;
       accent-color: #3f9d5a;
     }
-    .cust-group .cust-base { font-weight: 600; }
-    .cust-group .cust-rec { font-size: 11px; padding-left: 11px; }
-    /* OFFは沈め、ONだけ浮かせる */
-    .cust-group .cust-base:has(input:checked) { color: #e8e8e8; }
-    .cust-group .cust-rec:has(input:checked) { color: #8fd3a0; }
+    .cust-group .cust-base { font-weight: 600; color: #e0e0e0; }
+    .cust-group .cust-rec { color: #9cdc9c; font-size: 11px; padding-left: 11px; }
     .cust-group .cust-name-header {
-      font-weight: 600; color: #6a6a6a; font-size: 11px; padding-left: 3px;
+      font-weight: 600; color: #999; font-size: 11px; padding-left: 3px;
     }
     /* いま検索中の条件 */
     .cust-group label.searching {
