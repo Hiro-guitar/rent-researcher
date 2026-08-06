@@ -910,12 +910,35 @@ function _applyUserState(data) {
   if (data.otherConditions != null) INIT_OTHER_CONDITIONS = data.otherConditions;
 }
 
+/**
+ * ⚠️ 消さないこと。GASのウォームアップと、サーバー側stateの復元のために叩く。
+ *
+ * 以前はページを開くたびに criteria_state を待っており、それがGASの
+ * ウォームアップを兼ねていた。URL埋め込みでこの呼び出しを丸ごと消したところ、
+ * 送信POSTがコールドスタートを被って23秒以上かかるようになり、
+ * 「送信中のグルグルが止まらず、最後にエラーが出る（保存自体は成功している）」
+ * という状態になった（2026-08-06）。
+ *
+ * 応答は使わない。描画済みの画面を後から書き換えると入力中の内容を壊すため。
+ */
+function _warmUpGas() {
+  if (!USER_ID) return;
+  try {
+    var t0 = Date.now();
+    fetch(GAS_API_URL + '?action=criteria_state&userId=' + encodeURIComponent(USER_ID), { redirect: 'follow' })
+      .then(function() { try { console.log('[PERF-render] GASウォームアップ完了 ' + (Date.now() - t0) + 'ms'); } catch (_) {} })
+      .catch(function() {});
+  } catch (_) {}
+}
+
 function _fetchUserState(cb) {
-  // URLに条件が入っていればサーバーを呼ばない（＝待ち時間ゼロ）
+  // URLに条件が入っていればサーバーを呼ばずに即描画する
   var embedded = _readEmbeddedState();
   if (embedded) {
     _applyUserState(embedded);
     try { console.log('[PERF-render] URL埋め込みの条件を使用（GAS呼び出しなし）'); } catch (_) {}
+    // 描画は待たせないが、送信時に備えてGASは温めておく
+    _warmUpGas();
     cb(embedded);
     return;
   }
