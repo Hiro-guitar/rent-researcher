@@ -856,7 +856,69 @@ function _initDraftAutoSave() {
 // ══════════════════════════════════════════════════════════
 //  GAS API からユーザー状態を fetch して INIT_*/SELECTED_* を上書き
 // ══════════════════════════════════════════════════════════
+/**
+ * URLに埋め込まれた条件(s=)を取り出す。
+ *
+ * GASの状態取得は実測3.2〜3.7秒かかり、このページの待ち時間はほぼ全部それだった。
+ * 物件ページ(property.html)と同じく、LINEのリンク生成時に条件をURLへ入れておき、
+ * サーバーを1度も呼ばずに描画する。
+ *
+ * 古いメッセージのリンクを後から開くと埋め込みが陳腐化しているため、
+ * 生成から30分を過ぎたものは使わず、従来どおりGASから取り直す。
+ */
+var EMBEDDED_STATE_MAX_AGE_MS = 30 * 60 * 1000;
+function _readEmbeddedState() {
+  try {
+    var raw = _qs.get('s');
+    if (!raw) return null;
+    var b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    var json = new TextDecoder('utf-8').decode(bytes);
+    var data = JSON.parse(json);
+    if (!data || !data.success) return null;
+    if (!data.t || (Date.now() - data.t) > EMBEDDED_STATE_MAX_AGE_MS) {
+      try { console.log('[PERF-render] 埋め込み条件が古いためGASから取得'); } catch (_) {}
+      return null;
+    }
+    return data;
+  } catch (e) {
+    try { console.log('[PERF-render] 埋め込み条件の読み取り失敗: ' + e.message); } catch (_) {}
+    return null;
+  }
+}
+
+/** 取得した状態を INIT_ / SELECTED_ 系の変数に反映する（埋め込み・fetch 共用）。 */
+function _applyUserState(data) {
+  if (!data || !data.success) return;
+  if (Array.isArray(data.selectedRoutes)) SELECTED_ROUTES = data.selectedRoutes;
+  if (data.selectedStations) SELECTED_STATIONS = data.selectedStations;
+  if (Array.isArray(data.selectedCities)) SELECTED_CITIES = data.selectedCities;
+  if (data.selectedTowns) SELECTED_TOWNS = data.selectedTowns;
+  if (data.areaMethod) INIT_AREA_METHOD = data.areaMethod;
+  if (data.rentMax != null) INIT_RENT_MAX = data.rentMax;
+  if (Array.isArray(data.layouts)) INIT_LAYOUTS = data.layouts;
+  if (data.walkMax != null) INIT_WALK = data.walkMax;
+  if (data.areaMin != null) INIT_AREA_MIN = data.areaMin;
+  if (data.buildingAge != null) INIT_BUILDING_AGE = data.buildingAge;
+  if (Array.isArray(data.buildingStructures)) INIT_BUILDING_STRUCTURES = data.buildingStructures;
+  if (Array.isArray(data.equipment)) INIT_EQUIPMENT = data.equipment;
+  if (data.petType != null) INIT_PET_TYPE = data.petType;
+  if (data.carModel != null) INIT_CAR_MODEL = data.carModel;
+  if (data.otherConditions != null) INIT_OTHER_CONDITIONS = data.otherConditions;
+}
+
 function _fetchUserState(cb) {
+  // URLに条件が入っていればサーバーを呼ばない（＝待ち時間ゼロ）
+  var embedded = _readEmbeddedState();
+  if (embedded) {
+    _applyUserState(embedded);
+    try { console.log('[PERF-render] URL埋め込みの条件を使用（GAS呼び出しなし）'); } catch (_) {}
+    cb(embedded);
+    return;
+  }
   if (!USER_ID) { cb(null); return; }
   var url = GAS_API_URL + '?action=criteria_state&userId=' + encodeURIComponent(USER_ID);
   fetch(url, { redirect: 'follow' })
@@ -864,23 +926,7 @@ function _fetchUserState(cb) {
     .then(function(text) {
       try {
         var data = JSON.parse(text);
-        if (data && data.success) {
-          if (Array.isArray(data.selectedRoutes)) SELECTED_ROUTES = data.selectedRoutes;
-          if (data.selectedStations) SELECTED_STATIONS = data.selectedStations;
-          if (Array.isArray(data.selectedCities)) SELECTED_CITIES = data.selectedCities;
-          if (data.selectedTowns) SELECTED_TOWNS = data.selectedTowns;
-          if (data.areaMethod) INIT_AREA_METHOD = data.areaMethod;
-          if (data.rentMax != null) INIT_RENT_MAX = data.rentMax;
-          if (Array.isArray(data.layouts)) INIT_LAYOUTS = data.layouts;
-          if (data.walkMax != null) INIT_WALK = data.walkMax;
-          if (data.areaMin != null) INIT_AREA_MIN = data.areaMin;
-          if (data.buildingAge != null) INIT_BUILDING_AGE = data.buildingAge;
-          if (Array.isArray(data.buildingStructures)) INIT_BUILDING_STRUCTURES = data.buildingStructures;
-          if (Array.isArray(data.equipment)) INIT_EQUIPMENT = data.equipment;
-          if (data.petType != null) INIT_PET_TYPE = data.petType;
-          if (data.carModel != null) INIT_CAR_MODEL = data.carModel;
-          if (data.otherConditions != null) INIT_OTHER_CONDITIONS = data.otherConditions;
-        }
+        _applyUserState(data);
         cb(data && data.success ? data : null);
       } catch (e) { cb(null); }
     })
