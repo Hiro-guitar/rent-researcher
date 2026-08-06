@@ -560,7 +560,7 @@ async function gasGet(action, params = {}) {
   try {
     const resp = await fetch(url.toString(), { redirect: 'follow', signal: controller.signal, cache: 'no-store' });
     clearTimeout(timeoutId);
-    if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status}`);
+    if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status} (${action})`);
     return resp.json();
   } catch (err) {
     clearTimeout(timeoutId);
@@ -588,7 +588,7 @@ async function gasPost(body) {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
-    if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status}`);
+    if (!resp.ok) throw new Error(`GAS応答エラー: ${resp.status} (POST ${body && body.action ? body.action : ''})`);
     return resp.json();
   } catch (err) {
     clearTimeout(timeoutId);

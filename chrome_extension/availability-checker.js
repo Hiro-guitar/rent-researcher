@@ -798,27 +798,36 @@ async function stopAvailabilityCheck() {
 // GAS側の customer は任意フィルタなので、省略すれば全顧客分を1回で取れる。
 globalThis.prefetchCancellationWatches = async function prefetchCancellationWatches() {
   globalThis._watchQueueByCustomer = null;
-  try {
-    const resp = await gasGet('get_availability_queue', { watch_only: '1', limit: '500' });
-    const items = (resp && resp.items) || [];
-    const byCustomer = {};
-    for (const it of items) {
-      const c = String((it && it.customer) || '').trim();
-      if (!c) continue;
-      if (!byCustomer[c]) byCustomer[c] = [];
-      byCustomer[c].push(it);
+  globalThis._watchFallbackDisabled = false;  // サイクル開始時にリセット
+  let lastErr = null;
+  // GASは一時的に404を返すことがあるので1回だけ即リトライする
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const resp = await gasGet('get_availability_queue', { watch_only: '1', limit: '500' });
+      const items = (resp && resp.items) || [];
+      const byCustomer = {};
+      for (const it of items) {
+        const c = String((it && it.customer) || '').trim();
+        if (!c) continue;
+        if (!byCustomer[c]) byCustomer[c] = [];
+        byCustomer[c].push(it);
+      }
+      globalThis._watchQueueByCustomer = byCustomer;
+      await setStorageData({
+        debugLog: `[キャンセル待ち確認] 監視リストを一括取得: ${items.length}件 / ${Object.keys(byCustomer).length}顧客`
+      });
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (attempt === 1) await new Promise(r => setTimeout(r, 2000));
     }
-    globalThis._watchQueueByCustomer = byCustomer;
-    await setStorageData({
-      debugLog: `[キャンセル待ち確認] 監視リストを一括取得: ${items.length}件 / ${Object.keys(byCustomer).length}顧客`
-    });
-  } catch (e) {
-    // 失敗したら従来どおり顧客ごとに取りに行く（機能は落とさない）
-    globalThis._watchQueueByCustomer = null;
-    await setStorageData({
-      debugLog: `[キャンセル待ち確認] 一括取得に失敗（顧客ごとに取得します）: ${e.message}`
-    });
   }
+  // 2回とも失敗。顧客ごとの取得に落ちるが、そちらも失敗したら以降は打ち切る
+  // （同じ失敗を顧客数だけ繰り返してもログが埋まるだけのため）。
+  globalThis._watchQueueByCustomer = null;
+  await setStorageData({
+    debugLog: `[キャンセル待ち確認] 一括取得に失敗（顧客ごとに取得します）: ${lastErr && lastErr.message}`
+  });
 };
 
 async function checkCustomerCancellationWatches(customerName, searchId) {
@@ -829,8 +838,20 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
     if (cached) {
       items = cached[customerName] || [];
     } else {
-      const resp = await gasGet('get_availability_queue', { watch_only: '1', customer: customerName, limit: '50' });
-      items = (resp && resp.items) || [];
+      // ⚠️ 個別取得が1人でも失敗したら、そのサイクルは以降やらない。
+      //    一括取得が失敗している状況では個別取得も同じ理由で失敗し、
+      //    顧客数だけ同じエラーがログに並ぶだけだったため（2026-08-06）。
+      if (globalThis._watchFallbackDisabled) return;
+      try {
+        const resp = await gasGet('get_availability_queue', { watch_only: '1', customer: customerName, limit: '50' });
+        items = (resp && resp.items) || [];
+      } catch (e) {
+        globalThis._watchFallbackDisabled = true;
+        await setStorageData({
+          debugLog: `[キャンセル待ち確認] 取得に失敗したため今サイクルは以降スキップします: ${e.message}`
+        });
+        return;
+      }
     }
     if (items.length === 0) return;
     await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: 監視 ${items.length}件の募集状況をチェック` });
