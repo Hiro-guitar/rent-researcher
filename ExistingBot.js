@@ -1081,12 +1081,14 @@ function _convToSummaryState_(conv) {
  * 片方だけ primary（ベタ塗り）、もう片方を link（文字だけ）にすると
  * 「はい」へ誘導する形になるため、両方ともベタ塗りで揃える。
  */
-function _vacancyChoiceButton_(label, data) {
-  // ⚠️ 枠線だけのボタン（白背景＋borderColor）にしないこと。
-  //   中が抜けて見えて、ボタンだと分かりにくい（2026-08-06 に試して却下）。
-  //   ベタ塗りのまま、2つを同じ色・同じ高さにすることで重さを揃える。
+function _vacancyChoiceButton_(label, data, color) {
+  // ⚠️ 過去に失敗した2案（どちらにも戻さないこと / 2026-08-06）
+  //   ・枠線だけのボタン（白背景＋borderColor）→ 中が抜けて見えてボタンに見えない
+  //   ・2つとも同じ緑のベタ塗り → 隣接して2行の1つの文章に見える
+  //   サイズは揃えたまま色だけ変える。どちらもベタ塗りなので押しやすさは同じで、
+  //   「はい」に誘導せずに2択だと分かる。
   return {
-    type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+    type: 'button', style: 'primary', color: color, height: 'sm',
     action: { type: 'postback', label: label, data: data, displayText: label }
   };
 }
@@ -1171,9 +1173,10 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     //   片方に寄せる理由がない。
     footerContents.push(_vacancyChoiceButton_(
       'はい、お願いします',
-      'action=auto_criteria&name=' + encodeURIComponent(propertyName || '') + '&room=' + encodeURIComponent(roomNumber || '')
+      'action=auto_criteria&name=' + encodeURIComponent(propertyName || '') + '&room=' + encodeURIComponent(roomNumber || ''),
+      '#6ea814'
     ));
-    footerContents.push(_vacancyChoiceButton_('いいえ、条件を自分で決める', '条件登録'));
+    footerContents.push(_vacancyChoiceButton_('いいえ、条件を自分で決める', '条件登録', '#5f6b7a'));
   } else {
     // 変換できなかった（物件が見つからない・材料不足）: 従来どおり条件登録へ誘導
     bodyContents.push({ type: 'text', text: 'よろしければ、ご希望に近いお部屋をこちらでお探ししてお知らせします。', size: 'sm', color: '#555555', wrap: true, margin: 'md' });

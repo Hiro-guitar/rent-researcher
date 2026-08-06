@@ -124,7 +124,10 @@ function startChangeFlow(replyToken, userId, prefixMessages) {
     equipment: existing.equipment,
     petType: existing.petType,
     carModel: existing.carModel,
-    notes: existing.notes
+    notes: existing.notes,
+    // ⚠️ 年齢を落とさないこと。writeToSheet は AB列を state の値で必ず上書きするため、
+    //    ここで拾い忘れると条件変更のたびに登録済みの年齢が消える（2026-08-06 修正）。
+    age: existing.age
   };
   saveState(userId, state);
 
@@ -1195,7 +1198,10 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
   // 条件をURLに埋め込む。これがあると criteria.html は GAS を呼ばずに即描画する
   // （GASの状態取得は実測3.5秒かかり、待ち時間のほぼ全部がこれだった）。
   var _sParam = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(userId) : '';
-  const selectUrl = 'https://liff.line.me/' + LIFF_ID + '?userId=' + encodeURIComponent(userId)
+  // liff.line.me を経由せず静的ページを直接開く。LIFFは「送信後に画面を自動で閉じる」
+  // ためだけに使っており（userIdは元々URLで渡している）、その1リダイレクト分そのまま
+  // 待ち時間になっていた。閉じられない場合は完了画面が「✕で閉じてください」と案内する。
+  const selectUrl = CRITERIA_FORM_URL + '?userId=' + encodeURIComponent(userId)
     + (_sParam ? '&s=' + _sParam : '');
 
   var footerContents = [

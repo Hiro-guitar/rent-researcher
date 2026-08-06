@@ -132,8 +132,10 @@ function writeToSheet(userId, state) {
     sheet.getRange(existingRowIndex, 25).setValue(townsJson);
     // AA列（27列目）に入居時期厳守フラグを書き込み
     sheet.getRange(existingRowIndex, 27).setValue(d.move_in_strict ? 'true' : '');
-    // AB列（28列目）に年齢を書き込み
-    sheet.getRange(existingRowIndex, 28).setValue(d.age || '');
+    // AB列（28列目）に年齢を書き込み。
+    // 年齢を持たない state から保存された場合に既存の値を消さないよう、
+    // undefined のときは touch しない（条件変更で年齢が消える事故があった）。
+    if (d.age !== undefined) sheet.getRange(existingRowIndex, 28).setValue(d.age || '');
     // AC列（29列目）: 条件変更時は最終REINS検索日をクリア（次回検索で全期間から検索し直す）
     sheet.getRange(existingRowIndex, 29).setValue('');
     // AD列（30列目）: 条件変更完了 → 条件変更提案の連続送信カウントをリセット

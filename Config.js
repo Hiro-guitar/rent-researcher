@@ -29,7 +29,13 @@
      const SUUMO_DISCORD_WEBHOOK_URL = PropertiesService.getScriptProperties().getProperty('SUUMO_DISCORD_WEBHOOK_URL') || '';
 
      // ── LIFF（LINE Front-end Framework）────────────────────
+     // LIFFのエンドポイントは CRITERIA_FORM_URL に設定してある。
+     // 現在このIDは「過去に送信済みのliff.line.meリンク」の受け皿としてのみ生きており、
+     // 新しく作るリンクは CRITERIA_FORM_URL を直接開く（リダイレクト1回分速い）。
      const LIFF_ID = '2009257618-mx8s5Vuk';
+
+     // ── 条件登録フォーム（GitHub Pages の静的HTML）──────────
+     const CRITERIA_FORM_URL = 'https://form.ehomaki.com/criteria.html';
 
      // ── 会話タイムアウト（ミリ秒）───────────────────────────
      const CONVERSATION_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24時間
