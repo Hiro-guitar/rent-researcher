@@ -1819,7 +1819,7 @@ function processCriteriaSelection(userId, criteria) {
 
     pushMessage(userId, [
       buildConditionSummaryFlex(state, 'ご登録ありがとうございます'),
-      textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。\n\n条件の変更はメニューの「お部屋探しの条件を変える」からいつでも変更できます。')
+      textMsg(_criteriaCardFollowupText_())
     ]);
 
     return { success: true, message: '条件を登録しました。' };
@@ -3465,12 +3465,21 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
  * @param {string} customerName - 顧客名
  * @returns {Object} LINE Flex Bubble オブジェクト
  */
+/**
+ * 条件サマリーカードに添えるテキスト。
+ * 以前はカード内のフッターに入れていたが、カードの下部は読み飛ばされるため
+ * メッセージ本文に出している（2026-08-06）。カード側に戻さないこと。
+ */
+function _criteriaCardFollowupText_() {
+  return '条件に合う新着物件が見つかり次第、お知らせいたします。\n\n'
+       + '条件の変更はメニューの「お部屋探しの条件を変える」からいつでもできます。';
+}
+
 function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
   // カラーテーマ
   var primary = isChanged ? '#e67e22' : '#1a7f37';
   var primaryLight = isChanged ? '#fef5ec' : '#eaf7ed';
   var primaryBorder = isChanged ? '#f5d5b0' : '#b8e0c0';
-  var accent = isChanged ? '#d35400' : '#15803d';
 
   // ヘッダー: グラデーション風の2段構成
   var headerTitle = isChanged ? '条件を更新しました' : 'お部屋探しの条件';
@@ -3529,36 +3538,10 @@ function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
           borderWidth: '1px',
           contents: summaryRows
         },
-        // 区切り線
-        { type: 'separator', color: '#e8e8e8', margin: 'sm' },
-        // フッターメッセージ
-        {
-          type: 'box',
-          layout: 'vertical',
-          spacing: 'xs',
-          paddingStart: 'sm',
-          paddingEnd: 'sm',
-          contents: [
-            {
-              type: 'text',
-              text: isChanged
-                ? 'この条件で改めて物件をお探しします。'
-                : 'この条件でぴったりの物件をお探しします。',
-              size: 'sm',
-              color: accent,
-              weight: 'bold',
-              wrap: true
-            },
-            {
-              type: 'text',
-              text: '条件の変更はメニューの「お部屋探しの条件を変える」からいつでもできます。',
-              size: 'xxs',
-              color: '#999999',
-              wrap: true,
-              margin: 'sm'
-            }
-          ]
-        }
+        // ⚠️ ここにフッター文言を戻さないこと（2026-08-06 削除）。
+        //   「この条件でお探しします」は直後のテキストメッセージと内容が重複していた。
+        //   条件変更の導線もカード内の小さな灰色文字では読まれないため、
+        //   _criteriaCardFollowupText_() としてメッセージ本文へ移した。
       ]
     }
   };
@@ -3629,7 +3612,7 @@ function sendConditionSummaryToLine(customerName, messageType) {
       contents: bubble
     };
 
-    pushMessage(lineUserId, [flexMessage]);
+    pushMessage(lineUserId, [flexMessage, textMsg(_criteriaCardFollowupText_())]);
 
     var label = isChanged ? '条件変更通知' : '条件';
     return { success: true, message: customerName + ' にLINEで' + label + 'を送信しました。' };

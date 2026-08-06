@@ -479,7 +479,7 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     clearState(userId);
     replyMessage(replyToken, [
       buildConditionSummaryFlex(state, 'ご登録ありがとうございます'),
-      textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
+      textMsg(_criteriaCardFollowupText_())
     ]);
     return true;
   }
@@ -747,7 +747,7 @@ function finishAutoFollowup(replyToken, userId, state) {
   // 登録済みなので合わない。完了時に使われている組み合わせを揃える。
   replyMessage(replyToken, [
     buildConditionSummaryFlex(view, 'ご登録ありがとうございます'),
-    textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
+    textMsg(_criteriaCardFollowupText_())
   ]);
 }
 
@@ -1502,7 +1502,7 @@ function buildConditionUpdateMessages_(state, before) {
   // 変更点は各条件行の中に「変更前 → 変更後」で表示する（追加メッセージは送らない）
   return [
     buildConditionSummaryFlex(state, '条件を更新しました', before),
-    textMsg('条件に合う新着物件が見つかり次第、お知らせいたします。')
+    textMsg(_criteriaCardFollowupText_())
   ];
 }
 
