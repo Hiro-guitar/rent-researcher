@@ -4012,41 +4012,12 @@ function handleSendManualProperties(json) {
   }
 }
 
-/**
- * 通知済み物件シートの J列 (10) にキャンセル通知希望時刻を記録する。
- * Chrome拡張がこのフラグを参照して、定期的にステータス変化をチェックする。
- *
- * @param {string} customerName
- * @param {string} roomId
- * @return {{ok:boolean, message:string}}
- */
-function setCancellationWatch(customerName, roomId) {
-  if (!customerName || !roomId) return { ok: false, message: 'customer/roomId が未指定' };
-  try {
-    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
-    if (!sheet) return { ok: false, message: 'シートが見つかりません' };
-    var lastRow = sheet.getLastRow();
-    if (lastRow < 2) return { ok: false, message: 'シートが空です' };
-    var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
-    var nameTrim = String(customerName).trim();
-    var ridTrim = String(roomId).trim();
-    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
-    var updated = 0;
-    for (var i = 0; i < data.length; i++) {
-      if (String(data[i][0]).trim() === nameTrim && String(data[i][1]).trim() === ridTrim) {
-        sheet.getRange(i + 2, 10).setValue(now);  // J列 (10): watch_for_cancellation_at
-        updated++;
-      }
-    }
-    return {
-      ok: updated > 0,
-      message: updated + '行にキャンセル通知希望を記録しました'
-    };
-  } catch (e) {
-    return { ok: false, message: 'エラー: ' + e.message };
-  }
-}
+// ⚠️ ここに setCancellationWatch を再定義しないこと（2026-08-07 に重複を削除）。
+//   同名の2引数版（常に現在時刻を書き込む＝常にON）が後ろにあり、
+//   3引数版（watching で ON/OFF を切り替える／このファイルの上の方にある）を
+//   丸ごと上書きしていた。そのためCRMの「キャンセル待ち中」を押して解除しても
+//   むしろONに再設定され、ok:true が返るので画面上だけ外れたように見えていた。
+//   ONにしたいだけの呼び出しも setCancellationWatch(customer, roomId, true) を使う。
 
 /**
  * キャンセル通知希望をクリア (キャンセル発生して通知済みの場合に呼ぶ)。

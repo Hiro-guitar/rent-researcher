@@ -286,7 +286,7 @@ function doPost(e) {
             if (p.length === 2) params[p[0]] = decodeURIComponent(p[1] || '');
           });
           var watchRes = (typeof setCancellationWatch === 'function')
-            ? setCancellationWatch(params.customer, params.room_id)
+            ? setCancellationWatch(params.customer, params.room_id, true)
             : { ok: false, message: 'function not defined' };
           if (watchRes.ok) {
             replyMessage(replyToken, [textMsg(
@@ -974,7 +974,7 @@ function doGet(e) {
       var custW = e.parameter.customer || '';
       var roomW = e.parameter.room_id || '';
       var rW = (typeof setCancellationWatch === 'function')
-        ? setCancellationWatch(custW, roomW)
+        ? setCancellationWatch(custW, roomW, true)
         : { ok: false, message: 'function not defined' };
       return ContentService.createTextOutput(JSON.stringify(rW))
         .setMimeType(ContentService.MimeType.JSON);

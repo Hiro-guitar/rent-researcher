@@ -4116,11 +4116,10 @@ function getSuumoPatrolConfigUrl() {
 /**
  * SuumoPatrolConfigPage から呼ばれる: 管理ページURLを返す
  */
-function getAdminPageUrl() {
-  var baseUrl = ScriptApp.getService().getUrl();
-  var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
-  return baseUrl + '?action=admin&api_key=' + encodeURIComponent(apiKey);
-}
+// ⚠️ getAdminPageUrl はここに再定義しないこと（2026-08-07 に重複を削除）。
+//   コード.js に顧客名を渡せる上位互換版があり、GASは全ファイルが同じスコープなので
+//   どちらが勝つかは読み込み順次第。こちらが勝つと optCustomerName が黙って無視され、
+//   管理ページへのリンクが目的の顧客を開かなくなる。
 
 // ═══════════════════════════════════════════════════════════
 // AdminPage 用: submitting 状態の物件管理（手動入稿完了報告）
