@@ -4318,6 +4318,9 @@ globalThis.runSearchCycle = async function runSearchCycle() {
       await Promise.all(_tabWarmups);   // 3サービス分のタブ作成はここで揃う
     }
 
+    // REINS最終検索日の更新POST。顧客ごとに待たず、サイクル末でまとめて回収する。
+    const _searchDateUpdates = [];
+
     // キャンセル待ちチェックは顧客名に紐づくため、1サイクル中は顧客ごとに1回だけ実行する
     // (同じ顧客のメイン条件+おすすめ条件で監視リストを何度もチェックする無駄を防ぐ)
     const watchCheckedCustomers = new Set();
@@ -4440,11 +4443,30 @@ globalThis.runSearchCycle = async function runSearchCycle() {
             const _pad = n => String(n).padStart(2, '0');
             const _todayStr = _today.getFullYear() + '-' + _pad(_today.getMonth() + 1) + '-' + _pad(_today.getDate());
             // おすすめ条件(裏検索)の場合は recommend_id を付けて、本人条件と独立して日付記録する
-            await gasPost({ action: 'update_reins_search_date', customer_name: customer.name, search_date: _todayStr, recommend_id: customer.recommendId || '' });
+            //
+            // ⚠️ ここで await しないこと。この記録は次の顧客の処理と無関係なのに、
+            //    GASのPOSTを毎回待って顧客1人あたり3〜4秒（35人で約2分）失っていた。
+            //    投げっぱなしにせず _searchDateUpdates に積み、サイクル末で必ず回収する。
             const _recLabel = customer.recommend ? `（おすすめ:${customer.recommendLabel || ''}）` : '';
-            await setStorageData({ debugLog: `[REINS] ${customer.name}${_recLabel}: 最終検索日を更新 → ${_todayStr}` });
+            // 既に当日の日付が入っていれば送らない。
+            //   同じ日に何度回しても値は変わらないため。条件を変更するとGAS側で
+            //   AC列(最終REINS検索日)がクリアされるので、その時は自然に再記録される。
+            //   1日2回目以降のサイクルではGASへのPOSTが顧客数ぶんまるごと不要になる。
+            const _prevSearchDate = String(customer.lastReinsSearch || '').trim();
+            if (_prevSearchDate === _todayStr) {
+              await setStorageData({ debugLog: `[REINS] ${customer.name}${_recLabel}: 最終検索日は本日済み → 更新スキップ` });
+              throw { __skipSearchDateUpdate: true };
+            }
+            _searchDateUpdates.push(
+              gasPost({ action: 'update_reins_search_date', customer_name: customer.name, search_date: _todayStr, recommend_id: customer.recommendId || '' })
+                .then(() => setStorageData({ debugLog: `[REINS] ${customer.name}${_recLabel}: 最終検索日を更新 → ${_todayStr}` }))
+                .catch(e => logError(`[REINS] ${customer.name}: 最終検索日更新失敗: ${e && e.message}`))
+            );
           } catch (_e) {
-            logError(`[REINS] ${customer.name}: 最終検索日更新失敗: ${_e.message}`);
+            // 上の「本日済みスキップ」は正常系なのでログを出さない
+            if (!(_e && _e.__skipSearchDateUpdate)) {
+              logError(`[REINS] ${customer.name}: 最終検索日更新失敗: ${_e && _e.message}`);
+            }
           }
         } catch (err) {
           if (err.message === 'SEARCH_CANCELLED') return;
@@ -4475,6 +4497,11 @@ globalThis.runSearchCycle = async function runSearchCycle() {
       }
 
       if (ci < criteria.length - 1) await sleep(3000);
+    }
+
+    // 顧客ごとに投げておいた最終検索日の更新を、ここで必ず完了させる
+    if (_searchDateUpdates.length > 0) {
+      await Promise.allSettled(_searchDateUpdates);
     }
 
     if (services.reins && reinsTab) {
