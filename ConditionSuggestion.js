@@ -53,6 +53,33 @@ function listConditionSuggestionCandidates() {
 }
 
 /**
+ * 条件変更提案の対象となる配信ステータスか。
+ *
+ * 物件配信(getExistingCustomers_)は lead を除外しないため、
+ * 「物件は検索・配信されているのに条件変更提案だけ来ない」というズレが起きていた。
+ * 実例: 2026-06-29に条件登録したのに提案が届かない顧客がいた。ステータスが
+ * 問い合わせ取込時の 'lead' のまま残っており、lead→active に変える処理が
+ * どこにも無かった（active になるのはスヌーズ自動解除のときだけ）。
+ *
+ * lead でも条件が入っていれば実質の顧客なので対象にする。
+ * 条件が空のリード（問い合わせだけの人）には「条件を緩めませんか」は送らない。
+ * 条件の有無判定は InquiryImport の _rowHasCriteria_ と同じ基準を使う。
+ *
+ * @param {string} status S列の値（小文字化済み）
+ * @param {Array} row 検索条件シートの行
+ * @return {boolean}
+ */
+function _isConditionSuggestionTargetStatus_(status, row) {
+  if (!status || status === 'active') return true;
+  if (status === 'lead') {
+    try {
+      return (typeof _rowHasCriteria_ === 'function') ? !!_rowHasCriteria_(row) : false;
+    } catch (e) { return false; }
+  }
+  return false;   // paused / auto_paused / snoozed / blocked
+}
+
+/**
  * 全顧客について、条件変更提案の候補かどうかと理由を返す。
  *
  * 候補抽出は該当しない人を無言で continue するため、「送られるはずの人が
@@ -110,8 +137,10 @@ function listConditionSuggestionExclusions() {
 
       if (optOutSet[name]) {
         reason = 'オプトアウト（顧客詳細で「送らない」設定）';
-      } else if (status && status !== 'active') {
-        reason = '配信ステータスが ' + status + '（active のみ対象）';
+      } else if (!_isConditionSuggestionTargetStatus_(status, row)) {
+        reason = (status === 'lead')
+          ? 'リードで条件が未登録（条件が入っていれば対象になります）'
+          : '配信ステータスが ' + status + '（active と 条件入りのlead が対象）';
       } else if (!lineUserIdMap[name]) {
         reason = 'LINE紐付けなし（LINE Users シートに「' + name + '」が無い。名前の表記ゆれの可能性）';
       } else if (lastSuggestAt instanceof Date && (now - lastSuggestAt.getTime()) < thresholdMs) {
@@ -420,9 +449,9 @@ function _getSuggestionIgnoreList_() {
     if (!name) continue;
     // テストアカウント除外
     if (name === 'Hiroki') continue;
-    // S列: activeのみ（空もactive扱い）
+    // S列: active（空もactive扱い）+ 条件入りのlead
     var status = String(row[18] || '').trim().toLowerCase();
-    if (status && status !== 'active') continue;
+    if (!_isConditionSuggestionTargetStatus_(status, row)) continue;
     // Z列: 提案送信日がある
     var lastSuggestAt = row[CONDITION_SUGGESTION_SENT_COL - 1];
     if (!(lastSuggestAt instanceof Date)) continue;
@@ -781,9 +810,9 @@ function getConditionSuggestionCandidates_() {
     // オプトアウト顧客は除外 (自動送信もAdmin候補一覧にも出さない)
     if (optOutSet[name]) continue;
 
-    // 配信ステータス: active のみ対象 (paused/snoozed/blocked は除外)
+    // 配信ステータス: active + 条件入りのlead (paused/auto_paused/snoozed/blocked は除外)
     var status = String(row[18] || '').trim().toLowerCase();
-    if (status && status !== 'active') continue;
+    if (!_isConditionSuggestionTargetStatus_(status, row)) continue;
 
     var userId = lineUserIdMap[name];
     if (!userId) continue; // LINE紐付け無し → 送れないのでスキップ
