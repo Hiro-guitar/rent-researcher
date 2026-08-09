@@ -2650,7 +2650,7 @@ function showAlert(msg) {
   document.body.appendChild(overlay);
 }
 
-function esc(str) { return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(str) { return String(str == null ? '' : str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escSel(str) { return str.replace(/([!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~])/g, '\\$1'); }
 function escAttr(str) { return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
 function hashCode(str) { var hash = 0; for (var i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0; } return Math.abs(hash).toString(36); }
@@ -3073,18 +3073,23 @@ function loadSuggestionExclusions() {
   google.script.run
     .withSuccessHandler(function(rows) {
       btn.disabled = false;
-      if (!rows || rows.length === 0) {
-        el.innerHTML = '<div style="font-size:12px;color:#999;">除外されている顧客はいません。</div>';
-        return;
+      try {
+        if (!rows || rows.length === 0) {
+          el.innerHTML = '<div style="font-size:12px;color:#999;">除外されている顧客はいません。</div>';
+          return;
+        }
+        var html = '<div style="font-size:11px;color:#999;margin-bottom:4px;">' + rows.length + '人が候補から外れています</div>';
+        rows.forEach(function(r) {
+          html += '<div style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:6px 10px;margin-bottom:4px;">'
+            + '<span style="font-size:12px;color:#ddd;font-weight:600;">' + esc(r.name) + '</span>'
+            + '<span style="font-size:11px;color:#d4b35a;margin-left:8px;">' + esc(r.reason) + '</span>'
+            + '</div>';
+        });
+        el.innerHTML = html;
+      } catch (e) {
+        // 描画で落ちると「読み込み中...」のまま固まって原因が見えなくなる
+        el.innerHTML = '<div style="color:#c00;font-size:12px;">表示エラー: ' + esc(e.message || String(e)) + '</div>';
       }
-      var html = '<div style="font-size:11px;color:#999;margin-bottom:4px;">' + rows.length + '人が候補から外れています</div>';
-      rows.forEach(function(r) {
-        html += '<div style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:6px 10px;margin-bottom:4px;">'
-          + '<span style="font-size:12px;color:#ddd;font-weight:600;">' + esc(r.name) + '</span>'
-          + '<span style="font-size:11px;color:#d4b35a;margin-left:8px;">' + esc(r.reason) + '</span>'
-          + '</div>';
-      });
-      el.innerHTML = html;
     })
     .withFailureHandler(function(err) {
       btn.disabled = false;

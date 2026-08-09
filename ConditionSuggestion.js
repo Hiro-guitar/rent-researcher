@@ -73,10 +73,23 @@ function listConditionSuggestionExclusions() {
     var lastCol = Math.max(sheet.getLastColumn(), CONDITION_SUGGESTION_COUNT_COL);
     var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
 
+    // ⚠️ 承認待ち物件・閲覧ログの全件読み込みは重い。除外理由の大半は日付を見る前の
+    //   4ゲート(オプトアウト/ステータス/LINE紐付け/前回提案)で決まるので、
+    //   そこまでで確定しなかった人がいる時だけ読む（遅延ロード）。
+    //   以前は無条件に両方読んでいて、候補一覧の直後に押すと重い読み込みが
+    //   2回連続になり、画面が読み込み中のまま返らなかった。
     var lineUserIdMap = _getLineUserIdMapByCustomerName_();
-    var lastDeliveryMap = _buildLastDeliveryMap_();
-    var lastViewMap = _buildLastViewMap_();
     var optOutSet = _getConditionSuggestionOptOutSet_();
+    var lastDeliveryMap = null;
+    var lastViewMap = null;
+    function _deliveryMap() {
+      if (lastDeliveryMap === null) lastDeliveryMap = _buildLastDeliveryMap_();
+      return lastDeliveryMap;
+    }
+    function _viewMap() {
+      if (lastViewMap === null) lastViewMap = _buildLastViewMap_();
+      return lastViewMap;
+    }
 
     var now = Date.now();
     var thresholdMs = CONDITION_SUGGESTION_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
@@ -105,8 +118,8 @@ function listConditionSuggestionExclusions() {
           + CONDITION_SUGGESTION_THRESHOLD_DAYS + '日空ける必要あり）';
       } else {
         var regDate = row[0] instanceof Date ? row[0] : null;
-        var lastDelivery = lastDeliveryMap[name] || null;
-        var lastView = lastViewMap[name] || null;
+        var lastDelivery = _deliveryMap()[name] || null;
+        var lastView = _viewMap()[name] || null;
         var refDate = lastDelivery || regDate;
         if (!refDate) {
           reason = '登録日も最終通知日も取得できない（A列が日付でない可能性）';
