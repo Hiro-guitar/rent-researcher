@@ -1898,7 +1898,53 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
   const customerSeenIds = seenIds[customer.name] || [];
   let submittedCount = 0;
   // 個別ログを出さずに件数だけ集計する silent スキップ用カウンタ
-  const silentSkipStats = { seen: 0 };
+  const silentSkipStats = { seen: 0, cached: 0, cachedBuilding: 0 };
+
+  // ── スキップ済み物件キャッシュ ──
+  // ES-Squareだけ他3サービスと違ってキャッシュが無く、前回弾いた物件を毎サイクル
+  // 詳細ページまで開き直していた（中村さま3件で12秒、早坂2件で10秒 / 2026-08-09）。
+  // ⚠️ キーは顧客名ではなく条件ごと。本人条件とおすすめ条件は customer.name が
+  //   同じなので、顧客名だけだと両者がキャッシュを消し合う。
+  const _skipCacheKey = customer.recommend
+    ? `rec_${customer.recommendId || customer.name}`
+    : customer.name;
+  const skipStorageKey = `essquareSkipped_${_skipCacheKey}`;
+  const skipHashKey = `essquareSkipHash_${_skipCacheKey}`;
+  const skipData = await getStorageData([skipStorageKey, skipHashKey]);
+  const skippedMap = skipData[skipStorageKey] || {};
+  let skippedMapDirty = false;
+
+  // 条件が変わったら、その条件に関係するスキップだけ捨てる
+  const _simpleHash = (x) => String(x).split('').reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0).toString(36);
+  const _prevHashes = skipData[skipHashKey] || {};
+  const _origCustomer = customer._originalCustomer || customer;
+  const _currentHashes = {
+    structures: _simpleHash(JSON.stringify(_origCustomer.structures || [])),
+    stations: _simpleHash(JSON.stringify({ s: _origCustomer.stations, r: _origCustomer.routes_with_stations, w: _origCustomer.walk })),
+    layouts: _simpleHash(JSON.stringify(_origCustomer.layouts || [])),
+    equipment: _simpleHash(JSON.stringify(_origCustomer.equipment || '')),
+    building_age: _simpleHash(JSON.stringify(_origCustomer.building_age || '')),
+    cities: _simpleHash(JSON.stringify({ c: _origCustomer.cities || [], t: _origCustomer.selectedTowns || {} })),
+  };
+  const _reasonPattern = {
+    structures: /構造不一致|構造不明/,
+    stations: /駅不一致|駅\/徒歩不一致|交通情報なし/,
+    layouts: /間取り不一致/,
+    equipment: /敷金|礼金|定期借家|ロフト|プロパンガス|都市ガス|バス・トイレ|ペット|事務所|フリーレント|南向き|最上階|階/,
+    building_age: /新築でない|築年/,
+    cities: /町名不一致|市区町村不一致/,
+  };
+  for (const [_cat, _h] of Object.entries(_currentHashes)) {
+    if (_prevHashes[_cat] && _prevHashes[_cat] !== _h) {
+      const _pat = _reasonPattern[_cat];
+      if (_pat) {
+        for (const k of Object.keys(skippedMap)) {
+          if (_pat.test(skippedMap[k].reason)) delete skippedMap[k];
+        }
+      }
+    }
+  }
+  await setStorageData({ [skipHashKey]: _currentHashes });
 
   // エリア指定チェック（駅コード解決は1回だけ、後のチャンク分割でも再利用）
   const allStationCodesEarly = _resolveEssquareStationCodes(customer);
@@ -2097,6 +2143,21 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
+      // ── スキップ済みチェック（前回弾いた物件は詳細ページを開かない）──
+      const _propKey = prop.room_id || prop.url || '';
+      if (!isForced && !isTestUser && _propKey && skippedMap[_propKey]) {
+        silentSkipStats.cached++;
+        continue;
+      }
+      // 建物単位（町名/駅/構造/ガスなど、建物を見れば決まる理由）
+      if (!isForced && !isTestUser && typeof globalThis.__buildBuildingSkipKey === 'function') {
+        const _bk = globalThis.__buildBuildingSkipKey(prop);
+        if (_bk && skippedMap[_bk]) {
+          silentSkipStats.cachedBuilding++;
+          continue;
+        }
+      }
+
       // 詳細取得: 検索結果ページ上の物件リンクをクリック
       try {
         // 検索結果ページで該当物件のリンクをクリック
@@ -2261,6 +2322,15 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
           const earlyRejectReason = getEssquareFilterRejectReason(prop, customer);
           if (earlyRejectReason) {
             await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${earlyRejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
+            // スキップ済みとして記録（次回以降、詳細ページを開かない）
+            try {
+              const _pk = prop.room_id || prop.url || '';
+              if (_pk) { skippedMap[_pk] = { reason: earlyRejectReason, ts: Date.now() }; skippedMapDirty = true; }
+              if (globalThis.__isBuildingLevelSkipReason && globalThis.__isBuildingLevelSkipReason(earlyRejectReason)) {
+                const _bk2 = globalThis.__buildBuildingSkipKey(prop);
+                if (_bk2) { skippedMap[_bk2] = { reason: earlyRejectReason, ts: Date.now() }; skippedMapDirty = true; }
+              }
+            } catch (_) {}
             // ブラウザバックで検索結果ページに戻る
             await _goBackToEssquareSearchResults(tabId);
             continue;
@@ -2401,6 +2471,15 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
       const rejectReason = getEssquareFilterRejectReason(prop, customer);
       if (rejectReason) {
         await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
+        // スキップ済みとして記録（次回以降、詳細ページを開かない）
+        try {
+          const _pk = prop.room_id || prop.url || '';
+          if (_pk) { skippedMap[_pk] = { reason: rejectReason, ts: Date.now() }; skippedMapDirty = true; }
+          if (globalThis.__isBuildingLevelSkipReason && globalThis.__isBuildingLevelSkipReason(rejectReason)) {
+            const _bk2 = globalThis.__buildBuildingSkipKey(prop);
+            if (_bk2) { skippedMap[_bk2] = { reason: rejectReason, ts: Date.now() }; skippedMapDirty = true; }
+          }
+        } catch (_) {}
         continue;
       }
 
@@ -2470,7 +2549,12 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
 
   // 個別ログを出さなかった silent スキップを集約ログで出す
   const silentParts = [];
+  if (skippedMapDirty) {
+    try { await setStorageData({ [skipStorageKey]: skippedMap }); } catch (_) {}
+  }
   if (silentSkipStats.seen > 0) silentParts.push(`通知済み ${silentSkipStats.seen}件`);
+  if (silentSkipStats.cached > 0) silentParts.push(`フィルタ済キャッシュ ${silentSkipStats.cached}件`);
+  if (silentSkipStats.cachedBuilding > 0) silentParts.push(`建物キャッシュ ${silentSkipStats.cachedBuilding}件`);
   if (silentParts.length > 0) {
     await setStorageData({ debugLog: `[ES-Square] ${customer.name}: スキップ内訳 → ${silentParts.join(' / ')}` });
   }
