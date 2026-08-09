@@ -4501,8 +4501,16 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   const customerSeenIds = seenIds[customer.name] || [];
 
   // スキップ済み物件IDをロード（詳細ページ遷移を省略して高速化）
-  const skipStorageKey = `reinsSkipped_${customer.name}`;
-  const skipHashKey = `reinsSkipHash_${customer.name}`;
+  // ⚠️ キャッシュのキーは顧客名ではなく「条件ごと」にすること。
+  //   本人条件とおすすめ条件は customer.name が同じなので、顧客名だけでキー付けすると
+  //   両者が同じキャッシュを共有する。設備などが少しでも違うと、条件ハッシュの不一致で
+  //   走るたびにお互いのスキップ記録を消し合い、毎回すべて詳細ページを取り直していた
+  //   （例: ロフトNGの物件7件を毎サイクル再取得＝約40秒 / 2026-08-09）。
+  const _skipCacheKey = customer.recommend
+    ? `rec_${customer.recommendId || customer.name}`
+    : customer.name;
+  const skipStorageKey = `reinsSkipped_${_skipCacheKey}`;
+  const skipHashKey = `reinsSkipHash_${_skipCacheKey}`;
   const skipData = await getStorageData([skipStorageKey, skipHashKey]);
   const skippedMap = skipData[skipStorageKey] || {}; // { propertyNumber: { reason, ts } }
 
@@ -4801,8 +4809,36 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   }
 
   globalThis.__incrementReinsUsage('search');
-  await csleep(delay);
-  await setStorageData({ debugLog: `${customer.name}: 検索結果ページ到達` });
+
+  // ⚠️ ここで delay（設定値・既定5秒）を無条件に待たないこと。
+  //   直前の MutationObserver で行の出現は確認済みなので、大半のケースで待つ必要がない。
+  //   ただし行が描画途中だと取りこぼすため、「行数が増えなくなるまで」待って早期に抜ける。
+  //   上限は従来どおり delay なので、遅いときの挙動は今までと変わらない。
+  let _waitMs = 0;
+  try {
+    const _stable = await chrome.scripting.executeScript({
+      target: { tabId },
+      args: [delay],
+      func: (maxMs) => new Promise((resolve) => {
+        const t0 = Date.now();
+        let last = -1, stable = 0;
+        const tick = () => {
+          const n = document.querySelectorAll('.p-table-body-row').length;
+          if (n > 0 && n === last) stable++; else stable = 0;
+          last = n;
+          if (stable >= 2) return resolve({ rows: n, ms: Date.now() - t0 });
+          if (Date.now() - t0 >= maxMs) return resolve({ rows: n, ms: Date.now() - t0, capped: true });
+          setTimeout(tick, 150);
+        };
+        tick();
+      })
+    });
+    _waitMs = _stable?.[0]?.result?.ms || 0;
+  } catch (_) {
+    await csleep(delay);  // 注入に失敗したら従来どおり待つ
+  }
+  if (isSearchCancelled(searchId)) return;
+  await setStorageData({ debugLog: `${customer.name}: 検索結果ページ到達 (描画待ち ${_waitMs}ms)` });
 
   const { stats } = await getStorageData(['stats']);
   const currentStats = stats || { totalFound: 0, totalSubmitted: 0, errors: [], lastError: null };

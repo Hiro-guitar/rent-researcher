@@ -905,8 +905,16 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
   const silentSkipStats = { seen: 0, cached: 0 };
 
   // スキップ済み物件キャッシュをロード（詳細ページ遷移を省略して高速化）
-  const skipStorageKey = `ieloveSkipped_${customer.name}`;
-  const skipHashKey = `ieloveSkipHash_${customer.name}`;
+  // ⚠️ キャッシュのキーは顧客名ではなく「条件ごと」にすること。
+  //   本人条件とおすすめ条件は customer.name が同じなので、顧客名だけでキー付けすると
+  //   両者が同じキャッシュを共有する。設備などが少しでも違うと、条件ハッシュの不一致で
+  //   走るたびにお互いのスキップ記録を消し合い、毎回すべて詳細ページを取り直していた
+  //   （例: ロフトNGの物件7件を毎サイクル再取得＝約40秒 / 2026-08-09）。
+  const _skipCacheKey = customer.recommend
+    ? `rec_${customer.recommendId || customer.name}`
+    : customer.name;
+  const skipStorageKey = `ieloveSkipped_${_skipCacheKey}`;
+  const skipHashKey = `ieloveSkipHash_${_skipCacheKey}`;
   const skipData = await getStorageData([skipStorageKey, skipHashKey]);
   const skippedMap = skipData[skipStorageKey] || {}; // { room_id: { reason, ts } }
   let skippedMapDirty = false;
