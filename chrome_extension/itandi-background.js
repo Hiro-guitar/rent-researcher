@@ -1369,6 +1369,15 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
       continue;
     }
 
+    // 建物単位のスキップチェック（同じ建物の別部屋・同じ部屋の重複掲載を詳細取得しない）
+    if (!isForced && !isTestUser && typeof globalThis.__buildBuildingSkipKey === 'function') {
+      const _bk = globalThis.__buildBuildingSkipKey(prop);
+      if (_bk && skippedMap[_bk]) {
+        silentSkipStats.cachedBuilding = (silentSkipStats.cachedBuilding || 0) + 1;
+        continue;
+      }
+    }
+
     // ── 一覧段階フィルタ (申込あり物件は詳細ページ遷移せず即スキップ) ──
     // 検索 API レスポンスの status_type === 'offered' で「申込あり」 と判定済み。
     // テストユーザー・SUUMO 巡回モード・強制再取得は対象外 (既存仕様と整合)。
@@ -1520,6 +1529,13 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
         skippedMap[prop._raw_room_id] = { reason: rejectReason, ts: Date.now() };
         skippedMapDirty = true;
       }
+      // 建物を見れば決まる理由（町名/駅/構造/ガス）は建物キーでも記録する
+      try {
+        if (globalThis.__isBuildingLevelSkipReason && globalThis.__isBuildingLevelSkipReason(rejectReason)) {
+          const _bk2 = globalThis.__buildBuildingSkipKey(prop);
+          if (_bk2) { skippedMap[_bk2] = { reason: rejectReason, ts: Date.now() }; skippedMapDirty = true; }
+        }
+      } catch (_) {}
       continue;
     }
 
@@ -1638,6 +1654,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
   const silentParts = [];
   if (silentSkipStats.seen > 0) silentParts.push(`通知済み ${silentSkipStats.seen}件`);
   if (silentSkipStats.cached > 0) silentParts.push(`前回スキップ済み ${silentSkipStats.cached}件`);
+  if (silentSkipStats.cachedBuilding > 0) silentParts.push(`建物キャッシュ ${silentSkipStats.cachedBuilding}件`);
   if (silentParts.length > 0) {
     await setStorageData({ debugLog: `[itandi] ${customer.name}: スキップ内訳 → ${silentParts.join(' / ')}` });
   }

@@ -1047,6 +1047,17 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         continue;
       }
 
+      // 建物単位のスキップチェック。
+      // 同じ建物の別部屋・同じ部屋の重複掲載(別room_id)は room_id キーでは当たらないため、
+      // 「建物を見れば決まる理由」で弾いた建物は建物キーでも覚えておき、詳細取得を省く。
+      if (!isForced && !isTestUser && typeof globalThis.__buildBuildingSkipKey === 'function') {
+        const _bk = globalThis.__buildBuildingSkipKey(prop);
+        if (_bk && skippedMap[_bk]) {
+          silentSkipStats.cachedBuilding = (silentSkipStats.cachedBuilding || 0) + 1;
+          continue;
+        }
+      }
+
       // 申込あり物件は一覧の時点で即スキップ（詳細ページ遷移を省略）
       // SUUMO巡回モード時はスキップせず、詳細取得→GAS送信→Discord通知(⚠️ 募集状況: 申込あり)へ流す
       if (!globalThis._suumoPatrolMode && prop.listing_status && (prop.listing_status === '申込あり' || /^申込\d+件$/.test(prop.listing_status))) {
@@ -1175,6 +1186,14 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
         await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
         // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
         skippedMap[prop.room_id] = { reason: rejectReason, ts: Date.now() };
+        // 建物を見れば決まる理由（町名/駅/構造/ガス）は建物キーでも記録し、
+        // 同じ建物の他の部屋・重複掲載を詳細取得せずに弾けるようにする。
+        try {
+          if (globalThis.__isBuildingLevelSkipReason && globalThis.__isBuildingLevelSkipReason(rejectReason)) {
+            const _bk2 = globalThis.__buildBuildingSkipKey(prop);
+            if (_bk2) skippedMap[_bk2] = { reason: rejectReason, ts: Date.now() };
+          }
+        } catch (_) {}
         skippedMapDirty = true;
         continue;
       }
@@ -1317,6 +1336,7 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
   const silentParts = [];
   if (silentSkipStats.seen > 0) silentParts.push(`通知済み ${silentSkipStats.seen}件`);
   if (silentSkipStats.cached > 0) silentParts.push(`フィルタ済キャッシュ ${silentSkipStats.cached}件`);
+  if (silentSkipStats.cachedBuilding > 0) silentParts.push(`建物キャッシュ ${silentSkipStats.cachedBuilding}件`);
   if (silentParts.length > 0) {
     await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: スキップ内訳 → ${silentParts.join(' / ')}` });
   }

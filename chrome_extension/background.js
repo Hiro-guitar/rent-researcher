@@ -196,6 +196,35 @@ const __normalizeLayoutForKey = (s) => {
 const __PREF_PREFIX_RE = /^(東京都|北海道|大阪府|京都府|.{2,3}県)/;
 const __stripPrefecturePrefix = (s) => String(s || '').replace(__PREF_PREFIX_RE, '');
 
+// === 建物単位のスキップキャッシュ用ヘルパー ===
+// 同じ建物の別部屋や、同じ部屋の重複掲載（別room_id）を毎回詳細ページまで取りに行って
+// 同じ理由で弾いていたため追加（2026-08-09）。
+//   例: メゾン四季301 が5つの別IDで掲載され、5回とも詳細取得して「構造不一致」
+//       クロス大塚6 の5部屋を5回とも詳細取得して「町名不一致」
+//
+// ⚠️ 対象は「建物を見れば決まる理由」だけ。部屋や掲載ごとに変わる理由を入れると、
+//    空いている部屋を誤って弾く。以下は絶対に入れないこと:
+//    申込あり / 通知済み / ロフト / 面積 / 間取り / 賃料 / 入居時期 / 方角 / 階数
+//
+// なお判定自体は顧客の条件に依存する（構造不一致は要求構造しだい）が、
+// スキップキャッシュは条件ごとに分かれており、条件が変わればハッシュ不一致で
+// 破棄されるため、条件をまたいで誤用されることはない。
+const __BUILDING_LEVEL_SKIP_RE = /町名不一致|駅不一致|駅\/徒歩不一致|交通情報なし|構造不一致|構造不明|プロパンガス/;
+globalThis.__isBuildingLevelSkipReason = (reason) => __BUILDING_LEVEL_SKIP_RE.test(String(reason || ''));
+
+// 建物キー: 正規化した住所(丁目まで) + 建物名。部屋番号・面積・間取りは含めない。
+globalThis.__buildBuildingSkipKey = (prop) => {
+  if (!prop) return '';
+  let addr = __toHalfWidthAlnum(prop.address);
+  addr = __kanjiToArabic(addr);
+  addr = __stripPrefecturePrefix(addr);
+  addr = addr.replace(/(\d+)丁目.*$/, '$1丁目');
+  addr = addr.replace(/\s+/g, '').toLowerCase();
+  const bldg = __toHalfWidthAlnum(prop.building_name).replace(/\s+/g, '').toLowerCase();
+  if (!addr && !bldg) return '';
+  return 'bldg:' + addr + '|' + bldg;
+};
+
 // 識別キー生成
 globalThis.__buildPropertyDedupKey = (prop) => {
   if (!prop) return '';
