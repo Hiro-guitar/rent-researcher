@@ -1185,7 +1185,10 @@ async function searchIeloveForCustomer(tabId, customer, seenIds, searchId) {
       if (rejectReason) {
         await setStorageData({ debugLog: `[いえらぶ] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
         // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
-        skippedMap[prop.room_id] = { reason: rejectReason, ts: Date.now() };
+        // 募集状態(申込あり等)はキャッシュしない。状態が変わると検知できなくなるため
+        if (!globalThis.__isCacheableSkipReason || globalThis.__isCacheableSkipReason(rejectReason)) {
+          skippedMap[prop.room_id] = { reason: rejectReason, ts: Date.now() };
+        }
         // 建物を見れば決まる理由（町名/駅/構造/ガス）は建物キーでも記録し、
         // 同じ建物の他の部屋・重複掲載を詳細取得せずに弾けるようにする。
         try {

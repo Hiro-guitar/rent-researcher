@@ -2324,11 +2324,14 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
             await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${earlyRejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
             // スキップ済みとして記録（次回以降、詳細ページを開かない）
             try {
+              // 募集状態(申込あり等)はキャッシュしない。状態が変わると検知できなくなるため
+              if (globalThis.__isCacheableSkipReason && globalThis.__isCacheableSkipReason(earlyRejectReason)) {
               const _pk = prop.room_id || prop.url || '';
               if (_pk) { skippedMap[_pk] = { reason: earlyRejectReason, ts: Date.now() }; skippedMapDirty = true; }
               if (globalThis.__isBuildingLevelSkipReason && globalThis.__isBuildingLevelSkipReason(earlyRejectReason)) {
                 const _bk2 = globalThis.__buildBuildingSkipKey(prop);
                 if (_bk2) { skippedMap[_bk2] = { reason: earlyRejectReason, ts: Date.now() }; skippedMapDirty = true; }
+              }
               }
             } catch (_) {}
             // ブラウザバックで検索結果ページに戻る
@@ -2473,11 +2476,14 @@ async function searchEssquareForCustomer(tabId, customer, seenIds, searchId) {
         await setStorageData({ debugLog: `[ES-Square] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
         // スキップ済みとして記録（次回以降、詳細ページを開かない）
         try {
+          // 募集状態(申込あり等)はキャッシュしない。状態が変わると検知できなくなるため
+          if (globalThis.__isCacheableSkipReason && globalThis.__isCacheableSkipReason(rejectReason)) {
           const _pk = prop.room_id || prop.url || '';
           if (_pk) { skippedMap[_pk] = { reason: rejectReason, ts: Date.now() }; skippedMapDirty = true; }
           if (globalThis.__isBuildingLevelSkipReason && globalThis.__isBuildingLevelSkipReason(rejectReason)) {
             const _bk2 = globalThis.__buildBuildingSkipKey(prop);
             if (_bk2) { skippedMap[_bk2] = { reason: rejectReason, ts: Date.now() }; skippedMapDirty = true; }
+          }
           }
         } catch (_) {}
         continue;

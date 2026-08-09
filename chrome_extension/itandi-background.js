@@ -1548,7 +1548,8 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
         } catch(_) {}
       }
       await setStorageData({ debugLog: `[itandi] ${customer.name}: ✗ スキップ: ${prop.building_name} ${prop.room_number || ''} - ${rejectReason}${globalThis.__formatPropSkipUrl(prop)}` });
-      if (prop._raw_room_id) {
+      // 募集状態(申込あり等)はキャッシュしない。状態が変わると検知できなくなるため
+      if (prop._raw_room_id && (!globalThis.__isCacheableSkipReason || globalThis.__isCacheableSkipReason(rejectReason))) {
         skippedMap[prop._raw_room_id] = { reason: rejectReason, ts: Date.now() };
         skippedMapDirty = true;
       }

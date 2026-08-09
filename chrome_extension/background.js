@@ -196,6 +196,16 @@ const __normalizeLayoutForKey = (s) => {
 const __PREF_PREFIX_RE = /^(東京都|北海道|大阪府|京都府|.{2,3}県)/;
 const __stripPrefecturePrefix = (s) => String(s || '').replace(__PREF_PREFIX_RE, '');
 
+// スキップ理由をキャッシュしてよいか。
+// ⚠️ 「募集状態」に由来する理由はキャッシュしないこと。状態は変わるため、
+//    一度キャッシュすると変化を永久に検知できなくなる。
+//    特に「申込あり」はキャンセルで再び募集中に戻るので、キャッシュすると
+//    キャンセル待ちの検知が丸ごと効かなくなる（2026-08-09）。
+//    物件の固有属性に由来する理由（構造・町名・駅・ガス・ロフト・面積など）は
+//    変わらないのでキャッシュしてよい。
+const __UNCACHEABLE_SKIP_RE = /申込あり|申込\d+件|募集終了|掲載終了|成約/;
+globalThis.__isCacheableSkipReason = (reason) => !__UNCACHEABLE_SKIP_RE.test(String(reason || ''));
+
 // === 建物単位のスキップキャッシュ用ヘルパー ===
 // 同じ建物の別部屋や、同じ部屋の重複掲載（別room_id）を毎回詳細ページまで取りに行って
 // 同じ理由で弾いていたため追加（2026-08-09）。
@@ -5937,7 +5947,10 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
           }
           // スキップ済みとして記録（次回以降、詳細ページ遷移を省略）
           if (detail.reins_property_number) {
-            skippedMap[detail.reins_property_number] = { reason: rejectReason, ts: Date.now() };
+            // 募集状態(申込あり等)はキャッシュしない。状態が変わると検知できなくなるため
+        if (!globalThis.__isCacheableSkipReason || globalThis.__isCacheableSkipReason(rejectReason)) {
+          skippedMap[detail.reins_property_number] = { reason: rejectReason, ts: Date.now() };
+        }
             skippedMapDirty = true;
           }
         }
