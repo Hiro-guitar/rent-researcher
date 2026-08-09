@@ -18,8 +18,29 @@
 let dedicatedItandiTabId = null;
 let dedicatedItandiWindowId = null;
 
-// 駅名→station_idキャッシュ（同一サイクル内で再利用）
+// 駅名→station_idキャッシュ。
+// ⚠️ ここでリセットしないこと（2026-08-09）。runItandiSearch は顧客1人ごとに
+//    呼ばれるため、以前は関数の先頭で {} に戻しており「同一サイクル内で再利用」
+//    という意図に反して毎回空になっていた（なつみ 53駅で13秒かかっていた）。
+//    駅名→IDは変わらない情報なので chrome.storage に永続化して使い回す。
 let itandiStationCache = {};
+let __itandiStationCacheLoaded = false;
+let __itandiStationCacheDirty = false;
+
+async function __loadItandiStationCache() {
+  if (__itandiStationCacheLoaded) return;
+  __itandiStationCacheLoaded = true;
+  try {
+    const d = await getStorageData(['itandiStationCache']);
+    if (d && d.itandiStationCache) itandiStationCache = d.itandiStationCache;
+  } catch (_) {}
+}
+
+async function __saveItandiStationCache() {
+  if (!__itandiStationCacheDirty) return;
+  __itandiStationCacheDirty = false;
+  try { await setStorageData({ itandiStationCache }); } catch (_) {}
+}
 
 // === 価格テキストパーサー ===
 
@@ -281,6 +302,7 @@ async function resolveItandiStationIds(tabId, customer) {
       }
 
       itandiStationCache[cacheKey] = matched;
+      __itandiStationCacheDirty = true;
       allIds.push(...matched);
 
       if (matched.length === 0) {
@@ -1060,8 +1082,8 @@ function buildItandiPropertyDataJson(prop) {
  * background.js の runSearchCycle() から呼ばれる。
  */
 async function runItandiSearch(criteria, seenIds, searchId) {
-  // 駅名キャッシュをリセット
-  itandiStationCache = {};
+  // 駅名キャッシュは消さずに読み込む（駅名→IDは変わらないため使い回す）
+  await __loadItandiStationCache();
 
   await setStorageData({ debugLog: '[itandi] 検索開始...' });
 
@@ -1184,6 +1206,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
   if (stationNames.length > 0) {
     try {
       stationIds = await resolveItandiStationIds(tabId, customer);
+      await __saveItandiStationCache();   // 新しく解決した駅があれば永続化
       if (stationIds.length > 0) {
         await setStorageData({ debugLog: `[itandi] ${customer.name}: station_ids解決 ${stationIds.length}件` });
       } else {
