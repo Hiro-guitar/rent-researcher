@@ -479,8 +479,10 @@ input[type="range"]::-webkit-slider-thumb {
       <div style="padding:0 8px 8px;">
         <button id="exclusionBtn" onclick="loadSuggestionExclusions()"
           style="background:#2d2d2d;color:#aaa;border:1px solid #555;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;">
-          候補に入らない人と理由を見る
+          全顧客の判定結果を見る
         </button>
+        <input id="exclusionFilter" oninput="renderSuggestionExclusions()" placeholder="名前で絞り込み"
+          style="display:none;margin-left:8px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:5px 8px;font-size:12px;width:180px;">
         <div id="exclusionList" style="margin-top:8px;"></div>
       </div>
       <div id="suggestionFooter" style="display:none;padding:8px 12px;border-top:1px solid #404040;background:#252526;">
@@ -3064,7 +3066,44 @@ function refreshSuggestionList() {
     .listConditionSuggestionCandidates();
 }
 
-// 候補に入らなかった人と理由を出す。名前の表記ゆれ等で無言で落ちているのを見つける用。
+// 全顧客の判定結果（候補 or 除外理由）。送られない理由を1人ずつ確かめる用。
+var _exclusionRows = [];
+function renderSuggestionExclusions() {
+  var el = document.getElementById('exclusionList');
+  var q = (document.getElementById('exclusionFilter').value || '').trim();
+  try {
+    var rows = _exclusionRows;
+    if (q) rows = rows.filter(function(r) { return String(r.name || '').indexOf(q) >= 0; });
+    if (rows.length === 0) {
+      el.innerHTML = '<div style="font-size:12px;color:#999;">'
+        + (q ? '「' + esc(q) + '」に一致する顧客がいません。名前の表記が違う可能性があります。' : '顧客がいません。')
+        + '</div>';
+      return;
+    }
+    var cand = rows.filter(function(r) { return r.isCandidate; }).length;
+    var html = '<div style="font-size:11px;color:#999;margin-bottom:4px;">'
+      + rows.length + '人（候補 ' + cand + '人 / 対象外 ' + (rows.length - cand) + '人）</div>';
+    rows.forEach(function(r) {
+      var nm = String(r.name || '');
+      // ゼロ幅スペース等は trim() で消えないため、見える文字が残るかで判定する。
+      // 名前が見えない行が実在し、画面上で誰なのか分からなくなっていた。
+      var visible = nm.replace(/[\s\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, '');
+      var shown = visible ? esc(nm) : '(表示できない名前・行' + r.row + ')';
+      html += '<div style="background:#2d2d2d;border:1px solid ' + (r.isCandidate ? '#4a7a2a' : '#404040')
+        + ';border-radius:6px;padding:6px 10px;margin-bottom:4px;">'
+        + '<span style="font-size:12px;color:#ddd;font-weight:600;">' + shown + '</span>'
+        + '<span style="font-size:11px;color:' + (r.isCandidate ? '#8fd06c' : '#d4b35a') + ';margin-left:8px;">'
+        + esc(r.reason) + '</span>'
+        + '<span style="font-size:10px;color:#777;margin-left:8px;">行' + esc(r.row) + '</span>'
+        + '</div>';
+    });
+    el.innerHTML = html;
+  } catch (e) {
+    // 描画で落ちると「読み込み中...」のまま固まって原因が見えなくなる
+    el.innerHTML = '<div style="color:#c00;font-size:12px;">表示エラー: ' + esc(e.message || String(e)) + '</div>';
+  }
+}
+
 function loadSuggestionExclusions() {
   var el = document.getElementById('exclusionList');
   var btn = document.getElementById('exclusionBtn');
@@ -3073,23 +3112,9 @@ function loadSuggestionExclusions() {
   google.script.run
     .withSuccessHandler(function(rows) {
       btn.disabled = false;
-      try {
-        if (!rows || rows.length === 0) {
-          el.innerHTML = '<div style="font-size:12px;color:#999;">除外されている顧客はいません。</div>';
-          return;
-        }
-        var html = '<div style="font-size:11px;color:#999;margin-bottom:4px;">' + rows.length + '人が候補から外れています</div>';
-        rows.forEach(function(r) {
-          html += '<div style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:6px 10px;margin-bottom:4px;">'
-            + '<span style="font-size:12px;color:#ddd;font-weight:600;">' + esc(r.name) + '</span>'
-            + '<span style="font-size:11px;color:#d4b35a;margin-left:8px;">' + esc(r.reason) + '</span>'
-            + '</div>';
-        });
-        el.innerHTML = html;
-      } catch (e) {
-        // 描画で落ちると「読み込み中...」のまま固まって原因が見えなくなる
-        el.innerHTML = '<div style="color:#c00;font-size:12px;">表示エラー: ' + esc(e.message || String(e)) + '</div>';
-      }
+      _exclusionRows = rows || [];
+      document.getElementById('exclusionFilter').style.display = 'inline-block';
+      renderSuggestionExclusions();
     })
     .withFailureHandler(function(err) {
       btn.disabled = false;

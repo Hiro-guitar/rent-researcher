@@ -53,7 +53,7 @@ function listConditionSuggestionCandidates() {
 }
 
 /**
- * 候補に入らなかった顧客と、その理由を返す。
+ * 全顧客について、条件変更提案の候補かどうかと理由を返す。
  *
  * 候補抽出は該当しない人を無言で continue するため、「送られるはずの人が
  * 送られていない」ときに原因が分からなかった（例: LINE Users シートの顧客名が
@@ -104,6 +104,7 @@ function listConditionSuggestionExclusions() {
       seen[name] = true;
 
       var reason = '';
+      var isCandidate = false;
       var status = String(row[18] || '').trim().toLowerCase();
       var lastSuggestAt = row[CONDITION_SUGGESTION_SENT_COL - 1];
 
@@ -130,11 +131,20 @@ function listConditionSuggestionExclusions() {
           var hasRecentDelivery = lastDelivery && (now - lastDelivery.getTime()) < thresholdMs;
           var lastViewOldOrNone = !lastView || (now - lastView.getTime()) >= thresholdMs;
           var caseB = regOldEnough && hasRecentDelivery && lastViewOldOrNone;
-          if (caseA || caseB) continue; // 候補に入っている
-          reason = '条件を満たさない（基準日から' + Math.floor(elapsedMs / dayMs) + '日）';
+          if (caseA || caseB) {
+            // 候補もリストに出す。出さないと「探しても居ない」となって
+            // 送られない理由を確かめられない（2026-08-09）。
+            isCandidate = true;
+            reason = caseA
+              ? '候補に入っています（' + Math.floor(elapsedMs / dayMs) + '日間 物件通知なし）'
+              : '候補に入っています（物件は届いているが閲覧なし）';
+          } else {
+            reason = '条件を満たさない（基準日から' + Math.floor(elapsedMs / dayMs) + '日）';
+          }
         }
       }
-      out.push({ name: name, reason: reason });
+      // 名前が空白や不可視文字だけだと画面で見分けられないので行番号を添える
+      out.push({ name: name, reason: reason, row: i + 1, isCandidate: isCandidate });
     }
     return out;
   } catch (e) {
