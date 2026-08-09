@@ -4549,6 +4549,37 @@ function _getCustomerListForCRM_() {
     }
   } catch (ePhone) { console.warn('電話番号付与エラー: ' + ePhone.message); }
 
+  // 最終送信日を 通知済み物件 から取得（条件を緩めるべき人を見つけるため）
+  // 「配信中なのに長く物件を送れていない」＝条件が厳しすぎる可能性が高い、という判断に使う。
+  // A列=顧客名 / D列=送信日時 の2列だけ読む（全列だと重いため）。
+  try {
+    var seenSheet2 = ss.getSheetByName('通知済み物件');
+    if (seenSheet2 && seenSheet2.getLastRow() > 1) {
+      var seenRows = seenSheet2.getRange(2, 1, seenSheet2.getLastRow() - 1, 4).getValues();
+      var lastSentMs = {};
+      for (var si = 0; si < seenRows.length; si++) {
+        var sName = String(seenRows[si][0] || '').trim();
+        if (!sName || !nameMap[sName]) continue;
+        var sDate = seenRows[si][3];
+        if (!(sDate instanceof Date)) continue;
+        var ms = sDate.getTime();
+        if (!lastSentMs[sName] || ms > lastSentMs[sName]) lastSentMs[sName] = ms;
+      }
+      var nowMs = Date.now();
+      for (var ni = 0; ni < customers.length; ni++) {
+        var cn = customers[ni];
+        var lm = lastSentMs[cn.name];
+        if (lm) {
+          cn.lastSentAt = Utilities.formatDate(new Date(lm), 'Asia/Tokyo', 'yyyy/MM/dd');
+          cn.daysSinceSent = Math.floor((nowMs - lm) / 86400000);
+        } else {
+          cn.lastSentAt = '';
+          cn.daysSinceSent = null;   // 一度も送れていない
+        }
+      }
+    }
+  } catch (eSent) { console.warn('最終送信日取得エラー: ' + eSent.message); }
+
   // 最終アクション日を アクションログ から取得
   try {
     var actionSheet = ss.getSheetByName('アクションログ');

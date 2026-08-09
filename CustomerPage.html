@@ -560,6 +560,7 @@ function renderCustomerList(list) {
       : '<div style="color:#e0707a;">📵 電話なし</div>';
     if (c.registeredAt) html += '<div>登録: ' + esc(c.registeredAt) + '</div>';
     if (c.lastAction) html += '<div>最終: ' + esc(c.lastAction) + '</div>';
+    html += sentInfoHtml(c);
     html += '</div></div>';
   }
   el.innerHTML = html;
@@ -670,6 +671,12 @@ function renderKanban(list) {
         if (!lb) return -1;
         return _mode === 'lastAction' ? lb.localeCompare(la) : la.localeCompare(lb);
       }
+      if (_mode === 'notSent') {
+        // 送れていない順（未送信 → 日数が多い順）。同数なら名前順で安定させる
+        var ka = notSentKey(a), kb = notSentKey(b);
+        if (ka !== kb) return kb - ka;
+        return (a.name || '').localeCompare(b.name || '');
+      }
       if (_mode === 'registeredNew' || _mode === 'registeredOld') {
         var ra = a.registeredAt || '', rb = b.registeredAt || '';
         if (!ra && !rb) return 0;
@@ -697,6 +704,7 @@ function renderKanban(list) {
       + '<option value="manual"' + (_sm === 'manual' ? ' selected' : '') + '>並び: 手動（ドラッグ順）</option>'
       + '<option value="lastAction"' + (_sm === 'lastAction' ? ' selected' : '') + '>並び: 最終アクションが新しい順</option>'
       + '<option value="lastActionOld"' + (_sm === 'lastActionOld' ? ' selected' : '') + '>並び: 最終アクションが古い順</option>'
+      + '<option value="notSent"' + (_sm === 'notSent' ? ' selected' : '') + '>並び: 物件を送れていない順</option>'
       + '<option value="registeredNew"' + (_sm === 'registeredNew' ? ' selected' : '') + '>並び: 登録が新しい順</option>'
       + '<option value="registeredOld"' + (_sm === 'registeredOld' ? ' selected' : '') + '>並び: 登録が古い順</option>'
       + '</select></div>';
@@ -719,6 +727,8 @@ function renderKanban(list) {
             : '<span style="color:#e0707a;">📵 電話なし</span>')
         + '</div>';
       html += '<div class="kc-meta">' + (it.lastAction ? '最終: ' + esc(it.lastAction) : '登録: ' + esc(it.registeredAt || '')) + '</div>';
+      var _si = sentInfoHtml(it);
+      if (_si) html += '<div class="kc-meta">' + _si + '</div>';
       html += '</div>';
     }
     html += '</div></div>';
@@ -1014,6 +1024,26 @@ function taskMark(it) {
   var title = od ? '期限切れタスク' + it.overdueTasks + '件' : '未完了タスク' + it.openTasks + '件';
   return '<span title="' + title + '" style="display:inline-block;background:' + bg + ';color:' + fg +
     ';border-radius:8px;padding:0 6px;font-size:11px;font-weight:600;vertical-align:middle;">📋 ' + it.openTasks + '</span>';
+}
+// 「最後に物件を送れてから何日か」。条件を緩めるべき人を見つけるための表示。
+// ⚠️ 何日以上を赤くする、といった閾値は入れないこと。線引きに意味がある値ではなく、
+//   並べ替え（送れていない順）で上に来るかどうかで判断する運用にしている。
+//   一度も送れていない人だけは日数が出せないので別扱いにする。
+function sentInfoHtml(c) {
+  if (!c) return '';
+  if (c.daysSinceSent === null || c.daysSinceSent === undefined) {
+    if (!c.lastSentAt) return '<div style="color:#c98fd6;">📨 物件は未送信</div>';
+    return '';
+  }
+  var d = c.daysSinceSent;
+  var label = (d <= 0) ? '本日' : (d + '日前');
+  return '<div>📨 最終送信: ' + label + '（' + esc(c.lastSentAt || '') + '）</div>';
+}
+// 送れていない順に並べるためのキー。大きいほど「送れていない」。未送信は最上位。
+function notSentKey(c) {
+  if (!c) return -1;
+  if (c.daysSinceSent === null || c.daysSinceSent === undefined) return Number.MAX_SAFE_INTEGER;
+  return c.daysSinceSent;
 }
 function statusLabel(s) {
   var labels = {active:'配信中', paused:'停止', auto_paused:'自動停止', snoozed:'スヌーズ', blocked:'ブロック', lead:'リード'};
