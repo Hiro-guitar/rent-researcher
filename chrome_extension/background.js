@@ -6190,6 +6190,49 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
 // --- ユーティリティ ---
 
 // 拡張専用のREINSタブID（検索中のみ有効）
+// === REINS: background throttling 回避 (chrome.debugger + focus emulation) ===
+// 専用REINSタブは active:false（＝常に裏タブ）で作られるため、Chromeに凍結されて
+// 詳細ページの取得が数十秒止まる事象が出ていた（2026-08-09 実測47秒）。
+// タブへ chrome.debugger をアタッチし「フォーカスされた可視ページ」を装うことで、
+// 裏タブのまま throttling を回避する。ES-Square で先に実績のある方式をそのまま使う。
+//
+// ⚠️ フォーカスは実際には動かない（タブは切り替わらない）。
+// ⚠️ サーバーから見える通信は一切変わらない（ヘッダー・UA・リクエスト数とも同一）。
+// ⚠️ 無音audioでaudible化する方式は Chrome150 で塞がれており使えない。
+let __reinsDebuggerTabId = null;
+
+async function __attachReinsDebugger(tabId) {
+  if (!tabId) return;
+  if (__reinsDebuggerTabId === tabId) return; // 既にアタッチ済み
+  try {
+    await chrome.debugger.attach({ tabId }, '1.3');
+    __reinsDebuggerTabId = tabId;
+    await chrome.debugger.sendCommand({ tabId }, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+    await setStorageData({ debugLog: '[REINS] throttling回避: debugger attach + focus emulation 有効' });
+  } catch (e) {
+    __reinsDebuggerTabId = null;
+    await setStorageData({ debugLog: '[REINS] debugger attach 失敗: ' + (e && e.message || e) });
+  }
+}
+
+async function __detachReinsDebugger(tabId) {
+  const target = tabId || __reinsDebuggerTabId;
+  if (!target) return;
+  __reinsDebuggerTabId = null;
+  try {
+    await chrome.debugger.detach({ tabId: target });
+  } catch (e) { /* 既にデタッチ済み(タブ消滅/外部DevTools)は無視 */ }
+}
+
+// タブが閉じられた/外部DevToolsが繋がった等で勝手にデタッチされたらフラグを戻す
+if (chrome.debugger && chrome.debugger.onDetach) {
+  chrome.debugger.onDetach.addListener((source) => {
+    if (source && source.tabId === __reinsDebuggerTabId) {
+      __reinsDebuggerTabId = null;
+    }
+  });
+}
+
 let dedicatedReinsTabId = null;
 let dedicatedReinsWindowId = null; // 後方互換用(使わない)
 
@@ -6199,6 +6242,8 @@ async function findOrCreateDedicatedReinsTab() {
     try {
       const tab = await chrome.tabs.get(dedicatedReinsTabId);
       if (tab && tab.url?.includes('system.reins.jp')) {
+        // 外部DevTools等でデタッチされている場合に備えて毎回確認する（済みなら即return）
+        await __attachReinsDebugger(dedicatedReinsTabId);
         return tab;
       }
     } catch (e) {
@@ -6256,6 +6301,7 @@ async function findOrCreateDedicatedReinsTab() {
   }
 
   await setStorageData({ debugLog: `専用REINSタブ作成: tabId=${dedicatedReinsTabId}` });
+  await __attachReinsDebugger(dedicatedReinsTabId);
   return tab;
 }
 
@@ -6430,6 +6476,8 @@ async function attemptReinsAutoLogin_(tabId) {
 
 async function closeDedicatedWindow() {
   if (dedicatedReinsTabId) {
+    // タブを閉じる前に debugger をデタッチ（黄色バーも消える）
+    await __detachReinsDebugger(dedicatedReinsTabId);
     try {
       await chrome.tabs.remove(dedicatedReinsTabId);
     } catch (e) {

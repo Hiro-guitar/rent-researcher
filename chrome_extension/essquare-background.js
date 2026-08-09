@@ -25,9 +25,11 @@ let dedicatedEssquareWindowId = null;
 // 起動フラグ不要。専用タブにだけ「デバッグ中」の黄色バーが出る(裏タブなので普段見えない)。
 let __essqDebuggerTabId = null; // アタッチ中のtabId (未アタッチはnull)
 
-// 【診断・一時 2026-07-19】音方式テスト中は debugger をOFFにして音だけの効果を測る。
-// テスト後に false へ戻す（or この行ごと削除）。
-const __ESSQ_SKIP_DEBUGGER_FOR_AUDIO_TEST = true;
+// 【2026-08-09】音方式との比較テストのため一時的にOFFにしていたのを戻した。
+//   音方式(無音audioでaudible化)は Chrome150 で塞がれており、実測でも tab.audible=false
+//   のまま裏タブが40秒以上凍る事象が出ている。debugger + focus emulation が現状の唯一の解。
+//   ⚠️ ここを true に戻さないこと。戻すと裏タブの凍結が再発する。
+const __ESSQ_SKIP_DEBUGGER_FOR_AUDIO_TEST = false;
 
 async function __attachEssqDebugger(tabId) {
   if (__ESSQ_SKIP_DEBUGGER_FOR_AUDIO_TEST) {
