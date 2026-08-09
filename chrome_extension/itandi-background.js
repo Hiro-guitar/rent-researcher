@@ -23,9 +23,30 @@ let dedicatedItandiWindowId = null;
 //    呼ばれるため、以前は関数の先頭で {} に戻しており「同一サイクル内で再利用」
 //    という意図に反して毎回空になっていた（なつみ 53駅で13秒かかっていた）。
 //    駅名→IDは変わらない情報なので chrome.storage に永続化して使い回す。
+// 値の形: { ids: [...], ts: 解決した時刻 }。旧形式(配列そのまま)も読める。
 let itandiStationCache = {};
 let __itandiStationCacheLoaded = false;
 let __itandiStationCacheDirty = false;
+
+// 駅IDのズレ検知。
+// 永続キャッシュにした以上、先方がIDを振り直すと古い値を使い続けて
+// 「検索はできているのに1件も出ない」という気付きにくい壊れ方をする。
+// そこで一定期間たったエントリだけ実際にAPIへ問い合わせ直し、値が変わっていたら
+// エラーログに出す。1日あたりの件数を絞るので普段の速度には影響しない。
+const STATION_CACHE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+// 「該当なし」は短命にする。APIが一時的にコケた結果を長く抱えると、
+// その駅を検索から落としたまま気付けない。
+const STATION_CACHE_EMPTY_TTL_MS = 24 * 60 * 60 * 1000;
+const STATION_REVALIDATE_PER_DAY = 20;
+let __stationRevalidateBudget = 0;
+let __stationRevalidateDay = '';
+function __resetStationRevalidateBudget() {
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' });
+  if (__stationRevalidateDay !== today) {
+    __stationRevalidateDay = today;
+    __stationRevalidateBudget = STATION_REVALIDATE_PER_DAY;
+  }
+}
 
 async function __loadItandiStationCache() {
   if (__itandiStationCacheLoaded) return;
@@ -204,9 +225,21 @@ async function resolveItandiStationIds(tabId, customer) {
 
     // キャッシュチェック
     const cacheKey = `${cleanName}_${prefectureId}`;
-    if (itandiStationCache[cacheKey]) {
-      allIds.push(...itandiStationCache[cacheKey]);
-      continue;
+    let prevIds = null;   // 期限切れで再解決する場合の旧値（突き合わせ用）
+    const _cached = itandiStationCache[cacheKey];
+    if (_cached) {
+      const _ids = Array.isArray(_cached) ? _cached : (_cached.ids || []);
+      const _ts = Array.isArray(_cached) ? 0 : (_cached.ts || 0);
+      const _ttl = _ids.length === 0 ? STATION_CACHE_EMPTY_TTL_MS : STATION_CACHE_TTL_MS;
+      const _stale = (Date.now() - _ts) > _ttl;
+      // 該当なしの再確認は検証枠を使わない（本来の駅ID検証の枠を食わないように）
+      const _needsBudget = _ids.length > 0;
+      if (!_stale || (_needsBudget && __stationRevalidateBudget <= 0)) {
+        allIds.push(..._ids);
+        continue;
+      }
+      if (_needsBudget) __stationRevalidateBudget--;
+      prevIds = _ids;
     }
 
     // マッピングテーブルで検索名候補を取得
@@ -301,7 +334,14 @@ async function resolveItandiStationIds(tabId, customer) {
         }
       }
 
-      itandiStationCache[cacheKey] = matched;
+      if (prevIds) {
+        const _a = [...prevIds].sort().join(',');
+        const _b = [...matched].sort().join(',');
+        if (_a !== _b) {
+          logError(`[itandi] 駅IDが変わっています: 「${cleanName}」 ${_a || '(なし)'} → ${_b || '(なし)'}。検索結果が変わる可能性があります`);
+        }
+      }
+      itandiStationCache[cacheKey] = { ids: matched, ts: Date.now() };
       __itandiStationCacheDirty = true;
       allIds.push(...matched);
 
@@ -1084,6 +1124,7 @@ function buildItandiPropertyDataJson(prop) {
 async function runItandiSearch(criteria, seenIds, searchId) {
   // 駅名キャッシュは消さずに読み込む（駅名→IDは変わらないため使い回す）
   await __loadItandiStationCache();
+  __resetStationRevalidateBudget();
 
   await setStorageData({ debugLog: '[itandi] 検索開始...' });
 
