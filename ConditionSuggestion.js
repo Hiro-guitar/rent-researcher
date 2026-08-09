@@ -52,6 +52,84 @@ function listConditionSuggestionCandidates() {
   }
 }
 
+/**
+ * 候補に入らなかった顧客と、その理由を返す。
+ *
+ * 候補抽出は該当しない人を無言で continue するため、「送られるはずの人が
+ * 送られていない」ときに原因が分からなかった（例: LINE Users シートの顧客名が
+ * 検索条件シートと1文字でも違うと userId が引けず、黙って除外される）。
+ * getConditionSuggestionCandidates_ と同じ判定順で理由を付ける。
+ *
+ * ⚠️ 判定条件を変えるときは getConditionSuggestionCandidates_ と両方直すこと。
+ * @return {Array<{name:string, reason:string}>}
+ */
+function listConditionSuggestionExclusions() {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return [];
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return [];
+    var lastCol = Math.max(sheet.getLastColumn(), CONDITION_SUGGESTION_COUNT_COL);
+    var data = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+
+    var lineUserIdMap = _getLineUserIdMapByCustomerName_();
+    var lastDeliveryMap = _buildLastDeliveryMap_();
+    var lastViewMap = _buildLastViewMap_();
+    var optOutSet = _getConditionSuggestionOptOutSet_();
+
+    var now = Date.now();
+    var thresholdMs = CONDITION_SUGGESTION_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+    var dayMs = 24 * 60 * 60 * 1000;
+    var out = [];
+    var seen = {};
+
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      var name = String(row[1] || '').trim();
+      if (!name || seen[name]) continue;
+      seen[name] = true;
+
+      var reason = '';
+      var status = String(row[18] || '').trim().toLowerCase();
+      var lastSuggestAt = row[CONDITION_SUGGESTION_SENT_COL - 1];
+
+      if (optOutSet[name]) {
+        reason = 'オプトアウト（顧客詳細で「送らない」設定）';
+      } else if (status && status !== 'active') {
+        reason = '配信ステータスが ' + status + '（active のみ対象）';
+      } else if (!lineUserIdMap[name]) {
+        reason = 'LINE紐付けなし（LINE Users シートに「' + name + '」が無い。名前の表記ゆれの可能性）';
+      } else if (lastSuggestAt instanceof Date && (now - lastSuggestAt.getTime()) < thresholdMs) {
+        reason = '前回の提案から ' + Math.floor((now - lastSuggestAt.getTime()) / dayMs) + '日（'
+          + CONDITION_SUGGESTION_THRESHOLD_DAYS + '日空ける必要あり）';
+      } else {
+        var regDate = row[0] instanceof Date ? row[0] : null;
+        var lastDelivery = lastDeliveryMap[name] || null;
+        var lastView = lastViewMap[name] || null;
+        var refDate = lastDelivery || regDate;
+        if (!refDate) {
+          reason = '登録日も最終通知日も取得できない（A列が日付でない可能性）';
+        } else {
+          var elapsedMs = now - refDate.getTime();
+          var caseA = elapsedMs >= thresholdMs;
+          var regOldEnough = regDate && (now - regDate.getTime()) >= thresholdMs;
+          var hasRecentDelivery = lastDelivery && (now - lastDelivery.getTime()) < thresholdMs;
+          var lastViewOldOrNone = !lastView || (now - lastView.getTime()) >= thresholdMs;
+          var caseB = regOldEnough && hasRecentDelivery && lastViewOldOrNone;
+          if (caseA || caseB) continue; // 候補に入っている
+          reason = '条件を満たさない（基準日から' + Math.floor(elapsedMs / dayMs) + '日）';
+        }
+      }
+      out.push({ name: name, reason: reason });
+    }
+    return out;
+  } catch (e) {
+    console.error('listConditionSuggestionExclusions error: ' + (e.stack || e.message));
+    return [{ name: '(エラー)', reason: e.message }];
+  }
+}
+
 // ── 条件変更提案を送らない顧客(オプトアウト) ──────────────────────
 //   ScriptProperties CONDITION_SUGGESTION_OPTOUT = 顧客名のJSON配列。
 //   候補抽出(getConditionSuggestionCandidates_)で除外する=自動送信もAdmin候補一覧にも出ない。

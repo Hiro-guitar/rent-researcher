@@ -475,6 +475,14 @@ input[type="range"]::-webkit-slider-thumb {
         <div id="suggestionTestResult" class="admin-result" style="padding:0;"></div>
       </div>
       <div id="suggestionList" style="padding:0 8px 8px;"></div>
+      <!-- 候補に入らない人の理由。「送られるはずの人が送られていない」時の切り分け用 -->
+      <div style="padding:0 8px 8px;">
+        <button id="exclusionBtn" onclick="loadSuggestionExclusions()"
+          style="background:#2d2d2d;color:#aaa;border:1px solid #555;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;">
+          候補に入らない人と理由を見る
+        </button>
+        <div id="exclusionList" style="margin-top:8px;"></div>
+      </div>
       <div id="suggestionFooter" style="display:none;padding:8px 12px;border-top:1px solid #404040;background:#252526;">
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <button class="btn-admin btn-outline" onclick="suggestionSelectAll(true)">全選択</button>
@@ -3054,6 +3062,35 @@ function refreshSuggestionList() {
       listEl.innerHTML = '<div style="color:#c00;font-size:12px;">読み込み失敗: ' + esc(err.message || String(err)) + '</div>';
     })
     .listConditionSuggestionCandidates();
+}
+
+// 候補に入らなかった人と理由を出す。名前の表記ゆれ等で無言で落ちているのを見つける用。
+function loadSuggestionExclusions() {
+  var el = document.getElementById('exclusionList');
+  var btn = document.getElementById('exclusionBtn');
+  btn.disabled = true;
+  el.innerHTML = '<div style="font-size:12px;color:#999;">読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(rows) {
+      btn.disabled = false;
+      if (!rows || rows.length === 0) {
+        el.innerHTML = '<div style="font-size:12px;color:#999;">除外されている顧客はいません。</div>';
+        return;
+      }
+      var html = '<div style="font-size:11px;color:#999;margin-bottom:4px;">' + rows.length + '人が候補から外れています</div>';
+      rows.forEach(function(r) {
+        html += '<div style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:6px 10px;margin-bottom:4px;">'
+          + '<span style="font-size:12px;color:#ddd;font-weight:600;">' + esc(r.name) + '</span>'
+          + '<span style="font-size:11px;color:#d4b35a;margin-left:8px;">' + esc(r.reason) + '</span>'
+          + '</div>';
+      });
+      el.innerHTML = html;
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      el.innerHTML = '<div style="color:#c00;font-size:12px;">読み込み失敗: ' + esc(err.message || String(err)) + '</div>';
+    })
+    .listConditionSuggestionExclusions();
 }
 
 function suggestionSelectAll(checked) {
