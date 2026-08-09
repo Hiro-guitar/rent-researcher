@@ -4431,11 +4431,9 @@ globalThis.runSearchCycle = async function runSearchCycle() {
                   };
                   await setStorageData({ debugLog: `[REINS] ${customer.name}: バッチ ${_batchIdx}/${_totalBatches} (路線${rwsChunk.length}件/市区町村${cityChunk.length}件)` });
                   await searchForCustomer(reinsTab.id, batchCustomer, seenIds, reinsDelay, searchId);
-                  if (_batchIdx < _totalBatches) await sleep(3000);
                 }
               }
             }
-            if (_ppIdx < _parkingPasses.length - 1) await sleep(3000);
           }
           // REINS検索成功 → 本日の日付をGASに記録（次回検索の登録年月日フィルタ起点になる）
           try {
@@ -4496,7 +4494,6 @@ globalThis.runSearchCycle = async function runSearchCycle() {
         }
       }
 
-      if (ci < criteria.length - 1) await sleep(3000);
     }
 
     // 顧客ごとに投げておいた最終検索日の更新を、ここで必ず完了させる
@@ -4571,6 +4568,19 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   }
 }
 
+// === REINS検索の最小間隔 ===
+// 以前は「顧客間」「REINSバッチ間」にそれぞれ固定で3秒待っていた（35人で約4分）。
+// ページの準備完了は waitForDomReady が MutationObserver で検知しているので、
+// これらは待つ必要があって待っていたのではなく、同一サイトへ連続アクセスしすぎない
+// ためだけの間隔だった。
+//
+// 固定待ちをやめ、「前回のREINS検索開始からの実経過時間」で下限だけ担保する。
+//   ・4サービス有効の通常運用: 1顧客に20〜40秒かかるので待ちは発生しない（実質0秒）
+//   ・REINSだけ有効にして回した場合: 1顧客が数秒で終わるため、ここが効いて間隔を保つ
+// ⚠️ 固定 sleep に戻さないこと。サービスを絞って回した時に間隔が詰まる。
+const REINS_MIN_SEARCH_INTERVAL_MS = 4000;
+let __lastReinsSearchStartedAt = 0;
+
 // === 顧客ごとの検索 ===
 async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   // 中止チェック＋スリープ検知付きsleep
@@ -4585,6 +4595,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     }
     if (isSearchCancelled(searchId)) throw new Error('SEARCH_CANCELLED');
   };
+
+  // 同一サイトへ連続アクセスしすぎないよう、前回の検索開始からの最小間隔だけ担保する。
+  // 既にそれ以上かかっていれば待たない（通常運用では待ちゼロ）。
+  if (__lastReinsSearchStartedAt) {
+    const _since = Date.now() - __lastReinsSearchStartedAt;
+    if (_since < REINS_MIN_SEARCH_INTERVAL_MS) await csleep(REINS_MIN_SEARCH_INTERVAL_MS - _since);
+  }
+  __lastReinsSearchStartedAt = Date.now();
 
   await setStorageData({ debugLog: `検索開始: ${customer.name}` });
   const customerSeenIds = seenIds[customer.name] || [];
