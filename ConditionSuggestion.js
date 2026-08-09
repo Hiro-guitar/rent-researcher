@@ -101,6 +101,22 @@ function setConditionSuggestionOptOut(customerName, optOut) {
  * 初回セットアップは setupConditionSuggestionAutoTrigger() を1回手動実行で
  * トリガー登録できる。
  */
+/**
+ * 自動送信の実行結果を1件だけ記録する。
+ * 候補0人のときは Discord に何も出ないため、「動いて0人だったのか、
+ * そもそも動いていないのか」が区別できなかった。それを見えるようにするための記録。
+ * どの終了経路でも必ず残すこと。
+ */
+function _recordConditionSuggestionRun_(summary) {
+  try {
+    summary.at = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+    PropertiesService.getScriptProperties()
+      .setProperty('CONDITION_SUGGESTION_LAST_RUN', JSON.stringify(summary));
+  } catch (e) {
+    console.warn('[条件変更提案/自動] 実行記録の保存に失敗: ' + e.message);
+  }
+}
+
 function runConditionSuggestionAutoSend() {
   var ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   try {
@@ -109,6 +125,7 @@ function runConditionSuggestionAutoSend() {
     var enabled = props.getProperty('CONDITION_SUGGESTION_AUTO_ENABLED');
     if (enabled === 'false' || enabled === 'FALSE') {
       console.log('[条件変更提案/自動] 無効化されているためスキップ (' + ts + ')');
+      _recordConditionSuggestionRun_({ result: 'disabled' });
       return;
     }
 
@@ -121,6 +138,7 @@ function runConditionSuggestionAutoSend() {
     var candidates = getConditionSuggestionCandidates_();
     if (!candidates || candidates.length === 0) {
       console.log('[条件変更提案/自動] 候補なし (' + ts + ')');
+      _recordConditionSuggestionRun_({ result: 'ok', candidates: 0, sent: 0, autoPaused: autoPaused });
       if (autoPaused === 0) return; // 自動停止もなければDiscord通知不要
       // 自動停止があった場合はDiscord通知する
       _notifyAutoSendToDiscord_(0, { sent: 0, skipped: [], failed: [], autoPaused: autoPaused }, ts);
@@ -132,9 +150,15 @@ function runConditionSuggestionAutoSend() {
     result.autoPaused = autoPaused;
     console.log('[条件変更提案/自動] 送信完了: 候補' + candidates.length + ' 送信' + result.sent
       + ' スキップ' + (result.skipped || []).length + ' 失敗' + (result.failed || []).length);
+    _recordConditionSuggestionRun_({
+      result: 'ok', candidates: candidates.length, sent: result.sent,
+      skipped: (result.skipped || []).length, failed: (result.failed || []).length,
+      autoPaused: autoPaused
+    });
     _notifyAutoSendToDiscord_(candidates.length, result, ts);
   } catch (err) {
     console.error('[条件変更提案/自動] 致命エラー: ' + err.message + '\n' + err.stack);
+    _recordConditionSuggestionRun_({ result: 'error', error: String(err && err.message || err) });
     try { _notifyAutoSendErrorToDiscord_(err, ts); } catch (_) {}
   }
 }
@@ -340,13 +364,39 @@ function _getSuggestionIgnoreList_() {
  * @return {{exists: boolean, message: string}}
  */
 function checkConditionSuggestionTrigger() {
+  // 最終実行の記録。トリガーがあっても実際に動いているとは限らないので併せて返す。
+  var lastRun = '';
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty('CONDITION_SUGGESTION_LAST_RUN');
+    if (raw) {
+      var r = JSON.parse(raw);
+      if (r.result === 'disabled') {
+        lastRun = '最終実行: ' + r.at + '（無効化スイッチONのため送信せず）';
+      } else if (r.result === 'error') {
+        lastRun = '最終実行: ' + r.at + '（エラー: ' + (r.error || '不明') + '）';
+      } else {
+        lastRun = '最終実行: ' + r.at + '（候補' + (r.candidates || 0) + '人 / 送信' + (r.sent || 0) + '件'
+          + (r.autoPaused ? ' / 自動停止' + r.autoPaused + '人' : '') + '）';
+      }
+    } else {
+      lastRun = '最終実行: 記録なし（この記録は今回の更新から残ります）';
+    }
+    var enabled = props.getProperty('CONDITION_SUGGESTION_AUTO_ENABLED');
+    if (enabled === 'false' || enabled === 'FALSE') {
+      lastRun = '⛔ 無効化スイッチがONです（CONDITION_SUGGESTION_AUTO_ENABLED=false）\n' + lastRun;
+    }
+  } catch (e) {
+    lastRun = '最終実行: 取得エラー (' + e.message + ')';
+  }
+
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
     if (triggers[i].getHandlerFunction() === 'runConditionSuggestionAutoSend') {
-      return { exists: true, message: '✅ トリガー登録済み（毎日10:00 JST）' };
+      return { exists: true, message: '✅ トリガー登録済み（毎日10:00 JST）\n' + lastRun };
     }
   }
-  return { exists: false, message: '⚠️ トリガー未登録。「セットアップ」ボタンで登録してください。' };
+  return { exists: false, message: '⚠️ トリガー未登録。「セットアップ」ボタンで登録してください。\n' + lastRun };
 }
 
 /**
