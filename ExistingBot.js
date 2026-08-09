@@ -984,11 +984,25 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     // ⚠️ 物件シートのD列は「ＪＲ総武線/小岩」形式なので、必ず分解してから使う。
     var station = _cleanStationName_(specs.station || '');
     var route = specs.route || '';
-    if (!station) {
+    // ⚠️ 駅と路線は別々に補完すること。
+    //   以前は if (!station) の中でしか路線を補完しておらず、掲載管理に駅はあるが
+    //   路線が空の物件だと route が '' のままになっていた。route が空だと
+    //   registerAutoCriteriaFromProperty で routes が空配列になり、エリアなしの
+    //   条件が登録される。エリアが無い行は自動検索でスキップされるため
+    //   「暫定登録したのに拡張に出てこない」状態になっていた（2026-08-09 minori様）。
+    if (!station || !route) {
       var rs = _splitRouteStation_(row[3]);
-      station = rs.station;
+      if (!station) station = rs.station;
       if (!route) route = rs.route;
     }
+    // 路線がどうしても取れない場合に備えて住所から市区町村を拾う。
+    // 駅が無くても市区町村があればエリアとして成立する。
+    var city = '';
+    try {
+      var addr = String(row[2] || '').trim();
+      var mCity = addr.match(/^(?:東京都|北海道|(?:京都|大阪)府|.{2,3}県)?(.+?[市区町村])/);
+      if (mCity) city = mCity[1];
+    } catch (_) {}
     // 徒歩: 掲載管理から取る。物件空室管理シートには入っていない項目。
     var walkNum = _parseWalkMinutes_(specs.walk);
     // 徒歩・築年数・面積・賃料とも、加算/減算はせず「選択肢を1段階だけ緩める」で揃える。
@@ -1032,7 +1046,7 @@ function _propertyToCriteria_(buildingName, roomNumber) {
     for (var eq = 0; eq < equipment.length; eq++) summaryParts.push(equipment[eq]);
 
     return {
-      station: station, route: route, walk: walk, rentMax: rentMax,
+      station: station, route: route, city: city, walk: walk, rentMax: rentMax,
       layout: layout, areaMin: areaMin, buildingAge: buildingAge, equipment: equipment,
       matchedListing: !!specs.station,
       summary: summaryParts.join(' / ')
@@ -1218,9 +1232,20 @@ function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber, opts
     var name = _getLineUserName_(userId);
     var stations = {};
     var routes = [];
+    var cities = [];
     if (conv.route && conv.station) {
       routes = [conv.route];
       stations[conv.route] = [conv.station];
+    } else if (conv.city) {
+      // 路線が取れないときは市区町村で成立させる
+      cities = [conv.city];
+    }
+    // ⚠️ エリアが1つも無い条件は登録しないこと。
+    //   自動検索は「エリア未設定の行はスキップ」なので、登録しても拡張に出てこず
+    //   「暫定登録したのに検索されない」という分かりにくい状態になる。
+    if (routes.length === 0 && cities.length === 0) {
+      console.error('[条件自動登録] エリアを特定できないため中止: ' + propertyName + ' ' + roomNumber);
+      return { ok: false, message: 'no_area' };
     }
 
     // writeToSheet を再利用する（列の知識を1箇所に保つ）
@@ -1238,7 +1263,7 @@ function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber, opts
       },
       selectedRoutes: routes,
       selectedStations: stations,
-      selectedCities: [],
+      selectedCities: cities,
       selectedTowns: {}
     };
     writeToSheet(userId, state);
