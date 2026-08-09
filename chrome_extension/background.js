@@ -4297,6 +4297,9 @@ globalThis.runSearchCycle = async function runSearchCycle() {
       }
 
       await setStorageData({ debugLog: `既知物件ID取得完了` });
+
+      // 過去に誤って「申込あり」等をキャッシュしていた分を1回だけ掃除する
+      await purgeUncacheableSkipCache();
     } catch (err) {
       await setStorageData({ debugLog: `既知物件ID取得失敗（続行）: ${err.message}` });
     }
@@ -4594,6 +4597,38 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     } catch (chainErr) {
       console.warn('[SUUMO巡回] チェイン起動チェックでエラー:', chainErr.message);
     }
+  }
+}
+
+// 「申込あり」等の“状態”由来のスキップが過去にキャッシュへ書かれてしまっていた分を消す。
+// __isCacheableSkipReason のガードは新規の書き込みしか止められないため、
+// 既に書かれた分が残っていると申込がキャンセルされても永久に拾えない（2026-08-09）。
+// 1回だけ走らせればよいのでフラグで制御する。
+const __SKIP_PURGE_FLAG = '__skipCachePurge_status_v1';
+async function purgeUncacheableSkipCache() {
+  try {
+    const flag = await getStorageData([__SKIP_PURGE_FLAG]);
+    if (flag && flag[__SKIP_PURGE_FLAG]) return;
+    const all = await chrome.storage.local.get(null);
+    const updates = {};
+    let removed = 0, touched = 0;
+    for (const [k, v] of Object.entries(all)) {
+      if (!/^(reins|ielove|itandi|essquare)Skipped_/.test(k)) continue;
+      if (!v || typeof v !== 'object') continue;
+      let dirty = false;
+      for (const id of Object.keys(v)) {
+        const reason = v[id] && v[id].reason;
+        if (!globalThis.__isCacheableSkipReason(reason)) { delete v[id]; removed++; dirty = true; }
+      }
+      if (dirty) { updates[k] = v; touched++; }
+    }
+    if (removed > 0) await chrome.storage.local.set(updates);
+    await setStorageData({ [__SKIP_PURGE_FLAG]: true });
+    if (removed > 0) {
+      await setStorageData({ debugLog: `[キャッシュ整理] 状態由来のスキップ記録を削除: ${removed}件 (${touched}条件分)` });
+    }
+  } catch (e) {
+    logError(`[キャッシュ整理] 失敗: ${e && e.message}`);
   }
 }
 
