@@ -1362,7 +1362,26 @@ let cachedStationOrder = null;
 async function loadStationOrder() {
   if (cachedStationOrder) return cachedStationOrder;
   const response = await fetch(chrome.runtime.getURL("stationOrder.json"));
-  cachedStationOrder = await response.json();
+  const order = await response.json();
+
+  // 顧客の路線名(例「ＪＲ総武線」)を lineNameMap で REINS の路線名へ寄せてから
+  // 駅順を引けるようにエイリアスを張る。
+  // ⚠️ これが無いと、以前は「ＪＲ」を機械的に剥がして「総武線」を引いていた。
+  //   「総武線」は総武快速線(東京・新日本橋・馬喰町・錦糸町・新小岩)の5駅データで別物のため、
+  //   本来の総武中央線28駅が引けず、
+  //     ・連続駅をまとめられず1駅1スロット → 古澤さんでREINSが9バッチ35秒になっていた
+  //     ・隣接していない錦糸町と新小岩を「連続」と誤認して1範囲にまとめていた
+  //   という速度と正確性の両方の問題が出ていた（2026-08-09）。
+  // 既存キーは上書きしない（総武快速線のデータはそのまま残す）。
+  try {
+    const nameMap = await loadLineNameMap();
+    for (const label of Object.keys(nameMap)) {
+      const reinsName = nameMap[label];
+      if (!order[label] && reinsName && order[reinsName]) order[label] = order[reinsName];
+    }
+  } catch (_) {}
+
+  cachedStationOrder = order;
   return cachedStationOrder;
 }
 
