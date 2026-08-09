@@ -4126,6 +4126,17 @@ globalThis.runSearchCycle = async function runSearchCycle() {
   try { chrome.power && chrome.power.requestKeepAwake && chrome.power.requestKeepAwake('system'); } catch(e) {}
 
   try {
+    // ── サイクル開始時のGAS呼び出しは同時に投げる ──
+    // 検索条件 / 既知物件ID / キャンセル待ち監視リスト は互いに独立。
+    // 直列に待つと 6秒+4秒+4秒=14秒かかっていたので、先に投げて結果が要る所で受け取る。
+    // ⚠️ 例外が await 前に飛ぶと unhandledrejection になるため、必ずここで catch を付ける。
+    const _seenIdsPromise = fetchSeenIds()
+      .catch(err => { console.warn('[既知物件ID] 取得失敗:', err && err.message); return null; });
+    const _watchPrefetchPromise = (typeof globalThis.prefetchCancellationWatches === 'function')
+      ? globalThis.prefetchCancellationWatches()
+          .catch(e => { console.warn('[キャンセル待ち確認] 一括取得で例外:', e && e.message); })
+      : Promise.resolve();
+
     // 検索条件を取得（毎回GASから最新を取得）
     await setStorageData({ debugLog: '検索条件を取得中...' });
     try {
@@ -4171,7 +4182,7 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     let seenIds = {};
     await setStorageData({ debugLog: '既知物件IDを取得中...' });
     try {
-      const seenResult = await fetchSeenIds();
+      const seenResult = await _seenIdsPromise;   // 上で先に投げてある
       if (seenResult && seenResult.seen_ids) seenIds = seenResult.seen_ids;
 
       // 通知済み物件の dedupキー一覧 → notifiedDedupMap に反映
@@ -4264,9 +4275,31 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     const { notifyMode } = await getStorageData(['notifyMode']);
 
     // === 顧客ループを外側、サービスを内側に（両モード共通） ===
+    // 各サービスの専用タブは、以前は「そのサービスが最初に使われた時」に1つずつ
+    // 作っていた。1タブあたり3〜4秒かかり、直列で計14秒の待ちになっていたため、
+    // ここで使うサービスぶんをまとめて作る（別サイトなので同時に作って問題ない）。
+    // 作成済みなら各関数が既存タブを返すだけなので二重作成にはならない。
+    const _tabWarmups = [];
+    if (services.itandi && typeof findOrCreateDedicatedItandiTab === 'function') {
+      _tabWarmups.push(findOrCreateDedicatedItandiTab().catch(e => {
+        console.warn('[itandi] タブ事前作成に失敗（後で再試行されます）:', e && e.message);
+      }));
+    }
+    if (services.essquare && typeof findOrCreateDedicatedEssquareTab === 'function') {
+      _tabWarmups.push(findOrCreateDedicatedEssquareTab().catch(e => {
+        console.warn('[ES-Square] タブ事前作成に失敗（後で再試行されます）:', e && e.message);
+      }));
+    }
+    if (services.ielove && typeof findOrCreateDedicatedIeloveTab === 'function') {
+      _tabWarmups.push(findOrCreateDedicatedIeloveTab().catch(e => {
+        console.warn('[いえらぶ] タブ事前作成に失敗（後で再試行されます）:', e && e.message);
+      }));
+    }
+
     let reinsTab = null;
     let reinsDelay = 2000;
     if (services.reins) {
+      // REINSタブの作成（＋自動ログイン）と、上の3サービスのタブ作成を同時に走らせる
       reinsTab = await findReinsTab();
       if (!reinsTab) {
         await setStorageData({ loginDetected: false, debugLog: 'REINSタブが見つかりません（REINS検索スキップ）' });
@@ -4279,10 +4312,10 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     let reinsFatalExit = false;
 
     // キャンセル待ちの監視リストは顧客ごとにGASへ問い合わせるとタイムアウトするため、
-    // サイクル開始時に全顧客分を1回で取ってキャッシュする
-    if (typeof globalThis.prefetchCancellationWatches === 'function') {
-      try { await globalThis.prefetchCancellationWatches(); }
-      catch (e) { console.warn('[キャンセル待ち確認] 一括取得で例外:', e.message); }
+    // サイクル開始時に全顧客分を1回で取ってキャッシュする（呼び出しは冒頭で済ませてある）
+    await _watchPrefetchPromise;
+    if (_tabWarmups.length > 0) {
+      await Promise.all(_tabWarmups);   // 3サービス分のタブ作成はここで揃う
     }
 
     // キャンセル待ちチェックは顧客名に紐づくため、1サイクル中は顧客ごとに1回だけ実行する
