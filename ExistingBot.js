@@ -1264,7 +1264,10 @@ function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber, opts
       selectedRoutes: routes,
       selectedStations: stations,
       selectedCities: cities,
-      selectedTowns: {}
+      selectedTowns: {},
+      // ⚠️ isAutoFollowup は質問フローの制御に使われているので流用しない。
+      //   きっかけの表示だけなら changeSource を使う。
+      changeSource: '空室確認からの自動登録'
     };
     writeToSheet(userId, state);
     _markCriteriaProvisional_(name);

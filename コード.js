@@ -3411,6 +3411,11 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
       }
     } catch (eCacheBefore) {}
 
+    // 誰が変えたかを記録する。指定しないと _criteriaChangeSource_ の既定
+    // 「お客様による条件変更」に倒れ、担当者が管理画面で直した分まで
+    // お客様が変更したものとしてDiscordに通知されていた（2026-08-10）。
+    state.changeSource = '担当者による条件変更';
+
     // スプレッドシートに書き込み
     writeToSheet(userId, state);
 
