@@ -3388,16 +3388,17 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
       selectedTowns: criteria.selectedTowns || {}
     };
 
-    // 既存の理由・引越し時期・居住者を保持（上書きしない）
+    // 管理画面のフォームに無い項目を、変更前の値で引き継ぐ。
+    // ⚠️ 以前は理由・入居時期・居住者の3つだけを個別に戻していたため、
+    //   フォームに無い他の項目（探し理由・車種など）が消えていた。
+    //   LINEの条件変更と同じ表(_CARRY_OVER_FIELDS)を使い、項目を増やしても漏れないようにする。
+    //   エリアは管理画面で明示的に編集できるので引き継がない（空＝消したとみなす）。
     var existing = loadCustomerCriteriaByName(customerName);
     if (existing) {
-      if (!state.data.reason && existing.reason) state.data.reason = existing.reason;
-      if (!state.data.move_in_date && existing.move_in_date) {
-        state.data.move_in_date = existing.move_in_date;
-        // 入居時期を変更しなかった場合、既存のstrict設定も保持
-        if (!criteria.moveInDate) state.data.move_in_strict = existing.move_in_strict || false;
-      }
-      if (!state.data.resident && existing.resident) state.data.resident = existing.resident;
+      try { _carryOverUntouchedCriteria_(state, existing, { skipArea: true }); } catch (_eCarry) {}
+      // 入居時期を変更していないなら厳守フラグも変更前のまま。
+      // boolean は「未入力」と区別できず汎用処理では拾えないので個別に扱う。
+      if (!criteria.moveInDate) state.data.move_in_strict = !!existing.move_in_strict;
     }
 
     // userId: 画面から渡されたIDを優先。空でも、この顧客名で本物のIDが既に

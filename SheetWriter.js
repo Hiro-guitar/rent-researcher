@@ -344,8 +344,9 @@ function _isBlankCriteriaValue_(v) {
  * 部分的な条件変更フローは変更した項目しか state に入れないため、
  * これが無いと未入力＝消去として書き込まれてしまう。
  */
-function _carryOverUntouchedCriteria_(state, before) {
+function _carryOverUntouchedCriteria_(state, before, opts) {
   if (!state || !state.data || !before) return;
+  opts = opts || {};
   var carried = [];
   for (var i = 0; i < _CARRY_OVER_FIELDS.length; i++) {
     var key = _CARRY_OVER_FIELDS[i];
@@ -356,7 +357,10 @@ function _carryOverUntouchedCriteria_(state, before) {
   }
   // エリア(路線/駅/市区町村/町名)は state 直下にあるので別扱い。
   // 4つまとめて空のときだけ引き継ぐ。片方だけ引き継ぐと路線と駅がちぐはぐになる。
-  var _areaBlank = _isBlankCriteriaValue_(state.selectedRoutes)
+  // opts.skipArea: 管理画面のようにエリアを明示的に編集できる画面では、
+  // 空で送られたら「消した」とみなすべきなので引き継がない。
+  var _areaBlank = !opts.skipArea
+    && _isBlankCriteriaValue_(state.selectedRoutes)
     && _isBlankCriteriaValue_(state.selectedCities)
     && _isBlankCriteriaValue_(state.selectedStations && Object.keys(state.selectedStations))
     && _isBlankCriteriaValue_(state.selectedTowns && Object.keys(state.selectedTowns));
