@@ -302,11 +302,75 @@ function saveLineUser(userId, customerName) {
  * @param {Object} state - 保存しようとしている state（破壊的に更新する）
  * @param {Object} before - readLatestCriteria の戻り値
  */
+// 条件変更フローで触らなかった項目。ここに載っている項目は、
+// 変更後の state に無ければ変更前の値をそのまま引き継ぐ。
+//
+// ⚠️ writeToSheet が読む項目(d.xxx)を増やしたら、ここにも足すこと。
+//   ここから漏れると「条件変更したら関係ない項目が勝手に消える」というバグになる。
+//   実際に年齢(2026-08-09)と探し理由(同日)がこれで消えていた。
+//   1項目ずつ足していくと再発するので、writeToSheet が読む項目を全部並べてある。
+var _CARRY_OVER_FIELDS = [
+  'reason',              // 探し理由
+  'resident',            // 居住者
+  'age',                 // 年齢
+  'move_in_date',        // 入居時期
+  'move_in_strict',      // 入居時期の厳守
+  'rent_max',            // 家賃上限
+  'layouts',             // 間取り
+  'walk',                // 駅徒歩
+  'area_min',            // 専有面積
+  'building_age',        // 築年数
+  'building_structures', // 構造
+  'equipment',           // こだわり
+  'petType',             // ペット種別
+  'carModel',            // 車種
+  'minFloor',            // 最低階数
+  'allowedFloors',       // 希望階数
+  'roomDigitSums',       // 部屋番号の数字合計
+  'notes'                // その他ご希望
+];
+
+// 値が「未入力」かどうか。空文字・null・空配列を未入力とみなす。
+// false や 0 は「意図して設定された値」なので引き継ぎ対象にしない。
+function _isBlankCriteriaValue_(v) {
+  if (v === undefined || v === null) return true;
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === 'string') return v.trim() === '';
+  return false;
+}
+
+/**
+ * 条件変更で触らなかった項目を、変更前の値で補完する。
+ * 部分的な条件変更フローは変更した項目しか state に入れないため、
+ * これが無いと未入力＝消去として書き込まれてしまう。
+ */
 function _carryOverUntouchedCriteria_(state, before) {
   if (!state || !state.data || !before) return;
-  if (!state.data.age && before.age) {
-    state.data.age = before.age;
-    console.log('[条件変更] stateに無い年齢を変更前の値で補完: ' + before.age);
+  var carried = [];
+  for (var i = 0; i < _CARRY_OVER_FIELDS.length; i++) {
+    var key = _CARRY_OVER_FIELDS[i];
+    if (!_isBlankCriteriaValue_(state.data[key])) continue;   // 今回入力された → そのまま
+    if (_isBlankCriteriaValue_(before[key])) continue;        // 変更前も空 → 補完不要
+    state.data[key] = before[key];
+    carried.push(key);
+  }
+  // エリア(路線/駅/市区町村/町名)は state 直下にあるので別扱い。
+  // 4つまとめて空のときだけ引き継ぐ。片方だけ引き継ぐと路線と駅がちぐはぐになる。
+  var _areaBlank = _isBlankCriteriaValue_(state.selectedRoutes)
+    && _isBlankCriteriaValue_(state.selectedCities)
+    && _isBlankCriteriaValue_(state.selectedStations && Object.keys(state.selectedStations))
+    && _isBlankCriteriaValue_(state.selectedTowns && Object.keys(state.selectedTowns));
+  var _beforeHasArea = !_isBlankCriteriaValue_(before.selectedRoutes)
+    || !_isBlankCriteriaValue_(before.selectedCities);
+  if (_areaBlank && _beforeHasArea) {
+    state.selectedRoutes = before.selectedRoutes || [];
+    state.selectedCities = before.selectedCities || [];
+    state.selectedStations = before.selectedStations || {};
+    state.selectedTowns = before.selectedTowns || {};
+    carried.push('エリア');
+  }
+  if (carried.length > 0) {
+    console.log('[条件変更] 触っていない項目を変更前の値で引き継ぎ: ' + carried.join(', '));
   }
 }
 
