@@ -561,6 +561,7 @@ function renderCustomerList(list) {
     if (c.registeredAt) html += '<div>登録: ' + esc(c.registeredAt) + '</div>';
     if (c.lastAction) html += '<div>最終: ' + esc(c.lastAction) + '</div>';
     html += sentInfoHtml(c);
+    html += viewInfoHtml(c);
     html += '</div></div>';
   }
   el.innerHTML = html;
@@ -729,6 +730,8 @@ function renderKanban(list) {
       html += '<div class="kc-meta">' + (it.lastAction ? '最終: ' + esc(it.lastAction) : '登録: ' + esc(it.registeredAt || '')) + '</div>';
       var _si = sentInfoHtml(it);
       if (_si) html += '<div class="kc-meta">' + _si + '</div>';
+      var _vi = viewInfoHtml(it);
+      if (_vi) html += '<div class="kc-meta">' + _vi + '</div>';
       html += '</div>';
     }
     html += '</div></div>';
@@ -1038,6 +1041,19 @@ function sentInfoHtml(c) {
   var d = c.daysSinceSent;
   var label = (d <= 0) ? '本日' : (d + '日前');
   return '<div>📨 最終送信: ' + label + '（' + esc(c.lastSentAt || '') + '）</div>';
+}
+// 「最後に物件を見てから何日か」。送っているのに見ていない人を見つける手がかり。
+// ⚠️ 最終送信と同じく、何日以上を赤くするといった閾値は入れないこと。
+//   一度も閲覧していない人だけは日数が出せないので別扱いにする。
+function viewInfoHtml(c) {
+  if (!c) return '';
+  if (c.daysSinceViewed === null || c.daysSinceViewed === undefined) {
+    if (!c.lastViewedAt) return '<div style="color:#c98fd6;">👀 物件は未閲覧</div>';
+    return '';
+  }
+  var d = c.daysSinceViewed;
+  var label = (d <= 0) ? '本日' : (d + '日前');
+  return '<div>👀 最終閲覧: ' + label + '（' + esc(c.lastViewedAt || '') + '）</div>';
 }
 // 送れていない順に並べるためのキー。大きいほど「送れていない」。未送信は最上位。
 function notSentKey(c) {

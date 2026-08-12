@@ -4586,6 +4586,38 @@ function _getCustomerListForCRM_() {
     }
   } catch (eSent) { console.warn('最終送信日取得エラー: ' + eSent.message); }
 
+  // 最終閲覧日を 閲覧ログ から取得（顧客名 / room_id / 物件名 / 閲覧日時）
+  // 物件ページを開いた時に handleTrackView が書くシート。
+  // 「送っているのに見ていない」人を見つける手がかりになる。
+  // A列(顧客名)・D列(閲覧日時) の2列だけ読む（全列だと重いため）。
+  try {
+    var viewSheet2 = ss.getSheetByName('閲覧ログ');
+    if (viewSheet2 && viewSheet2.getLastRow() > 1) {
+      var viewRows = viewSheet2.getRange(2, 1, viewSheet2.getLastRow() - 1, 4).getValues();
+      var lastViewMs = {};
+      for (var vi = 0; vi < viewRows.length; vi++) {
+        var vName = String(viewRows[vi][0] || '').trim();
+        if (!vName || !nameMap[vName]) continue;
+        var vDate = viewRows[vi][3];
+        if (!(vDate instanceof Date)) continue;
+        var vms = vDate.getTime();
+        if (!lastViewMs[vName] || vms > lastViewMs[vName]) lastViewMs[vName] = vms;
+      }
+      var nowMs2 = Date.now();
+      for (var vn = 0; vn < customers.length; vn++) {
+        var vc = customers[vn];
+        var vm = lastViewMs[vc.name];
+        if (vm) {
+          vc.lastViewedAt = Utilities.formatDate(new Date(vm), 'Asia/Tokyo', 'yyyy/MM/dd');
+          vc.daysSinceViewed = Math.floor((nowMs2 - vm) / 86400000);
+        } else {
+          vc.lastViewedAt = '';
+          vc.daysSinceViewed = null;   // 一度も閲覧していない
+        }
+      }
+    }
+  } catch (eView) { console.warn('最終閲覧日取得エラー: ' + eView.message); }
+
   // 最終アクション日を アクションログ から取得
   try {
     var actionSheet = ss.getSheetByName('アクションログ');
