@@ -3395,6 +3395,26 @@ function renderMergePreview(data) {
   html += '<label style="cursor:pointer;"><input type="radio" name="mergeKeep" value="B" style="margin-right:4px;"> <span style="color:#e6a23c;">' + esc(data.nameB) + '</span></label>';
   html += '</div></div>';
 
+  // 配信ステータスの選択。
+  // 名前は問い合わせ側（正式名称）を残しつつ、ステータスはLINE側を採りたいことが多い。
+  // 問い合わせ側は lead のまま残っていることが多く、そのまま統合すると
+  // 条件変更提案などから外れてしまうため、既定をLINE側にしておく。
+  var _lineIsA = !!data.lineA, _lineIsB = !!data.lineB;
+  var _lbl = function (v) { return v ? v : '（なし＝配信中）'; };
+  if (data.statusA !== data.statusB) {
+    var _defB = (_lineIsB && !_lineIsA);   // LINE側がBなら既定はB
+    html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #444;">';
+    html += '<div style="font-size:12px;font-weight:600;color:#ccc;margin-bottom:6px;">配信ステータス（残す方）</div>';
+    html += '<div class="radio-row" style="gap:12px;">';
+    html += '<label style="cursor:pointer;"><input type="radio" name="mergeStatus" value="A"' + (_defB ? '' : ' checked')
+      + ' style="margin-right:4px;"> <span style="color:#7cb3f0;">' + esc(_lbl(data.statusA)) + '</span>'
+      + (_lineIsA ? '<span style="color:#8ec41d;font-size:11px;"> (LINE側)</span>' : '') + '</label>';
+    html += '<label style="cursor:pointer;"><input type="radio" name="mergeStatus" value="B"' + (_defB ? ' checked' : '')
+      + ' style="margin-right:4px;"> <span style="color:#e6a23c;">' + esc(_lbl(data.statusB)) + '</span>'
+      + (_lineIsB ? '<span style="color:#8ec41d;font-size:11px;"> (LINE側)</span>' : '') + '</label>';
+    html += '</div></div>';
+  }
+
   html += '<div style="margin-top:12px;text-align:center;">';
   html += '<button class="btn-admin btn-orange" id="mergeExecBtn" onclick="executeMerge()" style="width:100%;">🔗 統合を実行</button>';
   html += '</div>';
@@ -3457,6 +3477,17 @@ function executeMerge() {
       }
     }
     overrides = filteredOverrides;
+  }
+
+  // 配信ステータス（S列 = index 18）。選ばれた側の値を残す方の行へ書く。
+  var _stRadio = document.querySelector('input[name="mergeStatus"]:checked');
+  if (_stRadio && _mergeData) {
+    var _want = (_stRadio.value === 'A') ? _mergeData.statusA : _mergeData.statusB;
+    var _keepCur = (keepName === _mergeData.nameA) ? _mergeData.statusA : _mergeData.statusB;
+    if (_want !== _keepCur) {
+      if (!overrides) overrides = {};
+      overrides['18'] = _want;
+    }
   }
 
   if (!confirm(mergeName + ' を ' + keepName + ' に統合します。この操作は元に戻せません。\n\n実行しますか？')) return;
