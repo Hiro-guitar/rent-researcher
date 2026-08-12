@@ -3265,7 +3265,7 @@ function loadMergeCandidates() {
         var html = '<div style="font-size:11px;color:#999;margin-bottom:4px;">'
           + n + '組（確度が高い順）。選ぶと下のドロップダウンに入ります。</div>';
         rows.forEach(function(r, i) {
-          html += '<div style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:8px 10px;margin-bottom:4px;display:flex;align-items:flex-start;gap:8px;">'
+          html += '<div id="mergeCand_' + i + '" style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:8px 10px;margin-bottom:4px;display:flex;align-items:flex-start;gap:8px;">'
             + '<div onclick="pickMergeCandidate(' + i + ')" style="flex:1;min-width:0;cursor:pointer;">'
             + '<div style="font-size:13px;color:#5da9e9;font-weight:600;">'
             + esc(r.nameA) + ' ← ' + esc(r.nameB) + '</div>'
@@ -3290,21 +3290,39 @@ function loadMergeCandidates() {
 }
 var _mergeCandidates = [];
 // 統合しないと判断した組を今後出さないようにする。
-// シートに残るので、やっぱり統合したくなったら「統合除外」シートの行を消せば戻る。
+// ⚠️ 確認ダイアログを出さず、再読み込みもしないこと。
+//   「統合除外」シートの行を消せば戻せる操作なので確認は不要で、
+//   連続して消すときに毎回ポップアップと再読み込みを挟むと使い物にならない。
+//   先に画面から消して、保存はうしろで走らせる。失敗したら戻す。
 function dismissMergeCandidate(i) {
   var r = _mergeCandidates[i];
   if (!r) return;
-  if (!confirm('「' + r.nameA + ' ← ' + r.nameB + '」を統合候補から外します。\n\n'
-    + '（戻したいときは スプレッドシートの「統合除外」シートから該当行を削除してください）')) return;
+  var card = document.getElementById('mergeCand_' + i);
+  if (card) card.style.display = 'none';
+  _mergeCandidates[i] = null;
+  _updateMergeCandBadge();
   google.script.run
     .withSuccessHandler(function(res) {
-      showToast(res && res.success ? '候補から外しました' : ('失敗: ' + (res && res.message)));
-      loadMergeCandidates();
+      if (!res || !res.success) _restoreMergeCandidate(i, r, card, (res && res.message) || '失敗');
     })
     .withFailureHandler(function(err) {
-      showToast('失敗: ' + (err.message || String(err)));
+      _restoreMergeCandidate(i, r, card, err.message || String(err));
     })
     .dismissCustomerMergeCandidate(r.nameA, r.nameB);
+}
+function _restoreMergeCandidate(i, r, card, msg) {
+  _mergeCandidates[i] = r;
+  if (card) card.style.display = '';
+  _updateMergeCandBadge();
+  showToast('候補から外せませんでした: ' + msg);
+}
+function _updateMergeCandBadge() {
+  var badge = document.getElementById('mergeCandBadge');
+  if (!badge) return;
+  var n = 0;
+  for (var k = 0; k < _mergeCandidates.length; k++) if (_mergeCandidates[k]) n++;
+  badge.textContent = n + '件';
+  badge.className = 'badge ' + (n > 0 ? 'badge-on' : 'badge-off');
 }
 
 function pickMergeCandidate(i) {
