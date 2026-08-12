@@ -6082,6 +6082,42 @@ function _getMergeDismissedSet_() {
 }
 
 /**
+ * 複数の統合候補をまとめて「統合しない」にする。
+ * 1組ずつ消すのは手間なので、チェックした分を一度に書き込む。
+ * @param {Array<{nameA:string,nameB:string}>} pairs
+ */
+function dismissCustomerMergeCandidates(pairs) {
+  try {
+    if (!pairs || !pairs.length) return { success: false, message: '選択されていません。' };
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(MERGE_DISMISS_SHEET_NAME);
+    if (!sheet) {
+      sheet = ss.insertSheet(MERGE_DISMISS_SHEET_NAME);
+      sheet.appendRow(['顧客A', '顧客B', '除外日時']);
+    }
+    var already = _getMergeDismissedSet_();
+    var now = new Date();
+    var rows = [];
+    for (var i = 0; i < pairs.length; i++) {
+      var a = String(pairs[i] && pairs[i].nameA || '').trim();
+      var b = String(pairs[i] && pairs[i].nameB || '').trim();
+      if (!a || !b) continue;
+      var k = _mergeDismissKey_(a, b);
+      if (already[k]) continue;
+      already[k] = true;   // 同じ組が2つ入っていても1行だけにする
+      rows.push([a, b, now]);
+    }
+    if (rows.length === 0) return { success: true, message: 'すでに除外済みです。', added: 0 };
+    // 1行ずつ appendRow すると件数分だけ往復して遅いのでまとめて書く
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 3).setValues(rows);
+    return { success: true, message: rows.length + '組を候補から外しました。', added: rows.length };
+  } catch (e) {
+    console.error('dismissCustomerMergeCandidates error: ' + (e.stack || e.message));
+    return { success: false, message: e.message };
+  }
+}
+
+/**
  * 統合候補を「統合しない」として今後出さないようにする。
  * AdminPage から google.script.run で呼ばれる。
  */

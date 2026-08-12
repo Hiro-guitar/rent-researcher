@@ -3271,12 +3271,19 @@ function loadMergeCandidates() {
             + esc(r.nameA) + ' ← ' + esc(r.nameB) + '</div>'
             + '<div style="font-size:11px;color:#d4b35a;margin-top:3px;">' + esc((r.reasons || []).join(' / ')) + '</div>'
             + '</div>'
-            // 統合しないと決めた組を消す。押さないと同じ候補が毎回出続ける。
-            + '<button onclick="event.stopPropagation();dismissMergeCandidate(' + i + ')" title="統合しない（今後この組は出さない）" '
-            + 'style="flex-shrink:0;background:transparent;color:#888;border:1px solid #555;border-radius:6px;'
-            + 'padding:2px 8px;font-size:12px;cursor:pointer;">✕</button>'
+            // 統合しないと決めた組にチェックを入れ、まとめて外す
+            + '<label onclick="event.stopPropagation();" title="統合しない（今後この組は出さない）" '
+            + 'style="flex-shrink:0;display:flex;align-items:center;gap:4px;cursor:pointer;color:#888;font-size:11px;">'
+            + '<input type="checkbox" class="merge-cand-cb" data-idx="' + i + '" '
+            + 'style="width:16px;height:16px;accent-color:#e0707a;cursor:pointer;">外す</label>'
             + '</div>';
         });
+        html += '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;">'
+          + '<button class="btn-admin" onclick="mergeCandSelectAll(true)" style="background:#2d2d2d;color:#aaa;border:1px solid #555;font-size:11px;padding:3px 8px;">全選択</button>'
+          + '<button class="btn-admin" onclick="mergeCandSelectAll(false)" style="background:#2d2d2d;color:#aaa;border:1px solid #555;font-size:11px;padding:3px 8px;">全解除</button>'
+          + '<button class="btn-admin" id="mergeDismissBtn" onclick="dismissCheckedMergeCandidates()" '
+          + 'style="background:#5a2d2d;color:#f0b3b3;border:1px solid #7a3b3b;font-size:11px;padding:3px 10px;">チェックした組を候補から外す</button>'
+          + '</div>';
         el.innerHTML = html;
         _mergeCandidates = rows;
       } catch (e) {
@@ -3294,25 +3301,46 @@ var _mergeCandidates = [];
 //   「統合除外」シートの行を消せば戻せる操作なので確認は不要で、
 //   連続して消すときに毎回ポップアップと再読み込みを挟むと使い物にならない。
 //   先に画面から消して、保存はうしろで走らせる。失敗したら戻す。
-function dismissMergeCandidate(i) {
-  var r = _mergeCandidates[i];
-  if (!r) return;
-  var card = document.getElementById('mergeCand_' + i);
-  if (card) card.style.display = 'none';
-  _mergeCandidates[i] = null;
+function mergeCandSelectAll(checked) {
+  var cbs = document.querySelectorAll('.merge-cand-cb');
+  for (var i = 0; i < cbs.length; i++) cbs[i].checked = checked;
+}
+function dismissCheckedMergeCandidates() {
+  var cbs = document.querySelectorAll('.merge-cand-cb:checked');
+  if (cbs.length === 0) { showToast('チェックされていません'); return; }
+  var picked = [], cards = [], idxs = [];
+  for (var i = 0; i < cbs.length; i++) {
+    var idx = Number(cbs[i].getAttribute('data-idx'));
+    var r = _mergeCandidates[idx];
+    if (!r) continue;
+    picked.push({ nameA: r.nameA, nameB: r.nameB });
+    cards.push(document.getElementById('mergeCand_' + idx));
+    idxs.push(idx);
+  }
+  if (picked.length === 0) return;
+  // 先に画面から消して待たせない。保存に失敗したら戻す。
+  var backup = [];
+  for (var k = 0; k < idxs.length; k++) {
+    backup.push(_mergeCandidates[idxs[k]]);
+    _mergeCandidates[idxs[k]] = null;
+    if (cards[k]) cards[k].style.display = 'none';
+  }
   _updateMergeCandBadge();
   google.script.run
     .withSuccessHandler(function(res) {
-      if (!res || !res.success) _restoreMergeCandidate(i, r, card, (res && res.message) || '失敗');
+      if (res && res.success) showToast(res.message);
+      else _restoreMergeCandidates(idxs, backup, cards, (res && res.message) || '失敗');
     })
     .withFailureHandler(function(err) {
-      _restoreMergeCandidate(i, r, card, err.message || String(err));
+      _restoreMergeCandidates(idxs, backup, cards, err.message || String(err));
     })
-    .dismissCustomerMergeCandidate(r.nameA, r.nameB);
+    .dismissCustomerMergeCandidates(picked);
 }
-function _restoreMergeCandidate(i, r, card, msg) {
-  _mergeCandidates[i] = r;
-  if (card) card.style.display = '';
+function _restoreMergeCandidates(idxs, backup, cards, msg) {
+  for (var k = 0; k < idxs.length; k++) {
+    _mergeCandidates[idxs[k]] = backup[k];
+    if (cards[k]) cards[k].style.display = '';
+  }
   _updateMergeCandBadge();
   showToast('候補から外せませんでした: ' + msg);
 }
