@@ -6108,21 +6108,38 @@ function listCustomerMergeCandidates() {
       }
     } catch (_eInq) {}
 
-    // アクションログ: 顧客名 → 触れた物件名の集合（LINE側がどの物件から来たか）
+    // LINE側がどの物件から来たかを 返信キュー から取る。
+    // 列: userId / 物件名 / 部屋番号 / 受付時刻 / 送信予定時刻 / ステータス / ユーザー名
+    //
+    // ⚠️ アクションログは使えない。あちらに行が入るのは handlePropertyAction、
+    //   つまり「こちらが送った物件ページでお気に入り等を押した時」だけなので、
+    //   問い合わせ直後の新規LINE友だちは1行も持たない。統合が必要なのはまさに
+    //   その人たちなので、肝心なケースで一致しなかった（2026-08-10）。
+    //   返信キューは空室確認を受け付けた時点で必ず1行入るので、こちらが正しい。
     var actedBuildings = {};
     try {
-      var act = ss.getSheetByName('アクションログ');
-      if (act && act.getLastRow() > 1) {
-        var aData = act.getDataRange().getValues();
-        for (var a = 1; a < aData.length; a++) {
-          var an = String(aData[a][0] || '').trim();
-          var ab = _mcNormBuilding_(aData[a][3]);
-          if (!an || !ab) continue;
-          if (!actedBuildings[an]) actedBuildings[an] = {};
-          actedBuildings[an][ab] = true;
+      var rq = ss.getSheetByName('返信キュー');
+      if (rq && rq.getLastRow() > 1) {
+        var rqData = rq.getDataRange().getValues();
+        var rqHead = rqData[0].map(function (h) { return String(h || '').trim(); });
+        var cUid = rqHead.indexOf('userId');
+        var cBld = rqHead.indexOf('物件名');
+        var cUsr = rqHead.indexOf('ユーザー名');
+        var cAt = rqHead.indexOf('受付時刻');
+        // userId → 顧客名（LINE Users 側の名前に寄せる）
+        var uidToName = {};
+        for (var nk in nameToUid) { if (nameToUid[nk]) uidToName[nameToUid[nk]] = nk; }
+        for (var r2 = 1; r2 < rqData.length; r2++) {
+          var rUid = cUid >= 0 ? String(rqData[r2][cUid] || '').trim() : '';
+          var rName = uidToName[rUid] || (cUsr >= 0 ? String(rqData[r2][cUsr] || '').trim() : '');
+          var rBld = _mcNormBuilding_(cBld >= 0 ? rqData[r2][cBld] : '');
+          if (!rName || !rBld) continue;
+          if (!actedBuildings[rName]) actedBuildings[rName] = {};
+          actedBuildings[rName][rBld] = (cAt >= 0 && rqData[r2][cAt] instanceof Date)
+            ? rqData[r2][cAt].getTime() : true;
         }
       }
-    } catch (_eAct) {}
+    } catch (_eRq) {}
 
     // 検索条件シートの行（名前ごとに最初の1行）
     var rows = {};
@@ -6161,13 +6178,23 @@ function listCustomerMergeCandidates() {
         var score = 0;
 
         // ① 同じ物件（問い合わせ物件 と LINE側が触れた物件）
+        // ⚠️ 完全一致では取りこぼす。問い合わせシートは部屋番号込みの
+        //   「Branche荻窪201」、返信キューは建物名だけの「Branche荻窪」なので、
+        //   どちらかがもう一方の先頭に一致すれば同じ物件とみなす。
         var acted = actedBuildings[lineSide.name] || {};
+        var actedKeys = Object.keys(acted);
         var matchedBuilding = '';
-        for (var ii = 0; ii < inquiries.length; ii++) {
+        for (var ii = 0; ii < inquiries.length && !matchedBuilding; ii++) {
           if (inquiries[ii].name !== inqSide.name) continue;
-          if (inquiries[ii].building && acted[inquiries[ii].building]) {
-            matchedBuilding = inquiries[ii].building;
-            break;
+          var ib = inquiries[ii].building;
+          if (!ib) continue;
+          for (var ak = 0; ak < actedKeys.length; ak++) {
+            var qb = actedKeys[ak];
+            if (!qb) continue;
+            if (ib === qb || ib.indexOf(qb) === 0 || qb.indexOf(ib) === 0) {
+              matchedBuilding = (ib.length >= qb.length) ? ib : qb;
+              break;
+            }
           }
         }
         var strong = false;   // 決め手になる根拠があるか
