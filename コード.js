@@ -6552,6 +6552,10 @@ function getCustomerMergePreview(nameA, nameB) {
   // 配信ステータス
   var statusA = String(rowA[18] || '').trim();
   var statusB = String(rowB[18] || '').trim();
+  // 営業ステージ（AG列 = index 32）。空のときは status から推定される
+  // （_getCustomerListForCRM_ と同じ規則）ので、画面でもそう見せる。
+  var stageA = String(rowA[32] || '').trim();
+  var stageB = String(rowB[32] || '').trim();
 
   return {
     nameA: nameA,
@@ -6560,6 +6564,8 @@ function getCustomerMergePreview(nameA, nameB) {
     lineB: lineB,
     statusA: statusA,
     statusB: statusB,
+    stageA: stageA,
+    stageB: stageB,
     fields: fields,
     countA: countA,
     countB: countB,

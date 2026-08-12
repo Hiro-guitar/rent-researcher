@@ -3484,6 +3484,26 @@ function renderMergePreview(data) {
     html += '</div></div>';
   }
 
+  // 営業ステージもLINE側に合わせたいことが多いので、ステータスと同じく選べるようにする。
+  // 空欄はステータスから推定される（lead → 問い合わせ / それ以外 → 追客中）。
+  var _stageLbl = function (v, st) {
+    if (v) return v;
+    return '（空欄→' + (String(st || '').toLowerCase() === 'lead' ? '問い合わせ' : '追客中') + '）';
+  };
+  if (data.stageA !== data.stageB) {
+    var _defSB = (_lineIsB && !_lineIsA);
+    html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #444;">';
+    html += '<div style="font-size:12px;font-weight:600;color:#ccc;margin-bottom:6px;">営業ステージ（残す方）</div>';
+    html += '<div class="radio-row" style="gap:12px;">';
+    html += '<label style="cursor:pointer;"><input type="radio" name="mergeStage" value="A"' + (_defSB ? '' : ' checked')
+      + ' style="margin-right:4px;"> <span style="color:#7cb3f0;">' + esc(_stageLbl(data.stageA, data.statusA)) + '</span>'
+      + (_lineIsA ? '<span style="color:#8ec41d;font-size:11px;"> (LINE側)</span>' : '') + '</label>';
+    html += '<label style="cursor:pointer;"><input type="radio" name="mergeStage" value="B"' + (_defSB ? ' checked' : '')
+      + ' style="margin-right:4px;"> <span style="color:#e6a23c;">' + esc(_stageLbl(data.stageB, data.statusB)) + '</span>'
+      + (_lineIsB ? '<span style="color:#8ec41d;font-size:11px;"> (LINE側)</span>' : '') + '</label>';
+    html += '</div></div>';
+  }
+
   html += '<div style="margin-top:12px;text-align:center;">';
   html += '<button class="btn-admin btn-orange" id="mergeExecBtn" onclick="executeMerge()" style="width:100%;">🔗 統合を実行</button>';
   html += '</div>';
@@ -3548,16 +3568,21 @@ function executeMerge() {
     overrides = filteredOverrides;
   }
 
-  // 配信ステータス（S列 = index 18）。選ばれた側の値を残す方の行へ書く。
-  var _stRadio = document.querySelector('input[name="mergeStatus"]:checked');
-  if (_stRadio && _mergeData) {
-    var _want = (_stRadio.value === 'A') ? _mergeData.statusA : _mergeData.statusB;
-    var _keepCur = (keepName === _mergeData.nameA) ? _mergeData.statusA : _mergeData.statusB;
-    if (_want !== _keepCur) {
+  // 配信ステータス（S列 = index 18）/ 営業ステージ（AG列 = index 32）。
+  // 選ばれた側の値を残す方の行へ書く。空を選んだ場合も空で上書きする
+  // （空欄はステータスから推定されるので、それが狙い）。
+  var _applyPick = function (radioName, col, keyA, keyB) {
+    var radio = document.querySelector('input[name="' + radioName + '"]:checked');
+    if (!radio || !_mergeData) return;
+    var want = (radio.value === 'A') ? _mergeData[keyA] : _mergeData[keyB];
+    var keepCur = (keepName === _mergeData.nameA) ? _mergeData[keyA] : _mergeData[keyB];
+    if (want !== keepCur) {
       if (!overrides) overrides = {};
-      overrides['18'] = _want;
+      overrides[col] = want;
     }
-  }
+  };
+  _applyPick('mergeStatus', '18', 'statusA', 'statusB');
+  _applyPick('mergeStage', '32', 'stageA', 'stageB');
 
   if (!confirm(mergeName + ' を ' + keepName + ' に統合します。この操作は元に戻せません。\n\n実行しますか？')) return;
 
