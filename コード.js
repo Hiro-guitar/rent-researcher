@@ -4484,6 +4484,24 @@ function getCustomerListForCRM() {
 }
 
 /**
+ * シートのセルから日時を取り出す。
+ * ⚠️ Date型とは限らない。閲覧ログの閲覧日時や通知済み物件の送信日時は
+ *   Utilities.formatDate で 'yyyy/MM/dd HH:mm:ss' の文字列として書かれている
+ *   （PropertyApproval.js:990 など）。instanceof Date だけで判定すると全行落ちて
+ *   「全員が未閲覧」になる（2026-08-10）。
+ * @return {number} エポックミリ秒。取れなければ 0
+ */
+function _cellToEpochMs_(v) {
+  if (v instanceof Date) return v.getTime();
+  var t = String(v == null ? '' : v).trim();
+  if (!t) return 0;
+  // 'yyyy/MM/dd HH:mm:ss' / 'yyyy-MM-dd HH:mm:ss' / ISO を受ける
+  var d = new Date(t.replace(/\//g, '-').replace(' ', 'T'));
+  if (isNaN(d.getTime())) d = new Date(t);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+/**
  * CRM用の顧客一覧を取得する。全顧客を含む（blocked含む）。
  */
 function _getCustomerListForCRM_() {
@@ -4566,9 +4584,8 @@ function _getCustomerListForCRM_() {
       for (var si = 0; si < seenRows.length; si++) {
         var sName = String(seenRows[si][0] || '').trim();
         if (!sName || !nameMap[sName]) continue;
-        var sDate = seenRows[si][3];
-        if (!(sDate instanceof Date)) continue;
-        var ms = sDate.getTime();
+        var ms = _cellToEpochMs_(seenRows[si][3]);
+        if (!ms) continue;
         if (!lastSentMs[sName] || ms > lastSentMs[sName]) lastSentMs[sName] = ms;
       }
       var nowMs = Date.now();
@@ -4598,9 +4615,8 @@ function _getCustomerListForCRM_() {
       for (var vi = 0; vi < viewRows.length; vi++) {
         var vName = String(viewRows[vi][0] || '').trim();
         if (!vName || !nameMap[vName]) continue;
-        var vDate = viewRows[vi][3];
-        if (!(vDate instanceof Date)) continue;
-        var vms = vDate.getTime();
+        var vms = _cellToEpochMs_(viewRows[vi][3]);
+        if (!vms) continue;
         if (!lastViewMs[vName] || vms > lastViewMs[vName]) lastViewMs[vName] = vms;
       }
       var nowMs2 = Date.now();
