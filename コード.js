@@ -6147,13 +6147,17 @@ function listCustomerMergeCandidates() {
             break;
           }
         }
-        if (matchedBuilding) { score += 3; reasons.push('同じ物件に問い合わせ（' + matchedBuilding + '）'); }
+        var strong = false;   // 決め手になる根拠があるか
+        if (matchedBuilding) { score += 3; strong = true; reasons.push('同じ物件に問い合わせ（' + matchedBuilding + '）'); }
 
         // ② 時期の近さ（登録日どうし）
         if (A.registeredAt && B.registeredAt) {
           var diff = Math.abs(A.registeredAt - B.registeredAt);
           if (diff <= 3 * DAY) {
-            score += 2;
+            // ⚠️ 時期の近さは補強材料であって決め手ではない。
+            //   +2 にすると「条件はLINE側だけ」と合わせて総当たりが全部候補になり、
+            //   同じLINE顧客が何人もの別人と組まれた（2026-08-10）。
+            score += 1;
             reasons.push('登録が' + (diff < DAY ? '同日' : Math.round(diff / DAY) + '日差'));
           }
         }
@@ -6164,16 +6168,20 @@ function listCustomerMergeCandidates() {
         var sim = _mcNameSimilar_(A.name, B.name);
         if (sim) {
           score += (sim === '姓が同じ') ? 1 : 2;
+          if (sim !== '姓が同じ') strong = true;
           reasons.push('名前が類似（' + sim + '）');
         }
 
-        // ④ 片方だけ条件を持っている（LINEで登録され、問い合わせ側は空）
+        // ④ 片方だけ条件を持っている
+        // ⚠️ 加点しないこと。LINE顧客はほぼ全員条件を持ち、リードはほぼ全員持たないので
+        //   ほぼ全組で成立してしまい、根拠として意味がない。表示だけする。
         if (lineSide.hasCriteria && !inqSide.hasCriteria) {
-          score += 1;
           reasons.push('条件はLINE側だけにある');
         }
 
-        if (score >= 3) {
+        // 決め手（同じ物件 or 名前の一致）が無いものは出さない。
+        // 時期や姓の一致だけでは別人が大量に並ぶ。
+        if (strong && score >= 3) {
           out.push({
             nameA: inqSide.name,      // 名前は問い合わせ側を優先するのでAに置く
             nameB: lineSide.name,

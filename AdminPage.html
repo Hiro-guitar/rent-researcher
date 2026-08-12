@@ -389,8 +389,10 @@ input[type="range"]::-webkit-slider-thumb {
     <div class="admin-section-header" onclick="toggleAdminSection('merge')">
       <div class="admin-section-title">
         🔗 顧客統合
+        <span id="mergeCandBadge" class="badge badge-off">0件</span>
       </div>
       <div class="admin-section-right">
+        <button class="btn-admin btn-outline" onclick="event.stopPropagation();loadMergeCandidates()">更新</button>
         <span id="mergeArrow" class="admin-section-arrow">▶</span>
       </div>
     </div>
@@ -398,6 +400,8 @@ input[type="range"]::-webkit-slider-thumb {
       <p class="admin-desc">
         重複した2つの顧客レコードを1つに統合します。名前は問い合わせ側を優先、履歴は両方保持します。
       </p>
+      <!-- 統合候補。件数が多くてもページ下部の操作に届くよう高さを制限する -->
+      <div id="mergeCandList" style="padding:0 12px 8px;max-height:320px;overflow-y:auto;"></div>
       <div style="padding:8px 12px;">
         <div class="admin-field-row" style="margin-bottom:8px;">
           <div style="flex:1;">
@@ -414,9 +418,6 @@ input[type="range"]::-webkit-slider-thumb {
           </div>
         </div>
         <button class="btn-admin btn-blue" onclick="loadMergePreview()" id="mergePreviewBtn">比較プレビュー</button>
-        <button class="btn-admin" onclick="loadMergeCandidates()" id="mergeCandBtn"
-          style="background:#2d2d2d;color:#ddd;border:1px solid #555;">統合候補を探す</button>
-        <div id="mergeCandList" style="margin-top:8px;"></div>
       </div>
       <div id="mergePreviewArea" style="display:none;padding:0 12px 12px;">
         <div id="mergePreviewContent"></div>
@@ -2986,6 +2987,7 @@ window.addEventListener('DOMContentLoaded', function() {
   // 他の初期化が一段落してから submitting リスト + 条件変更提案候補を読みに行く
   setTimeout(refreshSubmittingList, 500);
   setTimeout(refreshSuggestionList, 700);
+  setTimeout(loadMergeCandidates, 900);
 });
 
 // ──────────────────────────────────────────────────────────
@@ -3245,19 +3247,23 @@ function sendSuggestionMessages() {
 // あとは既存の「比較プレビュー」→確認の流れに乗る（自動では統合しない）。
 function loadMergeCandidates() {
   var el = document.getElementById('mergeCandList');
-  var btn = document.getElementById('mergeCandBtn');
-  btn.disabled = true;
-  el.innerHTML = '<div style="font-size:12px;color:#999;">探しています...</div>';
+  var badge = document.getElementById('mergeCandBadge');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:12px;color:#999;">確認中...</div>';
   google.script.run
     .withSuccessHandler(function(rows) {
-      btn.disabled = false;
       try {
-        if (!rows || rows.length === 0) {
-          el.innerHTML = '<div style="font-size:12px;color:#999;">統合候補は見つかりませんでした。</div>';
+        var n = (rows || []).length;
+        if (badge) {
+          badge.textContent = n + '件';
+          badge.className = 'badge ' + (n > 0 ? 'badge-on' : 'badge-off');
+        }
+        if (n === 0) {
+          el.innerHTML = '<div style="font-size:12px;color:#999;">統合候補はありません。</div>';
           return;
         }
         var html = '<div style="font-size:11px;color:#999;margin-bottom:4px;">'
-          + rows.length + '組（確度が高い順）。選ぶと下のドロップダウンに入ります。</div>';
+          + n + '組（確度が高い順）。選ぶと下のドロップダウンに入ります。</div>';
         rows.forEach(function(r, i) {
           html += '<div onclick="pickMergeCandidate(' + i + ')" '
             + 'style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:8px 10px;margin-bottom:4px;cursor:pointer;">'
@@ -3273,7 +3279,6 @@ function loadMergeCandidates() {
       }
     })
     .withFailureHandler(function(err) {
-      btn.disabled = false;
       el.innerHTML = '<div style="color:#c00;font-size:12px;">読み込み失敗: ' + esc(err.message || String(err)) + '</div>';
     })
     .listCustomerMergeCandidates();
