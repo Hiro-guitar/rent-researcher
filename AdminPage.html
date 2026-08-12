@@ -3265,11 +3265,16 @@ function loadMergeCandidates() {
         var html = '<div style="font-size:11px;color:#999;margin-bottom:4px;">'
           + n + '組（確度が高い順）。選ぶと下のドロップダウンに入ります。</div>';
         rows.forEach(function(r, i) {
-          html += '<div onclick="pickMergeCandidate(' + i + ')" '
-            + 'style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:8px 10px;margin-bottom:4px;cursor:pointer;">'
+          html += '<div style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:8px 10px;margin-bottom:4px;display:flex;align-items:flex-start;gap:8px;">'
+            + '<div onclick="pickMergeCandidate(' + i + ')" style="flex:1;min-width:0;cursor:pointer;">'
             + '<div style="font-size:13px;color:#5da9e9;font-weight:600;">'
             + esc(r.nameA) + ' ← ' + esc(r.nameB) + '</div>'
             + '<div style="font-size:11px;color:#d4b35a;margin-top:3px;">' + esc((r.reasons || []).join(' / ')) + '</div>'
+            + '</div>'
+            // 統合しないと決めた組を消す。押さないと同じ候補が毎回出続ける。
+            + '<button onclick="event.stopPropagation();dismissMergeCandidate(' + i + ')" title="統合しない（今後この組は出さない）" '
+            + 'style="flex-shrink:0;background:transparent;color:#888;border:1px solid #555;border-radius:6px;'
+            + 'padding:2px 8px;font-size:12px;cursor:pointer;">✕</button>'
             + '</div>';
         });
         el.innerHTML = html;
@@ -3284,6 +3289,24 @@ function loadMergeCandidates() {
     .listCustomerMergeCandidates();
 }
 var _mergeCandidates = [];
+// 統合しないと判断した組を今後出さないようにする。
+// シートに残るので、やっぱり統合したくなったら「統合除外」シートの行を消せば戻る。
+function dismissMergeCandidate(i) {
+  var r = _mergeCandidates[i];
+  if (!r) return;
+  if (!confirm('「' + r.nameA + ' ← ' + r.nameB + '」を統合候補から外します。\n\n'
+    + '（戻したいときは スプレッドシートの「統合除外」シートから該当行を削除してください）')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      showToast(res && res.success ? '候補から外しました' : ('失敗: ' + (res && res.message)));
+      loadMergeCandidates();
+    })
+    .withFailureHandler(function(err) {
+      showToast('失敗: ' + (err.message || String(err)));
+    })
+    .dismissCustomerMergeCandidate(r.nameA, r.nameB);
+}
+
 function pickMergeCandidate(i) {
   var r = _mergeCandidates[i];
   if (!r) return;

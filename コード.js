@@ -6051,6 +6051,61 @@ function resetSearchRun(startTime, endTime, optCustomerName) {
  *
  * @return {Array<{nameA, nameB, score, reasons:Array<string>}>}
  */
+// ── 統合しないと判断した組（統合除外）─────────────────────────
+//   シート「統合除外」に残す。ScriptProperties だと容量上限があるのと、
+//   「やっぱり統合したい」ときに行を消すだけで戻せるようにするためシートにする。
+var MERGE_DISMISS_SHEET_NAME = '統合除外';
+
+/** 2名から順序に依存しないキーを作る。A×B と B×A を同じものとして扱う。 */
+function _mergeDismissKey_(a, b) {
+  var x = String(a || '').trim();
+  var y = String(b || '').trim();
+  return (x <= y) ? (x + '\u0000' + y) : (y + '\u0000' + x);
+}
+
+function _getMergeDismissedSet_() {
+  var set = {};
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(MERGE_DISMISS_SHEET_NAME);
+    if (!sheet || sheet.getLastRow() < 2) return set;
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var a = String(data[i][0] || '').trim();
+      var b = String(data[i][1] || '').trim();
+      if (a && b) set[_mergeDismissKey_(a, b)] = true;
+    }
+  } catch (e) {
+    console.warn('_getMergeDismissedSet_ error: ' + e.message);
+  }
+  return set;
+}
+
+/**
+ * 統合候補を「統合しない」として今後出さないようにする。
+ * AdminPage から google.script.run で呼ばれる。
+ */
+function dismissCustomerMergeCandidate(nameA, nameB) {
+  try {
+    if (!nameA || !nameB) return { success: false, message: '顧客名が不正です。' };
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(MERGE_DISMISS_SHEET_NAME);
+    if (!sheet) {
+      sheet = ss.insertSheet(MERGE_DISMISS_SHEET_NAME);
+      sheet.appendRow(['顧客A', '顧客B', '除外日時']);
+    }
+    var already = _getMergeDismissedSet_();
+    if (already[_mergeDismissKey_(nameA, nameB)]) {
+      return { success: true, message: 'すでに除外済みです。' };
+    }
+    sheet.appendRow([nameA, nameB, new Date()]);
+    return { success: true, message: '「' + nameA + ' ← ' + nameB + '」を候補から外しました。' };
+  } catch (e) {
+    console.error('dismissCustomerMergeCandidate error: ' + (e.stack || e.message));
+    return { success: false, message: e.message };
+  }
+}
+
 function listCustomerMergeCandidates() {
   try {
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
@@ -6155,12 +6210,16 @@ function listCustomerMergeCandidates() {
       };
     }
 
+    var dismissed = _getMergeDismissedSet_();
+
     var names = Object.keys(rows);
     var DAY = 24 * 60 * 60 * 1000;
     var out = [];
     for (var x = 0; x < names.length; x++) {
       for (var y = x + 1; y < names.length; y++) {
         var A = rows[names[x]], B = rows[names[y]];
+        // 「統合しない」と判断済みの組は出さない
+        if (dismissed[_mergeDismissKey_(A.name, B.name)]) continue;
         // 両方ともLINE紐付け済み or 両方とも未紐付け なら二重の典型形ではない
         var aLine = !!lineNames[A.name], bLine = !!lineNames[B.name];
         if (aLine === bLine) continue;
