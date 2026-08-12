@@ -6060,16 +6060,34 @@ function listCustomerMergeCandidates() {
 
     // LINE紐付けのある顧客名（＝LINE由来で行が作られた可能性がある側）
     var lineNames = {};
+    var nameToUid = {};
     try {
       var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
       if (lu && lu.getLastRow() > 1) {
         var luData = lu.getDataRange().getValues();
         for (var l = 1; l < luData.length; l++) {
           var ln = String(luData[l][1] || '').trim();
-          if (ln) lineNames[ln] = true;
+          if (!ln) continue;
+          lineNames[ln] = true;
+          if (!nameToUid[ln]) nameToUid[ln] = String(luData[l][0] || '').trim();
         }
       }
     } catch (_eLu) {}
+
+    // LINE登録メール（メール / userId / 表示名 / 登録日時）。
+    // メールで突き合わせられれば推測ではなく確定できるので最優先で使う。
+    var uidToEmail = {};
+    try {
+      var le = ss.getSheetByName(LINE_EMAIL_SHEET_NAME);
+      if (le && le.getLastRow() > 1) {
+        var leData = le.getDataRange().getValues();
+        for (var m = 1; m < leData.length; m++) {
+          var lem = String(leData[m][0] || '').trim().toLowerCase();
+          var luid = String(leData[m][1] || '').trim();
+          if (lem && luid && !uidToEmail[luid]) uidToEmail[luid] = lem;
+        }
+      }
+    } catch (_eLe) {}
 
     // 問い合わせ: 名前 → { 物件名, 受信日時 }
     var inquiries = [];
@@ -6082,6 +6100,7 @@ function listCustomerMergeCandidates() {
           if (!qName) continue;
           inquiries.push({
             name: qName,
+            email: String(iData[q][4] || '').trim().toLowerCase(),
             building: _mcNormBuilding_(iData[q][8]),
             at: (iData[q][0] instanceof Date) ? iData[q][0].getTime() : 0
           });
@@ -6134,6 +6153,10 @@ function listCustomerMergeCandidates() {
         var lineSide = aLine ? A : B;
         var inqSide = aLine ? B : A;
 
+        // LINE登録メールと問い合わせ側のメールが両方あって違う → 別人
+        var _lineEmailPre = uidToEmail[nameToUid[lineSide.name] || ''] || '';
+        if (_lineEmailPre && inqSide.email && _lineEmailPre !== inqSide.email) continue;
+
         var reasons = [];
         var score = 0;
 
@@ -6148,6 +6171,23 @@ function listCustomerMergeCandidates() {
           }
         }
         var strong = false;   // 決め手になる根拠があるか
+
+        // ⓪ メール一致（LINE登録メール × 問い合わせ/検索条件シートのメール）
+        // これは推測ではなく確定なので最優先。
+        var lineEmail = uidToEmail[nameToUid[lineSide.name] || ''] || '';
+        if (lineEmail) {
+          var inqEmail = inqSide.email;
+          if (!inqEmail) {
+            for (var ei = 0; ei < inquiries.length; ei++) {
+              if (inquiries[ei].name === inqSide.name && inquiries[ei].email) { inqEmail = inquiries[ei].email; break; }
+            }
+          }
+          if (inqEmail && inqEmail === lineEmail) {
+            score += 10; strong = true;
+            reasons.push('メールが一致（' + lineEmail + '）');
+          }
+        }
+
         if (matchedBuilding) { score += 3; strong = true; reasons.push('同じ物件に問い合わせ（' + matchedBuilding + '）'); }
 
         // ② 時期の近さ（登録日どうし）
