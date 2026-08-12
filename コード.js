@@ -6038,6 +6038,184 @@ function resetSearchRun(startTime, endTime, optCustomerName) {
 //  顧客統合（マージ）
 // ══════════════════════════════════════════════════════════
 
+/**
+ * 統合候補（同一人物と思われる2行）を推測して返す。
+ *
+ * LINEから自動で条件登録されると LINE の表示名で行が作られるため、
+ * メール問い合わせ由来の行（実名）と二重になる。担当者は
+ * 「問い合わせが来た物件 / 問い合わせ時期 / 名前の類似」で当たりを付けて
+ * 手で統合していたので、その突き合わせを機械的にやる。
+ *
+ * ⚠️ 自動では統合しない。別人を統合すると元に戻せないため、候補を出すだけにして
+ *   既存の比較プレビュー→確認のフローに乗せる。
+ *
+ * @return {Array<{nameA, nameB, score, reasons:Array<string>}>}
+ */
+function listCustomerMergeCandidates() {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var critSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!critSheet || critSheet.getLastRow() < 2) return [];
+    var crit = critSheet.getDataRange().getValues();
+
+    // LINE紐付けのある顧客名（＝LINE由来で行が作られた可能性がある側）
+    var lineNames = {};
+    try {
+      var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+      if (lu && lu.getLastRow() > 1) {
+        var luData = lu.getDataRange().getValues();
+        for (var l = 1; l < luData.length; l++) {
+          var ln = String(luData[l][1] || '').trim();
+          if (ln) lineNames[ln] = true;
+        }
+      }
+    } catch (_eLu) {}
+
+    // 問い合わせ: 名前 → { 物件名, 受信日時 }
+    var inquiries = [];
+    try {
+      var inq = ss.getSheetByName(INQUIRY_SHEET_NAME);
+      if (inq && inq.getLastRow() > 1) {
+        var iData = inq.getRange(2, 1, inq.getLastRow() - 1, INQUIRY_HEADERS.length).getValues();
+        for (var q = 0; q < iData.length; q++) {
+          var qName = String(iData[q][2] || '').trim();
+          if (!qName) continue;
+          inquiries.push({
+            name: qName,
+            building: _mcNormBuilding_(iData[q][8]),
+            at: (iData[q][0] instanceof Date) ? iData[q][0].getTime() : 0
+          });
+        }
+      }
+    } catch (_eInq) {}
+
+    // アクションログ: 顧客名 → 触れた物件名の集合（LINE側がどの物件から来たか）
+    var actedBuildings = {};
+    try {
+      var act = ss.getSheetByName('アクションログ');
+      if (act && act.getLastRow() > 1) {
+        var aData = act.getDataRange().getValues();
+        for (var a = 1; a < aData.length; a++) {
+          var an = String(aData[a][0] || '').trim();
+          var ab = _mcNormBuilding_(aData[a][3]);
+          if (!an || !ab) continue;
+          if (!actedBuildings[an]) actedBuildings[an] = {};
+          actedBuildings[an][ab] = true;
+        }
+      }
+    } catch (_eAct) {}
+
+    // 検索条件シートの行（名前ごとに最初の1行）
+    var rows = {};
+    for (var i = 1; i < crit.length; i++) {
+      var nm = String(crit[i][1] || '').trim();
+      if (!nm || rows[nm]) continue;
+      rows[nm] = {
+        name: nm,
+        registeredAt: (crit[i][0] instanceof Date) ? crit[i][0].getTime() : 0,
+        email: String(crit[i][31] || '').trim().toLowerCase(),
+        status: String(crit[i][18] || '').trim().toLowerCase(),
+        hasCriteria: (typeof _rowHasCriteria_ === 'function') ? !!_rowHasCriteria_(crit[i]) : false
+      };
+    }
+
+    var names = Object.keys(rows);
+    var DAY = 24 * 60 * 60 * 1000;
+    var out = [];
+    for (var x = 0; x < names.length; x++) {
+      for (var y = x + 1; y < names.length; y++) {
+        var A = rows[names[x]], B = rows[names[y]];
+        // 両方ともLINE紐付け済み or 両方とも未紐付け なら二重の典型形ではない
+        var aLine = !!lineNames[A.name], bLine = !!lineNames[B.name];
+        if (aLine === bLine) continue;
+        // メールが両方あって違う → 別人
+        if (A.email && B.email && A.email !== B.email) continue;
+
+        var lineSide = aLine ? A : B;
+        var inqSide = aLine ? B : A;
+
+        var reasons = [];
+        var score = 0;
+
+        // ① 同じ物件（問い合わせ物件 と LINE側が触れた物件）
+        var acted = actedBuildings[lineSide.name] || {};
+        var matchedBuilding = '';
+        for (var ii = 0; ii < inquiries.length; ii++) {
+          if (inquiries[ii].name !== inqSide.name) continue;
+          if (inquiries[ii].building && acted[inquiries[ii].building]) {
+            matchedBuilding = inquiries[ii].building;
+            break;
+          }
+        }
+        if (matchedBuilding) { score += 3; reasons.push('同じ物件に問い合わせ（' + matchedBuilding + '）'); }
+
+        // ② 時期の近さ（登録日どうし）
+        if (A.registeredAt && B.registeredAt) {
+          var diff = Math.abs(A.registeredAt - B.registeredAt);
+          if (diff <= 3 * DAY) {
+            score += 2;
+            reasons.push('登録が' + (diff < DAY ? '同日' : Math.round(diff / DAY) + '日差'));
+          }
+        }
+
+        // ③ 名前の類似
+        // ⚠️ 「姓が同じ」だけで候補にしないこと。佐藤香奈と佐藤智奈美のような
+        //   別人が並んでしまう。完全一致・包含は強く、姓一致は弱く数える。
+        var sim = _mcNameSimilar_(A.name, B.name);
+        if (sim) {
+          score += (sim === '姓が同じ') ? 1 : 2;
+          reasons.push('名前が類似（' + sim + '）');
+        }
+
+        // ④ 片方だけ条件を持っている（LINEで登録され、問い合わせ側は空）
+        if (lineSide.hasCriteria && !inqSide.hasCriteria) {
+          score += 1;
+          reasons.push('条件はLINE側だけにある');
+        }
+
+        if (score >= 3) {
+          out.push({
+            nameA: inqSide.name,      // 名前は問い合わせ側を優先するのでAに置く
+            nameB: lineSide.name,
+            score: score,
+            reasons: reasons
+          });
+        }
+      }
+    }
+    out.sort(function (p, q) { return q.score - p.score; });
+    return out.slice(0, 50);
+  } catch (e) {
+    console.error('listCustomerMergeCandidates error: ' + (e.stack || e.message));
+    return [];
+  }
+}
+
+/** 物件名を突き合わせ用に正規化（全角半角・空白・号室を吸収）。 */
+function _mcNormBuilding_(v) {
+  var t = String(v == null ? '' : v).trim();
+  if (!t) return '';
+  t = t.replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (c) {
+    return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+  });
+  t = t.replace(/\s+/g, '').replace(/号室$/, '');
+  return t.toLowerCase();
+}
+
+/** 名前が似ているか。似ていれば理由の文字列、違えば ''。 */
+function _mcNameSimilar_(a, b) {
+  var na = String(a || '').replace(/[\s　]/g, '');
+  var nb = String(b || '').replace(/[\s　]/g, '');
+  if (!na || !nb) return '';
+  if (na === nb) return '完全一致';
+  // 片方がもう片方を含む（「對馬実」と「對馬」など）
+  if (na.length >= 2 && nb.indexOf(na) >= 0) return '一方が他方を含む';
+  if (nb.length >= 2 && na.indexOf(nb) >= 0) return '一方が他方を含む';
+  // 先頭2文字が一致（姓が同じ）
+  if (na.length >= 2 && nb.length >= 2 && na.substring(0, 2) === nb.substring(0, 2)) return '姓が同じ';
+  return '';
+}
+
 function getCustomerMergePreview(nameA, nameB) {
   if (!nameA || !nameB || nameA === nameB) {
     return { error: '異なる2つの顧客名を指定してください。' };

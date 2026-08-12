@@ -414,6 +414,9 @@ input[type="range"]::-webkit-slider-thumb {
           </div>
         </div>
         <button class="btn-admin btn-blue" onclick="loadMergePreview()" id="mergePreviewBtn">比較プレビュー</button>
+        <button class="btn-admin" onclick="loadMergeCandidates()" id="mergeCandBtn"
+          style="background:#2d2d2d;color:#ddd;border:1px solid #555;">統合候補を探す</button>
+        <div id="mergeCandList" style="margin-top:8px;"></div>
       </div>
       <div id="mergePreviewArea" style="display:none;padding:0 12px 12px;">
         <div id="mergePreviewContent"></div>
@@ -3238,6 +3241,52 @@ function sendSuggestionMessages() {
 // ══════════════════════════════════════════════════════════
 //  顧客統合
 // ══════════════════════════════════════════════════════════
+// 統合候補を推測して出す。選ぶとAB両方のドロップダウンが埋まり、
+// あとは既存の「比較プレビュー」→確認の流れに乗る（自動では統合しない）。
+function loadMergeCandidates() {
+  var el = document.getElementById('mergeCandList');
+  var btn = document.getElementById('mergeCandBtn');
+  btn.disabled = true;
+  el.innerHTML = '<div style="font-size:12px;color:#999;">探しています...</div>';
+  google.script.run
+    .withSuccessHandler(function(rows) {
+      btn.disabled = false;
+      try {
+        if (!rows || rows.length === 0) {
+          el.innerHTML = '<div style="font-size:12px;color:#999;">統合候補は見つかりませんでした。</div>';
+          return;
+        }
+        var html = '<div style="font-size:11px;color:#999;margin-bottom:4px;">'
+          + rows.length + '組（確度が高い順）。選ぶと下のドロップダウンに入ります。</div>';
+        rows.forEach(function(r, i) {
+          html += '<div onclick="pickMergeCandidate(' + i + ')" '
+            + 'style="background:#2d2d2d;border:1px solid #404040;border-radius:6px;padding:8px 10px;margin-bottom:4px;cursor:pointer;">'
+            + '<div style="font-size:13px;color:#5da9e9;font-weight:600;">'
+            + esc(r.nameA) + ' ← ' + esc(r.nameB) + '</div>'
+            + '<div style="font-size:11px;color:#d4b35a;margin-top:3px;">' + esc((r.reasons || []).join(' / ')) + '</div>'
+            + '</div>';
+        });
+        el.innerHTML = html;
+        _mergeCandidates = rows;
+      } catch (e) {
+        el.innerHTML = '<div style="color:#c00;font-size:12px;">表示エラー: ' + esc(e.message || String(e)) + '</div>';
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      el.innerHTML = '<div style="color:#c00;font-size:12px;">読み込み失敗: ' + esc(err.message || String(err)) + '</div>';
+    })
+    .listCustomerMergeCandidates();
+}
+var _mergeCandidates = [];
+function pickMergeCandidate(i) {
+  var r = _mergeCandidates[i];
+  if (!r) return;
+  document.getElementById('mergeCustomerA').value = r.nameA;
+  document.getElementById('mergeCustomerB').value = r.nameB;
+  loadMergePreview();
+}
+
 function loadMergePreview() {
   var nameA = document.getElementById('mergeCustomerA').value;
   var nameB = document.getElementById('mergeCustomerB').value;
