@@ -4603,22 +4603,40 @@ function _getCustomerListForCRM_() {
     }
   } catch (eSent) { console.warn('最終送信日取得エラー: ' + eSent.message); }
 
-  // 最終閲覧日を 閲覧ログ から取得（顧客名 / room_id / 物件名 / 閲覧日時）
-  // 物件ページを開いた時に handleTrackView が書くシート。
+  // 最終閲覧日を アクションログ(view) と 閲覧ログ の両方から取得する。
   // 「送っているのに見ていない」人を見つける手がかりになる。
-  // A列(顧客名)・D列(閲覧日時) の2列だけ読む（全列だと重いため）。
+  // ⚠️ 閲覧ログだけを見ないこと。既存の閲覧集計(コード.js:3272)は
+  //   アクションログの action='view' を主に数え、閲覧ログは「からも加算」の
+  //   補助扱いになっている。閲覧ログだけ見ると全員が未閲覧になる（2026-08-10）。
   try {
+    var lastViewMs = {};
+    var _takeView = function (name, cell) {
+      if (!name || !nameMap[name]) return;
+      var ms = _cellToEpochMs_(cell);
+      if (!ms) return;
+      if (!lastViewMs[name] || ms > lastViewMs[name]) lastViewMs[name] = ms;
+    };
+
+    // ① アクションログ: 顧客名(A) / アクション(C) / 日時(I)
+    var actSheet2 = ss.getSheetByName('アクションログ');
+    if (actSheet2 && actSheet2.getLastRow() > 1) {
+      var actRows = actSheet2.getRange(2, 1, actSheet2.getLastRow() - 1, 9).getValues();
+      for (var ai2 = 0; ai2 < actRows.length; ai2++) {
+        if (String(actRows[ai2][2] || '').trim().toLowerCase() !== 'view') continue;
+        _takeView(String(actRows[ai2][0] || '').trim(), actRows[ai2][8]);
+      }
+    }
+
+    // ② 閲覧ログ: 顧客名(A) / room_id(B) / 物件名(C) / 閲覧日時(D)
     var viewSheet2 = ss.getSheetByName('閲覧ログ');
     if (viewSheet2 && viewSheet2.getLastRow() > 1) {
       var viewRows = viewSheet2.getRange(2, 1, viewSheet2.getLastRow() - 1, 4).getValues();
-      var lastViewMs = {};
       for (var vi = 0; vi < viewRows.length; vi++) {
-        var vName = String(viewRows[vi][0] || '').trim();
-        if (!vName || !nameMap[vName]) continue;
-        var vms = _cellToEpochMs_(viewRows[vi][3]);
-        if (!vms) continue;
-        if (!lastViewMs[vName] || vms > lastViewMs[vName]) lastViewMs[vName] = vms;
+        _takeView(String(viewRows[vi][0] || '').trim(), viewRows[vi][3]);
       }
+    }
+
+    {
       var nowMs2 = Date.now();
       for (var vn = 0; vn < customers.length; vn++) {
         var vc = customers[vn];
