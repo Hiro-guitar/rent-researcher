@@ -318,6 +318,7 @@ body {
       <div class="view-toggle">
         <button id="viewListBtn" class="vt active" onclick="setCustomerView('list')">📋 一覧</button>
         <button id="viewBoardBtn" class="vt" onclick="setCustomerView('board')">📊 ボード</button>
+        <button id="viewTriageBtn" class="vt" onclick="setCustomerView('triage')">🔎 仕分け</button>
         <button id="archiveToggleBtn" class="vt" onclick="toggleArchivedView()">🗄 アーカイブ</button>
       </div>
     </div>
@@ -325,6 +326,7 @@ body {
       <div class="loading">読み込み中...</div>
     </div>
     <div id="kanbanBoard" style="display:none;"></div>
+    <div id="triageView" style="display:none;"></div>
   </div>
 </div>
 
@@ -577,6 +579,7 @@ function filterCustomers() {
   var btn = document.getElementById('archiveToggleBtn');
   if (btn) btn.textContent = showArchived ? '← 通常表示に戻す' : '🗄 アーカイブ (' + cnt + ')';
   if (customerView === 'board') renderKanban(filtered);
+  else if (customerView === 'triage') renderTriage(filtered);
   else renderCustomerList(filtered);
 }
 
@@ -646,8 +649,12 @@ function setCustomerView(v) {
   customerView = v;
   document.getElementById('viewListBtn').classList.toggle('active', v === 'list');
   document.getElementById('viewBoardBtn').classList.toggle('active', v === 'board');
+  var tb = document.getElementById('viewTriageBtn');
+  if (tb) tb.classList.toggle('active', v === 'triage');
   document.getElementById('customerList').style.display = (v === 'list') ? '' : 'none';
   document.getElementById('kanbanBoard').style.display = (v === 'board') ? '' : 'none';
+  var tv = document.getElementById('triageView');
+  if (tv) tv.style.display = (v === 'triage') ? '' : 'none';
   filterCustomers();
 }
 // ── 再描画でスクロール位置が先頭に戻らないようにする ──
@@ -775,6 +782,139 @@ function renderKanban(list) {
   renderTaskColumn();
   _restoreKanbanScroll_(board, _scrollPos);
   if (!_taskLoaded) loadTaskOverview();
+}
+
+// ══════════════════════════════════════════
+//  仕分けビュー（読み取り専用）
+//
+//  お客さんを「今どういう状態か」で自動的に分類して見せる。ステージ(AG列)には
+//  一切書き込まない。分類の定義が実感と合っているかを確かめるための画面。
+//
+//  列は左に行くほど遠く、右に行くほど成約に近い並びにしてある。
+//  申込・成約・終了は対象外（申込以降は別の話なので混ぜない）。
+//
+//  ⚠️ しきい値を決め打ちにすると必ずズレるので画面から変えられるようにしてある。
+//     LINE反応(daysSinceLine)は分類には使わず根拠としてだけ出す。
+//     LINE Activity は物件ページのボタン(postback)でも更新されるため、
+//     「話せている」の根拠にはできない（コード.js の doPost を参照）。
+// ══════════════════════════════════════════
+var TRIAGE_TYPES = [
+  { key: 'mail_only',   label: 'メールのみ',         hint: '電話番号が無く、反応も無い' },
+  { key: 'no_contact',  label: '連絡がつかない',     hint: '電話番号はあるが反応が無い' },
+  { key: 'talk_noview', label: '話したが見ていない', hint: '話せてはいるが物件を見ていない' },
+  { key: 'view_only',   label: '見ているだけ',       hint: '物件は見ているが話せていない' },
+  { key: 'talk_view',   label: '話せていて見ている', hint: '一番成約に近い' }
+];
+var TRIAGE_EXCLUDED_STAGES = ['申込', '成約', '終了'];
+var triageOpts = { viewDays: 14, talkDays: 30 };
+try {
+  var _to = JSON.parse(localStorage.getItem('triageOpts') || 'null');
+  if (_to && _to.viewDays && _to.talkDays) triageOpts = _to;
+} catch (e) {}
+
+function setTriageOpt(key, value) {
+  var n = parseInt(String(value).replace(/[^0-9]/g, ''), 10);
+  if (isNaN(n) || n < 1) return;
+  triageOpts[key] = n;
+  try { localStorage.setItem('triageOpts', JSON.stringify(triageOpts)); } catch (e) {}
+  filterCustomers();
+}
+
+// 1人を5分類のどれかに割り当てる。申込以降は null（対象外）。
+function classifyCustomer(c) {
+  if (!c) return null;
+  if (TRIAGE_EXCLUDED_STAGES.indexOf(c.stage) >= 0) return null;
+  var viewed = (c.daysSinceViewed != null && c.daysSinceViewed <= triageOpts.viewDays);
+  var talked = (c.daysSinceTalk != null && c.daysSinceTalk <= triageOpts.talkDays);
+  if (talked && viewed) return 'talk_view';
+  if (viewed) return 'view_only';
+  if (talked) return 'talk_noview';
+  // どちらも無い人は連絡手段で分ける。電話できるなら「連絡がつかない」側。
+  if (c.hasPhone) return 'no_contact';
+  if (c.email) return 'mail_only';
+  return 'no_contact';   // 電話もメールも無い＝手段が無い。埋もれないよう左には置かない
+}
+
+// 引越し期限の近い順（過ぎている人が一番上）。期限が無い人は後ろ。
+function triageUrgency(c) {
+  if (c.moveInAsap) return -100000;          // 「いい物件見つかり次第」は常に急ぎ
+  if (c.daysToMoveIn != null) return c.daysToMoveIn;
+  return 999999;
+}
+
+function triageMoveInHtml(c) {
+  if (c.moveInAsap) return '<div style="color:#e0b64a;">🏃 いい物件見つかり次第</div>';
+  if (c.daysToMoveIn == null) {
+    return c.moveIn ? '<div style="color:#777;">🗓 ' + esc(c.moveIn) + '（期限として読めず）</div>'
+                    : '<div style="color:#777;">🗓 引越し時期なし</div>';
+  }
+  var d = c.daysToMoveIn;
+  var color = (d < 0) ? '#e0707a' : (d <= 30 ? '#e0b64a' : '#888');
+  var txt = (d < 0) ? ('期限を' + (-d) + '日過ぎている') : ('あと' + d + '日');
+  return '<div style="color:' + color + ';">🗓 ' + esc(c.moveIn) + '（' + txt + (c.moveInApprox ? '・おおよそ' : '') + '）</div>';
+}
+
+function triageDayText(days, dateStr, noneText) {
+  if (days == null) return '<span style="color:#666;">' + noneText + '</span>';
+  return (days <= 0 ? '本日' : days + '日前') + '（' + esc(dateStr || '') + '）';
+}
+
+function renderTriage(list) {
+  var view = document.getElementById('triageView');
+  if (!view) return;
+  var pos = _captureKanbanScroll_(view);
+
+  var byType = {};
+  for (var t = 0; t < TRIAGE_TYPES.length; t++) byType[TRIAGE_TYPES[t].key] = [];
+  var excluded = 0;
+  for (var i = 0; i < list.length; i++) {
+    var key = classifyCustomer(list[i]);
+    if (!key) { excluded++; continue; }
+    byType[key].push(list[i]);
+  }
+  for (var k in byType) byType[k].sort(function(a, b) { return triageUrgency(a) - triageUrgency(b); });
+
+  var h = '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:8px 4px;color:#aaa;font-size:12px;">'
+    + '<span>物件を見た日がこの日数以内なら「見ている」:</span>'
+    + '<input type="number" min="1" value="' + triageOpts.viewDays + '" onchange="setTriageOpt(\'viewDays\',this.value)" '
+    +   'style="width:60px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;">日'
+    + '<span style="margin-left:12px;">対応ログがこの日数以内なら「話せている」:</span>'
+    + '<input type="number" min="1" value="' + triageOpts.talkDays + '" onchange="setTriageOpt(\'talkDays\',this.value)" '
+    +   'style="width:60px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;">日'
+    + '<span style="margin-left:12px;color:#777;">申込・成約・終了の ' + excluded + '人は対象外。ここでは何も書き換えません</span>'
+    + '</div>';
+
+  h += '<div class="kanban">';
+  for (var c2 = 0; c2 < TRIAGE_TYPES.length; c2++) {
+    var ty = TRIAGE_TYPES[c2];
+    var items = byType[ty.key];
+    h += '<div class="kanban-col" data-stage="triage:' + ty.key + '">';
+    h += '<div class="kanban-col-head">' + esc(ty.label) + '<span class="cnt">' + items.length + '</span></div>';
+    h += '<div style="padding:0 12px 6px;font-size:11px;color:#777;">' + esc(ty.hint) + '</div>';
+    h += '<div class="kanban-col-body">';
+    for (var m = 0; m < items.length; m++) {
+      var it = items[m];
+      h += '<div class="kanban-card" onclick="openDetail(\'' + esc(it.name) + '\')">';
+      h += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + '</div>';
+      h += '<div class="kc-meta">' + triageMoveInHtml(it) + '</div>';
+      h += '<div class="kc-meta">👀 閲覧: ' + triageDayText(it.daysSinceViewed, it.lastViewedAt, '無し') + '</div>';
+      h += '<div class="kc-meta">🗣 対応ログ: ' + triageDayText(it.daysSinceTalk, it.lastTalkAt, '無し')
+        + (it.lastTalkType ? '［' + esc(it.lastTalkType) + '］' : '') + '</div>';
+      h += '<div class="kc-meta">💬 LINE反応: ' + triageDayText(it.daysSinceLine, it.lastLineAt, it.hasLine ? '無し' : '未連携') + '</div>';
+      h += '<div class="kc-meta">📨 送信: ' + triageDayText(it.daysSinceSent, it.lastSentAt, '未送信') + '</div>';
+      h += '<div class="kc-meta" style="color:#777;">'
+        + (it.hasPhone ? '📞 ' + esc(it.phone) : '📵 電話なし')
+        + (it.email ? ' ／ ✉️ あり' : ' ／ ✉️ なし')
+        + (it.hasCriteria ? ' ／ 条件あり' : ' ／ <span style="color:#e0707a;">条件なし</span>')
+        + '</div>';
+      h += '</div>';
+    }
+    if (!items.length) h += '<div style="color:#666;font-size:12px;padding:4px;">該当なし</div>';
+    h += '</div></div>';
+  }
+  h += '</div>';
+  view.innerHTML = h;
+  _restoreKanbanScroll_(view, pos);
 }
 
 // ══════════════════════════════════════════

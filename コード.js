@@ -4502,6 +4502,61 @@ function _cellToEpochMs_(v) {
 }
 
 /**
+ * 引越し時期の文字列を「期限の日」に直す。
+ *
+ * 検索条件シートO列に入る値は年を持たない（ConversationFlow の選択肢がそう作る）:
+ *   'いい物件見つかり次第' … 期限は無いが今すぐ動ける人。急ぎ扱いにする
+ *   '9月上旬' / '9月中旬' / '9月下旬' … その月の 5日 / 15日 / 25日 とみなす
+ *   '9月1日' … その月日
+ *   '2026/09/01' … Sheets が Date に変換したものを整形した形
+ * 年が無いものは「今日以降で最初に来るその月日」と解釈する。
+ * ただし1ヶ月以内の過去は「過ぎたばかりの期限」として来年送りにしない
+ * （8/16に『8月上旬』なら来年8月ではなく、期限切れとして扱いたい）。
+ *
+ * @param {string} raw O列の値
+ * @return {{ms:number, asap:boolean, approx:boolean}|null} 解釈できなければ null
+ */
+function _parseMoveInDeadline_(raw) {
+  var s = String(raw == null ? '' : raw).trim();
+  if (!s) return null;
+  if (s.indexOf('見つかり次第') >= 0 || s.indexOf('すぐ') >= 0) {
+    return { ms: 0, asap: true, approx: false };
+  }
+  if (s.indexOf('未定') >= 0) return null;
+
+  var now = new Date();
+  var y = now.getFullYear();
+
+  // 'yyyy/MM/dd' または 'yyyy-MM-dd'（年が入っている形）
+  var mFull = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (mFull) {
+    return { ms: new Date(Number(mFull[1]), Number(mFull[2]) - 1, Number(mFull[3])).getTime(), asap: false, approx: false };
+  }
+
+  var month = 0, day = 0, approx = false;
+  var mPeriod = s.match(/(\d{1,2})\s*月\s*(上旬|中旬|下旬)/);
+  var mDay = s.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  var mMonthOnly = s.match(/(\d{1,2})\s*月/);
+  if (mPeriod) {
+    month = Number(mPeriod[1]);
+    day = (mPeriod[2] === '上旬') ? 5 : (mPeriod[2] === '中旬' ? 15 : 25);
+    approx = true;
+  } else if (mDay) {
+    month = Number(mDay[1]); day = Number(mDay[2]);
+  } else if (mMonthOnly) {
+    month = Number(mMonthOnly[1]); day = 15; approx = true;   // 月だけなら月半ばとみなす
+  } else {
+    return null;
+  }
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+
+  var d = new Date(y, month - 1, day);
+  // 1ヶ月以上前になるなら来年のその月日とみなす（年をまたぐ指定への対応）
+  if (d.getTime() < now.getTime() - 31 * 24 * 60 * 60 * 1000) d = new Date(y + 1, month - 1, day);
+  return { ms: d.getTime(), asap: false, approx: approx };
+}
+
+/**
  * エポックミリ秒を JST の暦日番号に変換する（1970-01-01 JST = 0）。
  *
  * ⚠️ 「何日前か」は必ずこれの差で数えること (2026-08-16)。
@@ -4558,9 +4613,28 @@ function _getCustomerListForCRM_() {
           return String(v || '').trim().substring(0, 10);
         })(data[i][44]),
         phone: String(data[i][34] || '').trim(),  // AI列(35): 手動登録の電話番号
-        hasPhone: !!String(data[i][34] || '').trim()
+        hasPhone: !!String(data[i][34] || '').trim(),
+        hasCriteria: false,   // 検索条件が入っているか（同名行のどれかに入っていれば true）
+        moveIn: '',           // O列(15): 引越し時期
+        moveInStrict: false   // AA列(27): 入居時期厳守
       };
       customers.push(nameMap[name]);
+    }
+
+    // 条件の有無と引越し時期は「同名の行のうち入っている方」を採る。
+    // 同じ人が複数行あるとき、先頭行が空でも別の行に条件が入っていることがあるため。
+    var _rec = nameMap[name];
+    if (!_rec.hasCriteria) {
+      try {
+        if (typeof _rowHasCriteria_ === 'function' && _rowHasCriteria_(data[i])) _rec.hasCriteria = true;
+      } catch (eHC) {}
+    }
+    if (!_rec.moveIn) {
+      var _mv = data[i][14];   // O列(15): 引越し時期
+      _rec.moveIn = (_mv instanceof Date)
+        ? Utilities.formatDate(_mv, 'Asia/Tokyo', 'yyyy/MM/dd')
+        : String(_mv == null ? '' : _mv).trim();
+      if (_rec.moveIn) _rec.moveInStrict = String(data[i][26] || '').trim().toLowerCase() === 'true';
     }
   }
 
@@ -4677,6 +4751,76 @@ function _getCustomerListForCRM_() {
       }
     }
   } catch(e) { console.warn('lastAction取得エラー: ' + e.message); }
+
+  // ── 「話せているか」の材料を集める ──
+  // 顧客の仕分け（メールのみ／連絡がつかない／話したが見ていない／見ているだけ／
+  // 話せていて見ている）に使う。閲覧(アクションログ)とは別の軸。
+  //
+  // ⚠️ LINE Activity は message と postback の両方で更新される（コード.js の doPost）。
+  //   つまり物件ページのボタンを押しただけでも日付が入るので、
+  //   これ単体では「話せている」の根拠にならない。確実なのは手動記録の対応ログの方。
+  //   両方持って画面側で区別できるようにしておく。
+  try {
+    // 対応ログ: 顧客名(A) / 対応日時(B) / 対応種別(C)。種別=電話/LINE を会話とみなす。
+    var clSheet = ss.getSheetByName(CONTACT_LOG_SHEET_NAME);
+    if (clSheet && clSheet.getLastRow() > 1) {
+      var clRows = clSheet.getRange(2, 1, clSheet.getLastRow() - 1, 3).getValues();
+      for (var cli = 0; cli < clRows.length; cli++) {
+        var clName = String(clRows[cli][0] || '').trim();
+        if (!clName || !nameMap[clName]) continue;
+        var clType = String(clRows[cli][2] || '').trim();
+        if (clType !== '電話' && clType !== 'LINE' && clType !== '内見') continue;
+        var clMs = _cellToEpochMs_(clRows[cli][1]);
+        if (!clMs) continue;
+        var _r = nameMap[clName];
+        if (!_r._talkMs || clMs > _r._talkMs) { _r._talkMs = clMs; _r.lastTalkType = clType; }
+      }
+    }
+  } catch (eCL) { console.warn('対応ログ取得エラー: ' + eCL.message); }
+
+  try {
+    // LINE Activity: userId(A) / lastMessageAt(B)。顧客名は LINE Users 経由で引く。
+    var laSheet = ss.getSheetByName('LINE Activity');
+    if (laSheet && laSheet.getLastRow() > 1) {
+      var uidByName = (typeof _getLineUserIdMapByCustomerName_ === 'function')
+        ? _getLineUserIdMapByCustomerName_() : {};
+      var msByUid = {};
+      var laRows = laSheet.getRange(2, 1, laSheet.getLastRow() - 1, 2).getValues();
+      for (var lai = 0; lai < laRows.length; lai++) {
+        var laUid = String(laRows[lai][0] || '').trim();
+        if (!laUid) continue;
+        var laMs = _cellToEpochMs_(laRows[lai][1]);
+        if (laMs && (!msByUid[laUid] || laMs > msByUid[laUid])) msByUid[laUid] = laMs;
+      }
+      for (var lni = 0; lni < customers.length; lni++) {
+        var lc = customers[lni];
+        lc.hasLine = !!uidByName[lc.name];
+        var lms = uidByName[lc.name] ? msByUid[uidByName[lc.name]] : 0;
+        if (lms) lc._lineMs = lms;
+      }
+    }
+  } catch (eLA) { console.warn('LINE Activity取得エラー: ' + eLA.message); }
+
+  // 日付文字列と経過日数に直す（画面が扱いやすい形にする。日数は暦日差）
+  var _todayIdx = _jstDayIndex_(Date.now());
+  for (var fi = 0; fi < customers.length; fi++) {
+    var fc = customers[fi];
+    if (fc._talkMs) {
+      fc.lastTalkAt = Utilities.formatDate(new Date(fc._talkMs), 'Asia/Tokyo', 'yyyy/MM/dd');
+      fc.daysSinceTalk = _todayIdx - _jstDayIndex_(fc._talkMs);
+    } else { fc.lastTalkAt = ''; fc.daysSinceTalk = null; }
+    if (fc._lineMs) {
+      fc.lastLineAt = Utilities.formatDate(new Date(fc._lineMs), 'Asia/Tokyo', 'yyyy/MM/dd');
+      fc.daysSinceLine = _todayIdx - _jstDayIndex_(fc._lineMs);
+    } else { fc.lastLineAt = ''; fc.daysSinceLine = null; }
+    delete fc._talkMs; delete fc._lineMs;
+
+    // 引越し期限までの日数（マイナスなら過ぎている）。急ぎの人を上に出すのに使う。
+    var _mi = _parseMoveInDeadline_(fc.moveIn);
+    fc.moveInAsap = !!(_mi && _mi.asap);
+    fc.moveInApprox = !!(_mi && _mi.approx);
+    fc.daysToMoveIn = (_mi && !_mi.asap) ? (_jstDayIndex_(_mi.ms) - _todayIdx) : null;
+  }
 
   // 未完了タスクの集計（カンバン/リストのマーク用）
   try {
