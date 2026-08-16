@@ -4502,6 +4502,21 @@ function _cellToEpochMs_(v) {
 }
 
 /**
+ * エポックミリ秒を JST の暦日番号に変換する（1970-01-01 JST = 0）。
+ *
+ * ⚠️ 「何日前か」は必ずこれの差で数えること (2026-08-16)。
+ *   以前は Math.floor((now - t) / 86400000) と経過時間で割っていたため、
+ *   同じ 8/15 でも 8/15 19:00 送信 → 15時間経過 → 「本日」、
+ *   8/15 08:00 送信 → 26時間経過 → 「1日前」と、
+ *   カンバン上で同じ日付が別の日数として並んでいた。
+ */
+function _jstDayIndex_(ms) {
+  var n = Number(ms);
+  if (!n) return 0;
+  return Math.floor((n + 9 * 60 * 60 * 1000) / 86400000);
+}
+
+/**
  * CRM用の顧客一覧を取得する。全顧客を含む（blocked含む）。
  */
 function _getCustomerListForCRM_() {
@@ -4594,7 +4609,7 @@ function _getCustomerListForCRM_() {
         var lm = lastSentMs[cn.name];
         if (lm) {
           cn.lastSentAt = Utilities.formatDate(new Date(lm), 'Asia/Tokyo', 'yyyy/MM/dd');
-          cn.daysSinceSent = Math.floor((nowMs - lm) / 86400000);
+          cn.daysSinceSent = _jstDayIndex_(nowMs) - _jstDayIndex_(lm);
         } else {
           cn.lastSentAt = '';
           cn.daysSinceSent = null;   // 一度も送れていない
@@ -4635,7 +4650,7 @@ function _getCustomerListForCRM_() {
         var vm = lastViewMs[vc.name];
         if (vm) {
           vc.lastViewedAt = Utilities.formatDate(new Date(vm), 'Asia/Tokyo', 'yyyy/MM/dd');
-          vc.daysSinceViewed = Math.floor((nowMs2 - vm) / 86400000);
+          vc.daysSinceViewed = _jstDayIndex_(nowMs2) - _jstDayIndex_(vm);
         } else {
           vc.lastViewedAt = '';
           vc.daysSinceViewed = null;   // 一度も閲覧していない
@@ -5276,7 +5291,7 @@ function getCustomerApplications(customerName) {
         stage: stage,
         memo: String(data[i][7] || ''),
         closed: (APPLICATION_CLOSED_STAGES.indexOf(stage) !== -1),
-        stageDays: sinceBase ? Math.max(0, Math.floor((Date.now() - sinceBase.getTime()) / 86400000)) : null
+        stageDays: sinceBase ? Math.max(0, _jstDayIndex_(Date.now()) - _jstDayIndex_(sinceBase.getTime())) : null
       });
     }
     // 進行中を上に、同じ進行度なら止まっている期間が長い順（＝催促すべき順）
@@ -5425,7 +5440,7 @@ function _taskWaitDays_(ownerSince, createdAt, owner, done) {
   var base = (ownerSince instanceof Date) ? ownerSince
            : ((createdAt instanceof Date) ? createdAt : null);
   if (!base) return null;
-  var days = Math.floor((Date.now() - base.getTime()) / 86400000);
+  var days = _jstDayIndex_(Date.now()) - _jstDayIndex_(base.getTime());
   return days < 0 ? 0 : days;
 }
 
