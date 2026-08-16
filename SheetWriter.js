@@ -35,6 +35,24 @@
  * @param {Object} state - 会話状態オブジェクト
  */
 function writeToSheet(userId, state) {
+  // ⚠️ 引き継ぎは呼び出し側ではなくここでやること (2026-08-16)。
+  //   条件変更の経路は6つあり、そのうち1つでも
+  //   _carryOverUntouchedCriteria_ を呼び忘れると、触っていない項目
+  //   （探し理由・居住者・入居時期など）が空のまま上書きされて消える。
+  //   実際に「居住者が指定なしになる」事故が起きた。呼び出し側の記憶に頼らない。
+  //   既に引き継ぎ済み（__criteriaCarried）ならシートを読み直さない。
+  if (state && state.data && !state.__criteriaCarried) {
+    try {
+      var _before = (typeof readLatestCriteria === 'function') ? readLatestCriteria(userId) : null;
+      if (_before) {
+        _carryOverUntouchedCriteria_(state, _before);
+      } else {
+        console.log('[条件登録] 変更前の条件が無いため引き継ぎなし（初回登録扱い）');
+      }
+    } catch (eW) {
+      console.error('[条件変更] writeToSheet内の引き継ぎ失敗: ' + eW.message + '\n' + eW.stack);
+    }
+  }
   const d = state.data;
   // 名前が未取得の場合はここでLINEプロフィールから取得（startSearchFlowでは取得しない）
   if (!d.name) {
@@ -347,6 +365,8 @@ function _isBlankCriteriaValue_(v) {
 function _carryOverUntouchedCriteria_(state, before, opts) {
   if (!state || !state.data || !before) return;
   opts = opts || {};
+  // writeToSheet が二重に引き継ぎを走らせないための印
+  state.__criteriaCarried = true;
   var carried = [];
   var missed = [];   // 変更前に値があるのに引き継げなかった項目（あってはならない）
   for (var i = 0; i < _CARRY_OVER_FIELDS.length; i++) {
