@@ -4502,6 +4502,43 @@ function _cellToEpochMs_(v) {
 }
 
 /**
+ * 営業ステージセル(AG列)を読み解く。
+ *
+ * カンバンの列は2種類の決まり方をする:
+ *   自動  … 顧客の状態から決まる（メールのみ〜話せていて見ている）
+ *   手動  … 担当者の判断。データからは分からないので人が決めるしかない
+ *
+ * 手動が要るのは、例えば「1ヶ月話せていないが信頼関係があるので、
+ * 物件が出るまで追わなくていい」といった判断。放っておくと自動判定は
+ * この人を「連絡がつかない」に落としてしまう。
+ *
+ * セルの値:
+ *   ''                       … 自動判定にまかせる
+ *   'pin:<列キー>@yyyy-MM-dd' … 担当者が置いた列に固定（置いた日つき）
+ *   '申込' / '成約' / '終了'  … 商談の事実。従来どおり
+ *   旧値('問い合わせ'/'追客中'/'内見') … 列が無くなったので自動扱い
+ *
+ * @param {*} raw AG列の値
+ * @return {{kind:string, stage:string, key:string, since:string}}
+ */
+var _MANUAL_STAGES_ = ['申込', '成約', '終了'];
+function _parseStageCell_(raw) {
+  var v = String(raw == null ? '' : raw).trim();
+  if (!v) return { kind: 'auto', stage: '', key: '', since: '' };
+  if (v.indexOf('pin:') === 0) {
+    var body = v.substring(4);
+    var at = body.indexOf('@');
+    return {
+      kind: 'pin', stage: '',
+      key: (at >= 0 ? body.substring(0, at) : body).trim(),
+      since: (at >= 0 ? body.substring(at + 1) : '').trim()
+    };
+  }
+  if (_MANUAL_STAGES_.indexOf(v) >= 0) return { kind: 'manual', stage: v, key: '', since: '' };
+  return { kind: 'auto', stage: '', key: '', since: '' };
+}
+
+/**
  * HTMLに直接埋め込む JSON を作る。
  *
  * CustomerPage は  var customers = JSON.parse('<?!= customersJson ?>');  のように
@@ -4643,12 +4680,12 @@ function _getCustomerListForCRM_() {
     var status = String(data[i][18] || '').trim().toLowerCase() || 'active';
     // AG列(33列目, index32): 営業ステージ。未設定なら status から推定。
     // （AE列=31=btMode は既存利用のため、stage は AG=33 を使う）
-    // AG列(33): 営業ステージ。'申込'/'成約'/'終了' だけが意味を持つ。
+    // AG列(33): 営業ステージ。_parseStageCell_ の説明を参照。
     // ⚠️ 空欄を '問い合わせ'/'追客中' で補完しないこと (2026-08-16)。
     //   カンバンの左5列は顧客の状態から自動で決まるようになったので、
-    //   ここで埋めると全員が手動ステージ扱いになり自動判定に載らなくなる。
-    //   旧値('問い合わせ'/'追客中'/'内見')は画面側で未設定と同じに扱う。
-    var stage = String(data[i][32] || '').trim();
+    //   ここで埋めると全員が手動扱いになり自動判定に載らなくなる。
+    var _st = _parseStageCell_(data[i][32]);
+    var stage = _st.stage;
     // AH列(34列目, index33): カンバン並び順（数値・小さいほど上）。未設定は大きい値扱い。
     var orderRaw = data[i][33];
     var order = (orderRaw === '' || orderRaw === null || orderRaw === undefined) ? 999999 : Number(orderRaw);
@@ -4662,6 +4699,7 @@ function _getCustomerListForCRM_() {
     if (!nameMap[name]) {
       nameMap[name] = {
         name: name, status: status, stage: stage, order: order,
+        pinKey: _st.key, pinSince: _st.since, pinMoved: false,
         registeredAt: regStr, lastAction: '',
         email: String(data[i][31] || '').trim(),  // AF列(32): メール
         // AS列(45): アーカイブ日時（入っていれば看板から隠す）
@@ -4794,6 +4832,7 @@ function _getCustomerListForCRM_() {
         var vc = customers[vn];
         var vm = lastViewMs[vc.name];
         if (vm) {
+          vc._viewMs = vm;   // 固定後に動きがあったかの判定に使う
           vc.lastViewedAt = Utilities.formatDate(new Date(vm), 'Asia/Tokyo', 'yyyy/MM/dd');
           vc.daysSinceViewed = _jstDayIndex_(nowMs2) - _jstDayIndex_(vm);
         } else {
@@ -4869,6 +4908,19 @@ function _getCustomerListForCRM_() {
   var _todayIdx = _jstDayIndex_(Date.now());
   for (var fi = 0; fi < customers.length; fi++) {
     var fc = customers[fi];
+
+    // 担当者が列に固定した後で、その人に動きがあったかを見る。
+    // 「物件が出るまで待つ」と決めた人が物件を見たり返事をしたりしたら、
+    // 判断の前提が変わっているので気づけるようにする（固定は勝手に解かない）。
+    // ⚠️ 下の delete より前に見ること。消した後だと全部 undefined になる。
+    if (fc.pinSince) {
+      var _pinIdx = _jstDayIndex_(_cellToEpochMs_(fc.pinSince));
+      var _acts = [fc._viewMs, fc._talkMs, fc._callTryMs, fc._lineMs];
+      for (var _ai = 0; _ai < _acts.length; _ai++) {
+        if (_acts[_ai] && _pinIdx && _jstDayIndex_(_acts[_ai]) > _pinIdx) { fc.pinMoved = true; break; }
+      }
+    }
+
     if (fc._talkMs) {
       fc.lastTalkAt = Utilities.formatDate(new Date(fc._talkMs), 'Asia/Tokyo', 'yyyy/MM/dd');
       fc.daysSinceTalk = _todayIdx - _jstDayIndex_(fc._talkMs);
@@ -4878,12 +4930,14 @@ function _getCustomerListForCRM_() {
       fc.lastCallTryAt = Utilities.formatDate(new Date(fc._callTryMs), 'Asia/Tokyo', 'yyyy/MM/dd');
       fc.daysSinceCallTry = _todayIdx - _jstDayIndex_(fc._callTryMs);
     } else { fc.lastCallTryAt = ''; fc.daysSinceCallTry = null; }
-    delete fc._callTryMs;
     if (fc._lineMs) {
       fc.lastLineAt = Utilities.formatDate(new Date(fc._lineMs), 'Asia/Tokyo', 'yyyy/MM/dd');
       fc.daysSinceLine = _todayIdx - _jstDayIndex_(fc._lineMs);
     } else { fc.lastLineAt = ''; fc.daysSinceLine = null; }
-    delete fc._talkMs; delete fc._lineMs;
+    delete fc._talkMs; delete fc._lineMs; delete fc._callTryMs; delete fc._viewMs;
+
+    // 固定してから何日経ったか（「物件待ち」に置きっぱなしを見つけるため）
+    fc.pinDays = fc.pinSince ? (_todayIdx - _jstDayIndex_(_cellToEpochMs_(fc.pinSince))) : null;
 
     // 引越し期限までの日数（マイナスなら過ぎている）。急ぎの人を上に出すのに使う。
     var _mi = _parseMoveInDeadline_(fc.moveIn);

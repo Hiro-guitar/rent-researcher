@@ -578,7 +578,7 @@ function toggleCustomerArchive(name, archived) {
         var btn = document.getElementById('detailArchiveBtn');
         if (btn) {
           btn.textContent = archived ? 'アーカイブ解除' : '🗄 アーカイブ';
-          btn.setAttribute('onclick', 'toggleCustomerArchive(\'' + esc(name) + '\',' + (archived ? 'false' : 'true') + ')');
+          btn.setAttribute('onclick', 'toggleCustomerArchive(\'' + jsRaw(name) + '\',' + (archived ? 'false' : 'true') + ')');
         }
       } else {
         showToast((r && r.message) || '失敗しました');
@@ -646,8 +646,9 @@ function _restoreKanbanScroll_(board, pos) {
 //   事実として意味を持つので色を付けている。
 function kanbanCardHtml(it, draggable) {
   var h = '<div class="kanban-card"' + (draggable ? ' draggable="true" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)"' : '')
-    + ' data-name="' + esc(it.name) + '" onclick="openDetail(\'' + esc(it.name) + '\')">';
-  h += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + (it.openTasks ? ' ' + taskMark(it) : '') + '</div>';
+    + ' data-name="' + attrEsc(it.name) + '" onclick="openDetail(\'' + jsStr(it.name) + '\')">';
+  h += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status)
+    + (it.openTasks ? ' ' + taskMark(it) : '') + pinBadge(it) + '</div>';
   if (it.openTasks) {
     var _od = it.overdueTasks > 0;
     h += '<div class="kc-meta" style="margin-top:2px;color:' + (_od ? '#e0707a' : '#e0b64a') + ';font-weight:600;">'
@@ -673,6 +674,38 @@ function kanbanCardHtml(it, draggable) {
   h += '<div class="kc-meta">📨 送信: ' + triageDayText(it.daysSinceSent, it.lastSentAt, '未送信') + '</div>';
   h += '</div>';
   return h;
+}
+
+// 担当者が置いた列であることの印。クリックで自動判定に戻す。
+// 固定した後にその人が動いていたら（物件を見た・返事が来た）「動きあり」を出す。
+// 判断の前提が変わっているので、固定を勝手に解かずに気づかせるだけにする。
+function pinBadge(it) {
+  if (!it.pinKey) return '';
+  var moved = it.pinMoved;
+  var title = '担当者が置いた列' + (it.pinSince ? '（' + it.pinSince + ' から）' : '') + '。クリックで自動判定に戻す';
+  var h = ' <span onclick="event.stopPropagation();unpinCustomer(\'' + jsStr(it.name) + '\')" title="' + attrEsc(title) + '"'
+    + ' style="display:inline-block;background:#3a3f4a;color:#9fb6d6;border-radius:8px;padding:0 6px;'
+    + 'font-size:11px;font-weight:600;vertical-align:middle;cursor:pointer;">📌'
+    + (it.pinDays != null ? ' ' + it.pinDays + '日' : '') + '</span>';
+  if (moved) {
+    h += ' <span title="固定してから物件を見た・連絡があった" style="display:inline-block;background:#6b5a1e;color:#ffe08a;'
+      + 'border-radius:8px;padding:0 6px;font-size:11px;font-weight:600;vertical-align:middle;">動きあり</span>';
+  }
+  return h;
+}
+
+function unpinCustomer(name) {
+  for (var i = 0; i < customers.length; i++) {
+    if (customers[i].name === name) { customers[i].pinKey = ''; customers[i].pinSince = ''; customers[i].pinMoved = false; customers[i].pinDays = null; break; }
+  }
+  filterCustomers();
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.ok) showToast(name + ' を自動判定に戻しました');
+      else showToast((r && r.message) || '解除に失敗しました');
+    })
+    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .setCustomerStage(name, '');
 }
 
 // 手動列(申込/成約/終了)の並べ替え。自動列は引越し期限順に固定。
@@ -716,7 +749,7 @@ function manualSortSelectHtml(stage) {
     ['registeredOld', '並び: 登録が古い順']
   ];
   var h = '<div style="padding:0 8px 6px;">'
-    + '<select onchange="setKanbanSort(\'' + esc(stage) + '\',this.value)" onclick="event.stopPropagation()" '
+    + '<select onchange="setKanbanSort(\'' + jsStr(stage) + '\',this.value)" onclick="event.stopPropagation()" '
     + 'style="width:100%;font-size:11px;background:#2d2d2d;color:#aaa;border:1px solid #444;border-radius:4px;padding:2px 4px;">';
   for (var i = 0; i < opts.length; i++) {
     h += '<option value="' + opts[i][0] + '"' + (m === opts[i][0] ? ' selected' : '') + '>' + opts[i][1] + '</option>';
@@ -735,8 +768,9 @@ function renderKanban(list) {
   for (var i = 0; i < list.length; i++) {
     var c = list[i];
     if (isManualStage(c.stage)) { manual[c.stage].push(c); continue; }
-    var key = classifyCustomer(c);
-    if (key) auto[key].push(c);
+    var key = columnKeyOf(c);
+    if (key && auto[key]) auto[key].push(c);
+    else if (key) auto[classifyCustomer(c) || 'no_contact'].push(c);   // 未知の固定キーは自動に落とす
   }
   for (var k in auto) auto[k].sort(function(a, b) { return triageUrgency(a) - triageUrgency(b); });
   for (var sm in manual) sortManualColumn(manual[sm], sm);
@@ -770,7 +804,7 @@ function renderKanban(list) {
   for (var b = 0; b < MANUAL_STAGES.length; b++) {
     var stg = MANUAL_STAGES[b];
     var mItems = manual[stg];
-    html += '<div class="kanban-col" data-stage="' + esc(stg) + '" '
+    html += '<div class="kanban-col" data-stage="' + attrEsc(stg) + '" '
       + 'ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
     html += '<div class="kanban-col-head">' + esc(stg) + '<span class="cnt">' + mItems.length + '</span></div>';
     html += manualSortSelectHtml(stg);
@@ -805,7 +839,11 @@ var TRIAGE_TYPES = [
   { key: 'no_contact',  label: '連絡がつかない',     hint: '電話番号はあるが反応が無い' },
   { key: 'talk_noview', label: '話したが見ていない', hint: '話せてはいるが物件を見ていない' },
   { key: 'view_only',   label: '見ているだけ',       hint: '物件は見ているが話せていない' },
-  { key: 'talk_view',   label: '話せていて見ている', hint: '一番成約に近い' }
+  { key: 'talk_view',   label: '話せていて見ている', hint: '一番成約に近い' },
+  // 自動では絶対に入らない列。「1ヶ月話せていないが信頼関係があるので、
+  // 物件が出るまで追わなくていい」という判断はデータから読み取れないため、
+  // 人が置いたときだけここに入る。
+  { key: 'wait',        label: '物件待ち',           hint: '追わなくてよい。物件が出たら動く', manualOnly: true }
 ];
 
 var triageOpts = { viewDays: 14, talkDays: 30 };
@@ -822,7 +860,7 @@ function setTriageOpt(key, value) {
   filterCustomers();
 }
 
-// 1人を5分類のどれかに割り当てる。申込以降は null（対象外）。
+// 状態から自動で決まる列。担当者が固定している場合は使わない（columnKeyOf を見ること）。
 function classifyCustomer(c) {
   if (!c) return null;
   if (isManualStage(c.stage)) return null;   // 申込以降は事実で決まるので自動判定しない
@@ -835,6 +873,13 @@ function classifyCustomer(c) {
   if (c.hasPhone) return 'no_contact';
   if (c.email) return 'mail_only';
   return 'no_contact';   // 電話もメールも無い＝手段が無い。埋もれないよう左には置かない
+}
+
+// その人が実際に表示される列。担当者の判断(pin)が自動判定より優先される。
+function columnKeyOf(c) {
+  if (!c || isManualStage(c.stage)) return null;
+  if (c.pinKey) return c.pinKey;
+  return classifyCustomer(c);
 }
 
 // 引越し期限の近い順（過ぎている人が一番上）。期限が無い人は後ろ。
@@ -989,7 +1034,7 @@ function taskCardHtml(t, idx) {
     for (var i = 0; i < TASK_OWNERS.length; i++) {
       var o = TASK_OWNERS[i];
       var lbl = (o === TASK_OWNER_DEFAULT) ? '🟢 自分' : '⏳ ' + o + '待ち';
-      ownerSel += '<option value="' + esc(o) + '"' + (o === t.owner ? ' selected' : '') + '>' + esc(lbl) + '</option>';
+      ownerSel += '<option value="' + attrEsc(o) + '"' + (o === t.owner ? ' selected' : '') + '>' + esc(lbl) + '</option>';
     }
     ownerSel += '</select>';
     if (waiting && t.waitDays != null) {
@@ -1107,22 +1152,34 @@ function kanbanDrop(e) {
   var name = _kanbanDragName; _kanbanDragName = null;
   if (!name || !stage) return;
 
-  // 自動判定の列に落とした場合は「ステージを外す」＝自動配置に戻す。
-  // どの自動列に落としても結果は同じ（状態で決まるため）ので並び順も保存しない。
+  // ── 自動判定側の列に落とした場合 ──
+  // システムが選ぶ列と同じところに落としたら「判断は不要」なので固定を外す。
+  // 違う列に落としたら、それは担当者の判断なので固定する（自動判定より優先）。
+  // 例:「1ヶ月話せていないが信頼関係があるので物件待ち」はデータからは分からない。
   if (stage.indexOf('auto:') === 0) {
-    var wasManual = false;
-    for (var ai = 0; ai < customers.length; ai++) {
-      if (customers[ai].name === name) { wasManual = isManualStage(customers[ai].stage); customers[ai].stage = ''; break; }
+    var key = stage.substring(5);
+    var target = null;
+    for (var ai = 0; ai < customers.length; ai++) { if (customers[ai].name === name) { target = customers[ai]; break; } }
+    if (!target) return;
+    var natural = (function(c) { var st = c.stage; c.stage = ''; var k = classifyCustomer(c); c.stage = st; return k; })(target);
+    var value;
+    if (key === natural) {                    // 元いるべき場所に戻した → 固定を外す
+      target.pinKey = ''; target.pinSince = ''; target.pinMoved = false; target.pinDays = null;
+      value = '';
+    } else {                                  // 担当者の判断 → その列に固定
+      var d = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);  // JSTの今日
+      target.pinKey = key; target.pinSince = d; target.pinMoved = false; target.pinDays = 0;
+      value = 'pin:' + key + '@' + d;
     }
-    if (!wasManual) { filterCustomers(); return; }   // 自動列どうしの移動は無意味なので何もしない
+    target.stage = '';
     filterCustomers();
     google.script.run
       .withSuccessHandler(function(r) {
-        if (r && r.ok) showToast(name + ' を自動判定に戻しました');
-        else showToast((r && r.message) || 'ステージの解除に失敗しました');
+        if (r && r.ok) showToast(value ? (name + ' をここに固定しました') : (name + ' を自動判定に戻しました'));
+        else showToast((r && r.message) || '保存に失敗しました');
       })
       .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
-      .setCustomerStage(name, '');
+      .setCustomerStage(name, value);
     return;
   }
 
@@ -1142,7 +1199,12 @@ function kanbanDrop(e) {
   // 楽観的更新（ステージ＋並び順）→ 即再描画
   for (var k = 0; k < names.length; k++) {
     for (var c = 0; c < customers.length; c++) {
-      if (customers[c].name === names[k]) { customers[c].stage = stage; customers[c].order = k; break; }
+      if (customers[c].name === names[k]) {
+        customers[c].stage = stage; customers[c].order = k;
+        // 申込以降は事実で決まるので、自動列への固定は消しておく
+        customers[c].pinKey = ''; customers[c].pinSince = ''; customers[c].pinMoved = false; customers[c].pinDays = null;
+        break;
+      }
     }
   }
   filterCustomers();
@@ -1186,7 +1248,7 @@ function buildStatusChanger(cur) {
   for (var k = 0; k < opts.length; k++) if (opts[k][0] === cur) has = true;
   var h = ' <select id="detailStatusSel" onchange="changeCustomerStatus(this.value)" title="ステータスを変更" ' +
           'style="margin-left:6px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;">';
-  if (!has && cur) h += '<option value="' + esc(cur) + '" selected>' + esc(statusLabel(cur)) + '</option>';
+  if (!has && cur) h += '<option value="' + attrEsc(cur) + '" selected>' + esc(statusLabel(cur)) + '</option>';
   for (var i = 0; i < opts.length; i++) {
     h += '<option value="' + opts[i][0] + '"' + (cur === opts[i][0] ? ' selected' : '') + '>' + opts[i][1] + '</option>';
   }
@@ -1295,7 +1357,7 @@ function renderDetail(data) {
     var _abtn = document.getElementById('detailArchiveBtn');
     if (_abtn) {
       _abtn.textContent = _isArch ? 'アーカイブ解除' : '🗄 アーカイブ';
-      _abtn.setAttribute('onclick', 'toggleCustomerArchive(\'' + esc(currentCustomer) + '\',' + (_isArch ? 'false' : 'true') + ')');
+      _abtn.setAttribute('onclick', 'toggleCustomerArchive(\'' + jsRaw(currentCustomer) + '\',' + (_isArch ? 'false' : 'true') + ')');
     }
   }
 
@@ -1306,7 +1368,7 @@ function renderDetail(data) {
   info += '<div class="detail-info-label">電話</div>';
   info += '<div class="detail-info-value">'
     + (data.phone ? '<a href="tel:' + esc(data.phone) + '" style="color:#6cd06c;">📞 ' + esc(data.phone) + '</a>' : '<span style="color:#e0707a;">未登録</span>')
-    + ' <a onclick="editCustomerPhone(\'' + esc(data.phone || '') + '\')" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:6px;">' + (data.phone ? '編集' : '追加') + '</a>'
+    + ' <a onclick="editCustomerPhone(\'' + jsStr(data.phone || '') + '\')" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:6px;">' + (data.phone ? '編集' : '追加') + '</a>'
     + '</div></div>';
   // 申込物件の進捗欄
   info += '<div id="applicationSection" style="margin:10px 0;padding:10px;background:#232323;border:1px solid #3a3a3a;border-radius:8px;"></div>';
@@ -1367,7 +1429,7 @@ function renderDetail(data) {
       info += '<div style="padding:4px 0;border-bottom:1px solid #333;">';
       info += '<span style="color:#888;">' + esc(iq.dateStr) + '</span>　';
       info += iq.url
-        ? '<a href="' + esc(iq.url) + '" target="_blank" rel="noopener" style="color:#6cf;text-decoration:underline;">' + iqLabel + ' 🔗</a>'
+        ? '<a href="' + attrEsc(iq.url) + '" target="_blank" rel="noopener" style="color:#6cf;text-decoration:underline;">' + iqLabel + ' 🔗</a>'
         : iqLabel;
       info += '</div>';
     }
@@ -1458,11 +1520,11 @@ var TASK_OWNERS = ['自分', 'お客さん', '管理会社'];
 var TASK_OWNER_DEFAULT = '自分';
 
 function ownerSelectHtml(id, selected, title) {
-  var h = '<select id="' + id + '" title="' + esc(title || 'ボール') + '"'
+  var h = '<select id="' + id + '" title="' + attrEsc(title || 'ボール') + '"'
     + ' style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">';
   for (var i = 0; i < TASK_OWNERS.length; i++) {
     var o = TASK_OWNERS[i];
-    h += '<option value="' + esc(o) + '"' + (o === selected ? ' selected' : '') + '>'
+    h += '<option value="' + attrEsc(o) + '"' + (o === selected ? ' selected' : '') + '>'
       + (o === TASK_OWNER_DEFAULT ? '🟢 自分がやる' : '⏳ ' + esc(o) + '待ち') + '</option>';
   }
   return h + '</select>';
@@ -1484,8 +1546,8 @@ function taskRowHtml(t) {
   // 編集モード：内容＋期限＋ボールを編集できるフォームに差し替え
   if (t.rowNum === _editingTaskRow) {
     return '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:4px 0;border-bottom:1px solid #333;">'
-      + '<input id="taskEditInput_' + t.rowNum + '" type="text" value="' + esc(t.content) + '" style="flex:1;min-width:150px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
-      + '<input id="taskEditDue_' + t.rowNum + '" type="date" value="' + esc(t.due || '') + '" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
+      + '<input id="taskEditInput_' + t.rowNum + '" type="text" value="' + attrEsc(t.content) + '" style="flex:1;min-width:150px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
+      + '<input id="taskEditDue_' + t.rowNum + '" type="date" value="' + attrEsc(t.due || '') + '" style="background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:6px;padding:6px 8px;font-size:13px;">'
       + ownerSelectHtml('taskEditOwner_' + t.rowNum, t.owner || TASK_OWNER_DEFAULT, 'ボール（誰が動く番か）')
       + '<button id="taskSaveBtn_' + t.rowNum + '" onclick="saveTaskEdit(' + t.rowNum + ')" style="background:#3a7bd5;color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;">保存</button>'
       + '<a onclick="cancelTaskEdit()" style="color:#888;cursor:pointer;font-size:12px;">キャンセル</a>'
@@ -1643,7 +1705,7 @@ function applicationRowHtml(a, idx) {
     bar = '<div style="display:flex;gap:2px;margin-top:4px;">';
     for (var s = 0; s < APPLICATION_STAGES.length; s++) {
       var on = (s <= stageIdx);
-      bar += '<div title="' + esc(APPLICATION_STAGES[s]) + '" style="flex:1;height:4px;border-radius:2px;background:'
+      bar += '<div title="' + attrEsc(APPLICATION_STAGES[s]) + '" style="flex:1;height:4px;border-radius:2px;background:'
         + (on ? '#8ec41d' : '#3a3a3a') + ';"></div>';
     }
     bar += '</div>';
@@ -1652,7 +1714,7 @@ function applicationRowHtml(a, idx) {
     + ' style="background:#2d2d2d;color:' + (a.closed ? '#999' : '#cde88a') + ';border:1px solid #555;border-radius:6px;padding:4px 6px;font-size:12px;">';
   var all = APPLICATION_STAGES.concat(APPLICATION_CLOSED_STAGES);
   for (var k = 0; k < all.length; k++) {
-    sel += '<option value="' + esc(all[k]) + '"' + (all[k] === a.stage ? ' selected' : '') + '>' + esc(all[k]) + '</option>';
+    sel += '<option value="' + attrEsc(all[k]) + '"' + (all[k] === a.stage ? ' selected' : '') + '>' + esc(all[k]) + '</option>';
   }
   sel += '</select>';
 
@@ -1673,7 +1735,7 @@ function applicationRowHtml(a, idx) {
     + bar
     + '<div style="margin-top:4px;font-size:11px;color:#888;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
     +   (a.appliedAt ? '<span>申込 ' + esc(a.appliedAt) + '</span>' : '')
-    +   '<input type="text" value="' + esc(a.memo || '') + '" placeholder="メモ"'
+    +   '<input type="text" value="' + attrEsc(a.memo || '') + '" placeholder="メモ"'
     +     ' onchange="saveAppMemo(' + idx + ', this.value)"'
     +     ' style="flex:1;min-width:120px;background:#2d2d2d;color:#bbb;border:1px solid #444;border-radius:6px;padding:3px 6px;font-size:11px;">'
     + '</div>'
@@ -2011,7 +2073,7 @@ function renderPropItem(p, idx) {
   html += '<div class="prop-card-inner">';
 
   // チェックボックス列
-  html += '<div class="prop-check-col"><input type="checkbox" class="prop-check" data-room-id="' + esc(p.roomId) + '" onclick="event.stopPropagation()" onchange="updateSelectedCount()"></div>';
+  html += '<div class="prop-check-col"><input type="checkbox" class="prop-check" data-room-id="' + attrEsc(p.roomId) + '" onclick="event.stopPropagation()" onchange="updateSelectedCount()"></div>';
   html += '<div class="prop-body">';
 
   // 上段: 物件名 + バッジ
@@ -2020,7 +2082,7 @@ function renderPropItem(p, idx) {
   var _pname = esc(p.buildingName || p.roomId);
   var _purl = propSourceUrl(p);
   if (_purl) {
-    html += '<a href="' + esc(_purl) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="prop-name-link" title="詳細ページを開く">' + _pname + '</a>';
+    html += '<a href="' + attrEsc(_purl) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="prop-name-link" title="詳細ページを開く">' + _pname + '</a>';
   } else {
     html += _pname;
   }
@@ -2049,7 +2111,7 @@ function renderPropItem(p, idx) {
   if (p.imageUrls && p.imageUrls.length > 0) {
     html += '<div class="prop-images" onclick="event.stopPropagation()">';
     for (var imgI = 0; imgI < p.imageUrls.length; imgI++) {
-      html += '<img src="' + esc(p.imageUrls[imgI]) + '" alt="物件画像" loading="lazy" onclick="openLightbox(\'' + esc(p.roomId) + '\',' + imgI + ')">';
+      html += '<img src="' + attrEsc(p.imageUrls[imgI]) + '" alt="物件画像" loading="lazy" onclick="openLightbox(\'' + jsStr(p.roomId) + '\',' + imgI + ')">';
     }
     html += '</div>';
   }
@@ -2090,37 +2152,37 @@ function renderPropItem(p, idx) {
 
   // アクションボタン
   html += '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;">';
-  html += '<button class="btn btn-resend btn-sm" id="resend-btn-' + idx + '" onclick="event.stopPropagation();resendProperty(\'' + esc(p.roomId) + '\', ' + idx + ')">再送付</button>';
+  html += '<button class="btn btn-resend btn-sm" id="resend-btn-' + idx + '" onclick="event.stopPropagation();resendProperty(\'' + jsStr(p.roomId) + '\', ' + idx + ')">再送付</button>';
   // 手動募集終了トグル（この顧客の物件ページを募集終了表示に／戻す・いつでも切替可）
   var mc = !!p.manualClosed;
   var mcStyle = mc
     ? 'background:#4a3000;color:#e6a243;border:1px solid #6b4400;'
     : 'background:#3a1414;color:#e08585;border:1px solid #5a2222;';
-  html += '<button class="btn btn-sm" id="close-btn-' + idx + '" style="' + mcStyle + '" onclick="event.stopPropagation();toggleManualClosed(\'' + esc(p.roomId) + '\', ' + idx + ', ' + (mc ? 'true' : 'false') + ')">' + (mc ? '募集中に戻す' : '募集終了にする') + '</button>';
+  html += '<button class="btn btn-sm" id="close-btn-' + idx + '" style="' + mcStyle + '" onclick="event.stopPropagation();toggleManualClosed(\'' + jsStr(p.roomId) + '\', ' + idx + ', ' + (mc ? 'true' : 'false') + ')">' + (mc ? '募集中に戻す' : '募集終了にする') + '</button>';
   // キャンセル待ちトグル（J列フラグ）。ONのときは募集状況確認用にソースページへのリンクを出す。
   var wt = !!p.watching;
   var wtStyle = wt
     ? 'background:#3a2a00;color:#f0c040;border:1px solid #6b5000;'
     : 'background:#2a2a2a;color:#bbb;border:1px solid #444;';
-  html += '<button class="btn btn-sm" id="watch-btn-' + idx + '" style="' + wtStyle + '" onclick="event.stopPropagation();toggleWatch(\'' + esc(p.roomId) + '\', ' + idx + ', ' + (wt ? 'true' : 'false') + ')">' + (wt ? '⏳ キャンセル待ち中' : 'キャンセル待ちにする') + '</button>';
+  html += '<button class="btn btn-sm" id="watch-btn-' + idx + '" style="' + wtStyle + '" onclick="event.stopPropagation();toggleWatch(\'' + jsStr(p.roomId) + '\', ' + idx + ', ' + (wt ? 'true' : 'false') + ')">' + (wt ? '⏳ キャンセル待ち中' : 'キャンセル待ちにする') + '</button>';
   var _surl = propSourceUrl(p);
   if (wt && _surl) {
-    html += '<a href="' + esc(_surl) + '" target="_blank" onclick="event.stopPropagation();" style="font-size:11px;color:#6cf;text-decoration:underline;">🔗 募集状況を確認</a>';
+    html += '<a href="' + attrEsc(_surl) + '" target="_blank" onclick="event.stopPropagation();" style="font-size:11px;color:#6cf;text-decoration:underline;">🔗 募集状況を確認</a>';
   }
   html += '</div>';
 
   // コメント
   html += '<div class="prop-comment-area">';
   if (p.comment) {
-    html += '<div class="prop-comment-display" onclick="event.stopPropagation();editComment(\'' + esc(p.roomId) + '\', ' + idx + ')" title="クリックして編集">' + esc(p.comment) + '</div>';
+    html += '<div class="prop-comment-display" onclick="event.stopPropagation();editComment(\'' + jsStr(p.roomId) + '\', ' + idx + ')" title="クリックして編集">' + esc(p.comment) + '</div>';
   } else {
-    html += '<div class="prop-add-comment" onclick="event.stopPropagation();editComment(\'' + esc(p.roomId) + '\', ' + idx + ')">＋ コメントを追加</div>';
+    html += '<div class="prop-add-comment" onclick="event.stopPropagation();editComment(\'' + jsStr(p.roomId) + '\', ' + idx + ')">＋ コメントを追加</div>';
   }
   html += '<div class="prop-comment-edit" id="comment-edit-' + idx + '">';
   html += '<textarea id="comment-text-' + idx + '" placeholder="物件についてのメモ...">' + esc(p.comment || '') + '</textarea>';
   html += '<div style="display:flex;gap:6px;justify-content:flex-end;margin-top:4px;">';
   html += '<button class="btn btn-outline btn-sm" onclick="cancelComment(' + idx + ')">キャンセル</button>';
-  html += '<button class="btn btn-green btn-sm" onclick="saveComment(\'' + esc(p.roomId) + '\', ' + idx + ')">保存</button>';
+  html += '<button class="btn btn-green btn-sm" onclick="saveComment(\'' + jsStr(p.roomId) + '\', ' + idx + ')">保存</button>';
   html += '</div></div>';
   html += '</div>';
 
@@ -2943,51 +3005,51 @@ function renderRecommendList(list) {
     // この条件で検索ページを開く
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:4px;">';
     html += '<span style="font-size:11px;color:#888;">この条件で検索:</span>';
-    html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'reins\')" style="background:#264f78;color:#fff;border:none;">REINS</button>';
-    html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'ielove\')" style="background:#264f78;color:#fff;border:none;">いえらぶ</button>';
-    html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'itandi\')" style="background:#264f78;color:#fff;border:none;">itandi</button>';
-    html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + esc(r.id) + '\',\'essquare\')" style="background:#264f78;color:#fff;border:none;">いい生活</button>';
-    html += '<button class="btn btn-sm" onclick="openRecommendSearchAll(\'' + esc(r.id) + '\')" style="background:#2e7d4f;color:#fff;border:none;font-weight:600;">まとめて開く</button>';
+    html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + jsStr(r.id) + '\',\'reins\')" style="background:#264f78;color:#fff;border:none;">REINS</button>';
+    html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + jsStr(r.id) + '\',\'ielove\')" style="background:#264f78;color:#fff;border:none;">いえらぶ</button>';
+    html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + jsStr(r.id) + '\',\'itandi\')" style="background:#264f78;color:#fff;border:none;">itandi</button>';
+    html += '<button class="btn btn-sm" onclick="openRecommendSearch(\'' + jsStr(r.id) + '\',\'essquare\')" style="background:#264f78;color:#fff;border:none;">いい生活</button>';
+    html += '<button class="btn btn-sm" onclick="openRecommendSearchAll(\'' + jsStr(r.id) + '\')" style="background:#2e7d4f;color:#fff;border:none;font-weight:600;">まとめて開く</button>';
     html += '</div>';
     // 入居時期（AdminPageと同じドロップダウン式）
     var miTxt = r.moveInDate ? (esc(r.moveInDate) + (r.moveInStrict ? '（間に合う物件だけ）' : '（参考）')) : '指定なし';
     html += '<div style="font-size:11px;color:#9ab;margin-bottom:4px;">';
-    html += '<span id="miview-' + esc(r.id) + '">📅 入居時期: ' + miTxt + ' <a onclick="showMiEditor(\'' + esc(r.id) + '\')" style="color:#6cf;cursor:pointer;text-decoration:underline;">設定</a></span>';
+    html += '<span id="miview-' + esc(r.id) + '">📅 入居時期: ' + miTxt + ' <a onclick="showMiEditor(\'' + jsStr(r.id) + '\')" style="color:#6cf;cursor:pointer;text-decoration:underline;">設定</a></span>';
     // インライン編集（初期非表示）
     var sel = r.moveInDate ? (r.moveInDate === 'いい物件見つかり次第' ? 'asap' : 'date') : 'none';
     var dateVal = (sel === 'date') ? r.moveInDate : '';
     html += '<div id="mied-' + esc(r.id) + '" style="display:none;margin-top:4px;background:#1f2a1f;border:1px solid #3a5f3a;border-radius:6px;padding:8px;">';
     html += '<div style="margin-bottom:4px;">入居時期：'
-      + '<select id="misel-' + esc(r.id) + '" onchange="onMiSelChange(\'' + esc(r.id) + '\')">'
+      + '<select id="misel-' + esc(r.id) + '" onchange="onMiSelChange(\'' + jsStr(r.id) + '\')">'
       + '<option value="none"' + (sel === 'none' ? ' selected' : '') + '>指定しない</option>'
       + '<option value="asap"' + (sel === 'asap' ? ' selected' : '') + '>いい物件見つかり次第</option>'
       + '<option value="date"' + (sel === 'date' ? ' selected' : '') + '>日付を指定</option>'
       + '</select></div>';
     html += '<div id="midatewrap-' + esc(r.id) + '" style="display:' + (sel === 'date' ? '' : 'none') + ';margin-bottom:4px;">日付：'
-      + '<input type="date" id="midate-' + esc(r.id) + '" value="' + esc(dateVal) + '"></div>';
+      + '<input type="date" id="midate-' + esc(r.id) + '" value="' + attrEsc(dateVal) + '"></div>';
     html += '<div id="mistrictwrap-' + esc(r.id) + '" style="display:' + (sel === 'date' ? '' : 'none') + ';margin-bottom:6px;">扱い：'
       + '<select id="mistrict-' + esc(r.id) + '">'
       + '<option value="false"' + (!r.moveInStrict ? ' selected' : '') + '>遅い物件も紹介する</option>'
       + '<option value="true"' + (r.moveInStrict ? ' selected' : '') + '>間に合う物件だけ</option>'
       + '</select></div>';
-    html += '<button class="btn btn-sm btn-blue" onclick="applyMi(\'' + esc(r.id) + '\')">適用</button> '
-      + '<button class="btn btn-sm btn-outline" onclick="hideMiEditor(\'' + esc(r.id) + '\')">キャンセル</button>';
+    html += '<button class="btn btn-sm btn-blue" onclick="applyMi(\'' + jsStr(r.id) + '\')">適用</button> '
+      + '<button class="btn btn-sm btn-outline" onclick="hideMiEditor(\'' + jsStr(r.id) + '\')">キャンセル</button>';
     html += '</div></div>';
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">';
     html += '<span style="font-size:12px;color:#aaa;display:inline-flex;align-items:center;gap:4px;">BT別：'
-      + '<select onchange="setRecommendBt(\'' + esc(r.id) + '\',this.value)" style="font-size:12px;">'
+      + '<select onchange="setRecommendBt(\'' + jsStr(r.id) + '\',this.value)" style="font-size:12px;">'
       + '<option value="skip"' + (r.btMode !== 'alert' ? ' selected' : '') + '>選別（除外）</option>'
       + '<option value="alert"' + (r.btMode === 'alert' ? ' selected' : '') + '>アラートのみ</option>'
       + '</select></span>';
     html += '<span style="font-size:12px;color:#aaa;display:inline-flex;align-items:center;gap:4px;">独立洗面台：'
-      + '<select onchange="setRecommendSenmen(\'' + esc(r.id) + '\',this.value)" style="font-size:12px;">'
+      + '<select onchange="setRecommendSenmen(\'' + jsStr(r.id) + '\',this.value)" style="font-size:12px;">'
       + '<option value="skip"' + (r.senmenMode !== 'alert' ? ' selected' : '') + '>選別（除外）</option>'
       + '<option value="alert"' + (r.senmenMode === 'alert' ? ' selected' : '') + '>アラートのみ</option>'
       + '</select></span>';
-    html += '<button class="btn btn-sm btn-outline" onclick="editRecommend(\'' + esc(r.id) + '\')">編集</button>';
-    html += '<button class="btn btn-sm btn-outline" onclick="renameRecommend(\'' + esc(r.id) + '\',\'' + esc(r.label || '') + '\')">名前変更</button>';
-    html += '<button class="btn btn-sm btn-outline" onclick="toggleRecommend(\'' + esc(r.id) + '\',' + (r.enabled ? 'false' : 'true') + ')">' + (r.enabled ? '無効化' : '有効化') + '</button>';
-    html += '<button class="btn btn-sm btn-outline" onclick="deleteRecommend(\'' + esc(r.id) + '\',\'' + esc(r.label || '') + '\')" style="color:#e88;">削除</button>';
+    html += '<button class="btn btn-sm btn-outline" onclick="editRecommend(\'' + jsStr(r.id) + '\')">編集</button>';
+    html += '<button class="btn btn-sm btn-outline" onclick="renameRecommend(\'' + jsStr(r.id) + '\',\'' + jsStr(r.label || '') + '\')">名前変更</button>';
+    html += '<button class="btn btn-sm btn-outline" onclick="toggleRecommend(\'' + jsStr(r.id) + '\',' + (r.enabled ? 'false' : 'true') + ')">' + (r.enabled ? '無効化' : '有効化') + '</button>';
+    html += '<button class="btn btn-sm btn-outline" onclick="deleteRecommend(\'' + jsStr(r.id) + '\',\'' + jsStr(r.label || '') + '\')" style="color:#e88;">削除</button>';
     html += '</div></div>';
   }
   el.innerHTML = html;
@@ -3303,7 +3365,7 @@ function renderInquiryList(list) {
     // 物件名（リンク）
     html += '<div class="inq-prop">';
     if (q.detailUrl) {
-      html += '<a href="' + esc(q.detailUrl) + '" target="_blank">🏠 ' + esc(q.propertyName || '物件名なし') + '</a>';
+      html += '<a href="' + attrEsc(q.detailUrl) + '" target="_blank">🏠 ' + esc(q.propertyName || '物件名なし') + '</a>';
     } else {
       html += '🏠 ' + esc(q.propertyName || '物件名なし');
     }
@@ -3322,7 +3384,7 @@ function renderInquiryList(list) {
     if (q.message) html += '<div class="inq-msg">💬 ' + esc(q.message) + '</div>';
     // 対応状況
     html += '<div class="inq-foot"><span style="font-size:11px;color:#888;">対応状況</span>';
-    html += '<select onchange="changeInquiryStatus(' + q.rowIndex + ', \'' + esc(q.renban) + '\', this.value)">';
+    html += '<select onchange="changeInquiryStatus(' + q.rowIndex + ', \'' + jsStr(q.renban) + '\', this.value)">';
     var opts = ['未対応', '対応中', '対応済み'];
     for (var k = 0; k < opts.length; k++) {
       html += '<option value="' + opts[k] + '"' + (q.status === opts[k] ? ' selected' : '') + '>' + opts[k] + '</option>';
@@ -3415,6 +3477,24 @@ function esc(s) {
   var d = document.createElement('div');
   d.appendChild(document.createTextNode(String(s)));
   return d.innerHTML;
+}
+// ⚠️ esc() は textNode 経由なので & < > しか escape しない。' と " はそのまま通る。
+//   属性値やイベントハンドラに入れるときは必ず下の2つを使うこと (2026-08-16)。
+//   顧客名にアポストロフィが1つあるだけで onclick="openDetail('...')" が壊れ、
+//   その顧客のカードが開けなくなっていた。
+// HTML属性値に入れる用。
+function attrEsc(s) {
+  return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+// onclick="fn('...')" のように、HTML属性の中のJS文字列リテラルに入れる用。
+// 属性の中身はJSとして解釈される前にHTMLデコードされるので、
+// JS用のescape( \ と ' )をしてから属性用のescapeをかける必要がある。
+function jsStr(s) {
+  return attrEsc(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+}
+// setAttribute('onclick', ...) 用。HTMLデコードは起きないのでJS用のescapeだけ。
+function jsRaw(s) {
+  return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 function showToast(msg) {
