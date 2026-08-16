@@ -316,15 +316,10 @@ body {
     <div class="search-bar" style="display:flex;gap:8px;align-items:center;">
       <input type="text" id="searchInput" placeholder="顧客名で検索..." oninput="filterCustomers()" style="flex:1;">
       <div class="view-toggle">
-        <button id="viewListBtn" class="vt active" onclick="setCustomerView('list')">📋 一覧</button>
-        <button id="viewBoardBtn" class="vt" onclick="setCustomerView('board')">📊 ボード</button>
         <button id="archiveToggleBtn" class="vt" onclick="toggleArchivedView()">🗄 アーカイブ</button>
       </div>
     </div>
-    <div id="customerList" class="customer-list">
-      <div class="loading">読み込み中...</div>
-    </div>
-    <div id="kanbanBoard" style="display:none;"></div>
+    <div id="kanbanBoard"><div class="loading">読み込み中...</div></div>
   </div>
 </div>
 
@@ -520,8 +515,8 @@ var propShown = 0;
   // KANBAN_STAGES など後方で定義される変数・関数の初期化を待ってから実行する
   // （このスクリプトの全トップレベル文の実行後に走らせる）
   setTimeout(function() {
-    // デフォルトはカンバン（ボード）表示
-    setCustomerView('board');
+    // 表示はカンバンだけ（一覧は使われていなかったので廃止した）
+    filterCustomers();
     if (initCustomer) {
       openDetail(initCustomer);
     }
@@ -531,42 +526,6 @@ var propShown = 0;
 // ══════════════════════════════════════════
 //  顧客一覧
 // ══════════════════════════════════════════
-function renderCustomerList(list) {
-  var el = document.getElementById('customerList');
-  if (!list || list.length === 0) {
-    el.innerHTML = '<div class="empty-state">顧客がいません</div>';
-    return;
-  }
-  // ステータス順: active > snoozed > auto_paused > paused > blocked
-  var order = {active:0, snoozed:1, auto_paused:2, paused:3, blocked:4};
-  list.sort(function(a,b) {
-    var sa = order[a.status] !== undefined ? order[a.status] : 0;
-    var sb = order[b.status] !== undefined ? order[b.status] : 0;
-    if (sa !== sb) return sa - sb;
-    return (b.registeredAt || '').localeCompare(a.registeredAt || '');
-  });
-  var html = '';
-  for (var i = 0; i < list.length; i++) {
-    var c = list[i];
-    html += '<div class="customer-item" onclick="openDetail(\'' + esc(c.name) + '\')">';
-    html += '<div class="customer-name">' + esc(c.name) + ' ' + statusBadge(c.status) + (c.openTasks ? ' ' + taskMark(c) : '') + '</div>';
-    html += '<div class="customer-meta">';
-    if (c.openTasks) {
-      var _cod = c.overdueTasks > 0;
-      html += '<div style="color:' + (_cod ? '#e0707a' : '#e0b64a') + ';font-weight:600;">📋 タスク' + c.openTasks + '件'
-        + (_cod ? '（期限切れ' + c.overdueTasks + '）' : (c.nextDue ? '（期限 ' + esc(c.nextDue) + '）' : '')) + '</div>';
-    }
-    html += c.hasPhone
-      ? '<div style="color:#6cd06c;">📞 ' + esc(c.phone) + '</div>'
-      : '<div style="color:#e0707a;">📵 電話なし</div>';
-    if (c.registeredAt) html += '<div>登録: ' + esc(c.registeredAt) + '</div>';
-    if (c.lastAction) html += '<div>最終: ' + esc(c.lastAction) + '</div>';
-    html += sentInfoHtml(c);
-    html += viewInfoHtml(c);
-    html += '</div></div>';
-  }
-  el.innerHTML = html;
-}
 
 var showArchived = false;  // true でアーカイブ済みのみ表示
 function filterCustomers() {
@@ -577,8 +536,7 @@ function filterCustomers() {
   var cnt = customers.filter(function(c) { return c.archived; }).length;
   var btn = document.getElementById('archiveToggleBtn');
   if (btn) btn.textContent = showArchived ? '← 通常表示に戻す' : '🗄 アーカイブ (' + cnt + ')';
-  if (customerView === 'board') renderKanban(filtered);
-  else renderCustomerList(filtered);
+  renderKanban(filtered);
 }
 
 // アーカイブ表示の切替
@@ -633,7 +591,6 @@ function toggleCustomerArchive(name, archived) {
 // ══════════════════════════════════════════
 //  カンバン（営業パイプライン）
 // ══════════════════════════════════════════
-var customerView = 'board';
 // カンバンは2種類の列でできている。
 //   左5列 = 顧客の状態から自動で決まる（ドラッグで動かすものではない）
 //   右3列 = 商談の事実。ドラッグで決める（AG列に保存）
@@ -651,14 +608,6 @@ try { kanbanSort = JSON.parse(localStorage.getItem('kanbanSort') || '{}') || {};
 function setKanbanSort(stage, mode) {
   kanbanSort[stage] = mode;
   try { localStorage.setItem('kanbanSort', JSON.stringify(kanbanSort)); } catch (e) {}
-  filterCustomers();
-}
-function setCustomerView(v) {
-  customerView = v;
-  document.getElementById('viewListBtn').classList.toggle('active', v === 'list');
-  document.getElementById('viewBoardBtn').classList.toggle('active', v === 'board');
-  document.getElementById('customerList').style.display = (v === 'list') ? '' : 'none';
-  document.getElementById('kanbanBoard').style.display = (v === 'board') ? '' : 'none';
   filterCustomers();
 }
 // ── 再描画でスクロール位置が先頭に戻らないようにする ──
@@ -1219,33 +1168,6 @@ function taskMark(it) {
   var title = od ? '期限切れタスク' + it.overdueTasks + '件' : '未完了タスク' + it.openTasks + '件';
   return '<span title="' + title + '" style="display:inline-block;background:' + bg + ';color:' + fg +
     ';border-radius:8px;padding:0 6px;font-size:11px;font-weight:600;vertical-align:middle;">📋 ' + it.openTasks + '</span>';
-}
-// 「最後に物件を送れてから何日か」。条件を緩めるべき人を見つけるための表示。
-// ⚠️ 何日以上を赤くする、といった閾値は入れないこと。線引きに意味がある値ではなく、
-//   並べ替え（送れていない順）で上に来るかどうかで判断する運用にしている。
-//   一度も送れていない人だけは日数が出せないので別扱いにする。
-function sentInfoHtml(c) {
-  if (!c) return '';
-  if (c.daysSinceSent === null || c.daysSinceSent === undefined) {
-    if (!c.lastSentAt) return '<div style="color:#c98fd6;">📨 物件は未送信</div>';
-    return '';
-  }
-  var d = c.daysSinceSent;
-  var label = (d <= 0) ? '本日' : (d + '日前');
-  return '<div>📨 最終送信: ' + label + '（' + esc(c.lastSentAt || '') + '）</div>';
-}
-// 「最後に物件を見てから何日か」。送っているのに見ていない人を見つける手がかり。
-// ⚠️ 最終送信と同じく、何日以上を赤くするといった閾値は入れないこと。
-//   一度も閲覧していない人だけは日数が出せないので別扱いにする。
-function viewInfoHtml(c) {
-  if (!c) return '';
-  if (c.daysSinceViewed === null || c.daysSinceViewed === undefined) {
-    if (!c.lastViewedAt) return '<div style="color:#c98fd6;">👀 物件は未閲覧</div>';
-    return '';
-  }
-  var d = c.daysSinceViewed;
-  var label = (d <= 0) ? '本日' : (d + '日前');
-  return '<div>👀 最終閲覧: ' + label + '（' + esc(c.lastViewedAt || '') + '）</div>';
 }
 // 送れていない順に並べるためのキー。大きいほど「送れていない」。未送信は最上位。
 function notSentKey(c) {
