@@ -472,6 +472,98 @@ function _getLineUserName_(userId) {
   return userName;
 }
 
+// ═══════════════════════════════════════════════════════════
+//  空室確認依頼（要確認物件）の再送
+//
+//  「要確認」の依頼は Discord に投げるだけで、返信キューにも入れていない。
+//  そのため通知が失敗すると依頼そのものが消え、お客様だけが
+//  「担当者が確認のうえご連絡いたします」と言われたまま待ち続ける。
+//  届かなかった分を手で送り直せるようにしておく。
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * ここを書き換えてから resendVacancyCheckRequest() を実行する。
+ *   customer … LINE Users シートの顧客名、または LINE userId をそのまま
+ *   building … 建物名（部分一致でよい）
+ *   room     … 部屋番号（空なら建物名だけで探す）
+ */
+var RESEND_VACANCY_TARGET = {
+  customer: '',
+  building: '',
+  room: ''
+};
+
+/**
+ * RESEND_VACANCY_TARGET の内容で空室確認依頼のDiscord通知を送り直す。
+ * Apps Script エディタから実行する。
+ */
+function resendVacancyCheckRequest() {
+  var t = RESEND_VACANCY_TARGET || {};
+  var res = resendVacancyCheckRequestFor(t.customer, t.building, t.room);
+  console.log(JSON.stringify(res));
+  return res;
+}
+
+/**
+ * 指定のお客様・物件で、空室確認依頼のDiscord通知を送り直す。
+ * @param {string} customer 顧客名 または LINE userId
+ * @param {string} building 建物名（部分一致）
+ * @param {string} room 部屋番号（空可）
+ * @return {{ok:boolean, message:string}}
+ */
+function resendVacancyCheckRequestFor(customer, building, room) {
+  customer = String(customer || '').trim();
+  building = String(building || '').trim();
+  room = String(room || '').trim();
+  if (!customer || !building) {
+    return { ok: false, message: 'customer と building は必須です' };
+  }
+
+  // userId を引く（U で始まる33文字ならそのまま userId とみなす）
+  var userId = '';
+  if (/^U[0-9a-f]{32}$/i.test(customer)) {
+    userId = customer;
+  } else {
+    try {
+      var map = _getLineUserIdMapByCustomerName_();
+      userId = map[customer] || '';
+    } catch (e) {}
+    if (!userId) {
+      return { ok: false, message: 'LINE Users に「' + customer + '」が見つかりません（userId を直接指定してください）' };
+    }
+  }
+
+  // 物件を探す
+  var ss = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+  var sheet = ss.getSheetByName(PROPERTY_SHEET_NAME);
+  if (!sheet) return { ok: false, message: '物件空室管理シートが見つかりません' };
+  var data = sheet.getDataRange().getValues();
+  var hit = null;
+  for (var i = 1; i < data.length; i++) {
+    var nm = String(data[i][0] || '').trim();
+    if (!nm || nm.indexOf(building) < 0) continue;
+    var rm = String(data[i][1] || '').trim();
+    if (room && rm.replace(/号室$/, '') !== room.replace(/号室$/, '')) continue;
+    hit = data[i];
+    break;
+  }
+  if (!hit) return { ok: false, message: '物件が見つかりません: ' + building + ' ' + room };
+
+  var props = [{
+    name: String(hit[0]), room: String(hit[1] || ''),
+    address: String(hit[2] || ''), station: String(hit[3] || ''),
+    rent: String(hit[4] || ''), layout: String(hit[6] || ''), area: String(hit[7] || ''),
+    vacancyUrl: hit[12] ? String(hit[12]).trim() : ''
+  }];
+  var userName = _getLineUserName_(userId);
+  _notifyVacancyCheckRequestToDiscord_(userName, userId, props);
+  return {
+    ok: true,
+    message: '再送しました: ' + userName + ' 様 / ' + props[0].name + ' ' + props[0].room,
+    userId: userId
+  };
+}
+
 /**
  * ステータス「要確認」物件の空室確認依頼をスタッフ向けDiscordに通知する。
  * 自動で空室確認できない物件(REINS等)に、お客さんから公式LINEで空室確認依頼が
