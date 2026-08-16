@@ -1722,16 +1722,9 @@ function setCustomerStage(customerName, stage) {
     // 旧ステージ('問い合わせ'/'追客中'/'内見')は列としては無くなったが、
     // 既存データや他経路から渡ってきても弾かないよう許可したままにする。
     stage = String(stage == null ? '' : stage).trim();
-    // 'pin:<列キー>@yyyy-MM-dd' は担当者がカンバンの列に固定した指定。
-    // 自動判定より人の判断を優先させるためのもの（_parseStageCell_ 参照）。
-    var PIN_KEYS = ['mail_only', 'no_contact', 'talk_noview', 'view_only', 'talk_view', 'wait'];
-    if (stage.indexOf('pin:') === 0) {
-      var _pm = stage.match(/^pin:([a-z_]+)@(\d{4}-\d{2}-\d{2})$/);
-      if (!_pm || PIN_KEYS.indexOf(_pm[1]) < 0) return { ok: false, message: '不正な固定指定: ' + stage };
-    } else {
-      var ALLOWED = ['', '問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
-      if (ALLOWED.indexOf(stage) < 0) return { ok: false, message: '不正なステージ: ' + stage };
-    }
+    // '内見' は列としては無くなったが、既存データが渡ってきても弾かない。
+    var ALLOWED = ['', 'メールのみ', '問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
+    if (ALLOWED.indexOf(stage) < 0) return { ok: false, message: '不正なステージ: ' + stage };
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
     var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
     if (!sheet) return { ok: false, message: '検索条件シートが見つかりません' };
@@ -1758,7 +1751,7 @@ function setCustomerStage(customerName, stage) {
  */
 function setKanbanOrder(stage, orderedNames) {
   try {
-    var ALLOWED = ['問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
+    var ALLOWED = ['メールのみ', '問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
     if (ALLOWED.indexOf(stage) < 0) return { ok: false, message: '不正なステージ: ' + stage };
     if (!Array.isArray(orderedNames)) return { ok: false, message: '順序リストがありません' };
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);

@@ -591,17 +591,17 @@ function toggleCustomerArchive(name, archived) {
 // ══════════════════════════════════════════
 //  カンバン（営業パイプライン）
 // ══════════════════════════════════════════
-// カンバンは2種類の列でできている。
-//   左5列 = 顧客の状態から自動で決まる（ドラッグで動かすものではない）
-//   右3列 = 商談の事実。ドラッグで決める（AG列に保存）
-// 「内見」は列としては持たない。内見してダメなら追客に戻り、良ければ申込に進むだけなので、
+// カンバンの列。左ほど遠く、右ほど成約に近い。すべてドラッグで動かせる（AG列に保存）。
+// 「内見」は列としては持たない。内見してダメなら追客に戻り、良ければ申込に進むだけで、
 // 留まる場所ではなかった。
-// 旧ステージ('問い合わせ'/'追客中'/'内見')が入っている行は「未設定」と同じ扱いにして
-// 自動判定に載せる。手で仕分け直す必要はない。
-var MANUAL_STAGES = ['申込', '成約', '終了'];
-var LEGACY_STAGES = ['問い合わせ', '追客中', '内見'];
-function isManualStage(st) { return MANUAL_STAGES.indexOf(st) >= 0; }
-var KANBAN_STAGES = MANUAL_STAGES;
+// 「メールのみ」は電話番号が無い人。電話で追えないので追客の対象にしない列。
+// 未設定の人がどの列に入るかは GAS の _fillDefaultStages_ が決める。
+var KANBAN_STAGES = ['メールのみ', '問い合わせ', '追客中', '申込', '成約', '終了'];
+var STAGE_HINTS = {
+  'メールのみ': '電話番号が無く追客できない。触らない',
+  '問い合わせ': 'まだ追客に入っていない',
+  '追客中': '追っている人'
+};
 // 列ごとの並び替え設定（ブラウザに保存。既定は手動＝ドラッグ順）
 var kanbanSort = {};
 try { kanbanSort = JSON.parse(localStorage.getItem('kanbanSort') || '{}') || {}; } catch (e) { kanbanSort = {}; }
@@ -641,14 +641,33 @@ function _restoreKanbanScroll_(board, pos) {
   }
 }
 
-// カード1枚。判断材料をそのまま出す（引越し期限・閲覧・対応ログ・送信）。
-// ⚠️ 何日以上を赤くする閾値は入れないこと。引越し期限だけは「過ぎている」が
-//   事実として意味を持つので色を付けている。
-function kanbanCardHtml(it, draggable) {
-  var h = '<div class="kanban-card"' + (draggable ? ' draggable="true" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)"' : '')
+// 引越し期限の表示。過ぎているかは事実として意味があるので色を付ける。
+function moveInHtml(c) {
+  if (c.moveInAsap) return '<div style="color:#e0b64a;">🏃 いい物件見つかり次第</div>';
+  if (c.daysToMoveIn == null) {
+    return c.moveIn ? '<div style="color:#777;">🗓 ' + esc(c.moveIn) + '（期限として読めず）</div>'
+                    : '<div style="color:#777;">🗓 引越し時期なし</div>';
+  }
+  var d = c.daysToMoveIn;
+  var color = (d < 0) ? '#e0707a' : (d <= 30 ? '#e0b64a' : '#888');
+  var txt = (d < 0) ? ('期限を' + (-d) + '日過ぎている') : ('あと' + d + '日');
+  return '<div style="color:' + color + ';">🗓 ' + esc(c.moveIn) + '（' + txt + (c.moveInApprox ? '・おおよそ' : '') + '）</div>';
+}
+
+// 「N日前（日付）」。記録が無いときの文言は呼び出し側で決める。
+function dayText(days, dateStr, noneText) {
+  if (days == null) return '<span style="color:#666;">' + esc(noneText) + '</span>';
+  return (days <= 0 ? '本日' : days + '日前') + '（' + esc(dateStr || '') + '）';
+}
+
+// カード1枚。判断材料をそのまま出す（引越し期限・閲覧・話せた・つながらず・送信）。
+// ⚠️ 何日以上を赤くする閾値は入れないこと。線引きに意味がある値ではなく、
+//   並べ替えで上に来るかどうかで判断する運用にしている。
+//   引越し期限だけは「過ぎている」が事実として意味を持つので例外。
+function kanbanCardHtml(it) {
+  var h = '<div class="kanban-card" draggable="true" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)"'
     + ' data-name="' + attrEsc(it.name) + '" onclick="openDetail(\'' + jsStr(it.name) + '\')">';
-  h += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status)
-    + (it.openTasks ? ' ' + taskMark(it) : '') + pinBadge(it) + '</div>';
+  h += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + (it.openTasks ? ' ' + taskMark(it) : '') + '</div>';
   if (it.openTasks) {
     var _od = it.overdueTasks > 0;
     h += '<div class="kc-meta" style="margin-top:2px;color:' + (_od ? '#e0707a' : '#e0b64a') + ';font-weight:600;">'
@@ -656,62 +675,36 @@ function kanbanCardHtml(it, draggable) {
       + (_od ? '（期限切れ' + it.overdueTasks + '）' : (it.nextDue ? '（期限 ' + esc(it.nextDue) + '）' : ''))
       + '</div>';
   }
-  h += '<div class="kc-meta">' + triageMoveInHtml(it) + '</div>';
+  h += '<div class="kc-meta">' + moveInHtml(it) + '</div>';
   h += '<div class="kc-meta">'
     + (it.hasPhone ? '<span style="color:#6cd06c;">📞 ' + esc(it.phone) + '</span>'
                    : '<span style="color:#e0707a;">📵 電話なし</span>')
     + (it.hasCriteria ? '' : ' <span style="color:#e0707a;">／ 条件なし</span>')
     + '</div>';
-  h += '<div class="kc-meta">👀 閲覧: ' + triageDayText(it.daysSinceViewed, it.lastViewedAt, '無し') + '</div>';
-  // 話せた記録。旧形式の'電話'はメモから推定しているので、何を根拠にしたかが分かるよう
-  // 種別とメモの頭を出す（留守電を話せた扱いにしていたら目で気づけるように）。
-  h += '<div class="kc-meta">🗣 話せた: ' + triageDayText(it.daysSinceTalk, it.lastTalkAt, '記録なし')
+  h += '<div class="kc-meta">👀 閲覧: ' + dayText(it.daysSinceViewed, it.lastViewedAt, '無し') + '</div>';
+  // 話せた記録。旧形式の'電話'ログはメモから推定しているので、何を根拠にしたかが
+  // 分かるよう種別とメモの頭を出す（留守電を話せた扱いにしていたら目で気づけるように）。
+  h += '<div class="kc-meta">🗣 話せた: ' + dayText(it.daysSinceTalk, it.lastTalkAt, '記録なし')
     + (it.lastTalkType ? '［' + esc(it.lastTalkType) + '］' : '')
     + (it.lastTalkMemo ? '<span style="color:#666;"> ' + esc(it.lastTalkMemo) + '</span>' : '') + '</div>';
   if (it.daysSinceCallTry != null) {
-    h += '<div class="kc-meta" style="color:#c98fd6;">📵 つながらず: ' + triageDayText(it.daysSinceCallTry, it.lastCallTryAt, '') + '</div>';
+    h += '<div class="kc-meta" style="color:#c98fd6;">📵 つながらず: ' + dayText(it.daysSinceCallTry, it.lastCallTryAt, '') + '</div>';
   }
-  h += '<div class="kc-meta">📨 送信: ' + triageDayText(it.daysSinceSent, it.lastSentAt, '未送信') + '</div>';
+  h += '<div class="kc-meta">📨 送信: ' + dayText(it.daysSinceSent, it.lastSentAt, '未送信') + '</div>';
   h += '</div>';
   return h;
 }
 
-// 担当者が置いた列であることの印。クリックで自動判定に戻す。
-// 固定した後にその人が動いていたら（物件を見た・返事が来た）「動きあり」を出す。
-// 判断の前提が変わっているので、固定を勝手に解かずに気づかせるだけにする。
-function pinBadge(it) {
-  if (!it.pinKey) return '';
-  var moved = it.pinMoved;
-  var title = '担当者が置いた列' + (it.pinSince ? '（' + it.pinSince + ' から）' : '') + '。クリックで自動判定に戻す';
-  var h = ' <span onclick="event.stopPropagation();unpinCustomer(\'' + jsStr(it.name) + '\')" title="' + attrEsc(title) + '"'
-    + ' style="display:inline-block;background:#3a3f4a;color:#9fb6d6;border-radius:8px;padding:0 6px;'
-    + 'font-size:11px;font-weight:600;vertical-align:middle;cursor:pointer;">📌'
-    + (it.pinDays != null ? ' ' + it.pinDays + '日' : '') + '</span>';
-  if (moved) {
-    h += ' <span title="固定してから物件を見た・連絡があった" style="display:inline-block;background:#6b5a1e;color:#ffe08a;'
-      + 'border-radius:8px;padding:0 6px;font-size:11px;font-weight:600;vertical-align:middle;">動きあり</span>';
-  }
-  return h;
-}
-
-function unpinCustomer(name) {
-  for (var i = 0; i < customers.length; i++) {
-    if (customers[i].name === name) { customers[i].pinKey = ''; customers[i].pinSince = ''; customers[i].pinMoved = false; customers[i].pinDays = null; break; }
-  }
-  filterCustomers();
-  google.script.run
-    .withSuccessHandler(function(r) {
-      if (r && r.ok) showToast(name + ' を自動判定に戻しました');
-      else showToast((r && r.message) || '解除に失敗しました');
-    })
-    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
-    .setCustomerStage(name, '');
-}
-
-// 手動列(申込/成約/終了)の並べ替え。自動列は引越し期限順に固定。
-function sortManualColumn(items, stage) {
+// 列の並べ替え。既定は手動（ドラッグ順）。
+function sortColumn(items, stage) {
   var mode = kanbanSort[stage] || 'manual';
   items.sort(function(a, b) {
+    if (mode === 'moveIn') {
+      // 引越し期限が近い順。過ぎている人が一番上、期限が無い人は後ろ。
+      var ua = moveInSortKey(a), ub = moveInSortKey(b);
+      if (ua !== ub) return ua - ub;
+      return (a.name || '').localeCompare(b.name || '');
+    }
     if (mode === 'lastAction' || mode === 'lastActionOld') {
       var la = a.lastAction || '', lb = b.lastAction || '';
       if (!la && !lb) return (a.name || '').localeCompare(b.name || '');
@@ -737,11 +730,17 @@ function sortManualColumn(items, stage) {
     return (a.registeredAt || '').localeCompare(b.registeredAt || '');
   });
 }
+function moveInSortKey(c) {
+  if (c.moveInAsap) return -100000;
+  if (c.daysToMoveIn != null) return c.daysToMoveIn;
+  return 999999;
+}
 
-function manualSortSelectHtml(stage) {
+function sortSelectHtml(stage) {
   var m = kanbanSort[stage] || 'manual';
   var opts = [
     ['manual', '並び: 手動（ドラッグ順）'],
+    ['moveIn', '並び: 引越し期限が近い順'],
     ['lastAction', '並び: 最終アクションが新しい順'],
     ['lastActionOld', '並び: 最終アクションが古い順'],
     ['notSent', '並び: 物件を送れていない順'],
@@ -761,55 +760,28 @@ function renderKanban(list) {
   var board = document.getElementById('kanbanBoard');
   var _scrollPos = _captureKanbanScroll_(board);
 
-  // 振り分け: 申込以降は保存されたステージ、それ以外は状態から自動判定
-  var auto = {}, manual = {};
-  for (var t = 0; t < TRIAGE_TYPES.length; t++) auto[TRIAGE_TYPES[t].key] = [];
-  for (var m = 0; m < MANUAL_STAGES.length; m++) manual[MANUAL_STAGES[m]] = [];
+  var byStage = {};
+  for (var s = 0; s < KANBAN_STAGES.length; s++) byStage[KANBAN_STAGES[s]] = [];
   for (var i = 0; i < list.length; i++) {
-    var c = list[i];
-    if (isManualStage(c.stage)) { manual[c.stage].push(c); continue; }
-    var key = columnKeyOf(c);
-    if (key && auto[key]) auto[key].push(c);
-    else if (key) auto[classifyCustomer(c) || 'no_contact'].push(c);   // 未知の固定キーは自動に落とす
+    var st = list[i].stage;
+    if (!byStage[st]) st = '追客中';   // 旧'内見'など、列が無い値の受け皿
+    byStage[st].push(list[i]);
   }
-  for (var k in auto) auto[k].sort(function(a, b) { return triageUrgency(a) - triageUrgency(b); });
-  for (var sm in manual) sortManualColumn(manual[sm], sm);
+  for (var k in byStage) sortColumn(byStage[k], k);
 
-  // しきい値バー（自動判定の線引きをその場で変えられるようにする）
-  var html = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 4px;color:#888;font-size:11px;">'
-    + '<span>物件を見た日がこの日数以内なら「見ている」:</span>'
-    + '<input type="number" min="1" value="' + triageOpts.viewDays + '" onchange="setTriageOpt(\'viewDays\',this.value)" '
-    +   'style="width:56px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;">日'
-    + '<span style="margin-left:10px;">話せた記録がこの日数以内なら「話せている」:</span>'
-    + '<input type="number" min="1" value="' + triageOpts.talkDays + '" onchange="setTriageOpt(\'talkDays\',this.value)" '
-    +   'style="width:56px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;">日'
-    + '<span style="margin-left:10px;color:#666;">左の5列は状態から自動で決まります（ドラッグ不要）</span>'
-    + '</div>';
-
-  html += '<div class="kanban">';
-  // ── 自動判定の5列（左ほど遠く、右ほど成約に近い）──
-  for (var a = 0; a < TRIAGE_TYPES.length; a++) {
-    var ty = TRIAGE_TYPES[a];
-    var items = auto[ty.key];
-    html += '<div class="kanban-col" data-stage="auto:' + esc(ty.key) + '" '
-      + 'ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
-    html += '<div class="kanban-col-head">' + esc(ty.label) + '<span class="cnt">' + items.length + '</span></div>';
-    html += '<div style="padding:0 12px 6px;font-size:11px;color:#777;">' + esc(ty.hint) + '</div>';
-    html += '<div class="kanban-col-body">';
-    for (var x = 0; x < items.length; x++) html += kanbanCardHtml(items[x], true);
-    if (!items.length) html += '<div style="color:#666;font-size:12px;padding:4px;">該当なし</div>';
-    html += '</div></div>';
-  }
-  // ── ドラッグで決める3列 ──
-  for (var b = 0; b < MANUAL_STAGES.length; b++) {
-    var stg = MANUAL_STAGES[b];
-    var mItems = manual[stg];
+  var html = '<div class="kanban">';
+  for (var c = 0; c < KANBAN_STAGES.length; c++) {
+    var stg = KANBAN_STAGES[c];
+    var items = byStage[stg];
     html += '<div class="kanban-col" data-stage="' + attrEsc(stg) + '" '
       + 'ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
-    html += '<div class="kanban-col-head">' + esc(stg) + '<span class="cnt">' + mItems.length + '</span></div>';
-    html += manualSortSelectHtml(stg);
+    html += '<div class="kanban-col-head">' + esc(stg) + '<span class="cnt">' + items.length + '</span></div>';
+    if (STAGE_HINTS[stg]) {
+      html += '<div style="padding:0 12px 6px;font-size:11px;color:#777;">' + esc(STAGE_HINTS[stg]) + '</div>';
+    }
+    html += sortSelectHtml(stg);
     html += '<div class="kanban-col-body">';
-    for (var y = 0; y < mItems.length; y++) html += kanbanCardHtml(mItems[y], true);
+    for (var m = 0; m < items.length; m++) html += kanbanCardHtml(items[m]);
     html += '</div></div>';
   }
   html += taskColumnHtml();
@@ -819,93 +791,6 @@ function renderKanban(list) {
   _restoreKanbanScroll_(board, _scrollPos);
   if (!_taskLoaded) loadTaskOverview();
 }
-
-// ══════════════════════════════════════════
-//  仕分けビュー（読み取り専用）
-//
-//  お客さんを「今どういう状態か」で自動的に分類して見せる。ステージ(AG列)には
-//  一切書き込まない。分類の定義が実感と合っているかを確かめるための画面。
-//
-//  列は左に行くほど遠く、右に行くほど成約に近い並びにしてある。
-//  申込・成約・終了は対象外（申込以降は別の話なので混ぜない）。
-//
-//  ⚠️ しきい値を決め打ちにすると必ずズレるので画面から変えられるようにしてある。
-//     LINE反応(daysSinceLine)は分類には使わず根拠としてだけ出す。
-//     LINE Activity は物件ページのボタン(postback)でも更新されるため、
-//     「話せている」の根拠にはできない（コード.js の doPost を参照）。
-// ══════════════════════════════════════════
-var TRIAGE_TYPES = [
-  { key: 'mail_only',   label: 'メールのみ',         hint: '電話番号が無く、反応も無い' },
-  { key: 'no_contact',  label: '連絡がつかない',     hint: '電話番号はあるが反応が無い' },
-  { key: 'talk_noview', label: '話したが見ていない', hint: '話せてはいるが物件を見ていない' },
-  { key: 'view_only',   label: '見ているだけ',       hint: '物件は見ているが話せていない' },
-  { key: 'talk_view',   label: '話せていて見ている', hint: '一番成約に近い' },
-  // 自動では絶対に入らない列。「1ヶ月話せていないが信頼関係があるので、
-  // 物件が出るまで追わなくていい」という判断はデータから読み取れないため、
-  // 人が置いたときだけここに入る。
-  { key: 'wait',        label: '物件待ち',           hint: '追わなくてよい。物件が出たら動く', manualOnly: true }
-];
-
-var triageOpts = { viewDays: 14, talkDays: 30 };
-try {
-  var _to = JSON.parse(localStorage.getItem('triageOpts') || 'null');
-  if (_to && _to.viewDays && _to.talkDays) triageOpts = _to;
-} catch (e) {}
-
-function setTriageOpt(key, value) {
-  var n = parseInt(String(value).replace(/[^0-9]/g, ''), 10);
-  if (isNaN(n) || n < 1) return;
-  triageOpts[key] = n;
-  try { localStorage.setItem('triageOpts', JSON.stringify(triageOpts)); } catch (e) {}
-  filterCustomers();
-}
-
-// 状態から自動で決まる列。担当者が固定している場合は使わない（columnKeyOf を見ること）。
-function classifyCustomer(c) {
-  if (!c) return null;
-  if (isManualStage(c.stage)) return null;   // 申込以降は事実で決まるので自動判定しない
-  var viewed = (c.daysSinceViewed != null && c.daysSinceViewed <= triageOpts.viewDays);
-  var talked = (c.daysSinceTalk != null && c.daysSinceTalk <= triageOpts.talkDays);
-  if (talked && viewed) return 'talk_view';
-  if (viewed) return 'view_only';
-  if (talked) return 'talk_noview';
-  // どちらも無い人は連絡手段で分ける。電話できるなら「連絡がつかない」側。
-  if (c.hasPhone) return 'no_contact';
-  if (c.email) return 'mail_only';
-  return 'no_contact';   // 電話もメールも無い＝手段が無い。埋もれないよう左には置かない
-}
-
-// その人が実際に表示される列。担当者の判断(pin)が自動判定より優先される。
-function columnKeyOf(c) {
-  if (!c || isManualStage(c.stage)) return null;
-  if (c.pinKey) return c.pinKey;
-  return classifyCustomer(c);
-}
-
-// 引越し期限の近い順（過ぎている人が一番上）。期限が無い人は後ろ。
-function triageUrgency(c) {
-  if (c.moveInAsap) return -100000;          // 「いい物件見つかり次第」は常に急ぎ
-  if (c.daysToMoveIn != null) return c.daysToMoveIn;
-  return 999999;
-}
-
-function triageMoveInHtml(c) {
-  if (c.moveInAsap) return '<div style="color:#e0b64a;">🏃 いい物件見つかり次第</div>';
-  if (c.daysToMoveIn == null) {
-    return c.moveIn ? '<div style="color:#777;">🗓 ' + esc(c.moveIn) + '（期限として読めず）</div>'
-                    : '<div style="color:#777;">🗓 引越し時期なし</div>';
-  }
-  var d = c.daysToMoveIn;
-  var color = (d < 0) ? '#e0707a' : (d <= 30 ? '#e0b64a' : '#888');
-  var txt = (d < 0) ? ('期限を' + (-d) + '日過ぎている') : ('あと' + d + '日');
-  return '<div style="color:' + color + ';">🗓 ' + esc(c.moveIn) + '（' + txt + (c.moveInApprox ? '・おおよそ' : '') + '）</div>';
-}
-
-function triageDayText(days, dateStr, noneText) {
-  if (days == null) return '<span style="color:#666;">' + noneText + '</span>';
-  return (days <= 0 ? '本日' : days + '日前') + '（' + esc(dateStr || '') + '）';
-}
-
 
 // ══════════════════════════════════════════
 //  やること列（カンバン右端・全顧客のタスク横断）
@@ -1152,37 +1037,6 @@ function kanbanDrop(e) {
   var name = _kanbanDragName; _kanbanDragName = null;
   if (!name || !stage) return;
 
-  // ── 自動判定側の列に落とした場合 ──
-  // システムが選ぶ列と同じところに落としたら「判断は不要」なので固定を外す。
-  // 違う列に落としたら、それは担当者の判断なので固定する（自動判定より優先）。
-  // 例:「1ヶ月話せていないが信頼関係があるので物件待ち」はデータからは分からない。
-  if (stage.indexOf('auto:') === 0) {
-    var key = stage.substring(5);
-    var target = null;
-    for (var ai = 0; ai < customers.length; ai++) { if (customers[ai].name === name) { target = customers[ai]; break; } }
-    if (!target) return;
-    var natural = (function(c) { var st = c.stage; c.stage = ''; var k = classifyCustomer(c); c.stage = st; return k; })(target);
-    var value;
-    if (key === natural) {                    // 元いるべき場所に戻した → 固定を外す
-      target.pinKey = ''; target.pinSince = ''; target.pinMoved = false; target.pinDays = null;
-      value = '';
-    } else {                                  // 担当者の判断 → その列に固定
-      var d = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);  // JSTの今日
-      target.pinKey = key; target.pinSince = d; target.pinMoved = false; target.pinDays = 0;
-      value = 'pin:' + key + '@' + d;
-    }
-    target.stage = '';
-    filterCustomers();
-    google.script.run
-      .withSuccessHandler(function(r) {
-        if (r && r.ok) showToast(value ? (name + ' をここに固定しました') : (name + ' を自動判定に戻しました'));
-        else showToast((r && r.message) || '保存に失敗しました');
-      })
-      .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
-      .setCustomerStage(name, value);
-    return;
-  }
-
   // 落とした位置を計算
   var dropIndex = _kanbanDropIndex_(col, e.clientY, name);
   // この列に見えているカード名（ドラッグ中の自分は除外）を取得
@@ -1199,12 +1053,7 @@ function kanbanDrop(e) {
   // 楽観的更新（ステージ＋並び順）→ 即再描画
   for (var k = 0; k < names.length; k++) {
     for (var c = 0; c < customers.length; c++) {
-      if (customers[c].name === names[k]) {
-        customers[c].stage = stage; customers[c].order = k;
-        // 申込以降は事実で決まるので、自動列への固定は消しておく
-        customers[c].pinKey = ''; customers[c].pinSince = ''; customers[c].pinMoved = false; customers[c].pinDays = null;
-        break;
-      }
+      if (customers[c].name === names[k]) { customers[c].stage = stage; customers[c].order = k; break; }
     }
   }
   filterCustomers();

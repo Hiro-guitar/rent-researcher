@@ -4502,40 +4502,37 @@ function _cellToEpochMs_(v) {
 }
 
 /**
- * 営業ステージセル(AG列)を読み解く。
+ * 営業ステージ(AG列)。カンバンの列そのもの。
  *
- * カンバンの列は2種類の決まり方をする:
- *   自動  … 顧客の状態から決まる（メールのみ〜話せていて見ている）
- *   手動  … 担当者の判断。データからは分からないので人が決めるしかない
+ * '内見' は列から外した（内見してダメなら追客に戻り、良ければ申込に進むだけで、
+ * 留まる場所ではなかった）。
+ * 一時期 'pin:<列キー>@日付' という自動判定の上書き指定を書いていたが、
+ * 列を人が動かす方式に戻したので未設定と同じ扱いにする。
  *
- * 手動が要るのは、例えば「1ヶ月話せていないが信頼関係があるので、
- * 物件が出るまで追わなくていい」といった判断。放っておくと自動判定は
- * この人を「連絡がつかない」に落としてしまう。
- *
- * セルの値:
- *   ''                       … 自動判定にまかせる
- *   'pin:<列キー>@yyyy-MM-dd' … 担当者が置いた列に固定（置いた日つき）
- *   '申込' / '成約' / '終了'  … 商談の事実。従来どおり
- *   旧値('問い合わせ'/'追客中'/'内見') … 列が無くなったので自動扱い
- *
- * @param {*} raw AG列の値
- * @return {{kind:string, stage:string, key:string, since:string}}
+ * 空欄のときの既定は _fillDefaultStages_ で決める（電話番号の有無を見るため、
+ * 問い合わせシートからの電話番号補完が終わってから入れる必要がある）。
  */
-var _MANUAL_STAGES_ = ['申込', '成約', '終了'];
-function _parseStageCell_(raw) {
+var KANBAN_STAGE_LIST = ['メールのみ', '問い合わせ', '追客中', '申込', '成約', '終了'];
+function _normalizeStageCell_(raw) {
   var v = String(raw == null ? '' : raw).trim();
-  if (!v) return { kind: 'auto', stage: '', key: '', since: '' };
-  if (v.indexOf('pin:') === 0) {
-    var body = v.substring(4);
-    var at = body.indexOf('@');
-    return {
-      kind: 'pin', stage: '',
-      key: (at >= 0 ? body.substring(0, at) : body).trim(),
-      since: (at >= 0 ? body.substring(at + 1) : '').trim()
-    };
+  return (KANBAN_STAGE_LIST.indexOf(v) >= 0) ? v : '';
+}
+
+/**
+ * ステージ未設定の顧客に既定の列を入れる。
+ *
+ *   電話番号が無い  → 'メールのみ'（電話で追えないので追客の対象にしない列）
+ *   配信ステータスが lead → '問い合わせ'
+ *   それ以外        → '追客中'
+ *
+ * ⚠️ 電話番号は問い合わせシートから補完されるので、その後に呼ぶこと。
+ */
+function _fillDefaultStages_(customers) {
+  for (var i = 0; i < customers.length; i++) {
+    var c = customers[i];
+    if (c.stage) continue;
+    c.stage = !c.hasPhone ? 'メールのみ' : (c.status === 'lead' ? '問い合わせ' : '追客中');
   }
-  if (_MANUAL_STAGES_.indexOf(v) >= 0) return { kind: 'manual', stage: v, key: '', since: '' };
-  return { kind: 'auto', stage: '', key: '', since: '' };
 }
 
 /**
@@ -4684,8 +4681,7 @@ function _getCustomerListForCRM_() {
     // ⚠️ 空欄を '問い合わせ'/'追客中' で補完しないこと (2026-08-16)。
     //   カンバンの左5列は顧客の状態から自動で決まるようになったので、
     //   ここで埋めると全員が手動扱いになり自動判定に載らなくなる。
-    var _st = _parseStageCell_(data[i][32]);
-    var stage = _st.stage;
+    var stage = _normalizeStageCell_(data[i][32]);
     // AH列(34列目, index33): カンバン並び順（数値・小さいほど上）。未設定は大きい値扱い。
     var orderRaw = data[i][33];
     var order = (orderRaw === '' || orderRaw === null || orderRaw === undefined) ? 999999 : Number(orderRaw);
@@ -4699,7 +4695,6 @@ function _getCustomerListForCRM_() {
     if (!nameMap[name]) {
       nameMap[name] = {
         name: name, status: status, stage: stage, order: order,
-        pinKey: _st.key, pinSince: _st.since, pinMoved: false,
         registeredAt: regStr, lastAction: '',
         email: String(data[i][31] || '').trim(),  // AF列(32): メール
         // AS列(45): アーカイブ日時（入っていれば看板から隠す）
@@ -4757,6 +4752,9 @@ function _getCustomerListForCRM_() {
       }
     }
   } catch (ePhone) { console.warn('電話番号付与エラー: ' + ePhone.message); }
+
+  // 既定の列を決める（電話番号の有無を見るのでここで）
+  _fillDefaultStages_(customers);
 
   // 最終送信日を 通知済み物件 から取得（条件を緩めるべき人を見つけるため）
   // 「配信中なのに長く物件を送れていない」＝条件が厳しすぎる可能性が高い、という判断に使う。
@@ -4832,7 +4830,6 @@ function _getCustomerListForCRM_() {
         var vc = customers[vn];
         var vm = lastViewMs[vc.name];
         if (vm) {
-          vc._viewMs = vm;   // 固定後に動きがあったかの判定に使う
           vc.lastViewedAt = Utilities.formatDate(new Date(vm), 'Asia/Tokyo', 'yyyy/MM/dd');
           vc.daysSinceViewed = _jstDayIndex_(nowMs2) - _jstDayIndex_(vm);
         } else {
@@ -4909,18 +4906,6 @@ function _getCustomerListForCRM_() {
   for (var fi = 0; fi < customers.length; fi++) {
     var fc = customers[fi];
 
-    // 担当者が列に固定した後で、その人に動きがあったかを見る。
-    // 「物件が出るまで待つ」と決めた人が物件を見たり返事をしたりしたら、
-    // 判断の前提が変わっているので気づけるようにする（固定は勝手に解かない）。
-    // ⚠️ 下の delete より前に見ること。消した後だと全部 undefined になる。
-    if (fc.pinSince) {
-      var _pinIdx = _jstDayIndex_(_cellToEpochMs_(fc.pinSince));
-      var _acts = [fc._viewMs, fc._talkMs, fc._callTryMs, fc._lineMs];
-      for (var _ai = 0; _ai < _acts.length; _ai++) {
-        if (_acts[_ai] && _pinIdx && _jstDayIndex_(_acts[_ai]) > _pinIdx) { fc.pinMoved = true; break; }
-      }
-    }
-
     if (fc._talkMs) {
       fc.lastTalkAt = Utilities.formatDate(new Date(fc._talkMs), 'Asia/Tokyo', 'yyyy/MM/dd');
       fc.daysSinceTalk = _todayIdx - _jstDayIndex_(fc._talkMs);
@@ -4934,10 +4919,7 @@ function _getCustomerListForCRM_() {
       fc.lastLineAt = Utilities.formatDate(new Date(fc._lineMs), 'Asia/Tokyo', 'yyyy/MM/dd');
       fc.daysSinceLine = _todayIdx - _jstDayIndex_(fc._lineMs);
     } else { fc.lastLineAt = ''; fc.daysSinceLine = null; }
-    delete fc._talkMs; delete fc._lineMs; delete fc._callTryMs; delete fc._viewMs;
-
-    // 固定してから何日経ったか（「物件待ち」に置きっぱなしを見つけるため）
-    fc.pinDays = fc.pinSince ? (_todayIdx - _jstDayIndex_(_cellToEpochMs_(fc.pinSince))) : null;
+    delete fc._talkMs; delete fc._lineMs; delete fc._callTryMs;
 
     // 引越し期限までの日数（マイナスなら過ぎている）。急ぎの人を上に出すのに使う。
     var _mi = _parseMoveInDeadline_(fc.moveIn);
