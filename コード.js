@@ -4502,6 +4502,43 @@ function _cellToEpochMs_(v) {
 }
 
 /**
+ * カンバンの列指定(AG列)をまとめて消して、状態からの自動判定に戻す。
+ *
+ * ドラッグすると setKanbanOrder がその列に見えているカード全員のAG列を書き換えるため、
+ * 列を作り替えた直後などに意図せず全員へ同じ列が焼き付くことがある。
+ * そうなると _fillDefaultStages_ の既定が一切効かなくなるので、戻せる口を用意する。
+ *
+ * 申込・成約・終了は商談の事実なので消さない。
+ *
+ * @return {{ok:boolean, cleared:number, kept:number}}
+ */
+function resetKanbanStages() {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { ok: false, message: '検索条件シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: true, cleared: 0, kept: 0 };
+    var KEEP = ['申込', '成約', '終了'];
+    var rng = sheet.getRange(2, 33, lastRow - 1, 1);   // AG列
+    var vals = rng.getValues();
+    var cleared = 0, kept = 0;
+    for (var i = 0; i < vals.length; i++) {
+      var v = String(vals[i][0] || '').trim();
+      if (!v) continue;
+      if (KEEP.indexOf(v) >= 0) { kept++; continue; }
+      vals[i][0] = '';
+      cleared++;
+    }
+    if (cleared > 0) rng.setValues(vals);
+    console.log('[カンバン] 列指定を解除: ' + cleared + '件 / 申込以降を維持: ' + kept + '件');
+    return { ok: true, cleared: cleared, kept: kept };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+/**
  * 営業ステージ(AG列)。カンバンの列そのもの。
  *
  * '内見' は列から外した（内見してダメなら追客に戻り、良ければ申込に進むだけで、
@@ -4531,6 +4568,10 @@ function _normalizeStageCell_(raw) {
 function _fillDefaultStages_(customers) {
   for (var i = 0; i < customers.length; i++) {
     var c = customers[i];
+    // シートに列が書かれている人は尊重する。どちらで決まったかは画面に出す。
+    // （ドラッグすると setKanbanOrder がその列の全員のAG列を書き換えるので、
+    //   意図せず全員に同じ列が焼き付いていないか気づけるようにするため）
+    c.stageFromSheet = !!c.stage;
     if (c.stage) continue;
     if (_isMailOnlyCustomer_(c)) { c.stage = 'メールのみ'; continue; }
     // 電話で話せたことが無く、LINEにも来ていない＝こちらから接触できていない

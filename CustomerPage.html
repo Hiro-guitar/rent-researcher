@@ -308,6 +308,7 @@ body {
       <a onclick="reviewDuplicateLeads()" id="dupLeadLink">🧹 重複リード確認</a>
       <a onclick="reviewPendingCleanup()" id="pendingCleanupLink">🧹 承認待ち整理</a>
       <a onclick="bulkArchiveFinished()" id="bulkArchiveLink">🗄 終了を一括アーカイブ</a>
+      <a onclick="resetStages()" id="resetStageLink">♻️ 列を振り直す</a>
       <a onclick="openAdminPage()">管理画面に戻る</a>
     </div>
   </div>
@@ -543,6 +544,32 @@ function filterCustomers() {
 function toggleArchivedView() {
   showArchived = !showArchived;
   filterCustomers();
+}
+
+// カンバンの列指定を消して、状態からの自動判定に戻す。
+// ドラッグは「その列に見えているカード全員」のAG列を書き換えるので、
+// 列を作り替えた直後に1回動かすだけで全員に同じ列が焼き付くことがある。
+function resetStages() {
+  if (!confirm('カンバンの列指定を消して、状態から自動で決め直します。\n\n'
+    + '・申込 / 成約 / 終了 はそのまま残します\n'
+    + '・手で動かした列は失われます\n\nよろしいですか？')) return;
+  var link = document.getElementById('resetStageLink');
+  if (link) link.textContent = '振り直し中...';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (link) link.textContent = '♻️ 列を振り直す';
+      if (r && r.ok) {
+        showToast('列指定を解除: ' + r.cleared + '件（申込以降 ' + r.kept + '件は維持）');
+        refreshCustomers();
+      } else {
+        showToast((r && r.message) || '振り直しに失敗しました');
+      }
+    })
+    .withFailureHandler(function(e) {
+      if (link) link.textContent = '♻️ 列を振り直す';
+      showToast('エラー: ' + (e && e.message ? e.message : ''));
+    })
+    .resetKanbanStages();
 }
 
 // 「終了」の顧客をまとめてアーカイブ（既定: 最終アクションから30日以上経過）
@@ -784,7 +811,15 @@ function renderKanban(list) {
   }
   for (var k in byStage) sortColumn(byStage[k], k);
 
-  var html = '<div class="kanban">';
+  // 列がシート指定で決まった人と、状態から自動で決まった人の内訳。
+  // ドラッグで全員に同じ列が焼き付いていると、ここが「シート指定」に偏る。
+  var fromSheet = 0;
+  for (var q = 0; q < list.length; q++) if (list[q].stageFromSheet) fromSheet++;
+  var html = '<div style="padding:4px;color:#777;font-size:11px;">'
+    + '列の決まり方: シート指定 ' + fromSheet + '人 ／ 状態から自動 ' + (list.length - fromSheet) + '人'
+    + (fromSheet > 0 ? '　（自動に戻すには上の「♻️ 列を振り直す」）' : '')
+    + '</div>';
+  html += '<div class="kanban">';
   for (var c = 0; c < KANBAN_STAGES.length; c++) {
     var stg = KANBAN_STAGES[c];
     var items = byStage[stg];
