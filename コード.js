@@ -4512,27 +4512,46 @@ function _cellToEpochMs_(v) {
  * 空欄のときの既定は _fillDefaultStages_ で決める（電話番号の有無を見るため、
  * 問い合わせシートからの電話番号補完が終わってから入れる必要がある）。
  */
-var KANBAN_STAGE_LIST = ['メールのみ', '問い合わせ', '追客中', '申込', '成約', '終了'];
+var KANBAN_STAGE_LIST = ['メールのみ', '未接続', '追客中', '申込', '成約', '終了'];
 function _normalizeStageCell_(raw) {
   var v = String(raw == null ? '' : raw).trim();
+  if (v === '問い合わせ') return '未接続';   // 旧名。列の意味は引き継ぐ
   return (KANBAN_STAGE_LIST.indexOf(v) >= 0) ? v : '';
 }
 
 /**
  * ステージ未設定の顧客に既定の列を入れる。
  *
- *   電話番号が無い  → 'メールのみ'（電話で追えないので追客の対象にしない列）
- *   配信ステータスが lead → '問い合わせ'
- *   それ以外        → '追客中'
+ *   メールのみ … 条件が無く、LINEも電話も無い。自動メールが流れるだけの層
+ *   未接続     … まだ一度も話せておらず、LINEにも来ていない。そのまま架電リストになる
+ *   追客中     … それ以外（話せたことがある、またはLINEで繋がっている）
  *
- * ⚠️ 電話番号は問い合わせシートから補完されるので、その後に呼ぶこと。
+ * ⚠️ 条件・電話番号・LINE紐付け・話せた記録が揃ってから呼ぶこと。
  */
 function _fillDefaultStages_(customers) {
   for (var i = 0; i < customers.length; i++) {
     var c = customers[i];
     if (c.stage) continue;
-    c.stage = !c.hasPhone ? 'メールのみ' : (c.status === 'lead' ? '問い合わせ' : '追客中');
+    if (_isMailOnlyCustomer_(c)) { c.stage = 'メールのみ'; continue; }
+    // 電話で話せたことが無く、LINEにも来ていない＝こちらから接触できていない
+    var everTalked = (c.daysSinceTalk !== null && c.daysSinceTalk !== undefined);
+    c.stage = (!everTalked && !c.hasLine) ? '未接続' : '追客中';
   }
+}
+
+/**
+ * 「メールのみ」列に入る人か。
+ *
+ * 条件が入っていない かつ 連絡手段がメールしかない人。
+ * 自動メールが流れるだけで、こちらから追客のしようがない層。
+ *
+ * ⚠️ 条件が入っていれば入れないこと。条件がある＝探しているので追客の対象。
+ * ⚠️ LINEで登録してくれている人も入れないこと。メールしか無いように見えても
+ *   LINEで連絡が取れるため（ユーザー指摘 2026-08-16）。
+ * ⚠️ 電話番号があれば電話で追えるので入れない。
+ */
+function _isMailOnlyCustomer_(c) {
+  return !c.hasCriteria && !c.hasLine && !c.hasPhone;
 }
 
 /**
@@ -4753,9 +4772,6 @@ function _getCustomerListForCRM_() {
     }
   } catch (ePhone) { console.warn('電話番号付与エラー: ' + ePhone.message); }
 
-  // 既定の列を決める（電話番号の有無を見るのでここで）
-  _fillDefaultStages_(customers);
-
   // 最終送信日を 通知済み物件 から取得（条件を緩めるべき人を見つけるため）
   // 「配信中なのに長く物件を送れていない」＝条件が厳しすぎる可能性が高い、という判断に使う。
   // A列=顧客名 / D列=送信日時 の2列だけ読む（全列だと重いため）。
@@ -4879,11 +4895,16 @@ function _getCustomerListForCRM_() {
   } catch (eCL) { console.warn('対応ログ取得エラー: ' + eCL.message); }
 
   try {
-    // LINE Activity: userId(A) / lastMessageAt(B)。顧客名は LINE Users 経由で引く。
+    // LINE紐付けの有無は「メールのみ」列の判定に使うので、
+    // LINE Activity シートが無くても必ずセットする（LINE Users だけで分かる）。
+    var uidByName = (typeof _getLineUserIdMapByCustomerName_ === 'function')
+      ? _getLineUserIdMapByCustomerName_() : {};
+    for (var lni = 0; lni < customers.length; lni++) {
+      customers[lni].hasLine = !!uidByName[customers[lni].name];
+    }
+    // LINE Activity: userId(A) / lastMessageAt(B)。最終反応日はここから。
     var laSheet = ss.getSheetByName('LINE Activity');
     if (laSheet && laSheet.getLastRow() > 1) {
-      var uidByName = (typeof _getLineUserIdMapByCustomerName_ === 'function')
-        ? _getLineUserIdMapByCustomerName_() : {};
       var msByUid = {};
       var laRows = laSheet.getRange(2, 1, laSheet.getLastRow() - 1, 2).getValues();
       for (var lai = 0; lai < laRows.length; lai++) {
@@ -4892,9 +4913,8 @@ function _getCustomerListForCRM_() {
         var laMs = _cellToEpochMs_(laRows[lai][1]);
         if (laMs && (!msByUid[laUid] || laMs > msByUid[laUid])) msByUid[laUid] = laMs;
       }
-      for (var lni = 0; lni < customers.length; lni++) {
-        var lc = customers[lni];
-        lc.hasLine = !!uidByName[lc.name];
+      for (var lni2 = 0; lni2 < customers.length; lni2++) {
+        var lc = customers[lni2];
         var lms = uidByName[lc.name] ? msByUid[uidByName[lc.name]] : 0;
         if (lms) lc._lineMs = lms;
       }
@@ -4927,6 +4947,12 @@ function _getCustomerListForCRM_() {
     fc.moveInApprox = !!(_mi && _mi.approx);
     fc.daysToMoveIn = (_mi && !_mi.asap) ? (_jstDayIndex_(_mi.ms) - _todayIdx) : null;
   }
+
+  // 既定の列を決める。
+  // ⚠️ 条件・電話番号・LINE紐付けが揃ってから呼ぶこと。
+  //   電話番号は問い合わせシートから、LINE紐付けは LINE Users から後で入るので、
+  //   前に出すと全員が「メールのみ」に落ちる。
+  _fillDefaultStages_(customers);
 
   // 未完了タスクの集計（カンバン/リストのマーク用）
   try {

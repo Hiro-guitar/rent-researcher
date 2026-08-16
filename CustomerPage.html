@@ -594,12 +594,13 @@ function toggleCustomerArchive(name, archived) {
 // カンバンの列。左ほど遠く、右ほど成約に近い。すべてドラッグで動かせる（AG列に保存）。
 // 「内見」は列としては持たない。内見してダメなら追客に戻り、良ければ申込に進むだけで、
 // 留まる場所ではなかった。
-// 「メールのみ」は電話番号が無い人。電話で追えないので追客の対象にしない列。
+// 「メールのみ」は条件が無く、LINEも電話も無い人。自動メールが流れるだけで追客できない。
+// 「未接続」はまだ一度も話せておらず、LINEにも来ていない人。そのまま架電リストになる。
 // 未設定の人がどの列に入るかは GAS の _fillDefaultStages_ が決める。
-var KANBAN_STAGES = ['メールのみ', '問い合わせ', '追客中', '申込', '成約', '終了'];
+var KANBAN_STAGES = ['メールのみ', '未接続', '追客中', '申込', '成約', '終了'];
 var STAGE_HINTS = {
-  'メールのみ': '電話番号が無く追客できない。触らない',
-  '問い合わせ': 'まだ追客に入っていない',
+  'メールのみ': '条件が無く、LINEも電話も無い。触らない',
+  '未接続': 'まだ話せていない。架電リスト',
   '追客中': '追っている人'
 };
 // 列ごとの並び替え設定（ブラウザに保存。既定は手動＝ドラッグ順）
@@ -699,6 +700,13 @@ function kanbanCardHtml(it) {
 function sortColumn(items, stage) {
   var mode = kanbanSort[stage] || 'manual';
   items.sort(function(a, b) {
+    if (mode === 'callTry') {
+      // 架電リスト用。まだ一度もかけていない人が最上位、
+      // 次は最後にかけてから日が経っている順。
+      var ca = callTrySortKey(a), cb = callTrySortKey(b);
+      if (ca !== cb) return cb - ca;
+      return moveInSortKey(a) - moveInSortKey(b);   // 同じなら引越し期限が近い順
+    }
     if (mode === 'moveIn') {
       // 引越し期限が近い順。過ぎている人が一番上、期限が無い人は後ろ。
       var ua = moveInSortKey(a), ub = moveInSortKey(b);
@@ -730,6 +738,11 @@ function sortColumn(items, stage) {
     return (a.registeredAt || '').localeCompare(b.registeredAt || '');
   });
 }
+// 大きいほど「かけるべき」。未架電は最上位。
+function callTrySortKey(c) {
+  if (c.daysSinceCallTry == null) return Number.MAX_SAFE_INTEGER;
+  return c.daysSinceCallTry;
+}
 function moveInSortKey(c) {
   if (c.moveInAsap) return -100000;
   if (c.daysToMoveIn != null) return c.daysToMoveIn;
@@ -741,6 +754,7 @@ function sortSelectHtml(stage) {
   var opts = [
     ['manual', '並び: 手動（ドラッグ順）'],
     ['moveIn', '並び: 引越し期限が近い順'],
+    ['callTry', '並び: 架電すべき順（未架電が上）'],
     ['lastAction', '並び: 最終アクションが新しい順'],
     ['lastActionOld', '並び: 最終アクションが古い順'],
     ['notSent', '並び: 物件を送れていない順'],
@@ -764,7 +778,8 @@ function renderKanban(list) {
   for (var s = 0; s < KANBAN_STAGES.length; s++) byStage[KANBAN_STAGES[s]] = [];
   for (var i = 0; i < list.length; i++) {
     var st = list[i].stage;
-    if (!byStage[st]) st = '追客中';   // 旧'内見'など、列が無い値の受け皿
+    if (st === '問い合わせ') st = '未接続';          // 旧名
+    if (!byStage[st]) st = '追客中';                  // 旧'内見'など、列が無い値の受け皿
     byStage[st].push(list[i]);
   }
   for (var k in byStage) sortColumn(byStage[k], k);
