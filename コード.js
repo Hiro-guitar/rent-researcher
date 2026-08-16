@@ -4502,6 +4502,37 @@ function _cellToEpochMs_(v) {
 }
 
 /**
+ * 対応ログ1行が「話せた」のか「かけたがつながらなかった」のかを判定する。
+ *
+ * 種別に結果が入っていればそれに従う（電話（話せた）/ 電話（つながらず））。
+ * 旧形式の '電話' は結果を持たないのでメモから推定する。
+ * LINE と 内見 は、失敗を記録する種類のものではないので常に会話とみなす。
+ *
+ * @param {string} type 対応種別（C列）
+ * @param {string} memo メモ（D列）
+ * @return {string} 'talked' | 'failed' | 'unknown'
+ */
+var _CONTACT_FAILED_WORDS = ['つながらず', 'つながらない', '繋がらない', '不在', '留守電', '応答なし',
+  '出ない', 'でない', '不通', '圏外', '未接続', '出られず', 'コールのみ'];
+function _contactLogOutcome_(type, memo) {
+  var t = String(type || '').trim();
+  var m = String(memo || '');
+  if (!t) return 'unknown';
+  if (t === 'LINE' || t === '内見') return 'talked';
+  if (t.indexOf('電話') < 0) return 'unknown';   // その他 等は会話として数えない
+  // 種別に結果が書いてあるならそれが最優先
+  if (t.indexOf('話せた') >= 0) return 'talked';
+  for (var i = 0; i < _CONTACT_FAILED_WORDS.length; i++) {
+    if (t.indexOf(_CONTACT_FAILED_WORDS[i]) >= 0) return 'failed';
+  }
+  // 旧形式の '電話'。メモに不在・留守電などが書かれていれば つながらなかった扱い。
+  for (var j = 0; j < _CONTACT_FAILED_WORDS.length; j++) {
+    if (m.indexOf(_CONTACT_FAILED_WORDS[j]) >= 0) return 'failed';
+  }
+  return 'talked';
+}
+
+/**
  * 引越し時期の文字列を「期限の日」に直す。
  *
  * 検索条件シートO列に入る値は年を持たない（ConversationFlow の選択肢がそう作る）:
@@ -4765,19 +4796,31 @@ function _getCustomerListForCRM_() {
   //   これ単体では「話せている」の根拠にならない。確実なのは手動記録の対応ログの方。
   //   両方持って画面側で区別できるようにしておく。
   try {
-    // 対応ログ: 顧客名(A) / 対応日時(B) / 対応種別(C)。種別=電話/LINE を会話とみなす。
+    // 対応ログ: 顧客名(A) / 対応日時(B) / 対応種別(C) / メモ(D)
+    //
+    // ⚠️ 「電話」の記録には、出なかった時・留守電の時も残っている（ユーザー確認済み）。
+    //   そのまま会話として数えると、留守電を入れただけの人が「話せている」になり、
+    //   本当は「連絡がつかない」列に居るべき人が追客対象から外れてしまう。
+    //   種別に結果を持たせた（電話（話せた）/ 電話（つながらず））が、
+    //   それ以前の '電話' はメモから推定するしかない。
+    //   話せた最終日と、つながらなかった架電の最終日を別々に持つ。
     var clSheet = ss.getSheetByName(CONTACT_LOG_SHEET_NAME);
     if (clSheet && clSheet.getLastRow() > 1) {
-      var clRows = clSheet.getRange(2, 1, clSheet.getLastRow() - 1, 3).getValues();
+      var clRows = clSheet.getRange(2, 1, clSheet.getLastRow() - 1, 4).getValues();
       for (var cli = 0; cli < clRows.length; cli++) {
         var clName = String(clRows[cli][0] || '').trim();
         if (!clName || !nameMap[clName]) continue;
         var clType = String(clRows[cli][2] || '').trim();
-        if (clType !== '電話' && clType !== 'LINE' && clType !== '内見') continue;
+        var clMemo = String(clRows[cli][3] || '');
         var clMs = _cellToEpochMs_(clRows[cli][1]);
         if (!clMs) continue;
         var _r = nameMap[clName];
-        if (!_r._talkMs || clMs > _r._talkMs) { _r._talkMs = clMs; _r.lastTalkType = clType; }
+        var _res = _contactLogOutcome_(clType, clMemo);
+        if (_res === 'talked') {
+          if (!_r._talkMs || clMs > _r._talkMs) { _r._talkMs = clMs; _r.lastTalkType = clType; _r.lastTalkMemo = clMemo.substring(0, 40); }
+        } else if (_res === 'failed') {
+          if (!_r._callTryMs || clMs > _r._callTryMs) { _r._callTryMs = clMs; }
+        }
       }
     }
   } catch (eCL) { console.warn('対応ログ取得エラー: ' + eCL.message); }
@@ -4813,6 +4856,12 @@ function _getCustomerListForCRM_() {
       fc.lastTalkAt = Utilities.formatDate(new Date(fc._talkMs), 'Asia/Tokyo', 'yyyy/MM/dd');
       fc.daysSinceTalk = _todayIdx - _jstDayIndex_(fc._talkMs);
     } else { fc.lastTalkAt = ''; fc.daysSinceTalk = null; }
+    // つながらなかった架電の最終日（「連絡がつかない」列で、何度かけているかを見るため）
+    if (fc._callTryMs) {
+      fc.lastCallTryAt = Utilities.formatDate(new Date(fc._callTryMs), 'Asia/Tokyo', 'yyyy/MM/dd');
+      fc.daysSinceCallTry = _todayIdx - _jstDayIndex_(fc._callTryMs);
+    } else { fc.lastCallTryAt = ''; fc.daysSinceCallTry = null; }
+    delete fc._callTryMs;
     if (fc._lineMs) {
       fc.lastLineAt = Utilities.formatDate(new Date(fc._lineMs), 'Asia/Tokyo', 'yyyy/MM/dd');
       fc.daysSinceLine = _todayIdx - _jstDayIndex_(fc._lineMs);

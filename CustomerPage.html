@@ -458,7 +458,8 @@ body {
       <div class="log-form">
         <div class="log-form-row">
           <select id="logType">
-            <option value="電話">電話</option>
+            <option value="電話（話せた）">電話（話せた）</option>
+            <option value="電話（つながらず）">電話（つながらず）</option>
             <option value="LINE">LINE</option>
             <option value="内見">内見</option>
             <option value="その他">その他</option>
@@ -712,8 +713,14 @@ function kanbanCardHtml(it, draggable) {
     + (it.hasCriteria ? '' : ' <span style="color:#e0707a;">／ 条件なし</span>')
     + '</div>';
   h += '<div class="kc-meta">👀 閲覧: ' + triageDayText(it.daysSinceViewed, it.lastViewedAt, '無し') + '</div>';
-  h += '<div class="kc-meta">🗣 対応ログ: ' + triageDayText(it.daysSinceTalk, it.lastTalkAt, '無し')
-    + (it.lastTalkType ? '［' + esc(it.lastTalkType) + '］' : '') + '</div>';
+  // 話せた記録。旧形式の'電話'はメモから推定しているので、何を根拠にしたかが分かるよう
+  // 種別とメモの頭を出す（留守電を話せた扱いにしていたら目で気づけるように）。
+  h += '<div class="kc-meta">🗣 話せた: ' + triageDayText(it.daysSinceTalk, it.lastTalkAt, '記録なし')
+    + (it.lastTalkType ? '［' + esc(it.lastTalkType) + '］' : '')
+    + (it.lastTalkMemo ? '<span style="color:#666;"> ' + esc(it.lastTalkMemo) + '</span>' : '') + '</div>';
+  if (it.daysSinceCallTry != null) {
+    h += '<div class="kc-meta" style="color:#c98fd6;">📵 つながらず: ' + triageDayText(it.daysSinceCallTry, it.lastCallTryAt, '') + '</div>';
+  }
   h += '<div class="kc-meta">📨 送信: ' + triageDayText(it.daysSinceSent, it.lastSentAt, '未送信') + '</div>';
   h += '</div>';
   return h;
@@ -790,7 +797,7 @@ function renderKanban(list) {
     + '<span>物件を見た日がこの日数以内なら「見ている」:</span>'
     + '<input type="number" min="1" value="' + triageOpts.viewDays + '" onchange="setTriageOpt(\'viewDays\',this.value)" '
     +   'style="width:56px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;">日'
-    + '<span style="margin-left:10px;">対応ログがこの日数以内なら「話せている」:</span>'
+    + '<span style="margin-left:10px;">話せた記録がこの日数以内なら「話せている」:</span>'
     + '<input type="number" min="1" value="' + triageOpts.talkDays + '" onchange="setTriageOpt(\'talkDays\',this.value)" '
     +   'style="width:56px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;">日'
     + '<span style="margin-left:10px;color:#666;">左の5列は状態から自動で決まります（ドラッグ不要）</span>'
@@ -1893,7 +1900,11 @@ function editLog(rowIndex) {
     if (allLogs[i].rowIndex === rowIndex) { l = allLogs[i]; break; }
   }
   if (!l) return;
-  document.getElementById('logType').value = l.type || '電話';
+  // 旧値('電話')は選択肢に無いので「話せた」に寄せる（保存し直すと種別が確定する）
+  var _lt = l.type || '電話';
+  var _sel = document.getElementById('logType');
+  _sel.value = _lt;
+  if (!_sel.value) _sel.value = (_lt.indexOf('電話') === 0) ? '電話（話せた）' : 'その他';
   document.getElementById('logDate').value = l.dateLocal || '';
   document.getElementById('logMemo').value = l.memo || '';
   editingRow = rowIndex;
@@ -1924,7 +1935,7 @@ function toggleLogForm() {
   if (willShow) {
     // 新規追加モードで開く（編集状態をクリア）
     editingRow = null;
-    document.getElementById('logType').value = '電話';
+    document.getElementById('logType').value = '電話（話せた）';
     // 日時は「今」をデフォルトにする（JST）
     var nowL = new Date();
     nowL.setHours(nowL.getHours() + 9);
