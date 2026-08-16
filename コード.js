@@ -1871,7 +1871,8 @@ function processCriteriaSelection(userId, criteria) {
     if (state.isChangeFlow) {
       var beforeChange = null;
       try { beforeChange = readLatestCriteria(userId); } catch (_) {}
-      try { _carryOverUntouchedCriteria_(state, beforeChange); } catch (_) {}
+      try { _carryOverUntouchedCriteria_(state, beforeChange); }
+      catch (eC) { console.error('[条件変更] 引き継ぎ失敗(条件フォーム): ' + eC.message + '\n' + eC.stack); }
       writeToSheet(userId, state);
       clearState(userId);
       pushMessage(userId, buildConditionUpdateMessages_(state, beforeChange));
@@ -3395,7 +3396,8 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
     //   エリアは管理画面で明示的に編集できるので引き継がない（空＝消したとみなす）。
     var existing = loadCustomerCriteriaByName(customerName);
     if (existing) {
-      try { _carryOverUntouchedCriteria_(state, existing, { skipArea: true }); } catch (_eCarry) {}
+      try { _carryOverUntouchedCriteria_(state, existing, { skipArea: true }); }
+      catch (eC2) { console.error('[条件変更] 引き継ぎ失敗(管理画面): ' + eC2.message + '\n' + eC2.stack); }
       // 入居時期を変更していないなら厳守フラグも変更前のまま。
       // boolean は「未入力」と区別できず汎用処理では拾えないので個別に扱う。
       if (!criteria.moveInDate) state.data.move_in_strict = !!existing.move_in_strict;

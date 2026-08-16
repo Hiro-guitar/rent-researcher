@@ -348,12 +348,17 @@ function _carryOverUntouchedCriteria_(state, before, opts) {
   if (!state || !state.data || !before) return;
   opts = opts || {};
   var carried = [];
+  var missed = [];   // 変更前に値があるのに引き継げなかった項目（あってはならない）
   for (var i = 0; i < _CARRY_OVER_FIELDS.length; i++) {
     var key = _CARRY_OVER_FIELDS[i];
     if (!_isBlankCriteriaValue_(state.data[key])) continue;   // 今回入力された → そのまま
     if (_isBlankCriteriaValue_(before[key])) continue;        // 変更前も空 → 補完不要
     state.data[key] = before[key];
-    carried.push(key);
+    if (_isBlankCriteriaValue_(state.data[key])) missed.push(key);
+    else carried.push(key);
+  }
+  if (missed.length > 0) {
+    console.error('[条件変更] 引き継げなかった項目: ' + missed.join(', ') + ' ← この項目は消えます');
   }
   // エリア(路線/駅/市区町村/町名)は state 直下にあるので別扱い。
   // 4つまとめて空のときだけ引き継ぐ。片方だけ引き継ぐと路線と駅がちぐはぐになる。
@@ -373,9 +378,9 @@ function _carryOverUntouchedCriteria_(state, before, opts) {
     state.selectedTowns = before.selectedTowns || {};
     carried.push('エリア');
   }
-  if (carried.length > 0) {
-    console.log('[条件変更] 触っていない項目を変更前の値で引き継ぎ: ' + carried.join(', '));
-  }
+  console.log('[条件変更] 引き継ぎ結果: ' + (carried.length ? carried.join(', ') : 'なし')
+    + ' / 変更前にあった項目: '
+    + _CARRY_OVER_FIELDS.filter(function(k) { return !_isBlankCriteriaValue_(before[k]); }).join(', '));
 }
 
 function readLatestCriteria(userId) {

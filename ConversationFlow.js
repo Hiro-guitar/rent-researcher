@@ -1029,7 +1029,13 @@ function _buildConditionSummaryRows_(state, before) {
     }
     var b = (beforeVal === '' || beforeVal == null) ? '指定なし' : String(beforeVal);
     var a = (afterVal === '' || afterVal == null) ? '指定なし' : String(afterVal);
-    var isLong = b.indexOf('\n') >= 0 || a.indexOf('\n') >= 0 || b.length > 16 || a.length > 16;
+    // ⚠️ 横並びは幅が足りないと「変更後」が潰れて点にしか見えなくなる (2026-08-16)。
+    //   行は ラベル flex:3 / 値 flex:7 で、その中に 変更前(flex:0) → 矢印(flex:0) 変更後 と並べる。
+    //   変更前が10文字もあると変更後の幅がほぼゼロになり、値が消えたように見える。
+    //   実例:「いい物件見つかり次第 →」「契約更新に伴う住み替え ・」
+    //   全角前提で短いときだけ横並びにし、それ以外は縦積みにする。
+    var isLong = b.indexOf('\n') >= 0 || a.indexOf('\n') >= 0
+      || b.length > 8 || a.length > 8 || (b.length + a.length) > 13;
     if (isLong) {
       // 長い項目（沿線・駅など）: 変更前 ↓ 変更後 の縦積み
       return {
@@ -1523,7 +1529,8 @@ function buildConditionUpdateMessages_(state, before) {
 function _confirmConditionChange_(replyToken, userId, state) {
   var before = null;
   try { before = readLatestCriteria(userId); } catch (_) {}
-  try { _carryOverUntouchedCriteria_(state, before); } catch (_) {}
+  try { _carryOverUntouchedCriteria_(state, before); }
+  catch (eC) { console.error('[条件変更] 引き継ぎ失敗(LINEフロー): ' + eC.message + '\n' + eC.stack); }
   writeToSheet(userId, state);
   clearState(userId);
   replyMessage(replyToken, buildConditionUpdateMessages_(state, before));
