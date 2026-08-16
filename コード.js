@@ -4560,8 +4560,8 @@ function _normalizeStageCell_(raw) {
  * ステージ未設定の顧客に既定の列を入れる。
  *
  *   メールのみ … 条件が無く、LINEも電話も無い。自動メールが流れるだけの層
- *   未接続     … まだ一度も話せておらず、LINEにも来ていない。そのまま架電リストになる
- *   追客中     … それ以外（話せたことがある、またはLINEで繋がっている）
+ *   未接続     … 電話番号があるのにまだ話せておらず、LINEにも来ていない。架電リストそのもの
+ *   追客中     … それ以外（話せたことがある / LINEで繋がっている / メールでしか届かない）
  *
  * ⚠️ 条件・電話番号・LINE紐付け・話せた記録が揃ってから呼ぶこと。
  */
@@ -4574,9 +4574,12 @@ function _fillDefaultStages_(customers) {
     c.stageFromSheet = !!c.stage;
     if (c.stage) continue;
     if (_isMailOnlyCustomer_(c)) { c.stage = 'メールのみ'; continue; }
-    // 電話で話せたことが無く、LINEにも来ていない＝こちらから接触できていない
+    // 電話で話せたことが無く、LINEにも来ていない＝こちらから接触できていない。
+    // ⚠️ 電話番号がある人に限ること。未接続はそのまま架電リストとして使うので、
+    //   かけられない人が混ざると使い物にならない（ユーザー指摘 2026-08-16）。
+    //   条件はあるがメールしか届かない人は追客中に置く。
     var everTalked = (c.daysSinceTalk !== null && c.daysSinceTalk !== undefined);
-    c.stage = (!everTalked && !c.hasLine) ? '未接続' : '追客中';
+    c.stage = (c.hasPhone && !everTalked && !c.hasLine) ? '未接続' : '追客中';
   }
 }
 
