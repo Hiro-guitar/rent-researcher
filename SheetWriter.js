@@ -143,6 +143,31 @@ function writeToSheet(userId, state) {
     try { beforeRow = sheet.getRange(existingRowIndex, 1, 1, row.length).getValues()[0]; } catch (_eB) {}
   }
 
+  // ── 最後の砦: 値が入っているセルを空で上書きしない ──
+  // 経路や state の中身に関係なく、ここで必ず守る。
+  // 対象は「お客様が消す手段が無い」項目だけに絞る。間取りやこだわりは
+  // 意図して外せるので対象にしない。
+  //   index 13: N 部屋探しの理由 / 14: O 引越し時期 / 16: Q ペット種類 / 17: R 居住者
+  // ⚠️ 実際に「探し理由」と「居住者」が空で上書きされて消える事故が起きた (2026-08-16)。
+  //   引き継ぎ処理は複数の経路にまたがっていて、どこか1つ漏れると再発する。
+  //   書き込みの直前で守るのが確実。
+  if (beforeRow) {
+    var _protect = [13, 14, 16, 17];
+    var _kept = [];
+    for (var _pi = 0; _pi < _protect.length; _pi++) {
+      var _c = _protect[_pi];
+      var _newV = String(row[_c] == null ? '' : row[_c]).trim();
+      var _oldV = String(beforeRow[_c] == null ? '' : beforeRow[_c]).trim();
+      if (_newV === '' && _oldV !== '') {
+        row[_c] = beforeRow[_c];
+        _kept.push((_c + 1) + '列:' + _oldV);
+      }
+    }
+    if (_kept.length > 0) {
+      console.error('[条件保護] 空で上書きされそうになった項目を元の値のまま残した: ' + _kept.join(' / '));
+    }
+  }
+
   if (existingRowIndex > 0) {
     // 既存行を上書き更新（順番を維持）— A〜R列のみ
     sheet.getRange(existingRowIndex, 1, 1, row.length).setValues([row]);
