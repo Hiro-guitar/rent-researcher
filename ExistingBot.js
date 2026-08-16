@@ -406,19 +406,36 @@ function handleVacancyQuery(replyToken, userId, raw) {
       contents: { type: 'carousel', contents: bubbles }
     }]);
 
-    // 非募集中物件は遅延返信キューに追加
-    for (var q2 = 0; q2 < unavailable.length; q2++) {
-      enqueueDelayedReply(userId, unavailable[q2].name, unavailable[q2].room);
-    }
+    // ⚠️ 自動確認(返信キュー)と手動確認(Discord)は必ず独立させること (2026-08-16)。
+    //   1件の問い合わせに「要確認」物件と自動確認できる物件が混ざることがある。
+    //   以前は 返信キュー追加 → Discord通知 の順で同じ try の中に並べていたため、
+    //   enqueueDelayedReply（シート書き込み + LINEプロフィール取得の外部通信）が
+    //   1件でもコケると、後ろのDiscord通知が丸ごと飛んでスタッフに何も届かなかった。
+    //   スタッフの手が要る Discord を先に、かつ1件ずつ切り離して実行する。
 
     // 「要確認」物件は自動確認できないため、スタッフ向けDiscordに空室確認依頼を通知
     if (requiresStaffCheck.length > 0) {
       try {
         _notifyVacancyCheckRequestToDiscord_(_getLineUserName_(userId), userId, requiresStaffCheck);
       } catch (eDiscord) {
-        console.error('要確認Discord通知エラー: ' + eDiscord.message);
+        console.error('要確認Discord通知エラー: ' + eDiscord.message + '\n' + eDiscord.stack);
       }
     }
+
+    // 非募集中物件は遅延返信キューに追加（1件の失敗で他を巻き込まない）
+    var _enqueued = 0;
+    for (var q2 = 0; q2 < unavailable.length; q2++) {
+      try {
+        enqueueDelayedReply(userId, unavailable[q2].name, unavailable[q2].room);
+        _enqueued++;
+      } catch (eQ) {
+        console.error('[空室確認] 返信キュー追加に失敗: ' + unavailable[q2].name + ' '
+          + unavailable[q2].room + ' / ' + eQ.message);
+      }
+    }
+    console.log('[空室確認] ' + matched.length + '件ヒット'
+      + ' / 要確認(Discord依頼)=' + requiresStaffCheck.length
+      + ' / 自動確認(返信キュー)=' + _enqueued + '/' + unavailable.length);
     // ※ state解除は検索ヒット直後に実施済み（上記コメント参照）
   } catch (e) {
     console.error('handleVacancyQuery Error: ' + e.message + '\n' + e.stack);
