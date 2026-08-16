@@ -4385,8 +4385,8 @@ function handleCustomerPage(e) {
   var initCustomer = e.parameter.customer || '';
 
   var template = HtmlService.createTemplateFromFile('CustomerPage');
-  template.customersJson = JSON.stringify(customerList);
-  template.initCustomer = JSON.stringify(initCustomer);
+  template.customersJson = _jsonForInlineScript_(customerList);
+  template.initCustomer = _jsonForInlineScript_(initCustomer);
 
   return template.evaluate()
     .setTitle('顧客管理')
@@ -4499,6 +4499,29 @@ function _cellToEpochMs_(v) {
   var d = new Date(t.replace(/\//g, '-').replace(' ', 'T'));
   if (isNaN(d.getTime())) d = new Date(t);
   return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+/**
+ * HTMLに直接埋め込む JSON を作る。
+ *
+ * CustomerPage は  var customers = JSON.parse('<?!= customersJson ?>');  のように
+ * シングルクォートの文字列リテラルへ流し込む。JSON.stringify は " は escape するが
+ * ' は escape しないため、値に ' が1つでも入るとリテラルが閉じてしまい、
+ * ページのスクリプト全体が構文エラーで動かなくなる（読み込み中のまま固まる）。
+ *
+ * 顧客名・メール・対応ログのメモなど自由入力が入るので必ずこれを通すこと。
+ * <?!= ?> は escape なしで出力されるため </script> の遮断も併せて行う。
+ *
+ * @param {*} obj JSON化する値
+ * @return {string} シングルクォート文字列リテラルに安全に入れられる JSON 文字列
+ */
+function _jsonForInlineScript_(obj) {
+  return JSON.stringify(obj)
+    .replace(/\\/g, '\\\\')     // まず自身のバックスラッシュを二重化
+    .replace(/'/g, "\\'")         // リテラルを閉じさせない
+    .replace(/</g, '\\u003c')     // </script> を作らせない
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }
 
 /**
@@ -4743,12 +4766,25 @@ function _getCustomerListForCRM_() {
     };
 
     // アクションログ: 顧客名(A) / アクション(C) / 日時(I)
+    // ⚠️ このシートは行数が多いので読むのは1回だけにすること (2026-08-16)。
+    //   以前は最終閲覧用にA〜I列、最終アクション用に getDataRange() で全列と
+    //   2回読んでいて、顧客管理ページが開くまでとても待たされていた。
+    //   最終アクションもここで同時に拾う（必要なのは同じ A列 と I列）。
     var actSheet2 = ss.getSheetByName('アクションログ');
     if (actSheet2 && actSheet2.getLastRow() > 1) {
       var actRows = actSheet2.getRange(2, 1, actSheet2.getLastRow() - 1, 9).getValues();
+      var lastActionMs = {};
       for (var ai2 = 0; ai2 < actRows.length; ai2++) {
-        if (String(actRows[ai2][2] || '').trim().toLowerCase() !== 'view') continue;
-        _takeView(String(actRows[ai2][0] || '').trim(), actRows[ai2][8]);
+        var _an = String(actRows[ai2][0] || '').trim();
+        if (!_an || !nameMap[_an]) continue;
+        if (String(actRows[ai2][2] || '').trim().toLowerCase() === 'view') {
+          _takeView(_an, actRows[ai2][8]);
+        }
+        var _ams = _cellToEpochMs_(actRows[ai2][8]);
+        if (_ams && (!lastActionMs[_an] || _ams > lastActionMs[_an])) lastActionMs[_an] = _ams;
+      }
+      for (var _ak in lastActionMs) {
+        nameMap[_ak].lastAction = Utilities.formatDate(new Date(lastActionMs[_ak]), 'Asia/Tokyo', 'yyyy/MM/dd');
       }
     }
 
@@ -4767,25 +4803,6 @@ function _getCustomerListForCRM_() {
       }
     }
   } catch (eView) { console.warn('最終閲覧日取得エラー: ' + eView.message); }
-
-  // 最終アクション日を アクションログ から取得
-  try {
-    var actionSheet = ss.getSheetByName('アクションログ');
-    if (actionSheet) {
-      var aData = actionSheet.getDataRange().getValues();
-      for (var i = aData.length - 1; i >= 1; i--) {
-        var aName = String(aData[i][0] || '').trim();
-        if (aName && nameMap[aName] && !nameMap[aName].lastAction) {
-          var aDate = aData[i][8]; // I列 = 日時
-          if (aDate instanceof Date) {
-            nameMap[aName].lastAction = Utilities.formatDate(aDate, 'Asia/Tokyo', 'yyyy/MM/dd');
-          } else if (aDate) {
-            nameMap[aName].lastAction = String(aDate).substring(0, 10);
-          }
-        }
-      }
-    }
-  } catch(e) { console.warn('lastAction取得エラー: ' + e.message); }
 
   // ── 「話せているか」の材料を集める ──
   // 顧客の仕分け（メールのみ／連絡がつかない／話したが見ていない／見ているだけ／
