@@ -1717,8 +1717,12 @@ function setCustomerStatusByName(customerName, status) {
 // google.script.run（顧客管理ページのカンバン・ドラッグ）から呼ばれる。
 function setCustomerStage(customerName, stage) {
   try {
-    if (!customerName || !stage) return { ok: false, message: '引数不足' };
-    var ALLOWED = ['問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
+    if (!customerName) return { ok: false, message: '引数不足' };
+    // 空文字はステージの解除（＝カンバンの自動判定に戻す）。
+    // 旧ステージ('問い合わせ'/'追客中'/'内見')は列としては無くなったが、
+    // 既存データや他経路から渡ってきても弾かないよう許可したままにする。
+    stage = String(stage == null ? '' : stage).trim();
+    var ALLOWED = ['', '問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
     if (ALLOWED.indexOf(stage) < 0) return { ok: false, message: '不正なステージ: ' + stage };
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
     var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);

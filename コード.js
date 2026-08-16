@@ -4589,8 +4589,12 @@ function _getCustomerListForCRM_() {
     var status = String(data[i][18] || '').trim().toLowerCase() || 'active';
     // AG列(33列目, index32): 営業ステージ。未設定なら status から推定。
     // （AE列=31=btMode は既存利用のため、stage は AG=33 を使う）
+    // AG列(33): 営業ステージ。'申込'/'成約'/'終了' だけが意味を持つ。
+    // ⚠️ 空欄を '問い合わせ'/'追客中' で補完しないこと (2026-08-16)。
+    //   カンバンの左5列は顧客の状態から自動で決まるようになったので、
+    //   ここで埋めると全員が手動ステージ扱いになり自動判定に載らなくなる。
+    //   旧値('問い合わせ'/'追客中'/'内見')は画面側で未設定と同じに扱う。
     var stage = String(data[i][32] || '').trim();
-    if (!stage) stage = (status === 'lead') ? '問い合わせ' : '追客中';
     // AH列(34列目, index33): カンバン並び順（数値・小さいほど上）。未設定は大きい値扱い。
     var orderRaw = data[i][33];
     var order = (orderRaw === '' || orderRaw === null || orderRaw === undefined) ? 999999 : Number(orderRaw);

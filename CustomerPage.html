@@ -318,7 +318,6 @@ body {
       <div class="view-toggle">
         <button id="viewListBtn" class="vt active" onclick="setCustomerView('list')">📋 一覧</button>
         <button id="viewBoardBtn" class="vt" onclick="setCustomerView('board')">📊 ボード</button>
-        <button id="viewTriageBtn" class="vt" onclick="setCustomerView('triage')">🔎 仕分け</button>
         <button id="archiveToggleBtn" class="vt" onclick="toggleArchivedView()">🗄 アーカイブ</button>
       </div>
     </div>
@@ -326,7 +325,6 @@ body {
       <div class="loading">読み込み中...</div>
     </div>
     <div id="kanbanBoard" style="display:none;"></div>
-    <div id="triageView" style="display:none;"></div>
   </div>
 </div>
 
@@ -579,7 +577,6 @@ function filterCustomers() {
   var btn = document.getElementById('archiveToggleBtn');
   if (btn) btn.textContent = showArchived ? '← 通常表示に戻す' : '🗄 アーカイブ (' + cnt + ')';
   if (customerView === 'board') renderKanban(filtered);
-  else if (customerView === 'triage') renderTriage(filtered);
   else renderCustomerList(filtered);
 }
 
@@ -636,7 +633,17 @@ function toggleCustomerArchive(name, archived) {
 //  カンバン（営業パイプライン）
 // ══════════════════════════════════════════
 var customerView = 'board';
-var KANBAN_STAGES = ['問い合わせ', '追客中', '内見', '申込', '成約', '終了'];
+// カンバンは2種類の列でできている。
+//   左5列 = 顧客の状態から自動で決まる（ドラッグで動かすものではない）
+//   右3列 = 商談の事実。ドラッグで決める（AG列に保存）
+// 「内見」は列としては持たない。内見してダメなら追客に戻り、良ければ申込に進むだけなので、
+// 留まる場所ではなかった。
+// 旧ステージ('問い合わせ'/'追客中'/'内見')が入っている行は「未設定」と同じ扱いにして
+// 自動判定に載せる。手で仕分け直す必要はない。
+var MANUAL_STAGES = ['申込', '成約', '終了'];
+var LEGACY_STAGES = ['問い合わせ', '追客中', '内見'];
+function isManualStage(st) { return MANUAL_STAGES.indexOf(st) >= 0; }
+var KANBAN_STAGES = MANUAL_STAGES;
 // 列ごとの並び替え設定（ブラウザに保存。既定は手動＝ドラッグ順）
 var kanbanSort = {};
 try { kanbanSort = JSON.parse(localStorage.getItem('kanbanSort') || '{}') || {}; } catch (e) { kanbanSort = {}; }
@@ -649,12 +656,8 @@ function setCustomerView(v) {
   customerView = v;
   document.getElementById('viewListBtn').classList.toggle('active', v === 'list');
   document.getElementById('viewBoardBtn').classList.toggle('active', v === 'board');
-  var tb = document.getElementById('viewTriageBtn');
-  if (tb) tb.classList.toggle('active', v === 'triage');
   document.getElementById('customerList').style.display = (v === 'list') ? '' : 'none';
   document.getElementById('kanbanBoard').style.display = (v === 'board') ? '' : 'none';
-  var tv = document.getElementById('triageView');
-  if (tv) tv.style.display = (v === 'triage') ? '' : 'none';
   filterCustomers();
 }
 // ── 再描画でスクロール位置が先頭に戻らないようにする ──
@@ -688,94 +691,137 @@ function _restoreKanbanScroll_(board, pos) {
   }
 }
 
+// カード1枚。判断材料をそのまま出す（引越し期限・閲覧・対応ログ・送信）。
+// ⚠️ 何日以上を赤くする閾値は入れないこと。引越し期限だけは「過ぎている」が
+//   事実として意味を持つので色を付けている。
+function kanbanCardHtml(it, draggable) {
+  var h = '<div class="kanban-card"' + (draggable ? ' draggable="true" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)"' : '')
+    + ' data-name="' + esc(it.name) + '" onclick="openDetail(\'' + esc(it.name) + '\')">';
+  h += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + (it.openTasks ? ' ' + taskMark(it) : '') + '</div>';
+  if (it.openTasks) {
+    var _od = it.overdueTasks > 0;
+    h += '<div class="kc-meta" style="margin-top:2px;color:' + (_od ? '#e0707a' : '#e0b64a') + ';font-weight:600;">'
+      + '📋 タスク' + it.openTasks + '件'
+      + (_od ? '（期限切れ' + it.overdueTasks + '）' : (it.nextDue ? '（期限 ' + esc(it.nextDue) + '）' : ''))
+      + '</div>';
+  }
+  h += '<div class="kc-meta">' + triageMoveInHtml(it) + '</div>';
+  h += '<div class="kc-meta">'
+    + (it.hasPhone ? '<span style="color:#6cd06c;">📞 ' + esc(it.phone) + '</span>'
+                   : '<span style="color:#e0707a;">📵 電話なし</span>')
+    + (it.hasCriteria ? '' : ' <span style="color:#e0707a;">／ 条件なし</span>')
+    + '</div>';
+  h += '<div class="kc-meta">👀 閲覧: ' + triageDayText(it.daysSinceViewed, it.lastViewedAt, '無し') + '</div>';
+  h += '<div class="kc-meta">🗣 対応ログ: ' + triageDayText(it.daysSinceTalk, it.lastTalkAt, '無し')
+    + (it.lastTalkType ? '［' + esc(it.lastTalkType) + '］' : '') + '</div>';
+  h += '<div class="kc-meta">📨 送信: ' + triageDayText(it.daysSinceSent, it.lastSentAt, '未送信') + '</div>';
+  h += '</div>';
+  return h;
+}
+
+// 手動列(申込/成約/終了)の並べ替え。自動列は引越し期限順に固定。
+function sortManualColumn(items, stage) {
+  var mode = kanbanSort[stage] || 'manual';
+  items.sort(function(a, b) {
+    if (mode === 'lastAction' || mode === 'lastActionOld') {
+      var la = a.lastAction || '', lb = b.lastAction || '';
+      if (!la && !lb) return (a.name || '').localeCompare(b.name || '');
+      if (!la) return 1;
+      if (!lb) return -1;
+      return mode === 'lastAction' ? lb.localeCompare(la) : la.localeCompare(lb);
+    }
+    if (mode === 'notSent') {
+      var ka = notSentKey(a), kb = notSentKey(b);
+      if (ka !== kb) return kb - ka;
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    if (mode === 'registeredNew' || mode === 'registeredOld') {
+      var ra = a.registeredAt || '', rb = b.registeredAt || '';
+      if (!ra && !rb) return 0;
+      if (!ra) return 1;
+      if (!rb) return -1;
+      return mode === 'registeredNew' ? rb.localeCompare(ra) : ra.localeCompare(rb);
+    }
+    var oa = (a.order == null ? 999999 : a.order);
+    var ob = (b.order == null ? 999999 : b.order);
+    if (oa !== ob) return oa - ob;
+    return (a.registeredAt || '').localeCompare(b.registeredAt || '');
+  });
+}
+
+function manualSortSelectHtml(stage) {
+  var m = kanbanSort[stage] || 'manual';
+  var opts = [
+    ['manual', '並び: 手動（ドラッグ順）'],
+    ['lastAction', '並び: 最終アクションが新しい順'],
+    ['lastActionOld', '並び: 最終アクションが古い順'],
+    ['notSent', '並び: 物件を送れていない順'],
+    ['registeredNew', '並び: 登録が新しい順'],
+    ['registeredOld', '並び: 登録が古い順']
+  ];
+  var h = '<div style="padding:0 8px 6px;">'
+    + '<select onchange="setKanbanSort(\'' + esc(stage) + '\',this.value)" onclick="event.stopPropagation()" '
+    + 'style="width:100%;font-size:11px;background:#2d2d2d;color:#aaa;border:1px solid #444;border-radius:4px;padding:2px 4px;">';
+  for (var i = 0; i < opts.length; i++) {
+    h += '<option value="' + opts[i][0] + '"' + (m === opts[i][0] ? ' selected' : '') + '>' + opts[i][1] + '</option>';
+  }
+  return h + '</select></div>';
+}
+
 function renderKanban(list) {
   var board = document.getElementById('kanbanBoard');
   var _scrollPos = _captureKanbanScroll_(board);
-  var byStage = {};
-  for (var s = 0; s < KANBAN_STAGES.length; s++) byStage[KANBAN_STAGES[s]] = [];
+
+  // 振り分け: 申込以降は保存されたステージ、それ以外は状態から自動判定
+  var auto = {}, manual = {};
+  for (var t = 0; t < TRIAGE_TYPES.length; t++) auto[TRIAGE_TYPES[t].key] = [];
+  for (var m = 0; m < MANUAL_STAGES.length; m++) manual[MANUAL_STAGES[m]] = [];
   for (var i = 0; i < list.length; i++) {
-    var st = list[i].stage || '追客中';
-    if (!byStage[st]) st = '追客中';
-    byStage[st].push(list[i]);
+    var c = list[i];
+    if (isManualStage(c.stage)) { manual[c.stage].push(c); continue; }
+    var key = classifyCustomer(c);
+    if (key) auto[key].push(c);
   }
-  // 各列をソート。既定は手動並び順(order)、列ごとに並び替えを変更できる（kanbanSort）
-  for (var ss2 = 0; ss2 < KANBAN_STAGES.length; ss2++) {
-    var _stgName = KANBAN_STAGES[ss2];
-    var _mode = kanbanSort[_stgName] || 'manual';
-    byStage[_stgName].sort(function(a, b) {
-      if (_mode === 'lastAction' || _mode === 'lastActionOld') {
-        // 最終アクション（無い人は一番後ろ）
-        var la = a.lastAction || '', lb = b.lastAction || '';
-        if (!la && !lb) return (a.name || '').localeCompare(b.name || '');
-        if (!la) return 1;
-        if (!lb) return -1;
-        return _mode === 'lastAction' ? lb.localeCompare(la) : la.localeCompare(lb);
-      }
-      if (_mode === 'notSent') {
-        // 送れていない順（未送信 → 日数が多い順）。同数なら名前順で安定させる
-        var ka = notSentKey(a), kb = notSentKey(b);
-        if (ka !== kb) return kb - ka;
-        return (a.name || '').localeCompare(b.name || '');
-      }
-      if (_mode === 'registeredNew' || _mode === 'registeredOld') {
-        var ra = a.registeredAt || '', rb = b.registeredAt || '';
-        if (!ra && !rb) return 0;
-        if (!ra) return 1;
-        if (!rb) return -1;
-        return _mode === 'registeredNew' ? rb.localeCompare(ra) : ra.localeCompare(rb);
-      }
-      // manual: 手動並び順(order)。未設定は後ろ、同値は登録日順
-      var oa = (a.order == null ? 999999 : a.order);
-      var ob = (b.order == null ? 999999 : b.order);
-      if (oa !== ob) return oa - ob;
-      return (a.registeredAt || '').localeCompare(b.registeredAt || '');
-    });
-  }
-  var html = '<div class="kanban">';
-  for (var c = 0; c < KANBAN_STAGES.length; c++) {
-    var stg = KANBAN_STAGES[c];
-    var items = byStage[stg];
-    html += '<div class="kanban-col" data-stage="' + esc(stg) + '" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
-    var _sm = kanbanSort[stg] || 'manual';
-    html += '<div class="kanban-col-head">' + esc(stg) + '<span class="cnt">' + items.length + '</span></div>';
-    html += '<div style="padding:0 8px 6px;">'
-      + '<select onchange="setKanbanSort(\'' + esc(stg) + '\',this.value)" onclick="event.stopPropagation()" '
-      + 'style="width:100%;font-size:11px;background:#2d2d2d;color:#aaa;border:1px solid #444;border-radius:4px;padding:2px 4px;">'
-      + '<option value="manual"' + (_sm === 'manual' ? ' selected' : '') + '>並び: 手動（ドラッグ順）</option>'
-      + '<option value="lastAction"' + (_sm === 'lastAction' ? ' selected' : '') + '>並び: 最終アクションが新しい順</option>'
-      + '<option value="lastActionOld"' + (_sm === 'lastActionOld' ? ' selected' : '') + '>並び: 最終アクションが古い順</option>'
-      + '<option value="notSent"' + (_sm === 'notSent' ? ' selected' : '') + '>並び: 物件を送れていない順</option>'
-      + '<option value="registeredNew"' + (_sm === 'registeredNew' ? ' selected' : '') + '>並び: 登録が新しい順</option>'
-      + '<option value="registeredOld"' + (_sm === 'registeredOld' ? ' selected' : '') + '>並び: 登録が古い順</option>'
-      + '</select></div>';
+  for (var k in auto) auto[k].sort(function(a, b) { return triageUrgency(a) - triageUrgency(b); });
+  for (var sm in manual) sortManualColumn(manual[sm], sm);
+
+  // しきい値バー（自動判定の線引きをその場で変えられるようにする）
+  var html = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 4px;color:#888;font-size:11px;">'
+    + '<span>物件を見た日がこの日数以内なら「見ている」:</span>'
+    + '<input type="number" min="1" value="' + triageOpts.viewDays + '" onchange="setTriageOpt(\'viewDays\',this.value)" '
+    +   'style="width:56px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;">日'
+    + '<span style="margin-left:10px;">対応ログがこの日数以内なら「話せている」:</span>'
+    + '<input type="number" min="1" value="' + triageOpts.talkDays + '" onchange="setTriageOpt(\'talkDays\',this.value)" '
+    +   'style="width:56px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;">日'
+    + '<span style="margin-left:10px;color:#666;">左の5列は状態から自動で決まります（ドラッグ不要）</span>'
+    + '</div>';
+
+  html += '<div class="kanban">';
+  // ── 自動判定の5列（左ほど遠く、右ほど成約に近い）──
+  for (var a = 0; a < TRIAGE_TYPES.length; a++) {
+    var ty = TRIAGE_TYPES[a];
+    var items = auto[ty.key];
+    html += '<div class="kanban-col" data-stage="auto:' + esc(ty.key) + '" '
+      + 'ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
+    html += '<div class="kanban-col-head">' + esc(ty.label) + '<span class="cnt">' + items.length + '</span></div>';
+    html += '<div style="padding:0 12px 6px;font-size:11px;color:#777;">' + esc(ty.hint) + '</div>';
     html += '<div class="kanban-col-body">';
-    for (var k = 0; k < items.length; k++) {
-      var it = items[k];
-      html += '<div class="kanban-card" draggable="true" data-name="' + esc(it.name) + '" ' +
-              'ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" onclick="openDetail(\'' + esc(it.name) + '\')">';
-      html += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + (it.openTasks ? ' ' + taskMark(it) : '') + '</div>';
-      if (it.openTasks) {
-        var _od = it.overdueTasks > 0;
-        html += '<div class="kc-meta" style="margin-top:2px;color:' + (_od ? '#e0707a' : '#e0b64a') + ';font-weight:600;">'
-          + '📋 タスク' + it.openTasks + '件'
-          + (_od ? '（期限切れ' + it.overdueTasks + '）' : (it.nextDue ? '（期限 ' + esc(it.nextDue) + '）' : ''))
-          + '</div>';
-      }
-      html += '<div class="kc-meta" style="margin-top:2px;">'
-        + (it.hasPhone
-            ? '<span style="color:#6cd06c;">📞 ' + esc(it.phone) + '</span>'
-            : '<span style="color:#e0707a;">📵 電話なし</span>')
-        + '</div>';
-      html += '<div class="kc-meta">' + (it.lastAction ? '最終: ' + esc(it.lastAction) : '登録: ' + esc(it.registeredAt || '')) + '</div>';
-      var _si = sentInfoHtml(it);
-      if (_si) html += '<div class="kc-meta">' + _si + '</div>';
-      var _vi = viewInfoHtml(it);
-      if (_vi) html += '<div class="kc-meta">' + _vi + '</div>';
-      html += '</div>';
-    }
+    for (var x = 0; x < items.length; x++) html += kanbanCardHtml(items[x], true);
+    if (!items.length) html += '<div style="color:#666;font-size:12px;padding:4px;">該当なし</div>';
     html += '</div></div>';
   }
-  // 右端に「やること」列（ステージ列ではないので drop 対象にしない）
+  // ── ドラッグで決める3列 ──
+  for (var b = 0; b < MANUAL_STAGES.length; b++) {
+    var stg = MANUAL_STAGES[b];
+    var mItems = manual[stg];
+    html += '<div class="kanban-col" data-stage="' + esc(stg) + '" '
+      + 'ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
+    html += '<div class="kanban-col-head">' + esc(stg) + '<span class="cnt">' + mItems.length + '</span></div>';
+    html += manualSortSelectHtml(stg);
+    html += '<div class="kanban-col-body">';
+    for (var y = 0; y < mItems.length; y++) html += kanbanCardHtml(mItems[y], true);
+    html += '</div></div>';
+  }
   html += taskColumnHtml();
   html += '</div>';
   board.innerHTML = html;
@@ -805,7 +851,7 @@ var TRIAGE_TYPES = [
   { key: 'view_only',   label: '見ているだけ',       hint: '物件は見ているが話せていない' },
   { key: 'talk_view',   label: '話せていて見ている', hint: '一番成約に近い' }
 ];
-var TRIAGE_EXCLUDED_STAGES = ['申込', '成約', '終了'];
+
 var triageOpts = { viewDays: 14, talkDays: 30 };
 try {
   var _to = JSON.parse(localStorage.getItem('triageOpts') || 'null');
@@ -823,7 +869,7 @@ function setTriageOpt(key, value) {
 // 1人を5分類のどれかに割り当てる。申込以降は null（対象外）。
 function classifyCustomer(c) {
   if (!c) return null;
-  if (TRIAGE_EXCLUDED_STAGES.indexOf(c.stage) >= 0) return null;
+  if (isManualStage(c.stage)) return null;   // 申込以降は事実で決まるので自動判定しない
   var viewed = (c.daysSinceViewed != null && c.daysSinceViewed <= triageOpts.viewDays);
   var talked = (c.daysSinceTalk != null && c.daysSinceTalk <= triageOpts.talkDays);
   if (talked && viewed) return 'talk_view';
@@ -859,63 +905,6 @@ function triageDayText(days, dateStr, noneText) {
   return (days <= 0 ? '本日' : days + '日前') + '（' + esc(dateStr || '') + '）';
 }
 
-function renderTriage(list) {
-  var view = document.getElementById('triageView');
-  if (!view) return;
-  var pos = _captureKanbanScroll_(view);
-
-  var byType = {};
-  for (var t = 0; t < TRIAGE_TYPES.length; t++) byType[TRIAGE_TYPES[t].key] = [];
-  var excluded = 0;
-  for (var i = 0; i < list.length; i++) {
-    var key = classifyCustomer(list[i]);
-    if (!key) { excluded++; continue; }
-    byType[key].push(list[i]);
-  }
-  for (var k in byType) byType[k].sort(function(a, b) { return triageUrgency(a) - triageUrgency(b); });
-
-  var h = '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:8px 4px;color:#aaa;font-size:12px;">'
-    + '<span>物件を見た日がこの日数以内なら「見ている」:</span>'
-    + '<input type="number" min="1" value="' + triageOpts.viewDays + '" onchange="setTriageOpt(\'viewDays\',this.value)" '
-    +   'style="width:60px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;">日'
-    + '<span style="margin-left:12px;">対応ログがこの日数以内なら「話せている」:</span>'
-    + '<input type="number" min="1" value="' + triageOpts.talkDays + '" onchange="setTriageOpt(\'talkDays\',this.value)" '
-    +   'style="width:60px;background:#2d2d2d;color:#ddd;border:1px solid #444;border-radius:4px;padding:2px 6px;">日'
-    + '<span style="margin-left:12px;color:#777;">申込・成約・終了の ' + excluded + '人は対象外。ここでは何も書き換えません</span>'
-    + '</div>';
-
-  h += '<div class="kanban">';
-  for (var c2 = 0; c2 < TRIAGE_TYPES.length; c2++) {
-    var ty = TRIAGE_TYPES[c2];
-    var items = byType[ty.key];
-    h += '<div class="kanban-col" data-stage="triage:' + ty.key + '">';
-    h += '<div class="kanban-col-head">' + esc(ty.label) + '<span class="cnt">' + items.length + '</span></div>';
-    h += '<div style="padding:0 12px 6px;font-size:11px;color:#777;">' + esc(ty.hint) + '</div>';
-    h += '<div class="kanban-col-body">';
-    for (var m = 0; m < items.length; m++) {
-      var it = items[m];
-      h += '<div class="kanban-card" onclick="openDetail(\'' + esc(it.name) + '\')">';
-      h += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + '</div>';
-      h += '<div class="kc-meta">' + triageMoveInHtml(it) + '</div>';
-      h += '<div class="kc-meta">👀 閲覧: ' + triageDayText(it.daysSinceViewed, it.lastViewedAt, '無し') + '</div>';
-      h += '<div class="kc-meta">🗣 対応ログ: ' + triageDayText(it.daysSinceTalk, it.lastTalkAt, '無し')
-        + (it.lastTalkType ? '［' + esc(it.lastTalkType) + '］' : '') + '</div>';
-      h += '<div class="kc-meta">💬 LINE反応: ' + triageDayText(it.daysSinceLine, it.lastLineAt, it.hasLine ? '無し' : '未連携') + '</div>';
-      h += '<div class="kc-meta">📨 送信: ' + triageDayText(it.daysSinceSent, it.lastSentAt, '未送信') + '</div>';
-      h += '<div class="kc-meta" style="color:#777;">'
-        + (it.hasPhone ? '📞 ' + esc(it.phone) : '📵 電話なし')
-        + (it.email ? ' ／ ✉️ あり' : ' ／ ✉️ なし')
-        + (it.hasCriteria ? ' ／ 条件あり' : ' ／ <span style="color:#e0707a;">条件なし</span>')
-        + '</div>';
-      h += '</div>';
-    }
-    if (!items.length) h += '<div style="color:#666;font-size:12px;padding:4px;">該当なし</div>';
-    h += '</div></div>';
-  }
-  h += '</div>';
-  view.innerHTML = h;
-  _restoreKanbanScroll_(view, pos);
-}
 
 // ══════════════════════════════════════════
 //  やること列（カンバン右端・全顧客のタスク横断）
@@ -1161,6 +1150,25 @@ function kanbanDrop(e) {
   var stage = col.getAttribute('data-stage');
   var name = _kanbanDragName; _kanbanDragName = null;
   if (!name || !stage) return;
+
+  // 自動判定の列に落とした場合は「ステージを外す」＝自動配置に戻す。
+  // どの自動列に落としても結果は同じ（状態で決まるため）ので並び順も保存しない。
+  if (stage.indexOf('auto:') === 0) {
+    var wasManual = false;
+    for (var ai = 0; ai < customers.length; ai++) {
+      if (customers[ai].name === name) { wasManual = isManualStage(customers[ai].stage); customers[ai].stage = ''; break; }
+    }
+    if (!wasManual) { filterCustomers(); return; }   // 自動列どうしの移動は無意味なので何もしない
+    filterCustomers();
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.ok) showToast(name + ' を自動判定に戻しました');
+        else showToast((r && r.message) || 'ステージの解除に失敗しました');
+      })
+      .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+      .setCustomerStage(name, '');
+    return;
+  }
 
   // 落とした位置を計算
   var dropIndex = _kanbanDropIndex_(col, e.clientY, name);
