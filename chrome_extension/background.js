@@ -638,6 +638,34 @@ async function gasPost(body) {
   }
 }
 
+/**
+ * gasPost を経由しない生の fetch() 用タイムアウト付きラッパー。
+ *
+ * ⚠️ GAS への fetch には必ずタイムアウトを付けること。
+ *    2026-08-16: suumo-business-fetch.js の GAS 送信にタイムアウトが無く、
+ *    GAS 側が6分上限で殺されて応答を返さないと fetch が永久に解決せず、
+ *    「[SUUMOビジネス] …GASへ送信」のログを最後に検索サイクルごと停止していた。
+ *    (同じ事故が 2026-08-06 にもあり gasPost にだけ対策が入っていた)
+ *
+ * @param {string} url
+ * @param {Object} options - fetch のオプション
+ * @param {Object} [opts] - { timeoutMs = 90000, label = '' }
+ */
+async function fetchWithTimeout(url, options = {}, { timeoutMs = 90000, label = '' } = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(`GASリクエストタイムアウト(${Math.round(timeoutMs / 1000)}秒)${label ? ` [${label}]` : ''}`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function fetchCriteria() { return gasGet('get_criteria'); }
 async function fetchSeenIds() { return gasGet('get_seen_ids'); }
 async function submitProperties(customerName, properties) {
@@ -8343,11 +8371,11 @@ async function runSuumoApprovalPreHook_() {
   try {
     const { gasWebappUrl } = await getStorageData(['gasWebappUrl']);
     if (gasWebappUrl && target.key) {
-      const res = await fetch(gasWebappUrl, {
+      const res = await fetchWithTimeout(gasWebappUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'stop_suumo_listing', key: target.key })
-      });
+      }, { label: 'stop_suumo_listing' });
       if (!res.ok) {
         await setStorageData({ debugLog: `[承認前処理] ⚠️ GAS停止反映HTTP${res.status}(ForRent側は停止済、シート更新のみ失敗)` });
       }

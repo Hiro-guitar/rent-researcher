@@ -3719,6 +3719,12 @@ function getPvHistoryAverages_(days) {
  *
  * 既存の10列(1〜10列目)は active/停止 ステータスや掲載開始日などの運用データなので、
  * インサート時のみ埋め、更新時は 6〜8列目(最終PV数/問合数/スコア)だけを上書きする。
+ *
+ * ⚠️ 書き込みは必ずメモリ上で組み立ててから一括で行うこと (2026-08-16)。
+ *   以前は1物件あたり14回ほど sheet.getRange(...).setValue(...) を呼んでいたため、
+ *   49件で約700回のシート往復になり GAS の6分上限を越えて実行が殺されていた。
+ *   拡張側の fetch には当時タイムアウトが無く、応答が返らないまま
+ *   「[SUUMOビジネス] …GASへ送信」で検索サイクルごと永久に停止していた。
  */
 function updateSuumoListingStats_(json) {
   var rows = (json && json.rows) || [];
@@ -3734,6 +3740,28 @@ function updateSuumoListingStats_(json) {
   var existing = [];
   if (lastRow > 1) {
     existing = sheet.getRange(2, 1, lastRow - 1, headerLen).getValues();
+  }
+
+  // ── 一括書き込み用のバッファ ──
+  // existing をそのまま作業用配列として使い、変更は全てメモリ上で行う。
+  // 実際に書き換えた列(touchedCols)と行(minRow/maxRow)だけを最後にまとめて書く。
+  // 触っていない列は一切書かないので、手で入れた列を壊さない。
+  var newRows = [];            // 追記する行 (フル幅)。existing にも同じ参照を push する
+  var touchedCols = {};        // 1-based 列番号 -> true
+  var minTouchedRow = 0, maxTouchedRow = 0;
+  function _setCell_(sheetRow, col, value) {
+    if (!col || col < 1) return;
+    var idx = sheetRow - 2;
+    if (idx < 0 || idx >= existing.length) return;
+    existing[idx][col - 1] = value;
+    // 追記行は行ごとフル幅で書くので、列/行の記録には含めない
+    if (sheetRow > lastRow) return;
+    touchedCols[col] = true;
+    if (!minTouchedRow || sheetRow < minTouchedRow) minTouchedRow = sheetRow;
+    if (sheetRow > maxTouchedRow) maxTouchedRow = sheetRow;
+  }
+  function _setCells_(sheetRow, col, values) {
+    for (var vi = 0; vi < values.length; vi++) _setCell_(sheetRow, col + vi, values[vi]);
   }
 
   // 既存行のインデックスマップ(codeとkey)
@@ -3837,37 +3865,37 @@ function updateSuumoListingStats_(json) {
       // 5列目(賃料)や1-4列目・9-10列目の運用データは触らない
       // パフォーマンススコアは既存ロジックと衝突しないよう、問い合わせ数×10 + 合計詳細PV をセット(更新日時が新しい方として上書き)
       var derivedScore = totalDetailPv + inquiries * 10;
-      sheet.getRange(targetRow, 6, 1, 3).setValues([[totalDetailPv, inquiries, derivedScore]]);
+      _setCells_(targetRow, 6, [totalDetailPv, inquiries, derivedScore]);
       // 11-20列目を更新 (21列目=反響予測スコアは入稿時にセットされたまま保持)
-      sheet.getRange(targetRow, 11, 1, extended.length).setValues([extended]);
+      _setCells_(targetRow, 11, extended);
       // 遷移率(代表%)・代表物件一覧PV・代表物件詳細PV を名前参照で書き込み(末尾列のため extended と別)
       var transCol = SUUMO_LISTING_HEADERS.indexOf('遷移率') + 1;
-      if (transCol > 0) sheet.getRange(targetRow, transCol).setValue(transRate);
+      if (transCol > 0) _setCell_(targetRow, transCol, transRate);
       var repListCol = SUUMO_LISTING_HEADERS.indexOf('代表物件合計一覧PV') + 1;
-      if (repListCol > 0) sheet.getRange(targetRow, repListCol).setValue(repListPv);
+      if (repListCol > 0) _setCell_(targetRow, repListCol, repListPv);
       var repDetailCol = SUUMO_LISTING_HEADERS.indexOf('代表物件合計詳細PV') + 1;
-      if (repDetailCol > 0) sheet.getRange(targetRow, repDetailCol).setValue(repDetailPv);
+      if (repDetailCol > 0) _setCell_(targetRow, repDetailCol, repDetailPv);
       var wCompCol = SUUMO_LISTING_HEADERS.indexOf('加重競合数') + 1;
-      if (wCompCol > 0) sheet.getRange(targetRow, wCompCol).setValue(Math.round(weightedComp * 10) / 10);
+      if (wCompCol > 0) _setCell_(targetRow, wCompCol, Math.round(weightedComp * 10) / 10);
       var effCol = SUUMO_LISTING_HEADERS.indexOf('露出効率') + 1;
       if (effCol > 0 && weightedComp > 0 && listedDays > 0) {
         var dailyListPv = repListPv / listedDays;
         var efficiency = Math.round((dailyListPv / weightedComp) * 100) / 100;
-        sheet.getRange(targetRow, effCol).setValue(efficiency);
+        _setCell_(targetRow, effCol, efficiency);
       }
       var dailyPvCol = SUUMO_LISTING_HEADERS.indexOf('代表物件一覧PV（平均）') + 1;
-      if (dailyPvCol > 0) sheet.getRange(targetRow, dailyPvCol).setValue(repDailyListPv);
+      if (dailyPvCol > 0) _setCell_(targetRow, dailyPvCol, repDailyListPv);
       var dailyDetailCol = SUUMO_LISTING_HEADERS.indexOf('代表物件詳細PV（平均）') + 1;
-      if (dailyDetailCol > 0) sheet.getRange(targetRow, dailyDetailCol).setValue(repDailyDetailPv);
+      if (dailyDetailCol > 0) _setCell_(targetRow, dailyDetailCol, repDailyDetailPv);
       var totalDailyListCol = SUUMO_LISTING_HEADERS.indexOf('代表物件以外も含む合計一覧PV（平均）') + 1;
-      if (totalDailyListCol > 0) sheet.getRange(targetRow, totalDailyListCol).setValue(totalDailyListPv);
+      if (totalDailyListCol > 0) _setCell_(targetRow, totalDailyListCol, totalDailyListPv);
       var totalDailyDetailCol = SUUMO_LISTING_HEADERS.indexOf('代表物件以外も含む合計詳細PV（平均）') + 1;
-      if (totalDailyDetailCol > 0) sheet.getRange(targetRow, totalDailyDetailCol).setValue(totalDailyDetailPv);
+      if (totalDailyDetailCol > 0) _setCell_(targetRow, totalDailyDetailCol, totalDailyDetailPv);
       var propInfoCol = SUUMO_LISTING_HEADERS.indexOf('賃料管理費込') + 1;
       if (propInfoCol > 0) {
-        var curPropInfo = sheet.getRange(targetRow, propInfoCol, 1, 5).getValues()[0];
-        if (!String(curPropInfo[0] || '').trim()) {
-          sheet.getRange(targetRow, propInfoCol, 1, 5).setValues([[totalFee, lineName, stationName, walkMin, areaStr]]);
+        // 既に値が入っていれば触らない (シートから読んだ現在値をそのまま判定に使う)
+        if (!String(existing[targetRow - 2][propInfoCol - 1] || '').trim()) {
+          _setCells_(targetRow, propInfoCol, [totalFee, lineName, stationName, walkMin, areaStr]);
         }
       }
 
@@ -3893,18 +3921,18 @@ function updateSuumoListingStats_(json) {
       var existingRoom = String(existing[targetRow - 2][2] || '').trim();
       var existingKey = String(existing[targetRow - 2][0] || '').trim();
       if (!existingBuilding && name) {
-        sheet.getRange(targetRow, 2).setValue(name);
+        _setCell_(targetRow, 2, name);
       }
       if (!existingRoom && roomNo) {
-        sheet.getRange(targetRow, 3).setValue(roomNo);
+        _setCell_(targetRow, 3, roomNo);
       }
       if (!existingKey && propertyKey) {
-        sheet.getRange(targetRow, 1).setValue(propertyKey);
+        _setCell_(targetRow, 1, propertyKey);
       }
       // 賃料(5列目)も空なら埋める
       var existingRent = String(existing[targetRow - 2][4] || '').trim();
       if (!existingRent && row.rent) {
-        sheet.getRange(targetRow, 5).setValue(String(row.rent));
+        _setCell_(targetRow, 5, String(row.rent));
       }
 
       // ステータス(active/stopped)はSUUMOビジネスデータでは変更しない。
@@ -3925,32 +3953,33 @@ function updateSuumoListingStats_(json) {
         'active',           // 9  ステータス
         ''                  // 10 停止日
       ].concat(extended);
-      sheet.appendRow(newRow);
-      var newSheetRow = sheet.getLastRow();
+      // フル幅に伸ばしてから各列を埋める (追記はまとめて1回で書く)
+      while (newRow.length < headerLen) newRow.push('');
+      // existing と newRows に同じ配列を入れておくことで、
+      // 同一ペイロード内で後からこの行が更新対象になっても値が反映される
+      existing.push(newRow);
+      newRows.push(newRow);
+      var newSheetRow = lastRow + newRows.length;
+      var _set = function(col, value) { if (col > 0) newRow[col - 1] = value; };
       var wCompColNew = SUUMO_LISTING_HEADERS.indexOf('加重競合数') + 1;
-      if (wCompColNew > 0) sheet.getRange(newSheetRow, wCompColNew).setValue(Math.round(weightedComp * 10) / 10);
+      _set(wCompColNew, Math.round(weightedComp * 10) / 10);
       var effColNew = SUUMO_LISTING_HEADERS.indexOf('露出効率') + 1;
       if (effColNew > 0 && weightedComp > 0 && listedDays > 0) {
         var dailyListPvNew = repListPv / listedDays;
-        var efficiencyNew = Math.round((dailyListPvNew / weightedComp) * 100) / 100;
-        sheet.getRange(newSheetRow, effColNew).setValue(efficiencyNew);
+        _set(effColNew, Math.round((dailyListPvNew / weightedComp) * 100) / 100);
       }
-      var transColNew = SUUMO_LISTING_HEADERS.indexOf('遷移率') + 1;
-      if (transColNew > 0) sheet.getRange(newSheetRow, transColNew).setValue(transRate);
-      var repListColNew = SUUMO_LISTING_HEADERS.indexOf('代表物件合計一覧PV') + 1;
-      if (repListColNew > 0) sheet.getRange(newSheetRow, repListColNew).setValue(repListPv);
-      var repDetailColNew = SUUMO_LISTING_HEADERS.indexOf('代表物件合計詳細PV') + 1;
-      if (repDetailColNew > 0) sheet.getRange(newSheetRow, repDetailColNew).setValue(repDetailPv);
-      var dailyPvColNew = SUUMO_LISTING_HEADERS.indexOf('代表物件一覧PV（平均）') + 1;
-      if (dailyPvColNew > 0) sheet.getRange(newSheetRow, dailyPvColNew).setValue(repDailyListPv);
-      var dailyDetailColNew = SUUMO_LISTING_HEADERS.indexOf('代表物件詳細PV（平均）') + 1;
-      if (dailyDetailColNew > 0) sheet.getRange(newSheetRow, dailyDetailColNew).setValue(repDailyDetailPv);
-      var totalDailyListColNew = SUUMO_LISTING_HEADERS.indexOf('代表物件以外も含む合計一覧PV（平均）') + 1;
-      if (totalDailyListColNew > 0) sheet.getRange(newSheetRow, totalDailyListColNew).setValue(totalDailyListPv);
-      var totalDailyDetailColNew = SUUMO_LISTING_HEADERS.indexOf('代表物件以外も含む合計詳細PV（平均）') + 1;
-      if (totalDailyDetailColNew > 0) sheet.getRange(newSheetRow, totalDailyDetailColNew).setValue(totalDailyDetailPv);
+      _set(SUUMO_LISTING_HEADERS.indexOf('遷移率') + 1, transRate);
+      _set(SUUMO_LISTING_HEADERS.indexOf('代表物件合計一覧PV') + 1, repListPv);
+      _set(SUUMO_LISTING_HEADERS.indexOf('代表物件合計詳細PV') + 1, repDetailPv);
+      _set(SUUMO_LISTING_HEADERS.indexOf('代表物件一覧PV（平均）') + 1, repDailyListPv);
+      _set(SUUMO_LISTING_HEADERS.indexOf('代表物件詳細PV（平均）') + 1, repDailyDetailPv);
+      _set(SUUMO_LISTING_HEADERS.indexOf('代表物件以外も含む合計一覧PV（平均）') + 1, totalDailyListPv);
+      _set(SUUMO_LISTING_HEADERS.indexOf('代表物件以外も含む合計詳細PV（平均）') + 1, totalDailyDetailPv);
       var propInfoColNew = SUUMO_LISTING_HEADERS.indexOf('賃料管理費込') + 1;
-      if (propInfoColNew > 0) sheet.getRange(newSheetRow, propInfoColNew, 1, 5).setValues([[totalFee, lineName, stationName, walkMin, areaStr]]);
+      if (propInfoColNew > 0) {
+        var propInfoVals = [totalFee, lineName, stationName, walkMin, areaStr];
+        for (var pvi = 0; pvi < propInfoVals.length; pvi++) newRow[propInfoColNew - 1 + pvi] = propInfoVals[pvi];
+      }
       if (suumoCode) codeToRow[suumoCode] = newSheetRow;
       if (propertyKey) keyToRow[propertyKey] = newSheetRow;
       matchedSheetRows[newSheetRow] = true;
@@ -3962,6 +3991,33 @@ function updateSuumoListingStats_(json) {
   // SUUMOビジネスデータではステータス(active/stopped)を変更しない。
   // Daily Searchは2日前までの集計なので、直近停止物件の状態判定には使えない。
   // active/stopped の同期は ForRent状態同期(PUB1R2801直読み) で別途行う。
+
+  // ── ここまでの変更をまとめてシートに書き込む ──
+  // 実際に書き換えた列だけを連続する範囲に畳んで書く。触っていない列は書かない。
+  var writeCalls = 0;
+  if (minTouchedRow > 0) {
+    var cols = [];
+    for (var ck in touchedCols) cols.push(Number(ck));
+    cols.sort(function(a, b) { return a - b; });
+    var rowCount = maxTouchedRow - minTouchedRow + 1;
+    var runStart = cols[0], prev = cols[0];
+    for (var ci = 1; ci <= cols.length; ci++) {
+      if (ci < cols.length && cols[ci] === prev + 1) { prev = cols[ci]; continue; }
+      var width = prev - runStart + 1;
+      var block = [];
+      for (var br = 0; br < rowCount; br++) {
+        block.push(existing[minTouchedRow - 2 + br].slice(runStart - 1, prev));
+      }
+      sheet.getRange(minTouchedRow, runStart, rowCount, width).setValues(block);
+      writeCalls++;
+      if (ci < cols.length) { runStart = cols[ci]; prev = cols[ci]; }
+    }
+  }
+  if (newRows.length > 0) {
+    sheet.getRange(lastRow + 1, 1, newRows.length, headerLen).setValues(newRows);
+    writeCalls++;
+  }
+  Logger.log('updateSuumoListingStats_: ' + rows.length + '件処理 / シート書き込み ' + writeCalls + '回');
 
   var competitionLogged = 0;
   if (competitionEntries.length > 0) {

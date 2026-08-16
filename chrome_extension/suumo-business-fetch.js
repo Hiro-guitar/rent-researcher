@@ -148,7 +148,7 @@ async function runSuumoBusinessFetch() {
       return { ok: false, error: 'no gas url' };
     }
 
-    const response = await fetch(gasWebappUrl, {
+    const response = await fetchWithTimeout(gasWebappUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -156,7 +156,7 @@ async function runSuumoBusinessFetch() {
         fetchedAt: new Date().toISOString(),
         rows: rows,
       }),
-    });
+    }, { label: 'update_suumo_listing_stats' });
     const rawText = await response.text();
     let result = {};
     try { result = JSON.parse(rawText); } catch (_) { result = { ok: false, raw: rawText.substring(0, 300) }; }
@@ -178,7 +178,7 @@ async function runSuumoBusinessFetch() {
           rep_list_pv: r.rep_list_pv,
           rep_detail_pv: r.rep_detail_pv,
         }));
-        await fetch(gasWebappUrl, {
+        await fetchWithTimeout(gasWebappUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -186,7 +186,7 @@ async function runSuumoBusinessFetch() {
             pvDate: dailyPvDate,
             rows: dailyPayload,
           }),
-        });
+        }, { label: 'record_daily_pv' });
       } catch (dailySendErr) {
         console.warn('[SUUMOビジネス] PV履歴GAS送信エラー:', dailySendErr.message);
       }
@@ -670,11 +670,11 @@ async function backfillPvHistory(days) {
           rep_list_pv: r.rep_list_pv,
           rep_detail_pv: r.rep_detail_pv,
         }));
-        await fetch(gasWebappUrl, {
+        await fetchWithTimeout(gasWebappUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'record_daily_pv', pvDate, rows: payload }),
-        });
+        }, { label: 'record_daily_pv' });
         totalRecorded += rows.length;
       }
       console.log(`[PVバックフィル] ${pvDate}: ${rows.length}件 (${di + 1}/${dates.length})`);
@@ -783,11 +783,11 @@ async function backfillCompetitionHistory(days) {
           compLv2: parseInt(String(r.comp_lv2_raw || '0').replace(/[^0-9]/g, ''), 10) || 0,
           compLv3: parseInt(String(r.comp_lv3_raw || '0').replace(/[^0-9]/g, ''), 10) || 0,
         })).filter(e => e.suumoCode);
-        await fetch(gasWebappUrl, {
+        await fetchWithTimeout(gasWebappUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'record_daily_competition', compDate, entries }),
-        });
+        }, { label: 'record_daily_competition' });
         totalRecorded += entries.length;
       }
       console.log(`[競合バックフィル] ${compDate}: ${rows.length}件 (${di + 1}/${dates.length})`);
@@ -863,11 +863,11 @@ async function backfillPvHistory(daysBack) {
           rep_detail_pv: r.rep_detail_pv,
         }));
 
-        const resp = await fetch(gasWebappUrl, {
+        const resp = await fetchWithTimeout(gasWebappUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'record_daily_pv', pvDate, rows: payload }),
-        });
+        }, { label: 'record_daily_pv' });
         if (!resp.ok) throw new Error(`GAS HTTP ${resp.status}`);
         totalRecorded += rows.length;
       }

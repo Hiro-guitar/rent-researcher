@@ -131,7 +131,7 @@ async function syncForrentListingStatus() {
       try { await chrome.tabs.remove(tabId); } catch (_) {}
       return { ok: false, error: 'GAS URL未設定' };
     }
-    const resp = await fetch(gasWebappUrl, {
+    const resp = await fetchWithTimeout(gasWebappUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -139,7 +139,7 @@ async function syncForrentListingStatus() {
         fetchedAt: new Date().toISOString(),
         rows: scrape,
       }),
-    });
+    }, { label: 'sync_forrent_listing_status' });
     const raw = await resp.text();
     let gasResult = {};
     try { gasResult = JSON.parse(raw); } catch (_) { gasResult = { raw: raw.substring(0, 300) }; }
