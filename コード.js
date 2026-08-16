@@ -1874,8 +1874,14 @@ function processCriteriaSelection(userId, criteria) {
       try { _carryOverUntouchedCriteria_(state, beforeChange); }
       catch (eC) { console.error('[条件変更] 引き継ぎ失敗(条件フォーム): ' + eC.message + '\n' + eC.stack); }
       writeToSheet(userId, state);
+      // ⚠️ カードは state ではなく「保存された結果」から作ること (2026-08-16)。
+      //   state は経路によって一部の項目を持たないため、そのまま描くと
+      //   シートには値が残っているのに「→ 指定なし」と表示されてしまう。
+      var afterSaved = null;
+      try { afterSaved = readLatestCriteria(userId); }
+      catch (eA) { console.warn('保存後の再読込に失敗: ' + eA.message); }
       clearState(userId);
-      pushMessage(userId, buildConditionUpdateMessages_(state, beforeChange));
+      pushMessage(userId, buildConditionUpdateMessages_(afterSaved || state, beforeChange));
       return { success: true, message: '条件を更新しました。' };
     }
 

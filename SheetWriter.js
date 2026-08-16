@@ -160,6 +160,11 @@ function writeToSheet(userId, state) {
       var _oldV = String(beforeRow[_c] == null ? '' : beforeRow[_c]).trim();
       if (_newV === '' && _oldV !== '') {
         row[_c] = beforeRow[_c];
+        // state 側にも戻す。カードは state から作るので、ここを直さないと
+        // シートには値が残っているのに「→ 指定なし」と表示され、
+        // お客様に嘘の変更内容を伝えてしまう。
+        var _stateKey = { 13: 'reason', 14: 'move_in_date', 16: 'petType', 17: 'resident' }[_c];
+        if (_stateKey) d[_stateKey] = beforeRow[_c];
         _kept.push((_c + 1) + '列:' + _oldV);
       }
     }

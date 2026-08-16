@@ -1531,9 +1531,15 @@ function _confirmConditionChange_(replyToken, userId, state) {
   try { before = readLatestCriteria(userId); } catch (_) {}
   try { _carryOverUntouchedCriteria_(state, before); }
   catch (eC) { console.error('[条件変更] 引き継ぎ失敗(LINEフロー): ' + eC.message + '\n' + eC.stack); }
+  // ⚠️ カードは state ではなく「保存された結果」から作ること (2026-08-16)。
+  //   state は経路によって一部の項目を持たないことがあり、そのまま描くと
+  //   シートには値が残っているのに「→ 指定なし」と表示され、
+  //   お客様に実際とは違う変更内容を伝えてしまう。
   writeToSheet(userId, state);
+  var after = null;
+  try { after = readLatestCriteria(userId); } catch (eA) { console.warn('保存後の再読込に失敗: ' + eA.message); }
   clearState(userId);
-  replyMessage(replyToken, buildConditionUpdateMessages_(state, before));
+  replyMessage(replyToken, buildConditionUpdateMessages_(after || state, before));
 }
 
 function showConfirmation(replyToken, state, prefixMessages) {
