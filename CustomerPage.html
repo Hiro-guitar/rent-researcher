@@ -650,8 +650,40 @@ function setCustomerView(v) {
   document.getElementById('kanbanBoard').style.display = (v === 'board') ? '' : 'none';
   filterCustomers();
 }
+// ── 再描画でスクロール位置が先頭に戻らないようにする ──
+// カンバンは board.innerHTML の差し替えで列ごと作り直すため、そのままだと
+// 列を下までスクロールして顧客を見ている最中に自動再取得（タブに戻った時など）が
+// 走ると、勝手に一番上へ戻ってしまう。描き直す直前の位置をステージ名で控えて戻す。
+function _captureKanbanScroll_(board) {
+  var pos = { left: 0, cols: {} };
+  if (!board) return pos;
+  var wrap = board.querySelector('.kanban');
+  if (wrap) pos.left = wrap.scrollLeft || 0;
+  var cols = board.querySelectorAll('.kanban-col');
+  for (var i = 0; i < cols.length; i++) {
+    var body = cols[i].querySelector('.kanban-col-body');
+    if (!body || !body.scrollTop) continue;
+    pos.cols[cols[i].getAttribute('data-stage') || cols[i].id || ('idx' + i)] = body.scrollTop;
+  }
+  return pos;
+}
+function _restoreKanbanScroll_(board, pos) {
+  if (!board || !pos) return;
+  var wrap = board.querySelector('.kanban');
+  if (wrap && pos.left) wrap.scrollLeft = pos.left;
+  var cols = board.querySelectorAll('.kanban-col');
+  for (var i = 0; i < cols.length; i++) {
+    var v = pos.cols[cols[i].getAttribute('data-stage') || cols[i].id || ('idx' + i)];
+    if (!v) continue;
+    var body = cols[i].querySelector('.kanban-col-body');
+    // 件数が減って前より短くなっている場合はブラウザが自動で切り詰める
+    if (body) body.scrollTop = v;
+  }
+}
+
 function renderKanban(list) {
   var board = document.getElementById('kanbanBoard');
+  var _scrollPos = _captureKanbanScroll_(board);
   var byStage = {};
   for (var s = 0; s < KANBAN_STAGES.length; s++) byStage[KANBAN_STAGES[s]] = [];
   for (var i = 0; i < list.length; i++) {
@@ -741,6 +773,7 @@ function renderKanban(list) {
   html += '</div>';
   board.innerHTML = html;
   renderTaskColumn();
+  _restoreKanbanScroll_(board, _scrollPos);
   if (!_taskLoaded) loadTaskOverview();
 }
 
@@ -788,6 +821,8 @@ function loadTaskOverview() {
 function renderTaskColumn() {
   var body = document.getElementById('taskColBody');
   if (!body) return;   // 一覧ビュー表示中などは列自体が存在しない
+  // タスク取得は非同期なので、後から届いて描き直す時に見ていた位置を保つ
+  var _taskScrollTop = body.scrollTop || 0;
   var cnt = document.getElementById('taskColCnt');
   if (cnt) cnt.textContent = _taskCounts.open || 0;
   var chk = document.getElementById('taskShowDoneChk');
@@ -818,6 +853,7 @@ function renderTaskColumn() {
     h += '<div style="color:#888;font-size:12px;">'
       + (_taskLoaded ? 'タスクはありません' : '読み込み中...') + '</div>';
     body.innerHTML = h;
+    body.scrollTop = _taskScrollTop;
     return;
   }
   // 「自分がやる」と「相手待ち」の境目に見出しを入れて、山にならないようにする
@@ -834,6 +870,7 @@ function renderTaskColumn() {
     h += taskCardHtml(task, shown[s]);
   }
   body.innerHTML = h;
+  body.scrollTop = _taskScrollTop;
 }
 
 function taskFilterBtnHtml(key, label, count) {
