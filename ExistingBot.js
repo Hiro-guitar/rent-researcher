@@ -502,11 +502,28 @@ function _notifyVacancyCheckRequestToDiscord_(userName, userId, props) {
     lines.push('');
   }
   lines.push('→ 元付業者に確認のうえ、上のボタンでお客様にLINE返信してください。');
-  var payload = { content: lines.join('\n') };
+  var content = lines.join('\n');
+  // ⚠️ thread_name 無しの素の content で送ると、宛先がフォーラムchのときに
+  //   400(220001 "thread_name is required") で弾かれて何も届かない。
+  //   しかも失敗しても無音だったため、通知が来ないことに気づけなかった (2026-08-16)。
+  //   テキストch/フォーラムch 両対応の _postDiscordAdaptive_ を使う。
+  var threadName = '🔔 空室確認: ' + (userName || '不明') + ' 様';
   try {
-    _sendDiscordWithRetry_(webhookUrl, payload, 3);
+    var res;
+    if (typeof _postDiscordAdaptive_ === 'function') {
+      res = _postDiscordAdaptive_(webhookUrl, content, threadName, '');
+    } else {
+      res = _sendDiscordWithRetry_(webhookUrl, { content: content }, 3);
+    }
+    if (res && res.ok) {
+      console.log('[要確認通知] Discord送信成功: ' + props.length + '件 / ' + (userName || '不明'));
+    } else {
+      // 失敗は必ず残す。通知が来ないのに原因が分からない状態を作らない。
+      console.error('[要確認通知] Discord送信失敗: HTTP ' + (res && res.code)
+        + ' body=' + (res && res.body) + ' / 対象=' + (userName || '不明') + ' ' + props.length + '件');
+    }
   } catch (e) {
-    console.error('[要確認通知] Discord送信失敗: ' + e.message);
+    console.error('[要確認通知] Discord送信で例外: ' + e.message);
   }
 }
 

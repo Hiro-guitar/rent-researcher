@@ -3261,15 +3261,17 @@ function _notifyReinsConfirmationRequestToDiscord_(customerName, roomId, buildin
     lines.push('');
     lines.push('※ クリック後、自動でお客さんにLINE通知されます');
 
-    var payload = {
-      content: lines.join('\n')
-    };
-    // 429 / 5xx で指数バックオフリトライ (SUUMO patrol と同じパターン)
-    var sendResult = _sendDiscordWithRetry_(DISCORD_WEBHOOK_URL, payload, 3);
+    // ⚠️ thread_name 無しで送ると、宛先がフォーラムchのとき
+    //   400(220001 "thread_name is required") で弾かれて何も届かない (2026-08-16)。
+    //   テキストch/フォーラムch 両対応の _postDiscordAdaptive_ を使う。
+    var sendResult = (typeof _postDiscordAdaptive_ === 'function')
+      ? _postDiscordAdaptive_(DISCORD_WEBHOOK_URL, lines.join('\n'), '🔔 空室確認: ' + customerName + ' 様', '')
+      : _sendDiscordWithRetry_(DISCORD_WEBHOOK_URL, { content: lines.join('\n') }, 3);
     if (sendResult.ok) {
       console.log('[空室確認依頼] Discord通知成功: ' + customerName + ' (' + sourceDisplay + '/' + statusLabel + ') HTTP=' + sendResult.code + ' attempt=' + sendResult.attempt);
     } else {
-      console.warn('[空室確認依頼] Discord通知失敗: ' + customerName + ' / ' + sendResult.error);
+      console.warn('[空室確認依頼] Discord通知失敗: ' + customerName
+        + ' / HTTP=' + (sendResult.code || '?') + ' ' + (sendResult.error || sendResult.body || ''));
     }
   } catch (e) {
     console.warn('[空室確認依頼] Discord通知失敗: ' + e.message);
@@ -4660,7 +4662,11 @@ function checkR2StorageUsage_() {
   for (var i = 0; i < warnings.length; i++) lines.push(warnings[i]);
   lines.push('無料枠を超えると課金が始まります。古い画像/物件データの削除をご検討ください。');
   try {
-    _sendDiscordWithRetry_(webhookUrl, { content: lines.join('\n') }, 3);
+    if (typeof _postDiscordAdaptive_ === 'function') {
+      _postDiscordAdaptive_(webhookUrl, lines.join('\n'), '⚠️ R2 使用量 警告', '');
+    } else {
+      _sendDiscordWithRetry_(webhookUrl, { content: lines.join('\n') }, 3);
+    }
     out.alerted = true;
   } catch (e) {
     console.error('[r2-usage] Discord送信失敗: ' + e.message);
