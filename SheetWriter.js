@@ -147,12 +147,15 @@ function writeToSheet(userId, state) {
   // 経路や state の中身に関係なく、ここで必ず守る。
   // 対象は「お客様が消す手段が無い」項目だけに絞る。間取りやこだわりは
   // 意図して外せるので対象にしない。
-  //   index 13: N 部屋探しの理由 / 14: O 引越し時期 / 16: Q ペット種類 / 17: R 居住者
+  //   index 13: N 部屋探しの理由 / 14: O 引越し時期 / 17: R 居住者
+  // ⚠️ ペット種類(16)は入れないこと。こだわりから「ペット可」を外すと
+  //   条件フォームが petType='' を送る（RouteSelectPage.html）。
+  //   保護すると外したはずのペット種類が残り続ける。
   // ⚠️ 実際に「探し理由」と「居住者」が空で上書きされて消える事故が起きた (2026-08-16)。
   //   引き継ぎ処理は複数の経路にまたがっていて、どこか1つ漏れると再発する。
   //   書き込みの直前で守るのが確実。
   if (beforeRow) {
-    var _protect = [13, 14, 16, 17];
+    var _protect = [13, 14, 17];
     var _kept = [];
     for (var _pi = 0; _pi < _protect.length; _pi++) {
       var _c = _protect[_pi];
@@ -163,7 +166,7 @@ function writeToSheet(userId, state) {
         // state 側にも戻す。カードは state から作るので、ここを直さないと
         // シートには値が残っているのに「→ 指定なし」と表示され、
         // お客様に嘘の変更内容を伝えてしまう。
-        var _stateKey = { 13: 'reason', 14: 'move_in_date', 16: 'petType', 17: 'resident' }[_c];
+        var _stateKey = { 13: 'reason', 14: 'move_in_date', 17: 'resident' }[_c];
         if (_stateKey) d[_stateKey] = beforeRow[_c];
         _kept.push((_c + 1) + '列:' + _oldV);
       }
