@@ -448,7 +448,11 @@ body {
   <div class="card">
     <div class="card-title">
       <span>対応ログ</span>
-      <button class="btn btn-blue btn-sm" onclick="toggleLogForm()">＋ 記録する</button>
+      <span style="display:flex;gap:6px;">
+        <button class="btn btn-outline btn-sm" id="quickNoAnswerBtn" onclick="quickLogNoAnswer()"
+          title="「電話（つながらず）」を現在時刻で記録します">📵 つながらず</button>
+        <button class="btn btn-blue btn-sm" onclick="toggleLogForm()">＋ 記録する</button>
+      </span>
     </div>
     <div id="logFormArea" style="display:none;">
       <div class="log-form">
@@ -1828,6 +1832,36 @@ function toggleLogForm() {
     editingRow = null;
   }
   el.style.display = willShow ? '' : 'none';
+}
+
+// 出なかった電話をワンタップで記録する。
+// かけて出ないのは頻繁に起きるうえ、毎回フォームを開いて種別を選んでメモを書くのは
+// 割に合わない。押した瞬間に「電話（つながらず）」を現在時刻で1件足す。
+// メモは空。何か書きたいときは通常の「＋ 記録する」を使う。
+function quickLogNoAnswer() {
+  if (!currentCustomer) return;
+  var btn = document.getElementById('quickNoAnswerBtn');
+  var label = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '記録中...'; btn.disabled = true; }
+  // datetime-local と同じ 'yyyy-MM-ddTHH:mm' 形式（JST）で渡す
+  var now = new Date();
+  now.setHours(now.getHours() + 9);
+  var dateStr = now.toISOString().slice(0, 16);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.textContent = label; btn.disabled = false; }
+      if (res && res.success) {
+        showToast('つながらずを記録しました');
+        openDetail(currentCustomer);   // 履歴を読み直す
+      } else {
+        showToast('記録失敗: ' + (res && res.message || ''));
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.textContent = label; btn.disabled = false; }
+      showToast('エラー: ' + (err && err.message ? err.message : ''));
+    })
+    .addContactLog(currentCustomer, '電話（つながらず）', dateStr, '');
 }
 
 function saveLog() {
