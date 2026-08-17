@@ -3645,8 +3645,19 @@ function sendConditionSummaryToLine(customerName, messageType) {
     if (!lineUserId) return { success: false, message: customerName + ' のLINE User IDが登録されていません。' };
 
     // _buildConditionSummaryRows_ 用の state オブジェクトを構築
+    // ⚠️ カードが描く項目を落とさないこと (2026-08-16)。
+    //   ここに reason と resident が無かったため、変更前(キャッシュ)には値があるのに
+    //   変更後が空になり、「就職 → 指定なし」「一人暮らし → 指定なし」と
+    //   実際には起きていない変更がお客様に通知されていた。
+    //   シートの値は正しく、カードだけが嘘をついていた。
+    //   _buildConditionSummaryRows_ が読む項目（reason/resident/move_in_date/
+    //   rent_max/layouts/walk/area_min/building_age/building_structures/
+    //   equipment/petType/age/notes）を全部渡すこと。
     var state = {
       data: {
+        reason: criteria.reason || '',
+        resident: criteria.resident || '',
+        age: criteria.age || '',
         move_in_date: criteria.move_in_date || '',
         move_in_strict: criteria.move_in_strict || false,
         rent_max: criteria.rent_max || '',
