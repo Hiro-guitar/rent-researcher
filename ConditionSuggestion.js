@@ -580,6 +580,7 @@ function sendConditionSuggestionTest(customerName, reasonCode) {
       ageMax: String(row[10] || ''),
       structures: String(row[11] || ''),
       equipment: String(row[12] || ''),
+      notes: String(row[15] || ''),          // P列: その他ご希望（備考）
       city: _formatCityWithTowns_(row[3], row[24]),
       stations: String(row[5] || ''),
       routesWithStations: routesWithStations
@@ -886,6 +887,7 @@ function getConditionSuggestionCandidates_() {
       ageMax: String(row[10] || ''),
       structures: String(row[11] || ''),
       equipment: String(row[12] || ''),
+      notes: String(row[15] || ''),          // P列: その他ご希望（備考）
       city: _formatCityWithTowns_(row[3], row[24]),
       stations: String(row[5] || ''),
       routesWithStations: routesWithStations  // [{ route: '路線名', stations: ['駅A', '駅B'] }, ...]
@@ -1084,6 +1086,11 @@ function buildConditionSuggestionFlex_(c) {
     summary.push(_summaryLine_('こだわり', '指定なし'));
   } else {
     summary.push(_summaryLine_('こだわり', eqItems.join('、')));
+  }
+  // 備考（その他ご希望）。お客様が自由に書いた内容なので、
+  // 登録内容を見せるカードには必ず出す。空のときだけ省く。
+  if (String(c.notes || '').trim()) {
+    summary.push(_summaryLine_('備考', String(c.notes).trim()));
   }
 
   // (旧仕様で各カテゴリの postback data 用に現在値を計算していた変数は撤去。

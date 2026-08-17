@@ -1192,7 +1192,7 @@ function _buildConditionSummaryRows_(state, before) {
 
   // その他（備考・コメント）
   var notesA = dispNotes(state), notesB = hasBefore ? dispNotes(before) : null;
-  if (notesA || (hasBefore && notesB && notesB !== notesA)) rows.push(row('その他', valueCell(notesB, notesA)));
+  if (notesA || (hasBefore && notesB && notesB !== notesA)) rows.push(row('備考', valueCell(notesB, notesA)));
 
   return rows;
 }

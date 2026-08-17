@@ -200,7 +200,11 @@ function _autoCreateLeadFromInquiry_(info) {
     sheet.appendRow(row);
     var newRow = sheet.getLastRow();
     sheet.getRange(newRow, 32).setValue(email);        // AF(32): メール
-    sheet.getRange(newRow, 33).setValue('問い合わせ'); // AG(33): 営業ステージ
+    // ⚠️ AG(33) 営業ステージは書かないこと (2026-08-17)。
+    //   書くとカンバンで「シート指定」扱いになり、状態からの自動判定が効かなくなる。
+    //   実際、取込時に'問い合わせ'を入れていたためメールしか無い人まで
+    //   「未接続」(架電リスト)に入っていた。空にしておけば
+    //   _fillDefaultStages_ が メールのみ / 未接続 / 追客中 を判定する。
     // 問い合わせ情報を対応ログに残す（SUUMO反響）
     var parts = [];
     if (info.propertyName) parts.push('物件: ' + info.propertyName + (info.rent ? ' ' + info.rent : ''));
@@ -1019,7 +1023,7 @@ function promoteInquiryToCustomer(renban) {
       row[1] = name;       // B 名前
       row[18] = 'lead';    // S 配信ステータス
       critSheet.appendRow(row);
-      try { critSheet.getRange(critSheet.getLastRow(), 33).setValue('問い合わせ'); } catch (eStg) {} // AG(33): 営業ステージ
+      // AG(33) 営業ステージは書かない（上と同じ理由。自動判定に任せる）
     }
 
     // 問い合わせ情報を対応ログにメモとして残す
@@ -1091,9 +1095,13 @@ function autoCloseStaleInquiries() {
   var closed = 0;
   var closedNames = [];
 
+  // 対象は「取り込んだだけで、まだ追客に入っていない人」。
+  // 取込時にステージを書かなくなったので空欄も対象に含める。
+  // 自動判定で メールのみ / 未接続 に入る人も同じ層なので拾う。
+  var NOT_YET = ['', '問い合わせ', 'メールのみ', '未接続'];
   for (var i = 1; i < critData.length; i++) {
     var stage = String(critData[i][32] || '').trim();
-    if (stage !== '問い合わせ') continue;
+    if (NOT_YET.indexOf(stage) < 0) continue;
     checked++;
 
     // 登録日時 (A列) から経過日数を計算
