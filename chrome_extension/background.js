@@ -3308,6 +3308,97 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   //  ・REINS: enriched（選択時に取得済みの詳細）をそのまま使う
   //  ・いえらぶ/itandi: 送信時に詳細ページを新タブで取得
   //  まとめて承認待ちに登録→承認ページを開く（既存の単一ソース送信と同じ後段）。
+  // 手動カートの各アイテムを「送信と同じ形」に詳細取得する。
+  // ⚠️ room_id は送信経路と同じものを使うこと。違うと重複判定やキャンセル待ち監視が
+  //   別物件として扱われてしまう。そのため送信と同じ fetch*ForManual を通す。
+  async function _enrichManualCartItems(items, senderTabId, onProgress) {
+    const enriched = [];
+    const failed = [];
+    let done = 0;
+    for (const it of items) {
+      const src = it && it.source;
+      const p = (it && it.prop) || {};
+      if (onProgress) await onProgress(done, items.length);
+      if (src === 'reins') {
+        if (it.enriched && it.enriched.building_name) enriched.push(it.enriched);
+        else failed.push((p.buildingName || '?') + '（詳細なし）');
+        done++;
+        continue;
+      }
+      let res;
+      try {
+        if (src === 'ielove') res = await fetchIeloveDetailForManual(p);
+        else if (src === 'itandi') res = await fetchItandiDetailForManual(p);
+        else if (src === 'essquare') res = await fetchEssquareDetailForManual(p, senderTabId);
+        else res = { ok: false, error: '未対応ソース: ' + src };
+      } catch (e) {
+        res = { ok: false, error: e.message };
+      }
+      if (res && res.ok && res.detail && res.detail.building_name) enriched.push(res.detail);
+      else failed.push((p.buildingName || '?') + '（' + ((res && res.error) || '詳細取得失敗') + '）');
+      done++;
+    }
+    if (onProgress) await onProgress(items.length, items.length);
+    return { enriched, failed };
+  }
+
+  // 手動: 選択物件をキャンセル待ちに登録する（お客様には送らない）
+  if (msg.type === 'ADD_MANUAL_CART_TO_WATCH') {
+    (async () => {
+      try {
+        const customerName = msg.customerName;
+        const items = msg.items || [];
+        const senderTabId = sender && sender.tab && sender.tab.id;
+        if (!customerName) { sendResponse({ ok: false, error: 'お客さんを選んでください' }); return; }
+        if (!items.length) { sendResponse({ ok: false, error: '物件が選択されていません' }); return; }
+        const { gasWebappUrl, gasApiKey } = await getConfig();
+        if (!gasWebappUrl) { sendResponse({ ok: false, error: 'GAS URLが設定されていません' }); return; }
+
+        const progress = async (done, total) => {
+          try { await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done, total, skipped: 0 }); } catch (e) {}
+        };
+        const { enriched, failed } = await _enrichManualCartItems(items, senderTabId, progress);
+        if (enriched.length === 0) {
+          sendResponse({ ok: false, error: `全${items.length}件の詳細取得に失敗しました` });
+          return;
+        }
+
+        const properties = enriched.map(d => ({
+          roomId: d.room_id,
+          buildingName: d.building_name,
+          source: d.source || '',
+          url: d.url || '',
+          reinsPropertyNumber: d.reins_property_number || ''
+        })).filter(x => x.roomId);
+
+        const resp = await fetchWithTimeout(gasWebappUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({
+            action: 'add_cancellation_watch',
+            api_key: gasApiKey || '',
+            customer_name: customerName,
+            properties
+          })
+        }, { label: 'add_cancellation_watch' });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || !result || result.ok === false) {
+          sendResponse({ ok: false, error: (result && (result.message || (result.failed || []).join(' / '))) || `HTTP ${resp.status}` });
+          return;
+        }
+        const message = failed.length > 0
+          ? `${result.added || properties.length}件をキャンセル待ちに追加 / ${failed.length}件は詳細取得に失敗`
+          : `${result.added || properties.length}件をキャンセル待ちに追加しました`;
+        await setStorageData({ debugLog: `[キャンセル待ち] ${customerName}: ${message}` });
+        sendResponse({ ok: true, added: result.added || properties.length, message });
+      } catch (e) {
+        await setStorageData({ debugLog: '[キャンセル待ち] 登録失敗: ' + e.message });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'SEND_MANUAL_CART') {
     (async () => {
       try {

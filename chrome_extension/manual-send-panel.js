@@ -32,6 +32,7 @@
   var statusEl = null;
   var countEl = null;
   var sendBtn = null;
+  var watchBtn = null;
   var metricsBtn = null;
   var publishBtn = null;
   var equipBtCb = null, equipWashCb = null; // 手動: 順位検索の設備条件(バストイレ別/独立洗面)
@@ -295,6 +296,7 @@
       countEl.textContent = n + '件選択中（全サイト' + (label ? ': ' + label : '') + '）';
     }
     if (sendBtn) sendBtn.disabled = (n === 0);
+    if (watchBtn) watchBtn.disabled = (n === 0);
   }
 
   // ─────────────────────────────────────────────
@@ -363,6 +365,15 @@
     sendBtn.disabled = true;
     sendBtn.addEventListener('click', onSendClick);
 
+    // 送らずにキャンセル待ちだけ登録する。
+    // 申込ありで今は送れない物件を「空きが出たら教えて」の状態にしておく用途。
+    watchBtn = document.createElement('button');
+    watchBtn.textContent = '⏳ 選択した物件をキャンセル待ちに追加';
+    watchBtn.title = 'お客様には送りません。空きが出たらDiscordに通知され、自動検索でも拾えるようになります';
+    watchBtn.style.cssText = 'width:100%;padding:8px;margin-top:6px;background:#2d2d2d;color:#ddd;border:1px solid #555;border-radius:8px;font-size:12px;cursor:pointer;';
+    watchBtn.disabled = true;
+    watchBtn.addEventListener('click', onWatchClick);
+
     // 競合数・順位を調べるボタン
     metricsBtn = mkActionBtn('競合数・順位を調べる', '#0b66c3', onCheckMetricsClick);
     // SUUMOに掲載ボタン
@@ -377,6 +388,7 @@
     body.appendChild(selRow);
     body.appendChild(countEl);
     body.appendChild(sendBtn);
+    body.appendChild(watchBtn);
 
     // 外部スクリプト（bulk-competitor-panel.js の「競合チェック」）がボタンを差し込むスロット。
     // 従来は画面右下に浮いていてパネルに隠れていたため、パネル内に統合する。
@@ -501,6 +513,44 @@
         var color = (resp.skipped && resp.skipped > 0) ? '#b8860b' : '#1a7f37';
         setStatus(resp.message || ((resp.registered || 0) + '件を承認待ちに登録しました'), color);
         clearAllSelection(); // 送信成功 → カートをクリア
+      } else {
+        setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
+      }
+    }).catch(function (e) {
+      setStatus('エラー: ' + e.message, '#c0392b');
+    }).finally(function () {
+      updateCount();
+    });
+  }
+
+  // ─────────────────────────────────────────────
+  // キャンセル待ちに追加（送らない）
+  //
+  // 申込ありなどで今は送れない物件を、空きが出たときに気づけるようにしておく。
+  // お客様には何も届かない。通知済み物件シートに「送っていない印」つきで登録され、
+  // 自動検索の対象からは外れない（募集中に戻れば通常どおり配信される）。
+  // ─────────────────────────────────────────────
+  function onWatchClick() {
+    var customerName = selectEl.value;
+    if (!customerName) { setStatus('お客さんを選んでください', '#c0392b'); return; }
+    var items = getCartItems();
+    if (items.length === 0) { setStatus('物件を選んでください', '#c0392b'); return; }
+
+    var label = countBySourceLabel(items);
+    if (!window.confirm(customerName + ' さんのキャンセル待ちに ' + items.length + '件'
+      + (label ? '（' + label + '）' : '') + 'を追加します。\n'
+      + 'お客様には送りません。空きが出たらDiscordに通知されます。\nよろしいですか？')) return;
+
+    watchBtn.disabled = true;
+    setStatus('キャンセル待ちに登録中…（' + items.length + '件）', '#666');
+    sendToBackground({
+      type: 'ADD_MANUAL_CART_TO_WATCH',
+      customerName: customerName,
+      items: items
+    }).then(function (resp) {
+      if (resp && resp.ok) {
+        setStatus(resp.message || ((resp.added || 0) + '件をキャンセル待ちに追加しました'), '#1a7f37');
+        clearAllSelection();
       } else {
         setStatus('失敗: ' + ((resp && (resp.message || resp.error)) || '不明なエラー'), '#c0392b');
       }

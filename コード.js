@@ -134,6 +134,28 @@ function doPost(e) {
     if (json.action === 'cleanup_duplicate_listings') {
       return handleCleanupDuplicateListings(json);
     }
+    // 未送信物件をキャンセル待ちに登録（手動送信パネルから）
+    if (json.action === 'add_cancellation_watch') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, message: 'invalid api_key' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      var _wRes = { ok: false, added: 0, failed: [] };
+      try {
+        var _wName = String(json.customer_name || '').trim();
+        var _wProps = Array.isArray(json.properties) ? json.properties : [];
+        for (var _wi = 0; _wi < _wProps.length; _wi++) {
+          var _r = addCancellationWatchOnly(_wName, _wProps[_wi]);
+          if (_r && _r.ok) _wRes.added++;
+          else _wRes.failed.push((_wProps[_wi] && _wProps[_wi].buildingName || '?') + ': ' + (_r && _r.message));
+        }
+        _wRes.ok = (_wRes.failed.length === 0);
+      } catch (eW) {
+        _wRes.message = eW.message;
+      }
+      return ContentService.createTextOutput(JSON.stringify(_wRes))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
     if (json.action === 'update_suumo_listing_stats') {
       return handleUpdateSuumoListingStats(json);
     }
@@ -2637,6 +2659,10 @@ function handleGetSeenIds(e) {
     for (var i = 1; i < sData.length; i++) {
       var customer = String(sData[i][0] || '');
       var roomId = String(sData[i][1] || '');
+      // O列(15)='watch_only' は「送っていないがキャンセル待ちで見ている」行。
+      // 送信済みではないので seen_ids に入れない。入れると自動検索が飛ばしてしまい、
+      // 募集中に戻ってもお客様に届かなくなる（addCancellationWatchOnly 参照）。
+      if (String(sData[i][14] || '').trim() === 'watch_only') continue;
       if (customer && roomId) {
         if (!seen_ids[customer]) seen_ids[customer] = [];
         if (seen_ids[customer].indexOf(roomId) === -1) {

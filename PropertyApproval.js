@@ -3554,6 +3554,78 @@ function setManualClosed(customerName, roomId, closed) {
 }
 
 /**
+ * まだ送っていない物件をキャンセル待ちに登録する。
+ *
+ * 通知済み物件シートに行を足すが、送信済みとは区別する:
+ *   D列(送信日時) は空 … 「最終送信日」に数えない
+ *   J列 = 登録日時    … キャンセル待ちの監視対象になる
+ *   O列 = 'watch_only'… 送っていない印
+ *
+ * ⚠️ O列の印がある行は seen_ids に含めないこと（handleGetSeenIds）。
+ *   含めると自動検索が「送信済み」と見なして飛ばしてしまい、
+ *   募集中に戻ってもお客様に届かなくなる。監視は監視、検索は検索で独立させる。
+ *
+ * @param {string} customerName
+ * @param {Object} prop roomId / buildingName / source / url / reinsPropertyNumber を見る
+ * @return {{ok:boolean, message:string, added:boolean}}
+ */
+function addCancellationWatchOnly(customerName, prop) {
+  var name = String(customerName || '').trim();
+  if (!name) return { ok: false, message: '顧客名が未指定' };
+  if (!prop || !prop.roomId) return { ok: false, message: '物件が未指定' };
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (!sheet) return { ok: false, message: '通知済み物件シートが見つかりません' };
+    var rid = String(prop.roomId).trim();
+    var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+
+    // 既に行があれば（送信済みでも）キャンセル待ちを立てるだけ
+    var lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      var data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
+      for (var i = 0; i < data.length; i++) {
+        if (String(data[i][0]).trim() === name && String(data[i][1]).trim() === rid) {
+          sheet.getRange(i + 2, 10).setValue(now);   // J列
+          return { ok: true, added: false, message: '既存の物件をキャンセル待ちにしました' };
+        }
+      }
+    }
+
+    var source = String((prop && prop.source) || '');
+    if (!source && prop.url) {
+      var u = String(prop.url).toLowerCase();
+      if (u.indexOf('itandibb.com') >= 0 || u.indexOf('rent.itandi') >= 0) source = 'itandi';
+      else if (u.indexOf('ielove') >= 0 || u.indexOf('homes.co.jp') >= 0) source = 'ielove';
+      else if (u.indexOf('es-square') >= 0 || u.indexOf('iisesq') >= 0) source = 'essquare';
+      else if (u.indexOf('reins') >= 0) source = 'reins';
+    }
+    var sourceRef = (source === 'reins')
+      ? String(prop.reinsPropertyNumber || prop.reins_property_number || prop.url || '')
+      : String(prop.url || '');
+
+    sheet.appendRow([
+      name,
+      rid,
+      String(prop.buildingName || ''),
+      '',            // D: 送信日時 — 送っていないので空のままにする
+      source,
+      '',            // F: current_status
+      '',            // G: status_checked_at
+      sourceRef,
+      '',            // I: priority_requested_at
+      now,           // J: watch_for_cancellation_at
+      '', '', '', '',// K〜N
+      'watch_only'   // O: 送っていない印
+    ]);
+    console.log('[キャンセル待ち] 未送信物件を登録: ' + name + ' / ' + (prop.buildingName || '') + ' / ' + rid);
+    return { ok: true, added: true, message: 'キャンセル待ちに追加しました' };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+/**
  * キャンセル待ちフラグ(J列=10 watch_for_cancellation_at)をトグルする。
  * watching=true でその物件をキャンセル待ちにマーク、false で解除。顧客ごと。
  * (既存の「キャンセル通知希望(LINE)」と同じ列を流用。定期チェックは使っていないので
