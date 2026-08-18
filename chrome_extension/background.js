@@ -1413,6 +1413,111 @@ async function loadStationOrder() {
   return cachedStationOrder;
 }
 
+// ══════════════════════════════════════════
+//  REINSの間取り分割
+//
+//  REINSの間取り条件は「タイプの集合 × 部屋数の範囲」の掛け算で指定する。
+//    mdrTyp = [K, DK, LDK] / mdrHysuFrom = 1 / mdrHysuTo = 10
+//  そのため 1LDK と 2K を選んだだけで 1K・1DK まで検索対象に入る。
+//  実例: 1LDK,2K,2DK,2LDK,3K,3DK,3LDK,4K以上 を選ぶと 1K・1DK が大量に混ざり、
+//  結果が膨らんで検索が遅くなっていた（2026-08-17）。
+//
+//  部屋数ごとにタイプ集合を出し、集合が同じ連続した部屋数をひとまとめにして
+//  複数回に分けて検索する。上の例なら
+//    ① LDK / 1〜1        ② K,DK,LDK / 2〜10
+//  の2回になり、1K・1DK は最初から検索されない。
+// ══════════════════════════════════════════
+const REINS_LAYOUT_MAX_ROOMS = 10;   // 「N以上」の上限（setCriteria と揃える）
+const REINS_LAYOUT_MAX_PASSES = 3;   // 検索回数が増えすぎないための上限（駐車場2パスと掛け算になるため）
+
+// 間取り文字列を { rooms, type, isAbove } に分解する。読めなければ null。
+function _parseReinsLayout(layout) {
+  const raw = String(layout || '').trim();
+  if (!raw) return null;
+  if (raw.includes('ワンルーム') || raw.toUpperCase() === 'R') {
+    return { rooms: 1, type: 'R', isAbove: false };
+  }
+  const cleaned = raw.replace(/以上/g, '').trim();
+  const m = cleaned.match(/^(\d+)\s*(.+)$/);
+  if (!m) return null;
+  const type = m[2].replace(/\s/g, '').toUpperCase()
+    .replace(/Ｋ/g, 'K').replace(/Ｄ/g, 'D').replace(/Ｌ/g, 'L').replace(/Ｓ/g, 'S');
+  return { rooms: parseInt(m[1], 10), type, isAbove: raw.includes('以上') };
+}
+
+// 「以上」で広がる同系統の上位タイプ（setCriteria の展開と揃える）
+function _reinsLayoutAboveTypes(type) {
+  if (type === 'K') return ['K', 'DK', 'LDK'];
+  if (type === 'DK') return ['DK', 'LDK'];
+  return [type];
+}
+
+/**
+ * 間取りの配列を、REINSで無駄なく検索できるグループに割る。
+ * @param {string[]} layouts 例 ['1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上']
+ * @returns {string[][]} グループごとの間取り配列。分ける必要が無ければ [layouts]
+ */
+function splitLayoutsForReins(layouts) {
+  const list = Array.isArray(layouts) ? layouts.filter(Boolean) : [];
+  if (list.length <= 1) return list.length ? [list] : [];
+
+  // 部屋数 → その部屋数で選ばれているタイプ集合 / 元の間取り文字列
+  const byRooms = new Map();
+  const add = (rooms, type, raw) => {
+    if (!byRooms.has(rooms)) byRooms.set(rooms, { types: new Set(), raws: new Set() });
+    const e = byRooms.get(rooms);
+    e.types.add(type);
+    e.raws.add(raw);
+  };
+  let unparsed = false;
+  for (const raw of list) {
+    const p = _parseReinsLayout(raw);
+    if (!p) { unparsed = true; continue; }
+    if (p.isAbove) {
+      const types = _reinsLayoutAboveTypes(p.type);
+      for (let r = p.rooms; r <= REINS_LAYOUT_MAX_ROOMS; r++) for (const t of types) add(r, t, raw);
+    } else {
+      add(p.rooms, p.type, raw);
+    }
+  }
+  // 読めない指定が混ざっていたら分割しない（取りこぼすより従来どおり多めに取る）
+  if (unparsed || byRooms.size === 0) return [list];
+
+  // 部屋数の昇順に、タイプ集合が同じものを連続範囲としてまとめる
+  const rooms = [...byRooms.keys()].sort((a, b) => a - b);
+  const sig = (r) => [...byRooms.get(r).types].sort().join(',');
+  let groups = [];
+  for (const r of rooms) {
+    const last = groups[groups.length - 1];
+    if (last && last.sig === sig(r) && r === last.to + 1) {
+      last.to = r;
+      for (const x of byRooms.get(r).raws) last.raws.add(x);
+    } else {
+      groups.push({ sig: sig(r), from: r, to: r, raws: new Set(byRooms.get(r).raws) });
+    }
+  }
+
+  // 増えすぎたら、隣どうしをくっつけて減らす（余分な組み合わせが最も少ない所から）
+  while (groups.length > REINS_LAYOUT_MAX_PASSES) {
+    let best = 0, bestCost = Infinity;
+    for (let i = 0; i + 1 < groups.length; i++) {
+      const a = groups[i], b = groups[i + 1];
+      const merged = new Set([...a.sig.split(','), ...b.sig.split(',')]);
+      const span = b.to - a.from + 1;
+      const cost = merged.size * span - (a.sig.split(',').length * (a.to - a.from + 1)
+                                       + b.sig.split(',').length * (b.to - b.from + 1));
+      if (cost < bestCost) { bestCost = cost; best = i; }
+    }
+    const a = groups[best], b = groups[best + 1];
+    groups.splice(best, 2, {
+      sig: [...new Set([...a.sig.split(','), ...b.sig.split(',')])].sort().join(','),
+      from: a.from, to: b.to, raws: new Set([...a.raws, ...b.raws])
+    });
+  }
+
+  return groups.map(g => list.filter(x => g.raws.has(x)));
+}
+
 function splitRouteByConsecutiveStations(route, stationOrder) {
   const stations = route.stations || [];
   if (stations.length <= 1) return [route];
@@ -4459,11 +4564,26 @@ globalThis.runSearchCycle = async function runSearchCycle() {
           //   '1'=有／空有(敷地内・アラート不要) → '3'=近隣確保(⚠️アラート対象)
           // それ以外の顧客は従来通り1パス(''=未指定。フォーム使い回しのためリセットも兼ねて毎回セット)
           const _parkingPasses = String(customer.equipment || '').includes('駐車場あり') ? ['1', '3'] : [''];
+          // REINSの間取りは「タイプ×部屋数」の掛け算指定なので、選んでいない間取りが
+          // 大量に混ざることがある（例: 1LDKと2Kを選ぶと1K・1DKまで入る）。
+          // 無駄なく検索できる単位に割って複数回に分ける。
+          const _layoutPasses = splitLayoutsForReins(customer.layouts);
+          const _lpList = _layoutPasses.length > 0 ? _layoutPasses : [customer.layouts || []];
+          if (_lpList.length > 1) {
+            await setStorageData({ debugLog: `[REINS] ${customer.name}: 間取りを${_lpList.length}回に分割（選んでいない間取りを除くため）: `
+              + _lpList.map(g => '[' + g.join('・') + ']').join(' ') });
+          }
           for (let _ppIdx = 0; _ppIdx < _parkingPasses.length; _ppIdx++) {
             const _pp = _parkingPasses[_ppIdx];
             if (isSearchCancelled(searchId)) return;
             if (_pp) {
               await setStorageData({ debugLog: `[REINS] ${customer.name}: 駐車場パス ${_ppIdx + 1}/${_parkingPasses.length}（${_pp === '1' ? '有／空有' : '近隣確保'}）` });
+            }
+           for (let _lpIdx = 0; _lpIdx < _lpList.length; _lpIdx++) {
+            const _layouts = _lpList[_lpIdx];
+            if (isSearchCancelled(searchId)) return;
+            if (_lpList.length > 1) {
+              await setStorageData({ debugLog: `[REINS] ${customer.name}: 間取りパス ${_lpIdx + 1}/${_lpList.length}（${_layouts.join('・')}）` });
             }
             if (_totalBatches === 1 && rws.length <= 3 && cities.length <= 3) {
               // 単一バッチで完結（分割後のrwsを反映）
@@ -4471,6 +4591,7 @@ globalThis.runSearchCycle = async function runSearchCycle() {
                 ...customer,
                 routes: rws.map(r => r.route),
                 routes_with_stations: rws,
+                layouts: _layouts,
                 _originalCustomer: customer,
                 _reinsParking: _pp,
               };
@@ -4486,6 +4607,7 @@ globalThis.runSearchCycle = async function runSearchCycle() {
                     routes: rwsChunk.map(r => r.route),
                     routes_with_stations: rwsChunk,
                     cities: cityChunk,
+                    layouts: _layouts,
                     _originalCustomer: customer,
                     _reinsParking: _pp,
                   };
@@ -4494,6 +4616,7 @@ globalThis.runSearchCycle = async function runSearchCycle() {
                 }
               }
             }
+           }
           }
           // REINS検索成功 → 本日の日付をGASに記録（次回検索の登録年月日フィルタ起点になる）
           try {
