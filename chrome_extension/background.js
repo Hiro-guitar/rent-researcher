@@ -7401,8 +7401,15 @@ async function sendDiscordNotification(customerName, properties, customer) {
       }
 
       const _body = { content: msg, allowed_mentions: { parse: [] }, flags: 4096 };
-      const _embeds = await buildDiscordImageEmbedsAsync(properties[i]);
-      if (_embeds) _body.embeds = _embeds;
+      const _img = await buildDiscordImagePayload(properties[i]);
+      if (_img && _img.blob) {
+        // 添付はメッセージ内にそのまま表示される（開く必要はない）。
+        // 埋め込みより大きく描画されるのでこちらを優先する。
+        _body.__fileBlob = _img.blob;
+        _body.__fileName = 'property.jpg';
+      } else if (_img && _img.embeds) {
+        _body.embeds = _img.embeds;
+      }
       const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, _body);
       // スレッドが期限切れ/削除された場合は再作成
       if (postResp && (postResp.status === 404 || postResp.status === 400)) {
@@ -7692,6 +7699,32 @@ async function sendDiscordNoResultNotification(customerName, customer) {
   }
 }
 
+// payload.__fileBlob があれば multipart で送る（添付ファイル）。
+//
+// ⚠️ 画像を大きく見せたいときは埋め込みではなく添付にすること (2026-08-19)。
+//   埋め込みの image は Discord 側で幅400px前後に必ず縮められるため、
+//   合成画像をいくら大きく作っても表示は小さいまま。
+//   添付ファイルはそれより大きく描画され、クリックで全画面にもなる。
+function _discordRequestInit(payload, signal) {
+  const blob = payload && payload.__fileBlob;
+  if (!blob) {
+    return {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal
+    };
+  }
+  const json = Object.assign({}, payload);
+  delete json.__fileBlob;
+  delete json.__fileName;
+  const fd = new FormData();
+  fd.append('payload_json', JSON.stringify(json));
+  fd.append('files[0]', blob, (payload.__fileName || 'photo.jpg'));
+  // Content-Type は境界文字列込みでブラウザに付けさせる
+  return { method: 'POST', body: fd, signal };
+}
+
 async function discordPostWithRetry(url, payload) {
   // @here/@everyone メンションを有効にする
   if (payload && payload.content && !payload.allowed_mentions) {
@@ -7700,12 +7733,7 @@ async function discordPostWithRetry(url, payload) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
   try {
-    let resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
+    let resp = await fetch(url, _discordRequestInit(payload, controller.signal));
     clearTimeout(timeoutId);
 
     if (resp.status === 429) {
@@ -7715,12 +7743,7 @@ async function discordPostWithRetry(url, payload) {
       await sleep(retryAfter);
       const ctrl2 = new AbortController();
       const tid2 = setTimeout(() => ctrl2.abort(), 15000);
-      resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: ctrl2.signal
-      });
+      resp = await fetch(url, _discordRequestInit(payload, ctrl2.signal));
       clearTimeout(tid2);
     }
 
@@ -8179,20 +8202,41 @@ async function buildDiscordCollage(urls) {
       try { bm.close(); } catch (e) {}
     });
 
-    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
-    const dataUrl = await new Promise((resolve) => {
-      const fr = new FileReader();
-      fr.onloadend = () => resolve(String(fr.result));
-      fr.onerror = () => resolve('');
-      fr.readAsDataURL(blob);
-    });
-    if (!dataUrl) return null;
-    const url = await uploadBase64ToCatbox(dataUrl);   // 実体は自前R2が最優先
-    return url || null;
+    // 添付として送るので、アップロードせず Blob のまま返す
+    return await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
   } catch (e) {
     console.warn('[Discord] 画像合成に失敗:', e && e.message);
     return null;
   }
+}
+
+// 画像1枚だけのときは合成せずそのまま添付する
+async function fetchImageBlob(url) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const blob = await resp.blob();
+    return (blob && blob.size > 0) ? blob : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 物件メッセージに添える画像を用意する。
+ * 添付できるなら Blob を、駄目なら埋め込み配列を返す。
+ * @returns {{blob:Blob}|{embeds:Array}|null}
+ */
+async function buildDiscordImagePayload(prop) {
+  const list = collectPublicImageUrls(prop);
+  if (list.length === 0) return null;
+  const blob = (list.length >= 2)
+    ? await buildDiscordCollage(list)
+    : await fetchImageBlob(list[0]);
+  if (blob) return { blob };
+  // 取得・合成に失敗したら埋め込みに落とす（小さいが出ないよりまし）
+  const embeds = buildDiscordImageEmbeds(prop);
+  return embeds ? { embeds } : null;
 }
 
 const DISCORD_IMAGE_MAX = 4;   // 1メッセージに並べる画像の枚数（埋め込みは10個まで）
@@ -8224,16 +8268,6 @@ function buildDiscordImageEmbeds(prop) {
   });
 }
 
-// 横並びの1枚に合成できればそれを、駄目なら1枚ずつの埋め込みを返す
-async function buildDiscordImageEmbedsAsync(prop) {
-  var list = collectPublicImageUrls(prop);
-  if (list.length === 0) return null;
-  if (list.length >= 2) {
-    var collage = await buildDiscordCollage(list);
-    if (collage) return [{ image: { url: collage }, color: 0x1a7f37 }];
-  }
-  return buildDiscordImageEmbeds(prop);
-}
 
 function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) {
   const fmtMan = (yen) => {
