@@ -3366,6 +3366,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const properties = enriched.map(d => ({
           roomId: d.room_id,
           buildingName: d.building_name,
+          // 部屋番号を送らないと、同じ建物の複数部屋を登録したときに
+          // CRMの一覧で見分けがつかなくなる（承認待ち行が無いため）
+          roomNumber: d.room_number || d.roomNumber || '',
           source: d.source || '',
           url: d.url || '',
           reinsPropertyNumber: d.reins_property_number || ''

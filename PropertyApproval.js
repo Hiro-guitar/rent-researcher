@@ -3560,6 +3560,8 @@ function setManualClosed(customerName, roomId, closed) {
  *   D列(送信日時) は空 … 「最終送信日」に数えない
  *   J列 = 登録日時    … キャンセル待ちの監視対象になる
  *   O列 = 'watch_only'… 送っていない印
+ *   P列 = 部屋番号    … 承認待ち行が無いので、ここに持たないと画面で部屋が分からない
+ *                      （同じ建物の複数部屋を登録すると見分けがつかなくなる）
  *
  * ⚠️ O列の印がある行は seen_ids に含めないこと（handleGetSeenIds）。
  *   含めると自動検索が「送信済み」と見なして飛ばしてしまい、
@@ -3587,6 +3589,10 @@ function addCancellationWatchOnly(customerName, prop) {
       for (var i = 0; i < data.length; i++) {
         if (String(data[i][0]).trim() === name && String(data[i][1]).trim() === rid) {
           sheet.getRange(i + 2, 10).setValue(now);   // J列
+          // 部屋番号が空なら補う（画面で同じ建物の別部屋を見分けるため）
+          if (prop.roomNumber && !String(sheet.getRange(i + 2, 16).getValue() || '').trim()) {
+            sheet.getRange(i + 2, 16).setValue(String(prop.roomNumber));
+          }
           return { ok: true, added: false, message: '既存の物件をキャンセル待ちにしました' };
         }
       }
@@ -3616,7 +3622,8 @@ function addCancellationWatchOnly(customerName, prop) {
       '',            // I: priority_requested_at
       now,           // J: watch_for_cancellation_at
       '', '', '', '',// K〜N
-      'watch_only'   // O: 送っていない印
+      'watch_only',  // O: 送っていない印
+      String(prop.roomNumber || '')  // P: 部屋番号
     ]);
     console.log('[キャンセル待ち] 未送信物件を登録: ' + name + ' / ' + (prop.buildingName || '') + ' / ' + rid);
     return { ok: true, added: true, message: 'キャンセル待ちに追加しました' };
@@ -3666,7 +3673,8 @@ function getSeenPropertiesForResend(customerName) {
     if (!sheet) return [];
     var lastRow = sheet.getLastRow();
     if (lastRow < 2) return [];
-    var data = sheet.getRange(2, 1, lastRow - 1, 14).getValues(); // A〜N(手動募集終了フラグ)まで
+    // A〜P まで読む。O=送っていない印(watch_only) / P=部屋番号（キャンセル待ち登録時のみ）
+    var data = sheet.getRange(2, 1, lastRow - 1, 16).getValues();
     var nameTrim = String(customerName).trim();
 
     // アクションログから閲覧回数・最新アクションを一括集計
@@ -3721,6 +3729,8 @@ function getSeenPropertiesForResend(customerName) {
         sourceRef: String(data[i][7] || ''),
         manualClosed: String(data[i][13] || '') === 'closed', // N列: 手動募集終了
         watching: watching, // J列: キャンセル待ち
+        watchOnly: String(data[i][14] || '').trim() === 'watch_only', // O列: 送っていない
+        roomNumber: String(data[i][15] || ''),                        // P列: 部屋番号
         hasFullData: !!pendingProp
       };
       if (pendingProp) {
@@ -3732,7 +3742,7 @@ function getSeenPropertiesForResend(customerName) {
         entry.address = pendingProp.address || '';
         entry.buildingAge = pendingProp.buildingAge || '';
         entry.floor = pendingProp.floor || 0;
-        entry.roomNumber = pendingProp.roomNumber || '';
+        if (pendingProp.roomNumber) entry.roomNumber = pendingProp.roomNumber;
         entry.deposit = pendingProp.deposit || '';
         entry.keyMoney = pendingProp.keyMoney || '';
         entry.imageUrl = pendingProp.imageUrl || '';

@@ -2022,6 +2022,9 @@ function renderPropItem(p, idx) {
   if (p.roomNumber) html += ' <span class="prop-room">' + esc(p.roomNumber) + '</span>';
   html += '</div>';
   html += '<div class="prop-badges">';
+  // 送っていないのにキャンセル待ちで載っている物件。送信日が空なので、
+  // 印が無いと「送ったのに日付が無い」と誤解される。
+  if (p.watchOnly) html += '<span class="prop-badge" style="background:#3a3f4a;color:#9fb6d6;">未送信（監視のみ）</span>';
   if (p.favorite) html += '<span class="prop-badge prop-badge-favorite">お気に入り</span>';
   if (p.hold) html += '<span class="prop-badge prop-badge-hold">申し込み希望</span>';
   if (p.viewing) html += '<span class="prop-badge prop-badge-viewing">内見希望</span>';
