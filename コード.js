@@ -2594,11 +2594,14 @@ function handleGetCriteria(e) {
     _parts.push(k + ' ' + (_tMark[k] - _prev) + 'ms');
     _prev = _tMark[k];
   });
-  console.log('[get_criteria] 合計 ' + (Date.now() - _t0) + 'ms / ' + _parts.join(' / ')
-    + ' / 条件' + criteria.length + '件 / 書き込み' + _writeCount + '回');
+  var _perf = '合計 ' + (Date.now() - _t0) + 'ms / ' + _parts.join(' / ')
+    + ' / 条件' + criteria.length + '件 / 書き込み' + _writeCount + '回';
+  console.log('[get_criteria] ' + _perf);
 
+  // 内訳を応答にも載せる。Apps Scriptの実行ログを開かなくても
+  // 拡張のログ画面で「どこが重いか」が分かるようにするため。
   return ContentService
-    .createTextOutput(JSON.stringify({ criteria: criteria }))
+    .createTextOutput(JSON.stringify({ criteria: criteria, _perf: _perf }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 

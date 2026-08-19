@@ -4136,8 +4136,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // --- 検索条件取得 ---
 async function refreshCriteria() {
+  const _t0 = Date.now();
   try {
     const result = await fetchCriteria();
+    // GAS側の所要時間の内訳をログ画面に出す。
+    // Apps Scriptの実行ログを開かないと原因が分からない状態をやめるため。
+    if (result && result._perf) {
+      await setStorageData({ debugLog: `[GAS] 検索条件の取得: ${result._perf}（往復 ${Date.now() - _t0}ms）` });
+    }
     if (result?.error) {
       await setStorageData({ debugLog: `GAS criteria error: ${result.error}` });
     }
@@ -4175,7 +4181,8 @@ async function refreshCriteria() {
       console.log(`検索条件取得: ${result.criteria.length}件`);
     }
   } catch (err) {
-    logError('検索条件取得失敗: ' + err.message);
+    // 失敗時は応答が無いので内訳も来ない。せめて何秒待って落ちたかは残す。
+    logError(`検索条件取得失敗: ${err.message}（${Math.round((Date.now() - _t0) / 1000)}秒待機）`);
     throw err;
   }
 }
