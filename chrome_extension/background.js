@@ -7381,6 +7381,30 @@ async function sendDiscordNotification(customerName, properties, customer) {
     // スレッドが生きているか確認（既存スレッドの場合、最初の投稿で404なら再作成）
     if (!discordPropertyCounters[customerName]) discordPropertyCounters[customerName] = 0;
 
+    // ⚠️ 画像の用意で検索サイクルを止めないこと (2026-08-19)。
+    //   送信ループの中で「取得→合成→送信」を直列にやると物件数だけ時間が積み上がる。
+    //   かといって全部作り終えてから送り始めるのも、その分まるごと待ちになる。
+    //   裏で先に作らせておき、送信側は自分の番の分だけ待つ。
+    //   送信間にはもともと1秒の待ちがあるので、その裏で次の分が仕上がり、
+    //   実質の追加時間はほぼ無くなる。
+    const _imgResolve = [];
+    const _imgReady = properties.map((_, i) => new Promise(r => { _imgResolve[i] = r; }));
+    {
+      const CONCURRENCY = 3;   // 上げすぎると取得元と回線を圧迫する
+      let next = 0;
+      const worker = async () => {
+        while (true) {
+          const idx = next++;
+          if (idx >= properties.length) return;
+          let payload = null;
+          try { payload = await buildDiscordImagePayload(properties[idx]); } catch (e) {}
+          _imgResolve[idx](payload);
+        }
+      };
+      // await しない。送信ループと並行して進める。
+      for (let w = 0; w < Math.min(CONCURRENCY, properties.length); w++) worker();
+    }
+
     for (let i = 0; i < properties.length; i++) {
       discordPropertyCounters[customerName]++;
       const propMsg = buildDiscordMessage(properties[i], discordPropertyCounters[customerName], gasWebappUrl, customerName, customer);
@@ -7401,7 +7425,10 @@ async function sendDiscordNotification(customerName, properties, customer) {
       }
 
       const _body = { content: msg, allowed_mentions: { parse: [] }, flags: 4096 };
-      const _img = await buildDiscordImagePayload(properties[i]);
+      const _tImg = Date.now();
+      const _img = await _imgReady[i];
+      const _imgWait = Date.now() - _tImg;
+      if (_imgWait > 300) console.log(`[Discord] 画像待ち ${_imgWait}ms (${i + 1}/${properties.length})`);
       if (_img && _img.blob) {
         // 添付はメッセージ内にそのまま表示される（開く必要はない）。
         // 埋め込みより大きく描画されるのでこちらを優先する。
@@ -8167,15 +8194,16 @@ async function buildDiscordCollage(urls) {
   if (typeof OffscreenCanvas === 'undefined' || typeof createImageBitmap === 'undefined') return null;
   const deadline = Date.now() + DISCORD_COLLAGE_TIMEOUT_MS;
   try {
-    const bitmaps = [];
-    for (const u of urls) {
-      if (Date.now() > deadline) break;
+    // ⚠️ 1枚ずつ順番に取ると物件1件あたり数秒かかる。まとめて取ること。
+    const fetched = await Promise.all(urls.map(async (u) => {
       try {
         const resp = await fetch(u);
-        if (!resp.ok) continue;
-        bitmaps.push(await createImageBitmap(await resp.blob()));
-      } catch (e) { /* 1枚落ちても残りで組む */ }
-    }
+        if (!resp.ok) return null;
+        return await createImageBitmap(await resp.blob());
+      } catch (e) { return null; }   // 1枚落ちても残りで組む
+    }));
+    if (Date.now() > deadline) return null;
+    const bitmaps = fetched.filter(Boolean);
     if (bitmaps.length < 2) return null;
 
     // 2列固定。端数の行(3枚のときの3枚目)は中央に寄せる。
