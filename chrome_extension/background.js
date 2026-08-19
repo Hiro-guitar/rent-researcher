@@ -8194,29 +8194,34 @@ async function buildDiscordCollage(urls) {
   if (typeof OffscreenCanvas === 'undefined' || typeof createImageBitmap === 'undefined') return null;
   const deadline = Date.now() + DISCORD_COLLAGE_TIMEOUT_MS;
   try {
-    // ⚠️ 1枚ずつ順番に取ると物件1件あたり数秒かかる。まとめて取ること。
-    const fetched = await Promise.all(urls.map(async (u) => {
+    // 取得(通信)はまとめて、展開(デコード)は1枚ずつ。
+    // ⚠️ createImageBitmap を同時にやらないこと (2026-08-19)。
+    //   圧縮された blob は数百KBだが、展開すると 1200x1600 で約7.7MB になる。
+    //   4枚同時に持つと1物件で約25MB、物件を3件並行させると約75MBが一度に載る。
+    //   MV3 の service worker には重すぎるので、1枚ずつ展開して描いたら即 close する。
+    const blobs = await Promise.all(urls.map(async (u) => {
       try {
         const resp = await fetch(u);
-        if (!resp.ok) return null;
-        return await createImageBitmap(await resp.blob());
+        return resp.ok ? await resp.blob() : null;
       } catch (e) { return null; }   // 1枚落ちても残りで組む
     }));
     if (Date.now() > deadline) return null;
-    const bitmaps = fetched.filter(Boolean);
-    if (bitmaps.length < 2) return null;
+    const usable = blobs.filter(Boolean);
+    if (usable.length < 2) return null;
 
     // 2列固定。端数の行(3枚のときの3枚目)は中央に寄せる。
-    const cols = Math.min(bitmaps.length, DISCORD_COLLAGE_COLS);
-    const rows = Math.ceil(bitmaps.length / cols);
+    const cols = Math.min(usable.length, DISCORD_COLLAGE_COLS);
+    const rows = Math.ceil(usable.length / cols);
     const canvas = new OffscreenCanvas(DISCORD_COLLAGE_CELL * cols, DISCORD_COLLAGE_CELL * rows);
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    bitmaps.forEach((bm, i) => {
+    for (let i = 0; i < usable.length; i++) {
+      let bm;
+      try { bm = await createImageBitmap(usable[i]); } catch (e) { continue; }
       const row = Math.floor(i / cols);
-      const inRow = Math.min(bitmaps.length - row * cols, cols);   // その行の枚数
+      const inRow = Math.min(usable.length - row * cols, cols);   // その行の枚数
       const posInRow = i % cols;
       const rowOffset = Math.round((canvas.width - inRow * DISCORD_COLLAGE_CELL) / 2);
       const cx = rowOffset + posInRow * DISCORD_COLLAGE_CELL;
@@ -8227,8 +8232,8 @@ async function buildDiscordCollage(urls) {
       const h = Math.round(bm.height * scale);
       ctx.drawImage(bm, cx + Math.round((DISCORD_COLLAGE_CELL - w) / 2),
                         cy + Math.round((DISCORD_COLLAGE_CELL - h) / 2), w, h);
-      try { bm.close(); } catch (e) {}
-    });
+      try { bm.close(); } catch (e) {}   // 次を展開する前に必ず解放する
+    }
 
     // 添付として送るので、アップロードせず Blob のまま返す
     return await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
