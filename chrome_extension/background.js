@@ -8105,16 +8105,17 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
 };
 
 // 物件メッセージに添える画像埋め込み。物件ページを開かずに中身が分かるように、
-// 大きめの画像を最大4枚まで並べる。
+// 大きい画像を複数枚並べる。
 //
-// Discord は「同じ url を持つ埋め込み」を1つにまとめて画像ギャラリーとして描く。
-// これを使うと1メッセージに複数画像を並べられる（4枚が上限）。
-// 1枚だけのときは url でまとめる必要がないのでそのまま大きく出す。
+// ⚠️ 「同じ url を持つ埋め込みはギャラリーにまとまる」仕様は使わないこと (2026-08-19)。
+//   まとまると正方形グリッドに切り抜かれ、間取り図の端や建物の上下が見切れる。
+//   1埋め込み=1画像にすると、Discord は縦横比を保ったまま幅いっぱいに描くので
+//   切れないし、グリッドの1マスより大きく出る。
 //
 // ⚠️ 送れるのは Discord から見える公開URLだけ。REINS/itandi 等の生URLは
 //   要ログインなので表示されない。取得時に自前ホスト(ehomaki R2)へ上げた
 //   image_urls を使うこと（uploadBase64ToCatbox 経由で公開URLになっている）。
-const DISCORD_GALLERY_MAX = 4;   // Discord がギャラリーとしてまとめられる上限
+const DISCORD_IMAGE_MAX = 4;   // 1メッセージに並べる画像の枚数（埋め込みは10個まで）
 
 function _isPublicImageUrl(u) {
   var url = String(u || '').trim();
@@ -8132,29 +8133,10 @@ function buildDiscordImageEmbeds(prop) {
   if (Array.isArray(prop.imageUrls)) prop.imageUrls.forEach(push);
   push(prop.image_url);
   if (list.length === 0) return null;
-  list = list.slice(0, DISCORD_GALLERY_MAX);
-
-  if (list.length === 1) {
-    return [{ image: { url: list[0] }, color: 0x1a7f37 }];
-  }
-
-  // 複数枚をまとめるには全ての埋め込みが同じ url を持つ必要がある。
-  // 物件ページのURL（REINSは物件番号の検索リンク）を共通キーに使う。
-  var groupUrl = '';
-  if (/^https?:\/\//i.test(String(prop.url || ''))) {
-    groupUrl = String(prop.url);
-  } else if (prop.reins_property_number) {
-    var cleanNum = String(prop.reins_property_number).replace(/[^0-9]/g, '');
-    if (cleanNum) groupUrl = 'https://system.reins.jp/main/BK/GBK004100#bukken=' + cleanNum;
-  }
-  // 共通キーが作れないときは1枚だけ大きく出す（無効なurlを入れると埋め込みごと消える）
-  if (!groupUrl) return [{ image: { url: list[0] }, color: 0x1a7f37 }];
-
-  return list.map((u, i) => (
-    i === 0
-      ? { url: groupUrl, image: { url: u }, color: 0x1a7f37 }
-      : { url: groupUrl, image: { url: u } }
-  ));
+  return list.slice(0, DISCORD_IMAGE_MAX).map(function (u, i) {
+    // 1枚目だけ色を付けて物件の区切りが分かるようにする
+    return i === 0 ? { image: { url: u }, color: 0x1a7f37 } : { image: { url: u } };
+  });
 }
 
 function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) {
