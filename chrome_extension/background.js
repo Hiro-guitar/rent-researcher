@@ -7401,7 +7401,7 @@ async function sendDiscordNotification(customerName, properties, customer) {
       }
 
       const _body = { content: msg, allowed_mentions: { parse: [] }, flags: 4096 };
-      const _embeds = buildDiscordImageEmbeds(properties[i]);
+      const _embeds = await buildDiscordImageEmbedsAsync(properties[i]);
       if (_embeds) _body.embeds = _embeds;
       const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, _body);
       // スレッドが期限切れ/削除された場合は再作成
@@ -8122,6 +8122,79 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
 // ⚠️ 送れるのは Discord から見える公開URLだけ。REINS/itandi 等の生URLは
 //   要ログインなので表示されない。取得時に自前ホスト(ehomaki R2)へ上げた
 //   image_urls を使うこと（uploadBase64ToCatbox 経由で公開URLになっている）。
+// 複数の物件画像を1枚に合成する。
+//
+// Discord には「横に並べる」指定が無い。同じ url を持つ埋め込みはギャラリーに
+// まとまるが、必ず正方形グリッドに切り抜かれて間取り図の端や建物の上下が消える。
+// 1枚ずつ並べると切れない代わりに縦に長くなる。
+// どちらも駄目なので、こちらで1枚の画像に組んでから渡す。
+// 余白を付けて収める(contain)ので切り抜きは起きない。
+//
+// 失敗したら null を返し、呼び出し側は従来どおり1枚ずつの埋め込みに落とす。
+// ⚠️ マスは正方形にすること (2026-08-19)。
+//   横長のマスにすると縦長の間取り図が高さに合わせて縮み、左右が余白だらけで
+//   極端に小さくなる。物件画像は縦長(間取り図)と横長(外観)が混ざるので、
+//   どちらもそこそこ大きく収まる正方形が一番まし。
+const DISCORD_COLLAGE_CELL = 600;     // 1マスの一辺
+const DISCORD_COLLAGE_COLS = 2;       // 横に並べる数（多くすると1枚が小さくなりすぎる）
+const DISCORD_COLLAGE_TIMEOUT_MS = 20000;
+
+async function buildDiscordCollage(urls) {
+  if (!Array.isArray(urls) || urls.length < 2) return null;
+  if (typeof OffscreenCanvas === 'undefined' || typeof createImageBitmap === 'undefined') return null;
+  const deadline = Date.now() + DISCORD_COLLAGE_TIMEOUT_MS;
+  try {
+    const bitmaps = [];
+    for (const u of urls) {
+      if (Date.now() > deadline) break;
+      try {
+        const resp = await fetch(u);
+        if (!resp.ok) continue;
+        bitmaps.push(await createImageBitmap(await resp.blob()));
+      } catch (e) { /* 1枚落ちても残りで組む */ }
+    }
+    if (bitmaps.length < 2) return null;
+
+    // 2列固定。端数の行(3枚のときの3枚目)は中央に寄せる。
+    const cols = Math.min(bitmaps.length, DISCORD_COLLAGE_COLS);
+    const rows = Math.ceil(bitmaps.length / cols);
+    const canvas = new OffscreenCanvas(DISCORD_COLLAGE_CELL * cols, DISCORD_COLLAGE_CELL * rows);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    bitmaps.forEach((bm, i) => {
+      const row = Math.floor(i / cols);
+      const inRow = Math.min(bitmaps.length - row * cols, cols);   // その行の枚数
+      const posInRow = i % cols;
+      const rowOffset = Math.round((canvas.width - inRow * DISCORD_COLLAGE_CELL) / 2);
+      const cx = rowOffset + posInRow * DISCORD_COLLAGE_CELL;
+      const cy = row * DISCORD_COLLAGE_CELL;
+      // 切り抜かずマスに収める。余った分は白余白になる。
+      const scale = Math.min(DISCORD_COLLAGE_CELL / bm.width, DISCORD_COLLAGE_CELL / bm.height);
+      const w = Math.round(bm.width * scale);
+      const h = Math.round(bm.height * scale);
+      ctx.drawImage(bm, cx + Math.round((DISCORD_COLLAGE_CELL - w) / 2),
+                        cy + Math.round((DISCORD_COLLAGE_CELL - h) / 2), w, h);
+      try { bm.close(); } catch (e) {}
+    });
+
+    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+    const dataUrl = await new Promise((resolve) => {
+      const fr = new FileReader();
+      fr.onloadend = () => resolve(String(fr.result));
+      fr.onerror = () => resolve('');
+      fr.readAsDataURL(blob);
+    });
+    if (!dataUrl) return null;
+    const url = await uploadBase64ToCatbox(dataUrl);   // 実体は自前R2が最優先
+    return url || null;
+  } catch (e) {
+    console.warn('[Discord] 画像合成に失敗:', e && e.message);
+    return null;
+  }
+}
+
 const DISCORD_IMAGE_MAX = 4;   // 1メッセージに並べる画像の枚数（埋め込みは10個まで）
 
 function _isPublicImageUrl(u) {
@@ -8132,18 +8205,34 @@ function _isPublicImageUrl(u) {
   return true;
 }
 
-function buildDiscordImageEmbeds(prop) {
-  if (!prop) return null;
+function collectPublicImageUrls(prop) {
+  if (!prop) return [];
   var list = [];
   var push = (u) => { if (_isPublicImageUrl(u) && list.indexOf(String(u).trim()) < 0) list.push(String(u).trim()); };
   if (Array.isArray(prop.image_urls)) prop.image_urls.forEach(push);
   if (Array.isArray(prop.imageUrls)) prop.imageUrls.forEach(push);
   push(prop.image_url);
+  return list.slice(0, DISCORD_IMAGE_MAX);
+}
+
+function buildDiscordImageEmbeds(prop) {
+  var list = collectPublicImageUrls(prop);
   if (list.length === 0) return null;
-  return list.slice(0, DISCORD_IMAGE_MAX).map(function (u, i) {
+  return list.map(function (u, i) {
     // 1枚目だけ色を付けて物件の区切りが分かるようにする
     return i === 0 ? { image: { url: u }, color: 0x1a7f37 } : { image: { url: u } };
   });
+}
+
+// 横並びの1枚に合成できればそれを、駄目なら1枚ずつの埋め込みを返す
+async function buildDiscordImageEmbedsAsync(prop) {
+  var list = collectPublicImageUrls(prop);
+  if (list.length === 0) return null;
+  if (list.length >= 2) {
+    var collage = await buildDiscordCollage(list);
+    if (collage) return [{ image: { url: collage }, color: 0x1a7f37 }];
+  }
+  return buildDiscordImageEmbeds(prop);
 }
 
 function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) {
