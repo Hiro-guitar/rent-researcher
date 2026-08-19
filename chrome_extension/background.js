@@ -7394,7 +7394,7 @@ async function sendDiscordNotification(customerName, properties, customer) {
       }
 
       const _body = { content: msg, allowed_mentions: { parse: [] }, flags: 4096 };
-      const _embeds = buildDiscordThumbEmbed(properties[i]);
+      const _embeds = buildDiscordImageEmbeds(properties[i]);
       if (_embeds) _body.embeds = _embeds;
       const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, _body);
       // スレッドが期限切れ/削除された場合は再作成
@@ -8104,22 +8104,57 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
   return warnings;
 };
 
-// 物件メッセージに添えるサムネイル埋め込み。
-// 画像が無い/公開URLでないときは何も付けない（壊れた画像枠を出さないため）。
+// 物件メッセージに添える画像埋め込み。物件ページを開かずに中身が分かるように、
+// 大きめの画像を最大4枚まで並べる。
 //
-// ⚠️ 送れるのは Discord から見える公開URLだけ。REINS/itandi の画像は要ログインなので
-//   そのままでは表示されない。取得時に自前ホスト(ehomaki R2)等へ上げた
+// Discord は「同じ url を持つ埋め込み」を1つにまとめて画像ギャラリーとして描く。
+// これを使うと1メッセージに複数画像を並べられる（4枚が上限）。
+// 1枚だけのときは url でまとめる必要がないのでそのまま大きく出す。
+//
+// ⚠️ 送れるのは Discord から見える公開URLだけ。REINS/itandi 等の生URLは
+//   要ログインなので表示されない。取得時に自前ホスト(ehomaki R2)へ上げた
 //   image_urls を使うこと（uploadBase64ToCatbox 経由で公開URLになっている）。
-function buildDiscordThumbEmbed(prop) {
-  var url = '';
-  if (prop && typeof prop.image_url === 'string') url = prop.image_url;
-  if (!url && prop && Array.isArray(prop.image_urls) && prop.image_urls.length) url = prop.image_urls[0];
-  if (!url && prop && Array.isArray(prop.imageUrls) && prop.imageUrls.length) url = prop.imageUrls[0];
-  url = String(url || '').trim();
-  if (!/^https?:\/\//i.test(url)) return null;
+const DISCORD_GALLERY_MAX = 4;   // Discord がギャラリーとしてまとめられる上限
+
+function _isPublicImageUrl(u) {
+  var url = String(u || '').trim();
+  if (!/^https?:\/\//i.test(url)) return false;
   // 取得元サイトの画像URLはログインが要るので埋め込んでも表示されない
-  if (/reins\.jp|itandibb\.com|ielove|es-square|iisesq/i.test(url)) return null;
-  return [{ thumbnail: { url: url }, color: 0x1a7f37 }];
+  if (/reins\.jp|itandibb\.com|ielove|es-square|iisesq/i.test(url)) return false;
+  return true;
+}
+
+function buildDiscordImageEmbeds(prop) {
+  if (!prop) return null;
+  var list = [];
+  var push = (u) => { if (_isPublicImageUrl(u) && list.indexOf(String(u).trim()) < 0) list.push(String(u).trim()); };
+  if (Array.isArray(prop.image_urls)) prop.image_urls.forEach(push);
+  if (Array.isArray(prop.imageUrls)) prop.imageUrls.forEach(push);
+  push(prop.image_url);
+  if (list.length === 0) return null;
+  list = list.slice(0, DISCORD_GALLERY_MAX);
+
+  if (list.length === 1) {
+    return [{ image: { url: list[0] }, color: 0x1a7f37 }];
+  }
+
+  // 複数枚をまとめるには全ての埋め込みが同じ url を持つ必要がある。
+  // 物件ページのURL（REINSは物件番号の検索リンク）を共通キーに使う。
+  var groupUrl = '';
+  if (/^https?:\/\//i.test(String(prop.url || ''))) {
+    groupUrl = String(prop.url);
+  } else if (prop.reins_property_number) {
+    var cleanNum = String(prop.reins_property_number).replace(/[^0-9]/g, '');
+    if (cleanNum) groupUrl = 'https://system.reins.jp/main/BK/GBK004100#bukken=' + cleanNum;
+  }
+  // 共通キーが作れないときは1枚だけ大きく出す（無効なurlを入れると埋め込みごと消える）
+  if (!groupUrl) return [{ image: { url: list[0] }, color: 0x1a7f37 }];
+
+  return list.map((u, i) => (
+    i === 0
+      ? { url: groupUrl, image: { url: u }, color: 0x1a7f37 }
+      : { url: groupUrl, image: { url: u } }
+  ));
 }
 
 function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) {
