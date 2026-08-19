@@ -51,6 +51,7 @@ var SEEN_SHEET_NAME = '通知済み物件';
 var SPREADSHEET_ID = '1u6NHowKJNqZm_Qv-MQQEDzMWjPOJfJiX1yhaO4Wj6lY';
 
 // ehomaki 画像ホスト(Cloudflare R2)。配信停止顧客の物件を消すとき画像も一緒に消す用。
+var EHOMAKI_IMG_UPLOAD_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/upload'; // 画像アップロード(最優先)
 var EHOMAKI_IMG_DELETE_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/delete';
 var EHOMAKI_DATA_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/d'; // 物件データ保存
 var EHOMAKI_CLOSE_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/close'; // 手動募集終了マーカー
@@ -5734,6 +5735,38 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
   try {
     personalImgbbKey = PropertiesService.getScriptProperties().getProperty('IMGBB_API_KEY');
   } catch (_) {}
+
+  // -2) ehomaki 自前ホスト(Cloudflare R2) — 最優先
+  //
+  // ⚠️ ここを飛ばして tmpfiles に落とさないこと (2026-08-19)。
+  //   tmpfiles.org は一時保管サービスで、しばらくすると URL が死ぬ。
+  //   承認プレビューで追加した画像が真っ黒になり、開くと
+  //   「このサイトにアクセスできません」になる事故が起きた。
+  //   拡張側(essquare-background.js)は元から ehomaki を最優先にしていたが、
+  //   GAS 側のこの経路だけ候補に入っていなかった。
+  try {
+    var respE = UrlFetchApp.fetch(EHOMAKI_IMG_UPLOAD_URL, {
+      method: 'post',
+      contentType: mimeType || 'image/jpeg',
+      payload: Utilities.base64Decode(base64Data),
+      headers: { Authorization: 'Bearer ' + EHOMAKI_IMG_TOKEN },
+      muteHttpExceptions: true
+    });
+    var codeE = respE.getResponseCode();
+    var bodyE = respE.getContentText();
+    if (codeE >= 200 && codeE < 300) {
+      var jsonE = JSON.parse(bodyE);
+      if (jsonE && jsonE.url) {
+        console.log('[画像アップロード] ehomaki(R2) 成功: ' + jsonE.url);
+        return { success: true, url: jsonE.url, host: 'ehomaki' };
+      }
+      errors.push('ehomaki parse: ' + bodyE.substring(0, 200));
+    } else {
+      errors.push('ehomaki HTTP ' + codeE + ': ' + bodyE.substring(0, 200));
+    }
+  } catch (eE) {
+    errors.push('ehomaki: ' + eE.message);
+  }
 
   // -1) imgbb (個人キー設定時のみ最優先)
   if (personalImgbbKey) {
