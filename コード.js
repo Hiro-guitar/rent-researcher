@@ -2316,8 +2316,42 @@ function handleGetCriteria(e) {
   //     - アーカイブ済み(AS列=45)        … 看板から外した終了顧客
   //     - 営業ステージ「終了」(AG列=33)  … 追客していない
   //     - 検索条件が空のリード           … まだ物件を送っていない
+  // ⚠️ どこで時間を食っているか必ず残すこと (2026-08-19)。
+  //   get_criteria が拡張のタイムアウト(30秒)を越えて検索が止まる事故が
+  //   何度も起きているのに、内訳が分からず原因を追えなかった。
+  var _t0 = Date.now();
+  var _tMark = {};
+  var _lap = function (label) { _tMark[label] = Date.now() - _t0; };
+
   var lineUserIdMap = _getLineUserIdMapByCustomerName_();
+  _lap('LINE Users読み込み');
   var data = sheet.getDataRange().getValues();
+  _lap('検索条件シート読み込み');
+
+  // ── シートへの書き込みはためて最後に列ごと1回で行う ──
+  // 1セルずつ setValue すると顧客数だけシート往復が発生する。
+  // 対象列: S(19)配信ステータス / U(21)停止・ブロック日時 / V(22)スヌーズ解除
+  //         X(24)最終配信日時 / AG(33)営業ステージ
+  var _pending = {};   // 列番号 -> { 行index(0始まり, ヘッダー除く) -> 値 }
+  var _setCell = function (rowIdx0, col, value) {
+    if (!_pending[col]) _pending[col] = {};
+    _pending[col][rowIdx0] = value;
+    if (data[rowIdx0 + 1]) data[rowIdx0 + 1][col - 1] = value;   // 後続の判定にも反映
+  };
+  var _flushPending = function () {
+    var writes = 0;
+    for (var col in _pending) {
+      var changes = _pending[col];
+      var idxs = Object.keys(changes).map(Number);
+      if (idxs.length === 0) continue;
+      var minI = Math.min.apply(null, idxs), maxI = Math.max.apply(null, idxs);
+      var block = [];
+      for (var r = minI; r <= maxI; r++) block.push([data[r + 1][col - 1]]);
+      sheet.getRange(minI + 2, Number(col), block.length, 1).setValues(block);
+      writes++;
+    }
+    return writes;
+  };
 
   // 候補となる「配信している」顧客の userId を先に集める
   var allUserIds = [];
@@ -2357,6 +2391,7 @@ function handleGetCriteria(e) {
 
   // 並列ブロック判定
   var blockedMap = (allUserIds.length > 0) ? bulkCheckLineBlocked(allUserIds) : {};
+  _lap('LINEブロック判定');
 
   // 判定結果のサマリログ
   var blockedTrue = 0, blockedFalse = 0, blockedNull = 0;
@@ -2390,8 +2425,8 @@ function handleGetCriteria(e) {
     if (deliveryStatus === 'snoozed') {
       if (snoozeUntil instanceof Date && snoozeUntil.getTime() <= nowMs) {
         try {
-          sheet.getRange(i + 1, 19).setValue('active');
-          sheet.getRange(i + 1, 22).setValue('');
+          _setCell(i - 1, 19, 'active');
+          _setCell(i - 1, 22, '');
         } catch (e) {}
         deliveryStatus = 'active';
       } else {
@@ -2411,16 +2446,16 @@ function handleGetCriteria(e) {
         var wasBlocked = (deliveryStatus === 'blocked');
         console.log('[LINEブロック判定] ブロック検知: ' + name + ' status=「' + deliveryStatus + '」 wasBlocked=' + wasBlocked + ' → ' + (wasBlocked ? '既知の為通知スキップ' : '新規検知 → 通知送信'));
         try {
-          sheet.getRange(i + 1, 19).setValue('blocked');  // S列: 配信ステータス
+          _setCell(i - 1, 19, 'blocked');  // S列: 配信ステータス
           // U列(21): 停止/ブロック日時を記録 (まだ未記録の場合のみ — 1週間カウントの起点)
-          var existingTs = sheet.getRange(i + 1, 21).getValue();
+          var existingTs = data[i][20];   // U列。読み直さずメモリ上の値を使う
           if (!existingTs) {
-            sheet.getRange(i + 1, 21).setValue(new Date());
+            _setCell(i - 1, 21, new Date());
           }
           // 新規ブロック検知時: カンバンの営業ステージ(AG列=33)を「終了」に移す
           // (一度だけ。以降 wasBlocked=true でスキップ → スタッフが手動で戻しても上書きしない)
           if (!wasBlocked) {
-            sheet.getRange(i + 1, 33).setValue('終了');
+            _setCell(i - 1, 33, '終了');
           }
         } catch (e) {}
         // 新規検知時のみ Discord 通知 (既に blocked だった場合は通知しない)
@@ -2432,7 +2467,7 @@ function handleGetCriteria(e) {
         // 'blocked' から自動復活 → 'active' に戻す
         if (deliveryStatus === 'blocked') {
           try {
-            sheet.getRange(i + 1, 19).setValue('active');
+            _setCell(i - 1, 19, 'active');
           } catch (e) {}
           deliveryStatus = 'active';
         }
@@ -2451,7 +2486,7 @@ function handleGetCriteria(e) {
         if (elapsedMs < intervalDays * 24 * 60 * 60 * 1000) continue;
       }
       // 通過したので最終配信日時を更新
-      try { sheet.getRange(i + 1, 24).setValue(new Date()); } catch (e) {}
+      _setCell(i - 1, 24, new Date());
     }
 
     // 列マッピング (SheetWriter.js準拠):
@@ -2534,6 +2569,13 @@ function handleGetCriteria(e) {
     });
   }
 
+  _lap('顧客ループ');
+
+  // ためた変更をまとめて書き込む（列ごと1回）
+  var _writeCount = 0;
+  try { _writeCount = _flushPending(); } catch (eFlush) { console.error('[get_criteria] 書き込み失敗: ' + eFlush.message); }
+  _lap('シート書き込み');
+
   // ── おすすめ検索条件（裏条件）を追加 ──
   // お客さんの登録条件とは別に、こちらが設定した条件でも検索する。
   // 配信対象（deliverableNames）の顧客に紐づくものだけを対象にする。
@@ -2544,6 +2586,16 @@ function handleGetCriteria(e) {
   } catch (eRec) {
     console.warn('[おすすめ条件] 追加に失敗: ' + (eRec && eRec.message));
   }
+
+  _lap('おすすめ条件');
+  var _prev = 0, _parts = [];
+  ['LINE Users読み込み', '検索条件シート読み込み', 'LINEブロック判定', '顧客ループ', 'シート書き込み', 'おすすめ条件'].forEach(function (k) {
+    if (_tMark[k] === undefined) return;
+    _parts.push(k + ' ' + (_tMark[k] - _prev) + 'ms');
+    _prev = _tMark[k];
+  });
+  console.log('[get_criteria] 合計 ' + (Date.now() - _t0) + 'ms / ' + _parts.join(' / ')
+    + ' / 条件' + criteria.length + '件 / 書き込み' + _writeCount + '回');
 
   return ContentService
     .createTextOutput(JSON.stringify({ criteria: criteria }))
