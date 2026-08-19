@@ -5041,6 +5041,12 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     }
   }
   await setStorageData({ debugLog: `${customer.name}: 条件セット完了 ensn=[${setStatus.ensnDebug || '-'}] cities=[${(setStatus.reinsCitiesSet||[]).join(' ') || '-'}] rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}${setStatus.reinsParkingSet ? ' 駐車場=' + setStatus.reinsParkingSet : ''}` });
+  // こだわり条件で洗面まわりを絞れるか調べるための一時ログ。
+  // REINS側で絞れれば、詳細ページを開いてから「洗面所・洗面台の記載なし」で
+  // 捨てている分の無駄が丸ごと消える。IDが分かったら2パス検索を実装して消す。
+  if (setStatus.reinsOptCandidates) {
+    await setStorageData({ debugLog: `[REINS調査] こだわり条件の候補: ${setStatus.reinsOptCandidates}` });
+  }
 
   // Vueリアクティブ更新を待つ
   await csleep(500);

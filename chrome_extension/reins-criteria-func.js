@@ -547,5 +547,43 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       reinsUnresolved: reinsUnresolved,
       reinsCitiesSet: reinsCitiesSet,
       reinsParkingSet: __parkingSetResult,
+      // 「こだわり条件」で選べる項目の一覧（洗面まわりを検索条件で絞れるか調べるため）。
+      // バス・トイレ別は ID '030' と分かっているが、洗面所/洗面台のIDは未調査。
+      // 当てずっぽうでIDを入れると条件が壊れるので、まず実際の選択肢を見る。
+      reinsOptCandidates: (function () {
+        try {
+          var found = [];
+          var seen = new Set();
+          var scan = function (obj, depth) {
+            if (!obj || depth > 3 || found.length > 60) return;
+            if (Array.isArray(obj)) {
+              for (var i = 0; i < obj.length; i++) {
+                var it = obj[i];
+                if (it && typeof it === 'object') {
+                  var label = it.name || it.label || it.text || it.nm || '';
+                  var id = it.id || it.cd || it.code || it.value || '';
+                  if (label && id && !seen.has(id + ':' + label)) {
+                    if (/洗面|シャンプードレッサー|バス・トイレ別/.test(String(label))) {
+                      seen.add(id + ':' + label);
+                      found.push(String(id) + '=' + String(label));
+                    }
+                  }
+                } else if (typeof it === 'string' && /洗面/.test(it)) {
+                  if (!seen.has(it)) { seen.add(it); found.push('(文字列)' + it); }
+                }
+              }
+              return;
+            }
+            if (typeof obj === 'object') {
+              for (var k in obj) {
+                if (k.charAt(0) === '_' || k === '$parent' || k === '$root' || k === '$children') continue;
+                try { scan(obj[k], depth + 1); } catch (e) {}
+              }
+            }
+          };
+          scan(vr.$data, 0);
+          return found.length ? found.join(' / ') : '(見つからず)';
+        } catch (e) { return 'error:' + (e && e.message); }
+      })(),
     };
 };
