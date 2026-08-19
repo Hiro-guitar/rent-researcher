@@ -7393,7 +7393,10 @@ async function sendDiscordNotification(customerName, properties, customer) {
         pendingSearchInfo = '';
       }
 
-      const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, { content: msg, allowed_mentions: { parse: [] }, flags: 4096 });
+      const _body = { content: msg, allowed_mentions: { parse: [] }, flags: 4096 };
+      const _embeds = buildDiscordThumbEmbed(properties[i]);
+      if (_embeds) _body.embeds = _embeds;
+      const postResp = await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, _body);
       // スレッドが期限切れ/削除された場合は再作成
       if (postResp && (postResp.status === 404 || postResp.status === 400)) {
         console.warn(`Discord スレッド無効 (${postResp.status})。${customerName}のスレッドを再作成...`);
@@ -8100,6 +8103,24 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
   }
   return warnings;
 };
+
+// 物件メッセージに添えるサムネイル埋め込み。
+// 画像が無い/公開URLでないときは何も付けない（壊れた画像枠を出さないため）。
+//
+// ⚠️ 送れるのは Discord から見える公開URLだけ。REINS/itandi の画像は要ログインなので
+//   そのままでは表示されない。取得時に自前ホスト(ehomaki R2)等へ上げた
+//   image_urls を使うこと（uploadBase64ToCatbox 経由で公開URLになっている）。
+function buildDiscordThumbEmbed(prop) {
+  var url = '';
+  if (prop && typeof prop.image_url === 'string') url = prop.image_url;
+  if (!url && prop && Array.isArray(prop.image_urls) && prop.image_urls.length) url = prop.image_urls[0];
+  if (!url && prop && Array.isArray(prop.imageUrls) && prop.imageUrls.length) url = prop.imageUrls[0];
+  url = String(url || '').trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  // 取得元サイトの画像URLはログインが要るので埋め込んでも表示されない
+  if (/reins\.jp|itandibb\.com|ielove|es-square|iisesq/i.test(url)) return null;
+  return [{ thumbnail: { url: url }, color: 0x1a7f37 }];
+}
 
 function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) {
   const fmtMan = (yen) => {
