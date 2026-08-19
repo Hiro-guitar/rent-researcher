@@ -4668,6 +4668,14 @@ globalThis.runSearchCycle = async function runSearchCycle() {
           // REINSの間取りは「タイプ×部屋数」の掛け算指定なので、選んでいない間取りが
           // 大量に混ざることがある（例: 1LDKと2Kを選ぶと1K・1DKまで入る）。
           // 無駄なく検索できる単位に割って複数回に分ける。
+          // 独立洗面台をREINS側で絞る。こだわり条件はANDなので3つを1回で入れられず、
+          // 洗面所(052) / 洗面台(053) / シャンプードレッサー(054) の3パスに分ける。
+          // これで「洗面所・洗面台の記載なし」で詳細を開いてから捨てる無駄が消える。
+          const _senmenPasses = (String(customer.senmenMode || '').toLowerCase() === 'skip'
+            && String(customer.equipment || '').includes('独立洗面台'))
+            ? ['052', '053', '054'] : [''];
+          // 同じ物件が複数パスに出るので、同一サイクル内で詳細を二度開かないようにする
+          const _reinsRunSeen = new Set();
           const _layoutPasses = splitLayoutsForReins(customer.layouts);
           const _lpList = _layoutPasses.length > 0 ? _layoutPasses : [customer.layouts || []];
           if (_lpList.length > 1) {
@@ -4679,6 +4687,13 @@ globalThis.runSearchCycle = async function runSearchCycle() {
             if (isSearchCancelled(searchId)) return;
             if (_pp) {
               await setStorageData({ debugLog: `[REINS] ${customer.name}: 駐車場パス ${_ppIdx + 1}/${_parkingPasses.length}（${_pp === '1' ? '有／空有' : '近隣確保'}）` });
+            }
+           for (let _spIdx = 0; _spIdx < _senmenPasses.length; _spIdx++) {
+            const _senmen = _senmenPasses[_spIdx];
+            if (isSearchCancelled(searchId)) return;
+            if (_senmen) {
+              const _sLabel = { '052': '洗面所', '053': '洗面台', '054': 'シャンプードレッサー' }[_senmen];
+              await setStorageData({ debugLog: `[REINS] ${customer.name}: 洗面パス ${_spIdx + 1}/${_senmenPasses.length}（${_sLabel}）` });
             }
            for (let _lpIdx = 0; _lpIdx < _lpList.length; _lpIdx++) {
             const _layouts = _lpList[_lpIdx];
@@ -4695,6 +4710,8 @@ globalThis.runSearchCycle = async function runSearchCycle() {
                 layouts: _layouts,
                 _originalCustomer: customer,
                 _reinsParking: _pp,
+                reinsSenmenOptId: _senmen,
+                _reinsRunSeen: _reinsRunSeen,
               };
               await searchForCustomer(reinsTab.id, singleBatchCustomer, seenIds, reinsDelay, searchId);
             } else {
@@ -4711,12 +4728,15 @@ globalThis.runSearchCycle = async function runSearchCycle() {
                     layouts: _layouts,
                     _originalCustomer: customer,
                     _reinsParking: _pp,
+                    reinsSenmenOptId: _senmen,
+                    _reinsRunSeen: _reinsRunSeen,
                   };
                   await setStorageData({ debugLog: `[REINS] ${customer.name}: バッチ ${_batchIdx}/${_totalBatches} (路線${rwsChunk.length}件/市区町村${cityChunk.length}件)` });
                   await searchForCustomer(reinsTab.id, batchCustomer, seenIds, reinsDelay, searchId);
                 }
               }
             }
+           }
            }
           }
           // REINS検索成功 → 本日の日付をGASに記録（次回検索の登録年月日フィルタ起点になる）
@@ -5393,6 +5413,14 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
     // スキップ済み物件チェック（前回フィルタで除外された物件は詳細ページに行かない）
     if (!isForced && !isTest && skippedMap[result.propertyNumber]) {
       continue; // スキップ済みはログなし（大量になるため）
+    }
+
+    // 同一サイクル内で処理済みの物件は飛ばす。
+    // 洗面パス(洗面所/洗面台/シャンプードレッサー)や駐車場パスで同じ物件が
+    // 複数回ヒットするため、これが無いと同じ物件の詳細ページを何度も開くことになる。
+    if (customer._reinsRunSeen) {
+      if (customer._reinsRunSeen.has(result.propertyNumber)) continue;
+      customer._reinsRunSeen.add(result.propertyNumber);
     }
 
     // 一覧ページで敷金/礼金フィルタ（equipment条件に基づく）

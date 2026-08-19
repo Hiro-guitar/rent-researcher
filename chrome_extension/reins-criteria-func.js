@@ -457,6 +457,26 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       }
     }
 
+    // ── 独立洗面台: REINS側のこだわり条件で絞る ──
+    // REINSに「独立洗面台」という項目は無く、洗面所(052)/洗面台(053)/
+    // シャンプードレッサー(054) の3つに分かれている。
+    // ⚠️ こだわり条件は AND なので3つ同時に入れてはいけない（全部揃った物件しか出ない）。
+    //   呼び出し側が1つずつ渡して3パスに分けること。
+    // 判定元は詳細ページの「設備・条件・住宅性能等」と同じ欄なので基準はずれない。
+    // （備考にだけ書かれている物件は取りこぼすが、これは許容と判断 2026-08-19）
+    if (customerData.reinsSenmenOptId) {
+      const SENMEN_LABEL = { '052': '洗面所', '053': '洗面台', '054': 'シャンプードレッサー' };
+      const oid = String(customerData.reinsSenmenOptId);
+      if (SENMEN_LABEL[oid]) {
+        if (!Array.isArray(vr.selectedOptIds)) vr.selectedOptIds = [];
+        if (!vr.selectedOptIds.includes(oid)) vr.selectedOptIds.push(oid);
+        const cur2 = (vr.optKnsk || '').trim();
+        if (!cur2.includes(SENMEN_LABEL[oid])) {
+          vr.optKnsk = cur2 ? (cur2 + ' ' + SENMEN_LABEL[oid]) : SENMEN_LABEL[oid];
+        }
+      }
+    }
+
     // ── 駐車場の有無（customerData.reinsParking: ''=未指定 / '1'=有／空有 / '3'=近隣確保）──
     // 駐車場希望の顧客は '1' と '3' の2パスで検索する（呼び出し側がパスごとに値を渡す）。
     // セレクトはBootstrapVue製でid不安定のため、ラベル「駐車場の有無」からの相対取得で特定
