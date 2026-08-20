@@ -489,8 +489,26 @@ function importSuumoInquiries(opts) {
   //    「1日にサービス gmail を実行した回数が多すぎます」で止まっていた (2026-08-04)。
   //    通常は数日分で足りる。過去分を取り込み直すときだけ days を大きくする。
   var _days = parseInt(opts.days, 10);
-  if (!_days || _days < 1) _days = 3;
-  var threads = GmailApp.search('subject:反響お知らせメール newer_than:' + _days + 'd');
+  var _explicitDays = !!(_days && _days >= 1);   // 過去分の取り込み直し（手動実行）
+  if (!_explicitDays) _days = 3;
+
+  // ⚠️ 5分ごとに動くのに毎回3日分を読む必要はない (2026-08-21)。
+  //   前回の取込以降に届いたメールだけを見る。通常は0〜数件で終わる。
+  //   Gmailの読み取り上限に達して取込ごと止まる事故を防ぐための本命の対策。
+  //   ・成功した回だけ時刻を進める（失敗時は次回に持ち越して取りこぼさない）
+  //   ・30分の重なりを持たせる。連番で重複判定しているので二重取込にはならない
+  //   ・印が無い/古い、または days 指定の手動実行なら従来どおり日数で検索する
+  var _props0 = PropertiesService.getScriptProperties();
+  var _lastImportMs = parseInt(_props0.getProperty(INQUIRY_IMPORT_LAST_KEY), 10);
+  var _query;
+  if (!_explicitDays && _lastImportMs && (Date.now() - _lastImportMs) < _days * 24 * 60 * 60 * 1000) {
+    var _afterSec = Math.floor((_lastImportMs - 30 * 60 * 1000) / 1000);
+    _query = 'subject:反響お知らせメール after:' + _afterSec;
+  } else {
+    _query = 'subject:反響お知らせメール newer_than:' + _days + 'd';
+  }
+  var _runStartMs = Date.now();
+  var threads = GmailApp.search(_query);
 
   // 本文を読んだメールのIDを覚えておき、次回以降は getPlainBody() を呼ばない。
   // 本文取得が読み取り回数の大半を占めるため、これだけで大幅に減る。
@@ -582,9 +600,15 @@ function importSuumoInquiries(opts) {
   console.log('[問い合わせ取込] days=' + _days + ' threads=' + threads.length + ' scanned=' + scanned
     + ' imported=' + imported + ' skipped=' + skipped + ' noRenban=' + noRenban
     + ' cachedSkip=' + cachedSkip);
+  // 最後まで通ったときだけ時刻を進める。途中で例外が出た回は進めないので取りこぼさない。
+  try { _props0.setProperty(INQUIRY_IMPORT_LAST_KEY, String(_runStartMs)); } catch (eMark) {}
+
+  console.log('[反響取込] ' + _query + ' → スレッド' + threads.length + '件 / 取込' + imported + '件'
+    + ' / 本文を読んだ' + scanned + '件 / キャッシュ済み' + cachedSkip + '件');
+
   return {
     imported: imported, skipped: skipped, scanned: scanned,
-    threads: threads.length, noRenban: noRenban, cachedSkip: cachedSkip, days: _days
+    threads: threads.length, noRenban: noRenban, cachedSkip: cachedSkip, days: _days, query: _query
   };
 }
 
@@ -678,6 +702,7 @@ function checkInquiryDiscordWebhook() {
 //
 //  取込側と二重に通知しないよう、通知済みの連番を控えておく。
 // ══════════════════════════════════════════════════════════
+var INQUIRY_IMPORT_LAST_KEY = 'INQUIRY_IMPORT_LAST_MS';   // 取込が最後に成功した時刻
 var INQUIRY_FAST_LAST_KEY = 'INQUIRY_FAST_LAST_MS';
 var INQUIRY_FAST_NOTIFIED_KEY = 'INQUIRY_FAST_NOTIFIED';   // 通知済み連番（直近200件）
 
