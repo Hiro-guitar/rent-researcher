@@ -708,6 +708,7 @@ function _markFastNotified_(renbans) {
  * @return {{checked:number, notified:number, threads:number}}
  */
 function notifyNewInquiriesFast() {
+  var _t0 = Date.now();
   var props = PropertiesService.getScriptProperties();
   var now = Date.now();
   var lastMs = parseInt(props.getProperty(INQUIRY_FAST_LAST_KEY), 10);
@@ -747,8 +748,12 @@ function notifyNewInquiriesFast() {
 
   _markFastNotified_(newlyNotified);
   props.setProperty(INQUIRY_FAST_LAST_KEY, String(now));
-  // Gmailをどれだけ読んでいるか毎回残す。上限に近づいたら気づけるようにするため。
+  // Gmail読み取り量と所要時間を毎回残す。
+  // ⚠️ 1日1440回動くので、1回あたりの秒数がそのまま日次の実行時間に効く。
+  //   Apps Script の実行時間上限（無料アカウント90分/日・Workspace 6時間/日）に
+  //   近づいていないか、この数字で判断すること。
   console.log('[反響速報] スレッド' + threads.length + '件 / 本文を読んだメール' + checked + '件 / 通知' + newlyNotified.length + '件'
+    + ' / ' + (Date.now() - _t0) + 'ms'
     + (newlyNotified.length ? ' (' + newlyNotified.join(', ') + ')' : ''));
   return { checked: checked, notified: newlyNotified.length, threads: threads.length };
 }
