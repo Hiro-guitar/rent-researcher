@@ -5039,7 +5039,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   if (__resolvedBtMode === 'none' && (__equip.includes('バストイレ別') || __equip.includes('バス・トイレ別') || __equip.includes('bt別'))) {
     __resolvedBtMode = 'skip';
   }
-  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '', reinsParking: customer._reinsParking || '', allowedFloors: customer.allowedFloors || '', minFloor: customer.minFloor || '' }, lineNameMap, reinsCodeMap, __resolvedBtMode];
+  const __criteriaArgs = [stationStr, { rent_max: customer.rent_max, layouts: customer.layouts || [], area_min: customer.area_min || '', building_age: customer.building_age || '', equipment: customer.equipment || '', stations: customer.stations || [], routes_with_stations: customer.routes_with_stations || [], walk: customer.walk || '', cities: customer.cities || [], prefecture: customer.prefecture || '東京都', _isSuumoPatrol: !!customer._isSuumoPatrol, daysWithin: (typeof customer.daysWithin === 'number' ? customer.daysWithin : null), selectedTowns: customer.selectedTowns || {}, lastReinsSearch: customer.lastReinsSearch || '', reinsParking: customer._reinsParking || '', reinsSenmenOptId: customer.reinsSenmenOptId || '', allowedFloors: customer.allowedFloors || '', minFloor: customer.minFloor || '' }, lineNameMap, reinsCodeMap, __resolvedBtMode];
   // __reinsCriteriaFunc は reins-criteria-func.js で定義（グローバル）
   // ↓ 以前は以下にローカル関数定義があったが、reins-criteria-func.js に移動済み
   setResult = await chrome.scripting.executeScript({
@@ -5060,7 +5060,7 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
       addUnresolvedStation(customer.name, 'REINS', name);
     }
   }
-  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 ensn=[${setStatus.ensnDebug || '-'}] cities=[${(setStatus.reinsCitiesSet||[]).join(' ') || '-'}] rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}${setStatus.reinsParkingSet ? ' 駐車場=' + setStatus.reinsParkingSet : ''}` });
+  await setStorageData({ debugLog: `${customer.name}: 条件セット完了 ensn=[${setStatus.ensnDebug || '-'}] cities=[${(setStatus.reinsCitiesSet||[]).join(' ') || '-'}] rent=${setStatus.kkkuCnryuTo} mdrTyp=[${setStatus.mdrTyp}] rooms=${setStatus.mdrHysuFrom}-${setStatus.mdrHysuTo} area=${setStatus.snyuMnskFrom || '-'}~ age=${setStatus.buildingAge || '-'} walk=${customer.walk || '-'} shziki=${setStatus.shzikiFrom || '-'}~${setStatus.shzikiTo || '-'} equip=${setStatus.debugEquip}${setStatus.reinsParkingSet ? ' 駐車場=' + setStatus.reinsParkingSet : ''}${setStatus.senmenSet ? ' 洗面=' + setStatus.senmenSet : ''}` });
   // こだわり条件で洗面まわりを絞れるか調べるための一時ログ。
   // REINS側で絞れれば、詳細ページを開いてから「洗面所・洗面台の記載なし」で
   // 捨てている分の無駄が丸ごと消える。IDが分かったら2パス検索を実装して消す。

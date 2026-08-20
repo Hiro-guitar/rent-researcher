@@ -464,6 +464,7 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
     //   呼び出し側が1つずつ渡して3パスに分けること。
     // 判定元は詳細ページの「設備・条件・住宅性能等」と同じ欄なので基準はずれない。
     // （備考にだけ書かれている物件は取りこぼすが、これは許容と判断 2026-08-19）
+    let __senmenSet = '';
     if (customerData.reinsSenmenOptId) {
       const SENMEN_LABEL = { '052': '洗面所', '053': '洗面台', '054': 'シャンプードレッサー' };
       const oid = String(customerData.reinsSenmenOptId);
@@ -474,6 +475,9 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
         if (!cur2.includes(SENMEN_LABEL[oid])) {
           vr.optKnsk = cur2 ? (cur2 + ' ' + SENMEN_LABEL[oid]) : SENMEN_LABEL[oid];
         }
+        __senmenSet = SENMEN_LABEL[oid] + '(' + oid + ')';
+      } else {
+        __senmenSet = '不明なID:' + oid;
       }
     }
 
@@ -563,6 +567,7 @@ const __reinsCriteriaFunc = (stationStr, customerData, lineNameMap, reinsCodeMap
       shzikiTo: vr.shzikiTo || '',
       buildingAge: customerData.building_age || '',
       debugEquip: customerData.equipment || '(empty)',
+      senmenSet: __senmenSet,
       reinsSearchStations: reinsSearchStations,
       reinsUnresolved: reinsUnresolved,
       reinsCitiesSet: reinsCitiesSet,
