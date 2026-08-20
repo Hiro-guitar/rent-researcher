@@ -665,10 +665,119 @@ function checkInquiryDiscordWebhook() {
   return msg;
 }
 
-function _notifyPhoneInquiryToDiscord_(info) {
+// ══════════════════════════════════════════════════════════
+//  反響の速報通知（1分ごと）
+//
+//  取込(importSuumoInquiries)は5分ごとで、Discord通知もその中で出していたため
+//  メール受信から最大5分遅れていた。電話は早い者勝ちなので、通知だけ切り離す。
+//
+//  ⚠️ Gmailの読み取り上限に注意すること (2026-08-04の事故)。
+//    以前 90日分のスレッドと本文を毎回読んで上限に達し、取込ごと止まった。
+//    この関数は「前回チェック以降に届いたメール」だけを検索するので、
+//    通常は0件で終わる。新着があったときだけ本文を読む。
+//
+//  取込側と二重に通知しないよう、通知済みの連番を控えておく。
+// ══════════════════════════════════════════════════════════
+var INQUIRY_FAST_LAST_KEY = 'INQUIRY_FAST_LAST_MS';
+var INQUIRY_FAST_NOTIFIED_KEY = 'INQUIRY_FAST_NOTIFIED';   // 通知済み連番（直近200件）
+
+/** 速報で通知済みの連番セットを読む。 */
+function _fastNotifiedSet_() {
   try {
+    var raw = PropertiesService.getScriptProperties().getProperty(INQUIRY_FAST_NOTIFIED_KEY);
+    var arr = raw ? JSON.parse(raw) : [];
+    var set = {};
+    for (var i = 0; i < arr.length; i++) set[String(arr[i])] = true;
+    return { set: set, arr: arr };
+  } catch (e) { return { set: {}, arr: [] }; }
+}
+
+/** 連番を通知済みとして記録する（直近200件だけ残す）。 */
+function _markFastNotified_(renbans) {
+  if (!renbans || renbans.length === 0) return;
+  try {
+    var cur = _fastNotifiedSet_().arr;
+    var merged = renbans.concat(cur).slice(0, 200);
+    PropertiesService.getScriptProperties().setProperty(INQUIRY_FAST_NOTIFIED_KEY, JSON.stringify(merged));
+  } catch (e) {}
+}
+
+/**
+ * 前回チェック以降に届いた反響メールを見て、電話番号ありなら即Discordに通知する。
+ * シートには書かない（それは5分ごとの取込の仕事）。
+ * @return {{checked:number, notified:number, threads:number}}
+ */
+function notifyNewInquiriesFast() {
+  var props = PropertiesService.getScriptProperties();
+  var now = Date.now();
+  var lastMs = parseInt(props.getProperty(INQUIRY_FAST_LAST_KEY), 10);
+  // 初回・長期停止後は直近10分だけ見る（過去分を大量に読まない）
+  if (!lastMs || now - lastMs > 60 * 60 * 1000) lastMs = now - 10 * 60 * 1000;
+  // 取りこぼし防止に2分の重なりを持たせる。連番で重複判定するので二重通知にはならない。
+  var afterSec = Math.floor((lastMs - 2 * 60 * 1000) / 1000);
+
+  var threads = [];
+  try {
+    threads = GmailApp.search('subject:反響お知らせメール after:' + afterSec);
+  } catch (e) {
+    console.warn('[反響速報] Gmail検索に失敗: ' + e.message);
+    return { checked: 0, notified: 0, threads: 0, error: e.message };
+  }
+
+  var notifiedInfo = _fastNotifiedSet_();
+  var newlyNotified = [];
+  var checked = 0;
+
+  for (var t = 0; t < threads.length; t++) {
+    var msgs = threads[t].getMessages();
+    for (var m = 0; m < msgs.length; m++) {
+      var msg = msgs[m];
+      if (msg.getDate().getTime() < lastMs - 2 * 60 * 1000) continue;
+      if (String(msg.getSubject() || '').indexOf('反響お知らせメール') === -1) continue;
+      checked++;
+      var info = null;
+      try { info = _parseSuumoInquiryEmail_(msg.getSubject(), msg.getPlainBody(), msg.getDate()); } catch (eP) {}
+      if (!info || !info.renban) continue;
+      if (notifiedInfo.set[String(info.renban)]) continue;   // 既に速報済み
+      if (!String(info.tel || '').trim()) continue;           // 電話番号なしは通知しない（従来どおり）
+      _notifyPhoneInquiryToDiscord_(info, { fast: true });
+      newlyNotified.push(String(info.renban));
+    }
+  }
+
+  _markFastNotified_(newlyNotified);
+  props.setProperty(INQUIRY_FAST_LAST_KEY, String(now));
+  // Gmailをどれだけ読んでいるか毎回残す。上限に近づいたら気づけるようにするため。
+  console.log('[反響速報] スレッド' + threads.length + '件 / 本文を読んだメール' + checked + '件 / 通知' + newlyNotified.length + '件'
+    + (newlyNotified.length ? ' (' + newlyNotified.join(', ') + ')' : ''));
+  return { checked: checked, notified: newlyNotified.length, threads: threads.length };
+}
+
+/** 【一回だけ手動実行】反響速報トリガー(1分ごと)を設定する。 */
+function setupFastInquiryNotifyTrigger() {
+  var existing = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'notifyNewInquiriesFast') ScriptApp.deleteTrigger(existing[i]);
+  }
+  ScriptApp.newTrigger('notifyNewInquiriesFast')
+    .timeBased()
+    .everyMinutes(1)
+    .create();
+  var msg = '反響速報トリガーを1分ごとに設定しました。';
+  Logger.log(msg);
+  return msg;
+}
+
+function _notifyPhoneInquiryToDiscord_(info, opts) {
+  try {
+    opts = opts || {};
     var tel = String((info && info.tel) || '').trim();
     if (!tel) return; // 電話番号なしは通知しない
+    // 速報(notifyNewInquiriesFast)で既に通知済みなら、取込側では出さない
+    if (!opts.fast && info && info.renban && _fastNotifiedSet_().set[String(info.renban)]) {
+      console.log('[反響Discord] 速報で通知済みのためスキップ: ' + info.renban);
+      return;
+    }
     var props = PropertiesService.getScriptProperties();
     var webhook = props.getProperty('DISCORD_WEBHOOK_INQUIRY_URL');
     if (!webhook) {
@@ -686,7 +795,10 @@ function _notifyPhoneInquiryToDiscord_(info) {
     if (info.propertyName) lines.push('物件: ' + info.propertyName + (info.rent ? ' ' + info.rent : ''));
     if (info.email) lines.push('メール: ' + String(info.email).trim());
     if (info.message) lines.push('内容: ' + String(info.message).trim());
-    lines.push('（' + (info.channel || 'SUUMO') + ' / 顧客管理ページに追加済み）');
+    // 速報は取込前なので「追加済み」と書かない（嘘になる）
+    lines.push(opts.fast
+      ? '（' + (info.channel || 'SUUMO') + ' / 受信直後の速報。顧客管理への登録は数分後）'
+      : '（' + (info.channel || 'SUUMO') + ' / 顧客管理ページに追加済み）');
     var r = _postDiscordAdaptive_(webhook, lines.join('\n'), '📞 反響(TEL) ' + name, '1459814543600390341');
     console.log('[反響Discord] 送信: ' + name + ' TEL=' + tel + ' → ok=' + r.ok + ' code=' + r.code + (r.ok ? '' : ' body=' + r.body));
   } catch (e) {
