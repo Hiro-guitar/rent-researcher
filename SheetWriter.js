@@ -129,11 +129,22 @@ function writeToSheet(userId, state) {
   var existingRowIndex = -1;
   if (customerName) {
     var existingData = sheet.getDataRange().getValues();
+    // ⚠️ 同名行が複数あるときは「最後の行」を更新すること (2026-08-21)。
+    //   readLatestCriteria と setCustomerStage は最後の行を読む。ここだけ最初の行を
+    //   更新していたため、行が2つ以上ある顧客では
+    //     ・保存しても読み取り側の値が変わらない（条件変更の履歴が出ない）
+    //     ・誰も読まない行に書き続ける（変更が検索に反映されない）
+    //   という事故になっていた。読む行と書く行は必ず揃えること。
+    var _dupCount = 0;
     for (var i = 1; i < existingData.length; i++) {
       if (existingData[i][1] === customerName) {
-        existingRowIndex = i + 1; // 1-indexed
-        break;
+        existingRowIndex = i + 1; // 1-indexed（breakしない＝最後の行が残る）
+        _dupCount++;
       }
+    }
+    if (_dupCount > 1) {
+      console.warn('[条件保存] 「' + customerName + '」の行が ' + _dupCount + '件あります。'
+        + '最後の行(' + existingRowIndex + '行目)を更新しました。重複行は検索が二重に走るため整理してください。');
     }
   }
 
