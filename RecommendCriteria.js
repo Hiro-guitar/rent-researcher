@@ -587,10 +587,15 @@ function startRecommendEditor(customerName, recommendId, label) {
   state.selectedStations = seed.selectedStations || {};
   state.selectedTowns = seed.selectedTowns || {};
   state.data = seed.data || {};
+  // ⚠️ 保存に必要な情報(誰の・どのおすすめ条件か)は state にも持たせること (2026-08-21)。
+  //   以前はスクリプトキャッシュ(30分)だけに置いていたため、キャッシュが消えると
+  //   保存時に「セッションが切れました」で必ず失敗した。
+  //   state は UserProperties にあり 24時間もつので、こちらを本命にする。
+  var _recMeta = { customerName: customerName, recommendId: recommendId, label: seedLabel };
+  state.recMeta = _recMeta;
   saveState(userId, state);
 
-  CacheService.getScriptCache().put('recedit_' + token,
-    JSON.stringify({ customerName: customerName, recommendId: recommendId, label: seedLabel }), 1800);
+  CacheService.getScriptCache().put('recedit_' + token, JSON.stringify(_recMeta), 1800);
 
   var baseUrl = ScriptApp.getService().getUrl();
   var url = baseUrl + '?action=selectCriteria&userId=' + encodeURIComponent(userId);
@@ -606,13 +611,32 @@ function _saveRecommendFromForm_(userId, criteria) {
     var token = String(userId).substring('rec::'.length);
     var cache = CacheService.getScriptCache();
     var raw = cache.get('recedit_' + token);
-    if (!raw) return { success: false, message: 'セッションが切れました。お手数ですがもう一度開いてください。' };
-    var meta = JSON.parse(raw);
-    criteria = criteria || {};
+
     // 条件フォームには入居時期の入力が無いため、シードした state（お客さんの入居時期 or
     // 編集元のおすすめ条件）から引き継ぐ。これで自動検索でも入居時期が考慮される。
     var seedData = {};
-    try { var st = getState(userId); if (st && st.data) seedData = st.data; } catch (e) {}
+    var stateMeta = null;
+    try {
+      var st = getState(userId);
+      if (st && st.data) seedData = st.data;
+      if (st && st.recMeta) stateMeta = st.recMeta;
+    } catch (e) {}
+
+    // キャッシュ(30分)が消えていても state(24時間)から復旧する
+    var meta = null;
+    if (raw) {
+      try { meta = JSON.parse(raw); } catch (eJ) {}
+    }
+    if (!meta && stateMeta) {
+      meta = stateMeta;
+      console.log('[おすすめ条件] キャッシュ切れ → stateから復旧: ' + (meta.customerName || ''));
+    }
+    if (!meta) {
+      console.warn('[おすすめ条件] 保存情報が見つかりません token=' + token
+        + ' cache=' + (raw ? 'あり' : 'なし') + ' state=' + (stateMeta ? 'あり' : 'なし'));
+      return { success: false, message: 'セッションが切れました。お手数ですがもう一度開いてください。' };
+    }
+    criteria = criteria || {};
     var miDate = criteria.move_in_date || seedData.move_in_date || '';
     var miStrict = criteria.move_in_date ? !!criteria.move_in_strict : !!seedData.move_in_strict;
     var fields = {
