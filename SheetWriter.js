@@ -409,12 +409,22 @@ function _isBlankCriteriaValue_(v) {
 function _carryOverUntouchedCriteria_(state, before, opts) {
   if (!state || !state.data || !before) return;
   opts = opts || {};
+  // ⚠️ opts.explicitFields には「その画面が必ず送ってくる項目」を渡すこと (2026-08-21)。
+  //   この関数は「空＝触っていない」とみなして変更前の値を戻す。全項目を送ってくる
+  //   条件フォームでは、空は「消した」意味なので戻してはいけない。
+  //   これが無いと 1LDK → 指定なし のような「選択をなしにする変更」が
+  //   何度やっても打ち消されて適用されない。
+  var _explicit = {};
+  if (Array.isArray(opts.explicitFields)) {
+    for (var _ei = 0; _ei < opts.explicitFields.length; _ei++) _explicit[opts.explicitFields[_ei]] = true;
+  }
   // writeToSheet が二重に引き継ぎを走らせないための印
   state.__criteriaCarried = true;
   var carried = [];
   var missed = [];   // 変更前に値があるのに引き継げなかった項目（あってはならない）
   for (var i = 0; i < _CARRY_OVER_FIELDS.length; i++) {
     var key = _CARRY_OVER_FIELDS[i];
+    if (_explicit[key]) continue;                             // 画面が必ず送る項目 → 空は「消した」
     if (!_isBlankCriteriaValue_(state.data[key])) continue;   // 今回入力された → そのまま
     if (_isBlankCriteriaValue_(before[key])) continue;        // 変更前も空 → 補完不要
     state.data[key] = before[key];

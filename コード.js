@@ -1880,9 +1880,17 @@ function processCriteriaSelection(userId, criteria) {
     if (criteria.minFloor !== undefined) state.data.minFloor = criteria.minFloor || '';
     state.data.otherConditions = criteria.otherConditions || '';
     // フォームの「その他」をnotesとして保存（確認画面で表示）
-    if (criteria.otherConditions) {
-      state.data.notes = criteria.otherConditions;
-    }
+    // 空で送られたら消したということなので、そのまま空にする
+    state.data.notes = criteria.otherConditions || '';
+
+    // このフォームが必ず送ってくる項目。空＝「選択をなしにした」なので引き継がない。
+    // ⚠️ ここに載せ忘れると、その項目は空にする変更が打ち消されて適用されなくなる。
+    //   （1LDK → 指定なし が何度やっても戻る事故 2026-08-21）
+    var _formFields = ['rent_max', 'layouts', 'walk', 'area_min', 'building_age',
+      'building_structures', 'equipment', 'petType', 'carModel', 'notes'];
+    if (criteria.allowedFloors !== undefined) _formFields.push('allowedFloors');
+    if (criteria.roomDigitSums !== undefined) _formFields.push('roomDigitSums');
+    if (criteria.minFloor !== undefined) _formFields.push('minFloor');
     // 入居時期（フォームから送信された場合）
     if (criteria.move_in_date) {
       state.data.move_in_date = criteria.move_in_date;
@@ -1893,7 +1901,7 @@ function processCriteriaSelection(userId, criteria) {
     if (state.isChangeFlow) {
       var beforeChange = null;
       try { beforeChange = readLatestCriteria(userId); } catch (_) {}
-      try { _carryOverUntouchedCriteria_(state, beforeChange); }
+      try { _carryOverUntouchedCriteria_(state, beforeChange, { explicitFields: _formFields }); }
       catch (eC) { console.error('[条件変更] 引き継ぎ失敗(条件フォーム): ' + eC.message + '\n' + eC.stack); }
       writeToSheet(userId, state);
       // ⚠️ カードは state ではなく「保存された結果」から作ること (2026-08-16)。
@@ -3483,7 +3491,11 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
     //   エリアは管理画面で明示的に編集できるので引き継がない（空＝消したとみなす）。
     var existing = loadCustomerCriteriaByName(customerName);
     if (existing) {
-      try { _carryOverUntouchedCriteria_(state, existing, { skipArea: true }); }
+      // 管理画面もフォームに項目がある分は必ず送ってくるので、空は「消した」として扱う。
+      // ⚠️ ここに載せ忘れると、その項目は空にする変更が打ち消されて適用されなくなる。
+      var _adminFields = ['rent_max', 'layouts', 'walk', 'area_min', 'building_age',
+        'building_structures', 'equipment', 'petType', 'carModel', 'notes', 'move_in_date'];
+      try { _carryOverUntouchedCriteria_(state, existing, { skipArea: true, explicitFields: _adminFields }); }
       catch (eC2) { console.error('[条件変更] 引き継ぎ失敗(管理画面): ' + eC2.message + '\n' + eC2.stack); }
       // 入居時期を変更していないなら厳守フラグも変更前のまま。
       // boolean は「未入力」と区別できず汎用処理では拾えないので個別に扱う。
