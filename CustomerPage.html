@@ -760,10 +760,15 @@ var dailySelected = {};
 //   古い値で上書きしてしまう。押しても戻り、2回目でやっと通る、という症状になる。
 //   保存が終わるまでは再取得の結果にこの値を被せる。
 var pendingDailyChecks = {};
+// 列の移動・並び順も同じ競合が起きる（動かした直後に再取得が走ると元の列へ戻る）
+var pendingStages = {};   // name -> { stage, order }
 function applyPendingDailyChecks() {
   for (var i = 0; i < customers.length; i++) {
-    var v = pendingDailyChecks[customers[i].name];
-    if (v !== undefined) customers[i].checkedToday = v;
+    var c = customers[i];
+    var v = pendingDailyChecks[c.name];
+    if (v !== undefined) c.checkedToday = v;
+    var st = pendingStages[c.name];
+    if (st !== undefined) { c.stage = st.stage; c.order = st.order; }
   }
 }
 
@@ -1251,18 +1256,27 @@ function kanbanDrop(e) {
   names.splice(dropIndex, 0, name); // 落とした位置に挿入
 
   // 楽観的更新（ステージ＋並び順）→ 即再描画
+  // ⚠️ 保存が終わるまで pendingStages に持つこと。持たないと、直後に走る
+  //   自動再取得(_maybeAutoRefreshList)が書き込み前のシートを読んで元の列へ戻す。
   for (var k = 0; k < names.length; k++) {
     for (var c = 0; c < customers.length; c++) {
       if (customers[c].name === names[k]) { customers[c].stage = stage; customers[c].order = k; break; }
     }
+    pendingStages[names[k]] = { stage: stage, order: k };
   }
   filterCustomers();
 
+  var clearPendingStages = function () { for (var m = 0; m < names.length; m++) delete pendingStages[names[m]]; };
   google.script.run
     .withSuccessHandler(function(r) {
-      if (!(r && r.ok)) showToast((r && r.message) || '並び順の保存に失敗しました');
+      clearPendingStages();
+      if (!(r && r.ok)) { showToast((r && r.message) || '並び順の保存に失敗しました'); refreshCustomers(); }
     })
-    .withFailureHandler(function(err) { showToast('エラー: ' + (err && err.message ? err.message : '')); })
+    .withFailureHandler(function(err) {
+      clearPendingStages();
+      showToast('エラー: ' + (err && err.message ? err.message : ''));
+      refreshCustomers();
+    })
     .setKanbanOrder(stage, names);
 }
 
