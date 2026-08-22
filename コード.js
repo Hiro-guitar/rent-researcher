@@ -4661,7 +4661,9 @@ function resetKanbanStages() {
  * 空欄のときの既定は _fillDefaultStages_ で決める（電話番号の有無を見るため、
  * 問い合わせシートからの電話番号補完が終わってから入れる必要がある）。
  */
-var KANBAN_STAGE_LIST = ['メールのみ', '未接続', '追客中', '申込', '成約', '終了'];
+// ⚠️ '追客中（優先）' は担当者が手で入れる列。_fillDefaultStages_ で自動割り当てしないこと。
+//   優先すべき顧客かどうかはデータから判定できないので、人の判断だけで入る。
+var KANBAN_STAGE_LIST = ['メールのみ', '未接続', '追客中', '追客中（優先）', '申込', '成約', '終了'];
 function _normalizeStageCell_(raw) {
   var v = String(raw == null ? '' : raw).trim();
   if (v === '問い合わせ') return '未接続';   // 旧名。列の意味は引き継ぐ
