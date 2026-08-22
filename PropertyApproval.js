@@ -7853,8 +7853,14 @@ function makePreviewAllHtml(props, customerName, roomIdsCsv) {
     var rid = String(p._roomId);
     var floorDisp = p.floorText || (p.floor ? (p.floor + '\u968E') : '');
 
-    html += '<div class="card">'
-      + '<div class="prop-name">' + (i+1) + '. ' + _esc(p.buildingName) + (p.roomNumber ? ' ' + _esc(p.roomNumber) : '') + '</div>'
+    html += '<div class="card" data-roomcard="' + rid + '">'
+      + '<div class="prop-name">'
+      +   '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;">'
+      +     '<input type="checkbox" class="room-cb" data-room="' + rid + '" checked onchange="updSel()" '
+      +       'style="width:22px;height:22px;cursor:pointer;flex:0 0 auto;">'
+      +     '<span>' + (i+1) + '. ' + _esc(p.buildingName) + (p.roomNumber ? ' ' + _esc(p.roomNumber) : '') + '</span>'
+      +   '</label>'
+      + '</div>'
       + '<div class="price">' + rentMan + '\u4E07\u5186' + (mgmt ? '<span class="sub">\u7BA1\u7406\u8CBB ' + mgmt + '</span>' : '') + '</div>';
 
     // \u8A73\u7D30\u30C6\u30FC\u30D6\u30EB\uFF08\u666E\u901A\u306E\u627F\u8A8D\u30DA\u30FC\u30B8\u3068\u540C\u7B49\u306E\u60C5\u5831\u91CF\uFF09
@@ -7911,7 +7917,15 @@ function makePreviewAllHtml(props, customerName, roomIdsCsv) {
   }
 
   html += '<div class="actions">'
-    + '<a id="approveAllBtn" class="btn btn-approve" href="#" onclick="submitAll();return false;">\u2705 \u5168\u3066\u627F\u8A8D\u3057\u3066LINE\u9001\u4FE1</a>'
+    + '<a id="approveAllBtn" class="btn btn-approve" href="#" onclick="submitAll();return false;">\u2705 \u9078\u629E\u3057\u305F\u7269\u4EF6\u3092LINE\u9001\u4FE1</a>'
+    + '</div>';
+
+  // 物件の全選択/全解除（既定は全部チェック済み）
+  html = html.replace('<div class="detail">',
+    '<div class="detail">', 1);
+  html += '<div style="text-align:center;margin:8px 0 16px;font-size:13px;color:#666;">'
+    + '<a href="#" onclick="selAllRooms(true);return false;" style="margin-right:12px;">\u5168\u9078\u629E</a>'
+    + '<a href="#" onclick="selAllRooms(false);return false;">\u5168\u89E3\u9664</a>'
     + '</div>';
 
   html += '<div class="lb" id="lb" onclick="lbClose()"><span class="close">\u00D7</span><img id="lbimg" src=""></div>';
@@ -7921,13 +7935,29 @@ function makePreviewAllHtml(props, customerName, roomIdsCsv) {
     + 'function selRoom(rid,on){var cbs=document.querySelectorAll(\'.img-cb[data-room="\'+rid+\'"]\');for(var i=0;i<cbs.length;i++){cbs[i].checked=on;tog(cbs[i]);}}'
     + 'function lb(src){document.getElementById("lbimg").src=src;document.getElementById("lb").classList.add("active");}'
     + 'function lbClose(){document.getElementById("lb").classList.remove("active");}'
+    // 物件の選択状態をボタンと見た目に反映する
+    + 'function selectedRooms(){var out=[];var rs=document.querySelectorAll(".room-cb");'
+    + 'for(var i=0;i<rs.length;i++){if(rs[i].checked)out.push(rs[i].getAttribute("data-room"));}return out;}'
+    + 'function updSel(){var rs=document.querySelectorAll(".room-cb");'
+    + 'for(var i=0;i<rs.length;i++){var c=document.querySelector(\'.card[data-roomcard="\'+rs[i].getAttribute("data-room")+\'"]\');'
+    + 'if(c)c.style.opacity=rs[i].checked?"1":"0.4";}'
+    + 'var n=selectedRooms().length;var btn=document.getElementById("approveAllBtn");'
+    + 'if(btn){btn.textContent=n>0?("\\u2B50 \\u9078\\u629E\\u3057\\u305F"+n+"\\u4EF6\\u3092LINE\\u9001\\u4FE1"):"\\u9001\\u308B\\u7269\\u4EF6\\u3092\\u9078\\u3093\\u3067\\u304F\\u3060\\u3055\\u3044";'
+    + 'btn.style.opacity=n>0?"1":"0.5";btn.style.pointerEvents=n>0?"auto":"none";}}'
+    + 'function selAllRooms(on){var rs=document.querySelectorAll(".room-cb");for(var i=0;i<rs.length;i++)rs[i].checked=on;updSel();}'
+    + 'updSel();'
     + 'function submitAll(){'
+    + 'var rooms=selectedRooms();'
+    + 'if(rooms.length===0){alert("\\u9001\\u308B\\u7269\\u4EF6\\u3092\\u9078\\u3093\\u3067\\u304F\\u3060\\u3055\\u3044");return;}'
     + 'var btn=document.getElementById("approveAllBtn");'
     + 'btn.textContent="\\u2B50 \\u9001\\u4FE1\\u4E2D...";btn.style.opacity="0.6";btn.style.pointerEvents="none";'
+    // 選択した物件の画像だけを集める（外した物件は image_map にも入れない）
+    + 'var sel={};for(var s=0;s<rooms.length;s++)sel[rooms[s]]=true;'
     + 'var cbs=document.querySelectorAll(".img-cb");var map={};'
-    + 'for(var i=0;i<cbs.length;i++){var rid=cbs[i].getAttribute("data-room");if(!map[rid])map[rid]=[];if(cbs[i].checked)map[rid].push(cbs[i].getAttribute("data-idx"));}'
+    + 'for(var i=0;i<cbs.length;i++){var rid=cbs[i].getAttribute("data-room");if(!sel[rid])continue;if(!map[rid])map[rid]=[];if(cbs[i].checked)map[rid].push(cbs[i].getAttribute("data-idx"));}'
     + 'var image_map={};for(var k in map){image_map[k]=map[k].join(",");}'
-    + 'var fd={action:"confirm_approve_all",customer:' + JSON.stringify(customerName) + ',image_map:JSON.stringify(image_map),room_ids:' + JSON.stringify(roomIdsCsv) + '};'
+    // room_ids は必ず選択したものを渡す（空にすると承認待ち全件が送られてしまう）
+    + 'var fd={action:"confirm_approve_all",customer:' + JSON.stringify(customerName) + ',image_map:JSON.stringify(image_map),room_ids:rooms.join(",")};'
     + 'google.script.run'
     + '.withSuccessHandler(function(r){'
     + 'if(r.success){'

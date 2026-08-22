@@ -8415,6 +8415,10 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (gasWebappUrl && customerName) {
     const approveUrl = `${gasWebappUrl}?action=approve&customer=${encodeURIComponent(customerName)}&room_id=${prop.room_id}`;
     lines.push(`[承認してLINE送信](${approveUrl})`);
+    // この顧客の承認待ちをまとめて選んで送るページ。
+    // 1件ずつ送ると同じ人に何通も届くので、複数まとめて1カルーセルで送れるようにする。
+    const approveAllUrl = `${gasWebappUrl}?action=approve_all&customer=${encodeURIComponent(customerName)}`;
+    lines.push(`[まとめて選んで送信](${approveAllUrl})`);
   }
 
   return lines.join('\n');
