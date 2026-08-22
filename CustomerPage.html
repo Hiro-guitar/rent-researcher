@@ -708,7 +708,7 @@ function kanbanCardHtml(it) {
   var h = '<div class="kanban-card" draggable="true" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)"'
     + ' data-name="' + attrEsc(it.name) + '"' + (done ? ' style="opacity:0.45;"' : '')
     + ' onclick="openDetail(\'' + jsStr(it.name) + '\')">';
-  h += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status)
+  h += '<div class="kc-name">' + dailySelectBox(it) + esc(it.name) + ' ' + statusBadge(it.status)
     + (it.openTasks ? ' ' + taskMark(it) : '') + dailyCheckBadge(it) + '</div>';
   if (it.openTasks) {
     var _od = it.overdueTasks > 0;
@@ -751,22 +751,65 @@ function dailyCheckBadge(it) {
     + (done ? 'background:#2e4d33;color:#8fd69b;' : 'background:#3a3f4a;color:#cfd6e0;') + '">' + label + '</span>';
 }
 
-// 列ごとにまとめて処理済み／未確認に戻す。1件ずつ押さなくて済むように。
-function bulkDailyCheck(stage, checked) {
-  var names = [];
+// 任意に選んでまとめて処理する。列単位より、必要な人だけ選べる方が使いやすい。
+// 選択は画面上だけの状態（保存しない）。再描画をまたいでも残るよう名前で保持する。
+var dailySelected = {};
+
+function dailySelectBox(it) {
+  if (!isDailyCheckStage(it.stage)) return '';
+  var on = !!dailySelected[it.name];
+  return '<input type="checkbox" class="daily-sel"' + (on ? ' checked' : '')
+    + ' onclick="event.stopPropagation();toggleDailySelect(\'' + jsStr(it.name) + '\',this.checked)"'
+    + ' title="まとめて処理する物件として選択"'
+    + ' style="width:16px;height:16px;margin-right:6px;vertical-align:middle;cursor:pointer;">';
+}
+
+function toggleDailySelect(name, on) {
+  if (on) dailySelected[name] = true; else delete dailySelected[name];
+  renderDailyBar();
+}
+
+function clearDailySelection() {
+  dailySelected = {};
+  filterCustomers();
+}
+
+function selectedDailyNames() {
+  var out = [];
   for (var i = 0; i < customers.length; i++) {
     var c = customers[i];
-    if (c.stage !== stage) continue;
-    if (c.archived) continue;
-    if (!!c.checkedToday === !!checked) continue;   // 既にその状態なら触らない
-    names.push(c.name);
+    if (dailySelected[c.name] && isDailyCheckStage(c.stage) && !c.archived) out.push(c.name);
   }
+  return out;
+}
+
+// 選択があるときだけ画面下に操作バーを出す
+function renderDailyBar() {
+  var bar = document.getElementById('dailyBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'dailyBar';
+    bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:999;background:#1f2430;'
+      + 'border-top:1px solid #3a3f4a;padding:10px 16px;display:none;align-items:center;gap:12px;'
+      + 'font-size:13px;color:#ddd;box-shadow:0 -2px 10px rgba(0,0,0,0.4);';
+    document.body.appendChild(bar);
+  }
+  var names = selectedDailyNames();
+  if (names.length === 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML = '<span><b>' + names.length + '件</b> 選択中</span>'
+    + '<button onclick="bulkDailyCheck(true)" style="background:#2e7d4f;color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-weight:600;">✓ 処理済みにする</button>'
+    + '<button onclick="bulkDailyCheck(false)" style="background:#3a3f4a;color:#ddd;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;">未確認に戻す</button>'
+    + '<a href="#" onclick="clearDailySelection();return false;" style="color:#8ab;margin-left:auto;">選択を解除</a>';
+}
+
+function bulkDailyCheck(checked) {
+  var names = selectedDailyNames();
   if (names.length === 0) return;
-  if (!confirm(stage + ' の ' + names.length + '件を'
-    + (checked ? '処理済みにします。' : '未確認に戻します。') + '\nよろしいですか？')) return;
   for (var j = 0; j < customers.length; j++) {
     if (names.indexOf(customers[j].name) >= 0) customers[j].checkedToday = !!checked;
   }
+  dailySelected = {};
   filterCustomers();
   google.script.run
     .withSuccessHandler(function(r) {
@@ -919,13 +962,6 @@ function renderKanban(list) {
           ? (_todo > 0 ? ('未確認 ' + _todo + ' / ' + items.length) : ('完了 ' + items.length))
           : items.length)
       + '</span></div>';
-    if (isDailyCheckStage(stg) && items.length > 0) {
-      html += '<div style="padding:0 12px 6px;font-size:11px;">'
-        + (_todo > 0
-            ? '<a href="#" onclick="bulkDailyCheck(\'' + jsStr(stg) + '\',true);return false;" style="color:#8fd69b;">未確認' + _todo + '件をまとめて処理済みに</a>'
-            : '<a href="#" onclick="bulkDailyCheck(\'' + jsStr(stg) + '\',false);return false;" style="color:#888;">全部を未確認に戻す</a>')
-        + '</div>';
-    }
     if (STAGE_HINTS[stg]) {
       html += '<div style="padding:0 12px 6px;font-size:11px;color:#777;">' + esc(STAGE_HINTS[stg]) + '</div>';
     }
@@ -938,6 +974,7 @@ function renderKanban(list) {
   html += '</div>';
   board.innerHTML = html;
   renderTaskColumn();
+  renderDailyBar();
   _restoreKanbanScroll_(board, _scrollPos);
   if (!_taskLoaded) loadTaskOverview();
 }
