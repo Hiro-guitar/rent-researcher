@@ -5064,9 +5064,6 @@ async function searchForCustomer(tabId, customer, seenIds, delay, searchId) {
   // こだわり条件で洗面まわりを絞れるか調べるための一時ログ。
   // REINS側で絞れれば、詳細ページを開いてから「洗面所・洗面台の記載なし」で
   // 捨てている分の無駄が丸ごと消える。IDが分かったら2パス検索を実装して消す。
-  if (setStatus.reinsOptCandidates) {
-    await setStorageData({ debugLog: `[REINS調査] こだわり条件の候補: ${setStatus.reinsOptCandidates}` });
-  }
 
   // Vueリアクティブ更新を待つ
   await csleep(500);
