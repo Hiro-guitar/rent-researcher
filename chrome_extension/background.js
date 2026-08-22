@@ -7487,6 +7487,24 @@ async function sendDiscordNotification(customerName, properties, customer) {
       if (i < properties.length - 1) await sleep(1000);
     }
 
+    // ── この回に通知した物件だけを対象にした「まとめて送信」を最後に1つ出す ──
+    // ⚠️ room_ids を必ず付けること。付けずに approve_all を開くと承認待ち全件
+    //   （100件超になることがある）が並んで使い物にならない。
+    if (gasWebappUrl && properties.length > 1) {
+      const batchRoomIds = properties.map(p => p && p.room_id).filter(Boolean).slice(0, 30);
+      if (batchRoomIds.length > 1) {
+        const url = `${gasWebappUrl}?action=approve_all&select=1`
+          + `&customer=${encodeURIComponent(customerName)}`
+          + `&room_ids=${encodeURIComponent(batchRoomIds.join(','))}`;
+        await discordPostWithRetry(`${discordWebhookUrl}?thread_id=${threadId}`, {
+          content: `⬇️ 今回の${batchRoomIds.length}件から選んでまとめて送る
+[まとめて選んで送信](${url})`,
+          allowed_mentions: { parse: [] },
+          flags: 4096
+        });
+      }
+    }
+
     console.log(`Discord通知完了: ${customerName} ${properties.length}件`);
 
   } catch (err) {
@@ -8415,10 +8433,6 @@ function buildDiscordMessage(prop, index, gasWebappUrl, customerName, customer) 
   if (gasWebappUrl && customerName) {
     const approveUrl = `${gasWebappUrl}?action=approve&customer=${encodeURIComponent(customerName)}&room_id=${prop.room_id}`;
     lines.push(`[承認してLINE送信](${approveUrl})`);
-    // この顧客の承認待ちをまとめて選んで送るページ。
-    // 1件ずつ送ると同じ人に何通も届くので、複数まとめて1カルーセルで送れるようにする。
-    const approveAllUrl = `${gasWebappUrl}?action=approve_all&customer=${encodeURIComponent(customerName)}`;
-    lines.push(`[まとめて選んで送信](${approveAllUrl})`);
   }
 
   return lines.join('\n');

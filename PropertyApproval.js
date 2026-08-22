@@ -253,6 +253,13 @@ function handleApproveAll(e) {
     props.push(p);
   }
 
+  // select=1 … 渡された物件だけを一覧にして、チェックで選んでまとめて送る画面。
+  //   Discordの「まとめて選んで送信」から使う。room_ids を付けずに開くと
+  //   承認待ち全件（100件超になることがある）が並んでしまうため、
+  //   そのとき通知した物件だけを必ず渡すこと。
+  if (filterRoomIds.length > 0 && String(e.parameter.select || '') === '1') {
+    return makePreviewAllHtml(props, customerName, filterRoomIds.join(','));
+  }
   // カート（room_ids 指定）は、普通の承認ページを各物件 iframe で埋め込むフル機能コンテナを返す
   if (filterRoomIds.length > 0) {
     return makeApprovalCartHtml(props, customerName, filterRoomIds.join(','));
