@@ -629,6 +629,11 @@ function toggleCustomerArchive(name, archived) {
 // 「未接続」はまだ一度も話せておらず、LINEにも来ていない人。そのまま架電リストになる。
 // 未設定の人がどの列に入るかは GAS の _fillDefaultStages_ が決める。
 var KANBAN_STAGES = ['メールのみ', '未接続', '検索のみ', '追客中', '追客中（優先）', '申込', '成約', '終了'];
+// 1日1回「この人どうする？」を考える列。ここに居る人はカードの✓で処理済みにできる。
+// メールのみ・検索のみは触らない列なので対象にしない。
+var DAILY_CHECK_STAGES = ['未接続', '追客中', '追客中（優先）'];
+function isDailyCheckStage(st) { return DAILY_CHECK_STAGES.indexOf(st) >= 0; }
+
 var STAGE_HINTS = {
   'メールのみ': '条件が無く、LINEも電話も無い。触らない',
   '未接続': 'まだ話せていない。架電リスト',
@@ -699,9 +704,12 @@ function dayText(days, dateStr, noneText) {
 //   並べ替えで上に来るかどうかで判断する運用にしている。
 //   引越し期限だけは「過ぎている」が事実として意味を持つので例外。
 function kanbanCardHtml(it) {
+  var done = isDailyCheckStage(it.stage) && it.checkedToday;
   var h = '<div class="kanban-card" draggable="true" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)"'
-    + ' data-name="' + attrEsc(it.name) + '" onclick="openDetail(\'' + jsStr(it.name) + '\')">';
-  h += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status) + (it.openTasks ? ' ' + taskMark(it) : '') + '</div>';
+    + ' data-name="' + attrEsc(it.name) + '"' + (done ? ' style="opacity:0.45;"' : '')
+    + ' onclick="openDetail(\'' + jsStr(it.name) + '\')">';
+  h += '<div class="kc-name">' + esc(it.name) + ' ' + statusBadge(it.status)
+    + (it.openTasks ? ' ' + taskMark(it) : '') + dailyCheckBadge(it) + '</div>';
   if (it.openTasks) {
     var _od = it.overdueTasks > 0;
     h += '<div class="kc-meta" style="margin-top:2px;color:' + (_od ? '#e0707a' : '#e0b64a') + ';font-weight:600;">'
@@ -729,10 +737,81 @@ function kanbanCardHtml(it) {
   return h;
 }
 
+// 「今日この人は見た」の印。カードから1クリックで付け外しできる。
+// ⚠️ 詳細ページを開かずに済ませられることが肝。リストを上から順に片付けて、
+//   未確認が0になったらその日は終わり、という使い方をする。
+function dailyCheckBadge(it) {
+  if (!isDailyCheckStage(it.stage)) return '';
+  var done = !!it.checkedToday;
+  var label = done ? '✓ 済' : '✓ 完了';
+  var title = done ? 'クリックで未確認に戻す' : 'この人は今日やることなし → 処理済みにする';
+  return ' <span onclick="event.stopPropagation();toggleDailyCheck(\'' + jsStr(it.name) + '\',' + (done ? 'false' : 'true') + ')"'
+    + ' title="' + attrEsc(title) + '"'
+    + ' style="float:right;display:inline-block;border-radius:8px;padding:1px 8px;font-size:11px;font-weight:600;cursor:pointer;'
+    + (done ? 'background:#2e4d33;color:#8fd69b;' : 'background:#3a3f4a;color:#cfd6e0;') + '">' + label + '</span>';
+}
+
+// 列ごとにまとめて処理済み／未確認に戻す。1件ずつ押さなくて済むように。
+function bulkDailyCheck(stage, checked) {
+  var names = [];
+  for (var i = 0; i < customers.length; i++) {
+    var c = customers[i];
+    if (c.stage !== stage) continue;
+    if (c.archived) continue;
+    if (!!c.checkedToday === !!checked) continue;   // 既にその状態なら触らない
+    names.push(c.name);
+  }
+  if (names.length === 0) return;
+  if (!confirm(stage + ' の ' + names.length + '件を'
+    + (checked ? '処理済みにします。' : '未確認に戻します。') + '\nよろしいですか？')) return;
+  for (var j = 0; j < customers.length; j++) {
+    if (names.indexOf(customers[j].name) >= 0) customers[j].checkedToday = !!checked;
+  }
+  filterCustomers();
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.ok) showToast((r.updated || names.length) + '件を' + (checked ? '処理済みに' : '未確認に') + 'しました');
+      else { showToast((r && r.message) || '保存に失敗しました'); refreshCustomers(); }
+    })
+    .withFailureHandler(function(e) { showToast('エラー: ' + (e && e.message ? e.message : '')); refreshCustomers(); })
+    .setCustomersCheckedToday(names, !!checked);
+}
+
+function toggleDailyCheck(name, checked) {
+  for (var i = 0; i < customers.length; i++) {
+    if (customers[i].name === name) { customers[i].checkedToday = !!checked; break; }
+  }
+  filterCustomers();   // すぐ薄くして下へ送る（待たせない）
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (!(r && r.ok)) {
+        showToast((r && r.message) || '保存に失敗しました');
+        for (var j = 0; j < customers.length; j++) {
+          if (customers[j].name === name) { customers[j].checkedToday = !checked; break; }
+        }
+        filterCustomers();
+      }
+    })
+    .withFailureHandler(function(e) {
+      showToast('エラー: ' + (e && e.message ? e.message : ''));
+      for (var j = 0; j < customers.length; j++) {
+        if (customers[j].name === name) { customers[j].checkedToday = !checked; break; }
+      }
+      filterCustomers();
+    })
+    .setCustomerCheckedToday(name, !!checked);
+}
+
 // 列の並べ替え。既定は手動（ドラッグ順）。
 function sortColumn(items, stage) {
   var mode = kanbanSort[stage] || 'manual';
+  var daily = isDailyCheckStage(stage);
   items.sort(function(a, b) {
+    // 今日まだ見ていない人を必ず先頭に。処理済みは下へ送る。
+    if (daily) {
+      var da = a.checkedToday ? 1 : 0, db = b.checkedToday ? 1 : 0;
+      if (da !== db) return da - db;
+    }
     if (mode === 'callTry') {
       // 架電リスト用。まだ一度もかけていない人が最上位、
       // 次は最後にかけてから日が経っている順。
@@ -831,7 +910,22 @@ function renderKanban(list) {
     var items = byStage[stg];
     html += '<div class="kanban-col" data-stage="' + attrEsc(stg) + '" '
       + 'ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">';
-    html += '<div class="kanban-col-head">' + esc(stg) + '<span class="cnt">' + items.length + '</span></div>';
+    var _todo = 0;
+    if (isDailyCheckStage(stg)) {
+      for (var t2 = 0; t2 < items.length; t2++) if (!items[t2].checkedToday) _todo++;
+    }
+    html += '<div class="kanban-col-head">' + esc(stg)
+      + '<span class="cnt">' + (isDailyCheckStage(stg)
+          ? (_todo > 0 ? ('未確認 ' + _todo + ' / ' + items.length) : ('完了 ' + items.length))
+          : items.length)
+      + '</span></div>';
+    if (isDailyCheckStage(stg) && items.length > 0) {
+      html += '<div style="padding:0 12px 6px;font-size:11px;">'
+        + (_todo > 0
+            ? '<a href="#" onclick="bulkDailyCheck(\'' + jsStr(stg) + '\',true);return false;" style="color:#8fd69b;">未確認' + _todo + '件をまとめて処理済みに</a>'
+            : '<a href="#" onclick="bulkDailyCheck(\'' + jsStr(stg) + '\',false);return false;" style="color:#888;">全部を未確認に戻す</a>')
+        + '</div>';
+    }
     if (STAGE_HINTS[stg]) {
       html += '<div style="padding:0 12px 6px;font-size:11px;color:#777;">' + esc(STAGE_HINTS[stg]) + '</div>';
     }

@@ -4884,6 +4884,13 @@ function _getCustomerListForCRM_() {
         })(data[i][44]),
         phone: String(data[i][34] || '').trim(),  // AI列(35): 手動登録の電話番号
         hasPhone: !!String(data[i][34] || '').trim(),
+        // AU列(47): 最後にこの顧客を確認した日(yyyy-MM-dd)。
+        // 「1日1回、追客中の顧客について必ず考える」運用のための印。
+        // 日付で持つので翌日になれば自動で未確認に戻る。
+        checkedDate: (function (v) {
+          if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
+          return String(v == null ? '' : v).trim().substring(0, 10).replace(/\//g, '-');
+        })(data[i][46]),
         hasCriteria: false,   // 検索条件が入っているか（同名行のどれかに入っていれば true）
         moveIn: '',           // O列(15): 引越し時期
         moveInStrict: false   // AA列(27): 入居時期厳守
@@ -5106,6 +5113,12 @@ function _getCustomerListForCRM_() {
     fc.moveInAsap = !!(_mi && _mi.asap);
     fc.moveInApprox = !!(_mi && _mi.approx);
     fc.daysToMoveIn = (_mi && !_mi.asap) ? (_jstDayIndex_(_mi.ms) - _todayIdx) : null;
+  }
+
+  // 今日すでに確認したかを付ける（画面で未確認だけを先に出すため）
+  var _todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  for (var ck = 0; ck < customers.length; ck++) {
+    customers[ck].checkedToday = (customers[ck].checkedDate === _todayStr);
   }
 
   // 既定の列を決める。

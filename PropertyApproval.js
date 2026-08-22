@@ -1720,6 +1720,86 @@ function setCustomerStatusByName(customerName, status) {
   }
 }
 
+/**
+ * 「今日この顧客を確認した」印を付け外しする。検索条件シート AU列(47)。
+ *
+ * 追客中の顧客について1日1回必ず考える運用のためのもの。
+ * 日付を入れるだけなので、翌日になれば自動で未確認に戻る。
+ * checked=false のときは空にして未確認へ戻す（押し間違いの取り消し）。
+ *
+ * @param {string} customerName
+ * @param {boolean} checked
+ * @return {{ok:boolean, checkedDate:string, message:string}}
+ */
+function setCustomerCheckedToday(customerName, checked) {
+  try {
+    var nameTrim = String(customerName || '').trim();
+    if (!nameTrim) return { ok: false, message: '顧客名がありません' };
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { ok: false, message: '検索条件シートが見つかりません' };
+    var data = sheet.getDataRange().getValues();
+    // ⚠️ 読み書きは同名行の「最後の行」に揃えること（readLatestCriteria / writeToSheet と同じ）
+    var targetRow = -1;
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][1] || '').trim() === nameTrim) targetRow = i + 1;
+    }
+    if (targetRow < 0) return { ok: false, message: '顧客が見つかりません: ' + nameTrim };
+    var val = checked ? Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd') : '';
+    sheet.getRange(targetRow, 47).setValue(val);   // AU列(47)
+    return { ok: true, checkedDate: val, message: checked ? '本日確認済みにしました' : '未確認に戻しました' };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+/**
+ * 複数顧客の「本日確認済み」をまとめて付け外しする。
+ *
+ * ⚠️ 1件ずつ setValue すると人数だけシート往復が発生する。
+ *   AU列(47)を1回読んで、変更をメモリ上で当ててから1回で書き戻す。
+ *
+ * @param {string[]} customerNames
+ * @param {boolean} checked
+ * @return {{ok:boolean, updated:number, message:string}}
+ */
+function setCustomersCheckedToday(customerNames, checked) {
+  try {
+    var names = Array.isArray(customerNames) ? customerNames : [];
+    if (names.length === 0) return { ok: true, updated: 0, message: '対象がありません' };
+    var want = {};
+    for (var n = 0; n < names.length; n++) want[String(names[n]).trim()] = true;
+
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) return { ok: false, message: '検索条件シートが見つかりません' };
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) return { ok: true, updated: 0, message: '対象がありません' };
+
+    var nameCol = sheet.getRange(2, 2, lastRow - 1, 1).getValues();     // B列
+    var rng = sheet.getRange(2, 47, lastRow - 1, 1);                    // AU列
+    var vals = rng.getValues();
+    var val = checked ? Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd') : '';
+
+    // 同名行が複数あるときは最後の行だけを対象にする（読み取り側と揃える）
+    var lastIdxByName = {};
+    for (var i = 0; i < nameCol.length; i++) {
+      var nm = String(nameCol[i][0] || '').trim();
+      if (nm && want[nm]) lastIdxByName[nm] = i;
+    }
+    var updated = 0;
+    for (var k in lastIdxByName) {
+      vals[lastIdxByName[k]][0] = val;
+      updated++;
+    }
+    if (updated > 0) rng.setValues(vals);
+    console.log('[本日確認] ' + updated + '件を' + (checked ? '処理済み' : '未確認') + 'にしました');
+    return { ok: true, updated: updated, message: updated + '件を更新しました' };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
 // 顧客の営業ステージ(カンバン列)を変更する。検索条件シート AG列(33列目)に保存。
 // （AE列=31=btMode は既存利用のため衝突回避で AG=33 を使う）
 // google.script.run（顧客管理ページのカンバン・ドラッグ）から呼ばれる。
