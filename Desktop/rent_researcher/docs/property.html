@@ -93,6 +93,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 .price-main{font-size:30px;font-weight:800;color:#E5533D;letter-spacing:-0.5px;line-height:1.2}
 .price-sub{font-size:13px;color:#1a2538;margin-top:8px;letter-spacing:0.3px;word-break:keep-all;overflow-wrap:break-word}
 .price-sub .sep{color:#c8cdd4;margin:0 4px}
+/* 担当者コメント: LINEのカードに載せたひと言を詳細ページにも出す。
+   吹き出し風にして「物件データ」ではなく「人からの言葉」だと分かるようにする */
+.staff-note{display:flex;gap:10px;align-items:flex-start;background:#f6faef;border:1px solid #dcebc4;border-radius:12px;padding:12px 14px;margin:12px 0}
+.staff-note-avatar{flex-shrink:0;width:28px;height:28px;border-radius:50%;background:#6ea814;color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;line-height:1}
+.staff-note-body{flex:1;min-width:0}
+.staff-note-name{font-size:11px;color:#6b7280;margin-bottom:3px;letter-spacing:0.2px}
+.staff-note-text{font-size:14px;color:#1a2538;line-height:1.7;white-space:pre-wrap;word-break:break-word}
 /* セクションカード: 統一感のある柔らかい影 + 細い枠線 */
 .section{background:#fff;border-radius:14px;padding:18px 18px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04);border:1px solid #f0f0f0}
 /* セクション見出し: ブランド緑の縦バーアクセント + 通常文字 */
@@ -290,6 +297,7 @@ function mapDataToProperty(d) {
       adFee: d.af || '',
       currentStatus: d.cs || '',
       facilities: d.fac || '',
+      staffComment: d.sc || '',
       source: d.src || '',
       otherStations: d.os || [],
       // 画像はキー化短縮に対応: d.ib(共通base)がある場合、フルURLでない要素は base を前置して復元。
@@ -999,6 +1007,16 @@ function renderProperty(p) {
     + '<div class="price-main">' + rentDisp + '</div>'
     + '<div class="price-sub">' + priceSub + '</div>'
     + '</div>';
+
+  // 担当者コメント（LINEで送ったカードに載せたひと言と同じもの）
+  if (hv(p.staffComment)) {
+    html += '<div class="staff-note">'
+      + '<div class="staff-note-avatar">\uD83D\uDCAC</div>'
+      + '<div class="staff-note-body">'
+      + '<div class="staff-note-name">\u62C5\u5F53\u8005\u3088\u308A</div>'
+      + '<div class="staff-note-text">' + escHtml(String(p.staffComment).trim()) + '</div>'
+      + '</div></div>';
+  }
 
 
   // アクションボタン（customer と roomId がある場合のみ）

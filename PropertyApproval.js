@@ -408,7 +408,7 @@ function handleConfirmApprove(e) {
   }
 
   // ビューURL: 全項目（設備・費用含む）＋入るだけの画像を1000字以内(LINE URI上限)に詰める
-  var viewUrl = _bestViewUrl_(customerName, roomId, prop, { authoritative: authoritativeFields });
+  var viewUrl = _bestViewUrl_(customerName, roomId, prop, { authoritative: authoritativeFields, staffComment: e.parameter.staff_comment });
 
   // 画像URLをキャッシュ（property.html からの非同期取得用）
   cachePropertyImages(customerName, roomId, selectedImageUrls, selectedImageCategories);
@@ -489,7 +489,7 @@ function handleConfirmApprove(e) {
       var msPlainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(msName) + '&room_id=' + roomId;
       var msHashUrl = buildViewUrl(msName, roomId, msProp, []);
       var msMinimalUrl = buildMinimalViewUrl(msName, roomId, msProp);
-      var msViewUrl = _bestViewUrl_(msName, roomId, msProp, { authoritative: authoritativeFields });
+      var msViewUrl = _bestViewUrl_(msName, roomId, msProp, { authoritative: authoritativeFields, staffComment: msComment });
       // 画像キャッシュ
       cachePropertyImages(msName, roomId, selectedImageUrls, selectedImageCategories);
       // Flex
@@ -815,12 +815,14 @@ function handlePropertyViewApi(e) {
 
   var data = sheet.getDataRange().getValues();
   var prop = null;
+  var staffComment = '';   // O列(15): 承認時に入力した担当者コメント
   for (var i = 1; i < data.length; i++) {
     var status = String(data[i][10]);
     if (String(data[i][0]) === String(customerName) &&
         String(data[i][2]) === String(roomId) &&
         (status === 'sent' || status === 'pending')) {
       prop = rowToProperty(data[i]);
+      staffComment = String(data[i][14] || '').trim();
       break;
     }
   }
@@ -947,7 +949,9 @@ function handlePropertyViewApi(e) {
     availApplicationStatus: availApplicationStatus,
     isWatchingCancellation: isWatchingCancellation,
     // お客さん希望のこだわり条件 (設備タグの強調表示に使う)
-    customerEquipment: _getCustomerEquipmentList_(customerName)
+    customerEquipment: _getCustomerEquipmentList_(customerName),
+    // LINEのカードに載せたのと同じ担当者コメントを詳細ページにも出す
+    staffComment: staffComment
   };
 
   // キャッシュに保存（24時間）
@@ -3527,12 +3531,19 @@ function _setPendingStaffComment_(customerName, roomId, comment) {
     var data = sheet.getDataRange().getValues();
     var nameTrim = String(customerName).trim();
     var ridTrim = String(roomId).trim();
+    // 同じ物件の行が複数あるとき、view_api が読むのは sent/pending の行。
+    // 書く行がそれとズレるとコメントが詳細ページに出ないので、同じ行を選ぶ。
+    var target = -1;
     for (var i = 1; i < data.length; i++) {
-      if (String(data[i][0]).trim() === nameTrim && String(data[i][2]).trim() === ridTrim) {
-        sheet.getRange(i + 2, 15).setValue(c); // O列: 担当者コメント(再クロールで消えない)
-        return;
-      }
+      if (String(data[i][0]).trim() !== nameTrim || String(data[i][2]).trim() !== ridTrim) continue;
+      var st = String(data[i][10]);
+      if (st === 'sent' || st === 'pending') { target = i; break; }
+      if (target < 0) target = i;
     }
+    if (target < 0) return;
+    sheet.getRange(target + 2, 15).setValue(c); // O列: 担当者コメント(再クロールで消えない)
+    // 詳細ページのキャッシュを捨てて、次に開いた時にコメントが載るようにする
+    try { CacheService.getScriptCache().remove('prop2_' + nameTrim + '_' + ridTrim); } catch (eC) {}
   } catch (e) {
     console.warn('_setPendingStaffComment_ error: ' + e.message);
   }
@@ -6175,6 +6186,8 @@ function _propToViewData_(prop) {
   if (prop.layoutDetail) d.ld = prop.layoutDetail;
   if (prop.adFee) d.af = prop.adFee;
   if (prop.currentStatus) d.cs = prop.currentStatus;
+  // 担当者コメント: LINEカードに載せたひと言を詳細ページにも出す
+  if (prop.staffComment) d.sc = String(prop.staffComment).trim();
   // 設備: objectでもstringでもそのまま
   if (prop.facilities) d.fac = prop.facilities;
   if (prop.otherStations && prop.otherStations.length > 0) d.os = prop.otherStations;
@@ -6217,6 +6230,16 @@ function buildViewUrl(customerName, roomId, prop, viewImageUrls) {
 function _bestViewUrl_(customerName, roomId, prop, opts) {
   // 編集フォームで送信された項目（空欄含む）は補完で埋め戻さない
   var _auth = (opts && opts.authoritative) || {};
+  // 担当者コメント: 呼び出し側が持っていればそれ、無ければ承認待ちシートのO列から拾う。
+  // (シートへの保存より先にURLを組む経路があるため、引数優先)
+  var _sc = (opts && opts.staffComment != null) ? String(opts.staffComment).trim() : '';
+  if (!_sc) {
+    try {
+      var _scRow = (typeof findPendingRow === 'function') ? findPendingRow(customerName, roomId) : null;
+      if (_scRow && _scRow.values) _sc = String(_scRow.values[14] || '').trim();
+    } catch (_scErr) {}
+  }
+  if (_sc) prop.staffComment = _sc;
   // 物件名・間取りと同じ考え方で、設備・画像なども埋め込みデータ(m)に載せる。
   // 送信経路によっては prop に設備・住所・画像が乗っておらず（記録の property_data_json 側だけに
   // ある）、view_api では出るのに URL には入らず「最初は出ない」状態になる。
@@ -6325,7 +6348,7 @@ function _bestViewUrl_(customerName, roomId, prop, opts) {
   //    plain URL には絶対にしない（埋め込みが無いと詳細ページが view_api 待ちで固まるため）。
   var d0 = _propToViewData_(prop);
   var dropOrder = [
-    'ld', 'frd', 'mic', 'gi', 'ri', 'cn', 'os', 'ad', 'md', 'sl', 'tu', 'st', 'lt', 'cp',
+    'ld', 'frd', 'mic', 'gi', 'ri', 'cn', 'os', 'sc', 'ad', 'md', 'sl', 'tu', 'st', 'lt', 'cp',
     'sf24', 'rig', 'adp', 'gd', 'wb', 'af', 'cs', 'pk', 'bp', 'mp', 'omf', 'oof',
     'ke', 'ra', 'fi', 'rf', 'pd', 'sb', 'str', 'fac', 'si', 'ba', 'd', 'k', 'mf'
   ];
@@ -8189,14 +8212,15 @@ function sendCartCarousel(customerName, roomIdsCsv) {
       var selCats = prop.selectedImageCategories || [];
       var plainUrl = 'https://form.ehomaki.com/property.html?customer=' + encodeURIComponent(customerName) + '&room_id=' + rid;
       var hashUrl = buildViewUrl(customerName, rid, prop, []);
-      var minimalUrl = buildMinimalViewUrl(customerName, rid, prop);
-      var viewUrl = minimalUrl;
-      cachePropertyImages(customerName, rid, sel, selCats);
       // 承認ページで入力された担当者コメント（defer保存時にキャッシュ）
+      // ※ 詳細ページのURLにも載せるので、URLを組む前に確定させる
       var staffComment = '';
       try { staffComment = CacheService.getScriptCache().get('cartcomment_' + customerName + '_' + rid) || ''; } catch (eGc) {}
       // 担当者コメントを永続保存（再送時にも同じコメントを載せるため）
       _setPendingStaffComment_(customerName, rid, staffComment);
+      var minimalUrl = _bestViewUrl_(customerName, rid, prop, { staffComment: staffComment });
+      var viewUrl = minimalUrl;
+      cachePropertyImages(customerName, rid, sel, selCats);
       var flex = buildPropertyFlex(prop, {
         includeImage: sel.length > 0,
         heroImageUrls: sel,
