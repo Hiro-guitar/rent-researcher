@@ -4899,9 +4899,32 @@ function _getCustomerListForCRM_() {
       customers.push(nameMap[name]);
     }
 
+    var _rec = nameMap[name];
+
+    // ⚠️ 行そのものから決まる項目は「最後の行」の値で上書きすること (2026-08-22)。
+    //   保存側（setCustomerStage / setKanbanOrder / setCustomerCheckedToday /
+    //   writeToSheet / readLatestCriteria）はすべて同名行の最後の行を対象にしている。
+    //   ここだけ最初の行を読んでいたため、行が2つ以上ある顧客では
+    //   「完了にしても戻る」「動かした列が戻る」が必ず起きていた。
+    _rec.status = status;
+    _rec.stage = stage;
+    _rec.order = order;
+    _rec.registeredAt = regStr;
+    _rec.email = String(data[i][31] || '').trim();
+    _rec.archived = !!String(data[i][44] || '').trim();
+    _rec.archivedAt = (function (v) {
+      if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy/MM/dd');
+      return String(v || '').trim().substring(0, 10);
+    })(data[i][44]);
+    _rec.phone = String(data[i][34] || '').trim();
+    _rec.hasPhone = !!_rec.phone;
+    _rec.checkedDate = (function (v) {
+      if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
+      return String(v == null ? '' : v).trim().substring(0, 10).replace(/\//g, '-');
+    })(data[i][46]);
+
     // 条件の有無と引越し時期は「同名の行のうち入っている方」を採る。
     // 同じ人が複数行あるとき、先頭行が空でも別の行に条件が入っていることがあるため。
-    var _rec = nameMap[name];
     if (!_rec.hasCriteria) {
       try {
         if (typeof _rowHasCriteria_ === 'function' && _rowHasCriteria_(data[i])) _rec.hasCriteria = true;
