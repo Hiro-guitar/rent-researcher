@@ -3634,7 +3634,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           ok: true,
           fileName: result.fileName,
           label: result.label,
-          size: item.fileSize || item.totalBytes || 0
+          size: item.fileSize || item.totalBytes || 0,
+          // 字の大きさ調整が効いているかを画面で確かめられるようにする
+          fontFix: result.fontFix || null,
+          valueFix: result.valueFix || null
         });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });

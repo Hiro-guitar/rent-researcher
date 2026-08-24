@@ -478,6 +478,11 @@
       };
       return walk(window.$nuxt);
     };
+    // このスクリプトは isolated world で動くので、ページ側の window.$nuxt には触れない。
+    // 触れない場所で待っても永遠に見つからないため、待たずに諦める。
+    // （以前はここで 25回×200ms＝5秒 空回りしていて、詳細取得のたびに丸ごと無駄になっていた。
+    //   画像は background.js が MAIN world で別途取得している）
+    if (typeof window.$nuxt === 'undefined') return [];
     let list = null;
     for (let i = 0; i < 25; i++) {
       list = findList();

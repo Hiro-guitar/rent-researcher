@@ -200,24 +200,56 @@ function _fitCompanyCell_(printSheet, companyText) {
           compCol = c2 + 1;
           break;
         }
-        if (compCol < 0) return null;
+        if (compCol < 0) return { skipped: 'company_cell_not_found', onchu: onchuCol };
 
         // 使える幅＝「御中」より左の列の合計（右揃えなので左方向に伸びる）
         var available = 0;
         for (var w = 1; w < onchuCol; w++) available += printSheet.getColumnWidth(w);
         available -= 10;   // 「御中」との間の余白
 
-        var size = _fitFontSizeForWidth_(String(companyText || ''), maxSize, available);
+        var text = String(companyText || '');
         var cell = printSheet.getRange(r + 1, compCol);
+        var size = _fitFontSizeForWidth_(text, maxSize, available);
+        var wrapped = false;
+
+        // 宛名の枠は狭いので、長い社名を1行に収めようとすると読めない大きさになる。
+        // その場合は小さくするのではなく2行に折り返す。行の高さは自動で伸びる。
+        var MIN_READABLE = 11;
+        if (size < MIN_READABLE) {
+          // 折り返しは切りのいい所で改行されるぶん、幅を丸々2倍には使えない
+          size = _fitFontSizeForWidth_(text, maxSize, available * 1.8);
+          if (size < MIN_READABLE) size = MIN_READABLE;
+          wrapped = true;
+        }
+
         cell.setFontSize(size);
-        cell.setWrapStrategy(SpreadsheetApp.WrapStrategy.OVERFLOW);
-        return { a1: cell.getA1Notation(), size: size, max: maxSize, availablePx: available };
+        cell.setWrapStrategy(wrapped
+          ? SpreadsheetApp.WrapStrategy.WRAP
+          : SpreadsheetApp.WrapStrategy.OVERFLOW);
+
+        // 折り返すなら行の高さが足りないと縦に切れる。必要なぶんだけ広げる。
+        // 縮める方向にはしない（短い社名のときに元のレイアウトを崩さないため）。
+        var rowHeight = null;
+        if (wrapped) {
+          var lines = Math.ceil(_textUnits_(text) * size * 1.333 / available);
+          if (lines < 2) lines = 2;
+          var needed = Math.ceil(lines * size * 1.333 * 1.3) + 8;
+          if (printSheet.getRowHeight(r + 1) < needed) {
+            printSheet.setRowHeight(r + 1, needed);
+            rowHeight = needed;
+          }
+        }
+        return {
+          a1: cell.getA1Notation(), size: size, max: maxSize,
+          availablePx: available, wrapped: wrapped, rowHeight: rowHeight
+        };
       }
     }
   } catch (e) {
     console.warn('_fitCompanyCell_ error: ' + e.message);
+    return { error: e.message };
   }
-  return null;
+  return { skipped: 'onchu_not_found' };
 }
 
 /**
@@ -291,13 +323,22 @@ function _fitValueCells_(printSheet) {
  * 全角は約1文字ぶん、半角は約0.55文字ぶんの幅として見積もる。
  * 列幅はpx、フォントはptなので 1pt≒1.333px で換算する。
  */
-function _fitFontSizeForWidth_(text, maxSize, availablePx) {
+// 文字列の幅を「全角何文字ぶんか」で見積もる。
+// 全角1文字ぶんの実測値は 0.86em（8pt・21文字が193pxだったので 193/(21*8*1.333)≒0.86）。
+// 1.0で見積もると必要以上に小さくしてしまう。
+function _textUnits_(text) {
+  var FULL = 0.86;
   var units = 0;
   for (var i = 0; i < text.length; i++) {
     var code = text.charCodeAt(i);
     // ASCII と半角カナは半角幅
-    units += (code < 0x0080 || (code >= 0xFF61 && code <= 0xFF9F)) ? 0.55 : 1.0;
+    units += (code < 0x0080 || (code >= 0xFF61 && code <= 0xFF9F)) ? FULL * 0.55 : FULL;
   }
+  return units;
+}
+
+function _fitFontSizeForWidth_(text, maxSize, availablePx) {
+  var units = _textUnits_(text);
   if (units <= 0) return maxSize;
   var minSize = 7;
   for (var size = Math.max(maxSize, minSize); size > minSize; size--) {

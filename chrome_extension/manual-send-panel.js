@@ -836,7 +836,12 @@
           setStatus('失敗: ' + ((resp && resp.error) || '不明なエラー'), '#c0392b');
           return;
         }
-        setStatus(resp.label + 'をダウンロードしました：' + resp.fileName, '#1a7f37');
+        var fx = resp.fontFix;
+        var fxNote = '';
+        if (fx && fx.size) fxNote = '（宛名 ' + fx.size + 'pt/上限' + fx.max + 'pt' + (fx.wrapped ? '・2行' : '') + '）';
+        else if (fx) fxNote = '（宛名の調整なし: ' + (fx.skipped || fx.error || '?') + '）';
+        else fxNote = '（宛名の調整が実行されていません）';
+        setStatus(resp.label + 'をダウンロードしました：' + resp.fileName + '\n' + fxNote, '#1a7f37');
         closeDocForm();
       }).catch(function (e) {
         setStatus('エラー: ' + e.message, '#c0392b');
