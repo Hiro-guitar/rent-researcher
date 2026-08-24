@@ -652,7 +652,13 @@
         setStatus('別の建物が混ざっています（' + resp.buildings.join(' / ') + '）。依頼書は1建物ずつ作ってください。', '#c0392b');
         return;
       }
-      setStatus('');
+      if (!resp.company) {
+        // 元付電話番号が取れているかで、DOMごと外したのか会社名だけ空なのかが分かる
+        setStatus('元付会社名が取れませんでした（元付TEL: ' + (resp.ownerPhone || 'なし')
+          + '）。手で入れてください。詳しくは拡張のログを見てください。', '#b8860b');
+      } else {
+        setStatus('');
+      }
       openDocForm(resp);
     }).catch(function (e) {
       setStatus('エラー: ' + e.message, '#c0392b');

@@ -1538,7 +1538,7 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
           'other_monthly_fee', 'other_onetime_fee', 'move_in_conditions', 'move_out_date',
           'move_in_date', 'free_rent_detail', 'layout_detail', 'preview_start_date',
           'ad_fee', 'cleaning_fee', 'rights_fee', 'current_status',
-          'owner_company', 'owner_phone', 'ad_keisai',
+          'owner_company', 'owner_phone', 'ad_keisai', 'owner_company_debug',
         ];
         for (const key of detailFields) {
           if (d[key] && !prop[key]) {

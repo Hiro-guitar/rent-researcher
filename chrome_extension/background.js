@@ -1098,6 +1098,19 @@ async function fetchItandiDetailForManual(baseProp) {
       return { ok: false, error: '詳細抽出失敗: ' + err.message };
     }
 
+    // itandiはReactのSPAで、お問い合わせ先（元付会社）のセクションが
+    // 本体より遅れて描画されることがある。裏タブだとさらに遅い。
+    // 元付会社名は依頼書の宛名にそのまま入る値なので、出るまで数回粘る。
+    for (let retry = 0; retry < 3; retry++) {
+      const d0 = detailResult && detailResult.detail;
+      if (d0 && d0.owner_company) break;
+      await sleep(1500);
+      try {
+        const again = await sendItandiContentMessage(tabId, { type: 'ITANDI_EXTRACT_DETAIL' }, 15000);
+        if (again && again.ok && again.detail) detailResult = again;
+      } catch (err) { break; }
+    }
+
     if (detailResult && detailResult.ok && detailResult.detail) {
       const d = detailResult.detail;
       // 詳細情報をマージ（searchItandiForCustomer と同一ロジック）
@@ -1120,7 +1133,7 @@ async function fetchItandiDetailForManual(baseProp) {
         'other_monthly_fee', 'other_onetime_fee', 'move_in_conditions', 'move_out_date',
         'move_in_date', 'free_rent_detail', 'layout_detail', 'preview_start_date',
         'ad_fee', 'cleaning_fee', 'rights_fee', 'current_status',
-        'owner_company', 'owner_phone', 'ad_keisai',
+        'owner_company', 'owner_phone', 'ad_keisai', 'owner_company_debug',
       ];
       for (const key of detailFields) {
         if (d[key] && !prop[key]) prop[key] = d[key];
@@ -3448,9 +3461,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (rn && rooms.indexOf(rn) < 0) rooms.push(rn);
         });
         const buildings = [...new Set(enriched.map(d => String(d.building_name || '').trim()).filter(Boolean))];
+
+        // 元付会社名が取れないと宛名が書けない。当てずっぽうで直さずに済むよう、
+        // 何が返ってきたのかを拡張のログに残す。
+        const company = String(first.owner_company || '').trim();
+        if (!company) {
+          const dbg = first.owner_company_debug;
+          await setStorageData({
+            debugLog: '[依頼書] 元付会社名が取れませんでした'
+              + ' source=' + (first.source || items[0] && items[0].source || '?')
+              + ' url=' + (first.url ? 'あり' : 'なし')
+              + ' phone=' + (first.owner_phone || '(なし)')
+              + ' 候補=' + (Array.isArray(dbg) && dbg.length
+                  ? JSON.stringify(dbg).slice(0, 800)
+                  : '(なし)')
+          });
+        }
+
         sendResponse({
           ok: true,
-          company: String(first.owner_company || '').trim(),
+          company: company,
+          ownerPhone: String(first.owner_phone || '').trim(),
+          debug: first.owner_company_debug || null,
           building: String(first.building_name || '').trim(),
           rooms,
           // 建物がバラバラなら画面側で警告を出す

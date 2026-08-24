@@ -147,7 +147,8 @@
       '現況',
       '広告費', '広告料',
       '室内清掃費用', 'クリーニング費用',
-      '権利金'
+      '権利金',
+      '取扱店', '取扱店舗', '元付会社', '元付業者', '元付', '管理会社', 'お問い合わせ先', '問い合わせ先', '取引先'
     ];
 
     const invalidValues = ['表示について', '図面ダウンロード', '物件資料', '物件概要', '入力なし', 'なし'];
@@ -331,6 +332,15 @@
       ['室内清掃費用', 'cleaning_fee'],
       ['クリーニング費用', 'cleaning_fee'],
       ['権利金', 'rights_fee'],
+      // 元付会社名。itandiはページ構成が変わることがあるので、
+      // 決め打ちのセレクタ(.CompanyInfoArea)だけに頼らずラベルからも拾う。
+      ['取扱店舗', 'owner_company'],
+      ['取扱店', 'owner_company'],
+      ['元付会社', 'owner_company'],
+      ['元付業者', 'owner_company'],
+      ['管理会社', 'owner_company'],
+      ['お問い合わせ先', 'owner_company'],
+      ['問い合わせ先', 'owner_company'],
     ];
 
     const skipValues = ['-', 'ー', '—', '―', '入力なし', 'なし', '表示について'];
@@ -349,11 +359,58 @@
     }
 
     // ── 元付会社名・元付電話番号（お問い合わせ先セクション） ──
+    // 決め打ちのセレクタが最優先。itandi側のクラス名が変わると空になるので、
+    // 外れたときは下のフォールバックとラベル抽出（labelMapList）で拾う。
     const blockRight = document.querySelector('.CompanyInfoArea .CompanyInfoLabel .Block.Right');
     if (blockRight) {
       const spans = blockRight.querySelectorAll('span');
       if (spans[0]) detail.owner_company = spans[0].textContent.trim();
       if (spans[1]) detail.owner_phone = spans[1].textContent.trim();
+    }
+
+    // フォールバック1: CompanyInfoArea 配下から会社名らしいテキストを拾う
+    if (!detail.owner_company) {
+      const area = document.querySelector('.CompanyInfoArea, [class*="CompanyInfo"]');
+      if (area) {
+        const cand = Array.from(area.querySelectorAll('span,div,p,a'))
+          .map(el => (el.textContent || '').trim())
+          .filter(t => t && t.length <= 40 && /(株式会社|有限会社|合同会社|\(株\)|（株）|不動産|ハウス|エステート|住宅|管理)/.test(t));
+        if (cand.length) detail.owner_company = cand[0];
+      }
+    }
+    if (!detail.owner_phone) {
+      const area2 = document.querySelector('.CompanyInfoArea, [class*="CompanyInfo"]');
+      if (area2) {
+        const m = (area2.textContent || '').match(/0\d{1,4}-\d{1,4}-\d{3,4}/);
+        if (m) detail.owner_phone = m[0];
+      }
+    }
+
+    // それでも取れないときは、当てずっぽうで直さなくて済むよう手がかりを残す。
+    // 拡張のログと依頼書パネルに出るので、どのDOMを狙えばいいか分かる。
+    if (!detail.owner_company) {
+      try {
+        const hits = [];
+        const all = document.querySelectorAll('body *');
+        for (let i = 0; i < all.length && hits.length < 15; i++) {
+          const el = all[i];
+          if (el.children.length > 0) continue;   // 末端の要素だけ見る
+          const t = (el.textContent || '').trim();
+          if (!t || t.length > 40) continue;
+          if (!/(株式会社|有限会社|合同会社|\(株\)|（株）|取扱店|元付|お問い合わせ)/.test(t)) continue;
+          hits.push({ cls: String(el.className || '').slice(0, 60), tag: el.tagName, text: t });
+        }
+        detail.owner_company_debug = hits;
+      } catch (eDbg) {}
+    }
+
+    // ラベル抽出（お問い合わせ先など）は塊で取れてしまうことがあるので、
+    // 会社名として使える形に整える。依頼書の宛名にそのまま入る値なので雑にしない。
+    if (detail.owner_company) {
+      let oc = String(detail.owner_company).replace(/\s+/g, ' ').trim();
+      const m = oc.match(/(株式会社|有限会社|合同会社|（株）|\(株\)|（有）|\(有\))[^\s]{0,20}|[^\s]{1,20}(株式会社|有限会社|合同会社)/);
+      if (oc.length > 40 && m) oc = m[0];
+      detail.owner_company = oc.slice(0, 40);
     }
 
     // ── 広告掲載可否（DetailTable の「広告掲載可否」行） ──
