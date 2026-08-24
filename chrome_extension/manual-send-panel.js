@@ -641,6 +641,13 @@
     var items = getCartItems();
     if (items.length === 0) { setStatus('依頼書を作る物件を選んでください', '#c0392b'); return; }
 
+    // 依頼書に要るのは 元付会社名 / 物件名 / 部屋番号 の3つだけ。
+    // カートの時点で揃っていれば詳細ページを開く必要がない（REINSは一覧に商号がある。
+    // 選択時に詳細を取っているソースも同様）。開くと1件あたり数秒かかるので、
+    // 揃っているなら即フォームを出す。
+    var quick = quickPrepFromCart(items);
+    if (quick) { applyPrep(quick); return; }
+
     docBtn.disabled = true;
     setStatus('物件の詳細（元付会社名）を取得中…', '#666');
     sendToBackground({ type: 'REQUEST_DOC_PREP', items: items }).then(function (resp) {
@@ -648,23 +655,60 @@
         setStatus('失敗: ' + ((resp && resp.error) || '不明なエラー'), '#c0392b');
         return;
       }
-      if (resp.multiBuilding) {
-        setStatus('別の建物が混ざっています（' + resp.buildings.join(' / ') + '）。依頼書は1建物ずつ作ってください。', '#c0392b');
-        return;
-      }
-      if (!resp.company) {
-        // 元付電話番号が取れているかで、DOMごと外したのか会社名だけ空なのかが分かる
-        setStatus('元付会社名が取れませんでした（元付TEL: ' + (resp.ownerPhone || 'なし')
-          + '）。手で入れてください。詳しくは拡張のログを見てください。', '#b8860b');
-      } else {
-        setStatus('');
-      }
-      openDocForm(resp);
+      applyPrep(resp);
     }).catch(function (e) {
       setStatus('エラー: ' + e.message, '#c0392b');
     }).finally(function () {
       if (docBtn) docBtn.disabled = false;
     });
+  }
+
+  // 取得できた内容をフォームに反映する（一覧から即・詳細取得後 のどちらでも通る）
+  function applyPrep(resp) {
+    if (resp.multiBuilding) {
+      setStatus('別の建物が混ざっています（' + resp.buildings.join(' / ') + '）。依頼書は1建物ずつ作ってください。', '#c0392b');
+      return;
+    }
+    if (!resp.company) {
+      // 元付電話番号が取れているかで、DOMごと外したのか会社名だけ空なのかが分かる
+      setStatus('元付会社名が取れませんでした（元付TEL: ' + (resp.ownerPhone || 'なし')
+        + '）。手で入れてください。詳しくは拡張のログを見てください。', '#b8860b');
+    } else {
+      setStatus('');
+    }
+    openDocForm(resp);
+  }
+
+  // カートの中身だけで依頼書のフォームを埋められるか試す。
+  // 埋められなければ null を返し、詳細取得にまわす。
+  function quickPrepFromCart(items) {
+    var companies = [];
+    var buildings = [];
+    var rooms = [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i] || {};
+      var p = it.prop || {};
+      var e = it.enriched || {};
+      // REINSの一覧は「商号」を持っている。詳細取得済みなら owner_company。
+      var company = String(e.owner_company || p.owner_company || e.reins_shougo || p.shougo || '').trim();
+      var building = String(e.building_name || p.buildingName || p.building_name || '').trim();
+      var room = String(e.room_number || p.roomNumber || p.room_number || '').trim();
+      if (!company || !building) return null;   // 1件でも欠けたら詳細取得へ
+      if (companies.indexOf(company) < 0) companies.push(company);
+      if (buildings.indexOf(building) < 0) buildings.push(building);
+      if (room && rooms.indexOf(room) < 0) rooms.push(room);
+    }
+    if (!buildings.length) return null;
+    return {
+      ok: true,
+      company: companies[0],
+      ownerPhone: '',
+      building: buildings[0],
+      rooms: rooms,
+      multiBuilding: buildings.length > 1,
+      buildings: buildings,
+      failed: []
+    };
   }
 
   function closeDocForm() {
