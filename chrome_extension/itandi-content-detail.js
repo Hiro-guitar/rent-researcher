@@ -391,6 +391,17 @@
     if (!detail.owner_company) {
       try {
         const hits = [];
+        // どの段階で外したのかを切り分ける。
+        //   area なし        → お問い合わせ先セクション自体が未描画 or クラス名が変わった
+        //   area あり/right なし → セクションはあるが中の構造が変わった
+        //   両方あり          → 構造は同じで中身が空（描画待ち）
+        hits.push({
+          cls: '__probe__',
+          tag: 'INFO',
+          text: 'CompanyInfoArea=' + (document.querySelector('.CompanyInfoArea') ? 'あり' : 'なし')
+              + ' 部分一致=' + (document.querySelector('[class*="CompanyInfo"]') ? 'あり' : 'なし')
+              + ' Block.Right=' + (document.querySelector('.CompanyInfoArea .CompanyInfoLabel .Block.Right') ? 'あり' : 'なし')
+        });
         const all = document.querySelectorAll('body *');
         for (let i = 0; i < all.length && hits.length < 15; i++) {
           const el = all[i];
