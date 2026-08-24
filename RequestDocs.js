@@ -155,7 +155,7 @@ function handleMakeRequestDoc(json) {
       written: written,
       media: mediaResult,
       // 拡張側のファイル名づくり用
-      fileName: _requestDocFileName_(conf.label, building, json)
+      fileName: _requestDocFileName_(conf.label, values['物件名'])
     });
   } catch (e) {
     return out({ ok: false, error: e.message });
@@ -237,12 +237,8 @@ function _fitFontSizeForWidth_(text, maxSize, availablePx) {
   return minSize;
 }
 
-function _requestDocFileName_(label, building, json) {
-  var parts = [label, building];
-  var rooms = String(json.rooms || '').trim();
-  if (rooms) parts.push(rooms.replace(/[、,\s]+/g, '-'));
-  var stamp = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd');
-  parts.push(stamp);
-  // ファイル名に使えない文字を落とす
-  return parts.join('_').replace(/[\\\/:*?"<>|]/g, '') + '.pdf';
+// ファイル名は「内見依頼書_物件名.pdf」。
+// 物件名は書類に印刷されるものと同じ（広告掲載依頼書は部屋番号込み）。
+function _requestDocFileName_(label, building) {
+  return (label + '_' + building).replace(/[\\\/:*?"<>|]/g, '').trim() + '.pdf';
 }

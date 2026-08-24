@@ -651,6 +651,27 @@ async function gasPost(body) {
  * @param {Object} options - fetch のオプション
  * @param {Object} [opts] - { timeoutMs = 90000, label = '' }
  */
+// 依頼書PDFのファイル名を確実に自分で決めるための仕掛け。
+// chrome.downloads.download の filename は、サーバが Content-Disposition で
+// ファイル名を返すとそちらが優先されてしまう（Googleは
+// 「コピー～ 内見・広告掲載依頼書 - 内見依頼書・印刷用.pdf」を返す）。
+// onDeterminingFilename で suggest() すれば確実に上書きできる。
+const _requestDocFileNames = new Map();   // トークン -> ファイル名
+if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
+  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    try {
+      const m = String(item.url || '').match(/[?&]rrdoc=([A-Za-z0-9_-]+)/);
+      if (m && _requestDocFileNames.has(m[1])) {
+        const name = _requestDocFileNames.get(m[1]);
+        _requestDocFileNames.delete(m[1]);
+        suggest({ filename: name, conflictAction: 'uniquify' });
+        return;
+      }
+    } catch (e) {}
+    suggest();
+  });
+}
+
 // chrome.downloads の完了を待つ。in_progress のままタイムアウトしたら最後の状態を返す。
 function _waitForDownload(downloadId, timeoutMs) {
   return new Promise((resolve) => {
@@ -3535,8 +3556,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           + '&gridlines=false&printtitle=false&sheetnames=false&pagenumbers=false&fzr=false'
           + '&top_margin=0.4&bottom_margin=0.4&left_margin=0.4&right_margin=0.4';
 
+        // ファイル名を onDeterminingFilename で上書きするための目印。
+        // Googleは知らないクエリは無視するので、URLに付けても書き出し結果は変わらない。
+        const token = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+        _requestDocFileNames.set(token, result.fileName);
+        const downloadUrl = pdfUrl + '&rrdoc=' + token;
+
         const downloadId = await new Promise((resolve, reject) => {
-          chrome.downloads.download({ url: pdfUrl, filename: result.fileName, saveAs: false }, (id) => {
+          chrome.downloads.download({ url: downloadUrl, filename: result.fileName, saveAs: false }, (id) => {
             const err = chrome.runtime.lastError;
             if (err || id === undefined) { reject(new Error(err ? err.message : 'ダウンロードを開始できませんでした')); return; }
             resolve(id);
