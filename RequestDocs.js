@@ -121,12 +121,17 @@ function handleMakeRequestDoc(json) {
     if (!inputSheet) return out({ ok: false, error: 'シートが見つかりません: ' + conf.inputSheet });
     if (!printSheet) return out({ ok: false, error: 'シートが見つかりません: ' + conf.printSheet });
 
+    var rooms = String(json.rooms || '').trim();
     var values = { '会社名': company, '物件名': building };
     if (kind === 'viewing') {
       values['内見日'] = String(json.date || '').trim();
       values['時間'] = String(json.time || '').trim();
       // 同じ建物の複数部屋をまとめて内見することがあるので、部屋番号は連結して1行に入れる
-      values['部屋番号'] = String(json.rooms || '').trim();
+      values['部屋番号'] = rooms;
+    } else if (kind === 'ad') {
+      // 広告掲載依頼書には部屋番号の欄が無いので、物件名に続けて入れる
+      // （テンプレートの見本「みらいえ高田馬場 1」も同じ書き方）
+      if (rooms) values['物件名'] = building + ' ' + rooms;
     }
 
     var written = _setByLabelColumnA_(inputSheet, values);
@@ -137,11 +142,14 @@ function handleMakeRequestDoc(json) {
       if (media) mediaResult = _setBesideLabelOnPrintSheet_(printSheet, /広告媒体/, media);
     }
 
+    var fontFix = _fitCompanyCell_(printSheet, company);
+
     SpreadsheetApp.flush();
 
     return out({
       ok: true,
       label: conf.label,
+      fontFix: fontFix,
       ssId: REQUEST_DOC_SS_ID,
       printGid: printSheet.getSheetId(),
       written: written,
@@ -154,6 +162,79 @@ function handleMakeRequestDoc(json) {
   } finally {
     try { lock.releaseLock(); } catch (eR) {}
   }
+}
+
+/**
+ * 宛名（会社名）を読みやすい大きさにする。
+ *
+ * ・内見依頼書の会社名セルはフォントが小さく設定されていて読みにくいので、
+ *   隣の「御中」と同じ大きさに揃える。
+ * ・ただし大きくすると長い社名が見切れる。会社名は右揃えなので左へ伸びる＝
+ *   「御中」より左の列の幅が使える。そこに収まる範囲で一番大きい字にする。
+ * ・「縮小して全体を表示」だと勝手に極小になるので OVERFLOW にして自分で決める。
+ *
+ * テンプレートを直接直してもいいが、書き込みのたびに揃えておけば
+ * 社名の長さが変わっても毎回ちょうどよくなる。
+ */
+function _fitCompanyCell_(printSheet, companyText) {
+  try {
+    var lastRow = printSheet.getLastRow();
+    var lastCol = printSheet.getLastColumn();
+    if (lastRow < 1 || lastCol < 2) return null;
+    var vals = printSheet.getRange(1, 1, lastRow, lastCol).getValues();
+
+    for (var r = 0; r < vals.length; r++) {
+      for (var c = 0; c < vals[r].length; c++) {
+        if (String(vals[r][c] || '').trim() !== '御中') continue;
+
+        var onchuCol = c + 1;                       // 1始まり
+        var maxSize = printSheet.getRange(r + 1, onchuCol).getFontSize();
+
+        // 「御中」から左へ、最初に中身のあるセル＝会社名
+        var compCol = -1;
+        for (var c2 = c - 1; c2 >= 0; c2--) {
+          if (String(vals[r][c2] || '').trim() === '') continue;
+          compCol = c2 + 1;
+          break;
+        }
+        if (compCol < 0) return null;
+
+        // 使える幅＝「御中」より左の列の合計（右揃えなので左方向に伸びる）
+        var available = 0;
+        for (var w = 1; w < onchuCol; w++) available += printSheet.getColumnWidth(w);
+        available -= 10;   // 「御中」との間の余白
+
+        var size = _fitFontSizeForWidth_(String(companyText || ''), maxSize, available);
+        var cell = printSheet.getRange(r + 1, compCol);
+        cell.setFontSize(size);
+        cell.setWrapStrategy(SpreadsheetApp.WrapStrategy.OVERFLOW);
+        return { a1: cell.getA1Notation(), size: size, max: maxSize, availablePx: available };
+      }
+    }
+  } catch (e) {
+    console.warn('_fitCompanyCell_ error: ' + e.message);
+  }
+  return null;
+}
+
+/**
+ * 幅(px)に収まる一番大きいフォントサイズ(pt)を返す。
+ * 全角は約1文字ぶん、半角は約0.55文字ぶんの幅として見積もる。
+ * 列幅はpx、フォントはptなので 1pt≒1.333px で換算する。
+ */
+function _fitFontSizeForWidth_(text, maxSize, availablePx) {
+  var units = 0;
+  for (var i = 0; i < text.length; i++) {
+    var code = text.charCodeAt(i);
+    // ASCII と半角カナは半角幅
+    units += (code < 0x0080 || (code >= 0xFF61 && code <= 0xFF9F)) ? 0.55 : 1.0;
+  }
+  if (units <= 0) return maxSize;
+  var minSize = 7;
+  for (var size = Math.max(maxSize, minSize); size > minSize; size--) {
+    if (units * size * 1.333 <= availablePx) return size;
+  }
+  return minSize;
 }
 
 function _requestDocFileName_(label, building, json) {

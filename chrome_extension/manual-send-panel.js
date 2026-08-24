@@ -760,10 +760,9 @@
     var mediaLabel = mkLabel('広告媒体');
     function syncKind() {
       var viewing = kindViewing.checked;
-      [roomsLabel, roomsBox, addRoomBtn, whenLabel, whenRow].forEach(function (el) {
-        el.style.display = viewing ? '' : 'none';
-      });
-      roomsBox.style.display = viewing ? 'flex' : 'none';
+      // 部屋番号は広告掲載依頼書でも使う（欄が無いので物件名に続けて入る）
+      roomsLabel.textContent = viewing ? '部屋番号' : '部屋番号（物件名の後ろに入ります）';
+      [whenLabel, whenRow].forEach(function (el) { el.style.display = viewing ? '' : 'none'; });
       whenRow.style.display = viewing ? 'flex' : 'none';
       [mediaLabel, mediaSel].forEach(function (el) { el.style.display = viewing ? 'none' : ''; });
     }
@@ -786,16 +785,15 @@
       if (!company) { setStatus('会社名を入れてください', '#c0392b'); companyIn.focus(); return; }
       if (!building) { setStatus('物件名を入れてください', '#c0392b'); buildingIn.focus(); return; }
 
-      var rooms = '';
+      var vals = [];
+      roomsBox.querySelectorAll('.__msp-doc-room').forEach(function (i) {
+        var v = i.value.trim();
+        if (v && vals.indexOf(v) < 0) vals.push(v);
+      });
+      var rooms = vals.join('、');
       var date = '';
       var time = '';
       if (kind === 'viewing') {
-        var vals = [];
-        roomsBox.querySelectorAll('.__msp-doc-room').forEach(function (i) {
-          var v = i.value.trim();
-          if (v && vals.indexOf(v) < 0) vals.push(v);
-        });
-        rooms = vals.join('、');
         // 「8月26日」の形にする。テンプレートがこの書式で印刷される。
         if (dateIn.value) {
           var d = dateIn.value.split('-');
