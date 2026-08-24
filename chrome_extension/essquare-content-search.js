@@ -16,6 +16,23 @@
 
   var ESSQUARE_BASE = 'https://rent.es-square.net';
 
+  // 元付会社名は resultItemMotoduke の中。「元付」というラベルの次の要素が会社名。
+  // 位置(nth-child)ではなくラベル起点にしておけば、並び順が変わっても追従できる。
+  function findOwnerCompany(row) {
+    try {
+      var box = row.querySelector('[data-testid="resultItemMotoduke"]');
+      if (!box) return '';
+      var kids = Array.prototype.slice.call(box.children);
+      for (var i = 0; i < kids.length - 1; i++) {
+        if (kids[i].textContent.trim() !== '元付') continue;
+        return kids[i + 1].textContent.trim();
+      }
+      // ラベルが見つからないときだけ位置で拾う
+      var byPos = box.children[3];
+      return byPos ? byPos.textContent.trim() : '';
+    } catch (e) { return ''; }
+  }
+
   var essquareManualAdapter = {
     source: 'essquare',
     collect: function () {
@@ -56,6 +73,8 @@
           image_url: '',
           image_urls: [],
           url: ESSQUARE_BASE + '/bukken/chintai/search/detail/' + d.uuid,
+          // 依頼書の宛名に使う。一覧で取れれば詳細ページを開かずに済む
+          owner_company: findOwnerCompany(row),
         };
         if (!prop.building_name) continue;
         out.push({ rowEl: row, prop: prop });

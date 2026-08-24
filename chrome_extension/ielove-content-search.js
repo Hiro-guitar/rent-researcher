@@ -383,13 +383,27 @@
     };
   }
 
+  // 元付会社名は .motozuke-info（元付情報）の中。手書きのクラス名なので比較的堅牢。
+  // .group_name_area は電話番号の span も含むので、それを除いて会社名だけを取る。
+  function findOwnerCompany(card) {
+    try {
+      var el = card.querySelector('.motozuke-info .group_name_area > span:not(.phone_area)')
+            || card.querySelector('[class*="motozuke"] [class*="group_name"] > span:not([class*="phone"])');
+      return el ? el.textContent.trim() : '';
+    } catch (e) { return ''; }
+  }
+
   const ieloveManualAdapter = {
     source: 'ielove',
     collect: function () {
       const out = [];
       document.querySelectorAll('table.estate_list').forEach(function (card) {
         const prop = normalizeIeloveProp(parseEstateCard(card));
-        if (prop && prop.buildingName) out.push({ rowEl: card, prop: prop });
+        if (prop && prop.buildingName) {
+          // 依頼書の宛名に使う。一覧で取れれば詳細ページを開かずに済む
+          prop.owner_company = findOwnerCompany(card);
+          out.push({ rowEl: card, prop: prop });
+        }
       });
       return out;
     }

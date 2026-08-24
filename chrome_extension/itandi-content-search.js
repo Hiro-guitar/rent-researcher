@@ -213,6 +213,28 @@
   // ─────────────────────────────────────────────
   // 手動送信パネル用アダプタ（itandi 検索結果一覧）
   // ─────────────────────────────────────────────
+  // 元付会社名は「部屋の行」ではなく、その上の建物カードのヘッダに出ている。
+  // クラス名は emotion の自動生成（css-xxxx）でビルドのたびに変わるため使えない。
+  // 会社アイコン(svg)の path だけは意味のある目印なので、それを起点に登って拾う。
+  const ITANDI_COMPANY_ICON_D = 'M21 21H3';
+  function findOwnerCompany(roomBox) {
+    try {
+      let node = roomBox;
+      while (node && node !== document.body) {
+        const paths = node.querySelectorAll('svg path');
+        for (const path of paths) {
+          if (!(path.getAttribute('d') || '').startsWith(ITANDI_COMPANY_ICON_D)) continue;
+          const span = path.parentElement && path.parentElement.parentElement
+            && path.parentElement.parentElement.querySelector('span');
+          const t = span ? span.textContent.trim() : '';
+          if (t) return t;
+        }
+        node = node.parentElement;   // 部屋の行 → 建物カードへ登る
+      }
+    } catch (e) {}
+    return '';
+  }
+
   const itandiManualAdapter = {
     source: 'itandi',
     collect: function () {
@@ -256,6 +278,8 @@
           image_url: '',
           image_urls: [],
           url: ITANDI_BASE + '/rent_rooms/' + roomId,
+          // 依頼書の宛名に使う。一覧で取れれば詳細ページを開かずに済む
+          owner_company: findOwnerCompany(roomBox),
         };
         out.push({ rowEl: roomBox, prop: prop });
       });
