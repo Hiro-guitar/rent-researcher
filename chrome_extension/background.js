@@ -756,6 +756,10 @@ async function getManualSearchCustomer(tabId) {
 async function fetchReinsDetailForManual(tabId, target, opts = {}) {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const alreadyOnDetail = !!opts.alreadyOnDetail;
+  // 依頼書のように部屋番号・物件名しか要らない用途では画像を取らない。
+  // 画像は「1枚ずつページ内fetch→base64化→外部へアップロード」と重く、
+  // 詳細取得の時間のほとんどをここが占めている。
+  const skipImages = !!opts.skipImages;
   const propertyNumber = String((target && target.propertyNumber) || '');
   const rowIndex = (target && typeof target.index === 'number') ? target.index : -1;
 
@@ -830,8 +834,9 @@ async function fetchReinsDetailForManual(tabId, target, opts = {}) {
     const d = detailResp.data; // snake_case
 
     // ── 3. 画像を base64 で取得（$nuxt→bkknGzuList、ページ内fetchでcookie付き）──
+    // skipImages のときは取りにいかない（依頼書では使わないため）
     let imageBase64s = [];
-    try {
+    if (!skipImages) try {
       const imageResults = await Promise.race([
         chrome.scripting.executeScript({
           target: { tabId },
@@ -3361,7 +3366,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // 手動カートの各アイテムを「送信と同じ形」に詳細取得する。
   // ⚠️ room_id は送信経路と同じものを使うこと。違うと重複判定やキャンセル待ち監視が
   //   別物件として扱われてしまう。そのため送信と同じ fetch*ForManual を通す。
-  async function _enrichManualCartItems(items, senderTabId, onProgress) {
+  // opts.skipImages: 画像が要らない用途（依頼書）では取得を省いて速くする
+  async function _enrichManualCartItems(items, senderTabId, onProgress, opts) {
+    const skipImages = !!(opts && opts.skipImages);
     const enriched = [];
     const failed = [];
     let done = 0;
@@ -3381,7 +3388,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             rres = await fetchReinsDetailForManual(senderTabId, {
               propertyNumber: p.reins_property_number || p.propertyNumber || '',
               index: (typeof p.reins_row_index === 'number') ? p.reins_row_index : -1
-            });
+            }, { skipImages: skipImages });
           } catch (e) {
             rres = { ok: false, error: e.message };
           }
@@ -3489,7 +3496,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const progress = async (done, total) => {
           try { await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done, total, skipped: 0 }); } catch (e) {}
         };
-        const { enriched, failed } = await _enrichManualCartItems(items, senderTabId, progress);
+        // 依頼書に要るのは会社名・物件名・部屋番号だけ。画像は取らない（そこが一番重い）
+        const { enriched, failed } = await _enrichManualCartItems(items, senderTabId, progress, { skipImages: true });
         if (!enriched.length) {
           sendResponse({ ok: false, error: '詳細取得に失敗しました' + (failed.length ? '：' + failed.join(' / ') : '') });
           return;

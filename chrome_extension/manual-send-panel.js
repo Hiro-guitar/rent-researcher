@@ -618,7 +618,7 @@
     if (quick) { applyPrep(quick); return; }
 
     docBtn.disabled = true;
-    setStatus('物件の詳細（元付会社名）を取得中…', '#666');
+    setStatus('物件の詳細を取得中…（画像は取りません）', '#666');
     sendToBackground({ type: 'REQUEST_DOC_PREP', items: items }).then(function (resp) {
       if (!resp || !resp.ok) {
         setStatus('失敗: ' + ((resp && resp.error) || '不明なエラー'), '#c0392b');
@@ -663,6 +663,9 @@
       var building = String(e.building_name || p.buildingName || p.building_name || '').trim();
       var room = String(e.room_number || p.roomNumber || p.room_number || '').trim();
       if (!company || !building) return null;   // 1件でも欠けたら詳細取得へ
+      // REINSの一覧には部屋番号が無い。依頼書には要るので詳細を開くしかない。
+      // （そのときも画像は取らないので、送信時の詳細取得よりはずっと速い）
+      if (it.source === 'reins' && !room) return null;
       if (companies.indexOf(company) < 0) companies.push(company);
       if (buildings.indexOf(building) < 0) buildings.push(building);
       if (room && rooms.indexOf(room) < 0) rooms.push(room);
