@@ -807,7 +807,12 @@ async function fetchReinsDetailForManual(tabId, target, opts = {}) {
       }
       // SPA遷移: 詳細ページのラベル要素出現で描画完了を検知（遅延セクション含めて minCount を増やす）
       await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 5 });
-      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 20 });
+      // 画像が要らない用途（依頼書）では、遅れて出るセクションを待たずに先へ進む。
+      // 欲しいのは部屋番号・物件名だけで、これらは早い段階で描画されている。
+      // 足りなければ抽出後に待ち直す（下の再抽出）。
+      if (!skipImages) {
+        await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 20 });
+      }
     } else {
       // 既に詳細ページ前提でも、念のため描画完了を待つ
       await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 5 });
@@ -821,7 +826,7 @@ async function fetchReinsDetailForManual(tabId, target, opts = {}) {
     } catch (e) {
       return { ok: false, error: 'content-detail.js注入失敗: ' + e.message };
     }
-    await sleep(150);
+    await sleep(30);
     let detailResp;
     try {
       detailResp = await chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_PROPERTY_DETAIL' });
@@ -831,7 +836,17 @@ async function fetchReinsDetailForManual(tabId, target, opts = {}) {
     if (!detailResp || !detailResp.success || !detailResp.data) {
       return { ok: false, error: '詳細抽出失敗: ' + ((detailResp && detailResp.error) || 'no data') };
     }
-    const d = detailResp.data; // snake_case
+    let d = detailResp.data; // snake_case
+
+    // 早く抜けた結果、部屋番号がまだ描画されていなかった場合だけ待ち直す。
+    // 空振りしても遅くなるだけで、値を取り違えることはない。
+    if (skipImages && !alreadyOnDetail && !String(d.room_number || '').trim()) {
+      await waitForDomReady(tabId, '.p-label-title', { timeout: 15000, minCount: 20 });
+      try {
+        const again = await chrome.tabs.sendMessage(tabId, { type: 'EXTRACT_PROPERTY_DETAIL' });
+        if (again && again.success && again.data && again.data.building_name) d = again.data;
+      } catch (e) {}
+    }
 
     // ── 3. 画像を base64 で取得（$nuxt→bkknGzuList、ページ内fetchでcookie付き）──
     // skipImages のときは取りにいかない（依頼書では使わないため）
@@ -954,20 +969,23 @@ async function fetchReinsDetailForManual(tabId, target, opts = {}) {
     // ── 6. 検索結果一覧(GBK002200)へ戻る（B案=alreadyOnDetail はスキップ）──
     if (!alreadyOnDetail) {
       try {
-        // 残留モーダルを閉じる
-        await chrome.scripting.executeScript({
+        // 残留モーダルを閉じる。閉じるものが無ければ待たない
+        // （画像を開かない依頼書経路ではモーダルはまず出ない）
+        const closed = await chrome.scripting.executeScript({
           target: { tabId }, world: 'MAIN',
           func: () => {
+            let n = 0;
             for (let i = 0; i < 3; i++) {
               const m = document.querySelector('.modal.show, .image-view');
               if (!m) break;
               const cb = document.querySelector('.modal.show .btn.btn-outline, .modal.show .close, .modal .btn.btn-outline');
-              if (cb) cb.click();
+              if (cb) { cb.click(); n++; }
               document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
             }
+            return n;
           }
         });
-        await sleep(500);
+        if (closed && closed[0] && closed[0].result > 0) await sleep(500);
         // 戻る操作（UI戻るボタン→Vue Router→history）
         await chrome.scripting.executeScript({
           target: { tabId }, world: 'MAIN',
@@ -981,10 +999,18 @@ async function fetchReinsDetailForManual(tabId, target, opts = {}) {
           }
         });
         // 一覧に戻り、行が再描画されるまで待つ（次の物件処理のため）
-        for (let bw = 0; bw < 20; bw++) {
-          await sleep(500);
+        // 先に確認してから待つ。以前は先に500ms待っていたので、すぐ戻れていても必ず待っていた。
+        for (let bw = 0; bw < 40; bw++) {
           const bt = await chrome.tabs.get(tabId);
-          if (bw >= 6 && bt.url && bt.url.includes('GBK003200')) {
+          if (bt.url && bt.url.includes('GBK002200')) {
+            const rowsCheck = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => document.querySelectorAll('.p-table-body-row').length
+            });
+            if ((rowsCheck && rowsCheck[0] && rowsCheck[0].result) > 0) break;
+          }
+          // 3秒たっても詳細ページのままなら、もう一度戻る操作をする
+          if (bw === 15 && bt.url && bt.url.includes('GBK003200')) {
             await chrome.scripting.executeScript({
               target: { tabId }, world: 'MAIN',
               func: () => {
@@ -996,13 +1022,7 @@ async function fetchReinsDetailForManual(tabId, target, opts = {}) {
               }
             });
           }
-          if (bt.url && bt.url.includes('GBK002200')) {
-            const rowsCheck = await chrome.scripting.executeScript({
-              target: { tabId },
-              func: () => document.querySelectorAll('.p-table-body-row').length
-            });
-            if ((rowsCheck && rowsCheck[0] && rowsCheck[0].result) > 0) break;
-          }
+          await sleep(bw < 15 ? 200 : 500);
         }
       } catch (e) {
         // 戻り失敗は致命的ではない（detail は取得済み）。ログのみ。

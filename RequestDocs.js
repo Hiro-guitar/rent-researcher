@@ -142,14 +142,17 @@ function handleMakeRequestDoc(json) {
       if (media) mediaResult = _setBesideLabelOnPrintSheet_(printSheet, /広告媒体/, media);
     }
 
+    // 先に確定させてから字の大きさを決める（値は数式で入力用シートを参照しているため）
+    SpreadsheetApp.flush();
     var fontFix = _fitCompanyCell_(printSheet, company);
-
+    var valueFix = _fitValueCells_(printSheet);
     SpreadsheetApp.flush();
 
     return out({
       ok: true,
       label: conf.label,
       fontFix: fontFix,
+      valueFix: valueFix,
       ssId: REQUEST_DOC_SS_ID,
       printGid: printSheet.getSheetId(),
       written: written,
@@ -215,6 +218,72 @@ function _fitCompanyCell_(printSheet, companyText) {
     console.warn('_fitCompanyCell_ error: ' + e.message);
   }
   return null;
+}
+
+/**
+ * 物件名・部屋番号などの値が枠からはみ出して切れないようにする。
+ *
+ * テンプレートの値セルは幅を超えると欠けてしまう（「ＧＲＡＮＤ　ＢＬＥＵ　ＦＵＫＡＳＡＷＡ」が
+ * 途中で切れる）。セルの幅（結合していれば結合ぶん）に収まる大きさまで字を小さくする。
+ *
+ * 基準の大きさは毎回ラベル（「物件名：」等）から取る。前回設定した値を基準にすると
+ * 実行のたびに小さくなっていってしまうため。短い値なら元の大きさに戻る。
+ */
+var REQUEST_DOC_VALUE_LABELS = ['物件名', '部屋番号', '内見日', '時間', '広告媒体'];
+
+function _fitValueCells_(printSheet) {
+  var fixed = [];
+  try {
+    var lastRow = printSheet.getLastRow();
+    var lastCol = printSheet.getLastColumn();
+    if (lastRow < 1 || lastCol < 2) return fixed;
+    var vals = printSheet.getRange(1, 1, lastRow, lastCol).getValues();
+
+    for (var r = 0; r < vals.length; r++) {
+      for (var c = 0; c < vals[r].length - 1; c++) {
+        var cellText = String(vals[r][c] || '').trim();
+        var label = null;
+        for (var li = 0; li < REQUEST_DOC_VALUE_LABELS.length; li++) {
+          var L = REQUEST_DOC_VALUE_LABELS[li];
+          // 「物件名：」のようにコロン付きで入っている
+          if (cellText === L || cellText === L + '：' || cellText === L + ':') { label = L; break; }
+        }
+        if (!label) continue;
+
+        // ラベルの右隣から、最初の中身のあるセル＝値
+        var valCol = -1;
+        for (var c2 = c + 1; c2 < vals[r].length; c2++) {
+          if (String(vals[r][c2] || '').trim() === '') continue;
+          valCol = c2 + 1;
+          break;
+        }
+        if (valCol < 0) continue;
+
+        var cell = printSheet.getRange(r + 1, valCol);
+        var text = String(cell.getDisplayValue() || '');
+        if (!text) continue;
+
+        // 使える幅＝そのセルの幅（結合していれば結合した列ぶん）
+        var startCol = valCol, numCols = 1;
+        var merged = cell.getMergedRanges();
+        if (merged && merged.length) {
+          startCol = merged[0].getColumn();
+          numCols = merged[0].getNumColumns();
+        }
+        var available = 0;
+        for (var w = startCol; w < startCol + numCols; w++) available += printSheet.getColumnWidth(w);
+        available -= 8;   // 左右の余白
+
+        var base = printSheet.getRange(r + 1, c + 1).getFontSize();   // ラベルの大きさが基準
+        var size = _fitFontSizeForWidth_(text, base, available);
+        if (cell.getFontSize() !== size) cell.setFontSize(size);
+        fixed.push({ label: label, a1: cell.getA1Notation(), size: size, base: base });
+      }
+    }
+  } catch (e) {
+    console.warn('_fitValueCells_ error: ' + e.message);
+  }
+  return fixed;
 }
 
 /**
