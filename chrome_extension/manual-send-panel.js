@@ -35,6 +35,8 @@
   var watchBtn = null;
   var metricsBtn = null;
   var publishBtn = null;
+  var docBtn = null;      // 依頼書を作るボタン
+  var docFormEl = null;   // 依頼書の入力フォーム（開いている間だけ存在）
   var equipBtCb = null, equipWashCb = null; // 手動: 順位検索の設備条件(バストイレ別/独立洗面)
   var lastMetricItems = []; // 競合数・順位の計算対象（index→rowEl対応の保持）
 
@@ -378,6 +380,9 @@
     metricsBtn = mkActionBtn('競合数・順位を調べる', '#0b66c3', onCheckMetricsClick);
     // SUUMOに掲載ボタン
     publishBtn = mkActionBtn('SUUMOに掲載', '#e67e22', onPublishSuumoClick);
+    // 内見依頼書・広告掲載依頼書をPDFで作るボタン
+    docBtn = mkActionBtn('📄 依頼書を作る', '#6b4fbb', onMakeDocClick);
+    docBtn.title = '選択した物件の内見依頼書／広告掲載依頼書をPDFで作ります';
 
     // ステータス
     statusEl = document.createElement('div');
@@ -418,6 +423,7 @@
     body.appendChild(equipRow);
     body.appendChild(metricsBtn);
     body.appendChild(publishBtn);
+    body.appendChild(docBtn);
     body.appendChild(statusEl);
 
     panelEl.appendChild(header);
@@ -622,6 +628,223 @@
       updateCount();
     });
   }
+
+
+  // ─────────────────────────────────────────────
+  // 内見依頼書・広告掲載依頼書をPDFで作る
+  //
+  // 元付会社名は一覧ページには出ていないので、詳細ページを開いて取ってくる
+  // （SUUMO掲載と同じ仕組み）。取れた値をフォームに入れて、直せるようにしておく。
+  // ─────────────────────────────────────────────
+  function onMakeDocClick() {
+    if (docFormEl) { closeDocForm(); return; }
+    var items = getCartItems();
+    if (items.length === 0) { setStatus('依頼書を作る物件を選んでください', '#c0392b'); return; }
+
+    docBtn.disabled = true;
+    setStatus('物件の詳細（元付会社名）を取得中…', '#666');
+    sendToBackground({ type: 'REQUEST_DOC_PREP', items: items }).then(function (resp) {
+      if (!resp || !resp.ok) {
+        setStatus('失敗: ' + ((resp && resp.error) || '不明なエラー'), '#c0392b');
+        return;
+      }
+      if (resp.multiBuilding) {
+        setStatus('別の建物が混ざっています（' + resp.buildings.join(' / ') + '）。依頼書は1建物ずつ作ってください。', '#c0392b');
+        return;
+      }
+      setStatus('');
+      openDocForm(resp);
+    }).catch(function (e) {
+      setStatus('エラー: ' + e.message, '#c0392b');
+    }).finally(function () {
+      if (docBtn) docBtn.disabled = false;
+    });
+  }
+
+  function closeDocForm() {
+    if (docFormEl && docFormEl.parentNode) docFormEl.parentNode.removeChild(docFormEl);
+    docFormEl = null;
+  }
+
+  function openDocForm(prep) {
+    closeDocForm();
+
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'border:1px solid #d9d2f0;background:#f7f5ff;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:7px;';
+
+    function mkLabel(t) {
+      var l = document.createElement('div');
+      l.textContent = t;
+      l.style.cssText = 'font-size:11px;color:#666;';
+      return l;
+    }
+    function mkInput(value) {
+      var i = document.createElement('input');
+      i.type = 'text';
+      i.value = value || '';
+      i.style.cssText = 'width:100%;padding:5px 6px;border:1px solid #ccc;border-radius:5px;font-size:12px;box-sizing:border-box;';
+      return i;
+    }
+
+    // 種類
+    var kindRow = document.createElement('div');
+    kindRow.style.cssText = 'display:flex;gap:10px;font-size:12px;';
+    var kindViewing = document.createElement('input'); kindViewing.type = 'radio'; kindViewing.name = '__msp_doc_kind'; kindViewing.checked = true;
+    var kindAd = document.createElement('input'); kindAd.type = 'radio'; kindAd.name = '__msp_doc_kind';
+    [[kindViewing, '内見依頼書'], [kindAd, '広告掲載依頼書']].forEach(function (pair) {
+      var l = document.createElement('label');
+      l.style.cssText = 'display:flex;align-items:center;gap:3px;cursor:pointer;';
+      l.appendChild(pair[0]);
+      l.appendChild(document.createTextNode(pair[1]));
+      kindRow.appendChild(l);
+    });
+
+    // 宛先・物件
+    var companyIn = mkInput(prep.company);
+    if (!prep.company) companyIn.placeholder = '元付会社名が取れませんでした。入力してください';
+    var buildingIn = mkInput(prep.building);
+
+    // 部屋番号（同じ建物の別の部屋も一緒に内見することがあるので複数行）
+    var roomsBox = document.createElement('div');
+    roomsBox.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
+    function addRoomInput(value) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:4px;';
+      var inp = mkInput(value);
+      inp.className = '__msp-doc-room';
+      var del = document.createElement('button');
+      del.textContent = '×';
+      del.title = 'この部屋を消す';
+      del.style.cssText = 'width:26px;flex:0 0 26px;border:1px solid #ccc;background:#fff;border-radius:5px;cursor:pointer;color:#888;';
+      del.addEventListener('click', function () { row.remove(); });
+      row.appendChild(inp);
+      row.appendChild(del);
+      roomsBox.appendChild(row);
+      return inp;
+    }
+    var initialRooms = (prep.rooms && prep.rooms.length) ? prep.rooms : [''];
+    initialRooms.forEach(function (r) { addRoomInput(r); });
+    var addRoomBtn = document.createElement('button');
+    addRoomBtn.textContent = '＋ 部屋を追加';
+    addRoomBtn.style.cssText = 'padding:4px;background:#fff;border:1px dashed #b3a6e0;color:#6b4fbb;border-radius:5px;font-size:11px;cursor:pointer;';
+    addRoomBtn.addEventListener('click', function () { addRoomInput('').focus(); });
+
+    // 内見日・時間
+    var dateIn = document.createElement('input');
+    dateIn.type = 'date';
+    dateIn.style.cssText = 'flex:1;padding:5px 6px;border:1px solid #ccc;border-radius:5px;font-size:12px;box-sizing:border-box;';
+    var timeIn = mkInput('');
+    timeIn.placeholder = '例: 17時半';
+    timeIn.style.flex = '1';
+    var whenRow = document.createElement('div');
+    whenRow.style.cssText = 'display:flex;gap:5px;';
+    whenRow.appendChild(dateIn);
+    whenRow.appendChild(timeIn);
+
+    // 広告媒体
+    var mediaSel = document.createElement('select');
+    mediaSel.style.cssText = 'width:100%;padding:5px 6px;border:1px solid #ccc;border-radius:5px;font-size:12px;box-sizing:border-box;';
+    ['SUUMO', 'ForRent', 'SUUMO・ForRent'].forEach(function (m) {
+      var o = document.createElement('option'); o.value = m; o.textContent = m; mediaSel.appendChild(o);
+    });
+
+    // 種類ごとに出し入れする行
+    var roomsLabel = mkLabel('部屋番号');
+    var whenLabel = mkLabel('内見日・時間');
+    var mediaLabel = mkLabel('広告媒体');
+    function syncKind() {
+      var viewing = kindViewing.checked;
+      [roomsLabel, roomsBox, addRoomBtn, whenLabel, whenRow].forEach(function (el) {
+        el.style.display = viewing ? '' : 'none';
+      });
+      roomsBox.style.display = viewing ? 'flex' : 'none';
+      whenRow.style.display = viewing ? 'flex' : 'none';
+      [mediaLabel, mediaSel].forEach(function (el) { el.style.display = viewing ? 'none' : ''; });
+    }
+    kindViewing.addEventListener('change', syncKind);
+    kindAd.addEventListener('change', syncKind);
+
+    var makeBtn = document.createElement('button');
+    makeBtn.textContent = 'PDFを作る';
+    makeBtn.style.cssText = 'width:100%;padding:8px;background:#6b4fbb;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:bold;cursor:pointer;';
+
+    var closeBtn = document.createElement('button');
+    closeBtn.textContent = '閉じる';
+    closeBtn.style.cssText = 'width:100%;padding:5px;background:transparent;border:none;color:#888;font-size:11px;cursor:pointer;';
+    closeBtn.addEventListener('click', closeDocForm);
+
+    makeBtn.addEventListener('click', function () {
+      var kind = kindViewing.checked ? 'viewing' : 'ad';
+      var company = companyIn.value.trim();
+      var building = buildingIn.value.trim();
+      if (!company) { setStatus('会社名を入れてください', '#c0392b'); companyIn.focus(); return; }
+      if (!building) { setStatus('物件名を入れてください', '#c0392b'); buildingIn.focus(); return; }
+
+      var rooms = '';
+      var date = '';
+      var time = '';
+      if (kind === 'viewing') {
+        var vals = [];
+        roomsBox.querySelectorAll('.__msp-doc-room').forEach(function (i) {
+          var v = i.value.trim();
+          if (v && vals.indexOf(v) < 0) vals.push(v);
+        });
+        rooms = vals.join('、');
+        // 「8月26日」の形にする。テンプレートがこの書式で印刷される。
+        if (dateIn.value) {
+          var d = dateIn.value.split('-');
+          date = Number(d[1]) + '月' + Number(d[2]) + '日';
+        }
+        time = timeIn.value.trim();
+        if (!date) { setStatus('内見日を入れてください', '#c0392b'); dateIn.focus(); return; }
+        if (!time) { setStatus('時間を入れてください', '#c0392b'); timeIn.focus(); return; }
+      }
+
+      makeBtn.disabled = true;
+      setStatus('PDFを作成中…', '#666');
+      sendToBackground({
+        type: 'REQUEST_DOC_MAKE',
+        kind: kind,
+        company: company,
+        building: building,
+        rooms: rooms,
+        date: date,
+        time: time,
+        media: mediaSel.value
+      }).then(function (resp) {
+        if (!resp || !resp.ok) {
+          setStatus('失敗: ' + ((resp && resp.error) || '不明なエラー'), '#c0392b');
+          return;
+        }
+        setStatus(resp.label + 'をダウンロードしました：' + resp.fileName, '#1a7f37');
+        closeDocForm();
+      }).catch(function (e) {
+        setStatus('エラー: ' + e.message, '#c0392b');
+      }).finally(function () {
+        makeBtn.disabled = false;
+      });
+    });
+
+    wrap.appendChild(kindRow);
+    wrap.appendChild(mkLabel('宛先（元付会社名）'));
+    wrap.appendChild(companyIn);
+    wrap.appendChild(mkLabel('物件名'));
+    wrap.appendChild(buildingIn);
+    wrap.appendChild(roomsLabel);
+    wrap.appendChild(roomsBox);
+    wrap.appendChild(addRoomBtn);
+    wrap.appendChild(whenLabel);
+    wrap.appendChild(whenRow);
+    wrap.appendChild(mediaLabel);
+    wrap.appendChild(mediaSel);
+    wrap.appendChild(makeBtn);
+    wrap.appendChild(closeBtn);
+
+    docBtn.parentNode.insertBefore(wrap, docBtn.nextSibling);
+    docFormEl = wrap;
+    syncKind();
+  }
+
 
   // ─────────────────────────────────────────────
   // 競合数・順位バッジを行要素に表示（冪等）

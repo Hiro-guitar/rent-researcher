@@ -651,6 +651,22 @@ async function gasPost(body) {
  * @param {Object} options - fetch のオプション
  * @param {Object} [opts] - { timeoutMs = 90000, label = '' }
  */
+// chrome.downloads の完了を待つ。in_progress のままタイムアウトしたら最後の状態を返す。
+function _waitForDownload(downloadId, timeoutMs) {
+  return new Promise((resolve) => {
+    const deadline = Date.now() + (timeoutMs || 60000);
+    const poll = () => {
+      chrome.downloads.search({ id: downloadId }, (items) => {
+        const it = items && items[0];
+        if (it && it.state !== 'in_progress') { resolve(it); return; }
+        if (Date.now() > deadline) { resolve(it || null); return; }
+        setTimeout(poll, 300);
+      });
+    };
+    poll();
+  });
+}
+
 async function fetchWithTimeout(url, options = {}, { timeoutMs = 90000, label = '' } = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -3396,6 +3412,124 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true, added: result.added || properties.length, message });
       } catch (e) {
         await setStorageData({ debugLog: '[キャンセル待ち] 登録失敗: ' + e.message });
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // ─────────────────────────────────────────────
+  // 内見依頼書・広告掲載依頼書
+  //   ① PREP: 選択した物件の詳細を取って元付会社名・物件名・部屋番号を返す
+  //   ② MAKE: GASがテンプレートに値を流し込み、その印刷用シートをPDFで取得して返す
+  // PDF化をGAS側でやらないのは、DriveApp/exportエンドポイントを使うと
+  // OAuthスコープが増えて既存デプロイメントが再承認待ちで止まるため。
+  // ここ(拡張)ならユーザーのGoogleログイン状態のCookieでそのまま書き出せる。
+  // ─────────────────────────────────────────────
+  if (msg.type === 'REQUEST_DOC_PREP') {
+    (async () => {
+      try {
+        const items = msg.items || [];
+        const senderTabId = sender && sender.tab && sender.tab.id;
+        if (!items.length) { sendResponse({ ok: false, error: '物件が選択されていません' }); return; }
+        const progress = async (done, total) => {
+          try { await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done, total, skipped: 0 }); } catch (e) {}
+        };
+        const { enriched, failed } = await _enrichManualCartItems(items, senderTabId, progress);
+        if (!enriched.length) {
+          sendResponse({ ok: false, error: '詳細取得に失敗しました' + (failed.length ? '：' + failed.join(' / ') : '') });
+          return;
+        }
+        // 依頼書は1物件1枚。同じ建物の別部屋は部屋番号を並べて1枚にまとめる。
+        const first = enriched[0];
+        const rooms = [];
+        enriched.forEach(d => {
+          const rn = String(d.room_number || d.roomNumber || '').trim();
+          if (rn && rooms.indexOf(rn) < 0) rooms.push(rn);
+        });
+        const buildings = [...new Set(enriched.map(d => String(d.building_name || '').trim()).filter(Boolean))];
+        sendResponse({
+          ok: true,
+          company: String(first.owner_company || '').trim(),
+          building: String(first.building_name || '').trim(),
+          rooms,
+          // 建物がバラバラなら画面側で警告を出す
+          multiBuilding: buildings.length > 1,
+          buildings,
+          failed
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'REQUEST_DOC_MAKE') {
+    (async () => {
+      try {
+        const { gasWebappUrl, gasApiKey } = await getConfig();
+        if (!gasWebappUrl) { sendResponse({ ok: false, error: 'GAS URLが設定されていません' }); return; }
+
+        // ① テンプレートに値を流し込む
+        const resp = await fetchWithTimeout(gasWebappUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({
+            action: 'make_request_doc',
+            api_key: gasApiKey,
+            kind: msg.kind,
+            company: msg.company,
+            building: msg.building,
+            rooms: msg.rooms,
+            date: msg.date,
+            time: msg.time,
+            media: msg.media
+          })
+        }, { timeoutMs: 60000, label: 'make_request_doc' });
+        const result = await resp.json();
+        if (!result || !result.ok) {
+          sendResponse({ ok: false, error: (result && result.error) || 'テンプレートへの書き込みに失敗しました' });
+          return;
+        }
+
+        // ② 印刷用シートをPDFでダウンロード。
+        //    chrome.downloads はブラウザの通常のダウンロードと同じ経路なので、
+        //    Googleのログイン Cookie がそのまま乗る（SW からの fetch だと乗らないことがある）。
+        //    ファイル名もこちらで決められる。
+        const pdfUrl = 'https://docs.google.com/spreadsheets/d/' + result.ssId + '/export'
+          + '?format=pdf&gid=' + result.printGid
+          + '&portrait=true&size=A4&fitw=true'
+          + '&gridlines=false&printtitle=false&sheetnames=false&pagenumbers=false&fzr=false'
+          + '&top_margin=0.4&bottom_margin=0.4&left_margin=0.4&right_margin=0.4';
+
+        const downloadId = await new Promise((resolve, reject) => {
+          chrome.downloads.download({ url: pdfUrl, filename: result.fileName, saveAs: false }, (id) => {
+            const err = chrome.runtime.lastError;
+            if (err || id === undefined) { reject(new Error(err ? err.message : 'ダウンロードを開始できませんでした')); return; }
+            resolve(id);
+          });
+        });
+
+        // 完了を待って、本当にPDFが落ちたか確かめる。
+        // ログインが切れていると、PDFの代わりにログインページのHTMLが落ちてくる。
+        const item = await _waitForDownload(downloadId, 60000);
+        if (!item || item.state !== 'complete') {
+          sendResponse({ ok: false, error: 'PDFのダウンロードに失敗しました' + (item && item.error ? '（' + item.error + '）' : '') });
+          return;
+        }
+        if (item.mime && item.mime.indexOf('pdf') < 0) {
+          sendResponse({ ok: false, error: 'PDFではなく「' + item.mime + '」が返りました。Chromeで journey.hiroki@gmail.com にログインしているか確認してください。' });
+          return;
+        }
+
+        sendResponse({
+          ok: true,
+          fileName: result.fileName,
+          label: result.label,
+          size: item.fileSize || item.totalBytes || 0
+        });
+      } catch (e) {
         sendResponse({ ok: false, error: e.message });
       }
     })();

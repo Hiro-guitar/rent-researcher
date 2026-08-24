@@ -4,6 +4,7 @@
   "version": "3.1",
   "description": "REINS・いえらぶBB・itandi BB・ES-Squareから物件情報を定期取得し、GAS経由で承認パイプラインに送信する",
   "permissions": [
+    "downloads",
     "storage",
     "alarms",
     "tabs",
@@ -26,6 +27,7 @@
     "https://*.es-square.net/*",
     "https://auth.es-account.com/*",
     "https://*.ielove.jp/*",
+    "https://docs.google.com/*",
     "https://script.google.com/*",
     "https://script.googleusercontent.com/*",
     "https://*.googleusercontent.com/*",
