@@ -96,32 +96,19 @@
       updateCount();
       return;
     }
+    // どのサイトも一覧の情報だけカートへ入れる。詳細（画像・費用など）は
+    // 送信やSUUMO掲載を押した時にまとめて取る。
+    //
+    // REINSは以前ここで詳細を取っていた。REINSの詳細はURLで開けず、一覧に出ている行の
+    // 「詳細」ボタンを押さないと取れないため、ページを移る前に取っておく必要があったから。
+    // ただしチェックするだけで画面が詳細ページへ飛んでしまい邪魔なので、押した時に取る方式に変えた。
+    // 代わりに、REINSはページを移ってしまうと詳細が取れない。移る前に実行すること。
+    if (prop && !prop.source) prop.source = src;
+    selection[key] = { source: src, enriched: null, prop: prop };
+    saveSelection();
+    updateCount();
     if (src === 'reins') {
-      // REINSは表示中に詳細取得（取得後に結果一覧へ自動で戻る）
-      cb.disabled = true;
-      setStatus('REINS詳細を取得中…（取得後に結果一覧へ戻ります）', '#666');
-      sendToBackground({ type: 'CAPTURE_REINS_DETAIL', property: prop }).then(function (resp) {
-        if (resp && resp.ok && resp.detail) {
-          selection[key] = { source: 'reins', enriched: resp.detail, prop: prop };
-          saveSelection();
-          setStatus('カートに追加しました（REINS）', '#1a7f37');
-        } else {
-          cb.checked = false;
-          setStatus('REINS詳細の取得に失敗しました: ' + ((resp && resp.error) || ''), '#c0392b');
-        }
-      }).catch(function (e) {
-        cb.checked = false;
-        setStatus('REINS取得エラー: ' + e.message, '#c0392b');
-      }).finally(function () {
-        cb.disabled = false;
-        updateCount();
-      });
-    } else {
-      // いえらぶ/itandi等は一覧情報のみカートへ（詳細は送信時に取得）
-      if (prop && !prop.source) prop.source = src;
-      selection[key] = { source: src, enriched: null, prop: prop };
-      saveSelection();
-      updateCount();
+      setStatus('カートに追加しました（REINSは結果一覧のページを移る前に実行してください）', '#1a7f37');
     }
   }
 
@@ -257,37 +244,19 @@
       if (!selection[k]) targets.push({ cb: cb, prop: prop, key: k });
     });
     var src = curSource();
-    if (src !== 'reins') {
-      targets.forEach(function (t) {
-        if (t.prop && !t.prop.source) t.prop.source = src;
-        selection[t.key] = { source: src, enriched: null, prop: t.prop };
-        t.cb.checked = true;
-      });
-      saveSelection();
-      updateCount();
-      return;
+    // 全選択でも詳細ページは開かない。競合チェックや順位は一覧の情報だけで動くし、
+    // 詳細が要る操作（送信・SUUMO掲載・依頼書）はボタンを押した時にまとめて取る。
+    // 以前はREINSだけ1件ずつ詳細ページを開いていて、全選択に何十秒もかかっていた。
+    targets.forEach(function (t) {
+      if (t.prop && !t.prop.source) t.prop.source = src;
+      selection[t.key] = { source: src, enriched: null, prop: t.prop };
+      t.cb.checked = true;
+    });
+    saveSelection();
+    updateCount();
+    if (src === 'reins' && targets.length) {
+      setStatus(targets.length + '件を選択しました（REINSは結果一覧のページを移る前に実行してください）', '#1a7f37');
     }
-    // REINS: 順次キャプチャ（並列で詳細ページを開くとREINSが壊れるため1件ずつ）
-    var i = 0;
-    function next() {
-      if (i >= targets.length) { setStatus('全選択の取得が完了しました', '#1a7f37'); updateCount(); return; }
-      var t = targets[i];
-      t.cb.disabled = true;
-      setStatus('REINS詳細を取得中…（' + (i + 1) + '/' + targets.length + '）', '#666');
-      sendToBackground({ type: 'CAPTURE_REINS_DETAIL', property: t.prop }).then(function (resp) {
-        if (resp && resp.ok && resp.detail) {
-          selection[t.key] = { source: 'reins', enriched: resp.detail, prop: t.prop };
-          t.cb.checked = true;
-          saveSelection();
-        } else {
-          t.cb.checked = false;
-        }
-      }).catch(function () { t.cb.checked = false; })
-        .finally(function () { t.cb.disabled = false; updateCount(); i++; next(); });
-    }
-    if (targets.length === 0) { updateCount(); return; }
-    setStatus('REINS詳細を順番に取得します…（' + targets.length + '件）', '#666');
-    next();
   }
 
   function updateCount() {

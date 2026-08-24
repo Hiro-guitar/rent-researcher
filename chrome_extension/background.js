@@ -3370,8 +3370,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const p = (it && it.prop) || {};
       if (onProgress) await onProgress(done, items.length);
       if (src === 'reins') {
-        if (it.enriched && it.enriched.building_name) enriched.push(it.enriched);
-        else failed.push((p.buildingName || '?') + '（詳細なし）');
+        // カートに入れた時点で取得済みならそれを使う（旧方式のカートが残っている場合）。
+        // 無ければここで取る。REINSの詳細はURLで開けず、一覧に出ている行の「詳細」ボタンを
+        // 押す必要があるので、結果一覧のページが変わっていると取れない。
+        if (it.enriched && it.enriched.building_name) {
+          enriched.push(it.enriched);
+        } else {
+          let rres;
+          try {
+            rres = await fetchReinsDetailForManual(senderTabId, {
+              propertyNumber: p.reins_property_number || p.propertyNumber || '',
+              index: (typeof p.reins_row_index === 'number') ? p.reins_row_index : -1
+            });
+          } catch (e) {
+            rres = { ok: false, error: e.message };
+          }
+          if (rres && rres.ok && rres.detail && rres.detail.building_name) {
+            enriched.push(rres.detail);
+          } else {
+            failed.push((p.buildingName || p.building_name || '?')
+              + '（' + ((rres && rres.error) || '詳細取得失敗') + '／一覧のページが変わっていると取れません）');
+          }
+        }
         done++;
         continue;
       }
@@ -3624,14 +3644,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const p = (it && it.prop) || {};
           await progress();
           if (src === 'reins') {
-            // 選択時に取得済みの詳細をそのまま使う
-            if (it.enriched && it.enriched.building_name) {
+            // 選択時に取得済みならそれを使う。無ければここで取る。
+            // （チェックしただけで詳細ページへ飛ばないよう、取得は送信時にまわしている）
+            let rdet = (it.enriched && it.enriched.building_name) ? it.enriched : null;
+            if (!rdet) {
+              let rres;
+              try {
+                rres = await fetchReinsDetailForManual(senderTabId, {
+                  propertyNumber: p.reins_property_number || p.propertyNumber || '',
+                  index: (typeof p.reins_row_index === 'number') ? p.reins_row_index : -1
+                });
+              } catch (e) {
+                rres = { ok: false, error: e.message };
+              }
+              if (rres && rres.ok && rres.detail && rres.detail.building_name) {
+                rdet = rres.detail;
+              } else {
+                await setStorageData({ debugLog: `[カート送信] REINS詳細取得失敗→スキップ: ${(p.buildingName || p.building_name || '')} ${(rres && rres.error) || ''}（一覧のページが変わっていると取れません）` });
+              }
+            }
+            if (rdet) {
               try {
                 if (customerObj && typeof globalThis.__computePropertyWarnings === 'function') {
-                  it.enriched.warnings_text = (globalThis.__computePropertyWarnings(it.enriched, customerObj) || []).join('\n');
+                  rdet.warnings_text = (globalThis.__computePropertyWarnings(rdet, customerObj) || []).join('\n');
                 }
               } catch (e) {}
-              allEnriched.push(it.enriched);
+              allEnriched.push(rdet);
             } else { skipped++; }
             done++;
             continue;
