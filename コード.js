@@ -64,6 +64,15 @@ function doPost(e) {
       return handleSendManualProperties(json);
     }
 
+    // --- 内見依頼書・広告掲載依頼書のテンプレートに値を流し込む (Chrome拡張パネルから) ---
+    if (json.action === 'make_request_doc') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'invalid api_key' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      return handleMakeRequestDoc(json);
+    }
+
     // --- 空室状況の更新 (Chrome拡張から定期/手動で呼ばれる) ---
     if (json.action === 'update_availability') {
       try {
