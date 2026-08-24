@@ -358,6 +358,10 @@
       imageUrls: [],
       imageUrl: '',
       url: '',
+      // 元付会社名。一覧の24列目「商号」に出ているので、依頼書の宛名はこれで足りる
+      // （詳細ページを開かずに済む）
+      shougo: getText(items[24]),
+      owner_company: getText(items[24]),
       // 空室確認の source_ref に使う（GAS側 SEEN_SHEET H列）
       reins_property_number: propertyNumber,
       // 手動送信の詳細取得で詳細ボタンの行を特定するための一覧内index

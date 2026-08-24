@@ -350,7 +350,7 @@
     // SUUMOに掲載ボタン
     publishBtn = mkActionBtn('SUUMOに掲載', '#e67e22', onPublishSuumoClick);
     // 内見依頼書・広告掲載依頼書をPDFで作るボタン
-    docBtn = mkActionBtn('📄 依頼書を作る', '#6b4fbb', onMakeDocClick);
+    docBtn = mkActionBtn('📄 内見 / 広告掲載 依頼書を作る', '#6b4fbb', onMakeDocClick);
     docBtn.title = '選択した物件の内見依頼書／広告掲載依頼書をPDFで作ります';
 
     // ステータス
