@@ -672,6 +672,48 @@ if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
   });
 }
 
+// スプレッドシートの1シートをPDFにしてダウンロードする。
+// chrome.downloads はブラウザ通常のダウンロードと同じ経路なので Googleのログイン
+// Cookie がそのまま乗る（Service Worker からの fetch だと乗らないことがある）。
+async function _downloadSheetPdf(ssId, printGid, fileName) {
+  try {
+    const pdfUrl = 'https://docs.google.com/spreadsheets/d/' + ssId + '/export'
+      + '?format=pdf&gid=' + printGid
+      + '&portrait=true&size=A4&fitw=true'
+      + '&gridlines=false&printtitle=false&sheetnames=false&pagenumbers=false&fzr=false'
+      + '&top_margin=0.4&bottom_margin=0.4&left_margin=0.4&right_margin=0.4';
+
+    // ファイル名を onDeterminingFilename で上書きするための目印。
+    // Googleは知らないクエリは無視するので、URLに付けても書き出し結果は変わらない。
+    const token = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    _requestDocFileNames.set(token, fileName);
+
+    const downloadId = await new Promise((resolve, reject) => {
+      chrome.downloads.download(
+        { url: pdfUrl + '&rrdoc=' + token, filename: fileName, saveAs: false },
+        (id) => {
+          const err = chrome.runtime.lastError;
+          if (err || id === undefined) { reject(new Error(err ? err.message : 'ダウンロードを開始できませんでした')); return; }
+          resolve(id);
+        }
+      );
+    });
+
+    // 完了を待って、本当にPDFが落ちたか確かめる。
+    // ログインが切れていると、PDFの代わりにログインページのHTMLが落ちてくる。
+    const item = await _waitForDownload(downloadId, 60000);
+    if (!item || item.state !== 'complete') {
+      return { ok: false, error: 'PDFのダウンロードに失敗しました' + (item && item.error ? '（' + item.error + '）' : '') };
+    }
+    if (item.mime && item.mime.indexOf('pdf') < 0) {
+      return { ok: false, error: 'PDFではなく「' + item.mime + '」が返りました。Chromeで journey.hiroki@gmail.com にログインしているか確認してください。' };
+    }
+    return { ok: true, size: item.fileSize || item.totalBytes || 0 };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // chrome.downloads の完了を待つ。in_progress のままタイムアウトしたら最後の状態を返す。
 function _waitForDownload(downloadId, timeoutMs) {
   return new Promise((resolve) => {
@@ -3561,6 +3603,170 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+
+  // ─────────────────────────────────────────────
+  // 初期費用概算書
+  //   ① PREP: 詳細を取って、初期費用に関わる項目を全部拾って返す
+  //   ② MAKE: GASがテンプレートに流し込み、その出力シートをPDFで落とす
+  // ─────────────────────────────────────────────
+
+  // 「27,500円」「2年 18000円」→ 数値。金額が読めなければ null。
+  function _estYen(text) {
+    const t = String(text == null ? '' : text).trim();
+    if (!t) return null;
+    if (/^(なし|無し|無料|0|-|ー|—|不要|入力なし)$/.test(t)) return 0;
+    // 「1.5ヶ月」等は金額ではない
+    if (/[ヶヵカか]月/.test(t) && !/円/.test(t)) return null;
+    const m = t.replace(/[，]/g, ',').match(/([0-9][0-9,]*(?:\.[0-9]+)?)\s*万?円?/);
+    if (!m) return null;
+    let n = Number(m[1].replace(/,/g, ''));
+    if (isNaN(n)) return null;
+    if (/万/.test(t)) n = n * 10000;
+    return Math.round(n);
+  }
+
+  // 「1ヶ月」「1.5ヵ月」「82,000円」「なし」→ ヶ月数。賃料が分かれば金額からも換算する。
+  function _estMonths(text, rent) {
+    const t = String(text == null ? '' : text).trim();
+    if (!t) return 0;
+    if (/^(なし|無し|0|-|ー|—|不要|入力なし)$/.test(t)) return 0;
+    const mm = t.match(/([0-9]+(?:\.[0-9]+)?)\s*[ヶヵカか]?月/);
+    if (mm) return Number(mm[1]);
+    const yen = _estYen(t);
+    if (yen != null && rent > 0) return Math.round((yen / rent) * 100) / 100;
+    return 0;
+  }
+
+  // 「保証会社利用必須 初回50%」→ 50。読めなければ null。
+  function _estGuaranteeRate(text) {
+    const t = String(text == null ? '' : text);
+    const m = t.match(/([0-9]+(?:\.[0-9]+)?)\s*[%％]/);
+    return m ? Number(m[1]) : null;
+  }
+
+  function _estFacilitiesText(detail) {
+    const f = detail && detail.facilities;
+    if (!f) return '';
+    if (typeof f === 'string') return f;
+    try { return JSON.stringify(f); } catch (e) { return ''; }
+  }
+
+  if (msg.type === 'ESTIMATE_PREP') {
+    (async () => {
+      try {
+        const items = msg.items || [];
+        const senderTabId = sender && sender.tab && sender.tab.id;
+        if (!items.length) { sendResponse({ ok: false, error: '物件が選択されていません' }); return; }
+        const progress = async (done, total) => {
+          try { await chrome.tabs.sendMessage(senderTabId, { type: 'MANUAL_SEND_PROGRESS', done, total, skipped: 0 }); } catch (e) {}
+        };
+        // 概算書は費用の内訳が要るので詳細を取る。画像は使わないので取らない。
+        const { enriched, failed } = await _enrichManualCartItems(items, senderTabId, progress, { skipImages: true });
+        if (!enriched.length) {
+          sendResponse({ ok: false, error: '詳細取得に失敗しました' + (failed.length ? '：' + failed.join(' / ') : '') });
+          return;
+        }
+        const d = enriched[0];
+        const rent = Number(d.rent) || 0;
+        const mgmt = Number(d.management_fee || d.managementFee) || 0;
+
+        // 初期費用に関わる項目を全部拾う。
+        // テンプレートの固定枠（鍵交換・24hサポート・火災保険・ネット）以外は
+        // 自由記入欄に回す。金額が0/空のものは出さない。
+        const facilities = _estFacilitiesText(d);
+        const internetFree = /インターネット\s*(無料|込)/.test(facilities) || /ネット\s*無料/.test(facilities);
+
+        // 初回保証料から下は、項目名ごと毎回書き換える自由記入欄（テンプレートは8行）。
+        // 初期費用に関わるものを図面から全部拾って、よく使う順に並べて入れておく。
+        // 金額が読めないもの（「実費」等）も、項目名だけ残して手で直せるようにする。
+        const candidates = [
+          ['鍵交換費用', d.key_exchange_fee, ''],
+          ['24時間サポート', d.support_fee_24h, '※毎月'],
+          ['火災保険', d.fire_insurance, ''],
+          ['インターネット', null, ''],
+          ['室内清掃費用', d.cleaning_fee, ''],
+          ['保証金', d.guarantee_deposit, ''],
+          ['敷金積み増し', d.additional_deposit, ''],
+          ['ペット飼育時敷金追加', d.pet_deposit, ''],
+          ['権利金', d.rights_fee, ''],
+          ['敷引き・償却', d.shikibiki, ''],
+          ['その他一時金', d.other_onetime_fee, '']
+        ];
+        const lines = [];
+        for (const [label, raw, note] of candidates) {
+          if (label === 'インターネット') {
+            if (internetFree) lines.push({ label, amount: '無料', note, source: '設備欄' });
+            continue;
+          }
+          const t = String(raw == null ? '' : raw).trim();
+          if (!t || /^(なし|無し|-|ー|—|入力なし|0|0円)$/.test(t)) continue;
+          const yen = _estYen(t);
+          lines.push({ label, amount: (yen == null || yen === 0) ? t : yen, note, source: t });
+        }
+
+        sendResponse({
+          ok: true,
+          building: String(d.building_name || '').trim(),
+          room: String(d.room_number || d.roomNumber || '').trim(),
+          rent,
+          managementFee: mgmt,
+          depositMonths: _estMonths(d.deposit, rent),
+          keyMoneyMonths: _estMonths(d.key_money || d.keyMoney, rent),
+          guaranteeRate: _estGuaranteeRate(d.guarantee_info),
+          items: lines,
+          // 画面で元の表記を確認できるようにしておく（換算を間違えていないか見るため）
+          raw: {
+            deposit: String(d.deposit || ''),
+            keyMoney: String(d.key_money || d.keyMoney || ''),
+            keyExchange: String(d.key_exchange_fee || ''),
+            support24h: String(d.support_fee_24h || ''),
+            fireInsurance: String(d.fire_insurance || ''),
+            guaranteeInfo: String(d.guarantee_info || ''),
+            freeRent: String(d.free_rent || ''),
+            moveInConditions: String(d.move_in_conditions || '')
+          },
+          failed
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'ESTIMATE_MAKE') {
+    (async () => {
+      try {
+        const { gasWebappUrl, gasApiKey } = await getConfig();
+        if (!gasWebappUrl) { sendResponse({ ok: false, error: 'GAS URLが設定されていません' }); return; }
+        const body = Object.assign({ action: 'make_estimate_doc', api_key: gasApiKey }, msg.payload || {});
+        const resp = await fetchWithTimeout(gasWebappUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify(body)
+        }, { timeoutMs: 60000, label: 'make_estimate_doc' });
+        const result = await resp.json();
+        if (!result || !result.ok) {
+          sendResponse({ ok: false, error: (result && result.error) || 'テンプレートへの書き込みに失敗しました' });
+          return;
+        }
+        const dl = await _downloadSheetPdf(result.ssId, result.printGid, result.fileName);
+        if (!dl.ok) { sendResponse({ ok: false, error: dl.error }); return; }
+        sendResponse({
+          ok: true,
+          fileName: result.fileName,
+          label: result.label,
+          size: dl.size,
+          totalWarning: result.totalWarning || '',
+          discount: result.discount || null
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'REQUEST_DOC_MAKE') {
     (async () => {
       try {
@@ -3589,47 +3795,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           return;
         }
 
-        // ② 印刷用シートをPDFでダウンロード。
-        //    chrome.downloads はブラウザの通常のダウンロードと同じ経路なので、
-        //    Googleのログイン Cookie がそのまま乗る（SW からの fetch だと乗らないことがある）。
-        //    ファイル名もこちらで決められる。
-        const pdfUrl = 'https://docs.google.com/spreadsheets/d/' + result.ssId + '/export'
-          + '?format=pdf&gid=' + result.printGid
-          + '&portrait=true&size=A4&fitw=true'
-          + '&gridlines=false&printtitle=false&sheetnames=false&pagenumbers=false&fzr=false'
-          + '&top_margin=0.4&bottom_margin=0.4&left_margin=0.4&right_margin=0.4';
-
-        // ファイル名を onDeterminingFilename で上書きするための目印。
-        // Googleは知らないクエリは無視するので、URLに付けても書き出し結果は変わらない。
-        const token = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-        _requestDocFileNames.set(token, result.fileName);
-        const downloadUrl = pdfUrl + '&rrdoc=' + token;
-
-        const downloadId = await new Promise((resolve, reject) => {
-          chrome.downloads.download({ url: downloadUrl, filename: result.fileName, saveAs: false }, (id) => {
-            const err = chrome.runtime.lastError;
-            if (err || id === undefined) { reject(new Error(err ? err.message : 'ダウンロードを開始できませんでした')); return; }
-            resolve(id);
-          });
-        });
-
-        // 完了を待って、本当にPDFが落ちたか確かめる。
-        // ログインが切れていると、PDFの代わりにログインページのHTMLが落ちてくる。
-        const item = await _waitForDownload(downloadId, 60000);
-        if (!item || item.state !== 'complete') {
-          sendResponse({ ok: false, error: 'PDFのダウンロードに失敗しました' + (item && item.error ? '（' + item.error + '）' : '') });
-          return;
-        }
-        if (item.mime && item.mime.indexOf('pdf') < 0) {
-          sendResponse({ ok: false, error: 'PDFではなく「' + item.mime + '」が返りました。Chromeで journey.hiroki@gmail.com にログインしているか確認してください。' });
-          return;
-        }
+        // ② 印刷用シートをPDFでダウンロード
+        const dl = await _downloadSheetPdf(result.ssId, result.printGid, result.fileName);
+        if (!dl.ok) { sendResponse({ ok: false, error: dl.error }); return; }
 
         sendResponse({
           ok: true,
           fileName: result.fileName,
           label: result.label,
-          size: item.fileSize || item.totalBytes || 0,
+          size: dl.size,
           // 字の大きさ調整が効いているかを画面で確かめられるようにする
           fontFix: result.fontFix || null,
           valueFix: result.valueFix || null

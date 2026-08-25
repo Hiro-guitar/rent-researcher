@@ -37,6 +37,8 @@
   var publishBtn = null;
   var docBtn = null;      // 依頼書を作るボタン
   var docFormEl = null;   // 依頼書の入力フォーム（開いている間だけ存在）
+  var estimateBtn = null;      // 初期費用概算書ボタン
+  var estimateModalEl = null;  // 概算書の入力モーダル（開いている間だけ存在）
   var equipBtCb = null, equipWashCb = null; // 手動: 順位検索の設備条件(バストイレ別/独立洗面)
   var lastMetricItems = []; // 競合数・順位の計算対象（index→rowEl対応の保持）
 
@@ -352,6 +354,9 @@
     // 内見依頼書・広告掲載依頼書をPDFで作るボタン
     docBtn = mkActionBtn('📄 内見 / 広告掲載 依頼書を作る', '#6b4fbb', onMakeDocClick);
     docBtn.title = '選択した物件の内見依頼書／広告掲載依頼書をPDFで作ります';
+    // 初期費用概算書
+    estimateBtn = mkActionBtn('💴 初期費用概算書を作る', '#0b66c3', onMakeEstimateClick);
+    estimateBtn.title = '選択した物件の初期費用概算書をPDFで作ります（詳細ページから費用の内訳を取ります）';
 
     // ステータス
     statusEl = document.createElement('div');
@@ -393,6 +398,7 @@
     body.appendChild(metricsBtn);
     body.appendChild(publishBtn);
     body.appendChild(docBtn);
+    body.appendChild(estimateBtn);
     body.appendChild(statusEl);
 
     panelEl.appendChild(header);
@@ -870,6 +876,256 @@
     syncKind();
   }
 
+
+
+  // ─────────────────────────────────────────────
+  // 初期費用概算書
+  // 費用の内訳が要るので詳細ページから取る（画像は取らないので依頼書より少し遅い程度）。
+  // 項目が多いのでパネル内ではなくモーダルで出す。
+  // ─────────────────────────────────────────────
+  function onMakeEstimateClick() {
+    if (estimateModalEl) { closeEstimateModal(); return; }
+    var items = getCartItems();
+    if (items.length === 0) { setStatus('概算書を作る物件を選んでください', '#c0392b'); return; }
+    if (items.length > 1) { setStatus('概算書は1物件ずつ作ってください（' + items.length + '件選択中）', '#c0392b'); return; }
+
+    estimateBtn.disabled = true;
+    setStatus('物件の詳細（費用の内訳）を取得中…（画像は取りません）', '#666');
+    sendToBackground({ type: 'ESTIMATE_PREP', items: items }).then(function (resp) {
+      if (!resp || !resp.ok) {
+        setStatus('失敗: ' + ((resp && resp.error) || '不明なエラー'), '#c0392b');
+        return;
+      }
+      setStatus('');
+      openEstimateModal(resp);
+    }).catch(function (e) {
+      setStatus('エラー: ' + e.message, '#c0392b');
+    }).finally(function () {
+      if (estimateBtn) estimateBtn.disabled = false;
+    });
+  }
+
+  function closeEstimateModal() {
+    if (estimateModalEl && estimateModalEl.parentNode) estimateModalEl.parentNode.removeChild(estimateModalEl);
+    estimateModalEl = null;
+  }
+
+  function openEstimateModal(prep) {
+    closeEstimateModal();
+
+    var back = document.createElement('div');
+    back.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.35);'
+      + 'display:flex;align-items:center;justify-content:center;font-family:sans-serif;';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:12px;padding:18px 20px;width:470px;max-height:88vh;'
+      + 'overflow:auto;box-shadow:0 8px 40px rgba(0,0,0,.3);font-size:13px;color:#222;';
+
+    var h = document.createElement('div');
+    h.textContent = '初期費用概算書';
+    h.style.cssText = 'font-weight:bold;font-size:15px;margin-bottom:4px;';
+    var sub = document.createElement('div');
+    sub.textContent = '物件の詳細から拾った値を入れてあります。違うところは直してください。';
+    sub.style.cssText = 'font-size:11px;color:#777;margin-bottom:12px;';
+    box.appendChild(h);
+    box.appendChild(sub);
+
+    function row(label, el, hint) {
+      var r = document.createElement('div');
+      r.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:7px;';
+      var l = document.createElement('div');
+      l.textContent = label;
+      l.style.cssText = 'width:120px;flex:0 0 120px;font-size:12px;color:#555;';
+      r.appendChild(l);
+      r.appendChild(el);
+      if (hint) {
+        var hn = document.createElement('span');
+        hn.textContent = hint;
+        hn.style.cssText = 'font-size:10px;color:#999;white-space:nowrap;';
+        r.appendChild(hn);
+      }
+      box.appendChild(r);
+      return r;
+    }
+    function input(value, width) {
+      var i = document.createElement('input');
+      i.type = 'text';
+      i.value = (value === null || value === undefined) ? '' : String(value);
+      i.style.cssText = 'flex:1;min-width:0;padding:5px 7px;border:1px solid #ccc;border-radius:5px;font-size:12px;'
+        + (width ? 'flex:0 0 ' + width + ';' : '');
+      return i;
+    }
+
+    // 種類
+    var kindRow = document.createElement('div');
+    kindRow.style.cssText = 'display:flex;gap:14px;margin-bottom:10px;font-size:12px;';
+    var kStd = document.createElement('input'); kStd.type = 'radio'; kStd.name = '__msp_est_kind'; kStd.checked = true;
+    var kDis = document.createElement('input'); kDis.type = 'radio'; kDis.name = '__msp_est_kind';
+    [[kStd, '標準'], [kDis, '仲介手数料を割引']].forEach(function (p) {
+      var l = document.createElement('label');
+      l.style.cssText = 'display:flex;align-items:center;gap:4px;cursor:pointer;';
+      l.appendChild(p[0]); l.appendChild(document.createTextNode(p[1]));
+      kindRow.appendChild(l);
+    });
+    box.appendChild(kindRow);
+
+    var buildingIn = input(prep.building);
+    var roomIn = input(prep.room, '90px');
+    var rentIn = input(prep.rent, '110px');
+    var mgmtIn = input(prep.managementFee, '110px');
+    var depIn = input(prep.depositMonths, '70px');
+    var keyIn = input(prep.keyMoneyMonths, '70px');
+    var brokIn = input('1.1', '70px');
+    var discIn = input('33000', '110px');
+    var dateIn = document.createElement('input');
+    dateIn.type = 'date';
+    dateIn.style.cssText = 'flex:0 0 150px;padding:5px 7px;border:1px solid #ccc;border-radius:5px;font-size:12px;';
+    var grIn = input(prep.guaranteeRate === null ? '60' : prep.guaranteeRate, '70px');
+    row('物件名', buildingIn);
+    row('部屋番号', roomIn);
+    row('賃料', rentIn, '円');
+    row('管理費', mgmtIn, '円');
+    row('敷金', depIn, 'ヶ月' + (prep.raw && prep.raw.deposit ? '（図面: ' + prep.raw.deposit + '）' : ''));
+    row('礼金', keyIn, 'ヶ月' + (prep.raw && prep.raw.keyMoney ? '（図面: ' + prep.raw.keyMoney + '）' : ''));
+    var brokRow = row('仲介手数料', brokIn, 'ヶ月');
+    var discRow = row('　→ 割引後', discIn, '円');
+    row('入居予定日', dateIn, '');
+    row('初回保証料', grIn, '%' + (prep.raw && prep.raw.guaranteeInfo ? '（図面: ' + prep.raw.guaranteeInfo.slice(0, 24) + '）' : ''));
+
+    // 初回保証料から下は項目名ごと毎回書き換える欄。テンプレートは8行ぶん。
+    var exTitle = document.createElement('div');
+    exTitle.textContent = 'その他の費用（項目名も自由。8行まで）';
+    exTitle.style.cssText = 'font-size:12px;color:#555;margin:12px 0 6px;border-top:1px solid #eee;padding-top:10px;';
+    box.appendChild(exTitle);
+
+    var exHead = document.createElement('div');
+    exHead.style.cssText = 'display:flex;gap:6px;margin-bottom:4px;font-size:10px;color:#999;';
+    [['項目名', ''], ['金額', '0 0 100px'], ['備考', '0 0 110px']].forEach(function (h2) {
+      var d2 = document.createElement('div');
+      d2.textContent = h2[0];
+      d2.style.cssText = h2[1] ? ('flex:' + h2[1] + ';') : 'flex:1;';
+      exHead.appendChild(d2);
+    });
+    box.appendChild(exHead);
+
+    var exRows = [];
+    for (var i = 0; i < 8; i++) {
+      var ex = (prep.items || [])[i] || {};
+      var r = document.createElement('div');
+      r.style.cssText = 'display:flex;gap:6px;margin-bottom:5px;';
+      var lb = input(ex.label || '');
+      lb.placeholder = '例: 鍵交換費用';
+      var am = input(ex.amount === undefined ? '' : ex.amount, '100px');
+      am.placeholder = '金額';
+      var nt = input(ex.note || '', '110px');
+      nt.placeholder = '備考';
+      r.appendChild(lb); r.appendChild(am); r.appendChild(nt);
+      box.appendChild(r);
+      exRows.push({ label: lb, amount: am, note: nt });
+    }
+
+    // 拾えたのに入りきらなかった項目は黙って落とさずに知らせる
+    if ((prep.items || []).length > 8) {
+      var over = document.createElement('div');
+      over.textContent = '⚠ 図面から拾えた項目が8件を超えました。入りきらない分: '
+        + prep.items.slice(8).map(function (e) { return e.label + ' ' + e.amount; }).join('、')
+        + '（テンプレートの記入欄が8行のため）';
+      over.style.cssText = 'font-size:11px;color:#b8860b;background:#fffbea;border:1px solid #f0e0b0;'
+        + 'border-radius:6px;padding:7px 9px;margin-top:6px;line-height:1.5;';
+      box.appendChild(over);
+    }
+
+    var note = document.createElement('div');
+    note.style.cssText = 'font-size:11px;color:#777;margin-top:10px;line-height:1.6;';
+    var noteBits = [];
+    if (prep.raw && prep.raw.freeRent) noteBits.push('フリーレント: ' + prep.raw.freeRent);
+    if (prep.raw && prep.raw.moveInConditions) noteBits.push('入居条件: ' + prep.raw.moveInConditions.slice(0, 60));
+    if (noteBits.length) { note.textContent = '図面の記載 — ' + noteBits.join(' / '); box.appendChild(note); }
+
+    var statusLine = document.createElement('div');
+    statusLine.style.cssText = 'font-size:11px;margin-top:10px;min-height:15px;white-space:pre-wrap;line-height:1.5;';
+    box.appendChild(statusLine);
+
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:12px;';
+    var makeBtn = document.createElement('button');
+    makeBtn.textContent = 'PDFを作る';
+    makeBtn.style.cssText = 'flex:1;padding:9px;background:#0b66c3;color:#fff;border:none;border-radius:7px;'
+      + 'font-size:13px;font-weight:bold;cursor:pointer;';
+    var cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '閉じる';
+    cancelBtn.style.cssText = 'flex:0 0 90px;padding:9px;background:#f2f2f2;border:1px solid #ddd;'
+      + 'border-radius:7px;font-size:12px;cursor:pointer;';
+    cancelBtn.addEventListener('click', closeEstimateModal);
+    btnRow.appendChild(makeBtn); btnRow.appendChild(cancelBtn);
+    box.appendChild(btnRow);
+
+    function syncKind() {
+      discRow.style.display = kDis.checked ? 'flex' : 'none';
+    }
+    kStd.addEventListener('change', syncKind);
+    kDis.addEventListener('change', syncKind);
+    syncKind();
+
+    makeBtn.addEventListener('click', function () {
+      if (!dateIn.value) {
+        statusLine.textContent = '入居予定日を入れてください';
+        statusLine.style.color = '#c0392b';
+        dateIn.focus();
+        return;
+      }
+      var parts = dateIn.value.split('-');
+      var y = Number(parts[0]), mo = Number(parts[1]), da = Number(parts[2]);
+      // その月の日数（日割り計算の分母）。月末を0日で指定すると前月末日になる。
+      var daysInMonth = new Date(y, mo, 0).getDate();
+
+      var lines = exRows.map(function (r) {
+        return { label: r.label.value.trim(), amount: r.amount.value.trim(), note: r.note.value.trim() };
+      }).filter(function (e) { return e.label; });
+
+      makeBtn.disabled = true;
+      statusLine.style.color = '#666';
+      statusLine.textContent = 'PDFを作成中…';
+      sendToBackground({
+        type: 'ESTIMATE_MAKE',
+        payload: {
+          kind: kDis.checked ? 'discount' : 'standard',
+          building: buildingIn.value.trim(),
+          room: roomIn.value.trim(),
+          rent: rentIn.value.trim(),
+          managementFee: mgmtIn.value.trim(),
+          depositMonths: depIn.value.trim(),
+          keyMoneyMonths: keyIn.value.trim(),
+          brokerageMonths: brokIn.value.trim(),
+          discountedBrokerage: discIn.value.trim(),
+          moveInMonth: mo,
+          moveInDay: da,
+          daysInMonth: daysInMonth,
+          guaranteeRate: grIn.value.trim(),
+          items: lines
+        }
+      }).then(function (resp) {
+        if (!resp || !resp.ok) {
+          statusLine.style.color = '#c0392b';
+          statusLine.textContent = '失敗: ' + ((resp && resp.error) || '不明なエラー');
+          return;
+        }
+        setStatus(resp.label + 'をダウンロードしました：' + resp.fileName
+          + (resp.totalWarning ? '\n⚠ ' + resp.totalWarning : ''),
+          resp.totalWarning ? '#b8860b' : '#1a7f37');
+        closeEstimateModal();
+      }).catch(function (e) {
+        statusLine.style.color = '#c0392b';
+        statusLine.textContent = 'エラー: ' + e.message;
+      }).finally(function () {
+        makeBtn.disabled = false;
+      });
+    });
+
+    back.appendChild(box);
+    back.addEventListener('click', function (ev) { if (ev.target === back) closeEstimateModal(); });
+    document.body.appendChild(back);
+    estimateModalEl = back;
+  }
 
   // ─────────────────────────────────────────────
   // 競合数・順位バッジを行要素に表示（冪等）
