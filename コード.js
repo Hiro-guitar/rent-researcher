@@ -64,6 +64,15 @@ function doPost(e) {
       return handleSendManualProperties(json);
     }
 
+    // --- 募集図面(PDF)をGeminiに読ませて初期費用を拾う (Chrome拡張から) ---
+    if (json.action === 'read_drawing') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'invalid api_key' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      return handleReadDrawing(json);
+    }
+
     // --- 初期費用概算書のテンプレートに値を流し込む (Chrome拡張パネルから) ---
     if (json.action === 'make_estimate_doc') {
       if (!_validateReinsApiKey(json.api_key)) {
