@@ -890,7 +890,7 @@
     if (items.length > 1) { setStatus('概算書は1物件ずつ作ってください（' + items.length + '件選択中）', '#c0392b'); return; }
 
     estimateBtn.disabled = true;
-    setStatus('物件の詳細（費用の内訳）を取得中…（画像は取りません）', '#666');
+    setStatus('物件の詳細と募集図面を読み取り中…（少し時間がかかります）', '#666');
     sendToBackground({ type: 'ESTIMATE_PREP', items: items }).then(function (resp) {
       if (!resp || !resp.ok) {
         setStatus('失敗: ' + ((resp && resp.error) || '不明なエラー'), '#c0392b');
@@ -1007,9 +1007,28 @@
     });
     box.appendChild(exHead);
 
+    // 図面から取れた項目を優先して並べる。サイトの入力欄が空でも図面には書いてあるため。
+    // DOMからしか取れなかったものは後ろに足す（重複は項目名で判定）。
+    var dw = prep.drawing;
+    var rowsSource = (prep.items || []).slice();
+    if (dw && dw.ok && dw.data && Array.isArray(dw.data.initial_costs)) {
+      var fromZumen = dw.data.initial_costs.map(function (c) {
+        return {
+          label: c.display_label || c.label,
+          amount: (c.amount === null || c.amount === undefined) ? '' : c.amount,
+          note: '',
+          _src: '図面',
+          _reason: c.timing_reason || ''
+        };
+      });
+      var seen = {};
+      fromZumen.forEach(function (r) { seen[String(r.label).replace(/（先払い）$/, '')] = true; });
+      rowsSource = fromZumen.concat(rowsSource.filter(function (r) { return !seen[r.label]; }));
+    }
+
     var exRows = [];
     for (var i = 0; i < 8; i++) {
-      var ex = (prep.items || [])[i] || {};
+      var ex = rowsSource[i] || {};
       var r = document.createElement('div');
       r.style.cssText = 'display:flex;gap:6px;margin-bottom:5px;';
       var lb = input(ex.label || '');
@@ -1018,21 +1037,67 @@
       am.placeholder = '金額';
       var nt = input(ex.note || '', '110px');
       nt.placeholder = '備考';
+      // 図面から拾った行は分かるようにしておく（判断根拠もツールチップで見られる）
+      if (ex._src === '図面') {
+        lb.style.borderColor = '#8bbf6a';
+        lb.style.background = '#f6fbf2';
+        if (ex._reason) lb.title = '図面から: ' + ex._reason;
+      }
       r.appendChild(lb); r.appendChild(am); r.appendChild(nt);
       box.appendChild(r);
       exRows.push({ label: lb, amount: am, note: nt });
     }
 
     // 拾えたのに入りきらなかった項目は黙って落とさずに知らせる
-    if ((prep.items || []).length > 8) {
+    if (rowsSource.length > 8) {
       var over = document.createElement('div');
-      over.textContent = '⚠ 図面から拾えた項目が8件を超えました。入りきらない分: '
-        + prep.items.slice(8).map(function (e) { return e.label + ' ' + e.amount; }).join('、')
+      over.textContent = '⚠ 拾えた項目が8件を超えました。入りきらない分: '
+        + rowsSource.slice(8).map(function (e) { return e.label + ' ' + e.amount; }).join('、')
         + '（テンプレートの記入欄が8行のため）';
       over.style.cssText = 'font-size:11px;color:#b8860b;background:#fffbea;border:1px solid #f0e0b0;'
         + 'border-radius:6px;padding:7px 9px;margin-top:6px;line-height:1.5;';
       box.appendChild(over);
     }
+
+    // ── 図面の読み取り結果と、サイトの値との食い違い ──
+    var dwBox = document.createElement('div');
+    dwBox.style.cssText = 'font-size:11px;margin-top:10px;padding:8px 10px;border-radius:6px;line-height:1.6;';
+    if (!dw) {
+      dwBox.style.cssText += 'background:#f4f4f4;color:#777;';
+      dwBox.textContent = '募集図面: 読み取っていません';
+    } else if (!dw.ok) {
+      dwBox.style.cssText += 'background:#fffbea;border:1px solid #f0e0b0;color:#8a6d1f;';
+      dwBox.textContent = '募集図面を読めませんでした: ' + dw.error + '（サイトの値だけで作れます）';
+    } else {
+      var z = dw.data || {};
+      // 図面とサイトで値が違うところだけ挙げる。どちらが正しいかは人が決める。
+      var diffs = [];
+      function cmp(name, site, zumen) {
+        if (zumen === null || zumen === undefined || zumen === '') return;
+        if (String(site) === String(zumen)) return;
+        diffs.push(name + ' サイト:' + (site === '' ? '(空)' : site) + ' / 図面:' + zumen);
+      }
+      cmp('賃料', prep.rent, z.rent);
+      cmp('管理費', prep.managementFee, z.management_fee);
+      cmp('敷金(ヶ月)', prep.depositMonths, z.deposit_months);
+      cmp('礼金(ヶ月)', prep.keyMoneyMonths, z.key_money_months);
+      cmp('保証料(%)', prep.guaranteeRate === null ? '' : prep.guaranteeRate, z.guarantee_rate_percent);
+
+      var head = '募集図面を読みました（' + dw.model + (dw.fellBack ? '・上限のため軽いモデルに切替' : '')
+        + ' / ' + dw.sizeKB + 'KB）';
+      if (diffs.length) {
+        dwBox.style.cssText += 'background:#fff4f2;border:1px solid #f0c8c0;color:#9e3226;';
+        dwBox.textContent = head + '\n⚠ サイトの値と食い違っています。確認してください:\n・' + diffs.join('\n・');
+        dwBox.style.whiteSpace = 'pre-wrap';
+      } else {
+        dwBox.style.cssText += 'background:#f2f9ee;border:1px solid #cfe4c0;color:#2c6b1f;';
+        var exNames = (z.excluded || []).map(function (e) { return e.label; }).filter(Boolean);
+        dwBox.textContent = head + '。サイトの値と一致しています。'
+          + (exNames.length ? '\n初期費用から外したもの: ' + exNames.join('、') : '');
+        dwBox.style.whiteSpace = 'pre-wrap';
+      }
+    }
+    box.appendChild(dwBox);
 
     var note = document.createElement('div');
     note.style.cssText = 'font-size:11px;color:#777;margin-top:10px;line-height:1.6;';

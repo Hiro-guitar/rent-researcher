@@ -672,6 +672,137 @@ if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
   });
 }
 
+// ─────────────────────────────────────────────
+// 募集図面の取得
+//
+// 各サイトの「図面」ボタンは押さない。ボタンの裏で叩かれているAPIを直接呼ぶ。
+// REINSのボタンは location.href 遷移なので、押すと必ず実ファイルが落ちてしまう。
+//
+// host_permissions があるおかげで Service Worker からの fetch でも
+// CORSを迂回でき、credentials:'include' で Cookie も乗る。
+// つまり詳細タブを開かずに取れる（ES-Squareだけは例外。下記）。
+// ─────────────────────────────────────────────
+
+// ArrayBuffer → base64。Service Worker には FileReader が無いので自前で変換する。
+// 一度に apply すると引数が多すぎて落ちるため小分けにする。
+function _arrayBufferToBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  const CHUNK = 0x8000;
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+// 先頭バイトで実際の形式を判定する。
+// いえらぶは Content-Type が application/octet-stream なのにJPEGを返すため、
+// ヘッダを信用せず中身で判定する。Geminiに渡す mimeType はこれで決める。
+function _sniffMime(buf) {
+  const b = new Uint8Array(buf.slice(0, 4));
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return 'application/pdf';   // %PDF
+  if (b[0] === 0xFF && b[1] === 0xD8) return 'image/jpeg';
+  if (b[0] === 0x89 && b[1] === 0x50) return 'image/png';
+  return '';
+}
+
+async function _drawingFrom(url, init) {
+  const res = await fetchWithTimeout(url, Object.assign({ credentials: 'include' }, init || {}),
+    { timeoutMs: 30000, label: 'zumen' });
+  if (!res.ok) return { ok: false, error: '図面の取得に失敗しました (HTTP ' + res.status + ')' };
+  const buf = await res.arrayBuffer();
+  const mime = _sniffMime(buf);
+  if (!mime) return { ok: false, error: '図面がPDFでも画像でもありませんでした（ログイン切れの可能性）' };
+  return { ok: true, base64: _arrayBufferToBase64(buf), mimeType: mime, size: buf.byteLength };
+}
+
+// itandi: 物件IDからURLを組み立てるだけ。ページを開く必要すらない。
+async function _drawingItandi(prop) {
+  const m = String(prop.url || prop.room_id || '').match(/(\d{6,})/);
+  if (!m) return { ok: false, error: 'itandiの物件IDが分かりません' };
+  return await _drawingFrom(
+    'https://api.itandibb.com/api/internal/v4/properties/' + m[1] + '/offer_zumens/0');
+}
+
+// いえらぶ: ダイアログHTMLを取って、その中の図面URLを拾う2段構え。
+// 「チラシ作成」タブは自社生成の別物なので、拾うのは管理会社登録図面のURLだけ。
+async function _drawingIelove(prop) {
+  const m = String(prop.url || '').match(/\/detail\/id\/(\d+)/);
+  if (!m) return { ok: false, error: 'いえらぶの物件IDが分かりません' };
+  const res = await fetchWithTimeout(
+    'https://bb.ielove.jp/ielovebb/rentshareajax/zumendownload/id/' + m[1] + '/',
+    { credentials: 'include' }, { timeoutMs: 30000, label: 'zumen_dialog' });
+  if (!res.ok) return { ok: false, error: '図面ダイアログの取得に失敗 (HTTP ' + res.status + ')' };
+  const html = await res.text();
+  const urls = (html.match(/\/ielovebb\/rent\/zumen\/bid\/\d+\/aid\/\d+\/gid\/\d+\/order\/\d+\//g) || []);
+  if (!urls.length) return { ok: false, error: 'この物件には管理会社登録図面がありません' };
+  return await _drawingFrom('https://bb.ielove.jp' + urls[0]);
+}
+
+// REINS: 図面APIは bkknId を要る。これは画面の物件番号とは別の内部IDで、
+// DOMには無く Vue インスタンスの中にしかない。MAINワールドで取り出す。
+async function _drawingReins(prop, tabId) {
+  const propNum = String(prop.reins_property_number || prop.propertyNumber || '').trim();
+  if (!tabId) return { ok: false, error: 'REINSの図面は検索結果のタブが必要です' };
+  if (!propNum) return { ok: false, error: 'REINSの物件番号が分かりません' };
+
+  let bkknId = '', zik = '1';
+  try {
+    const r = await chrome.scripting.executeScript({
+      target: { tabId }, world: 'MAIN',
+      func: (num) => {
+        let el = document.querySelector('.p-table-body-row');
+        while (el && !el.__vue__) el = el.parentElement;
+        const items = el && el.__vue__ && el.__vue__.$parent && el.__vue__.$parent.iItems;
+        if (!items) return null;
+        const hit = items.find(x => String(x.bkknBngu || '') === String(num));
+        if (!hit) return null;
+        // zmn === '02' が図面あり
+        return { bkknId: hit.bkknId, zikSiykKbn: hit.zikSiykKbn || '1', hasZumen: hit.zmn === '02' };
+      },
+      args: [propNum]
+    });
+    const got = r && r[0] && r[0].result;
+    if (!got) return { ok: false, error: 'REINSの一覧からこの物件が見つかりません（ページが変わっている可能性）' };
+    if (!got.hasZumen) return { ok: false, error: 'この物件には図面がありません' };
+    bkknId = got.bkknId;
+    zik = got.zikSiykKbn || '1';
+  } catch (e) {
+    return { ok: false, error: 'REINSの内部IDを取得できませんでした: ' + e.message };
+  }
+
+  // 2ステップ: etagを取ってからダウンロード
+  const t = await fetchWithTimeout('https://system.reins.jp/main/api/BK/GBK002200/testZmnPdfFile', {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bkknId, zikSiykKbn: zik })
+  }, { timeoutMs: 30000, label: 'reins_zumen_etag' });
+  if (!t.ok) return { ok: false, error: '図面の準備に失敗しました (HTTP ' + t.status + ')' };
+  const etag = (await t.text()).replace(/^"|"$/g, '');
+
+  const q = new URLSearchParams({ bkknId: bkknId, zikSiykKbn: zik, etag: etag });
+  return await _drawingFrom(
+    'https://system.reins.jp/main/api/BK/GBK002200/downloadZmnPdfFile?' + q.toString());
+}
+
+async function fetchDrawing(source, prop, tabId) {
+  try {
+    if (source === 'itandi') return await _drawingItandi(prop);
+    if (source === 'ielove') return await _drawingIelove(prop);
+    if (source === 'reins') return await _drawingReins(prop, tabId);
+    if (source === 'essquare') {
+      // ES-Squareの図面はサーバ保管ではなく、ページが持つ物件データを毎回POSTして
+      // その場で生成させているもの。認証もJWTが要る（Cookieでは通らない）。
+      // 初期費用は物件データAPIに構造化されたまま入っているので、
+      // 図面を作らせるより そちらを読む方が速い。未実装。
+      return { ok: false, error: 'ES-Squareは図面ではなく物件データから取る方式にするため未対応です' };
+    }
+    return { ok: false, error: '未対応のサイト: ' + source };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // スプレッドシートの1シートをPDFにしてダウンロードする。
 // chrome.downloads はブラウザ通常のダウンロードと同じ経路なので Googleのログイン
 // Cookie がそのまま乗る（Service Worker からの fetch だと乗らないことがある）。
@@ -3726,8 +3857,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           lines.push({ label, amount: (yen == null || yen === 0) ? t : yen, note, source: t });
         }
 
+        // ── 募集図面をAIに読ませる ──
+        // サイトの入力欄が空欄でも図面には書いてあるので、DOMだけでは足りない。
+        // 失敗しても概算書は作れるので、ここで止めない（理由だけ画面に出す）。
+        let drawing = null;
+        try {
+          const item0 = items[0] || {};
+          const src = item0.source || d.source || '';
+          const zumen = await fetchDrawing(src, Object.assign({}, item0.prop || {}, {
+            reins_property_number: d.reins_property_number || (item0.prop || {}).reins_property_number
+          }), senderTabId);
+          if (zumen.ok) {
+            const { gasWebappUrl, gasApiKey } = await getConfig();
+            const resp = await fetchWithTimeout(gasWebappUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain' },
+              body: JSON.stringify({
+                action: 'read_drawing', api_key: gasApiKey,
+                pdfBase64: zumen.base64, mimeType: zumen.mimeType
+              })
+            }, { timeoutMs: 120000, label: 'read_drawing' });
+            const rj = await resp.json();
+            drawing = rj && rj.ok
+              ? { ok: true, model: rj.model, fellBack: !!rj.fellBack, data: rj.data,
+                  sizeKB: Math.round(zumen.size / 1024), mimeType: zumen.mimeType }
+              : { ok: false, error: (rj && rj.error) || '図面の読み取りに失敗しました' };
+          } else {
+            drawing = { ok: false, error: zumen.error };
+          }
+        } catch (eD) {
+          drawing = { ok: false, error: eD.message };
+        }
+
         sendResponse({
           ok: true,
+          drawing,
           building: String(d.building_name || '').trim(),
           room: String(d.room_number || d.roomNumber || '').trim(),
           rent,
