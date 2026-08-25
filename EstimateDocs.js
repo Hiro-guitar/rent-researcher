@@ -26,9 +26,9 @@ var ESTIMATE_INPUT_SHEET = 'データ入力用';
 // テンプレートでは「鍵交換費用/24時間サポート/火災保険/インターネット」が
 // 入っているが固定ではない。出力シートは A15〜A22 の8行を拾っている。
 var ESTIMATE_FREE_ROWS = 8;
-// 割引シートの合計は =sum(D18,D19,F20,D21,…,D29) と1セルずつ列挙されていて、
-// 自由記入欄は上から4行(D26〜D29)までしか入っていない。標準シートは =sum(D18:F33)。
-var ESTIMATE_DISCOUNT_TOTAL_ROWS = 4;
+// 割引シートの合計は元々 =sum(D18,D19,F20,D21,…,D29) と1セルずつ列挙されていて、
+// 自由記入欄の下4行(D30〜D33)が抜けていた。2026-08-25 に
+// =sum(D18,D19,F20,D21:F33) に直したので、今は8行すべて合計に入る。
 
 var ESTIMATE_DOC_KINDS = {
   standard: { label: '初期費用概算書', printSheet: '初期費用概算書' },
@@ -177,15 +177,9 @@ function handleMakeEstimateDoc(json) {
     // 追加項目の行(D30〜D33)が入っていない。標準シートは =sum(D18:F33) なので入る。
     // テンプレートの数式を勝手に書き換えないので、使ったときは画面で知らせる。
     var totalWarning = '';
-    if (kind === 'discount' && filled > ESTIMATE_DISCOUNT_TOTAL_ROWS) {
-      totalWarning = '割引タイプの合計に入るのは自由記入欄の上から'
-        + ESTIMATE_DISCOUNT_TOTAL_ROWS + '件までです（テンプレートの合計式が'
-        + 'それ以降の行を範囲に入れていないため）。'
-        + (filled - ESTIMATE_DISCOUNT_TOTAL_ROWS) + '件が合計に入っていません。';
-    }
     if (overflow.length) {
-      totalWarning += (totalWarning ? ' / ' : '')
-        + '記入欄が' + ESTIMATE_FREE_ROWS + '行しかないため入らなかった項目: ' + overflow.join('、');
+      totalWarning = '記入欄が' + ESTIMATE_FREE_ROWS + '行しかないため入らなかった項目: '
+        + overflow.join('、');
     }
 
     return out({
