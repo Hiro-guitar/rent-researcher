@@ -2911,9 +2911,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const res = await fetchCriteria();
         const fresh = (res && res.criteria) || [];
-        if (fresh.length > 0) {
-          chrome.storage.local.set({ customerCriteria: fresh, lastCriteriaFetch: Date.now() });
-        }
+        await _storeCriteria(fresh);
         sendResponse({ ok: true, count: fresh.length });
       } catch (e) {
         sendResponse({ ok: false, error: e.message });
@@ -2940,7 +2938,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const res = await fetchCriteria();
             let fresh = (res && res.criteria) || [];
             if (fresh.length > 0) {
-              chrome.storage.local.set({ customerCriteria: fresh, lastCriteriaFetch: Date.now() });
+              await _storeCriteria(fresh);
               customers = Array.from(new Set(fresh.map(c => c && c.name).filter(Boolean)));
             }
           } catch (e2) {
@@ -2955,10 +2953,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) {}
       sendResponse({ ok: true, customers, contextCustomer });
       // バックグラウンドでキャッシュ更新（新規顧客が次回パネルオープンで反映される）
-      fetchCriteria().then(res => {
-        const fresh = (res && res.criteria) || [];
-        if (fresh.length > 0) chrome.storage.local.set({ customerCriteria: fresh, lastCriteriaFetch: Date.now() });
-      }).catch(() => {});
+      fetchCriteria().then(res => _storeCriteria((res && res.criteria) || [])).catch(() => {});
     })();
     return true;
   }
@@ -4397,6 +4392,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 // --- 検索条件取得 ---
+// 検索条件を保存する唯一の入口。
+//
+// 新しく現れた条件は既定OFF（顧客フィルタでチェックしたときに初めて検索対象になる）。
+// 以前は refreshCriteria の中だけでこれをやっていたが、条件を保存する場所が
+// 他に3箇所（顧客フィルタの「更新」ボタン／手動送信パネルを開いたとき×2）あり、
+// そちらを通ると新しい顧客がチェック済みのまま入ってしまっていた。
+// パネルは物件ページを開くたびに走るので、事実上こちらが主経路になっていた。
+async function _storeCriteria(criteria) {
+  if (!Array.isArray(criteria) || criteria.length === 0) return [];
+  const critKey = (c) => (c && c.recommend ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : ''));
+  let freshKeys = [];
+  try {
+    const prevStore = await getStorageData(['customerCriteria', 'excludedCustomers']);
+    const prev = prevStore.customerCriteria || [];
+    // 初回インストール直後(prev空)は全件を新規扱いすると何も検索されなくなるので、
+    // そのときだけ従来どおり全件ONのままにする。
+    if (prev.length > 0) {
+      const prevKeys = new Set(prev.map(critKey));
+      freshKeys = criteria.map(critKey).filter(k => k && !prevKeys.has(k));
+      if (freshKeys.length > 0) {
+        const merged = Array.from(new Set([...(prevStore.excludedCustomers || []), ...freshKeys]));
+        await setStorageData({ excludedCustomers: merged });
+        const labels = criteria
+          .filter(c => freshKeys.includes(critKey(c)))
+          .map(c => c.recommend ? `${c.name}(おすすめ: ${c.recommendLabel || ''})` : c.name);
+        await setStorageData({
+          debugLog: `新しい条件 ${freshKeys.length}件を検出 → 既定OFF（顧客フィルタでチェックすると検索されます）: ${labels.join('、')}`
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('[新規条件の既定OFF] 失敗（続行）:', e && e.message);
+  }
+  await setStorageData({ customerCriteria: criteria, lastCriteriaFetch: Date.now() });
+  return freshKeys;
+}
+
 async function refreshCriteria() {
   const _t0 = Date.now();
   try {
@@ -4410,36 +4442,7 @@ async function refreshCriteria() {
       await setStorageData({ debugLog: `GAS criteria error: ${result.error}` });
     }
     if (result && result.criteria) {
-      // 新しく現れた条件は既定OFF（チェックしたときに初めて検索対象になる） (2026-08-01)。
-      // 以前は「除外リストに無い＝対象」だったため、シートに顧客を追加すると
-      // 次のサイクルから勝手に検索が走っていた。
-      // ※ 初回インストール直後(prev空)は全件を新規扱いすると何も検索されなくなるので、
-      //   そのときだけ従来どおり全件ONのままにする。
-      try {
-        const prevStore = await getStorageData(['customerCriteria', 'excludedCustomers']);
-        const prev = prevStore.customerCriteria || [];
-        if (prev.length > 0) {
-          const critKey = (c) => (c && c.recommend ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : ''));
-          const prevKeys = new Set(prev.map(critKey));
-          const freshKeys = result.criteria.map(critKey).filter(k => k && !prevKeys.has(k));
-          if (freshKeys.length > 0) {
-            const merged = Array.from(new Set([...(prevStore.excludedCustomers || []), ...freshKeys]));
-            await setStorageData({ excludedCustomers: merged });
-            const labels = result.criteria
-              .filter(c => freshKeys.includes(critKey(c)))
-              .map(c => c.recommend ? `${c.name}(おすすめ: ${c.recommendLabel || ''})` : c.name);
-            await setStorageData({
-              debugLog: `新しい条件 ${freshKeys.length}件を検出 → 既定OFF（顧客フィルタでチェックすると検索されます）: ${labels.join('、')}`
-            });
-          }
-        }
-      } catch (eNew) {
-        console.warn('[新規条件の既定OFF] 失敗（続行）:', eNew.message);
-      }
-      chrome.storage.local.set({
-        customerCriteria: result.criteria,
-        lastCriteriaFetch: Date.now()
-      });
+      await _storeCriteria(result.criteria);
       console.log(`検索条件取得: ${result.criteria.length}件`);
     }
   } catch (err) {
