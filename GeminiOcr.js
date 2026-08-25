@@ -39,10 +39,11 @@ var GEMINI_DRAWING_PROMPT = [
   '【時期の判定】',
   '図面に「契約時」「退去時」「更新時」と書かれていればそれに従う。書かれていない場合は次の実務ルールで判定し、根拠を timing_reason に書く。',
   '',
-  '- クリーニング代・室内清掃費用:',
+  '- クリーニング代・室内清掃費用（必ず「契約時」か「退去時」のどちらかに決めること。"不明"にしない）:',
+  '  ・「契約時」「入居時」の記載があれば契約時',
   '  ・「退去時」「解約時」の記載があれば退去時 → 除外',
-  '  ・記載が無く、敷金がある物件 → 退去時に敷金から精算されるのが通例なので退去時とみなす → 除外',
-  '  ・記載が無く、敷金が0（なし）の物件 → 契約時に前払いすることが多いので契約時とする',
+  '  ・記載が無く、敷金がある物件 → 退去時に敷金から精算されるのが通例なので退去時 → 除外',
+  '  ・記載が無く、敷金が0（なし）の物件 → 契約時に前払いするのが通例なので契約時',
   '- 契約時とみなしてよいもの: 鍵交換費用、火災保険・損害保険、消毒/抗菌/防虫の施工代、',
   '  室内サポートや設備保証などのサービス料（「ホームマイスター」等の商品名を含む）、初回保証料、仲介手数料',
   '- 必ず除外するもの: 更新料、更新事務手数料、更新時の保証料、短期解約違約金、退去時の費用',
@@ -115,9 +116,55 @@ function _drawingDisplayLabel_(label, timing) {
   return t + '（先払い）';
 }
 
+/**
+ * クリーニング代の時期を必ず決める。
+ *
+ * クリーニング代は図面に時期が明記されているのが普通だが、書かれていない図面もある。
+ * その場合も「不明」で放置せず、敷金の有無で決まる:
+ *   敷金あり → 退去時に敷金から精算される  → 初期費用ではない
+ *   敷金なし → 契約時に前払いする          → 初期費用
+ * プロンプトでも同じ指示をしているが、モデルの判断が揺れても結果が変わらないよう
+ * こちらでも決めておく。金額が大きい項目なので、入る/入らないを運任せにしない。
+ *
+ * deposit_months は「金額しか書かれていない」とき null になる（＝敷金はある）。
+ * 0 だけが「敷金なし」。
+ */
+function _resolveCleaningTiming_(data) {
+  if (!data || !Array.isArray(data.initial_costs)) return;
+  var dep = data.deposit_months;
+  var noDeposit = (dep === 0 || dep === '0');
+  var kept = [];
+  var moved = [];
+
+  for (var i = 0; i < data.initial_costs.length; i++) {
+    var it = data.initial_costs[i] || {};
+    var label = String(it.label || '');
+    if (!/クリーニング|清掃/.test(label)) { kept.push(it); continue; }
+    if (it.timing === '契約時') { kept.push(it); continue; }
+
+    if (noDeposit) {
+      it.timing = '契約時';
+      it.timing_reason = '図面に時期の記載が無く、敷金が0のため先払いと判断';
+      kept.push(it);
+    } else {
+      moved.push({
+        label: it.label,
+        amount: it.amount,
+        reason: (it.timing === '退去時')
+          ? '図面に退去時と記載'
+          : '図面に時期の記載が無く、敷金があるため退去時に精算されると判断'
+      });
+    }
+  }
+
+  data.initial_costs = kept;
+  if (moved.length) data.excluded = (data.excluded || []).concat(moved);
+}
+
 function _drawingResult_(res, model, fellBack) {
-  // 概算書にそのまま出せる項目名を付けておく
   try {
+    // クリーニング代の時期を先に確定させてから項目名を決める
+    _resolveCleaningTiming_(res.data);
     var items = (res.data && res.data.initial_costs) || [];
     for (var i = 0; i < items.length; i++) {
       items[i].display_label = _drawingDisplayLabel_(items[i].label, items[i].timing);
