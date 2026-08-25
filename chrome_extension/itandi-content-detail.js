@@ -424,6 +424,33 @@
       detail.owner_company = oc.slice(0, 40);
     }
 
+    // ── 初期費用の項目を拾う（初期費用概算書で使う）──
+    // itandiは金額の前に「契約時 / 退去時 / 更新時」と時期が書かれている。
+    // 「契約時」のものだけが初期費用。室内清掃費用は退去時、更新事務手数料は更新時なので入らない。
+    // 保険だけは時期が書かれず「加入要 2年間 15,000円」のような書き方なので個別に拾う。
+    detail.initial_costs = (function () {
+      var out = [];
+      try {
+        document.querySelectorAll('.DetailTable').forEach(function (dt) {
+          var name = (dt.querySelector('.ItemName') || {}).textContent;
+          var val = (dt.querySelector('.ItemValue') || {}).textContent;
+          name = (name || '').trim();
+          val = (val || '').trim();
+          if (!name || !val) return;
+          if (/退去時|更新時/.test(val)) return;          // 初期費用ではない
+          var isInsurance = /保険/.test(name);
+          if (!/契約時/.test(val) && !isInsurance) return;
+          // 「2年間 15,000円」から年数ではなく金額を取る（円が付いている数字だけ見る）
+          var m = val.replace(/,/g, '').match(/([0-9]+(?:\.[0-9]+)?)\s*(万?)円/);
+          if (!m) return;
+          var yen = Number(m[1]) * (m[2] ? 10000 : 1);
+          if (!yen) return;
+          out.push({ label: isInsurance ? '火災保険' : name, amount: Math.round(yen), raw: val });
+        });
+      } catch (e) {}
+      return out;
+    })();
+
     // ── 広告掲載可否（DetailTable の「広告掲載可否」行） ──
     const adKeisaiRow = Array.from(document.querySelectorAll('.DetailTable'))
       .find(dt => dt.querySelector('.ItemName')?.textContent.trim() === '広告掲載可否');

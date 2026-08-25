@@ -1221,7 +1221,7 @@ async function fetchItandiDetailForManual(baseProp) {
         'other_monthly_fee', 'other_onetime_fee', 'move_in_conditions', 'move_out_date',
         'move_in_date', 'free_rent_detail', 'layout_detail', 'preview_start_date',
         'ad_fee', 'cleaning_fee', 'rights_fee', 'current_status',
-        'owner_company', 'owner_phone', 'ad_keisai', 'owner_company_debug',
+        'owner_company', 'owner_phone', 'ad_keisai', 'owner_company_debug', 'initial_costs',
       ];
       for (const key of detailFields) {
         if (d[key] && !prop[key]) prop[key] = d[key];
@@ -3610,19 +3610,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   //   ② MAKE: GASがテンプレートに流し込み、その出力シートをPDFで落とす
   // ─────────────────────────────────────────────
 
-  // 「27,500円」「2年 18000円」→ 数値。金額が読めなければ null。
+  // 「27,500円」「加入要 2年間 15,000円」→ 金額。読めなければ null。
+  // 「2年間」の2を金額として拾っていたので、円が付いている数字を最優先にする。
   function _estYen(text) {
-    const t = String(text == null ? '' : text).trim();
+    const t = String(text == null ? '' : text).replace(/[，]/g, ',').trim();
     if (!t) return null;
     if (/^(なし|無し|無料|0|-|ー|—|不要|入力なし)$/.test(t)) return 0;
-    // 「1.5ヶ月」等は金額ではない
-    if (/[ヶヵカか]月/.test(t) && !/円/.test(t)) return null;
-    const m = t.replace(/[，]/g, ',').match(/([0-9][0-9,]*(?:\.[0-9]+)?)\s*万?円?/);
-    if (!m) return null;
-    let n = Number(m[1].replace(/,/g, ''));
-    if (isNaN(n)) return null;
-    if (/万/.test(t)) n = n * 10000;
-    return Math.round(n);
+    // 円付きの数字（万円も）。これが一番確実
+    const withYen = t.match(/([0-9][0-9,]*(?:\.[0-9]+)?)\s*(万)?\s*円/);
+    if (withYen) {
+      const n = Number(withYen[1].replace(/,/g, ''));
+      if (!isNaN(n)) return Math.round(withYen[2] ? n * 10000 : n);
+    }
+    // 円が無いとき。年・ヶ月・％などの単位が付いた数字は金額ではないので外す
+    const bare = t.match(/([0-9][0-9,]*(?:\.[0-9]+)?)(?!\s*(?:年|[ヶヵカか]?月|%|％|名|人|回|台|階|部屋))/);
+    if (!bare) return null;
+    const n2 = Number(bare[1].replace(/,/g, ''));
+    return isNaN(n2) ? null : Math.round(n2);
   }
 
   // 「1ヶ月」「1.5ヵ月」「82,000円」「なし」→ ヶ月数。賃料が分かれば金額からも換算する。
@@ -3684,7 +3688,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           ['24時間サポート', d.support_fee_24h, '※毎月'],
           ['火災保険', d.fire_insurance, ''],
           ['インターネット', null, ''],
-          ['室内清掃費用', d.cleaning_fee, ''],
           ['保証金', d.guarantee_deposit, ''],
           ['敷金積み増し', d.additional_deposit, ''],
           ['ペット飼育時敷金追加', d.pet_deposit, ''],
@@ -3693,7 +3696,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           ['その他一時金', d.other_onetime_fee, '']
         ];
         const lines = [];
+
+        // 詳細ページが「契約時/退去時/更新時」つきで費用を返している場合は、
+        // それをそのまま使う（項目名も向こうの表記のまま）。
+        // 決め打ちの一覧では「緊急駆けつけサービス」のような項目を取りこぼすため。
+        if (Array.isArray(d.initial_costs) && d.initial_costs.length) {
+          for (const c of d.initial_costs) {
+            const label = String(c.label || '').trim();
+            if (!label) continue;
+            lines.push({
+              label,
+              amount: c.amount,
+              note: /火災保険|保険/.test(label) ? '' : '',
+              source: String(c.raw || '')
+            });
+          }
+          if (internetFree) lines.push({ label: 'インターネット', amount: '無料', note: '', source: '設備欄' });
+        }
+
         for (const [label, raw, note] of candidates) {
+          if (lines.some(l => l.label === label)) continue;   // 上で入っていれば重ねない
           if (label === 'インターネット') {
             if (internetFree) lines.push({ label, amount: '無料', note, source: '設備欄' });
             continue;
