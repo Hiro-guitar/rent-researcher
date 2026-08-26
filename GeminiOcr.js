@@ -69,8 +69,13 @@ var GEMINI_DRAWING_PROMPT = [
 ].join('\n');
 
 /**
- * 募集図面PDFをGeminiに読ませる。
- * json: { pdfBase64, mimeType }
+ * 募集図面をGeminiに読ませる。
+ * json: { pdfBase64, mimeType } … PDFや画像の図面
+ *       { text }                 … 図面が無いサイト向け。物件データの自由記述をそのまま渡す
+ *
+ * ES-Squareの図面はサイトのデータから毎回生成されるものなので、読んでも情報は増えない。
+ * 代わりに「その他費用」「契約条件」「REINS備考」などの自由記述を渡す。
+ * どちらの入り口でも、抽出する規則と出力の形は同じ。
  */
 function handleReadDrawing(json) {
   var out = function (obj) {
@@ -79,7 +84,11 @@ function handleReadDrawing(json) {
   };
 
   var b64 = String(json.pdfBase64 || '');
-  if (!b64) return out({ ok: false, error: '図面のデータが空です' });
+  var text = String(json.text || '').trim();
+  // いい生活(ES-Square)は図面が画像で登録されている。どれが募集図面かは
+  // 画像区分から確実には決められないので、候補を数枚まとめて渡して読ませる。
+  var images = Array.isArray(json.images) ? json.images : [];
+  if (!b64 && !text && !images.length) return out({ ok: false, error: '図面のデータが空です' });
   // GASのPOST上限もあるので、そもそも大きすぎるものは弾く
   if (b64.length > 20 * 1024 * 1024) return out({ ok: false, error: '図面のデータが大きすぎます' });
 
@@ -87,15 +96,19 @@ function handleReadDrawing(json) {
   if (!apiKey) return out({ ok: false, error: 'GEMINI_API_KEY が未設定です' });
 
   var mimeType = String(json.mimeType || 'application/pdf');
+  var input;
+  if (b64) input = { b64: b64, mimeType: mimeType };
+  else if (images.length) input = { images: images.slice(0, 4) };   // 4枚まで
+  else input = { text: text };
 
   // まず精度の高い方。1日の上限に当たっていたら軽い方へ落とす。
-  var first = _geminiGenerate_(apiKey, GEMINI_OCR.PRIMARY, mimeType, b64);
+  var first = _geminiGenerate_(apiKey, GEMINI_OCR.PRIMARY, input);
   if (first.ok) return out(_drawingResult_(first, GEMINI_OCR.PRIMARY, false));
 
   if (!first.quotaPerDay) {
     return out({ ok: false, error: first.error, model: GEMINI_OCR.PRIMARY });
   }
-  var second = _geminiGenerate_(apiKey, GEMINI_OCR.FALLBACK, mimeType, b64);
+  var second = _geminiGenerate_(apiKey, GEMINI_OCR.FALLBACK, input);
   if (second.ok) return out(_drawingResult_(second, GEMINI_OCR.FALLBACK, true));
   return out({ ok: false, error: second.error, model: GEMINI_OCR.FALLBACK, fellBack: true });
 }
@@ -186,15 +199,28 @@ function _drawingResult_(res, model, fellBack) {
  * 戻り: { ok, data } / { ok:false, error, quotaPerDay }
  * quotaPerDay は「1日の上限に当たった」ときだけ true（分あたりの上限とは区別する）。
  */
-function _geminiGenerate_(apiKey, model, mimeType, b64) {
+function _geminiGenerate_(apiKey, model, input) {
+  // 入り口は3つ。図面(PDF/画像1枚) / 画像複数 / テキスト。抽出の規則は共通。
+  var parts;
+  if (input.b64) {
+    parts = [{ inline_data: { mime_type: input.mimeType, data: input.b64 } },
+             { text: GEMINI_DRAWING_PROMPT }];
+  } else if (input.images) {
+    parts = [];
+    for (var im = 0; im < input.images.length; im++) {
+      parts.push({ inline_data: {
+        mime_type: input.images[im].mimeType || 'image/jpeg',
+        data: input.images[im].base64
+      } });
+    }
+    parts.push({ text: '上の画像のうち、募集図面（マイソク）が含まれているものだけを見てください。'
+      + '間取り図や室内写真しか写っていない画像は無視してください。\n\n' + GEMINI_DRAWING_PROMPT });
+  } else {
+    parts = [{ text: '以下は物件データの記載内容です。募集図面と同じものとして扱ってください。\n\n' + input.text },
+             { text: GEMINI_DRAWING_PROMPT }];
+  }
   var payload = {
-    contents: [{
-      role: 'user',
-      parts: [
-        { inline_data: { mime_type: mimeType, data: b64 } },
-        { text: GEMINI_DRAWING_PROMPT }
-      ]
-    }],
+    contents: [{ role: 'user', parts: parts }],
     generationConfig: {
       temperature: 0,             // 金額を読む作業なので揺らさない
       maxOutputTokens: 8000,

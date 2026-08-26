@@ -785,18 +785,86 @@ async function _drawingReins(prop, tabId) {
     'https://system.reins.jp/main/api/BK/GBK002200/downloadZmnPdfFile?' + q.toString());
 }
 
+// いい生活(ES-Square): 「図面」ボタンで出るPDFはサイトのデータから毎回生成されるものなので、
+// 会社が入力していなければ図面も空になる＝読んでも増えない。
+// 実際には多くの会社が募集図面を「画像」として登録しているので、そちらを取る。
+//
+// 物件データAPIはCookieでは通らず Auth0 のトークンが要る。
+// トークンは essquare-token-hook.js（MAIN/document_start）が拾って
+// DOMのdata属性に置いているので、そこから読む。
+async function _drawingEssquare(prop, tabId) {
+  const guid = String(prop._raw_room_id || '').trim()
+    || (String(prop.url || '').match(/detail\/([0-9a-f-]{8,})/i) || [])[1] || '';
+  if (!guid) return { ok: false, error: 'ES-Squareの物件IDが分かりません' };
+  if (!tabId) return { ok: false, error: 'ES-Squareの図面はサイトのタブが必要です' };
+
+  let token = '';
+  try {
+    const r = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        try {
+          const t = JSON.parse(document.documentElement.dataset.esqTokens || '{}');
+          return t['api.e-bukken-1.com'] || '';
+        } catch (e) { return ''; }
+      }
+    });
+    token = (r && r[0] && r[0].result) || '';
+  } catch (e) {}
+  if (!token) {
+    return { ok: false, error: 'ES-Squareのトークンをまだ拾えていません。物件を一度開いてから再試行してください' };
+  }
+
+  // 物件データ（画像の一覧を含む）
+  const dRes = await fetchWithTimeout(
+    'https://api.e-bukken-1.com/onenet/1.0/square/chinshaku/' + encodeURIComponent(guid) + '?with_children=true',
+    { headers: { Authorization: token } }, { timeoutMs: 30000, label: 'esq_data' });
+  if (!dRes.ok) return { ok: false, error: '物件データの取得に失敗しました (HTTP ' + dRes.status + ')' };
+  const data = await dRes.json();
+
+  const gazo = (data && (data.chinshaku_gazo || data.chinshakuGazo)) || [];
+  if (!Array.isArray(gazo) || !gazo.length) return { ok: false, error: '登録画像がありません' };
+
+  // どれが募集図面かは画像区分から確実には決められないので、
+  // 図面フラグが立っているものを先頭にして数枚まとめて渡し、AIに選ばせる。
+  const sorted = gazo.slice().sort((a, b) => {
+    const av = (a.primary_zumen_flag === true) ? 0 : 1;
+    const bv = (b.primary_zumen_flag === true) ? 0 : 1;
+    return av - bv;
+  });
+
+  const images = [];
+  for (const g of sorted) {
+    if (images.length >= 3) break;
+    const fid = g.file_guid || g.fileGuid;
+    if (!fid) continue;
+    try {
+      const iRes = await fetchWithTimeout(
+        'https://api.e-bukken-1.com/onenet/1.0/sq/c/' + encodeURIComponent(guid) + '/f/' + encodeURIComponent(fid),
+        { headers: { Authorization: token } }, { timeoutMs: 30000, label: 'esq_img' });
+      if (!iRes.ok) continue;
+      const buf = await iRes.arrayBuffer();
+      const mime = _sniffMime(buf);
+      if (!mime || mime === 'application/pdf') continue;   // 画像だけ
+      images.push({ base64: _arrayBufferToBase64(buf), mimeType: mime, size: buf.byteLength });
+    } catch (e) {}
+  }
+  if (!images.length) return { ok: false, error: '図面らしい画像を取得できませんでした' };
+
+  return {
+    ok: true,
+    images: images,
+    mimeType: images[0].mimeType,
+    size: images.reduce((n, i) => n + i.size, 0)
+  };
+}
+
 async function fetchDrawing(source, prop, tabId) {
   try {
     if (source === 'itandi') return await _drawingItandi(prop);
     if (source === 'ielove') return await _drawingIelove(prop);
     if (source === 'reins') return await _drawingReins(prop, tabId);
-    if (source === 'essquare') {
-      // ES-Squareの図面はサーバ保管ではなく、ページが持つ物件データを毎回POSTして
-      // その場で生成させているもの。認証もJWTが要る（Cookieでは通らない）。
-      // 初期費用は物件データAPIに構造化されたまま入っているので、
-      // 図面を作らせるより そちらを読む方が速い。未実装。
-      return { ok: false, error: 'ES-Squareは図面ではなく物件データから取る方式にするため未対応です' };
-    }
+    if (source === 'essquare') return await _drawingEssquare(prop, tabId);
     return { ok: false, error: '未対応のサイト: ' + source };
   } catch (e) {
     return { ok: false, error: e.message };
@@ -3872,10 +3940,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             const resp = await fetchWithTimeout(gasWebappUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'text/plain' },
-              body: JSON.stringify({
-                action: 'read_drawing', api_key: gasApiKey,
-                pdfBase64: zumen.base64, mimeType: zumen.mimeType
-              })
+              body: JSON.stringify(Object.assign(
+                { action: 'read_drawing', api_key: gasApiKey, mimeType: zumen.mimeType },
+                zumen.images ? { images: zumen.images } : { pdfBase64: zumen.base64 }
+              ))
             }, { timeoutMs: 120000, label: 'read_drawing' });
             const rj = await resp.json();
             drawing = rj && rj.ok
