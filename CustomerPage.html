@@ -309,6 +309,7 @@ body {
       <a onclick="reviewPendingCleanup()" id="pendingCleanupLink">🧹 承認待ち整理</a>
       <a onclick="bulkArchiveFinished()" id="bulkArchiveLink">🗄 終了を一括アーカイブ</a>
       <a onclick="resetStages()" id="resetStageLink">♻️ 列を振り直す</a>
+      <a onclick="openMobileSearch()" id="mobileSearchLink">🔍 物件検索を回す</a>
       <a onclick="openAdminPage()">管理画面に戻る</a>
     </div>
   </div>
@@ -3560,6 +3561,13 @@ function changeInquiryStatus(rowIndex, renban, status) {
     })
     .withFailureHandler(function(err) { showToast('更新エラー: ' + (err && err.message ? err.message : '')); })
     .updateInquiryStatus(rowIndex, renban, status, null);
+}
+
+// スマホから物件検索を回す画面へ。URLにAPIキーが要るので、こちらで組み立てて渡す。
+function openMobileSearch() {
+  google.script.run
+    .withSuccessHandler(function (url) { window.open(url, '_top'); })
+    .getMobileSearchUrl();
 }
 
 function openAdminPage(withCustomer) {

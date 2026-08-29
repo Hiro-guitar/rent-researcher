@@ -12,6 +12,16 @@
 var MOBILE_SEARCH_KEY = 'MOBILE_SEARCH_REQUEST';   // 指示（1件だけ持つ）
 var MOBILE_SEARCH_SEEN = 'MOBILE_SEARCH_LAST_SEEN'; // 拡張が最後に見にきた時刻
 
+/**
+ * スマホ検索ページのURL。CRMのリンクから呼ぶ。
+ * APIキーを画面側に渡さずに済むよう、URLはサーバ側で組み立てる。
+ */
+function getMobileSearchUrl() {
+  var baseUrl = ScriptApp.getService().getUrl();
+  var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
+  return baseUrl + '?action=mobile_search&api_key=' + encodeURIComponent(apiKey);
+}
+
 /** 顧客フィルタと同じキーの作り方（本人=名前 / おすすめ=rec::ID） */
 function _mobileCritKey_(c) {
   return (c && c.recommend) ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : '');
@@ -211,6 +221,8 @@ function handleMobileSearchPage(e) {
     + 'cbs.forEach(function(c){c.addEventListener("change",upd)});upd();'
     + '</script>');
 
+  h.push('<div class="sub" style="margin-top:18px;text-align:center">'
+    + '<a href="' + _mobileEsc_(getCustomerPageUrl()) + '" style="color:#569cd6">← 顧客管理に戻る</a></div>');
   h.push('</body></html>');
 
   return HtmlService.createHtmlOutput(h.join(''))
