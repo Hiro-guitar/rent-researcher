@@ -763,13 +763,23 @@ var dailySelected = {};
 var pendingDailyChecks = {};
 // 列の移動・並び順も同じ競合が起きる（動かした直後に再取得が走ると元の列へ戻る）
 var pendingStages = {};   // name -> { stage, order }
+// 上書きを外すのは「サーバが同じ値を返してきたとき」だけにする。
+// 保存が成功した時点で外すと、保存前に始まっていた再取得の応答が
+// あとから届いて古い値に戻る（押しても戻り、2回目でやっと通る症状）。
+// 同じ値が返ってきた＝シートに反映済みなので、そこで初めて任せてよい。
 function applyPendingDailyChecks() {
   for (var i = 0; i < customers.length; i++) {
     var c = customers[i];
     var v = pendingDailyChecks[c.name];
-    if (v !== undefined) c.checkedToday = v;
+    if (v !== undefined) {
+      if (c.checkedToday === v) delete pendingDailyChecks[c.name];
+      else c.checkedToday = v;
+    }
     var st = pendingStages[c.name];
-    if (st !== undefined) { c.stage = st.stage; c.order = st.order; }
+    if (st !== undefined) {
+      if (c.stage === st.stage) delete pendingStages[c.name];
+      else { c.stage = st.stage; c.order = st.order; }
+    }
   }
 }
 
@@ -833,9 +843,10 @@ function bulkDailyCheck(checked) {
   var clearPending = function () { for (var m = 0; m < names.length; m++) delete pendingDailyChecks[names[m]]; };
   google.script.run
     .withSuccessHandler(function(r) {
-      clearPending();
+      // 成功時は上書きを残したまま。applyPendingDailyChecks が
+      // サーバの値が追いついたのを見てから外す。
       if (r && r.ok) showToast((r.updated || names.length) + '件を' + (checked ? '処理済みに' : '未確認に') + 'しました');
-      else { showToast((r && r.message) || '保存に失敗しました'); refreshCustomers(); }
+      else { clearPending(); showToast((r && r.message) || '保存に失敗しました'); refreshCustomers(); }
     })
     .withFailureHandler(function(e) { clearPending(); showToast('エラー: ' + (e && e.message ? e.message : '')); refreshCustomers(); })
     .setCustomersCheckedToday(names, !!checked);
@@ -857,8 +868,9 @@ function toggleDailyCheck(name, checked) {
   };
   google.script.run
     .withSuccessHandler(function(r) {
-      if (r && r.ok) delete pendingDailyChecks[name];   // 保存が確定 → 以降は再取得に任せる
-      else revert((r && r.message) || '保存に失敗しました');
+      // 成功してもここでは消さない。applyPendingDailyChecks が
+      // 「サーバが同じ値を返した」のを見てから外す。
+      if (!(r && r.ok)) revert((r && r.message) || '保存に失敗しました');
     })
     .withFailureHandler(function(e) { revert('エラー: ' + (e && e.message ? e.message : '')); })
     .setCustomerCheckedToday(name, !!checked);
