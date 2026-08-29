@@ -2517,10 +2517,14 @@ async function pollMobileSearchRequest() {
     if (!res.ok) return;
     const j = await res.json();
     const req = j && j.request;
-    if (!req || !Array.isArray(req.keys) || !req.keys.length) return;
+    if (!req) return;
+    // mode:'all' は顧客を指定しない指示。いつもどおり（PCの顧客フィルタに従って）回す。
+    const isAll = req.mode === 'all';
+    if (!isAll && (!Array.isArray(req.keys) || !req.keys.length)) return;
 
     await setStorageData({
-      debugLog: '[スマホ] 検索指示を受け取りました（' + req.keys.length + '件）'
+      debugLog: '[スマホ] 検索指示を受け取りました（'
+        + (isAll ? 'いつもの検索' : req.keys.length + '件') + '）'
     });
 
     // 実行前に「受け取った」と伝えておく。検索は数分かかるので、
@@ -2535,7 +2539,7 @@ async function pollMobileSearchRequest() {
       }, { timeoutMs: 30000, label: 'mobile_search_done' });
     } catch (e) {}
 
-    await runSearchCycle(req.keys);
+    await runSearchCycle(isAll ? null : req.keys);
   } catch (e) {
     console.warn('[スマホ検索指示] 取得失敗:', e && e.message);
   }

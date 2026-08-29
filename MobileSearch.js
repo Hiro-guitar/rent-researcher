@@ -31,6 +31,17 @@ function _mobileCritKey_(c) {
  * スマホの画面に出す顧客一覧。
  * 拡張の顧客フィルタ（log.html）と同じ並び — 本人のすぐ下にその人のおすすめ条件。
  */
+function _mobileCustomerGroups_() {
+  var flat = _mobileCustomerList_();
+  var order = [], by = {};
+  for (var i = 0; i < flat.length; i++) {
+    var it = flat[i];
+    if (!by[it.name]) { by[it.name] = { name: it.name, base: [], rec: [] }; order.push(it.name); }
+    (it.recommend ? by[it.name].rec : by[it.name].base).push(it);
+  }
+  return order.map(function (n) { return by[n]; });
+}
+
 function _mobileCustomerList_() {
   var res = {};
   try {
@@ -93,11 +104,12 @@ function handleSearchRequestDone(json) {
 }
 
 /** スマホから指示を置く（画面のフォームから来る） */
-function _mobileSaveRequest_(keys) {
+function _mobileSaveRequest_(keys, mode) {
   var props = PropertiesService.getScriptProperties();
   var req = {
     id: 'ms' + Date.now(),
     keys: keys,
+    mode: mode || 'selected',   // 'all' はPCの顧客フィルタどおりに全部回す
     status: 'pending',
     requestedAt: Date.now()
   };
@@ -124,11 +136,14 @@ function handleMobileSearchPage(e) {
   var params = (e && e.parameter) || {};
 
   var justSent = null;
-  if (params.keys !== undefined) {
+  if (params.mode === 'all') {
+    // 顧客を指定しない指示。拡張はいつもどおり（PCの顧客フィルタに従って）回す。
+    justSent = _mobileSaveRequest_([], 'all');
+  } else if (params.keys !== undefined) {
     var keys = String(params.keys || '').split('\n')
       .map(function (k) { return k.trim(); })
       .filter(function (k) { return k; });
-    if (keys.length) justSent = _mobileSaveRequest_(keys);
+    if (keys.length) justSent = _mobileSaveRequest_(keys, 'selected');
   }
 
   var lastSeen = Number(props.getProperty(MOBILE_SEARCH_SEEN) || 0);
@@ -136,7 +151,7 @@ function handleMobileSearchPage(e) {
   var cur = null;
   if (raw) { try { cur = JSON.parse(raw); } catch (eP) {} }
 
-  var list = _mobileCustomerList_();
+  var groups = _mobileCustomerGroups_();
   var apiKey = String(params.api_key || '');
 
   var h = [];
@@ -152,12 +167,18 @@ function handleMobileSearchPage(e) {
     + 'border-radius:8px;padding:10px 12px;font-size:12px;margin-bottom:14px;line-height:1.6}');
   h.push('.ok{background:#1d3320;border:1px solid #2f6b3a;color:#a6e3ad;'
     + 'border-radius:8px;padding:12px;font-size:13px;margin-bottom:14px;line-height:1.7}');
-  // タップしやすいよう1行1人。指を置ける高さを確保する
-  h.push('label.row{display:flex;align-items:center;gap:10px;padding:12px 12px;'
-    + 'background:#232323;border:1px solid #383838;border-radius:10px;margin-bottom:7px}');
-  h.push('label.row.rec{margin-left:22px;background:#1e2418;border-color:#3c4a2c}');
-  h.push('input[type=checkbox]{width:22px;height:22px;accent-color:#8ec41d;flex:0 0 22px;margin:0}');
-  h.push('.nm{font-weight:600}.lb{font-size:12px;color:#9c9}');
+  // PC版の顧客フィルタと同じ「人ごとの枠が折り返して並ぶ」形。
+  // 47人を1行1人にすると延々スクロールになるので、一画面に多く入る形にする。
+  // ただしタップできるよう、チェックボックスと余白はPC版より大きくする。
+  h.push('.list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}');
+  h.push('.grp{display:flex;flex-direction:column;gap:2px;border:1px solid #383838;'
+    + 'border-radius:8px;padding:6px 10px;background:#212121}');
+  h.push('.grp.on{border-color:#4a8a5c;background:#1e2a21}');
+  h.push('.grp label{display:flex;align-items:center;gap:7px;white-space:nowrap;'
+    + 'padding:5px 2px;margin:0;font-size:14px}');
+  h.push('.grp input[type=checkbox]{width:20px;height:20px;accent-color:#8ec41d;margin:0;flex:0 0 20px}');
+  h.push('.nm{font-weight:600;color:#e6e6e6}');
+  h.push('.lb{color:#9cdc9c;font-size:12px}');
   h.push('.bar{position:fixed;left:0;right:0;bottom:0;padding:12px 14px calc(12px + env(safe-area-inset-bottom));'
     + 'background:#111;border-top:1px solid #333;display:flex;gap:10px;align-items:center}');
   h.push('button{flex:1;padding:15px;border:none;border-radius:10px;font-size:16px;font-weight:700;'
@@ -169,12 +190,11 @@ function handleMobileSearchPage(e) {
   h.push('</style></head><body>');
 
   h.push('<h1>物件検索を回す</h1>');
-  h.push('<div class="sub">選んだお客さんの条件だけ検索します。'
-    + '結果は今までどおり承認待ちとDiscordに出ます。<br>'
-    + 'PCの検索を止めたり、顧客フィルタを変えたりはしません。</div>');
+  h.push('<div class="sub">結果は今までどおり承認待ちとDiscordに出ます。</div>');
 
   if (justSent) {
-    h.push('<div class="ok">✅ 指示を置きました（' + justSent.keys.length + '件）<br>'
+    h.push('<div class="ok">✅ 指示を置きました（'
+      + (justSent.mode === 'all' ? 'いつもの検索' : justSent.keys.length + '件') + '）<br>'
       + 'PCのChromeが次に確認したときに実行されます。結果はDiscordに出ます。</div>');
   }
 
@@ -186,25 +206,50 @@ function handleMobileSearchPage(e) {
       + 'PCのChromeが起動していないと実行されません。指示は消えずに残るので、'
       + 'PCを起動すれば実行されます。</div>');
   } else {
-    h.push('<div class="sub">PCの確認: ' + seenAgo
-      + (cur && cur.status === 'pending' ? ' ／ <b>実行待ちの指示があります</b>' : '') + '</div>');
+    h.push('<div class="sub" style="margin-bottom:10px">PCの確認: ' + seenAgo
+      + (cur && cur.status === 'pending' ? ' ／ <b>実行待ちの指示あり</b>' : '') + '</div>');
   }
+
+  // いつもの検索をそのまま回す入口。顧客を選ぶ必要がない一番よく使う操作なので上に置く。
+  h.push('<form method="get" style="margin-bottom:16px">');
+  h.push('<input type="hidden" name="action" value="mobile_search">');
+  if (apiKey) h.push('<input type="hidden" name="api_key" value="' + _mobileEsc_(apiKey) + '">');
+  h.push('<input type="hidden" name="mode" value="all">');
+  h.push('<button type="submit" style="width:100%;background:#2f6b3a;color:#eaffea;padding:13px">'
+    + 'いつもの検索を今すぐ回す</button>');
+  h.push('<div class="sub" style="margin:5px 0 0">PCの顧客フィルタどおりの人が対象</div>');
+  h.push('</form>');
+
+  h.push('<div class="sub" style="border-top:1px solid #333;padding-top:12px;margin-bottom:8px">'
+    + '<b>選んで回す</b> — フィルタに関係なく、選んだ人だけ検索します</div>');
 
   h.push('<form method="get">');
   h.push('<input type="hidden" name="action" value="mobile_search">');
   if (apiKey) h.push('<input type="hidden" name="api_key" value="' + _mobileEsc_(apiKey) + '">');
   h.push('<input type="hidden" name="keys" id="keys">');
 
-  for (var i = 0; i < list.length; i++) {
-    var it = list[i];
-    h.push('<label class="row' + (it.recommend ? ' rec' : '') + '">'
-      + '<input type="checkbox" class="cb" value="' + _mobileEsc_(it.key) + '">'
-      + '<span class="nm">' + _mobileEsc_(it.name) + '</span>'
-      + (it.recommend ? '<span class="lb">↳ ' + _mobileEsc_(it.label) + '</span>' : '')
-      + '</label>');
+  h.push('<div class="list">');
+  for (var gi = 0; gi < groups.length; gi++) {
+    var g = groups[gi];
+    h.push('<div class="grp">');
+    for (var bi = 0; bi < g.base.length; bi++) {
+      h.push('<label><input type="checkbox" class="cb" value="' + _mobileEsc_(g.base[bi].key) + '">'
+        + '<span class="nm">' + _mobileEsc_(g.name) + '</span></label>');
+    }
+    if (!g.base.length) {
+      h.push('<div class="nm" style="font-size:12px;color:#999;padding:5px 2px">'
+        + _mobileEsc_(g.name) + '</div>');
+    }
+    for (var ri = 0; ri < g.rec.length; ri++) {
+      h.push('<label><input type="checkbox" class="cb" value="' + _mobileEsc_(g.rec[ri].key) + '">'
+        + '<span class="lb">↳ ' + _mobileEsc_(g.rec[ri].label) + '</span></label>');
+    }
+    h.push('</div>');
   }
+  h.push('</div>');
 
   h.push('<div class="bar">'
+    + '<span class="mini" onclick="setAll(true)">全選択</span>'
     + '<span class="mini" onclick="setAll(false)">全解除</span>'
     + '<span class="cnt" id="cnt">0件</span>'
     + '<button type="submit" id="go" disabled>検索する</button>'
@@ -216,8 +261,10 @@ function handleMobileSearchPage(e) {
     + 'function upd(){var s=cbs.filter(function(c){return c.checked});'
     + 'document.getElementById("cnt").textContent=s.length+"件";'
     + 'document.getElementById("go").disabled=(s.length===0);'
-    + 'document.getElementById("keys").value=s.map(function(c){return c.value}).join("\\n");}'
+    + 'document.getElementById("keys").value=s.map(function(c){return c.value}).join("\\n");paint();}'
     + 'function setAll(v){cbs.forEach(function(c){c.checked=v});upd();}'
+    + 'function paint(){[].forEach.call(document.querySelectorAll(".grp"),function(g){'
+    + 'g.classList.toggle("on",!!g.querySelector(".cb:checked"))});}'
     + 'cbs.forEach(function(c){c.addEventListener("change",upd)});upd();'
     + '</script>');
 
