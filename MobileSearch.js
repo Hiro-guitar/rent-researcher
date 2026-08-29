@@ -22,6 +22,18 @@ function getMobileSearchUrl() {
   return baseUrl + '?action=mobile_search&api_key=' + encodeURIComponent(apiKey);
 }
 
+/**
+ * スマホから開くときのURL。自分のサイト(form.ehomaki.com)のページに包んで返す。
+ *
+ * GASのページを直接開くとGoogleが「このアプリケーションは Google ではなく…」の帯を
+ * 上に出す。この帯はGASのページの外側にあるので、こちらのコードからは消せない。
+ * PCでは拡張(gas-banner-hider.js)が外側から消しているが、スマホには拡張が無い。
+ * そこで自分のサイトのiframeに入れて、帯ごと外に出す。
+ */
+function getMobileSearchWrappedUrl() {
+  return 'https://form.ehomaki.com/search.html?u=' + encodeURIComponent(getMobileSearchUrl());
+}
+
 /** 顧客フィルタと同じキーの作り方（本人=名前 / おすすめ=rec::ID） */
 function _mobileCritKey_(c) {
   return (c && c.recommend) ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : '');
@@ -308,11 +320,14 @@ function handleMobileSearchPage(e) {
     + '</script>');
 
   h.push('<div class="sub" style="margin-top:18px;text-align:center">'
-    + '<a href="' + _mobileEsc_(getCustomerPageUrl()) + '" style="color:#569cd6">← 顧客管理に戻る</a></div>');
+    + '<a href="' + _mobileEsc_(getCustomerPageUrl()) + '" target="_top" '
+    + 'style="color:#569cd6">← 顧客管理に戻る</a></div>');
   h.push('</body></html>');
 
   return HtmlService.createHtmlOutput(h.join(''))
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    // 自分のサイトのiframeに埋め込むため。埋め込み先は search.html だけ
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .setTitle('物件検索を回す');
 }
 

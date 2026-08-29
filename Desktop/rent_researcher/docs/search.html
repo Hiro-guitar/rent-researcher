@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>物件検索を回す</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#181818;overflow:hidden}
+  iframe{display:block;width:100%;height:100%;border:0}
+  .err{color:#eee;font:15px/1.7 -apple-system,BlinkMacSystemFont,sans-serif;padding:20px}
+</style>
+</head>
+<body>
+<script>
+/*
+ * GASのWebアプリを自分のサイトに埋め込むためだけのページ。
+ *
+ * GASのページを直接開くと、Googleが外側に
+ * 「このアプリケーションは Google ではなく…」の帯を出す。
+ * この帯はGAS側のページの外にあるので、こちらのコードからは消せない
+ * （PCでは拡張の gas-banner-hider.js が外側から消している）。
+ * スマホには拡張が無いので、iframeに入れて帯ごと外に置く。
+ *
+ * 埋め込むURLは ?u= で渡す。ここに直接書かないのは、
+ * このリポジトリが公開されていてAPIキーが載ってしまうため。
+ */
+(function () {
+  var u = new URLSearchParams(location.search).get('u') || '';
+  // 任意のURLを埋め込めると危ないので、GASのWebアプリだけに限る
+  if (!/^https:\/\/script\.google\.com\/macros\//.test(u)) {
+    document.body.innerHTML =
+      '<div class="err">開けませんでした。<br>顧客管理の「物件検索を回す」から開いてください。</div>';
+    return;
+  }
+  var f = document.createElement('iframe');
+  f.src = u;
+  f.setAttribute('allow', 'clipboard-write');
+  document.body.appendChild(f);
+})();
+</script>
+</body>
+</html>

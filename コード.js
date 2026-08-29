@@ -4553,7 +4553,7 @@ function handleCustomerPage(e) {
   // スマホ検索ページのURLは、ここで埋め込んでリンクのhrefにする。
   // google.script.run の応答を待ってから window.open すると、GASのiframeでは
   // ユーザー操作の有効期限が切れていてトップフレームの遷移がブロックされる。
-  template.mobileSearchUrl = getMobileSearchUrl();
+  template.mobileSearchUrl = getMobileSearchWrappedUrl();
 
   return template.evaluate()
     .setTitle('顧客管理')
