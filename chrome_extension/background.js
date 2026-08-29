@@ -2519,6 +2519,63 @@ function setupSuumoPatrolAlarm(intervalMinutes) {
 // GASに置かれた指示をPCが定期的に見に行き、こちらで実行する。
 // PCのChromeが起動していないと実行されないが、指示は消えないので後から走る。
 // ─────────────────────────────────────────────
+/**
+ * スマホから置かれた検索指示を拾ったことをDiscordに知らせる。
+ *
+ * スマホ側は「指示を置いた」ところまでしか分からず、PCが本当に動き出したかが
+ * 見えない。物件が1件も見つからなかった場合は結果の通知も来ないので、
+ * 開始そのものを通知しないと「動いたのか放置されたのか」が判別できない。
+ *
+ * 投稿先は巡回サマリーと同じ「1日1スレッド」。専用スレッドを毎回立てると
+ * フォーラムが指示の数だけ埋まるため、その日のサマリーに追記する。
+ */
+async function notifyMobileSearchStarted(req, names) {
+  try {
+    const { discordWebhookUrl } = await getConfig();
+    if (!discordWebhookUrl) return;
+
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const dateKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const threadName = `📋 巡回サマリー ${now.getMonth() + 1}/${now.getDate()}`;
+    const THREAD_STORAGE_KEY = 'patrolSummaryThread';   // 巡回サマリーと同じキーを使う
+
+    const isAll = req.mode === 'all';
+    const body = isAll
+      ? 'いつもの検索（PCの顧客フィルタどおり）'
+      : `${names.length}名\n${names.map(n => '・' + n).join('\n')}`;
+    const payload = { content: `📱 **スマホから検索開始** ${stamp}\n${body}` };
+
+    const cache = await new Promise(r => chrome.storage.local.get([THREAD_STORAGE_KEY], r));
+    const saved = cache[THREAD_STORAGE_KEY];
+    let threadId = (saved && saved.dateKey === dateKey) ? saved.threadId : null;
+
+    var url;
+    if (threadId) {
+      url = `${discordWebhookUrl}?thread_id=${threadId}`;
+    } else {
+      // その日のスレッドがまだ無ければ作る。以降は巡回サマリーもこれに追記される。
+      url = `${discordWebhookUrl}?wait=true`;
+      payload.thread_name = threadName;
+    }
+
+    const resp = await discordPostWithRetry(url, payload);
+    if (!threadId && resp && resp.ok) {
+      try {
+        const d = await resp.json();
+        const newId = d.channel_id || d.id;
+        if (newId) {
+          await new Promise(r => chrome.storage.local.set(
+            { [THREAD_STORAGE_KEY]: { dateKey, threadId: newId } }, r));
+        }
+      } catch (e) {}
+    }
+  } catch (e) {
+    console.warn('[スマホ] 開始通知に失敗:', e && e.message);
+  }
+}
+
 async function pollMobileSearchRequest() {
   try {
     const { gasWebappUrl, gasApiKey, isSearching } = await getStorageData(
@@ -2541,6 +2598,22 @@ async function pollMobileSearchRequest() {
       debugLog: '[スマホ] 検索指示を受け取りました（'
         + (isAll ? 'いつもの検索' : req.keys.length + '件') + '）'
     });
+
+    // 開始をDiscordへ。おすすめ条件のキー(rec::ID)は見ても分からないので名前に直す。
+    let names = [];
+    if (!isAll) {
+      try {
+        const { customerCriteria } = await getStorageData(['customerCriteria']);
+        const byKey = {};
+        (customerCriteria || []).forEach(c => {
+          const k = c && c.recommend ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : '');
+          if (k) byKey[k] = c && c.recommend
+            ? `${c.name}（おすすめ: ${c.recommendLabel || ''}）` : (c ? c.name : k);
+        });
+        names = req.keys.map(k => byKey[k] || k);
+      } catch (e) { names = req.keys.slice(); }
+    }
+    await notifyMobileSearchStarted(req, names);
 
     // 実行前に「受け取った」と伝えておく。検索は数分かかるので、
     // 先に done にしておかないと次のポーリングで同じ指示を二重に拾ってしまう。
