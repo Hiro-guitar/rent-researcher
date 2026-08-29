@@ -219,7 +219,8 @@ function handleMobileSearchPage(e) {
   h.push('</style></head><body>');
 
   h.push('<h1>物件検索を回す</h1>');
-  h.push('<div class="sub">結果は今までどおり承認待ちとDiscordに出ます。</div>');
+  h.push('<div class="sub">PCが2分ごとに確認して実行します。'
+    + '結果は今までどおり承認待ちとDiscordに出ます。</div>');
 
   // PCが動いているかを出す。これが古いと、指示を置いても実行されない。
   var seenAgo = _mobileAgo_(lastSeen);
@@ -230,7 +231,7 @@ function handleMobileSearchPage(e) {
       + 'PCを起動すれば実行されます。</div>');
   } else {
     h.push('<div class="sub" style="margin-bottom:10px">PCの確認: ' + seenAgo
-      + (cur && cur.status === 'pending' ? ' ／ <b>実行待ちの指示あり</b>' : '') + '</div>');
+      + (cur && cur.status === 'pending' ? ' ／ <b>実行待ちの指示あり</b>' : ' ／ 待ちの指示なし') + '</div>');
   }
 
   // いつもの検索をそのまま回す入口。顧客を選ぶ必要がない一番よく使う操作なので上に置く。
@@ -288,7 +289,8 @@ function handleMobileSearchPage(e) {
     + 'google.script.run.withSuccessHandler(function(r){busy(false);'
     + 'if(!r||!r.ok){msg("失敗: "+((r&&r.error)||"不明なエラー"),false);return;}'
     + 'msg("✅ 指示を置きました（"+(r.mode==="all"?"いつもの検索":r.count+"件")'
-    + '+"）。PCが次に確認したときに実行されます。結果はDiscordに出ます。",true);'
+    + '+"）。PCは2分ごとに確認しているので、2分以内に始まります"'
+    + '+"（PCが別の検索中なら、それが終わってから）。結果はDiscordに出ます。",true);'
     + 'setAll(false);})'
     + '.withFailureHandler(function(e){busy(false);msg("失敗: "+e.message,false);})'
     + '.mobileRequestSearch(API,mode,mode==="all"?[]:sel().map(function(c){return c.value}));}'
