@@ -31,8 +31,8 @@ function _mobileCritKey_(c) {
  * スマホの画面に出す顧客一覧。
  * 拡張の顧客フィルタ（log.html）と同じ並び — 本人のすぐ下にその人のおすすめ条件。
  */
-function _mobileCustomerGroups_() {
-  var flat = _mobileCustomerList_();
+function _mobileCustomerGroups_(e) {
+  var flat = _mobileCustomerList_(e);
   var order = [], by = {};
   for (var i = 0; i < flat.length; i++) {
     var it = flat[i];
@@ -42,13 +42,31 @@ function _mobileCustomerGroups_() {
   return order.map(function (n) { return by[n]; });
 }
 
-function _mobileCustomerList_() {
+/**
+ * 顧客一覧を作る。
+ *
+ * 元にするのは handleGetCriteria。拡張が実際に検索する対象と同じでないと、
+ * 選んでも動かない人が画面に出てしまうため。
+ * ただしこの関数はLINEのブロック判定を含んでいて6秒以上かかる。
+ * 画面を開くたびに待たされるので、名前とキーだけを10分キャッシュする。
+ * （ブロック判定そのものの挙動は変えていない。検索側は今までどおり毎回走る）
+ */
+function _mobileCustomerList_(e) {
+  var cache = CacheService.getScriptCache();
+  var CACHE_KEY = 'mobile_customer_list_v1';
+  try {
+    var hit = cache.get(CACHE_KEY);
+    if (hit) return JSON.parse(hit);
+  } catch (eC) {}
+
   var res = {};
   try {
-    res = JSON.parse(handleGetCriteria({ parameter: {} }).getContent());
-  } catch (e) {
+    // api_key が要る。呼び出し元の e をそのまま渡す
+    res = JSON.parse(handleGetCriteria(e || { parameter: {} }).getContent());
+  } catch (eP) {
     return [];
   }
+  if (res && res.error) return [];
   var all = (res && res.criteria) || [];
   var order = [];
   var byName = {};
@@ -71,6 +89,7 @@ function _mobileCustomerList_() {
       });
     }
   }
+  try { cache.put(CACHE_KEY, JSON.stringify(out), 600); } catch (eC2) {}
   return out;
 }
 
@@ -151,7 +170,7 @@ function handleMobileSearchPage(e) {
   var cur = null;
   if (raw) { try { cur = JSON.parse(raw); } catch (eP) {} }
 
-  var groups = _mobileCustomerGroups_();
+  var groups = _mobileCustomerGroups_(e);
   var apiKey = String(params.api_key || '');
 
   var h = [];
@@ -228,6 +247,10 @@ function handleMobileSearchPage(e) {
   if (apiKey) h.push('<input type="hidden" name="api_key" value="' + _mobileEsc_(apiKey) + '">');
   h.push('<input type="hidden" name="keys" id="keys">');
 
+  if (!groups.length) {
+    h.push('<div class="warn">顧客一覧を取得できませんでした。'
+      + 'URLのapi_keyが正しいか、検索条件シートに条件が入っているか確認してください。</div>');
+  }
   h.push('<div class="list">');
   for (var gi = 0; gi < groups.length; gi++) {
     var g = groups[gi];
