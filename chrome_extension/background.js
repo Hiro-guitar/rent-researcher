@@ -2373,8 +2373,14 @@ chrome.runtime.onInstalled.addListener(() => {
   // SUUMO入稿の定期(バックアップ)pollは廃止。承認時の即時トリガー(SUUMO_APPROVED_NOW)
   // と手動「入稿開始」のみで動かす。残存アラームがあれば消す。
   chrome.alarms.clear('suumo-queue-poll');
-  // 優先空室確認ポーリング: 1分毎にGASから優先キューを取得
-  chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
+  // 優先空室確認ポーリングは停止 (2026-08-26)。
+  // これはお客さんが物件詳細ページの「空室確認」ボタンを押したときに動く機能だが、
+  // property.html 側でボタンをコメントアウトして描画しなくなっているため、
+  // 依頼が来ることはない。1分毎にGASを叩き続けると1日約7分の実行時間を
+  // 無駄に使う（無料枠は90分/日で、LINEのbotも検索も同じ枠を使う）。
+  // 処理そのもの(availability-checker等)は残してあるので、ボタンを復活させるときは
+  // 下の1行を chrome.alarms.create(..., { periodInMinutes: 1 }) に戻すだけでよい。
+  chrome.alarms.clear('priority-availability-poll');
   // スマホから置かれた検索指示を拾う（1分毎）。
   // これ以上短くしないこと。GASの無料枠は1日90分で、LINEのbotも検索も同じ枠を使う。
   // 1分ごとで約7分/日。15秒ごとにすると約30分/日を食ってしまう。
@@ -2393,8 +2399,14 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   // SUUMO入稿の定期pollは廃止（承認時の即時＋手動のみ）。残存アラームを消す。
   chrome.alarms.clear('suumo-queue-poll');
-  // 優先空室確認ポーリングは再セット
-  chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
+  // 優先空室確認ポーリングは停止 (2026-08-26)。
+  // これはお客さんが物件詳細ページの「空室確認」ボタンを押したときに動く機能だが、
+  // property.html 側でボタンをコメントアウトして描画しなくなっているため、
+  // 依頼が来ることはない。1分毎にGASを叩き続けると1日約7分の実行時間を
+  // 無駄に使う（無料枠は90分/日で、LINEのbotも検索も同じ枠を使う）。
+  // 処理そのもの(availability-checker等)は残してあるので、ボタンを復活させるときは
+  // 下の1行を chrome.alarms.create(..., { periodInMinutes: 1 }) に戻すだけでよい。
+  chrome.alarms.clear('priority-availability-poll');
   // スマホからの検索指示のポーリングも再セット
   chrome.alarms.create('mobile-search-poll', { periodInMinutes: 1 });
   // キャンセル待ち定期巡回は廃止(顧客への自動LINE防止) — 残存アラームを消す
