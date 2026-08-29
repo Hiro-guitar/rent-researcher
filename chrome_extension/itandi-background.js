@@ -463,16 +463,20 @@ function _normalizeChome(s) {
 function buildItandiSearchPayload(customer, stationIds, jgdcCodes, updatedWithinDays) {
   const filterObj = {};
 
-  // SUUMO巡回時のみ: 募集条件更新 N日以内フィルタを付与
-  // API仕様: filterObj['offer_conditions_updated_at:gteq'] = "YYYY-MM-DDT00:00:00.000" (JST解釈、タイムゾーン指定子なし)
+  // SUUMO巡回時のみ: 募集開始日時 N日以内フィルタを付与
+  // API仕様: filterObj['offer_status_changed_to_available_at:gteq'] = "YYYY-MM-DDT00:00"
+  //   (JST解釈、タイムゾーン指定子なし。秒・ミリ秒を付けると invalid params で弾かれる)
   // 値は「今日00:00 - N日」
+  // 2026-08-29: 以前は募集条件更新(offer_conditions_updated_at:gteq)で絞っていたが、
+  //   条件を手直ししただけでも日付が動くため新着検知には広すぎる。
+  //   itandi が「募集開始日時」を出したのでそちらに移した。
   if (customer && customer._isSuumoPatrol && typeof updatedWithinDays === 'number' && updatedWithinDays >= 0) {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     d.setDate(d.getDate() - updatedWithinDays);
     const pad = (n) => String(n).padStart(2, '0');
-    filterObj['offer_conditions_updated_at:gteq'] =
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T00:00:00.000`;
+    filterObj['offer_status_changed_to_available_at:gteq'] =
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T00:00`;
   }
   const prefecture = customer.prefecture || '東京都';
   const prefectureId = ITANDI_PREFECTURE_IDS[prefecture] || null;
@@ -1286,11 +1290,11 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
 
   let allProperties = [];
 
-  // SUUMO巡回時の「募集条件更新 N日以内」フィルタ。
+  // SUUMO巡回時の「募集開始日時 N日以内」フィルタ。
   // 優先順: (1) 巡回条件 customer.daysWithin (新仕様、条件ごと指定)
   //         (2) chrome.storage.local.itandiUpdatedWithinDays (旧仕様、グローバル)
-  // 注: itandi の UI プルダウンは 0〜14日 のみだが、API は ISO 日付文字列
-  //     (offer_conditions_updated_at:gteq=YYYY-MM-DDT00:00:00.000) を受け取る
+  // 注: itandi の UI の選択肢は 0〜14日 のみだが、API は日付文字列
+  //     (offer_status_changed_to_available_at:gteq=YYYY-MM-DDT00:00) を受け取る
   //     ため、API レベルでは任意日数指定可能。上限キャップは外している。
   let itandiUpdatedWithinDays = null;
   if (customer && customer._isSuumoPatrol) {
@@ -1334,10 +1338,10 @@ async function searchItandiForCustomer(tabId, customer, seenIds, searchId) {
     if (f['shikikin:eq'] === 0) filterParts.push('敷金なし');
     if (f['reikin:eq'] === 0) filterParts.push('礼金なし');
     if (f['parking_exists:eq']) filterParts.push('駐車場あり');
-    // 募集条件更新フィルタ (SUUMO巡回時のみ): "2026-05-03T00:00:00.000" 形式
-    if (f['offer_conditions_updated_at:gteq']) {
-      const fromStr = String(f['offer_conditions_updated_at:gteq']).substring(0, 10);
-      filterParts.push(`更新${fromStr}以降`);
+    // 募集開始日時フィルタ (SUUMO巡回時のみ): "2026-05-03T00:00" 形式
+    if (f['offer_status_changed_to_available_at:gteq']) {
+      const fromStr = String(f['offer_status_changed_to_available_at:gteq']).substring(0, 10);
+      filterParts.push(`募集開始${fromStr}以降`);
     }
     const chunkLabel = jgdcChunks.length > 1 ? ` [分割${chunkIdx + 1}/${jgdcChunks.length}]` : '';
     await setStorageData({ debugLog: `[itandi] ${customer.name}: API検索条件${chunkLabel} → ${filterParts.join(' / ') || '(条件なし)'}` });

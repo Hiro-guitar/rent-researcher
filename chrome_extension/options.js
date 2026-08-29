@@ -48,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
       excludeOwnerEl.value = arr.join('\n');
     }
 
-    // itandi 募集条件更新N日以内(デフォルト空欄 = 制限なし)
+    // itandi 募集開始日時N日以内(デフォルト空欄 = 制限なし)
     const itandiDaysInput = document.getElementById('itandiUpdatedWithinDays');
     if (itandiDaysInput && data.itandiUpdatedWithinDays !== undefined && data.itandiUpdatedWithinDays !== null && data.itandiUpdatedWithinDays !== '') {
       itandiDaysInput.value = data.itandiUpdatedWithinDays;

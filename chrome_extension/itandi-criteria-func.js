@@ -367,45 +367,39 @@ const __itandiCriteriaFunc = (customerData) => {
     }
 
     // ══════════════════════════════════════
-    //  8. 募集条件更新フィルタ (offer_conditions_updated_at:gteq)
-    //     日数(0〜14)を指定する。
-    //     2026-08-29: itandi がこの欄を <select> から
-    //     「入力欄 + 選択肢ボタン」のドロップダウンに変えた。
-    //     select[name=...] では見つからず、この条件だけ黙って
-    //     無視されていた（検索ページの itandi で N日以内が効かない）。
-    //     いまは <select> はページに1つも無いが、戻された時に
-    //     また黙って落ちないよう旧形式も残してある。
+    //  8. 募集開始日時フィルタ (offer_status_changed_to_available_at:gteq)
+    //     「N日前 以降」。募集が始まったものだけを拾う。
+    //     2026-08-29: それまで使っていた「募集条件更新」は、条件を手直し
+    //     しただけでも日付が動くので新着だけを見たい用途には合わない。
+    //     itandi が「募集開始日時」欄を出したのでそちらに移した。
+    //     (旧「募集条件更新」欄も <select> から入力欄に変わっていて、
+    //      select[name=...] では見つからず黙って無視されていた)
     // ══════════════════════════════════════
     if (typeof customerData.daysWithin === 'number' && customerData.daysWithin >= 0) {
-      var daysVal = Math.min(customerData.daysWithin, 14);
-      var daysInput = findInput('offer_conditions_updated_at:gteq');
-      var daysSelect = document.querySelector('select[name="offer_conditions_updated_at:gteq"]');
+      var daysInput = findInput('offerStatusChangedToAvailableAt.daysBefore');
       if (daysInput) {
-        setReactInputValue(daysInput, daysVal);
-        // 入力するだけでも条件は入るが、選択肢リストが開いたままになり
-        // 後続の項目のクリックに被る。同じ数字のボタンを押して閉じる。
+        setReactInputValue(daysInput, customerData.daysWithin);
+        // 入力すると 0〜14 の選択肢リストが開き、後続の操作に被る。
+        // リストが出るのも閉じるのも再描画のあとなので、その場では閉じられない。
+        // Escape・blur・pointerdown はどれも効かず、外側への mousedown だけが閉じる。
+        // 開いている間だけ少し置いて何度か試す。閉じたら何も撃たないので、
+        // あとから開く駅選択モーダルなどを巻き込まない。
         var daysBox = daysInput.closest('div');
         daysBox = daysBox ? daysBox.parentElement : null;
-        var daysOpts = daysBox ? daysBox.querySelectorAll('button') : [];
-        var daysClosed = false;
-        for (var di = 0; di < daysOpts.length; di++) {
-          if (String(daysOpts[di].textContent || '').trim() === String(daysVal)) {
-            daysOpts[di].click();
-            daysClosed = true;
-            break;
+        var daysTries = 0;
+        var closeDaysDropdown = function () {
+          if (!daysBox) return;
+          if (daysBox.querySelectorAll('button').length > 0) {
+            document.documentElement.dispatchEvent(
+              new MouseEvent('mousedown', { bubbles: true })
+            );
           }
-        }
-        if (!daysClosed) {
-          daysInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        }
-        result.filled.push('募集条件更新: ' + daysVal + '日以内');
-      } else if (daysSelect) {
-        var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
-        nativeSetter.call(daysSelect, String(daysVal));
-        daysSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        result.filled.push('募集条件更新: ' + daysVal + '日以内(旧select)');
+          if (++daysTries < 8) setTimeout(closeDaysDropdown, 200);
+        };
+        setTimeout(closeDaysDropdown, 100);
+        result.filled.push('募集開始日時: ' + customerData.daysWithin + '日前以降');
       } else {
-        result.skipped.push('募集条件更新: [name="offer_conditions_updated_at:gteq"]が見つからない');
+        result.skipped.push('募集開始日時: [name="offerStatusChangedToAvailableAt.daysBefore"]が見つからない');
       }
     }
 
