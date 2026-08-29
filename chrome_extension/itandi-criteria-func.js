@@ -368,18 +368,44 @@ const __itandiCriteriaFunc = (customerData) => {
 
     // ══════════════════════════════════════
     //  8. 募集条件更新フィルタ (offer_conditions_updated_at:gteq)
-    //     SELECT要素で日数(0〜14)を選ぶ形式
+    //     日数(0〜14)を指定する。
+    //     2026-08-29: itandi がこの欄を <select> から
+    //     「入力欄 + 選択肢ボタン」のドロップダウンに変えた。
+    //     select[name=...] では見つからず、この条件だけ黙って
+    //     無視されていた（検索ページの itandi で N日以内が効かない）。
+    //     いまは <select> はページに1つも無いが、戻された時に
+    //     また黙って落ちないよう旧形式も残してある。
     // ══════════════════════════════════════
     if (typeof customerData.daysWithin === 'number' && customerData.daysWithin >= 0) {
+      var daysVal = Math.min(customerData.daysWithin, 14);
+      var daysInput = findInput('offer_conditions_updated_at:gteq');
       var daysSelect = document.querySelector('select[name="offer_conditions_updated_at:gteq"]');
-      if (daysSelect) {
-        var daysVal = Math.min(customerData.daysWithin, 14);
+      if (daysInput) {
+        setReactInputValue(daysInput, daysVal);
+        // 入力するだけでも条件は入るが、選択肢リストが開いたままになり
+        // 後続の項目のクリックに被る。同じ数字のボタンを押して閉じる。
+        var daysBox = daysInput.closest('div');
+        daysBox = daysBox ? daysBox.parentElement : null;
+        var daysOpts = daysBox ? daysBox.querySelectorAll('button') : [];
+        var daysClosed = false;
+        for (var di = 0; di < daysOpts.length; di++) {
+          if (String(daysOpts[di].textContent || '').trim() === String(daysVal)) {
+            daysOpts[di].click();
+            daysClosed = true;
+            break;
+          }
+        }
+        if (!daysClosed) {
+          daysInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        }
+        result.filled.push('募集条件更新: ' + daysVal + '日以内');
+      } else if (daysSelect) {
         var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
         nativeSetter.call(daysSelect, String(daysVal));
         daysSelect.dispatchEvent(new Event('change', { bubbles: true }));
-        result.filled.push('募集条件更新: ' + daysVal + '日以内');
+        result.filled.push('募集条件更新: ' + daysVal + '日以内(旧select)');
       } else {
-        result.skipped.push('募集条件更新: select[name="offer_conditions_updated_at:gteq"]が見つからない');
+        result.skipped.push('募集条件更新: [name="offer_conditions_updated_at:gteq"]が見つからない');
       }
     }
 
