@@ -4550,6 +4550,10 @@ function handleCustomerPage(e) {
   var template = HtmlService.createTemplateFromFile('CustomerPage');
   template.customersJson = _jsonForInlineScript_(customerList);
   template.initCustomer = _jsonForInlineScript_(initCustomer);
+  // スマホ検索ページのURLは、ここで埋め込んでリンクのhrefにする。
+  // google.script.run の応答を待ってから window.open すると、GASのiframeでは
+  // ユーザー操作の有効期限が切れていてトップフレームの遷移がブロックされる。
+  template.mobileSearchUrl = getMobileSearchUrl();
 
   return template.evaluate()
     .setTitle('顧客管理')
