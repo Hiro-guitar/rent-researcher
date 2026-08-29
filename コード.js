@@ -1519,7 +1519,12 @@ function doGet(e) {
     // --- スマホから物件検索を回す（画面／指示の受け渡し）---
     if (action === 'mobile_search') {
       if (!_validateReinsApiKey(e.parameter.api_key)) {
-        return HtmlService.createHtmlOutput('<h2>❌ 認証エラー</h2><p>api_keyが不正です。</p>');
+        // このページは自分のサイトのiframeに入るので、エラーも埋め込めないと
+        // 枠が真っ白になって原因が分からなくなる
+        return HtmlService.createHtmlOutput(
+          '<body style="background:#181818;color:#eee;font:15px/1.7 sans-serif;padding:20px">'
+          + '<h2>認証エラー</h2><p>api_keyが不正です。顧客管理のリンクから開いてください。</p></body>')
+          .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
       }
       return handleMobileSearchPage(e);
     }
