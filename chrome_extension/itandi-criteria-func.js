@@ -967,3 +967,56 @@ const __itandiConfirmAddress = () => {
   }
   return { ok: false, error: '確定ボタンが見つかりません' };
 };
+
+// ══════════════════════════════════════════════════════════
+//  検索ボタン
+// ══════════════════════════════════════════════════════════
+
+/**
+ * 検索ボタンをクリックする関数。
+ *
+ * 2026-08-29: 以前は MuiButton-containedPrimary クラスを条件にしていたが、
+ * itandi が MUI をやめてクラス名が変わったため一致せず、押されていなかった。
+ * ボタンは文字が「検索」ちょうどのものだけを見る（「競合チェック（全物件）」等と
+ * 紛れないように部分一致にはしない）。
+ *
+ * 条件を入れ終えた直後は該当件数の再計算中でボタンが押せないので、
+ * 押せるようになるまで待つ。該当件数が3,000件を超えていると itandi 側が
+ * ずっと押せないままにするため、その場合はタイムアウトして理由を返す。
+ *
+ * @returns {Promise<{ ok: boolean, clicked: boolean, found: boolean, disabled: boolean, waitedMs: number }>}
+ */
+// eslint-disable-next-line no-unused-vars
+const __itandiClickSearch = () => {
+  'use strict';
+  return new Promise(function (resolve) {
+    var started = Date.now();
+    var deadline = started + 15000;
+    var findBtn = function () {
+      var btns = document.querySelectorAll('button');
+      for (var i = 0; i < btns.length; i++) {
+        if (String(btns[i].textContent || '').trim() === '検索') return btns[i];
+      }
+      return null;
+    };
+    var tick = function () {
+      var btn = findBtn();
+      if (btn && !btn.disabled) {
+        btn.click();
+        console.log('[itandi] 検索ボタンクリック');
+        resolve({ ok: true, clicked: true, found: true, disabled: false, waitedMs: Date.now() - started });
+        return;
+      }
+      if (Date.now() >= deadline) {
+        resolve({
+          ok: false, clicked: false,
+          found: !!btn, disabled: !!(btn && btn.disabled),
+          waitedMs: Date.now() - started
+        });
+        return;
+      }
+      setTimeout(tick, 300);
+    };
+    tick();
+  });
+};

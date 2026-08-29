@@ -2770,6 +2770,24 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+/**
+ * itandi の検索ボタンを押した結果をログに残す。
+ * 押せなかった時に黙って終わると「検索ページを開いたのに結果が出ない」に
+ * 見えるので、理由まで書く。該当件数が3,000件を超えていると itandi 側が
+ * ボタンを押させないため、条件を絞る必要がある。
+ */
+async function _logItandiSearchClick(customerName, r) {
+  if (r && r.clicked) {
+    await setStorageData({ debugLog: `[検索ページ] ${customerName}: itandi 検索ボタンをクリック` });
+    return;
+  }
+  const why = !r ? '結果が取れない'
+    : !r.found ? '検索ボタンが見つからない'
+    : r.disabled ? '検索ボタンが押せないまま（該当件数が3,000件を超えている可能性）'
+    : '押せなかった';
+  await setStorageData({ debugLog: `[検索ページ] ${customerName}: itandi 検索ボタン ✗ ${why}` });
+}
+
 // --- メッセージ受信 ---
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // 汎用デバッグログ転送 (content script からの診断用)
@@ -4828,19 +4846,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
             // 検索ボタンをクリック
             await sleep(300);
-            await chrome.scripting.executeScript({
+            const searchClick = await chrome.scripting.executeScript({
               target: { tabId: itandiTab.id }, world: 'MAIN',
-              func: () => {
-                var btns = document.querySelectorAll('button');
-                for (var i = 0; i < btns.length; i++) {
-                  if (btns[i].textContent.trim() === '検索' && btns[i].classList.contains('MuiButton-containedPrimary')) {
-                    btns[i].click();
-                    console.log('[itandi] 検索ボタンクリック');
-                    break;
-                  }
-                }
-              }
+              func: __itandiClickSearch, args: []
             });
+            await _logItandiSearchClick(customer.name, searchClick?.[0]?.result);
 
             sendResponse({ ok: true, batches: 1, filled: filledAll, stationErrors });
           }
@@ -4932,19 +4942,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           if (uniqueStations.length === 0) {
             await setStorageData({ debugLog: `[検索ページ] ${customer.name}: itandi フォーム入力完了 (${setStatus.filled.join(', ')})` });
             await sleep(300);
-            await chrome.scripting.executeScript({
+            const searchClick2 = await chrome.scripting.executeScript({
               target: { tabId: itandiTab.id }, world: 'MAIN',
-              func: () => {
-                var btns = document.querySelectorAll('button');
-                for (var i = 0; i < btns.length; i++) {
-                  if (btns[i].textContent.trim() === '検索' && btns[i].classList.contains('MuiButton-containedPrimary')) {
-                    btns[i].click();
-                    console.log('[itandi] 検索ボタンクリック');
-                    break;
-                  }
-                }
-              }
+              func: __itandiClickSearch, args: []
             });
+            await _logItandiSearchClick(customer.name, searchClick2?.[0]?.result);
             sendResponse({ ok: true, batches: 1, filled: setStatus.filled });
           }
 
