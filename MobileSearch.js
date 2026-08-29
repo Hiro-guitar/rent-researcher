@@ -146,6 +146,27 @@ function _mobileAgo_(ms) {
 }
 
 /**
+ * 画面から google.script.run で呼ぶ。指示を置いて、置いた内容を返す。
+ *
+ * フォームのGET送信にしていたら白紙になった。GASのページはiframeの中で動いていて、
+ * フォームはiframe自身のURL（userCodeAppPanel）へ送信されてしまうため。
+ * 遷移をやめてここを呼ぶ形にした。再読み込みが無くなるので速くもなる。
+ */
+function mobileRequestSearch(apiKey, mode, keys) {
+  if (!_validateReinsApiKey(apiKey)) return { ok: false, error: 'api_keyが不正です' };
+  var list = Array.isArray(keys) ? keys.filter(function (k) { return k; }) : [];
+  if (mode !== 'all' && !list.length) return { ok: false, error: 'お客さんが選ばれていません' };
+  var req = _mobileSaveRequest_(mode === 'all' ? [] : list, mode === 'all' ? 'all' : 'selected');
+  return {
+    ok: true,
+    mode: req.mode,
+    count: req.keys.length,
+    lastSeenAgo: _mobileAgo_(Number(
+      PropertiesService.getScriptProperties().getProperty(MOBILE_SEARCH_SEEN) || 0))
+  };
+}
+
+/**
  * スマホ用の検索指示ページ。
  * GET  … 顧客を選ぶ画面
  * POST … 指示を置いて、置けたことを表示
@@ -153,17 +174,6 @@ function _mobileAgo_(ms) {
 function handleMobileSearchPage(e) {
   var props = PropertiesService.getScriptProperties();
   var params = (e && e.parameter) || {};
-
-  var justSent = null;
-  if (params.mode === 'all') {
-    // 顧客を指定しない指示。拡張はいつもどおり（PCの顧客フィルタに従って）回す。
-    justSent = _mobileSaveRequest_([], 'all');
-  } else if (params.keys !== undefined) {
-    var keys = String(params.keys || '').split('\n')
-      .map(function (k) { return k.trim(); })
-      .filter(function (k) { return k; });
-    if (keys.length) justSent = _mobileSaveRequest_(keys, 'selected');
-  }
 
   var lastSeen = Number(props.getProperty(MOBILE_SEARCH_SEEN) || 0);
   var raw = props.getProperty(MOBILE_SEARCH_KEY);
@@ -211,12 +221,6 @@ function handleMobileSearchPage(e) {
   h.push('<h1>物件検索を回す</h1>');
   h.push('<div class="sub">結果は今までどおり承認待ちとDiscordに出ます。</div>');
 
-  if (justSent) {
-    h.push('<div class="ok">✅ 指示を置きました（'
-      + (justSent.mode === 'all' ? 'いつもの検索' : justSent.keys.length + '件') + '）<br>'
-      + 'PCのChromeが次に確認したときに実行されます。結果はDiscordに出ます。</div>');
-  }
-
   // PCが動いているかを出す。これが古いと、指示を置いても実行されない。
   var seenAgo = _mobileAgo_(lastSeen);
   var stale = !lastSeen || (Date.now() - lastSeen > 10 * 60 * 1000);
@@ -230,22 +234,17 @@ function handleMobileSearchPage(e) {
   }
 
   // いつもの検索をそのまま回す入口。顧客を選ぶ必要がない一番よく使う操作なので上に置く。
-  h.push('<form method="get" style="margin-bottom:16px">');
-  h.push('<input type="hidden" name="action" value="mobile_search">');
-  if (apiKey) h.push('<input type="hidden" name="api_key" value="' + _mobileEsc_(apiKey) + '">');
-  h.push('<input type="hidden" name="mode" value="all">');
-  h.push('<button type="submit" style="width:100%;background:#2f6b3a;color:#eaffea;padding:13px">'
+  h.push('<div style="margin-bottom:16px">');
+  h.push('<button type="button" id="goAll" style="width:100%;background:#2f6b3a;color:#eaffea;padding:13px">'
     + 'いつもの検索を今すぐ回す</button>');
   h.push('<div class="sub" style="margin:5px 0 0">PCの顧客フィルタどおりの人が対象</div>');
-  h.push('</form>');
+  h.push('</div>');
+  h.push('<div id="msg"></div>');
 
   h.push('<div class="sub" style="border-top:1px solid #333;padding-top:12px;margin-bottom:8px">'
     + '<b>選んで回す</b> — フィルタに関係なく、選んだ人だけ検索します</div>');
 
-  h.push('<form method="get">');
-  h.push('<input type="hidden" name="action" value="mobile_search">');
-  if (apiKey) h.push('<input type="hidden" name="api_key" value="' + _mobileEsc_(apiKey) + '">');
-  h.push('<input type="hidden" name="keys" id="keys">');
+
 
   if (!groups.length) {
     h.push('<div class="warn">顧客一覧を取得できませんでした。'
@@ -275,16 +274,31 @@ function handleMobileSearchPage(e) {
     + '<span class="mini" onclick="setAll(true)">全選択</span>'
     + '<span class="mini" onclick="setAll(false)">全解除</span>'
     + '<span class="cnt" id="cnt">0件</span>'
-    + '<button type="submit" id="go" disabled>検索する</button>'
+    + '<button type="button" id="go" disabled>検索する</button>'
     + '</div>');
-  h.push('</form>');
 
   h.push('<script>'
+    + 'var API=' + JSON.stringify(apiKey) + ';'
+    + 'function msg(t,ok){var m=document.getElementById("msg");'
+    + 'm.className=ok?"ok":"warn";m.textContent=t;window.scrollTo(0,0);}'
+    + 'function busy(b){document.getElementById("goAll").disabled=b;'
+    + 'document.getElementById("go").disabled=b||sel().length===0;}'
+    + 'function sel(){return cbs.filter(function(c){return c.checked})}'
+    + 'function send(mode){busy(true);msg("送信中…",true);'
+    + 'google.script.run.withSuccessHandler(function(r){busy(false);'
+    + 'if(!r||!r.ok){msg("失敗: "+((r&&r.error)||"不明なエラー"),false);return;}'
+    + 'msg("✅ 指示を置きました（"+(r.mode==="all"?"いつもの検索":r.count+"件")'
+    + '+"）。PCが次に確認したときに実行されます。結果はDiscordに出ます。",true);'
+    + 'setAll(false);})'
+    + '.withFailureHandler(function(e){busy(false);msg("失敗: "+e.message,false);})'
+    + '.mobileRequestSearch(API,mode,mode==="all"?[]:sel().map(function(c){return c.value}));}'
+    + 'document.getElementById("goAll").addEventListener("click",function(){send("all")});'
+    + 'document.getElementById("go").addEventListener("click",function(){send("selected")});'
     + 'var cbs=[].slice.call(document.querySelectorAll(".cb"));'
     + 'function upd(){var s=cbs.filter(function(c){return c.checked});'
     + 'document.getElementById("cnt").textContent=s.length+"件";'
     + 'document.getElementById("go").disabled=(s.length===0);'
-    + 'document.getElementById("keys").value=s.map(function(c){return c.value}).join("\\n");paint();}'
+    + 'paint();}'
     + 'function setAll(v){cbs.forEach(function(c){c.checked=v});upd();}'
     + 'function paint(){[].forEach.call(document.querySelectorAll(".grp"),function(g){'
     + 'g.classList.toggle("on",!!g.querySelector(".cb:checked"))});}'
