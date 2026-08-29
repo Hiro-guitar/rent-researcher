@@ -2375,6 +2375,8 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.clear('suumo-queue-poll');
   // 優先空室確認ポーリング: 1分毎にGASから優先キューを取得
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
+  // スマホから置かれた検索指示を拾う（2分毎）
+  chrome.alarms.create('mobile-search-poll', { periodInMinutes: 2 });
   // キャンセル通知希望物件の定期巡回は【廃止】(2026-07-20)。
   // 顧客へ勝手にキャンセル発生LINEを自動送信していたため停止。
   // キャンセル待ちのチェックは「その顧客の物件検索時に担当へDiscord通知(顧客には送らない)」のみ。
@@ -2391,6 +2393,8 @@ chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.clear('suumo-queue-poll');
   // 優先空室確認ポーリングは再セット
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
+  // スマホからの検索指示のポーリングも再セット
+  chrome.alarms.create('mobile-search-poll', { periodInMinutes: 2 });
   // キャンセル待ち定期巡回は廃止(顧客への自動LINE防止) — 残存アラームを消す
   chrome.alarms.clear('cancellation-watch-poll');
   // 定期空室確認(3時間毎の全物件巡回)は廃止 — BANリスク回避のため停止（オンデマンドのみ）
@@ -2493,12 +2497,58 @@ function setupSuumoPatrolAlarm(intervalMinutes) {
   });
 }
 
+// ─────────────────────────────────────────────
+// スマホから置かれた検索指示を拾って実行する
+//
+// 物件検索はサイトのCookieとDOM操作が要るのでスマホでは動かせない。
+// GASに置かれた指示をPCが定期的に見に行き、こちらで実行する。
+// PCのChromeが起動していないと実行されないが、指示は消えないので後から走る。
+// ─────────────────────────────────────────────
+async function pollMobileSearchRequest() {
+  try {
+    const { gasWebappUrl, gasApiKey, isSearching } = await getStorageData(
+      ['gasWebappUrl', 'gasApiKey', 'isSearching']);
+    if (!gasWebappUrl || !gasApiKey) return;
+    if (isSearching) return;   // 検索中は取りに行かない（終わってから次のポーリングで拾う）
+
+    const url = gasWebappUrl + '?action=search_request_poll&api_key=' + encodeURIComponent(gasApiKey);
+    const res = await fetchWithTimeout(url, { redirect: 'follow' },
+      { timeoutMs: 30000, label: 'mobile_search_poll' });
+    if (!res.ok) return;
+    const j = await res.json();
+    const req = j && j.request;
+    if (!req || !Array.isArray(req.keys) || !req.keys.length) return;
+
+    await setStorageData({
+      debugLog: '[スマホ] 検索指示を受け取りました（' + req.keys.length + '件）'
+    });
+
+    // 実行前に「受け取った」と伝えておく。検索は数分かかるので、
+    // 先に done にしておかないと次のポーリングで同じ指示を二重に拾ってしまう。
+    try {
+      await fetchWithTimeout(gasWebappUrl, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({
+          action: 'search_request_done', api_key: gasApiKey,
+          id: req.id, result: '実行を開始しました'
+        })
+      }, { timeoutMs: 30000, label: 'mobile_search_done' });
+    } catch (e) {}
+
+    await runSearchCycle(req.keys);
+  } catch (e) {
+    console.warn('[スマホ検索指示] 取得失敗:', e && e.message);
+  }
+}
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   // 1分ごとにkeepAwakeを再設定（SW停止による解除を防ぐ）
   if (alarm.name === 'keep-awake') {
     try { if (chrome.power) chrome.power.requestKeepAwake('system'); } catch(e) {}
     return;
   }
+  // スマホから置かれた検索指示を拾う
+  if (alarm.name === 'mobile-search-poll') { pollMobileSearchRequest(); return; }
   if (alarm.name === 'reins-search') {
     chrome.storage.local.get(['autoSearchEnabled', 'searchIntervalMinutes', 'businessStartHour', 'businessEndHour', 'suumoPatrolRunning'], (data) => {
       const startH = data.businessStartHour !== undefined ? data.businessStartHour : 10;
@@ -4964,7 +5014,9 @@ function groupCriteriaByCustomer(list, orderSource) {
 }
 
 // --- メイン検索サイクル ---
-globalThis.runSearchCycle = async function runSearchCycle() {
+// onlyKeys を渡すと、その顧客（本人=名前 / おすすめ=rec::ID）だけを検索する。
+// スマホからの指示で使う。PCの顧客フィルタ(excludedCustomers)は書き換えない。
+globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
   const { isSearching, suumoPatrolRunning, gasWebappUrl, enabledServices } =
     await getStorageData(['isSearching', 'suumoPatrolRunning', 'gasWebappUrl', 'enabledServices']);
   if (isSearching) { console.log('検索中のためスキップ'); return; }
@@ -5111,9 +5163,19 @@ globalThis.runSearchCycle = async function runSearchCycle() {
     // エントリ固有キーで除外判定（本人=名前 / おすすめ条件=rec::ID）。
     // これで本人の条件とおすすめ条件を独立してON/OFFできる。
     const _critKey = (c) => (c && c.recommend ? ('rec::' + (c.recommendId || c.name)) : (c ? c.name : ''));
-    const _selected = excluded.length > 0
-      ? allCriteria.filter(c => !excluded.includes(_critKey(c)))
-      : allCriteria;
+    let _selected;
+    if (Array.isArray(onlyKeys) && onlyKeys.length) {
+      // スマホからの指示。除外リストは無視して、指定された顧客だけ回す。
+      _selected = allCriteria.filter(c => onlyKeys.includes(_critKey(c)));
+      await setStorageData({
+        debugLog: '[スマホ] 指定された ' + _selected.length + '件だけ検索します: '
+          + _selected.map(c => c.name).join('、')
+      });
+    } else {
+      _selected = excluded.length > 0
+        ? allCriteria.filter(c => !excluded.includes(_critKey(c)))
+        : allCriteria;
+    }
     // おすすめ条件（裏条件）を本人条件の直後に実行する (2026-07-31)。
     // GASは「本人を全員分 → おすすめを全部」の順で返すため、そのままだと
     // 同じお客さんの本人条件とおすすめ条件が大きく離れて実行されていた。

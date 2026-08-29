@@ -64,6 +64,15 @@ function doPost(e) {
       return handleSendManualProperties(json);
     }
 
+    // --- スマホから置かれた検索指示を「実行した」と報告する (Chrome拡張から) ---
+    if (json.action === 'search_request_done') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'invalid api_key' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      return handleSearchRequestDone(json);
+    }
+
     // --- 募集図面(PDF)をGeminiに読ませて初期費用を拾う (Chrome拡張から) ---
     if (json.action === 'read_drawing') {
       if (!_validateReinsApiKey(json.api_key)) {
@@ -1505,6 +1514,21 @@ function doGet(e) {
 
     if (action === 'confirm_approve_all') {
       return handleConfirmApproveAll(e);
+    }
+
+    // --- スマホから物件検索を回す（画面／指示の受け渡し）---
+    if (action === 'mobile_search') {
+      if (!_validateReinsApiKey(e.parameter.api_key)) {
+        return HtmlService.createHtmlOutput('<h2>❌ 認証エラー</h2><p>api_keyが不正です。</p>');
+      }
+      return handleMobileSearchPage(e);
+    }
+    if (action === 'search_request_poll') {
+      if (!_validateReinsApiKey(e.parameter.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'invalid api_key' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      }
+      return handleSearchRequestPoll(e.parameter);
     }
 
     if (action === 'view') {
