@@ -2375,8 +2375,10 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.clear('suumo-queue-poll');
   // 優先空室確認ポーリング: 1分毎にGASから優先キューを取得
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
-  // スマホから置かれた検索指示を拾う（2分毎）
-  chrome.alarms.create('mobile-search-poll', { periodInMinutes: 2 });
+  // スマホから置かれた検索指示を拾う（1分毎）。
+  // これ以上短くしないこと。GASの無料枠は1日90分で、LINEのbotも検索も同じ枠を使う。
+  // 1分ごとで約7分/日。15秒ごとにすると約30分/日を食ってしまう。
+  chrome.alarms.create('mobile-search-poll', { periodInMinutes: 1 });
   // キャンセル通知希望物件の定期巡回は【廃止】(2026-07-20)。
   // 顧客へ勝手にキャンセル発生LINEを自動送信していたため停止。
   // キャンセル待ちのチェックは「その顧客の物件検索時に担当へDiscord通知(顧客には送らない)」のみ。
@@ -2394,7 +2396,7 @@ chrome.runtime.onStartup.addListener(() => {
   // 優先空室確認ポーリングは再セット
   chrome.alarms.create('priority-availability-poll', { periodInMinutes: 1 });
   // スマホからの検索指示のポーリングも再セット
-  chrome.alarms.create('mobile-search-poll', { periodInMinutes: 2 });
+  chrome.alarms.create('mobile-search-poll', { periodInMinutes: 1 });
   // キャンセル待ち定期巡回は廃止(顧客への自動LINE防止) — 残存アラームを消す
   chrome.alarms.clear('cancellation-watch-poll');
   // 定期空室確認(3時間毎の全物件巡回)は廃止 — BANリスク回避のため停止（オンデマンドのみ）

@@ -219,7 +219,7 @@ function handleMobileSearchPage(e) {
   h.push('</style></head><body>');
 
   h.push('<h1>物件検索を回す</h1>');
-  h.push('<div class="sub">PCが2分ごとに確認して実行します。'
+  h.push('<div class="sub">PCが1分ごとに確認して実行します。'
     + '結果は今までどおり承認待ちとDiscordに出ます。</div>');
 
   // PCが動いているかを出す。これが古いと、指示を置いても実行されない。
@@ -289,7 +289,7 @@ function handleMobileSearchPage(e) {
     + 'google.script.run.withSuccessHandler(function(r){busy(false);'
     + 'if(!r||!r.ok){msg("失敗: "+((r&&r.error)||"不明なエラー"),false);return;}'
     + 'msg("✅ 指示を置きました（"+(r.mode==="all"?"いつもの検索":r.count+"件")'
-    + '+"）。PCは2分ごとに確認しているので、2分以内に始まります"'
+    + '+"）。PCは1分ごとに確認しているので、まもなく始まります"'
     + '+"（PCが別の検索中なら、それが終わってから）。結果はDiscordに出ます。",true);'
     + 'setAll(false);})'
     + '.withFailureHandler(function(e){busy(false);msg("失敗: "+e.message,false);})'
