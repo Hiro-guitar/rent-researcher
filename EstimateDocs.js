@@ -132,14 +132,23 @@ function handleMakeEstimateDoc(json) {
     // 前家賃は数式(=賃料)だが、前管理費は数式ではないので管理費を入れておく
     setB('前管理費', num(json.managementFee, 0));
 
-    setC('初回保証料', num(json.guaranteeRate, 60));
+    // 保証料は率を入れると金額が数式で出る。
+    // 右の注記（E列）は「※総賃料等の60%」がテンプレートに直接書かれていて、
+    // 率を変えても文字だけ60%のまま残る。実際に使った率に書き換える。
+    var gRate = num(json.guaranteeRate, 60);
+    setC('初回保証料', gRate);
+    var gRow = rowOf('初回保証料');
+    if (gRow > 0) {
+      input.getRange(gRow, 5).setValue('※総賃料等の' + gRate + '%');
+      written.push('初回保証料の注記');
+    }
 
     // ── 自由記入欄（初回保証料の次の行から8行）──
     // 鍵交換費用・24時間サポート・火災保険・インターネットもここに入る。
     // テンプレート上は固定項目に見えるが、実際は毎回手で書き換えている枠なので、
     // ラベルごとこちらで入れる。金額は「無料」のような文字も入るので、
     // 数値に見えるときだけ数値として書く。
-    var freeStart = rowOf('初回保証料') + 1;
+    var freeStart = gRow + 1;
     var lines = Array.isArray(json.items) ? json.items : [];
     var filled = 0;
     var overflow = [];
