@@ -1077,6 +1077,9 @@ function buildSuumoDiscordMessageContent_(p, criteriaName, gasUrl, propertyKey) 
   } else if (p.reins_property_number) {
     const cleanNum = String(p.reins_property_number).replace(/\D/g, '');
     msgLines.push('[🔗 REINSで開く](https://system.reins.jp/main/BK/GBK004100#bukken=' + cleanNum + ')');
+    // #bukken= を拾って番号を入れて検索するのはPCの拡張。スマホには拡張が無く、
+    // 物件番号検索ページが空のまま開くだけになる。貼り付け用に番号も出しておく。
+    msgLines.push('物件番号 `' + cleanNum + '`（スマホは手で貼り付け）');
   }
   msgLines.push('[📋 承認ページを開く](' + approveUrl + ')');
   msgLines.push('巡回条件: ' + (criteriaName || '不明'));
