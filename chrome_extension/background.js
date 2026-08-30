@@ -2310,28 +2310,50 @@ function parseBuildingAge(str) {
   return null;
 }
 
-// --- 自動検索トグルに応じてスリープ抑制を制御 ---
-function __applyKeepAwakeForAutoSearch() {
+// --- スリープ抑制の制御 ---
+//
+// 抑制するのは次のどちらか:
+//   ・自動検索がオン（従来どおり。巡回を止めないため）
+//   ・営業時間内（自動検索がオフでも、スマホからの検索指示を拾えるようにするため）
+//
+// 2026-08-30: 以前は自動検索のトグルにだけ紐付いていた。自動検索を使わない
+// 運用にしたらMacが寝るようになり、スマホから検索を投げてもPCが1分ポーリングに
+// 来られず、次にPCを開くまで実行されなかった。営業時間内は寝かせないことにした。
+// 夜と休日は普通に寝る。
+//
+// requestKeepAwake('system') が止められるのは「放っておくと寝る」スリープだけ。
+// 蓋を閉じる・手動スリープは止められない。
+function __keepAwakeWanted(d) {
+  if (d.autoSearchEnabled !== false) return true;
+  const startH = d.businessStartHour !== undefined ? d.businessStartHour : 10;
+  const endH = d.businessEndHour !== undefined ? d.businessEndHour : 20;
+  const hour = new Date().getHours();
+  return hour >= startH && hour < endH;
+}
+function __applyKeepAwake() {
   try {
-    chrome.storage.local.get(['autoSearchEnabled'], (d) => {
+    chrome.storage.local.get(
+      ['autoSearchEnabled', 'businessStartHour', 'businessEndHour'], (d) => {
       if (!chrome.power) return;
-      if (d.autoSearchEnabled !== false) {
+      if (__keepAwakeWanted(d)) {
         try { chrome.power.requestKeepAwake('system'); } catch(e) {}
-        // SWが停止してもalarmで定期的に起こしてkeepAwakeを再設定
-        chrome.alarms.create('keep-awake', { periodInMinutes: 1 });
       } else {
         try { chrome.power.releaseKeepAwake(); } catch(e) {}
-        chrome.alarms.clear('keep-awake');
       }
+      // SWが停止しても再設定できるよう、また営業時間の境目で切り替えられるよう、
+      // アラームは常に回しておく（1分ごとの再判定。通信はしない）。
+      chrome.alarms.create('keep-awake', { periodInMinutes: 1 });
     });
   } catch(e) {}
 }
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && 'autoSearchEnabled' in changes) __applyKeepAwakeForAutoSearch();
+  if (area !== 'local') return;
+  if ('autoSearchEnabled' in changes || 'businessStartHour' in changes
+      || 'businessEndHour' in changes) __applyKeepAwake();
 });
 // SW起動時(ブラウザ起動/SW再起動)にも状態を反映
-__applyKeepAwakeForAutoSearch();
-if (chrome.runtime.onStartup) chrome.runtime.onStartup.addListener(__applyKeepAwakeForAutoSearch);
+__applyKeepAwake();
+if (chrome.runtime.onStartup) chrome.runtime.onStartup.addListener(__applyKeepAwake);
 
 // --- スリープ復帰時に自動検索を再開 ---
 chrome.idle.setDetectionInterval(60); // 60秒操作なしでidle判定
@@ -2362,7 +2384,7 @@ chrome.runtime.onInstalled.addListener(() => {
     setupAlarm(data.searchIntervalMinutes || 30);
   });
   chrome.storage.local.set({ isSearching: false });
-  __applyKeepAwakeForAutoSearch();
+  __applyKeepAwake();
   chrome.storage.local.get(['stats'], (data) => {
     if (!data.stats) {
       chrome.storage.local.set({
@@ -2634,9 +2656,9 @@ async function pollMobileSearchRequest() {
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  // 1分ごとにkeepAwakeを再設定（SW停止による解除を防ぐ）
+  // 1分ごとに再判定（SW停止による解除を防ぐ／営業時間の境目で切り替える）
   if (alarm.name === 'keep-awake') {
-    try { if (chrome.power) chrome.power.requestKeepAwake('system'); } catch(e) {}
+    __applyKeepAwake();
     return;
   }
   // スマホから置かれた検索指示を拾う
@@ -5674,7 +5696,8 @@ globalThis.runSearchCycle = async function runSearchCycle(onlyKeys) {
     logError('検索サイクルエラー: ' + err.message);
   } finally {
     clearInterval(globalKeepAlive);
-    try { chrome.power && chrome.power.releaseKeepAwake && chrome.power.releaseKeepAwake(); } catch(e) {}
+    // 検索用の抑制を解いて、営業時間・自動検索の状態に戻す
+    __applyKeepAwake();
     // サイクル終了。ここから先はタブを閉じてよい
     globalThis._keepServiceTabsOpen = false;
     // 中止時はタブを閉じない（テスト確認用にタブを残す）
