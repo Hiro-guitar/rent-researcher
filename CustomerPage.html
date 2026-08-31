@@ -410,11 +410,16 @@ body {
   </div>
 
   <!-- 送付済み物件 -->
+  <!-- 物件が増えるほど重いので、たたんだ状態から始めて、開いたときに取りに行く -->
   <div class="card">
-    <div class="card-title">
+    <div class="card-title" style="cursor:pointer;" onclick="toggleProps()">
       <span>送付済み物件</span>
-      <span id="propCount" style="font-size:11px;color:#888;font-weight:400;"></span>
+      <span style="display:flex;align-items:center;gap:8px;">
+        <span id="propCount" style="font-size:11px;color:#888;font-weight:400;"></span>
+        <span id="propsArrow" style="font-size:11px;color:#888;font-weight:400;">▶</span>
+      </span>
     </div>
+    <div id="propsBody" style="display:none;">
     <div id="bulkResendBar" style="display:none;padding:8px 12px;background:#2d2d2d;border-bottom:1px solid #404040;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
       <label style="font-size:12px;color:#bbb;cursor:pointer;display:flex;align-items:center;gap:4px;">
         <input type="checkbox" id="selectAllProps" onchange="toggleSelectAll(this.checked)"> 全選択
@@ -428,6 +433,7 @@ body {
       <div class="loading">読み込み中...</div>
     </div>
     <div id="propMore" class="timeline-more" style="display:none;"></div>
+    </div>
   </div>
 
   <!-- 検索リセット -->
@@ -1387,21 +1393,17 @@ function openDetail(name) {
     })
     .getCustomerDetail(name);
 
-  // リッチな物件データを取得（賃料・間取り・画像等）
-  document.getElementById('propList').innerHTML = '<div class="loading">物件データ読み込み中...</div>';
-  google.script.run
-    .withSuccessHandler(function(props) {
-      allProperties = props || [];
-      propFilter = 'all';
-      propShown = 0;
-      renderPropFilters();
-      renderProperties();
-      document.getElementById('propCount').textContent = allProperties.length + '件';
-    })
-    .withFailureHandler(function(err) {
-      document.getElementById('propList').innerHTML = '<div class="empty-state">物件取得エラー: ' + esc(err.message) + '</div>';
-    })
-    .getSeenPropertiesForResend(name);
+  // 送付済み物件はたたんだ状態から始める。開いたときに初めて取りに行く。
+  // 物件が増えるほど重く、顧客を開くたびに待たされていたため。
+  allProperties = [];
+  propsLoaded = false;
+  propFilter = 'all';
+  propShown = 0;
+  document.getElementById('propsBody').style.display = 'none';
+  document.getElementById('propsArrow').textContent = '▶';
+  document.getElementById('propCount').textContent = '';
+  document.getElementById('bulkResendBar').style.display = 'none';
+  document.getElementById('propList').innerHTML = '';
 
   // おすすめ検索条件を読み込み
   loadRecommendList(name);
@@ -1926,6 +1928,17 @@ function _refreshTaskMarkCache(tasks) {
 var allLogs = [];
 var editingRow = null;  // 編集中の対応ログの行番号（null=新規追加モード）
 
+// 日付に曜日を足す。'2026/08/24 14:52' → '2026/08/24(月) 14:52'
+var _WDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
+function withWeekday(s) {
+  var str = String(s == null ? '' : s);
+  var m = str.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  if (!m) return str;
+  var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (isNaN(d.getTime())) return str;
+  return str.slice(0, m[0].length) + '(' + _WDAY_JA[d.getDay()] + ')' + str.slice(m[0].length);
+}
+
 function renderLogHistory(logs) {
   allLogs = logs || [];
   var el = document.getElementById('logHistory');
@@ -1939,7 +1952,7 @@ function renderLogHistory(logs) {
     html += '<div class="log-entry">';
     html += '<div class="log-entry-header">';
     html += '<span class="log-entry-type">' + esc(l.type) + '</span>';
-    html += '<span class="log-entry-date">' + esc(l.date) + '</span>';
+    html += '<span class="log-entry-date">' + esc(withWeekday(l.date)) + '</span>';
     if (l.author) html += '<span class="log-entry-date"> by ' + esc(l.author) + '</span>';
     html += '</div>';
     html += '<div class="log-entry-memo">' + esc(l.memo) + '</div>';
@@ -2079,6 +2092,41 @@ function saveLog() {
 // ══════════════════════════════════════════
 //  送付済み物件
 // ══════════════════════════════════════════
+var propsLoaded = false;
+
+function toggleProps() {
+  var body = document.getElementById('propsBody');
+  var arrow = document.getElementById('propsArrow');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    arrow.textContent = '▼';
+    if (!propsLoaded) loadSeenProperties(currentCustomer);
+  } else {
+    body.style.display = 'none';
+    arrow.textContent = '▶';
+  }
+}
+
+function loadSeenProperties(name) {
+  if (!name) return;
+  propsLoaded = true;
+  document.getElementById('propList').innerHTML = '<div class="loading">物件データ読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(props) {
+      allProperties = props || [];
+      propFilter = 'all';
+      propShown = 0;
+      renderPropFilters();
+      renderProperties();
+      document.getElementById('propCount').textContent = allProperties.length + '件';
+    })
+    .withFailureHandler(function(err) {
+      propsLoaded = false;   // 開き直したらもう一度取りに行けるように
+      document.getElementById('propList').innerHTML = '<div class="empty-state">物件取得エラー: ' + esc(err.message) + '</div>';
+    })
+    .getSeenPropertiesForResend(name);
+}
+
 function renderPropFilters() {
   var counts = { all: allProperties.length, viewed: 0, not_viewed: 0, action: 0, watching: 0 };
   for (var i = 0; i < allProperties.length; i++) {
