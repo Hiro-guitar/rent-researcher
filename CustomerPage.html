@@ -789,12 +789,12 @@ function applyPendingDailyChecks() {
   }
 }
 
+// どの列のカードにも出す。「✓完了」だけでなく、まとめて別の列へ動かすのにも使うため。
 function dailySelectBox(it) {
-  if (!isDailyCheckStage(it.stage)) return '';
   var on = !!dailySelected[it.name];
   return '<input type="checkbox" class="daily-sel"' + (on ? ' checked' : '')
     + ' onclick="event.stopPropagation();toggleDailySelect(\'' + jsStr(it.name) + '\',this.checked)"'
-    + ' title="まとめて処理する物件として選択"'
+    + ' title="まとめて処理・移動する顧客として選択"'
     + ' style="width:16px;height:16px;margin-right:6px;vertical-align:middle;cursor:pointer;">';
 }
 
@@ -808,11 +808,34 @@ function clearDailySelection() {
   filterCustomers();
 }
 
+// 「✓完了」の対象。日次チェックの列にいる人だけ。
 function selectedDailyNames() {
   var out = [];
   for (var i = 0; i < customers.length; i++) {
     var c = customers[i];
     if (dailySelected[c.name] && isDailyCheckStage(c.stage) && !c.archived) out.push(c.name);
+  }
+  return out;
+}
+
+// 選択中の全員（列を問わない）。件数表示用。
+function selectedAnyNames() {
+  var out = [];
+  for (var i = 0; i < customers.length; i++) {
+    var c = customers[i];
+    if (dailySelected[c.name] && !c.archived) out.push(c.name);
+  }
+  return out;
+}
+
+// まとめて動かす対象を、画面に並んでいる順（左の列から、上から）で返す。
+// 落とした先での並びを、見えていた順のままにするため。
+function selectedKanbanNames() {
+  var out = [];
+  var cards = document.querySelectorAll('.kanban-card');
+  for (var i = 0; i < cards.length; i++) {
+    var n = cards[i].getAttribute('data-name');
+    if (dailySelected[n] && out.indexOf(n) < 0) out.push(n);
   }
   return out;
 }
@@ -828,13 +851,19 @@ function renderDailyBar() {
       + 'font-size:13px;color:#ddd;box-shadow:0 -2px 10px rgba(0,0,0,0.4);';
     document.body.appendChild(bar);
   }
-  var names = selectedDailyNames();
-  if (names.length === 0) { bar.style.display = 'none'; return; }
+  var allNames = selectedAnyNames();
+  var dailyNames = selectedDailyNames();
+  if (allNames.length === 0) { bar.style.display = 'none'; return; }
   bar.style.display = 'flex';
-  bar.innerHTML = '<span><b>' + names.length + '件</b> 選択中</span>'
-    + '<button onclick="bulkDailyCheck(true)" style="background:#2e7d4f;color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-weight:600;">✓ 処理済みにする</button>'
-    + '<button onclick="bulkDailyCheck(false)" style="background:#3a3f4a;color:#ddd;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;">未確認に戻す</button>'
+  var h = '<span><b>' + allNames.length + '件</b> 選択中</span>';
+  if (dailyNames.length > 0) {
+    var suffix = (dailyNames.length !== allNames.length) ? '（' + dailyNames.length + '件）' : '';
+    h += '<button onclick="bulkDailyCheck(true)" style="background:#2e7d4f;color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-weight:600;">✓ 処理済みにする' + suffix + '</button>'
+      + '<button onclick="bulkDailyCheck(false)" style="background:#3a3f4a;color:#ddd;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;">未確認に戻す</button>';
+  }
+  h += '<span style="color:#8ab;">選んだカードのどれかをドラッグすると、まとめて移動できます</span>'
     + '<a href="#" onclick="clearDailySelection();return false;" style="color:#8ab;margin-left:auto;">選択を解除</a>';
+  bar.innerHTML = h;
 }
 
 function bulkDailyCheck(checked) {
@@ -1217,7 +1246,7 @@ function toggleBoardTask(idx, checked) {
     .toggleCustomerTask(t.rowNum, t.customer, !!checked);
 }
 
-var _kanbanDragName = null;
+var _kanbanDragNames = null;   // まとめて動かす顧客名（1件だけのこともある）
 var _kanbanAutoScrollTimer = null;
 function _kanbanAutoScroll(e) {
   var col = e.currentTarget;
@@ -1233,20 +1262,32 @@ function _kanbanAutoScroll(e) {
     body.scrollTop += speed;
   }
 }
+// 選んだカードのどれかを掴んだら、選択した全員を一緒に動かす。
+// 選択していないカードを掴んだときは、そのカードだけ動かす（従来どおり）。
 function kanbanDragStart(e) {
-  _kanbanDragName = e.target.getAttribute('data-name');
-  e.target.classList.add('dragging');
-  try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', _kanbanDragName); } catch (x) {}
+  var name = e.target.getAttribute('data-name');
+  var sel = selectedKanbanNames();
+  _kanbanDragNames = (sel.indexOf(name) >= 0) ? sel : [name];
+  var cards = document.querySelectorAll('.kanban-card');
+  for (var i = 0; i < cards.length; i++) {
+    if (_kanbanDragNames.indexOf(cards[i].getAttribute('data-name')) >= 0) {
+      cards[i].classList.add('dragging');
+    }
+  }
+  try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', name); } catch (x) {}
 }
-function kanbanDragEnd(e) { e.target.classList.remove('dragging'); }
+function kanbanDragEnd(e) {
+  var cards = document.querySelectorAll('.kanban-card.dragging');
+  for (var i = 0; i < cards.length; i++) cards[i].classList.remove('dragging');
+}
 function kanbanDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('dragover'); _kanbanAutoScroll(e); }
 function kanbanDragLeave(e) { e.currentTarget.classList.remove('dragover'); }
 // ドロップ位置（列内インデックス）を、マウスY座標とカード位置から求める
-function _kanbanDropIndex_(col, y, dragName) {
+function _kanbanDropIndex_(col, y, dragNames) {
   var cards = col.querySelectorAll('.kanban-card');
   var idx = 0;
   for (var i = 0; i < cards.length; i++) {
-    if (cards[i].getAttribute('data-name') === dragName) continue;
+    if (dragNames.indexOf(cards[i].getAttribute('data-name')) >= 0) continue;
     var r = cards[i].getBoundingClientRect();
     if (y < r.top + r.height / 2) return idx;
     idx++;
@@ -1258,21 +1299,24 @@ function kanbanDrop(e) {
   var col = e.currentTarget;
   col.classList.remove('dragover');
   var stage = col.getAttribute('data-stage');
-  var name = _kanbanDragName; _kanbanDragName = null;
-  if (!name || !stage) return;
+  var moving = _kanbanDragNames || []; _kanbanDragNames = null;
+  if (!moving.length || !stage) return;
 
   // 落とした位置を計算
-  var dropIndex = _kanbanDropIndex_(col, e.clientY, name);
-  // この列に見えているカード名（ドラッグ中の自分は除外）を取得
+  var dropIndex = _kanbanDropIndex_(col, e.clientY, moving);
+  // この列に見えているカード名（動かしている本人たちは除外）を取得
   var cards = col.querySelectorAll('.kanban-card');
   var names = [];
   for (var i = 0; i < cards.length; i++) {
     var n = cards[i].getAttribute('data-name');
-    if (n === name) continue;
+    if (moving.indexOf(n) >= 0) continue;
     names.push(n);
   }
   if (dropIndex > names.length) dropIndex = names.length;
-  names.splice(dropIndex, 0, name); // 落とした位置に挿入
+  // 落とした位置に、選んだ並び順のまま差し込む
+  for (var mv = 0; mv < moving.length; mv++) names.splice(dropIndex + mv, 0, moving[mv]);
+  // 動かしたら選択は解除する（そのまま残ると次のドラッグで意図せず巻き込む）
+  dailySelected = {};
 
   // 楽観的更新（ステージ＋並び順）→ 即再描画
   // ⚠️ 保存が終わるまで pendingStages に持つこと。持たないと、直後に走る
@@ -1288,8 +1332,10 @@ function kanbanDrop(e) {
   var clearPendingStages = function () { for (var m = 0; m < names.length; m++) delete pendingStages[names[m]]; };
   google.script.run
     .withSuccessHandler(function(r) {
-      clearPendingStages();
-      if (!(r && r.ok)) { showToast((r && r.message) || '並び順の保存に失敗しました'); refreshCustomers(); }
+      // 成功時は上書きを残したまま。applyPendingDailyChecks が
+      // サーバの値が追いついたのを見てから外す。
+      // ここで消すと、保存前に始まっていた再取得が古い列で塗り直してしまう。
+      if (!(r && r.ok)) { clearPendingStages(); showToast((r && r.message) || '並び順の保存に失敗しました'); refreshCustomers(); }
     })
     .withFailureHandler(function(err) {
       clearPendingStages();
