@@ -465,7 +465,31 @@ function importInquiriesWithBackfill() {
   };
 }
 
+/**
+ * 反響メールを取り込む。
+ *
+ * 2026-08-31: 速報(notifyNewInquiriesFast, 1分ごと)からも呼ぶようにしたので、
+ * 5分ごとのトリガーと同時に走ることがある。連番の重複判定は「開始時に読んだ
+ * シートの中身」で行うため、同時に走ると同じ反響を2行入れてしまう。
+ * 鍵をかけて1本ずつ実行する。取れなければ、もう一方が同じ仕事をしているので
+ * 何もせずに戻る。
+ */
 function importSuumoInquiries(opts) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+  } catch (eLock) {
+    console.log('[反響取込] 別の取込が実行中のためスキップ');
+    return { imported: 0, skipped: 0, scanned: 0, threads: 0, noRenban: 0, cachedSkip: 0, locked: true };
+  }
+  try {
+    return _importSuumoInquiries_(opts);
+  } finally {
+    try { lock.releaseLock(); } catch (eR) {}
+  }
+}
+
+function _importSuumoInquiries_(opts) {
   opts = opts || {};
   var sheet = _getInquirySheet_();
 
@@ -718,6 +742,35 @@ function _fastNotifiedSet_() {
 }
 
 /** 連番を通知済みとして記録する（直近200件だけ残す）。 */
+/**
+ * 問い合わせシートに連番が載っているか（＝取込済みか）をまとめて見る。
+ * 速報の文面で「顧客管理ページに追加済み」と書いてよいかの判断に使う。
+ * @param {Array<string>} renbans
+ * @return {Object} 連番 -> true/false
+ */
+function _inquiryRenbanImportedMap_(renbans) {
+  var out = {};
+  if (!renbans || renbans.length === 0) return out;
+  try {
+    var sheet = _getInquirySheet_();
+    var lastRow = sheet.getLastRow();
+    var have = {};
+    if (lastRow > 1) {
+      var col = sheet.getRange(2, 2, lastRow - 1, 1).getValues();   // B列: 連番
+      for (var i = 0; i < col.length; i++) {
+        var rb = _normRenban_(col[i][0]);
+        if (rb) have[rb] = true;
+      }
+    }
+    for (var j = 0; j < renbans.length; j++) {
+      out[String(renbans[j])] = !!have[_normRenban_(renbans[j])];
+    }
+  } catch (e) {
+    console.warn('[反響速報] 取込確認に失敗: ' + e.message);
+  }
+  return out;
+}
+
 function _markFastNotified_(renbans) {
   if (!renbans || renbans.length === 0) return;
   try {
@@ -729,7 +782,9 @@ function _markFastNotified_(renbans) {
 
 /**
  * 前回チェック以降に届いた反響メールを見て、電話番号ありなら即Discordに通知する。
- * シートには書かない（それは5分ごとの取込の仕事）。
+ * 新しい反響があったときは、通知の前に取込(importSuumoInquiries)も呼んで
+ * 顧客管理への登録まで済ませる。通知を見て開いたときには載っている状態にするため。
+ * 反響が無い回は取込を呼ばないので、1分ごとに動いても負担は増えない。
  * @return {{checked:number, notified:number, threads:number}}
  */
 function notifyNewInquiriesFast() {
@@ -752,6 +807,7 @@ function notifyNewInquiriesFast() {
 
   var notifiedInfo = _fastNotifiedSet_();
   var newlyNotified = [];
+  var pending = [];      // 今回見つかった、まだ知らせていない反響
   var checked = 0;
 
   for (var t = 0; t < threads.length; t++) {
@@ -766,12 +822,38 @@ function notifyNewInquiriesFast() {
       if (!info || !info.renban) continue;
       if (notifiedInfo.set[String(info.renban)]) continue;   // 既に速報済み
       if (!String(info.tel || '').trim()) continue;           // 電話番号なしは通知しない（従来どおり）
-      _notifyPhoneInquiryToDiscord_(info, { fast: true });
+      pending.push(info);
       newlyNotified.push(String(info.renban));
     }
   }
 
-  _markFastNotified_(newlyNotified);
+  // 新しい反響があったときだけ、通知の前に顧客管理への取込も済ませる。
+  //
+  // 以前は「速報だけ先に出して、取込は5分ごとのトリガー任せ」だったので、
+  // 通知を見て顧客管理を開いてもまだ載っていない、という間が空いていた。
+  // 取込は「前回取込以降に届いたメールだけ」を見る作りなので、
+  // ここで呼んでも重くならない（通常は0〜数件）。
+  //
+  // 先に速報済みの印を付けるのは、取込側の通知が「速報済みならスキップ」する
+  // 作りだから。これで二重投稿を防いだうえで、取込の結果を見てから通知できる。
+  var importedMap = {};
+  if (pending.length > 0) {
+    _markFastNotified_(newlyNotified);
+    try {
+      var _impRes = importSuumoInquiries();
+      console.log('[反響速報] 取込も実行: 取込' + (_impRes && _impRes.imported) + '件');
+    } catch (eImp) {
+      console.warn('[反響速報] 取込に失敗（通知は出す）: ' + eImp.message);
+    }
+    // 本当にシートに載ったかを見てから文面を決める（載っていないのに
+    // 「追加済み」と書くと嘘になる）
+    importedMap = _inquiryRenbanImportedMap_(newlyNotified);
+    for (var pi = 0; pi < pending.length; pi++) {
+      _notifyPhoneInquiryToDiscord_(pending[pi], {
+        fast: true, registered: !!importedMap[String(pending[pi].renban)]
+      });
+    }
+  }
   props.setProperty(INQUIRY_FAST_LAST_KEY, String(now));
   // Gmail読み取り量と所要時間を毎回残す。
   // ⚠️ 1日1440回動くので、1回あたりの秒数がそのまま日次の実行時間に効く。
@@ -825,10 +907,12 @@ function _notifyPhoneInquiryToDiscord_(info, opts) {
     if (info.propertyName) lines.push('物件: ' + info.propertyName + (info.rent ? ' ' + info.rent : ''));
     if (info.email) lines.push('メール: ' + String(info.email).trim());
     if (info.message) lines.push('内容: ' + String(info.message).trim());
-    // 速報は取込前なので「追加済み」と書かない（嘘になる）
-    lines.push(opts.fast
-      ? '（' + (info.channel || 'SUUMO') + ' / 受信直後の速報。顧客管理への登録は数分後）'
-      : '（' + (info.channel || 'SUUMO') + ' / 顧客管理ページに追加済み）');
+    // 速報でも取込を済ませてから出すので、載っていれば「追加済み」と書く。
+    // 取込に失敗したときだけ、従来どおり「登録は数分後」にする（5分ごとの
+    // 取込トリガーが後で拾う）。
+    var _added = opts.fast ? !!opts.registered : true;
+    lines.push('（' + (info.channel || 'SUUMO')
+      + (_added ? ' / 顧客管理ページに追加済み）' : ' / 受信直後の速報。顧客管理への登録は数分後）'));
     var r = _postDiscordAdaptive_(webhook, lines.join('\n'), '📞 反響(TEL) ' + name, '1459814543600390341');
     console.log('[反響Discord] 送信: ' + name + ' TEL=' + tel + ' → ok=' + r.ok + ' code=' + r.code + (r.ok ? '' : ' body=' + r.body));
   } catch (e) {
