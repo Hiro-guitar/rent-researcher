@@ -2923,7 +2923,7 @@ function showMoreTimeline() {
     };
     html += '<div class="timeline-item">';
     html += '<div class="timeline-dot ' + dotClass + '"></div>';
-    html += '<div class="timeline-date">' + esc(t.date || '') + '</div>';
+    html += '<div class="timeline-date">' + esc(withWeekday(t.date || '')) + '</div>';
     html += '<div class="timeline-content">';
     html += '<span class="timeline-type ' + typeClass + '">' + (typeLabels[t.type] || t.type || '') + '</span>';
     html += esc(t.summary || '');
