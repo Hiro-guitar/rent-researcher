@@ -1421,6 +1421,15 @@ function doGet(e) {
         ScriptApp.newTrigger('cleanupOldPropertyRecords').timeBased().atHour(3).everyDays(1).create();
         console.log('[keepalive] bootstrap: 日次クリーンアップトリガー (毎朝3時) を登録');
       }
+      // 「終了」ステージの顧客を毎朝5時にアーカイブするトリガーも bootstrap
+      var _hasArchive = false;
+      for (var _ia = 0; _ia < _triggers.length; _ia++) {
+        if (_triggers[_ia].getHandlerFunction() === 'autoArchiveFinishedCustomers') { _hasArchive = true; break; }
+      }
+      if (!_hasArchive && typeof autoArchiveFinishedCustomers === 'function') {
+        ScriptApp.newTrigger('autoArchiveFinishedCustomers').timeBased().atHour(5).everyDays(1).create();
+        console.log('[keepalive] bootstrap: 終了顧客の自動アーカイブ (毎朝5時) を登録');
+      }
     } catch (_eKA) {
       console.warn('[keepalive] bootstrap失敗: ' + (_eKA && _eKA.message));
     }
@@ -4649,6 +4658,23 @@ function bulkArchiveFinishedCustomers(days) {
   } catch (e) {
     return { success: false, message: e.message };
   }
+}
+
+/**
+ * 【日次トリガー】「終了」ステージの顧客を毎朝まとめてアーカイブする。
+ * 経過日数は問わない(0)。看板に「終了」が溜まって邪魔になるため。
+ * データは消さず、看板から隠すだけ。
+ *
+ * ⚠️ ブロック中の人も対象にしている（本人の指定）。アーカイブすると
+ *    get_criteria のブロック再判定から外れるので(AS列のチェック)、
+ *    ブロックを解除されても自動では復活しなくなる。戻すときは手で
+ *    アーカイブを解除すること。
+ */
+function autoArchiveFinishedCustomers() {
+  var r = bulkArchiveFinishedCustomers(0);
+  console.log('[終了アーカイブ] ' + ((r && r.message) || '結果なし')
+    + (r && r.names && r.names.length ? ' → ' + r.names.join(', ') : ''));
+  return r;
 }
 
 function getCustomerListForCRM() {
