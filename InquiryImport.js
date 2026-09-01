@@ -185,12 +185,35 @@ function _autoCreateLeadFromInquiry_(info) {
     var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
     if (!sheet) return false;
     var data = sheet.getDataRange().getValues();
+    // 既存のお客さんかどうかを見る。改名されている場合に備えて最新行の名前を採る。
+    var existingName = '';
     for (var i = 1; i < data.length; i++) {
+      var rowName = String(data[i][1] || '').trim();
       var rowEmail = String(data[i][31] || '').trim().toLowerCase(); // AF列(32)=メール
-      if (emailKey && rowEmail && rowEmail === emailKey) return false;      // メール一致 → 既存に紐付け（作らない）
+      if (emailKey && rowEmail && rowEmail === emailKey) { existingName = rowName; continue; }
       // メールが無い問い合わせのみ名前で判定（メールがあれば同姓同名の別人を取りこぼさないよう名前では判定しない）
-      if (!emailKey && name && String(data[i][1] || '').trim() === name) return false;
+      if (!emailKey && name && rowName === name) { existingName = rowName; }
     }
+
+    // 対応ログに残す内容（新規でも既存でも同じ）
+    var parts = [];
+    if (info.propertyName) parts.push('物件: ' + info.propertyName + (info.rent ? ' ' + info.rent : ''));
+    if (email) parts.push('メール: ' + email);
+    if (info.tel) parts.push('TEL: ' + info.tel);
+    if (info.message) parts.push('内容: ' + info.message);
+    var logMemo = parts.join(' / ');
+    var logDate = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+
+    if (existingName) {
+      // 既存のお客さんからの再問い合わせ。カードは増やさないが、対応ログには残す。
+      // 残さないと問い合わせシートに載るだけで、その人のCRMには何も出ず、
+      // 画面上は何も起きていないように見えてしまう。
+      try { addContactLog(existingName, 'SUUMO反響', logDate, logMemo); } catch (eL2) {
+        console.warn('[自動リード化] 既存客の対応ログ追加に失敗: ' + eL2.message);
+      }
+      return false;
+    }
+
     // 新規リード作成
     var row = [];
     for (var c = 0; c < 19; c++) row.push('');
@@ -206,12 +229,7 @@ function _autoCreateLeadFromInquiry_(info) {
     //   「未接続」(架電リスト)に入っていた。空にしておけば
     //   _fillDefaultStages_ が メールのみ / 未接続 / 追客中 を判定する。
     // 問い合わせ情報を対応ログに残す（SUUMO反響）
-    var parts = [];
-    if (info.propertyName) parts.push('物件: ' + info.propertyName + (info.rent ? ' ' + info.rent : ''));
-    if (email) parts.push('メール: ' + email);
-    if (info.tel) parts.push('TEL: ' + info.tel);
-    if (info.message) parts.push('内容: ' + info.message);
-    try { addContactLog(row[1], 'SUUMO反響', Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'), parts.join(' / ')); } catch (eL) {}
+    try { addContactLog(row[1], 'SUUMO反響', logDate, logMemo); } catch (eL) {}
     return true;
   } catch (e) {
     console.warn('[自動リード化] error: ' + e.message);
