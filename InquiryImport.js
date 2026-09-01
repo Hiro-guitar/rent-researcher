@@ -807,7 +807,8 @@ function notifyNewInquiriesFast() {
 
   var notifiedInfo = _fastNotifiedSet_();
   var newlyNotified = [];
-  var pending = [];      // 今回見つかった、まだ知らせていない反響
+  var newlyFound = [];   // 今回見つかった新しい反響（電話番号なしも含む）
+  var pending = [];      // そのうち通知する分（電話番号あり）
   var checked = 0;
 
   for (var t = 0; t < threads.length; t++) {
@@ -820,7 +821,11 @@ function notifyNewInquiriesFast() {
       var info = null;
       try { info = _parseSuumoInquiryEmail_(msg.getSubject(), msg.getPlainBody(), msg.getDate()); } catch (eP) {}
       if (!info || !info.renban) continue;
-      if (notifiedInfo.set[String(info.renban)]) continue;   // 既に速報済み
+      if (notifiedInfo.set[String(info.renban)]) continue;   // 既に見た反響
+      // 電話番号の有無にかかわらず「新しい反響を見つけた」ことは記録する。
+      // 通知の対象は電話番号ありだけだが、取込は電話番号なしでも走らせたい
+      // （走らせないと、メールだけの反響が5分後の取込まで顧客管理に入らない）。
+      newlyFound.push(String(info.renban));
       if (!String(info.tel || '').trim()) continue;           // 電話番号なしは通知しない（従来どおり）
       pending.push(info);
       newlyNotified.push(String(info.renban));
@@ -837,11 +842,13 @@ function notifyNewInquiriesFast() {
   // 先に速報済みの印を付けるのは、取込側の通知が「速報済みならスキップ」する
   // 作りだから。これで二重投稿を防いだうえで、取込の結果を見てから通知できる。
   var importedMap = {};
-  if (pending.length > 0) {
-    _markFastNotified_(newlyNotified);
+  if (newlyFound.length > 0) {
+    // 見た反響は電話番号なしも含めて印を付ける。付けないと、通知しない反響が
+    // 検索の窓に残っている間、毎分おなじ取込を呼び続けてしまう。
+    _markFastNotified_(newlyFound);
     try {
       var _impRes = importSuumoInquiries();
-      console.log('[反響速報] 取込も実行: 取込' + (_impRes && _impRes.imported) + '件');
+      console.log('[反響速報] 取込も実行: 新規' + newlyFound.length + '件 → 取込' + (_impRes && _impRes.imported) + '件');
     } catch (eImp) {
       console.warn('[反響速報] 取込に失敗（通知は出す）: ' + eImp.message);
     }
