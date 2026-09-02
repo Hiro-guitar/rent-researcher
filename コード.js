@@ -4216,34 +4216,9 @@ function handleCheckFollowupStatus(e) {
       }
     }
 
-    // 希望条件が入っていたらフォローアップを止める。
-    // フォローアップは「ご希望を教えてください」と促すためのメールなので、
-    // 条件が入った時点で送り続ける意味がない。
-    //
-    // 送信側(reply.py)はレンタルサーバにあり、こちらからは更新できない。
-    // reply.py が見ているのは lineRegistered と unsubscribed の2つだけなので、
-    // unsubscribed に寄せて止める。hasCriteria も返しておくので、
-    // reply.py を触れるときに理由を分けたければそちらを見ればよい。
-    var hasCriteria = false;
-    try {
-      var critSheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
-      if (critSheet && critSheet.getLastRow() >= 2) {
-        var cData = critSheet.getDataRange().getValues();
-        var targetMail = String(emailAddr).trim().toLowerCase();
-        for (var k = 1; k < cData.length; k++) {
-          // AF列(32): メール。同じメールで複数行あることがあるので全部見る。
-          if (String(cData[k][31] || '').trim().toLowerCase() !== targetMail) continue;
-          if (_rowHasCriteria_(cData[k])) { hasCriteria = true; break; }
-        }
-      }
-    } catch (eC) {
-      console.warn('handleCheckFollowupStatus 条件確認に失敗: ' + eC.message);
-    }
-
     return ContentService.createTextOutput(JSON.stringify({
       lineRegistered: lineRegistered,
-      unsubscribed: unsubscribed || hasCriteria,
-      hasCriteria: hasCriteria
+      unsubscribed: unsubscribed
     })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     console.error('handleCheckFollowupStatus error: ' + err.message);
