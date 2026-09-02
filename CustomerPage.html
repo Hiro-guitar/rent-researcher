@@ -1535,7 +1535,10 @@ function renderDetail(data) {
   info += '<div class="detail-info-label">メール配信</div>';
   info += '<div class="detail-info-value">';
   if (data.email) {
-    info += '<span id="mailUnsubState">' + (data.mailUnsubscribed ? '<span style="color:#e6a243;">停止中</span>' : '<span style="color:#4ec9b0;">配信中</span>') + '</span>'
+    // LINE登録済みの人にも reply.py はフォローアップを送らない。
+    // 以前はそれが画面に出ず「配信中」と見えていたので、理由まで出す。
+    _mailStoppedByLine = !!data.mailStoppedByLine;
+    info += '<span id="mailUnsubState">' + mailStateHtml(data.mailUnsubscribed) + '</span>'
       + ' <a id="mailUnsubToggle" onclick="toggleMailUnsubscribe(' + (data.mailUnsubscribed ? 'false' : 'true') + ')" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:8px;">'
       + (data.mailUnsubscribed ? 'メール配信を再開' : 'メール配信を停止') + '</a>';
   } else {
@@ -2753,6 +2756,16 @@ function loadCondSuggestionOptOut() {
     .getConditionSuggestionOptOut(currentCustomer);
 }
 
+// この顧客がLINE登録済みか（＝配信停止リストに無くてもメールは送られない）
+var _mailStoppedByLine = false;
+
+// メール配信の状態表示。止まっている理由まで出す。
+function mailStateHtml(unsubscribed) {
+  if (unsubscribed) return '<span style="color:#e6a243;">停止中（配信停止リスト）</span>';
+  if (_mailStoppedByLine) return '<span style="color:#e6a243;">停止中（LINE登録済み）</span>';
+  return '<span style="color:#4ec9b0;">配信中</span>';
+}
+
 // メール配信（自動フォローアップメール）の停止/再開
 function toggleMailUnsubscribe(unsub) {
   if (!currentCustomer) return;
@@ -2766,9 +2779,7 @@ function toggleMailUnsubscribe(unsub) {
     .withSuccessHandler(function (r) {
       if (r && r.success) {
         showToast(r.message);
-        if (stateEl) stateEl.innerHTML = r.unsubscribed
-          ? '<span style="color:#e6a243;">停止中</span>'
-          : '<span style="color:#4ec9b0;">配信中</span>';
+        if (stateEl) stateEl.innerHTML = mailStateHtml(r.unsubscribed);
         if (toggle) {
           toggle.textContent = r.unsubscribed ? 'メール配信を再開' : 'メール配信を停止';
           toggle.onclick = function () { toggleMailUnsubscribe(!r.unsubscribed); };

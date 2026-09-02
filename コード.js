@@ -4123,6 +4123,25 @@ function handleUnsubscribe(e) {
   }
 }
 
+/**
+ * メールが「LINE登録メール」シートに入っているか。
+ * 入っていれば reply.py はフォローアップを送らない（LINEに移ったお客さん）。
+ */
+function _isEmailLineRegistered_(email) {
+  email = String(email || '').trim();
+  if (!email) return false;
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sh = ss.getSheetByName(LINE_EMAIL_SHEET_NAME);
+    if (!sh) return false;
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][0] || '').trim().toLowerCase() === email.toLowerCase()) return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
 /** メールが配信停止(UNSUBSCRIBEシート)に入っているか。 */
 function _isEmailUnsubscribed_(email) {
   email = String(email || '').trim();
@@ -5329,6 +5348,10 @@ function getCustomerDetail(customerName) {
 
   // メール配信停止(UNSUBSCRIBE)状態
   info.mailUnsubscribed = _isEmailUnsubscribed_(info.email);
+  // LINE登録済みでも reply.py はフォローアップを送らない（check_followup_status 参照）。
+  // 止まっているのに画面では「配信中」と出ていて、止まっていることに気づけなかったので、
+  // 理由が分かるように返す。
+  info.mailStoppedByLine = _isEmailLineRegistered_(info.email);
 
   // 自動返信メール履歴（reply.py が記録する「メール送信履歴」を、この顧客のメールで集約）
   info.mailHistory = [];
