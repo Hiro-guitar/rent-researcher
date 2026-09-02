@@ -624,11 +624,52 @@ async function _extractEssquareGalleryImages(tabId) {
         });
       }
 
-      // 画像src変化待ち（リファレンスコードと完全一致: complete + naturalWidth もチェック）
+      // ── DOMの目印 ──
+      // いい生活のクラス名(css-oq6icw / css-1nuul26 など)は emotion の自動生成で、
+      // 先方のビルドのたびに変わりうる。実際 2026-09-01 に次へボタンの入れ物が
+      // css-1nuul26 → css-96opfu に変わり、closest で見つからず「最後の画像」と
+      // 誤判定して2枚で打ち切っていた。
+      // クラス名は当たれば使い、外れたら構造で拾い直す。
+
+      // スライド内の画像。スライド1枚につき img は1つ。
+      function slideImages(slideSelectors) {
+        const withHash = slideSelectors.map(sl => sl + ' .css-oq6icw img').join(', ');
+        let list = Array.from(document.querySelectorAll(withHash));
+        if (list.length === 0) {
+          list = Array.from(document.querySelectorAll(slideSelectors.map(sl => sl + ' img').join(', ')));
+        }
+        return list;
+      }
+      function activeImage() {
+        return slideImages(['.swiper-slide-active'])[0] || null;
+      }
+
+      // 次へボタンの入れ物。アイコンから上に辿って、押せる見た目の親を採る。
+      function findNextBox() {
+        const icon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
+        if (!icon) return null;
+        let el = icon;
+        for (let i = 0; i < 5; i++) {
+          el = el.parentElement;
+          if (!el || el === document.body) return null;
+          const st = window.getComputedStyle(el);
+          if (el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' || st.cursor === 'pointer') return el;
+        }
+        return icon.parentElement;
+      }
+      // まだ次がある状態か。最後の画像では入れ物が display:none になる。
+      function isNextUsable(box) {
+        if (!box || box.hasAttribute('disabled')) return false;
+        const st = window.getComputedStyle(box);
+        return st.display !== 'none' && st.visibility !== 'hidden'
+          && st.pointerEvents !== 'none' && st.opacity !== '0';
+      }
+
+      // 画像src変化待ち（complete + naturalWidth もチェック）
       async function waitForImageChange(prevSrc, timeout = 5000) {
         const start = Date.now();
         while (Date.now() - start < timeout) {
-          const img = document.querySelector('.swiper-slide-active .css-oq6icw img');
+          const img = activeImage();
           if (img && img.src !== prevSrc && img.complete && img.naturalWidth > 0) return;
           await new Promise(res => setTimeout(res, 100));
         }
@@ -642,7 +683,7 @@ async function _extractEssquareGalleryImages(tabId) {
       // ギャラリー画像の表示待ち
       try {
         await waitFor(() => {
-          const img = document.querySelector('.swiper-slide-active .css-oq6icw img');
+          const img = activeImage();
           return img && img.complete && img.naturalWidth > 0;
         }, 5000);
       } catch (e) {
@@ -676,18 +717,17 @@ async function _extractEssquareGalleryImages(tabId) {
         }
       }
 
-      while (true) {
+      // 上限は安全網。DOMがまた変わって終端を見落としても止まるようにしておく。
+      for (let step = 0; step < 80; step++) {
         // active + prev スライドの画像を取得
-        const imgs = Array.from(document.querySelectorAll(
-          '.swiper-slide-active .css-oq6icw img, .swiper-slide-prev .css-oq6icw img'
-        ));
+        const imgs = slideImages(['.swiper-slide-active', '.swiper-slide-prev']);
 
         for (const img of imgs) {
           await captureAndPush(img);
         }
 
         // 現在のアクティブsrc記録（waitForImageChange用）
-        const activeImg = document.querySelector('.swiper-slide-active .css-oq6icw img');
+        const activeImg = activeImage();
         if (activeImg && activeImg.src) lastActiveSrc = activeImg.src;
 
         if (imgs.length === 0) {
@@ -697,49 +737,39 @@ async function _extractEssquareGalleryImages(tabId) {
           stopCounter = 0;
         }
 
-        // 次へボタン判定
-        const nextBtnIcon = document.querySelector('svg[data-testid="keyboardArrowRight"]');
-        const nextBtnContainer = nextBtnIcon ? nextBtnIcon.closest('.css-1nuul26') : null;
-
-        const hasNextBtn = !!nextBtnContainer;
-        const hasNextIconOnly = !!nextBtnIcon && !nextBtnContainer;
-        const isLastImage = hasNextIconOnly || !hasNextBtn;
-
-        if (isLastImage) {
-          // 最後の画像を確実に保存してからループ抜ける
-          // activeスライドを再取得（遅延ロードされた場合に備える）
+        // 次へが使えなければ最後の画像
+        const nextBox = findNextBox();
+        if (!isNextUsable(nextBox)) {
+          // 最後の画像を確実に保存してからループを抜ける
+          // （遅延ロードに備えて少し待ってから取り直す）
           await new Promise(r => setTimeout(r, 200));
-          const finalImgs = Array.from(document.querySelectorAll(
-            '.swiper-slide-active .css-oq6icw img, .swiper-slide-prev .css-oq6icw img, .swiper-slide-next .css-oq6icw img'
-          ));
+          const finalImgs = slideImages([
+            '.swiper-slide-active', '.swiper-slide-prev', '.swiper-slide-next'
+          ]);
           for (const img of finalImgs) {
             await captureAndPush(img);
           }
-          log += ' lastImg';
+          log += nextBox ? ' lastImg' : ' noNextBox';
           break;
         }
 
-        // クリック可能か確認
-        const style = window.getComputedStyle(nextBtnContainer);
-        const isClickable = style.pointerEvents !== 'none' && !nextBtnContainer.hasAttribute('disabled');
-        if (!isClickable) {
-          log += ' notClickable';
-          break;
-        }
-
-        nextBtnContainer.click();
+        nextBox.click();
         await waitForImageChange(lastActiveSrc);
         await new Promise(r => setTimeout(r, 100));
       }
 
       log += ` captured:${images.length}`;
 
-      // モーダルを閉じる
+      // モーダルを閉じる。閉じるボタンのクラスも自動生成なので、
+      // 見つからないときは Escape で閉じる（開いたままだと次の操作に響く）。
       const closeBtn = document.querySelector('.MuiBox-root.css-11p4x25');
       if (closeBtn) {
         closeBtn.click();
-        await new Promise(r => setTimeout(r, 300));
+      } else {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true }));
+        log += ' escClose';
       }
+      await new Promise(r => setTimeout(r, 300));
 
       return { base64s: images, urls: [], log };
     },
