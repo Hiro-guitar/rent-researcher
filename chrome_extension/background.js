@@ -946,7 +946,29 @@ async function fetchWithTimeout(url, options = {}, { timeoutMs = 90000, label = 
 
 async function fetchCriteria() { return gasGet('get_criteria'); }
 async function fetchSeenIds() { return gasGet('get_seen_ids'); }
+/**
+ * 画像が1枚も付かなかった物件を控える。巡回サマリーで件数を出す。
+ *
+ * 2026-09-01: いい生活の画像取得が2枚で打ち切られていたのに、しばらく
+ * 気づけなかった。「0枚」は目に入るようにしておく。
+ * 全サイトが submitProperties を通るので、ここで見れば取りこぼしがない。
+ */
+function _recordNoImageProps(properties) {
+  try {
+    if (!Array.isArray(properties)) return;
+    const list = globalThis._noImageProps || (globalThis._noImageProps = []);
+    for (const p of properties) {
+      if (!p) continue;
+      const n = Array.isArray(p.image_urls) ? p.image_urls.length : 0;
+      if (n > 0) continue;
+      const label = [p.building_name || '', p.room_number || ''].join(' ').trim();
+      list.push({ source: p.source || '不明', name: label || '(物件名なし)' });
+    }
+  } catch (e) {}
+}
+
 async function submitProperties(customerName, properties) {
+  _recordNoImageProps(properties);
   // SUUMO巡回モードではGASに顧客向け送信しない（コレクターに追加）
   if (globalThis._suumoPatrolMode && globalThis._suumoPatrolCollector) {
     for (const prop of properties) {
@@ -8446,8 +8468,13 @@ async function sendDiscordNoResultSummary() {
   const watchMoved = watchResults.filter(w => w.hadMovement);
   const watchStill = watchResults.filter(w => !w.hadMovement);
 
+  // === 画像が1枚も付かなかった物件 ===
+  const noImg = (globalThis._noImageProps || []).slice();
+  globalThis._noImageProps = [];
+
   // 通知する要素が何もなければスキップ
-  if (list.length === 0 && foundLines.length === 0 && watchResults.length === 0 && !nextRunLine) return;
+  if (list.length === 0 && foundLines.length === 0 && watchResults.length === 0
+      && noImg.length === 0 && !nextRunLine) return;
 
   const lines = [];
 
@@ -8485,6 +8512,20 @@ async function sendDiscordNoResultSummary() {
       lines.push('');
       lines.push(unresolvedLines.join('\n'));
     }
+  }
+
+  // === 画像が付かなかった物件 ===
+  // 取得が壊れると静かに減る。件数を出しておけば異変に気づける。
+  if (noImg.length > 0) {
+    const SRC_LABEL = { reins: 'REINS', ielove: 'いえらぶ', itandi: 'itandi', essquare: 'いい生活' };
+    const bySrc = {};
+    for (const x of noImg) bySrc[x.source] = (bySrc[x.source] || 0) + 1;
+    if (lines.length > 0) lines.push('');
+    lines.push(`🖼 **画像0枚: ${noImg.length}件**`);
+    lines.push(Object.keys(bySrc).map(k => `・${SRC_LABEL[k] || k}: ${bySrc[k]}件`).join('\n'));
+    const names = noImg.slice(0, 3).map(x => `　${x.name}`);
+    if (noImg.length > 3) names.push(`　…ほか${noImg.length - 3}件`);
+    lines.push(names.join('\n'));
   }
 
   // === キャンセル待ちのサマリー（動きあり=空き/成約が現在ある。スレッドに飛べるようリンク化） ===
