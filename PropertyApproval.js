@@ -3568,42 +3568,55 @@ function _getPendingPropForFlex_(customerName, roomId) {
       if (String(data[i][2]).trim() !== ridTrim) continue;
       var status = String(data[i][10] || '');
       if (status !== 'sent' && status !== 'pending') continue;
-      try {
-        var d = JSON.parse(String(data[i][9] || ''));
-        // buildPropertyFlex が期待する camelCase 形式に変換
-        // 送付時に選択された画像を優先、なければ全画像にフォールバック
-        var imgs = (d.selected_image_urls && d.selected_image_urls.length > 0)
-          ? d.selected_image_urls : (d.image_urls || []);
-        // 名前/賃料/管理費/間取り/面積/駅は property_data_json に無いことがある
-        // （古いREINS等、rent/management_fee/building_name/station_info未格納）。
-        // その場合は PENDINGシートの専用列(D/E/F/G/H/I)をフォールバックに使う。
-        var _bn = d.building_name || String(data[i][3] || '');
-        var _rn = d.room_number || '';
-        var _split = _splitRoomNumber(_bn, _rn); // 物件名末尾の部屋番号重複を除去/抽出
-        return {
-          buildingName: _split.name,
-          roomNumber: _split.room,
-          rent: d.rent || Number(data[i][4]) || 0,
-          managementFee: d.management_fee || Number(data[i][5]) || 0,
-          layout: d.layout || String(data[i][6] || ''),
-          area: d.area || Number(data[i][7]) || 0,
-          buildingAge: d.building_age || '',
-          floor: d.floor || 0,
-          floorText: d.floor_text || '',
-          stationInfo: d.station_info || String(data[i][8] || ''),
-          otherStations: d.other_stations || [],
-          address: d.address || '',
-          deposit: d.deposit || '',
-          keyMoney: d.key_money || '',
-          imageUrls: imgs,
-          imageUrl: imgs[0] || '',
-          url: d.url || '',
-          reinsPropertyNumber: d.reins_property_number || '',
-          staffComment: String(data[i][14] || '')  // O列(15): 担当者コメント
-        };
-      } catch (_) { return null; }
+      return _pendingRowToFlexProp_(data[i]);
     }
     return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 承認待ち物件シートの1行を、buildPropertyFlex が期待する camelCase に変換する。
+ * 行だけを渡す形にしてあるので、呼ぶ側でシートを1回読んで使い回せる。
+ * （以前は物件1件ごとに _getPendingPropForFlex_ を呼び、そのたびにシート全体を
+ *   読み直していた。送付済み物件が数十件ある顧客で待たされる原因になっていた）
+ * @param {Array} row 承認待ち物件シートの1行
+ * @return {Object|null}
+ */
+function _pendingRowToFlexProp_(row) {
+  try {
+    var d = JSON.parse(String(row[9] || ''));
+    // 送付時に選択された画像を優先、なければ全画像にフォールバック
+    var imgs = (d.selected_image_urls && d.selected_image_urls.length > 0)
+      ? d.selected_image_urls : (d.image_urls || []);
+    // 名前/賃料/管理費/間取り/面積/駅は property_data_json に無いことがある
+    // （古いREINS等、rent/management_fee/building_name/station_info未格納）。
+    // その場合は PENDINGシートの専用列(D/E/F/G/H/I)をフォールバックに使う。
+    var _bn = d.building_name || String(row[3] || '');
+    var _rn = d.room_number || '';
+    var _split = _splitRoomNumber(_bn, _rn); // 物件名末尾の部屋番号重複を除去/抽出
+    return {
+      buildingName: _split.name,
+      roomNumber: _split.room,
+      rent: d.rent || Number(row[4]) || 0,
+      managementFee: d.management_fee || Number(row[5]) || 0,
+      layout: d.layout || String(row[6] || ''),
+      area: d.area || Number(row[7]) || 0,
+      buildingAge: d.building_age || '',
+      floor: d.floor || 0,
+      floorText: d.floor_text || '',
+      stationInfo: d.station_info || String(row[8] || ''),
+      otherStations: d.other_stations || [],
+      address: d.address || '',
+      deposit: d.deposit || '',
+      keyMoney: d.key_money || '',
+      imageUrls: imgs,
+      imageUrl: imgs[0] || '',
+      url: d.url || '',
+      reinsPropertyNumber: d.reins_property_number || '',
+      staffComment: String(row[14] || '')  // O列(15): 担当者コメント
+    };
   } catch (e) {
     return null;
   }
@@ -3809,6 +3822,28 @@ function getSeenPropertiesForResend(customerName) {
       }
     }
 
+    // 承認待ち物件シートは1回だけ読んで room_id で引けるようにしておく。
+    // 以前は物件ごとに _getPendingPropForFlex_ を呼んでいたため、
+    // 送付済みが41件ならシート全体を41回読み直していた。開くのが遅い原因。
+    // 同じ room_id が複数行あるときは先に出てきた行を採る（従来と同じ）。
+    var pendingRowByRoomId = {};
+    try {
+      var pSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+      if (pSheet && pSheet.getLastRow() >= 2) {
+        var pData = pSheet.getDataRange().getValues();
+        for (var pi = 1; pi < pData.length; pi++) {
+          if (String(pData[pi][0]).trim() !== nameTrim) continue;
+          var pStatus = String(pData[pi][10] || '');
+          if (pStatus !== 'sent' && pStatus !== 'pending') continue;
+          var pRid = String(pData[pi][2]).trim();
+          if (!pRid || pendingRowByRoomId[pRid]) continue;
+          pendingRowByRoomId[pRid] = pData[pi];
+        }
+      }
+    } catch (eP) {
+      console.warn('getSeenPropertiesForResend 承認待ち読み込み失敗: ' + eP.message);
+    }
+
     var results = [];
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][0]).trim() !== nameTrim) continue;
@@ -3817,7 +3852,8 @@ function getSeenPropertiesForResend(customerName) {
       // closed / applied は除外。ただしキャンセル待ちは申込ありでも表示する。
       if ((status === 'closed' || status === 'applied') && !watching) continue;
       var roomId = String(data[i][1] || '').trim();
-      var pendingProp = _getPendingPropForFlex_(nameTrim, roomId);
+      var pendingRow = pendingRowByRoomId[roomId];
+      var pendingProp = pendingRow ? _pendingRowToFlexProp_(pendingRow) : null;
       var entry = {
         roomId: roomId,
         buildingName: String(data[i][2] || ''),
