@@ -386,6 +386,28 @@ function handleCustomerMapApi(e) {
 var EHOMAKI_MAP_POST_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/m';
 var EHOMAKI_MAP_GET_BASE = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/m/';
 
+/**
+ * 地図の作り直しでこけたことを Discord に流す。
+ *
+ * 作り直しはトリガーの中で走るので、失敗しても実行ログに残るだけで
+ * 誰も気づけない。地図が古いまま放置されるのを防ぐために通知する。
+ * うまくいったときは何も出さない（毎回流れると見なくなるため）。
+ */
+function _notifyMapTroubleToDiscord_(message) {
+  try {
+    var url = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+    if (!url) return;
+    UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ content: '🗺 **地図の作り直しで問題がありました**\n' + message }),
+      muteHttpExceptions: true
+    });
+  } catch (e) {
+    console.warn('[地図] Discord通知に失敗: ' + e.message);
+  }
+}
+
 /** 作った地図データをエッジに置く。 */
 function _publishMapToEdge_(token, payload) {
   var res = UrlFetchApp.fetch(EHOMAKI_MAP_POST_URL, {
@@ -495,6 +517,7 @@ function _rebuildMapsFor_(names) {
 
   // ── 顧客ごとにエッジへ置く ──
   var done = 0, failed = 0, totalPins = 0;
+  var failedNames = [];
   var noCoordByCustomer = {};
   for (var cname in byCustomer) {
     var list = byCustomer[cname];
@@ -524,6 +547,7 @@ function _rebuildMapsFor_(names) {
       totalPins += props.length;
     } catch (e) {
       failed++;
+      failedNames.push(cname + '（' + e.message + '）');
       console.warn('[地図] ' + cname + ' の保存に失敗: ' + e.message);
     }
   }
@@ -541,6 +565,7 @@ function _rebuildMapsFor_(names) {
         done++;
       } catch (e2) {
         failed++;
+        failedNames.push(on + '（' + e2.message + '）');
         console.warn('[地図] ' + on + ' の保存に失敗: ' + e2.message);
       }
     }
@@ -565,6 +590,11 @@ function _rebuildMapsFor_(names) {
     + (geoStats.remaining > 0 ? '・' + again + '名を次回に回した' : '・これで全部') + '）'
     + ' / ' + Math.round((Date.now() - t0) / 1000) + '秒';
   console.log(msg);
+  if (failed > 0) {
+    _notifyMapTroubleToDiscord_(failed + '名ぶんの保存に失敗しました。\n'
+      + failedNames.slice(0, 10).join('\n')
+      + (failedNames.length > 10 ? '\n…ほか' + (failedNames.length - 10) + '名' : ''));
+  }
   return msg;
 }
 
@@ -633,7 +663,15 @@ function runMapRebuildNow() {
     console.warn('[地図] 使い捨てトリガーの後片付けに失敗: ' + e.message);
   }
   try { PropertiesService.getScriptProperties().deleteProperty(MAP_SOON_KEY); } catch (e2) {}
-  return processMapRebuildQueue();
+  try {
+    return processMapRebuildQueue();
+  } catch (e3) {
+    // 行列は processMapRebuildQueue が戻しているので、次の定期実行で拾える。
+    // 気づけるように通知だけしておく。
+    _notifyMapTroubleToDiscord_('送信後の作り直しが失敗しました（30分ごとの定期実行で拾います）。\n'
+      + e3.message);
+    throw e3;
+  }
 }
 
 /**
