@@ -533,8 +533,10 @@ function _rebuildMapsFor_(names) {
 
   var msg = '[地図] ' + done + '名ぶんを作成（ピン計' + totalPins + '）'
     + (failed ? ' / 失敗' + failed + '名' : '')
+    // 「残り」は常に書く。書いていないと、残っていないのか出し忘れなのか分からない。
     + ' / 住所の変換' + (geoStats.converted || 0) + '件'
-    + (geoStats.remaining > 0 ? '（残り' + geoStats.remaining + '件・' + again + '名を次回に回した）' : '')
+    + '（残り' + (geoStats.remaining || 0) + '件'
+    + (geoStats.remaining > 0 ? '・' + again + '名を次回に回した' : '・これで全部') + '）'
     + ' / ' + Math.round((Date.now() - t0) / 1000) + '秒';
   console.log(msg);
   return msg;
