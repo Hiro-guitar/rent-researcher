@@ -35,24 +35,31 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
   transform:rotate(45deg);display:flex;align-items:center;justify-content:center;
   color:#fff;font-size:12px;font-weight:800}
 .leaflet-marker-icon:hover .pin{transform:rotate(-45deg) scale(1.18)}
-/* ふきだし */
-.pop{width:244px}
-.pop img{width:100%;height:150px;object-fit:contain;border-radius:8px;display:block;margin-bottom:8px;background:#f2f3f5}
-.pop .nm{font-size:14px;font-weight:700;color:#1a2538;line-height:1.4;margin-bottom:4px}
-.pop .rent{font-size:16px;font-weight:800;color:#E5533D;margin-bottom:2px}
-.pop .meta{font-size:12px;color:#666;line-height:1.6}
-.pop a.btn{display:block;margin-top:8px;background:#6ea814;color:#fff;text-align:center;padding:9px 0;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
+/* ふきだし。LINEで送っているカードと同じ見た目・同じ項目にする。 */
+.pop{width:264px}
+/* 画像は最大4枚。LINEと同じく、1枚目を大きく、残りを右に並べる */
+.imgs{display:flex;gap:3px;margin-bottom:8px}
+.imgs .main{flex:1 1 auto;min-width:0}
+.imgs .main img{width:100%;height:132px;object-fit:contain;background:#f2f3f5;border-radius:6px;display:block}
+.imgs .side{display:flex;flex-direction:column;gap:3px;flex:0 0 62px}
+.imgs .side img{width:62px;height:42px;object-fit:cover;background:#f2f3f5;border-radius:6px;display:block}
+.pop .nm{font-size:14px;font-weight:700;color:#1a2538;line-height:1.4;margin-bottom:2px}
+.pop .rent{font-size:19px;font-weight:800;color:#E5533D;line-height:1.2}
+.pop .rent small{font-size:11px;font-weight:600;color:#888;margin-left:2px}
+.pop .money{font-size:11px;color:#666;line-height:1.6;margin-top:2px}
+.pop .tags{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+.pop .tag{background:#eef3e6;color:#4b7d0f;font-size:11px;font-weight:700;border-radius:4px;padding:2px 7px}
+.pop .addr{font-size:11px;color:#555;line-height:1.6;margin-top:4px}
+.pop .sta{font-size:11px;color:#555;line-height:1.6}
+.pop .sta .other{color:#999}
+.pop .memo{background:#fdf6e3;border-radius:6px;padding:7px 8px;margin-top:7px;font-size:11px;color:#6b5a1e;line-height:1.6}
+.pop .memo b{display:block;font-size:10px;color:#a08b3a;margin-bottom:2px}
+.pop a.btn{display:block;margin-top:9px;background:#6ea814;color:#fff;text-align:center;padding:9px 0;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
 /* 同じ建物に複数のお部屋があるとき */
 .pop .cnt{font-size:11px;color:#888;margin-bottom:6px}
-.pop .rooms{max-height:260px;overflow-y:auto;margin:0 -2px}
-.pop .room{display:flex;gap:9px;border-top:1px solid #eee;padding:8px 2px}
+.pop .rooms{max-height:300px;overflow-y:auto;margin:0 -2px}
+.pop .room{border-top:1px solid #eee;padding:9px 2px}
 .pop .room:first-child{border-top:none}
-/* お部屋ごとのサムネ。間取り図が多いので切らずに全体を出す */
-.pop .room img{width:88px;height:66px;flex:none;object-fit:contain;
-  border-radius:6px;background:#f2f3f5;margin:0}
-.pop .room .info{min-width:0}
-.pop .room .rno{font-size:13px;font-weight:700;color:#1a2538}
-.pop .room a{display:inline-block;margin-top:4px;color:#4b7d0f;font-size:12px;font-weight:700;text-decoration:underline}
 .leaflet-popup-content{margin:10px}
 /* 下向きに出したふきだしは、下を指す三角を消す（指す先が無いため） */
 .leaflet-popup.below .leaflet-popup-tip-container{display:none}
@@ -66,7 +73,6 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 </header>
 <div class="state" id="state"><div class="spinner"></div><p>お部屋を探しています…</p></div>
 <div id="map" style="display:none"></div>
-<div class="note" id="note" style="display:none"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -114,6 +120,54 @@ if (!token) {
       document.getElementById('sub').textContent = '';
       showState('<h2>読み込めませんでした</h2><p>通信の状態を確かめて、もう一度お開きください。</p>');
     });
+}
+
+// LINEで送っているカードと同じ形。地図のふきだしにもこれを出す。
+function cardHtml(p, compact) {
+  var h = '';
+  var imgs = p.images && p.images.length ? p.images : (p.image ? [p.image] : []);
+  if (imgs.length) {
+    h += '<div class="imgs"><div class="main"><img src="' + esc(imgs[0]) + '" alt="" loading="lazy"></div>';
+    if (imgs.length > 1) {
+      h += '<div class="side">';
+      for (var i = 1; i < imgs.length && i < 4; i++) {
+        h += '<img src="' + esc(imgs[i]) + '" alt="" loading="lazy">';
+      }
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+  h += '<div class="nm">' + esc(compact ? (p.room || p.name) : p.name) + '</div>';
+  var rent = yen(p.rent);
+  if (rent) h += '<div class="rent">' + rent + '<small>/月</small></div>';
+  var money = [];
+  money.push('管理費 ' + (p.managementFee ? Number(p.managementFee).toLocaleString() + '円' : 'ー'));
+  h += '<div class="money">' + money.join('') + '</div>';
+  h += '<div class="money">敷金 ' + esc(p.deposit || 'ー') + ' / 礼金 ' + esc(p.keyMoney || 'ー') + '</div>';
+  var tags = [];
+  if (p.layout) tags.push(esc(p.layout));
+  if (p.area) tags.push(esc(p.area) + 'm²');
+  if (p.buildingAge) tags.push(esc(p.buildingAge));
+  if (p.floorText) tags.push(esc(p.floorText));
+  if (tags.length) {
+    h += '<div class="tags">';
+    for (var t = 0; t < tags.length; t++) h += '<span class="tag">' + tags[t] + '</span>';
+    h += '</div>';
+  }
+  if (p.address) h += '<div class="addr">' + esc(p.address) + '</div>';
+  if (p.station) h += '<div class="sta">' + esc(p.station) + '</div>';
+  var others = p.otherStations || [];
+  if (others.length) {
+    h += '<div class="sta other">その他の路線</div>';
+    for (var o = 0; o < others.length; o++) {
+      h += '<div class="sta">' + esc(others[o]) + '</div>';
+    }
+  }
+  if (p.staffComment) {
+    h += '<div class="memo"><b>担当者より</b>' + esc(p.staffComment) + '</div>';
+  }
+  h += '<a class="btn" href="' + esc(p.url) + '" target="_blank" rel="noopener">物件詳細を見る</a>';
+  return h;
 }
 
 function render(d) {
@@ -175,35 +229,14 @@ function render(d) {
       html += '<div class="cnt">この建物のお部屋 ' + list.length + '件</div>';
       html += '<div class="rooms">';
       list.forEach(function (p) {
-        html += '<div class="room">';
-        if (p.image) html += '<img src="' + esc(p.image) + '" alt="" loading="lazy">';
-        html += '<div class="info">';
-        html += '<div class="rno">' + esc(p.room || p.name) + '</div>';
-        var rent = yen(p.rent);
-        if (rent) html += '<div class="rent" style="font-size:14px;">' + rent + '</div>';
-        var meta = [];
-        if (p.layout) meta.push(esc(p.layout));
-        if (p.area) meta.push(esc(p.area) + 'm²');
-        if (meta.length) html += '<div class="meta">' + meta.join(' / ') + '</div>';
-        html += '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">くわしく見る</a>';
-        html += '</div></div>';
+        html += '<div class="room">' + cardHtml(p, true) + '</div>';
       });
       html += '</div>';
-      if (head.station) html += '<div class="meta" style="margin-top:6px;">' + esc(head.station) + '</div>';
     } else {
-      if (head.image) html += '<img src="' + esc(head.image) + '" alt="" loading="lazy">';
-      html += '<div class="nm">' + esc(head.name) + '</div>';
-      var rent1 = yen(head.rent);
-      if (rent1) html += '<div class="rent">' + rent1 + '</div>';
-      var meta1 = [];
-      if (head.layout) meta1.push(esc(head.layout));
-      if (head.area) meta1.push(esc(head.area) + 'm²');
-      if (meta1.length) html += '<div class="meta">' + meta1.join(' / ') + '</div>';
-      if (head.station) html += '<div class="meta">' + esc(head.station) + '</div>';
-      html += '<a class="btn" href="' + esc(head.url) + '" target="_blank" rel="noopener">くわしく見る</a>';
+      html += cardHtml(head, false);
     }
     html += '</div>';
-    // autoPan を切る。上の方のピンを見るたびに地図が勝手に動いてしまうため。
+
     m.bindPopup(html, { autoPan: false });
 
     // 重ねると出て、離すと消す。
@@ -244,12 +277,6 @@ function render(d) {
   });
   map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
 
-  // 住所から場所を割り出せなかった物件がある場合だけ、その旨を出す
-  if (d.noCoord > 0) {
-    var note = document.getElementById('note');
-    note.style.display = 'block';
-    note.textContent = 'このほかに、地図でお示しできないお部屋が ' + d.noCoord + ' 件ございます。';
-  }
 }
 </script>
 </body>
