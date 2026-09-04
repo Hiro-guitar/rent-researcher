@@ -71,6 +71,24 @@ function _customerNameFromMapToken_(token) {
   return '';
 }
 
+/**
+ * 【手動実行】住所座標シートに貯まった座標を作り直す。
+ *
+ * 検証を入れる前は、同じ地名の別の土地（東京の物件が北海道など）を
+ * そのまま貯めていた。溜まった分は消して、次に開いたときに取り直させる。
+ * シートの行を消すだけで、物件のデータには触らない。
+ */
+function resetGeocodeCache() {
+  var sheet = _mapGeoSheet_();
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return '住所座標シートは空でした';
+  var n = lastRow - 1;
+  sheet.deleteRows(2, n);
+  var msg = n + '件の座標を消しました。次に地図を開いたときに取り直します。';
+  Logger.log(msg);
+  return msg;
+}
+
 /** 住所座標シートを用意して返す。 */
 function _mapGeoSheet_() {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
@@ -104,14 +122,52 @@ function _geocodeAddressViaGsi_(address) {
     if (!isFinite(lat) || !isFinite(lng)) return null;
     // 日本の範囲から外れていたら取り違えとみなす
     if (lat < 20 || lat > 46 || lng < 122 || lng > 154) return null;
-    return {
-      lat: lat, lng: lng,
-      title: (arr[0].properties && arr[0].properties.title) || ''
-    };
+    var title = (arr[0].properties && arr[0].properties.title) || '';
+    // 同じ地名の別の土地に当たっていないか確かめる
+    if (!_gsiResultLooksRight_(address, title)) {
+      console.log('[地図] 別の土地に当たったので捨てる: ' + address + ' → ' + title);
+      return null;
+    }
+    return { lat: lat, lng: lng, title: title };
   } catch (e) {
     console.warn('[地図] ジオコーディング失敗(' + address + '): ' + e.message);
     return null;
   }
+}
+
+/** 住所から都道府県を取り出す。無ければ空。 */
+function _addressPrefOf_(s) {
+  var m = String(s || '').match(/^(北海道|東京都|(?:京都|大阪)府|.{2,3}?県)/);
+  return m ? m[1] : '';
+}
+
+/** 住所から市区町村を取り出す（政令市は「○○市○○区」まで）。無ければ空。 */
+function _addressCityOf_(s) {
+  var rest = String(s || '').replace(/^(北海道|東京都|(?:京都|大阪)府|.{2,3}?県)/, '');
+  var m = rest.match(/^(.+?市.+?区|.+?[市区町村])/);
+  return m ? m[1] : '';
+}
+
+/**
+ * 国土地理院が返してきた住所が、聞いた住所と同じ土地かを確かめる。
+ *
+ * 国土地理院は一番それらしいものを1件返すだけなので、都道府県も市区町村も
+ * 無い住所を投げると同じ地名の別の土地に当たる。実際「本町1-1」を投げたら
+ * 北海道七飯町本町が返り、東京の物件が北海道にピンを立てていた。
+ *
+ * 返ってきた住所の都道府県か市区町村が、聞いた住所に出てくることを条件にする。
+ * 判断できないものは捨てる（間違った場所にピンを立てるより、出さない方がまし。
+ * 出せなかった件数はページに出している）。
+ */
+function _gsiResultLooksRight_(query, title) {
+  var q = String(query || '');
+  var t = String(title || '');
+  if (!q || !t) return false;
+  var pref = _addressPrefOf_(t);
+  if (pref && q.indexOf(pref) >= 0) return true;
+  var city = _addressCityOf_(t);
+  if (city && q.indexOf(city) >= 0) return true;
+  return false;
 }
 
 /** 住所を正規化する。表記ゆれでキャッシュが当たらないのを減らすため。 */
