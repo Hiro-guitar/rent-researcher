@@ -1421,6 +1421,15 @@ function doGet(e) {
         ScriptApp.newTrigger('cleanupOldPropertyRecords').timeBased().atHour(3).everyDays(1).create();
         console.log('[keepalive] bootstrap: 日次クリーンアップトリガー (毎朝3時) を登録');
       }
+      // 顧客ごとの地図データを毎朝6時にエッジへ作り直すトリガーも bootstrap
+      var _hasMap = false;
+      for (var _im = 0; _im < _triggers.length; _im++) {
+        if (_triggers[_im].getHandlerFunction() === 'rebuildAllCustomerMaps') { _hasMap = true; break; }
+      }
+      if (!_hasMap && typeof rebuildAllCustomerMaps === 'function') {
+        ScriptApp.newTrigger('rebuildAllCustomerMaps').timeBased().atHour(6).everyDays(1).create();
+        console.log('[keepalive] bootstrap: 地図データの作り直し (毎朝6時) を登録');
+      }
       // 「終了」ステージの顧客を毎朝5時にアーカイブするトリガーも bootstrap
       var _hasArchive = false;
       for (var _ia = 0; _ia < _triggers.length; _ia++) {

@@ -300,3 +300,155 @@ function handleCustomerMapApi(e) {
     return out({ ok: false, error: err.message });
   }
 }
+
+// ══════════════════════════════════════════════════════════
+//  エッジ配信（Cloudflare Worker + R2）
+//
+//  GASのWebアプリは一番軽い応答でも3秒かかる（実測 3.0〜3.6秒）。
+//  地図を開くたびに待たせることになり、お客様に出せない。
+//  物件詳細ページ(property.html)が速いのと同じ理由で、先に作って
+//  エッジに置き、map.html はそこから読む（実測 0.2秒）。
+//
+//  置き場所は m/<顧客トークン>.json。顧客ごとに同じキーへ上書きするので、
+//  一度配ったURLはそのまま使い続けられる。
+// ══════════════════════════════════════════════════════════
+
+var EHOMAKI_MAP_POST_URL = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/m';
+var EHOMAKI_MAP_GET_BASE = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/m/';
+
+/** 作った地図データをエッジに置く。 */
+function _publishMapToEdge_(token, payload) {
+  var res = UrlFetchApp.fetch(EHOMAKI_MAP_POST_URL, {
+    method: 'post',
+    contentType: 'application/json; charset=utf-8',
+    headers: {
+      Authorization: 'Bearer ' + EHOMAKI_IMG_TOKEN,
+      'x-map-key': token
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  if (res.getResponseCode() !== 200) {
+    throw new Error('エッジへの保存に失敗 HTTP ' + res.getResponseCode()
+      + ': ' + res.getContentText().slice(0, 120));
+  }
+  return true;
+}
+
+/** 1顧客ぶんだけ作り直してエッジに置く。CRMの「作り直す」から呼ぶ。 */
+function rebuildCustomerMap(customerName) {
+  var name = String(customerName || '').trim();
+  if (!name) return { ok: false, message: '顧客名が空です' };
+  try {
+    var payload = _buildCustomerMapPayload_(name);
+    payload.builtAt = new Date().toISOString();
+    _publishMapToEdge_(_customerMapToken_(name), payload);
+    return { ok: true, count: payload.count, noCoord: payload.noCoord };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+}
+
+/**
+ * 【日次トリガー】送付済み物件がある顧客ぶんの地図をまとめて作り直す。
+ *
+ * 顧客ごとに _buildCustomerMapPayload_ を呼ぶとシートを人数分読み直すことになる
+ * （1人あたり16秒かかっていた）。ここではシートを1回ずつだけ読んで、
+ * 顧客ごとに振り分ける。
+ */
+function rebuildAllCustomerMaps() {
+  var t0 = Date.now();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  // ── 通知済み物件を1回だけ読む ──
+  var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+  if (!seenSheet || seenSheet.getLastRow() < 2) return '通知済み物件がありません';
+  var seen = seenSheet.getRange(2, 1, seenSheet.getLastRow() - 1, 16).getValues();
+
+  // ── 承認待ち物件を1回だけ読む。顧客名+room_id で引けるようにする ──
+  var pendingByKey = {};
+  var pSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (pSheet && pSheet.getLastRow() >= 2) {
+    var pData = pSheet.getDataRange().getValues();
+    for (var pi = 1; pi < pData.length; pi++) {
+      var pStatus = String(pData[pi][10] || '');
+      if (pStatus !== 'sent' && pStatus !== 'pending') continue;
+      var pk = String(pData[pi][0]).trim() + '\u0000' + String(pData[pi][2]).trim();
+      if (!pendingByKey[pk]) pendingByKey[pk] = pData[pi];
+    }
+  }
+
+  // ── 顧客ごとに、地図に出す物件を組み立てる ──
+  var byCustomer = {};
+  var addresses = [];
+  for (var i = 0; i < seen.length; i++) {
+    var row = seen[i];
+    var cust = String(row[0] || '').trim();
+    if (!cust) continue;
+    var status = String(row[5] || '');
+    var watching = !!row[9];
+    if ((status === 'closed' || status === 'applied') && !watching) continue;
+    if (String(row[13] || '') === 'closed') continue;                      // 手動で募集終了
+    if (String(row[14] || '').trim() === 'watch_only') continue;           // 送っていない
+    var rid = String(row[1] || '').trim();
+    var prow = pendingByKey[cust + '\u0000' + rid];
+    if (!prow) continue;                                                    // 詳細が無ければ出せない
+    var prop = _pendingRowToFlexProp_(prow);
+    if (!prop || !prop.address) continue;
+    if (!byCustomer[cust]) byCustomer[cust] = [];
+    byCustomer[cust].push({ roomId: rid, sentAt: row[3], p: prop });
+    addresses.push(prop.address);
+  }
+
+  // ── 住所をまとめて座標にする（キャッシュ済みはそのまま） ──
+  var coords = _geocodeAddresses_(addresses);
+
+  // ── 顧客ごとにエッジへ置く ──
+  var done = 0, failed = 0, totalPins = 0;
+  for (var cname in byCustomer) {
+    var list = byCustomer[cname];
+    // 送信が新しい順
+    list.sort(function (a, b) {
+      return String(b.sentAt || '').localeCompare(String(a.sentAt || ''));
+    });
+    var props = [];
+    var noCoord = 0;
+    for (var k = 0; k < list.length; k++) {
+      var it = list[k], p = it.p;
+      var c = coords[_normalizeAddressForGeo_(p.address)];
+      if (!c) { noCoord++; continue; }
+      props.push({
+        roomId: it.roomId,
+        building: p.buildingName || '',
+        room: p.roomNumber || '',
+        name: p.buildingName + (p.roomNumber ? ' ' + p.roomNumber : ''),
+        rent: p.rent || 0,
+        managementFee: p.managementFee || 0,
+        layout: p.layout || '',
+        area: p.area || 0,
+        station: p.stationInfo || '',
+        image: p.imageUrl || '',
+        lat: c.lat, lng: c.lng,
+        url: 'https://form.ehomaki.com/property.html?customer='
+          + encodeURIComponent(cname) + '&room_id=' + encodeURIComponent(it.roomId)
+      });
+    }
+    try {
+      _publishMapToEdge_(_customerMapToken_(cname), {
+        ok: true, customer: cname, count: props.length,
+        noCoord: noCoord, properties: props, builtAt: new Date().toISOString()
+      });
+      done++;
+      totalPins += props.length;
+    } catch (e) {
+      failed++;
+      console.warn('[地図] ' + cname + ' の保存に失敗: ' + e.message);
+    }
+  }
+
+  var msg = '[地図] ' + done + '名ぶんを作成（ピン計' + totalPins + '）'
+    + (failed ? ' / 失敗' + failed + '名' : '')
+    + ' / ' + Math.round((Date.now() - t0) / 1000) + '秒';
+  console.log(msg);
+  return msg;
+}
