@@ -491,6 +491,7 @@ function _rebuildMapsFor_(names) {
 // 送信の流れを止めてしまう。名前だけ控えておいて、あとでまとめて作り直す。
 
 var MAP_DIRTY_KEY = 'MAP_REBUILD_QUEUE';
+var MAP_SOON_KEY = 'MAP_REBUILD_SOON';   // 使い捨てトリガーを予約済みかどうか
 
 /** その顧客の地図を作り直す必要がある、と印を付ける。失敗しても本処理は止めない。 */
 function markCustomerMapDirty(customerName) {
@@ -506,14 +507,57 @@ function markCustomerMapDirty(customerName) {
       if (arr.length > 200) arr = arr.slice(arr.length - 200);
       props.setProperty(MAP_DIRTY_KEY, JSON.stringify(arr));
     }
+    _scheduleMapRebuildSoon_();
   } catch (e) {
     console.warn('[地図] 作り直しの印を付けられませんでした: ' + e.message);
   }
 }
 
 /**
- * 【10分トリガー】印の付いた顧客の地図だけ作り直す。
- * 送った物件・募集終了にした物件が、最大10分で地図に反映される。
+ * すぐ作り直すよう、使い捨てトリガーを予約する。
+ *
+ * その場で作り直すと十数秒かかって送信の流れを止めてしまう。
+ * かといって定期トリガー待ちだと最大10分遅れる。
+ * 別の実行として走らせれば、今の処理は止めずに数十秒で反映できる。
+ *
+ * トリガーは1スクリプト20個までなので、
+ *   ・予約済みなら二重に作らない
+ *   ・走ったら自分で自分を消す（runMapRebuildNow の先頭）
+ * 予約の印が5分以上古いときは、トリガーが不発だったとみなして取り直す。
+ */
+function _scheduleMapRebuildSoon_() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var at = Number(props.getProperty(MAP_SOON_KEY) || 0);
+    if (at && (Date.now() - at) < 5 * 60 * 1000) return;   // すでに予約済み
+    ScriptApp.newTrigger('runMapRebuildNow').timeBased().after(15 * 1000).create();
+    props.setProperty(MAP_SOON_KEY, String(Date.now()));
+  } catch (e) {
+    // 予約できなくても、10分ごとの定期トリガーが拾うので致命的ではない
+    console.warn('[地図] すぐ作り直す予約に失敗（定期実行で拾います）: ' + e.message);
+  }
+}
+
+/** 使い捨てトリガーの本体。自分を消してから作り直す。 */
+function runMapRebuildNow() {
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i = 0; i < triggers.length; i++) {
+      if (triggers[i].getHandlerFunction() === 'runMapRebuildNow') {
+        ScriptApp.deleteTrigger(triggers[i]);
+      }
+    }
+  } catch (e) {
+    console.warn('[地図] 使い捨てトリガーの後片付けに失敗: ' + e.message);
+  }
+  try { PropertiesService.getScriptProperties().deleteProperty(MAP_SOON_KEY); } catch (e2) {}
+  return processMapRebuildQueue();
+}
+
+/**
+ * 印の付いた顧客の地図だけ作り直す。
+ * ふだんは runMapRebuildNow（送信直後に予約される使い捨てトリガー）から動く。
+ * 30分ごとの定期トリガーは、その予約が不発だったときの受け皿。
  */
 function processMapRebuildQueue() {
   var props = PropertiesService.getScriptProperties();
