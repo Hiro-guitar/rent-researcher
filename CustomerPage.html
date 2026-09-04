@@ -1406,7 +1406,15 @@ function changeCustomerStatus(status) {
 // ══════════════════════════════════════════
 //  顧客詳細
 // ══════════════════════════════════════════
+// 顧客を開くたびに増やす番号。応答が届いたとき、まだその顧客を見ているかを見る。
+//
+// ⚠️ 続けて別の顧客を開くと、前の顧客の応答があとから届いて、条件・メール配信など
+//   情報欄が別人のものに置き換わっていた。見出しは同期的に書き換わるので名前は
+//   正しいままで、気づけない。地図リンクに別人のトークンが入っていて発覚した。
+var _detailReqSeq = 0;
+
 function openDetail(name) {
+  var myReq = ++_detailReqSeq;
   currentCustomer = name;
   document.getElementById('listView').style.display = 'none';
   document.getElementById('detailView').style.display = '';
@@ -1433,8 +1441,12 @@ function openDetail(name) {
   window._customerCriteria = null;
 
   google.script.run
-    .withSuccessHandler(function(data) { renderDetail(data); })
+    .withSuccessHandler(function(data) {
+      if (myReq !== _detailReqSeq) return;   // すでに別の顧客を開いている
+      renderDetail(data);
+    })
     .withFailureHandler(function(err) {
+      if (myReq !== _detailReqSeq) return;
       document.getElementById('detailInfo').innerHTML = '<div class="empty-state">エラー: ' + esc(err.message) + '</div>';
     })
     .getCustomerDetail(name);
@@ -1457,6 +1469,7 @@ function openDetail(name) {
   // 検索条件を別途読み込み（検索ページボタン用）
   google.script.run
     .withSuccessHandler(function(criteria) {
+      if (myReq !== _detailReqSeq) return;   // すでに別の顧客を開いている
       if (criteria) {
         window._customerCriteria = criteria;
         document.getElementById('searchBtnReins').disabled = false;
@@ -1470,6 +1483,8 @@ function openDetail(name) {
 }
 
 function renderDetail(data) {
+  // 番号での判定をすり抜けた場合の保険。別人の情報は描かない。
+  if (data && data.name && currentCustomer && data.name !== currentCustomer) return;
   // ステータスバッジ + 変更ドロップダウン
   document.getElementById('detailStatus').innerHTML = statusBadge(data.status) + buildStatusChanger(data.status);
   // アーカイブボタン（一覧キャッシュの状態を参照）

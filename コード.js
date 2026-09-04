@@ -5351,6 +5351,11 @@ function getCustomerDetail(customerName) {
 
   if (!info) return { error: '顧客が見つかりません: ' + customerName };
 
+  // どの顧客の情報かを一緒に返す。
+  // 続けて別の顧客を開いたとき、前の顧客の応答があとから届いて画面を
+  // 上書きしていないかを、CRM側で確かめられるようにするため。
+  info.name = customerName;
+
   // メール配信停止(UNSUBSCRIBE)状態
   info.mailUnsubscribed = _isEmailUnsubscribed_(info.email);
   // LINE登録済みでも reply.py はフォローアップを送らない（check_followup_status 参照）。
