@@ -19,11 +19,12 @@ var MAP_PAGE_URL = 'https://form.ehomaki.com/map.html';
 // ページを開いたときに新しく変換する住所の上限。
 // 待ち時間が延びすぎないよう区切る。足りない分は次に開いたときに変換される。
 var MAP_GEOCODE_PER_REQUEST = 25;
-// まとめて作り直すとき（トリガー）の上限。ページと違って待つ人がいないので多く取る。
-// 1件あたり0.2秒待つので、300件で約1分。トリガーの上限6分に対して余裕がある。
-// ⚠️ ここを25のままにしていたため、40名ぶんの作成で合計25件しか変換できず、
-//   ほとんどの顧客が「ピン0件」になっていた。
-var MAP_GEOCODE_PER_REBUILD = 300;
+// まとめて作り直すとき（トリガー）は件数で区切らず、時間で区切る。
+// 止めたい理由はトリガーの実行時間上限(6分)に当たらないことだけなので、
+// 件数の上限を別に設けても重なるだけ。取れるものは取る。
+// ⚠️ 以前ここをページ用の25件と共用していたため、40名ぶんの作成で
+//   合計25件しか変換できず、ほとんどの顧客が「ピン0件」になっていた。
+var MAP_GEOCODE_REBUILD_DEADLINE_MS = 4 * 60 * 1000;
 
 /**
  * 顧客ごとのトークン。URLに顧客名を出さないためのもの。
@@ -190,12 +191,14 @@ function _normalizeAddressForGeo_(address) {
  * キャッシュ(住所座標シート)にあるものはそのまま返し、
  * 無いものだけ国土地理院に聞いて、シートに書き足す。
  * @param {Array<string>} addresses
- * @param {number} [limit] 新しく変換する件数の上限（既定はページ用の25件）
+ * @param {number|null} [limit] 新しく変換する件数の上限。null なら件数では区切らない
  * @param {number} [deadlineMs] この時刻を過ぎたら変換をやめる（実行時間切れを避ける）
  * @return {Object} 正規化住所 -> {lat, lng}
  */
 function _geocodeAddresses_(addresses, limit, deadlineMs) {
-  var cap = (typeof limit === 'number' && limit > 0) ? limit : MAP_GEOCODE_PER_REQUEST;
+  // limit を渡さなければページ用の25件。null を渡すと件数では区切らない。
+  var cap = (limit === null) ? Infinity
+    : ((typeof limit === 'number' && limit > 0) ? limit : MAP_GEOCODE_PER_REQUEST);
   var out = {};
   var sheet = _mapGeoSheet_();
   var lastRow = sheet.getLastRow();
@@ -427,10 +430,10 @@ function _rebuildMapsFor_(names) {
   }
 
   // ── 住所をまとめて座標にする（キャッシュ済みはそのまま） ──
-  // まとめて作るときは上限を上げる。ページ用の25件のままだと、
+  // まとめて作るときは件数で区切らない。ページ用の25件のままだと、
   // 全顧客ぶん合わせて25件しか変換されず、ほとんどがピン0件になる。
   // 4分で打ち切って、取れた分だけで置く（残りは次の実行で拾う）。
-  var coords = _geocodeAddresses_(addresses, MAP_GEOCODE_PER_REBUILD, t0 + 4 * 60 * 1000);
+  var coords = _geocodeAddresses_(addresses, null, t0 + MAP_GEOCODE_REBUILD_DEADLINE_MS);
 
   // ── 顧客ごとにエッジへ置く ──
   var done = 0, failed = 0, totalPins = 0;
