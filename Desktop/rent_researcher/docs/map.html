@@ -21,11 +21,11 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .state h2{font-size:16px;color:#1a2538;margin-bottom:8px}
 .state p{font-size:13px;line-height:1.7}
-/* ピンの中の番号 */
-.pin{background:#6ea814;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;line-height:24px;text-align:center;font-size:12px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+/* ピン */
+.pin{background:#6ea814;border:3px solid #fff;border-radius:50%;width:20px;height:20px;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 /* ふきだし */
 .pop{width:210px}
-.pop img{width:100%;height:120px;object-fit:cover;border-radius:8px;display:block;margin-bottom:8px;background:#eee}
+.pop img{width:100%;height:150px;object-fit:contain;border-radius:8px;display:block;margin-bottom:8px;background:#f2f3f5}
 .pop .nm{font-size:14px;font-weight:700;color:#1a2538;line-height:1.4;margin-bottom:4px}
 .pop .rent{font-size:16px;font-weight:800;color:#E5533D;margin-bottom:2px}
 .pop .meta{font-size:12px;color:#666;line-height:1.6}
@@ -106,12 +106,14 @@ function render(d) {
   props.forEach(function (p, i) {
     var icon = L.divIcon({
       className: '',
-      html: '<div class="pin">' + (i + 1) + '</div>',
-      iconSize: [28, 28],
-      iconAnchor: [14, 14],
-      popupAnchor: [0, -14]
+      html: '<div class="pin"></div>',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+      popupAnchor: [0, -10]
     });
     var m = L.marker([p.lat, p.lng], { icon: icon }).addTo(map);
+    // 重ねただけで出す。スマホにはホバーが無いので、タップでも出る（既定の動き）。
+    m.on('mouseover', function () { this.openPopup(); });
     var html = '<div class="pop">';
     if (p.image) html += '<img src="' + esc(p.image) + '" alt="" loading="lazy">';
     html += '<div class="nm">' + esc(p.name) + '</div>';
@@ -122,7 +124,7 @@ function render(d) {
     if (p.area) meta.push(esc(p.area) + 'm²');
     if (meta.length) html += '<div class="meta">' + meta.join(' / ') + '</div>';
     if (p.station) html += '<div class="meta">' + esc(p.station) + '</div>';
-    html += '<a class="btn" href="' + esc(p.url) + '">くわしく見る</a>';
+    html += '<a class="btn" href="' + esc(p.url) + '" target="_blank" rel="noopener">くわしく見る</a>';
     html += '</div>';
     m.bindPopup(html);
     bounds.push([p.lat, p.lng]);
