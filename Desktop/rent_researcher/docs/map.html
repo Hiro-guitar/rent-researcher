@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ご紹介したお部屋の地図</title>
+<link rel="preconnect" href="https://ehomaki-img.delicate-bush-f5a9.workers.dev" crossorigin>
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="dns-prefetch" href="https://script.google.com">
 <!-- 地図は Leaflet + OpenStreetMap。APIキーも課金アカウントも要らない。 -->
@@ -70,6 +71,7 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbyCqgB4lhAN0mGSi6acYl7bSWRg-TVHr9b_-I5vCsWYaOA5ceIfWh-5cqpGBLIFrHu7/exec';
+var EDGE_MAP_BASE = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev/m/';
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -94,9 +96,20 @@ if (!token) {
   document.getElementById('sub').textContent = '';
   showState('<h2>リンクが正しくありません</h2><p>担当者からお送りしたリンクを、もう一度お開きください。</p>');
 } else {
-  fetch(GAS_API_URL + '?action=customer_map&t=' + encodeURIComponent(token), { redirect: 'follow' })
-    .then(function (r) { return r.json(); })
+  // まずエッジ（Cloudflare）から読む。GASのWebアプリは一番軽い応答でも3秒かかり、
+  // 待たせすぎるため。エッジは実測0.2秒。
+  // まだ作られていない顧客のときだけ、GASに聞きに行く（遅いが必ず出る）。
+  fetch(EDGE_MAP_BASE + encodeURIComponent(token))
+    .then(function (r) {
+      if (!r.ok) throw new Error('not_built');
+      return r.json();
+    })
     .then(render)
+    .catch(function () {
+      return fetch(GAS_API_URL + '?action=customer_map&t=' + encodeURIComponent(token), { redirect: 'follow' })
+        .then(function (r) { return r.json(); })
+        .then(render);
+    })
     .catch(function () {
       document.getElementById('sub').textContent = '';
       showState('<h2>読み込めませんでした</h2><p>通信の状態を確かめて、もう一度お開きください。</p>');
