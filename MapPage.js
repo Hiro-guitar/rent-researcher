@@ -25,6 +25,11 @@ var MAP_GEOCODE_PER_REQUEST = 25;
 // ⚠️ 以前ここをページ用の25件と共用していたため、40名ぶんの作成で
 //   合計25件しか変換できず、ほとんどの顧客が「ピン0件」になっていた。
 var MAP_GEOCODE_REBUILD_DEADLINE_MS = 4 * 60 * 1000;
+// 座標を取れなかった住所を、もう一度試すまでの間隔。
+// 二度と試さないと、国土地理院が一時的に不調だっただけの住所が永久に地図から
+// 消えてしまう。かといって毎回試すと、直しようのない住所（「ー」等）に
+// 時間を使ってしまう。1週間おきに1回だけ試す。
+var MAP_GEO_RETRY_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * 顧客ごとのトークン。URLに顧客名を出さないためのもの。
@@ -205,22 +210,25 @@ function _geocodeAddresses_(addresses, limit, deadlineMs, stats) {
   var sheet = _mapGeoSheet_();
   var lastRow = sheet.getLastRow();
   var cached = {};    // 座標が取れている住所
-  var tried = {};     // 一度でも問い合わせた住所（取れなかったものを含む）
+  var triedAt = {};   // 最後に問い合わせた時刻（取れなかったものを含む）
   if (lastRow > 1) {
-    var data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+    // 行は後ろほど新しい。あとの行で上書きするので、最後の結果が残る。
+    var data = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
     for (var i = 0; i < data.length; i++) {
       var key = _normalizeAddressForGeo_(data[i][0]);
       if (!key) continue;
-      tried[key] = true;
+      triedAt[key] = (data[i][3] instanceof Date) ? data[i][3].getTime() : 0;
       var lat = Number(data[i][1]), lng = Number(data[i][2]);
       if (isFinite(lat) && isFinite(lng) && lat !== 0) cached[key] = { lat: lat, lng: lng };
+      else delete cached[key];   // あとから取れなくなった場合
     }
   }
 
-  // ⚠️ 取れなかった住所も「問い合わせ済み」として飛ばすこと。
+  // ⚠️ 取れなかった住所を毎回問い合わせ直さないこと。
   //   座標のある行だけ見ていたため、取れない住所を毎回問い合わせ直し、
   //   そのたびに同じ行をシートに書き足していた。
-  //   取り直したいときは resetGeocodeCache でシートを空にする。
+  //   ただし二度と試さないのもまずい（一時的な不調で永久に消える）ので、
+  //   1週間たったら1回だけ試す。
   var todo = [];
   var seen = {};
   for (var a = 0; a < addresses.length; a++) {
@@ -228,7 +236,8 @@ function _geocodeAddresses_(addresses, limit, deadlineMs, stats) {
     if (!norm || seen[norm]) continue;
     seen[norm] = true;
     if (cached[norm]) { out[norm] = cached[norm]; continue; }
-    if (tried[norm]) continue;          // 取れないと分かっている
+    var ta = triedAt[norm];
+    if (ta && (Date.now() - ta) < MAP_GEO_RETRY_AFTER_MS) continue;   // 最近ダメだった
     todo.push(norm);
   }
 
@@ -618,4 +627,82 @@ function processMapRebuildQueue() {
     try { props.setProperty(MAP_DIRTY_KEY, JSON.stringify(arr)); } catch (e2) {}
     throw e;
   }
+}
+
+/**
+ * 【手動実行】地図に出せていない物件の一覧を出す。
+ *
+ * 座標が取れない住所の物件は、地図に出ずに件数だけ出る。どの物件かが
+ * 分からないと住所の直しようがないので、ここで一覧にする。
+ * 実行ログに「顧客 / 建物名 / 住所 / 直近の結果」を並べる。
+ *
+ * シートには何も書かない（読むだけ）。
+ */
+function listPropertiesNotOnMap() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+
+  // 座標が取れなかった住所を集める（最後の結果を見る）
+  var geo = _mapGeoSheet_();
+  var bad = {};
+  if (geo.getLastRow() > 1) {
+    var g = geo.getRange(2, 1, geo.getLastRow() - 1, 5).getValues();
+    for (var i = 0; i < g.length; i++) {
+      var key = _normalizeAddressForGeo_(g[i][0]);
+      if (!key) continue;
+      var lat = Number(g[i][1]);
+      if (isFinite(lat) && lat !== 0) delete bad[key];
+      else bad[key] = { at: g[i][3], note: String(g[i][4] || '') };
+    }
+  }
+
+  var seenSheet = ss.getSheetByName(SEEN_SHEET_NAME);
+  if (!seenSheet || seenSheet.getLastRow() < 2) return '通知済み物件がありません';
+  var seen = seenSheet.getRange(2, 1, seenSheet.getLastRow() - 1, 16).getValues();
+
+  var pendingByKey = {};
+  var pSheet = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (pSheet && pSheet.getLastRow() >= 2) {
+    var pData = pSheet.getDataRange().getValues();
+    for (var pi = 1; pi < pData.length; pi++) {
+      var st = String(pData[pi][10] || '');
+      if (st !== 'sent' && st !== 'pending') continue;
+      var pk = String(pData[pi][0]).trim() + '\u0000' + String(pData[pi][2]).trim();
+      if (!pendingByKey[pk]) pendingByKey[pk] = pData[pi];
+    }
+  }
+
+  var lines = [];
+  var noAddress = 0;
+  for (var s2 = 0; s2 < seen.length; s2++) {
+    var row = seen[s2];
+    var cust = String(row[0] || '').trim();
+    if (!cust) continue;
+    var status = String(row[5] || '');
+    var watching = !!row[9];
+    if ((status === 'closed' || status === 'applied') && !watching) continue;
+    if (String(row[13] || '') === 'closed') continue;
+    if (String(row[14] || '').trim() === 'watch_only') continue;
+    var prow = pendingByKey[cust + '\u0000' + String(row[1] || '').trim()];
+    if (!prow) continue;
+    var p = _pendingRowToFlexProp_(prow);
+    if (!p) continue;
+    var nm = p.buildingName + (p.roomNumber ? ' ' + p.roomNumber : '');
+    if (!p.address) {
+      noAddress++;
+      lines.push(cust + ' / ' + nm + ' / (住所なし)');
+      continue;
+    }
+    var b = bad[_normalizeAddressForGeo_(p.address)];
+    if (b) lines.push(cust + ' / ' + nm + ' / ' + p.address + ' / ' + (b.note || ''));
+  }
+
+  if (lines.length === 0) {
+    var ok = '地図に出せていない物件はありません';
+    Logger.log(ok);
+    return ok;
+  }
+  Logger.log('地図に出せていない物件 ' + lines.length + '件'
+    + (noAddress ? '（うち住所そのものが無いもの ' + noAddress + '件）' : ''));
+  for (var L = 0; L < lines.length; L++) Logger.log('  ' + lines[L]);
+  return lines.length + '件（詳細は実行ログ）';
 }
