@@ -256,6 +256,9 @@ function _buildCustomerMapPayload_(name) {
       if (!c) { noCoord++; continue; }
       props.push({
         roomId: p.roomId,
+        // 同じ建物の別の部屋を地図でまとめるため、建物名と部屋番号は分けて渡す
+        building: p.buildingName || '',
+        room: p.roomNumber || '',
         name: p.buildingName + (p.roomNumber ? ' ' + p.roomNumber : ''),
         rent: p.rent || 0,
         managementFee: p.managementFee || 0,
