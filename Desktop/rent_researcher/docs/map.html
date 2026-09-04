@@ -21,15 +21,33 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .state h2{font-size:16px;color:#1a2538;margin-bottom:8px}
 .state p{font-size:13px;line-height:1.7}
-/* ピン */
-.pin{background:#6ea814;border:3px solid #fff;border-radius:50%;width:20px;height:20px;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+/* ピン。OSMの地図は緑と薄茶が多いので、緑の丸だと埋もれる。
+   しずく型＋白フチ＋濃い影で、地図の上に浮いて見えるようにする。 */
+.pin{width:26px;height:26px;background:#E5533D;border:3px solid #fff;
+  border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+  box-shadow:0 3px 8px rgba(0,0,0,.45);transition:transform .12s}
+.pin::after{content:"";position:absolute;left:50%;top:50%;
+  width:8px;height:8px;margin:-4px 0 0 -4px;background:#fff;border-radius:50%}
+/* 同じ建物に複数のお部屋があるピンは、白丸のかわりに件数を出す */
+.pin.multi::after{display:none}
+.pin .n{position:absolute;left:0;top:0;width:100%;height:100%;
+  transform:rotate(45deg);display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:12px;font-weight:800}
+.leaflet-marker-icon:hover .pin{transform:rotate(-45deg) scale(1.18)}
 /* ふきだし */
-.pop{width:210px}
+.pop{width:216px}
 .pop img{width:100%;height:150px;object-fit:contain;border-radius:8px;display:block;margin-bottom:8px;background:#f2f3f5}
 .pop .nm{font-size:14px;font-weight:700;color:#1a2538;line-height:1.4;margin-bottom:4px}
 .pop .rent{font-size:16px;font-weight:800;color:#E5533D;margin-bottom:2px}
 .pop .meta{font-size:12px;color:#666;line-height:1.6}
 .pop a.btn{display:block;margin-top:8px;background:#6ea814;color:#fff;text-align:center;padding:9px 0;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
+/* 同じ建物に複数のお部屋があるとき */
+.pop .cnt{font-size:11px;color:#888;margin-bottom:6px}
+.pop .rooms{max-height:230px;overflow-y:auto;margin:0 -2px}
+.pop .room{border-top:1px solid #eee;padding:8px 2px}
+.pop .room:first-child{border-top:none}
+.pop .room .rno{font-size:13px;font-weight:700;color:#1a2538}
+.pop .room a{display:inline-block;margin-top:4px;color:#4b7d0f;font-size:12px;font-weight:700;text-decoration:underline}
 .leaflet-popup-content{margin:10px}
 .note{flex:none;background:#fff;border-top:1px solid #eee;padding:9px 16px;font-size:11px;color:#999;text-align:center}
 </style>
@@ -102,32 +120,86 @@ function render(d) {
     attribution: '&copy; OpenStreetMap'
   }).addTo(map);
 
+  // 同じ建物の別のお部屋は座標が同じで、ピンが完全に重なって見えなくなる。
+  // 場所ごとにまとめて1つのピンにし、ふきだしにお部屋を並べる。
+  var groups = {};
+  var order = [];
+  props.forEach(function (p) {
+    var key = Number(p.lat).toFixed(6) + ',' + Number(p.lng).toFixed(6);
+    if (!groups[key]) { groups[key] = []; order.push(key); }
+    groups[key].push(p);
+  });
+
   var bounds = [];
-  props.forEach(function (p, i) {
+  order.forEach(function (key) {
+    var list = groups[key];
+    var head = list[0];
+    var many = list.length > 1;
     var icon = L.divIcon({
       className: '',
-      html: '<div class="pin"></div>',
-      iconSize: [20, 20],
-      iconAnchor: [10, 10],
-      popupAnchor: [0, -10]
+      html: '<div class="pin' + (many ? ' multi' : '') + '">'
+        + (many ? '<span class="n">' + list.length + '</span>' : '') + '</div>',
+      iconSize: [32, 32],
+      iconAnchor: [16, 30],   // しずくの先端が場所を指すように
+      popupAnchor: [0, -30]
     });
-    var m = L.marker([p.lat, p.lng], { icon: icon }).addTo(map);
-    // 重ねただけで出す。スマホにはホバーが無いので、タップでも出る（既定の動き）。
-    m.on('mouseover', function () { this.openPopup(); });
+    var m = L.marker([head.lat, head.lng], { icon: icon }).addTo(map);
+
     var html = '<div class="pop">';
-    if (p.image) html += '<img src="' + esc(p.image) + '" alt="" loading="lazy">';
-    html += '<div class="nm">' + esc(p.name) + '</div>';
-    var rent = yen(p.rent);
-    if (rent) html += '<div class="rent">' + rent + '</div>';
-    var meta = [];
-    if (p.layout) meta.push(esc(p.layout));
-    if (p.area) meta.push(esc(p.area) + 'm²');
-    if (meta.length) html += '<div class="meta">' + meta.join(' / ') + '</div>';
-    if (p.station) html += '<div class="meta">' + esc(p.station) + '</div>';
-    html += '<a class="btn" href="' + esc(p.url) + '" target="_blank" rel="noopener">くわしく見る</a>';
+    if (many) {
+      // 同じ建物に複数のお部屋。建物名を見出しにして、お部屋を並べる。
+      html += '<div class="nm">' + esc(head.building || head.name) + '</div>';
+      html += '<div class="cnt">この建物のお部屋 ' + list.length + '件</div>';
+      html += '<div class="rooms">';
+      list.forEach(function (p) {
+        html += '<div class="room">';
+        html += '<div class="rno">' + esc(p.room || p.name) + '</div>';
+        var rent = yen(p.rent);
+        if (rent) html += '<div class="rent" style="font-size:14px;">' + rent + '</div>';
+        var meta = [];
+        if (p.layout) meta.push(esc(p.layout));
+        if (p.area) meta.push(esc(p.area) + 'm²');
+        if (meta.length) html += '<div class="meta">' + meta.join(' / ') + '</div>';
+        html += '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">くわしく見る</a>';
+        html += '</div>';
+      });
+      html += '</div>';
+      if (head.station) html += '<div class="meta" style="margin-top:6px;">' + esc(head.station) + '</div>';
+    } else {
+      if (head.image) html += '<img src="' + esc(head.image) + '" alt="" loading="lazy">';
+      html += '<div class="nm">' + esc(head.name) + '</div>';
+      var rent1 = yen(head.rent);
+      if (rent1) html += '<div class="rent">' + rent1 + '</div>';
+      var meta1 = [];
+      if (head.layout) meta1.push(esc(head.layout));
+      if (head.area) meta1.push(esc(head.area) + 'm²');
+      if (meta1.length) html += '<div class="meta">' + meta1.join(' / ') + '</div>';
+      if (head.station) html += '<div class="meta">' + esc(head.station) + '</div>';
+      html += '<a class="btn" href="' + esc(head.url) + '" target="_blank" rel="noopener">くわしく見る</a>';
+    }
     html += '</div>';
     m.bindPopup(html);
-    bounds.push([p.lat, p.lng]);
+
+    // 重ねると出て、離すと消す。
+    // ただしふきだしの上にカーソルが移った時は消さない（中を読めなくなるため）。
+    m.on('mouseover', function () { this.openPopup(); });
+    m.on('mouseout', function () {
+      var self = this;
+      setTimeout(function () {
+        var el = self.getPopup() && self.getPopup().getElement();
+        if (el && el.matches(':hover')) return;   // ふきだしの上にいる
+        self.closePopup();
+      }, 120);
+    });
+    m.on('popupopen', function () {
+      var self = this;
+      var el = this.getPopup().getElement();
+      if (!el || el._hoverBound) return;
+      el._hoverBound = true;
+      el.addEventListener('mouseleave', function () { self.closePopup(); });
+    });
+
+    bounds.push([head.lat, head.lng]);
   });
   map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
 
