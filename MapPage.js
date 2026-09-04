@@ -168,18 +168,10 @@ function _geocodeAddresses_(addresses) {
 }
 
 /**
- * doGet: action=customer_map&t=<トークン>
- * その顧客に送った物件を、緯度経度つきで返す。
+ * 地図に出す物件を組み立てる。お客様向けページとCRMの両方から使う。
+ * @param {string} name 顧客名
  */
-function handleCustomerMapApi(e) {
-  var out = function (obj) {
-    return ContentService.createTextOutput(JSON.stringify(obj))
-      .setMimeType(ContentService.MimeType.JSON);
-  };
-  try {
-    var name = _customerNameFromMapToken_(e.parameter.t);
-    if (!name) return out({ ok: false, error: 'リンクが正しくありません' });
-
+function _buildCustomerMapPayload_(name) {
     var seen = getSeenPropertiesForResend(name) || [];
     var addresses = [];
     for (var i = 0; i < seen.length; i++) {
@@ -214,15 +206,46 @@ function handleCustomerMapApi(e) {
       });
     }
 
-    return out({
+    return {
       ok: true,
       customer: name,
       count: props.length,
       noCoord: noCoord,
       properties: props
-    });
+    };
+}
+
+/**
+ * doGet: action=customer_map&t=<トークン>
+ * お客様向けページから呼ばれる。トークンで顧客を引く。
+ */
+function handleCustomerMapApi(e) {
+  var out = function (obj) {
+    return ContentService.createTextOutput(JSON.stringify(obj))
+      .setMimeType(ContentService.MimeType.JSON);
+  };
+  try {
+    var name = _customerNameFromMapToken_(e.parameter.t);
+    if (!name) return out({ ok: false, error: 'リンクが正しくありません' });
+    return out(_buildCustomerMapPayload_(name));
   } catch (err) {
     console.error('[地図] handleCustomerMapApi: ' + err.message);
     return out({ ok: false, error: err.message });
+  }
+}
+
+/**
+ * CRMの顧客詳細から google.script.run で呼ぶ。
+ * 社内なのでトークンは要らず、顧客名で直接引く。
+ * 出す内容はお客様向けページと同じ（そのまま下見になるように）。
+ */
+function getCustomerMapData(customerName) {
+  try {
+    var name = String(customerName || '').trim();
+    if (!name) return { ok: false, error: '顧客名が空です' };
+    return _buildCustomerMapPayload_(name);
+  } catch (err) {
+    console.error('[地図] getCustomerMapData: ' + err.message);
+    return { ok: false, error: err.message };
   }
 }

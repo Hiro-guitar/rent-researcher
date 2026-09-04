@@ -436,6 +436,22 @@ body {
     </div>
   </div>
 
+  <!-- 送付済み物件の地図 -->
+  <!-- お客様向けページ(map.html)と同じ中身。まずは社内で下見するためにここに置く -->
+  <div class="card">
+    <div class="card-title" style="cursor:pointer;" onclick="toggleCustomerMap()">
+      <span>🗺 送付済み物件の地図</span>
+      <span style="display:flex;align-items:center;gap:8px;">
+        <span id="custMapCount" style="font-size:11px;color:#888;font-weight:400;"></span>
+        <span id="custMapArrow" style="font-size:11px;color:#888;font-weight:400;">▶</span>
+      </span>
+    </div>
+    <div id="custMapBody" style="display:none;">
+      <div id="custMapNote" style="font-size:12px;color:#888;padding:8px 12px 0;"></div>
+      <div id="custMap" style="height:420px;width:100%;background:#2a2a2a;"></div>
+    </div>
+  </div>
+
   <!-- 検索リセット -->
   <div class="card">
     <div class="card-title" style="cursor:pointer;" onclick="toggleSearchReset()">
@@ -1445,6 +1461,13 @@ function openDetail(name) {
   propsLoaded = false;
   propFilter = 'all';
   propShown = 0;
+  // 地図も顧客ごとに作り直す
+  custMapLoaded = false;
+  if (custMapObj) { custMapObj.remove(); custMapObj = null; }
+  document.getElementById('custMapBody').style.display = 'none';
+  document.getElementById('custMapArrow').textContent = '▶';
+  document.getElementById('custMapCount').textContent = '';
+  document.getElementById('custMapNote').textContent = '';
   document.getElementById('propsBody').style.display = 'none';
   document.getElementById('propsArrow').textContent = '▶';
   document.getElementById('propCount').textContent = '';
@@ -2174,6 +2197,113 @@ function loadSeenProperties(name) {
       document.getElementById('propList').innerHTML = '<div class="empty-state">物件取得エラー: ' + esc(err.message) + '</div>';
     })
     .getSeenPropertiesForResend(name);
+}
+
+// ══════════════════════════════════════════
+//  送付済み物件の地図
+//  お客様向けページ(map.html)と同じデータを、同じ見せ方で出す下見用。
+//  Leaflet は開いたときに初めて読み込む（普段のCRM表示を重くしないため）。
+// ══════════════════════════════════════════
+var custMapLoaded = false;
+var custMapObj = null;
+
+function loadLeaflet(cb) {
+  if (window.L) { cb(); return; }
+  var css = document.createElement('link');
+  css.rel = 'stylesheet';
+  css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  document.head.appendChild(css);
+  var sc = document.createElement('script');
+  sc.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  sc.onload = function () { cb(); };
+  sc.onerror = function () { cb(new Error('地図の読み込みに失敗しました')); };
+  document.head.appendChild(sc);
+}
+
+function toggleCustomerMap() {
+  var body = document.getElementById('custMapBody');
+  var arrow = document.getElementById('custMapArrow');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    arrow.textContent = '▼';
+    if (!custMapLoaded) loadCustomerMap(currentCustomer);
+    else if (custMapObj) setTimeout(function () { custMapObj.invalidateSize(); }, 0);
+  } else {
+    body.style.display = 'none';
+    arrow.textContent = '▶';
+  }
+}
+
+function loadCustomerMap(name) {
+  if (!name) return;
+  custMapLoaded = true;
+  var note = document.getElementById('custMapNote');
+  note.textContent = '住所から場所を割り出しています…（初回は少し時間がかかります）';
+  google.script.run
+    .withSuccessHandler(function (d) {
+      if (!d || !d.ok) {
+        custMapLoaded = false;
+        note.textContent = 'エラー: ' + ((d && d.error) || '取得できませんでした');
+        return;
+      }
+      loadLeaflet(function (err) {
+        if (err) { custMapLoaded = false; note.textContent = err.message; return; }
+        renderCustomerMap(d);
+      });
+    })
+    .withFailureHandler(function (e) {
+      custMapLoaded = false;
+      note.textContent = 'エラー: ' + (e && e.message ? e.message : '');
+    })
+    .getCustomerMapData(name);
+}
+
+function renderCustomerMap(d) {
+  var props = d.properties || [];
+  var note = document.getElementById('custMapNote');
+  document.getElementById('custMapCount').textContent = props.length + '件';
+  if (props.length === 0) {
+    note.textContent = '地図に出せる物件がありません'
+      + (d.noCoord ? '（住所から場所を割り出せなかった物件が' + d.noCoord + '件）' : '');
+    return;
+  }
+  note.textContent = d.noCoord
+    ? 'このほかに、住所から場所を割り出せなかった物件が' + d.noCoord + '件あります'
+    : '';
+
+  if (custMapObj) { custMapObj.remove(); custMapObj = null; }
+  custMapObj = L.map('custMap', { scrollWheelZoom: false });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; OpenStreetMap'
+  }).addTo(custMapObj);
+
+  var bounds = [];
+  for (var i = 0; i < props.length; i++) {
+    var p = props[i];
+    var icon = L.divIcon({
+      className: '',
+      html: '<div style="background:#6ea814;color:#fff;border:2px solid #fff;border-radius:50%;'
+        + 'width:26px;height:26px;line-height:22px;text-align:center;font-size:11px;font-weight:700;'
+        + 'box-shadow:0 1px 4px rgba(0,0,0,.4);">' + (i + 1) + '</div>',
+      iconSize: [26, 26], iconAnchor: [13, 13], popupAnchor: [0, -13]
+    });
+    var m = L.marker([p.lat, p.lng], { icon: icon }).addTo(custMapObj);
+    var h = '<div style="width:200px;">';
+    if (p.image) h += '<img src="' + attrEsc(p.image) + '" style="width:100%;height:110px;object-fit:cover;border-radius:6px;display:block;margin-bottom:6px;">';
+    h += '<div style="font-size:13px;font-weight:700;color:#1a2538;line-height:1.4;">' + esc(p.name) + '</div>';
+    if (p.rent) h += '<div style="font-size:15px;font-weight:800;color:#E5533D;">' + (p.rent / 10000) + '万円</div>';
+    var meta = [];
+    if (p.layout) meta.push(esc(p.layout));
+    if (p.area) meta.push(esc(p.area) + 'm²');
+    if (meta.length) h += '<div style="font-size:12px;color:#666;">' + meta.join(' / ') + '</div>';
+    if (p.station) h += '<div style="font-size:12px;color:#666;">' + esc(p.station) + '</div>';
+    h += '<a href="' + attrEsc(p.url) + '" target="_blank" style="display:block;margin-top:6px;background:#6ea814;color:#fff;text-align:center;padding:7px 0;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none;">くわしく見る</a>';
+    h += '</div>';
+    m.bindPopup(h);
+    bounds.push([p.lat, p.lng]);
+  }
+  custMapObj.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+  setTimeout(function () { custMapObj.invalidateSize(); }, 0);
 }
 
 function renderPropFilters() {
