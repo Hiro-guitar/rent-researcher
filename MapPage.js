@@ -16,10 +16,14 @@
 
 var MAP_GEO_SHEET_NAME = '住所座標';
 var MAP_PAGE_URL = 'https://form.ehomaki.com/map.html';
-// 1回のリクエストで新しく変換する住所の上限。
-// 初回は数十件まとめて変換することになるので、待ち時間が延びすぎないよう区切る。
-// 足りない分は次に開いたときに変換される（変換済みは即返る）。
+// ページを開いたときに新しく変換する住所の上限。
+// 待ち時間が延びすぎないよう区切る。足りない分は次に開いたときに変換される。
 var MAP_GEOCODE_PER_REQUEST = 25;
+// まとめて作り直すとき（トリガー）の上限。ページと違って待つ人がいないので多く取る。
+// 1件あたり0.2秒待つので、300件で約1分。トリガーの上限6分に対して余裕がある。
+// ⚠️ ここを25のままにしていたため、40名ぶんの作成で合計25件しか変換できず、
+//   ほとんどの顧客が「ピン0件」になっていた。
+var MAP_GEOCODE_PER_REBUILD = 300;
 
 /**
  * 顧客ごとのトークン。URLに顧客名を出さないためのもの。
@@ -186,9 +190,12 @@ function _normalizeAddressForGeo_(address) {
  * キャッシュ(住所座標シート)にあるものはそのまま返し、
  * 無いものだけ国土地理院に聞いて、シートに書き足す。
  * @param {Array<string>} addresses
+ * @param {number} [limit] 新しく変換する件数の上限（既定はページ用の25件）
+ * @param {number} [deadlineMs] この時刻を過ぎたら変換をやめる（実行時間切れを避ける）
  * @return {Object} 正規化住所 -> {lat, lng}
  */
-function _geocodeAddresses_(addresses) {
+function _geocodeAddresses_(addresses, limit, deadlineMs) {
+  var cap = (typeof limit === 'number' && limit > 0) ? limit : MAP_GEOCODE_PER_REQUEST;
   var out = {};
   var sheet = _mapGeoSheet_();
   var lastRow = sheet.getLastRow();
@@ -214,7 +221,11 @@ function _geocodeAddresses_(addresses) {
   }
 
   var added = [];
-  for (var t = 0; t < todo.length && t < MAP_GEOCODE_PER_REQUEST; t++) {
+  for (var t = 0; t < todo.length && t < cap; t++) {
+    if (deadlineMs && Date.now() > deadlineMs) {
+      console.log('[地図] 時間切れのため変換を中断（残り' + (todo.length - t) + '件は次回）');
+      break;
+    }
     var r = _geocodeAddressViaGsi_(todo[t]);
     if (r) {
       out[todo[t]] = { lat: r.lat, lng: r.lng };
@@ -416,7 +427,10 @@ function _rebuildMapsFor_(names) {
   }
 
   // ── 住所をまとめて座標にする（キャッシュ済みはそのまま） ──
-  var coords = _geocodeAddresses_(addresses);
+  // まとめて作るときは上限を上げる。ページ用の25件のままだと、
+  // 全顧客ぶん合わせて25件しか変換されず、ほとんどがピン0件になる。
+  // 4分で打ち切って、取れた分だけで置く（残りは次の実行で拾う）。
+  var coords = _geocodeAddresses_(addresses, MAP_GEOCODE_PER_REBUILD, t0 + 4 * 60 * 1000);
 
   // ── 顧客ごとにエッジへ置く ──
   var done = 0, failed = 0, totalPins = 0;
