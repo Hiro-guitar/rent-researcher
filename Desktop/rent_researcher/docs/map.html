@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>お送りしたお部屋の地図</title>
+<title>ご紹介したお部屋の地図</title>
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="dns-prefetch" href="https://script.google.com">
 <!-- 地図は Leaflet + OpenStreetMap。APIキーも課金アカウントも要らない。 -->
@@ -35,7 +35,7 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
   color:#fff;font-size:12px;font-weight:800}
 .leaflet-marker-icon:hover .pin{transform:rotate(-45deg) scale(1.18)}
 /* ふきだし */
-.pop{width:216px}
+.pop{width:244px}
 .pop img{width:100%;height:150px;object-fit:contain;border-radius:8px;display:block;margin-bottom:8px;background:#f2f3f5}
 .pop .nm{font-size:14px;font-weight:700;color:#1a2538;line-height:1.4;margin-bottom:4px}
 .pop .rent{font-size:16px;font-weight:800;color:#E5533D;margin-bottom:2px}
@@ -43,18 +43,24 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 .pop a.btn{display:block;margin-top:8px;background:#6ea814;color:#fff;text-align:center;padding:9px 0;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
 /* 同じ建物に複数のお部屋があるとき */
 .pop .cnt{font-size:11px;color:#888;margin-bottom:6px}
-.pop .rooms{max-height:230px;overflow-y:auto;margin:0 -2px}
-.pop .room{border-top:1px solid #eee;padding:8px 2px}
+.pop .rooms{max-height:260px;overflow-y:auto;margin:0 -2px}
+.pop .room{display:flex;gap:9px;border-top:1px solid #eee;padding:8px 2px}
 .pop .room:first-child{border-top:none}
+/* お部屋ごとのサムネ。間取り図が多いので切らずに全体を出す */
+.pop .room img{width:88px;height:66px;flex:none;object-fit:contain;
+  border-radius:6px;background:#f2f3f5;margin:0}
+.pop .room .info{min-width:0}
 .pop .room .rno{font-size:13px;font-weight:700;color:#1a2538}
 .pop .room a{display:inline-block;margin-top:4px;color:#4b7d0f;font-size:12px;font-weight:700;text-decoration:underline}
 .leaflet-popup-content{margin:10px}
+/* 下向きに出したふきだしは、下を指す三角を消す（指す先が無いため） */
+.leaflet-popup.below .leaflet-popup-tip-container{display:none}
 .note{flex:none;background:#fff;border-top:1px solid #eee;padding:9px 16px;font-size:11px;color:#999;text-align:center}
 </style>
 </head>
 <body>
 <header>
-  <h1 id="title">お送りしたお部屋の地図</h1>
+  <h1 id="title">ご紹介したお部屋の地図</h1>
   <div class="sub" id="sub">読み込んでいます…</div>
 </header>
 <div class="state" id="state"><div class="spinner"></div><p>お部屋を探しています…</p></div>
@@ -103,14 +109,18 @@ function render(d) {
     showState('<h2>リンクが正しくありません</h2><p>' + esc((d && d.error) || '') + '</p>');
     return;
   }
-  document.getElementById('title').textContent = esc(d.customer) + ' 様にお送りしたお部屋';
+  // 見出しはお客様が読む言葉にする。「◯◯様にお送りした」は送り手の言い方なので使わない。
+  // 名前の出し方は物件ページ(property.html)の「◯◯ 様専用ページ」に揃える。
+  var who = String(d.customer || '').trim();
+  document.getElementById('title').textContent = 'ご紹介したお部屋の地図';
   var props = d.properties || [];
   if (props.length === 0) {
-    document.getElementById('sub').textContent = '';
-    showState('<h2>まだ地図に出せるお部屋がありません</h2><p>新しいお部屋が見つかりましたら、LINEでお知らせいたします。</p>');
+    document.getElementById('sub').textContent = who ? who + ' 様専用ページ' : '';
+    showState('<h2>ご紹介したお部屋はまだございません</h2><p>お部屋が見つかりましたら、LINEでお知らせいたします。</p>');
     return;
   }
-  document.getElementById('sub').textContent = props.length + '件';
+  document.getElementById('sub').textContent =
+    (who ? who + ' 様専用ページ ／ ' : '') + props.length + '件';
   document.getElementById('state').style.display = 'none';
   document.getElementById('map').style.display = 'block';
 
@@ -153,6 +163,8 @@ function render(d) {
       html += '<div class="rooms">';
       list.forEach(function (p) {
         html += '<div class="room">';
+        if (p.image) html += '<img src="' + esc(p.image) + '" alt="" loading="lazy">';
+        html += '<div class="info">';
         html += '<div class="rno">' + esc(p.room || p.name) + '</div>';
         var rent = yen(p.rent);
         if (rent) html += '<div class="rent" style="font-size:14px;">' + rent + '</div>';
@@ -161,7 +173,7 @@ function render(d) {
         if (p.area) meta.push(esc(p.area) + 'm²');
         if (meta.length) html += '<div class="meta">' + meta.join(' / ') + '</div>';
         html += '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">くわしく見る</a>';
-        html += '</div>';
+        html += '</div></div>';
       });
       html += '</div>';
       if (head.station) html += '<div class="meta" style="margin-top:6px;">' + esc(head.station) + '</div>';
@@ -178,7 +190,8 @@ function render(d) {
       html += '<a class="btn" href="' + esc(head.url) + '" target="_blank" rel="noopener">くわしく見る</a>';
     }
     html += '</div>';
-    m.bindPopup(html);
+    // autoPan を切る。上の方のピンを見るたびに地図が勝手に動いてしまうため。
+    m.bindPopup(html, { autoPan: false });
 
     // 重ねると出て、離すと消す。
     // ただしふきだしの上にカーソルが移った時は消さない（中を読めなくなるため）。
@@ -194,7 +207,22 @@ function render(d) {
     m.on('popupopen', function () {
       var self = this;
       var el = this.getPopup().getElement();
-      if (!el || el._hoverBound) return;
+      if (!el) return;
+
+      // ふきだしはピンの下に出す。
+      // 上に出すと、上の方のピンでは画面から出てしまい、Leafletが地図を
+      // 動かして見ている場所がずれる。下に出せば動かさずに収まる。
+      // ただし下にも収まらないときだけ、従来どおり上に出す。
+      el.classList.remove('below');
+      el.style.marginBottom = '';
+      var h = el.offsetHeight;
+      var pt = map.latLngToContainerPoint(self.getLatLng());
+      if (pt.y + h + 50 < map.getSize().y) {
+        el.style.marginBottom = (-h - 44) + 'px';
+        el.classList.add('below');
+      }
+
+      if (el._hoverBound) return;
       el._hoverBound = true;
       el.addEventListener('mouseleave', function () { self.closePopup(); });
     });
@@ -207,7 +235,7 @@ function render(d) {
   if (d.noCoord > 0) {
     var note = document.getElementById('note');
     note.style.display = 'block';
-    note.textContent = 'このほかに、地図上の場所を特定できなかったお部屋が ' + d.noCoord + ' 件あります。';
+    note.textContent = 'このほかに、地図でお示しできないお部屋が ' + d.noCoord + ' 件ございます。';
   }
 }
 </script>
