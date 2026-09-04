@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>お送りしたお部屋の地図</title>
+<link rel="preconnect" href="https://script.google.com" crossorigin>
+<link rel="dns-prefetch" href="https://script.google.com">
+<!-- 地図は Leaflet + OpenStreetMap。APIキーも課金アカウントも要らない。 -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;background:#f8f9fa;color:#333;display:flex;flex-direction:column}
+header{background:#fff;padding:14px 16px;border-bottom:1px solid #eee;flex:none}
+header h1{font-size:16px;font-weight:700;color:#1a2538}
+header .sub{font-size:12px;color:#888;margin-top:3px}
+#map{flex:1;min-height:0;width:100%;background:#e8eaed}
+.state{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:#888;padding:24px;text-align:center}
+.state .spinner{width:38px;height:38px;border:3px solid #e8f0d8;border-top-color:#6ea814;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.state h2{font-size:16px;color:#1a2538;margin-bottom:8px}
+.state p{font-size:13px;line-height:1.7}
+/* ピンの中の番号 */
+.pin{background:#6ea814;color:#fff;border:2px solid #fff;border-radius:50%;width:28px;height:28px;line-height:24px;text-align:center;font-size:12px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+/* ふきだし */
+.pop{width:210px}
+.pop img{width:100%;height:120px;object-fit:cover;border-radius:8px;display:block;margin-bottom:8px;background:#eee}
+.pop .nm{font-size:14px;font-weight:700;color:#1a2538;line-height:1.4;margin-bottom:4px}
+.pop .rent{font-size:16px;font-weight:800;color:#E5533D;margin-bottom:2px}
+.pop .meta{font-size:12px;color:#666;line-height:1.6}
+.pop a.btn{display:block;margin-top:8px;background:#6ea814;color:#fff;text-align:center;padding:9px 0;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none}
+.leaflet-popup-content{margin:10px}
+.note{flex:none;background:#fff;border-top:1px solid #eee;padding:9px 16px;font-size:11px;color:#999;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">お送りしたお部屋の地図</h1>
+  <div class="sub" id="sub">読み込んでいます…</div>
+</header>
+<div class="state" id="state"><div class="spinner"></div><p>お部屋を探しています…</p></div>
+<div id="map" style="display:none"></div>
+<div class="note" id="note" style="display:none"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+var GAS_API_URL = 'https://script.google.com/macros/s/AKfycbyCqgB4lhAN0mGSi6acYl7bSWRg-TVHr9b_-I5vCsWYaOA5ceIfWh-5cqpGBLIFrHu7/exec';
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// 賃料は「10.9万円」の形。四捨五入せず、そのままの値を万円に直して出す。
+function yen(v) {
+  var n = Number(v);
+  if (!isFinite(n) || n <= 0) return '';
+  var man = n / 10000;
+  return (String(man).indexOf('.') >= 0 ? man : man) + '万円';
+}
+function showState(html) {
+  var el = document.getElementById('state');
+  el.style.display = 'flex';
+  el.innerHTML = html;
+  document.getElementById('map').style.display = 'none';
+}
+
+var token = new URLSearchParams(window.location.search).get('t') || '';
+if (!token) {
+  document.getElementById('sub').textContent = '';
+  showState('<h2>リンクが正しくありません</h2><p>担当者からお送りしたリンクを、もう一度お開きください。</p>');
+} else {
+  fetch(GAS_API_URL + '?action=customer_map&t=' + encodeURIComponent(token), { redirect: 'follow' })
+    .then(function (r) { return r.json(); })
+    .then(render)
+    .catch(function () {
+      document.getElementById('sub').textContent = '';
+      showState('<h2>読み込めませんでした</h2><p>通信の状態を確かめて、もう一度お開きください。</p>');
+    });
+}
+
+function render(d) {
+  if (!d || !d.ok) {
+    document.getElementById('sub').textContent = '';
+    showState('<h2>リンクが正しくありません</h2><p>' + esc((d && d.error) || '') + '</p>');
+    return;
+  }
+  document.getElementById('title').textContent = esc(d.customer) + ' 様にお送りしたお部屋';
+  var props = d.properties || [];
+  if (props.length === 0) {
+    document.getElementById('sub').textContent = '';
+    showState('<h2>まだ地図に出せるお部屋がありません</h2><p>新しいお部屋が見つかりましたら、LINEでお知らせいたします。</p>');
+    return;
+  }
+  document.getElementById('sub').textContent = props.length + '件';
+  document.getElementById('state').style.display = 'none';
+  document.getElementById('map').style.display = 'block';
+
+  var map = L.map('map', { scrollWheelZoom: true });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  var bounds = [];
+  props.forEach(function (p, i) {
+    var icon = L.divIcon({
+      className: '',
+      html: '<div class="pin">' + (i + 1) + '</div>',
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+      popupAnchor: [0, -14]
+    });
+    var m = L.marker([p.lat, p.lng], { icon: icon }).addTo(map);
+    var html = '<div class="pop">';
+    if (p.image) html += '<img src="' + esc(p.image) + '" alt="" loading="lazy">';
+    html += '<div class="nm">' + esc(p.name) + '</div>';
+    var rent = yen(p.rent);
+    if (rent) html += '<div class="rent">' + rent + '</div>';
+    var meta = [];
+    if (p.layout) meta.push(esc(p.layout));
+    if (p.area) meta.push(esc(p.area) + 'm²');
+    if (meta.length) html += '<div class="meta">' + meta.join(' / ') + '</div>';
+    if (p.station) html += '<div class="meta">' + esc(p.station) + '</div>';
+    html += '<a class="btn" href="' + esc(p.url) + '">くわしく見る</a>';
+    html += '</div>';
+    m.bindPopup(html);
+    bounds.push([p.lat, p.lng]);
+  });
+  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+
+  // 住所から場所を割り出せなかった物件がある場合だけ、その旨を出す
+  if (d.noCoord > 0) {
+    var note = document.getElementById('note');
+    note.style.display = 'block';
+    note.textContent = 'このほかに、地図上の場所を特定できなかったお部屋が ' + d.noCoord + ' 件あります。';
+  }
+}
+</script>
+</body>
+</html>
