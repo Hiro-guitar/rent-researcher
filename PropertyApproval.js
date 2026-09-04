@@ -2627,6 +2627,9 @@ function addToSeenSheet(customerName, prop) {
     '', // status_checked_at
     sourceRef
   ]);
+  // 地図(map.html)に新しい物件を出すため、作り直しの印を付ける。
+  // ここで作り直すと十数秒かかって送信の流れを止めるので、印だけ。
+  try { markCustomerMapDirty(customerName); } catch (eM) {}
 }
 
 /**
@@ -3659,6 +3662,8 @@ function setManualClosed(customerName, roomId, closed) {
     _setEhomakiClosed_(nameTrim, ridTrim, closed);
     // ② view_api キャッシュ(prop2_)を無効化 → d=/m= 経路(view_api)でも即反映
     try { CacheService.getScriptCache().remove('prop2_' + nameTrim + '_' + ridTrim); } catch (e) {}
+    // ③ 地図(map.html)からも消す/戻すため、作り直しの印を付ける
+    try { markCustomerMapDirty(nameTrim); } catch (eM) {}
     return { ok: true, message: closed ? '募集終了にしました' : '募集中に戻しました', closed: !!closed, updated: updated };
   } catch (e) {
     return { ok: false, message: e.message };

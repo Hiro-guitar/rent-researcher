@@ -349,14 +349,28 @@ function rebuildCustomerMap(customerName) {
   }
 }
 
+/** 【日次トリガー】送付済み物件がある顧客ぶんの地図をまとめて作り直す。 */
+function rebuildAllCustomerMaps() {
+  return _rebuildMapsFor_(null);
+}
+
 /**
- * 【日次トリガー】送付済み物件がある顧客ぶんの地図をまとめて作り直す。
+ * 地図の作り直し。names に顧客名の配列を渡すとその人だけ、null なら全員。
  *
  * 顧客ごとに _buildCustomerMapPayload_ を呼ぶとシートを人数分読み直すことになる
  * （1人あたり16秒かかっていた）。ここではシートを1回ずつだけ読んで、
  * 顧客ごとに振り分ける。
  */
-function rebuildAllCustomerMaps() {
+function _rebuildMapsFor_(names) {
+  var only = null;
+  if (names && names.length) {
+    only = {};
+    for (var n0 = 0; n0 < names.length; n0++) {
+      var nm = String(names[n0] || '').trim();
+      if (nm) only[nm] = true;
+    }
+    if (!Object.keys(only).length) return '対象がありません';
+  }
   var t0 = Date.now();
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
 
@@ -385,6 +399,7 @@ function rebuildAllCustomerMaps() {
     var row = seen[i];
     var cust = String(row[0] || '').trim();
     if (!cust) continue;
+    if (only && !only[cust]) continue;
     var status = String(row[5] || '');
     var watching = !!row[9];
     if ((status === 'closed' || status === 'applied') && !watching) continue;
@@ -446,9 +461,72 @@ function rebuildAllCustomerMaps() {
     }
   }
 
+  // 絞り込んだのに1件も残らなかった顧客（全部が募集終了になった等）は、
+  // 古い地図が残り続けないように空で置き直す。
+  if (only) {
+    for (var on in only) {
+      if (byCustomer[on]) continue;
+      try {
+        _publishMapToEdge_(_customerMapToken_(on), {
+          ok: true, customer: on, count: 0, noCoord: 0,
+          properties: [], builtAt: new Date().toISOString()
+        });
+        done++;
+      } catch (e2) {
+        failed++;
+        console.warn('[地図] ' + on + ' の保存に失敗: ' + e2.message);
+      }
+    }
+  }
+
   var msg = '[地図] ' + done + '名ぶんを作成（ピン計' + totalPins + '）'
     + (failed ? ' / 失敗' + failed + '名' : '')
     + ' / ' + Math.round((Date.now() - t0) / 1000) + '秒';
   console.log(msg);
   return msg;
+}
+
+// ── 作り直し待ちの行列 ──────────────────────────────────
+// 物件を送ったとき・募集終了にしたときに、その場で作り直すと数秒〜十数秒かかり、
+// 送信の流れを止めてしまう。名前だけ控えておいて、あとでまとめて作り直す。
+
+var MAP_DIRTY_KEY = 'MAP_REBUILD_QUEUE';
+
+/** その顧客の地図を作り直す必要がある、と印を付ける。失敗しても本処理は止めない。 */
+function markCustomerMapDirty(customerName) {
+  try {
+    var name = String(customerName || '').trim();
+    if (!name) return;
+    var props = PropertiesService.getScriptProperties();
+    var arr = [];
+    try { arr = JSON.parse(props.getProperty(MAP_DIRTY_KEY) || '[]'); } catch (e) { arr = []; }
+    if (arr.indexOf(name) < 0) {
+      arr.push(name);
+      // 溜まりすぎたら古いものから捨てる。落ちた分は毎朝の全件作り直しで拾える。
+      if (arr.length > 200) arr = arr.slice(arr.length - 200);
+      props.setProperty(MAP_DIRTY_KEY, JSON.stringify(arr));
+    }
+  } catch (e) {
+    console.warn('[地図] 作り直しの印を付けられませんでした: ' + e.message);
+  }
+}
+
+/**
+ * 【10分トリガー】印の付いた顧客の地図だけ作り直す。
+ * 送った物件・募集終了にした物件が、最大10分で地図に反映される。
+ */
+function processMapRebuildQueue() {
+  var props = PropertiesService.getScriptProperties();
+  var arr = [];
+  try { arr = JSON.parse(props.getProperty(MAP_DIRTY_KEY) || '[]'); } catch (e) { arr = []; }
+  if (!arr.length) return '作り直す顧客はいません';
+  // 先に消す。作り直しの途中で新しく印が付いたぶんを取りこぼさないため。
+  props.deleteProperty(MAP_DIRTY_KEY);
+  try {
+    return _rebuildMapsFor_(arr);
+  } catch (e) {
+    // 失敗したら戻して次の回に持ち越す
+    try { props.setProperty(MAP_DIRTY_KEY, JSON.stringify(arr)); } catch (e2) {}
+    throw e;
+  }
 }
