@@ -193,26 +193,34 @@ function _normalizeAddressForGeo_(address) {
  * @param {Array<string>} addresses
  * @param {number|null} [limit] 新しく変換する件数の上限。null なら件数では区切らない
  * @param {number} [deadlineMs] この時刻を過ぎたら変換をやめる（実行時間切れを避ける）
+ * @param {Object} [stats] 渡すと {converted, remaining} を書き込む。
+ *                         remaining が残っていれば、もう一度走らせる必要がある。
  * @return {Object} 正規化住所 -> {lat, lng}
  */
-function _geocodeAddresses_(addresses, limit, deadlineMs) {
+function _geocodeAddresses_(addresses, limit, deadlineMs, stats) {
   // limit を渡さなければページ用の25件。null を渡すと件数では区切らない。
   var cap = (limit === null) ? Infinity
     : ((typeof limit === 'number' && limit > 0) ? limit : MAP_GEOCODE_PER_REQUEST);
   var out = {};
   var sheet = _mapGeoSheet_();
   var lastRow = sheet.getLastRow();
-  var cached = {};
+  var cached = {};    // 座標が取れている住所
+  var tried = {};     // 一度でも問い合わせた住所（取れなかったものを含む）
   if (lastRow > 1) {
     var data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
     for (var i = 0; i < data.length; i++) {
       var key = _normalizeAddressForGeo_(data[i][0]);
       if (!key) continue;
+      tried[key] = true;
       var lat = Number(data[i][1]), lng = Number(data[i][2]);
       if (isFinite(lat) && isFinite(lng) && lat !== 0) cached[key] = { lat: lat, lng: lng };
     }
   }
 
+  // ⚠️ 取れなかった住所も「問い合わせ済み」として飛ばすこと。
+  //   座標のある行だけ見ていたため、取れない住所を毎回問い合わせ直し、
+  //   そのたびに同じ行をシートに書き足していた。
+  //   取り直したいときは resetGeocodeCache でシートを空にする。
   var todo = [];
   var seen = {};
   for (var a = 0; a < addresses.length; a++) {
@@ -220,15 +228,14 @@ function _geocodeAddresses_(addresses, limit, deadlineMs) {
     if (!norm || seen[norm]) continue;
     seen[norm] = true;
     if (cached[norm]) { out[norm] = cached[norm]; continue; }
+    if (tried[norm]) continue;          // 取れないと分かっている
     todo.push(norm);
   }
 
   var added = [];
+  var doneCount = 0;
   for (var t = 0; t < todo.length && t < cap; t++) {
-    if (deadlineMs && Date.now() > deadlineMs) {
-      console.log('[地図] 時間切れのため変換を中断（残り' + (todo.length - t) + '件は次回）');
-      break;
-    }
+    if (deadlineMs && Date.now() > deadlineMs) break;
     var r = _geocodeAddressViaGsi_(todo[t]);
     if (r) {
       out[todo[t]] = { lat: r.lat, lng: r.lng };
@@ -237,10 +244,15 @@ function _geocodeAddresses_(addresses, limit, deadlineMs) {
       // 取れなかった住所も残す。毎回問い合わせに行かないようにするため。
       added.push([todo[t], '', '', new Date(), '(取得できず)']);
     }
+    doneCount++;
     Utilities.sleep(200);   // 国土地理院に連続で叩きに行かない
   }
   if (added.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, added.length, 5).setValues(added);
+  }
+  if (stats) {
+    stats.converted = doneCount;
+    stats.remaining = todo.length - doneCount;   // 手つかずで残った住所
   }
   return out;
 }
@@ -433,10 +445,13 @@ function _rebuildMapsFor_(names) {
   // まとめて作るときは件数で区切らない。ページ用の25件のままだと、
   // 全顧客ぶん合わせて25件しか変換されず、ほとんどがピン0件になる。
   // 4分で打ち切って、取れた分だけで置く（残りは次の実行で拾う）。
-  var coords = _geocodeAddresses_(addresses, null, t0 + MAP_GEOCODE_REBUILD_DEADLINE_MS);
+  var geoStats = {};
+  var coords = _geocodeAddresses_(
+    addresses, null, t0 + MAP_GEOCODE_REBUILD_DEADLINE_MS, geoStats);
 
   // ── 顧客ごとにエッジへ置く ──
   var done = 0, failed = 0, totalPins = 0;
+  var noCoordByCustomer = {};
   for (var cname in byCustomer) {
     var list = byCustomer[cname];
     // 送信が新しい順
@@ -448,7 +463,7 @@ function _rebuildMapsFor_(names) {
     for (var k = 0; k < list.length; k++) {
       var it = list[k], p = it.p;
       var c = coords[_normalizeAddressForGeo_(p.address)];
-      if (!c) { noCoord++; continue; }
+      if (!c) { noCoord++; noCoordByCustomer[cname] = true; continue; }
       props.push({
         roomId: it.roomId,
         building: p.buildingName || '',
@@ -496,8 +511,21 @@ function _rebuildMapsFor_(names) {
     }
   }
 
+  // 時間切れで住所の変換が終わらなかったときは、座標が付かなかった顧客を
+  // 行列に戻して、もう一度走らせる。何回で終わるかを気にしなくてよくする。
+  var again = 0;
+  if (geoStats.remaining > 0) {
+    for (var rc in byCustomer) {
+      if (!noCoordByCustomer[rc]) continue;
+      markCustomerMapDirty(rc);
+      again++;
+    }
+  }
+
   var msg = '[地図] ' + done + '名ぶんを作成（ピン計' + totalPins + '）'
     + (failed ? ' / 失敗' + failed + '名' : '')
+    + ' / 住所の変換' + (geoStats.converted || 0) + '件'
+    + (geoStats.remaining > 0 ? '（残り' + geoStats.remaining + '件・' + again + '名を次回に回した）' : '')
     + ' / ' + Math.round((Date.now() - t0) / 1000) + '秒';
   console.log(msg);
   return msg;
