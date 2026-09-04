@@ -1765,6 +1765,11 @@ function doGet(e) {
     return handleUnsubscribe(e);
   }
 
+  // ── お客様向け地図ページ: 送った物件を緯度経度つきで返す ──
+  if (action === 'customer_map') {
+    return handleCustomerMapApi(e);
+  }
+
   // ── SUUMO フォローアップメール: ステータス確認API ──
   if (action === 'check_followup_status') {
     return handleCheckFollowupStatus(e);
