@@ -266,6 +266,51 @@ function _geocodeAddresses_(addresses, limit, deadlineMs, stats) {
   return out;
 }
 
+
+/**
+ * 地図のふきだしに出す1件ぶん。LINEのカードと同じ項目を渡す。
+ * 画像はLINEに合わせて最大4枚。
+ */
+function _mapPropFromPending_(customerName, roomId, p, coord) {
+  var imgs = (p.imageUrls && p.imageUrls.length) ? p.imageUrls.slice(0, 4)
+    : (p.imageUrl ? [p.imageUrl] : []);
+  return {
+    roomId: roomId,
+    building: p.buildingName || '',
+    room: p.roomNumber || '',
+    name: p.buildingName + (p.roomNumber ? ' ' + p.roomNumber : ''),
+    rent: p.rent || 0,
+    managementFee: p.managementFee || 0,
+    deposit: p.deposit || '',
+    keyMoney: p.keyMoney || '',
+    layout: p.layout || '',
+    area: p.area || 0,
+    buildingAge: p.buildingAge || '',
+    floorText: p.floorText || (p.floor ? p.floor + '階' : ''),
+    address: p.address || '',
+    station: p.stationInfo || '',
+    otherStations: p.otherStations || [],
+    staffComment: p.staffComment || '',
+    images: imgs,
+    image: imgs[0] || '',
+    lat: coord.lat, lng: coord.lng,
+    url: 'https://form.ehomaki.com/property.html?customer='
+      + encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId)
+  };
+}
+
+/**
+ * 同じお部屋が二重に並ばないようにするための見分け方。
+ * 同じ物件を2回送ると通知済み物件に2行できるため、地図でも2つ並んでいた。
+ * room_id が同じなら同じお部屋。room_id が違っても、建物名と部屋番号が
+ * どちらも同じなら同じお部屋とみなす（送り直しで別IDになった場合）。
+ */
+function _mapRoomKey_(p) {
+  var b = String(p.buildingName || '').replace(/\s+/g, '');
+  var r = String(p.roomNumber || '').replace(/\s+/g, '');
+  return (b && r) ? ('br:' + b + '|' + r) : '';
+}
+
 /**
  * 地図に出す物件を組み立てる。お客様向けページとCRMの両方から使う。
  * @param {string} name 顧客名
@@ -281,31 +326,21 @@ function _buildCustomerMapPayload_(name) {
     }
     var coords = _geocodeAddresses_(addresses);
 
+    // getSeenPropertiesForResend は送信が新しい順。同じお部屋は最初に出てくる
+    // ＝いちばん新しい送信のものだけ残す。
     var props = [];
     var noCoord = 0;
+    var takenRooms = {};
     for (var j = 0; j < seen.length; j++) {
       var p = seen[j];
       if (p.manualClosed || p.watchOnly) continue;
+      var rk = _mapRoomKey_(p) || ('id:' + p.roomId);
+      if (takenRooms[rk]) continue;
       var key = _normalizeAddressForGeo_(p.address);
       var c = key ? coords[key] : null;
       if (!c) { noCoord++; continue; }
-      props.push({
-        roomId: p.roomId,
-        // 同じ建物の別の部屋を地図でまとめるため、建物名と部屋番号は分けて渡す
-        building: p.buildingName || '',
-        room: p.roomNumber || '',
-        name: p.buildingName + (p.roomNumber ? ' ' + p.roomNumber : ''),
-        rent: p.rent || 0,
-        managementFee: p.managementFee || 0,
-        layout: p.layout || '',
-        area: p.area || 0,
-        station: p.stationInfo || '',
-        image: p.imageUrl || '',
-        lat: c.lat,
-        lng: c.lng,
-        url: 'https://form.ehomaki.com/property.html?customer='
-          + encodeURIComponent(name) + '&room_id=' + encodeURIComponent(p.roomId)
-      });
+      takenRooms[rk] = true;
+      props.push(_mapPropFromPending_(name, p.roomId, p, c));
     }
 
     return {
@@ -467,27 +502,18 @@ function _rebuildMapsFor_(names) {
     list.sort(function (a, b) {
       return String(b.sentAt || '').localeCompare(String(a.sentAt || ''));
     });
+    // list は送信が新しい順に並べてある。同じお部屋は最初のものだけ残す。
     var props = [];
     var noCoord = 0;
+    var takenRooms = {};
     for (var k = 0; k < list.length; k++) {
       var it = list[k], p = it.p;
+      var rk = _mapRoomKey_(p) || ('id:' + it.roomId);
+      if (takenRooms[rk]) continue;
       var c = coords[_normalizeAddressForGeo_(p.address)];
       if (!c) { noCoord++; noCoordByCustomer[cname] = true; continue; }
-      props.push({
-        roomId: it.roomId,
-        building: p.buildingName || '',
-        room: p.roomNumber || '',
-        name: p.buildingName + (p.roomNumber ? ' ' + p.roomNumber : ''),
-        rent: p.rent || 0,
-        managementFee: p.managementFee || 0,
-        layout: p.layout || '',
-        area: p.area || 0,
-        station: p.stationInfo || '',
-        image: p.imageUrl || '',
-        lat: c.lat, lng: c.lng,
-        url: 'https://form.ehomaki.com/property.html?customer='
-          + encodeURIComponent(cname) + '&room_id=' + encodeURIComponent(it.roomId)
-      });
+      takenRooms[rk] = true;
+      props.push(_mapPropFromPending_(cname, it.roomId, p, c));
     }
     try {
       _publishMapToEdge_(_customerMapToken_(cname), {
