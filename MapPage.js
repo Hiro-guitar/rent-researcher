@@ -233,19 +233,3 @@ function handleCustomerMapApi(e) {
     return out({ ok: false, error: err.message });
   }
 }
-
-/**
- * CRMの顧客詳細から google.script.run で呼ぶ。
- * 社内なのでトークンは要らず、顧客名で直接引く。
- * 出す内容はお客様向けページと同じ（そのまま下見になるように）。
- */
-function getCustomerMapData(customerName) {
-  try {
-    var name = String(customerName || '').trim();
-    if (!name) return { ok: false, error: '顧客名が空です' };
-    return _buildCustomerMapPayload_(name);
-  } catch (err) {
-    console.error('[地図] getCustomerMapData: ' + err.message);
-    return { ok: false, error: err.message };
-  }
-}

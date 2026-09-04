@@ -5357,6 +5357,9 @@ function getCustomerDetail(customerName) {
   // 止まっているのに画面では「配信中」と出ていて、止まっていることに気づけなかったので、
   // 理由が分かるように返す。
   info.mailStoppedByLine = _isEmailLineRegistered_(info.email);
+  // 送付済み物件の地図ページ(map.html)のURL。お客様に渡すのと同じもの。
+  // いまは社内で下見するためだけに使う（お客様には配っていない）。
+  try { info.mapUrl = getCustomerMapUrl(customerName).url || ''; } catch (eMap) { info.mapUrl = ''; }
 
   // 自動返信メール履歴（reply.py が記録する「メール送信履歴」を、この顧客のメールで集約）
   info.mailHistory = [];
