@@ -23,13 +23,21 @@ var MAP_GEOCODE_PER_REQUEST = 25;
 
 /**
  * 顧客ごとのトークン。URLに顧客名を出さないためのもの。
- * 配信停止リンク(_generateUnsubscribeToken)と同じ作り方に揃えてある。
+ *
+ * ⚠️ computeDigest は必ず UTF_8 を指定すること。
+ *   2引数版 computeDigest(algorithm, value) は非ASCIIを扱えず、日本語を
+ *   すべて '?' に潰してしまう。その結果「同じ文字数の日本語名は全員同じ
+ *   トークン」になり、大江さま(4文字)の地図を開くと近藤麻美(4文字)の地図が
+ *   出ていた（引き当ては先頭から探すので、その文字数で最初に出てくる人が返る）。
+ *   配信停止リンク(_generateUnsubscribeToken)が無事なのは、ハッシュにかけるのが
+ *   メールアドレス＝ASCIIだから。あちらは既に配ったリンクが変わってしまうので触らない。
  */
 function _customerMapToken_(customerName) {
   var secret = PropertiesService.getScriptProperties().getProperty('UNSUBSCRIBE_SECRET')
     || 'ehomaki_unsub_2026';
   var raw = 'map:' + String(customerName || '').trim() + secret;
-  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw);
+  var digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256, raw, Utilities.Charset.UTF_8);
   return digest.map(function (b) {
     var v = (b < 0) ? b + 256 : b;
     return ('0' + v.toString(16)).slice(-2);
