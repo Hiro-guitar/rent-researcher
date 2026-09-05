@@ -1117,6 +1117,95 @@ function addStaffIp(prefix) {
   return msg;
 }
 
+/**
+ * IPから登録用の前半を作る。末尾は変わるので落とす。
+ *   IPv6: 先頭4ブロック  2405:1201:c08a:3a00:e936:... → 2405:1201:c08a:3a00
+ *   IPv4: 先頭3つ        203.0.113.77                 → 203.0.113.
+ */
+function _ipPrefixForStaff_(ip) {
+  ip = String(ip || '').trim().toLowerCase();
+  if (!ip) return '';
+  if (ip.indexOf(':') >= 0) {
+    var g = ip.split(':').filter(function (x) { return x !== ''; });
+    return g.slice(0, 4).join(':');
+  }
+  var o4 = ip.split('.');
+  return (o4.length === 4) ? (o4.slice(0, 3).join('.') + '.') : ip;
+}
+
+/**
+ * 【手動実行】直近の閲覧を新しい順に10件出す。どれが自分か確かめるためのもの。
+ * シートは読むだけ。
+ */
+function listRecentViewIps() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return '閲覧の記録がありません';
+  var last = sheet.getLastRow();
+  var from = Math.max(2, last - 300);
+  var data = sheet.getRange(from, 1, last - from + 1, 19).getValues();
+  var rows = [];
+  for (var i = data.length - 1; i >= 0 && rows.length < 10; i--) {
+    if (String(data[i][2] || '') !== 'view') continue;
+    var d = data[i][8];
+    var when = (d instanceof Date)
+      ? Utilities.formatDate(d, 'Asia/Tokyo', 'MM/dd HH:mm') : String(d || '');
+    rows.push(when + ' / ' + String(data[i][12] || '(IPなし)')
+      + ' / ' + String(data[i][15] || '') + ' / ' + String(data[i][17] || '').slice(0, 40));
+  }
+  if (!rows.length) return '閲覧の記録がありません';
+  Logger.log('直近の閲覧（新しい順）: 日時 / IP / 市区町村 / 端末');
+  for (var r = 0; r < rows.length; r++) Logger.log('  ' + rows[r]);
+  return rows.length + '件（詳細は実行ログ）';
+}
+
+/**
+ * 【手動実行】いちばん新しい閲覧のIPを、担当者のIPとして登録する。
+ *
+ * 使い方: 除外したい端末で物件ページを1つ開いてから、すぐこれを実行する。
+ * ⚠️ 直後にお客様が閲覧すると、その方のIPを拾ってしまう。
+ *   登録した内容は実行ログに出るので、違っていたら clearStaffIps でやり直す。
+ */
+function addMyIpFromLatestView() {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) return '閲覧の記録がありません';
+  var last = sheet.getLastRow();
+  var from = Math.max(2, last - 300);
+  var data = sheet.getRange(from, 1, last - from + 1, 19).getValues();
+  for (var i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][2] || '') !== 'view') continue;
+    var ip = String(data[i][12] || '').trim();
+    if (!ip) continue;
+    var pre = _ipPrefixForStaff_(ip);
+    if (!pre) continue;
+    var props = PropertiesService.getScriptProperties();
+    var list = [];
+    try { list = JSON.parse(props.getProperty('STAFF_IPS') || '[]'); } catch (e) { list = []; }
+    if (list.indexOf(pre) < 0) list.push(pre);
+    props.setProperty('STAFF_IPS', JSON.stringify(list));
+    var d = data[i][8];
+    var when = (d instanceof Date)
+      ? Utilities.formatDate(d, 'Asia/Tokyo', 'MM/dd HH:mm') : String(d || '');
+    var msg = '登録しました: ' + pre
+      + '\n  もとにした閲覧: ' + when + ' / ' + ip
+      + ' / ' + String(data[i][15] || '') + ' / ' + String(data[i][17] || '').slice(0, 40)
+      + '\n  現在の一覧: ' + list.join(', ')
+      + '\n※ 心当たりのない閲覧なら clearStaffIps で消してやり直してください。';
+    Logger.log(msg);
+    return msg;
+  }
+  return 'IPの記録がある閲覧が見つかりませんでした';
+}
+
+/** 【手動実行】担当者のIPをすべて消す。 */
+function clearStaffIps() {
+  PropertiesService.getScriptProperties().deleteProperty('STAFF_IPS');
+  var msg = '担当者IPをすべて消しました。以降はすべての閲覧が記録されます。';
+  Logger.log(msg);
+  return msg;
+}
+
 /** 【手動実行】担当者のIP一覧を見る。 */
 function listStaffIps() {
   var raw = PropertiesService.getScriptProperties().getProperty('STAFF_IPS') || '[]';
