@@ -294,8 +294,16 @@ function _mapPropFromPending_(customerName, roomId, p, coord) {
     images: imgs,
     image: imgs[0] || '',
     lat: coord.lat, lng: coord.lng,
-    url: 'https://form.ehomaki.com/property.html?customer='
-      + encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId)
+    // LINEに載せたURLをそのまま使う。?id= が付いていて、GASを介さず
+    // エッジから即開ける。LINEから開くと一瞬なのに地図からだと待たされる、
+    // という差はこれが原因だった。
+    // 古い行でURLが残っていないときだけ、従来の遅い形にする。
+    // ⚠️ id= の判定は [?&] を必ず前に置くこと。'room_id=' にも 'id=' が
+    //    含まれるので、素の indexOf だと古いURLまで通ってしまう。
+    url: (/^https?:\/\//.test(p.viewUrl || '') && /[?&]id=[^&]/.test(p.viewUrl))
+      ? p.viewUrl
+      : ('https://form.ehomaki.com/property.html?customer='
+         + encodeURIComponent(customerName) + '&room_id=' + encodeURIComponent(roomId))
   };
 }
 

@@ -3618,7 +3618,10 @@ function _pendingRowToFlexProp_(row) {
       imageUrl: imgs[0] || '',
       url: d.url || '',
       reinsPropertyNumber: d.reins_property_number || '',
-      staffComment: String(row[14] || '')  // O列(15): 担当者コメント
+      staffComment: String(row[14] || ''), // O列(15): 担当者コメント
+      // N列(14): 送信時にLINEへ載せた物件ページのURL。
+      // ?id=<エッジのID> が付いていて、GASを介さず即開ける。
+      viewUrl: String(row[13] || '')
     };
   } catch (e) {
     return null;
