@@ -1079,6 +1079,67 @@ function handleTrackView(e) {
 var ACTION_LOG_SHEET_NAME = 'アクションログ';
 
 // action_type: 'hold', 'viewing', 'favorite', 'not_interested', 'clear'
+/**
+ * 担当者のIPか。ScriptProperties の STAFF_IPS（JSONの配列）と前方一致で見る。
+ *
+ * IPv6は末尾が変わるので、前半だけ入れておけばよい。
+ *   例: ["2405:1201:c08a:3a00", "203.0.113."]
+ * 追加・確認・削除は addStaffIp / listStaffIps / removeStaffIp から。
+ */
+function _isStaffIp_(ip) {
+  ip = String(ip || '').trim().toLowerCase();
+  if (!ip) return false;
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty('STAFF_IPS');
+    if (!raw) return false;
+    var list = JSON.parse(raw);
+    for (var i = 0; i < list.length; i++) {
+      var pre = String(list[i] || '').trim().toLowerCase();
+      if (pre && ip.indexOf(pre) === 0) return true;
+    }
+  } catch (e) {
+    console.warn('[閲覧] 担当者IPの判定に失敗: ' + e.message);
+  }
+  return false;
+}
+
+/** 【手動実行】担当者のIP（前半だけでよい）を足す。 */
+function addStaffIp(prefix) {
+  var pre = String(prefix || '').trim().toLowerCase();
+  if (!pre) return 'IPを渡してください。例: addStaffIp("2405:1201:c08a:3a00")';
+  var props = PropertiesService.getScriptProperties();
+  var list = [];
+  try { list = JSON.parse(props.getProperty('STAFF_IPS') || '[]'); } catch (e) { list = []; }
+  if (list.indexOf(pre) < 0) list.push(pre);
+  props.setProperty('STAFF_IPS', JSON.stringify(list));
+  var msg = '担当者IPに追加しました: ' + pre + '\n現在の一覧: ' + list.join(', ');
+  Logger.log(msg);
+  return msg;
+}
+
+/** 【手動実行】担当者のIP一覧を見る。 */
+function listStaffIps() {
+  var raw = PropertiesService.getScriptProperties().getProperty('STAFF_IPS') || '[]';
+  var msg = '担当者IP: ' + raw;
+  Logger.log(msg);
+  return msg;
+}
+
+/** 【手動実行】担当者のIPを外す。 */
+function removeStaffIp(prefix) {
+  var pre = String(prefix || '').trim().toLowerCase();
+  var props = PropertiesService.getScriptProperties();
+  var list = [];
+  try { list = JSON.parse(props.getProperty('STAFF_IPS') || '[]'); } catch (e) { list = []; }
+  var idx = list.indexOf(pre);
+  if (idx >= 0) list.splice(idx, 1);
+  props.setProperty('STAFF_IPS', JSON.stringify(list));
+  var msg = (idx >= 0 ? '外しました: ' + pre : '見つかりませんでした: ' + pre)
+    + '\n現在の一覧: ' + list.join(', ');
+  Logger.log(msg);
+  return msg;
+}
+
 function handlePropertyAction(e) {
   var customerName = e.parameter.customer;
   var roomId = e.parameter.room_id;
@@ -1117,6 +1178,19 @@ function handlePropertyAction(e) {
 
   if (!customerName || !roomId || !actionType) {
     return ContentService.createTextOutput(JSON.stringify({ error: 'missing parameters' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // 担当者自身の閲覧は記録しない。
+  //
+  // ブラウザ側にも同じ仕組みがある（property.html の admin_mode）が、
+  // LINEアプリ内のブラウザは保存領域が別で、しかも消えることがあるため
+  // 設定しても効かない。IPで見るこちらがその受け皿になる。
+  // 対象は閲覧だけ。申込や内見希望は、担当者が誤って押した場合でも
+  // 気づけたほうがよいので残す。
+  if (actionType === 'view' && _isStaffIp_(trackIp)) {
+    console.log('[閲覧] 担当者のIPなので記録しない: ' + trackIp);
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, skipped: 'staff_ip' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
