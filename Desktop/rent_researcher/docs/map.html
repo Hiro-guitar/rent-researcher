@@ -26,7 +26,8 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
    しずく型＋白フチ＋濃い影で、地図の上に浮いて見えるようにする。 */
 .pin{width:26px;height:26px;background:#E5533D;border:3px solid #fff;
   border-radius:50% 50% 50% 0;transform:rotate(-45deg);
-  box-shadow:0 3px 8px rgba(0,0,0,.45);transition:transform .12s}
+  box-shadow:0 3px 8px rgba(0,0,0,.45);transition:transform .12s;
+  position:absolute;left:50%;top:50%;margin:-13px 0 0 -13px}
 .pin::after{content:"";position:absolute;left:50%;top:50%;
   width:8px;height:8px;margin:-4px 0 0 -4px;background:#fff;border-radius:50%}
 /* 同じ建物に複数のお部屋があるピンは、白丸のかわりに件数を出す */
@@ -61,6 +62,33 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 .pop .room{border-top:1px solid #eee;padding:9px 2px}
 .pop .room:first-child{border-top:none}
 .leaflet-popup-content{margin:10px}
+/* ── スマホ ──
+   ふきだしは画面が狭いと収まりきらず、上下が見切れる。
+   狭い画面では、ピンを押したら画面下から出るシートに切り替える。 */
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:#fff;
+  border-radius:16px 16px 0 0;box-shadow:0 -4px 24px rgba(0,0,0,.28);
+  max-height:72vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:16px 14px calc(18px + env(safe-area-inset-bottom));
+  transform:translateY(100%);transition:transform .18s ease-out}
+.sheet.open{transform:translateY(0)}
+/* 画像の上に重なっても見えるよう、白い丸にする */
+.sheet-x{position:absolute;right:10px;top:10px;width:34px;height:34px;border:none;
+  background:rgba(255,255,255,.94);border-radius:50%;box-shadow:0 1px 5px rgba(0,0,0,.28);
+  font-size:20px;line-height:34px;padding:0;color:#555;cursor:pointer;z-index:2}
+.sheet .pop{width:auto}
+.sheet .imgs .main img{height:180px}
+.sheet .imgs .side{flex:0 0 76px}
+.sheet .imgs .side img{width:76px;height:58px}
+.sheet .rooms{max-height:none;overflow:visible}
+@media (max-width: 520px) {
+  header h1{font-size:15px}
+  /* 小さい字はスマホだと読めないので底上げする */
+  .pop .money, .pop .addr, .pop .sta, .pop .memo, .pop .cnt{font-size:12px}
+  .pop .tag{font-size:12px}
+  .pop .nm{font-size:15px}
+  .pop .rent{font-size:21px}
+  .pop a.btn{padding:12px 0;font-size:14px}
+}
 /* 下向きに出したふきだしは、下を指す三角を消す（指す先が無いため） */
 .leaflet-popup.below .leaflet-popup-tip-container{display:none}
 .note{flex:none;background:#fff;border-top:1px solid #eee;padding:9px 16px;font-size:11px;color:#999;text-align:center}
@@ -73,6 +101,10 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 </header>
 <div class="state" id="state"><div class="spinner"></div><p>お部屋を探しています…</p></div>
 <div id="map" style="display:none"></div>
+<div class="sheet" id="sheet" style="display:none">
+  <button class="sheet-x" id="sheetClose" aria-label="閉じる">×</button>
+  <div id="sheetBody"></div>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -121,6 +153,24 @@ if (!token) {
       showState('<h2>読み込めませんでした</h2><p>通信の状態を確かめて、もう一度お開きください。</p>');
     });
 }
+
+// 画面が狭いか（スマホか）。狭いときはふきだしではなく、下から出るシートにする。
+var isNarrow = window.matchMedia('(max-width: 520px)').matches;
+
+function openSheet(html) {
+  var sheet = document.getElementById('sheet');
+  document.getElementById('sheetBody').innerHTML = html;
+  sheet.style.display = 'block';
+  // display を変えた直後だと動きが出ないので、1フレーム置いてから開く
+  requestAnimationFrame(function () { sheet.classList.add('open'); });
+}
+function closeSheet() {
+  var sheet = document.getElementById('sheet');
+  if (!sheet.classList.contains('open')) return;
+  sheet.classList.remove('open');
+  setTimeout(function () { sheet.style.display = 'none'; }, 200);
+}
+document.getElementById('sheetClose').addEventListener('click', closeSheet);
 
 // LINEで送っているカードと同じ形。地図のふきだしにもこれを出す。
 function cardHtml(p, compact) {
@@ -216,8 +266,9 @@ function render(d) {
       className: '',
       html: '<div class="pin' + (many ? ' multi' : '') + '">'
         + (many ? '<span class="n">' + list.length + '</span>' : '') + '</div>',
-      iconSize: [32, 32],
-      iconAnchor: [16, 30],   // しずくの先端が場所を指すように
+      // スマホは指で押すので当たり判定を広めに取る
+      iconSize: isNarrow ? [44, 44] : [32, 32],
+      iconAnchor: isNarrow ? [22, 36] : [16, 30],   // しずくの先端が場所を指すように
       popupAnchor: [0, -30]
     });
     var m = L.marker([head.lat, head.lng], { icon: icon }).addTo(map);
@@ -237,6 +288,14 @@ function render(d) {
     }
     html += '</div>';
 
+    if (isNarrow) {
+      // スマホ。押したら下からシートを出す。ふきだしは画面に収まらないので使わない。
+      m.on('click', function () { openSheet(html); });
+      bounds.push([head.lat, head.lng]);
+      return;
+    }
+
+    // autoPan を切る。上の方のピンを見るたびに地図が勝手に動いてしまうため。
     m.bindPopup(html, { autoPan: false });
 
     // 重ねると出て、離すと消す。
@@ -275,6 +334,7 @@ function render(d) {
 
     bounds.push([head.lat, head.lng]);
   });
+  if (isNarrow) map.on('click', closeSheet);
   map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
 
 }
