@@ -315,8 +315,37 @@ var params = new URLSearchParams(window.location.search);
 var customer = params.get('customer');
 var roomId = params.get('room_id');
 
+// 担当者モード: ?admin_mode=1 で開くと、このブラウザでは以降アクセスを記録しない。
+//
+// ⚠️ 物件の描画より先にやること。以前は描画のあと(renderProperty内)で
+//   保存していたため、存在しない物件IDで開くとエラー表示で止まり、
+//   印が保存されなかった。
+// 設定したことが分かるように、物件は出さず確認だけを出して終わる。
+// こうすれば設定のためにお客様の物件を開かずに済み、閲覧履歴も汚さない。
+var _adminSetup = /[?&]admin_mode=1/.test(location.search);
+if (_adminSetup) {
+  // 物件を読みに行かせないため、識別子も落とす
+  customer = null; roomId = null;
+  try { localStorage.setItem('admin_mode', '1'); } catch (e) {}
+  var _ok = true;
+  try { _ok = localStorage.getItem('admin_mode') === '1'; } catch (e) { _ok = false; }
+  document.body.innerHTML =
+    '<div class="error-card" style="border-top:4px solid ' + (_ok ? '#6ea814' : '#E05252') + ';">'
+    + '<h2 style="color:' + (_ok ? '#4b7d0f' : '#E05252') + ';">'
+    + (_ok ? '担当者モードにしました' : '設定できませんでした') + '</h2>'
+    + '<p>' + (_ok
+        ? 'このブラウザからの閲覧は、今後どの物件でも記録されません。<br>'
+          + 'この設定は1回だけで、物件ごとに行う必要はありません。<br><br>'
+          + '<span style="color:#888;font-size:13px;">'
+          + '端末やブラウザを変えたときは、それぞれで1回ずつ設定してください。<br>'
+          + 'シークレットウィンドウでは保存されません。</span>'
+        : 'ブラウザの設定でデータを保存できない状態です。<br>'
+          + 'シークレットウィンドウを使っている場合は、通常のウィンドウでお試しください。')
+    + '</p></div>';
+}
+
 // 顧客名は即座にスケルトンへ注入（パーソナライズ感を最初に出す）
-if (customer) {
+if (!_adminSetup && customer) {
   var sc = document.getElementById('skelCustomer');
   if (sc) sc.textContent = customer + ' 様専用ページ';
   document.title = customer + ' 様の物件情報';
@@ -390,7 +419,7 @@ function renderNowSafe(p) {
 
 // ?id= があれば、ehomaki(Cloudflareエッジ)から全データを取得して即フル描画する。
 // URL上限に縛られず全項目・全画像を持てるので、view_api 待ち無しで最初から全部出る。
-var idParam = params.get('id');
+var idParam = _adminSetup ? '' : params.get('id');
 if (idParam) {
   var EHOMAKI_BASE = 'https://ehomaki-img.delicate-bush-f5a9.workers.dev';
   // データ(/d)と募集終了判定(/c)を並行取得。/c はエッジで数十msなので描画は実質即時のまま、
@@ -448,7 +477,7 @@ if (idParam) {
   //    スケルトンの本体は隠してシンプルな読込画面のみ表示する
   showSimpleLoading();
   fetchProperty(customer, roomId);
-} else {
+} else if (!_adminSetup) {
   showError('パラメータが不足しています。');
 }
 
@@ -1289,10 +1318,7 @@ function renderProperty(p) {
     }, 300);
   }
 
-  // 管理者モード: ?admin_mode=1 でアクセスするとフラグ保存、以降トラッキングしない
-  if (/[?&]admin_mode=1/.test(location.search)) {
-    try { localStorage.setItem('admin_mode', '1'); } catch(e) {}
-  }
+  // 担当者モードの保存は初期化の先頭で済ませている（描画前に効かせるため）
   var isAdmin = false;
   try { isAdmin = localStorage.getItem('admin_mode') === '1'; } catch(e) {}
 
