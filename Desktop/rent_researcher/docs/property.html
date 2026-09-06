@@ -74,17 +74,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
    区切りの / の前後には実際の空白を入れてあるので、改行はそこで起きる。 */
 .title-access,.title-specs{text-align:center;font-size:13px;color:#5a6472;line-height:1.5;font-weight:600;word-break:keep-all;overflow-wrap:break-word}
 .title-specs .sep{color:#c8cdd4;margin:0 4px;font-weight:400}
-/* 物件名の右にお気に入り（星）。申込・内見と縦に並べず横に逃がすことで、
+/* 物件名の右にお気に入り（ハート）。申込・内見と縦に並べず横に逃がすことで、
    同格に見せず「この物件を保存する」操作だと分かるようにする。 */
-/* 専用ページのバッジと同じ行。左＝バッジ、右端＝お気に入りの星。 */
+/* 専用ページのバッジと同じ行。左＝バッジ、右端＝お気に入り。 */
+/* 色と記号は地図ページ(map.html)のお気に入りピンと揃えている。片方だけ変えないこと。
+   class名は .fav-star のままだが、見た目はハート。 */
 .top-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .fav-star{flex:0 0 auto;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
-  padding:6px 8px;margin-top:2px;border:1px solid #f0d9a8;border-radius:10px;background:#fffbeb;
-  color:#D97706;cursor:pointer;transition:all 0.2s;line-height:1}
+  padding:6px 8px;margin-top:2px;border:1px solid #f7c9dd;border-radius:10px;background:#fff5f9;
+  color:#E0397B;cursor:pointer;transition:all 0.2s;line-height:1}
 .fav-star:active{transform:scale(0.94)}
 .fav-star .fav-star-icon{font-size:20px}
 .fav-star .fav-star-text{font-size:10px;font-weight:700;white-space:nowrap}
-.fav-star.active{background:#F59E0B;border-color:#D97706;color:#fff;box-shadow:0 2px 8px rgba(245,158,11,0.3)}
+.fav-star.active{background:#E0397B;border-color:#C42A66;color:#fff;box-shadow:0 2px 8px rgba(224,57,123,0.3)}
 /* バッジ〜物件名〜賃料〜ボタンを1枚のカードに入れる。
    以前は賃料だけ濃紺の箱に入れていて、そこだけ浮いて見えていた。
    カードの見た目は .section と揃える（ここだけ濃い枠にすると後付けに見える）。 */
@@ -985,7 +987,7 @@ function renderProperty(p) {
   // 専用ページのバッジと同じ行の右端にお気に入り（星）を置く。
   // 申込・内見と縦に並べると同格に見えるため、主導線から外して右上に逃がす。
   var favStarHtml = (customer && roomId)
-    ? '<button class="fav-star" id="favBtn" onclick="sendFeedback(\'favorite\')" aria-label="お気に入りに追加"><span class="fav-star-icon">☆</span><span class="fav-star-text">お気に入り</span></button>'
+    ? '<button class="fav-star" id="favBtn" onclick="sendFeedback(\'favorite\')" aria-label="お気に入りに追加"><span class="fav-star-icon">♡</span><span class="fav-star-text">お気に入り</span></button>'
     : '';
   // バッジ〜物件名〜賃料〜ボタンまでを1枚のカードにまとめる。
   // 賃料だけ濃紺の箱にしていたので、そこだけ浮いて見えていた。
@@ -1468,12 +1470,12 @@ function updateFeedbackUI(action) {
   favBtn.classList.remove('active');
   if (nopeBtn) nopeBtn.classList.remove('active');
 
-  // 星ボタンは中に icon/text の2要素を持つので textContent で丸ごと書き換えない
+  // お気に入りボタンは中に icon/text の2要素を持つので textContent で丸ごと書き換えない
   var favIcon = favBtn.querySelector('.fav-star-icon');
   var favText = favBtn.querySelector('.fav-star-text');
   var isFav = (action === 'favorite');
   if (isFav) favBtn.classList.add('active');
-  if (favIcon) favIcon.textContent = isFav ? '★' : '☆';
+  if (favIcon) favIcon.textContent = isFav ? '♥' : '♡';
   if (favText) favText.textContent = isFav ? 'お気に入り済み' : 'お気に入り';
 
   if (nopeBtn) {
