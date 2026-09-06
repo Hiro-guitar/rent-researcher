@@ -36,10 +36,11 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
   transform:rotate(45deg);display:flex;align-items:center;justify-content:center;
   color:#fff;font-size:12px;font-weight:800}
 .leaflet-marker-icon:hover .pin{transform:rotate(-45deg) scale(1.18)}
-/* お気に入りのピンは色を変えてハートにする。地図を見た瞬間に分かるように。 */
-.pin.fav{background:#E0397B}
-.pin.fav::after{content:"♥";width:auto;height:auto;margin:0;background:none;border-radius:0;
-  transform:translate(-50%,-50%) rotate(45deg);color:#fff;font-size:12px;line-height:1}
+/* お気に入りのピンは、物件ページのお気に入りボタンと同じオレンジ＋星にする。
+   赤ピンとの見分けがつきにくかったため、色も記号も物件ページに揃えた。 */
+.pin.fav{background:#F59E0B;border-color:#fff}
+.pin.fav::after{content:"★";width:auto;height:auto;margin:0;background:none;border-radius:0;
+  transform:translate(-50%,-50%) rotate(45deg);color:#fff;font-size:14px;line-height:1}
 /* ふきだし。LINEで送っているカードと同じ見た目・同じ項目にする。 */
 .pop{width:264px}
 /* 画像は最大4枚。LINEと同じく、1枚目を大きく、残りを右に並べる */
@@ -49,8 +50,9 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 .imgs .side{display:flex;flex-direction:column;gap:3px;flex:0 0 62px}
 .imgs .side img{width:62px;height:42px;object-fit:cover;background:#f2f3f5;border-radius:6px;display:block}
 .pop .nm{font-size:14px;font-weight:700;color:#1a2538;line-height:1.4;margin-bottom:2px}
-.pop .fav-badge{display:inline-block;background:#E0397B;color:#fff;font-size:10px;font-weight:700;
-  border-radius:4px;padding:2px 6px;margin-bottom:4px}
+/* 物件ページのお気に入りボタン(.fav-star)と同じ配色にする */
+.pop .fav-badge{display:inline-block;background:#F59E0B;color:#fff;font-size:10px;font-weight:700;
+  border-radius:6px;padding:3px 8px;margin-bottom:5px}
 .pop .rent{font-size:19px;font-weight:800;color:#E5533D;line-height:1.2}
 .pop .rent small{font-size:11px;font-weight:600;color:#888;margin-left:2px}
 .pop .money{font-size:11px;color:#666;line-height:1.6;margin-top:2px}
@@ -193,7 +195,7 @@ function cardHtml(p, compact) {
     }
     h += '</div>';
   }
-  if (p.favorite) h += '<div class="fav-badge">♥ お気に入り</div>';
+  if (p.favorite) h += '<div class="fav-badge">★ お気に入り</div>';
   h += '<div class="nm">' + esc(compact ? (p.room || p.name) : p.name) + '</div>';
   var rent = yen(p.rent);
   if (rent) h += '<div class="rent">' + rent + '<small>/月</small></div>';
