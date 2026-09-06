@@ -1372,6 +1372,9 @@ function handlePropertyAction(e) {
   var isFeedback = (actionType === 'favorite' || actionType === 'not_interested' || actionType === 'clear');
   if (isFeedback) {
     favoriteCount = countFavorites(sheet, customerName);
+    // 地図(map.html)のピンの色にも出るので、作り直しの印を付ける。
+    // お気に入りを付けた／外した／興味なしにした、のいずれでも見た目が変わる。
+    try { markCustomerMapDirty(customerName); } catch (eM) {}
   }
 
   // Discord 通知（clear 以外の全アクション）
