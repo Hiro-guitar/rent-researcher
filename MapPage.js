@@ -271,7 +271,7 @@ function _geocodeAddresses_(addresses, limit, deadlineMs, stats) {
  * 地図のふきだしに出す1件ぶん。LINEのカードと同じ項目を渡す。
  * 画像はLINEに合わせて最大4枚。
  */
-function _mapPropFromPending_(customerName, roomId, p, coord) {
+function _mapPropFromPending_(customerName, roomId, p, coord, isFavorite) {
   var imgs = (p.imageUrls && p.imageUrls.length) ? p.imageUrls.slice(0, 4)
     : (p.imageUrl ? [p.imageUrl] : []);
   return {
@@ -291,6 +291,7 @@ function _mapPropFromPending_(customerName, roomId, p, coord) {
     station: p.stationInfo || '',
     otherStations: p.otherStations || [],
     staffComment: p.staffComment || '',
+    favorite: !!isFavorite,
     images: imgs,
     image: imgs[0] || '',
     lat: coord.lat, lng: coord.lng,
@@ -348,7 +349,7 @@ function _buildCustomerMapPayload_(name) {
       var c = key ? coords[key] : null;
       if (!c) { noCoord++; continue; }
       takenRooms[rk] = true;
-      props.push(_mapPropFromPending_(name, p.roomId, p, c));
+      props.push(_mapPropFromPending_(name, p.roomId, p, c, p.favorite));
     }
 
     return {
@@ -492,6 +493,24 @@ function _rebuildMapsFor_(names) {
     }
   }
 
+  // ── お気に入りを1回だけ読む ──
+  // favorite / not_interested / clear のうち、最後に押されたものが今の状態。
+  // （LINEのお気に入り一覧と同じ見方に揃えてある）
+  var favByKey = {};
+  try {
+    var aSheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
+    if (aSheet && aSheet.getLastRow() >= 2) {
+      var aData = aSheet.getDataRange().getValues();
+      for (var ai = 1; ai < aData.length; ai++) {
+        var act = String(aData[ai][2] || '').trim();
+        if (act !== 'favorite' && act !== 'not_interested' && act !== 'clear') continue;
+        favByKey[String(aData[ai][0]).trim() + '\u0000' + String(aData[ai][1]).trim()] = act;
+      }
+    }
+  } catch (eFav) {
+    console.warn('[地図] お気に入りの読み込みに失敗: ' + eFav.message);
+  }
+
   // ── 顧客ごとに、地図に出す物件を組み立てる ──
   var byCustomer = {};
   var addresses = [];
@@ -533,6 +552,12 @@ function _rebuildMapsFor_(names) {
     list.sort(function (a, b) {
       return String(b.sentAt || '').localeCompare(String(a.sentAt || ''));
     });
+    // お気に入りは先に並べる。同じ建物に複数あるとき、上に出るようにするため。
+    list.sort(function (a, b) {
+      var fa = favByKey[cname + '\u0000' + String(a.roomId).trim()] === 'favorite' ? 0 : 1;
+      var fb = favByKey[cname + '\u0000' + String(b.roomId).trim()] === 'favorite' ? 0 : 1;
+      return fa - fb;
+    });
     // list は送信が新しい順に並べてある。同じお部屋は最初のものだけ残す。
     var props = [];
     var noCoord = 0;
@@ -544,7 +569,8 @@ function _rebuildMapsFor_(names) {
       var c = coords[_normalizeAddressForGeo_(p.address)];
       if (!c) { noCoord++; noCoordByCustomer[cname] = true; continue; }
       takenRooms[rk] = true;
-      props.push(_mapPropFromPending_(cname, it.roomId, p, c));
+      var isFav = favByKey[cname + '\u0000' + String(it.roomId).trim()] === 'favorite';
+      props.push(_mapPropFromPending_(cname, it.roomId, p, c, isFav));
     }
     try {
       _publishMapToEdge_(_customerMapToken_(cname), {
