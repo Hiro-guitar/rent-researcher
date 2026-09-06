@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ご紹介したお部屋の地図</title>
+<title>お部屋マップ</title>
 <link rel="preconnect" href="https://ehomaki-img.delicate-bush-f5a9.workers.dev" crossorigin>
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="dns-prefetch" href="https://script.google.com">
@@ -107,7 +107,7 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 </head>
 <body>
 <header>
-  <h1 id="title">ご紹介したお部屋の地図</h1>
+  <h1 id="title">お部屋マップ</h1>
   <div class="sub" id="sub">読み込んでいます…</div>
 </header>
 <div class="state" id="state"><div class="spinner"></div><p>お部屋を探しています…</p></div>
@@ -241,7 +241,7 @@ function render(d) {
   // 見出しはお客様が読む言葉にする。「◯◯様にお送りした」は送り手の言い方なので使わない。
   // 名前の出し方は物件ページ(property.html)の「◯◯ 様専用ページ」に揃える。
   var who = String(d.customer || '').trim();
-  document.getElementById('title').textContent = 'ご紹介したお部屋の地図';
+  document.getElementById('title').textContent = 'お部屋マップ';
   var props = d.properties || [];
   if (props.length === 0) {
     document.getElementById('sub').textContent = who ? who + ' 様専用ページ' : '';
