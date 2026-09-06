@@ -37,10 +37,13 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
   color:#fff;font-size:12px;font-weight:800}
 .leaflet-marker-icon:hover .pin{transform:rotate(-45deg) scale(1.18)}
 /* お気に入りはピンクのハート。物件詳細ページのお気に入りボタンと同じ色・同じ記号。
-   ⚠️ オレンジにしないこと。OSMの地図は主要道路がオレンジで、ピンが道に埋もれる。 */
-.pin.fav{background:#E0397B}
+   ⚠️ オレンジにしないこと。OSMの地図は主要道路がオレンジで、ピンが道に埋もれる。
+   ⚠️ ピンクは通常の赤と色相が近く、色だけでは見分けられない。
+     ひと回り大きくして白フチを太くし、色以外でも差がつくようにしている。 */
+.pin.fav{width:34px;height:34px;margin:-17px 0 0 -17px;background:#E0397B;border-width:4px;
+  box-shadow:0 3px 10px rgba(0,0,0,.5)}
 .pin.fav::after{content:"♥";width:auto;height:auto;margin:0;background:none;border-radius:0;
-  transform:translate(-50%,-50%) rotate(45deg);color:#fff;font-size:13px;line-height:1}
+  transform:translate(-50%,-50%) rotate(45deg);color:#fff;font-size:17px;line-height:1}
 /* ふきだし。LINEで送っているカードと同じ見た目・同じ項目にする。 */
 .pop{width:264px}
 /* 画像は最大4枚。LINEと同じく、1枚目を大きく、残りを右に並べる */
