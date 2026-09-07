@@ -107,8 +107,13 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
    地図だけだと「あの物件どれだっけ」が探せない。左に一覧を並べ、
    押したらその場所へ飛ぶようにする。絞り込みは建物名・住所・駅にかかる。 */
 .main{flex:1;display:flex;min-height:0}
-#list{flex:none;width:320px;background:#fff;border-right:1px solid #eee;
-  display:flex;flex-direction:column;min-height:0}
+/* 一覧の幅。畳むときはここを 0 にして縮める（--lw を中身の最小幅にも使う） */
+:root{--lw:320px}
+#list{flex:none;width:var(--lw);background:#fff;border-right:1px solid #eee;
+  display:flex;flex-direction:column;min-height:0;overflow:hidden;
+  transition:width .22s ease}
+/* 縮んでいる途中に中身がつぶれると文字が折り返して見苦しいので、幅を固定する */
+.list-head, .rows{min-width:var(--lw)}
 .list-head{flex:none;padding:10px;border-bottom:1px solid #f0f0f0;position:relative}
 .list-head input{width:100%;border:1px solid #e2e5ea;border-radius:8px;padding:8px 10px;
   font-size:13px;font-family:inherit;outline:none;-webkit-appearance:none}
@@ -135,17 +140,21 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
   padding:7px 12px;font-size:13px;font-weight:700;color:#33691e;font-family:inherit;cursor:pointer}
 .list-btn:hover{background:#f7faf2}
 /* PCで一覧を畳んだ状態。地図を広く使いたいときのため。 */
-#list.off{display:none}
+#list.off{width:0;border-right-color:transparent}
 .list-x{display:none;position:absolute;right:8px;top:8px;width:34px;height:34px;border:none;
   background:#f2f3f5;border-radius:50%;font-size:20px;line-height:34px;padding:0;color:#555;cursor:pointer}
 @media (max-width: 760px) {
-  #list{width:264px}
+  :root{--lw:264px}
 }
 @media (max-width: 520px) {
+  /* スマホは下から出す。詳細シートと同じ動き方に揃える。
+     display の切り替えだと動きが出ないので、隠すときは画面の下へ逃がす。 */
   #list{position:fixed;left:0;right:0;top:0;bottom:0;width:auto;z-index:1300;
-    border-right:none;display:none}
+    border-right:none;display:flex;transform:translateY(100%);visibility:hidden;
+    transition:transform .2s ease-out, visibility 0s linear .2s}
   /* スマホでは畳んだ状態(off)は使わない。全面に出すかどうかだけ。 */
-  #list.open{display:flex}
+  #list.open{transform:translateY(0);visibility:visible;transition:transform .2s ease-out}
+  .list-head, .rows{min-width:0}
   .list-head{padding:12px 52px 12px 12px}
   .list-x{display:block}
   .row .th{width:76px;height:57px}
@@ -323,7 +332,7 @@ function render(d) {
   var map = L.map('map', { scrollWheelZoom: true });
   theMap = map;
   // 前に畳んだままにしていたら、その状態で開く
-  if (!isNarrow) setListOff(readListOff());
+  if (!isNarrow) setListOff(readListOff(), true);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap'
@@ -559,12 +568,24 @@ var theMap = null;
 function readListOff() {
   try { return localStorage.getItem('mapListOff') === '1'; } catch (e) { return false; }
 }
-function setListOff(off) {
-  document.getElementById('list').classList.toggle('off', !!off);
+function setListOff(off, instant) {
+  var el = document.getElementById('list');
+  // 開いた瞬間に前回の状態を戻すときは、畳む動きを見せない
+  if (instant) {
+    el.style.transition = 'none';
+    setTimeout(function () { el.style.transition = ''; }, 0);
+  }
+  el.classList.toggle('off', !!off);
   document.getElementById('listBtn').textContent = off ? '▶ 一覧' : '◀ 一覧';
   try { localStorage.setItem('mapListOff', off ? '1' : '0'); } catch (e) {}
-  // 幅が変わったので地図に測り直させる。これをしないと畳んだ分が灰色のままになる。
-  if (theMap) theMap.invalidateSize();
+  // 幅が変わったので地図に測り直させる。動いている間ずっと測り直さないと、
+  // 広がった分が灰色のままで、終わってから一気にタイルが出ることになる。
+  if (!theMap) return;
+  var until = Date.now() + 400;
+  (function step() {
+    theMap.invalidateSize({ pan: false });
+    if (Date.now() < until) requestAnimationFrame(step);
+  })();
 }
 document.getElementById('listBtn').addEventListener('click', function () {
   if (isNarrow) { openList(); return; }
