@@ -269,6 +269,40 @@ function closeSheet() {
 }
 document.getElementById('sheetClose').addEventListener('click', closeSheet);
 
+// お客様が地図を開いたことを知らせる。画面には何も出さず、投げっぱなしにする。
+// 物件ページ(property.html)の閲覧トラッキングと同じやり方。
+// 担当者モードのブラウザからは送らない（サーバー側でもIPで弾いている）。
+var _mapViewSent = false;
+function trackMapView() {
+  if (_mapViewSent || !token) return;
+  try { if (localStorage.getItem('admin_mode') === '1') return; } catch (e) {}
+  _mapViewSent = true;
+  var ua = navigator.userAgent || '';
+  var base = GAS_API_URL + '?action=map_view&t=' + encodeURIComponent(token)
+    + '&ua=' + encodeURIComponent(ua)
+    + '&line=' + (/Line\//.test(ua) ? '1' : '0');
+  var sent = false;
+  function send(extra) {
+    if (sent) return;
+    sent = true;
+    try { fetch(base + extra, { redirect: 'follow' }).catch(function () {}); } catch (e) {}
+  }
+  // 場所が引けないこともあるので、3秒で待つのをやめて送る
+  setTimeout(function () { send(''); }, 3000);
+  try {
+    fetch('https://ipapi.co/json/')
+      .then(function (r) { return r.json(); })
+      .then(function (geo) {
+        send('&ip=' + encodeURIComponent(geo.ip || '')
+          + '&country=' + encodeURIComponent(geo.country_name || '')
+          + '&region=' + encodeURIComponent(geo.region || '')
+          + '&city=' + encodeURIComponent(geo.city || '')
+          + '&isp=' + encodeURIComponent(geo.org || ''));
+      })
+      .catch(function () { send(''); });
+  } catch (e) { send(''); }
+}
+
 // LINEで送っているカードと同じ形。地図のふきだしにもこれを出す。
 function cardHtml(p, compact) {
   var h = '';
@@ -324,6 +358,7 @@ function render(d) {
     showState('<h2>リンクが正しくありません</h2><p>' + esc((d && d.error) || '') + '</p>');
     return;
   }
+  trackMapView();
   // 見出しはお客様が読む言葉にする。「◯◯様にお送りした」は送り手の言い方なので使わない。
   // 名前の出し方は物件ページ(property.html)の「◯◯ 様専用ページ」に揃える。
   var who = String(d.customer || '').trim();
