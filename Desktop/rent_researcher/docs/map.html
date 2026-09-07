@@ -123,7 +123,8 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
   border-bottom:1px solid #f4f4f4;cursor:pointer}
 .row:hover{background:#f7faf2}
 .row.on{background:#eef3e6}
-.row .th{width:62px;height:46px;flex:none;object-fit:cover;background:#f2f3f5;border-radius:6px}
+/* 間取り図は切ると読めなくなるので、切り抜かず全体を収める（ふきだしの画像と同じ） */
+.row .th{width:62px;height:46px;flex:none;object-fit:contain;background:#f2f3f5;border-radius:6px}
 .row .ri{flex:1;min-width:0}
 .row .rn{font-size:12px;font-weight:700;color:#1a2538;line-height:1.4}
 .row .rr{font-size:13px;font-weight:800;color:#E5533D;margin-top:2px}
