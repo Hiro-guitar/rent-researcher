@@ -109,7 +109,7 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 /* 一覧は地図に重ねる。畳むときに地図の大きさを変えると、見ていた場所が
    ずれて気持ち悪いため。地図はいつも全幅のままで、一覧が上に乗る。 */
 .main{flex:1;display:flex;min-height:0;position:relative}
-:root{--lw:320px}
+:root{--lw:352px}
 #list{position:absolute;left:0;top:0;bottom:0;width:var(--lw);z-index:1000;
   background:#fff;border-right:1px solid #eee;box-shadow:2px 0 10px rgba(0,0,0,.07);
   display:flex;flex-direction:column;transition:transform .22s ease}
@@ -123,8 +123,11 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
   border-bottom:1px solid #f4f4f4;cursor:pointer}
 .row:hover{background:#f7faf2}
 .row.on{background:#eef3e6}
-/* 間取り図は切ると読めなくなるので、切り抜かず全体を収める（ふきだしの画像と同じ） */
-.row .th{width:62px;height:46px;flex:none;object-fit:contain;background:#f2f3f5;border-radius:6px}
+/* サムネは2枚。1枚だと間取りだけ・外観だけになり、どの部屋か分かりにくい。
+   間取り図は切ると読めなくなるので、切り抜かず全体を収める（ふきだしの画像と同じ）。
+   2枚目が無い部屋も枠だけ置いて、文字の始まる位置を揃える。 */
+.row .ths{flex:none;display:flex;gap:3px}
+.row .th{width:58px;height:46px;object-fit:contain;background:#f2f3f5;border-radius:6px;display:block}
 .row .ri{flex:1;min-width:0}
 .row .rn{font-size:12px;font-weight:700;color:#1a2538;line-height:1.4}
 .row .rr{font-size:13px;font-weight:800;color:#E5533D;margin-top:2px}
@@ -169,7 +172,7 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
   #list ~ #map .leaflet-top.leaflet-left{margin-left:0}
   .list-head{padding:12px 52px 12px 12px}
   .list-x{display:block}
-  .row .th{width:76px;height:57px}
+  .row .th{width:72px;height:56px}
   .row .rn{font-size:13px}
   .row .rr{font-size:14px}
   .row .rs{font-size:12px}
@@ -503,15 +506,19 @@ function buildList(props, markers, popups, map) {
     var imgs = p.images && p.images.length ? p.images : (p.image ? [p.image] : []);
     var find = [p.name, p.building, p.room, p.address, p.station, p.layout]
       .concat(p.otherStations || []).join(' ').toLowerCase();
-    return { i: i, p: p, key: key, img: imgs[0] || '', find: find };
+    return { i: i, p: p, key: key, imgs: imgs.slice(0, 2), find: find };
   });
 
   function rowHtml(it) {
     var p = it.p;
     var h = '<div class="row" data-i="' + it.i + '">';
-    h += it.img
-      ? '<img class="th" src="' + esc(it.img) + '" alt="" loading="lazy">'
-      : '<div class="th"></div>';
+    h += '<div class="ths">';
+    for (var n = 0; n < 2; n++) {
+      h += it.imgs[n]
+        ? '<img class="th" src="' + esc(it.imgs[n]) + '" alt="" loading="lazy">'
+        : '<div class="th"></div>';
+    }
+    h += '</div>';
     h += '<div class="ri"><div class="rn">' + esc(p.name) + '</div>';
     var rent = yen(p.rent);
     var meta = [];
