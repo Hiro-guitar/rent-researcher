@@ -16,7 +16,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;bac
 header{background:#fff;padding:14px 16px;border-bottom:1px solid #eee;flex:none}
 header h1{font-size:16px;font-weight:700;color:#1a2538}
 header .sub{font-size:12px;color:#888;margin-top:3px}
-#map{flex:1;min-height:0;width:100%;background:#e8eaed}
+#map{flex:1;min-width:0;min-height:0;background:#e8eaed}
 .state{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;color:#888;padding:24px;text-align:center}
 .state .spinner{width:38px;height:38px;border:3px solid #e8f0d8;border-top-color:#6ea814;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:16px}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -103,15 +103,75 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 /* 下向きに出したふきだしは、下を指す三角を消す（指す先が無いため） */
 .leaflet-popup.below .leaflet-popup-tip-container{display:none}
 .note{flex:none;background:#fff;border-top:1px solid #eee;padding:9px 16px;font-size:11px;color:#999;text-align:center}
+/* ── 一覧 ──
+   地図だけだと「あの物件どれだっけ」が探せない。左に一覧を並べ、
+   押したらその場所へ飛ぶようにする。絞り込みは建物名・住所・駅にかかる。 */
+.main{flex:1;display:flex;min-height:0}
+#list{flex:none;width:320px;background:#fff;border-right:1px solid #eee;
+  display:flex;flex-direction:column;min-height:0}
+.list-head{flex:none;padding:10px;border-bottom:1px solid #f0f0f0;position:relative}
+.list-head input{width:100%;border:1px solid #e2e5ea;border-radius:8px;padding:8px 10px;
+  font-size:13px;font-family:inherit;outline:none;-webkit-appearance:none}
+.list-head input:focus{border-color:#6ea814}
+.list-cnt{font-size:11px;color:#999;margin-top:6px}
+.rows{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.row{display:flex;gap:9px;align-items:flex-start;padding:10px;
+  border-bottom:1px solid #f4f4f4;cursor:pointer}
+.row:hover{background:#f7faf2}
+.row.on{background:#eef3e6}
+.row .th{width:62px;height:46px;flex:none;object-fit:cover;background:#f2f3f5;border-radius:6px}
+.row .ri{flex:1;min-width:0}
+.row .rn{font-size:12px;font-weight:700;color:#1a2538;line-height:1.4}
+.row .rr{font-size:13px;font-weight:800;color:#E5533D;margin-top:2px}
+.row .rr span{font-size:11px;font-weight:600;color:#888;margin-left:4px}
+.row .rs{font-size:11px;color:#888;line-height:1.5;margin-top:1px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .rfav{flex:none;color:#E0397B;font-size:14px;line-height:1.2}
+.list-empty{padding:22px 12px;font-size:12px;color:#999;text-align:center;line-height:1.7}
+/* 一覧で選んでいる場所のピンは、地図の中でも目立たせる */
+.pin.hl{transform:rotate(-45deg) scale(1.25)}
+/* スマホは横に並べられないので、ヘッダーのボタンで全面に出す */
+.list-btn{flex:none;display:none;border:1px solid #dfe3e8;background:#fff;border-radius:8px;
+  padding:7px 12px;font-size:13px;font-weight:700;color:#33691e;font-family:inherit;cursor:pointer}
+.list-x{display:none;position:absolute;right:8px;top:8px;width:34px;height:34px;border:none;
+  background:#f2f3f5;border-radius:50%;font-size:20px;line-height:34px;padding:0;color:#555;cursor:pointer}
+@media (max-width: 760px) {
+  #list{width:264px}
+}
+@media (max-width: 520px) {
+  .list-btn{display:block}
+  #list{position:fixed;left:0;right:0;top:0;bottom:0;width:auto;z-index:1300;
+    border-right:none;display:none}
+  #list.open{display:flex}
+  .list-head{padding:12px 52px 12px 12px}
+  .list-x{display:block}
+  .row .th{width:76px;height:57px}
+  .row .rn{font-size:13px}
+  .row .rr{font-size:14px}
+  .row .rs{font-size:12px}
+}
 </style>
 </head>
 <body>
-<header>
-  <h1 id="title">お部屋マップ</h1>
-  <div class="sub" id="sub">読み込んでいます…</div>
+<header style="display:flex;align-items:center;gap:10px">
+  <div style="flex:1;min-width:0">
+    <h1 id="title">お部屋マップ</h1>
+    <div class="sub" id="sub">読み込んでいます…</div>
+  </div>
+  <button class="list-btn" id="listBtn" style="display:none">一覧</button>
 </header>
 <div class="state" id="state"><div class="spinner"></div><p>お部屋を探しています…</p></div>
-<div id="map" style="display:none"></div>
+<div class="main" id="main" style="display:none">
+  <aside id="list">
+    <div class="list-head">
+      <input id="q" type="search" placeholder="建物名・住所・駅でしぼる" autocomplete="off">
+      <div class="list-cnt" id="listCnt"></div>
+      <button class="list-x" id="listClose" aria-label="閉じる">×</button>
+    </div>
+    <div class="rows" id="rows"></div>
+  </aside>
+  <div id="map"></div>
+</div>
 <div class="sheet" id="sheet" style="display:none">
   <button class="sheet-x" id="sheetClose" aria-label="閉じる">×</button>
   <div id="sheetBody"></div>
@@ -137,7 +197,7 @@ function showState(html) {
   var el = document.getElementById('state');
   el.style.display = 'flex';
   el.innerHTML = html;
-  document.getElementById('map').style.display = 'none';
+  document.getElementById('main').style.display = 'none';
 }
 
 var token = new URLSearchParams(window.location.search).get('t') || '';
@@ -251,7 +311,8 @@ function render(d) {
   document.getElementById('sub').textContent =
     (who ? who + ' 様専用ページ ／ ' : '') + props.length + '件';
   document.getElementById('state').style.display = 'none';
-  document.getElementById('map').style.display = 'block';
+  document.getElementById('main').style.display = 'flex';
+  if (isNarrow) document.getElementById('listBtn').style.display = 'block';
 
   var map = L.map('map', { scrollWheelZoom: true });
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -270,6 +331,8 @@ function render(d) {
   });
 
   var bounds = [];
+  var markers = {};   // 場所キー → ピン。一覧から押されたときに開く
+  var popups = {};    // 場所キー → ふきだしのHTML（スマホのシート用）
   order.forEach(function (key) {
     var list = groups[key];
     var head = list[0];
@@ -286,6 +349,7 @@ function render(d) {
       popupAnchor: [0, -30]
     });
     var m = L.marker([head.lat, head.lng], { icon: icon }).addTo(map);
+    markers[key] = m;
 
     var html = '<div class="pop">';
     if (many) {
@@ -301,6 +365,8 @@ function render(d) {
       html += cardHtml(head, false);
     }
     html += '</div>';
+
+    popups[key] = html;
 
     if (isNarrow) {
       // スマホ。押したら下からシートを出す。ふきだしは画面に収まらないので使わない。
@@ -351,7 +417,105 @@ function render(d) {
   if (isNarrow) map.on('click', closeSheet);
   map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
 
+  buildList(props, markers, popups, map);
 }
+
+// ── 一覧 ──
+// 地図の上でお部屋を1つずつ探すのは大変なので、横に並べて押せるようにする。
+function buildList(props, markers, popups, map) {
+  var rowsEl = document.getElementById('rows');
+  var cntEl = document.getElementById('listCnt');
+  var qEl = document.getElementById('q');
+
+  // 一覧の並びは地図と同じ場所キーでひもづける（ピンのまとめ方と合わせる）
+  var items = props.map(function (p, i) {
+    var key = Number(p.lat).toFixed(6) + ',' + Number(p.lng).toFixed(6);
+    var imgs = p.images && p.images.length ? p.images : (p.image ? [p.image] : []);
+    var find = [p.name, p.building, p.room, p.address, p.station, p.layout]
+      .concat(p.otherStations || []).join(' ').toLowerCase();
+    return { i: i, p: p, key: key, img: imgs[0] || '', find: find };
+  });
+
+  function rowHtml(it) {
+    var p = it.p;
+    var h = '<div class="row" data-i="' + it.i + '">';
+    h += it.img
+      ? '<img class="th" src="' + esc(it.img) + '" alt="" loading="lazy">'
+      : '<div class="th"></div>';
+    h += '<div class="ri"><div class="rn">' + esc(p.name) + '</div>';
+    var rent = yen(p.rent);
+    var meta = [];
+    if (p.layout) meta.push(esc(p.layout));
+    if (p.area) meta.push(esc(p.area) + 'm²');
+    h += '<div class="rr">' + (rent || 'ー')
+      + (meta.length ? '<span>' + meta.join(' / ') + '</span>' : '') + '</div>';
+    if (p.station) h += '<div class="rs">' + esc(p.station) + '</div>';
+    h += '</div>';
+    if (p.favorite) h += '<span class="rfav">♥</span>';
+    h += '</div>';
+    return h;
+  }
+
+  function draw(list) {
+    cntEl.textContent = list.length + '件';
+    rowsEl.innerHTML = list.length
+      ? list.map(rowHtml).join('')
+      : '<div class="list-empty">見つかりませんでした。<br>別のことばでお試しください。</div>';
+  }
+  draw(items);
+
+  qEl.addEventListener('input', function () {
+    var q = qEl.value.trim().toLowerCase();
+    draw(q ? items.filter(function (it) { return it.find.indexOf(q) >= 0; }) : items);
+  });
+
+  // ピンを一時的に大きくして、どれのことか分かるようにする
+  function hl(key, on) {
+    var m = markers[key];
+    var el = m && m.getElement() && m.getElement().querySelector('.pin');
+    if (el) el.classList.toggle('hl', !!on);
+  }
+
+  rowsEl.addEventListener('click', function (ev) {
+    var row = ev.target.closest ? ev.target.closest('.row') : null;
+    if (!row) return;
+    var it = items[Number(row.getAttribute('data-i'))];
+    if (!it) return;
+    var m = markers[it.key];
+    if (!m) return;
+
+    var was = rowsEl.querySelector('.row.on');
+    if (was) was.classList.remove('on');
+    row.classList.add('on');
+
+    map.setView(m.getLatLng(), Math.max(map.getZoom(), 16), { animate: true });
+    if (isNarrow) {
+      closeList();
+      openSheet(popups[it.key]);
+    } else {
+      m.openPopup();
+    }
+  });
+
+  // マウスを乗せているあいだ、その場所のピンを目立たせる
+  rowsEl.addEventListener('mouseover', function (ev) {
+    var row = ev.target.closest ? ev.target.closest('.row') : null;
+    if (!row) return;
+    var it = items[Number(row.getAttribute('data-i'))];
+    if (it) hl(it.key, true);
+  });
+  rowsEl.addEventListener('mouseout', function (ev) {
+    var row = ev.target.closest ? ev.target.closest('.row') : null;
+    if (!row) return;
+    var it = items[Number(row.getAttribute('data-i'))];
+    if (it) hl(it.key, false);
+  });
+}
+
+function openList() { document.getElementById('list').classList.add('open'); }
+function closeList() { document.getElementById('list').classList.remove('open'); }
+document.getElementById('listBtn').addEventListener('click', openList);
+document.getElementById('listClose').addEventListener('click', closeList);
 </script>
 </body>
 </html>
