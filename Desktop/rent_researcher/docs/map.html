@@ -232,8 +232,10 @@ function openSheet(html) {
   var sheet = document.getElementById('sheet');
   document.getElementById('sheetBody').innerHTML = html;
   sheet.style.display = 'block';
-  // display を変えた直後だと動きが出ないので、1フレーム置いてから開く
+  // display を変えた直後だと動きが出ないので、1フレーム置いてから開く。
+  // 裏のタブでは requestAnimationFrame が来ないので、時間でも開くようにする。
   requestAnimationFrame(function () { sheet.classList.add('open'); });
+  setTimeout(function () { sheet.classList.add('open'); }, 60);
 }
 function closeSheet() {
   var sheet = document.getElementById('sheet');
@@ -380,7 +382,9 @@ function render(d) {
 
     // 重ねると出て、離すと消す。
     // ただしふきだしの上にカーソルが移った時は消さない（中を読めなくなるため）。
-    m.on('mouseover', function () { this.openPopup(); });
+    // 一覧から飛んでいる最中は開かない。地図が動くと、止まっているカーソルの下を
+    // 関係ないピンが通り過ぎ、そのふきだしが勝手に開いてしまうため。
+    m.on('mouseover', function () { if (map._flying) return; this.openPopup(); });
     m.on('mouseout', function () {
       var self = this;
       setTimeout(function () {
@@ -488,12 +492,33 @@ function buildList(props, markers, popups, map) {
     if (was) was.classList.remove('on');
     row.classList.add('on');
 
-    map.setView(m.getLatLng(), Math.max(map.getZoom(), 16), { animate: true });
-    if (isNarrow) {
-      closeList();
-      openSheet(popups[it.key]);
+    // 押した物件が今の画面に写っているかどうかで動きを変える。
+    // 写っているなら縮尺はそのまま（勝手に寄られると位置関係を見失う）。
+    // 写っていないなら、瞬間移動せず滑らかに飛ぶ。どこへ動いたか目で追えるようにする。
+    var ll = m.getLatLng();
+    var inView = map.getBounds().pad(-0.08).contains(ll);
+
+    function reveal() {
+      if (isNarrow) {
+        closeList();
+        openSheet(popups[it.key]);
+      } else {
+        m.openPopup();
+      }
+    }
+
+    if (inView) {
+      reveal();
     } else {
-      m.openPopup();
+      // 飛び終わってから開く。ただし裏のタブなどで moveend が来ないことがあるので、
+      // 時間でも必ず開くようにしておく（開かないと押しても無反応に見える）。
+      var opened = false;
+      var once = function () { if (opened) return; opened = true; map._flying = false; reveal(); };
+      map._flying = true;
+      map.closePopup();
+      map.once('moveend', once);
+      setTimeout(once, 1100);
+      map.flyTo(ll, Math.max(map.getZoom(), 15), { duration: 0.9 });
     }
   });
 
