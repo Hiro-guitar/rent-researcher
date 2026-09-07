@@ -1283,6 +1283,13 @@ function handlePropertyAction(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  // 物件を開いたら、地図(map.html)の「30分は知らせない」よけを外す。
+  // 地図と物件を行き来している人は、地図に戻るたびによけに当たってしまい、
+  // 最初の1回しか出ないため。
+  if (actionType === 'view') {
+    try { clearMapViewThrottle(customerName); } catch (eMv) {}
+  }
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
   var ACTION_LOG_HEADERS = ['顧客名', 'room_id', 'アクション', '物件名', '部屋番号', '賃料', '間取り', '最寄駅', '日時', '申込区分', '連絡先', 'Discord応答', 'IP', '国', '都道府県', '市区町村', 'ISP', 'UA', 'LINE内'];

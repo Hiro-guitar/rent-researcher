@@ -421,6 +421,24 @@ function handleCustomerMapViewApi(e) {
   }
 }
 
+/**
+ * 地図の「30分は出さない」よけを外す。物件ページを開いたときに呼ぶ。
+ *
+ * よけは読み込み直しや戻るで何度も流れるのを防ぐためのもの。
+ * ただし「地図→物件→地図→物件」と見て回っている人は、地図に戻るたびに
+ * よけに当たって、最初の1回しか出なくなる。物件を1つ開いた時点で
+ * 見終わったとみなし、次に地図へ戻ったらまた知らせる。
+ */
+function clearMapViewThrottle(customerName) {
+  try {
+    var name = String(customerName || '').trim();
+    if (!name) return;
+    CacheService.getScriptCache().remove('mapview_' + _customerMapToken_(name));
+  } catch (e) {
+    console.warn('[地図] 閲覧通知のよけ解除に失敗: ' + e.message);
+  }
+}
+
 /** 地図を開いたことを、その顧客のDiscordスレッドへ静かに流す。 */
 function _notifyMapViewToDiscord_(customerName, params) {
   var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
