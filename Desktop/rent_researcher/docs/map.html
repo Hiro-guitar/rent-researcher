@@ -504,12 +504,30 @@ function buildList(props, markers, popups, map) {
   var items = props.map(function (p, i) {
     var key = Number(p.lat).toFixed(6) + ',' + Number(p.lng).toFixed(6);
     var imgs = p.images && p.images.length ? p.images : (p.image ? [p.image] : []);
-    var find = [p.name, p.building, p.room, p.address, p.station, p.layout]
-      .concat(p.otherStations || []).join(' ').toLowerCase();
-    return { i: i, p: p, key: key, imgs: imgs.slice(0, 2), find: find };
+    // 駅は主要駅だけでなく他の最寄駅も対象にする。
+    // 「ー」は駅が無いときに入っている印なので、駅として扱わない。
+    var stations = [p.station].concat(p.otherStations || []).filter(function (v) {
+      var t = String(v || '').trim();
+      return t && t !== 'ー';
+    });
+    var find = [p.name, p.building, p.room, p.address, p.layout]
+      .concat(stations).join(' ').toLowerCase();
+    return { i: i, p: p, key: key, imgs: imgs.slice(0, 2), stations: stations, find: find };
   });
 
-  function rowHtml(it) {
+  // しぼり込んでいるときは、当たった駅を出す。
+  // 「吉祥寺」で探したのに主要駅の「三鷹」しか出ないと、関係ない物件が
+  // 出てきたように見えるため（他の最寄駅で当たっている）。
+  function stationLine(it, q) {
+    if (q) {
+      for (var i = 0; i < it.stations.length; i++) {
+        if (it.stations[i].toLowerCase().indexOf(q) >= 0) return it.stations[i];
+      }
+    }
+    return it.stations[0] || '';
+  }
+
+  function rowHtml(it, q) {
     var p = it.p;
     var h = '<div class="row" data-i="' + it.i + '">';
     h += '<div class="ths">';
@@ -526,24 +544,25 @@ function buildList(props, markers, popups, map) {
     if (p.area) meta.push(esc(p.area) + 'm²');
     h += '<div class="rr">' + (rent || 'ー')
       + (meta.length ? '<span>' + meta.join(' / ') + '</span>' : '') + '</div>';
-    if (p.station) h += '<div class="rs">' + esc(p.station) + '</div>';
+    var sta = stationLine(it, q);
+    if (sta) h += '<div class="rs">' + esc(sta) + '</div>';
     h += '</div>';
     if (p.favorite) h += '<span class="rfav">♥</span>';
     h += '</div>';
     return h;
   }
 
-  function draw(list) {
+  function draw(list, q) {
     cntEl.textContent = list.length + '件';
     rowsEl.innerHTML = list.length
-      ? list.map(rowHtml).join('')
+      ? list.map(function (it) { return rowHtml(it, q); }).join('')
       : '<div class="list-empty">見つかりませんでした。<br>別のことばでお試しください。</div>';
   }
-  draw(items);
+  draw(items, '');
 
   qEl.addEventListener('input', function () {
     var q = qEl.value.trim().toLowerCase();
-    draw(q ? items.filter(function (it) { return it.find.indexOf(q) >= 0; }) : items);
+    draw(q ? items.filter(function (it) { return it.find.indexOf(q) >= 0; }) : items, q);
   });
 
   // ピンを一時的に大きくして、どれのことか分かるようにする
