@@ -130,18 +130,21 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 .list-empty{padding:22px 12px;font-size:12px;color:#999;text-align:center;line-height:1.7}
 /* 一覧で選んでいる場所のピンは、地図の中でも目立たせる */
 .pin.hl{transform:rotate(-45deg) scale(1.25)}
-/* スマホは横に並べられないので、ヘッダーのボタンで全面に出す */
-.list-btn{flex:none;display:none;border:1px solid #dfe3e8;background:#fff;border-radius:8px;
+/* ヘッダーのボタン。PCでは一覧の開け閉め、スマホでは全面表示に使う */
+.list-btn{flex:none;border:1px solid #dfe3e8;background:#fff;border-radius:8px;
   padding:7px 12px;font-size:13px;font-weight:700;color:#33691e;font-family:inherit;cursor:pointer}
+.list-btn:hover{background:#f7faf2}
+/* PCで一覧を畳んだ状態。地図を広く使いたいときのため。 */
+#list.off{display:none}
 .list-x{display:none;position:absolute;right:8px;top:8px;width:34px;height:34px;border:none;
   background:#f2f3f5;border-radius:50%;font-size:20px;line-height:34px;padding:0;color:#555;cursor:pointer}
 @media (max-width: 760px) {
   #list{width:264px}
 }
 @media (max-width: 520px) {
-  .list-btn{display:block}
   #list{position:fixed;left:0;right:0;top:0;bottom:0;width:auto;z-index:1300;
     border-right:none;display:none}
+  /* スマホでは畳んだ状態(off)は使わない。全面に出すかどうかだけ。 */
   #list.open{display:flex}
   .list-head{padding:12px 52px 12px 12px}
   .list-x{display:block}
@@ -158,7 +161,7 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
     <h1 id="title">お部屋マップ</h1>
     <div class="sub" id="sub">読み込んでいます…</div>
   </div>
-  <button class="list-btn" id="listBtn" style="display:none">一覧</button>
+  <button class="list-btn" id="listBtn" style="display:none">◀ 一覧</button>
 </header>
 <div class="state" id="state"><div class="spinner"></div><p>お部屋を探しています…</p></div>
 <div class="main" id="main" style="display:none">
@@ -314,9 +317,13 @@ function render(d) {
     (who ? who + ' 様専用ページ ／ ' : '') + props.length + '件';
   document.getElementById('state').style.display = 'none';
   document.getElementById('main').style.display = 'flex';
-  if (isNarrow) document.getElementById('listBtn').style.display = 'block';
+  document.getElementById('listBtn').style.display = 'block';
+  theMap = null;   // 下の toggleList から使う。地図を作ってから入れる。
 
   var map = L.map('map', { scrollWheelZoom: true });
+  theMap = map;
+  // 前に畳んだままにしていたら、その状態で開く
+  if (!isNarrow) setListOff(readListOff());
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap'
@@ -494,32 +501,38 @@ function buildList(props, markers, popups, map) {
 
     // 押した物件が今の画面に写っているかどうかで動きを変える。
     // 写っているなら縮尺はそのまま（勝手に寄られると位置関係を見失う）。
-    // 写っていないなら、瞬間移動せず滑らかに飛ぶ。どこへ動いたか目で追えるようにする。
     var ll = m.getLatLng();
     var inView = map.getBounds().pad(-0.08).contains(ll);
 
-    function reveal() {
-      if (isNarrow) {
-        closeList();
-        openSheet(popups[it.key]);
-      } else {
-        m.openPopup();
-      }
+    // スマホは一覧が全画面なので、地図が動いているところは見えない。
+    // 動き終わるのを待つと押してから開くまで待たされるだけなので、一瞬で移す。
+    if (isNarrow) {
+      closeList();
+      if (!inView) map.setView(ll, Math.max(map.getZoom(), 15), { animate: false });
+      openSheet(popups[it.key]);
+      return;
     }
 
     if (inView) {
-      reveal();
-    } else {
-      // 飛び終わってから開く。ただし裏のタブなどで moveend が来ないことがあるので、
-      // 時間でも必ず開くようにしておく（開かないと押しても無反応に見える）。
-      var opened = false;
-      var once = function () { if (opened) return; opened = true; map._flying = false; reveal(); };
-      map._flying = true;
-      map.closePopup();
-      map.once('moveend', once);
-      setTimeout(once, 1100);
-      map.flyTo(ll, Math.max(map.getZoom(), 15), { duration: 0.9 });
+      m.openPopup();
+      return;
     }
+
+    // PCは地図が見えているので、瞬間移動せず滑らかに飛ぶ。どこへ動いたか目で追える。
+    // 飛び終わってから開く。ただし裏のタブなどで moveend が来ないことがあるので、
+    // 時間でも必ず開くようにしておく（開かないと押しても無反応に見える）。
+    var opened = false;
+    var once = function () {
+      if (opened) return;
+      opened = true;
+      map._flying = false;
+      m.openPopup();
+    };
+    map._flying = true;
+    map.closePopup();
+    map.once('moveend', once);
+    setTimeout(once, 1100);
+    map.flyTo(ll, Math.max(map.getZoom(), 15), { duration: 0.9 });
   });
 
   // マウスを乗せているあいだ、その場所のピンを目立たせる
@@ -539,7 +552,24 @@ function buildList(props, markers, popups, map) {
 
 function openList() { document.getElementById('list').classList.add('open'); }
 function closeList() { document.getElementById('list').classList.remove('open'); }
-document.getElementById('listBtn').addEventListener('click', openList);
+
+// ── PCでの一覧の開け閉め ──
+// 地図を広く見たいときに畳める。閉じたままにしたい人もいるので、次に開いたときも覚えておく。
+var theMap = null;
+function readListOff() {
+  try { return localStorage.getItem('mapListOff') === '1'; } catch (e) { return false; }
+}
+function setListOff(off) {
+  document.getElementById('list').classList.toggle('off', !!off);
+  document.getElementById('listBtn').textContent = off ? '▶ 一覧' : '◀ 一覧';
+  try { localStorage.setItem('mapListOff', off ? '1' : '0'); } catch (e) {}
+  // 幅が変わったので地図に測り直させる。これをしないと畳んだ分が灰色のままになる。
+  if (theMap) theMap.invalidateSize();
+}
+document.getElementById('listBtn').addEventListener('click', function () {
+  if (isNarrow) { openList(); return; }
+  setListOff(!document.getElementById('list').classList.contains('off'));
+});
 document.getElementById('listClose').addEventListener('click', closeList);
 </script>
 </body>
