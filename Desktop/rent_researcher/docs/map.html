@@ -106,14 +106,13 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 /* ── 一覧 ──
    地図だけだと「あの物件どれだっけ」が探せない。左に一覧を並べ、
    押したらその場所へ飛ぶようにする。絞り込みは建物名・住所・駅にかかる。 */
-.main{flex:1;display:flex;min-height:0}
-/* 一覧の幅。畳むときはここを 0 にして縮める（--lw を中身の最小幅にも使う） */
+/* 一覧は地図に重ねる。畳むときに地図の大きさを変えると、見ていた場所が
+   ずれて気持ち悪いため。地図はいつも全幅のままで、一覧が上に乗る。 */
+.main{flex:1;display:flex;min-height:0;position:relative}
 :root{--lw:320px}
-#list{flex:none;width:var(--lw);background:#fff;border-right:1px solid #eee;
-  display:flex;flex-direction:column;min-height:0;overflow:hidden;
-  transition:width .22s ease}
-/* 縮んでいる途中に中身がつぶれると文字が折り返して見苦しいので、幅を固定する */
-.list-head, .rows{min-width:var(--lw)}
+#list{position:absolute;left:0;top:0;bottom:0;width:var(--lw);z-index:1000;
+  background:#fff;border-right:1px solid #eee;box-shadow:2px 0 10px rgba(0,0,0,.07);
+  display:flex;flex-direction:column;transition:transform .22s ease}
 .list-head{flex:none;padding:10px;border-bottom:1px solid #f0f0f0;position:relative}
 .list-head input{width:100%;border:1px solid #e2e5ea;border-radius:8px;padding:8px 10px;
   font-size:13px;font-family:inherit;outline:none;-webkit-appearance:none}
@@ -135,26 +134,38 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
 .list-empty{padding:22px 12px;font-size:12px;color:#999;text-align:center;line-height:1.7}
 /* 一覧で選んでいる場所のピンは、地図の中でも目立たせる */
 .pin.hl{transform:rotate(-45deg) scale(1.25)}
-/* ヘッダーのボタン。PCでは一覧の開け閉め、スマホでは全面表示に使う */
-.list-btn{flex:none;border:1px solid #dfe3e8;background:#fff;border-radius:8px;
+/* ヘッダーのボタン。スマホで一覧を全面に出すのに使う（PCはでっぱりで開け閉め） */
+.list-btn{flex:none;display:none;border:1px solid #dfe3e8;background:#fff;border-radius:8px;
   padding:7px 12px;font-size:13px;font-weight:700;color:#33691e;font-family:inherit;cursor:pointer}
 .list-btn:hover{background:#f7faf2}
-/* PCで一覧を畳んだ状態。地図を広く使いたいときのため。 */
-#list.off{width:0;border-right-color:transparent}
+/* PCで一覧を畳んだ状態。地図は動かさず、一覧だけ左へ逃がす。 */
+#list.off{transform:translateX(-100%)}
+/* 一覧の右肩にあるでっぱり。押すと開け閉めできる。
+   一覧といっしょに動くので、畳むと画面の左端に残る。 */
+.list-handle{position:absolute;right:-22px;top:50%;margin-top:-33px;width:22px;height:66px;
+  border:1px solid #e2e5ea;border-left:none;border-radius:0 10px 10px 0;background:#fff;
+  box-shadow:2px 1px 6px rgba(0,0,0,.12);padding:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;color:#5b6470;font-size:13px}
+.list-handle:hover{background:#f7faf2;color:#33691e}
+/* 地図の拡大縮小ボタンは一覧の下に隠れるので、開いている間はよける */
+#list ~ #map .leaflet-top.leaflet-left{margin-left:var(--lw);transition:margin-left .22s ease}
+#list.off ~ #map .leaflet-top.leaflet-left{margin-left:0}
 .list-x{display:none;position:absolute;right:8px;top:8px;width:34px;height:34px;border:none;
   background:#f2f3f5;border-radius:50%;font-size:20px;line-height:34px;padding:0;color:#555;cursor:pointer}
 @media (max-width: 760px) {
   :root{--lw:264px}
 }
 @media (max-width: 520px) {
+  .list-btn{display:block}
+  .list-handle{display:none}
   /* スマホは下から出す。詳細シートと同じ動き方に揃える。
      display の切り替えだと動きが出ないので、隠すときは画面の下へ逃がす。 */
   #list{position:fixed;left:0;right:0;top:0;bottom:0;width:auto;z-index:1300;
-    border-right:none;display:flex;transform:translateY(100%);visibility:hidden;
+    border-right:none;box-shadow:none;display:flex;transform:translateY(100%);visibility:hidden;
     transition:transform .2s ease-out, visibility 0s linear .2s}
   /* スマホでは畳んだ状態(off)は使わない。全面に出すかどうかだけ。 */
   #list.open{transform:translateY(0);visibility:visible;transition:transform .2s ease-out}
-  .list-head, .rows{min-width:0}
+  #list ~ #map .leaflet-top.leaflet-left{margin-left:0}
   .list-head{padding:12px 52px 12px 12px}
   .list-x{display:block}
   .row .th{width:76px;height:57px}
@@ -181,6 +192,7 @@ header .sub{font-size:12px;color:#888;margin-top:3px}
       <button class="list-x" id="listClose" aria-label="閉じる">×</button>
     </div>
     <div class="rows" id="rows"></div>
+    <button class="list-handle" id="listHandle" aria-label="一覧の開け閉め">◀</button>
   </aside>
   <div id="map"></div>
 </div>
@@ -326,11 +338,9 @@ function render(d) {
     (who ? who + ' 様専用ページ ／ ' : '') + props.length + '件';
   document.getElementById('state').style.display = 'none';
   document.getElementById('main').style.display = 'flex';
-  document.getElementById('listBtn').style.display = 'block';
-  theMap = null;   // 下の toggleList から使う。地図を作ってから入れる。
+  if (isNarrow) document.getElementById('listBtn').style.display = 'block';
 
   var map = L.map('map', { scrollWheelZoom: true });
-  theMap = map;
   // 前に畳んだままにしていたら、その状態で開く
   if (!isNarrow) setListOff(readListOff(), true);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -435,7 +445,11 @@ function render(d) {
     bounds.push([head.lat, head.lng]);
   });
   if (isNarrow) map.on('click', closeSheet);
-  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+  map.fitBounds(bounds, {
+    paddingTopLeft: [listWidthPx() + 40, 40],
+    paddingBottomRight: [40, 40],
+    maxZoom: 16
+  });
 
   buildList(props, markers, popups, map);
 }
@@ -510,14 +524,19 @@ function buildList(props, markers, popups, map) {
 
     // 押した物件が今の画面に写っているかどうかで動きを変える。
     // 写っているなら縮尺はそのまま（勝手に寄られると位置関係を見失う）。
+    // 一覧の下に隠れているものは「写っていない」とみなす。
     var ll = m.getLatLng();
-    var inView = map.getBounds().pad(-0.08).contains(ll);
+    var pt = map.latLngToContainerPoint(ll);
+    var size = map.getSize();
+    var lw = listWidthPx();
+    var inView = pt.x > lw + 30 && pt.x < size.x - 30 && pt.y > 30 && pt.y < size.y - 30;
+    var zoom = Math.max(map.getZoom(), 15);
 
     // スマホは一覧が全画面なので、地図が動いているところは見えない。
     // 動き終わるのを待つと押してから開くまで待たされるだけなので、一瞬で移す。
     if (isNarrow) {
       closeList();
-      if (!inView) map.setView(ll, Math.max(map.getZoom(), 15), { animate: false });
+      if (!inView) map.setView(ll, zoom, { animate: false });
       openSheet(popups[it.key]);
       return;
     }
@@ -541,7 +560,7 @@ function buildList(props, markers, popups, map) {
     map.closePopup();
     map.once('moveend', once);
     setTimeout(once, 1100);
-    map.flyTo(ll, Math.max(map.getZoom(), 15), { duration: 0.9 });
+    map.flyTo(centerBesideList(map, ll, zoom), zoom, { duration: 0.9 });
   });
 
   // マウスを乗せているあいだ、その場所のピンを目立たせる
@@ -564,7 +583,21 @@ function closeList() { document.getElementById('list').classList.remove('open');
 
 // ── PCでの一覧の開け閉め ──
 // 地図を広く見たいときに畳める。閉じたままにしたい人もいるので、次に開いたときも覚えておく。
-var theMap = null;
+// 一覧は地図に重なっているだけなので、開け閉めしても地図は動かない。
+
+// 一覧が今ふさいでいる横幅。地図を寄せるときに、この分だけ右へずらすのに使う。
+function listWidthPx() {
+  var el = document.getElementById('list');
+  if (isNarrow || !el || el.classList.contains('off')) return 0;
+  return el.getBoundingClientRect().width;
+}
+// 一覧に隠れないよう、見えている側の真ん中に来るような地図の中心を返す
+function centerBesideList(map, ll, zoom) {
+  var w = listWidthPx();
+  if (!w) return ll;
+  return map.unproject(map.project(ll, zoom).subtract([w / 2, 0]), zoom);
+}
+
 function readListOff() {
   try { return localStorage.getItem('mapListOff') === '1'; } catch (e) { return false; }
 }
@@ -576,21 +609,13 @@ function setListOff(off, instant) {
     setTimeout(function () { el.style.transition = ''; }, 0);
   }
   el.classList.toggle('off', !!off);
-  document.getElementById('listBtn').textContent = off ? '▶ 一覧' : '◀ 一覧';
+  document.getElementById('listHandle').textContent = off ? '▶' : '◀';
   try { localStorage.setItem('mapListOff', off ? '1' : '0'); } catch (e) {}
-  // 幅が変わったので地図に測り直させる。動いている間ずっと測り直さないと、
-  // 広がった分が灰色のままで、終わってから一気にタイルが出ることになる。
-  if (!theMap) return;
-  var until = Date.now() + 400;
-  (function step() {
-    theMap.invalidateSize({ pan: false });
-    if (Date.now() < until) requestAnimationFrame(step);
-  })();
 }
-document.getElementById('listBtn').addEventListener('click', function () {
-  if (isNarrow) { openList(); return; }
+document.getElementById('listHandle').addEventListener('click', function () {
   setListOff(!document.getElementById('list').classList.contains('off'));
 });
+document.getElementById('listBtn').addEventListener('click', openList);
 document.getElementById('listClose').addEventListener('click', closeList);
 </script>
 </body>
