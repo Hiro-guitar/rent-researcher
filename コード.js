@@ -1789,6 +1789,11 @@ function doGet(e) {
     return handleCustomerMapApi(e);
   }
 
+  // ── お客様向け地図ページ: 開かれたことを Discord に流す（音は鳴らさない） ──
+  if (action === 'map_view') {
+    return handleCustomerMapViewApi(e);
+  }
+
   // ── SUUMO フォローアップメール: ステータス確認API ──
   if (action === 'check_followup_status') {
     return handleCheckFollowupStatus(e);

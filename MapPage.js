@@ -380,6 +380,132 @@ function handleCustomerMapApi(e) {
   }
 }
 
+/**
+ * doGet: action=map_view&t=<トークン>
+ * お客様が地図ページを開いたことを Discord に流す。
+ *
+ * 音は鳴らさない（flags 4096 のサイレント送信）。物件を1件開いたときと違って
+ * 「見に来た」だけの知らせなので、鳴らすと多すぎる。担当者への @ も付けない。
+ *
+ * 出さない場合が2つある。
+ *   - 担当者自身のIP（物件ページの閲覧と同じ判定を使う）
+ *   - 同じ人が30分以内にまた開いたとき（読み込み直しや戻るで何度も流れるため）
+ * シートには何も書かない。物件を見たかどうかは今まで通り物件ページ側で記録する。
+ */
+function handleCustomerMapViewApi(e) {
+  var out = function (obj) {
+    return ContentService.createTextOutput(JSON.stringify(obj))
+      .setMimeType(ContentService.MimeType.JSON);
+  };
+  try {
+    var token = String((e.parameter && e.parameter.t) || '').trim().toLowerCase();
+    var name = _customerNameFromMapToken_(token);
+    if (!name) return out({ ok: false, error: 'リンクが正しくありません' });
+
+    var ip = String(e.parameter.ip || '');
+    if (_isStaffIp_(ip)) {
+      console.log('[地図] 担当者のIPなので知らせない: ' + ip);
+      return out({ ok: true, skipped: 'staff_ip' });
+    }
+
+    var cache = CacheService.getScriptCache();
+    var cacheKey = 'mapview_' + token;
+    if (cache.get(cacheKey)) return out({ ok: true, skipped: 'recent' });
+    cache.put(cacheKey, '1', 1800);   // 30分
+
+    _notifyMapViewToDiscord_(name, e.parameter);
+    return out({ ok: true });
+  } catch (err) {
+    console.error('[地図] handleCustomerMapViewApi: ' + err.message);
+    return out({ ok: false, error: err.message });
+  }
+}
+
+/** 地図を開いたことを、その顧客のDiscordスレッドへ静かに流す。 */
+function _notifyMapViewToDiscord_(customerName, params) {
+  var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+  if (!webhookUrl) return;
+
+  var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
+  var msg = '\uD83D\uDDFA **' + customerName + '** 様が **お部屋マップ** を開きました (' + time + ')';
+
+  // 物件ページの閲覧通知と同じ体裁で、どこから見ているかを添える
+  var locParts = [];
+  var country = String(params.country || '');
+  if (country && country !== 'Japan') locParts.push(country);
+  if (params.region) locParts.push(String(params.region));
+  if (params.city) locParts.push(String(params.city));
+  var locStr = locParts.join(' ');
+  var isp = String(params.isp || '');
+  var ip = String(params.ip || '');
+  if (locStr || isp) {
+    msg += '\n> \uD83D\uDCCD ' + (locStr || '(地域不明)')
+      + (isp ? ' / ' + isp : '') + (ip ? ' (IP: ' + ip + ')' : '');
+  }
+  var uaLine = _mapViewDeviceLine_(String(params.ua || ''));
+  if (uaLine) msg += '\n> ' + uaLine;
+
+  var props = PropertiesService.getScriptProperties();
+  var threadKey = 'DISCORD_THREAD_' + customerName;
+  var threadId = props.getProperty(threadKey);
+  var payload = {
+    content: msg,
+    flags: 4096,                       // SUPPRESS_NOTIFICATIONS（音を鳴らさない）
+    allowed_mentions: { parse: [] }
+  };
+  if (!threadId) payload.thread_name = '\uD83C\uDFE0 ' + customerName;
+
+  var resp = UrlFetchApp.fetch(webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true'), {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  var code = resp.getResponseCode();
+
+  // スレッドが消えているときは、作り直して入れ直す（物件ページ側と同じ扱い）
+  if (threadId && (code === 404 || code === 400)) {
+    props.deleteProperty(threadKey);
+    payload.thread_name = '\uD83C\uDFE0 ' + customerName;
+    resp = UrlFetchApp.fetch(webhookUrl + '?wait=true', {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+    code = resp.getResponseCode();
+  }
+  if (!threadId && code === 200) {
+    try {
+      var body = JSON.parse(resp.getContentText());
+      if (body.channel_id) props.setProperty(threadKey, body.channel_id);
+    } catch (e2) {}
+  }
+  console.log('[地図] 閲覧通知 code=' + code + ' 顧客=' + customerName);
+}
+
+/** UAから「📱 iOS / LINE内ブラウザ」のような一行を作る。物件ページの表示に合わせている。 */
+function _mapViewDeviceLine_(ua) {
+  if (!ua) return '';
+  var deviceType = /iPhone|iPad|Android|Mobile/.test(ua) ? '\uD83D\uDCF1' : '\uD83D\uDCBB';
+  var browser;
+  if (/Line\//.test(ua)) browser = 'LINE内ブラウザ';
+  else if (/EdgiOS\//.test(ua) || /Edg\//.test(ua)) browser = 'Edge';
+  else if (/CriOS\//.test(ua)) browser = 'Chrome';
+  else if (/FxiOS\//.test(ua)) browser = 'Firefox';
+  else if (/OPiOS\//.test(ua) || /OPR\//.test(ua)) browser = 'Opera';
+  else if (/Chrome\//.test(ua)) browser = 'Chrome';
+  else if (/Firefox\//.test(ua)) browser = 'Firefox';
+  else if (/Safari\//.test(ua)) browser = 'Safari';
+  else browser = 'その他ブラウザ';
+  var os = '';
+  if (/iPhone|iPad/.test(ua)) os = 'iOS';
+  else if (/Android/.test(ua)) os = 'Android';
+  else if (/Mac OS X/.test(ua)) os = 'Mac';
+  else if (/Windows/.test(ua)) os = 'Windows';
+  return deviceType + ' ' + (os ? os + ' / ' : '') + browser;
+}
+
 // ══════════════════════════════════════════════════════════
 //  エッジ配信（Cloudflare Worker + R2）
 //
