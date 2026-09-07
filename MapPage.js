@@ -181,6 +181,21 @@ function _gsiResultLooksRight_(query, title) {
 }
 
 /** 住所を正規化する。表記ゆれでキャッシュが当たらないのを減らすため。 */
+/**
+ * 地図に出せる住所か。
+ *
+ * 元データに住所が無いとき、シートには空欄ではなく「ー」が入っていることがある。
+ * これをそのまま国土地理院に投げると必ず失敗し、「取得できず」として貯まり続け、
+ * 住所が無いだけの物件が変換の失敗に見えてしまう。先に弾く。
+ */
+function _hasUsableAddress_(address) {
+  var t = _normalizeAddressForGeo_(address);
+  if (!t) return false;
+  if (/^[-ーｰ―─–—‐]+$/.test(t)) return false;
+  if (t === 'なし' || t === '未定' || t === '不明' || t === '非公開' || t === '情報なし') return false;
+  return t.length >= 3;
+}
+
 function _normalizeAddressForGeo_(address) {
   return String(address || '')
     .replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (ch) {
@@ -331,7 +346,7 @@ function _buildCustomerMapPayload_(name) {
       // お客様向けなので、募集終了・手動で終了にしたものは出さない
       if (seen[i].manualClosed) continue;
       if (seen[i].watchOnly) continue;      // 送っていない(キャンセル待ち監視だけ)物件
-      if (seen[i].address) addresses.push(seen[i].address);
+      if (_hasUsableAddress_(seen[i].address)) addresses.push(seen[i].address);
     }
     var coords = _geocodeAddresses_(addresses);
 
@@ -345,7 +360,7 @@ function _buildCustomerMapPayload_(name) {
       if (p.manualClosed || p.watchOnly) continue;
       var rk = _mapRoomKey_(p) || ('id:' + p.roomId);
       if (takenRooms[rk]) continue;
-      var key = _normalizeAddressForGeo_(p.address);
+      var key = _hasUsableAddress_(p.address) ? _normalizeAddressForGeo_(p.address) : '';
       var c = key ? coords[key] : null;
       if (!c) { noCoord++; continue; }
       takenRooms[rk] = true;
@@ -672,7 +687,7 @@ function _rebuildMapsFor_(names) {
     var prow = pendingByKey[cust + '\u0000' + rid];
     if (!prow) continue;                                                    // 詳細が無ければ出せない
     var prop = _pendingRowToFlexProp_(prow);
-    if (!prop || !prop.address) continue;
+    if (!prop || !_hasUsableAddress_(prop.address)) continue;   // 住所が無い物件は出せない
     if (!byCustomer[cust]) byCustomer[cust] = [];
     byCustomer[cust].push({ roomId: rid, sentAt: row[3], p: prop });
     addresses.push(prop.address);
@@ -916,7 +931,9 @@ function listPropertiesNotOnMap() {
   }
 
   var lines = [];
+  var noAddressLines = [];
   var noAddress = 0;
+  var listed = {};
   for (var s2 = 0; s2 < seen.length; s2++) {
     var row = seen[s2];
     var cust = String(row[0] || '').trim();
@@ -931,22 +948,41 @@ function listPropertiesNotOnMap() {
     var p = _pendingRowToFlexProp_(prow);
     if (!p) continue;
     var nm = p.buildingName + (p.roomNumber ? ' ' + p.roomNumber : '');
-    if (!p.address) {
+    // 同じお部屋を二度送っていると通知済みシートに複数行あるので、一度だけ出す
+    var dupKey = cust + '\u0000' + nm;
+    if (listed[dupKey]) continue;
+
+    if (!_hasUsableAddress_(p.address)) {
+      listed[dupKey] = true;
       noAddress++;
-      lines.push(cust + ' / ' + nm + ' / (住所なし)');
+      noAddressLines.push(cust + ' / ' + nm + '（住所が入っていません）');
       continue;
     }
     var b = bad[_normalizeAddressForGeo_(p.address)];
-    if (b) lines.push(cust + ' / ' + nm + ' / ' + p.address + ' / ' + (b.note || ''));
+    if (b) {
+      listed[dupKey] = true;
+      lines.push(cust + ' / ' + nm + ' / ' + p.address + ' / ' + (b.note || ''));
+    }
   }
 
-  if (lines.length === 0) {
+  if (lines.length === 0 && noAddress === 0) {
     var ok = '地図に出せていない物件はありません';
     Logger.log(ok);
     return ok;
   }
-  Logger.log('地図に出せていない物件 ' + lines.length + '件'
-    + (noAddress ? '（うち住所そのものが無いもの ' + noAddress + '件）' : ''));
-  for (var L = 0; L < lines.length; L++) Logger.log('  ' + lines[L]);
-  return lines.length + '件（詳細は実行ログ）';
+
+  // 直せるもの（座標が取れなかった）と、直しようがないもの（住所が無い）を分ける。
+  // 混ぜると「失敗が大量にある」ように見えるが、ほとんどは元データに住所が無いだけ。
+  Logger.log('■ 地図に出せていない物件 ' + (lines.length + noAddress) + '件');
+  Logger.log('  座標が取れなかった: ' + lines.length + '件'
+    + ' / 元データに住所が無い: ' + noAddress + '件');
+  if (lines.length) {
+    Logger.log('── 座標が取れなかったもの（住所を直せば出せる） ──');
+    for (var L = 0; L < lines.length; L++) Logger.log('  ' + lines[L]);
+  }
+  if (noAddress) {
+    Logger.log('── 元データに住所が無いもの（住所が入るまで出せない） ──');
+    for (var N = 0; N < noAddressLines.length; N++) Logger.log('  ' + noAddressLines[N]);
+  }
+  return '座標が取れなかった ' + lines.length + '件 / 住所が無い ' + noAddress + '件（詳細は実行ログ）';
 }
