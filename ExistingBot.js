@@ -351,13 +351,12 @@ function handleVacancyQuery(replyToken, userId, raw) {
       return;
     }
 
-    // 件数超過 → 件数のみ返して絞込誘導（絞り込み中なのでモードは継続。期限は延長する）
+    // 件数超過 → 件数のみ返して絞込誘導（絞り込み中なのでモードは継続）
     if (matched.length > 12) {
       var prevState2 = getState(userId) || {};
       prevState2.step = STEPS.WAITING_VACANCY;
       prevState2.data = prevState2.data || {};
       delete prevState2.data.vacancyMissCount;  // 旧カウンタの残骸を掃除
-      prevState2.data.vacancyExpireAt = Date.now() + VACANCY_MODE_TTL_MS;
       saveState(userId, prevState2);
       replyMessage(replyToken, [textMsgWithQuickReply(
         '「' + _shortenForReply_(raw) + '」で' + matched.length + '件見つかりました。\n\n' +
