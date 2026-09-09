@@ -3485,10 +3485,10 @@ function renderMergePreview(data) {
   }
 
   // 営業ステージもLINE側に合わせたいことが多いので、ステータスと同じく選べるようにする。
-  // 空欄はステータスから推定される（lead → 問い合わせ / それ以外 → 自動のみ）。
+  // 空欄はステータスから推定される（lead → 問い合わせ / それ以外 → 未反応）。
   var _stageLbl = function (v, st) {
     if (v) return v;
-    return '（空欄→' + (String(st || '').toLowerCase() === 'lead' ? '問い合わせ' : '自動のみ') + '）';
+    return '（空欄→' + (String(st || '').toLowerCase() === 'lead' ? '問い合わせ' : '未反応') + '）';
   };
   if (data.stageA !== data.stageB) {
     var _defSB = (_lineIsB && !_lineIsA);
