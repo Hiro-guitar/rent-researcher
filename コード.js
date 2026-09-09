@@ -4826,7 +4826,10 @@ function resetKanbanStages() {
 // '追客中' は2026-09-09に「条件確定 / 未反応 / 条件調整中」の3つに分けた。
 // どれも物件を探していて、自動で検索も回っている。違うのは条件が固まっているかと、
 // お客様の反応があるか。
-var KANBAN_STAGE_LIST = ['メールのみ', '未接続', '条件確定', '未反応', '条件調整中', '追客中（優先）', '申込', '成約', '終了'];
+// 「時期待ち」は引越しがまだ先の人。「追客中（優先）」は使わなくなり外した（2026-09-09）。
+var KANBAN_STAGE_LIST = ['メールのみ', '未接続', '時期待ち', '条件確定', '未反応', '条件調整中', '申込', '成約', '終了'];
+// これより先なら「時期待ち」に置く。近づいたら（列を手で決めていない人は）自動で戻る。
+var MOVE_IN_FAR_DAYS = 90;
 function _normalizeStageCell_(raw) {
   var v = String(raw == null ? '' : raw).trim();
   if (v === '問い合わせ') return '未接続';   // 旧名。列の意味は引き継ぐ
@@ -4834,6 +4837,7 @@ function _normalizeStageCell_(raw) {
   if (v === '追客中' || v === '自動のみ') return '未反応';
   if (v === '物件待ち') return '条件確定';
   if (v === 'やり取り中') return '条件調整中';
+  if (v === '追客中（優先）') return '条件調整中';   // 旧名。手をかけていた人なのでここへ
   return (KANBAN_STAGE_LIST.indexOf(v) >= 0) ? v : '';
 }
 
@@ -4842,6 +4846,7 @@ function _normalizeStageCell_(raw) {
  *
  *   メールのみ … 条件が無く、LINEも電話も無い。自動メールが流れるだけの層
  *   未接続     … 電話番号があるのにまだ話せておらず、LINEにも来ていない。架電リストそのもの
+ *   時期待ち   … 引越しが MOVE_IN_FAR_DAYS より先。今動いても決まらない層
  *   未反応     … それ以外（話せたことがある / LINEで繋がっている / メールでしか届かない）
  *
  * 「条件確定」「条件調整中」には自動で入れない。条件が固まっているか、
@@ -4863,7 +4868,14 @@ function _fillDefaultStages_(customers) {
     //   かけられない人が混ざると使い物にならない（ユーザー指摘 2026-08-16）。
     //   条件はあるがメールしか届かない人は「未反応」に置く。
     var everTalked = (c.daysSinceTalk !== null && c.daysSinceTalk !== undefined);
-    c.stage = (c.hasPhone && !everTalked && !c.hasLine) ? '未接続' : '未反応';
+    if (c.hasPhone && !everTalked && !c.hasLine) { c.stage = '未接続'; continue; }
+    // 引越しがまだ先の人は脇に置く。時期が近づけば（列を手で決めていなければ）
+    // 次に開いたときに自動で戻ってくる。
+    if (typeof c.daysToMoveIn === 'number' && c.daysToMoveIn >= MOVE_IN_FAR_DAYS) {
+      c.stage = '時期待ち';
+      continue;
+    }
+    c.stage = '未反応';
   }
 }
 
