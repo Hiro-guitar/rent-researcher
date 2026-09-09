@@ -674,15 +674,18 @@ function _replyVacancyResultToCustomer_(userId, building, room, status) {
       rent: found[4], fee: found[5], layout: found[6], area: found[7],
       status: '募集中', url: url
     });
-    pushMessage(userId, [
+    var sentAt = _sendVacancyAnswer_(userId, [
       { type: 'text', text: 'お待たせいたしました。\n「' + displayName + '」は現在【募集中】です！\nぜひご検討ください。' },
       { type: 'flex', altText: '「' + displayName + '」は募集中です', contents: bubble }
-    ]);
-  } else {
-    // ご案内不可 → 「ご案内が難しい」+ 条件登録誘導（遅延返信と共通の文面）
-    pushMessage(userId, _buildVacancyUnavailableMessages_(userId, displayName, String(found[0]), String(found[1] || '')));
+    ], displayName, _getLineUserName_(userId));
+    return { ok: true, displayName: displayName, scheduledAt: sentAt };
   }
-  return { ok: true, displayName: displayName };
+  // ご案内不可 → 「ご案内が難しい」+ 条件登録誘導（遅延返信と共通の文面）
+  var sentAt2 = _sendVacancyAnswer_(
+    userId,
+    _buildVacancyUnavailableMessages_(userId, displayName, String(found[0]), String(found[1] || '')),
+    displayName, _getLineUserName_(userId));
+  return { ok: true, displayName: displayName, scheduledAt: sentAt2 };
 }
 
 /**
@@ -1468,6 +1471,98 @@ function _markCriteriaProvisional_(customerName) {
   }
 }
 
+// ══════════════════════════════════════════════════════════
+//  空室確認の回答を、少し置いてから送るキュー
+//
+//  スタッフはDiscordの通知が来たらすぐ答えたい。しかしその場で
+//  お客様に届くと、調べずに答えたように見えるし、答えを間違えても
+//  取り返しがつかない。回答は受け取っておいて、送るのは少し後にする。
+//  営業時間外に答えた分は、翌営業日の朝まで持ち越す。
+// ══════════════════════════════════════════════════════════
+var VACANCY_ANSWER_QUEUE_SHEET = '空室回答キュー';
+
+/** 回答をいつ送るか。営業時間内なら少し後、時間外なら翌営業日の朝。 */
+function _vacancyAnswerSendTime_(now) {
+  var jstHour = getJstHour(now);
+  if (jstHour >= 10 && jstHour < 20) {
+    var t = new Date(now.getTime() + VACANCY_ANSWER_DELAY_MS);
+    var h = getJstHour(t);
+    if (h >= 10 && h < 20) return t;   // 送る時刻も営業時間内ならそのまま
+  }
+  return getNextBusinessMorning(now);
+}
+
+/**
+ * 空室確認の回答をキューに入れる。すぐには送らない。
+ * @return {Date|null} 送信予定時刻（キューに入れられなかった場合は null）
+ */
+function _sendVacancyAnswer_(userId, messages, label, customerName) {
+  if (!userId || !messages || !messages.length) return null;
+  try {
+    var now = new Date();
+    var scheduledAt = _vacancyAnswerSendTime_(now);
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(VACANCY_ANSWER_QUEUE_SHEET);
+    if (!sheet) {
+      sheet = ss.insertSheet(VACANCY_ANSWER_QUEUE_SHEET);
+      sheet.appendRow(['userId', '顧客名', '物件', 'メッセージ', '回答時刻', '送信予定時刻', 'ステータス']);
+      try { sheet.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#e0e0e0'); } catch (eH) {}
+    }
+    // 同じお部屋の未送信の回答は、あとから答えた方で置き換える。
+    // 押し間違えても、届く前ならもう一度答え直せばよいようにするため。
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][6]) === 'pending'
+          && String(data[i][0]) === String(userId)
+          && String(data[i][2]) === String(label || '')) {
+        sheet.getRange(i + 1, 7).setValue('replaced');
+        console.log('[空室回答] 前の回答を置き換え: ' + label);
+      }
+    }
+    sheet.appendRow([
+      userId, customerName || '', label || '', JSON.stringify(messages),
+      toJstString(now), toJstString(scheduledAt), 'pending'
+    ]);
+    console.log('[空室回答] ' + (label || '') + ' → ' + toJstString(scheduledAt) + ' に送信予定');
+    return scheduledAt;
+  } catch (e) {
+    // キューに入れられないときは、届かないより遅れてでも届く方がよいのでその場で送る
+    console.error('[空室回答] キューに入れられず、その場で送ります: ' + e.message);
+    try { pushMessage(userId, messages); } catch (e2) {}
+    return null;
+  }
+}
+
+/** 送信予定を過ぎた回答を送る。processReplyQueue から呼ばれる（営業時間内のみ）。 */
+function processVacancyAnswerQueue() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sheet = ss.getSheetByName(VACANCY_ANSWER_QUEUE_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  var now = new Date();
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][6]) !== 'pending') continue;
+    var scheduledAt = new Date(data[i][5]);
+    if (isNaN(scheduledAt.getTime()) || now < scheduledAt) continue;
+    var messages;
+    try {
+      messages = JSON.parse(data[i][3]);
+    } catch (eP) {
+      sheet.getRange(i + 1, 7).setValue('failed');
+      console.error('[空室回答] メッセージを読めません: ' + data[i][2]);
+      continue;
+    }
+    try {
+      pushMessage(String(data[i][0]), messages);
+      sheet.getRange(i + 1, 7).setValue('sent');
+      console.log('[空室回答] 送信: ' + data[i][1] + ' / ' + data[i][2]);
+    } catch (eS) {
+      sheet.getRange(i + 1, 7).setValue('failed');
+      console.error('[空室回答] 送信に失敗: ' + data[i][2] + ' / ' + eS.message);
+    }
+  }
+}
+
 /**
  * 返信キューを処理し、送信予定時刻を過ぎたメッセージを push 送信する。
  * 5分間隔の定期トリガーから呼ばれる。
@@ -1478,6 +1573,14 @@ function processReplyQueue() {
 
   // 営業時間外なら何もしない
   if (jstHour < 10 || jstHour >= 20) return;
+
+  // 空室確認の回答も同じトリガーで送る（別トリガーを増やさないため）。
+  // こちらが失敗しても下の遅延返信は止めない。
+  try {
+    processVacancyAnswerQueue();
+  } catch (eV) {
+    console.error('[空室回答] キュー処理に失敗: ' + eV.message);
+  }
 
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sheet = ss.getSheetByName('返信キュー');

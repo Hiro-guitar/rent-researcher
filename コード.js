@@ -1294,7 +1294,10 @@ function doGet(e) {
         + '<tr><td>ステータス</td><td>' + statusLabel + '</td></tr>'
         + '</table>'
         + (resSR.ok
-          ? '<div class="note">✓ お客さんに自動的にLINE通知が送信されます。<br>このタブは閉じてOKです。</div>'
+          ? '<div class="note">✓ お客さんへのLINEは5分ほど置いてから送信されます。'
+              + '（営業時間外に答えた場合は翌営業日の朝）<br>'
+              + 'それまでに答え直せば、あとの回答で上書きされます。<br>'
+              + 'このタブは閉じてOKです。</div>'
           : '<div class="note" style="color:#9b1c1c">' + (resSR.message || '不明なエラー') + '</div>')
         + '</div></body></html>';
       return HtmlService.createHtmlOutput(html);
@@ -1331,13 +1334,19 @@ function doGet(e) {
         + '.note{margin-top:20px;padding:12px;background:#f0faf4;border-radius:8px;font-size:13px;color:#3d6909}'
         + '</style></head><body>'
         + '<div class="card">'
-        + '<h2>' + (resSV.ok ? '✅ お客様にLINEで通知しました' : '⚠️ 返信失敗') + '</h2>'
+        + '<h2>' + (resSV.ok ? '✅ 回答を受け付けました' : '⚠️ 返信失敗') + '</h2>'
         + '<table>'
         + '<tr><td>物件</td><td>' + (resSV.displayName || (bldgSV + ' ' + roomSV)) + '</td></tr>'
         + '<tr><td>返信内容</td><td>' + statusLabelSV + '</td></tr>'
         + '</table>'
         + (resSV.ok
-          ? '<div class="note">✓ お客様にLINEで結果を送信しました。<br>このタブは閉じてOKです。</div>'
+          ? '<div class="note">✓ お客様へのLINEは <b>'
+              + (resSV.scheduledAt
+                  ? Utilities.formatDate(resSV.scheduledAt, 'Asia/Tokyo', 'M月d日 HH:mm') + '以降'
+                  : 'しばらくしてから')
+              + '</b> に送信されます。<br>'
+              + 'それまでに答え直せば、あとの回答で上書きされます。<br>'
+              + 'このタブは閉じてOKです。</div>'
           : '<div class="note" style="color:#9b1c1c">' + (resSV.message || '不明なエラー') + '</div>')
         + '</div></body></html>';
       return HtmlService.createHtmlOutput(html);
@@ -1436,6 +1445,17 @@ function doGet(e) {
       if (!_hasMap && typeof rebuildAllCustomerMaps === 'function') {
         ScriptApp.newTrigger('rebuildAllCustomerMaps').timeBased().atHour(6).everyDays(1).create();
         console.log('[keepalive] bootstrap: 地図データの作り直し (毎朝6時) を登録');
+      }
+      // 返信キュー（遅延返信・空室確認の回答）の処理を5分ごとに。
+      // 空室確認の回答はここを通ってお客様に届くので、
+      // トリガーが消えていると答えが一切届かなくなる。必ず居ることを確かめる。
+      var _hasRQ = false;
+      for (var _ir = 0; _ir < _triggers.length; _ir++) {
+        if (_triggers[_ir].getHandlerFunction() === 'processReplyQueue') { _hasRQ = true; break; }
+      }
+      if (!_hasRQ && typeof processReplyQueue === 'function') {
+        ScriptApp.newTrigger('processReplyQueue').timeBased().everyMinutes(5).create();
+        console.log('[keepalive] bootstrap: 返信キューの処理 (5分ごと) を登録');
       }
       // 「終了」ステージの顧客を毎朝5時にアーカイブするトリガーも bootstrap
       var _hasArchive = false;

@@ -4654,10 +4654,8 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
                 { label: '物件詳細を見る', uri: propUrlAvail, style: 'secondary' }
               ]
             });
-            if (typeof pushMessage === 'function') {
-              pushMessage(userId, [availFlex]);
-              console.log('[空室結果LINE] リッチFlex送信成功 (available/完全空き): ' + customerName);
-            }
+            _sendVacancyAnswer_(userId, [availFlex], building, customerName);
+            console.log('[空室結果LINE] リッチFlexを送信予約 (available/完全空き): ' + customerName);
             return;
           }
           // フォールバック: 物件詳細取得失敗時はシンプルテキスト
@@ -4724,10 +4722,8 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
             statusBadge: statusBadgeApp,
             customFooterButtons: footerBtnsApp
           });
-          if (typeof pushMessage === 'function') {
-            pushMessage(userId, [flexApp]);
-            console.log('[空室結果LINE] リッチFlex送信成功 (applied): ' + customerName + ' badge=' + (statusBadgeApp && statusBadgeApp.text));
-          }
+          _sendVacancyAnswer_(userId, [flexApp], building, customerName);
+          console.log('[空室結果LINE] リッチFlexを送信予約 (applied): ' + customerName + ' badge=' + (statusBadgeApp && statusBadgeApp.text));
           return;
         }
         // フォールバックテキスト
@@ -4769,10 +4765,8 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
               { label: '物件詳細を見る', uri: propUrlC, style: 'secondary' }
             ]
           });
-          if (typeof pushMessage === 'function') {
-            pushMessage(userId, [flexC]);
-            console.log('[空室結果LINE] リッチFlex送信成功 (closed): ' + customerName);
-          }
+          _sendVacancyAnswer_(userId, [flexC], building, customerName);
+          console.log('[空室結果LINE] リッチFlexを送信予約 (closed): ' + customerName);
           return;
         }
         text = '【空室状況のご連絡】\n\n' +
@@ -4786,7 +4780,7 @@ function _notifyAvailabilityResultToCustomer_(customerName, roomId, buildingName
 
     // LINE プッシュメッセージ送信 (LineApi.js の pushMessage を使用)
     if (typeof pushMessage === 'function') {
-      pushMessage(userId, [{ type: 'text', text: text }]);
+      _sendVacancyAnswer_(userId, [{ type: 'text', text: text }], building, customerName);
       // [テスト中] 重複防止 props.setProperty(dedupKey, '1') は無効化
       console.log('[空室結果LINE] 送信成功: ' + customerName + ' (' + status + ')');
     } else {
