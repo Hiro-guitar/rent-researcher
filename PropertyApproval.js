@@ -1988,7 +1988,8 @@ function setCustomerStage(customerName, stage) {
     // 既存データや他経路から渡ってきても弾かないよう許可したままにする。
     stage = String(stage == null ? '' : stage).trim();
     // '内見' は列としては無くなったが、既存データが渡ってきても弾かない。
-    var ALLOWED = ['', 'メールのみ', '未接続', '検索のみ', '問い合わせ', '追客中', '追客中（優先）', '内見', '申込', '成約', '終了'];
+    var ALLOWED = ['', 'メールのみ', '未接続', '検索のみ', '問い合わせ', '追客中',
+      '物件待ち', '自動のみ', 'やり取り中', '追客中（優先）', '内見', '申込', '成約', '終了'];
     if (ALLOWED.indexOf(stage) < 0) return { ok: false, message: '不正なステージ: ' + stage };
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
     var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
@@ -2016,7 +2017,8 @@ function setCustomerStage(customerName, stage) {
  */
 function setKanbanOrder(stage, orderedNames) {
   try {
-    var ALLOWED = ['メールのみ', '未接続', '検索のみ', '問い合わせ', '追客中', '追客中（優先）', '内見', '申込', '成約', '終了'];
+    var ALLOWED = ['メールのみ', '未接続', '検索のみ', '問い合わせ', '追客中',
+      '物件待ち', '自動のみ', 'やり取り中', '追客中（優先）', '内見', '申込', '成約', '終了'];
     if (ALLOWED.indexOf(stage) < 0) return { ok: false, message: '不正なステージ: ' + stage };
     if (!Array.isArray(orderedNames)) return { ok: false, message: '順序リストがありません' };
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
