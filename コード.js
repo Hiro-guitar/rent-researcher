@@ -6765,6 +6765,21 @@ function resetSearchRun(startTime, endTime, optCustomerName) {
 //   「やっぱり統合したい」ときに行を消すだけで戻せるようにするためシートにする。
 var MERGE_DISMISS_SHEET_NAME = '統合除外';
 
+/**
+ * 統合候補に出さないテスト用の名前か。
+ * 動作確認に使っている名前（Config.js の TEST_ALLOWED_NAMES）をそのまま使う。
+ * 名前を足すときはあちらに足せば、こちらにも効く。
+ */
+function _isMergeTestName_(name) {
+  var n = String(name || '').trim();
+  if (!n) return false;
+  try {
+    if (typeof TEST_ALLOWED_NAMES !== 'undefined'
+        && TEST_ALLOWED_NAMES.indexOf(n) >= 0) return true;
+  } catch (e) {}
+  return false;
+}
+
 /** 2名から順序に依存しないキーを作る。A×B と B×A を同じものとして扱う。 */
 function _mergeDismissKey_(a, b) {
   var x = String(a || '').trim();
@@ -6965,6 +6980,9 @@ function listCustomerMergeCandidates() {
         var A = rows[names[x]], B = rows[names[y]];
         // 「統合しない」と判断済みの組は出さない
         if (dismissed[_mergeDismissKey_(A.name, B.name)]) continue;
+        // テスト用の顧客は出さない。自分でLINEを触って動作を見るので、
+        // 条件登録も問い合わせも自分の名前で残り、毎回候補に並んでしまう。
+        if (_isMergeTestName_(A.name) || _isMergeTestName_(B.name)) continue;
         // 両方ともLINE紐付け済み or 両方とも未紐付け なら二重の典型形ではない
         var aLine = !!lineNames[A.name], bLine = !!lineNames[B.name];
         if (aLine === bLine) continue;
