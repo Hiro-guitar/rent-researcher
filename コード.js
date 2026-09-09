@@ -375,25 +375,32 @@ function doPost(e) {
       const message = event.message.text.trim();
       const state = getState(userId);
 
-      // ── メアド入力待ち（LINE友だち追加後のフォローアップ停止用）──
-      var _emailPendingKey = 'email_pending_' + userId;
-      var _emailPending = PropertiesService.getUserProperties().getProperty(_emailPendingKey);
-      if (_emailPending) {
-        PropertiesService.getUserProperties().deleteProperty(_emailPendingKey);
-        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message)) {
-          var _saved = saveLineRegisteredEmail(userId, message);
-          if (_saved) {
-            replyMessage(replyToken, [textMsg(
-              'メールアドレスを登録しました。\n' + message + ' への配信を停止いたします。\n\n' +
-              '今後のお部屋探しはこちらのLINEからお気軽にどうぞ！'
-            )]);
-          } else {
-            replyMessage(replyToken, [textMsg(
-              'このメールアドレスはすでに登録済みです。\n\nお部屋探しはこちらのLINEからお気軽にどうぞ！'
-            )]);
-          }
-          return;
+      // ── メールアドレスを受け取ったら、そのメールへの配信を止める ──
+      //
+      // 友だち追加のあいさつで「お問い合わせ時のメールアドレスを送ってください」と
+      // 案内している。
+      //
+      // ⚠️ 以前は「追加直後の1通目」だけを見ていて、しかも中身に関わらず受付印を
+      //   消していた。先に「こんにちは」などを送った人はそこで印が消え、その後に
+      //   メールアドレスを送っても何も起きなかった（2026-09-09に発覚）。
+      //   印には頼らず、メールアドレスだけの文面ならいつでも受け取る。
+      //
+      // 申込フローのメール入力中(EXISTING_WAITING_EMAIL)は、あちらが受けるので触らない。
+      if (state.step !== STEPS.EXISTING_WAITING_EMAIL
+          && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message)) {
+        PropertiesService.getUserProperties().deleteProperty('email_pending_' + userId);
+        var _saved = saveLineRegisteredEmail(userId, message);
+        if (_saved) {
+          replyMessage(replyToken, [textMsg(
+            'メールアドレスを登録しました。\n' + message + ' への配信を停止いたします。\n\n' +
+            '今後のお部屋探しはこちらのLINEからお気軽にどうぞ！'
+          )]);
+        } else {
+          replyMessage(replyToken, [textMsg(
+            'このメールアドレスはすでに登録済みです。\n\nお部屋探しはこちらのLINEからお気軽にどうぞ！'
+          )]);
         }
+        return;
       }
 
       // 条件変更提案「自分で入力する」モード中ならそのテキストを数値として受ける
