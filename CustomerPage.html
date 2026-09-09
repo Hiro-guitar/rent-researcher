@@ -1553,9 +1553,10 @@ function renderDetail(data) {
     // LINE登録済みの人にも reply.py はフォローアップを送らない。
     // 以前はそれが画面に出ず「配信中」と見えていたので、理由まで出す。
     _mailStoppedByLine = !!data.mailStoppedByLine;
+    var mailLabel = mailToggleLabel(data.mailUnsubscribed);
     info += '<span id="mailUnsubState">' + mailStateHtml(data.mailUnsubscribed) + '</span>'
-      + ' <a id="mailUnsubToggle" onclick="toggleMailUnsubscribe(' + (data.mailUnsubscribed ? 'false' : 'true') + ')" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:8px;">'
-      + (data.mailUnsubscribed ? 'メール配信を再開' : 'メール配信を停止') + '</a>';
+      + ' <a id="mailUnsubToggle" onclick="toggleMailUnsubscribe(' + (data.mailUnsubscribed ? 'false' : 'true') + ')" style="color:#6cf;cursor:pointer;text-decoration:underline;font-size:12px;margin-left:8px;'
+      + (mailLabel ? '' : 'display:none;') + '">' + mailLabel + '</a>';
   } else {
     info += '<span style="color:#888;">メール未登録</span>';
   }
@@ -2794,6 +2795,26 @@ function mailStateHtml(unsubscribed) {
   return '<span style="color:#4ec9b0;">配信中</span>';
 }
 
+// 操作リンクの文言。押して意味があるときだけ文字を返す。
+//
+// LINE登録済みの人にはそもそもメールを送らないので、すでに止まっている。
+// そこに「メール配信を停止」と出ていると、状態表示（停止中）と食い違ううえ、
+// 押しても何も変わらない。この場合はリンクを出さない。
+function mailToggleLabel(unsubscribed) {
+  if (unsubscribed) return 'メール配信を再開';
+  return _mailStoppedByLine ? '' : 'メール配信を停止';
+}
+
+// 操作リンクの文言・表示・押したときの動きをまとめて今の状態に合わせる
+function updateMailToggle(unsubscribed) {
+  var t = document.getElementById('mailUnsubToggle');
+  if (!t) return;
+  var label = mailToggleLabel(unsubscribed);
+  t.textContent = label;
+  t.style.display = label ? '' : 'none';
+  t.onclick = label ? function () { toggleMailUnsubscribe(!unsubscribed); } : null;
+}
+
 // メール配信（自動フォローアップメール）の停止/再開
 function toggleMailUnsubscribe(unsub) {
   if (!currentCustomer) return;
@@ -2808,18 +2829,15 @@ function toggleMailUnsubscribe(unsub) {
       if (r && r.success) {
         showToast(r.message);
         if (stateEl) stateEl.innerHTML = mailStateHtml(r.unsubscribed);
-        if (toggle) {
-          toggle.textContent = r.unsubscribed ? 'メール配信を再開' : 'メール配信を停止';
-          toggle.onclick = function () { toggleMailUnsubscribe(!r.unsubscribed); };
-        }
+        updateMailToggle(r.unsubscribed);
       } else {
         showToast((r && r.message) || '失敗しました');
-        if (toggle) { toggle.textContent = unsub ? 'メール配信を停止' : 'メール配信を再開'; toggle.onclick = function () { toggleMailUnsubscribe(unsub); }; }
+        updateMailToggle(!unsub);   // 変わらなかったので元の状態に戻す
       }
     })
     .withFailureHandler(function (e) {
       showToast('エラー: ' + e.message);
-      if (toggle) { toggle.textContent = unsub ? 'メール配信を停止' : 'メール配信を再開'; toggle.onclick = function () { toggleMailUnsubscribe(unsub); }; }
+      updateMailToggle(!unsub);
     })
     .setCustomerEmailUnsubscribe(currentCustomer, unsub);
 }
