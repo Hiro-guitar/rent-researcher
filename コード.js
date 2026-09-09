@@ -247,8 +247,7 @@ function doPost(e) {
     // 挨拶メッセージは LINE Manager 側で設定。追加でメアド入力を促す。
     if (event.type === 'follow') {
       try {
-        var props = PropertiesService.getUserProperties();
-        props.setProperty('email_pending_' + userId, 'true');
+        // 受付印は持たない。いつメールアドレスが来ても受け取るため（下のテキスト処理）。
         pushMessage(userId, [textMsg(
           'お部屋のお問い合わせをいただいた方は、お問い合わせ時のメールアドレスをこちらに送信してください。\n\n' +
           'メールの配信が自動で停止されます。'
@@ -378,28 +377,28 @@ function doPost(e) {
       // ── メールアドレスを受け取ったら、そのメールへの配信を止める ──
       //
       // 友だち追加のあいさつで「お問い合わせ時のメールアドレスを送ってください」と
-      // 案内している。
+      // 案内している。それに対する返事を受け取るための処理。
       //
       // ⚠️ 以前は「追加直後の1通目」だけを見ていて、しかも中身に関わらず受付印を
       //   消していた。先に「こんにちは」などを送った人はそこで印が消え、その後に
       //   メールアドレスを送っても何も起きなかった（2026-09-09に発覚）。
-      //   印には頼らず、メールアドレスだけの文面ならいつでも受け取る。
+      //
+      // ⚠️ 用件が2つある。あいさつへの返事（配信を止めてほしい）と、
+      //   申込フォームをお送りするために担当者がお願いして送ってもらう場合。
+      //   どちらか見分ける材料は無いので、見分けようとしない。
+      //   受け取って配信は止める（LINE登録済みの人にメールは送らない方針どおり）が、
+      //   返事は「承りました」だけにして、どちらの用件でも噛み合う言い方にする。
       //
       // 申込フローのメール入力中(EXISTING_WAITING_EMAIL)は、あちらが受けるので触らない。
       if (state.step !== STEPS.EXISTING_WAITING_EMAIL
           && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message)) {
-        PropertiesService.getUserProperties().deleteProperty('email_pending_' + userId);
+        // 古い受付印が残っていれば掃除する（もう使っていない）
+        try { PropertiesService.getUserProperties().deleteProperty('email_pending_' + userId); } catch (_eEp) {}
         var _saved = saveLineRegisteredEmail(userId, message);
-        if (_saved) {
-          replyMessage(replyToken, [textMsg(
-            'メールアドレスを登録しました。\n' + message + ' への配信を停止いたします。\n\n' +
-            '今後のお部屋探しはこちらのLINEからお気軽にどうぞ！'
-          )]);
-        } else {
-          replyMessage(replyToken, [textMsg(
-            'このメールアドレスはすでに登録済みです。\n\nお部屋探しはこちらのLINEからお気軽にどうぞ！'
-          )]);
-        }
+        console.log('[メール登録] ' + message + ' / 新規=' + _saved);
+        replyMessage(replyToken, [textMsg(
+          'メールアドレスを承りました。\nありがとうございます。'
+        )]);
         return;
       }
 
