@@ -924,8 +924,12 @@ function _notifyPhoneInquiryToDiscord_(info, opts) {
     if (!webhook) { console.log('[反響Discord] webhook 未設定でスキップ'); return; }
     var name = String(info.name || '').trim() || '(氏名なし)';
     var kana = String(info.kana || '').trim();
+    // 営業時間外は音を鳴らさない。メッセージは同じように届くが、
+    // メンションを付けず、Discordのサイレント送信にする。
+    // 夜中に電話の反響が来ても鳴らされたくない、という運用のため（2026-09-11）。
+    var quiet = !_inquiryIsBusinessHours_();
     var lines = [];
-    lines.push('<@1459814543600390341>');  // 音付き通知を鳴らすためのメンション
+    if (!quiet) lines.push('<@1459814543600390341>');  // 音付き通知を鳴らすためのメンション
     lines.push('📞 **電話番号ありの反響**');
     lines.push('お名前: ' + name + (kana ? '（' + kana + '）' : ''));
     lines.push('TEL: ' + tel);
@@ -938,8 +942,12 @@ function _notifyPhoneInquiryToDiscord_(info, opts) {
     var _added = opts.fast ? !!opts.registered : true;
     lines.push('（' + (info.channel || 'SUUMO')
       + (_added ? ' / 顧客管理ページに追加済み）' : ' / 受信直後の速報。顧客管理への登録は数分後）'));
-    var r = _postDiscordAdaptive_(webhook, lines.join('\n'), '📞 反響(TEL) ' + name, '1459814543600390341');
-    console.log('[反響Discord] 送信: ' + name + ' TEL=' + tel + ' → ok=' + r.ok + ' code=' + r.code + (r.ok ? '' : ' body=' + r.body));
+    var r = _postDiscordAdaptive_(
+      webhook, lines.join('\n'), '📞 反響(TEL) ' + name,
+      quiet ? null : '1459814543600390341', quiet);
+    console.log('[反響Discord] 送信: ' + name + ' TEL=' + tel
+      + (quiet ? ' (営業時間外のため音なし)' : '')
+      + ' → ok=' + r.ok + ' code=' + r.code + (r.ok ? '' : ' body=' + r.body));
   } catch (e) {
     console.warn('[反響Discord] エラー: ' + e.message);
   }
@@ -953,12 +961,28 @@ function _notifyPhoneInquiryToDiscord_(info, opts) {
  * → まず thread_name 無しで送り、フォーラムchで必須と言われた場合だけ付けて再送する。
  * @return {{ok:boolean, code:number, body:string}}
  */
-function _postDiscordAdaptive_(webhook, content, threadName, mentionUserId) {
+/** 今が営業時間（10時〜20時）か。 */
+function _inquiryIsBusinessHours_() {
+  var h;
+  if (typeof getJstHour === 'function') {
+    h = getJstHour(new Date());
+  } else {
+    h = Number(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'H'));
+  }
+  return h >= 10 && h < 20;
+}
+
+function _postDiscordAdaptive_(webhook, content, threadName, mentionUserId, silent) {
   var postUrl = webhook + (webhook.indexOf('?') >= 0 ? '&' : '?') + 'wait=true';
   function post(withThread) {
     var payload = { content: content };
     // メンションを有効化(音付き通知を鳴らすため)。content 側に <@id> が必要。
     if (mentionUserId) payload.allowed_mentions = { users: [String(mentionUserId)] };
+    // 音を鳴らさずに届ける（Discordのサイレント送信）。営業時間外に使う。
+    if (silent) {
+      payload.flags = 4096;                       // SUPPRESS_NOTIFICATIONS
+      payload.allowed_mentions = { parse: [] };   // 誰も呼ばない
+    }
     if (withThread && threadName) payload.thread_name = threadName;
     return UrlFetchApp.fetch(postUrl, {
       method: 'post', contentType: 'application/json',
