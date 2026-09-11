@@ -1123,6 +1123,10 @@ function _propertyToCriteria_(buildingName, roomNumber) {
       if (!station) station = rs.station;
       if (!route) route = rs.route;
     }
+    // 物件データの路線名はマスターと違うことがある（「総武中央線」など）。
+    // ここで正式名に寄せておかないと、条件変更の画面で路線が見つからず、
+    // お客様が開いたときに路線も駅も選ばれていない状態になる。
+    if (route) route = _resolveRouteName_(route, station ? [station] : []);
     // 路線がどうしても取れない場合に備えて住所から市区町村を拾う。
     // 駅が無くても市区町村があればエリアとして成立する。
     var city = '';

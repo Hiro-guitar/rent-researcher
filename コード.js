@@ -3450,10 +3450,13 @@ function loadCustomerCriteriaByName(customerName) {
           var routeName = part.substring(0, parenIdx).trim();
           var stasStr = part.substring(parenIdx + 1, part.length - 1);
           var stas = stasStr.split(/[,、]\s*/).filter(function(s) { return s.length > 0; });
+          // マスターに無い表記（物件データ由来の「総武中央線」など）を正式名に寄せる。
+          // 寄せないと条件変更の画面で路線が見つからず、駅も選択されない。
+          routeName = _resolveRouteName_(routeName, stas);
           routes.push(routeName);
           if (stas.length > 0) selectedStations[routeName] = stas;
         } else {
-          var routeName2 = part.trim();
+          var routeName2 = _resolveRouteName_(part.trim(), stations);
           if (routeName2) {
             routes.push(routeName2);
             var routeStations2 = STATION_DATA[routeName2] || [];

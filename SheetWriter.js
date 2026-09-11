@@ -457,6 +457,70 @@ function _carryOverUntouchedCriteria_(state, before, opts) {
     + _CARRY_OVER_FIELDS.filter(function(k) { return !_isBlankCriteriaValue_(before[k]); }).join(', '));
 }
 
+/**
+ * 路線名を、駅マスター(StationData)にある正式な名前に寄せる。
+ *
+ * 条件は3つの経路で入る。LINEの条件フォームはマスターから選ぶので正しいが、
+ * 空室確認から作る暫定条件は物件データの表記をそのまま使うため
+ * 「総武中央線」のようにマスターに無い名前が入る。
+ * その名前のままだと条件変更の画面で路線のチェックが見つからず、
+ * 路線も駅も選択されていない状態で開いてしまう（2026-09-10 新庄様）。
+ *
+ * 寄せ方は3段階。
+ *   1. マスターにそのままある名前ならそれ
+ *   2. ＪＲ・東京メトロ・都営・記号・全角半角の違いを無視して突き合わせる
+ *   3. それでも決まらなければ、駅名から探す。持っている駅を全部含む路線が
+ *      1本だけならそれとみなす（「総武中央線(小岩)」→ 小岩を持つＪＲ総武線）
+ *
+ * @param {string} rawRoute シートに入っている路線名
+ * @param {Array<string>} stationNames その路線として保存されている駅名
+ * @return {string} 寄せた路線名。決められなければ元の名前をそのまま返す
+ */
+function _resolveRouteName_(rawRoute, stationNames) {
+  var raw = String(rawRoute == null ? '' : rawRoute).trim();
+  if (!raw) return '';
+  if (typeof STATION_DATA === 'undefined' || !STATION_DATA) return raw;
+  if (STATION_DATA[raw]) return raw;
+
+  var key = function (v) {
+    return String(v == null ? '' : v)
+      .replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (ch) {
+        return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0);
+      })
+      .toUpperCase()
+      .replace(/[\s\u3000・･／\/\-ー－]/g, '')
+      .replace(/^JR/, '')
+      .replace(/^東京メトロ/, '')
+      .replace(/^都営/, '');
+  };
+  var names = Object.keys(STATION_DATA);
+  var rk = key(raw);
+  for (var i = 0; i < names.length; i++) {
+    if (key(names[i]) === rk) return names[i];
+  }
+
+  // 駅から探す。持っている駅をすべて含む路線が1本だけならそれ。
+  var stas = (stationNames || []).filter(function (v) { return v; });
+  if (stas.length) {
+    var hits = [];
+    for (var n = 0; n < names.length; n++) {
+      var list = STATION_DATA[names[n]] || [];
+      var all = true;
+      for (var s2 = 0; s2 < stas.length; s2++) {
+        if (list.indexOf(stas[s2]) < 0) { all = false; break; }
+      }
+      if (all) hits.push(names[n]);
+    }
+    if (hits.length === 1) return hits[0];
+    // 複数あるときは、名前が似ているもの（部分一致）を優先する
+    for (var h = 0; h < hits.length; h++) {
+      var hk = key(hits[h]);
+      if (hk && (rk.indexOf(hk) >= 0 || hk.indexOf(rk) >= 0)) return hits[h];
+    }
+  }
+  return raw;
+}
+
 function readLatestCriteria(userId) {
   try {
     // LINE Users シートから顧客名を取得
@@ -559,11 +623,13 @@ function readLatestCriteria(userId) {
           var routeName = part.substring(0, parenIdx).trim();
           var stasStr = part.substring(parenIdx + 1, part.length - 1);
           var stas = stasStr.split(/[,、]\s*/).filter(function(s) { return s.length > 0; });
+          // マスターに無い表記（物件データ由来など）はここで正式名に寄せる
+          routeName = _resolveRouteName_(routeName, stas);
           routes.push(routeName);
           if (stas.length > 0) selectedStations[routeName] = stas;
         } else {
           // 旧形式（括弧なし）にも対応
-          var routeName2 = part.trim();
+          var routeName2 = _resolveRouteName_(part.trim(), stations);
           if (routeName2) {
             routes.push(routeName2);
             // 旧形式: STATION_DATAから推測
