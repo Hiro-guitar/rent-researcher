@@ -118,6 +118,7 @@ function _geocodeAddressViaGsi_(address) {
   try {
     var url = 'https://msearch.gsi.go.jp/address-search/AddressSearch?q='
       + encodeURIComponent(address);
+    if (typeof _addFetchCount_ === 'function') _addFetchCount_('住所→座標(地理院)', 1);
     var res = UrlFetchApp.fetch(url, {
       muteHttpExceptions: true,
       headers: { 'User-Agent': 'ehomaki-property-map' }
@@ -578,6 +579,7 @@ function _notifyMapTroubleToDiscord_(message) {
 
 /** 作った地図データをエッジに置く。 */
 function _publishMapToEdge_(token, payload) {
+  if (typeof _addFetchCount_ === 'function') _addFetchCount_('地図をエッジへ', 1);
   var res = UrlFetchApp.fetch(EHOMAKI_MAP_POST_URL, {
     method: 'post',
     contentType: 'application/json; charset=utf-8',

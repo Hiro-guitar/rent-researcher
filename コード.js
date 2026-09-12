@@ -4071,10 +4071,57 @@ function _getCachedCriteriaHtml_(userId) {
  * 初回セットアップ:
  *   GAS エディタから setupKeepAliveTrigger() を1回手動実行する。
  */
+// ══════════════════════════════════════════════════════════
+//  URL Fetch の使用量を数える
+//
+//  「1日にサービス urlfetch を実行した回数が多すぎます」で画面が開けなく
+//  なることがある（2026-09-12）。どこで使い切っているのか分からないと
+//  減らしようがないので、種類ごとに数えておく。
+//
+//  数え漏れがあっても構わない。上位が分かればよい。
+// ══════════════════════════════════════════════════════════
+
+/** 今日のURL Fetch回数を種類ごとに足す。 */
+function _addFetchCount_(tag, n) {
+  try {
+    var count = Number(n) || 1;
+    if (count <= 0) return;
+    var props = PropertiesService.getScriptProperties();
+    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    var raw = props.getProperty('FETCH_STATS');
+    var stats = {};
+    try { stats = raw ? JSON.parse(raw) : {}; } catch (e) { stats = {}; }
+    if (stats.date !== today) stats = { date: today, total: 0, byTag: {} };
+    stats.total = (stats.total || 0) + count;
+    stats.byTag = stats.byTag || {};
+    stats.byTag[tag] = (stats.byTag[tag] || 0) + count;
+    props.setProperty('FETCH_STATS', JSON.stringify(stats));
+  } catch (e) {
+    // 計測で本体を止めない
+  }
+}
+
+/** 【手動実行】今日のURL Fetchの使われ方を多い順に出す。 */
+function showFetchStats() {
+  var raw = PropertiesService.getScriptProperties().getProperty('FETCH_STATS');
+  if (!raw) return 'まだ記録がありません（デプロイ直後は空です）';
+  var stats = JSON.parse(raw);
+  var tags = Object.keys(stats.byTag || {}).sort(function (a, b) {
+    return stats.byTag[b] - stats.byTag[a];
+  });
+  Logger.log('■ ' + stats.date + ' のURL Fetch: 合計 ' + stats.total + '回');
+  for (var i = 0; i < tags.length; i++) {
+    var n = stats.byTag[tags[i]];
+    Logger.log('  ' + tags[i] + ': ' + n + '回 (' + Math.round(n * 100 / stats.total) + '%)');
+  }
+  return stats.date + ' 合計 ' + stats.total + '回（内訳は実行ログ）';
+}
+
 function pingWebAppKeepAlive_() {
   try {
     var url = ScriptApp.getService().getUrl();
     if (!url) return;
+    _addFetchCount_('keepalive', 1);
     var resp = UrlFetchApp.fetch(url + '?action=keepalive', {
       muteHttpExceptions: true,
       followRedirects: true

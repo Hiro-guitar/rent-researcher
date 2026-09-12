@@ -1518,6 +1518,7 @@ function handlePropertyAction(e) {
           payload: JSON.stringify(payload),
           muteHttpExceptions: true
         };
+        if (typeof _addFetchCount_ === 'function') _addFetchCount_('Discord', 1);
         var resp = UrlFetchApp.fetch(url, fetchOpts);
         var code = resp.getResponseCode();
         // 429/503はリトライ（最大5回、指数バックオフ）
@@ -5784,6 +5785,7 @@ function _aiClassifyAndReorderImages_(imageUrls) {
     var validIndices = [];
     for (var i = 0; i < imageUrls.length; i++) {
       try {
+        if (typeof _addFetchCount_ === 'function') _addFetchCount_('画像取得', 1);
         var imgResp = UrlFetchApp.fetch(imageUrls[i], { muteHttpExceptions: true });
         if (imgResp.getResponseCode() !== 200) continue;
         var blob = imgResp.getBlob();
@@ -6058,6 +6060,7 @@ function uploadPropertyImage(base64Data, filename, mimeType) {
   //   拡張側(essquare-background.js)は元から ehomaki を最優先にしていたが、
   //   GAS 側のこの経路だけ候補に入っていなかった。
   try {
+    if (typeof _addFetchCount_ === 'function') _addFetchCount_('画像アップロード', 1);
     var respE = UrlFetchApp.fetch(EHOMAKI_IMG_UPLOAD_URL, {
       method: 'post',
       contentType: mimeType || 'image/jpeg',

@@ -17,6 +17,7 @@ function replyMessage(replyToken, messages) {
     Logger.log('[DRY_RUN] replyMessage: ' + JSON.stringify(messages));
     return;
   }
+  if (typeof _addFetchCount_ === 'function') _addFetchCount_('LINE返信', 1);
   var resp = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'post',
     headers: {
@@ -60,6 +61,7 @@ function pushMessage(userId, messages, options) {
   if (options && options.silent) {
     body.notificationDisabled = true;
   }
+  if (typeof _addFetchCount_ === 'function') _addFetchCount_('LINE送信', 1);
   UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
     method: 'post',
     headers: {
@@ -181,6 +183,8 @@ function bulkCheckLineBlocked(userIds) {
     });
     var responses;
     try {
+      // fetchAll も1件ずつ回数に数えられる。ここが一番効くので必ず記録する。
+      if (typeof _addFetchCount_ === 'function') _addFetchCount_('LINEブロック判定', requests.length);
       responses = UrlFetchApp.fetchAll(requests);
     } catch (e) {
       console.error('bulkCheckLineBlocked fetchAll error: ' + e.message);
