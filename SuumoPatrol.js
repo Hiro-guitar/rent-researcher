@@ -1822,9 +1822,13 @@ function findStopCandidates(topN, options) {
   // 停止候補の計算だけで30秒を超えていた（2026-09-12）。
   if (moshikomiWrites.length && moshikomiColIdx > 0) {
     try {
-      var _mCol = [];
-      for (var mw = 0; mw < data.length; mw++) _mCol.push([data[mw][moshikomiColIdx - 1]]);
-      sheet.getRange(2, moshikomiColIdx, _mCol.length, 1).setValues(_mCol);
+      // 読んだ後に行が消えている可能性があるので、今のシートに収まる分だけ書く
+      var _rows = Math.min(data.length, Math.max(0, sheet.getLastRow() - 1));
+      if (_rows > 0) {
+        var _mCol = [];
+        for (var mw = 0; mw < _rows; mw++) _mCol.push([data[mw][moshikomiColIdx - 1]]);
+        sheet.getRange(2, moshikomiColIdx, _rows, 1).setValues(_mCol);
+      }
     } catch (eMW) {
       Logger.log('初回申込検知日のまとめ書き込み失敗: ' + eMW.message);
     }
@@ -2548,27 +2552,47 @@ function handleGetSuumoQueue(e) {
   // ユーザーが何もしなくても自動で掃除されて都合が良い。
   try { maybePurgeOldStoppedListings_(); } catch (_) {}
 
-  var shouldLock = e.parameter.lock === 'true' || e.parameter.lock === '1';
-  var queue = shouldLock ? getAndLockSuumoApprovalQueue() : getSuumoApprovalQueue();
-  var sheetListingCount = getActiveListingCount();
-  var liveCount = Number(e.parameter.liveCount) || 0;
-  var listingCount = Math.max(sheetListingCount, liveCount);
-  // 50件超過時のみ候補を計算(計算コスト節約)
-  // ForRent直読みの実数(liveCount)とシート件数の大きい方で判定
-  var relaxResult = listingCount >= 50
-    ? findStopCandidatesWithGracefulRelax(10)
-    : { candidates: [], finalLevel: 0 };
-  var stopCandidates = relaxResult.candidates;
-  var stopCandidate = stopCandidates.length > 0 ? stopCandidates[0] : null;
+  // ⚠️ ここで例外が漏れると、GASはJSONではなくエラーページ（404など）を返す。
+  //   拡張側からは原因が一切見えなくなるので、必ず捕まえてJSONで返すこと。
+  //   どこで時間がかかっているかも残す（2026-09-12 入稿が止まった件）。
+  var _t0 = Date.now();
+  var _lap = function (label) {
+    console.log('[get_suumo_queue] ' + label + ' ' + (Date.now() - _t0) + 'ms');
+  };
+  try {
+    var shouldLock = e.parameter.lock === 'true' || e.parameter.lock === '1';
+    var queue = shouldLock ? getAndLockSuumoApprovalQueue() : getSuumoApprovalQueue();
+    _lap('キュー取得');
+    var sheetListingCount = getActiveListingCount();
+    _lap('掲載数');
+    var liveCount = Number(e.parameter.liveCount) || 0;
+    var listingCount = Math.max(sheetListingCount, liveCount);
+    // 50件超過時のみ候補を計算(計算コスト節約)
+    // ForRent直読みの実数(liveCount)とシート件数の大きい方で判定
+    var relaxResult = listingCount >= 50
+      ? findStopCandidatesWithGracefulRelax(10)
+      : { candidates: [], finalLevel: 0 };
+    _lap('停止候補 ' + relaxResult.candidates.length + '件');
+    var stopCandidates = relaxResult.candidates;
+    var stopCandidate = stopCandidates.length > 0 ? stopCandidates[0] : null;
 
-  return ContentService.createTextOutput(JSON.stringify({
-    queue: queue,
-    locked: shouldLock,
-    activeListingCount: listingCount,
-    stopCandidate: stopCandidate,       // 後方互換(旧Chrome拡張が読む単数)
-    stopCandidates: stopCandidates,     // 新API: 上位10件のリスト
-    stopCandidateRelaxLevel: relaxResult.finalLevel  // どの保護段階で拾ったか (0=標準/3=保護無視)
-  })).setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify({
+      queue: queue,
+      locked: shouldLock,
+      activeListingCount: listingCount,
+      stopCandidate: stopCandidate,       // 後方互換(旧Chrome拡張が読む単数)
+      stopCandidates: stopCandidates,     // 新API: 上位10件のリスト
+      stopCandidateRelaxLevel: relaxResult.finalLevel  // どの保護段階で拾ったか (0=標準/3=保護無視)
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    console.error('[get_suumo_queue] 失敗 ' + (Date.now() - _t0) + 'ms: '
+      + (err && err.message) + '\n' + (err && err.stack));
+    return ContentService.createTextOutput(JSON.stringify({
+      error: 'get_suumo_queue_failed',
+      message: String(err && err.message || err),
+      elapsedMs: Date.now() - _t0
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 /**
