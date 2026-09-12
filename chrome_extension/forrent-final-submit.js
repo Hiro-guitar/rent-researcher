@@ -186,7 +186,14 @@ async function tryForrentFinalSubmit(opts) {
       suumoPropertyCode: postCheck.suumoPropertyCode || ''
     });
     // 登録成功後は入稿タブとキューをクリーンアップ(タブが残り続けないように)
-    try { await chrome.tabs.remove(tabId); } catch (_) {}
+    try {
+      await chrome.tabs.remove(tabId);
+      await setStorageData({ debugLog: `[Phase5] 入稿タブを閉じました (tab=${tabId})` });
+    } catch (eClose) {
+      // 閉じられなかったことに気づけるようにする。黙って残っていると
+      // 「なぜ閉じないのか」が分からない（2026-09-12）。
+      await setStorageData({ debugLog: `[Phase5] 入稿タブを閉じられません (tab=${tabId}): ${eClose.message}` });
+    }
     // suumoAwaitingPostComplete は Phase6(手動完結検知) の長期フラグ。
     // Phase5 が自動成功した時点で不要なのでクリア(二重送信防止)。
     try { await chrome.storage.local.remove(['suumoFillTabId', 'suumoFillMode', 'suumoFillModeSetAt', 'suumoPendingConfirmCheck', 'suumoAwaitingPostComplete']); } catch (_) {}

@@ -9898,6 +9898,23 @@ async function startSuumoFillProcess() {
     //     「入稿タブではない」と判定→自動ログインがスキップされる事象が起きる。
     // 新: 空タブ(about:blank)作成 → storage書込 → tabs.update(url) の順で、
     //     content script が走る前に必ずtabIdが確定している状態にする。
+    // ⚠️ 前の入稿タブが残っていれば先に閉じる。
+    //   ここは毎回新しいタブを作って suumoFillTabId を上書きするので、前処理が
+    //   二重に走ると（巡回のアラームと手動実行が重なるなど）タブだけが増える。
+    //   入稿の最後に閉じるのは最新の1つだけなので、古いタブが残り続けていた
+    //   （2026-09-12 ユーザー指摘）。
+    try {
+      const prev = await getStorageData(['suumoFillTabId']);
+      const prevTabId = prev && prev.suumoFillTabId;
+      if (typeof prevTabId === 'number') {
+        try {
+          await chrome.tabs.get(prevTabId);          // 無ければ例外
+          await chrome.tabs.remove(prevTabId);
+          await setStorageData({ debugLog: `[SUUMO入稿] 前の入稿タブ(tab=${prevTabId})を閉じました` });
+        } catch (_) { /* すでに閉じている */ }
+      }
+    } catch (_) {}
+
     const forrentTab = await chrome.tabs.create({ url: 'about:blank', active: false });
     await setStorageData({ suumoFillTabId: forrentTab.id });
     await chrome.tabs.update(forrentTab.id, { url: FORRENT_FILL_URL });
