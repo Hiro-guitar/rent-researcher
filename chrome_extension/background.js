@@ -3188,6 +3188,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             try {
               const btn = document.getElementById('rakurakuKotsu');
               if (!btn) return { hadBtn: false };
+              // ⚠️ ボタンが無効（半透明）のまま click() しても何も起きない。
+              //   住所が最後まで入っていないと ForRent 側が無効のままにする。
+              //   何が足りなかったのか後から分かるよう、押す前の状態を持ち帰る。
+              const val = function (id) {
+                var el = document.getElementById(id);
+                if (!el) return null;
+                if (el.tagName === 'SELECT') {
+                  var op = el.options[el.selectedIndex];
+                  return (el.value || '') + (op ? '/' + op.text.trim() : '');
+                }
+                return el.value || '';
+              };
+              const before = {
+                disabled: !!btn.disabled,
+                cls: String(btn.className || ''),
+                tag: btn.tagName,
+                todofuken: val('todofukenCd'),
+                shikuchoson: val('shikuchosonCd'),
+                aza: val('azaCd'),
+                banchi: val('banchiNm'),
+                ido: val('tmpIdoFull'),
+                keido: val('tmpKeidoFull')
+              };
+              // 無効なら外して押してみる。押せたかどうかは openCount で分かる。
+              let forced = false;
+              if (btn.disabled) { try { btn.disabled = false; forced = true; } catch (_) {} }
+              if (/disabled|off|inactive/i.test(before.cls)) {
+                try { btn.className = before.cls.replace(/\b(disabled|off|inactive)\b/gi, '').trim(); forced = true; } catch (_) {}
+              }
               const origOpen = window.open;
               let openCount = 0;
               let openedOk = false;
@@ -3229,8 +3258,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
                 return w;
               };
               btn.click();
+              // click しても onclick が走らなかったときは、直接呼んでみる
+              if (openCount === 0) {
+                try {
+                  const oc = btn.getAttribute('onclick');
+                  if (oc) { new Function(oc).call(btn); }
+                } catch (_) {}
+              }
               window.open = origOpen;
-              return { hadBtn: true, openCount, openedOk, lastUrl };
+              return { hadBtn: true, openCount, openedOk, lastUrl, before, forced };
             } catch (e) {
               return { error: String(e && e.message || e) };
             }
@@ -7929,17 +7965,27 @@ function getStorageData(keys) {
   return new Promise(resolve => chrome.storage.local.get(keys, resolve));
 }
 
+// ⚠️ ログは1つの文字列を読んで書き戻している。短い間に2行書くと、
+//   どちらも同じ「読んだ時点の文字列」に足してしまい、片方が消える。
+//   実際、駅補完で「ボタンを押した結果」の行が毎回消えていて、原因が
+//   追えなくなっていた（2026-09-12）。順番待ちさせて取りこぼしを無くす。
+let _debugLogChain = Promise.resolve();
+
 function setStorageData(data) {
   if (data.debugLog) {
-    return new Promise(resolve => {
+    const line = String(data.debugLog);
+    const rest = Object.assign({}, data);
+    delete rest.debugLog;
+    _debugLogChain = _debugLogChain.then(() => new Promise(resolve => {
       chrome.storage.local.get(['debugLog'], (prev) => {
         const prevLog = prev.debugLog || '';
         const timestamp = new Date().toLocaleTimeString('ja-JP');
-        data.debugLog = prevLog + `\n[${timestamp}] ${data.debugLog}`;
-        if (data.debugLog.length > 500000) data.debugLog = data.debugLog.slice(-500000);
-        chrome.storage.local.set(data, resolve);
+        let merged = prevLog + `\n[${timestamp}] ${line}`;
+        if (merged.length > 500000) merged = merged.slice(-500000);
+        chrome.storage.local.set(Object.assign(rest, { debugLog: merged }), resolve);
       });
-    });
+    })).catch(() => {});
+    return _debugLogChain;
   }
   return new Promise(resolve => chrome.storage.local.set(data, resolve));
 }

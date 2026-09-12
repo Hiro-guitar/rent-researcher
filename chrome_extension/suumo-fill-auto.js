@@ -1268,6 +1268,16 @@
           dlog('⚠️ background 経由 click 失敗: ' + triggerResp.error);
         } else {
           const r = triggerResp.result || {};
+          // 押す前のボタンと住所欄の状態を必ず残す。候補0件のとき、住所が
+          // 足りないのか押せていないのかを後から切り分けるため。
+          if (r.before) {
+            const b = r.before;
+            dlog('ボタン状態: ' + b.tag + (b.disabled ? ' 無効' : ' 有効')
+              + (r.forced ? '(解除して押した)' : '')
+              + ' / 住所: 都道府県=' + b.todofuken + ' 市区町村=' + b.shikuchoson
+              + ' 字丁目=' + b.aza + ' 番地=' + (b.banchi === '' ? '(空)' : b.banchi)
+              + ' / 座標: 緯度=' + (b.ido || '(空)') + ' 経度=' + (b.keido || '(空)'));
+          }
           if (r.error) {
             dlog('⚠️ MAIN world click 例外: ' + r.error);
           } else if (!r.hadBtn) {
