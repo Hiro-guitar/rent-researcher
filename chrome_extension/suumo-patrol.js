@@ -1427,10 +1427,17 @@ async function pollSuumoApprovalQueue(opts) {
   const liveCountParam = opts && typeof opts.liveCount === 'number' ? `&liveCount=${opts.liveCount}` : '';
   const url = `${gasWebappUrl}?action=get_suumo_queue&api_key=${encodeURIComponent(gasApiKey || '')}${lockParam}${liveCountParam}`;
   try {
-    const res = await _fetchWithTimeout_(url, undefined, 30000);
-    if (!res.ok) return null;
+    // 60秒待つ。停止候補の計算は掲載が増えるほど重くなり、30秒だと
+    // 間に合わずに入稿が止まっていた（2026-09-12）。GAS側は最長6分動ける。
+    const res = await _fetchWithTimeout_(url, undefined, 60000);
+    if (!res.ok) {
+      await setStorageData({ debugLog: `[SUUMO承認キュー] GASがエラーを返しました: HTTP ${res.status}` });
+      return null;
+    }
     return await res.json();
   } catch (e) {
+    // 時間切れなのか通信エラーなのかで打つ手が違うので、理由を残す
+    await setStorageData({ debugLog: `[SUUMO承認キュー] 取得できず: ${(e && e.message) || e}` });
     return null;
   }
 }
