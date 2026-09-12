@@ -1621,6 +1621,24 @@ function updateSuumoPerformance(updates) {
  * @param {number} topN - 返す候補数の上限(デフォルト10)
  * @returns {Array<Object>} スコア降順の候補リスト(0件なら空配列)
  */
+// 停止候補の計算で読むシートを、短い間だけ使い回すための入れ物。
+//
+// findStopCandidates は保護レベルを緩めながら最大4回呼ばれる。素直に書くと
+// そのたびに掲載管理・物件空室管理・PV履歴を読み直し、合計12回の全件読みになる。
+// GASのシート読みは1回1〜3秒あるので、これだけで30秒を超え、拡張側が
+// 「停止候補取得失敗(GAS応答なし)」で諦めていた（2026-09-12）。
+//
+// ⚠️ GASは実行が終わってもインスタンスを使い回すことがある。時間で切って、
+//   別のリクエストに古いデータを持ち越さないようにする。
+var _stopCandSheetCache_ = null;
+function _stopCandCache_() {
+  if (_stopCandSheetCache_ && (Date.now() - _stopCandSheetCache_.t) < 20000) {
+    return _stopCandSheetCache_;
+  }
+  _stopCandSheetCache_ = { t: Date.now() };
+  return _stopCandSheetCache_;
+}
+
 function findStopCandidates(topN, options) {
   var limit = topN || 10;
   options = options || {};
@@ -1634,13 +1652,14 @@ function findStopCandidates(topN, options) {
   if (lastRow <= 1) return [];
 
   var headerLen = SUUMO_LISTING_HEADERS.length;
-  var data = sheet.getRange(2, 1, lastRow - 1, headerLen).getValues();
+  var _cache = _stopCandCache_();
+  var data = _cache.data || (_cache.data = sheet.getRange(2, 1, lastRow - 1, headerLen).getValues());
   var now = new Date();
 
   // 物件空室管理シート(PROPERTY_SHEET_ID) の K列「終了日」を参照するためのマップ。
   // 「建物名+部屋番号」→ 終了日(Date) の形。終了日がない (まだ申込検知されてない)
   // 物件はマップに含まれない。
-  var vacancyEndedMap = _buildVacancyEndedMap_();
+  var vacancyEndedMap = _cache.vacancyEndedMap || (_cache.vacancyEndedMap = _buildVacancyEndedMap_());
 
   // 列インデックス (1-indexed)
   var moshikomiColIdx = SUUMO_LISTING_HEADERS.indexOf('初回申込検知日') + 1;
@@ -1649,9 +1668,10 @@ function findStopCandidates(topN, options) {
   // PV履歴の平均を取得。窓は最大14日で、その中でデータがある日数だけで平均する
   // （SUUMOのPV計上ラグで直近1-2日が空になるため、7日窓だと実質6日になってしまう。
   //   14日窓にすることで週齢物件は約7日ぶん、長期物件は最大14日ぶんで平均できる）
-  var pvAverages = getPvHistoryAverages_(14);
+  var pvAverages = _cache.pvAverages || (_cache.pvAverages = getPvHistoryAverages_(14));
 
   var candidates = [];
+  var moshikomiWrites = [];   // 初回申込検知日を書き戻す行。1セルずつ書くと遅いのでまとめる
   var lowCompCount = 0, highCompCount = 0, unmeasuredCount = 0;
   for (var i = 0; i < data.length; i++) {
     if (data[i][8] !== 'active') continue;
@@ -1695,11 +1715,8 @@ function findStopCandidates(topN, options) {
         var foundEnded = vacancyEndedMap[vkey];
         if (foundEnded instanceof Date) {
           initialMoshikomiDate = foundEnded;
-          try {
-            sheet.getRange(i + 2, moshikomiColIdx).setValue(foundEnded);
-          } catch (e) {
-            Logger.log('初回申込検知日の書き込み失敗 row=' + (i + 2) + ': ' + e.message);
-          }
+          data[i][moshikomiColIdx - 1] = foundEnded;
+          moshikomiWrites.push(i);
         }
       }
     }
@@ -1801,6 +1818,18 @@ function findStopCandidates(topN, options) {
 
   // ポートフォリオ状況を各候補に添付(低競合の件数=25件キープの確認 / 落とせる候補数)
   var eligibleCount = candidates.length;
+  // 初回申込検知日をまとめて書き戻す。1セルずつだと行数ぶん往復して、
+  // 停止候補の計算だけで30秒を超えていた（2026-09-12）。
+  if (moshikomiWrites.length && moshikomiColIdx > 0) {
+    try {
+      var _mCol = [];
+      for (var mw = 0; mw < data.length; mw++) _mCol.push([data[mw][moshikomiColIdx - 1]]);
+      sheet.getRange(2, moshikomiColIdx, _mCol.length, 1).setValues(_mCol);
+    } catch (eMW) {
+      Logger.log('初回申込検知日のまとめ書き込み失敗: ' + eMW.message);
+    }
+  }
+
   for (var ci = 0; ci < candidates.length; ci++) {
     candidates[ci].lowCompCount = lowCompCount;
     candidates[ci].highCompCount = highCompCount;
@@ -2060,9 +2089,22 @@ function purgeOldStoppedListings_(daysOld, opts) {
   rowsToDelete.sort(function (a, b) { return b.sheetRow - a.sheetRow; });
 
   if (!dryRun) {
+    // 1行ずつ deleteRow すると行数ぶんシートに往復する。数十行あると
+    // それだけで30秒近くかかり、呼び出し元（停止候補の取得）が
+    // タイムアウトしていた（2026-09-12）。続いている行はまとめて消す。
+    var run = [];
+    var flush = function () {
+      if (!run.length) return;
+      var top = run[run.length - 1];   // 降順なので最後が一番小さい行番号
+      sheet.deleteRows(top, run.length);
+      run = [];
+    };
     for (var j = 0; j < rowsToDelete.length; j++) {
-      sheet.deleteRow(rowsToDelete[j].sheetRow);
+      var rowNo = rowsToDelete[j].sheetRow;
+      if (run.length && run[run.length - 1] - 1 !== rowNo) flush();
+      run.push(rowNo);
     }
+    flush();
   }
 
   return {
@@ -2084,8 +2126,10 @@ function maybePurgeOldStoppedListings_() {
     var props = PropertiesService.getScriptProperties();
     var last = parseInt(props.getProperty('LAST_STOPPED_PURGE_AT') || '0', 10);
     if (last && now - last < 24 * 60 * 60 * 1000) return;
-    var result = purgeOldStoppedListings_(14);
+    // 実行した印を先に付ける。途中で落ちたときに、呼ばれるたびに掃除をやり直して
+    // そのたびに時間切れになるのを避けるため（掃除は翌日やり直せばよい）。
     props.setProperty('LAST_STOPPED_PURGE_AT', String(now));
+    var result = purgeOldStoppedListings_(14);
     if (result.deletedRows > 0) {
       console.log('[SUUMO掲載管理] 14日経過 stopped 行を自動削除: ' + result.deletedRows + '件');
     }
