@@ -1434,8 +1434,14 @@ async function pollSuumoApprovalQueue(opts) {
       // 本文の先頭も残す。GASはエラー時にHTMLのエラーページを返すことがあり、
       // 中身を見ないと「デプロイが無い」のか「スクリプトが落ちた」のか分からない。
       let body = '';
-      try { body = (await res.text()).replace(/\s+/g, ' ').slice(0, 200); } catch (_) {}
-      await setStorageData({ debugLog: `[SUUMO承認キュー] GASがエラーを返しました: HTTP ${res.status} ${body}` });
+      try { body = (await res.text()).replace(/\s+/g, ' ').slice(0, 120); } catch (_) {}
+      // どのデプロイを叩いたかも残す。古いURLが保存されていると、スクリプトに
+      // 届く前にGoogleの404ページが返ってきて、中身からは区別できないため。
+      const depId = (gasWebappUrl.match(/\/macros\/s\/([^/]+)/) || [])[1] || gasWebappUrl;
+      await setStorageData({
+        debugLog: `[SUUMO承認キュー] GASがエラーを返しました: HTTP ${res.status}`
+          + ` / 宛先=${String(depId).slice(0, 20)}… / 最終URL=${(res.url || '').slice(0, 60)} / ${body}`
+      });
       return null;
     }
     const data = await res.json();
