@@ -1431,10 +1431,20 @@ async function pollSuumoApprovalQueue(opts) {
     // 間に合わずに入稿が止まっていた（2026-09-12）。GAS側は最長6分動ける。
     const res = await _fetchWithTimeout_(url, undefined, 60000);
     if (!res.ok) {
-      await setStorageData({ debugLog: `[SUUMO承認キュー] GASがエラーを返しました: HTTP ${res.status}` });
+      // 本文の先頭も残す。GASはエラー時にHTMLのエラーページを返すことがあり、
+      // 中身を見ないと「デプロイが無い」のか「スクリプトが落ちた」のか分からない。
+      let body = '';
+      try { body = (await res.text()).replace(/\s+/g, ' ').slice(0, 200); } catch (_) {}
+      await setStorageData({ debugLog: `[SUUMO承認キュー] GASがエラーを返しました: HTTP ${res.status} ${body}` });
       return null;
     }
-    return await res.json();
+    const data = await res.json();
+    if (data && data.error) {
+      // GAS側が例外を捕まえてJSONで返してきた場合
+      await setStorageData({ debugLog: `[SUUMO承認キュー] GASで失敗: ${data.error} ${data.message || ''} (${data.elapsedMs || '?'}ms)` });
+      return null;
+    }
+    return data;
   } catch (e) {
     // 時間切れなのか通信エラーなのかで打つ手が違うので、理由を残す
     await setStorageData({ debugLog: `[SUUMO承認キュー] 取得できず: ${(e && e.message) || e}` });
