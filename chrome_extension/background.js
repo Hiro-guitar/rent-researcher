@@ -3407,46 +3407,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       let customers = [];
       let contextCustomer = '';
+      // ⚠️ ここで get_criteria を呼ばないこと。
+      //   あちらには顧客全員のLINEブロック判定（1人につきLINE API 1回）が
+      //   付いている。このパネルは検索結果ページを開くたびに立ち上がるので、
+      //   朝の巡回だけでURL Fetchを3,276回（全体の95%）使い、1日の上限に
+      //   当たって承認ページまで開けなくなっていた（2026-09-13）。
+      //   名前を並べたいだけなので、シートを読むだけの軽い口を使う。
       try {
-        // キャッシュがあれば即座に返す（GAS get_criteriaはLINEブロック判定等で重い）
-        const cached = await new Promise(r => chrome.storage.local.get(['customerCriteria'], d => r(d)));
-        let crit = Array.isArray(cached.customerCriteria) ? cached.customerCriteria : [];
-        if (crit.length > 0) {
-          customers = Array.from(new Set(crit.map(c => c && c.name).filter(Boolean)));
-        } else {
-          // キャッシュが空なら同期取得（初回のみ待つ）
-          try {
-            const res = await fetchCriteria();
-            let fresh = (res && res.criteria) || [];
-            if (fresh.length > 0) {
-              await _storeCriteria(fresh);
-              customers = Array.from(new Set(fresh.map(c => c && c.name).filter(Boolean)));
-            }
-          } catch (e2) {
-            await setStorageData({ debugLog: '手動送信: 顧客一覧取得失敗 ' + e2.message });
-          }
+        const res = await gasGet('get_customer_names');
+        const names = (res && res.names) || [];
+        if (names.length > 0) {
+          customers = names;
+          await setStorageData({ manualSendNames: names });
         }
       } catch (e) {
         await setStorageData({ debugLog: '手動送信: 顧客一覧取得失敗 ' + e.message });
+      }
+      if (customers.length === 0) {
+        // 取れなかったときは、前回の一覧でしのぐ
+        try {
+          const prev = await getStorageData(['manualSendNames', 'customerCriteria']);
+          if (Array.isArray(prev.manualSendNames) && prev.manualSendNames.length) {
+            customers = prev.manualSendNames;
+          } else if (Array.isArray(prev.customerCriteria)) {
+            customers = Array.from(new Set(prev.customerCriteria.map(c => c && c.name).filter(Boolean)));
+          }
+        } catch (_) {}
       }
       try {
         contextCustomer = await getManualSearchCustomer(sender.tab && sender.tab.id);
       } catch (e) {}
       sendResponse({ ok: true, customers, contextCustomer });
-      // バックグラウンドでキャッシュ更新（新規顧客が次回パネルオープンで反映される）
-      //
-      // ⚠️ このパネルは検索結果ページを開くたびに立ち上がる。毎回GASを叩くと、
-      //   そのたびに顧客全員のLINEブロック判定（1人につきLINE API 1回）が走り、
-      //   朝の巡回1回でURL Fetchを3,276回も使っていた（全体の95%。2026-09-13）。
-      //   巡回そのものは今まで通り毎回取り直す。ここだけ、最後に取ってから
-      //   10分経っていなければキャッシュのまま使う。
-      try {
-        const _cf = await getStorageData(['lastCriteriaFetch']);
-        const _age = Date.now() - (Number(_cf && _cf.lastCriteriaFetch) || 0);
-        if (_age > 10 * 60 * 1000) {
-          fetchCriteria().then(res => _storeCriteria((res && res.criteria) || [])).catch(() => {});
-        }
-      } catch (_) {}
     })();
     return true;
   }
