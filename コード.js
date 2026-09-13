@@ -1807,6 +1807,11 @@ function doGet(e) {
     return handleUnsubscribe(e);
   }
 
+  // ── 手動送信パネル用: 顧客名だけ返す（LINEブロック判定をしない軽い口） ──
+  if (action === 'get_customer_names') {
+    return handleGetCustomerNames(e);
+  }
+
   // ── お客様向け地図ページ: 送った物件を緯度経度つきで返す ──
   if (action === 'customer_map') {
     return handleCustomerMapApi(e);
@@ -2414,6 +2419,55 @@ function _notifyLineBlockedToDiscord_(customerName) {
 /**
  * GET: 顧客検索条件を返す
  */
+/**
+ * 手動送信パネル用に、顧客名だけ返す。
+ *
+ * パネルはドロップダウンを埋めたいだけなのに get_criteria を呼んでおり、
+ * そこに付いているLINEブロック判定（顧客1人につきLINE API 1回）のせいで、
+ * 検索結果ページを1枚開くたびに80回以上APIを叩いていた。
+ * 朝の巡回だけでURL Fetchの95%（3,276回）を使い、1日の上限に当たって
+ * 承認ページまで開けなくなっていた（2026-09-13）。
+ *
+ * こちらはシートを読むだけで、外部への通信は一切しない。
+ * 自動検索が使う get_criteria は今まで通り（ブロック判定も毎回のまま）。
+ */
+function handleGetCustomerNames(e) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
+    return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet) {
+      return ContentService.createTextOutput(JSON.stringify({ error: 'criteria sheet not found' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    var lastRow = sheet.getLastRow();
+    if (lastRow < 2) {
+      return ContentService.createTextOutput(JSON.stringify({ names: [] }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    var data = sheet.getRange(2, 1, lastRow - 1, 45).getValues();
+    var names = [];
+    var seen = {};
+    for (var i = 0; i < data.length; i++) {
+      var name = String(data[i][1] || '').trim();     // B列: 顧客名
+      if (!name || seen[name]) continue;
+      if (String(data[i][44] || '').trim()) continue;  // AS列(45): アーカイブ済み
+      if (String(data[i][32] || '').trim() === '終了') continue;  // AG列(33): 営業ステージ
+      seen[name] = true;
+      names.push(name);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ names: names }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    console.error('handleGetCustomerNames: ' + err.message);
+    return ContentService.createTextOutput(JSON.stringify({ error: err.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
 function handleGetCriteria(e) {
   if (!_validateReinsApiKey(e.parameter.api_key)) {
     return ContentService
