@@ -3434,7 +3434,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } catch (e) {}
       sendResponse({ ok: true, customers, contextCustomer });
       // バックグラウンドでキャッシュ更新（新規顧客が次回パネルオープンで反映される）
-      fetchCriteria().then(res => _storeCriteria((res && res.criteria) || [])).catch(() => {});
+      //
+      // ⚠️ このパネルは検索結果ページを開くたびに立ち上がる。毎回GASを叩くと、
+      //   そのたびに顧客全員のLINEブロック判定（1人につきLINE API 1回）が走り、
+      //   朝の巡回1回でURL Fetchを3,276回も使っていた（全体の95%。2026-09-13）。
+      //   巡回そのものは今まで通り毎回取り直す。ここだけ、最後に取ってから
+      //   10分経っていなければキャッシュのまま使う。
+      try {
+        const _cf = await getStorageData(['lastCriteriaFetch']);
+        const _age = Date.now() - (Number(_cf && _cf.lastCriteriaFetch) || 0);
+        if (_age > 10 * 60 * 1000) {
+          fetchCriteria().then(res => _storeCriteria((res && res.criteria) || [])).catch(() => {});
+        }
+      } catch (_) {}
     })();
     return true;
   }
