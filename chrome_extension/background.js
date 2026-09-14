@@ -3413,15 +3413,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       //   朝の巡回だけでURL Fetchを3,276回（全体の95%）使い、1日の上限に
       //   当たって承認ページまで開けなくなっていた（2026-09-13）。
       //   名前を並べたいだけなので、シートを読むだけの軽い口を使う。
-      try {
-        const res = await gasGet('get_customer_names');
-        const names = (res && res.names) || [];
-        if (names.length > 0) {
-          customers = names;
-          await setStorageData({ manualSendNames: names });
+      // 巡回中は取りに行かない。巡回は重複検知・送信・画像でGASを大量に叩いて
+      //   いるので、そこに割り込むとGAS側で順番待ちになり30秒で切れる
+      //   （「GASリクエストタイムアウト (get_customer_names)」2026-09-14）。
+      //   巡回が開くタブのパネルは使わないので、前回の一覧で十分。
+      let _searching = false;
+      try { _searching = !!(await getStorageData(['isSearching'])).isSearching; } catch (_) {}
+      if (!_searching) {
+        try {
+          const res = await gasGet('get_customer_names');
+          const names = (res && res.names) || [];
+          if (names.length > 0) {
+            customers = names;
+            await setStorageData({ manualSendNames: names });
+          }
+        } catch (e) {
+          // 前回の一覧で続けるので、失敗しても致命的ではない
+          await setStorageData({ debugLog: '手動送信: 顧客一覧の更新をスキップ（前回の一覧を使用）: ' + e.message });
         }
-      } catch (e) {
-        await setStorageData({ debugLog: '手動送信: 顧客一覧取得失敗 ' + e.message });
       }
       if (customers.length === 0) {
         // 取れなかったときは、前回の一覧でしのぐ
