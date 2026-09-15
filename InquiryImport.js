@@ -1369,6 +1369,14 @@ function autoCloseStaleInquiries() {
   var checked = 0;
   var closed = 0;
   var closedNames = [];
+  var skippedLine = [];
+
+  // LINEで繋がっている人は対象外。名前が LINE Users にあれば繋がっている。
+  // ⚠️ LINE由来の行は「電話番号なし・ステージのセル空」が普通なので、これを
+  //   見ないと条件登録から14日で自動的に「終了」にされてしまう（2026-09-15 発覚）。
+  //   LINEは維持に費用がかからないので、返事が無くても失注にはしない。
+  var lineNameMap = (typeof _getLineUserIdMapByCustomerName_ === 'function')
+    ? _getLineUserIdMapByCustomerName_() : {};
 
   // 対象は「取り込んだだけで、まだ追客に入っていない人」。
   // 取込時にステージを書かなくなったので空欄も対象に含める。
@@ -1377,6 +1385,10 @@ function autoCloseStaleInquiries() {
   for (var i = 1; i < critData.length; i++) {
     var stage = String(critData[i][32] || '').trim();
     if (NOT_YET.indexOf(stage) < 0) continue;
+    var nameL = String(critData[i][1] || '').trim();
+    if (nameL && lineNameMap[nameL]) { skippedLine.push(nameL); continue; }
+    // 検索条件が入っている人は自動検索が回っている＝追客中。終了にしない。
+    if (typeof _rowHasCriteria_ === 'function' && _rowHasCriteria_(critData[i])) continue;
     checked++;
 
     // 登録日時 (A列) から経過日数を計算
@@ -1401,6 +1413,9 @@ function autoCloseStaleInquiries() {
 
   if (closed > 0) {
     console.log('[自動終了] ' + closed + '件を「問い合わせ」→「終了」に変更: ' + closedNames.join(', '));
+  }
+  if (skippedLine.length > 0) {
+    console.log('[自動終了] LINEで繋がっているため対象外: ' + skippedLine.length + '件');
   }
   return { checked: checked, closed: closed, closedNames: closedNames };
 }
