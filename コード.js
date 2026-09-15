@@ -4289,12 +4289,47 @@ function _isEmailLineRegistered_(email) {
   try {
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
     var sh = ss.getSheetByName(LINE_EMAIL_SHEET_NAME);
-    if (!sh) return false;
-    var data = sh.getDataRange().getValues();
-    for (var i = 1; i < data.length; i++) {
-      if (String(data[i][0] || '').trim().toLowerCase() === email.toLowerCase()) return true;
+    if (sh) {
+      var data = sh.getDataRange().getValues();
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][0] || '').trim().toLowerCase() === email.toLowerCase()) return true;
+      }
     }
   } catch (e) {}
+  // LINEでアドレスを送ってくれていなくても、顧客としてLINEで繋がっていれば止める
+  return _isEmailOwnedByLineCustomer_(email);
+}
+
+/**
+ * そのメールの持ち主が、顧客としてLINEで繋がっているか。
+ *
+ * 検索条件シートでそのメール(AF列)を持つ行の顧客名が LINE Users にあれば true。
+ * 問い合わせ（メール）とLINEのカードを統合すると、本名の行が LINE Users と
+ * 結びつくので、ここで拾える。
+ *
+ * ⚠️ 以前は「お客様がLINEでメールアドレスを送ってくれた」場合しか止めておらず、
+ *   統合して条件登録まで済んだ人にもフォローアップメールが流れ続けていた
+ *   （ユーザー指摘 2026-09-15）。LINEで繋がった人にはメールを送らない方針に合わせる。
+ */
+function _isEmailOwnedByLineCustomer_(email) {
+  email = String(email || '').trim().toLowerCase();
+  if (!email) return false;
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    if (!sheet || sheet.getLastRow() < 2) return false;
+    var lineMap = _getLineUserIdMapByCustomerName_();
+    if (!Object.keys(lineMap).length) return false;
+    // B列(2)=顧客名 … AF列(32)=メール
+    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 32).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][31] || '').trim().toLowerCase() !== email) continue;
+      var name = String(rows[i][1] || '').trim();
+      if (name && lineMap[name]) return true;
+    }
+  } catch (e) {
+    console.warn('_isEmailOwnedByLineCustomer_: ' + e.message);
+  }
   return false;
 }
 
@@ -4379,6 +4414,8 @@ function handleCheckFollowupStatus(e) {
         }
       }
     }
+    // 統合などで顧客としてLINEに繋がっていれば、アドレスを送ってもらっていなくても止める
+    if (!lineRegistered && _isEmailOwnedByLineCustomer_(emailAddr)) lineRegistered = true;
 
     var unsubSheet = ss.getSheetByName(UNSUBSCRIBE_SHEET_NAME);
     if (unsubSheet) {
