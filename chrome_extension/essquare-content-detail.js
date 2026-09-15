@@ -17,7 +17,7 @@
   if (window.__essquareContentDetailLoaded) return;
   window.__essquareContentDetailLoaded = true;
 
-  // 無音 audio 起動は essquare-keepalive.js (検索/詳細両方に注入) で行う
+  // 裏タブの throttling 対策は Chrome の起動フラグで行う（無音 audio は廃止 2026-09-15）
 
   // 異常時のみダッシュボードログに残す軽量 helper
   // (通常時の診断ログは原因特定後に削除済み)
