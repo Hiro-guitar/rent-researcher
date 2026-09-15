@@ -890,7 +890,7 @@ function handlePropertyViewApi(e) {
 
   var result = {
     buildingName: prop.buildingName,
-    roomNumber: prop.roomNumber,
+    roomNumber: _roomLabel_(prop.roomNumber, prop.floorText, prop.floor),
     rent: prop.rent,
     managementFee: prop.managementFee,
     layout: prop.layout,
@@ -3779,7 +3779,8 @@ function _pendingRowToFlexProp_(row) {
     var _split = _splitRoomNumber(_bn, _rn); // 物件名末尾の部屋番号重複を除去/抽出
     return {
       buildingName: _split.name,
-      roomNumber: _split.room,
+      // 部屋番号が無ければ階で代用する（「3F」）
+      roomNumber: _roomLabel_(_split.room, d.floor_text, d.floor),
       rent: d.rent || Number(row[4]) || 0,
       managementFee: d.management_fee || Number(row[5]) || 0,
       layout: d.layout || String(row[6] || ''),
@@ -5643,6 +5644,25 @@ function _normalizeMoveInDate(val) {
  * 物件名から部屋番号を分離する。
  * "ふるーる東中野 202" → { name: "ふるーる東中野", room: "202" }
  */
+/**
+ * 表示に使う部屋番号。無ければ階から「3F」を作る。
+ *
+ * 部屋番号が取れない物件（REINSの一部など）は、お客様に「◯◯マンション」と
+ * 建物名だけで届き、同じ建物の別の部屋と見分けがつかなかった。
+ * 階が分かるなら「3F」と付けて見分けられるようにする（ユーザー要望 2026-09-15）。
+ *
+ * ⚠️ 「5階建」の「5」を階と取らないこと。「3階/5階建」は 3 が部屋の階。
+ */
+function _roomLabel_(roomNumber, floorText, floor) {
+  var r = String(roomNumber == null ? '' : roomNumber).trim();
+  if (r && !/^[-ー－—―]+$/.test(r)) return r;
+  var ft = String(floorText == null ? '' : floorText)
+    .replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+  var m = ft.match(/(\d+)\s*階(?!建)/);
+  var n = m ? Number(m[1]) : (Number(floor) > 0 ? Number(floor) : 0);
+  return n > 0 ? n + 'F' : '';
+}
+
 function _splitRoomNumber(buildingName, roomNumber) {
   if (roomNumber) {
     // 物件名の末尾に同じ部屋番号が含まれていれば除去する。
@@ -6360,7 +6380,8 @@ function _packViewImages_(imgs) {
 function _propToViewData_(prop) {
   var d = {};
   if (prop.buildingName) d.bn = prop.buildingName;
-  if (prop.roomNumber) d.rn = prop.roomNumber;
+  var _rnLabel = _roomLabel_(prop.roomNumber, prop.floorText, prop.floor);
+  if (_rnLabel) d.rn = _rnLabel;
   if (prop.rent) d.r = prop.rent;
   if (prop.managementFee) d.mf = prop.managementFee;
   if (prop.layout) d.l = prop.layout;
@@ -7046,9 +7067,10 @@ function buildPropertyFlex(prop, options) {
   var rentMan = prop.rent ? _fmtMan(prop.rent) : '0'; // altText 用に温存
 
   // ── タイトル (建物名 + 部屋番号) ──
+  var _titleRoom = _roomLabel_(prop.roomNumber, prop.floorText, prop.floor);
   var titleBlock = {
     type: 'text',
-    text: prop.buildingName + (prop.roomNumber ? ' ' + prop.roomNumber : ''),
+    text: prop.buildingName + (_titleRoom ? ' ' + _titleRoom : ''),
     weight: 'bold', size: 'lg', color: '#1a2538', wrap: true
   };
 
