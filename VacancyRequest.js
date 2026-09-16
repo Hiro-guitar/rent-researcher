@@ -418,7 +418,8 @@ function _splitVacancyItems_(raw) {
  * 順序は従来どおり SUUMO bc番号 → 面積 → 物件名/所在地/駅の部分一致。
  * @return {{rows:Array<{idx:number,row:Array}>, tooMany:boolean}}
  */
-function _matchVacancyRows_(data, q) {
+function _matchVacancyRows_(data, q, opts) {
+  opts = opts || {};
   var matched = [];
   var seen = {};
   function addRow(i) { if (!seen[i]) { seen[i] = true; matched.push({ idx: i, row: data[i] }); } }
@@ -450,11 +451,16 @@ function _matchVacancyRows_(data, q) {
     }
     if (queries.length > 0) {
       for (var r = 1; r < data.length; r++) {
-        var sheetVals = [
-          normalizeForMatch(String(data[r][0]) + String(data[r][1])),
-          normalizeForMatch(data[r][2]),
-          normalizeForMatch(data[r][3])
-        ];
+        // 建物名(+部屋番号)・所在地・最寄駅 を対象にする。
+        // nameOnly のときは建物名だけ。物件ページの題名で当て直すときに使う。
+        // 題名は「新宿」のような地名を含むことがあり、所在地や駅に当たると別物件を拾うため。
+        var sheetVals = opts.nameOnly
+          ? [normalizeForMatch(String(data[r][0]) + String(data[r][1]))]
+          : [
+              normalizeForMatch(String(data[r][0]) + String(data[r][1])),
+              normalizeForMatch(data[r][2]),
+              normalizeForMatch(data[r][3])
+            ];
         var hit = false;
         for (var qi = 0; qi < queries.length && !hit; qi++) {
           for (var sj = 0; sj < sheetVals.length && !hit; sj++) {
@@ -560,17 +566,30 @@ function handleVacancyRequest(replyToken, userId, items, opts) {
     var judged = [];
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
-      var q = it.url || it.text;
-      var m = _matchVacancyRows_(data, q);
+      var label = it.label || it.text || it.url;
+      var m = _matchVacancyRows_(data, it.url || it.text);
+
+      // URLで当たらなかったときは、手がかりを増やしてもう一度当てる。
+      //   ・問い合わせボタン経由なら建物名を持っている（it.text）
+      //   ・持っていなければ物件ページの題名を取る
+      // SUUMOのURLでも bc 番号が入っていないものがあり、そのままだと自社物件なのに
+      // 当たらず、スタッフに回ってしまう（2026-09-16 実際に発生）。
+      if (!m.tooMany && m.rows.length === 0 && it.url) {
+        var alt = it.text;
+        if (!alt) {
+          var title = _vacancyFetchTitle_(it.url);
+          if (title) { label = title; alt = title; }
+        }
+        if (alt) {
+          var m2 = _matchVacancyRows_(data, alt, { nameOnly: true });
+          if (m2.rows.length > 0 || m2.tooMany) m = m2;
+        }
+      }
+
       var auto = '';
       var rows = [];
-      var label = it.label || it.text || it.url;
       if (m.tooMany) {
         auto = '';
-      } else if (m.rows.length === 0 && it.url && !it.label) {
-        // 自社シートに無いURLは、ページの題名から物件名を取る（お客様への返事に物件名を出すため）
-        var title = _vacancyFetchTitle_(it.url);
-        if (title) label = title;
       } else if (m.rows.length > 0) {
         var avail = [], needs = [], closed = [];
         for (var r = 0; r < m.rows.length; r++) {
