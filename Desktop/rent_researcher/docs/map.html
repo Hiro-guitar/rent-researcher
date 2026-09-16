@@ -229,10 +229,13 @@ function showState(html) {
 }
 
 var token = new URLSearchParams(window.location.search).get('t') || '';
-if (!token) {
-  document.getElementById('sub').textContent = '';
-  showState('<h2>リンクが正しくありません</h2><p>担当者からお送りしたリンクを、もう一度お開きください。</p>');
-} else {
+
+// リッチメニューから直接開くための LIFF ID（LINE Developers の LIFF アプリ）。
+// 空のときは LIFF を使わず、?t= のリンクだけで動く。
+var MAP_LIFF_ID = '';
+
+function startWithToken(t) {
+  token = t;
   // まずエッジ（Cloudflare）から読む。GASのWebアプリは一番軽い応答でも3秒かかり、
   // 待たせすぎるため。エッジは実測0.2秒。
   // まだ作られていない顧客のときだけ、GASに聞きに行く（遅いが必ず出る）。
@@ -251,6 +254,52 @@ if (!token) {
       document.getElementById('sub').textContent = '';
       showState('<h2>読み込めませんでした</h2><p>通信の状態を確かめて、もう一度お開きください。</p>');
     });
+}
+
+// LINEのリッチメニューから開いたとき（?t= が無い）。LIFF で本人を確かめてトークンを引く。
+// LINEアプリの中ではログイン済みなので、画面は何も出ずにそのまま地図になる。
+function startFromLiff() {
+  document.getElementById('sub').textContent = '読み込み中…';
+  var sc = document.createElement('script');
+  sc.src = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
+  sc.onload = function () {
+    liff.init({ liffId: MAP_LIFF_ID })
+      .then(function () {
+        if (!liff.isLoggedIn()) { liff.login(); return null; }
+        var idToken = liff.getIDToken();
+        if (!idToken) throw new Error('no_id_token');
+        return fetch(GAS_API_URL + '?action=map_token_by_line&id_token=' + encodeURIComponent(idToken), { redirect: 'follow' })
+          .then(function (r) { return r.json(); });
+      })
+      .then(function (res) {
+        if (res === null) return;
+        if (res && res.ok && res.t) { startWithToken(res.t); return; }
+        document.getElementById('sub').textContent = '';
+        if (res && res.reason === 'not_registered') {
+          showState('<h2>まだ地図がありません</h2><p>お部屋探しの条件を登録して、物件をお送りしたあとに地図で見られるようになります。</p>');
+        } else {
+          showState('<h2>開けませんでした</h2><p>LINEのメニューから、もう一度お開きください。</p>');
+        }
+      })
+      .catch(function (e) {
+        document.getElementById('sub').textContent = '';
+        showState('<h2>開けませんでした</h2><p>LINEのメニューから、もう一度お開きください。</p>');
+      });
+  };
+  sc.onerror = function () {
+    document.getElementById('sub').textContent = '';
+    showState('<h2>読み込めませんでした</h2><p>通信の状態を確かめて、もう一度お開きください。</p>');
+  };
+  document.head.appendChild(sc);
+}
+
+if (token) {
+  startWithToken(token);
+} else if (MAP_LIFF_ID) {
+  startFromLiff();
+} else {
+  document.getElementById('sub').textContent = '';
+  showState('<h2>リンクが正しくありません</h2><p>担当者からお送りしたリンクを、もう一度お開きください。</p>');
 }
 
 // 画面が狭いか（スマホか）。狭いときはふきだしではなく、下から出るシートにする。
