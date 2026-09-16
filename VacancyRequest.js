@@ -395,6 +395,8 @@ function _splitVacancyItems_(raw) {
       if (/^[\d０-９]{1,2}[.．)）、:：]$/.test(l) || /^[①-⑳]$/.test(l)) continue;
       // URLと一緒に添えられた「空いてますか？」のような文は物件ではない
       if (urls.length > 0 && /(ですか|ますか|ください|お願い|でしょうか|[?？。]$)/.test(l)) continue;
+      // アプリの「共有」で付いてくるタイトル文（「○○マンション 1K 8.5万円」「【SUUMO】…」）も物件ではない
+      if (urls.length > 0 && /(万円|【|】|SUUMO|スーモ|HOME'?S|ホームズ|LIFULL|at ?home|アットホーム)/i.test(l)) continue;
       if (typeof isVacancyFillerText === 'function' && isVacancyFillerText(l)) continue;
       textItems.push(l);
     }
