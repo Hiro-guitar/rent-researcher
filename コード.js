@@ -443,6 +443,12 @@ function doPost(e) {
         return;
       }
 
+      // コマンド: お部屋マップ（登録後リッチメニュー・LIFF未設定時） → RichMenu.js
+      if (message === 'お部屋マップ') {
+        handleMapCommand(replyToken, userId);
+        return;
+      }
+
 
       // コマンド: 配信停止 / 配信再開
       if (message === '配信停止' || message === 'はいしんていし') {
@@ -1298,6 +1304,11 @@ function doGet(e) {
     } catch (eSR) {
       return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><pre>' + eSR.message + '</pre>');
     }
+  }
+
+  // お部屋マップを LIFF から開いたとき、IDトークンから地図トークンを引く (RichMenu.js)
+  if (action === 'map_token_by_line') {
+    return handleMapTokenByLine(e);
   }
 
   // 空室確認依頼（複数件まとめ）の回答フォーム。Discord のリンクから開く (VacancyRequest.js)

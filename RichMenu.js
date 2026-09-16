@@ -3,7 +3,7 @@
  *
  * 画像は公開ページ（form.ehomaki.com/richmenu/）に置き、GAS が取ってきて LINE に上げる。
  *   登録前: menu_before.png (2500x843)  … 空室確認 / 条件を登録
- *   登録後: menu_after.png  (2500x1686) … 空室確認 / 条件を変える / お気に入り / 配信の停止・再開 / 使い方
+ *   登録後: menu_after.png  (2500x1686) … 空室確認 / 条件を変える / お気に入り / 配信の停止・再開 / 使い方 / お部屋マップ
  *   挨拶用: greeting.png    (1040x1040) … 「どっち？」の案内（使い方でも出す）
  *
  * 使い方（GASエディタ・RichMenu.gs）
@@ -20,6 +20,12 @@ var RICHMENU_PROP_BEFORE = 'RICHMENU_BEFORE_ID';
 var RICHMENU_PROP_AFTER = 'RICHMENU_AFTER_ID';
 var RICHMENU_NAME_BEFORE = 'ehomaki 登録前';
 var RICHMENU_NAME_AFTER = 'ehomaki 登録後';
+
+// お部屋マップを「押した瞬間に開く」ための LIFF 設定（LINE Developers）。
+//   liffId        … LIFF アプリの ID（例 '2001234567-AbCdEfGh'）。docs/map.html の MAP_LIFF_ID と同じ値にする
+//   loginChannelId… LIFF を置いた LINEログインチャネルのチャネルID（IDトークンの検証に使う）
+// 空のあいだは、メニューを押すとボットがリンクを返す。設定したら setupRichMenus() をもう一度実行する。
+var MAP_LIFF_CONFIG = { liffId: '', loginChannelId: '' };
 
 function _richMenuFetch_(url, method, payload, contentType) {
   var opt = {
@@ -54,13 +60,18 @@ function _richMenuDef_(kind) {
       ]
     };
   }
-  // 上段3つ（空室確認 / 条件を変える / お気に入り）、下段2つ（配信の停止・再開 / 使い方）
+  // 3列×2行: 空室確認 / 条件を変える / お気に入り / 配信の停止・再開 / 使い方 / お部屋マップ
+  // お部屋マップは LIFF が設定済みなら押した瞬間に開く(uri)。未設定ならボットがリンクを返す(message)。
+  var mapAction = MAP_LIFF_CONFIG.liffId
+    ? { type: 'uri', label: 'お部屋マップ', uri: 'https://liff.line.me/' + MAP_LIFF_CONFIG.liffId }
+    : msg('お部屋マップ');
   var areas = [
-    { bounds: { x: 0,    y: 0,   width: 833,  height: 843 }, action: msg('空室確認') },
-    { bounds: { x: 833,  y: 0,   width: 833,  height: 843 }, action: msg('条件変更') },
-    { bounds: { x: 1666, y: 0,   width: 834,  height: 843 }, action: msg('お気に入り') },
-    { bounds: { x: 0,    y: 843, width: 1250, height: 843 }, action: msg('配信切替') },
-    { bounds: { x: 1250, y: 843, width: 1250, height: 843 }, action: msg('使い方') }
+    { bounds: { x: 0,    y: 0,   width: 833, height: 843 }, action: msg('空室確認') },
+    { bounds: { x: 833,  y: 0,   width: 833, height: 843 }, action: msg('条件変更') },
+    { bounds: { x: 1666, y: 0,   width: 834, height: 843 }, action: msg('お気に入り') },
+    { bounds: { x: 0,    y: 843, width: 833, height: 843 }, action: msg('配信切替') },
+    { bounds: { x: 833,  y: 843, width: 833, height: 843 }, action: msg('使い方') },
+    { bounds: { x: 1666, y: 843, width: 834, height: 843 }, action: mapAction }
   ];
   return { size: { width: 2500, height: 1686 }, selected: true, name: RICHMENU_NAME_AFTER, chatBarText: 'メニュー', areas: areas };
 }
@@ -147,4 +158,71 @@ function buildGreetingGuideMessages() {
     { type: 'image', originalContentUrl: RICHMENU_GREETING_IMAGE, previewImageUrl: RICHMENU_GREETING_IMAGE },
     textMsg('まずは下のメニューから、\n「空室確認」か「条件を登録」をタップしてください。')
   ];
+}
+
+/**
+ * 「お部屋マップ」をタップ（LIFF 未設定のとき）。その人の地図リンクを返す。
+ */
+function handleMapCommand(replyToken, userId) {
+  var name = _vacancyLineUserName_(userId);
+  if (!name) {
+    replyMessage(replyToken, [textMsg(
+      'お部屋マップは、お部屋探しの条件を登録して物件をお送りしたあとにご覧いただけます。\n' +
+      'まずは下のメニューの「条件を登録」からどうぞ。'
+    )]);
+    return;
+  }
+  var url = getCustomerMapUrl(name).url || '';
+  replyMessage(replyToken, [{
+    type: 'flex', altText: 'お部屋マップ',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
+        contents: [
+          { type: 'text', text: '🗺 お部屋マップ', weight: 'bold', size: 'md', color: '#333333' },
+          { type: 'text', text: 'これまでにお送りしたお部屋を、地図でまとめて見られます。駅や建物名でも絞り込めます。',
+            size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+        ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical', paddingAll: 'lg',
+        contents: [{ type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+          action: { type: 'uri', label: '地図を開く', uri: url } }]
+      }
+    }
+  }]);
+}
+
+/**
+ * doGet: ?action=map_token_by_line&id_token=...
+ * LIFF から届いた ID トークンを LINE で検証し、その人の地図トークンを返す。
+ * userId は Messaging API と同じ（同じプロバイダー配下のチャネルなら一致する）。
+ */
+function handleMapTokenByLine(e) {
+  var out = function (obj) {
+    return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+  };
+  var idToken = String((e.parameter && e.parameter.id_token) || '');
+  if (!idToken) return out({ ok: false, reason: 'no_token' });
+  if (!MAP_LIFF_CONFIG.loginChannelId) return out({ ok: false, reason: 'not_configured' });
+  try {
+    if (typeof _addFetchCount_ === 'function') _addFetchCount_('LIFF検証', 1);
+    var res = UrlFetchApp.fetch('https://api.line.me/oauth2/v2.1/verify', {
+      method: 'post',
+      payload: { id_token: idToken, client_id: MAP_LIFF_CONFIG.loginChannelId },
+      muteHttpExceptions: true
+    });
+    if (res.getResponseCode() !== 200) {
+      console.warn('[お部屋マップ] IDトークン検証失敗: HTTP ' + res.getResponseCode() + ' ' + res.getContentText().substring(0, 200));
+      return out({ ok: false, reason: 'invalid_token' });
+    }
+    var userId = String(JSON.parse(res.getContentText()).sub || '');
+    var name = userId ? _vacancyLineUserName_(userId) : '';
+    if (!name) return out({ ok: false, reason: 'not_registered' });
+    return out({ ok: true, t: _customerMapToken_(name) });
+  } catch (err) {
+    console.error('[お部屋マップ] map_token_by_line: ' + err.message);
+    return out({ ok: false, reason: 'error' });
+  }
 }
