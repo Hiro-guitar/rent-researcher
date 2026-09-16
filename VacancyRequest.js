@@ -565,11 +565,12 @@ function handleVacancyRequest(replyToken, userId, items, opts) {
 
     var jstHour = getJstHour(new Date());
     var open = (jstHour >= 10 && jstHour < 20);
-    // スタッフが調べる分はいつでもその場で返すので時間の断りは入れない。
-    // 自動判定だけの分は空室回答キュー（営業時間内）に乗るので、時間外ならその旨を添える。
+    // 自社シートに無い物件だけならスタッフがその場で返すので時間の断りは入れない。
+    // それ以外（自動判定だけ／自社シートの要確認を含む）は営業時間内のキューに乗るので、時間外ならその旨を添える。
+    var immediateReply = needsStaff && _vacancyRequestSendsImmediately_(judged);
     replyMessage(replyToken, [textMsg(
       '承知しました。お調べしてご連絡します。' +
-      (needsStaff || open ? '' : '\n\n営業時間外のため、翌営業日のご連絡になります。')
+      (immediateReply || open ? '' : '\n\n営業時間外のため、翌営業日のご連絡になります。')
     )]);
 
     if (!needsStaff) {
@@ -703,7 +704,10 @@ function _notifyVacancyRequestToDiscord_(req, opts) {
     if (formUrl) lines.push('変えたいときは [回答フォーム](<' + formUrl + '>) で答え直してください（自動送信の前なら差し替え、後なら追加で届きます）。');
   } else {
     lines.push('お客様にはまだ結果を送っていません。');
-    if (formUrl) lines.push('📝 [回答フォームを開く](<' + formUrl + '>) — 全件に 募集中／ご案内不可 を付けて送信すると、その場でお客様に届きます。');
+    var imm = _vacancyRequestSendsImmediately_(req.items);
+    if (formUrl) lines.push('📝 [回答フォームを開く](<' + formUrl + '>) — 全件に 募集中／ご案内不可 を付けて送信'
+      + (imm ? 'すると、その場でお客様に届きます（自社シートに無い物件のみのため）。'
+             : 'してください。自社シートの要確認物件を含むので、5分置いて営業時間内に届きます。'));
   }
   var content = lines.join('\n');
   var threadName = '🔔 空室確認: ' + name + ' 様';
@@ -758,14 +762,28 @@ function submitVacancyAnswerForm(reqId, apiKey, payloadJson) {
       }
     }
   }
-  // スタッフが答えた分はその場で送る（営業時間も関係なし）。ユーザー指示 2026-09-16:
-  // 「うちで募集している物件じゃないやつは即返事でいい」。調べてから答えているので置く理由がない。
-  var sentAt = _finalizeVacancyAnswer_(req, answers, String(payload.comment || '').trim(), freeText, true);
+  var immediate = _vacancyRequestSendsImmediately_(req.items);
+  var sentAt = _finalizeVacancyAnswer_(req, answers, String(payload.comment || '').trim(), freeText, immediate);
   return {
     ok: true,
-    immediate: true,
+    immediate: immediate,
     scheduledAt: sentAt ? Utilities.formatDate(sentAt, 'Asia/Tokyo', 'M月d日 HH:mm') : ''
   };
+}
+
+/**
+ * スタッフの回答をその場で送るか（ユーザー指示 2026-09-16）。
+ *   - 自社シートに無い物件だけの依頼 → その場で送る（営業時間も関係なし）
+ *   - 自社シートにあるが自動判定できなかった（要確認・当たりすぎ）物件を含む → 従来どおり
+ *     5分置いて営業時間内に送る
+ */
+function _vacancyRequestSendsImmediately_(items) {
+  for (var i = 0; i < (items || []).length; i++) {
+    var j = items[i];
+    if (j.auto) continue;                                   // 自動判定済みは関係ない
+    if ((j.rowIdx && j.rowIdx.length) || j.tooMany) return false;  // 自社シートにあるが要確認
+  }
+  return true;
 }
 
 /** 空室回答キューに残っている同じ依頼の未送信分を取り消す（その場で送るとき用）。 */

@@ -118,7 +118,9 @@
     google.script.run
       .withSuccessHandler(function(res){
         if(res && res.ok){
-          note.innerHTML = '✅ お客様にLINEを送信しました（'+esc(res.scheduledAt||'')+'）。<br>送り直すと、もう1通届きます。このタブは閉じてOKです。';
+          note.innerHTML = res.immediate
+            ? '✅ お客様にLINEを送信しました（'+esc(res.scheduledAt||'')+'）。<br>送り直すと、もう1通届きます。このタブは閉じてOKです。'
+            : '✅ 回答を受け付けました。自社シートの要確認物件を含むので、お客様へのLINEは <b>'+(res.scheduledAt?esc(res.scheduledAt)+'以降':'しばらくしてから')+'</b> に送信されます。<br>それまでに送り直せば、あとの回答で差し替わります。このタブは閉じてOKです。';
           note.style.display='block';
           btn.textContent='送信済み（送り直す）'; btn.disabled=false;
         } else {
