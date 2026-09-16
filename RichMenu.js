@@ -109,7 +109,11 @@ function setupRichMenus() {
   var def = _richMenuFetch_('https://api.line.me/v2/bot/user/all/richmenu/' + ids.before, 'post', {});
   if (!def.ok) throw new Error('既定メニュー設定失敗: ' + def.code + ' ' + def.body);
   console.log('既定メニュー = 登録前 (' + ids.before + ')');
-  console.log('次に bulkLinkRegisteredUsersToAfterMenu() を実行して、条件登録済みの人を登録後メニューにしてください');
+
+  // ⚠️ ここで止めてはいけない。既定を「登録前」にした瞬間、条件登録済みの人も含めて
+  //   全員が2枠のメニューになる。個別リンクを張り直すまでその状態が続くので、
+  //   間を空けずに続けて実行する。
+  bulkLinkRegisteredUsersToAfterMenu();
 }
 
 /** 条件登録が完了した人を登録後メニューへ。writeToSheet から呼ばれる。失敗しても登録は止めない。 */
