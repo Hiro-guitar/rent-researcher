@@ -713,15 +713,21 @@ function _notifyVacancyRequestToDiscord_(req, opts) {
   var threadName = '🔔 空室確認: ' + name + ' 様';
   var result = { ok: false };
   try {
-    if (typeof _addFetchCount_ === 'function') _addFetchCount_('Discord', 1);
-    var res = _postDiscordAdaptive_(webhookUrl, content, threadName, '', !!opts.autoDone);
-    if (!(res && res.ok) && opts.autoDone) {
-      // 静かな投稿（flags=4096）が弾かれる宛先もあるので、普通の投稿で送り直す
-      console.warn('[空室確認依頼] 静かな投稿が失敗 HTTP ' + (res && res.code) + ' body=' + (res && res.body) + ' → 通常投稿で再送');
-      res = _postDiscordAdaptive_(webhookUrl, content, threadName, '', false);
+    // 一時的なエラーや短時間の連続投稿の制限(429)で落ちることがあるので、少し待って最大3回送る。
+    // 12:49 の依頼が Discord に届かず、あとから送り直したら 200 だった (2026-09-16)。
+    var res = null;
+    var silent = !!opts.autoDone;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      if (typeof _addFetchCount_ === 'function') _addFetchCount_('Discord', 1);
+      res = _postDiscordAdaptive_(webhookUrl, content, threadName, '', silent);
+      if (res && res.ok) break;
+      console.warn('[空室確認依頼] Discord送信失敗(' + attempt + '回目): HTTP ' + (res && res.code) + ' body=' + (res && res.body));
+      // 静かな投稿（flags=4096）が弾かれる宛先もあるので、2回目からは普通の投稿にする
+      if (silent) silent = false;
+      if (attempt < 3) Utilities.sleep(res && res.code === 429 ? 5000 : 2000);
     }
     if (res && res.ok) console.log('[空室確認依頼] Discord送信成功: ' + req.id);
-    else console.error('[空室確認依頼] Discord送信失敗: HTTP ' + (res && res.code) + ' body=' + (res && res.body));
+    else console.error('[空室確認依頼] Discord送信を諦めました: ' + req.id + ' / 回答フォーム: ' + _vacancyAnswerFormUrl_(req.id));
     result = res || result;
   } catch (e) {
     console.error('[空室確認依頼] Discord送信で例外: ' + e.message);
