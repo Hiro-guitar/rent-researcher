@@ -35,14 +35,14 @@ var NEW_FRIEND_REMIND_ENABLED = false;
 //   紹介で友だち追加しただけの人には当てはまらず、話が噛み合わなくなる。
 function buildNewFriendRemindMessages() {
   return [{
-    type: 'flex', altText: 'お部屋探し、お手伝いします',
+    type: 'flex', altText: '友だち追加ありがとうございます',
     contents: {
       type: 'bubble',
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
         contents: [
-          { type: 'text', text: 'お部屋探し、お手伝いします', weight: 'bold', size: 'md', color: '#333333' },
-          { type: 'text', text: '気になるお部屋があれば、空き状況をすぐお調べします。\nご希望の条件を登録いただくと、条件に合うお部屋が出たときにお知らせします。',
+          { type: 'text', text: '友だち追加ありがとうございます', weight: 'bold', size: 'md', color: '#333333' },
+          { type: 'text', text: '気になるお部屋の空き状況をお調べできます。\nご希望の条件を登録いただくと、条件に合うお部屋が出たときにお知らせします。',
             size: 'sm', color: '#555555', wrap: true, margin: 'md' }
         ]
       },
