@@ -90,6 +90,17 @@
 - 自由文をDiscordに流すことはしない（ユーザー判断）
 - 初期設定は GASエディタ `RichMenu.gs` の `setupRichMenus()` → `bulkLinkRegisteredUsersToAfterMenu()`
 
+### お部屋マップの公開（確定・実装済み GAS v1566）
+
+- これまで社内下見用だった `map.html` を、登録後リッチメニューの6枠目「お部屋マップ」としてお客様に開放する
+- タップ → ボットがその人の地図リンク入りカードを返す → ボタンで開く（1タップ増える）。
+  リッチメニューは全員で同じURLを共有するため、固定URLではタップした人を特定できない。
+  直接開くには LIFF が要るが、初公開は「何が見られるか」を説明できるカード方式で始める
+- LIFF に切り替える場合: LINEログインチャネル＋LIFFアプリを作り、`RichMenu.js` の `MAP_LIFF_CONFIG`
+  （liffId / loginChannelId）と `docs/map.html` の `MAP_LIFF_ID` に入れて `setupRichMenus()` を再実行する。
+  検証用エンドポイント `?action=map_token_by_line` は実装済み
+- 地図を開いたことは既存の仕組みでDiscordに静かに通知される（30分よけつき）
+
 ## 決まったルール
 
 - **A 反響**: 営業時間内は1時間以内、時間外は翌営業日午前に架電。つながらなければ 直後→平日→土日 の3回。3回ダメで LINEあり→追客中、LINEなし→失注
