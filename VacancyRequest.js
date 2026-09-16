@@ -59,11 +59,10 @@ function _vacancyPromptOther_(replyToken, userId, lead) {
   saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'other' } });
   replyMessage(replyToken, [textMsg(
     (lead ? lead + '\n\n' : '') +
-    '物件名、またはSUUMOやHOME\'Sなどの物件ページのURLを送ってください。\n' +
-    '複数ある場合は、まとめて1通で送っていただいて大丈夫です。\n\n' +
+    '物件名、またはSUUMOやHOME\'SなどのURLをお送りください。\n' +
+    '複数ある場合は、まとめて1通で大丈夫です。\n\n' +
     '※この受付は24時間有効です。\n' +
-    '過ぎてしまった場合は、画面下のメニューから「空室確認」をもう一度タップしてください。\n\n' +
-    '中止する場合は「キャンセル」とお送りください。'
+    '過ぎてしまった場合は、下のメニューから「空室確認」をもう一度タップしてください。'
   )]);
 }
 
@@ -125,7 +124,9 @@ function handleVacancyEmail(replyToken, userId, rawEmail) {
     return;
   }
   _vacancyPromptOther_(replyToken, userId,
-    'このメールアドレスでのお問い合わせは見つかりませんでした。');
+    'ありがとうございます。\n\n' +
+    'お問い合わせの記録が見つからなかったので、\n' +
+    'お調べしたいお部屋を教えてください。');
 }
 
 /**
