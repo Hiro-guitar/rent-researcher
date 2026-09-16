@@ -179,11 +179,48 @@ function processNewFriendReminders() {
   //   ただし、いま担当者とやり取りしている最中の人に割り込まないよう、
   //   直近のやり取りが新しい人は今回は見送る（次の回に持ち越す）。
   var lastActivity = _newFriendLastActivityMap_();
+
+  // ⚠️ 状態が進んでいなくても、実は条件が登録されている人がいる。
+  //   電話のお客様のように、担当者が代わりに登録する場合、
+  //   管理画面がLINEのIDを持っていないと状態を進められないため。
+  //   ここで検索条件シートを見て、登録済みなら送らない。
+  var registeredUserIds = {};
+  try {
+    var ss2 = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var lu2 = ss2.getSheetByName(LINE_USERS_SHEET_NAME);
+    var cs2 = ss2.getSheetByName(CRITERIA_SHEET_NAME);
+    var withCriteria2 = {};
+    if (cs2 && cs2.getLastRow() > 1) {
+      var csRows2 = cs2.getRange(2, 1, cs2.getLastRow() - 1, cs2.getLastColumn()).getValues();
+      for (var q = 0; q < csRows2.length; q++) {
+        var nmq = String(csRows2[q][1] || '').trim();
+        if (nmq && _rowHasCriteria_(csRows2[q])) withCriteria2[nmq] = true;
+      }
+    }
+    if (lu2 && lu2.getLastRow() > 1) {
+      var luRows2 = lu2.getRange(2, 1, lu2.getLastRow() - 1, 2).getValues();
+      for (var w = 0; w < luRows2.length; w++) {
+        var uw = String(luRows2[w][0] || '').trim();
+        var nw = String(luRows2[w][1] || '').trim();
+        if (uw && nw && withCriteria2[nw]) registeredUserIds[uw] = true;
+      }
+    }
+  } catch (eR) {
+    console.error('[友だち追加] 登録済みかを確かめられないため今回は送りません: ' + eR.message);
+    return;
+  }
+
   var now = new Date();
   var sent = 0, skipped = 0;
   for (var c = 0; c < candidates.length; c++) {
     var t = candidates[c];
     if (!t.userId) continue;
+    if (registeredUserIds[t.userId]) {
+      // 担当者が代わりに登録した人。催促は要らない。
+      sh.getRange(t.rowIndex, 4, 1, 2).setValues([['条件登録済み', now]]);
+      skipped++;
+      continue;
+    }
     var la = lastActivity[t.userId];
     if (la && la > cutoff) { skipped++; continue; }   // やり取りが続いている
     if (!NEW_FRIEND_REMIND_ENABLED) continue;         // 文面が決まるまでは送らない
@@ -197,7 +234,7 @@ function processNewFriendReminders() {
     }
   }
   if (sent || skipped) {
-    console.log('[友だち追加] ひと押し ' + sent + '件 / やり取り中のため見送り ' + skipped + '件'
+    console.log('[友だち追加] ひと押し ' + sent + '件 / 登録済み・やり取り中のため見送り ' + skipped + '件'
       + (NEW_FRIEND_REMIND_ENABLED ? '' : '（送信はまだ止めてあります）'));
   }
 }

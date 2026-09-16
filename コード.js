@@ -3704,6 +3704,14 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
     // userId: 画面から渡されたIDを優先。空でも、この顧客名で本物のIDが既に
     // 登録済みなら admin_ で上書きせず再利用する。どちらも無ければダミー。
     var userId = lineUserId || findLineUserId(customerName) || 'admin_' + Date.now();
+    // ⚠️ LINEのIDが分からないまま登録すると、その顧客には
+    //   リッチメニューの切り替えも、催促の停止も効かない（どちらも userId が要る）。
+    //   電話のお客様は「LINE友だち一覧」で名前を紐付けてから条件を登録すること。
+    if (String(userId).indexOf('admin_') === 0) {
+      console.warn('[条件登録] LINEのIDが分からないまま登録しました: ' + customerName
+        + ' / リッチメニューの切り替えと催促の停止は効きません。'
+        + 'LINE友だち一覧で紐付けてから登録し直すと有効になります。');
+    }
 
     // 「条件変更として送信」(任意)時に差分を表示するため、保存前の条件をキャッシュ
     try {
