@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#e9e9e9;font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",sans-serif;overflow:hidden}
+.grid{display:grid;gap:22px;padding:22px;width:100%;height:100%}
+.tile{position:relative;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;overflow:hidden}
+.tile.w{background:#fff;border:14px solid #8dc63f;color:#333}
+.tile.g{background:#8dc63f;border:14px solid #8dc63f;color:#fff}
+.tile.g .in{border:4px solid #fff;border-radius:6px;position:absolute;inset:6px}
+.tile.w .in{border:4px solid #8dc63f;border-radius:6px;position:absolute;inset:6px}
+.tile svg{width:260px;height:260px}
+.tile .t{font-size:84px;letter-spacing:.06em;text-align:center;line-height:1.25;font-weight:500}
+.corner{position:absolute;right:18px;bottom:18px;width:0;height:0;border-left:70px solid transparent;border-bottom:70px solid #8dc63f}
+.tile.g .corner{border-bottom-color:#fff}
+.tile svg{width:170px;height:170px}.tile .t{font-size:60px}.tile.w,.tile.g{border-width:10px}.corner{border-left-width:44px;border-bottom-width:44px}html,body{width:1040px;height:1040px}</style></head><body>
+<div style="padding:50px 40px 30px;text-align:center;color:#333">
+  <div style="font-size:64px;font-weight:600;line-height:1.3">まずはどちらか<br>下のメニューをタップ</div>
+</div>
+<div class="grid" style="grid-template-columns:1fr 1fr;padding:10px 40px;height:auto">
+  <div style="text-align:center;font-size:40px;line-height:1.4;color:#444;padding:0 0 14px">お問い合わせした<br>物件が気になる</div>
+  <div style="text-align:center;font-size:40px;line-height:1.4;color:#444;padding:0 0 14px">ほかのお部屋も<br>探したい</div>
+  <div style="text-align:center;font-size:80px;color:#8dc63f;line-height:1">▼</div>
+  <div style="text-align:center;font-size:80px;color:#8dc63f;line-height:1">▼</div>
+</div>
+<div class="grid" style="grid-template-columns:1fr 1fr;padding:10px 40px 40px;height:560px">
+<div class="tile w"><div class="in"></div><svg viewBox="0 0 100 100"><circle cx="42" cy="42" r="28" fill="none" stroke="currentColor" stroke-width="7"/><path d="M63 63 L88 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><path d="M30 43 L39 52 L56 33" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg><div class="t">空室確認</div><div class="corner"></div></div><div class="tile g"><div class="in"></div><svg viewBox="0 0 100 100"><circle cx="42" cy="42" r="28" fill="none" stroke="currentColor" stroke-width="7"/><path d="M63 63 L88 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><path d="M26 44 L42 30 L58 44 V58 H26 Z" fill="currentColor"/></svg><div class="t">条件を登録</div><div class="corner"></div></div></div></body></html>
