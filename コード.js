@@ -443,6 +443,7 @@ function doPost(e) {
         return;
       }
 
+
       // コマンド: 配信停止 / 配信再開
       if (message === '配信停止' || message === 'はいしんていし') {
         handleDeliveryStopCommand(replyToken, userId);
@@ -3814,8 +3815,10 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
  * メッセージ本文に出している（2026-08-06）。カード側に戻さないこと。
  */
 function _criteriaCardFollowupText_() {
+  // 「人がいる」と分かる一文を添える。自動返信ばかりでボットだと思われないため (2026-09-16)。
   return '条件に合う新着物件が見つかり次第、お知らせいたします。\n\n'
-       + '条件の変更はメニューの「お部屋探しの条件を変える」からいつでもできます。';
+       + '条件の変更はメニューの「条件を変える」からいつでもできます。\n\n'
+       + 'ご質問はそのままLINEにお送りください。担当者が返信します。';
 }
 
 function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {

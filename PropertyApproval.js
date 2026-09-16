@@ -2471,7 +2471,7 @@ function handleDeliveryResumeCommand(replyToken, userId) {
     var msg = '新着物件の配信を再開しました。\nご希望に合うお部屋が見つかり次第、お届けいたします。';
     if (summary && summary !== '（条件なし）') {
       msg += '\n\n──── 現在ご登録の条件 ────\n' + summary;
-      msg += '\n\n条件を変えたい時は、メニューの「お部屋探しの条件を変える」からご変更ください。';
+      msg += '\n\n条件を変えたい時は、メニューの「条件を変える」からご変更ください。';
     }
 
     replyMessage(replyToken, [textMsg(msg)]);
@@ -2484,6 +2484,14 @@ function handleDeliveryResumeCommand(replyToken, userId) {
 // 使い方ガイド（Flex carousel）
 function handleHelpCommand(replyToken, userId) {
   try {
+    // 条件登録前の人は、機能一覧より「まずどっちをタップするか」の方が要る。
+    // 挨拶と同じ「どっち？」画像を出す（RichMenu.js）。
+    var _registered = false;
+    try { _registered = !!readLatestCriteria(userId); } catch (_eR) {}
+    if (!_registered && typeof buildGreetingGuideMessages === 'function') {
+      replyMessage(replyToken, buildGreetingGuideMessages());
+      return;
+    }
     var currentStatus = getDeliveryStatus(userId);
     var isPaused = (currentStatus === 'paused');
     var features = [
@@ -2493,12 +2501,7 @@ function handleHelpCommand(replyToken, userId) {
         trigger: '空室確認'
       },
       {
-        title: 'お部屋を探す',
-        desc: 'ご希望のエリア・賃料・間取りなどをご登録いただくと、条件にぴったりのお部屋をスタッフが厳選してお届けします。',
-        trigger: '条件登録'
-      },
-      {
-        title: 'お部屋探しの条件を変える',
+        title: '条件を変える',
         desc: 'ご登録いただいた条件をいつでも見直せます。エリアを広げたい・予算が変わった・引越し時期が変わったなど、状況に合わせて調整してください。',
         trigger: '条件変更'
       },
