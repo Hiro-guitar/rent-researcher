@@ -22,7 +22,9 @@
 var NEW_FRIEND_SHEET = 'LINE友だち追加';
 // 状態の段階。後ろほど進んでいる。戻すことはしない。
 var NEW_FRIEND_STATES = ['空室確認あり', '条件登録済み'];
-var NEW_FRIEND_REMIND_AFTER_DAYS = 3;
+// 翌日に送る。営業時間内にしか送らないので、16時間にしておくと
+// 日中に追加した人はその日には飛ばず、必ず翌日の10時以降になる。
+var NEW_FRIEND_REMIND_AFTER_HOURS = 16;
 // 文面が決まるまでは送らない。true にすると processReplyQueue が送り始める。
 var NEW_FRIEND_REMIND_ENABLED = false;
 
@@ -130,7 +132,7 @@ function _newFriendLastActivityMap_() {
 }
 
 /**
- * 追加から一定日数たっても何もしていない人に、ひと押しを1回だけ送る。
+ * 追加から一定時間たっても何もしていない人に、ひと押しを1回だけ送る（翌日）。
  * processReplyQueue（5分おき・営業時間内のみ）から呼ばれる。
  * 状態が空の行だけが対象なので、同じ人に二度送ることはない。
  */
@@ -139,7 +141,7 @@ function processNewFriendReminders() {
   var last = sh.getLastRow();
   if (last < 2) return;
   var data = sh.getRange(2, 1, last - 1, 5).getValues();
-  var cutoff = Date.now() - NEW_FRIEND_REMIND_AFTER_DAYS * 24 * 60 * 60 * 1000;
+  var cutoff = Date.now() - NEW_FRIEND_REMIND_AFTER_HOURS * 60 * 60 * 1000;
 
   // まず「日数を過ぎていて、まだ状態が空」の行だけを拾う。
   // 候補がなければ LINE Activity は読まない（毎回読むのは無駄なので）。
@@ -154,7 +156,7 @@ function processNewFriendReminders() {
 
   // ⚠️ 「メニューを押した」だけでは進んだことにしない。押しただけで止まった人こそ対象。
   //   ただし、いま担当者とやり取りしている最中の人に割り込まないよう、
-  //   直近のやり取りが新しい人（3日以内）は今回は見送る。
+  //   直近のやり取りが新しい人は今回は見送る（次の回に持ち越す）。
   var lastActivity = _newFriendLastActivityMap_();
   var now = new Date();
   var sent = 0, skipped = 0;
@@ -195,7 +197,7 @@ function showNewFriendStats() {
   var byState = {};
   var stuck = [];
   var chatting = [];
-  var cutoff = Date.now() - NEW_FRIEND_REMIND_AFTER_DAYS * 24 * 60 * 60 * 1000;
+  var cutoff = Date.now() - NEW_FRIEND_REMIND_AFTER_HOURS * 60 * 60 * 1000;
   for (var i = 0; i < data.length; i++) {
     var st = String(data[i][3] || '').trim() || '(登録だけ)';
     byState[st] = (byState[st] || 0) + 1;
@@ -210,7 +212,7 @@ function showNewFriendStats() {
   }
   console.log('友だち追加の記録: ' + data.length + '件');
   for (var k in byState) console.log('  ' + k + ': ' + byState[k] + '人');
-  console.log('うち ' + NEW_FRIEND_REMIND_AFTER_DAYS + '日たっても先へ進んでいない人: ' + stuck.length + '人');
+  console.log('うち ' + NEW_FRIEND_REMIND_AFTER_HOURS + '時間たっても先へ進んでいない人: ' + stuck.length + '人');
   if (stuck.length) console.log('  ' + stuck.slice(0, 40).join(' / '));
   if (chatting.length) {
     console.log('（やり取りが続いているため見送る人: ' + chatting.length + '人）');
