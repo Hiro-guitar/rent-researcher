@@ -565,15 +565,17 @@ function handleVacancyRequest(replyToken, userId, items, opts) {
 
     var jstHour = getJstHour(new Date());
     var open = (jstHour >= 10 && jstHour < 20);
+    // スタッフが調べる分はいつでもその場で返すので時間の断りは入れない。
+    // 自動判定だけの分は空室回答キュー（営業時間内）に乗るので、時間外ならその旨を添える。
     replyMessage(replyToken, [textMsg(
       '承知しました。お調べしてご連絡します。' +
-      (open ? '' : '\n\n営業時間外のため、翌営業日のご連絡になります。')
+      (needsStaff || open ? '' : '\n\n営業時間外のため、翌営業日のご連絡になります。')
     )]);
 
     if (!needsStaff) {
       // 全部自動で判定できた → 回答を合成してキューへ。スタッフには静かに知らせる
       var answers = judged.map(function (j) { return { n: j.n, answer: j.auto, label: j.label }; });
-      var scheduledAt = _finalizeVacancyAnswer_(req, answers, '', '');
+      var scheduledAt = _finalizeVacancyAnswer_(req, answers, '', '', false);
       _notifyVacancyRequestToDiscord_(req, { autoDone: true, scheduledAt: scheduledAt });
     } else {
       _notifyVacancyRequestToDiscord_(req, {});
@@ -698,10 +700,10 @@ function _notifyVacancyRequestToDiscord_(req, opts) {
     lines.push('全件自動で判定できたので、回答を **'
       + (opts.scheduledAt ? Utilities.formatDate(opts.scheduledAt, 'Asia/Tokyo', 'M月d日 HH:mm') + '以降' : 'しばらくして')
       + '** に自動送信します。');
-    if (formUrl) lines.push('変えたいときは [回答フォーム](<' + formUrl + '>) で答え直してください（送信前なら上書き）。');
+    if (formUrl) lines.push('変えたいときは [回答フォーム](<' + formUrl + '>) で答え直してください（自動送信の前なら差し替え、後なら追加で届きます）。');
   } else {
     lines.push('お客様にはまだ結果を送っていません。');
-    if (formUrl) lines.push('📝 [回答フォームを開く](<' + formUrl + '>) — 全件に 募集中／ご案内不可 を付けて送信してください。');
+    if (formUrl) lines.push('📝 [回答フォームを開く](<' + formUrl + '>) — 全件に 募集中／ご案内不可 を付けて送信すると、その場でお客様に届きます。');
   }
   var content = lines.join('\n');
   var threadName = '🔔 空室確認: ' + name + ' 様';
@@ -756,17 +758,49 @@ function submitVacancyAnswerForm(reqId, apiKey, payloadJson) {
       }
     }
   }
-  var scheduledAt = _finalizeVacancyAnswer_(req, answers, String(payload.comment || '').trim(), freeText);
+  // スタッフが答えた分はその場で送る（営業時間も関係なし）。ユーザー指示 2026-09-16:
+  // 「うちで募集している物件じゃないやつは即返事でいい」。調べてから答えているので置く理由がない。
+  var sentAt = _finalizeVacancyAnswer_(req, answers, String(payload.comment || '').trim(), freeText, true);
   return {
     ok: true,
-    scheduledAt: scheduledAt ? Utilities.formatDate(scheduledAt, 'Asia/Tokyo', 'M月d日 HH:mm') : ''
+    immediate: true,
+    scheduledAt: sentAt ? Utilities.formatDate(sentAt, 'Asia/Tokyo', 'M月d日 HH:mm') : ''
   };
 }
 
-/** 回答を合成してキューに入れ、依頼シートを更新する。 @return {Date|null} 送信予定 */
-function _finalizeVacancyAnswer_(req, answers, comment, freeText) {
+/** 空室回答キューに残っている同じ依頼の未送信分を取り消す（その場で送るとき用）。 */
+function _cancelPendingVacancyAnswer_(userId, label) {
+  try {
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(VACANCY_ANSWER_QUEUE_SHEET);
+    if (!sh || sh.getLastRow() < 2) return;
+    var data = sh.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][6]) === 'pending' && String(data[i][0]) === String(userId) && String(data[i][2]) === label) {
+        sh.getRange(i + 1, 7).setValue('replaced');
+      }
+    }
+  } catch (e) {
+    console.warn('[空室確認依頼] キュー取り消し失敗: ' + e.message);
+  }
+}
+
+/**
+ * 回答を合成して送り、依頼シートを更新する。
+ * immediate=true ならその場で push（スタッフ回答）、false なら空室回答キュー（自動判定）。
+ * @return {Date|null} 送信（予定）時刻
+ */
+function _finalizeVacancyAnswer_(req, answers, comment, freeText, immediate) {
   var messages = _composeVacancyAnswer_(req, answers, comment, freeText);
-  var scheduledAt = _sendVacancyAnswer_(req.userId, messages, 'REQ:' + req.id, req.customerName);
+  var label = 'REQ:' + req.id;
+  var scheduledAt;
+  if (immediate) {
+    _cancelPendingVacancyAnswer_(req.userId, label);
+    pushMessage(req.userId, messages);
+    scheduledAt = new Date();
+    console.log('[空室確認依頼] その場で送信: ' + req.id);
+  } else {
+    scheduledAt = _sendVacancyAnswer_(req.userId, messages, label, req.customerName);
+  }
   try {
     var sh = _vacancyRequestSheet_();
     var row = req.rowIndex;
@@ -776,7 +810,7 @@ function _finalizeVacancyAnswer_(req, answers, comment, freeText) {
     }
     if (row) {
       sh.getRange(row, 7, 1, 4).setValues([[
-        'answered',
+        immediate ? 'sent' : 'answered',
         JSON.stringify({ answers: answers, comment: comment || '', freeText: freeText || '' }),
         toJstString(new Date()),
         scheduledAt ? toJstString(scheduledAt) : ''

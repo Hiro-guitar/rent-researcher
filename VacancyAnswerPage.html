@@ -76,7 +76,7 @@
   if (REQ.answers && REQ.answers.answers) {
     REQ.answers.answers.forEach(function(a){ prev[a.n]=a; });
     document.getElementById('already').textContent =
-      '※ '+REQ.answeredAt+' に一度回答済み（送信予定 '+(REQ.scheduledAt||'-')+'）。送り直すと、まだ届いていなければ上書きされます。';
+      '※ '+REQ.answeredAt+' に一度回答済み（'+(REQ.status==='sent'?'送信済み '+(REQ.scheduledAt||''):'送信予定 '+(REQ.scheduledAt||'-'))+'）。送り直すと'+(REQ.status==='sent'?'もう1通届きます':'、まだ届いていなければ差し替わります')+'。';
     if (REQ.answers.comment) document.getElementById('comment').value = REQ.answers.comment;
     if (REQ.answers.freeText) document.getElementById('freeText').value = REQ.answers.freeText;
   }
@@ -118,7 +118,7 @@
     google.script.run
       .withSuccessHandler(function(res){
         if(res && res.ok){
-          note.innerHTML = '✅ 回答を受け付けました。お客様へのLINEは <b>'+(res.scheduledAt?esc(res.scheduledAt)+'以降':'しばらくしてから')+'</b> に送信されます。<br>それまでに送り直せば、あとの回答で上書きされます。このタブは閉じてOKです。';
+          note.innerHTML = '✅ お客様にLINEを送信しました（'+esc(res.scheduledAt||'')+'）。<br>送り直すと、もう1通届きます。このタブは閉じてOKです。';
           note.style.display='block';
           btn.textContent='送信済み（送り直す）'; btn.disabled=false;
         } else {
