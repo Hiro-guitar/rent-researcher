@@ -16,6 +16,8 @@
 
 var RICHMENU_IMAGE_BASE = 'https://form.ehomaki.com/richmenu/';
 var RICHMENU_GREETING_IMAGE = RICHMENU_IMAGE_BASE + 'greeting.png';
+// お部屋マップの見本（ピンが並んだ地図のスクリーンショット）。カードの上に出す。
+var RICHMENU_MAP_PREVIEW_IMAGE = RICHMENU_IMAGE_BASE + 'map_preview.jpg';
 var RICHMENU_PROP_BEFORE = 'RICHMENU_BEFORE_ID';
 var RICHMENU_PROP_AFTER = 'RICHMENU_AFTER_ID';
 var RICHMENU_NAME_BEFORE = 'ehomaki 登録前';
@@ -201,6 +203,12 @@ function handleMapCommand(replyToken, userId) {
     type: 'flex', altText: 'お部屋マップ',
     contents: {
       type: 'bubble',
+      // 見本の画像を出す。「地図で見られる」と字で書くより、ピンが並んだ絵を1枚見せる方が早い。
+      hero: {
+        type: 'image', url: RICHMENU_MAP_PREVIEW_IMAGE,
+        size: 'full', aspectRatio: '4:3', aspectMode: 'cover',
+        action: { type: 'uri', label: '地図を開く', uri: url }
+      },
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
         contents: [
