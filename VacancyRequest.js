@@ -509,6 +509,19 @@ function _vacancyFetchTitle_(url) {
   }
 }
 
+/** 自社シートで当たった物件の募集URL（J列）。無ければ ''。 */
+function _vacancyOwnListingUrl_(item) {
+  try {
+    if (!item.rowIdx || !item.rowIdx.length) return '';
+    var data = SpreadsheetApp.openById(PROPERTY_SHEET_ID).getSheetByName(PROPERTY_SHEET_NAME).getDataRange().getValues();
+    var row = data[item.rowIdx[0]];
+    var u = row && row[9] ? String(row[9]).trim() : '';
+    return (u.indexOf('http') === 0) ? u : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function _vacancyRowLabel_(row) {
   return String(row[0]) + (row[1] ? ' ' + row[1] + '号室' : '');
 }
@@ -965,8 +978,13 @@ function _composeVacancyAnswer_(req, answers, comment, freeText) {
   var messages = [];
   var text;
   if (avail.length > 0) {
+    // 物件名の下にURLも付ける（お客様がどの物件か見返せるように）。自社シートの物件は募集URL、
+    // それ以外はお客様が送ってきたURL。
     text = 'お待たせいたしました。\nお調べした結果をお知らせします。\n\n【ご紹介できるお部屋】\n'
-      + avail.map(function (x) { return '・' + x.label; }).join('\n');
+      + avail.map(function (x) {
+          var u = x.item.url || _vacancyOwnListingUrl_(x.item);
+          return '・' + x.label + (u && u !== x.label ? '\n' + u : '');
+        }).join('\n\n');
     if (closed.length > 0) text += '\n\nそれ以外の物件は、現在ご案内できませんでした。';
     if (comment) text += '\n\n' + comment;
     text += '\n\n気になるお部屋があれば、このままLINEでお知らせください。';
