@@ -470,6 +470,45 @@ function _matchVacancyRows_(data, q) {
   return { rows: matched, tooMany: matched.length > VACANCY_TOO_MANY_HITS };
 }
 
+/**
+ * 物件ページのURLから物件名を取る。og:title か <title> を読み、サイト名や住所の飾りを落とす。
+ * 取れなければ ''（呼び出し側はURLのまま使う）。
+ *   SUUMO : 「【SUUMO】グランダジュール八丁堀／東京都中央区入船／八丁堀駅の賃貸…」→「グランダジュール八丁堀」
+ *   HOME'S: 「○○マンション 3階の賃貸情報 | LIFULL HOME'S」→「○○マンション 3階」
+ */
+function _vacancyFetchTitle_(url) {
+  try {
+    if (typeof _addFetchCount_ === 'function') _addFetchCount_('物件ページ題名', 1);
+    var res = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true, followRedirects: true,
+      headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' }
+    });
+    if (res.getResponseCode() !== 200) {
+      console.warn('[物件ページ題名] HTTP ' + res.getResponseCode() + ' ' + url);
+      return '';
+    }
+    var html = res.getContentText().substring(0, 200000);
+    var t = '';
+    var og = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)
+          || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
+    if (og) t = og[1];
+    if (!t) {
+      var tt = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      if (tt) t = tt[1];
+    }
+    t = String(t || '').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+    if (!t) return '';
+    t = t.replace(/^【[^】]*】\s*/, '');                         // 【SUUMO】
+    t = t.split(/[／|｜]| - /)[0].trim();                           // ／住所… | サイト名
+    t = t.replace(/(の賃貸情報|の賃貸・部屋探し情報|の賃貸マンション|の賃貸アパート|の物件情報|の賃貸物件情報|の賃貸)\s*.*$/, '').trim();
+    if (t.length > 40) t = t.substring(0, 40);
+    return t;
+  } catch (e) {
+    console.warn('[物件ページ題名] 取得失敗: ' + url + ' / ' + e.message);
+    return '';
+  }
+}
+
 function _vacancyRowLabel_(row) {
   return String(row[0]) + (row[1] ? ' ' + row[1] + '号室' : '');
 }
@@ -515,6 +554,10 @@ function handleVacancyRequest(replyToken, userId, items, opts) {
       var label = it.label || it.text || it.url;
       if (m.tooMany) {
         auto = '';
+      } else if (m.rows.length === 0 && it.url && !it.label) {
+        // 自社シートに無いURLは、ページの題名から物件名を取る（お客様への返事に物件名を出すため）
+        var title = _vacancyFetchTitle_(it.url);
+        if (title) label = title;
       } else if (m.rows.length > 0) {
         var avail = [], needs = [], closed = [];
         for (var r = 0; r < m.rows.length; r++) {
@@ -676,7 +719,7 @@ function _vacancyAutoMark_(j) {
   if (j.auto === 'closed') return '🔴 ご案内不可（' + j.label + '）※自動判定';
   if (j.tooMany) return '❓ 当たりが多すぎて特定できず';
   if (j.rowIdx && j.rowIdx.length) return '❓ 要確認（' + j.label + '）';
-  return '❓ 自社シートに無し';
+  return '❓ 自社シートに無し' + (j.url && j.label && j.label !== j.url ? '（' + j.label + '）' : '');
 }
 
 function _notifyVacancyRequestToDiscord_(req, opts) {
