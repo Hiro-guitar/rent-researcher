@@ -276,16 +276,59 @@ function showAbandonedFlows() {
   }
   rows.sort(function (a, b) { return a.ageH - b.ageH; });
 
+  // ⚠️ 状態が残っているだけで、実は登録し終えている人がかなり混ざる。
+  //   条件選択ページで登録を終えると状態は消えるはずだが、ページを開いたまま
+  //   別経路で登録した場合などに残る。そのまま送ると登録済みの人に
+  //   「途中です」と送ってしまうので、必ず本当に未完了かを確かめる。
+  var lineUsers = {};
+  try {
+    var luSh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(LINE_USERS_SHEET_NAME);
+    if (luSh && luSh.getLastRow() > 1) {
+      var luRows = luSh.getRange(2, 1, luSh.getLastRow() - 1, 2).getValues();
+      for (var l = 0; l < luRows.length; l++) {
+        var lu = String(luRows[l][0] || '').trim();
+        if (lu) lineUsers[lu] = String(luRows[l][1] || '').trim();
+      }
+    }
+  } catch (_eLu) {}
+  var withCriteria = {};
+  try {
+    var csSh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+    if (csSh && csSh.getLastRow() > 1) {
+      var csRows = csSh.getRange(2, 1, csSh.getLastRow() - 1, csSh.getLastColumn()).getValues();
+      for (var c2 = 0; c2 < csRows.length; c2++) {
+        var nm2 = String(csRows[c2][1] || '').trim();
+        if (nm2 && _rowHasCriteria_(csRows[c2])) withCriteria[nm2] = true;
+      }
+    }
+  } catch (_eCs) {}
+  var doneCount = 0;
+  for (var d2 = 0; d2 < rows.length; d2++) {
+    var nm3 = lineUsers[rows[d2].userId];
+    rows[d2].done = !!(nm3 && withCriteria[nm3]);
+    if (rows[d2].done) doneCount++;
+  }
+  var real = rows.filter(function (r) { return !r.done; });
+
   console.log('（保存されている総量: 約 ' + Math.round(totalBytes / 1024) + 'KB / 上限 500KB）');
-  console.log('途中でやめている人: ' + rows.length + '人');
+  console.log('状態が途中のまま残っている人: ' + rows.length + '人');
   for (var k in buckets) console.log('  ' + k + ': ' + buckets[k] + '人');
-  console.log('--- 経過時間の内訳 ---');
-  var within12 = rows.filter(function (r) { return r.ageH >= 0 && r.ageH < 12; }).length;
-  var h12to24 = rows.filter(function (r) { return r.ageH >= 12 && r.ageH < 24; }).length;
-  var over24 = rows.filter(function (r) { return r.ageH >= 24; }).length;
+  console.log('  うち すでに条件登録を終えている（状態が残っているだけ）: ' + doneCount + '人');
+  console.log('本当に途中でやめている人: ' + real.length + '人');
+  var realBuckets = {};
+  for (var rb = 0; rb < real.length; rb++) {
+    var h2 = real[rb].label.split(':')[0];
+    realBuckets[h2] = (realBuckets[h2] || 0) + 1;
+  }
+  for (var k2 in realBuckets) console.log('  ' + k2 + ': ' + realBuckets[k2] + '人');
+  console.log('--- 本当に途中の人の経過時間 ---');
+  var within12 = real.filter(function (r) { return r.ageH >= 0 && r.ageH < 12; }).length;
+  var h12to24 = real.filter(function (r) { return r.ageH >= 12 && r.ageH < 24; }).length;
+  var over24 = real.filter(function (r) { return r.ageH >= 24; }).length;
   console.log('  12時間以内: ' + within12 + '人 / 12〜24時間: ' + h12to24 + '人 / 24時間超(受付は切れている): ' + over24 + '人');
-  console.log('--- 新しい順に30件 ---');
-  for (var r2 = 0; r2 < Math.min(30, rows.length); r2++) {
-    console.log('  ' + rows[r2].ageH + '時間前 / ' + rows[r2].label);
+  console.log('--- 本当に途中の人を新しい順に30件 ---');
+  for (var r2 = 0; r2 < Math.min(30, real.length); r2++) {
+    console.log('  ' + real[r2].ageH + '時間前 / ' + real[r2].label
+      + (lineUsers[real[r2].userId] ? ' / ' + lineUsers[real[r2].userId] : ' / (名前なし)'));
   }
 }
