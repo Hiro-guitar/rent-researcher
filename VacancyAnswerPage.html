@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>空室確認の回答</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;background:#f5f7fa;margin:0;padding:16px;color:#1a2538}
+    .card{background:#fff;border-radius:12px;padding:20px;max-width:560px;margin:0 auto;box-shadow:0 4px 16px rgba(0,0,0,.08)}
+    h2{margin:0 0 4px;font-size:18px;color:#3d6909}
+    .meta{font-size:13px;color:#6b7280;margin-bottom:14px}
+    .item{border:1px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px}
+    .src{font-size:13px;word-break:break-all;margin-bottom:6px}
+    .src a{color:#2563eb}
+    .auto{font-size:12px;color:#6b7280;margin-bottom:8px}
+    .choice{display:flex;gap:8px;margin-bottom:8px}
+    .choice label{flex:1;text-align:center;padding:10px 4px;border-radius:8px;border:2px solid #d1d5db;font-size:14px;cursor:pointer;user-select:none}
+    .choice input{display:none}
+    .choice input:checked+span{font-weight:bold}
+    .choice label.av:has(input:checked){border-color:#16a34a;background:#ecfdf5;color:#166534}
+    .choice label.cl:has(input:checked){border-color:#dc2626;background:#fef2f2;color:#991b1b}
+    .lbl{width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:14px}
+    .lbl-h{font-size:12px;color:#6b7280;margin:0 0 4px}
+    textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;min-height:60px}
+    .sec{margin-top:14px}
+    .sec h3{font-size:14px;margin:0 0 6px}
+    .btn{display:block;width:100%;padding:14px;border:0;border-radius:10px;background:#6ea814;color:#fff;font-size:16px;font-weight:bold;margin-top:16px;cursor:pointer}
+    .btn:disabled{background:#9ca3af}
+    .note{margin-top:14px;padding:12px;background:#f0faf4;border-radius:8px;font-size:13px;color:#3d6909;display:none}
+    .err{margin-top:14px;padding:12px;background:#fef2f2;border-radius:8px;font-size:13px;color:#9b1c1c;display:none}
+    .done{color:#6b7280;font-size:12px;margin-top:8px}
+    details summary{cursor:pointer;font-size:14px;color:#374151}
+  </style>
+</head>
+<body>
+<div class="card">
+  <h2>空室確認の回答</h2>
+  <div class="meta" id="meta"></div>
+  <div id="items"></div>
+
+  <div class="sec">
+    <h3>ひと言（任意）</h3>
+    <textarea id="comment" placeholder="例: 2件目は先着で申込が入っています"></textarea>
+  </div>
+
+  <div class="sec">
+    <details>
+      <summary>定型に収まらないので自分で書いて返す</summary>
+      <p class="lbl-h" style="margin-top:8px">ここに文章を入れると、上の選択は使わずこの文章だけを送ります。</p>
+      <textarea id="freeText" placeholder="お待たせいたしました。…"></textarea>
+    </details>
+  </div>
+
+  <button class="btn" id="submit">お客様に送信する</button>
+  <div class="note" id="note"></div>
+  <div class="err" id="err"></div>
+  <div class="done" id="already"></div>
+</div>
+
+<script>
+  var REQ = <?!= reqJson ?>;
+  var API_KEY = <?!= JSON.stringify(apiKey) ?>;
+
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function autoText(j){
+    if(j.auto==='available')return '自動判定: 🟢 募集中（'+esc(j.label)+'）';
+    if(j.auto==='closed')return '自動判定: 🔴 ご案内不可（'+esc(j.label)+'）';
+    if(j.tooMany)return '自動判定: 当たりが多すぎて特定できず';
+    if(j.rowIdx&&j.rowIdx.length)return '自動判定: 要確認（'+esc(j.label)+'）';
+    return '自動判定: 自社シートに無し';
+  }
+
+  document.getElementById('meta').textContent =
+    (REQ.customerName||'(名前未登録)')+' 様 / '+REQ.items.length+'件 / 受付 '+REQ.receivedAt+' / '+REQ.id;
+
+  var prev = {};
+  if (REQ.answers && REQ.answers.answers) {
+    REQ.answers.answers.forEach(function(a){ prev[a.n]=a; });
+    document.getElementById('already').textContent =
+      '※ '+REQ.answeredAt+' に一度回答済み（送信予定 '+(REQ.scheduledAt||'-')+'）。送り直すと、まだ届いていなければ上書きされます。';
+    if (REQ.answers.comment) document.getElementById('comment').value = REQ.answers.comment;
+    if (REQ.answers.freeText) document.getElementById('freeText').value = REQ.answers.freeText;
+  }
+
+  var html = '';
+  REQ.items.forEach(function(j){
+    var sel = prev[j.n] ? prev[j.n].answer : j.auto;
+    var lbl = prev[j.n] && prev[j.n].label ? prev[j.n].label : j.label;
+    html += '<div class="item" data-n="'+j.n+'">'
+      + '<div class="src"><b>'+j.n+'.</b> '+(j.url?'<a href="'+esc(j.url)+'" target="_blank" rel="noopener">'+esc(j.url)+'</a>':esc(j.text))+'</div>'
+      + '<div class="auto">'+autoText(j)+'</div>'
+      + '<div class="choice">'
+      + '<label class="av"><input type="radio" name="a'+j.n+'" value="available"'+(sel==='available'?' checked':'')+'><span>🟢 募集中</span></label>'
+      + '<label class="cl"><input type="radio" name="a'+j.n+'" value="closed"'+(sel==='closed'?' checked':'')+'><span>🔴 ご案内不可</span></label>'
+      + '</div>'
+      + '<p class="lbl-h">お客様に見せる物件名（募集中のときに使います）</p>'
+      + '<input class="lbl" name="l'+j.n+'" value="'+esc(lbl)+'">'
+      + '</div>';
+  });
+  document.getElementById('items').innerHTML = html;
+
+  document.getElementById('submit').addEventListener('click', function(){
+    var btn=this, note=document.getElementById('note'), err=document.getElementById('err');
+    note.style.display='none'; err.style.display='none';
+    var freeText = document.getElementById('freeText').value.trim();
+    var answers = [];
+    var missing = [];
+    REQ.items.forEach(function(j){
+      var r = document.querySelector('input[name="a'+j.n+'"]:checked');
+      var l = document.querySelector('input[name="l'+j.n+'"]').value.trim();
+      if(!r) missing.push(j.n);
+      answers.push({n:j.n, answer:r?r.value:'', label:l});
+    });
+    if(!freeText && missing.length){
+      err.textContent = missing.join('、')+'件目の答えが付いていません。';
+      err.style.display='block'; return;
+    }
+    btn.disabled=true; btn.textContent='送信中…';
+    google.script.run
+      .withSuccessHandler(function(res){
+        if(res && res.ok){
+          note.innerHTML = '✅ 回答を受け付けました。お客様へのLINEは <b>'+(res.scheduledAt?esc(res.scheduledAt)+'以降':'しばらくしてから')+'</b> に送信されます。<br>それまでに送り直せば、あとの回答で上書きされます。このタブは閉じてOKです。';
+          note.style.display='block';
+          btn.textContent='送信済み（送り直す）'; btn.disabled=false;
+        } else {
+          err.textContent = (res && res.message) || '不明なエラー';
+          err.style.display='block'; btn.disabled=false; btn.textContent='お客様に送信する';
+        }
+      })
+      .withFailureHandler(function(e){
+        err.textContent = '送信に失敗しました: '+(e && e.message ? e.message : e);
+        err.style.display='block'; btn.disabled=false; btn.textContent='お客様に送信する';
+      })
+      .submitVacancyAnswerForm(REQ.id, API_KEY, JSON.stringify({answers:answers, comment:document.getElementById('comment').value.trim(), freeText:freeText}));
+  });
+</script>
+</body>
+</html>

@@ -244,17 +244,12 @@ function doPost(e) {
       console.warn('[auto_paused 自動復帰] error: ' + (_eAutoResume && _eAutoResume.message));
     }
     // ── Follow イベント（友だち追加時）──
-    // 挨拶メッセージは LINE Manager 側で設定。追加でメアド入力を促す。
+    // 挨拶メッセージは LINE Manager 側で設定。こちらからは何も足さない。
+    // 以前はここで「お問い合わせ時のメールアドレスを送ってください」と push していたが、
+    // 挨拶で「条件登録」と「メール送信」の2つを頼む形になり分かりにくかった (2026-09-16)。
+    // メールアドレスは「空室確認」の入口でもらう（VacancyRequest.js startVacancyEntry）。
     if (event.type === 'follow') {
-      try {
-        // 受付印は持たない。いつメールアドレスが来ても受け取るため（下のテキスト処理）。
-        pushMessage(userId, [textMsg(
-          'お部屋のお問い合わせをいただいた方は、お問い合わせ時のメールアドレスをこちらに送信してください。\n\n' +
-          'メールの配信が自動で停止されます。'
-        )]);
-      } catch (eFollow) {
-        console.error('follow pushMessage error: ' + eFollow.message);
-      }
+      console.log('[follow] ' + userId);
       return;
     }
 
@@ -325,6 +320,12 @@ function doPost(e) {
         return;
       }
 
+      // 空室確認の入口ボタン (vc:inq:<連番> / vc:other) → VacancyRequest.js
+      if (typeof data === 'string' && data.indexOf('vc:') === 0) {
+        handleVacancyPostback(replyToken, userId, data);
+        return;
+      }
+
       // 条件変更提案 LINE Flex のボタン postback (condsug:...)
       if (typeof data === 'string' && data.indexOf('condsug:') === 0) {
         if (typeof handleConditionSuggestionPostback === 'function') {
@@ -390,7 +391,9 @@ function doPost(e) {
       //   返事は「承りました」だけにして、どちらの用件でも噛み合う言い方にする。
       //
       // 申込フローのメール入力中(EXISTING_WAITING_EMAIL)は、あちらが受けるので触らない。
+      // 空室確認モード中(WAITING_VACANCY)は本人確定に使うので、あちら(handleVacancyText)が受ける。
       if (state.step !== STEPS.EXISTING_WAITING_EMAIL
+          && state.step !== STEPS.WAITING_VACANCY
           && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(message)) {
         // 古い受付印が残っていれば掃除する（もう使っていない）
         try { PropertiesService.getUserProperties().deleteProperty('email_pending_' + userId); } catch (_eEp) {}
@@ -499,26 +502,9 @@ function doPost(e) {
         return;
       }
 
-      // コマンド: 空室確認 → state を WAITING_VACANCY にして案内文返信
+      // コマンド: 空室確認 → 入口は VacancyRequest.js（本人確定 → 問い合わせ物件ボタン → 物件名/URL）
       if (message === '空室確認' || message === 'くうしつかくにん') {
-        saveState(userId, { step: STEPS.WAITING_VACANCY, data: {} });
-        replyMessage(replyToken, [textMsg(
-          '空室確認を承ります。\n\n' +
-          '以下のいずれかをお送りください：\n\n' +
-          '　・物件名（例: ○○マンション101）\n' +
-          '　・所在地（例: 渋谷区神宮前）\n' +
-          '　・最寄駅（例: 新宿駅）\n' +
-          '　・専有面積（例: 25.5）\n' +
-          '　・募集ページのURL\n\n' +
-          '※空室状況はスタッフが確認の上、改めてご返信する場合がございます。\n\n' +
-          // 受付は会話状態の寿命（CONVERSATION_TIMEOUT_MS = 24時間）で切れる。
-          // 黙って切れると、お客様は送ったのに何も返らない状態になるので、
-          // 期限を先に伝えておく。
-          '※この受付は24時間有効です。\n' +
-          '過ぎてしまった場合は、画面下のメニューから「空室確認」を' +
-          'もう一度タップしてください。\n\n' +
-          '中止する場合は「キャンセル」とお送りください。'
-        )]);
+        startVacancyEntry(replyToken, userId);
         return;
       }
 
@@ -576,7 +562,8 @@ function doPost(e) {
         // 時間で打ち切らない。お客様が何時間か経ってから物件名を送ってくることは
         // 普通にあり、以前は30分で切っていたため何も返らず終わっていた。
         // 放置されたモードは会話状態の24時間で消える。
-        handleVacancyQuery(replyToken, userId, message);
+        // メールアドレス／物件名／URL（複数可）を VacancyRequest.js が振り分ける。
+        handleVacancyText(replyToken, userId, message, state);
         return;
       }
 
@@ -1312,8 +1299,18 @@ function doGet(e) {
     }
   }
 
+  // 空室確認依頼（複数件まとめ）の回答フォーム。Discord のリンクから開く (VacancyRequest.js)
+  if (action === 'vacancy_answer_form') {
+    try {
+      return handleVacancyAnswerForm(e);
+    } catch (eVF) {
+      return HtmlService.createHtmlOutput('<h2>❌ エラー</h2><pre>' + eVF.message + '</pre>');
+    }
+  }
+
   // スタッフが Discord で「公式LINEの空室確認(要確認物件)」の結果を返答するエンドポイント
   //   Discord ボタンのリンククリックで呼ばれ、お客さんに LINE で結果を返信する
+  //   （古い依頼メッセージのリンク用に残している。新しい依頼は vacancy_answer_form）
   if (action === 'staff_reply_vacancy') {
     try {
       if (!_validateReinsApiKey(e.parameter.api_key)) {

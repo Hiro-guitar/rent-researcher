@@ -1,0 +1,840 @@
+/**
+ * VacancyRequest.gs - 空室確認の入口と「まとめて依頼 → 1通で返す」仕組み
+ *
+ * 流れ（SPEC_CRMリニューアル.md「空室確認の作り替え」2026-09-16）
+ *   1. 「空室確認」タップ
+ *      - 本人が分かっていない → お問い合わせ時のメールアドレスを聞く（＋「別の物件を調べる」）
+ *      - メールが反響（問い合わせシート）と一致 → 問い合わせた物件をボタンで並べる。
+ *        ここで LINE と顧客カードを結びつける（統合）。フォローアップメールも止まる
+ *      - 本人が分かっている → メールは聞かず、問い合わせた物件のボタン（無ければ物件名/URL入力へ）
+ *   2. 「別の物件を調べる」→ 物件名 または URL。複数あれば1通にまとめて送ってよい
+ *   3. 受け取った物件は 物件空室管理シート で自動判定。判定できないものが1つでもあれば
+ *      お客様には「お調べしてご連絡します」の1通だけ返し、スタッフへ Discord で依頼する
+ *   4. スタッフは回答フォーム（?action=vacancy_answer_form）で全件に「募集中／ご案内不可」を付けて送信。
+ *      お客様への返事は1通に合成し、空室回答キュー（5分遅れ・営業時間内）に乗せる
+ *
+ * 1件だけで自動判定できたときは、従来どおり物件カード＋遅延返信（暫定条件カード）で返す。
+ */
+
+var VACANCY_REQUEST_SHEET = '空室確認依頼';
+var VACANCY_REQUEST_MAX_ITEMS = 10;     // 1通で受け付ける物件数の上限
+var VACANCY_INQUIRY_MAX_BUTTONS = 5;    // 問い合わせ物件ボタンの上限
+var VACANCY_TOO_MANY_HITS = 12;         // これを超えて当たったら絞り込みをお願いする
+
+// ═══════════════════════════════════════════════════════════
+//  入口
+// ═══════════════════════════════════════════════════════════
+
+/** リッチメニュー「空室確認」タップ時。 */
+function startVacancyEntry(replyToken, userId) {
+  var ctx = _vacancyEntryContext_(userId);
+  console.log('[空室確認入口] identified=' + ctx.identified + ' inquiries=' + ctx.inquiries.length
+    + ' emails=' + ctx.emails.length);
+  if (ctx.inquiries.length > 0) {
+    saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'choose' } });
+    replyMessage(replyToken, [_vacancyChooserMessage_(ctx.inquiries)]);
+    return;
+  }
+  if (!ctx.identified) {
+    saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'email' } });
+    replyMessage(replyToken, [textMsgWithQuickReply(
+      'お問い合わせ時のメールアドレスを送ってください。\n' +
+      'お問い合わせいただいた物件をすぐお調べします。\n\n' +
+      'ほかの物件をお調べしたい場合は、下の「別の物件を調べる」をタップしてください。',
+      [qrPostback('🔍 別の物件を調べる', 'vc:other')]
+    )]);
+    return;
+  }
+  _vacancyPromptOther_(replyToken, userId, '');
+}
+
+/** 「別の物件を調べる」の案内。lead は先頭に付ける一文（省略可）。 */
+function _vacancyPromptOther_(replyToken, userId, lead) {
+  saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'other' } });
+  replyMessage(replyToken, [textMsg(
+    (lead ? lead + '\n\n' : '') +
+    '物件名、またはSUUMOやHOME\'Sなどの物件ページのURLを送ってください。\n' +
+    '複数ある場合は、まとめて1通で送っていただいて大丈夫です。\n\n' +
+    '※この受付は24時間有効です。\n' +
+    '過ぎてしまった場合は、画面下のメニューから「空室確認」をもう一度タップしてください。\n\n' +
+    '中止する場合は「キャンセル」とお送りください。'
+  )]);
+}
+
+/** postback "vc:..." を処理する。 */
+function handleVacancyPostback(replyToken, userId, data) {
+  if (data === 'vc:other') {
+    _vacancyPromptOther_(replyToken, userId, '');
+    return;
+  }
+  if (data.indexOf('vc:inq:') === 0) {
+    var renban = data.substring('vc:inq:'.length);
+    var inq = _vacancyFindInquiryByRenban_(renban);
+    if (!inq) {
+      _vacancyPromptOther_(replyToken, userId, 'お問い合わせの記録が見つかりませんでした。');
+      return;
+    }
+    clearState(userId);
+    handleVacancyRequest(replyToken, userId, [{
+      text: inq.building, url: inq.url, label: inq.building
+    }], { fromInquiry: true });
+    return;
+  }
+  console.warn('[空室確認] 未知のpostback: ' + data);
+}
+
+/** 空室確認モード中に届いたメールアドレス。 */
+function handleVacancyEmail(replyToken, userId, rawEmail) {
+  var email = String(rawEmail || '').trim().toLowerCase();
+  try {
+    var saved = saveLineRegisteredEmail(userId, email);
+    console.log('[空室確認] メール受領 ' + email + ' / 新規=' + saved);
+  } catch (eS) {
+    console.warn('[空室確認] LINE登録メール保存失敗: ' + eS.message);
+  }
+  try {
+    var link = _vacancyLinkByEmail_(userId, email);
+    console.log('[空室確認] 本人確定: ' + JSON.stringify(link));
+  } catch (eL) {
+    console.error('[空室確認] 本人確定に失敗: ' + eL.message + '\n' + eL.stack);
+  }
+  var inqs = _vacancyFindInquiriesByEmails_([email]);
+  if (inqs.length > 0) {
+    saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'choose', email: email } });
+    replyMessage(replyToken, [
+      textMsg('ありがとうございます。お問い合わせの記録が見つかりました。'),
+      _vacancyChooserMessage_(inqs)
+    ]);
+    return;
+  }
+  _vacancyPromptOther_(replyToken, userId,
+    'このメールアドレスでのお問い合わせは見つかりませんでした。');
+}
+
+/**
+ * 空室確認モード中のテキスト。メールアドレスなら本人確定へ、それ以外は物件として受ける。
+ * コード.js の WAITING_VACANCY 分岐から呼ばれる。
+ */
+function handleVacancyText(replyToken, userId, message, state) {
+  var m = String(message || '').trim();
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m)) {
+    handleVacancyEmail(replyToken, userId, m);
+    return;
+  }
+  var items = _splitVacancyItems_(m);
+  if (items.length === 0) {
+    // 相槌・記号だけ → 何もしない（モードは維持）
+    console.log('[空室確認] 物件として読めないためスキップ: ' + _shortenForReply_(m));
+    return;
+  }
+  handleVacancyRequest(replyToken, userId, items, { raw: m });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  本人の特定
+// ═══════════════════════════════════════════════════════════
+
+/** LINE Users シートに登録された顧客名（無ければ ''）。プロフィール名にはフォールバックしない。 */
+function _vacancyLineUserName_(userId) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sh = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (!sh || sh.getLastRow() < 2) return '';
+    var data = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0] || '').trim() === String(userId) && data[i][1]) {
+        return String(data[i][1]).trim();
+      }
+    }
+  } catch (e) {
+    console.warn('_vacancyLineUserName_: ' + e.message);
+  }
+  return '';
+}
+
+/** この LINE ユーザーに結びついているメールアドレス（LINE登録メール ＋ 検索条件シートのAF列）。 */
+function _vacancyEmailsForUser_(userId, lineName) {
+  var out = [];
+  var seen = {};
+  function add(e) {
+    e = String(e || '').trim().toLowerCase();
+    if (e && e.indexOf('@') > 0 && !seen[e]) { seen[e] = true; out.push(e); }
+  }
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var le = ss.getSheetByName(LINE_EMAIL_SHEET_NAME);
+    if (le && le.getLastRow() > 1) {
+      var leData = le.getRange(2, 1, le.getLastRow() - 1, 2).getValues();
+      for (var i = 0; i < leData.length; i++) {
+        if (String(leData[i][1] || '').trim() === String(userId)) add(leData[i][0]);
+      }
+    }
+    if (lineName) {
+      var cs = ss.getSheetByName(CRITERIA_SHEET_NAME);
+      if (cs && cs.getLastRow() > 1) {
+        var rows = cs.getRange(2, 1, cs.getLastRow() - 1, 32).getValues();
+        for (var r = 0; r < rows.length; r++) {
+          if (String(rows[r][1] || '').trim() === lineName) add(rows[r][31]);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('_vacancyEmailsForUser_: ' + e.message);
+  }
+  return out;
+}
+
+function _vacancyEntryContext_(userId) {
+  var lineName = _vacancyLineUserName_(userId);
+  var emails = _vacancyEmailsForUser_(userId, lineName);
+  return {
+    lineName: lineName,
+    emails: emails,
+    identified: !!lineName || emails.length > 0,
+    inquiries: emails.length ? _vacancyFindInquiriesByEmails_(emails) : []
+  };
+}
+
+/**
+ * 問い合わせシートから、メールが一致する（メール反響の）物件を新しい順に返す。
+ * 同じ建物は1つにまとめる。電話反響はメールが無いので自然に外れる。
+ * @return {Array<{renban,building,url,name,at}>}
+ */
+function _vacancyFindInquiriesByEmails_(emails) {
+  var set = {};
+  for (var i = 0; i < (emails || []).length; i++) {
+    var e = String(emails[i] || '').trim().toLowerCase();
+    if (e) set[e] = true;
+  }
+  if (!Object.keys(set).length) return [];
+  var out = [];
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sh = ss.getSheetByName(INQUIRY_SHEET_NAME);
+    if (!sh || sh.getLastRow() < 2) return [];
+    var data = sh.getRange(2, 1, sh.getLastRow() - 1, INQUIRY_HEADERS.length).getValues();
+    for (var r = 0; r < data.length; r++) {
+      var em = String(data[r][4] || '').trim().toLowerCase();
+      if (!em || !set[em]) continue;
+      var building = String(data[r][8] || '').trim();
+      if (!building) continue;
+      out.push({
+        renban: String(data[r][1] || ''),
+        building: building,
+        url: String(data[r][15] || '').trim(),
+        name: String(data[r][2] || '').trim(),
+        at: (data[r][0] instanceof Date) ? data[r][0].getTime() : 0
+      });
+    }
+  } catch (e) {
+    console.warn('_vacancyFindInquiriesByEmails_: ' + e.message);
+    return [];
+  }
+  out.sort(function (a, b) { return b.at - a.at; });
+  var seen = {};
+  var dedup = [];
+  for (var k = 0; k < out.length; k++) {
+    var key = (typeof _mcNormBuilding_ === 'function') ? _mcNormBuilding_(out[k].building) : out[k].building;
+    if (seen[key]) continue;
+    seen[key] = true;
+    dedup.push(out[k]);
+    if (dedup.length >= VACANCY_INQUIRY_MAX_BUTTONS) break;
+  }
+  return dedup;
+}
+
+/** 連番で問い合わせ1件を引く（URL付き）。 */
+function _vacancyFindInquiryByRenban_(renban) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sh = ss.getSheetByName(INQUIRY_SHEET_NAME);
+    if (!sh || sh.getLastRow() < 2) return null;
+    var key = (typeof _normRenban_ === 'function') ? _normRenban_(renban) : String(renban || '').trim();
+    var data = sh.getRange(2, 1, sh.getLastRow() - 1, INQUIRY_HEADERS.length).getValues();
+    for (var r = 0; r < data.length; r++) {
+      var k = (typeof _normRenban_ === 'function') ? _normRenban_(data[r][1]) : String(data[r][1] || '').trim();
+      if (k !== key) continue;
+      return {
+        renban: String(data[r][1] || ''),
+        building: String(data[r][8] || '').trim(),
+        url: String(data[r][15] || '').trim(),
+        name: String(data[r][2] || '').trim(),
+        email: String(data[r][4] || '').trim().toLowerCase()
+      };
+    }
+  } catch (e) {
+    console.warn('_vacancyFindInquiryByRenban_: ' + e.message);
+  }
+  return null;
+}
+
+/**
+ * メールアドレスで LINE ユーザーと顧客カードを結びつける。
+ *   - 検索条件シートにそのメールの行（反響から作られたリード）がある
+ *       - LINE 側にまだカードが無い → LINE Users をその名前に向ける
+ *       - LINE 側に別名のカードがある → 統合（反響側の名前を残す）
+ *   - リード行が無いが問い合わせに名前がある → LINE Users をその名前に向ける
+ * テストユーザーは実顧客と混ざらないよう何もしない。
+ * @return {{customerName:string, action:string}}
+ */
+function _vacancyLinkByEmail_(userId, email) {
+  email = String(email || '').trim().toLowerCase();
+  var lineName = _vacancyLineUserName_(userId);
+  if (lineName && typeof TEST_ALLOWED_NAMES !== 'undefined' && TEST_ALLOWED_NAMES.indexOf(lineName) !== -1) {
+    console.log('[本人確定] テストユーザーのため紐付けしない: ' + lineName);
+    return { customerName: lineName, action: 'test_skip' };
+  }
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var cs = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  var leadName = '';
+  var lineHasRow = false;
+  if (cs && cs.getLastRow() > 1) {
+    var rows = cs.getRange(2, 1, cs.getLastRow() - 1, 32).getValues();
+    for (var r = 0; r < rows.length; r++) {
+      var nm = String(rows[r][1] || '').trim();
+      if (!nm) continue;
+      if (lineName && nm === lineName) lineHasRow = true;
+      if (!leadName && String(rows[r][31] || '').trim().toLowerCase() === email) leadName = nm;
+    }
+  }
+
+  if (leadName) {
+    if (!lineName) {
+      saveLineUser(userId, leadName);
+      console.log('[本人確定] LINE Users を ' + leadName + ' に紐付け（メール一致）');
+      return { customerName: leadName, action: 'linked' };
+    }
+    if (lineName === leadName) return { customerName: leadName, action: 'already' };
+    if (lineHasRow) {
+      var res = executeCustomerMerge(leadName, lineName, null);
+      if (res && res.success) {
+        console.log('[本人確定] 統合: ' + lineName + ' → ' + leadName + '（メール一致）');
+        return { customerName: leadName, action: 'merged', detail: lineName };
+      }
+      console.error('[本人確定] 統合に失敗: ' + (res && res.message));
+      return { customerName: lineName, action: 'merge_failed', detail: res && res.message };
+    }
+    // LINE Users に名前はあるが検索条件の行が無い → 向け直すだけ
+    saveLineUser(userId, leadName);
+    console.log('[本人確定] LINE Users を ' + lineName + ' から ' + leadName + ' に向け直し');
+    return { customerName: leadName, action: 'relinked', detail: lineName };
+  }
+
+  // リード行が無い（自動リード化より前の問い合わせなど）
+  if (!lineName) {
+    var inqs = _vacancyFindInquiriesByEmails_([email]);
+    var inqName = (inqs.length && inqs[0].name) ? inqs[0].name : '';
+    if (inqName) {
+      saveLineUser(userId, inqName);
+      console.log('[本人確定] LINE Users を問い合わせ者名 ' + inqName + ' に紐付け');
+      return { customerName: inqName, action: 'linked_inquiry' };
+    }
+  }
+  return { customerName: lineName, action: 'none' };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  メッセージ部品
+// ═══════════════════════════════════════════════════════════
+
+function _vacancyChooserMessage_(inqs) {
+  var buttons = [];
+  for (var i = 0; i < inqs.length; i++) {
+    var label = inqs[i].building;
+    if (label.length > 20) label = label.substring(0, 19) + '…';
+    buttons.push({
+      type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+      action: { type: 'postback', label: label, data: 'vc:inq:' + inqs[i].renban, displayText: inqs[i].building }
+    });
+  }
+  buttons.push({
+    type: 'button', style: 'secondary', height: 'sm',
+    action: { type: 'postback', label: '別の物件を調べる', data: 'vc:other', displayText: '別の物件を調べる' }
+  });
+  return {
+    type: 'flex', altText: '空室確認：確認したい物件をタップしてください',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
+        contents: [
+          { type: 'text', text: '空室確認', weight: 'bold', size: 'md', color: '#333333' },
+          { type: 'text', text: 'お問い合わせいただいた物件をお調べします。\n確認したい物件をタップしてください。',
+            size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+        ]
+      },
+      footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', contents: buttons }
+    }
+  };
+}
+
+/**
+ * 1通のテキストを物件ごとに分ける。URL は1つずつ、残りは行ごと。
+ * 「物件名：…／所在地：…」のようなラベル付き複数行は1件として扱う（従来互換）。
+ * @return {Array<{text:string,url:string}>}
+ */
+function _splitVacancyItems_(raw) {
+  raw = String(raw == null ? '' : raw).trim();
+  if (!raw) return [];
+  var urlRe = /https?:\/\/[^\s<>「」『』()（）]+/g;
+  var urls = raw.match(urlRe) || [];
+  var rest = raw.replace(urlRe, '\n');
+  var lines = rest.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(function (l) { return !!l; });
+
+  var textItems = [];
+  var labeled = lines.filter(function (l) { return /^[^:：]{1,20}[:：]/.test(l); }).length;
+  if (urls.length === 0 && lines.length >= 2 && labeled * 2 >= lines.length) {
+    textItems = [raw];
+  } else {
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      var m = l.match(/^[^:：\n]{1,20}[:：]\s*(.+)$/);
+      if (m) l = m[1].trim();
+      if (!l || l.length < 2) continue;
+      if (/^[\d０-９\s.．、,，:：;；)）\]】\-－・]+$/.test(l)) continue;   // 「1.」などの番号だけ
+      if (typeof isVacancyFillerText === 'function' && isVacancyFillerText(l)) continue;
+      textItems.push(l);
+    }
+  }
+  var items = [];
+  for (var u = 0; u < urls.length; u++) items.push({ url: urls[u], text: '' });
+  for (var t = 0; t < textItems.length; t++) items.push({ url: '', text: textItems[t] });
+  return items.slice(0, VACANCY_REQUEST_MAX_ITEMS);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  物件空室管理シートでの照合
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * 1件の入力（URL または テキスト）を物件空室管理シートに当てる。
+ * 順序は従来どおり SUUMO bc番号 → 面積 → 物件名/所在地/駅の部分一致。
+ * @return {{rows:Array<{idx:number,row:Array}>, tooMany:boolean}}
+ */
+function _matchVacancyRows_(data, q) {
+  var matched = [];
+  var seen = {};
+  function addRow(i) { if (!seen[i]) { seen[i] = true; matched.push({ idx: i, row: data[i] }); } }
+
+  var bc = extractBcNumber(q);
+  if (bc) {
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][9]).indexOf(bc) !== -1) addRow(i);
+    }
+  }
+  var isUrl = /^https?:\/\//.test(q);
+  if (matched.length === 0 && !isUrl) {
+    var areaNum = extractAreaNumber(q);
+    if (areaNum !== null) {
+      for (var a = 1; a < data.length; a++) {
+        var ar = parseFloat(data[a][7]);
+        if (!isNaN(ar) && ar === areaNum) addRow(a);
+      }
+    }
+  }
+  if (matched.length === 0 && !isUrl) {
+    var queries = [];
+    var qWhole = normalizeForMatch(q);
+    if (qWhole.length >= 2) queries.push(qWhole);
+    var structured = extractStructuredValues(q);
+    for (var sv = 0; sv < structured.length; sv++) {
+      var qv = normalizeForMatch(structured[sv]);
+      if (qv.length >= 2 && queries.indexOf(qv) === -1) queries.push(qv);
+    }
+    if (queries.length > 0) {
+      for (var r = 1; r < data.length; r++) {
+        var sheetVals = [
+          normalizeForMatch(String(data[r][0]) + String(data[r][1])),
+          normalizeForMatch(data[r][2]),
+          normalizeForMatch(data[r][3])
+        ];
+        var hit = false;
+        for (var qi = 0; qi < queries.length && !hit; qi++) {
+          for (var sj = 0; sj < sheetVals.length && !hit; sj++) {
+            var s2 = sheetVals[sj];
+            if (!s2 || s2.length < 2) continue;
+            if (s2.indexOf(queries[qi]) !== -1 || queries[qi].indexOf(s2) !== -1) hit = true;
+          }
+        }
+        if (hit) addRow(r);
+      }
+    }
+  }
+  return { rows: matched, tooMany: matched.length > VACANCY_TOO_MANY_HITS };
+}
+
+function _vacancyRowLabel_(row) {
+  return String(row[0]) + (row[1] ? ' ' + row[1] + '号室' : '');
+}
+
+function _vacancyRowToBubbleProp_(row, status) {
+  var rawUrl = row[9] ? String(row[9]).trim() : '';
+  return {
+    name: row[0], room: row[1], address: row[2], station: row[3],
+    rent: row[4], fee: row[5], layout: row[6], area: row[7],
+    status: status || row[8],
+    url: (rawUrl && rawUrl.indexOf('http') === 0) ? rawUrl : ''
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
+//  依頼の受付
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * 物件の一覧を受け取り、自動判定 → 1件で済むなら従来の返し方、
+ * それ以外は依頼を作ってスタッフへ（全部自動で判定できたら回答も自動）。
+ * @param {Array<{text,url,label?}>} items
+ * @param {{fromInquiry?:boolean, raw?:string}} opts
+ */
+function handleVacancyRequest(replyToken, userId, items, opts) {
+  opts = opts || {};
+  try {
+    var ss = SpreadsheetApp.openById(PROPERTY_SHEET_ID);
+    var sheet = ss.getSheetByName(PROPERTY_SHEET_NAME);
+    if (!sheet) {
+      replyMessage(replyToken, [textMsg('システムエラーが発生しました。担当者にお問い合わせください。')]);
+      return;
+    }
+    var data = sheet.getDataRange().getValues();
+
+    var judged = [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      var q = it.url || it.text;
+      var m = _matchVacancyRows_(data, q);
+      var auto = '';
+      var rows = [];
+      var label = it.label || it.text || it.url;
+      if (m.tooMany) {
+        auto = '';
+      } else if (m.rows.length > 0) {
+        var avail = [], needs = [], closed = [];
+        for (var r = 0; r < m.rows.length; r++) {
+          var st = String(m.rows[r].row[8] || '').trim();
+          if (st === '募集中') avail.push(m.rows[r]);
+          else if (st === '要確認') needs.push(m.rows[r]);
+          else closed.push(m.rows[r]);
+        }
+        if (avail.length) { auto = 'available'; rows = avail; }
+        else if (needs.length) { auto = ''; rows = needs; }
+        else { auto = 'closed'; rows = closed; }
+        if (rows.length) label = _vacancyRowLabel_(rows[0].row);
+      }
+      judged.push({
+        n: i + 1, text: it.text || '', url: it.url || '', label: label,
+        auto: auto, tooMany: !!m.tooMany,
+        rowIdx: rows.map(function (x) { return x.idx; })
+      });
+    }
+
+    var needsStaff = judged.some(function (j) { return !j.auto; });
+
+    // ── 1件・自動判定できた → 従来どおり（物件カード＋遅延返信） ──
+    if (items.length === 1 && !needsStaff) {
+      clearState(userId);
+      _replySingleAutoVacancy_(replyToken, userId, judged[0], data);
+      return;
+    }
+    // ── 1件・テキスト・当たりすぎ → 絞り込みをお願い（従来どおり） ──
+    if (items.length === 1 && judged[0].tooMany && !judged[0].url && !opts.fromInquiry) {
+      var prev = getState(userId) || {};
+      prev.step = STEPS.WAITING_VACANCY;
+      prev.data = prev.data || {};
+      prev.data.vcMode = 'other';
+      saveState(userId, prev);
+      replyMessage(replyToken, [textMsgWithQuickReply(
+        '「' + _shortenForReply_(items[0].text) + '」で多くの物件が見つかりました。\n\n' +
+        '物件名や専有面積でも絞り込めますので、別の条件でもお試しください。',
+        [qrMessage('✖️ 中止する', 'キャンセル')]
+      )]);
+      return;
+    }
+
+    // ── 依頼を作る ──
+    clearState(userId);
+    var customerName = _getLineUserName_(userId);
+    var req = _createVacancyRequest_(userId, customerName, judged);
+
+    var jstHour = getJstHour(new Date());
+    var open = (jstHour >= 10 && jstHour < 20);
+    replyMessage(replyToken, [textMsg(
+      '承知しました。お調べしてご連絡します。' +
+      (open ? '' : '\n\n営業時間外のため、翌営業日のご連絡になります。')
+    )]);
+
+    if (!needsStaff) {
+      // 全部自動で判定できた → 回答を合成してキューへ。スタッフには静かに知らせる
+      var answers = judged.map(function (j) { return { n: j.n, answer: j.auto, label: j.label }; });
+      var scheduledAt = _finalizeVacancyAnswer_(req, answers, '', '');
+      _notifyVacancyRequestToDiscord_(req, { autoDone: true, scheduledAt: scheduledAt });
+    } else {
+      _notifyVacancyRequestToDiscord_(req, {});
+    }
+    console.log('[空室確認依頼] ' + req.id + ' ' + judged.length + '件 / staff=' + needsStaff);
+  } catch (e) {
+    console.error('handleVacancyRequest Error: ' + e.message + '\n' + e.stack);
+    replyMessage(replyToken, [textMsg('検索中にエラーが発生しました。もう一度お試しください。')]);
+  }
+}
+
+/** 1件だけ・自動判定できたときの従来の返し方（カード＋遅延返信）。 */
+function _replySingleAutoVacancy_(replyToken, userId, j, data) {
+  var bubbles = [];
+  var unavailable = [];
+  for (var i = 0; i < j.rowIdx.length && bubbles.length < 12; i++) {
+    var row = data[j.rowIdx[i]];
+    bubbles.push(createPropertyBubble(_vacancyRowToBubbleProp_(row)));
+    if (String(row[8] || '').trim() !== '募集中') {
+      unavailable.push({ name: String(row[0]), room: String(row[1]) });
+    }
+  }
+  replyMessage(replyToken, [{
+    type: 'flex', altText: '該当する物件一覧です',
+    contents: { type: 'carousel', contents: bubbles }
+  }]);
+  var enq = 0;
+  for (var q = 0; q < unavailable.length; q++) {
+    try {
+      enqueueDelayedReply(userId, unavailable[q].name, unavailable[q].room);
+      enq++;
+    } catch (eQ) {
+      console.error('[空室確認] 返信キュー追加に失敗: ' + unavailable[q].name + ' ' + unavailable[q].room + ' / ' + eQ.message);
+    }
+  }
+  console.log('[空室確認] 1件自動: ' + bubbles.length + '件ヒット / 自動確認(返信キュー)=' + enq + '/' + unavailable.length);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  依頼シート
+// ═══════════════════════════════════════════════════════════
+
+function _vacancyRequestSheet_() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sh = ss.getSheetByName(VACANCY_REQUEST_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(VACANCY_REQUEST_SHEET);
+    sh.appendRow(['依頼ID', 'userId', '顧客名', '受付時刻', '件数', '物件(JSON)', 'ステータス', '回答(JSON)', '回答時刻', '送信予定時刻']);
+    try { sh.getRange(1, 1, 1, 10).setFontWeight('bold').setBackground('#e0e0e0'); } catch (_) {}
+  }
+  return sh;
+}
+
+function _createVacancyRequest_(userId, customerName, judged) {
+  var now = new Date();
+  var id = 'VR' + Utilities.formatDate(now, 'Asia/Tokyo', 'yyMMddHHmmss') + String(Math.floor(Math.random() * 900) + 100);
+  var sh = _vacancyRequestSheet_();
+  sh.appendRow([id, userId, customerName || '', toJstString(now), judged.length,
+    JSON.stringify(judged), 'pending', '', '', '']);
+  return { id: id, userId: userId, customerName: customerName || '', receivedAt: toJstString(now), items: judged, status: 'pending' };
+}
+
+function getVacancyRequest(reqId) {
+  var sh = _vacancyRequestSheet_();
+  if (sh.getLastRow() < 2) return null;
+  var data = sh.getRange(2, 1, sh.getLastRow() - 1, 10).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0]) !== String(reqId)) continue;
+    var items = [];
+    try { items = JSON.parse(data[i][5] || '[]'); } catch (_) {}
+    var answers = null;
+    try { answers = data[i][7] ? JSON.parse(data[i][7]) : null; } catch (_) {}
+    return {
+      rowIndex: i + 2, id: String(data[i][0]), userId: String(data[i][1]), customerName: String(data[i][2] || ''),
+      receivedAt: String(data[i][3] || ''), items: items, status: String(data[i][6] || ''),
+      answers: answers, answeredAt: String(data[i][8] || ''), scheduledAt: String(data[i][9] || '')
+    };
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Discord 依頼
+// ═══════════════════════════════════════════════════════════
+
+function _vacancyAnswerFormUrl_(reqId) {
+  var webAppUrl = '';
+  try { webAppUrl = ScriptApp.getService().getUrl(); } catch (_) {}
+  if (!webAppUrl) return '';
+  var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
+  return webAppUrl + '?action=vacancy_answer_form&req=' + encodeURIComponent(reqId)
+    + '&api_key=' + encodeURIComponent(apiKey);
+}
+
+function _vacancyAutoMark_(j) {
+  if (j.auto === 'available') return '🟢 募集中（' + j.label + '）※自動判定';
+  if (j.auto === 'closed') return '🔴 ご案内不可（' + j.label + '）※自動判定';
+  if (j.tooMany) return '❓ 当たりが多すぎて特定できず';
+  if (j.rowIdx && j.rowIdx.length) return '❓ 要確認（' + j.label + '）';
+  return '❓ 自社シートに無し';
+}
+
+function _notifyVacancyRequestToDiscord_(req, opts) {
+  opts = opts || {};
+  var sp = PropertiesService.getScriptProperties();
+  var webhookUrl = sp.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL') || sp.getProperty('DISCORD_WEBHOOK_URL');
+  if (!webhookUrl) { console.warn('[空室確認依頼] Discord webhook 未設定'); return; }
+  var name = req.customerName || '(名前未登録)';
+  var lines = [];
+  lines.push((opts.autoDone ? '✅ **空室確認（自動回答）** ' : '🔔 **空室確認依頼** ') + req.id);
+  lines.push('お客様: ' + name + ' 様（' + req.items.length + '件）');
+  lines.push('━━━━━━━━━━━━━━━━');
+  for (var i = 0; i < req.items.length; i++) {
+    var j = req.items[i];
+    var src = j.url ? '<' + j.url + '>' : j.text;
+    lines.push(j.n + '. ' + src);
+    lines.push('　→ ' + _vacancyAutoMark_(j));
+  }
+  lines.push('━━━━━━━━━━━━━━━━');
+  var formUrl = _vacancyAnswerFormUrl_(req.id);
+  if (opts.autoDone) {
+    lines.push('全件自動で判定できたので、回答を **'
+      + (opts.scheduledAt ? Utilities.formatDate(opts.scheduledAt, 'Asia/Tokyo', 'M月d日 HH:mm') + '以降' : 'しばらくして')
+      + '** に自動送信します。');
+    if (formUrl) lines.push('変えたいときは [回答フォーム](<' + formUrl + '>) で答え直してください（送信前なら上書き）。');
+  } else {
+    lines.push('お客様にはまだ結果を送っていません。');
+    if (formUrl) lines.push('📝 [回答フォームを開く](<' + formUrl + '>) — 全件に 募集中／ご案内不可 を付けて送信してください。');
+  }
+  var content = lines.join('\n');
+  var threadName = '🔔 空室確認: ' + name + ' 様';
+  try {
+    if (typeof _addFetchCount_ === 'function') _addFetchCount_('Discord', 1);
+    var res = _postDiscordAdaptive_(webhookUrl, content, threadName, '', !!opts.autoDone);
+    if (res && res.ok) console.log('[空室確認依頼] Discord送信成功: ' + req.id);
+    else console.error('[空室確認依頼] Discord送信失敗: HTTP ' + (res && res.code) + ' body=' + (res && res.body));
+  } catch (e) {
+    console.error('[空室確認依頼] Discord送信で例外: ' + e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  回答フォーム（スタッフ用）と回答の確定
+// ═══════════════════════════════════════════════════════════
+
+/** doGet: ?action=vacancy_answer_form&req=ID&api_key=... */
+function handleVacancyAnswerForm(e) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
+    return HtmlService.createHtmlOutput('<h2>❌ 認証エラー</h2><p>api_keyが不正です。</p>');
+  }
+  var req = getVacancyRequest(e.parameter.req || '');
+  if (!req) {
+    return HtmlService.createHtmlOutput('<h2>❌ 依頼が見つかりません</h2><p>' + (e.parameter.req || '') + '</p>');
+  }
+  var tpl = HtmlService.createTemplateFromFile('VacancyAnswerPage');
+  tpl.reqJson = JSON.stringify(req);
+  tpl.apiKey = String(e.parameter.api_key || '');
+  return tpl.evaluate()
+    .setTitle('空室確認の回答 ' + req.id)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * 回答フォームの送信（google.script.run から）。
+ * @param {string} payloadJson {answers:[{n,answer,label}], comment:string, freeText:string}
+ */
+function submitVacancyAnswerForm(reqId, apiKey, payloadJson) {
+  if (!_validateReinsApiKey(apiKey)) return { ok: false, message: 'api_keyが不正です' };
+  var req = getVacancyRequest(reqId);
+  if (!req) return { ok: false, message: '依頼が見つかりません: ' + reqId };
+  var payload;
+  try { payload = JSON.parse(payloadJson || '{}'); } catch (_) { return { ok: false, message: '回答を読めません' }; }
+  var answers = payload.answers || [];
+  var freeText = String(payload.freeText || '').trim();
+  if (!freeText) {
+    for (var i = 0; i < req.items.length; i++) {
+      var a = answers.filter(function (x) { return Number(x.n) === Number(req.items[i].n); })[0];
+      if (!a || ['available', 'closed'].indexOf(a.answer) < 0) {
+        return { ok: false, message: req.items[i].n + '件目の答えが付いていません' };
+      }
+    }
+  }
+  var scheduledAt = _finalizeVacancyAnswer_(req, answers, String(payload.comment || '').trim(), freeText);
+  return {
+    ok: true,
+    scheduledAt: scheduledAt ? Utilities.formatDate(scheduledAt, 'Asia/Tokyo', 'M月d日 HH:mm') : ''
+  };
+}
+
+/** 回答を合成してキューに入れ、依頼シートを更新する。 @return {Date|null} 送信予定 */
+function _finalizeVacancyAnswer_(req, answers, comment, freeText) {
+  var messages = _composeVacancyAnswer_(req, answers, comment, freeText);
+  var scheduledAt = _sendVacancyAnswer_(req.userId, messages, 'REQ:' + req.id, req.customerName);
+  try {
+    var sh = _vacancyRequestSheet_();
+    var row = req.rowIndex;
+    if (!row) {
+      var fresh = getVacancyRequest(req.id);
+      row = fresh ? fresh.rowIndex : 0;
+    }
+    if (row) {
+      sh.getRange(row, 7, 1, 4).setValues([[
+        'answered',
+        JSON.stringify({ answers: answers, comment: comment || '', freeText: freeText || '' }),
+        toJstString(new Date()),
+        scheduledAt ? toJstString(scheduledAt) : ''
+      ]]);
+    }
+  } catch (e) {
+    console.warn('[空室確認依頼] シート更新失敗: ' + e.message);
+  }
+  return scheduledAt;
+}
+
+/** お客様への返事を1通（＋募集中カード）に合成する。 */
+function _composeVacancyAnswer_(req, answers, comment, freeText) {
+  var registered = false;
+  try { registered = !!readLatestCriteria(req.userId); } catch (_) {}
+  var qr = registered ? null : [qrPostback('🏠 条件を登録する', '条件登録', '条件登録')];
+
+  if (freeText) {
+    return [qr ? textMsgWithQuickReply(freeText, qr) : textMsg(freeText)];
+  }
+
+  var byN = {};
+  for (var i = 0; i < (answers || []).length; i++) byN[Number(answers[i].n)] = answers[i];
+  var avail = [], closed = [];
+  for (var k = 0; k < req.items.length; k++) {
+    var it = req.items[k];
+    var a = byN[Number(it.n)] || {};
+    var label = String(a.label || it.label || it.text || it.url || '').trim();
+    if (a.answer === 'available') avail.push({ item: it, label: label });
+    else closed.push({ item: it, label: label });
+  }
+
+  var messages = [];
+  var text;
+  if (avail.length > 0) {
+    text = 'お待たせいたしました。\nお調べした結果をお知らせします。\n\n【ご紹介できるお部屋】\n'
+      + avail.map(function (x) { return '・' + x.label; }).join('\n');
+    if (closed.length > 0) text += '\n\nそれ以外の物件は、現在ご案内できませんでした。';
+    if (comment) text += '\n\n' + comment;
+    text += '\n\n気になるお部屋があれば、このままLINEでお知らせください。';
+    messages.push(textMsg(text));
+    // 自社シートの募集中物件はカードも付ける（申込ボタン付き）
+    var bubbles = [];
+    try {
+      var data = SpreadsheetApp.openById(PROPERTY_SHEET_ID).getSheetByName(PROPERTY_SHEET_NAME).getDataRange().getValues();
+      for (var b = 0; b < avail.length && bubbles.length < 10; b++) {
+        var idxs = avail[b].item.rowIdx || [];
+        for (var c = 0; c < idxs.length && bubbles.length < 10; c++) {
+          var row = data[idxs[c]];
+          if (row && String(row[8] || '').trim() === '募集中') {
+            bubbles.push(createPropertyBubble(_vacancyRowToBubbleProp_(row, '募集中')));
+          }
+        }
+      }
+    } catch (eB) { console.warn('[空室確認依頼] カード作成失敗: ' + eB.message); }
+    if (bubbles.length) {
+      messages.push({ type: 'flex', altText: 'ご紹介できるお部屋', contents: { type: 'carousel', contents: bubbles } });
+    }
+  } else {
+    text = 'お待たせいたしました。\nお送りいただいた物件は、いずれも現在ご案内できませんでした。';
+    if (comment) text += '\n\n' + comment;
+    text += registered
+      ? '\n\n引き続き、ご希望の条件に合うお部屋が見つかり次第ご案内いたします。'
+      : '\n\nご希望の条件を登録いただければ、近いお部屋が出た時にすぐお知らせします。';
+    messages.push(qr ? textMsgWithQuickReply(text, qr) : textMsg(text));
+  }
+  return messages;
+}
