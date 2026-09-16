@@ -25,8 +25,8 @@ var NEW_FRIEND_STATES = ['空室確認あり', '条件登録済み'];
 // 翌日に送る。営業時間内にしか送らないので、16時間にしておくと
 // 日中に追加した人はその日には飛ばず、必ず翌日の10時以降になる。
 var NEW_FRIEND_REMIND_AFTER_HOURS = 16;
-// 文面が決まるまでは送らない。true にすると processReplyQueue が送り始める。
-var NEW_FRIEND_REMIND_ENABLED = false;
+// 稼働中（2026-09-16 開始）。false にすると止まる。
+var NEW_FRIEND_REMIND_ENABLED = true;
 
 // 押しメッセージは1通ぶん課金されるので、メッセージは1つだけにする。
 // 目的は「空室確認」か「条件を登録」のどちらかを押してもらうこと。
