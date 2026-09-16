@@ -29,14 +29,35 @@ var NEW_FRIEND_REMIND_AFTER_HOURS = 16;
 var NEW_FRIEND_REMIND_ENABLED = false;
 
 // 押しメッセージは1通ぶん課金されるので、メッセージは1つだけにする。
-var NEW_FRIEND_REMIND_TEXT =
-  'えほうまきです。\n' +
-  'お部屋探しのお手伝いをさせてください。\n\n' +
-  '▼ お問い合わせいただいた物件が気になる方\n' +
-  '　下のメニューの「空室確認」をタップ\n\n' +
-  '▼ ほかのお部屋も探したい方\n' +
-  '　下のメニューの「条件を登録」をタップ（3分で完了）\n\n' +
-  'ご質問はこのままLINEにお送りください。担当者が返信します。';
+// 目的は「空室確認」か「条件を登録」のどちらかを押してもらうこと。
+// 挨拶と同じ案内を繰り返しても動かないので、押す場所をこのカードの中に置く。
+// ⚠️ 「お問い合わせいただいた物件」とは書かないこと。電話で問い合わせた人や
+//   紹介で友だち追加しただけの人には当てはまらず、話が噛み合わなくなる。
+function buildNewFriendRemindMessages() {
+  return [{
+    type: 'flex', altText: 'お部屋探し、お手伝いします',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
+        contents: [
+          { type: 'text', text: 'お部屋探し、お手伝いします', weight: 'bold', size: 'md', color: '#333333' },
+          { type: 'text', text: '気になるお部屋があれば、空き状況をすぐお調べします。\nご希望の条件を登録いただくと、条件に合うお部屋が出たときにお知らせします。',
+            size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+        ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
+        contents: [
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'message', label: '空室確認する', text: '空室確認' } },
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'message', label: '条件を登録する（3分）', text: '条件登録' } }
+        ]
+      }
+    }
+  }];
+}
 
 function _newFriendSheet_() {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
@@ -167,7 +188,7 @@ function processNewFriendReminders() {
     if (la && la > cutoff) { skipped++; continue; }   // やり取りが続いている
     if (!NEW_FRIEND_REMIND_ENABLED) continue;         // 文面が決まるまでは送らない
     try {
-      pushMessage(t.userId, [textMsg(NEW_FRIEND_REMIND_TEXT)]);
+      pushMessage(t.userId, buildNewFriendRemindMessages());
       sh.getRange(t.rowIndex, 4, 1, 2).setValues([['ひと押し送信', now]]);
       sent++;
     } catch (e) {
