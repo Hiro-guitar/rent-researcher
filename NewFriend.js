@@ -494,6 +494,8 @@ function processAbandonedFlowReminders() {
       pushMessage(t.userId, _abandonedRemindMessages_(t.kind, t.userId, t.state));
       // 送ったからには続きができるよう、受付の期限も延ばす（24時間で切れるため）
       _markNudged_(props, t, true);
+      // 「登録だけの人」向けのひと押しが二重で飛ばないようにする
+      _markNewFriendNudged_(t.userId);
       sent++;
       console.log('[途中離脱] ひと押し: ' + t.kind + ' / ' + t.ageH + '時間前に中断');
     } catch (e2) {
@@ -504,6 +506,28 @@ function processAbandonedFlowReminders() {
   if (sent || skipped) {
     console.log('[途中離脱] ひと押し ' + sent + '件 / 登録済みのため見送り ' + skipped + '件'
       + (ABANDONED_REMIND_ENABLED ? '' : '（送信はまだ止めてあります）'));
+  }
+}
+
+/**
+ * 友だち追加の記録側にも「ひと押し済み」を書く。
+ * ⚠️ これが無いと、途中離脱のひと押しを受けた人が、少しあとに
+ *   「登録だけの人」向けのひと押しも受けてしまう（二重送信）。
+ */
+function _markNewFriendNudged_(userId) {
+  try {
+    var sh = _newFriendSheet_();
+    var last = sh.getLastRow();
+    if (last < 2) return;
+    var rows = sh.getRange(2, 1, last - 1, 4).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][0] || '').trim() !== String(userId)) continue;
+      if (String(rows[i][3] || '').trim() !== '') return;   // すでに何か入っている
+      sh.getRange(i + 2, 4, 1, 2).setValues([['ひと押し送信', new Date()]]);
+      return;
+    }
+  } catch (e) {
+    console.warn('[途中離脱] 友だち追加側の印を書けません: ' + e.message);
   }
 }
 
