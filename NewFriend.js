@@ -365,6 +365,14 @@ function _abandonedRemindKind_(step) {
 function _abandonedRemindMessages_(kind, userId, state) {
   if (kind === 'vacancy') {
     var mode = (state && state.data && state.data.vcMode) || '';
+    // 問い合わせ物件のボタンを出したまま止まった人には、物件名を聞き直すより
+    // 同じボタンをもう一度出す方が早い。前のカードは流れて見えなくなっている。
+    if (mode === 'choose') {
+      try {
+        var ctx = _vacancyEntryContext_(userId);
+        if (ctx.inquiries.length > 0) return [_vacancyChooserMessage_(ctx.inquiries)];
+      } catch (_eC) {}
+    }
     if (mode === 'email') {
       return [textMsg(
         'お部屋の空室確認、まだ承れていません。\n\n' +
