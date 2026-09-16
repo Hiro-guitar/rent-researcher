@@ -629,6 +629,9 @@ function handleVacancyRequest(replyToken, userId, items, opts) {
 
     var needsStaff = judged.some(function (j) { return !j.auto; });
 
+    // 空室確認を最後まで進めた人（メニューを押しただけの人と区別する。NewFriend.js）
+    if (typeof markNewFriendState === 'function') markNewFriendState(userId, '空室確認あり');
+
     // ── 1件・自動判定できた → 従来どおり（物件カード＋遅延返信） ──
     if (items.length === 1 && !needsStaff) {
       clearState(userId);

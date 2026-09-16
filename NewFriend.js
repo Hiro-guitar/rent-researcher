@@ -7,15 +7,21 @@
  *   過去に止まっている人はもう触らない方針なので、ここから先の追加だけを記録する。
  *
  * 「何もしていない」の見分け方
- *   LINE Activity シートは、メッセージ送信・ボタンのタップがあったときだけ行ができる
- *   （doPost の recordLineActivity）。つまり、友だち追加の記録があって
- *   LINE Activity に行が無い人 ＝ 追加しただけで一度も動いていない人。
+ *   ⚠️ LINE Activity（メッセージ・タップがあると行ができる）だけで見てはいけない。
+ *     メニューの「空室確認」を押すとテキストが1通送られるので、押しただけで
+ *     物件名を送らずに終わった人まで「動きあり」になってしまう。実質は登録だけの人。
+ *   そこで、意味のある所まで進んだときにこのシートの「状態」を進める。
+ *     （空）登録だけ < 空室確認あり < 条件登録済み
+ *   状態が空のままの人が「登録だけの人」。ただし、いま担当者とやり取りしている
+ *   最中の人に割り込まないよう、直近のやり取りが新しい人には送らない。
  *
  * リマインドは NEW_FRIEND_REMIND_ENABLED が true のときだけ送る。
  * 送るのは1人につき一度きりで、営業時間内（processReplyQueue から呼ばれる）。
  */
 
 var NEW_FRIEND_SHEET = 'LINE友だち追加';
+// 状態の段階。後ろほど進んでいる。戻すことはしない。
+var NEW_FRIEND_STATES = ['空室確認あり', '条件登録済み'];
 var NEW_FRIEND_REMIND_AFTER_DAYS = 3;
 // 文面が決まるまでは送らない。true にすると processReplyQueue が送り始める。
 var NEW_FRIEND_REMIND_ENABLED = false;
@@ -77,21 +83,50 @@ function recordNewFriend(userId) {
   }
 }
 
-/** LINE Activity シートにある userId の集合。一度でもメッセージ・タップがあった人。 */
-function _newFriendActiveUserIds_() {
-  var set = {};
+/**
+ * その人の状態を進める。今より前の段階には戻さない。
+ * 記録が無い人（この仕組みより前に友だち追加した人）は何もしない。
+ *   - 空室確認あり  … 物件名やURLを送って空室確認が進んだとき（VacancyRequest.js）
+ *   - 条件登録済み  … 条件を登録し終えたとき（SheetWriter.js writeToSheet）
+ */
+function markNewFriendState(userId, state) {
+  try {
+    if (!userId || NEW_FRIEND_STATES.indexOf(state) < 0) return;
+    var sh = _newFriendSheet_();
+    var last = sh.getLastRow();
+    if (last < 2) return;
+    var rows = sh.getRange(2, 1, last - 1, 4).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][0] || '').trim() !== String(userId)) continue;
+      var cur = String(rows[i][3] || '').trim();
+      var curRank = NEW_FRIEND_STATES.indexOf(cur);          // 未知/空なら -1
+      var newRank = NEW_FRIEND_STATES.indexOf(state);
+      if (curRank >= newRank) return;                        // すでに同じか先に進んでいる
+      sh.getRange(i + 2, 4, 1, 2).setValues([[state, new Date()]]);
+      console.log('[友だち追加] 状態を更新: ' + (rows[i][2] || userId) + ' → ' + state);
+      return;
+    }
+  } catch (e) {
+    console.warn('[友だち追加] 状態の更新に失敗: ' + e.message);
+  }
+}
+
+/** userId → 直近のやり取り時刻(ms)。LINE Activity シートから。 */
+function _newFriendLastActivityMap_() {
+  var map = {};
   try {
     var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName('LINE Activity');
-    if (!sh || sh.getLastRow() < 2) return set;
-    var ids = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
-    for (var i = 0; i < ids.length; i++) {
-      var u = String(ids[i][0] || '').trim();
-      if (u) set[u] = true;
+    if (!sh || sh.getLastRow() < 2) return map;
+    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      var u = String(rows[i][0] || '').trim();
+      var at = rows[i][1];
+      if (u && at instanceof Date) map[u] = at.getTime();
     }
   } catch (e) {
     console.warn('[友だち追加] LINE Activity を読めません: ' + e.message);
   }
-  return set;
+  return map;
 }
 
 /**
@@ -117,19 +152,18 @@ function processNewFriendReminders() {
   }
   if (candidates.length === 0) return;
 
-  var active = _newFriendActiveUserIds_();
+  // ⚠️ 「メニューを押した」だけでは進んだことにしない。押しただけで止まった人こそ対象。
+  //   ただし、いま担当者とやり取りしている最中の人に割り込まないよう、
+  //   直近のやり取りが新しい人（3日以内）は今回は見送る。
+  var lastActivity = _newFriendLastActivityMap_();
   var now = new Date();
-  var sent = 0, moved = 0;
+  var sent = 0, skipped = 0;
   for (var c = 0; c < candidates.length; c++) {
     var t = candidates[c];
     if (!t.userId) continue;
-    if (active[t.userId]) {
-      // 追加後に何かしてくれた人。ひと押しは要らない。
-      sh.getRange(t.rowIndex, 4, 1, 2).setValues([['動きあり', now]]);
-      moved++;
-      continue;
-    }
-    if (!NEW_FRIEND_REMIND_ENABLED) continue;   // 文面が決まるまでは送らない
+    var la = lastActivity[t.userId];
+    if (la && la > cutoff) { skipped++; continue; }   // やり取りが続いている
+    if (!NEW_FRIEND_REMIND_ENABLED) continue;         // 文面が決まるまでは送らない
     try {
       pushMessage(t.userId, [textMsg(NEW_FRIEND_REMIND_TEXT)]);
       sh.getRange(t.rowIndex, 4, 1, 2).setValues([['ひと押し送信', now]]);
@@ -139,8 +173,8 @@ function processNewFriendReminders() {
       console.error('[友だち追加] ひと押しの送信に失敗: ' + (t.name || t.userId) + ' / ' + e.message);
     }
   }
-  if (sent || moved) {
-    console.log('[友だち追加] ひと押し ' + sent + '件 / 動きありに更新 ' + moved + '件'
+  if (sent || skipped) {
+    console.log('[友だち追加] ひと押し ' + sent + '件 / やり取り中のため見送り ' + skipped + '件'
       + (NEW_FRIEND_REMIND_ENABLED ? '' : '（送信はまだ止めてあります）'));
   }
 }
@@ -157,23 +191,30 @@ function showNewFriendStats() {
     return;
   }
   var data = sh.getRange(2, 1, last - 1, 5).getValues();
-  var active = _newFriendActiveUserIds_();
+  var lastActivity = _newFriendLastActivityMap_();
   var byState = {};
   var stuck = [];
+  var chatting = [];
   var cutoff = Date.now() - NEW_FRIEND_REMIND_AFTER_DAYS * 24 * 60 * 60 * 1000;
   for (var i = 0; i < data.length; i++) {
-    var st = String(data[i][3] || '').trim() || '(何もしていない)';
+    var st = String(data[i][3] || '').trim() || '(登録だけ)';
     byState[st] = (byState[st] || 0) + 1;
     var uid = String(data[i][0] || '').trim();
     var addedAt = data[i][1];
-    if (String(data[i][3] || '').trim() === '' && !active[uid]
-        && addedAt instanceof Date && addedAt.getTime() <= cutoff) {
-      stuck.push((data[i][2] || uid) + '（' + Utilities.formatDate(addedAt, 'Asia/Tokyo', 'M/d') + '追加）');
-    }
+    if (String(data[i][3] || '').trim() !== '') continue;
+    if (!(addedAt instanceof Date) || addedAt.getTime() > cutoff) continue;
+    var label = (data[i][2] || uid) + '（' + Utilities.formatDate(addedAt, 'Asia/Tokyo', 'M/d') + '追加'
+      + (lastActivity[uid] ? '・メニューは触っている' : '・一度も触っていない') + '）';
+    if (lastActivity[uid] && lastActivity[uid] > cutoff) chatting.push(label);
+    else stuck.push(label);
   }
   console.log('友だち追加の記録: ' + data.length + '件');
   for (var k in byState) console.log('  ' + k + ': ' + byState[k] + '人');
-  console.log('うち ' + NEW_FRIEND_REMIND_AFTER_DAYS + '日たっても何もしていない人: ' + stuck.length + '人');
+  console.log('うち ' + NEW_FRIEND_REMIND_AFTER_DAYS + '日たっても先へ進んでいない人: ' + stuck.length + '人');
   if (stuck.length) console.log('  ' + stuck.slice(0, 40).join(' / '));
+  if (chatting.length) {
+    console.log('（やり取りが続いているため見送る人: ' + chatting.length + '人）');
+    console.log('  ' + chatting.slice(0, 20).join(' / '));
+  }
   console.log('ひと押しの送信: ' + (NEW_FRIEND_REMIND_ENABLED ? 'ON' : 'OFF（NewFriend.gs の NEW_FRIEND_REMIND_ENABLED）'));
 }

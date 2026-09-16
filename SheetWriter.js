@@ -227,6 +227,8 @@ function writeToSheet(userId, state) {
   saveLineUser(userId, d.name || '');
   // 条件登録が済んだ人はリッチメニューを「登録後」に切り替える（RichMenu.js）。何度呼んでも同じ結果。
   if (typeof linkRichMenuAfter === 'function') linkRichMenuAfter(userId);
+  // 友だち追加の記録側の状態も進める（NewFriend.js）。ひと押しの対象から外れる。
+  if (typeof markNewFriendState === 'function') markNewFriendState(userId, '条件登録済み');
 
   // 条件が変わったら履歴に残し、担当者へ通知する（新規登録時は差分なしなので出ない）
   try {
