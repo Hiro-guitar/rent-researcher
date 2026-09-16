@@ -711,14 +711,66 @@ function _notifyVacancyRequestToDiscord_(req, opts) {
   }
   var content = lines.join('\n');
   var threadName = '🔔 空室確認: ' + name + ' 様';
+  var result = { ok: false };
   try {
     if (typeof _addFetchCount_ === 'function') _addFetchCount_('Discord', 1);
     var res = _postDiscordAdaptive_(webhookUrl, content, threadName, '', !!opts.autoDone);
+    if (!(res && res.ok) && opts.autoDone) {
+      // 静かな投稿（flags=4096）が弾かれる宛先もあるので、普通の投稿で送り直す
+      console.warn('[空室確認依頼] 静かな投稿が失敗 HTTP ' + (res && res.code) + ' body=' + (res && res.body) + ' → 通常投稿で再送');
+      res = _postDiscordAdaptive_(webhookUrl, content, threadName, '', false);
+    }
     if (res && res.ok) console.log('[空室確認依頼] Discord送信成功: ' + req.id);
     else console.error('[空室確認依頼] Discord送信失敗: HTTP ' + (res && res.code) + ' body=' + (res && res.body));
+    result = res || result;
   } catch (e) {
     console.error('[空室確認依頼] Discord送信で例外: ' + e.message);
+    result = { ok: false, error: e.message };
   }
+  return result;
+}
+
+/**
+ * 【診断用】GASエディタから実行する（VacancyRequest.gs）。
+ * 直近の空室確認依頼と、その回答キューの状態をログに出し、
+ * 最新の依頼の Discord 通知を送り直して HTTP の結果を出す。
+ */
+function debugLastVacancyRequests() {
+  var sh = _vacancyRequestSheet_();
+  var n = sh.getLastRow();
+  if (n < 2) { console.log('依頼はまだ1件もありません'); return; }
+  var from = Math.max(2, n - 2);
+  var rows = sh.getRange(from, 1, n - from + 1, 10).getValues();
+  var last = null;
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    console.log('依頼 ' + r[0] + ' / ' + (r[2] || '(名前なし)') + ' / ' + r[3] + ' / ' + r[4] + '件 / status=' + r[6]
+      + ' / 回答時刻=' + r[8] + ' / 送信予定=' + r[9]);
+    console.log('  物件: ' + r[5]);
+    last = r;
+  }
+  try {
+    var q = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(VACANCY_ANSWER_QUEUE_SHEET);
+    if (q && q.getLastRow() > 1) {
+      var qd = q.getDataRange().getValues();
+      for (var k = 1; k < qd.length; k++) {
+        if (String(qd[k][2]).indexOf('REQ:') === 0) {
+          console.log('キュー ' + qd[k][2] + ' / ' + qd[k][1] + ' / 回答=' + qd[k][4] + ' / 予定=' + qd[k][5] + ' / ' + qd[k][6]);
+        }
+      }
+    } else {
+      console.log('空室回答キューは空です');
+    }
+  } catch (eQ) { console.log('キュー読み取り失敗: ' + eQ.message); }
+
+  var sp = PropertiesService.getScriptProperties();
+  console.log('webhook設定: AVAILABILITY=' + (sp.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL') ? 'あり' : 'なし')
+    + ' / DEFAULT=' + (sp.getProperty('DISCORD_WEBHOOK_URL') ? 'あり' : 'なし'));
+
+  var req = getVacancyRequest(last[0]);
+  var res = _notifyVacancyRequestToDiscord_(req, {});
+  console.log('最新の依頼 ' + req.id + ' のDiscord再送: ' + JSON.stringify(res));
+  console.log('回答フォーム: ' + _vacancyAnswerFormUrl_(req.id));
 }
 
 // ═══════════════════════════════════════════════════════════
