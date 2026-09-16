@@ -250,6 +250,9 @@ function doPost(e) {
     // メールアドレスは「空室確認」の入口でもらう（VacancyRequest.js startVacancyEntry）。
     if (event.type === 'follow') {
       console.log('[follow] ' + userId);
+      // ブロック解除でも follow は届く。そのとき個別のリッチメニューは外れているので、
+      // 条件登録済みの人には「登録後」メニューを張り直す（RichMenu.js）。
+      if (typeof restoreRichMenuOnFollow === 'function') restoreRichMenuOnFollow(userId);
       return;
     }
 

@@ -129,6 +129,26 @@ function linkRichMenuAfter(userId) {
   }
 }
 
+/**
+ * 友だち追加（follow）のたびに、その人に合ったメニューを割り当て直す。
+ *
+ * ⚠️ LINEの仕様: ブロックしてから解除すると、その人に張った個別メニューは外れる。
+ *   そのまま放っておくと、条件登録済みのお客様が既定の「登録前」(2枠)メニューに
+ *   戻ってしまい、お気に入りもお部屋マップも押せなくなる。
+ *   解除のときも follow イベントは届くので、ここで張り直す。
+ */
+function restoreRichMenuOnFollow(userId) {
+  try {
+    var registered = false;
+    try { registered = !!readLatestCriteria(userId); } catch (_) {}
+    if (!registered) return;   // 未登録の人は既定の「登録前」でよい
+    linkRichMenuAfter(userId);
+    console.log('[リッチメニュー] follow で登録後メニューを張り直し: ' + userId);
+  } catch (e) {
+    console.warn('[リッチメニュー] follow の張り直しで例外: ' + e.message);
+  }
+}
+
 /** 【GASエディタから実行】今いる条件登録済みの人を一括で登録後メニューにする。 */
 function bulkLinkRegisteredUsersToAfterMenu() {
   var id = PropertiesService.getScriptProperties().getProperty(RICHMENU_PROP_AFTER);
