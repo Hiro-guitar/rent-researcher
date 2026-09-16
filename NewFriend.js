@@ -134,6 +134,21 @@ function markNewFriendState(userId, state) {
   }
 }
 
+/**
+ * その人が会話フローの途中にいるか（空室確認・条件登録・入居申込のどれか）。
+ * 途中の人は「途中離脱のひと押し」が担当するので、こちらでは送らない。
+ */
+function _hasLiveFlowState_(userId) {
+  try {
+    var raw = PropertiesService.getUserProperties().getProperty('state_' + userId);
+    if (!raw) return false;
+    var st = JSON.parse(raw);
+    return !!_abandonedRemindKind_(st && st.step);
+  } catch (e) {
+    return false;
+  }
+}
+
 /** userId → 直近のやり取り時刻(ms)。LINE Activity シートから。 */
 function _newFriendLastActivityMap_() {
   var map = {};
@@ -223,6 +238,9 @@ function processNewFriendReminders() {
     }
     var la = lastActivity[t.userId];
     if (la && la > cutoff) { skipped++; continue; }   // やり取りが続いている
+    // フローの途中で止まっている人は、あちら（途中離脱のひと押し）の担当。
+    // 両方が同じ回に動くと2通届いてしまう。役割をはっきり分ける。
+    if (_hasLiveFlowState_(t.userId)) { skipped++; continue; }
     if (!NEW_FRIEND_REMIND_ENABLED) continue;         // 文面が決まるまでは送らない
     try {
       pushMessage(t.userId, buildNewFriendRemindMessages());
