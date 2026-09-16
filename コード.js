@@ -518,6 +518,17 @@ function doPost(e) {
         return;
       }
 
+      // 【テスト用】初問い合わせのお客さんとして空室確認を流す。
+      //   テストユーザーは条件登録済みなので、普通に「空室確認」を押すと
+      //   メールアドレスを聞く入口を通れない。そこだけを確かめるためのコマンド。
+      //   実データは汚さない（LINE登録メールに書かない・顧客カードも結び直さない）。
+      if (message === 'テスト空室確認') {
+        var _tvName = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
+        if (TEST_ALLOWED_NAMES.indexOf(_tvName) === -1) return;
+        startVacancyEntry(replyToken, userId, { forceNew: true });
+        return;
+      }
+
       // 配信停止理由フロー中: 自由入力 or 選択肢を処理
       if (state.step === STEPS.WAITING_STOP_REASON || state.step === STEPS.WAITING_STOP_REASON_CUSTOM) {
         if (message === 'キャンセル' || message === 'きゃんせる') {

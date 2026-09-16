@@ -25,11 +25,17 @@ var VACANCY_TOO_MANY_HITS = 12;         // これを超えて当たったら絞�
 //  入口
 // ═══════════════════════════════════════════════════════════
 
-/** リッチメニュー「空室確認」タップ時。 */
-function startVacancyEntry(replyToken, userId) {
-  var ctx = _vacancyEntryContext_(userId);
+/**
+ * リッチメニュー「空室確認」タップ時。
+ * @param {{forceNew?:boolean}} [opts] forceNew: 初問い合わせの人として扱う（テスト用）
+ */
+function startVacancyEntry(replyToken, userId, opts) {
+  opts = opts || {};
+  var ctx = opts.forceNew
+    ? { lineName: '', emails: [], identified: false, inquiries: [] }
+    : _vacancyEntryContext_(userId);
   console.log('[空室確認入口] identified=' + ctx.identified + ' inquiries=' + ctx.inquiries.length
-    + ' emails=' + ctx.emails.length);
+    + ' emails=' + ctx.emails.length + (opts.forceNew ? ' (テスト:初問い合わせ扱い)' : ''));
   if (ctx.inquiries.length > 0) {
     saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'choose' } });
     replyMessage(replyToken, [_vacancyChooserMessage_(ctx.inquiries)]);
@@ -86,11 +92,22 @@ function handleVacancyPostback(replyToken, userId, data) {
 /** 空室確認モード中に届いたメールアドレス。 */
 function handleVacancyEmail(replyToken, userId, rawEmail) {
   var email = String(rawEmail || '').trim().toLowerCase();
+  // テストユーザーは実データを汚さない（LINE登録メールに行を作らない）。
+  // 顧客カードの結びつけは _vacancyLinkByEmail_ 側でもテストユーザーを外している。
+  var isTester = false;
   try {
-    var saved = saveLineRegisteredEmail(userId, email);
-    console.log('[空室確認] メール受領 ' + email + ' / 新規=' + saved);
-  } catch (eS) {
-    console.warn('[空室確認] LINE登録メール保存失敗: ' + eS.message);
+    isTester = (typeof TEST_ALLOWED_NAMES !== 'undefined')
+      && TEST_ALLOWED_NAMES.indexOf(_vacancyLineUserName_(userId)) !== -1;
+  } catch (_eT) {}
+  if (isTester) {
+    console.log('[空室確認] テストユーザーのためメールは保存しない: ' + email);
+  } else {
+    try {
+      var saved = saveLineRegisteredEmail(userId, email);
+      console.log('[空室確認] メール受領 ' + email + ' / 新規=' + saved);
+    } catch (eS) {
+      console.warn('[空室確認] LINE登録メール保存失敗: ' + eS.message);
+    }
   }
   try {
     var link = _vacancyLinkByEmail_(userId, email);
@@ -1034,4 +1051,75 @@ function _composeVacancyAnswer_(req, answers, comment, freeText) {
     messages.push(qr ? textMsgWithQuickReply(text, qr) : textMsg(text));
   }
   return messages;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  確認用（GASエディタ・VacancyRequest.gs から実行）
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * 「条件登録済み」の判定が正しいかを、実データで数えて確かめる。読み取りだけで何も書き換えない。
+ *
+ * 2026-09-16 の不具合の確認用。空室確認でメールから顧客カードを結びつけるようにしたため、
+ * 条件が何も入っていないリード行しか持たない人でも LINE Users に行ができるようになった。
+ * readLatestCriteria がそれを「登録済み」と返していたので、初問い合わせの人に
+ * 条件登録の誘導が出なくなっていた。直っていれば「条件なし」の人が下に並ぶ。
+ */
+function diagnoseRegisteredJudgement() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+  var cs = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  if (!lu || !cs || lu.getLastRow() < 2 || cs.getLastRow() < 2) {
+    console.log('シートが読めません');
+    return;
+  }
+  // 顧客名ごとに「条件の入った行を持っているか」を1回のシート読みで作る
+  var rows = cs.getRange(2, 1, cs.getLastRow() - 1, cs.getLastColumn()).getValues();
+  var hasCriteria = {};
+  var hasAnyRow = {};
+  for (var r = 0; r < rows.length; r++) {
+    var nm = String(rows[r][1] || '').trim();
+    if (!nm) continue;
+    hasAnyRow[nm] = true;
+    if (_rowHasCriteria_(rows[r])) hasCriteria[nm] = true;
+  }
+
+  var luData = lu.getRange(2, 1, lu.getLastRow() - 1, 2).getValues();
+  var registered = [], leadOnly = [], noRow = [];
+  var seen = {};
+  for (var i = 0; i < luData.length; i++) {
+    var uid = String(luData[i][0] || '').trim();
+    var name = String(luData[i][1] || '').trim();
+    if (!uid || !name || seen[uid]) continue;
+    seen[uid] = true;
+    if (hasCriteria[name]) registered.push(name);
+    else if (hasAnyRow[name]) leadOnly.push(name);
+    else noRow.push(name);
+  }
+
+  console.log('LINE Users ' + Object.keys(seen).length + '人');
+  console.log('  条件あり（登録済みとして扱う）: ' + registered.length + '人');
+  console.log('  条件なしのリード行だけ（未登録として扱う）: ' + leadOnly.length + '人');
+  if (leadOnly.length) console.log('    ' + leadOnly.slice(0, 30).join(' / '));
+  console.log('  検索条件シートに行が無い: ' + noRow.length + '人');
+  if (noRow.length) console.log('    ' + noRow.slice(0, 30).join(' / '));
+
+  // 本物の readLatestCriteria と食い違っていないか、両方から数人ずつ実際に呼んで確かめる
+  console.log('--- readLatestCriteria の実測（数人だけ）---');
+  var samples = [];
+  for (var s2 = 0; s2 < luData.length && samples.length < 6; s2++) {
+    var u2 = String(luData[s2][0] || '').trim();
+    var n2 = String(luData[s2][1] || '').trim();
+    if (!u2 || !n2) continue;
+    var want = !!hasCriteria[n2];
+    if (samples.filter(function (x) { return x.want === want; }).length >= 3) continue;
+    samples.push({ uid: u2, name: n2, want: want });
+  }
+  for (var s3 = 0; s3 < samples.length; s3++) {
+    var got = false;
+    try { got = !!readLatestCriteria(samples[s3].uid); } catch (_) {}
+    console.log((got === samples[s3].want ? '  OK  ' : '  ちがう ') + samples[s3].name
+      + ' 期待=' + (samples[s3].want ? '登録済み' : '未登録')
+      + ' 実際=' + (got ? '登録済み' : '未登録'));
+  }
 }
