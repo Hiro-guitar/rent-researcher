@@ -1391,6 +1391,14 @@ function processReplyQueue() {
     console.error('[空室回答] キュー処理に失敗: ' + eV.message);
   }
 
+  // 登録だけで止まっている人へのひと押しも、同じトリガーで見る（NewFriend.js）。
+  // 状態が空の行が無ければ何も読まないので、ほとんどの回は素通りする。
+  try {
+    processNewFriendReminders();
+  } catch (eN) {
+    console.error('[友だち追加] ひと押しの処理に失敗: ' + eN.message);
+  }
+
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sheet = ss.getSheetByName('返信キュー');
   if (!sheet) return;

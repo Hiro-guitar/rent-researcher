@@ -253,6 +253,8 @@ function doPost(e) {
       // ブロック解除でも follow は届く。そのとき個別のリッチメニューは外れているので、
       // 条件登録済みの人には「登録後」メニューを張り直す（RichMenu.js）。
       if (typeof restoreRichMenuOnFollow === 'function') restoreRichMenuOnFollow(userId);
+      // 誰がいつ追加したかを残す。「登録だけで止まっている人」を見つけるため（NewFriend.js）。
+      if (typeof recordNewFriend === 'function') recordNewFriend(userId);
       return;
     }
 
