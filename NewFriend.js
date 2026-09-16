@@ -332,3 +332,220 @@ function showAbandonedFlows() {
       + (lineUsers[real[r2].userId] ? ' / ' + lineUsers[real[r2].userId] : ' / (名前なし)'));
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+//  翌日のひと押し（途中でやめた人へ）
+//
+//  会話の状態（state_<userId>）を見て、どこで止まったかに合わせて送る。
+//  担当者と普通に会話している人は状態を持たないので、ぶつからない。
+//
+//  ⚠️ 状態が残っているだけで、実は登録し終えている人が混ざる（実測 146人中59人）。
+//    送る前に必ず検索条件シートで確かめる。
+//
+//  始める前に markExistingFlowsAsNudged() を1回だけ実行すること。
+//  今ある87人ぶんの古い状態に送ってしまわないため（過去の人には触らない方針）。
+// ═══════════════════════════════════════════════════════════
+
+var ABANDONED_REMIND_ENABLED = false;      // 文面が決まるまでは送らない
+var ABANDONED_REMIND_MIN_HOURS = 12;       // これより前には送らない（＝翌日）
+var ABANDONED_REMIND_MAX_HOURS = 72;       // これより古いものは今さら送らない
+
+/** そのステップにひと押しを送るか。配信停止まわりの途中には触らない。 */
+function _abandonedRemindKind_(step) {
+  if (!step || step === STEPS.IDLE) return '';
+  if (step === STEPS.WAITING_VACANCY) return 'vacancy';
+  if (String(step).indexOf('waiting_for_') === 0) return 'apply';
+  if (String(step).indexOf('STEP_') === 0) {
+    return (step === STEPS.CRITERIA_SELECT) ? 'criteria_page' : 'criteria_flow';
+  }
+  return '';   // WAITING_STOP_REASON など。放っておく
+}
+
+/** 止まった場所に合わせたメッセージ。 */
+function _abandonedRemindMessages_(kind, userId, state) {
+  if (kind === 'vacancy') {
+    var mode = (state && state.data && state.data.vcMode) || '';
+    if (mode === 'email') {
+      return [textMsg(
+        'お部屋の空室確認、まだ承れていません。\n\n' +
+        'お問い合わせ時のメールアドレスをお送りいただければ、すぐにお調べします。\n' +
+        '物件名や、SUUMO・HOME\'SなどのURLでも大丈夫です。'
+      )];
+    }
+    return [textMsg(
+      'お部屋の空室確認、まだ承れていません。\n\n' +
+      'お調べするお部屋の物件名、またはSUUMOやHOME\'SなどのURLをお送りください。\n' +
+      '複数ある場合は、まとめて1通で送っていただいて大丈夫です。'
+    )];
+  }
+  if (kind === 'apply') {
+    return [textMsg(
+      '入居申込のご入力が途中になっています。\n\n' +
+      'このまま続きをお答えいただけます。\n' +
+      'ご不明な点があれば、そのままLINEにお送りください。担当者が返信します。'
+    )];
+  }
+  if (kind === 'criteria_page') {
+    var url = '';
+    try {
+      var sp = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(userId) : '';
+      url = 'https://liff.line.me/' + LIFF_ID + '?userId=' + encodeURIComponent(userId) + (sp ? '&s=' + sp : '');
+    } catch (_) {}
+    if (!url) return [textMsg('お部屋探しの条件のご登録が途中になっています。\n下のメニューの「条件を登録」からお願いします。')];
+    return [{
+      type: 'flex', altText: 'お部屋探しの条件のご登録が途中です',
+      contents: {
+        type: 'bubble',
+        body: {
+          type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
+          contents: [
+            { type: 'text', text: 'あと少しで登録が終わります', weight: 'bold', size: 'md', color: '#333333' },
+            { type: 'text', text: 'エリア・家賃・間取りなどを選んでいただくと、条件に合うお部屋が出た時にすぐお知らせします。',
+              size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+          ]
+        },
+        footer: {
+          type: 'box', layout: 'vertical', paddingAll: 'lg',
+          contents: [{ type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'uri', label: '続きから選ぶ', uri: url } }]
+        }
+      }
+    }];
+  }
+  // criteria_flow
+  return [textMsg(
+    'お部屋探しの条件のご登録が途中になっています。\n\n' +
+    'このまま続きをお答えいただけます。\n' +
+    '最初からやり直す場合は、下のメニューの「条件を登録」をタップしてください。'
+  )];
+}
+
+/**
+ * 途中でやめた人に、翌日ひと押しを1回だけ送る。
+ * processReplyQueue（5分おき・営業時間内のみ）から呼ばれる。
+ */
+function processAbandonedFlowReminders() {
+  var props = PropertiesService.getUserProperties();
+  var all = props.getProperties();
+  var now = Date.now();
+
+  // まず候補を絞る。ここまではシートを一切読まない。
+  var candidates = [];
+  for (var key in all) {
+    if (key.indexOf('state_') !== 0) continue;
+    var st = null;
+    try { st = JSON.parse(all[key]); } catch (_) { continue; }
+    if (!st || st.__nudged || !st.updatedAt) continue;
+    var ageH = (now - st.updatedAt) / 3600000;
+    if (ageH < ABANDONED_REMIND_MIN_HOURS || ageH > ABANDONED_REMIND_MAX_HOURS) continue;
+    var kind = _abandonedRemindKind_(st.step);
+    if (!kind) continue;
+    candidates.push({ key: key, userId: key.substring(6), state: st, kind: kind, ageH: Math.round(ageH) });
+  }
+  if (candidates.length === 0) return;
+
+  // 状態が残っているだけで実は登録済み、という人を外す
+  var done = {};
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var luSh = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    var csSh = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    var names = {};
+    if (luSh && luSh.getLastRow() > 1) {
+      var luRows = luSh.getRange(2, 1, luSh.getLastRow() - 1, 2).getValues();
+      for (var l = 0; l < luRows.length; l++) {
+        var u = String(luRows[l][0] || '').trim();
+        if (u) names[u] = String(luRows[l][1] || '').trim();
+      }
+    }
+    var withCriteria = {};
+    if (csSh && csSh.getLastRow() > 1) {
+      var csRows = csSh.getRange(2, 1, csSh.getLastRow() - 1, csSh.getLastColumn()).getValues();
+      for (var c = 0; c < csRows.length; c++) {
+        var nm = String(csRows[c][1] || '').trim();
+        if (nm && _rowHasCriteria_(csRows[c])) withCriteria[nm] = true;
+      }
+    }
+    for (var d = 0; d < candidates.length; d++) {
+      var nm2 = names[candidates[d].userId];
+      if (nm2 && withCriteria[nm2]) done[candidates[d].userId] = true;
+    }
+  } catch (e) {
+    // 確かめられないときは送らない。登録済みの人に「途中です」と送る方が害が大きい。
+    console.error('[途中離脱] 登録済みかを確かめられないため今回は送りません: ' + e.message);
+    return;
+  }
+
+  var sent = 0, skipped = 0;
+  for (var i = 0; i < candidates.length; i++) {
+    var t = candidates[i];
+    // 条件登録の途中でも、すでに条件を持っている人には送らない（条件変更の中断など）
+    if (done[t.userId] && t.kind !== 'vacancy') { skipped++; _markNudged_(props, t); continue; }
+    if (!ABANDONED_REMIND_ENABLED) continue;
+    try {
+      pushMessage(t.userId, _abandonedRemindMessages_(t.kind, t.userId, t.state));
+      // 送ったからには続きができるよう、受付の期限も延ばす（24時間で切れるため）
+      _markNudged_(props, t, true);
+      sent++;
+      console.log('[途中離脱] ひと押し: ' + t.kind + ' / ' + t.ageH + '時間前に中断');
+    } catch (e2) {
+      _markNudged_(props, t);   // 送れない相手に何度も試さない
+      console.error('[途中離脱] 送信に失敗: ' + t.userId + ' / ' + e2.message);
+    }
+  }
+  if (sent || skipped) {
+    console.log('[途中離脱] ひと押し ' + sent + '件 / 登録済みのため見送り ' + skipped + '件'
+      + (ABANDONED_REMIND_ENABLED ? '' : '（送信はまだ止めてあります）'));
+  }
+}
+
+/** ひと押し済みの印をつける。refresh=true なら受付の期限も今から数え直す。 */
+function _markNudged_(props, t, refresh) {
+  try {
+    t.state.__nudged = Date.now();
+    if (refresh) t.state.updatedAt = Date.now();
+    props.setProperty(t.key, JSON.stringify(t.state));
+  } catch (e) {
+    console.warn('[途中離脱] 印をつけられません: ' + t.key + ' / ' + e.message);
+  }
+}
+
+/**
+ * 【GASエディタから1回だけ実行】今ある会話状態すべてに「ひと押し済み」の印をつける。
+ * 過去に途中でやめた人には触らない方針なので、送信を始める前に必ず実行する。
+ */
+function markExistingFlowsAsNudged() {
+  var props = PropertiesService.getUserProperties();
+  var all = props.getProperties();
+  var n = 0;
+  for (var key in all) {
+    if (key.indexOf('state_') !== 0) continue;
+    var st = null;
+    try { st = JSON.parse(all[key]); } catch (_) { continue; }
+    if (!st || st.__nudged) continue;
+    st.__nudged = Date.now();
+    props.setProperty(key, JSON.stringify(st));
+    n++;
+  }
+  console.log('既存の会話状態 ' + n + '件に印をつけました。これ以降に中断した人だけが対象になります。');
+}
+
+/**
+ * 【GASエディタから実行】古い会話状態を消す。既定は30日より前。
+ * 状態は放っておくと消えないので、ときどき掃除する。上限は500KB。
+ */
+function cleanupOldConversationStates(days) {
+  days = (typeof days === 'number' && days > 0) ? days : 30;
+  var props = PropertiesService.getUserProperties();
+  var all = props.getProperties();
+  var cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  var deleted = 0, kept = 0;
+  for (var key in all) {
+    if (key.indexOf('state_') !== 0) continue;
+    var st = null;
+    try { st = JSON.parse(all[key]); } catch (_) { props.deleteProperty(key); deleted++; continue; }
+    if (st && st.updatedAt && st.updatedAt < cutoff) { props.deleteProperty(key); deleted++; }
+    else kept++;
+  }
+  console.log('古い会話状態を ' + deleted + '件消しました（' + days + '日より前）。残り ' + kept + '件。');
+}

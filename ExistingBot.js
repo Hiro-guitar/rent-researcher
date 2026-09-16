@@ -1399,6 +1399,14 @@ function processReplyQueue() {
     console.error('[友だち追加] ひと押しの処理に失敗: ' + eN.message);
   }
 
+  // 途中でやめた人へのひと押しも同じトリガーで見る（NewFriend.js）。
+  // 対象がなければシートは読まないので、ほとんどの回は素通りする。
+  try {
+    processAbandonedFlowReminders();
+  } catch (eA2) {
+    console.error('[途中離脱] ひと押しの処理に失敗: ' + eA2.message);
+  }
+
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sheet = ss.getSheetByName('返信キュー');
   if (!sheet) return;
