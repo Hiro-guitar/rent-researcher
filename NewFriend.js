@@ -218,3 +218,74 @@ function showNewFriendStats() {
   }
   console.log('ひと押しの送信: ' + (NEW_FRIEND_REMIND_ENABLED ? 'ON' : 'OFF（NewFriend.gs の NEW_FRIEND_REMIND_ENABLED）'));
 }
+
+// ═══════════════════════════════════════════════════════════
+//  途中でやめた人を見つける
+//
+//  会話の状態は PropertiesService.getUserProperties() に
+//  'state_<userId>' というキーで入っている（StateManager.js）。
+//  ウェブアプリは所有者として動くので、全員ぶんが1つの入れ物に入る。
+//  つまり、ここを読めば「今どのステップで止まっているか」が全員ぶん分かる。
+//
+//  これで3つを見分けられる。
+//    ・状態があって IDLE でない → 途中でやめた人（どこでやめたかまで分かる）
+//    ・状態が無くて一度も動いていない → 追加しただけの人
+//    ・状態が無くてやり取りがある → 担当者と会話している人（触らない）
+// ═══════════════════════════════════════════════════════════
+
+/** ステップから「どこで止まったか」を日本語にする。分からないものは null（対象外）。 */
+function _abandonedStepLabel_(step, state) {
+  if (!step || step === STEPS.IDLE) return null;
+  if (step === STEPS.WAITING_VACANCY) {
+    var mode = (state && state.data && state.data.vcMode) || '';
+    if (mode === 'email') return '空室確認: メールアドレス待ち';
+    if (mode === 'choose') return '空室確認: 物件を選ぶところ';
+    return '空室確認: 物件名やURL待ち';
+  }
+  if (String(step).indexOf('waiting_for_') === 0) return '入居申込: ' + step;
+  if (String(step).indexOf('STEP_') === 0) return '条件登録: ' + step;
+  if (String(step).indexOf('WAITING_') === 0) return 'その他: ' + step;
+  return 'その他: ' + step;
+}
+
+/**
+ * 【GASエディタから実行】途中でやめた人を一覧で出す。読み取りだけで何も書き換えない。
+ * 次の日にひと押しを送るかどうかを決めるための下見。
+ */
+function showAbandonedFlows() {
+  var props = PropertiesService.getUserProperties();
+  var all = props.getProperties();
+  var keys = Object.keys(all).filter(function (k) { return k.indexOf('state_') === 0; });
+  console.log('会話状態の数: ' + keys.length + '件');
+
+  var now = Date.now();
+  var buckets = {};
+  var rows = [];
+  var totalBytes = 0;
+  for (var i = 0; i < keys.length; i++) {
+    var raw = all[keys[i]];
+    totalBytes += (keys[i].length + String(raw || '').length);
+    var st = null;
+    try { st = JSON.parse(raw); } catch (_) { continue; }
+    var label = _abandonedStepLabel_(st.step, st);
+    if (!label) continue;
+    var ageH = st.updatedAt ? Math.floor((now - st.updatedAt) / 3600000) : -1;
+    var head = label.split(':')[0];
+    buckets[head] = (buckets[head] || 0) + 1;
+    rows.push({ userId: keys[i].substring(6), label: label, ageH: ageH });
+  }
+  rows.sort(function (a, b) { return a.ageH - b.ageH; });
+
+  console.log('（保存されている総量: 約 ' + Math.round(totalBytes / 1024) + 'KB / 上限 500KB）');
+  console.log('途中でやめている人: ' + rows.length + '人');
+  for (var k in buckets) console.log('  ' + k + ': ' + buckets[k] + '人');
+  console.log('--- 経過時間の内訳 ---');
+  var within12 = rows.filter(function (r) { return r.ageH >= 0 && r.ageH < 12; }).length;
+  var h12to24 = rows.filter(function (r) { return r.ageH >= 12 && r.ageH < 24; }).length;
+  var over24 = rows.filter(function (r) { return r.ageH >= 24; }).length;
+  console.log('  12時間以内: ' + within12 + '人 / 12〜24時間: ' + h12to24 + '人 / 24時間超(受付は切れている): ' + over24 + '人');
+  console.log('--- 新しい順に30件 ---');
+  for (var r2 = 0; r2 < Math.min(30, rows.length); r2++) {
+    console.log('  ' + rows[r2].ageH + '時間前 / ' + rows[r2].label);
+  }
+}
