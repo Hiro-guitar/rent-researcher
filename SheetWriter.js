@@ -547,9 +547,16 @@ function readLatestCriteria(userId) {
     var data = sheet.getDataRange().getValues();
     var latestRow = null;
     for (var j = 1; j < data.length; j++) {
-      if (data[j][1] === customerName) {
-        latestRow = data[j];
-      }
+      if (data[j][1] !== customerName) continue;
+      // ⚠️ 条件が1つも入っていない行は「登録済み」として返さないこと (2026-09-16)。
+      //   問い合わせから自動で作られるリード行は 名前とメールだけを持つ。
+      //   空室確認でメールアドレスから顧客カードを結びつけるようになったため、
+      //   条件を何も登録していない人でも LINE Users に行ができるようになった。
+      //   この関数の戻り値は呼び出し側すべてで「条件登録済みか」の判定に使われており、
+      //   そのままだと初問い合わせの人に「引き続きご希望の条件に合うお部屋を…」と
+      //   返してしまい、条件登録への誘導が出なかった（実際に発生）。
+      if (typeof _rowHasCriteria_ === 'function' && !_rowHasCriteria_(data[j])) continue;
+      latestRow = data[j];
     }
     if (!latestRow) return null;
 
