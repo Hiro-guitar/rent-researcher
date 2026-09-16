@@ -604,3 +604,41 @@ function cleanupOldConversationStates(days) {
   }
   console.log('古い会話状態を ' + deleted + '件消しました（' + days + '日より前）。残り ' + kept + '件。');
 }
+
+/**
+ * 【GASエディタから実行】今月のメッセージ通数と残りを見る。
+ *
+ * LINEの数え方:
+ *   ・お客様からの送信に対する「返信」は無料でカウントされない
+ *   ・こちらから送る「プッシュ」はカウントされる（メッセージの個数 × 人数）
+ * 催促メッセージはプッシュなので、ここに乗る。
+ */
+function showLineMessageQuota() {
+  function get(path) {
+    var res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/' + path, {
+      headers: { 'Authorization': 'Bearer ' + CHANNEL_ACCESS_TOKEN },
+      muteHttpExceptions: true
+    });
+    if (typeof _addFetchCount_ === 'function') _addFetchCount_('通数確認', 1);
+    if (res.getResponseCode() !== 200) {
+      console.log('取得できません(' + path + '): HTTP ' + res.getResponseCode() + ' ' + res.getContentText());
+      return null;
+    }
+    return JSON.parse(res.getContentText());
+  }
+  var quota = get('quota');
+  var used = get('quota/consumption');
+  if (!quota || !used) return;
+
+  if (quota.type === 'none') {
+    console.log('今月の上限: 無制限');
+  } else {
+    console.log('今月の上限: ' + quota.value + '通');
+  }
+  console.log('今月すでに使った数: ' + used.totalUsage + '通');
+  if (quota.type !== 'none' && quota.value) {
+    console.log('残り: ' + (quota.value - used.totalUsage) + '通');
+  }
+  console.log('※ 返信は無料でここに含まれない。プッシュ（物件のお知らせ・空室確認の遅延返信・催促）だけが乗る。');
+  console.log('※ 催促メッセージは1人につき1通。途中離脱が1日1〜2人なので、月に数十通の見込み。');
+}
