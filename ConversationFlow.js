@@ -5,8 +5,12 @@
  * sheets.py が期待する A:V（22列）フォーマットに完全一致させる。
  *
  * フロー:
- *   NAME → REASON → [REASON_CUSTOM] → RESIDENT → [RESIDENT_CUSTOM]
+ *   REASON → [REASON_CUSTOM] → RESIDENT → [RESIDENT_CUSTOM]
  *   → AGE → MOVE_IN_DATE → CRITERIA_SELECT(LIFFページ) → CONFIRM → DONE
+ *
+ * ⚠️ 名前は聞かない。LINEのプロフィールから取る（writeToSheet）。
+ *   体感を速くするため startSearchFlow では取得せず、1問目は REASON。
+ *   STEPS.NAME はもう使っていない（互換のため定数だけ残っている）。
  *
  * CRITERIA_SELECT (LIFFページ) で処理する項目:
  *   - エリア選択（路線・駅 or 市区町村）
