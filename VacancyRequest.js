@@ -391,7 +391,10 @@ function _splitVacancyItems_(raw) {
       var m = l.match(/^[^:：\n]{1,20}[:：]\s*(.+)$/);
       if (m) l = m[1].trim();
       if (!l || l.length < 2) continue;
-      if (/^[\d０-９\s.．、,，:：;；)）\]】\-－・]+$/.test(l)) continue;   // 「1.」などの番号だけ
+      // 「1.」「2)」「③」のような番号だけの行は捨てる（「24」「25.5」は面積なので残す）
+      if (/^[\d０-９]{1,2}[.．)）、:：]$/.test(l) || /^[①-⑳]$/.test(l)) continue;
+      // URLと一緒に添えられた「空いてますか？」のような文は物件ではない
+      if (urls.length > 0 && /(ですか|ますか|ください|お願い|でしょうか|[?？。]$)/.test(l)) continue;
       if (typeof isVacancyFillerText === 'function' && isVacancyFillerText(l)) continue;
       textItems.push(l);
     }
