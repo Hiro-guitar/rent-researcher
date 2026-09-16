@@ -45,7 +45,7 @@ function startVacancyEntry(replyToken, userId, opts) {
     saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'email' } });
     replyMessage(replyToken, [textMsgWithQuickReply(
       'お問い合わせ時のメールアドレスを送ってください。\n' +
-      'お問い合わせいただいた物件をすぐお調べします。\n\n' +
+      'お問い合わせいただいた物件をお調べしてご連絡します。\n\n' +
       'ほかの物件をお調べしたい場合は、下の「別の物件を調べる」をタップしてください。',
       [qrPostback('🔍 別の物件を調べる', 'vc:other')]
     )]);
