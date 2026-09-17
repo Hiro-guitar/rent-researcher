@@ -512,14 +512,14 @@ function _abandonedRemindMessages_(kind, userId, state) {
   // 文章で「続きをどうぞ」と言うより、その場で答えられる方が早い。
   var q = _buildStepQuestionMessages_(userId, state);
   if (q && q.length) {
-    _prependLeadToFirstText_(q, 'お部屋探しのご希望を伺っています。\n続きからお答えいただけます。');
+    _prependLeadToFirstText_(q, 'お部屋探しのご希望をお伺いしています。\nお答えいただくと、ご希望に合うお部屋をお探しします。');
     return q;
   }
   // 組み立てられなかったときの逃げ道
   return [textMsg(
-    'お部屋探しのご希望を伺っています。\n\n' +
-    'このまま続きをお答えいただけます。\n' +
-    'お答えいただくと、ご希望に近いお部屋をお探しできます。'
+    'お部屋探しのご希望をお伺いしています。\n' +
+    'お答えいただくと、ご希望に合うお部屋をお探しします。\n\n' +
+    'このまま続きをお答えいただけます。'
   )];
 }
 
