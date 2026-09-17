@@ -478,23 +478,32 @@ function _abandonedRemindMessages_(kind, userId, state) {
       var sp = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(userId) : '';
       url = 'https://liff.line.me/' + LIFF_ID + '?userId=' + encodeURIComponent(userId) + (sp ? '&s=' + sp : '');
     } catch (_) {}
-    if (!url) return [textMsg('お部屋探しの条件のご登録が途中になっています。\n下のメニューの「条件を登録」からお願いします。')];
+    if (!url) {
+      return [textMsg(
+        'ご回答ありがとうございます。\n\n' +
+        'エリア・家賃・間取りなどをお選びいただくと、ご登録が完了します。\n' +
+        '下のメニューの「条件を登録」からお進みください。'
+      )];
+    }
     return [{
-      type: 'flex', altText: 'お部屋探しの条件のご登録が途中です',
+      type: 'flex', altText: 'ご回答ありがとうございます',
       contents: {
         type: 'bubble',
         body: {
           type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
           contents: [
-            { type: 'text', text: 'あと少しで登録が終わります', weight: 'bold', size: 'md', color: '#333333' },
-            { type: 'text', text: 'エリア・家賃・間取りなどを選んでいただくと、条件に合うお部屋が出た時にすぐお知らせします。',
+            { type: 'text', text: 'ご回答ありがとうございます', weight: 'bold', size: 'md', color: '#333333' },
+            { type: 'text', text: 'エリア・家賃・間取りなどをお選びいただくと、ご登録が完了します。',
+              size: 'sm', color: '#555555', wrap: true, margin: 'md' },
+            // ⚠️ 「すぐお知らせします」とは書かない。新着が出る時期はこちらでは決められない。
+            { type: 'text', text: 'スタッフが厳選したお部屋をお送りします。\n検索サイトに出ていないお部屋もご紹介できます。',
               size: 'sm', color: '#555555', wrap: true, margin: 'md' }
           ]
         },
         footer: {
           type: 'box', layout: 'vertical', paddingAll: 'lg',
           contents: [{ type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'uri', label: '続きから選ぶ', uri: url } }]
+            action: { type: 'uri', label: '条件の登録を完了させる', uri: url } }]
         }
       }
     }];
