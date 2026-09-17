@@ -508,12 +508,58 @@ function _abandonedRemindMessages_(kind, userId, state) {
       }
     }];
   }
-  // criteria_flow
+  // criteria_flow: 止まっている質問そのものを出し直す。
+  // 文章で「続きをどうぞ」と言うより、その場で答えられる方が早い。
+  var q = _buildStepQuestionMessages_(userId, state);
+  if (q && q.length) {
+    _prependLeadToFirstText_(q, 'お部屋探しのご希望を伺っています。\n続きからお答えいただけます。');
+    return q;
+  }
+  // 組み立てられなかったときの逃げ道
   return [textMsg(
-    'お部屋探しの条件のご登録が途中になっています。\n\n' +
+    'お部屋探しのご希望を伺っています。\n\n' +
     'このまま続きをお答えいただけます。\n' +
-    '最初からやり直す場合は、下のメニューの「条件を登録」をタップしてください。'
+    'お答えいただくと、ご希望に近いお部屋をお探しできます。'
   )];
+}
+
+/**
+ * 止まっているステップの質問メッセージを組み立てる（送らずに受け取る）。
+ *
+ * showStepQuestion は返信専用（replyToken が要る）だが、最後に replyMessage を
+ * 呼ぶだけなので、その送信口を一時的に差し替えて中身を受け取る。
+ * 質問文・選択肢・進捗ゲージをここで作り直すと本家とずれていくため、本家を使う。
+ *
+ * ⚠️ 差し替えは必ず finally で元に戻すこと。戻し損ねると以降の返信が全部消える。
+ * @return {Array|null} メッセージの配列。作れなければ null
+ */
+function _buildStepQuestionMessages_(userId, state) {
+  if (typeof showStepQuestion !== 'function' || typeof replyMessage !== 'function') return null;
+  var captured = null;
+  var original = replyMessage;
+  try {
+    replyMessage = function (_token, msgs) { captured = msgs; };
+    showStepQuestion('(送らない)', userId, state);
+  } catch (e) {
+    console.warn('[途中離脱] 質問の組み立てに失敗: ' + e.message);
+    captured = null;
+  } finally {
+    replyMessage = original;
+  }
+  if (!captured || !captured.length) return null;
+  return captured;
+}
+
+/** 先頭のテキストメッセージの頭に一言を足す。メッセージを増やさない（1通ぶんの課金に収める）。 */
+function _prependLeadToFirstText_(msgs, lead) {
+  for (var i = 0; i < msgs.length; i++) {
+    var m = msgs[i];
+    if (m && m.type === 'text' && typeof m.text === 'string') {
+      m.text = lead + '\n\n' + m.text;
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -706,4 +752,56 @@ function showLineMessageQuota() {
   }
   console.log('※ 返信は無料でここに含まれない。プッシュ（物件のお知らせ・空室確認の遅延返信・催促）だけが乗る。');
   console.log('※ 催促メッセージは1人につき1通。途中離脱が1日1〜2人なので、月に数十通の見込み。');
+}
+
+/**
+ * 【GASエディタから実行】途中離脱のひと押しが、実際にどう出るかを見る。送信はしない。
+ * 条件登録の質問は本家（showStepQuestion）を通すので、進捗ゲージや選択肢も本物が出る。
+ */
+function previewAbandonedRemind() {
+  var samples = [
+    ['空室確認・メールアドレス待ち', 'vacancy', { step: STEPS.WAITING_VACANCY, data: { vcMode: 'email' } }],
+    ['空室確認・物件名やURL待ち', 'vacancy', { step: STEPS.WAITING_VACANCY, data: { vcMode: 'other' } }],
+    ['条件登録・お部屋探しの理由', 'criteria_flow', { step: STEPS.REASON, data: {} }],
+    ['条件登録・どなたが住むか', 'criteria_flow', { step: STEPS.RESIDENT, data: {} }],
+    ['条件登録・年齢', 'criteria_flow', { step: STEPS.AGE, data: {} }],
+    ['条件登録・引越し時期', 'criteria_flow', { step: STEPS.MOVE_IN_DATE, data: {} }],
+    ['条件選択ページ', 'criteria_page', { step: STEPS.CRITERIA_SELECT, data: {} }],
+    ['入居申込の途中', 'apply', { step: STEPS.EXISTING_WAITING_NAME, data: {} }]
+  ];
+  for (var i = 0; i < samples.length; i++) {
+    var label = samples[i][0], kind = samples[i][1], state = samples[i][2];
+    console.log('──── ' + label + ' ────');
+    var msgs = null;
+    try {
+      msgs = _abandonedRemindMessages_(kind, 'PREVIEW_USER', state);
+    } catch (e) {
+      console.log('  組み立てで例外: ' + e.message);
+      continue;
+    }
+    console.log('  （' + msgs.length + '通ぶん）');
+    for (var m = 0; m < msgs.length; m++) {
+      var msg = msgs[m];
+      if (msg.type === 'text') {
+        console.log(msg.text);
+        if (msg.quickReply && msg.quickReply.items) {
+          var labels = msg.quickReply.items.map(function (it) { return it.action.label; });
+          console.log('  [選択肢] ' + labels.join(' / '));
+        }
+      } else if (msg.type === 'flex') {
+        console.log('  [カード] ' + msg.altText);
+        try {
+          var b = msg.contents.body ? msg.contents.body.contents : [];
+          for (var t = 0; t < b.length; t++) if (b[t].text) console.log('  ' + b[t].text);
+          if (msg.contents.footer) {
+            var f = msg.contents.footer.contents;
+            for (var g = 0; g < f.length; g++) if (f[g].action) console.log('  [ボタン] ' + f[g].action.label);
+          }
+        } catch (_e) { console.log('  （中身を読めません）'); }
+      } else {
+        console.log('  [' + msg.type + ']');
+      }
+    }
+    console.log('');
+  }
 }
