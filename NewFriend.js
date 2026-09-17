@@ -432,7 +432,11 @@ var ABANDONED_REMIND_MAX_HOURS = 72;       // これより古いものは今さ�
 function _abandonedRemindKind_(step) {
   if (!step || step === STEPS.IDLE) return '';
   if (step === STEPS.WAITING_VACANCY) return 'vacancy';
-  if (String(step).indexOf('waiting_for_') === 0) return 'apply';
+  // ⚠️ 入居申込（waiting_for_*）は催促しない (2026-09-17)。
+  //   物件カードの「入居申込をする」は試しに押す人が混ざるうえ、申込は契約に向かう一歩で、
+  //   自動で追うのは踏み込みすぎ。完了すればLINE公式アカウントの通知で担当者が気づける。
+  //   設計メモの「申込／内見の画面を開いて送らなかった → 当日中に電話」とも揃う。
+  if (String(step).indexOf('waiting_for_') === 0) return '';
   if (String(step).indexOf('STEP_') === 0) {
     return (step === STEPS.CRITERIA_SELECT) ? 'criteria_page' : 'criteria_flow';
   }
@@ -463,13 +467,6 @@ function _abandonedRemindMessages_(kind, userId, state) {
       '空室確認のご依頼ありがとうございます。\n\n' +
       'お調べするお部屋の物件名、またはSUUMOやHOME\'SなどのURLをお送りください。\n' +
       '複数ある場合は、まとめて1通で送っていただいて大丈夫です。'
-    )];
-  }
-  if (kind === 'apply') {
-    return [textMsg(
-      '入居申込のご入力が途中になっています。\n\n' +
-      'このまま続きをお答えいただけます。\n' +
-      'ご不明な点があれば、そのままLINEにお送りください。担当者が返信します。'
     )];
   }
   if (kind === 'criteria_page') {
@@ -783,8 +780,7 @@ function previewAbandonedRemind() {
     ['条件登録・どなたが住むか', 'criteria_flow', { step: STEPS.RESIDENT, data: {} }],
     ['条件登録・年齢', 'criteria_flow', { step: STEPS.AGE, data: {} }],
     ['条件登録・引越し時期', 'criteria_flow', { step: STEPS.MOVE_IN_DATE, data: {} }],
-    ['条件選択ページ', 'criteria_page', { step: STEPS.CRITERIA_SELECT, data: {} }],
-    ['入居申込の途中', 'apply', { step: STEPS.EXISTING_WAITING_NAME, data: {} }]
+    ['条件選択ページ', 'criteria_page', { step: STEPS.CRITERIA_SELECT, data: {} }]
   ];
   for (var i = 0; i < samples.length; i++) {
     var label = samples[i][0], kind = samples[i][1], state = samples[i][2];
