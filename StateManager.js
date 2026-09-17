@@ -32,7 +32,16 @@ function getState(userId) {
   try {
     const state = JSON.parse(raw);
     // タイムアウトチェック
-    if (state.updatedAt && (Date.now() - state.updatedAt > CONVERSATION_TIMEOUT_MS)) {
+    // ⚠️ 条件登録（STEP_*）だけは期限で消さない (2026-09-17)。
+    //   実測では、条件登録を途中でやめた人のほとんどが「条件選択ページ」か
+    //   「お部屋探しの理由の選択」で止まっていた。どちらも自由入力を受け取らないので、
+    //   後日の無関係なメッセージを答えとして取り込む心配がない。
+    //   消さずに残しておけば、何か月後でも選択肢をタップして続きから進められる。
+    //   自由入力を受け取る3か所（理由・居住者の自由入力、その他ご希望）だけは
+    //   ConversationFlow.js 側で「24時間を過ぎていたら保存せず聞き直す」と守っている。
+    if (state.updatedAt
+        && !_stateNeverExpires_(state.step)
+        && (Date.now() - state.updatedAt > CONVERSATION_TIMEOUT_MS)) {
       clearState(userId);
       return createInitialState();
     }
@@ -63,6 +72,24 @@ function saveState(userId, state) {
 function clearState(userId) {
   const props = PropertiesService.getUserProperties();
   props.deleteProperty('state_' + userId);
+}
+
+/**
+ * 期限で消さないステップか。条件登録フロー（STEP_ で始まる）だけが該当する。
+ * 空室確認・入居申込・配信停止まわりは、放っておくと後日のメッセージを
+ * 拾ってしまうので今まで通り24時間で消す。
+ */
+function _stateNeverExpires_(step) {
+  return String(step || '').indexOf('STEP_') === 0;
+}
+
+/**
+ * 自由入力を答えとして受け取ってよいか。
+ * 期限を過ぎた状態に届いた文は、答えではなく別件の可能性が高いので取り込まない。
+ */
+function isStateFreshForFreeText(state) {
+  if (!state || !state.updatedAt) return true;
+  return (Date.now() - state.updatedAt) <= CONVERSATION_TIMEOUT_MS;
 }
 
 /**

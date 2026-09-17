@@ -268,6 +268,13 @@ function handleButtonStepTextInput(replyToken, userId, message, state, choices, 
 // ── その他理由の自由入力 ──────────────────────────────────
 
 function handleReasonCustomInput(replyToken, userId, message, state) {
+  // ⚠️ 期限を過ぎた状態に届いた文は、答えではなく別件の可能性が高い (2026-09-17)。
+  //   条件登録の状態は消さずに残す方針にしたので、ここで守らないと
+  //   何か月も前の質問に対する答えとして、無関係なメッセージが登録されてしまう。
+  if (typeof isStateFreshForFreeText === 'function' && !isStateFreshForFreeText(state)) {
+    showStepQuestion(replyToken, userId, state, 'お時間が空きましたので、念のためもう一度お伺いします。');
+    return true;
+  }
   state = updateStateData(state, 'reason', 'その他: ' + message);
   state.step = STEPS.RESIDENT;
   saveState(userId, state);
@@ -278,6 +285,13 @@ function handleReasonCustomInput(replyToken, userId, message, state) {
 // ── 居住者の自由入力 ──────────────────────────────────────
 
 function handleResidentCustomInput(replyToken, userId, message, state) {
+  // ⚠️ 期限を過ぎた状態に届いた文は、答えではなく別件の可能性が高い (2026-09-17)。
+  //   条件登録の状態は消さずに残す方針にしたので、ここで守らないと
+  //   何か月も前の質問に対する答えとして、無関係なメッセージが登録されてしまう。
+  if (typeof isStateFreshForFreeText === 'function' && !isStateFreshForFreeText(state)) {
+    showStepQuestion(replyToken, userId, state, 'お時間が空きましたので、念のためもう一度お伺いします。');
+    return true;
+  }
   state = updateStateData(state, 'resident', 'その他: ' + message);
   state.step = STEPS.AGE;
   saveState(userId, state);
@@ -288,6 +302,13 @@ function handleResidentCustomInput(replyToken, userId, message, state) {
 // ── その他ご希望 ──────────────────────────────────────────
 
 function handleNotesInput(replyToken, userId, message, state) {
+  // ⚠️ 期限を過ぎた状態に届いた文は、答えではなく別件の可能性が高い (2026-09-17)。
+  //   条件登録の状態は消さずに残す方針にしたので、ここで守らないと
+  //   何か月も前の質問に対する答えとして、無関係なメッセージが登録されてしまう。
+  if (typeof isStateFreshForFreeText === 'function' && !isStateFreshForFreeText(state)) {
+    showStepQuestion(replyToken, userId, state, 'お時間が空きましたので、念のためもう一度お伺いします。');
+    return true;
+  }
   if (message !== 'スキップ') {
     state = updateStateData(state, 'notes', message);
   }
