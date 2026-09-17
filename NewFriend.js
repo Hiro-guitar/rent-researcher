@@ -424,7 +424,7 @@ function showAbandonedFlows() {
 //  今ある87人ぶんの古い状態に送ってしまわないため（過去の人には触らない方針）。
 // ═══════════════════════════════════════════════════════════
 
-var ABANDONED_REMIND_ENABLED = false;      // 文面が決まるまでは送らない
+var ABANDONED_REMIND_ENABLED = true;       // 稼働中（2026-09-17 開始）。false にすると止まる
 var ABANDONED_REMIND_MIN_HOURS = 12;       // これより前には送らない（＝翌日）
 var ABANDONED_REMIND_MAX_HOURS = 72;       // これより古いものは今さら送らない
 
