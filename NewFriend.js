@@ -550,7 +550,12 @@ function _buildStepQuestionMessages_(userId, state) {
   return captured;
 }
 
-/** 先頭のテキストメッセージの頭に一言を足す。メッセージを増やさない（1通ぶんの課金に収める）。 */
+/**
+ * 先頭に一言を足す。メッセージは増やさない（1通ぶんの課金に収める）。
+ * ⚠️ 最終確認だけはカードのみで、テキストのメッセージが無い。
+ *   テキストしか見ないと一言が黙って消えるので、カードの本文にも差し込む
+ *   （進捗ゲージが replyWithGauge でやっているのと同じ考え方）。
+ */
 function _prependLeadToFirstText_(msgs, lead) {
   for (var i = 0; i < msgs.length; i++) {
     var m = msgs[i];
@@ -558,6 +563,18 @@ function _prependLeadToFirstText_(msgs, lead) {
       m.text = lead + '\n\n' + m.text;
       return true;
     }
+  }
+  for (var j = 0; j < msgs.length; j++) {
+    var fm = msgs[j];
+    if (!fm || fm.type !== 'flex' || !fm.contents || fm.contents.type !== 'bubble') continue;
+    var body = fm.contents.body;
+    if (!body || body.type !== 'box' || !body.contents || !body.contents.length) continue;
+    body.contents = [{
+      type: 'text', text: lead, size: 'sm', color: '#555555', wrap: true
+    }, {
+      type: 'separator', margin: 'md'
+    }].concat(body.contents);
+    return true;
   }
   return false;
 }
