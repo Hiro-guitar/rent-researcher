@@ -1324,7 +1324,7 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
       backgroundColor: '#f5f9ee',
       cornerRadius: 'md',
       paddingAll: 'lg',
-      spacing: 'lg',
+      spacing: 'none',
       contents: [
         { type: 'text', text: '現在ご登録の条件', size: 'sm', color: '#3d6909', weight: 'bold', align: 'center' },
         { type: 'separator', margin: 'sm', color: '#d4e7a8' }

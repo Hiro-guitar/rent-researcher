@@ -1132,7 +1132,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
       // 条件変更カード（ConversationFlow.js の「現在ご登録の条件」）と同じ作りに揃える。
       // 見出しを中央に置き、下に薄い線を引いて中身と分ける。
       bodyContents.push({
-        type: 'box', layout: 'vertical', margin: 'lg', paddingAll: 'lg', spacing: 'lg',
+        type: 'box', layout: 'vertical', margin: 'lg', paddingAll: 'lg', spacing: 'none',
         backgroundColor: '#f5f9ee', cornerRadius: 'md',
         contents: [
           { type: 'text', text: 'ご覧のお部屋に近い条件', size: 'sm', color: '#3d6909', weight: 'bold', align: 'center' },
