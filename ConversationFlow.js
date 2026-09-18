@@ -1105,12 +1105,12 @@ function _buildConditionSummaryRows_(state, before) {
         {
           type: 'box', layout: 'vertical', flex: 3,
           backgroundColor: '#e9ebe5', cornerRadius: 'sm',
-          paddingAll: 'sm', paddingStart: 'md', paddingEnd: 'md',
-          contents: [{ type: 'text', text: label, size: 'xs', color: '#777777', wrap: false }]
+          paddingAll: 'xs', paddingStart: 'sm', paddingEnd: 'sm',
+          contents: [{ type: 'text', text: label, size: 'xs', color: '#777777', wrap: true }]
         },
         {
           type: 'box', layout: 'vertical', flex: 7,
-          paddingAll: 'sm', paddingStart: 'md',
+          paddingAll: 'xs', paddingStart: 'md',
           contents: [_stripFlex_(valBox)]
         }
       ]
