@@ -1083,17 +1083,36 @@ function _buildConditionSummaryRows_(state, before) {
     };
   }
 
+  // 包み箱に flex を移したので、中身に残った flex は外す（入れ子で幅計算が狂うため）
+  function _stripFlex_(c) {
+    if (!c || typeof c !== 'object') return c;
+    var copy = {};
+    for (var k in c) if (k !== 'flex') copy[k] = c[k];
+    return copy;
+  }
+
   function row(label, valueContent) {
     var valBox = (typeof valueContent === 'string')
-      ? { type: 'text', text: String(valueContent || ''), size: 'sm', color: '#222222', weight: 'bold', wrap: true, flex: 7 }
+      ? { type: 'text', text: String(valueContent || ''), size: 'sm', color: '#222222', weight: 'bold', wrap: true }
       : valueContent;
+    // 項目名をセルにしてグレーの背景を敷く（SUUMO・HOME'Sの物件概要表と同じ見せ方）。
+    // 薄い文字を並べるだけだと、どこまでが項目名でどこからが値か分かりにくかった。
     return {
       type: 'box',
       layout: 'horizontal',
-      spacing: 'md',
+      spacing: 'none',
       contents: [
-        { type: 'text', text: label, size: 'xs', color: '#888888', flex: 3, gravity: 'top', wrap: false },
-        valBox
+        {
+          type: 'box', layout: 'vertical', flex: 3,
+          backgroundColor: '#e9ebe5', cornerRadius: 'sm',
+          paddingAll: 'sm', paddingStart: 'md', paddingEnd: 'md',
+          contents: [{ type: 'text', text: label, size: 'xs', color: '#777777', wrap: false }]
+        },
+        {
+          type: 'box', layout: 'vertical', flex: 7,
+          paddingAll: 'sm', paddingStart: 'md',
+          contents: [_stripFlex_(valBox)]
+        }
       ]
     };
   }
