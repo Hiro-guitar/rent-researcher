@@ -1188,7 +1188,7 @@ function _buildConditionSummaryRows_(state, before) {
   function _withRowLines_(list) {
     var out = [];
     for (var i = 0; i < list.length; i++) {
-      if (i > 0) out.push({ type: 'separator', color: '#e3e8da' });
+      if (i > 0) out.push({ type: 'separator', color: '#cdd6c0' });
       out.push(list[i]);
     }
     return out;

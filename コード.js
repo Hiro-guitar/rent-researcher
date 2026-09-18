@@ -3889,7 +3889,7 @@ function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
           type: 'text',
           text: headerTitle,
           weight: 'bold',
-          size: 'xl',
+          size: 'lg',
           color: '#ffffff',
           align: 'center',
           wrap: true
@@ -3919,7 +3919,7 @@ function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
           backgroundColor: primaryLight,
           cornerRadius: 'lg',
           paddingAll: 'lg',
-          spacing: 'md',
+          spacing: 'none',
           borderColor: primaryBorder,
           borderWidth: '1px',
           contents: summaryRows
