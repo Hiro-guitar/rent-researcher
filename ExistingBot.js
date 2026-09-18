@@ -1178,15 +1178,11 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
       footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingTop: 'none', contents: footerContents }
     }
   }];
-  // 登録すると何が届くのかを絵で見せる。ボタンを押しやすい位置に保つため、カードの中ではなく下に置く。
-  // ⚠️ 1回の送信に含めるので通数は増えない（LINEの通数は「送信回数×人数」で数える）。
-  if (typeof VACANCY_SAMPLE_IMAGE_URL !== 'undefined' && VACANCY_SAMPLE_IMAGE_URL) {
-    msgs.push({
-      type: 'image',
-      originalContentUrl: VACANCY_SAMPLE_IMAGE_URL,
-      previewImageUrl: VACANCY_SAMPLE_IMAGE_URL
-    });
-  }
+  // ⚠️ ここに「お送りするお部屋の例」の画像を並べてはいけない (2026-09-18)。
+  //   実機で確認したところ、欲しかった部屋が無いという知らせと、架空の物件の広告が
+  //   同時に届く形になり、営業をかけられたように読めた。聞かれたのは特定の部屋のことなので
+  //   なおさら噛み合わない。画像は VACANCY_SAMPLE_IMAGE_URL に置いてあるので、
+  //   使うなら登録が終わったあとなど、売り込みに見えない場所にする。
   return msgs;
 }
 
