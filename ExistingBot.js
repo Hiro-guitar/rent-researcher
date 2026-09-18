@@ -1044,6 +1044,9 @@ function _vacancyChoiceButton_(label, data, color) {
   };
 }
 
+// 募集終了カードに添える「お送りするお部屋の例」。物件名・住所は架空、写真は商用素材。
+var VACANCY_SAMPLE_IMAGE_URL = 'https://form.ehomaki.com/richmenu/sample_property.jpg';
+
 function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, roomNumber) {
   var _hasRegistered = false;
   try {
@@ -1079,7 +1082,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
 
   var bodyContents = [
     { type: 'text', text: '確認結果のお知らせ', weight: 'bold', size: 'md', color: '#333333' },
-    { type: 'text', text: '「' + displayName + '」は、今回はご案内が難しい状況でした。', size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+    { type: 'text', text: '「' + displayName + '」について確認いたしましたが、今回はご案内が難しい状況でした。', size: 'sm', color: '#555555', wrap: true, margin: 'md' }
   ];
   var footerContents = [];
 
@@ -1116,6 +1119,9 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     // なお「合っていますか」ではなく「お探ししますか」にしている。お客さん自身は
     // この条件を言っていないので、合否を尋ねる形だと違和感が出るため。
     bodyContents.push({ type: 'text', text: 'この条件でお探ししますか？', size: 'sm', color: '#333333', wrap: true, weight: 'bold', margin: 'md' });
+    // 押すと何が起きるのかが分からないまま、という声があった（2026-09-18）。
+    // 売り込みではなく事実だけを添える。
+    bodyContents.push({ type: 'text', text: '見つかり次第、LINEにお送りします。', size: 'sm', color: '#555555', wrap: true });
     // ⚠️ 2つのボタンは必ず同じ見た目にすること（2026-08-06）。
     //   以前は「はい」だけ緑ベタ塗り・「いいえ」を文字リンクにしていたが、
     //   ここで提示している条件はお客さん自身が一度も言っていない推測値であり、
@@ -1139,7 +1145,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     if (typeof recordVacancyCardShown === 'function') recordVacancyCardShown(userId, displayName, '条件なし');
   }
 
-  return [{
+  var msgs = [{
     type: 'flex',
     altText: '「' + displayName + '」の確認結果',
     contents: {
@@ -1148,6 +1154,16 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
       footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingTop: 'none', contents: footerContents }
     }
   }];
+  // 登録すると何が届くのかを絵で見せる。ボタンを押しやすい位置に保つため、カードの中ではなく下に置く。
+  // ⚠️ 1回の送信に含めるので通数は増えない（LINEの通数は「送信回数×人数」で数える）。
+  if (typeof VACANCY_SAMPLE_IMAGE_URL !== 'undefined' && VACANCY_SAMPLE_IMAGE_URL) {
+    msgs.push({
+      type: 'image',
+      originalContentUrl: VACANCY_SAMPLE_IMAGE_URL,
+      previewImageUrl: VACANCY_SAMPLE_IMAGE_URL
+    });
+  }
+  return msgs;
 }
 
 /**
