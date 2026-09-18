@@ -1106,7 +1106,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
 
   var bodyContents = [
     { type: 'text', text: '確認結果のお知らせ', weight: 'bold', size: 'md', color: '#333333' },
-    { type: 'text', text: '「' + displayName + '」について確認いたしましたが、今回はご案内が難しい状況でした。', size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+    { type: 'text', text: '「' + displayName + '」について確認いたしましたが、今回はご案内が難しい状況でした。', size: 'sm', color: '#555555', wrap: true, lineSpacing: '7px', margin: 'md' }
   ];
   var footerContents = [];
 
@@ -1115,7 +1115,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     // 黙って自動登録すると「頼んでいないのに物件が届く」ことになるため必ず提示する。
     // 「ご覧の」で条件の出どころを示す。お客さん自身が言った条件ではないので、
     // 唐突に数字が並んで見えないようにする。直後に問いかけがあるのでここは断定形。
-    bodyContents.push({ type: 'text', text: 'ご覧のお部屋に近い条件で、お探しできます。', size: 'sm', color: '#555555', wrap: true, margin: 'md' });
+    bodyContents.push({ type: 'text', text: 'ご覧のお部屋に近い条件で、お探しできます。', size: 'sm', color: '#555555', wrap: true, lineSpacing: '7px', margin: 'md' });
     // 登録完了カードと同じ「項目名＋値」の行で見せる。
     // 「/」区切りの一行だと、何がどの条件なのか読み取りにくいため。
     var condRows = null;
@@ -1135,17 +1135,17 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
       bodyContents.push({
         type: 'box', layout: 'vertical', margin: 'md', paddingAll: 'md',
         backgroundColor: '#F5F9EE', cornerRadius: 'md',
-        contents: [{ type: 'text', text: conv.summary, size: 'sm', color: '#3D6909', wrap: true, weight: 'bold' }]
+        contents: [{ type: 'text', text: conv.summary, size: 'sm', color: '#3D6909', wrap: true, lineSpacing: '7px', weight: 'bold' }]
       });
     }
     // 「この条件で探してもらう / 条件を自分で決める」の2択から、はい/いいえ形式に変更 (2026-08-04)。
     // どちらの道を選ぶかを考えさせるより、YES/NOのほうが判断が軽く押されやすい。
     // なお「合っていますか」ではなく「お探ししますか」にしている。お客さん自身は
     // この条件を言っていないので、合否を尋ねる形だと違和感が出るため。
-    bodyContents.push({ type: 'text', text: 'この条件でお探ししますか？', size: 'sm', color: '#333333', wrap: true, weight: 'bold', margin: 'md' });
+    bodyContents.push({ type: 'text', text: 'この条件でお探ししますか？', size: 'sm', color: '#333333', wrap: true, lineSpacing: '7px', weight: 'bold', margin: 'md' });
     // 押すと何が起きるのかが分からないまま、という声があった（2026-09-18）。
     // 売り込みではなく事実だけを添える。
-    bodyContents.push({ type: 'text', text: '見つかり次第、LINEにお送りします。', size: 'sm', color: '#555555', wrap: true });
+    bodyContents.push({ type: 'text', text: '見つかり次第、LINEにお送りします。', size: 'sm', color: '#555555', wrap: true, lineSpacing: '7px' });
     // ⚠️ 2つのボタンは必ず同じ見た目にすること（2026-08-06）。
     //   以前は「はい」だけ緑ベタ塗り・「いいえ」を文字リンクにしていたが、
     //   ここで提示している条件はお客さん自身が一度も言っていない推測値であり、
@@ -1161,7 +1161,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     if (typeof recordVacancyCardShown === 'function') recordVacancyCardShown(userId, displayName, '条件あり');
   } else {
     // 変換できなかった（物件が見つからない・材料不足）: 従来どおり条件登録へ誘導
-    bodyContents.push({ type: 'text', text: 'よろしければ、ご希望に近いお部屋をこちらでお探ししてお知らせします。', size: 'sm', color: '#555555', wrap: true, margin: 'md' });
+    bodyContents.push({ type: 'text', text: 'よろしければ、ご希望に近いお部屋をこちらでお探ししてお知らせします。', size: 'sm', color: '#555555', wrap: true, lineSpacing: '7px', margin: 'md' });
     footerContents.push({
       type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
       action: { type: 'postback', label: 'お部屋を探す', data: '条件登録', displayText: 'お部屋を探す' }
