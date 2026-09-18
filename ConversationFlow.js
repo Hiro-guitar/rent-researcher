@@ -1184,6 +1184,16 @@ function _buildConditionSummaryRows_(state, before) {
   var rows = [];
   var hasBefore = !!before;
 
+  // 組み終わった行のあいだに薄い線を挟む（SUUMO・HOME'Sの概要表と同じ）
+  function _withRowLines_(list) {
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      if (i > 0) out.push({ type: 'separator', color: '#e3e8da' });
+      out.push(list[i]);
+    }
+    return out;
+  }
+
   // 入居時期（値があるか、変更されていれば表示）
   var moveInA = dispMoveIn(state), moveInB = hasBefore ? dispMoveIn(before) : null;
   if (moveInA || (hasBefore && moveInB && moveInB !== moveInA)) rows.push(row('入居時期', valueCell(moveInB, moveInA)));
@@ -1238,7 +1248,7 @@ function _buildConditionSummaryRows_(state, before) {
   var notesA = dispNotes(state), notesB = hasBefore ? dispNotes(before) : null;
   if (notesA || (hasBefore && notesB && notesB !== notesA)) rows.push(row('備考', valueCell(notesB, notesA)));
 
-  return rows;
+  return _withRowLines_(rows);
 }
 
 function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow, conditionSummary) {
