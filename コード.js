@@ -3937,7 +3937,7 @@ function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
       paddingAll: 'lg',
       paddingTop: 'none',
       contents: [{
-        type: 'button', style: 'secondary', height: 'sm',
+        type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
         action: { type: 'message', label: '条件を変更する', text: '条件変更' }
       }]
     }
