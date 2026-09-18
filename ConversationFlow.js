@@ -1104,7 +1104,7 @@ function _buildConditionSummaryRows_(state, before) {
       contents: [
         {
           type: 'box', layout: 'vertical', flex: 3,
-          backgroundColor: '#e9ebe5', cornerRadius: 'sm',
+          backgroundColor: '#e9ebe5',
           paddingAll: 'xs', paddingStart: 'sm', paddingEnd: 'sm',
           contents: [{ type: 'text', text: label, size: 'xs', color: '#777777', wrap: true }]
         },
