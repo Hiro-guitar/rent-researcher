@@ -1108,9 +1108,8 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
   //   （2026-09-18 指摘）。目を止める場所を「結果」と「問いかけ」の2つに絞り、
   //   それ以外は小さく薄くして引っ込める。
   var bodyContents = [
-    { type: 'text', text: '確認結果のお知らせ', weight: 'bold', size: 'md', color: '#333333' },
     { type: 'text', text: '「' + displayName + '」について確認いたしましたが、今回はご案内が難しい状況でした。',
-      size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+      size: 'sm', color: '#555555', wrap: true }
   ];
   var footerContents = [];
 
