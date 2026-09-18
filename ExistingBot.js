@@ -690,7 +690,31 @@ function getNextBusinessMorning(fromDate) {
  * @param {string} propertyName - 物件名
  * @param {string} roomNumber - 部屋番号
  */
+/**
+ * テスト用のお客様か。テスト中に5分やら翌営業日まで待たされると確認にならないので、
+ * この人たちだけは待たせずにその場で送る（TEST_ALLOWED_NAMES）。
+ */
+function _isVacancyTestUser_(userId) {
+  try {
+    if (typeof TEST_ALLOWED_NAMES === 'undefined' || !TEST_ALLOWED_NAMES.length) return false;
+    return TEST_ALLOWED_NAMES.indexOf(_getLineUserName_(userId)) !== -1;
+  } catch (e) {
+    return false;
+  }
+}
+
 function enqueueDelayedReply(userId, propertyName, roomNumber) {
+  // テストユーザーはキューに入れず、その場で送る
+  if (_isVacancyTestUser_(userId)) {
+    var _tn = propertyName + (roomNumber ? ' ' + roomNumber + '号室' : '');
+    try {
+      pushMessage(userId, _buildVacancyUnavailableMessages_(userId, _tn, propertyName, roomNumber));
+      console.log('[テスト] 遅延返信を待たずに送りました: ' + _tn);
+    } catch (eT) {
+      console.error('[テスト] 即時送信に失敗: ' + eT.message);
+    }
+    return;
+  }
   var now = new Date();
   var jstHour = getJstHour(now);
   var scheduledAt;
@@ -1325,6 +1349,16 @@ function _vacancyAnswerSendTime_(now) {
  */
 function _sendVacancyAnswer_(userId, messages, label, customerName) {
   if (!userId || !messages || !messages.length) return null;
+  // テストユーザーは待たせない
+  if (_isVacancyTestUser_(userId)) {
+    try {
+      pushMessage(userId, messages);
+      console.log('[テスト] 空室回答を待たずに送りました: ' + (label || ''));
+      return new Date();
+    } catch (eT2) {
+      console.error('[テスト] 即時送信に失敗: ' + eT2.message);
+    }
+  }
   try {
     var now = new Date();
     var scheduledAt = _vacancyAnswerSendTime_(now);
