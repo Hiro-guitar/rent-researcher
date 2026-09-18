@@ -266,6 +266,9 @@ function doPost(e) {
       // 条件登録ボタン（遅延返信Flex／空室確認カードの「いいえ、条件を自分で決める」）
       // 登録済みなら条件変更フローへ振り替える
       if (data === '条件登録') {
+        // 募集終了カードの「いいえ、条件を自分で決める」／「お部屋を探す」。
+        // この postback はカード以外からも来るので、CardStats 側で期間を見て結び付ける。
+        if (typeof recordVacancyCardPressed === 'function') recordVacancyCardPressed(userId, 'いいえ');
         // テストユーザーだけは登録済みでも初回の質問フローを流す。
         // 実顧客がこのカードを見るのは条件未登録のときだけなので、本番では
         // 必ず startSearchFlow に入る。テスト時だけ「すでに条件が登録されています」に
@@ -285,6 +288,8 @@ function doPost(e) {
       // 空室確認で見た終了物件のスペックから暫定条件を作って登録する。
       // 検索自体は拡張側の顧客フィルタが既定OFFなので、担当者がチェックを入れるまで走らない。
       if (typeof data === 'string' && data.indexOf('action=auto_criteria') === 0) {
+        // 募集終了カードの「はい、お願いします」。どれだけ押されているかを数える（CardStats.js）
+        if (typeof recordVacancyCardPressed === 'function') recordVacancyCardPressed(userId, 'はい');
         var _acParams = {};
         data.split('&').forEach(function (kv) {
           var p = kv.split('=');

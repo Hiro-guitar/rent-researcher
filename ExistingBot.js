@@ -1128,6 +1128,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
       '#6ea814'
     ));
     footerContents.push(_vacancyChoiceButton_('いいえ、条件を自分で決める', '条件登録', '#5f6b7a'));
+    if (typeof recordVacancyCardShown === 'function') recordVacancyCardShown(userId, displayName, '条件あり');
   } else {
     // 変換できなかった（物件が見つからない・材料不足）: 従来どおり条件登録へ誘導
     bodyContents.push({ type: 'text', text: 'よろしければ、ご希望に近いお部屋をこちらでお探ししてお知らせします。', size: 'sm', color: '#555555', wrap: true, margin: 'md' });
@@ -1135,6 +1136,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
       type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
       action: { type: 'postback', label: 'お部屋を探す', data: '条件登録', displayText: 'お部屋を探す' }
     });
+    if (typeof recordVacancyCardShown === 'function') recordVacancyCardShown(userId, displayName, '条件なし');
   }
 
   return [{
