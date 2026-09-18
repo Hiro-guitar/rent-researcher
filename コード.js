@@ -3856,8 +3856,8 @@ function processAdminCriteria(customerName, lineUserId, criteria, phone) {
  */
 function _criteriaCardFollowupText_() {
   // 「人がいる」と分かる一文を添える。自動返信ばかりでボットだと思われないため (2026-09-16)。
+  // 条件変更の案内はカードのボタンに移したので、ここには書かない (2026-09-18)。
   return '条件に合う新着物件が見つかり次第、お知らせいたします。\n\n'
-       + '条件の変更はメニューの「条件を変える」からいつでもできます。\n\n'
        + 'ご質問はそのままLINEにお送りください。担当者が返信します。';
 }
 
@@ -3929,6 +3929,16 @@ function _buildRichConditionBubble_(summaryRows, isChanged, customerName) {
         //   条件変更の導線もカード内の小さな灰色文字では読まれないため、
         //   _criteriaCardFollowupText_() としてメッセージ本文へ移した。
       ]
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: 'lg',
+      paddingTop: 'none',
+      contents: [{
+        type: 'button', style: 'secondary', height: 'sm',
+        action: { type: 'message', label: '条件を変更する', text: '条件変更' }
+      }]
     }
   };
 
