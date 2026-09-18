@@ -1129,11 +1129,15 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     } catch (_eRows) { condRows = null; }
     if (condRows && condRows.length) {
       // 見出しを箱の中に入れて、独立した段落を減らす（塊が多いと読みにくいため）
+      // 条件変更カード（ConversationFlow.js の「現在ご登録の条件」）と同じ作りに揃える。
+      // 見出しを中央に置き、下に薄い線を引いて中身と分ける。
       bodyContents.push({
-        type: 'box', layout: 'vertical', margin: 'lg', paddingAll: 'md', spacing: 'sm',
-        backgroundColor: '#F5F9EE', cornerRadius: 'md',
-        contents: [{ type: 'text', text: 'ご覧のお部屋に近い条件', size: 'xs', color: '#6a8a3a', weight: 'bold' }]
-          .concat(condRows)
+        type: 'box', layout: 'vertical', margin: 'lg', paddingAll: 'lg', spacing: 'lg',
+        backgroundColor: '#f5f9ee', cornerRadius: 'md',
+        contents: [
+          { type: 'text', text: 'ご覧のお部屋に近い条件', size: 'sm', color: '#3d6909', weight: 'bold', align: 'center' },
+          { type: 'separator', margin: 'sm', color: '#d4e7a8' }
+        ].concat(condRows)
       });
     } else {
       // 行が組めなかったときは従来の一行表示に落とす（カードを出せなくしない）

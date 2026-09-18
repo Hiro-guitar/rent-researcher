@@ -1307,7 +1307,7 @@ function showCriteriaSelectLink(replyToken, userId, prefixMessages, isChangeFlow
       paddingAll: 'lg',
       spacing: 'lg',
       contents: [
-        { type: 'text', text: '現在ご登録の条件', size: 'sm', color: '#3d6909', weight: 'bold' },
+        { type: 'text', text: '現在ご登録の条件', size: 'sm', color: '#3d6909', weight: 'bold', align: 'center' },
         { type: 'separator', margin: 'sm', color: '#d4e7a8' }
       ].concat(summaryRows)
     });
