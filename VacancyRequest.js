@@ -1047,6 +1047,23 @@ function _composeVacancyAnswer_(req, answers, comment, freeText) {
       messages.push({ type: 'flex', altText: 'ご紹介できるお部屋', contents: { type: 'carousel', contents: bubbles } });
     }
   } else {
+    // 1件だけなら、自動判定のときと同じカードを出す。
+    // 自社シートにある物件なら条件を組み立てた2択カード、無ければ「お部屋を探す」の1択カードになる。
+    // ⚠️ 以前は文章＋クイックリプライだけで、押される前に消えることがあった (2026-09-18)。
+    if (!registered && req.items.length === 1 && typeof _buildVacancyUnavailableMessages_ === 'function') {
+      var one = req.items[0];
+      var lbl = String((byN[Number(one.n)] || {}).label || one.label || one.text || '').trim();
+      var nm = lbl, rm = '';
+      var mm = lbl.match(/^(.*?)\s*([0-9A-Za-z\-]+)\s*号室$/);
+      if (mm) { nm = mm[1].trim(); rm = mm[2]; }
+      try {
+        var card = _buildVacancyUnavailableMessages_(req.userId, lbl || nm, nm, rm);
+        if (card && card.length) {
+          if (comment) messages.push(textMsg(comment));
+          return messages.concat(card);
+        }
+      } catch (eC) { console.warn('[空室確認依頼] カードを作れず文章で返します: ' + eC.message); }
+    }
     text = 'お待たせいたしました。\nお送りいただいた物件は、いずれも現在ご案内できませんでした。';
     if (comment) text += '\n\n' + comment;
     text += registered
