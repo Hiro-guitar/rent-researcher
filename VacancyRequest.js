@@ -504,20 +504,26 @@ function _matchVacancyRows_(data, q, opts) {
 //  物件ページから条件を読む（回答フォームの下書き用）
 // ═══════════════════════════════════════════════════════════
 //
-// スタッフが回答フォームに入れる条件（路線・駅・賃料・間取り）の下書きを、物件ページから
-// 機械的に拾う。**あくまで下書き**で、スタッフが見て直せる前提。自動で送るのには使わない。
+// スタッフが回答フォームに入れる条件（路線・駅・賃料・間取り・面積・築年数・徒歩・設備）の
+// 下書きを、物件ページから機械的に拾う。
+// **あくまで下書き**で、スタッフが見て直せる前提。自動で送るのには使わない。
 //
-// ⚠️ 全サイトには対応できない（2026-09-19 実測）。
-//   HOME'S … og:title と概要文に 賃料・間取り・面積・沿線駅・徒歩が全部入っている
-//   SUUMO  … 概要文は建物名・住所・駅まで。賃料も間取りも入っていない
-//   athome … 概要文は建物名・間取りまで。賃料は入っていない
-//   本文のHTMLまで読めば SUUMO も athome も金額は見つかるが、敷金・礼金・共益費・
-//   ページ下の「おすすめ物件」も同じ「◯万円」なので、どれが賃料かはサイトごとの
-//   作りを覚えないと決められない。覚えれば向こうが作りを変えたときに黙って壊れる。
-//   なので「取れるサイトから1つずつ増やす」形にして、取れないサイトは素直に空で返す。
+// 対応サイト（2026-09-19 実測）:
+//   HOME'S … og:title と概要文＋構造化データ(JSON-LD)。全項目取れる
+//   SUUMO  … 構造化データは無いが、項目ごとに専用の class が付いている。全項目取れる
+//             （getsugaku=賃料 / kanrihi=管理費 / madori / menseki / kotsu=沿線駅徒歩）
+//   athome … 未対応。概要文は建物名・間取りまで
 //
-// 増やし方: _VACANCY_SPEC_READERS_ に { host: /正規表現/, read: function (html) {...} } を足す。
-//   read は { route, station, rentMax, layout } を返す（分かった項目だけでよい）。
+// ⚠️ 「◯万円」を素朴に拾ってはいけない。敷金・礼金も「賃料1ヶ月分」を金額で書き、
+//   ページ下には周辺のおすすめ物件も並ぶので、同じ数字が何度も出てくる。
+//   必ず class か構造化データで、その項目だと分かる形で取ること。
+// ⚠️ 設備もページ全体を見ない。おすすめ物件の設備を拾いかねないので、
+//   その物件の表や特徴の中だけを見る。
+//
+// 増やし方: _VACANCY_SPEC_READERS_ に { name, host: /正規表現/, read: function (html) {...} } を足す。
+//   read は { route, station, rentMax, layout, areaMin, buildingAge, walk, equipment } を返す
+//   （分かった項目だけでよい）。rentMax は万円・管理費込み。面積と徒歩は生の数字でよく、
+//   呼び出し側が SUUMO の刻みに丸める。
 
 var _VACANCY_SPEC_READERS_ = [
   {
@@ -532,7 +538,10 @@ var _VACANCY_SPEC_READERS_ = [
       // 概要文 例: JR中央線 吉祥寺駅 徒歩5分、賃料10.5万円、所在地:東京都武蔵野市…
       var d = _vacancyMetaContent_(html, 'og:description') || _vacancyMetaContent_(html, 'description');
       var mR = (d + ' ' + t).match(/賃料\s*([0-9]+(?:\.[0-9]+)?)\s*万円/);
-      if (mR) out.rentMax = mR[1];
+      // 管理費は構造化データから。条件の家賃上限は「賃料＋管理費」で持つ（自社物件のときと同じ）。
+      //   {"@type":"PropertyValue","name":"管理費等","value":3000,"unitText":"円/月"}
+      var mK = html.match(/"name"\s*:\s*"管理費[^"]*"\s*,\s*"value"\s*:\s*"?([0-9,]+)"?/);
+      if (mR) out.rentMax = _vacancyRentPlusFee_(mR[1], mK ? mK[1] : '');
       var mS = d.match(/([^\s、。]{2,20}[線])\s*([^\s、。]{1,20}?)駅\s*徒歩\s*([0-9]{1,3})\s*分/);
       if (mS) { out.route = mS[1]; out.station = mS[2]; out.walk = mS[3]; }
       var mA = t.match(/\/\s*([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2|m²)/i);
@@ -547,16 +556,71 @@ var _VACANCY_SPEC_READERS_ = [
       //   （新築マンション・新築一戸建て…）に何度も出てくるので取り違える。
       var mY = html.match(/"name"\s*:\s*"築年月"\s*,\s*"value"\s*:\s*"(\d{4})年/);
       if (!mY) mY = html.match(/築年月<\/dt>[\s\S]{0,200}?(\d{4})年/);   // 表示側の予備
-      if (mY) {
-        // 築年数は月ではなく「年の差」で数える。物件検索側の数え方に合わせるため
-        // （itandi のように月で数えると1年ずれて母数が変わる）。
-        var age = (new Date()).getFullYear() - parseInt(mY[1], 10);
-        if (age >= 0 && age < 200) out.buildingAge = String(age);
-      }
+      if (mY) out.buildingAge = _vacancyAgeFromBuiltYear_(mY[1]);
+      return out;
+    }
+  },
+  {
+    name: 'SUUMO',
+    host: /(^|\.)suumo\.jp$/i,
+    read: function (html) {
+      // SUUMO に JSON-LD は無いが、項目ごとに専用の class が付いている。
+      // ⚠️ ページの「◯万円」を拾ってはいけない。敷金・礼金も「賃料1ヶ月分」を金額で書くので
+      //   同じ数字が何度も出てくる。class で取れば取り違えない
+      //   （getsugaku / kanrihi / madori / menseki / kotsu は1ページに1回ずつ）。
+      var out = {};
+      var pick = function (cls, re) {
+        var m = html.match(new RegExp('class="' + cls + '"[^>]*>\\s*' + re));
+        return m ? m[1] : '';
+      };
+      var rent = pick('getsugaku', '([0-9]+(?:\\.[0-9]+)?)\\s*万円');
+      var fee = pick('kanrihi', '([0-9,]+)\\s*円');
+      if (rent) out.rentMax = _vacancyRentPlusFee_(rent, fee);
+      out.layout = _vacancyNormalizeLayout_(pick('madori', '([^<]{1,10}?)\\s*<'));
+      out.areaMin = pick('menseki', '([0-9]+(?:\\.[0-9]+)?)\\s*(?:m2|m²|㎡)');
+      // 交通 例: <span class="kotsu">ＪＲ中央線/吉祥寺駅 歩10分</span>（1行目＝最寄り）
+      var mK2 = html.match(/class="kotsu"[^>]*>\s*([^<\/]{2,20}線)\/([^<\s]{1,20}?)駅\s*歩\s*([0-9]{1,3})\s*分/);
+      if (mK2) { out.route = mK2[1]; out.station = mK2[2]; out.walk = mK2[3]; }
+      // 築年月 例: <span …__item__caption">築年月</span>…<span …__item__text">2023年4月</span>
+      var mY2 = html.match(/築年月<\/span>[\s\S]{0,240}?__item__text[^>]*>\s*(\d{4})年/);
+      if (mY2) out.buildingAge = _vacancyAgeFromBuiltYear_(mY2[1]);
+      // 設備は「バス・トイレ・洗面所」などの表と「特徴ピックアップ」に文章で入っている。
+      // SUUMOは「バストイレ別」「洗面所独立」と書く（判定側が表記ゆれを吸収する）。
+      // ⚠️ ページ全体を見てはいけない。同じページに周辺のおすすめ物件が並ぶので、
+      //   よその物件の設備を拾いかねない。この物件の表と特徴の中だけを見る。
+      var spec = (html.match(/<table[^>]*class="[^"]*table[^"]*"[^>]*>[\s\S]*?<\/table>/g) || []).join(' ')
+        + ' ' + (html.match(/class="(?:pickup-label__list|tokucho-list)[\s\S]{0,4000}?<\/ul>/g) || []).join(' ');
+      if (!spec.replace(/\s/g, '')) spec = html;   // 作りが変わって取れなければ従来どおり
+      out.equipment = [];
+      if (typeof _hasSeparateBathToilet_ === 'function' && _hasSeparateBathToilet_(spec)) out.equipment.push('バス・トイレ別');
+      if (typeof _hasIndependentWashstand_ === 'function' && _hasIndependentWashstand_(spec)) out.equipment.push('独立洗面台');
       return out;
     }
   }
 ];
+
+/** 「賃料(万円) ＋ 管理費(円)」を万円で返す。条件の家賃上限は自社物件のときと同じで管理費込み。 */
+function _vacancyRentPlusFee_(rentMan, feeYen) {
+  var r = parseFloat(String(rentMan || '').replace(/[^0-9.]/g, ''));
+  if (isNaN(r) || r <= 0) return '';
+  var f = parseFloat(String(feeYen || '').replace(/[^0-9.]/g, ''));
+  if (isNaN(f) || f < 0) f = 0;
+  // 円（整数）で足してから万円に戻す。万円のまま足すと 12.3 + 0.3 が
+  // 12.600000000000001 になり、そのままフォームに出てしまう。
+  return String((Math.round(r * 10000) + Math.round(f)) / 10000);
+}
+
+/**
+ * 築年月の「年」から築年数を出す。
+ * ⚠️ 月ではなく年の差で数える。月で数えると1年ずれて、検索の母数が変わってしまう
+ *    （物件検索側の数え方に合わせる）。
+ */
+function _vacancyAgeFromBuiltYear_(year) {
+  var y = parseInt(String(year || '').replace(/[^0-9]/g, ''), 10);
+  if (!y) return '';
+  var age = (new Date()).getFullYear() - y;
+  return (age >= 0 && age < 200) ? String(age) : '';
+}
 
 // 条件フォームで使っている間取りの選択肢。ここに無い書き方は条件にしない
 // （プルダウンに無い値を入れても、条件変更の画面で選択済みに見えないため）。
