@@ -584,6 +584,7 @@ var _VACANCY_SPEC_READERS_ = [
       // 築年月 例: <span …__item__caption">築年月</span>…<span …__item__text">2023年4月</span>
       var mY2 = html.match(/築年月<\/span>[\s\S]{0,240}?__item__text[^>]*>\s*(\d{4})年/);
       if (mY2) out.buildingAge = _vacancyAgeFromBuiltYear_(mY2[1]);
+      // （設備の読み取りは下に続く）
       // 設備は「バス・トイレ・洗面所」などの表と「特徴ピックアップ」に文章で入っている。
       // SUUMOは「バストイレ別」「洗面所独立」と書く（判定側が表記ゆれを吸収する）。
       // ⚠️ ページ全体を見てはいけない。同じページに周辺のおすすめ物件が並ぶので、
@@ -594,6 +595,48 @@ var _VACANCY_SPEC_READERS_ = [
       out.equipment = [];
       if (typeof _hasSeparateBathToilet_ === 'function' && _hasSeparateBathToilet_(spec)) out.equipment.push('バス・トイレ別');
       if (typeof _hasIndependentWashstand_ === 'function' && _hasIndependentWashstand_(spec)) out.equipment.push('独立洗面台');
+      return out;
+    }
+  },
+  {
+    name: 'アットホーム',
+    host: /(^|\.)athome\.co\.jp$/i,
+    read: function (html) {
+      // Angular のページ。項目名と値が「__header」「__cell」の組で並んでいる。
+      // ⚠️ class に _ngcontent-serverApp-c365235402 のようなビルドごとのハッシュが付くので、
+      //   属性は当てにしない（_vacancyLabeledCell_ が class 名だけで探す）。
+      // ⚠️ 短い間に何度も取りに行くと「認証中」のbot判定ページが返る。中身が無いので
+      //   下書きは空になるだけ（呼び出し側が null を返してフォームは空で開く）。
+      //   1件の依頼につき1回しか取りに行かないので普段は起きない。
+      var out = {};
+      // 賃料は費用ブロックから。表には入っていない。
+      var mR = html.match(/basic-information-cost__amount"[^>]*>[\s\S]{0,120}?class="value"[^>]*>\s*([0-9.]+)\s*<\/span>\s*万円/);
+      var mK = html.match(/管理費等\s*<span[^>]*class="value"[^>]*>\s*([0-9,]+)\s*円/);
+      if (mR) out.rentMax = _vacancyRentPlusFee_(mR[1], mK ? mK[1] : '');
+
+      out.layout = _vacancyNormalizeLayout_(_vacancyLabeledCell_(html, '間取り'));
+      var area = _vacancyLabeledCell_(html, '専有面積') || _vacancyLabeledCell_(html, '面積');
+      var mA = area.match(/([0-9]+(?:\.[0-9]+)?)\s*(?:m2|m²|㎡)/i);
+      if (mA) out.areaMin = mA[1];
+      // 築年月 例: 2003年4月(築23年6ヶ月)
+      var mY = _vacancyLabeledCell_(html, '築年月').match(/(\d{4})年/);
+      if (mY) out.buildingAge = _vacancyAgeFromBuiltYear_(mY[1]);
+
+      // 交通 例: ＪＲ中央線 / 吉祥寺駅 徒歩5分
+      //         ＪＲ中央線 / 三鷹駅 【バス】10分 吉祥寺大通り 停歩6分   ← バス便は使わない
+      var lines = _vacancyLabeledCell_(html, '交通').split('\n');
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].indexOf('バス') >= 0) continue;
+        var mS = lines[i].match(/([^\/]{2,20}線)\s*\/\s*([^\s\/]{1,20}?)駅\s*徒歩\s*([0-9]{1,3})\s*分/);
+        if (mS) { out.route = mS[1].trim(); out.station = mS[2].trim(); out.walk = mS[3]; break; }
+      }
+
+      // 設備は「バス・トイレ・洗面所」の行だけを見る。ページ全体を見ると
+      // 下に並ぶおすすめ物件の設備を拾いかねない。
+      var bath = _vacancyLabeledCell_(html, 'バス・トイレ・洗面所');
+      out.equipment = [];
+      if (typeof _hasSeparateBathToilet_ === 'function' && _hasSeparateBathToilet_(bath)) out.equipment.push('バス・トイレ別');
+      if (typeof _hasIndependentWashstand_ === 'function' && _hasIndependentWashstand_(bath)) out.equipment.push('独立洗面台');
       return out;
     }
   }
@@ -626,12 +669,43 @@ function _vacancyAgeFromBuiltYear_(year) {
 // （プルダウンに無い値を入れても、条件変更の画面で選択済みに見えないため）。
 var VACANCY_LAYOUT_OPTIONS = ['ワンルーム', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3K', '3DK', '3LDK', '4K以上'];
 
-/** サイトの間取り表記を、条件フォームの選択肢に合わせる。合わせられなければ ''。 */
+/**
+ * サイトの間取り表記を、条件フォームの選択肢に合わせる。合わせられなければ ''。
+ * athome は「１K（洋室 ５．３）」のように全角＋内訳つきで書くので、
+ * 半角に直してから先頭の間取りだけを取る。
+ */
 function _vacancyNormalizeLayout_(raw) {
-  var v = String(raw || '').toUpperCase().replace(/\s/g, '');
+  var v = String(raw || '')
+    .replace(/[Ａ-Ｚａ-ｚ０-９．]/g, function (ch) {
+      return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0);
+    })
+    .toUpperCase().replace(/\s/g, '');
+  var m = v.match(/^([0-9]{1,2}(?:SLDK|LDK|SDK|DK|SK|K|R))/);
+  if (m) v = m[1];
   if (/^1R$/.test(v) || v === 'ワンルーム') return 'ワンルーム';
   if (VACANCY_LAYOUT_OPTIONS.indexOf(v) >= 0) return v;
   return '';
+}
+
+/**
+ * 「項目名 → 値」の表から値を取る。athome のように
+ * `class="…__header">項目名</div> … class="…__cell">値</p>` で組まれたページ用。
+ * ⚠️ class名にビルドごとのハッシュ属性が挟まるので、属性は当てにせず class 名だけで探す。
+ * @return {string} 値。<br> は改行で残す。見つからなければ ''
+ */
+function _vacancyLabeledCell_(html, label) {
+  var re = new RegExp('__header"[^>]*>\\s*' + label + '\\s*<');
+  var i = html.search(re);
+  if (i < 0) return '';
+  var m = html.slice(i, i + 800).match(/__cell"[^>]*>([\s\S]*?)<\/(?:td|p|div|dd|span)>/);
+  if (!m) return '';
+  return String(m[1])
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/[ \t　]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .trim();
 }
 
 /** metaタグの content を取る。property= と name= のどちらでも、属性の順序が逆でも拾う。 */
