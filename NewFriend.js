@@ -41,7 +41,7 @@ function buildNewFriendRemindMessages() {
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
         contents: [
-          { type: 'text', text: '友だち追加ありがとうございます', weight: 'bold', size: 'md', color: '#333333' },
+          { type: 'text', text: '友だち追加ありがとうございます。', size: 'sm', color: '#555555', wrap: true },
           { type: 'text', text: '気になるお部屋の空き状況をお調べできます。\n\nご希望の条件を登録いただくと、条件に合うお部屋が出たときにお知らせします。',
             size: 'sm', color: '#555555', wrap: true, margin: 'md' }
         ]
@@ -844,7 +844,7 @@ function buildVacancyFollowupMessages() {
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
         contents: [
-          { type: 'text', text: '空室確認のご利用ありがとうございました', weight: 'bold', size: 'md', color: '#333333', wrap: true },
+          { type: 'text', text: '空室確認のご利用ありがとうございました。', size: 'sm', color: '#555555', wrap: true },
           { type: 'text', text: 'ほかにも気になるお部屋があれば、URLか物件名をお送りください。\n\nどのサイトのお部屋でも、ご案内できるか確認します。',
             size: 'sm', color: '#555555', wrap: true, margin: 'md' }
         ]
