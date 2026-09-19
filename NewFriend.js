@@ -465,8 +465,9 @@ function _abandonedRemindMessages_(kind, userId, state) {
     }
     return [textMsg(
       '空室確認のご依頼ありがとうございます。\n\n' +
-      'お調べするお部屋の物件名、またはSUUMOやHOME\'SなどのURLをお送りください。\n' +
-      '複数ある場合は、まとめて1通で送っていただいて大丈夫です。'
+      'お調べしたいお部屋の物件名、またはURLをお送りください。\n' +
+      'どのサイトで見つけたお部屋でも大丈夫です。\n' +
+      '複数ある場合は、まとめて1通で送っていただけます。'
     )];
   }
   if (kind === 'criteria_page') {
@@ -837,14 +838,14 @@ var VACANCY_FOLLOWUP_COL = 6;              // 「空室確認後のひと押し�
 
 function buildVacancyFollowupMessages() {
   return [{
-    type: 'flex', altText: '他社サイトのお部屋もお調べできます',
+    type: 'flex', altText: 'どのサイトのお部屋もお調べできます',
     contents: {
       type: 'bubble',
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
         contents: [
           { type: 'text', text: '空室確認のご利用ありがとうございました', weight: 'bold', size: 'md', color: '#333333', wrap: true },
-          { type: 'text', text: 'SUUMOやHOME\'Sなどで見つけたお部屋も、そのままお調べできます。\n気になるお部屋のURLを送っていただければ、ご案内できるか確認します。',
+          { type: 'text', text: 'どのサイトで見つけたお部屋でも、お調べできます。\n気になるお部屋のURLか物件名を送ってください。ご案内できるか確認します。',
             size: 'sm', color: '#555555', wrap: true, margin: 'md' }
         ]
       },
