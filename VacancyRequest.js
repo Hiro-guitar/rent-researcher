@@ -533,8 +533,16 @@ var _VACANCY_SPEC_READERS_ = [
       var d = _vacancyMetaContent_(html, 'og:description') || _vacancyMetaContent_(html, 'description');
       var mR = (d + ' ' + t).match(/賃料\s*([0-9]+(?:\.[0-9]+)?)\s*万円/);
       if (mR) out.rentMax = mR[1];
-      var mS = d.match(/([^\s、。]{2,20}[線])\s*([^\s、。]{1,20}?)駅\s*徒歩/);
-      if (mS) { out.route = mS[1]; out.station = mS[2]; }
+      var mS = d.match(/([^\s、。]{2,20}[線])\s*([^\s、。]{1,20}?)駅\s*徒歩\s*([0-9]{1,3})\s*分/);
+      if (mS) { out.route = mS[1]; out.station = mS[2]; out.walk = mS[3]; }
+      var mA = t.match(/\/\s*([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2|m²)/i);
+      if (mA) out.areaMin = mA[1];
+      // 設備は概要文の「1K、バス・トイレ別、南向き、…」から。条件に使うのは2つだけ。
+      out.equipment = [];
+      if (typeof _hasSeparateBathToilet_ === 'function' && _hasSeparateBathToilet_(d)) out.equipment.push('バス・トイレ別');
+      if (typeof _hasIndependentWashstand_ === 'function' && _hasIndependentWashstand_(d)) out.equipment.push('独立洗面台');
+      // ⚠️ 築年数は入れていない。概要文に無く、本文には案内リンクの「新築」が何度も出てくるので
+      //   「築24年」と取り違える。スタッフに選んでもらう。
       return out;
     }
   }
@@ -591,10 +599,25 @@ function _vacancyExtractSpecs_(url) {
     if (got.route && typeof _resolveRouteName_ === 'function') {
       got.route = _resolveRouteName_(got.route, got.station ? [got.station] : []);
     }
+    // 面積・徒歩はフォームのプルダウン（SUUMO の選択肢）に合わせておく。
+    // 30.6㎡ → 30m²以上 / 徒歩5分 → 5分以内。生の数字のままだと選択肢に無くて空欄で開く。
+    var snap = function (v, steps, up) {
+      var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, ''));
+      if (isNaN(n)) return '';
+      var f = up ? _snapUpToStep_ : _snapDownToStep_;
+      var r = (typeof f === 'function') ? f(n, steps) : null;
+      return (r == null) ? '' : String(r);
+    };
+    got.areaMin = snap(got.areaMin, SUUMO_AREA_STEPS, false);
+    got.walk = snap(got.walk, SUUMO_WALK_STEPS, true);
+
     if (!got.route && !got.station && !got.rentMax && !got.layout) return null;
     return {
       route: got.route || '', station: got.station || '',
-      rentMax: got.rentMax || '', layout: got.layout || '', source: reader.name
+      rentMax: got.rentMax || '', layout: got.layout || '',
+      areaMin: got.areaMin || '', walk: got.walk || '',
+      buildingAge: '', equipment: got.equipment || [],
+      source: reader.name
     };
   } catch (e) {
     console.warn('[物件ページ条件] 読めません: ' + url + ' / ' + e.message);

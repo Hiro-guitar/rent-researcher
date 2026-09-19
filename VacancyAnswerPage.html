@@ -35,6 +35,8 @@
     .spec-prev{margin-top:10px;font-size:13px;color:#3d6909;background:#fff;border-radius:6px;padding:8px;line-height:1.5}
     .spec-prev.off{color:#6b7280}
     .draft{font-size:12px;color:#6b7280;margin:0 0 8px}
+    .chk{display:block;font-size:13px;padding:3px 0;cursor:pointer}
+    .chk input{margin-right:6px}
   </style>
 </head>
 <body>
@@ -66,6 +68,23 @@
         <p class="lbl-h">間取り</p>
         <select class="lbl" id="spLayout"><option value="">(選ばない)</option></select>
       </div>
+      <div>
+        <p class="lbl-h">専有面積</p>
+        <select class="lbl" id="spArea"><option value="">(選ばない)</option></select>
+      </div>
+      <div>
+        <p class="lbl-h">築年数</p>
+        <select class="lbl" id="spAge"><option value="">(選ばない)</option></select>
+      </div>
+      <div>
+        <p class="lbl-h">駅徒歩</p>
+        <select class="lbl" id="spWalk"><option value="">(選ばない)</option></select>
+      </div>
+      <div>
+        <p class="lbl-h">こだわり</p>
+        <label class="chk"><input type="checkbox" id="spBt" value="バス・トイレ別"> バス・トイレ別</label>
+        <label class="chk"><input type="checkbox" id="spWash" value="独立洗面台"> 独立洗面台</label>
+      </div>
     </div>
     <div class="spec-prev" id="specPreview"></div>
   </div>
@@ -95,6 +114,10 @@
   var STATIONS = <?!= stationData ?>;      // 路線名 → 駅名の配列
   var SPECS = <?!= specsJson ?>;           // 条件の下書き（物件ページから読めたときだけ）
   var LAYOUTS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'];
+  // 条件フォームと同じ刻み（ExistingBot.gs の SUUMO_*_STEPS）。ここに無い値は作らない。
+  var AREA_STEPS = [20,25,30,35,40,45,50,55,60,65,70,80,90,100];   // m²以上
+  var AGE_STEPS  = [1,3,5,7,10,15,20,25,30];                        // 年以内
+  var WALK_STEPS = [1,5,7,10,15,20];                                // 分以内
 
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function autoText(j){
@@ -141,6 +164,9 @@
   // ─────────────────────────────────────────────
   var elRoute=document.getElementById('spRoute'), elSta=document.getElementById('spStation');
   var elRent=document.getElementById('spRent'), elLay=document.getElementById('spLayout');
+  var elArea=document.getElementById('spArea'), elAge=document.getElementById('spAge');
+  var elWalk=document.getElementById('spWalk');
+  var elBt=document.getElementById('spBt'), elWash=document.getElementById('spWash');
   var elSec=document.getElementById('specSec'), elPrev=document.getElementById('specPreview');
 
   Object.keys(STATIONS).forEach(function(r){
@@ -149,6 +175,14 @@
   LAYOUTS.forEach(function(l){
     elLay.insertAdjacentHTML('beforeend','<option value="'+esc(l)+'">'+esc(l)+'</option>');
   });
+  function fillSteps(el, steps, suffix){
+    steps.forEach(function(v){
+      el.insertAdjacentHTML('beforeend','<option value="'+v+'">'+v+suffix+'</option>');
+    });
+  }
+  fillSteps(elArea, AREA_STEPS, 'm²以上');
+  fillSteps(elAge,  AGE_STEPS,  '年以内');
+  fillSteps(elWalk, WALK_STEPS, '分以内');
 
   function fillStations(keep){
     var list = STATIONS[elRoute.value] || [];
@@ -165,6 +199,13 @@
     if (SPECS.route && STATIONS[SPECS.route]) { elRoute.value = SPECS.route; fillStations(SPECS.station); }
     if (SPECS.rentMax) elRent.value = SPECS.rentMax;
     if (SPECS.layout && LAYOUTS.indexOf(SPECS.layout) >= 0) elLay.value = SPECS.layout;
+    if (SPECS.areaMin) elArea.value = SPECS.areaMin;
+    if (SPECS.buildingAge) elAge.value = SPECS.buildingAge;
+    if (SPECS.walk) elWalk.value = SPECS.walk;
+    (SPECS.equipment || []).forEach(function(e){
+      if (e === 'バス・トイレ別') elBt.checked = true;
+      if (e === '独立洗面台') elWash.checked = true;
+    });
     if (SPECS.source) {
       document.getElementById('specHint').insertAdjacentHTML('beforebegin',
         '<p class="draft">📄 '+esc(SPECS.source)+' のページから下書きを入れました。違っていれば直してください。</p>');
@@ -175,7 +216,11 @@
     var r=elRoute.value, s=elSta.value, rent=elRent.value.trim(), lay=elLay.value;
     if(!r || !s) return null;                 // エリアが無い条件は登録しても検索されない
     if(!rent && !lay) return null;            // 駅だけでは粗すぎる
-    return {route:r, station:s, rentMax:rent, layout:lay};
+    var eq=[];
+    if(elBt.checked) eq.push(elBt.value);
+    if(elWash.checked) eq.push(elWash.value);
+    return {route:r, station:s, rentMax:rent, layout:lay,
+            areaMin:elArea.value, buildingAge:elAge.value, walk:elWalk.value, equipment:eq};
   }
 
   function specApplies(){
@@ -190,9 +235,12 @@
     if (!on) return;
     var sp = currentSpecs();
     if (sp) {
-      var parts=[sp.station+'駅'];
+      var parts=[sp.station+'駅'+(sp.walk?' 徒歩'+sp.walk+'分以内':'')];
       if(sp.rentMax) parts.push(sp.rentMax+'万円以下');
       if(sp.layout) parts.push(sp.layout+'以上');
+      if(sp.areaMin) parts.push(sp.areaMin+'m²以上');
+      if(sp.buildingAge) parts.push('築'+sp.buildingAge+'年以内');
+      sp.equipment.forEach(function(e){ parts.push(e); });
       elPrev.className='spec-prev';
       elPrev.innerHTML='✅ 「'+esc(parts.join(' / '))+'」で<b>「この条件で探しますか？」の2択カード</b>が届きます。'
         + '<br>※ 賃料は SUUMO の刻み（20万まで0.5万単位）に切り上がります（12.3万 → 12.5万）。'
@@ -207,7 +255,7 @@
   document.getElementById('specHint').textContent =
     'この物件に近い条件を入れると、お客様に「この条件で探しますか？」と聞くカードが届きます。面倒なら空のままで構いません。';
   elRoute.addEventListener('change', function(){ fillStations(''); refreshSpec(); });
-  [elSta, elRent, elLay].forEach(function(el){
+  [elSta, elRent, elLay, elArea, elAge, elWalk, elBt, elWash].forEach(function(el){
     el.addEventListener('change', refreshSpec); el.addEventListener('input', refreshSpec);
   });
   REQ.items.forEach(function(j){

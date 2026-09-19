@@ -1054,7 +1054,12 @@ function _convToSummaryState_(conv) {
  *
  * 入れるかどうかは任意。空なら null を返し、今までどおり1択カードになる。
  *
- * @param {{route:string, station:string, rentMax:(string|number), layout:string}} specs
+ * 項目は自社物件から作るときと同じだけ用意する。条件が細かいほうが「この条件で探してもらえる」
+ * と伝わって押されやすいため、少ない項目で済ませない（2026-09-19 指摘）。
+ *
+ * @param {{route:string, station:string, rentMax:(string|number), layout:string,
+ *          areaMin:(string|number), buildingAge:(string|number), walk:(string|number),
+ *          equipment:Array<string>}} specs
  * @return {Object|null} _propertyToCriteria_ と同じ形。材料不足なら null
  */
 function _staffSpecsToCriteria_(specs) {
@@ -1066,20 +1071,44 @@ function _staffSpecsToCriteria_(specs) {
     //   registerAutoCriteriaFromProperty の no_area と同じ考え方。
     if (!route || !station) return null;
 
+    var num = function (v) {
+      var n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.]/g, ''));
+      return isNaN(n) ? null : n;
+    };
     var layout = String(specs.layout || '').trim();
     // 賃料は「賃料＋管理費」を入れてもらう。自社物件のときと同じ SUUMO の刻みに切り上げる。
     // 四捨五入ではなく切り上げ（12.3万 → 12.5万）。予算を下回る側に丸めると条件から外れるため。
-    var rentNum = parseFloat(String(specs.rentMax == null ? '' : specs.rentMax).replace(/[^0-9.]/g, ''));
-    var rentMax = (!isNaN(rentNum) && rentNum > 0) ? _snapUpToStep_(rentNum, SUUMO_RENT_STEPS) : '';
+    var rentNum = num(specs.rentMax);
+    var rentMax = (rentNum && rentNum > 0) ? _snapUpToStep_(rentNum, SUUMO_RENT_STEPS) : '';
     if (!rentMax && !layout) return null;    // 駅だけでは条件として粗すぎる
 
-    var summaryParts = [station + '駅'];
+    // 面積は下限なので切り下げ、徒歩と築年数は上限なので切り上げる（自社物件のときと同じ）。
+    var areaNum = num(specs.areaMin);
+    var areaMin = areaNum ? (_snapDownToStep_(areaNum, SUUMO_AREA_STEPS) || '') : '';
+    var walkNum = num(specs.walk);
+    var walk = walkNum ? (_snapUpToStep_(walkNum, SUUMO_WALK_STEPS) || '') : '';
+    var ageNum = num(specs.buildingAge);
+    var _ageSnap = (ageNum != null) ? _snapUpToStep_(ageNum, SUUMO_AGE_STEPS) : null;
+    var buildingAge = (_ageSnap != null) ? String(_ageSnap) : '';
+
+    // 設備は自社物件のときと同じ2つだけ。絞りすぎて0件になるのを避ける。
+    var equipment = [];
+    var eqIn = specs.equipment || [];
+    for (var i = 0; i < eqIn.length; i++) {
+      var e = String(eqIn[i] || '').trim();
+      if (['バス・トイレ別', '独立洗面台'].indexOf(e) >= 0 && equipment.indexOf(e) < 0) equipment.push(e);
+    }
+
+    var summaryParts = [station + '駅' + (walk ? ' 徒歩' + walk + '分以内' : '')];
     if (rentMax) summaryParts.push(rentMax + '万円以下');
     if (layout) summaryParts.push(layout + '以上');
+    if (areaMin) summaryParts.push(areaMin + 'm²以上');
+    if (buildingAge) summaryParts.push('築' + buildingAge + '年以内');
+    for (var eq = 0; eq < equipment.length; eq++) summaryParts.push(equipment[eq]);
 
     return {
-      station: station, route: route, city: '', walk: '', rentMax: rentMax,
-      layout: layout, areaMin: '', buildingAge: '', equipment: [],
+      station: station, route: route, city: '', walk: walk, rentMax: rentMax,
+      layout: layout, areaMin: areaMin, buildingAge: buildingAge, equipment: equipment,
       matchedListing: false,
       staffEntered: true,
       summary: summaryParts.join(' / ')
