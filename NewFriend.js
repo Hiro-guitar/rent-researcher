@@ -938,3 +938,39 @@ function processVacancyFollowups() {
       + (VACANCY_FOLLOWUP_ENABLED ? '' : '（送信はまだ止めてあります）'));
   }
 }
+
+/**
+ * 【GASエディタから実行】テストユーザーに、3つのひと押しカードを実際に送って見た目を確かめる。
+ *
+ * TEST_ALLOWED_NAMES の人にだけ送る。本番のお客様には一切届かない。
+ * 送信の有効・無効（NEW_FRIEND_REMIND_ENABLED など）に関わらず送る。
+ */
+function testSendRemindCards() {
+  if (typeof TEST_ALLOWED_NAMES === 'undefined' || !TEST_ALLOWED_NAMES.length) {
+    console.log('TEST_ALLOWED_NAMES が空です');
+    return;
+  }
+  var map = _getLineUserIdMapByCustomerName_();
+  var sent = 0;
+  for (var i = 0; i < TEST_ALLOWED_NAMES.length; i++) {
+    var name = TEST_ALLOWED_NAMES[i];
+    var uid = map[name];
+    if (!uid) { console.log('LINEのIDが分かりません: ' + name); continue; }
+
+    var cards = [
+      ['① 登録だけの人', buildNewFriendRemindMessages()],
+      ['② 空室確認だけの人', buildVacancyFollowupMessages()],
+      ['③ 条件選択ページで止まった人', _abandonedRemindMessages_('criteria_page', uid, { step: STEPS.CRITERIA_SELECT, data: {} })]
+    ];
+    for (var c = 0; c < cards.length; c++) {
+      try {
+        pushMessage(uid, [textMsg('【テスト】' + cards[c][0])].concat(cards[c][1]));
+        console.log('送信: ' + name + ' / ' + cards[c][0]);
+        sent++;
+      } catch (e) {
+        console.error('送信に失敗: ' + cards[c][0] + ' / ' + e.message);
+      }
+    }
+  }
+  console.log('合計 ' + sent + '通を送りました（本番のお客様には届いていません）');
+}
