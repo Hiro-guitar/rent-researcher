@@ -42,7 +42,7 @@ function buildNewFriendRemindMessages() {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
         contents: [
           { type: 'text', text: '友だち追加ありがとうございます', weight: 'bold', size: 'md', color: '#333333' },
-          { type: 'text', text: '気になるお部屋の空き状況をお調べできます。\nご希望の条件を登録いただくと、条件に合うお部屋が出たときにお知らせします。',
+          { type: 'text', text: '気になるお部屋の空き状況をお調べできます。\n\nご希望の条件を登録いただくと、条件に合うお部屋が出たときにお知らせします。',
             size: 'sm', color: '#555555', wrap: true, margin: 'md' }
         ]
       },
