@@ -59,18 +59,58 @@ function buildNewFriendRemindMessages() {
   }];
 }
 
+// ひと押しを送った日時と種類。4・5列目（状態／状態になった日時）は動きがあると
+// 上書きされてしまい、「ひと押しの何日後に動いたか」が残らないため別に持つ（2026-09-19）。
+// ⚠️ 一度書いたら上書きしないこと。上書きすると測れなくなる。
+var NEW_FRIEND_NUDGED_AT_COL = 7;     // ひと押しした日時
+var NEW_FRIEND_NUDGE_KIND_COL = 8;    // ひと押しの種類
+
+var NEW_FRIEND_HEADERS = ['userId', '追加日時', '表示名', '状態', '状態になった日時',
+  '空室確認後のひと押し', 'ひと押しした日時', 'ひと押しの種類'];
+
 function _newFriendSheet_() {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sh = ss.getSheetByName(NEW_FRIEND_SHEET);
   if (!sh) {
     sh = ss.insertSheet(NEW_FRIEND_SHEET);
-    sh.appendRow(['userId', '追加日時', '表示名', '状態', '状態になった日時', '空室確認後のひと押し']);
+    sh.appendRow(NEW_FRIEND_HEADERS);
     try {
-      sh.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#e0e0e0');
+      sh.getRange(1, 1, 1, NEW_FRIEND_HEADERS.length).setFontWeight('bold').setBackground('#e0e0e0');
       sh.setFrozenRows(1);
     } catch (_) {}
+    return sh;
+  }
+  // すでにあるシートに7・8列目を後から足す
+  try {
+    var need = NEW_FRIEND_HEADERS.length;
+    if (sh.getMaxColumns() < need) sh.insertColumnsAfter(sh.getMaxColumns(), need - sh.getMaxColumns());
+    var head = sh.getRange(1, 1, 1, need).getValues()[0];
+    for (var c = 5; c < need; c++) {          // 6列目以降だけ見る
+      if (String(head[c] || '').trim() === '') {
+        sh.getRange(1, c + 1).setValue(NEW_FRIEND_HEADERS[c])
+          .setFontWeight('bold').setBackground('#e0e0e0');
+      }
+    }
+  } catch (eH) {
+    console.warn('[友だち追加] 見出しを整えられません: ' + eH.message);
   }
   return sh;
+}
+
+/**
+ * ひと押しを送ったことを記録する。**空のときだけ書く。**
+ * すでに入っていれば何もしない（同じ人に別の種類が続いても最初のものを残す）。
+ * ⚠️ 状態（4列目）とは別に持つこと。状態は動きがあると上書きされるので、
+ *   ここを上書きすると「ひと押しの何日後に動いたか」が測れなくなる。
+ * @param {string} kind '登録だけ' | '途中でやめた' | '空室確認だけ'
+ */
+function _recordNudgedAt_(sh, rowIndex, kind, when) {
+  try {
+    if (String(sh.getRange(rowIndex, NEW_FRIEND_NUDGED_AT_COL).getValue() || '').trim() !== '') return;
+    sh.getRange(rowIndex, NEW_FRIEND_NUDGED_AT_COL, 1, 2).setValues([[when || new Date(), kind || '']]);
+  } catch (e) {
+    console.warn('[友だち追加] ひと押しの日時を書けません: ' + e.message);
+  }
 }
 
 /**
@@ -245,6 +285,7 @@ function processNewFriendReminders() {
     try {
       pushMessage(t.userId, buildNewFriendRemindMessages());
       sh.getRange(t.rowIndex, 4, 1, 2).setValues([['ひと押し送信', now]]);
+      _recordNudgedAt_(sh, t.rowIndex, '登録だけ', now);
       sent++;
     } catch (e) {
       sh.getRange(t.rowIndex, 4, 1, 2).setValues([['送信できず: ' + e.message, now]]);
@@ -255,6 +296,83 @@ function processNewFriendReminders() {
     console.log('[友だち追加] ひと押し ' + sent + '件 / 登録済み・やり取り中のため見送り ' + skipped + '件'
       + (NEW_FRIEND_REMIND_ENABLED ? '' : '（送信はまだ止めてあります）'));
   }
+}
+
+/**
+ * 【GASエディタから実行・NewFriend.gs】ひと押しの何日後に動いたかを数える。
+ * 読み取りだけで何も書き換えない。
+ *
+ * 「休眠にするまで何日置くか」を勘で決めないための材料（2026-09-19）。
+ * 2〜3週間ためてから見ること。数日では件数が足りない。
+ *
+ * ⚠️ 「反応あり」の日数は多めに出る。LINE Activity は最後の1回しか持たないので、
+ *   何度もやり取りした人は最後のやり取りまでの日数になる。
+ *   「登録した」の日数は状態が変わった日時そのものなので正確。
+ */
+function showNudgeResponseDays() {
+  var sh = _newFriendSheet_();
+  var last = sh.getLastRow();
+  if (last < 2) { console.log('まだ記録がありません'); return; }
+  var rows = sh.getRange(2, 1, last - 1, NEW_FRIEND_HEADERS.length).getValues();
+  var act = _newFriendLastActivityMap_();
+  var nowMs = Date.now();
+  var DAY = 24 * 60 * 60 * 1000;
+
+  var BUCKETS = ['当日', '1日後', '2日後', '3日後', '4〜7日後', '8日以上'];
+  function bucket(days) {
+    if (days < 1) return '当日';
+    if (days < 2) return '1日後';
+    if (days < 3) return '2日後';
+    if (days < 4) return '3日後';
+    if (days <= 7) return '4〜7日後';
+    return '8日以上';
+  }
+  var reg = {}, act2 = {}, byKind = {};
+  for (var b = 0; b < BUCKETS.length; b++) { reg[BUCKETS[b]] = 0; act2[BUCKETS[b]] = 0; }
+  var nudged = 0, registered = 0, reacted = 0, silent = 0, tooNew = 0;
+
+  for (var i = 0; i < rows.length; i++) {
+    var at = rows[i][NEW_FRIEND_NUDGED_AT_COL - 1];
+    if (!(at instanceof Date)) continue;
+    nudged++;
+    var kind = String(rows[i][NEW_FRIEND_NUDGE_KIND_COL - 1] || '(不明)');
+    if (!byKind[kind]) byKind[kind] = { n: 0, reg: 0, act: 0 };
+    byKind[kind].n++;
+
+    var atMs = at.getTime();
+    var state = String(rows[i][3] || '').trim();
+    var stateAt = rows[i][4];
+    if (state === '条件登録済み' && stateAt instanceof Date && stateAt.getTime() > atMs) {
+      registered++; byKind[kind].reg++;
+      reg[bucket((stateAt.getTime() - atMs) / DAY)]++;
+      continue;
+    }
+    var la = act[String(rows[i][0] || '').trim()];
+    if (la && la > atMs) {
+      reacted++; byKind[kind].act++;
+      act2[bucket((la - atMs) / DAY)]++;
+      continue;
+    }
+    // まだ日が浅い人は「無反応」に混ぜない。判断を誤らせるため。
+    if (nowMs - atMs < 3 * DAY) tooNew++; else silent++;
+  }
+
+  if (!nudged) { console.log('ひと押しの記録はまだありません（この列は 2026-09-19 以降の分から）'); return; }
+  function pct(n) { return ' (' + (n * 100 / nudged).toFixed(1) + '%)'; }
+  console.log('ひと押しを送った数: ' + nudged + '件');
+  console.log('  条件を登録した: ' + registered + '件' + pct(registered));
+  console.log('  返事はあったが登録なし: ' + reacted + '件' + pct(reacted));
+  console.log('  まだ無反応（3日以上）: ' + silent + '件' + pct(silent));
+  console.log('  送ったばかり（3日未満）: ' + tooNew + '件' + pct(tooNew));
+  console.log('--- 条件を登録するまでの日数 ---');
+  for (var r = 0; r < BUCKETS.length; r++) console.log('  ' + BUCKETS[r] + ': ' + reg[BUCKETS[r]] + '件');
+  console.log('--- 何か返事があるまでの日数（多めに出ます）---');
+  for (var a = 0; a < BUCKETS.length; a++) console.log('  ' + BUCKETS[a] + ': ' + act2[BUCKETS[a]] + '件');
+  console.log('--- ひと押しの種類ごと ---');
+  for (var k in byKind) {
+    console.log('  ' + k + ': ' + byKind[k].n + '件 / 登録 ' + byKind[k].reg + ' / 返事のみ ' + byKind[k].act);
+  }
+  console.log('※ 休眠までの日数を決める材料です。2〜3週間ためてから見てください。');
 }
 
 /**
@@ -671,8 +789,12 @@ function _markNewFriendNudged_(userId) {
     var rows = sh.getRange(2, 1, last - 1, 4).getValues();
     for (var i = 0; i < rows.length; i++) {
       if (String(rows[i][0] || '').trim() !== String(userId)) continue;
+      var nowN = new Date();
+      // 測る用の記録は状態に関わらず残す。状態が「空室確認あり」まで進んでいる人にも
+      // 途中離脱のひと押しは届くので、ここで抜けると届いた分を数え落とす。
+      _recordNudgedAt_(sh, i + 2, '途中でやめた', nowN);
       if (String(rows[i][3] || '').trim() !== '') return;   // すでに何か入っている
-      sh.getRange(i + 2, 4, 1, 2).setValues([['ひと押し送信', new Date()]]);
+      sh.getRange(i + 2, 4, 1, 2).setValues([['ひと押し送信', nowN]]);
       return;
     }
   } catch (e) {
@@ -927,6 +1049,7 @@ function processVacancyFollowups() {
     try {
       pushMessage(t.userId, buildVacancyFollowupMessages());
       sh.getRange(t.rowIndex, VACANCY_FOLLOWUP_COL).setValue(now);
+      _recordNudgedAt_(sh, t.rowIndex, '空室確認だけ', now);
       sent++;
     } catch (e2) {
       sh.getRange(t.rowIndex, VACANCY_FOLLOWUP_COL).setValue('送信できず: ' + e2.message);
