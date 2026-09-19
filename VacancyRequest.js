@@ -500,6 +500,108 @@ function _matchVacancyRows_(data, q, opts) {
   return { rows: matched, tooMany: matched.length > VACANCY_TOO_MANY_HITS };
 }
 
+// ═══════════════════════════════════════════════════════════
+//  物件ページから条件を読む（回答フォームの下書き用）
+// ═══════════════════════════════════════════════════════════
+//
+// スタッフが回答フォームに入れる条件（路線・駅・賃料・間取り）の下書きを、物件ページから
+// 機械的に拾う。**あくまで下書き**で、スタッフが見て直せる前提。自動で送るのには使わない。
+//
+// ⚠️ 全サイトには対応できない（2026-09-19 実測）。
+//   HOME'S … og:title と概要文に 賃料・間取り・面積・沿線駅・徒歩が全部入っている
+//   SUUMO  … 概要文は建物名・住所・駅まで。賃料も間取りも入っていない
+//   athome … 概要文は建物名・間取りまで。賃料は入っていない
+//   本文のHTMLまで読めば SUUMO も athome も金額は見つかるが、敷金・礼金・共益費・
+//   ページ下の「おすすめ物件」も同じ「◯万円」なので、どれが賃料かはサイトごとの
+//   作りを覚えないと決められない。覚えれば向こうが作りを変えたときに黙って壊れる。
+//   なので「取れるサイトから1つずつ増やす」形にして、取れないサイトは素直に空で返す。
+//
+// 増やし方: _VACANCY_SPEC_READERS_ に { host: /正規表現/, read: function (html) {...} } を足す。
+//   read は { route, station, rentMax, layout } を返す（分かった項目だけでよい）。
+
+var _VACANCY_SPEC_READERS_ = [
+  {
+    name: "LIFULL HOME'S",
+    host: /(^|\.)homes\.co\.jp$/i,
+    read: function (html) {
+      var out = {};
+      // og:title 例: 【ホームズ】…コーポ雄貴 2階/-[1K/賃料10.5万円/30.6㎡]賃貸マンション住宅情報(…)
+      var t = _vacancyMetaContent_(html, 'og:title');
+      var mL = t.match(/\[\s*([0-9]{1,2}\s*(?:LDK|SLDK|DK|SDK|K|SK|R))\s*[\/\]]/i);
+      if (mL) out.layout = _vacancyNormalizeLayout_(mL[1]);
+      // 概要文 例: JR中央線 吉祥寺駅 徒歩5分、賃料10.5万円、所在地:東京都武蔵野市…
+      var d = _vacancyMetaContent_(html, 'og:description') || _vacancyMetaContent_(html, 'description');
+      var mR = (d + ' ' + t).match(/賃料\s*([0-9]+(?:\.[0-9]+)?)\s*万円/);
+      if (mR) out.rentMax = mR[1];
+      var mS = d.match(/([^\s、。]{2,20}[線])\s*([^\s、。]{1,20}?)駅\s*徒歩/);
+      if (mS) { out.route = mS[1]; out.station = mS[2]; }
+      return out;
+    }
+  }
+];
+
+// 条件フォームで使っている間取りの選択肢。ここに無い書き方は条件にしない
+// （プルダウンに無い値を入れても、条件変更の画面で選択済みに見えないため）。
+var VACANCY_LAYOUT_OPTIONS = ['ワンルーム', '1K', '1DK', '1LDK', '2K', '2DK', '2LDK', '3K', '3DK', '3LDK', '4K以上'];
+
+/** サイトの間取り表記を、条件フォームの選択肢に合わせる。合わせられなければ ''。 */
+function _vacancyNormalizeLayout_(raw) {
+  var v = String(raw || '').toUpperCase().replace(/\s/g, '');
+  if (/^1R$/.test(v) || v === 'ワンルーム') return 'ワンルーム';
+  if (VACANCY_LAYOUT_OPTIONS.indexOf(v) >= 0) return v;
+  return '';
+}
+
+/** metaタグの content を取る。property= と name= のどちらでも、属性の順序が逆でも拾う。 */
+function _vacancyMetaContent_(html, key) {
+  var esc = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  var m = html.match(new RegExp('<meta[^>]+(?:property|name)=["\']' + esc + '["\'][^>]*content=["\']([^"\']*)["\']', 'i'))
+       || html.match(new RegExp('<meta[^>]+content=["\']([^"\']*)["\'][^>]*(?:property|name)=["\']' + esc + '["\']', 'i'));
+  if (!m) return '';
+  return String(m[1] || '')
+    .replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 物件ページから条件の下書きを読む。対応していないサイトなら null。
+ * 失敗しても回答フォームは開けなければならないので、例外は飲み込む。
+ * @return {{route:string, station:string, rentMax:string, layout:string, source:string}|null}
+ */
+function _vacancyExtractSpecs_(url) {
+  try {
+    if (!url) return null;
+    var host = String(url).replace(/^https?:\/\//i, '').split(/[\/?#]/)[0].toLowerCase();
+    var reader = null;
+    for (var i = 0; i < _VACANCY_SPEC_READERS_.length; i++) {
+      if (_VACANCY_SPEC_READERS_[i].host.test(host)) { reader = _VACANCY_SPEC_READERS_[i]; break; }
+    }
+    if (!reader) return null;
+
+    if (typeof _addFetchCount_ === 'function') _addFetchCount_('物件ページ条件', 1);
+    var res = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true, followRedirects: true,
+      headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1' }
+    });
+    if (res.getResponseCode() !== 200) return null;
+    var got = reader.read(res.getContentText().substring(0, 200000)) || {};
+
+    // 路線名はサイトによって「JR中央線」「ＪＲ中央線」と揺れる。駅マスターの正式名に寄せておかないと、
+    // 条件変更の画面を開いたときに路線のチェックが見つからない（SheetWriter.js の注意書きと同じ理由）。
+    if (got.route && typeof _resolveRouteName_ === 'function') {
+      got.route = _resolveRouteName_(got.route, got.station ? [got.station] : []);
+    }
+    if (!got.route && !got.station && !got.rentMax && !got.layout) return null;
+    return {
+      route: got.route || '', station: got.station || '',
+      rentMax: got.rentMax || '', layout: got.layout || '', source: reader.name
+    };
+  } catch (e) {
+    console.warn('[物件ページ条件] 読めません: ' + url + ' / ' + e.message);
+    return null;
+  }
+}
+
 /**
  * 物件ページのURLから物件名を取る。og:title か <title> を読み、サイト名や住所の飾りを落とす。
  * 取れなければ ''（呼び出し側はURLのまま使う）。
@@ -945,6 +1047,22 @@ function handleVacancyAnswerForm(e) {
   var tpl = HtmlService.createTemplateFromFile('VacancyAnswerPage');
   tpl.reqJson = JSON.stringify(req);
   tpl.apiKey = String(e.parameter.api_key || '');
+  // 路線→駅の一覧。条件欄のプルダウンで使う（手入力だと表記ゆれで駅マスターに当たらないため）。
+  tpl.stationData = JSON.stringify(typeof STATION_DATA !== 'undefined' ? STATION_DATA : {});
+  // 条件欄の下書き。1件の依頼で、まだ条件を入れていないときだけページを読みに行く。
+  // 対応していないサイトなら null が返り、欄は空のまま開く。
+  var draft = null;
+  try {
+    var saved = req.answers && req.answers.specs;
+    if (saved) {
+      draft = saved;
+    } else if (req.items.length === 1 && req.items[0].url && !req.items[0].auto) {
+      draft = _vacancyExtractSpecs_(req.items[0].url);
+    }
+  } catch (eD) {
+    console.warn('[空室確認依頼] 条件の下書きを作れません: ' + eD.message);
+  }
+  tpl.specsJson = JSON.stringify(draft || null);
   return tpl.evaluate()
     .setTitle('空室確認の回答 ' + req.id)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -952,7 +1070,9 @@ function handleVacancyAnswerForm(e) {
 
 /**
  * 回答フォームの送信（google.script.run から）。
- * @param {string} payloadJson {answers:[{n,answer,label}], comment:string, freeText:string}
+ * @param {string} payloadJson {answers:[{n,answer,label}], comment:string, freeText:string,
+ *                              specs:{route,station,rentMax,layout}}
+ *   specs はご案内不可のときだけの任意項目。入れると条件つきの2択カードになる。
  */
 function submitVacancyAnswerForm(reqId, apiKey, payloadJson) {
   if (!_validateReinsApiKey(apiKey)) return { ok: false, message: 'api_keyが不正です' };
@@ -971,7 +1091,8 @@ function submitVacancyAnswerForm(reqId, apiKey, payloadJson) {
     }
   }
   var immediate = _vacancyRequestSendsImmediately_(req.items);
-  var sentAt = _finalizeVacancyAnswer_(req, answers, String(payload.comment || '').trim(), freeText, immediate);
+  var sentAt = _finalizeVacancyAnswer_(req, answers, String(payload.comment || '').trim(), freeText, immediate,
+    payload.specs || null);
   return {
     ok: true,
     immediate: immediate,
@@ -1015,8 +1136,8 @@ function _cancelPendingVacancyAnswer_(userId, label) {
  * immediate=true ならその場で push（スタッフ回答）、false なら空室回答キュー（自動判定）。
  * @return {Date|null} 送信（予定）時刻
  */
-function _finalizeVacancyAnswer_(req, answers, comment, freeText, immediate) {
-  var messages = _composeVacancyAnswer_(req, answers, comment, freeText);
+function _finalizeVacancyAnswer_(req, answers, comment, freeText, immediate, specs) {
+  var messages = _composeVacancyAnswer_(req, answers, comment, freeText, specs);
   var label = 'REQ:' + req.id;
   var scheduledAt;
   if (immediate) {
@@ -1037,7 +1158,9 @@ function _finalizeVacancyAnswer_(req, answers, comment, freeText, immediate) {
     if (row) {
       sh.getRange(row, 7, 1, 4).setValues([[
         immediate ? 'sent' : 'answered',
-        JSON.stringify({ answers: answers, comment: comment || '', freeText: freeText || '' }),
+        // specs も残す。カードの「はい、お願いします」が押されたとき、
+        // registerAutoCriteriaFromProperty がここから条件を読み直す。
+        JSON.stringify({ answers: answers, comment: comment || '', freeText: freeText || '', specs: specs || null }),
         toJstString(new Date()),
         scheduledAt ? toJstString(scheduledAt) : ''
       ]]);
@@ -1049,7 +1172,7 @@ function _finalizeVacancyAnswer_(req, answers, comment, freeText, immediate) {
 }
 
 /** お客様への返事を1通（＋募集中カード）に合成する。 */
-function _composeVacancyAnswer_(req, answers, comment, freeText) {
+function _composeVacancyAnswer_(req, answers, comment, freeText, specs) {
   var registered = false;
   try { registered = !!readLatestCriteria(req.userId); } catch (_) {}
   var qr = registered ? null : [qrPostback('🏠 条件を登録する', '条件登録', '条件登録')];
@@ -1111,7 +1234,10 @@ function _composeVacancyAnswer_(req, answers, comment, freeText) {
       var mm = lbl.match(/^(.*?)\s*([0-9A-Za-z\-]+)\s*号室$/);
       if (mm) { nm = mm[1].trim(); rm = mm[2]; }
       try {
-        var card = _buildVacancyUnavailableMessages_(req.userId, lbl || nm, nm, rm);
+        // specs: 自社シートに無い物件で、スタッフが回答フォームに条件を入れてくれたとき用。
+        //        入っていなければ今までどおり「お部屋を探す」の1択カードになる。
+        var card = _buildVacancyUnavailableMessages_(req.userId, lbl || nm, nm, rm,
+          { specs: specs || null, vreq: req.id });
         if (card && card.length) {
           if (comment) messages.push(textMsg(comment));
           return messages.concat(card);

@@ -299,7 +299,9 @@ function doPost(e) {
         var _acName = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
         var _acIsTester = (TEST_ALLOWED_NAMES.indexOf(_acName) !== -1);
         var _acRes = (typeof registerAutoCriteriaFromProperty === 'function')
-          ? registerAutoCriteriaFromProperty(userId, _acParams.name || '', _acParams.room || '', { force: _acIsTester })
+          // vreq: 他社物件でスタッフが回答フォームに入れた条件の置き場所（VacancyRequest.js）
+          ? registerAutoCriteriaFromProperty(userId, _acParams.name || '', _acParams.room || '',
+              { force: _acIsTester, vreq: _acParams.vreq || '' })
           : { ok: false, message: 'function not defined' };
 
         if (_acRes.ok) {

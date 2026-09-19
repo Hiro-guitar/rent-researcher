@@ -29,6 +29,12 @@
     .err{margin-top:14px;padding:12px;background:#fef2f2;border-radius:8px;font-size:13px;color:#9b1c1c;display:none}
     .done{color:#6b7280;font-size:12px;margin-top:8px}
     details summary{cursor:pointer;font-size:14px;color:#374151}
+    .spec{display:none;border:1px solid #d9e6bf;background:#f8fbf2;border-radius:10px;padding:12px}
+    .spec h3{color:#3d6909}
+    .spec-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .spec-prev{margin-top:10px;font-size:13px;color:#3d6909;background:#fff;border-radius:6px;padding:8px;line-height:1.5}
+    .spec-prev.off{color:#6b7280}
+    .draft{font-size:12px;color:#6b7280;margin:0 0 8px}
   </style>
 </head>
 <body>
@@ -36,6 +42,33 @@
   <h2>空室確認の回答</h2>
   <div class="meta" id="meta"></div>
   <div id="items"></div>
+
+  <!-- 他社物件でもお客様に条件つきの2択カードを出すための欄。
+       自社シートに無い物件は条件を機械的に作れないので、答えるついでに入れてもらう。
+       任意。空なら今までどおり「お部屋を探す」だけの1択カードになる。 -->
+  <div class="sec spec" id="specSec">
+    <h3>ご案内不可のときの「近い条件」（任意）</h3>
+    <p class="lbl-h" id="specHint"></p>
+    <div class="spec-grid">
+      <div>
+        <p class="lbl-h">路線</p>
+        <select class="lbl" id="spRoute"><option value="">(選ばない)</option></select>
+      </div>
+      <div>
+        <p class="lbl-h">駅</p>
+        <select class="lbl" id="spStation"><option value="">(選ばない)</option></select>
+      </div>
+      <div>
+        <p class="lbl-h">賃料＋管理費（万円）</p>
+        <input class="lbl" id="spRent" type="number" step="0.1" min="0" placeholder="例: 10.5">
+      </div>
+      <div>
+        <p class="lbl-h">間取り</p>
+        <select class="lbl" id="spLayout"><option value="">(選ばない)</option></select>
+      </div>
+    </div>
+    <div class="spec-prev" id="specPreview"></div>
+  </div>
 
   <div class="sec">
     <h3>ひと言（任意）</h3>
@@ -59,6 +92,9 @@
 <script>
   var REQ = <?!= reqJson ?>;
   var API_KEY = <?!= JSON.stringify(apiKey) ?>;
+  var STATIONS = <?!= stationData ?>;      // 路線名 → 駅名の配列
+  var SPECS = <?!= specsJson ?>;           // 条件の下書き（物件ページから読めたときだけ）
+  var LAYOUTS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'];
 
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function autoText(j){
@@ -98,6 +134,89 @@
   });
   document.getElementById('items').innerHTML = html;
 
+  // ─────────────────────────────────────────────
+  //  「近い条件」の欄
+  //  1件の依頼をご案内不可で返すときだけ意味がある。お客様に届くカードが
+  //  「この条件で探しますか？」の2択になる。空のままなら「お部屋を探す」の1択。
+  // ─────────────────────────────────────────────
+  var elRoute=document.getElementById('spRoute'), elSta=document.getElementById('spStation');
+  var elRent=document.getElementById('spRent'), elLay=document.getElementById('spLayout');
+  var elSec=document.getElementById('specSec'), elPrev=document.getElementById('specPreview');
+
+  Object.keys(STATIONS).forEach(function(r){
+    elRoute.insertAdjacentHTML('beforeend','<option value="'+esc(r)+'">'+esc(r)+'</option>');
+  });
+  LAYOUTS.forEach(function(l){
+    elLay.insertAdjacentHTML('beforeend','<option value="'+esc(l)+'">'+esc(l)+'</option>');
+  });
+
+  function fillStations(keep){
+    var list = STATIONS[elRoute.value] || [];
+    elSta.innerHTML = '<option value="">(選ばない)</option>';
+    list.forEach(function(s){
+      elSta.insertAdjacentHTML('beforeend','<option value="'+esc(s)+'">'+esc(s)+'</option>');
+    });
+    if (keep && list.indexOf(keep) >= 0) elSta.value = keep;
+  }
+
+  // 下書きを流し込む。路線が駅マスターに無い名前だったときは駅だけ残しても選べないので、
+  // その場合は空のままにしてスタッフに選んでもらう。
+  if (SPECS) {
+    if (SPECS.route && STATIONS[SPECS.route]) { elRoute.value = SPECS.route; fillStations(SPECS.station); }
+    if (SPECS.rentMax) elRent.value = SPECS.rentMax;
+    if (SPECS.layout && LAYOUTS.indexOf(SPECS.layout) >= 0) elLay.value = SPECS.layout;
+    if (SPECS.source) {
+      document.getElementById('specHint').insertAdjacentHTML('beforebegin',
+        '<p class="draft">📄 '+esc(SPECS.source)+' のページから下書きを入れました。違っていれば直してください。</p>');
+    }
+  }
+
+  function currentSpecs(){
+    var r=elRoute.value, s=elSta.value, rent=elRent.value.trim(), lay=elLay.value;
+    if(!r || !s) return null;                 // エリアが無い条件は登録しても検索されない
+    if(!rent && !lay) return null;            // 駅だけでは粗すぎる
+    return {route:r, station:s, rentMax:rent, layout:lay};
+  }
+
+  function specApplies(){
+    if (REQ.items.length !== 1) return false;
+    var r = document.querySelector('input[name="a'+REQ.items[0].n+'"]:checked');
+    return !!r && r.value === 'closed';
+  }
+
+  function refreshSpec(){
+    var on = specApplies();
+    elSec.style.display = on ? 'block' : 'none';
+    if (!on) return;
+    var sp = currentSpecs();
+    if (sp) {
+      var parts=[sp.station+'駅'];
+      if(sp.rentMax) parts.push(sp.rentMax+'万円以下');
+      if(sp.layout) parts.push(sp.layout+'以上');
+      elPrev.className='spec-prev';
+      elPrev.innerHTML='✅ 「'+esc(parts.join(' / '))+'」で<b>「この条件で探しますか？」の2択カード</b>が届きます。'
+        + '<br>※ 賃料は SUUMO の刻み（20万まで0.5万単位）に切り上がります（12.3万 → 12.5万）。'
+        + '<br>※ お客様がすでに条件を登録済みの場合は、カードは出ずお知らせだけになります。';
+    } else {
+      elPrev.className='spec-prev off';
+      elPrev.innerHTML='路線・駅と、賃料か間取りのどちらかを入れると2択カードになります。'
+        + '<br>このままなら<b>「お部屋を探す」だけの1択カード</b>が届きます（空欄でも送信できます）。';
+    }
+  }
+
+  document.getElementById('specHint').textContent =
+    'この物件に近い条件を入れると、お客様に「この条件で探しますか？」と聞くカードが届きます。面倒なら空のままで構いません。';
+  elRoute.addEventListener('change', function(){ fillStations(''); refreshSpec(); });
+  [elSta, elRent, elLay].forEach(function(el){
+    el.addEventListener('change', refreshSpec); el.addEventListener('input', refreshSpec);
+  });
+  REQ.items.forEach(function(j){
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="a'+j.n+'"]'), function(el){
+      el.addEventListener('change', refreshSpec);
+    });
+  });
+  refreshSpec();
+
   document.getElementById('submit').addEventListener('click', function(){
     var btn=this, note=document.getElementById('note'), err=document.getElementById('err');
     note.style.display='none'; err.style.display='none';
@@ -132,7 +251,13 @@
         err.textContent = '送信に失敗しました: '+(e && e.message ? e.message : e);
         err.style.display='block'; btn.disabled=false; btn.textContent='お客様に送信する';
       })
-      .submitVacancyAnswerForm(REQ.id, API_KEY, JSON.stringify({answers:answers, comment:document.getElementById('comment').value.trim(), freeText:freeText}));
+      .submitVacancyAnswerForm(REQ.id, API_KEY, JSON.stringify({
+        answers:answers,
+        comment:document.getElementById('comment').value.trim(),
+        freeText:freeText,
+        // 自分で書いて返すときはカードを出さないので条件も送らない
+        specs:(freeText || !specApplies()) ? null : currentSpecs()
+      }));
   });
 </script>
 </body>

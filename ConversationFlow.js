@@ -989,7 +989,8 @@ function showMoveInStrictSelect(replyToken, prefixMessages) {
  * 各行は vertical layout で「ラベル(小・グレー) + 値(通常・黒)」のフォーム風。
  * 駅・市区町村は路線/市ごとに改行して詰まらないようにする。
  */
-function _buildConditionSummaryRows_(state, before) {
+function _buildConditionSummaryRows_(state, before, opts) {
+  opts = opts || {};
   function fmtUnit(v, suffixRe, suffix) {
     if (!v || v === '指定しない') return '指定なし';
     var s = String(v);
@@ -1209,14 +1210,17 @@ function _buildConditionSummaryRows_(state, before) {
   var layoutD = hasBefore ? listChanged(layoutsOf(before), layoutsOf(state)) : { added: [], removed: [] };
   rows.push(row('間取り', valueCellList(layoutD, dispLayout(state))));
 
-  // 専有面積
-  rows.push(row('専有面積', valueCell(hasBefore ? dispAreaMin(before) : null, dispAreaMin(state))));
-
-  // 築年数
-  rows.push(row('築年数', valueCell(hasBefore ? dispAge(before) : null, dispAge(state))));
-
-  // 駅徒歩
-  rows.push(row('駅徒歩', valueCell(hasBefore ? dispWalk(before) : null, dispWalk(state))));
+  // 専有面積 / 築年数 / 駅徒歩
+  // opts.hideBlank: 中身の無い行は出さない。スタッフが空室確認の回答フォームで入れる条件は
+  // 路線・駅・賃料・間取りの4つだけなので、そのまま出すと「指定なし」が並んで
+  // 表がスカスカに見える（2026-09-19）。普段のカードでは今までどおり全項目を出す。
+  function pushRow(label, disp, cell) {
+    if (opts.hideBlank && !hasBefore && (!disp || disp === '指定なし')) return;
+    rows.push(row(label, cell));
+  }
+  pushRow('専有面積', dispAreaMin(state), valueCell(hasBefore ? dispAreaMin(before) : null, dispAreaMin(state)));
+  pushRow('築年数', dispAge(state), valueCell(hasBefore ? dispAge(before) : null, dispAge(state)));
+  pushRow('駅徒歩', dispWalk(state), valueCell(hasBefore ? dispWalk(before) : null, dispWalk(state)));
 
   // 建物構造（値があるか、変更されていれば表示）: 追加・削除を表示
   var structDiff = hasBefore ? listChanged(structsOf(before), structsOf(state)) : { added: [], removed: [] };
@@ -1226,7 +1230,7 @@ function _buildConditionSummaryRows_(state, before) {
 
   // こだわり: 追加・削除を表示
   var equipD = hasBefore ? listChanged(equipsOf(before), equipsOf(state)) : { added: [], removed: [] };
-  rows.push(row('こだわり', valueCellList(equipD, dispEquip(state))));
+  pushRow('こだわり', dispEquip(state), valueCellList(equipD, dispEquip(state)));
 
   // ペット
   var petA = dispPet(state), petB = hasBefore ? dispPet(before) : null;

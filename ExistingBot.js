@@ -1044,6 +1044,53 @@ function _convToSummaryState_(conv) {
 }
 
 /**
+ * スタッフが回答フォームで入れた条件を、_propertyToCriteria_ と同じ形に詰め替える。
+ *
+ * 他社物件は自社の物件空室管理シートに無いので _propertyToCriteria_ が必ず null を返し、
+ * 条件つきの2択カードにならず「お部屋を探す」の1択になっていた（2026-09-19）。
+ * 他社サイトのページから機械的に読むのは、サイトごとに構造が違ううえに
+ * 敷金・礼金・周辺物件の金額と区別できず当てにならない。スタッフは空室を確認する時点で
+ * その物件を見ているので、答えるついでに入れてもらう。
+ *
+ * 入れるかどうかは任意。空なら null を返し、今までどおり1択カードになる。
+ *
+ * @param {{route:string, station:string, rentMax:(string|number), layout:string}} specs
+ * @return {Object|null} _propertyToCriteria_ と同じ形。材料不足なら null
+ */
+function _staffSpecsToCriteria_(specs) {
+  try {
+    if (!specs) return null;
+    var route = String(specs.route || '').trim();
+    var station = String(specs.station || '').trim();
+    // ⚠️ エリアが無い条件は登録しても自動検索がスキップするので、ここで切る。
+    //   registerAutoCriteriaFromProperty の no_area と同じ考え方。
+    if (!route || !station) return null;
+
+    var layout = String(specs.layout || '').trim();
+    // 賃料は「賃料＋管理費」を入れてもらう。自社物件のときと同じ SUUMO の刻みに切り上げる。
+    // 四捨五入ではなく切り上げ（12.3万 → 12.5万）。予算を下回る側に丸めると条件から外れるため。
+    var rentNum = parseFloat(String(specs.rentMax == null ? '' : specs.rentMax).replace(/[^0-9.]/g, ''));
+    var rentMax = (!isNaN(rentNum) && rentNum > 0) ? _snapUpToStep_(rentNum, SUUMO_RENT_STEPS) : '';
+    if (!rentMax && !layout) return null;    // 駅だけでは条件として粗すぎる
+
+    var summaryParts = [station + '駅'];
+    if (rentMax) summaryParts.push(rentMax + '万円以下');
+    if (layout) summaryParts.push(layout + '以上');
+
+    return {
+      station: station, route: route, city: '', walk: '', rentMax: rentMax,
+      layout: layout, areaMin: '', buildingAge: '', equipment: [],
+      matchedListing: false,
+      staffEntered: true,
+      summary: summaryParts.join(' / ')
+    };
+  } catch (e) {
+    console.warn('[条件変換] スタッフ入力から作れませんでした: ' + e.message);
+    return null;
+  }
+}
+
+/**
  * 「ご案内が難しい物件」のお客さん向け返信メッセージ配列を生成する。
  * 条件登録済みならテキストのみ、未登録なら条件登録誘導Flexを返す。
  * processReplyQueue（遅延返信）と staff_reply_vacancy（スタッフ即時返信）で共用。
@@ -1071,7 +1118,8 @@ function _vacancyChoiceButton_(label, data, color) {
 // 募集終了カードに添える「お送りするお部屋の例」。物件名・住所は架空、写真は商用素材。
 var VACANCY_SAMPLE_IMAGE_URL = 'https://form.ehomaki.com/richmenu/sample_property.jpg';
 
-function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, roomNumber) {
+function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, roomNumber, opts) {
+  opts = opts || {};
   var _hasRegistered = false;
   try {
     var _existing = (typeof readLatestCriteria === 'function') ? readLatestCriteria(userId) : null;
@@ -1101,8 +1149,13 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
   // 会話がそこで終わって取りこぼしていた。両方を前に進む選択肢に置き換える。
   // 「あとで」という出口自体は残さない（押さない人は既読スルーになるだけなので、
   //  出口を消すのではなく、出口を全部前進させるという考え方）。
+  // 条件の出どころは2つ。自社シートから機械的に作れればそれを使い、作れないとき
+  // （＝他社物件）はスタッフが回答フォームで入れた条件を使う。両方無ければ1択カード。
   var conv = null;
   try { conv = _propertyToCriteria_(propertyName || displayName, roomNumber); } catch (_e) {}
+  if (!conv && opts.specs && typeof _staffSpecsToCriteria_ === 'function') {
+    try { conv = _staffSpecsToCriteria_(opts.specs); } catch (_eS) {}
+  }
 
   // ⚠️ 全部が同じ大きさ・同じグレーだと、どこが答えでどこが補足か分からず読みにくい
   //   （2026-09-18 指摘）。目を止める場所を「結果」と「問いかけ」の2つに絞り、
@@ -1124,7 +1177,9 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     var condRows = null;
     try {
       if (typeof _buildConditionSummaryRows_ === 'function') {
-        condRows = _buildConditionSummaryRows_(_convToSummaryState_(conv));
+        // スタッフが入れた条件は項目数が少ないので、空の行は出さない
+        condRows = _buildConditionSummaryRows_(_convToSummaryState_(conv), null,
+          { hideBlank: !!conv.staffEntered });
       }
     } catch (_eRows) { condRows = null; }
     if (condRows && condRows.length) {
@@ -1166,13 +1221,19 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     //   勢いで「はい」を押されると精度の低い条件が登録される。
     //   自分で条件を決めてもらったほうが精度は高く、どちらを選んでも前進するので、
     //   片方に寄せる理由がない。
+    // スタッフが入れた条件のときは、押された時にもう一度読めるよう依頼IDを持たせる。
+    // 自社シートから作った条件と違って、名前と部屋番号だけでは組み立て直せないため。
     footerContents.push(_vacancyChoiceButton_(
       'はい、お願いします',
-      'action=auto_criteria&name=' + encodeURIComponent(propertyName || '') + '&room=' + encodeURIComponent(roomNumber || ''),
+      'action=auto_criteria&name=' + encodeURIComponent(propertyName || '') + '&room=' + encodeURIComponent(roomNumber || '')
+        + (opts.vreq ? '&vreq=' + encodeURIComponent(opts.vreq) : ''),
       '#6ea814'
     ));
     footerContents.push(_vacancyChoiceButton_('いいえ、条件を自分で決める', '条件登録', '#5f6b7a'));
-    if (typeof recordVacancyCardShown === 'function') recordVacancyCardShown(userId, displayName, '条件あり');
+    // 条件の出どころごとに成績を分けて数える（CardStats.js）。どちらが押されるか見たい。
+    if (typeof recordVacancyCardShown === 'function') {
+      recordVacancyCardShown(userId, displayName, conv.staffEntered ? '条件あり(スタッフ入力)' : '条件あり');
+    }
   } else {
     // 変換できなかった（物件が見つからない・材料不足）: 従来どおり条件登録へ誘導
     bodyContents.push({ type: 'separator', margin: 'lg', color: '#EEEEEE' });
@@ -1217,6 +1278,17 @@ function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber, opts
       return { ok: false, message: 'already_registered' };
     }
     var conv = _propertyToCriteria_(propertyName, roomNumber);
+    // 他社物件は自社シートに無いので作れない。カードを出したときにスタッフが入れた条件を読み直す。
+    if (!conv && opts.vreq && typeof getVacancyRequest === 'function') {
+      try {
+        var _vr = getVacancyRequest(opts.vreq);
+        var _sp = _vr && _vr.answers ? _vr.answers.specs : null;
+        if (_sp) conv = _staffSpecsToCriteria_(_sp);
+      } catch (_eV) {
+        console.warn('[条件自動登録] 依頼から条件を読めません: ' + opts.vreq + ' / ' + _eV.message);
+      }
+    }
+    if (!conv && opts.specs) conv = _staffSpecsToCriteria_(opts.specs);
     if (!conv) return { ok: false, message: 'convert_failed' };
 
     var name = _getLineUserName_(userId);
