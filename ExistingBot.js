@@ -1462,6 +1462,13 @@ function processReplyQueue() {
     console.error('[友だち追加] ひと押しの処理に失敗: ' + eN.message);
   }
 
+  // 空室確認だけで止まっている人へのひと押しも同じトリガーで見る（NewFriend.js）
+  try {
+    processVacancyFollowups();
+  } catch (eV2) {
+    console.error('[空室確認だけ] ひと押しの処理に失敗: ' + eV2.message);
+  }
+
   // 途中でやめた人へのひと押しも同じトリガーで見る（NewFriend.js）。
   // 対象がなければシートは読まないので、ほとんどの回は素通りする。
   try {

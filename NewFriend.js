@@ -64,9 +64,9 @@ function _newFriendSheet_() {
   var sh = ss.getSheetByName(NEW_FRIEND_SHEET);
   if (!sh) {
     sh = ss.insertSheet(NEW_FRIEND_SHEET);
-    sh.appendRow(['userId', '追加日時', '表示名', '状態', '状態になった日時']);
+    sh.appendRow(['userId', '追加日時', '表示名', '状態', '状態になった日時', '空室確認後のひと押し']);
     try {
-      sh.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#e0e0e0');
+      sh.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#e0e0e0');
       sh.setFrozenRows(1);
     } catch (_) {}
   }
@@ -816,5 +816,124 @@ function previewAbandonedRemind() {
       }
     }
     console.log('');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  空室確認をやり切ったのに、条件登録をしていない人へのひと押し
+//
+//  ②LINEに来た人のうち「空室確認だけ」の層。登録だけの人・途中でやめた人と同じく翌日に1回。
+//
+//  ⚠️ 条件登録には誘わない（2026-09-18 判断）。
+//    募集終了のカードで一度誘っており、同じ言葉を繰り返しても効かない。
+//    代わりに「他社サイトで見つけた物件も調べられる」と伝える。
+//    一度使って役に立った機能なので頼みのハードルが低く、
+//    もう一度使ってその物件も募集終了なら、条件登録のカードが自然にまた出る。
+// ═══════════════════════════════════════════════════════════
+
+var VACANCY_FOLLOWUP_ENABLED = false;      // 文面が決まるまでは送らない
+var VACANCY_FOLLOWUP_AFTER_HOURS = 16;     // 翌日に送る（登録だけ・途中離脱と同じ）
+var VACANCY_FOLLOWUP_COL = 6;              // 「空室確認後のひと押し」を書く列
+
+function buildVacancyFollowupMessages() {
+  return [{
+    type: 'flex', altText: '他社サイトのお部屋もお調べできます',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
+        contents: [
+          { type: 'text', text: '空室確認のご利用ありがとうございました', weight: 'bold', size: 'md', color: '#333333', wrap: true },
+          { type: 'text', text: 'SUUMOやHOME\'Sなどで見つけたお部屋も、そのままお調べできます。\n気になるお部屋のURLを送っていただければ、ご案内できるか確認します。',
+            size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+        ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical', paddingAll: 'lg',
+        contents: [{ type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+          action: { type: 'message', label: '空室確認する', text: '空室確認' } }]
+      }
+    }
+  }];
+}
+
+/**
+ * 空室確認をやり切ったのに条件登録をしていない人に、翌日ひと押しを1回だけ送る。
+ * processReplyQueue（5分おき・営業時間内のみ）から呼ばれる。
+ */
+function processVacancyFollowups() {
+  var sh = _newFriendSheet_();
+  var last = sh.getLastRow();
+  if (last < 2) return;
+  var width = Math.max(VACANCY_FOLLOWUP_COL, 5);
+  var data = sh.getRange(2, 1, last - 1, width).getValues();
+  var cutoff = Date.now() - VACANCY_FOLLOWUP_AFTER_HOURS * 60 * 60 * 1000;
+
+  // 候補を先に絞る。いなければシートを読み足さない。
+  var candidates = [];
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][3] || '').trim() !== '空室確認あり') continue;   // 状態が違う
+    if (String(data[i][VACANCY_FOLLOWUP_COL - 1] || '').trim() !== '') continue;  // 送信済み
+    var at = data[i][4];   // 状態になった日時＝空室確認をやり切った時刻
+    if (!(at instanceof Date) || at.getTime() > cutoff) continue;
+    candidates.push({ rowIndex: i + 2, userId: String(data[i][0] || '').trim(), name: String(data[i][2] || '') });
+  }
+  if (candidates.length === 0) return;
+
+  // すでに条件を登録した人には送らない（状態が進んでいなくても実際に登録されている場合がある）
+  var registeredUserIds = {};
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    var cs = ss.getSheetByName(CRITERIA_SHEET_NAME);
+    var withCriteria = {};
+    if (cs && cs.getLastRow() > 1) {
+      var csRows = cs.getRange(2, 1, cs.getLastRow() - 1, cs.getLastColumn()).getValues();
+      for (var q = 0; q < csRows.length; q++) {
+        var nm = String(csRows[q][1] || '').trim();
+        if (nm && _rowHasCriteria_(csRows[q])) withCriteria[nm] = true;
+      }
+    }
+    if (lu && lu.getLastRow() > 1) {
+      var luRows = lu.getRange(2, 1, lu.getLastRow() - 1, 2).getValues();
+      for (var w = 0; w < luRows.length; w++) {
+        var uw = String(luRows[w][0] || '').trim();
+        var nw = String(luRows[w][1] || '').trim();
+        if (uw && nw && withCriteria[nw]) registeredUserIds[uw] = true;
+      }
+    }
+  } catch (e) {
+    console.error('[空室確認だけ] 登録済みかを確かめられないため今回は送りません: ' + e.message);
+    return;
+  }
+
+  var lastActivity = _newFriendLastActivityMap_();
+  var now = new Date();
+  var sent = 0, skipped = 0;
+  for (var c = 0; c < candidates.length; c++) {
+    var t = candidates[c];
+    if (!t.userId) continue;
+    if (registeredUserIds[t.userId]) {
+      sh.getRange(t.rowIndex, 4, 1, 2).setValues([['条件登録済み', now]]);
+      skipped++;
+      continue;
+    }
+    // 担当者とやり取りしている最中、またはフローの途中なら割り込まない
+    var la = lastActivity[t.userId];
+    if (la && la > cutoff) { skipped++; continue; }
+    if (_hasLiveFlowState_(t.userId)) { skipped++; continue; }
+    if (!VACANCY_FOLLOWUP_ENABLED) continue;
+    try {
+      pushMessage(t.userId, buildVacancyFollowupMessages());
+      sh.getRange(t.rowIndex, VACANCY_FOLLOWUP_COL).setValue(now);
+      sent++;
+    } catch (e2) {
+      sh.getRange(t.rowIndex, VACANCY_FOLLOWUP_COL).setValue('送信できず: ' + e2.message);
+      console.error('[空室確認だけ] 送信に失敗: ' + (t.name || t.userId) + ' / ' + e2.message);
+    }
+  }
+  if (sent || skipped) {
+    console.log('[空室確認だけ] ひと押し ' + sent + '件 / 見送り ' + skipped + '件'
+      + (VACANCY_FOLLOWUP_ENABLED ? '' : '（送信はまだ止めてあります）'));
   }
 }
