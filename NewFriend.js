@@ -845,7 +845,7 @@ function buildVacancyFollowupMessages() {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
         contents: [
           { type: 'text', text: '空室確認のご利用ありがとうございました', weight: 'bold', size: 'md', color: '#333333', wrap: true },
-          { type: 'text', text: 'どのサイトで見つけたお部屋でも、お調べできます。\n気になるお部屋のURLか物件名を送ってください。ご案内できるか確認します。',
+          { type: 'text', text: 'ほかにも気になるお部屋があれば、URLか物件名をお送りください。\nどのサイトのお部屋でも、ご案内できるか確認します。',
             size: 'sm', color: '#555555', wrap: true, margin: 'md' }
         ]
       },
