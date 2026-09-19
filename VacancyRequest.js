@@ -657,6 +657,17 @@ function handleVacancyRequest(replyToken, userId, items, opts) {
     // ── 依頼を作る ──
     clearState(userId);
     var customerName = _getLineUserName_(userId);
+
+    // ⚠️ せっかちなお客様が同じ物件を続けて送ると、依頼が2件できてしまう。
+    //   片方に答えても、もう片方がDiscordに残り続ける（2026-09-18 実際に発生）。
+    //   まだ答えていない同じ内容の依頼があれば、作り直さず受付だけ返す。
+    var dup = _findPendingSameRequest_(userId, judged);
+    if (dup) {
+      console.log('[空室確認依頼] 同じ内容の依頼がまだ未回答のため作りません: ' + dup.id);
+      replyMessage(replyToken, [textMsg('承知しました。ただいまお調べしています。\nもうしばらくお待ちください。')]);
+      return;
+    }
+
     var req = _createVacancyRequest_(userId, customerName, judged);
 
     var jstHour = getJstHour(new Date());
@@ -733,6 +744,37 @@ function _createVacancyRequest_(userId, customerName, judged) {
   sh.appendRow([id, userId, customerName || '', toJstString(now), judged.length,
     JSON.stringify(judged), 'pending', '', '', '']);
   return { id: id, userId: userId, customerName: customerName || '', receivedAt: toJstString(now), items: judged, status: 'pending' };
+}
+
+/**
+ * まだ答えていない、同じ内容の依頼を探す。
+ * 中身（URLか物件名の並び）が一致し、24時間以内のものだけを重複とみなす。
+ */
+function _findPendingSameRequest_(userId, judged) {
+  try {
+    var key = judged.map(function (j) { return (j.url || j.text || '').trim(); }).sort().join('|');
+    if (!key) return null;
+    var sh = _vacancyRequestSheet_();
+    var last = sh.getLastRow();
+    if (last < 2) return null;
+    var from = Math.max(2, last - 50);   // 直近だけ見る
+    var rows = sh.getRange(from, 1, last - from + 1, 7).getValues();
+    var cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (var i = rows.length - 1; i >= 0; i--) {
+      if (String(rows[i][1] || '').trim() !== String(userId)) continue;
+      if (String(rows[i][6] || '').trim() !== 'pending') continue;
+      var at = rows[i][3];
+      var ms = (at instanceof Date) ? at.getTime() : Date.parse(String(at).replace(/-/g, '/'));
+      if (!ms || ms < cutoff) continue;
+      var items = [];
+      try { items = JSON.parse(rows[i][5] || '[]'); } catch (_) { continue; }
+      var k2 = items.map(function (j) { return (j.url || j.text || '').trim(); }).sort().join('|');
+      if (k2 === key) return { id: String(rows[i][0]), rowIndex: from + i };
+    }
+  } catch (e) {
+    console.warn('[空室確認依頼] 重複の確認に失敗: ' + e.message);
+  }
+  return null;
 }
 
 function getVacancyRequest(reqId) {
@@ -1050,7 +1092,7 @@ function _composeVacancyAnswer_(req, answers, comment, freeText) {
     // 1件だけなら、自動判定のときと同じカードを出す。
     // 自社シートにある物件なら条件を組み立てた2択カード、無ければ「お部屋を探す」の1択カードになる。
     // ⚠️ 以前は文章＋クイックリプライだけで、押される前に消えることがあった (2026-09-18)。
-    if (!registered && req.items.length === 1 && typeof _buildVacancyUnavailableMessages_ === 'function') {
+    if (req.items.length === 1 && typeof _buildVacancyUnavailableMessages_ === 'function') {
       var one = req.items[0];
       var lbl = String((byN[Number(one.n)] || {}).label || one.label || one.text || '').trim();
       var nm = lbl, rm = '';
