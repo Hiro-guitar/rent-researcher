@@ -832,7 +832,7 @@ function previewAbandonedRemind() {
 //    もう一度使ってその物件も募集終了なら、条件登録のカードが自然にまた出る。
 // ═══════════════════════════════════════════════════════════
 
-var VACANCY_FOLLOWUP_ENABLED = false;      // 文面が決まるまでは送らない
+var VACANCY_FOLLOWUP_ENABLED = true;       // 稼働中（2026-09-19 開始）。false にすると止まる
 var VACANCY_FOLLOWUP_AFTER_HOURS = 16;     // 翌日に送る（登録だけ・途中離脱と同じ）
 var VACANCY_FOLLOWUP_COL = 6;              // 「空室確認後のひと押し」を書く列
 
