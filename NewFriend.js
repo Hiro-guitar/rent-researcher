@@ -490,7 +490,7 @@ function _abandonedRemindMessages_(kind, userId, state) {
         body: {
           type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
           contents: [
-            { type: 'text', text: 'ご回答ありがとうございます', weight: 'bold', size: 'md', color: '#333333' },
+            { type: 'text', text: 'ご回答ありがとうございます。', size: 'sm', color: '#555555', wrap: true },
             { type: 'text', text: 'エリア・家賃・間取りなどをお選びいただくと、ご登録が完了します。',
               size: 'sm', color: '#555555', wrap: true, margin: 'md' },
             // ⚠️ 「すぐお知らせします」とは書かない。新着が出る時期はこちらでは決められない。
