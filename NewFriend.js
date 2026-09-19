@@ -465,9 +465,9 @@ function _abandonedRemindMessages_(kind, userId, state) {
     }
     return [textMsg(
       '空室確認のご依頼ありがとうございます。\n\n' +
-      'お調べしたいお部屋の物件名、またはURLをお送りください。\n' +
-      'どのサイトで見つけたお部屋でも大丈夫です。\n' +
-      '複数ある場合は、まとめて1通で送っていただけます。'
+      'お調べしたいお部屋のURL、または物件名をお送りください。\n\n' +
+      'どのサイトで見つけたお部屋でも大丈夫です。\n\n' +
+      '複数ある場合は、' + VACANCY_REQUEST_MAX_ITEMS + '件までまとめて1通で送っていただけます。'
     )];
   }
   if (kind === 'criteria_page') {
