@@ -59,9 +59,9 @@ function _vacancyPromptOther_(replyToken, userId, lead) {
   saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'other' } });
   replyMessage(replyToken, [textMsg(
     (lead ? lead + '\n\n' : '') +
-    'お調べしたいお部屋の物件名、またはURLをお送りください。\n' +
-    'どのサイトで見つけたお部屋でも大丈夫です。\n' +
-    '複数ある場合は、まとめて1通で送っていただけます。\n\n' +
+    'お調べしたいお部屋のURL、または物件名をお送りください。\n\n' +
+    'どのサイトで見つけたお部屋でも大丈夫です。\n\n' +
+    '複数ある場合は、' + VACANCY_REQUEST_MAX_ITEMS + '件までまとめて1通で送っていただけます。\n\n' +
     '※この受付は24時間有効です。\n' +
     '過ぎてしまった場合は、下のメニューから「空室確認」をもう一度タップしてください。'
   )]);
@@ -425,7 +425,12 @@ function _splitVacancyItems_(raw) {
   var items = [];
   for (var u = 0; u < urls.length; u++) items.push({ url: urls[u], text: '' });
   for (var t = 0; t < textItems.length; t++) items.push({ url: '', text: textItems[t] });
-  return items.slice(0, VACANCY_REQUEST_MAX_ITEMS);
+  // ⚠️ 上限を超えた分を黙って捨てないこと (2026-09-19)。
+  //   お客様は全部お調べしたと思ったまま、一部の答えしか受け取れなくなる。
+  //   何件あふれたかを呼び出し側に伝えて、その場で知らせる。
+  var kept = items.slice(0, VACANCY_REQUEST_MAX_ITEMS);
+  kept.overflow = Math.max(0, items.length - VACANCY_REQUEST_MAX_ITEMS);
+  return kept;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -671,6 +676,7 @@ function handleVacancyRequest(replyToken, userId, items, opts) {
 
     var req = _createVacancyRequest_(userId, customerName, judged);
 
+    var overflow = (items && items.overflow) || 0;
     var jstHour = getJstHour(new Date());
     var open = (jstHour >= 10 && jstHour < 20);
     // 自社シートに無い物件だけならスタッフがその場で返すので時間の断りは入れない。
@@ -678,6 +684,11 @@ function handleVacancyRequest(replyToken, userId, items, opts) {
     var immediateReply = needsStaff && _vacancyRequestSendsImmediately_(judged);
     replyMessage(replyToken, [textMsg(
       '承知しました。お調べしてご連絡します。' +
+      (overflow > 0
+        ? '\n\n一度にお調べできるのは' + VACANCY_REQUEST_MAX_ITEMS + '件までです。'
+          + 'はじめの' + VACANCY_REQUEST_MAX_ITEMS + '件をお調べしますので、'
+          + '残りの' + overflow + '件はこのあともう一度お送りください。'
+        : '') +
       (immediateReply || open ? '' : '\n\n営業時間外のため、翌営業日のご連絡になります。')
     )]);
 
