@@ -541,8 +541,18 @@ var _VACANCY_SPEC_READERS_ = [
       out.equipment = [];
       if (typeof _hasSeparateBathToilet_ === 'function' && _hasSeparateBathToilet_(d)) out.equipment.push('バス・トイレ別');
       if (typeof _hasIndependentWashstand_ === 'function' && _hasIndependentWashstand_(d)) out.equipment.push('独立洗面台');
-      // ⚠️ 築年数は入れていない。概要文に無く、本文には案内リンクの「新築」が何度も出てくるので
-      //   「築24年」と取り違える。スタッフに選んでもらう。
+      // 築年数は構造化データ（JSON-LD）の「築年月」から。
+      //   {"@type":"PropertyValue","name":"築年月","value":"2003年2月"}
+      // ⚠️ 本文の「新築」を拾ってはいけない。ページ上部の案内リンク
+      //   （新築マンション・新築一戸建て…）に何度も出てくるので取り違える。
+      var mY = html.match(/"name"\s*:\s*"築年月"\s*,\s*"value"\s*:\s*"(\d{4})年/);
+      if (!mY) mY = html.match(/築年月<\/dt>[\s\S]{0,200}?(\d{4})年/);   // 表示側の予備
+      if (mY) {
+        // 築年数は月ではなく「年の差」で数える。物件検索側の数え方に合わせるため
+        // （itandi のように月で数えると1年ずれて母数が変わる）。
+        var age = (new Date()).getFullYear() - parseInt(mY[1], 10);
+        if (age >= 0 && age < 200) out.buildingAge = String(age);
+      }
       return out;
     }
   }
@@ -610,13 +620,14 @@ function _vacancyExtractSpecs_(url) {
     };
     got.areaMin = snap(got.areaMin, SUUMO_AREA_STEPS, false);
     got.walk = snap(got.walk, SUUMO_WALK_STEPS, true);
+    got.buildingAge = snap(got.buildingAge, SUUMO_AGE_STEPS, true);
 
     if (!got.route && !got.station && !got.rentMax && !got.layout) return null;
     return {
       route: got.route || '', station: got.station || '',
       rentMax: got.rentMax || '', layout: got.layout || '',
       areaMin: got.areaMin || '', walk: got.walk || '',
-      buildingAge: '', equipment: got.equipment || [],
+      buildingAge: got.buildingAge || '', equipment: got.equipment || [],
       source: reader.name
     };
   } catch (e) {
