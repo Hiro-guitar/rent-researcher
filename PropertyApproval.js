@@ -2871,8 +2871,17 @@ function setPropertyAvailability(customerName, roomId, status, extras) {
               console.warn('[setPropertyAvailability] ' + source + ' closed LINE通知失敗: ' + eRL.message);
             }
           }
-          rowsToDelete.push(rowNum);
-          deleted++;
+          // ⚠️ 行は消さないこと（2026-09-20 変更）。
+          //   以前は「空室確認のキューが軽くなる」という理由で削除していたが、
+          //   キューは getAvailabilityCheckQueue 側で closed を除外しているので
+          //   残しても重くならない。一方で削除すると
+          //   ・顧客管理ページの送付済み物件（履歴）から消える
+          //   ・送付済みの記録が消え、重複判定から外れて同じ物件をまた送りうる
+          //   という実害があった。状態だけ closed にして残す。
+          sheet.getRange(rowNum, 6).setValue(status);   // F列: current_status
+          sheet.getRange(rowNum, 7).setValue(now);      // G列: status_checked_at
+          try { sheet.getRange(rowNum, 9).setValue(''); } catch (eP) {}  // I列: 依頼は完了
+          updated++;
           continue;
         }
 
