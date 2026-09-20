@@ -1021,7 +1021,16 @@ async function _sendDiscordNotificationsFromExtension(items) {
 // 優先キューのポーリング (お客さんがボタンを押した物件をリアルタイム処理)
 // 1分毎の alarm で呼ばれる。priority_only=1 で優先依頼のみ取得。
 // ──────────────────────────────────────────────────────────────────
-async function runPriorityAvailabilityPoll() {
+/**
+ * 渡された物件だけ空室確認して、結果をGASに返す。
+ *
+ * 取得と処理を分けてある（2026-09-20）。専用のポーリングを増やさずに済むよう、
+ * スマホ検索指示のポーリング(pollMobileSearchRequest)の返事に相乗りさせた確認依頼も
+ * ここに流すため。全物件の巡回は復活させないこと（BANリスクで廃止済み）。
+ *
+ * @param {Array<{customer,roomId,source,url,reinsPropNo}>} items 確認する物件
+ */
+async function runAvailabilityForItems(items) {
   // 全件モード or 定期チェック実行中ならスキップ (衝突防止)
   // ※ 定期チェック中は _handlePriorityDuringPeriodic が代わりに処理する
   const flags = await new Promise(r =>
@@ -1036,18 +1045,7 @@ async function runPriorityAvailabilityPoll() {
     return { skipped: 'periodic_running' };
   }
 
-  let queue;
-  try {
-    queue = await gasGet('get_availability_queue', {
-      limit: 5,
-      priority_only: 1,
-      max_priority_age_minutes: 60
-    });
-  } catch (e) {
-    console.warn('[priority-poll] キュー取得失敗: ' + e.message);
-    return { error: e.message };
-  }
-  const items = (queue && Array.isArray(queue.items)) ? queue.items : [];
+  items = Array.isArray(items) ? items : [];
   if (items.length === 0) return { processed: 0 };
 
   await setStorageData({ debugLog: `[優先空室確認] ${items.length}件の即時依頼を処理` });
@@ -1090,6 +1088,26 @@ async function runPriorityAvailabilityPoll() {
   }
   await _closeAllAvailabilityTabs();
   return { processed: results.length };
+}
+
+/**
+ * GASから確認待ちの物件を取りに行って処理する。
+ * ⚠️ 今は専用アラームを持たせていない。呼ぶのは手動トリガーのときだけで、
+ *   普段は pollMobileSearchRequest の相乗りで届く（呼び出し回数を増やさないため）。
+ */
+async function runPriorityAvailabilityPoll() {
+  let queue;
+  try {
+    queue = await gasGet('get_availability_queue', {
+      limit: 5,
+      priority_only: 1,
+      max_priority_age_minutes: 60
+    });
+  } catch (e) {
+    console.warn('[priority-poll] キュー取得失敗: ' + e.message);
+    return { error: e.message };
+  }
+  return runAvailabilityForItems((queue && Array.isArray(queue.items)) ? queue.items : []);
 }
 
 // ──────────────────────────────────────────────────────────────────

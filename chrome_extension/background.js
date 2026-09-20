@@ -2653,6 +2653,20 @@ async function pollMobileSearchRequest() {
       { timeoutMs: 30000, label: 'mobile_search_poll' });
     if (!res.ok) return;
     const j = await res.json();
+
+    // 空室確認の相乗り（2026-09-20）。
+    // 専用のポーリングを増やさないため、この返事に確認待ちの物件も載せてもらっている。
+    // キューが空なら何も入っていないので、普段はここで何も起きない。
+    try {
+      const _availItems = (j && Array.isArray(j.availability)) ? j.availability : [];
+      if (_availItems.length && typeof runAvailabilityForItems === 'function') {
+        await setStorageData({ debugLog: `[空室確認] ${_availItems.length}件の依頼を受け取りました` });
+        await runAvailabilityForItems(_availItems);
+      }
+    } catch (eAv) {
+      console.warn('[空室確認] 相乗りの処理に失敗: ' + eAv.message);
+    }
+
     const req = j && j.request;
     if (!req) return;
     // mode:'all' は顧客を指定しない指示。いつもどおり（PCの顧客フィルタに従って）回す。

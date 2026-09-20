@@ -105,16 +105,42 @@ function _mobileCustomerList_(e) {
   return out;
 }
 
-/** 拡張が指示を取りに来る。api_key必須。 */
+/**
+ * 拡張が指示を取りに来る。api_key必須。
+ *
+ * 空室確認の依頼も一緒に返す（2026-09-20）。
+ * 拡張はこれを1分ごとに呼んでいるので、確認依頼の受け渡しもここに相乗りさせれば
+ * 専用のポーリングを増やさずに済む（GASの呼び出し回数も増えない）。
+ *
+ * ⚠️ 返すのは「確認して」と頼まれた物件だけ（priorityOnly）。全物件の巡回は
+ *   規約違反（機械的アクセス）のリスクで廃止済みなので、ここで復活させないこと。
+ * 依頼元:
+ *   ・顧客管理ページの「空室確認してから送る」(requestVacancyCheckForResend)
+ *   ・初回配信を見ていない人への自動再送(FirstDeliveryFollow.gs)
+ */
 function handleSearchRequestPoll(json) {
   var props = PropertiesService.getScriptProperties();
   props.setProperty(MOBILE_SEARCH_SEEN, String(Date.now()));
   var raw = props.getProperty(MOBILE_SEARCH_KEY);
   var req = null;
   if (raw) { try { req = JSON.parse(raw); } catch (e) {} }
+
+  // 確認待ちの物件。空なら空配列。ここで失敗しても検索指示の受け渡しは止めない。
+  var availability = [];
+  try {
+    if (typeof getAvailabilityCheckQueue === 'function') {
+      availability = getAvailabilityCheckQueue({
+        limit: 5, priorityOnly: true, maxPriorityAgeMinutes: 60
+      }) || [];
+    }
+  } catch (eA) {
+    console.warn('[ポーリング] 空室確認キューを読めません: ' + eA.message);
+  }
+
   return ContentService.createTextOutput(JSON.stringify({
     ok: true,
-    request: (req && req.status === 'pending') ? req : null
+    request: (req && req.status === 'pending') ? req : null,
+    availability: availability
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
