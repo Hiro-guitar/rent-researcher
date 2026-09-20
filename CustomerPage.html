@@ -2635,7 +2635,16 @@ function checkVacancyThenResend() {
       // 拡張へ「今すぐ確認して」と伝える（vacancy-check-trigger.js が受け取る）。
       // ⚠️ これが無いと、拡張は1分ごとのポーリングまで気づかず、その分待たされる。
       //   拡張が入っていない・止まっている場合でも、ポーリングが拾うので害はない。
-      try { window.postMessage({ type: 'VACANCY_CHECK_REQUESTED' }, '*'); } catch (_e) {}
+      // ⚠️ このページはGoogleのiframeの中で動くので、自分のフレームだけに送っても
+      //   content script が外側にいると届かない。上のフレームにも送る。
+      try {
+        var _targets = [window];
+        try { if (window.parent && window.parent !== window) _targets.push(window.parent); } catch (_e1) {}
+        try { if (window.top && window.top !== window && window.top !== window.parent) _targets.push(window.top); } catch (_e2) {}
+        for (var _t = 0; _t < _targets.length; _t++) {
+          try { _targets[_t].postMessage({ type: 'VACANCY_CHECK_REQUESTED' }, '*'); } catch (_e3) {}
+        }
+      } catch (_e) {}
       setTimeout(function() { pollVacancy(ids, baseline, 0); }, 8000);
     })
     .withFailureHandler(function(e) { alert('確認依頼に失敗: ' + (e && e.message ? e.message : '')); resetCheckSendBtn(); })
