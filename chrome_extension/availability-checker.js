@@ -347,13 +347,19 @@ async function _checkIeloveAvailability(url) {
 // ──────────────────────────────────────────────────────────────────
 async function _checkEssquareAvailability(url) {
   if (!url || (url.indexOf('es-square') < 0 && url.indexOf('iisesq') < 0)) return { status: 'unknown' };
+  // ⚠️ 物件ページを直接開く。条件も入っていない検索結果を1枚挟むと、
+  //   機械的アクセスに見えてBANの元になる（2026-09-20 指摘）。
   const tab = await (typeof findOrCreateDedicatedEssquareTab === 'function'
-    ? findOrCreateDedicatedEssquareTab()
+    ? findOrCreateDedicatedEssquareTab(url)
     : null);
   if (!tab) return { status: 'unknown' };
   try {
-    await chrome.tabs.update(tab.id, { url: url });
-    await _waitForTabLoad(tab.id, 15000);
+    // タブを作ったばかりで、すでに目的のページを開いているなら読み込み直さない
+    const _alreadyThere = String(tab.url || '').split('#')[0] === String(url).split('#')[0];
+    if (!_alreadyThere) {
+      await chrome.tabs.update(tab.id, { url: url });
+      await _waitForTabLoad(tab.id, 15000);
+    }
     await new Promise(r => setTimeout(r, 2500));
     const [{ result } = {}] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },

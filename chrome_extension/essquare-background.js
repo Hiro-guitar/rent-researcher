@@ -1043,7 +1043,13 @@ async function _parseEssquareSearchResults(tabId) {
 
 // === 専用ウィンドウ管理 ===
 
-async function findOrCreateDedicatedEssquareTab() {
+/**
+ * @param {string} [initialUrl] 最初から開きたいURL（空室確認なら物件ページ）。
+ *   ⚠️ 指定が無いときだけ検索ページを開く。空室確認のように行き先が決まっている場合に
+ *     条件も入っていない検索結果を1枚挟むのは、機械的アクセスに見えてBANの元になる
+ *     （2026-09-20 指摘）。用がある1ページだけを開くこと。
+ */
+async function findOrCreateDedicatedEssquareTab(initialUrl) {
   // メモリ上のIDが生きていればそれを使用
   if (dedicatedEssquareTabId) {
     try {
@@ -1067,10 +1073,10 @@ async function findOrCreateDedicatedEssquareTab() {
   // 既存ウィンドウ内に非アクティブタブとして作成
   // active:false でフォーカスを一切奪わない
   await setStorageData({ debugLog: '[ES-Square] 専用タブを作成中...' });
-  const newTab = await chrome.tabs.create({
-    url: `${ESSQUARE_BASE_URL}/bukken/chintai/search`,
-    active: false
-  });
+  const _firstUrl = (initialUrl && String(initialUrl).indexOf('http') === 0)
+    ? String(initialUrl)
+    : `${ESSQUARE_BASE_URL}/bukken/chintai/search`;
+  const newTab = await chrome.tabs.create({ url: _firstUrl, active: false });
   dedicatedEssquareTabId = newTab.id;
   dedicatedEssquareWindowId = newTab.windowId;
 
@@ -1093,7 +1099,8 @@ async function findOrCreateDedicatedEssquareTab() {
     if (autoLogin.ok) {
       tab = await chrome.tabs.get(dedicatedEssquareTabId);
       if (!tab.url?.includes('rent.es-square.net')) {
-        await chrome.tabs.update(dedicatedEssquareTabId, { url: `${ESSQUARE_BASE_URL}/bukken/chintai/search` });
+        // ログイン後は、もともと開きたかったページへ直接戻る
+        await chrome.tabs.update(dedicatedEssquareTabId, { url: _firstUrl });
         await waitForTabLoad(dedicatedEssquareTabId);
         await sleep(3000);
         tab = await chrome.tabs.get(dedicatedEssquareTabId);
