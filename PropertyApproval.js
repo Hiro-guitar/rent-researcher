@@ -3979,8 +3979,12 @@ function setCancellationWatch(customerName, roomId, watching) {
   }
 }
 
-function getSeenPropertiesForResend(customerName) {
+function getSeenPropertiesForResend(customerName, opts) {
   if (!customerName) return [];
+  // includeClosed: 募集終了・申込済みも返す（顧客管理ページの履歴用 / 2026-09-20）。
+  // ⚠️ 既定は false のまま。物件再送付ページは「送れる物件の候補」として使っていて、
+  //   募集終了が混ざると誤って再送できてしまうため。
+  var includeClosed = !!(opts && opts.includeClosed);
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     var sheet = ss.getSheetByName(SEEN_SHEET_NAME);
@@ -4051,8 +4055,9 @@ function getSeenPropertiesForResend(customerName) {
       if (String(data[i][0]).trim() !== nameTrim) continue;
       var status = String(data[i][5] || '');
       var watching = !!data[i][9]; // J列: キャンセル待ち(watch_for_cancellation_at)
-      // closed / applied は除外。ただしキャンセル待ちは申込ありでも表示する。
-      if ((status === 'closed' || status === 'applied') && !watching) continue;
+      // closed / applied は既定で除外。ただしキャンセル待ちは申込ありでも表示する。
+      // includeClosed のときは履歴として返す（画面側で送れないようにしてある）。
+      if (!includeClosed && (status === 'closed' || status === 'applied') && !watching) continue;
       var roomId = String(data[i][1] || '').trim();
       var pendingRow = pendingRowByRoomId[roomId];
       var pendingProp = pendingRow ? _pendingRowToFlexProp_(pendingRow) : null;

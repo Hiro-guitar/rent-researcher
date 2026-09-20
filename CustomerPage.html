@@ -2213,23 +2213,25 @@ function loadSeenProperties(name) {
       propsLoaded = false;   // 開き直したらもう一度取りに行けるように
       document.getElementById('propList').innerHTML = '<div class="empty-state">物件取得エラー: ' + esc(err.message) + '</div>';
     })
-    .getSeenPropertiesForResend(name);
+    .getSeenPropertiesForResend(name, { includeClosed: true });
 }
 
 function renderPropFilters() {
-  var counts = { all: allProperties.length, viewed: 0, not_viewed: 0, action: 0, watching: 0 };
+  var counts = { all: allProperties.length, viewed: 0, not_viewed: 0, action: 0, watching: 0, closed: 0 };
   for (var i = 0; i < allProperties.length; i++) {
     if (allProperties[i].viewed) counts.viewed++;
     else counts.not_viewed++;
     if (allProperties[i].actions && allProperties[i].actions.length > 0) counts.action++;
     if (allProperties[i].watching) counts.watching++;
+    if (isPropClosed(allProperties[i])) counts.closed++;
   }
   var filters = [
     { key: 'all', label: '全て (' + counts.all + ')' },
     { key: 'viewed', label: '閲覧済 (' + counts.viewed + ')' },
     { key: 'not_viewed', label: '未閲覧 (' + counts.not_viewed + ')' },
     { key: 'action', label: 'アクション有 (' + counts.action + ')' },
-    { key: 'watching', label: '⏳ キャンセル待ち (' + counts.watching + ')' }
+    { key: 'watching', label: '⏳ キャンセル待ち (' + counts.watching + ')' },
+    { key: 'closed', label: '募集終了 (' + counts.closed + ')' }
   ];
   var html = '';
   for (var i = 0; i < filters.length; i++) {
@@ -2246,6 +2248,14 @@ function setPropFilter(f) {
   renderProperties();
 }
 
+// 募集終了・申込済みか。⚠️ これに当たる物件は再送できないので、チェックを付けさせない。
+function isPropClosed(p) {
+  if (!p) return false;
+  if (p.manualClosed) return true;
+  var st = String(p.currentStatus || '');
+  return st === 'closed' || st === 'applied';
+}
+
 function getFilteredProps() {
   if (propFilter === 'all') return allProperties;
   return allProperties.filter(function(p) {
@@ -2253,6 +2263,7 @@ function getFilteredProps() {
     if (propFilter === 'not_viewed') return !p.viewed;
     if (propFilter === 'action') return p.favorite || p.hold || p.viewing || p.notInterested;
     if (propFilter === 'watching') return p.watching;
+    if (propFilter === 'closed') return isPropClosed(p);
     return true;
   });
 }
@@ -2316,7 +2327,11 @@ function renderPropItem(p, idx) {
   html += '<div class="prop-card-inner">';
 
   // チェックボックス列
-  html += '<div class="prop-check-col"><input type="checkbox" class="prop-check" data-room-id="' + attrEsc(p.roomId) + '" onclick="event.stopPropagation()" onchange="updateSelectedCount()"></div>';
+  // 募集終了・申込済みは送れないので選ばせない（履歴として見せるだけ）
+  var _closed = isPropClosed(p);
+  html += '<div class="prop-check-col"><input type="checkbox" class="prop-check" data-room-id="' + attrEsc(p.roomId) + '"'
+    + (_closed ? ' disabled title="募集終了のため送れません"' : '')
+    + ' onclick="event.stopPropagation()" onchange="updateSelectedCount()"></div>';
   html += '<div class="prop-body">';
 
   // 上段: 物件名 + バッジ
@@ -2554,7 +2569,10 @@ function toggleWatch(roomId, idx, currentlyWatching) {
 // ── 一括再送付 ──
 function toggleSelectAll(checked) {
   var boxes = document.querySelectorAll('.prop-check');
-  for (var i = 0; i < boxes.length; i++) boxes[i].checked = checked;
+  for (var i = 0; i < boxes.length; i++) {
+    if (boxes[i].disabled) continue;   // 募集終了は選ばない
+    boxes[i].checked = checked;
+  }
   updateSelectedCount();
 }
 
