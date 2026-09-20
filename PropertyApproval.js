@@ -4111,9 +4111,12 @@ function getSeenPropertiesForResend(customerName) {
  * 選択された物件をLINEで再送付する。
  * @param {string} customerName
  * @param {string[]} roomIds
+ * @param {string} [leadText] カルーセルの前に置く一言（自動の再送で使う）。
+ *   黙って同じカードがもう一度届くと不自然なので、理由を添えるためのもの。
+ *   同じ push にまとめるので通数は増えない。
  * @return {{ok:boolean, sent:number, failed:number, message:string}}
  */
-function resendPropertyNotifications(customerName, roomIds) {
+function resendPropertyNotifications(customerName, roomIds, leadText) {
   if (!customerName || !Array.isArray(roomIds) || roomIds.length === 0) {
     return { ok: false, sent: 0, failed: 0, message: 'パラメータ不足' };
   }
@@ -4187,6 +4190,13 @@ function resendPropertyNotifications(customerName, roomIds) {
   // カルーセルは最大12バブル。それ以上は複数カルーセルに分割。
   var sentCount = 0;
   var allMessages = [];
+
+  // 一言があれば先頭に置く。カルーセルより前に出したいので unshift ではなく先に push する。
+  // ⚠️ 通知に出るのはこの一言（テキスト）になる。カルーセルの altText より読まれるので、
+  //   ここに理由を書いておくこと。
+  if (String(leadText || '').trim()) {
+    allMessages.push({ type: 'text', text: String(leadText).trim() });
+  }
 
   // Flexバブル → カルーセル化（サイズ・件数上限で分割。12件だとJSONが50KB超でLINEに弾かれるため）
   var _carMsgs = _splitBubblesIntoCarousels_(flexBubbles, '見逃していませんか？');
