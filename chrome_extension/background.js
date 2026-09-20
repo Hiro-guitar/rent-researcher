@@ -437,6 +437,9 @@ importScripts('suumo-competitor.js', 'suumo-patrol.js');
 importScripts('suumo-business-fetch.js');
 // 空室状況チェック (通知済み物件の current_status 更新)
 importScripts('availability-checker.js');
+
+// 画面からの空室確認トリガーの二重起動よけ（入れ子iframe対策・2026-09-20）
+let __lastVacancyTriggerAt = 0;
 // ForRent掲載停止(保留化)自動操作(Phase 3)
 importScripts('forrent-stop.js');
 // ForRent確認画面の登録ボタン自動クリック(Phase 5)
@@ -3017,6 +3020,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ⚠️ これが無いと、拡張は1分ごとのポーリングまで気づかない。担当者は画面の前で
   //   待っているので、その1分が体感でかなり長い（2026-09-20）。
   if (msg.type === 'VACANCY_CHECK_NOW') {
+    // ⚠️ 二重起動を必ず弾くこと。GASの画面は入れ子のiframeなので、ページからの合図を
+    //   複数のフレームの content script がそれぞれ受け取って、同じ依頼で2回走る。
+    //   2回走るとタブを取り合い、正しく出た closed を後から unknown が上書きする
+    //   （2026-09-20 実際に発生）。
+    const _nowMs = Date.now();
+    if (_nowMs - __lastVacancyTriggerAt < 15000) {
+      console.log('[空室確認] 直前と同じ依頼なので無視します');
+      sendResponse({ ok: true, skipped: 'duplicate' });
+      return true;
+    }
+    __lastVacancyTriggerAt = _nowMs;
     console.log('[空室確認] 画面からの依頼を受信 → その場で開始');
     setStorageData({ debugLog: '[空室確認] 画面からの依頼 → 確認を開始します' });
     runPriorityAvailabilityPoll().then(r => {
