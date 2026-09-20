@@ -2631,7 +2631,13 @@ function checkVacancyThenResend() {
   if (cbtn) { cbtn.disabled = true; cbtn.textContent = '空室確認中…'; }
   if (rbtn) rbtn.disabled = true;
   google.script.run
-    .withSuccessHandler(function() { setTimeout(function() { pollVacancy(ids, baseline, 0); }, 8000); })
+    .withSuccessHandler(function() {
+      // 拡張へ「今すぐ確認して」と伝える（vacancy-check-trigger.js が受け取る）。
+      // ⚠️ これが無いと、拡張は1分ごとのポーリングまで気づかず、その分待たされる。
+      //   拡張が入っていない・止まっている場合でも、ポーリングが拾うので害はない。
+      try { window.postMessage({ type: 'VACANCY_CHECK_REQUESTED' }, '*'); } catch (_e) {}
+      setTimeout(function() { pollVacancy(ids, baseline, 0); }, 8000);
+    })
     .withFailureHandler(function(e) { alert('確認依頼に失敗: ' + (e && e.message ? e.message : '')); resetCheckSendBtn(); })
     .requestVacancyCheckForResend(currentCustomer, ids);
 }

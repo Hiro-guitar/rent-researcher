@@ -3013,6 +3013,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   // GAS承認ページの承認ボタン押下時、suumo-approval-trigger.jsが送信
   // → 新規タブで入稿プロセスを即時起動、または稼働中タブのキューに追記
+  // 顧客管理ページで「空室確認してから送る」が押された → その場で確認を始める。
+  // ⚠️ これが無いと、拡張は1分ごとのポーリングまで気づかない。担当者は画面の前で
+  //   待っているので、その1分が体感でかなり長い（2026-09-20）。
+  if (msg.type === 'VACANCY_CHECK_NOW') {
+    console.log('[空室確認] 画面からの依頼を受信 → その場で開始');
+    setStorageData({ debugLog: '[空室確認] 画面からの依頼 → 確認を開始します' });
+    runPriorityAvailabilityPoll().then(r => {
+      sendResponse({ ok: true, result: r });
+    }).catch(err => {
+      console.error('[空室確認] 即時トリガー失敗:', err);
+      sendResponse({ ok: false, error: err.message });
+    });
+    return true;   // 非同期で返すため
+  }
+
   if (msg.type === 'SUUMO_APPROVED_NOW') {
     console.log(`[SUUMO入稿] 承認トリガー受信: key=${msg.propertyKey}, ${msg.building} ${msg.room}`);
     setStorageData({ debugLog: `[SUUMO入稿] 承認検知(${msg.building || msg.propertyKey}) → 入稿開始` });

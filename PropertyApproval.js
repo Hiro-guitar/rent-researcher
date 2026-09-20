@@ -4868,6 +4868,33 @@ function requestPriorityAvailabilityCheck(customerName, roomId) {
  * @param {string[]} roomIds
  * @return {{ok:boolean, queued:number, message:string}}
  */
+// 「確認待ちがある」目印。1分ごとのポーリング(handleSearchRequestPoll)が、これが無ければ
+// 通知済み物件シートを読まずに即返すために使う（2026-09-20）。
+// 優先依頼は60分で期限切れになるので、目印も同じだけ持たせる。
+var AVAIL_PENDING_FLAG = 'AVAIL_PRIORITY_PENDING_UNTIL';
+
+function _setAvailPendingFlag_() {
+  try {
+    PropertiesService.getScriptProperties()
+      .setProperty(AVAIL_PENDING_FLAG, String(Date.now() + 60 * 60 * 1000));
+  } catch (e) {
+    console.warn('[空室確認] 目印を立てられません: ' + e.message);
+  }
+}
+
+/** 目印が生きているか。無い・期限切れなら false。 */
+function _hasAvailPendingFlag_() {
+  try {
+    var v = PropertiesService.getScriptProperties().getProperty(AVAIL_PENDING_FLAG);
+    return !!v && Number(v) > Date.now();
+  } catch (e) { return false; }
+}
+
+/** 確認待ちが無くなったので目印を消す。 */
+function _clearAvailPendingFlag_() {
+  try { PropertiesService.getScriptProperties().deleteProperty(AVAIL_PENDING_FLAG); } catch (e) {}
+}
+
 function requestVacancyCheckForResend(customerName, roomIds) {
   if (!customerName) return { ok: false, queued: 0, message: '顧客名が未指定' };
   try {
@@ -4893,6 +4920,9 @@ function requestVacancyCheckForResend(customerName, roomIds) {
       try { silentCache.put('silentAvail_' + nameTrim + '_' + String(data[i][1]).trim(), '1', 1800); } catch (_c) {}
       queued++;
     }
+    // 「確認待ちがある」目印を立てる。1分ごとのポーリングは、これが無いときは
+    // シートを読まずに即返す（依頼が無いときの無駄な読み込みを避けるため / 2026-09-20）。
+    if (queued > 0) _setAvailPendingFlag_();
     return { ok: queued > 0, queued: queued, message: queued + '件を空室確認キューに入れました' };
   } catch (e) {
     return { ok: false, queued: 0, message: 'エラー: ' + e.message };

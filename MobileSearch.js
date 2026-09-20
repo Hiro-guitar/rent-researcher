@@ -126,12 +126,21 @@ function handleSearchRequestPoll(json) {
   if (raw) { try { req = JSON.parse(raw); } catch (e) {} }
 
   // 確認待ちの物件。空なら空配列。ここで失敗しても検索指示の受け渡しは止めない。
+  //
+  // ⚠️ 依頼が無いときにシートを読まないこと。これは1分ごとに呼ばれるので、
+  //   毎回 通知済み物件シート全体を読むと重い（2026-09-20 に一度そうしてしまった）。
+  //   依頼を入れるときに目印を立て、ここではまず目印だけを見る。
   var availability = [];
   try {
-    if (typeof getAvailabilityCheckQueue === 'function') {
+    if (typeof _hasAvailPendingFlag_ === 'function' && _hasAvailPendingFlag_()
+        && typeof getAvailabilityCheckQueue === 'function') {
       availability = getAvailabilityCheckQueue({
         limit: 5, priorityOnly: true, maxPriorityAgeMinutes: 60
       }) || [];
+      // 全部さばけたら目印を消す。次からはまたシートを読まなくなる。
+      if (!availability.length && typeof _clearAvailPendingFlag_ === 'function') {
+        _clearAvailPendingFlag_();
+      }
     }
   } catch (eA) {
     console.warn('[ポーリング] 空室確認キューを読めません: ' + eA.message);
