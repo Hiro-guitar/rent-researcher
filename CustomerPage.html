@@ -2628,7 +2628,12 @@ function bulkResend() {
 }
 
 // ── 空室確認してから送る（オンデマンド：その顧客の選択物件だけ） ──
-var VACANCY_MAX_POLLS = 12; // 15秒 × 12 = 最大3分
+// 空室確認の結果を見に行く間隔。確認自体は7〜10秒で終わるので、最初は短く刻む。
+// ⚠️ 一律15秒だと、終わっていても次に見に行くまで最大15秒待たされる（2026-09-20）。
+//   前半 3秒×10回(30秒) → 後半 15秒×10回(150秒) で、上限は今までどおり約3分。
+var VACANCY_MAX_POLLS = 20;
+var VACANCY_FAST_POLLS = 10;
+function vacancyPollDelay(attempt) { return attempt < VACANCY_FAST_POLLS ? 3000 : 15000; }
 function resetCheckSendBtn() {
   var cbtn = document.getElementById('checkSendBtn');
   if (cbtn) { cbtn.textContent = '🔄 空室確認してから送る'; }
@@ -2663,7 +2668,7 @@ function checkVacancyThenResend() {
           try { _targets[_t].postMessage({ type: 'VACANCY_CHECK_REQUESTED' }, '*'); } catch (_e3) {}
         }
       } catch (_e) {}
-      setTimeout(function() { pollVacancy(ids, baseline, 0); }, 8000);
+      setTimeout(function() { pollVacancy(ids, baseline, 0); }, 4000);
     })
     .withFailureHandler(function(e) { alert('確認依頼に失敗: ' + (e && e.message ? e.message : '')); resetCheckSendBtn(); })
     .requestVacancyCheckForResend(currentCustomer, ids);
@@ -2691,12 +2696,12 @@ function pollVacancy(ids, baseline, attempt) {
       if (checked >= ids.length || attempt >= VACANCY_MAX_POLLS) {
         finishVacancyCheck(ids, presentIds, checked, attempt >= VACANCY_MAX_POLLS);
       } else {
-        setTimeout(function() { pollVacancy(ids, baseline, attempt + 1); }, 15000);
+        setTimeout(function() { pollVacancy(ids, baseline, attempt + 1); }, vacancyPollDelay(attempt));
       }
     })
     .withFailureHandler(function(e) {
       if (attempt >= VACANCY_MAX_POLLS) { finishVacancyCheck(ids, ids, 0, true); }
-      else setTimeout(function() { pollVacancy(ids, baseline, attempt + 1); }, 15000);
+      else setTimeout(function() { pollVacancy(ids, baseline, attempt + 1); }, vacancyPollDelay(attempt));
     })
     .getSeenPropertiesForResend(currentCustomer);
 }
