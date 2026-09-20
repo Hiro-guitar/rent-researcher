@@ -1128,6 +1128,22 @@ function _staffSpecsToCriteria_(specs) {
  * @return {Array} LINE messages 配列
  */
 /**
+ * カードの本文そのものを通知（altText）にする。
+ *
+ * トーク一覧やスマホの通知に出るのは altText なので、ここに要約を入れると
+ * 「どのサイトのお部屋もお調べできます」のような見出しだけが通知に出て、
+ * 担当者が書いた文章に見えなくなる（2026-09-20 指摘）。
+ * カードに出している文章をそのまま渡すこと。
+ *
+ * @param {Array<string>} lines カードに出している文章（空は捨てる）
+ * @return {string} altText（LINEの上限400文字に収める）
+ */
+function _altTextFrom_(lines) {
+  var t = (lines || []).filter(function (s) { return String(s || '').trim(); }).join('\n\n');
+  return t.length > 400 ? t.substring(0, 399) + '…' : t;
+}
+
+/**
  * 空室確認カードの選択肢ボタン。2択を同じ重さで並べるための共通化。
  * 片方だけ primary（ベタ塗り）、もう片方を link（文字だけ）にすると
  * 「はい」へ誘導する形になるため、両方ともベタ塗りで揃える。
@@ -1189,9 +1205,12 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
   // ⚠️ 全部が同じ大きさ・同じグレーだと、どこが答えでどこが補足か分からず読みにくい
   //   （2026-09-18 指摘）。目を止める場所を「結果」と「問いかけ」の2つに絞り、
   //   それ以外は小さく薄くして引っ込める。
+  // ⚠️ 通知に出るのは altText。要約ではなく本文をそのまま渡すこと（2026-09-20）。
+  //   altLines には、カードに出す文章と同じものを順に入れていく。
+  var leadText = '「' + displayName + '」について確認いたしましたが、今回はご案内が難しい状況でした。';
+  var altLines = [leadText];
   var bodyContents = [
-    { type: 'text', text: '「' + displayName + '」について確認いたしましたが、今回はご案内が難しい状況でした。',
-      size: 'sm', color: '#555555', wrap: true }
+    { type: 'text', text: leadText, size: 'sm', color: '#555555', wrap: true }
   ];
   var footerContents = [];
 
@@ -1244,6 +1263,9 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
         { type: 'text', text: '見つかり次第、LINEにお送りします。', size: 'sm', color: '#555555', wrap: true }
       ]
     });
+    // 通知には条件の表は入れず、出どころと問いかけだけを入れる
+    altLines.push('ご覧のお部屋に近い条件: ' + conv.summary);
+    altLines.push('この条件でお探ししますか？\n見つかり次第、LINEにお送りします。');
     // ⚠️ 2つのボタンは必ず同じ見た目にすること（2026-08-06）。
     //   以前は「はい」だけ緑ベタ塗り・「いいえ」を文字リンクにしていたが、
     //   ここで提示している条件はお客さん自身が一度も言っていない推測値であり、
@@ -1267,6 +1289,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     // 変換できなかった（物件が見つからない・材料不足）: 従来どおり条件登録へ誘導
     bodyContents.push({ type: 'separator', margin: 'lg', color: '#EEEEEE' });
     bodyContents.push({ type: 'text', text: 'よろしければ、ご希望に近いお部屋をこちらでお探ししてお知らせします。', size: 'sm', color: '#555555', wrap: true, margin: 'lg' });
+    altLines.push('よろしければ、ご希望に近いお部屋をこちらでお探ししてお知らせします。');
     footerContents.push({
       type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
       action: { type: 'postback', label: 'お部屋を探す', data: '条件登録', displayText: 'お部屋を探す' }
@@ -1276,7 +1299,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
 
   var msgs = [{
     type: 'flex',
-    altText: '「' + displayName + '」の確認結果',
+    altText: _altTextFrom_(altLines),
     contents: {
       type: 'bubble',
       body: { type: 'box', layout: 'vertical', spacing: 'md', paddingAll: 'xl', contents: bodyContents },

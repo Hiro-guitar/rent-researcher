@@ -34,16 +34,18 @@ var NEW_FRIEND_REMIND_ENABLED = true;
 // ⚠️ 「お問い合わせいただいた物件」とは書かないこと。電話で問い合わせた人や
 //   紹介で友だち追加しただけの人には当てはまらず、話が噛み合わなくなる。
 function buildNewFriendRemindMessages() {
+  // ⚠️ 通知に出るのは altText。要約ではなく本文をそのまま渡すこと（2026-09-20）。
+  var t1 = '友だち追加ありがとうございます。';
+  var t2 = '気になるお部屋の空き状況をお調べできます。\n\nご希望の条件を登録いただくと、条件に合うお部屋が出たときにお知らせします。';
   return [{
-    type: 'flex', altText: '友だち追加ありがとうございます',
+    type: 'flex', altText: _altTextFrom_([t1, t2]),
     contents: {
       type: 'bubble',
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
         contents: [
-          { type: 'text', text: '友だち追加ありがとうございます。', size: 'sm', color: '#555555', wrap: true },
-          { type: 'text', text: '気になるお部屋の空き状況をお調べできます。\n\nご希望の条件を登録いただくと、条件に合うお部屋が出たときにお知らせします。',
-            size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+          { type: 'text', text: t1, size: 'sm', color: '#555555', wrap: true },
+          { type: 'text', text: t2, size: 'sm', color: '#555555', wrap: true, margin: 'md' }
         ]
       },
       footer: {
@@ -601,19 +603,21 @@ function _abandonedRemindMessages_(kind, userId, state) {
         '下のメニューの「条件を登録」からお進みください。'
       )];
     }
+    // ⚠️ 通知に出るのは altText。要約ではなく本文をそのまま渡すこと（2026-09-20）。
+    var c1 = 'ご回答ありがとうございます。';
+    var c2 = 'エリア・家賃・間取りなどをお選びいただくと、ご登録が完了します。';
+    // ⚠️ 「すぐお知らせします」とは書かない。新着が出る時期はこちらでは決められない。
+    var c3 = 'スタッフが厳選したお部屋をお送りします。\n検索サイトに出ていないお部屋もご紹介できます。';
     return [{
-      type: 'flex', altText: 'ご回答ありがとうございます',
+      type: 'flex', altText: _altTextFrom_([c1, c2, c3]),
       contents: {
         type: 'bubble',
         body: {
           type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
           contents: [
-            { type: 'text', text: 'ご回答ありがとうございます。', size: 'sm', color: '#555555', wrap: true },
-            { type: 'text', text: 'エリア・家賃・間取りなどをお選びいただくと、ご登録が完了します。',
-              size: 'sm', color: '#555555', wrap: true, margin: 'md' },
-            // ⚠️ 「すぐお知らせします」とは書かない。新着が出る時期はこちらでは決められない。
-            { type: 'text', text: 'スタッフが厳選したお部屋をお送りします。\n検索サイトに出ていないお部屋もご紹介できます。',
-              size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+            { type: 'text', text: c1, size: 'sm', color: '#555555', wrap: true },
+            { type: 'text', text: c2, size: 'sm', color: '#555555', wrap: true, margin: 'md' },
+            { type: 'text', text: c3, size: 'sm', color: '#555555', wrap: true, margin: 'md' }
           ]
         },
         footer: {
@@ -959,16 +963,18 @@ var VACANCY_FOLLOWUP_AFTER_HOURS = 16;     // 翌日に送る（登録だけ・�
 var VACANCY_FOLLOWUP_COL = 6;              // 「空室確認後のひと押し」を書く列
 
 function buildVacancyFollowupMessages() {
+  // ⚠️ 通知に出るのは altText。要約ではなく本文をそのまま渡すこと（2026-09-20）。
+  var t1 = '空室確認のご利用ありがとうございました。';
+  var t2 = 'ほかにも気になるお部屋があれば、URLか物件名をお送りください。\n\nどのサイトのお部屋でも、ご案内できるか確認します。';
   return [{
-    type: 'flex', altText: 'どのサイトのお部屋もお調べできます',
+    type: 'flex', altText: _altTextFrom_([t1, t2]),
     contents: {
       type: 'bubble',
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
         contents: [
-          { type: 'text', text: '空室確認のご利用ありがとうございました。', size: 'sm', color: '#555555', wrap: true },
-          { type: 'text', text: 'ほかにも気になるお部屋があれば、URLか物件名をお送りください。\n\nどのサイトのお部屋でも、ご案内できるか確認します。',
-            size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+          { type: 'text', text: t1, size: 'sm', color: '#555555', wrap: true },
+          { type: 'text', text: t2, size: 'sm', color: '#555555', wrap: true, margin: 'md' }
         ]
       },
       footer: {
