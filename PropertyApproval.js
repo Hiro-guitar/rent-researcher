@@ -3096,7 +3096,9 @@ function getAvailabilityCheckQueue(options) {
         ? Utilities.formatDate(sentRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')
         : String(sentRaw || '');
       if (!sentAt) { diag.noSentAt++; continue; }
-      if (sentAt < ageCutoff) { diag.tooOld++; continue; }
+      // ⚠️ 古い物件の足切り（既定60日）は、下の isPriority を見てから行う。
+      //   ここで先に切ると、担当者が名指しで「この物件を確認して」と頼んだものまで
+      //   日数だけで無視されてしまい、画面が「空室確認中…」のまま止まる（2026-09-20）。
       var status = String(sData[j][5] || '');
       var checkedRaw = sData[j][6];
       var checkedAt = _parseDateFlexible_(checkedRaw);
@@ -3110,6 +3112,11 @@ function getAvailabilityCheckQueue(options) {
       var isPriority = priorityAt > 0 && priorityAt > priorityCutoff &&
                        (!checkedAt || checkedAt < priorityAt);
       if (isPriority) diag.priorityCount++;
+
+      // 古い物件の足切り。名指しの依頼（優先）は日数で切らない。
+      // 自動の巡回で何年も前の物件を見に行かないための制限であって、
+      // 人が「これを確認して」と言ったものを断る理由にはならない。
+      if (!isPriority && sentAt < ageCutoff) { diag.tooOld++; continue; }
 
       // J列: watch_for_cancellation_at (キャンセル通知希望)
       var watchRaw = sData[j][9];
