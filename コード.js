@@ -4789,6 +4789,25 @@ function _findPendingDetail(pendingSheet, roomId, customerName) {
 // ══════════════════════════════════════════════════════════
 var CONTACT_LOG_SHEET_NAME = '対応ログ';
 
+/**
+ * 【GASエディタから実行・コード.gs】各ページのURLを実行ログに出す。
+ *
+ * ⚠️ getCustomerPageUrl() などは値を返すだけなので、そのまま実行しても
+ *   実行ログには「実行完了」しか出ない（GASは戻り値をログに出さない）。
+ *   スマホで開きたいときはこちらを実行して、ログのURLをコピーする。
+ *
+ * ⚠️ URLには api_key が入る。実行ログにも残るので、画面を人に見せないこと。
+ */
+function showPageUrls() {
+  function safe(fn, label) {
+    try { console.log(label + ':\n' + fn()); } catch (e) { console.log(label + ': 取得できません（' + e.message + '）'); }
+  }
+  safe(getCustomerPageUrl, '顧客管理ページ');
+  safe(function () { return getAdminPageUrl(''); }, '管理ページ');
+  safe(getResendPageUrl, '物件再送付ページ');
+  console.log('\n※ スマホで使うときは、ホーム画面に追加しておくと1タップで開けます。');
+}
+
 function getCustomerPageUrl() {
   var baseUrl = ScriptApp.getService().getUrl();
   var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
