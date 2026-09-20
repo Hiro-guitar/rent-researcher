@@ -409,6 +409,17 @@ body {
     </div>
   </div>
 
+  <!-- こちらで絞り込む条件（お客様には見せない） -->
+  <div class="card">
+    <div class="card-title">
+      <span>🔍 こちらで絞り込む条件</span>
+      <span style="font-size:11px;color:#888;font-weight:400;">お客様には見えません。今の条件に足して検索します</span>
+    </div>
+    <div id="narrowBox" style="padding:4px 12px 12px;">
+      <div class="loading">読み込み中...</div>
+    </div>
+  </div>
+
   <!-- 送付済み物件 -->
   <!-- 物件が増えるほど重いので、たたんだ状態から始めて、開いたときに取りに行く -->
   <div class="card">
@@ -1476,6 +1487,7 @@ function openDetail(name) {
 
   // おすすめ検索条件を読み込み
   loadRecommendList(name);
+  loadStaffNarrowing(name);
 
   // 検索条件を別途読み込み（検索ページボタン用）
   google.script.run
@@ -3283,6 +3295,135 @@ function renameCustomerPrompt() {
 // ══════════════════════════════════════════
 //  おすすめ検索条件（裏条件）
 // ══════════════════════════════════════════
+// ── こちらで絞り込む条件 ───────────────────────────────
+//  お客様の条件はそのまま。入れた項目だけ上から当てて検索する（StaffNarrowing.gs）。
+//  ⚠️ お客様には見えない。見えないぶん忘れるので、ここに必ず出しておくこと。
+var NARROW_ROWS = [
+  { key: 'building_age', label: '築年数',    type: 'select', opts: ['', '1年以内','3年以内','5年以内','7年以内','10年以内','15年以内','20年以内','25年以内','30年以内'] },
+  { key: 'walk',         label: '駅徒歩',    type: 'select', opts: ['', '1','5','7','10','15','20'], suffix: '分以内' },
+  { key: 'rent_max',     label: '家賃の上限', type: 'text',   placeholder: '例: 12', suffix: '万円以下' },
+  { key: 'area_min',     label: '専有面積',  type: 'select', opts: ['', '20','25','30','35','40','45','50','55','60','65','70','80','90','100'], suffix: 'm²以上' },
+  { key: 'layouts',      label: '間取り',    type: 'multi',  opts: ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'] },
+  { key: 'equipment',    label: 'こだわり',  type: 'multi',  opts: ['バス・トイレ別','独立洗面台','南向き','東向き','西向き','北向き','角部屋','最上階','2階以上','オートロック','宅配ボックス','室内洗濯機置場','駐車場あり'] }
+];
+var narrowData = null;
+
+function loadStaffNarrowing(name) {
+  document.getElementById('narrowBox').innerHTML = '<div class="loading">読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.ok) {
+        document.getElementById('narrowBox').innerHTML =
+          '<div style="font-size:12px;color:#888;">' + esc((res && res.message) || '読み込めません') + '</div>';
+        return;
+      }
+      narrowData = res;
+      renderStaffNarrowing();
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('narrowBox').innerHTML = '<div style="font-size:12px;color:#c66;">エラー: ' + esc(e.message) + '</div>';
+    })
+    .getStaffNarrowing(name);
+}
+
+function _narrowCustomerText(key) {
+  var c = (narrowData && narrowData.customer) || {};
+  var v = c[key];
+  if (Array.isArray(v)) return v.length ? v.join('・') : '指定なし';
+  v = String(v || '').trim();
+  if (!v || v === '指定しない') return '指定なし';
+  var row = NARROW_ROWS.filter(function(r) { return r.key === key; })[0];
+  return v + ((row && row.suffix) ? row.suffix : '');
+}
+
+function renderStaffNarrowing() {
+  var nw = (narrowData && narrowData.narrowing) || {};
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+  html += '<tr style="color:#888;"><td style="padding:3px 6px;">項目</td>'
+        + '<td style="padding:3px 6px;">お客様の条件</td>'
+        + '<td style="padding:3px 6px;">こちらで絞り込む</td></tr>';
+  for (var i = 0; i < NARROW_ROWS.length; i++) {
+    var r = NARROW_ROWS[i];
+    var cur = nw[r.key];
+    var ctrl = '';
+    if (r.type === 'multi') {
+      var sel = Array.isArray(cur) ? cur : [];
+      ctrl = '<div style="display:flex;flex-wrap:wrap;gap:4px;">';
+      for (var o = 0; o < r.opts.length; o++) {
+        var on = sel.indexOf(r.opts[o]) >= 0;
+        ctrl += '<label style="font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;'
+             + (on ? 'background:#3a5f3a;color:#fff;' : 'background:#2d2d2d;color:#aaa;') + '">'
+             + '<input type="checkbox" class="narrow-multi" data-key="' + r.key + '" value="' + attrEsc(r.opts[o]) + '"'
+             + (on ? ' checked' : '') + ' style="margin-right:3px;">' + esc(r.opts[o]) + '</label>';
+      }
+      ctrl += '</div>';
+    } else if (r.type === 'select') {
+      ctrl = '<select class="narrow-input" data-key="' + r.key + '" style="width:130px;">';
+      for (var q = 0; q < r.opts.length; q++) {
+        var val = r.opts[q];
+        var lab = val === '' ? '（絞らない）' : val + (r.suffix || '');
+        ctrl += '<option value="' + attrEsc(val) + '"' + (String(cur || '') === val ? ' selected' : '') + '>' + esc(lab) + '</option>';
+      }
+      ctrl += '</select>';
+    } else {
+      ctrl = '<input type="text" class="narrow-input" data-key="' + r.key + '" value="' + attrEsc(cur || '')
+           + '" placeholder="' + attrEsc(r.placeholder || '') + '" style="width:80px;"> ' + esc(r.suffix || '');
+    }
+    html += '<tr style="border-top:1px solid #333;">'
+         + '<td style="padding:5px 6px;color:#aaa;white-space:nowrap;">' + esc(r.label) + '</td>'
+         + '<td style="padding:5px 6px;color:#ccc;">' + esc(_narrowCustomerText(r.key)) + '</td>'
+         + '<td style="padding:5px 6px;">' + ctrl + '</td></tr>';
+  }
+  html += '</table>';
+  html += '<div style="margin-top:8px;font-size:11px;color:#888;">空欄はお客様の条件のまま。入れたものだけ上書きして検索します。</div>';
+  html += '<div style="margin-top:8px;">'
+       + '<button class="btn btn-sm" onclick="saveStaffNarrowingUI()" style="background:#3a5f3a;color:#fff;border:none;">保存する</button> '
+       + '<button class="btn btn-sm btn-outline" onclick="clearStaffNarrowingUI()">すべて解除</button>'
+       + '<span id="narrowMsg" style="margin-left:8px;font-size:11px;color:#888;"></span></div>';
+  document.getElementById('narrowBox').innerHTML = html;
+}
+
+function _collectNarrowing() {
+  var out = {};
+  var inputs = document.querySelectorAll('.narrow-input');
+  for (var i = 0; i < inputs.length; i++) {
+    var v = String(inputs[i].value || '').trim();
+    if (v) out[inputs[i].getAttribute('data-key')] = v;
+  }
+  var boxes = document.querySelectorAll('.narrow-multi:checked');
+  for (var b = 0; b < boxes.length; b++) {
+    var k = boxes[b].getAttribute('data-key');
+    if (!out[k]) out[k] = [];
+    out[k].push(boxes[b].value);
+  }
+  return out;
+}
+
+function saveStaffNarrowingUI() {
+  var msg = document.getElementById('narrowMsg');
+  if (msg) msg.textContent = '保存中...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.ok) {
+        narrowData.narrowing = res.narrowing || {};
+        renderStaffNarrowing();
+        var m = document.getElementById('narrowMsg');
+        if (m) m.textContent = res.count ? (res.count + '項目で絞り込みます') : '絞り込みなし';
+      } else {
+        if (msg) msg.textContent = '保存できません: ' + ((res && res.message) || '');
+      }
+    })
+    .withFailureHandler(function(e) { if (msg) msg.textContent = 'エラー: ' + e.message; })
+    .saveStaffNarrowing(currentCustomer, _collectNarrowing());
+}
+
+function clearStaffNarrowingUI() {
+  if (!confirm('こちらで絞り込む条件をすべて解除します。よろしいですか？')) return;
+  narrowData.narrowing = {};
+  renderStaffNarrowing();
+  saveStaffNarrowingUI();
+}
+
 function loadRecommendList(name) {
   if (!name) return;
   var el = document.getElementById('recommendList');

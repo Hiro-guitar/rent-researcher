@@ -2618,6 +2618,9 @@ function handleGetCriteria(e) {
   console.log('[LINEブロック判定] DISCORD_WEBHOOK_URL 設定=' + (_wh ? 'あり' : 'なし'));
 
   var criteria = [];
+  // こちらで絞り込む条件をまとめて読む（顧客ごとにシートを読み直さないため）
+  var _staffNarrowMap = {};
+  try { if (typeof loadAllStaffNarrowing === 'function') _staffNarrowMap = loadAllStaffNarrowing(); } catch (_eN) {}
   var deliverableNames = {}; // 配信ゲートを通過した顧客名（おすすめ条件の検索可否判定に使う）
   for (var i = 1; i < data.length; i++) {
     var row = data[i];
@@ -2778,6 +2781,18 @@ function handleGetCriteria(e) {
       roomDigitSums: roomDigitSums,
       minFloor: minFloor
     });
+
+    // こちらで絞り込む条件（StaffNarrowing.gs）。入っている項目だけ上から当てる。
+    // ⚠️ お客様の条件は書き換えない。検索に渡す値だけを狭める。
+    try {
+      if (_staffNarrowMap && _staffNarrowMap[name] && typeof applyStaffNarrowing === 'function') {
+        if (applyStaffNarrowing(criteria[criteria.length - 1], _staffNarrowMap[name])) {
+          console.log('[絞り込み] ' + name + ' に適用: ' + JSON.stringify(_staffNarrowMap[name]));
+        }
+      }
+    } catch (eNarrow) {
+      console.warn('[絞り込み] 適用できません: ' + name + ' / ' + eNarrow.message);
+    }
   }
 
   _lap('顧客ループ');
