@@ -1991,6 +1991,21 @@ function reinsLayoutAllowed(propLayoutRaw, customerLayouts) {
   });
 }
 
+// こだわり条件で選ばれた方角を返す（['南','南東'] のような形。未選択なら空配列）。
+//
+// 4方位に増やした（2026-09-20。以前は「南向き」1つだけ）。
+// 南を選ぶと南東・南西も通る（部分一致）。西を選べば南西・北西も通る。
+// ⚠️ こだわり条件は「バス・トイレ別, 南東向き」のようなカンマ区切りの1本の文字列で届く。
+//   includes('東向き') で拾うと「南東向き」から「東向き」を拾ってしまうので、
+//   必ず区切って1つずつ突き合わせること。
+const DIRECTION_LABELS = ['南向き','東向き','西向き','北向き'];
+function pickWantedDirections(equipmentText) {
+  const items = String(equipmentText || '').split(/[,、]/).map(s => s.trim()).filter(Boolean);
+  return DIRECTION_LABELS
+    .filter(label => items.indexOf(label) >= 0)
+    .map(label => label.replace('向き', ''));
+}
+
 // フィルタ不合格の理由を返す（合格ならnull）
 function getFilterRejectReason(prop, customer) {
   // 町名丁目フィルタ（selectedTownsが指定されている場合、住所テキストで照合）
@@ -2132,12 +2147,18 @@ function getFilterRejectReason(prop, customer) {
     }
   }
 
-  // 南向きフィルタ（バルコニー方向に「南」を含むか判定。情報なしは通過）
+  // 方角フィルタ（バルコニー方向で判定。情報なしは通過）
+  // ⚠️ 判定は pickWantedDirections に任せること。こだわり条件は
+  //   「バス・トイレ別, 南東向き」のようなカンマ区切りの1本の文字列で届くため、
+  //   includes('東向き') のような部分一致で拾うと「南東向き」から「東向き」を拾ってしまう。
   const toHankaku = (s) => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
   const equip = toHankaku(customer.equipment || '').toLowerCase();
-  if (equip.includes('南向き')) {
-    if (prop.sunlight && !prop.sunlight.includes('南')) {
-      return `南向きでない: バルコニー方向=${prop.sunlight}`;
+  const wantedDirs = pickWantedDirections(customer.equipment);
+  if (wantedDirs.length && prop.sunlight) {
+    // 「南」を選んだ人に南東・南西を通すのは元のままの考え方（南寄りなら可）。
+    // 逆に「南東」を選んだ人に「南」は通さない。選んだとおりに絞る。
+    if (!wantedDirs.some(d => prop.sunlight.includes(d))) {
+      return `方角が合わない: バルコニー方向=${prop.sunlight}（希望: ${wantedDirs.join('・')}）`;
     }
   }
 
@@ -8971,8 +8992,10 @@ globalThis.__computePropertyWarnings = function(prop, customer) {
   if (equip.includes('1階') && !equip.includes('2階以上') && floorNum === 0) {
     warnings.push('⚠️ 1階かどうか確認してください');
   }
-  if (equip.includes('南向き') && !prop.sunlight) {
-    warnings.push('⚠️ 南向きかどうか確認してください');
+  // 方角の希望があるのにバルコニー方向が取れていない → 人が見て確かめる
+  const _wantDirs = pickWantedDirections(customer && customer.equipment);
+  if (_wantDirs.length && !prop.sunlight) {
+    warnings.push('⚠️ ' + _wantDirs.join('・') + '向きかどうか確認してください');
   }
   if (equip.includes('角部屋') && !(prop.facilities || '').includes('角部屋') && !(prop.facilities || '').includes('角住戸') && !(prop.room_attr || '').includes('角部屋')) {
     warnings.push('⚠️ 角部屋かどうか確認してください');

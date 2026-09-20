@@ -6756,9 +6756,14 @@ function _computePropertyWarningsGAS_(prop, equipmentStr, notesStr) {
   if (equip.indexOf('1階') >= 0 && equip.indexOf('2階以上') < 0 && floorNum === 0) {
     warnings.push('⚠️ 1階かどうか確認してください');
   }
-  // 方角
-  if (equip.indexOf('南向き') >= 0 && !prop.sunlight) {
-    warnings.push('⚠️ 南向きかどうか確認してください');
+  // 方角（2026-09-20 から4方位。南を選ぶと南東・南西も通る）
+  // ⚠️ こだわりはカンマ区切りの1本の文字列なので、区切って突き合わせること。
+  var _dirLabels = ['南向き', '東向き', '西向き', '北向き'];
+  var _equipItems = String(equip || '').split(/[,、]/).map(function (s) { return s.trim(); });
+  var _wantDirs = _dirLabels.filter(function (d) { return _equipItems.indexOf(d) >= 0; })
+    .map(function (d) { return d.replace('向き', ''); });
+  if (_wantDirs.length && !prop.sunlight) {
+    warnings.push('⚠️ ' + _wantDirs.join('・') + '向きかどうか確認してください');
   }
   // 角部屋
   if (equip.indexOf('角部屋') >= 0 && fac.indexOf('角部屋') < 0 && fac.indexOf('角住戸') < 0) {
