@@ -3298,13 +3298,16 @@ function renameCustomerPrompt() {
 // ── こちらで絞り込む条件 ───────────────────────────────
 //  お客様の条件はそのまま。入れた項目だけ上から当てて検索する（StaffNarrowing.gs）。
 //  ⚠️ お客様には見えない。見えないぶん忘れるので、ここに必ず出しておくこと。
+// こだわりのマスターは EquipmentMaster.gs から受け取る。ここでコピーを持たない。
+var EQUIPMENT_CATEGORIES = <?!= equipmentCategories ?>;
+
 var NARROW_ROWS = [
   { key: 'building_age', label: '築年数',    type: 'select', opts: ['', '1年以内','3年以内','5年以内','7年以内','10年以内','15年以内','20年以内','25年以内','30年以内'] },
   { key: 'walk',         label: '駅徒歩',    type: 'select', opts: ['', '1','5','7','10','15','20'], suffix: '分以内' },
   { key: 'rent_max',     label: '家賃の上限', type: 'text',   placeholder: '例: 12', suffix: '万円以下' },
   { key: 'area_min',     label: '専有面積',  type: 'select', opts: ['', '20','25','30','35','40','45','50','55','60','65','70','80','90','100'], suffix: 'm²以上' },
   { key: 'layouts',      label: '間取り',    type: 'multi',  opts: ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'] },
-  { key: 'equipment',    label: 'こだわり',  type: 'multi',  opts: ['バス・トイレ別','独立洗面台','南向き','東向き','西向き','北向き','角部屋','最上階','2階以上','オートロック','宅配ボックス','室内洗濯機置場','駐車場あり'] }
+  { key: 'equipment',    label: 'こだわり',  type: 'equip' }   // 条件フォームと同じマスターを使う
 ];
 var narrowData = null;
 
@@ -3357,6 +3360,27 @@ function renderStaffNarrowing() {
              + (on ? ' checked' : '') + ' style="margin-right:3px;">' + esc(r.opts[o]) + '</label>';
       }
       ctrl += '</div>';
+    } else if (r.type === 'equip') {
+      // 条件フォームと同じカテゴリ分けで出す。普段は畳んでおく（45項目あるため）
+      var esel = Array.isArray(cur) ? cur : [];
+      ctrl = '<details' + (esel.length ? ' open' : '') + '>'
+           + '<summary style="cursor:pointer;color:#8ab;font-size:11px;">'
+           + (esel.length ? esc(esel.join('・')) : '選ぶ') + '</summary>';
+      for (var g = 0; g < EQUIPMENT_CATEGORIES.length; g++) {
+        var cat = EQUIPMENT_CATEGORIES[g];
+        ctrl += '<div style="margin:4px 0;"><div style="font-size:10px;color:#777;">' + esc(cat.name) + '</div>'
+             + '<div style="display:flex;flex-wrap:wrap;gap:4px;">';
+        for (var t = 0; t < cat.items.length; t++) {
+          var it = cat.items[t];
+          var ion = esel.indexOf(it) >= 0;
+          ctrl += '<label style="font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;'
+               + (ion ? 'background:#3a5f3a;color:#fff;' : 'background:#2d2d2d;color:#aaa;') + '">'
+               + '<input type="checkbox" class="narrow-multi" data-key="equipment" value="' + attrEsc(it) + '"'
+               + (ion ? ' checked' : '') + ' style="margin-right:3px;">' + esc(it) + '</label>';
+        }
+        ctrl += '</div></div>';
+      }
+      ctrl += '</details>';
     } else if (r.type === 'select') {
       ctrl = '<select class="narrow-input" data-key="' + r.key + '" style="width:130px;">';
       for (var q = 0; q < r.opts.length; q++) {

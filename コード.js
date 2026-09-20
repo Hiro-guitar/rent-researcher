@@ -1732,6 +1732,7 @@ function doGet(e) {
     const d = state.data || {};
     console.log('[PERF-doGet-criteria] +' + (Date.now() - _tCriteria) + 'ms テンプレ生成直前');
     const template = HtmlService.createTemplateFromFile('RouteSelectPage');
+    template.equipmentCategories = JSON.stringify(EQUIPMENT_CATEGORIES);
     template.userId = userId;
     template.routeCompanies = JSON.stringify(ROUTE_COMPANIES);
     template.selectedRoutes = JSON.stringify(state.selectedRoutes || []);
@@ -3411,6 +3412,7 @@ function handleAdminPage(e) {
   var initCustomer = e.parameter.customer || '';
 
   var template = HtmlService.createTemplateFromFile('AdminPage');
+  template.equipmentCategories = JSON.stringify(EQUIPMENT_CATEGORIES);
   template.routeCompanies = JSON.stringify(ROUTE_COMPANIES);
   template.stationData = JSON.stringify(STATION_DATA);
   template.tokyoCities = JSON.stringify(TOKYO_CITIES);
@@ -4117,6 +4119,7 @@ function prerenderAndCacheCriteriaHtml_(userId) {
     }
     var d = state.data || {};
     var template = HtmlService.createTemplateFromFile('RouteSelectPage');
+    template.equipmentCategories = JSON.stringify(EQUIPMENT_CATEGORIES);
     template.userId = userId;
     template.routeCompanies = JSON.stringify(ROUTE_COMPANIES);
     template.selectedRoutes = JSON.stringify(state.selectedRoutes || []);
@@ -4861,6 +4864,7 @@ function handleCustomerPage(e) {
   var initCustomer = e.parameter.customer || '';
 
   var template = HtmlService.createTemplateFromFile('CustomerPage');
+  template.equipmentCategories = JSON.stringify(EQUIPMENT_CATEGORIES);
   template.customersJson = _jsonForInlineScript_(customerList);
   template.initCustomer = _jsonForInlineScript_(initCustomer);
   // スマホ検索ページのURLは、ここで埋め込んでリンクのhrefにする。
