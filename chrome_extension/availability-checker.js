@@ -1114,8 +1114,12 @@ async function _runAvailabilityForItems_(items) {
         listing_status: (res && res.listingStatus) || '',
         application_status: (res && res.applicationStatus) || ''
       });
+      // ⚠️ 保存されている source ではなく、実際に見にいったサイトを出す。
+      //   保存値が間違っていると「ielove → closed」のように、
+      //   ES-Squareを見たのにいえらぶと表示されて紛らわしい（2026-09-20）。
+      const _shown = _detectSourceFromUrl(it.url) || it.source;
       await setStorageData({
-        debugLog: `[優先空室確認] ${it.customer} ${it.source} → ${status}`
+        debugLog: `[優先空室確認] ${it.customer} ${_shown} → ${status}`
       });
     } catch (e) {
       results.push({ customer: it.customer, room_id: it.roomId, status: 'unknown' });
