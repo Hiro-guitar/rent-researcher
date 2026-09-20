@@ -12,6 +12,13 @@
  *   O(14) 引越し時期 / P(15) その他 / Q(16) ペット(未使用) / R(17) 居住者(未使用)
  *   Y(24) 町名丁目JSON / AA(26) 入居時期厳守
  *   AH(33) ラベル / AI(34) ID / AJ(35) 有効フラグ('0'で無効)
+ *   AP(41) 種別 … '' or 'おすすめ' = 裏条件（お客様に見せない）/ 'お客様' = 2つ目の条件
+ *
+ * 2026-09-20 追加: このシートは2種類の行を持つようになった。
+ *   ・おすすめ（従来）… こちらが広げた推測。お客様には見せない
+ *   ・お客様          … お客様の2つ目の条件。「エリアによって賃料が変わる」人のためのもの。
+ *                       条件確認に並べ、お客様自身が変更できる
+ * どちらも自動検索は回る。違うのは「見せるかどうか」だけ。
  */
 
 var RECOMMEND_SHEET_NAME = 'おすすめ検索条件';
@@ -24,6 +31,20 @@ var RECOMMEND_COL_CARMODEL = 40;         // AN (index39): 車種（駐車場あ�
 var RECOMMEND_COL_MINFLOOR = 41;         // AO (index40): 最低階数（◯階以上）
 var RECOMMEND_COL_ALLOWED_FLOORS = 38;   // AL (index37): 希望階数（例 "3,5,6,7,8,11"）
 var RECOMMEND_COL_ROOM_DIGIT_SUMS = 39;  // AM (index38): 部屋番号の数字合計（例 "5,6,7,8"）
+
+// AP (index41): 種別。その行が「誰の条件か」を表す（2026-09-20 追加）。
+//   ''（空） / 'おすすめ' … 従来の裏条件。こちらが広げた推測なので**お客様には見せない**
+//   'お客様'              … お客様の2つ目の条件。条件確認に並べ、お客様が変更できる
+// ⚠️ 既存の行は空のまま＝おすすめ扱い。黙ってお客様に見えるようになる事故を防ぐための既定。
+//   「言っていないことを言ったことにする」のが一番まずいので、既定は必ず見せない側に倒すこと。
+var RECOMMEND_COL_KIND = 42;
+var RECOMMEND_KIND_CUSTOMER = 'お客様';
+var RECOMMEND_KIND_OURS = 'おすすめ';
+
+/** その行が「お客様の条件」か（空はおすすめ扱い）。 */
+function _recIsCustomerKind_(v) {
+  return String(v == null ? '' : v).trim() === RECOMMEND_KIND_CUSTOMER;
+}
 
 /** おすすめ条件シートを取得（無ければ作成してヘッダーを入れる）。 */
 function _getRecommendSheet_() {
@@ -43,6 +64,17 @@ function _getRecommendSheet_() {
     header[33] = 'ラベル'; header[34] = 'ID'; header[35] = '有効';
     sheet.getRange(1, 1, 1, header.length).setValues([header]);
     sheet.setFrozenRows(1);
+  }
+  // すでにあるシートにも種別の見出しを入れる（後から足した列のため）
+  try {
+    if (sheet.getMaxColumns() < RECOMMEND_COL_KIND) {
+      sheet.insertColumnsAfter(sheet.getMaxColumns(), RECOMMEND_COL_KIND - sheet.getMaxColumns());
+    }
+    if (String(sheet.getRange(1, RECOMMEND_COL_KIND).getValue() || '').trim() === '') {
+      sheet.getRange(1, RECOMMEND_COL_KIND).setValue('種別');
+    }
+  } catch (eH) {
+    console.warn('[おすすめ条件] 種別の見出しを入れられません: ' + eH.message);
   }
   return sheet;
 }
@@ -192,7 +224,9 @@ function _recSummary_(row) {
 function listRecommendCriteria(customerName) {
   var sheet = _getRecommendSheet_();
   if (sheet.getLastRow() < 2) return [];
-  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 36).getValues();
+  // ⚠️ 36列しか読んでいなかったため、独立洗面台モード(37)・希望階数(38)・部屋番号(39) が
+  //   常に未設定として返っていた（index が範囲外で undefined になる）。種別(42)まで読む。
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, RECOMMEND_COL_KIND).getValues();
   var out = [];
   for (var i = 0; i < data.length; i++) {
     if (String(data[i][1] || '').trim() !== customerName) continue;
@@ -200,6 +234,8 @@ function listRecommendCriteria(customerName) {
     out.push({
       id: String(data[i][34] || ''),
       label: String(data[i][33] || ''),
+      kind: _recIsCustomerKind_(data[i][RECOMMEND_COL_KIND - 1]) ? RECOMMEND_KIND_CUSTOMER : RECOMMEND_KIND_OURS,
+      isCustomerOwn: _recIsCustomerKind_(data[i][RECOMMEND_COL_KIND - 1]),
       enabled: !(enabled === '0' || enabled === 'false'),
       moveInDate: _recMoveInStr_(data[i][14]),
       moveInStrict: String(data[i][26] || '').trim().toLowerCase() === 'true',
@@ -211,6 +247,26 @@ function listRecommendCriteria(customerName) {
     });
   }
   return out;
+}
+
+/**
+ * その顧客の「お客様の2つ目の条件」だけを返す（種別='お客様' かつ有効なもの）。
+ *
+ * ⚠️ おすすめ（裏条件）は絶対に混ぜないこと。お客様が一度も言っていない条件を
+ *   「ご登録の条件」として見せることになるため（2026-09-20）。
+ * @return {Array} listRecommendCriteria と同じ形
+ */
+function listCustomerOwnCriteria(customerName) {
+  customerName = String(customerName || '').trim();
+  if (!customerName) return [];
+  try {
+    return (listRecommendCriteria(customerName) || []).filter(function (r) {
+      return r.isCustomerOwn && r.enabled;
+    });
+  } catch (e) {
+    console.warn('[2つ目の条件] 読めません: ' + customerName + ' / ' + e.message);
+    return [];
+  }
 }
 
 /** google.script.run 用: おすすめ条件を削除（ID指定）。 */
@@ -408,6 +464,9 @@ function saveRecommendCriteria(payload) {
         if (f.roomDigitSums !== undefined) sheet.getRange(i + 1, RECOMMEND_COL_ROOM_DIGIT_SUMS).setValue(String(f.roomDigitSums || ''));
         if (f.carModel !== undefined) sheet.getRange(i + 1, RECOMMEND_COL_CARMODEL).setValue(String(f.carModel || ''));
         if (f.minFloor !== undefined) sheet.getRange(i + 1, RECOMMEND_COL_MINFLOOR).setValue(String(f.minFloor || ''));
+        // 種別は payload で指定されたときだけ書き換える。省略時は既存のまま
+        // （おすすめの行を編集しただけで、お客様に見えるようになってはいけない）。
+        if (payload.kind) sheet.getRange(i + 1, RECOMMEND_COL_KIND).setValue(String(payload.kind));
         return { ok: true, id: id };
       }
     }
@@ -428,6 +487,8 @@ function saveRecommendCriteria(payload) {
     if (f.roomDigitSums) sheet.getRange(_newRow, RECOMMEND_COL_ROOM_DIGIT_SUMS).setValue(String(f.roomDigitSums));
     if (f.carModel) sheet.getRange(_newRow, RECOMMEND_COL_CARMODEL).setValue(String(f.carModel));
     if (f.minFloor) sheet.getRange(_newRow, RECOMMEND_COL_MINFLOOR).setValue(String(f.minFloor));
+    // 種別。指定が無ければ従来どおり「おすすめ」＝お客様には見せない
+    sheet.getRange(_newRow, RECOMMEND_COL_KIND).setValue(String(payload.kind || RECOMMEND_KIND_OURS));
   } catch (e) {}
   return { ok: true, id: newId };
 }
@@ -531,7 +592,12 @@ function getRecommendForExtension(id) {
  * @param {string} label おすすめ条件のラベル
  * @return {Object} { ok, url }
  */
-function startRecommendEditor(customerName, recommendId, label) {
+/**
+ * 条件フォームを開くURLを作る。
+ * @param {string} [kind] RECOMMEND_KIND_CUSTOMER を渡すと「お客様の2つ目の条件」として保存される。
+ *   省略時は従来どおり「おすすめ」＝お客様には見せない。
+ */
+function startRecommendEditor(customerName, recommendId, label, kind) {
   customerName = String(customerName || '').trim();
   if (!customerName) return { ok: false, message: '顧客名がありません' };
   recommendId = String(recommendId || '').trim();
@@ -591,7 +657,7 @@ function startRecommendEditor(customerName, recommendId, label) {
   //   以前はスクリプトキャッシュ(30分)だけに置いていたため、キャッシュが消えると
   //   保存時に「セッションが切れました」で必ず失敗した。
   //   state は UserProperties にあり 24時間もつので、こちらを本命にする。
-  var _recMeta = { customerName: customerName, recommendId: recommendId, label: seedLabel };
+  var _recMeta = { customerName: customerName, recommendId: recommendId, label: seedLabel, kind: String(kind || '') };
   state.recMeta = _recMeta;
   saveState(userId, state);
 
@@ -663,7 +729,8 @@ function _saveRecommendFromForm_(userId, criteria) {
     };
     var res = saveRecommendCriteria({
       customerName: meta.customerName, id: meta.recommendId || '',
-      label: meta.label || 'おすすめ条件', fields: fields
+      label: meta.label || 'おすすめ条件', fields: fields,
+      kind: meta.kind || ''
     });
     try { clearState(userId); } catch (e) {}
     cache.remove('recedit_' + token);
