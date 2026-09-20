@@ -22,9 +22,31 @@
  * @param {{source: string, url: string, reinsPropNo: string}} item
  * @return {Promise<{status:string, badgeCount?:number, canApply?:boolean, listingStatus?:string}>}
  */
+/**
+ * URLからサイトを見分ける。分からなければ ''。
+ * ⚠️ シートに保存された source より、URL のほうが確かな証拠。
+ *   実際にいい生活の物件が ielove として保存されていて、いえらぶを見にいって
+ *   unknown になっていた（2026-09-20）。
+ */
+function _detectSourceFromUrl(url) {
+  const u = String(url || '').toLowerCase();
+  if (!u) return '';
+  if (u.includes('itandibb.com') || u.includes('rent.itandi')) return 'itandi';
+  if (u.includes('ielove')) return 'ielove';
+  if (u.includes('es-square') || u.includes('iisesq')) return 'essquare';
+  if (u.includes('reins')) return 'reins';
+  return '';
+}
+
 async function checkOneAvailability(item) {
-  const source = String(item.source || '').toLowerCase();
   const url = String(item.url || '');
+  // URLから分かるならそれを使う。保存された source と食い違っていても URL を信じる。
+  const fromUrl = _detectSourceFromUrl(url);
+  const stored = String(item.source || '').toLowerCase();
+  if (fromUrl && stored && fromUrl !== stored) {
+    console.warn(`[availability] sourceが実態と違います: 保存=${stored} / URL=${fromUrl} → URLを採用`);
+  }
+  const source = fromUrl || stored;
   try {
     let res;
     if (source === 'itandi')   res = await _checkItandiAvailability(url);
