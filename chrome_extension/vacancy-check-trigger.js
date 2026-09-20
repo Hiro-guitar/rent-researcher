@@ -19,6 +19,10 @@
 (function () {
   'use strict';
 
+  // 読み込み確認ログ（このスクリプトが実際にそのフレームで走っているかの確認用）。
+  // GASの画面はGoogleのiframeで描画されるので、どのフレームに入ったかも出す。
+  console.log('[空室確認トリガー] content script loaded, url=' + location.href);
+
   // 連打・iframe二重読み込みでの多重送信を抑える
   var _lastSentAt = 0;
 
