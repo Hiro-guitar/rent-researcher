@@ -1030,7 +1030,34 @@ async function _sendDiscordNotificationsFromExtension(items) {
  *
  * @param {Array<{customer,roomId,source,url,reinsPropNo}>} items 確認する物件
  */
+// 実行中の鍵。サービスワーカーが途中で落ちても残り続けないよう、時刻で持つ。
+const AVAIL_RUN_LOCK_KEY = '__availPriorityRunningAt';
+const AVAIL_RUN_LOCK_STALE_MS = 5 * 60 * 1000;
+
+/**
+ * 同時に2回走らせないための入口。
+ *
+ * ⚠️ これが無いと、画面からの即時トリガーとポーリングが同じ依頼を二重に処理する。
+ *   シートの依頼の印は結果を返すまで消えないので、実行中にポーリングが来ると
+ *   同じ物件をもう一度拾ってしまう。2つが同時にタブを取り合い、先に正しく出た
+ *   判定を後から unknown が上書きする（2026-09-20 実際に発生）。
+ */
 async function runAvailabilityForItems(items) {
+  const lock = await new Promise(r => chrome.storage.local.get([AVAIL_RUN_LOCK_KEY], d => r(d)));
+  const startedAt = Number(lock && lock[AVAIL_RUN_LOCK_KEY]) || 0;
+  if (startedAt && (Date.now() - startedAt) < AVAIL_RUN_LOCK_STALE_MS) {
+    console.log('[空室確認] すでに実行中なのでスキップ');
+    return { skipped: 'already_running' };
+  }
+  await setStorageData({ [AVAIL_RUN_LOCK_KEY]: Date.now() });
+  try {
+    return await _runAvailabilityForItems_(items);
+  } finally {
+    await setStorageData({ [AVAIL_RUN_LOCK_KEY]: 0 });
+  }
+}
+
+async function _runAvailabilityForItems_(items) {
   // 全件モード or 定期チェック実行中ならスキップ (衝突防止)
   // ※ 定期チェック中は _handlePriorityDuringPeriodic が代わりに処理する
   const flags = await new Promise(r =>
