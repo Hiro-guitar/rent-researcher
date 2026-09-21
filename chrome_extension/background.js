@@ -3023,10 +3023,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ⚠️ content script から直接GASを叩くとCORSで止まるので、ここで代わりに取りに行く。
   if (msg.type === 'LINE_LOOKUP_NAME') {
     gasGet('line_customer_name', { user_id: String(msg.userId || '') })
-      .then(r => sendResponse({ ok: true, name: (r && r.name) || '' }))
+      // ⚠️ 生の応答もそのまま返すこと。名前が空のとき、api_keyが違うのか
+      //   シートに居ないだけなのかを、content script 側で見分けられなくなる。
+      .then(r => sendResponse({ ok: true, name: (r && r.name) || '', raw: r }))
       .catch(err => {
         console.warn('[LINE表示名] 顧客名を引けません: ' + err.message);
-        sendResponse({ ok: false, name: '' });
+        sendResponse({ ok: false, name: '', raw: { error: err.message } });
       });
     return true;   // 非同期で返すため
   }

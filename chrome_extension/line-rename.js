@@ -67,7 +67,11 @@
     return new Promise(function (resolve) {
       try {
         chrome.runtime.sendMessage({ type: 'LINE_LOOKUP_NAME', userId: userId }, function (res) {
-          if (chrome.runtime.lastError) { resolve(''); return; }
+          if (chrome.runtime.lastError) {
+            console.warn('[LINE表示名] 拡張に届きません: ' + chrome.runtime.lastError.message);
+            resolve(''); return;
+          }
+          if (!res || !res.name) console.log('[LINE表示名] GASの応答:', res && res.raw);
           resolve((res && res.name) ? String(res.name) : '');
         });
       } catch (e) { resolve(''); }
