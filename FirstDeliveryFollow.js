@@ -254,9 +254,19 @@ function processFirstDeliveryFollow() {
 
 /** 再送に添える一言。⚠️ 通知に出るのはこの文章。 */
 function buildFirstDeliveryResendText() {
+  // ⚠️ 「まだ募集中のものを」とは書かないこと（2026-09-21）。残り物を送っている感じになる。
+  //   見る理由を先に伝えて、最後は返事ではなく希望を聞く形にする。
   return '先日お送りしたお部屋は、ご覧いただけましたでしょうか。\n\n'
-    + 'まだ募集中のものを、もう一度お送りします。\n\n'
-    + '気になるものがありましたら、そのままLINEでお知らせください。';
+    + 'ご希望の条件に合うものを、スタッフが一件ずつ見てお送りしています。\n'
+    + '検索サイトに出ていないお部屋もご紹介できます。\n\n'
+    + 'もう少しこういうお部屋がいい、などございましたら\n'
+    + 'お気軽にお申し付けください。';
+}
+
+/** 再送に添えるボタン。カルーセルのいちばん下に出る。 */
+function buildFirstDeliveryQuickReply() {
+  if (typeof qrMessage !== 'function') return null;
+  return [qrMessage('条件を変更する', '条件変更')];
 }
 
 /**
@@ -307,7 +317,8 @@ function processFirstDeliveryResends() {
       continue;
     }
     try {
-      var r = resendPropertyNotifications(name, ids, buildFirstDeliveryResendText());
+      var r = resendPropertyNotifications(name, ids,
+        buildFirstDeliveryResendText(), buildFirstDeliveryQuickReply());
       sh.getRange(i + 2, 4, 1, 3).setValues([[new Date(),
         (r && r.ok) ? '再送した' : '送信できず',
         (r && r.message) ? String(r.message) : '']]);

@@ -4228,6 +4228,12 @@ function resendPropertyNotifications(customerName, roomIds, leadText) {
     allMessages.push(textMessages[t]);
   }
 
+  // クイックリプライは最後のメッセージに付ける。
+  // ⚠️ LINEは**最後のメッセージ**のものしか表示しない。先頭のテキストに付けても出ない。
+  if (quickReply && quickReply.length && allMessages.length) {
+    allMessages[allMessages.length - 1].quickReply = { items: quickReply };
+  }
+
   // pushMessage は1回5メッセージまで
   for (var b = 0; b < allMessages.length; b += 5) {
     var batch = allMessages.slice(b, b + 5);
