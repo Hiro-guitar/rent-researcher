@@ -4154,6 +4154,7 @@ function resendPropertyNotifications(customerName, roomIds, leadText, quickReply
   }
 
   var flexBubbles = [];   // buildPropertyFlex の bubble (contents) を集める
+  var _resendNames = [];  // altText 用の物件名
   var textMessages = [];  // テキストフォールバック
   var failCount = 0;
   var totalCount = roomIds.length;
@@ -4180,11 +4181,13 @@ function resendPropertyNotifications(customerName, roomIds, leadText, quickReply
           heroImageUrls: prop.imageUrls || [],
           viewUrl: viewUrl,
           customerStations: customerStations,
-          staffComment: prop.staffComment || '',
-          headerTitle: '見逃していませんか？'
+          staffComment: prop.staffComment || ''
+          // ⚠️ headerTitle は付けない。カードの中に見出しが出てしまう（2026-09-21 指摘）。
+          //   再送であることは、カルーセルの前に置く一言で伝える。
         });
         // flex = { type:'flex', altText:..., contents: {type:'bubble',...} }
         flexBubbles.push(flex.contents);
+        if (prop.buildingName) _resendNames.push(String(prop.buildingName));
       } catch (eF) {
         console.warn('[resend] flex build failed for ' + roomId + ': ' + eF.message);
         errors.push(roomId + ': flex生成失敗 - ' + eF.message);
@@ -4227,7 +4230,10 @@ function resendPropertyNotifications(customerName, roomIds, leadText, quickReply
   }
 
   // Flexバブル → カルーセル化（サイズ・件数上限で分割。12件だとJSONが50KB超でLINEに弾かれるため）
-  var _carMsgs = _splitBubblesIntoCarousels_(flexBubbles, '見逃していませんか？');
+  // ⚠️ altText は通知とトーク一覧に出る。標語ではなく中身（物件名）を入れる。
+  var _carAlt = _resendNames.length ? _resendNames.join('／') : 'お部屋のご紹介';
+  if (_carAlt.length > 100) _carAlt = _carAlt.substring(0, 99) + '…';
+  var _carMsgs = _splitBubblesIntoCarousels_(flexBubbles, _carAlt);
   for (var c = 0; c < _carMsgs.length; c++) allMessages.push(_carMsgs[c]);
 
   // テキストフォールバックも追加

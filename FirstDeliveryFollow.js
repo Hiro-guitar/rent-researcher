@@ -379,8 +379,15 @@ function testSendFirstDeliveryResend() {
   if (!pick.length) { console.log(TO + ' に送れる物件がありません'); return; }
 
   var ids = pick.map(function (p) { return p.roomId; });
-  console.log('[テスト] ' + TO + ' へ ' + ids.length + '件送ります: '
-    + pick.map(function (p) { return p.buildingName || p.roomId; }).join(' / '));
+  console.log('[テスト] ' + TO + ' へ ' + ids.length + '件送ります');
+  // 担当者コメントが実際に入っているかを出す（入っていなければカードにも出ない）
+  for (var i = 0; i < pick.length; i++) {
+    var pp = null;
+    try { pp = _getPendingPropForFlex_(TO, pick[i].roomId); } catch (_e) {}
+    var sc = (pp && pp.staffComment) ? String(pp.staffComment).trim() : '';
+    console.log('  ・' + (pick[i].buildingName || pick[i].roomId)
+      + ' / 担当者コメント: ' + (sc ? '「' + sc + '」' : '（なし）'));
+  }
   var r = resendPropertyNotifications(TO, ids,
     buildFirstDeliveryResendText(), null, [buildFirstDeliveryFooterCard()]);
   console.log('[テスト] 結果: ' + JSON.stringify(r));
