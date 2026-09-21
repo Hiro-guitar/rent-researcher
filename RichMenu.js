@@ -3,7 +3,7 @@
  *
  * 画像は公開ページ（form.ehomaki.com/richmenu/）に置き、GAS が取ってきて LINE に上げる。
  *   登録前: menu_before.png (2500x843)  … 空室確認 / 条件を登録
- *   登録後: menu_after.png  (2500x1686) … 空室確認 / 条件を変える / お気に入り / 配信の停止・再開 / 使い方 / お部屋マップ
+ *   登録後: menu_after.png  (2500x1686) … 空室確認 / 条件を変える / お気に入り / 配信の停止・再開 / 使い方 / 届いたお部屋を地図で見る
  *   挨拶用: greeting.png    (1040x1040) … 「どっち？」の案内（使い方でも出す）
  *
  * 使い方（GASエディタ・RichMenu.gs）
@@ -67,8 +67,8 @@ function _richMenuDef_(kind) {
   // 3列×2行: 空室確認 / 条件を変える / お気に入り / 配信の停止・再開 / 使い方 / お部屋マップ
   // お部屋マップは LIFF が設定済みなら押した瞬間に開く(uri)。未設定ならボットがリンクを返す(message)。
   var mapAction = MAP_LIFF_CONFIG.liffId
-    ? { type: 'uri', label: '届いたお部屋', uri: 'https://liff.line.me/' + MAP_LIFF_CONFIG.liffId }
-    : msg('届いたお部屋');   // ⚠️ 押すとトークにこの文字が出る。画像のラベルと揃えること
+    ? { type: 'uri', label: '届いたお部屋を地図で見る', uri: 'https://liff.line.me/' + MAP_LIFF_CONFIG.liffId }
+    : msg('届いたお部屋を地図で見る');   // ⚠️ 押すとトークにこの文字が出る。画像のラベルと揃えること
   var areas = [
     { bounds: { x: 0,    y: 0,   width: 833, height: 843 }, action: msg('空室確認') },
     { bounds: { x: 833,  y: 0,   width: 833, height: 843 }, action: msg('条件変更') },
