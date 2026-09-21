@@ -4236,9 +4236,12 @@ function resendPropertyNotifications(customerName, roomIds, leadText, quickReply
   // カルーセルのいちばん右に足すバブル（条件変更の案内など）
   if (trailingBubble && flexBubbles.length) flexBubbles.push(trailingBubble);
 
-  // ⚠️ altText は通知とトーク一覧に出る。標語ではなく中身（物件名）を入れる。
-  var _carAlt = _resendNames.length ? _resendNames.join('／') : 'お部屋のご紹介';
-  if (_carAlt.length > 100) _carAlt = _carAlt.substring(0, 99) + '…';
+  // ⚠️ altText は通知とトーク一覧に出る。標語（「見逃していませんか？」など）は入れない。
+  //   一言を添えている場合はそれをそのまま使う。トーク一覧に出るのは最後のメッセージの
+  //   altText なので、ここが物件名だと本文が読まれないまま終わる（2026-09-21 指摘）。
+  var _carAlt = String(leadText || '').trim();
+  if (!_carAlt) _carAlt = _resendNames.length ? _resendNames.join('／') : 'お部屋のご紹介';
+  if (_carAlt.length > 400) _carAlt = _carAlt.substring(0, 399) + '…';
   var _carMsgs = _splitBubblesIntoCarousels_(flexBubbles, _carAlt);
   for (var c = 0; c < _carMsgs.length; c++) allMessages.push(_carMsgs[c]);
 
