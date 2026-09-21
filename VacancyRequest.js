@@ -413,6 +413,8 @@ function debugLineNameLookup() {
   // 本人が送ってきたメールアドレス。どの userId で保存されているかを見る。
   // chat.line.biz のURLのIDと一致しなければ、両者は別物ということになる。
   var EMAILS = ['haruchahan_99812@au.com'];
+  // 顧客名から背番号を引く。メール経由とは別の道で確かめるため。
+  var NAMES = ['西村　Hiroki', '西村 Hiroki', '中村　日南', '中村 日南'];
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
 
   var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
@@ -453,6 +455,15 @@ function debugLineNameLookup() {
     }
     console.log('──────── ' + want);
     console.log('  保存されている userId: ' + (hits.length ? hits.join(', ') : '（無し）'));
+  }
+
+  for (var y = 0; y < NAMES.length; y++) {
+    var wantName = String(NAMES[y]).trim();
+    var ids = [];
+    for (var w = 0; w < luRows.length; w++) {
+      if (String(luRows[w][1] || '').trim() === wantName) ids.push(String(luRows[w][0] || '').trim());
+    }
+    if (ids.length) console.log('──────── ' + wantName + ' の背番号: ' + ids.join(', '));
   }
 
   console.log('──────── LINE登録メール の直近5行（形の見比べ用）');
