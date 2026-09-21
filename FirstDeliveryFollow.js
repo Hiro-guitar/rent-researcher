@@ -264,62 +264,55 @@ function buildFirstDeliveryResendText() {
 }
 
 /**
- * カルーセルの後ろに置くカード。希望を聞く一言と、条件変更のボタン。
- * ⚠️ 通知に出るのは altText。本文をそのまま渡すこと。
+ * カルーセルの**いちばん右**に置くバブル。希望を聞く一言と、条件変更のボタン。
+ *
+ * ⚠️ 縦に別メッセージで足さないこと。物件カードが真ん中に挟まれて見られなくなる（2026-09-21）。
+ * ⚠️ カルーセルは全バブルの高さが一番高いものに揃う。写真つきの物件カードのほうが
+ *   高いので普通は問題ないが、条件の表はできるだけ詰めること（空の行は出さない）。
  */
-function buildFirstDeliveryFooterCard(customerName) {
-  var t1 = 'もう少しこういうお部屋がいい、などございましたら';
-  var t2 = 'お気軽にお申し付けください。';
+function buildFirstDeliveryFooterBubble(customerName) {
+  var bodyContents = [];
 
-  // 今の条件を表で見せる。募集終了カード・登録完了カードと同じ部品・同じ見た目。
-  // 「この条件で探すとこうなる」が分かると、変更ボタンの意味がはっきりする。
-  // ⚠️ 読めなかったら条件の箱ごと出さない。空の表を見せるより何も無いほうがよい。
-  var condBox = null;
+  // 今の条件。「この条件で探すとこうなる」が見えると、変更ボタンの意味がはっきりする。
+  // ⚠️ 読めなかったら箱ごと出さない。空の表を見せるより何も無いほうがよい。
   try {
-    // 顧客名から読む（userId を持っていない場面でも使えるように）
     var crit = (typeof loadCustomerCriteriaByName === 'function')
       ? loadCustomerCriteriaByName(customerName) : null;
     var rows = (crit && typeof _buildConditionSummaryRows_ === 'function')
-      ? _buildConditionSummaryRows_(crit) : null;
+      ? _buildConditionSummaryRows_(crit, null, { hideBlank: true }) : null;
     if (rows && rows.length) {
-      condBox = {
-        type: 'box', layout: 'vertical', paddingAll: 'lg', spacing: 'none',
+      bodyContents.push({
+        type: 'box', layout: 'vertical', paddingAll: 'md', spacing: 'none',
         backgroundColor: '#f5f9ee', cornerRadius: 'md',
         contents: [
-          { type: 'text', text: '現在ご登録の条件', size: 'sm', color: '#3d6909', weight: 'bold', align: 'center' },
+          { type: 'text', text: '現在ご登録の条件', size: 'xs', color: '#3d6909', weight: 'bold', align: 'center' },
           { type: 'separator', margin: 'sm', color: '#d4e7a8' }
         ].concat(rows)
-      };
+      });
     }
   } catch (e) {
     console.warn('[初回配信] 条件を出せません: ' + e.message);
   }
 
-  var bodyContents = [];
-  if (condBox) bodyContents.push(condBox);
-  bodyContents.push({ type: 'text', text: t1, size: 'sm', color: '#555555', wrap: true, margin: condBox ? 'lg' : 'none' });
-  bodyContents.push({ type: 'text', text: t2, size: 'sm', color: '#555555', wrap: true });
+  bodyContents.push({ type: 'text', text: 'もう少しこういうお部屋がいい、などございましたら',
+    size: 'sm', color: '#555555', wrap: true, margin: bodyContents.length ? 'lg' : 'none' });
+  bodyContents.push({ type: 'text', text: 'お気軽にお申し付けください。',
+    size: 'sm', color: '#555555', wrap: true });
 
   return {
-    type: 'flex',
-    altText: (typeof _altTextFrom_ === 'function') ? _altTextFrom_([t1 + '\n' + t2]) : (t1 + t2),
-    contents: {
-      type: 'bubble',
-      body: {
-        type: 'box', layout: 'vertical', spacing: 'md', paddingAll: 'xl',
-        contents: bodyContents
-      },
-      footer: {
-        type: 'box', layout: 'vertical', paddingAll: 'lg', paddingTop: 'none',
-        contents: [{
-          type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-          action: { type: 'message', label: '条件を変更する', text: '条件変更' }
-        }]
-      }
+    type: 'bubble',
+    body: {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl', contents: bodyContents
+    },
+    footer: {
+      type: 'box', layout: 'vertical', paddingAll: 'lg', paddingTop: 'none',
+      contents: [{
+        type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+        action: { type: 'message', label: '条件を変更する', text: '条件変更' }
+      }]
     }
   };
 }
-
 /**
  * 確認が返ってきた人に、募集中の物件だけを再送する。
  * ⚠️ 直接呼ばず processFirstDeliveryFollow から呼ぶこと。
@@ -369,7 +362,7 @@ function processFirstDeliveryResends() {
     }
     try {
       var r = resendPropertyNotifications(name, ids,
-        buildFirstDeliveryResendText(), null, [buildFirstDeliveryFooterCard(name)]);
+        buildFirstDeliveryResendText(), null, buildFirstDeliveryFooterBubble(name));
       sh.getRange(i + 2, 4, 1, 3).setValues([[new Date(),
         (r && r.ok) ? '再送した' : '送信できず',
         (r && r.message) ? String(r.message) : '']]);
@@ -416,7 +409,7 @@ function testSendFirstDeliveryResend() {
       + ' / 担当者コメント: ' + (sc ? '「' + sc + '」' : '（なし）'));
   }
   var r = resendPropertyNotifications(TO, ids,
-    buildFirstDeliveryResendText(), null, [buildFirstDeliveryFooterCard(TO)]);
+    buildFirstDeliveryResendText(), null, buildFirstDeliveryFooterBubble(TO));
   console.log('[テスト] 結果: ' + JSON.stringify(r));
 }
 

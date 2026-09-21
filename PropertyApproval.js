@@ -4142,9 +4142,12 @@ function getSeenPropertiesForResend(customerName, opts) {
  *   ⚠️ LINEは**最後のメッセージ**のものしか表示しない。先頭の一言に付けても出ない。
  *   ⚠️ クイックリプライは小さくて気づかれにくい。目立たせたいボタンは
  *     trailingMessages にカードとして渡すこと（2026-09-21）。
- * @param {Array} [trailingMessages] カルーセルの後ろに足すメッセージ（Flexカードなど）
+ * @param {Object} [trailingBubble] カルーセルの**いちばん右**に足すバブル（条件変更の案内など）。
+ *   ⚠️ 縦に別メッセージで足さないこと。物件カードが真ん中に挟まれて見られなくなる。
+ *   ⚠️ 背の高いものを渡さないこと。カルーセルは全バブルの高さが一番高いものに揃うので、
+ *     物件カードまで間延びする（2026-09-21）。
  */
-function resendPropertyNotifications(customerName, roomIds, leadText, quickReply, trailingMessages) {
+function resendPropertyNotifications(customerName, roomIds, leadText, quickReply, trailingBubble) {
   if (!customerName || !Array.isArray(roomIds) || roomIds.length === 0) {
     return { ok: false, sent: 0, failed: 0, message: 'パラメータ不足' };
   }
@@ -4230,6 +4233,9 @@ function resendPropertyNotifications(customerName, roomIds, leadText, quickReply
   }
 
   // Flexバブル → カルーセル化（サイズ・件数上限で分割。12件だとJSONが50KB超でLINEに弾かれるため）
+  // カルーセルのいちばん右に足すバブル（条件変更の案内など）
+  if (trailingBubble && flexBubbles.length) flexBubbles.push(trailingBubble);
+
   // ⚠️ altText は通知とトーク一覧に出る。標語ではなく中身（物件名）を入れる。
   var _carAlt = _resendNames.length ? _resendNames.join('／') : 'お部屋のご紹介';
   if (_carAlt.length > 100) _carAlt = _carAlt.substring(0, 99) + '…';
@@ -4239,11 +4245,6 @@ function resendPropertyNotifications(customerName, roomIds, leadText, quickReply
   // テキストフォールバックも追加
   for (var t = 0; t < textMessages.length; t++) {
     allMessages.push(textMessages[t]);
-  }
-
-  // カルーセルの後ろに足すもの（条件変更のカードなど）
-  if (trailingMessages && trailingMessages.length) {
-    for (var tm = 0; tm < trailingMessages.length; tm++) allMessages.push(trailingMessages[tm]);
   }
 
   // クイックリプライは最後のメッセージに付ける。
