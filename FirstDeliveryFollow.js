@@ -6,9 +6,14 @@
  *   初回に送ったお部屋を1件も開かない、というのは一番早くて一番はっきりした合図なので、
  *   そこを起点にする。翌日もう一度送って、それでも開かなければ「止まっている人」とみなす。
  *
- * 流れ（1日2回のトリガー）:
- *   10:00 processFirstDeliveryChecks()  … 対象者の未読物件を空室確認キューに入れる
- *   10:20 processFirstDeliveryResends() … 募集中だったものだけ、一言を添えて再送する
+ * 流れ（営業時間内に15分おきのトリガー1本）:
+ *   processFirstDeliveryFollow()
+ *     1. 前回の回で確認を頼んだ人 → 結果を見て、募集中だったものだけ一言を添えて再送
+ *     2. 新しく時刻が来た人 → 未読物件を空室確認キューに入れる（1回につき1人だけ）
+ *
+ * ⚠️ 決まった時刻に一斉送信しないこと。毎日10:00ちょうどに届くと機械だと分かる。
+ *   送る時刻は「初回配信 + 25時間15分」で人それぞれ。営業時間外なら翌朝に回すが、
+ *   そこも getNextBusinessMorning が 10:16〜10:33 でばらしてくれる。
  *
  * ⚠️ 全物件の定期巡回は復活させないこと。
  *   規約違反（機械的アクセス）によるBANリスクのため、拡張側で意図的に止めてある
@@ -29,14 +34,28 @@ var FIRST_DELIVERY_ENABLED = false;
 
 // 初回配信とみなす幅。最初の1件から この時間内 に送ったものを同じ配信として扱う。
 var FIRST_DELIVERY_WINDOW_H = 24;
-// 初回配信からこれだけ経ったら「翌日」とみなす。16時間 + 営業時間内トリガーで翌日になる。
-var FIRST_DELIVERY_WAIT_H = 16;
+
+// 初回配信からどれだけ空けるか。25時間15分（2026-09-20 ユーザー判断）。
+// ⚠️ ちょうど24時間にしないこと。前に送ったのと同じ時刻に届くと、それだけで機械だと分かる。
+//   丸1日みてもらったうえで、時刻が前回とずれるように半端な値にしてある。
+var FIRST_DELIVERY_WAIT_MS = 25 * 60 * 60 * 1000 + 15 * 60 * 1000;
 // これより古い初回配信は拾わない。仕組みを入れる前のお客様を巻き込まないための歯止め。
 var FIRST_DELIVERY_MAX_AGE_H = 72;
 // 1人に再送する最大件数。未読が10件あっても全部は送らない。
 var FIRST_DELIVERY_MAX_ITEMS = 5;
 // 確認を頼んでから、結果を見に行くまでの最短時間（分）。
 var FIRST_DELIVERY_CHECK_WAIT_MIN = 10;
+
+/**
+ * いつ送るか。初回配信 + 25時間15分。その時刻が営業時間外なら翌朝に回す。
+ * 翌朝は getNextBusinessMorning が 10:16〜10:33 でばらしてくれるので、そこも固まらない。
+ */
+function _firstDeliverySendTime_(firstMs) {
+  var t = new Date(firstMs + FIRST_DELIVERY_WAIT_MS);
+  var h = (typeof getJstHour === 'function') ? getJstHour(t) : t.getHours();
+  if (h >= 10 && h < 20) return t;
+  return getNextBusinessMorning(t);
+}
 
 /** シートの値（Date でも 'yyyy/MM/dd HH:mm:ss' でも 'yyyy-MM-dd HH:mm:ss' でも）を ms にする。 */
 function _fdMs_(v) {
@@ -130,8 +149,9 @@ function _firstDeliveryBatches_() {
 }
 
 /**
- * 【日次トリガー 10:00】初回配信を見ていない人を探し、未読物件を空室確認キューに入れる。
- * 送信はしない。20分後の processFirstDeliveryResends が送る。
+ * 送る時刻が来た人を1人だけ選んで、未読物件を空室確認キューに入れる。
+ * 送信はしない。次の回（15分後）の processFirstDeliveryResends が送る。
+ * ⚠️ 直接呼ばず processFirstDeliveryFollow から呼ぶこと（営業時間の判定がそこにある）。
  */
 function processFirstDeliveryChecks() {
   var nowMs = Date.now();
@@ -146,8 +166,8 @@ function processFirstDeliveryChecks() {
     if (!sendable[name]) { skipped++; continue; }
     var b = batches[name];
     var ageH = (nowMs - b.firstMs) / (60 * 60 * 1000);
-    if (ageH < FIRST_DELIVERY_WAIT_H) continue;           // まだ翌日になっていない
     if (ageH > FIRST_DELIVERY_MAX_AGE_H) continue;        // 古すぎる（仕組みを入れる前の人）
+    if (nowMs < _firstDeliverySendTime_(b.firstMs).getTime()) continue;   // まだその時刻になっていない
 
     var userId = null;
     try { userId = findLineUserId(name); } catch (_e) {}
@@ -156,31 +176,41 @@ function processFirstDeliveryChecks() {
     // 担当者とやり取りしている最中なら割り込まない。動いている人はそもそも対象外。
     try {
       var act = _newFriendLastActivityMap_();
-      if (act[userId] && (nowMs - act[userId]) < FIRST_DELIVERY_WAIT_H * 60 * 60 * 1000) {
+      if (act[userId] && (nowMs - act[userId]) < FIRST_DELIVERY_WAIT_MS) {
         sh.appendRow([name, new Date(b.firstMs), '', '', '見送り', 'LINEでやり取り中']);
         skipped++;
         continue;
       }
     } catch (_eA) {}
 
-    // 1件でも開いていれば対象外。見ている人は止まっていない。
+    // ⚠️ 「初回配信のぶんを見たか」ではなく「**1度でも**物件を見たか」で判定する。
+    //   目的は動いていない人を見つけることなので、あとから送った物件を見ている人は
+    //   もう動いている。催促する必要がない（2026-09-21 ユーザー判断）。
+    //   募集終了になったものも含めて数えるため includeClosed を渡す。
     var seen = [];
-    try { seen = getSeenPropertiesForResend(name) || []; } catch (eS) {
+    try { seen = getSeenPropertiesForResend(name, { includeClosed: true }) || []; } catch (eS) {
       console.warn('[初回配信] 送付済み物件を読めません: ' + name + ' / ' + eS.message);
       continue;
     }
-    var inBatch = {};
-    for (var r = 0; r < b.rooms.length; r++) inBatch[b.rooms[r].roomId] = true;
-    var target = [], anyViewed = false;
-    for (var s = 0; s < seen.length; s++) {
-      if (!inBatch[seen[s].roomId]) continue;
-      if (seen[s].viewed) { anyViewed = true; break; }
-      target.push(seen[s].roomId);
+    var anyViewed = false;
+    for (var v = 0; v < seen.length; v++) {
+      if (seen[v].viewed) { anyViewed = true; break; }
     }
     if (anyViewed) {
-      sh.appendRow([name, new Date(b.firstMs), '', '', '見た', '初回配信を開いている']);
+      sh.appendRow([name, new Date(b.firstMs), '', '', '見た', '物件を見ている']);
       skipped++;
       continue;
+    }
+    // 送り直す候補は初回配信のぶんから。未読で、今も募集中のもの。
+    var inBatch = {};
+    for (var r = 0; r < b.rooms.length; r++) inBatch[b.rooms[r].roomId] = true;
+    var target = [];
+    for (var s2 = 0; s2 < seen.length; s2++) {
+      if (!inBatch[seen[s2].roomId]) continue;
+      if (seen[s2].viewed) continue;
+      if (seen[s2].manualClosed) continue;
+      if (['closed', 'applied'].indexOf(String(seen[s2].currentStatus || '')) >= 0) continue;
+      target.push(seen[s2].roomId);
     }
     if (!target.length) { skipped++; continue; }
     target = target.slice(0, FIRST_DELIVERY_MAX_ITEMS);
@@ -198,9 +228,27 @@ function processFirstDeliveryChecks() {
     sh.appendRow([name, new Date(b.firstMs), new Date(), '', '確認待ち',
       '未読' + target.length + '件 / キュー' + (q.queued || 0) + '件']);
     queued++;
+    // ⚠️ 1回のトリガーで頼むのは1人だけ。まとめて送ると同じ時刻に何人にも届いて
+    //   機械だと分かるし、拡張の空室確認も詰まる。残った人は次の回で拾う。
+    break;
   }
   console.log('[初回配信] 確認を頼んだ: ' + queued + '人 / 見送り: ' + skipped + '人'
     + (FIRST_DELIVERY_ENABLED ? '' : '（送信はまだ止めてあります）'));
+}
+
+/**
+ * 【トリガー・営業時間内に15分おき】この仕組みの入口。
+ *
+ * 1回の呼び出しで2つやる。
+ *   1. 前回の回で確認を頼んだ人を再送する（印が30分で切れるので、次の回で送りきる）
+ *   2. 新しく時刻が来た人の確認を頼む（1人だけ）
+ * 順番は再送が先。先に頼むと、同じ回で送ろうとして確認が間に合わない。
+ */
+function processFirstDeliveryFollow() {
+  var h = (typeof getJstHour === 'function') ? getJstHour(new Date()) : new Date().getHours();
+  if (h < 10 || h >= 20) return;   // 営業時間外は何もしない
+  try { processFirstDeliveryResends(); } catch (e) { console.error('[初回配信] 再送で失敗: ' + e.message); }
+  try { processFirstDeliveryChecks(); } catch (e) { console.error('[初回配信] 確認依頼で失敗: ' + e.message); }
 }
 
 /** 再送に添える一言。⚠️ 通知に出るのはこの文章。 */
@@ -211,7 +259,8 @@ function buildFirstDeliveryResendText() {
 }
 
 /**
- * 【日次トリガー 10:20】確認が返ってきた人に、募集中の物件だけを再送する。
+ * 確認が返ってきた人に、募集中の物件だけを再送する。
+ * ⚠️ 直接呼ばず processFirstDeliveryFollow から呼ぶこと。
  */
 function processFirstDeliveryResends() {
   if (!FIRST_DELIVERY_ENABLED) { console.log('[初回配信] 送信は止めてあります'); return; }
@@ -281,29 +330,34 @@ function previewFirstDeliveryTargets() {
   var sendable = _firstDeliverySendable_();
   var hit = 0;
   console.log('=== 初回配信のフォロー対象 ===');
-  console.log('（初回配信から ' + FIRST_DELIVERY_WAIT_H + '〜' + FIRST_DELIVERY_MAX_AGE_H + '時間の人）');
+  console.log('（初回配信から25時間15分たって、まだ1度も物件を見ていない人。'
+    + FIRST_DELIVERY_MAX_AGE_H + '時間より古い初回配信は対象外）');
   for (var name in batches) {
     var b = batches[name];
     var ageH = (nowMs - b.firstMs) / (60 * 60 * 1000);
     var why = '';
     if (done[name]) why = '扱い済み(' + done[name].state + ')';
     else if (!sendable[name]) why = '配信停止・終了・アーカイブ';
-    else if (ageH < FIRST_DELIVERY_WAIT_H) why = 'まだ ' + Math.floor(ageH) + '時間';
+    else if (nowMs < _firstDeliverySendTime_(b.firstMs).getTime()) {
+      why = 'まだ（送るのは ' + Utilities.formatDate(_firstDeliverySendTime_(b.firstMs), 'Asia/Tokyo', 'M/d HH:mm') + ' 以降）';
+    }
     else if (ageH > FIRST_DELIVERY_MAX_AGE_H) why = '古い（' + Math.floor(ageH / 24) + '日前）';
     if (why) continue;
 
     var seen = [];
-    try { seen = getSeenPropertiesForResend(name) || []; } catch (_e) { continue; }
+    try { seen = getSeenPropertiesForResend(name, { includeClosed: true }) || []; } catch (_e) { continue; }
+    // 1度でも見ていれば対象外（本番と同じ判定）
+    var viewed = 0;
+    for (var v = 0; v < seen.length; v++) if (seen[v].viewed) viewed++;
+    if (viewed > 0) continue;
     var inBatch = {};
     for (var r = 0; r < b.rooms.length; r++) inBatch[b.rooms[r].roomId] = true;
-    var unread = 0, viewed = 0, alive = 0;
+    var unread = 0, alive = 0;
     for (var s = 0; s < seen.length; s++) {
       if (!inBatch[seen[s].roomId]) continue;
-      if (seen[s].viewed) { viewed++; continue; }
       unread++;
       if (seen[s].currentStatus === 'available' && !seen[s].manualClosed) alive++;
     }
-    if (viewed > 0) continue;
     hit++;
     console.log('  ' + name + ' … 初回配信 ' + Math.floor(ageH) + '時間前 / 未読 ' + unread
       + '件（うち今も募集中 ' + alive + '件）');
