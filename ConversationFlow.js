@@ -208,11 +208,28 @@ function handleSearchFlowText(replyToken, userId, message, state) {
     case STEPS.MOVE_IN_STRICT:
     case STEPS.CONFIRM:
       // ボタンで選ぶ質問の最中に文字が来た場合。
-      // ⚠️ 出し直すのは**その質問につき1回だけ**。
-      //   以前は毎回出していたため、ボタンを押さずに担当者と話し始めると
+      //
+      // ⚠️ 毎回そのまま出し直さないこと。ボタンを押さずに担当者と話し始めると、
       //   1通ごとに同じ質問が返ってきて止まらなかった（2026-09-21 指摘）。
-      //   2回目からは黙る。ボタンはトークに残っているので、あとから押せば続けられる。
-      if (state.buttonGuideAt === state.step) return true;
+      //
+      // 1通目 … 今までどおり質問を出し直す（押し間違い・入力間違いの人を拾う）
+      // 2通目 … 黙らずに、やり直し方を案内して状態を終わらせる（キャンセルと同じ扱い）
+      //
+      // ⚠️ 2通目で状態を消すので、条件登録の途中だった人は答えた分が失われる。
+      //   これは承知のうえ。もともと「途中の人が『条件登録』を押したら最初からやり直す」
+      //   決まりなので、やり直しは想定内。それに、こうなる人は担当者と会話している
+      //   最中なので、翌日のひと押し（NewFriend.gs の途中離脱）は不要。
+      if (state.buttonGuideAt === state.step) {
+        // ⚠️ ここで必ず状態を終わらせること。案内だけ返して状態を残すと、
+        //   次の1通でまた同じ案内が出て、結局止まらない。
+        clearState(userId);
+        replyMessage(replyToken, [textMsg(state.isChangeFlow
+          ? '条件の変更は取りやめました。\n\n変更する場合は「条件変更」と送ってください。'
+          : 'お部屋探しのご希望をお伺いしていましたが、いったん中断します。\n\n'
+            + '続きは「条件登録」と送ってください。'
+        )]);
+        return true;
+      }
       state.buttonGuideAt = state.step;
       saveState(userId, state);
       showStepQuestion(replyToken, userId, state, GUIDE_TEXT_BUTTON);
