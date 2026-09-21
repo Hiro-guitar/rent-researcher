@@ -268,7 +268,7 @@ function buildFirstDeliveryResendText() {
  *
  * ⚠️ 縦に別メッセージで足さないこと。物件カードが真ん中に挟まれて見られなくなる（2026-09-21）。
  * ⚠️ カルーセルは全バブルの高さが一番高いものに揃う。写真つきの物件カードのほうが
- *   高いので普通は問題ないが、条件の表はできるだけ詰めること（空の行は出さない）。
+ *   高いので普通は問題ない。高さのために条件の行を減らさないこと。
  */
 function buildFirstDeliveryFooterBubble(customerName) {
   var bodyContents = [];
@@ -279,7 +279,9 @@ function buildFirstDeliveryFooterBubble(customerName) {
     var crit = (typeof loadCustomerCriteriaByName === 'function')
       ? loadCustomerCriteriaByName(customerName) : null;
     var rows = (crit && typeof _buildConditionSummaryRows_ === 'function')
-      ? _buildConditionSummaryRows_(crit, null, { hideBlank: true }) : null;
+      // ⚠️ 「指定なし」の行も省かないこと。指定していないと気づくこと自体が、
+      //   条件を変えるきっかけになる（2026-09-21 指摘）。
+      ? _buildConditionSummaryRows_(crit) : null;
     if (rows && rows.length) {
       bodyContents.push({
         type: 'box', layout: 'vertical', paddingAll: 'md', spacing: 'none',
