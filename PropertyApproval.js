@@ -4140,8 +4140,11 @@ function getSeenPropertiesForResend(customerName, opts) {
 /**
  * @param {Array} [quickReply] 最後のメッセージに付けるクイックリプライ（qrMessage 等）。
  *   ⚠️ LINEは**最後のメッセージ**のものしか表示しない。先頭の一言に付けても出ない。
+ *   ⚠️ クイックリプライは小さくて気づかれにくい。目立たせたいボタンは
+ *     trailingMessages にカードとして渡すこと（2026-09-21）。
+ * @param {Array} [trailingMessages] カルーセルの後ろに足すメッセージ（Flexカードなど）
  */
-function resendPropertyNotifications(customerName, roomIds, leadText, quickReply) {
+function resendPropertyNotifications(customerName, roomIds, leadText, quickReply, trailingMessages) {
   if (!customerName || !Array.isArray(roomIds) || roomIds.length === 0) {
     return { ok: false, sent: 0, failed: 0, message: 'パラメータ不足' };
   }
@@ -4230,6 +4233,11 @@ function resendPropertyNotifications(customerName, roomIds, leadText, quickReply
   // テキストフォールバックも追加
   for (var t = 0; t < textMessages.length; t++) {
     allMessages.push(textMessages[t]);
+  }
+
+  // カルーセルの後ろに足すもの（条件変更のカードなど）
+  if (trailingMessages && trailingMessages.length) {
+    for (var tm = 0; tm < trailingMessages.length; tm++) allMessages.push(trailingMessages[tm]);
   }
 
   // クイックリプライは最後のメッセージに付ける。

@@ -256,17 +256,41 @@ function processFirstDeliveryFollow() {
 function buildFirstDeliveryResendText() {
   // ⚠️ 「まだ募集中のものを」とは書かないこと（2026-09-21）。残り物を送っている感じになる。
   //   見る理由を先に伝えて、最後は返事ではなく希望を聞く形にする。
+  // ⚠️ 最後の「お申し付けください」はここに書かない。カルーセルの後ろのカードに置く。
+  //   クイックリプライだと小さくて気づかれなかった（2026-09-21）。
   return '先日お送りしたお部屋は、ご覧いただけましたでしょうか。\n\n'
     + 'ご希望の条件に合うものを、スタッフが一件ずつ見てお送りしています。\n'
-    + '検索サイトに出ていないお部屋もご紹介できます。\n\n'
-    + 'もう少しこういうお部屋がいい、などございましたら\n'
-    + 'お気軽にお申し付けください。';
+    + '検索サイトに出ていないお部屋もご紹介できます。';
 }
 
-/** 再送に添えるボタン。カルーセルのいちばん下に出る。 */
-function buildFirstDeliveryQuickReply() {
-  if (typeof qrMessage !== 'function') return null;
-  return [qrMessage('条件を変更する', '条件変更')];
+/**
+ * カルーセルの後ろに置くカード。希望を聞く一言と、条件変更のボタン。
+ * ⚠️ 通知に出るのは altText。本文をそのまま渡すこと。
+ */
+function buildFirstDeliveryFooterCard() {
+  var t1 = 'もう少しこういうお部屋がいい、などございましたら';
+  var t2 = 'お気軽にお申し付けください。';
+  return {
+    type: 'flex',
+    altText: (typeof _altTextFrom_ === 'function') ? _altTextFrom_([t1 + '\n' + t2]) : (t1 + t2),
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
+        contents: [
+          { type: 'text', text: t1, size: 'sm', color: '#555555', wrap: true },
+          { type: 'text', text: t2, size: 'sm', color: '#555555', wrap: true }
+        ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical', paddingAll: 'lg', paddingTop: 'none',
+        contents: [{
+          type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+          action: { type: 'message', label: '条件を変更する', text: '条件変更' }
+        }]
+      }
+    }
+  };
 }
 
 /**
@@ -318,7 +342,7 @@ function processFirstDeliveryResends() {
     }
     try {
       var r = resendPropertyNotifications(name, ids,
-        buildFirstDeliveryResendText(), buildFirstDeliveryQuickReply());
+        buildFirstDeliveryResendText(), null, [buildFirstDeliveryFooterCard()]);
       sh.getRange(i + 2, 4, 1, 3).setValues([[new Date(),
         (r && r.ok) ? '再送した' : '送信できず',
         (r && r.message) ? String(r.message) : '']]);
@@ -358,7 +382,7 @@ function testSendFirstDeliveryResend() {
   console.log('[テスト] ' + TO + ' へ ' + ids.length + '件送ります: '
     + pick.map(function (p) { return p.buildingName || p.roomId; }).join(' / '));
   var r = resendPropertyNotifications(TO, ids,
-    buildFirstDeliveryResendText(), buildFirstDeliveryQuickReply());
+    buildFirstDeliveryResendText(), null, [buildFirstDeliveryFooterCard()]);
   console.log('[テスト] 結果: ' + JSON.stringify(r));
 }
 
