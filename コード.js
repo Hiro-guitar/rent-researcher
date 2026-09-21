@@ -1001,30 +1001,30 @@ function doGet(e) {
     }
   }
 
-  // 空室状況確認キュー (Chrome拡張から定期的に取得して各物件をチェック)
-  // 拡張が chat.line.biz でお客様の名前を出すために引く（api_key必須・読み取りだけ）
-  if (action === 'line_customer_name') {
+  // 拡張が chat.line.biz でお客様の名前を出すために引く（api_key必須・読み取りだけ）。
+  // ⚠️ 背番号では引けない。chat.line.biz が画面に出す userId は webhook のものと
+  //   別体系だった（2026-09-21 実測）。鍵はLINEの表示名しかない。
+  if (action === 'line_name_map') {
     if (!_validateReinsApiKey(e.parameter.api_key)) {
       return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    var _luid = String(e.parameter.user_id || '').trim();
-    var _luname = '';
-    try {
-      if (_luid) {
-        var _luss = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(LINE_USERS_SHEET_NAME);
-        if (_luss && _luss.getLastRow() > 1) {
-          var _lud = _luss.getRange(2, 1, _luss.getLastRow() - 1, 2).getValues();
-          for (var _li = 0; _li < _lud.length; _li++) {
-            if (String(_lud[_li][0] || '').trim() === _luid) { _luname = String(_lud[_li][1] || '').trim(); break; }
-          }
-        }
-      }
-    } catch (_luE) {
-      console.warn('[LINE名前] 読めません: ' + _luE.message);
+    var _lnCache = CacheService.getScriptCache();
+    var _lnHit = null;
+    try { _lnHit = _lnCache.get('line_name_map'); } catch (_lnC) {}
+    if (_lnHit) {
+      return ContentService.createTextOutput(_lnHit).setMimeType(ContentService.MimeType.JSON);
     }
-    return ContentService.createTextOutput(JSON.stringify({ ok: true, userId: _luid, name: _luname }))
-      .setMimeType(ContentService.MimeType.JSON);
+    var _lnBody;
+    try {
+      var _lnRes = getLineChatNameMap();
+      _lnBody = JSON.stringify({ ok: true, map: _lnRes.map, skipped: _lnRes.skipped });
+      try { _lnCache.put('line_name_map', _lnBody, 600); } catch (_lnP) {}
+    } catch (_lnE) {
+      console.warn('[LINE名前] 対応表を作れません: ' + _lnE.message);
+      _lnBody = JSON.stringify({ ok: false, map: {}, message: _lnE.message });
+    }
+    return ContentService.createTextOutput(_lnBody).setMimeType(ContentService.MimeType.JSON);
   }
 
   if (action === 'get_availability_queue') {

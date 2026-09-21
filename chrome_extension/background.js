@@ -587,6 +587,10 @@ async function getConfig() {
   });
 }
 
+// chat.line.biz 用の「LINEの表示名 → 顧客名」対応表。10分だけ使い回す。
+let _lineNameMap = null;
+let _lineNameMapAt = 0;
+
 async function gasGet(action, params = {}) {
   const { gasWebappUrl, gasApiKey } = await getConfig();
   if (!gasWebappUrl) throw new Error('GAS URLが設定されていません');
@@ -3021,14 +3025,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   //   待っているので、その1分が体感でかなり長い（2026-09-20）。
   // chat.line.biz の content script が、userId から顧客名を引くために呼ぶ。
   // ⚠️ content script から直接GASを叩くとCORSで止まるので、ここで代わりに取りに行く。
-  if (msg.type === 'LINE_LOOKUP_NAME') {
-    gasGet('line_customer_name', { user_id: String(msg.userId || '') })
-      // ⚠️ 生の応答もそのまま返すこと。名前が空のとき、api_keyが違うのか
-      //   シートに居ないだけなのかを、content script 側で見分けられなくなる。
-      .then(r => sendResponse({ ok: true, name: (r && r.name) || '', raw: r }))
+  if (msg.type === 'LINE_NAME_MAP') {
+    const now = Date.now();
+    if (_lineNameMap && now - _lineNameMapAt < 10 * 60 * 1000) {
+      sendResponse({ ok: true, map: _lineNameMap, cached: true });
+      return true;
+    }
+    gasGet('line_name_map', {})
+      .then(r => {
+        _lineNameMap = (r && r.map) || {};
+        _lineNameMapAt = Date.now();
+        sendResponse({ ok: true, map: _lineNameMap, count: Object.keys(_lineNameMap).length });
+      })
       .catch(err => {
-        console.warn('[LINE表示名] 顧客名を引けません: ' + err.message);
-        sendResponse({ ok: false, name: '', raw: { error: err.message } });
+        console.warn('[LINE表示名] 対応表を引けません: ' + err.message);
+        sendResponse({ ok: false, map: {}, message: err.message });
       });
     return true;   // 非同期で返すため
   }

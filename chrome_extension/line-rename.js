@@ -3,15 +3,22 @@
  *
  * 狙い（2026-09-21）:
  *   トーク一覧に出るのはLINEのニックネーム（tatsuyuki / Amanda など）で、誰なのか分からない。
- *   こちらは userId と顧客名を持っているので、開いたトークの表示名を自動で顧客名にする。
+ *   こちらは顧客名を持っているので、開いたトークの表示名を自動で顧客名にする。
+ *
+ * ⚠️ 背番号（userId）では引けない。実測で確かめたこと:
+ *   chat.line.biz が画面に出す userId は、webhook で飛んでくる userId とは別体系。
+ *   同じ人でも値が違う（段 志漢さん: 画面 U047e5a39… / 本物 U000834c6…）。
+ *   管理画面のAPI /api/v1/bots/{bot}/chats/{chat} の profile.userId まで画面のIDで、
+ *   HTML・localStorage・sessionStorage・呼ばれたAPI 64件を全部読んでも本物は出てこない。
+ *   → 鍵になるのは、画面に見えている文字そのもの ＝ LINEのニックネームだけ。
  *
  * ⚠️ LINEのAPIには表示名を変える口が無い。これは画面の「表示名を変更」モーダルを
  *   コードから操作している。つまりLINE側の画面が変わると動かなくなる。
  *   止まっても「改名されないだけ」で壊れるものは無いので、気づいたら直せばよい。
  *
  * ⚠️ 手で直した名前を絶対に上書きしないこと。
- *   モーダルには「友だちが設定した名前」が出ている。今の表示名がそれと同じなら未改名、
- *   違えば担当者が手で直したもの。違うときは何もせずキャンセルする。
+ *   すでに顧客名になっている人は、ニックネームの表に載っていないので自然に外れる。
+ *   念のためモーダルの「友だちが設定した名前」とも突き合わせる。
  *
  * 画面の作り（2026-09-21 実測。IDもdata-testidも無く、構造とBootstrapのクラスだけ）:
  *   鉛筆      #content-thirdly h3 a
@@ -29,19 +36,18 @@
   console.log('[LINE表示名] content script loaded');
 
   var NAME_MAX = 20;          // 入力欄の上限（画面の 9/20 表示より）
-  var handled = {};           // 同じ人を何度も処理しない
+  var handled = {};           // 同じトークを何度も処理しない
   var lastUrl = '';
   var busy = false;
 
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-  /** URLから相手の userId を取る。/chat/U... の形。 */
-  function currentUserId() {
+  /** URLの末尾がそのトークの相手を指す。照合には使えないが、同じ相手かの目印にはなる。 */
+  function currentChatId() {
     var m = location.pathname.match(/\/chat\/(U[0-9a-f]{32})/i);
     return m ? m[1] : '';
   }
 
-  function panelNameEl() { return document.querySelector('#content-thirdly h3 span'); }
   function pencilEl() { return document.querySelector('#content-thirdly h3 a'); }
 
   /** Reactの入力欄に値を入れる。value を直接代入しても React が気づかないため。 */
@@ -63,53 +69,52 @@
     return null;
   }
 
-  async function lookupName(userId) {
+  /** LINEの表示名 → 顧客名 の対応表。background が10分だけ持っている。 */
+  async function nameMap() {
     return new Promise(function (resolve) {
       try {
-        chrome.runtime.sendMessage({ type: 'LINE_LOOKUP_NAME', userId: userId }, function (res) {
+        chrome.runtime.sendMessage({ type: 'LINE_NAME_MAP' }, function (res) {
           if (chrome.runtime.lastError) {
             console.warn('[LINE表示名] 拡張に届きません: ' + chrome.runtime.lastError.message);
-            resolve(''); return;
+            resolve({}); return;
           }
-          if (!res || !res.name) console.log('[LINE表示名] GASの応答:', res && res.raw);
-          resolve((res && res.name) ? String(res.name) : '');
+          if (!res || !res.ok) console.warn('[LINE表示名] 対応表を取れません:', res && res.message);
+          resolve((res && res.map) || {});
         });
-      } catch (e) { resolve(''); }
+      } catch (e) { resolve({}); }
     });
   }
 
-  async function tryRename(userId) {
-    if (busy || handled[userId]) return;
+  async function tryRename(chatId) {
+    if (busy || handled[chatId]) return;
     busy = true;
     try {
-      console.log('[LINE表示名] 開いた相手: ' + userId);
       var nameEl = await waitFor('#content-thirdly h3 span', 5000);
       if (!nameEl) {
-        // ⚠️ プロフィールパネルが見つからない。LINE側の作りが変わった可能性。
-        console.warn('[LINE表示名] 表示名の要素が見つかりません（#content-thirdly h3 span）。'
-          + ' h3の数=' + document.querySelectorAll('h3').length
-          + ' / #content-thirdly=' + (document.querySelector('#content-thirdly') ? 'あり' : 'なし'));
+        console.warn('[LINE表示名] 表示名の要素が見つかりません（#content-thirdly h3 span）');
         return;
       }
       var shown = (nameEl.textContent || '').trim();
-      console.log('[LINE表示名] 今の表示名: ' + shown);
+      if (!shown) return;
 
-      var want = await lookupName(userId);
+      var map = await nameMap();
+      var want = map[shown] ? String(map[shown]) : '';
       if (!want) {
-        console.log('[LINE表示名] LINE Users に見つかりません。何もしません: ' + userId);
-        handled[userId] = 'お客様が見つからない'; return;
+        // 顧客名に改名済み／お客様ではない／ニックネームが重複、のいずれか。触らない。
+        console.log('[LINE表示名] 対応表にありません。何もしません: ' + shown);
+        handled[chatId] = '対応表に無い';
+        return;
       }
-      console.log('[LINE表示名] 顧客名: ' + want);
       want = want.replace(/\s+/g, ' ').trim();
       if (want.length > NAME_MAX) want = want.substring(0, NAME_MAX);
-      if (shown === want) { console.log('[LINE表示名] すでにその名前です'); handled[userId] = 'すでにその名前'; return; }
+      if (shown === want) { handled[chatId] = 'すでにその名前'; return; }
 
       var pencil = pencilEl();
-      if (!pencil) { console.warn('[LINE表示名] 鉛筆が見つかりません（#content-thirdly h3 a）'); handled[userId] = '鉛筆が見つからない'; return; }
+      if (!pencil) { console.warn('[LINE表示名] 鉛筆が見つかりません'); handled[chatId] = '鉛筆が見つからない'; return; }
       pencil.click();
 
       var input = await waitFor('.modal-content input.form-control', 3000);
-      if (!input) { console.warn('[LINE表示名] モーダルが出ません（.modal-content input.form-control）'); handled[userId] = 'モーダルが出ない'; return; }
+      if (!input) { console.warn('[LINE表示名] モーダルが出ません'); handled[chatId] = 'モーダルが出ない'; return; }
 
       // ⚠️ 手で直した名前は上書きしない。
       //   「友だちが設定した名前」＝LINEのニックネーム。今の表示名がそれと違えば、
@@ -119,7 +124,7 @@
       if (original && shown && original !== shown) {
         var cancel = document.querySelector('.modal-footer .btn-secondary');
         if (cancel) cancel.click();
-        handled[userId] = '手で直した名前なので触らない';
+        handled[chatId] = '手で直した名前なので触らない';
         console.log('[LINE表示名] 手で直した名前のため変更しません: ' + shown);
         return;
       }
@@ -131,11 +136,11 @@
         var cancel2 = document.querySelector('.modal-footer .btn-secondary');
         if (cancel2) cancel2.click();
         console.warn('[LINE表示名] 保存ボタンが押せません');
-        handled[userId] = '保存ボタンが押せない';
+        handled[chatId] = '保存ボタンが押せない';
         return;
       }
       save.click();
-      handled[userId] = '変更: ' + want;
+      handled[chatId] = '変更: ' + want;
       console.log('[LINE表示名] ' + shown + ' → ' + want);
     } catch (e) {
       console.warn('[LINE表示名] 失敗: ' + e.message);
@@ -148,7 +153,7 @@
   setInterval(function () {
     if (location.href === lastUrl) return;
     lastUrl = location.href;
-    var uid = currentUserId();
-    if (uid) setTimeout(function () { tryRename(uid); }, 1200);   // 描画を待つ
+    var id = currentChatId();
+    if (id) setTimeout(function () { tryRename(id); }, 1200);   // 描画を待つ
   }, 500);
 })();

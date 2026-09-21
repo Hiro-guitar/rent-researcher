@@ -333,3 +333,116 @@ function buildConfirmFlex(details, isEdit) {
     }
   };
 }
+// ═══════════════════════════════════════════════════════════
+//  LINEの表示名（ニックネーム）
+//
+//  なぜ要るか（2026-09-21 実測）:
+//    chat.line.biz（公式アカウントマネージャー）が画面に出している userId は、
+//    webhook で飛んでくる userId とは**別体系**だった。同じ人でも値が違う。
+//    管理画面のAPI (/api/v1/bots/{bot}/chats/{chat}) の profile.userId まで
+//    画面のIDで、本物の背番号はどこにも出てこない。
+//    そのため「背番号で顧客名を引く」ことはできない。
+//
+//    残る鍵は、画面に見えている文字そのもの ＝ LINEのニックネーム。
+//    こちらは getProfile で取れるので、シートに控えておいて照合する。
+//
+//  ⚠️ ニックネームは重複する。取り違えるくらいなら改名しないほうがいいので、
+//    同じ名前が2人以上いたらその名前は表から落とすこと。
+// ═══════════════════════════════════════════════════════════
+
+var LINE_DISPLAY_NAME_COL = 4;   // LINE Users の D列
+
+/**
+ * 【GASエディタで実行 / 日次トリガー】LINE Users の「LINEの表示名」列を埋める。
+ * 空欄の人だけ取りに行く。全員取り直したいときは refreshLineDisplayNames({all:true})。
+ * getProfile は送信通数に数えられない。ブロック中の人は空欄のままにする。
+ */
+function refreshLineDisplayNames(opts) {
+  opts = opts || {};
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(LINE_USERS_SHEET_NAME);
+  if (!sh || sh.getLastRow() < 2) return { ok: false, message: 'LINE Users が空です' };
+
+  if (String(sh.getRange(1, LINE_DISPLAY_NAME_COL).getValue() || '').trim() === '') {
+    sh.getRange(1, LINE_DISPLAY_NAME_COL).setValue('LINEの表示名');
+  }
+
+  var n = sh.getLastRow() - 1;
+  var rows = sh.getRange(2, 1, n, LINE_DISPLAY_NAME_COL).getValues();
+  var targets = [];
+  for (var i = 0; i < n; i++) {
+    var uid = String(rows[i][0] || '').trim();
+    if (!uid) continue;
+    if (!opts.all && String(rows[i][LINE_DISPLAY_NAME_COL - 1] || '').trim()) continue;
+    targets.push({ row: i, uid: uid });
+  }
+  if (!targets.length) {
+    console.log('[LINE表示名] 取りに行く人はいません');
+    return { ok: true, fetched: 0, filled: 0 };
+  }
+
+  var filled = 0;
+  var CHUNK = 100;   // fetchAll の並列上限
+  for (var c = 0; c < targets.length; c += CHUNK) {
+    var chunk = targets.slice(c, c + CHUNK);
+    var requests = chunk.map(function (t) {
+      return {
+        url: 'https://api.line.me/v2/bot/profile/' + t.uid,
+        method: 'get',
+        headers: { 'Authorization': 'Bearer ' + CHANNEL_ACCESS_TOKEN },
+        muteHttpExceptions: true
+      };
+    });
+    if (typeof _addFetchCount_ === 'function') _addFetchCount_('LINE表示名の取得', requests.length);
+    var responses;
+    try {
+      responses = UrlFetchApp.fetchAll(requests);
+    } catch (e) {
+      console.error('[LINE表示名] fetchAll 失敗: ' + e.message);
+      continue;
+    }
+    for (var r = 0; r < responses.length; r++) {
+      if (responses[r].getResponseCode() !== 200) continue;   // ブロック等は空欄のまま
+      var name = '';
+      try { name = String(JSON.parse(responses[r].getContentText()).displayName || '').trim(); } catch (_e) {}
+      if (!name) continue;
+      rows[chunk[r].row][LINE_DISPLAY_NAME_COL - 1] = name;
+      filled++;
+    }
+  }
+
+  // 1回で書き戻す（1行ずつ書くとシートが遅い）
+  var col = [];
+  for (var w = 0; w < n; w++) col.push([rows[w][LINE_DISPLAY_NAME_COL - 1]]);
+  sh.getRange(2, LINE_DISPLAY_NAME_COL, n, 1).setValues(col);
+
+  console.log('[LINE表示名] ' + targets.length + '人に問い合わせ / ' + filled + '人を記録');
+  return { ok: true, fetched: targets.length, filled: filled };
+}
+
+/**
+ * LINEの表示名 → 顧客名 の対応表。
+ * ⚠️ 同じ表示名が2人以上いたら、その名前は入れない（別人の名前を付けてしまうため）。
+ * @return {{map:Object, skipped:Array<string>}}
+ */
+function getLineChatNameMap() {
+  var out = { map: {}, skipped: [] };
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(LINE_USERS_SHEET_NAME);
+  if (!sh || sh.getLastRow() < 2) return out;
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, LINE_DISPLAY_NAME_COL).getValues();
+
+  var count = {};
+  var pick = {};
+  for (var i = 0; i < rows.length; i++) {
+    var shown = String(rows[i][LINE_DISPLAY_NAME_COL - 1] || '').trim();
+    var customer = String(rows[i][1] || '').trim();
+    if (!shown || !customer) continue;
+    count[shown] = (count[shown] || 0) + 1;
+    if (count[shown] === 1) pick[shown] = customer;
+    else if (pick[shown] !== customer) pick[shown] = null;   // 別人同士 → 使わない
+  }
+  for (var k in pick) {
+    if (pick[k]) out.map[k] = pick[k];
+    else out.skipped.push(k);
+  }
+  return out;
+}
