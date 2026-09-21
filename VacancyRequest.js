@@ -140,13 +140,61 @@ function handleVacancyText(replyToken, userId, message, state) {
     handleVacancyEmail(replyToken, userId, m);
     return;
   }
+  var mode = (state && state.data && state.data.vcMode) || 'other';
+  var hasUrl = /https?:\/\//.test(m);
+
+  // メールアドレスを聞いている最中に、@入りなのに形が違うものが来た。
+  // ⚠️ これを物件名として受けないこと。打ち間違いを物件として調べにいってしまう。
+  if (mode === 'email' && !hasUrl && m.indexOf('@') >= 0) {
+    _vacancyMissed_(replyToken, userId, state, 'email');
+    return;
+  }
+
   var items = _splitVacancyItems_(m);
   if (items.length === 0) {
-    // 相槌・記号だけ → 何もしない（モードは維持）
-    console.log('[空室確認] 物件として読めないためスキップ: ' + _shortenForReply_(m));
+    // ⚠️ 黙らないこと (2026-09-21)。お客様は届いたかどうかも分からなくなる。
+    console.log('[空室確認] 物件として読めない: ' + _shortenForReply_(m));
+    _vacancyMissed_(replyToken, userId, state, mode === 'email' ? 'email' : 'item');
     return;
   }
   handleVacancyRequest(replyToken, userId, items, { raw: m });
+}
+
+/**
+ * 受け取ったものが読み取れなかったとき。もう一度お願いする。
+ * 2回続けて読み取れなければ、そこで区切って入口からやり直してもらう。
+ * ⚠️ 何も返さずに終わらせないこと。「送ったのに無視された」と受け取られる。
+ */
+function _vacancyMissed_(replyToken, userId, state, kind) {
+  var data = (state && state.data) ? state.data : {};
+  var miss = Number(data.vcMiss || 0) + 1;
+
+  if (miss >= 2) {
+    clearState(userId);
+    replyMessage(replyToken, [textMsg(
+      'うまく読み取れませんでした。\n\n' +
+      'お手数ですが、下のメニューから「空室確認」をもう一度タップして、はじめからお試しください。'
+    )]);
+    return;
+  }
+
+  data.vcMiss = miss;
+  saveState(userId, { step: STEPS.WAITING_VACANCY, data: data });
+
+  if (kind === 'email') {
+    replyMessage(replyToken, [textMsgWithQuickReply(
+      'メールアドレスとして読み取れませんでした。\n\n' +
+      'お問い合わせ時のメールアドレスを、そのままコピーして送っていただけますでしょうか。\n\n' +
+      'お部屋を直接お調べすることもできます。その場合は下の「別の物件を調べる」をタップしてください。',
+      [qrPostback('🔍 別の物件を調べる', 'vc:other')]
+    )]);
+    return;
+  }
+  replyMessage(replyToken, [textMsg(
+    'お部屋を読み取れませんでした。\n\n' +
+    'お調べしたいお部屋のURL、または物件名をお送りください。\n\n' +
+    'どのサイトで見つけたお部屋でも大丈夫です。'
+  )]);
 }
 
 // ═══════════════════════════════════════════════════════════
