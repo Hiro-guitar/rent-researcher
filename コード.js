@@ -1002,6 +1002,31 @@ function doGet(e) {
   }
 
   // 空室状況確認キュー (Chrome拡張から定期的に取得して各物件をチェック)
+  // 拡張が chat.line.biz でお客様の名前を出すために引く（api_key必須・読み取りだけ）
+  if (action === 'line_customer_name') {
+    if (!_validateReinsApiKey(e.parameter.api_key)) {
+      return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    var _luid = String(e.parameter.user_id || '').trim();
+    var _luname = '';
+    try {
+      if (_luid) {
+        var _luss = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(LINE_USERS_SHEET_NAME);
+        if (_luss && _luss.getLastRow() > 1) {
+          var _lud = _luss.getRange(2, 1, _luss.getLastRow() - 1, 2).getValues();
+          for (var _li = 0; _li < _lud.length; _li++) {
+            if (String(_lud[_li][0] || '').trim() === _luid) { _luname = String(_lud[_li][1] || '').trim(); break; }
+          }
+        }
+      }
+    } catch (_luE) {
+      console.warn('[LINE名前] 読めません: ' + _luE.message);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, userId: _luid, name: _luname }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   if (action === 'get_availability_queue') {
     try {
       if (!_validateReinsApiKey(e.parameter.api_key)) {
