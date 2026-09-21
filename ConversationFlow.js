@@ -207,7 +207,14 @@ function handleSearchFlowText(replyToken, userId, message, state) {
     case STEPS.MOVE_IN_PERIOD:
     case STEPS.MOVE_IN_STRICT:
     case STEPS.CONFIRM:
-      // ボタン選択ステップで手入力された場合、案内メッセージ付きで質問を再表示
+      // ボタンで選ぶ質問の最中に文字が来た場合。
+      // ⚠️ 出し直すのは**その質問につき1回だけ**。
+      //   以前は毎回出していたため、ボタンを押さずに担当者と話し始めると
+      //   1通ごとに同じ質問が返ってきて止まらなかった（2026-09-21 指摘）。
+      //   2回目からは黙る。ボタンはトークに残っているので、あとから押せば続けられる。
+      if (state.buttonGuideAt === state.step) return true;
+      state.buttonGuideAt = state.step;
+      saveState(userId, state);
       showStepQuestion(replyToken, userId, state, GUIDE_TEXT_BUTTON);
       return true;
     default:
