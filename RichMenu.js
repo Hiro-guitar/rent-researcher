@@ -67,8 +67,8 @@ function _richMenuDef_(kind) {
   // 3列×2行: 空室確認 / 条件を変える / お気に入り / 配信の停止・再開 / 使い方 / お部屋マップ
   // お部屋マップは LIFF が設定済みなら押した瞬間に開く(uri)。未設定ならボットがリンクを返す(message)。
   var mapAction = MAP_LIFF_CONFIG.liffId
-    ? { type: 'uri', label: 'お部屋マップ', uri: 'https://liff.line.me/' + MAP_LIFF_CONFIG.liffId }
-    : msg('お部屋マップ');
+    ? { type: 'uri', label: '届いたお部屋', uri: 'https://liff.line.me/' + MAP_LIFF_CONFIG.liffId }
+    : msg('届いたお部屋');   // ⚠️ 押すとトークにこの文字が出る。画像のラベルと揃えること
   var areas = [
     { bounds: { x: 0,    y: 0,   width: 833, height: 843 }, action: msg('空室確認') },
     { bounds: { x: 833,  y: 0,   width: 833, height: 843 }, action: msg('条件変更') },

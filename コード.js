@@ -456,7 +456,8 @@ function doPost(e) {
       }
 
       // コマンド: お部屋マップ（登録後リッチメニュー・LIFF未設定時） → RichMenu.js
-      if (message === 'お部屋マップ') {
+      // ⚠️ 旧い言い方も受ける。過去のトークに残ったボタンから届くことがある。
+      if (message === '届いたお部屋' || message === 'お部屋マップ') {
         handleMapCommand(replyToken, userId);
         return;
       }
