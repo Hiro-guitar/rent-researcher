@@ -53,6 +53,8 @@ function _richMenuDef_(kind) {
   if (kind === 'before') {
     return {
       size: { width: 2500, height: 843 },
+      // 登録前は開いたまま。初めて来た人にメニューの存在を知ってもらう必要がある。
+      // 枠は2つ（空室確認／条件を登録）だけなので、見えていることに意味がある。
       selected: true,
       name: RICHMENU_NAME_BEFORE,
       chatBarText: 'メニュー',
@@ -75,7 +77,10 @@ function _richMenuDef_(kind) {
     { bounds: { x: 833,  y: 843, width: 833, height: 843 }, action: msg('使い方') },
     { bounds: { x: 1666, y: 843, width: 834, height: 843 }, action: mapAction }
   ];
-  return { size: { width: 2500, height: 1686 }, selected: true, name: RICHMENU_NAME_AFTER, chatBarText: 'メニュー', areas: areas };
+  // ⚠️ 登録後は閉じた状態で出す（selected: false / 2026-09-21）。
+  //   この層には物件カードが届く。6枠は縦2段あって、開いていると画面の半分近くを占め、
+  //   カルーセルが窮屈になる。メニューの存在はもう知っているので、閉じていて困らない。
+  return { size: { width: 2500, height: 1686 }, selected: false, name: RICHMENU_NAME_AFTER, chatBarText: 'メニュー', areas: areas };
 }
 
 /** 【GASエディタから実行】リッチメニュー2枚を作り直して、登録前を既定にする。 */
