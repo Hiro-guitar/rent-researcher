@@ -400,6 +400,49 @@ function _vacancyLinkByEmail_(userId, email) {
   return { customerName: lineName, action: 'none' };
 }
 
+/**
+ * 【GASエディタで実行】拡張が顧客名を引けない userId を調べる。
+ * VacancyRequest.gs の debugLineNameLookup を選んで実行し、実行ログを見る。
+ * 調べたい userId は下の IDS に貼る（chat.line.biz のURL末尾）。
+ */
+function debugLineNameLookup() {
+  var IDS = [
+    'U79ba40657c9c9ee5998b1c8f015a42f1',
+    'U047e5a391b59dc9d2df682397115dfd2'
+  ];
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+
+  var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+  var luRows = (lu && lu.getLastRow() > 1) ? lu.getRange(2, 1, lu.getLastRow() - 1, 2).getValues() : [];
+  console.log('LINE Users シート: ' + luRows.length + '行');
+
+  var le = ss.getSheetByName(LINE_EMAIL_SHEET_NAME);
+  var leRows = (le && le.getLastRow() > 1) ? le.getRange(2, 1, le.getLastRow() - 1, 2).getValues() : [];
+  console.log('LINE登録メール シート: ' + leRows.length + '行');
+
+  for (var i = 0; i < IDS.length; i++) {
+    var id = String(IDS[i]).trim();
+    var name = '';
+    for (var r = 0; r < luRows.length; r++) {
+      if (String(luRows[r][0] || '').trim() === id) { name = String(luRows[r][1] || '').trim(); break; }
+    }
+    var mails = [];
+    for (var m = 0; m < leRows.length; m++) {
+      if (String(leRows[m][1] || '').trim() === id) mails.push(String(leRows[m][0] || '').trim());
+    }
+    var inqs = mails.length ? _vacancyFindInquiriesByEmails_(mails) : [];
+    console.log('──────── ' + id);
+    console.log('  LINE Users の顧客名 : ' + (name || '（無し）'));
+    console.log('  登録メール          : ' + (mails.length ? mails.join(', ') : '（無し）'));
+    console.log('  問い合わせ          : ' + (inqs.length
+      ? inqs.map(function (q) { return q.name + ' / ' + q.building; }).join(' | ')
+      : '（無し）'));
+    if (!name && inqs.length && inqs[0].name) {
+      console.log('  → 問い合わせ者名 ' + inqs[0].name + ' で紐付けられるはずが、紐付いていない');
+    }
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 //  メッセージ部品
 // ═══════════════════════════════════════════════════════════
