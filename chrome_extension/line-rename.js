@@ -78,22 +78,34 @@
     if (busy || handled[userId]) return;
     busy = true;
     try {
+      console.log('[LINE表示名] 開いた相手: ' + userId);
       var nameEl = await waitFor('#content-thirdly h3 span', 5000);
-      if (!nameEl) return;                       // パネルがまだ描かれていない
+      if (!nameEl) {
+        // ⚠️ プロフィールパネルが見つからない。LINE側の作りが変わった可能性。
+        console.warn('[LINE表示名] 表示名の要素が見つかりません（#content-thirdly h3 span）。'
+          + ' h3の数=' + document.querySelectorAll('h3').length
+          + ' / #content-thirdly=' + (document.querySelector('#content-thirdly') ? 'あり' : 'なし'));
+        return;
+      }
       var shown = (nameEl.textContent || '').trim();
+      console.log('[LINE表示名] 今の表示名: ' + shown);
 
       var want = await lookupName(userId);
-      if (!want) { handled[userId] = 'お客様が見つからない'; return; }
+      if (!want) {
+        console.log('[LINE表示名] LINE Users に見つかりません。何もしません: ' + userId);
+        handled[userId] = 'お客様が見つからない'; return;
+      }
+      console.log('[LINE表示名] 顧客名: ' + want);
       want = want.replace(/\s+/g, ' ').trim();
       if (want.length > NAME_MAX) want = want.substring(0, NAME_MAX);
-      if (shown === want) { handled[userId] = 'すでにその名前'; return; }
+      if (shown === want) { console.log('[LINE表示名] すでにその名前です'); handled[userId] = 'すでにその名前'; return; }
 
       var pencil = pencilEl();
-      if (!pencil) { handled[userId] = '鉛筆が見つからない'; return; }
+      if (!pencil) { console.warn('[LINE表示名] 鉛筆が見つかりません（#content-thirdly h3 a）'); handled[userId] = '鉛筆が見つからない'; return; }
       pencil.click();
 
       var input = await waitFor('.modal-content input.form-control', 3000);
-      if (!input) { handled[userId] = 'モーダルが出ない'; return; }
+      if (!input) { console.warn('[LINE表示名] モーダルが出ません（.modal-content input.form-control）'); handled[userId] = 'モーダルが出ない'; return; }
 
       // ⚠️ 手で直した名前は上書きしない。
       //   「友だちが設定した名前」＝LINEのニックネーム。今の表示名がそれと違えば、
@@ -114,6 +126,7 @@
       if (!save || save.disabled) {
         var cancel2 = document.querySelector('.modal-footer .btn-secondary');
         if (cancel2) cancel2.click();
+        console.warn('[LINE表示名] 保存ボタンが押せません');
         handled[userId] = '保存ボタンが押せない';
         return;
       }
