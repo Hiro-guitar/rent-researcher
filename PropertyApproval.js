@@ -4137,7 +4137,11 @@ function getSeenPropertiesForResend(customerName, opts) {
  *   同じ push にまとめるので通数は増えない。
  * @return {{ok:boolean, sent:number, failed:number, message:string}}
  */
-function resendPropertyNotifications(customerName, roomIds, leadText) {
+/**
+ * @param {Array} [quickReply] 最後のメッセージに付けるクイックリプライ（qrMessage 等）。
+ *   ⚠️ LINEは**最後のメッセージ**のものしか表示しない。先頭の一言に付けても出ない。
+ */
+function resendPropertyNotifications(customerName, roomIds, leadText, quickReply) {
   if (!customerName || !Array.isArray(roomIds) || roomIds.length === 0) {
     return { ok: false, sent: 0, failed: 0, message: 'パラメータ不足' };
   }
