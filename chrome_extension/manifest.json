@@ -54,7 +54,8 @@
     "https://image2.homes.jp/*",
     "https://image3.homes.jp/*",
     "https://image4.homes.jp/*",
-    "https://archive-image.homes.co.jp/*"
+    "https://archive-image.homes.co.jp/*",
+    "https://chat.line.biz/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -213,6 +214,15 @@
       ],
       "js": [
         "pinpoint-search.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chat.line.biz/*"
+      ],
+      "js": [
+        "line-rename.js"
       ],
       "run_at": "document_idle"
     }

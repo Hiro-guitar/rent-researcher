@@ -3019,6 +3019,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // 顧客管理ページで「空室確認してから送る」が押された → その場で確認を始める。
   // ⚠️ これが無いと、拡張は1分ごとのポーリングまで気づかない。担当者は画面の前で
   //   待っているので、その1分が体感でかなり長い（2026-09-20）。
+  // chat.line.biz の content script が、userId から顧客名を引くために呼ぶ。
+  // ⚠️ content script から直接GASを叩くとCORSで止まるので、ここで代わりに取りに行く。
+  if (msg.type === 'LINE_LOOKUP_NAME') {
+    gasGet('line_customer_name', { user_id: String(msg.userId || '') })
+      .then(r => sendResponse({ ok: true, name: (r && r.name) || '' }))
+      .catch(err => {
+        console.warn('[LINE表示名] 顧客名を引けません: ' + err.message);
+        sendResponse({ ok: false, name: '' });
+      });
+    return true;   // 非同期で返すため
+  }
+
   if (msg.type === 'VACANCY_CHECK_NOW') {
     // ⚠️ 二重起動を必ず弾くこと。GASの画面は入れ子のiframeなので、ページからの合図を
     //   複数のフレームの content script がそれぞれ受け取って、同じ依頼で2回走る。
