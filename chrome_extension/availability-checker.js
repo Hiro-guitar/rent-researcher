@@ -1157,8 +1157,9 @@ async function _runAvailabilityForItems_(items) {
 async function runPriorityAvailabilityPoll() {
   let queue;
   try {
+    // ⚠️ limit は指定しない（GAS側の既定50）。5にしていたのは、お客さんがボタンを
+    //   押した1件だけを想定していた名残。物件検索はその何十倍も叩いているので絞る意味がない。
     queue = await gasGet('get_availability_queue', {
-      limit: 5,
       priority_only: 1,
       max_priority_age_minutes: 60
     });

@@ -228,9 +228,6 @@ function processFirstDeliveryChecks() {
     sh.appendRow([name, new Date(b.firstMs), new Date(), '', '確認待ち',
       '未読' + target.length + '件 / キュー' + (q.queued || 0) + '件']);
     queued++;
-    // ⚠️ 1回のトリガーで頼むのは1人だけ。まとめて送ると同じ時刻に何人にも届いて
-    //   機械だと分かるし、拡張の空室確認も詰まる。残った人は次の回で拾う。
-    break;
   }
   console.log('[初回配信] 確認を頼んだ: ' + queued + '人 / 見送り: ' + skipped + '人'
     + (FIRST_DELIVERY_ENABLED ? '' : '（送信はまだ止めてあります）'));
@@ -241,8 +238,12 @@ function processFirstDeliveryChecks() {
  *
  * 1回の呼び出しで2つやる。
  *   1. 前回の回で確認を頼んだ人を再送する（印が30分で切れるので、次の回で送りきる）
- *   2. 新しく時刻が来た人の確認を頼む（1人だけ）
+ *   2. 新しく時刻が来た人の確認を頼む（時刻が来た人はまとめて）
  * 順番は再送が先。先に頼むと、同じ回で送ろうとして確認が間に合わない。
+ *
+ * ⚠️ 人数を絞らないこと。以前「1回1人」にしていたが、理由が2つとも間違いだった。
+ *   ・同時に届くと機械に見える → お客様同士は比べようがないので関係ない
+ *   ・サイトへのアクセスが増える → 物件検索が毎日その何十倍も叩いている
  */
 function processFirstDeliveryFollow() {
   var h = (typeof getJstHour === 'function') ? getJstHour(new Date()) : new Date().getHours();

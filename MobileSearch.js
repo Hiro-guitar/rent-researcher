@@ -134,8 +134,11 @@ function handleSearchRequestPoll(json) {
   try {
     if (typeof _hasAvailPendingFlag_ === 'function' && _hasAvailPendingFlag_()
         && typeof getAvailabilityCheckQueue === 'function') {
+      // ⚠️ 取り出しの上限は決め打ちしない（既定の50）。
+      //   以前 5 にしていたのは、お客さんがボタンを押した1件だけを想定した名残。
+      //   物件検索は毎日その何十倍もアクセスしているので、ここを絞る意味はない。
       availability = getAvailabilityCheckQueue({
-        limit: 5, priorityOnly: true, maxPriorityAgeMinutes: 60
+        priorityOnly: true, maxPriorityAgeMinutes: 60
       }) || [];
       // 全部さばけたら目印を消す。次からはまたシートを読まなくなる。
       if (!availability.length && typeof _clearAvailPendingFlag_ === 'function') {
