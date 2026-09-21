@@ -332,6 +332,37 @@ function processFirstDeliveryResends() {
 }
 
 /**
+ * 【GASエディタから実行・FirstDeliveryFollow.gs】見た目を確かめるために自分へ送る。
+ *
+ * ⚠️ 本番の条件（25時間15分・1度も見ていない）を**すべて無視して即送信**する。
+ *   届く相手を間違えないよう、送り先は下の TO で明示すること。
+ * ⚠️ 初回配信フォローの記録シートには書かない。本番の対象判定に影響させないため。
+ * ⚠️ 空室確認もしない。募集終了の物件が混ざる可能性がある（見た目の確認が目的）。
+ */
+function testSendFirstDeliveryResend() {
+  // ↓ 送り先。既定はテストユーザーの1人目
+  var TO = (typeof TEST_ALLOWED_NAMES !== 'undefined' && TEST_ALLOWED_NAMES.length)
+    ? TEST_ALLOWED_NAMES[0] : '';
+  if (!TO) { console.log('送り先が決まりません。TO に顧客名を書いてください。'); return; }
+
+  var seen = [];
+  try { seen = getSeenPropertiesForResend(TO, { includeClosed: false }) || []; } catch (e) {
+    console.log('送付済み物件を読めません: ' + e.message); return;
+  }
+  // 未読を優先。無ければ閲覧済みでも使う（見た目の確認が目的なので）
+  var unread = seen.filter(function (p) { return !p.viewed; });
+  var pick = (unread.length ? unread : seen).slice(0, 3);
+  if (!pick.length) { console.log(TO + ' に送れる物件がありません'); return; }
+
+  var ids = pick.map(function (p) { return p.roomId; });
+  console.log('[テスト] ' + TO + ' へ ' + ids.length + '件送ります: '
+    + pick.map(function (p) { return p.buildingName || p.roomId; }).join(' / '));
+  var r = resendPropertyNotifications(TO, ids,
+    buildFirstDeliveryResendText(), buildFirstDeliveryQuickReply());
+  console.log('[テスト] 結果: ' + JSON.stringify(r));
+}
+
+/**
  * 【GASエディタから実行・FirstDeliveryFollow.gs】
  * 誰が対象になるかを、送らずに確かめる。読み取りだけで何も書き換えない。
  */
