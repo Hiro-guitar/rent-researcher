@@ -410,6 +410,9 @@ function debugLineNameLookup() {
     'U79ba40657c9c9ee5998b1c8f015a42f1',
     'U047e5a391b59dc9d2df682397115dfd2'
   ];
+  // 本人が送ってきたメールアドレス。どの userId で保存されているかを見る。
+  // chat.line.biz のURLのIDと一致しなければ、両者は別物ということになる。
+  var EMAILS = ['haruchahan_99812@au.com'];
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
 
   var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
@@ -440,6 +443,21 @@ function debugLineNameLookup() {
     if (!name && inqs.length && inqs[0].name) {
       console.log('  → 問い合わせ者名 ' + inqs[0].name + ' で紐付けられるはずが、紐付いていない');
     }
+  }
+
+  for (var k = 0; k < EMAILS.length; k++) {
+    var want = String(EMAILS[k]).trim().toLowerCase();
+    var hits = [];
+    for (var q = 0; q < leRows.length; q++) {
+      if (String(leRows[q][0] || '').trim().toLowerCase() === want) hits.push(String(leRows[q][1] || '').trim());
+    }
+    console.log('──────── ' + want);
+    console.log('  保存されている userId: ' + (hits.length ? hits.join(', ') : '（無し）'));
+  }
+
+  console.log('──────── LINE登録メール の直近5行（形の見比べ用）');
+  for (var z = Math.max(0, leRows.length - 5); z < leRows.length; z++) {
+    console.log('  ' + leRows[z][0] + ' → ' + leRows[z][1]);
   }
 }
 
