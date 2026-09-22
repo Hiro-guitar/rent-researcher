@@ -2087,8 +2087,14 @@ function handleDeliveryStopCommand(replyToken, userId) {
     saveState(userId, { step: STEPS.WAITING_STOP_REASON, data: {} });
     replyMessage(replyToken, [{
       type: 'text',
+      // ⚠️「その他」のボタンは置かないこと (2026-09-22)。
+      //   以前は「その他」を押すと自由入力に移り、文章を送るまで配信が止まらなかった。
+      //   その画面には選択肢が1つも無く、やめたい人が2回操作させられる行き止まりで、
+      //   面倒がってブロックされる原因になっていた。
+      //   質問は1回で終わらせる。ボタンでも、そのまま書いてもらっても、どちらでも止める。
       text: '配信停止の前に、差し支えなければ理由を教えていただけますか？\n' +
         '今後のサービス改善に活用させていただきます。\n\n' +
+        '選択肢にない場合は、そのまま入力していただいても構いません。\n\n' +
         'やめる場合は「キャンセル」を選んでください。',
       quickReply: {
         items: [
@@ -2096,7 +2102,6 @@ function handleDeliveryStopCommand(replyToken, userId) {
           { type: 'action', action: { type: 'message', label: '忙しくて見る時間がない', text: '停止理由:忙しくて見る時間がない' } },
           { type: 'action', action: { type: 'message', label: '希望に合わない', text: '停止理由:希望に合わない' } },
           { type: 'action', action: { type: 'message', label: '通知が多い', text: '停止理由:通知が多い' } },
-          { type: 'action', action: { type: 'message', label: 'その他（自由入力）', text: '停止理由:その他' } },
           { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
         ]
       }
@@ -2173,18 +2178,12 @@ function _isStopReasonCommand_(message) {
 // 返り値 true: ハンドル済み / false: 未ハンドル
 function handleStopReasonText(replyToken, userId, message, state) {
   try {
+    // WAITING_STOP_REASON_CUSTOM には新たに入らない（質問を1回にしたため）。
+    // 古い状態が残っている人だけのために、理由を書き足す道は残しておく。
     if (state.step === STEPS.WAITING_STOP_REASON_CUSTOM) {
-      // ⚠️ この時点で配信はすでに止まっている（「その他」を押した時点で止めている）。
-      //   ここは理由を書き足してもらうだけ。書かなくても困らない。
       clearState(userId);
-      // ⚠️ メニューの言葉を理由として飲み込まないこと。
-      //   この待ち受けはコマンドより先に見られるので、「配信再開」がここで
-      //   消えてしまう。状態だけ消して、コマンドとして処理させる。
       if (_isStopReasonCommand_(message)) return false;
-      // 何日も経ってから届いた文は、理由ではなく別件の可能性が高い。
-      if (typeof isStateFreshForFreeText === 'function' && !isStateFreshForFreeText(state)) {
-        return false;
-      }
+      if (typeof isStateFreshForFreeText === 'function' && !isStateFreshForFreeText(state)) return false;
       _saveStopReason(userId, 'その他: ' + message);
       replyMessage(replyToken, [textMsg('ありがとうございます。今後の参考にさせていただきます。')]);
       return true;
@@ -2193,43 +2192,16 @@ function handleStopReasonText(replyToken, userId, message, state) {
 
     if (state.step !== STEPS.WAITING_STOP_REASON) return false;
 
-    if (message.indexOf('停止理由:') !== 0) {
-      // 選択肢外: 再度選択肢を提示
-      replyMessage(replyToken, [{
-        type: 'text',
-        text: 'お手数ですが、下の選択肢から選んでください。',
-        quickReply: {
-          items: [
-            { type: 'action', action: { type: 'message', label: '引越し先が決まった', text: '停止理由:引越し先が決まった' } },
-            { type: 'action', action: { type: 'message', label: '忙しくて見る時間がない', text: '停止理由:忙しくて見る時間がない' } },
-            { type: 'action', action: { type: 'message', label: '希望に合わない', text: '停止理由:希望に合わない' } },
-            { type: 'action', action: { type: 'message', label: '通知が多い', text: '停止理由:通知が多い' } },
-            { type: 'action', action: { type: 'message', label: 'その他（自由入力）', text: '停止理由:その他' } },
-            { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
-          ]
-        }
-      }]);
-      return true;
-    }
-
-    var reason = message.substring('停止理由:'.length);
-
-    if (reason === 'その他') {
-      // ⚠️ 先に止めること (2026-09-22)。
-      //   以前は文章を送るまで停止を確定していなかった。止めたい人が止められず、
-      //   しかも選択肢も出ない行き止まりだったため、ブロックされる原因になっていた。
-      //   理由は「あれば嬉しい」程度のもので、止める条件にしてはいけない。
-      _finalizeStop(userId, 'その他');
-      saveState(userId, { step: STEPS.WAITING_STOP_REASON_CUSTOM, data: {} });
-      replyMessage(replyToken, [textMsgWithQuickReply(
-        '配信を停止しました。\n\n' +
-        '差し支えなければ、理由をひとことお聞かせいただけますでしょうか。\n' +
-        'お答えいただかなくても問題ありません。\n\n' +
-        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
-        '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。',
-        [qrPostback('答えない', 'stop_reason_skip', '答えない')]
-      )]);
-      return true;
+    // ⚠️ 選択肢に無い文が来ても聞き直さないこと。
+    //   以前は「下の選択肢から選んでください」と返していたので、
+    //   自分の言葉で書いた人は永久に止められなかった。書かれた言葉を理由にして止める。
+    var reason;
+    if (message.indexOf('停止理由:') === 0) {
+      reason = message.substring('停止理由:'.length);
+    } else {
+      // メニューの言葉はここで飲み込まない。状態だけ消してコマンドとして処理させる。
+      if (_isStopReasonCommand_(message)) { clearState(userId); return false; }
+      reason = 'その他: ' + String(message || '').trim();
     }
 
     // 旧仕様: 「忙しい」「希望に合わない」「通知が多い」 は代替案を提示してから停止

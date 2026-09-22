@@ -373,14 +373,6 @@ function doPost(e) {
         return;
       }
 
-      // 配信停止の理由「その他」で、理由を書かずに終える
-      // ⚠️ この時点で配信はすでに止まっている。ここは会話を畳むだけ。
-      if (data === 'stop_reason_skip') {
-        clearState(userId);
-        replyMessage(replyToken, [textMsg('承知しました。ご利用ありがとうございました。')]);
-        return;
-      }
-
       // 検索条件フロー関連の postback（datetimepicker用にeventも渡す）
       if (handleSearchFlowPostback(replyToken, userId, data, state, event)) return;
 
