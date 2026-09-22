@@ -372,10 +372,17 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       // その他 → 自由入力ステップへ
       state.step = STEPS.REASON_CUSTOM;
       saveState(userId, state);
+      // ⚠️ 入力を必須にしないこと (2026-09-22)。
+      //   軽い気持ちで「その他」を押した人が行き止まりになり、
+      //   入力を面倒がってブロックされた例がある。逃げ道を必ず残す。
       replyMessage(replyToken, [
         textMsgWithQuickReply(
-          'お部屋探しの理由を教えてください。\n自由に入力してください。',
-          [qrPostback('◀ 戻る', 'action=back', '戻る')]
+          'よろしければ、お部屋探しの理由を教えてください。\n\n'
+          + '入力せずに進むこともできます。',
+          [
+            qrPostback('入力せずに進む', 'reason_custom_skip', '入力せずに進む'),
+            qrPostback('◀ 戻る', 'action=back', '戻る')
+          ]
         )
       ]);
     } else {
@@ -397,10 +404,15 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
       // その他 → 自由入力ステップへ
       state.step = STEPS.RESIDENT_CUSTOM;
       saveState(userId, state);
+      // ⚠️ ここも入力を必須にしない。理由は上の引越し理由と同じ。
       replyMessage(replyToken, [
         textMsgWithQuickReply(
-          '部屋に住む方を教えてください。\n自由に入力してください。',
-          [qrPostback('◀ 戻る', 'action=back', '戻る')]
+          'よろしければ、お部屋に住む方を教えてください。\n\n'
+          + '入力せずに進むこともできます。',
+          [
+            qrPostback('入力せずに進む', 'resident_custom_skip', '入力せずに進む'),
+            qrPostback('◀ 戻る', 'action=back', '戻る')
+          ]
         )
       ]);
     } else {
@@ -514,6 +526,26 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     state.step = STEPS.CRITERIA_SELECT;
     saveState(userId, state);
     showCriteriaSelectLink(replyToken, userId);
+    return true;
+  }
+
+  // ── 引越し理由「その他」を書かずに進む ──
+  if (data === 'reason_custom_skip') {
+    state = updateStateData(state, 'reason', 'その他');
+    state.step = STEPS.RESIDENT;
+    saveState(userId, state);
+    if (state.isAutoFollowup) persistAutoFollowupAnswers(userId, state);
+    showResidentSelect(replyToken);
+    return true;
+  }
+
+  // ── 居住者「その他」を書かずに進む ──
+  if (data === 'resident_custom_skip') {
+    state = updateStateData(state, 'resident', 'その他');
+    state.step = STEPS.AGE;
+    saveState(userId, state);
+    if (state.isAutoFollowup) persistAutoFollowupAnswers(userId, state);
+    showAgeSelect(replyToken);
     return true;
   }
 
