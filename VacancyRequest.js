@@ -1565,8 +1565,7 @@ function _vacancyRegisterCard_() {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
         contents: [
           { type: 'text', text: 'お部屋探しのご希望を教えてください', weight: 'bold', size: 'md', color: '#333333', wrap: true },
-          { type: 'text', text: 'ご希望に合うお部屋が出た時に、すぐお知らせします。
-検索サイトに出ていないお部屋もご紹介できます。',
+          { type: 'text', text: 'ご希望に合うお部屋が出た時に、すぐお知らせします。\n検索サイトに出ていないお部屋もご紹介できます。',
             size: 'sm', color: '#555555', wrap: true, margin: 'md' }
         ]
       },
