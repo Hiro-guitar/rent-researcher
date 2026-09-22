@@ -1019,7 +1019,7 @@ function doGet(e) {
     try {
       var _lnRes = getLineChatNameMap();
       _lnBody = JSON.stringify({ ok: true, map: _lnRes.map, skipped: _lnRes.skipped });
-      try { _lnCache.put('line_name_map', _lnBody, 60); } catch (_lnP) {}
+      try { _lnCache.put('line_name_map', _lnBody, 30); } catch (_lnP) {}
     } catch (_lnE) {
       console.warn('[LINE名前] 対応表を作れません: ' + _lnE.message);
       _lnBody = JSON.stringify({ ok: false, map: {}, message: _lnE.message });

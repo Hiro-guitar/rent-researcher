@@ -35,7 +35,10 @@
   console.log('[LINE表示名] content script loaded');
 
   var NAME_MAX = 20;            // 入力欄の上限（画面の 9/20 表示より）
-  var SWEEP_EVERY_MS = 2 * 60 * 1000;   // 一覧を見直す間隔
+  // ⚠️ 毎回ぜんぶのページを読まないこと。432件なら1回5往復で、2分おきだと叩きすぎる。
+  //   メアドを送ってきた人は一覧の一番上に来るので、ふだんは1ページ目だけで足りる。
+  var SWEEP_EVERY_MS = 60 * 1000;            // 1ページ目だけ見る間隔
+  var DEEP_SWEEP_EVERY_MS = 30 * 60 * 1000;  // 最後まで読む間隔
   var PUT_GAP_MS = 1000;        // 1件ごとに空ける。LINE側のレート制限よけ
   var PUT_MAX_PER_SWEEP = 30;   // 1回で改名する上限
   var ID_RE = /^U[0-9a-f]{32}$/;
@@ -112,7 +115,7 @@
    * ⚠️ エンドポイントは決め打ちにしない。このページが実際に呼んだURLの中から
    *   一覧らしきものを拾う。LINE側が版を上げても追随できるように。
    */
-  async function fetchChatList() {
+  async function fetchChatList(deep) {
     var bot = botId();
     if (!bot) return [];
     var called = [];
@@ -136,7 +139,8 @@
         var pairs = collectChats(json);
         if (!pairs.length) continue;
 
-        // ⚠️ 1ページ目だけ見て終わらないこと。友だちが多いと後ろの人が一生直らない。
+        // ⚠️ 深く読む回は最後まで。友だちが多いと後ろの人が一生直らない。
+        if (!deep) return pairs;
         var base = urls[i].split('#')[0];
         var seenId = {};
         pairs.forEach(function (p) { seenId[p.chatId] = true; });
@@ -237,10 +241,13 @@
   }
 
   /** 一覧を一巡して、対応表に当たった人だけ改名する。 */
-  async function sweep() {
+  var lastDeepAt = 0;
+
+  async function sweep(deep) {
     if (sweeping) return;
     sweeping = true;
     try {
+      if (deep) lastDeepAt = Date.now();
       // ページがまだ1回もAPIを叩いていないとトークンが無い。次の巡回に回す。
       if (!pageHeaders['x-xsrf-token'] && !csrfToken()) {
         console.log('[LINE表示名] トークンがまだ取れていません。次の巡回で試します');
@@ -248,9 +255,9 @@
       }
       var map = await nameMap();
       if (!Object.keys(map).length) return;
-      var chats = await fetchChatList();
+      var chats = await fetchChatList(deep);
       if (!chats.length) { console.warn('[LINE表示名] トーク一覧を取れませんでした'); return; }
-      console.log('[LINE表示名] 一覧 ' + chats.length + '件 / 対応表 ' + Object.keys(map).length + '件');
+      if (deep) console.log('[LINE表示名] 一覧 ' + chats.length + '件 / 対応表 ' + Object.keys(map).length + '件');
 
       // ⚠️ 一覧の中で同じ表示名が2つ以上あったら、その名前は全部見送る。
       //   どちらが本人か分からないまま実名を付けると、別のお客様のトークに
@@ -310,8 +317,11 @@
     }
   }
 
-  // 読み込み直後に1回、あとは定期的に一覧を見直す。
-  // メアドを送ってきた人は一覧の一番上に来るので、これだけで数分以内に名前が付く。
-  setTimeout(sweep, 3000);
-  setInterval(sweep, SWEEP_EVERY_MS);
+  // 読み込み直後に全部を1回。以降は1分ごとに1ページ目だけ見て、
+  // 30分に1度だけ最後まで読み直す。
+  // メアドを送ってきた人は一覧の一番上に来るので、1分おきの浅い巡回で拾える。
+  setTimeout(function () { sweep(true); }, 3000);
+  setInterval(function () {
+    sweep(Date.now() - lastDeepAt >= DEEP_SWEEP_EVERY_MS);
+  }, SWEEP_EVERY_MS);
 })();
