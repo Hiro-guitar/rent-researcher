@@ -21,9 +21,8 @@
 
 var FIRST_SEARCH_SHEET = '初回検索の確認';
 
-// 送信を止めるスイッチ。false なら数えるだけ。
-// 2026-09-22 に稼働。入れる前に previewFirstSearchZero で7日以内の対象0人を確認済み。
-var FIRST_SEARCH_ENABLED = true;
+// 送信を止めるスイッチ。false なら数えるだけ。中身と仕組みが決まるまで false。
+var FIRST_SEARCH_ENABLED = false;
 // 登録からこれだけ経ってから判定する（他サイトの検索を待つ）
 var FIRST_SEARCH_WAIT_H = 3;
 // 返事をこれだけ待って、無ければ終了
