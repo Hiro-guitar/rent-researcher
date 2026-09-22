@@ -132,11 +132,41 @@
       try {
         var r = await fetch(urls[i], { credentials: 'include' });
         if (!r.ok) continue;
-        var pairs = collectChats(await r.json());
-        if (pairs.length) return pairs;
+        var json = await r.json();
+        var pairs = collectChats(json);
+        if (!pairs.length) continue;
+
+        // ⚠️ 1ページ目だけ見て終わらないこと。友だちが多いと後ろの人が一生直らない。
+        var base = urls[i].split('#')[0];
+        var seenId = {};
+        pairs.forEach(function (p) { seenId[p.chatId] = true; });
+        var next = nextToken(json);
+        for (var page = 0; page < 20 && next; page++) {
+          var u2 = base + (base.indexOf('?') >= 0 ? '&' : '?') + 'next=' + encodeURIComponent(next);
+          var r2 = await fetch(u2, { credentials: 'include' });
+          if (!r2.ok) break;
+          var j2 = await r2.json();
+          var more = collectChats(j2);
+          var added = 0;
+          more.forEach(function (p) { if (!seenId[p.chatId]) { seenId[p.chatId] = true; pairs.push(p); added++; } });
+          if (!added) break;
+          next = nextToken(j2);
+        }
+        return pairs;
       } catch (e) {}
     }
     return [];
+  }
+
+  /** 次のページの合図。名前は決め打ちにせず、それらしいものを拾う。 */
+  function nextToken(json) {
+    if (!json || typeof json !== 'object') return '';
+    var keys = ['next', 'nextToken', 'nextCursor', 'cursor', 'continuationToken'];
+    for (var i = 0; i < keys.length; i++) {
+      var v = json[keys[i]];
+      if (typeof v === 'string' && v) return v;
+    }
+    return '';
   }
 
   /**
@@ -220,6 +250,7 @@
       if (!Object.keys(map).length) return;
       var chats = await fetchChatList();
       if (!chats.length) { console.warn('[LINE表示名] トーク一覧を取れませんでした'); return; }
+      console.log('[LINE表示名] 一覧 ' + chats.length + '件 / 対応表 ' + Object.keys(map).length + '件');
 
       // ⚠️ 一覧の中で同じ表示名が2つ以上あったら、その名前は全部見送る。
       //   どちらが本人か分からないまま実名を付けると、別のお客様のトークに
