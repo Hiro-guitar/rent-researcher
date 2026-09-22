@@ -95,7 +95,7 @@ function startSearchFlow(replyToken, userId) {
  * @param {string} replyToken
  * @param {string} userId
  */
-function startChangeFlow(replyToken, userId, prefixMessages) {
+function startChangeFlow(replyToken, userId, prefixMessages, opts) {
   var existing = readLatestCriteria(userId);
   if (!existing) {
     replyMessage(replyToken, [
@@ -133,6 +133,15 @@ function startChangeFlow(replyToken, userId, prefixMessages) {
     //    ここで拾い忘れると条件変更のたびに登録済みの年齢が消える（2026-08-06 修正）。
     age: existing.age
   };
+  // 入居時期だけ聞き直したいとき（引越し期限の確認など）は、条件選択の画面を
+  // 挟まずに月の選択へ直行する。条件の読み込みまでは同じなので、ここで分ける。
+  if (opts && opts.jumpToMoveIn) {
+    state.step = STEPS.MOVE_IN_DATE;
+    saveState(userId, state);
+    showMoveInMonthSelect(replyToken, prefixMessages || []);
+    return;
+  }
+
   saveState(userId, state);
 
   // 現在の登録条件サマリーを作成

@@ -238,6 +238,9 @@ function doPost(e) {
         if (_autoPauseStatus === 'auto_paused') {
           setDeliveryStatus(userId, 'active');
           console.log('[auto_paused 自動復帰] userId=' + userId);
+          // 引越し期限の返事が無くて自動で終了にした人なら、ステージも元に戻す。
+          // ⚠️ 片道切符にしないこと。戻ってきた人は「また探している人」。
+          if (typeof restoreStageIfAutoEnded === 'function') restoreStageIfAutoEnded(userId);
         }
       }
     } catch (_eAutoResume) {
@@ -369,6 +372,22 @@ function doPost(e) {
         } catch (eAW) {
           console.warn('[キャンセル通知希望] エラー: ' + eAW.message);
           try { replyMessage(replyToken, [textMsg('処理に失敗しました。')]); } catch(_) {}
+        }
+        return;
+      }
+
+      // 引越し期限の確認（MoveInDeadline.gs）
+      if (data === 'movein:renew') {
+        // 条件選択の画面は挟まない。聞かれたのは時期だけなので、そこだけ聞き直す。
+        startChangeFlow(replyToken, userId, [textMsg('ありがとうございます。\n引越し予定の時期を教えてください。')], { jumpToMoveIn: true });
+        return;
+      }
+      if (data === 'movein:stop') {
+        // 理由の選択肢は配信停止と1か所で持つ。ここは既存のフローに渡すだけ。
+        if (typeof handleDeliveryStopCommand === 'function') {
+          handleDeliveryStopCommand(replyToken, userId);
+        } else {
+          replyMessage(replyToken, [textMsg('承知しました。「配信停止」と送ってください。')]);
         }
         return;
       }
