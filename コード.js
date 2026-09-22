@@ -1495,8 +1495,10 @@ function doGet(e) {
   // keepalive: GASをウォームに保つためのpingエンドポイント (5分ごとにself-fetchで叩く)
   // 初回ヒット時にトリガー未登録なら自動登録する (bootstrap)
   if (action === 'keepalive') {
+    var _kaLog = [];
     try {
       var _triggers = ScriptApp.getProjectTriggers();
+      _kaLog.push('今あるトリガー: ' + _triggers.map(function (t) { return t.getHandlerFunction(); }).join(', '));
       var _hasKA = false;
       for (var _i = 0; _i < _triggers.length; _i++) {
         if (_triggers[_i].getHandlerFunction() === 'pingWebAppKeepAlive_') { _hasKA = true; break; }
@@ -1558,8 +1560,11 @@ function doGet(e) {
       for (var _im = 0; _im < _triggers.length; _im++) {
         if (_triggers[_im].getHandlerFunction() === 'processMoveInDeadline') { _hasMI = true; break; }
       }
-      if (!_hasMI && typeof processMoveInDeadline === 'function') {
+      if (_hasMI) _kaLog.push('引越し期限: すでにある');
+      else if (typeof processMoveInDeadline !== 'function') _kaLog.push('引越し期限: 関数が見つからない');
+      else {
         ScriptApp.newTrigger('processMoveInDeadline').timeBased().everyHours(1).create();
+        _kaLog.push('引越し期限: 作った');
         console.log('[keepalive] bootstrap: 引越し期限の確認 (1時間ごと) を登録');
       }
       // 初回配信を見ていない人への再送（15分ごと・営業時間の判定は関数の中）
@@ -1573,7 +1578,13 @@ function doGet(e) {
         console.log('[keepalive] bootstrap: 初回配信の再送 (15分ごと) を登録');
       }
     } catch (_eKA) {
+      _kaLog.push('失敗: ' + (_eKA && _eKA.message));
       console.warn('[keepalive] bootstrap失敗: ' + (_eKA && _eKA.message));
+    }
+    // ?debug=1 を付けると、何をしたか（しなかったか）が分かる。
+    if (String(e.parameter.debug || '') === '1') {
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, bootstrap: _kaLog }))
+        .setMimeType(ContentService.MimeType.JSON);
     }
     return ContentService
       .createTextOutput('ok')
