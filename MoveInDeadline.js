@@ -18,7 +18,8 @@
 var MOVE_IN_SHEET = '引越し時期の確認';
 
 // 送信を止めるスイッチ。false にすると、数えるだけで何もしない。
-var MOVE_IN_ENABLED = false;
+// 2026-09-22 に稼働。入れる前に previewMoveInOverdue で対象1人・過去分0人を確認済み。
+var MOVE_IN_ENABLED = true;
 
 // 期限を何日過ぎたら聞くか。0 なら当日。
 var MOVE_IN_ASK_AFTER_D = 0;
