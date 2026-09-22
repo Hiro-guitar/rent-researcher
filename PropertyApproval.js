@@ -2162,16 +2162,18 @@ function _saveStopReason(userId, reason) {
 function handleStopReasonText(replyToken, userId, message, state) {
   try {
     if (state.step === STEPS.WAITING_STOP_REASON_CUSTOM) {
-      // 自由入力フェーズ: ここで初めて配信停止を確定
-      _finalizeStop(userId, message);
+      // ⚠️ この時点で配信はすでに止まっている（「その他」を押した時点で止めている）。
+      //   ここは理由を書き足してもらうだけ。書かなくても困らない。
       clearState(userId);
-      replyMessage(replyToken, [textMsg(
-        '配信を停止しました。ご回答ありがとうございます。\n\n' +
-        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
-        '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。'
-      )]);
+      // 何日も経ってから届いた文は、理由ではなく別件の可能性が高い。
+      if (typeof isStateFreshForFreeText === 'function' && !isStateFreshForFreeText(state)) {
+        return false;
+      }
+      _saveStopReason(userId, 'その他: ' + message);
+      replyMessage(replyToken, [textMsg('ありがとうございます。今後の参考にさせていただきます。')]);
       return true;
     }
+
 
     if (state.step !== STEPS.WAITING_STOP_REASON) return false;
 
@@ -2197,9 +2199,20 @@ function handleStopReasonText(replyToken, userId, message, state) {
     var reason = message.substring('停止理由:'.length);
 
     if (reason === 'その他') {
-      // 自由入力に遷移（まだ停止は確定しない）
+      // ⚠️ 先に止めること (2026-09-22)。
+      //   以前は文章を送るまで停止を確定していなかった。止めたい人が止められず、
+      //   しかも選択肢も出ない行き止まりだったため、ブロックされる原因になっていた。
+      //   理由は「あれば嬉しい」程度のもので、止める条件にしてはいけない。
+      _finalizeStop(userId, 'その他');
       saveState(userId, { step: STEPS.WAITING_STOP_REASON_CUSTOM, data: {} });
-      replyMessage(replyToken, [textMsg('差し支えなければ、理由をお聞かせください。')]);
+      replyMessage(replyToken, [textMsgWithQuickReply(
+        '配信を停止しました。\n\n' +
+        '差し支えなければ、理由をひとことお聞かせいただけますでしょうか。\n' +
+        'お答えいただかなくても問題ありません。\n\n' +
+        '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
+        '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。',
+        [qrPostback('答えない', 'stop_reason_skip', '答えない')]
+      )]);
       return true;
     }
 
@@ -2211,7 +2224,8 @@ function handleStopReasonText(replyToken, userId, message, state) {
     clearState(userId);
     replyMessage(replyToken, [textMsg(
       '配信を停止しました。ご回答ありがとうございます。\n\n' +
-      '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
+      '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
+      '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。'
     )]);
     return true;
   } catch (err) {
