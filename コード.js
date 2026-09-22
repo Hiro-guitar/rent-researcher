@@ -550,8 +550,12 @@ function doPost(e) {
       // 配信停止理由フロー中: 自由入力 or 選択肢を処理
       if (state.step === STEPS.WAITING_STOP_REASON || state.step === STEPS.WAITING_STOP_REASON_CUSTOM) {
         if (message === 'キャンセル' || message === 'きゃんせる') {
+          // ⚠️ CUSTOM のほうはすでに配信を止めてある。「キャンセルしました」と言うと嘘になる。
+          var _alreadyStopped = (state.step === STEPS.WAITING_STOP_REASON_CUSTOM);
           clearState(userId);
-          replyMessage(replyToken, [textMsg('配信停止をキャンセルしました。引き続き新着物件をお届けいたします。')]);
+          replyMessage(replyToken, [textMsg(_alreadyStopped
+            ? '承知しました。\n\n配信は停止したままです。再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。'
+            : '配信停止をキャンセルしました。引き続き新着物件をお届けいたします。')]);
           return;
         }
         if (handleStopReasonText(replyToken, userId, message, state)) return;

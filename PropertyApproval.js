@@ -2096,7 +2096,7 @@ function handleDeliveryStopCommand(replyToken, userId) {
           { type: 'action', action: { type: 'message', label: '忙しくて見る時間がない', text: '停止理由:忙しくて見る時間がない' } },
           { type: 'action', action: { type: 'message', label: '希望に合わない', text: '停止理由:希望に合わない' } },
           { type: 'action', action: { type: 'message', label: '通知が多い', text: '停止理由:通知が多い' } },
-          { type: 'action', action: { type: 'message', label: 'その他', text: '停止理由:その他' } },
+          { type: 'action', action: { type: 'message', label: 'その他（自由入力）', text: '停止理由:その他' } },
           { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
         ]
       }
@@ -2157,6 +2157,18 @@ function _saveStopReason(userId, reason) {
   }
 }
 
+/** メニューの言葉かどうか。理由として記録してはいけないもの。 */
+var _STOP_REASON_COMMANDS_ = [
+  '配信停止', '配信再開', '配信切替', 'はいしんていし', 'はいしんさいかい', 'はいしんきりかえ',
+  '条件登録', '条件変更', 'じょうけんとうろく', 'じょうけんへんこう',
+  '空室確認', 'くうしつかくにん', 'お気に入り', 'おきにいり',
+  'お部屋マップ', '届いたお部屋', '届いたお部屋を地図で見る',
+  '使い方', 'つかいかた', '類似物件不要'
+];
+function _isStopReasonCommand_(message) {
+  return _STOP_REASON_COMMANDS_.indexOf(String(message || '').trim()) !== -1;
+}
+
 // 停止理由フローのテキスト処理 (WAITING_STOP_REASON / WAITING_STOP_REASON_CUSTOM 中)
 // 返り値 true: ハンドル済み / false: 未ハンドル
 function handleStopReasonText(replyToken, userId, message, state) {
@@ -2165,6 +2177,10 @@ function handleStopReasonText(replyToken, userId, message, state) {
       // ⚠️ この時点で配信はすでに止まっている（「その他」を押した時点で止めている）。
       //   ここは理由を書き足してもらうだけ。書かなくても困らない。
       clearState(userId);
+      // ⚠️ メニューの言葉を理由として飲み込まないこと。
+      //   この待ち受けはコマンドより先に見られるので、「配信再開」がここで
+      //   消えてしまう。状態だけ消して、コマンドとして処理させる。
+      if (_isStopReasonCommand_(message)) return false;
       // 何日も経ってから届いた文は、理由ではなく別件の可能性が高い。
       if (typeof isStateFreshForFreeText === 'function' && !isStateFreshForFreeText(state)) {
         return false;
@@ -2188,7 +2204,7 @@ function handleStopReasonText(replyToken, userId, message, state) {
             { type: 'action', action: { type: 'message', label: '忙しくて見る時間がない', text: '停止理由:忙しくて見る時間がない' } },
             { type: 'action', action: { type: 'message', label: '希望に合わない', text: '停止理由:希望に合わない' } },
             { type: 'action', action: { type: 'message', label: '通知が多い', text: '停止理由:通知が多い' } },
-            { type: 'action', action: { type: 'message', label: 'その他', text: '停止理由:その他' } },
+            { type: 'action', action: { type: 'message', label: 'その他（自由入力）', text: '停止理由:その他' } },
             { type: 'action', action: { type: 'message', label: 'キャンセル', text: 'キャンセル' } }
           ]
         }
