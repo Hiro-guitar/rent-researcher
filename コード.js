@@ -1567,6 +1567,18 @@ function doGet(e) {
         _kaLog.push('引越し期限: 作った');
         console.log('[keepalive] bootstrap: 引越し期限の確認 (1時間ごと) を登録');
       }
+      // 初回検索で0件だった人への提案と、無視した人の終了（1時間ごと）
+      var _hasFS = false;
+      for (var _is = 0; _is < _triggers.length; _is++) {
+        if (_triggers[_is].getHandlerFunction() === 'processFirstSearchFollow') { _hasFS = true; break; }
+      }
+      if (_hasFS) _kaLog.push('初回検索: すでにある');
+      else if (typeof processFirstSearchFollow !== 'function') _kaLog.push('初回検索: 関数が見つからない');
+      else {
+        ScriptApp.newTrigger('processFirstSearchFollow').timeBased().everyHours(1).create();
+        _kaLog.push('初回検索: 作った');
+        console.log('[keepalive] bootstrap: 初回検索の確認 (1時間ごと) を登録');
+      }
       // 初回配信を見ていない人への再送（15分ごと・営業時間の判定は関数の中）
       // ⚠️ これが消えると催促が一切届かなくなる。必ず居ることを確かめる。
       var _hasFD = false;

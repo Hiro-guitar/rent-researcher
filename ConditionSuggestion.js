@@ -781,7 +781,18 @@ function _buildDeliveryContinueConfirmFlex_() {
 // ──────────────────────────────────────────────────────────────
 // 候補抽出
 // ──────────────────────────────────────────────────────────────
-function getConditionSuggestionCandidates_() {
+/**
+ * @param {{names?:string[]}} [opts]
+ *   names を渡すと、その人だけを対象にし、14日のふるい（最終提案日・ケースA/B）を飛ばす。
+ *   初回検索で0件だった人に、その日のうちに提案するため（FirstSearchFollow.gs）。
+ *   配信状態・LINE紐付け・オプトアウトの確認はそのまま効く。
+ */
+function getConditionSuggestionCandidates_(opts) {
+  var only = null;
+  if (opts && opts.names && opts.names.length) {
+    only = {};
+    for (var oi = 0; oi < opts.names.length; oi++) only[String(opts.names[oi]).trim()] = true;
+  }
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sheet = ss.getSheetByName(CRITERIA_SHEET_NAME);
   if (!sheet) return [];
@@ -813,6 +824,7 @@ function getConditionSuggestionCandidates_() {
     var row = data[i];
     var name = String(row[1] || '').trim();
     if (!name) continue;
+    if (only && !only[name]) continue;
 
     // オプトアウト顧客は除外 (自動送信もAdmin候補一覧にも出さない)
     if (optOutSet[name]) continue;
@@ -826,7 +838,7 @@ function getConditionSuggestionCandidates_() {
 
     // 提案を14日以内に送ってる → 除外
     var lastSuggestAt = row[CONDITION_SUGGESTION_SENT_COL - 1];
-    if (lastSuggestAt instanceof Date && (now - lastSuggestAt.getTime()) < thresholdMs) {
+    if (!only && lastSuggestAt instanceof Date && (now - lastSuggestAt.getTime()) < thresholdMs) {
       continue;
     }
 
@@ -853,7 +865,7 @@ function getConditionSuggestionCandidates_() {
     var lastViewOldOrNone = !lastView || (now - lastView.getTime()) >= thresholdMs;
     var caseB = regOldEnough && hasRecentDelivery && lastViewOldOrNone;
 
-    if (!caseA && !caseB) continue;
+    if (!only && !caseA && !caseB) continue;
 
     // 候補に入れる理由 (admin画面での表示用)
     var reasonCode = caseA ? 'no_delivery' : 'no_view';
