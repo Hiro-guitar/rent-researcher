@@ -273,8 +273,7 @@ function _moveInAsk_(nowHour) {
 
 /**
  * 聞いてから24時間、何も無い人を終了にする。
- * ⚠️ 片道切符にしないこと。配信状態は auto_paused にしておき、
- *   あとからメッセージが来たら既存の自動復帰が拾って元に戻す。
+ * 終了にする処理と、戻ってきたときの復元は AutoEnd.gs にある（3つの出口で共通）。
  */
 function _moveInCloseNoReply_() {
   var sh = _moveInSheet_();
@@ -303,7 +302,7 @@ function _moveInCloseNoReply_() {
 
     if (!MOVE_IN_ENABLED) { console.log('[引越し期限] 終了の対象（まだ何もしません）: ' + name); continue; }
     try {
-      _moveInEndAsSilent_(name, uid);
+      endCustomerAsSilent(name, uid, '引越し期限の返事なし');   // AutoEnd.gs
       sh.getRange(i + 2, 6).setValue('終了（音信不通）');
       closed++;
       console.log('[引越し期限] 終了にしました: ' + name);
@@ -312,71 +311,6 @@ function _moveInCloseNoReply_() {
     }
   }
   return closed;
-}
-
-/**
- * 音信不通として終了にする。
- * 元のステージを停止理由の欄に書き添えておき、戻ってきたときに復元できるようにする。
- */
-function _moveInEndAsSilent_(customerName, userId) {
-  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
-  var data = sh.getDataRange().getValues();
-  var rowNum = -1;
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][1] || '').trim() !== customerName) continue;
-    if (typeof _rowHasCriteria_ === 'function' && !_rowHasCriteria_(data[i])) continue;
-    rowNum = i + 1;
-  }
-  if (rowNum < 0) throw new Error('条件の行が見つかりません');
-
-  var before = String(data[rowNum - 1][32] || '').trim() || '未反応';
-  sh.getRange(rowNum, 33).setValue('終了');                         // AG列: 営業ステージ
-  sh.getRange(rowNum, 20).setValue(MOVE_IN_SILENT_MARK + before);   // T列: 停止理由
-  if (userId && typeof setDeliveryStatus === 'function') setDeliveryStatus(userId, 'auto_paused');
-}
-
-/** 自動で終了にした印。戻ってきたときの復元にも使う。 */
-var MOVE_IN_SILENT_MARK = '音信不通（自動）／元:';
-
-/**
- * 戻ってきた人を元に戻す。auto_paused の自動復帰から呼ばれる。
- * @return {string} 戻したステージ（何もしなければ ''）
- */
-function restoreStageIfAutoEnded(userId) {
-  try {
-    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
-    var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
-    if (!lu || lu.getLastRow() < 2) return '';
-    var luRows = lu.getRange(2, 1, lu.getLastRow() - 1, 2).getValues();
-    var name = '';
-    for (var i = 0; i < luRows.length; i++) {
-      if (String(luRows[i][0] || '').trim() === String(userId)) name = String(luRows[i][1] || '').trim();
-    }
-    if (!name) return '';
-
-    var sh = ss.getSheetByName(CRITERIA_SHEET_NAME);
-    var data = sh.getDataRange().getValues();
-    var rowNum = -1;
-    for (var r = 1; r < data.length; r++) {
-      if (String(data[r][1] || '').trim() !== name) continue;
-      if (typeof _rowHasCriteria_ === 'function' && !_rowHasCriteria_(data[r])) continue;
-      rowNum = r + 1;
-    }
-    if (rowNum < 0) return '';
-
-    var reason = String(data[rowNum - 1][19] || '').trim();          // T列
-    if (reason.indexOf(MOVE_IN_SILENT_MARK) !== 0) return '';
-    if (String(data[rowNum - 1][32] || '').trim() !== '終了') return '';
-
-    var before = reason.substring(MOVE_IN_SILENT_MARK.length).trim() || '未反応';
-    sh.getRange(rowNum, 33).setValue(before);
-    sh.getRange(rowNum, 20).setValue('');
-    console.log('[引越し期限] 戻ってきたので ' + before + ' に戻しました: ' + name);
-    return before;
-  } catch (e) {
-    console.warn('[引越し期限] 復元できません: ' + e.message);
-    return '';
-  }
 }
 
 /**

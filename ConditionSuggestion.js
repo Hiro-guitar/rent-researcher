@@ -708,6 +708,12 @@ function _autoPauseExpiredConfirmations_() {
       var name = String(data[i][1] || '').trim();
       console.log('[条件変更提案] ' + name + ' を自動停止 (確認メッセージ無視, 24時間経過)');
       paused++;
+      // ⚠️ 配信を止めるだけで終わらせないこと (2026-09-22)。ここが追客中の出口。
+      //   終了にしても、戻ってくれば auto_paused の自動復帰がステージも元に戻す（AutoEnd.gs）。
+      if (typeof endCustomerAsSilent === 'function') {
+        try { endCustomerAsSilent(name, '', '条件変更提案を3回無視'); }
+        catch (eEnd) { console.warn('[条件変更提案] 終了にできません: ' + name + ' / ' + eEnd.message); }
+      }
     }
   }
   return paused;
