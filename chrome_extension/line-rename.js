@@ -70,6 +70,19 @@
     pageHeaders = ev.data.headers || {};
   });
 
+  /**
+   * 名前を見比べるための正規化。空白を落とし、よくある異体字を揃える。
+   * 「大﨑 寛土」と「大崎」を同じ一族として扱えるようにするため。
+   */
+  function normName(v) {
+    return String(v || '')
+      .replace(/[\s\u3000]/g, '')
+      .replace(/﨑/g, '崎').replace(/髙/g, '高').replace(/[濵濱]/g, '浜')
+      .replace(/[邊邉]/g, '辺').replace(/[齋齊]/g, '斉').replace(/栁/g, '柳')
+      .replace(/德/g, '徳').replace(/瀨/g, '瀬').replace(/眞/g, '真')
+      .toLowerCase();
+  }
+
   /** うまくいかないときの手がかり。⚠️ 値は出さない。名前だけ。 */
   function cookieNames() {
     try {
@@ -238,6 +251,14 @@
         want = String(want).replace(/\s+/g, ' ').trim();
         if (want.length > NAME_MAX) want = want.substring(0, NAME_MAX);
         if (!want || want === c.shown) { done[c.chatId] = 'そのまま'; continue; }
+        // ⚠️ すでに誰だか分かる名前になっているなら触らない (2026-09-22)。
+        //   狙いは tatsuyuki や Amanda のように分からない名前を直すこと。
+        //   「大﨑 寛土」を顧客名「大崎」で塗り替えると、かえって情報が減る。
+        if (normName(c.shown).indexOf(normName(want)) >= 0) {
+          done[c.chatId] = 'すでに名前が分かる';
+          console.log('[LINE表示名] すでに名前が分かるので触りません: ' + c.shown);
+          continue;
+        }
         todo.push({ chatId: c.chatId, from: c.shown, to: want });
       }
       if (!todo.length) return;
