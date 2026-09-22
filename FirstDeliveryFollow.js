@@ -29,8 +29,9 @@
 
 var FIRST_DELIVERY_SHEET = '初回配信フォロー';
 
-// 文面が決まるまでは送らない。true にすると動き出す。
-var FIRST_DELIVERY_ENABLED = false;
+// false にすると、対象を数えるだけで送らなくなる。
+// 2026-09-22 に稼働。入れる前に previewFirstDeliveryTargets で対象0人を確認済み。
+var FIRST_DELIVERY_ENABLED = true;
 
 // 初回配信とみなす幅。最初の1件から この時間内 に送ったものを同じ配信として扱う。
 var FIRST_DELIVERY_WINDOW_H = 24;
