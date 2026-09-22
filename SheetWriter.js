@@ -342,6 +342,7 @@ function saveLineUser(userId, customerName) {
       // 既存 → 顧客名を更新
       sheet.getRange(i + 1, 2).setValue(customerName);
       sheet.getRange(i + 1, 3).setValue(new Date());
+      _fillLineDisplayName_(sheet, i + 1, userId, data[i][3]);
       return;
     }
   }
@@ -349,6 +350,35 @@ function saveLineUser(userId, customerName) {
   // 新規追加
   const now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
   sheet.appendRow([userId, customerName, now]);
+  _fillLineDisplayName_(sheet, sheet.getLastRow(), userId, '');
+}
+
+/**
+ * LINE Users の「LINEの表示名」列を、その場で埋める。
+ *
+ * ここで取っておく理由（2026-09-22）:
+ *   chat.line.biz は背番号を別体系で出すので、画面のトークと顧客を結ぶ鍵は
+ *   LINEのニックネームしかない。登録・紐付けした瞬間が一番確実に取れるタイミング。
+ *
+ * ⚠️ 失敗しても登録そのものは止めないこと。表示名は「あれば便利」でしかない。
+ *   空欄のままでも、あとから refreshLineDisplayNames が拾う。
+ */
+function _fillLineDisplayName_(sheet, rowNum, userId, current) {
+  try {
+    if (String(current || '').trim()) return;          // すでに入っている
+    if (typeof getLineProfile !== 'function') return;
+    const col = (typeof LINE_DISPLAY_NAME_COL !== 'undefined') ? LINE_DISPLAY_NAME_COL : 4;
+    if (String(sheet.getRange(1, col).getValue() || '').trim() === '') {
+      sheet.getRange(1, col).setValue('LINEの表示名');
+    }
+    const profile = getLineProfile(userId);
+    const shown = profile ? String(profile.displayName || '').trim() : '';
+    if (!shown) return;
+    sheet.getRange(rowNum, col).setValue(shown);
+    console.log('[LINE表示名] ' + userId + ' のニックネーム: ' + shown);
+  } catch (e) {
+    console.warn('[LINE表示名] 記録できません: ' + e.message);
+  }
 }
 
 /**
