@@ -195,21 +195,42 @@ function _moveInSendHour_(name) {
  *   何週間もやり取りしている相手に付けると差し込み印刷に見える。
  *   代わりに本人が申告した時期を出す。こちらが記録を見ている証拠になる。
  *
- * ⚠️ 2通に分けないこと。クイックリプライは吹き出しではなく画面の下に浮くので、
- *   分けても見た目は変わらない。同じ秒に2つ届くほうが機械らしく見えるうえ、
- *   通数も倍になる。
+ * ⚠️ クイックリプライは使わないこと（2026-09-22）。画面の下に細く出るだけで
+ *   目立たず押しにくいうえ、少しスクロールすると消えてしまう。カードのボタンにする。
  *
  * ⚠️「下のボタンから」とは書かないこと。ボタンは見えている。人はそう言わない。
+ *
+ * ⚠️ altText は通知とトーク一覧に出る文章。ボタンの説明ではなく用件を書くこと。
  */
 function buildMoveInAskMessages(customerName, moveIn) {
-  return [textMsgWithQuickReply(
-    '引越しのご予定は' + moveIn + 'とお伺いしていましたが、その後いかがでしょうか。\n\n' +
-    '時期が変わっていましたら教えてください。あらためてお部屋をお送りします。',
-    [
-      qrPostback('時期を更新する', 'movein:renew', '時期を更新する'),
-      qrPostback('探すのをやめた', 'movein:stop', '探すのをやめた')
-    ]
-  )];
+  var text = '引越しのご予定は' + moveIn + 'とお伺いしていましたが、その後いかがでしょうか。\n\n'
+    + '時期が変わっていましたら教えてください。あらためてお部屋をお送りします。';
+  return [{
+    type: 'flex',
+    altText: '引越しのご予定は' + moveIn + 'とお伺いしていましたが、その後いかがでしょうか。',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', paddingAll: 'xl',
+        contents: [
+          { type: 'text', text: text, size: 'sm', color: '#555555', wrap: true }
+        ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
+        contents: [
+          {
+            type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'postback', label: '時期を更新する', data: 'movein:renew', displayText: '時期を更新する' }
+          },
+          {
+            type: 'button', style: 'secondary', height: 'sm',
+            action: { type: 'postback', label: '探すのをやめた', data: 'movein:stop', displayText: '探すのをやめた' }
+          }
+        ]
+      }
+    }
+  }];
 }
 
 /** 期限を過ぎた人に聞く。 */
