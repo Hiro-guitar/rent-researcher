@@ -1467,10 +1467,17 @@ function _finalizeVacancyAnswer_(req, answers, comment, freeText, immediate, spe
 function _composeVacancyAnswer_(req, answers, comment, freeText, specs) {
   var registered = false;
   try { registered = !!readLatestCriteria(req.userId); } catch (_) {}
-  var qr = registered ? null : [qrPostback('🏠 条件を登録する', '条件登録', '条件登録')];
+  // ⚠️ 条件登録への誘いはクイックリプライにしないこと (2026-09-22)。
+  //   画面の下に細く出るだけで、物件を見ようとスクロールした瞬間に消える。
+  //   この仕組みで一番押してほしいボタンなので、カードで出す。
+  //   1件だけご案内不可のときは _buildVacancyUnavailableMessages_ が別のカードを出すので、
+  //   ここで作るのはそれ以外の場面のぶん。
+  var joinCard = registered ? null : _vacancyRegisterCard_();
 
   if (freeText) {
-    return [qr ? textMsgWithQuickReply(freeText, qr) : textMsg(freeText)];
+    var out = [textMsg(freeText)];
+    if (joinCard) out.push(joinCard);
+    return out;
   }
 
   var byN = {};
@@ -1541,9 +1548,37 @@ function _composeVacancyAnswer_(req, answers, comment, freeText, specs) {
     text += registered
       ? '\n\n引き続き、ご希望の条件に合うお部屋が見つかり次第ご案内いたします。'
       : '\n\nご希望の条件を登録いただければ、近いお部屋が出た時にすぐお知らせします。';
-    messages.push(qr ? textMsgWithQuickReply(text, qr) : textMsg(text));
+    messages.push(textMsg(text));
+    if (joinCard) messages.push(joinCard);
   }
   return messages;
+}
+
+/** 条件登録への誘い。空室確認の答えのあとに置く。 */
+function _vacancyRegisterCard_() {
+  return {
+    type: 'flex',
+    altText: 'ご希望の条件を登録いただければ、近いお部屋が出た時にすぐお知らせします',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl',
+        contents: [
+          { type: 'text', text: 'お部屋探しのご希望を教えてください', weight: 'bold', size: 'md', color: '#333333', wrap: true },
+          { type: 'text', text: 'ご希望に合うお部屋が出た時に、すぐお知らせします。
+検索サイトに出ていないお部屋もご紹介できます。',
+            size: 'sm', color: '#555555', wrap: true, margin: 'md' }
+        ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical', paddingAll: 'lg',
+        contents: [{
+          type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+          action: { type: 'postback', label: '条件を登録する', data: '条件登録', displayText: '条件登録' }
+        }]
+      }
+    }
+  };
 }
 
 // ═══════════════════════════════════════════════════════════
