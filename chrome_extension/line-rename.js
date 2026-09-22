@@ -180,10 +180,29 @@
       var chats = await fetchChatList();
       if (!chats.length) { console.warn('[LINE表示名] トーク一覧を取れませんでした'); return; }
 
+      // ⚠️ 一覧の中で同じ表示名が2つ以上あったら、その名前は全部見送る。
+      //   どちらが本人か分からないまま実名を付けると、別のお客様のトークに
+      //   他人の名前が載る。しかも一度付くと「改名済み」として二度と直らない。
+      //   （対応表の側の重複はGASが落としているが、こちらは友だち全員が対象なので別途要る）
+      var shownCount = {};
+      for (var s0 = 0; s0 < chats.length; s0++) {
+        shownCount[chats[s0].shown] = (shownCount[chats[s0].shown] || 0) + 1;
+      }
+      var warned = {};
+
       var todo = [];
       for (var i = 0; i < chats.length; i++) {
         var c = chats[i];
         if (done[c.chatId]) continue;
+        if (shownCount[c.shown] > 1) {
+          if (map[c.shown] && !warned[c.shown]) {
+            warned[c.shown] = true;
+            console.warn('[LINE表示名] 表示名が重複のためスキップ: ' + c.shown
+              + '（' + shownCount[c.shown] + '件）手で付けてください');
+          }
+          done[c.chatId] = '表示名が重複';
+          continue;
+        }
         // ⚠️ 手で付けた名前は触らない。改名済みの人は対応表にも当たらないが、念のため。
         if (c.renamed) { done[c.chatId] = '改名済み'; continue; }
         var want = map[c.shown];
