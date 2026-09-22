@@ -3027,7 +3027,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ⚠️ content script から直接GASを叩くとCORSで止まるので、ここで代わりに取りに行く。
   if (msg.type === 'LINE_NAME_MAP') {
     const now = Date.now();
-    if (_lineNameMap && now - _lineNameMapAt < 10 * 60 * 1000) {
+    if (_lineNameMap && now - _lineNameMapAt < 60 * 1000) {
       sendResponse({ ok: true, map: _lineNameMap, cached: true });
       return true;
     }

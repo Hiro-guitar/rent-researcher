@@ -12,22 +12,21 @@
  *   HTML・localStorage・sessionStorage・呼ばれたAPI 64件を全部読んでも本物は出てこない。
  *   → 鍵になるのは、画面に見えている文字そのもの ＝ LINEのニックネームだけ。
  *
- * ⚠️ LINEのAPIには表示名を変える口が無い。これは画面の「表示名を変更」モーダルを
- *   コードから操作している。つまりLINE側の画面が変わると動かなくなる。
- *   止まっても「改名されないだけ」で壊れるものは無いので、気づいたら直せばよい。
+ * 改名のしかた（2026-09-22 実測）:
+ *   PUT /api/v1/bots/{botId}/chats/{chatId}/nickname   {"nickname":"..."}
+ *   Cookie だけだと 403。CSRFトークンを付ける必要がある。
+ *   ⚠️ トークンはページの中でしか読めない。拡張のbackgroundから叩いても通らない。
+ *
+ * ⚠️ トークは開かない。開くと既読が付き、要対応の状態も変わってしまう。
+ *   一覧のAPIから chatId を取って、そのままPUTする。
  *
  * ⚠️ 手で直した名前を絶対に上書きしないこと。
- *   すでに顧客名になっている人は、ニックネームの表に載っていないので自然に外れる。
- *   念のためモーダルの「友だちが設定した名前」とも突き合わせる。
+ *   一度でも改名した人は nickname が入り、画面に出るのはそちらになる。
+ *   対応表はニックネームで引くので、改名済みの人は自然に当たらなくなる。
  *
- * 画面の作り（2026-09-21 実測。IDもdata-testidも無く、構造とBootstrapのクラスだけ）:
- *   鉛筆      #content-thirdly h3 a
- *   表示名    #content-thirdly h3 span
- *   モーダル  .modal-content
- *   元の名前  .modal-body .mb-3 span
- *   入力欄    .modal-content input.form-control（20文字まで）
- *   保存      .modal-footer .btn-primary
- *   キャンセル .modal-footer .btn-secondary
+ * ⚠️ 顧客データを外に出さないこと。
+ *   一覧の中身はこのページの中だけで扱う。拡張が外に送るのは
+ *   「対応表をください」という問い合わせだけで、誰を見ているかは送らない。
  */
 
 (function () {
@@ -35,42 +34,34 @@
 
   console.log('[LINE表示名] content script loaded');
 
-  var NAME_MAX = 20;          // 入力欄の上限（画面の 9/20 表示より）
-  var handled = {};           // 同じトークを何度も処理しない
-  var lastUrl = '';
-  var busy = false;
+  var NAME_MAX = 20;            // 入力欄の上限（画面の 9/20 表示より）
+  var SWEEP_EVERY_MS = 2 * 60 * 1000;   // 一覧を見直す間隔
+  var PUT_GAP_MS = 1000;        // 1件ごとに空ける。LINE側のレート制限よけ
+  var PUT_MAX_PER_SWEEP = 30;   // 1回で改名する上限
+  var ID_RE = /^U[0-9a-f]{32}$/;
+
+  var sweeping = false;
+  var done = {};                // 同じトークを何度も叩かない
 
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-  /** URLの末尾がそのトークの相手を指す。照合には使えないが、同じ相手かの目印にはなる。 */
-  function currentChatId() {
-    var m = location.pathname.match(/\/chat\/(U[0-9a-f]{32})/i);
-    return m ? m[1] : '';
+  function botId() {
+    var seg = location.pathname.split('/').filter(Boolean);
+    return (seg[0] && ID_RE.test(seg[0])) ? seg[0] : '';
   }
 
-  function pencilEl() { return document.querySelector('#content-thirdly h3 a'); }
-
-  /** Reactの入力欄に値を入れる。value を直接代入しても React が気づかないため。 */
-  function setReactValue(input, value) {
-    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-    setter.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
-  /** 要素が出てくるまで待つ。出なければ null。 */
-  async function waitFor(sel, ms) {
-    var until = Date.now() + (ms || 3000);
-    while (Date.now() < until) {
-      var el = document.querySelector(sel);
-      if (el) return el;
-      await sleep(100);
+  /** CSRFトークン。Cookie だけだと 403 になる。 */
+  function csrfToken() {
+    var names = ['XSRF-TOKEN', 'X-XSRF-TOKEN', 'CSRF-TOKEN', 'csrfToken'];
+    for (var i = 0; i < names.length; i++) {
+      var m = document.cookie.match(new RegExp('(?:^|; )' + names[i] + '=([^;]*)'));
+      if (m) { try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; } }
     }
-    return null;
+    return '';
   }
 
-  /** LINEの表示名 → 顧客名 の対応表。background が10分だけ持っている。 */
-  async function nameMap() {
+  /** LINEの表示名 → 顧客名 の対応表。background が短時間だけ持っている。 */
+  function nameMap() {
     return new Promise(function (resolve) {
       try {
         chrome.runtime.sendMessage({ type: 'LINE_NAME_MAP' }, function (res) {
@@ -85,75 +76,143 @@
     });
   }
 
-  async function tryRename(chatId) {
-    if (busy || handled[chatId]) return;
-    busy = true;
+  /**
+   * トーク一覧を取る。
+   * ⚠️ エンドポイントは決め打ちにしない。このページが実際に呼んだURLの中から
+   *   一覧らしきものを拾う。LINE側が版を上げても追随できるように。
+   */
+  async function fetchChatList() {
+    var bot = botId();
+    if (!bot) return [];
+    var called = [];
     try {
-      var nameEl = await waitFor('#content-thirdly h3 span', 5000);
-      if (!nameEl) {
-        console.warn('[LINE表示名] 表示名の要素が見つかりません（#content-thirdly h3 span）');
+      called = performance.getEntriesByType('resource').map(function (e) { return e.name; })
+        .filter(function (n) { return n.indexOf(location.origin + '/api/') === 0; })
+        .filter(function (n) { return /\/chats(\?|$)/.test(n.split('#')[0]); });
+    } catch (e) {}
+    var urls = [];
+    var seen = {};
+    called.concat([
+      location.origin + '/api/v2/bots/' + bot + '/chats?folderType=ALL&limit=100',
+      location.origin + '/api/v1/bots/' + bot + '/chats?folderType=ALL&limit=100'
+    ]).forEach(function (u) { if (!seen[u]) { seen[u] = true; urls.push(u); } });
+
+    for (var i = 0; i < urls.length; i++) {
+      try {
+        var r = await fetch(urls[i], { credentials: 'include' });
+        if (!r.ok) continue;
+        var pairs = collectChats(await r.json());
+        if (pairs.length) return pairs;
+      } catch (e) {}
+    }
+    return [];
+  }
+
+  /**
+   * 応答のどこに何が入っていても拾えるように、まるごと歩いて
+   * 「32桁のID」と「画面に出ている名前」の組を集める。
+   * 画面に出るのは nickname（改名済み）で、無ければ displayName。
+   */
+  function collectChats(json) {
+    var out = [];
+    var seen = {};
+    (function walk(node, depth) {
+      if (!node || typeof node !== 'object' || depth > 6) return;
+      if (Array.isArray(node)) {
+        for (var i = 0; i < node.length; i++) walk(node[i], depth + 1);
         return;
       }
-      var shown = (nameEl.textContent || '').trim();
-      if (!shown) return;
-
-      var map = await nameMap();
-      var want = map[shown] ? String(map[shown]) : '';
-      if (!want) {
-        // 顧客名に改名済み／お客様ではない／ニックネームが重複、のいずれか。触らない。
-        console.log('[LINE表示名] 対応表にありません。何もしません: ' + shown);
-        handled[chatId] = '対応表に無い';
-        return;
+      var id = '';
+      ['chatId', 'userId', 'id', 'targetId'].forEach(function (k) {
+        if (!id && typeof node[k] === 'string' && ID_RE.test(node[k])) id = node[k];
+      });
+      var nick = '', base = '';
+      ['nickname', 'chatName'].forEach(function (k) {
+        if (!nick && typeof node[k] === 'string') nick = node[k].trim();
+      });
+      ['displayName', 'name'].forEach(function (k) {
+        if (!base && typeof node[k] === 'string') base = node[k].trim();
+      });
+      var shown = nick || base;
+      if (id && shown && !seen[id]) {
+        seen[id] = true;
+        out.push({ chatId: id, shown: shown, renamed: !!(nick && base && nick !== base) });
       }
-      want = want.replace(/\s+/g, ' ').trim();
-      if (want.length > NAME_MAX) want = want.substring(0, NAME_MAX);
-      if (shown === want) { handled[chatId] = 'すでにその名前'; return; }
+      for (var k2 in node) walk(node[k2], depth + 1);
+    })(json, 0);
+    return out;
+  }
 
-      var pencil = pencilEl();
-      if (!pencil) { console.warn('[LINE表示名] 鉛筆が見つかりません'); handled[chatId] = '鉛筆が見つからない'; return; }
-      pencil.click();
-
-      var input = await waitFor('.modal-content input.form-control', 3000);
-      if (!input) { console.warn('[LINE表示名] モーダルが出ません'); handled[chatId] = 'モーダルが出ない'; return; }
-
-      // ⚠️ 手で直した名前は上書きしない。
-      //   「友だちが設定した名前」＝LINEのニックネーム。今の表示名がそれと違えば、
-      //   担当者が意図して付けた名前なので触らない。
-      var origEl = document.querySelector('.modal-body .mb-3 span');
-      var original = origEl ? (origEl.textContent || '').trim() : '';
-      if (original && shown && original !== shown) {
-        var cancel = document.querySelector('.modal-footer .btn-secondary');
-        if (cancel) cancel.click();
-        handled[chatId] = '手で直した名前なので触らない';
-        console.log('[LINE表示名] 手で直した名前のため変更しません: ' + shown);
-        return;
-      }
-
-      setReactValue(input, want);
-      await sleep(150);
-      var save = document.querySelector('.modal-footer .btn-primary');
-      if (!save || save.disabled) {
-        var cancel2 = document.querySelector('.modal-footer .btn-secondary');
-        if (cancel2) cancel2.click();
-        console.warn('[LINE表示名] 保存ボタンが押せません');
-        handled[chatId] = '保存ボタンが押せない';
-        return;
-      }
-      save.click();
-      handled[chatId] = '変更: ' + want;
-      console.log('[LINE表示名] ' + shown + ' → ' + want);
+  /** 改名する。成功したら true。 */
+  async function renameChat(chatId, nickname) {
+    var bot = botId();
+    if (!bot) return false;
+    var headers = { 'Content-Type': 'application/json' };
+    var token = csrfToken();
+    if (token) {
+      headers['X-XSRF-TOKEN'] = token;
+      headers['X-CSRF-TOKEN'] = token;
+    }
+    try {
+      var r = await fetch(location.origin + '/api/v1/bots/' + bot + '/chats/' + chatId + '/nickname', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: headers,
+        body: JSON.stringify({ nickname: nickname })
+      });
+      if (r.ok) return true;
+      console.warn('[LINE表示名] 改名できません: ' + r.status
+        + (token ? '' : '（CSRFトークンがCookieに見つかりませんでした）'));
+      return false;
     } catch (e) {
-      console.warn('[LINE表示名] 失敗: ' + e.message);
-    } finally {
-      busy = false;
+      console.warn('[LINE表示名] 改名の通信に失敗: ' + e.message);
+      return false;
     }
   }
 
-  // SPAなのでURLの変化を見張る。トークを切り替えるたびに走らせる。
-  setInterval(function () {
-    if (location.href === lastUrl) return;
-    lastUrl = location.href;
-    var id = currentChatId();
-    if (id) setTimeout(function () { tryRename(id); }, 1200);   // 描画を待つ
-  }, 500);
+  /** 一覧を一巡して、対応表に当たった人だけ改名する。 */
+  async function sweep() {
+    if (sweeping) return;
+    sweeping = true;
+    try {
+      var map = await nameMap();
+      if (!Object.keys(map).length) return;
+      var chats = await fetchChatList();
+      if (!chats.length) { console.warn('[LINE表示名] トーク一覧を取れませんでした'); return; }
+
+      var todo = [];
+      for (var i = 0; i < chats.length; i++) {
+        var c = chats[i];
+        if (done[c.chatId]) continue;
+        // ⚠️ 手で付けた名前は触らない。改名済みの人は対応表にも当たらないが、念のため。
+        if (c.renamed) { done[c.chatId] = '改名済み'; continue; }
+        var want = map[c.shown];
+        if (!want) continue;
+        want = String(want).replace(/\s+/g, ' ').trim();
+        if (want.length > NAME_MAX) want = want.substring(0, NAME_MAX);
+        if (!want || want === c.shown) { done[c.chatId] = 'そのまま'; continue; }
+        todo.push({ chatId: c.chatId, from: c.shown, to: want });
+      }
+      if (!todo.length) return;
+
+      console.log('[LINE表示名] ' + todo.length + '人を改名します');
+      var n = Math.min(todo.length, PUT_MAX_PER_SWEEP);
+      for (var t = 0; t < n; t++) {
+        var ok = await renameChat(todo[t].chatId, todo[t].to);
+        done[todo[t].chatId] = ok ? ('変更: ' + todo[t].to) : '';
+        if (ok) console.log('[LINE表示名] ' + todo[t].from + ' → ' + todo[t].to);
+        else break;                       // 403 などが出たら打ち切る。連打しない
+        if (t < n - 1) await sleep(PUT_GAP_MS);
+      }
+    } catch (e) {
+      console.warn('[LINE表示名] 一巡に失敗: ' + e.message);
+    } finally {
+      sweeping = false;
+    }
+  }
+
+  // 読み込み直後に1回、あとは定期的に一覧を見直す。
+  // メアドを送ってきた人は一覧の一番上に来るので、これだけで数分以内に名前が付く。
+  setTimeout(sweep, 3000);
+  setInterval(sweep, SWEEP_EVERY_MS);
 })();
