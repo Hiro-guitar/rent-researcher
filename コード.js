@@ -1553,6 +1553,25 @@ function doGet(e) {
         ScriptApp.newTrigger('autoArchiveFinishedCustomers').timeBased().atHour(5).everyDays(1).create();
         console.log('[keepalive] bootstrap: 終了顧客の自動アーカイブ (毎朝5時) を登録');
       }
+      // 引越し予定の時期を過ぎた人に聞き直す（1時間ごと・営業時間の判定は関数の中）
+      var _hasMI = false;
+      for (var _im = 0; _im < _triggers.length; _im++) {
+        if (_triggers[_im].getHandlerFunction() === 'processMoveInDeadline') { _hasMI = true; break; }
+      }
+      if (!_hasMI && typeof processMoveInDeadline === 'function') {
+        ScriptApp.newTrigger('processMoveInDeadline').timeBased().everyHours(1).create();
+        console.log('[keepalive] bootstrap: 引越し期限の確認 (1時間ごと) を登録');
+      }
+      // 初回配信を見ていない人への再送（15分ごと・営業時間の判定は関数の中）
+      // ⚠️ これが消えると催促が一切届かなくなる。必ず居ることを確かめる。
+      var _hasFD = false;
+      for (var _if = 0; _if < _triggers.length; _if++) {
+        if (_triggers[_if].getHandlerFunction() === 'processFirstDeliveryFollow') { _hasFD = true; break; }
+      }
+      if (!_hasFD && typeof processFirstDeliveryFollow === 'function') {
+        ScriptApp.newTrigger('processFirstDeliveryFollow').timeBased().everyMinutes(15).create();
+        console.log('[keepalive] bootstrap: 初回配信の再送 (15分ごと) を登録');
+      }
     } catch (_eKA) {
       console.warn('[keepalive] bootstrap失敗: ' + (_eKA && _eKA.message));
     }
