@@ -63,6 +63,13 @@
     return '';
   }
 
+  // ページ本体（line-rename-page.js）が拾ったヘッダー。403の鍵はこちら。
+  var pageHeaders = {};
+  window.addEventListener('message', function (ev) {
+    if (ev.source !== window || !ev.data || ev.data.__lineRenameHeaders !== true) return;
+    pageHeaders = ev.data.headers || {};
+  });
+
   /** うまくいかないときの手がかり。⚠️ 値は出さない。名前だけ。 */
   function cookieNames() {
     try {
@@ -159,8 +166,12 @@
     var bot = botId();
     if (!bot) return false;
     var headers = { 'Content-Type': 'application/json' };
-    var token = csrfToken();
+    // ページが送っている値を最優先。Cookie は保険（今のLINEには入っていない）。
+    var token = pageHeaders['x-xsrf-token'] || csrfToken();
     if (token) headers['X-XSRF-TOKEN'] = token;
+    if (pageHeaders['x-oa-chat-client-version']) {
+      headers['x-oa-chat-client-version'] = pageHeaders['x-oa-chat-client-version'];
+    }
     try {
       var r = await fetch(location.origin + '/api/v1/bots/' + bot + '/chats/' + chatId + '/nickname', {
         method: 'PUT',
@@ -173,7 +184,8 @@
       //   その場合はページ側で値を採る必要がある（content script からは本家の
       //   XHR を覗けないため）。
       console.warn('[LINE表示名] 改名できません: ' + r.status
-        + (token ? '' : '（Cookieに XSRF-TOKEN がありません。Cookie名: ' + cookieNames() + '）'));
+        + '（送ったヘッダー: ' + Object.keys(headers).join(', ') + '）'
+        + (token ? '' : ' Cookie名: ' + cookieNames()));
       return false;
     } catch (e) {
       console.warn('[LINE表示名] 改名の通信に失敗: ' + e.message);
@@ -186,6 +198,11 @@
     if (sweeping) return;
     sweeping = true;
     try {
+      // ページがまだ1回もAPIを叩いていないとトークンが無い。次の巡回に回す。
+      if (!pageHeaders['x-xsrf-token'] && !csrfToken()) {
+        console.log('[LINE表示名] トークンがまだ取れていません。次の巡回で試します');
+        return;
+      }
       var map = await nameMap();
       if (!Object.keys(map).length) return;
       var chats = await fetchChatList();
