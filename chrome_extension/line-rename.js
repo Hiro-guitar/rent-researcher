@@ -50,14 +50,25 @@
     return (seg[0] && ID_RE.test(seg[0])) ? seg[0] : '';
   }
 
-  /** CSRFトークン。Cookie だけだと 403 になる。 */
+  /**
+   * CSRFトークン。Cookie だけだと 403 になる。
+   * 本家は Cookie の XSRF-TOKEN を X-XSRF-TOKEN ヘッダーに載せている（2026-09-22 採取）。
+   */
   function csrfToken() {
-    var names = ['XSRF-TOKEN', 'X-XSRF-TOKEN', 'CSRF-TOKEN', 'csrfToken'];
+    var names = ['XSRF-TOKEN', 'CSRF-TOKEN', 'csrfToken'];
     for (var i = 0; i < names.length; i++) {
       var m = document.cookie.match(new RegExp('(?:^|; )' + names[i] + '=([^;]*)'));
       if (m) { try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; } }
     }
     return '';
+  }
+
+  /** うまくいかないときの手がかり。⚠️ 値は出さない。名前だけ。 */
+  function cookieNames() {
+    try {
+      return document.cookie.split(';').map(function (x) { return x.split('=')[0].trim(); })
+        .filter(function (x) { return x; }).join(', ');
+    } catch (e) { return '(読めません)'; }
   }
 
   /** LINEの表示名 → 顧客名 の対応表。background が短時間だけ持っている。 */
@@ -149,10 +160,7 @@
     if (!bot) return false;
     var headers = { 'Content-Type': 'application/json' };
     var token = csrfToken();
-    if (token) {
-      headers['X-XSRF-TOKEN'] = token;
-      headers['X-CSRF-TOKEN'] = token;
-    }
+    if (token) headers['X-XSRF-TOKEN'] = token;
     try {
       var r = await fetch(location.origin + '/api/v1/bots/' + bot + '/chats/' + chatId + '/nickname', {
         method: 'PUT',
@@ -161,8 +169,11 @@
         body: JSON.stringify({ nickname: nickname })
       });
       if (r.ok) return true;
+      // ⚠️ ここで止まったら x-oa-chat-client-version が要るのかもしれない。
+      //   その場合はページ側で値を採る必要がある（content script からは本家の
+      //   XHR を覗けないため）。
       console.warn('[LINE表示名] 改名できません: ' + r.status
-        + (token ? '' : '（CSRFトークンがCookieに見つかりませんでした）'));
+        + (token ? '' : '（Cookieに XSRF-TOKEN がありません。Cookie名: ' + cookieNames() + '）'));
       return false;
     } catch (e) {
       console.warn('[LINE表示名] 改名の通信に失敗: ' + e.message);
