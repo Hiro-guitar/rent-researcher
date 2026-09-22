@@ -401,3 +401,28 @@ function testMoveInAskNow() {
       + (_moveInSendHour_(list[i].name) === h ? '  ← 今この回' : ''));
   }
 }
+
+/**
+ * 【一度だけ実行】この仕組みのトリガーを用意する。
+ * すでにある分は触らない。二重に作らないので、何度実行しても構わない。
+ */
+function setupCrmTriggers() {
+  var want = [
+    { fn: 'processMoveInDeadline', hours: 1 },      // 引越し期限の確認
+    { fn: 'processFirstDeliveryFollow', minutes: 15 } // 初回配信の再送
+  ];
+  var existing = {};
+  ScriptApp.getProjectTriggers().forEach(function (t) { existing[t.getHandlerFunction()] = true; });
+
+  var made = [];
+  for (var i = 0; i < want.length; i++) {
+    var w = want[i];
+    if (existing[w.fn]) { console.log('すでにあります: ' + w.fn); continue; }
+    var b = ScriptApp.newTrigger(w.fn).timeBased();
+    if (w.hours) b.everyHours(w.hours); else b.everyMinutes(w.minutes);
+    b.create();
+    made.push(w.fn + '（' + (w.hours ? w.hours + '時間おき' : w.minutes + '分おき') + '）');
+  }
+  console.log(made.length ? '作りました: ' + made.join(' / ') : '新しく作るものはありませんでした');
+  return made;
+}
