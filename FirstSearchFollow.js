@@ -472,22 +472,39 @@ function _firstSearchMarkReply_(name, reply) {
 
 /**
  * 担当者に知らせる。提案はここから人がやる。
- * 宛先は空室確認の通知と同じチャンネル（無ければ共通）。
+ * 宛先はその顧客のスレッド（🏠 顧客名）。閲覧通知と同じ作り:
+ *   DISCORD_THREAD_<顧客名> にスレッドIDがあればそこへ、無ければ thread_name で作って保存する。
  * @param {{phone?:string, time?:string, note?:string}} info
  */
 function _firstSearchNotifyStaff_(name, userId, how, info) {
   info = info || {};
-  var sp = PropertiesService.getScriptProperties();
-  var url = sp.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL') || sp.getProperty('DISCORD_WEBHOOK_URL');
-  if (!url) { console.warn('[初回検索] Discord webhook 未設定'); return; }
-  var lines = ['🙋 **条件の相談希望（初回検索で0件だった人）**', 'お客様: ' + (name || '(不明)') + ' 様', '希望: ' + how + 'で相談'];
+  var props = PropertiesService.getScriptProperties();
+  var webhookUrl = props.getProperty('DISCORD_WEBHOOK_URL');
+  if (!webhookUrl) { console.warn('[初回検索] Discord webhook 未設定'); return; }
+  var STAFF = '1459814543600390341';   // 閲覧通知と同じ相手にメンション
+
+  var lines = ['<@' + STAFF + '>', '🙋 **' + (name || '(不明)') + '** 様から条件の相談希望（初回検索で0件）', '希望: ' + how + 'で相談'];
   if (info.phone) lines.push('電話番号: ' + info.phone);
   if (info.time) lines.push('つながりやすい時間帯: ' + info.time);
   if (info.note) lines.push(info.note);
   lines.push(how === '電話' ? 'この時間帯にお電話して、条件の広げ方を提案してください。' : 'LINEで条件の広げ方を提案してください。');
-  var res = UrlFetchApp.fetch(url, {
+
+  var threadKey = 'DISCORD_THREAD_' + name;
+  var threadId = name ? props.getProperty(threadKey) : '';
+  var payload = { content: lines.join('\n'), allowed_mentions: { users: [STAFF] } };
+  if (!threadId) payload.thread_name = '\uD83C\uDFE0 ' + (name || '(不明)');
+
+  var resp = UrlFetchApp.fetch(webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true'), {
     method: 'post', contentType: 'application/json',
-    payload: JSON.stringify({ content: lines.join('\n') }), muteHttpExceptions: true
+    payload: JSON.stringify(payload), muteHttpExceptions: true
   });
-  console.log('[初回検索] Discord通知 ' + res.getResponseCode() + ' → ' + (name || '(不明)') + ' / ' + how);
+  var code = resp.getResponseCode();
+  // 新しく作ったスレッドは、次から同じ所に投げられるよう保存する（閲覧通知と同じ）
+  if (!threadId && code === 200 && name) {
+    try {
+      var body = JSON.parse(resp.getContentText());
+      if (body.channel_id) props.setProperty(threadKey, body.channel_id);
+    } catch (_e) {}
+  }
+  console.log('[初回検索] Discord通知 ' + code + ' → ' + (name || '(不明)') + ' / ' + how + (threadId ? '（既存スレッド）' : '（スレッド作成）'));
 }
