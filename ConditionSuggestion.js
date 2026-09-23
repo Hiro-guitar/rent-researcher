@@ -1119,15 +1119,26 @@ function buildConditionSuggestionFlex_(c) {
   //   - 'no_delivery' (caseA): 物件が来ていない人向け
   //   - 'no_view' (caseB): 物件は来てるが見ていない人向け
   var _isNoView = (c.reasonCode === 'no_view');
-  var _title = _isNoView
-    ? 'お部屋探しの状況はいかがですか？'
-    : 'ご条件の変更をしてみませんか？';
-  var _desc = _isNoView
-    ? 'もしピンとくるものがなければ、条件を少し変えると、よりご希望に合うお部屋が見つかるかもしれません。'
-    : '条件を少し緩めると、ご紹介できる物件が増える可能性があります。';
-  var _altText = _isNoView
-    ? 'お部屋探しの状況はいかがですか？'
-    : 'ご条件の変更をしてみませんか？';
+  // 'first_search_zero': 条件登録の直後、最初の検索で1件も見つからなかった人向け (2026-09-23)。
+  //   ⚠️ 10日おきの提案と同じ見出し・ボタンで送らないこと。
+  //     「状況はいかがですか」は登録して数時間の人に聞く言葉ではなく、
+  //     「このまま様子を見る」「配信を停止する」は0件の人に出す選択肢ではない。
+  var _isFirstZero = (c.variant === 'first_search_zero');
+  var _title = _isFirstZero
+    ? 'まだご紹介できるお部屋が見つかっていません'
+    : _isNoView
+      ? 'お部屋探しの状況はいかがですか？'
+      : 'ご条件の変更をしてみませんか？';
+  var _desc = _isFirstZero
+    ? 'いまのご条件だと、該当するお部屋がありませんでした。条件を少し広げると見つかることが多いです。'
+    : _isNoView
+      ? 'もしピンとくるものがなければ、条件を少し変えると、よりご希望に合うお部屋が見つかるかもしれません。'
+      : '条件を少し緩めると、ご紹介できる物件が増える可能性があります。';
+  var _altText = _isFirstZero
+    ? 'まだご紹介できるお部屋が見つかっていません'
+    : _isNoView
+      ? 'お部屋探しの状況はいかがですか？'
+      : 'ご条件の変更をしてみませんか？';
   return {
     type: 'flex',
     altText: _altText,
@@ -1179,7 +1190,11 @@ function buildConditionSuggestionFlex_(c) {
         layout: 'vertical',
         spacing: 'sm',
         paddingAll: 'lg',
-        contents: [
+        contents: _isFirstZero ? [
+          // 0件の人にはこの1つだけ。ほかの道は「無視 → 24時間で終了」が担う。
+          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+            action: { type: 'uri', label: '条件を変更する', uri: liffBase } }
+        ] : [
           { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
             action: { type: 'uri', label: '条件を変更する', uri: liffBase } },
           { type: 'button', style: 'secondary', height: 'sm',

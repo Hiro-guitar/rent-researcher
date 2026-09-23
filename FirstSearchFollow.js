@@ -156,6 +156,7 @@ function _firstSearchSendTo_(t, cand, sh) {
   if (!cand) { console.log('[初回検索] 提案を作れません（LINE未接続など）: ' + t.name); return false; }
   if (!FIRST_SEARCH_ENABLED) { console.log('[初回検索] 対象（まだ送りません）: ' + t.name); return false; }
   try {
+    cand.variant = 'first_search_zero';   // 見出しとボタンを0件用にする
     var flex = buildConditionSuggestionFlex_(cand);
     pushMessage(cand.lineUserId, [
       textMsg('ご登録ありがとうございます。\n\nいまの条件で探したところ、ご紹介できるお部屋がまだ見つかりませんでした。\n条件を少し広げると見つかることが多いので、よろしければ下からご確認ください。'),
@@ -266,6 +267,7 @@ function testSendFirstSearch(name) {
     console.log('カードを作れません: ' + name + '（条件が無い／配信停止中／LINE未接続 のどれか）');
     return false;
   }
+  cand.variant = 'first_search_zero';
   pushMessage(cand.lineUserId, [
     textMsg('【テスト】\n\nご登録ありがとうございます。\n\nいまの条件で探したところ、ご紹介できるお部屋がまだ見つかりませんでした。\n条件を少し広げると見つかることが多いので、よろしければ下からご確認ください。'),
     buildConditionSuggestionFlex_(cand)
