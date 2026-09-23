@@ -352,18 +352,108 @@ function testSendFirstSearch(name) {
  */
 function handleFirstSearchPostback(replyToken, userId, data) {
   var name = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
-  var how = (data === 'fs:tel') ? '電話' : 'LINE';
+
   if (data === 'fs:tel') {
-    replyMessage(replyToken, [textMsg(
-      'ありがとうございます。\n\nお電話のつながりやすい時間帯を教えていただけますでしょうか。\n担当者からご連絡します。'
-    )]);
-  } else {
-    replyMessage(replyToken, [textMsg(
-      'ありがとうございます。\n\n担当者からLINEでご連絡しますので、少しお待ちください。'
-    )]);
+    // ⚠️ 時間帯を聞く前に、番号を確かめること (2026-09-23)。
+    //   番号が分かっている人には「末尾○○○○にかけます」と伝えてから時間帯を聞く。
+    //   分かっていない人には先に番号を聞く。
+    var phone = _firstSearchPhone_(name);
+    if (phone) {
+      saveState(userId, { step: FS_STEP_TEL_TIME, data: { fsPhone: phone } });
+      replyMessage(replyToken, [textMsg(
+        'ありがとうございます。\n\n' +
+        'ご登録いただいている番号（末尾 ' + phone.slice(-4) + '）にお電話します。\n' +
+        'つながりやすい時間帯を教えていただけますでしょうか。'
+      )]);
+    } else {
+      saveState(userId, { step: FS_STEP_TEL_NUMBER, data: {} });
+      replyMessage(replyToken, [textMsg(
+        'ありがとうございます。\n\n' +
+        'お電話番号を教えていただけますでしょうか。\nそのあと、つながりやすい時間帯もお伺いします。'
+      )]);
+    }
+    try { _firstSearchMarkReply_(name, '電話で相談'); } catch (e) { console.warn('[初回検索] 記録できません: ' + e.message); }
+    return;
   }
-  try { _firstSearchMarkReply_(name, how + 'で相談'); } catch (e) { console.warn('[初回検索] 記録できません: ' + e.message); }
-  try { _firstSearchNotifyStaff_(name, userId, how); } catch (e2) { console.warn('[初回検索] 担当者通知に失敗: ' + e2.message); }
+
+  replyMessage(replyToken, [textMsg(
+    'ありがとうございます。\n\n担当者からLINEでご連絡しますので、少しお待ちください。'
+  )]);
+  try { _firstSearchMarkReply_(name, 'LINEで相談'); } catch (e3) { console.warn('[初回検索] 記録できません: ' + e3.message); }
+  try { _firstSearchNotifyStaff_(name, userId, 'LINE', {}); } catch (e2) { console.warn('[初回検索] 担当者通知に失敗: ' + e2.message); }
+}
+
+// 電話の相談で使う会話の段階。コード.js の文章の振り分けが見る。
+var FS_STEP_TEL_NUMBER = 'FS_TEL_NUMBER';   // 番号を待っている
+var FS_STEP_TEL_TIME   = 'FS_TEL_TIME';     // 時間帯を待っている
+
+/**
+ * 【コード.js の文章の振り分けから呼ばれる】電話の相談の続き。
+ * @return {boolean} 受け取ったら true
+ */
+function handleFirstSearchText(replyToken, userId, message, state) {
+  if (!state || (state.step !== FS_STEP_TEL_NUMBER && state.step !== FS_STEP_TEL_TIME)) return false;
+  var name = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
+  var m = String(message || '').trim();
+
+  // 何日も経ってから届いた文は、答えではなく別件の可能性が高い
+  if (typeof isStateFreshForFreeText === 'function' && !isStateFreshForFreeText(state)) {
+    clearState(userId);
+    return false;
+  }
+
+  if (state.step === FS_STEP_TEL_NUMBER) {
+    var digits = m.replace(/[^0-9０-９]/g, '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
+    if (!/^0\d{9,10}$/.test(digits)) {
+      var tries = (state.data && state.data.fsTries) || 0;
+      if (tries >= 1) {
+        // 2回読めなければ、人に渡す。黙って終わらせない
+        clearState(userId);
+        replyMessage(replyToken, [textMsg('承知しました。担当者からLINEでご連絡します。')]);
+        try { _firstSearchNotifyStaff_(name, userId, '電話', { note: '番号を読み取れず。本文: ' + m }); } catch (_e) {}
+        return true;
+      }
+      saveState(userId, { step: FS_STEP_TEL_NUMBER, data: { fsTries: tries + 1 } });
+      replyMessage(replyToken, [textMsg('番号として読み取れませんでした。\nハイフン無しの数字だけでも大丈夫です。')]);
+      return true;
+    }
+    try { _firstSearchSavePhone_(name, digits); } catch (eS) { console.warn('[初回検索] 番号を保存できません: ' + eS.message); }
+    saveState(userId, { step: FS_STEP_TEL_TIME, data: { fsPhone: digits } });
+    replyMessage(replyToken, [textMsg(
+      'ありがとうございます。\n\nつながりやすい時間帯を教えていただけますでしょうか。'
+    )]);
+    return true;
+  }
+
+  // 時間帯を受け取った → 担当者へ
+  var phone = (state.data && state.data.fsPhone) || _firstSearchPhone_(name) || '';
+  clearState(userId);
+  replyMessage(replyToken, [textMsg('ありがとうございます。\n\nその時間帯に担当者からお電話します。')]);
+  try { _firstSearchNotifyStaff_(name, userId, '電話', { phone: phone, time: m }); } catch (eN) { console.warn('[初回検索] 担当者通知に失敗: ' + eN.message); }
+  return true;
+}
+
+/** 検索条件シート AI列(35) の電話番号。無ければ ''。 */
+function _firstSearchPhone_(name) {
+  if (!name) return '';
+  try {
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+    var data = sh.getDataRange().getValues();
+    var row = _autoEndCriteriaRow_(data, name);          // AutoEnd.gs
+    if (row < 0) return '';
+    return String(data[row - 1][34] || '').replace(/[^0-9]/g, '');
+  } catch (e) { return ''; }
+}
+
+/** 聞いた番号を AI列(35) に保存する。 */
+function _firstSearchSavePhone_(name, digits) {
+  if (!name || !digits) return;
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+  var data = sh.getDataRange().getValues();
+  var row = _autoEndCriteriaRow_(data, name);
+  if (row < 0) return;
+  sh.getRange(row, 35).setValue(digits);
+  console.log('[初回検索] 番号を保存: ' + name);
 }
 
 /** 記録シートのその人を「継続」にする。 */
@@ -380,17 +470,24 @@ function _firstSearchMarkReply_(name, reply) {
   }
 }
 
-/** 担当者に知らせる。提案はここから人がやる。 */
-function _firstSearchNotifyStaff_(name, userId, how) {
+/**
+ * 担当者に知らせる。提案はここから人がやる。
+ * 宛先は空室確認の通知と同じチャンネル（無ければ共通）。
+ * @param {{phone?:string, time?:string, note?:string}} info
+ */
+function _firstSearchNotifyStaff_(name, userId, how, info) {
+  info = info || {};
   var sp = PropertiesService.getScriptProperties();
-  var url = sp.getProperty('DISCORD_WEBHOOK_URL');
+  var url = sp.getProperty('DISCORD_WEBHOOK_AVAILABILITY_URL') || sp.getProperty('DISCORD_WEBHOOK_URL');
   if (!url) { console.warn('[初回検索] Discord webhook 未設定'); return; }
-  var text = '🙋 **条件の相談希望（初回検索で0件だった人）**\n'
-    + 'お客様: ' + (name || '(不明)') + ' 様\n'
-    + '希望: ' + how + 'で相談\n'
-    + (how === '電話' ? 'つながりやすい時間帯を聞いてあります。返事が来たらLINEを見てください。' : 'LINEで条件の広げ方を提案してください。');
-  UrlFetchApp.fetch(url, {
+  var lines = ['🙋 **条件の相談希望（初回検索で0件だった人）**', 'お客様: ' + (name || '(不明)') + ' 様', '希望: ' + how + 'で相談'];
+  if (info.phone) lines.push('電話番号: ' + info.phone);
+  if (info.time) lines.push('つながりやすい時間帯: ' + info.time);
+  if (info.note) lines.push(info.note);
+  lines.push(how === '電話' ? 'この時間帯にお電話して、条件の広げ方を提案してください。' : 'LINEで条件の広げ方を提案してください。');
+  var res = UrlFetchApp.fetch(url, {
     method: 'post', contentType: 'application/json',
-    payload: JSON.stringify({ content: text }), muteHttpExceptions: true
+    payload: JSON.stringify({ content: lines.join('\n') }), muteHttpExceptions: true
   });
+  console.log('[初回検索] Discord通知 ' + res.getResponseCode() + ' → ' + (name || '(不明)') + ' / ' + how);
 }

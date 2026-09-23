@@ -564,6 +564,9 @@ function doPost(e) {
         return;
       }
 
+      // 初回検索0件 → 電話で相談: 番号・時間帯の受け取り（FirstSearchFollow.gs）
+      if (typeof handleFirstSearchText === 'function' && handleFirstSearchText(replyToken, userId, message, state)) return;
+
       // 配信停止理由フロー中: 自由入力 or 選択肢を処理
       if (state.step === STEPS.WAITING_STOP_REASON || state.step === STEPS.WAITING_STOP_REASON_CUSTOM) {
         if (message === 'キャンセル' || message === 'きゃんせる') {
