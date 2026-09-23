@@ -3,11 +3,11 @@
  *
  * 流れ（SPEC_CRMリニューアル.md「空室確認の作り替え」2026-09-16）
  *   1. 「空室確認」タップ
- *      - 本人が分かっていない → お問い合わせ時のメールアドレスを聞く（＋「別の物件を調べる」）
+ *      - 本人が分かっていない → お問い合わせ時のメールアドレスを聞く。メアド以外の道は無い（2026-09-23）
  *      - メールが反響（問い合わせシート）と一致 → 問い合わせた物件をボタンで並べる。
  *        ここで LINE と顧客カードを結びつける（統合）。フォローアップメールも止まる
  *      - 本人が分かっている → メールは聞かず、問い合わせた物件のボタン（無ければ物件名/URL入力へ）
- *   2. 「別の物件を調べる」→ 物件名 または URL。複数あれば1通にまとめて送ってよい
+ *   2. 本人確定後 → 物件名 または URL。複数あれば1通にまとめて送ってよい
  *   3. 受け取った物件は 物件空室管理シート で自動判定。判定できないものが1つでもあれば
  *      お客様には「お調べしてご連絡します」の1通だけ返し、スタッフへ Discord で依頼する
  *   4. スタッフは回答フォーム（?action=vacancy_answer_form）で全件に「募集中／ご案内不可」を付けて送信。
@@ -42,19 +42,28 @@ function startVacancyEntry(replyToken, userId, opts) {
     return;
   }
   if (!ctx.identified) {
-    saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'email' } });
-    replyMessage(replyToken, [textMsgWithQuickReply(
-      'お問い合わせ時のメールアドレスを送ってください。\n' +
-      'お問い合わせいただいた物件をお調べしてご連絡します。\n\n' +
-      'ほかの物件をお調べしたい場合は、下の「別の物件を調べる」をタップしてください。',
-      [qrPostback('🔍 別の物件を調べる', 'vc:other')]
-    )]);
+    _vacancyAskEmail_(replyToken, userId);
     return;
   }
   _vacancyPromptOther_(replyToken, userId, '');
 }
 
-/** 「別の物件を調べる」の案内。lead は先頭に付ける一文（省略可）。 */
+/**
+ * 本人が分かっていない人に、メールアドレスを聞く。
+ * ⚠️ メアド以外の道を出さないこと (2026-09-23)。
+ *   問い合わせた人なら必ずメールアドレスを持っている。送ってこない時点で怪しい。
+ *   以前は「別の物件を調べる」ボタンでメアド無しに進めたが、本人が誰か分からないまま
+ *   調べることになるので無くした。
+ */
+function _vacancyAskEmail_(replyToken, userId) {
+  saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'email' } });
+  replyMessage(replyToken, [textMsg(
+    'お問い合わせ時のメールアドレスを送ってください。\n' +
+    'ご本人の確認ができ次第、お問い合わせいただいたお部屋をお調べしてご連絡します。'
+  )]);
+}
+
+/** 本人確定後の「お部屋を教えてください」。lead は先頭に付ける一文（省略可）。 */
 function _vacancyPromptOther_(replyToken, userId, lead) {
   saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'other' } });
   replyMessage(replyToken, [textMsg(
@@ -70,6 +79,9 @@ function _vacancyPromptOther_(replyToken, userId, lead) {
 /** postback "vc:..." を処理する。 */
 function handleVacancyPostback(replyToken, userId, data) {
   if (data === 'vc:other') {
+    // ⚠️ 未確定の人はここでも通さない。古いカードのボタンを後から押した場合のため。
+    var ctxO = _vacancyEntryContext_(userId);
+    if (!ctxO.identified) { _vacancyAskEmail_(replyToken, userId); return; }
     _vacancyPromptOther_(replyToken, userId, '');
     return;
   }
@@ -210,11 +222,9 @@ function _vacancyMissed_(replyToken, userId, state, kind) {
   saveState(userId, { step: STEPS.WAITING_VACANCY, data: data });
 
   if (kind === 'email') {
-    replyMessage(replyToken, [textMsgWithQuickReply(
+    replyMessage(replyToken, [textMsg(
       'メールアドレスとして読み取れませんでした。\n\n' +
-      'お問い合わせ時のメールアドレスを、そのままコピーして送っていただけますでしょうか。\n\n' +
-      'お部屋を直接お調べすることもできます。その場合は下の「別の物件を調べる」をタップしてください。',
-      [qrPostback('🔍 別の物件を調べる', 'vc:other')]
+      'お問い合わせ時のメールアドレスを、そのままコピーして送っていただけますでしょうか。'
     )]);
     return;
   }
