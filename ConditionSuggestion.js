@@ -1119,26 +1119,15 @@ function buildConditionSuggestionFlex_(c) {
   //   - 'no_delivery' (caseA): 物件が来ていない人向け
   //   - 'no_view' (caseB): 物件は来てるが見ていない人向け
   var _isNoView = (c.reasonCode === 'no_view');
-  // 'first_search_zero': 条件登録の直後、最初の検索で1件も見つからなかった人向け (2026-09-23)。
-  //   ⚠️ 10日おきの提案と同じ見出し・ボタンで送らないこと。
-  //     「状況はいかがですか」は登録して数時間の人に聞く言葉ではなく、
-  //     「このまま様子を見る」「配信を停止する」は0件の人に出す選択肢ではない。
-  var _isFirstZero = (c.variant === 'first_search_zero');
-  var _title = _isFirstZero
-    ? 'まだご紹介できるお部屋が見つかっていません'
-    : _isNoView
-      ? 'お部屋探しの状況はいかがですか？'
-      : 'ご条件の変更をしてみませんか？';
-  var _desc = _isFirstZero
-    ? 'いまご登録いただいている条件です。'
-    : _isNoView
-      ? 'もしピンとくるものがなければ、条件を少し変えると、よりご希望に合うお部屋が見つかるかもしれません。'
-      : '条件を少し緩めると、ご紹介できる物件が増える可能性があります。';
-  var _altText = _isFirstZero
-    ? 'まだご紹介できるお部屋が見つかっていません'
-    : _isNoView
-      ? 'お部屋探しの状況はいかがですか？'
-      : 'ご条件の変更をしてみませんか？';
+  var _title = _isNoView
+    ? 'お部屋探しの状況はいかがですか？'
+    : 'ご条件の変更をしてみませんか？';
+  var _desc = _isNoView
+    ? 'もしピンとくるものがなければ、条件を少し変えると、よりご希望に合うお部屋が見つかるかもしれません。'
+    : '条件を少し緩めると、ご紹介できる物件が増える可能性があります。';
+  var _altText = _isNoView
+    ? 'お部屋探しの状況はいかがですか？'
+    : 'ご条件の変更をしてみませんか？';
   return {
     type: 'flex',
     altText: _altText,
@@ -1146,8 +1135,8 @@ function buildConditionSuggestionFlex_(c) {
       type: 'bubble',
       size: 'mega',
 
-      // ── ヘッダー (カラーブロック + タイトル) ── 0件用は付けない。文章は別の1通で送るため
-      header: _isFirstZero ? undefined : {
+      // ── ヘッダー (カラーブロック + タイトル) ──
+      header: {
         type: 'box',
         layout: 'vertical',
         backgroundColor: '#6ea814',
@@ -1190,15 +1179,7 @@ function buildConditionSuggestionFlex_(c) {
         layout: 'vertical',
         spacing: 'sm',
         paddingAll: 'lg',
-        contents: _isFirstZero ? [
-          // 0件の人: 提案の中身は人がやる。ここは「相談する」への入口と、自分で変える道。
-          { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
-            action: { type: 'postback', label: 'LINEで相談する', data: 'fs:line', displayText: 'LINEで相談する' } },
-          { type: 'button', style: 'secondary', height: 'sm',
-            action: { type: 'postback', label: '電話で相談する', data: 'fs:tel', displayText: '電話で相談する' } },
-          { type: 'button', style: 'link', height: 'sm', color: '#3d6909',
-            action: { type: 'uri', label: '自分で条件を変更する', uri: liffBase } }
-        ] : [
+        contents: [
           { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
             action: { type: 'uri', label: '条件を変更する', uri: liffBase } },
           { type: 'button', style: 'secondary', height: 'sm',

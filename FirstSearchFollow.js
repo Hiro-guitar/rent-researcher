@@ -180,14 +180,57 @@ function buildFirstSearchZeroText(cand) {
     + '条件の広げ方をいくつかご提案できますので、お電話かLINEでお伺いできますでしょうか。';
 }
 
+/**
+ * 0件のときのカード。条件登録完了と同じ表（左がグレーのラベル）で今の条件を見せ、
+ * 相談か自分で変えるかを選んでもらう。
+ * ⚠️ ボタンに優劣を付けないこと。緑を1つだけにすると「LINEが本命」に見える。
+ * ⚠️ 条件が読めなかったら表は出さない。空の表を見せるより無いほうがよい。
+ */
+function buildFirstSearchZeroCard(customerName) {
+  var body = [];
+  try {
+    var crit = (typeof loadCustomerCriteriaByName === 'function') ? loadCustomerCriteriaByName(customerName) : null;
+    var rows = (crit && typeof _buildConditionSummaryRows_ === 'function') ? _buildConditionSummaryRows_(crit) : null;
+    if (rows && rows.length) {
+      body.push({
+        type: 'box', layout: 'vertical', paddingAll: 'md', spacing: 'none',
+        backgroundColor: '#f5f9ee', cornerRadius: 'md',
+        contents: [
+          { type: 'text', text: '現在ご登録の条件', size: 'xs', color: '#3d6909', weight: 'bold', align: 'center' },
+          { type: 'separator', margin: 'sm', color: '#d4e7a8' }
+        ].concat(rows)
+      });
+    }
+  } catch (e) { console.warn('[初回検索] 条件を出せません: ' + e.message); }
+  if (!body.length) body.push({ type: 'text', text: 'ご希望をお聞かせください。', size: 'sm', color: '#555555', wrap: true });
+
+  var btn = function (label, action) {
+    return { type: 'button', style: 'secondary', height: 'sm', action: action };
+  };
+  return {
+    type: 'flex',
+    altText: '条件の広げ方をご提案できますので、お電話かLINEでお伺いできますでしょうか。',
+    contents: {
+      type: 'bubble',
+      body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl', contents: body },
+      footer: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingTop: 'none',
+        contents: [
+          btn('LINEで相談する', { type: 'postback', label: 'LINEで相談する', data: 'fs:line', displayText: 'LINEで相談する' }),
+          btn('電話で相談する', { type: 'postback', label: '電話で相談する', data: 'fs:tel', displayText: '電話で相談する' }),
+          btn('自分で条件を変更する', { type: 'message', label: '自分で条件を変更する', text: '条件変更' })
+        ]
+      }
+    }
+  };
+}
+
 /** 1人に提案を送る。成功したら true。 */
 function _firstSearchSendTo_(t, cand, sh) {
   if (!cand) { console.log('[初回検索] 提案を作れません（LINE未接続など）: ' + t.name); return false; }
   if (!FIRST_SEARCH_ENABLED) { console.log('[初回検索] 対象（まだ送りません）: ' + t.name); return false; }
   try {
-    cand.variant = 'first_search_zero';   // 見出し無し・条件一覧・相談ボタン
-    var flex = buildConditionSuggestionFlex_(cand);
-    pushMessage(cand.lineUserId, [textMsg(buildFirstSearchZeroText(cand)), flex]);
+    pushMessage(cand.lineUserId, [textMsg(buildFirstSearchZeroText(cand)), buildFirstSearchZeroCard(t.name)]);
     var criteria = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
     criteria.getRange(t.rowIndex, CONDITION_SUGGESTION_SENT_COL).setValue(new Date());   // Z列: 旧仕組みの重複防止
     sh.appendRow([t.name, new Date(t.registeredMs), new Date(), '', '返事待ち']);
@@ -293,10 +336,9 @@ function testSendFirstSearch(name) {
     console.log('カードを作れません: ' + name + '（条件が無い／配信停止中／LINE未接続 のどれか）');
     return false;
   }
-  cand.variant = 'first_search_zero';
   pushMessage(cand.lineUserId, [
     textMsg('【テスト】\n\n' + buildFirstSearchZeroText(cand)),
-    buildConditionSuggestionFlex_(cand)
+    buildFirstSearchZeroCard(name)
   ]);
   console.log('送りました: ' + name);
   return true;
