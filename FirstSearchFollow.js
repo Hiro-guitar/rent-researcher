@@ -253,10 +253,10 @@ function processFirstSearchFollow() {
 /**
  * 【GASエディタで実行・テスト】0件のときの文章＋カードを、自分のLINEに送って見る。
  * ⚠️ TEST_ALLOWED_NAMES に入っている名前にしか送らない。記録シートにもZ列にも書かない。
- * @param {string} [name] 省略時は '西村　Hiroki'（全角スペース）
+ * @param {string} [name] 省略時は 'Hiroki'（TEST_ALLOWED_NAMES に入っている顧客名）
  */
 function testSendFirstSearch(name) {
-  name = String(name || '西村　Hiroki').trim();
+  name = String(name || 'Hiroki').trim();
   if (typeof TEST_ALLOWED_NAMES === 'undefined' || TEST_ALLOWED_NAMES.indexOf(name) === -1) {
     console.log('テスト許可の名前ではありません: ' + name + '（TEST_ALLOWED_NAMES を確認）');
     return false;
