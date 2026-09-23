@@ -249,3 +249,27 @@ function processFirstSearchFollow() {
   try { _firstSearchAsk_(); } catch (e) { console.error('[初回検索] 提案で失敗: ' + e.message); }
   try { _firstSearchClose_(); } catch (e) { console.error('[初回検索] 締めで失敗: ' + e.message); }
 }
+
+/**
+ * 【GASエディタで実行・テスト】0件のときの文章＋カードを、自分のLINEに送って見る。
+ * ⚠️ TEST_ALLOWED_NAMES に入っている名前にしか送らない。記録シートにもZ列にも書かない。
+ * @param {string} [name] 省略時は '西村　Hiroki'（全角スペース）
+ */
+function testSendFirstSearch(name) {
+  name = String(name || '西村　Hiroki').trim();
+  if (typeof TEST_ALLOWED_NAMES === 'undefined' || TEST_ALLOWED_NAMES.indexOf(name) === -1) {
+    console.log('テスト許可の名前ではありません: ' + name + '（TEST_ALLOWED_NAMES を確認）');
+    return false;
+  }
+  var cand = getConditionSuggestionCandidates_({ names: [name] })[0];
+  if (!cand) {
+    console.log('カードを作れません: ' + name + '（条件が無い／配信停止中／LINE未接続 のどれか）');
+    return false;
+  }
+  pushMessage(cand.lineUserId, [
+    textMsg('【テスト】\n\nご登録ありがとうございます。\n\nいまの条件で探したところ、ご紹介できるお部屋がまだ見つかりませんでした。\n条件を少し広げると見つかることが多いので、よろしければ下からご確認ください。'),
+    buildConditionSuggestionFlex_(cand)
+  ]);
+  console.log('送りました: ' + name);
+  return true;
+}
