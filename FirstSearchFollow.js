@@ -183,7 +183,7 @@ function buildFirstSearchZeroText(cand) {
 /**
  * 0件のときのカード。条件登録完了と同じ表（左がグレーのラベル）で今の条件を見せ、
  * 相談か自分で変えるかを選んでもらう。
- * ⚠️ ボタンに優劣を付けないこと。緑を1つだけにすると「LINEが本命」に見える。
+ * ⚠️ ボタンに優劣を付けないこと。3つとも同じ緑。1つだけ緑にすると「LINEが本命」に見える。
  * ⚠️ 条件が読めなかったら表は出さない。空の表を見せるより無いほうがよい。
  */
 function buildFirstSearchZeroCard(customerName) {
@@ -205,7 +205,7 @@ function buildFirstSearchZeroCard(customerName) {
   if (!body.length) body.push({ type: 'text', text: 'ご希望をお聞かせください。', size: 'sm', color: '#555555', wrap: true });
 
   var btn = function (label, action) {
-    return { type: 'button', style: 'secondary', height: 'sm', action: action };
+    return { type: 'button', style: 'primary', color: '#6ea814', height: 'sm', action: action };   // 3つとも同じ緑
   };
   return {
     type: 'flex',
