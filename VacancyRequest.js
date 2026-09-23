@@ -115,6 +115,17 @@ function handleVacancyEmail(replyToken, userId, rawEmail) {
   } catch (eL) {
     console.error('[空室確認] 本人確定に失敗: ' + eL.message + '\n' + eL.stack);
   }
+  // メールアドレスより先にURL・物件名を送ってきていたら、それをそのまま調べる（送り直しをさせない）
+  try {
+    var prev = getState(userId);
+    var pending = prev && prev.data && prev.data.vcPendingItems;
+    if (pending && pending.length) {
+      clearState(userId);
+      handleVacancyRequest(replyToken, userId, pending, { raw: String(prev.data.vcPendingRaw || '') });
+      return;
+    }
+  } catch (eP) { console.warn('[空室確認] 預かった物件を読めません: ' + eP.message); }
+
   var inqs = _vacancyFindInquiriesByEmails_([email]);
   if (inqs.length > 0) {
     saveState(userId, { step: STEPS.WAITING_VACANCY, data: { vcMode: 'choose', email: email } });
@@ -155,6 +166,23 @@ function handleVacancyText(replyToken, userId, message, state) {
     // ⚠️ 黙らないこと (2026-09-21)。お客様は届いたかどうかも分からなくなる。
     console.log('[空室確認] 物件として読めない: ' + _shortenForReply_(m));
     _vacancyMissed_(replyToken, userId, state, mode === 'email' ? 'email' : 'item');
+    return;
+  }
+
+  // ⚠️ メールアドレスを聞いている最中は、URLや物件名を受けないこと (2026-09-23)。
+  //   問い合わせた人なら必ずメールアドレスを持っている。送ってこない時点で怪しい。
+  //   以前はここで物件として通してしまい、本人が誰か分からないまま調べていた。
+  //   ただし送ってきたURLは捨てない。預かっておいて、メールアドレスが届いたらそのまま調べる。
+  if (mode === 'email') {
+    var d = (state && state.data) ? state.data : { vcMode: 'email' };
+    d.vcPendingItems = items;
+    d.vcPendingRaw = m;
+    saveState(userId, { step: STEPS.WAITING_VACANCY, data: d });
+    replyMessage(replyToken, [textMsg(
+      'お部屋の情報を受け取りました。\n\n' +
+      'お調べする前に、お問い合わせ時のメールアドレスを送ってください。\n' +
+      'ご本人の確認ができ次第、このお部屋をそのままお調べします。'
+    )]);
     return;
   }
   handleVacancyRequest(replyToken, userId, items, { raw: m });
