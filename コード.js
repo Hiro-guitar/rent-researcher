@@ -376,6 +376,12 @@ function doPost(e) {
         return;
       }
 
+      // 初回検索で0件だった人の「相談する」ボタン（FirstSearchFollow.gs）
+      if (data === 'fs:line' || data === 'fs:tel') {
+        handleFirstSearchPostback(replyToken, userId, data);
+        return;
+      }
+
       // 引越し期限の確認（MoveInDeadline.gs）
       if (data === 'movein:renew') {
         // 条件選択の画面は挟まない。聞かれたのは時期だけなので、そこだけ聞き直す。

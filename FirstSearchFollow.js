@@ -151,17 +151,43 @@ function _firstSearchAsk_() {
   return sent;
 }
 
+/**
+ * 0件のときの文章。本人の条件を差し込んで、人が書いた形にする。
+ * ⚠️「ご登録ありがとうございます」は登録直後に送っているので書かない。
+ * ⚠️ 件数や「良さそうな」とは言わないこと。目視で落ちる物件があるので約束になる。
+ * ⚠️ 提案の中身はここでは出さない。人が相談に乗る。
+ */
+function buildFirstSearchZeroText(cand) {
+  var parts = [];
+  var st = [];
+  if (Array.isArray(cand.routesWithStations)) {
+    cand.routesWithStations.forEach(function (r) { (r.stations || []).forEach(function (x) { if (x) st.push(x); }); });
+  }
+  if (!st.length && cand.stations) st = String(cand.stations).split(/[、,\s]+/).filter(Boolean);
+  if (st.length) parts.push(st.length > 3 ? st.slice(0, 3).join('・') + 'など' : st.join('・'));
+  else if (cand.city) parts.push(String(cand.city).replace(/\n/g, ' '));
+  var walk = String(cand.walkMax || '').replace(/分以内$/, '');
+  if (walk) parts.push('徒歩' + walk + '分以内');
+  var age = String(cand.ageMax || '').replace(/年以内$/, '');
+  if (age) parts.push('築' + age + '年以内');
+  var lay = String(cand.layouts || '').replace(/,\s*/g, '・');
+  if (lay) parts.push(lay);
+  var cond = parts.length ? parts.join('で') : 'いまのご条件';
+  // 「吉祥寺・三鷹で徒歩7分以内で築20年以内で1LDK」は読みにくいので、区切りを整える
+  cond = parts.length ? parts[0] + (parts.length > 1 ? 'で' + parts.slice(1).join('・') : '') : cond;
+
+  return 'さっそく探してみたのですが、' + cond + 'だと、いまはちょうど空きが出ていませんでした。\n\n'
+    + '条件の広げ方をいくつかご提案できますので、お電話かLINEでお伺いできますでしょうか。';
+}
+
 /** 1人に提案を送る。成功したら true。 */
 function _firstSearchSendTo_(t, cand, sh) {
   if (!cand) { console.log('[初回検索] 提案を作れません（LINE未接続など）: ' + t.name); return false; }
   if (!FIRST_SEARCH_ENABLED) { console.log('[初回検索] 対象（まだ送りません）: ' + t.name); return false; }
   try {
-    cand.variant = 'first_search_zero';   // 見出しとボタンを0件用にする
+    cand.variant = 'first_search_zero';   // 見出し無し・条件一覧・相談ボタン
     var flex = buildConditionSuggestionFlex_(cand);
-    pushMessage(cand.lineUserId, [
-      textMsg('ご登録ありがとうございます。\n\nいまの条件で探したところ、ご紹介できるお部屋がまだ見つかりませんでした。\n条件を少し広げると見つかることが多いので、よろしければ下からご確認ください。'),
-      flex
-    ]);
+    pushMessage(cand.lineUserId, [textMsg(buildFirstSearchZeroText(cand)), flex]);
     var criteria = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
     criteria.getRange(t.rowIndex, CONDITION_SUGGESTION_SENT_COL).setValue(new Date());   // Z列: 旧仕組みの重複防止
     sh.appendRow([t.name, new Date(t.registeredMs), new Date(), '', '返事待ち']);
@@ -269,9 +295,60 @@ function testSendFirstSearch(name) {
   }
   cand.variant = 'first_search_zero';
   pushMessage(cand.lineUserId, [
-    textMsg('【テスト】\n\nご登録ありがとうございます。\n\nいまの条件で探したところ、ご紹介できるお部屋がまだ見つかりませんでした。\n条件を少し広げると見つかることが多いので、よろしければ下からご確認ください。'),
+    textMsg('【テスト】\n\n' + buildFirstSearchZeroText(cand)),
     buildConditionSuggestionFlex_(cand)
   ]);
   console.log('送りました: ' + name);
   return true;
+}
+
+/**
+ * 相談ボタンの受け口（コード.js の postback 振り分けから呼ばれる）。
+ *   fs:line … LINEで相談する
+ *   fs:tel  … 電話で相談する
+ * どちらも担当者に Discord で知らせ、記録シートを「継続」にする。提案の中身は人がやる。
+ */
+function handleFirstSearchPostback(replyToken, userId, data) {
+  var name = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
+  var how = (data === 'fs:tel') ? '電話' : 'LINE';
+  if (data === 'fs:tel') {
+    replyMessage(replyToken, [textMsg(
+      'ありがとうございます。\n\nお電話のつながりやすい時間帯を教えていただけますでしょうか。\n担当者からご連絡します。'
+    )]);
+  } else {
+    replyMessage(replyToken, [textMsg(
+      'ありがとうございます。\n\n担当者からLINEでご連絡しますので、少しお待ちください。'
+    )]);
+  }
+  try { _firstSearchMarkReply_(name, how + 'で相談'); } catch (e) { console.warn('[初回検索] 記録できません: ' + e.message); }
+  try { _firstSearchNotifyStaff_(name, userId, how); } catch (e2) { console.warn('[初回検索] 担当者通知に失敗: ' + e2.message); }
+}
+
+/** 記録シートのその人を「継続」にする。 */
+function _firstSearchMarkReply_(name, reply) {
+  if (!name) return;
+  var sh = _firstSearchSheet_();
+  if (sh.getLastRow() < 2) return;
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 5).getValues();
+  for (var i = rows.length - 1; i >= 0; i--) {
+    if (String(rows[i][0] || '').trim() !== name) continue;
+    sh.getRange(i + 2, 4).setValue(reply);
+    sh.getRange(i + 2, 5).setValue('継続');
+    return;
+  }
+}
+
+/** 担当者に知らせる。提案はここから人がやる。 */
+function _firstSearchNotifyStaff_(name, userId, how) {
+  var sp = PropertiesService.getScriptProperties();
+  var url = sp.getProperty('DISCORD_WEBHOOK_URL');
+  if (!url) { console.warn('[初回検索] Discord webhook 未設定'); return; }
+  var text = '🙋 **条件の相談希望（初回検索で0件だった人）**\n'
+    + 'お客様: ' + (name || '(不明)') + ' 様\n'
+    + '希望: ' + how + 'で相談\n'
+    + (how === '電話' ? 'つながりやすい時間帯を聞いてあります。返事が来たらLINEを見てください。' : 'LINEで条件の広げ方を提案してください。');
+  UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify({ content: text }), muteHttpExceptions: true
+  });
 }
