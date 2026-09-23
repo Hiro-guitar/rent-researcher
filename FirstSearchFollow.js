@@ -11,8 +11,11 @@
  *   「1件も送れなかった」 … 承認待ち物件に sent / pending の行が無い
  *   「条件を変えた」       … writeToSheet が AC列を空に戻す。それが反応の印
  *
- * ⚠️ 登録から3時間は待つこと。REINS以外（いえらぶ・itandi・いい生活）が
- *   まだ回っている途中で「0件」と決めつけない。
+ * いつ動くか（2026-09-23）:
+ *   拡張は1人分の検索（REINS・いえらぶ・itandi）を全部終えたあとに、その人の検索日を
+ *   update_reins_search_date で報告する。0件でも報告される。そこから firstSearchOnSearchDone
+ *   を呼んで、その場で提案する。1時間おきの processFirstSearchFollow は取りこぼしの保険と、
+ *   24時間たった人を終了にするためのもの。
  * ⚠️ 昔から0件のまま止まっている人を巻き込まないこと。FIRST_SEARCH_MAX_AGE_D で足切り。
  *   その人たちは電話で拾う（顧客管理ページの仕事）。
  * ⚠️ 提案の文面と形は既存の buildConditionSuggestionFlex_ をそのまま使う。
@@ -23,8 +26,6 @@ var FIRST_SEARCH_SHEET = '初回検索の確認';
 
 // 送信を止めるスイッチ。false なら数えるだけ。中身と仕組みが決まるまで false。
 var FIRST_SEARCH_ENABLED = false;
-// 登録からこれだけ経ってから判定する（他サイトの検索を待つ）
-var FIRST_SEARCH_WAIT_H = 3;
 // 返事をこれだけ待って、無ければ終了
 var FIRST_SEARCH_REPLY_H = 24;
 // これより前に登録した人は拾わない
@@ -95,7 +96,6 @@ function collectFirstSearchZero() {
     var regMs = _fdMs_(data[i][0]);                                                   // A列: 登録日時
     if (!regMs) continue;
     var hours = (now - regMs) / 3600000;
-    if (hours < FIRST_SEARCH_WAIT_H) continue;                                        // 他サイトを待つ
 
     out.push({
       name: name, rowIndex: i + 1, registeredMs: regMs, searchedOn: searchedOn,
@@ -144,31 +144,58 @@ function _firstSearchAsk_() {
   var cands = getConditionSuggestionCandidates_({ names: todo.map(function (x) { return x.name; }) });
   for (var c = 0; c < cands.length; c++) byName[cands[c].name] = cands[c];
 
-  var criteria = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
   var sent = 0;
   for (var i = 0; i < todo.length; i++) {
-    var t = todo[i];
-    var cand = byName[t.name];
-    if (!cand) { console.log('[初回検索] 提案を作れません（LINE未接続など）: ' + t.name); continue; }
-    if (!FIRST_SEARCH_ENABLED) {
-      console.log('[初回検索] 対象（まだ送りません）: ' + t.name);
-      continue;
-    }
-    try {
-      var flex = buildConditionSuggestionFlex_(cand);
-      pushMessage(cand.lineUserId, [
-        textMsg('ご登録ありがとうございます。\n\nいまの条件で探したところ、ご紹介できるお部屋がまだ見つかりませんでした。\n条件を少し広げると見つかることが多いので、よろしければ下からご確認ください。'),
-        flex
-      ]);
-      criteria.getRange(t.rowIndex, CONDITION_SUGGESTION_SENT_COL).setValue(new Date());   // Z列: 旧仕組みの重複防止
-      sh.appendRow([t.name, new Date(t.registeredMs), new Date(), '', '返事待ち']);
-      sent++;
-      console.log('[初回検索] 提案しました: ' + t.name);
-    } catch (e) {
-      console.warn('[初回検索] 送れません: ' + t.name + ' / ' + e.message);
-    }
+    if (_firstSearchSendTo_(todo[i], byName[todo[i].name], sh)) sent++;
   }
   return sent;
+}
+
+/** 1人に提案を送る。成功したら true。 */
+function _firstSearchSendTo_(t, cand, sh) {
+  if (!cand) { console.log('[初回検索] 提案を作れません（LINE未接続など）: ' + t.name); return false; }
+  if (!FIRST_SEARCH_ENABLED) { console.log('[初回検索] 対象（まだ送りません）: ' + t.name); return false; }
+  try {
+    var flex = buildConditionSuggestionFlex_(cand);
+    pushMessage(cand.lineUserId, [
+      textMsg('ご登録ありがとうございます。\n\nいまの条件で探したところ、ご紹介できるお部屋がまだ見つかりませんでした。\n条件を少し広げると見つかることが多いので、よろしければ下からご確認ください。'),
+      flex
+    ]);
+    var criteria = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+    criteria.getRange(t.rowIndex, CONDITION_SUGGESTION_SENT_COL).setValue(new Date());   // Z列: 旧仕組みの重複防止
+    sh.appendRow([t.name, new Date(t.registeredMs), new Date(), '', '返事待ち']);
+    console.log('[初回検索] 提案しました: ' + t.name);
+    return true;
+  } catch (e) {
+    console.warn('[初回検索] 送れません: ' + t.name + ' / ' + e.message);
+    return false;
+  }
+}
+
+/**
+ * 【検索完了の報告から呼ばれる】その人が0件なら、その場で提案する。
+ * コード.js の _handleUpdateReinsSearchDate が AC列を書いた直後に呼ぶ。
+ * ⚠️ ここで例外を投げないこと。検索日の記録そのものを失敗にしてはいけない。
+ */
+function firstSearchOnSearchDone(customerName) {
+  try {
+    customerName = String(customerName || '').trim();
+    if (!customerName) return false;
+    var hit = collectFirstSearchZero().filter(function (x) { return x.name === customerName && !x.tooOld; })[0];
+    if (!hit) return false;                                     // 送れている／古い／対象外
+    var sh = _firstSearchSheet_();
+    if (sh.getLastRow() > 1) {
+      var names = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+      for (var i = 0; i < names.length; i++) {
+        if (String(names[i][0] || '').trim() === customerName) return false;   // 一度きり
+      }
+    }
+    var cand = getConditionSuggestionCandidates_({ names: [customerName] })[0];
+    return _firstSearchSendTo_(hit, cand, sh);
+  } catch (e) {
+    console.warn('[初回検索] 検索完了の直後の提案に失敗: ' + customerName + ' / ' + e.message);
+    return false;
+  }
 }
 
 /** 提案から24時間、何も無い人を終了にする。条件を変えた／LINEで何か送った人は継続。 */
@@ -215,7 +242,7 @@ function _firstSearchClose_() {
   return closed;
 }
 
-/** 【トリガー・1時間おき】入口。営業時間内だけ動く。 */
+/** 【トリガー・1時間おき】取りこぼしの保険と、24時間たった人の終了。営業時間内だけ動く。 */
 function processFirstSearchFollow() {
   var h = (typeof getJstHour === 'function') ? getJstHour(new Date()) : new Date().getHours();
   if (h < 10 || h >= 20) return;

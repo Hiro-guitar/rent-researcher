@@ -2962,6 +2962,11 @@ function _handleUpdateReinsSearchDate(json) {
     if (String(data[i][1] || '').trim() === customerName) {
       sheet.getRange(i + 1, 29).setValue(searchDate); // AC列(29)
       updated = true;
+      // 検索が終わった瞬間に、0件ならその場で条件変更を提案する（FirstSearchFollow.gs）。
+      // ⚠️ 失敗しても検索日の記録は成功として返す。提案は保険の巡回が拾う。
+      if (typeof firstSearchOnSearchDone === 'function') {
+        try { firstSearchOnSearchDone(customerName); } catch (_eFS) { console.warn('[初回検索] ' + _eFS.message); }
+      }
       break;
     }
   }
