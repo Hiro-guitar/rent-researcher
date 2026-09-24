@@ -152,32 +152,16 @@ function _firstSearchAsk_() {
 }
 
 /**
- * 0件のときの文章。本人の条件を差し込んで、人が書いた形にする。
- * ⚠️「ご登録ありがとうございます」は登録直後に送っているので書かない。
- * ⚠️ 件数や「良さそうな」とは言わないこと。目視で落ちる物件があるので約束になる。
- * ⚠️ 提案の中身はここでは出さない。人が相談に乗る。
+ * 0件のときの文章（2026-09-24 確定）。
+ * ⚠️ 条件を文章に並べないこと。下のカードに表で出る。並べると申込書のように見える。
+ * ⚠️ 件数や「良さそう」とは言わないこと。目視で落ちる物件があるので約束になる。
+ * ⚠️「提案します」「伺います」と言わないこと。ボタンが「相談する」なので、文章も相談で揃える。
+ *   お客様が譲るのではなく、こちらから相談を頼む形にする。
+ * 「お申し込みが入ってしまっているお部屋が多く」は、SUUMOに載っているのに送れない事情の説明。
  */
 function buildFirstSearchZeroText(cand) {
-  var parts = [];
-  var st = [];
-  if (Array.isArray(cand.routesWithStations)) {
-    cand.routesWithStations.forEach(function (r) { (r.stations || []).forEach(function (x) { if (x) st.push(x); }); });
-  }
-  if (!st.length && cand.stations) st = String(cand.stations).split(/[、,\s]+/).filter(Boolean);
-  if (st.length) parts.push(st.length > 3 ? st.slice(0, 3).join('・') + 'など' : st.join('・'));
-  else if (cand.city) parts.push(String(cand.city).replace(/\n/g, ' '));
-  var walk = String(cand.walkMax || '').replace(/分以内$/, '');
-  if (walk) parts.push('徒歩' + walk + '分以内');
-  var age = String(cand.ageMax || '').replace(/年以内$/, '');
-  if (age) parts.push('築' + age + '年以内');
-  var lay = String(cand.layouts || '').replace(/,\s*/g, '・');
-  if (lay) parts.push(lay);
-  var cond = parts.length ? parts.join('で') : 'いまのご条件';
-  // 「吉祥寺・三鷹で徒歩7分以内で築20年以内で1LDK」は読みにくいので、区切りを整える
-  cond = parts.length ? parts[0] + (parts.length > 1 ? 'で' + parts.slice(1).join('・') : '') : cond;
-
-  return 'さっそく探してみたのですが、' + cond + 'だと、いまはちょうど空きが出ていませんでした。\n\n'
-    + '条件の広げ方をいくつかご提案できますので、お電話かLINEでお伺いできますでしょうか。';
+  return 'ご希望の条件でお探ししたところ、お申し込みが入ってしまっているお部屋が多く、いまご紹介できるものがありませんでした。\n\n'
+    + '条件を少し見直すと見つかりやすくなりますので、一度ご相談させていただけますでしょうか。お電話でもLINEでも大丈夫です。';
 }
 
 /**
