@@ -342,19 +342,21 @@ function handleFirstSearchPostback(replyToken, userId, data) {
     // ⚠️ 時間帯を聞く前に、番号を確かめること (2026-09-23)。
     //   番号が分かっている人には「末尾○○○○にかけます」と伝えてから時間帯を聞く。
     //   分かっていない人には先に番号を聞く。
+    // ⚠️ 時間帯は聞かないこと (2026-09-25)。「電話して」と言った人に質問を返すのは一手多い。
+    //   営業時間内にかければよく、出なければかけ直せばよい。都合の悪い時間だけ任意で書いてもらう。
     var phone = _firstSearchPhone_(name);
     if (phone) {
-      saveState(userId, { step: FS_STEP_TEL_TIME, data: { fsPhone: phone } });
+      clearState(userId);
       replyMessage(replyToken, [textMsg(
         'ありがとうございます。\n\n' +
         'ご登録いただいている番号（末尾 ' + phone.slice(-4) + '）にお電話します。\n\n' +
-        'つながりやすい時間帯を教えていただけますでしょうか。'
+        'ご都合の悪い時間帯があれば、お知らせください。'
       )]);
+      try { _firstSearchNotifyStaff_(name, userId, '電話', { phone: phone }); } catch (eN) { console.warn('[初回検索] 担当者通知に失敗: ' + eN.message); }
     } else {
       saveState(userId, { step: FS_STEP_TEL_NUMBER, data: {} });
       replyMessage(replyToken, [textMsg(
-        'ありがとうございます。\n\n' +
-        'お電話番号を教えていただけますでしょうか。\nそのあと、つながりやすい時間帯もお伺いします。'
+        'ありがとうございます。\n\nお電話番号を教えていただけますでしょうか。'
       )]);
     }
     try { _firstSearchMarkReply_(name, '電話で相談'); } catch (e) { console.warn('[初回検索] 記録できません: ' + e.message); }
@@ -372,14 +374,13 @@ function handleFirstSearchPostback(replyToken, userId, data) {
 
 // 電話の相談で使う会話の段階。コード.js の文章の振り分けが見る。
 var FS_STEP_TEL_NUMBER = 'FS_TEL_NUMBER';   // 番号を待っている
-var FS_STEP_TEL_TIME   = 'FS_TEL_TIME';     // 時間帯を待っている
 
 /**
  * 【コード.js の文章の振り分けから呼ばれる】電話の相談の続き。
  * @return {boolean} 受け取ったら true
  */
 function handleFirstSearchText(replyToken, userId, message, state) {
-  if (!state || (state.step !== FS_STEP_TEL_NUMBER && state.step !== FS_STEP_TEL_TIME)) return false;
+  if (!state || state.step !== FS_STEP_TEL_NUMBER) return false;
   var name = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
   var m = String(message || '').trim();
 
@@ -405,19 +406,14 @@ function handleFirstSearchText(replyToken, userId, message, state) {
       return true;
     }
     try { _firstSearchSavePhone_(name, digits); } catch (eS) { console.warn('[初回検索] 番号を保存できません: ' + eS.message); }
-    saveState(userId, { step: FS_STEP_TEL_TIME, data: { fsPhone: digits } });
+    clearState(userId);
     replyMessage(replyToken, [textMsg(
-      'ありがとうございます。\n\nつながりやすい時間帯を教えていただけますでしょうか。'
+      'ありがとうございます。\n\nこの番号にお電話します。\nご都合の悪い時間帯があれば、お知らせください。'
     )]);
+    try { _firstSearchNotifyStaff_(name, userId, '電話', { phone: digits }); } catch (eN) { console.warn('[初回検索] 担当者通知に失敗: ' + eN.message); }
     return true;
   }
-
-  // 時間帯を受け取った → 担当者へ
-  var phone = (state.data && state.data.fsPhone) || _firstSearchPhone_(name) || '';
-  clearState(userId);
-  replyMessage(replyToken, [textMsg('ありがとうございます。\n\nその時間帯にお電話します。')]);
-  try { _firstSearchNotifyStaff_(name, userId, '電話', { phone: phone, time: m }); } catch (eN) { console.warn('[初回検索] 担当者通知に失敗: ' + eN.message); }
-  return true;
+  return false;
 }
 
 /** 検索条件シート AI列(35) の電話番号。無ければ ''。 */
@@ -461,7 +457,7 @@ function _firstSearchMarkReply_(name, reply) {
  * 担当者に知らせる。提案はここから人がやる。
  * 宛先はその顧客のスレッド（🏠 顧客名）。閲覧通知と同じ作り:
  *   DISCORD_THREAD_<顧客名> にスレッドIDがあればそこへ、無ければ thread_name で作って保存する。
- * @param {{phone?:string, time?:string, note?:string}} info
+ * @param {{phone?:string, note?:string}} info
  */
 function _firstSearchNotifyStaff_(name, userId, how, info) {
   info = info || {};
@@ -472,9 +468,8 @@ function _firstSearchNotifyStaff_(name, userId, how, info) {
 
   var lines = ['<@' + STAFF + '>', '🙋 **' + (name || '(不明)') + '** 様から条件の相談希望（初回検索で0件）', '希望: ' + how + 'で相談'];
   if (info.phone) lines.push('電話番号: ' + info.phone);
-  if (info.time) lines.push('つながりやすい時間帯: ' + info.time);
   if (info.note) lines.push(info.note);
-  lines.push(how === '電話' ? 'この時間帯にお電話して、条件の広げ方を提案してください。' : 'LINEで条件の広げ方を提案してください。');
+  lines.push(how === '電話' ? '営業時間内にお電話して、条件の広げ方を提案してください。都合の悪い時間があればLINEに書いてあります。' : 'LINEで条件の広げ方を提案してください。');
 
   var threadKey = 'DISCORD_THREAD_' + name;
   var threadId = name ? props.getProperty(threadKey) : '';
