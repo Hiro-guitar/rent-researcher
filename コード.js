@@ -1503,6 +1503,14 @@ function doGet(e) {
 
   // keepalive: GASをウォームに保つためのpingエンドポイント (5分ごとにself-fetchで叩く)
   // 初回ヒット時にトリガー未登録なら自動登録する (bootstrap)
+  // get_criteria の所要時間の履歴（数字だけ。顧客データは含まない）
+  if (action === 'perf_recent') {
+    var _pr = [];
+    try { _pr = JSON.parse(PropertiesService.getScriptProperties().getProperty('PERF_GET_CRITERIA') || '[]'); } catch (_ePr) {}
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, get_criteria: _pr }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   if (action === 'keepalive') {
     var _kaLog = [];
     try {
@@ -2924,6 +2932,16 @@ function handleGetCriteria(e) {
   var _perf = '合計 ' + (Date.now() - _t0) + 'ms / ' + _parts.join(' / ')
     + ' / 条件' + criteria.length + '件 / 書き込み' + _writeCount + '回';
   console.log('[get_criteria] ' + _perf);
+  // 拡張が30秒で諦めたとき、GAS側で実際に何秒かかったかを後から見られるようにする（直近20回）。
+  // ⚠️ 実行ログは外から読めない（clasp の認証に権限が無い）。ここが唯一の手がかり。
+  try {
+    var _pp = PropertiesService.getScriptProperties();
+    var _hist = [];
+    try { _hist = JSON.parse(_pp.getProperty('PERF_GET_CRITERIA') || '[]'); } catch (_eH) {}
+    _hist.push(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'MM/dd HH:mm:ss') + '  ' + _perf);
+    if (_hist.length > 20) _hist = _hist.slice(-20);
+    _pp.setProperty('PERF_GET_CRITERIA', JSON.stringify(_hist));
+  } catch (_eP) {}
 
   // 内訳を応答にも載せる。Apps Scriptの実行ログを開かなくても
   // 拡張のログ画面で「どこが重いか」が分かるようにするため。
