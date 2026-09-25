@@ -347,7 +347,7 @@ function handleFirstSearchPostback(replyToken, userId, data) {
       saveState(userId, { step: FS_STEP_TEL_TIME, data: { fsPhone: phone } });
       replyMessage(replyToken, [textMsg(
         'ありがとうございます。\n\n' +
-        'ご登録いただいている番号（末尾 ' + phone.slice(-4) + '）にお電話します。\n' +
+        'ご登録いただいている番号（末尾 ' + phone.slice(-4) + '）にお電話します。\n\n' +
         'つながりやすい時間帯を教えていただけますでしょうか。'
       )]);
     } else {
@@ -361,8 +361,10 @@ function handleFirstSearchPostback(replyToken, userId, data) {
     return;
   }
 
+  // ⚠️「担当者から」と言わないこと (2026-09-25)。今までは担当者ではなかった、と言うのと同じ。
+  //   同じ人がそのまま続ける形にする。
   replyMessage(replyToken, [textMsg(
-    'ありがとうございます。\n\n担当者からLINEでご連絡しますので、少しお待ちください。'
+    'ありがとうございます。\n\nご登録の条件を確認して、LINEでご連絡します。'
   )]);
   try { _firstSearchMarkReply_(name, 'LINEで相談'); } catch (e3) { console.warn('[初回検索] 記録できません: ' + e3.message); }
   try { _firstSearchNotifyStaff_(name, userId, 'LINE', {}); } catch (e2) { console.warn('[初回検索] 担当者通知に失敗: ' + e2.message); }
@@ -394,7 +396,7 @@ function handleFirstSearchText(replyToken, userId, message, state) {
       if (tries >= 1) {
         // 2回読めなければ、人に渡す。黙って終わらせない
         clearState(userId);
-        replyMessage(replyToken, [textMsg('承知しました。担当者からLINEでご連絡します。')]);
+        replyMessage(replyToken, [textMsg('承知しました。LINEでご連絡します。')]);
         try { _firstSearchNotifyStaff_(name, userId, '電話', { note: '番号を読み取れず。本文: ' + m }); } catch (_e) {}
         return true;
       }
@@ -413,7 +415,7 @@ function handleFirstSearchText(replyToken, userId, message, state) {
   // 時間帯を受け取った → 担当者へ
   var phone = (state.data && state.data.fsPhone) || _firstSearchPhone_(name) || '';
   clearState(userId);
-  replyMessage(replyToken, [textMsg('ありがとうございます。\n\nその時間帯に担当者からお電話します。')]);
+  replyMessage(replyToken, [textMsg('ありがとうございます。\n\nその時間帯にお電話します。')]);
   try { _firstSearchNotifyStaff_(name, userId, '電話', { phone: phone, time: m }); } catch (eN) { console.warn('[初回検索] 担当者通知に失敗: ' + eN.message); }
   return true;
 }
