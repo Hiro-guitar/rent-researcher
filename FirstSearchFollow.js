@@ -356,7 +356,7 @@ function handleFirstSearchPostback(replyToken, userId, data) {
     } else {
       saveState(userId, { step: FS_STEP_TEL_NUMBER, data: {} });
       replyMessage(replyToken, [textMsg(
-        'ありがとうございます。\n\nお電話番号を教えていただけますでしょうか。'
+        'ありがとうございます。\n\nお電話させていただきますので、お電話番号を教えていただけますでしょうか。'
       )]);
     }
     try { _firstSearchMarkReply_(name, '電話で相談'); } catch (e) { console.warn('[初回検索] 記録できません: ' + e.message); }
