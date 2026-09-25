@@ -251,8 +251,19 @@ function doPost(e) {
     // 以前はここで「お問い合わせ時のメールアドレスを送ってください」と push していたが、
     // 挨拶で「条件登録」と「メール送信」の2つを頼む形になり分かりにくかった (2026-09-16)。
     // メールアドレスは「空室確認」の入口でもらう（VacancyRequest.js startVacancyEntry）。
+    // ── Unfollow イベント（ブロック）── その場で blocked にする。検索のたびに LINE へ聞かずに済む
+    if (event.type === 'unfollow') {
+      console.log('[unfollow] ' + userId);
+      try { if (typeof markLineBlockedByUserId === 'function') markLineBlockedByUserId(userId); }
+      catch (_eUF) { console.warn('[unfollow] ' + _eUF.message); }
+      return;
+    }
+
     if (event.type === 'follow') {
       console.log('[follow] ' + userId);
+      // ブロック解除なら配信を active に戻す（get_criteria の自動復活と同じ）
+      try { if (typeof markLineUnblockedByUserId === 'function') markLineUnblockedByUserId(userId); }
+      catch (_eUB) { console.warn('[follow] ' + _eUB.message); }
       // ブロック解除でも follow は届く。そのとき個別のリッチメニューは外れているので、
       // 条件登録済みの人には「登録後」メニューを張り直す（RichMenu.js）。
       if (typeof restoreRichMenuOnFollow === 'function') restoreRichMenuOnFollow(userId);
@@ -2710,7 +2721,23 @@ function handleGetCriteria(e) {
     + (noUserIdNames.length > 0 ? ' [' + noUserIdNames.slice(0, 5).join(',') + '...]' : ''));
 
   // 並列ブロック判定
-  var blockedMap = (allUserIds.length > 0) ? bulkCheckLineBlocked(allUserIds) : {};
+  // ⚠️ 検索のたびに LINE へ問い合わせないこと (2026-09-25)。
+  //   47人分がLINE側の遅さで124秒かかり、拡張が30秒で諦めて検索が止まった。
+  //   ブロックは webhook の unfollow でその場で S列 に書く（LineApi.gs）。
+  //   ここは取りこぼしの保険として1日1回だけ。それ以外の回は S列 を読むだけ
+  //   （blockedMap が空なら「判定不能」扱いで既存ステータスのまま → blocked は除外される）。
+  var blockedMap = {};
+  if (allUserIds.length > 0) {
+    var _bcProps = PropertiesService.getScriptProperties();
+    var _bcLast = Number(_bcProps.getProperty('LINE_BLOCK_CHECK_AT') || 0);
+    if (Date.now() - _bcLast >= 24 * 60 * 60 * 1000) {
+      blockedMap = bulkCheckLineBlocked(allUserIds);
+      try { _bcProps.setProperty('LINE_BLOCK_CHECK_AT', String(Date.now())); } catch (_eBC) {}
+      console.log('[LINEブロック判定] 1日1回の確認を実施');
+    } else {
+      console.log('[LINEブロック判定] 本日確認済み。S列を読むだけ');
+    }
+  }
   _lap('LINEブロック判定');
 
   // 判定結果のサマリログ

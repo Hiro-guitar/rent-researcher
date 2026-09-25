@@ -446,3 +446,57 @@ function getLineChatNameMap() {
   }
   return out;
 }
+
+// ═══════════════════════════════════════════════════════════
+//  ブロックの即時反映（webhook の unfollow / follow から）
+//
+//  以前は get_criteria が検索のたびに全員分を LINE に問い合わせていた。
+//  LINE 側が遅い瞬間に当たると124秒待たされ、拡張が30秒で諦めて検索が止まった（2026-09-25）。
+//  ブロックされた瞬間に LINE から unfollow が届くので、そこで書けば問い合わせは要らない。
+//  get_criteria 側の問い合わせは1日1回の保険に落とす。
+// ═══════════════════════════════════════════════════════════
+
+/** userId → 検索条件シートの行番号（無ければ -1）と顧客名。 */
+function _lineBlockLocate_(userId) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+  if (!lu || lu.getLastRow() < 2) return null;
+  var rows = lu.getRange(2, 1, lu.getLastRow() - 1, 2).getValues();
+  var name = '';
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][0] || '').trim() === String(userId)) name = String(rows[i][1] || '').trim();
+  }
+  if (!name) return null;
+  var sh = ss.getSheetByName(CRITERIA_SHEET_NAME);
+  var data = sh.getDataRange().getValues();
+  var row = (typeof _autoEndCriteriaRow_ === 'function') ? _autoEndCriteriaRow_(data, name) : -1;   // AutoEnd.gs
+  return { name: name, sheet: sh, row: row, data: data };
+}
+
+/** ブロックされた。get_criteria の検知と同じ書き方にする。 */
+function markLineBlockedByUserId(userId) {
+  var loc = _lineBlockLocate_(userId);
+  if (!loc) { console.log('[unfollow] お客様として登録が無い: ' + userId); return false; }
+  if (loc.row < 0) { console.log('[unfollow] 条件の行が無い: ' + loc.name); return false; }
+  var r = loc.data[loc.row - 1];
+  var was = String(r[18] || '').trim().toLowerCase() === 'blocked';    // S列
+  loc.sheet.getRange(loc.row, 19).setValue('blocked');                  // S列: 配信ステータス
+  if (!r[20]) loc.sheet.getRange(loc.row, 21).setValue(new Date());     // U列: 停止/ブロック日時（起点）
+  if (!was) {
+    loc.sheet.getRange(loc.row, 33).setValue('終了');                   // AG列: 営業ステージ（一度だけ）
+    try { if (typeof _notifyLineBlockedToDiscord_ === 'function') _notifyLineBlockedToDiscord_(loc.name); } catch (_e) {}
+  }
+  console.log('[unfollow] ブロック: ' + loc.name + (was ? '（既知）' : '（新規）'));
+  return true;
+}
+
+/** ブロックが解除された（follow が届いた）。blocked なら active に戻す。 */
+function markLineUnblockedByUserId(userId) {
+  var loc = _lineBlockLocate_(userId);
+  if (!loc || loc.row < 0) return false;
+  var r = loc.data[loc.row - 1];
+  if (String(r[18] || '').trim().toLowerCase() !== 'blocked') return false;
+  loc.sheet.getRange(loc.row, 19).setValue('active');
+  console.log('[follow] ブロック解除で active に戻した: ' + loc.name);
+  return true;
+}
