@@ -201,8 +201,8 @@ function buildFirstSearchZeroCard(customerName) {
       footer: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingTop: 'none',
         contents: [
-          btn('LINEで相談する', { type: 'postback', label: 'LINEで相談する', data: 'fs:line', displayText: 'LINEで相談する' }),
           btn('電話で相談する', { type: 'postback', label: '電話で相談する', data: 'fs:tel', displayText: '電話で相談する' }),
+          btn('LINEで相談する', { type: 'postback', label: 'LINEで相談する', data: 'fs:line', displayText: 'LINEで相談する' }),
           btn('自分で条件を変更する', { type: 'message', label: '自分で条件を変更する', text: '条件変更' })
         ]
       }
