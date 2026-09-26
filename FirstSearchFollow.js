@@ -350,7 +350,8 @@ function handleFirstSearchPostback(replyToken, userId, data) {
       replyMessage(replyToken, [textMsg(
         'ありがとうございます。\n\n' +
         'ご登録の番号（末尾 ' + phone.slice(-4) + '）に、' + _firstSearchCallerPhrase_() + 'お電話させていただきます。\n' +
-        'ご都合の悪い時間帯があれば、お知らせください。'
+        'ご都合の悪い時間帯があれば、お知らせください。\n\n' +
+        'それでは、お電話をお待ちください。'
       )]);
       try { _firstSearchNotifyStaff_(name, userId, '電話', { phone: phone }); } catch (eN) { console.warn('[初回検索] 担当者通知に失敗: ' + eN.message); }
     } else {
@@ -409,7 +410,8 @@ function handleFirstSearchText(replyToken, userId, message, state) {
     clearState(userId);
     replyMessage(replyToken, [textMsg(
       'ありがとうございます。\n\n' + _firstSearchCallerPhrase_() + 'お電話させていただきます。\n' +
-      'ご都合の悪い時間帯があれば、お知らせください。'
+      'ご都合の悪い時間帯があれば、お知らせください。\n\n' +
+      'それでは、お電話をお待ちください。'
     )]);
     try { _firstSearchNotifyStaff_(name, userId, '電話', { phone: digits }); } catch (eN) { console.warn('[初回検索] 担当者通知に失敗: ' + eN.message); }
     return true;
