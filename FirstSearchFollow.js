@@ -349,7 +349,7 @@ function handleFirstSearchPostback(replyToken, userId, data) {
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         'ありがとうございます。\n\n' +
-        'ご登録いただいている番号（末尾 ' + phone.slice(-4) + '）にお電話します。\n\n' +
+        'ご登録の番号（末尾 ' + phone.slice(-4) + '）に、' + _firstSearchCallerPhrase_() + 'お電話させていただきます。\n' +
         'ご都合の悪い時間帯があれば、お知らせください。'
       )]);
       try { _firstSearchNotifyStaff_(name, userId, '電話', { phone: phone }); } catch (eN) { console.warn('[初回検索] 担当者通知に失敗: ' + eN.message); }
@@ -408,12 +408,24 @@ function handleFirstSearchText(replyToken, userId, message, state) {
     try { _firstSearchSavePhone_(name, digits); } catch (eS) { console.warn('[初回検索] 番号を保存できません: ' + eS.message); }
     clearState(userId);
     replyMessage(replyToken, [textMsg(
-      'ありがとうございます。\n\nこの番号にお電話します。\nご都合の悪い時間帯があれば、お知らせください。'
+      'ありがとうございます。\n\n' + _firstSearchCallerPhrase_() + 'お電話させていただきます。\n' +
+      'ご都合の悪い時間帯があれば、お知らせください。'
     )]);
     try { _firstSearchNotifyStaff_(name, userId, '電話', { phone: digits }); } catch (eN) { console.warn('[初回検索] 担当者通知に失敗: ' + eN.message); }
     return true;
   }
   return false;
+}
+
+/**
+ * かける側の番号の末尾。「知らない番号でも出てもらう」ための一言。
+ * ⚠️ 番号はコードに書かないこと。このリポジトリは公開。
+ *   スクリプト プロパティ CALLER_PHONE_LAST4 に末尾4桁を入れる（例: 6161）。無ければ何も添えない。
+ */
+function _firstSearchCallerPhrase_() {
+  var last4 = '';
+  try { last4 = String(PropertiesService.getScriptProperties().getProperty('CALLER_PHONE_LAST4') || '').trim(); } catch (_e) {}
+  return last4 ? '末尾「' + last4 + '」の携帯電話から' : '';
 }
 
 /** 検索条件シート AI列(35) の電話番号。無ければ ''。 */
