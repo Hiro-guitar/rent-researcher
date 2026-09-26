@@ -754,7 +754,39 @@ function _criteriaStateParam_(userId) {
   }
 }
 
+/**
+ * 全部の doGet の所要時間を残す（action ごとに直近30回・前の呼び出しからの間隔つき）。
+ * 目的（2026-09-26）: keepalive を減らしたときに、物件ページ・お部屋マップ・条件登録フォームが
+ * 遅くなっていないかを、お客様の感覚ではなく数字で確かめるため。
+ * コールドスタートがあるなら「間隔が長いときだけ遅い」という形で出る。
+ * ?action=perf_recent で読める（数字だけ）。
+ */
 function doGet(e) {
+  var _t0 = Date.now();
+  var _act = (e && e.parameter && e.parameter.action) ? String(e.parameter.action) : (e && e.parameter && e.parameter.page ? 'page:' + e.parameter.page : '(none)');
+  try {
+    return doGet_(e);
+  } finally {
+    try { _recordDoGetPerf_(_act, Date.now() - _t0); } catch (_ePerf) {}
+  }
+}
+
+function _recordDoGetPerf_(act, ms) {
+  if (act === 'keepalive' || act === 'perf_recent') return;   // 温め自体と読み出しは数えない
+  var pp = PropertiesService.getScriptProperties();
+  var now = Date.now();
+  var last = Number(pp.getProperty('PERF_LAST_REQ_AT') || 0);
+  pp.setProperty('PERF_LAST_REQ_AT', String(now));
+  var gapMin = last ? Math.round((now - last) / 60000) : -1;
+  var key = 'PERF_DOGET_' + act.replace(/[^A-Za-z0-9_:]/g, '_').slice(0, 40);
+  var hist = [];
+  try { hist = JSON.parse(pp.getProperty(key) || '[]'); } catch (_e) {}
+  hist.push(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'MM/dd HH:mm') + ' ' + ms + 'ms 間隔' + (gapMin < 0 ? '?' : gapMin + '分'));
+  if (hist.length > 30) hist = hist.slice(-30);
+  pp.setProperty(key, JSON.stringify(hist));
+}
+
+function doGet_(e) {
   // 手動実行時（eが未定義）→ 権限承認トリガー用
   if (!e || !e.parameter) {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1516,9 +1548,18 @@ function doGet(e) {
   // 初回ヒット時にトリガー未登録なら自動登録する (bootstrap)
   // get_criteria の所要時間の履歴（数字だけ。顧客データは含まない）
   if (action === 'perf_recent') {
+    var _pp2 = PropertiesService.getScriptProperties();
     var _pr = [];
-    try { _pr = JSON.parse(PropertiesService.getScriptProperties().getProperty('PERF_GET_CRITERIA') || '[]'); } catch (_ePr) {}
-    return ContentService.createTextOutput(JSON.stringify({ ok: true, get_criteria: _pr }))
+    try { _pr = JSON.parse(_pp2.getProperty('PERF_GET_CRITERIA') || '[]'); } catch (_ePr) {}
+    var _all = {};
+    try {
+      var _keys = _pp2.getKeys();
+      for (var _ki = 0; _ki < _keys.length; _ki++) {
+        if (_keys[_ki].indexOf('PERF_DOGET_') !== 0) continue;
+        try { _all[_keys[_ki].substring('PERF_DOGET_'.length)] = JSON.parse(_pp2.getProperty(_keys[_ki]) || '[]'); } catch (_eK) {}
+      }
+    } catch (_eKs) {}
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, get_criteria: _pr, doGet: _all }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
