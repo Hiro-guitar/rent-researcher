@@ -440,8 +440,18 @@ function _firstSearchPhone_(name) {
     var data = sh.getDataRange().getValues();
     var row = _autoEndCriteriaRow_(data, name);          // AutoEnd.gs
     if (row < 0) return '';
-    return String(data[row - 1][34] || '').replace(/[^0-9]/g, '');
+    return _firstSearchFixLeadingZero_(String(data[row - 1][34] || '').replace(/[^0-9]/g, ''));
   } catch (e) { return ''; }
+}
+
+/**
+ * シートで数値扱いされて先頭の0が落ちた番号を直す。
+ * 日本の電話番号は必ず0で始まる。10桁なのに0で始まっていなければ、落ちたとみなして補う。
+ */
+function _firstSearchFixLeadingZero_(digits) {
+  digits = String(digits || '');
+  if (digits && digits.charAt(0) !== '0' && (digits.length === 9 || digits.length === 10)) return '0' + digits;
+  return digits;
 }
 
 /** 聞いた番号を AI列(35) に保存する。 */
@@ -451,7 +461,10 @@ function _firstSearchSavePhone_(name, digits) {
   var data = sh.getDataRange().getValues();
   var row = _autoEndCriteriaRow_(data, name);
   if (row < 0) return;
-  sh.getRange(row, 35).setValue(digits);
+  // ⚠️ 文字列として書くこと。数字だけを書くと数値になり、先頭の0が落ちる（2026-09-26 実害あり）。
+  var cell = sh.getRange(row, 35);
+  cell.setNumberFormat('@');
+  cell.setValue(digits);
   console.log('[初回検索] 番号を保存: ' + name);
 }
 
