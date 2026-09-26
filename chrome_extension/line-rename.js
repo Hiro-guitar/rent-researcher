@@ -208,7 +208,7 @@
     return out;
   }
 
-  /** 改名する。成功したら true。 */
+  /** 改名する。成功したら true、失敗したら HTTP のステータス（または 'error'）。 */
   async function renameChat(chatId, nickname) {
     var bot = botId();
     if (!bot) return false;
@@ -227,16 +227,13 @@
         body: JSON.stringify({ nickname: nickname })
       });
       if (r.ok) return true;
-      // ⚠️ ここで止まったら x-oa-chat-client-version が要るのかもしれない。
-      //   その場合はページ側で値を採る必要がある（content script からは本家の
-      //   XHR を覗けないため）。
       console.warn('[LINE表示名] 改名できません: ' + r.status
         + '（送ったヘッダー: ' + Object.keys(headers).join(', ') + '）'
         + (token ? '' : ' Cookie名: ' + cookieNames()));
-      return false;
+      return r.status;                    // 呼び出し側が 403 と他を分けられるように
     } catch (e) {
       console.warn('[LINE表示名] 改名の通信に失敗: ' + e.message);
-      return false;
+      return 'error';
     }
   }
 
@@ -304,10 +301,20 @@
       console.log('[LINE表示名] ' + todo.length + '人を改名します');
       var n = Math.min(todo.length, PUT_MAX_PER_SWEEP);
       for (var t = 0; t < n; t++) {
-        var ok = await renameChat(todo[t].chatId, todo[t].to);
-        done[todo[t].chatId] = ok ? ('変更: ' + todo[t].to) : '';
-        if (ok) console.log('[LINE表示名] ' + todo[t].from + ' → ' + todo[t].to);
-        else break;                       // 403 などが出たら打ち切る。連打しない
+        var r = await renameChat(todo[t].chatId, todo[t].to);
+        if (r === true) {
+          done[todo[t].chatId] = '変更: ' + todo[t].to;
+          console.log('[LINE表示名] ' + todo[t].from + ' → ' + todo[t].to);
+        } else if (r === 403) {
+          // ⚠️ トークンの問題は全員に効くので、この回は打ち切る。次の巡回で新しいトークンで再挑戦
+          console.warn('[LINE表示名] トークンで弾かれたので、この回はここまで');
+          break;
+        } else {
+          // ⚠️ 1人の失敗で後ろの人を止めないこと (2026-09-26)。
+          //   以前はここで打ち切っていて、新しい人ほど改名されなかった。
+          done[todo[t].chatId] = '失敗: ' + r;
+          console.warn('[LINE表示名] ' + todo[t].from + ' は飛ばします（' + r + '）');
+        }
         if (t < n - 1) await sleep(PUT_GAP_MS);
       }
     } catch (e) {
