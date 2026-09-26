@@ -169,7 +169,7 @@ function buildFirstSearchZeroText(cand) {
  * 0件のときのカード。ボタンだけ。
  * ⚠️ 現在の条件の表はここに入れないこと (2026-09-26)。縦に長くなって1通目の文章が
  *   スクロールの上に消える。読んでほしいのは文章。表は「登録中の条件を確認する」で出す。
- * ⚠️ ボタンに優劣を付けないこと。3つとも同じ緑。確認だけは細字（行動ではなく参照なので）。
+ * ⚠️ ボタンに優劣を付けないこと。4つとも同じ緑。
  */
 function buildFirstSearchZeroCard(customerName) {
   var green = function (label, action) {
@@ -181,18 +181,12 @@ function buildFirstSearchZeroCard(customerName) {
     contents: {
       type: 'bubble',
       body: {
-        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingBottom: 'none',
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
         contents: [
           green('電話で相談する', { type: 'postback', label: '電話で相談する', data: 'fs:tel', displayText: '電話で相談する' }),
           green('LINEで相談する', { type: 'postback', label: 'LINEで相談する', data: 'fs:line', displayText: 'LINEで相談する' }),
-          green('自分で条件を変更する', { type: 'message', label: '自分で条件を変更する', text: '条件変更' })
-        ]
-      },
-      footer: {
-        type: 'box', layout: 'vertical', paddingAll: 'sm',
-        contents: [
-          { type: 'button', style: 'link', height: 'sm', color: '#6b7671',
-            action: { type: 'postback', label: '登録中の条件を確認する', data: 'fs:conds', displayText: '登録中の条件を確認する' } }
+          green('自分で条件を変更する', { type: 'message', label: '自分で条件を変更する', text: '条件変更' }),
+          green('登録中の条件を確認する', { type: 'postback', label: '登録中の条件を確認する', data: 'fs:conds', displayText: '登録中の条件を確認する' })
         ]
       }
     }
