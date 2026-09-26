@@ -421,12 +421,14 @@ function handleFirstSearchText(replyToken, userId, message, state) {
 
 /**
  * かける側の番号の末尾。「知らない番号でも出てもらう」ための一言。
- * ⚠️ 番号はコードに書かないこと。このリポジトリは公開。
- *   スクリプト プロパティ CALLER_PHONE_LAST4 に末尾4桁を入れる（例: 6161）。無ければ何も添えない。
+ * 末尾4桁だけ（2026-09-26 ユーザー判断でコードに直接置く）。
+ * スクリプト プロパティ CALLER_PHONE_LAST4 があればそちらが優先。
  */
+var CALLER_PHONE_LAST4_DEFAULT = '6161';
 function _firstSearchCallerPhrase_() {
   var last4 = '';
   try { last4 = String(PropertiesService.getScriptProperties().getProperty('CALLER_PHONE_LAST4') || '').trim(); } catch (_e) {}
+  if (!last4) last4 = CALLER_PHONE_LAST4_DEFAULT;
   return last4 ? '末尾「' + last4 + '」の携帯電話から' : '';
 }
 
