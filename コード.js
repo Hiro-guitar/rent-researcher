@@ -309,8 +309,11 @@ function doPost(e) {
           var p = kv.split('=');
           if (p.length === 2) _aeParams[p[0]] = decodeURIComponent(p[1] || '');
         });
-        if (typeof readLatestCriteria === 'function' && readLatestCriteria(userId)) {
-          startSearchOrChangeFlow(replyToken, userId);     // 登録済みなら条件変更へ（案内つき）
+        // 登録済みなら条件変更へ（案内つき）。テスト許可の名前だけは、確かめるために新しい道を通す。
+        var _aeTester = false;
+        try { _aeTester = (typeof TEST_ALLOWED_NAMES !== 'undefined') && TEST_ALLOWED_NAMES.indexOf(_getLineUserName_(userId)) !== -1; } catch (_eT) {}
+        if (!_aeTester && typeof readLatestCriteria === 'function' && readLatestCriteria(userId)) {
+          startSearchOrChangeFlow(replyToken, userId);
           return;
         }
         var _ae = (typeof _buildStateFromPropertyCriteria_ === 'function')
