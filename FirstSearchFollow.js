@@ -166,45 +166,62 @@ function buildFirstSearchZeroText(cand) {
 }
 
 /**
- * 0件のときのカード。条件登録完了と同じ表（左がグレーのラベル）で今の条件を見せ、
- * 相談か自分で変えるかを選んでもらう。
- * ⚠️ ボタンに優劣を付けないこと。3つとも同じ緑。1つだけ緑にすると「LINEが本命」に見える。
- * ⚠️ 条件が読めなかったら表は出さない。空の表を見せるより無いほうがよい。
+ * 0件のときのカード。ボタンだけ。
+ * ⚠️ 現在の条件の表はここに入れないこと (2026-09-26)。縦に長くなって1通目の文章が
+ *   スクロールの上に消える。読んでほしいのは文章。表は「登録中の条件を確認する」で出す。
+ * ⚠️ ボタンに優劣を付けないこと。3つとも同じ緑。確認だけは細字（行動ではなく参照なので）。
  */
 function buildFirstSearchZeroCard(customerName) {
-  var body = [];
-  try {
-    var crit = (typeof loadCustomerCriteriaByName === 'function') ? loadCustomerCriteriaByName(customerName) : null;
-    var rows = (crit && typeof _buildConditionSummaryRows_ === 'function') ? _buildConditionSummaryRows_(crit) : null;
-    if (rows && rows.length) {
-      body.push({
-        type: 'box', layout: 'vertical', paddingAll: 'md', spacing: 'none',
-        backgroundColor: '#f5f9ee', cornerRadius: 'md',
-        contents: [
-          { type: 'text', text: '現在ご登録の条件', size: 'xs', color: '#3d6909', weight: 'bold', align: 'center' },
-          { type: 'separator', margin: 'sm', color: '#d4e7a8' }
-        ].concat(rows)
-      });
-    }
-  } catch (e) { console.warn('[初回検索] 条件を出せません: ' + e.message); }
-  if (!body.length) body.push({ type: 'text', text: 'ご希望をお聞かせください。', size: 'sm', color: '#555555', wrap: true });
-
-  var btn = function (label, action) {
-    return { type: 'button', style: 'primary', color: '#6ea814', height: 'sm', action: action };   // 3つとも同じ緑
+  var green = function (label, action) {
+    return { type: 'button', style: 'primary', color: '#6ea814', height: 'sm', action: action };
   };
   return {
     type: 'flex',
     altText: '条件の広げ方をご提案できますので、お電話かLINEでお伺いできますでしょうか。',
     contents: {
       type: 'bubble',
-      body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'xl', contents: body },
-      footer: {
-        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingTop: 'none',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg', paddingBottom: 'none',
         contents: [
-          btn('電話で相談する', { type: 'postback', label: '電話で相談する', data: 'fs:tel', displayText: '電話で相談する' }),
-          btn('LINEで相談する', { type: 'postback', label: 'LINEで相談する', data: 'fs:line', displayText: 'LINEで相談する' }),
-          btn('自分で条件を変更する', { type: 'message', label: '自分で条件を変更する', text: '条件変更' })
+          green('電話で相談する', { type: 'postback', label: '電話で相談する', data: 'fs:tel', displayText: '電話で相談する' }),
+          green('LINEで相談する', { type: 'postback', label: 'LINEで相談する', data: 'fs:line', displayText: 'LINEで相談する' }),
+          green('自分で条件を変更する', { type: 'message', label: '自分で条件を変更する', text: '条件変更' })
         ]
+      },
+      footer: {
+        type: 'box', layout: 'vertical', paddingAll: 'sm',
+        contents: [
+          { type: 'button', style: 'link', height: 'sm', color: '#6b7671',
+            action: { type: 'postback', label: '登録中の条件を確認する', data: 'fs:conds', displayText: '登録中の条件を確認する' } }
+        ]
+      }
+    }
+  };
+}
+
+/**
+ * 「登録中の条件を確認する」で返す表。条件登録完了と同じ部品（左がグレーのラベル）。
+ * 条件が読めなかったら表は出さず、一言だけ返す。
+ */
+function buildFirstSearchConditionsMessage(customerName) {
+  var rows = null;
+  try {
+    var crit = (typeof loadCustomerCriteriaByName === 'function') ? loadCustomerCriteriaByName(customerName) : null;
+    rows = (crit && typeof _buildConditionSummaryRows_ === 'function') ? _buildConditionSummaryRows_(crit) : null;
+  } catch (e) { console.warn('[初回検索] 条件を出せません: ' + e.message); }
+  if (!rows || !rows.length) return textMsg('ご登録の条件を読み込めませんでした。お手数ですが「条件変更」と送ってご確認ください。');
+  return {
+    type: 'flex',
+    altText: 'いまご登録いただいている条件です',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', paddingAll: 'lg', spacing: 'none',
+        backgroundColor: '#f5f9ee',
+        contents: [
+          { type: 'text', text: '現在ご登録の条件', size: 'xs', color: '#3d6909', weight: 'bold', align: 'center' },
+          { type: 'separator', margin: 'sm', color: '#d4e7a8' }
+        ].concat(rows)
       }
     }
   };
@@ -337,6 +354,11 @@ function testSendFirstSearch(name) {
  */
 function handleFirstSearchPostback(replyToken, userId, data) {
   var name = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
+
+  if (data === 'fs:conds') {
+    replyMessage(replyToken, [buildFirstSearchConditionsMessage(name)]);
+    return;
+  }
 
   if (data === 'fs:tel') {
     // ⚠️ 時間帯を聞く前に、番号を確かめること (2026-09-23)。
