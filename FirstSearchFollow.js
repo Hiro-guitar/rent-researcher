@@ -183,8 +183,11 @@ function buildFirstSearchZeroCard(customerName) {
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
         contents: [
+          // 同じ緑が4つ並ぶとメニューに見えて文章との関係が切れる。小さな見出しで2組に分ける
+          { type: 'text', text: 'ご相談は、お電話でもLINEでも', size: 'xs', color: '#888888' },
           green('電話で相談する', { type: 'postback', label: '電話で相談する', data: 'fs:tel', displayText: '電話で相談する' }),
           green('LINEで相談する', { type: 'postback', label: 'LINEで相談する', data: 'fs:line', displayText: 'LINEで相談する' }),
+          { type: 'text', text: 'ご自身で見直す場合は', size: 'xs', color: '#888888', margin: 'lg' },
           green('自分で条件を変更する', { type: 'message', label: '自分で条件を変更する', text: '条件変更' }),
           green('登録中の条件を確認する', { type: 'postback', label: '登録中の条件を確認する', data: 'fs:conds', displayText: '登録中の条件を確認する' })
         ]

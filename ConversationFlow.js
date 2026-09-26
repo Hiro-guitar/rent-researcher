@@ -538,6 +538,12 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
   if (data === 'confirm_ok') {
     writeToSheet(userId, state);
     clearState(userId);
+    // 空室確認カードから来た人は、理由・居住者・年齢・入居時期をまだ聞いていない。
+    // 自動登録のときと同じ4つの質問へ（登録は済んでいるので、途中でやめても条件は残る）。
+    if (state.fromVacancyEdit && typeof startAutoFollowupQuestions === 'function') {
+      startAutoFollowupQuestions(replyToken, userId, 'ご登録ありがとうございます。この条件でお探しします。');
+      return true;
+    }
     replyMessage(replyToken, [
       buildConditionSummaryFlex(state, 'ご登録ありがとうございます'),
       textMsg(_criteriaCardFollowupText_())

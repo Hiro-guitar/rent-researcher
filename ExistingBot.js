@@ -1259,13 +1259,13 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     bodyContents.push({
       type: 'box', layout: 'vertical', margin: 'lg', spacing: 'xs',
       contents: [
-        { type: 'text', text: 'この条件でお探ししますか？', size: 'sm', color: '#333333', wrap: true, weight: 'bold' },
-        { type: 'text', text: '見つかり次第、LINEにお送りします。', size: 'sm', color: '#555555', wrap: true }
+        { type: 'text', text: 'この条件をもとに、ご希望の条件を登録しませんか？', size: 'sm', color: '#333333', wrap: true, weight: 'bold' },
+        { type: 'text', text: '内容はご自身で確かめて、直せます。', size: 'sm', color: '#555555', wrap: true }
       ]
     });
     // 通知には条件の表は入れず、出どころと問いかけだけを入れる
     altLines.push('ご覧のお部屋に近い条件: ' + conv.summary);
-    altLines.push('この条件でお探ししますか？\n見つかり次第、LINEにお送りします。');
+    altLines.push('この条件をもとに、ご希望の条件を登録しませんか？');
     // ⚠️ 2つのボタンは必ず同じ見た目にすること（2026-08-06）。
     //   以前は「はい」だけ緑ベタ塗り・「いいえ」を文字リンクにしていたが、
     //   ここで提示している条件はお客さん自身が一度も言っていない推測値であり、
@@ -1274,13 +1274,15 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
     //   片方に寄せる理由がない。
     // スタッフが入れた条件のときは、押された時にもう一度読めるよう依頼IDを持たせる。
     // 自社シートから作った条件と違って、名前と部屋番号だけでは組み立て直せないため。
+    // ⚠️ 「はい」でそのまま自動登録はしない (2026-09-26)。表の条件は推測値なので、
+    //   本人に画面で確かめてもらう。緑は表の条件が入った画面、グレーは白紙の条件登録。
     footerContents.push(_vacancyChoiceButton_(
-      'はい、お願いします',
-      'action=auto_criteria&name=' + encodeURIComponent(propertyName || '') + '&room=' + encodeURIComponent(roomNumber || '')
+      'この条件をもとに登録する',
+      'action=auto_criteria_edit&name=' + encodeURIComponent(propertyName || '') + '&room=' + encodeURIComponent(roomNumber || '')
         + (opts.vreq ? '&vreq=' + encodeURIComponent(opts.vreq) : ''),
       '#6ea814'
     ));
-    footerContents.push(_vacancyChoiceButton_('いいえ、条件を自分で決める', '条件登録', '#5f6b7a'));
+    footerContents.push(_vacancyChoiceButton_('条件を自分で決める', '条件登録', '#5f6b7a'));
     // 条件の出どころごとに成績を分けて数える（CardStats.js）。どちらが押されるか見たい。
     if (typeof recordVacancyCardShown === 'function') {
       recordVacancyCardShown(userId, displayName, conv.staffEntered ? '条件あり(スタッフ入力)' : '条件あり');
@@ -1319,6 +1321,71 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
  * 既に条件が登録されている顧客には何もしない（上書き事故を防ぐ）。
  * @return {{ok:boolean, summary?:string, message?:string}}
  */
+/**
+ * 物件（またはスタッフが入れた条件）から、writeToSheet や条件登録の画面が読める state を組む。
+ * 「はい」で自動登録するときも、「この条件をもとに登録する」で画面を開くときも、ここを通る。
+ * @return {{ok:true, state:Object, conv:Object}|{ok:false, message:string}}
+ */
+function _buildStateFromPropertyCriteria_(userId, propertyName, roomNumber, opts) {
+  opts = opts || {};
+  var conv = _propertyToCriteria_(propertyName, roomNumber);
+  // 他社物件は自社シートに無いので作れない。カードを出したときにスタッフが入れた条件を読み直す。
+  if (!conv && opts.vreq && typeof getVacancyRequest === 'function') {
+    try {
+      var _vr = getVacancyRequest(opts.vreq);
+      var _sp = _vr && _vr.answers ? _vr.answers.specs : null;
+      if (_sp) conv = _staffSpecsToCriteria_(_sp);
+    } catch (_eV) {
+      console.warn('[条件自動登録] 依頼から条件を読めません: ' + opts.vreq + ' / ' + _eV.message);
+    }
+  }
+  if (!conv && opts.specs) conv = _staffSpecsToCriteria_(opts.specs);
+  if (!conv) return { ok: false, message: 'convert_failed' };
+
+  var name = _getLineUserName_(userId);
+  var stations = {};
+  var routes = [];
+  var cities = [];
+  if (conv.route && conv.station) {
+    routes = [conv.route];
+    stations[conv.route] = [conv.station];
+  } else if (conv.city) {
+    // 路線が取れないときは市区町村で成立させる
+    cities = [conv.city];
+  }
+  // ⚠️ エリアが1つも無い条件は登録しないこと。
+  //   自動検索は「エリア未設定の行はスキップ」なので、登録しても拡張に出てこず
+  //   「暫定登録したのに検索されない」という分かりにくい状態になる。
+  if (routes.length === 0 && cities.length === 0) {
+    console.error('[条件自動登録] エリアを特定できないため中止: ' + propertyName + ' ' + roomNumber);
+    return { ok: false, message: 'no_area' };
+  }
+
+  // writeToSheet を再利用する（列の知識を1箇所に保つ）
+  var state = {
+    data: {
+      name: name,
+      walk: String(conv.walk || ''),
+      rent_max: String(conv.rentMax || ''),
+      layouts: conv.layout ? [conv.layout] : [],
+      area_min: String(conv.areaMin || ''),
+      building_age: conv.buildingAge ? (conv.buildingAge + '年以内') : '',
+      building_structures: [],
+      equipment: conv.equipment || [],   // バス・トイレ別／独立洗面台のみ
+      notes: ''               // その他ご希望はお客さんが書く欄なので、こちらでは埋めない
+    },
+    selectedRoutes: routes,
+    selectedStations: stations,
+    selectedCities: cities,
+    selectedTowns: {},
+    areaMethod: routes.length ? 'route' : 'city',
+    // ⚠️ isAutoFollowup は質問フローの制御に使われているので流用しない。
+    //   きっかけの表示だけなら changeSource を使う。
+    changeSource: '空室確認からの自動登録'
+  };
+  return { ok: true, state: state, conv: conv };
+}
+
 function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber, opts) {
   try {
     opts = opts || {};
@@ -1329,60 +1396,11 @@ function registerAutoCriteriaFromProperty(userId, propertyName, roomNumber, opts
     if (_wasRegistered && !opts.force) {
       return { ok: false, message: 'already_registered' };
     }
-    var conv = _propertyToCriteria_(propertyName, roomNumber);
-    // 他社物件は自社シートに無いので作れない。カードを出したときにスタッフが入れた条件を読み直す。
-    if (!conv && opts.vreq && typeof getVacancyRequest === 'function') {
-      try {
-        var _vr = getVacancyRequest(opts.vreq);
-        var _sp = _vr && _vr.answers ? _vr.answers.specs : null;
-        if (_sp) conv = _staffSpecsToCriteria_(_sp);
-      } catch (_eV) {
-        console.warn('[条件自動登録] 依頼から条件を読めません: ' + opts.vreq + ' / ' + _eV.message);
-      }
-    }
-    if (!conv && opts.specs) conv = _staffSpecsToCriteria_(opts.specs);
-    if (!conv) return { ok: false, message: 'convert_failed' };
-
-    var name = _getLineUserName_(userId);
-    var stations = {};
-    var routes = [];
-    var cities = [];
-    if (conv.route && conv.station) {
-      routes = [conv.route];
-      stations[conv.route] = [conv.station];
-    } else if (conv.city) {
-      // 路線が取れないときは市区町村で成立させる
-      cities = [conv.city];
-    }
-    // ⚠️ エリアが1つも無い条件は登録しないこと。
-    //   自動検索は「エリア未設定の行はスキップ」なので、登録しても拡張に出てこず
-    //   「暫定登録したのに検索されない」という分かりにくい状態になる。
-    if (routes.length === 0 && cities.length === 0) {
-      console.error('[条件自動登録] エリアを特定できないため中止: ' + propertyName + ' ' + roomNumber);
-      return { ok: false, message: 'no_area' };
-    }
-
-    // writeToSheet を再利用する（列の知識を1箇所に保つ）
-    var state = {
-      data: {
-        name: name,
-        walk: String(conv.walk || ''),
-        rent_max: String(conv.rentMax || ''),
-        layouts: conv.layout ? [conv.layout] : [],
-        area_min: String(conv.areaMin || ''),
-        building_age: conv.buildingAge ? (conv.buildingAge + '年以内') : '',
-        building_structures: [],
-        equipment: conv.equipment || [],   // バス・トイレ別／独立洗面台のみ
-        notes: ''               // その他ご希望はお客さんが書く欄なので、こちらでは埋めない
-      },
-      selectedRoutes: routes,
-      selectedStations: stations,
-      selectedCities: cities,
-      selectedTowns: {},
-      // ⚠️ isAutoFollowup は質問フローの制御に使われているので流用しない。
-      //   きっかけの表示だけなら changeSource を使う。
-      changeSource: '空室確認からの自動登録'
-    };
+    var built = _buildStateFromPropertyCriteria_(userId, propertyName, roomNumber, opts);
+    if (!built.ok) return built;
+    var conv = built.conv;
+    var name = built.state.data.name;
+    var state = built.state;
     writeToSheet(userId, state);
     _markCriteriaProvisional_(name);
     return {

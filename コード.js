@@ -301,6 +301,43 @@ function doPost(e) {
       //   data="action=auto_criteria&name=...&room=..."
       // 空室確認で見た終了物件のスペックから暫定条件を作って登録する。
       // 検索自体は拡張側の顧客フィルタが既定OFFなので、担当者がチェックを入れるまで走らない。
+      // 空室確認カード「この条件をもとに登録する」→ 表の条件を入れた状態で条件登録の画面を開く。
+      // 自動では登録しない。送信後に理由・居住者・年齢・入居時期を聞くのは自動登録と同じ。
+      if (typeof data === 'string' && data.indexOf('action=auto_criteria_edit') === 0) {
+        var _aeParams = {};
+        data.split('&').forEach(function (kv) {
+          var p = kv.split('=');
+          if (p.length === 2) _aeParams[p[0]] = decodeURIComponent(p[1] || '');
+        });
+        if (typeof readLatestCriteria === 'function' && readLatestCriteria(userId)) {
+          startSearchOrChangeFlow(replyToken, userId);     // 登録済みなら条件変更へ（案内つき）
+          return;
+        }
+        var _ae = (typeof _buildStateFromPropertyCriteria_ === 'function')
+          ? _buildStateFromPropertyCriteria_(userId, _aeParams.name || '', _aeParams.room || '', { vreq: _aeParams.vreq || '' })
+          : { ok: false, message: 'function not defined' };
+        if (!_ae.ok) {
+          console.warn('[条件登録(空室確認から)] 条件を組めないので白紙から: ' + _ae.message);
+          startSearchOrChangeFlow(replyToken, userId);
+          return;
+        }
+        var _st = createInitialState();
+        _st.data = Object.assign({}, _st.data || {}, _ae.state.data);
+        _st.selectedRoutes = _ae.state.selectedRoutes;
+        _st.selectedStations = _ae.state.selectedStations;
+        _st.selectedCities = _ae.state.selectedCities;
+        _st.selectedTowns = _ae.state.selectedTowns;
+        _st.areaMethod = _ae.state.areaMethod;
+        _st.step = STEPS.CRITERIA_SELECT;
+        _st.fromVacancyEdit = true;            // 送信後に4つの質問へ（ConversationFlow.js confirm_ok）
+        _st.changeSource = '空室確認から';
+        saveState(userId, _st);
+        showCriteriaSelectLink(replyToken, userId, [textMsg(
+          'ご覧のお部屋に近い条件を入れてあります。\n内容を確かめて、必要なところだけ直してください。'
+        )], false, _st);
+        return;
+      }
+
       if (typeof data === 'string' && data.indexOf('action=auto_criteria') === 0) {
         // 募集終了カードの「はい、お願いします」。どれだけ押されているかを数える（CardStats.js）
         if (typeof recordVacancyCardPressed === 'function') recordVacancyCardPressed(userId, 'はい');
