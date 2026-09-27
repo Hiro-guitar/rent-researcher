@@ -304,6 +304,8 @@ function doPost(e) {
       // 空室確認カード「この条件をもとに登録する」→ 表の条件を入れた状態で条件登録の画面を開く。
       // 自動では登録しない。送信後に理由・居住者・年齢・入居時期を聞くのは自動登録と同じ。
       if (typeof data === 'string' && data.indexOf('action=auto_criteria_edit') === 0) {
+        // 押された数を数える（CardStats.gs）。「はい」1タップから画面確認に変えて、反応が落ちないかを見る
+        if (typeof recordVacancyCardPressed === 'function') recordVacancyCardPressed(userId, 'この条件をもとに登録する');
         var _aeParams = {};
         data.split('&').forEach(function (kv) {
           var p = kv.split('=');
