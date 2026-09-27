@@ -35,6 +35,28 @@ fi
 
 BASE_URL="https://script.googleapis.com/v1/projects/${SCRIPT_ID}"
 
+# ---------- バージョン数の見張り（上限200・超えるとデプロイできなくなる） ----------
+# 2026-09-27 に上限に当たって止まった。残りを毎回出し、180を超えたら警告する。
+# 消すのはエディタの「プロジェクトの履歴」からしかできない（APIに削除は無い）。
+check_version_headroom() {
+    local token="$1" total=0 pt="" r n
+    while :; do
+        r=$(curl -sS -G "${BASE_URL}/versions" -H "Authorization: Bearer ${token}" \
+            --data-urlencode pageSize=200 ${pt:+--data-urlencode pageToken="$pt"})
+        n=$(echo "$r" | jq '.versions|length' 2>/dev/null || echo 0)
+        total=$((total+n))
+        pt=$(echo "$r" | jq -r '.nextPageToken // empty' 2>/dev/null)
+        [ -z "$pt" ] && break
+    done
+    echo "Versions      : ${total} / 200（残り $((200-total)) 回）"
+    if [ "$total" -ge 199 ]; then
+        echo "!! バージョンが上限です。GASエディタ → プロジェクトの履歴 で古いものを消してから再実行してください。"
+        exit 1
+    elif [ "$total" -ge 180 ]; then
+        echo "!! バージョンが残り $((200-total)) 回。近いうちに古いものを消してください。"
+    fi
+}
+
 echo "=== Google Apps Script Deploy ==="
 echo "Script ID : $SCRIPT_ID"
 echo "Source dir : $SRC_DIR"
@@ -230,6 +252,7 @@ echo ""
 # ---------- Step 4: Create a new version ----------
 
 echo "Creating a new version..."
+check_version_headroom "$ACCESS_TOKEN"
 VERSION_RESPONSE=$(api_call POST "${BASE_URL}/versions" \
     "{\"description\": \"Deployed via gas_deploy.sh at $(date '+%Y-%m-%d %H:%M:%S')\"}")
 
