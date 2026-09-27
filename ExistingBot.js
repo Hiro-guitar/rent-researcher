@@ -1282,7 +1282,9 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
         + (opts.vreq ? '&vreq=' + encodeURIComponent(opts.vreq) : ''),
       '#6ea814'
     ));
-    footerContents.push(_vacancyChoiceButton_('条件を自分で決める', '条件登録', '#5f6b7a'));
+    // グレーも緑と同じ「画面が先、質問はあと」。押したことと出てくるものをつなげ、
+    // 一番価値のある一歩（条件つきで登録される）を先に済ませる (2026-09-27)。
+    footerContents.push(_vacancyChoiceButton_('条件を自分で決める', 'action=auto_criteria_blank', '#5f6b7a'));
     // 条件の出どころごとに成績を分けて数える（CardStats.js）。どちらが押されるか見たい。
     if (typeof recordVacancyCardShown === 'function') {
       recordVacancyCardShown(userId, displayName, conv.staffEntered ? '条件あり(スタッフ入力)' : '条件あり');
