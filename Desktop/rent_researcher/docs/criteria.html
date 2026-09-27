@@ -291,8 +291,11 @@ input[type="range"]::-webkit-slider-thumb {
 .success h2 { font-size: 18px; margin-bottom: 8px; }
 .success p { font-size: 14px; color: #666; line-height: 1.6; }
 </style>
-  <!-- LIFF SDK (送信後に liff.closeWindow() するため) -->
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <!-- LIFF SDK (送信後に liff.closeWindow() するため)
+       ⚠️ async を外さないこと (2026-09-28)。同期で読むと SDK のダウンロードが終わるまで
+       ページ全体が止まり、初回だけ数秒白い画面になっていた（2回目はキャッシュで速い）。
+       SDK は閉じるときにしか使わないので、裏で読めばよい。 -->
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js" async></script>
   <!-- GAS API への TLS ハンドシェイクを事前に済ませる -->
   <link rel="preconnect" href="https://script.google.com" crossorigin>
   <link rel="dns-prefetch" href="https://script.google.com">
@@ -956,7 +959,10 @@ function _fetchUserState(cb) {
     .catch(function() { cb(null); });
 }
 
-window.onload = function() {
+// ⚠️ window.onload にしないこと (2026-09-28)。onload は画像・外部スクリプトを含む
+//   全部の読み込みを待つので、LIFF SDK が遅い日は描き始めが遅れる。
+//   必要なのは HTML（駅データはインライン）と DOM だけなので DOMContentLoaded で始める。
+function _bootCriteriaPage() {
   // ══════════════════════════════════════════════════════════
   //  プログレッシブレンダリング
   //  軽い項目(家賃・間取り・構造・スライダー)を先に描画し、ブラウザに
@@ -1036,7 +1042,10 @@ window.onload = function() {
   });
 
   }); // end of _fetchUserState callback
-};
+}
+// HTML が読めた時点で始める。すでに読めていれば即実行（LIFF の遅延で onload が遅れても待たない）
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _bootCriteriaPage);
+else _bootCriteriaPage();
 
 // ══════════════════════════════════════════════════════════
 //  条件変更提案 LINEメッセージのボタンからの focus 処理
