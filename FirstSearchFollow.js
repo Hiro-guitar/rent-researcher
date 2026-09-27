@@ -166,10 +166,10 @@ function buildFirstSearchZeroText(cand) {
 }
 
 /**
- * 0件のときのカード。ボタンだけ。
- * ⚠️ 現在の条件の表はここに入れないこと (2026-09-26)。縦に長くなって1通目の文章が
- *   スクロールの上に消える。読んでほしいのは文章。表は「登録中の条件を確認する」で出す。
- * ⚠️ ボタンに優劣を付けないこと。4つとも同じ緑。
+ * 0件のときのカード。選択は2つだけ（2026-09-27）。
+ *   相談する     → 次に「電話かLINEか」を聞く
+ *   自分で変更する → 条件変更へ（画面に今の条件が出るので、条件確認のボタンは要らない）
+ * ⚠️ ボタンを4つ並べたり見出しを付けたりしないこと。案内板っぽくなって重い。
  */
 function buildFirstSearchZeroCard(customerName) {
   var green = function (label, action) {
@@ -183,13 +183,31 @@ function buildFirstSearchZeroCard(customerName) {
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
         contents: [
-          // 「相談」と「自分で」の2組。見出しを付けると案内板っぽく重いので、線1本で分ける (2026-09-27)
-          green('電話で相談する', { type: 'postback', label: '電話で相談する', data: 'fs:tel', displayText: '電話で相談する' }),
-          green('LINEで相談する', { type: 'postback', label: 'LINEで相談する', data: 'fs:line', displayText: 'LINEで相談する' }),
-          { type: 'separator', margin: 'lg', color: '#dddddd' },
-          { type: 'box', layout: 'vertical', contents: [], margin: 'sm' },
-          green('自分で条件を変更する', { type: 'message', label: '自分で条件を変更する', text: '条件変更' }),
-          green('登録中の条件を確認する', { type: 'postback', label: '登録中の条件を確認する', data: 'fs:conds', displayText: '登録中の条件を確認する' })
+          green('相談する', { type: 'postback', label: '相談する', data: 'fs:consult', displayText: '相談する' }),
+          green('自分で変更する', { type: 'message', label: '自分で変更する', text: '条件変更' })
+        ]
+      }
+    }
+  };
+}
+
+/** 「相談する」のあとに出す、電話かLINEかを選ぶカード。 */
+function buildFirstSearchConsultCard() {
+  var green = function (label, data) {
+    return { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
+      action: { type: 'postback', label: label, data: data, displayText: label } };
+  };
+  return {
+    type: 'flex',
+    altText: 'お電話とLINE、どちらがよろしいでしょうか。',
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
+        contents: [
+          { type: 'text', text: 'お電話とLINE、どちらがよろしいでしょうか。', size: 'sm', color: '#333333', wrap: true, margin: 'sm' },
+          green('電話で相談する', 'fs:tel'),
+          green('LINEで相談する', 'fs:line')
         ]
       }
     }
@@ -352,7 +370,11 @@ function testSendFirstSearch(name) {
 function handleFirstSearchPostback(replyToken, userId, data) {
   var name = (typeof _getLineUserName_ === 'function') ? _getLineUserName_(userId) : '';
 
-  if (data === 'fs:conds') {
+  if (data === 'fs:consult') {
+    replyMessage(replyToken, [buildFirstSearchConsultCard()]);
+    return;
+  }
+  if (data === 'fs:conds') {   // 古いカードのボタン用に残す
     replyMessage(replyToken, [buildFirstSearchConditionsMessage(name)]);
     return;
   }

@@ -430,7 +430,7 @@ function doPost(e) {
       }
 
       // 初回検索で0件だった人の「相談する」ボタン（FirstSearchFollow.gs）
-      if (data === 'fs:line' || data === 'fs:tel' || data === 'fs:conds') {
+      if (data === 'fs:line' || data === 'fs:tel' || data === 'fs:conds' || data === 'fs:consult') {
         handleFirstSearchPostback(replyToken, userId, data);
         return;
       }
