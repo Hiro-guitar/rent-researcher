@@ -541,6 +541,8 @@ function handleSearchFlowPostback(replyToken, userId, data, state, event) {
     // 空室確認カードから来た人は、理由・居住者・年齢・入居時期をまだ聞いていない。
     // 自動登録のときと同じ4つの質問へ（登録は済んでいるので、途中でやめても条件は残る）。
     if (state.fromVacancyEdit && typeof startAutoFollowupQuestions === 'function') {
+      // 古い「はい」は押した時点で登録だった。新しい緑は「押した数」ではなく「送信まで行った数」で比べる
+      if (typeof recordVacancyCardPressed === 'function') recordVacancyCardPressed(userId, '登録完了（緑）');
       startAutoFollowupQuestions(replyToken, userId, 'ご登録ありがとうございます。この条件でお探しします。');
       return true;
     }
