@@ -114,16 +114,23 @@ function showVacancyCardStats() {
   var total = 0, yes = 0, no = 0, none = 0, blocked = 0;
   var byVariant = {};
   var noneList = [];
+  var other = 0, byButton = {};
   for (var i = 0; i < rows.length; i++) {
     var uid = String(rows[i][0] || '').trim();
+    // テスト送信（TEST_ALLOWED_NAMES の人）は数えない。基準の数字がにごる
+    if (typeof TEST_ALLOWED_NAMES !== 'undefined' && TEST_ALLOWED_NAMES.indexOf(String(rows[i][1] || '').trim()) !== -1) continue;
     if (!uid) continue;
     total++;
     var variant = String(rows[i][4] || '(不明)');
     if (!byVariant[variant]) byVariant[variant] = { n: 0, yes: 0, no: 0 };
     byVariant[variant].n++;
     var btn = String(rows[i][5] || '').trim();
-    if (btn === 'はい') { yes++; byVariant[variant].yes++; }
-    else if (btn === 'いいえ') { no++; byVariant[variant].no++; }
+    // ボタン名は決め打ちしない（2026-09-27 に「はい／いいえ」から
+    // 「この条件をもとに登録する／登録完了（緑）／条件を自分で決める」に変わった）
+    if (btn) byButton[btn] = (byButton[btn] || 0) + 1;
+    if (btn === 'はい' || btn === '登録完了（緑）') { yes++; byVariant[variant].yes++; }
+    else if (btn === 'いいえ' || btn === '条件を自分で決める') { no++; byVariant[variant].no++; }
+    else if (btn) { other++; byVariant[variant].other = (byVariant[variant].other || 0) + 1; }
     else {
       none++;
       var shownAt = rows[i][3];
@@ -136,8 +143,10 @@ function showVacancyCardStats() {
 
   function pct(n) { return total ? ' (' + (n * 100 / total).toFixed(1) + '%)' : ''; }
   console.log('募集終了カードを出した数: ' + total + '件');
-  console.log('  はい、お願いします: ' + yes + '件' + pct(yes));
-  console.log('  いいえ、条件を自分で決める: ' + no + '件' + pct(no));
+  console.log('  登録した（旧「はい」＋ 緑→送信まで）: ' + yes + '件' + pct(yes));
+  console.log('  自分で決める（旧「いいえ」＋ グレー）: ' + no + '件' + pct(no));
+  if (other) console.log('  緑を押したが送信まで行っていない: ' + other + '件' + pct(other));
+  console.log('  ボタン別: ' + Object.keys(byButton).map(function (k) { return k + ' ' + byButton[k]; }).join(' / '));
   console.log('  何も押さなかった: ' + none + '件' + pct(none));
   console.log('  そのお客様が今ブロック中: ' + blocked + '件' + pct(blocked));
   console.log('--- カードの種類ごと ---');
