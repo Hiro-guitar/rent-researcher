@@ -500,3 +500,35 @@ function markLineUnblockedByUserId(userId) {
   console.log('[follow] ブロック解除で active に戻した: ' + loc.name);
   return true;
 }
+
+/**
+ * 【GASエディタで実行】chat.line.biz の改名が効かない人を、GAS側から切り分ける。
+ * 画面に出ているニックネームを NICK に入れて実行。
+ *   ・LINE Users にそのニックネームがあるか（無ければ控えられていない）
+ *   ・同じニックネームが2人以上いないか（いれば取り違え防止で改名しない）
+ *   ・対応表（拡張が受け取るもの）に載っているか
+ */
+function debugLineRename(nick) {
+  nick = String(nick || 'がよん').trim();
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(LINE_USERS_SHEET_NAME);
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, LINE_DISPLAY_NAME_COL).getValues();
+  var hits = [];
+  var blanks = 0;
+  for (var i = 0; i < rows.length; i++) {
+    var d = String(rows[i][LINE_DISPLAY_NAME_COL - 1] || '').trim();
+    if (!d) blanks++;
+    if (d === nick) hits.push({ row: i + 2, name: String(rows[i][1] || '').trim(), userId: String(rows[i][0] || '').trim() });
+  }
+  console.log('=== ニックネーム「' + nick + '」 ===');
+  if (!hits.length) {
+    console.log('LINE Users の「LINEの表示名」に見つかりません。まだ控えられていない。');
+    console.log('（表示名が空欄の人: ' + blanks + '人。refreshLineDisplayNames を実行すると埋まります）');
+  } else {
+    hits.forEach(function (h) { console.log('  行' + h.row + '  顧客名: ' + h.name + '  userId: ' + h.userId.slice(0, 10) + '…'); });
+    if (hits.length > 1) console.log('⚠️ 同じニックネームが' + hits.length + '人。取り違え防止で改名しません（対応表からも外れます）');
+  }
+  var map = getLineChatNameMap();
+  console.log('対応表: ' + (map.map[nick] ? ('載っている → 「' + map.map[nick] + '」に改名する') : '載っていない')
+    + (map.skipped.indexOf(nick) >= 0 ? '（重複のため外した）' : ''));
+  if (map.map[nick]) console.log('→ GAS側は正常。拡張側の Console（[LINE表示名]）を見てください。');
+}
