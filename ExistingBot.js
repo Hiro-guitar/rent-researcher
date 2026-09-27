@@ -1282,9 +1282,12 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
         + (opts.vreq ? '&vreq=' + encodeURIComponent(opts.vreq) : ''),
       '#6ea814'
     ));
-    // グレーも緑と同じ「画面が先、質問はあと」。押したことと出てくるものをつなげ、
-    // 一番価値のある一歩（条件つきで登録される）を先に済ませる (2026-09-27)。
-    footerContents.push(_vacancyChoiceButton_('条件を自分で決める', 'action=auto_criteria_blank', '#5f6b7a'));
+    // グレーは通常の条件登録（質問が先 → 白紙の画面）。
+    // ⚠️ 緑に合わせて「画面が先」にしないこと (2026-09-27 に一度やって戻した)。
+    //   通常の道には進捗ゲージ・途中でやめた人への出し直し・期限の扱いが全部入っている。
+    //   グレーだけ画面を先にすると、それらが効かない白紙フローをもう1本持つことになる。
+    //   緑は表の条件が入っていて画面が軽く、押したことともつながるので画面が先でよい。
+    footerContents.push(_vacancyChoiceButton_('条件を自分で決める', '条件登録', '#5f6b7a'));
     // 条件の出どころごとに成績を分けて数える（CardStats.js）。どちらが押されるか見たい。
     if (typeof recordVacancyCardShown === 'function') {
       recordVacancyCardShown(userId, displayName, conv.staffEntered ? '条件あり(スタッフ入力)' : '条件あり');

@@ -343,25 +343,6 @@ function doPost(e) {
         return;
       }
 
-      // 空室確認カード「条件を自分で決める」→ 白紙の条件登録の画面を先に開く（質問はあと）。
-      if (typeof data === 'string' && data === 'action=auto_criteria_blank') {
-        if (typeof recordVacancyCardPressed === 'function') recordVacancyCardPressed(userId, '条件を自分で決める');
-        var _abTester = false;
-        try { _abTester = (typeof TEST_ALLOWED_NAMES !== 'undefined') && TEST_ALLOWED_NAMES.indexOf(_getLineUserName_(userId)) !== -1; } catch (_eT2) {}
-        if (!_abTester && typeof readLatestCriteria === 'function' && readLatestCriteria(userId)) {
-          startSearchOrChangeFlow(replyToken, userId);
-          return;
-        }
-        var _sb = createInitialState();
-        _sb.data = Object.assign({}, _sb.data || {}, { name: _getLineUserName_(userId) });
-        _sb.step = STEPS.CRITERIA_SELECT;
-        _sb.fromVacancyEdit = true;            // 送信後に4つの質問へ
-        _sb.changeSource = '空室確認から';
-        saveState(userId, _sb);
-        showCriteriaSelectLink(replyToken, userId, [textMsg('ご希望の条件を選んでください。')], false, _sb);
-        return;
-      }
-
       if (typeof data === 'string' && data.indexOf('action=auto_criteria') === 0) {
         // 募集終了カードの「はい、お願いします」。どれだけ押されているかを数える（CardStats.js）
         if (typeof recordVacancyCardPressed === 'function') recordVacancyCardPressed(userId, 'はい');
