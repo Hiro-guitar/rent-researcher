@@ -1713,8 +1713,31 @@ function testVacancyCriteriaConversion() {
  * ⚠️ カードの「この条件で探してもらう」を押しても、既に条件がある顧客には
  *    登録されない（上書き事故を防ぐガードが効く）。表示の確認用と割り切ること。
  */
+/**
+ * テスト用の物件を、いま物件空室管理シートにある中から選ぶ。
+ * 決め打ちの TEST_PROPERTY_NAME がシートから消えると、条件が組めず予備カード
+ * （「お部屋を探す」だけ）に落ちて、緑ボタンの道を確かめられない（2026-09-27）。
+ * @return {{name:string, room:string}}
+ */
+function _pickTestPropertyForCard_() {
+  try {
+    if (_propertyToCriteria_(TEST_PROPERTY_NAME, TEST_ROOM_NUMBER)) return { name: TEST_PROPERTY_NAME, room: TEST_ROOM_NUMBER };
+    var data = SpreadsheetApp.openById(PROPERTY_SHEET_ID).getSheetByName(PROPERTY_SHEET_NAME).getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      var nm = String(data[i][0] || '').trim();      // A列: 物件名
+      var rm = String(data[i][1] || '').trim();      // B列: 部屋番号
+      if (!nm) continue;
+      if (_propertyToCriteria_(nm, rm)) return { name: nm, room: rm };
+    }
+  } catch (e) { console.warn('[テスト] 物件を選べません: ' + e.message); }
+  return { name: TEST_PROPERTY_NAME, room: TEST_ROOM_NUMBER };
+}
+
 function testSendVacancyCard() {
   var userId = _findUserIdByCustomerName_(TEST_CUSTOMER_NAME);
+  var _picked = _pickTestPropertyForCard_();
+  var TEST_PROPERTY_NAME = _picked.name, TEST_ROOM_NUMBER = _picked.room;   // この関数の中だけ差し替え
+  console.log('[テスト] 使う物件: ' + TEST_PROPERTY_NAME + ' ' + TEST_ROOM_NUMBER);
   if (!userId) {
     console.log('❌ LINE Users シートに「' + TEST_CUSTOMER_NAME + '」が見つかりません');
     return;
