@@ -1722,10 +1722,16 @@ function testVacancyCriteriaConversion() {
 function _pickTestPropertyForCard_() {
   try {
     if (_propertyToCriteria_(TEST_PROPERTY_NAME, TEST_ROOM_NUMBER)) return { name: TEST_PROPERTY_NAME, room: TEST_ROOM_NUMBER };
-    var data = SpreadsheetApp.openById(PROPERTY_SHEET_ID).getSheetByName(PROPERTY_SHEET_NAME).getDataRange().getValues();
+    // 条件を組む元は SUUMO掲載管理シート（_findListingSpecs_ が見る所）。見出しで列を引く
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(SUUMO_LISTING_SHEET)
+          || SpreadsheetApp.openById(PROPERTY_SHEET_ID).getSheetByName(SUUMO_LISTING_SHEET);
+    if (!sh) return { name: TEST_PROPERTY_NAME, room: TEST_ROOM_NUMBER };
+    var data = sh.getDataRange().getValues();
+    var iName = SUUMO_LISTING_HEADERS.indexOf('物件名');
+    var iRoom = SUUMO_LISTING_HEADERS.indexOf('部屋番号');
     for (var i = 1; i < data.length; i++) {
-      var nm = String(data[i][0] || '').trim();      // A列: 物件名
-      var rm = String(data[i][1] || '').trim();      // B列: 部屋番号
+      var nm = String(data[i][iName] || '').trim();
+      var rm = String(data[i][iRoom] || '').trim();
       if (!nm) continue;
       if (_propertyToCriteria_(nm, rm)) return { name: nm, room: rm };
     }
