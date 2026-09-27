@@ -530,5 +530,37 @@ function debugLineRename(nick) {
   var map = getLineChatNameMap();
   console.log('対応表: ' + (map.map[nick] ? ('載っている → 「' + map.map[nick] + '」に改名する') : '載っていない')
     + (map.skipped.indexOf(nick) >= 0 ? '（重複のため外した）' : ''));
-  if (map.map[nick]) console.log('→ GAS側は正常。拡張側の Console（[LINE表示名]）を見てください。');
+  if (map.map[nick] && map.map[nick] !== nick) console.log('→ GAS側は正常。拡張側の Console（[LINE表示名]）を見てください。');
+  if (map.map[nick] === nick) console.log('⚠️ 顧客名がニックネームそのまま。改名するものが無い。下の「いつ・どこで書かれたか」を見る');
+
+  // いつ・どこで顧客名が書かれたかの手がかり
+  hits.forEach(function (h) {
+    var created = rows[h.row - 2][2];
+    console.log('  行' + h.row + ' の登録日時: ' + (created instanceof Date ? Utilities.formatDate(created, 'Asia/Tokyo', 'MM/dd HH:mm:ss') : String(created)));
+    try {
+      var cs = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+      var cd = cs.getDataRange().getValues();
+      var found = [];
+      for (var r = 1; r < cd.length; r++) {
+        if (String(cd[r][1] || '').trim() === h.name) {
+          found.push('行' + (r + 1) + ' 登録' + (cd[r][0] instanceof Date ? Utilities.formatDate(cd[r][0], 'Asia/Tokyo', 'MM/dd HH:mm') : String(cd[r][0]))
+            + ' 出どころ:' + String(cd[r][17] || '') + ' 条件あり:' + ((typeof _rowHasCriteria_ === 'function') ? _rowHasCriteria_(cd[r]) : '?'));
+        }
+      }
+      console.log('  検索条件シートに「' + h.name + '」の行: ' + (found.length ? found.join(' / ') : '無し'));
+    } catch (e) { console.log('  検索条件シートを読めません: ' + e.message); }
+    try {
+      var vs = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName('空室確認依頼');
+      if (vs && vs.getLastRow() > 1) {
+        var vd = vs.getDataRange().getValues();
+        var vh = [];
+        for (var q = 1; q < vd.length; q++) {
+          if (String(vd[q][2] || '').trim() === h.name || String(vd[q][1] || '').trim() === h.userId) {
+            vh.push((vd[q][0] instanceof Date ? Utilities.formatDate(vd[q][0], 'Asia/Tokyo', 'MM/dd HH:mm') : String(vd[q][0])));
+          }
+        }
+        console.log('  空室確認依頼の記録: ' + (vh.length ? vh.join(', ') : '無し'));
+      }
+    } catch (e2) {}
+  });
 }
