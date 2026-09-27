@@ -1260,7 +1260,7 @@ function _buildVacancyUnavailableMessages_(userId, displayName, propertyName, ro
       type: 'box', layout: 'vertical', margin: 'lg', spacing: 'xs',
       contents: [
         { type: 'text', text: 'この条件をもとに、ご希望の条件を登録しませんか？', size: 'sm', color: '#333333', wrap: true, weight: 'bold' },
-        { type: 'text', text: '内容はご自身で確かめて、直せます。', size: 'sm', color: '#555555', wrap: true }
+        { type: 'text', text: '内容は登録画面で確認・変更できます。', size: 'sm', color: '#555555', wrap: true }
       ]
     });
     // 通知には条件の表は入れず、出どころと問いかけだけを入れる
