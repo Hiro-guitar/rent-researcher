@@ -854,6 +854,8 @@ function doGet_(e) {
   // criteria_state: form.ehomaki.com/criteria.html がユーザー現在状態をfetchするためのJSON返却
   if (action === 'criteria_state') {
     var _userIdC = e.parameter.userId;
+    // 条件変更の画面が開いた合図。顧客スレッドに静かに残す（MapPage.gs）
+    if (_userIdC && typeof notifyCriteriaPageOpened === 'function') notifyCriteriaPageOpened(_userIdC, '条件変更の画面');
     if (!_userIdC) {
       return ContentService.createTextOutput(JSON.stringify({ success: false, message: 'userId required' }))
         .setMimeType(ContentService.MimeType.JSON);
@@ -1847,6 +1849,7 @@ function doGet_(e) {
 
   // ── 総合条件選択Webページ ──
   if (action === 'selectCriteria' || action === 'selectRoutes') {
+    if (e.parameter.userId && typeof notifyCriteriaPageOpened === 'function') notifyCriteriaPageOpened(e.parameter.userId, '条件変更の画面');
     // [PERF-doGet-criteria] 計測用 — 条件選択ページの遅延調査
     var _tCriteria = Date.now();
     console.log('[PERF-doGet-criteria] start action=' + action);

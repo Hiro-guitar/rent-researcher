@@ -456,6 +456,53 @@ function clearMapViewThrottle(customerName) {
 }
 
 /** 地図を開いたことを、その顧客のDiscordスレッドへ静かに流す。 */
+/**
+ * 条件変更の画面を開いたことを、顧客スレッドに静かに知らせる（音なし・メンションなし）。
+ * 2026-09-27 依頼。お部屋マップを開いたときの通知と同じ形。
+ * ⚠️ 本人が分かっている人だけ。初めて登録する人はまだスレッドを作らない。
+ * ⚠️ 開き直しで連投しないよう、同じ人は10分に1回。
+ */
+function notifyCriteriaPageOpened(userId, kind) {
+  try {
+    if (!userId) return;
+    var cache = CacheService.getScriptCache();
+    var key = 'crit_open_' + userId;
+    if (cache.get(key)) return;
+    var name = (typeof _vacancyLineUserName_ === 'function') ? _vacancyLineUserName_(userId) : '';
+    if (!name) return;
+    cache.put(key, '1', 600);
+
+    var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
+    if (!webhookUrl) return;
+    var time = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'HH:mm');
+    var msg = '\u270F\uFE0F **' + name + '** 様が **' + (kind || '条件変更の画面') + '** を開きました (' + time + ')';
+
+    var props = PropertiesService.getScriptProperties();
+    var threadKey = 'DISCORD_THREAD_' + name;
+    var threadId = props.getProperty(threadKey);
+    var payload = { content: msg, flags: 4096, allowed_mentions: { parse: [] } };   // 4096 = 音を鳴らさない
+    if (!threadId) payload.thread_name = '\uD83C\uDFE0 ' + name;
+    var resp = UrlFetchApp.fetch(webhookUrl + (threadId ? '?thread_id=' + threadId : '?wait=true'), {
+      method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
+    });
+    var code = resp.getResponseCode();
+    if (threadId && (code === 404 || code === 400)) {          // スレッドが消えていたら作り直す
+      props.deleteProperty(threadKey);
+      payload.thread_name = '\uD83C\uDFE0 ' + name;
+      resp = UrlFetchApp.fetch(webhookUrl + '?wait=true', {
+        method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+      code = resp.getResponseCode();
+      threadId = '';
+    }
+    if (!threadId && code === 200) {
+      try { var body = JSON.parse(resp.getContentText()); if (body.channel_id) props.setProperty(threadKey, body.channel_id); } catch (_e) {}
+    }
+  } catch (e) {
+    console.warn('[条件変更画面] Discord通知に失敗: ' + e.message);
+  }
+}
+
 function _notifyMapViewToDiscord_(customerName, params) {
   var webhookUrl = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK_URL');
   if (!webhookUrl) return;
