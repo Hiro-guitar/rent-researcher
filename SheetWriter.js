@@ -339,6 +339,17 @@ function saveLineUser(userId, customerName) {
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === userId) {
+      // ⚠️ 本名らしい顧客名を、LINEのニックネームで上書きしないこと (2026-09-27)。
+      //   _getLineUserName_ は LINE Users に無い人だとニックネームを返すので、
+      //   それをそのまま渡してくる経路がある。「チェガヨン」が「がよん」に戻された。
+      //   新しい名前が控えてあるニックネームと同じで、今の顧客名がそれと違うなら、今の名前を残す。
+      const nick = String(data[i][3] || '').trim();
+      const current = String(data[i][1] || '').trim();
+      if (nick && customerName === nick && current && current !== nick) {
+        console.log('[LINE Users] ニックネーム「' + nick + '」で「' + current + '」を上書きしようとしたので止めた');
+        _fillLineDisplayName_(sheet, i + 1, userId, data[i][3]);
+        return;
+      }
       // 既存 → 顧客名を更新
       sheet.getRange(i + 1, 2).setValue(customerName);
       sheet.getRange(i + 1, 3).setValue(new Date());
