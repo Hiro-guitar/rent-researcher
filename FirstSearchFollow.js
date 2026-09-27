@@ -167,8 +167,8 @@ function buildFirstSearchZeroText(cand) {
 
 /**
  * 0件のときのカード。選択は2つだけ（2026-09-27）。
- *   相談する     → 次に「電話かLINEか」を聞く
- *   自分で変更する → 条件変更へ（画面に今の条件が出るので、条件確認のボタンは要らない）
+ *   スタッフに相談する → 次に「電話かLINEか」を聞く
+ *   条件を変更する     → 条件変更へ（画面に今の条件が出るので、条件確認のボタンは要らない）
  * ⚠️ ボタンを4つ並べたり見出しを付けたりしないこと。案内板っぽくなって重い。
  */
 function buildFirstSearchZeroCard(customerName) {
@@ -183,8 +183,8 @@ function buildFirstSearchZeroCard(customerName) {
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
         contents: [
-          green('相談する', { type: 'postback', label: '相談する', data: 'fs:consult', displayText: '相談する' }),
-          green('自分で変更する', { type: 'message', label: '自分で変更する', text: '条件変更' })
+          green('スタッフに相談する', { type: 'postback', label: 'スタッフに相談する', data: 'fs:consult', displayText: 'スタッフに相談する' }),
+          green('条件を変更する', { type: 'message', label: '条件を変更する', text: '条件変更' })
         ]
       }
     }
