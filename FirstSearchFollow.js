@@ -405,10 +405,10 @@ function handleFirstSearchPostback(replyToken, userId, data) {
     return;
   }
 
-  // ⚠️「担当者から」と言わないこと (2026-09-25)。今までは担当者ではなかった、と言うのと同じ。
-  //   同じ人がそのまま続ける形にする。
+  // ボタンが「スタッフに相談する」なので、返事も「スタッフが」で受ける (2026-09-27)。
+  //   「担当者から」は今までは担当者ではなかったと言うのと同じなので使わない。
   replyMessage(replyToken, [textMsg(
-    'ありがとうございます。\n\nご登録の条件を確認して、LINEでご連絡します。'
+    'ありがとうございます。\n\nスタッフがご登録の条件を確認して、LINEでご連絡します。'
   )]);
   try { _firstSearchMarkReply_(name, 'LINEで相談'); } catch (e3) { console.warn('[初回検索] 記録できません: ' + e3.message); }
   try { _firstSearchNotifyStaff_(name, userId, 'LINE', {}); } catch (e2) { console.warn('[初回検索] 担当者通知に失敗: ' + e2.message); }
