@@ -390,7 +390,7 @@ function handleFirstSearchPostback(replyToken, userId, data) {
       clearState(userId);
       replyMessage(replyToken, [textMsg(
         'ありがとうございます。\n\n' +
-        'ご登録の番号（末尾 ' + phone.slice(-4) + '）に、' + _firstSearchCallerPhrase_() + 'お電話させていただきます。\n' +
+        'スタッフがご登録の番号（末尾 ' + phone.slice(-4) + '）に、' + _firstSearchCallerPhrase_() + 'お電話させていただきます。\n' +
         'ご都合の悪い時間帯があれば、お知らせください。\n\n' +
         'それでは、お電話をお待ちください。'
       )]);
@@ -398,7 +398,7 @@ function handleFirstSearchPostback(replyToken, userId, data) {
     } else {
       saveState(userId, { step: FS_STEP_TEL_NUMBER, data: {} });
       replyMessage(replyToken, [textMsg(
-        'ありがとうございます。\n\nお電話させていただきますので、お電話番号を教えていただけますでしょうか。'
+        'ありがとうございます。\n\nスタッフがお電話させていただきますので、お電話番号を教えていただけますでしょうか。'
       )]);
     }
     try { _firstSearchMarkReply_(name, '電話で相談'); } catch (e) { console.warn('[初回検索] 記録できません: ' + e.message); }
@@ -450,7 +450,7 @@ function handleFirstSearchText(replyToken, userId, message, state) {
     try { _firstSearchSavePhone_(name, digits); } catch (eS) { console.warn('[初回検索] 番号を保存できません: ' + eS.message); }
     clearState(userId);
     replyMessage(replyToken, [textMsg(
-      'ありがとうございます。\n\n' + _firstSearchCallerPhrase_() + 'お電話させていただきます。\n' +
+      'ありがとうございます。\n\nスタッフが' + _firstSearchCallerPhrase_() + 'お電話させていただきます。\n' +
       'ご都合の悪い時間帯があれば、お知らせください。\n\n' +
       'それでは、お電話をお待ちください。'
     )]);
