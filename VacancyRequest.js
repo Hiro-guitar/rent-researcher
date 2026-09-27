@@ -257,6 +257,21 @@ function _vacancyLineUserName_(userId) {
   return '';
 }
 
+/** LINE Users に控えてあるニックネーム（D列）。無ければ ''。 */
+function _lineNicknameOf_(userId) {
+  try {
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(LINE_USERS_SHEET_NAME);
+    if (!sh || sh.getLastRow() < 2) return '';
+    var col = (typeof LINE_DISPLAY_NAME_COL !== 'undefined') ? LINE_DISPLAY_NAME_COL : 4;
+    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, col).getValues();
+    var nick = '';
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i][0] || '').trim() === String(userId)) nick = String(rows[i][col - 1] || '').trim();
+    }
+    return nick;
+  } catch (e) { return ''; }
+}
+
 /** この LINE ユーザーに結びついているメールアドレス（LINE登録メール ＋ 検索条件シートのAF列）。 */
 function _vacancyEmailsForUser_(userId, lineName) {
   var out = [];
@@ -426,13 +441,22 @@ function _vacancyLinkByEmail_(userId, email) {
   }
 
   // リード行が無い（自動リード化より前の問い合わせなど）
-  if (!lineName) {
-    var inqs = _vacancyFindInquiriesByEmails_([email]);
-    var inqName = (inqs.length && inqs[0].name) ? inqs[0].name : '';
-    if (inqName) {
+  var inqs = _vacancyFindInquiriesByEmails_([email]);
+  var inqName = (inqs.length && inqs[0].name) ? inqs[0].name : '';
+  if (inqName) {
+    if (!lineName) {
       saveLineUser(userId, inqName);
       console.log('[本人確定] LINE Users を問い合わせ者名 ' + inqName + ' に紐付け');
       return { customerName: inqName, action: 'linked_inquiry' };
+    }
+    // ⚠️ 名前があっても、それがLINEのニックネームそのままなら仮の名前 (2026-09-27)。
+    //   「がよん」のまま顧客名になっていて、問い合わせの「チェガヨン」が当たらなかった。
+    //   条件の行が無く、かつ顧客名＝ニックネームのときだけ、問い合わせの名前に向け直す。
+    //   担当者が手で付けた本名は（ニックネームと一致しないので）触らない。
+    if (!lineHasRow && lineName !== inqName && _lineNicknameOf_(userId) === lineName) {
+      saveLineUser(userId, inqName);
+      console.log('[本人確定] 仮の名前「' + lineName + '」を問い合わせ者名 ' + inqName + ' に向け直し');
+      return { customerName: inqName, action: 'relinked_inquiry', detail: lineName };
     }
   }
   return { customerName: lineName, action: 'none' };
