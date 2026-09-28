@@ -472,3 +472,20 @@ function previewFirstDeliveryTargets() {
   console.log('');
   console.log('※ 「今も募集中」は最後に確認した時点のもの。実際に送る直前にもう一度確認します。');
 }
+
+/**
+ * 【GASエディタで実行: FirstDeliveryFollow.gs】再送の記録を状態ごとに数える。何も変えない。
+ * 「見送り／確認が30分以内に返らなかった」が多ければ、空室確認（Chrome拡張）が動いていない時間に
+ * 送る時刻が来ていたということ。
+ */
+function showFirstDeliveryStats() {
+  var sh = _firstDeliverySheet_();
+  if (sh.getLastRow() < 2) { console.log('記録がありません'); return; }
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues();
+  var count = {};
+  rows.forEach(function (r) {
+    var key = String(r[4] || '').trim() + (r[5] ? ' / ' + String(r[5]).replace(/\d+件/g, 'N件') : '');
+    count[key] = (count[key] || 0) + 1;
+  });
+  console.log('全 ' + rows.length + ' 件\n' + Object.keys(count).map(function (k) { return k + ': ' + count[k]; }).join('\n'));
+}
