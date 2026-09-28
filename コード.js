@@ -2013,6 +2013,11 @@ function doGet_(e) {
     return handleListingDashboard(e);
   }
 
+  // ── 顧客管理ページ（樹形図・CrmTree.js）──
+  if (action === 'crm') {
+    return handleCrmTreePage(e);
+  }
+
   // ── 顧客管理ページ ──
   if (action === 'customer') {
     return handleCustomerPage(e);

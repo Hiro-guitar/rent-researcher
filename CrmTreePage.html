@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: #f4f5f3; --surface: #fff; --ink: #1c211f; --muted: #6d7772; --hair: #dde2df;
+    --red: #c2362b; --red-soft: #fbeceb; --green: #1f6b5c; --green-soft: #e4efeb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141816; --surface: #1c2220; --ink: #e6ebe8; --muted: #8e9994; --hair: #2e3834;
+      --red: #ef7d72; --red-soft: #3a2220; --green: #5cc0a9; --green-soft: #1d2f2a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 16px 16px 60px; }
+  header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  h1 { font-size: 20px; margin: 0; flex: 1; }
+  .btn { border: 1px solid var(--hair); background: var(--surface); color: var(--ink);
+    border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer; text-decoration: none; }
+  .today { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 14px; }
+  .today b { font-size: 22px; color: var(--red); }
+  .today.zero b { color: var(--green); }
+  .tree { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; }
+  .node { border-top: 1px solid var(--hair); }
+  .node:first-child { border-top: 0; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; }
+  .row:hover { background: var(--bg); }
+  .row .label { flex: 1; }
+  .row.empty { color: var(--muted); cursor: default; }
+  .row.empty:hover { background: none; }
+  .count { min-width: 28px; text-align: center; border-radius: 12px; padding: 0 8px; font-size: 13px;
+    background: var(--bg); color: var(--muted); }
+  .mine .count { background: var(--red-soft); color: var(--red); font-weight: 700; }
+  .mine .label { font-weight: 700; }
+  .caret { width: 12px; color: var(--muted); font-size: 11px; }
+  .list { padding: 0 14px 10px; }
+  .cust { border: 1px solid var(--hair); border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
+  .cust .name { font-weight: 700; }
+  .cust .name a { color: inherit; }
+  .cust .meta { color: var(--muted); font-size: 13px; }
+  .cust .note { color: var(--red); font-size: 13px; }
+  .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .acts .btn { padding: 6px 10px; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; }
+  .foot { color: var(--muted); font-size: 12px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>顧客管理</h1>
+    <button class="btn" onclick="reload()">🔄</button>
+    <a class="btn" id="oldLink" target="_blank">旧画面</a>
+  </header>
+  <div class="today" id="today"></div>
+  <div class="tree" id="tree"></div>
+  <div class="foot" id="foot"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+  var data = JSON.parse('<?!= treeJson ?>');
+  var customerPageUrl = JSON.parse('<?!= customerPageUrl ?>');
+  var open = {};   // 開いている枝
+  document.getElementById('oldLink').href = customerPageUrl;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function depthOf(n) {
+    var d = 0, p = n.parent;
+    while (p) {
+      d++;
+      var up = data.nodes.filter(function (x) { return x.id === p; })[0];
+      p = up ? up.parent : '';
+    }
+    return d;
+  }
+
+  function metaOf(c) {
+    var m = [];
+    if (c.daysSinceInquiry !== null && c.daysSinceInquiry !== undefined) m.push('反響から' + c.daysSinceInquiry + '日');
+    if (c.failedCalls) m.push('つながらず' + c.failedCalls + '回');
+    if (c.lastTalkAt) m.push('最後に話した ' + c.lastTalkAt);
+    if (c.daysSinceSent !== null && c.daysSinceSent !== undefined) m.push('最終送信 ' + c.daysSinceSent + '日前');
+    if (c.moveIn) m.push('引越し ' + c.moveIn);
+    if (c.endWhy) m.push('終了: ' + c.endWhy);
+    return m.join(' ・ ');
+  }
+
+  function custHtml(c) {
+    var name = c.lineOnly ? esc(c.name)
+      : '<a target="_blank" href="' + esc(customerPageUrl + '&customer=' + encodeURIComponent(c.name)) + '">' + esc(c.name) + '</a>';
+    var tel = c.phone ? ' <a class="meta" href="tel:' + esc(c.phone) + '">📞 ' + esc(c.phone) + '</a>' : '';
+    var h = '<div class="cust"><div class="name">' + name + tel + '</div>';
+    if (c.note) h += '<div class="note">' + esc(c.note) + '</div>';
+    var meta = metaOf(c);
+    if (meta) h += '<div class="meta">' + esc(meta) + '</div>';
+    if (!c.lineOnly) {
+      var n = esc(JSON.stringify(c.name));
+      h += '<div class="acts">'
+        + '<button class="btn" onclick="rec(' + n + ',\'電話（話せた）\')">📞 話せた</button>'
+        + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>'
+        + '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>'
+        + '</div>';
+    }
+    return h + '</div>';
+  }
+
+  function render() {
+    var mineTotal = 0;
+    data.nodes.forEach(function (n) { if (n.mine) mineTotal += n.count; });
+    var today = document.getElementById('today');
+    today.className = 'today' + (mineTotal ? '' : ' zero');
+    today.innerHTML = mineTotal
+      ? '今日やること <b>' + mineTotal + '</b> 人（赤い枝）'
+      : '今日やることは <b>0</b> 人です';
+
+    var h = '';
+    data.nodes.forEach(function (n) {
+      var d = depthOf(n);
+      var cls = 'row' + (n.count ? '' : ' empty');
+      var isOpen = !!open[n.id] && n.count;
+      h += '<div class="node' + (n.mine && n.count ? ' mine' : '') + '">'
+        + '<div class="' + cls + '" style="padding-left:' + (14 + d * 20) + 'px"'
+        + (n.count ? ' onclick="toggle(\'' + n.id + '\')"' : '') + '>'
+        + '<span class="caret">' + (n.count ? (isOpen ? '▼' : '▶') : '') + '</span>'
+        + '<span class="label">' + esc(n.label) + '</span>'
+        + '<span class="count">' + n.count + '</span></div>';
+      if (isOpen) {
+        h += '<div class="list" style="padding-left:' + (14 + d * 20) + 'px">';
+        data.customers.filter(function (c) { return c.node === n.id; }).forEach(function (c) { h += custHtml(c); });
+        h += '</div>';
+      }
+      h += '</div>';
+    });
+    document.getElementById('tree').innerHTML = h;
+    document.getElementById('foot').textContent = '旧顧客 ' + data.oldCount + ' 人は対象外（自動配信は動いています）';
+  }
+
+  function toggle(id) { open[id] = !open[id]; render(); }
+
+  function toast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg; t.style.display = 'block';
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, 2500);
+  }
+
+  function rec(name, type) {
+    toast('記録しています…');
+    google.script.run
+      .withSuccessHandler(function (d) { data = d; render(); toast(name + '：' + type + ' を記録しました'); })
+      .withFailureHandler(function (e) { toast('記録できませんでした: ' + e.message); })
+      .recordCrmTreeContact(name, type);
+  }
+
+  function reload() {
+    toast('読み込み中…');
+    google.script.run
+      .withSuccessHandler(function (d) { data = d; render(); toast('最新にしました'); })
+      .withFailureHandler(function (e) { toast('読み込めませんでした: ' + e.message); })
+      .getCrmTreeForPage();
+  }
+
+  // 赤い枝で人がいるものは最初から開いておく
+  data.nodes.forEach(function (n) { if (n.mine && n.count) open[n.id] = true; });
+  render();
+</script>
+</body>
+</html>

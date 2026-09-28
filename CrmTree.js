@@ -362,3 +362,60 @@ function previewCrmTree() {
     console.log('■ ' + n.label + '（' + n.count + '人）\n' + list.join('\n'));
   });
 }
+
+/** 画面に渡す形に絞る（顧客ごとの項目を必要なものだけにして軽くする）。 */
+function _crmTreeForPage_() {
+  var t = getCrmTree();
+  return {
+    nodes: t.nodes,
+    oldCount: t.oldCount,
+    customers: t.customers.map(function (c) {
+      return {
+        name: c.name, node: c.node, lineOnly: !!c.lineOnly,
+        phone: c.phone || '', hasLine: !!c.hasLine, hasCriteria: !!c.hasCriteria,
+        daysSinceInquiry: c.daysSinceInquiry, failedCalls: c.failedCalls || 0,
+        daysSinceSent: c.daysSinceSent, daysSinceViewed: c.daysSinceViewed,
+        lastTalkAt: c.lastTalkAt || '', moveIn: c.moveIn || '',
+        note: (c.sig && c.sig.note) || '', endWhy: c.endWhy || ''
+      };
+    })
+  };
+}
+
+/** 画面の再読み込み用（google.script.run）。 */
+function getCrmTreeForPage() {
+  return _crmTreeForPage_();
+}
+
+/** 画面の1タップ記録（google.script.run）。対応ログに1行足して、樹形図を返す。 */
+function recordCrmTreeContact(customerName, type) {
+  var r = addContactLog(customerName, type, new Date().toISOString(), '');
+  if (!r || !r.success) throw new Error((r && r.message) || '記録できませんでした');
+  return _crmTreeForPage_();
+}
+
+/** doGet(action=crm) — 樹形図の顧客管理ページ。 */
+function handleCrmTreePage(e) {
+  if (!_validateReinsApiKey(e.parameter.api_key)) {
+    return HtmlService.createHtmlOutput(
+      '<html><body style="text-align:center;padding:40px;font-family:sans-serif;">' +
+      '<h3>認証エラー</h3><p>api_key が正しくありません。</p></body></html>'
+    ).setTitle('認証エラー');
+  }
+  var tpl = HtmlService.createTemplateFromFile('CrmTreePage');
+  tpl.treeJson = _jsonForInlineScript_(_crmTreeForPage_());
+  tpl.customerPageUrl = _jsonForInlineScript_(getCustomerPageUrl());
+  return tpl.evaluate()
+    .setTitle('顧客管理')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function getCrmTreePageUrl() {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
+  return ScriptApp.getService().getUrl() + '?action=crm&api_key=' + encodeURIComponent(apiKey);
+}
+
+/** 【GASエディタで実行: CrmTree.gs】樹形図ページのURLをログに出す。 */
+function showCrmTreePageUrl() {
+  console.log(getCrmTreePageUrl());
+}
