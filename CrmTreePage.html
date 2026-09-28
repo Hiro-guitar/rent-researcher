@@ -6,12 +6,12 @@
 <style>
   :root {
     --bg: #f4f5f3; --surface: #fff; --ink: #1c211f; --muted: #6d7772; --hair: #dde2df;
-    --red: #c2362b; --red-soft: #fbeceb; --green: #1f6b5c; --green-soft: #e4efeb;
+    --red: #c2362b; --line: #b9c2bd; --red-soft: #fbeceb; --green: #1f6b5c; --green-soft: #e4efeb;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #141816; --surface: #1c2220; --ink: #e6ebe8; --muted: #8e9994; --hair: #2e3834;
-      --red: #ef7d72; --red-soft: #3a2220; --green: #5cc0a9; --green-soft: #1d2f2a;
+      --red: #ef7d72; --line: #46524d; --red-soft: #3a2220; --green: #5cc0a9; --green-soft: #1d2f2a;
     }
   }
   * { box-sizing: border-box; }
@@ -26,20 +26,33 @@
     padding: 12px 14px; margin-bottom: 14px; }
   .today b { font-size: 22px; color: var(--red); }
   .today.zero b { color: var(--green); }
-  .tree { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px; overflow: hidden; }
-  .node { border-top: 1px solid var(--hair); }
-  .node:first-child { border-top: 0; }
-  .row { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; }
-  .row:hover { background: var(--bg); }
-  .row .label { flex: 1; }
-  .row.empty { color: var(--muted); cursor: default; }
-  .row.empty:hover { background: none; }
-  .count { min-width: 28px; text-align: center; border-radius: 12px; padding: 0 8px; font-size: 13px;
-    background: var(--bg); color: var(--muted); }
-  .mine .count { background: var(--red-soft); color: var(--red); font-weight: 700; }
-  .mine .label { font-weight: 700; }
-  .caret { width: 12px; color: var(--muted); font-size: 11px; }
-  .list { padding: 0 14px 10px; }
+  .urgent { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .tree { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px;
+    padding: 12px 14px 16px; overflow-x: auto; }
+  .tree ul { list-style: none; margin: 0; padding: 0 0 0 22px; }
+  .tree > ul { padding-left: 0; }
+  .tree li { position: relative; padding: 8px 0 0 20px; }
+  .tree > ul > li { padding-left: 0; }
+  .tree li::before { content: ''; position: absolute; left: 0; top: 0; height: 100%;
+    border-left: 2px solid var(--line); }
+  .tree li:last-child::before { height: 27px; }
+  .tree li::after { content: ''; position: absolute; left: 0; top: 27px; width: 20px;
+    border-top: 2px solid var(--line); }
+  .tree > ul > li::before, .tree > ul > li::after { display: none; }
+  .tree .gap { height: 14px; }
+  .box { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 6px 12px;
+    border: 1.5px solid var(--hair); border-radius: 8px; background: var(--surface);
+    cursor: pointer; white-space: nowrap; font-size: 14px; }
+  .box.zero { color: var(--muted); cursor: default; }
+  .box.mine.has { border-color: var(--red); background: var(--red-soft); font-weight: 700; }
+  .box.sel { outline: 3px solid var(--green); outline-offset: 1px; }
+  .box .count { min-width: 24px; text-align: center; border-radius: 12px; padding: 0 7px; font-size: 13px;
+    background: var(--bg); color: var(--muted); font-weight: 400; }
+  .box.has .count { color: var(--ink); }
+  .box.mine.has .count { background: var(--red); color: #fff; font-weight: 700; }
+  .box .sub { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .panel { margin-top: 14px; }
+  .panel h2 { font-size: 16px; margin: 0 0 4px; }
   .cust { border: 1px solid var(--hair); border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
   .cust .name { font-weight: 700; }
   .cust .name a { color: inherit; }
@@ -60,7 +73,9 @@
     <a class="btn" id="oldLink" target="_blank">旧画面</a>
   </header>
   <div class="today" id="today"></div>
+  <div class="urgent" id="urgent"></div>
   <div class="tree" id="tree"></div>
+  <div class="panel" id="panel"></div>
   <div class="foot" id="foot"></div>
 </div>
 <div class="toast" id="toast"></div>
@@ -68,7 +83,7 @@
 <script>
   var data = JSON.parse('<?!= treeJson ?>');
   var customerPageUrl = JSON.parse('<?!= customerPageUrl ?>');
-  var open = {};   // 開いている枝
+  var sel = '';    // 選んでいる箱
   document.getElementById('oldLink').href = customerPageUrl;
 
   function esc(s) {
@@ -117,38 +132,61 @@
     return h + '</div>';
   }
 
+  function childrenOf(id) { return data.nodes.filter(function (n) { return n.parent === id; }); }
+  function totalOf(n) {
+    return n.count + childrenOf(n.id).reduce(function (a, c) { return a + totalOf(c); }, 0);
+  }
+
+  function boxHtml(n) {
+    var total = totalOf(n);
+    var kids = childrenOf(n.id).length;
+    var cls = 'box' + (n.mine ? ' mine' : '') + (n.count ? ' has' : '') + (total ? '' : ' zero')
+      + (sel === n.id ? ' sel' : '');
+    var sub = (kids && total !== n.count) ? '<span class="sub">計' + total + '</span>' : '';
+    return '<span class="' + cls + '"' + (total ? ' onclick="pick(\'' + n.id + '\')"' : '') + '>'
+      + esc(n.label) + ' <span class="count">' + n.count + '</span>' + sub + '</span>';
+  }
+
+  function branchHtml(n) {
+    var kids = childrenOf(n.id);
+    var h = '<li>' + boxHtml(n);
+    if (kids.length) h += '<ul>' + kids.map(branchHtml).join('') + '</ul>';
+    return h + '</li>';
+  }
+
+  // 箱を押したら、その枝より下にいる人を全部並べる
+  function idsUnder(id) {
+    return [id].concat(childrenOf(id).reduce(function (a, c) { return a.concat(idsUnder(c.id)); }, []));
+  }
+
   function render() {
     var mineTotal = 0;
     data.nodes.forEach(function (n) { if (n.mine) mineTotal += n.count; });
     var today = document.getElementById('today');
     today.className = 'today' + (mineTotal ? '' : ' zero');
     today.innerHTML = mineTotal
-      ? '今日やること <b>' + mineTotal + '</b> 人（赤い枝）'
+      ? '今日やること <b>' + mineTotal + '</b> 人（赤い箱）'
       : '今日やることは <b>0</b> 人です';
 
-    var h = '';
-    data.nodes.forEach(function (n) {
-      var d = depthOf(n);
-      var cls = 'row' + (n.count ? '' : ' empty');
-      var isOpen = !!open[n.id] && n.count;
-      h += '<div class="node' + (n.mine && n.count ? ' mine' : '') + '">'
-        + '<div class="' + cls + '" style="padding-left:' + (14 + d * 20) + 'px"'
-        + (n.count ? ' onclick="toggle(\'' + n.id + '\')"' : '') + '>'
-        + '<span class="caret">' + (n.count ? (isOpen ? '▼' : '▶') : '') + '</span>'
-        + '<span class="label">' + esc(n.label) + '</span>'
-        + '<span class="count">' + n.count + '</span></div>';
-      if (isOpen) {
-        h += '<div class="list" style="padding-left:' + (14 + d * 20) + 'px">';
-        data.customers.filter(function (c) { return c.node === n.id; }).forEach(function (c) { h += custHtml(c); });
-        h += '</div>';
-      }
-      h += '</div>';
-    });
-    document.getElementById('tree').innerHTML = h;
+    var urgent = data.nodes.filter(function (n) { return n.urgent || (n.id === 'lost' && n.count); });
+    document.getElementById('urgent').innerHTML = urgent.map(boxHtml).join('');
+
+    var roots = data.nodes.filter(function (n) { return !n.parent && !n.urgent && n.id !== 'lost'; });
+    document.getElementById('tree').innerHTML = '<ul>' + roots.map(branchHtml).join('<li class="gap"></li>') + '</ul>';
+
+    var panel = document.getElementById('panel');
+    var node = data.nodes.filter(function (n) { return n.id === sel; })[0];
+    if (!node) { panel.innerHTML = ''; }
+    else {
+      var ids = idsUnder(sel);
+      var list = data.customers.filter(function (c) { return ids.indexOf(c.node) >= 0; });
+      panel.innerHTML = '<h2>' + esc(node.label) + '（' + list.length + '人）</h2>'
+        + (list.length ? list.map(custHtml).join('') : '<div class="meta">いません</div>');
+    }
     document.getElementById('foot').textContent = '旧顧客 ' + data.oldCount + ' 人は対象外（自動配信は動いています）';
   }
 
-  function toggle(id) { open[id] = !open[id]; render(); }
+  function pick(id) { sel = (sel === id) ? '' : id; render(); }
 
   function toast(msg) {
     var t = document.getElementById('toast');
@@ -172,8 +210,11 @@
       .getCrmTreeForPage();
   }
 
-  // 赤い枝で人がいるものは最初から開いておく
-  data.nodes.forEach(function (n) { if (n.mine && n.count) open[n.id] = true; });
+  // 最初は、人がいる赤い箱のうち一番上のものを選んでおく
+  (function () {
+    var first = data.nodes.filter(function (n) { return n.mine && n.count; })[0];
+    if (first) sel = first.id;
+  })();
   render();
 </script>
 </body>

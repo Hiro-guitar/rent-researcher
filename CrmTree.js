@@ -15,21 +15,22 @@
 
 // 枝の定義。parent で樹形図の形を作る。mine=true は自分が動く枝（赤）。
 var CRM_TREE_NODES = [
-  { id: 'wantApply',    label: '申込・内見の希望が来た',       parent: '', mine: true },
-  { id: 'strongSignal', label: '強い合図（電話する）',         parent: '', mine: true },
-  { id: 'replyLine',    label: 'LINEに返信',                   parent: '', mine: true },
+  { id: 'wantApply',    label: '申込・内見の希望が来た',       parent: '', mine: true, urgent: true },
+  { id: 'strongSignal', label: '強い合図（電話する）',         parent: '', mine: true, urgent: true },
+  { id: 'replyLine',    label: 'LINEに返信',                   parent: '', mine: true, urgent: true },
   { id: 'inquiry',      label: '反響',                         parent: '' },
   { id: 'mailOnly',     label: 'メールだけ（自動メール）',       parent: 'inquiry' },
   { id: 'callQueue',    label: '架電待ち',                      parent: 'inquiry', mine: true },
   { id: 'line',         label: 'LINEに来た',                    parent: 'inquiry' },
   { id: 'noCriteria',   label: '条件登録待ち（自動で催促）',     parent: 'line' },
-  { id: 'firstWait',    label: '初回配信まだ（0件）',            parent: 'line' },
-  { id: 'following',    label: '追客中',                        parent: 'line' },
+  { id: 'registered',   label: '条件登録済み',                  parent: 'line' },
+  { id: 'firstWait',    label: '初回配信まだ（0件）',            parent: 'registered' },
+  { id: 'following',    label: '追客中',                        parent: 'registered' },
   { id: 'neverViewed',  label: '1件も見ていない（自動で再送）',   parent: 'following' },
   { id: 'noSend14',     label: '14日 物件を送れていない',         parent: 'following', mine: true },
   { id: 'pausedNotEnd', label: '配信停止なのに終了でない',        parent: 'following', mine: true },
   { id: 'applied',      label: '申込',                          parent: 'following' },
-  { id: 'won',          label: '成約',                          parent: '' },
+  { id: 'won',          label: '成約',                          parent: 'applied' },
   { id: 'ended',        label: '終了',                          parent: '' },
   { id: 'lost',         label: '迷子（どの枝にも入らない）',      parent: '', mine: true }
 ];
@@ -303,7 +304,7 @@ function getCrmTree() {
   });
 
   var nodes = CRM_TREE_NODES.map(function (n) {
-    return { id: n.id, label: n.label, parent: n.parent, mine: !!n.mine, count: count[n.id] || 0 };
+    return { id: n.id, label: n.label, parent: n.parent, mine: !!n.mine, urgent: !!n.urgent, count: count[n.id] || 0 };
   });
   return { nodes: nodes, customers: customers, oldCount: oldCount };
 }
