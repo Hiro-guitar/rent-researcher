@@ -1618,8 +1618,6 @@ function doGet_(e) {
     }
   }
 
-  // keepalive: GASをウォームに保つためのpingエンドポイント (5分ごとにself-fetchで叩く)
-  // 初回ヒット時にトリガー未登録なら自動登録する (bootstrap)
   // get_criteria の所要時間の履歴（数字だけ。顧客データは含まない）
   if (action === 'perf_recent') {
     var _pp2 = PropertiesService.getScriptProperties();
@@ -1637,113 +1635,15 @@ function doGet_(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 
+  // 旧 keepalive の入口。温める効果が無かったので5分ごとの自己呼び出しは廃止した（2026-09-28）。
+  // 入口だけ残し、叩かれたらトリガーの点検をする（?debug=1 で結果を返す）。
   if (action === 'keepalive') {
-    var _kaLog = [];
-    try {
-      var _triggers = ScriptApp.getProjectTriggers();
-      _kaLog.push('今あるトリガー: ' + _triggers.map(function (t) { return t.getHandlerFunction(); }).join(', '));
-      var _hasKA = false;
-      for (var _i = 0; _i < _triggers.length; _i++) {
-        if (_triggers[_i].getHandlerFunction() === 'pingWebAppKeepAlive_') { _hasKA = true; break; }
-      }
-      if (!_hasKA) {
-        ScriptApp.newTrigger('pingWebAppKeepAlive_').timeBased().everyMinutes(5).create();
-        console.log('[keepalive] bootstrap: 5分トリガーを自動登録');
-      }
-      // cleanup トリガーも一緒に bootstrap (毎朝3時に 30日経過行を削除)
-      var _hasCleanup = false;
-      for (var _ic = 0; _ic < _triggers.length; _ic++) {
-        if (_triggers[_ic].getHandlerFunction() === 'cleanupOldPropertyRecords') { _hasCleanup = true; break; }
-      }
-      if (!_hasCleanup && typeof cleanupOldPropertyRecords === 'function') {
-        ScriptApp.newTrigger('cleanupOldPropertyRecords').timeBased().atHour(3).everyDays(1).create();
-        console.log('[keepalive] bootstrap: 日次クリーンアップトリガー (毎朝3時) を登録');
-      }
-      // 地図の作り直しの受け皿（30分ごと）。ふだんは送信直後の使い捨てトリガーが
-      // 動くので、これはそれが不発だったときのためのもの。
-      var _hasMapQ = false;
-      for (var _iq = 0; _iq < _triggers.length; _iq++) {
-        if (_triggers[_iq].getHandlerFunction() === 'processMapRebuildQueue') { _hasMapQ = true; break; }
-      }
-      if (!_hasMapQ && typeof processMapRebuildQueue === 'function') {
-        ScriptApp.newTrigger('processMapRebuildQueue').timeBased().everyMinutes(30).create();
-        console.log('[keepalive] bootstrap: 地図の作り直しの受け皿 (30分ごと) を登録');
-      }
-      // 顧客ごとの地図データを毎朝6時にエッジへ作り直すトリガーも bootstrap
-      var _hasMap = false;
-      for (var _im = 0; _im < _triggers.length; _im++) {
-        if (_triggers[_im].getHandlerFunction() === 'rebuildAllCustomerMaps') { _hasMap = true; break; }
-      }
-      if (!_hasMap && typeof rebuildAllCustomerMaps === 'function') {
-        ScriptApp.newTrigger('rebuildAllCustomerMaps').timeBased().atHour(6).everyDays(1).create();
-        console.log('[keepalive] bootstrap: 地図データの作り直し (毎朝6時) を登録');
-      }
-      // 返信キュー（遅延返信・空室確認の回答）の処理を5分ごとに。
-      // 空室確認の回答はここを通ってお客様に届くので、
-      // トリガーが消えていると答えが一切届かなくなる。必ず居ることを確かめる。
-      var _hasRQ = false;
-      for (var _ir = 0; _ir < _triggers.length; _ir++) {
-        if (_triggers[_ir].getHandlerFunction() === 'processReplyQueue') { _hasRQ = true; break; }
-      }
-      if (!_hasRQ && typeof processReplyQueue === 'function') {
-        ScriptApp.newTrigger('processReplyQueue').timeBased().everyMinutes(5).create();
-        console.log('[keepalive] bootstrap: 返信キューの処理 (5分ごと) を登録');
-      }
-      // 「終了」ステージの顧客を毎朝5時にアーカイブするトリガーも bootstrap
-      var _hasArchive = false;
-      for (var _ia = 0; _ia < _triggers.length; _ia++) {
-        if (_triggers[_ia].getHandlerFunction() === 'autoArchiveFinishedCustomers') { _hasArchive = true; break; }
-      }
-      if (!_hasArchive && typeof autoArchiveFinishedCustomers === 'function') {
-        ScriptApp.newTrigger('autoArchiveFinishedCustomers').timeBased().atHour(5).everyDays(1).create();
-        console.log('[keepalive] bootstrap: 終了顧客の自動アーカイブ (毎朝5時) を登録');
-      }
-      // 引越し予定の時期を過ぎた人に聞き直す（1時間ごと・営業時間の判定は関数の中）
-      var _hasMI = false;
-      for (var _im = 0; _im < _triggers.length; _im++) {
-        if (_triggers[_im].getHandlerFunction() === 'processMoveInDeadline') { _hasMI = true; break; }
-      }
-      if (_hasMI) _kaLog.push('引越し期限: すでにある');
-      else if (typeof processMoveInDeadline !== 'function') _kaLog.push('引越し期限: 関数が見つからない');
-      else {
-        ScriptApp.newTrigger('processMoveInDeadline').timeBased().everyHours(1).create();
-        _kaLog.push('引越し期限: 作った');
-        console.log('[keepalive] bootstrap: 引越し期限の確認 (1時間ごと) を登録');
-      }
-      // 初回検索で0件だった人への提案と、無視した人の終了（1時間ごと）
-      var _hasFS = false;
-      for (var _is = 0; _is < _triggers.length; _is++) {
-        if (_triggers[_is].getHandlerFunction() === 'processFirstSearchFollow') { _hasFS = true; break; }
-      }
-      if (_hasFS) _kaLog.push('初回検索: すでにある');
-      else if (typeof processFirstSearchFollow !== 'function') _kaLog.push('初回検索: 関数が見つからない');
-      else {
-        ScriptApp.newTrigger('processFirstSearchFollow').timeBased().everyHours(1).create();
-        _kaLog.push('初回検索: 作った');
-        console.log('[keepalive] bootstrap: 初回検索の確認 (1時間ごと) を登録');
-      }
-      // 初回配信を見ていない人への再送（15分ごと・営業時間の判定は関数の中）
-      // ⚠️ これが消えると催促が一切届かなくなる。必ず居ることを確かめる。
-      var _hasFD = false;
-      for (var _if = 0; _if < _triggers.length; _if++) {
-        if (_triggers[_if].getHandlerFunction() === 'processFirstDeliveryFollow') { _hasFD = true; break; }
-      }
-      if (!_hasFD && typeof processFirstDeliveryFollow === 'function') {
-        ScriptApp.newTrigger('processFirstDeliveryFollow').timeBased().everyMinutes(15).create();
-        console.log('[keepalive] bootstrap: 初回配信の再送 (15分ごと) を登録');
-      }
-    } catch (_eKA) {
-      _kaLog.push('失敗: ' + (_eKA && _eKA.message));
-      console.warn('[keepalive] bootstrap失敗: ' + (_eKA && _eKA.message));
-    }
-    // ?debug=1 を付けると、何をしたか（しなかったか）が分かる。
+    var _kaLog = ensureProjectTriggers_();
     if (String(e.parameter.debug || '') === '1') {
       return ContentService.createTextOutput(JSON.stringify({ ok: true, bootstrap: _kaLog }))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    return ContentService
-      .createTextOutput('ok')
-      .setMimeType(ContentService.MimeType.TEXT);
+    return ContentService.createTextOutput('ok').setMimeType(ContentService.MimeType.TEXT);
   }
 
   // 手動クリーンアップ: doGet?action=cleanup_now&max_age_days=30
@@ -4511,6 +4411,61 @@ function showFetchStats() {
     Logger.log('  ' + tags[i] + ': ' + n + '回 (' + Math.round(n * 100 / stats.total) + '%)');
   }
   return stats.date + ' 合計 ' + stats.total + '回（内訳は実行ログ）';
+}
+
+/**
+ * 常に居てほしいトリガーを点検し、無ければ作る。要らなくなったトリガーは消す。
+ * processFirstDeliveryFollow（15分ごと）から1時間に1回呼ばれる。
+ *
+ * ⚠️ 以前は5分ごとの keepalive（自分のURLを叩く）がこの役目を兼ねていたが、
+ *   温める効果が無いうえ1回15〜27秒×288回/日でトリガー上限(90分/日)を圧迫していたので廃止した（2026-09-28）。
+ * ⚠️ 終了の自動アーカイブ（毎朝5時）も廃止。アーカイブされるとブロック解除・再問い合わせで
+ *   戻れなくなり、樹形図（CrmTree.js）では終了は「状態」として持てば足りるため。
+ * @return {string[]} 何をしたかのログ
+ */
+var REQUIRED_TRIGGERS_ = [
+  { fn: 'cleanupOldPropertyRecords', make: function (b) { return b.atHour(3).everyDays(1); } },
+  { fn: 'processMapRebuildQueue',    make: function (b) { return b.everyMinutes(30); } },
+  { fn: 'rebuildAllCustomerMaps',    make: function (b) { return b.atHour(6).everyDays(1); } },
+  // 空室確認の回答はここを通ってお客様に届く。消えると答えが一切届かなくなる
+  { fn: 'processReplyQueue',         make: function (b) { return b.everyMinutes(5); } },
+  { fn: 'processMoveInDeadline',     make: function (b) { return b.everyHours(1); } },
+  { fn: 'processFirstSearchFollow',  make: function (b) { return b.everyHours(1); } },
+  { fn: 'processFirstDeliveryFollow', make: function (b) { return b.everyMinutes(15); } }
+];
+var OBSOLETE_TRIGGERS_ = ['pingWebAppKeepAlive_', 'autoArchiveFinishedCustomers'];
+
+function ensureProjectTriggers_() {
+  var log = [];
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    var have = {};
+    triggers.forEach(function (t) {
+      var fn = t.getHandlerFunction();
+      if (OBSOLETE_TRIGGERS_.indexOf(fn) >= 0) {
+        ScriptApp.deleteTrigger(t);
+        log.push(fn + ': 廃止したので消した');
+        return;
+      }
+      have[fn] = true;
+    });
+    REQUIRED_TRIGGERS_.forEach(function (r) {
+      if (have[r.fn]) return;
+      if (typeof globalThis[r.fn] !== 'function') { log.push(r.fn + ': 関数が見つからない'); return; }
+      r.make(ScriptApp.newTrigger(r.fn).timeBased()).create();
+      log.push(r.fn + ': 作った');
+      console.log('[トリガー点検] ' + r.fn + ' を登録');
+    });
+  } catch (e) {
+    log.push('失敗: ' + e.message);
+    console.warn('[トリガー点検] 失敗: ' + e.message);
+  }
+  return log;
+}
+
+/** 【GASエディタで実行: コード.gs】トリガーを今すぐ点検する。 */
+function checkProjectTriggers() {
+  console.log(ensureProjectTriggers_().join('\n') || '全部そろっています');
 }
 
 function pingWebAppKeepAlive_() {

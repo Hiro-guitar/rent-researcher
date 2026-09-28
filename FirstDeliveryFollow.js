@@ -247,6 +247,15 @@ function processFirstDeliveryChecks() {
  *   ・サイトへのアクセスが増える → 物件検索が毎日その何十倍も叩いている
  */
 function processFirstDeliveryFollow() {
+  // トリガーの点検（旧 keepalive の役目）。1時間に1回だけ。営業時間外でも行う
+  try {
+    var _pp = PropertiesService.getScriptProperties();
+    var _last = Number(_pp.getProperty('TRIGGER_CHECKED_AT') || 0);
+    if (Date.now() - _last > 60 * 60 * 1000) {
+      _pp.setProperty('TRIGGER_CHECKED_AT', String(Date.now()));
+      ensureProjectTriggers_();
+    }
+  } catch (eT) { console.warn('[トリガー点検] ' + eT.message); }
   var h = (typeof getJstHour === 'function') ? getJstHour(new Date()) : new Date().getHours();
   if (h < 10 || h >= 20) return;   // 営業時間外は何もしない
   try { processFirstDeliveryResends(); } catch (e) { console.error('[初回配信] 再送で失敗: ' + e.message); }
