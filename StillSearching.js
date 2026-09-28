@@ -90,7 +90,9 @@ function collectStillSearching() {
  * ⚠️ 物件が出ているとは言わない（嘘になりうる）。閲覧履歴にも触れない。今の条件の表も出さない。
  */
 function buildStillAskMessages() {
-  var text = 'ご希望の条件に合うお部屋を、引き続きお探ししています。\n'
+  // 「ご覧いただけておりますでしょうか」は届いたか・開いたかを普通に尋ねる言い方で、
+  // こちらが閲覧履歴を持っているとは伝わらない（2026-09-28 ユーザー案）。
+  var text = 'お送りしましたお部屋は、ご覧いただけておりますでしょうか。\n'
     + 'もう少しこういうお部屋がいい、などございましたら\nお気軽にお申し付けください。';
   var btn = function (label, data) {
     return { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
@@ -98,7 +100,7 @@ function buildStillAskMessages() {
   };
   return [{
     type: 'flex',
-    altText: 'ご希望の条件に合うお部屋を、引き続きお探ししています。',
+    altText: 'お送りしましたお部屋は、ご覧いただけておりますでしょうか。',
     contents: {
       type: 'bubble',
       body: { type: 'box', layout: 'vertical', paddingAll: 'xl',
