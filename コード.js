@@ -766,6 +766,30 @@ function _buildCriteriaStatePayload_(stateC) {
  * 空値を落としてから base64 にし、それでも長い場合は諦めて '' を返す
  * （criteria.html は s= が無ければ従来どおり fetch する）。
  */
+/**
+ * 【GASエディタで実行】その人の条件がURLに埋め込めるかを、実際に組んで確かめる。
+ * LINEから「条件変更」を送った直後に実行すると、そのときの会話の状態で計算する。
+ * @param {string} [name] 顧客名（省略時 'Hiroki'）
+ */
+function debugCriteriaEmbed(name) {
+  name = String(name || 'Hiroki').trim();
+  var uid = (typeof _findUserIdByCustomerName_ === 'function') ? _findUserIdByCustomerName_(name) : '';
+  if (!uid) { console.log('userId が見つかりません: ' + name); return; }
+  var st = getState(uid);
+  console.log('会話の段階 step=' + (st && st.step) + ' / 画面を開いてよい段階か=' + isCriteriaPageAllowed(st && st.step));
+  try {
+    var payload = _buildCriteriaStatePayload_(st);
+    var json = JSON.stringify(payload);
+    var b64 = Utilities.base64EncodeWebSafe(json, Utilities.Charset.UTF_8).replace(/=+$/, '');
+    console.log('埋め込む中身の長さ: JSON ' + json.length + '文字 / URL用 ' + b64.length + '文字（上限 750）');
+    console.log('→ ' + (b64.length > 750 ? '長すぎて埋め込めない' : '埋め込める'));
+    var big = Object.keys(payload).map(function (k) { return k + ':' + JSON.stringify(payload[k]).length; })
+      .sort(function (a, b) { return Number(b.split(':')[1]) - Number(a.split(':')[1]); }).slice(0, 6);
+    console.log('大きい項目: ' + big.join(' / '));
+  } catch (e) { console.log('組み立てで失敗: ' + e.message); }
+  console.log('実際の関数の答え: ' + (_criteriaStateParam_(uid) ? 'あり' : 'なし（上のログに理由）'));
+}
+
 function _criteriaStateParam_(userId) {
   try {
     var st = getState(userId);
