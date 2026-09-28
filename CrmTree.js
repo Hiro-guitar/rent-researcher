@@ -29,6 +29,12 @@ var CRM_TREE_NODES = [
   { id: 'lost',         label: '迷子（どの枝にも入らない）',  parent: '', mine: true }
 ];
 
+// ⚠️ 樹形図に乗せるのは「これから来る人」だけ（ユーザー判断 2026-09-28）。
+//   それまでの顧客は freezeOldCustomers で名前を控え、樹形図から外す。
+//   旧顧客への自動の仕組み（配信・催促など）は今までどおり動かし、止めない。
+//   登録日（検索条件シートA列）は条件を変えるたびに上書きされるので、日付では分けられない。
+var CRM_TREE_OLD_SHEET = '樹形図の対象外（旧顧客）';
+
 var CRM_TREE_CALL_MAX = 3;          // 架電はこの回数まで
 var CRM_TREE_NO_SEND_DAYS = 14;     // 物件を送れていない日数
 
@@ -81,7 +87,9 @@ function _crmTreeFailedCalls_() {
  * @return {{nodes:Array, customers:Array}}
  */
 function getCrmTree() {
-  var customers = _getCustomerListForCRM_();
+  var all = _getCustomerListForCRM_();
+  var old = _crmTreeOldNames_();
+  var customers = all.filter(function (c) { return !old[c.name]; });
   var failed = _crmTreeFailedCalls_();
   var count = {};
   for (var i = 0; i < customers.length; i++) {
@@ -93,7 +101,44 @@ function getCrmTree() {
   var nodes = CRM_TREE_NODES.map(function (n) {
     return { id: n.id, label: n.label, parent: n.parent, mine: !!n.mine, count: count[n.id] || 0 };
   });
-  return { nodes: nodes, customers: customers };
+  return { nodes: nodes, customers: customers, oldCount: all.length - customers.length };
+}
+
+/** 旧顧客の名前の集合。シートが無ければ空（＝全員が樹形図に乗る）。 */
+function _crmTreeOldNames_() {
+  var out = {};
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRM_TREE_OLD_SHEET);
+  if (!sh || sh.getLastRow() < 2) return out;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function (r) {
+    var n = String(r[0] || '').trim();
+    if (n) out[n] = true;
+  });
+  return out;
+}
+
+/**
+ * 【GASエディタで実行: CrmTree.gs】今いる全顧客を「旧顧客」として控える。1回だけ。
+ * これ以降に来た人だけが樹形図に乗る。すでに控えてあれば何もしない。
+ * 旧顧客への自動配信などは何も変えない。
+ */
+function freezeOldCustomers() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  if (ss.getSheetByName(CRM_TREE_OLD_SHEET)) {
+    console.log('すでに控えてあります（' + CRM_TREE_OLD_SHEET + '）。何もしません');
+    return;
+  }
+  // 反響から7日以内でまだ電話していない人だけは残す（まだ間に合う。ユーザー確認 2026-09-28）。
+  // 反響だけの人は条件が無いので、A列の日付＝取り込んだ日のまま動かない。
+  var todayIdx = _jstDayIndex_(Date.now());
+  var names = getCrmTree().customers.filter(function (c) {
+    if (c.node !== 'callQueue' || !c.registeredAt) return true;
+    return todayIdx - _jstDayIndex_(new Date(c.registeredAt).getTime()) > 7;
+  }).map(function (c) { return c.name; });
+  var sh = ss.insertSheet(CRM_TREE_OLD_SHEET);
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+  var rows = [['顧客名', '控えた日時']].concat(names.map(function (n) { return [n, now]; }));
+  sh.getRange(1, 1, rows.length, 2).setValues(rows);
+  console.log('旧顧客として ' + names.length + ' 人を控えました。これ以降に来た人だけが樹形図に乗ります');
 }
 
 /**
@@ -104,7 +149,7 @@ function previewCrmTree() {
   var t = getCrmTree();
   var byNode = {};
   t.customers.forEach(function (c) { (byNode[c.node] = byNode[c.node] || []).push(c); });
-  var lines = ['全 ' + t.customers.length + ' 人'];
+  var lines = ['樹形図 ' + t.customers.length + ' 人（旧顧客 ' + t.oldCount + ' 人は対象外）'];
   t.nodes.forEach(function (n) {
     var depth = n.parent ? (n.parent === 'inquiry' ? 1 : 2) : 0;
     if (n.parent === 'line') depth = 2;
