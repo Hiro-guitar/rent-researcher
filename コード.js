@@ -706,6 +706,8 @@ function doPost(e) {
       // 既存ボットのテキスト処理（申込フロー + 面積検索）
       if (handleExistingText(replyToken, userId, message, state)) return;
 
+      // ここまで来た文はボットが答えていない＝人が返信する文。樹形図の「LINEに返信」に出す（CrmTree.js）
+      try { recordLineNeedsReply(userId, message); } catch (eNR) { console.warn('recordLineNeedsReply: ' + eNR.message); }
       return;
     }
     })();
