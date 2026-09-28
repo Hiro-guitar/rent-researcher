@@ -769,7 +769,10 @@ function _buildCriteriaStatePayload_(stateC) {
 function _criteriaStateParam_(userId) {
   try {
     var st = getState(userId);
-    if (!isCriteriaPageAllowed(st.step)) return '';
+    if (!isCriteriaPageAllowed(st.step)) {
+      console.log('[criteria] URL埋め込みなし: 会話の段階が対象外 step=' + (st && st.step));
+      return '';
+    }
     var payload = _buildCriteriaStatePayload_(st);
     // 埋め込みが古すぎる場合に criteria.html 側で捨てられるようにする
     payload.t = Date.now();
@@ -789,6 +792,7 @@ function _criteriaStateParam_(userId) {
       console.log('[criteria] URL埋め込み断念（長すぎ） size=' + b64.length);
       return '';
     }
+    console.log('[criteria] URL埋め込みあり size=' + b64.length);
     return b64;
   } catch (e) {
     console.warn('[criteria] URL埋め込み失敗: ' + (e && e.message));
