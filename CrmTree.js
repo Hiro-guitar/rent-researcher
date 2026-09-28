@@ -18,6 +18,7 @@ var CRM_TREE_NODES = [
   { id: 'wantApply',    label: '申込・内見の希望が来た',       parent: '', mine: true, urgent: true },
   { id: 'strongSignal', label: '強い合図（電話する）',         parent: '', mine: true, urgent: true },
   { id: 'replyLine',    label: 'LINEに返信',                   parent: '', mine: true, urgent: true },
+  { id: 'taskDue',      label: '約束の日（次の連絡・内見）',     parent: '', mine: true, urgent: true },
   { id: 'inquiry',      label: '反響',                         parent: '' },
   { id: 'mailOnly',     label: 'メールだけ（自動メール）',       parent: 'inquiry' },
   { id: 'callQueue',    label: '架電待ち',                      parent: 'inquiry', mine: true },
@@ -29,6 +30,8 @@ var CRM_TREE_NODES = [
   { id: 'neverViewed',  label: '1件も見ていない（自動で再送）',   parent: 'following' },
   { id: 'noSend14',     label: '物件を送れていない（条件を見直す）',         parent: 'following', mine: true },
   { id: 'pausedNotEnd', label: '配信停止なのに終了でない',        parent: 'following', mine: true },
+  { id: 'viewing',      label: '内見の予定あり',                  parent: 'following' },
+  { id: 'waitNext',     label: '次の連絡を待つ（日付を決めた）',   parent: 'following' },
   { id: 'applied',      label: '申込',                          parent: 'following' },
   { id: 'won',          label: '成約',                          parent: 'applied' },
   { id: 'ended',        label: '終了',                          parent: '' },
@@ -89,8 +92,11 @@ function _crmTreeNodeOf_(c) {
   if (c.sig.strong) return 'strongSignal';
   if (c.sig.reply) return 'replyLine';
 
-  if (c.stage === '申込') return 'applied';
   if (c.stage === '終了' || c.archived) return 'ended';
+  if (c.taskDueNow) return 'taskDue';
+  if (c.stage === '申込') return 'applied';
+  if (c.hasViewingTask) return 'viewing';
+  if (c.nextTaskDue) return 'waitNext';   // 次の連絡日を決めてある人は、その日まで赤くしない
 
   var talked = (c.daysSinceTalk !== null && c.daysSinceTalk !== undefined);
   if (!c.hasLine) {
@@ -346,6 +352,8 @@ function getCrmTree(opts) {
   var replyByUid = _crmTreeReplyByUid_(ss);
   var lineMsByUid = _crmTreeLineMsByUid_(ss);
   var todayIdx = _jstDayIndex_(Date.now());
+  var tasks = _crmTreeOpenTasks_(ss);
+  var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 
   var count = {};
   customers.forEach(function (c) {
@@ -358,6 +366,11 @@ function getCrmTree(opts) {
     var regMs = c.registeredAt ? new Date(c.registeredAt).getTime() : 0;
     c.daysSinceInquiry = regMs ? (todayIdx - _jstDayIndex_(regMs)) : null;
     c.sig = _crmTreeSignals_(acts[c.name], cl.lastMs, uid ? (replyByUid[uid] || 0) : 0);
+    var ts = tasks[c.name] || [];
+    c.tasks = ts;
+    c.taskDueNow = ts.some(function (t) { return t.due && t.due <= todayStr; });
+    c.hasViewingTask = ts.some(function (t) { return t.content.indexOf('内見') >= 0; });
+    c.nextTaskDue = ts.filter(function (t) { return t.due; }).map(function (t) { return t.due; }).sort()[0] || '';
     c.node = _crmTreeNodeOf_(c);
     count[c.node] = (count[c.node] || 0) + 1;
   });
@@ -437,7 +450,8 @@ function _crmTreeForPage_() {
         daysSinceInquiry: c.daysSinceInquiry, failedCalls: c.failedCalls || 0,
         daysSinceSent: c.daysSinceSent, daysSinceViewed: c.daysSinceViewed,
         lastTalkAt: c.lastTalkAt || '', moveIn: c.moveIn || '',
-        note: (c.sig && c.sig.note) || '', endWhy: c.endWhy || ''
+        note: (c.sig && c.sig.note) || '', endWhy: c.endWhy || '', stage: c.stage || '',
+        tasks: (c.tasks || []).map(function (t) { return t.content + (t.due ? '（' + t.due.substring(5).replace('-', '/') + '）' : ''); })
       };
     })
   };
@@ -452,6 +466,7 @@ function getCrmTreeForPage() {
 function recordCrmTreeContact(customerName, type) {
   var r = addContactLog(customerName, type, new Date().toISOString(), '');
   if (!r || !r.success) throw new Error((r && r.message) || '記録できませんでした');
+  _crmTreeCloseDueTasks_(customerName);
   return _crmTreeForPage_();
 }
 
@@ -487,4 +502,126 @@ function showCrmTreePageUrl() {
  */
 function previewCrmTreeWithOld() {
   previewCrmTree({ includeOld: true });
+}
+
+// ════════════════════════════════════════════
+//  次の一手（タスクシートを使う）
+// ════════════════════════════════════════════
+// 次回接触日・内見の確認は、既存の「タスク」シート（コード.js TASK_SHEET_NAME）に書く。
+// 旧画面の詳細にも同じものが出るので、どちらから見ても揃う。
+var CRM_NEXT_TASK = '次の連絡';
+
+/** 未完了で「自分」ボールのタスク: 顧客名 → [{row, content, due('yyyy-MM-dd')}] */
+function _crmTreeOpenTasks_(ss) {
+  var out = {};
+  try {
+    var sh = ss.getSheetByName(TASK_SHEET_NAME);
+    if (!sh || sh.getLastRow() < 2) return out;
+    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      var n = String(rows[i][0] || '').trim();
+      if (!n) continue;
+      if (String(rows[i][3] || '') === 'TRUE' || rows[i][3] === true) continue;
+      if (_normalizeTaskOwner_(rows[i][5]) !== TASK_OWNER_DEFAULT) continue;
+      var d = rows[i][2];
+      var due = (d instanceof Date) ? Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd') : '';
+      (out[n] = out[n] || []).push({ row: i + 2, content: String(rows[i][1] || ''), due: due });
+    }
+  } catch (e) { console.warn('[樹形図] タスク: ' + e.message); }
+  return out;
+}
+
+/** 期限が今日までの「自分」タスクを完了にする（記録を付けた＝その約束は果たした）。 */
+function _crmTreeCloseDueTasks_(customerName) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  var mine = _crmTreeOpenTasks_(ss)[customerName] || [];
+  var sh = ss.getSheetByName(TASK_SHEET_NAME);
+  mine.forEach(function (t) {
+    // 内見の前日確認・結果確認は、その日が来ていれば一緒に閉じる。次の連絡も同じ
+    if (t.due && t.due <= todayStr) sh.getRange(t.row, 4).setValue('TRUE');
+  });
+}
+
+function _crmDateAfter_(days) {
+  return Utilities.formatDate(new Date(Date.now() + days * _DAY_MS_), 'Asia/Tokyo', 'yyyy-MM-dd');
+}
+
+/** 画面: 次の連絡日を決める（days=0 なら決めない）。 */
+function setCrmNextContact(customerName, days) {
+  days = Number(days) || 0;
+  if (days > 0) {
+    var r = addCustomerTask(customerName, CRM_NEXT_TASK, _crmDateAfter_(days), TASK_OWNER_DEFAULT);
+    if (!r || !r.success) throw new Error((r && r.message) || '次の連絡日を保存できませんでした');
+  }
+  return _crmTreeForPage_();
+}
+
+/** 画面: 内見の予定を入れる。前日に確認、翌日に結果を聞く、の2つをタスクにする。 */
+function planCrmViewing(customerName, dateStr) {
+  var d = new Date(String(dateStr).replace(/-/g, '/'));
+  if (isNaN(d.getTime())) throw new Error('日付を選んでください');
+  var label = Utilities.formatDate(d, 'Asia/Tokyo', 'M/d') + ' 内見';
+  var before = Utilities.formatDate(new Date(d.getTime() - _DAY_MS_), 'Asia/Tokyo', 'yyyy-MM-dd');
+  var after = Utilities.formatDate(new Date(d.getTime() + _DAY_MS_), 'Asia/Tokyo', 'yyyy-MM-dd');
+  addCustomerTask(customerName, '内見の前日確認（' + label + '）', before, TASK_OWNER_DEFAULT);
+  addCustomerTask(customerName, '内見の結果を聞く（' + label + '）', after, TASK_OWNER_DEFAULT);
+  addContactLog(customerName, '内見予定', new Date().toISOString(), label);
+  return _crmTreeForPage_();
+}
+
+/**
+ * 画面: 工程を変える。stage = '申込' | '成約' | '終了' | ''（追客中に戻す）
+ * 終了は理由を T列 に書く（自動終了の印とは別の文言なので、自動の復活は効かない）。
+ */
+var CRM_END_REASONS = ['音信不通', '他社で決定', '条件が合わない', '引越し中止', 'その他'];
+function setCrmStage(customerName, stage, reason) {
+  var r = setCustomerStage(customerName, stage);
+  if (!r || !r.ok) throw new Error((r && r.message) || '変更できませんでした');
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+  var data = sh.getDataRange().getValues();
+  var row = _autoEndCriteriaRow_(data, customerName);
+  if (row > 0) {
+    if (stage === '終了') sh.getRange(row, 20).setValue('終了: ' + (reason || 'その他'));   // T列
+    if (stage === '') {
+      sh.getRange(row, 20).setValue('');
+      if (String(data[row - 1][44] || '').trim()) sh.getRange(row, 45).setValue('');   // AS列: アーカイブを外す
+    }
+  }
+  if (stage !== '') {
+    // 申込・成約・終了にしたら、残っている「次の連絡」「内見」の約束は閉じる
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var tsh = ss.getSheetByName(TASK_SHEET_NAME);
+    (_crmTreeOpenTasks_(ss)[customerName] || []).forEach(function (t) {
+      if (t.content === CRM_NEXT_TASK || t.content.indexOf('内見') >= 0) tsh.getRange(t.row, 4).setValue('TRUE');
+    });
+  }
+  addContactLog(customerName, 'その他', new Date().toISOString(),
+    stage ? ('工程: ' + stage + (reason ? '（' + reason + '）' : '')) : '工程: 追客中に戻す');
+  return _crmTreeForPage_();
+}
+
+/**
+ * 終了・アーカイブの人が再問い合わせしてきたら追客に戻す（InquiryImport.js から呼ぶ）。
+ * 成約の人はそのまま。
+ * @return {boolean} 戻したか
+ */
+function reviveEndedCustomer(customerName) {
+  try {
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+    var data = sh.getDataRange().getValues();
+    var row = _autoEndCriteriaRow_(data, customerName);
+    if (row < 0) return false;
+    var stage = String(data[row - 1][32] || '').trim();
+    var archived = !!String(data[row - 1][44] || '').trim();
+    if (stage !== '終了' && !archived) return false;
+    if (stage === '終了') sh.getRange(row, 33).setValue('');
+    sh.getRange(row, 20).setValue('');
+    if (archived) sh.getRange(row, 45).setValue('');
+    console.log('[樹形図] 再問い合わせのため追客に戻しました: ' + customerName);
+    return true;
+  } catch (e) {
+    console.warn('[樹形図] 戻せません: ' + customerName + ' / ' + e.message);
+    return false;
+  }
 }

@@ -208,6 +208,8 @@ function _autoCreateLeadFromInquiry_(info) {
       // 既存のお客さんからの再問い合わせ。カードは増やさないが、対応ログには残す。
       // 残さないと問い合わせシートに載るだけで、その人のCRMには何も出ず、
       // 画面上は何も起きていないように見えてしまう。
+      // 終了にしていた人がまた問い合わせてきたら追客に戻す（CrmTree.js）
+      try { if (typeof reviveEndedCustomer === 'function') reviveEndedCustomer(existingName); } catch (eRv) {}
       try { addContactLog(existingName, 'SUUMO反響', logDate, logMemo); } catch (eL2) {
         console.warn('[自動リード化] 既存客の対応ログ追加に失敗: ' + eL2.message);
       }

@@ -60,6 +60,8 @@
   .cust .note { color: var(--red); font-size: 13px; }
   .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .acts .btn { padding: 6px 10px; }
+  .acts.small .btn { font-size: 12px; padding: 4px 8px; color: var(--muted); }
+  .ask { margin-top: 8px; font-weight: 700; color: var(--green); }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
     background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; }
   .foot { color: var(--muted); font-size: 12px; margin-top: 12px; }
@@ -84,6 +86,7 @@
   var data = JSON.parse('<?!= treeJson ?>');
   var customerPageUrl = JSON.parse('<?!= customerPageUrl ?>');
   var sel = '';    // 選んでいる箱
+  var askNext = '', askEnd = '', askViewing = '';   // いま質問を出している顧客
   document.getElementById('oldLink').href = customerPageUrl;
 
   function esc(s) {
@@ -110,6 +113,7 @@
     if (c.daysSinceSent !== null && c.daysSinceSent !== undefined) m.push('最終送信 ' + c.daysSinceSent + '日前');
     if (c.moveIn) m.push('引越し ' + c.moveIn);
     if (c.endWhy) m.push('終了: ' + c.endWhy);
+    if (c.tasks && c.tasks.length) m.push('予定: ' + c.tasks.join('、'));
     return m.join(' ・ ');
   }
 
@@ -123,11 +127,38 @@
     if (meta) h += '<div class="meta">' + esc(meta) + '</div>';
     if (!c.lineOnly) {
       var n = esc(JSON.stringify(c.name));
-      h += '<div class="acts">'
-        + '<button class="btn" onclick="rec(' + n + ',\'電話（話せた）\')">📞 話せた</button>'
-        + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>'
-        + '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>'
-        + '</div>';
+      if (askNext === c.name) {
+        // 記録した直後: 次の連絡日を決める
+        h += '<div class="ask">次の連絡は？</div><div class="acts">'
+          + [[1, '明日'], [3, '3日後'], [7, '1週間後'], [14, '2週間後'], [0, '決めない']].map(function (d) {
+            return '<button class="btn" onclick="next(' + n + ',' + d[0] + ')">' + d[1] + '</button>';
+          }).join('') + '</div>';
+      } else if (askEnd === c.name) {
+        h += '<div class="ask">終了の理由は？</div><div class="acts">'
+          + ['音信不通', '他社で決定', '条件が合わない', '引越し中止', 'その他'].map(function (r) {
+            return '<button class="btn" onclick="stage(' + n + ',\'終了\',\'' + r + '\')">' + r + '</button>';
+          }).join('') + '<button class="btn" onclick="askEnd=\'\';render()">やめる</button></div>';
+      } else if (askViewing === c.name) {
+        h += '<div class="ask">内見の日は？</div><div class="acts">'
+          + '<input type="date" id="vdate" class="btn">'
+          + '<button class="btn" onclick="viewing(' + n + ')">決定</button>'
+          + '<button class="btn" onclick="askViewing=\'\';render()">やめる</button></div>';
+      } else {
+        h += '<div class="acts">'
+          + '<button class="btn" onclick="rec(' + n + ',\'電話（話せた）\')">📞 話せた</button>'
+          + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>'
+          + '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>'
+          + '</div><div class="acts small">';
+        if (c.node === 'ended' || c.node === 'won') {
+          h += '<button class="btn" onclick="stage(' + n + ',\'\',\'\')">↩ 追客中に戻す</button>';
+        } else {
+          h += '<button class="btn" onclick="askViewing=' + n + ';render()">👀 内見の予定</button>';
+          if (c.stage !== '申込') h += '<button class="btn" onclick="stage(' + n + ',\'申込\',\'\')">申込にする</button>';
+          h += '<button class="btn" onclick="stage(' + n + ',\'成約\',\'\')">成約にする</button>'
+            + '<button class="btn" onclick="askEnd=' + n + ';render()">終了にする</button>';
+        }
+        h += '</div>';
+      }
     }
     return h + '</div>';
   }
@@ -203,9 +234,27 @@
   function rec(name, type) {
     toast('記録しています…');
     google.script.run
-      .withSuccessHandler(function (d) { data = d; render(); toast(name + '：' + type + ' を記録しました'); })
+      .withSuccessHandler(function (d) { data = d; askNext = name; render(); toast(name + '：' + type + ' を記録しました'); })
       .withFailureHandler(function (e) { toast('記録できませんでした: ' + e.message); })
       .recordCrmTreeContact(name, type);
+  }
+
+  function call(fn, args, done) {
+    toast('保存しています…');
+    var r = google.script.run
+      .withSuccessHandler(function (d) { data = d; askNext = askEnd = askViewing = ''; render(); toast(done); })
+      .withFailureHandler(function (e) { toast('保存できませんでした: ' + e.message); });
+    r[fn].apply(r, args);
+  }
+  function next(name, days) {
+    if (!days) { askNext = ''; render(); return; }
+    call('setCrmNextContact', [name, days], '次の連絡日を入れました');
+  }
+  function stage(name, st, reason) { call('setCrmStage', [name, st, reason], name + '：' + (st || '追客中') + 'にしました'); }
+  function viewing(name) {
+    var v = document.getElementById('vdate').value;
+    if (!v) { toast('日付を選んでください'); return; }
+    call('planCrmViewing', [name, v], '内見の予定を入れました（前日と翌日にやることが出ます）');
   }
 
   function reload() {
