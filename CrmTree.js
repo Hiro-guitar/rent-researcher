@@ -51,6 +51,7 @@ var CRM_TREE_NO_SEND_DAYS = 14;     // 物件を送れていない日数
 var CRM_TREE_VIEW_REPEAT = 3;       // 同じ物件をこの回数以上 開いたら強い合図
 var CRM_TREE_VIEW_ROOMS = 3;        // この件数以上の物件を開いたら強い合図
 var CRM_TREE_SIGNAL_DAYS = 7;       // 閲覧の合図はこの日数以内のものだけ数える
+var CRM_TREE_APPLY_DAYS = 14;       // 申込・内見の希望はこの日数以内のものだけ（それより前は対応済みとみなす）
 
 var _DAY_MS_ = 24 * 60 * 60 * 1000;
 
@@ -174,7 +175,7 @@ function _crmTreeSignals_(acts, handledMs, replyMs) {
   var submitted = {};
   (acts || []).forEach(function (a) {
     if (a.ms <= handledMs) return;
-    if (a.act === 'hold' || a.act === 'viewing') {
+    if ((a.act === 'hold' || a.act === 'viewing') && a.ms >= Date.now() - CRM_TREE_APPLY_DAYS * _DAY_MS_) {
       sig.apply = Math.max(sig.apply, a.ms);
       submitted[a.room + '|' + (a.act === 'hold' ? 'hold' : 'viewing')] = true;
     }
@@ -295,10 +296,11 @@ function _crmTreeOld_(ss) {
  * 樹形図に全員を乗せた結果を返す（顧客管理ページから呼ぶ）。
  * @return {{nodes:Array, customers:Array, oldCount:number}}
  */
-function getCrmTree() {
+function getCrmTree(opts) {
+  opts = opts || {};
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var all = _getCustomerListForCRM_();
-  var old = _crmTreeOld_(ss);
+  var old = opts.includeOld ? { names: {}, frozenMs: 0 } : _crmTreeOld_(ss);
   // ⚠️ 旧顧客でも、控えたあとに動いた人（再問い合わせ・返信が要るLINE・申込/内見の希望）は樹形図に戻す。
   //   捨てたのは「放っておいた過去」であって、今また来た人ではない。
   var back = _crmTreeOldCameBack_(ss, old, all);
@@ -378,8 +380,8 @@ function freezeOldCustomers() {
  * 【GASエディタで実行: CrmTree.gs】枝ごとの人数と、赤い枝・迷子の顔ぶれをログに出す。
  * 何も変えない。
  */
-function previewCrmTree() {
-  var t = getCrmTree();
+function previewCrmTree(opts) {
+  var t = getCrmTree(opts);
   var byNode = {};
   t.customers.forEach(function (c) { (byNode[c.node] = byNode[c.node] || []).push(c); });
   var depthOf = function (n) {
@@ -402,7 +404,8 @@ function previewCrmTree() {
         + (c.sig && c.sig.note ? ' / 合図:' + c.sig.note : '')
         + (c.endWhy ? ' / 終了理由:' + c.endWhy : '') + '）';
     });
-    console.log('■ ' + n.label + '（' + n.count + '人）\n' + list.join('\n'));
+    var more = list.length > 40 ? '\n…ほか' + (list.length - 40) + '人' : '';
+    console.log('■ ' + n.label + '（' + n.count + '人）\n' + list.slice(0, 40).join('\n') + more);
   });
 }
 
@@ -461,4 +464,12 @@ function getCrmTreePageUrl() {
 /** 【GASエディタで実行: CrmTree.gs】樹形図ページのURLをログに出す。 */
 function showCrmTreePageUrl() {
   console.log(getCrmTreePageUrl());
+}
+
+/**
+ * 【GASエディタで実行: CrmTree.gs】旧顧客も樹形図に入れたらどうなるかをログに出す。何も変えない。
+ * 入れてよければ「樹形図の対象外（旧顧客）」シートを消せば、画面にもそのまま出る。
+ */
+function previewCrmTreeWithOld() {
+  previewCrmTree({ includeOld: true });
 }
