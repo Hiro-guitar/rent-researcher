@@ -44,6 +44,7 @@ var CRM_TREE_OLD_SHEET = '樹形図の対象外（旧顧客）';
 var CRM_TREE_REPLY_SHEET = 'LINE要返信';
 
 var CRM_TREE_CALL_MAX = 3;          // 架電はこの回数まで
+var CRM_TREE_MAIL_DAYS = 14;        // メールだけの人は、反響からこの日数でLINEに来なければ終了
 var CRM_TREE_CALL_DAYS = 7;         // 反響からこの日数を過ぎたら架電待ちから外す（終了）
 var CRM_TREE_NUDGE_WAIT_H = 24;     // 催促のあと、この時間 何も無ければ終了
 var CRM_TREE_NO_SEND_DAYS = 14;     // 物件を送れていない日数
@@ -88,7 +89,14 @@ function _crmTreeNodeOf_(c) {
 
   var talked = (c.daysSinceTalk !== null && c.daysSinceTalk !== undefined);
   if (!c.hasLine) {
-    if (!c.hasPhone && !c.hasCriteria) return 'mailOnly';
+    if (!c.hasPhone && !c.hasCriteria) {
+      // 自動メールは14日で終わる。それまでにLINEに来なければ終了
+      if (c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_MAIL_DAYS) {
+        c.endWhy = 'メールだけで' + c.daysSinceInquiry + '日';
+        return 'ended';
+      }
+      return 'mailOnly';
+    }
     if (c.hasPhone && !talked) {
       var expired = c.failedCalls >= CRM_TREE_CALL_MAX
         || (c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_CALL_DAYS);
@@ -238,6 +246,37 @@ function _crmTreeNewFriends_(ss) {
   return out;
 }
 
+/** 旧顧客のうち、控えたあとに動いた人の名前の集合。 */
+function _crmTreeOldCameBack_(ss, old, all) {
+  var out = {};
+  if (!old.frozenMs) return out;
+  try {
+    // 再問い合わせ（取込が対応ログに「SUUMO反響」を書く）
+    var sh = ss.getSheetByName(CONTACT_LOG_SHEET_NAME);
+    if (sh && sh.getLastRow() > 1) {
+      sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r) {
+        var n = String(r[0] || '').trim();
+        if (old.names[n] && String(r[2] || '').indexOf('反響') >= 0 && _cellToEpochMs_(r[1]) > old.frozenMs) out[n] = true;
+      });
+    }
+    // 返信が要るLINEの文
+    var uidByName = (typeof _getLineUserIdMapByCustomerName_ === 'function') ? _getLineUserIdMapByCustomerName_() : {};
+    var replyByUid = _crmTreeReplyByUid_(ss);
+    Object.keys(old.names).forEach(function (n) {
+      var uid = uidByName[n];
+      if (uid && replyByUid[uid] > old.frozenMs) out[n] = true;
+    });
+    // 申込・内見の希望
+    var acts = _crmTreeActions_(ss, old.names);
+    Object.keys(acts).forEach(function (n) {
+      acts[n].forEach(function (a) {
+        if ((a.act === 'hold' || a.act === 'viewing') && a.ms > old.frozenMs) out[n] = true;
+      });
+    });
+  } catch (e) { console.warn('[樹形図] 旧顧客の戻り: ' + e.message); }
+  return out;
+}
+
 /** 旧顧客の名前の集合と、控えた時刻。シートが無ければ空（＝全員が樹形図に乗る）。 */
 function _crmTreeOld_(ss) {
   var out = { names: {}, frozenMs: 0 };
@@ -260,7 +299,10 @@ function getCrmTree() {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var all = _getCustomerListForCRM_();
   var old = _crmTreeOld_(ss);
-  var customers = all.filter(function (c) { return !old.names[c.name]; });
+  // ⚠️ 旧顧客でも、控えたあとに動いた人（再問い合わせ・返信が要るLINE・申込/内見の希望）は樹形図に戻す。
+  //   捨てたのは「放っておいた過去」であって、今また来た人ではない。
+  var back = _crmTreeOldCameBack_(ss, old, all);
+  var customers = all.filter(function (c) { return !old.names[c.name] || back[c.name]; });
   var oldCount = all.length - customers.length;
 
   var uidByName = (typeof _getLineUserIdMapByCustomerName_ === 'function') ? _getLineUserIdMapByCustomerName_() : {};
