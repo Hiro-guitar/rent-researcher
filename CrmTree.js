@@ -481,6 +481,9 @@ function handleCrmTreePage(e) {
   var tpl = HtmlService.createTemplateFromFile('CrmTreePage');
   tpl.treeJson = _jsonForInlineScript_(_crmTreeForPage_());
   tpl.customerPageUrl = _jsonForInlineScript_(getCustomerPageUrl());
+  tpl.adminUrl = _jsonForInlineScript_(getAdminPageUrl(''));
+  // ⚠️ 物件検索のURLはここで埋め込んでリンクにする（google.script.run の応答後に開くとブロックされる）
+  tpl.mobileSearchUrl = _jsonForInlineScript_(getMobileSearchWrappedUrl());
   return tpl.evaluate()
     .setTitle('顧客管理')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
