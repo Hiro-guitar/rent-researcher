@@ -92,8 +92,10 @@ function collectStillSearching() {
 function buildStillAskMessages() {
   // 「ご覧いただけておりますでしょうか」は届いたか・開いたかを普通に尋ねる言い方で、
   // こちらが閲覧履歴を持っているとは伝わらない（2026-09-28 ユーザー案）。
-  var text = 'お送りしましたお部屋は、ご覧いただけておりますでしょうか。\n'
-    + 'もう少しこういうお部屋がいい、などございましたら\nお気軽にお申し付けください。';
+  // ⚠️ 改行は文の切れ目だけ。文の途中で折り返さない（2026-09-28）。
+  // ⚠️ 「お申し付けください」に対応するボタンは無いので、そのままLINEに書いてもらう言い方にする。
+  var text = 'お送りしましたお部屋は、ご覧いただけておりますでしょうか。\n\n'
+    + 'もう少しこういうお部屋がいい、などございましたら、このままLINEでお送りください。';
   var btn = function (label, data) {
     return { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
       action: { type: 'postback', label: label, data: data, displayText: label } };
@@ -106,7 +108,7 @@ function buildStillAskMessages() {
       body: { type: 'box', layout: 'vertical', paddingAll: 'xl',
         contents: [{ type: 'text', text: text, size: 'sm', color: '#555555', wrap: true, lineSpacing: '6px' }] },
       footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
-        contents: [btn('条件を変更する', 'still:change'), btn('このままで続ける', 'still:go'), btn('探すのをやめた', 'still:stop')] }
+        contents: [btn('このままで続ける', 'still:go'), btn('探すのをやめた', 'still:stop')] }
     }
   }];
 }
