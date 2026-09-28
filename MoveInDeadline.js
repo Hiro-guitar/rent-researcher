@@ -323,6 +323,9 @@ function processMoveInDeadline() {
   if (h < 10 || h >= 20) return;
   try { _moveInAsk_(h); } catch (e) { console.error('[引越し期限] 聞くところで失敗: ' + e.message); }
   try { _moveInCloseNoReply_(); } catch (e) { console.error('[引越し期限] 締めるところで失敗: ' + e.message); }
+  // 長く反応がない人への継続確認（StillSearching.gs）。1時間おきに相乗り
+  try { if (typeof processStillSearching === 'function') processStillSearching(); }
+  catch (e) { console.error('[継続確認] 失敗: ' + e.message); }
   // LINE Users の「LINEの表示名」の空欄を埋める（LineApi.gs）。
   // 本人確定のときに LINE が遅くて取れなかった人が、対応表に載らないまま残るため。
   // 空欄の人だけ取りに行くので、普段は何もしない。1時間おきに相乗り。

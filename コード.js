@@ -435,6 +435,12 @@ function doPost(e) {
         return;
       }
 
+      // 継続確認（StillSearching.gs）
+      if (data === 'still:go' || data === 'still:change' || data === 'still:stop') {
+        handleStillPostback(replyToken, userId, data);
+        return;
+      }
+
       // 引越し期限の確認（MoveInDeadline.gs）
       if (data === 'movein:renew') {
         // 条件選択の画面は挟まない。聞かれたのは時期だけなので、そこだけ聞き直す。
@@ -4433,7 +4439,8 @@ var REQUIRED_TRIGGERS_ = [
   { fn: 'processFirstSearchFollow',  make: function (b) { return b.everyHours(1); } },
   { fn: 'processFirstDeliveryFollow', make: function (b) { return b.everyMinutes(15); } }
 ];
-var OBSOLETE_TRIGGERS_ = ['pingWebAppKeepAlive_', 'autoArchiveFinishedCustomers'];
+// runConditionSuggestionAutoSend: 旧「条件変更提案 10日×3回」。継続確認（StillSearching.gs）に置き換えて廃止（2026-09-28）
+var OBSOLETE_TRIGGERS_ = ['pingWebAppKeepAlive_', 'autoArchiveFinishedCustomers', 'runConditionSuggestionAutoSend'];
 
 function ensureProjectTriggers_() {
   var log = [];

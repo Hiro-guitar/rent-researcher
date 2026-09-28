@@ -38,6 +38,8 @@ var CONDITION_SUGGESTION_SENT_COL = 26;
 var CONDITION_SUGGESTION_COUNT_COL = 30;
 // 連続送信回数がこの値に達したら配信を自動停止する
 var AUTO_PAUSE_THRESHOLD = 3;
+// 自動送信の廃止スイッチ（2026-09-28）。true の間は runConditionSuggestionAutoSend が何もしない
+var CONDITION_SUGGESTION_AUTO_RETIRED = true;
 
 /**
  * 候補顧客の一覧を返す。AdminPage の「条件変更提案」セクションから呼ばれる。
@@ -249,6 +251,13 @@ function _recordConditionSuggestionRun_(summary) {
 
 function runConditionSuggestionAutoSend() {
   var ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  // ⚠️ 2026-09-28 廃止。出口は StillSearching.gs（継続確認）に移した。トリガーも ensureProjectTriggers_ が消す。
+  //   手動送信（sendConditionSuggestionMessages）はそのまま使える。
+  if (CONDITION_SUGGESTION_AUTO_RETIRED) {
+    console.log('[条件変更提案/自動] 廃止済み。何もしません (' + ts + ')');
+    _recordConditionSuggestionRun_({ result: 'retired' });
+    return;
+  }
   try {
     // 無効化スイッチ
     var props = PropertiesService.getScriptProperties();
