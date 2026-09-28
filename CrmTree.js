@@ -478,9 +478,11 @@ function handleCrmTreePage(e) {
       '<h3>認証エラー</h3><p>api_key が正しくありません。</p></body></html>'
     ).setTitle('認証エラー');
   }
+  // ?customer=<名前> 付きで来たら、その人の詳細（旧画面）をそのまま開く。古いリンクを生かすため
+  if (e.parameter.customer) return handleCustomerPage(e);
   var tpl = HtmlService.createTemplateFromFile('CrmTreePage');
   tpl.treeJson = _jsonForInlineScript_(_crmTreeForPage_());
-  tpl.customerPageUrl = _jsonForInlineScript_(getCustomerPageUrl());
+  tpl.customerPageUrl = _jsonForInlineScript_(getCustomerDetailPageUrl());
   tpl.adminUrl = _jsonForInlineScript_(getAdminPageUrl(''));
   // ⚠️ 物件検索のURLはここで埋め込んでリンクにする（google.script.run の応答後に開くとブロックされる）
   tpl.mobileSearchUrl = _jsonForInlineScript_(getMobileSearchWrappedUrl());

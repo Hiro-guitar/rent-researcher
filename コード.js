@@ -5059,7 +5059,16 @@ function showPageUrls() {
   console.log('\n※ スマホで使うときは、ホーム画面に追加しておくと1タップで開けます。');
 }
 
+/**
+ * 顧客管理ページのURL。2026-09-28 から樹形図の新画面（?action=crm、CrmTree.js）を指す。
+ * 旧カンバン（?action=customer）は顧客詳細の画面として残り、名前を押すとそこが開く。
+ */
 function getCustomerPageUrl() {
+  return getCrmTreePageUrl();
+}
+
+/** 旧画面（カンバン＋顧客詳細）のURL。樹形図から詳細を開くときに使う。 */
+function getCustomerDetailPageUrl() {
   var baseUrl = ScriptApp.getService().getUrl();
   var apiKey = PropertiesService.getScriptProperties().getProperty('REINS_API_KEY') || '';
   return baseUrl + '?action=customer&api_key=' + encodeURIComponent(apiKey);

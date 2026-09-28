@@ -190,7 +190,7 @@
         alert('GAS Web App URLが設定されていません。設定画面から設定してください。');
         return;
       }
-      const url = data.gasWebappUrl + '?action=customer'
+      const url = data.gasWebappUrl + '?action=crm'   // 樹形図の顧客管理（2026-09-28〜）
         + (data.gasApiKey ? '&api_key=' + encodeURIComponent(data.gasApiKey) : '');
       window.open(url, '_blank');
     });
