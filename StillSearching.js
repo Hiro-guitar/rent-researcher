@@ -9,8 +9,10 @@
  * 対象:
  *   - 最後に物件を見てから STILL_IDLE_D 日たっている（1度も見ていない人は登録から数える）
  *   - その間に STILL_MIN_SENT 件以上 送っている（送れていない人は「条件を見直す」の枝で人が拾う）
- *   - **直近 STILL_RECENT_D 日にも送っている**。文面が「新しくご紹介できるお部屋が出ています」なので、
- *     出ていない人に送ると嘘になる（ユーザー指摘 2026-09-28）。出るまで待つ
+ *
+ * ⚠️ 物件は添えない（2026-09-28）。「新しく出ています」は送る時点で埋まっていれば嘘になり、
+ *   空室確認はChrome拡張が動いていないと進まない（PCを閉じていると送れない）。
+ *   文面は事実だけ（「引き続きお送りしてよいか」）にして、確実に届くことを優先する。
  *
  * ⚠️ 文面で閲覧履歴に触れないこと。「ご覧いただけていない」等は禁止（閲覧を取っているのは内緒）。
  * ⚠️ 宛名なし・ボタンは全部同じ緑・クイックリプライ不可・2通に分けない（LINE文面の作法）。
@@ -24,7 +26,6 @@ var STILL_ENABLED = false;
 
 var STILL_IDLE_D = 30;        // 最終閲覧（無ければ登録）からこの日数
 var STILL_MIN_SENT = 10;      // その間に送った件数がこれ以上
-var STILL_RECENT_D = 7;       // 直近この日数に送っていること（「出ています」を嘘にしない）
 var STILL_WAIT_H = 24;        // 返事を待つ時間。過ぎたら終了
 var STILL_MAX_PER_DAY = 5;    // 1日に聞く人数の上限
 
@@ -39,7 +40,7 @@ function _stillSheet_() {
   return sh;
 }
 
-/** 顧客名 → { total: STILL_IDLE_D 日内に送った件数, recent: 直近 STILL_RECENT_D 日の件数 } */
+/** 顧客名 → { total: STILL_IDLE_D 日内に送った件数 } */
 function _stillSentCounts_() {
   var out = {};
   try {
@@ -52,9 +53,8 @@ function _stillSentCounts_() {
       var ms = _cellToEpochMs_(rows[i][3]);
       if (!name || !ms) continue;
       var age = (now - ms) / 86400000;
-      var r = out[name] || (out[name] = { total: 0, recent: 0 });
+      var r = out[name] || (out[name] = { total: 0 });
       if (age <= STILL_IDLE_D) r.total++;
-      if (age <= STILL_RECENT_D) r.recent++;
     }
   } catch (e) { console.warn('[継続確認] 通知済み物件を読めません: ' + e.message); }
   return out;
@@ -62,7 +62,7 @@ function _stillSentCounts_() {
 
 /**
  * 対象を集める。送信はしない。
- * @return {Array<{name, idleDays, total, recent, ok, why}>}
+ * @return {Array<{name, idleDays, total, ok, why}>}
  */
 function collectStillSearching() {
   var out = [];
@@ -78,28 +78,23 @@ function collectStillSearching() {
     var idle = (c.daysSinceViewed !== null && c.daysSinceViewed !== undefined) ? c.daysSinceViewed
       : (c.registeredAt ? todayIdx - _jstDayIndex_(new Date(c.registeredAt).getTime()) : null);
     if (idle === null || idle < STILL_IDLE_D) continue;
-    var s = sent[c.name] || { total: 0, recent: 0 };
-    var why = '';
-    if (s.total < STILL_MIN_SENT) why = '送った件数が' + s.total + '件（' + STILL_MIN_SENT + '件未満）';
-    else if (!s.recent) why = '直近' + STILL_RECENT_D + '日に送っていない';
-    out.push({ name: c.name, idleDays: idle, total: s.total, recent: s.recent, ok: !why, why: why });
+    var s = sent[c.name] || { total: 0 };
+    var why = (s.total < STILL_MIN_SENT) ? '送った件数が' + s.total + '件（' + STILL_MIN_SENT + '件未満）' : '';
+    out.push({ name: c.name, idleDays: idle, total: s.total, ok: !why, why: why });
   }
   return out;
 }
 
-/**
- * 聞くメッセージ。
- * ⚠️ 「新しく…出ています」は直近に送っている人にしか出さないこと（collect 側で保証）。
- */
+/** 聞くメッセージ。⚠️ 物件が出ているとは言わない（嘘になりうる）。 */
 function buildStillAskMessages() {
-  var text = '新しくご紹介できるお部屋が出ています。\n引き続きお送りしてよろしいでしょうか。';
+  var text = 'ご希望の条件に合うお部屋を、引き続きお送りしてよろしいでしょうか。';
   var btn = function (label, data) {
     return { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
       action: { type: 'postback', label: label, data: data, displayText: label } };
   };
   return [{
     type: 'flex',
-    altText: text.replace('\n', ' '),
+    altText: text,
     contents: {
       type: 'bubble',
       body: { type: 'box', layout: 'vertical', paddingAll: 'xl',
@@ -227,7 +222,7 @@ function previewStillSearching() {
   var ok = list.filter(function (x) { return x.ok; });
   var ng = list.filter(function (x) { return !x.ok; });
   console.log('送る対象 ' + ok.length + ' 人（1日 ' + STILL_MAX_PER_DAY + ' 人まで）\n'
-    + ok.map(function (x) { return '・' + x.name + '（最終閲覧 ' + x.idleDays + '日前 / 30日で' + x.total + '件 / 直近7日 ' + x.recent + '件）'; }).join('\n'));
+    + ok.map(function (x) { return '・' + x.name + '（最終閲覧 ' + x.idleDays + '日前 / 30日で' + x.total + '件）'; }).join('\n'));
   console.log('反応なしだが送らない ' + ng.length + ' 人\n'
     + ng.map(function (x) { return '・' + x.name + '（' + x.why + '）'; }).join('\n'));
 }
