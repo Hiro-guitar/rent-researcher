@@ -95,7 +95,7 @@ function buildStillAskMessages() {
   // ⚠️ 改行は文の切れ目だけ。文の途中で折り返さない（2026-09-28）。
   // ⚠️ 「お申し付けください」に対応するボタンは無いので、そのままLINEに書いてもらう言い方にする。
   var text = 'お送りしましたお部屋は、ご覧いただけておりますでしょうか。\n\n'
-    + 'もう少しこういうお部屋がいい、などございましたら、このままLINEでお送りください。';
+    + 'もう少しこういうお部屋がいい、などございましたら、このままLINEでメッセージをお送りください。';
   var btn = function (label, data) {
     return { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
       action: { type: 'postback', label: label, data: data, displayText: label } };
