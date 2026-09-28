@@ -113,8 +113,19 @@ function previewCrmTree() {
   });
   console.log(lines.join('\n'));
 
+  // 架電待ちを反響からの日数で分ける（まだ一度もかけていない人をどう扱うか決めるため）
+  var todayIdx = _jstDayIndex_(Date.now());
+  var buckets = { '3日以内': 0, '4〜7日': 0, '8〜30日': 0, '31〜90日': 0, '91日以上': 0, '日付なし': 0 };
+  (byNode.callQueue || []).forEach(function (c) {
+    var ms = c.registeredAt ? new Date(c.registeredAt).getTime() : 0;
+    if (!ms) { buckets['日付なし']++; return; }
+    var d = todayIdx - _jstDayIndex_(ms);
+    buckets[d <= 3 ? '3日以内' : d <= 7 ? '4〜7日' : d <= 30 ? '8〜30日' : d <= 90 ? '31〜90日' : '91日以上']++;
+  });
+  console.log('■ 架電待ちの反響からの日数\n' + Object.keys(buckets).map(function (k) { return k + ': ' + buckets[k] + '人'; }).join('\n'));
+
   t.nodes.forEach(function (n) {
-    if (!n.mine || !n.count) return;
+    if (!n.mine || !n.count || n.id === 'callQueue') return;
     var list = (byNode[n.id] || []).map(function (c) {
       return c.name + '(旧列:' + (c.stage || '-') + ' / S:' + (c.status || '-')
         + ' / LINE:' + (c.hasLine ? '有' : '無') + ' / 電話:' + (c.hasPhone ? '有' : '無')
