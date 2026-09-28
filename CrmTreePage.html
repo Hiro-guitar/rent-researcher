@@ -140,11 +140,13 @@
   function boxHtml(n) {
     var total = totalOf(n);
     var kids = childrenOf(n.id).length;
-    var cls = 'box' + (n.mine ? ' mine' : '') + (n.count ? ' has' : '') + (total ? '' : ' zero')
+    var cls = 'box' + (n.mine ? ' mine' : '') + (total ? ' has' : ' zero')
       + (sel === n.id ? ' sel' : '');
-    var sub = (kids && total !== n.count) ? '<span class="sub">計' + total + '</span>' : '';
+    // 枝分かれの元の箱は、下にいる人の合計だけ出す（自分の所にいる人はふつう0人なので）
+    var shown = (kids && !n.count) ? total : n.count;
+    var sub = (kids && n.count && total !== n.count) ? '<span class="sub">計' + total + '</span>' : '';
     return '<span class="' + cls + '"' + (total ? ' onclick="pick(\'' + n.id + '\')"' : '') + '>'
-      + esc(n.label) + ' <span class="count">' + n.count + '</span>' + sub + '</span>';
+      + esc(n.label) + ' <span class="count">' + shown + '</span>' + sub + '</span>';
   }
 
   function branchHtml(n) {
@@ -186,7 +188,11 @@
     document.getElementById('foot').textContent = '旧顧客 ' + data.oldCount + ' 人は対象外（自動配信は動いています）';
   }
 
-  function pick(id) { sel = (sel === id) ? '' : id; render(); }
+  function pick(id) {
+    sel = id;
+    render();
+    document.getElementById('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 
   function toast(msg) {
     var t = document.getElementById('toast');
