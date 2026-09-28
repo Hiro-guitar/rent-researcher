@@ -86,32 +86,25 @@ function collectStillSearching() {
 }
 
 /**
- * 聞くメッセージ。旧・条件変更提案の3回目の確認カードを引き継いだ（ユーザー判断 2026-09-28）。
- * 「条件を変えてみては」の提案が本題で、続けるかはそのついで、という形が自然に読める。
- * ⚠️ 物件が出ているとは言わない（嘘になりうる）。閲覧履歴にも触れない。
+ * 聞くメッセージ。初回配信の再送カード（右端のバブル）の言い回しを引き継いだ（ユーザー判断 2026-09-28）。
+ * ⚠️ 物件が出ているとは言わない（嘘になりうる）。閲覧履歴にも触れない。今の条件の表も出さない。
  */
 function buildStillAskMessages() {
-  var head = 'お部屋探しの状況はいかがですか？';
-  var body1 = 'なかなかピンとくるお部屋が見つからない場合は、条件を少し変えてみると新しい物件が見つかるかもしれません。';
-  var body2 = '引き続き物件情報をお届けしてもよろしいですか？';
+  var text = 'ご希望の条件に合うお部屋を、引き続きお探ししています。\n'
+    + 'もう少しこういうお部屋がいい、などございましたら\nお気軽にお申し付けください。';
   var btn = function (label, data) {
     return { type: 'button', style: 'primary', color: '#6ea814', height: 'sm',
       action: { type: 'postback', label: label, data: data, displayText: label } };
   };
   return [{
     type: 'flex',
-    altText: head,
+    altText: 'ご希望の条件に合うお部屋を、引き続きお探ししています。',
     contents: {
-      type: 'bubble', size: 'mega',
-      header: { type: 'box', layout: 'vertical', backgroundColor: '#6ea814', paddingAll: 'xl', paddingTop: 'lg', paddingBottom: 'lg',
-        contents: [{ type: 'text', text: head, weight: 'bold', size: 'lg', color: '#ffffff', align: 'center', wrap: true }] },
-      body: { type: 'box', layout: 'vertical', spacing: 'md', paddingAll: 'xl',
-        contents: [
-          { type: 'text', text: body1, size: 'sm', color: '#555555', wrap: true, lineSpacing: '6px' },
-          { type: 'text', text: body2, size: 'sm', color: '#555555', wrap: true, lineSpacing: '6px', margin: 'md' }
-        ] },
+      type: 'bubble',
+      body: { type: 'box', layout: 'vertical', paddingAll: 'xl',
+        contents: [{ type: 'text', text: text, size: 'sm', color: '#555555', wrap: true, lineSpacing: '6px' }] },
       footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
-        contents: [btn('条件を変更する', 'still:change'), btn('このまま配信を続ける', 'still:go'), btn('探すのをやめた', 'still:stop')] }
+        contents: [btn('条件を変更する', 'still:change'), btn('このままで続ける', 'still:go'), btn('探すのをやめた', 'still:stop')] }
     }
   }];
 }
@@ -203,7 +196,7 @@ function _stillMarkReply_(userId, reply) {
 /** postback 'still:*' を処理する。 */
 function handleStillPostback(replyToken, userId, data) {
   if (data === 'still:go') {
-    _stillMarkReply_(userId, 'このまま配信を続ける');
+    _stillMarkReply_(userId, 'このままで続ける');
     replyMessage(replyToken, [textMsg('ありがとうございます。引き続きお送りします。')]);
     return;
   }
