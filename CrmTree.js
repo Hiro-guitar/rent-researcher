@@ -40,6 +40,9 @@ var CRM_TREE_NODES = [
 //   旧顧客への自動の仕組み（配信・催促など）は今までどおり動かし、止めない。
 //   登録日（検索条件シートA列）は条件を変えるたびに上書きされるので、日付では分けられない。
 var CRM_TREE_OLD_SHEET = '樹形図の対象外（旧顧客）';
+// 2026-09-28 14時: 出口が揃って古い人は自動で「終了」に流れるようになったので、旧顧客も入れることにした
+// （赤い箱は合計32人で収まることを previewCrmTreeWithOld で確認済み）。false に戻せば旧顧客を外す。
+var CRM_TREE_INCLUDE_OLD = true;
 // ボットが答えなかったLINEの文（＝人が返信する文）。doPost の最後で書く。
 var CRM_TREE_REPLY_SHEET = 'LINE要返信';
 
@@ -309,14 +312,14 @@ function getCrmTree(opts) {
   opts = opts || {};
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var all = _getCustomerListForCRM_();
-  var old = opts.includeOld ? { names: {}, frozenMs: 0 } : _crmTreeOld_(ss);
+  var old = (opts.includeOld || CRM_TREE_INCLUDE_OLD) ? { names: {}, frozenMs: 0 } : _crmTreeOld_(ss);
   // ⚠️ 旧顧客でも、控えたあとに動いた人（再問い合わせ・返信が要るLINE・申込/内見の希望）は樹形図に戻す。
   //   捨てたのは「放っておいた過去」であって、今また来た人ではない。
   var back = _crmTreeOldCameBack_(ss, old, all);
-  var customers = all.filter(function (c) {
-    if (typeof TEST_ALLOWED_NAMES !== 'undefined' && TEST_ALLOWED_NAMES.indexOf(c.name) >= 0) return false;   // テスト用（本人）
-    return !old.names[c.name] || back[c.name];
+  all = all.filter(function (c) {
+    return !(typeof TEST_ALLOWED_NAMES !== 'undefined' && TEST_ALLOWED_NAMES.indexOf(c.name) >= 0);   // テスト用（本人）
   });
+  var customers = all.filter(function (c) { return !old.names[c.name] || back[c.name]; });
   var oldCount = all.length - customers.length;
 
   var uidByName = (typeof _getLineUserIdMapByCustomerName_ === 'function') ? _getLineUserIdMapByCustomerName_() : {};

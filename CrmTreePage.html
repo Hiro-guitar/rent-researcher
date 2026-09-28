@@ -185,7 +185,7 @@
       panel.innerHTML = '<h2>' + esc(node.label) + '（' + list.length + '人）</h2>'
         + (list.length ? list.map(custHtml).join('') : '<div class="meta">いません</div>');
     }
-    document.getElementById('foot').textContent = '旧顧客 ' + data.oldCount + ' 人は対象外（自動配信は動いています）';
+    document.getElementById('foot').textContent = data.oldCount ? '旧顧客 ' + data.oldCount + ' 人は対象外（自動配信は動いています）' : '';
   }
 
   function pick(id) {
