@@ -27,7 +27,7 @@ var CRM_TREE_NODES = [
   { id: 'firstWait',    label: '初回配信まだ（0件）',            parent: 'registered' },
   { id: 'following',    label: '追客中',                        parent: 'registered' },
   { id: 'neverViewed',  label: '1件も見ていない（自動で再送）',   parent: 'following' },
-  { id: 'noSend14',     label: '14日 物件を送れていない',         parent: 'following', mine: true },
+  { id: 'noSend14',     label: '物件を送れていない（条件を見直す）',         parent: 'following', mine: true },
   { id: 'pausedNotEnd', label: '配信停止なのに終了でない',        parent: 'following', mine: true },
   { id: 'applied',      label: '申込',                          parent: 'following' },
   { id: 'won',          label: '成約',                          parent: 'applied' },
@@ -47,6 +47,7 @@ var CRM_TREE_CALL_MAX = 3;          // 架電はこの回数まで
 var CRM_TREE_MAIL_DAYS = 14;        // メールだけの人は、反響からこの日数でLINEに来なければ終了
 var CRM_TREE_CALL_DAYS = 7;         // 反響からこの日数を過ぎたら架電待ちから外す（終了）
 var CRM_TREE_NUDGE_WAIT_H = 24;     // 催促のあと、この時間 何も無ければ終了
+var CRM_TREE_FIRST_WAIT_DAYS = 7;   // 登録からこの日数 1件も送れていなければ「送れていない」へ
 var CRM_TREE_NO_SEND_DAYS = 14;     // 物件を送れていない日数
 var CRM_TREE_VIEW_REPEAT = 3;       // 同じ物件をこの回数以上 開いたら強い合図
 var CRM_TREE_VIEW_ROOMS = 3;        // この件数以上の物件を開いたら強い合図
@@ -111,12 +112,20 @@ function _crmTreeNodeOf_(c) {
       c.endWhy = '催促のあと反応なし';
       return 'ended';
     }
+    // 催促の記録が無い人（催促の仕組みより前に来た人など）は、7日で終了
+    if (!c.nudgedMs && c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_CALL_DAYS) {
+      c.endWhy = '条件登録されず' + c.daysSinceInquiry + '日';
+      return 'ended';
+    }
     return 'noCriteria';
   }
   if (!c.hasCriteria) return 'lost';   // LINEなし・話せた・条件なし
 
   if (st === 'paused' || st === 'auto_paused' || st === 'stopped' || st === 'snoozed') return 'pausedNotEnd';
-  if (c.daysSinceSent === null || c.daysSinceSent === undefined) return 'firstWait';
+  if (c.daysSinceSent === null || c.daysSinceSent === undefined) {
+    // 登録から7日たっても1件も送れていない＝条件が厳しい。人が見直す
+    return (c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_FIRST_WAIT_DAYS) ? 'noSend14' : 'firstWait';
+  }
   if (c.daysSinceSent >= CRM_TREE_NO_SEND_DAYS) return 'noSend14';
   if (c.daysSinceViewed === null || c.daysSinceViewed === undefined) return 'neverViewed';
   return 'following';
@@ -183,7 +192,7 @@ function _crmTreeSignals_(acts, handledMs, replyMs) {
   var viewsByRoom = {}, rooms = 0, since = Date.now() - CRM_TREE_SIGNAL_DAYS * _DAY_MS_;
   (acts || []).forEach(function (a) {
     if (a.ms <= handledMs) return;
-    if (a.act === 'hold_intent' || a.act === 'viewing_intent') {
+    if ((a.act === 'hold_intent' || a.act === 'viewing_intent') && a.ms >= since) {
       var kind = (a.act === 'hold_intent') ? 'hold' : 'viewing';
       if (!submitted[a.room + '|' + kind]) {
         sig.strong = Math.max(sig.strong, a.ms);
@@ -304,7 +313,10 @@ function getCrmTree(opts) {
   // ⚠️ 旧顧客でも、控えたあとに動いた人（再問い合わせ・返信が要るLINE・申込/内見の希望）は樹形図に戻す。
   //   捨てたのは「放っておいた過去」であって、今また来た人ではない。
   var back = _crmTreeOldCameBack_(ss, old, all);
-  var customers = all.filter(function (c) { return !old.names[c.name] || back[c.name]; });
+  var customers = all.filter(function (c) {
+    if (typeof TEST_ALLOWED_NAMES !== 'undefined' && TEST_ALLOWED_NAMES.indexOf(c.name) >= 0) return false;   // テスト用（本人）
+    return !old.names[c.name] || back[c.name];
+  });
   var oldCount = all.length - customers.length;
 
   var uidByName = (typeof _getLineUserIdMapByCustomerName_ === 'function') ? _getLineUserIdMapByCustomerName_() : {};
