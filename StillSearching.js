@@ -22,7 +22,7 @@
 var STILL_SHEET = '継続確認';
 
 // 送信を止めるスイッチ。false だと数えるだけ。
-var STILL_ENABLED = false;
+var STILL_ENABLED = true;    // 2026-09-28 ON（testSendStillSearching で見た目をユーザー確認済み）
 
 var STILL_IDLE_D = 30;        // 最終閲覧（無ければ登録）からこの日数
 var STILL_MIN_SENT = 10;      // その間に送った件数がこれ以上
