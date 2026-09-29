@@ -676,3 +676,23 @@ function reviveEndedCustomer(customerName) {
     return false;
   }
 }
+
+/**
+ * 【GASエディタで実行: CrmTree.gs】引越し予定まで14日以内の人を全員出し、
+ * 「引越しが近い」に入らなかった理由（いる枝・記録済みか・条件の有無）を添える。何も変えない。
+ */
+function previewMoveInSoon() {
+  var t = getCrmTree({ includeOld: true });
+  var list = t.customers.filter(function (c) {
+    return typeof c.daysToMoveIn === 'number' && c.daysToMoveIn >= 0 && c.daysToMoveIn <= CRM_TREE_MOVEIN_SOON_D;
+  });
+  var label = {};
+  t.nodes.forEach(function (n) { label[n.id] = n.label; });
+  console.log('引越し予定まで' + CRM_TREE_MOVEIN_SOON_D + '日以内: ' + list.length + '人\n' + list.map(function (c) {
+    return (c.node === 'moveInSoon' ? '🔴 ' : '・') + c.name + '（' + c.moveIn + '・あと' + c.daysToMoveIn + '日）'
+      + ' いる枝: ' + (label[c.node] || c.node)
+      + (c.moveInSoonHandled ? ' / この期間に記録あり' : '')
+      + (c.hasCriteria ? '' : ' / 条件なし')
+      + (c.stage ? ' / 工程: ' + c.stage : '');
+  }).join('\n'));
+}
