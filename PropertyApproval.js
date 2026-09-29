@@ -2210,22 +2210,11 @@ function handleStopReasonText(replyToken, userId, message, state) {
     //         (スヌーズ案内 / 条件変更提案 / 頻度ダウン提案 のロジックは
     //          関連 STEPS / handler が他に残置されているが、ここからの遷移は行わない)
     _finalizeStop(userId, reason);
-    // 引越し先が決まった／引越しをやめた は、お客様自身の申告なのでそのまま終了にする（2026-09-29）。
-    // ⚠️ 自動終了の印（AUTO_END_MARK）は付けない。手で終了にしたのと同じ扱いで、連絡が来ても自動では戻さない。
-    try {
-      if (reason === '引越し先が決まった' || reason === '引越しをやめた') {
-        var _endName = _crmNameByUid_(userId);   // ⚠️ _getLineUserName_ はニックネームを返すことがあるので使わない
-        if (_endName && typeof setCustomerStage === 'function') {
-          var _er = setCustomerStage(_endName, '終了');
-          if (_er && _er.ok) _markEndReasonT_(_endName, reason === '引越し先が決まった' ? '他社で決定（お客様の申告）' : '引越し中止（お客様の申告）');
-        }
-      }
-    } catch (_eEnd) { console.warn('[配信停止] 終了にできません: ' + _eEnd.message); }
     clearState(userId);
     replyMessage(replyToken, [textMsg(
       '配信を停止しました。ご回答ありがとうございます。\n\n' +
       '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
-      '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。'
+      '※これまでのご希望の条件は残してあります。再開すると、そのままお届けします。'
     )]);
     return true;
   } catch (err) {
@@ -2259,6 +2248,20 @@ function _finalizeStop(userId, reason) {
   } catch (err) {
     console.error('_finalizeStop error: ' + err.message);
   }
+  // 配信停止は理由に関わらず終了にする（2026-09-29 ユーザー判断）。理由は T列 に「終了: …」で残す。
+  // ⚠️ 自動終了の印（AUTO_END_MARK）は付けない。本人の意思なので、連絡が来ても自動では戻さない。
+  //   本人が「配信再開」を押したとき（handleDeliveryResumeCommand）と、条件を登録し直したときだけ戻る。
+  // ⚠️ 名前は LINE Users から引く。_getLineUserName_ はニックネームを返すことがある。
+  try {
+    var _endName = (typeof _crmNameByUid_ === 'function') ? _crmNameByUid_(userId) : '';
+    if (_endName && typeof setCustomerStage === 'function') {
+      var _er = setCustomerStage(_endName, '終了');
+      var _why = (reason === '引越し先が決まった') ? '他社で決定（お客様の申告）'
+        : (reason === '引越しをやめた') ? '引越し中止（お客様の申告）'
+        : '配信停止（' + (reason || '理由なし') + '）';
+      if (_er && _er.ok && typeof _markEndReasonT_ === 'function') _markEndReasonT_(_endName, _why);
+    }
+  } catch (_eEnd) { console.warn('[配信停止] 終了にできません: ' + _eEnd.message); }
 }
 
 // 顧客の最新行を取得するヘルパー
@@ -2332,7 +2335,7 @@ function handleSnoozePeriodText(replyToken, userId, message) {
       replyMessage(replyToken, [textMsg(
         '新着物件の配信を停止しました。\n\n' +
         '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
-        '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。'
+        '※これまでのご希望の条件は残してあります。再開すると、そのままお届けします。'
       )]);
       return true;
     }
@@ -2380,7 +2383,7 @@ function handleFrequencyText(replyToken, userId, message) {
       replyMessage(replyToken, [textMsg(
         '新着物件の配信を停止しました。\n\n' +
         '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
-        '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。'
+        '※これまでのご希望の条件は残してあります。再開すると、そのままお届けします。'
       )]);
       return true;
     }
@@ -2418,7 +2421,7 @@ function handleMismatchChoiceText(replyToken, userId, message) {
       replyMessage(replyToken, [textMsg(
         '配信を停止しました。ご回答ありがとうございます。\n\n' +
         '再開したくなったら、メニューの「配信の停止/再開」ボタンを押してください。\n\n' +
-        '※配信を再開する場合は1週間以内にお願いします。\n1週間を超えると、これまでの登録条件・物件履歴が削除され、再度条件登録からのスタートとなります。'
+        '※これまでのご希望の条件は残してあります。再開すると、そのままお届けします。'
       )]);
       return true;
     }
@@ -5314,6 +5317,12 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
       if (!name) return false;
       return !!toDeleteCustomers[name];
     }
+    // ⚠️ 送った物件の履歴（通知済み物件）は、配信停止・ブロックの人でも消さない（2026-09-29 ユーザー判断）。
+    //   消すと再開したときに同じ物件がまた届き、顧客管理の「最終送信・最終閲覧」も消える。
+    //   消すのは検索条件シートから消えた顧客（orphan）の分だけ。承認待ち（まだ送っていない候補）は従来どおり消す。
+    function shouldDeleteSeen(name) {
+      return !!(name && toDeleteCustomers[name] && toDeleteCustomers[name].reason === 'orphan');
+    }
 
     // 2-1. SEEN_SHEET (通知済み物件): A列 = 顧客名
     if (seen) {
@@ -5323,7 +5332,7 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
         var sRows = [];
         for (var i = 0; i < sNames.length; i++) {
           var sn = String(sNames[i][0] || '').trim();
-          if (shouldDeleteCustomer(sn)) {
+          if (shouldDeleteSeen(sn)) {
             sRows.push(i + 2);
             if (result.customers.indexOf(sn) < 0) result.customers.push(sn);
           }
