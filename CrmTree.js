@@ -513,21 +513,38 @@ var CRM_GOODBYE_SUBJECT = 'お問い合わせの件（合同会社えほうま�
 var CRM_GOODBYE_SENDER = '合同会社えほうまき';
 var LINE_ADD_FRIEND_URL = 'https://lin.ee/XLsSg6L';   // 公式アカウントの友だち追加
 
+var CRM_MAIL_SIGNATURE = [
+  '****************************************************',
+  '合同会社えほうまき',
+  '',
+  '西村',
+  '',
+  'Tel:045-900-3912',
+  'mobile:090-6503-6161',
+  'e-mail:',
+  'support@ehomaki.com',
+  '',
+  '****************************************************'
+];
+
 /** サヨナラのメール。text と html の両方を返す（HTMLが出ないメールソフト向けに text も持つ）。 */
-function _crmGoodbyeMail_() {
-  var text = 'お問い合わせいただきありがとうございます。\n'
+function _crmGoodbyeMail_(customerName) {
+  var dear = String(customerName || '').trim() + ' 様';
+  var text = dear + '\n\n'
+    + 'お問い合わせいただきありがとうございます。\n'
     + '何度かお電話しましたが、つながらなかったため、メールでご連絡しました。\n\n'
     + 'お部屋探しを続けていらっしゃいましたら、LINEでご希望をお伺いします。\n'
     + LINE_ADD_FRIEND_URL + '\n\n'
-    + '合同会社えほうまき';
-  var esc = function (t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    + CRM_MAIL_SIGNATURE.join('\n');
+  var esc = function (t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
   var html = '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Hiragino Sans\',\'Noto Sans JP\',sans-serif;font-size:15px;line-height:1.9;color:#222;max-width:560px">'
+    + '<p style="margin:0 0 16px">' + esc(dear) + '</p>'
     + '<p style="margin:0 0 16px">お問い合わせいただきありがとうございます。<br>'
     + '何度かお電話しましたが、つながらなかったため、メールでご連絡しました。</p>'
     + '<p style="margin:0 0 20px">お部屋探しを続けていらっしゃいましたら、LINEでご希望をお伺いします。</p>'
     + '<p style="margin:0 0 8px"><a href="' + LINE_ADD_FRIEND_URL + '" style="display:inline-block;background:#06c755;color:#fff;text-decoration:none;font-weight:bold;padding:12px 28px;border-radius:6px">LINEで相談する</a></p>'
     + '<p style="margin:0 0 28px;font-size:12px;color:#888">ボタンが開かない場合: <a href="' + LINE_ADD_FRIEND_URL + '" style="color:#888">' + esc(LINE_ADD_FRIEND_URL) + '</a></p>'
-    + '<p style="margin:0;color:#555">合同会社えほうまき</p>'
+    + '<pre style="margin:0;font-family:inherit;font-size:13px;line-height:1.7;color:#555;white-space:pre-wrap">' + esc(CRM_MAIL_SIGNATURE.join('\n')) + '</pre>'
     + '</div>';
   return { text: text, html: html };
 }
@@ -541,7 +558,7 @@ function _crmTreeMaybeGoodbye_(customerName) {
   if (c.stage === '終了') return false;
   var sent = false;
   if (c.email) {
-    var m = _crmGoodbyeMail_();
+    var m = _crmGoodbyeMail_(customerName);
     GmailApp.sendEmail(c.email, CRM_GOODBYE_SUBJECT, m.text, { htmlBody: m.html, name: CRM_GOODBYE_SENDER });
     sent = true;
   }
@@ -555,7 +572,7 @@ function _crmTreeMaybeGoodbye_(customerName) {
 /** 【GASエディタで実行: CrmTree.gs】サヨナラのメールを自分宛てに送って見た目を確かめる。 */
 function testSendGoodbyeMail() {
   var me = Session.getActiveUser().getEmail();
-  var m = _crmGoodbyeMail_();
+  var m = _crmGoodbyeMail_('西村');
   GmailApp.sendEmail(me, CRM_GOODBYE_SUBJECT, m.text, { htmlBody: m.html, name: CRM_GOODBYE_SENDER });
   console.log(me + ' に送りました');
 }
