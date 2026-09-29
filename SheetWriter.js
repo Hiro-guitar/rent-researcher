@@ -241,6 +241,11 @@ function writeToSheet(userId, state) {
   if (typeof linkRichMenuAfter === 'function') linkRichMenuAfter(userId);
   // 友だち追加の記録側の状態も進める（NewFriend.js）。ひと押しの対象から外れる。
   if (typeof markNewFriendState === 'function') markNewFriendState(userId, '条件登録済み');
+  // 初めて条件を登録した人に「お電話で5分ほど」を予約する（PhoneAsk.js）。条件の変更では送らない
+  try {
+    var _hadCriteria = !!(beforeRow && typeof _rowHasCriteria_ === 'function' && _rowHasCriteria_(beforeRow));
+    if (!_hadCriteria && typeof enqueuePhoneAsk === 'function') enqueuePhoneAsk(customerName, userId);
+  } catch (_ePA) { console.warn('[電話のお願い] 予約できません: ' + _ePA.message); }
 
   // 条件が変わったら履歴に残し、担当者へ通知する（新規登録時は差分なしなので出ない）
   try {

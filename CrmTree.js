@@ -780,7 +780,8 @@ function _markEndReasonT_(customerName, reason) {
 
 /** 各仕組みの記録シートを1回ずつ読んでおく。 */
 function _crmTreeAutoContext_(ss, friends) {
-  var ctx = { fdDone: {}, fdFirst: {}, moveInAsked: {}, waiting: {}, stillLast: {}, fsAsked: {}, friends: friends || {} };
+  var ctx = { fdDone: {}, fdFirst: {}, moveInAsked: {}, waiting: {}, stillLast: {}, fsAsked: {}, friends: friends || {},
+    phoneAsk: (typeof _phoneAskPlanned_ === 'function') ? _phoneAskPlanned_() : {} };
   var read = function (sheetName, cols, fn) {
     try {
       var sh = ss.getSheetByName(sheetName);
@@ -823,6 +824,9 @@ function _crmTreeNextAuto_(c, ctx) {
   var items = [];   // {ms, text}
   var st = String(c.status || '').toLowerCase();
   var delivering = !(st === 'paused' || st === 'auto_paused' || st === 'stopped' || st === 'snoozed');
+
+  // 条件登録直後の「お電話で5分ほど」
+  if (ctx.phoneAsk[c.name]) items.push({ ms: ctx.phoneAsk[c.name], text: '電話のお願い（' + _crmFmt_(ctx.phoneAsk[c.name], true) + 'ごろ）' });
 
   // 返事待ち → 期限で終了（これが一番近い予定）
   var w = ctx.waiting[c.name];

@@ -4446,7 +4446,9 @@ var REQUIRED_TRIGGERS_ = [
   { fn: 'processReplyQueue',         make: function (b) { return b.everyMinutes(5); } },
   { fn: 'processMoveInDeadline',     make: function (b) { return b.everyHours(1); } },
   { fn: 'processFirstSearchFollow',  make: function (b) { return b.everyHours(1); } },
-  { fn: 'processFirstDeliveryFollow', make: function (b) { return b.everyMinutes(15); } }
+  { fn: 'processFirstDeliveryFollow', make: function (b) { return b.everyMinutes(15); } },
+  // 条件登録から数分後の「お電話で5分ほど」（PhoneAsk.js）
+  { fn: 'processPhoneAsk',           make: function (b) { return b.everyMinutes(5); } }
 ];
 // runConditionSuggestionAutoSend: 旧「条件変更提案 10日×3回」。継続確認（StillSearching.gs）に置き換えて廃止（2026-09-28）
 var OBSOLETE_TRIGGERS_ = ['pingWebAppKeepAlive_', 'autoArchiveFinishedCustomers', 'runConditionSuggestionAutoSend'];
