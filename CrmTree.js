@@ -21,7 +21,8 @@ var CRM_TREE_NODES = [
   { id: 'taskDue',      label: '約束の日（次の連絡・内見）',     parent: '', mine: true, urgent: true },
   { id: 'inquiry',      label: '反響',                         parent: '' },
   { id: 'mailOnly',     label: 'メールだけ（自動メール）',       parent: 'inquiry' },
-  { id: 'callQueue',    label: '架電待ち',                      parent: 'inquiry', mine: true },
+  { id: 'callQueue',    label: '架電待ち（今日かける）',          parent: 'inquiry', mine: true },
+  { id: 'callWait',     label: '架電待ち（今日はかけない）',       parent: 'inquiry' },
   { id: 'line',         label: 'LINEに来た',                    parent: 'inquiry' },
   { id: 'noCriteria',   label: '条件登録待ち（自動で催促）',     parent: 'line' },
   { id: 'registered',   label: '条件登録済み',                  parent: 'line' },
@@ -49,9 +50,11 @@ var CRM_TREE_INCLUDE_OLD = true;
 // ボットが答えなかったLINEの文（＝人が返信する文）。doPost の最後で書く。
 var CRM_TREE_REPLY_SHEET = 'LINE要返信';
 
-var CRM_TREE_CALL_MAX = 3;          // 架電はこの回数まで
+// 架電は「直後（最初の1回・いつでもよい）／平日（別の平日に1回）／土日（土か日に1回）」の3枠。
+// 3枠ともつながらなければ、サヨナラのメールを1通送って終了（ユーザー決定 2026-09-28）。
+// ⚠️ 回数や日数では切らない。忙しくて連続でかけられない日があっても枠が埋まるまで待つ。
 var CRM_TREE_MAIL_DAYS = 14;        // メールだけの人は、反響からこの日数でLINEに来なければ終了
-var CRM_TREE_CALL_DAYS = 7;         // 反響からこの日数を過ぎたら架電待ちから外す（終了）
+var CRM_TREE_NUDGE_FALLBACK_D = 7;  // 催促の記録が無い登録待ちの人は、反響からこの日数で終了
 var CRM_TREE_NUDGE_WAIT_H = 24;     // 催促のあと、この時間 何も無ければ終了
 var CRM_TREE_FIRST_WAIT_DAYS = 7;   // 登録からこの日数 1件も送れていなければ「送れていない」へ
 var CRM_TREE_NO_SEND_DAYS = 14;     // 物件を送れていない日数
@@ -109,10 +112,8 @@ function _crmTreeNodeOf_(c) {
       return 'mailOnly';
     }
     if (c.hasPhone && !talked) {
-      var expired = c.failedCalls >= CRM_TREE_CALL_MAX
-        || (c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_CALL_DAYS);
-      if (expired) { c.endWhy = '架電' + c.failedCalls + '回・反響から' + c.daysSinceInquiry + '日'; return 'ended'; }
-      return 'callQueue';
+      if (c.callSlots.done) { c.endWhy = '架電3枠つながらず'; return 'ended'; }
+      return c.callSlots.today ? 'callQueue' : 'callWait';
     }
     // 電話で話せた／条件がある（メールで配信中）人は下の追客中の判定へ
   } else if (!c.hasCriteria) {
@@ -122,7 +123,7 @@ function _crmTreeNodeOf_(c) {
       return 'ended';
     }
     // 催促の記録が無い人（催促の仕組みより前に来た人など）は、7日で終了
-    if (!c.nudgedMs && c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_CALL_DAYS) {
+    if (!c.nudgedMs && c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_NUDGE_FALLBACK_D) {
       c.endWhy = '条件登録されず' + c.daysSinceInquiry + '日';
       return 'ended';
     }
@@ -140,7 +141,7 @@ function _crmTreeNodeOf_(c) {
   return 'following';
 }
 
-/** 対応ログ: 顧客名 → { failed: つながらなかった回数, lastMs: 最後に何か記録した時刻 } */
+/** 対応ログ: 顧客名 → { failed: つながらなかった回数, failedMs: その時刻の配列, lastMs: 最後に何か記録した時刻 } */
 function _crmTreeContactLog_(ss) {
   var out = {};
   try {
@@ -150,13 +151,38 @@ function _crmTreeContactLog_(ss) {
     for (var i = 0; i < rows.length; i++) {
       var name = String(rows[i][0] || '').trim();
       if (!name) continue;
-      var r = out[name] || (out[name] = { failed: 0, lastMs: 0 });
-      if (_contactLogOutcome_(rows[i][2], rows[i][3]) === 'failed') r.failed++;
+      var r = out[name] || (out[name] = { failed: 0, failedMs: [], lastMs: 0 });
       var ms = _cellToEpochMs_(rows[i][1]);
+      if (_contactLogOutcome_(rows[i][2], rows[i][3]) === 'failed') { r.failed++; if (ms) r.failedMs.push(ms); }
       if (ms > r.lastMs) r.lastMs = ms;
     }
   } catch (e) { console.warn('[樹形図] 対応ログ: ' + e.message); }
   return out;
+}
+
+/**
+ * 架電の3枠がどこまで埋まったか。
+ *   first   … 最初の1回（いつでもよい）
+ *   weekday … first と別の日で、平日
+ *   weekend … first と別の日で、土日
+ * today … 今日かけるべきか（平日なら first か weekday が空いている／土日なら first か weekend が空いている）
+ */
+function _crmTreeCallSlots_(failedMs) {
+  var ms = (failedMs || []).slice().sort(function (a, b) { return a - b; });
+  var dayOf = function (m) { return _jstDayIndex_(m); };
+  var isWeekend = function (m) { var d = new Date(m + 9 * 3600000).getUTCDay(); return d === 0 || d === 6; };
+  var s = { first: 0, weekday: 0, weekend: 0 };
+  if (ms.length) s.first = ms[0];
+  for (var i = 1; i < ms.length; i++) {
+    if (dayOf(ms[i]) === dayOf(s.first)) continue;
+    if (isWeekend(ms[i])) { if (!s.weekend) s.weekend = ms[i]; }
+    else { if (!s.weekday) s.weekday = ms[i]; }
+  }
+  s.done = !!(s.first && s.weekday && s.weekend);
+  var todayWeekend = isWeekend(Date.now());
+  s.today = !s.done && (!s.first || (todayWeekend ? !s.weekend : !s.weekday));
+  s.label = (s.first ? '直後✓' : '直後－') + ' ' + (s.weekday ? '平日✓' : '平日－') + ' ' + (s.weekend ? '土日✓' : '土日－');
+  return s;
 }
 
 /**
@@ -359,8 +385,9 @@ function getCrmTree(opts) {
   customers.forEach(function (c) {
     var uid = c.uid || uidByName[c.name] || '';
     c.uid = uid;
-    var cl = log[c.name] || { failed: 0, lastMs: 0 };
+    var cl = log[c.name] || { failed: 0, failedMs: [], lastMs: 0 };
     c.failedCalls = cl.failed;
+    c.callSlots = _crmTreeCallSlots_(cl.failedMs);
     c.lineMs = uid ? (lineMsByUid[uid] || 0) : 0;
     c.nudgedMs = (uid && friends[uid]) ? friends[uid].nudgedMs : 0;
     var regMs = c.registeredAt ? new Date(c.registeredAt).getTime() : 0;
@@ -428,7 +455,7 @@ function previewCrmTree(opts) {
     var list = (byNode[n.id] || []).map(function (c) {
       return c.name + '（反響から' + (c.daysSinceInquiry === null ? '-' : c.daysSinceInquiry) + '日'
         + ' / LINE:' + (c.hasLine ? '有' : '無') + ' / 電話:' + (c.hasPhone ? '有' : '無')
-        + ' / 条件:' + (c.hasCriteria ? '有' : '無') + ' / 架電失敗:' + (c.failedCalls || 0)
+        + ' / 条件:' + (c.hasCriteria ? '有' : '無') + ' / 架電:' + (c.callSlots ? c.callSlots.label : '-')
         + (c.sig && c.sig.note ? ' / 合図:' + c.sig.note : '')
         + (c.endWhy ? ' / 終了理由:' + c.endWhy : '') + '）';
     });
@@ -448,6 +475,8 @@ function _crmTreeForPage_() {
         name: c.name, node: c.node, lineOnly: !!c.lineOnly,
         phone: c.phone || '', hasLine: !!c.hasLine, hasCriteria: !!c.hasCriteria,
         daysSinceInquiry: c.daysSinceInquiry, failedCalls: c.failedCalls || 0,
+        callSlots: (c.callSlots && c.callSlots.first !== undefined) ? c.callSlots.label : '',
+        email: c.email || '',
         daysSinceSent: c.daysSinceSent, daysSinceViewed: c.daysSinceViewed,
         lastTalkAt: c.lastTalkAt || '', moveIn: c.moveIn || '',
         note: (c.sig && c.sig.note) || '', endWhy: c.endWhy || '', stage: c.stage || '',
@@ -467,7 +496,55 @@ function recordCrmTreeContact(customerName, type) {
   var r = addContactLog(customerName, type, new Date().toISOString(), '');
   if (!r || !r.success) throw new Error((r && r.message) || '記録できませんでした');
   _crmTreeCloseDueTasks_(customerName);
+  // 3枠目のつながらずなら、その場でサヨナラのメールを送って終了にする
+  if (String(type).indexOf('つながらず') >= 0) {
+    try { _crmTreeMaybeGoodbye_(customerName); } catch (e) { console.warn('[架電] サヨナラ: ' + e.message); }
+  }
   return _crmTreeForPage_();
+}
+
+// ════════════════════════════════════════════
+//  架電3枠つながらず → サヨナラのメール → 終了
+// ════════════════════════════════════════════
+// ⚠️ 終了にする前には必ず1通送る（ユーザー決定）。相手はLINEに来ていない人なのでメール。
+//   メールアドレスが無ければ送れないので、そのまま終了にする（電話しか無い人）。
+// ⚠️ 送るのは「架電3枠が埋まった瞬間」（📵 を押した直後）。トリガーは使わない。
+var CRM_GOODBYE_SUBJECT = 'お問い合わせの件（合同会社えほうまき）';
+
+function _crmGoodbyeBody_() {
+  var lineUrl = '';
+  try { lineUrl = PropertiesService.getScriptProperties().getProperty('LINE_ADD_FRIEND_URL') || ''; } catch (_e) {}
+  return 'お問い合わせいただきありがとうございます。\n'
+    + '何度かお電話しましたが、つながらなかったため、メールでご連絡しました。\n\n'
+    + 'お部屋探しを続けていらっしゃいましたら、LINEでご希望をお伺いします。\n'
+    + (lineUrl ? lineUrl + '\n' : '')
+    + '\n合同会社えほうまき';
+}
+
+/** 架電3枠が埋まっていればサヨナラのメールを送って終了にする。 */
+function _crmTreeMaybeGoodbye_(customerName) {
+  var t = getCrmTree();
+  var c = t.customers.filter(function (x) { return x.name === customerName; })[0];
+  if (!c || !c.callSlots || !c.callSlots.done) return false;
+  if (c.hasLine || (c.daysSinceTalk !== null && c.daysSinceTalk !== undefined)) return false;
+  if (c.stage === '終了') return false;
+  var sent = false;
+  if (c.email) {
+    GmailApp.sendEmail(c.email, CRM_GOODBYE_SUBJECT, _crmGoodbyeBody_());
+    sent = true;
+  }
+  addContactLog(customerName, 'その他', new Date().toISOString(),
+    sent ? 'サヨナラのメールを送信（架電3枠つながらず）' : '架電3枠つながらず（メールアドレス無し）');
+  endCustomerAsSilent(customerName, '', '架電3枠つながらず');
+  console.log('[架電] ' + customerName + ' を終了にしました（メール' + (sent ? '送信' : '無し') + '）');
+  return true;
+}
+
+/** 【GASエディタで実行: CrmTree.gs】サヨナラのメールを自分宛てに送って見た目を確かめる。 */
+function testSendGoodbyeMail() {
+  var me = Session.getActiveUser().getEmail();
+  GmailApp.sendEmail(me, CRM_GOODBYE_SUBJECT, _crmGoodbyeBody_());
+  console.log(me + ' に送りました。LINEのリンクはスクリプトプロパティ LINE_ADD_FRIEND_URL から入ります（未設定なら無し）');
 }
 
 /** doGet(action=crm) — 樹形図の顧客管理ページ。 */

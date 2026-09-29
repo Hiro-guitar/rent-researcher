@@ -126,7 +126,8 @@
   function metaOf(c) {
     var m = [];
     if (c.daysSinceInquiry !== null && c.daysSinceInquiry !== undefined) m.push('反響から' + c.daysSinceInquiry + '日');
-    if (c.failedCalls) m.push('つながらず' + c.failedCalls + '回');
+    if (c.callSlots && (c.node === 'callQueue' || c.node === 'callWait')) m.push('架電 ' + c.callSlots);
+    else if (c.failedCalls) m.push('つながらず' + c.failedCalls + '回');
     if (c.lastTalkAt) m.push('最後に話した ' + c.lastTalkAt);
     if (c.daysSinceSent !== null && c.daysSinceSent !== undefined) m.push('最終送信 ' + c.daysSinceSent + '日前');
     if (c.moveIn) m.push('引越し ' + c.moveIn);
