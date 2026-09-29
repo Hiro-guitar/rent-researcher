@@ -7378,6 +7378,7 @@ function listCustomerMergeCandidates() {
     // LINE紐付けのある顧客名（＝LINE由来で行が作られた可能性がある側）
     var lineNames = {};
     var nameToUid = {};
+    var nameToDisplay = {};   // 顧客名 → LINEの表示名（LINE Users D列）
     try {
       var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
       if (lu && lu.getLastRow() > 1) {
@@ -7387,6 +7388,8 @@ function listCustomerMergeCandidates() {
           if (!ln) continue;
           lineNames[ln] = true;
           if (!nameToUid[ln]) nameToUid[ln] = String(luData[l][0] || '').trim();
+          var dn = String(luData[l][3] || '').trim();
+          if (dn) nameToDisplay[ln] = dn;
         }
       }
     } catch (_eLu) {}
@@ -7541,6 +7544,15 @@ function listCustomerMergeCandidates() {
 
         if (matchedBuilding) { score += 3; strong = true; reasons.push('同じ物件に問い合わせ（' + matchedBuilding + '）'); }
 
+        // ⓪' LINEの表示名が、もう片方の顧客名と一致（2026-09-29）
+        //   本人確定で LINE Users が本名に向け直されたあと、条件だけニックネームの行に残った形
+        //   （がよん／チェガヨン、たなか みずさ／田中 瑞紗）。同じLINEアカウントなので確定。
+        var lineDisp = nameToDisplay[lineSide.name] || '';
+        if (lineDisp && lineDisp === inqSide.name) {
+          score += 10; strong = true;
+          reasons.push('LINEの表示名が一致（' + lineDisp + '）');
+        }
+
         // ② 時期の近さ（登録日どうし）
         if (A.registeredAt && B.registeredAt) {
           var diff = Math.abs(A.registeredAt - B.registeredAt);
@@ -7568,6 +7580,8 @@ function listCustomerMergeCandidates() {
         //   ほぼ全組で成立してしまい、根拠として意味がない。表示だけする。
         if (lineSide.hasCriteria && !inqSide.hasCriteria) {
           reasons.push('条件はLINE側だけにある');
+        } else if (inqSide.hasCriteria && !lineSide.hasCriteria) {
+          reasons.push('条件はLINEのつながっていない側だけにある');
         }
 
         // 決め手（同じ物件 or 名前の一致）が無いものは出さない。
