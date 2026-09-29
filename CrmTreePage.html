@@ -249,7 +249,13 @@
     else {
       var ids = idsUnder(sel);
       var list = data.customers.filter(function (c) { return ids.indexOf(c.node) >= 0; });
-      panel.innerHTML = '<h2>' + esc(node.label) + '（' + list.length + '人）</h2>'
+      // 記録した直後の人は、別の枝に移っていても一番上に残して「次の連絡は？」を出す
+      var just = '';
+      if (askNext && !list.some(function (c) { return c.name === askNext; })) {
+        var jc = data.customers.filter(function (c) { return c.name === askNext; })[0];
+        if (jc) just = '<div class="where">記録しました（いまの枝: ' + esc(labelOf[jc.node] || jc.node) + '）</div>' + custHtml(jc);
+      }
+      panel.innerHTML = just + '<h2>' + esc(node.label) + '（' + list.length + '人）</h2>'
         + (list.length ? list.map(custHtml).join('') : '<div class="meta">いません</div>');
     }
     document.getElementById('foot').textContent = data.oldCount ? '旧顧客 ' + data.oldCount + ' 人は対象外（自動配信は動いています）' : '';
