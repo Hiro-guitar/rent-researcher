@@ -62,7 +62,14 @@ function collectMoveInOverdue() {
     if (typeof _rowHasCriteria_ === 'function' && !_rowHasCriteria_(data[i])) continue;
     seen[name] = true;
 
-    if (String(data[i][32] || '').trim() === '終了') continue;   // AG列(33): 営業ステージ
+    // ⚠️ 終了だけでなく、成約・申込・アーカイブ・配信停止中も外すこと（2026-09-29）。
+    //   成約した人は必ず引越し日が来るので、外さないと「その後いかがでしょうか」が届き、
+    //   返事が無ければ終了（音信不通）に落とされていた。継続確認（StillSearching）と揃える。
+    var _stage = String(data[i][32] || '').trim();                // AG列(33): 営業ステージ
+    if (_stage === '終了' || _stage === '成約' || _stage === '申込') continue;
+    if (String(data[i][44] || '').trim()) continue;               // AS列(45): アーカイブ済み
+    var _st = String(data[i][18] || '').trim().toLowerCase();     // S列(19): 配信ステータス
+    if (_st === 'paused' || _st === 'auto_paused' || _st === 'blocked' || _st === 'snoozed') continue;
 
     var raw = String(data[i][14] || '').trim();    // O列(15): 引越し時期
     if (!raw) continue;
@@ -240,17 +247,21 @@ function _moveInAsk_(nowHour) {
   if (!list.length) return 0;
 
   var sh = _moveInSheet_();
+  // ⚠️ 一度きりは「同じ引越し時期について」一度きり（2026-09-29）。
+  //   時期を更新した人は、新しい時期を過ぎたらまた聞く。名前だけで判定すると二度と聞けない。
   var asked = {};
   if (sh.getLastRow() > 1) {
     var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues();
-    for (var r = 0; r < rows.length; r++) asked[String(rows[r][0] || '').trim()] = true;
+    for (var r = 0; r < rows.length; r++) asked[String(rows[r][0] || '').trim() + '|' + String(rows[r][1] || '').trim()] = true;
   }
+  var stillWaiting = (typeof _stillWaitingNames_ === 'function') ? _stillWaitingNames_() : {};
   var uids = _moveInUserIds_();
   var sent = 0;
 
   for (var i = 0; i < list.length; i++) {
     var t = list[i];
-    if (asked[t.name]) continue;                       // 一度きり
+    if (asked[t.name + '|' + t.moveIn]) continue;      // 同じ時期には一度きり
+    if (stillWaiting[t.name]) continue;                // 継続確認の返事待ちの人には重ねない
     if (_moveInSendHour_(t.name) !== nowHour) continue;
     var uid = uids[t.name];
     if (!uid) { console.log('[引越し期限] LINE が繋がっていません: ' + t.name); continue; }

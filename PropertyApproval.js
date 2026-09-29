@@ -2210,6 +2210,17 @@ function handleStopReasonText(replyToken, userId, message, state) {
     //         (スヌーズ案内 / 条件変更提案 / 頻度ダウン提案 のロジックは
     //          関連 STEPS / handler が他に残置されているが、ここからの遷移は行わない)
     _finalizeStop(userId, reason);
+    // 引越し先が決まった／引越しをやめた は、お客様自身の申告なのでそのまま終了にする（2026-09-29）。
+    // ⚠️ 自動終了の印（AUTO_END_MARK）は付けない。手で終了にしたのと同じ扱いで、連絡が来ても自動では戻さない。
+    try {
+      if (reason === '引越し先が決まった' || reason === '引越しをやめた') {
+        var _endName = _crmNameByUid_(userId);   // ⚠️ _getLineUserName_ はニックネームを返すことがあるので使わない
+        if (_endName && typeof setCustomerStage === 'function') {
+          var _er = setCustomerStage(_endName, '終了');
+          if (_er && _er.ok) _markEndReasonT_(_endName, reason === '引越し先が決まった' ? '他社で決定（お客様の申告）' : '引越し中止（お客様の申告）');
+        }
+      }
+    } catch (_eEnd) { console.warn('[配信停止] 終了にできません: ' + _eEnd.message); }
     clearState(userId);
     replyMessage(replyToken, [textMsg(
       '配信を停止しました。ご回答ありがとうございます。\n\n' +
@@ -2435,6 +2446,11 @@ function handleMismatchChoiceText(replyToken, userId, message) {
 function handleDeliveryResumeCommand(replyToken, userId) {
   try {
     var result = setDeliveryStatus(userId, 'active');
+    // 終了にしていた人が自分で配信を再開した＝また探している。追客に戻す（2026-09-29）
+    try {
+      var _rvName = _crmNameByUid_(userId);
+      if (result && result.ok && _rvName && typeof reviveEndedCustomer === 'function') reviveEndedCustomer(_rvName);
+    } catch (_eRv) {}
     if (!result.ok) {
       replyMessage(replyToken, [textMsg('ご希望条件が未登録のようです。まずは「お部屋を探す」からお願いいたします。')]);
       return;

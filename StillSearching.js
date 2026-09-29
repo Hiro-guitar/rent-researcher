@@ -28,6 +28,7 @@ var STILL_IDLE_D = 30;        // 最終閲覧（無ければ登録）からこ�
 var STILL_MIN_SENT = 10;      // その間に送った件数がこれ以上
 var STILL_WAIT_H = 24;        // 返事を待つ時間。過ぎたら終了
 var STILL_MAX_PER_DAY = 5;    // 1日に聞く人数の上限
+var STILL_REASK_D = 30;       // 前回聞いてからこの日数たったら、もう一度対象にする（「続ける」と答えた人も）
 
 function _stillSheet_() {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
@@ -113,28 +114,57 @@ function buildStillAskMessages() {
   }];
 }
 
-/** 対象に聞く（1日の上限つき・一度きり）。 */
+/** 継続確認の返事待ちの人（引越し時期の確認を重ねないため）。 */
+function _stillWaitingNames_() {
+  var out = {};
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(STILL_SHEET);
+  if (!sh || sh.getLastRow() < 2) return out;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues().forEach(function (r) {
+    if (String(r[6] || '').trim() === '返事待ち') out[String(r[0] || '').trim()] = true;
+  });
+  return out;
+}
+
+/** 引越し時期の確認で返事待ちの人、または今日聞いた人（継続確認を重ねないため）。 */
+function _moveInWaitingNames_() {
+  var out = {};
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(MOVE_IN_SHEET);
+  if (!sh || sh.getLastRow() < 2) return out;
+  var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues().forEach(function (r) {
+    var n = String(r[0] || '').trim();
+    var d = r[2];
+    var today = (d instanceof Date) && Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd') === todayStr;
+    if (String(r[5] || '').trim() === '返事待ち' || today) out[n] = true;
+  });
+  return out;
+}
+
+/** 対象に聞く（1日の上限つき・前回から STILL_REASK_D 日あける）。 */
 function _stillAsk_() {
   var list = collectStillSearching().filter(function (x) { return x.ok; });
   if (!list.length) return 0;
   var sh = _stillSheet_();
-  var asked = {};
+  var asked = {};   // 前回聞いてから STILL_REASK_D 日たっていない人
   var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
   var sentToday = 0;
   if (sh.getLastRow() > 1) {
     var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues();
     for (var r = 0; r < rows.length; r++) {
-      asked[String(rows[r][0] || '').trim()] = true;
       var d = rows[r][3];
+      var dMs = _fdMs_(d);
+      if (dMs && Date.now() - dMs < STILL_REASK_D * 86400000) asked[String(rows[r][0] || '').trim()] = true;
       if (d instanceof Date && Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd') === todayStr) sentToday++;
     }
   }
+  var moveInWaiting = _moveInWaitingNames_();
   var uids = _moveInUserIds_();
   var sent = 0;
   for (var i = 0; i < list.length; i++) {
     if (sentToday + sent >= STILL_MAX_PER_DAY) break;
     var t = list[i];
     if (asked[t.name]) continue;
+    if (moveInWaiting[t.name]) continue;   // 引越し時期の確認の返事待ちの人には重ねない
     var uid = uids[t.name];
     if (!uid) continue;
     if (!STILL_ENABLED) { console.log('[継続確認] 対象（まだ送りません）: ' + t.name); continue; }

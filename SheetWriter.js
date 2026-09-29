@@ -202,6 +202,17 @@ function writeToSheet(userId, state) {
     sheet.getRange(existingRowIndex, 29).setValue('');
     // AD列（30列目）: 条件変更完了 → 条件変更提案の連続送信カウントをリセット
     sheet.getRange(existingRowIndex, 30).setValue(0);
+    // 終了にしていた人が条件を登録し直した＝また探している。追客に戻す（2026-09-29）。
+    // ⚠️ これが無いと AG列=終了 のまま残り、配信の対象から外れて物件が1件も届かなかった。成約は触らない。
+    try {
+      var _agNow = String(sheet.getRange(existingRowIndex, 33).getValue() || '').trim();
+      if (_agNow === '終了') {
+        sheet.getRange(existingRowIndex, 33).setValue('');   // AG列: 営業ステージ
+        sheet.getRange(existingRowIndex, 20).setValue('');   // T列: 停止理由
+        sheet.getRange(existingRowIndex, 45).setValue('');   // AS列: アーカイブ
+        console.log('[条件登録] 終了だった人が条件を登録し直したので追客に戻しました: ' + customerName);
+      }
+    } catch (_eRv) { console.warn('[条件登録] 追客に戻せません: ' + _eRv.message); }
     // AN列（40列目）: 車種（駐車場ありのとき）
     sheet.getRange(existingRowIndex, 40).setValue(d.carModel || '');
     // AP列(42)=希望階数 / AQ列(43)=部屋番号の数字合計（フォームから来た時だけ更新）

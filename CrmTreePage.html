@@ -65,6 +65,7 @@
   .search { width: 100%; padding: 10px 12px; margin-bottom: 12px; border: 1px solid var(--hair);
     border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 15px; }
   .where { margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .auto { margin-top: 4px; font-size: 12px; color: var(--green); }
   .ask { margin-top: 8px; font-weight: 700; color: var(--green); }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
     background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; }
@@ -140,8 +141,14 @@
     var tel = c.phone ? ' <a class="meta" href="tel:' + esc(c.phone) + '">📞 ' + esc(c.phone) + '</a>' : '';
     var h = '<div class="cust"><div class="name">' + name + tel + '</div>';
     if (c.note) h += '<div class="note">' + esc(c.note) + '</div>';
+    if (c.viewNote) h += '<div class="meta">👀 ' + esc(c.viewNote) + '</div>';
     var meta = metaOf(c);
     if (meta) h += '<div class="meta">' + esc(meta) + '</div>';
+    if (c.nextAuto) h += '<div class="auto">🤖 次の自動: ' + esc(c.nextAuto) + '</div>';
+    if (c.lineOnly) {
+      // 名前の無いLINEの友だち。記録はLINEだけ（返信したら押す）
+      h += '<div class="acts"><button class="btn" onclick="rec(' + esc(JSON.stringify(c.name)) + ',\'LINE\')">📨 LINEした</button></div>';
+    }
     if (!c.lineOnly) {
       var n = esc(JSON.stringify(c.name));
       if (askNext === c.name) {
