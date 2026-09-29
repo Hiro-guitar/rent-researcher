@@ -35,7 +35,6 @@ var CRM_TREE_NODES = [
   { id: 'neverViewed',  label: '1件も見ていない（自動で再送）',   parent: 'following' },
   { id: 'neverViewed30', label: '30日 1件も見ていない（電話する）', parent: 'following', mine: true },
   { id: 'noSend14',     label: '物件を送れていない（条件を見直す）',         parent: 'following', mine: true },
-  { id: 'pausedNotEnd', label: '配信停止なのに終了でない',        parent: 'following', mine: true },
   { id: 'viewing',      label: '内見の予定あり',                  parent: 'following' },
   { id: 'waitNext',     label: '次の連絡を待つ（日付を決めた）',   parent: 'following' },
   { id: 'applied',      label: '申込',                          parent: 'following' },
@@ -165,8 +164,9 @@ function _crmTreeNodeOf_(c) {
     return 'talkedNoLine';
   }
 
-  // 一時停止（snoozed）は解除日が来れば自動で戻るので、ここには入れない（2026-09-29）
-  if (st === 'paused' || st === 'auto_paused' || st === 'stopped') return 'pausedNotEnd';
+  // 配信停止＝終了（2026-09-29）。停止した時点で終了にするようになったが、それ以前に止めた人もここで終了に入れる。
+  // 一時停止（snoozed）は解除日が来れば自動で戻るので終了にしない。
+  if (st === 'paused' || st === 'auto_paused' || st === 'stopped') { c.endWhy = '配信停止'; return 'ended'; }
   if (c.daysSinceSent === null || c.daysSinceSent === undefined) {
     // 登録から7日たっても1件も送れていない＝条件が厳しい。人が見直す
     return (c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_FIRST_WAIT_DAYS) ? 'noSend14' : 'firstWait';
