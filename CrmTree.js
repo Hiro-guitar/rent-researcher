@@ -683,9 +683,13 @@ function setCrmStage(customerName, stage, reason) {
   var data = sh.getDataRange().getValues();
   var row = _autoEndCriteriaRow_(data, customerName);
   if (row > 0) {
-    if (stage === '終了') sh.getRange(row, 20).setValue('終了: ' + (reason || 'その他'));   // T列
+    if (stage === '終了') {
+      sh.getRange(row, 20).setValue('終了: ' + (reason || 'その他'));   // T列
+      sh.getRange(row, 21).setValue(new Date());                        // U列: 止めた日時（送付履歴の片付けの起点）
+    }
     if (stage === '') {
       sh.getRange(row, 20).setValue('');
+      sh.getRange(row, 21).setValue('');
       if (String(data[row - 1][44] || '').trim()) sh.getRange(row, 45).setValue('');   // AS列: アーカイブを外す
     }
   }
@@ -718,6 +722,7 @@ function reviveEndedCustomer(customerName) {
     if (stage !== '終了' && !archived) return false;
     if (stage === '終了') sh.getRange(row, 33).setValue('');
     sh.getRange(row, 20).setValue('');
+    sh.getRange(row, 21).setValue('');
     if (archived) sh.getRange(row, 45).setValue('');
     console.log('[樹形図] 再問い合わせのため追客に戻しました: ' + customerName);
     return true;

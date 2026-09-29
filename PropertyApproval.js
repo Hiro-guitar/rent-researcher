@@ -5235,7 +5235,9 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
       if (!cname) continue;
       existingCustomers[cname] = true;
       var cstatus = String(critData[ci][18] || '').trim();  // S列 (19) = index 18
-      if (cstatus !== 'paused' && cstatus !== 'auto_paused' && cstatus !== 'blocked') continue;
+      // 終了の人も対象（2026-09-29）。自動終了は配信ステータスを変えなくなったので、AG列で見る
+      var cEnded = String(critData[ci][32] || '').trim() === '終了';   // AG列(33)
+      if (cstatus !== 'paused' && cstatus !== 'auto_paused' && cstatus !== 'blocked' && !cEnded) continue;
       var ctsRaw = critData[ci][20];  // U列 (21) = index 20
       var cts = _parseDateFlexible_(ctsRaw);
       if (!cts) {
@@ -5246,7 +5248,7 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
         continue;
       }
       if (cts < cutoffMs) {
-        toDeleteCustomers[cname] = { reason: cstatus, stoppedAt: ctsRaw };
+        toDeleteCustomers[cname] = { reason: cEnded ? '終了' : cstatus, stoppedAt: ctsRaw };
       }
     }
 

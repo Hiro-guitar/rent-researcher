@@ -721,6 +721,10 @@ function doPost(e) {
     // ── 返信後にアクティビティ記録（遅くても返信済みなので体感に影響しない） ──
     if (event.type === 'message' || event.type === 'postback') {
       try { recordLineActivity(userId); } catch (e) { console.error('recordLineActivity error: ' + e.message); }
+      // 自動で終了にした人から何か来たら元に戻す（2026-09-29）。
+      // 自動終了で配信ステータスを変えなくなったので、上の auto_paused 自動復帰では拾えない。返信の後でやる
+      try { if (typeof restoreStageIfAutoEnded === 'function') restoreStageIfAutoEnded(userId); }
+      catch (e) { console.warn('restoreStageIfAutoEnded: ' + e.message); }
     }
 
   } catch (err) {
@@ -2852,6 +2856,11 @@ function handleGetCriteria(e) {
       // null は判定不能 → 既存ステータスのまま処理続行
     }
     if (deliveryStatus === 'blocked') continue;
+    // 営業ステージ「終了」の人には物件を探さない（2026-09-29）。
+    // ⚠️ 以前は配信ステータス(S列)しか見ておらず、画面から終了にしても物件が届き続けていた。
+    //   自動で終了にした人は、お客様からは「配信中」に見せたまま（S列は変えない）ここで止める。
+    //   ブロックの判定より後に置くこと（ブロック解除の自動復活を効かせるため）。
+    if (String(row[32] || '').trim() === '終了') continue;   // AG列(33)
 
     // 配信頻度フィルタ
     if (frequency === 'weekly' || frequency === 'every2' || frequency === 'every3' || frequency === 'biweekly') {

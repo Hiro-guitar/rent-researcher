@@ -209,6 +209,7 @@ function writeToSheet(userId, state) {
       if (_agNow === '終了') {
         sheet.getRange(existingRowIndex, 33).setValue('');   // AG列: 営業ステージ
         sheet.getRange(existingRowIndex, 20).setValue('');   // T列: 停止理由
+        sheet.getRange(existingRowIndex, 21).setValue('');   // U列: 止めた日時
         sheet.getRange(existingRowIndex, 45).setValue('');   // AS列: アーカイブ
         console.log('[条件登録] 終了だった人が条件を登録し直したので追客に戻しました: ' + customerName);
       }

@@ -72,8 +72,10 @@ function endCustomerAsSilent(customerName, userId, why) {
   var before = current || '未反応';
   sh.getRange(rowNum, 33).setValue('終了');                        // AG列: 営業ステージ
   sh.getRange(rowNum, 20).setValue(AUTO_END_MARK + before);        // T列: 停止理由
-  if (!userId) userId = _autoEndUserId_(customerName);
-  if (userId && typeof setDeliveryStatus === 'function') setDeliveryStatus(userId, 'auto_paused');
+  sh.getRange(rowNum, 21).setValue(new Date());                    // U列: 止めた日時（1週間で送付履歴を片付ける起点）
+  // ⚠️ 配信ステータス(S列)は変えないこと（2026-09-29 ユーザー判断）。
+  //   以前は auto_paused にしていたので、お客様がメニューを見ると「いつの間にか配信停止になっている」状態だった。
+  //   物件の検索は AG列=終了 で止まる（コード.js handleGetCriteria）。お客様からは配信中に見える。
   console.log('[自動終了] ' + customerName + ' を終了にしました（' + (why || '音信不通') + '／元: ' + before + '）');
   return true;
 }
@@ -106,6 +108,9 @@ function restoreStageIfAutoEnded(userId) {
     var before = reason.substring(AUTO_END_MARK.length).trim() || '未反応';
     sh.getRange(rowNum, 33).setValue(before);
     sh.getRange(rowNum, 20).setValue('');
+    sh.getRange(rowNum, 21).setValue('');   // U列: 止めた日時
+    // 以前の自動終了で auto_paused にしていた人は、配信中に戻す
+    if (String(data[rowNum - 1][18] || '').trim().toLowerCase() === 'auto_paused') sh.getRange(rowNum, 19).setValue('active');
     console.log('[自動終了] 戻ってきたので ' + before + ' に戻しました: ' + name);
     return before;
   } catch (e) {
@@ -166,3 +171,26 @@ function endAllAutoPausedAsSilent() {
   console.log('=== ' + done + '人を終了にしました ===');
   return done;
 }
+
+/**
+ * 【GASエディタで実行: AutoEnd.gs】以前の自動終了で「配信停止（auto_paused）」になっている人を、
+ * 配信中（active）の見え方に戻す。終了のままなので物件は届かない。dryRun=true（既定）なら数えるだけ。
+ * 対象は T列に自動終了の印があって AG列=終了 の人だけ。
+ */
+function showAutoEndedAsActive(dryRun) {
+  if (dryRun === undefined) dryRun = true;
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+  var data = sh.getDataRange().getValues();
+  var names = [];
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][18] || '').trim().toLowerCase() !== 'auto_paused') continue;
+    if (String(data[i][32] || '').trim() !== '終了') continue;
+    if (String(data[i][19] || '').indexOf(AUTO_END_MARK) !== 0) continue;
+    names.push(String(data[i][1] || '').trim());
+    if (!dryRun) sh.getRange(i + 1, 19).setValue('active');
+  }
+  console.log((dryRun ? '【数えるだけ】' : '【戻しました】') + names.length + '人\n' + names.join('\n'));
+}
+
+/** 【GASエディタで実行: AutoEnd.gs】上を実際に戻す。 */
+function showAutoEndedAsActiveRun() { showAutoEndedAsActive(false); }
