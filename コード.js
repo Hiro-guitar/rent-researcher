@@ -5102,6 +5102,10 @@ function handleCustomerPage(e) {
     ).setTitle('認証エラー');
   }
 
+  // 2026-09-29: 一覧（カンバン）は廃止。名前なしで来たら樹形図の画面を出す。
+  //   この画面は顧客詳細（?action=customer&customer=名前）としてだけ使う。
+  if (!e.parameter.customer) return handleCrmTreePage(e);
+
   var customerList = _getCustomerListForCRM_();
   var initCustomer = e.parameter.customer || '';
 
@@ -5113,6 +5117,7 @@ function handleCustomerPage(e) {
   // google.script.run の応答を待ってから window.open すると、GASのiframeでは
   // ユーザー操作の有効期限が切れていてトップフレームの遷移がブロックされる。
   template.mobileSearchUrl = getMobileSearchWrappedUrl();
+  template.crmTreeUrl = getCrmTreePageUrl();
 
   return template.evaluate()
     .setTitle('顧客管理')
