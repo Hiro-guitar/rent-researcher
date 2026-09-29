@@ -5317,12 +5317,7 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
       if (!name) return false;
       return !!toDeleteCustomers[name];
     }
-    // ⚠️ 送った物件の履歴（通知済み物件）は、配信停止・ブロックの人でも消さない（2026-09-29 ユーザー判断）。
-    //   消すと再開したときに同じ物件がまた届き、顧客管理の「最終送信・最終閲覧」も消える。
-    //   消すのは検索条件シートから消えた顧客（orphan）の分だけ。承認待ち（まだ送っていない候補）は従来どおり消す。
-    function shouldDeleteSeen(name) {
-      return !!(name && toDeleteCustomers[name] && toDeleteCustomers[name].reason === 'orphan');
-    }
+    // ⚠️ 送った物件の履歴も消すこと。残すとスプレッドシートの容量が足りなくなる（2026-09-29 ユーザー指摘で戻した）。
 
     // 2-1. SEEN_SHEET (通知済み物件): A列 = 顧客名
     if (seen) {
@@ -5332,7 +5327,7 @@ function cleanupInactiveCustomerProperties(maxAgeDays) {
         var sRows = [];
         for (var i = 0; i < sNames.length; i++) {
           var sn = String(sNames[i][0] || '').trim();
-          if (shouldDeleteSeen(sn)) {
+          if (shouldDeleteCustomer(sn)) {
             sRows.push(i + 2);
             if (result.customers.indexOf(sn) < 0) result.customers.push(sn);
           }
