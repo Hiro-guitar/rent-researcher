@@ -23,7 +23,7 @@ var CRM_TREE_NODES = [
   { id: 'mailOnly',     label: 'メールだけ（自動メール）',       parent: 'inquiry' },
   { id: 'callQueue',    label: '架電待ち（今日かける）',          parent: 'inquiry', mine: true },
   { id: 'callWait',     label: '架電待ち（今日はかけない）',       parent: 'inquiry' },
-  { id: 'callDone',     label: '架電3枠つながらず（サヨナラ送信待ち）', parent: 'inquiry' },
+  { id: 'callDone',     label: '架電3枠つながらず（毎日のメール中）', parent: 'inquiry' },
   { id: 'line',         label: 'LINEに来た',                    parent: 'inquiry' },
   { id: 'noCriteria',   label: '条件登録待ち（自動で催促）',     parent: 'line' },
   { id: 'registered',   label: '条件登録済み',                  parent: 'line' },
@@ -52,7 +52,7 @@ var CRM_TREE_INCLUDE_OLD = true;
 var CRM_TREE_REPLY_SHEET = 'LINE要返信';
 
 // 架電は「直後（最初の1回・いつでもよい）／平日（別の平日に1回）／土日（土か日に1回）」の3枠。
-// 3枠ともつながらなければ、サヨナラのメールを1通送って終了（ユーザー決定 2026-09-28）。
+// 3枠ともつながらず、毎日のフォローアップメール（反響から14日）も終わったら終了（ユーザー決定 2026-09-29）。
 // ⚠️ 回数や日数では切らない。忙しくて連続でかけられない日があっても枠が埋まるまで待つ。
 var CRM_TREE_MAIL_DAYS = 14;        // メールだけの人は、反響からこの日数でLINEに来なければ終了
 var CRM_TREE_NUDGE_FALLBACK_D = 7;  // 催促の記録が無い登録待ちの人は、反響からこの日数で終了
@@ -114,8 +114,10 @@ function _crmTreeNodeOf_(c) {
     }
     if (c.hasPhone && !talked) {
       if (c.callSlots.done) {
-        if (!CRM_GOODBYE_ENABLED) return 'callDone';   // サヨナラのメールを送れるまで終了にしない
-        c.endWhy = '架電3枠つながらず'; return 'ended';
+        // 最後の1通は毎日のフォローアップメール（reply.py・反響から14日・LINE友だち追加入り）が担う。
+        // それが終わるまで待ってから終了にする（ユーザー決定 2026-09-29。別のサヨナラのメールは送らない）
+        if (c.daysSinceInquiry !== null && c.daysSinceInquiry <= CRM_TREE_MAIL_DAYS) return 'callDone';
+        c.endWhy = '架電3枠つながらず・毎日のメール14日終了'; return 'ended';
       }
       return c.callSlots.today ? 'callQueue' : 'callWait';
     }
@@ -500,95 +502,9 @@ function recordCrmTreeContact(customerName, type) {
   var r = addContactLog(customerName, type, new Date().toISOString(), '');
   if (!r || !r.success) throw new Error((r && r.message) || '記録できませんでした');
   _crmTreeCloseDueTasks_(customerName);
-  // 3枠目のつながらずなら、その場でサヨナラのメールを送って終了にする
-  if (String(type).indexOf('つながらず') >= 0) {
-    try { _crmTreeMaybeGoodbye_(customerName); } catch (e) { console.warn('[架電] サヨナラ: ' + e.message); }
-  }
   return _crmTreeForPage_();
 }
 
-// ════════════════════════════════════════════
-//  架電3枠つながらず → サヨナラのメール → 終了
-// ════════════════════════════════════════════
-// ⚠️ 終了にする前には必ず1通送る（ユーザー決定）。相手はLINEに来ていない人なのでメール。
-//   メールアドレスが無ければ送れないので、そのまま終了にする（電話しか無い人）。
-// ⚠️ 送るのは「架電3枠が埋まった瞬間」（📵 を押した直後）。トリガーは使わない。
-// ⚠️ 2026-09-29 停止中。GmailApp だと差出人が journey.hiroki@gmail.com になり、
-//   毎日のフォローアップ（reply.py・support@ehomaki.com）と差出人がずれる。support@ehomaki.com から出せるまで送らない。
-//   止めている間は、3枠が埋まっても送らず・終了にもしない（終了前に必ず1通、の決めごとを守るため）。
-var CRM_GOODBYE_ENABLED = false;
-var CRM_GOODBYE_FROM = 'support@ehomaki.com';
-var CRM_GOODBYE_SUBJECT = 'お問い合わせの件（合同会社えほうまき）';
-var CRM_GOODBYE_SENDER = '合同会社えほうまき';
-var LINE_ADD_FRIEND_URL = 'https://lin.ee/XLsSg6L';   // 公式アカウントの友だち追加
-
-var CRM_MAIL_SIGNATURE = [
-  '****************************************************',
-  '合同会社えほうまき',
-  '',
-  '西村',
-  '',
-  'Tel:045-900-3912',
-  'mobile:090-6503-6161',
-  'e-mail:',
-  'support@ehomaki.com',
-  '',
-  '****************************************************'
-];
-
-/** サヨナラのメール。text と html の両方を返す（HTMLが出ないメールソフト向けに text も持つ）。 */
-function _crmGoodbyeMail_(customerName) {
-  var dear = String(customerName || '').trim() + ' 様';
-  var text = dear + '\n\n'
-    + 'お問い合わせいただきありがとうございます。\n'
-    + '何度かお電話しましたが、つながらなかったため、メールでご連絡しました。\n\n'
-    + 'お部屋探しを続けていらっしゃいましたら、LINEでご希望をお伺いします。\n'
-    + LINE_ADD_FRIEND_URL + '\n\n'
-    + CRM_MAIL_SIGNATURE.join('\n');
-  var esc = function (t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
-  var html = '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Hiragino Sans\',\'Noto Sans JP\',sans-serif;font-size:15px;line-height:1.9;color:#222;max-width:560px">'
-    + '<p style="margin:0 0 16px">' + esc(dear) + '</p>'
-    + '<p style="margin:0 0 16px">お問い合わせいただきありがとうございます。<br>'
-    + '何度かお電話しましたが、つながらなかったため、メールでご連絡しました。</p>'
-    + '<p style="margin:0 0 20px">お部屋探しを続けていらっしゃいましたら、LINEでご希望をお伺いします。</p>'
-    + '<p style="margin:0 0 8px"><a href="' + LINE_ADD_FRIEND_URL + '" style="display:inline-block;background:#06c755;color:#fff;text-decoration:none;font-weight:bold;padding:12px 28px;border-radius:6px">LINEで相談する</a></p>'
-    + '<p style="margin:0 0 28px;font-size:12px;color:#888">ボタンが開かない場合: <a href="' + LINE_ADD_FRIEND_URL + '" style="color:#888">' + esc(LINE_ADD_FRIEND_URL) + '</a></p>'
-    + '<pre style="margin:0;font-family:inherit;font-size:13px;line-height:1.7;color:#555;white-space:pre-wrap">' + esc(CRM_MAIL_SIGNATURE.join('\n')) + '</pre>'
-    + '</div>';
-  return { text: text, html: html };
-}
-
-/** 架電3枠が埋まっていればサヨナラのメールを送って終了にする。 */
-function _crmTreeMaybeGoodbye_(customerName) {
-  var t = getCrmTree();
-  var c = t.customers.filter(function (x) { return x.name === customerName; })[0];
-  if (!c || !c.callSlots || !c.callSlots.done) return false;
-  if (!CRM_GOODBYE_ENABLED) { console.log('[架電] 3枠つながらず。サヨナラのメールは停止中なので送らない: ' + customerName); return false; }
-  if (c.hasLine || (c.daysSinceTalk !== null && c.daysSinceTalk !== undefined)) return false;
-  if (c.stage === '終了') return false;
-  var sent = false;
-  if (c.email) {
-    var m = _crmGoodbyeMail_(customerName);
-    GmailApp.sendEmail(c.email, CRM_GOODBYE_SUBJECT, m.text, { htmlBody: m.html, name: CRM_GOODBYE_SENDER, from: CRM_GOODBYE_FROM });
-    sent = true;
-  }
-  addContactLog(customerName, 'その他', new Date().toISOString(),
-    sent ? 'サヨナラのメールを送信（架電3枠つながらず）' : '架電3枠つながらず（メールアドレス無し）');
-  endCustomerAsSilent(customerName, '', '架電3枠つながらず');
-  console.log('[架電] ' + customerName + ' を終了にしました（メール' + (sent ? '送信' : '無し') + '）');
-  return true;
-}
-
-/** 【GASエディタで実行: CrmTree.gs】サヨナラのメールを自分宛てに送って見た目を確かめる。 */
-function testSendGoodbyeMail() {
-  var me = Session.getActiveUser().getEmail();
-  var m = _crmGoodbyeMail_('西村');
-  var opt = { htmlBody: m.html, name: CRM_GOODBYE_SENDER };
-  if (GmailApp.getAliases().indexOf(CRM_GOODBYE_FROM) >= 0) opt.from = CRM_GOODBYE_FROM;
-  GmailApp.sendEmail(me, CRM_GOODBYE_SUBJECT, m.text, opt);
-  console.log('差出人: ' + (opt.from || me));
-  console.log(me + ' に送りました');
-}
 
 /** doGet(action=crm) — 樹形図の顧客管理ページ。 */
 function handleCrmTreePage(e) {
@@ -749,14 +665,4 @@ function reviveEndedCustomer(customerName) {
     console.warn('[樹形図] 戻せません: ' + customerName + ' / ' + e.message);
     return false;
   }
-}
-
-/**
- * 【GASエディタで実行: CrmTree.gs】このGmailで「別のアドレスから送信」に登録されているアドレスを出す。
- * support@ehomaki.com が出れば、GAS から support@ehomaki.com 差出人で送れる。何も送らない。
- */
-function showGmailAliases() {
-  var a = GmailApp.getAliases();
-  console.log(a.length ? '登録済み: ' + a.join(', ') : '登録されているアドレスはありません');
-  console.log(a.indexOf(CRM_GOODBYE_FROM) >= 0 ? '→ ' + CRM_GOODBYE_FROM + ' から送れます' : '→ ' + CRM_GOODBYE_FROM + ' からは送れません');
 }
