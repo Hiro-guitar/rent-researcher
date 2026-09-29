@@ -214,7 +214,7 @@ function _crmTreeContactLog_(ss) {
 function _crmTreeCallSlots_(failedMs) {
   var ms = (failedMs || []).slice().sort(function (a, b) { return a - b; });
   var dayOf = function (m) { return _jstDayIndex_(m); };
-  var isWeekend = function (m) { var d = new Date(m + 9 * 3600000).getUTCDay(); return d === 0 || d === 6; };
+  var isWeekend = function (m) { return _crmIsWeekendOrHoliday_(m); };   // 土日＋祝日
   var s = { first: 0, weekday: 0, weekend: 0 };
   if (ms.length) s.first = ms[0];
   for (var i = 1; i < ms.length; i++) {
@@ -874,4 +874,28 @@ function _crmTreeNextAuto_(c, ctx) {
   }
   items.sort(function (a, b) { return a.ms - b.ms; });
   return items.slice(0, 2).map(function (x) { return x.text; }).join(' ／ ');
+}
+
+/** その日が土日か祝日か（日本の祝日カレンダー。1日ぶんキャッシュ）。 */
+var _crmHolidayCache_ = {};
+function _crmIsWeekendOrHoliday_(ms) {
+  var jst = new Date(ms + 9 * 3600000);
+  var d = jst.getUTCDay();
+  if (d === 0 || d === 6) return true;
+  var key = jst.getUTCFullYear() + '-' + (jst.getUTCMonth() + 1) + '-' + jst.getUTCDate();
+  if (key in _crmHolidayCache_) return _crmHolidayCache_[key];
+  var hol = false;
+  try {
+    var cache = CacheService.getScriptCache();
+    var cached = cache.get('JP_HOLIDAY_' + key);
+    if (cached !== null) hol = (cached === '1');
+    else {
+      var cal = CalendarApp.getCalendarById('ja.japanese#holiday@group.v.calendar.google.com');
+      var day = new Date(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate()) - 9 * 3600000);
+      hol = !!(cal && cal.getEventsForDay(day).length);
+      cache.put('JP_HOLIDAY_' + key, hol ? '1' : '0', 21600);
+    }
+  } catch (e) { console.warn('[祝日] 読めません: ' + e.message); }
+  _crmHolidayCache_[key] = hol;
+  return hol;
 }

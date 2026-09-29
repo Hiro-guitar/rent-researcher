@@ -25,7 +25,7 @@
 var FIRST_SEARCH_SHEET = '初回検索の確認';
 
 // 送信を止めるスイッチ。false なら数えるだけ。中身と仕組みが決まるまで false。
-var FIRST_SEARCH_ENABLED = true;    // 2026-09-28 ON（testSendFirstSearch で最終形をユーザー確認済み）
+var FIRST_SEARCH_ENABLED = false;   // 2026-09-29 廃止の方向（botっぽい。ユーザー判断）。0件の人は電話かスタッフの文で
 // 返事をこれだけ待って、無ければ終了
 var FIRST_SEARCH_REPLY_H = 24;
 // これより前に登録した人は拾わない
