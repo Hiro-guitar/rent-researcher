@@ -263,7 +263,10 @@ function _crmTreeSignals_(acts, handledMs, replyMs, inquiryMs) {
   // 2回目以降の反響が、最後の記録より後に来ている＝再問い合わせ
   var inq = (inquiryMs || []).slice().sort(function (a, b) { return a - b; });
   // ⚠️ 初回の反響と同じ日のものは数えない（同時に2物件へ問い合わせる人がいる）
+  // ⚠️ 直近 CRM_TREE_APPLY_DAYS 日のものだけ（2026-09-29）。期限が無いと、昔2回問い合わせて
+  //   その後記録の無い人が何か月前のものでも全員赤くなった（16人）。
   if (inq.length >= 2 && inq[inq.length - 1] > handledMs
+      && inq[inq.length - 1] >= Date.now() - CRM_TREE_APPLY_DAYS * _DAY_MS_
       && _jstDayIndex_(inq[inq.length - 1]) > _jstDayIndex_(inq[0])) {
     sig.reInquiry = inq[inq.length - 1];
     sig.note = '再問い合わせ';
