@@ -510,15 +510,26 @@ function recordCrmTreeContact(customerName, type) {
 //   メールアドレスが無ければ送れないので、そのまま終了にする（電話しか無い人）。
 // ⚠️ 送るのは「架電3枠が埋まった瞬間」（📵 を押した直後）。トリガーは使わない。
 var CRM_GOODBYE_SUBJECT = 'お問い合わせの件（合同会社えほうまき）';
+var CRM_GOODBYE_SENDER = '合同会社えほうまき';
+var LINE_ADD_FRIEND_URL = 'https://lin.ee/XLsSg6L';   // 公式アカウントの友だち追加
 
-function _crmGoodbyeBody_() {
-  var lineUrl = '';
-  try { lineUrl = PropertiesService.getScriptProperties().getProperty('LINE_ADD_FRIEND_URL') || ''; } catch (_e) {}
-  return 'お問い合わせいただきありがとうございます。\n'
+/** サヨナラのメール。text と html の両方を返す（HTMLが出ないメールソフト向けに text も持つ）。 */
+function _crmGoodbyeMail_() {
+  var text = 'お問い合わせいただきありがとうございます。\n'
     + '何度かお電話しましたが、つながらなかったため、メールでご連絡しました。\n\n'
     + 'お部屋探しを続けていらっしゃいましたら、LINEでご希望をお伺いします。\n'
-    + (lineUrl ? lineUrl + '\n' : '')
-    + '\n合同会社えほうまき';
+    + LINE_ADD_FRIEND_URL + '\n\n'
+    + '合同会社えほうまき';
+  var esc = function (t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var html = '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Hiragino Sans\',\'Noto Sans JP\',sans-serif;font-size:15px;line-height:1.9;color:#222;max-width:560px">'
+    + '<p style="margin:0 0 16px">お問い合わせいただきありがとうございます。<br>'
+    + '何度かお電話しましたが、つながらなかったため、メールでご連絡しました。</p>'
+    + '<p style="margin:0 0 20px">お部屋探しを続けていらっしゃいましたら、LINEでご希望をお伺いします。</p>'
+    + '<p style="margin:0 0 8px"><a href="' + LINE_ADD_FRIEND_URL + '" style="display:inline-block;background:#06c755;color:#fff;text-decoration:none;font-weight:bold;padding:12px 28px;border-radius:6px">LINEで相談する</a></p>'
+    + '<p style="margin:0 0 28px;font-size:12px;color:#888">ボタンが開かない場合: <a href="' + LINE_ADD_FRIEND_URL + '" style="color:#888">' + esc(LINE_ADD_FRIEND_URL) + '</a></p>'
+    + '<p style="margin:0;color:#555">合同会社えほうまき</p>'
+    + '</div>';
+  return { text: text, html: html };
 }
 
 /** 架電3枠が埋まっていればサヨナラのメールを送って終了にする。 */
@@ -530,7 +541,8 @@ function _crmTreeMaybeGoodbye_(customerName) {
   if (c.stage === '終了') return false;
   var sent = false;
   if (c.email) {
-    GmailApp.sendEmail(c.email, CRM_GOODBYE_SUBJECT, _crmGoodbyeBody_());
+    var m = _crmGoodbyeMail_();
+    GmailApp.sendEmail(c.email, CRM_GOODBYE_SUBJECT, m.text, { htmlBody: m.html, name: CRM_GOODBYE_SENDER });
     sent = true;
   }
   addContactLog(customerName, 'その他', new Date().toISOString(),
@@ -543,8 +555,9 @@ function _crmTreeMaybeGoodbye_(customerName) {
 /** 【GASエディタで実行: CrmTree.gs】サヨナラのメールを自分宛てに送って見た目を確かめる。 */
 function testSendGoodbyeMail() {
   var me = Session.getActiveUser().getEmail();
-  GmailApp.sendEmail(me, CRM_GOODBYE_SUBJECT, _crmGoodbyeBody_());
-  console.log(me + ' に送りました。LINEのリンクはスクリプトプロパティ LINE_ADD_FRIEND_URL から入ります（未設定なら無し）');
+  var m = _crmGoodbyeMail_();
+  GmailApp.sendEmail(me, CRM_GOODBYE_SUBJECT, m.text, { htmlBody: m.html, name: CRM_GOODBYE_SENDER });
+  console.log(me + ' に送りました');
 }
 
 /** doGet(action=crm) — 樹形図の顧客管理ページ。 */
