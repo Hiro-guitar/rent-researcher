@@ -84,7 +84,6 @@
     <a class="btn" id="adminLink" target="_blank">管理画面</a>
     <button class="btn" id="dupBtn" onclick="reviewDup()">🧹 重複リード確認</button>
     <button class="btn" id="pendBtn" onclick="reviewPending()">🧹 承認待ち整理</button>
-    <a class="btn" id="oldLink" target="_blank">旧画面</a>
   </div>
   <input type="search" id="q" class="search" placeholder="名前で探す" oninput="search()">
   <div class="today" id="today"></div>
@@ -102,7 +101,6 @@
   var mobileSearchUrl = JSON.parse('<?!= mobileSearchUrl ?>');
   var sel = '';    // 選んでいる箱
   var askNext = '', askEnd = '', askViewing = '';   // いま質問を出している顧客
-  document.getElementById('oldLink').href = customerPageUrl;
   document.getElementById('adminLink').href = adminUrl;
   document.getElementById('searchLink').href = mobileSearchUrl;
   var labelOf = {};
