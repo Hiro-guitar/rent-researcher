@@ -19,6 +19,7 @@ var CRM_TREE_NODES = [
   { id: 'strongSignal', label: '強い合図（電話する）',         parent: '', mine: true, urgent: true },
   { id: 'replyLine',    label: 'LINEに返信',                   parent: '', mine: true, urgent: true },
   { id: 'taskDue',      label: '約束の日（次の連絡・内見）',     parent: '', mine: true, urgent: true },
+  { id: 'moveInSoon',   label: '引越しが近い（電話する）',       parent: '', mine: true, urgent: true },
   { id: 'inquiry',      label: '反響',                         parent: '' },
   { id: 'mailOnly',     label: 'メールだけ（自動メール）',       parent: 'inquiry' },
   { id: 'callQueue',    label: '架電待ち（今日かける）',          parent: 'inquiry', mine: true },
@@ -57,6 +58,7 @@ var CRM_TREE_REPLY_SHEET = 'LINE要返信';
 var CRM_TREE_MAIL_DAYS = 14;        // メールだけの人は、反響からこの日数でLINEに来なければ終了
 var CRM_TREE_NUDGE_FALLBACK_D = 7;  // 催促の記録が無い登録待ちの人は、反響からこの日数で終了
 var CRM_TREE_NUDGE_WAIT_H = 24;     // 催促のあと、この時間 何も無ければ終了
+var CRM_TREE_MOVEIN_SOON_D = 14;    // 引越し予定までこの日数を切ったら1回だけ赤く出す（ルールE 14日前）
 var CRM_TREE_FIRST_WAIT_DAYS = 7;   // 登録からこの日数 1件も送れていなければ「送れていない」へ
 var CRM_TREE_NO_SEND_DAYS = 14;     // 物件を送れていない日数
 var CRM_TREE_VIEW_REPEAT = 3;       // 同じ物件をこの回数以上 開いたら強い合図
@@ -98,6 +100,9 @@ function _crmTreeNodeOf_(c) {
 
   if (c.stage === '終了' || c.archived) return 'ended';
   if (c.taskDueNow) return 'taskDue';
+  // 引越し予定まで14日を切った、条件登録済みの人。その期間に一度も記録が無ければ赤く出す
+  if (c.hasCriteria && c.stage !== '申込' && typeof c.daysToMoveIn === 'number'
+      && c.daysToMoveIn >= 0 && c.daysToMoveIn <= CRM_TREE_MOVEIN_SOON_D && !c.moveInSoonHandled) return 'moveInSoon';
   if (c.stage === '申込') return 'applied';
   if (c.hasViewingTask) return 'viewing';
   if (c.nextTaskDue) return 'waitNext';   // 次の連絡日を決めてある人は、その日まで赤くしない
@@ -394,6 +399,11 @@ function getCrmTree(opts) {
     var cl = log[c.name] || { failed: 0, failedMs: [], lastMs: 0 };
     c.failedCalls = cl.failed;
     c.callSlots = _crmTreeCallSlots_(cl.failedMs);
+    // 14日前に入った日（＝引越し予定の14日前）以降に記録があれば済み
+    if (typeof c.daysToMoveIn === 'number') {
+      var soonStartMs = Date.now() - (CRM_TREE_MOVEIN_SOON_D - c.daysToMoveIn) * _DAY_MS_;
+      c.moveInSoonHandled = cl.lastMs >= soonStartMs;
+    }
     c.lineMs = uid ? (lineMsByUid[uid] || 0) : 0;
     c.nudgedMs = (uid && friends[uid]) ? friends[uid].nudgedMs : 0;
     var regMs = c.registeredAt ? new Date(c.registeredAt).getTime() : 0;
