@@ -174,9 +174,12 @@ function processFirstDeliveryChecks() {
     try { userId = findLineUserId(name); } catch (_e) {}
     if (!userId) { skipped++; continue; }
 
-    // 担当者とやり取りしている最中なら割り込まない。動いている人はそもそも対象外。
+    // 担当者とやり取りしている最中なら割り込まない。
+    // ⚠️ LINE Activity は見ないこと（2026-09-29）。ボタンを押しただけでも更新されるので、
+    //   初回配信のカードを触っただけの人まで「やり取り中」になり、再送が二度と行かなかった（4件中3件）。
+    //   ボットが答えなかった文（＝人が返す会話。CrmTree.js の LINE要返信）だけを見る。
     try {
-      var act = _newFriendLastActivityMap_();
+      var act = _crmTreeReplyByUid_(SpreadsheetApp.openById(CRITERIA_SHEET_ID));
       if (act[userId] && (nowMs - act[userId]) < FIRST_DELIVERY_WAIT_MS) {
         sh.appendRow([name, new Date(b.firstMs), '', '', '見送り', 'LINEでやり取り中']);
         skipped++;
