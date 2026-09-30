@@ -2124,6 +2124,10 @@ function _buildCriteriaPageBlockedHtml(step) {
  */
 function processCriteriaSelection(userId, criteria) {
   try {
+    // 顧客管理の画面から、LINEの無いお客様の条件を入れた（crm::トークン）。担当者の登録として保存する
+    if (String(userId || '').indexOf('crm::') === 0) {
+      return _saveCrmFormNoLine_(userId, criteria);
+    }
     // おすすめ条件エディタ（rec::トークン）からの送信は、顧客フローに一切触れず
     // おすすめ検索条件シートに保存して終了する。
     if (String(userId || '').indexOf('rec::') === 0) {
@@ -2514,6 +2518,8 @@ function _getLineUserIdMapByCustomerName_() {
     for (var i = 1; i < data.length; i++) {
       var userId = String(data[i][0] || '').trim();
       var customerName = String(data[i][1] || '').trim();
+      // admin_ は管理画面から LINE なしで登録したときの仮のID。LINE はつながっていないので載せない（2026-09-30）
+      if (userId.indexOf('admin_') === 0) continue;
       if (userId && customerName) map[customerName] = userId;
     }
     return map;

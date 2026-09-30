@@ -1123,7 +1123,7 @@ function _crmExtrasAll_(customers) {
  */
 function prepareCrmCriteriaForm(customerName) {
   var uid = (typeof _getLineUserIdMapByCustomerName_ === 'function') ? (_getLineUserIdMapByCustomerName_()[customerName] || '') : '';
-  if (!uid) throw new Error('LINEがつながっていないので、条件フォームを開けません。先にLINEに登録してもらってください');
+  if (!uid) return _prepareCrmFormNoLine_(customerName);   // LINEが無い人は顧客名で保存する
   var existing = readLatestCriteria(uid);
   var state = createInitialState();
   state.step = STEPS.CRITERIA_SELECT;
@@ -1166,4 +1166,52 @@ function saveCrmMemo(customerName, text) {
   }
   sh.appendRow([customerName, text, new Date()]);
   return true;
+}
+
+/**
+ * LINEの無いお客様の条件フォーム。お客様用のフォームを crm::トークン の一時セッションで開き、
+ * 送信されたら顧客名で保存する（管理画面の登録と同じ processAdminCriteria を通す）。
+ * お客様にはカードは届かない（LINEが無いため）。LINEに来たら、そのとき紐付く。
+ */
+function _prepareCrmFormNoLine_(customerName) {
+  var c = loadCustomerCriteriaByName(customerName);
+  var token = Utilities.getUuid().replace(/-/g, '').substring(0, 16);
+  var userId = 'crm::' + token;
+  var state = createInitialState();
+  state.step = STEPS.CRITERIA_SELECT;
+  state.isChangeFlow = !!c;
+  state.crmName = customerName;
+  state.areaMethod = (c && c.areaMethod) || 'route';
+  state.selectedRoutes = (c && c.selectedRoutes) || [];
+  state.selectedCities = (c && c.selectedCities) || [];
+  state.selectedStations = (c && c.selectedStations) || {};
+  state.selectedTowns = (c && c.selectedTowns) || {};
+  state.data = c ? {
+    name: customerName, rent_max: c.rent_max, layouts: c.layouts, walk: c.walk, area_min: c.area_min,
+    building_age: c.building_age, building_structures: c.building_structures, equipment: c.equipment,
+    petType: c.petType, carModel: c.carModel || '', notes: c.notes, move_in_date: c.move_in_date,
+    move_in_strict: c.move_in_strict
+  } : { name: customerName };
+  saveState(userId, state);
+  var sParam = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(userId) : '';
+  return CRITERIA_FORM_URL + '?userId=' + encodeURIComponent(userId) + (sParam ? '&s=' + sParam : '');
+}
+
+/** 条件フォームの送信（crm::）を、顧客名で保存する。 */
+function _saveCrmFormNoLine_(userId, criteria) {
+  var st = getState(userId);
+  var name = st && st.crmName;
+  if (!name) return { success: false, message: '開いてから時間がたちすぎました。顧客管理の画面から開き直してください。' };
+  var mapped = {
+    areaMethod: criteria.areaMethod, selectedRoutes: criteria.selectedRoutes, selectedStations: criteria.selectedStations,
+    selectedCities: criteria.selectedCities, selectedTowns: criteria.selectedTowns,
+    rentMax: criteria.rentMax, layouts: criteria.layouts, walkMax: criteria.walkMax, areaMin: criteria.areaMin,
+    buildingAge: criteria.buildingAge, buildingStructures: criteria.buildingStructures, equipment: criteria.equipment,
+    petType: criteria.petType, carModel: criteria.carModel, otherConditions: criteria.otherConditions,
+    moveInDate: criteria.move_in_date || '', moveInStrict: !!criteria.move_in_strict
+  };
+  var r = processAdminCriteria(name, '', mapped, '');
+  try { clearState(userId); } catch (_e) {}
+  if (r && r.success === false) return r;
+  return { success: true, message: '条件を登録しました。' };
 }
