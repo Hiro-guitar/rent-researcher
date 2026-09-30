@@ -547,6 +547,7 @@ function previewCrmTree(opts) {
 function _crmTreeForPage_() {
   var t = getCrmTree();
   var ex = _crmExtrasAll_(t.customers);
+  var crits = _crmCriteriaAll_();
   return {
     nodes: t.nodes,
     oldCount: t.oldCount,
@@ -556,6 +557,8 @@ function _crmTreeForPage_() {
       return {
         stageId: c.stageId, todo: chip.todo, chipStatus: chip.status, flags: chip.flags,
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
+        lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
+        criteria: (c.stageId !== 'ended' && c.stageId !== 'won') ? (crits[c.name] || null) : null,
         group: c.group || '', contactedToday: !!c.contactedToday, ignoreDays: c.ignoreDays || 0,
         name: c.name, node: c.node, lineOnly: !!c.lineOnly,
         phone: c.phone || '', hasLine: !!c.hasLine, hasCriteria: !!c.hasCriteria,
@@ -599,6 +602,10 @@ function handleCrmTreePage(e) {
   var tpl = HtmlService.createTemplateFromFile('CrmTreePage');
   tpl.treeJson = _jsonForInlineScript_(_crmTreeForPage_());
   tpl.customerPageUrl = _jsonForInlineScript_(getCustomerDetailPageUrl());
+  // 条件入力の選択肢（管理画面と同じマスター）
+  tpl.masterJson = _jsonForInlineScript_({
+    routeCompanies: ROUTE_COMPANIES, stations: STATION_DATA, cities: TOKYO_CITIES, equipment: EQUIPMENT_CATEGORIES
+  });
   tpl.adminUrl = _jsonForInlineScript_(getAdminPageUrl(''));
   // ⚠️ 物件検索のURLはここで埋め込んでリンクにする（google.script.run の応答後に開くとブロックされる）
   tpl.mobileSearchUrl = _jsonForInlineScript_(getMobileSearchWrappedUrl());
@@ -1214,4 +1221,86 @@ function _saveCrmFormNoLine_(userId, criteria) {
   try { clearState(userId); } catch (_e) {}
   if (r && r.success === false) return r;
   return { success: true, message: '条件を登録しました。' };
+}
+
+// ════════════════════════════════════════════
+//  右側の条件入力（2026-09-30。お客様用フォームではなく、この画面用に作った）
+// ════════════════════════════════════════════
+
+/** 検索条件シートを1回だけ読み、顧客名 → 今の条件（画面に入れる形）を作る。同名は最後の行。 */
+function _crmCriteriaAll_() {
+  var out = {};
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+  var data = sh.getDataRange().getValues();
+  var split = function (v) { return v ? String(v).split(/[,、]\s*/).filter(function (x) { return x; }) : []; };
+  for (var i = 1; i < data.length; i++) {
+    var r = data[i];
+    var name = String(r[1] || '').trim();
+    if (!name) continue;
+    // 路線(駅, 駅), 路線2(駅) の形をほどく
+    var routes = {}, raw = String(r[4] || ''), depth = 0, cur = '', parts = [];
+    for (var k = 0; k < raw.length; k++) {
+      var ch = raw[k];
+      if (ch === '(') depth++;
+      if (ch === ')') depth--;
+      if (ch === ',' && depth === 0) { parts.push(cur.trim()); cur = ''; } else cur += ch;
+    }
+    if (cur.trim()) parts.push(cur.trim());
+    parts.forEach(function (pt) {
+      var m = pt.match(/^(.*?)\((.*)\)$/);
+      var rn = m ? m[1].trim() : pt.trim();
+      var stas = m ? split(m[2]) : [];
+      try { if (typeof _resolveRouteName_ === 'function') rn = _resolveRouteName_(rn, stas) || rn; } catch (_e) {}
+      if (rn) routes[rn] = stas;
+    });
+    var towns = {};
+    try { towns = r[24] ? JSON.parse(String(r[24])) : {}; } catch (_e2) {}
+    var rent = String(r[7] || '').replace('万円', '');
+    out[name] = {
+      areaMethod: Object.keys(routes).length ? 'route' : (split(r[3]).length ? 'city' : 'route'),
+      routes: routes, cities: split(r[3]), towns: towns,
+      rentMax: rent, layouts: split(r[8]),
+      walk: String(r[6] || ''), areaMin: String(r[9] || ''), age: String(r[10] || ''),
+      structures: split(r[11]), equipment: split(r[12]),
+      moveIn: (r[14] instanceof Date) ? Utilities.formatDate(r[14], 'Asia/Tokyo', 'yyyy/MM/dd') : String(r[14] || ''),
+      moveInStrict: String(r[26] || '').toLowerCase() === 'true',
+      notes: String(r[15] || ''), petType: String(r[16] || ''), carModel: String(r[39] || ''),
+      has: !!(Object.keys(routes).length || split(r[3]).length || r[7] || split(r[8]).length)
+    };
+  }
+  return out;
+}
+
+/**
+ * 画面: 条件を保存する。担当者の登録として保存し（電話のお願いは送らない）、
+ * send=true で LINE がつながっていれば、お客様に条件のカードも送る（初めてなら登録、あれば変更として）。
+ */
+function saveCrmCriteria(customerName, f, send) {
+  var hadBefore = !!loadCustomerCriteriaByName(customerName) && !!(_crmCriteriaAll_()[customerName] || {}).has;
+  var selectedRoutes = [], selectedStations = {};
+  Object.keys(f.routes || {}).forEach(function (rn) { selectedRoutes.push(rn); selectedStations[rn] = f.routes[rn] || []; });
+  var criteria = {
+    areaMethod: f.areaMethod || 'route',
+    selectedRoutes: f.areaMethod === 'city' ? [] : selectedRoutes,
+    selectedStations: f.areaMethod === 'city' ? {} : selectedStations,
+    selectedCities: f.areaMethod === 'city' ? (f.cities || []) : [],
+    selectedTowns: f.areaMethod === 'city' ? (f.towns || {}) : {},
+    rentMax: f.rentMax ? String(f.rentMax).replace(/万円$/, '') + '万円' : '',
+    layouts: f.layouts || [], walkMax: f.walk || '', areaMin: f.areaMin || '', buildingAge: f.age || '',
+    buildingStructures: f.structures || [], equipment: f.equipment || [],
+    petType: f.petType || '', carModel: f.carModel || '', otherConditions: f.notes || '',
+    moveInDate: f.moveIn || '', moveInStrict: !!f.moveInStrict
+  };
+  var uid = (_getLineUserIdMapByCustomerName_()[customerName]) || '';
+  var r = processAdminCriteria(customerName, uid, criteria, '');
+  if (!r || r.success === false) throw new Error((r && r.message) || '保存できませんでした');
+  var sentMsg = '';
+  if (send && uid) {
+    var sr = sendConditionSummaryToLine(customerName, hadBefore ? 'changed' : 'new');
+    sentMsg = (sr && sr.success) ? '（お客様にLINEで送りました）' : '（LINEで送れませんでした: ' + ((sr && sr.message) || '') + '）';
+  }
+  addContactLog(customerName, 'その他', new Date().toISOString(), '条件を' + (hadBefore ? '変更' : '登録') + sentMsg);
+  var page = _crmTreeForPage_();
+  page.savedMessage = '条件を保存しました' + sentMsg;
+  return page;
 }

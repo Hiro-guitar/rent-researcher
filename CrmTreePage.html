@@ -94,6 +94,23 @@
   .sec { margin-top: 12px; font-size: 12px; color: var(--muted); letter-spacing: .04em; }
   .inq { font-size: 13px; margin-top: 4px; }
   .inq a { color: var(--green); font-weight: 700; }
+  .crit { display: flex; flex-direction: column; gap: 4px; }
+  .crit .fl { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .crit .inp { width: 100%; padding: 6px 8px; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+  .crit .opts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .crit .opt { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--hair); background: var(--bg); color: var(--ink); cursor: pointer; }
+  .crit .opt.on { border-color: var(--green); background: var(--green-soft); color: var(--green); font-weight: 700; }
+  .crit .tabs { display: flex; gap: 4px; }
+  .crit .tabs button { flex: 1; padding: 5px 0; border-radius: 6px; border: 1.5px solid var(--hair); background: var(--surface); color: var(--ink); cursor: pointer; font-size: 13px; }
+  .crit .tabs button.on { border-color: var(--green); color: var(--green); font-weight: 700; }
+  .crit .route { display: flex; align-items: flex-start; gap: 6px; font-size: 13px; }
+  .crit .route .rn { flex: 1; cursor: pointer; }
+  .crit .route .x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; }
+  .crit .cat { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .crit .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .crit .chk { font-size: 13px; }
+  .btn.save { background: var(--green); color: #fff; border-color: var(--green); font-weight: 700; }
+  .btn.save.line { background: #06c755; border-color: #06c755; }
   .form { width: 100%; height: 820px; border: 1px solid var(--hair); border-radius: 8px; margin-top: 6px; background: #fff; }
   .memo { width: 100%; min-height: 120px; margin-top: 4px; padding: 8px; border: 1px solid var(--hair); border-radius: 8px;
     background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; resize: vertical; }
@@ -132,6 +149,7 @@
   var customerPageUrl = JSON.parse('<?!= customerPageUrl ?>');
   var adminUrl = JSON.parse('<?!= adminUrl ?>');
   var mobileSearchUrl = JSON.parse('<?!= mobileSearchUrl ?>');
+  var MASTER = JSON.parse('<?!= masterJson ?>');
   var sel = '';    // 選んでいる箱
   var askNext = '', askEnd = '', askViewing = '';   // いま質問を出している顧客
   document.getElementById('adminLink').href = adminUrl;
@@ -339,28 +357,111 @@
         + (q.content ? '<div class="meta">' + esc(q.content) + '</div>' : '') + '</div>';
     }).join('') : '<div class="meta">問い合わせの記録はありません</div>';
 
-    h += '<div class="sec">条件</div>';
-    if (x.formUrl) {
-      h += '<div class="acts"><button class="btn" onclick="closeForm(' + n + ')">閉じる（送信したら🔄で最新に）</button></div>'
-        + '<div id="formSlot" data-url="' + esc(x.formUrl) + '"></div>';
-    } else {
-      h += '<button class="btn" onclick="openForm(' + n + ')">' + (x.formLoading ? '開いています…' : '📝 ここで条件を入れる・直す') + '</button>'
-        + '<div class="meta">送信すると、お客様にも条件のカードが届きます。</div>';
-    }
+    h += '<div class="sec">条件</div>' + critHtml(c);
 
     h += '<div class="sec">メモ（お客様には見えません）</div>'
       + '<textarea id="memo" class="memo" oninput="memoInput(' + n + ',this.value)" onblur="memoSave(' + n + ')">' + esc(x.memoDraft) + '</textarea>'
       + '<div class="meta" id="memoState">' + (x.memoDraft !== x.memo ? '未保存' : (x.memo ? '保存済み' : '')) + '</div>';
     return h;
   }
-  function openForm(name) {
-    var x = extras[name]; x.formLoading = true; render();
-    google.script.run
-      .withSuccessHandler(function (url) { x.formLoading = false; x.formUrl = url; render(); })
-      .withFailureHandler(function (e) { x.formLoading = false; render(); toast(e.message); })
-      .prepareCrmCriteriaForm(name);
+  // ── 条件入力（この画面用。お客様用フォームは使わない） ──
+  var LAYOUTS = ['ワンルーム','1K','1DK','1LDK','2K','2DK','2LDK','3K','3DK','3LDK','4K以上'];
+  var WALKS = ['']; for (var wi = 1; wi <= 20; wi++) WALKS.push(wi + '分以内');
+  var AREAS = ['', '15m²','20m²','25m²','30m²','35m²','40m²','45m²','50m²','55m²','60m²'];
+  var AGES = ['', '新築','1年以内','2年以内','3年以内','4年以内','5年以内','10年以内','15年以内','20年以内','25年以内','30年以内','35年以内','40年以内'];
+  var STRUCTS = ['鉄筋系','鉄骨系','木造','ブロック・その他'];
+
+  function critOf(name) {
+    var x = extras[name];
+    if (!x.crit) {
+      var c = data.customers.filter(function (y) { return y.name === name; })[0] || {};
+      var src = c.criteria || {};
+      x.crit = JSON.parse(JSON.stringify({
+        areaMethod: src.areaMethod || 'route', routes: src.routes || {}, cities: src.cities || [], towns: src.towns || {},
+        rentMax: src.rentMax || '', layouts: src.layouts || [], walk: src.walk || '', areaMin: src.areaMin || '',
+        age: src.age || '', structures: src.structures || [], equipment: src.equipment || [],
+        moveIn: src.moveIn || '', moveInStrict: !!src.moveInStrict, notes: src.notes || '',
+        petType: src.petType || '', carModel: src.carModel || ''
+      }));
+      x.critOpenRoute = '';
+    }
+    return x.crit;
   }
-  function closeForm(name) { extras[name].formUrl = ''; render(); }
+  function chips(list, selected, onclick) {
+    return '<div class="opts">' + list.map(function (v) {
+      var on = selected.indexOf(v) >= 0;
+      return '<button class="opt' + (on ? ' on' : '') + '" onclick="' + onclick + '(' + esc(JSON.stringify(v)) + ')">' + esc(v) + '</button>';
+    }).join('') + '</div>';
+  }
+  function selectHtml(list, value, field, labelEmpty) {
+    return '<select class="inp" onchange="critSet(\'' + field + '\',this.value)">' + list.map(function (v) {
+      return '<option value="' + esc(v) + '"' + (v === value ? ' selected' : '') + '>' + esc(v || labelEmpty) + '</option>';
+    }).join('') + '</select>';
+  }
+  function critHtml(c) {
+    if (c.lineOnly) return '<div class="meta">名前がまだ分からないので、条件は入れられません。LINEで名前を聞いてから入れてください。</div>';
+    var f = critOf(c.name), x = extras[c.name];
+    var h = '<div class="crit">';
+    h += '<div class="tabs"><button class="' + (f.areaMethod !== 'city' ? 'on' : '') + '" onclick="critSet(\'areaMethod\',\'route\',true)">路線・駅</button>'
+      + '<button class="' + (f.areaMethod === 'city' ? 'on' : '') + '" onclick="critSet(\'areaMethod\',\'city\',true)">市区町村</button></div>';
+    if (f.areaMethod !== 'city') {
+      Object.keys(f.routes).forEach(function (rn) {
+        var stas = f.routes[rn] || [];
+        var open = x.critOpenRoute === rn;
+        h += '<div class="route"><span class="rn" onclick="openRoute(' + esc(JSON.stringify(rn)) + ')">' + (open ? '▾ ' : '▸ ') + esc(rn)
+          + ' <span class="meta">' + (stas.length ? stas.map(esc).join('・') : '駅を選んでいません') + '</span></span>'
+          + '<button class="x" onclick="removeRoute(' + esc(JSON.stringify(rn)) + ')">×</button></div>';
+        if (open) h += chips(MASTER.stations[rn] || [], stas, 'toggleStation');
+      });
+      h += '<select class="inp" onchange="addRoute(this.value)"><option value="">＋ 路線を足す</option>'
+        + MASTER.routeCompanies.map(function (co) {
+          return '<optgroup label="' + esc(co.label) + '">' + co.routes.filter(function (r) { return !(r in f.routes); }).map(function (r) {
+            return '<option value="' + esc(r) + '">' + esc(r) + '</option>';
+          }).join('') + '</optgroup>';
+        }).join('') + '</select>';
+    } else {
+      h += chips(MASTER.cities, f.cities, 'toggleCity');
+    }
+    h += '<label class="fl">賃料の上限（万円）</label><input class="inp" type="number" step="0.5" min="0" value="' + esc(f.rentMax) + '" placeholder="指定なし" oninput="critSet(\'rentMax\',this.value)">';
+    h += '<label class="fl">間取り</label>' + chips(LAYOUTS, f.layouts, 'toggleLayout');
+    h += '<div class="row3"><div><label class="fl">駅徒歩</label>' + selectHtml(WALKS, f.walk, 'walk', '指定なし') + '</div>'
+      + '<div><label class="fl">広さ</label>' + selectHtml(AREAS, f.areaMin, 'areaMin', '指定なし') + '</div>'
+      + '<div><label class="fl">築年数</label>' + selectHtml(AGES, f.age, 'age', '指定なし') + '</div></div>';
+    h += '<label class="fl">建物の構造</label>' + chips(STRUCTS, f.structures, 'toggleStruct');
+    h += '<label class="fl">こだわり</label>' + MASTER.equipment.map(function (cat) {
+      return '<div class="cat">' + esc(cat.name) + '</div>' + chips(cat.items, f.equipment, 'toggleEquip');
+    }).join('');
+    if (f.equipment.indexOf('ペット相談可') >= 0)
+      h += '<label class="fl">ペットの種類</label><input class="inp" value="' + esc(f.petType) + '" placeholder="例: 小型犬、猫" oninput="critSet(\'petType\',this.value)">';
+    if (f.equipment.indexOf('駐車場あり') >= 0)
+      h += '<label class="fl">車種</label><input class="inp" value="' + esc(f.carModel) + '" placeholder="例: 軽自動車" oninput="critSet(\'carModel\',this.value)">';
+    h += '<label class="fl">引越し時期</label><input class="inp" value="' + esc(f.moveIn) + '" placeholder="例: 11月上旬／いい物件見つかり次第" oninput="critSet(\'moveIn\',this.value)">'
+      + '<label class="chk"><input type="checkbox"' + (f.moveInStrict ? ' checked' : '') + ' onchange="critSet(\'moveInStrict\',this.checked)"> この時期は厳守</label>';
+    h += '<label class="fl">その他</label><textarea class="inp" rows="2" oninput="critSet(\'notes\',this.value)">' + esc(f.notes) + '</textarea>';
+    h += '<div class="acts"><button class="btn save" onclick="saveCrit(false)">' + (x.critSaving ? '保存中…' : '保存する') + '</button>'
+      + (c.lineUid ? '<button class="btn save line" onclick="saveCrit(true)">保存してLINEで送る</button>' : '') + '</div>'
+      + (c.lineUid ? '<div class="meta">「LINEで送る」を押すと、お客様に条件のカードが届きます。</div>' : '<div class="meta">LINEがつながっていないので、お客様には届きません。</div>');
+    return h + '</div>';
+  }
+  function critSet(field, v, rerender) { var f = critOf(selName); f[field] = v; if (rerender) render(); }
+  function toggleIn(arr, v) { var i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
+  function toggleLayout(v) { toggleIn(critOf(selName).layouts, v); render(); }
+  function toggleStruct(v) { toggleIn(critOf(selName).structures, v); render(); }
+  function toggleEquip(v) { toggleIn(critOf(selName).equipment, v); render(); }
+  function toggleCity(v) { toggleIn(critOf(selName).cities, v); render(); }
+  function addRoute(rn) { if (!rn) return; var f = critOf(selName); f.routes[rn] = []; extras[selName].critOpenRoute = rn; render(); }
+  function removeRoute(rn) { delete critOf(selName).routes[rn]; render(); }
+  function openRoute(rn) { var x = extras[selName]; x.critOpenRoute = (x.critOpenRoute === rn) ? '' : rn; render(); }
+  function toggleStation(v) { var x = extras[selName]; toggleIn(critOf(selName).routes[x.critOpenRoute], v); render(); }
+  function saveCrit(send) {
+    var name = selName, x = extras[name];
+    x.critSaving = true; render();
+    google.script.run
+      .withSuccessHandler(function (d) { x.critSaving = false; x.crit = null; data = d; render(); toast(d.savedMessage || '保存しました'); })
+      .withFailureHandler(function (e) { x.critSaving = false; render(); toast('保存できませんでした: ' + e.message); })
+      .saveCrmCriteria(name, x.crit, !!send);
+  }
+
   function memoInput(name, v) {
     if (!extras[name]) return;
     extras[name].memoDraft = v;
