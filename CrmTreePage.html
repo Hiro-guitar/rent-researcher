@@ -95,6 +95,16 @@
   .inq { font-size: 13px; margin-top: 4px; }
   .inq a { color: var(--green); font-weight: 700; }
   .crit { display: flex; flex-direction: column; gap: 4px; }
+  .prop { display: grid; grid-template-columns: 22px 72px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--hair); }
+  .prop.on { background: var(--green-soft); }
+  .prop img, .prop .noimg { width: 72px; height: 54px; object-fit: cover; border-radius: 4px; background: var(--bg); }
+  .prop .pt { font-weight: 700; font-size: 13px; }
+  .prop .warn { font-size: 12px; color: #b3541e; }
+  .prop .pl { font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+  .prop .pl a { color: var(--green); }
+  .prop .pl a.skip { color: var(--muted); }
+  .prop .imgs { grid-column: 1 / -1; display: flex; gap: 4px; overflow-x: auto; }
+  .prop .imgs img { width: 140px; height: 105px; }
   .crit .fl { font-size: 12px; color: var(--muted); margin-top: 8px; }
   .crit .inp { width: 100%; padding: 6px 8px; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
   .crit .opts { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -354,7 +364,8 @@
     loadExtra(c.name);
     var x = extras[c.name];
     var n = esc(JSON.stringify(c.name));
-    var h = '<div class="sec">問い合わせた物件</div>';
+    var h = sendHtml(c);
+    h += '<div class="sec">問い合わせた物件</div>';
     h += c.inquiries && c.inquiries.length ? c.inquiries.map(function (q) {
       var title = esc(q.property || '（物件名なし）') + (q.rent ? ' ' + esc(q.rent) : '') + (q.layout ? ' ' + esc(q.layout) : '');
       return '<div class="inq">' + esc(q.date) + ' '
@@ -633,6 +644,86 @@
       .withSuccessHandler(function (d) { x.critSaving = false; x.crit = null; data = d; render(); toast(d.savedMessage || '保存しました'); })
       .withFailureHandler(function (e) { x.critSaving = false; render(); toast('保存できませんでした: ' + e.message); })
       .saveCrmCriteria(name, x.crit, !!send);
+  }
+
+  // ── 送る（物件の横並びカード＋スタッフの一言） ──
+  function dearOf(c) {
+    if (c.lineOnly) return '';
+    var parts = String(c.name).split(/[\s　]+/);
+    return (parts.length > 1 ? parts[0] : c.name) + 'さま、';
+  }
+  var TEMPLATES = [
+    { label: '物件を送る', text: '{宛名}ご希望に近いお部屋がありましたのでお送りします。\n気になるお部屋があれば、お気軽にお知らせください。' },
+    { label: '様子を聞く', text: '{宛名}その後、お部屋探しの状況はいかがでしょうか。\nもう少しこういうお部屋がいい、などございましたら、お気軽にお知らせください。' },
+    { label: '電話の打診', text: '{宛名}お探しのご条件の詳細をいただきありがとうございます。\n\n担当の西村と申します。\nいただいておりますご条件を拝見しまして、お電話で5分程度お話をお伺いすることは可能でしょうか。\n\n少しでもご希望に合った物件をお送りするために、もしよろしければご対応をいただけますと幸いです。\n何卒、よろしくお願いいたします。' }
+  ];
+  function sendHtml(c) {
+    var x = extras[c.name];
+    x.pick = x.pick || {};
+    if (x.msgDraft === undefined) x.msgDraft = '';
+    var h = '<div class="sec">送る物件' + (c.pending && c.pending.length ? '（新着 ' + c.pending.length + '件）' : '') + '</div>';
+    if (c.pending && c.pending.length) {
+      h += c.pending.map(function (p) {
+        var rid = esc(JSON.stringify(p.roomId));
+        var on = !!x.pick[p.roomId];
+        return '<div class="prop' + (on ? ' on' : '') + '">'
+          + '<label class="pk"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="pickProp(' + rid + ',this.checked)"></label>'
+          + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy">' : '<div class="noimg"></div>')
+          + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + '</div>'
+          + '<div class="meta">' + esc([p.rent && (p.rent + (p.fee ? '＋' + p.fee : '')), p.layout, p.area, p.age, p.floor].filter(Boolean).join('・')) + '</div>'
+          + (p.station ? '<div class="meta">' + esc(p.station) + '</div>' : '')
+          + (p.warnings || []).map(function (w) { return '<div class="warn">' + esc(w) + '</div>'; }).join('')
+          + '<div class="pl">' + (p.url ? '<a target="_blank" href="' + esc(p.url) + '">元のページで確かめる</a>' : '')
+          + (p.images && p.images.length > 1 ? ' <a href="#" onclick="showImgs(' + rid + ');return false">写真' + p.images.length + '枚</a>' : '')
+          + ' <a href="#" class="skip" onclick="skipProp(' + rid + ');return false">見送る</a>'
+          + (p.found ? ' <span class="meta">' + esc(p.found) + '見つかった</span>' : '') + '</div>'
+          + (x.imgsOf === p.roomId ? '<div class="imgs">' + p.images.map(function (u) { return '<img src="' + esc(u) + '" loading="lazy">'; }).join('') + '</div>' : '')
+          + '</div></div>';
+      }).join('');
+    } else {
+      h += '<div class="meta">今送れる新着はありません</div>';
+    }
+    var n = Object.keys(x.pick).filter(function (k) { return x.pick[k]; }).length;
+    h += '<div class="sec">スタッフの一言（物件のあとに、普通の文で届きます）</div><div class="opts">'
+      + TEMPLATES.map(function (t, i) { return '<button class="opt" onclick="useTemplate(' + i + ')">' + esc(t.label) + '</button>'; }).join('') + '</div>'
+      + '<textarea id="msg" class="memo" oninput="extras[selName].msgDraft=this.value">' + esc(x.msgDraft) + '</textarea>';
+    if (c.lineUid) {
+      h += '<div class="acts"><button class="btn save line" onclick="sendNow()">' + (x.sending ? '送信中…' : 'LINEで送る' + (n ? '（物件' + n + '件' + (x.msgDraft ? '＋一言' : '') + '）' : '')) + '</button>'
+        + '<button class="btn" onclick="copyMsg()">一言をコピーしてLINE Chatで</button></div>';
+    } else {
+      h += '<div class="meta">LINEがつながっていないので、ここからは送れません。</div>';
+    }
+    return h;
+  }
+  function pickProp(rid, on) { extras[selName].pick[rid] = on; render(); }
+  function showImgs(rid) { var x = extras[selName]; x.imgsOf = (x.imgsOf === rid) ? '' : rid; render(); }
+  function useTemplate(i) {
+    var c = data.customers.filter(function (y) { return y.name === selName; })[0];
+    extras[selName].msgDraft = TEMPLATES[i].text.replace('{宛名}', c ? dearOf(c) : '');
+    render();
+  }
+  function skipProp(rid) { call('skipCrmProperty', [selName, rid], '見送りました'); }
+  function sendNow() {
+    var name = selName, x = extras[name];
+    var ids = Object.keys(x.pick).filter(function (k) { return x.pick[k]; });
+    var text = (x.msgDraft || '').trim();
+    if (!ids.length && !text) { toast('送る物件か一言を入れてください'); return; }
+    if (!confirm((ids.length ? '物件' + ids.length + '件' : '') + (ids.length && text ? 'と' : '') + (text ? '一言' : '') + 'を、' + name + ' さんにLINEで送ります。よろしいですか？')) return;
+    x.sending = true; render();
+    google.script.run
+      .withSuccessHandler(function (d) { x.sending = false; x.pick = {}; x.msgDraft = ''; data = d; askNext = name; render(); toast(d.savedMessage || '送りました'); })
+      .withFailureHandler(function (e) { x.sending = false; render(); toast('送れませんでした: ' + e.message); })
+      .sendCrmProperties(name, ids, text);
+  }
+  function copyMsg() {
+    var name = selName, text = (extras[name].msgDraft || '').trim();
+    if (!text) { toast('一言を入れてください'); return; }
+    var done = function () {
+      google.script.run.withSuccessHandler(function (d) { data = d; askNext = name; render(); toast('コピーしました。LINE Chat に貼って送ってください（今日の連絡に数えました）'); })
+        .logCrmManualMessage(name, text);
+    };
+    try { navigator.clipboard.writeText(text).then(done, function () { var t = document.getElementById('msg'); t.select(); document.execCommand('copy'); done(); }); }
+    catch (e) { var t = document.getElementById('msg'); t.select(); document.execCommand('copy'); done(); }
   }
 
   function memoInput(name, v) {

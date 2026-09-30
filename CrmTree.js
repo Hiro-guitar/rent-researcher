@@ -548,6 +548,7 @@ function _crmTreeForPage_() {
   var t = getCrmTree();
   var ex = _crmExtrasAll_(t.customers);
   var crits = _crmCriteriaAll_();
+  var pend = (typeof _crmPendingAll_ === 'function') ? _crmPendingAll_(crits) : {};
   return {
     nodes: t.nodes,
     oldCount: t.oldCount,
@@ -555,9 +556,11 @@ function _crmTreeForPage_() {
     customers: t.customers.map(function (c) {
       var chip = _crmChipOf_(c);
       return {
-        stageId: c.stageId, todo: chip.todo, chipStatus: chip.status, flags: chip.flags,
+        stageId: c.stageId, todo: chip.todo, chipStatus: chip.status,
+        flags: chip.flags.concat((pend[c.name] || []).length && c.stageId !== 'ended' ? ['📦新着' + pend[c.name].length + '件'] : []),
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
         lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
+        pending: (c.stageId !== 'ended' && c.stageId !== 'won') ? (pend[c.name] || []) : [],
         criteria: (c.stageId !== 'ended' && c.stageId !== 'won') ? (crits[c.name] || null) : null,
         group: c.group || '', contactedToday: !!c.contactedToday, ignoreDays: c.ignoreDays || 0,
         name: c.name, node: c.node, lineOnly: !!c.lineOnly,
