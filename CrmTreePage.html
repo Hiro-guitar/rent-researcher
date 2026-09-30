@@ -91,6 +91,10 @@
   .abc { display: flex; gap: 6px; margin: 8px 0 2px; }
   .abc button { flex: 1; padding: 6px 0; border-radius: 6px; border: 1.5px solid var(--hair); background: var(--surface); color: var(--ink); font-weight: 700; cursor: pointer; }
   .abc button.on { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+  .sec { margin-top: 12px; font-size: 12px; color: var(--muted); letter-spacing: .04em; }
+  .inq { font-size: 13px; margin-top: 4px; }
+  .memo { width: 100%; min-height: 120px; margin-top: 4px; padding: 8px; border: 1px solid var(--hair); border-radius: 8px;
+    background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; resize: vertical; }
   .ask { margin-top: 8px; font-weight: 700; color: var(--green); }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
     background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; }
@@ -286,6 +290,7 @@
       ? '<div class="where">いる段階: ' + esc(labelOf[c.stageId] || '') + (c.chipStatus ? '・' + esc(c.chipStatus) : '') + '</div>'
         + groupButtons(c) + custHtml(c)
         + ((c.flags || []).length ? '<div class="meta">' + (c.flags || []).map(esc).join(' ') + '</div>' : '')
+        + extraHtml(c)
       : '<div class="meta">名前を押すと、ここにその人が出ます。もう一度押すと閉じます。</div>';
     document.getElementById('foot').textContent = '';
   }
@@ -295,8 +300,52 @@
     if (selName === name) { selName = ''; askNext = askEnd = askViewing = ''; render(); return; }
     selName = name;
     askNext = askEnd = askViewing = '';
+    loadExtra(name);
     render();
     if (window.innerWidth < 860) document.getElementById('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ── 右側の追加情報（問い合わせた物件・条件を入れる・メモ）。名前を押したときに取りに行く ──
+  var extras = {};
+  function loadExtra(name) {
+    if (extras[name]) return;
+    extras[name] = { loading: true };
+    google.script.run
+      .withSuccessHandler(function (x) { x.memoDraft = x.memo || ''; extras[name] = x; if (selName === name) render(); })
+      .withFailureHandler(function (e) { extras[name] = { error: e.message }; if (selName === name) render(); })
+      .getCrmCustomerExtra(name);
+  }
+  function extraHtml(c) {
+    var x = extras[c.name];
+    if (!x || x.loading) return '<div class="sec">問い合わせ・メモ</div><div class="meta">読み込み中…</div>';
+    if (x.error) return '<div class="meta">読み込めませんでした: ' + esc(x.error) + '</div>';
+    var h = '<div class="sec">問い合わせた物件</div>';
+    h += x.inquiries && x.inquiries.length ? x.inquiries.map(function (q) {
+      var title = esc(q.property || '（物件名なし）') + (q.rent ? ' ' + esc(q.rent) : '') + (q.layout ? ' ' + esc(q.layout) : '');
+      return '<div class="inq">' + esc(q.date) + ' '
+        + (q.url ? '<a target="_blank" href="' + esc(q.url) + '">' + title + '</a>' : title)
+        + (q.content ? '<div class="meta">' + esc(q.content) + '</div>' : '') + '</div>';
+    }).join('') : '<div class="meta">問い合わせの記録はありません</div>';
+    h += '<div class="sec">条件</div><a class="btn" target="_blank" href="' + esc(x.adminUrl) + '">📝 条件を入れる・直す（管理画面）</a>';
+    var n = esc(JSON.stringify(c.name));
+    h += '<div class="sec">メモ（お客様には見えません）</div>'
+      + '<textarea id="memo" class="memo" oninput="memoInput(' + n + ',this.value)" onblur="memoSave(' + n + ')">' + esc(x.memoDraft) + '</textarea>'
+      + '<div class="meta" id="memoState">' + (x.memoDraft !== x.memo ? '未保存' : (x.memo ? '保存済み' : '')) + '</div>';
+    return h;
+  }
+  function memoInput(name, v) {
+    if (!extras[name]) return;
+    extras[name].memoDraft = v;
+    var st = document.getElementById('memoState'); if (st) st.textContent = '未保存';
+    clearTimeout(memoInput._t); memoInput._t = setTimeout(function () { memoSave(name); }, 1500);
+  }
+  function memoSave(name) {
+    var x = extras[name]; if (!x || x.memoDraft === x.memo) return;
+    var v = x.memoDraft;
+    google.script.run
+      .withSuccessHandler(function () { x.memo = v; var st = document.getElementById('memoState'); if (st && selName === name) st.textContent = '保存済み'; })
+      .withFailureHandler(function (e) { toast('メモを保存できませんでした: ' + e.message); })
+      .saveCrmMemo(name, v);
   }
 
   function setGroup(name, g) { call('setCrmGroup', [name, g], name + '：' + (g ? g + 'にしました' : 'グループを外しました')); }

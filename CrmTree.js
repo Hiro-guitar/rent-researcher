@@ -417,6 +417,7 @@ function getCrmTree(opts) {
   var knownUid = {};
   Object.keys(uidByName).forEach(function (n) { knownUid[uidByName[n]] = true; });
   var friends = _crmTreeNewFriends_(ss);
+  var blockedOnly = (typeof _lineBlockedOnlyIds_ === 'function') ? _lineBlockedOnlyIds_() : {};
 
   // LINEに来たが、名前がまだ無い人（条件登録も空室確認もしていない）。
   // 検索条件シートに行が無いので、友だち追加の記録から足す。控えた時刻より後に来た人だけ。
@@ -425,7 +426,7 @@ function getCrmTree(opts) {
     if (knownUid[uid] || !f.addedMs || f.addedMs < old.frozenMs) return;
     customers.push({
       name: (f.displayName || '（名前なし）') + '〔LINEのみ〕', lineOnly: true, uid: uid,
-      status: '', stage: '', hasLine: true, hasPhone: false, hasCriteria: false,
+      status: blockedOnly[uid] ? 'blocked' : '', stage: '', hasLine: true, hasPhone: false, hasCriteria: false,
       daysSinceTalk: null, daysSinceSent: null, daysSinceViewed: null,
       registeredAt: Utilities.formatDate(new Date(f.addedMs), 'Asia/Tokyo', 'yyyy/MM/dd')
     });
@@ -993,7 +994,8 @@ function _crmStageOf_(c) {
     return (c.node === 'ended') ? 'ended' : 'line';   // 催促のあとの終了などは第1版の判定を使う
   }
   // LINEに来ていない人は反響から14日で終了（電話の枠に関係なく。2026-09-30 ユーザー決定）
-  if (c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_MAIL_DAYS) {
+  // 反響の日を1日目として14日目まで（daysSinceInquiry 0〜13）。15日目になったら終了
+  if (c.daysSinceInquiry !== null && c.daysSinceInquiry >= CRM_TREE_MAIL_DAYS) {
     c.endWhy = '反響から' + c.daysSinceInquiry + '日'; return 'ended';
   }
   if (talked) return 'talked';
@@ -1062,4 +1064,59 @@ function previewCrmStages() {
     lines.push((s.parent ? '　' : '') + s.label + '【' + list.length + '】' + (red.length ? ' 赤' + red.length + ': ' + red.map(function (c) { return c.name; }).slice(0, 15).join('、') : ''));
   });
   console.log(lines.join('\n'));
+}
+
+// ════════════════════════════════════════════
+//  右側: 問い合わせた物件・メモ（2026-09-30）
+// ════════════════════════════════════════════
+var CRM_MEMO_SHEET = 'CRMメモ';   // スタッフだけが見るメモ。お客様には見えない
+
+/** 画面: 右側に出す追加の情報（名前を押したときに取りに来る）。 */
+function getCrmCustomerExtra(customerName) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var out = { inquiries: [], memo: '', adminUrl: getAdminPageUrl(customerName) };
+  // 問い合わせた物件（問い合わせシート。名前かメールで突き合わせる）
+  try {
+    var email = '';
+    var cs = ss.getSheetByName(CRITERIA_SHEET_NAME).getDataRange().getValues();
+    for (var i = 1; i < cs.length; i++) if (String(cs[i][1] || '').trim() === customerName && cs[i][31]) email = String(cs[i][31]).trim().toLowerCase();
+    var inq = ss.getSheetByName(INQUIRY_SHEET_NAME);
+    if (inq && inq.getLastRow() > 1) {
+      inq.getRange(2, 1, inq.getLastRow() - 1, 16).getValues().forEach(function (r) {
+        var nm = String(r[2] || '').trim(), em = String(r[4] || '').trim().toLowerCase();
+        if (nm !== customerName && !(email && em === email)) return;
+        out.inquiries.push({
+          date: (r[0] instanceof Date) ? Utilities.formatDate(r[0], 'Asia/Tokyo', 'M/d') : String(r[0] || '').substring(0, 10),
+          property: String(r[8] || ''), rent: String(r[10] || ''), layout: String(r[11] || ''),
+          content: String(r[7] || ''), url: String(r[15] || '')
+        });
+      });
+    }
+  } catch (e) { console.warn('[右側] 問い合わせ: ' + e.message); }
+  // メモ
+  try {
+    var ms = ss.getSheetByName(CRM_MEMO_SHEET);
+    if (ms && ms.getLastRow() > 1) {
+      ms.getRange(2, 1, ms.getLastRow() - 1, 2).getValues().forEach(function (r) {
+        if (String(r[0] || '').trim() === customerName) out.memo = String(r[1] || '');
+      });
+    }
+  } catch (e2) { console.warn('[右側] メモ: ' + e2.message); }
+  return out;
+}
+
+/** 画面: メモを保存する（お客様には見えない）。 */
+function saveCrmMemo(customerName, text) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sh = ss.getSheetByName(CRM_MEMO_SHEET);
+  if (!sh) { sh = ss.insertSheet(CRM_MEMO_SHEET); sh.appendRow(['顧客名', 'メモ', '更新日時']); }
+  var last = sh.getLastRow();
+  if (last > 1) {
+    var names = sh.getRange(2, 1, last - 1, 1).getValues();
+    for (var i = 0; i < names.length; i++) {
+      if (String(names[i][0] || '').trim() === customerName) { sh.getRange(i + 2, 2, 1, 2).setValues([[text, new Date()]]); return true; }
+    }
+  }
+  sh.appendRow([customerName, text, new Date()]);
+  return true;
 }

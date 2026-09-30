@@ -470,13 +470,23 @@ function _lineBlockLocate_(userId) {
   var sh = ss.getSheetByName(CRITERIA_SHEET_NAME);
   var data = sh.getDataRange().getValues();
   var row = (typeof _autoEndCriteriaRow_ === 'function') ? _autoEndCriteriaRow_(data, name) : -1;   // AutoEnd.gs
+  // 条件がまだ無い人（反響の行だけ）も、その名前の最後の行に書く（2026-09-30）。
+  // 以前は条件の行が無いと何もしなかったので、条件登録前にブロックした人が樹形図に残り続けた。
+  if (row < 0) {
+    for (var j = 1; j < data.length; j++) if (String(data[j][1] || '').trim() === name) row = j + 1;
+  }
   return { name: name, sheet: sh, row: row, data: data };
 }
 
 /** ブロックされた。get_criteria の検知と同じ書き方にする。 */
 function markLineBlockedByUserId(userId) {
   var loc = _lineBlockLocate_(userId);
-  if (!loc) { console.log('[unfollow] お客様として登録が無い: ' + userId); return false; }
+  if (!loc) {
+    // 名前がまだ無い友だち（友だち追加だけの人）。別のシートに控えて、樹形図で終了に入れる
+    _lineBlockedOnlySet_(userId, true);
+    console.log('[unfollow] 名前の無い友だちのブロックを控えた: ' + userId);
+    return true;
+  }
   if (loc.row < 0) { console.log('[unfollow] 条件の行が無い: ' + loc.name); return false; }
   var r = loc.data[loc.row - 1];
   var was = String(r[18] || '').trim().toLowerCase() === 'blocked';    // S列
@@ -492,6 +502,7 @@ function markLineBlockedByUserId(userId) {
 
 /** ブロックが解除された（follow が届いた）。blocked なら active に戻す。 */
 function markLineUnblockedByUserId(userId) {
+  _lineBlockedOnlySet_(userId, false);
   var loc = _lineBlockLocate_(userId);
   if (!loc || loc.row < 0) return false;
   var r = loc.data[loc.row - 1];
@@ -564,3 +575,52 @@ function debugLineRename(nick) {
     } catch (e2) {}
   });
 }
+
+// 名前の無い友だち（LINE Users に居ない人）のブロックを控えるシート。userId → ブロック日時
+var LINE_BLOCKED_ONLY_SHEET = 'LINEブロック（名前なし）';
+
+function _lineBlockedOnlySet_(userId, blocked) {
+  try {
+    var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+    var sh = ss.getSheetByName(LINE_BLOCKED_ONLY_SHEET);
+    if (!sh) { if (!blocked) return; sh = ss.insertSheet(LINE_BLOCKED_ONLY_SHEET); sh.appendRow(['userId', 'ブロック日時']); }
+    var last = sh.getLastRow();
+    var ids = last > 1 ? sh.getRange(2, 1, last - 1, 1).getValues() : [];
+    for (var i = ids.length - 1; i >= 0; i--) {
+      if (String(ids[i][0] || '').trim() === String(userId)) { if (!blocked) sh.deleteRow(i + 2); else return; }
+    }
+    if (blocked) sh.appendRow([userId, new Date()]);
+  } catch (e) { console.warn('[ブロック（名前なし）] ' + e.message); }
+}
+
+/** 名前の無い友だちでブロック中の userId の集合（樹形図が使う）。 */
+function _lineBlockedOnlyIds_() {
+  var out = {};
+  try {
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(LINE_BLOCKED_ONLY_SHEET);
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function (r) { if (r[0]) out[String(r[0]).trim()] = true; });
+  } catch (_e) {}
+  return out;
+}
+
+/**
+ * 【GASエディタで実行: LineApi.gs】条件登録前の人（反響の行だけの人・名前の無い友だち）で、
+ * すでにブロックしている人を探して終了にする。以前は条件の行が無いとブロックを記録していなかったので、その取り戻し。
+ * dryRun=true（既定）なら数えるだけ。
+ */
+function backfillBlockedBeforeCriteria(dryRun) {
+  if (dryRun === undefined) dryRun = true;
+  var t = getCrmTree();
+  var targets = t.customers.filter(function (c) {
+    return c.uid && !c.hasCriteria && String(c.status || '').toLowerCase() !== 'blocked' && c.stageId !== 'ended';
+  });
+  var map = bulkCheckLineBlocked(targets.map(function (c) { return c.uid; }));
+  var hits = targets.filter(function (c) { return map[c.uid] === true; });
+  if (!dryRun) hits.forEach(function (c) { markLineBlockedByUserId(c.uid); });
+  console.log((dryRun ? '【数えるだけ】' : '【終了にしました】') + 'ブロックしている人 ' + hits.length + '人 / 確認 ' + targets.length + '人\n'
+    + hits.map(function (c) { return c.name; }).join('\n'));
+}
+
+/** 【GASエディタで実行: LineApi.gs】上を実際に終了にする。 */
+function backfillBlockedBeforeCriteriaRun() { backfillBlockedBeforeCriteria(false); }
