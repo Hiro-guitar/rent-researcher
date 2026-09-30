@@ -546,6 +546,7 @@ function previewCrmTree(opts) {
 /** 画面に渡す形に絞る（顧客ごとの項目を必要なものだけにして軽くする）。 */
 function _crmTreeForPage_() {
   var t = getCrmTree();
+  var ex = _crmExtrasAll_(t.customers);
   return {
     nodes: t.nodes,
     oldCount: t.oldCount,
@@ -554,6 +555,7 @@ function _crmTreeForPage_() {
       var chip = _crmChipOf_(c);
       return {
         stageId: c.stageId, todo: chip.todo, chipStatus: chip.status, flags: chip.flags,
+        inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
         group: c.group || '', contactedToday: !!c.contactedToday, ignoreDays: c.ignoreDays || 0,
         name: c.name, node: c.node, lineOnly: !!c.lineOnly,
         phone: c.phone || '', hasLine: !!c.hasLine, hasCriteria: !!c.hasCriteria,
@@ -1074,21 +1076,26 @@ function previewCrmStages() {
 // ════════════════════════════════════════════
 var CRM_MEMO_SHEET = 'CRMメモ';   // スタッフだけが見るメモ。お客様には見えない
 
-/** 画面: 右側に出す追加の情報（名前を押したときに取りに来る）。 */
-function getCrmCustomerExtra(customerName) {
+/**
+ * 右側に出す「問い合わせた物件」と「メモ」を全員分まとめて読む（画面を開いた時点で持っておく）。
+ * ⚠️ 名前を押してから取りに行くと、GASの往復で数秒「読み込み中」になっていた（2026-09-30）。
+ */
+function _crmExtrasAll_(customers) {
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
-  var out = { inquiries: [], memo: '', adminUrl: getAdminPageUrl(customerName) };
-  // 問い合わせた物件（問い合わせシート。名前かメールで突き合わせる）
+  var out = { inq: {}, memo: {} };
+  var byEmail = {}, names = {};
+  customers.forEach(function (c) {
+    names[c.name] = true;
+    if (c.email) byEmail[String(c.email).trim().toLowerCase()] = c.name;
+  });
   try {
-    var email = '';
-    var cs = ss.getSheetByName(CRITERIA_SHEET_NAME).getDataRange().getValues();
-    for (var i = 1; i < cs.length; i++) if (String(cs[i][1] || '').trim() === customerName && cs[i][31]) email = String(cs[i][31]).trim().toLowerCase();
     var inq = ss.getSheetByName(INQUIRY_SHEET_NAME);
     if (inq && inq.getLastRow() > 1) {
       inq.getRange(2, 1, inq.getLastRow() - 1, 16).getValues().forEach(function (r) {
         var nm = String(r[2] || '').trim(), em = String(r[4] || '').trim().toLowerCase();
-        if (nm !== customerName && !(email && em === email)) return;
-        out.inquiries.push({
+        var who = names[nm] ? nm : (em && byEmail[em]) || '';
+        if (!who) return;
+        (out.inq[who] = out.inq[who] || []).push({
           date: (r[0] instanceof Date) ? Utilities.formatDate(r[0], 'Asia/Tokyo', 'M/d') : String(r[0] || '').substring(0, 10),
           property: String(r[8] || ''), rent: String(r[10] || ''), layout: String(r[11] || ''),
           content: String(r[7] || ''), url: String(r[15] || '')
@@ -1096,16 +1103,53 @@ function getCrmCustomerExtra(customerName) {
       });
     }
   } catch (e) { console.warn('[右側] 問い合わせ: ' + e.message); }
-  // メモ
   try {
     var ms = ss.getSheetByName(CRM_MEMO_SHEET);
     if (ms && ms.getLastRow() > 1) {
       ms.getRange(2, 1, ms.getLastRow() - 1, 2).getValues().forEach(function (r) {
-        if (String(r[0] || '').trim() === customerName) out.memo = String(r[1] || '');
+        var n = String(r[0] || '').trim();
+        if (n) out.memo[n] = String(r[1] || '');
       });
     }
   } catch (e2) { console.warn('[右側] メモ: ' + e2.message); }
   return out;
+}
+
+/**
+ * 画面: 条件フォームをその場で開くためのURLを作る（右側に埋め込む）。
+ * お客様が使う条件フォームと同じもの。送信すると、お客様にも条件のカードが届く（ユーザーの希望）。
+ * ⚠️ 担当者が入れた印（changeSource）を付けること。付けないと「電話のお願い」が送られてしまう。
+ * ⚠️ そのお客様のLINEの会話の状態を「条件を入れる途中」に上書きする。
+ */
+function prepareCrmCriteriaForm(customerName) {
+  var uid = (typeof _getLineUserIdMapByCustomerName_ === 'function') ? (_getLineUserIdMapByCustomerName_()[customerName] || '') : '';
+  if (!uid) throw new Error('LINEがつながっていないので、条件フォームを開けません。先にLINEに登録してもらってください');
+  var existing = readLatestCriteria(uid);
+  var state = createInitialState();
+  state.step = STEPS.CRITERIA_SELECT;
+  state.changeSource = '担当者による条件変更';
+  if (existing) {
+    state.isChangeFlow = true;
+    state.areaMethod = existing.areaMethod;
+    state.selectedRoutes = existing.selectedRoutes;
+    state.selectedCities = existing.selectedCities;
+    state.selectedTowns = existing.selectedTowns || {};
+    state.selectedStations = existing.selectedStations;
+    state.data = {
+      name: existing.name, reason: existing.reason, resident: existing.resident,
+      move_in_date: existing.move_in_date, move_in_strict: existing.move_in_strict || false,
+      rent_max: existing.rent_max, layouts: existing.layouts, walk: existing.walk, area_min: existing.area_min,
+      building_age: existing.building_age, building_structures: existing.building_structures,
+      equipment: existing.equipment, petType: existing.petType, carModel: existing.carModel,
+      notes: existing.notes, age: existing.age
+    };
+  } else {
+    state.isChangeFlow = false;
+    state.data = { name: customerName };
+  }
+  saveState(uid, state);
+  var sParam = (typeof _criteriaStateParam_ === 'function') ? _criteriaStateParam_(uid) : '';
+  return CRITERIA_FORM_URL + '?userId=' + encodeURIComponent(uid) + (sParam ? '&s=' + sParam : '');
 }
 
 /** 画面: メモを保存する（お客様には見えない）。 */

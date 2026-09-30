@@ -93,6 +93,8 @@
   .abc button.on { border-color: var(--green); background: var(--green-soft); color: var(--green); }
   .sec { margin-top: 12px; font-size: 12px; color: var(--muted); letter-spacing: .04em; }
   .inq { font-size: 13px; margin-top: 4px; }
+  .inq a { color: var(--green); font-weight: 700; }
+  .form { width: 100%; height: 820px; border: 1px solid var(--hair); border-radius: 8px; margin-top: 6px; background: #fff; }
   .memo { width: 100%; min-height: 120px; margin-top: 4px; padding: 8px; border: 1px solid var(--hair); border-radius: 8px;
     background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; resize: vertical; }
   .ask { margin-top: 8px; font-weight: 700; color: var(--green); }
@@ -285,6 +287,9 @@
     }
 
     var panel = document.getElementById('panel');
+    // 条件フォームは描き直しても作り直さない（入力中の内容が消えないように）
+    var keepForm = document.getElementById('critForm');
+    if (keepForm) keepForm.parentNode.removeChild(keepForm);
     var c = data.customers.filter(function (x) { return x.name === selName; })[0];
     panel.innerHTML = c
       ? '<div class="where">いる段階: ' + esc(labelOf[c.stageId] || '') + (c.chipStatus ? '・' + esc(c.chipStatus) : '') + '</div>'
@@ -293,6 +298,16 @@
         + extraHtml(c)
       : '<div class="meta">名前を押すと、ここにその人が出ます。もう一度押すと閉じます。</div>';
     document.getElementById('foot').textContent = '';
+    var slot = document.getElementById('formSlot');
+    if (slot) {
+      var url = slot.getAttribute('data-url');
+      var f = (keepForm && keepForm.getAttribute('data-url') === url) ? keepForm : null;
+      if (!f) {
+        f = document.createElement('iframe');
+        f.id = 'critForm'; f.className = 'form'; f.src = url; f.setAttribute('data-url', url);
+      }
+      slot.appendChild(f);
+    }
   }
 
   function pickCust(name) {
@@ -305,34 +320,47 @@
     if (window.innerWidth < 860) document.getElementById('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  // ── 右側の追加情報（問い合わせた物件・条件を入れる・メモ）。名前を押したときに取りに行く ──
-  var extras = {};
+  // ── 右側の追加情報（問い合わせた物件・条件を入れる・メモ）。画面を開いた時点で全員分を持っている ──
+  var extras = {};   // 顧客名 → { memo, memoDraft, formUrl, formLoading }
   function loadExtra(name) {
     if (extras[name]) return;
-    extras[name] = { loading: true };
-    google.script.run
-      .withSuccessHandler(function (x) { x.memoDraft = x.memo || ''; extras[name] = x; if (selName === name) render(); })
-      .withFailureHandler(function (e) { extras[name] = { error: e.message }; if (selName === name) render(); })
-      .getCrmCustomerExtra(name);
+    var c = data.customers.filter(function (x) { return x.name === name; })[0] || {};
+    extras[name] = { memo: c.memo || '', memoDraft: c.memo || '' };
   }
   function extraHtml(c) {
+    loadExtra(c.name);
     var x = extras[c.name];
-    if (!x || x.loading) return '<div class="sec">問い合わせ・メモ</div><div class="meta">読み込み中…</div>';
-    if (x.error) return '<div class="meta">読み込めませんでした: ' + esc(x.error) + '</div>';
+    var n = esc(JSON.stringify(c.name));
     var h = '<div class="sec">問い合わせた物件</div>';
-    h += x.inquiries && x.inquiries.length ? x.inquiries.map(function (q) {
+    h += c.inquiries && c.inquiries.length ? c.inquiries.map(function (q) {
       var title = esc(q.property || '（物件名なし）') + (q.rent ? ' ' + esc(q.rent) : '') + (q.layout ? ' ' + esc(q.layout) : '');
       return '<div class="inq">' + esc(q.date) + ' '
         + (q.url ? '<a target="_blank" href="' + esc(q.url) + '">' + title + '</a>' : title)
         + (q.content ? '<div class="meta">' + esc(q.content) + '</div>' : '') + '</div>';
     }).join('') : '<div class="meta">問い合わせの記録はありません</div>';
-    h += '<div class="sec">条件</div><a class="btn" target="_blank" href="' + esc(x.adminUrl) + '">📝 条件を入れる・直す（管理画面）</a>';
-    var n = esc(JSON.stringify(c.name));
+
+    h += '<div class="sec">条件</div>';
+    if (x.formUrl) {
+      h += '<div class="acts"><button class="btn" onclick="closeForm(' + n + ')">閉じる（送信したら🔄で最新に）</button></div>'
+        + '<div id="formSlot" data-url="' + esc(x.formUrl) + '"></div>';
+    } else {
+      h += '<button class="btn" onclick="openForm(' + n + ')">' + (x.formLoading ? '開いています…' : '📝 ここで条件を入れる・直す') + '</button>'
+        + '<div class="meta">送信すると、お客様にも条件のカードが届きます。</div>';
+    }
+
     h += '<div class="sec">メモ（お客様には見えません）</div>'
       + '<textarea id="memo" class="memo" oninput="memoInput(' + n + ',this.value)" onblur="memoSave(' + n + ')">' + esc(x.memoDraft) + '</textarea>'
       + '<div class="meta" id="memoState">' + (x.memoDraft !== x.memo ? '未保存' : (x.memo ? '保存済み' : '')) + '</div>';
     return h;
   }
+  function openForm(name) {
+    var x = extras[name]; x.formLoading = true; render();
+    google.script.run
+      .withSuccessHandler(function (url) { x.formLoading = false; x.formUrl = url; render(); })
+      .withFailureHandler(function (e) { x.formLoading = false; render(); toast(e.message); })
+      .prepareCrmCriteriaForm(name);
+  }
+  function closeForm(name) { extras[name].formUrl = ''; render(); }
   function memoInput(name, v) {
     if (!extras[name]) return;
     extras[name].memoDraft = v;
