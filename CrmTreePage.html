@@ -66,9 +66,12 @@
     border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 15px; }
   .where { margin-top: 10px; font-size: 12px; color: var(--muted); }
   .auto { margin-top: 4px; font-size: 12px; color: var(--green); }
-  .wrap { max-width: 1180px; }
-  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
-  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  .wrap { max-width: 1560px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px 400px; gap: 14px; align-items: start; }
+  @media (max-width: 1280px) { .layout { grid-template-columns: minmax(0, 1fr) 360px; } .layout .props { grid-column: 2; } }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .layout .props { grid-column: auto; } }
+  .layout .panel { max-height: calc(100vh - 16px); overflow-y: auto; }
+  @media (max-width: 860px) { .layout .panel { max-height: none; position: static; } }
   .panel { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px; padding: 12px 14px; margin-top: 0;
     position: sticky; top: 8px; }
   .tree li::after { top: 22px; }
@@ -154,6 +157,7 @@
   <div class="layout">
     <div class="tree" id="tree"></div>
     <aside class="panel" id="panel"></aside>
+    <aside class="panel props" id="props"></aside>
   </div>
   <div class="foot" id="foot"></div>
 </div>
@@ -331,6 +335,10 @@
         + extraHtml(c)
       : '<div class="meta">名前を押すと、ここにその人が出ます。もう一度押すと閉じます。</div>';
     document.getElementById('foot').textContent = '';
+    // 送る物件は別の列に出す
+    var props = document.getElementById('props');
+    props.innerHTML = c ? '<div class="where">' + esc(c.name) + ' さんに送る</div>' + sendHtml(c)
+      : '<div class="meta">名前を押すと、その人に送る物件がここに並びます。</div>';
     var slot = document.getElementById('formSlot');
     if (slot) {
       var url = slot.getAttribute('data-url');
@@ -364,8 +372,7 @@
     loadExtra(c.name);
     var x = extras[c.name];
     var n = esc(JSON.stringify(c.name));
-    var h = sendHtml(c);
-    h += '<div class="sec">問い合わせた物件</div>';
+    var h = '<div class="sec">問い合わせた物件</div>';
     h += c.inquiries && c.inquiries.length ? c.inquiries.map(function (q) {
       var title = esc(q.property || '（物件名なし）') + (q.rent ? ' ' + esc(q.rent) : '') + (q.layout ? ' ' + esc(q.layout) : '');
       return '<div class="inq">' + esc(q.date) + ' '
