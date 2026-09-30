@@ -493,7 +493,11 @@
         return '<button class="opt' + (p.period === pe ? ' on' : '') + '" onclick="setMoveIn(\'p\',\'' + pe + '\')">' + pe + '</button>';
       }).join('') + '</div>';
       if (p.period === '日付') {
-        var days = []; for (var d = 1; d <= 31; d++) days.push(d);
+        // その月の日数だけ出す。今月より前の月は来年とみなす（うるう年も new Date が面倒を見る）
+        var thisMonth = new Date().getMonth() + 1;
+        var year = new Date().getFullYear() + (p.month < thisMonth ? 1 : 0);
+        var last = new Date(year, p.month, 0).getDate();
+        var days = []; for (var d = 1; d <= last; d++) days.push(d);
         h2 += '<select class="inp" onchange="setMoveIn(\'d\',this.value)">' + days.map(function (d) {
           return '<option value="' + d + '"' + (p.day === d ? ' selected' : '') + '>' + p.month + '月' + d + '日</option>';
         }).join('') + '</select>';
