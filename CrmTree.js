@@ -191,13 +191,17 @@ function _crmTreeContactLog_(ss) {
     for (var i = 0; i < rows.length; i++) {
       var name = String(rows[i][0] || '').trim();
       if (!name) continue;
-      var r = out[name] || (out[name] = { failed: 0, failedMs: [], lastMs: 0, inquiryMs: [] });
+      var r = out[name] || (out[name] = { failed: 0, failedMs: [], lastMs: 0, inquiryMs: [], contactMs: [], talkMs: 0 });
       var ms = _cellToEpochMs_(rows[i][1]);
       var type = String(rows[i][2] || '').trim();
       // ⚠️ 反響の取込が自動で書く行は「対応した」の印にしない（2026-09-29）。
       //   印にすると、再問い合わせの瞬間に直前の合図（申込希望など）が全部「済み」になっていた。
       if (type.indexOf('反響') >= 0) { if (ms) r.inquiryMs.push(ms); continue; }
-      if (_contactLogOutcome_(rows[i][2], rows[i][3]) === 'failed') { r.failed++; if (ms) r.failedMs.push(ms); }
+      var outcome = _contactLogOutcome_(rows[i][2], rows[i][3]);
+      if (outcome === 'failed') { r.failed++; if (ms) r.failedMs.push(ms); }
+      // 電話で話せた＝お客様が応じた（無視の数え直し）。LINE の記録は「こちらが送った」なので含めない
+      if (outcome === 'talked' && type.indexOf('電話') >= 0 && ms > r.talkMs) r.talkMs = ms;
+      if (ms) r.contactMs.push(ms);
       if (ms > r.lastMs) r.lastMs = ms;
     }
   } catch (e) { console.warn('[樹形図] 対応ログ: ' + e.message); }
@@ -435,6 +439,7 @@ function getCrmTree(opts) {
   var lineMsByUid = _crmTreeLineMsByUid_(ss);
   var todayIdx = _jstDayIndex_(Date.now());
   var tasks = _crmTreeOpenTasks_(ss);
+  var groups = _crmGroups_(ss);
   var autoCtx = _crmTreeAutoContext_(ss, friends);
   var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 
@@ -442,7 +447,15 @@ function getCrmTree(opts) {
   customers.forEach(function (c) {
     var uid = c.uid || uidByName[c.name] || '';
     c.uid = uid;
-    var cl = log[c.name] || { failed: 0, failedMs: [], lastMs: 0, inquiryMs: [] };
+    c.lineMs = uid ? (lineMsByUid[uid] || 0) : 0;
+    var cl = log[c.name] || { failed: 0, failedMs: [], lastMs: 0, inquiryMs: [], contactMs: [], talkMs: 0 };
+    c.contactedToday = cl.lastMs ? (_jstDayIndex_(cl.lastMs) === todayIdx) : false;
+    // 無視の日数: 最後にお客様が応じた時刻（LINEの文・タップ・電話で話せた）より後に、こちらが連絡した日の数
+    c.respondedMs = Math.max(c.lineMs || 0, (uid ? (replyByUid[uid] || 0) : 0), cl.talkMs || 0);
+    var _ignDays = {};
+    (cl.contactMs || []).forEach(function (m) { if (m > c.respondedMs) _ignDays[_jstDayIndex_(m)] = true; });
+    c.ignoreDays = Object.keys(_ignDays).length;
+    c.group = groups[c.name] || '';
     c.failedCalls = cl.failed;
     c.callSlots = _crmTreeCallSlots_(cl.failedMs);
     // 14日前に入った日（＝引越し予定の14日前）以降に記録があれば済み
@@ -450,7 +463,6 @@ function getCrmTree(opts) {
       var soonStartMs = Date.now() - (CRM_TREE_MOVEIN_SOON_D - c.daysToMoveIn) * _DAY_MS_;
       c.moveInSoonHandled = cl.lastMs >= soonStartMs;
     }
-    c.lineMs = uid ? (lineMsByUid[uid] || 0) : 0;
     c.nudgedMs = (uid && friends[uid]) ? friends[uid].nudgedMs : 0;
     var regMs = c.registeredAt ? new Date(c.registeredAt).getTime() : 0;
     c.daysSinceInquiry = regMs ? (todayIdx - _jstDayIndex_(regMs)) : null;
@@ -463,6 +475,7 @@ function getCrmTree(opts) {
     c.hasViewingTask = ts.some(function (t) { return t.content.indexOf('内見') >= 0; });
     c.nextTaskDue = ts.filter(function (t) { return t.due; }).map(function (t) { return t.due; }).sort()[0] || '';
     c.node = _crmTreeNodeOf_(c);
+    c.stageId = _crmStageOf_(c);
     try { c.nextAuto = _crmTreeNextAuto_(c, autoCtx); } catch (eNA) { c.nextAuto = ''; }
     count[c.node] = (count[c.node] || 0) + 1;
   });
@@ -535,8 +548,12 @@ function _crmTreeForPage_() {
   return {
     nodes: t.nodes,
     oldCount: t.oldCount,
+    stages: CRM_STAGES,
     customers: t.customers.map(function (c) {
+      var chip = _crmChipOf_(c);
       return {
+        stageId: c.stageId, todo: chip.todo, chipStatus: chip.status, flags: chip.flags,
+        group: c.group || '', contactedToday: !!c.contactedToday, ignoreDays: c.ignoreDays || 0,
         name: c.name, node: c.node, lineOnly: !!c.lineOnly,
         phone: c.phone || '', hasLine: !!c.hasLine, hasCriteria: !!c.hasCriteria,
         daysSinceInquiry: c.daysSinceInquiry, failedCalls: c.failedCalls || 0,
@@ -898,4 +915,151 @@ function _crmIsWeekendOrHoliday_(ms) {
   } catch (e) { console.warn('[祝日] 読めません: ' + e.message); }
   _crmHolidayCache_[key] = hol;
   return hol;
+}
+
+// ════════════════════════════════════════════
+//  樹形図 第2版（2026-09-30）: 段階の横に名前を並べる
+// ════════════════════════════════════════════
+// ユーザーの方針:
+//  - 条件登録済みは A（電話で話せた）／B（返事はくれる）／C（返事なし）を本人が手で選ぶ
+//  - 全員に毎日1回連絡する。今日まだ連絡していない人の名前を赤く
+//  - 3日連続で無視されたら終了（LINEに来ている人）。反響だけの人は14日で終了
+var CRM_STAGES = [
+  { id: 'inquiry',   label: '反響',                     parent: '' },
+  { id: 'mail',      label: 'メールだけ（毎日のメール中）', parent: 'inquiry' },
+  { id: 'call',      label: '架電待ち',                  parent: 'inquiry' },
+  { id: 'talked',    label: '話せた・LINE待ち',           parent: 'inquiry' },
+  { id: 'line',      label: 'LINEに来た・条件登録待ち',    parent: '' },
+  { id: 'registered',label: '条件登録済み',               parent: '' },
+  { id: 'A',         label: 'A 電話で話せた',             parent: 'registered' },
+  { id: 'B',         label: 'B 返事はくれる',             parent: 'registered' },
+  { id: 'C',         label: 'C 返事なし',                 parent: 'registered' },
+  { id: 'none',      label: 'まだ分けていない',            parent: 'registered' },
+  { id: 'viewing',   label: '内見',                      parent: '' },
+  { id: 'applied',   label: '申込',                      parent: '' },
+  { id: 'won',       label: '成約',                      parent: '' },
+  { id: 'ended',     label: '終了',                      parent: '' }
+];
+var CRM_IGNORE_END_DAYS = 3;     // この日数 続けて返事が無ければ終了
+var CRM_GROUP_SHEET = 'CRMグループ';
+
+/** 顧客名 → 'A' | 'B' | 'C' */
+function _crmGroups_(ss) {
+  var out = {};
+  var sh = ss.getSheetByName(CRM_GROUP_SHEET);
+  if (!sh || sh.getLastRow() < 2) return out;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
+    var n = String(r[0] || '').trim();
+    if (n) out[n] = String(r[1] || '').trim();
+  });
+  return out;
+}
+
+/** 画面: グループを決める（g = 'A' | 'B' | 'C' | '' で外す）。 */
+function setCrmGroup(customerName, g) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sh = ss.getSheetByName(CRM_GROUP_SHEET);
+  if (!sh) { sh = ss.insertSheet(CRM_GROUP_SHEET); sh.appendRow(['顧客名', 'グループ', '更新日時']); }
+  var last = sh.getLastRow();
+  if (last > 1) {
+    var names = sh.getRange(2, 1, last - 1, 1).getValues();
+    for (var i = 0; i < names.length; i++) {
+      if (String(names[i][0] || '').trim() === customerName) {
+        sh.getRange(i + 2, 2, 1, 2).setValues([[g || '', new Date()]]);
+        return _crmTreeForPage_();
+      }
+    }
+  }
+  sh.appendRow([customerName, g || '', new Date()]);
+  return _crmTreeForPage_();
+}
+
+/** 段階を決める。上から順に見る。 */
+function _crmStageOf_(c) {
+  var st = String(c.status || '').toLowerCase();
+  if (c.stage === '成約') return 'won';
+  if (st === 'blocked' || st === 'paused' || st === 'auto_paused' || st === 'stopped') return 'ended';
+  if (c.stage === '終了' || c.archived) return 'ended';
+  if (c.hasLine && c.ignoreDays >= CRM_IGNORE_END_DAYS && c.stage !== '申込') {
+    c.endWhy = c.ignoreDays + '日続けて返事なし'; return 'ended';
+  }
+  if (c.stage === '申込') return 'applied';
+  if (c.hasViewingTask) return 'viewing';
+  var talked = (c.daysSinceTalk !== null && c.daysSinceTalk !== undefined);
+  if (c.hasCriteria) {
+    return (c.group === 'A' || c.group === 'B' || c.group === 'C') ? c.group : 'none';
+  }
+  if (c.hasLine) {
+    return (c.node === 'ended') ? 'ended' : 'line';   // 催促のあとの終了などは第1版の判定を使う
+  }
+  // LINEに来ていない人は反響から14日で終了（電話の枠に関係なく。2026-09-30 ユーザー決定）
+  if (c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_MAIL_DAYS) {
+    c.endWhy = '反響から' + c.daysSinceInquiry + '日'; return 'ended';
+  }
+  if (talked) return 'talked';
+  return c.hasPhone ? 'call' : 'mail';
+}
+
+/** 名前の横に出す短い状態と、赤くするか。 */
+function _crmChipOf_(c) {
+  var flags = [];
+  if (c.sig && c.sig.apply) flags.push('⚡申込・内見希望');
+  if (c.sig && c.sig.reInquiry) flags.push('⚡再問い合わせ');
+  if (c.sig && c.sig.strong) flags.push('⚡申込画面を開いた');
+  if (c.sig && c.sig.reply) flags.push('💬返信待ち');
+  if (c.taskDueNow) flags.push('📅約束の日');
+  if (typeof c.daysToMoveIn === 'number' && c.daysToMoveIn >= 0 && c.daysToMoveIn <= CRM_TREE_MOVEIN_SOON_D) flags.push('🏠引越しまで' + c.daysToMoveIn + '日');
+  if (c.hasCriteria && (c.daysSinceSent === null || c.daysSinceSent === undefined || c.daysSinceSent >= CRM_TREE_NO_SEND_DAYS)
+      && c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_FIRST_WAIT_DAYS) flags.push('📭物件なし');
+
+  var parts = [], todo = false;
+  var sid = c.stageId;
+  if (sid === 'ended') return { todo: false, status: c.endWhy || '', flags: [] };
+  if (sid === 'won') return { todo: false, status: '', flags: [] };
+  if (sid === 'mail') {
+    parts.push('メール' + ((c.daysSinceInquiry || 0) + 1) + '日目');
+  } else if (sid === 'call') {
+    parts.push(c.callSlots ? c.callSlots.label.replace('土日', '休日') : '');
+    parts.push('反響' + ((c.daysSinceInquiry || 0) + 1) + '日目');
+    todo = !!(c.callSlots && c.callSlots.today) && !c.contactedToday;
+  } else {
+    parts.push(c.contactedToday ? '今日 ✓' : '今日 未');
+    if (c.ignoreDays) parts.push('無視' + c.ignoreDays + '日目');
+    todo = !c.contactedToday;
+  }
+  if (sid === 'viewing' && c.tasks) {
+    var v = c.tasks.filter(function (t) { return t.content.indexOf('内見') >= 0; })[0];
+    if (v) parts.push(v.content.replace(/^.*（/, '').replace('）', ''));
+  }
+  return { todo: todo, status: parts.filter(Boolean).join('・'), flags: flags };
+}
+
+/**
+ * 【トリガー・毎日21時】3日続けて返事が無い人を終了にする（AG列に書き、物件の検索を止める）。
+ * 画面の判定（_crmStageOf_）と同じ条件。お客様からは配信中に見えたまま（endCustomerAsSilent）。
+ * 何か来れば restoreStageIfAutoEnded で戻る。
+ */
+function processCrmIgnoreEnd() {
+  var t = getCrmTree();
+  var n = 0;
+  t.customers.forEach(function (c) {
+    if (c.stageId !== 'ended' || !c.endWhy || c.endWhy.indexOf('返事なし') < 0) return;
+    if (c.stage === '終了' || c.lineOnly) return;
+    try { if (endCustomerAsSilent(c.name, c.uid, c.endWhy)) n++; } catch (e) { console.warn('[無視で終了] ' + c.name + ': ' + e.message); }
+  });
+  console.log('[無視で終了] ' + n + '人');
+}
+
+/** 【GASエディタで実行: CrmTree.gs】第2版の段階ごとの人数と、赤い人を出す。何も変えない。 */
+function previewCrmStages() {
+  var t = getCrmTree();
+  var by = {};
+  t.customers.forEach(function (c) { (by[c.stageId] = by[c.stageId] || []).push(c); });
+  var lines = [];
+  CRM_STAGES.forEach(function (s) {
+    var list = by[s.id] || [];
+    var red = list.filter(function (c) { return _crmChipOf_(c).todo; });
+    lines.push((s.parent ? '　' : '') + s.label + '【' + list.length + '】' + (red.length ? ' 赤' + red.length + ': ' + red.map(function (c) { return c.name; }).slice(0, 15).join('、') : ''));
+  });
+  console.log(lines.join('\n'));
 }

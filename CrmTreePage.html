@@ -66,6 +66,30 @@
     border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 15px; }
   .where { margin-top: 10px; font-size: 12px; color: var(--muted); }
   .auto { margin-top: 4px; font-size: 12px; color: var(--green); }
+  .wrap { max-width: 1180px; }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px; padding: 12px 14px; margin-top: 0;
+    position: sticky; top: 8px; }
+  .tree li::after { top: 22px; }
+  .tree li:last-child::before { height: 22px; }
+  .stage { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .stage .label { font-weight: 700; font-size: 13px; padding: 4px 10px; border: 1.5px solid var(--hair); border-radius: 6px; background: var(--surface); white-space: nowrap; }
+  .stage .label.grp { border-color: var(--green); color: var(--green); }
+  .stage .label .n { font-weight: 400; color: var(--muted); margin-left: 2px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 13px;
+    border: 1px solid var(--hair); background: var(--bg); cursor: pointer; white-space: nowrap; }
+  .chip .st { font-size: 11px; color: var(--muted); }
+  .chip.todo { border-color: var(--red); background: var(--red-soft); }
+  .chip.todo .nm { color: var(--red); font-weight: 700; }
+  .chip.done { opacity: .6; }
+  .chip.sel { outline: 3px solid var(--green); outline-offset: 1px; opacity: 1; }
+  .chip .flag { font-size: 11px; color: #9a5b12; background: #fbf0df; padding: 0 6px; border-radius: 4px; }
+  .more { font-size: 12px; color: var(--muted); background: none; border: 1px dashed var(--hair); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+  .hits { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .abc { display: flex; gap: 6px; margin: 8px 0 2px; }
+  .abc button { flex: 1; padding: 6px 0; border-radius: 6px; border: 1.5px solid var(--hair); background: var(--surface); color: var(--ink); font-weight: 700; cursor: pointer; }
+  .abc button.on { border-color: var(--green); background: var(--green-soft); color: var(--green); }
   .ask { margin-top: 8px; font-weight: 700; color: var(--green); }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
     background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; }
@@ -88,9 +112,10 @@
   </div>
   <input type="search" id="q" class="search" placeholder="名前で探す" oninput="search()">
   <div class="today" id="today"></div>
-  <div class="urgent" id="urgent"></div>
-  <div class="tree" id="tree"></div>
-  <div class="panel" id="panel"></div>
+  <div class="layout">
+    <div class="tree" id="tree"></div>
+    <aside class="panel" id="panel"></aside>
+  </div>
   <div class="foot" id="foot"></div>
 </div>
 <div class="toast" id="toast"></div>
@@ -173,7 +198,7 @@
           + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>'
           + '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>'
           + '</div><div class="acts small">';
-        if (c.node === 'ended' || c.node === 'won') {
+        if (c.stageId === 'ended' || c.stageId === 'won') {
           h += '<button class="btn" onclick="stage(' + n + ',\'\',\'\')">↩ 追客中に戻す</button>';
         } else {
           h += '<button class="btn" onclick="askViewing=' + n + ';render()">👀 内見の予定</button>';
@@ -187,86 +212,91 @@
     return h + '</div>';
   }
 
-  function childrenOf(id) { return data.nodes.filter(function (n) { return n.parent === id; }); }
-  function totalOf(n) {
-    return n.count + childrenOf(n.id).reduce(function (a, c) { return a + totalOf(c); }, 0);
+  // ── 第2版: 段階の横に名前を並べる ──
+  var selName = '';          // 右に出している顧客
+  var openEnded = false;     // 終了の人を並べるか
+
+  function stageKids(id) { return data.stages.filter(function (s) { return s.parent === id; }); }
+  function inStage(id) { return data.customers.filter(function (c) { return c.stageId === id; }); }
+  function stageTotal(id) {
+    return inStage(id).length + stageKids(id).reduce(function (a, k) { return a + stageTotal(k.id); }, 0);
   }
 
-  function boxHtml(n) {
-    var total = totalOf(n);
-    var kids = childrenOf(n.id).length;
-    var cls = 'box' + (n.mine ? ' mine' : '') + (total ? ' has' : ' zero')
-      + (sel === n.id ? ' sel' : '');
-    // 枝分かれの元の箱は、下にいる人の合計だけ出す（自分の所にいる人はふつう0人なので）
-    var shown = (kids && !n.count) ? total : n.count;
-    var sub = (kids && n.count && total !== n.count) ? '<span class="sub">計' + total + '</span>' : '';
-    return '<span class="' + cls + '"' + (total ? ' onclick="pick(\'' + n.id + '\')"' : '') + '>'
-      + esc(n.label) + ' <span class="count">' + shown + '</span>' + sub + '</span>';
+  function chipHtml(c) {
+    var cls = 'chip' + (c.todo ? ' todo' : (c.stageId === 'ended' || c.stageId === 'mail' || c.contactedToday ? ' done' : ''))
+      + (selName === c.name ? ' sel' : '');
+    var flags = (c.flags || []).map(function (f) { return '<span class="flag">' + esc(f) + '</span>'; }).join('');
+    return '<span class="' + cls + '" onclick="pickCust(' + esc(JSON.stringify(c.name)) + ')">'
+      + '<span class="nm">' + esc(c.name) + '</span>'
+      + (c.chipStatus ? '<span class="st">' + esc(c.chipStatus) + '</span>' : '') + flags + '</span>';
   }
 
-  function branchHtml(n) {
-    var kids = childrenOf(n.id);
-    var h = '<li>' + boxHtml(n);
-    if (kids.length) h += '<ul>' + kids.map(branchHtml).join('') + '</ul>';
-    return h + '</li>';
+  function stageHtml(s) {
+    var list = inStage(s.id);
+    // 赤い人を先に、次に合図のある人
+    list.sort(function (a, b) { return (b.todo - a.todo) || ((b.flags || []).length - (a.flags || []).length); });
+    var kids = stageKids(s.id);
+    var total = stageTotal(s.id);
+    var label = '<span class="label' + (kids.length ? ' grp' : '') + '">' + esc(s.label) + ' <span class="n">' + total + '</span></span>';
+    var chips = '';
+    if (s.id === 'ended') {
+      chips = '<button class="more" onclick="openEnded=!openEnded;render()">' + (openEnded ? '閉じる' : '並べる') + '</button>'
+        + (openEnded ? list.map(chipHtml).join('') : '');
+    } else {
+      chips = list.map(chipHtml).join('');
+    }
+    var html = '<li><div class="stage">' + label + chips + '</div>';
+    if (kids.length) html += '<ul>' + kids.map(stageHtml).join('') + '</ul>';
+    return html + '</li>';
   }
 
-  // 箱を押したら、その枝より下にいる人を全部並べる
-  function idsUnder(id) {
-    return [id].concat(childrenOf(id).reduce(function (a, c) { return a.concat(idsUnder(c.id)); }, []));
+  function groupButtons(c) {
+    if (!c.hasCriteria) return '';
+    var n = esc(JSON.stringify(c.name));
+    return '<div class="abc">' + ['A', 'B', 'C'].map(function (g) {
+      return '<button class="' + (c.group === g ? 'on' : '') + '" onclick="setGroup(' + n + ',\'' + (c.group === g ? '' : g) + '\')">'
+        + g + '</button>';
+    }).join('') + '</div><div class="meta">A 電話で話せた ／ B 返事はくれる ／ C 返事なし</div>';
   }
 
   function render() {
-    var mineTotal = 0;
-    data.nodes.forEach(function (n) { if (n.mine) mineTotal += n.count; });
+    var red = data.customers.filter(function (c) { return c.todo; }).length;
+    var done = data.customers.filter(function (c) { return c.contactedToday && c.stageId !== 'ended' && c.stageId !== 'won'; }).length;
     var today = document.getElementById('today');
-    today.className = 'today' + (mineTotal ? '' : ' zero');
-    today.innerHTML = mineTotal
-      ? '今日やること <b>' + mineTotal + '</b> 人（赤い箱）'
-      : '今日やることは <b>0</b> 人です';
+    today.className = 'today' + (red ? '' : ' zero');
+    today.innerHTML = red ? '今日まだ連絡していない <b>' + red + '</b> 人 ／ 連絡済み ' + done + ' 人'
+      : '今日の連絡は全員済みです（' + done + ' 人）';
 
-    var urgent = data.nodes.filter(function (n) { return n.urgent || (n.id === 'lost' && n.count); });
-    document.getElementById('urgent').innerHTML = urgent.map(boxHtml).join('');
-
-    var roots = data.nodes.filter(function (n) { return !n.parent && !n.urgent && n.id !== 'lost'; });
-    document.getElementById('tree').innerHTML = '<ul>' + roots.map(branchHtml).join('<li class="gap"></li>') + '</ul>';
+    data.stages.forEach(function (s) { labelOf[s.id] = s.label; });
+    var q = (document.getElementById('q').value || '').trim().toLowerCase();
+    var tree = document.getElementById('tree');
+    if (q) {
+      var hits = data.customers.filter(function (c) { return c.name.toLowerCase().indexOf(q) >= 0; });
+      tree.innerHTML = '<div class="meta">「' + esc(q) + '」' + hits.length + '人</div><div class="hits">'
+        + hits.map(function (c) { return '<div>' + chipHtml(c) + ' <span class="meta">' + esc(labelOf[c.stageId] || '') + '</span></div>'; }).join('') + '</div>';
+    } else {
+      var roots = data.stages.filter(function (s) { return !s.parent; });
+      tree.innerHTML = '<ul>' + roots.map(stageHtml).join('') + '</ul>';
+    }
 
     var panel = document.getElementById('panel');
-    var node = data.nodes.filter(function (n) { return n.id === sel; })[0];
-    data.nodes.forEach(function (n) { labelOf[n.id] = n.label; });
-    var q = (document.getElementById('q').value || '').trim().toLowerCase();
-    // 検索中は樹形図を隠して、結果をすぐ下に出す
-    ['today', 'urgent', 'tree'].forEach(function (id) { document.getElementById(id).style.display = q ? 'none' : ''; });
-    if (q) {
-      // 検索中は、どの枝にいるかを添えて全員から探す
-      var hits = data.customers.filter(function (c) { return c.name.toLowerCase().indexOf(q) >= 0; });
-      panel.innerHTML = '<h2>「' + esc(q) + '」の検索結果（' + hits.length + '人）</h2>'
-        + (hits.length ? hits.map(function (c) {
-          return '<div class="where">いる枝: ' + esc(labelOf[c.node] || c.node) + '</div>' + custHtml(c);
-        }).join('') : '<div class="meta">見つかりません</div>');
-    }
-    else if (!node) { panel.innerHTML = ''; }
-    else {
-      var ids = idsUnder(sel);
-      var list = data.customers.filter(function (c) { return ids.indexOf(c.node) >= 0; });
-      // 記録した直後の人は、別の枝に移っていても一番上に残して「次の連絡は？」を出す
-      var just = '';
-      if (askNext && !list.some(function (c) { return c.name === askNext; })) {
-        var jc = data.customers.filter(function (c) { return c.name === askNext; })[0];
-        if (jc) just = '<div class="where">記録しました（いまの枝: ' + esc(labelOf[jc.node] || jc.node) + '）</div>' + custHtml(jc);
-      }
-      panel.innerHTML = just + '<h2>' + esc(node.label) + '（' + list.length + '人）</h2>'
-        + (list.length ? list.map(custHtml).join('') : '<div class="meta">いません</div>');
-    }
-    document.getElementById('foot').textContent = data.oldCount ? '旧顧客 ' + data.oldCount + ' 人は対象外（自動配信は動いています）' : '';
+    var c = data.customers.filter(function (x) { return x.name === selName; })[0];
+    panel.innerHTML = c
+      ? '<div class="where">いる段階: ' + esc(labelOf[c.stageId] || '') + (c.chipStatus ? '・' + esc(c.chipStatus) : '') + '</div>'
+        + groupButtons(c) + custHtml(c)
+        + ((c.flags || []).length ? '<div class="meta">' + (c.flags || []).map(esc).join(' ') + '</div>' : '')
+      : '<div class="meta">名前を押すと、ここにその人が出ます。</div>';
+    document.getElementById('foot').textContent = '';
   }
 
-  function pick(id) {
-    sel = id;
-    document.getElementById('q').value = '';
+  function pickCust(name) {
+    selName = name;
+    askNext = askEnd = askViewing = '';
     render();
-    document.getElementById('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (window.innerWidth < 860) document.getElementById('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+
+  function setGroup(name, g) { call('setCrmGroup', [name, g], name + '：' + (g ? g + 'にしました' : 'グループを外しました')); }
 
   function toast(msg) {
     var t = document.getElementById('toast');
@@ -387,11 +417,6 @@
       .getCrmTreeForPage();
   }
 
-  // 最初は、人がいる赤い箱のうち一番上のものを選んでおく
-  (function () {
-    var first = data.nodes.filter(function (n) { return n.mine && n.count; })[0];
-    if (first) sel = first.id;
-  })();
   render();
 </script>
 </body>
