@@ -1284,7 +1284,10 @@ function saveCrmCriteria(customerName, f, send) {
     selectedRoutes: f.areaMethod === 'city' ? [] : selectedRoutes,
     selectedStations: f.areaMethod === 'city' ? {} : selectedStations,
     selectedCities: f.areaMethod === 'city' ? (f.cities || []) : [],
-    selectedTowns: f.areaMethod === 'city' ? (f.towns || {}) : {},
+    // 町名を選んでいない市区は全域（空の配列は持たない）
+    selectedTowns: f.areaMethod === 'city' ? (function (t) {
+      var o = {}; Object.keys(t || {}).forEach(function (k) { if ((t[k] || []).length && (f.cities || []).indexOf(k) >= 0) o[k] = t[k]; }); return o;
+    })(f.towns) : {},
     rentMax: f.rentMax ? String(f.rentMax).replace(/万円$/, '') + '万円' : '',
     layouts: f.layouts || [], walkMax: f.walk || '', areaMin: f.areaMin || '', buildingAge: f.age || '',
     buildingStructures: f.structures || [], equipment: f.equipment || [],

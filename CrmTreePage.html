@@ -107,6 +107,9 @@
   .crit .route .rn { flex: 1; cursor: pointer; }
   .crit .route .x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; }
   .crit .cat { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .crit .opt.part { border-color: var(--green); border-style: dashed; }
+  .crit .opt.small { padding: 3px 6px; color: var(--muted); }
+  .crit .opts.chome { margin: 2px 0 6px 12px; }
   .crit .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .crit .chk { font-size: 13px; }
   .crit .unit { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
@@ -424,7 +427,16 @@
           }).join('') + '</optgroup>';
         }).join('') + '</select>';
     } else {
-      h += chips(MASTER.cities, f.cities, 'toggleCity');
+      // 選んだ市区ごとに、町名・丁目まで絞れる（空なら市区全域）
+      f.cities.forEach(function (city) {
+        var ts = (f.towns && f.towns[city]) || [];
+        var open = x.openCity === city;
+        h += '<div class="route"><span class="rn" onclick="openCity(' + esc(JSON.stringify(city)) + ')">' + (open ? '▾ ' : '▸ ') + esc(city)
+          + ' <span class="meta">' + (ts.length ? '町名 ' + ts.length + '件' : '全域') + '</span></span>'
+          + '<button class="x" onclick="toggleCity(' + esc(JSON.stringify(city)) + ')">×</button></div>';
+        if (open) h += townHtml(city, ts, x);
+      });
+      h += '<label class="fl">市区を足す</label>' + chips(MASTER.cities, f.cities, 'toggleCity');
     }
     h += '<label class="fl">賃料の上限（万円）</label><input class="inp" type="number" step="0.5" min="0" value="' + esc(f.rentMax) + '" placeholder="指定なし" oninput="critSet(\'rentMax\',this.value)">';
     h += '<label class="fl">間取り</label>' + chips(LAYOUTS, f.layouts, 'toggleLayout');
@@ -515,6 +527,63 @@
     render();
   }
 
+  // ── 町名・丁目（管理画面と同じ公開データ geolonia から取る） ──
+  var townCache = {};
+  function townGroups(city) {
+    var data = townCache[city];
+    if (!data || data === 'loading' || data === 'error') return null;
+    var groups = {}, order = [];
+    data.forEach(function (t) {
+      var name = t.town; if (!name) return;
+      var m = name.match(/^(.+?)([一二三四五六七八九十百]+丁目)$/);
+      var base = m ? m[1] : name;
+      if (!groups[base]) { groups[base] = []; order.push(base); }
+      groups[base].push(name);
+    });
+    return { groups: groups, order: order };
+  }
+  function openCity(city) {
+    var x = extras[selName]; x.openCity = (x.openCity === city) ? '' : city; x.openBase = '';
+    if (x.openCity && !townCache[city]) {
+      townCache[city] = 'loading';
+      fetch('https://geolonia.github.io/japanese-addresses/api/ja/東京都/' + encodeURIComponent(city) + '.json')
+        .then(function (r) { return r.json(); })
+        .then(function (d) { townCache[city] = d; render(); })
+        .catch(function () { townCache[city] = 'error'; render(); });
+    }
+    render();
+  }
+  function townHtml(city, selected, x) {
+    if (townCache[city] === 'loading') return '<div class="meta">町名を読み込み中…</div>';
+    if (townCache[city] === 'error') return '<div class="meta">町名を読み込めませんでした</div>';
+    var g = townGroups(city); if (!g) return '';
+    var qs = function (s) { return esc(JSON.stringify(s)); };
+    var h2 = '<div class="meta">町名を選ぶと、その町だけに絞ります（何も選ばなければ全域）</div><div class="opts">';
+    g.order.forEach(function (base) {
+      var towns = g.groups[base];
+      var n = towns.filter(function (t) { return selected.indexOf(t) >= 0; }).length;
+      var on = n === towns.length, part = n > 0 && !on;
+      h2 += '<button class="opt' + (on ? ' on' : (part ? ' part' : '')) + '" onclick="toggleTownBase(' + qs(city) + ',' + qs(base) + ')">' + esc(base)
+        + (towns.length > 1 ? ' <span class="meta">' + (n ? n + '/' : '') + towns.length + '</span>' : '') + '</button>';
+      if (towns.length > 1) h2 += '<button class="opt small" onclick="openBase(' + qs(base) + ')">' + (x.openBase === base ? '▴' : '丁目▾') + '</button>';
+      if (x.openBase === base && towns.length > 1) {
+        h2 += '</div><div class="opts chome">' + towns.map(function (t) {
+          return '<button class="opt' + (selected.indexOf(t) >= 0 ? ' on' : '') + '" onclick="toggleTown(' + qs(city) + ',' + qs(t) + ')">' + esc(t.replace(base, '') || t) + '</button>';
+        }).join('') + '</div><div class="opts">';
+      }
+    });
+    return h2 + '</div>';
+  }
+  function townsOf(city) { var f = critOf(selName); f.towns = f.towns || {}; f.towns[city] = f.towns[city] || []; return f.towns[city]; }
+  function toggleTown(city, t) { toggleIn(townsOf(city), t); render(); }
+  function toggleTownBase(city, base) {
+    var list = townsOf(city), towns = townGroups(city).groups[base];
+    var all = towns.every(function (t) { return list.indexOf(t) >= 0; });
+    towns.forEach(function (t) { var i = list.indexOf(t); if (all && i >= 0) list.splice(i, 1); if (!all && i < 0) list.push(t); });
+    render();
+  }
+  function openBase(base) { var x = extras[selName]; x.openBase = (x.openBase === base) ? '' : base; render(); }
+
   // 駅名で探す（通話しながらでも早く選べるように）
   function staSearch(q) {
     q = String(q || '').trim();
@@ -548,7 +617,11 @@
   function toggleLayout(v) { toggleIn(critOf(selName).layouts, v); render(); }
   function toggleStruct(v) { toggleIn(critOf(selName).structures, v); render(); }
   function toggleEquip(v) { toggleIn(critOf(selName).equipment, v); render(); }
-  function toggleCity(v) { toggleIn(critOf(selName).cities, v); render(); }
+  function toggleCity(v) {
+    var f = critOf(selName); toggleIn(f.cities, v);
+    if (f.cities.indexOf(v) < 0 && f.towns) delete f.towns[v];   // 市区を外したら町名も外す
+    render();
+  }
   function addRoute(rn) { if (!rn) return; var f = critOf(selName); f.routes[rn] = []; extras[selName].critOpenRoute = rn; render(); }
   function removeRoute(rn) { delete critOf(selName).routes[rn]; render(); }
   function openRoute(rn) { var x = extras[selName]; x.critOpenRoute = (x.critOpenRoute === rn) ? '' : rn; render(); }
