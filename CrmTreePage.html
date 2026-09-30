@@ -109,6 +109,8 @@
   .crit .cat { font-size: 11px; color: var(--muted); margin-top: 4px; }
   .crit .row3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .crit .chk { font-size: 13px; }
+  .crit .unit { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+  .crit .unit span { font-size: 12px; color: var(--muted); white-space: nowrap; }
   .btn.save { background: var(--green); color: #fff; border-color: var(--green); font-weight: 700; }
   .btn.save.line { background: #06c755; border-color: #06c755; }
   .form { width: 100%; height: 820px; border: 1px solid var(--hair); border-radius: 8px; margin-top: 6px; background: #fff; }
@@ -413,6 +415,8 @@
           + '<button class="x" onclick="removeRoute(' + esc(JSON.stringify(rn)) + ')">×</button></div>';
         if (open) h += chips(MASTER.stations[rn] || [], stas, 'toggleStation');
       });
+      h += '<input class="inp" id="staQ" placeholder="駅名で探す（例: 自由が丘）" oninput="staSearch(this.value)" autocomplete="off">'
+        + '<div class="opts" id="staHits"></div>';
       h += '<select class="inp" onchange="addRoute(this.value)"><option value="">＋ 路線を足す</option>'
         + MASTER.routeCompanies.map(function (co) {
           return '<optgroup label="' + esc(co.label) + '">' + co.routes.filter(function (r) { return !(r in f.routes); }).map(function (r) {
@@ -424,9 +428,9 @@
     }
     h += '<label class="fl">賃料の上限（万円）</label><input class="inp" type="number" step="0.5" min="0" value="' + esc(f.rentMax) + '" placeholder="指定なし" oninput="critSet(\'rentMax\',this.value)">';
     h += '<label class="fl">間取り</label>' + chips(LAYOUTS, f.layouts, 'toggleLayout');
-    h += '<div class="row3"><div><label class="fl">駅徒歩</label>' + selectHtml(WALKS, f.walk, 'walk', '指定なし') + '</div>'
-      + '<div><label class="fl">広さ</label>' + selectHtml(AREAS, f.areaMin, 'areaMin', '指定なし') + '</div>'
-      + '<div><label class="fl">築年数</label>' + selectHtml(AGES, f.age, 'age', '指定なし') + '</div></div>';
+    h += '<div class="row3"><div><label class="fl">駅徒歩</label>' + pickOrType(WALKS, f.walk, 'walk', '分以内') + '</div>'
+      + '<div><label class="fl">広さ</label>' + pickOrType(AREAS, f.areaMin, 'areaMin', 'm²') + '</div>'
+      + '<div><label class="fl">築年数</label>' + pickOrType(AGES, f.age, 'age', '年以内') + '</div></div>';
     h += '<label class="fl">建物の構造</label>' + chips(STRUCTS, f.structures, 'toggleStruct');
     h += '<label class="fl">こだわり</label>' + MASTER.equipment.map(function (cat) {
       return '<div class="cat">' + esc(cat.name) + '</div>' + chips(cat.items, f.equipment, 'toggleEquip');
@@ -435,7 +439,7 @@
       h += '<label class="fl">ペットの種類</label><input class="inp" value="' + esc(f.petType) + '" placeholder="例: 小型犬、猫" oninput="critSet(\'petType\',this.value)">';
     if (f.equipment.indexOf('駐車場あり') >= 0)
       h += '<label class="fl">車種</label><input class="inp" value="' + esc(f.carModel) + '" placeholder="例: 軽自動車" oninput="critSet(\'carModel\',this.value)">';
-    h += '<label class="fl">引越し時期</label><input class="inp" value="' + esc(f.moveIn) + '" placeholder="例: 11月上旬／いい物件見つかり次第" oninput="critSet(\'moveIn\',this.value)">'
+    h += '<label class="fl">引越し時期</label>' + moveInHtml(f)
       + '<label class="chk"><input type="checkbox"' + (f.moveInStrict ? ' checked' : '') + ' onchange="critSet(\'moveInStrict\',this.checked)"> この時期は厳守</label>';
     h += '<label class="fl">その他</label><textarea class="inp" rows="2" oninput="critSet(\'notes\',this.value)">' + esc(f.notes) + '</textarea>';
     h += '<div class="acts"><button class="btn save" onclick="saveCrit(false)">' + (x.critSaving ? '保存中…' : '保存する') + '</button>'
@@ -443,6 +447,98 @@
       + (c.lineUid ? '<div class="meta">「LINEで送る」を押すと、お客様に条件のカードが届きます。</div>' : '<div class="meta">LINEがつながっていないので、お客様には届きません。</div>');
     return h + '</div>';
   }
+  // 選択肢から選ぶか、「その他」で数字を入れる（広さ・築年数・徒歩）
+  function pickOrType(list, value, field, unit) {
+    var custom = value && list.indexOf(value) < 0;
+    var x = extras[selName] || {};
+    var typing = custom || (x.typing && x.typing[field]);
+    var h2 = '<select class="inp" onchange="pickOrTypeSel(\'' + field + '\',this.value)">'
+      + list.map(function (v) { return '<option value="' + esc(v) + '"' + (!typing && v === value ? ' selected' : '') + '>' + esc(v || '指定なし') + '</option>'; }).join('')
+      + '<option value="__type"' + (typing ? ' selected' : '') + '>その他（入力）</option></select>';
+    if (typing) {
+      var num = String(value || '').replace(/[^0-9.]/g, '');
+      h2 += '<div class="unit"><input class="inp" type="number" min="0" step="1" value="' + esc(num) + '" oninput="critSet(\'' + field + '\', this.value ? this.value + \'' + unit + '\' : \'\')"><span>' + esc(unit) + '</span></div>';
+    }
+    return h2;
+  }
+  function pickOrTypeSel(field, v) {
+    var x = extras[selName]; x.typing = x.typing || {};
+    if (v === '__type') { x.typing[field] = true; critOf(selName)[field] = ''; }
+    else { x.typing[field] = false; critOf(selName)[field] = v; }
+    render();
+  }
+
+  // 引越し時期: LINE と同じく「月 → 上旬/中旬/下旬/日付」か「いい物件見つかり次第」
+  function moveInParts(s) {
+    s = String(s || '');
+    if (/見つかり次第|すぐ/.test(s)) return { mode: 'asap' };
+    var m;
+    if ((m = s.match(/(\d{1,2})月(上旬|中旬|下旬)/))) return { mode: 'month', month: +m[1], period: m[2] };
+    if ((m = s.match(/(\d{1,2})月(\d{1,2})日/))) return { mode: 'month', month: +m[1], period: '日付', day: +m[2] };
+    if ((m = s.match(/\d{4}[\/-](\d{1,2})[\/-](\d{1,2})/))) return { mode: 'month', month: +m[1], period: '日付', day: +m[2] };
+    if ((m = s.match(/(\d{1,2})月/))) return { mode: 'month', month: +m[1], period: '' };
+    return { mode: '' };
+  }
+  function moveInHtml(f) {
+    var p = moveInParts(f.moveIn);
+    var now = new Date(), months = [];
+    for (var i = 0; i < 13; i++) months.push(((now.getMonth() + i) % 12) + 1);
+    var h2 = '<div class="opts"><button class="opt' + (p.mode === 'asap' ? ' on' : '') + '" onclick="setMoveIn(\'asap\')">いい物件見つかり次第</button>'
+      + '<button class="opt' + (!p.mode ? ' on' : '') + '" onclick="setMoveIn(\'\')">未定・聞いていない</button></div>';
+    h2 += '<div class="opts">' + months.map(function (mo) {
+      return '<button class="opt' + (p.mode === 'month' && p.month === mo ? ' on' : '') + '" onclick="setMoveIn(\'m\',' + mo + ')">' + mo + '月</button>';
+    }).join('') + '</div>';
+    if (p.mode === 'month') {
+      h2 += '<div class="opts">' + ['上旬', '中旬', '下旬', '日付'].map(function (pe) {
+        return '<button class="opt' + (p.period === pe ? ' on' : '') + '" onclick="setMoveIn(\'p\',\'' + pe + '\')">' + pe + '</button>';
+      }).join('') + '</div>';
+      if (p.period === '日付') {
+        var days = []; for (var d = 1; d <= 31; d++) days.push(d);
+        h2 += '<select class="inp" onchange="setMoveIn(\'d\',this.value)">' + days.map(function (d) {
+          return '<option value="' + d + '"' + (p.day === d ? ' selected' : '') + '>' + p.month + '月' + d + '日</option>';
+        }).join('') + '</select>';
+      }
+    }
+    return h2;
+  }
+  function setMoveIn(kind, v) {
+    var f = critOf(selName), p = moveInParts(f.moveIn);
+    if (kind === 'asap') f.moveIn = 'いい物件見つかり次第';
+    else if (kind === '') f.moveIn = '';
+    else if (kind === 'm') f.moveIn = v + '月' + (p.period && p.period !== '日付' ? p.period : (p.period === '日付' ? (p.day || 1) + '日' : ''));
+    else if (kind === 'p') f.moveIn = (p.month || (new Date().getMonth() + 1)) + '月' + (v === '日付' ? (p.day || 1) + '日' : v);
+    else if (kind === 'd') f.moveIn = (p.month || (new Date().getMonth() + 1)) + '月' + v + '日';
+    render();
+  }
+
+  // 駅名で探す（通話しながらでも早く選べるように）
+  function staSearch(q) {
+    q = String(q || '').trim();
+    var box = document.getElementById('staHits');
+    if (!box) return;
+    if (!q) { box.innerHTML = ''; return; }
+    var f = critOf(selName), hits = [];
+    Object.keys(MASTER.stations).forEach(function (rn) {
+      (MASTER.stations[rn] || []).forEach(function (st) {
+        if (st.indexOf(q) >= 0 && hits.length < 30) hits.push({ rn: rn, st: st, on: (f.routes[rn] || []).indexOf(st) >= 0 });
+      });
+    });
+    box.innerHTML = hits.length ? hits.map(function (x) {
+      return '<button class="opt' + (x.on ? ' on' : '') + '" onclick="addStation(' + esc(JSON.stringify(x.rn)) + ',' + esc(JSON.stringify(x.st)) + ')">'
+        + esc(x.st) + ' <span class="meta">' + esc(x.rn) + '</span></button>';
+    }).join('') : '<span class="meta">見つかりません</span>';
+  }
+  function addStation(rn, st) {
+    var f = critOf(selName);
+    if (!f.routes[rn]) f.routes[rn] = [];
+    toggleIn(f.routes[rn], st);
+    if (!f.routes[rn].length) delete f.routes[rn];
+    var q = (document.getElementById('staQ') || {}).value || '';
+    render();
+    var inp = document.getElementById('staQ');
+    if (inp) { inp.value = q; inp.focus(); staSearch(q); }
+  }
+
   function critSet(field, v, rerender) { var f = critOf(selName); f[field] = v; if (rerender) render(); }
   function toggleIn(arr, v) { var i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
   function toggleLayout(v) { toggleIn(critOf(selName).layouts, v); render(); }
