@@ -214,7 +214,9 @@
 
   // ── 第2版: 段階の横に名前を並べる ──
   var selName = '';          // 右に出している顧客
-  var openEnded = false;     // 終了の人を並べるか
+  // 閉じておく段階（押すと並べる）。メールだけの人はこちらからできることが無いので閉じる
+  var COLLAPSED = { mail: true, ended: true };
+  var opened = {};
 
   function stageKids(id) { return data.stages.filter(function (s) { return s.parent === id; }); }
   function inStage(id) { return data.customers.filter(function (c) { return c.stageId === id; }); }
@@ -239,9 +241,9 @@
     var total = stageTotal(s.id);
     var label = '<span class="label' + (kids.length ? ' grp' : '') + '">' + esc(s.label) + ' <span class="n">' + total + '</span></span>';
     var chips = '';
-    if (s.id === 'ended') {
-      chips = '<button class="more" onclick="openEnded=!openEnded;render()">' + (openEnded ? '閉じる' : '並べる') + '</button>'
-        + (openEnded ? list.map(chipHtml).join('') : '');
+    if (COLLAPSED[s.id]) {
+      chips = list.length ? '<button class="more" onclick="opened[\'' + s.id + '\']=!opened[\'' + s.id + '\'];render()">'
+        + (opened[s.id] ? '閉じる' : '並べる') + '</button>' + (opened[s.id] ? list.map(chipHtml).join('') : '') : '';
     } else {
       chips = list.map(chipHtml).join('');
     }
