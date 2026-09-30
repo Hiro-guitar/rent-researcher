@@ -591,7 +591,7 @@ async function getConfig() {
 let _lineNameMap = null;
 let _lineNameMapAt = 0;
 
-async function gasGet(action, params = {}) {
+async function gasGet(action, params = {}, timeoutMs = 30000) {
   const { gasWebappUrl, gasApiKey } = await getConfig();
   if (!gasWebappUrl) throw new Error('GAS URLが設定されていません');
   const url = new URL(gasWebappUrl);
@@ -602,7 +602,7 @@ async function gasGet(action, params = {}) {
     url.searchParams.set(k, v);
   }
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const resp = await fetch(url.toString(), { redirect: 'follow', signal: controller.signal, cache: 'no-store' });
     clearTimeout(timeoutId);
@@ -951,7 +951,18 @@ async function fetchWithTimeout(url, options = {}, { timeoutMs = 90000, label = 
   }
 }
 
-async function fetchCriteria() { return gasGet('get_criteria'); }
+// ⚠️ get_criteria は30秒で打ち切らないこと（2026-09-30）。GAS側の処理は2秒前後でも、
+//   スプレッドシートを開くところで50秒待たされる回があり、そのたびに検索全体が止まっていた。
+//   GASは6分まで待てるので120秒待ち、それでもダメなら1回だけやり直す。
+async function fetchCriteria() {
+  try {
+    return await gasGet('get_criteria', {}, 120000);
+  } catch (err) {
+    if (!String(err && err.message).includes('タイムアウト')) throw err;
+    await setStorageData({ debugLog: '検索条件の取得に時間がかかっています。もう一度取りに行きます…' });
+    return gasGet('get_criteria', {}, 120000);
+  }
+}
 async function fetchSeenIds() { return gasGet('get_seen_ids'); }
 /**
  * 画像が1枚も付かなかった物件を控える。巡回サマリーで件数を出す。

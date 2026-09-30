@@ -2652,6 +2652,7 @@ function handleGetCustomerNames(e) {
 }
 
 function handleGetCriteria(e) {
+  var _tOpen0 = Date.now();   // スプレッドシートを開くまでの時間も測る（2026-09-30: ここで50秒待たされた回があった）
   if (!_validateReinsApiKey(e.parameter.api_key)) {
     return ContentService
       .createTextOutput(JSON.stringify({ error: 'invalid api_key' }))
@@ -2992,7 +2993,7 @@ function handleGetCriteria(e) {
     _parts.push(k + ' ' + (_tMark[k] - _prev) + 'ms');
     _prev = _tMark[k];
   });
-  var _perf = '合計 ' + (Date.now() - _t0) + 'ms / ' + _parts.join(' / ')
+  var _perf = '合計 ' + (Date.now() - _t0) + 'ms / 開くまで ' + (_t0 - _tOpen0) + 'ms / ' + _parts.join(' / ')
     + ' / 条件' + criteria.length + '件 / 書き込み' + _writeCount + '回';
   console.log('[get_criteria] ' + _perf);
   // 拡張が30秒で諦めたとき、GAS側で実際に何秒かかったかを後から見られるようにする（直近20回）。
