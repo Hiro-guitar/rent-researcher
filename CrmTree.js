@@ -894,28 +894,31 @@ function _crmTreeNextAuto_(c, ctx) {
   return items.slice(0, 2).map(function (x) { return x.text; }).join(' ／ ');
 }
 
-/** その日が土日か祝日か（日本の祝日カレンダー。1日ぶんキャッシュ）。 */
-var _crmHolidayCache_ = {};
+/**
+ * その日が土日か祝日か。
+ * ⚠️ 祝日は Google カレンダーから読まないこと（2026-09-30）。このスクリプトにはカレンダーの権限が無く、
+ *   足すと全体の承認をやり直すことになる。公開データ（holidays-jp、権限不要）を1日1回だけ取りに行く。
+ */
+var _crmHolidaySet_ = null;
+function _crmHolidays_() {
+  if (_crmHolidaySet_) return _crmHolidaySet_;
+  var cache = CacheService.getScriptCache();
+  var raw = cache.get('JP_HOLIDAYS');
+  if (!raw) {
+    try {
+      var r = UrlFetchApp.fetch('https://holidays-jp.github.io/api/v1/date.json', { muteHttpExceptions: true });
+      if (r.getResponseCode() === 200) { raw = r.getContentText(); cache.put('JP_HOLIDAYS', raw, 21600); }
+    } catch (e) { console.warn('[祝日] 取れません（土日だけで判定）: ' + e.message); }
+  }
+  try { _crmHolidaySet_ = raw ? JSON.parse(raw) : {}; } catch (_e) { _crmHolidaySet_ = {}; }
+  return _crmHolidaySet_;
+}
 function _crmIsWeekendOrHoliday_(ms) {
   var jst = new Date(ms + 9 * 3600000);
   var d = jst.getUTCDay();
   if (d === 0 || d === 6) return true;
-  var key = jst.getUTCFullYear() + '-' + (jst.getUTCMonth() + 1) + '-' + jst.getUTCDate();
-  if (key in _crmHolidayCache_) return _crmHolidayCache_[key];
-  var hol = false;
-  try {
-    var cache = CacheService.getScriptCache();
-    var cached = cache.get('JP_HOLIDAY_' + key);
-    if (cached !== null) hol = (cached === '1');
-    else {
-      var cal = CalendarApp.getCalendarById('ja.japanese#holiday@group.v.calendar.google.com');
-      var day = new Date(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate()) - 9 * 3600000);
-      hol = !!(cal && cal.getEventsForDay(day).length);
-      cache.put('JP_HOLIDAY_' + key, hol ? '1' : '0', 21600);
-    }
-  } catch (e) { console.warn('[祝日] 読めません: ' + e.message); }
-  _crmHolidayCache_[key] = hol;
-  return hol;
+  var key = jst.getUTCFullYear() + '-' + ('0' + (jst.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + jst.getUTCDate()).slice(-2);
+  return !!_crmHolidays_()[key];
 }
 
 // ════════════════════════════════════════════
