@@ -958,7 +958,10 @@ async function fetchCriteria() {
   try {
     return await gasGet('get_criteria', {}, 120000);
   } catch (err) {
-    if (!String(err && err.message).includes('タイムアウト')) throw err;
+    // タイムアウトと404は、GASのデプロイ中（窓口の切り替え中）に起きる。少し待ってやり直せば通る
+    const msg = String(err && err.message);
+    if (!msg.includes('タイムアウト') && !msg.includes('404')) throw err;
+    await new Promise(r => setTimeout(r, 5000));
     await setStorageData({ debugLog: '検索条件の取得に時間がかかっています。もう一度取りに行きます…' });
     return gasGet('get_criteria', {}, 120000);
   }
