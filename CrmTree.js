@@ -934,7 +934,7 @@ function _crmIsWeekendOrHoliday_(ms) {
 //  樹形図 第2版（2026-09-30）: 段階の横に名前を並べる
 // ════════════════════════════════════════════
 // ユーザーの方針:
-//  - 条件登録済みは A（電話で話せた）／B（返事はくれる）／C（返事なし）を本人が手で選ぶ
+//  - 条件登録済みは A（本気で探している＝電話・内見などで直接話して分かった）／B（返事はくれる）／C（返事なし）を本人が手で選ぶ
 //  - 全員に毎日1回連絡する。今日まだ連絡していない人の名前を赤く
 //  - 3日連続で無視されたら終了（LINEに来ている人）。反響だけの人は14日で終了
 var CRM_STAGES = [
@@ -944,7 +944,7 @@ var CRM_STAGES = [
   { id: 'talked',    label: '話せた・LINE待ち',           parent: 'inquiry' },
   { id: 'line',      label: 'LINEに来た・条件登録待ち',    parent: '' },
   { id: 'registered',label: '条件登録済み',               parent: '' },
-  { id: 'A',         label: 'A 電話で話せた',             parent: 'registered' },
+  { id: 'A',         label: 'A 本気で探している',         parent: 'registered' },
   { id: 'B',         label: 'B 返事はくれる',             parent: 'registered' },
   { id: 'C',         label: 'C 返事なし',                 parent: 'registered' },
   { id: 'none',      label: 'まだ分けていない',            parent: 'registered' },

@@ -283,7 +283,7 @@
     return '<div class="abc">' + ['A', 'B', 'C'].map(function (g) {
       return '<button class="' + (c.group === g ? 'on' : '') + '" onclick="setGroup(' + n + ',\'' + (c.group === g ? '' : g) + '\')">'
         + g + '</button>';
-    }).join('') + '</div><div class="meta">A 電話で話せた ／ B 返事はくれる ／ C 返事なし</div>';
+    }).join('') + '</div><div class="meta">A 本気で探している（電話・内見などで話して分かった）／ B 返事はくれる ／ C 返事なし</div>';
   }
 
   function render() {
