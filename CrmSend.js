@@ -31,6 +31,22 @@ function _crmPendingAll_(crits) {
     var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
     if (!sh || sh.getLastRow() < 2) return out;
     var data = sh.getRange(2, 1, sh.getLastRow() - 1, 15).getValues();
+    // ⚠️ 同じ部屋を別のサイト（REINS と itandi など）で見つけると、物件の番号が別になる。
+    //   番号だけで照らし合わせると、送った部屋がまた新着に出る（2026-10-02 髙橋さま）。建物名＋部屋番号でも見る。
+    var bkey = function (name, p) {
+      var norm = function (x) {
+        return String(x || '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+          .replace(/[\s　・\-－ー]/g, '').toLowerCase();
+      };
+      var room = String(p.roomNumber || '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/\D/g, '');
+      return room ? name + '|' + norm(p.buildingName) + '|' + room : '';   // 部屋番号が無ければ建物だけでは決めない
+    };
+    var sentKeys = {};
+    for (var j = 0; j < data.length; j++) {
+      if (String(data[j][10]) !== 'sent') continue;
+      try { var k0 = bkey(String(data[j][0] || '').trim(), rowToProperty(data[j])); if (k0) sentKeys[k0] = true; } catch (_e0) {}
+    }
+    var shown = {};
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][10]) !== 'pending') continue;
       var name = String(data[i][0] || '').trim();
@@ -38,6 +54,9 @@ function _crmPendingAll_(crits) {
       if (seen[name + '|' + String(data[i][2] || '').trim()]) continue;   // もう送った
       var p;
       try { p = rowToProperty(data[i]); } catch (e) { continue; }
+      var k = bkey(name, p);
+      if (k && (sentKeys[k] || shown[k])) continue;   // 同じ部屋を送った／もう一覧に出した
+      if (k) shown[k] = true;
       var cr = (crits && crits[name]) || {};
       var warn = '';
       try { warn = _computePropertyWarningsGAS_(p, (cr.equipment || []).join(','), cr.notes || '') || ''; } catch (_w) {}
