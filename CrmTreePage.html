@@ -400,7 +400,8 @@
     loadExtra(c.name);
     var x = extras[c.name];
     var n = esc(JSON.stringify(c.name));
-    var h = '<div class="sec">問い合わせた物件</div>';
+    var h = linkHtml(c);
+    h += '<div class="sec">問い合わせた物件</div>';
     h += c.inquiries && c.inquiries.length ? c.inquiries.map(function (q) {
       var title = esc(q.property || '（物件名なし）') + (q.rent ? ' ' + esc(q.rent) : '') + (q.layout ? ' ' + esc(q.layout) : '');
       return '<div class="inq">' + esc(q.date) + ' '
@@ -828,6 +829,54 @@
       .withSuccessHandler(function (d) { data = d; addMode = false; addDraft = null; selName = d.newName || ''; render(); toast(d.savedMessage || '追加しました'); })
       .withFailureHandler(function (e) { a.saving = false; render(); toast('追加できませんでした: ' + e.message); })
       .addCrmCustomer({ name: a.name, phone: a.phone, email: a.email, route: a.route, property: a.property, talked: !!a.talked, memo: a.memo, reviveName: a.reviveName });
+  }
+
+  // ── LINE とつなぐ ──
+  var lineCands = null, linkQ = {};
+  function loadLineCands() {
+    if (lineCands) return;
+    lineCands = 'loading';
+    google.script.run.withSuccessHandler(function (l) { lineCands = l; render(); })
+      .withFailureHandler(function (e) { lineCands = null; toast('LINEの一覧を読めません: ' + e.message); })
+      .getCrmLineCandidates();
+  }
+  function linkHtml(c) {
+    var n = esc(JSON.stringify(c.name));
+    if (c.lineOnly) {
+      // 〔LINEのみ〕の人: この人は誰？（顧客名で探す）
+      var q = linkQ[c.name] || '';
+      var hits = q.length >= 1 ? data.customers.filter(function (y) { return !y.lineOnly && y.name.indexOf(q) >= 0; }).slice(0, 8) : [];
+      return '<div class="sec">この人は誰？（顧客とつなぐ）</div>'
+        + '<input class="inp" placeholder="顧客名で探す" value="' + esc(q) + '" oninput="linkQ[selName]=this.value;render();var i=document.querySelector(\\'#panel .inp\\');if(i){i.focus();i.setSelectionRange(99,99)}">'
+        + hits.map(function (y) {
+          return '<div class="inq">' + esc(y.name) + ' <span class="meta">' + esc(labelOf[y.stageId] || '') + '</span> '
+            + '<button class="opt" onclick="doLink(' + esc(JSON.stringify(y.name)) + ',' + esc(JSON.stringify(c.uid || '')) + ')">この人とつなぐ</button></div>';
+        }).join('');
+    }
+    if (c.lineUid) return '';
+    // LINEの無い顧客: LINEの表示名で探す
+    var x = extras[c.name];
+    if (!x.linkOpen) return '<div class="acts"><button class="btn" onclick="extras[selName].linkOpen=true;loadLineCands();render()">🔗 LINEとつなぐ</button></div>';
+    if (lineCands === 'loading' || !lineCands) return '<div class="sec">LINEとつなぐ</div><div class="meta">LINEの一覧を読み込み中…</div>';
+    var q2 = linkQ[c.name] || '';
+    var list = lineCands.filter(function (l) { return !q2 || l.disp.indexOf(q2) >= 0; }).slice(0, 12);
+    return '<div class="sec">LINEとつなぐ（LINEの表示名で探す）</div>'
+      + '<input class="inp" placeholder="表示名で探す" value="' + esc(q2) + '" oninput="linkQ[selName]=this.value;render();var i=document.querySelector(\\'#panel .inp\\');if(i){i.focus();i.setSelectionRange(99,99)}">'
+      + list.map(function (l) {
+        return '<div class="inq">' + esc(l.disp) + ' <span class="meta">最後のやり取り ' + esc(l.last) + (l.linkedName ? '・いま「' + esc(l.linkedName) + '」' : '') + '</span> '
+          + '<button class="opt" onclick="doLink(' + n + ',' + esc(JSON.stringify(l.uid)) + ')">この人とつなぐ</button></div>';
+      }).join('');
+  }
+  function doLink(name, uid, force) {
+    if (!uid) { toast('LINEのIDが分かりません'); return; }
+    toast('つないでいます…');
+    google.script.run
+      .withSuccessHandler(function (d) { data = d; lineCands = null; selName = d.newName || name; render(); toast(d.savedMessage || 'つなぎました'); })
+      .withFailureHandler(function (e) {
+        if (/付け替える場合/.test(e.message) && !force && confirm(e.message.replace('もう一度押してください', '付け替えますか？'))) { doLink(name, uid, true); return; }
+        toast(e.message);
+      })
+      .linkCrmLine(name, uid, !!force);
   }
 
   function setGroup(name, g) { call('setCrmGroup', [name, g], name + '：' + (g ? g + 'にしました' : 'グループを外しました')); }

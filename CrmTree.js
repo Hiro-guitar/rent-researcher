@@ -560,6 +560,7 @@ function _crmTreeForPage_() {
         flags: chip.flags.concat((pend[c.name] || []).length && c.stageId !== 'ended' ? ['📦新着' + pend[c.name].length + '件'] : []),
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
         lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
+        uid: c.lineOnly ? (c.uid || '') : '',   // 〔LINEのみ〕の人を顧客とつなぐときだけ使う
         pending: (c.stageId !== 'ended' && c.stageId !== 'won') ? (pend[c.name] || []) : [],
         criteria: (c.stageId !== 'ended' && c.stageId !== 'won') ? (crits[c.name] || null) : null,
         group: c.group || '', contactedToday: !!c.contactedToday, ignoreDays: c.ignoreDays || 0,
@@ -1419,5 +1420,64 @@ function addCrmCustomer(f) {
   var page = _crmTreeForPage_();
   page.savedMessage = (f.reviveName ? name + ' さんを戻しました' : name + ' さんを追加しました');
   page.newName = name;
+  return page;
+}
+
+// ════════════════════════════════════════════
+//  LINE とつなぐ（2026-10-02）
+// ════════════════════════════════════════════
+// LINE の友だちだが LINE Users に名前が無い人（LINE Activity にだけいる人、〔LINEのみ〕）を、
+// 顧客管理の画面から顧客とつなぐ。書き込みは登録と同じ saveLineUser（LINE Users に1行）。
+
+/** 画面: つなげる候補の LINE アカウント（LINE Activity）。最近やり取りした順。 */
+function getCrmLineCandidates() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var linked = {};
+  var lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+  if (lu && lu.getLastRow() > 1) {
+    lu.getRange(2, 1, lu.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var uid = String(r[0] || '').trim();
+      if (uid) linked[uid] = { name: String(r[1] || '').trim(), disp: String(r[3] || '').trim() };
+    });
+  }
+  var out = {}, sh = ss.getSheetByName('LINE Activity');
+  if (sh && sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r) {
+      var uid = String(r[0] || '').trim();
+      if (!uid || uid.indexOf('U') !== 0) return;
+      var ms = _cellToEpochMs_(r[1]);
+      if (out[uid] && out[uid].ms >= ms) return;
+      out[uid] = { uid: uid, disp: String(r[2] || '').trim() || (linked[uid] && linked[uid].disp) || '（表示名なし）',
+        ms: ms, last: ms ? Utilities.formatDate(new Date(ms), 'Asia/Tokyo', 'yyyy/M/d') : '',
+        linkedName: linked[uid] ? linked[uid].name : '' };
+    });
+  }
+  return Object.keys(out).map(function (k) { return out[k]; }).sort(function (a, b) { return b.ms - a.ms; });
+}
+
+/**
+ * 画面: 顧客と LINE アカウントをつなぐ。
+ * ⚠️ そのLINEがすでに別の顧客につながっていたら、force=true のときだけ付け替える。
+ */
+function linkCrmLine(customerName, uid, force) {
+  customerName = String(customerName || '').trim();
+  uid = String(uid || '').trim();
+  if (!customerName || uid.indexOf('U') !== 0) throw new Error('つなぐ相手が正しくありません');
+  var lu = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(LINE_USERS_SHEET_NAME);
+  if (lu && lu.getLastRow() > 1) {
+    var rows = lu.getRange(2, 1, lu.getLastRow() - 1, 2).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      var other = String(rows[i][1] || '').trim();
+      if (String(rows[i][0]).trim() === uid && other && other !== customerName && !force) {
+        throw new Error('このLINEは「' + other + '」さんにつながっています。付け替える場合はもう一度押してください');
+      }
+    }
+  }
+  saveLineUser(uid, customerName);
+  try { if (loadCustomerCriteriaByName(customerName) && typeof linkRichMenuAfter === 'function') linkRichMenuAfter(uid); } catch (_e) {}
+  addContactLog(customerName, 'その他', new Date().toISOString(), 'LINEとつないだ');
+  var page = _crmTreeForPage_();
+  page.savedMessage = customerName + ' さんをLINEとつなぎました';
+  page.newName = customerName;
   return page;
 }
