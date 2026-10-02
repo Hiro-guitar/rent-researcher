@@ -769,13 +769,8 @@
         + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
         + '<div class="pl"><a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a></div>';
       if (x.fwdRoom === p.roomId) {
-        var q = x.fwdQ || '', nq = normName(q);
-        var hits = nq ? data.customers.filter(function (y) { return y.name !== c.name && !y.lineOnly && normName(y.name).indexOf(nq) >= 0; }).slice(0, 8) : [];
-        h2 += '<input class="inp" id="fwdQ" placeholder="送り先の名前で探す" value="' + esc(q) + '" oninput="extras[selName].fwdQ=this.value;render();var i=document.getElementById(\'fwdQ\');if(i){i.focus();i.setSelectionRange(99,99)}">'
-          + hits.map(function (y) {
-            return '<div class="inq">' + esc(y.name) + ' <span class="meta">' + esc(labelOf[y.stageId] || '') + '</span> '
-              + '<button class="opt" onclick="forwardTo(' + rid + ',' + esc(JSON.stringify(y.name)) + ')">この人の新着に入れる</button></div>';
-          }).join('');
+        h2 += '<input class="inp" id="fwdQ" placeholder="送り先の名前で探す" value="' + esc(x.fwdQ || '') + '" oninput="extras[selName].fwdQ=this.value;fillFwdHits()">'
+          + '<div id="fwdHits">' + fwdHitsHtml(c, p.roomId) + '</div>';
       }
       return h2 + '</div></div>';
     }).join('');
@@ -791,6 +786,15 @@
       .withFailureHandler(function (e) { toast('送れませんでした: ' + e.message); })
       .resendCrmToFamily(name, ids, text);
   }
+  function fwdHitsHtml(c, roomId) {
+    var nq = normName(extras[c.name].fwdQ || ''), rid = esc(JSON.stringify(roomId));
+    if (!nq) return '';
+    return data.customers.filter(function (y) { return y.name !== c.name && !y.lineOnly && normName(y.name).indexOf(nq) >= 0; }).slice(0, 8).map(function (y) {
+      return '<div class="inq">' + esc(y.name) + ' <span class="meta">' + esc(labelOf[y.stageId] || '') + '</span> '
+        + '<button class="opt" onclick="forwardTo(' + rid + ',' + esc(JSON.stringify(y.name)) + ')">この人の新着に入れる</button></div>';
+    }).join('') || '<div class="meta">見つかりません</div>';
+  }
+  function fillFwdHits() { var c = curCust(), el = document.getElementById('fwdHits'); if (c && el) el.innerHTML = fwdHitsHtml(c, extras[c.name].fwdRoom); }
   function openSent() {
     var name = selName; extras[name].sentOpen = true; sentCache[name] = 'loading'; render();
     google.script.run.withSuccessHandler(function (l) { sentCache[name] = l; render(); })
@@ -926,16 +930,12 @@
     if (c.lineOnly) {
       // 〔LINEのみ〕の人: この人は誰？（顧客名で探す）
       var q = linkQ[c.name] || '';
-      var hits = q.length >= 1 ? data.customers.filter(function (y) { return !y.lineOnly && y.name.indexOf(q) >= 0; }).slice(0, 8) : [];
       return '<div class="sec">名前を付けて顧客にする</div>'
         + '<div class="acts"><input class="inp" id="newNm" placeholder="例: 山田 太郎"><button class="btn save" onclick="nameLineOnly(' + n + ',' + esc(JSON.stringify(c.uid || '')) + ')">登録する</button></div>'
         + '<div class="sec">この人は誰？（顧客とつなぐ）</div>'
-        + '<input class="inp" placeholder="顧客名で探す" value="' + esc(q) + '" oninput="linkQ[selName]=this.value;render();var i=document.querySelector(\'#panel .inp\');if(i){i.focus();i.setSelectionRange(99,99)}">'
-        + hits.map(function (y) {
-          return '<div class="inq">' + esc(y.name) + ' <span class="meta">' + esc(labelOf[y.stageId] || '') + '</span> '
-            + '<button class="opt" onclick="doLink(' + esc(JSON.stringify(y.name)) + ',' + esc(JSON.stringify(c.uid || '')) + ')">この人とつなぐ</button> '
-            + '<button class="opt" onclick="linkFamily(' + esc(JSON.stringify(y.name)) + ',' + esc(JSON.stringify(c.uid || '')) + ',' + n + ')">家族としてつなぐ</button></div>';
-        }).join('');
+        // ⚠️ 打つたびに画面を描き直さないこと（日本語の変換が壊れる）。候補の一覧だけ入れ替える
+        + '<input class="inp" placeholder="顧客名で探す" value="' + esc(q) + '" oninput="linkQ[selName]=this.value;fillWhoHits()">'
+        + '<div id="whoHits">' + whoHitsHtml(c) + '</div>';
     }
     var ren = '<div class="acts"><button class="btn" onclick="renameAsk(' + n + ')">✏️ 名前を変える</button></div>';
     if (c.family && c.family.length) {
@@ -949,13 +949,9 @@
     if (!x.linkOpen) return ren + '<div class="acts"><button class="btn" onclick="extras[selName].linkOpen=true;loadLineCands();render()">🔗 LINEとつなぐ</button></div>';
     if (lineCands === 'loading' || !lineCands) return '<div class="sec">LINEとつなぐ</div><div class="meta">LINEの一覧を読み込み中…</div>';
     var q2 = linkQ[c.name] || '';
-    var list = lineCands.filter(function (l) { return !q2 || l.disp.indexOf(q2) >= 0; }).slice(0, 12);
-    return '<div class="sec">LINEとつなぐ（LINEの表示名で探す）</div>'
-      + '<input class="inp" placeholder="表示名で探す" value="' + esc(q2) + '" oninput="linkQ[selName]=this.value;render();var i=document.querySelector(\'#panel .inp\');if(i){i.focus();i.setSelectionRange(99,99)}">'
-      + list.map(function (l) {
-        return '<div class="inq">' + esc(l.disp) + ' <span class="meta">最後のやり取り ' + esc(l.last) + (l.linkedName ? '・いま「' + esc(l.linkedName) + '」' : '') + '</span> '
-          + '<button class="opt" onclick="doLink(' + n + ',' + esc(JSON.stringify(l.uid)) + ')">この人とつなぐ</button></div>';
-      }).join('');
+    return ren + '<div class="sec">LINEとつなぐ（LINEの表示名で探す）</div>'
+      + '<input class="inp" placeholder="表示名で探す" value="' + esc(q2) + '" oninput="linkQ[selName]=this.value;fillLineHits()">'
+      + '<div id="lineHits">' + lineHitsHtml(c) + '</div>';
   }
   function linkFamily(parent, uid, pseudo) {
     if (!confirm('この人を ' + parent + ' さんの家族としてつなぎます。物件と一言は家族にも届くようになります。よろしいですか？')) return;
@@ -981,6 +977,25 @@
       .withFailureHandler(function (e) { toast(e.message); })
       .renameCrmCustomer(name, v.trim());
   }
+  function curCust() { return data.customers.filter(function (y) { return y.name === selName; })[0]; }
+  function whoHitsHtml(c) {
+    var q = normName(linkQ[c.name] || ''), n = esc(JSON.stringify(c.name));
+    if (!q) return '';
+    return data.customers.filter(function (y) { return !y.lineOnly && normName(y.name).indexOf(q) >= 0; }).slice(0, 8).map(function (y) {
+      return '<div class="inq">' + esc(y.name) + ' <span class="meta">' + esc(labelOf[y.stageId] || '') + '</span> '
+        + '<button class="opt" onclick="doLink(' + esc(JSON.stringify(y.name)) + ',' + esc(JSON.stringify(c.uid || '')) + ')">この人とつなぐ</button> '
+        + '<button class="opt" onclick="linkFamily(' + esc(JSON.stringify(y.name)) + ',' + esc(JSON.stringify(c.uid || '')) + ',' + n + ')">家族としてつなぐ</button></div>';
+    }).join('') || '<div class="meta">見つかりません</div>';
+  }
+  function fillWhoHits() { var c = curCust(), el = document.getElementById('whoHits'); if (c && el) el.innerHTML = whoHitsHtml(c); }
+  function lineHitsHtml(c) {
+    var q = normName(linkQ[c.name] || ''), n = esc(JSON.stringify(c.name));
+    return (lineCands || []).filter(function (l) { return !q || normName(l.disp).indexOf(q) >= 0; }).slice(0, 12).map(function (l) {
+      return '<div class="inq">' + esc(l.disp) + ' <span class="meta">最後のやり取り ' + esc(l.last) + (l.linkedName ? '・いま「' + esc(l.linkedName) + '」' : '') + '</span> '
+        + '<button class="opt" onclick="doLink(' + n + ',' + esc(JSON.stringify(l.uid)) + ')">この人とつなぐ</button></div>';
+    }).join('') || '<div class="meta">見つかりません</div>';
+  }
+  function fillLineHits() { var c = curCust(), el = document.getElementById('lineHits'); if (c && el) el.innerHTML = lineHitsHtml(c); }
   function doLink(name, uid, force) {
     if (!uid) { toast('LINEのIDが分かりません'); return; }
     toast('つないでいます…');
