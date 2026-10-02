@@ -5435,6 +5435,8 @@ function _contactLogOutcome_(type, memo) {
   if (!t) return 'unknown';
   if (t === 'LINE' || t === '内見') return 'talked';
   if (t.indexOf('電話') < 0) return 'unknown';   // その他 等は会話として数えない
+  // 「かけ直してください」は話せたうちに入らない。つながらなかったわけでもない（2026-10-02）
+  if (t.indexOf('かけ直し') >= 0 || m.indexOf('【かけ直し】') === 0) return 'unknown';
   // 種別に結果が書いてあるならそれが最優先
   if (t.indexOf('話せた') >= 0) return 'talked';
   for (var i = 0; i < _CONTACT_FAILED_WORDS.length; i++) {

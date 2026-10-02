@@ -1036,9 +1036,16 @@ function _crmChipOf_(c) {
   if (sid === 'mail') {
     parts.push('メール' + ((c.daysSinceInquiry || 0) + 1) + '日目');
   } else if (sid === 'call') {
-    parts.push(c.callSlots ? c.callSlots.label.replace('土日', '休日') : '');
+    var recall = (c.tasks || []).filter(function (t) { return t.content.indexOf('かけ直し') === 0; })[0];
+    if (recall) {
+      // かけ直しを頼まれた人は、その日まで赤くしない。その日になったら赤
+      parts.push(recall.content.replace(/[（）]/g, ' ').trim());
+      todo = !!c.taskDueNow && !c.contactedToday;
+    } else {
+      parts.push(c.callSlots ? c.callSlots.label.replace('土日', '休日') : '');
+      todo = !!(c.callSlots && c.callSlots.today) && !c.contactedToday;
+    }
     parts.push('反響' + ((c.daysSinceInquiry || 0) + 1) + '日目');
-    todo = !!(c.callSlots && c.callSlots.today) && !c.contactedToday;
   } else {
     parts.push(c.contactedToday ? '今日 ✓' : '今日 未');
     if (c.ignoreDays) parts.push('無視' + c.ignoreDays + '日目');
@@ -1318,8 +1325,9 @@ function saveCrmCriteria(customerName, f, send) {
  */
 function recordCrmTalk(customerName, memo, outcome, when, reason) {
   memo = String(memo || '').trim();
-  var tag = outcome === 'recall' ? '【かけ直し】' : (outcome === 'end' ? '【終了】' : '');
-  var r = addContactLog(customerName, '電話（話せた）', new Date().toISOString(), tag + memo);
+  var tag = outcome === 'end' ? '【終了】' : '';
+  // かけ直しは「話せた」に数えない（架電待ちのまま、かけ直す日に赤くする）
+  var r = addContactLog(customerName, outcome === 'recall' ? '電話（かけ直し）' : '電話（話せた）', new Date().toISOString(), tag + memo);
   if (!r || !r.success) throw new Error((r && r.message) || '記録できませんでした');
   _crmTreeCloseDueTasks_(customerName);
   if (outcome === 'recall') {
