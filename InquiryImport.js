@@ -149,7 +149,14 @@ function _parseSuumoInquiryEmail_(subject, body, fallbackDate) {
     rent: _exVal_(body, '賃料'),
     layout: _exVal_(body, '間取り'),
     area: _exVal_(body, '専有面積'),
-    station: _exVal_(body, '最寄り駅'),
+    // 最寄り駅のうしろに徒歩分数を付ける（SUUMOは「バス／歩：-／歩5分」の形で別の欄に書いてくる）。
+    // 電話で「駅から歩いて◯分」と話せるように（2026-10-02）
+    station: (function () {
+      var st = _exVal_(body, '最寄り駅');
+      var bw = _exVal_(body, 'バス／歩') || _exVal_(body, 'バス/歩');
+      var m = String(bw || '').match(/歩\s*(\d+)\s*分/);
+      return (st && m && st.indexOf('分') < 0) ? st + ' 徒歩' + m[1] + '分' : st;
+    })(),
     address: _exVal_(body, '所在地'),
     detailUrl: _exVal_(body, '物件詳細画面') || _exVal_(body, '物件詳細URL'),
     channel: _exVal_(body, 'お問合せ企画') || 'SUUMO'

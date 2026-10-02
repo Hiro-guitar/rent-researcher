@@ -230,7 +230,7 @@
         h += '<div class="ask">話した内容</div>'
           + '<textarea class="memo" placeholder="例: 11月に引越し。家賃は9万まで上げてもよい" oninput="talkDraft[selName].memo=this.value">' + esc(tk.memo) + '</textarea>'
           + '<div class="ask">結果</div><div class="acts">'
-          + [['continue', '続けて探す'], ['recall', 'かけ直し'], ['end', '終了']].map(function (o) {
+          + [['continue', 'このまま物件を送る'], ['recall', 'かけ直し'], ['end', '終了']].map(function (o) {
             return '<button class="btn' + (tk.outcome === o[0] ? ' on' : '') + '" onclick="talkDraft[selName].outcome=\'' + o[0] + '\';render()">' + o[1] + '</button>';
           }).join('') + '</div>';
         if (tk.outcome === 'recall') {
