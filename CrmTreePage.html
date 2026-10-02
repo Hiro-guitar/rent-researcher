@@ -103,6 +103,8 @@
   .prop img, .prop .noimg { width: 72px; height: 54px; object-fit: cover; border-radius: 4px; background: var(--bg); }
   .prop .pt { font-weight: 700; font-size: 13px; }
   .prop .warn { font-size: 12px; color: #b3541e; }
+  .prop .cmt { font-size: 12px; margin-top: 2px; }
+  .prop.sent { grid-template-columns: 72px 1fr; }
   .prop .pl { font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
   .prop .pl a { color: var(--green); }
   .prop .pl a.skip { color: var(--muted); }
@@ -717,6 +719,7 @@
           + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + '</div>'
           + '<div class="meta">' + esc([p.rent && (p.rent + (p.fee ? '＋' + p.fee : '')), p.layout, p.area, p.age, p.floor].filter(Boolean).join('・')) + '</div>'
           + (p.station ? '<div class="meta">' + esc(p.station) + '</div>' : '')
+          + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
           + (p.warnings || []).map(function (w) { return '<div class="warn">' + esc(w) + '</div>'; }).join('')
           + '<div class="pl">' + (p.url ? '<a target="_blank" href="' + esc(p.url) + '">元のページで確かめる</a>' : '')
           + (p.images && p.images.length > 1 ? ' <a href="#" onclick="showImgs(' + rid + ');return false">写真' + p.images.length + '枚</a>' : '')
@@ -738,7 +741,53 @@
     } else {
       h += '<div class="meta">LINEがつながっていないので、ここからは送れません。</div>';
     }
+    h += sentHtml(c);
     return h;
+  }
+
+  // ── 送った物件を、コメントごと別のお客様の新着に入れる ──
+  var sentCache = {};   // 顧客名 → 送った物件の一覧（押したときに取りに行く）
+  function sentHtml(c) {
+    var x = extras[c.name];
+    var h = '<div class="sec">送った物件（最近）</div>';
+    if (!x.sentOpen) return h + '<button class="btn" onclick="openSent()">送った物件を並べる</button>';
+    var list = sentCache[c.name];
+    if (list === 'loading' || !list) return h + '<div class="meta">読み込み中…</div>';
+    if (!list.length) return h + '<div class="meta">まだ送った物件はありません</div>';
+    return h + list.map(function (p) {
+      var rid = esc(JSON.stringify(p.roomId));
+      var h2 = '<div class="prop sent">'
+        + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy">' : '<div class="noimg"></div>')
+        + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + ' <span class="meta">' + esc(p.sentAt) + '送った</span></div>'
+        + '<div class="meta">' + esc([p.rent && (p.rent + (p.fee ? '＋' + p.fee : '')), p.layout, p.area].filter(Boolean).join('・')) + '</div>'
+        + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
+        + '<div class="pl"><a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a></div>';
+      if (x.fwdRoom === p.roomId) {
+        var q = x.fwdQ || '', nq = normName(q);
+        var hits = nq ? data.customers.filter(function (y) { return y.name !== c.name && !y.lineOnly && normName(y.name).indexOf(nq) >= 0; }).slice(0, 8) : [];
+        h2 += '<input class="inp" id="fwdQ" placeholder="送り先の名前で探す" value="' + esc(q) + '" oninput="extras[selName].fwdQ=this.value;render();var i=document.getElementById(\'fwdQ\');if(i){i.focus();i.setSelectionRange(99,99)}">'
+          + hits.map(function (y) {
+            return '<div class="inq">' + esc(y.name) + ' <span class="meta">' + esc(labelOf[y.stageId] || '') + '</span> '
+              + '<button class="opt" onclick="forwardTo(' + rid + ',' + esc(JSON.stringify(y.name)) + ')">この人の新着に入れる</button></div>';
+          }).join('');
+      }
+      return h2 + '</div></div>';
+    }).join('');
+  }
+  function openSent() {
+    var name = selName; extras[name].sentOpen = true; sentCache[name] = 'loading'; render();
+    google.script.run.withSuccessHandler(function (l) { sentCache[name] = l; render(); })
+      .withFailureHandler(function (e) { sentCache[name] = []; render(); toast(e.message); })
+      .getCrmSentProps(name);
+  }
+  function forwardOpen(rid) { var x = extras[selName]; x.fwdRoom = (x.fwdRoom === rid) ? '' : rid; x.fwdQ = ''; render(); }
+  function forwardTo(rid, toName) {
+    var from = selName;
+    if (!confirm(toName + ' さんの新着に入れます（コメントも引き継ぎます）。よろしいですか？')) return;
+    google.script.run
+      .withSuccessHandler(function (d) { data = d; extras[from].fwdRoom = ''; render(); toast(d.savedMessage || '入れました'); })
+      .withFailureHandler(function (e) { toast(e.message); })
+      .copyCrmPropertyTo(from, rid, toName);
   }
   function pickProp(rid, on) { extras[selName].pick[rid] = on; render(); }
   function showImgs(rid) { var x = extras[selName]; x.imgsOf = (x.imgsOf === rid) ? '' : rid; render(); }

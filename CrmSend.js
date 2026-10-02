@@ -18,7 +18,7 @@ function _crmPendingAll_(crits) {
   try {
     var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
     if (!sh || sh.getLastRow() < 2) return out;
-    var data = sh.getRange(2, 1, sh.getLastRow() - 1, 14).getValues();
+    var data = sh.getRange(2, 1, sh.getLastRow() - 1, 15).getValues();
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][10]) !== 'pending') continue;
       var name = String(data[i][0] || '').trim();
@@ -36,7 +36,8 @@ function _crmPendingAll_(crits) {
         station: p.stationInfo || '', age: p.buildingAge || '', floor: p.floorText || '',
         image: imgs[0] || '', images: imgs.slice(0, 6), url: p.url || '',
         warnings: String(warn).split('\n').filter(function (s) { return s; }),
-        found: (data[i][11] instanceof Date) ? Utilities.formatDate(data[i][11], 'Asia/Tokyo', 'M/d') : ''
+        found: (data[i][11] instanceof Date) ? Utilities.formatDate(data[i][11], 'Asia/Tokyo', 'M/d') : '',
+        comment: String(data[i][14] || '')   // O列: 担当者コメント（別の人から引き継いだものも）
       });
     }
   } catch (e) { console.warn('[送る物件] 承認待ちを読めません: ' + e.message); }
@@ -68,9 +69,11 @@ function sendCrmProperties(customerName, roomIds, text) {
       var rid = String(r.values[2]);
       var sel = (prop.selectedImageUrls && prop.selectedImageUrls.length) ? prop.selectedImageUrls
         : (prop.imageUrls && prop.imageUrls.length ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []));
-      var viewUrl = _bestViewUrl_(customerName, rid, prop, { staffComment: '' });
+      // ⚠️ 担当者コメント（O列）を必ず載せること。以前は読んでおらず、カードにコメントが出ていなかった
+      var comment = String(r.values[14] || '').trim();
+      var viewUrl = _bestViewUrl_(customerName, rid, prop, { staffComment: comment });
       cachePropertyImages(customerName, rid, sel, prop.selectedImageCategories || []);
-      var flex = buildPropertyFlex(prop, { includeImage: sel.length > 0, heroImageUrls: sel, viewUrl: viewUrl, customerStations: stations });
+      var flex = buildPropertyFlex(prop, { includeImage: sel.length > 0, heroImageUrls: sel, viewUrl: viewUrl, customerStations: stations, staffComment: comment });
       if (flex && flex.contents) bubbles.push(flex.contents);
       sentTargets.push({ rowIndex: r.rowIndex, prop: prop, viewUrl: viewUrl });
     });
@@ -102,4 +105,53 @@ function skipCrmProperty(customerName, roomId) {
 function logCrmManualMessage(customerName, text) {
   addContactLog(customerName, 'LINE', new Date().toISOString(), 'LINE Chat で送信: ' + String(text || '').substring(0, 60));
   return _crmTreeForPage_();
+}
+
+/** 画面: その人に送った物件（最近20件）。「別の人にも送る」の元にする。 */
+function getCrmSentProps(customerName) {
+  var out = [];
+  var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
+  if (!sh || sh.getLastRow() < 2) return out;
+  var data = sh.getRange(2, 1, sh.getLastRow() - 1, 15).getValues();
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0] || '').trim() !== customerName || String(data[i][10]) !== 'sent') continue;
+    var p; try { p = rowToProperty(data[i]); } catch (e) { continue; }
+    var imgs = (p.selectedImageUrls && p.selectedImageUrls.length) ? p.selectedImageUrls : (p.imageUrls || []);
+    var ms = _cellToEpochMs_(data[i][12]);
+    out.push({ roomId: String(data[i][2] || ''), building: p.buildingName || '', room: p.roomNumber || '',
+      rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '', station: p.stationInfo || '',
+      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms,
+      sentAt: ms ? Utilities.formatDate(new Date(ms), 'Asia/Tokyo', 'M/d') : '' });
+  }
+  return out.sort(function (a, b) { return b.ms - a.ms; }).slice(0, 20);
+}
+
+/**
+ * 画面: 送った物件を、写真の選び方・担当者コメントごと別のお客様の新着に入れる。
+ * すぐには送らない（送り先に合わせて一言を変えたり、まとめて送れるように）。
+ */
+function copyCrmPropertyTo(fromName, roomId, toName) {
+  toName = String(toName || '').trim();
+  if (!toName || toName === fromName) throw new Error('送り先のお客様を選んでください');
+  var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
+  var width = sh.getLastColumn();
+  var data = sh.getRange(2, 1, sh.getLastRow() - 1, width).getValues();
+  var src = null;
+  for (var i = 0; i < data.length; i++) {
+    var n = String(data[i][0] || '').trim(), rid = String(data[i][2] || '').trim();
+    if (n === toName && rid === String(roomId) && ['pending', 'sent'].indexOf(String(data[i][10])) >= 0) {
+      throw new Error(toName + ' さんには、この物件はもう' + (String(data[i][10]) === 'sent' ? '送っています' : '新着に入っています'));
+    }
+    if (n === fromName && rid === String(roomId)) src = data[i];
+  }
+  if (!src) throw new Error('元の物件が見つかりません');
+  var row = src.slice();
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  row[0] = toName; row[10] = 'pending'; row[11] = new Date(); row[12] = now; row[13] = '';   // A / K / L / M / N
+  sh.appendRow(row);
+  var last = sh.getLastRow();
+  sh.getRange(last, 2, 1, 2).setNumberFormat('@').setValues([[String(src[1] || ''), String(src[2] || '')]]);   // B・C は文字として
+  var page = _crmTreeForPage_();
+  page.savedMessage = toName + ' さんの新着に入れました（コメントも引き継ぎ）';
+  return page;
 }
