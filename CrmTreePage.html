@@ -141,6 +141,16 @@
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
     background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; }
   .foot { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  /* 承認ページを右からスライドで出す（保存だけ。送るのはCRMから） */
+  .slide-bg { position: fixed; inset: 0; background: rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 50; }
+  .slide-bg.on { opacity: 1; pointer-events: auto; }
+  .slide { position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 100%); background: var(--surface);
+    box-shadow: -6px 0 24px rgba(0,0,0,.18); transform: translateX(100%); transition: transform .25s ease; z-index: 51;
+    display: flex; flex-direction: column; }
+  .slide.on { transform: translateX(0); }
+  .slide .sh { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--hair); }
+  .slide .sh b { flex: 1; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .slide iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 </style>
 </head>
 <body>
@@ -168,6 +178,8 @@
   <div class="foot" id="foot"></div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="slide-bg" id="slideBg" onclick="closeEdit()"></div>
+<div class="slide" id="slide"><div class="sh"><b id="slideTitle"></b><span class="meta">直したら一番下の「確定（保存）」</span><button class="btn" onclick="closeEdit()">✕ 閉じる</button></div><iframe id="slideFrame"></iframe></div>
 
 <script>
   var data = JSON.parse('<?!= treeJson ?>');
@@ -723,7 +735,7 @@
           + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
           + (p.warnings || []).map(function (w) { return '<div class="warn">' + esc(w) + '</div>'; }).join('')
           + '<div class="pl">' + (p.url ? '<a target="_blank" href="' + esc(p.url) + '">元のページで確かめる</a>' : '')
-          + ' <a target="_blank" href="' + esc(approveBaseUrl + '&customer=' + encodeURIComponent(c.name) + '&room_id=' + encodeURIComponent(p.roomId)) + '" onclick="editOpened=true">詳しく確かめる・直す</a>'
+          + ' <a href="#" onclick="openEdit(' + rid + ');return false">詳しく確かめる・直す</a>'
           + (p.edited ? ' <span class="meta">（直した写真' + p.imgCount + '枚）</span>' : '')
           + (p.images && p.images.length > 1 ? ' <a href="#" onclick="showImgs(' + rid + ');return false">写真' + p.images.length + '枚</a>' : '')
           + ' <a href="#" class="skip" onclick="skipProp(' + rid + ');return false">見送る</a>'
@@ -1140,9 +1152,32 @@
       .previewPendingCleanup();
   }
 
-  // 承認ページで直して戻ってきたら、直した写真・一言を出すために読み直す
-  var editOpened = false;
-  window.addEventListener('focus', function () { if (editOpened) { editOpened = false; reload(); } });
+  // ── 承認ページをスライドで出す（collect=1 なので保存だけ。送るのはCRMの「LINEで送る」）──
+  var editSaved = false;
+  function openEdit(roomId) {
+    var c = data.customers.filter(function (x) { return x.name === selName; })[0];
+    var p = c && (c.pending || []).filter(function (x) { return x.roomId === roomId; })[0];
+    document.getElementById('slideTitle').textContent = p ? (p.building + (p.room ? ' ' + p.room : '')) : '';
+    document.getElementById('slideFrame').src = approveBaseUrl + '&customer=' + encodeURIComponent(selName) + '&room_id=' + encodeURIComponent(roomId);
+    editSaved = false;
+    document.getElementById('slide').classList.add('on');
+    document.getElementById('slideBg').classList.add('on');
+  }
+  function closeEdit() {
+    var sl = document.getElementById('slide');
+    if (!sl.classList.contains('on')) return;
+    sl.classList.remove('on');
+    document.getElementById('slideBg').classList.remove('on');
+    setTimeout(function () { document.getElementById('slideFrame').src = 'about:blank'; }, 300);
+    if (editSaved) reload();   // 直した写真・一言をカードに出す
+  }
+  window.addEventListener('message', function (ev) {
+    var d = ev.data || {};
+    if (d.type !== 'cart-saved') return;
+    if (d.ok) { editSaved = true; toast('保存しました'); setTimeout(closeEdit, 700); }
+    else toast('保存できませんでした: ' + (d.message || ''));
+  });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeEdit(); });
 
   function reload() {
     toast('読み込み中…');
