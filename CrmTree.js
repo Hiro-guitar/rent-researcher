@@ -607,7 +607,8 @@ function handleCrmTreePage(e) {
   tpl.customerPageUrl = _jsonForInlineScript_(getCustomerDetailPageUrl());
   // 条件入力の選択肢（管理画面と同じマスター）
   tpl.masterJson = _jsonForInlineScript_({
-    routeCompanies: ROUTE_COMPANIES, stations: STATION_DATA, cities: TOKYO_CITIES, equipment: EQUIPMENT_CATEGORIES
+    routeCompanies: ROUTE_COMPANIES, stations: STATION_DATA, cities: TOKYO_CITIES, equipment: EQUIPMENT_CATEGORIES,
+    listings: _crmActiveListings_()
   });
   tpl.adminUrl = _jsonForInlineScript_(getAdminPageUrl(''));
   // ⚠️ 物件検索のURLはここで埋め込んでリンクにする（google.script.run の応答後に開くとブロックされる）
@@ -1340,4 +1341,83 @@ function recordCrmTalk(customerName, memo, outcome, when, reason) {
   }
   if (outcome === 'end') return setCrmStage(customerName, '終了', reason || 'その他');
   return _crmTreeForPage_();
+}
+
+// ════════════════════════════════════════════
+//  お客様を手で追加する（電話の反響・リピーター・その他）2026-10-02
+// ════════════════════════════════════════════
+
+/**
+ * 掲載中の物件の名前（「建物名 部屋番号」）。掲載物件管理ページと同じ書き方。
+ * ⚠️ 電話の反響はこの中から選ばせること。物件ごとの問い合わせ数は、問い合わせシートの物件名と
+ *   この名前を突き合わせて数えている（ListingDashboard.html）。自由入力だとずれて数えられない。
+ */
+function _crmActiveListings_() {
+  var out = [];
+  try {
+    var sh = getListingSheet_();
+    if (sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 9).getValues().forEach(function (r) {
+      if (String(r[8]) !== 'active') return;
+      var label = String(r[1] || '') + (r[2] ? ' ' + String(r[2]) : '');
+      if (label.trim() && out.indexOf(label) < 0) out.push(label);
+    });
+  } catch (e) { console.warn('[お客様を追加] 掲載中の物件: ' + e.message); }
+  return out.sort();
+}
+
+/**
+ * 画面: お客様を追加する／昔のお客様を戻す。
+ * f = { name, phone, email, route: 'phone'|'repeat'|'other', property, talked, memo, reviveName }
+ *  - 電話の反響は掲載中の物件が必須。掲載物件管理の「＋ 追加」と同じ addManualInquiry を通す（問い合わせ数とそろえる）
+ *  - reviveName があれば、その顧客を終了から戻し、反響の日を今日にする（14日の数え直し）
+ */
+function addCrmCustomer(f) {
+  var name = String(f.reviveName || f.name || '').trim();
+  if (!name) throw new Error('名前を入れてください');
+  var phone = String(f.phone || '').replace(/[^0-9-]/g, '');
+  var email = String(f.email || '').trim();
+  var memo = String(f.memo || '').trim();
+  if (f.route === 'phone' && !f.property) throw new Error('電話の反響は、問い合わせの物件を選んでください');
+
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sh = ss.getSheetByName(CRITERIA_SHEET_NAME);
+
+  // 問い合わせの記録（物件があれば問い合わせシートにも。掲載物件の問い合わせ数に入る）
+  if (f.property) {
+    var r = addManualInquiry(f.property, name, phone, memo);
+    if (!r || !r.success) throw new Error((r && r.message) || '問い合わせを追加できませんでした');
+  }
+
+  // 顧客の行（無ければ作る。addManualInquiry が作っていればそれを使う）
+  var data = sh.getDataRange().getValues();
+  var row = -1;
+  for (var i = 1; i < data.length; i++) if (String(data[i][1] || '').trim() === name) row = i + 1;
+  if (row < 0) {
+    var nr = [];
+    for (var c = 0; c < 19; c++) nr.push('');
+    nr[0] = new Date(); nr[1] = name; nr[18] = 'lead';
+    sh.appendRow(nr);
+    row = sh.getLastRow();
+  } else {
+    // 戻す: 終了・アーカイブを外し、反響の日を今日にする
+    var cur = data[row - 1];
+    if (String(cur[32] || '').trim() === '終了') sh.getRange(row, 33).setValue('');
+    sh.getRange(row, 20).setValue(''); sh.getRange(row, 21).setValue(''); sh.getRange(row, 45).setValue('');
+    if (!(typeof _rowHasCriteria_ === 'function' && _rowHasCriteria_(cur))) sh.getRange(row, 1).setValue(new Date());
+    var st = String(cur[18] || '').trim().toLowerCase();
+    if (st === 'paused' || st === 'auto_paused') sh.getRange(row, 19).setValue('active');
+  }
+  if (email) sh.getRange(row, 32).setValue(email);                              // AF列
+  if (phone) sh.getRange(row, 35).setNumberFormat('@').setValue(phone);          // AI列（先頭の0を落とさない）
+
+  var label = f.route === 'phone' ? '電話反響' : (f.route === 'repeat' ? 'リピーター反響' : 'その他反響');
+  if (!f.property) addContactLog(name, label, new Date().toISOString(), memo);
+  if (f.talked) addContactLog(name, '電話（話せた）', new Date().toISOString(), memo);
+  if (memo) saveCrmMemo(name, memo);
+
+  var page = _crmTreeForPage_();
+  page.savedMessage = (f.reviveName ? name + ' さんを戻しました' : name + ' さんを追加しました');
+  page.newName = name;
+  return page;
 }

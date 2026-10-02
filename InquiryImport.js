@@ -76,7 +76,11 @@ function addManualInquiry(propertyName, callerName, phone, memo) {
     row[8] = propertyName;                          // I 物件名
     row[16] = '電話（手動）';                        // Q 媒体
     row[17] = '未対応';                             // R 対応状況
+    row[5] = '';                                    // TEL は下で文字として書く（数値にされると先頭の0が落ちる）
     sheet.appendRow(row);
+    if (String(phone || '').trim()) {
+      sheet.getRange(sheet.getLastRow(), 6).setNumberFormat('@').setValue(String(phone).trim());
+    }
 
     // CRM（顧客管理）にもリードとして追加（メール問い合わせと同じ経路）。
     // 電話はメールが無いので氏名で重複判定。氏名なし/既存同名は作成しない。

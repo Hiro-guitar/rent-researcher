@@ -146,6 +146,7 @@
   <header>
     <h1>顧客管理</h1>
     <button class="btn" onclick="reload()">🔄</button>
+    <button class="btn save" onclick="openAdd()">＋ お客様を追加</button>
     <button class="btn" onclick="toggleMenu()">☰</button>
   </header>
   <div class="menu" id="menu" style="display:none">
@@ -353,7 +354,8 @@
     var keepForm = document.getElementById('critForm');
     if (keepForm) keepForm.parentNode.removeChild(keepForm);
     var c = data.customers.filter(function (x) { return x.name === selName; })[0];
-    panel.innerHTML = c
+    if (addMode) { panel.innerHTML = addHtml(); }
+    else panel.innerHTML = c
       ? '<div class="where">いる段階: ' + esc(labelOf[c.stageId] || '') + (c.chipStatus ? '・' + esc(c.chipStatus) : '') + '</div>'
         + groupButtons(c) + custHtml(c)
         + ((c.flags || []).length ? '<div class="meta">' + (c.flags || []).map(esc).join(' ') + '</div>' : '')
@@ -377,6 +379,7 @@
   }
 
   function pickCust(name) {
+    addMode = false;
     // 同じ名前をもう一度押したら右を閉じる
     if (selName === name) { selName = ''; askNext = askEnd = askViewing = ''; render(); return; }
     selName = name;
@@ -772,6 +775,59 @@
       .withSuccessHandler(function () { x.memo = v; var st = document.getElementById('memoState'); if (st && selName === name) st.textContent = '保存済み'; })
       .withFailureHandler(function (e) { toast('メモを保存できませんでした: ' + e.message); })
       .saveCrmMemo(name, v);
+  }
+
+  // ── お客様を追加（電話の反響・リピーター・その他） ──
+  var addMode = false, addDraft = null;
+  function openAdd() {
+    addMode = true; selName = '';
+    addDraft = addDraft || { name: '', phone: '', email: '', route: 'phone', property: '', talked: false, memo: '', reviveName: '' };
+    render();
+  }
+  function addSet(k, v, rerender) { addDraft[k] = v; if (rerender) render(); else if (k === 'name' || k === 'phone') addMatches(); }
+  function addMatches() {
+    var box = document.getElementById('addMatch'); if (!box) return;
+    var q = (addDraft.name || '').replace(/[\s　]/g, ''), ph = (addDraft.phone || '').replace(/\D/g, '');
+    if (q.length < 2 && ph.length < 6) { box.innerHTML = ''; return; }
+    var hits = data.customers.filter(function (c) {
+      var n = c.name.replace(/[\s　]/g, '');
+      return (q.length >= 2 && (n.indexOf(q) >= 0 || q.indexOf(n) >= 0)) || (ph.length >= 6 && String(c.phone || '').replace(/\D/g, '').indexOf(ph) >= 0);
+    }).slice(0, 8);
+    box.innerHTML = hits.length ? '<div class="meta">同じ人かもしれないお客様がいます</div>' + hits.map(function (c) {
+      var on = addDraft.reviveName === c.name;
+      return '<div class="inq">' + esc(c.name) + ' <span class="meta">' + esc(labelOf[c.stageId] || '') + (c.phone ? '・' + esc(c.phone) : '') + '</span> '
+        + '<button class="opt' + (on ? ' on' : '') + '" onclick="addDraft.reviveName=' + (on ? "''" : esc(JSON.stringify(c.name))) + ';render()">' + (on ? 'この人として戻す ✓' : 'この人として戻す') + '</button></div>';
+    }).join('') : '';
+  }
+  function addHtml() {
+    var a = addDraft, L = (MASTER.listings || []);
+    var h = '<div class="where">お客様を追加</div><div class="crit">'
+      + '<label class="fl">どこから</label><div class="opts">' + [['phone', '電話の反響'], ['repeat', 'リピーター'], ['other', 'その他']].map(function (o) {
+        return '<button class="opt' + (a.route === o[0] ? ' on' : '') + '" onclick="addSet(\'route\',\'' + o[0] + '\',true)">' + o[1] + '</button>';
+      }).join('') + '</div>'
+      + '<label class="fl">名前（必須）</label><input class="inp" value="' + esc(a.name) + '" oninput="addSet(\'name\',this.value)">'
+      + '<label class="fl">電話番号</label><input class="inp" inputmode="tel" value="' + esc(a.phone) + '" oninput="addSet(\'phone\',this.value)">'
+      + '<div id="addMatch"></div>'
+      + '<label class="fl">メールアドレス</label><input class="inp" value="' + esc(a.email) + '" oninput="addSet(\'email\',this.value)">'
+      + '<label class="fl">問い合わせの物件' + (a.route === 'phone' ? '（必須・掲載中から選ぶ）' : '（任意）') + '</label>'
+      + '<input class="inp" list="listingOpts" value="' + esc(a.property) + '" placeholder="建物名で探す" oninput="addSet(\'property\',this.value)">'
+      + '<datalist id="listingOpts">' + L.map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist>'
+      + '<label class="chk"><input type="checkbox"' + (a.talked ? ' checked' : '') + ' onchange="addSet(\'talked\',this.checked)"> もう電話で話した</label>'
+      + '<label class="fl">メモ</label><textarea class="inp" rows="3" oninput="addSet(\'memo\',this.value)">' + esc(a.memo) + '</textarea>'
+      + '<div class="acts"><button class="btn save" onclick="saveAdd()">' + (a.saving ? '追加中…' : (a.reviveName ? a.reviveName + ' さんを戻す' : '追加する')) + '</button>'
+      + '<button class="btn" onclick="addMode=false;addDraft=null;render()">やめる</button></div></div>';
+    setTimeout(addMatches, 0);
+    return h;
+  }
+  function saveAdd() {
+    var a = addDraft;
+    if (!a.reviveName && !String(a.name || '').trim()) { toast('名前を入れてください'); return; }
+    if (a.route === 'phone' && (MASTER.listings || []).indexOf(a.property) < 0) { toast('電話の反響は、問い合わせの物件を一覧から選んでください'); return; }
+    a.saving = true; render();
+    google.script.run
+      .withSuccessHandler(function (d) { data = d; addMode = false; addDraft = null; selName = d.newName || ''; render(); toast(d.savedMessage || '追加しました'); })
+      .withFailureHandler(function (e) { a.saving = false; render(); toast('追加できませんでした: ' + e.message); })
+      .addCrmCustomer({ name: a.name, phone: a.phone, email: a.email, route: a.route, property: a.property, talked: !!a.talked, memo: a.memo, reviveName: a.reviveName });
   }
 
   function setGroup(name, g) { call('setCrmGroup', [name, g], name + '：' + (g ? g + 'にしました' : 'グループを外しました')); }
