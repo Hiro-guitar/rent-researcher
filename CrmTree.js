@@ -1323,9 +1323,11 @@ function recordCrmTalk(customerName, memo, outcome, when, reason) {
   if (!r || !r.success) throw new Error((r && r.message) || '記録できませんでした');
   _crmTreeCloseDueTasks_(customerName);
   if (outcome === 'recall') {
+    // 時刻は任意（2026-10-02）。'yyyy-MM-dd' だけなら日付だけで予定に入れる
+    var hasTime = String(when || '').indexOf('T') >= 0;
     var d = new Date(String(when || '').replace('T', ' ').replace(/-/g, '/'));
-    if (isNaN(d.getTime())) throw new Error('かけ直す日時を選んでください');
-    var label = Utilities.formatDate(d, 'Asia/Tokyo', 'M/d H:mm');
+    if (isNaN(d.getTime())) throw new Error('かけ直す日を選んでください');
+    var label = Utilities.formatDate(d, 'Asia/Tokyo', hasTime ? 'M/d H:mm' : 'M/d');
     addCustomerTask(customerName, 'かけ直し（' + label + '）', Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd'), TASK_OWNER_DEFAULT);
   }
   if (outcome === 'end') return setCrmStage(customerName, '終了', reason || 'その他');

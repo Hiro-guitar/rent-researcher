@@ -234,7 +234,9 @@
             return '<button class="btn' + (tk.outcome === o[0] ? ' on' : '') + '" onclick="talkDraft[selName].outcome=\'' + o[0] + '\';render()">' + o[1] + '</button>';
           }).join('') + '</div>';
         if (tk.outcome === 'recall') {
-          h += '<div class="ask">かけ直す日時</div><input type="datetime-local" class="btn" value="' + esc(tk.when) + '" onchange="talkDraft[selName].when=this.value">';
+          h += '<div class="ask">かけ直す日（時刻は入れなくてもよい）</div><div class="acts">'
+            + '<input type="date" class="btn" value="' + esc(tk.when) + '" onchange="talkDraft[selName].when=this.value">'
+            + '<input type="time" class="btn" value="' + esc(tk.time || '') + '" onchange="talkDraft[selName].time=this.value"></div>';
         }
         if (tk.outcome === 'end') {
           h += '<div class="ask">終了の理由</div><div class="acts">' + ['他社で決定', '条件が合わない', '引越し中止', '音信不通', 'その他'].map(function (r) {
@@ -783,7 +785,7 @@
   function saveTalk() {
     var name = selName, tk = talkDraft[name] || {};
     if (!tk.outcome) { toast('結果を選んでください'); return; }
-    if (tk.outcome === 'recall' && !tk.when) { toast('かけ直す日時を選んでください'); return; }
+    if (tk.outcome === 'recall' && !tk.when) { toast('かけ直す日を選んでください'); return; }
     if (tk.outcome === 'end' && !tk.reason) { toast('終了の理由を選んでください'); return; }
     toast('記録しています…');
     google.script.run
@@ -793,7 +795,7 @@
         render(); toast(name + '：話せた を記録しました');
       })
       .withFailureHandler(function (e) { toast('記録できませんでした: ' + e.message); })
-      .recordCrmTalk(name, tk.memo || '', tk.outcome, tk.when || '', tk.reason || '');
+      .recordCrmTalk(name, tk.memo || '', tk.outcome, (tk.when || '') + (tk.when && tk.time ? 'T' + tk.time : ''), tk.reason || '');
   }
 
   function rec(name, type) {
