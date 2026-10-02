@@ -3522,7 +3522,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       //   巡回が開くタブのパネルは使わないので、前回の一覧で十分。
       let _searching = false;
       try { _searching = !!(await getStorageData(['isSearching'])).isSearching; } catch (_) {}
-      if (!_searching) {
+      // 「一覧を読み直す」が押されたときは、検索中でも取りに行く（2026-10-02）
+      if (!_searching || msg.force) {
         try {
           const res = await gasGet('get_customer_names');
           const names = (res && res.names) || [];
