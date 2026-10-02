@@ -112,3 +112,29 @@
 
   console.log('[reins-polyfill] timer polyfill installed');
 })();
+
+/**
+ * REINS が新しい版に入れ替わったあと、Chrome に残った古いページで止まる（くるくるのまま）のを自分で直す（2026-10-02）。
+ *
+ * 症状: 古いページが読みに行く部品ファイル（app_123.古い記号.js）がもう無く、JSON が返ってきて画面が組み上がらない。
+ * 直し方: 8秒たっても画面（window.$nuxt）ができていなければ、このページを cache:'reload' で取り直して
+ *   Chrome の保存を新しい版に置き換え、読み込み直す。ループしないよう、同じページは1分に1回まで。
+ * ⚠️ setTimeout は上で差し替えているが、ここは普通に動けばよいので気にしない。
+ */
+(function () {
+  'use strict';
+  var KEY = '__reinsStaleReloadAt';
+  function check() {
+    if (window.$nuxt) return;                       // 画面ができている＝正常
+    if (!/system\.reins\.jp\/main\//.test(location.href)) return;
+    var last = 0;
+    try { last = Number(sessionStorage.getItem(KEY) || 0); } catch (_) {}
+    if (Date.now() - last < 60000) return;          // 1分以内にやり直したばかりなら何もしない
+    try { sessionStorage.setItem(KEY, String(Date.now())); } catch (_) {}
+    console.warn('[reins-polyfill] 画面ができないので、新しい版を取り直して読み込み直します');
+    fetch(location.href, { cache: 'reload', credentials: 'include' })
+      .catch(function () {})
+      .then(function () { location.reload(); });
+  }
+  window.addEventListener('load', function () { (window.__origSetTimeoutForReins || window.setTimeout)(check, 8000); });
+})();
