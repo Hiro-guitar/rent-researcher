@@ -60,13 +60,15 @@ function _crmPendingAll_(crits) {
       var cr = (crits && crits[name]) || {};
       var warn = '';
       try { warn = _computePropertyWarningsGAS_(p, (cr.equipment || []).join(','), cr.notes || '') || ''; } catch (_w) {}
-      var imgs = (p.imageUrls && p.imageUrls.length) ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []);
+      // 承認ページで選んだ写真（順番も）があればそれを出す。送るカードと同じ並びになる
+      var edited = !!(p.selectedImageUrls && p.selectedImageUrls.length);
+      var imgs = edited ? p.selectedImageUrls : ((p.imageUrls && p.imageUrls.length) ? p.imageUrls : (p.imageUrl ? [p.imageUrl] : []));
       (out[name] = out[name] || []).push({
         roomId: String(data[i][2] || ''),
         building: p.buildingName || '', room: p.roomNumber || '',
         rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '',
         station: p.stationInfo || '', age: p.buildingAge || '', floor: p.floorText || '',
-        image: imgs[0] || '', images: imgs.slice(0, 6), url: p.url || '',
+        image: imgs[0] || '', images: imgs.slice(0, 6), imgCount: imgs.length, edited: edited, url: p.url || '',
         warnings: String(warn).split('\n').filter(function (s) { return s; }),
         found: (data[i][11] instanceof Date) ? Utilities.formatDate(data[i][11], 'Asia/Tokyo', 'M/d') : '',
         comment: String(data[i][14] || '')   // O列: 担当者コメント（別の人から引き継いだものも）
@@ -103,7 +105,7 @@ function sendCrmProperties(customerName, roomIds, text) {
         : (prop.imageUrls && prop.imageUrls.length ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []));
       // ⚠️ 担当者コメント（O列）を必ず載せること。以前は読んでおらず、カードにコメントが出ていなかった
       var comment = String(r.values[14] || '').trim();
-      var viewUrl = _bestViewUrl_(customerName, rid, prop, { staffComment: comment });
+      var viewUrl = _bestViewUrl_(customerName, rid, prop, { staffComment: comment, authoritative: prop._editedFields || {} });
       cachePropertyImages(customerName, rid, sel, prop.selectedImageCategories || []);
       var flex = buildPropertyFlex(prop, { includeImage: sel.length > 0, heroImageUrls: sel, viewUrl: viewUrl, customerStations: stations, staffComment: comment });
       if (flex && flex.contents) bubbles.push(flex.contents);

@@ -617,6 +617,7 @@ function handleCrmTreePage(e) {
     listings: _crmActiveListings_()
   });
   tpl.adminUrl = _jsonForInlineScript_(getAdminPageUrl(''));
+  tpl.approveBaseUrl = _jsonForInlineScript_(getGasBaseUrl() + '?action=approve&collect=1');
   // ⚠️ 物件検索のURLはここで埋め込んでリンクにする（google.script.run の応答後に開くとブロックされる）
   tpl.mobileSearchUrl = _jsonForInlineScript_(getMobileSearchWrappedUrl());
   return tpl.evaluate()

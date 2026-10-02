@@ -173,6 +173,7 @@
   var data = JSON.parse('<?!= treeJson ?>');
   var customerPageUrl = JSON.parse('<?!= customerPageUrl ?>');
   var adminUrl = JSON.parse('<?!= adminUrl ?>');
+  var approveBaseUrl = JSON.parse('<?!= approveBaseUrl ?>');
   var mobileSearchUrl = JSON.parse('<?!= mobileSearchUrl ?>');
   var MASTER = JSON.parse('<?!= masterJson ?>');
   var sel = '';    // 選んでいる箱
@@ -722,6 +723,8 @@
           + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
           + (p.warnings || []).map(function (w) { return '<div class="warn">' + esc(w) + '</div>'; }).join('')
           + '<div class="pl">' + (p.url ? '<a target="_blank" href="' + esc(p.url) + '">元のページで確かめる</a>' : '')
+          + ' <a target="_blank" href="' + esc(approveBaseUrl + '&customer=' + encodeURIComponent(c.name) + '&room_id=' + encodeURIComponent(p.roomId)) + '" onclick="editOpened=true">詳しく確かめる・直す</a>'
+          + (p.edited ? ' <span class="meta">（直した写真' + p.imgCount + '枚）</span>' : '')
           + (p.images && p.images.length > 1 ? ' <a href="#" onclick="showImgs(' + rid + ');return false">写真' + p.images.length + '枚</a>' : '')
           + ' <a href="#" class="skip" onclick="skipProp(' + rid + ');return false">見送る</a>'
           + (p.found ? ' <span class="meta">' + esc(p.found) + '見つかった</span>' : '') + '</div>'
@@ -1136,6 +1139,10 @@
       .withFailureHandler(function (e) { busy('pendBtn'); toast('確認エラー: ' + e.message); })
       .previewPendingCleanup();
   }
+
+  // 承認ページで直して戻ってきたら、直した写真・一言を出すために読み直す
+  var editOpened = false;
+  window.addEventListener('focus', function () { if (editOpened) { editOpened = false; reload(); } });
 
   function reload() {
     toast('読み込み中…');

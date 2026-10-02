@@ -398,12 +398,21 @@ function handleConfirmApprove(e) {
   // 送信は親コンテナが全物件確定後に sendCartCarousel() で1カルーセルにまとめて行う。
   // 確定マーカーをスクリプトキャッシュに記録（コンテナがポーリングで検知する。iframe間postMessageに依存しない）。
   if (e.parameter.defer === '1') {
+    // 直した文字の項目をJ列に残す（送るときに rowToProperty が読んで上書きする）
+    try {
+      var _ed = {};
+      for (var _af in authoritativeFields) if (authoritativeFields.hasOwnProperty(_af)) _ed[_af] = prop[_af];
+      ['rent', 'managementFee', 'area'].forEach(function (k) { if (e.parameter[k] !== undefined) _ed[k] = prop[k]; });
+      if (Object.keys(_ed).length) _savePendingEditedFields_(row.rowIndex, _ed);
+    } catch (eEd) { console.warn('edited_fields save: ' + eEd.message); }
     try { CacheService.getScriptCache().put('cartsave_' + customerName + '_' + roomId, '1', 21600); } catch (eC) {}
     // 担当者コメントもキャッシュに保存（sendCartCarousel が読んでカードに載せる）
     try {
       var _sc = (e.parameter.staff_comment || '').trim();
       if (_sc) CacheService.getScriptCache().put('cartcomment_' + customerName + '_' + roomId, _sc, 21600);
     } catch (eC2) {}
+    // O列にも残す（CRMの「詳しく確かめる・直す」から保存した一言を、CRMから送るときに載せるため）
+    _setPendingStaffComment_(customerName, roomId, e.parameter.staff_comment);
     return makeHtml('保存', (prop.buildingName || '物件') + ' を保存しました（送信は一括で行います）。');
   }
 
@@ -3768,7 +3777,8 @@ function _setPendingStaffComment_(customerName, roomId, comment) {
       if (target < 0) target = i;
     }
     if (target < 0) return;
-    sheet.getRange(target + 2, 15).setValue(c); // O列: 担当者コメント(再クロールで消えない)
+    // ⚠️ data[i] はシートの i+1 行目。以前は +2 で、1つ下の行にコメントを書いていた
+    sheet.getRange(target + 1, 15).setValue(c); // O列: 担当者コメント(再クロールで消えない)
     // 詳細ページのキャッシュを捨てて、次に開いた時にコメントが載るようにする
     try { CacheService.getScriptCache().remove('prop2_' + nameTrim + '_' + ridTrim); } catch (eC) {}
   } catch (e) {
@@ -6094,6 +6104,23 @@ function aiPreprocessProperty(customerName, roomId) {
 }
 
 function rowToProperty(row) {
+  var p = _rowToPropertyBase_(row);
+  // 承認ページの「保存だけ」（CRMの「詳しく確かめる・直す」・カート）で直した文字の項目を上書きする
+  try {
+    var ex = JSON.parse(row[9] || '{}');
+    var ed = ex.edited_fields;
+    if (ed && typeof ed === 'object') {
+      for (var k in ed) {
+        if (!ed.hasOwnProperty(k)) continue;
+        p[k] = (k === 'rent' || k === 'managementFee' || k === 'area') ? (Number(ed[k]) || 0) : ed[k];
+      }
+      p._editedFields = ed;
+    }
+  } catch (eEd) {}
+  return p;
+}
+
+function _rowToPropertyBase_(row) {
   var extra = {};
   try { extra = JSON.parse(row[9] || '{}'); } catch(e) {}
   var rawRoomNumber = _normalizeValue(extra.room_number);
@@ -6166,6 +6193,15 @@ function rowToProperty(row) {
 }
 
 // 確認時に選択された画像URLをシートのJSONに保存
+function _savePendingEditedFields_(rowIndex, fields) {
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
+  var cell = sheet.getRange(rowIndex, 10); // J列
+  var extra = {};
+  try { extra = JSON.parse(cell.getValue() || '{}'); } catch (e) {}
+  extra.edited_fields = fields;
+  cell.setValue(JSON.stringify(extra));
+}
+
 function saveSelectedImages(rowIndex, selectedImageUrls, selectedImageCategories) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
