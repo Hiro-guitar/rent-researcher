@@ -168,3 +168,19 @@ function copyCrmPropertyTo(fromName, roomId, toName) {
   page.savedMessage = toName + ' さんの新着に入れました（コメントも引き継ぎ）';
   return page;
 }
+
+/** 調べもの用（api_key 必須）: 新着と通知済み物件の照らし合わせの内訳。物件番号と件数だけ返す。 */
+function crmDebugPendingSeen_(name) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var pend = ss.getSheetByName(PENDING_SHEET_NAME).getDataRange().getValues();
+  var seenSh = ss.getSheetByName(SEEN_SHEET_NAME);
+  var seen = seenSh.getRange(2, 1, seenSh.getLastRow() - 1, 4).getValues();
+  var pRows = pend.filter(function (r) { return String(r[0]).trim() === name; });
+  var sRows = seen.filter(function (r) { return String(r[0]).trim() === name; });
+  return {
+    pendingByStatus: pRows.reduce(function (a, r) { var k = String(r[10]); a[k] = (a[k] || 0) + 1; return a; }, {}),
+    pendingRoomIds: pRows.filter(function (r) { return String(r[10]) === 'pending'; }).slice(0, 15).map(function (r) { return [String(r[2]), typeof r[2], String(r[3]).slice(0, 12)]; }),
+    seenCount: sRows.length,
+    seenRoomIds: sRows.slice(-15).map(function (r) { return [String(r[1]), typeof r[1], String(r[2]).slice(0, 12), String(r[3]).slice(0, 16)]; })
+  };
+}

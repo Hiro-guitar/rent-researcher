@@ -1629,6 +1629,11 @@ function doGet_(e) {
   }
 
   // get_criteria の所要時間の履歴（数字だけ。顧客データは含まない）
+  if (action === 'crm_debug_pending') {
+    if (!_validateReinsApiKey(e.parameter.api_key)) return ContentService.createTextOutput('{"error":"invalid api_key"}').setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify(crmDebugPendingSeen_(String(e.parameter.name || ''))))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
   if (action === 'perf_recent') {
     var _pp2 = PropertiesService.getScriptProperties();
     var _pr = [];
