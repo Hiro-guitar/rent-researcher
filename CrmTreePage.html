@@ -180,6 +180,13 @@
   document.getElementById('searchLink').href = mobileSearchUrl;
   var labelOf = {};
 
+  // 名前で探すとき、異体字（髙→高 など）と空白の違いは同じとみなす
+  var ITAIJI = { '髙': '高', '﨑': '崎', '嵜': '崎', '邊': '辺', '邉': '辺', '齋': '斎', '齊': '斉', '濵': '浜', '濱': '浜',
+    '德': '徳', '惠': '恵', '櫻': '桜', '澤': '沢', '廣': '広', '龍': '竜', '國': '国', '眞': '真', '冨': '富', '藏': '蔵',
+    '槇': '槙', '曻': '昇', '彌': '弥', '實': '実', '條': '条', '瀨': '瀬', '戶': '戸', '舘': '館', '﨔': '欅', '塚': '塚', '祐': '祐' };
+  function normName(s) {
+    return String(s || '').replace(/[\s　]/g, '').replace(/./g, function (ch) { return ITAIJI[ch] || ch; }).toLowerCase();
+  }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -341,7 +348,8 @@
     var q = (document.getElementById('q').value || '').trim().toLowerCase();
     var tree = document.getElementById('tree');
     if (q) {
-      var hits = data.customers.filter(function (c) { return c.name.toLowerCase().indexOf(q) >= 0; });
+      var nq = normName(q);
+      var hits = data.customers.filter(function (c) { return normName(c.name).indexOf(nq) >= 0; });
       tree.innerHTML = '<div class="meta">「' + esc(q) + '」' + hits.length + '人</div><div class="hits">'
         + hits.map(function (c) { return '<div>' + chipHtml(c) + ' <span class="meta">' + esc(labelOf[c.stageId] || '') + '</span></div>'; }).join('') + '</div>';
     } else {
@@ -788,10 +796,10 @@
   function addSet(k, v, rerender) { addDraft[k] = v; if (rerender) render(); else if (k === 'name' || k === 'phone') addMatches(); }
   function addMatches() {
     var box = document.getElementById('addMatch'); if (!box) return;
-    var q = (addDraft.name || '').replace(/[\s　]/g, ''), ph = (addDraft.phone || '').replace(/\D/g, '');
+    var q = normName(addDraft.name), ph = (addDraft.phone || '').replace(/\D/g, '');
     if (q.length < 2 && ph.length < 6) { box.innerHTML = ''; return; }
     var hits = data.customers.filter(function (c) {
-      var n = c.name.replace(/[\s　]/g, '');
+      var n = normName(c.name);
       return (q.length >= 2 && (n.indexOf(q) >= 0 || q.indexOf(n) >= 0)) || (ph.length >= 6 && String(c.phone || '').replace(/\D/g, '').indexOf(ph) >= 0);
     }).slice(0, 8);
     box.innerHTML = hits.length ? '<div class="meta">同じ人かもしれないお客様がいます</div>' + hits.map(function (c) {
