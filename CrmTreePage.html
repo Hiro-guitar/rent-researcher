@@ -847,7 +847,7 @@
       var q = linkQ[c.name] || '';
       var hits = q.length >= 1 ? data.customers.filter(function (y) { return !y.lineOnly && y.name.indexOf(q) >= 0; }).slice(0, 8) : [];
       return '<div class="sec">この人は誰？（顧客とつなぐ）</div>'
-        + '<input class="inp" placeholder="顧客名で探す" value="' + esc(q) + '" oninput="linkQ[selName]=this.value;render();var i=document.querySelector(\\'#panel .inp\\');if(i){i.focus();i.setSelectionRange(99,99)}">'
+        + '<input class="inp" placeholder="顧客名で探す" value="' + esc(q) + '" oninput="linkQ[selName]=this.value;render();var i=document.querySelector(\'#panel .inp\');if(i){i.focus();i.setSelectionRange(99,99)}">'
         + hits.map(function (y) {
           return '<div class="inq">' + esc(y.name) + ' <span class="meta">' + esc(labelOf[y.stageId] || '') + '</span> '
             + '<button class="opt" onclick="doLink(' + esc(JSON.stringify(y.name)) + ',' + esc(JSON.stringify(c.uid || '')) + ')">この人とつなぐ</button></div>';
@@ -861,7 +861,7 @@
     var q2 = linkQ[c.name] || '';
     var list = lineCands.filter(function (l) { return !q2 || l.disp.indexOf(q2) >= 0; }).slice(0, 12);
     return '<div class="sec">LINEとつなぐ（LINEの表示名で探す）</div>'
-      + '<input class="inp" placeholder="表示名で探す" value="' + esc(q2) + '" oninput="linkQ[selName]=this.value;render();var i=document.querySelector(\\'#panel .inp\\');if(i){i.focus();i.setSelectionRange(99,99)}">'
+      + '<input class="inp" placeholder="表示名で探す" value="' + esc(q2) + '" oninput="linkQ[selName]=this.value;render();var i=document.querySelector(\'#panel .inp\');if(i){i.focus();i.setSelectionRange(99,99)}">'
       + list.map(function (l) {
         return '<div class="inq">' + esc(l.disp) + ' <span class="meta">最後のやり取り ' + esc(l.last) + (l.linkedName ? '・いま「' + esc(l.linkedName) + '」' : '') + '</span> '
           + '<button class="opt" onclick="doLink(' + n + ',' + esc(JSON.stringify(l.uid)) + ')">この人とつなぐ</button></div>';
