@@ -268,10 +268,15 @@ function processNewFriendReminders() {
   }
 
   var now = new Date();
+  // スタッフと会話している人（ボットが答えなかった文が届いた人）には送らない（2026-10-02）。
+  // 人がやり取りしているところにボットの案内が割り込むのはおかしいため。一度でも届いていれば送らない
+  var talking = {};
+  try { if (typeof _crmTreeReplyByUid_ === 'function') talking = _crmTreeReplyByUid_(SpreadsheetApp.openById(CRITERIA_SHEET_ID)); } catch (_eT) {}
   var sent = 0, skipped = 0;
   for (var c = 0; c < candidates.length; c++) {
     var t = candidates[c];
     if (!t.userId) continue;
+    if (talking[t.userId] || (typeof _crmFamily_ === 'function' && _crmFamily_().byUid[t.userId])) { skipped++; continue; }   // 会話中・家族のLINE
     if (registeredUserIds[t.userId]) {
       // 担当者が代わりに登録した人。催促は要らない。
       sh.getRange(t.rowIndex, 4, 1, 2).setValues([['条件登録済み', now]]);
@@ -1039,10 +1044,15 @@ function processVacancyFollowups() {
 
   var lastActivity = _newFriendLastActivityMap_();
   var now = new Date();
+  // スタッフと会話している人（ボットが答えなかった文が届いた人）には送らない（2026-10-02）。
+  // 人がやり取りしているところにボットの案内が割り込むのはおかしいため。一度でも届いていれば送らない
+  var talking = {};
+  try { if (typeof _crmTreeReplyByUid_ === 'function') talking = _crmTreeReplyByUid_(SpreadsheetApp.openById(CRITERIA_SHEET_ID)); } catch (_eT) {}
   var sent = 0, skipped = 0;
   for (var c = 0; c < candidates.length; c++) {
     var t = candidates[c];
     if (!t.userId) continue;
+    if (talking[t.userId] || (typeof _crmFamily_ === 'function' && _crmFamily_().byUid[t.userId])) { skipped++; continue; }   // 会話中・家族のLINE
     if (registeredUserIds[t.userId]) {
       sh.getRange(t.rowIndex, 4, 1, 2).setValues([['条件登録済み', now]]);
       skipped++;

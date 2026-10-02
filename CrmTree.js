@@ -418,12 +418,13 @@ function getCrmTree(opts) {
   Object.keys(uidByName).forEach(function (n) { knownUid[uidByName[n]] = true; });
   var friends = _crmTreeNewFriends_(ss);
   var blockedOnly = (typeof _lineBlockedOnlyIds_ === 'function') ? _lineBlockedOnlyIds_() : {};
+  var family = _crmFamily_(ss);   // 家族のLINE（親の顧客にぶら下がる）
 
   // LINEに来たが、名前がまだ無い人（条件登録も空室確認もしていない）。
   // 検索条件シートに行が無いので、友だち追加の記録から足す。控えた時刻より後に来た人だけ。
   Object.keys(friends).forEach(function (uid) {
     var f = friends[uid];
-    if (knownUid[uid] || !f.addedMs || f.addedMs < old.frozenMs) return;
+    if (knownUid[uid] || family.byUid[uid] || !f.addedMs || f.addedMs < old.frozenMs) return;   // 家族としてつないだ人は出さない
     customers.push({
       name: (f.displayName || '（名前なし）') + '〔LINEのみ〕', lineOnly: true, uid: uid,
       status: blockedOnly[uid] ? 'blocked' : '', stage: '', hasLine: true, hasPhone: false, hasCriteria: false,
@@ -468,6 +469,9 @@ function getCrmTree(opts) {
     var regMs = c.registeredAt ? new Date(c.registeredAt).getTime() : 0;
     c.daysSinceInquiry = regMs ? (todayIdx - _jstDayIndex_(regMs)) : null;
     c.replyMs = uid ? (replyByUid[uid] || 0) : 0;
+    // 家族のLINEから来た文も、親の顧客の「返信待ち」に数える
+    (family.byName[c.name] || []).forEach(function (fm) { if ((replyByUid[fm.uid] || 0) > c.replyMs) c.replyMs = replyByUid[fm.uid]; });
+    c.family = (family.byName[c.name] || []).map(function (fm) { return { uid: fm.uid, disp: fm.disp }; });
     c.daysSinceHandled = cl.lastMs ? (todayIdx - _jstDayIndex_(cl.lastMs)) : null;
     c.sig = _crmTreeSignals_(acts[c.name], cl.lastMs, c.replyMs, cl.inquiryMs);
     var ts = tasks[c.name] || [];
@@ -561,6 +565,7 @@ function _crmTreeForPage_() {
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
         lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
         uid: c.lineOnly ? (c.uid || '') : '',   // 〔LINEのみ〕の人を顧客とつなぐときだけ使う
+        family: c.family || [],
         pending: (c.stageId !== 'ended' && c.stageId !== 'won') ? (pend[c.name] || []) : [],
         criteria: (c.stageId !== 'ended' && c.stageId !== 'won') ? (crits[c.name] || null) : null,
         group: c.group || '', contactedToday: !!c.contactedToday, ignoreDays: c.ignoreDays || 0,
@@ -1479,5 +1484,127 @@ function linkCrmLine(customerName, uid, force) {
   var page = _crmTreeForPage_();
   page.savedMessage = customerName + ' さんをLINEとつなぎました';
   page.newName = customerName;
+  return page;
+}
+
+// ════════════════════════════════════════════
+//  家族のLINE（親子）2026-10-02
+// ════════════════════════════════════════════
+// 夫婦・カップルなど、同じお部屋を一緒に探す家族のLINEを、親の顧客にもう1つつなぐ。
+//  - 条件は親の1つを共有する。顧客管理から送る物件と一言は、親と家族の両方に届く
+//  - 家族から来た文は、親の「返信待ち」に出る
+//  - ⚠️ 家族は LINE Users に入れないこと。入れると「名前→LINE」の引き当てが家族に向き、
+//    継続確認・引越し時期の確認などボットの自動の案内まで家族に届いてしまう。別シートに控える
+var CRM_FAMILY_SHEET = 'LINE家族';
+
+function _crmFamily_(ss) {
+  var out = { byUid: {}, byName: {} };
+  try {
+    var sh = (ss || SpreadsheetApp.openById(CRITERIA_SHEET_ID)).getSheetByName(CRM_FAMILY_SHEET);
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (r) {
+      var uid = String(r[0] || '').trim(), name = String(r[1] || '').trim();
+      if (!uid || !name) return;
+      out.byUid[uid] = name;
+      (out.byName[name] = out.byName[name] || []).push({ uid: uid, disp: String(r[2] || '').trim() });
+    });
+  } catch (e) { console.warn('[家族のLINE] ' + e.message); }
+  return out;
+}
+
+/** 顧客名 → 家族のLINEの userId の配列（送るときに使う）。 */
+function _crmFamilyUids_(name) {
+  return (_crmFamily_().byName[name] || []).map(function (f) { return f.uid; });
+}
+
+/** 画面: 〔LINEのみ〕の人を、親の顧客の家族としてつなぐ。〔LINEのみ〕のときの記録・メモは親に引き継ぐ。 */
+function linkCrmFamily(parentName, uid, pseudoName) {
+  parentName = String(parentName || '').trim();
+  uid = String(uid || '').trim();
+  if (!parentName || uid.indexOf('U') !== 0) throw new Error('つなぐ相手が正しくありません');
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sh = ss.getSheetByName(CRM_FAMILY_SHEET);
+  if (!sh) { sh = ss.insertSheet(CRM_FAMILY_SHEET); sh.appendRow(['LINE userId', '親の顧客名', 'LINEの表示名', 'つないだ日時']); }
+  if (sh.getLastRow() > 1 && sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().some(function (r) { return String(r[0]).trim() === uid; })) {
+    throw new Error('このLINEはもう家族としてつながっています');
+  }
+  var disp = '';
+  try { var pf = getLineProfile(uid); disp = (pf && pf.displayName) || ''; } catch (_e) {}
+  if (!disp) disp = String(pseudoName || '').replace('〔LINEのみ〕', '');
+  sh.appendRow([uid, parentName, disp, new Date()]);
+  if (pseudoName) _crmRenameAux_(pseudoName, parentName);
+  addContactLog(parentName, 'その他', new Date().toISOString(), '家族のLINE（' + disp + '）をつないだ');
+  var page = _crmTreeForPage_();
+  page.savedMessage = disp + ' さんを ' + parentName + ' さんの家族としてつなぎました';
+  page.newName = parentName;
+  return page;
+}
+
+/** 画面: 家族のLINEを外す。 */
+function unlinkCrmFamily(uid) {
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRM_FAMILY_SHEET);
+  if (sh && sh.getLastRow() > 1) {
+    var v = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+    for (var i = v.length - 1; i >= 0; i--) if (String(v[i][0]).trim() === String(uid)) sh.deleteRow(i + 2);
+  }
+  return _crmTreeForPage_();
+}
+
+// ════════════════════════════════════════════
+//  名前を付ける・名前を変える（2026-10-02）
+// ════════════════════════════════════════════
+// renameCustomer（コード.js）が書き換えない、顧客管理まわりのシートの名前も書き換える。
+var _CRM_NAME_SHEETS_ = ['対応ログ', 'タスク', 'CRMメモ', 'CRMグループ', '電話のお願い', '継続確認', '引越し時期の確認', '初回配信フォロー', '初回検索の確認', 'LINE家族'];
+function _crmRenameAux_(oldName, newName) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  _CRM_NAME_SHEETS_.forEach(function (sheetName) {
+    try {
+      var sh = ss.getSheetByName(sheetName);
+      if (!sh || sh.getLastRow() < 2) return;
+      var col = (sheetName === 'LINE家族') ? 2 : 1;
+      var rng = sh.getRange(2, col, sh.getLastRow() - 1, 1);
+      var v = rng.getValues(), hit = false;
+      for (var i = 0; i < v.length; i++) if (String(v[i][0] || '').trim() === oldName) { v[i][0] = newName; hit = true; }
+      if (hit) rng.setValues(v);
+    } catch (e) { console.warn('[名前の書き換え] ' + sheetName + ': ' + e.message); }
+  });
+  // Discord の顧客スレッドも引き継ぐ（顧客名で引いているため、引き継がないと別スレッドができる）
+  try {
+    var pp = PropertiesService.getScriptProperties();
+    var th = pp.getProperty('DISCORD_THREAD_' + oldName);
+    if (th && !pp.getProperty('DISCORD_THREAD_' + newName)) pp.setProperty('DISCORD_THREAD_' + newName, th);
+  } catch (_e) {}
+}
+
+/** 画面: 顧客の名前を変える。 */
+function renameCrmCustomer(oldName, newName) {
+  newName = String(newName || '').trim();
+  if (!newName || newName === oldName) throw new Error('新しい名前を入れてください');
+  var r = renameCustomer(oldName, newName);
+  if (!r || r.success === false) throw new Error((r && r.message) || '名前を変えられませんでした');
+  _crmRenameAux_(oldName, newName);
+  var page = _crmTreeForPage_();
+  page.savedMessage = '「' + oldName + '」を「' + newName + '」に変えました';
+  page.newName = newName;
+  return page;
+}
+
+/** 画面: 〔LINEのみ〕の人に名前を付けて顧客にする（LINE ともつなぐ）。同じ名前の顧客がいればそこにつなぐ。 */
+function nameCrmLineOnly(pseudoName, uid, newName) {
+  newName = String(newName || '').trim();
+  if (!newName) throw new Error('名前を入れてください');
+  if (String(uid || '').indexOf('U') !== 0) throw new Error('LINEのIDが分かりません');
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRITERIA_SHEET_NAME);
+  var exists = sh.getRange(2, 2, Math.max(sh.getLastRow() - 1, 1), 1).getValues().some(function (r) { return String(r[0] || '').trim() === newName; });
+  if (!exists) {
+    var nr = []; for (var c = 0; c < 19; c++) nr.push('');
+    nr[0] = new Date(); nr[1] = newName; nr[18] = 'lead';
+    sh.appendRow(nr);
+  }
+  saveLineUser(uid, newName);
+  _crmRenameAux_(pseudoName, newName);   // 〔LINEのみ〕のときに付けた記録・メモを引き継ぐ
+  var page = _crmTreeForPage_();
+  page.savedMessage = newName + ' さんとして登録しました（LINEもつなぎました）';
+  page.newName = newName;
   return page;
 }

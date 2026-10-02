@@ -113,7 +113,11 @@ function sendCrmProperties(customerName, roomIds, text) {
   }
   // スタッフの一言は、物件のあとに普通の文で（カードにしない）
   if (text) messages.push(textMsg(text));
-  for (var m = 0; m < messages.length; m += 5) pushMessage(uid, messages.slice(m, m + 5));
+  // 家族のLINE（親子）にも同じものを送る
+  var targets = [uid].concat((typeof _crmFamilyUids_ === 'function') ? _crmFamilyUids_(customerName) : []);
+  targets.forEach(function (to) {
+    for (var m = 0; m < messages.length; m += 5) pushMessage(to, messages.slice(m, m + 5));
+  });
 
   sentTargets.forEach(function (t) {
     updatePendingStatus(t.rowIndex, 'sent', t.viewUrl);
@@ -202,4 +206,36 @@ function crmDebugPendingSeen_(name) {
     seenCount: sRows.length,
     seenRoomIds: sRows.slice(-15).map(function (r) { return [String(r[1]), typeof r[1], String(r[2]).slice(0, 12), String(r[3]).slice(0, 16)]; })
   };
+}
+
+/**
+ * 画面: 送った物件を、家族のLINEにだけ送り直す（家族をつなぐ前に親だけに送ってしまった分など）。
+ * 記録（送った印）は親の分がすでにあるので書かない。コメント・選んだ写真はそのまま。
+ */
+function resendCrmToFamily(customerName, roomIds, text) {
+  roomIds = (roomIds || []).filter(function (r) { return r; });
+  var fam = (typeof _crmFamilyUids_ === 'function') ? _crmFamilyUids_(customerName) : [];
+  if (!fam.length) throw new Error('家族のLINEがつながっていません');
+  if (!roomIds.length) throw new Error('送る物件を選んでください');
+  var rows = _findRowsByRoomIdsAnyStatus_(customerName, roomIds);
+  if (!rows.length) throw new Error('選んだ物件が見つかりません');
+  var stations = _getCustomerSelectedStations_(customerName);
+  var bubbles = rows.map(function (r) {
+    var prop = rowToProperty(r.values);
+    var rid = String(r.values[2]);
+    var sel = (prop.selectedImageUrls && prop.selectedImageUrls.length) ? prop.selectedImageUrls
+      : (prop.imageUrls && prop.imageUrls.length ? prop.imageUrls : (prop.imageUrl ? [prop.imageUrl] : []));
+    var comment = String(r.values[14] || '').trim();
+    var viewUrl = String(r.values[13] || '') || _bestViewUrl_(customerName, rid, prop, { staffComment: comment });
+    var flex = buildPropertyFlex(prop, { includeImage: sel.length > 0, heroImageUrls: sel, viewUrl: viewUrl, customerStations: stations, staffComment: comment });
+    return flex && flex.contents;
+  }).filter(Boolean);
+  text = String(text || '').trim();
+  var messages = _splitBubblesIntoCarousels_(bubbles, text ? text.split('\n')[0].substring(0, 100) : 'お探しの物件をお送りします');
+  if (text) messages.push(textMsg(text));
+  fam.forEach(function (to) { for (var m = 0; m < messages.length; m += 5) pushMessage(to, messages.slice(m, m + 5)); });
+  addContactLog(customerName, 'その他', new Date().toISOString(), '家族のLINEに物件' + bubbles.length + '件を送り直した');
+  var page = _crmTreeForPage_();
+  page.savedMessage = '家族のLINEに物件' + bubbles.length + '件を送りました';
+  return page;
 }

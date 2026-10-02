@@ -754,9 +754,15 @@
     var list = sentCache[c.name];
     if (list === 'loading' || !list) return h + '<div class="meta">読み込み中…</div>';
     if (!list.length) return h + '<div class="meta">まだ送った物件はありません</div>';
-    return h + list.map(function (p) {
+    var hasFam = c.family && c.family.length;
+    x.famPick = x.famPick || {};
+    var nf = Object.keys(x.famPick).filter(function (k) { return x.famPick[k]; }).length;
+    var famBtn = hasFam ? '<div class="acts"><button class="btn save line" onclick="sendToFamily()">選んだ物件を家族にも送る' + (nf ? '（' + nf + '件）' : '') + '</button></div>'
+      + '<div class="meta">家族（' + c.family.map(function (f) { return esc(f.disp); }).join('・') + '）にだけ送ります。コメントもそのまま。</div>' : '';
+    return h + famBtn + list.map(function (p) {
       var rid = esc(JSON.stringify(p.roomId));
       var h2 = '<div class="prop sent">'
+        + (hasFam ? '<label class="pk" style="grid-column:1/-1"><input type="checkbox"' + (x.famPick[p.roomId] ? ' checked' : '') + ' onchange="extras[selName].famPick[' + rid + ']=this.checked;render()"> 家族にも送る</label>' : '')
         + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy">' : '<div class="noimg"></div>')
         + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + ' <span class="meta">' + esc(p.sentAt) + '送った</span></div>'
         + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area].filter(Boolean).join('・')) + '</div>'
@@ -773,6 +779,17 @@
       }
       return h2 + '</div></div>';
     }).join('');
+  }
+  function sendToFamily() {
+    var name = selName, x = extras[name];
+    var ids = Object.keys(x.famPick || {}).filter(function (k) { return x.famPick[k]; });
+    if (!ids.length) { toast('家族にも送る物件にチェックを入れてください'); return; }
+    var text = (x.msgDraft || '').trim();
+    if (!confirm('物件' + ids.length + '件' + (text ? 'と一言' : '') + 'を、家族のLINEにだけ送ります。よろしいですか？')) return;
+    google.script.run
+      .withSuccessHandler(function (d) { data = d; x.famPick = {}; render(); toast(d.savedMessage || '送りました'); })
+      .withFailureHandler(function (e) { toast('送れませんでした: ' + e.message); })
+      .resendCrmToFamily(name, ids, text);
   }
   function openSent() {
     var name = selName; extras[name].sentOpen = true; sentCache[name] = 'loading'; render();
@@ -910,17 +927,26 @@
       // 〔LINEのみ〕の人: この人は誰？（顧客名で探す）
       var q = linkQ[c.name] || '';
       var hits = q.length >= 1 ? data.customers.filter(function (y) { return !y.lineOnly && y.name.indexOf(q) >= 0; }).slice(0, 8) : [];
-      return '<div class="sec">この人は誰？（顧客とつなぐ）</div>'
+      return '<div class="sec">名前を付けて顧客にする</div>'
+        + '<div class="acts"><input class="inp" id="newNm" placeholder="例: 山田 太郎"><button class="btn save" onclick="nameLineOnly(' + n + ',' + esc(JSON.stringify(c.uid || '')) + ')">登録する</button></div>'
+        + '<div class="sec">この人は誰？（顧客とつなぐ）</div>'
         + '<input class="inp" placeholder="顧客名で探す" value="' + esc(q) + '" oninput="linkQ[selName]=this.value;render();var i=document.querySelector(\'#panel .inp\');if(i){i.focus();i.setSelectionRange(99,99)}">'
         + hits.map(function (y) {
           return '<div class="inq">' + esc(y.name) + ' <span class="meta">' + esc(labelOf[y.stageId] || '') + '</span> '
-            + '<button class="opt" onclick="doLink(' + esc(JSON.stringify(y.name)) + ',' + esc(JSON.stringify(c.uid || '')) + ')">この人とつなぐ</button></div>';
+            + '<button class="opt" onclick="doLink(' + esc(JSON.stringify(y.name)) + ',' + esc(JSON.stringify(c.uid || '')) + ')">この人とつなぐ</button> '
+            + '<button class="opt" onclick="linkFamily(' + esc(JSON.stringify(y.name)) + ',' + esc(JSON.stringify(c.uid || '')) + ',' + n + ')">家族としてつなぐ</button></div>';
         }).join('');
     }
-    if (c.lineUid) return '';
+    var ren = '<div class="acts"><button class="btn" onclick="renameAsk(' + n + ')">✏️ 名前を変える</button></div>';
+    if (c.family && c.family.length) {
+      ren += '<div class="sec">家族のLINE（物件と一言は家族にも届きます）</div>' + c.family.map(function (fm) {
+        return '<div class="inq">👪 ' + esc(fm.disp || 'LINE') + ' <button class="opt" onclick="unlinkFamily(' + esc(JSON.stringify(fm.uid)) + ')">外す</button></div>';
+      }).join('');
+    }
+    if (c.lineUid) return ren;
     // LINEの無い顧客: LINEの表示名で探す
     var x = extras[c.name];
-    if (!x.linkOpen) return '<div class="acts"><button class="btn" onclick="extras[selName].linkOpen=true;loadLineCands();render()">🔗 LINEとつなぐ</button></div>';
+    if (!x.linkOpen) return ren + '<div class="acts"><button class="btn" onclick="extras[selName].linkOpen=true;loadLineCands();render()">🔗 LINEとつなぐ</button></div>';
     if (lineCands === 'loading' || !lineCands) return '<div class="sec">LINEとつなぐ</div><div class="meta">LINEの一覧を読み込み中…</div>';
     var q2 = linkQ[c.name] || '';
     var list = lineCands.filter(function (l) { return !q2 || l.disp.indexOf(q2) >= 0; }).slice(0, 12);
@@ -930,6 +956,30 @@
         return '<div class="inq">' + esc(l.disp) + ' <span class="meta">最後のやり取り ' + esc(l.last) + (l.linkedName ? '・いま「' + esc(l.linkedName) + '」' : '') + '</span> '
           + '<button class="opt" onclick="doLink(' + n + ',' + esc(JSON.stringify(l.uid)) + ')">この人とつなぐ</button></div>';
       }).join('');
+  }
+  function linkFamily(parent, uid, pseudo) {
+    if (!confirm('この人を ' + parent + ' さんの家族としてつなぎます。物件と一言は家族にも届くようになります。よろしいですか？')) return;
+    google.script.run
+      .withSuccessHandler(function (d) { data = d; selName = d.newName || parent; render(); toast(d.savedMessage || 'つなぎました'); })
+      .withFailureHandler(function (e) { toast(e.message); })
+      .linkCrmFamily(parent, uid, pseudo);
+  }
+  function unlinkFamily(uid) {
+    if (!confirm('家族のLINEを外します。よろしいですか？')) return;
+    call('unlinkCrmFamily', [uid], '外しました');
+  }
+  function nameLineOnly(pseudo, uid) {
+    var v = (document.getElementById('newNm') || {}).value || '';
+    if (!v.trim()) { toast('名前を入れてください'); return; }
+    call('nameCrmLineOnly', [pseudo, uid, v.trim()], '登録しました');
+  }
+  function renameAsk(name) {
+    var v = prompt('新しい名前（関係するシートの名前もまとめて変わります）', name);
+    if (!v || v.trim() === name) return;
+    google.script.run
+      .withSuccessHandler(function (d) { data = d; selName = d.newName || v.trim(); render(); toast(d.savedMessage || '変えました'); })
+      .withFailureHandler(function (e) { toast(e.message); })
+      .renameCrmCustomer(name, v.trim());
   }
   function doLink(name, uid, force) {
     if (!uid) { toast('LINEのIDが分かりません'); return; }
