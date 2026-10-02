@@ -717,7 +717,7 @@
           + '<label class="pk"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="pickProp(' + rid + ',this.checked)"></label>'
           + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy">' : '<div class="noimg"></div>')
           + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + '</div>'
-          + '<div class="meta">' + esc([p.rent && (p.rent + (p.fee ? '＋' + p.fee : '')), p.layout, p.area, p.age, p.floor].filter(Boolean).join('・')) + '</div>'
+          + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area, p.age, p.floor].filter(Boolean).join('・')) + '</div>'
           + (p.station ? '<div class="meta">' + esc(p.station) + '</div>' : '')
           + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
           + (p.warnings || []).map(function (w) { return '<div class="warn">' + esc(w) + '</div>'; }).join('')
@@ -759,7 +759,7 @@
       var h2 = '<div class="prop sent">'
         + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy">' : '<div class="noimg"></div>')
         + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + ' <span class="meta">' + esc(p.sentAt) + '送った</span></div>'
-        + '<div class="meta">' + esc([p.rent && (p.rent + (p.fee ? '＋' + p.fee : '')), p.layout, p.area].filter(Boolean).join('・')) + '</div>'
+        + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area].filter(Boolean).join('・')) + '</div>'
         + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
         + '<div class="pl"><a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a></div>';
       if (x.fwdRoom === p.roomId) {
@@ -788,6 +788,13 @@
       .withSuccessHandler(function (d) { data = d; extras[from].fwdRoom = ''; render(); toast(d.savedMessage || '入れました'); })
       .withFailureHandler(function (e) { toast(e.message); })
       .copyCrmPropertyTo(from, rid, toName);
+  }
+  // 賃料などが数字だけで入っているとき「17万円」「5,000円」と読める形にする
+  function yen(v) {
+    var s = String(v == null ? '' : v).trim();
+    if (!/^\d+(\.\d+)?$/.test(s)) return s;
+    var n = Number(s);
+    return n >= 10000 ? (n / 10000) + '万円' : n.toLocaleString() + '円';
   }
   function pickProp(rid, on) { extras[selName].pick[rid] = on; render(); }
   function showImgs(rid) { var x = extras[selName]; x.imgsOf = (x.imgsOf === rid) ? '' : rid; render(); }

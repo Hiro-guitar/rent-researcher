@@ -15,6 +15,18 @@
 /** 承認待ち（まだ送っていない）物件を、顧客ごとに画面で使う形でまとめる。 */
 function _crmPendingAll_(crits) {
   var out = {};
+  // ⚠️ どこから送ったものでも、送り済みは新着に出さない（2026-10-02）。
+  //   Discord の承認ページなど別の経路で送ると、承認待ちの行が pending のまま残ることがある。
+  //   「送った」の記録は通知済み物件シートに必ず入る（addToSeenSheet）ので、そちらで照らし合わせる。
+  var seen = {};
+  try {
+    var ss0 = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SEEN_SHEET_NAME);
+    if (ss0 && ss0.getLastRow() > 1) {
+      ss0.getRange(2, 1, ss0.getLastRow() - 1, 2).getValues().forEach(function (r) {
+        seen[String(r[0] || '').trim() + '|' + String(r[1] || '').trim()] = true;
+      });
+    }
+  } catch (eSeen) { console.warn('[送る物件] 通知済みを読めません: ' + eSeen.message); }
   try {
     var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
     if (!sh || sh.getLastRow() < 2) return out;
@@ -23,6 +35,7 @@ function _crmPendingAll_(crits) {
       if (String(data[i][10]) !== 'pending') continue;
       var name = String(data[i][0] || '').trim();
       if (!name) continue;
+      if (seen[name + '|' + String(data[i][2] || '').trim()]) continue;   // もう送った
       var p;
       try { p = rowToProperty(data[i]); } catch (e) { continue; }
       var cr = (crits && crits[name]) || {};
