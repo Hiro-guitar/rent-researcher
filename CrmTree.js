@@ -584,8 +584,8 @@ function getCrmTreeForPage() {
 }
 
 /** 画面の1タップ記録（google.script.run）。対応ログに1行足して、樹形図を返す。 */
-function recordCrmTreeContact(customerName, type) {
-  var r = addContactLog(customerName, type, new Date().toISOString(), '');
+function recordCrmTreeContact(customerName, type, memo) {
+  var r = addContactLog(customerName, type, new Date().toISOString(), String(memo || ''));
   if (!r || !r.success) throw new Error((r && r.message) || '記録できませんでした');
   _crmTreeCloseDueTasks_(customerName);
   return _crmTreeForPage_();
@@ -1106,8 +1106,9 @@ function _crmExtrasAll_(customers) {
         var who = names[nm] ? nm : (em && byEmail[em]) || '';
         if (!who) return;
         (out.inq[who] = out.inq[who] || []).push({
-          date: (r[0] instanceof Date) ? Utilities.formatDate(r[0], 'Asia/Tokyo', 'M/d') : String(r[0] || '').substring(0, 10),
+          date: (r[0] instanceof Date) ? Utilities.formatDate(r[0], 'Asia/Tokyo', 'M/d H:mm') : String(r[0] || '').substring(0, 16),
           property: String(r[8] || ''), rent: String(r[10] || ''), layout: String(r[11] || ''),
+          area: String(r[12] || ''), station: String(r[13] || ''), address: String(r[14] || ''),
           content: String(r[7] || ''), url: String(r[15] || '')
         });
       });
@@ -1309,4 +1310,24 @@ function saveCrmCriteria(customerName, f, send) {
   var page = _crmTreeForPage_();
   page.savedMessage = '条件を保存しました' + sentMsg;
   return page;
+}
+
+/**
+ * 画面: 電話で話せたときの記録。メモと結果をまとめて残す（2026-10-02）。
+ * outcome: 'continue'（続けて探す）| 'recall'（かけ直し: when='yyyy-MM-ddTHH:mm'）| 'end'（終了: reason）
+ */
+function recordCrmTalk(customerName, memo, outcome, when, reason) {
+  memo = String(memo || '').trim();
+  var tag = outcome === 'recall' ? '【かけ直し】' : (outcome === 'end' ? '【終了】' : '');
+  var r = addContactLog(customerName, '電話（話せた）', new Date().toISOString(), tag + memo);
+  if (!r || !r.success) throw new Error((r && r.message) || '記録できませんでした');
+  _crmTreeCloseDueTasks_(customerName);
+  if (outcome === 'recall') {
+    var d = new Date(String(when || '').replace('T', ' ').replace(/-/g, '/'));
+    if (isNaN(d.getTime())) throw new Error('かけ直す日時を選んでください');
+    var label = Utilities.formatDate(d, 'Asia/Tokyo', 'M/d H:mm');
+    addCustomerTask(customerName, 'かけ直し（' + label + '）', Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd'), TASK_OWNER_DEFAULT);
+  }
+  if (outcome === 'end') return setCrmStage(customerName, '終了', reason || 'その他');
+  return _crmTreeForPage_();
 }

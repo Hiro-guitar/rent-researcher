@@ -111,6 +111,9 @@
   .crit .fl { font-size: 12px; color: var(--muted); margin-top: 8px; }
   .crit .inp { width: 100%; padding: 6px 8px; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
   .crit .opts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .btn.on { border-color: var(--green); background: var(--green-soft); color: var(--green); font-weight: 700; }
+  .opts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .opt { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--hair); background: var(--bg); color: var(--ink); cursor: pointer; }
   .crit .opt { font-size: 12px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--hair); background: var(--bg); color: var(--ink); cursor: pointer; }
   .crit .opt.on { border-color: var(--green); background: var(--green-soft); color: var(--green); font-weight: 700; }
   .crit .tabs { display: flex; gap: 4px; }
@@ -170,7 +173,8 @@
   var mobileSearchUrl = JSON.parse('<?!= mobileSearchUrl ?>');
   var MASTER = JSON.parse('<?!= masterJson ?>');
   var sel = '';    // 選んでいる箱
-  var askNext = '', askEnd = '', askViewing = '';   // いま質問を出している顧客
+  var askNext = '', askEnd = '', askViewing = '', askTalk = '';
+  var talkDraft = {};   // 顧客名 → 話せたときのメモと結果（記録するまで持っておく）   // いま質問を出している顧客
   document.getElementById('adminLink').href = adminUrl;
   document.getElementById('searchLink').href = mobileSearchUrl;
   var labelOf = {};
@@ -220,7 +224,26 @@
     }
     if (!c.lineOnly) {
       var n = esc(JSON.stringify(c.name));
-      if (askNext === c.name) {
+      if (askTalk === c.name) {
+        // 話せた: メモと結果をいっしょに残す
+        var tk = talkDraft[c.name] = talkDraft[c.name] || { memo: '', outcome: '', when: '', reason: '' };
+        h += '<div class="ask">話した内容</div>'
+          + '<textarea class="memo" placeholder="例: 11月に引越し。家賃は9万まで上げてもよい" oninput="talkDraft[selName].memo=this.value">' + esc(tk.memo) + '</textarea>'
+          + '<div class="ask">結果</div><div class="acts">'
+          + [['continue', '続けて探す'], ['recall', 'かけ直し'], ['end', '終了']].map(function (o) {
+            return '<button class="btn' + (tk.outcome === o[0] ? ' on' : '') + '" onclick="talkDraft[selName].outcome=\'' + o[0] + '\';render()">' + o[1] + '</button>';
+          }).join('') + '</div>';
+        if (tk.outcome === 'recall') {
+          h += '<div class="ask">かけ直す日時</div><input type="datetime-local" class="btn" value="' + esc(tk.when) + '" onchange="talkDraft[selName].when=this.value">';
+        }
+        if (tk.outcome === 'end') {
+          h += '<div class="ask">終了の理由</div><div class="acts">' + ['他社で決定', '条件が合わない', '引越し中止', '音信不通', 'その他'].map(function (r) {
+            return '<button class="btn' + (tk.reason === r ? ' on' : '') + '" onclick="talkDraft[selName].reason=\'' + r + '\';render()">' + r + '</button>';
+          }).join('') + '</div>';
+        }
+        h += '<div class="acts"><button class="btn save" onclick="saveTalk()">記録する</button>'
+          + '<button class="btn" onclick="askTalk=\'\';render()">やめる</button></div>';
+      } else if (askNext === c.name) {
         // 記録した直後: 次の連絡日を決める
         h += '<div class="ask">次の連絡は？</div><div class="acts">'
           + [[1, '明日'], [3, '3日後'], [7, '1週間後'], [14, '2週間後'], [0, '決めない']].map(function (d) {
@@ -238,7 +261,7 @@
           + '<button class="btn" onclick="askViewing=\'\';render()">やめる</button></div>';
       } else {
         h += '<div class="acts">'
-          + '<button class="btn" onclick="rec(' + n + ',\'電話（話せた）\')">📞 話せた</button>'
+          + '<button class="btn" onclick="askTalk=' + n + ';render()">📞 話せた</button>'
           + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>'
           + '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>'
           + '</div><div class="acts small">';
@@ -355,7 +378,7 @@
     // 同じ名前をもう一度押したら右を閉じる
     if (selName === name) { selName = ''; askNext = askEnd = askViewing = ''; render(); return; }
     selName = name;
-    askNext = askEnd = askViewing = '';
+    askNext = askEnd = askViewing = askTalk = '';
     loadExtra(name);
     render();
     if (window.innerWidth < 860) document.getElementById('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -377,6 +400,7 @@
       var title = esc(q.property || '（物件名なし）') + (q.rent ? ' ' + esc(q.rent) : '') + (q.layout ? ' ' + esc(q.layout) : '');
       return '<div class="inq">' + esc(q.date) + ' '
         + (q.url ? '<a target="_blank" href="' + esc(q.url) + '">' + title + '</a>' : title)
+        + ((q.area || q.station || q.address) ? '<div class="meta">' + esc([q.area, q.station, q.address].filter(Boolean).join('・')) + '</div>' : '')
         + (q.content ? '<div class="meta">' + esc(q.content) + '</div>' : '') + '</div>';
     }).join('') : '<div class="meta">問い合わせの記録はありません</div>';
 
@@ -754,6 +778,22 @@
     var t = document.getElementById('toast');
     t.textContent = msg; t.style.display = 'block';
     clearTimeout(toast._t); toast._t = setTimeout(function () { t.style.display = 'none'; }, 2500);
+  }
+
+  function saveTalk() {
+    var name = selName, tk = talkDraft[name] || {};
+    if (!tk.outcome) { toast('結果を選んでください'); return; }
+    if (tk.outcome === 'recall' && !tk.when) { toast('かけ直す日時を選んでください'); return; }
+    if (tk.outcome === 'end' && !tk.reason) { toast('終了の理由を選んでください'); return; }
+    toast('記録しています…');
+    google.script.run
+      .withSuccessHandler(function (d) {
+        data = d; askTalk = ''; delete talkDraft[name];
+        if (tk.outcome === 'continue') askNext = name;   // 続けるなら次の連絡日を聞く
+        render(); toast(name + '：話せた を記録しました');
+      })
+      .withFailureHandler(function (e) { toast('記録できませんでした: ' + e.message); })
+      .recordCrmTalk(name, tk.memo || '', tk.outcome, tk.when || '', tk.reason || '');
   }
 
   function rec(name, type) {
