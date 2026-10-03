@@ -194,6 +194,17 @@ function handleSearchFlowText(replyToken, userId, message, state) {
     return true;
   }
 
+  // 家族のLINE（親の顧客につないだ人）は条件を親から引き継ぐので、条件登録のやり取りはしない。
+  // 途中で止まっていたら終わらせて、文はそのまま人が返す文として扱う（2026-10-03 しょうとさん：
+  // 理由の質問が何を送っても出続けた）。
+  try {
+    if (state.step !== STEPS.IDLE && typeof _crmFamily_ === 'function' && _crmFamily_().byUid[userId]) {
+      clearState(userId);
+      state.step = STEPS.IDLE;
+      return false;
+    }
+  } catch (eFam) { console.warn('[条件登録] 家族の確認に失敗: ' + eFam.message); }
+
   switch (state.step) {
     case STEPS.NAME:
       return handleNameInput(replyToken, userId, message, state);
@@ -292,10 +303,27 @@ function handleButtonStepTextInput(replyToken, userId, message, state, choices, 
       }
     }
   } else {
-    // 一致しない → 案内メッセージ付きでボタンを再表示
-    showStepQuestion(replyToken, userId, state, GUIDE_TEXT_BUTTON);
+    // 一致しない → 1通目は案内付きで出し直す。2通目は止める（下の _flowButtonGuideOrStop_）。
+    // ⚠️ 以前は毎回出し直していて、理由・住む人の質問だけ止まらなかった（2026-10-03）。
+    _flowButtonGuideOrStop_(replyToken, userId, state);
   }
   return true;
+}
+
+/** ボタンで選ぶ質問の最中に文字が来たとき: 1通目は出し直し、2通目は状態を終わらせて案内する。 */
+function _flowButtonGuideOrStop_(replyToken, userId, state) {
+  if (state.buttonGuideAt === state.step) {
+    clearState(userId);
+    replyMessage(replyToken, [textMsg(state.isChangeFlow
+      ? '条件の変更は取りやめました。\n\n変更する場合は「条件変更」と送ってください。'
+      : 'お部屋探しのご希望をお伺いしていましたが、いったん中断します。\n\n'
+        + '続きは「条件登録」と送ってください。'
+    )]);
+    return;
+  }
+  state.buttonGuideAt = state.step;
+  saveState(userId, state);
+  showStepQuestion(replyToken, userId, state, GUIDE_TEXT_BUTTON);
 }
 
 // ── その他理由の自由入力 ──────────────────────────────────
