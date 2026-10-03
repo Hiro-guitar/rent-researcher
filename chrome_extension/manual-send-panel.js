@@ -479,6 +479,13 @@
       allCustomers = (resp && resp.customers) || [];
       contextName = (resp && resp.contextCustomer) || '';
       fillSelect();
+      if (!allCustomers.length) {
+        // 取れなかった理由を出す（以前は「顧客が取得できません」だけで原因が分からなかった）
+        setStatus('顧客一覧を取れませんでした: ' + ((resp && resp.fetchError) || (resp ? '前回の一覧もありません' : '拡張から返事がありません（このタブを再読み込みしてください）'))
+          + (force ? '' : '。5秒後にもう一度取りに行きます'), '#c0392b');
+        if (!force && !loadContext._retried) { loadContext._retried = true; setTimeout(function () { loadContext(true); }, 5000); }
+        return;
+      }
       if (force) setStatus('顧客一覧を読み直しました（' + allCustomers.length + '人）', '#1a7f37');
       else if (contextName) setStatus('検索中のお客さん「' + contextName + '」を選択しました', '#1a7f37');
     }).catch(function (e) {

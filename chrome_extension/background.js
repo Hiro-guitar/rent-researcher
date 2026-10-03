@@ -3510,6 +3510,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       let customers = [];
       let contextCustomer = '';
+      let fetchError = '';
       // ⚠️ ここで get_criteria を呼ばないこと。
       //   あちらには顧客全員のLINEブロック判定（1人につきLINE API 1回）が
       //   付いている。このパネルは検索結果ページを開くたびに立ち上がるので、
@@ -3527,12 +3528,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         try {
           const res = await gasGet('get_customer_names');
           const names = (res && res.names) || [];
+          if (res && res.error) fetchError = 'GAS: ' + res.error;
+          else if (!names.length) fetchError = 'GASから0人で返ってきました';
           if (names.length > 0) {
             customers = names;
             await setStorageData({ manualSendNames: names });
           }
         } catch (e) {
           // 前回の一覧で続けるので、失敗しても致命的ではない
+          fetchError = e.message;
           await setStorageData({ debugLog: '手動送信: 顧客一覧の更新をスキップ（前回の一覧を使用）: ' + e.message });
         }
       }
@@ -3550,7 +3554,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         contextCustomer = await getManualSearchCustomer(sender.tab && sender.tab.id);
       } catch (e) {}
-      sendResponse({ ok: true, customers, contextCustomer });
+      sendResponse({ ok: true, customers, contextCustomer, fetchError, searching: _searching });
     })();
     return true;
   }
