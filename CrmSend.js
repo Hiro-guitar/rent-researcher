@@ -241,3 +241,74 @@ function resendCrmToFamily(customerName, roomIds, text) {
   page.savedMessage = '家族のLINEに物件' + bubbles.length + '件を送りました';
   return page;
 }
+
+// ── CRMの中で物件を直す（承認ページを読み込まずに即開く）──
+// 承認ページの「保存だけ」と同じ置き場所に書く: 写真=J列 selected_image_urls、文字=J列 edited_fields、一言=O列。
+var CRM_EDIT_FIELDS_ = ['buildingName', 'roomNumber', 'layout', 'area', 'buildingAge', 'floorText', 'storyText', 'structure',
+  'totalUnits', 'sunlight', 'moveInDate', 'stationInfo', 'address', 'otherStations', 'rent', 'managementFee', 'deposit',
+  'keyMoney', 'shikibiki', 'petDeposit', 'renewalFee', 'fireInsurance', 'renewalAdminFee', 'guaranteeInfo', 'cleaningFee',
+  'keyExchangeFee', 'supportFee24h', 'rightsFee', 'additionalDeposit', 'guaranteeDeposit', 'waterBilling', 'parkingFee',
+  'bicycleParkingFee', 'motorcycleParkingFee', 'otherMonthlyFee', 'otherOnetimeFee', 'leaseType', 'contractPeriod',
+  'cancellationNotice', 'renewalInfo', 'freeRent', 'freeRentDetail', 'moveOutDate', 'moveInConditions', 'layoutDetail', 'facilities'];
+
+function _crmFieldStr_(p, k) {
+  var v = p[k];
+  if (k === 'otherStations') return (v || []).join('\n');
+  return (v === undefined || v === null) ? '' : String(v);
+}
+
+/** 物件の中身（全項目・全写真・今の選択・一言）。お客様を選んだときに裏で先に取っておく。 */
+function getCrmPropertyDetails(customerName, roomIds) {
+  var rows = _findRowsByRoomIdsAnyStatus_(customerName, roomIds || []);
+  var out = {};
+  rows.forEach(function (r) {
+    var rid = String(r.values[2]);
+    if (out[rid]) return;
+    var p = rowToProperty(r.values);
+    var fields = {};
+    CRM_EDIT_FIELDS_.forEach(function (k) { fields[k] = _crmFieldStr_(p, k); });
+    var all = (p.imageUrls && p.imageUrls.length) ? p.imageUrls.slice() : (p.imageUrl ? [p.imageUrl] : []);
+    var sel = (p.selectedImageUrls && p.selectedImageUrls.length) ? p.selectedImageUrls.slice() : all.slice();
+    // 選んだ写真は元の写真の並びにないもの（あとから足した写真）もある
+    sel.forEach(function (u) { if (all.indexOf(u) < 0) all.push(u); });
+    var cats = {};
+    (p.imageUrls || []).forEach(function (u, i) { cats[u] = (p.imageCategories || [])[i] || ''; });
+    (p.selectedImageUrls || []).forEach(function (u, i) { if ((p.selectedImageCategories || [])[i]) cats[u] = p.selectedImageCategories[i]; });
+    out[rid] = { fields: fields, all: all, selected: sel, cats: cats, comment: String(r.values[14] || ''), url: p.url || '' };
+  });
+  return out;
+}
+
+/** 直した中身を保存する（送らない）。同じ部屋の行が複数あれば全部に書く。 */
+function saveCrmPropertyEdit(customerName, roomId, fields, images, comment) {
+  var rows = _findRowsByRoomIdsAnyStatus_(customerName, [roomId]);
+  if (!rows.length) throw new Error('この物件が見つかりません（片付けられた可能性があります）');
+  var base = _rowToPropertyBase_(rows[0].values);
+  // 元の値と違う項目だけを「直した」として残す
+  var ed = {};
+  CRM_EDIT_FIELDS_.forEach(function (k) {
+    if (!fields || fields[k] === undefined) return;
+    var v = String(fields[k]);
+    if (v === _crmFieldStr_(base, k)) return;
+    if (k === 'otherStations') ed[k] = v.split('\n').map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+    else if (k === 'rent' || k === 'managementFee' || k === 'area') ed[k] = Number(v.replace(/[,，円]/g, '')) || 0;
+    else ed[k] = v;
+  });
+  var old = {};
+  try { old = rowToProperty(rows[0].values); } catch (e) {}
+  var cats = {};
+  (old.imageUrls || []).forEach(function (u, i) { cats[u] = (old.imageCategories || [])[i] || ''; });
+  (old.selectedImageUrls || []).forEach(function (u, i) { if ((old.selectedImageCategories || [])[i]) cats[u] = old.selectedImageCategories[i]; });
+  images = (images || []).filter(function (u) { return u; });
+  var origCats = images.map(function (u) { return cats[u] || ''; });
+  var hosted = images.length ? persistImageUrls_(images) : [];
+  var sheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
+  comment = String(comment || '').trim();
+  rows.forEach(function (r) {
+    _savePendingEditedFields_(r.rowIndex, ed);
+    if (hosted.length) saveSelectedImages(r.rowIndex, hosted, origCats);
+    sheet.getRange(r.rowIndex, 15).setValue(comment);   // O列: 一言（空にしたら消す）
+  });
+  try { CacheService.getScriptCache().removeAll(['prop2_' + customerName + '_' + roomId, 'imgs_' + customerName + '_' + roomId]); } catch (e) {}
+  return { roomId: String(roomId), images: hosted, comment: comment, edited: Object.keys(ed).length > 0 || hosted.length > 0 };
+}

@@ -150,11 +150,18 @@
   .slide.on { transform: translateX(0); }
   .slide .sh { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--hair); }
   .slide .sh b { flex: 1; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .slide .sb { flex: 1; position: relative; }
-  .slide iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
-  .slide .ld { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #fff;
-    color: #6c7671; font-size: 14px; z-index: 1; }
-  .slide .ld[hidden] { display: none; }
+  .slide .sbody { flex: 1; overflow-y: auto; padding: 4px 16px 24px; }
+  .eimgs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .eimg { position: relative; width: 132px; border: 1px solid var(--hair); border-radius: 6px; overflow: hidden; background: var(--bg); cursor: grab; }
+  .eimg img { display: block; width: 100%; height: 96px; object-fit: cover; }
+  .eimg.off { cursor: pointer; opacity: .55; }
+  .eimg.off:hover { opacity: 1; }
+  .eimg .no { position: absolute; top: 4px; left: 4px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; padding: 0 5px; border-radius: 4px; }
+  .eimg .eb { display: flex; }
+  .eimg .eb button { flex: 1; border: 0; border-top: 1px solid var(--hair); background: var(--surface); color: var(--ink); padding: 3px 0; cursor: pointer; font-size: 12px; }
+  .ef { display: grid; grid-template-columns: 9em 1fr; gap: 4px 10px; align-items: center; margin-top: 4px; }
+  .ef label { font-size: 12px; color: var(--muted); }
+  .ef input, .ef textarea { width: 100%; padding: 5px 8px; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -183,7 +190,7 @@
 </div>
 <div class="toast" id="toast"></div>
 <div class="slide-bg" id="slideBg" onclick="closeEdit()"></div>
-<div class="slide" id="slide"><div class="sh"><b id="slideTitle"></b><span class="meta">直したら一番下の「確定（保存）」</span><button class="btn" onclick="closeEdit()">✕ 閉じる</button></div><div class="sb"><div class="ld" id="slideLd">承認ページを読み込み中…（10秒ほどかかります）</div><iframe id="slideFrame"></iframe></div></div>
+<div class="slide" id="slide"><div class="sh"><b id="slideTitle"></b><button class="btn save" onclick="saveEdit()">保存する</button><button class="btn" onclick="closeEdit()">✕ 閉じる</button></div><div class="sbody" id="slideBody"></div></div>
 
 <script>
   var data = JSON.parse('<?!= treeJson ?>');
@@ -413,6 +420,7 @@
     askNext = askEnd = askViewing = askTalk = '';
     loadExtra(name);
     render();
+    prefetchFor(name);
     if (window.innerWidth < 860) document.getElementById('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -849,6 +857,7 @@
     var ids = Object.keys(x.pick).filter(function (k) { return x.pick[k]; });
     var text = (x.msgDraft || '').trim();
     if (!ids.length && !text) { toast('送る物件か一言を入れてください'); return; }
+    if (savingCount > 0) { toast('直した物件を保存中です。少し待ってから送ってください'); return; }
     if (!confirm((ids.length ? '物件' + ids.length + '件' : '') + (ids.length && text ? 'と' : '') + (text ? '一言' : '') + 'を、' + name + ' さんにLINEで送ります。よろしいですか？')) return;
     x.sending = true; render();
     google.script.run
@@ -1156,35 +1165,150 @@
       .previewPendingCleanup();
   }
 
-  // ── 承認ページをスライドで出す（collect=1 なので保存だけ。送るのはCRMの「LINEで送る」）──
-  var editSaved = false, ldTimer = 0;
+  // ── 物件をCRMの中で直す（承認ページを読み込まないので即開く）──
+  // お客様を選んだら、新着の中身を裏で先に取っておく。押した瞬間に出せるように。
+  var detailCache = {};   // 顧客名 → { roomId: {fields, all, selected, cats, comment, url} }
+  var savingCount = 0;
+  var ED_LABELS = [
+    ['物件', [['buildingName', '物件名'], ['roomNumber', '部屋番号'], ['layout', '間取り'], ['area', '面積(m²)'], ['buildingAge', '築年数'],
+      ['floorText', '所在階'], ['storyText', '階建て'], ['structure', '構造'], ['totalUnits', '総戸数'], ['sunlight', '主要採光面'], ['moveInDate', '入居可能時期']]],
+    ['アクセス', [['stationInfo', '最寄駅'], ['address', '住所'], ['otherStations', '他の最寄駅', 1]]],
+    ['お金', [['rent', '賃料(円)'], ['managementFee', '管理費(円)'], ['deposit', '敷金'], ['keyMoney', '礼金'], ['shikibiki', '敷引き/償却'],
+      ['petDeposit', 'ペット敷金追加'], ['renewalFee', '更新料'], ['fireInsurance', '火災保険', 1], ['renewalAdminFee', '更新事務手数料'],
+      ['guaranteeInfo', '保証料', 1], ['cleaningFee', 'クリーニング費用'], ['keyExchangeFee', '鍵交換費用'], ['supportFee24h', '24時間サポート費'],
+      ['rightsFee', '権利金'], ['additionalDeposit', '敷金積み増し'], ['guaranteeDeposit', '保証金'], ['waterBilling', '水道料金形態'],
+      ['parkingFee', '駐車場'], ['bicycleParkingFee', '駐輪場'], ['motorcycleParkingFee', 'バイク置き場'], ['otherMonthlyFee', 'その他月次費用'], ['otherOnetimeFee', 'その他一時金']]],
+    ['契約', [['leaseType', '契約区分'], ['contractPeriod', '契約期間'], ['cancellationNotice', '解約予告'], ['renewalInfo', '更新/再契約'],
+      ['freeRent', 'フリーレント'], ['freeRentDetail', 'フリーレント詳細'], ['moveOutDate', '退去日'], ['moveInConditions', '入居条件', 1], ['layoutDetail', '間取り詳細']]],
+    ['設備', [['facilities', '設備', 1]]]
+  ];
+  function prefetchDetails(name, ids) {
+    detailCache[name] = detailCache[name] || {};
+    var need = ids.filter(function (r) { return !detailCache[name][r]; });
+    if (!need.length) return;
+    need.forEach(function (r) { detailCache[name][r] = 'loading'; });
+    google.script.run
+      .withSuccessHandler(function (d) {
+        need.forEach(function (r) { if (detailCache[name][r] === 'loading') delete detailCache[name][r]; });
+        Object.keys(d || {}).forEach(function (r) { detailCache[name][r] = d[r]; });
+        if (ed && ed.name === name && !ed.d) openEdit(ed.roomId);   // 待っていた物件が届いた
+      })
+      .withFailureHandler(function () { need.forEach(function (r) { delete detailCache[name][r]; }); })
+      .getCrmPropertyDetails(name, need);
+  }
+  function prefetchFor(name) {
+    var c = data.customers.filter(function (x) { return x.name === name; })[0];
+    if (!c || !c.pending || !c.pending.length) return;
+    prefetchDetails(name, c.pending.slice(0, 12).map(function (p) { return p.roomId; }));
+  }
+
+  var ed = null;   // 開いている編集 { name, roomId, d, sel:[], comment }
   function openEdit(roomId) {
-    var c = data.customers.filter(function (x) { return x.name === selName; })[0];
+    var name = selName;
+    var c = data.customers.filter(function (x) { return x.name === name; })[0];
     var p = c && (c.pending || []).filter(function (x) { return x.roomId === roomId; })[0];
     document.getElementById('slideTitle').textContent = p ? (p.building + (p.room ? ' ' + p.room : '')) : '';
-    document.getElementById('slideFrame').src = approveBaseUrl + '&customer=' + encodeURIComponent(selName) + '&room_id=' + encodeURIComponent(roomId);
-    editSaved = false;
-    document.getElementById('slideLd').hidden = false;
-    clearTimeout(ldTimer); ldTimer = setTimeout(function () { document.getElementById('slideLd').hidden = true; }, 40000);
+    var d = detailCache[name] && detailCache[name][roomId];
+    if (!d || d === 'loading') {
+      ed = { name: name, roomId: roomId, d: null };
+      document.getElementById('slideBody').innerHTML = '<div class="meta" style="padding:30px;text-align:center">読み込み中…</div>';
+      if (!d) prefetchDetails(name, [roomId]);
+    } else {
+      ed = { name: name, roomId: roomId, d: d, sel: d.selected.slice(), comment: d.comment, fields: JSON.parse(JSON.stringify(d.fields)) };
+      drawEdit();
+    }
     document.getElementById('slide').classList.add('on');
     document.getElementById('slideBg').classList.add('on');
   }
-  function closeEdit() {
-    var sl = document.getElementById('slide');
-    if (!sl.classList.contains('on')) return;
-    sl.classList.remove('on');
-    document.getElementById('slideBg').classList.remove('on');
-    setTimeout(function () { document.getElementById('slideFrame').src = 'about:blank'; }, 300);
-    if (editSaved) reload();   // 直した写真・一言をカードに出す
+  function drawEdit() {
+    var d = ed.d, h = '';
+    h += '<div class="sec">一言（カードに載ります）</div><textarea class="memo" style="min-height:70px" oninput="ed.comment=this.value">' + esc(ed.comment || '') + '</textarea>';
+    h += '<div class="sec">送る写真（' + ed.sel.length + '枚・左から順に出ます。ドラッグでも並び替えできます）</div><div class="eimgs">'
+      + ed.sel.map(function (u, i) {
+        return '<div class="eimg" draggable="true" ondragstart="edDrag=' + i + '" ondragover="event.preventDefault()" ondrop="edDrop(' + i + ')">'
+          + '<img src="' + esc(u) + '" loading="lazy"><span class="no">' + (i + 1) + (d.cats[u] ? ' ' + esc(d.cats[u]) : '') + '</span>'
+          + '<div class="eb"><button onclick="edMove(' + i + ',-1)">◀</button><button onclick="edDel(' + i + ')">✕</button><button onclick="edMove(' + i + ',1)">▶</button></div></div>';
+      }).join('') + '</div>';
+    var unused = d.all.filter(function (u) { return ed.sel.indexOf(u) < 0; });
+    h += '<div class="sec">使わない写真（押すと最後に足します）</div><div class="eimgs">'
+      + (unused.length ? unused.map(function (u) {
+        return '<div class="eimg off" onclick="edAdd(' + esc(JSON.stringify(u)) + ')"><img src="' + esc(u) + '" loading="lazy">' + (d.cats[u] ? '<span class="no">' + esc(d.cats[u]) + '</span>' : '') + '</div>';
+      }).join('') : '<div class="meta">ありません</div>') + '</div>';
+    h += '<label class="btn" style="display:inline-block;margin-top:6px">＋ 写真を足す<input type="file" accept="image/*" multiple hidden onchange="edUpload(this.files)"></label> <span class="meta" id="edUp"></span>';
+    ED_LABELS.forEach(function (g) {
+      h += '<div class="sec">' + esc(g[0]) + '</div><div class="ef">';
+      g[1].forEach(function (f) {
+        var v = ed.fields[f[0]] || '';
+        h += '<label>' + esc(f[1]) + '</label>' + (f[2]
+          ? '<textarea rows="2" oninput="ed.fields[\'' + f[0] + '\']=this.value">' + esc(v) + '</textarea>'
+          : '<input value="' + esc(v) + '" oninput="ed.fields[\'' + f[0] + '\']=this.value">');
+      });
+      h += '</div>';
+    });
+    h += '<div class="pl" style="margin:12px 0">' + (d.url ? '<a target="_blank" href="' + esc(d.url) + '">元のページ</a> ' : '')
+      + '<a target="_blank" href="' + esc(approveBaseUrl + '&customer=' + encodeURIComponent(ed.name) + '&room_id=' + encodeURIComponent(ed.roomId)) + '">承認ページで開く（AI整理など）</a></div>';
+    var body = document.getElementById('slideBody'), top = body.scrollTop;
+    body.innerHTML = h;
+    body.scrollTop = top;
   }
-  window.addEventListener('message', function (ev) {
-    var d = ev.data || {};
-    if (d.type === 'cart-ready') { document.getElementById('slideLd').hidden = true; return; }   // 承認ページが出来上がった
-    if (d.type !== 'cart-saved') return;
-    if (d.ok) { editSaved = true; toast('保存しました'); setTimeout(closeEdit, 700); }
-    else toast('保存できませんでした: ' + (d.message || ''));
-  });
-  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeEdit(); });
+  var edDrag = -1;
+  function edDrop(i) { if (edDrag < 0 || edDrag === i) return; var u = ed.sel.splice(edDrag, 1)[0]; ed.sel.splice(i, 0, u); edDrag = -1; drawEdit(); }
+  function edMove(i, dir) { var j = i + dir; if (j < 0 || j >= ed.sel.length) return; var t = ed.sel[i]; ed.sel[i] = ed.sel[j]; ed.sel[j] = t; drawEdit(); }
+  function edDel(i) { ed.sel.splice(i, 1); drawEdit(); }
+  function edAdd(u) { ed.sel.push(u); drawEdit(); }
+  function edUpload(files) {
+    var cur = ed, list = Array.prototype.slice.call(files || []), left = list.length;
+    if (!left) return;
+    document.getElementById('edUp').textContent = '上げています…（' + left + '枚）';
+    list.forEach(function (file) {
+      var rd = new FileReader();
+      rd.onload = function () {
+        var b64 = String(rd.result).split(',')[1];
+        google.script.run
+          .withSuccessHandler(function (r) {
+            left--;
+            if (r && r.success && r.url) { cur.d.all.push(r.url); cur.sel.push(r.url); }
+            else toast('写真を上げられませんでした');
+            if (ed === cur) { drawEdit(); var s = document.getElementById('edUp'); if (s) s.textContent = left ? '上げています…（残り' + left + '枚）' : ''; }
+          })
+          .withFailureHandler(function (e) { left--; toast('写真を上げられませんでした: ' + e.message); })
+          .uploadPropertyImage(b64, file.name, file.type);
+      };
+      rd.readAsDataURL(file);
+    });
+  }
+  function saveEdit() {
+    if (!ed || !ed.d) return;
+    if (!ed.sel.length) { toast('写真を1枚以上残してください'); return; }
+    var cur = ed;
+    // 先にカードへ反映して閉じる。保存は裏で（写真の置き直しで数秒かかることがある）
+    var c = data.customers.filter(function (x) { return x.name === cur.name; })[0];
+    var p = c && (c.pending || []).filter(function (x) { return x.roomId === cur.roomId; })[0];
+    if (p) {
+      p.image = cur.sel[0]; p.images = cur.sel.slice(0, 6); p.imgCount = cur.sel.length; p.edited = true; p.comment = (cur.comment || '').trim();
+      p.building = cur.fields.buildingName; p.room = cur.fields.roomNumber; p.rent = cur.fields.rent; p.fee = cur.fields.managementFee;
+      p.layout = cur.fields.layout; p.area = cur.fields.area; p.age = cur.fields.buildingAge; p.floor = cur.fields.floorText; p.station = cur.fields.stationInfo;
+    }
+    cur.d.selected = cur.sel.slice(); cur.d.comment = cur.comment; cur.d.fields = cur.fields;
+    savingCount++;
+    closeEdit();
+    render();
+    toast('保存しています…');
+    google.script.run
+      .withSuccessHandler(function (r) {
+        savingCount--;
+        if (r && r.images && r.images.length) { cur.d.selected = r.images.slice(); cur.d.all = cur.d.all.map(function (u) { var i = cur.sel.indexOf(u); return i >= 0 && r.images[i] ? r.images[i] : u; }); if (p) { p.image = r.images[0]; p.images = r.images.slice(0, 6); } render(); }
+        toast('保存しました');
+      })
+      .withFailureHandler(function (e) { savingCount--; delete detailCache[cur.name][cur.roomId]; toast('保存できませんでした: ' + e.message); })
+      .saveCrmPropertyEdit(cur.name, cur.roomId, cur.fields, cur.sel, cur.comment);
+  }
+  function closeEdit() {
+    document.getElementById('slide').classList.remove('on');
+    document.getElementById('slideBg').classList.remove('on');
+    ed = null;
+  }
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && ed) closeEdit(); });
 
   function reload() {
     toast('読み込み中…');
