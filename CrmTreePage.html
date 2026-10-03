@@ -161,6 +161,16 @@
   .eimg .eb button { flex: 1; border: 0; border-top: 1px solid var(--hair); background: var(--surface); color: var(--ink); padding: 3px 0; cursor: pointer; font-size: 12px; }
   .ef { display: grid; grid-template-columns: 9em 1fr; gap: 4px 10px; align-items: center; margin-top: 4px; }
   .ef label { font-size: 12px; color: var(--muted); }
+  .slide a { color: var(--green); }
+  .slide .elinks { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+  .slide .elinks a { text-decoration: none; border: 1px solid var(--hair); border-radius: 6px; padding: 6px 12px; font-size: 13px; }
+  .slide.drop .sbody { outline: 3px dashed var(--green); outline-offset: -6px; }
+  .eimg .zm { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.6); color: #fff; border: 0; border-radius: 4px; font-size: 12px; padding: 0 6px; cursor: zoom-in; }
+  .lb { position: fixed; inset: 0; background: rgba(0,0,0,.88); z-index: 60; display: flex; align-items: center; justify-content: center; }
+  .lb[hidden] { display: none; }
+  .lb img { max-width: 92vw; max-height: 86vh; object-fit: contain; }
+  .lb .lbn { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,.15); color: #fff; border: 0; font-size: 28px; padding: 10px 16px; cursor: pointer; border-radius: 8px; }
+  .lb .lbc { position: absolute; bottom: 18px; color: #fff; font-size: 13px; }
   .ef input, .ef textarea { width: 100%; padding: 5px 8px; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; }
 </style>
 </head>
@@ -191,6 +201,7 @@
 <div class="toast" id="toast"></div>
 <div class="slide-bg" id="slideBg" onclick="closeEdit()"></div>
 <div class="slide" id="slide"><div class="sh"><b id="slideTitle"></b><button class="btn save" onclick="saveEdit()">保存する</button><button class="btn" onclick="closeEdit()">✕ 閉じる</button></div><div class="sbody" id="slideBody"></div></div>
+<div class="lb" id="lb" hidden onclick="if(event.target===this)lbClose()"><button class="lbn" style="left:16px" onclick="lbGo(-1)">‹</button><img id="lbImg"><button class="lbn" style="right:16px" onclick="lbGo(1)">›</button><div class="lbc" id="lbCap"></div></div>
 
 <script>
   var data = JSON.parse('<?!= treeJson ?>');
@@ -1225,32 +1236,72 @@
     h += '<div class="sec">一言（カードに載ります）</div><textarea class="memo" style="min-height:70px" oninput="ed.comment=this.value">' + esc(ed.comment || '') + '</textarea>';
     h += '<div class="sec">送る写真（' + ed.sel.length + '枚・左から順に出ます。ドラッグでも並び替えできます）</div><div class="eimgs">'
       + ed.sel.map(function (u, i) {
-        return '<div class="eimg" draggable="true" ondragstart="edDrag=' + i + '" ondragover="event.preventDefault()" ondrop="edDrop(' + i + ')">'
-          + '<img src="' + esc(u) + '" loading="lazy"><span class="no">' + (i + 1) + (d.cats[u] ? ' ' + esc(d.cats[u]) : '') + '</span>'
+        return '<div class="eimg" draggable="true" ondragstart="edDrag=' + i + '" ondragend="edDrag=-1" ondragover="event.preventDefault()" ondrop="edDrop(' + i + ')">'
+          + '<img src="' + esc(u) + '" loading="lazy" onclick="lbOpen(ed.sel,' + i + ')" style="cursor:zoom-in"><span class="no">' + (i + 1) + (d.cats[u] ? ' ' + esc(d.cats[u]) : '') + '</span>'
           + '<div class="eb"><button onclick="edMove(' + i + ',-1)">◀</button><button onclick="edDel(' + i + ')">✕</button><button onclick="edMove(' + i + ',1)">▶</button></div></div>';
       }).join('') + '</div>';
     var unused = d.all.filter(function (u) { return ed.sel.indexOf(u) < 0; });
     h += '<div class="sec">使わない写真（押すと最後に足します）</div><div class="eimgs">'
       + (unused.length ? unused.map(function (u) {
-        return '<div class="eimg off" onclick="edAdd(' + esc(JSON.stringify(u)) + ')"><img src="' + esc(u) + '" loading="lazy">' + (d.cats[u] ? '<span class="no">' + esc(d.cats[u]) + '</span>' : '') + '</div>';
+        return '<div class="eimg off" onclick="edAdd(' + esc(JSON.stringify(u)) + ')"><img src="' + esc(u) + '" loading="lazy">' + (d.cats[u] ? '<span class="no">' + esc(d.cats[u]) + '</span>' : '')
+          + '<button class="zm" onclick="event.stopPropagation();lbOpen(edUnused(),' + esc(JSON.stringify(unused.indexOf(u))) + ')">🔍</button></div>';
       }).join('') : '<div class="meta">ありません</div>') + '</div>';
-    h += '<label class="btn" style="display:inline-block;margin-top:6px">＋ 写真を足す<input type="file" accept="image/*" multiple hidden onchange="edUpload(this.files)"></label> <span class="meta" id="edUp"></span>';
+    h += '<label class="btn" style="display:inline-block;margin-top:6px">＋ 写真を足す<input type="file" accept="image/*" multiple hidden onchange="edUpload(this.files)"></label> <span class="meta">この画面に写真をドラッグ、またはスクショを ⌘V で貼り付けても足せます</span> <span class="meta" id="edUp"></span>';
     ED_LABELS.forEach(function (g) {
       h += '<div class="sec">' + esc(g[0]) + '</div><div class="ef">';
       g[1].forEach(function (f) {
         var v = ed.fields[f[0]] || '';
         h += '<label>' + esc(f[1]) + '</label>' + (f[2]
-          ? '<textarea rows="2" oninput="ed.fields[\'' + f[0] + '\']=this.value">' + esc(v) + '</textarea>'
+          ? '<textarea rows="2" oninput="ed.fields[\'' + f[0] + '\']=this.value;edFit(this)">' + esc(v) + '</textarea>'
           : '<input value="' + esc(v) + '" oninput="ed.fields[\'' + f[0] + '\']=this.value">');
       });
       h += '</div>';
     });
-    h += '<div class="pl" style="margin:12px 0">' + (d.url ? '<a target="_blank" href="' + esc(d.url) + '">元のページ</a> ' : '')
-      + '<a target="_blank" href="' + esc(approveBaseUrl + '&customer=' + encodeURIComponent(ed.name) + '&room_id=' + encodeURIComponent(ed.roomId)) + '">承認ページで開く（AI整理など）</a></div>';
+    h += '<div class="elinks">' + (d.url ? '<a target="_blank" href="' + esc(d.url) + '">↗ 物件の元のページ（いえらぶ・REINS など）</a>' : '')
+      + '<a target="_blank" href="' + esc(approveBaseUrl + '&customer=' + encodeURIComponent(ed.name) + '&room_id=' + encodeURIComponent(ed.roomId)) + '">↗ これまでの承認ページで開く（AI整理を使うとき）</a></div>';
     var body = document.getElementById('slideBody'), top = body.scrollTop;
     body.innerHTML = h;
+    // 長い欄（設備など）は最初から全部見えるように高さを合わせる
+    Array.prototype.forEach.call(body.querySelectorAll('.ef textarea'), edFit);
     body.scrollTop = top;
   }
+  function edFit(t) { t.style.height = 'auto'; t.style.height = (t.scrollHeight + 4) + 'px'; }
+  function edUnused() { return ed.d.all.filter(function (u) { return ed.sel.indexOf(u) < 0; }); }
+
+  // 写真を大きく見る（← → で送る、Escで閉じる）
+  var lbList = [], lbI = 0;
+  function lbOpen(list, i) { lbList = list.slice(); lbI = i; lbShow(); document.getElementById('lb').hidden = false; }
+  function lbShow() { document.getElementById('lbImg').src = lbList[lbI] || ''; document.getElementById('lbCap').textContent = (lbI + 1) + ' / ' + lbList.length; }
+  function lbGo(d) { if (!lbList.length) return; lbI = (lbI + d + lbList.length) % lbList.length; lbShow(); }
+  function lbClose() { document.getElementById('lb').hidden = true; }
+  function lbOpenNow() { return !document.getElementById('lb').hidden; }
+
+  // 写真をドラッグで足す（スクショ・デスクトップの画像・別のページの画像）／⌘V で貼り付け
+  (function () {
+    var sl = document.getElementById('slide');
+    sl.addEventListener('dragover', function (ev) {
+      if (!ed || !ed.d || edDrag >= 0) return;   // 写真の並び替え中は除く
+      ev.preventDefault(); sl.classList.add('drop');
+    });
+    sl.addEventListener('dragleave', function (ev) { if (ev.target === sl || !sl.contains(ev.relatedTarget)) sl.classList.remove('drop'); });
+    sl.addEventListener('drop', function (ev) {
+      sl.classList.remove('drop');
+      if (!ed || !ed.d || edDrag >= 0) return;
+      ev.preventDefault();
+      var dt = ev.dataTransfer, files = Array.prototype.filter.call(dt.files || [], function (f) { return /^image\//.test(f.type); });
+      if (files.length) { edUpload(files); return; }
+      var u = (dt.getData('text/uri-list') || dt.getData('text/plain') || '').split('\n')[0].trim();
+      if (/^https?:\/\//.test(u)) { ed.d.all.push(u); ed.sel.push(u); drawEdit(); toast('写真を足しました（保存のときに置き直します）'); }
+      else toast('写真を読み取れませんでした');
+    });
+    document.addEventListener('paste', function (ev) {
+      if (!ed || !ed.d) return;
+      var items = (ev.clipboardData && ev.clipboardData.items) || [], files = [];
+      for (var i = 0; i < items.length; i++) if (items[i].kind === 'file' && /^image\//.test(items[i].type)) files.push(items[i].getAsFile());
+      if (!files.length) return;   // 文字の貼り付けはそのまま
+      ev.preventDefault(); edUpload(files);
+    });
+  })();
   var edDrag = -1;
   function edDrop(i) { if (edDrag < 0 || edDrag === i) return; var u = ed.sel.splice(edDrag, 1)[0]; ed.sel.splice(i, 0, u); edDrag = -1; drawEdit(); }
   function edMove(i, dir) { var j = i + dir; if (j < 0 || j >= ed.sel.length) return; var t = ed.sel[i]; ed.sel[i] = ed.sel[j]; ed.sel[j] = t; drawEdit(); }
@@ -1308,7 +1359,13 @@
     document.getElementById('slideBg').classList.remove('on');
     ed = null;
   }
-  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && ed) closeEdit(); });
+  document.addEventListener('keydown', function (ev) {
+    if (lbOpenNow()) {
+      if (ev.key === 'Escape') lbClose(); else if (ev.key === 'ArrowLeft') lbGo(-1); else if (ev.key === 'ArrowRight') lbGo(1);
+      return;
+    }
+    if (ev.key === 'Escape' && ed) closeEdit();
+  });
 
   function reload() {
     toast('読み込み中…');
