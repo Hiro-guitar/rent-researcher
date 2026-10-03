@@ -105,6 +105,8 @@
   .prop .warn { font-size: 12px; color: #b3541e; }
   .prop .cmt { font-size: 12px; margin-top: 2px; }
   .prop.sent { grid-template-columns: 72px 1fr; }
+  .watch { border: 1px solid var(--hair); border-radius: 8px; padding: 8px 10px; margin-top: 6px; }
+  .watch.open { border-color: var(--red); background: var(--red-soft); }
   .prop .pl { font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
   .prop .pl a { color: var(--green); }
   .prop .pl a.skip { color: var(--muted); }
@@ -762,6 +764,7 @@
           + ' <a href="#" onclick="openEdit(' + rid + ');return false">詳しく確かめる・直す</a>'
           + (p.edited ? ' <span class="meta">（直した写真' + p.imgCount + '枚）</span>' : '')
           + (p.images && p.images.length > 1 ? ' <a href="#" onclick="showImgs(' + rid + ');return false">写真' + p.images.length + '枚</a>' : '')
+          + ' <a href="#" onclick="watchPending(' + rid + ');return false">⏳ キャンセル待ちにする</a>'
           + ' <a href="#" class="skip" onclick="skipProp(' + rid + ');return false">見送る</a>'
           + (p.found ? ' <span class="meta">' + esc(p.found) + '見つかった</span>' : '') + '</div>'
           + (x.imgsOf === p.roomId ? '<div class="imgs">' + p.images.map(function (u) { return '<img src="' + esc(u) + '" loading="lazy">'; }).join('') + '</div>' : '')
@@ -780,6 +783,7 @@
     } else {
       h += '<div class="meta">LINEがつながっていないので、ここからは送れません。</div>';
     }
+    h += watchHtml(c);
     h += sentHtml(c);
     return h;
   }
@@ -794,6 +798,7 @@
     if (list === 'loading' || !list) return h + '<div class="meta">読み込み中…</div>';
     if (!list.length) return h + '<div class="meta">まだ送った物件はありません</div>';
     var hasFam = c.family && c.family.length;
+    var watching = {}; (c.watch || []).forEach(function (w) { watching[w.roomId] = true; });
     x.famPick = x.famPick || {};
     var nf = Object.keys(x.famPick).filter(function (k) { return x.famPick[k]; }).length;
     var famBtn = hasFam ? '<div class="acts"><button class="btn save line" onclick="sendToFamily()">選んだ物件を家族にも送る' + (nf ? '（' + nf + '件）' : '') + '</button></div>'
@@ -806,7 +811,8 @@
         + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + ' <span class="meta">' + esc(p.sentAt) + '送った</span></div>'
         + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area].filter(Boolean).join('・')) + '</div>'
         + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
-        + '<div class="pl"><a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a></div>';
+        + '<div class="pl"><a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a> '
+        + (watching[p.roomId] ? '<span class="meta">⏳ キャンセル待ち中</span>' : '<a href="#" onclick="setWatch(' + rid + ',true);return false">⏳ キャンセル待ちにする</a>') + '</div>';
       if (x.fwdRoom === p.roomId) {
         h2 += '<input class="inp" id="fwdQ" placeholder="送り先の名前で探す" value="' + esc(x.fwdQ || '') + '" oninput="extras[selName].fwdQ=this.value;fillFwdHits()">'
           + '<div id="fwdHits">' + fwdHitsHtml(c, p.roomId) + '</div>';
@@ -862,6 +868,30 @@
     var c = data.customers.filter(function (y) { return y.name === selName; })[0];
     extras[selName].msgDraft = TEMPLATES[i].text.replace('{宛名}', c ? dearOf(c) : '');
     render();
+  }
+  // ── キャンセル待ち ──
+  // 空室確認で「募集中」に戻ると、ここに🔔が付く（Discordにも届く）。お客様には自動で送らない。
+  var WATCH_ST = { available: '🔔 空いた（募集中）', applied: '申込あり', closed: '募集終了', reins_listed: 'REINSに出ている', needs_confirmation: '要確認' };
+  function watchHtml(c) {
+    var list = (c.watch || []).slice().sort(function (a, b) { return (b.status === 'available') - (a.status === 'available'); });
+    if (!list.length) return '';
+    return '<div class="sec">⏳ キャンセル待ち（' + list.length + '件）</div>' + list.map(function (w) {
+      var rid = esc(JSON.stringify(w.roomId));
+      var open = w.status === 'available';
+      return '<div class="watch' + (open ? ' open' : '') + '"><div class="pt">' + esc(w.building) + (w.room ? ' ' + esc(w.room) : '')
+        + (w.watchOnly ? ' <span class="meta">まだ送っていない</span>' : '') + '</div>'
+        + '<div class="meta">' + esc(WATCH_ST[w.status] || '空き状況はまだ見ていない') + (w.checkedAt ? '（' + esc(w.checkedAt) + ' に確認）' : '') + '・' + esc(w.since) + ' から</div>'
+        + '<div class="pl">' + (w.url ? '<a target="_blank" href="' + esc(w.url) + '">募集状況を確かめる</a> ' : '')
+        + (open && c.lineUid ? '<a href="#" onclick="watchSend(' + rid + ');return false">この物件を送る</a> ' : '')
+        + '<a href="#" class="skip" onclick="setWatch(' + rid + ',false);return false">キャンセル待ちをやめる</a></div></div>';
+    }).join('');
+  }
+  function setWatch(rid, on) { call('setCrmWatch', [selName, rid, on], on ? 'キャンセル待ちにしました' : 'キャンセル待ちをやめました'); }
+  function watchPending(rid) { call('addCrmWatchFromPending', [selName, rid], 'キャンセル待ちにしました'); }
+  function watchSend(rid) {
+    var name = selName, w = (data.customers.filter(function (x) { return x.name === name; })[0].watch || []).filter(function (x) { return x.roomId === rid; })[0];
+    if (!confirm((w ? w.building + (w.room ? ' ' + w.room : '') : 'この物件') + ' を ' + name + ' さんにLINEで送ります。よろしいですか？')) return;
+    call('sendCrmProperties', [name, [rid], ''], '送りました');
   }
   function skipProp(rid) { call('skipCrmProperty', [selName, rid], '見送りました'); }
   function sendNow() {

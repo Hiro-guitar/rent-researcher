@@ -312,3 +312,60 @@ function saveCrmPropertyEdit(customerName, roomId, fields, images, comment) {
   try { CacheService.getScriptCache().removeAll(['prop2_' + customerName + '_' + roomId, 'imgs_' + customerName + '_' + roomId]); } catch (e) {}
   return { roomId: String(roomId), images: hosted, comment: comment, edited: Object.keys(ed).length > 0 || hosted.length > 0 };
 }
+
+// ── キャンセル待ち（通知済み物件シートの J列に印。空室確認で空いたら Discord に知らせる仕組みは既存のまま）──
+/** 顧客名 → キャンセル待ちの物件一覧。 */
+function _crmWatchAll_() {
+  var out = {};
+  try {
+    var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SEEN_SHEET_NAME);
+    if (!sh || sh.getLastRow() < 2) return out;
+    var data = sh.getRange(2, 1, sh.getLastRow() - 1, 16).getValues();
+    var fmt = function (v) {
+      if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'M/d H:mm');
+      var m = String(v || '').match(/^\d{4}-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+      return m ? (Number(m[1]) + '/' + Number(m[2]) + ' ' + Number(m[3]) + ':' + m[4]) : String(v || '');
+    };
+    for (var i = 0; i < data.length; i++) {
+      if (!data[i][9]) continue;   // J列: キャンセル待ちの印
+      var name = String(data[i][0] || '').trim();
+      var src = String(data[i][4] || ''), ref = String(data[i][7] || '');
+      var url = '';
+      if (src === 'reins' || /^\d{6,}$/.test(ref.replace(/\D/g, '')) && ref.indexOf('http') !== 0) {
+        var num = ref.replace(/\D/g, '');
+        if (num) url = 'https://system.reins.jp/main/BK/GBK004100#bukken=' + num;
+      } else if (ref.indexOf('http') === 0) url = ref;
+      (out[name] = out[name] || []).push({
+        roomId: String(data[i][1] || '').trim(), building: String(data[i][2] || ''), room: String(data[i][15] || ''),
+        status: String(data[i][13] || '') === 'closed' ? 'closed' : String(data[i][5] || ''),
+        checkedAt: fmt(data[i][6]), since: fmt(data[i][9]), url: url,
+        watchOnly: String(data[i][14] || '').trim() === 'watch_only', sent: !!data[i][3]
+      });
+    }
+  } catch (e) { console.warn('[キャンセル待ち] 読めません: ' + e.message); }
+  return out;
+}
+
+/** 画面: 送った物件のキャンセル待ちを付ける／外す。 */
+function setCrmWatch(customerName, roomId, on) {
+  var r = setCancellationWatch(customerName, roomId, !!on);
+  if (!r.ok) throw new Error(r.message);
+  var page = _crmTreeForPage_();
+  page.savedMessage = r.message;
+  return page;
+}
+
+/** 画面: まだ送っていない新着をキャンセル待ちにする（申込ありの部屋など）。新着からは消え、キャンセル待ちに並ぶ。 */
+function addCrmWatchFromPending(customerName, roomId) {
+  var rows = _findRowsByRoomIdsAnyStatus_(customerName, [roomId]);
+  if (!rows.length) throw new Error('この物件が見つかりません');
+  var p = rowToProperty(rows[0].values);
+  var r = addCancellationWatchOnly(customerName, {
+    roomId: String(roomId), buildingName: p.buildingName, roomNumber: p.roomNumber,
+    source: p.source, url: p.url, reinsPropertyNumber: p.reins_property_number
+  });
+  if (!r.ok) throw new Error(r.message);
+  var page = _crmTreeForPage_();
+  page.savedMessage = r.message;
+  return page;
+}

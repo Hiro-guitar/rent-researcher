@@ -553,6 +553,7 @@ function _crmTreeForPage_() {
   var ex = _crmExtrasAll_(t.customers);
   var crits = _crmCriteriaAll_();
   var pend = (typeof _crmPendingAll_ === 'function') ? _crmPendingAll_(crits) : {};
+  var watch = (typeof _crmWatchAll_ === 'function') ? _crmWatchAll_() : {};
   return {
     nodes: t.nodes,
     oldCount: t.oldCount,
@@ -561,7 +562,10 @@ function _crmTreeForPage_() {
       var chip = _crmChipOf_(c);
       return {
         stageId: c.stageId, todo: chip.todo, chipStatus: chip.status,
-        flags: chip.flags.concat((pend[c.name] || []).length && c.stageId !== 'ended' ? ['📦新着' + pend[c.name].length + '件'] : []),
+        flags: chip.flags.concat((pend[c.name] || []).length && c.stageId !== 'ended' ? ['📦新着' + pend[c.name].length + '件'] : [])
+          .concat((watch[c.name] || []).some(function (w) { return w.status === 'available'; }) ? ['🔔キャンセル待ちが空いた'] : [])
+          .concat((watch[c.name] || []).length ? ['⏳キャンセル待ち' + watch[c.name].length + '件'] : []),
+        watch: watch[c.name] || [],
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
         lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
         uid: c.lineOnly ? (c.uid || '') : '',   // 〔LINEのみ〕の人を顧客とつなぐときだけ使う
