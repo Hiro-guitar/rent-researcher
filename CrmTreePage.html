@@ -107,6 +107,13 @@
   .prop.sent { grid-template-columns: 72px 1fr; }
   .watch { border: 1px solid var(--hair); border-radius: 8px; padding: 8px 10px; margin-top: 6px; }
   .watch.open { border-color: var(--red); background: var(--red-soft); }
+  /* リンクは既定の青・紫だと暗い背景で読めないので、ページ全体で緑にそろえる */
+  .panel a, .watch a { color: var(--green); }
+  .panel a:visited { color: var(--green); }
+  .watch .pt { font-weight: 700; }
+  .watch .pl { font-size: 12px; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+  .watch .pl a.skip { color: var(--muted); }
+  .watch .tag { font-size: 11px; font-weight: 400; color: var(--muted); border: 1px solid var(--hair); border-radius: 4px; padding: 0 5px; margin-left: 4px; }
   .prop .pl { font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
   .prop .pl a { color: var(--green); }
   .prop .pl a.skip { color: var(--muted); }
@@ -879,7 +886,7 @@
       var rid = esc(JSON.stringify(w.roomId));
       var open = w.status === 'available';
       return '<div class="watch' + (open ? ' open' : '') + '"><div class="pt">' + esc(w.building) + (w.room ? ' ' + esc(w.room) : '')
-        + (w.watchOnly ? ' <span class="meta">まだ送っていない</span>' : '') + '</div>'
+        + (w.watchOnly ? '<span class="tag">まだ送っていない</span>' : '') + '</div>'
         + '<div class="meta">' + esc(WATCH_ST[w.status] || '空き状況はまだ見ていない') + (w.checkedAt ? '（' + esc(w.checkedAt) + ' に確認）' : '') + '・' + esc(w.since) + ' から</div>'
         + '<div class="pl">' + (w.url ? '<a target="_blank" href="' + esc(w.url) + '">募集状況を確かめる</a> ' : '')
         + (open && c.lineUid ? '<a href="#" onclick="watchSend(' + rid + ');return false">この物件を送る</a> ' : '')
