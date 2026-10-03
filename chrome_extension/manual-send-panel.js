@@ -456,7 +456,7 @@
   function normName(s) {
     return String(s || '').replace(/[\s　]/g, '').replace(/./g, function (ch) { return ITAIJI[ch] || ch; }).toLowerCase();
   }
-  var allCustomers = [], contextName = '', findEl = null;
+  var allCustomers = [], contextName = '', findEl = null, custLoading = true;   // 読み込み中は「取得できません」と出さない
   function fillSelect() {
     var keep = selectEl.value || contextName;
     var q = normName(findEl ? findEl.value : '');
@@ -464,7 +464,7 @@
     selectEl.innerHTML = '';
     var ph = document.createElement('option');
     ph.value = '';
-    ph.textContent = allCustomers.length ? (q ? '（' + list.length + '人見つかりました）' : '（お客さんを選択）') : '（顧客が取得できません）';
+    ph.textContent = allCustomers.length ? (q ? '（' + list.length + '人見つかりました）' : '（お客さんを選択）') : (custLoading ? '（読み込み中…少し待つと出ます）' : '（顧客が取得できません）');
     selectEl.appendChild(ph);
     list.forEach(function (name) {
       var o = document.createElement('option');
@@ -475,7 +475,9 @@
     if (q && list.length === 1) selectEl.value = list[0];   // 1人に絞れたら選んでおく
   }
   function loadContext(force) {
+    custLoading = true;
     sendToBackground({ type: 'GET_MANUAL_SEND_CONTEXT', force: !!force }).then(function (resp) {
+      custLoading = false;
       allCustomers = (resp && resp.customers) || [];
       contextName = (resp && resp.contextCustomer) || '';
       fillSelect();
@@ -489,6 +491,7 @@
       if (force) setStatus('顧客一覧を読み直しました（' + allCustomers.length + '人）', '#1a7f37');
       else if (contextName) setStatus('検索中のお客さん「' + contextName + '」を選択しました', '#1a7f37');
     }).catch(function (e) {
+      custLoading = false;
       log('顧客取得失敗', e);
       selectEl.innerHTML = '';
       var o = document.createElement('option');
