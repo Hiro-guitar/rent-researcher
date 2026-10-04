@@ -40,7 +40,7 @@ function _crmPendingAll_(crits) {
         return String(x || '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
           .replace(/[\s　・\-－ー]/g, '').toLowerCase();
       };
-      var room = String(p.roomNumber || '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/\D/g, '');
+      var room = String(p.roomNumber || '').replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/\D/g, '').replace(/^0+/, '');   // 「0605」と「605」は同じ部屋
       return room ? name + '|' + norm(p.buildingName) + '|' + room : '';   // 部屋番号が無ければ建物だけでは決めない
     };
     var sentKeys = {};
