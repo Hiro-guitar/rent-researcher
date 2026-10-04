@@ -111,6 +111,7 @@
   .panel a, .watch a { color: var(--green); }
   .panel a:visited { color: var(--green); }
   .watch .pt { font-weight: 700; }
+  .endtag { font-size: 11px; font-weight: 400; color: var(--red); border: 1px solid var(--red); border-radius: 4px; padding: 0 5px; }
   .watch .pl { font-size: 12px; display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
   .watch .pl a.skip { color: var(--muted); }
   .watch .tag { font-size: 11px; font-weight: 400; color: var(--muted); border: 1px solid var(--hair); border-radius: 4px; padding: 0 5px; margin-left: 4px; }
@@ -815,11 +816,14 @@
       var h2 = '<div class="prop sent">'
         + (hasFam ? '<label class="pk" style="grid-column:1/-1"><input type="checkbox"' + (x.famPick[p.roomId] ? ' checked' : '') + ' onchange="extras[selName].famPick[' + rid + ']=this.checked;render()"> 家族にも送る</label>' : '')
         + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy">' : '<div class="noimg"></div>')
-        + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + ' <span class="meta">' + esc(p.sentAt) + '送った</span></div>'
+        + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + ' <span class="meta">' + esc(p.sentAt) + '送った</span>'
+        + (p.closed ? ' <span class="endtag">募集終了</span>' : '') + '</div>'
         + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area].filter(Boolean).join('・')) + '</div>'
         + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
         + '<div class="pl"><a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a> '
-        + (watching[p.roomId] ? '<span class="meta">⏳ キャンセル待ち中</span>' : '<a href="#" onclick="setWatch(' + rid + ',true);return false">⏳ キャンセル待ちにする</a>') + '</div>';
+        + (watching[p.roomId] ? '<span class="meta">⏳ キャンセル待ち中</span>' : '<a href="#" onclick="setWatch(' + rid + ',true);return false">⏳ キャンセル待ちにする</a>')
+        + (p.closed === 'manual' ? ' <a href="#" class="skip" onclick="setClosed(' + rid + ',false);return false">募集中に戻す</a>'
+          : p.closed ? '' : ' <a href="#" class="skip" onclick="setClosed(' + rid + ',true);return false">募集終了にする</a>') + '</div>';
       if (x.fwdRoom === p.roomId) {
         h2 += '<input class="inp" id="fwdQ" placeholder="送り先の名前で探す" value="' + esc(x.fwdQ || '') + '" oninput="extras[selName].fwdQ=this.value;fillFwdHits()">'
           + '<div id="fwdHits">' + fwdHitsHtml(c, p.roomId) + '</div>';
@@ -892,6 +896,16 @@
         + (open && c.lineUid ? '<a href="#" onclick="watchSend(' + rid + ');return false">この物件を送る</a> ' : '')
         + '<a href="#" class="skip" onclick="setWatch(' + rid + ',false);return false">キャンセル待ちをやめる</a></div></div>';
     }).join('');
+  }
+  // 送った物件を募集終了にする。お客様の物件ページと地図に「募集終了」と出る（LINEは送らない）
+  function setClosed(rid, closed) {
+    var name = selName;
+    if (closed && !confirm('この物件を募集終了にします。お客様の物件ページと地図に「募集終了」と出ます（LINEは送りません）。よろしいですか？')) return;
+    toast('保存しています…');
+    google.script.run
+      .withSuccessHandler(function (r) { sentCache[name] = r.list; render(); toast(r.message); })
+      .withFailureHandler(function (e) { toast('保存できませんでした: ' + e.message); })
+      .setCrmClosed(name, rid, closed);
   }
   function setWatch(rid, on) { call('setCrmWatch', [selName, rid, on], on ? 'キャンセル待ちにしました' : 'キャンセル待ちをやめました'); }
   function watchPending(rid) { call('addCrmWatchFromPending', [selName, rid], 'キャンセル待ちにしました'); }

@@ -889,6 +889,7 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
 
     const openHits = [];
     const closedHits = [];
+    const statusRecords = [];   // CRMのキャンセル待ち欄に出すため、確かめた結果をシートに書く
     const pendingState = {};  // open/closed の状態は「送信成功後」に確定する
     for (const item of items) {
       if (typeof isSearchCancelled === 'function' && isSearchCancelled(searchId)) return;
@@ -897,6 +898,7 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
       const st = (res && res.status) || 'unknown';
       const canApply = res && res.canApply;
       const label = item.building_name || item.buildingName || item.roomId || '';
+      statusRecords.push({ customer: customerName, room_id: item.roomId || item.room_id || '', status: st });
       await setStorageData({ debugLog: `[キャンセル待ち確認] ${customerName}: ${label} (${item.source}) → ${st}${canApply === true ? ' /2番手申込可' : ''}` });
 
       // 状態を4バケットに分類
@@ -928,6 +930,11 @@ async function checkCustomerCancellationWatches(customerName, searchId) {
       }
     }
     await setStorageData({ __watchNotifyState: stateStore });
+    // 結果をシートに記録（失敗しても検索は止めない）
+    if (statusRecords.length) {
+      try { await gasPost({ action: 'record_watch_status', items: statusRecords }); }
+      catch (eRec) { await setStorageData({ debugLog: `[キャンセル待ち確認] 記録に失敗: ${eRec.message}` }); }
+    }
 
     // 巡回サマリー用に結果を記録(監視物件がある顧客のみ)。
     // 動きあり = 今サイクルで状態が「変化」したもの(=スレッドに通知を出したもの)。

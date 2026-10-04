@@ -134,7 +134,14 @@ function handleExistingText(replyToken, userId, message, state) {
       replyMessage(replyToken, [textMsg('スタッフが確認し申し込みフォームをお送りいたしますので、お待ちください。')]);
       return true;
     }
-    // メール形式でない場合は再入力を促す
+    // メール形式でない場合: 1通目は再入力を促す。2通目は止めて、文は人が返す文として扱う。
+    // ⚠️ 以前は毎回促していて、担当者と話し始めると同じ文が止まらなかった（2026-10-03 点検）。
+    if (state.emailMissed) {
+      clearState(userId);
+      return false;
+    }
+    state.emailMissed = true;
+    saveState(userId, state);
     replyMessage(replyToken, [textMsg('正しいメールアドレスを入力してください。\n例: example@email.com')]);
     return true;
   }

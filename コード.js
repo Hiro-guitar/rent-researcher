@@ -100,6 +100,35 @@ function doPost(e) {
       return handleMakeRequestDoc(json);
     }
 
+    // --- キャンセル待ちの確認結果を記録するだけ（検索のたびに拡張が確かめている）---
+    // ⚠️ update_availability は使わないこと。あちらは空いたらキャンセル待ちの印を消し、
+    //   Discord にも送る（拡張も送るので二重になる）。ここは F列(状態)・G列(確認日時)を書くだけ。
+    //   CRMの「キャンセル待ち」欄が、この記録を見て空き状況を出す。
+    if (json.action === 'record_watch_status') {
+      if (!_validateReinsApiKey(json.api_key)) {
+        return ContentService.createTextOutput(JSON.stringify({ error: 'invalid api_key' })).setMimeType(ContentService.MimeType.JSON);
+      }
+      var wItems = Array.isArray(json.items) ? json.items : [];
+      var wSheet = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SEEN_SHEET_NAME);
+      var wWritten = 0;
+      if (wSheet && wSheet.getLastRow() > 1 && wItems.length) {
+        var wKeys = wSheet.getRange(2, 1, wSheet.getLastRow() - 1, 2).getValues();
+        var wNow = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+        var wOk = ['available', 'applied', 'closed', 'reins_listed', 'needs_confirmation'];
+        wItems.forEach(function (it) {
+          var c = String(it.customer || '').trim(), r = String(it.room_id || '').trim();
+          if (!c || !r) return;
+          for (var wi = 0; wi < wKeys.length; wi++) {
+            if (String(wKeys[wi][0]).trim() !== c || String(wKeys[wi][1]).trim() !== r) continue;
+            if (wOk.indexOf(it.status) >= 0) wSheet.getRange(wi + 2, 6).setValue(it.status);   // F列: 状態（分からなかったときは前の値のまま）
+            wSheet.getRange(wi + 2, 7).setValue(wNow);                                         // G列: 確認日時
+            wWritten++;
+          }
+        });
+      }
+      return ContentService.createTextOutput(JSON.stringify({ ok: true, written: wWritten })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     // --- 空室状況の更新 (Chrome拡張から定期/手動で呼ばれる) ---
     if (json.action === 'update_availability') {
       try {

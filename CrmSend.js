@@ -151,6 +151,19 @@ function getCrmSentProps(customerName) {
   var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
   if (!sh || sh.getLastRow() < 2) return out;
   var data = sh.getRange(2, 1, sh.getLastRow() - 1, 15).getValues();
+  // 募集終了の印（通知済み物件シート: N列=手で募集終了 / F列=空室確認で募集終了）
+  var closedBy = {};
+  try {
+    var seenSh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SEEN_SHEET_NAME);
+    if (seenSh && seenSh.getLastRow() > 1) {
+      seenSh.getRange(2, 1, seenSh.getLastRow() - 1, 14).getValues().forEach(function (r) {
+        if (String(r[0] || '').trim() !== customerName) return;
+        var k = String(r[1] || '').trim();
+        if (String(r[13] || '') === 'closed') closedBy[k] = 'manual';
+        else if (String(r[5] || '') === 'closed' && !closedBy[k]) closedBy[k] = 'auto';
+      });
+    }
+  } catch (eC) {}
   for (var i = 0; i < data.length; i++) {
     if (String(data[i][0] || '').trim() !== customerName || String(data[i][10]) !== 'sent') continue;
     var p; try { p = rowToProperty(data[i]); } catch (e) { continue; }
@@ -158,7 +171,7 @@ function getCrmSentProps(customerName) {
     var ms = _cellToEpochMs_(data[i][12]);
     out.push({ roomId: String(data[i][2] || ''), building: p.buildingName || '', room: p.roomNumber || '',
       rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '', station: p.stationInfo || '',
-      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms,
+      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, closed: closedBy[String(data[i][2] || '').trim()] || '',
       sentAt: ms ? Utilities.formatDate(new Date(ms), 'Asia/Tokyo', 'M/d') : '' });
   }
   return out.sort(function (a, b) { return b.ms - a.ms; }).slice(0, 20);
@@ -368,4 +381,11 @@ function addCrmWatchFromPending(customerName, roomId) {
   var page = _crmTreeForPage_();
   page.savedMessage = r.message;
   return page;
+}
+
+/** 画面: 送った物件を募集終了にする／募集中に戻す（お客様の物件ページ・地図に「募集終了」と出る）。送った物件の一覧を返す。 */
+function setCrmClosed(customerName, roomId, closed) {
+  var r = setManualClosed(customerName, roomId, !!closed);
+  if (!r.ok) throw new Error(r.message);
+  return { list: getCrmSentProps(customerName), message: r.message };
 }
