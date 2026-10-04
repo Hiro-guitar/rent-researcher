@@ -772,7 +772,7 @@
           + ' <a href="#" onclick="openEdit(' + rid + ');return false">詳しく確かめる・直す</a>'
           + (p.edited ? ' <span class="meta">（直した写真' + p.imgCount + '枚）</span>' : '')
           + (p.images && p.images.length > 1 ? ' <a href="#" onclick="showImgs(' + rid + ');return false">写真' + p.images.length + '枚</a>' : '')
-          + ' <a href="#" onclick="watchPending(' + rid + ');return false">⏳ キャンセル待ちにする</a>'
+          + (p.watching ? ' <span class="meta">⏳ キャンセル待ち中（同じ部屋を別のサイトで）</span>' : ' <a href="#" onclick="watchPending(' + rid + ');return false">⏳ キャンセル待ちにする</a>')
           + ' <a href="#" class="skip" onclick="skipProp(' + rid + ');return false">見送る</a>'
           + (p.found ? ' <span class="meta">' + esc(p.found) + '見つかった</span>' : '') + '</div>'
           + (x.imgsOf === p.roomId ? '<div class="imgs">' + p.images.map(function (u) { return '<img src="' + esc(u) + '" loading="lazy">'; }).join('') + '</div>' : '')

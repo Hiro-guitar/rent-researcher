@@ -3135,6 +3135,9 @@ function getAvailabilityCheckQueue(options) {
       var sentAtStr = (sentRaw instanceof Date)
         ? Utilities.formatDate(sentRaw, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')
         : String(sentRaw || '');
+      // まだ送っていないキャンセル待ち（O列 watch_only）は D列が空。登録日(J列)を代わりに使う。
+      // ⚠️ 以前はここで飛ばしていて、送っていない物件のキャンセル待ちは一度も確かめていなかった（2026-10-04）。
+      if (!sentAt && sData[j][9]) sentAt = _parseDateFlexible_(sData[j][9]);
       if (!sentAt) { diag.noSentAt++; continue; }
       // ⚠️ 古い物件の足切り（既定60日）は、下の isPriority を見てから行う。
       //   ここで先に切ると、担当者が名指しで「この物件を確認して」と頼んだものまで
@@ -3156,7 +3159,8 @@ function getAvailabilityCheckQueue(options) {
       // 古い物件の足切り。名指しの依頼（優先）は日数で切らない。
       // 自動の巡回で何年も前の物件を見に行かないための制限であって、
       // 人が「これを確認して」と言ったものを断る理由にはならない。
-      if (!isPriority && sentAt < ageCutoff) { diag.tooOld++; continue; }
+      // キャンセル待ち（J列）は担当者が見張ると決めたものなので、日数では切らない。
+      if (!isPriority && !sData[j][9] && sentAt < ageCutoff) { diag.tooOld++; continue; }
 
       // J列: watch_for_cancellation_at (キャンセル通知希望)
       var watchRaw = sData[j][9];

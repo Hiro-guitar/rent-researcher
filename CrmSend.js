@@ -19,11 +19,13 @@ function _crmPendingAll_(crits) {
   //   Discord の承認ページなど別の経路で送ると、承認待ちの行が pending のまま残ることがある。
   //   「送った」の記録は通知済み物件シートに必ず入る（addToSeenSheet）ので、そちらで照らし合わせる。
   var seen = {};
+  var watchRows = [];
   try {
     var ss0 = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SEEN_SHEET_NAME);
     if (ss0 && ss0.getLastRow() > 1) {
-      ss0.getRange(2, 1, ss0.getLastRow() - 1, 2).getValues().forEach(function (r) {
+      ss0.getRange(2, 1, ss0.getLastRow() - 1, 16).getValues().forEach(function (r) {
         seen[String(r[0] || '').trim() + '|' + String(r[1] || '').trim()] = true;
+        if (r[9]) watchRows.push({ name: String(r[0] || '').trim(), buildingName: String(r[2] || ''), roomNumber: String(r[15] || '') });   // J列: キャンセル待ち
       });
     }
   } catch (eSeen) { console.warn('[送る物件] 通知済みを読めません: ' + eSeen.message); }
@@ -46,6 +48,9 @@ function _crmPendingAll_(crits) {
       if (String(data[j][10]) !== 'sent') continue;
       try { var k0 = bkey(String(data[j][0] || '').trim(), rowToProperty(data[j])); if (k0) sentKeys[k0] = true; } catch (_e0) {}
     }
+    // 同じ部屋を別のサイトの番号でキャンセル待ちにしていたら、新着の方にも「キャンセル待ち中」と出す（2回付けないように）
+    var watchKeys = {};
+    watchRows.forEach(function (w) { var kw = bkey(w.name, w); if (kw) watchKeys[kw] = true; });
     var shown = {};
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][10]) !== 'pending') continue;
@@ -69,6 +74,7 @@ function _crmPendingAll_(crits) {
         rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '',
         station: p.stationInfo || '', age: p.buildingAge || '', floor: p.floorText || '',
         image: imgs[0] || '', images: imgs.slice(0, 6), imgCount: imgs.length, edited: edited, url: p.url || '',
+        watching: !!(k && watchKeys[k]),
         warnings: String(warn).split('\n').filter(function (s) { return s; }),
         found: (data[i][11] instanceof Date) ? Utilities.formatDate(data[i][11], 'Asia/Tokyo', 'M/d') : '',
         comment: String(data[i][14] || '')   // O列: 担当者コメント（別の人から引き継いだものも）
