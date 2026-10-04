@@ -124,17 +124,30 @@
 (function () {
   'use strict';
   var KEY = '__reinsStaleReloadAt';
-  function check() {
-    if (window.$nuxt) return;                       // 画面ができている＝正常
-    if (!/system\.reins\.jp\/main\//.test(location.href)) return;
+  // ⚠️ ページごとに古いものが残るので、1回直すときによく使うページもまとめて取り直す（2026-10-04: ログイン画面で再発）
+  var PATHS = ['/login/main/KG/GKG001200', '/main/KG/GKG003100', '/main/BK/GBK001310', '/main/BK/GBK002200', '/main/BK/GBK004100', '/'];
+  var started = false;
+  function heal(why) {
+    if (started || window.$nuxt) return;
     var last = 0;
-    try { last = Number(sessionStorage.getItem(KEY) || 0); } catch (_) {}
-    if (Date.now() - last < 60000) return;          // 1分以内にやり直したばかりなら何もしない
-    try { sessionStorage.setItem(KEY, String(Date.now())); } catch (_) {}
-    console.warn('[reins-polyfill] 画面ができないので、新しい版を取り直して読み込み直します');
-    fetch(location.href, { cache: 'reload', credentials: 'include' })
-      .catch(function () {})
+    try { last = Number(localStorage.getItem(KEY) || 0); } catch (_) {}
+    if (Date.now() - last < 60000) return;          // 1分以内にやり直したばかりなら何もしない（ループ防止）
+    started = true;
+    try { localStorage.setItem(KEY, String(Date.now())); } catch (_) {}
+    console.warn('[reins-polyfill] 古いページが残っています（' + why + '）。新しい版を取り直して読み込み直します');
+    var urls = [location.href].concat(PATHS.map(function (p) { return location.origin + p; }));
+    Promise.all(urls.map(function (u) { return fetch(u, { cache: 'reload', credentials: 'include' }).catch(function () {}); }))
       .then(function () { location.reload(); });
   }
-  window.addEventListener('load', function () { (window.__origSetTimeoutForReins || window.setTimeout)(check, 8000); });
+  // 部品ファイル（app_*.js / chunk_*.js）が読めなかったら、すぐ直す
+  window.addEventListener('error', function (ev) {
+    var t = ev && ev.target;
+    if (t && t.tagName === 'SCRIPT' && /\/app\/js\/(app|chunk)_/.test(t.src || '')) heal('部品ファイルが読めない');
+  }, true);
+  // 念のため: 8秒たっても画面ができていなければ直す（REINSのどのページでも）
+  window.addEventListener('load', function () {
+    (window.__origSetTimeoutForReins || window.setTimeout)(function () {
+      if (!window.$nuxt && /system\.reins\.jp\//.test(location.href) && document.querySelector('script[src*="/app/js/app_"]')) heal('画面ができない');
+    }, 8000);
+  });
 })();
