@@ -100,11 +100,20 @@
   .crit { display: flex; flex-direction: column; gap: 4px; }
   .prop { display: grid; grid-template-columns: 22px 72px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--hair); }
   .prop.on { background: var(--green-soft); }
-  .prop img, .prop .noimg { width: 72px; height: 54px; object-fit: cover; border-radius: 4px; background: var(--bg); }
+  .prop img, .prop .noimg { width: 72px; height: 54px; object-fit: contain; border-radius: 4px; background: #fff; cursor: zoom-in; }   /* 間取り図が見切れないよう全体を出す */
   .prop .pt { font-weight: 700; font-size: 13px; }
   .prop .warn { font-size: 12px; color: #b3541e; }
   .prop .cmt { font-size: 12px; margin-top: 2px; }
-  .prop.sent { grid-template-columns: 72px 1fr; }
+  .prop.sent, .prop.nopick { grid-template-columns: 72px 1fr; }
+  .prop .pl { font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; align-items: center; }
+  .prop .pl label { display: inline-flex; gap: 3px; align-items: center; }
+  .prop .cmt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ptabs { display: flex; gap: 4px; position: sticky; top: -12px; background: var(--surface); padding: 4px 0 6px; z-index: 2; border-bottom: 1px solid var(--hair); }
+  .ptab { flex: 1; padding: 6px 2px; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .ptab b { font-weight: 700; }
+  .ptab.on { border-color: var(--green); background: var(--green-soft); color: var(--green); }
+  .sendbox { position: sticky; bottom: -12px; background: var(--surface); border-top: 1px solid var(--hair); padding: 8px 0 12px; margin-top: 8px; z-index: 2; }
+  .memo.small { min-height: 64px; }
   .watch { border: 1px solid var(--hair); border-radius: 8px; padding: 8px 10px; margin-top: 6px; }
   .watch.open { border-color: var(--red); background: var(--red-soft); }
   /* リンクは既定の青・紫だと暗い背景で読めないので、ページ全体で緑にそろえる */
@@ -443,6 +452,7 @@
     loadExtra(name);
     render();
     prefetchFor(name);
+    loadLists(name);
     if (window.innerWidth < 860) document.getElementById('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -751,86 +761,114 @@
     { label: '様子を聞く', text: '{宛名}その後、お部屋探しの状況はいかがでしょうか。\nもう少しこういうお部屋がいい、などございましたら、お気軽にお知らせください。' },
     { label: '電話の打診', text: '{宛名}お探しのご条件の詳細をいただきありがとうございます。\n\n担当の西村と申します。\nいただいておりますご条件を拝見しまして、お電話で5分程度お話をお伺いすることは可能でしょうか。\n\n少しでもご希望に合った物件をお送りするために、もしよろしければご対応をいただけますと幸いです。\n何卒、よろしくお願いいたします。' }
   ];
+  // ── 送る物件の列: タブ（新着・送った・見送った・キャンセル待ち）＋下に送る欄 ──
+  // どのタブで選んだ物件も、下の「LINEで送る」でまとめて送る（送った＝送り直し、見送った＝やっぱり送る）。
+  var listCache = {};   // 顧客名 → { sent:[], skipped:[] } または 'loading'
+  function loadLists(name) {
+    if (listCache[name] === 'loading') return;
+    listCache[name] = 'loading';
+    google.script.run
+      .withSuccessHandler(function (l) { listCache[name] = l; if (selName === name) render(); })
+      .withFailureHandler(function (e) { delete listCache[name]; toast('送った物件を読めませんでした: ' + e.message); })
+      .getCrmPropLists(name);
+  }
+  function setTab(t) { extras[selName].tab = t; render(); }
+  function propRow(p, kind, c, x, watching) {
+    var rid = esc(JSON.stringify(p.roomId));
+    var canPick = c.lineUid && kind !== 'watch';
+    var on = !!x.pick[p.roomId];
+    var tags = '';
+    if (kind === 'sent') tags += ' <span class="meta">' + esc(p.sentAt) + '送った</span>';
+    if (kind === 'skip') tags += ' <span class="meta">' + esc(p.at) + '見送った</span>';
+    if (p.closed) tags += ' <span class="endtag">募集終了</span>';
+    if (watching[p.roomId] || p.watching) tags += ' <span class="meta">⏳キャンセル待ち中</span>';
+    var links = [];
+    if (p.url) links.push('<a target="_blank" href="' + esc(p.url) + '">元のページ</a>');
+    if (kind === 'new') {
+      links.push('<a href="#" onclick="openEdit(' + rid + ');return false">詳しく確かめる・直す</a>');
+      if (p.edited) links.push('<span class="meta">直した写真' + p.imgCount + '枚</span>');
+      if (!p.watching) links.push('<a href="#" onclick="watchPending(' + rid + ');return false">⏳キャンセル待ち</a>');
+      links.push('<a href="#" class="skip" onclick="skipProp(' + rid + ');return false">見送る</a>');
+      if (p.found) links.push('<span class="meta">' + esc(p.found) + '見つかった</span>');
+    } else if (kind === 'sent') {
+      links.push('<a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a>');
+      if (!watching[p.roomId]) links.push('<a href="#" onclick="setWatch(' + rid + ',true);return false">⏳キャンセル待ち</a>');
+      if (p.closed === 'manual') links.push('<a href="#" class="skip" onclick="setClosed(' + rid + ',false);return false">募集中に戻す</a>');
+      else if (!p.closed) links.push('<a href="#" class="skip" onclick="setClosed(' + rid + ',true);return false">募集終了にする</a>');
+      if (c.family && c.family.length) links.push('<label class="meta"><input type="checkbox"' + (x.famPick[p.roomId] ? ' checked' : '') + ' onchange="extras[selName].famPick[' + rid + ']=this.checked;render()"> 家族にも</label>');
+    } else if (kind === 'skip') {
+      links.push('<a href="#" onclick="unskipProp(' + rid + ');return false">新着に戻す</a>');
+    }
+    var h = '<div class="prop' + (on ? ' on' : '') + (canPick ? '' : ' nopick') + '">'
+      + (canPick ? '<label class="pk"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="pickProp(' + rid + ',this.checked)"></label>' : '')
+      + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy" onclick="lbOpen(' + esc(JSON.stringify(p.images && p.images.length ? p.images : [p.image])) + ',0)">' : '<div class="noimg"></div>')
+      + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + tags + '</div>'
+      + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area, p.station].filter(Boolean).join('・')) + '</div>'
+      + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
+      + (p.warnings || []).map(function (w) { return '<div class="warn">' + esc(w) + '</div>'; }).join('')
+      + '<div class="pl">' + links.join('') + '</div>';
+    if (kind === 'sent' && x.fwdRoom === p.roomId) {
+      h += '<input class="inp" id="fwdQ" placeholder="送り先の名前で探す" value="' + esc(x.fwdQ || '') + '" oninput="extras[selName].fwdQ=this.value;fillFwdHits()">'
+        + '<div id="fwdHits">' + fwdHitsHtml(c, p.roomId) + '</div>';
+    }
+    return h + '</div></div>';
+  }
   function sendHtml(c) {
     var x = extras[c.name];
-    x.pick = x.pick || {};
+    x.pick = x.pick || {}; x.famPick = x.famPick || {};
     if (x.msgDraft === undefined) x.msgDraft = '';
-    var h = '<div class="sec">送る物件' + (c.pending && c.pending.length ? '（新着 ' + c.pending.length + '件）' : '') + '</div>';
-    if (c.pending && c.pending.length) {
-      h += c.pending.map(function (p) {
-        var rid = esc(JSON.stringify(p.roomId));
-        var on = !!x.pick[p.roomId];
-        return '<div class="prop' + (on ? ' on' : '') + '">'
-          + '<label class="pk"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="pickProp(' + rid + ',this.checked)"></label>'
-          + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy">' : '<div class="noimg"></div>')
-          + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + '</div>'
-          + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area, p.age, p.floor].filter(Boolean).join('・')) + '</div>'
-          + (p.station ? '<div class="meta">' + esc(p.station) + '</div>' : '')
-          + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
-          + (p.warnings || []).map(function (w) { return '<div class="warn">' + esc(w) + '</div>'; }).join('')
-          + '<div class="pl">' + (p.url ? '<a target="_blank" href="' + esc(p.url) + '">元のページで確かめる</a>' : '')
-          + ' <a href="#" onclick="openEdit(' + rid + ');return false">詳しく確かめる・直す</a>'
-          + (p.edited ? ' <span class="meta">（直した写真' + p.imgCount + '枚）</span>' : '')
-          + (p.images && p.images.length > 1 ? ' <a href="#" onclick="showImgs(' + rid + ');return false">写真' + p.images.length + '枚</a>' : '')
-          + (p.watching ? ' <span class="meta">⏳ キャンセル待ち中</span>' : ' <a href="#" onclick="watchPending(' + rid + ');return false">⏳ キャンセル待ちにする</a>')
-          + ' <a href="#" class="skip" onclick="skipProp(' + rid + ');return false">見送る</a>'
-          + (p.found ? ' <span class="meta">' + esc(p.found) + '見つかった</span>' : '') + '</div>'
-          + (x.imgsOf === p.roomId ? '<div class="imgs">' + p.images.map(function (u) { return '<img src="' + esc(u) + '" loading="lazy">'; }).join('') + '</div>' : '')
-          + '</div></div>';
-      }).join('');
+    var tab = x.tab || 'new';
+    var L = listCache[c.name];
+    if (!L) { loadLists(c.name); L = 'loading'; }
+    var sent = L === 'loading' ? null : L.sent, skipped = L === 'loading' ? null : L.skipped;
+    var watching = {}; (c.watch || []).forEach(function (w) { watching[w.roomId] = true; });
+    var cnt = function (a) { return a ? a.length : '…'; };
+    var T = [['new', '新着', (c.pending || []).length], ['sent', '送った', cnt(sent)], ['skip', '見送った', cnt(skipped)], ['watch', '⏳待ち', (c.watch || []).length]];
+    var h = '<div class="ptabs">' + T.map(function (t) {
+      return '<button class="ptab' + (tab === t[0] ? ' on' : '') + '" onclick="setTab(\'' + t[0] + '\')">' + t[1] + ' <b>' + t[2] + '</b></button>';
+    }).join('') + '</div><div class="plist">';
+    if (tab === 'new') {
+      h += (c.pending || []).length ? c.pending.map(function (p) { return propRow(p, 'new', c, x, watching); }).join('') : '<div class="meta">今送れる新着はありません</div>';
+    } else if (tab === 'sent' || tab === 'skip') {
+      var list = tab === 'sent' ? sent : skipped;
+      if (!list) h += '<div class="meta">読み込み中…</div>';
+      else if (!list.length) h += '<div class="meta">' + (tab === 'sent' ? 'まだ送った物件はありません' : '見送った物件はありません') + '</div>';
+      else {
+        if (tab === 'sent' && c.family && c.family.length) {
+          var nf = Object.keys(x.famPick).filter(function (k) { return x.famPick[k]; }).length;
+          h += '<div class="acts"><button class="btn save line" onclick="sendToFamily()">「家族にも」の物件を家族に送る' + (nf ? '（' + nf + '件）' : '') + '</button></div>'
+            + '<div class="meta">家族（' + c.family.map(function (f) { return esc(f.disp); }).join('・') + '）にだけ送ります。コメントもそのまま。</div>';
+        }
+        h += list.map(function (p) { return propRow(p, tab, c, x, watching); }).join('');
+      }
     } else {
-      h += '<div class="meta">今送れる新着はありません</div>';
+      h += watchHtml(c) || '<div class="meta">キャンセル待ちの物件はありません</div>';
     }
-    var n = Object.keys(x.pick).filter(function (k) { return x.pick[k]; }).length;
-    h += '<div class="sec">スタッフの一言（物件のあとに、普通の文で届きます）</div><div class="opts">'
-      + TEMPLATES.map(function (t, i) { return '<button class="opt" onclick="useTemplate(' + i + ')">' + esc(t.label) + '</button>'; }).join('') + '</div>'
-      + '<textarea id="msg" class="memo" oninput="extras[selName].msgDraft=this.value">' + esc(x.msgDraft) + '</textarea>';
+    h += '</div>';
+    // 下の送る欄（タブを切り替えても選んだ物件は残る）
+    var ids = Object.keys(x.pick).filter(function (k) { return x.pick[k]; });
+    var kindOf = {};
+    (c.pending || []).forEach(function (p) { kindOf[p.roomId] = '新着'; });
+    (sent || []).forEach(function (p) { if (!kindOf[p.roomId]) kindOf[p.roomId] = '送り直し'; });
+    (skipped || []).forEach(function (p) { if (!kindOf[p.roomId]) kindOf[p.roomId] = '見送った'; });
+    var by = {}; ids.forEach(function (k) { var kk = kindOf[k] || 'その他'; by[kk] = (by[kk] || 0) + 1; });
+    h += '<div class="sendbox"><div class="meta">' + (ids.length ? '選んだ物件 ' + ids.length + '件（' + Object.keys(by).map(function (k) { return k + by[k]; }).join('・') + '） <a href="#" class="skip" onclick="extras[selName].pick={};render();return false">選ぶのをやめる</a>' : '物件は選んでいません（一言だけでも送れます）') + '</div>'
+      + '<div class="opts">' + TEMPLATES.map(function (t, i) { return '<button class="opt" onclick="useTemplate(' + i + ')">' + esc(t.label) + '</button>'; }).join('') + '</div>'
+      + '<textarea id="msg" class="memo small" placeholder="スタッフの一言（物件のあとに、普通の文で届きます）" oninput="extras[selName].msgDraft=this.value">' + esc(x.msgDraft) + '</textarea>';
     if (c.lineUid) {
-      h += '<div class="acts"><button class="btn save line" onclick="sendNow()">' + (x.sending ? '送信中…' : 'LINEで送る' + (n ? '（物件' + n + '件' + (x.msgDraft ? '＋一言' : '') + '）' : '')) + '</button>'
+      h += '<div class="acts"><button class="btn save line" onclick="sendNow()">' + (x.sending ? '送信中…' : 'LINEで送る' + (ids.length ? '（物件' + ids.length + '件' + (x.msgDraft ? '＋一言' : '') + '）' : '')) + '</button>'
         + '<button class="btn" onclick="copyMsg()">一言をコピーしてLINE Chatで</button></div>';
     } else {
       h += '<div class="meta">LINEがつながっていないので、ここからは送れません。</div>';
     }
-    h += watchHtml(c);
-    h += sentHtml(c);
-    return h;
+    return h + '</div>';
+  }
+  function unskipProp(rid) {
+    var name = selName;
+    call('unskipCrmProperty', [name, rid], '新着に戻しました');
+    delete listCache[name];
   }
 
-  // ── 送った物件を、コメントごと別のお客様の新着に入れる ──
-  var sentCache = {};   // 顧客名 → 送った物件の一覧（押したときに取りに行く）
-  function sentHtml(c) {
-    var x = extras[c.name];
-    var h = '<div class="sec">送った物件（最近）</div>';
-    if (!x.sentOpen) return h + '<button class="btn" onclick="openSent()">送った物件を並べる</button>';
-    var list = sentCache[c.name];
-    if (list === 'loading' || !list) return h + '<div class="meta">読み込み中…</div>';
-    if (!list.length) return h + '<div class="meta">まだ送った物件はありません</div>';
-    var hasFam = c.family && c.family.length;
-    var watching = {}; (c.watch || []).forEach(function (w) { watching[w.roomId] = true; });
-    x.famPick = x.famPick || {};
-    var nf = Object.keys(x.famPick).filter(function (k) { return x.famPick[k]; }).length;
-    var famBtn = hasFam ? '<div class="acts"><button class="btn save line" onclick="sendToFamily()">選んだ物件を家族にも送る' + (nf ? '（' + nf + '件）' : '') + '</button></div>'
-      + '<div class="meta">家族（' + c.family.map(function (f) { return esc(f.disp); }).join('・') + '）にだけ送ります。コメントもそのまま。</div>' : '';
-    return h + famBtn + list.map(function (p) {
-      var rid = esc(JSON.stringify(p.roomId));
-      var h2 = '<div class="prop sent">'
-        + (hasFam ? '<label class="pk" style="grid-column:1/-1"><input type="checkbox"' + (x.famPick[p.roomId] ? ' checked' : '') + ' onchange="extras[selName].famPick[' + rid + ']=this.checked;render()"> 家族にも送る</label>' : '')
-        + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy">' : '<div class="noimg"></div>')
-        + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + ' <span class="meta">' + esc(p.sentAt) + '送った</span>'
-        + (p.closed ? ' <span class="endtag">募集終了</span>' : '') + '</div>'
-        + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area].filter(Boolean).join('・')) + '</div>'
-        + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
-        + '<div class="pl"><a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a> '
-        + (watching[p.roomId] ? '<span class="meta">⏳ キャンセル待ち中</span>' : '<a href="#" onclick="setWatch(' + rid + ',true);return false">⏳ キャンセル待ちにする</a>')
-        + (p.closed === 'manual' ? ' <a href="#" class="skip" onclick="setClosed(' + rid + ',false);return false">募集中に戻す</a>'
-          : p.closed ? '' : ' <a href="#" class="skip" onclick="setClosed(' + rid + ',true);return false">募集終了にする</a>') + '</div>';
-      if (x.fwdRoom === p.roomId) {
-        h2 += '<input class="inp" id="fwdQ" placeholder="送り先の名前で探す" value="' + esc(x.fwdQ || '') + '" oninput="extras[selName].fwdQ=this.value;fillFwdHits()">'
-          + '<div id="fwdHits">' + fwdHitsHtml(c, p.roomId) + '</div>';
-      }
-      return h2 + '</div></div>';
-    }).join('');
-  }
   function sendToFamily() {
     var name = selName, x = extras[name];
     var ids = Object.keys(x.famPick || {}).filter(function (k) { return x.famPick[k]; });
@@ -851,12 +889,6 @@
     }).join('') || '<div class="meta">見つかりません</div>';
   }
   function fillFwdHits() { var c = curCust(), el = document.getElementById('fwdHits'); if (c && el) el.innerHTML = fwdHitsHtml(c, extras[c.name].fwdRoom); }
-  function openSent() {
-    var name = selName; extras[name].sentOpen = true; sentCache[name] = 'loading'; render();
-    google.script.run.withSuccessHandler(function (l) { sentCache[name] = l; render(); })
-      .withFailureHandler(function (e) { sentCache[name] = []; render(); toast(e.message); })
-      .getCrmSentProps(name);
-  }
   function forwardOpen(rid) { var x = extras[selName]; x.fwdRoom = (x.fwdRoom === rid) ? '' : rid; x.fwdQ = ''; render(); }
   function forwardTo(rid, toName) {
     var from = selName;
@@ -886,7 +918,7 @@
   function watchHtml(c) {
     var list = (c.watch || []).slice().sort(function (a, b) { return (b.status === 'available') - (a.status === 'available'); });
     if (!list.length) return '';
-    return '<div class="sec">⏳ キャンセル待ち（' + list.length + '件）</div>' + list.map(function (w) {
+    return list.map(function (w) {
       var rid = esc(JSON.stringify(w.roomId));
       var open = w.status === 'available';
       return '<div class="watch' + (open ? ' open' : '') + '"><div class="pt">' + esc(w.building) + (w.room ? ' ' + esc(w.room) : '')
@@ -903,7 +935,7 @@
     if (closed && !confirm('この物件を募集終了にします。お客様の物件ページと地図に「募集終了」と出ます（LINEは送りません）。よろしいですか？')) return;
     toast('保存しています…');
     google.script.run
-      .withSuccessHandler(function (r) { sentCache[name] = r.list; render(); toast(r.message); })
+      .withSuccessHandler(function (r) { if (listCache[name] && listCache[name] !== 'loading') listCache[name].sent = r.list; render(); toast(r.message); })
       .withFailureHandler(function (e) { toast('保存できませんでした: ' + e.message); })
       .setCrmClosed(name, rid, closed);
   }
@@ -914,7 +946,7 @@
     if (!confirm((w ? w.building + (w.room ? ' ' + w.room : '') : 'この物件') + ' を ' + name + ' さんにLINEで送ります。よろしいですか？')) return;
     call('sendCrmProperties', [name, [rid], ''], '送りました');
   }
-  function skipProp(rid) { call('skipCrmProperty', [selName, rid], '見送りました'); }
+  function skipProp(rid) { var name = selName; delete extras[name].pick[rid]; call('skipCrmProperty', [name, rid], '見送りました'); delete listCache[name]; }
   function sendNow() {
     var name = selName, x = extras[name];
     var ids = Object.keys(x.pick).filter(function (k) { return x.pick[k]; });
@@ -924,7 +956,7 @@
     if (!confirm((ids.length ? '物件' + ids.length + '件' : '') + (ids.length && text ? 'と' : '') + (text ? '一言' : '') + 'を、' + name + ' さんにLINEで送ります。よろしいですか？')) return;
     x.sending = true; render();
     google.script.run
-      .withSuccessHandler(function (d) { x.sending = false; x.pick = {}; x.msgDraft = ''; data = d; askNext = name; render(); toast(d.savedMessage || '送りました'); })
+      .withSuccessHandler(function (d) { x.sending = false; x.pick = {}; x.msgDraft = ''; data = d; askNext = name; delete listCache[name]; render(); toast(d.savedMessage || '送りました'); })
       .withFailureHandler(function (e) { x.sending = false; render(); toast('送れませんでした: ' + e.message); })
       .sendCrmProperties(name, ids, text);
   }

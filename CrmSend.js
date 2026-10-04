@@ -104,6 +104,16 @@ function sendCrmProperties(customerName, roomIds, text) {
     if (!rows.length) throw new Error('選んだ物件が見つかりません（すでに片付けられた可能性があります）');
     var stations = _getCustomerSelectedStations_(customerName);
     var bubbles = [];
+    // 同じ物件の行が複数（新着・送った・見送った）あっても1枚だけ送る。新着→送った→それ以外の順で選ぶ
+    var rank = { pending: 0, sent: 1 };
+    var best = {};
+    rows.forEach(function (r) {
+      var k = String(r.values[2]);
+      var cur = best[k];
+      var rr = rank[String(r.values[10])] !== undefined ? rank[String(r.values[10])] : 2;
+      if (!cur || rr < cur.rr) best[k] = { r: r, rr: rr };
+    });
+    rows = roomIds.map(function (k) { return best[String(k)] && best[String(k)].r; }).filter(Boolean);
     rows.forEach(function (r) {
       var prop = rowToProperty(r.values);
       var rid = String(r.values[2]);
@@ -129,7 +139,7 @@ function sendCrmProperties(customerName, roomIds, text) {
 
   sentTargets.forEach(function (t) {
     updatePendingStatus(t.rowIndex, 'sent', t.viewUrl);
-    addToSeenSheet(customerName, t.prop);
+    _crmMarkSeen_(customerName, t.prop);
   });
   addContactLog(customerName, 'LINE', new Date().toISOString(),
     (sentTargets.length ? '物件' + sentTargets.length + '件' : '') + (sentTargets.length && text ? '＋' : '') + (text ? '一言: ' + text.substring(0, 60) : ''));
@@ -177,10 +187,10 @@ function getCrmSentProps(customerName) {
     var ms = _cellToEpochMs_(data[i][12]);
     out.push({ roomId: String(data[i][2] || ''), building: p.buildingName || '', room: p.roomNumber || '',
       rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '', station: p.stationInfo || '',
-      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, closed: closedBy[String(data[i][2] || '').trim()] || '',
+      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, closed: closedBy[String(data[i][2] || '').trim()] || '', url: p.url || '',
       sentAt: ms ? Utilities.formatDate(new Date(ms), 'Asia/Tokyo', 'M/d') : '' });
   }
-  return out.sort(function (a, b) { return b.ms - a.ms; }).slice(0, 20);
+  return out.sort(function (a, b) { return b.ms - a.ms; }).slice(0, 60);
 }
 
 /**
@@ -394,4 +404,65 @@ function setCrmClosed(customerName, roomId, closed) {
   var r = setManualClosed(customerName, roomId, !!closed);
   if (!r.ok) throw new Error(r.message);
   return { list: getCrmSentProps(customerName), message: r.message };
+}
+
+/**
+ * 送った記録（通知済み物件シート）を付ける。もう行があれば送った日だけ新しくする。
+ * ⚠️ 送り直し・見送った物件をやっぱり送るときに addToSeenSheet をそのまま呼ぶと、同じ物件の行が増える。
+ */
+function _crmMarkSeen_(customerName, prop) {
+  try {
+    var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(SEEN_SHEET_NAME);
+    if (sh && sh.getLastRow() > 1) {
+      var keys = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+      for (var i = 0; i < keys.length; i++) {
+        if (String(keys[i][0]).trim() === customerName && String(keys[i][1]).trim() === String(prop.roomId)) {
+          var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+          sh.getRange(i + 2, 4).setValue(now);                                         // D列: 送った日
+          if (String(sh.getRange(i + 2, 15).getValue()) === 'watch_only') sh.getRange(i + 2, 15).setValue('');   // もう「送っていない」ではない
+          return;
+        }
+      }
+    }
+  } catch (e) { console.warn('[送った記録] ' + e.message); }
+  addToSeenSheet(customerName, prop);
+}
+
+/** 画面: 見送った物件の一覧（新しい順・60件まで）。 */
+function getCrmSkippedProps(customerName) {
+  var out = [];
+  var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
+  if (!sh || sh.getLastRow() < 2) return out;
+  var data = sh.getRange(2, 1, sh.getLastRow() - 1, 15).getValues();
+  var seenRid = {};
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0] || '').trim() !== customerName || String(data[i][10]) !== 'skipped') continue;
+    var rid = String(data[i][2] || '');
+    var p; try { p = rowToProperty(data[i]); } catch (e) { continue; }
+    var imgs = (p.selectedImageUrls && p.selectedImageUrls.length) ? p.selectedImageUrls : (p.imageUrls || []);
+    var ms = _cellToEpochMs_(data[i][12]);
+    out.push({ roomId: rid, building: p.buildingName || '', room: p.roomNumber || '',
+      rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '', station: p.stationInfo || '',
+      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, url: p.url || '',
+      at: ms ? Utilities.formatDate(new Date(ms), 'Asia/Tokyo', 'M/d') : '' });
+  }
+  return out.sort(function (a, b) { return b.ms - a.ms; }).filter(function (x) {
+    if (seenRid[x.roomId]) return false; seenRid[x.roomId] = true; return true;
+  }).slice(0, 60);
+}
+
+/** 画面: 送った・見送ったの一覧をまとめて取る（お客様を選んだときに裏で取って、タブの件数を出す）。 */
+function getCrmPropLists(customerName) {
+  return { sent: getCrmSentProps(customerName), skipped: getCrmSkippedProps(customerName) };
+}
+
+/** 画面: 見送った物件を新着に戻す。 */
+function unskipCrmProperty(customerName, roomId) {
+  var rows = _findRowsByRoomIdsAnyStatus_(customerName, [roomId]);
+  var n = 0;
+  rows.forEach(function (r) { if (String(r.values[10]) === 'skipped') { updatePendingStatus(r.rowIndex, 'pending', ''); n++; } });
+  if (!n) throw new Error('見送った物件が見つかりません');
+  var page = _crmTreeForPage_();
+  page.savedMessage = '新着に戻しました';
+  return page;
 }
