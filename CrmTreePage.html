@@ -453,7 +453,7 @@
     loadExtra(name);
     render();
     prefetchFor(name);
-    loadLists(name);
+    if (!listCache[name] && !prefetching) loadLists(name);   // 取ってあれば取り直さない
     if (window.innerWidth < 860) document.getElementById('panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -773,6 +773,21 @@
       .withFailureHandler(function (e) { delete listCache[name]; toast('送った物件を読めませんでした: ' + e.message); })
       .getCrmPropLists(name);
   }
+  // ページを開いたら、全員分の「送った・見送った」を裏で1回だけ取っておく（名前を押したら一瞬で出す）
+  var prefetching = false;
+  function prefetchAllLists() {
+    var names = data.customers.filter(function (c) { return c.stageId !== 'ended' && c.stageId !== 'won' && !c.lineOnly; }).map(function (c) { return c.name; });
+    prefetching = true;
+    google.script.run
+      .withSuccessHandler(function (all) {
+        prefetching = false;
+        names.forEach(function (n) { if (!listCache[n] || listCache[n] === 'loading') listCache[n] = (all && all[n]) || { sent: [], skipped: [] }; });
+        if (selName) render();
+      })
+      .withFailureHandler(function () { prefetching = false; if (selName) render(); })
+      .getCrmPropListsAll(names);
+  }
+  setTimeout(prefetchAllLists, 300);
   function setTab(t) { extras[selName].tab = t; render(); }
   function propRow(p, kind, c, x, watching) {
     var rid = esc(JSON.stringify(p.roomId));
@@ -820,7 +835,7 @@
     if (x.msgDraft === undefined) x.msgDraft = '';
     var tab = x.tab || 'new';
     var L = listCache[c.name];
-    if (!L) { loadLists(c.name); L = 'loading'; }
+    if (!L) { if (!prefetching) loadLists(c.name); L = 'loading'; }   // 全員分を取りに行っている最中なら待つ
     var sent = L === 'loading' ? null : L.sent, skipped = L === 'loading' ? null : L.skipped;
     var watching = {}; (c.watch || []).forEach(function (w) { watching[w.roomId] = true; });
     var cnt = function (a) { return a ? a.length : '…'; };

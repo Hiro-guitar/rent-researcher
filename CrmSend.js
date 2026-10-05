@@ -454,7 +454,8 @@ function getCrmSkippedProps(customerName) {
 
 /** 画面: 送った・見送ったの一覧をまとめて取る（お客様を選んだときに裏で取って、タブの件数を出す）。 */
 function getCrmPropLists(customerName) {
-  return { sent: getCrmSentProps(customerName), skipped: getCrmSkippedProps(customerName) };
+  var o = {}; o[customerName] = true;
+  return _crmPropListsFor_(o)[customerName] || { sent: [], skipped: [] };
 }
 
 /** 画面: 見送った物件を新着に戻す。 */
@@ -466,4 +467,58 @@ function unskipCrmProperty(customerName, roomId) {
   var page = _crmTreeForPage_(customerName);
   page.savedMessage = '新着に戻しました';
   return page;
+}
+
+/**
+ * 画面: 送った・見送ったの一覧を、全員分まとめて1回で取る（ページを開いたあと裏で取っておき、名前を押したら一瞬で出す）。
+ * シートは承認待ち・通知済みを1回ずつ読むだけ。終了・成約の人は除く。
+ */
+function getCrmPropListsAll(nameList) {
+  var names = {};
+  (nameList || []).forEach(function (n) { names[String(n)] = true; });
+  return _crmPropListsFor_(names);
+}
+
+function _crmPropListsFor_(names) {
+  var out = {};
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var closedBy = {};
+  try {
+    var seenSh = ss.getSheetByName(SEEN_SHEET_NAME);
+    if (seenSh && seenSh.getLastRow() > 1) {
+      seenSh.getRange(2, 1, seenSh.getLastRow() - 1, 14).getValues().forEach(function (r) {
+        var n = String(r[0] || '').trim();
+        if (!names[n]) return;
+        var k = n + '|' + String(r[1] || '').trim();
+        if (String(r[13] || '') === 'closed') closedBy[k] = 'manual';
+        else if (String(r[5] || '') === 'closed' && !closedBy[k]) closedBy[k] = 'auto';
+      });
+    }
+  } catch (eC) {}
+  var sh = ss.getSheetByName(PENDING_SHEET_NAME);
+  if (!sh || sh.getLastRow() < 2) return out;
+  var data = sh.getRange(2, 1, sh.getLastRow() - 1, 15).getValues();
+  for (var i = 0; i < data.length; i++) {
+    var n = String(data[i][0] || '').trim();
+    if (!names[n]) continue;
+    var st = String(data[i][10]);
+    if (st !== 'sent' && st !== 'skipped') continue;
+    var p; try { p = rowToProperty(data[i]); } catch (e) { continue; }
+    var rid = String(data[i][2] || '');
+    var imgs = (p.selectedImageUrls && p.selectedImageUrls.length) ? p.selectedImageUrls : (p.imageUrls || []);
+    var ms = _cellToEpochMs_(data[i][12]);
+    var day = ms ? Utilities.formatDate(new Date(ms), 'Asia/Tokyo', 'M/d') : '';
+    var item = { roomId: rid, building: p.buildingName || '', room: p.roomNumber || '',
+      rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '', station: p.stationInfo || '',
+      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, url: p.url || '' };
+    var o = out[n] = out[n] || { sent: [], skipped: [] };
+    if (st === 'sent') { item.sentAt = day; item.closed = closedBy[n + '|' + rid] || ''; o.sent.push(item); }
+    else { item.at = day; o.skipped.push(item); }
+  }
+  var uniq = function (list) {
+    var seen = {};
+    return list.sort(function (a, b) { return b.ms - a.ms; }).filter(function (x) { if (seen[x.roomId]) return false; seen[x.roomId] = true; return true; }).slice(0, 60);
+  };
+  Object.keys(out).forEach(function (n) { out[n].sent = uniq(out[n].sent); out[n].skipped = uniq(out[n].skipped); });
+  return out;
 }
