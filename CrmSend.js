@@ -149,6 +149,16 @@ function sendCrmProperties(customerName, roomIds, text) {
   return page;
 }
 
+/** 画面: 選んだ新着をまとめて見送る。 */
+function skipCrmProperties(customerName, roomIds) {
+  var rows = _findRowsByRoomIdsAnyStatus_(customerName, roomIds || []);
+  var n = 0;
+  rows.forEach(function (r) { if (String(r.values[10]) === 'pending') { updatePendingStatus(r.rowIndex, 'skipped', ''); n++; } });
+  var page = _crmTreeForPage_(customerName);
+  page.savedMessage = (roomIds || []).length + '件を見送りました';
+  return page;
+}
+
 /** 画面: 承認待ちの物件を見送る（送らない）。 */
 function skipCrmProperty(customerName, roomId) {
   var rows = _findRowsByRoomIdsAnyStatus_(customerName, [roomId]);

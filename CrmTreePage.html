@@ -803,7 +803,7 @@
   function setTab(t) { extras[selName].tab = t; render(); }
   function propRow(p, kind, c, x, watching) {
     var rid = esc(JSON.stringify(p.roomId));
-    var canPick = c.lineUid && kind !== 'watch';
+    var canPick = kind !== 'watch' && (c.lineUid || kind === 'new');   // LINEが無くても新着は選べる（まとめて見送るため）
     var on = !!x.pick[p.roomId];
     var tags = '';
     if (kind === 'sent') tags += ' <span class="meta">' + esc(p.sentAt) + '送った</span>';
@@ -856,6 +856,10 @@
       return '<button class="ptab' + (tab === t[0] ? ' on' : '') + '" onclick="setTab(\'' + t[0] + '\')">' + t[1] + ' <b>' + t[2] + '</b></button>';
     }).join('') + '</div><div class="plist">';
     if (tab === 'new') {
+      if ((c.pending || []).length) {
+        var allOn = c.pending.every(function (p) { return x.pick[p.roomId]; });
+        h += '<div class="pl" style="margin:4px 0"><a href="#" onclick="pickAllNew(' + (allOn ? 'false' : 'true') + ');return false">' + (allOn ? '新着を全部外す' : '新着を全部選ぶ') + '</a></div>';
+      }
       h += (c.pending || []).length ? c.pending.map(function (p) { return propRow(p, 'new', c, x, watching); }).join('') : '<div class="meta">今送れる新着はありません</div>';
     } else if (tab === 'sent' || tab === 'skip') {
       var list = tab === 'sent' ? sent : skipped;
@@ -880,7 +884,9 @@
     (sent || []).forEach(function (p) { if (!kindOf[p.roomId]) kindOf[p.roomId] = '送り直し'; });
     (skipped || []).forEach(function (p) { if (!kindOf[p.roomId]) kindOf[p.roomId] = '見送った'; });
     var by = {}; ids.forEach(function (k) { var kk = kindOf[k] || 'その他'; by[kk] = (by[kk] || 0) + 1; });
+    var newPicked = ids.filter(function (k) { return kindOf[k] === '新着'; }).length;
     h += '<div class="sendbox"><div class="meta">' + (ids.length ? '選んだ物件 ' + ids.length + '件（' + Object.keys(by).map(function (k) { return k + by[k]; }).join('・') + '） <a href="#" class="skip" onclick="extras[selName].pick={};render();return false">選ぶのをやめる</a>' : '物件は選んでいません（一言だけでも送れます）') + '</div>'
+      + (newPicked ? '<div class="acts"><button class="btn" onclick="skipPicked()">選んだ新着をまとめて見送る（' + newPicked + '件）</button></div>' : '')
       + '<div class="opts">' + TEMPLATES.map(function (t, i) { return '<button class="opt" onclick="useTemplate(' + i + ')">' + esc(t.label) + '</button>'; }).join('') + '</div>'
       + '<textarea id="msg" class="memo small" placeholder="スタッフの一言（物件のあとに、普通の文で届きます）" oninput="extras[selName].msgDraft=this.value">' + esc(x.msgDraft) + '</textarea>';
     if (c.lineUid) {
@@ -985,6 +991,25 @@
     if (!confirm((w ? w.building + (w.room ? ' ' + w.room : '') : 'この物件') + ' を ' + name + ' さんにLINEで送ります。よろしいですか？')) return;
     delete listCache[name];   // 送ったら一覧を取り直す
     call('sendCrmProperties', [name, [rid], ''], '送りました');
+  }
+  function pickAllNew(on) {
+    var c = curCust(), x = extras[c.name];
+    (c.pending || []).forEach(function (p) { if (on) x.pick[p.roomId] = true; else delete x.pick[p.roomId]; });
+    render();
+  }
+  // 選んだ新着をまとめて見送る（画面からはすぐ消し、保存は裏で）
+  function skipPicked() {
+    var c = curCust(), name = c.name, x = extras[name];
+    var newIds = {}; (c.pending || []).forEach(function (p) { newIds[p.roomId] = true; });
+    var ids = Object.keys(x.pick).filter(function (k) { return x.pick[k] && newIds[k]; });
+    if (!ids.length) return;
+    if (!confirm('選んだ新着 ' + ids.length + '件を見送ります。よろしいですか？（「見送った」タブから新着に戻せます）')) return;
+    ids.forEach(function (k) { delete x.pick[k]; });
+    delete listCache[name];
+    call('skipCrmProperties', [name, ids], ids.length + '件を見送りました', function (cc) {
+      var set = {}; ids.forEach(function (k) { set[k] = true; });
+      cc.pending = (cc.pending || []).filter(function (p) { return !set[p.roomId]; });
+    });
   }
   function skipProp(rid) { var name = selName; delete extras[name].pick[rid]; delete listCache[name]; call('skipCrmProperty', [name, rid], '見送りました', function (c) { c.pending = (c.pending || []).filter(function (p) { return p.roomId !== rid; }); }); }
   function sendNow() {
