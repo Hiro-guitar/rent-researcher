@@ -2798,6 +2798,7 @@ function updatePendingStatus(rowIndex, newStatus, viewUrl) {
   var sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   sheet.getRange(rowIndex, 11).setValue(newStatus);
   sheet.getRange(rowIndex, 13).setValue(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss'));
+  try { _crmTouch_(newStatus === 'sent' ? '物件の送信' : newStatus === 'skipped' ? '物件の見送り' : '物件の状態'); } catch (eT) {}
   if (viewUrl) {
     sheet.getRange(rowIndex, 14).setValue(viewUrl);
   }

@@ -81,6 +81,7 @@ var _DAY_MS_ = 24 * 60 * 60 * 1000;
  */
 function recordLineNeedsReply(userId, text) {
   if (!userId) return;
+  _crmTouch_('LINEの返信');
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sh = ss.getSheetByName(CRM_TREE_REPLY_SHEET);
   if (!sh) {
@@ -590,7 +591,27 @@ function _crmTreeForPage_(only) {
   };
   // 1人分だけ: 画面はその人だけ差し替える（いなくなったら消す。終了で樹形図から外れた人など）
   if (only) return { one: page.customers[0] || null, onlyName: only };
+  page.ver = Date.now();   // この時点までの動きは画面に入っている
   return page;
+}
+
+// ── 「新しい動きがあります」の知らせ ──
+// CRMの外でシートが変わったら、何が・いつ変わったかだけを覚えておく（スクリプトキャッシュ。6時間で消える）。
+// CRMは1分ごとに getCrmVersion で確かめ、ページを開いた後の動きがあれば上に知らせを出す。
+function _crmTouch_(why) {
+  try {
+    var c = CacheService.getScriptCache(), now = Date.now();
+    var w = {};
+    try { w = JSON.parse(c.get('crmWhy') || '{}'); } catch (e0) {}
+    w[why] = now;
+    Object.keys(w).forEach(function (k) { if (now - w[k] > 6 * 3600 * 1000) delete w[k]; });
+    c.putAll({ crmVer: String(now), crmWhy: JSON.stringify(w) }, 21600);
+  } catch (e) {}
+}
+function getCrmVersion() {
+  var c = CacheService.getScriptCache(), w = {};
+  try { w = JSON.parse(c.get('crmWhy') || '{}'); } catch (e) {}
+  return { ver: Number(c.get('crmVer') || 0), whys: w, now: Date.now() };
 }
 
 /** 画面: 1人分だけ取り直す（保存に失敗したとき、画面を今の状態に戻す）。 */

@@ -35,6 +35,7 @@
  * @param {Object} state - 会話状態オブジェクト
  */
 function writeToSheet(userId, state) {
+  try { _crmTouch_('お客様の条件登録・変更'); } catch (eT) {}
   // ⚠️ 引き継ぎは呼び出し側ではなくここでやること (2026-08-16)。
   //   条件変更の経路は6つあり、そのうち1つでも
   //   _carryOverUntouchedCriteria_ を呼び忘れると、触っていない項目

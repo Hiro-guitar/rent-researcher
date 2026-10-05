@@ -3533,6 +3533,7 @@ function handleAddReinsProperty(json) {
     existingIds[dedupKey] = true;
   }
 
+  if (added) { try { _crmTouch_('新着物件'); } catch (eT) {} }
   return ContentService
     .createTextOutput(JSON.stringify({ success: true, added: added, skipped: skipped }))
     .setMimeType(ContentService.MimeType.JSON);
@@ -3901,6 +3902,7 @@ function loadCustomerCriteriaByName(customerName) {
  */
 function processAdminCriteria(customerName, lineUserId, criteria, phone) {
   try {
+    try { _crmTouch_('条件の変更'); } catch (eT) {}
     if (!customerName) {
       return { success: false, message: '顧客名を入力してください。' };
     }
@@ -6268,6 +6270,7 @@ function _getContactLogs_(ss, customerName) {
  */
 function addContactLog(customerName, type, dateStr, memo) {
   try {
+    try { _crmTouch_('対応の記録'); } catch (eT) {}
     var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
     var sheet = ss.getSheetByName(CONTACT_LOG_SHEET_NAME);
     if (!sheet) {

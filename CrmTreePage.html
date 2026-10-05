@@ -160,6 +160,10 @@
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
     background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; display: none; }
   .foot { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  .news { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); background: var(--amber-soft, #fbf0df);
+    border: 1px solid var(--amber, #9a5b12); border-radius: 8px; padding: 4px 6px 4px 10px; }
+  .news[hidden] { display: none; }
+  .news button { font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 6px; border: 0; background: var(--green); color: #fff; cursor: pointer; }
   /* 承認ページを右からスライドで出す（保存だけ。送るのはCRMから） */
   .slide-bg { position: fixed; inset: 0; background: rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 50; }
   .slide-bg.on { opacity: 1; pointer-events: auto; }
@@ -199,6 +203,7 @@
   <header>
     <h1>顧客管理</h1>
     <span class="meta" id="saving"></span>
+    <span class="news" id="news" hidden></span>
     <button class="btn" onclick="reload()">🔄</button>
     <button class="btn save" onclick="openAdd()">＋ お客様を追加</button>
     <button class="btn" onclick="toggleMenu()">☰</button>
@@ -1195,7 +1200,25 @@
 
   // ── 保存は押した順に1つずつ（順番待ちの列）。画面は押した瞬間に変える ──
   // ⚠️ 2つの保存を同時に走らせると、先に押した方が後に終わって上書きすることがある。必ずこの列を通す。
-  var gsQueue = Promise.resolve(), pendingBy = {};
+  var gsQueue = Promise.resolve(), pendingBy = {}, ownWins = [];
+  // ── 「新しい動きがあります」: CRMの外（Discordからの送信・お客様の条件変更・LINEの返信・検索の新着など）で変わったら知らせる ──
+  // 自動では読み直さない（15秒かかり、操作中に表示が入れ替わると押し間違える）。知らせて、押したら読み直す。
+  var seenVer = data.ver || Date.now();
+  function checkNews() {
+    if (document.visibilityState !== 'visible' || savingTotal() > 0) return;
+    google.script.run.withSuccessHandler(function (r) {
+      if (!r || !r.ver || r.ver <= seenVer) return;
+      var off = (r.now || Date.now()) - Date.now();   // サーバーと手元の時計のずれ
+      var mine = function (ms) { var t = ms - off; return ownWins.some(function (w) { return t >= w.s && t <= w.e; }); };
+      var why = Object.keys(r.whys || {}).filter(function (k) { return r.whys[k] > seenVer && !mine(r.whys[k]); });
+      if (!why.length) { seenVer = r.ver; return; }   // 自分で押した分だけだった
+      var el = document.getElementById('news');
+      el.innerHTML = '新しい動きがあります（' + why.map(esc).join('・') + '） <button onclick="reload()">🔄 読み直す</button>';
+      el.hidden = false;
+    }).getCrmVersion();
+  }
+  setInterval(checkNews, 60000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkNews(); });
   function Q() {
     var ok = function () {}, ng = function () {};
     var h = {
@@ -1208,11 +1231,13 @@
         var args = Array.prototype.slice.call(arguments), who = typeof args[0] === 'string' ? args[0] : '';
         pendingBy[who] = (pendingBy[who] || 0) + 1;
         updateSaving();
+        var win = { s: Date.now() - 3000, e: Infinity };   // 自分の保存の時間帯（知らせに出さない）
+        ownWins.push(win);
         gsQueue = gsQueue.then(function () {
           return new Promise(function (done) {
             var r = google.script.run
-              .withSuccessHandler(function (d) { pendingBy[who]--; updateSaving(); try { ok(d); } finally { done(); } })
-              .withFailureHandler(function (e) { pendingBy[who]--; updateSaving(); try { ng(e); } finally { done(); } });
+              .withSuccessHandler(function (d) { pendingBy[who]--; win.e = Date.now() + 3000; updateSaving(); try { ok(d); } finally { done(); } })
+              .withFailureHandler(function (e) { pendingBy[who]--; win.e = Date.now() + 3000; updateSaving(); try { ng(e); } finally { done(); } });
             r[k].apply(r, args);
           });
         });
@@ -1532,7 +1557,7 @@
   function reload() {
     toast('読み込み中…');
     google.script.run
-      .withSuccessHandler(function (d) { applyResult(d); listCache = {}; prefetchAllLists(); render(); toast('最新にしました'); })   // CRMの外（Discord・REINSパネル）で送った分も出す
+      .withSuccessHandler(function (d) { applyResult(d); if (d.ver) seenVer = d.ver; document.getElementById('news').hidden = true; listCache = {}; prefetchAllLists(); render(); toast('最新にしました'); })   // CRMの外（Discord・REINSパネル）で送った分も出す
       .withFailureHandler(function (e) { toast('読み込めませんでした: ' + e.message); })
       .getCrmTreeForPage();
   }
