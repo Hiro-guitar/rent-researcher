@@ -747,12 +747,19 @@
   function removeRoute(rn) { delete critOf(selName).routes[rn]; render(); }
   function openRoute(rn) { var x = extras[selName]; x.critOpenRoute = (x.critOpenRoute === rn) ? '' : rn; render(); }
   function toggleStation(v) { var x = extras[selName]; toggleIn(critOf(selName).routes[x.critOpenRoute], v); render(); }
+  // 押したらすぐ終わったことにして、保存は裏で（順番待ちの列）。フォームは入れた内容のまま。
+  // 保存が終わったとき、そのあと書き換えていなければサーバーの値に入れ替える。失敗したら知らせて、入れた内容は残す。
   function saveCrit(send) {
     var name = selName, x = extras[name];
-    x.critSaving = true; render();
+    var sent = JSON.stringify(x.crit || null);
+    toast(send ? '保存してお客様に送ります（裏で）' : '保存しました');
     Q()
-      .withSuccessHandler(function (d) { x.critSaving = false; x.crit = null; applyResult(d); render(); toast(d.savedMessage || '保存しました'); })
-      .withFailureHandler(function (e) { x.critSaving = false; render(); toast('保存できませんでした: ' + e.message); })
+      .withSuccessHandler(function (d) {
+        if (JSON.stringify(x.crit || null) === sent) x.crit = null;
+        applyResult(d); render();
+        if (send || d.savedMessage) toast(d.savedMessage || '保存しました');
+      })
+      .withFailureHandler(function (e) { toast(name + 'さんの条件を保存できませんでした: ' + e.message + '（入れた内容は残っています。もう一度押してください）'); render(); })
       .saveCrmCriteria(name, x.crit, !!send);
   }
 
