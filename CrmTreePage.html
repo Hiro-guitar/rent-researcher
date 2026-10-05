@@ -1003,7 +1003,6 @@
     var newIds = {}; (c.pending || []).forEach(function (p) { newIds[p.roomId] = true; });
     var ids = Object.keys(x.pick).filter(function (k) { return x.pick[k] && newIds[k]; });
     if (!ids.length) return;
-    if (!confirm('選んだ新着 ' + ids.length + '件を見送ります。よろしいですか？（「見送った」タブから新着に戻せます）')) return;
     ids.forEach(function (k) { delete x.pick[k]; });
     delete listCache[name];
     call('skipCrmProperties', [name, ids], ids.length + '件を見送りました', function (cc) {
