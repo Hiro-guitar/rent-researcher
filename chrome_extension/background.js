@@ -955,15 +955,19 @@ async function fetchWithTimeout(url, options = {}, { timeoutMs = 90000, label = 
 //   スプレッドシートを開くところで50秒待たされる回があり、そのたびに検索全体が止まっていた。
 //   GASは6分まで待てるので120秒待ち、それでもダメなら1回だけやり直す。
 async function fetchCriteria() {
-  try {
-    return await gasGet('get_criteria', {}, 120000);
-  } catch (err) {
-    // タイムアウトと404は、GASのデプロイ中（窓口の切り替え中）に起きる。少し待ってやり直せば通る
-    const msg = String(err && err.message);
-    if (!msg.includes('タイムアウト') && !msg.includes('404')) throw err;
-    await new Promise(r => setTimeout(r, 5000));
-    await setStorageData({ debugLog: '検索条件の取得に時間がかかっています。もう一度取りに行きます…' });
-    return gasGet('get_criteria', {}, 120000);
+  // タイムアウトと404は、GASのデプロイ中（窓口の切り替え中）や、Google側で答えの受け渡しが落ちたときに起きる。
+  // ⚠️ 2026-10-05: GASの中では毎回1〜3秒で終わっているのに、答えが届かず404・時間切れが続いた。
+  //   1回のやり直しでは足りなかったので、間を空けて4回まで取りに行く。
+  const waits = [5000, 15000, 30000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await gasGet('get_criteria', {}, 120000);
+    } catch (err) {
+      const msg = String(err && err.message);
+      if ((!msg.includes('タイムアウト') && !msg.includes('404')) || attempt >= waits.length) throw err;
+      await setStorageData({ debugLog: `検索条件を取れませんでした（${msg}）。${waits[attempt] / 1000}秒後にもう一度取りに行きます…（${attempt + 2}回目）` });
+      await new Promise(r => setTimeout(r, waits[attempt]));
+    }
   }
 }
 async function fetchSeenIds() { return gasGet('get_seen_ids'); }
