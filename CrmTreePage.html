@@ -198,6 +198,7 @@
 <div class="wrap">
   <header>
     <h1>顧客管理</h1>
+    <span class="meta" id="saving"></span>
     <button class="btn" onclick="reload()">🔄</button>
     <button class="btn save" onclick="openAdd()">＋ お客様を追加</button>
     <button class="btn" onclick="toggleMenu()">☰</button>
@@ -744,8 +745,8 @@
   function saveCrit(send) {
     var name = selName, x = extras[name];
     x.critSaving = true; render();
-    google.script.run
-      .withSuccessHandler(function (d) { x.critSaving = false; x.crit = null; data = d; render(); toast(d.savedMessage || '保存しました'); })
+    Q()
+      .withSuccessHandler(function (d) { x.critSaving = false; x.crit = null; applyResult(d); render(); toast(d.savedMessage || '保存しました'); })
       .withFailureHandler(function (e) { x.critSaving = false; render(); toast('保存できませんでした: ' + e.message); })
       .saveCrmCriteria(name, x.crit, !!send);
   }
@@ -875,8 +876,8 @@
     if (!ids.length) { toast('家族にも送る物件にチェックを入れてください'); return; }
     var text = (x.msgDraft || '').trim();
     if (!confirm('物件' + ids.length + '件' + (text ? 'と一言' : '') + 'を、家族のLINEにだけ送ります。よろしいですか？')) return;
-    google.script.run
-      .withSuccessHandler(function (d) { data = d; x.famPick = {}; render(); toast(d.savedMessage || '送りました'); })
+    Q()
+      .withSuccessHandler(function (d) { applyResult(d); x.famPick = {}; render(); toast(d.savedMessage || '送りました'); })
       .withFailureHandler(function (e) { toast('送れませんでした: ' + e.message); })
       .resendCrmToFamily(name, ids, text);
   }
@@ -893,8 +894,8 @@
   function forwardTo(rid, toName) {
     var from = selName;
     if (!confirm(toName + ' さんの新着に入れます（コメントも引き継ぎます）。よろしいですか？')) return;
-    google.script.run
-      .withSuccessHandler(function (d) { data = d; extras[from].fwdRoom = ''; render(); toast(d.savedMessage || '入れました'); })
+    Q()
+      .withSuccessHandler(function (d) { applyResult(d); extras[from].fwdRoom = ''; render(); toast(d.savedMessage || '入れました'); })
       .withFailureHandler(function (e) { toast(e.message); })
       .copyCrmPropertyTo(from, rid, toName);
   }
@@ -934,19 +935,30 @@
     var name = selName;
     if (closed && !confirm('この物件を募集終了にします。お客様の物件ページと地図に「募集終了」と出ます（LINEは送りません）。よろしいですか？')) return;
     toast('保存しています…');
-    google.script.run
+    Q()
       .withSuccessHandler(function (r) { if (listCache[name] && listCache[name] !== 'loading') listCache[name].sent = r.list; render(); toast(r.message); })
       .withFailureHandler(function (e) { toast('保存できませんでした: ' + e.message); })
       .setCrmClosed(name, rid, closed);
   }
-  function setWatch(rid, on) { call('setCrmWatch', [selName, rid, on], on ? 'キャンセル待ちにしました' : 'キャンセル待ちをやめました'); }
-  function watchPending(rid) { call('addCrmWatchFromPending', [selName, rid], 'キャンセル待ちにしました'); }
+  function setWatch(rid, on) {
+    call('setCrmWatch', [selName, rid, on], on ? 'キャンセル待ちにしました' : 'キャンセル待ちをやめました', function (c) {
+      if (on) { var L = listCache[c.name], p = (L && L.sent || []).filter(function (x) { return x.roomId === rid; })[0] || {}; (c.watch = c.watch || []).push({ roomId: rid, building: p.building || '', room: p.room || '', status: '', since: '今' }); }
+      else c.watch = (c.watch || []).filter(function (w) { return w.roomId !== rid; });
+    });
+  }
+  function watchPending(rid) {
+    call('addCrmWatchFromPending', [selName, rid], 'キャンセル待ちにしました', function (c) {
+      var p = (c.pending || []).filter(function (x) { return x.roomId === rid; })[0] || {};
+      c.pending = (c.pending || []).filter(function (x) { return x.roomId !== rid; });
+      (c.watch = c.watch || []).push({ roomId: rid, building: p.building || '', room: p.room || '', status: '', since: '今', watchOnly: true });
+    });
+  }
   function watchSend(rid) {
     var name = selName, w = (data.customers.filter(function (x) { return x.name === name; })[0].watch || []).filter(function (x) { return x.roomId === rid; })[0];
     if (!confirm((w ? w.building + (w.room ? ' ' + w.room : '') : 'この物件') + ' を ' + name + ' さんにLINEで送ります。よろしいですか？')) return;
     call('sendCrmProperties', [name, [rid], ''], '送りました');
   }
-  function skipProp(rid) { var name = selName; delete extras[name].pick[rid]; call('skipCrmProperty', [name, rid], '見送りました'); delete listCache[name]; }
+  function skipProp(rid) { var name = selName; delete extras[name].pick[rid]; delete listCache[name]; call('skipCrmProperty', [name, rid], '見送りました', function (c) { c.pending = (c.pending || []).filter(function (p) { return p.roomId !== rid; }); }); }
   function sendNow() {
     var name = selName, x = extras[name];
     var ids = Object.keys(x.pick).filter(function (k) { return x.pick[k]; });
@@ -955,8 +967,8 @@
     if (savingCount > 0) { toast('直した物件を保存中です。少し待ってから送ってください'); return; }
     if (!confirm((ids.length ? '物件' + ids.length + '件' : '') + (ids.length && text ? 'と' : '') + (text ? '一言' : '') + 'を、' + name + ' さんにLINEで送ります。よろしいですか？')) return;
     x.sending = true; render();
-    google.script.run
-      .withSuccessHandler(function (d) { x.sending = false; x.pick = {}; x.msgDraft = ''; data = d; askNext = name; delete listCache[name]; render(); toast(d.savedMessage || '送りました'); })
+    Q()
+      .withSuccessHandler(function (d) { x.sending = false; x.pick = {}; x.msgDraft = ''; applyResult(d); askNext = name; delete listCache[name]; render(); toast(d.savedMessage || '送りました'); })
       .withFailureHandler(function (e) { x.sending = false; render(); toast('送れませんでした: ' + e.message); })
       .sendCrmProperties(name, ids, text);
   }
@@ -964,7 +976,7 @@
     var name = selName, text = (extras[name].msgDraft || '').trim();
     if (!text) { toast('一言を入れてください'); return; }
     var done = function () {
-      google.script.run.withSuccessHandler(function (d) { data = d; askNext = name; render(); toast('コピーしました。LINE Chat に貼って送ってください（今日の連絡に数えました）'); })
+      Q().withSuccessHandler(function (d) { applyResult(d); askNext = name; render(); toast('コピーしました。LINE Chat に貼って送ってください（今日の連絡に数えました）'); })
         .logCrmManualMessage(name, text);
     };
     try { navigator.clipboard.writeText(text).then(done, function () { var t = document.getElementById('msg'); t.select(); document.execCommand('copy'); done(); }); }
@@ -980,7 +992,7 @@
   function memoSave(name) {
     var x = extras[name]; if (!x || x.memoDraft === x.memo) return;
     var v = x.memoDraft;
-    google.script.run
+    Q()
       .withSuccessHandler(function () { x.memo = v; var st = document.getElementById('memoState'); if (st && selName === name) st.textContent = '保存済み'; })
       .withFailureHandler(function (e) { toast('メモを保存できませんでした: ' + e.message); })
       .saveCrmMemo(name, v);
@@ -1033,8 +1045,8 @@
     if (!a.reviveName && !String(a.name || '').trim()) { toast('名前を入れてください'); return; }
     if (a.route === 'phone' && (MASTER.listings || []).indexOf(a.property) < 0) { toast('電話の反響は、問い合わせの物件を一覧から選んでください'); return; }
     a.saving = true; render();
-    google.script.run
-      .withSuccessHandler(function (d) { data = d; addMode = false; addDraft = null; selName = d.newName || ''; render(); toast(d.savedMessage || '追加しました'); })
+    Q()
+      .withSuccessHandler(function (d) { applyResult(d); addMode = false; addDraft = null; selName = d.newName || ''; render(); toast(d.savedMessage || '追加しました'); })
       .withFailureHandler(function (e) { a.saving = false; render(); toast('追加できませんでした: ' + e.message); })
       .addCrmCustomer({ name: a.name, phone: a.phone, email: a.email, route: a.route, property: a.property, talked: !!a.talked, memo: a.memo, reviveName: a.reviveName });
   }
@@ -1078,8 +1090,8 @@
   }
   function linkFamily(parent, uid, pseudo) {
     if (!confirm('この人を ' + parent + ' さんの家族としてつなぎます。物件と一言は家族にも届くようになります。よろしいですか？')) return;
-    google.script.run
-      .withSuccessHandler(function (d) { data = d; selName = d.newName || parent; render(); toast(d.savedMessage || 'つなぎました'); })
+    Q()
+      .withSuccessHandler(function (d) { applyResult(d); selName = d.newName || parent; render(); toast(d.savedMessage || 'つなぎました'); })
       .withFailureHandler(function (e) { toast(e.message); })
       .linkCrmFamily(parent, uid, pseudo);
   }
@@ -1095,8 +1107,8 @@
   function renameAsk(name) {
     var v = prompt('新しい名前（関係するシートの名前もまとめて変わります）', name);
     if (!v || v.trim() === name) return;
-    google.script.run
-      .withSuccessHandler(function (d) { data = d; selName = d.newName || v.trim(); render(); toast(d.savedMessage || '変えました'); })
+    Q()
+      .withSuccessHandler(function (d) { applyResult(d); selName = d.newName || v.trim(); render(); toast(d.savedMessage || '変えました'); })
       .withFailureHandler(function (e) { toast(e.message); })
       .renameCrmCustomer(name, v.trim());
   }
@@ -1122,8 +1134,8 @@
   function doLink(name, uid, force) {
     if (!uid) { toast('LINEのIDが分かりません'); return; }
     toast('つないでいます…');
-    google.script.run
-      .withSuccessHandler(function (d) { data = d; lineCands = null; selName = d.newName || name; render(); toast(d.savedMessage || 'つなぎました'); })
+    Q()
+      .withSuccessHandler(function (d) { applyResult(d); lineCands = null; selName = d.newName || name; render(); toast(d.savedMessage || 'つなぎました'); })
       .withFailureHandler(function (e) {
         if (/付け替える場合/.test(e.message) && !force && confirm(e.message.replace('もう一度押してください', '付け替えますか？'))) { doLink(name, uid, true); return; }
         toast(e.message);
@@ -1131,7 +1143,7 @@
       .linkCrmLine(name, uid, !!force);
   }
 
-  function setGroup(name, g) { call('setCrmGroup', [name, g], name + '：' + (g ? g + 'にしました' : 'グループを外しました')); }
+  function setGroup(name, g) { call('setCrmGroup', [name, g], name + '：' + (g ? g + 'にしました' : 'グループを外しました'), function (c) { c.group = g; }); }
 
   function toast(msg) {
     var t = document.getElementById('toast');
@@ -1145,9 +1157,9 @@
     if (tk.outcome === 'recall' && !tk.when) { toast('かけ直す日を選んでください'); return; }
     if (tk.outcome === 'end' && !tk.reason) { toast('終了の理由を選んでください'); return; }
     toast('記録しています…');
-    google.script.run
+    Q()
       .withSuccessHandler(function (d) {
-        data = d; askTalk = ''; delete talkDraft[name];
+        applyResult(d); askTalk = ''; delete talkDraft[name];
         if (tk.outcome === 'continue') askNext = name;   // 続けるなら次の連絡日を聞く
         render(); toast(name + '：話せた を記録しました');
       })
@@ -1156,18 +1168,68 @@
   }
 
   function rec(name, type) {
-    toast('記録しています…');
-    google.script.run
-      .withSuccessHandler(function (d) { data = d; askNext = name; render(); toast(name + '：' + type + ' を記録しました'); })
+    var c0 = custOf(name);
+    if (c0) { c0.contactedToday = true; c0.todo = false; }
+    askNext = name; render();
+    Q()
+      .withSuccessHandler(function (d) { applyResult(d); askNext = name; render(); toast(name + '：' + type + ' を記録しました'); })
       .withFailureHandler(function (e) { toast('記録できませんでした: ' + e.message); })
       .recordCrmTreeContact(name, type);
   }
 
-  function call(fn, args, done) {
-    toast('保存しています…');
-    var r = google.script.run
-      .withSuccessHandler(function (d) { data = d; askNext = askEnd = askViewing = ''; render(); toast(done); })
-      .withFailureHandler(function (e) { toast('保存できませんでした: ' + e.message); });
+  // ── 保存は押した順に1つずつ（順番待ちの列）。画面は押した瞬間に変える ──
+  // ⚠️ 2つの保存を同時に走らせると、先に押した方が後に終わって上書きすることがある。必ずこの列を通す。
+  var gsQueue = Promise.resolve(), pendingBy = {};
+  function Q() {
+    var ok = function () {}, ng = function () {};
+    var h = {
+      withSuccessHandler: function (f) { ok = f; return px; },
+      withFailureHandler: function (f) { ng = f; return px; }
+    };
+    var px = new Proxy(h, { get: function (t, k) {
+      if (k in t) return t[k];
+      return function () {
+        var args = Array.prototype.slice.call(arguments), who = typeof args[0] === 'string' ? args[0] : '';
+        pendingBy[who] = (pendingBy[who] || 0) + 1;
+        updateSaving();
+        gsQueue = gsQueue.then(function () {
+          return new Promise(function (done) {
+            var r = google.script.run
+              .withSuccessHandler(function (d) { pendingBy[who]--; updateSaving(); try { ok(d); } finally { done(); } })
+              .withFailureHandler(function (e) { pendingBy[who]--; updateSaving(); try { ng(e); } finally { done(); } });
+            r[k].apply(r, args);
+          });
+        });
+      };
+    } });
+    return px;
+  }
+  function savingTotal() { return Object.keys(pendingBy).reduce(function (a, k) { return a + (pendingBy[k] || 0); }, 0); }
+  function updateSaving() { var el = document.getElementById('saving'); if (el) { var n = savingTotal(); el.textContent = n ? '保存中 ' + n + '件…' : ''; } }
+  window.addEventListener('beforeunload', function (ev) { if (savingTotal()) { ev.preventDefault(); ev.returnValue = ''; } });
+  // サーバーの答えを画面に入れる。1人分ならその人だけ差し替え。同じ人の保存がまだ控えていれば待つ（途中の結果で巻き戻さない）
+  function applyResult(d) {
+    if (d && d.onlyName !== undefined && ('one' in d)) {
+      if ((pendingBy[d.onlyName] || 0) > 0) return;
+      var i = -1;
+      data.customers.forEach(function (c, k) { if (c.name === d.onlyName) i = k; });
+      if (d.one) { if (i >= 0) data.customers[i] = d.one; else data.customers.push(d.one); }
+      else if (i >= 0) data.customers.splice(i, 1);
+      return;
+    }
+    if (d && d.customers) data = d;
+  }
+  function custOf(name) { return data.customers.filter(function (c) { return c.name === name; })[0]; }
+  // 失敗したら、その人をサーバーの今の状態に戻す
+  function refetchOne(name) {
+    google.script.run.withSuccessHandler(function (d) { applyResult(d); render(); }).getCrmOne(name);
+  }
+  function call(fn, args, done, optimistic) {
+    var name = typeof args[0] === 'string' ? args[0] : '';
+    if (optimistic && custOf(name)) { try { optimistic(custOf(name)); } catch (eO) {} askNext = askEnd = askViewing = ''; render(); }
+    var r = Q()
+      .withSuccessHandler(function (d) { applyResult(d); if (!optimistic) askNext = askEnd = askViewing = ''; render(); toast(done); })
+      .withFailureHandler(function (e) { toast('保存できませんでした: ' + e.message); if (name) refetchOne(name); });
     r[fn].apply(r, args);
   }
   function next(name, days) {
@@ -1454,7 +1516,7 @@
   function reload() {
     toast('読み込み中…');
     google.script.run
-      .withSuccessHandler(function (d) { data = d; render(); toast('最新にしました'); })
+      .withSuccessHandler(function (d) { applyResult(d); render(); toast('最新にしました'); })
       .withFailureHandler(function (e) { toast('読み込めませんでした: ' + e.message); })
       .getCrmTreeForPage();
   }

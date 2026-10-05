@@ -433,6 +433,8 @@ function getCrmTree(opts) {
     });
   });
 
+  // 1人分だけ作り直すとき（ボタンを押したあと）。全員分を作り直すと遅いので（2026-10-05）
+  if (opts.only) customers = customers.filter(function (c) { return c.name === opts.only; });
   var names = {};
   customers.forEach(function (c) { names[c.name] = true; });
   var log = _crmTreeContactLog_(ss);
@@ -548,13 +550,13 @@ function previewCrmTree(opts) {
 }
 
 /** 画面に渡す形に絞る（顧客ごとの項目を必要なものだけにして軽くする）。 */
-function _crmTreeForPage_() {
-  var t = getCrmTree();
+function _crmTreeForPage_(only) {
+  var t = getCrmTree(only ? { only: only } : {});
   var ex = _crmExtrasAll_(t.customers);
   var crits = _crmCriteriaAll_();
-  var pend = (typeof _crmPendingAll_ === 'function') ? _crmPendingAll_(crits) : {};
+  var pend = (typeof _crmPendingAll_ === 'function') ? _crmPendingAll_(crits, only) : {};
   var watch = (typeof _crmWatchAll_ === 'function') ? _crmWatchAll_() : {};
-  return {
+  var page = {
     nodes: t.nodes,
     oldCount: t.oldCount,
     stages: CRM_STAGES,
@@ -586,6 +588,14 @@ function _crmTreeForPage_() {
       };
     })
   };
+  // 1人分だけ: 画面はその人だけ差し替える（いなくなったら消す。終了で樹形図から外れた人など）
+  if (only) return { one: page.customers[0] || null, onlyName: only };
+  return page;
+}
+
+/** 画面: 1人分だけ取り直す（保存に失敗したとき、画面を今の状態に戻す）。 */
+function getCrmOne(customerName) {
+  return _crmTreeForPage_(customerName);
 }
 
 /** 画面の再読み込み用（google.script.run）。 */
@@ -598,7 +608,7 @@ function recordCrmTreeContact(customerName, type, memo) {
   var r = addContactLog(customerName, type, new Date().toISOString(), String(memo || ''));
   if (!r || !r.success) throw new Error((r && r.message) || '記録できませんでした');
   _crmTreeCloseDueTasks_(customerName);
-  return _crmTreeForPage_();
+  return _crmTreeForPage_(customerName);
 }
 
 
@@ -697,7 +707,7 @@ function setCrmNextContact(customerName, days) {
     var r = addCustomerTask(customerName, CRM_NEXT_TASK, _crmDateAfter_(days), TASK_OWNER_DEFAULT);
     if (!r || !r.success) throw new Error((r && r.message) || '次の連絡日を保存できませんでした');
   }
-  return _crmTreeForPage_();
+  return _crmTreeForPage_(customerName);
 }
 
 /** 画面: 内見の予定を入れる。前日に確認、翌日に結果を聞く、の2つをタスクにする。 */
@@ -710,7 +720,7 @@ function planCrmViewing(customerName, dateStr) {
   addCustomerTask(customerName, '内見の前日確認（' + label + '）', before, TASK_OWNER_DEFAULT);
   addCustomerTask(customerName, '内見の結果を聞く（' + label + '）', after, TASK_OWNER_DEFAULT);
   addContactLog(customerName, '内見予定', new Date().toISOString(), label);
-  return _crmTreeForPage_();
+  return _crmTreeForPage_(customerName);
 }
 
 /**
@@ -745,7 +755,7 @@ function setCrmStage(customerName, stage, reason) {
   }
   addContactLog(customerName, 'その他', new Date().toISOString(),
     stage ? ('工程: ' + stage + (reason ? '（' + reason + '）' : '')) : '工程: 追客中に戻す');
-  return _crmTreeForPage_();
+  return _crmTreeForPage_(customerName);
 }
 
 /**
@@ -994,12 +1004,12 @@ function setCrmGroup(customerName, g) {
     for (var i = 0; i < names.length; i++) {
       if (String(names[i][0] || '').trim() === customerName) {
         sh.getRange(i + 2, 2, 1, 2).setValues([[g || '', new Date()]]);
-        return _crmTreeForPage_();
+        return _crmTreeForPage_(customerName);
       }
     }
   }
   sh.appendRow([customerName, g || '', new Date()]);
-  return _crmTreeForPage_();
+  return _crmTreeForPage_(customerName);
 }
 
 /** 段階を決める。上から順に見る。 */
@@ -1326,7 +1336,7 @@ function saveCrmCriteria(customerName, f, send) {
     sentMsg = (sr && sr.success) ? '（お客様にLINEで送りました）' : '（LINEで送れませんでした: ' + ((sr && sr.message) || '') + '）';
   }
   addContactLog(customerName, 'その他', new Date().toISOString(), '条件を' + (hadBefore ? '変更' : '登録') + sentMsg);
-  var page = _crmTreeForPage_();
+  var page = _crmTreeForPage_(customerName);
   page.savedMessage = '条件を保存しました' + sentMsg;
   return page;
 }
@@ -1351,7 +1361,7 @@ function recordCrmTalk(customerName, memo, outcome, when, reason) {
     addCustomerTask(customerName, 'かけ直し（' + label + '）', Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd'), TASK_OWNER_DEFAULT);
   }
   if (outcome === 'end') return setCrmStage(customerName, '終了', reason || 'その他');
-  return _crmTreeForPage_();
+  return _crmTreeForPage_(customerName);
 }
 
 // ════════════════════════════════════════════

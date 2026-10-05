@@ -13,7 +13,7 @@
  */
 
 /** 承認待ち（まだ送っていない）物件を、顧客ごとに画面で使う形でまとめる。 */
-function _crmPendingAll_(crits) {
+function _crmPendingAll_(crits, only) {
   var out = {};
   // ⚠️ どこから送ったものでも、送り済みは新着に出さない（2026-10-02）。
   //   Discord の承認ページなど別の経路で送ると、承認待ちの行が pending のまま残ることがある。
@@ -46,6 +46,7 @@ function _crmPendingAll_(crits) {
     var sentKeys = {};
     for (var j = 0; j < data.length; j++) {
       if (String(data[j][10]) !== 'sent') continue;
+      if (only && String(data[j][0] || '').trim() !== only) continue;   // 1人分だけのときは他の人を見ない
       try { var k0 = bkey(String(data[j][0] || '').trim(), rowToProperty(data[j])); if (k0) sentKeys[k0] = true; } catch (_e0) {}
     }
     // 同じ部屋を別のサイトの番号でキャンセル待ちにしていたら、新着の方にも「キャンセル待ち中」と出す（2回付けないように）
@@ -55,7 +56,7 @@ function _crmPendingAll_(crits) {
     for (var i = 0; i < data.length; i++) {
       if (String(data[i][10]) !== 'pending') continue;
       var name = String(data[i][0] || '').trim();
-      if (!name) continue;
+      if (!name || (only && name !== only)) continue;
       if (seen[name + '|' + String(data[i][2] || '').trim()]) continue;   // もう送った
       var p;
       try { p = rowToProperty(data[i]); } catch (e) { continue; }
@@ -143,7 +144,7 @@ function sendCrmProperties(customerName, roomIds, text) {
   });
   addContactLog(customerName, 'LINE', new Date().toISOString(),
     (sentTargets.length ? '物件' + sentTargets.length + '件' : '') + (sentTargets.length && text ? '＋' : '') + (text ? '一言: ' + text.substring(0, 60) : ''));
-  var page = _crmTreeForPage_();
+  var page = _crmTreeForPage_(customerName);
   page.savedMessage = (sentTargets.length ? '物件' + sentTargets.length + '件' : '') + (sentTargets.length && text ? 'と一言' : (text ? '一言' : '')) + 'を送りました';
   return page;
 }
@@ -152,13 +153,13 @@ function sendCrmProperties(customerName, roomIds, text) {
 function skipCrmProperty(customerName, roomId) {
   var rows = _findRowsByRoomIdsAnyStatus_(customerName, [roomId]);
   rows.forEach(function (r) { if (String(r.values[10]) === 'pending') updatePendingStatus(r.rowIndex, 'skipped', ''); });
-  return _crmTreeForPage_();
+  return _crmTreeForPage_(customerName);
 }
 
 /** 画面: 文だけ LINE Chat で手で送ったときの記録（コピーボタン）。 */
 function logCrmManualMessage(customerName, text) {
   addContactLog(customerName, 'LINE', new Date().toISOString(), 'LINE Chat で送信: ' + String(text || '').substring(0, 60));
-  return _crmTreeForPage_();
+  return _crmTreeForPage_(customerName);
 }
 
 /** 画面: その人に送った物件（最近20件）。「別の人にも送る」の元にする。 */
@@ -218,7 +219,7 @@ function copyCrmPropertyTo(fromName, roomId, toName) {
   sh.appendRow(row);
   var last = sh.getLastRow();
   sh.getRange(last, 2, 1, 2).setNumberFormat('@').setValues([[String(src[1] || ''), String(src[2] || '')]]);   // B・C は文字として
-  var page = _crmTreeForPage_();
+  var page = _crmTreeForPage_(toName);
   page.savedMessage = toName + ' さんの新着に入れました（コメントも引き継ぎ）';
   return page;
 }
@@ -266,7 +267,7 @@ function resendCrmToFamily(customerName, roomIds, text) {
   if (text) messages.push(textMsg(text));
   fam.forEach(function (to) { for (var m = 0; m < messages.length; m += 5) pushMessage(to, messages.slice(m, m + 5)); });
   addContactLog(customerName, 'その他', new Date().toISOString(), '家族のLINEに物件' + bubbles.length + '件を送り直した');
-  var page = _crmTreeForPage_();
+  var page = _crmTreeForPage_(customerName);
   page.savedMessage = '家族のLINEに物件' + bubbles.length + '件を送りました';
   return page;
 }
@@ -379,7 +380,7 @@ function _crmWatchAll_() {
 function setCrmWatch(customerName, roomId, on) {
   var r = setCancellationWatch(customerName, roomId, !!on);
   if (!r.ok) throw new Error(r.message);
-  var page = _crmTreeForPage_();
+  var page = _crmTreeForPage_(customerName);
   page.savedMessage = r.message;
   return page;
 }
@@ -394,7 +395,7 @@ function addCrmWatchFromPending(customerName, roomId) {
     source: p.source, url: p.url, reinsPropertyNumber: p.reins_property_number
   });
   if (!r.ok) throw new Error(r.message);
-  var page = _crmTreeForPage_();
+  var page = _crmTreeForPage_(customerName);
   page.savedMessage = r.message;
   return page;
 }
@@ -462,7 +463,7 @@ function unskipCrmProperty(customerName, roomId) {
   var n = 0;
   rows.forEach(function (r) { if (String(r.values[10]) === 'skipped') { updatePendingStatus(r.rowIndex, 'pending', ''); n++; } });
   if (!n) throw new Error('見送った物件が見つかりません');
-  var page = _crmTreeForPage_();
+  var page = _crmTreeForPage_(customerName);
   page.savedMessage = '新着に戻しました';
   return page;
 }
