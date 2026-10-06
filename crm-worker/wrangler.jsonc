@@ -3,7 +3,8 @@
   "main": "src/index.js",
   "compatibility_date": "2026-09-01",
   // CRMの画面（静的ファイル）。/api と /sync 以外はここから返す
-  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/api/*", "/sync", "/register", "/"] },
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "vars": { "GAS_URL": "https://script.google.com/macros/s/AKfycbzckatimM0uKsMQ9hJ9-d-OXyFFpVCAWgoQfavDJjmIeUg9F_d10hCxIaGjGfljvhZ8/exec" },
   "d1_databases": [
     { "binding": "DB", "database_name": "ehomaki-crm", "database_id": "7a4c050d-a1ca-4afa-8ce6-29714861451d" }
   ]

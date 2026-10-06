@@ -214,6 +214,7 @@
     <a class="btn" id="adminLink" target="_blank">管理画面</a>
     <button class="btn" id="dupBtn" onclick="reviewDup()">🧹 重複リード確認</button>
     <button class="btn" id="pendBtn" onclick="reviewPending()">🧹 承認待ち整理</button>
+    <a class="btn" id="cfLink" target="_blank" style="display:none">⚡ Cloudflare版を開く</a>
   </div>
   <input type="search" id="q" class="search" placeholder="名前で探す" oninput="search()">
   <div class="today" id="today"></div>
@@ -236,6 +237,8 @@
   var approveBaseUrl = JSON.parse('<?!= approveBaseUrl ?>');
   var mobileSearchUrl = JSON.parse('<?!= mobileSearchUrl ?>');
   var MASTER = JSON.parse('<?!= masterJson ?>');
+  // GAS版だけ: Cloudflare版を開くリンク（Cloudflare版では __boot に cfUrl が無いので出ない）
+  try { var _cfu = (typeof __boot === 'undefined') ? JSON.parse('<?!= cfUrl ?>') : ''; if (_cfu) { var _cl = document.getElementById('cfLink'); _cl.href = _cfu; _cl.style.display = ''; } } catch (eCf) {}
   var sel = '';    // 選んでいる箱
   var askNext = '', askEnd = '', askViewing = '', askTalk = '';
   var talkDraft = {};   // 顧客名 → 話せたときのメモと結果（記録するまで持っておく）   // いま質問を出している顧客

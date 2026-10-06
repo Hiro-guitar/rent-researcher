@@ -110,7 +110,18 @@
     return { getContentText: function () { return text; }, getResponseCode: function () { return code || 200; }, getBlob: function () { return null; }, getHeaders: function () { return {}; } };
   }
 
-  G.GasShim = { loadSheets: loadSheets, store: store, setProps: function (o) { props = Object.assign({}, o); }, setFetch: function (u, t) { fetchCache[u] = t; } };
+  // 変わった行だけ差し替える（/api/delta）。消えた行は rows（今の行数）で切り詰める
+  function patchRow(name, r, cells) {
+    var d = store.sheets[name] || (store.sheets[name] = { rows: [], width: 0 });
+    var row = (cells || []).map(revive);
+    if (row.length > d.width) { d.width = row.length; d.rows.forEach(function (x) { while (x.length < d.width) x.push(''); }); }
+    while (row.length < d.width) row.push('');
+    while (d.rows.length < r - 1) { var e = []; while (e.length < d.width) e.push(''); d.rows.push(e); }
+    d.rows[r - 1] = row;
+  }
+  function truncate(name, n) { var d = store.sheets[name]; if (d && d.rows.length > n) d.rows.length = n; }
+  function clearCache() { memCache = {}; }
+  G.GasShim = { patchRow: patchRow, truncate: truncate, clearCache: clearCache, loadSheets: loadSheets, store: store, setProps: function (o) { props = Object.assign({}, o); }, setFetch: function (u, t) { fetchCache[u] = t; } };
   G.SpreadsheetApp = { openById: function () { return spreadsheet; }, getActiveSpreadsheet: function () { return spreadsheet; }, flush: function () {}, WrapStrategy: { CLIP: 'CLIP', WRAP: 'WRAP' } };
   G.Utilities = {
     formatDate: fmt, sleep: function () {}, getUuid: function () { return (G.crypto && G.crypto.randomUUID) ? G.crypto.randomUUID() : String(Math.random()).slice(2); },

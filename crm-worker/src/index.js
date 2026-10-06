@@ -54,15 +54,15 @@ export default {
         stmts.push(env.DB.prepare('DELETE FROM sheet_rows WHERE sheet = ?').bind(sheet + '#new'));
       } else if (b.mode === 'chunk' || b.mode === 'rows') {
         const target = b.mode === 'chunk' ? sheet + '#new' : sheet;
-        const ins = env.DB.prepare('INSERT INTO sheet_rows (sheet, r, v) VALUES (?, ?, ?) ON CONFLICT(sheet, r) DO UPDATE SET v = excluded.v');
-        for (const [r, v] of b.rows || []) stmts.push(ins.bind(target, Number(r), typeof v === 'string' ? v : JSON.stringify(v)));
+        const ins = env.DB.prepare('INSERT INTO sheet_rows (sheet, r, v, u) VALUES (?, ?, ?, ?) ON CONFLICT(sheet, r) DO UPDATE SET v = excluded.v, u = excluded.u');
+        for (const [r, v] of b.rows || []) stmts.push(ins.bind(target, Number(r), typeof v === 'string' ? v : JSON.stringify(v), now));
         // 行が減ったとき（片付けで消した）: 指定した行数より後ろを消す
         if (b.mode === 'rows' && Number.isFinite(b.truncateAfter)) {
           stmts.push(env.DB.prepare('DELETE FROM sheet_rows WHERE sheet = ? AND r > ?').bind(sheet, Number(b.truncateAfter)));
         }
       } else if (b.mode === 'end') {
         stmts.push(env.DB.prepare('DELETE FROM sheet_rows WHERE sheet = ?').bind(sheet));
-        stmts.push(env.DB.prepare('UPDATE sheet_rows SET sheet = ? WHERE sheet = ?').bind(sheet, sheet + '#new'));
+        stmts.push(env.DB.prepare('UPDATE sheet_rows SET sheet = ?, u = ? WHERE sheet = ?').bind(sheet, now, sheet + '#new'));
       } else {
         return json({ ok: false, error: 'bad mode' }, 400);
       }
@@ -90,15 +90,17 @@ export default {
       });
     }
 
-    if (path === '/' || path.startsWith('/api/')) {
+    // ここから先は鍵（Cookie）が要る。画面のファイル（GAS のコードを含む）も鍵が無いと返さない
+    {
       if (!(await isViewer(req, env))) {
-        return path === '/' ? new Response('ログインが必要です。GASの顧客管理から「Cloudflare版を開く」で入ってください。', { status: 401, headers: { 'content-type': 'text/plain; charset=utf-8' } })
+        return !path.startsWith('/api/') ? new Response('ログインが必要です。GASの顧客管理から「Cloudflare版を開く」で入ってください。', { status: 401, headers: { 'content-type': 'text/plain; charset=utf-8' } })
           : json({ ok: false, error: 'unauthorized' }, 401);
       }
     }
 
     // 写しを返す（行の中身は D1 の文字列をそのままつなぐ。組み立て直さない）
     if (path === '/api/sheets') {
+      const now0 = Date.now();   // これより後に変わった行は /api/delta で取る
       const names = (url.searchParams.get('s') || '').split(',').filter(Boolean);
       const parts = [];
       for (const n of names) {
@@ -106,9 +108,33 @@ export default {
         parts.push(JSON.stringify(n) + ':[' + results.map((x) => '[' + x.r + ',' + x.v + ']').join(',') + ']');
       }
       const meta = await env.DB.prepare('SELECT sheet, rows, synced_at FROM sheet_meta').all();
-      return new Response('{"sheets":{' + parts.join(',') + '},"meta":' + JSON.stringify(meta.results) + ',"ver":' + (Number(await cfg(env, 'ver')) || 0) + '}', {
+      return new Response('{"now":' + now0 + ',"sheets":{' + parts.join(',') + '},"meta":' + JSON.stringify(meta.results) + ',"ver":' + (Number(await cfg(env, 'ver')) || 0) + '}', {
         headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
       });
+    }
+
+    // 前回から変わった行だけ（since はミリ秒。返す now を次の since にする）。消えた行は meta の rows で切り詰める
+    if (path === '/api/delta') {
+      const now = Date.now();
+      const since = Number(url.searchParams.get('since') || 0);
+      const { results } = await env.DB.prepare("SELECT sheet, r, v FROM sheet_rows WHERE u > ? AND sheet NOT LIKE '%#new' ORDER BY sheet, r LIMIT 20000").bind(since).all();
+      const meta = await env.DB.prepare('SELECT sheet, rows, synced_at FROM sheet_meta').all();
+      return new Response('{"now":' + now + ',"rows":[' + results.map((x) => '[' + JSON.stringify(x.sheet) + ',' + x.r + ',' + x.v + ']').join(',') + '],"meta":' + JSON.stringify(meta.results) + ',"ver":' + (Number(await cfg(env, 'ver')) || 0) + '}', {
+        headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+      });
+    }
+
+    // 画面のボタン → GAS の関数（crm_call）。鍵は Cookie から GAS に渡す。中身はそのまま流す（大きい写真でも CPU を使わない）
+    if (path === '/api/call' && req.method === 'POST') {
+      const key = cookieOf(req, 'crm_key');
+      // GAS は答えを googleusercontent に置いて 302 で返す。POST のまま追うと失敗するので、転送先は GET で取りに行く
+      const body = await req.text();
+      const r1 = await fetch(env.GAS_URL + '?action=crm_call&key=' + encodeURIComponent(key), {
+        method: 'POST', body, headers: { 'content-type': 'text/plain' }, redirect: 'manual',
+      });
+      const loc = r1.headers.get('location');
+      const r = loc ? await fetch(loc) : r1;
+      return new Response(r.body, { status: r.status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
     }
 
     // 変わったかどうかだけ（1分ごとに確かめる）
@@ -122,7 +148,6 @@ export default {
       return json(out, 200, { 'cache-control': 'no-store' });
     }
 
-    if (path === '/') return env.ASSETS.fetch(new Request(new URL('/index.html', url), req));
     return env.ASSETS.fetch(req);
   },
 };
