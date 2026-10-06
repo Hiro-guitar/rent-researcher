@@ -1663,6 +1663,20 @@ function doGet_(e) {
     return ContentService.createTextOutput(JSON.stringify(crmDebugPendingSeen_(String(e.parameter.name || ''))))
       .setMimeType(ContentService.MimeType.JSON);
   }
+  // 移行の下調べ（鍵なしで読める）: シートごとの行数・列数・おおよその大きさだけ。中身は返さない
+  if (action === 'sheet_sizes') {
+    var szOut = {};
+    try {
+      SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheets().forEach(function (sh) {
+        var r = sh.getLastRow(), c = sh.getLastColumn(), bytes = 0;
+        if (r > 0 && c > 0) {
+          sh.getRange(1, 1, r, c).getValues().forEach(function (row) { row.forEach(function (v) { bytes += String(v).length * 3; }); });
+        }
+        szOut[sh.getName()] = { rows: r, cols: c, approxBytes: bytes };
+      });
+    } catch (eSz) { szOut._error = eSz.message; }
+    return ContentService.createTextOutput(JSON.stringify(szOut)).setMimeType(ContentService.MimeType.JSON);
+  }
   if (action === 'perf_recent') {
     var _pp2 = PropertiesService.getScriptProperties();
     var _pr = [];
