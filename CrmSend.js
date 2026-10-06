@@ -74,7 +74,7 @@ function _crmPendingAll_(crits, only) {
         building: p.buildingName || '', room: p.roomNumber || '',
         rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '',
         station: p.stationInfo || '', age: p.buildingAge || '', floor: p.floorText || '',
-        image: imgs[0] || '', images: imgs.slice(0, 6), imgCount: imgs.length, edited: edited, url: p.url || '',
+        image: imgs[0] || '', images: imgs.slice(0, 6), imgCount: imgs.length, edited: edited, url: _crmSourceUrl_(p),
         watching: !!(k && watchKeys[k]),
         warnings: String(warn).split('\n').filter(function (s) { return s; }),
         found: (data[i][11] instanceof Date) ? Utilities.formatDate(data[i][11], 'Asia/Tokyo', 'M/d') : '',
@@ -198,7 +198,7 @@ function getCrmSentProps(customerName) {
     var ms = _cellToEpochMs_(data[i][12]);
     out.push({ roomId: String(data[i][2] || ''), building: p.buildingName || '', room: p.roomNumber || '',
       rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '', station: p.stationInfo || '',
-      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, closed: closedBy[String(data[i][2] || '').trim()] || '', url: p.url || '',
+      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, closed: closedBy[String(data[i][2] || '').trim()] || '', url: _crmSourceUrl_(p),
       sentAt: ms ? Utilities.formatDate(new Date(ms), 'Asia/Tokyo', 'M/d') : '' });
   }
   return out.sort(function (a, b) { return b.ms - a.ms; }).slice(0, 60);
@@ -314,7 +314,7 @@ function getCrmPropertyDetails(customerName, roomIds) {
     var cats = {};
     (p.imageUrls || []).forEach(function (u, i) { cats[u] = (p.imageCategories || [])[i] || ''; });
     (p.selectedImageUrls || []).forEach(function (u, i) { if ((p.selectedImageCategories || [])[i]) cats[u] = p.selectedImageCategories[i]; });
-    out[rid] = { fields: fields, all: all, selected: sel, cats: cats, comment: String(r.values[14] || ''), url: p.url || '' };
+    out[rid] = { fields: fields, all: all, selected: sel, cats: cats, comment: String(r.values[14] || ''), url: _crmSourceUrl_(p) };
   });
   return out;
 }
@@ -454,7 +454,7 @@ function getCrmSkippedProps(customerName) {
     var ms = _cellToEpochMs_(data[i][12]);
     out.push({ roomId: rid, building: p.buildingName || '', room: p.roomNumber || '',
       rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '', station: p.stationInfo || '',
-      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, url: p.url || '',
+      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, url: _crmSourceUrl_(p),
       at: ms ? Utilities.formatDate(new Date(ms), 'Asia/Tokyo', 'M/d') : '' });
   }
   return out.sort(function (a, b) { return b.ms - a.ms; }).filter(function (x) {
@@ -520,7 +520,7 @@ function _crmPropListsFor_(names) {
     var day = ms ? Utilities.formatDate(new Date(ms), 'Asia/Tokyo', 'M/d') : '';
     var item = { roomId: rid, building: p.buildingName || '', room: p.roomNumber || '',
       rent: p.rent || '', fee: p.managementFee || '', layout: p.layout || '', area: p.area || '', station: p.stationInfo || '',
-      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, url: p.url || '' };
+      image: imgs[0] || '', comment: String(data[i][14] || ''), ms: ms, url: _crmSourceUrl_(p) };
     var o = out[n] = out[n] || { sent: [], skipped: [] };
     if (st === 'sent') { item.sentAt = day; item.closed = closedBy[n + '|' + rid] || ''; o.sent.push(item); }
     else { item.at = day; o.skipped.push(item); }
@@ -531,4 +531,11 @@ function _crmPropListsFor_(names) {
   };
   Object.keys(out).forEach(function (n) { out[n].sent = uniq(out[n].sent); out[n].skipped = uniq(out[n].skipped); });
   return out;
+}
+
+/** 元のページのアドレス。REINSは物件のアドレスを持たないので、物件番号から詳細ページを開くリンクを作る（拡張が開いてくれる）。 */
+function _crmSourceUrl_(p) {
+  if (p && p.url) return String(p.url);
+  var num = String((p && (p.reins_property_number || p.reinsPropertyNumber)) || '').replace(/\D/g, '');
+  return num ? 'https://system.reins.jp/main/BK/GBK004100#bukken=' + num : '';
 }
