@@ -1663,6 +1663,12 @@ function doGet_(e) {
     return ContentService.createTextOutput(JSON.stringify(crmDebugPendingSeen_(String(e.parameter.name || ''))))
       .setMimeType(ContentService.MimeType.JSON);
   }
+  // 移行の見比べ用: GAS版の樹形図をJSONで返す（Cloudflare版の鍵 CF_CRM_KEY が必要）
+  if (action === 'crm_tree_json') {
+    var _ck = PropertiesService.getScriptProperties().getProperty('CF_CRM_KEY');
+    if (!_ck || String(e.parameter.key || '') !== _ck) return ContentService.createTextOutput('{"error":"unauthorized"}').setMimeType(ContentService.MimeType.JSON);
+    return ContentService.createTextOutput(JSON.stringify(_crmTreeForPage_())).setMimeType(ContentService.MimeType.JSON);
+  }
   // 移行の下調べ（鍵なしで読める）: シートごとの行数・列数・おおよその大きさだけ。中身は返さない
   if (action === 'sheet_sizes') {
     var szOut = {};
