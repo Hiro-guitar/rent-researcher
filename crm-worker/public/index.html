@@ -1,0 +1,5 @@
+<!doctype html><meta charset="utf-8"><title>顧客管理（準備中）</title>
+<body style="font-family:sans-serif;padding:24px">顧客管理（Cloudflare版）は準備中です。<div id="o"></div>
+<script>
+fetch('/api/sheets?s=CRMグループ').then(r=>r.json()).then(d=>{document.getElementById('o').textContent='写しの状態: '+JSON.stringify(d.meta)});
+</script>
