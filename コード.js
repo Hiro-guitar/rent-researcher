@@ -19,6 +19,8 @@
  */
 
 function doPost(e) {
+  // --- Cloudflare版CRMのボタン（CfSync.gs）---
+  if (e.parameter && e.parameter.action === 'crm_call') return _cfCrmCall_(e);
   // --- 承認フォーム POST（編集値付き） ---
   // フォームPOSTの場合はエラー時もHTMLを返す必要がある
   if (e.parameter && e.parameter.action === 'confirm_approve') {

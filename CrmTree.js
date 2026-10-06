@@ -620,6 +620,17 @@ function getCrmOne(customerName) {
   return _crmTreeForPage_(customerName);
 }
 
+/** Cloudflare版CRM: ページに埋め込んでいた値（アドレス・選択肢の一部）。GAS版の handleCrmTreePage と同じもの。 */
+function getCrmPageConsts() {
+  return {
+    customerPageUrl: getCustomerDetailPageUrl(),
+    adminUrl: getAdminPageUrl(''),
+    approveBaseUrl: getGasBaseUrl() + '?action=approve&collect=1',
+    mobileSearchUrl: getMobileSearchWrappedUrl(),
+    listings: _crmActiveListings_()
+  };
+}
+
 /** 画面の再読み込み用（google.script.run）。 */
 function getCrmTreeForPage() {
   return _crmTreeForPage_();
