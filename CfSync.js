@@ -117,14 +117,16 @@ function cfSyncRows(sheetName, rowNumbers, why) {
 }
 
 // CRM が読むシート。小さいものは丸ごと送る
-var CF_SHEETS_ = [
+// ⚠️ 関数にしておくこと。ファイルの外側で別ファイルの名前（CRITERIA_SHEET_NAME など）を使うと、
+//   読み込み順（CfSync が Config より先）のせいで GAS 全体が読み込みエラーになる（2026-10-07 実際に起きた）。
+function _cfSheets_() { return [
   CRITERIA_SHEET_NAME, LINE_USERS_SHEET_NAME, CONTACT_LOG_SHEET_NAME, TASK_SHEET_NAME, INQUIRY_SHEET_NAME,
   CRM_GROUP_SHEET, CRM_MEMO_SHEET, CRM_FAMILY_SHEET, CRM_TREE_REPLY_SHEET, CRM_TREE_OLD_SHEET,
   NEW_FRIEND_SHEET, LINE_BLOCKED_ONLY_SHEET, SEEN_SHEET_NAME, ACTION_LOG_SHEET_NAME, VIEW_LOG_SHEET_NAME,
   STILL_SHEET, MOVE_IN_SHEET, PHONE_ASK_SHEET, FIRST_DELIVERY_SHEET, FIRST_SEARCH_SHEET,
   UNSUBSCRIBE_SHEET_NAME, LINE_EMAIL_SHEET_NAME, 'LINE Activity', 'メール送信履歴',
   PENDING_SHEET_NAME
-];
+]; }
 
 /**
  * 【GASエディタで実行: CfSync.gs】全部を丸ごと送り直す（夜のトリガーでも動く）。送り漏れのずれを直す。
@@ -132,7 +134,7 @@ var CF_SHEETS_ = [
 function cfSyncAll() {
   if (!PropertiesService.getScriptProperties().getProperty('CF_SYNC_TOKEN')) return;
   var t0 = Date.now(), done = [], failed = [];
-  CF_SHEETS_.forEach(function (n) {
+  _cfSheets_().forEach(function (n) {
     try { cfSyncSheet(n, ''); done.push(n); } catch (e) { failed.push(n + '（' + e.message + '）'); }
   });
   console.log('[Cloudflare写し] 全部送りました ' + done.length + '枚 / ' + Math.round((Date.now() - t0) / 1000) + '秒'
