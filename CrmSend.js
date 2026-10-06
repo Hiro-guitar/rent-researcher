@@ -229,6 +229,7 @@ function copyCrmPropertyTo(fromName, roomId, toName) {
   sh.appendRow(row);
   var last = sh.getLastRow();
   sh.getRange(last, 2, 1, 2).setNumberFormat('@').setValues([[String(src[1] || ''), String(src[2] || '')]]);   // B・C は文字として
+  try { cfSyncRows(PENDING_SHEET_NAME, [last], '物件のコピー'); } catch (eCf) {}
   var page = _crmTreeForPage_(toName);
   page.savedMessage = toName + ' さんの新着に入れました（コメントも引き継ぎ）';
   return page;
@@ -348,6 +349,7 @@ function saveCrmPropertyEdit(customerName, roomId, fields, images, comment) {
     _savePendingEditedFields_(r.rowIndex, ed);
     if (hosted.length) saveSelectedImages(r.rowIndex, hosted, origCats);
     sheet.getRange(r.rowIndex, 15).setValue(comment);   // O列: 一言（空にしたら消す）
+    try { cfSyncRows(PENDING_SHEET_NAME, [r.rowIndex], '物件の修正'); } catch (eCf) {}
   });
   try { CacheService.getScriptCache().removeAll(['prop2_' + customerName + '_' + roomId, 'imgs_' + customerName + '_' + roomId]); } catch (e) {}
   return { roomId: String(roomId), images: hosted, comment: comment, edited: Object.keys(ed).length > 0 || hosted.length > 0 };

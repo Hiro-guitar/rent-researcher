@@ -3547,7 +3547,11 @@ function handleAddReinsProperty(json) {
     existingIds[dedupKey] = true;
   }
 
-  if (added) { try { _crmTouch_('新着物件'); } catch (eT) {} }
+  if (added) {
+    try { _crmTouch_('新着物件'); } catch (eT) {}
+    // Cloudflare版CRMの写しに、足した行を送る（末尾に足しているので最後の added 行）
+    try { var _lr = sheet.getLastRow(), _rs = []; for (var _k = Math.max(2, _lr - added + 1); _k <= _lr; _k++) _rs.push(_k); cfSyncRows(PENDING_SHEET_NAME, _rs, '新着物件'); } catch (eCf) {}
+  }
   return ContentService
     .createTextOutput(JSON.stringify({ success: true, added: added, skipped: skipped }))
     .setMimeType(ContentService.MimeType.JSON);
@@ -4507,7 +4511,10 @@ var REQUIRED_TRIGGERS_ = [
   // 条件登録から数分後の「お電話で5分ほど」（PhoneAsk.js）
   { fn: 'processPhoneAsk',           make: function (b) { return b.everyMinutes(5); } },
   // 3日続けて返事の無い人を終了にする（CrmTree.js）
-  { fn: 'processCrmIgnoreEnd',       make: function (b) { return b.atHour(21).everyDays(1); } }
+  { fn: 'processCrmIgnoreEnd',       make: function (b) { return b.atHour(21).everyDays(1); } },
+  // Cloudflare版CRMの写し（CfSync.gs）: 5分ごとに送り漏れを拾い、夜（片付けのあと）に全部を送り直す
+  { fn: 'cfSyncCheck',               make: function (b) { return b.everyMinutes(5); } },
+  { fn: 'cfSyncAll',                 make: function (b) { return b.atHour(4).everyDays(1); } }
 ];
 // runConditionSuggestionAutoSend: 旧「条件変更提案 10日×3回」。継続確認（StillSearching.gs）に置き換えて廃止（2026-09-28）
 var OBSOLETE_TRIGGERS_ = ['pingWebAppKeepAlive_', 'autoArchiveFinishedCustomers', 'runConditionSuggestionAutoSend'];
@@ -6296,6 +6303,7 @@ function addContactLog(customerName, type, dateStr, memo) {
     }
     var date = new Date(dateStr);
     sheet.appendRow([customerName, date, type, memo, '管理者']);
+    try { cfSyncRows(CONTACT_LOG_SHEET_NAME, [sheet.getLastRow()], '対応の記録'); } catch (eCf) {}
     return { success: true };
   } catch(e) {
     return { success: false, message: e.message };

@@ -236,6 +236,8 @@ function writeToSheet(userId, state) {
     if (d.minFloor) sheet.getRange(newRowIndex, 44).setValue(String(d.minFloor));
   }
 
+  // Cloudflare版CRMの写しにもすぐ送る（CfSync.gs）
+  try { cfSyncRows(CRITERIA_SHEET_NAME, [existingRowIndex > 0 ? existingRowIndex : newRowIndex], '条件の登録・変更'); } catch (eCf) {}
   // LINE Users シートにも記録
   saveLineUser(userId, d.name || '');
   // 条件登録が済んだ人はリッチメニューを「登録後」に切り替える（RichMenu.js）。何度呼んでも同じ結果。

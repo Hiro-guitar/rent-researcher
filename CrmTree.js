@@ -89,6 +89,7 @@ function recordLineNeedsReply(userId, text) {
     sh.appendRow(['userId', '受信日時', '本文']);
   }
   sh.appendRow([userId, new Date(), String(text || '').substring(0, 200)]);
+  try { cfSyncRows(CRM_TREE_REPLY_SHEET, [sh.getLastRow()], 'LINEの返信'); } catch (eCf) {}
 }
 
 /**

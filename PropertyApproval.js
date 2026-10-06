@@ -2799,6 +2799,7 @@ function updatePendingStatus(rowIndex, newStatus, viewUrl) {
   sheet.getRange(rowIndex, 11).setValue(newStatus);
   sheet.getRange(rowIndex, 13).setValue(Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss'));
   try { _crmTouch_(newStatus === 'sent' ? '物件の送信' : newStatus === 'skipped' ? '物件の見送り' : '物件の状態'); } catch (eT) {}
+  try { cfSyncRows(PENDING_SHEET_NAME, [rowIndex], newStatus === 'sent' ? '物件の送信' : newStatus === 'skipped' ? '物件の見送り' : '物件の状態'); } catch (eCf) {}
   if (viewUrl) {
     sheet.getRange(rowIndex, 14).setValue(viewUrl);
   }
@@ -3784,6 +3785,7 @@ function _setPendingStaffComment_(customerName, roomId, comment) {
     if (target < 0) return;
     // ⚠️ data[i] はシートの i+1 行目。以前は +2 で、1つ下の行にコメントを書いていた
     sheet.getRange(target + 1, 15).setValue(c); // O列: 担当者コメント(再クロールで消えない)
+    try { cfSyncRows(PENDING_SHEET_NAME, [target + 1], '物件の一言'); } catch (eCf) {}
     // 詳細ページのキャッシュを捨てて、次に開いた時にコメントが載るようにする
     try { CacheService.getScriptCache().remove('prop2_' + nameTrim + '_' + ridTrim); } catch (eC) {}
   } catch (e) {
@@ -6205,6 +6207,7 @@ function _savePendingEditedFields_(rowIndex, fields) {
   try { extra = JSON.parse(cell.getValue() || '{}'); } catch (e) {}
   extra.edited_fields = fields;
   cell.setValue(JSON.stringify(extra));
+  try { cfSyncRows(PENDING_SHEET_NAME, [rowIndex], '物件の修正'); } catch (eCf) {}
 }
 
 function saveSelectedImages(rowIndex, selectedImageUrls, selectedImageCategories) {
@@ -6218,6 +6221,7 @@ function saveSelectedImages(rowIndex, selectedImageUrls, selectedImageCategories
     extra.selected_image_categories = selectedImageCategories;
   }
   cell.setValue(JSON.stringify(extra));
+  try { cfSyncRows(PENDING_SHEET_NAME, [rowIndex], '物件の写真'); } catch (eCf) {}
 }
 
 // ===== 画像アップロード（手動アップロード用） =====

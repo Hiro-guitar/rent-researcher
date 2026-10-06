@@ -140,3 +140,57 @@ function cfSyncAll() {
   console.log('[Cloudflare写し] 全部送りました ' + done.length + '枚 / ' + Math.round((Date.now() - t0) / 1000) + '秒'
     + (failed.length ? ' / 送れなかった: ' + failed.join('、') : ''));
 }
+
+// ── 送り漏れを拾う（5分ごとのトリガー）──
+// 書き込みの場所ごとに送っているが、行を消した（片付けなど）ときや、送る処理を入れていない場所で書いたときは
+// 写しがずれる。5分ごとに中身の指紋を比べて、変わったシートを送り直す。承認待ち物件は変わった行だけ。
+function _cfHash_(s) {
+  var h = 0x811c9dc5;
+  for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 16777619) >>> 0; }
+  return h.toString(36);
+}
+
+/** 【トリガー: 5分ごと】変わったシートだけ Cloudflare の写しに送り直す。 */
+function cfSyncCheck() {
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('CF_SYNC_TOKEN')) return;
+  var cache = CacheService.getScriptCache();
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sent = [];
+  _cfSheets_().forEach(function (name) {
+    try {
+      var sh = ss.getSheetByName(name);
+      if (!sh) return;
+      var lr = sh.getLastRow(), lc = sh.getLastColumn();
+      if (name === PENDING_SHEET_NAME) { if (_cfCheckPending_(sh, lr, cache)) sent.push(name); return; }
+      var values = (lr > 0 && lc > 0) ? sh.getRange(1, 1, lr, lc).getValues() : [];
+      var h = _cfHash_(JSON.stringify(values));
+      if (cache.get('cfh:' + name) === h) { cache.put('cfh:' + name, h, 21600); return; }   // 覚えを延ばす
+      cfSyncSheet(name, '');
+      cache.put('cfh:' + name, h, 21600);
+      sent.push(name);
+    } catch (e) { console.warn('[Cloudflare写し] 点検できません: ' + name + ' / ' + e.message); }
+  });
+  if (sent.length) console.log('[Cloudflare写し] 送り直しました: ' + sent.join('、'));
+}
+
+// 承認待ち物件: J列（物件の中身・全体で約30MB）は読まずに比べる（写真・一言・直した項目は書いた所で送っている）
+function _cfCheckPending_(sh, lr, cache) {
+  if (lr < 1) return false;
+  var ai = sh.getRange(1, 1, lr, 9).getValues(), ko = sh.getRange(1, 11, lr, 5).getValues();
+  var hs = ai.map(function (row, i) { return _cfHash_(JSON.stringify(row) + '|' + JSON.stringify(ko[i])); });
+  var prev = null;
+  try { prev = JSON.parse(cache.get('cfhp') || 'null'); } catch (e) {}
+  var save = function () { try { cache.put('cfhp', JSON.stringify(hs), 21600); } catch (e) {} };
+  // 覚えが無い・行の数が変わった（消した）ときは丸ごと送り直す
+  if (!prev || prev.length !== hs.length) { cfSyncSheet(PENDING_SHEET_NAME, ''); save(); return true; }
+  var changed = [];
+  for (var i = 0; i < hs.length; i++) if (hs[i] !== prev[i]) changed.push(i);
+  if (!changed.length) { save(); return false; }
+  if (changed.length > 300) { cfSyncSheet(PENDING_SHEET_NAME, ''); save(); return true; }
+  var lc = sh.getLastColumn();
+  var rows = changed.map(function (i) { return [i + 1, _cfRowJson_(PENDING_SHEET_NAME, sh.getRange(i + 1, 1, 1, lc).getValues()[0])]; });
+  for (var k = 0; k < rows.length; k += 100) _cfPost_({ sheet: PENDING_SHEET_NAME, mode: 'rows', rows: rows.slice(k, k + 100), why: '' });
+  save();
+  return true;
+}
