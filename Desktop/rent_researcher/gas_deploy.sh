@@ -129,6 +129,15 @@ api_call() {
     fi
 }
 
+# ---------- Step 0: 点検（読み込みで落ちないか・要る関数がそろっているか）----------
+# 2026-10-07: ファイルの外側で別ファイルの定数を使ってGAS全体が約4分止まった。デプロイ前に必ず点検する
+if [[ -f "$HOME/crm-worker/check_gas.js" ]] && command -v node >/dev/null 2>&1; then
+    if ! node "$HOME/crm-worker/check_gas.js"; then
+        echo "ERROR: 点検で問題が見つかったのでデプロイしません（上のメッセージを見てください）"
+        exit 1
+    fi
+fi
+
 # ---------- Step 1: Ensure access token is valid ----------
 
 ensure_valid_token
@@ -356,4 +365,15 @@ echo "======================"
 if [[ "$UPDATE_FAIL" -gt 0 ]]; then
     echo "⚠️  ${UPDATE_FAIL}件が${MAX_ROUNDS}ラウンド以内に更新できませんでした（Google側の一時障害の可能性）。"
     echo "   時間をおいて『同じバージョンへ』もう一度 gas_deploy.sh を実行してください。"
+fi
+
+# ---------- Step 9: Cloudflare版CRMも作り直す（GASのコードをブラウザで動かしているので、古いままにしない）----------
+if [[ -f "$HOME/crm-worker/build.py" && "$SRC_DIR" == "$HOME" ]]; then
+    echo ""
+    echo "=== Cloudflare版CRMを作り直します ==="
+    if python3 "$HOME/crm-worker/build.py" && (cd "$HOME/crm-worker" && npx -y wrangler@latest deploy 2>&1 | grep -E "Uploaded ehomaki|ERROR|error" ); then
+        echo "Cloudflare版CRM: 更新しました"
+    else
+        echo "⚠️  Cloudflare版CRMの更新に失敗しました（GASのデプロイは済んでいます）。cd ~/crm-worker && npx wrangler deploy を手で"
+    fi
 fi

@@ -213,3 +213,31 @@ function _cfCheckSheet_(sh, name, cache) {
   save();
   return rows.length;
 }
+
+// ── Cloudflare版CRMのボタン → 今の GAS の関数を呼ぶ口（doPost action=crm_call）──
+// Worker が Cookie の鍵を key に付けて送ってくる。呼べるのは画面が使う関数だけ（下の一覧）。
+function _cfCrmCallable_() {
+  return ['addCrmCustomer', 'addCrmWatchFromPending', 'copyCrmPropertyTo', 'deleteDuplicateLeads', 'deletePendingForCleanup',
+    'getCrmLineCandidates', 'getCrmOne', 'getCrmPropLists', 'getCrmPropListsAll', 'getCrmPropertyDetails', 'getCrmTreeForPage',
+    'getCrmVersion', 'importSuumoInquiries', 'linkCrmFamily', 'linkCrmLine', 'logCrmManualMessage', 'nameCrmLineOnly',
+    'planCrmViewing', 'previewDuplicateLeads', 'previewPendingCleanup', 'recordCrmTalk', 'recordCrmTreeContact',
+    'renameCrmCustomer', 'resendCrmToFamily', 'saveCrmCriteria', 'saveCrmMemo', 'saveCrmPropertyEdit', 'sendCrmProperties',
+    'setCrmClosed', 'setCrmGroup', 'setCrmNextContact', 'setCrmStage', 'setCrmWatch', 'skipCrmProperties', 'skipCrmProperty',
+    'unlinkCrmFamily', 'unskipCrmProperty', 'uploadPropertyImage', 'getCrmPageConsts'];
+}
+function _cfCrmCall_(e) {
+  var out;
+  try {
+    var key = PropertiesService.getScriptProperties().getProperty('CF_CRM_KEY');
+    if (!key || String(e.parameter.key || '') !== key) throw new Error('鍵が違います');
+    var b = JSON.parse((e.postData && e.postData.contents) || '{}');
+    var fn = String(b.fn || '');
+    if (_cfCrmCallable_().indexOf(fn) < 0) throw new Error('呼べない関数です: ' + fn);
+    var f = (typeof globalThis !== 'undefined' && globalThis[fn]) || this[fn];
+    if (typeof f !== 'function') throw new Error('関数がありません: ' + fn);
+    out = { ok: true, result: f.apply(null, b.args || []) };
+  } catch (err) {
+    out = { ok: false, error: String(err && err.message || err) };
+  }
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
