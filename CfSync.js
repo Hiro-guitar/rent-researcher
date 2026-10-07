@@ -73,30 +73,38 @@ function _cfRowJson_(sheetName, row) {
 function _cfPost_(body) {
   var tok = PropertiesService.getScriptProperties().getProperty('CF_SYNC_TOKEN');
   if (!tok) return false;   // まだ cfSetup していない
+  // Cloudflare の1日の上限に当たったら、しばらく送らない（失敗を繰り返して書き込みを遅くしないように）
+  var cache = CacheService.getScriptCache();
+  if (cache.get('cfBlocked')) return false;
   var res = UrlFetchApp.fetch(CF_CRM_BASE + '/sync', {
     method: 'post', contentType: 'application/json', payload: JSON.stringify(body),
     headers: { Authorization: 'Bearer ' + tok }, muteHttpExceptions: true
   });
-  if (res.getResponseCode() !== 200) throw new Error('Cloudflareに送れませんでした: ' + res.getResponseCode() + ' ' + res.getContentText().substring(0, 200));
+  if (res.getResponseCode() !== 200) {
+    var txt = res.getContentText();
+    if (/limit|exceeded/i.test(txt)) cache.put('cfBlocked', '1', 1800);
+    throw new Error('Cloudflareに送れませんでした: ' + res.getResponseCode() + ' ' + txt.substring(0, 200));
+  }
   return true;
 }
 
-/** 1枚のシートを丸ごと送る（送っている途中も、画面は前の写しのまま見える）。 */
+/**
+ * 1枚のシートを丸ごと送る。Cloudflare 側は中身が変わった行だけ書く（同じ行は書かない）ので、何度送っても書き込みは増えない。
+ * ⚠️ 以前は「#new に貯めて入れ替える」やり方で1行につき3回書いていて、1日の上限（10万行）を使い切った（2026-10-07）。
+ */
 function cfSyncSheet(sheetName, why) {
   if (!PropertiesService.getScriptProperties().getProperty('CF_SYNC_TOKEN')) return;
   var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(sheetName);
   if (!sh) return;
   var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
   var values = (lastRow > 0 && lastCol > 0) ? sh.getRange(1, 1, lastRow, lastCol).getValues() : [];
-  _cfPost_({ sheet: sheetName, mode: 'begin' });
   var chunk = [], bytes = 0;
   for (var i = 0; i < values.length; i++) {
     var v = _cfRowJson_(sheetName, values[i]);
     chunk.push([i + 1, v]); bytes += v.length * 2;
-    if (bytes > CF_CHUNK_BYTES) { _cfPost_({ sheet: sheetName, mode: 'chunk', rows: chunk }); chunk = []; bytes = 0; }
+    if (bytes > CF_CHUNK_BYTES) { _cfPost_({ sheet: sheetName, mode: 'rows', rows: chunk }); chunk = []; bytes = 0; }
   }
-  if (chunk.length) _cfPost_({ sheet: sheetName, mode: 'chunk', rows: chunk });
-  _cfPost_({ sheet: sheetName, mode: 'end', why: why || '' });
+  _cfPost_({ sheet: sheetName, mode: 'rows', rows: chunk, truncateAfter: values.length, why: why || '' });
 }
 
 /** 決まった行だけ送る（行番号はシートの行。1 始まり）。行が減ったときは truncateAfter に今の最終行を入れる。 */
@@ -151,75 +159,57 @@ function _cfHash_(s) {
   return h.toString(36);
 }
 
-/** 【トリガー: 5分ごと】変わったシートだけ Cloudflare の写しに送り直す。 */
+/** 【トリガー: 5分ごと】変わった行だけ Cloudflare の写しに送り直す（行ごとの指紋を覚えて比べる）。 */
 function cfSyncCheck() {
   var props = PropertiesService.getScriptProperties();
   if (!props.getProperty('CF_SYNC_TOKEN')) return;
   var cache = CacheService.getScriptCache();
+  if (cache.get('cfBlocked')) return;
   var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
   var sent = [];
   _cfSheets_().forEach(function (name) {
     try {
       var sh = ss.getSheetByName(name);
       if (!sh) return;
-      var lr = sh.getLastRow(), lc = sh.getLastColumn();
-      if (name === PENDING_SHEET_NAME) { if (_cfCheckPending_(sh, lr, cache)) sent.push(name); return; }
-      var values = (lr > 0 && lc > 0) ? sh.getRange(1, 1, lr, lc).getValues() : [];
-      var h = _cfHash_(JSON.stringify(values));
-      if (cache.get('cfh:' + name) === h) { cache.put('cfh:' + name, h, 21600); return; }   // 覚えを延ばす
-      cfSyncSheet(name, '');
-      cache.put('cfh:' + name, h, 21600);
-      sent.push(name);
+      var n = _cfCheckSheet_(sh, name, cache);
+      if (n) sent.push(name + ' ' + n + '行');
     } catch (e) { console.warn('[Cloudflare写し] 点検できません: ' + name + ' / ' + e.message); }
   });
   if (sent.length) console.log('[Cloudflare写し] 送り直しました: ' + sent.join('、'));
 }
 
-// 承認待ち物件: J列（物件の中身・全体で約30MB）は読まずに比べる（写真・一言・直した項目は書いた所で送っている）
-function _cfCheckPending_(sh, lr, cache) {
-  if (lr < 1) return false;
-  var ai = sh.getRange(1, 1, lr, 9).getValues(), ko = sh.getRange(1, 11, lr, 5).getValues();
-  var hs = ai.map(function (row, i) { return _cfHash_(JSON.stringify(row) + '|' + JSON.stringify(ko[i])); });
-  var prev = null;
-  try { prev = JSON.parse(cache.get('cfhp') || 'null'); } catch (e) {}
-  var save = function () { try { cache.put('cfhp', JSON.stringify(hs), 21600); } catch (e) {} };
-  // 覚えが無い・行の数が変わった（消した）ときは丸ごと送り直す
-  if (!prev || prev.length !== hs.length) { cfSyncSheet(PENDING_SHEET_NAME, ''); save(); return true; }
+// 1枚を点検して、変わった行だけ送る。返すのは送った行の数
+function _cfCheckSheet_(sh, name, cache) {
+  var lr = sh.getLastRow(), lc = sh.getLastColumn();
+  var isPending = name === PENDING_SHEET_NAME;
+  var values = null, hs;
+  if (lr < 1 || lc < 1) hs = [];
+  else if (isPending) {
+    // 承認待ち物件: J列（物件の中身・全体で約30MB）は読まずに比べる（写真・一言・直した項目は書いた所で送っている）
+    var ai = sh.getRange(1, 1, lr, 9).getValues(), ko = sh.getRange(1, 11, lr, 5).getValues();
+    hs = ai.map(function (row, i) { return _cfHash_(JSON.stringify(row) + '|' + JSON.stringify(ko[i])); });
+  } else {
+    values = sh.getRange(1, 1, lr, lc).getValues();
+    hs = values.map(function (row) { return _cfHash_(JSON.stringify(row)); });
+  }
+  var key = 'cfr:' + name, prev = null;
+  try { prev = JSON.parse(cache.get(key) || 'null'); } catch (e) {}
+  var save = function () { try { cache.put(key, JSON.stringify(hs), 21600); } catch (e) {} };
+  // 覚えが無いときは丸ごと送る（Cloudflare 側は変わった行だけ書く）
+  if (!prev) { cfSyncSheet(name, ''); save(); return hs.length; }
   var changed = [];
   for (var i = 0; i < hs.length; i++) if (hs[i] !== prev[i]) changed.push(i);
-  if (!changed.length) { save(); return false; }
-  if (changed.length > 300) { cfSyncSheet(PENDING_SHEET_NAME, ''); save(); return true; }
-  var lc = sh.getLastColumn();
-  var rows = changed.map(function (i) { return [i + 1, _cfRowJson_(PENDING_SHEET_NAME, sh.getRange(i + 1, 1, 1, lc).getValues()[0])]; });
-  for (var k = 0; k < rows.length; k += 100) _cfPost_({ sheet: PENDING_SHEET_NAME, mode: 'rows', rows: rows.slice(k, k + 100), why: '' });
-  save();
-  return true;
-}
-
-// ── Cloudflare版CRMのボタン → 今の GAS の関数を呼ぶ口（doPost action=crm_call）──
-// Worker が Cookie の鍵を key に付けて送ってくる。呼べるのは画面が使う関数だけ（下の一覧）。
-function _cfCrmCallable_() {
-  return ['addCrmCustomer', 'addCrmWatchFromPending', 'copyCrmPropertyTo', 'deleteDuplicateLeads', 'deletePendingForCleanup',
-    'getCrmLineCandidates', 'getCrmOne', 'getCrmPropLists', 'getCrmPropListsAll', 'getCrmPropertyDetails', 'getCrmTreeForPage',
-    'getCrmVersion', 'importSuumoInquiries', 'linkCrmFamily', 'linkCrmLine', 'logCrmManualMessage', 'nameCrmLineOnly',
-    'planCrmViewing', 'previewDuplicateLeads', 'previewPendingCleanup', 'recordCrmTalk', 'recordCrmTreeContact',
-    'renameCrmCustomer', 'resendCrmToFamily', 'saveCrmCriteria', 'saveCrmMemo', 'saveCrmPropertyEdit', 'sendCrmProperties',
-    'setCrmClosed', 'setCrmGroup', 'setCrmNextContact', 'setCrmStage', 'setCrmWatch', 'skipCrmProperties', 'skipCrmProperty',
-    'unlinkCrmFamily', 'unskipCrmProperty', 'uploadPropertyImage', 'getCrmPageConsts'];
-}
-function _cfCrmCall_(e) {
-  var out;
-  try {
-    var key = PropertiesService.getScriptProperties().getProperty('CF_CRM_KEY');
-    if (!key || String(e.parameter.key || '') !== key) throw new Error('鍵が違います');
-    var b = JSON.parse((e.postData && e.postData.contents) || '{}');
-    var fn = String(b.fn || '');
-    if (_cfCrmCallable_().indexOf(fn) < 0) throw new Error('呼べない関数です: ' + fn);
-    var f = (typeof globalThis !== 'undefined' && globalThis[fn]) || this[fn];
-    if (typeof f !== 'function') throw new Error('関数がありません: ' + fn);
-    out = { ok: true, result: f.apply(null, b.args || []) };
-  } catch (err) {
-    out = { ok: false, error: String(err && err.message || err) };
+  var shrank = hs.length < prev.length;
+  if (!changed.length && !shrank) { save(); return 0; }
+  var rows = changed.map(function (i) {
+    var row = values ? values[i] : sh.getRange(i + 1, 1, 1, lc).getValues()[0];
+    return [i + 1, _cfRowJson_(name, row)];
+  });
+  for (var k = 0; k < rows.length; k += 100) {
+    var last = k + 100 >= rows.length;
+    _cfPost_({ sheet: name, mode: 'rows', rows: rows.slice(k, k + 100), truncateAfter: last && shrank ? hs.length : undefined });
   }
-  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+  if (!rows.length && shrank) _cfPost_({ sheet: name, mode: 'rows', rows: [], truncateAfter: hs.length });
+  save();
+  return rows.length;
 }

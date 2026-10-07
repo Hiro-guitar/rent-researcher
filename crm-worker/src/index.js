@@ -54,7 +54,8 @@ export default {
         stmts.push(env.DB.prepare('DELETE FROM sheet_rows WHERE sheet = ?').bind(sheet + '#new'));
       } else if (b.mode === 'chunk' || b.mode === 'rows') {
         const target = b.mode === 'chunk' ? sheet + '#new' : sheet;
-        const ins = env.DB.prepare('INSERT INTO sheet_rows (sheet, r, v, u) VALUES (?, ?, ?, ?) ON CONFLICT(sheet, r) DO UPDATE SET v = excluded.v, u = excluded.u');
+        // ⚠️ 中身が同じ行は書かない（WHERE）。無料の書き込みは1日10万行まで。2026-10-07 に丸ごとの送り直しで使い切った
+        const ins = env.DB.prepare('INSERT INTO sheet_rows (sheet, r, v, u) VALUES (?, ?, ?, ?) ON CONFLICT(sheet, r) DO UPDATE SET v = excluded.v, u = excluded.u WHERE sheet_rows.v IS NOT excluded.v');
         for (const [r, v] of b.rows || []) stmts.push(ins.bind(target, Number(r), typeof v === 'string' ? v : JSON.stringify(v), now));
         // 行が減ったとき（片付けで消した）: 指定した行数より後ろを消す
         if (b.mode === 'rows' && Number.isFinite(b.truncateAfter)) {
@@ -73,7 +74,12 @@ export default {
         stmts.push(setCfg(env, 'ver', now));
         if (b.why) stmts.push(setCfg(env, 'why:' + String(b.why), now));
       }
-      for (let i = 0; i < stmts.length; i += 200) await env.DB.batch(stmts.slice(i, i + 200));
+      try {
+        for (let i = 0; i < stmts.length; i += 200) await env.DB.batch(stmts.slice(i, i + 200));
+      } catch (e) {
+        // 上限に当たった等。GAS はこれを見てしばらく送るのをやめる
+        return json({ ok: false, error: String(e && e.message || e), limit: /limit|exceeded/i.test(String(e && e.message)) }, 503);
+      }
       return json({ ok: true, n: (b.rows || []).length });
     }
 
