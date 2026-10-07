@@ -3046,7 +3046,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'LINE_NAME_MAP') {
     const now = Date.now();
     // fresh: まだ名前の付いていない人がいるときは、10秒より古ければ取り直す（メールを送った人をすぐ付け替えるため）
-    if (_lineNameMap && now - _lineNameMapAt < (msg.fresh ? 10 : 30) * 1000) {
+    // ふだんは10分使い回す。名前の無い人のトークに動きがあったとき（fresh）だけ、10秒より古ければ取り直す
+    if (_lineNameMap && now - _lineNameMapAt < (msg.fresh ? 10 : 600) * 1000) {
       sendResponse({ ok: true, map: _lineNameMap, cached: true });
       return true;
     }

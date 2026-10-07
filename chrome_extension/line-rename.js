@@ -46,6 +46,7 @@
 
   var sweeping = false;
   var done = {};                // 同じトークを何度も叩かない
+  var checkedSig = {};          // 対応表と照らし合わせたときのトークの指紋（変わったら取り直す）
 
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
@@ -202,7 +203,10 @@
       var shown = nick || base;
       if (id && shown && !seen[id]) {
         seen[id] = true;
-        out.push({ chatId: id, shown: shown, renamed: !!(nick && base && nick !== base) });
+        // sig: このトークの中身の指紋。新しいメッセージが来ると変わる（項目名に頼らない）
+        var sig = '';
+        try { var js = JSON.stringify(node); var h = 0; for (var q = 0; q < js.length; q++) h = (h * 31 + js.charCodeAt(q)) | 0; sig = js.length + ':' + h; } catch (eS) {}
+        out.push({ chatId: id, shown: shown, renamed: !!(nick && base && nick !== base), sig: sig });
       }
       for (var k2 in node) walk(node[k2], depth + 1);
     })(json, 0);
@@ -253,9 +257,11 @@
       }
       var chats = await fetchChatList(deep);
       if (!chats.length) { console.warn('[LINE表示名] トーク一覧を取れませんでした'); return; }
-      // まだ片付いていない（名前の付いていない）人がいるときだけ、対応表を新しめに取る
-      var open = chats.some(function (c) { return !done[c.chatId] && !c.renamed; });
-      var map = await nameMap(open);
+      // 名前の付いていない人のトークに動きがあった（メッセージが来た）ときだけ、対応表を新しめに取る。
+      // ⚠️ 「名前の無い人がいたら」で取り直すと、〔LINEのみ〕や家族の人がいつもいるので、GASを15秒ごとに叩いてしまう
+      var moved = deep || chats.some(function (c) { return !done[c.chatId] && !c.renamed && checkedSig[c.chatId] !== c.sig; });
+      var map = await nameMap(moved);
+      chats.forEach(function (c) { checkedSig[c.chatId] = c.sig; });
       if (!Object.keys(map).length) return;
       if (deep) console.log('[LINE表示名] 一覧 ' + chats.length + '件 / 対応表 ' + Object.keys(map).length + '件');
 
