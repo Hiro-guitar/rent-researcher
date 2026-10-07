@@ -397,6 +397,8 @@ function saveLineUser(userId, customerName) {
  *   空欄のままでも、あとから refreshLineDisplayNames が拾う。
  */
 function _fillLineDisplayName_(sheet, rowNum, userId, current) {
+  // 顧客名が変わったので、LINE Chat の改名に使う対応表の使い回し（30秒）を捨てる。すぐ付け替わるように
+  try { CacheService.getScriptCache().remove('line_name_map'); } catch (eC) {}
   try {
     if (String(current || '').trim()) return;          // すでに入っている
     if (typeof getLineProfile !== 'function') return;

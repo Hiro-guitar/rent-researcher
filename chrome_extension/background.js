@@ -3045,7 +3045,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // ⚠️ content script から直接GASを叩くとCORSで止まるので、ここで代わりに取りに行く。
   if (msg.type === 'LINE_NAME_MAP') {
     const now = Date.now();
-    if (_lineNameMap && now - _lineNameMapAt < 30 * 1000) {
+    // fresh: まだ名前の付いていない人がいるときは、10秒より古ければ取り直す（メールを送った人をすぐ付け替えるため）
+    if (_lineNameMap && now - _lineNameMapAt < (msg.fresh ? 10 : 30) * 1000) {
       sendResponse({ ok: true, map: _lineNameMap, cached: true });
       return true;
     }

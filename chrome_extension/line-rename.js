@@ -37,7 +37,8 @@
   var NAME_MAX = 20;            // 入力欄の上限（画面の 9/20 表示より）
   // ⚠️ 毎回ぜんぶのページを読まないこと。432件なら1回5往復で、2分おきだと叩きすぎる。
   //   メアドを送ってきた人は一覧の一番上に来るので、ふだんは1ページ目だけで足りる。
-  var SWEEP_EVERY_MS = 60 * 1000;            // 1ページ目だけ見る間隔
+  // 1ページ目だけ見る間隔。空室確認でメールを送った人を、すぐ付け替えたい（2026-10-07 60秒→15秒）
+  var SWEEP_EVERY_MS = 15 * 1000;
   var DEEP_SWEEP_EVERY_MS = 30 * 60 * 1000;  // 最後まで読む間隔
   var PUT_GAP_MS = 1000;        // 1件ごとに空ける。LINE側のレート制限よけ
   var PUT_MAX_PER_SWEEP = 30;   // 1回で改名する上限
@@ -95,10 +96,10 @@
   }
 
   /** LINEの表示名 → 顧客名 の対応表。background が短時間だけ持っている。 */
-  function nameMap() {
+  function nameMap(fresh) {
     return new Promise(function (resolve) {
       try {
-        chrome.runtime.sendMessage({ type: 'LINE_NAME_MAP' }, function (res) {
+        chrome.runtime.sendMessage({ type: 'LINE_NAME_MAP', fresh: !!fresh }, function (res) {
           if (chrome.runtime.lastError) {
             console.warn('[LINE表示名] 拡張に届きません: ' + chrome.runtime.lastError.message);
             resolve({}); return;
@@ -250,10 +251,12 @@
         console.log('[LINE表示名] トークンがまだ取れていません。次の巡回で試します');
         return;
       }
-      var map = await nameMap();
-      if (!Object.keys(map).length) return;
       var chats = await fetchChatList(deep);
       if (!chats.length) { console.warn('[LINE表示名] トーク一覧を取れませんでした'); return; }
+      // まだ片付いていない（名前の付いていない）人がいるときだけ、対応表を新しめに取る
+      var open = chats.some(function (c) { return !done[c.chatId] && !c.renamed; });
+      var map = await nameMap(open);
+      if (!Object.keys(map).length) return;
       if (deep) console.log('[LINE表示名] 一覧 ' + chats.length + '件 / 対応表 ' + Object.keys(map).length + '件');
 
       // ⚠️ 一覧の中で同じ表示名が2つ以上あったら、その名前は全部見送る。
