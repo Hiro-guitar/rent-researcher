@@ -114,6 +114,7 @@
   .ptab.on { border-color: var(--green); background: var(--green-soft); color: var(--green); }
   .sendbox { position: sticky; bottom: -12px; background: var(--surface); border-top: 1px solid var(--hair); padding: 8px 0 12px; margin-top: 8px; z-index: 2; }
   .memo.small { min-height: 64px; }
+  .prop .pl a.candbtn { font-weight: 700; }
   .watch { border: 1px solid var(--hair); border-radius: 8px; padding: 8px 10px; margin-top: 6px; }
   .watch.open { border-color: var(--red); background: var(--red-soft); }
   /* リンクは既定の青・紫だと暗い背景で読めないので、ページ全体で緑にそろえる */
@@ -806,7 +807,7 @@
   function setTab(t) { extras[selName].tab = t; render(); }
   function propRow(p, kind, c, x, watching) {
     var rid = esc(JSON.stringify(p.roomId));
-    var canPick = kind !== 'watch' && (c.lineUid || kind === 'new');   // LINEが無くても新着は選べる（まとめて見送るため）
+    var canPick = kind !== 'watch' && (c.lineUid || kind === 'new' || kind === 'cand');   // LINEが無くても新着・候補は選べる（まとめて仕分けるため）
     var on = !!x.pick[p.roomId];
     var tags = '';
     if (kind === 'sent') tags += ' <span class="meta">' + esc(p.sentAt) + '送った</span>';
@@ -815,7 +816,10 @@
     if (watching[p.roomId] || p.watching) tags += ' <span class="meta">⏳キャンセル待ち中</span>';
     var links = [];
     if (p.url) links.push('<a target="_blank" href="' + esc(p.url) + '">元のページ</a>');
-    if (kind === 'new') {
+    if (kind === 'new' || kind === 'cand') {
+      // 仕分け: 新着は「☆ 候補へ」、候補は「新着に戻す」
+      links.unshift(kind === 'new' ? '<a href="#" class="candbtn" onclick="setCand([' + rid + '],true);return false">☆ 候補へ</a>'
+        : '<a href="#" onclick="setCand([' + rid + '],false);return false">新着に戻す</a>');
       links.push('<a href="#" onclick="openEdit(' + rid + ');return false">詳しく確かめる・直す</a>');
       if (p.edited) links.push('<span class="meta">直した写真' + p.imgCount + '枚</span>');
       if (!p.watching) links.push('<a href="#" onclick="watchPending(' + rid + ');return false">⏳キャンセル待ち</a>');
@@ -854,16 +858,22 @@
     var sent = L === 'loading' ? null : L.sent, skipped = L === 'loading' ? null : L.skipped;
     var watching = {}; (c.watch || []).forEach(function (w) { watching[w.roomId] = true; });
     var cnt = function (a) { return a ? a.length : '…'; };
-    var T = [['new', '新着', (c.pending || []).length], ['sent', '送った', cnt(sent)], ['skip', '見送った', cnt(skipped)], ['watch', '⏳待ち', (c.watch || []).length]];
+    // 新着＝まだ仕分けていない物件。☆候補＝仕分けで残した物件（送るか決める）
+    var newList = (c.pending || []).filter(function (p) { return !p.cand; });
+    var candList = (c.pending || []).filter(function (p) { return p.cand; });
+    var T = [['new', '新着', newList.length], ['cand', '☆候補', candList.length], ['sent', '送った', cnt(sent)], ['skip', '見送った', cnt(skipped)], ['watch', '⏳待ち', (c.watch || []).length]];
     var h = '<div class="ptabs">' + T.map(function (t) {
       return '<button class="ptab' + (tab === t[0] ? ' on' : '') + '" onclick="setTab(\'' + t[0] + '\')">' + t[1] + ' <b>' + t[2] + '</b></button>';
     }).join('') + '</div><div class="plist">';
-    if (tab === 'new') {
-      if ((c.pending || []).length) {
-        var allOn = c.pending.every(function (p) { return x.pick[p.roomId]; });
-        h += '<div class="pl" style="margin:4px 0"><a href="#" onclick="pickAllNew(' + (allOn ? 'false' : 'true') + ');return false">' + (allOn ? '新着を全部外す' : '新着を全部選ぶ') + '</a></div>';
+    if (tab === 'new' || tab === 'cand') {
+      var L2 = tab === 'new' ? newList : candList, word = tab === 'new' ? '新着' : '候補';
+      if (L2.length) {
+        var allOn = L2.every(function (p) { return x.pick[p.roomId]; });
+        h += '<div class="pl" style="margin:4px 0"><a href="#" onclick="pickAllIn(\'' + tab + '\',' + (allOn ? 'false' : 'true') + ');return false">' + (allOn ? word + 'を全部外す' : word + 'を全部選ぶ') + '</a>'
+          + (tab === 'new' ? ' <span class="meta">⚠の付いた物件は後ろにまとめています</span>' : '') + '</div>';
       }
-      h += (c.pending || []).length ? c.pending.map(function (p) { return propRow(p, 'new', c, x, watching); }).join('') : '<div class="meta">今送れる新着はありません</div>';
+      h += L2.length ? L2.map(function (p) { return propRow(p, tab, c, x, watching); }).join('')
+        : '<div class="meta">' + (tab === 'new' ? (candList.length ? '仕分けが終わりました。☆候補から送るものを選んでください' : '今送れる新着はありません') : 'まだ候補はありません。新着で「☆ 候補へ」を押すとここに入ります') + '</div>';
     } else if (tab === 'sent' || tab === 'skip') {
       var list = tab === 'sent' ? sent : skipped;
       if (!list) h += '<div class="meta">読み込み中…</div>';
@@ -883,13 +893,17 @@
     // 下の送る欄（タブを切り替えても選んだ物件は残る）
     var ids = Object.keys(x.pick).filter(function (k) { return x.pick[k]; });
     var kindOf = {};
-    (c.pending || []).forEach(function (p) { kindOf[p.roomId] = '新着'; });
+    (c.pending || []).forEach(function (p) { kindOf[p.roomId] = p.cand ? '候補' : '新着'; });
     (sent || []).forEach(function (p) { if (!kindOf[p.roomId]) kindOf[p.roomId] = '送り直し'; });
     (skipped || []).forEach(function (p) { if (!kindOf[p.roomId]) kindOf[p.roomId] = '見送った'; });
     var by = {}; ids.forEach(function (k) { var kk = kindOf[k] || 'その他'; by[kk] = (by[kk] || 0) + 1; });
     var newPicked = ids.filter(function (k) { return kindOf[k] === '新着'; }).length;
+    var candPicked = ids.filter(function (k) { return kindOf[k] === '候補'; }).length;
     h += '<div class="sendbox"><div class="meta">' + (ids.length ? '選んだ物件 ' + ids.length + '件（' + Object.keys(by).map(function (k) { return k + by[k]; }).join('・') + '） <a href="#" class="skip" onclick="extras[selName].pick={};render();return false">選ぶのをやめる</a>' : '物件は選んでいません（一言だけでも送れます）') + '</div>'
-      + (newPicked ? '<div class="acts"><button class="btn" onclick="skipPicked()">選んだ新着をまとめて見送る（' + newPicked + '件）</button></div>' : '')
+      + (newPicked || candPicked ? '<div class="acts">'
+        + (newPicked ? '<button class="btn" onclick="candPicked(true)">☆ 選んだ新着を候補へ（' + newPicked + '件）</button>' : '')
+        + (candPicked ? '<button class="btn" onclick="candPicked(false)">選んだ候補を新着に戻す（' + candPicked + '件）</button>' : '')
+        + '<button class="btn" onclick="skipPicked()">選んだ物件をまとめて見送る（' + (newPicked + candPicked) + '件）</button></div>' : '')
       + '<div class="opts">' + TEMPLATES.map(function (t, i) { return '<button class="opt" onclick="useTemplate(' + i + ')">' + esc(t.label) + '</button>'; }).join('') + '</div>'
       + '<textarea id="msg" class="memo small" placeholder="スタッフの一言（物件のあとに、普通の文で届きます）" oninput="extras[selName].msgDraft=this.value">' + esc(x.msgDraft) + '</textarea>';
     if (c.lineUid) {
@@ -995,10 +1009,29 @@
     delete listCache[name];   // 送ったら一覧を取り直す
     call('sendCrmProperties', [name, [rid], ''], '送りました');
   }
-  function pickAllNew(on) {
+  // 新着・候補のタブで全部選ぶ／外す
+  function pickAllIn(tab, on) {
     var c = curCust(), x = extras[c.name];
-    (c.pending || []).forEach(function (p) { if (on) x.pick[p.roomId] = true; else delete x.pick[p.roomId]; });
+    (c.pending || []).forEach(function (p) {
+      if ((tab === 'cand') !== !!p.cand) return;
+      if (on) x.pick[p.roomId] = true; else delete x.pick[p.roomId];
+    });
     render();
+  }
+  // 送信候補に入れる（on）／新着に戻す。画面はすぐ変えて、保存は裏で
+  function setCand(ids, on) {
+    var name = selName, x = extras[name];
+    ids.forEach(function (k) { delete x.pick[k]; });
+    var set = {}; ids.forEach(function (k) { set[k] = true; });
+    call('setCrmCandidates', [name, ids, on], ids.length + '件を' + (on ? '候補に入れました' : '新着に戻しました'), function (cc) {
+      (cc.pending || []).forEach(function (p) { if (set[p.roomId]) p.cand = !!on; });
+    });
+  }
+  // 選んだ物件のうち、新着（on=true）を候補へ／候補（on=false）を新着へ
+  function candPicked(on) {
+    var c = curCust(), x = extras[c.name];
+    var ids = (c.pending || []).filter(function (p) { return x.pick[p.roomId] && !!p.cand !== !!on; }).map(function (p) { return p.roomId; });
+    if (ids.length) setCand(ids, on);
   }
   // 選んだ新着をまとめて見送る（画面からはすぐ消し、保存は裏で）
   function skipPicked() {

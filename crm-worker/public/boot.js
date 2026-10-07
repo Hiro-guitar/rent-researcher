@@ -5,7 +5,7 @@
   var SHEETS = ['検索条件', 'LINE Users', '対応ログ', 'タスク', '問い合わせ', 'CRMグループ', 'CRMメモ', 'LINE家族', 'LINE要返信',
     '樹形図の対象外（旧顧客）', 'LINE友だち追加', 'LINEブロック（名前なし）', '通知済み物件', 'アクションログ', '閲覧ログ', '継続確認',
     '引越し時期の確認', '電話のお願い', '初回配信フォロー', '初回検索の確認', '配信停止', 'LINE登録メール', 'LINE Activity', 'メール送信履歴',
-    '承認待ち物件'];
+    'CRM送信候補', '承認待ち物件'];
   var HOLIDAYS = 'https://holidays-jp.github.io/api/v1/date.json';
   var lastU = 0;
 

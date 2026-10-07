@@ -133,7 +133,7 @@ function _cfSheets_() { return [
   CRM_GROUP_SHEET, CRM_MEMO_SHEET, CRM_FAMILY_SHEET, CRM_TREE_REPLY_SHEET, CRM_TREE_OLD_SHEET,
   NEW_FRIEND_SHEET, LINE_BLOCKED_ONLY_SHEET, SEEN_SHEET_NAME, ACTION_LOG_SHEET_NAME, VIEW_LOG_SHEET_NAME,
   STILL_SHEET, MOVE_IN_SHEET, PHONE_ASK_SHEET, FIRST_DELIVERY_SHEET, FIRST_SEARCH_SHEET,
-  UNSUBSCRIBE_SHEET_NAME, LINE_EMAIL_SHEET_NAME, 'LINE Activity', 'メール送信履歴',
+  UNSUBSCRIBE_SHEET_NAME, LINE_EMAIL_SHEET_NAME, 'LINE Activity', 'メール送信履歴', CRM_CAND_SHEET,
   PENDING_SHEET_NAME
 ]; }
 
@@ -223,7 +223,7 @@ function _cfCrmCallable_() {
     'planCrmViewing', 'previewDuplicateLeads', 'previewPendingCleanup', 'recordCrmTalk', 'recordCrmTreeContact',
     'renameCrmCustomer', 'resendCrmToFamily', 'saveCrmCriteria', 'saveCrmMemo', 'saveCrmPropertyEdit', 'sendCrmProperties',
     'setCrmClosed', 'setCrmGroup', 'setCrmNextContact', 'setCrmStage', 'setCrmWatch', 'skipCrmProperties', 'skipCrmProperty',
-    'unlinkCrmFamily', 'unskipCrmProperty', 'uploadPropertyImage', 'getCrmPageConsts'];
+    'unlinkCrmFamily', 'unskipCrmProperty', 'uploadPropertyImage', 'getCrmPageConsts', 'setCrmCandidates'];
 }
 function _cfCrmCall_(e) {
   var out;

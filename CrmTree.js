@@ -558,6 +558,7 @@ function _crmTreeForPage_(only) {
   var crits = _crmCriteriaAll_();
   var pend = (typeof _crmPendingAll_ === 'function') ? _crmPendingAll_(crits, only) : {};
   var watch = (typeof _crmWatchAll_ === 'function') ? _crmWatchAll_() : {};
+  var cands = (typeof _crmCandidatesAll_ === 'function') ? _crmCandidatesAll_() : {};
   var page = {
     nodes: t.nodes,
     oldCount: t.oldCount,
@@ -574,7 +575,8 @@ function _crmTreeForPage_(only) {
         lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
         uid: c.lineOnly ? (c.uid || '') : '',   // 〔LINEのみ〕の人を顧客とつなぐときだけ使う
         family: c.family || [],
-        pending: (c.stageId !== 'ended' && c.stageId !== 'won') ? (pend[c.name] || []) : [],
+        // cand: 送信候補に入れた物件（☆候補のタブに出る）
+        pending: (c.stageId !== 'ended' && c.stageId !== 'won') ? (pend[c.name] || []).map(function (p) { p.cand = !!(cands[c.name] && cands[c.name][p.roomId]); return p; }) : [],
         criteria: (c.stageId !== 'ended' && c.stageId !== 'won') ? (crits[c.name] || null) : null,
         group: c.group || '', contactedToday: !!c.contactedToday, ignoreDays: c.ignoreDays || 0,
         name: c.name, node: c.node, lineOnly: !!c.lineOnly,

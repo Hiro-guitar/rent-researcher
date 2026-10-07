@@ -82,7 +82,57 @@ function _crmPendingAll_(crits, only) {
       });
     }
   } catch (e) { console.warn('[送る物件] 承認待ちを読めません: ' + e.message); }
+  // 条件に合わないかもしれない物件（⚠ が付いたもの）は後ろへ。順番はそれぞれの中で今のまま
+  Object.keys(out).forEach(function (n) {
+    var ok = [], warn = [];
+    out[n].forEach(function (p) { (p.warnings && p.warnings.length ? warn : ok).push(p); });
+    out[n] = ok.concat(warn);
+  });
   return out;
+}
+
+// ── 送信候補（新着を仕分けて残した物件）──
+// 物件の状態（K列）には手を付けず、別の小さなシートに覚える。送った・見送ったら消す。
+var CRM_CAND_SHEET = 'CRM送信候補';
+/** 顧客名 → { 物件番号: true } */
+function _crmCandidatesAll_() {
+  var out = {};
+  try {
+    var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(CRM_CAND_SHEET);
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues().forEach(function (r) {
+      var n = String(r[0] || '').trim(), rid = String(r[1] || '').trim();
+      if (n && rid) (out[n] = out[n] || {})[rid] = true;
+    });
+  } catch (e) {}
+  return out;
+}
+function _crmCandSet_(customerName, roomIds, on) {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var sh = ss.getSheetByName(CRM_CAND_SHEET);
+  if (!sh) { if (!on) return; sh = ss.insertSheet(CRM_CAND_SHEET); sh.appendRow(['顧客名', '物件番号', '入れた日時']); }
+  var want = {}; (roomIds || []).forEach(function (r) { want[String(r)] = true; });
+  var data = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues() : [];
+  var have = {};
+  for (var i = data.length - 1; i >= 0; i--) {
+    var n = String(data[i][0] || '').trim(), rid = String(data[i][1] || '').trim();
+    if (n !== customerName || !want[rid]) continue;
+    if (on) have[rid] = true; else sh.deleteRow(i + 2);
+  }
+  if (on) {
+    var now = new Date();
+    Object.keys(want).forEach(function (rid) { if (!have[rid]) sh.appendRow([customerName, rid, now]); });
+    sh.getRange(2, 2, Math.max(1, sh.getLastRow() - 1), 1).setNumberFormat('@');
+  }
+  try { cfSyncSheet(CRM_CAND_SHEET, '送信候補'); } catch (eCf) {}
+}
+
+/** 画面: 物件を送信候補に入れる（on=true）／新着に戻す（on=false）。 */
+function setCrmCandidates(customerName, roomIds, on) {
+  _crmCandSet_(customerName, roomIds, !!on);
+  var page = _crmTreeForPage_(customerName);
+  page.savedMessage = (roomIds || []).length + '件を' + (on ? '候補に入れました' : '新着に戻しました');
+  return page;
 }
 
 /**
@@ -138,6 +188,7 @@ function sendCrmProperties(customerName, roomIds, text) {
     for (var m = 0; m < messages.length; m += 5) pushMessage(to, messages.slice(m, m + 5));
   });
 
+  try { _crmCandSet_(customerName, roomIds, false); } catch (eCd) {}   // 送ったので候補から外す
   sentTargets.forEach(function (t) {
     updatePendingStatus(t.rowIndex, 'sent', t.viewUrl);
     _crmMarkSeen_(customerName, t.prop);
@@ -154,6 +205,7 @@ function skipCrmProperties(customerName, roomIds) {
   var rows = _findRowsByRoomIdsAnyStatus_(customerName, roomIds || []);
   var n = 0;
   rows.forEach(function (r) { if (String(r.values[10]) === 'pending') { updatePendingStatus(r.rowIndex, 'skipped', ''); n++; } });
+  try { _crmCandSet_(customerName, roomIds, false); } catch (eCd) {}
   var page = _crmTreeForPage_(customerName);
   page.savedMessage = (roomIds || []).length + '件を見送りました';
   return page;
@@ -163,6 +215,7 @@ function skipCrmProperties(customerName, roomIds) {
 function skipCrmProperty(customerName, roomId) {
   var rows = _findRowsByRoomIdsAnyStatus_(customerName, [roomId]);
   rows.forEach(function (r) { if (String(r.values[10]) === 'pending') updatePendingStatus(r.rowIndex, 'skipped', ''); });
+  try { _crmCandSet_(customerName, [roomId], false); } catch (eCd) {}
   return _crmTreeForPage_(customerName);
 }
 
