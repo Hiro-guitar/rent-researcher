@@ -146,7 +146,9 @@ function _crmTreeNodeOf_(c) {
     // ⚠️ 反応は「文を送ってきた」だけで数える（2026-09-29）。LINE Activity はボタンを押しても更新されるので、
     //   催促のあと何かタップしただけの人が永久に「条件登録待ち」に残っていた。
     if (c.nudgedMs && Date.now() - c.nudgedMs > CRM_TREE_NUDGE_WAIT_H * 3600000
-        && !(c.replyMs > c.nudgedMs)) {
+        && !(c.replyMs > c.nudgedMs) && !(c.linkedMs > c.nudgedMs)) {
+      // linkedMs: LINE と顧客がつながった時刻。空室確認でメールを送って本人が決まった人は、ボットが答えるので
+      //   「返事の要る文」には残らない。それを反応なしと数えて終了にしていた（2026-10-08 ルーカスさん）
       c.endWhy = '催促のあと反応なし';
       return 'ended';
     }
@@ -442,6 +444,14 @@ function getCrmTree(opts) {
   var log = _crmTreeContactLog_(ss);
   var acts = _crmTreeActions_(ss, names);
   var replyByUid = _crmTreeReplyByUid_(ss);
+  // LINE と顧客がつながった（顧客名が入った）時刻。LINE Users の C列（登録・更新した日時）
+  var linkedByUid = {};
+  try {
+    var _lu = ss.getSheetByName(LINE_USERS_SHEET_NAME);
+    if (_lu && _lu.getLastRow() > 1) _lu.getRange(2, 1, _lu.getLastRow() - 1, 3).getValues().forEach(function (r) {
+      var u = String(r[0] || '').trim(); if (u && String(r[1] || '').trim()) linkedByUid[u] = _cellToEpochMs_(r[2]);
+    });
+  } catch (eLu) {}
   var lineMsByUid = _crmTreeLineMsByUid_(ss);
   var todayIdx = _jstDayIndex_(Date.now());
   var tasks = _crmTreeOpenTasks_(ss);
@@ -473,6 +483,7 @@ function getCrmTree(opts) {
     var regMs = c.registeredAt ? new Date(c.registeredAt).getTime() : 0;
     c.daysSinceInquiry = regMs ? (todayIdx - _jstDayIndex_(regMs)) : null;
     c.replyMs = uid ? (replyByUid[uid] || 0) : 0;
+    c.linkedMs = uid ? (linkedByUid[uid] || 0) : 0;
     // 家族のLINEから来た文も、親の顧客の「返信待ち」に数える
     (family.byName[c.name] || []).forEach(function (fm) { if ((replyByUid[fm.uid] || 0) > c.replyMs) c.replyMs = replyByUid[fm.uid]; });
     c.family = (family.byName[c.name] || []).map(function (fm) { return { uid: fm.uid, disp: fm.disp }; });
