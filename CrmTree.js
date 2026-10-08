@@ -1073,7 +1073,6 @@ var CRM_STAGES = [
   { id: 'B',         label: 'B 返事はくれる',             parent: 'registered' },
   { id: 'C',         label: 'C 返事なし',                 parent: 'registered' },
   { id: 'none',      label: 'まだ分けていない',            parent: 'registered' },
-  { id: 'viewing',   label: '内見',                      parent: '' },
   { id: 'applied',   label: '申込',                      parent: '' },
   { id: 'won',       label: '成約',                      parent: '' },
   { id: 'ended',     label: '終了',                      parent: '' }
@@ -1122,7 +1121,7 @@ function _crmStageOf_(c) {
     c.endWhy = c.ignoreDays + '日続けて返事なし'; return 'ended';
   }
   if (c.stage === '申込') return 'applied';
-  if (c.hasViewingTask) return 'viewing';
+  // 「内見」の段はなくした（2026-10-08）。内見の予定がある人もグループの段に並ぶ。予定はやること（タスク）で見る
   var talked = (c.daysSinceTalk !== null && c.daysSinceTalk !== undefined);
   if (c.hasCriteria) {
     return (c.group === 'A' || c.group === 'B' || c.group === 'C') ? c.group : 'none';
