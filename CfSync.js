@@ -9,6 +9,8 @@
  */
 
 var CF_CRM_BASE = 'https://ehomaki-crm.delicate-bush-f5a9.workers.dev';
+// Cloudflare版から「画面はこちらで組み立てる」と言われたとき（lite）は、1人分の作り直しを省いて早く返す
+var _CRM_PAGE_LITE_ = false;
 // 1回に送る大きさ（Cloudflare 無料の CPU 上限 1回10ms に収めるため小分けにする）
 var CF_CHUNK_BYTES = 200000;
 
@@ -233,6 +235,7 @@ function _cfCrmCall_(e) {
     var b = JSON.parse((e.postData && e.postData.contents) || '{}');
     var fn = String(b.fn || '');
     if (_cfCrmCallable_().indexOf(fn) < 0) throw new Error('呼べない関数です: ' + fn);
+    _CRM_PAGE_LITE_ = !!b.lite;
     var f = (typeof globalThis !== 'undefined' && globalThis[fn]) || this[fn];
     if (typeof f !== 'function') throw new Error('関数がありません: ' + fn);
     out = { ok: true, result: f.apply(null, b.args || []) };

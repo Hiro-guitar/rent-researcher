@@ -1328,6 +1328,15 @@
     }
     if (d && d.customers) data = d;
   }
+  // Cloudflare版: 手元の写しで先に組み立てた結果を、順番待ちに関係なくすぐ入れる（boot.js から呼ぶ）
+  window.__applyLocal = function (d) {
+    if (!d || d.onlyName === undefined || !('one' in d)) { if (d && d.customers) { data = d; render(); } return; }
+    var i = -1;
+    data.customers.forEach(function (c, k) { if (c.name === d.onlyName) i = k; });
+    if (d.one) { if (i >= 0) data.customers[i] = d.one; else data.customers.push(d.one); }
+    else if (i >= 0) data.customers.splice(i, 1);
+    render();
+  };
   function custOf(name) { return data.customers.filter(function (c) { return c.name === name; })[0]; }
   // 失敗したら、その人をサーバーの今の状態に戻す
   function refetchOne(name) {

@@ -553,6 +553,8 @@ function previewCrmTree(opts) {
 
 /** 画面に渡す形に絞る（顧客ごとの項目を必要なものだけにして軽くする）。 */
 function _crmTreeForPage_(only) {
+  // Cloudflare版が自分で組み立てるとき（CfSync.gs の lite）は作り直さない。保存だけして早く返す
+  if (only && typeof _CRM_PAGE_LITE_ !== 'undefined' && _CRM_PAGE_LITE_) return { lite: true, onlyName: only };
   var t = getCrmTree(only ? { only: only } : {});
   var ex = _crmExtrasAll_(t.customers);
   var crits = _crmCriteriaAll_();

@@ -46,8 +46,27 @@
   Range.prototype.getRow = function () { return this.r; };
   Range.prototype.getNumRows = function () { return this.nr; };
   Range.prototype.getLastRow = function () { return this.r + this.nr - 1; };
-  ['setValue', 'setValues', 'setNumberFormat', 'setNumberFormats', 'setWrapStrategy', 'setFontWeight', 'setBackground', 'clearContent', 'clear', 'setFormula']
-    .forEach(function (m) { Range.prototype[m] = function () { store.writes.push(this.s.name + '.' + m); return this; }; });
+  // 書き込みは手元の写しにだけ入れる（画面をすぐ変えるため）。本当の保存は GAS がする
+  function ensureCell(d, r, c) {
+    while (d.rows.length < r) { var e = []; while (e.length < d.width) e.push(''); d.rows.push(e); }
+    if (c > d.width) { d.width = c; d.rows.forEach(function (x) { while (x.length < d.width) x.push(''); }); }
+  }
+  Range.prototype.setValues = function (vals) {
+    var d = this.s.data;
+    for (var i = 0; i < vals.length; i++) for (var j = 0; j < vals[i].length; j++) {
+      ensureCell(d, this.r + i, this.c + j);
+      d.rows[this.r - 1 + i][this.c - 1 + j] = vals[i][j];
+    }
+    store.writes.push(this.s.name + '.setValues');
+    return this;
+  };
+  Range.prototype.setValue = function (v) { return this.setValues([[v]]); };
+  Range.prototype.clearContent = function () {
+    var vals = []; for (var i = 0; i < this.nr; i++) { var row = []; for (var j = 0; j < this.nc; j++) row.push(''); vals.push(row); }
+    return this.setValues(vals);
+  };
+  ['setNumberFormat', 'setNumberFormats', 'setWrapStrategy', 'setFontWeight', 'setBackground', 'clear', 'setFormula']
+    .forEach(function (m) { Range.prototype[m] = function () { return this; }; });
 
   function Sheet(name, data) { this.name = name; this.data = data; }
   Sheet.prototype.getName = function () { return this.name; };
@@ -60,8 +79,18 @@
     if (typeof r === 'string') throw new Error('替え玉は A1 形式の getRange に未対応: ' + r);
     return new Range(this, r, c, nr === undefined ? 1 : nr, nc === undefined ? 1 : nc);
   };
-  ['appendRow', 'deleteRow', 'deleteRows', 'insertRowAfter', 'insertRowBefore', 'setFrozenRows', 'hideSheet', 'autoResizeColumns', 'setColumnWidth', 'insertRows']
-    .forEach(function (m) { Sheet.prototype[m] = function () { store.writes.push(this.name + '.' + m); return this; }; });
+  Sheet.prototype.appendRow = function (vals) {
+    var d = this.data;
+    ensureCell(d, d.rows.length + 1, vals.length);
+    var row = d.rows[d.rows.length - 1];
+    for (var j = 0; j < vals.length; j++) row[j] = vals[j];
+    store.writes.push(this.name + '.appendRow');
+    return this;
+  };
+  Sheet.prototype.deleteRow = function (r) { this.data.rows.splice(r - 1, 1); store.writes.push(this.name + '.deleteRow'); return this; };
+  Sheet.prototype.deleteRows = function (r, n) { this.data.rows.splice(r - 1, n); store.writes.push(this.name + '.deleteRows'); return this; };
+  ['insertRowAfter', 'insertRowBefore', 'setFrozenRows', 'hideSheet', 'autoResizeColumns', 'setColumnWidth', 'insertRows']
+    .forEach(function (m) { Sheet.prototype[m] = function () { return this; }; });
 
   var spreadsheet = {
     getSheetByName: function (n) { var d = store.sheets[n]; return d ? new Sheet(n, d) : null; },

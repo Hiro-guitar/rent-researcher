@@ -26,8 +26,8 @@
     return deltaP;
   }
 
-  function gasCall(fn, args) {
-    return fetch('/api/call', { method: 'POST', body: JSON.stringify({ fn: fn, args: args }), headers: { 'content-type': 'text/plain' } })
+  function gasCall(fn, args, lite) {
+    return fetch('/api/call', { method: 'POST', body: JSON.stringify({ fn: fn, args: args, lite: !!lite }), headers: { 'content-type': 'text/plain' } })
       .then(function (r) { return r.json(); })
       .then(function (o) {
         if (!o || !o.ok) throw new Error((o && o.error) || 'GASから答えがありません');
@@ -49,7 +49,31 @@
     }
   };
 
+  // シートを書くだけの操作は、まず手元の写しで同じ処理を動かして、画面（段の移動まで）をすぐ変える。
+  // 本当の保存は GAS（lite: 1人分の作り直しを省いて早く返す）。あとで写しの差分を取り込んで、手元と本物をそろえる。
+  // ⚠️ LINE を送るもの・条件の保存（リッチメニュー等で外に行く）はここに入れない
+  var LOCAL_WRITE = {
+    setCrmGroup: 1, recordCrmTreeContact: 1, setCrmNextContact: 1, setCrmStage: 1, planCrmViewing: 1, saveCrmMemo: 1,
+    setCrmCandidates: 1, skipCrmProperty: 1, skipCrmProperties: 1, unskipCrmProperty: 1, setCrmWatch: 1, addCrmWatchFromPending: 1,
+    recordCrmTalk: 1, setCrmClosed: 1
+  };
   function callFn(name, args) {
+    if (LOCAL_WRITE[name]) {
+      var t0 = Date.now(), localRes = null;
+      try { localRes = GAS_FN(name).apply(null, JSON.parse(JSON.stringify(args))); }
+      catch (e) { console.warn('[CRM] 手元で先に動かせませんでした（保存はGASでします）: ' + name + ' / ' + e.message); }
+      if (localRes && window.__applyLocal) { try { window.__applyLocal(localRes); } catch (e2) {} }
+      if (localRes) console.log('[CRM] 手元で先に反映 ' + name + ' ' + (Date.now() - t0) + 'ms');
+      return gasCall(name, args, !!localRes).then(function (r) {
+        refreshDelta().catch(function () {});
+        // 手元の結果に GAS のひとこと（savedMessage）だけ足して返す。画面はもう変わっている
+        if (r && r.lite) return { savedMessage: r.savedMessage || (localRes && localRes.savedMessage) };
+        return r;
+      }, function (e) {
+        refreshDelta().then(function () { if (window.__applyLocal && localRes && localRes.onlyName) window.__applyLocal(GAS_FN('_crmTreeForPage_')(localRes.onlyName)); }).catch(function () {});
+        throw e;
+      });
+    }
     if (LOCAL[name]) return new Promise(function (res, rej) { setTimeout(function () { try { LOCAL[name].apply(null, args).then(res, rej); } catch (e) { rej(e); } }, 0); });
     // 書くもの: GAS で書く → 写しにはGASがすぐ送る → 手元の写しも取り直しておく
     return gasCall(name, args).then(function (r) { refreshDelta().catch(function () {}); return r; });
