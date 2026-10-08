@@ -104,9 +104,9 @@ function cfSyncSheet(sheetName, why) {
   for (var i = 0; i < values.length; i++) {
     var v = _cfRowJson_(sheetName, values[i]);
     chunk.push([i + 1, v]); bytes += v.length * 2;
-    if (bytes > CF_CHUNK_BYTES) { _cfPost_({ sheet: sheetName, mode: 'rows', rows: chunk }); chunk = []; bytes = 0; }
+    if (bytes > CF_CHUNK_BYTES) { if (!_cfPost_({ sheet: sheetName, mode: 'rows', rows: chunk })) return false; chunk = []; bytes = 0; }
   }
-  _cfPost_({ sheet: sheetName, mode: 'rows', rows: chunk, truncateAfter: values.length, why: why || '' });
+  return _cfPost_({ sheet: sheetName, mode: 'rows', rows: chunk, truncateAfter: values.length, why: why || '' });
 }
 
 /** 決まった行だけ送る（行番号はシートの行。1 始まり）。行が減ったときは truncateAfter に今の最終行を入れる。 */
@@ -198,7 +198,7 @@ function _cfCheckSheet_(sh, name, cache) {
   try { prev = JSON.parse(cache.get(key) || 'null'); } catch (e) {}
   var save = function () { try { cache.put(key, JSON.stringify(hs), 21600); } catch (e) {} };
   // 覚えが無いときは丸ごと送る（Cloudflare 側は変わった行だけ書く）
-  if (!prev) { cfSyncSheet(name, ''); save(); return hs.length; }
+  if (!prev) { if (cfSyncSheet(name, '')) { save(); return hs.length; } return 0; }
   var changed = [];
   for (var i = 0; i < hs.length; i++) if (hs[i] !== prev[i]) changed.push(i);
   var shrank = hs.length < prev.length;
@@ -207,13 +207,16 @@ function _cfCheckSheet_(sh, name, cache) {
     var row = values ? values[i] : sh.getRange(i + 1, 1, 1, lc).getValues()[0];
     return [i + 1, _cfRowJson_(name, row)];
   });
+  // ⚠️ 送れなかったとき（上限で休んでいる等で _cfPost_ が false）は、指紋を覚え直さないこと。
+  //   覚え直すと「送った」ことになり、その行は二度と送られず写しから抜け落ちる（2026-10-08 実際に起きた）
+  var ok = true;
   for (var k = 0; k < rows.length; k += 100) {
     var last = k + 100 >= rows.length;
-    _cfPost_({ sheet: name, mode: 'rows', rows: rows.slice(k, k + 100), truncateAfter: last && shrank ? hs.length : undefined });
+    ok = _cfPost_({ sheet: name, mode: 'rows', rows: rows.slice(k, k + 100), truncateAfter: last && shrank ? hs.length : undefined }) && ok;
   }
-  if (!rows.length && shrank) _cfPost_({ sheet: name, mode: 'rows', rows: [], truncateAfter: hs.length });
-  save();
-  return rows.length;
+  if (!rows.length && shrank) ok = _cfPost_({ sheet: name, mode: 'rows', rows: [], truncateAfter: hs.length }) && ok;
+  if (ok) save();
+  return ok ? rows.length : 0;
 }
 
 // ── Cloudflare版CRMのボタン → 今の GAS の関数を呼ぶ口（doPost action=crm_call）──
@@ -260,4 +263,15 @@ function cfSyncAfterCrmWrite_() {
     try { var sh = ss.getSheetByName(name); if (sh) _cfCheckSheet_(sh, name, cache); }
     catch (e) { console.warn('[Cloudflare写し] ' + name + ': ' + e.message); }
   });
+}
+
+/** 全部の送り直しを頼む口（doGet action=cf_resync&key=CF鍵）。上限が戻った直後に写しを本物とそろえるため。指紋の覚えも消す。 */
+function cfResyncFromWeb_(e) {
+  var key = PropertiesService.getScriptProperties().getProperty('CF_CRM_KEY');
+  if (!key || String(e.parameter.key || '') !== key) return ContentService.createTextOutput('{"error":"unauthorized"}').setMimeType(ContentService.MimeType.JSON);
+  var cache = CacheService.getScriptCache();
+  cache.remove('cfBlocked');
+  cache.removeAll(_cfSheets_().map(function (n) { return 'cfr:' + n; }));
+  var t0 = Date.now(); cfSyncAll();
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, sec: Math.round((Date.now() - t0) / 1000) })).setMimeType(ContentService.MimeType.JSON);
 }

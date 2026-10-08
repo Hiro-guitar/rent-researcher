@@ -399,6 +399,8 @@ function saveLineUser(userId, customerName) {
 function _fillLineDisplayName_(sheet, rowNum, userId, current) {
   // 顧客名が変わったので、LINE Chat の改名に使う対応表の使い回し（30秒）を捨てる。すぐ付け替わるように
   try { CacheService.getScriptCache().remove('line_name_map'); } catch (eC) {}
+  // Cloudflare版の写しにもすぐ送る（送っていなかったので、CRMで〔LINEのみ〕と顧客が別々に見えた。2026-10-08）
+  try { cfSyncRows(LINE_USERS_SHEET_NAME, [rowNum], 'LINEのつなぎ'); } catch (eCf) {}
   try {
     if (String(current || '').trim()) return;          // すでに入っている
     if (typeof getLineProfile !== 'function') return;

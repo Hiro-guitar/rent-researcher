@@ -1665,6 +1665,8 @@ function doGet_(e) {
     return ContentService.createTextOutput(JSON.stringify(crmDebugPendingSeen_(String(e.parameter.name || ''))))
       .setMimeType(ContentService.MimeType.JSON);
   }
+  // Cloudflare版の写しを全部送り直す（CF鍵が必要。CfSync.gs）
+  if (action === 'cf_resync') return cfResyncFromWeb_(e);
   // 移行の見比べ用: GAS版の樹形図をJSONで返す（Cloudflare版の鍵 CF_CRM_KEY が必要）
   if (action === 'crm_tree_json') {
     var _ck = PropertiesService.getScriptProperties().getProperty('CF_CRM_KEY');
