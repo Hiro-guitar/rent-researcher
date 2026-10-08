@@ -7,7 +7,14 @@
     '引越し時期の確認', '電話のお願い', '初回配信フォロー', '初回検索の確認', '配信停止', 'LINE登録メール', 'LINE Activity', 'メール送信履歴',
     'CRM送信候補', '承認待ち物件'];
   var HOLIDAYS = 'https://holidays-jp.github.io/api/v1/date.json';
-  var lastU = 0;
+  var lastU = 0, lastVer = 0;
+  // 30秒ごとに外で変わったか確かめて、変わっていれば取り込んで組み立て直す（Discordから送った・条件変更・LINEの返信など）
+  setInterval(function () {
+    if (document.visibilityState !== 'visible' || inflight > 0 || !lastU) return;
+    fetch('/api/ver', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
+      if (v && v.ver > lastVer) refreshDelta().catch(function () {});
+    }).catch(function () {});
+  }, 30000);
 
   function say(t) { var el = document.getElementById('bootMsg'); if (el) el.textContent = t; }
 
@@ -28,8 +35,12 @@
       (d.rows || []).forEach(function (x) { GasShim.patchRow(x[0], x[1], x[2]); });
       (d.meta || []).forEach(function (m) { GasShim.truncate(m.sheet, m.rows); });
       lastU = d.now;
+      lastVer = Math.max(lastVer, d.ver || 0);
       GasShim.clearCache();
       deltaP = null;
+      // 変わった行があったら、画面を組み立て直す（ブラウザの中なので一瞬）。
+      // ⚠️ 以前は取り込むだけで組み立て直しておらず、条件を保存しても「引越しまで◯日」が古いままだった（2026-10-08）
+      if ((d.rows || []).length && window.__recomputeAll) { try { window.__recomputeAll(); } catch (eR) { console.warn(eR); } }
       return d;
     }, function (e) { deltaP = null; throw e; });
     return deltaP;
@@ -51,11 +62,8 @@
     getCrmPropListsAll: function (names) { return Promise.resolve(GAS_FN('getCrmPropListsAll')(names)); },
     getCrmPropLists: function (name) { return refreshDelta().then(function () { return GAS_FN('getCrmPropLists')(name); }); },
     getCrmPropertyDetails: function (name, ids) { return Promise.resolve(GAS_FN('getCrmPropertyDetails')(name, ids)); },
-    getCrmVersion: function () {
-      return fetch('/api/ver', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
-        return { ver: v.ver, whys: v.whys || {}, now: Date.now() };
-      });
-    }
+    // Cloudflare版は自分で30秒ごとに取り込むので、「新しい動きがあります」の知らせは出さない
+    getCrmVersion: function () { return Promise.resolve({ ver: 0, whys: {}, now: Date.now() }); }
   };
 
   // シートを書くだけの操作は、まず手元の写しで同じ処理を動かして、画面（段の移動まで）をすぐ変える。
@@ -140,7 +148,7 @@
     Promise.all([sheetsP, holP, consts ? Promise.resolve(consts) : constsP]).then(function (all) {
       var d = all[0], c = all[2];
       GasShim.loadSheets(d.sheets);
-      lastU = d.now;
+      lastU = d.now; lastVer = d.ver || 0;
       say('組み立てています…');
       var tree = GAS_FN('_crmTreeForPage_')();
       window.__boot = {

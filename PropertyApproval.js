@@ -431,6 +431,7 @@ function handleConfirmApprove(e) {
   });
 
   pushMessage(lineUserId, [flex]);
+  _crmLogStaffSend_(customerName, 1, '承認ページ');
   updatePendingStatus(row.rowIndex, 'sent', viewUrl);
   // 担当者コメントを property_data_json に永続保存（再送時にも同じコメントを載せるため）
   _setPendingStaffComment_(customerName, roomId, e.parameter.staff_comment);
@@ -514,6 +515,7 @@ function handleConfirmApprove(e) {
         staffComment: msComment
       });
       pushMessage(msLineId, [msFlex]);
+      _crmLogStaffSend_(msName, 1, '承認ページ・一括');
       updatePendingStatus(msRow.rowIndex, 'sent', msViewUrl);
       _setPendingStaffComment_(msName, roomId, msComment);
       addToSeenSheet(msName, msProp);
@@ -629,6 +631,7 @@ function handleConfirmApproveAll(e) {
   for (var m = 0; m < messages.length; m += 5) {
     pushMessage(lineUserId, messages.slice(m, m + 5));
   }
+  _crmLogStaffSend_(customerName, sentTargets.length, '承認ページ・まとめて');
 
   // 送信成功 → 各物件を sent にし通知済みへ記録
   for (var s = 0; s < sentTargets.length; s++) {
@@ -4492,6 +4495,7 @@ function sendManualPropertiesToLine(customerName, properties) {
     try {
       pushMessage(lineUserId, batch);
       sentCount += batchPropCount;
+      _crmLogStaffSend_(customerName, batchPropCount, 'REINSなどのパネル');
     } catch (eP) {
       console.warn('[manual-send] pushMessage failed: ' + eP.message);
       errors.push('LINE送信失敗: ' + eP.message);
@@ -8648,6 +8652,7 @@ function sendCartCarousel(customerName, roomIdsCsv) {
     for (var m = 0; m < messages.length; m += 5) {
       pushMessage(lineUserId, messages.slice(m, m + 5));
     }
+    _crmLogStaffSend_(customerName, roomIds.length, 'カート');
     for (var s = 0; s < sentTargets.length; s++) {
       updatePendingStatus(sentTargets[s].rowIndex, 'sent', sentTargets[s].viewUrl);
       addToSeenSheet(customerName, sentTargets[s].prop);
@@ -9226,4 +9231,14 @@ function removeAutoApprovalTrigger() {
     }
   }
   console.log('Removed ' + removed + ' auto-approval trigger(s)');
+}
+
+/**
+ * 担当が手で物件を送ったら、対応ログに「LINE」を残す（CRM の「今日連絡した」に数える）。
+ * ⚠️ 以前は CRM から送ったときだけ残していて、承認ページから送った人が赤いままだった（2026-10-08）。
+ *   自動で送ったもの（自動承認・初回配信フォローなど）では呼ばないこと。担当が連絡したわけではない。
+ */
+function _crmLogStaffSend_(customerName, n, via) {
+  try { addContactLog(customerName, 'LINE', new Date().toISOString(), '物件' + n + '件を送った（' + via + '）'); }
+  catch (e) { console.warn('[対応ログ] 送った記録を残せません: ' + e.message); }
 }

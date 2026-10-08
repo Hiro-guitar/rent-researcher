@@ -1330,6 +1330,18 @@
     }
     if (d && d.customers) data = d;
   }
+  // Cloudflare版: 写しの差分を取り込んだら、全員分を組み立て直す（boot.js から呼ぶ）。
+  // 文字を打っている最中は、打ち終わる（欄から離れる）まで待つ。打っている欄が消えないように
+  var recomputeWanted = false;
+  window.__recomputeAll = function () {
+    var a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) {
+      if (!recomputeWanted) { recomputeWanted = true; a.addEventListener('blur', function once() { a.removeEventListener('blur', once); recomputeWanted = false; setTimeout(window.__recomputeAll, 50); }); }
+      return;
+    }
+    data = GAS_FN('_crmTreeForPage_')();
+    render();
+  };
   // Cloudflare版: 手元の写しで先に組み立てた結果を、順番待ちに関係なくすぐ入れる（boot.js から呼ぶ）
   window.__applyLocal = function (d) {
     if (!d || d.onlyName === undefined || !('one' in d)) { if (d && d.customers) { data = d; render(); } return; }
