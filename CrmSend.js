@@ -45,7 +45,10 @@ function _crmPendingAll_(crits, only) {
     };
     var sentKeys = {};
     for (var j = 0; j < data.length; j++) {
-      if (String(data[j][10]) !== 'sent') continue;
+      // 送った・見送った部屋は、別のサイトの番号で残っている行も新着に出さない
+      // ⚠️ 以前は「送った」だけを見ていて、まとめて見送っても同じ部屋の別の行が新着に残った（2026-10-08）
+      var st0 = String(data[j][10]);
+      if (st0 !== 'sent' && st0 !== 'skipped') continue;
       if (only && String(data[j][0] || '').trim() !== only) continue;   // 1人分だけのときは他の人を見ない
       try { var k0 = bkey(String(data[j][0] || '').trim(), rowToProperty(data[j])); if (k0) sentKeys[k0] = true; } catch (_e0) {}
     }
@@ -486,6 +489,7 @@ function _crmMarkSeen_(customerName, prop) {
           var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
           sh.getRange(i + 2, 4).setValue(now);                                         // D列: 送った日
           if (String(sh.getRange(i + 2, 15).getValue()) === 'watch_only') sh.getRange(i + 2, 15).setValue('');   // もう「送っていない」ではない
+          try { cfSyncRows(SEEN_SHEET_NAME, [i + 2], '物件の送信'); } catch (eCf) {}
           return;
         }
       }

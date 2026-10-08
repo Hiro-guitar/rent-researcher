@@ -152,17 +152,41 @@
   function clearCache() { memCache = {}; }
   G.GasShim = { patchRow: patchRow, truncate: truncate, clearCache: clearCache, loadSheets: loadSheets, store: store, setProps: function (o) { props = Object.assign({}, o); }, setFetch: function (u, t) { fetchCache[u] = t; } };
   G.SpreadsheetApp = { openById: function () { return spreadsheet; }, getActiveSpreadsheet: function () { return spreadsheet; }, flush: function () {}, WrapStrategy: { CLIP: 'CLIP', WRAP: 'WRAP' } };
+  // バイト列と base64（送るときの詳細ページのアドレス作りで使う）
+  function toBytes(x) {
+    if (Array.isArray(x)) return x;
+    if (x && typeof x.getBytes === 'function') return x.getBytes();
+    return Array.prototype.slice.call(new G.TextEncoder().encode(String(x == null ? '' : x)));
+  }
+  function b64(bytes) {
+    var bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i] & 255);
+    return G.btoa(bin);
+  }
   G.Utilities = {
     formatDate: fmt, sleep: function () {}, getUuid: function () { return (G.crypto && G.crypto.randomUUID) ? G.crypto.randomUUID() : String(Math.random()).slice(2); },
-    base64Encode: function (s) { return G.btoa(unescape(encodeURIComponent(s))); }, base64Decode: function () { throw new Error('替え玉では使えません'); },
-    newBlob: function () { throw new Error('替え玉では使えません'); }, Charset: { UTF_8: 'UTF-8' }, DigestAlgorithm: { MD5: 'MD5', SHA_256: 'SHA_256' },
+    base64Encode: function (x) { return b64(toBytes(x)); },
+    base64EncodeWebSafe: function (x) { return b64(toBytes(x)).replace(/\+/g, '-').replace(/\//g, '_'); },
+    base64Decode: function () { throw new Error('替え玉では使えません'); },
+    newBlob: function (data, mime, name) {
+      var bytes = toBytes(data);
+      return { getBytes: function () { return bytes; }, getDataAsString: function () { return new G.TextDecoder().decode(new Uint8Array(bytes.map(function (b) { return b & 255; }))); },
+        getContentType: function () { return mime || ''; }, getName: function () { return name || ''; }, setName: function () { return this; } };
+    },
+    gzip: function () { throw new Error('替え玉では使えません'); },
+    Charset: { UTF_8: 'UTF-8' }, DigestAlgorithm: { MD5: 'MD5', SHA_256: 'SHA_256' },
     computeDigest: function () { throw new Error('替え玉では使えません'); }
   };
   G.CacheService = { getScriptCache: function () { return cache; }, getUserCache: function () { return cache; }, getDocumentCache: function () { return cache; } };
   G.PropertiesService = { getScriptProperties: function () { return propSvc; }, getUserProperties: function () { return propSvc; } };
   G.LockService = { getScriptLock: function () { return { tryLock: function () { return true; }, waitLock: function () {}, releaseLock: function () {}, hasLock: function () { return true; } }; } };
+  // simulate: 手元で先に動かすとき、LINE などへの送信は「成功したふり」をする（この替え玉は外に通信できない。本当に送るのは GAS）
   G.UrlFetchApp = {
-    fetch: function (u) { if (fetchCache[u] !== undefined) return resp(fetchCache[u]); throw new Error('替え玉では外に取りに行けません: ' + String(u).slice(0, 80)); },
+    fetch: function (u) {
+      if (fetchCache[u] !== undefined) return resp(fetchCache[u]);
+      if (G.GasShim.simulate) return resp('{}', 200);
+      throw new Error('替え玉では外に取りに行けません: ' + String(u).slice(0, 80));
+    },
     fetchAll: function (reqs) { return reqs.map(function (r) { return G.UrlFetchApp.fetch(typeof r === 'string' ? r : r.url); }); }
   };
   G.ScriptApp = { getService: function () { return { getUrl: function () { return G.GAS_WEBAPP_URL || ''; } }; }, getProjectTriggers: function () { return []; } };

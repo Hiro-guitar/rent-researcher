@@ -69,17 +69,23 @@
   // シートを書くだけの操作は、まず手元の写しで同じ処理を動かして、画面（段の移動まで）をすぐ変える。
   // 本当の保存は GAS（lite: 1人分の作り直しを省いて早く返す）。あとで写しの差分を取り込んで、手元と本物をそろえる。
   // ⚠️ LINE を送るもの・条件の保存（リッチメニュー等で外に行く）はここに入れない
+  // LINE を送る・条件を保存するものも、手元では「送ったふり」で先に済ませる（gas-shim の simulate）。本当に送るのは GAS。
   var LOCAL_WRITE = {
     setCrmGroup: 1, recordCrmTreeContact: 1, setCrmNextContact: 1, setCrmStage: 1, planCrmViewing: 1, saveCrmMemo: 1,
     setCrmCandidates: 1, skipCrmProperty: 1, skipCrmProperties: 1, unskipCrmProperty: 1, setCrmWatch: 1, addCrmWatchFromPending: 1,
-    recordCrmTalk: 1, setCrmClosed: 1
+    recordCrmTalk: 1, setCrmClosed: 1,
+    sendCrmProperties: 1, saveCrmCriteria: 1, logCrmManualMessage: 1, copyCrmPropertyTo: 1, resendCrmToFamily: 1,
+    addCrmCustomer: 1, renameCrmCustomer: 1, linkCrmLine: 1, linkCrmFamily: 1, unlinkCrmFamily: 1, nameCrmLineOnly: 1,
+    saveCrmPropertyEdit: 1
   };
   // 押した瞬間に画面の順番待ちの列から呼ばれる。手元で先に動かした結果を覚えておき、列の番が来たら保存だけする
   var preApplied = [];
   function runLocal(name, args) {
     var t0 = Date.now(), localRes = null;
+    GasShim.simulate = true;
     try { localRes = GAS_FN(name).apply(null, JSON.parse(JSON.stringify(args))); }
     catch (e) { console.warn('[CRM] 手元で先に動かせませんでした（保存はGASでします）: ' + name + ' / ' + e.message); }
+    finally { GasShim.simulate = false; }
     if (localRes && window.__applyLocal) { try { window.__applyLocal(localRes); } catch (e2) {} }
     if (localRes) console.log('[CRM] 手元で先に反映 ' + name + ' ' + (Date.now() - t0) + 'ms');
     return localRes;

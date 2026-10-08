@@ -3,7 +3,7 @@
 // ⚠️ 2026-10-07: ファイルの外側で別ファイルの定数を使ってGAS全体が落ちた／書き直しで関数を消した。どちらもこれで気づける。
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const HOME = process.env.HOME;
-const ctx = { console, Date, Math, JSON, crypto: require('crypto').webcrypto, btoa: (s) => Buffer.from(s, 'binary').toString('base64'), unescape, encodeURIComponent, decodeURIComponent };
+const ctx = { TextEncoder, TextDecoder, console, Date, Math, JSON, crypto: require('crypto').webcrypto, btoa: (s) => Buffer.from(s, 'binary').toString('base64'), unescape, encodeURIComponent, decodeURIComponent };
 ctx.globalThis = ctx; vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(path.join(HOME, 'crm-worker/public/gas-shim.js'), 'utf8'), ctx);
 const files = fs.readdirSync(HOME).filter((f) => f.endsWith('.js')).sort();

@@ -1054,10 +1054,14 @@
     if (!ids.length && !text) { toast('送る物件か一言を入れてください'); return; }
     if (savingCount > 0) { toast('直した物件を保存中です。少し待ってから送ってください'); return; }
     if (!confirm((ids.length ? '物件' + ids.length + '件' : '') + (ids.length && text ? 'と' : '') + (text ? '一言' : '') + 'を、' + name + ' さんにLINEで送ります。よろしいですか？')) return;
-    x.sending = true; render();
+    // 押したらすぐ次の操作に移れるようにする（送信は裏で、押した順に）。失敗したら選んだ物件と一言を戻す
+    var keepPick = x.pick, keepDraft = x.msgDraft;
+    x.pick = {}; x.msgDraft = ''; askNext = name; delete listCache[name];
+    render();
+    toast('送っています…（そのまま次の操作をして大丈夫です）');
     Q()
-      .withSuccessHandler(function (d) { x.sending = false; x.pick = {}; x.msgDraft = ''; applyResult(d); askNext = name; delete listCache[name]; render(); toast(d.savedMessage || '送りました'); })
-      .withFailureHandler(function (e) { x.sending = false; render(); toast('送れませんでした: ' + e.message); })
+      .withSuccessHandler(function (d) { applyResult(d); delete listCache[name]; render(); toast(name + '：' + (d.savedMessage || '送りました')); })
+      .withFailureHandler(function (e) { x.pick = keepPick; x.msgDraft = keepDraft; render(); toast(name + 'さんに送れませんでした: ' + e.message + '（選んだ物件と一言は戻しました）'); })
       .sendCrmProperties(name, ids, text);
   }
   function copyMsg() {

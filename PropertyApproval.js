@@ -2849,6 +2849,7 @@ function addToSeenSheet(customerName, prop) {
     '', // status_checked_at
     sourceRef
   ]);
+  try { cfSyncRows(SEEN_SHEET_NAME, [sheet.getLastRow()], '物件の送信'); } catch (eCf) {}
   // 地図(map.html)に新しい物件を出すため、作り直しの印を付ける。
   // ここで作り直すと十数秒かかって送信の流れを止めるので、印だけ。
   try { markCustomerMapDirty(customerName); } catch (eM) {}
@@ -3905,6 +3906,7 @@ function setManualClosed(customerName, roomId, closed) {
         updated++;
       }
     }
+    try { cfSyncSheet(SEEN_SHEET_NAME, '募集終了'); } catch (eCf) {}
     if (updated === 0) return { ok: false, message: '対象物件が見つかりません' };
     // ① ehomaki(id=経路)に募集終了マーカーを反映 → 最初から募集終了表示(チラ見えなし)
     _setEhomakiClosed_(nameTrim, ridTrim, closed);
@@ -3958,6 +3960,7 @@ function addCancellationWatchOnly(customerName, prop) {
           if (prop.roomNumber && !String(sheet.getRange(i + 2, 16).getValue() || '').trim()) {
             sheet.getRange(i + 2, 16).setValue(String(prop.roomNumber));
           }
+          try { cfSyncSheet(SEEN_SHEET_NAME, 'キャンセル待ち'); } catch (eCf) {}
           return { ok: true, added: false, message: '既存の物件をキャンセル待ちにしました' };
         }
       }
@@ -3991,6 +3994,7 @@ function addCancellationWatchOnly(customerName, prop) {
       String(prop.roomNumber || '')  // P: 部屋番号
     ]);
     console.log('[キャンセル待ち] 未送信物件を登録: ' + name + ' / ' + (prop.buildingName || '') + ' / ' + rid);
+    try { cfSyncRows(SEEN_SHEET_NAME, [sheet.getLastRow()], 'キャンセル待ち'); } catch (eCf) {}
     return { ok: true, added: true, message: 'キャンセル待ちに追加しました' };
   } catch (e) {
     return { ok: false, message: e.message };
@@ -4023,6 +4027,7 @@ function setCancellationWatch(customerName, roomId, watching) {
         updated++;
       }
     }
+    try { cfSyncSheet(SEEN_SHEET_NAME, 'キャンセル待ち'); } catch (eCf) {}
     if (updated === 0) return { ok: false, message: '対象物件が見つかりません' };
     return { ok: true, message: watching ? 'キャンセル待ちに追加しました' : 'キャンセル待ちを解除しました', watching: !!watching, updated: updated };
   } catch (e) {
