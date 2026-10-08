@@ -452,6 +452,14 @@ function getCrmTree(opts) {
       var u = String(r[0] || '').trim(); if (u && String(r[1] || '').trim()) linkedByUid[u] = _cellToEpochMs_(r[2]);
     });
   } catch (eLu) {}
+  // 空室確認を頼んできた時刻も反応に数える（催促のカードで物件をタップした人を「反応なし」にしない）
+  try {
+    var _vr = ss.getSheetByName(VACANCY_REQUEST_SHEET);
+    if (_vr && _vr.getLastRow() > 1) _vr.getRange(2, 1, _vr.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var u = String(r[1] || '').trim(), ms = _cellToEpochMs_(r[3]);
+      if (u && ms > (linkedByUid[u] || 0)) linkedByUid[u] = ms;
+    });
+  } catch (eVr) {}
   var lineMsByUid = _crmTreeLineMsByUid_(ss);
   var todayIdx = _jstDayIndex_(Date.now());
   var tasks = _crmTreeOpenTasks_(ss);
