@@ -3156,8 +3156,8 @@ function handleGetSeenIds(e) {
       var customer = String(pData[i][0] || '');
       var roomId = String(pData[i][2] || '');
 
-      // sent 行も含めて dedup キーを生成
-      if (pStatus === 'sent' || pStatus === 'pending') {
+      // sent 行も含めて dedup キーを生成。見送った行も入れる（別のサイトに載っている同じ部屋を、また新着にしないため。2026-10-08）
+      if (pStatus === 'sent' || pStatus === 'pending' || pStatus === 'skipped') {
         try {
           var parsedDk = JSON.parse(String(pData[i][9] || ''));
           var dk = _buildDedupKeyForGas_({
