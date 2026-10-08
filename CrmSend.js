@@ -441,6 +441,22 @@ function _crmWatchAll_() {
       });
     }
   } catch (e) { console.warn('[キャンセル待ち] 読めません: ' + e.message); }
+  // 部屋番号: 通知済み物件の P列はキャンセル待ちから登録したときしか入らない。空なら物件の中身から引く
+  try {
+    var need = {};
+    Object.keys(out).forEach(function (n) { out[n].forEach(function (w) { if (!w.room) need[n + '|' + w.roomId] = w; }); });
+    if (Object.keys(need).length) {
+      var psh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(PENDING_SHEET_NAME);
+      if (psh && psh.getLastRow() > 1) {
+        var pd = psh.getRange(2, 1, psh.getLastRow() - 1, 15).getValues();
+        for (var j = 0; j < pd.length; j++) {
+          var w = need[String(pd[j][0] || '').trim() + '|' + String(pd[j][2] || '').trim()];
+          if (!w || w.room) continue;
+          try { var pp = rowToProperty(pd[j]); w.room = pp.roomNumber || ''; if (!w.building) w.building = pp.buildingName || ''; } catch (eP) {}
+        }
+      }
+    }
+  } catch (eR) { console.warn('[キャンセル待ち] 部屋番号を引けません: ' + eR.message); }
   return out;
 }
 
