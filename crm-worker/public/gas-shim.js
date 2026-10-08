@@ -150,7 +150,17 @@
   }
   function truncate(name, n) { var d = store.sheets[name]; if (d && d.rows.length > n) d.rows.length = n; }
   function clearCache() { memCache = {}; }
-  G.GasShim = { patchRow: patchRow, truncate: truncate, clearCache: clearCache, loadSheets: loadSheets, store: store, setProps: function (o) { props = Object.assign({}, o); }, setFetch: function (u, t) { fetchCache[u] = t; } };
+  // 今の写しを /api/sheets と同じ形で書き出す（ブラウザに保存して、次に開くとき差分だけ受け取るため）
+  function exportSheets() {
+    var out = {};
+    Object.keys(store.sheets).forEach(function (n) {
+      out[n] = store.sheets[n].rows.map(function (row, i) {
+        return [i + 1, row.map(function (v) { return v instanceof Date ? { $d: v.getTime() } : v; })];
+      });
+    });
+    return out;
+  }
+  G.GasShim = { exportSheets: exportSheets, patchRow: patchRow, truncate: truncate, clearCache: clearCache, loadSheets: loadSheets, store: store, setProps: function (o) { props = Object.assign({}, o); }, setFetch: function (u, t) { fetchCache[u] = t; } };
   G.SpreadsheetApp = { openById: function () { return spreadsheet; }, getActiveSpreadsheet: function () { return spreadsheet; }, flush: function () {}, WrapStrategy: { CLIP: 'CLIP', WRAP: 'WRAP' } };
   // バイト列と base64（送るときの詳細ページのアドレス作りで使う）
   function toBytes(x) {

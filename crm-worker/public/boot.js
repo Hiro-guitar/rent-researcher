@@ -41,6 +41,7 @@
       // 変わった行があったら、画面を組み立て直す（ブラウザの中なので一瞬）。
       // ⚠️ 以前は取り込むだけで組み立て直しておらず、条件を保存しても「引越しまで◯日」が古いままだった（2026-10-08）
       if ((d.rows || []).length && window.__recomputeAll) { try { window.__recomputeAll(); } catch (eR) { console.warn(eR); } }
+      if ((d.rows || []).length) saveSnapSoon();
       return d;
     }, function (e) { deltaP = null; throw e; });
     return deltaP;
@@ -134,6 +135,32 @@
   }
   window.google = { script: { get run() { return runner(); }, host: { close: function () {} } } };
 
+  // ── 前回の写しをブラウザ（IndexedDB）に取っておく。次に開くときは差分だけ受け取る ──
+  // ⚠️ 開くたびに全部（約1万7千行）を読むと、Cloudflare の1日の読み取り上限（500万行）を圧迫する（2026-10-08）
+  var IDB = 'crmMirror', IDB_STORE = 'snap';
+  function idb() {
+    return new Promise(function (res, rej) {
+      var r = indexedDB.open(IDB, 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore(IDB_STORE); };
+      r.onsuccess = function () { res(r.result); }; r.onerror = function () { rej(r.error); };
+    });
+  }
+  function loadSnap() {
+    return idb().then(function (db) { return new Promise(function (res) {
+      var q = db.transaction(IDB_STORE).objectStore(IDB_STORE).get('v1');
+      q.onsuccess = function () { res(q.result || null); }; q.onerror = function () { res(null); };
+    }); }).catch(function () { return null; });
+  }
+  var snapTimer = null;
+  function saveSnapSoon() {
+    clearTimeout(snapTimer);
+    snapTimer = setTimeout(function () {
+      if (inflight > 0) return;   // 手元だけの書き込みが残っている間は取っておかない
+      var snap = { sheets: GasShim.exportSheets(), lastU: lastU, lastVer: lastVer, at: Date.now(), names: SHEETS };
+      idb().then(function (db) { db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE).put(snap, 'v1'); }).catch(function () {});
+    }, 3000);
+  }
+
   var constsKey = 'crmConsts';
   function cachedConsts() { try { return JSON.parse(localStorage.getItem(constsKey) || 'null'); } catch (e) { return null; } }
 
@@ -147,14 +174,32 @@
       return c;
     });
     var holP = fetch(HOLIDAYS).then(function (r) { return r.text(); }).then(function (t) { GasShim.setFetch(HOLIDAYS, t); }, function () {});
-    var sheetsP = fetch('/api/sheets?s=' + encodeURIComponent(SHEETS.join(',')), { cache: 'no-store' }).then(function (r) {
-      if (r.status === 401) throw new Error('ログインが切れています。GAS版の顧客管理の ☰ から「Cloudflare版を開く」で入り直してください。');
-      return r.json();
+    var fullP = function (names) {
+      return fetch('/api/sheets?s=' + encodeURIComponent(names.join(',')), { cache: 'no-store' }).then(function (r) {
+        if (r.status === 401) throw new Error('ログインが切れています。GAS版の顧客管理の ☰ から「Cloudflare版を開く」で入り直してください。');
+        return r.json();
+      });
+    };
+    // 前回の写しがあれば、それに差分だけ足す（3日より古い・差分が多すぎるときは全部取り直す）
+    var sheetsP = loadSnap().then(function (snap) {
+      if (!snap || !snap.sheets || Date.now() - snap.at > 3 * 86400000) return fullP(SHEETS).then(function (d) { d.full = true; return d; });
+      GasShim.loadSheets(snap.sheets);
+      lastU = snap.lastU; lastVer = snap.lastVer || 0;
+      var missing = SHEETS.filter(function (n) { return !snap.sheets[n]; });
+      return (missing.length ? fullP(missing).then(function (d) { GasShim.loadSheets(d.sheets); }) : Promise.resolve()).then(function () {
+        return fetch('/api/delta?since=' + lastU, { cache: 'no-store' }).then(function (r) { return r.json(); });
+      }).then(function (dd) {
+        if ((dd.rows || []).length >= 20000) return fullP(SHEETS).then(function (d) { d.full = true; return d; });
+        (dd.rows || []).forEach(function (x) { GasShim.patchRow(x[0], x[1], x[2]); });
+        (dd.meta || []).forEach(function (m) { GasShim.truncate(m.sheet, m.rows); });
+        console.log('[CRM] 前回の写し＋差分 ' + (dd.rows || []).length + '行');
+        return { cached: true, now: dd.now, ver: dd.ver };
+      });
     });
     Promise.all([sheetsP, holP, consts ? Promise.resolve(consts) : constsP]).then(function (all) {
       var d = all[0], c = all[2];
-      GasShim.loadSheets(d.sheets);
-      lastU = d.now; lastVer = d.ver || 0;
+      if (d.full) { GasShim.loadSheets(d.sheets); saveSnapSoon(); }
+      lastU = d.now; lastVer = d.ver || lastVer || 0;
       say('組み立てています…');
       var tree = GAS_FN('_crmTreeForPage_')();
       window.__boot = {
