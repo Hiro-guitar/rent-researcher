@@ -13,7 +13,16 @@
 
   // 写しの差分を取り込む（書いたあと・読み直すとき）
   var deltaP = null;
+  // ⚠️ 手元で先に書いた保存が GAS に届くまでは、写しの差分を取り込まない（2026-10-08）。
+  //   取り込むと、まだ本物に無い「LINEした」などの記録を消してしまい、次に組み立てると赤に戻った。
+  //   保存が全部終わってから取り込む（GAS は返す前に写しへ送っているので、そのときには本物と手元がそろう）。
+  var inflight = 0, deltaWanted = false;
+  function savedOne() {
+    inflight = Math.max(0, inflight - 1);
+    if (inflight === 0 && deltaWanted) { deltaWanted = false; refreshDelta().catch(function () {}); }
+  }
   function refreshDelta() {
+    if (inflight > 0) { deltaWanted = true; return Promise.resolve({}); }
     if (deltaP) return deltaP;
     deltaP = fetch('/api/delta?since=' + lastU, { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
       (d.rows || []).forEach(function (x) { GasShim.patchRow(x[0], x[1], x[2]); });
@@ -69,18 +78,22 @@
   }
   window.__localFirst = function (name, args) {
     if (!LOCAL_WRITE[name]) return;
+    inflight++;
     preApplied.push({ name: name, res: runLocal(name, args) });
   };
   function callFn(name, args) {
     if (LOCAL_WRITE[name]) {
       var pre = (preApplied.length && preApplied[0].name === name) ? preApplied.shift() : null;
+      if (!pre) inflight++;
       var localRes = pre ? pre.res : runLocal(name, args);
       return gasCall(name, args, !!localRes).then(function (r) {
+        savedOne();
         refreshDelta().catch(function () {});
         // 手元の結果に GAS のひとこと（savedMessage）だけ足して返す。画面はもう変わっている
         if (r && r.lite) return { savedMessage: r.savedMessage || (localRes && localRes.savedMessage) };
         return r;
       }, function (e) {
+        savedOne();
         refreshDelta().then(function () { if (window.__applyLocal && localRes && localRes.onlyName) window.__applyLocal(GAS_FN('_crmTreeForPage_')(localRes.onlyName)); }).catch(function () {});
         throw e;
       });
