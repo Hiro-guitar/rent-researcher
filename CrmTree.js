@@ -742,6 +742,13 @@ function _crmDateAfter_(days) {
 function setCrmNextContact(customerName, days) {
   days = Number(days) || 0;
   if (days > 0) {
+    // 前に決めた「次の連絡」は閉じて、新しい日だけにする（選び直したら、そちらが赤くする日になる）
+    try {
+      var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID), sh = ss.getSheetByName(TASK_SHEET_NAME);
+      (_crmTreeOpenTasks_(ss)[customerName] || []).forEach(function (t) {
+        if (t.content === CRM_NEXT_TASK) { sh.getRange(t.row, 4).setValue('TRUE'); try { cfSyncRows(TASK_SHEET_NAME, [t.row], '次の連絡'); } catch (eCf) {} }
+      });
+    } catch (eClose) { console.warn('[次の連絡] 前の日を閉じられません: ' + eClose.message); }
     var r = addCustomerTask(customerName, CRM_NEXT_TASK, _crmDateAfter_(days), TASK_OWNER_DEFAULT);
     if (!r || !r.success) throw new Error((r && r.message) || '次の連絡日を保存できませんでした');
   }
@@ -1107,9 +1114,12 @@ function _crmChipOf_(c) {
     }
     parts.push('反響' + ((c.daysSinceInquiry || 0) + 1) + '日目');
   } else {
-    parts.push(c.contactedToday ? '今日 ✓' : '今日 未');
+    // 次に連絡する日（タスクの日付）が先にある人は、その日まで赤くしない。その日になったら赤（連絡すれば黒）
+    var _today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    var _waiting = !!(c.nextTaskDue && c.nextTaskDue > _today);
+    parts.push(_waiting ? '次 ' + c.nextTaskDue.substring(5).replace('-', '/') : (c.contactedToday ? '今日 ✓' : '今日 未'));
     if (c.ignoreDays) parts.push('無視' + c.ignoreDays + '日目');
-    todo = !c.contactedToday;
+    todo = !_waiting && !c.contactedToday;
   }
   if (sid === 'viewing' && c.tasks) {
     var v = c.tasks.filter(function (t) { return t.content.indexOf('内見') >= 0; })[0];

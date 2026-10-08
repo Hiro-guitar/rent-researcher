@@ -321,8 +321,8 @@
         h += '<div class="acts"><button class="btn save" onclick="saveTalk()">記録する</button>'
           + '<button class="btn" onclick="askTalk=\'\';render()">やめる</button></div>';
       } else if (askNext === c.name) {
-        // 記録した直後: 次の連絡日を決める
-        h += '<div class="ask">次の連絡は？</div><div class="acts">'
+        // 記録した直後・「次に赤くする日」を押したとき: 次に連絡する日を決める。その日まで赤くしない
+        h += '<div class="ask">次に連絡する日は？（その日まで赤くしません）</div><div class="acts">'
           + [[1, '明日'], [3, '3日後'], [7, '1週間後'], [14, '2週間後'], [0, '決めない']].map(function (d) {
             return '<button class="btn" onclick="next(' + n + ',' + d[0] + ')">' + d[1] + '</button>';
           }).join('') + '</div>';
@@ -341,6 +341,7 @@
           + '<button class="btn" onclick="askTalk=' + n + ';render()">📞 話せた</button>'
           + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>'
           + '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>'
+          + '<button class="btn" onclick="askNext=' + n + ';render()">🕒 次に赤くする日</button>'
           + '</div><div class="acts small">';
         if (c.stageId === 'ended' || c.stageId === 'won') {
           h += '<button class="btn" onclick="stage(' + n + ',\'\',\'\')">↩ 追客中に戻す</button>';

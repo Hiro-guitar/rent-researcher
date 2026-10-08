@@ -6729,6 +6729,7 @@ function addCustomerTask(customerName, content, dueStr, owner) {
       String(customerName).trim(), content, due, '', now,
       _normalizeTaskOwner_(owner), now
     ]);
+    try { cfSyncRows(TASK_SHEET_NAME, [sheet.getLastRow()], 'タスク'); } catch (eCf) {}
     return { success: true };
   } catch (e) {
     return { success: false, message: e.message };
