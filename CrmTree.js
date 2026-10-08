@@ -1145,7 +1145,7 @@ function _crmChipOf_(c) {
   if (c.sig && c.sig.apply) flags.push('⚡申込・内見希望');
   if (c.sig && c.sig.reInquiry) flags.push('⚡再問い合わせ');
   if (c.sig && c.sig.strong) flags.push('⚡申込画面を開いた');
-  if (c.sig && c.sig.reply) flags.push('💬返信待ち');
+  // 💬返信待ちは出さない（2026-10-08）。LINE Chat やスマホの公式LINEから返しても、こちらからは分からず消えないため
   // 期日が来たタスクがあれば、その中身を短く出す（「約束の日」だけでは何をするか分からない）
   if (c.taskDueNow) {
     var _td = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
