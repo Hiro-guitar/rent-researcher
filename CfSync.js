@@ -245,3 +245,19 @@ function _cfCrmCall_(e) {
   }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
+
+/**
+ * CRM のボタンで書いたあとに呼ぶ（_crmTreeForPage_ の1人分）。CRM が書くシートを行ごとに見比べて、変わった行だけ写しへ送る。
+ * 承認待ち物件は書いた所で行ごとに送っているので、ここでは見ない（大きいので）。
+ */
+function cfSyncAfterCrmWrite_() {
+  if (!PropertiesService.getScriptProperties().getProperty('CF_SYNC_TOKEN')) return;
+  var cache = CacheService.getScriptCache();
+  if (cache.get('cfBlocked')) return;
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  [CRITERIA_SHEET_NAME, CRM_GROUP_SHEET, CRM_MEMO_SHEET, CRM_CAND_SHEET, TASK_SHEET_NAME, CONTACT_LOG_SHEET_NAME,
+    CRM_FAMILY_SHEET, LINE_USERS_SHEET_NAME, SEEN_SHEET_NAME].forEach(function (name) {
+    try { var sh = ss.getSheetByName(name); if (sh) _cfCheckSheet_(sh, name, cache); }
+    catch (e) { console.warn('[Cloudflare写し] ' + name + ': ' + e.message); }
+  });
+}

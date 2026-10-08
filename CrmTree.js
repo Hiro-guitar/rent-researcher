@@ -553,6 +553,9 @@ function previewCrmTree(opts) {
 
 /** 画面に渡す形に絞る（顧客ごとの項目を必要なものだけにして軽くする）。 */
 function _crmTreeForPage_(only) {
+  // ボタンで書いたあと（1人分の作り直し）は、CRM が書くシートの変わった行を写しへ送ってから返す（CfSync.gs）。
+  // ⚠️ 送っていないと、Cloudflare版で写しを取り込み直したときに、押した操作が元に戻って見えた（2026-10-08）
+  if (only && typeof cfSyncAfterCrmWrite_ === 'function') { try { cfSyncAfterCrmWrite_(); } catch (eCf) { console.warn('[Cloudflare写し] ' + eCf.message); } }
   // Cloudflare版が自分で組み立てるとき（CfSync.gs の lite）は作り直さない。保存だけして早く返す
   if (only && typeof _CRM_PAGE_LITE_ !== 'undefined' && _CRM_PAGE_LITE_) return { lite: true, onlyName: only };
   var t = getCrmTree(only ? { only: only } : {});
