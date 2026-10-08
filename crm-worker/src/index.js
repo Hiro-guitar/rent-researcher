@@ -68,9 +68,17 @@ export default {
         return json({ ok: false, error: 'bad mode' }, 400);
       }
       if (b.mode !== 'begin' && b.mode !== 'chunk') {
-        stmts.push(env.DB.prepare(
-          'INSERT INTO sheet_meta (sheet, rows, synced_at) VALUES (?, (SELECT COUNT(*) FROM sheet_rows WHERE sheet = ?), ?) ' +
-          'ON CONFLICT(sheet) DO UPDATE SET rows = excluded.rows, synced_at = excluded.synced_at').bind(sheet, sheet, now));
+        // ⚠️ 行数を COUNT(*) で数え直さないこと。送るたびにシート全体を読み、1日の読み取り上限（500万行）を超えた（2026-10-08）。
+        //   行数は「切り詰めたらその数、そうでなければ今までと送った行番号の大きい方」で覚えておく。
+        let maxR = 0;
+        for (const [r] of b.rows || []) if (Number(r) > maxR) maxR = Number(r);
+        if (Number.isFinite(b.truncateAfter)) {
+          stmts.push(env.DB.prepare('INSERT INTO sheet_meta (sheet, rows, synced_at) VALUES (?, ?, ?) ON CONFLICT(sheet) DO UPDATE SET rows = excluded.rows, synced_at = excluded.synced_at')
+            .bind(sheet, Number(b.truncateAfter), now));
+        } else {
+          stmts.push(env.DB.prepare('INSERT INTO sheet_meta (sheet, rows, synced_at) VALUES (?, ?, ?) ON CONFLICT(sheet) DO UPDATE SET rows = MAX(sheet_meta.rows, excluded.rows), synced_at = excluded.synced_at')
+            .bind(sheet, maxR, now));
+        }
         stmts.push(setCfg(env, 'ver', now));
         if (b.why) stmts.push(setCfg(env, 'why:' + String(b.why), now));
       }
