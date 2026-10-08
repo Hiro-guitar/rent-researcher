@@ -570,8 +570,11 @@ function _crmTreeForPage_(only) {
       return {
         stageId: c.stageId, todo: chip.todo, chipStatus: chip.status,
         flags: chip.flags.concat((pend[c.name] || []).length && c.stageId !== 'ended' ? ['📦新着' + pend[c.name].length + '件'] : [])
-          .concat((watch[c.name] || []).some(function (w) { return w.status === 'available'; }) ? ['🔔キャンセル待ちが空いた'] : [])
-          .concat((watch[c.name] || []).length ? ['⏳キャンセル待ち' + watch[c.name].length + '件'] : []),
+          .concat((watch[c.name] || []).some(function (w) { return w.status === 'available'; }) ? ['🔔キャンセル待ちが空いた'] : []),
+        // ⚠️ キャンセル待ちの件数は名前の横に出さない（それほど大事ではない。⏳待ちのタブで見られる）
+        // やること（タスク）: 済んでいないものを期日順に。行番号は直す・消すときの目印
+        taskList: (c.tasks || []).map(function (t) { return { row: t.row, content: t.content, due: t.due || '' }; })
+          .sort(function (a, b) { return (a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0; }),
         watch: watch[c.name] || [],
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
         lineUid: !!(c.uid && !c.lineOnly && String(c.uid).indexOf('admin_') !== 0),
@@ -753,6 +756,58 @@ function setCrmNextContact(customerName, days) {
     if (!r || !r.success) throw new Error((r && r.message) || '次の連絡日を保存できませんでした');
   }
   return _crmTreeForPage_(customerName);
+}
+
+// ── やること（タスク）──  タスクシート: A 顧客名 / B 内容 / C 期日 / D 済み(TRUE) / E 作成 / F 担当 / G 更新
+// 行番号で指すが、行がずれていたら（消したなど）名前と内容で探し直す
+function _crmTaskRowOf_(sh, customerName, row, content) {
+  var lr = sh.getLastRow();
+  if (row >= 2 && row <= lr) {
+    var v = sh.getRange(row, 1, 1, 2).getValues()[0];
+    if (String(v[0]).trim() === customerName && String(v[1]) === String(content)) return row;
+  }
+  if (lr < 2) return -1;
+  var all = sh.getRange(2, 1, lr - 1, 4).getValues();
+  for (var i = 0; i < all.length; i++) {
+    if (String(all[i][0]).trim() === customerName && String(all[i][1]) === String(content) && String(all[i][3]) !== 'TRUE' && all[i][3] !== true) return i + 2;
+  }
+  return -1;
+}
+/** 画面: やることを足す（due は yyyy-MM-dd か空）。 */
+function addCrmTask(customerName, content, due) {
+  content = String(content || '').trim();
+  if (!content) throw new Error('やることを入れてください');
+  var r = addCustomerTask(customerName, content, due || '', TASK_OWNER_DEFAULT);
+  if (!r || !r.success) throw new Error((r && r.message) || '足せませんでした');
+  var page = _crmTreeForPage_(customerName); page.savedMessage = 'やることを足しました'; return page;
+}
+/** 画面: やることを済みにする。 */
+function doneCrmTask(customerName, row, content) {
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(TASK_SHEET_NAME);
+  var r = _crmTaskRowOf_(sh, customerName, row, content);
+  if (r < 0) throw new Error('そのやることが見つかりません（もう済んでいるかもしれません）');
+  sh.getRange(r, 4).setValue('TRUE'); sh.getRange(r, 7).setValue(new Date());
+  try { cfSyncRows(TASK_SHEET_NAME, [r], 'やること'); } catch (eCf) {}
+  var page = _crmTreeForPage_(customerName); page.savedMessage = '済みにしました'; return page;
+}
+/** 画面: やることの期日を直す（due は yyyy-MM-dd か空）。 */
+function setCrmTaskDue(customerName, row, content, due) {
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(TASK_SHEET_NAME);
+  var r = _crmTaskRowOf_(sh, customerName, row, content);
+  if (r < 0) throw new Error('そのやることが見つかりません');
+  var d = due ? new Date(String(due).replace(/-/g, '/')) : '';
+  sh.getRange(r, 3).setValue(d && !isNaN(d.getTime()) ? d : ''); sh.getRange(r, 7).setValue(new Date());
+  try { cfSyncRows(TASK_SHEET_NAME, [r], 'やること'); } catch (eCf) {}
+  var page = _crmTreeForPage_(customerName); page.savedMessage = '期日を直しました'; return page;
+}
+/** 画面: やることを消す（間違えて足したときなど）。 */
+function deleteCrmTask(customerName, row, content) {
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(TASK_SHEET_NAME);
+  var r = _crmTaskRowOf_(sh, customerName, row, content);
+  if (r < 0) throw new Error('そのやることが見つかりません');
+  sh.deleteRow(r);
+  try { cfSyncSheet(TASK_SHEET_NAME, 'やること'); } catch (eCf) {}
+  var page = _crmTreeForPage_(customerName); page.savedMessage = '消しました'; return page;
 }
 
 /** 画面: 内見の予定を入れる。前日に確認、翌日に結果を聞く、の2つをタスクにする。 */
@@ -1091,7 +1146,13 @@ function _crmChipOf_(c) {
   if (c.sig && c.sig.reInquiry) flags.push('⚡再問い合わせ');
   if (c.sig && c.sig.strong) flags.push('⚡申込画面を開いた');
   if (c.sig && c.sig.reply) flags.push('💬返信待ち');
-  if (c.taskDueNow) flags.push('📅約束の日');
+  // 期日が来たタスクがあれば、その中身を短く出す（「約束の日」だけでは何をするか分からない）
+  if (c.taskDueNow) {
+    var _td = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    var _due = (c.tasks || []).filter(function (t) { return t.due && t.due <= _td; }).sort(function (a, b) { return a.due < b.due ? -1 : 1; })[0];
+    var _txt = _due ? String(_due.content) : '約束の日';
+    flags.push('📅' + (_txt.length > 14 ? _txt.substring(0, 13) + '…' : _txt));
+  }
   if (typeof c.daysToMoveIn === 'number' && c.daysToMoveIn >= 0 && c.daysToMoveIn <= CRM_TREE_MOVEIN_SOON_D) flags.push('🏠引越しまで' + c.daysToMoveIn + '日');
   if (c.hasCriteria && (c.daysSinceSent === null || c.daysSinceSent === undefined || c.daysSinceSent >= CRM_TREE_NO_SEND_DAYS)
       && c.daysSinceInquiry !== null && c.daysSinceInquiry > CRM_TREE_FIRST_WAIT_DAYS) flags.push('📭物件なし');

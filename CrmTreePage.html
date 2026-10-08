@@ -114,6 +114,23 @@
   .ptab.on { border-color: var(--green); background: var(--green-soft); color: var(--green); }
   .sendbox { position: sticky; bottom: -12px; background: var(--surface); border-top: 1px solid var(--hair); padding: 8px 0 12px; margin-top: 8px; z-index: 2; }
   .memo.small { min-height: 64px; }
+  .tasks { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+  .task { display: grid; grid-template-columns: 5.5em 1fr auto; gap: 6px; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--hair); }
+  .task.due .tdate, .task.due .tbody { color: var(--red); font-weight: 700; }
+  .task .tdate { font-size: 12px; color: var(--muted); }
+  .task .tbtns { display: flex; gap: 8px; font-size: 12px; }
+  .task .tbtns a { color: var(--green); }
+  .task .tbtns a.skip { color: var(--muted); }
+  .tadd { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .tadd .inp { flex: 1; min-width: 10em; }
+  .tdin { padding: 4px 6px; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 12px; }
+  .ttasks:empty { display: none; }
+  .ttasks { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px; padding: 8px 14px; margin-top: 8px; }
+  .tthead { font-size: 14px; cursor: pointer; }
+  .tthead b { color: var(--red); }
+  .ttrow { font-size: 13px; padding: 4px 0; border-top: 1px solid var(--hair); cursor: pointer; }
+  .ttrow:hover { background: var(--bg); }
+  .ttrow b { margin-right: 6px; }
   .prop .pl a.candbtn { font-weight: 700; }
   .watch { border: 1px solid var(--hair); border-radius: 8px; padding: 8px 10px; margin-top: 6px; }
   .watch.open { border-color: var(--red); background: var(--red-soft); }
@@ -219,6 +236,7 @@
   </div>
   <input type="search" id="q" class="search" placeholder="名前で探す" oninput="search()">
   <div class="today" id="today"></div>
+  <div class="ttasks" id="todayTasks"></div>
   <div class="layout">
     <div class="tree" id="tree"></div>
     <aside class="panel" id="panel"></aside>
@@ -407,6 +425,7 @@
   function render() {
     var red = data.customers.filter(function (c) { return c.todo; }).length;
     var done = data.customers.filter(function (c) { return c.contactedToday && c.stageId !== 'ended' && c.stageId !== 'won'; }).length;
+    renderTodayTasks();
     var today = document.getElementById('today');
     today.className = 'today' + (red ? '' : ' zero');
     today.innerHTML = red ? '今日まだ連絡していない <b>' + red + '</b> 人 ／ 連絡済み ' + done + ' 人'
@@ -435,6 +454,7 @@
       ? '<div class="where">いる段階: ' + esc(labelOf[c.stageId] || '') + (c.chipStatus ? '・' + esc(c.chipStatus) : '') + '</div>'
         + groupButtons(c) + custHtml(c)
         + ((c.flags || []).length ? '<div class="meta">' + (c.flags || []).map(esc).join(' ') + '</div>' : '')
+        + tasksHtml(c)
         + extraHtml(c)
       : '<div class="meta">名前を押すと、ここにその人が出ます。もう一度押すと閉じます。</div>';
     document.getElementById('foot').textContent = '';
@@ -454,6 +474,74 @@
     }
   }
 
+  // ── やること（タスク）──
+  var todayYmd = function () { var d = new Date(Date.now() + 9 * 3600000); return d.toISOString().slice(0, 10); };
+  var mdOf = function (ymd) { return ymd ? Number(ymd.slice(5, 7)) + '/' + Number(ymd.slice(8, 10)) : ''; };
+  // お客様の欄の「やること」: 済んでいないものを期日順に。期日が来たものは🔴
+  function tasksHtml(c) {
+    if (c.stageId === 'ended' || c.lineOnly) return '';
+    var x = extras[c.name] || (extras[c.name] = {});
+    var t0 = todayYmd(), list = c.taskList || [];
+    var h = '<div class="sec">やること' + (list.length ? '（' + list.length + '件）' : '') + '</div><div class="tasks">';
+    h += list.map(function (t) {
+      var a = esc(JSON.stringify(t.row)) + ',' + esc(JSON.stringify(t.content));
+      var due = t.due && t.due <= t0;
+      return '<div class="task' + (due ? ' due' : '') + '"><span class="tdate">' + (due ? '🔴 ' : '') + (t.due ? mdOf(t.due) : '期日なし') + '</span>'
+        + '<span class="tbody">' + esc(t.content) + '</span><span class="tbtns">'
+        + (x.taskEdit === t.row ? '<input type="date" class="tdin" value="' + esc(t.due) + '" onchange="taskDue(' + a + ',this.value)">'
+          : '<a href="#" onclick="taskDone(' + a + ');return false">済み</a><a href="#" onclick="extras[selName].taskEdit=' + esc(JSON.stringify(t.row)) + ';render();return false">日付</a>'
+          + '<a href="#" class="skip" onclick="taskDel(' + a + ');return false">消す</a>')
+        + '</span></div>';
+    }).join('') || '<div class="meta">やることはありません</div>';
+    h += '</div><div class="tadd"><input id="taskNew" class="inp" placeholder="やること（例: 申込書を送る）" value="' + esc(x.taskDraft || '') + '" oninput="extras[selName].taskDraft=this.value">'
+      + '<input id="taskNewDue" type="date" class="tdin" value="' + esc(x.taskDraftDue || '') + '" onchange="extras[selName].taskDraftDue=this.value">'
+      + '<button class="btn" onclick="taskAdd()">＋足す</button></div>';
+    return h;
+  }
+  function taskAdd() {
+    var name = selName, x = extras[name], content = (x.taskDraft || '').trim(), due = x.taskDraftDue || '';
+    if (!content) { toast('やることを入れてください'); return; }
+    x.taskDraft = ''; x.taskDraftDue = '';
+    call('addCrmTask', [name, content, due], 'やることを足しました', function (c) { (c.taskList = c.taskList || []).push({ row: -1, content: content, due: due }); });
+  }
+  function taskDone(row, content) {
+    call('doneCrmTask', [selName, row, content], '済みにしました', function (c) { c.taskList = (c.taskList || []).filter(function (t) { return !(t.row === row && t.content === content); }); });
+  }
+  function taskDel(row, content) {
+    call('deleteCrmTask', [selName, row, content], '消しました', function (c) { c.taskList = (c.taskList || []).filter(function (t) { return !(t.row === row && t.content === content); }); });
+  }
+  function taskDue(row, content, due) {
+    var x = extras[selName]; x.taskEdit = null;
+    call('setCrmTaskDue', [selName, row, content, due], '期日を直しました', function (c) { (c.taskList || []).forEach(function (t) { if (t.row === row && t.content === content) t.due = due; }); });
+  }
+  // 画面上部の「今日のやること」: 期日が来たタスクを全員分。押すとその人を開く。これからの分は日ごとの件数だけ
+  var todayTasksOpen = true;
+  try { todayTasksOpen = localStorage.getItem('crmTodayTasks') !== '0'; } catch (e) {}
+  function toggleTodayTasks() { todayTasksOpen = !todayTasksOpen; try { localStorage.setItem('crmTodayTasks', todayTasksOpen ? '1' : '0'); } catch (e) {} renderTodayTasks(); }
+  function renderTodayTasks() {
+    var el = document.getElementById('todayTasks'); if (!el) return;
+    var t0 = todayYmd(), due = [], later = {};
+    data.customers.forEach(function (c) {
+      if (c.stageId === 'ended' || c.stageId === 'won') return;
+      (c.taskList || []).forEach(function (t) {
+        if (!t.due) return;
+        if (t.due <= t0) due.push({ name: c.name, t: t });
+        else if (t.due <= new Date(Date.now() + 9 * 3600000 + 7 * 86400000).toISOString().slice(0, 10)) later[t.due] = (later[t.due] || 0) + 1;
+      });
+    });
+    due.sort(function (a, b) { return a.t.due < b.t.due ? -1 : 1; });
+    var ks = Object.keys(later).sort();
+    if (!due.length && !ks.length) { el.innerHTML = ''; return; }
+    var h = '<div class="tthead" onclick="toggleTodayTasks()">' + (todayTasksOpen ? '▾' : '▸') + ' 今日のやること <b>' + due.length + '</b> 件</div>';
+    if (todayTasksOpen) {
+      h += due.map(function (d) {
+        return '<div class="ttrow" onclick="pickCust(' + esc(JSON.stringify(d.name)) + ')"><b>' + esc(d.name) + '</b> <span>' + esc(d.t.content) + '</span>'
+          + (d.t.due < t0 ? ' <span class="meta">（' + mdOf(d.t.due) + '〜）</span>' : '') + '</div>';
+      }).join('');
+      if (ks.length) h += '<div class="meta">これから: ' + ks.map(function (k) { return mdOf(k) + ' ' + later[k] + '件'; }).join('・') + '</div>';
+    }
+    el.innerHTML = h;
+  }
   function pickCust(name) {
     addMode = false;
     // 同じ名前をもう一度押したら右を閉じる

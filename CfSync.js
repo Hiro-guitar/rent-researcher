@@ -225,7 +225,8 @@ function _cfCrmCallable_() {
     'planCrmViewing', 'previewDuplicateLeads', 'previewPendingCleanup', 'recordCrmTalk', 'recordCrmTreeContact',
     'renameCrmCustomer', 'resendCrmToFamily', 'saveCrmCriteria', 'saveCrmMemo', 'saveCrmPropertyEdit', 'sendCrmProperties',
     'setCrmClosed', 'setCrmGroup', 'setCrmNextContact', 'setCrmStage', 'setCrmWatch', 'skipCrmProperties', 'skipCrmProperty',
-    'unlinkCrmFamily', 'unskipCrmProperty', 'uploadPropertyImage', 'getCrmPageConsts', 'setCrmCandidates'];
+    'unlinkCrmFamily', 'unskipCrmProperty', 'uploadPropertyImage', 'getCrmPageConsts', 'setCrmCandidates',
+    'addCrmTask', 'doneCrmTask', 'setCrmTaskDue', 'deleteCrmTask'];
 }
 function _cfCrmCall_(e) {
   var out;
