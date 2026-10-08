@@ -1297,6 +1297,8 @@
       if (k in t) return t[k];
       return function () {
         var args = Array.prototype.slice.call(arguments), who = typeof args[0] === 'string' ? args[0] : '';
+        // Cloudflare版: 画面の組み立て直しは押した瞬間にやる（列に並ぶのは保存だけ）。続けて押しても待たない
+        if (window.__localFirst) { try { window.__localFirst(k, args); } catch (eL) {} }
         pendingBy[who] = (pendingBy[who] || 0) + 1;
         updateSaving();
         var win = { s: Date.now() - 3000, e: Infinity };   // 自分の保存の時間帯（知らせに出さない）

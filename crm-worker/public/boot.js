@@ -57,13 +57,24 @@
     setCrmCandidates: 1, skipCrmProperty: 1, skipCrmProperties: 1, unskipCrmProperty: 1, setCrmWatch: 1, addCrmWatchFromPending: 1,
     recordCrmTalk: 1, setCrmClosed: 1
   };
+  // 押した瞬間に画面の順番待ちの列から呼ばれる。手元で先に動かした結果を覚えておき、列の番が来たら保存だけする
+  var preApplied = [];
+  function runLocal(name, args) {
+    var t0 = Date.now(), localRes = null;
+    try { localRes = GAS_FN(name).apply(null, JSON.parse(JSON.stringify(args))); }
+    catch (e) { console.warn('[CRM] 手元で先に動かせませんでした（保存はGASでします）: ' + name + ' / ' + e.message); }
+    if (localRes && window.__applyLocal) { try { window.__applyLocal(localRes); } catch (e2) {} }
+    if (localRes) console.log('[CRM] 手元で先に反映 ' + name + ' ' + (Date.now() - t0) + 'ms');
+    return localRes;
+  }
+  window.__localFirst = function (name, args) {
+    if (!LOCAL_WRITE[name]) return;
+    preApplied.push({ name: name, res: runLocal(name, args) });
+  };
   function callFn(name, args) {
     if (LOCAL_WRITE[name]) {
-      var t0 = Date.now(), localRes = null;
-      try { localRes = GAS_FN(name).apply(null, JSON.parse(JSON.stringify(args))); }
-      catch (e) { console.warn('[CRM] 手元で先に動かせませんでした（保存はGASでします）: ' + name + ' / ' + e.message); }
-      if (localRes && window.__applyLocal) { try { window.__applyLocal(localRes); } catch (e2) {} }
-      if (localRes) console.log('[CRM] 手元で先に反映 ' + name + ' ' + (Date.now() - t0) + 'ms');
+      var pre = (preApplied.length && preApplied[0].name === name) ? preApplied.shift() : null;
+      var localRes = pre ? pre.res : runLocal(name, args);
       return gasCall(name, args, !!localRes).then(function (r) {
         refreshDelta().catch(function () {});
         // 手元の結果に GAS のひとこと（savedMessage）だけ足して返す。画面はもう変わっている
