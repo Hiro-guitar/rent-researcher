@@ -3511,6 +3511,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   // ── 検索ページを開く（AdminPage → content script → ここ） ──
+  // ── 概算書のパネル: 物件の詳細ページを画面の右半分に開く（左でパネルを見ながら直せるように）──
+  if (msg.type === 'OPEN_SIDE_WINDOW') {
+    (async () => {
+      try {
+        const winId = sender && sender.tab && sender.tab.windowId;
+        const w = winId ? await chrome.windows.get(winId) : null;
+        const half = w ? Math.floor(w.width / 2) : 800;
+        if (w) await chrome.windows.update(winId, { state: 'normal', width: half });
+        await chrome.windows.create({
+          url: msg.url, type: 'normal', focused: true,
+          left: w ? w.left + half : undefined, top: w ? w.top : undefined, width: half, height: w ? w.height : undefined
+        });
+        sendResponse({ ok: true });
+      } catch (e) { sendResponse({ ok: false, error: e.message }); }
+    })();
+    return true;
+  }
+
   // ── 手動送信パネル: 顧客一覧＋このタブで検索中の顧客を返す ──
   if (msg.type === 'GET_MANUAL_SEND_CONTEXT') {
     (async () => {
@@ -4328,6 +4346,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           drawing,
           building: String(d.building_name || '').trim(),
           room: String(d.room_number || d.roomNumber || '').trim(),
+          // 物件の詳細ページ（パネルの「横に開く」で使う）。REINS は物件番号から開く
+          detailUrl: String(d.url || '') || (String(d.reins_property_number || '').replace(/\D/g, '')
+            ? 'https://system.reins.jp/main/BK/GBK004100#bukken=' + String(d.reins_property_number).replace(/\D/g, '') : ''),
           rent,
           managementFee: mgmt,
           depositMonths: _estMonths(d.deposit, rent),

@@ -965,6 +965,18 @@
     sub.style.cssText = 'font-size:11px;color:#777;margin-bottom:12px;';
     box.appendChild(h);
     box.appendChild(sub);
+    // 物件の詳細ページを右半分に開く。パネルは開いたまま、見比べて直せる
+    if (prep.detailUrl) {
+      var sideBtn = document.createElement('button');
+      sideBtn.textContent = '📄 物件の詳細ページを横に開く';
+      sideBtn.style.cssText = 'margin:-4px 0 10px;padding:5px 10px;font-size:12px;background:#fff;border:1px solid #0b66c3;color:#0b66c3;border-radius:6px;cursor:pointer;';
+      sideBtn.addEventListener('click', function () {
+        sendToBackground({ type: 'OPEN_SIDE_WINDOW', url: prep.detailUrl }).then(function (r) {
+          if (!r || !r.ok) window.open(prep.detailUrl, '_blank');   // 窓を並べられなければ、別のタブで開く
+        }).catch(function () { window.open(prep.detailUrl, '_blank'); });
+      });
+      box.appendChild(sideBtn);
+    }
 
     function row(label, el, hint) {
       var r = document.createElement('div');
