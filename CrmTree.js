@@ -464,6 +464,7 @@ function getCrmTree(opts) {
   var todayIdx = _jstDayIndex_(Date.now());
   var tasks = _crmTreeOpenTasks_(ss);
   var groups = _crmGroups_(ss);
+  var nextRedAll = _crmNextRed_(ss);
   var autoCtx = _crmTreeAutoContext_(ss, friends);
   var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
 
@@ -497,11 +498,16 @@ function getCrmTree(opts) {
     c.family = (family.byName[c.name] || []).map(function (fm) { return { uid: fm.uid, disp: fm.disp }; });
     c.daysSinceHandled = cl.lastMs ? (todayIdx - _jstDayIndex_(cl.lastMs)) : null;
     c.sig = _crmTreeSignals_(acts[c.name], cl.lastMs, c.replyMs, cl.inquiryMs);
-    var ts = tasks[c.name] || [];
+    var tsAll = tasks[c.name] || [];
+    // 昔の「次の連絡」タスクは、やることには出さず、次に赤くする日として使う（CRMグループ D列が無いとき）
+    var legacyNext = tsAll.filter(function (t) { return t.content === CRM_NEXT_TASK && t.due; }).map(function (t) { return t.due; }).sort()[0] || '';
+    var ts = tsAll.filter(function (t) { return t.content !== CRM_NEXT_TASK; });
     c.tasks = ts;
+    c.nextRed = nextRedAll[c.name] || legacyNext || '';
     c.taskDueNow = ts.some(function (t) { return t.due && t.due <= todayStr; });
     c.hasViewingTask = ts.some(function (t) { return t.content.indexOf('内見') >= 0; });
-    c.nextTaskDue = ts.filter(function (t) { return t.due; }).map(function (t) { return t.due; }).sort()[0] || '';
+    // 赤くなるのは、いちばん早い「期日（やること・催促）」か「次に赤くする日」が来たとき
+    c.nextTaskDue = ts.filter(function (t) { return t.due; }).map(function (t) { return t.due; }).concat(c.nextRed ? [c.nextRed] : []).sort()[0] || '';
     c.node = _crmTreeNodeOf_(c);
     c.stageId = _crmStageOf_(c);
     try { c.nextAuto = _crmTreeNextAuto_(c, autoCtx); } catch (eNA) { c.nextAuto = ''; }
@@ -595,7 +601,7 @@ function _crmTreeForPage_(only) {
           .concat((watch[c.name] || []).some(function (w) { return w.status === 'available'; }) ? ['🔔キャンセル待ちが空いた'] : []),
         // ⚠️ キャンセル待ちの件数は名前の横に出さない（それほど大事ではない。⏳待ちのタブで見られる）
         // やること（タスク）: 済んでいないものを期日順に。行番号は直す・消すときの目印
-        taskList: (c.tasks || []).map(function (t) { return { row: t.row, content: t.content, due: t.due || '' }; })
+        taskList: (c.tasks || []).map(function (t) { return { row: t.row, content: t.content, due: t.due || '', owner: t.owner || '自分' }; })
           .sort(function (a, b) { return (a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0; }),
         watch: watch[c.name] || [],
         inquiries: (ex.inq[c.name] || []), memo: ex.memo[c.name] || '',
@@ -738,10 +744,10 @@ function _crmTreeOpenTasks_(ss) {
       var n = String(rows[i][0] || '').trim();
       if (!n) continue;
       if (String(rows[i][3] || '') === 'TRUE' || rows[i][3] === true) continue;
-      if (_normalizeTaskOwner_(rows[i][5]) !== TASK_OWNER_DEFAULT) continue;
+      // owner（ボール）: 自分 ＝ こちらがやること / お客さん・管理会社 ＝ 相手の返事待ち（期日は催促する日）
       var d = rows[i][2];
       var due = (d instanceof Date) ? Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd') : '';
-      (out[n] = out[n] || []).push({ row: i + 2, content: String(rows[i][1] || ''), due: due });
+      (out[n] = out[n] || []).push({ row: i + 2, content: String(rows[i][1] || ''), due: due, owner: _normalizeTaskOwner_(rows[i][5]) });
     }
   } catch (e) { console.warn('[樹形図] タスク: ' + e.message); }
   return out;
@@ -755,8 +761,40 @@ function _crmTreeCloseDueTasks_(customerName) {
   var sh = ss.getSheetByName(TASK_SHEET_NAME);
   mine.forEach(function (t) {
     // 内見の前日確認・結果確認は、その日が来ていれば一緒に閉じる。次の連絡も同じ
+    // ⚠️ 相手待ち（お客さん・管理会社）のタスクは閉じない。こちらが連絡しても、相手の返事が来たとは限らない
+    if (t.owner !== TASK_OWNER_DEFAULT) return;
     if (t.due && t.due <= todayStr) sh.getRange(t.row, 4).setValue('TRUE');
   });
+  // 次に赤くする日も、その日が来ていれば消す（連絡した＝その約束は果たした）
+  var nr = _crmNextRed_(ss)[customerName];
+  if (nr && nr <= todayStr) _crmSetNextRed_(ss, customerName, '');
+}
+
+// ── 次に赤くする日（タスクにしない。CRMグループの D列に日付だけ持つ）──
+// ⚠️ 以前はタスク「次の連絡」にしていて、やることの一覧や今日のやることが埋もれた（2026-10-09）
+function _crmNextRed_(ss) {
+  var out = {};
+  try {
+    var sh = ss.getSheetByName(CRM_GROUP_SHEET);
+    if (!sh || sh.getLastRow() < 2) return out;
+    sh.getRange(2, 1, sh.getLastRow() - 1, 4).getValues().forEach(function (r) {
+      var n = String(r[0] || '').trim(), d = r[3];
+      if (!n || !d) return;
+      out[n] = (d instanceof Date) ? Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy-MM-dd') : String(d).substring(0, 10).replace(/\//g, '-');
+    });
+  } catch (e) {}
+  return out;
+}
+function _crmSetNextRed_(ss, customerName, ymd) {
+  var sh = ss.getSheetByName(CRM_GROUP_SHEET);
+  if (!sh) { sh = ss.insertSheet(CRM_GROUP_SHEET); sh.appendRow(['顧客名', 'グループ', '更新日時', '次に赤くする日']); }
+  if (sh.getLastRow() > 1) {
+    var names = sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < names.length; i++) {
+      if (String(names[i][0] || '').trim() === customerName) { sh.getRange(i + 2, 4).setValue(ymd || ''); return; }
+    }
+  }
+  if (ymd) sh.appendRow([customerName, '', new Date(), ymd]);
 }
 
 function _crmDateAfter_(days) {
@@ -774,8 +812,7 @@ function setCrmNextContact(customerName, days) {
         if (t.content === CRM_NEXT_TASK) { sh.getRange(t.row, 4).setValue('TRUE'); try { cfSyncRows(TASK_SHEET_NAME, [t.row], '次の連絡'); } catch (eCf) {} }
       });
     } catch (eClose) { console.warn('[次の連絡] 前の日を閉じられません: ' + eClose.message); }
-    var r = addCustomerTask(customerName, CRM_NEXT_TASK, _crmDateAfter_(days), TASK_OWNER_DEFAULT);
-    if (!r || !r.success) throw new Error((r && r.message) || '次の連絡日を保存できませんでした');
+    _crmSetNextRed_(SpreadsheetApp.openById(CRITERIA_SHEET_ID), customerName, _crmDateAfter_(days));
   }
   return _crmTreeForPage_(customerName);
 }
@@ -796,10 +833,10 @@ function _crmTaskRowOf_(sh, customerName, row, content) {
   return -1;
 }
 /** 画面: やることを足す（due は yyyy-MM-dd か空）。 */
-function addCrmTask(customerName, content, due) {
+function addCrmTask(customerName, content, due, owner) {
   content = String(content || '').trim();
   if (!content) throw new Error('やることを入れてください');
-  var r = addCustomerTask(customerName, content, due || '', TASK_OWNER_DEFAULT);
+  var r = addCustomerTask(customerName, content, due || '', owner || TASK_OWNER_DEFAULT);
   if (!r || !r.success) throw new Error((r && r.message) || '足せませんでした');
   var page = _crmTreeForPage_(customerName); page.savedMessage = 'やることを足しました'; return page;
 }
@@ -822,6 +859,16 @@ function setCrmTaskDue(customerName, row, content, due) {
   try { cfSyncRows(TASK_SHEET_NAME, [r], 'やること'); } catch (eCf) {}
   var page = _crmTreeForPage_(customerName); page.savedMessage = '期日を直しました'; return page;
 }
+/** 画面: ボール（自分／お客さん待ち／管理会社待ち）を切り替える。待ちのときの期日は催促する日。 */
+function setCrmTaskOwner(customerName, row, content, owner) {
+  var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(TASK_SHEET_NAME);
+  var r = _crmTaskRowOf_(sh, customerName, row, content);
+  if (r < 0) throw new Error('そのやることが見つかりません');
+  sh.getRange(r, 6).setValue(_normalizeTaskOwner_(owner)); sh.getRange(r, 7).setValue(new Date());
+  try { cfSyncRows(TASK_SHEET_NAME, [r], 'やること'); } catch (eCf) {}
+  var page = _crmTreeForPage_(customerName); page.savedMessage = owner === '自分' ? '自分の番にしました' : owner + '待ちにしました'; return page;
+}
+
 /** 画面: やることを消す（間違えて足したときなど）。 */
 function deleteCrmTask(customerName, row, content) {
   var sh = SpreadsheetApp.openById(CRITERIA_SHEET_ID).getSheetByName(TASK_SHEET_NAME);
@@ -1171,7 +1218,7 @@ function _crmChipOf_(c) {
   if (c.taskDueNow) {
     var _td = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
     var _due = (c.tasks || []).filter(function (t) { return t.due && t.due <= _td; }).sort(function (a, b) { return a.due < b.due ? -1 : 1; })[0];
-    var _txt = _due ? String(_due.content) : '約束の日';
+    var _txt = _due ? ((_due.owner && _due.owner !== '自分' ? '催促: ' : '') + String(_due.content)) : '約束の日';
     flags.push('📅' + (_txt.length > 14 ? _txt.substring(0, 13) + '…' : _txt));
   }
   if (typeof c.daysToMoveIn === 'number' && c.daysToMoveIn >= 0 && c.daysToMoveIn <= CRM_TREE_MOVEIN_SOON_D) flags.push('🏠引越しまで' + c.daysToMoveIn + '日');

@@ -118,6 +118,8 @@
   .task { display: grid; grid-template-columns: 5.5em 1fr auto; gap: 6px; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--hair); }
   .task.due .tdate, .task.due .tbody { color: var(--red); font-weight: 700; }
   .task .tdate { font-size: 12px; color: var(--muted); }
+  .task .twait { font-size: 11px; color: var(--muted); border: 1px solid var(--hair); border-radius: 4px; padding: 0 4px; }
+  .task.wait:not(.due) .tbody { color: var(--muted); }
   .task .tbtns { display: flex; gap: 8px; font-size: 12px; }
   .task .tbtns a { color: var(--green); }
   .task .tbtns a.skip { color: var(--muted); }
@@ -486,26 +488,37 @@
     h += list.map(function (t) {
       var a = esc(JSON.stringify(t.row)) + ',' + esc(JSON.stringify(t.content));
       var due = t.due && t.due <= t0;
-      return '<div class="task' + (due ? ' due' : '') + '"><span class="tdate">' + (due ? '🔴 ' : '') + (t.due ? mdOf(t.due) : '期日なし') + '</span>'
-        + '<span class="tbody">' + esc(t.content) + '</span><span class="tbtns">'
+      var wait = t.owner && t.owner !== '自分';   // 相手待ち。期日は催促する日
+      return '<div class="task' + (due ? ' due' : '') + (wait ? ' wait' : '') + '"><span class="tdate">' + (due ? '🔴 ' : '') + (t.due ? (wait ? '催促 ' : '') + mdOf(t.due) : '期日なし') + '</span>'
+        + '<span class="tbody">' + (wait ? '<span class="twait">⏳' + esc(t.owner) + '待ち</span> ' : '') + esc(t.content) + '</span><span class="tbtns">'
+        + '<select class="tdin" title="誰の番か" onchange="taskOwner(' + a + ',this.value)">' + ['自分', 'お客さん', '管理会社'].map(function (o) {
+          return '<option value="' + o + '"' + ((t.owner || '自分') === o ? ' selected' : '') + '>' + (o === '自分' ? '自分の番' : o + '待ち') + '</option>';
+        }).join('') + '</select>'
         + (x.taskEdit === t.row ? '<input type="date" class="tdin" value="' + esc(t.due) + '" onchange="taskDue(' + a + ',this.value)">'
           : '<a href="#" onclick="taskDone(' + a + ');return false">済み</a><a href="#" onclick="extras[selName].taskEdit=' + esc(JSON.stringify(t.row)) + ';render();return false">日付</a>'
           + '<a href="#" class="skip" onclick="taskDel(' + a + ');return false">消す</a>')
         + '</span></div>';
     }).join('') || '<div class="meta">やることはありません</div>';
     h += '</div><div class="tadd"><input id="taskNew" class="inp" placeholder="やること（例: 申込書を送る）" value="' + esc(x.taskDraft || '') + '" oninput="extras[selName].taskDraft=this.value">'
-      + '<input id="taskNewDue" type="date" class="tdin" value="' + esc(x.taskDraftDue || '') + '" onchange="extras[selName].taskDraftDue=this.value">'
+      + '<select class="tdin" title="誰の番か" onchange="extras[selName].taskDraftOwner=this.value">' + ['自分', 'お客さん', '管理会社'].map(function (o) {
+          return '<option value="' + o + '"' + ((x.taskDraftOwner || '自分') === o ? ' selected' : '') + '>' + (o === '自分' ? '自分の番' : o + '待ち') + '</option>';
+        }).join('') + '</select>'
+      + '<input id="taskNewDue" type="date" class="tdin" title="期日（待ちのときは催促する日）" value="' + esc(x.taskDraftDue || '') + '" onchange="extras[selName].taskDraftDue=this.value">'
       + '<button class="btn" onclick="taskAdd()">＋足す</button></div>';
     return h;
   }
   function taskAdd() {
-    var name = selName, x = extras[name], content = (x.taskDraft || '').trim(), due = x.taskDraftDue || '';
+    var name = selName, x = extras[name], content = (x.taskDraft || '').trim(), due = x.taskDraftDue || '', owner = x.taskDraftOwner || '自分';
     if (!content) { toast('やることを入れてください'); return; }
-    x.taskDraft = ''; x.taskDraftDue = '';
-    call('addCrmTask', [name, content, due], 'やることを足しました', function (c) { (c.taskList = c.taskList || []).push({ row: -1, content: content, due: due }); });
+    if (owner !== '自分' && !due) { toast('待ちのときは、催促する日を入れてください'); return; }
+    x.taskDraft = ''; x.taskDraftDue = ''; x.taskDraftOwner = '';
+    call('addCrmTask', [name, content, due, owner], 'やることを足しました', function (c) { (c.taskList = c.taskList || []).push({ row: -1, content: content, due: due, owner: owner }); });
   }
   function taskDone(row, content) {
     call('doneCrmTask', [selName, row, content], '済みにしました', function (c) { c.taskList = (c.taskList || []).filter(function (t) { return !(t.row === row && t.content === content); }); });
+  }
+  function taskOwner(row, content, owner) {
+    call('setCrmTaskOwner', [selName, row, content, owner], owner === '自分' ? '自分の番にしました' : owner + '待ちにしました', function (c) { (c.taskList || []).forEach(function (t) { if (t.row === row && t.content === content) t.owner = owner; }); });
   }
   function taskDel(row, content) {
     call('deleteCrmTask', [selName, row, content], '消しました', function (c) { c.taskList = (c.taskList || []).filter(function (t) { return !(t.row === row && t.content === content); }); });
@@ -535,7 +548,7 @@
     var h = '<div class="tthead" onclick="toggleTodayTasks()">' + (todayTasksOpen ? '▾' : '▸') + ' 今日のやること <b>' + due.length + '</b> 件</div>';
     if (todayTasksOpen) {
       h += due.map(function (d) {
-        return '<div class="ttrow" onclick="pickCust(' + esc(JSON.stringify(d.name)) + ')"><b>' + esc(d.name) + '</b> <span>' + esc(d.t.content) + '</span>'
+        return '<div class="ttrow" onclick="pickCust(' + esc(JSON.stringify(d.name)) + ')"><b>' + esc(d.name) + '</b> <span>' + (d.t.owner && d.t.owner !== '自分' ? '催促（' + esc(d.t.owner) + '待ち）: ' : '') + esc(d.t.content) + '</span>'
           + (d.t.due < t0 ? ' <span class="meta">（' + mdOf(d.t.due) + '〜）</span>' : '') + '</div>';
       }).join('');
       if (ks.length) h += '<div class="meta">これから: ' + ks.map(function (k) { return mdOf(k) + ' ' + later[k] + '件'; }).join('・') + '</div>';
