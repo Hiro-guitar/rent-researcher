@@ -135,12 +135,27 @@ function handleMakeEstimateDoc(json) {
     // 保証料は率を入れると金額が数式で出る。
     // 右の注記（E列）は「※総賃料等の60%」がテンプレートに直接書かれていて、
     // 率を変えても文字だけ60%のまま残る。実際に使った率に書き換える。
-    var gRate = num(json.guaranteeRate, 60);
-    setC('初回保証料', gRate);
+    // 初回保証料は「%」（テンプレの数式で金額が出る）か「円」（決まった金額をそのまま入れる）。
+    // 円のときは B列の数式を金額で上書きする。次に % で作るときに数式を入れ直すので、テンプレは壊れない。
     var gRow = rowOf('初回保証料');
-    if (gRow > 0) {
-      input.getRange(gRow, 5).setValue('※総賃料等の' + gRate + '%');
-      written.push('初回保証料の注記');
+    var gAmount = String(json.guaranteeAmount == null ? '' : json.guaranteeAmount).trim();
+    if (gRow > 0 && gAmount !== '' && num(gAmount, null) !== null) {
+      input.getRange(gRow, 2).setValue(num(gAmount, 0));   // 入れた金額そのまま（四捨五入しない）
+      input.getRange(gRow, 3).setValue('');
+      input.getRange(gRow, 5).setValue('※初回保証料（定額）');
+      written.push('初回保証料(金額)');
+    } else {
+      var gRate = num(json.guaranteeRate, 60);
+      var rentRow = rowOf('賃料'), mgmtRow = rowOf('管理費');
+      // 前に「円」で作って数式が金額に置き換わっていたら、数式に戻す（数式が残っていれば触らない）
+      if (gRow > 0 && rentRow > 0 && mgmtRow > 0 && !input.getRange(gRow, 2).getFormula()) {
+        input.getRange(gRow, 2).setFormula('=(B' + rentRow + '+B' + mgmtRow + ')*0.01*C' + gRow);
+      }
+      setC('初回保証料', gRate);
+      if (gRow > 0) {
+        input.getRange(gRow, 5).setValue('※総賃料等の' + gRate + '%');
+        written.push('初回保証料の注記');
+      }
     }
 
     // ── 自由記入欄（初回保証料の次の行から8行）──

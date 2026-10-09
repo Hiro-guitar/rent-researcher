@@ -1024,7 +1024,17 @@
     var brokRow = row('仲介手数料', brokIn, 'ヶ月');
     var discRow = row('　→ 割引後', discIn, '円');
     row('入居予定日', dateIn, '');
-    row('初回保証料', grIn, '%' + (prep.raw && prep.raw.guaranteeInfo ? '（図面: ' + prep.raw.guaranteeInfo.slice(0, 24) + '）' : ''));
+    // 初回保証料: 「%」（賃料＋管理費の何%）か「円」（決まった金額）を選べる
+    var grUnit = document.createElement('select');
+    grUnit.style.cssText = 'flex:0 0 52px;padding:4px;border:1px solid #ccc;border-radius:5px;font-size:12px;';
+    ['%', '円'].forEach(function (u) { var o = document.createElement('option'); o.value = u; o.textContent = u; grUnit.appendChild(o); });
+    var grPrevRate = grIn.value;
+    grUnit.addEventListener('change', function () {
+      if (grUnit.value === '円') { grPrevRate = grIn.value; grIn.value = ''; grIn.placeholder = '金額'; grIn.style.flex = '0 0 110px'; }
+      else { grIn.value = grPrevRate || '60'; grIn.placeholder = ''; grIn.style.flex = '0 0 70px'; }
+    });
+    var grRow = row('初回保証料', grIn, (prep.raw && prep.raw.guaranteeInfo ? '（図面: ' + prep.raw.guaranteeInfo.slice(0, 24) + '）' : ''));
+    grRow.insertBefore(grUnit, grIn.nextSibling);
 
     // 初回保証料から下は項目名ごと毎回書き換える欄。テンプレートは8行ぶん。
     var exTitle = document.createElement('div');
@@ -1200,7 +1210,8 @@
           moveInMonth: mo,
           moveInDay: da,
           daysInMonth: daysInMonth,
-          guaranteeRate: grIn.value.trim(),
+          guaranteeRate: grUnit.value === '%' ? grIn.value.trim() : '',
+          guaranteeAmount: grUnit.value === '円' ? grIn.value.trim().replace(/[,，円]/g, '') : '',
           items: lines
         }
       }).then(function (resp) {
