@@ -102,7 +102,9 @@
   .prop.on { background: var(--green-soft); }
   .prop img, .prop .noimg { width: 72px; height: 54px; object-fit: contain; border-radius: 4px; background: #fff; cursor: zoom-in; }   /* 間取り図が見切れないよう全体を出す */
   .prop .pt { font-weight: 700; font-size: 13px; word-break: break-word; }
-  .prop .pi { min-width: 0; }   /* 長い物件名・リンクで右端が切れないように */
+  .prop .pi { min-width: 0; }
+  .prop .pt a.ptlink { color: var(--ink); text-decoration: none; }
+  .prop .pt a.ptlink:hover { text-decoration: underline; color: var(--green); }   /* 長い物件名・リンクで右端が切れないように */
   .prop .warn { font-size: 12px; color: #b3541e; }
   .prop .cmt { font-size: 12px; margin-top: 2px; }
   .prop.sent, .prop.nopick { grid-template-columns: 72px 1fr; }
@@ -934,7 +936,6 @@
     if (p.closed) tags += ' <span class="endtag">募集終了</span>';
     if (watching[p.roomId] || p.watching) tags += ' <span class="meta">⏳キャンセル待ち中</span>';
     var links = [];
-    if (p.url) links.push('<a target="_blank" href="' + esc(p.url) + '">元のページ</a>');
     if (kind === 'new' || kind === 'cand') {
       // 仕分け: 新着は「☆ 候補へ」、候補は「新着に戻す」
       links.unshift(kind === 'new' ? '<a href="#" class="candbtn" onclick="setCand([' + rid + '],true);return false">☆ 候補へ</a>'
@@ -958,7 +959,8 @@
     var h = '<div class="prop' + (on ? ' on' : '') + (canPick ? '' : ' nopick') + '">'
       + (canPick ? '<label class="pk"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="pickProp(' + rid + ',this.checked)"></label>' : '')
       + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy" onclick="lbOpen(' + esc(JSON.stringify(p.images && p.images.length ? p.images : [p.image])) + ',0)">' : '<div class="noimg"></div>')
-      + '<div class="pi"><div class="pt">' + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + tags + '</div>'
+      // 物件名と部屋番号を押すと元のページ（「元のページ」のボタンはやめた）
+      + '<div class="pi"><div class="pt">' + (p.url ? '<a class="ptlink" target="_blank" href="' + esc(p.url) + '">' : '') + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + (p.url ? '</a>' : '') + tags + '</div>'
       + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area, p.station].filter(Boolean).join('・')) + '</div>'
       + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
       + (p.warnings || []).map(function (w) { return '<div class="warn">' + esc(w) + '</div>'; }).join('')
