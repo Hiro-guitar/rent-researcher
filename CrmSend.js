@@ -600,6 +600,30 @@ function _crmPropListsFor_(names) {
     if (st === 'sent') { item.sentAt = day; item.closed = closedBy[n + '|' + rid] || ''; o.sent.push(item); }
     else { item.at = day; o.skipped.push(item); }
   }
+  // お客様の反応（アクションログ）: 見た回数・最後に見た時刻・いちばん新しい押した操作（お気に入り・内見希望など）
+  var react = {};
+  try {
+    var alSh = ss.getSheetByName(ACTION_LOG_SHEET_NAME);
+    if (alSh && alSh.getLastRow() > 1) {
+      alSh.getRange(2, 1, alSh.getLastRow() - 1, 10).getValues().forEach(function (r) {
+        var n = String(r[0] || '').trim();
+        if (!names[n]) return;
+        var k = n + '|' + String(r[1] || '').trim(), act = String(r[2] || '').trim(), ms = _cellToEpochMs_(r[8]);
+        var x = react[k] || (react[k] = { views: 0, lastMs: 0, act: '', actMs: 0, staff: false });
+        if (ms > x.lastMs) x.lastMs = ms;
+        if (act === 'view') { x.views++; return; }
+        if (ms >= x.actMs) { x.act = act; x.actMs = ms; x.staff = String(r[9] || '').indexOf('スタッフ') >= 0; }
+      });
+    }
+  } catch (eA) {}
+  Object.keys(out).forEach(function (n) {
+    out[n].sent.forEach(function (it) {
+      var x = react[n + '|' + it.roomId];
+      if (!x) return;
+      it.views = x.views; it.reactMs = x.lastMs;
+      it.act = (x.act === 'clear') ? '' : x.act; it.actByStaff = x.staff;
+    });
+  });
   var uniq = function (list) {
     var seen = {};
     return list.sort(function (a, b) { return b.ms - a.ms; }).filter(function (x) { if (seen[x.roomId]) return false; seen[x.roomId] = true; return true; }).slice(0, 60);
@@ -613,4 +637,20 @@ function _crmSourceUrl_(p) {
   if (p && p.url) return String(p.url);
   var num = String((p && (p.reins_property_number || p.reinsPropertyNumber)) || '').replace(/\D/g, '');
   return num ? 'https://system.reins.jp/main/BK/GBK004100#bukken=' + num : '';
+}
+
+/**
+ * 画面: 送った物件を「内見希望」にする（LINE のメッセージで言われたとき）／外す。
+ * アクションログに、お客様が物件ページで押したときと同じ形で残す（申込区分に「スタッフ入力」）。外すときは clear。
+ * お客様には何も送らない。名前の横の「⚡申込・内見希望」にも数える。
+ */
+function setCrmViewingWish(customerName, roomId, on) {
+  var rows = _findRowsByRoomIdsAnyStatus_(customerName, [roomId]);
+  var p = rows.length ? rowToProperty(rows[0].values) : {};
+  var sh = SpreadsheetApp.openById(SPREADSHEET_ID).getSheetByName(ACTION_LOG_SHEET_NAME);
+  if (!sh) throw new Error('アクションログがありません');
+  sh.appendRow([customerName, String(roomId), on ? 'viewing' : 'clear', p.buildingName || '', p.roomNumber || '', p.rent || '', p.layout || '',
+    p.stationInfo || '', Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss'), on ? 'スタッフ入力（LINEで内見希望）' : 'スタッフ入力（外した）']);
+  try { cfSyncRows(ACTION_LOG_SHEET_NAME, [sh.getLastRow()], '内見希望'); } catch (eCf) {}
+  return { list: getCrmPropLists(customerName), message: on ? '内見希望にしました' : '内見希望を外しました' };
 }

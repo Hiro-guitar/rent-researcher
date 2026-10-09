@@ -109,11 +109,14 @@
   .prop .pl label { display: inline-flex; gap: 3px; align-items: center; }
   .prop .cmt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ptabs { display: flex; gap: 4px; position: sticky; top: -12px; background: var(--surface); padding: 4px 0 6px; z-index: 2; border-bottom: 1px solid var(--hair); }
-  .ptab { flex: 1; padding: 6px 2px; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .ptab { flex: 1; padding: 6px 1px; min-width: 0; overflow: hidden; text-overflow: ellipsis; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
   .ptab b { font-weight: 700; }
   .ptab.on { border-color: var(--green); background: var(--green-soft); color: var(--green); }
   .sendbox { position: sticky; bottom: -12px; background: var(--surface); border-top: 1px solid var(--hair); padding: 8px 0 12px; margin-top: 8px; z-index: 2; }
   .memo.small { min-height: 64px; }
+  .rtag { font-size: 11px; font-weight: 400; color: var(--muted); border: 1px solid var(--hair); border-radius: 4px; padding: 0 5px; }
+  .rtag.on { color: var(--green); border-color: var(--green); }
+  .rtag.ng { color: var(--muted); text-decoration: line-through; }
   .tasks { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
   /* やること: 上の段＝日付と内容（幅いっぱい）、下の段＝誰の番か・済み・日付・消す（列が狭くても潰れないように） */
   .task { display: flex; flex-direction: column; gap: 3px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--hair); }
@@ -918,7 +921,13 @@
     var canPick = kind !== 'watch' && (c.lineUid || kind === 'new' || kind === 'cand');   // LINEが無くても新着・候補は選べる（まとめて仕分けるため）
     var on = !!x.pick[p.roomId];
     var tags = '';
-    if (kind === 'sent') tags += ' <span class="meta">' + esc(p.sentAt) + '送った</span>';
+    if (kind === 'sent' || kind === 'react') {
+      tags += ' <span class="meta">' + esc(p.sentAt) + '送った</span>';
+      // お客様の反応（物件ページで見た・押した）。スタッフが付けた内見希望は「（LINE）」
+      var ACT = { favorite: '♡お気に入り', viewing: '🏠内見希望', viewing_intent: '🏠内見を考え中', hold: '📝申込希望', hold_intent: '📝申込を考え中', not_interested: '✕興味なし' };
+      if (p.views) tags += ' <span class="rtag">👀' + p.views + '回</span>';
+      if (p.act && ACT[p.act]) tags += ' <span class="rtag' + (p.act === 'not_interested' ? ' ng' : ' on') + '">' + ACT[p.act] + (p.actByStaff ? '（LINE）' : '') + '</span>';
+    }
     if (kind === 'skip') tags += ' <span class="meta">' + esc(p.at) + '見送った</span>';
     if (p.closed) tags += ' <span class="endtag">募集終了</span>';
     if (watching[p.roomId] || p.watching) tags += ' <span class="meta">⏳キャンセル待ち中</span>';
@@ -933,7 +942,9 @@
       if (!p.watching) links.push('<a href="#" onclick="watchPending(' + rid + ');return false">⏳キャンセル待ち</a>');
       links.push('<a href="#" class="skip" onclick="skipProp(' + rid + ');return false">見送る</a>');
       if (p.found) links.push('<span class="meta">' + esc(p.found) + '見つかった</span>');
-    } else if (kind === 'sent') {
+    } else if (kind === 'sent' || kind === 'react') {
+      links.push(p.act === 'viewing' ? '<a href="#" class="skip" onclick="setViewingWish(' + rid + ',false);return false">内見希望を外す</a>'
+        : '<a href="#" onclick="setViewingWish(' + rid + ',true);return false">🏠内見希望にする</a>');
       links.push('<a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a>');
       if (!watching[p.roomId]) links.push('<a href="#" onclick="setWatch(' + rid + ',true);return false">⏳キャンセル待ち</a>');
       if (p.closed === 'manual') links.push('<a href="#" class="skip" onclick="setClosed(' + rid + ',false);return false">募集中に戻す</a>');
@@ -950,7 +961,7 @@
       + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
       + (p.warnings || []).map(function (w) { return '<div class="warn">' + esc(w) + '</div>'; }).join('')
       + '<div class="pl">' + links.join('') + '</div>';
-    if (kind === 'sent' && x.fwdRoom === p.roomId) {
+    if ((kind === 'sent' || kind === 'react') && x.fwdRoom === p.roomId) {
       h += '<input class="inp" id="fwdQ" placeholder="送り先の名前で探す" value="' + esc(x.fwdQ || '') + '" oninput="extras[selName].fwdQ=this.value;fillFwdHits()">'
         + '<div id="fwdHits">' + fwdHitsHtml(c, p.roomId) + '</div>';
     }
@@ -969,7 +980,9 @@
     // 新着＝まだ仕分けていない物件。☆候補＝仕分けで残した物件（送るか決める）
     var newList = (c.pending || []).filter(function (p) { return !p.cand; });
     var candList = (c.pending || []).filter(function (p) { return p.cand; });
-    var T = [['new', '新着', newList.length], ['cand', '☆候補', candList.length], ['sent', '送った', cnt(sent)], ['skip', '見送った', cnt(skipped)], ['watch', '⏳待ち', (c.watch || []).length]];
+    // 👀反応: 送った物件のうち、お客様が見た・押したもの（新しい順）
+    var reactList = sent ? sent.filter(function (p) { return p.views || p.act; }).sort(function (a, b) { return (b.reactMs || 0) - (a.reactMs || 0); }) : null;
+    var T = [['new', '新着', newList.length], ['cand', '☆候補', candList.length], ['sent', '送った', cnt(sent)], ['react', '👀反応', cnt(reactList)], ['skip', '見送った', cnt(skipped)], ['watch', '⏳待ち', (c.watch || []).length]];
     var h = '<div class="ptabs">' + T.map(function (t) {
       return '<button class="ptab' + (tab === t[0] ? ' on' : '') + '" onclick="setTab(\'' + t[0] + '\')">' + t[1] + ' <b>' + t[2] + '</b></button>';
     }).join('') + '</div><div class="plist">';
@@ -982,6 +995,10 @@
       }
       h += L2.length ? L2.map(function (p) { return propRow(p, tab, c, x, watching); }).join('')
         : '<div class="meta">' + (tab === 'new' ? (candList.length ? '仕分けが終わりました。☆候補から送るものを選んでください' : '今送れる新着はありません') : 'まだ候補はありません。新着で「☆ 候補へ」を押すとここに入ります') + '</div>';
+    } else if (tab === 'react') {
+      if (!reactList) h += '<div class="meta">読み込み中…</div>';
+      else if (!reactList.length) h += '<div class="meta">送った物件に、まだ反応はありません</div>';
+      else h += reactList.map(function (p) { return propRow(p, 'react', c, x, watching); }).join('');
     } else if (tab === 'sent' || tab === 'skip') {
       var list = tab === 'sent' ? sent : skipped;
       if (!list) h += '<div class="meta">読み込み中…</div>';
@@ -1097,6 +1114,15 @@
       .withSuccessHandler(function (r) { if (listCache[name] && listCache[name] !== 'loading') listCache[name].sent = r.list; render(); toast(r.message); })
       .withFailureHandler(function (e) { toast('保存できませんでした: ' + e.message); })
       .setCrmClosed(name, rid, closed);
+  }
+  // 送った物件を内見希望にする（LINEで言われたとき）／外す
+  function setViewingWish(rid, on) {
+    var name = selName, L = listCache[name];
+    if (L && L !== 'loading') (L.sent || []).forEach(function (p) { if (p.roomId === rid) { p.act = on ? 'viewing' : ''; p.actByStaff = true; p.reactMs = Date.now(); } });
+    render();
+    Q().withSuccessHandler(function (r) { if (r && r.list) listCache[name] = r.list; render(); toast(r && r.message || '保存しました'); })
+      .withFailureHandler(function (e) { delete listCache[name]; render(); toast('保存できませんでした: ' + e.message); })
+      .setCrmViewingWish(name, rid, on);
   }
   function setWatch(rid, on) {
     call('setCrmWatch', [selName, rid, on], on ? 'キャンセル待ちにしました' : 'キャンセル待ちをやめました', function (c) {
