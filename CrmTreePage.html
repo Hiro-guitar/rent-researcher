@@ -109,7 +109,7 @@
   .prop .pmore { background: var(--bg); border-radius: 6px; padding: 4px 8px; }
   /* 物件名は押すと元のページ。緑・下線・↗ で押せると分かるように */
   .prop .pt a.ptlink { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
-  .prop .pt a.ptlink::after { content: ' ↗'; font-size: 11px; }   /* 長い物件名・リンクで右端が切れないように */
+  /* ↗ は付けない（2026-10-09 いらない） */   /* 長い物件名・リンクで右端が切れないように */
   .prop .warn { font-size: 12px; color: #b3541e; }
   .prop .cmt { font-size: 12px; margin-top: 2px; }
   .prop.sent, .prop.nopick { grid-template-columns: 72px 1fr; }
@@ -439,7 +439,7 @@
     return '<div class="abc">' + ['A', 'B', 'C'].map(function (g) {
       return '<button class="' + (c.group === g ? 'on' : '') + '" onclick="setGroup(' + n + ',\'' + (c.group === g ? '' : g) + '\')">'
         + g + '</button>';
-    }).join('') + '</div><div class="meta">A 本気で探している（電話・内見などで話して分かった）／ B 返事はくれる ／ C 返事なし</div>';
+    }).join('') + '</div>';
   }
 
   function render() {
@@ -471,7 +471,7 @@
     var c = data.customers.filter(function (x) { return x.name === selName; })[0];
     if (addMode) { panel.innerHTML = addHtml(); }
     else panel.innerHTML = c
-      ? '<div class="where">いる段階: ' + esc(labelOf[c.stageId] || '') + (c.chipStatus ? '・' + esc(c.chipStatus) : '') + '</div>'
+      ? ''
         + groupButtons(c) + custHtml(c)
         + ((c.flags || []).length ? '<div class="meta">' + (c.flags || []).map(esc).join(' ') + '</div>' : '')
         + tasksHtml(c)
