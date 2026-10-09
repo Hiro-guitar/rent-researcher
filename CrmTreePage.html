@@ -367,6 +367,7 @@
           + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>'
           + '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>'
           + '<button class="btn" onclick="askNext=' + n + ';render()">🕒 次に赤くする日</button>'
+          + '<button class="btn" title="今日だけ黒くする（明日また赤くなる）" onclick="next(' + n + ',1)">⚫ 今日はいい</button>'
           + '</div><div class="acts small">';
         if (c.stageId === 'ended' || c.stageId === 'won') {
           h += '<button class="btn" onclick="stage(' + n + ',\'\',\'\')">↩ 追客中に戻す</button>';
@@ -1477,7 +1478,7 @@
   }
   function next(name, days) {
     if (!days) { askNext = ''; render(); return; }
-    call('setCrmNextContact', [name, days], '次の連絡日を入れました');
+    call('setCrmNextContact', [name, days], days === 1 ? name + '：今日は黒にしました（明日また赤くなります）' : '次の連絡日を入れました', function (c) { c.todo = false; });
   }
   function stage(name, st, reason) { call('setCrmStage', [name, st, reason], name + '：' + (st || '追客中') + 'にしました'); }
   function viewing(name) {
