@@ -926,7 +926,7 @@
     if (kind === 'sent' || kind === 'react') {
       tags += ' <span class="meta">' + esc(p.sentAt) + '送った</span>';
       // お客様の反応（物件ページで見た・押した）。スタッフが付けた内見希望は「（LINE）」
-      var ACT = { favorite: '♡お気に入り', viewing: '🏠内見希望', viewing_intent: '🏠内見を考え中', hold: '📝申込希望', hold_intent: '📝申込を考え中', not_interested: '✕興味なし' };
+      var ACT = { favorite: '♡お気に入り', viewing: '🏠内見希望', viewing_intent: '🏠内見の画面を開いた', hold: '📝申込希望', hold_intent: '📝申込の画面を開いた', not_interested: '✕興味なし' };
       if (p.views) tags += ' <span class="rtag">👀' + p.views + '回</span>';
       if (p.act && ACT[p.act]) tags += ' <span class="rtag' + (p.act === 'not_interested' ? ' ng' : ' on') + '">' + ACT[p.act] + (p.actByStaff ? '（LINE）' : '') + '</span>';
     }
