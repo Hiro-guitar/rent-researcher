@@ -101,7 +101,8 @@
   .prop { display: grid; grid-template-columns: 22px 72px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--hair); }
   .prop.on { background: var(--green-soft); }
   .prop img, .prop .noimg { width: 72px; height: 54px; object-fit: contain; border-radius: 4px; background: #fff; cursor: zoom-in; }   /* 間取り図が見切れないよう全体を出す */
-  .prop .pt { font-weight: 700; font-size: 13px; }
+  .prop .pt { font-weight: 700; font-size: 13px; word-break: break-word; }
+  .prop .pi { min-width: 0; }   /* 長い物件名・リンクで右端が切れないように */
   .prop .warn { font-size: 12px; color: #b3541e; }
   .prop .cmt { font-size: 12px; margin-top: 2px; }
   .prop.sent, .prop.nopick { grid-template-columns: 72px 1fr; }
@@ -109,8 +110,9 @@
   .prop .pl label { display: inline-flex; gap: 3px; align-items: center; }
   .prop .cmt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ptabs { display: flex; gap: 4px; position: sticky; top: -12px; background: var(--surface); padding: 4px 0 6px; z-index: 2; border-bottom: 1px solid var(--hair); }
-  .ptab { flex: 1; padding: 6px 1px; min-width: 0; overflow: hidden; text-overflow: ellipsis; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
-  .ptab b { font-weight: 700; }
+  .ptab { flex: 1; padding: 4px 1px; min-width: 0; display: flex; flex-direction: column; align-items: center; line-height: 1.25; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .ptab span { font-size: 11px; white-space: nowrap; }
+  .ptab b { font-weight: 700; font-size: 14px; }
   .ptab.on { border-color: var(--green); background: var(--green-soft); color: var(--green); }
   .sendbox { position: sticky; bottom: -12px; background: var(--surface); border-top: 1px solid var(--hair); padding: 8px 0 12px; margin-top: 8px; z-index: 2; }
   .memo.small { min-height: 64px; }
@@ -982,9 +984,10 @@
     var candList = (c.pending || []).filter(function (p) { return p.cand; });
     // 👀反応: 送った物件のうち、お客様が見た・押したもの（新しい順）
     var reactList = sent ? sent.filter(function (p) { return p.views || p.act; }).sort(function (a, b) { return (b.reactMs || 0) - (a.reactMs || 0); }) : null;
-    var T = [['new', '新着', newList.length], ['cand', '☆候補', candList.length], ['sent', '送った', cnt(sent)], ['react', '👀反応', cnt(reactList)], ['skip', '見送った', cnt(skipped)], ['watch', '⏳待ち', (c.watch || []).length]];
+    var T = [['new', '新着', newList.length], ['cand', '候補', candList.length], ['sent', '送った', cnt(sent)], ['react', '反応', cnt(reactList)], ['skip', '見送った', cnt(skipped)], ['watch', '待ち', (c.watch || []).length]];
     var h = '<div class="ptabs">' + T.map(function (t) {
-      return '<button class="ptab' + (tab === t[0] ? ' on' : '') + '" onclick="setTab(\'' + t[0] + '\')">' + t[1] + ' <b>' + t[2] + '</b></button>';
+      // 名前（上・小さく）と件数（下・大きく）の2段。6つ並べても切れないように
+      return '<button class="ptab' + (tab === t[0] ? ' on' : '') + '" onclick="setTab(\'' + t[0] + '\')"><span>' + t[1] + '</span><b>' + t[2] + '</b></button>';
     }).join('') + '</div><div class="plist">';
     if (tab === 'new' || tab === 'cand') {
       var L2 = tab === 'new' ? newList : candList, word = tab === 'new' ? '新着' : '候補';
