@@ -103,8 +103,9 @@
   .prop img, .prop .noimg { width: 72px; height: 54px; object-fit: contain; border-radius: 4px; background: #fff; cursor: zoom-in; }   /* 間取り図が見切れないよう全体を出す */
   .prop .pt { font-weight: 700; font-size: 13px; word-break: break-word; }
   .prop .pi { min-width: 0; }
-  .prop .pt a.ptlink { color: var(--ink); text-decoration: none; }
-  .prop .pt a.ptlink:hover { text-decoration: underline; color: var(--green); }   /* 長い物件名・リンクで右端が切れないように */
+  /* 物件名は押すと元のページ。緑・下線・↗ で押せると分かるように */
+  .prop .pt a.ptlink { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
+  .prop .pt a.ptlink::after { content: ' ↗'; font-size: 11px; }   /* 長い物件名・リンクで右端が切れないように */
   .prop .warn { font-size: 12px; color: #b3541e; }
   .prop .cmt { font-size: 12px; margin-top: 2px; }
   .prop.sent, .prop.nopick { grid-template-columns: 72px 1fr; }
