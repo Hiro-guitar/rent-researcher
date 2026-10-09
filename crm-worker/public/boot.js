@@ -7,14 +7,35 @@
     '引越し時期の確認', '電話のお願い', '初回配信フォロー', '初回検索の確認', '配信停止', 'LINE登録メール', 'LINE Activity', 'メール送信履歴',
     'CRM送信候補', '空室確認依頼', '承認待ち物件'];
   var HOLIDAYS = 'https://holidays-jp.github.io/api/v1/date.json';
-  var lastU = 0, lastVer = 0;
-  // 30秒ごとに外で変わったか確かめて、変わっていれば取り込んで組み立て直す（Discordから送った・条件変更・LINEの返信など）
-  setInterval(function () {
-    if (document.visibilityState !== 'visible' || inflight > 0 || !lastU) return;
+  var lastU = 0, lastVer = 0, lastCheckAt = 0, inflightSince = 0;
+  // 外で変わったか確かめて、変わっていれば取り込んで組み立て直す（Discordから送った・検索の新着・条件変更・LINEの返信など）
+  // ⚠️ 2026-10-09: 開いたままの画面で取り込みが止まっていた。保存待ちが戻らないと止まる作りだったので、
+  //   2分以上たった保存待ちは終わったとみなす。タブに戻ったときにもすぐ確かめる。最終更新の時刻を画面に出す
+  function checkNow(force) {
+    if (!lastU) return;
+    if (inflight > 0) {
+      if (inflightSince && Date.now() - inflightSince > 120000) { console.warn('[CRM] 保存待ちが2分以上戻らないので、取り込みを再開します'); inflight = 0; }
+      else return;
+    }
     fetch('/api/ver', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (v) {
-      if (v && v.ver > lastVer) refreshDelta().catch(function () {});
+      lastCheckAt = Date.now(); showFresh();
+      if (force || (v && v.ver > lastVer)) refreshDelta().catch(function () {});
     }).catch(function () {});
-  }, 30000);
+  }
+  function showFresh() {
+    var el = document.getElementById('freshAt');
+    if (!el) {
+      var h = document.querySelector('header'); if (!h) return;
+      el = document.createElement('span'); el.id = 'freshAt'; el.className = 'meta'; el.style.cursor = 'pointer'; el.title = '押すと今すぐ取り込みます';
+      el.onclick = function () { checkNow(true); };
+      h.insertBefore(el, h.children[1] || null);
+    }
+    var d = new Date(lastCheckAt || Date.now());
+    el.textContent = '最終更新 ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2);
+  }
+  setInterval(function () { if (document.visibilityState === 'visible') checkNow(false); }, 30000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkNow(false); });
+  window.addEventListener('focus', function () { checkNow(false); });
 
   function say(t) { var el = document.getElementById('bootMsg'); if (el) el.textContent = t; }
 
@@ -93,13 +114,14 @@
   }
   window.__localFirst = function (name, args) {
     if (!LOCAL_WRITE[name]) return;
+    if (inflight === 0) inflightSince = Date.now();
     inflight++;
     preApplied.push({ name: name, res: runLocal(name, args) });
   };
   function callFn(name, args) {
     if (LOCAL_WRITE[name]) {
       var pre = (preApplied.length && preApplied[0].name === name) ? preApplied.shift() : null;
-      if (!pre) inflight++;
+      if (!pre) { if (inflight === 0) inflightSince = Date.now(); inflight++; }
       var localRes = pre ? pre.res : runLocal(name, args);
       return gasCall(name, args, !!localRes).then(function (r) {
         savedOne();
@@ -211,6 +233,7 @@
         }
       };
       console.log('[CRM] 起動 ' + (Date.now() - t0) + 'ms / ' + tree.customers.length + '人');
+      lastCheckAt = Date.now(); setTimeout(showFresh, 0);
       var main = document.getElementById('crmMain');
       var s = document.createElement('script');
       s.textContent = main.textContent;
