@@ -39,6 +39,8 @@
   var docFormEl = null;   // 依頼書の入力フォーム（開いている間だけ存在）
   var estimateBtn = null;      // 初期費用概算書ボタン
   var estimateModalEl = null;  // 概算書の入力モーダル（開いている間だけ存在）
+  // 概算書で前回入れた内容（物件ごと。このページを開いている間だけ）。閉じてしまっても、開き直せば戻る
+  var estimateLast = {};
   var equipBtCb = null, equipWashCb = null; // 手動: 順位検索の設備条件(バストイレ別/独立洗面)
   var lastMetricItems = []; // 競合数・順位の計算対象（index→rowEl対応の保持）
 
@@ -1155,6 +1157,25 @@
     statusLine.style.cssText = 'font-size:11px;margin-top:10px;min-height:15px;white-space:pre-wrap;line-height:1.5;';
     box.appendChild(statusLine);
 
+    // 同じ物件で前に入れた内容があれば戻す（PDFを作ったあとに閉じてしまっても、直してすぐ作り直せるように）
+    var estKey = String(prep.building || '') + '|' + String(prep.room || '');
+    var fieldsOf = function () {
+      return { building: buildingIn.value, room: roomIn.value, rent: rentIn.value, mgmt: mgmtIn.value, dep: depIn.value, key: keyIn.value,
+        brok: brokIn.value, disc: discIn.value, date: dateIn.value, gr: grIn.value, grUnit: grUnit.value, kindDis: kDis.checked,
+        rows: exRows.map(function (r) { return [r.label.value, r.amount.value, r.note.value]; }) };
+    };
+    var last = estimateLast[estKey];
+    if (last) {
+      buildingIn.value = last.building; roomIn.value = last.room; rentIn.value = last.rent; mgmtIn.value = last.mgmt;
+      depIn.value = last.dep; keyIn.value = last.key; brokIn.value = last.brok; discIn.value = last.disc; dateIn.value = last.date;
+      grUnit.value = last.grUnit; grIn.value = last.gr;
+      if (last.grUnit === '円') grIn.style.flex = '0 0 110px';
+      if (last.kindDis) { kDis.checked = true; kDis.dispatchEvent(new Event('change')); }
+      last.rows.forEach(function (v, i) { if (exRows[i]) { exRows[i].label.value = v[0]; exRows[i].amount.value = v[1]; exRows[i].note.value = v[2]; } });
+      statusLine.style.color = '#1a7f37';
+      statusLine.textContent = '前回この物件で入れた内容に戻しました。';
+    }
+
     var btnRow = document.createElement('div');
     btnRow.style.cssText = 'display:flex;gap:8px;margin-top:12px;';
     var makeBtn = document.createElement('button');
@@ -1188,6 +1209,7 @@
       // その月の日数（日割り計算の分母）。月末を0日で指定すると前月末日になる。
       var daysInMonth = new Date(y, mo, 0).getDate();
 
+      estimateLast[estKey] = fieldsOf();   // 作る前に覚えておく（閉じても開き直せば戻る）
       var lines = exRows.map(function (r) {
         return { label: r.label.value.trim(), amount: r.amount.value.trim(), note: r.note.value.trim() };
       }).filter(function (e) { return e.label; });
@@ -1223,7 +1245,11 @@
         setStatus(resp.label + 'をダウンロードしました：' + resp.fileName
           + (resp.totalWarning ? '\n⚠ ' + resp.totalWarning : ''),
           resp.totalWarning ? '#b8860b' : '#1a7f37');
-        closeEstimateModal();
+        // ⚠️ 閉じないこと（2026-10-09）。誤りに気づいたら、ここで直して作り直せるようにする
+        statusLine.style.color = resp.totalWarning ? '#b8860b' : '#1a7f37';
+        statusLine.textContent = 'ダウンロードしました：' + resp.fileName + (resp.totalWarning ? '\n⚠ ' + resp.totalWarning : '')
+          + '\n直すところがあれば、直して「PDFを作り直す」を押してください。';
+        makeBtn.textContent = 'PDFを作り直す';
       }).catch(function (e) {
         statusLine.style.color = '#c0392b';
         statusLine.textContent = 'エラー: ' + e.message;
