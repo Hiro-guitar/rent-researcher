@@ -103,6 +103,10 @@
   .prop img, .prop .noimg { width: 72px; height: 54px; object-fit: contain; border-radius: 4px; background: #fff; cursor: zoom-in; }   /* 間取り図が見切れないよう全体を出す */
   .prop .pt { font-weight: 700; font-size: 13px; word-break: break-word; }
   .prop .pi { min-width: 0; }
+  .prop .sub { color: var(--muted); font-size: 11px; }
+  .prop .warn.wline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .prop .pl a.more { font-weight: 700; padding: 0 6px; border: 1px solid var(--hair); border-radius: 4px; text-decoration: none; color: var(--ink); }
+  .prop .pmore { background: var(--bg); border-radius: 6px; padding: 4px 8px; }
   /* 物件名は押すと元のページ。緑・下線・↗ で押せると分かるように */
   .prop .pt a.ptlink { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
   .prop .pt a.ptlink::after { content: ' ↗'; font-size: 11px; }   /* 長い物件名・リンクで右端が切れないように */
@@ -920,6 +924,9 @@
       .getCrmPropListsAll(names);
   }
   setTimeout(prefetchAllLists, 300);
+  // 物件の「⋯」（ほかの操作）と、注意（⚠）の開け閉め
+  function toggleMenu2(rid) { var x = extras[selName]; x.menuOf = (x.menuOf === rid) ? '' : rid; render(); }
+  function toggleWarn(rid) { var x = extras[selName]; x.warnOf = (x.warnOf === rid) ? '' : rid; render(); }
   function setTab(t) { extras[selName].tab = t; render(); }
   function propRow(p, kind, c, x, watching) {
     var rid = esc(JSON.stringify(p.roomId));
@@ -936,36 +943,47 @@
     if (kind === 'skip') tags += ' <span class="meta">' + esc(p.at) + '見送った</span>';
     if (p.closed) tags += ' <span class="endtag">募集終了</span>';
     if (watching[p.roomId] || p.watching) tags += ' <span class="meta">⏳キャンセル待ち中</span>';
-    var links = [];
+    // 外に出すのは、いちばんよく押すものだけ（main）。残りは「⋯」の中（more）
+    var main = [], more = [];
     if (kind === 'new' || kind === 'cand') {
-      // 仕分け: 新着は「☆ 候補へ」、候補は「新着に戻す」
-      links.unshift(kind === 'new' ? '<a href="#" class="candbtn" onclick="setCand([' + rid + '],true);return false">☆ 候補へ</a>'
+      main.push(kind === 'new' ? '<a href="#" class="candbtn" onclick="setCand([' + rid + '],true);return false">☆ 候補へ</a>'
         : '<a href="#" onclick="setCand([' + rid + '],false);return false">新着に戻す</a>');
-      links.push('<a href="#" onclick="openEdit(' + rid + ');return false">詳しく確かめる・直す</a>');
-      if (p.edited) links.push('<span class="meta">直した写真' + p.imgCount + '枚</span>');
-      if (!p.watching) links.push('<a href="#" onclick="watchPending(' + rid + ');return false">⏳キャンセル待ち</a>');
-      links.push('<a href="#" class="skip" onclick="skipProp(' + rid + ');return false">見送る</a>');
-      if (p.found) links.push('<span class="meta">' + esc(p.found) + '見つかった</span>');
+      main.push('<a href="#" class="skip" onclick="skipProp(' + rid + ');return false">見送る</a>');
+      more.push('<a href="#" onclick="openEdit(' + rid + ');return false">詳しく確かめる・直す</a>');
+      if (!p.watching) more.push('<a href="#" onclick="watchPending(' + rid + ');return false">⏳キャンセル待ちにする</a>');
     } else if (kind === 'sent' || kind === 'react') {
-      links.push(p.act === 'viewing' ? '<a href="#" class="skip" onclick="setViewingWish(' + rid + ',false);return false">内見希望を外す</a>'
+      if (c.family && c.family.length) main.push('<label class="meta"><input type="checkbox"' + (x.famPick[p.roomId] ? ' checked' : '') + ' onchange="extras[selName].famPick[' + rid + ']=this.checked;render()"> 家族にも</label>');
+      more.push(p.act === 'viewing' ? '<a href="#" onclick="setViewingWish(' + rid + ',false);return false">内見希望を外す</a>'
         : '<a href="#" onclick="setViewingWish(' + rid + ',true);return false">🏠内見希望にする</a>');
-      links.push('<a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a>');
-      if (!watching[p.roomId]) links.push('<a href="#" onclick="setWatch(' + rid + ',true);return false">⏳キャンセル待ち</a>');
-      if (p.closed === 'manual') links.push('<a href="#" class="skip" onclick="setClosed(' + rid + ',false);return false">募集中に戻す</a>');
-      else if (!p.closed) links.push('<a href="#" class="skip" onclick="setClosed(' + rid + ',true);return false">募集終了にする</a>');
-      if (c.family && c.family.length) links.push('<label class="meta"><input type="checkbox"' + (x.famPick[p.roomId] ? ' checked' : '') + ' onchange="extras[selName].famPick[' + rid + ']=this.checked;render()"> 家族にも</label>');
+      more.push('<a href="#" onclick="forwardOpen(' + rid + ');return false">別の人にも送る</a>');
+      if (!watching[p.roomId]) more.push('<a href="#" onclick="setWatch(' + rid + ',true);return false">⏳キャンセル待ちにする</a>');
+      if (p.closed === 'manual') more.push('<a href="#" onclick="setClosed(' + rid + ',false);return false">募集中に戻す</a>');
+      else if (!p.closed) more.push('<a href="#" onclick="setClosed(' + rid + ',true);return false">募集終了にする</a>');
     } else if (kind === 'skip') {
-      links.push('<a href="#" onclick="unskipProp(' + rid + ');return false">新着に戻す</a>');
+      main.push('<a href="#" onclick="unskipProp(' + rid + ');return false">新着に戻す</a>');
     }
+    var menuOpen = x.menuOf === p.roomId;
+    if (more.length) main.push('<a href="#" class="more" title="ほかの操作" onclick="toggleMenu2(' + rid + ');return false">' + (menuOpen ? '✕' : '⋯') + '</a>');
+    // 1行目の右に小さく出す（見つかった日・直した写真）
+    var sub = [];
+    if (kind === 'new' || kind === 'cand') {
+      if (p.found) sub.push(esc(p.found) + '見つかった');
+      if (p.edited) sub.push('直した写真' + p.imgCount + '枚');
+    }
+    var warns = p.warnings || [];
+    var wOpen = x.warnOf === p.roomId;
     var h = '<div class="prop' + (on ? ' on' : '') + (canPick ? '' : ' nopick') + '">'
       + (canPick ? '<label class="pk"><input type="checkbox"' + (on ? ' checked' : '') + ' onchange="pickProp(' + rid + ',this.checked)"></label>' : '')
       + (p.image ? '<img src="' + esc(p.image) + '" loading="lazy" onclick="lbOpen(' + esc(JSON.stringify(p.images && p.images.length ? p.images : [p.image])) + ',0)">' : '<div class="noimg"></div>')
       // 物件名と部屋番号を押すと元のページ（「元のページ」のボタンはやめた）
       + '<div class="pi"><div class="pt">' + (p.url ? '<a class="ptlink" target="_blank" href="' + esc(p.url) + '">' : '') + esc(p.building) + (p.room ? ' ' + esc(p.room) : '') + (p.url ? '</a>' : '') + tags + '</div>'
-      + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area, p.station].filter(Boolean).join('・')) + '</div>'
+      + '<div class="meta">' + esc([p.rent && (yen(p.rent) + (p.fee ? '＋' + yen(p.fee) : '')), p.layout, p.area, p.station].filter(Boolean).join('・'))
+      + (sub.length ? ' <span class="sub">' + sub.join('・') + '</span>' : '') + '</div>'
       + (p.comment ? '<div class="cmt">💬 ' + esc(p.comment) + '</div>' : '')
-      + (p.warnings || []).map(function (w) { return '<div class="warn">' + esc(w) + '</div>'; }).join('')
-      + '<div class="pl">' + links.join('') + '</div>';
+      // 注意（⚠）は1行にまとめる。押すと全部
+      + (warns.length ? '<div class="warn' + (wOpen ? '' : ' wline') + '" onclick="toggleWarn(' + rid + ')" title="押すと全部見えます">⚠ ' + warns.map(function (w) { return esc(String(w).replace(/^⚠\s*/, '')); }).join(' ／ ') + '</div>' : '')
+      + '<div class="pl">' + main.join('') + '</div>'
+      + (menuOpen ? '<div class="pl pmore">' + more.join('') + '</div>' : '');
     if ((kind === 'sent' || kind === 'react') && x.fwdRoom === p.roomId) {
       h += '<input class="inp" id="fwdQ" placeholder="送り先の名前で探す" value="' + esc(x.fwdQ || '') + '" oninput="extras[selName].fwdQ=this.value;fillFwdHits()">'
         + '<div id="fwdHits">' + fwdHitsHtml(c, p.roomId) + '</div>';
