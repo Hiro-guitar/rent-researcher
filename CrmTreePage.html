@@ -115,16 +115,21 @@
   .sendbox { position: sticky; bottom: -12px; background: var(--surface); border-top: 1px solid var(--hair); padding: 8px 0 12px; margin-top: 8px; z-index: 2; }
   .memo.small { min-height: 64px; }
   .tasks { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-  .task { display: grid; grid-template-columns: 5.5em 1fr auto; gap: 6px; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--hair); }
+  /* やること: 上の段＝日付と内容（幅いっぱい）、下の段＝誰の番か・済み・日付・消す（列が狭くても潰れないように） */
+  .task { display: flex; flex-direction: column; gap: 3px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--hair); }
+  .task .ttop { display: flex; gap: 8px; align-items: baseline; }
+  .task .tdate { flex: 0 0 auto; white-space: nowrap; }
+  .task .tbody { flex: 1; min-width: 0; word-break: break-word; }
   .task.due .tdate, .task.due .tbody { color: var(--red); font-weight: 700; }
   .task .tdate { font-size: 12px; color: var(--muted); }
   .task .twait { font-size: 11px; color: var(--muted); border: 1px solid var(--hair); border-radius: 4px; padding: 0 4px; }
   .task.wait:not(.due) .tbody { color: var(--muted); }
-  .task .tbtns { display: flex; gap: 8px; font-size: 12px; }
+  .task .tbtns { display: flex; gap: 10px; font-size: 12px; align-items: center; flex-wrap: wrap; }
+  .task .tbtns select { padding: 2px 4px; }
   .task .tbtns a { color: var(--green); }
   .task .tbtns a.skip { color: var(--muted); }
-  .tadd { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
-  .tadd .inp { flex: 1; min-width: 10em; }
+  .tadd { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; align-items: center; }
+  .tadd .inp { flex: 1 1 100%; }
   .tdin { padding: 4px 6px; border: 1px solid var(--hair); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; font-size: 12px; }
   .ttasks:empty { display: none; }
   .ttasks { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px; padding: 8px 14px; margin-top: 8px; }
@@ -489,8 +494,8 @@
       var a = esc(JSON.stringify(t.row)) + ',' + esc(JSON.stringify(t.content));
       var due = t.due && t.due <= t0;
       var wait = t.owner && t.owner !== '自分';   // 相手待ち。期日は催促する日
-      return '<div class="task' + (due ? ' due' : '') + (wait ? ' wait' : '') + '"><span class="tdate">' + (due ? '🔴 ' : '') + (t.due ? (wait ? '催促 ' : '') + mdOf(t.due) : '期日なし') + '</span>'
-        + '<span class="tbody">' + (wait ? '<span class="twait">⏳' + esc(t.owner) + '待ち</span> ' : '') + esc(t.content) + '</span><span class="tbtns">'
+      return '<div class="task' + (due ? ' due' : '') + (wait ? ' wait' : '') + '"><div class="ttop"><span class="tdate">' + (due ? '🔴 ' : '') + (t.due ? (wait ? '催促 ' : '') + mdOf(t.due) : '期日なし') + '</span>'
+        + '<span class="tbody">' + (wait ? '<span class="twait">⏳' + esc(t.owner) + '待ち</span> ' : '') + esc(t.content) + '</span></div><span class="tbtns">'
         + '<select class="tdin" title="誰の番か" onchange="taskOwner(' + a + ',this.value)">' + ['自分', 'お客さん', '管理会社'].map(function (o) {
           return '<option value="' + o + '"' + ((t.owner || '自分') === o ? ' selected' : '') + '>' + (o === '自分' ? '自分の番' : o + '待ち') + '</option>';
         }).join('') + '</select>'
