@@ -1020,7 +1020,7 @@ function _crmTreeAutoContext_(ss, friends) {
     var n = String(r[0] || '').trim();
     var ms = _fdMs_(r[3]);
     if (ms > (ctx.stillLast[n] || 0)) ctx.stillLast[n] = ms;
-    if (String(r[6] || '').trim() === '返事待ち') ctx.waiting[n] = { ms: ms + STILL_WAIT_H * 3600000, what: '継続確認' };
+    if (STILL_ENABLED && String(r[6] || '').trim() === '返事待ち') ctx.waiting[n] = { ms: ms + STILL_WAIT_H * 3600000, what: '継続確認' };
   });
   read(FIRST_SEARCH_SHEET, 5, function (r) {
     var n = String(r[0] || '').trim();
@@ -1089,7 +1089,7 @@ function _crmTreeNextAuto_(c, ctx) {
     }
     // 継続確認（最後に見てから30日・その30日に10件以上送っていれば・前回から30日あける）
     var baseDays = (c.daysSinceViewed !== null && c.daysSinceViewed !== undefined) ? c.daysSinceViewed : c.daysSinceInquiry;
-    if (baseDays !== null && baseDays !== undefined && !w) {
+    if (typeof STILL_ENABLED !== 'undefined' && STILL_ENABLED && baseDays !== null && baseDays !== undefined && !w) {
       var sMs = now + Math.max(STILL_IDLE_D - baseDays, 0) * _DAY_MS_;
       if (ctx.stillLast[c.name]) sMs = Math.max(sMs, ctx.stillLast[c.name] + STILL_REASK_D * _DAY_MS_);
       items.push({ ms: sMs, text: '継続確認（' + _crmFmt_(sMs) + '以降・送った件数しだい）' });
