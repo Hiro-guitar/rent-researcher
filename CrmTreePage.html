@@ -372,12 +372,7 @@
         }
         h += '<div class="acts"><button class="btn save" onclick="saveTalk()">記録する</button>'
           + '<button class="btn" onclick="askTalk=\'\';render()">やめる</button></div>';
-      } else if (askNext === c.name) {
-        // 記録した直後・「次に赤くする日」を押したとき: 次に連絡する日を決める。その日まで赤くしない
-        h += '<div class="ask">次に連絡する日は？（その日まで赤くしません）</div><div class="acts">'
-          + [[1, '明日'], [3, '3日後'], [7, '1週間後'], [14, '2週間後'], [0, '決めない']].map(function (d) {
-            return '<button class="btn" onclick="next(' + n + ',' + d[0] + ')">' + d[1] + '</button>';
-          }).join('') + '</div>';
+      // 「次に赤くする日」はやめた（2026-10-10）。先の予定はタスクで入れる。「今日はいい」だけ残す
       } else if (askEnd === c.name) {
         h += '<div class="ask">終了の理由は？</div><div class="acts">'
           + ['音信不通', '他社で決定', '条件が合わない', '引越し中止', 'その他'].map(function (r) {
@@ -394,7 +389,6 @@
           + (!c.hasCriteria ? '<button class="btn" onclick="askTalk=' + n + ';render()">📞 話せた</button>'
             + '<button class="btn" onclick="rec(' + n + ',\'電話（つながらず）\')">📵 つながらず</button>' : '')
           + (c.stageId !== 'call' ? '<button class="btn" onclick="rec(' + n + ',\'LINE\')">📨 LINEした</button>' : '')
-          + '<button class="btn" onclick="askNext=' + n + ';render()">🕒 次に赤くする日</button>'
           + '<button class="btn" title="今日だけ黒くする（明日また赤くなる）" onclick="next(' + n + ',1)">⚫ 今日はいい</button>'
           + '</div><div class="acts small">';
         if (c.stageId === 'ended' || c.stageId === 'won') {
@@ -1291,7 +1285,7 @@
     if (!confirm((ids.length ? '物件' + ids.length + '件' : '') + (ids.length && text ? 'と' : '') + (text ? '一言' : '') + 'を、' + name + ' さんにLINEで送ります。よろしいですか？')) return;
     // 押したらすぐ次の操作に移れるようにする（送信は裏で、押した順に）。失敗したら選んだ物件と一言を戻す
     var keepPick = x.pick, keepDraft = x.msgDraft;
-    x.pick = {}; x.msgDraft = ''; askNext = name; delete listCache[name];
+    x.pick = {}; x.msgDraft = ''; delete listCache[name];
     render();
     toast('送っています…（そのまま次の操作をして大丈夫です）');
     Q()
@@ -1303,7 +1297,7 @@
     var name = selName, text = (extras[name].msgDraft || '').trim();
     if (!text) { toast('一言を入れてください'); return; }
     var done = function () {
-      Q().withSuccessHandler(function (d) { applyResult(d); askNext = name; render(); toast('コピーしました。LINE Chat に貼って送ってください（今日の連絡に数えました）'); })
+      Q().withSuccessHandler(function (d) { applyResult(d); render(); toast('コピーしました。LINE Chat に貼って送ってください（今日の連絡に数えました）'); })
         .logCrmManualMessage(name, text);
     };
     try { navigator.clipboard.writeText(text).then(done, function () { var t = document.getElementById('msg'); t.select(); document.execCommand('copy'); done(); }); }
@@ -1490,7 +1484,6 @@
     Q()
       .withSuccessHandler(function (d) {
         applyResult(d); askTalk = ''; delete talkDraft[name];
-        if (tk.outcome === 'continue') askNext = name;   // 続けるなら次の連絡日を聞く
         render(); toast(name + '：話せた を記録しました');
       })
       .withFailureHandler(function (e) { toast('記録できませんでした: ' + e.message); })
@@ -1500,9 +1493,9 @@
   function rec(name, type) {
     var c0 = custOf(name);
     if (c0) { c0.contactedToday = true; c0.todo = false; }
-    askNext = name; render();
+    render();
     Q()
-      .withSuccessHandler(function (d) { applyResult(d); askNext = name; render(); toast(name + '：' + type + ' を記録しました'); })
+      .withSuccessHandler(function (d) { applyResult(d); render(); toast(name + '：' + type + ' を記録しました'); })
       .withFailureHandler(function (e) { toast('記録できませんでした: ' + e.message); })
       .recordCrmTreeContact(name, type);
   }

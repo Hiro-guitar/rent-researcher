@@ -817,6 +817,28 @@ function _crmSetNextRed_(ss, customerName, ymd) {
   if (ymd) sh.appendRow([customerName, '', new Date(), ymd]);
 }
 
+/**
+ * 【GASエディタで実行: CrmTree.gs】「次に赤くする日」をやめたので、入っている日を消す（2026-10-10）。
+ * 明日より先の日を消す（明日の日は「今日はいい」と見分けがつかず、明日には切れるので残す）。古い「次の連絡」タスクも閉じる。
+ */
+function clearCrmNextRedDates() {
+  var ss = SpreadsheetApp.openById(CRITERIA_SHEET_ID);
+  var tomorrow = _crmDateAfter_(1), cleared = [], closed = [];
+  var all = _crmNextRed_(ss);
+  Object.keys(all).forEach(function (n) { if (all[n] > tomorrow) { _crmSetNextRed_(ss, n, ''); cleared.push(n + '（' + all[n] + '）'); } });
+  var tsh = ss.getSheetByName(TASK_SHEET_NAME), rows = [];
+  var open = _crmTreeOpenTasks_(ss);
+  Object.keys(open).forEach(function (n) {
+    open[n].forEach(function (t) { if (t.content === CRM_NEXT_TASK) { tsh.getRange(t.row, 4).setValue('TRUE'); rows.push(t.row); closed.push(n); } });
+  });
+  try {
+    var g = ss.getSheetByName(CRM_GROUP_SHEET);
+    if (g && typeof _cfCheckSheet_ === 'function') _cfCheckSheet_(g, CRM_GROUP_SHEET, CacheService.getScriptCache());
+    if (rows.length) cfSyncRows(TASK_SHEET_NAME, rows, '次の連絡');
+  } catch (eCf) {}
+  console.log('次に赤くする日を消した: ' + (cleared.join('、') || 'なし') + '\n古い「次の連絡」タスクを閉じた: ' + (closed.join('、') || 'なし'));
+}
+
 function _crmDateAfter_(days) {
   return Utilities.formatDate(new Date(Date.now() + days * _DAY_MS_), 'Asia/Tokyo', 'yyyy-MM-dd');
 }
